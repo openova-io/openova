@@ -314,6 +314,17 @@ type Handler struct {
 	// rest.InClusterConfig() — catalyst-api always runs in the cluster
 	// it serves (mothership AND post-handover Sovereign).
 	sovereignDepsFactory SovereignDepsFactory
+
+	// ── Compliance score aggregator (EPIC-1 #1096 slice S) ─────────
+	// compliance — joins PolicyReport + ClusterPolicyReport +
+	// compliance-evaluator events into per-resource +
+	// per-Application + per-Org + per-Sovereign weighted scores.
+	// Nil-tolerant: when nil the /api/v1/sovereigns/{id}/compliance/*
+	// endpoints return 503 ("compliance handler not wired") so the
+	// UI can render the "compliance disabled" empty state. Wired
+	// from main.go at startup AFTER k8sCache is up; tests set this
+	// directly via SetComplianceHandler.
+	compliance *ComplianceHandler
 }
 
 // powerdnsZoneClient is the narrow interface the parent-zone handler

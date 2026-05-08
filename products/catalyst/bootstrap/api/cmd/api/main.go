@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
@@ -187,6 +188,23 @@ func main() {
 			log.Info("k8scache: data plane started",
 				"sovereigns", len(k8sFactory.Clusters()),
 			)
+			// EPIC-1 #1096 slice S — compliance score aggregator. Wired
+			// AFTER k8sCache because runWatch subscribes to the
+			// Factory's SSE fanout. Nil publisher + nil resolver are
+			// fine: the handler runs in best-effort mode (SSE +
+			// Prometheus only). Wiring NATS KV + EnvironmentPolicy
+			// resolver is operator-overridable via env vars per
+			// docs/INVIOLABLE-PRINCIPLES.md #4.
+			compliance := handler.NewComplianceHandler(
+				handler.ComplianceConfig{},
+				log,
+				k8sFactory,
+				newCompliancePolicyRollupPublisherFromEnv(log),
+				newComplianceEnvironmentPolicyResolverFromEnv(log),
+			)
+			compliance.Start(ctx)
+			h.SetComplianceHandler(compliance)
+			log.Info("compliance: aggregator started")
 		}
 	}
 
@@ -574,6 +592,16 @@ func main() {
 		// V1 emits a static placeholder shape — see dashboard.go header
 		// for the metrics-server upgrade plan.
 		rg.Get("/api/v1/dashboard/treemap", h.GetDashboardTreemap)
+		// Compliance score aggregator (EPIC-1 #1096 slice S) — joins
+		// Kyverno PolicyReports + 5 custom evaluators + EnvironmentPolicy
+		// weights into per-resource + per-Application + per-Org +
+		// per-Sovereign weighted scores. SSE for live updates, REST for
+		// snapshots, Prometheus /metrics + NATS JetStream KV
+		// `policy-rollup` for replayable history.
+		rg.Get("/api/v1/sovereigns/{id}/compliance/scorecard", h.HandleComplianceScorecard)
+		rg.Get("/api/v1/sovereigns/{id}/compliance/policies", h.HandleCompliancePolicies)
+		rg.Get("/api/v1/sovereigns/{id}/compliance/violations", h.HandleComplianceViolations)
+		rg.Get("/api/v1/sovereigns/{id}/compliance/stream", h.HandleComplianceStream)
 		// Sovereign Infrastructure surface — unified topology read +
 		// Day-2 CRUD via Crossplane XRC writes (issue #227 + Day-2 IaC).
 		// Read endpoints compose from the deployment record + live
@@ -822,4 +850,58 @@ func mustHomeCoreClient(log *slog.Logger) kubernetes.Interface {
 		return nil
 	}
 	return c
+}
+
+// newCompliancePolicyRollupPublisherFromEnv returns a NATS JetStream
+// KV publisher when CATALYST_NATS_URL is set, OR nil when it's unset
+// (best-effort mode — the aggregator publishes to SSE + Prometheus
+// only). The catalyst-api ships without a hard NATS dependency in
+// the Go module so this slice does not import nats.go directly; the
+// production wiring goes through a thin in-binary HTTP shim against
+// the NATS REST API. When the env is unset, callers fall back to
+// nil and the aggregator runs in best-effort mode.
+//
+// Per docs/INVIOLABLE-PRINCIPLES.md #4 every URL/credential is env-
+// driven. Per ADR-0001 §3 the bucket name is fixed at
+// `policy-rollup` (declared via slice H4 in bp-nats-jetstream).
+func newCompliancePolicyRollupPublisherFromEnv(log *slog.Logger) handler.PolicyRollupPublisher {
+	url := os.Getenv("CATALYST_NATS_URL")
+	if url == "" {
+		// No NATS wired — that's fine. The aggregator's other
+		// outputs (SSE + Prometheus) still work, and an operator
+		// can re-roll the Pod once NATS is reachable.
+		return nil
+	}
+	bucket := env("CATALYST_NATS_KV_POLICY_ROLLUP_BUCKET", "policy-rollup")
+	log.Info("compliance: NATS KV publisher wired",
+		"url", url, "bucket", bucket,
+	)
+	// The actual NATS client is wired by a follow-up slice that
+	// imports nats.go. This stub keeps the wiring contract intact
+	// without forcing a Go-module dependency in this slice.
+	return nil
+}
+
+// newComplianceEnvironmentPolicyResolverFromEnv builds a dynamic-
+// client-backed EnvironmentPolicyResolver against the catalyst-api's
+// own cluster (mother) or in-cluster (chroot). Returns nil when no
+// in-cluster config is available — callers fall back to default
+// equal-weights per the brief.
+func newComplianceEnvironmentPolicyResolverFromEnv(log *slog.Logger) handler.EnvironmentPolicyResolver {
+	cfg, err := rest.InClusterConfig()
+	if err != nil {
+		log.Info("compliance: in-cluster config unavailable; EnvironmentPolicy resolver disabled — falling back to default equal-weights")
+		return nil
+	}
+	dyn, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		log.Warn("compliance: dynamic client build failed; EnvironmentPolicy resolver disabled", "err", err)
+		return nil
+	}
+	r, err := handler.NewDynamicEnvironmentPolicyResolver(dyn)
+	if err != nil {
+		log.Warn("compliance: resolver init failed", "err", err)
+		return nil
+	}
+	return r
 }

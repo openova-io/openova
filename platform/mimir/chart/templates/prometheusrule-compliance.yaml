@@ -1,0 +1,126 @@
+{{- /*
+PrometheusRule — compliance trend recording rules + alerts.
+
+EPIC-1 (#1096) slice S2.
+
+The catalyst-api `/metrics` endpoint exports three families of
+gauges/counters under the `catalyst_compliance_*` namespace:
+
+  - catalyst_compliance_score{scope,id,environment,sovereign}
+  - catalyst_compliance_violations_total{policy,environment,sovereign}
+  - catalyst_compliance_policy_mode{policy,environment,sovereign,mode}
+
+This PrometheusRule pre-aggregates two trend dashboards' workhorse
+queries into recording rules (cheap point-in-time reads on the
+dashboard side) and ships one alert for "scorecard regressed by N
+points in the last hour" so the SRE Lead can wire pager routing
+without writing PromQL.
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) every threshold
+is a value (.Values.complianceRules.*) so per-Sovereign overlays
+tighten/loosen without forking the chart.
+
+Per ADR-0001 §3 (5 stores) the score history lives in NATS JetStream
+KV `policy-rollup` for replay; Mimir is the time-series cut for
+trend dashboards. The two stores serve different audiences — KV is
+for replay+audit, Mimir is for ops dashboards.
+*/}}
+{{- /*
+Capabilities gate: bp-kube-prometheus-stack ships the
+`monitoring.coreos.com/v1` CRD that backs PrometheusRule. On a fresh
+Sovereign that hasn't reached Phase 2, the CRD is absent and the
+Helm install would fail with `no matches for kind PrometheusRule`.
+The Capabilities check skips this template until the observability
+tier is reconciled.
+*/}}
+{{- if and (.Values.complianceRules.enabled | default true) (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1") }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "bp-mimir.fullname" . }}-compliance
+  namespace: {{ default .Release.Namespace .Values.complianceRules.namespace }}
+  labels:
+    {{- include "bp-mimir.labels" . | nindent 4 }}
+    catalyst.openova.io/component: compliance-aggregator
+    {{- with .Values.complianceRules.extraLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: catalyst.compliance.recording
+      interval: {{ .Values.complianceRules.recording.interval | default "1m" | quote }}
+      rules:
+        # Per-application score, 1h average — the SRE Lead's "is
+        # this app's compliance trending down" panel reads this.
+        - record: catalyst:compliance_score:by_application:1h_avg
+          expr: |
+            avg_over_time(
+              catalyst_compliance_score{scope="application"}[1h]
+            )
+        # Per-policy violation rate, 5m window — the Security Lead's
+        # "which policy is firing the most this morning" view.
+        - record: catalyst:compliance_violations:by_policy:5m_rate
+          expr: |
+            sum by (policy, environment, sovereign) (
+              rate(catalyst_compliance_violations_total[5m])
+            )
+        # Per-sovereign score, 1h average — fleet headline number.
+        - record: catalyst:compliance_score:by_sovereign:1h_avg
+          expr: |
+            avg_over_time(
+              catalyst_compliance_score{scope="sovereign"}[1h]
+            )
+        # Active enforcement mode count per policy. Lets the U5
+        # toggle UI render "this policy is enforcing in 3 of 5
+        # environments".
+        - record: catalyst:compliance_policy_enforcing:by_policy
+          expr: |
+            sum by (policy, sovereign) (
+              catalyst_compliance_policy_mode{mode="enforcing"} == 1
+            )
+    - name: catalyst.compliance.alerts
+      rules:
+        # Pager-grade: per-application score dropped by N points in
+        # the last hour. Defaults to 10 — operators tighten via
+        # values.yaml.
+        - alert: ComplianceScoreRegression
+          expr: |
+            (
+              catalyst:compliance_score:by_application:1h_avg
+              -
+              avg_over_time(catalyst_compliance_score{scope="application"}[1h] offset 1h)
+            ) < -{{ .Values.complianceRules.alerts.regressionThreshold | default 10 }}
+          for: {{ .Values.complianceRules.alerts.regressionFor | default "10m" | quote }}
+          labels:
+            severity: {{ .Values.complianceRules.alerts.severity | default "warning" | quote }}
+            catalyst_team: sre
+          annotations:
+            summary: "Compliance score regressed for {{ "{{" }} $labels.id {{ "}}" }}"
+            description: |
+              Application {{ "{{" }} $labels.id {{ "}}" }} in environment
+              {{ "{{" }} $labels.environment {{ "}}" }} on sovereign
+              {{ "{{" }} $labels.sovereign {{ "}}" }} dropped its compliance
+              score by more than {{ .Values.complianceRules.alerts.regressionThreshold | default 10 }}
+              points in the last hour.
+        # Pager-grade: a policy that flipped to enforcing has
+        # >threshold violations/hr — the U5 toggle let an enforcing
+        # policy through but resources are still failing.
+        - alert: ComplianceEnforcingPolicyHighViolations
+          expr: |
+            (
+              catalyst:compliance_violations:by_policy:5m_rate * 60
+            ) > {{ .Values.complianceRules.alerts.enforcingViolationsPerHour | default 50 }}
+            and on (policy, sovereign)
+            (catalyst_compliance_policy_mode{mode="enforcing"} == 1)
+          for: {{ .Values.complianceRules.alerts.enforcingFor | default "5m" | quote }}
+          labels:
+            severity: {{ .Values.complianceRules.alerts.severity | default "warning" | quote }}
+            catalyst_team: security
+          annotations:
+            summary: "Enforcing policy {{ "{{" }} $labels.policy {{ "}}" }} firing"
+            description: |
+              Policy {{ "{{" }} $labels.policy {{ "}}" }} is in enforcing mode but
+              reporting more than {{ .Values.complianceRules.alerts.enforcingViolationsPerHour | default 50 }}
+              violations/hour on sovereign {{ "{{" }} $labels.sovereign {{ "}}" }}.
+              Expected: enforcement blocks new violators at admission.
+{{- end }}

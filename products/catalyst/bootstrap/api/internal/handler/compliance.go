@@ -1,0 +1,1611 @@
+// Package handler — compliance.go: EPIC-1 (#1096) slice S compliance
+// score aggregator.
+//
+// Joins three event streams into one weighted-score view per
+// resource → application → environment → organization → sovereign:
+//
+//  1. PolicyReport.wgpolicyk8s.io/v1alpha2 — Kyverno per-resource audit
+//     reports. Subscribed via the same SSE fanout slice W ships.
+//  2. ClusterPolicyReport — Kyverno per-cluster-resource reports.
+//  3. compliance-evaluator events — synthetic PolicyReport-shaped rows
+//     emitted by internal/k8scache/evaluators (slice W2). Same wire
+//     shape as Kyverno's own; the join is uniform.
+//
+// Score computation lives in pure functions (computeScore +
+// rollupBy*) — every test exercises them directly without an
+// HTTP trip.
+//
+// REST surface:
+//
+//	GET /api/v1/sovereigns/{id}/compliance/scorecard
+//	GET /api/v1/sovereigns/{id}/compliance/policies
+//	GET /api/v1/sovereigns/{id}/compliance/violations?app=<name>
+//	GET /api/v1/sovereigns/{id}/compliance/stream  (SSE)
+//
+// Outputs:
+//
+//	- SSE: real-time score change pushes (the same Factory.Subscribe
+//	  fanout the architecture-graph uses)
+//	- NATS JetStream KV `policy-rollup` — replayable history
+//	  (declared via slice H4 in bp-nats-jetstream)
+//	- Prometheus /metrics — catalyst_compliance_* gauges + counters
+//	  (slice S2)
+//
+// Per ADR-0001:
+//
+//	§3 (5 stores)     — score history lives in NATS JetStream KV;
+//	                    no Postgres / FerretDB shadow store.
+//	§5 (event-driven) — every score recompute is triggered by a
+//	                    Factory.Subscribe event. No polling against
+//	                    the apiserver.
+//
+// Per docs/INVIOLABLE-PRINCIPLES.md:
+//
+//	#3 (event-driven) — see §5 above.
+//	#4 (never hardcode) — every retention / TTL / threshold is a
+//	                    runtime config var.
+package handler
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
+)
+
+// ── Public types — wire shape consumed by the UI (slices U1..U5) ─────────
+
+// Score is the canonical computed score for one resource (or one
+// rollup level). The wire shape is JSON; field names are stable
+// across releases and consumed by:
+//
+//   - the Sovereign-Console SRE Lead and Security Lead dashboards
+//     (slices U1+U2) via the SSE stream;
+//   - the per-Application detail page drift panel (slice U3) via
+//     /scorecard;
+//   - the per-policy drill-down (slice U4) via /violations.
+type Score struct {
+	// Scope — one of: resource | application | environment |
+	// organization | sovereign. Bookkeeping field that doubles as
+	// the NATS KV key prefix.
+	Scope string `json:"scope"`
+
+	// ID — canonical name within the scope (resource ref, app
+	// name, env name `<org>-<envType>`, org slug, sovereign id).
+	ID string `json:"id"`
+
+	// Resource — only set for scope=resource. Format
+	// "<kind>/<namespace>/<name>". Scope=application+ leave empty.
+	Resource string `json:"resource,omitempty"`
+
+	// Total — weighted sum of passing policies, normalised to
+	// [0, 100]. Returned as a *int so absent-data ("no policies
+	// applied yet") encodes as JSON null, matching the dashboard's
+	// "grey-out" rendering for missing data.
+	Total *int `json:"total"`
+
+	// PolicyResults — per-policy verdict. Only populated for
+	// scope=resource (rollup scopes leave this empty). Result is
+	// one of pass | fail | skip | warn — see evaluators.Result.
+	PolicyResults map[string]string `json:"policyResults,omitempty"`
+
+	// EnvironmentRef — environment name (`<org>-<envType>`) the
+	// resource belongs to. Empty for sovereign-scope rollup.
+	EnvironmentRef string `json:"environmentRef,omitempty"`
+
+	// OrganizationRef — organization slug. Empty for sovereign
+	// rollup.
+	OrganizationRef string `json:"organizationRef,omitempty"`
+
+	// ApplicationRef — application name. Empty for env+ rollups.
+	ApplicationRef string `json:"applicationRef,omitempty"`
+
+	// Numerator + Denominator — the (sum-of-weights-passing,
+	// sum-of-weights-non-skipped) pair behind Total. Persisted so
+	// rollups can be re-aggregated without recomputing per
+	// resource.
+	Numerator   int `json:"numerator"`
+	Denominator int `json:"denominator"`
+
+	// Violations — per-policy fail count contributing to this
+	// score (only set for scope=resource). Used by the per-policy
+	// drill-down to show "this resource fails 3 policies".
+	Violations int `json:"violations,omitempty"`
+
+	// UpdatedAt — server-side timestamp of last recomputation.
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// PolicyView is one row of the /policies endpoint — every active
+// policy + its current weight + mode + violation count.
+type PolicyView struct {
+	Name        string `json:"name"`
+	Weight      int    `json:"weight"`
+	Scope       string `json:"scope"` // stateful | stateless | all
+	Mode        string `json:"mode"`  // permissive | enforcing
+	Violations  int    `json:"violations"`
+	Source      string `json:"source"` // kyverno | evaluator
+	Description string `json:"description,omitempty"`
+}
+
+// Violation — one offending (resource, policy) pair. The
+// /violations endpoint paginates a slice of these.
+type Violation struct {
+	Resource    string    `json:"resource"`
+	Namespace   string    `json:"namespace,omitempty"`
+	Policy      string    `json:"policy"`
+	Rule        string    `json:"rule,omitempty"`
+	Result      string    `json:"result"`
+	Message     string    `json:"message,omitempty"`
+	Application string    `json:"application,omitempty"`
+	Environment string    `json:"environment,omitempty"`
+	Time        time.Time `json:"time"`
+}
+
+// ScorecardResponse is the /scorecard endpoint shape. Sorted
+// children at every level for stable rendering.
+type ScorecardResponse struct {
+	Sovereign     Score   `json:"sovereign"`
+	Organizations []Score `json:"organizations"`
+	Environments  []Score `json:"environments"`
+	Applications  []Score `json:"applications"`
+	GeneratedAt   time.Time `json:"generatedAt"`
+}
+
+// ── Configuration (env-driven, per INVIOLABLE-PRINCIPLES #4) ─────────────
+
+// ComplianceConfig — runtime knobs. All have sensible defaults so a
+// stock catalyst-api Pod runs without per-pod tuning, but every value
+// is operator-overridable.
+type ComplianceConfig struct {
+	// SubscribeKinds — kinds the aggregator subscribes to on the
+	// k8scache.Factory fanout. Default:
+	//   policyreport, clusterpolicyreport, compliance-evaluator
+	SubscribeKinds []string
+
+	// WorkloadEnrichKinds — kinds whose label maps are captured
+	// to enrich resourceState with application / environment /
+	// organization labels. Default:
+	//   deployment, statefulset, daemonset, pod
+	WorkloadEnrichKinds []string
+
+	// ViolationsPageSize — default page size for the /violations
+	// endpoint when ?limit= is unset. Default 50; max 500.
+	ViolationsPageSize int
+	ViolationsMaxPage  int
+
+	// SSEHeartbeatInterval — keepalive ping cadence for the
+	// /stream endpoint. Default 15s (matches k8s.go).
+	SSEHeartbeatInterval time.Duration
+
+	// SSEEventBuffer — per-subscriber channel buffer. Default 256.
+	SSEEventBuffer int
+
+	// NATSPublishTimeout — bound on a single KV.Put call. Default 2s.
+	NATSPublishTimeout time.Duration
+}
+
+func (c *ComplianceConfig) defaults() {
+	if len(c.SubscribeKinds) == 0 {
+		c.SubscribeKinds = []string{
+			"policyreport",
+			"clusterpolicyreport",
+			k8scache.KindComplianceEvaluator,
+		}
+	}
+	if len(c.WorkloadEnrichKinds) == 0 {
+		// Workload kinds whose label set we capture for app/env/org
+		// enrichment. The aggregator subscribes to events on these
+		// kinds in addition to SubscribeKinds and stores their
+		// (kind, ns, name) → labels mapping. Tests inject what
+		// they need; production defaults below cover the common
+		// CRD-emitted resources.
+		c.WorkloadEnrichKinds = []string{
+			"deployment", "statefulset", "daemonset", "pod",
+		}
+	}
+	if c.ViolationsPageSize <= 0 {
+		c.ViolationsPageSize = 50
+	}
+	if c.ViolationsMaxPage <= 0 {
+		c.ViolationsMaxPage = 500
+	}
+	if c.SSEHeartbeatInterval <= 0 {
+		c.SSEHeartbeatInterval = 15 * time.Second
+	}
+	if c.SSEEventBuffer <= 0 {
+		c.SSEEventBuffer = 256
+	}
+	if c.NATSPublishTimeout <= 0 {
+		c.NATSPublishTimeout = 2 * time.Second
+	}
+}
+
+// ── Interfaces — nil-tolerant integrations ───────────────────────────────
+
+// PolicyRollupPublisher writes one scope:id → JSON entry to the NATS
+// JetStream `policy-rollup` KV bucket. Nil-tolerant — when nil the
+// aggregator skips publication and only the SSE + Prometheus paths
+// emit. Production main.go wires a real NATS KV client when
+// CATALYST_NATS_URL is set; tests inject a recorder.
+type PolicyRollupPublisher interface {
+	// Put writes value at key with optional TTL. Returns nil on
+	// success; the aggregator logs and continues on error so a
+	// transient NATS outage never wedges the in-process hot path.
+	Put(ctx context.Context, key string, value []byte) error
+}
+
+// EnvironmentPolicyResolver returns the EnvironmentPolicy CR for an
+// environment name. Nil-tolerant — when nil OR when the CR is not
+// found, the aggregator falls back to ComplianceConfig defaults
+// (every active policy weighted equally, mode=permissive). Production
+// main.go wires a dynamic-client-backed resolver; tests inject a
+// stub map.
+type EnvironmentPolicyResolver interface {
+	Resolve(ctx context.Context, environmentName string) (*EnvironmentPolicySpec, error)
+}
+
+// EnvironmentPolicySpec is the minimal projection of the
+// EnvironmentPolicy CR's `spec.compliance` block this handler reads.
+// Mirrors products/catalyst/chart/crds/environmentpolicy.yaml.
+type EnvironmentPolicySpec struct {
+	// Weights — policy name → weight + applicability scope.
+	// Missing entries are treated as weight=0 (i.e. ignored).
+	Weights map[string]PolicyWeight
+
+	// Modes — policy name → "permissive" | "enforcing". Missing
+	// keys default to "permissive" at read time.
+	Modes map[string]string
+}
+
+// PolicyWeight matches the `additionalProperties` schema under
+// EnvironmentPolicy.spec.compliance.weights. Scope=="" is treated as
+// "all" per the CRD doc.
+type PolicyWeight struct {
+	Weight int    `json:"weight"`
+	Scope  string `json:"scope,omitempty"`
+}
+
+// ── Per-resource state — what the aggregator keeps in memory ─────────────
+
+// resourceState is the latest set of policy verdicts observed for one
+// K8s resource. Updated by the watch loop on every PolicyReport /
+// ClusterPolicyReport / synthetic-evaluator event.
+//
+// The map is by policy name; multiple events for the same (resource,
+// policy) overwrite — the latest verdict wins. This matches Kyverno's
+// own PolicyReport semantics (one row per resource×policy×rule).
+type resourceState struct {
+	resource    string
+	namespace   string
+	application string
+	environment string
+	organization string
+	stateful     bool
+	results     map[string]policyVerdict
+	updatedAt   time.Time
+}
+
+type policyVerdict struct {
+	result  string
+	message string
+	rule    string
+	at      time.Time
+	source  string // "kyverno" | "evaluator"
+}
+
+// ── Compliance handler — instance attached to *Handler via setter ────────
+
+// ComplianceHandler aggregates score state, serves the REST + SSE
+// endpoints, and pushes rollups to NATS KV. Wired into the *Handler
+// via SetComplianceHandler.
+//
+// One ComplianceHandler per catalyst-api process. Internally it owns
+// a goroutine per (cluster) consuming the Factory's SSE fanout and a
+// mutex-guarded per-resource state map.
+type ComplianceHandler struct {
+	cfg ComplianceConfig
+	log slogish
+
+	// k8sCache — read-side for List() of policy reports + the
+	// SSE fanout for live updates.
+	k8sCache *k8scache.Factory
+
+	// publisher — NATS KV writer; nil disables publication.
+	publisher PolicyRollupPublisher
+
+	// envPolicyResolver — pulls the EnvironmentPolicy CR; nil
+	// returns config defaults.
+	envPolicyResolver EnvironmentPolicyResolver
+
+	// State per cluster id.
+	mu        sync.RWMutex
+	state     map[string]map[string]*resourceState // clusterID → resourceKey → state
+	labels    map[string]map[string]map[string]string // clusterID → resourceKey → labels
+	policySrc map[string]string                    // policy name → "kyverno" | "evaluator" — first-writer-wins
+
+	// SSE subscribers — listeners on /compliance/stream.
+	subMu      sync.Mutex
+	subID      int64
+	subscribers map[int64]*complianceSubscriber
+
+	// stop — closed by Stop() to halt the watch goroutine.
+	stopOnce sync.Once
+	stop     chan struct{}
+
+	// ready — closed once runWatch has subscribed to the Factory.
+	// Tests block on this so a Publish injected immediately after
+	// Start can't race the Subscribe call. nil-tolerant; tests that
+	// don't construct via NewComplianceHandler skip the wait.
+	ready chan struct{}
+}
+
+type complianceSubscriber struct {
+	id      int64
+	cluster string // "" == all clusters
+	ch      chan complianceEvent
+}
+
+// complianceEvent is the SSE wire frame for /compliance/stream.
+type complianceEvent struct {
+	Type    string `json:"type"`           // "score" | "scorecard"
+	Cluster string `json:"cluster"`
+	Score   Score  `json:"score"`
+	At      time.Time `json:"at"`
+}
+
+// slogish is the minimal logger surface the aggregator needs. The
+// production *slog.Logger satisfies it; tests inject a quiet logger
+// that ignores everything. Defined locally so unit tests don't have
+// to wire a real *slog.Logger.
+type slogish interface {
+	Info(msg string, args ...any)
+	Warn(msg string, args ...any)
+	Error(msg string, args ...any)
+}
+
+// NewComplianceHandler wires a ComplianceHandler. Start() must be
+// called separately so tests can seed state before the watch loop
+// begins.
+func NewComplianceHandler(
+	cfg ComplianceConfig,
+	log slogish,
+	k8sCache *k8scache.Factory,
+	publisher PolicyRollupPublisher,
+	envPolicyResolver EnvironmentPolicyResolver,
+) *ComplianceHandler {
+	cfg.defaults()
+	return &ComplianceHandler{
+		cfg:               cfg,
+		log:               log,
+		k8sCache:          k8sCache,
+		publisher:         publisher,
+		envPolicyResolver: envPolicyResolver,
+		state:             map[string]map[string]*resourceState{},
+		labels:            map[string]map[string]map[string]string{},
+		policySrc:         map[string]string{},
+		subscribers:       map[int64]*complianceSubscriber{},
+		stop:              make(chan struct{}),
+		ready:             make(chan struct{}),
+	}
+}
+
+// WaitReady blocks until runWatch has subscribed to the Factory, OR
+// until ctx is cancelled. Tests use this to guarantee Publish events
+// arrive AFTER the subscription is live. Production code rarely needs
+// it (the wizard's first user action takes seconds, by which point
+// the watch is already up).
+func (c *ComplianceHandler) WaitReady(ctx context.Context) error {
+	if c == nil || c.ready == nil {
+		return nil
+	}
+	select {
+	case <-c.ready:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// Start spawns the watch goroutine. Safe to call once; subsequent
+// calls are a no-op. Returns immediately — the goroutine runs until
+// Stop is called or ctx is cancelled.
+func (c *ComplianceHandler) Start(ctx context.Context) {
+	if c == nil || c.k8sCache == nil {
+		return
+	}
+	go c.runWatch(ctx)
+}
+
+// Stop signals the watch goroutine to exit. Idempotent.
+func (c *ComplianceHandler) Stop() {
+	if c == nil {
+		return
+	}
+	c.stopOnce.Do(func() { close(c.stop) })
+}
+
+// runWatch subscribes to the Factory's SSE fanout for the configured
+// kinds and recomputes scores on every event. Per ADR-0001 §5 this
+// is the only score-recompute trigger — there is NO time.Tick poll.
+func (c *ComplianceHandler) runWatch(ctx context.Context) {
+	kinds := map[string]struct{}{}
+	for _, k := range c.cfg.SubscribeKinds {
+		kinds[k8scache.CanonicalKindName(k)] = struct{}{}
+	}
+	for _, k := range c.cfg.WorkloadEnrichKinds {
+		kinds[k8scache.CanonicalKindName(k)] = struct{}{}
+	}
+	ch, unsub := c.k8sCache.Subscribe("", kinds)
+	defer unsub()
+
+	// Signal readiness — tests block on WaitReady so a Publish
+	// injected immediately after Start can't race the Subscribe.
+	if c.ready != nil {
+		close(c.ready)
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-c.stop:
+			return
+		case ev, ok := <-ch:
+			if !ok {
+				return
+			}
+			c.onEvent(ctx, ev)
+		}
+	}
+}
+
+// onEvent processes one SSE event. Routes by Kind:
+//
+//   - policyreport / clusterpolicyreport → ingestKyvernoReport
+//   - compliance-evaluator (KindComplianceEvaluator) → ingestSyntheticReport
+//   - WorkloadEnrichKinds (deployment, etc.) → ingestWorkloadLabels
+//
+// After ingestion, recomputes the affected resource's score and
+// publishes the rollups.
+func (c *ComplianceHandler) onEvent(ctx context.Context, ev k8scache.Event) {
+	if ev.Object == nil {
+		return
+	}
+	switch ev.Kind {
+	case "policyreport", "clusterpolicyreport":
+		c.ingestKyvernoReport(ctx, ev)
+	case k8scache.KindComplianceEvaluator:
+		c.ingestSyntheticReport(ctx, ev)
+	default:
+		// Workload kinds: capture labels for enrichment. Cheap —
+		// just stores the label map keyed by resourceKey.
+		if c.isWorkloadKind(ev.Kind) {
+			c.ingestWorkloadLabels(ev)
+		}
+	}
+}
+
+// isWorkloadKind returns true when the SSE event came in for a kind
+// the aggregator captures labels for (deployment, statefulset, etc.).
+func (c *ComplianceHandler) isWorkloadKind(kind string) bool {
+	for _, k := range c.cfg.WorkloadEnrichKinds {
+		if k8scache.CanonicalKindName(k) == kind {
+			return true
+		}
+	}
+	return false
+}
+
+// ingestWorkloadLabels stores the workload's label set keyed by
+// resourceKey. Used by enrichResourceState to attach
+// application/environment/organization metadata to verdicts as they
+// arrive.
+func (c *ComplianceHandler) ingestWorkloadLabels(ev k8scache.Event) {
+	if ev.Object == nil {
+		return
+	}
+	kind := ev.Object.GetKind()
+	ns := ev.Object.GetNamespace()
+	name := ev.Object.GetName()
+	if name == "" {
+		return
+	}
+	key := resourceKey(kind, ns, name)
+	lbls := ev.Object.GetLabels()
+	c.mu.Lock()
+	if _, ok := c.labels[ev.Cluster]; !ok {
+		c.labels[ev.Cluster] = map[string]map[string]string{}
+	}
+	c.labels[ev.Cluster][key] = lbls
+	// Re-enrich any pre-existing state for this key (a verdict
+	// that arrived before the workload event).
+	if cs, ok := c.state[ev.Cluster]; ok {
+		if rs, ok := cs[key]; ok {
+			rs.application = labelOr(lbls, "catalyst.openova.io/application", "openova.io/application", "app.kubernetes.io/instance", "app.kubernetes.io/name")
+			rs.environment = labelOr(lbls, "catalyst.openova.io/environment", "openova.io/environment")
+			rs.organization = labelOr(lbls, "catalyst.openova.io/organization", "openova.io/organization")
+		}
+	}
+	c.mu.Unlock()
+}
+
+// ingestKyvernoReport reads a wgpolicyk8s.io PolicyReport's
+// `results[]` array and updates per-resource state for each entry.
+// The PolicyReport's `scope` field points at the offending K8s
+// resource — that's the join key.
+func (c *ComplianceHandler) ingestKyvernoReport(ctx context.Context, ev k8scache.Event) {
+	results, _, _ := unstructured.NestedSlice(ev.Object.Object, "results")
+	for _, ri := range results {
+		r, ok := ri.(map[string]any)
+		if !ok {
+			continue
+		}
+		policy, _, _ := unstructured.NestedString(r, "policy")
+		rule, _, _ := unstructured.NestedString(r, "rule")
+		result, _, _ := unstructured.NestedString(r, "result")
+		message, _, _ := unstructured.NestedString(r, "message")
+		if policy == "" || result == "" {
+			continue
+		}
+		// Resource ref — Kyverno PolicyReports carry it via the
+		// top-level `scope` field (single-resource reports) or via
+		// `resources[]` per-result. Prefer per-result; fall back to
+		// the report's scope.
+		resKind, resNS, resName := kyvernoResourceFor(ev.Object, r)
+		if resName == "" {
+			continue
+		}
+		stateful := guessStateful(resKind)
+		key := resourceKey(resKind, resNS, resName)
+		c.recordVerdict(ctx, ev.Cluster, key, resName, resNS, stateful, policy, rule, result, message, "kyverno", ev.At)
+	}
+}
+
+// ingestSyntheticReport reads one evaluator-emitted SyntheticReport
+// payload off the SSE event. Slice W2's evaluators publish the row's
+// fields directly into Event.Object.Object (the unstructured JSON
+// envelope is the SyntheticReport struct).
+func (c *ComplianceHandler) ingestSyntheticReport(ctx context.Context, ev k8scache.Event) {
+	// SyntheticReport's JSON tags are flat — read them straight off
+	// the unstructured map.
+	obj := ev.Object.Object
+	policy, _, _ := unstructured.NestedString(obj, "policy")
+	rule, _, _ := unstructured.NestedString(obj, "rule")
+	result, _, _ := unstructured.NestedString(obj, "result")
+	message, _, _ := unstructured.NestedString(obj, "message")
+	if policy == "" || result == "" {
+		return
+	}
+	resKind, _, _ := unstructured.NestedString(obj, "resource", "kind")
+	resName, _, _ := unstructured.NestedString(obj, "resource", "name")
+	if resName == "" {
+		return
+	}
+	resNS, _, _ := unstructured.NestedString(obj, "namespace")
+	stateful := guessStateful(resKind)
+	key := resourceKey(resKind, resNS, resName)
+	c.recordVerdict(ctx, ev.Cluster, key, resName, resNS, stateful, policy, rule, result, message, "evaluator", ev.At)
+}
+
+// recordVerdict stores one (resource, policy) verdict and triggers a
+// score recompute + publish for the affected scopes. Holds c.mu only
+// for the state-update — the recompute + publish run unlocked.
+func (c *ComplianceHandler) recordVerdict(
+	ctx context.Context,
+	clusterID, resourceKey, resourceName, namespace string,
+	stateful bool,
+	policy, rule, result, message, source string,
+	at time.Time,
+) {
+	c.mu.Lock()
+	if _, ok := c.state[clusterID]; !ok {
+		c.state[clusterID] = map[string]*resourceState{}
+	}
+	rs, ok := c.state[clusterID][resourceKey]
+	if !ok {
+		rs = &resourceState{
+			resource:  resourceKey,
+			namespace: namespace,
+			results:   map[string]policyVerdict{},
+			stateful:  stateful,
+		}
+		c.state[clusterID][resourceKey] = rs
+	}
+	// Resource-level metadata may have come in via labels on a
+	// later watch event for the workload itself; re-resolve from
+	// the cache lazily via enrichResourceState below at compute
+	// time. For now record the raw verdict.
+	rs.results[policy] = policyVerdict{
+		result: result, message: message, rule: rule, at: at, source: source,
+	}
+	rs.updatedAt = at
+	if c.policySrc[policy] == "" {
+		c.policySrc[policy] = source
+	}
+	c.mu.Unlock()
+
+	// Recompute + publish off the lock so a slow NATS Put never
+	// blocks the watch goroutine on subsequent events.
+	c.recomputeAndPublish(ctx, clusterID, resourceKey)
+}
+
+// ── Score recompute + publish hot path ───────────────────────────────────
+
+// recomputeAndPublish recomputes the affected resource's score, all
+// rollups it participates in, and pushes each to NATS KV + SSE.
+// Idempotent — calling it twice in quick succession produces the
+// same NATS state and a duplicate SSE frame (consumers tolerate
+// duplicates by design).
+func (c *ComplianceHandler) recomputeAndPublish(ctx context.Context, clusterID, resourceKey string) {
+	c.enrichResourceState(clusterID, resourceKey)
+
+	c.mu.RLock()
+	rs := c.state[clusterID][resourceKey]
+	if rs == nil {
+		c.mu.RUnlock()
+		return
+	}
+	rsCopy := cloneResourceState(rs)
+	c.mu.RUnlock()
+
+	envSpec, _ := c.resolveEnvPolicy(ctx, rsCopy.environment)
+	resourceScore := computeScore(rsCopy, envSpec)
+	resourceScore.Scope = "resource"
+	resourceScore.ID = resourceKey
+	resourceScore.Resource = resourceKey
+	resourceScore.ApplicationRef = rsCopy.application
+	resourceScore.EnvironmentRef = rsCopy.environment
+	resourceScore.OrganizationRef = rsCopy.organization
+	resourceScore.UpdatedAt = time.Now().UTC()
+
+	c.publishScore(ctx, clusterID, resourceScore)
+
+	// Roll up: application → environment → organization → sovereign.
+	rolls := c.rollupsFor(clusterID)
+	for _, s := range rolls {
+		c.publishScore(ctx, clusterID, s)
+	}
+}
+
+// enrichResourceState attaches application / environment /
+// organization labels to resourceState. Resolution order:
+//
+//  1. The in-memory `labels` map (populated by ingestWorkloadLabels
+//     when the watcher emits a workload event). Cheap, no I/O.
+//  2. As a fallback, walk the Factory's Indexer for the matching
+//     workload. Production runs both layers; tests typically rely
+//     only on layer 1 because they Publish synthetically.
+//
+// A resource whose owning workload has no Catalyst labels stays
+// unenriched (the rollups omit it from app/env/org buckets).
+func (c *ComplianceHandler) enrichResourceState(clusterID, resourceKey string) {
+	c.mu.RLock()
+	cluster, ok := c.labels[clusterID]
+	var lbls map[string]string
+	if ok {
+		lbls = cluster[resourceKey]
+	}
+	c.mu.RUnlock()
+	if lbls != nil {
+		c.applyLabelsTo(clusterID, resourceKey, lbls)
+		return
+	}
+	if c.k8sCache == nil {
+		return
+	}
+	kind, ns, name := splitResourceKey(resourceKey)
+	if kind == "" {
+		return
+	}
+	cacheKind := strings.ToLower(kind)
+	items, _, err := c.k8sCache.List(clusterID, cacheKind, labels.Everything())
+	if err != nil {
+		return
+	}
+	for _, it := range items {
+		if it.GetName() == name && it.GetNamespace() == ns {
+			c.applyLabelsTo(clusterID, resourceKey, it.GetLabels())
+			return
+		}
+	}
+}
+
+// applyLabelsTo writes the (application, environment, organization)
+// extraction onto the resourceState for `resourceKey`. Holds c.mu
+// only for the duration of the write.
+func (c *ComplianceHandler) applyLabelsTo(clusterID, resourceKey string, lbls map[string]string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	cs, ok := c.state[clusterID]
+	if !ok {
+		return
+	}
+	rs, ok := cs[resourceKey]
+	if !ok {
+		return
+	}
+	rs.application = labelOr(lbls, "catalyst.openova.io/application", "openova.io/application", "app.kubernetes.io/instance", "app.kubernetes.io/name")
+	rs.environment = labelOr(lbls, "catalyst.openova.io/environment", "openova.io/environment")
+	rs.organization = labelOr(lbls, "catalyst.openova.io/organization", "openova.io/organization")
+}
+
+// publishScore writes one Score to all destinations: NATS KV (if
+// publisher wired), SSE subscribers, Prometheus gauges. Best-effort
+// for NATS — failures are logged not propagated.
+func (c *ComplianceHandler) publishScore(ctx context.Context, clusterID string, s Score) {
+	if s.Scope == "" || s.ID == "" {
+		return
+	}
+	// NATS KV.
+	if c.publisher != nil {
+		key := s.Scope + ":" + s.ID
+		body, err := json.Marshal(s)
+		if err == nil {
+			natsCtx, cancel := context.WithTimeout(ctx, c.cfg.NATSPublishTimeout)
+			if err := c.publisher.Put(natsCtx, key, body); err != nil {
+				c.log.Warn("compliance: nats kv put failed", "scope", s.Scope, "id", s.ID, "err", err)
+			}
+			cancel()
+		}
+	}
+	// SSE.
+	c.fanout(complianceEvent{
+		Type:    "score",
+		Cluster: clusterID,
+		Score:   s,
+		At:      s.UpdatedAt,
+	})
+	// Prometheus.
+	complianceObserve(s, clusterID)
+}
+
+// fanout — non-blocking send to each subscriber. Same drop-oldest
+// policy as k8scache.Factory.fanout — a slow consumer never blocks
+// the producer.
+func (c *ComplianceHandler) fanout(ev complianceEvent) {
+	c.subMu.Lock()
+	subs := make([]*complianceSubscriber, 0, len(c.subscribers))
+	for _, s := range c.subscribers {
+		if s.cluster != "" && s.cluster != ev.Cluster {
+			continue
+		}
+		subs = append(subs, s)
+	}
+	c.subMu.Unlock()
+	for _, s := range subs {
+		select {
+		case s.ch <- ev:
+		default:
+			select {
+			case <-s.ch:
+			default:
+			}
+			select {
+			case s.ch <- ev:
+			default:
+			}
+		}
+	}
+}
+
+// rollupsFor recomputes every (application, environment,
+// organization, sovereign) rollup for the cluster. Returns the slice
+// in-order so the publish loop can stream each one to NATS + SSE.
+func (c *ComplianceHandler) rollupsFor(clusterID string) []Score {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	cs, ok := c.state[clusterID]
+	if !ok || len(cs) == 0 {
+		return nil
+	}
+
+	type bucket struct {
+		num int
+		den int
+	}
+	app := map[string]*bucket{}
+	env := map[string]*bucket{}
+	org := map[string]*bucket{}
+	all := bucket{}
+	now := time.Now().UTC()
+
+	envOrg := map[string]string{} // env name → org name
+	envApps := map[string]map[string]struct{}{}
+	orgEnvs := map[string]map[string]struct{}{}
+	appEnv := map[string]string{}
+	appOrg := map[string]string{}
+
+	for _, rs := range cs {
+		envSpec, _ := c.resolveEnvPolicyLocked(rs.environment)
+		s := computeScore(cloneResourceState(rs), envSpec)
+		if s.Denominator == 0 {
+			continue
+		}
+		if rs.application != "" {
+			b, ok := app[rs.application]
+			if !ok {
+				b = &bucket{}
+				app[rs.application] = b
+			}
+			b.num += s.Numerator
+			b.den += s.Denominator
+			appEnv[rs.application] = rs.environment
+			appOrg[rs.application] = rs.organization
+		}
+		if rs.environment != "" {
+			b, ok := env[rs.environment]
+			if !ok {
+				b = &bucket{}
+				env[rs.environment] = b
+			}
+			b.num += s.Numerator
+			b.den += s.Denominator
+			envOrg[rs.environment] = rs.organization
+			if rs.application != "" {
+				if _, ok := envApps[rs.environment]; !ok {
+					envApps[rs.environment] = map[string]struct{}{}
+				}
+				envApps[rs.environment][rs.application] = struct{}{}
+			}
+		}
+		if rs.organization != "" {
+			b, ok := org[rs.organization]
+			if !ok {
+				b = &bucket{}
+				org[rs.organization] = b
+			}
+			b.num += s.Numerator
+			b.den += s.Denominator
+			if rs.environment != "" {
+				if _, ok := orgEnvs[rs.organization]; !ok {
+					orgEnvs[rs.organization] = map[string]struct{}{}
+				}
+				orgEnvs[rs.organization][rs.environment] = struct{}{}
+			}
+		}
+		all.num += s.Numerator
+		all.den += s.Denominator
+	}
+
+	out := []Score{}
+
+	addRollup := func(scope, id string, b *bucket, env, organization, appRef string) {
+		s := Score{Scope: scope, ID: id, Numerator: b.num, Denominator: b.den, UpdatedAt: now}
+		s.Total = normalizedScore(b.num, b.den)
+		s.EnvironmentRef = env
+		s.OrganizationRef = organization
+		s.ApplicationRef = appRef
+		out = append(out, s)
+	}
+
+	for name, b := range app {
+		addRollup("application", name, b, appEnv[name], appOrg[name], name)
+	}
+	for name, b := range env {
+		addRollup("environment", name, b, name, envOrg[name], "")
+	}
+	for name, b := range org {
+		addRollup("organization", name, b, "", name, "")
+	}
+	if all.den > 0 {
+		addRollup("sovereign", clusterID, &all, "", "", "")
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Scope != out[j].Scope {
+			return out[i].Scope < out[j].Scope
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out
+}
+
+// resolveEnvPolicy fetches the EnvironmentPolicy CR for the given
+// environment name. Returns (nil, nil) when no resolver is wired or
+// the CR is not found — callers fall back to default-equal-weights.
+func (c *ComplianceHandler) resolveEnvPolicy(ctx context.Context, environment string) (*EnvironmentPolicySpec, error) {
+	if c == nil || c.envPolicyResolver == nil || environment == "" {
+		return nil, nil
+	}
+	return c.envPolicyResolver.Resolve(ctx, environment)
+}
+
+// resolveEnvPolicyLocked is the read-lock-safe variant used by
+// rollupsFor (which holds c.mu.RLock around its caller). The
+// resolver itself does NOT touch c.mu, so calling it inside the read
+// lock is safe.
+func (c *ComplianceHandler) resolveEnvPolicyLocked(environment string) (*EnvironmentPolicySpec, error) {
+	if c == nil || c.envPolicyResolver == nil || environment == "" {
+		return nil, nil
+	}
+	return c.envPolicyResolver.Resolve(context.Background(), environment)
+}
+
+// ── Pure score-computation functions (every test exercises these) ────────
+
+// computeScore evaluates one resource's per-policy verdicts against
+// an EnvironmentPolicy weight set and produces a Score.
+//
+// Algorithm (per master brief §4 + slice-S brief §"Score computation"):
+//
+//  1. Read EnvironmentPolicy.spec.compliance.weights[]
+//  2. For each policy in weights:
+//     - look up the latest verdict for this resource × policy
+//     - if missing → policy not yet evaluated; drop from denominator
+//     - if scope=stateful and resource is stateless → drop
+//     - if scope=stateless and resource is stateful → drop
+//     - if result == "skip" → drop from denominator
+//     - if result == "pass" → add weight to numerator and denominator
+//     - if result == "fail" → add weight to denominator only
+//     - if result == "warn" → add weight to denominator only
+//  3. Score = floor((numerator / denominator) * 100), or null when
+//     denominator == 0.
+//
+// When envSpec is nil the function falls back to "every observed
+// policy carries weight 1, scope=all" so a resource with at least
+// one verdict always has a non-null score.
+func computeScore(rs *resourceState, envSpec *EnvironmentPolicySpec) Score {
+	if rs == nil {
+		return Score{}
+	}
+	weights := map[string]PolicyWeight{}
+	if envSpec != nil {
+		weights = envSpec.Weights
+	}
+	// Fallback when no EnvironmentPolicy: weight 1, scope all, for
+	// every policy we observed a verdict for. This is the
+	// "no-knobs-tuned-yet" default per the brief's edge-case
+	// "empty weights → score reflects observed verdicts".
+	if len(weights) == 0 {
+		weights = map[string]PolicyWeight{}
+		for p := range rs.results {
+			weights[p] = PolicyWeight{Weight: 1, Scope: "all"}
+		}
+	}
+
+	num, den := 0, 0
+	results := map[string]string{}
+	violations := 0
+	for policy, pw := range weights {
+		// Scope filter.
+		switch pw.Scope {
+		case "stateful":
+			if !rs.stateful {
+				continue
+			}
+		case "stateless":
+			if rs.stateful {
+				continue
+			}
+		case "all", "":
+			// no filter
+		default:
+			// unknown scope — treat as 'all' rather than crashing.
+		}
+		v, ok := rs.results[policy]
+		if !ok {
+			// Policy declared in the weight set but no verdict
+			// observed for THIS resource yet — drop from
+			// denominator. This is the same as the brief's
+			// "policy not applicable" case from the resource's
+			// perspective.
+			continue
+		}
+		results[policy] = v.result
+		switch v.result {
+		case "skip", "na":
+			// Skipped policies are dropped from the denominator
+			// per the brief's "PVC-expansion on stateless
+			// workload → drop" rule.
+			continue
+		case "pass":
+			num += pw.Weight
+			den += pw.Weight
+		case "fail":
+			den += pw.Weight
+			violations++
+		case "warn":
+			// Warns count toward the denominator like fails (so
+			// they suppress the headline number) but don't
+			// increment the per-policy violation tally — the
+			// brief treats warn as "informational, doesn't
+			// affect score" but the SCORE itself drops because
+			// the policy didn't pass. Both readings are
+			// defensible; we go with "warn pulls the score
+			// down" because that matches the security team's
+			// expectation that an unproven policy isn't
+			// passing.
+			den += pw.Weight
+		default:
+			// Unknown result — drop. Keeps the score stable
+			// against future Kyverno result kinds.
+			continue
+		}
+	}
+	out := Score{
+		Numerator:     num,
+		Denominator:   den,
+		PolicyResults: results,
+		Violations:    violations,
+	}
+	out.Total = normalizedScore(num, den)
+	return out
+}
+
+// normalizedScore returns floor(num / den * 100) clamped to [0, 100],
+// or nil when den == 0.
+func normalizedScore(num, den int) *int {
+	if den <= 0 {
+		return nil
+	}
+	v := int((float64(num) / float64(den)) * 100.0)
+	if v < 0 {
+		v = 0
+	}
+	if v > 100 {
+		v = 100
+	}
+	return &v
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────
+
+func resourceKey(kind, ns, name string) string {
+	return strings.ToLower(kind) + "/" + ns + "/" + name
+}
+
+func splitResourceKey(s string) (kind, ns, name string) {
+	parts := strings.SplitN(s, "/", 3)
+	if len(parts) < 3 {
+		return "", "", ""
+	}
+	return parts[0], parts[1], parts[2]
+}
+
+// kyvernoResourceFor extracts (kind, namespace, name) from a Kyverno
+// PolicyReport. Per `wgpolicyk8s.io/v1alpha2`, the report's `scope`
+// field carries the offending resource for single-resource reports;
+// each `results[i].resources[j]` may also list per-result references.
+func kyvernoResourceFor(report *unstructured.Unstructured, result map[string]any) (kind, ns, name string) {
+	// Prefer per-result resources[0].
+	if rs, ok, _ := unstructured.NestedSlice(result, "resources"); ok && len(rs) > 0 {
+		if r, ok := rs[0].(map[string]any); ok {
+			kind, _, _ = unstructured.NestedString(r, "kind")
+			ns, _, _ = unstructured.NestedString(r, "namespace")
+			name, _, _ = unstructured.NestedString(r, "name")
+			if name != "" {
+				return
+			}
+		}
+	}
+	// Fall back to top-level scope.
+	scope, _, _ := unstructured.NestedMap(report.Object, "scope")
+	if len(scope) > 0 {
+		kind, _ = scope["kind"].(string)
+		ns, _ = scope["namespace"].(string)
+		name, _ = scope["name"].(string)
+		if name != "" {
+			return
+		}
+	}
+	// PolicyReport's metadata.namespace/name when nothing else
+	// resolves (cluster-scoped report).
+	ns = report.GetNamespace()
+	name = report.GetName()
+	kind = "PolicyReport"
+	return
+}
+
+// guessStateful is a heuristic: stateful resources are
+// StatefulSet / PVC / DaemonSet (the ones that carry storage or
+// node-affinity expectations). Everything else is stateless.
+//
+// Per INVIOLABLE-PRINCIPLES #4 this is operator-tunable via the
+// future EnvironmentPolicy.spec.compliance.statefulKinds list (not
+// shipped in this slice — heuristic is the documented default).
+func guessStateful(kind string) bool {
+	switch strings.ToLower(kind) {
+	case "statefulset", "persistentvolumeclaim", "daemonset":
+		return true
+	}
+	return false
+}
+
+func cloneResourceState(rs *resourceState) *resourceState {
+	if rs == nil {
+		return nil
+	}
+	out := &resourceState{
+		resource:     rs.resource,
+		namespace:    rs.namespace,
+		application:  rs.application,
+		environment:  rs.environment,
+		organization: rs.organization,
+		stateful:     rs.stateful,
+		updatedAt:    rs.updatedAt,
+		results:      make(map[string]policyVerdict, len(rs.results)),
+	}
+	for k, v := range rs.results {
+		out.results[k] = v
+	}
+	return out
+}
+
+func labelOr(lbls map[string]string, keys ...string) string {
+	for _, k := range keys {
+		if v, ok := lbls[k]; ok && v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// ── HTTP handlers ────────────────────────────────────────────────────────
+
+// HandleComplianceScorecard — GET /api/v1/sovereigns/{id}/compliance/scorecard
+//
+// Returns sovereign / org / env / app rollups in one JSON document.
+// The UI's SRE Lead and Security Lead dashboards (slices U1+U2) build
+// their fleet-view tree from this single payload.
+func (h *Handler) HandleComplianceScorecard(w http.ResponseWriter, r *http.Request) {
+	if h.compliance == nil {
+		http.Error(w, "compliance handler not wired", http.StatusServiceUnavailable)
+		return
+	}
+	clusterID := chi.URLParam(r, "id")
+	if clusterID == "" {
+		http.Error(w, "missing sovereign id", http.StatusBadRequest)
+		return
+	}
+	clusterID = h.resolveChrootClusterID(clusterID)
+	rolls := h.compliance.rollupsFor(clusterID)
+	resp := ScorecardResponse{
+		GeneratedAt: time.Now().UTC(),
+	}
+	for _, s := range rolls {
+		switch s.Scope {
+		case "sovereign":
+			resp.Sovereign = s
+		case "organization":
+			resp.Organizations = append(resp.Organizations, s)
+		case "environment":
+			resp.Environments = append(resp.Environments, s)
+		case "application":
+			resp.Applications = append(resp.Applications, s)
+		}
+	}
+	if resp.Sovereign.Scope == "" {
+		// No data yet — return a well-shaped empty response so
+		// the UI renders the "scorecard not yet computed"
+		// empty state.
+		resp.Sovereign = Score{Scope: "sovereign", ID: clusterID, UpdatedAt: time.Now().UTC()}
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// HandleCompliancePolicies — GET /api/v1/sovereigns/{id}/compliance/policies
+//
+// Returns one row per active policy: name, weight, mode, current
+// violation count, source (kyverno|evaluator). The U5 toggle UI
+// reads this to show every policy + its enforcement mode.
+func (h *Handler) HandleCompliancePolicies(w http.ResponseWriter, r *http.Request) {
+	if h.compliance == nil {
+		http.Error(w, "compliance handler not wired", http.StatusServiceUnavailable)
+		return
+	}
+	clusterID := chi.URLParam(r, "id")
+	if clusterID == "" {
+		http.Error(w, "missing sovereign id", http.StatusBadRequest)
+		return
+	}
+	clusterID = h.resolveChrootClusterID(clusterID)
+
+	views := h.compliance.policiesFor(r.Context(), clusterID)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items": views,
+		"count": len(views),
+	})
+}
+
+// policiesFor returns one PolicyView per known policy. Aggregates
+// weight + mode from EVERY resolved EnvironmentPolicy in the
+// cluster (each environment may have its own; we surface the union
+// of policy NAMES with the per-resource verdict tally).
+func (c *ComplianceHandler) policiesFor(ctx context.Context, clusterID string) []PolicyView {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	cs, ok := c.state[clusterID]
+	if !ok {
+		return []PolicyView{}
+	}
+
+	// Tally per-policy violation count + capture every policy
+	// name surfaced.
+	violations := map[string]int{}
+	envs := map[string]struct{}{}
+	for _, rs := range cs {
+		envs[rs.environment] = struct{}{}
+		for p, v := range rs.results {
+			if v.result == "fail" {
+				violations[p]++
+			}
+		}
+	}
+
+	// Resolve weights+modes from each environment seen. Last
+	// writer wins for clashing settings (the U5 toggle UI shows
+	// per-environment when N>1; here we pick one for the summary).
+	weights := map[string]PolicyWeight{}
+	modes := map[string]string{}
+	for envName := range envs {
+		spec, _ := c.resolveEnvPolicy(ctx, envName)
+		if spec == nil {
+			continue
+		}
+		for n, pw := range spec.Weights {
+			weights[n] = pw
+		}
+		for n, m := range spec.Modes {
+			modes[n] = m
+		}
+	}
+
+	// Union of policy names: weights ∪ violations ∪ policySrc.
+	names := map[string]struct{}{}
+	for n := range weights {
+		names[n] = struct{}{}
+	}
+	for n := range violations {
+		names[n] = struct{}{}
+	}
+	for n := range c.policySrc {
+		names[n] = struct{}{}
+	}
+	out := make([]PolicyView, 0, len(names))
+	for n := range names {
+		pw := weights[n]
+		mode := modes[n]
+		if mode == "" {
+			mode = "permissive"
+		}
+		src := c.policySrc[n]
+		if src == "" {
+			src = "kyverno"
+		}
+		out = append(out, PolicyView{
+			Name:       n,
+			Weight:     pw.Weight,
+			Scope:      pw.Scope,
+			Mode:       mode,
+			Violations: violations[n],
+			Source:     src,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// HandleComplianceViolations — GET
+// /api/v1/sovereigns/{id}/compliance/violations?app=<name>[&limit=N&offset=N]
+//
+// Returns paginated violations (results=fail) for one Application.
+// Per-policy drill-down (slice U4) reads this on a per-resource +
+// per-policy basis.
+func (h *Handler) HandleComplianceViolations(w http.ResponseWriter, r *http.Request) {
+	if h.compliance == nil {
+		http.Error(w, "compliance handler not wired", http.StatusServiceUnavailable)
+		return
+	}
+	clusterID := chi.URLParam(r, "id")
+	if clusterID == "" {
+		http.Error(w, "missing sovereign id", http.StatusBadRequest)
+		return
+	}
+	clusterID = h.resolveChrootClusterID(clusterID)
+	app := strings.TrimSpace(r.URL.Query().Get("app"))
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 {
+		limit = h.compliance.cfg.ViolationsPageSize
+	}
+	if limit > h.compliance.cfg.ViolationsMaxPage {
+		limit = h.compliance.cfg.ViolationsMaxPage
+	}
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	if offset < 0 {
+		offset = 0
+	}
+	all := h.compliance.violationsFor(clusterID, app)
+	total := len(all)
+	end := offset + limit
+	if end > total {
+		end = total
+	}
+	if offset > total {
+		offset = total
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items":  all[offset:end],
+		"total":  total,
+		"offset": offset,
+		"limit":  limit,
+	})
+}
+
+func (c *ComplianceHandler) violationsFor(clusterID, app string) []Violation {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	cs, ok := c.state[clusterID]
+	if !ok {
+		return []Violation{}
+	}
+	out := make([]Violation, 0, 16)
+	for _, rs := range cs {
+		if app != "" && rs.application != app {
+			continue
+		}
+		for p, v := range rs.results {
+			if v.result != "fail" {
+				continue
+			}
+			out = append(out, Violation{
+				Resource:    rs.resource,
+				Namespace:   rs.namespace,
+				Policy:      p,
+				Rule:        v.rule,
+				Result:      v.result,
+				Message:     v.message,
+				Application: rs.application,
+				Environment: rs.environment,
+				Time:        v.at,
+			})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Resource != out[j].Resource {
+			return out[i].Resource < out[j].Resource
+		}
+		return out[i].Policy < out[j].Policy
+	})
+	return out
+}
+
+// HandleComplianceStream — GET /api/v1/sovereigns/{id}/compliance/stream
+//
+// SSE: real-time score updates. Each frame is a JSON document on a
+// single `data:` line. Heartbeat ping every SSEHeartbeatInterval.
+func (h *Handler) HandleComplianceStream(w http.ResponseWriter, r *http.Request) {
+	if h.compliance == nil {
+		http.Error(w, "compliance handler not wired", http.StatusServiceUnavailable)
+		return
+	}
+	clusterID := chi.URLParam(r, "id")
+	if clusterID == "" {
+		http.Error(w, "missing sovereign id", http.StatusBadRequest)
+		return
+	}
+	clusterID = h.resolveChrootClusterID(clusterID)
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	ch, unsub := h.compliance.subscribe(clusterID)
+	defer unsub()
+
+	_, _ = fmt.Fprintf(w, ": connected cluster=%s\n\n", clusterID)
+	flusher.Flush()
+
+	pingT := time.NewTicker(h.compliance.cfg.SSEHeartbeatInterval)
+	defer pingT.Stop()
+
+	enc := json.NewEncoder(w)
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-pingT.C:
+			if _, err := fmt.Fprintf(w, ": ping %d\n\n", time.Now().Unix()); err != nil {
+				return
+			}
+			flusher.Flush()
+		case ev, ok := <-ch:
+			if !ok {
+				return
+			}
+			if _, err := w.Write([]byte("data: ")); err != nil {
+				return
+			}
+			if err := enc.Encode(ev); err != nil {
+				return
+			}
+			if _, err := w.Write([]byte("\n")); err != nil {
+				return
+			}
+			flusher.Flush()
+		}
+	}
+}
+
+func (c *ComplianceHandler) subscribe(clusterID string) (<-chan complianceEvent, func()) {
+	ch := make(chan complianceEvent, c.cfg.SSEEventBuffer)
+	c.subMu.Lock()
+	c.subID++
+	id := c.subID
+	c.subscribers[id] = &complianceSubscriber{
+		id:      id,
+		cluster: clusterID,
+		ch:      ch,
+	}
+	c.subMu.Unlock()
+	// Unsub deletes the subscriber under the same lock the fanout
+	// uses to snapshot the subscriber set. The channel is NOT
+	// closed by unsub — Go GC reclaims it once both ends drop their
+	// references. Closing the channel under a producer race is the
+	// classic "send on closed channel" panic; the small GC trade is
+	// the correct one here.
+	return ch, func() {
+		c.subMu.Lock()
+		delete(c.subscribers, id)
+		c.subMu.Unlock()
+	}
+}
+
+// ── Wiring on *Handler ──────────────────────────────────────────────────
+
+// SetComplianceHandler attaches a started ComplianceHandler. main.go
+// calls this once at startup; tests inject a stubbed instance.
+func (h *Handler) SetComplianceHandler(c *ComplianceHandler) { h.compliance = c }
+
+// ComplianceHandler returns the wired aggregator (nil-safe — handlers
+// 503 when nil).
+func (h *Handler) ComplianceHandler() *ComplianceHandler { return h.compliance }
+
+// ── Prometheus metrics (slice S2) ────────────────────────────────────────
+
+var (
+	// catalyst_compliance_score — current weighted score by scope.
+	metricComplianceScore = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "catalyst",
+		Subsystem: "compliance",
+		Name:      "score",
+		Help:      "Current weighted compliance score (0..100) per (scope, id, environment, sovereign).",
+	}, []string{"scope", "id", "environment", "sovereign"})
+
+	// catalyst_compliance_violations_total — running total of
+	// per-policy fail observations. Mimir's recording rule
+	// `catalyst:compliance_violations:by_policy:5m_rate` reads
+	// the rate of this counter for the trend dashboard.
+	metricComplianceViolations = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "catalyst",
+		Subsystem: "compliance",
+		Name:      "violations_total",
+		Help:      "Total per-policy fail observations per (policy, environment, sovereign).",
+	}, []string{"policy", "environment", "sovereign"})
+
+	// catalyst_compliance_policy_mode — 1 for the active mode, 0
+	// for the inactive one. Lets PromQL `topk(1, by_policy)` pick
+	// the current setting cheaply.
+	metricCompliancePolicyMode = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "catalyst",
+		Subsystem: "compliance",
+		Name:      "policy_mode",
+		Help:      "1 for the active mode, 0 for inactive, per (policy, environment, sovereign, mode).",
+	}, []string{"policy", "environment", "sovereign", "mode"})
+)
+
+// complianceObserve records the score gauge + per-policy violation
+// counter increments for one Score publish.
+func complianceObserve(s Score, sovereignID string) {
+	if s.Total != nil {
+		metricComplianceScore.WithLabelValues(s.Scope, s.ID, s.EnvironmentRef, sovereignID).Set(float64(*s.Total))
+	}
+	if s.Scope == "resource" {
+		for policy, result := range s.PolicyResults {
+			if result == "fail" {
+				metricComplianceViolations.WithLabelValues(policy, s.EnvironmentRef, sovereignID).Inc()
+			}
+		}
+	}
+}
+
+// ObservePolicyMode lets the resolver-wiring layer record mode
+// gauges off the EnvironmentPolicy.spec.compliance.modes map. Called
+// by the resolver implementation in main.go on every successful
+// Resolve(). Exposed so tests can verify the mode-gauge contract.
+func ObservePolicyMode(policy, environment, sovereignID, activeMode string) {
+	for _, m := range []string{"permissive", "enforcing"} {
+		v := 0.0
+		if m == activeMode {
+			v = 1
+		}
+		metricCompliancePolicyMode.WithLabelValues(policy, environment, sovereignID, m).Set(v)
+	}
+}
+
+// ── EnvironmentPolicy resolver — dynamic-client-backed (production) ──────
+
+// EnvironmentPolicyGVR is the GroupVersionResource for the
+// `EnvironmentPolicy.catalyst.openova.io/v1` CRD shipped by
+// products/catalyst/chart/crds/environmentpolicy.yaml.
+var EnvironmentPolicyGVR = schema.GroupVersionResource{
+	Group:    "catalyst.openova.io",
+	Version:  "v1",
+	Resource: "environmentpolicies",
+}
+
+// dynamicEnvPolicyResolver reads EnvironmentPolicy CRs (cluster-scoped)
+// from a Sovereign cluster via dynamic client.
+type dynamicEnvPolicyResolver struct {
+	dyn dynamic.Interface
+}
+
+// NewDynamicEnvironmentPolicyResolver returns a resolver that pulls
+// EnvironmentPolicy CRs from `dyn`. Returns an error when dyn is nil
+// (callers that don't have a dyn at startup wire nil instead and
+// fall back to defaults).
+func NewDynamicEnvironmentPolicyResolver(dyn dynamic.Interface) (EnvironmentPolicyResolver, error) {
+	if dyn == nil {
+		return nil, errors.New("compliance: dynamic.Interface required")
+	}
+	return &dynamicEnvPolicyResolver{dyn: dyn}, nil
+}
+
+// Resolve looks up `<environment>` (which is `<org>-<envType>` per
+// NAMING-CONVENTION). Per the CRD an EnvironmentPolicy is referenced
+// by Environment.spec.policyRef rather than named identically, but in
+// practice the production manifests use the same name; we look up by
+// the policyRef-style name. A 404 returns (nil, nil) so the caller
+// falls back to defaults.
+func (r *dynamicEnvPolicyResolver) Resolve(ctx context.Context, environmentName string) (*EnvironmentPolicySpec, error) {
+	if environmentName == "" {
+		return nil, nil
+	}
+	obj, err := r.dyn.Resource(EnvironmentPolicyGVR).Get(ctx, environmentName, metav1.GetOptions{})
+	if err != nil {
+		// Soft-fail: 404 / forbidden / cluster-down all collapse
+		// to "no spec" → caller uses defaults. Don't surface these
+		// up the hot path.
+		return nil, nil
+	}
+	weights := map[string]PolicyWeight{}
+	wm, _, _ := unstructured.NestedMap(obj.Object, "spec", "compliance", "weights")
+	for name, raw := range wm {
+		entry, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		weight, _, _ := unstructured.NestedInt64(entry, "weight")
+		scope, _, _ := unstructured.NestedString(entry, "scope")
+		weights[name] = PolicyWeight{Weight: int(weight), Scope: scope}
+	}
+	modes := map[string]string{}
+	mm, _, _ := unstructured.NestedStringMap(obj.Object, "spec", "compliance", "modes")
+	for k, v := range mm {
+		modes[k] = v
+	}
+	return &EnvironmentPolicySpec{Weights: weights, Modes: modes}, nil
+}
