@@ -1,0 +1,87 @@
+# useraccess-controller Deployment.
+#
+# Single replica with leader election so the Lease handles HA when the
+# replica count is bumped. The controller is K8s-native and stateless
+# beyond its watch cache — re-running a reconcile after a restart
+# converges on the same desired state.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md the Deployment ships:
+#   - SHA-pinned image (`<sha>` placeholder; CI deploys overwrite)
+#   - non-root, read-only-root-fs, drop ALL caps, runtime-default
+#     seccomp profile
+#   - resources/requests + resources/limits set (no unbounded pods)
+#
+# The image reference is left as a placeholder for the GitHub Actions
+# pipeline to substitute via `sed -i`. Per principle #4a, never edit
+# this file by hand to roll an image — let CI do it.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: useraccess-controller
+  namespace: openova-system
+  labels:
+    catalyst.openova.io/component: useraccess-controller
+    openova.io/managed-by: flux
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      catalyst.openova.io/component: useraccess-controller
+  template:
+    metadata:
+      labels:
+        catalyst.openova.io/component: useraccess-controller
+        openova.io/managed-by: flux
+    spec:
+      serviceAccountName: useraccess-controller
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: controller
+          image: ghcr.io/openova-io/openova/useraccess-controller:placeholder
+          imagePullPolicy: IfNotPresent
+          args:
+            - --leader-elect=true
+            - --metrics-bind-address=:8080
+            - --health-probe-bind-address=:8081
+          env:
+            - name: LEADER_ELECT_NS
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          ports:
+            - name: metrics
+              containerPort: 8080
+            - name: health
+              containerPort: 8081
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+      terminationGracePeriodSeconds: 15

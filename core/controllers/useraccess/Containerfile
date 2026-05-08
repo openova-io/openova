@@ -1,0 +1,39 @@
+# useraccess-controller — UserAccess CR reconciler.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md the image is:
+#   - statically compiled (CGO_ENABLED=0)
+#   - run as a non-root numeric UID
+#   - shipped with only the binary + CA bundle (no shell, no package
+#     manager, no debug tools)
+#
+# Build via the SHA-pinned GitHub Actions workflow that ships with
+# core/controllers/useraccess/ — never via `docker build` on a laptop
+# (per principle #4a IMAGES: GITHUB ACTIONS IS THE ONLY BUILD PATH).
+#
+# Two stages:
+#   build  — golang:1.23-alpine with go mod cache
+#   final  — alpine:3.20 minimal runtime (CA certs + tzdata + binary)
+
+FROM docker.io/library/golang:1.23-alpine AS build
+WORKDIR /app
+
+# Cache layer for go.mod / go.sum so source-only rebuilds skip the
+# module download.
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w" \
+    -o /useraccess-controller ./cmd
+
+FROM docker.io/library/alpine:3.20
+RUN apk add --no-cache ca-certificates tzdata
+COPY --from=build /useraccess-controller /useraccess-controller
+
+# Reuse the prebuilt nobody account at UID 65534. runAsNonRoot=true on
+# the Deployment requires a numeric UID, not a name.
+USER 65534:65534
+
+EXPOSE 8080 8081
+ENTRYPOINT ["/useraccess-controller"]

@@ -1,0 +1,101 @@
+# RBAC for useraccess-controller.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #3 ClusterRoles are GitOps-installed
+# (Flux reconciles bp-useraccess-controller — to be authored as a
+# blueprint follow-up). This file documents the EXACT permissions the
+# controller needs; a Helm template wraps it for installation in
+# `platform/useraccess-controller/chart/templates/`.
+#
+# Per docs/EPICS-1-6-unified-design.md §3.5 the controller ONLY
+# operates on K8s resources — never cloud APIs, never the catalyst-api
+# HTTP surface. So the RBAC is small and read-only on its own state
+# (UserAccess) and the ClusterRoles it binds to.
+#
+# Note: get/list on the openova:application-{admin,editor,viewer}
+# ClusterRoles is for ownerRef sanity (verify the role exists before
+# emitting a binding that would otherwise dangle).
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: useraccess-controller
+  namespace: openova-system
+  labels:
+    catalyst.openova.io/component: useraccess-controller
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: useraccess-controller
+  labels:
+    catalyst.openova.io/component: useraccess-controller
+rules:
+  # Watch the UserAccess CR (cluster-scoped) and update its status.
+  - apiGroups: ["access.openova.io"]
+    resources: ["useraccesses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["access.openova.io"]
+    resources: ["useraccesses/status"]
+    verbs: ["get", "update", "patch"]
+  # Materialise grants — namespace-scoped + cluster-scoped bindings.
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["rolebindings", "clusterrolebindings"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Namespace existence check before writing per-namespace RoleBindings.
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
+  # ClusterRole read for ownerRef-target sanity (confirm the canonical
+  # openova:application-* ClusterRoles exist before emitting a
+  # binding). ESCAPE: get-only — the controller never edits ClusterRoles.
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: useraccess-controller
+  labels:
+    catalyst.openova.io/component: useraccess-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: useraccess-controller
+subjects:
+  - kind: ServiceAccount
+    name: useraccess-controller
+    namespace: openova-system
+---
+# Lease for leader election lives in the controller's own namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: useraccess-controller-leader-election
+  namespace: openova-system
+  labels:
+    catalyst.openova.io/component: useraccess-controller
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: useraccess-controller-leader-election
+  namespace: openova-system
+  labels:
+    catalyst.openova.io/component: useraccess-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: useraccess-controller-leader-election
+subjects:
+  - kind: ServiceAccount
+    name: useraccess-controller
+    namespace: openova-system
