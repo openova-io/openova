@@ -72,6 +72,19 @@ const (
 	EventDeleted  EventType = "DELETED"
 )
 
+// KindComplianceEvaluator is the canonical kind name carried on every
+// synthetic PolicyReport-shaped event published by evaluators in
+// internal/k8scache/evaluators (EPIC-1 #1096 slice W2). The score
+// aggregator (slice S1) subscribes to this kind alongside the upstream
+// `policyreport` / `clusterpolicyreport` kinds — a single SSE stream,
+// uniform shape.
+//
+// The synthetic kind is NOT registered as a watch target — it has no
+// GVR and the factory never LISTs a real K8s resource for it.
+// Subscribers filter on it via the same `?kinds=` query parameter that
+// gates pods, services, etc.
+const KindComplianceEvaluator = "compliance-evaluator"
+
 // Event is a single K8s state-change notification. Encoded directly
 // into the SSE frame — field names are part of the public wire
 // contract and must stay stable.
@@ -634,6 +647,21 @@ func (f *Factory) dispatch(cs *clusterState, k Kind, t EventType, obj any) {
 		Object:  red,
 		At:      now,
 	}
+	f.fanout(ev)
+}
+
+// Publish injects a non-watch-derived Event onto the SSE fanout. Used
+// by internal/k8scache/evaluators (EPIC-1 #1096 slice W2) to emit
+// synthetic PolicyReport-shaped events on the
+// `compliance-evaluator` kind. The event MUST set Cluster, Kind,
+// Type, Object, At — the factory does NOT mutate or redact synthetic
+// payloads (the producer owns them).
+//
+// Concurrency: safe for concurrent callers; the underlying fanout
+// holds subMu briefly to snapshot the subscriber set, then sends
+// non-blocking with the same drop-oldest backpressure as informer
+// events.
+func (f *Factory) Publish(ev Event) {
 	f.fanout(ev)
 }
 
