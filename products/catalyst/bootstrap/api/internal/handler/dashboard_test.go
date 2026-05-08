@@ -43,6 +43,8 @@ type dashFixturePod struct {
 	Name        string
 	Application string
 	Family      string
+	CPURequest  string
+	MemRequest  string
 	CPULimit    string
 	MemLimit    string
 	Ready       bool
@@ -51,16 +53,32 @@ type dashFixturePod struct {
 }
 
 func mkDashPod(p dashFixturePod) *unstructured.Unstructured {
+	resources := map[string]any{}
+	if p.CPURequest != "" || p.MemRequest != "" {
+		req := map[string]any{}
+		if p.CPURequest != "" {
+			req["cpu"] = p.CPURequest
+		}
+		if p.MemRequest != "" {
+			req["memory"] = p.MemRequest
+		}
+		resources["requests"] = req
+	}
+	if p.CPULimit != "" || p.MemLimit != "" {
+		lim := map[string]any{}
+		if p.CPULimit != "" {
+			lim["cpu"] = p.CPULimit
+		}
+		if p.MemLimit != "" {
+			lim["memory"] = p.MemLimit
+		}
+		resources["limits"] = lim
+	}
 	containers := []any{
 		map[string]any{
-			"name":  "main",
-			"image": "ghcr.io/openova-io/test:1",
-			"resources": map[string]any{
-				"limits": map[string]any{
-					"cpu":    p.CPULimit,
-					"memory": p.MemLimit,
-				},
-			},
+			"name":      "main",
+			"image":     "ghcr.io/openova-io/test:1",
+			"resources": resources,
 		},
 	}
 	volumes := make([]any, 0, len(p.PVCs))
@@ -470,6 +488,129 @@ func TestDashboardTreemap_PercentageInRange(t *testing.T) {
 				t.Fatalf("child %s percentage out of range: %f", c.Name, *c.Percentage)
 			}
 		}
+	}
+}
+
+// TestDashboardTreemap_GroupByApplication_CPURequest — size_by=cpu_request
+// sums spec.containers[*].resources.requests.cpu (millicores).
+func TestDashboardTreemap_GroupByApplication_CPURequest(t *testing.T) {
+	h := newDashHandlerWithCache(t, "alpha", false,
+		mkDashPod(dashFixturePod{Namespace: "ns1", Name: "p1", Application: "bp-cilium", Family: "spine", CPURequest: "100m", CPULimit: "500m", Ready: true}),
+		mkDashPod(dashFixturePod{Namespace: "ns1", Name: "p2", Application: "bp-cilium", Family: "spine", CPURequest: "150m", CPULimit: "500m", Ready: true}),
+		mkDashPod(dashFixturePod{Namespace: "ns2", Name: "p3", Application: "bp-keycloak", Family: "pilot", CPURequest: "500m", CPULimit: "2", Ready: true}),
+	)
+	out := dashGet(t, h, "deployment_id=alpha&group_by=application&color_by=health&size_by=cpu_request")
+	bySize := map[string]float64{}
+	for _, it := range out.Items {
+		bySize[it.Name] = it.SizeValue
+	}
+	if bySize["bp-cilium"] != 250 {
+		t.Errorf("bp-cilium cpu_request: got %v want 250m", bySize["bp-cilium"])
+	}
+	if bySize["bp-keycloak"] != 500 {
+		t.Errorf("bp-keycloak cpu_request: got %v want 500m", bySize["bp-keycloak"])
+	}
+}
+
+// TestSumSize_NewSizeByOptions — direct unit tests of sumSize for the
+// 4 new size_by options. The cache-driven integration paths
+// (newDashHandlerWithCache(..., true, ...)) skip in this package by
+// design (covered in k8scache_test); this exercises the math directly.
+func TestSumSize_NewSizeByOptions(t *testing.T) {
+	rows := []podRow{
+		{cpuReq: 100, memReq: 256 * 1024 * 1024, cpuLim: 500, memLim: 1024 * 1024 * 1024, cpuUsage: 75, memUsage: 200 * 1024 * 1024, hasMetrics: true},
+		{cpuReq: 200, memReq: 512 * 1024 * 1024, cpuLim: 800, memLim: 2 * 1024 * 1024 * 1024, cpuUsage: 150, memUsage: 400 * 1024 * 1024, hasMetrics: true},
+	}
+	cases := []struct {
+		sizeBy string
+		want   float64
+	}{
+		{"cpu_request", 300},
+		{"memory_request", 768 * 1024 * 1024},
+		{"cpu_usage", 225},
+		{"memory_usage", 600 * 1024 * 1024},
+		{"cpu_limit", 1300},
+	}
+	for _, c := range cases {
+		got := sumSize(rows, c.sizeBy)
+		if got != c.want {
+			t.Errorf("sumSize(%s)=%v want %v", c.sizeBy, got, c.want)
+		}
+	}
+}
+
+// TestComputePercentage_UtilizationVsRequest — the new utilization
+// formula: denominator is cpu_request, not cpu_limit. Limit unset is
+// fine (and reflects the bp-* chart reality).
+func TestComputePercentage_UtilizationVsRequest(t *testing.T) {
+	rows := []podRow{
+		{cpuReq: 200, cpuUsage: 100, hasMetrics: true},
+	}
+	pct := computePercentage(rows, "utilization")
+	if pct == nil {
+		t.Fatalf("expected non-nil percentage with metrics + request")
+	}
+	if *pct < 49.5 || *pct > 50.5 {
+		t.Errorf("utilization vs request: got %v want ~50", *pct)
+	}
+}
+
+// TestComputePercentage_UtilizationOver100 — over-request utilization
+// is a real signal; do NOT clamp to 100.
+func TestComputePercentage_UtilizationOver100(t *testing.T) {
+	rows := []podRow{
+		{cpuReq: 100, cpuUsage: 250, hasMetrics: true},
+	}
+	pct := computePercentage(rows, "utilization")
+	if pct == nil {
+		t.Fatalf("expected non-nil percentage")
+	}
+	if *pct < 249 || *pct > 251 {
+		t.Errorf("over-request utilization should be ~250%%; got %v", *pct)
+	}
+}
+
+// TestComputePercentage_UtilizationFallsBackToLimit — when request is
+// 0, fall back to limit so legacy charts (limit-only) still surface
+// a percentage instead of returning grey nil.
+func TestComputePercentage_UtilizationFallsBackToLimit(t *testing.T) {
+	rows := []podRow{
+		{cpuReq: 0, cpuLim: 200, cpuUsage: 100, hasMetrics: true},
+	}
+	pct := computePercentage(rows, "utilization")
+	if pct == nil {
+		t.Fatalf("expected fallback to limit when request=0")
+	}
+	if *pct < 49.5 || *pct > 50.5 {
+		t.Errorf("fallback util pct: got %v want ~50", *pct)
+	}
+}
+
+// TestComputePercentage_UtilizationNullWhenNeitherSet — request=0 AND
+// limit=0 (truly unbounded workload) returns nil so the cell renders
+// grey rather than divide-by-zero.
+func TestComputePercentage_UtilizationNullWhenNeitherSet(t *testing.T) {
+	rows := []podRow{
+		{cpuReq: 0, cpuLim: 0, cpuUsage: 50, hasMetrics: true},
+	}
+	pct := computePercentage(rows, "utilization")
+	if pct != nil {
+		t.Errorf("expected nil when request and limit both 0; got %v", *pct)
+	}
+}
+
+// TestDashboardTreemap_DefaultSizeByIsCPURequest — no size_by query
+// param defaults to cpu_request (was cpu_limit before #1084).
+func TestDashboardTreemap_DefaultSizeByIsCPURequest(t *testing.T) {
+	h := newDashHandlerWithCache(t, "alpha", false,
+		mkDashPod(dashFixturePod{Namespace: "ns1", Name: "p1", Application: "bp-app", Family: "spine", CPURequest: "100m", CPULimit: "500m", Ready: true}),
+	)
+	out := dashGet(t, h, "deployment_id=alpha&group_by=application&color_by=health")
+	if len(out.Items) != 1 {
+		t.Fatalf("expected 1 bucket; got %d", len(out.Items))
+	}
+	if out.Items[0].SizeValue != 100 {
+		t.Errorf("default size_by must be cpu_request (100m); got %v", out.Items[0].SizeValue)
 	}
 }
 

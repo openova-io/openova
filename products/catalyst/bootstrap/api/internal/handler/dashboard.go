@@ -97,10 +97,14 @@ var dashboardDimension = map[string]struct{}{
 }
 
 var dashboardSizeBy = map[string]struct{}{
-	"cpu_limit":     {},
-	"memory_limit":  {},
-	"storage_limit": {},
-	"replica_count": {},
+	"cpu_limit":      {},
+	"memory_limit":   {},
+	"storage_limit":  {},
+	"replica_count":  {},
+	"cpu_request":    {},
+	"memory_request": {},
+	"cpu_usage":      {},
+	"memory_usage":   {},
 }
 
 var dashboardColorBy = map[string]struct{}{
@@ -147,7 +151,7 @@ func (h *Handler) GetDashboardTreemap(w http.ResponseWriter, r *http.Request) {
 
 	sizeBy := strings.TrimSpace(q.Get("size_by"))
 	if sizeBy == "" {
-		sizeBy = "cpu_limit"
+		sizeBy = "cpu_request"
 	}
 	if _, ok := dashboardSizeBy[sizeBy]; !ok {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
@@ -184,8 +188,10 @@ type podRow struct {
 	application string  // app.kubernetes.io/instance OR top-level ownerRef name
 	family      string  // catalyst.openova.io/family (default "other")
 	cluster     string  // cluster id (single-Sovereign per page today)
-	cpuLim      float64 // millicores summed across containers
-	memLim      float64 // bytes
+	cpuReq      float64 // millicores summed across containers (resources.requests.cpu)
+	memReq      float64 // bytes (resources.requests.memory)
+	cpuLim      float64 // millicores summed across containers (resources.limits.cpu)
+	memLim      float64 // bytes (resources.limits.memory)
 	storageLim  float64 // bytes — sum of attached PVC requests
 	cpuUsage    float64 // from PodMetrics; 0 when absent
 	memUsage    float64 // from PodMetrics; 0 when absent
@@ -220,13 +226,16 @@ func buildPodRows(pods, pvcs, podMetrics []*unstructured.Unstructured, clusterID
 			isReady:     podIsReady(p),
 			createdAt:   p.GetCreationTimestamp().Time,
 		}
-		// Sum container limits.
+		// Sum container requests + limits.
 		containers, _, _ := unstructured.NestedSlice(p.Object, "spec", "containers")
 		for _, ci := range containers {
 			c, ok := ci.(map[string]any)
 			if !ok {
 				continue
 			}
+			requests, _, _ := unstructured.NestedStringMap(c, "resources", "requests")
+			row.cpuReq += parseQuantityMillicores(requests["cpu"])
+			row.memReq += parseQuantityBytes(requests["memory"])
 			limits, _, _ := unstructured.NestedStringMap(c, "resources", "limits")
 			row.cpuLim += parseQuantityMillicores(limits["cpu"])
 			row.memLim += parseQuantityBytes(limits["memory"])
@@ -456,12 +465,20 @@ func sumSize(rows []podRow, sizeBy string) float64 {
 			total += r.memLim
 		case "storage_limit":
 			total += r.storageLim
+		case "cpu_request":
+			total += r.cpuReq
+		case "memory_request":
+			total += r.memReq
+		case "cpu_usage":
+			total += r.cpuUsage
+		case "memory_usage":
+			total += r.memUsage
 		case "replica_count":
 			if r.isReady {
 				total += 1
 			}
 		default:
-			total += r.cpuLim
+			total += r.cpuReq
 		}
 	}
 	return total
@@ -527,33 +544,41 @@ func computePercentage(rows []podRow, colorBy string) *float64 {
 		}
 		return &v
 	case "utilization":
-		// Σ usage / Σ limit across rows that reported metrics. When NO
-		// row has metrics, return nil → null in JSON → grey cell.
-		var sumUsage, sumLimit float64
+		// Σ usage / Σ request across rows that reported metrics.
+		// Requests are the denominator because operators size their
+		// workloads to a request and treat over-request as the
+		// over-utilization signal — limits are usually unset on bp-*
+		// charts (limits cause throttling). Falls back to limits when
+		// requests are unset (legacy charts), and finally returns nil
+		// when neither metrics nor a budget exist.
+		var sumUsage, sumReq, sumLim float64
 		anyMetrics := false
 		for _, r := range rows {
 			if !r.hasMetrics {
 				continue
 			}
 			anyMetrics = true
-			// Use cpu by default; the UI treemap is single-resource per
-			// request, so cpu/memory utilisation tracks size_by tightly
-			// enough at this level. A future split into separate
-			// cpu_utilization / memory_utilization color metrics would
-			// branch here.
 			sumUsage += r.cpuUsage
-			sumLimit += r.cpuLim
+			sumReq += r.cpuReq
+			sumLim += r.cpuLim
 		}
-		if !anyMetrics || sumLimit == 0 {
+		if !anyMetrics {
 			return nil
 		}
-		v := 100.0 * sumUsage / sumLimit
+		denom := sumReq
+		if denom == 0 {
+			denom = sumLim
+		}
+		if denom == 0 {
+			return nil
+		}
+		v := 100.0 * sumUsage / denom
 		if v < 0 {
 			v = 0
 		}
-		if v > 100 {
-			v = 100
-		}
+		// >100% is a real signal (over-request) — keep it. Renderer
+		// clamps for color but tooltip surfaces the true value so
+		// operators can scale up.
 		return &v
 	default:
 		return nil

@@ -54,25 +54,39 @@ export type TreemapColorBy = 'utilization' | 'health' | 'age'
  * What drives box AREA. Every choice ends up in `size_value` on the
  * cell — the renderer never has to translate at the render layer.
  *
- *   • cpu_limit      — sum of `resources.limits.cpu` across all pods (millicores)
+ *   • cpu_request    — sum of `resources.requests.cpu` (millicores) — DEFAULT
+ *   • memory_request — sum of `resources.requests.memory` (bytes)
+ *   • cpu_usage      — sum of PodMetrics `usage.cpu` (live, millicores)
+ *   • memory_usage   — sum of PodMetrics `usage.memory` (live, bytes)
+ *   • cpu_limit      — sum of `resources.limits.cpu` (millicores)
  *   • memory_limit   — sum of `resources.limits.memory` (bytes)
  *   • storage_limit  — sum of PVC `requests.storage` (bytes)
- *   • replica_count  — sum of `spec.replicas` across the matched workloads
+ *   • replica_count  — sum of ready pods across the matched workloads
+ *
+ * `cpu_request` is the dashboard default — most bp-* charts ship
+ * without container limits set (limits cause throttling), so a
+ * limits-only view shows tiny or empty cells. Requests are always set
+ * and tell operators what the cluster has actually budgeted.
  */
 export type TreemapSizeBy =
+  | 'cpu_request'
+  | 'memory_request'
+  | 'cpu_usage'
+  | 'memory_usage'
   | 'cpu_limit'
   | 'memory_limit'
   | 'storage_limit'
   | 'replica_count'
 
 /**
- * Capacity metrics that auto-lock `colorBy` to the matching utilisation
- * dimension. When sizing by cpu/memory/storage capacity the only
- * meaningful color overlay is "how much of that capacity is in use" —
- * the controller enforces this server-side AND on the client to avoid
- * an inconsistent UX between the request URL and the dropdown state.
+ * Capacity-style metrics that auto-lock `colorBy` to `utilization`.
+ * `cpu_usage` and `memory_usage` are live signals — the `utilization`
+ * color overlay would be tautological when sized by usage, so they
+ * are NOT in this set and the operator can pick any color metric.
  */
 export const CAPACITY_SIZE_METRICS: ReadonlySet<TreemapSizeBy> = new Set([
+  'cpu_request',
+  'memory_request',
   'cpu_limit',
   'memory_limit',
   'storage_limit',
@@ -177,7 +191,10 @@ export async function getDashboardTreemap(
  *   50  → green  (#10B981 — optimum)
  *   100 → red    (#EF4444 — over-utilised / hot)
  *
- * Returns an `rgb(R,G,B)` CSS string. Out-of-range inputs are clamped.
+ * Returns an `rgb(R,G,B)` CSS string. Inputs are clamped to [0, 100]
+ * for color purposes — the BE may emit percentages > 100 (over-request
+ * is a real signal), and those map to the same red endpoint, but the
+ * tooltip surfaces the raw value so operators see the magnitude.
  *
  * The two stops are interpolated component-wise so any percentage maps
  * to a deterministic colour — no palette table, no nearest-bucket
