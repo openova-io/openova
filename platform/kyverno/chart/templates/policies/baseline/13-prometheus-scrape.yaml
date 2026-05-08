@@ -1,0 +1,69 @@
+{{/*
+K1 — prometheus-scrape (observability, permissive default).
+
+Workload-rendering resources should be observable: either Pod template
+carries `prometheus.io/scrape: "true"` annotation, OR the workload has
+an associated Service / PodMonitor / ServiceMonitor (the
+prometheus-operator path) — encoded here as a label
+`monitoring.coreos.com/managed: "true"` on the metadata.
+
+Kyverno can't natively discover an "associated PodMonitor" without
+context.apiCall enumeration; the canonical seam is the label, which
+the operator adds when generating monitoring resources for a workload.
+
+Default mode permissive per design §4.3.
+*/}}
+{{- if .Values.compliancePolicies.prometheusScrape.enabled -}}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: prometheus-scrape
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: observability
+  annotations:
+    policies.kyverno.io/title: Workloads should be Prometheus-scrape-targeted
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: low
+    policies.kyverno.io/description: >-
+      Pod template should carry prometheus.io/scrape="true" annotation,
+      OR the workload labels declare monitoring.coreos.com/managed=true
+      indicating an operator-managed PodMonitor / ServiceMonitor exists.
+spec:
+  validationFailureAction: {{ .Values.compliancePolicies.prometheusScrape.action | default "Audit" }}
+  background: true
+  rules:
+    - name: workload-must-be-scrape-targeted
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+                - StatefulSet
+                - DaemonSet
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                {{- range $ns := .Values.compliancePolicies.prometheusScrape.excludeNamespaces }}
+                - {{ $ns }}
+                {{- end }}
+      validate:
+        message: >-
+          Workload
+          {{ `{{request.object.kind}}/{{request.object.metadata.name}}` }} is
+          not declared a Prometheus scrape target. Either annotate the
+          Pod template with `prometheus.io/scrape: "true"` or label the
+          workload with `monitoring.coreos.com/managed: "true"`.
+        anyPattern:
+          - spec:
+              template:
+                metadata:
+                  annotations:
+                    prometheus.io/scrape: "true"
+          - metadata:
+              labels:
+                monitoring.coreos.com/managed: "true"
+{{- end -}}

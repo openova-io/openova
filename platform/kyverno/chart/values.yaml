@@ -192,3 +192,164 @@ kyvernoOverlay:
         - monitoring
         - ingress
         - default
+
+# ─── EPIC-1 (#1096) compliance policy library ───────────────────────────
+# Slice K (#1096) ships 20 ClusterPolicy template slots; one is deferred
+# to slice W2 (hubble-flows-seen — a Go evaluator), so 19 will render at
+# most. Every policy is default-OFF; per-Sovereign overlay opts in.
+#
+# Schema per policy:
+#   <name>:
+#     enabled: bool                      # required — gate
+#     action: "Audit" | "Enforce"        # default Audit; flipped per-Environment
+#                                        # by EnvironmentPolicy.spec.compliance.modes
+#                                        # (slice C2 controller, future)
+#     excludeNamespaces: [string]        # control-plane ns exemption list
+#     <policy-specific knobs>            # e.g. allowedRegistryRegex
+#
+# Default action is `Audit` for every policy (permissive mode). Per
+# docs/EPICS-1-6-unified-design.md §4.3 some policies have an
+# "enforcing" default mode — those defaults are applied by the future
+# environment-controller when it materializes a default
+# EnvironmentPolicy on every Environment, NOT here. This values file is
+# the per-Sovereign baseline; the Environment-level defaults are the
+# next layer up.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 — every value is overridable.
+compliancePolicies:
+  # K1 baseline policies
+  multiReplica:
+    enabled: false
+    action: Audit
+    excludeNamespaces: &complianceDefaultExcludes
+      - kube-system
+      - flux-system
+      - cilium
+      - cilium-gateway
+      - cert-manager
+      - openova-system
+      - catalyst
+      - kyverno
+      - monitoring
+      - ingress
+
+  pdb:
+    enabled: false
+    action: Audit
+    excludeNamespaces: *complianceDefaultExcludes
+
+  topologySpread:
+    enabled: false
+    action: Audit
+    excludeNamespaces: *complianceDefaultExcludes
+
+  probesPresent:
+    enabled: false
+    action: Audit
+    excludeNamespaces: *complianceDefaultExcludes
+
+  resourceRequests:
+    enabled: false
+    action: Audit
+    excludeNamespaces: *complianceDefaultExcludes
+
+  resourceLimits:
+    enabled: false
+    action: Audit
+    excludeNamespaces: *complianceDefaultExcludes
+
+  pvcExpansion:
+    enabled: false
+    action: Audit
+    excludeNamespaces: *complianceDefaultExcludes
+
+  hpaEffective:
+    enabled: false
+    action: Audit
+    excludeNamespaces: *complianceDefaultExcludes
+
+  ciliumL7Mtls:
+    enabled: false
+    action: Audit
+    excludeNamespaces: *complianceDefaultExcludes
+
+  fluxManaged:
+    enabled: false
+    action: Audit
+    excludeNamespaces: *complianceDefaultExcludes
+
+  harborProxyPull:
+    enabled: false
+    action: Audit
+    excludeNamespaces: *complianceDefaultExcludes
+    # Operator overrides per-Sovereign (e.g.
+    # "^harbor\\.omantel\\.openova\\.io/proxy-(ghcr|dockerhub|quay)/.*").
+    # The default below allows any host of the form
+    # `harbor.<sovereign-domain>/proxy-<upstream>/*`. Operator narrows
+    # this per Sovereign overlay. Empty pattern would match everything,
+    # which would silently disable the rule.
+    allowedRegistryRegex: "^harbor\\..+/proxy-(ghcr|dockerhub|quay|registry-1\\.docker\\.io)/.*"
+
+  imageTagPinned:
+    enabled: false
+    action: Audit
+    excludeNamespaces: *complianceDefaultExcludes
+
+  prometheusScrape:
+    enabled: false
+    action: Audit
+    excludeNamespaces: *complianceDefaultExcludes
+
+  # K2 added policies
+  networkpolicyPresent:
+    enabled: false
+    action: Audit
+    # Match on Namespace kind — `excludeNamespaces` here is consumed via
+    # `resources.names` (the namespace IS the resource). Same default
+    # exemption set as the workload policies.
+    excludeNamespaces: *complianceDefaultExcludes
+
+  otelInjected:
+    enabled: false
+    action: Audit
+    excludeNamespaces: *complianceDefaultExcludes
+
+  hubbleFlowsSeen:
+    # DEFERRED — see template stub for K2 #16. The Kyverno gate is a
+    # no-op; W2 evaluator does the actual check. Setting enabled=true
+    # today is harmless (renders nothing) but reserved as the cutover
+    # knob once W2 lands so operators can toggle a single flag.
+    enabled: false
+    action: Audit
+    excludeNamespaces: *complianceDefaultExcludes
+
+  runAsNonRootReadonlyRootFs:
+    enabled: false
+    action: Audit
+    excludeNamespaces: *complianceDefaultExcludes
+
+  cosignVerified:
+    enabled: false
+    action: Audit
+    excludeNamespaces: *complianceDefaultExcludes
+    # Cosign verifyImages rule fields. Defaults reference openova-io
+    # images only; operator extends per Sovereign.
+    imageReferences:
+      - "ghcr.io/openova-io/*"
+    # Cosign public key (PEM). Empty default means the rule emits an
+    # invalid policy until operator supplies a real key — surfaces the
+    # config gap rather than silently passing. Per
+    # docs/INVIOLABLE-PRINCIPLES.md #4 this is operator-configurable,
+    # NOT hardcoded.
+    publicKey: ""
+    rekorURL: "https://rekor.sigstore.dev"
+
+  secretNotInEnv:
+    enabled: false
+    action: Audit
+    excludeNamespaces: *complianceDefaultExcludes
+
+  backupConfigured:
+    enabled: false
+    action: Audit
+    excludeNamespaces: *complianceDefaultExcludes

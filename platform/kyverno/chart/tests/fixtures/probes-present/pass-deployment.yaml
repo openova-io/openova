@@ -1,0 +1,27 @@
+# Passing case: both liveness and readiness probes declared.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pass-probes
+  namespace: example
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: pass-probes
+  template:
+    metadata:
+      labels:
+        app: pass-probes
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080

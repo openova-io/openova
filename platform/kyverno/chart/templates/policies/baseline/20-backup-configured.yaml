@@ -1,0 +1,73 @@
+{{/*
+K2 — backup-configured (resilience, permissive default; stateful only).
+
+PersistentVolumeClaim resources must carry a Velero backup annotation
+indicating they're included in a backup schedule:
+`velero.io/backup-volumes: "<volume-name>"` on the PVC's owning Pod
+(Velero's documented seam) OR a label
+`velero.io/managed-by-schedule: "<schedule-name>"` on the PVC itself
+(set by an operator-provided ScheduledBackup whose label-selector
+matches).
+
+Stateless workloads have no PVCs and drop out of the score denominator
+(per design §4.3 footnote on N/A handling).
+
+The Velero ScheduledBackup CR existence side of the contract (does the
+referenced schedule actually exist?) is not validatable from a Kyverno
+policy without context.apiCall enumeration of the velero.io/v1
+schedules namespace. The S1 score aggregator can join that side
+cheaply since it already watches the namespace; this policy only
+asserts the PVC carries the annotation/label.
+
+Default mode permissive per design §4.3.
+*/}}
+{{- if .Values.compliancePolicies.backupConfigured.enabled -}}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: backup-configured
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: resilience
+  annotations:
+    policies.kyverno.io/title: Stateful workloads must have a Velero backup configured
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      PVCs must declare a Velero backup binding via either annotation
+      `velero.io/backup-volumes` on the owning Pod template OR label
+      `velero.io/managed-by-schedule` on the PVC itself.
+spec:
+  validationFailureAction: {{ .Values.compliancePolicies.backupConfigured.action | default "Audit" }}
+  background: true
+  rules:
+    - name: pvc-must-be-velero-backed
+      match:
+        any:
+          - resources:
+              kinds:
+                - PersistentVolumeClaim
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                {{- range $ns := .Values.compliancePolicies.backupConfigured.excludeNamespaces }}
+                - {{ $ns }}
+                {{- end }}
+      validate:
+        message: >-
+          PVC {{ `{{request.object.metadata.name}}` }} is not declared
+          as part of a Velero backup. Add label
+          `velero.io/managed-by-schedule: "<schedule-name>"` (matching
+          a Velero ScheduledBackup) or annotate the owning Pod template
+          with `velero.io/backup-volumes`.
+        anyPattern:
+          - metadata:
+              labels:
+                velero.io/managed-by-schedule: "?*"
+          - metadata:
+              annotations:
+                velero.io/backup-volumes: "?*"
+{{- end -}}

@@ -1,0 +1,19 @@
+# Failing case: no resources block at all (BestEffort).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fail-requests
+  namespace: example
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: fail-requests
+  template:
+    metadata:
+      labels:
+        app: fail-requests
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0

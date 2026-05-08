@@ -1,0 +1,23 @@
+# Passing case: cpu + memory requests declared.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pass-requests
+  namespace: example
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: pass-requests
+  template:
+    metadata:
+      labels:
+        app: pass-requests
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi

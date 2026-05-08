@@ -1,0 +1,64 @@
+{{/*
+K1 — multi-replica-drainability (resilience, permissive default).
+
+Drainability gate: Deployment / StatefulSet must declare replicas >= 2 so
+that voluntary node drains and rolling updates can keep at least one
+replica serving traffic. Single-replica workloads are fine for batch
+jobs and for explicitly-singleton services (databases with their own HA
+mechanism), but for the general case they break the eviction contract.
+
+Default mode is permissive (Audit) per docs/EPICS-1-6-unified-design.md
+§4.3 — flipped to Enforce per-Environment via EnvironmentPolicy.spec.
+compliance.modes.multiReplica.
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 every value here is configurable
+via .Values.compliancePolicies.multiReplica.* — operators override per
+Sovereign overlay.
+*/}}
+{{- if .Values.compliancePolicies.multiReplica.enabled -}}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: multi-replica-drainability
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: resilience
+  annotations:
+    policies.kyverno.io/title: Workloads must declare 2+ replicas
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      Deployments and StatefulSets must declare spec.replicas >= 2 so
+      voluntary disruptions (node drains, rolling updates) can preserve
+      at least one healthy replica.
+spec:
+  validationFailureAction: {{ .Values.compliancePolicies.multiReplica.action | default "Audit" }}
+  background: true
+  rules:
+    - name: replicas-at-least-two
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+                - StatefulSet
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                {{- range $ns := .Values.compliancePolicies.multiReplica.excludeNamespaces }}
+                - {{ $ns }}
+                {{- end }}
+      validate:
+        message: >-
+          {{ `{{request.object.kind}}/{{request.object.metadata.name}}` }} declares
+          fewer than 2 replicas. Drainability requires spec.replicas >= 2 so
+          voluntary disruptions can keep at least one replica serving traffic.
+          Bump spec.replicas, or exempt this workload by adding its namespace
+          to .Values.compliancePolicies.multiReplica.excludeNamespaces.
+        pattern:
+          spec:
+            replicas: ">=2"
+{{- end -}}

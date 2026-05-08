@@ -1,0 +1,74 @@
+{{/*
+K1 — harbor-proxy-pull (governance, ENFORCING default).
+
+Container images must be pulled through the Sovereign's local Harbor
+proxy — references like `harbor.<sovereign-domain>/proxy-ghcr/...`,
+`harbor.<sovereign-domain>/proxy-dockerhub/...`, etc. Direct pulls from
+ghcr.io, docker.io, quay.io, etc. break the air-gap-ready posture and
+the per-Sovereign vulnerability scanning gate.
+
+The exact regex for the allowed registry prefix is operator-configurable
+via .Values.compliancePolicies.harborProxyPull.allowedRegistryRegex
+(per docs/INVIOLABLE-PRINCIPLES.md #4) — different Sovereigns are
+deployed at different domains, so hardcoding `harbor.omantel.openova.io`
+would fail every other Sovereign.
+
+Default mode enforcing per design §4.3. Operators flip to Audit while
+seeding the Harbor proxy on a fresh Sovereign and back to Enforce
+after the proxy is warm.
+*/}}
+{{- if .Values.compliancePolicies.harborProxyPull.enabled -}}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: harbor-proxy-pull
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: governance
+  annotations:
+    policies.kyverno.io/title: Container images must pull through the Sovereign Harbor proxy
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >-
+      Container images must reference a Sovereign-local Harbor proxy
+      registry. Operator configures the allowed regex via
+      .Values.compliancePolicies.harborProxyPull.allowedRegistryRegex.
+spec:
+  validationFailureAction: {{ .Values.compliancePolicies.harborProxyPull.action | default "Audit" }}
+  background: true
+  rules:
+    - name: image-must-be-from-harbor-proxy
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+                - Deployment
+                - StatefulSet
+                - DaemonSet
+                - Job
+                - CronJob
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                {{- range $ns := .Values.compliancePolicies.harborProxyPull.excludeNamespaces }}
+                - {{ $ns }}
+                {{- end }}
+      validate:
+        message: >-
+          Container image does not match the allowed Harbor-proxy regex
+          {{ .Values.compliancePolicies.harborProxyPull.allowedRegistryRegex | quote }}.
+          Re-tag the image to pull through the Sovereign's local Harbor
+          proxy (e.g. harbor.<sovereign-domain>/proxy-ghcr/...).
+        foreach:
+          - list: "request.object.spec.containers || request.object.spec.template.spec.containers"
+            deny:
+              conditions:
+                all:
+                  - key: '{{ `{{ element.image }}` }}'
+                    operator: NotMatch
+                    value: {{ .Values.compliancePolicies.harborProxyPull.allowedRegistryRegex | quote }}
+{{- end -}}

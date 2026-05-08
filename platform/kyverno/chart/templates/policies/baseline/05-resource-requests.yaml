@@ -1,0 +1,67 @@
+{{/*
+K1 — resource-requests (resilience, ENFORCING default).
+
+Every container must declare resources.requests.cpu AND
+resources.requests.memory. Without requests, the scheduler treats the
+Pod as BestEffort, which means it (a) gets evicted first under
+pressure and (b) can't be reasoned about for capacity planning.
+
+Default mode enforcing per design §4.3 — requests are mandatory for
+Catalyst's per-Org accounting (slice S1 sums them for billing
+projection) so missing values silently corrupt the rollup.
+*/}}
+{{- if .Values.compliancePolicies.resourceRequests.enabled -}}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: resource-requests
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: resilience
+  annotations:
+    policies.kyverno.io/title: Containers must declare CPU and memory requests
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >-
+      Every container must declare resources.requests.cpu AND
+      resources.requests.memory. BestEffort Pods evict first under
+      pressure and can't be reasoned about for capacity planning or
+      per-Org cost rollups.
+spec:
+  validationFailureAction: {{ .Values.compliancePolicies.resourceRequests.action | default "Audit" }}
+  background: true
+  rules:
+    - name: containers-must-declare-cpu-memory-requests
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+                - StatefulSet
+                - DaemonSet
+                - Job
+                - CronJob
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                {{- range $ns := .Values.compliancePolicies.resourceRequests.excludeNamespaces }}
+                - {{ $ns }}
+                {{- end }}
+      validate:
+        message: >-
+          Every container in
+          {{ `{{request.object.kind}}/{{request.object.metadata.name}}` }} must
+          declare resources.requests.cpu and resources.requests.memory.
+        pattern:
+          spec:
+            template:
+              spec:
+                containers:
+                  - resources:
+                      requests:
+                        cpu: "?*"
+                        memory: "?*"
+{{- end -}}

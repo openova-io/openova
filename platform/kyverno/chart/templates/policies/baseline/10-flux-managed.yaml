@@ -1,0 +1,78 @@
+{{/*
+K1 — flux-managed (governance, ENFORCING default).
+
+Every workload-rendering resource on a Sovereign must be managed by
+Flux — i.e. owned by a Kustomization or HelmRelease, OR carry the
+`app.kubernetes.io/managed-by: flux` label as a fallback. Direct
+`kubectl apply` is the standing anti-pattern (see CLAUDE.md §4 — IaC
+first).
+
+Catalyst's mutate-add-openova-labels (slice E1) writes the
+`openova.io/managed-by: flux` label when an ownerReference points at a
+Flux resource, so this validate rule MAY be in tension with E1's mutate
+on the very first admission cycle. To avoid the tension, this rule
+checks `app.kubernetes.io/managed-by`, the canonical label the
+upstream Flux controllers themselves write — not Catalyst's overlay
+label.
+
+Default mode enforcing per design §4.3.
+*/}}
+{{- if .Values.compliancePolicies.fluxManaged.enabled -}}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: flux-managed
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: governance
+  annotations:
+    policies.kyverno.io/title: Workloads must be managed by Flux
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >-
+      Workload-rendering resources must carry
+      `app.kubernetes.io/managed-by: flux` (the upstream Flux label) OR
+      have an ownerReference pointing at a HelmRelease / Kustomization.
+      Direct kubectl apply is rejected — IaC-first per
+      docs/INVIOLABLE-PRINCIPLES.md #3.
+spec:
+  validationFailureAction: {{ .Values.compliancePolicies.fluxManaged.action | default "Audit" }}
+  background: true
+  rules:
+    - name: workload-must-be-flux-managed
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+                - StatefulSet
+                - DaemonSet
+                - Job
+                - CronJob
+                - Service
+                - Ingress
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                {{- range $ns := .Values.compliancePolicies.fluxManaged.excludeNamespaces }}
+                - {{ $ns }}
+                {{- end }}
+      validate:
+        message: >-
+          {{ `{{request.object.kind}}/{{request.object.metadata.name}}` }} is
+          not Flux-managed. Add label
+          `app.kubernetes.io/managed-by: flux` on metadata.labels OR
+          attach an ownerReference to a HelmRelease / Kustomization.
+        deny:
+          conditions:
+            all:
+              - key: '{{ `{{ request.object.metadata.labels."app.kubernetes.io/managed-by" || '''' }}` }}'
+                operator: NotEquals
+                value: flux
+              - key: '{{ `{{ length(request.object.metadata.ownerReferences[?kind==''HelmRelease'' || kind==''Kustomization'']) }}` }}'
+                operator: Equals
+                value: 0
+{{- end -}}

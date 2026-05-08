@@ -1,0 +1,68 @@
+{{/*
+K1 — probes-present (resilience, ENFORCING default).
+
+Every container in a Deployment / StatefulSet / DaemonSet must declare
+both livenessProbe AND readinessProbe. Without these, kubelet can't
+detect a wedged process and Service can't gate traffic during startup,
+which routinely produces 503 cascades during rollouts.
+
+Default mode enforcing per design §4.3 — this is one of the rules with
+near-universal industry consensus, so blocking new violators is safer
+than auditing.
+
+Init containers and ephemeralContainers are NOT subject to this rule
+(K8s API doesn't accept liveness/readiness probes on initContainers).
+*/}}
+{{- if .Values.compliancePolicies.probesPresent.enabled -}}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: probes-present
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: resilience
+  annotations:
+    policies.kyverno.io/title: Containers must declare liveness and readiness probes
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >-
+      Every primary container in a Deployment / StatefulSet / DaemonSet
+      must declare both livenessProbe and readinessProbe. Without
+      probes, kubelet can't detect a wedged process and Service can't
+      gate traffic during startup.
+spec:
+  validationFailureAction: {{ .Values.compliancePolicies.probesPresent.action | default "Audit" }}
+  background: true
+  rules:
+    - name: containers-must-have-liveness-and-readiness
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+                - StatefulSet
+                - DaemonSet
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                {{- range $ns := .Values.compliancePolicies.probesPresent.excludeNamespaces }}
+                - {{ $ns }}
+                {{- end }}
+      validate:
+        message: >-
+          Every container in
+          {{ `{{request.object.kind}}/{{request.object.metadata.name}}` }} must
+          declare both livenessProbe and readinessProbe.
+        pattern:
+          spec:
+            template:
+              spec:
+                containers:
+                  - livenessProbe:
+                      "?{}": "?*"
+                    readinessProbe:
+                      "?{}": "?*"
+{{- end -}}

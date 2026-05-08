@@ -1,0 +1,34 @@
+{{/*
+K2 — hubble-flows-seen (security, permissive default — DEFERRED to W2).
+
+This policy is intentionally a COMMENT-ONLY STUB. Kyverno cannot
+natively introspect Cilium Hubble's flow telemetry to verify "this Pod
+saw at least one flow in the last 5 minutes" — that requires querying
+the Hubble Observer gRPC API, which lives outside Kubernetes admission.
+
+The check is implemented by the W2 evaluator (`internal/k8scache/
+evaluators/hubble.go` per the EPIC-1 master brief §Group W). The
+evaluator emits a synthetic PolicyReport row keyed by Pod with the
+result; the slice S1 score aggregator joins it identically to native
+Kyverno PolicyReports.
+
+This file is committed (rather than absent) so the policy slot is
+explicit in the bundle and the design contract is visible at a glance.
+The `enabled: false` gate plus this comment-only body means rendering
+emits zero K8s resources today, regardless of values.
+
+If a future Kyverno release lands an `apiCall.serviceURL` capability
+that lets ClusterPolicies hit arbitrary in-cluster gRPC endpoints,
+revisit this file — until then, leave the W2 evaluator as the sole
+path.
+
+DO NOT add a ClusterPolicy body below — the value gate plus this
+comment is the deliverable.
+*/}}
+{{- if .Values.compliancePolicies.hubbleFlowsSeen.enabled -}}
+{{- /*
+  Intentionally renders nothing. See header comment.
+  W2 evaluator (`internal/k8scache/evaluators/hubble.go`) emits the
+  synthetic PolicyReport row for the score aggregator.
+*/ -}}
+{{- end -}}

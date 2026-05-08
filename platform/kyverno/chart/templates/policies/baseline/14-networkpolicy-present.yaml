@@ -1,0 +1,73 @@
+{{/*
+K2 — networkpolicy-present (security, permissive default).
+
+A workload's namespace must contain at least one NetworkPolicy or
+CiliumNetworkPolicy. Without one, all east-west traffic is wide-open
+within the namespace (default-allow). Industry consensus is to enforce
+a default-deny baseline + explicit allow rules per workload.
+
+This rule fires on Namespace creation/update — context.apiCall queries
+the namespace for NetworkPolicy / CiliumNetworkPolicy and denies if the
+list is empty. Per-workload coverage (does any policy actually select
+THIS Pod) is inspectable but expensive — deferred to W2 evaluator.
+
+Default mode permissive per design §4.3.
+*/}}
+{{- if .Values.compliancePolicies.networkpolicyPresent.enabled -}}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: networkpolicy-present
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: security
+  annotations:
+    policies.kyverno.io/title: Namespaces must declare at least one NetworkPolicy
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      Namespaces must contain at least one NetworkPolicy or
+      CiliumNetworkPolicy so east-west traffic is mediated.
+spec:
+  validationFailureAction: {{ .Values.compliancePolicies.networkpolicyPresent.action | default "Audit" }}
+  background: true
+  rules:
+    - name: namespace-must-have-networkpolicy
+      match:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+      exclude:
+        any:
+          - resources:
+              names:
+                {{- range $ns := .Values.compliancePolicies.networkpolicyPresent.excludeNamespaces }}
+                - {{ $ns }}
+                {{- end }}
+      context:
+        - name: npCount
+          apiCall:
+            urlPath: "/apis/networking.k8s.io/v1/namespaces/{{ `{{request.object.metadata.name}}` }}/networkpolicies"
+            jmesPath: "length(items)"
+        - name: cnpCount
+          apiCall:
+            urlPath: "/apis/cilium.io/v2/namespaces/{{ `{{request.object.metadata.name}}` }}/ciliumnetworkpolicies"
+            jmesPath: "length(items) || `0`"
+      validate:
+        message: >-
+          Namespace {{ `{{request.object.metadata.name}}` }} contains no
+          NetworkPolicy and no CiliumNetworkPolicy. Add at least one
+          policy to mediate east-west traffic.
+        deny:
+          conditions:
+            all:
+              - key: '{{ `{{ npCount }}` }}'
+                operator: Equals
+                value: 0
+              - key: '{{ `{{ cnpCount }}` }}'
+                operator: Equals
+                value: 0
+{{- end -}}

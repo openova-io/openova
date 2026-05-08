@@ -1,0 +1,67 @@
+{{/*
+K1 — resource-limits (resilience, permissive default).
+
+Every container should declare resources.limits.cpu AND
+resources.limits.memory. Limits are weaker than requests
+(workloads CAN run without them) and over-tight CPU limits hurt
+throughput, but no-limits-at-all means a single misbehaving Pod can
+exhaust a node.
+
+Default mode permissive (Audit) per design §4.3 — operators may
+flip to Enforce on regulated Environments where noisy-neighbor
+isolation is mandatory.
+*/}}
+{{- if .Values.compliancePolicies.resourceLimits.enabled -}}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: resource-limits
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: resilience
+  annotations:
+    policies.kyverno.io/title: Containers should declare CPU and memory limits
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: low
+    policies.kyverno.io/description: >-
+      Every container should declare resources.limits.cpu AND
+      resources.limits.memory. Without limits, a single Pod can
+      exhaust a node and starve neighbors.
+spec:
+  validationFailureAction: {{ .Values.compliancePolicies.resourceLimits.action | default "Audit" }}
+  background: true
+  rules:
+    - name: containers-must-declare-cpu-memory-limits
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+                - StatefulSet
+                - DaemonSet
+                - Job
+                - CronJob
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                {{- range $ns := .Values.compliancePolicies.resourceLimits.excludeNamespaces }}
+                - {{ $ns }}
+                {{- end }}
+      validate:
+        message: >-
+          Every container in
+          {{ `{{request.object.kind}}/{{request.object.metadata.name}}` }} must
+          declare resources.limits.cpu and resources.limits.memory.
+        pattern:
+          spec:
+            template:
+              spec:
+                containers:
+                  - resources:
+                      limits:
+                        cpu: "?*"
+                        memory: "?*"
+{{- end -}}
