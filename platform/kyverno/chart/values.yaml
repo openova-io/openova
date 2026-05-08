@@ -125,12 +125,70 @@ kyverno:
     installCrds: false
 
 # ─── Catalyst overlay values (consumed by templates/ in this chart) ──────
-# Reserved for Catalyst-side overlays (NetworkPolicy, baseline policy
-# bundle) added in a follow-up PR once bp-kyverno is consumed in
-# clusters/_template/.
 kyvernoOverlay:
   networkPolicy:
     enabled: false
   # Default policy bundle — empty; per-Sovereign overlays SET to
   # `pod-security`, `best-practices`, etc. once the policy library lands.
   policyBundle: ""
+
+  # Label-vocabulary enforcement policies (slices E1+E2 of #1095). Two
+  # ClusterPolicies that together implement the contract in
+  # docs/EPICS-1-6-unified-design.md §1 (label vocab is the join key
+  # across compliance, RBAC, billing, networking).
+  labelVocab:
+    # E1 — mutate-add-openova-labels
+    # Mutating ClusterPolicy that, at admission, derives missing
+    # openova.io/{org,environment,application,blueprint,vcluster,host-cluster,
+    # sovereign} labels from the resource's namespace + ownerReferences and
+    # adds them. Default OFF — operator opts in once Organization (slice
+    # B1) + Environment (slice B2) CRs exist on the cluster, otherwise
+    # the derivation has nothing to read from.
+    mutate:
+      enabled: false
+
+    # E2 — validate-require-openova-labels
+    # Validating ClusterPolicy that REJECTS resources missing the required
+    # openova.io/* labels (permissive Audit by default; per-Environment
+    # overlay flips to Enforce via EnvironmentPolicy in EPIC-1 #1096).
+    # Default OFF — turn on after slice C1/C4 controllers populate labels
+    # so existing Sovereign control-plane resources don't trip on it.
+    validate:
+      enabled: false
+      # Audit | Enforce — permissive vs blocking. EnvironmentPolicy.spec.modes
+      # drives this per-environment in EPIC-1.
+      action: Audit
+      # Resource kinds the policy gates. Limited to workload kinds so
+      # control-plane Secrets / ConfigMaps don't trip on missing org labels.
+      resourceKinds:
+        - Deployment
+        - StatefulSet
+        - DaemonSet
+        - Job
+        - CronJob
+        - Service
+        - Ingress
+      # Required label keys. Subset of the §1 vocab — only the labels
+      # workload-rendering controllers populate. Cluster-scope labels
+      # (provider/region/bb/env-type/host-cluster) are set elsewhere.
+      requiredLabels:
+        - openova.io/organization
+        - openova.io/environment
+        - openova.io/application
+        - openova.io/blueprint
+        - openova.io/managed-by
+      # Namespaces exempted from the validate rule (control-plane
+      # namespaces that pre-date the label vocab — operator extends the
+      # set per Sovereign).
+      excludeNamespaces:
+        - kube-system
+        - flux-system
+        - cilium
+        - cilium-gateway
+        - cert-manager
+        - openova-system
+        - catalyst
+        - kyverno
+        - monitoring
+        - ingress
+        - default
