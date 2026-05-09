@@ -14,7 +14,7 @@ name: bp-k8s-ws-proxy
 # 0.1.5 on merge (with the new image SHA in values.yaml). Slot pin
 # at 0.1.5 so omantel reconciles against the chart that carries
 # BOTH the imagePullSecrets default AND the new image SHA.
-version: 0.1.4
+version: 0.1.5
 appVersion: "0.1.0"
 description: |
   Catalyst-authored Blueprint chart for the k8s-ws-proxy DaemonSet —
