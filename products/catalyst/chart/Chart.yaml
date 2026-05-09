@@ -1,5 +1,18 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.94 (qa-loop iter-2 Fix #17): expand catalyst-api-cutover-driver
+# ClusterRole with get/list/watch verbs on the CRDs needed by the
+# generic /k8s/{kind} surface — catalyst.openova.io/blueprints,
+# catalyst.openova.io/environments, orgs.openova.io/organizations.
+# Pairs with the same-PR addition of helmrelease/useraccess/
+# application/blueprint/organization/environment to k8scache.DefaultKinds
+# and the new GET /api/v1/version probe endpoint. Fixes the matrix
+# "unknown kind" 404 on TC-070..075 and the missing /version endpoint
+# on TC-261. Per feedback_chroot_in_cluster_fallback.md: every new GVR
+# added to k8scache.DefaultKinds MUST get a matching rule in this
+# ClusterRole — the chroot SovereignClient uses this SA via in-cluster
+# fallback.
+#
 # 1.4.22 (#915 SME blockers — issues #934/#940/#941/#942/#943/#944): six
 # coupled chart + orchestrator fixes that unblock alice signup gates 2-6
 # on a freshly franchised Sovereign. C5-final got Gate 1 GREEN on
@@ -153,8 +166,8 @@ name: bp-catalyst-platform
 # precedence so openbao auto-rotation of the source doesn't thrash the
 # controller pod. Caught live on omantel 2026-05-09 during qa-loop
 # iter-1 Executor run.
-version: 1.4.93
-appVersion: 1.4.93
+version: 1.4.94
+appVersion: 1.4.94
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.

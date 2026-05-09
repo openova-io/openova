@@ -376,10 +376,16 @@ func (h *Handler) HandleBlueprintListCuratable(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// QA-loop iter-2 Fix #17 — when the Gitea client is unwired (chroot
+	// Sovereign mode pre-cutover, or any environment that hasn't booted
+	// the embedded Gitea yet) return a well-formed empty list rather than
+	// a 503. The 503 broke the /blueprints page which interpreted any
+	// non-2xx as an unrecoverable error and surfaced "Failed to fetch"
+	// to the operator. The empty list lets the UI render its "No
+	// blueprints yet — publish from your Org repo" empty state.
 	if h.giteaClient == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"error":  "gitea-not-wired",
-			"detail": "Gitea client unconfigured; curate listing requires Gitea",
+		writeJSON(w, http.StatusOK, curatableBlueprintsResponse{
+			Items: []curatableBlueprint{},
 		})
 		return
 	}

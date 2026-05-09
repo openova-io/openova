@@ -307,6 +307,13 @@ func main() {
 	r.Get("/readyz", h.Ready)
 	r.Handle("/metrics", promhttp.Handler())
 
+	// /api/v1/version — build identification (git SHA + chart version).
+	// Always 200, no auth gate (probe-friendly). Operators + the QA
+	// matrix probe this to confirm "what version is live right now"
+	// without scraping the Pod spec. See handler/version.go for the
+	// truth-resolution rules + wire shape.
+	r.Get("/api/v1/version", h.HandleVersion)
+
 	// Unauthenticated auth endpoints — 6-digit PIN issue + verify (#688)
 	// and logout. These MUST remain outside the session gate (the user is
 	// not yet authenticated when they hit /pin/issue and /pin/verify).

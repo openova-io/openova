@@ -188,6 +188,13 @@ func TestDefaultKinds_GraphAndDashboardSurface(t *testing.T) {
 		"podmetrics",
 		// EPIC-1 (#1096) compliance — Kyverno PolicyReports.
 		"policyreport", "clusterpolicyreport",
+		// QA-loop iter-2 Fix #17 — CRDs surfaced through /k8s/{kind}.
+		// The /components, /apps, /users, /organizations, /environments,
+		// and /blueprints pages all consume one of these via the SSE
+		// stream. A regression here would silently re-introduce the
+		// "unknown kind" 404 surface seen on omantel iter-2.
+		"helmrelease", "useraccess", "application", "blueprint",
+		"organization", "environment",
 	}
 	for _, name := range mandatory {
 		if _, ok := r.Get(name); !ok {

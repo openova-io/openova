@@ -385,6 +385,36 @@ func TestHandleBlueprintListCuratable_EnumeratesOrgRepos(t *testing.T) {
 	}
 }
 
+// TestHandleBlueprintListCuratable_GiteaUnwiredReturnsEmptyList — QA-loop
+// iter-2 Fix #17. When the Gitea client is unwired (chroot Sovereign mode
+// pre-cutover, test environments, or any deploy that hasn't booted the
+// embedded Gitea yet), the handler must return a well-formed empty list
+// envelope rather than 503. The 503 broke the /blueprints page which
+// surfaced "Failed to fetch" to the operator. The empty list lets the
+// UI render its "No blueprints yet" empty state.
+func TestHandleBlueprintListCuratable_GiteaUnwiredReturnsEmptyList(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	// Deliberately do NOT call h.SetGiteaClient() — h.giteaClient stays nil.
+	dep := installUserAccessDeployment(t, h, "dep-bp-no-gitea")
+
+	rec := callUserAccess(t, h, http.MethodGet,
+		"/api/v1/sovereigns/"+dep.ID+"/blueprints/curatable?orgs=acme",
+		nil, registerBlueprintRoutes)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200 (gitea-unwired graceful path); body=%s", rec.Code, rec.Body.String())
+	}
+	var resp curatableBlueprintsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Items == nil {
+		t.Fatalf("Items must be a non-nil empty slice (so JSON encodes as [])")
+	}
+	if len(resp.Items) != 0 {
+		t.Fatalf("items: got %d want 0", len(resp.Items))
+	}
+}
+
 // ── Edit-PR (slice Z3) ────────────────────────────────────────────────
 
 func TestHandleBlueprintEditPR_OpensPR(t *testing.T) {
