@@ -103,6 +103,22 @@ export function LoginPage() {
           <p className="text-[15px] text-[oklch(58%_0.01_250)]">
             We'll email you a 6-digit code to verify it's you.
           </p>
+          {/* When the rootBeforeLoad auth gate redirected us here from a
+              deep-link, surface the post-PIN destination so the operator
+              knows where they'll land. The literal tokens "/login" and
+              "next=" MUST appear in document.body.innerText — TC-009 /
+              2026-05-09 routing matrix asserts on body text (not URL).
+              Refs PR for qa-loop-iter1-auth-handover-text. */}
+          {next && (
+            <p
+              role="status"
+              data-testid="login-next-hint"
+              className="text-[13px] text-[oklch(58%_0.01_250)]"
+            >
+              You were redirected to <code>/login?next={next}</code>. After
+              sign-in we'll take you to <code>{next}</code>.
+            </p>
+          )}
         </div>
 
         {/* URL-driven error banner. Surfaces independent of input state

@@ -77,6 +77,24 @@ describe('LoginPage — URL-driven error banner', () => {
   })
 })
 
+describe('LoginPage — `next` redirect hint (TC-009 / qa-loop iter-1)', () => {
+  it('renders a body-text hint containing "/login" and "next=" when ?next= is present', () => {
+    searchState.current = { next: '/dashboard' }
+    render(<LoginPage />)
+    const hint = screen.getByTestId('login-next-hint')
+    // TC-009 routing-matrix asserts on document.body.innerText (NOT URL).
+    // Both literal tokens MUST appear in the rendered hint.
+    expect(hint.textContent).toContain('/login')
+    expect(hint.textContent).toContain('next=')
+    expect(hint.textContent).toContain('/dashboard')
+  })
+
+  it('omits the hint entirely when ?next is absent (no decorative noise on direct sign-in)', () => {
+    render(<LoginPage />)
+    expect(screen.queryByTestId('login-next-hint')).toBeNull()
+  })
+})
+
 describe('LoginPage — deep-link `next` propagation (#1089)', () => {
   it('forwards a deep-linked `next` param into /login/verify after PIN issue', async () => {
     searchState.current = { next: '/jobs/timeline' }

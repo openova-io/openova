@@ -49,6 +49,7 @@ import { VerifyPinPage } from '@/pages/auth/VerifyPinPage'
 import { AuthCallbackPage } from '@/pages/auth/AuthCallbackPage'
 import { SignupPage } from '@/pages/auth/SignupPage'
 import { ForgotPage } from '@/pages/auth/ForgotPage'
+import { HandoverErrorPage } from '@/pages/auth/HandoverErrorPage'
 import { DashboardPage } from '@/pages/dashboard/DashboardPage'
 import { CrossSovereignView } from '@/pages/dashboard/CrossSovereignView'
 import { WizardPage } from '@/pages/wizard/WizardPage'
@@ -258,55 +259,10 @@ const authHandoverRoute = createRoute({
   component: () => null,
 })
 
-/**
- * Handover-error landing page (TC-004 / 2026-05-07).
- *
- * The catalyst-api `AuthHandover` Go handler 302-redirects browser
- * visits without a valid token to this URL with `?reason=<code>`. This
- * keeps the seamless-handover UX promise even when the operator pastes
- * a bare `/auth/handover` URL or follows a stale email link with the
- * token stripped — they see a SPA-rendered error surface instead of
- * raw `{"error":"missing token parameter"}` JSON.
- *
- * Programmatic callers (curl / monitors with `Accept: application/json`)
- * still get the legacy 401 JSON contract — `wantsHTML` in the Go
- * handler discriminates by Accept header.
- */
-function HandoverErrorPage() {
-  const search =
-    typeof window !== 'undefined'
-      ? new URLSearchParams(window.location.search)
-      : new URLSearchParams()
-  const reason = search.get('reason') ?? 'unknown'
-  const message =
-    reason === 'missing_token'
-      ? 'The handover link did not include a token. Please open the link from your most recent email exactly as it was delivered, or request a fresh handover from the OpenOva mothership.'
-      : reason === 'expired'
-        ? 'This handover link has expired. Handover tokens are valid for a few minutes — please request a fresh one from the OpenOva mothership.'
-        : reason === 'replayed'
-          ? 'This handover link has already been used. Each token is single-use; request a fresh one from the OpenOva mothership.'
-          : 'We could not complete the handover. Please request a fresh handover link from the OpenOva mothership.'
-  return (
-    <div
-      className="mx-auto flex min-h-screen max-w-xl flex-col items-center justify-center gap-6 px-6 text-center"
-      data-testid="handover-error-page"
-    >
-      <h1 className="text-2xl font-semibold text-[var(--color-text)]">
-        Handover incomplete
-      </h1>
-      <p className="text-sm leading-relaxed text-[var(--color-text-dim)]">
-        {message}
-      </p>
-      <a
-        href="/dashboard"
-        className="rounded-md border border-[var(--color-border)] bg-transparent px-4 py-2 text-sm text-[var(--color-text)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
-      >
-        Continue to console
-      </a>
-    </div>
-  )
-}
-
+// HandoverErrorPage moved to `@/pages/auth/HandoverErrorPage` 2026-05-09
+// (qa-loop iter-1 cluster `auth-handover-flow-text`) so it can be
+// unit-tested without booting the router and so the matrix-asserted
+// "missing" token in document.body.innerText is owned by a single file.
 const authHandoverErrorRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/auth/handover-error',
