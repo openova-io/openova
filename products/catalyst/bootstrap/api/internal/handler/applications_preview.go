@@ -264,6 +264,110 @@ func (h *Handler) HandleApplicationPreview(w http.ResponseWriter, r *http.Reques
 	_ = dep // kept for future per-Sovereign Gitea diff
 }
 
+// renderApplicationPreview is the shared core that runs the renderer
+// and composes the wire response. Used by both HandleApplicationPreview
+// (slice I) and HandleApplicationTopologyPreview /
+// HandleApplicationUpgradePreview (slice T+O+P).
+//
+// Returns either (resp, 0, nil) on success or (zero, status, errBody)
+// on a fatal upstream / render error so the caller can write the
+// appropriate JSON envelope.
+func (h *Handler) renderApplicationPreview(
+	r *http.Request,
+	body applicationPreviewRequest,
+) (applicationPreviewResponse, int, map[string]string) {
+	bp, err := h.catalogClient.GetVersion(
+		r.Context(),
+		body.BlueprintRef.Name,
+		body.BlueprintRef.Version,
+		applicationSessionToken(r),
+	)
+	if err != nil {
+		if errors.Is(err, ErrBlueprintNotFound) {
+			return applicationPreviewResponse{}, http.StatusNotFound, map[string]string{
+				"error":  "blueprint-not-found",
+				"detail": fmt.Sprintf("blueprint %s@%s is not in the catalog", body.BlueprintRef.Name, body.BlueprintRef.Version),
+			}
+		}
+		return applicationPreviewResponse{}, http.StatusBadGateway, map[string]string{
+			"error":  "catalog-upstream",
+			"detail": err.Error(),
+		}
+	}
+
+	configSchema := blueprintConfigSchema(bp)
+	rep, vErr := validate.Parameters(configSchema, body.Parameters)
+	if vErr != nil {
+		return applicationPreviewResponse{}, http.StatusBadGateway, map[string]string{
+			"error":  "blueprint-schema-malformed",
+			"detail": vErr.Error(),
+		}
+	}
+	if !rep.Valid {
+		return applicationPreviewResponse{}, http.StatusBadRequest, map[string]string{
+			"error":  "invalid-parameters",
+			"detail": "parameters do not satisfy Blueprint.spec.configSchema",
+		}
+	}
+
+	appName := strings.TrimSpace(body.Name)
+	if appName == "" {
+		appName = body.BlueprintRef.Name + "-preview"
+	}
+	envType := environmentTypeFromName(body.EnvironmentRef)
+	manifests := make([]PreviewManifest, 0, len(body.Placement.Regions)*2)
+	warnings := []string{}
+
+	for i, region := range body.Placement.Regions {
+		standby := body.Placement.Mode == "active-hotstandby" && i > 0
+		role := previewRoleForPlacement(body.Placement.Mode, i)
+		in := render.Inputs{
+			AppName:          appName,
+			Org:              body.OrganizationRef,
+			EnvType:          envType,
+			Region:           region,
+			PlacementRole:    role,
+			Standby:          standby,
+			BlueprintName:    body.BlueprintRef.Name,
+			BlueprintVersion: body.BlueprintRef.Version,
+			SourceKind:       blueprintSourceKind(bp),
+			SourceRef:        blueprintSourceRef(bp),
+			Chart:            blueprintChart(bp),
+			Values:           body.Parameters,
+		}
+		out, rErr := render.Render(in)
+		if rErr != nil {
+			return applicationPreviewResponse{}, http.StatusBadGateway, map[string]string{
+				"error":  "render-failed",
+				"detail": rErr.Error(),
+			}
+		}
+		basePath := fmt.Sprintf("clusters/%s/applications/%s", region, appName)
+		manifests = append(manifests, PreviewManifest{
+			Path:    basePath + "/kustomization.yaml",
+			Content: string(out.KustomizationYAML),
+		})
+		manifests = append(manifests, PreviewManifest{
+			Path:    basePath + "/helmrelease.yaml",
+			Content: string(out.HelmReleaseYAML),
+		})
+	}
+
+	if len(manifests) > 0 {
+		warnings = append(warnings, "preview shows the manifests catalyst-api will commit; live-vs-preview diff against the per-Org Gitea repo is deferred to a follow-up slice")
+	}
+
+	return applicationPreviewResponse{
+		Manifests: manifests,
+		Diff:      "",
+		Blueprint: applicationPreviewBlueprintRef{
+			Name:    bp.Name,
+			Version: bp.Version,
+		},
+		Warnings: warnings,
+	}, 0, nil
+}
+
 // validateApplicationPreviewRequest mirrors the install validator with
 // `name` optional. Keeps the two paths in lockstep so a 400 on preview
 // equates to a 400 on install.

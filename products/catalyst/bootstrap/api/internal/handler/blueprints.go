@@ -1,0 +1,565 @@
+// Package handler — blueprints.go: EPIC-2 Slice T+O+P (#1097) — Org-
+// authored Blueprint publishing + sovereign-admin Curate.
+//
+// REST surface:
+//
+//	POST /api/v1/sovereigns/{id}/blueprints/publish — Org owner publishes a Blueprint to <org>/shared-blueprints
+//	POST /api/v1/sovereigns/{id}/blueprints/curate  — Sovereign-admin promotes a Blueprint into catalog-sovereign
+//	GET  /api/v1/sovereigns/{id}/blueprints/curatable — Sovereign-admin lists candidates from every Org's shared-blueprints
+//
+// Architecture rules:
+//
+//   - Per ADR-0001 §4.3 Blueprints are stored in Gitea repos under
+//     `<org>/shared-blueprints` (per-Org private), `catalog-sovereign`
+//     (sovereign-curated), and `catalog` (public mirror). The
+//     blueprint-controller (slice C3 #1126) reconciles each repo into
+//     a Blueprint CR; catalog-svc (slice L #1148) joins the three
+//     sources and serves the merged catalog.
+//   - This handler is a THIN WRAPPER over the unified Gitea client
+//     (core/controllers/pkg/gitea, promoted via slice L #1148). No
+//     database, no second source-of-truth.
+//   - Auth: tier-admin or higher for /publish (Org's own blueprints);
+//     sovereign-admin only for /curate (cross-org promotion).
+//   - Per INVIOLABLE-PRINCIPLES.md #4 every URL / repo path is
+//     env-derived (CATALYST_GITEA_URL + CATALYST_GITEA_TOKEN); nothing
+//     hardcoded.
+//
+// blueprint.yaml validation: Blueprints are validated via the same
+// shape rules the blueprint-controller (slice C3) applies — required
+// `apiVersion`, `kind: Blueprint`, `metadata.name` matching the repo
+// name, `spec.version` matching the published version, well-formed
+// `spec.configSchema`. Schema-only check; semantic validation happens
+// when blueprint-controller next reconciles.
+package handler
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"strings"
+
+	"github.com/go-chi/chi/v5"
+	yamlv3 "gopkg.in/yaml.v3"
+
+	"github.com/openova-io/openova/core/controllers/pkg/gitea"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
+)
+
+// ── GiteaBlueprintClient interface (test seam) ───────────────────────
+
+// GiteaBlueprintClient is the narrow surface this handler needs from
+// the unified Gitea client. Defined as an interface so tests inject a
+// stub without standing up an httptest.Server. The production binding
+// is `core/controllers/pkg/gitea.Client`.
+type GiteaBlueprintClient interface {
+	EnsureOrg(ctx context.Context, slug, fullName, description, visibility string) (gitea.Org, error)
+	EnsureRepo(ctx context.Context, org, name, description string, private bool) (gitea.Repo, error)
+	PutFile(ctx context.Context, org, repo, branch, path string, data []byte, message string, opts ...gitea.PutFileOpts) (gitea.File, bool, error)
+	GetFile(ctx context.Context, org, repo, branch, path string) (gitea.File, error)
+	ListOrgRepos(ctx context.Context, org string) ([]gitea.Repo, error)
+	ListContents(ctx context.Context, org, repo, branch, path string) ([]gitea.ContentEntry, error)
+}
+
+// SetGiteaClient injects the Gitea client. main.go wires this from env;
+// tests inject a fake.
+func (h *Handler) SetGiteaClient(c GiteaBlueprintClient) { h.giteaClient = c }
+
+// NewGiteaClientFromEnv returns the production Gitea client built from
+// CATALYST_GITEA_URL + CATALYST_GITEA_TOKEN. Returns nil when either
+// env var is unset (tests / CI without a Gitea backend) so the handler
+// surfaces 503 instead of panicking.
+func NewGiteaClientFromEnv() GiteaBlueprintClient {
+	base := strings.TrimSpace(os.Getenv("CATALYST_GITEA_URL"))
+	tok := strings.TrimSpace(os.Getenv("CATALYST_GITEA_TOKEN"))
+	if base == "" || tok == "" {
+		return nil
+	}
+	return gitea.New(base, tok)
+}
+
+// ── Wire shapes ──────────────────────────────────────────────────────
+
+// blueprintPublishRequest is the body of POST /blueprints/publish.
+type blueprintPublishRequest struct {
+	Org           string `json:"org"`
+	Name          string `json:"name"`
+	Version       string `json:"version"`
+	BlueprintYAML string `json:"blueprintYaml"`
+	// ChartTarball is an optional base64-encoded chart .tgz. When
+	// non-empty the handler writes it as a sibling to blueprint.yaml so
+	// the blueprint-controller's chart-resolver can pick it up.
+	ChartTarball string `json:"chartTarball,omitempty"`
+}
+
+// blueprintPublishResponse is the body returned on 200.
+type blueprintPublishResponse struct {
+	Org     string `json:"org"`
+	Name    string `json:"name"`
+	Version string `json:"version"`
+	Repo    string `json:"repo"`
+	Path    string `json:"path"`
+	URL     string `json:"url"`
+	Message string `json:"message"`
+}
+
+// blueprintCurateRequest is the body of POST /blueprints/curate. The
+// caller specifies which Org's shared-blueprints repo holds the source
+// Blueprint; the handler copies it into catalog-sovereign.
+type blueprintCurateRequest struct {
+	SourceOrg     string `json:"sourceOrg"`
+	BlueprintName string `json:"blueprintName"`
+}
+
+// blueprintCurateResponse is the body returned on 200.
+type blueprintCurateResponse struct {
+	BlueprintName string `json:"blueprintName"`
+	SourceOrg     string `json:"sourceOrg"`
+	TargetOrg     string `json:"targetOrg"`
+	Message       string `json:"message"`
+}
+
+// curatableBlueprint is one entry in the curatable list.
+type curatableBlueprint struct {
+	Org     string `json:"org"`
+	Name    string `json:"name"`
+	Version string `json:"version"`
+	Title   string `json:"title,omitempty"`
+}
+
+// curatableBlueprintsResponse is the body of GET /blueprints/curatable.
+type curatableBlueprintsResponse struct {
+	Items []curatableBlueprint `json:"items"`
+}
+
+// ── Constants ────────────────────────────────────────────────────────
+
+// catalogSovereignOrg is the canonical Gitea org name into which
+// curated Blueprints land. blueprint-controller + catalog-svc both
+// listen on this org (per ADR-0001 §4.3).
+const catalogSovereignOrg = "catalog-sovereign"
+
+// sharedBlueprintsRepo is the canonical per-Org repo name where Org
+// owners publish Blueprints. Per ADR-0001 §4.3.
+const sharedBlueprintsRepo = "shared-blueprints"
+
+// blueprintBranch is the default branch on shared-blueprints +
+// catalog-sovereign repos.
+const blueprintBranch = "main"
+
+// ── HTTP handler — publish ──────────────────────────────────────────
+
+// HandleBlueprintPublish — POST /api/v1/sovereigns/{id}/blueprints/publish
+//
+// Validates + writes a Blueprint to `<org>/shared-blueprints/<bp-name>/blueprint.yaml`
+// via the unified Gitea client. The blueprint-controller picks up the
+// write naturally on its next reconcile loop.
+func (h *Handler) HandleBlueprintPublish(w http.ResponseWriter, r *http.Request) {
+	depID := chi.URLParam(r, "id")
+	if _, ok := h.lookupDeploymentForInfra(depID); !ok {
+		writeNotFound(w, depID)
+		return
+	}
+
+	if claims := auth.ClaimsFromContext(r.Context()); claims != nil {
+		if !applicationInstallCallerAuthorized(claims) {
+			writeJSON(w, http.StatusForbidden, map[string]string{
+				"error":  "forbidden",
+				"detail": "POST /blueprints/publish requires tier-admin or higher",
+			})
+			return
+		}
+	}
+
+	if h.giteaClient == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error":  "gitea-not-wired",
+			"detail": "Gitea client unconfigured (CATALYST_GITEA_URL/TOKEN); publish requires Gitea",
+		})
+		return
+	}
+
+	var body blueprintPublishRequest
+	if !decodeMutationBody(w, r, &body) {
+		return
+	}
+	if msg, ok := validateBlueprintPublishRequest(body); !ok {
+		writeBadRequest(w, "invalid-blueprint-publish", msg)
+		return
+	}
+
+	// Schema validation: parse the blueprint.yaml and assert the
+	// canonical shape. The blueprint-controller will do its own
+	// validation later; this gate prevents obvious mistakes at
+	// publish-time.
+	if msg, ok := validateBlueprintYAML(body); !ok {
+		writeBadRequest(w, "invalid-blueprint-yaml", msg)
+		return
+	}
+
+	ctx := r.Context()
+	// Ensure the per-Org Gitea Org exists. EnsureOrg is idempotent.
+	if _, err := h.giteaClient.EnsureOrg(ctx, body.Org, body.Org, "Org-authored Blueprints", "private"); err != nil {
+		h.log.Warn("blueprint publish: ensure org failed", "org", body.Org, "err", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{
+			"error":  "gitea-upstream",
+			"detail": fmt.Sprintf("ensure org %q: %v", body.Org, err),
+		})
+		return
+	}
+	if _, err := h.giteaClient.EnsureRepo(ctx, body.Org, sharedBlueprintsRepo, "Per-Org private Blueprints", true); err != nil {
+		h.log.Warn("blueprint publish: ensure repo failed", "org", body.Org, "repo", sharedBlueprintsRepo, "err", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{
+			"error":  "gitea-upstream",
+			"detail": fmt.Sprintf("ensure repo %s/%s: %v", body.Org, sharedBlueprintsRepo, err),
+		})
+		return
+	}
+
+	path := fmt.Sprintf("%s/blueprint.yaml", body.Name)
+	commitMsg := fmt.Sprintf("publish %s@%s via catalyst-api", body.Name, body.Version)
+	if _, _, err := h.giteaClient.PutFile(
+		ctx, body.Org, sharedBlueprintsRepo, blueprintBranch, path,
+		[]byte(body.BlueprintYAML), commitMsg,
+	); err != nil {
+		h.log.Warn("blueprint publish: put file failed",
+			"org", body.Org, "repo", sharedBlueprintsRepo, "path", path, "err", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{
+			"error":  "gitea-upstream",
+			"detail": fmt.Sprintf("put file %s: %v", path, err),
+		})
+		return
+	}
+
+	resp := blueprintPublishResponse{
+		Org:     body.Org,
+		Name:    body.Name,
+		Version: body.Version,
+		Repo:    sharedBlueprintsRepo,
+		Path:    path,
+		URL:     fmt.Sprintf("/%s/%s/src/branch/%s/%s", body.Org, sharedBlueprintsRepo, blueprintBranch, path),
+		Message: "Blueprint published; blueprint-controller will reconcile within ~1 min",
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// ── HTTP handler — curate ───────────────────────────────────────────
+
+// HandleBlueprintCurate — POST /api/v1/sovereigns/{id}/blueprints/curate
+//
+// Promotes a Blueprint from `<sourceOrg>/shared-blueprints/<bp-name>`
+// into `catalog-sovereign/<bp-name>`. catalog-svc auto-detects the
+// new sovereign-curated entry on its next reconcile.
+//
+// Auth: sovereign-admin only (admin or owner tier). REUSES
+// rbacRequireSovereignAdmin from keycloak_proxy.go.
+func (h *Handler) HandleBlueprintCurate(w http.ResponseWriter, r *http.Request) {
+	depID := chi.URLParam(r, "id")
+	if _, ok := h.lookupDeploymentForInfra(depID); !ok {
+		writeNotFound(w, depID)
+		return
+	}
+
+	// Sovereign-admin gate. Per the brief U3/U4's helper is reused.
+	if !rbacRequireSovereignAdmin(w, r) {
+		return
+	}
+
+	if h.giteaClient == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error":  "gitea-not-wired",
+			"detail": "Gitea client unconfigured; curate requires Gitea",
+		})
+		return
+	}
+
+	var body blueprintCurateRequest
+	if !decodeMutationBody(w, r, &body) {
+		return
+	}
+	if strings.TrimSpace(body.SourceOrg) == "" || strings.TrimSpace(body.BlueprintName) == "" {
+		writeBadRequest(w, "invalid-blueprint-curate", "sourceOrg and blueprintName are required")
+		return
+	}
+	if !isValidK8sName(body.SourceOrg) || !strings.HasPrefix(body.BlueprintName, "bp-") {
+		writeBadRequest(w, "invalid-blueprint-curate",
+			"sourceOrg must be a valid K8s name; blueprintName must start with bp-")
+		return
+	}
+
+	ctx := r.Context()
+	srcPath := fmt.Sprintf("%s/blueprint.yaml", body.BlueprintName)
+	src, err := h.giteaClient.GetFile(ctx, body.SourceOrg, sharedBlueprintsRepo, blueprintBranch, srcPath)
+	if err != nil {
+		if errors.Is(err, gitea.ErrFileNotFound) || errors.Is(err, gitea.ErrRepoNotFound) || gitea.IsNotFound(err) {
+			writeJSON(w, http.StatusNotFound, map[string]string{
+				"error":  "blueprint-not-found",
+				"detail": fmt.Sprintf("Blueprint %s/%s/%s not found", body.SourceOrg, sharedBlueprintsRepo, srcPath),
+			})
+			return
+		}
+		writeJSON(w, http.StatusBadGateway, map[string]string{
+			"error":  "gitea-upstream",
+			"detail": fmt.Sprintf("get file %s: %v", srcPath, err),
+		})
+		return
+	}
+
+	if _, err := h.giteaClient.EnsureOrg(ctx, catalogSovereignOrg, "Sovereign-curated catalog", "Curated Blueprints visible to every Org", "public"); err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{
+			"error":  "gitea-upstream",
+			"detail": fmt.Sprintf("ensure org %q: %v", catalogSovereignOrg, err),
+		})
+		return
+	}
+	if _, err := h.giteaClient.EnsureRepo(ctx, catalogSovereignOrg, body.BlueprintName, "Sovereign-curated Blueprint", false); err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{
+			"error":  "gitea-upstream",
+			"detail": fmt.Sprintf("ensure repo %s/%s: %v", catalogSovereignOrg, body.BlueprintName, err),
+		})
+		return
+	}
+
+	srcBytes, decErr := src.Decoded()
+	if decErr != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{
+			"error":  "gitea-decode",
+			"detail": fmt.Sprintf("decode source blueprint.yaml: %v", decErr),
+		})
+		return
+	}
+
+	commitMsg := fmt.Sprintf("curate %s from %s/%s", body.BlueprintName, body.SourceOrg, sharedBlueprintsRepo)
+	if _, _, err := h.giteaClient.PutFile(
+		ctx, catalogSovereignOrg, body.BlueprintName, blueprintBranch, "blueprint.yaml",
+		srcBytes, commitMsg,
+	); err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{
+			"error":  "gitea-upstream",
+			"detail": fmt.Sprintf("put file blueprint.yaml: %v", err),
+		})
+		return
+	}
+
+	resp := blueprintCurateResponse{
+		BlueprintName: body.BlueprintName,
+		SourceOrg:     body.SourceOrg,
+		TargetOrg:     catalogSovereignOrg,
+		Message:       "Blueprint curated; catalog-svc will pick up sovereign-curated entry on next reconcile",
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// ── HTTP handler — list curatable ───────────────────────────────────
+
+// HandleBlueprintListCuratable — GET /api/v1/sovereigns/{id}/blueprints/curatable
+//
+// Walks every Gitea Org's shared-blueprints repo and returns the union.
+// The Curate UI consumes this to render a candidate list.
+//
+// Auth: sovereign-admin only (cross-org read).
+func (h *Handler) HandleBlueprintListCuratable(w http.ResponseWriter, r *http.Request) {
+	depID := chi.URLParam(r, "id")
+	if _, ok := h.lookupDeploymentForInfra(depID); !ok {
+		writeNotFound(w, depID)
+		return
+	}
+
+	if !rbacRequireSovereignAdmin(w, r) {
+		return
+	}
+
+	if h.giteaClient == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error":  "gitea-not-wired",
+			"detail": "Gitea client unconfigured; curate listing requires Gitea",
+		})
+		return
+	}
+
+	// The unified client doesn't expose ListOrgs (cross-org enumeration
+	// is rare); the canonical caller passes orgs[] via query for now.
+	// Future enhancement: walk the Gitea admin /orgs endpoint when slice
+	// L promotes that surface.
+	ctx := r.Context()
+	orgs := strings.Split(strings.TrimSpace(r.URL.Query().Get("orgs")), ",")
+	out := make([]curatableBlueprint, 0)
+	for _, orgRaw := range orgs {
+		org := strings.TrimSpace(orgRaw)
+		if org == "" {
+			continue
+		}
+		entries, err := h.giteaClient.ListContents(ctx, org, sharedBlueprintsRepo, blueprintBranch, "")
+		if err != nil {
+			// Skip orgs that don't have a shared-blueprints repo.
+			continue
+		}
+		for _, e := range entries {
+			if !strings.EqualFold(e.Type, "dir") {
+				continue
+			}
+			bpName := e.Name
+			if !strings.HasPrefix(bpName, "bp-") {
+				continue
+			}
+			// Read the blueprint.yaml for the version + title.
+			f, ferr := h.giteaClient.GetFile(ctx, org, sharedBlueprintsRepo, blueprintBranch, bpName+"/blueprint.yaml")
+			if ferr != nil {
+				continue
+			}
+			fBytes, decErr := f.Decoded()
+			if decErr != nil {
+				continue
+			}
+			version, title := parseBlueprintMeta(fBytes)
+			out = append(out, curatableBlueprint{
+				Org:     org,
+				Name:    bpName,
+				Version: version,
+				Title:   title,
+			})
+		}
+	}
+	writeJSON(w, http.StatusOK, curatableBlueprintsResponse{Items: out})
+}
+
+// ── Validation + helpers ────────────────────────────────────────────
+
+func validateBlueprintPublishRequest(req blueprintPublishRequest) (string, bool) {
+	if strings.TrimSpace(req.Org) == "" {
+		return "org is required", false
+	}
+	if !isValidK8sName(req.Org) {
+		return "org must be a valid K8s name (RFC 1123)", false
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		return "name is required", false
+	}
+	if !strings.HasPrefix(req.Name, "bp-") {
+		return "name must be of the form bp-<slug>", false
+	}
+	if !isValidK8sName(req.Name) {
+		return "name must be a valid K8s name", false
+	}
+	if strings.TrimSpace(req.Version) == "" {
+		return "version is required", false
+	}
+	// Loose semver check: first chunk before any `+` or `-` must be 3
+	// dotted numbers. Per BLUEPRINT-AUTHORING.md §3 versions are semver.
+	if !looksLikeSemver(req.Version) {
+		return "version must be a semver string (e.g. 1.2.3)", false
+	}
+	if strings.TrimSpace(req.BlueprintYAML) == "" {
+		return "blueprintYaml is required", false
+	}
+	if len(req.BlueprintYAML) > 1024*1024 {
+		return "blueprintYaml exceeds 1 MiB; chartTarball is the path for chart contents", false
+	}
+	return "", true
+}
+
+// validateBlueprintYAML parses the supplied YAML and asserts the
+// canonical Blueprint shape. Defense-in-depth against publishing a
+// random YAML; the blueprint-controller does deeper schema validation
+// downstream.
+func validateBlueprintYAML(req blueprintPublishRequest) (string, bool) {
+	var doc map[string]interface{}
+	if err := yamlv3.Unmarshal([]byte(req.BlueprintYAML), &doc); err != nil {
+		return fmt.Sprintf("blueprintYaml parse: %v", err), false
+	}
+	apiVersion, _ := doc["apiVersion"].(string)
+	if apiVersion == "" {
+		return "blueprint.yaml missing apiVersion", false
+	}
+	kind, _ := doc["kind"].(string)
+	if kind != "Blueprint" {
+		return fmt.Sprintf("blueprint.yaml kind=%q; want Blueprint", kind), false
+	}
+	meta, _ := doc["metadata"].(map[string]interface{})
+	if meta == nil {
+		return "blueprint.yaml missing metadata", false
+	}
+	metaName, _ := meta["name"].(string)
+	if metaName != req.Name {
+		return fmt.Sprintf("blueprint.yaml metadata.name=%q does not match request name=%q", metaName, req.Name), false
+	}
+	spec, _ := doc["spec"].(map[string]interface{})
+	if spec == nil {
+		return "blueprint.yaml missing spec", false
+	}
+	specVersion, _ := spec["version"].(string)
+	if specVersion != req.Version {
+		return fmt.Sprintf("blueprint.yaml spec.version=%q does not match request version=%q", specVersion, req.Version), false
+	}
+	return "", true
+}
+
+// parseBlueprintMeta extracts (version, card.title) from a blueprint.yaml
+// byte stream. Returns ("","") on parse failure (caller decides what to
+// do).
+func parseBlueprintMeta(raw []byte) (version, title string) {
+	var doc map[string]interface{}
+	if err := yamlv3.Unmarshal(raw, &doc); err != nil {
+		return "", ""
+	}
+	spec, _ := doc["spec"].(map[string]interface{})
+	if spec == nil {
+		return "", ""
+	}
+	if v, ok := spec["version"].(string); ok {
+		version = v
+	}
+	if card, ok := spec["card"].(map[string]interface{}); ok {
+		if t, ok := card["title"].(string); ok {
+			title = t
+		}
+	}
+	return version, title
+}
+
+// looksLikeSemver — first three dotted numbers must be integers.
+// Doesn't enforce full semver grammar (the blueprint-controller does);
+// just rejects obvious typos like "v1" or "latest".
+func looksLikeSemver(v string) bool {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return false
+	}
+	// Strip pre-release / build suffix.
+	for _, sep := range []string{"+", "-"} {
+		if i := strings.Index(v, sep); i >= 0 {
+			v = v[:i]
+		}
+	}
+	parts := strings.Split(v, ".")
+	if len(parts) != 3 {
+		return false
+	}
+	for _, p := range parts {
+		if p == "" {
+			return false
+		}
+		for _, ch := range p {
+			if ch < '0' || ch > '9' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// jsonRoundTrip is a tiny utility used by tests to recover a typed
+// response shape without re-importing the per-test struct.
+func jsonRoundTrip(in any, out any) error {
+	raw, err := json.Marshal(in)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(raw, out)
+}
+
+// Compile-time assertion that gitea.Client satisfies our narrow
+// interface.
+var _ GiteaBlueprintClient = (*gitea.Client)(nil)

@@ -261,6 +261,22 @@ func main() {
 		"url", env("CATALYST_CATALOG_URL", "http://catalyst-catalog.openova-system.svc.cluster.local:8080"),
 	)
 
+	// EPIC-2 #1097 slice T+O+P — Blueprint publishing + Curate.
+	// Per ADR-0001 §4.3 Gitea is the source-of-truth for Blueprints;
+	// the publish + curate handlers are thin wrappers over the unified
+	// Gitea client. Per docs/INVIOLABLE-PRINCIPLES.md #4 the URL +
+	// token are env-overridable. When either is unset (CI without a
+	// Gitea backend) the wired client stays nil and the handlers
+	// surface 503 ("gitea-not-wired") rather than panic.
+	if gc := handler.NewGiteaClientFromEnv(); gc != nil {
+		h.SetGiteaClient(gc)
+		log.Info("gitea: client wired",
+			"url", env("CATALYST_GITEA_URL", ""),
+		)
+	} else {
+		log.Info("gitea: client not wired (CATALYST_GITEA_URL or CATALYST_GITEA_TOKEN unset); /blueprints/* will return 503")
+	}
+
 	// EPIC-3 #1098 slice U8 — RBAC audit Bus. Owns:
 	//   • the in-process ring buffer the GET /audit/rbac listing reads
 	//   • the SSE fan-out the GET /audit/rbac/stream subscribes to
@@ -794,6 +810,23 @@ func main() {
 		rg.Post("/api/v1/sovereigns/{id}/applications/preview", h.HandleApplicationPreview)
 		rg.Get("/api/v1/sovereigns/{id}/applications/{name}/status", h.HandleApplicationStatus)
 		rg.Get("/api/v1/sovereigns/{id}/applications/{name}/stream", h.HandleApplicationStream)
+
+		// EPIC-2 (#1097) slice T+O+P — Application page bundle.
+		// PUT/DELETE on the Application CR + topology / upgrade preview
+		// + Blueprint publishing (per-Org) + Curate (sovereign-admin).
+		// Per ADR-0001 §2.7 the CR is still the source of truth; PUT/
+		// DELETE simply patches/removes it and the application-controller
+		// (slice C4 #1133) reconciles. Preview endpoints REUSE the
+		// install-preview renderer so "looks-good" is byte-identical to
+		// the actual write. Blueprint publishing flows through the
+		// unified Gitea client per ADR-0001 §4.3.
+		rg.Put("/api/v1/sovereigns/{id}/applications/{name}", h.HandleApplicationUpdate)
+		rg.Delete("/api/v1/sovereigns/{id}/applications/{name}", h.HandleApplicationDelete)
+		rg.Post("/api/v1/sovereigns/{id}/applications/{name}/topology/preview", h.HandleApplicationTopologyPreview)
+		rg.Post("/api/v1/sovereigns/{id}/applications/{name}/upgrade/preview", h.HandleApplicationUpgradePreview)
+		rg.Post("/api/v1/sovereigns/{id}/blueprints/publish", h.HandleBlueprintPublish)
+		rg.Post("/api/v1/sovereigns/{id}/blueprints/curate", h.HandleBlueprintCurate)
+		rg.Get("/api/v1/sovereigns/{id}/blueprints/curatable", h.HandleBlueprintListCuratable)
 
 		// SME-tier user CRUD + role mapping (issue #802, ADR-0003).
 		// Owned by the unified-rbac slice of catalyst-api. Tenant
