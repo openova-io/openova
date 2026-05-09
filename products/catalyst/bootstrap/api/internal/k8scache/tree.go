@@ -96,7 +96,10 @@ func (f *Factory) GetResourcesBySelector(clusterID, targetKind, ns, selector str
 	if !ok {
 		return nil, fmt.Errorf("k8scache: kind %q not registered", targetKind)
 	}
-	idx, ok := cs.indexers[CanonicalKindName(targetKind)]
+	// Indexers are keyed by canonical singular Kind.Name (set in
+	// AddCluster). Resolve via the Kind we just looked up — `targetKind`
+	// itself may be a plural alias ("services") or short-form ("svc").
+	idx, ok := cs.indexers[CanonicalKindName(kind.Name)]
 	if !ok {
 		return nil, fmt.Errorf("k8scache: kind %q has no indexer on cluster %q", targetKind, clusterID)
 	}
