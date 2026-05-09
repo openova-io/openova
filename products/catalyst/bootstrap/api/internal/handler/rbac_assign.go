@@ -70,6 +70,25 @@ const (
 	// `openova:tier-<tier>` per platform/crossplane-claims/chart/
 	// templates/tier-clusterroles.yaml.
 	tierClusterRolePrefix = "openova:tier-"
+
+	// rbacAssignNamespace is the namespace UserAccess CRs are written
+	// into. The CRD is `Namespaced` (per chart/crds/useraccess.yaml +
+	// the live cluster verification: `kubectl get crd
+	// useraccesses.access.openova.io -o jsonpath='{.spec.scope}'`
+	// returns `Namespaced`). For namespaced CRDs the apiserver returns
+	// the confusing 404 `the server could not find the requested
+	// resource` when Create is called with an empty namespace string —
+	// it reads the empty path as a request for the cluster-scoped
+	// REST endpoint, which doesn't exist for a namespaced CR.
+	//
+	// Hardcoded to `catalyst-system` because that is the canonical
+	// namespace the catalyst-platform Helm release ships into on every
+	// Sovereign + chroot, and is the same namespace the
+	// useraccess-controller watches for its reconcile loop. Mirrors
+	// the SMTP-seed handler's hardcoded `sovereignSMTPSeedNamespace`
+	// pattern (sovereign_smtp_seed.go) — a Sovereign without
+	// catalyst-system is not a Sovereign at all.
+	rbacAssignNamespace = "catalyst-system"
 )
 
 // rbacAssignAllowedTiers is the canonical 5-tier catalog. Any other
@@ -305,7 +324,14 @@ func rbacAssignFindOrCreate(
 		//    spec fields and a label-selector for the subject UUID is
 		//    expensive to set up at write time. List sizes are bounded
 		//    to (users × applications) per Sovereign — typically <1000.
-		listIface, err := client.Resource(UserAccessGVR()).Namespace("").List(ctx, metav1.ListOptions{})
+		//
+		//    Scoped to rbacAssignNamespace: every UserAccess CR
+		//    rbac_assign emits lives in catalyst-system, so listing
+		//    cluster-wide is wasteful and (after the namespace fix
+		//    below) would surface CRs we can't update via the same
+		//    GVR namespace. Cluster-wide listing also widens the RBAC
+		//    surface unnecessarily.
+		listIface, err := client.Resource(UserAccessGVR()).Namespace(rbacAssignNamespace).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			if apierrors.IsNotFound(err) {
 				// CRD not installed yet → fall through to create. The
@@ -427,7 +453,13 @@ func rbacAssignCreate(
 	}
 	_ = unstructured.SetNestedMap(obj.Object, spec, "spec")
 
-	created, err := client.Resource(UserAccessGVR()).Namespace("").Create(ctx, obj, metav1.CreateOptions{})
+	// Set the namespace on the CR before Create — namespaced CRDs
+	// reject empty-namespace Create with a confusing 404 ("the server
+	// could not find the requested resource") because the apiserver
+	// dispatches to the cluster-scoped REST endpoint, which doesn't
+	// exist for a namespaced kind. See rbacAssignNamespace doc.
+	obj.SetNamespace(rbacAssignNamespace)
+	created, err := client.Resource(UserAccessGVR()).Namespace(rbacAssignNamespace).Create(ctx, obj, metav1.CreateOptions{})
 	if err != nil {
 		// Caller distinguishes IsAlreadyExists for the retry loop.
 		return rbacAssignResponse{}, http.StatusInternalServerError, err
@@ -464,7 +496,16 @@ func rbacAssignUpdateTier(
 		tierClusterRolePrefix+wantTier,
 		"spec", "tierRoleRef",
 	)
-	return client.Resource(UserAccessGVR()).Namespace("").Update(ctx, desired, metav1.UpdateOptions{})
+	// Update on a namespaced CRD requires the same namespace path as
+	// Create — fall back to rbacAssignNamespace when the existing CR
+	// somehow lacks one (defensive; the list path scopes to the same
+	// namespace so this should always be set).
+	ns := desired.GetNamespace()
+	if ns == "" {
+		ns = rbacAssignNamespace
+		desired.SetNamespace(ns)
+	}
+	return client.Resource(UserAccessGVR()).Namespace(ns).Update(ctx, desired, metav1.UpdateOptions{})
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
