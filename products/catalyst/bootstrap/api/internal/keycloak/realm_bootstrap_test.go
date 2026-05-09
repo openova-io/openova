@@ -350,6 +350,54 @@ func TestEnsureTierRealmRoles_RoleCreate401_SurfacesError(t *testing.T) {
 	}
 }
 
+// ── Test 4b: GET role returns 403 (SA lacks view-realm/manage-realm)
+//
+// This is the qa-loop iter-4 Fix #23 regression test. On omantel the
+// catalyst-api-server SA in the sovereign realm only had
+// `impersonation+manage-users+view-users+query-users` on
+// realm-management. Phase 1 of EnsureTierRealmRoles starts with an
+// EnsureRealmRole on `catalyst-viewer`, which in turn does a
+// GetRealmRole — the underlying GET /admin/realms/<r>/roles/<n>
+// returns 403 Forbidden because the SA cannot read realm-roles.
+//
+// This test asserts the bootstrap surfaces a meaningful, debuggable
+// 403 error chain (so the operator can immediately spot the missing
+// realm-management roles in Keycloak) rather than masking it as a
+// generic "create failed".
+func TestEnsureTierRealmRoles_GetRole403_SurfacesPermissionError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Service-account token endpoint succeeds — the SA can
+		// authenticate, it just lacks realm-roles authorization.
+		if r.URL.Path == "/realms/test-realm/protocol/openid-connect/token" {
+			saTokenHandler(w)
+			return
+		}
+		// Every Admin-API call returns 403 Forbidden — same shape as
+		// Keycloak emits when the SA's client-roles on
+		// realm-management are insufficient.
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":"HTTP 403 Forbidden"}`))
+	}))
+	t.Cleanup(srv.Close)
+	client := NewWithHTTP(srv.URL, "test-realm", "catalyst-api-server", "sa-secret",
+		&http.Client{Timeout: 5 * time.Second})
+
+	err := client.EnsureTierRealmRoles(context.Background(), "test-realm")
+	if err == nil {
+		t.Fatal("expected EnsureTierRealmRoles to surface 403 error")
+	}
+	// The error chain must include both the role name (so the operator
+	// knows which step blew up) AND the 403 status (so they know it's
+	// a permissions issue, not a connectivity / 5xx issue).
+	msg := err.Error()
+	if !strings.Contains(msg, "catalyst-viewer") {
+		t.Errorf("expected error to mention failing role 'catalyst-viewer', got %v", err)
+	}
+	if !strings.Contains(msg, "403") {
+		t.Errorf("expected error to mention 403 status, got %v", err)
+	}
+}
+
 // ── Test 5: realm-mismatch is rejected at the API boundary. ───────────
 
 func TestEnsureTierRealmRoles_RealmMismatch_Rejects(t *testing.T) {

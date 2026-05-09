@@ -16,7 +16,13 @@ What this file emits
      values.yaml keycloak.keycloakConfigCli.existingConfigmap).
    - Defines the `sovereign` realm: catalyst-ui (PKCE), kubectl (public),
      catalyst-api-server (confidential service-account with realm-management
-     impersonate + manage-users + view-users + query-users role mappings).
+     impersonate + manage-users + view-users + query-users + manage-realm +
+     view-realm + view-clients role mappings — manage-realm/view-realm let
+     the catalyst-api EPIC-3 T2 tier-role bootstrap goroutine create the
+     catalyst-{viewer,developer,operator,admin,owner} realm-roles + composite
+     chain at startup; view-clients is needed to inspect the realm during
+     reconciliation. See products/catalyst/bootstrap/api/internal/keycloak/
+     realm_bootstrap.go for the bootstrap plan).
 
 2. Secret    catalyst-kc-sa-credentials (keycloak ns)
    - Mirrored cross-namespace into catalyst-system by emberstack/reflector
@@ -321,7 +327,7 @@ data:
         {
           "clientId": "catalyst-api-server",
           "name": "Catalyst API Server (service account)",
-          "description": "Confidential service-account client for catalyst-api. Holds impersonate + manage-users roles on realm-management so it can use token-exchange to mint user tokens for the seamless handover flow (issue #604).",
+          "description": "Confidential service-account client for catalyst-api. Holds impersonate + manage-users roles on realm-management for token-exchange (issue #604) AND manage-realm + view-realm + view-clients so the EPIC-3 T2 tier-role bootstrap (KEYCLOAK_BOOTSTRAP_TIER_ROLES=true, products/catalyst/bootstrap/api/internal/keycloak/realm_bootstrap.go) can materialize the catalyst-{viewer,developer,operator,admin,owner} realm-roles + composite chain (qa-loop iter-4 Fix #23).",
           "enabled": true,
           "publicClient": false,
           "standardFlowEnabled": false,
@@ -358,7 +364,10 @@ data:
               "impersonation",
               "manage-users",
               "view-users",
-              "query-users"
+              "query-users",
+              "manage-realm",
+              "view-realm",
+              "view-clients"
             ]
           }
         ]
@@ -373,7 +382,10 @@ data:
               "impersonation",
               "manage-users",
               "view-users",
-              "query-users"
+              "query-users",
+              "manage-realm",
+              "view-realm",
+              "view-clients"
             ]
           }
         }

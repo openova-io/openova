@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-keycloak
-version: 1.4.0
+version: 1.4.1
 description: |
   Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
   upstream `keycloak` chart (bitnami) as a Helm subchart so
@@ -20,6 +20,13 @@ description: |
   bp-wordpress-tenant / bp-openclaw / bp-stalwart-tenant charts consume
   via secretKeyRef. Sovereign-mode unchanged. Closes the chart-side gap
   left by orchestrator PR #911 (which already emits realmConfig.tenant.*).
+  1.4.1 (qa-loop iter-4 Fix #23): grant catalyst-api-server service-account
+  manage-realm + view-realm + view-clients on realm-management so the
+  EPIC-3 T2 tier-role bootstrap goroutine (KEYCLOAK_BOOTSTRAP_TIER_ROLES=
+  true) can materialize the catalog-tier realm-roles + composite chain
+  at catalyst-api startup. Without these, GET /admin/realms/<r>/roles/<n>
+  returned 403 and EnsureRealmRole gave up after 5 retries → TC-248
+  failure on the access-matrix UI.
 type: application
 keywords: [catalyst, blueprint, keycloak]
 maintainers:
