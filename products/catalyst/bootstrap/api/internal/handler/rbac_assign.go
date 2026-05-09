@@ -45,6 +45,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/audit"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 )
 
@@ -166,7 +167,7 @@ func (h *Handler) HandleRBACAssign(w http.ResponseWriter, r *http.Request) {
 		writeUserAccessUnavailable(w, err)
 		return
 	}
-	resp, status, err := rbacAssignFindOrCreate(r.Context(), client, body, dep)
+	resp, status, prevTier, err := rbacAssignFindOrCreate(r.Context(), client, body, dep)
 	if err != nil {
 		h.log.Warn("rbac.assign: find-or-create failed", "depId", depID, "err", err)
 		writeJSON(w, status, map[string]string{
@@ -175,7 +176,89 @@ func (h *Handler) HandleRBACAssign(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+
+	// Emit audit event after a successful CR write. Per ADR-0001 §3 the
+	// canonical transport is the catalyst.audit JetStream subject; the
+	// audit Bus mirrors to NATS when CATALYST_NATS_URL is set and serves
+	// the in-process /audit/rbac listing endpoint regardless. Nil-tolerant:
+	// when the Bus isn't wired (tests, no-NATS dev) the call is a no-op.
+	h.publishRBACAssignAudit(r.Context(), depID, body, resp, prevTier)
+
 	writeJSON(w, status, resp)
+}
+
+// publishRBACAssignAudit emits one audit event per find-or-create
+// outcome:
+//
+//   - applied=created  → AuditTypeRBACGrantCreated
+//   - applied=updated  → AuditTypeRBACGrantUpdated  (+ AuditTypeRBACTierChanged if tier moved)
+//   - applied=no-op    → no event (no state change)
+//
+// Splitting tier-changed from grant-updated lets the audit-trail UI
+// render a distinct rotation pill without scanning Detail. Both events
+// share the same target identity / scopes so consumers can correlate
+// them.
+func (h *Handler) publishRBACAssignAudit(
+	ctx context.Context,
+	depID string,
+	req rbacAssignRequest,
+	resp rbacAssignResponse,
+	prevTier string,
+) {
+	if h == nil || h.auditBus == nil {
+		return
+	}
+	if resp.Applied == "no-op" {
+		return
+	}
+	actor := rbacAuditActorFromClaims(auth.ClaimsFromContext(ctx))
+	target := strings.TrimSpace(req.User.KeycloakSubject)
+	if target == "" {
+		target = strings.TrimSpace(req.User.Email)
+	}
+	scopes := make([]audit.EventScope, 0, len(req.Scope))
+	for _, s := range req.Scope {
+		scopes = append(scopes, audit.EventScope{Key: s.Key, Value: s.Value})
+	}
+	app := ""
+	for _, s := range req.Scope {
+		if s.Key == scopeKeyApplication {
+			app = s.Value
+			break
+		}
+	}
+	base := audit.Event{
+		SovereignID:       depID,
+		Actor:             actor,
+		TargetUser:        target,
+		TargetUserEmail:   strings.TrimSpace(req.User.Email),
+		TargetApplication: app,
+		Tier:              strings.ToLower(req.Tier),
+		Scopes:            scopes,
+		UserAccessRef:     resp.UserAccess.Name,
+	}
+	switch resp.Applied {
+	case "created":
+		ev := base
+		ev.AuditType = audit.AuditTypeRBACGrantCreated
+		ev.Detail = fmt.Sprintf("granted %s tier on UserAccess %s", base.Tier, base.UserAccessRef)
+		h.auditBus.Publish(ctx, ev)
+	case "updated":
+		ev := base
+		ev.AuditType = audit.AuditTypeRBACGrantUpdated
+		ev.PreviousTier = strings.ToLower(strings.TrimSpace(prevTier))
+		ev.Detail = fmt.Sprintf("rotated UserAccess %s to %s tier", base.UserAccessRef, base.Tier)
+		h.auditBus.Publish(ctx, ev)
+		// Emit a sibling tier-changed event when the tier actually moved.
+		if ev.PreviousTier != "" && ev.PreviousTier != base.Tier {
+			tev := base
+			tev.AuditType = audit.AuditTypeRBACTierChanged
+			tev.PreviousTier = ev.PreviousTier
+			tev.Detail = fmt.Sprintf("tier rotated %s → %s on UserAccess %s",
+				ev.PreviousTier, base.Tier, base.UserAccessRef)
+			h.auditBus.Publish(ctx, tev)
+		}
+	}
 }
 
 // ── Core find-or-create logic ─────────────────────────────────────────
@@ -199,7 +282,10 @@ const rbacAssignMaxRetries = 2
 // for the same (user, scope) thus converge to the no-op or update path
 // rather than surfacing a 409 to the operator.
 //
-// Returns the response body, the HTTP status code, and any error.
+// Returns the response body, the HTTP status code, the previous tier
+// (when the path was Updated; "" otherwise — the audit-emit on the
+// handler side surfaces tier rotation as a sibling rbac-tier-changed
+// event), and any error.
 // On success, status is 200 (no-op | updated) or 201 (created).
 // On failure, status is 5xx.
 func rbacAssignFindOrCreate(
@@ -207,7 +293,7 @@ func rbacAssignFindOrCreate(
 	client dynamic.Interface,
 	body rbacAssignRequest,
 	dep *Deployment,
-) (rbacAssignResponse, int, error) {
+) (rbacAssignResponse, int, string, error) {
 	wantScope := normalizeScopeSlice(body.Scope)
 	wantTier := strings.ToLower(strings.TrimSpace(body.Tier))
 	keycloakSubject := strings.TrimSpace(body.User.KeycloakSubject)
@@ -225,9 +311,10 @@ func rbacAssignFindOrCreate(
 				// CRD not installed yet → fall through to create. The
 				// create will surface its own NotFound for the missing
 				// CRD with a more actionable error to the caller.
-				return rbacAssignCreate(ctx, client, body, wantScope, wantTier, dep)
+				resp, status, err := rbacAssignCreate(ctx, client, body, wantScope, wantTier, dep)
+				return resp, status, "", err
 			}
-			return rbacAssignResponse{}, http.StatusInternalServerError, fmt.Errorf("list useraccesses: %w", err)
+			return rbacAssignResponse{}, http.StatusInternalServerError, "", fmt.Errorf("list useraccesses: %w", err)
 		}
 		match := rbacAssignFindMatch(listIface.Items, keycloakSubject, wantScope)
 		if match != nil {
@@ -242,7 +329,7 @@ func rbacAssignFindOrCreate(
 					},
 					TierClusterRole: tierClusterRolePrefix + wantTier,
 					Applied:         "no-op",
-				}, http.StatusOK, nil
+				}, http.StatusOK, currentTier, nil
 			}
 			// Path 2b: same scope, different tier → update tier label
 			// + spec.tierRoleRef. Use ResourceVersion to surface a 409
@@ -256,7 +343,7 @@ func rbacAssignFindOrCreate(
 					lastErr = err
 					continue
 				}
-				return rbacAssignResponse{}, http.StatusInternalServerError, fmt.Errorf("update useraccess tier: %w", err)
+				return rbacAssignResponse{}, http.StatusInternalServerError, currentTier, fmt.Errorf("update useraccess tier: %w", err)
 			}
 			return rbacAssignResponse{
 				UserAccess: rbacAssignUserAccessRef{
@@ -266,7 +353,7 @@ func rbacAssignFindOrCreate(
 				},
 				TierClusterRole: tierClusterRolePrefix + wantTier,
 				Applied:         "updated",
-			}, http.StatusOK, nil
+			}, http.StatusOK, currentTier, nil
 		}
 		// Path 3: no match → create.
 		resp, status, err := rbacAssignCreate(ctx, client, body, wantScope, wantTier, dep)
@@ -278,16 +365,16 @@ func rbacAssignFindOrCreate(
 			continue
 		}
 		if err != nil {
-			return resp, status, err
+			return resp, status, "", err
 		}
-		return resp, status, nil
+		return resp, status, "", nil
 	}
 	if lastErr != nil {
-		return rbacAssignResponse{}, http.StatusConflict, fmt.Errorf("rbac-assign: gave up after %d retries: %w", rbacAssignMaxRetries, lastErr)
+		return rbacAssignResponse{}, http.StatusConflict, "", fmt.Errorf("rbac-assign: gave up after %d retries: %w", rbacAssignMaxRetries, lastErr)
 	}
 	// Loop exited without an error or a return — defensive; should be
 	// unreachable in practice.
-	return rbacAssignResponse{}, http.StatusInternalServerError, errors.New("rbac-assign: unexpected loop exit")
+	return rbacAssignResponse{}, http.StatusInternalServerError, "", errors.New("rbac-assign: unexpected loop exit")
 }
 
 // rbacAssignCreate composes a fresh UserAccess CR from the request and

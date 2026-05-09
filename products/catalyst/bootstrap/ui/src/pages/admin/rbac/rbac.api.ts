@@ -390,3 +390,169 @@ export async function listKCClientRoles(
   const body: KCRoleListResponse = await res.json()
   return body.items ?? []
 }
+
+/* ── /rbac/access-matrix wire shapes (A2) ─────────────────────────── */
+
+export interface AccessMatrixGrant {
+  tier: RBACTier
+  userAccessRef: string
+  scopes?: RBACScope[]
+}
+
+export interface AccessMatrixUser {
+  id: string
+  email?: string
+  /** "keycloak" | "azure_ad_federated" | <federation IdP alias>. */
+  source: KCUserSource
+  /** application name → grant. The synthetic key `*` represents a
+   *  global grant (no openova.io/application scope). */
+  access: Record<string, AccessMatrixGrant>
+  warnings?: string[]
+}
+
+export interface AccessMatrixResponse {
+  users: AccessMatrixUser[]
+  applications: string[]
+  tiers: RBACTier[]
+}
+
+/** Optional filters mapping to the GET /rbac/access-matrix query string. */
+export interface AccessMatrixQuery {
+  org?: string
+  application?: string
+}
+
+export async function getAccessMatrix(
+  sovereignId: string,
+  query: AccessMatrixQuery = {},
+): Promise<AccessMatrixResponse> {
+  const params = new URLSearchParams()
+  if (query.org) params.set('org', query.org)
+  if (query.application) params.set('application', query.application)
+  const qs = params.toString()
+  const url = qs
+    ? `${rbacBase(sovereignId)}/access-matrix?${qs}`
+    : `${rbacBase(sovereignId)}/access-matrix`
+  const res = await authedFetch(url, { headers: { Accept: 'application/json' } })
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`rbac/access-matrix: HTTP ${res.status} ${detail}`)
+  }
+  return res.json()
+}
+
+/* ── /audit/rbac wire shapes (U8) ─────────────────────────────────── */
+
+/** Canonical audit-type names mirrored from internal/audit/audit.go. */
+export const RBAC_AUDIT_TYPES = [
+  'rbac-grant-created',
+  'rbac-grant-updated',
+  'rbac-grant-deleted',
+  'rbac-tier-changed',
+] as const
+export type RBACAuditType = (typeof RBAC_AUDIT_TYPES)[number]
+
+export interface AuditEventScope {
+  key: string
+  value: string
+}
+
+export interface AuditEvent {
+  auditType: string
+  ts: string
+  actor?: string
+  sovereignId?: string
+  result?: 'ok' | 'denied' | 'error' | string
+  targetUser?: string
+  targetUserEmail?: string
+  targetApp?: string
+  tier?: RBACTier | string
+  previousTier?: RBACTier | string
+  scopes?: AuditEventScope[]
+  userAccessRef?: string
+  detail?: string
+}
+
+export interface AuditListResponse {
+  items: AuditEvent[]
+  nextOffset?: number
+  total: number
+}
+
+export interface AuditListQuery {
+  limit?: number
+  offset?: number
+  actor?: string
+  /** RFC3339 timestamp; only events at or after this are returned. */
+  since?: string
+}
+
+export async function listRBACAudit(
+  sovereignId: string,
+  q: AuditListQuery = {},
+): Promise<AuditListResponse> {
+  const params = new URLSearchParams()
+  if (q.limit) params.set('limit', String(q.limit))
+  if (q.offset) params.set('offset', String(q.offset))
+  if (q.actor) params.set('actor', q.actor)
+  if (q.since) params.set('since', q.since)
+  const qs = params.toString()
+  const url = qs
+    ? `${API_BASE}/v1/sovereigns/${encodeURIComponent(sovereignId)}/audit/rbac?${qs}`
+    : `${API_BASE}/v1/sovereigns/${encodeURIComponent(sovereignId)}/audit/rbac`
+  const res = await authedFetch(url, { headers: { Accept: 'application/json' } })
+  if (!res.ok && res.status !== 503) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`audit/rbac: HTTP ${res.status} ${detail}`)
+  }
+  if (res.status === 503) {
+    // Audit bus not wired — surface as empty list. The UI renders an
+    // "audit disabled" hint on top of an empty table so the operator
+    // can tell the difference between "no events" and "no bus".
+    return { items: [], total: 0 }
+  }
+  return res.json()
+}
+
+/** SSE URL helper for /audit/rbac/stream. The caller composes their
+ *  own EventSource — this just centralizes the endpoint construction
+ *  per INVIOLABLE-PRINCIPLES #4 (no hardcoded URLs in components). */
+export function rbacAuditStreamURL(sovereignId: string): string {
+  return `${API_BASE}/v1/sovereigns/${encodeURIComponent(sovereignId)}/audit/rbac/stream`
+}
+
+/** Pretty audit-type labels for UI. */
+export const AUDIT_TYPE_LABELS: Record<string, string> = {
+  'rbac-grant-created': 'Grant created',
+  'rbac-grant-updated': 'Grant updated',
+  'rbac-grant-deleted': 'Grant deleted',
+  'rbac-tier-changed': 'Tier rotated',
+}
+
+/* ── Action verb helper (used by audit row renderer + tests) ──────── */
+
+/** auditActionVerb maps an audit-type to a short verb the audit page
+ *  uses for the "action" column. Lifts the type → verb mapping into a
+ *  pure function so the renderer + the row test both share one source
+ *  of truth (matches the slice U pattern of palette-helpers in compliance.api). */
+export function auditActionVerb(auditType: string): string {
+  return AUDIT_TYPE_LABELS[auditType] ?? auditType
+}
+
+/* ── DELETE UserAccess CR (used by Members tab Remove button) ─────── */
+
+/** deleteUserAccess removes the UserAccess CR by name. Reuses the
+ *  legacy /admin/user-access surface so we don't duplicate the
+ *  delete path. The existing handler is at
+ *  DELETE /api/v1/deployments/{depId}/admin/user-access/{name}. */
+export async function deleteUserAccess(deploymentId: string, name: string): Promise<void> {
+  const url = `${API_BASE}/v1/deployments/${encodeURIComponent(deploymentId)}/admin/user-access/${encodeURIComponent(name)}`
+  const res = await authedFetch(url, {
+    method: 'DELETE',
+    headers: { Accept: 'application/json' },
+  })
+  if (!res.ok && res.status !== 204) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`user-access delete: HTTP ${res.status} ${detail}`)
+  }
+}
