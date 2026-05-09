@@ -61,7 +61,10 @@ export function UserAccessListPage({
     listUserAccess(deploymentId)
       .then((rows) => {
         if (!cancelled) {
-          setItems(rows)
+          // Defense in depth — even if a future BE change returns
+          // `null` for the items array, never crash. qa-loop iter-4
+          // cluster `users-page-null-map-and-open-redirect`.
+          setItems(rows ?? [])
           setError(null)
         }
       })
@@ -117,7 +120,7 @@ export function UserAccessListPage({
 
         {loading ? (
           <div data-testid="user-access-loading" className="text-sm text-[var(--color-text-dim)]">Loading…</div>
-        ) : items.length === 0 ? (
+        ) : (items ?? []).length === 0 ? (
           <div
             data-testid="user-access-empty-state"
             className="rounded-md border border-[var(--color-border)] px-4 py-8 text-center text-sm text-[var(--color-text-dim)]"
@@ -138,7 +141,7 @@ export function UserAccessListPage({
               </tr>
             </thead>
             <tbody>
-              {items.map((item) => (
+              {(items ?? []).map((item) => (
                 <tr
                   key={item.name}
                   data-testid={`user-access-row-${item.name}`}

@@ -23,13 +23,17 @@ export interface MemberRowData {
 
 /** flattenForScope maps the access-matrix shape (user → application
  *  → grant) to one row per user that has a grant on the requested
- *  scope. Wildcards (`*`) and exact-app matches both qualify. */
+ *  scope. Wildcards (`*`) and exact-app matches both qualify.
+ *
+ *  Defends against `users: null` from a Go zero-value slice — qa-loop
+ *  iter-4 cluster `users-page-null-map-and-open-redirect` (the
+ *  /users-page sibling crash). */
 export function flattenForScope(
   matrix: AccessMatrixResponse,
   scope: MembersScope,
 ): MemberRowData[] {
   const out: MemberRowData[] = []
-  for (const u of matrix.users) {
+  for (const u of matrix.users ?? []) {
     const grant = grantForScope(u, scope)
     if (grant) out.push({ user: u, grant })
   }
@@ -41,15 +45,16 @@ export function grantForScope(
   user: AccessMatrixUser,
   scope: MembersScope,
 ): AccessMatrixGrant | undefined {
+  const access = user.access ?? {}
   if (scope.kind === 'application') {
     // Direct match on the application key, OR fallback to the
     // synthetic '*' (global) grant.
-    return user.access[scope.value] ?? user.access['*']
+    return access[scope.value] ?? access['*']
   }
   // For organization scope, the matrix already pre-filtered to the
   // org via the ?org=<slug> query — so any grant on the user is in
   // scope. Surface the highest-tier grant.
-  const tiers = Object.values(user.access)
+  const tiers = Object.values(access)
   return tiers[0]
 }
 

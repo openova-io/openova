@@ -442,8 +442,16 @@ func userAccessToUnstructured(req userAccessRequest) *unstructured.Unstructured 
 }
 
 func unstructuredToUserAccess(u *unstructured.Unstructured) userAccessItem {
+	// Initialize slice fields as empty (not nil) so JSON serialization
+	// emits `[]` rather than `null`. The UI renders `applications.map(...)`
+	// directly — null would crash the page with a TypeError. Caught on
+	// console.omantel.biz 2026-05-09 (qa-loop iter-4 cluster
+	// `users-page-null-map-and-open-redirect`).
 	out := userAccessItem{
 		Name: u.GetName(),
+		Spec: userAccessSpecBody{
+			Applications: []userAccessAppGrantBody{},
+		},
 	}
 	if ts := u.GetCreationTimestamp(); !ts.IsZero() {
 		out.CreationTimestamp = ts.UTC().Format("2006-01-02T15:04:05Z")

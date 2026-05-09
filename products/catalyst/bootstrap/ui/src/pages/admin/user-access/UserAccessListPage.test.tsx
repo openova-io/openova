@@ -9,6 +9,7 @@
 
 import { describe, it, expect, afterEach } from 'vitest'
 import { render, screen, cleanup } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   RouterProvider,
   createRouter,
@@ -20,12 +21,17 @@ import {
 import { UserAccessListPage } from './UserAccessListPage'
 import type { UserAccessItem } from './userAccess.api'
 
-function renderList(initialItems: UserAccessItem[]) {
+function renderList(initialItems: UserAccessItem[] | null | undefined) {
   const rootRoute = createRootRoute({ component: () => <Outlet /> })
   const listRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/provision/$deploymentId/users',
-    component: () => <UserAccessListPage initialItems={initialItems} disableFetch />,
+    component: () => (
+      <UserAccessListPage
+        initialItems={initialItems as UserAccessItem[] | undefined}
+        disableFetch
+      />
+    ),
   })
   const newRoute = createRoute({
     getParentRoute: () => rootRoute,
@@ -47,7 +53,18 @@ function renderList(initialItems: UserAccessItem[]) {
     routeTree: tree,
     history: createMemoryHistory({ initialEntries: ['/provision/d-1/users'] }),
   })
-  return render(<RouterProvider router={router} />)
+  // PortalShell + child sidebar consume useQuery hooks, so the tree
+  // must be wrapped in a QueryClientProvider. Without it every test
+  // bombs with "No QueryClient set, use QueryClientProvider to set one".
+  // Fixed alongside qa-loop iter-4 cluster
+  // `users-page-null-map-and-open-redirect` so the new null-safety
+  // test rows can render at all.
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(
+    <QueryClientProvider client={qc}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  )
 }
 
 afterEach(() => cleanup())
@@ -116,5 +133,37 @@ describe('UserAccessListPage', () => {
     const cta = await screen.findByTestId('user-access-new-cta')
     expect(cta).toBeTruthy()
     expect(cta.getAttribute('href') || '').toContain('/provision/d-1/users/new')
+  })
+
+  // qa-loop iter-4 cluster `users-page-null-map-and-open-redirect` —
+  // TC-028/169/222 surfaced the page crashing with
+  // `TypeError: Cannot read properties of null (reading 'map')` when
+  // the BE serialized Go zero-value `[]Item` slices as `null` over
+  // the wire. The page renders defensively now even if the API or a
+  // future refactor leaks nulls back into the props.
+  it('renders without crashing when item.spec.applications is null', async () => {
+    const items = [
+      {
+        name: 'broken-grant',
+        spec: {
+          user: { keycloakSubject: 'eve' },
+          sovereignRef: 'omantel',
+          // Simulate a wire null leaking past the api-client normalizer.
+          applications: null as unknown as never,
+        },
+      },
+    ] as unknown as UserAccessItem[]
+    renderList(items)
+    // The row renders — no React error boundary engaged.
+    expect(await screen.findByTestId('user-access-row-broken-grant')).toBeTruthy()
+    // The grants summary cell is empty, but the page is alive.
+    expect(screen.getByText('eve')).toBeTruthy()
+  })
+
+  it('renders without crashing when initialItems itself is null-ish', async () => {
+    // Belt-and-suspenders: even if a parent component passes null/
+    // undefined the page should render the empty-state without crashing.
+    renderList(null as unknown as UserAccessItem[])
+    expect(await screen.findByTestId('user-access-empty-state')).toBeTruthy()
   })
 })

@@ -40,6 +40,49 @@ export function canonicalisePath(pathname: string): string {
 }
 
 /**
+ * Sanitize a `next=` redirect target so it can NEVER point to an
+ * external host (open-redirect class CWE-601).
+ *
+ * Rules (strictly reject anything ambiguous — paths only):
+ *   - If the input is empty / non-string → return undefined.
+ *   - Reject embedded NUL / control / whitespace characters.
+ *   - Reject explicit URL schemes (`http:`, `https:`, `javascript:`,
+ *     `data:`, `file:`, `vbscript:`, `mailto:`, etc).
+ *   - Reject backslashes anywhere (some browsers normalize `\` to
+ *     `/`, which would smuggle `\\evil.com` past a leading-slash
+ *     check).
+ *   - Reject anything that doesn't start with a single forward
+ *     slash. In particular `//evil.com/foo` is rejected — the
+ *     browser parses leading `//` as a protocol-relative authority
+ *     reference (host = evil.com).
+ *
+ * Returns the sanitized path, or `undefined` if the input is unsafe
+ * — callers should fall back to the default landing page (e.g.
+ * `/dashboard` or `/wizard`).
+ *
+ * qa-loop iter-4 cluster `users-page-null-map-and-open-redirect`
+ * (TC-009 / 2026-05-09 routing matrix). The contract: post-login
+ * navigation MUST land on the same origin under all circumstances.
+ */
+export function sanitizeNextParam(raw: unknown): string | undefined {
+  if (typeof raw !== 'string' || raw.length === 0) return undefined
+  // Reject embedded NULs / control chars / any whitespace.
+  if (/[\x00-\x1f\s]/.test(raw)) return undefined
+  // Reject backslashes anywhere — some browsers normalize `\` to `/`
+  // before parsing, so `/\evil.com` and `\\evil.com` end up host
+  // references at runtime.
+  if (raw.indexOf('\\') !== -1) return undefined
+  // Reject schemes (http:, https:, javascript:, data:, file:, mailto:,
+  // vbscript:, etc.). A scheme is `<alpha>[<alpha>|<digit>|+|.|-]*:`.
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(raw)) return undefined
+  // Require single-leading-slash absolute path. Reject leading `//`
+  // (protocol-relative authority) and anything that doesn't start
+  // with `/` (relative paths or bare strings).
+  if (!raw.startsWith('/') || raw.startsWith('//')) return undefined
+  return raw
+}
+
+/**
  * Synchronous best-effort check that the operator has a session marker
  * cached in JS-readable storage.
  *

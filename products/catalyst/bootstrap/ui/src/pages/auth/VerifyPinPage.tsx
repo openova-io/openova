@@ -19,6 +19,7 @@ import { AuthShell } from '@/app/layouts/AuthLayout'
 import { Button } from '@/shared/ui/button'
 import { PinInput6 } from '@/components/PinInput6'
 import { API_BASE } from '@/shared/config/urls'
+import { sanitizeNextParam } from '@/app/auth-gate'
 
 type State = 'idle' | 'verifying' | 'error'
 
@@ -92,7 +93,13 @@ export function VerifyPinPage() {
         // Hard navigation so the next page boot reads the cookie via
         // /whoami fresh and the auth gate sees the marker. Mirrors the
         // pattern Fix #A (PR #1093) uses on the unauth path.
-        const target = next ?? '/wizard'
+        //
+        // Belt-and-suspenders open-redirect defense (CWE-601): even
+        // though /login + /login/verify validateSearch already
+        // sanitizes `next`, we sanitize again here in case a future
+        // caller bypasses the route's validateSearch. qa-loop iter-4
+        // cluster `users-page-null-map-and-open-redirect`.
+        const target = sanitizeNextParam(next) ?? '/wizard'
         if (typeof window !== 'undefined') {
           window.location.replace(target)
           return
