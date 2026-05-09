@@ -715,6 +715,89 @@ func (c *Client) DeleteFile(ctx context.Context, org, repo, branch, path, messag
 	return true, nil
 }
 
+// ----------------------------------------------------------------------
+// Pull requests
+// ----------------------------------------------------------------------
+
+// PullRequest is the slice of Gitea Pull Request fields the handlers
+// use. Added by EPIC-0 slice Z3 follow-up to wire YamlEditor's
+// flux-managed Apply branch through a Gitea PR rather than a direct
+// /apply on a flux-owned resource.
+type PullRequest struct {
+	ID     int64  `json:"id,omitempty"`
+	Number int64  `json:"number,omitempty"`
+	URL    string `json:"html_url,omitempty"`
+	State  string `json:"state,omitempty"`
+	Title  string `json:"title,omitempty"`
+	Body   string `json:"body,omitempty"`
+	Head   struct {
+		Ref string `json:"ref,omitempty"`
+		SHA string `json:"sha,omitempty"`
+	} `json:"head,omitempty"`
+	Base struct {
+		Ref string `json:"ref,omitempty"`
+		SHA string `json:"sha,omitempty"`
+	} `json:"base,omitempty"`
+}
+
+// pullRequestCreate is the body of POST /repos/{owner}/{repo}/pulls.
+type pullRequestCreate struct {
+	Title string `json:"title"`
+	Body  string `json:"body,omitempty"`
+	Head  string `json:"head"`
+	Base  string `json:"base"`
+}
+
+// CreatePullRequest opens a PR from `head` (a branch on the same repo)
+// into `base`. Returns the created PR or, if a PR already exists from
+// the same head into base, the existing one (Gitea returns 409 in that
+// case; we re-fetch the open PR list and pick the matching head).
+//
+// Caller is responsible for ensuring `head` exists (use EnsureBranch +
+// PutFile to seed it).
+func (c *Client) CreatePullRequest(ctx context.Context, org, repo, head, base, title, body string) (PullRequest, error) {
+	if org == "" || repo == "" || head == "" || base == "" || title == "" {
+		return PullRequest{}, errors.New("gitea: CreatePullRequest requires non-empty org, repo, head, base, title")
+	}
+	endpoint := fmt.Sprintf("/repos/%s/%s/pulls", url.PathEscape(org), url.PathEscape(repo))
+	payload := pullRequestCreate{Title: title, Body: body, Head: head, Base: base}
+	var out PullRequest
+	status, _, err := c.do(ctx, http.MethodPost, endpoint, payload, &out)
+	if err == nil {
+		return out, nil
+	}
+	// 409 = a PR from the same head is already open. Re-fetch + return
+	// the matching one so callers see "PR already opened" as success.
+	if status == http.StatusConflict {
+		if existing, ferr := c.findOpenPR(ctx, org, repo, head, base); ferr == nil {
+			return existing, nil
+		}
+	}
+	if status == http.StatusNotFound {
+		return PullRequest{}, ErrRepoNotFound
+	}
+	return PullRequest{}, err
+}
+
+// findOpenPR fetches the open PR from `head` into `base` on (org, repo)
+// — used by CreatePullRequest's 409 race fallback.
+func (c *Client) findOpenPR(ctx context.Context, org, repo, head, base string) (PullRequest, error) {
+	endpoint := fmt.Sprintf("/repos/%s/%s/pulls?state=open&head=%s:%s&base=%s",
+		url.PathEscape(org), url.PathEscape(repo),
+		url.QueryEscape(org), url.QueryEscape(head),
+		url.QueryEscape(base))
+	var list []PullRequest
+	if _, _, err := c.do(ctx, http.MethodGet, endpoint, nil, &list); err != nil {
+		return PullRequest{}, err
+	}
+	for _, pr := range list {
+		if pr.Head.Ref == head && pr.Base.Ref == base {
+			return pr, nil
+		}
+	}
+	return PullRequest{}, errors.New("gitea: no open PR matching head/base")
+}
+
 // pathEscapeSegments escapes each path segment but preserves slashes.
 // `url.PathEscape` would encode "/" as "%2F", breaking Gitea's path
 // resolution.

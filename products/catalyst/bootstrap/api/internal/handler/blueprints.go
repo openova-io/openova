@@ -61,6 +61,11 @@ type GiteaBlueprintClient interface {
 	GetFile(ctx context.Context, org, repo, branch, path string) (gitea.File, error)
 	ListOrgRepos(ctx context.Context, org string) ([]gitea.Repo, error)
 	ListContents(ctx context.Context, org, repo, branch, path string) ([]gitea.ContentEntry, error)
+	// EnsureBranch + CreatePullRequest — slice Z3 follow-up. The
+	// YamlEditor's flux-managed Apply branch routes through a Gitea PR
+	// instead of a direct /apply on a flux-owned resource.
+	EnsureBranch(ctx context.Context, org, repo, branch string) error
+	CreatePullRequest(ctx context.Context, org, repo, head, base, title, body string) (gitea.PullRequest, error)
 }
 
 // SetGiteaClient injects the Gitea client. main.go wires this from env;
@@ -423,6 +428,196 @@ func (h *Handler) HandleBlueprintListCuratable(w http.ResponseWriter, r *http.Re
 		}
 	}
 	writeJSON(w, http.StatusOK, curatableBlueprintsResponse{Items: out})
+}
+
+// ── Edit-PR (slice Z3 follow-up) ────────────────────────────────────
+
+// blueprintEditPRRequest — body of POST /api/v1/sovereigns/{id}/blueprints/edit-pr.
+//
+// The YamlEditor widget posts this when the operator clicks "Open PR"
+// on a flux-managed resource. The handler creates a branch on the
+// per-Org shared-blueprints repo, commits the new content, then opens
+// a PR against `main` so a reviewer can merge through the GitOps flow
+// (rather than the operator side-stepping flux with a direct /apply).
+type blueprintEditPRRequest struct {
+	Org     string `json:"org"`
+	Path    string `json:"path"`
+	Content string `json:"content"`
+	Message string `json:"message,omitempty"`
+	Title   string `json:"title,omitempty"`
+}
+
+// blueprintEditPRResponse — body returned on 200.
+type blueprintEditPRResponse struct {
+	PRURL    string `json:"prURL"`
+	PRNumber int64  `json:"prNumber"`
+	Branch   string `json:"branch"`
+	Repo     string `json:"repo"`
+	Path     string `json:"path"`
+	Message  string `json:"message"`
+}
+
+// HandleBlueprintEditPR — POST /api/v1/sovereigns/{id}/blueprints/edit-pr
+//
+// Creates a branch + commits + opens a PR on `<org>/shared-blueprints`
+// for the supplied path. Auth: tier-admin or higher (mirrors
+// /blueprints/publish per INVIOLABLE-PRINCIPLES #5).
+//
+// Branch name is deterministic per (path, content-hash) so re-posting
+// the same edit re-targets the same PR (Gitea 409 fallback in the
+// underlying client surfaces the existing one as success).
+func (h *Handler) HandleBlueprintEditPR(w http.ResponseWriter, r *http.Request) {
+	depID := chi.URLParam(r, "id")
+	if _, ok := h.lookupDeploymentForInfra(depID); !ok {
+		writeNotFound(w, depID)
+		return
+	}
+	if claims := auth.ClaimsFromContext(r.Context()); claims != nil {
+		if !applicationInstallCallerAuthorized(claims) {
+			writeJSON(w, http.StatusForbidden, map[string]string{
+				"error":  "forbidden",
+				"detail": "POST /blueprints/edit-pr requires tier-admin or higher",
+			})
+			return
+		}
+	}
+	if h.giteaClient == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error":  "gitea-not-wired",
+			"detail": "Gitea client unconfigured (CATALYST_GITEA_URL/TOKEN); edit-pr requires Gitea",
+		})
+		return
+	}
+
+	var body blueprintEditPRRequest
+	if !decodeMutationBody(w, r, &body) {
+		return
+	}
+	if msg, ok := validateBlueprintEditPRRequest(body); !ok {
+		writeBadRequest(w, "invalid-edit-pr", msg)
+		return
+	}
+
+	branch := editPRBranchName(body.Path, []byte(body.Content))
+	title := strings.TrimSpace(body.Title)
+	if title == "" {
+		title = fmt.Sprintf("Edit %s via Catalyst", body.Path)
+	}
+	commitMsg := strings.TrimSpace(body.Message)
+	if commitMsg == "" {
+		commitMsg = title
+	}
+
+	ctx := r.Context()
+
+	// Ensure target branch exists. EnsureBranch is idempotent.
+	if err := h.giteaClient.EnsureBranch(ctx, body.Org, sharedBlueprintsRepo, branch); err != nil {
+		if gitea.IsNotFound(err) {
+			writeNotFound(w, fmt.Sprintf("%s/%s", body.Org, sharedBlueprintsRepo))
+			return
+		}
+		h.log.Warn("blueprint edit-pr: ensure branch failed", "org", body.Org, "branch", branch, "err", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{
+			"error":  "gitea-upstream",
+			"detail": fmt.Sprintf("ensure branch %s: %v", branch, err),
+		})
+		return
+	}
+
+	// PutFile honors the byte-equal short-circuit; the operator can
+	// re-post the same edit safely.
+	if _, _, err := h.giteaClient.PutFile(
+		ctx, body.Org, sharedBlueprintsRepo, branch, body.Path,
+		[]byte(body.Content), commitMsg,
+	); err != nil {
+		if gitea.IsNotFound(err) {
+			writeNotFound(w, fmt.Sprintf("%s/%s/%s", body.Org, sharedBlueprintsRepo, body.Path))
+			return
+		}
+		h.log.Warn("blueprint edit-pr: put file failed", "org", body.Org, "branch", branch, "path", body.Path, "err", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{
+			"error":  "gitea-upstream",
+			"detail": fmt.Sprintf("put file %s: %v", body.Path, err),
+		})
+		return
+	}
+
+	pr, err := h.giteaClient.CreatePullRequest(ctx, body.Org, sharedBlueprintsRepo, branch, blueprintBranch, title, body.Message)
+	if err != nil {
+		if gitea.IsNotFound(err) {
+			writeNotFound(w, fmt.Sprintf("%s/%s", body.Org, sharedBlueprintsRepo))
+			return
+		}
+		h.log.Warn("blueprint edit-pr: create PR failed", "org", body.Org, "branch", branch, "err", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{
+			"error":  "gitea-upstream",
+			"detail": fmt.Sprintf("create PR: %v", err),
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, blueprintEditPRResponse{
+		PRURL:    pr.URL,
+		PRNumber: pr.Number,
+		Branch:   branch,
+		Repo:     sharedBlueprintsRepo,
+		Path:     body.Path,
+		Message:  fmt.Sprintf("PR #%d opened against %s", pr.Number, blueprintBranch),
+	})
+}
+
+// validateBlueprintEditPRRequest — invariants the handler expects.
+func validateBlueprintEditPRRequest(req blueprintEditPRRequest) (string, bool) {
+	if strings.TrimSpace(req.Org) == "" {
+		return "org is required", false
+	}
+	if !isValidK8sName(req.Org) {
+		return "org must be a valid K8s name (RFC 1123)", false
+	}
+	if strings.TrimSpace(req.Path) == "" {
+		return "path is required", false
+	}
+	if strings.Contains(req.Path, "..") {
+		return "path must not contain `..`", false
+	}
+	if strings.HasPrefix(req.Path, "/") {
+		return "path must be repo-relative (no leading `/`)", false
+	}
+	if strings.TrimSpace(req.Content) == "" {
+		return "content is required", false
+	}
+	if len(req.Content) > 1024*1024 {
+		return "content exceeds 1 MiB", false
+	}
+	return "", true
+}
+
+// editPRBranchName produces a deterministic branch name per
+// (path, content-hash). Two posts with the same content re-target the
+// same branch — the underlying Gitea client's PR-create 409 fallback
+// then surfaces the existing PR as success, so the UI sees "PR
+// re-opened" rather than "duplicate".
+func editPRBranchName(path string, content []byte) string {
+	h := fnv1a64(append([]byte(path+"\x00"), content...))
+	// fnv64 hex is 16 chars; truncating to 12 keeps the branch readable
+	// while still collision-safe for per-path single-operator workloads.
+	return fmt.Sprintf("edit/%s", h[:12])
+}
+
+// fnv1a64 — small zero-dep FNV-1a 64-bit hex digest. Avoids a hash/fnv
+// import in this file; the math is simple enough to inline + the
+// determinism is the contract.
+func fnv1a64(data []byte) string {
+	const (
+		offset uint64 = 14695981039346656037
+		prime  uint64 = 1099511628211
+	)
+	hash := offset
+	for _, b := range data {
+		hash ^= uint64(b)
+		hash *= prime
+	}
+	return fmt.Sprintf("%016x", hash)
 }
 
 // ── Validation + helpers ────────────────────────────────────────────

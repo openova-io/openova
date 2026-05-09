@@ -385,7 +385,21 @@ func (r *ContinuumReconciler) runSwitchover(
 			if z == "" {
 				z = currentZone(records)
 			}
-			return r.PDMClient.CommitLuaRecords(ctx, z, records)
+			if err := r.PDMClient.CommitLuaRecords(ctx, z, records); err != nil {
+				return err
+			}
+			// Z1 follow-up: surface the just-committed lua-record body
+			// on status.lastLuaRecord. Patches AFTER the PDM commit
+			// succeeds (not on dry-run nor on PDM error) so observers
+			// always see what is actually live in PowerDNS. Rollbacks
+			// also flow through PDMCommit, so the field re-tracks to
+			// the rolled-back records — keeping the contract "what
+			// status says == what PDM has".
+			_ = r.patchStatus(ctx, cr, statusUpdate{
+				LastLuaRecord:   luaRecordStatusValue(records),
+				LastLuaRecordAt: r.now().UTC().Format(time.RFC3339),
+			})
+			return nil
 		},
 		HTTPRoute: r.Drainer,
 		Audit:     r.Audit,
@@ -542,6 +556,29 @@ func (r *ContinuumReconciler) sleeper(d time.Duration) {
 	time.Sleep(d)
 }
 
+// luaRecordStatusValue projects a slice of dns.Record into the
+// `{records: [{hostname, body, ttl, primaryRegion}]}` map shape
+// surfaced on Continuum.status.lastLuaRecord (slice Z1 follow-up).
+//
+// Field name `body` (not `luaBody`) matches U-DR-1's LuaRecordView
+// parser which checks `r['body']` / `rec['body']` to render. nil-safe:
+// returns nil when records is empty so the patch is a no-op.
+func luaRecordStatusValue(records []dns.Record) map[string]interface{} {
+	if len(records) == 0 {
+		return nil
+	}
+	out := make([]interface{}, 0, len(records))
+	for _, rec := range records {
+		out = append(out, map[string]interface{}{
+			"hostname":      rec.Hostname,
+			"body":          rec.LuaBody,
+			"ttl":           int64(rec.TTL),
+			"primaryRegion": rec.PrimaryRegion,
+		})
+	}
+	return map[string]interface{}{"records": out}
+}
+
 // currentZone resolves the PowerDNS zone from a record set's first
 // hostname (everything after the first dot). Empty input → empty
 // output.
@@ -686,6 +723,25 @@ type statusUpdate struct {
 	LastSwitchoverHealthy       string
 	LastSwitchoverHealthyDetail string
 
+	// LastLuaRecord — slice Z1 follow-up. The rendered lua-record
+	// body the reconciler last committed via PDM /v1/lua/commit.
+	// Populated by runSwitchover's PDMCommit closure on every
+	// successful commit (forward or rollback). Surfaced by U-DR-1's
+	// LuaRecordView in the AppDetail Topology DR section so operators
+	// can confirm the active probe + IP-set without reading
+	// PowerDNS.
+	//
+	// Encoding: the `{records: [{hostname, luaBody, ttl, primaryRegion}]}`
+	// shape produced by dns.MarshalRecords. Stored as a structured
+	// map under status.lastLuaRecord so jq / kubectl / the UI can
+	// project sub-fields without re-parsing.
+	//
+	// LastLuaRecordAt is the RFC3339 timestamp of the commit — set
+	// by the controller (NOT by the caller) so the wire shape is the
+	// observed transition time, not the request time.
+	LastLuaRecord   map[string]interface{}
+	LastLuaRecordAt string
+
 	Reason  string
 	Message string
 }
@@ -731,6 +787,18 @@ func (r *ContinuumReconciler) patchStatus(ctx context.Context, cr *unstructured.
 			"at":     r.now().UTC().Format(time.RFC3339),
 		}
 		status["lastSwitchover"] = ls
+	}
+	// Z1 follow-up — surface the rendered lua-record body the
+	// reconciler last committed via PDM. Only written when the caller
+	// supplied a non-nil map so steady-state reconciles preserve the
+	// prior value.
+	if su.LastLuaRecord != nil {
+		status["lastLuaRecord"] = su.LastLuaRecord
+		ts := su.LastLuaRecordAt
+		if ts == "" {
+			ts = r.now().UTC().Format(time.RFC3339)
+		}
+		status["lastLuaRecordAt"] = ts
 	}
 
 	conds := []interface{}{}

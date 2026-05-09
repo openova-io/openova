@@ -4,7 +4,8 @@
  *
  * Branching contract per the brief:
  *   - `managed-by: flux` resources → opens a Gitea PR via the unified
- *     /blueprints/edit-pr endpoint (slice T+O+P P1's GiteaBlueprintClient).
+ *     /blueprints/edit-pr endpoint (slice T+O+P P1's GiteaBlueprintClient,
+ *     extended by slice Z3 with CreatePullRequest).
  *   - `managed-by: manual` resources OR no managed-by annotation → calls
  *     /k8s/{kind}/{ns}/{name}/apply for direct apply.
  *
@@ -23,6 +24,7 @@
 
 import { useMemo, useState } from 'react'
 
+import { editPRBlueprint, type BlueprintEditPRResponse } from '@/lib/catalog.api'
 import {
   applyYAML,
   dryRunYAML,
@@ -116,6 +118,7 @@ export function YamlEditor({ deploymentId, kind, ns, name, obj, fluxOverride }: 
   const [validateError, setValidateError] = useState<string | null>(null)
   const [applyMsg, setApplyMsg] = useState<string | null>(null)
   const [applyError, setApplyError] = useState<string | null>(null)
+  const [prInfo, setPRInfo] = useState<BlueprintEditPRResponse | null>(null)
   const [busy, setBusy] = useState<'validate' | 'apply' | null>(null)
 
   const flux = fluxOverride ?? isFluxManaged(obj)
@@ -139,16 +142,28 @@ export function YamlEditor({ deploymentId, kind, ns, name, obj, fluxOverride }: 
   async function onApply() {
     setApplyMsg(null)
     setApplyError(null)
+    setPRInfo(null)
     setBusy('apply')
     try {
       if (flux) {
-        // Slice T+O+P P1 owns the Gitea PR seam. Wire-up here is a
-        // placeholder for the live PR-open flow until the
-        // /blueprints/edit-pr surface lands as a generic "edit-CR PR"
-        // shape. Server-side will reject direct Apply on flux-managed
-        // resources, surfacing the same error if the operator skips PR
-        // and the policy is enforced.
-        setApplyMsg('Flux-managed resource — opening Gitea PR (preview)…')
+        // Slice Z3 — flux-managed resources route through the unified
+        // /blueprints/edit-pr endpoint: branch + commit + PR on the
+        // per-Org shared-blueprints repo. The org slug is derived from
+        // the K8s object's `catalyst.openova.io/organization` label
+        // (per slice I labels) with the namespace as fallback.
+        const org = orgFromObject(obj, ns)
+        const path = editPathFromObject(obj, kind, ns, name)
+        const title = `Edit ${kind}/${name} via Catalyst UI`
+        const message = `Edit ${kind}/${name} (ns=${ns ?? '(cluster)'}) via Catalyst YamlEditor`
+        const resp = await editPRBlueprint(deploymentId, {
+          org,
+          path,
+          content: yaml,
+          message,
+          title,
+        })
+        setPRInfo(resp)
+        setApplyMsg(`PR #${resp.prNumber} opened — ${resp.prURL}`)
       } else {
         const resp = await applyYAML(deploymentId, kind, ns, name, yaml)
         setApplyMsg(`Applied (resourceVersion ${resp.resourceVersion}).`)
@@ -264,6 +279,17 @@ export function YamlEditor({ deploymentId, kind, ns, name, obj, fluxOverride }: 
             {applyMsg}
           </span>
         )}
+        {prInfo && prInfo.prURL && (
+          <a
+            data-testid="yaml-editor-pr-link"
+            href={prInfo.prURL}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="text-xs text-emerald-200 underline"
+          >
+            Open PR #{prInfo.prNumber}
+          </a>
+        )}
         {applyError && (
           <span data-testid="yaml-editor-apply-err" className="text-xs text-rose-300">
             {applyError}
@@ -272,4 +298,30 @@ export function YamlEditor({ deploymentId, kind, ns, name, obj, fluxOverride }: 
       </div>
     </div>
   )
+}
+
+/** orgFromObject — extract the canonical Org slug from a K8s object's
+ *  labels (per slice I labels) with the namespace as fallback. Empty
+ *  namespace (cluster-scoped) → "" (the server rejects with 400). */
+function orgFromObject(obj: K8sObject | null | undefined, ns: string | undefined): string {
+  const labels = (obj?.metadata as { labels?: Record<string, string> } | undefined)?.labels
+  const fromLabel = labels?.['catalyst.openova.io/organization']
+  if (fromLabel && fromLabel.trim() !== '') return fromLabel.trim()
+  return (ns ?? '').trim()
+}
+
+/** editPathFromObject — repo-relative path the edit-pr handler writes
+ *  to. Mirrors the Flux convention `<kind>/<ns>/<name>.yaml` so the
+ *  per-Org shared-blueprints repo organises edits by resource. The
+ *  blueprint-controller's reconciler ignores cross-bp edits. */
+function editPathFromObject(
+  obj: K8sObject | null | undefined,
+  kind: string,
+  ns: string | undefined,
+  name: string,
+): string {
+  const segments = ['edits', kind, ns && ns.trim() !== '' ? ns : '_cluster', `${name}.yaml`]
+  return segments.join('/')
+  // obj is reserved for future namespace-or-label-derived path overrides.
+  void obj
 }

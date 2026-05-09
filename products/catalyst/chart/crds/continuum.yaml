@@ -259,6 +259,37 @@ spec:
                       lastTransitionTime:
                         type: string
                         format: date-time
+                lastLuaRecord:
+                  type: object
+                  description: |
+                    Slice Z1 follow-up — last lua-record body Continuum
+                    committed to PowerDNS via PDM /v1/lua/commit. The UI
+                    (U-DR-1 LuaRecordView) reads `records[].body` to
+                    render. Always reflects what is currently published
+                    in PowerDNS — re-emitted on every successful PDM
+                    commit (forward and rollback).
+                  properties:
+                    records:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          hostname:
+                            type: string
+                          body:
+                            type: string
+                            description: Lua expression PowerDNS evaluates at query time.
+                          ttl:
+                            type: integer
+                            format: int64
+                          primaryRegion:
+                            type: string
+                        x-kubernetes-preserve-unknown-fields: true
+                  x-kubernetes-preserve-unknown-fields: true
+                lastLuaRecordAt:
+                  type: string
+                  format: date-time
+                  description: RFC3339 timestamp of the last successful PDM lua-record commit.
                 observedGeneration:
                   type: integer
                   format: int64

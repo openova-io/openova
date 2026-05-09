@@ -312,6 +312,76 @@ func TestHandleFleetSovereignSummary_Happy(t *testing.T) {
 	}
 }
 
+// TestHandleFleetSovereignSummary_AlertsFromCompliance — slice Z2.
+//
+// summarizeSovereign() must populate `alerts` from the EPIC-1 score
+// aggregator's per-cluster violation count. This test seeds 2 failing
+// (resource, policy) pairs into a minimal ComplianceHandler and
+// asserts the /summary endpoint surfaces alerts=2.
+func TestHandleFleetSovereignSummary_AlertsFromCompliance(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	dep := installFleetSovereign(t, h, "sov-z2", "z2.example.com", "ready")
+	factory, _ := fakeFleetDynamicFactory(
+		newAppCR("wp", "acme", "bp-wordpress", "1.0", topologySingleRegion, "Ready", "hz-fsn-rtz-prod"),
+	)
+	h.dynamicFactory = factory
+
+	// Build a ComplianceHandler directly (no goroutine needed — we
+	// seed state under the lock and don't subscribe to anything).
+	c := &ComplianceHandler{
+		state:       map[string]map[string]*resourceState{},
+		labels:      map[string]map[string]map[string]string{},
+		policySrc:   map[string]string{},
+		subscribers: map[int64]*complianceSubscriber{},
+		stop:        make(chan struct{}),
+	}
+	now := time.Now()
+	c.state[dep.ID] = map[string]*resourceState{
+		"deployment/ns1/web": {
+			resource: "deployment/ns1/web", namespace: "ns1", application: "web",
+			results: map[string]policyVerdict{
+				"probes-present": {result: "fail", at: now},
+				"flux-managed":   {result: "fail", at: now},
+				"hpa-effective":  {result: "pass", at: now}, // not an alert
+			},
+		},
+	}
+	h.SetComplianceHandler(c)
+
+	rec := callUserAccess(t, h, http.MethodGet, "/api/v1/fleet/sovereigns/"+dep.ID+"/summary", nil, registerFleetRoutes)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var resp fleetSovereignDetail
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Alerts != 2 {
+		t.Fatalf("alerts: got %d want 2 (only fail verdicts count)", resp.Alerts)
+	}
+}
+
+// TestHandleFleetSovereignSummary_AlertsZeroWhenComplianceNil — guards
+// the nil-tolerant path: a catalyst-api Pod with the compliance
+// aggregator unwired keeps the dashboard green at 0 alerts.
+func TestHandleFleetSovereignSummary_AlertsZeroWhenComplianceNil(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	dep := installFleetSovereign(t, h, "sov-z2-nil", "z2nil.example.com", "ready")
+	factory, _ := fakeFleetDynamicFactory()
+	h.dynamicFactory = factory
+	// h.compliance left as nil.
+
+	rec := callUserAccess(t, h, http.MethodGet, "/api/v1/fleet/sovereigns/"+dep.ID+"/summary", nil, registerFleetRoutes)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var resp fleetSovereignDetail
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	if resp.Alerts != 0 {
+		t.Fatalf("alerts: got %d want 0 (compliance not wired)", resp.Alerts)
+	}
+}
+
 // ── /fleet/sovereigns/{id}/summary: 404 unknown ──────────────────────
 
 func TestHandleFleetSovereignSummary_404OnUnknown(t *testing.T) {

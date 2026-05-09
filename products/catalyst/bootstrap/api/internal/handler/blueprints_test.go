@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -20,19 +21,25 @@ import (
 
 // fakeGiteaClient is an in-memory stub of GiteaBlueprintClient.
 type fakeGiteaClient struct {
-	mu    sync.Mutex
-	files map[string][]byte // org/repo/branch/path → bytes
-	repos map[string]bool   // org/repo → exists
-	orgs  map[string]bool   // org → exists
-	dirs  map[string][]gitea.ContentEntry
+	mu       sync.Mutex
+	files    map[string][]byte // org/repo/branch/path → bytes
+	repos    map[string]bool   // org/repo → exists
+	orgs     map[string]bool   // org → exists
+	dirs     map[string][]gitea.ContentEntry
+	branches map[string]bool                  // org/repo/branch → exists
+	prs      map[string]gitea.PullRequest     // org/repo/head→base → PR
+	prSeq    int64
+	failPRCreate bool // when true, CreatePullRequest returns ErrRepoNotFound
 }
 
 func newFakeGitea() *fakeGiteaClient {
 	return &fakeGiteaClient{
-		files: map[string][]byte{},
-		repos: map[string]bool{},
-		orgs:  map[string]bool{},
-		dirs:  map[string][]gitea.ContentEntry{},
+		files:    map[string][]byte{},
+		repos:    map[string]bool{},
+		orgs:     map[string]bool{},
+		dirs:     map[string][]gitea.ContentEntry{},
+		branches: map[string]bool{},
+		prs:      map[string]gitea.PullRequest{},
 	}
 }
 
@@ -94,6 +101,38 @@ func (f *fakeGiteaClient) ListContents(_ context.Context, org, repo, _, path str
 		return v, nil
 	}
 	return nil, gitea.ErrFileNotFound
+}
+
+func (f *fakeGiteaClient) EnsureBranch(_ context.Context, org, repo, branch string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.branches[org+"/"+repo+"/"+branch] = true
+	return nil
+}
+
+func (f *fakeGiteaClient) CreatePullRequest(_ context.Context, org, repo, head, base, title, body string) (gitea.PullRequest, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failPRCreate {
+		return gitea.PullRequest{}, gitea.ErrRepoNotFound
+	}
+	key := org + "/" + repo + "/" + head + "→" + base
+	if existing, ok := f.prs[key]; ok {
+		return existing, nil
+	}
+	f.prSeq++
+	pr := gitea.PullRequest{
+		ID:     f.prSeq,
+		Number: f.prSeq,
+		State:  "open",
+		Title:  title,
+		Body:   body,
+		URL:    "http://gitea.local/" + org + "/" + repo + "/pulls/" + fmt.Sprintf("%d", f.prSeq),
+	}
+	pr.Head.Ref = head
+	pr.Base.Ref = base
+	f.prs[key] = pr
+	return pr, nil
 }
 
 // validBlueprintYAML returns a canonical bp-acme blueprint.yaml.
@@ -343,6 +382,171 @@ func TestHandleBlueprintListCuratable_EnumeratesOrgRepos(t *testing.T) {
 	}
 	if len(resp.Items) != 2 {
 		t.Fatalf("items: got %d want 2; %v", len(resp.Items), resp.Items)
+	}
+}
+
+// ── Edit-PR (slice Z3) ────────────────────────────────────────────────
+
+func TestHandleBlueprintEditPR_OpensPR(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	gc := newFakeGitea()
+	h.SetGiteaClient(gc)
+	dep := installUserAccessDeployment(t, h, "dep-bp-edit-pr")
+
+	body := blueprintEditPRRequest{
+		Org:     "acme",
+		Path:    "clusters/sov/website/deployment.yaml",
+		Content: "kind: Deployment\nmetadata:\n  name: web\n",
+		Title:   "Bump replicas",
+	}
+	rec := callUserAccess(t, h, http.MethodPost,
+		"/api/v1/sovereigns/"+dep.ID+"/blueprints/edit-pr", body, registerBlueprintRoutes)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var resp blueprintEditPRResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.PRURL == "" {
+		t.Errorf("PRURL empty; resp=%+v", resp)
+	}
+	if resp.PRNumber == 0 {
+		t.Errorf("PRNumber zero; resp=%+v", resp)
+	}
+	if !strings.HasPrefix(resp.Branch, "edit/") {
+		t.Errorf("branch should be deterministic edit/<hash>; got %q", resp.Branch)
+	}
+	// Verify content actually landed on the branch.
+	wrote, ok := gc.files[giteaKey("acme", sharedBlueprintsRepo, resp.Branch, body.Path)]
+	if !ok {
+		t.Fatalf("expected commit on branch %s; gitea files=%v", resp.Branch, gc.files)
+	}
+	if string(wrote) != body.Content {
+		t.Fatalf("committed content mismatch: got %q want %q", string(wrote), body.Content)
+	}
+}
+
+func TestHandleBlueprintEditPR_DeterministicBranchPerContent(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	gc := newFakeGitea()
+	h.SetGiteaClient(gc)
+	dep := installUserAccessDeployment(t, h, "dep-bp-edit-pr-det")
+
+	body := blueprintEditPRRequest{
+		Org:     "acme",
+		Path:    "clusters/sov/website/deployment.yaml",
+		Content: "same-content",
+		Title:   "edit",
+	}
+	r1 := callUserAccess(t, h, http.MethodPost,
+		"/api/v1/sovereigns/"+dep.ID+"/blueprints/edit-pr", body, registerBlueprintRoutes)
+	r2 := callUserAccess(t, h, http.MethodPost,
+		"/api/v1/sovereigns/"+dep.ID+"/blueprints/edit-pr", body, registerBlueprintRoutes)
+	if r1.Code != http.StatusOK || r2.Code != http.StatusOK {
+		t.Fatalf("statuses: %d, %d (want both 200)", r1.Code, r2.Code)
+	}
+	var resp1, resp2 blueprintEditPRResponse
+	_ = json.Unmarshal(r1.Body.Bytes(), &resp1)
+	_ = json.Unmarshal(r2.Body.Bytes(), &resp2)
+	if resp1.Branch != resp2.Branch {
+		t.Errorf("same content should produce same branch; got %q vs %q", resp1.Branch, resp2.Branch)
+	}
+	// Different content → different branch.
+	body.Content = "other-content"
+	r3 := callUserAccess(t, h, http.MethodPost,
+		"/api/v1/sovereigns/"+dep.ID+"/blueprints/edit-pr", body, registerBlueprintRoutes)
+	var resp3 blueprintEditPRResponse
+	_ = json.Unmarshal(r3.Body.Bytes(), &resp3)
+	if resp1.Branch == resp3.Branch {
+		t.Errorf("different content should produce different branch; got %q == %q", resp1.Branch, resp3.Branch)
+	}
+}
+
+func TestHandleBlueprintEditPR_403WhenNotTierAdmin(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	h.SetGiteaClient(newFakeGitea())
+	dep := installUserAccessDeployment(t, h, "dep-bp-edit-pr-403")
+
+	body := blueprintEditPRRequest{Org: "acme", Path: "x.yaml", Content: "k: v", Title: "x"}
+	r := chi.NewRouter()
+	registerBlueprintRoutes(r, h)
+	raw, _ := json.Marshal(body)
+	req, _ := http.NewRequest(http.MethodPost,
+		"/api/v1/sovereigns/"+dep.ID+"/blueprints/edit-pr", strings.NewReader(string(raw)))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(context.WithValue(req.Context(), auth.ClaimsKey, &auth.Claims{Tier: "viewer"}))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status: got %d want 403; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleBlueprintEditPR_503WhenGiteaUnwired(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	dep := installUserAccessDeployment(t, h, "dep-bp-edit-pr-503")
+	body := blueprintEditPRRequest{Org: "acme", Path: "x.yaml", Content: "k: v", Title: "x"}
+	rec := callUserAccess(t, h, http.MethodPost,
+		"/api/v1/sovereigns/"+dep.ID+"/blueprints/edit-pr", body, registerBlueprintRoutes)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status: got %d want 503; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleBlueprintEditPR_404WhenRepoMissing(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	gc := newFakeGitea()
+	gc.failPRCreate = true // the fake's CreatePullRequest returns ErrRepoNotFound
+	h.SetGiteaClient(gc)
+	dep := installUserAccessDeployment(t, h, "dep-bp-edit-pr-404")
+	body := blueprintEditPRRequest{Org: "ghost", Path: "x.yaml", Content: "k: v", Title: "x"}
+	rec := callUserAccess(t, h, http.MethodPost,
+		"/api/v1/sovereigns/"+dep.ID+"/blueprints/edit-pr", body, registerBlueprintRoutes)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status: got %d want 404; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleBlueprintEditPR_BadRequest(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	h.SetGiteaClient(newFakeGitea())
+	dep := installUserAccessDeployment(t, h, "dep-bp-edit-pr-400")
+	cases := []struct {
+		name string
+		body blueprintEditPRRequest
+	}{
+		{"empty org", blueprintEditPRRequest{Path: "x", Content: "y", Title: "z"}},
+		{"path traversal", blueprintEditPRRequest{Org: "acme", Path: "../etc/passwd", Content: "y", Title: "z"}},
+		{"absolute path", blueprintEditPRRequest{Org: "acme", Path: "/x.yaml", Content: "y", Title: "z"}},
+		{"empty content", blueprintEditPRRequest{Org: "acme", Path: "x", Content: "", Title: "z"}},
+	}
+	for _, c := range cases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			rec := callUserAccess(t, h, http.MethodPost,
+				"/api/v1/sovereigns/"+dep.ID+"/blueprints/edit-pr", c.body, registerBlueprintRoutes)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status: got %d want 400; body=%s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestEditPRBranchName_DeterministicAndPathSensitive(t *testing.T) {
+	t.Parallel()
+	a := editPRBranchName("a.yaml", []byte("body"))
+	b := editPRBranchName("a.yaml", []byte("body"))
+	c := editPRBranchName("b.yaml", []byte("body"))
+	d := editPRBranchName("a.yaml", []byte("different-body"))
+	if a != b {
+		t.Errorf("same (path, content) should yield same branch; got %q vs %q", a, b)
+	}
+	if a == c || a == d {
+		t.Errorf("path / content change should yield different branch; got %q %q %q", a, c, d)
+	}
+	if !strings.HasPrefix(a, "edit/") {
+		t.Errorf("branch should be edit/<hash>; got %q", a)
 	}
 }
 

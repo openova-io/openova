@@ -167,7 +167,7 @@ func (f *fakeGitea) handler() http.Handler {
 		}
 
 		// GET /api/v1/repos/{owner}/{repo}
-		if r.Method == http.MethodGet && strings.HasPrefix(p, "/api/v1/repos/") && !strings.Contains(p, "/contents/") && !strings.Contains(p, "/branches") {
+		if r.Method == http.MethodGet && strings.HasPrefix(p, "/api/v1/repos/") && !strings.Contains(p, "/contents/") && !strings.Contains(p, "/branches") && !strings.HasSuffix(p, "/pulls") {
 			rest := strings.TrimRight(strings.TrimPrefix(p, "/api/v1/repos/"), "/")
 			parts := strings.Split(rest, "/")
 			if len(parts) != 2 {
@@ -372,6 +372,65 @@ func (f *fakeGitea) handler() http.Handler {
 				_, _ = w.Write([]byte(`{}`))
 			}
 			return
+		}
+
+		// /api/v1/repos/{owner}/{repo}/pulls + ?state=open&head=...&base=...
+		if strings.HasPrefix(p, "/api/v1/repos/") && strings.HasSuffix(p, "/pulls") {
+			rest := strings.TrimPrefix(p, "/api/v1/repos/")
+			parts := strings.Split(strings.TrimSuffix(rest, "/pulls"), "/")
+			if len(parts) != 2 {
+				http.Error(w, "bad", http.StatusBadRequest)
+				return
+			}
+			repoKey := parts[0] + "/" + parts[1]
+			f.mu.Lock()
+			_, repoExists := f.repos[repoKey]
+			f.mu.Unlock()
+			if !repoExists {
+				http.Error(w, "no repo", http.StatusNotFound)
+				return
+			}
+			switch r.Method {
+			case http.MethodPost:
+				var body pullRequestCreate
+				_ = json.NewDecoder(r.Body).Decode(&body)
+				key := repoKey + "/pull/" + body.Head + ":" + body.Base
+				f.mu.Lock()
+				if f.calls["pulls:"+key] > 0 {
+					f.mu.Unlock()
+					http.Error(w, "already-exists", http.StatusConflict)
+					return
+				}
+				f.calls["pulls:"+key]++
+				num := int64(f.calls["pulls:"+key+":num"] + 100)
+				f.calls["pulls:"+key+":num"]++
+				f.mu.Unlock()
+				out := PullRequest{
+					ID: num, Number: num, State: "open", Title: body.Title, Body: body.Body,
+					URL: "http://gitea.example/" + parts[0] + "/" + parts[1] + "/pulls/100",
+				}
+				out.Head.Ref = body.Head
+				out.Base.Ref = body.Base
+				writeJSON(w, http.StatusCreated, out)
+				return
+			case http.MethodGet:
+				headWanted := r.URL.Query().Get("head")
+				baseWanted := r.URL.Query().Get("base")
+				// `head` is `org:branch`; we just match the branch
+				// suffix for the fake.
+				if i := strings.Index(headWanted, ":"); i >= 0 {
+					headWanted = headWanted[i+1:]
+				}
+				out := []PullRequest{}
+				if headWanted != "" {
+					pr := PullRequest{ID: 1, Number: 1, State: "open", Title: "fake"}
+					pr.Head.Ref = headWanted
+					pr.Base.Ref = baseWanted
+					out = append(out, pr)
+				}
+				writeJSON(w, http.StatusOK, out)
+				return
+			}
 		}
 
 		http.Error(w, "unhandled "+r.Method+" "+p, http.StatusNotFound)
@@ -1061,5 +1120,80 @@ func TestListContents_RejectsEmptyOrgRepo(t *testing.T) {
 	}
 	if _, err := c.ListContents(context.Background(), "o", "", "main", ""); err == nil {
 		t.Error("ListContents with empty repo should fail")
+	}
+}
+
+// ----------------------------------------------------------------------
+// Pull request tests (slice Z3)
+// ----------------------------------------------------------------------
+
+func TestCreatePullRequest_HappyPath(t *testing.T) {
+	t.Parallel()
+	fake := newFake()
+	fake.repos["acme/blueprints"] = Repo{Name: "blueprints", FullName: "acme/blueprints"}
+	c := newClientWithFake(t, fake)
+
+	pr, err := c.CreatePullRequest(context.Background(), "acme", "blueprints",
+		"edit/2026-05-09-yamledit", "main",
+		"Edit cluster.yaml via UI", "Operator-initiated edit via Catalyst.")
+	if err != nil {
+		t.Fatalf("CreatePullRequest: %v", err)
+	}
+	if pr.Number == 0 {
+		t.Errorf("expected non-zero PR number; got %+v", pr)
+	}
+	if pr.URL == "" {
+		t.Errorf("expected non-empty URL; got %+v", pr)
+	}
+	if pr.Head.Ref != "edit/2026-05-09-yamledit" {
+		t.Errorf("Head.Ref = %q want edit/...", pr.Head.Ref)
+	}
+	if pr.Base.Ref != "main" {
+		t.Errorf("Base.Ref = %q want main", pr.Base.Ref)
+	}
+}
+
+func TestCreatePullRequest_RejectsMissingArgs(t *testing.T) {
+	t.Parallel()
+	c := New("http://x", "tok")
+	if _, err := c.CreatePullRequest(context.Background(), "", "r", "h", "b", "t", ""); err == nil {
+		t.Error("expected error for empty org")
+	}
+	if _, err := c.CreatePullRequest(context.Background(), "o", "r", "", "b", "t", ""); err == nil {
+		t.Error("expected error for empty head")
+	}
+	if _, err := c.CreatePullRequest(context.Background(), "o", "r", "h", "b", "", ""); err == nil {
+		t.Error("expected error for empty title")
+	}
+}
+
+func TestCreatePullRequest_RepoNotFound(t *testing.T) {
+	t.Parallel()
+	fake := newFake()
+	c := newClientWithFake(t, fake)
+
+	_, err := c.CreatePullRequest(context.Background(), "ghost", "missing", "h", "main", "title", "")
+	if !errors.Is(err, ErrRepoNotFound) {
+		t.Errorf("err = %v want ErrRepoNotFound", err)
+	}
+}
+
+func TestCreatePullRequest_409ReFetchesExisting(t *testing.T) {
+	t.Parallel()
+	fake := newFake()
+	fake.repos["acme/blueprints"] = Repo{Name: "blueprints", FullName: "acme/blueprints"}
+	c := newClientWithFake(t, fake)
+
+	// First create succeeds.
+	if _, err := c.CreatePullRequest(context.Background(), "acme", "blueprints", "edit/x", "main", "first", ""); err != nil {
+		t.Fatalf("first CreatePullRequest: %v", err)
+	}
+	// Second create — fake returns 409, CreatePullRequest re-fetches and returns the existing PR.
+	pr, err := c.CreatePullRequest(context.Background(), "acme", "blueprints", "edit/x", "main", "second", "")
+	if err != nil {
+		t.Fatalf("second CreatePullRequest (should re-fetch via findOpenPR): %v", err)
+	}
+	if pr.Head.Ref != "edit/x" || pr.Base.Ref != "main" {
+		t.Errorf("re-fetched PR head/base wrong: %+v", pr)
 	}
 }

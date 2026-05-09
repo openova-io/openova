@@ -480,3 +480,48 @@ export async function listCuratableBlueprints(
   }
   return res.json()
 }
+
+/* ── Edit-PR (slice Z3 follow-up) ──────────────────────────────── */
+
+export interface BlueprintEditPRRequest {
+  org: string
+  path: string
+  content: string
+  message?: string
+  title?: string
+}
+
+export interface BlueprintEditPRResponse {
+  prURL: string
+  prNumber: number
+  branch: string
+  repo: string
+  path: string
+  message: string
+}
+
+/**
+ * editPRBlueprint — opens a Gitea PR with the supplied content for a
+ * flux-managed K8s resource. Wired by YamlEditor's flux branch (per
+ * `widgets/cloud-list/YamlEditor.tsx`) so the operator's edit lands via
+ * the GitOps flow rather than side-stepping flux with a direct /apply.
+ *
+ * Server-side gates: tier-admin or higher (mirrors /blueprints/publish);
+ * server is the authoritative gate even though the UI hides "Apply" for
+ * unauthorised callers.
+ */
+export async function editPRBlueprint(
+  sovereignId: string,
+  body: BlueprintEditPRRequest,
+): Promise<BlueprintEditPRResponse> {
+  const res = await authedFetch(`${blueprintsBase(sovereignId)}/edit-pr`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`edit-pr: HTTP ${res.status} ${detail}`)
+  }
+  return res.json()
+}
