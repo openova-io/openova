@@ -63,16 +63,40 @@ helm template smoke-cnpg-pair . \
 }
 
 # Expect 1×Cluster (primary) + 1×Cluster (replica) + 1×Deployment
-# (probe) + 3×NetworkPolicy + 1×ConfigMap = 7 kinds. The replication
-# Service is now CNPG-managed via primary.spec.managed.services.additional,
-# so it is NOT a kind in the rendered manifest.
-EXPECTED=7
-GOT=$(grep -cE "^kind: " "$TMP/enabled.yaml" || true)
-if [ "$GOT" -ne "$EXPECTED" ]; then
-  echo "FAIL: expected $EXPECTED resources, got $GOT." >&2
+# (probe) + 3×NetworkPolicy + 1×ConfigMap = 7 non-test kinds. The
+# replication Service is now CNPG-managed via the primary Cluster's
+# spec.managed.services.additional, so it is NOT a kind in the
+# rendered manifest. Helm-test resources (Pod + ServiceAccount + Role
+# + RoleBinding under templates/tests/) ARE rendered by `helm template`
+# but are filtered at install time by Helm's hook semantics; we
+# count them separately.
+EXPECTED_NONTEST=7
+EXPECTED_TEST=4
+if ! python3 - "$TMP/enabled.yaml" > "$TMP/render-counts" <<'PYEOF'
+import sys, yaml
+docs = list(yaml.safe_load_all(open(sys.argv[1])))
+docs = [d for d in docs if d]
+test = [d for d in docs if 'helm.sh/hook' in (d.get('metadata',{}).get('annotations') or {})]
+nontest = [d for d in docs if d not in test]
+print(f"NONTEST={len(nontest)}")
+print(f"TEST={len(test)}")
+PYEOF
+then
+  echo "FAIL: helm template output failed to parse as YAML" >&2
+  exit 1
+fi
+NONTEST=$(grep -E '^NONTEST=' "$TMP/render-counts" | cut -d= -f2)
+TEST=$(grep -E '^TEST=' "$TMP/render-counts" | cut -d= -f2)
+if [ "$NONTEST" -ne "$EXPECTED_NONTEST" ]; then
+  echo "FAIL: expected $EXPECTED_NONTEST non-test resources, got $NONTEST." >&2
   grep -E "^kind: " "$TMP/enabled.yaml" >&2
   exit 1
 fi
+if [ "$TEST" -ne "$EXPECTED_TEST" ]; then
+  echo "FAIL: expected $EXPECTED_TEST helm-test resources, got $TEST." >&2
+  exit 1
+fi
+GOT="$NONTEST non-test + $TEST test"
 
 # Spot-check a few load-bearing assertions:
 grep -q "kind: Cluster" "$TMP/enabled.yaml" || {
@@ -182,7 +206,17 @@ if [ "$SERVICES" -ne 0 ]; then
   echo "FAIL: clusterMesh disabled but standalone Service still rendered." >&2
   exit 1
 fi
-if grep -q 'service.cilium.io/global' "$TMP/nomesh.yaml"; then
+# Strip comment lines + helm-test resources before checking for the
+# annotation; the helm-test Pod's command body contains the literal
+# string "service.cilium.io/global" as part of an assertion message,
+# which would otherwise false-positive.
+python3 - "$TMP/nomesh.yaml" > "$TMP/nomesh-nontest.yaml" <<'PYEOF'
+import sys, yaml
+docs = list(yaml.safe_load_all(open(sys.argv[1])))
+nontest = [d for d in docs if d and 'helm.sh/hook' not in (d.get('metadata',{}).get('annotations') or {})]
+print(yaml.safe_dump_all(nontest))
+PYEOF
+if sed 's/#.*//' "$TMP/nomesh-nontest.yaml" | grep -q 'service\.cilium\.io/global'; then
   echo "FAIL: clusterMesh disabled but service.cilium.io/global annotation still rendered." >&2
   exit 1
 fi
