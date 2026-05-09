@@ -913,9 +913,10 @@ write_files:
             # Sovereign); set to the registered values from
             # docs/CLUSTERMESH-CLUSTER-IDS.md when the operator joins
             # this Sovereign to a multi-region mesh. The bootstrap-kit
-            # cilium HelmRelease consumes via ${CLUSTER_MESH_NAME} +
-            # ${CLUSTER_MESH_ID} envsubst placeholders. Per
-            # docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), the
+            # cilium HelmRelease consumes via $${CLUSTER_MESH_NAME} +
+            # $${CLUSTER_MESH_ID} envsubst placeholders (the $$ escape
+            # is required so tofu does NOT treat them as tftpl vars).
+            # Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), the
             # operator-supplied request.cluster_mesh_name +
             # cluster_mesh_id flow through tofu vars
             # cluster_mesh_name/cluster_mesh_id (variables.tf) into this
