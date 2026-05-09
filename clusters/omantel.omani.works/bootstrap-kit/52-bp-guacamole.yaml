@@ -79,4 +79,15 @@ spec:
         # matches bp-keycloak's realm-config-cli default.
         issuer: https://auth.omantel.biz/realms/catalyst
       recordings:
-        storageClass: seaweedfs-storage
+        # omantel chroot is currently single-CSI (local-path).
+        # SeaweedFS-CSI is not deployed here; once it is, switch
+        # back to `seaweedfs-storage` for RWX session-recording
+        # streaming. local-path is RWO but the recording-shipper
+        # (when added) reads asynchronously, so RWO is acceptable.
+        storageClass: local-path
+      webapp:
+        # Memory-constrained omantel cluster — only one webapp
+        # replica fits alongside the rest of the catalyst-system
+        # stack. Multi-region Sovereigns scale this to chart default
+        # (2) via per-Sovereign overlay.
+        replicas: 1
