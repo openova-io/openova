@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handoverjwt"
 )
 
@@ -238,6 +240,85 @@ func TestPinVerify_HappyPath(t *testing.T) {
 	}
 	if got := h.pinStore.size(); got != 0 {
 		t.Errorf("store size after verify: got %d want 0", got)
+	}
+}
+
+// TestPinVerify_StampsTierAndRealmRoleClaims is the iter-1 qa-loop
+// regression guard for the rbac-audit-403-gates cluster (TC-063..069/077).
+//
+// Before the fix the PIN-verify session JWT carried only {sub, email, role}
+// — no `tier`, no `realm_access.roles`. Every privileged catalyst-api
+// endpoint backed by rbacAssignCallerAuthorized / policyModeCallerAuthorized
+// (rbac_audit, rbac_assign, keycloak_proxy U2/U3/U4, blueprints/curate,
+// policy_mode, continuum audit) thus returned 403 even for the Sovereign
+// owner authenticated via PIN-IMAP. This test pins the contract:
+//
+//  1. tier = pinSessionTier ("owner")
+//  2. realm_access.roles contains pinSessionRealmRole ("catalyst-owner")
+//
+// Either claim alone unlocks the gates (HasRealmRole walk OR Tier check).
+// Stamping both keeps the contract idempotent across the gate variants.
+func TestPinVerify_StampsTierAndRealmRoleClaims(t *testing.T) {
+	h := testPinSetup(t)
+	h.pinStore.put("op@example.com", "123456", "req-1")
+
+	body := `{"email":"op@example.com","pin":"123456","requestId":"req-1"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/pin/verify",
+		strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.HandlePinVerify(w, req)
+
+	resp := w.Result()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status: got %d want 200 (body: %s)", resp.StatusCode, w.Body.String())
+	}
+
+	cookie := findCookie(resp.Cookies(), "catalyst_session")
+	if cookie == nil || cookie.Value == "" {
+		t.Fatal("catalyst_session cookie not set")
+	}
+
+	// The cookie value IS the raw self-signed JWT (Option B in
+	// auth/session.go ReadSessionToken). Decode the payload directly so
+	// the test doesn't depend on JWKS validation — the contract is the
+	// claims SHAPE, not signature verification (covered elsewhere).
+	parts := strings.Split(cookie.Value, ".")
+	if len(parts) != 3 {
+		t.Fatalf("cookie value: got %d JWT parts want 3", len(parts))
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		t.Fatalf("decode JWT payload: %v", err)
+	}
+	var claims auth.Claims
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		t.Fatalf("unmarshal claims: %v", err)
+	}
+
+	// (1) tier claim must equal pinSessionTier so policyModeCallerAuthorized
+	// (the strict admin/owner gate) accepts the PIN-derived session.
+	if claims.Tier != pinSessionTier {
+		t.Errorf("tier: got %q want %q", claims.Tier, pinSessionTier)
+	}
+
+	// (2) realm_access.roles must contain pinSessionRealmRole so
+	// rbacAssignCallerAuthorized's HasRealmRole walk also accepts it
+	// (matches the legacy Keycloak-issued token contract).
+	if !claims.HasRealmRole(pinSessionRealmRole) {
+		t.Errorf("realm_access.roles missing %q (got: %v)",
+			pinSessionRealmRole, claims.RealmAccess.Roles)
+	}
+
+	// (3) Sanity: feeding the parsed claims through the actual gate
+	// functions used by rbac_audit + keycloak_proxy + blueprints/curate
+	// must return true. This is the end-to-end binding between the
+	// session-mint contract and the authorization seam.
+	if !rbacAssignCallerAuthorized(&claims) {
+		t.Error("rbacAssignCallerAuthorized: PIN-derived claims should authorize tier-admin/owner gate")
+	}
+	if !policyModeCallerAuthorized(&claims) {
+		t.Error("policyModeCallerAuthorized: PIN-derived claims should authorize sovereign-admin gate")
 	}
 }
 
