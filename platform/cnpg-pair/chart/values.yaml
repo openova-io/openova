@@ -43,11 +43,13 @@ cnpgPair:
       owner: app
 
   # ── Replica region ────────────────────────────────────────────────
-  # CNPG replica cluster — `replica.enabled: true` + an
-  # `externalClusters[]` entry pointing at the primary region's
-  # replication endpoint. The Cilium ClusterMesh-shared Service
-  # template (service-replication.yaml) provides the in-cluster DNS
-  # alias the replica resolves to reach the primary.
+  # CNPG replica cluster — `replica.enabled: true` +
+  # `bootstrap.pg_basebackup` + an `externalClusters[]` entry pointing
+  # at the primary region's replication endpoint. The replication
+  # endpoint is the `<name>-primary-mesh` Service that CNPG creates
+  # from the primary Cluster CR's `spec.managed.services.additional`
+  # block (chart 0.1.1) — annotated `service.cilium.io/global: "true"`
+  # so Cilium ClusterMesh publishes it across every connected peer.
   replica:
     region: ""
     instances: 3

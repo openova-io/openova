@@ -1,0 +1,127 @@
+{{- /*
+helm test — replication acceptance probe.
+
+Asserts:
+  1. Primary CNPG Cluster CR reconciles to phase=Cluster in healthy state
+     (i.e. Status.Conditions[type=Ready].status == True).
+  2. The CNPG-managed `<name>-mesh` global Service exists in this namespace
+     (so the replica region's `externalCluster.host` resolves locally).
+  3. `pg_isready` succeeds against the primary's `-rw` endpoint.
+
+This is the IN-CLUSTER side of the helm test — it runs in the primary's
+namespace on the primary cluster. The cross-cluster pg_stat_wal_receiver
+assertion is run by the qa-loop test executor on the replica cluster
+(see qa-loop test matrix C-DB-1 rows).
+
+Per BLUEPRINT-AUTHORING.md §11, helm-test Pods carry the
+`helm.sh/hook: test` annotation so `helm test` discovers them; they are
+NOT installed by default reconciliation.
+*/ -}}
+{{- if .Values.cnpgPair.enabled }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "cnpg-pair.fullname" . }}-test-replication
+  labels:
+    {{- include "cnpg-pair.labels" . | nindent 4 }}
+    catalyst.openova.io/test: replication
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: hook-succeeded,before-hook-creation
+spec:
+  restartPolicy: Never
+  serviceAccountName: {{ include "cnpg-pair.fullname" . }}-test
+  containers:
+    - name: probe
+      image: ghcr.io/cloudnative-pg/postgresql:16.4-1
+      command: [/bin/bash, -c]
+      args:
+        - |
+          set -euo pipefail
+          PRIMARY={{ include "cnpg-pair.primaryName" . }}
+          MESH={{ include "cnpg-pair.replicationServiceName" . }}
+          NS=$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace)
+
+          echo "[helm-test] checking primary Cluster CR phase ..."
+          for i in $(seq 1 60); do
+            phase=$(kubectl -n "$NS" get cluster.postgresql.cnpg.io "$PRIMARY" \
+                      -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+            ready=$(kubectl -n "$NS" get cluster.postgresql.cnpg.io "$PRIMARY" \
+                      -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
+            echo "  iter=$i phase=$phase ready=$ready"
+            [ "$ready" = "True" ] && break
+            sleep 5
+          done
+          [ "$ready" = "True" ] || {
+            echo "FAIL: primary Cluster CR never reached Ready=True"
+            kubectl -n "$NS" describe cluster.postgresql.cnpg.io "$PRIMARY" | tail -40
+            exit 1
+          }
+
+          echo "[helm-test] checking CNPG-managed -mesh Service exists ..."
+          kubectl -n "$NS" get service "$MESH" >/dev/null || {
+            echo "FAIL: -mesh Service ($MESH) missing — managed.services.additional did not take effect"
+            kubectl -n "$NS" get svc -l cnpg.io/cluster="$PRIMARY"
+            exit 1
+          }
+
+          echo "[helm-test] verifying global annotation on -mesh Service ..."
+          ann=$(kubectl -n "$NS" get service "$MESH" \
+                  -o jsonpath='{.metadata.annotations.service\.cilium\.io/global}')
+          [ "$ann" = "true" ] || {
+            echo "FAIL: -mesh Service missing service.cilium.io/global=true (got '$ann')"
+            exit 1
+          }
+
+          echo "[helm-test] pg_isready against primary -rw endpoint ..."
+          pg_isready -h "${PRIMARY}-rw.${NS}.svc.cluster.local" -p 5432 -t 30 || {
+            echo "FAIL: pg_isready returned non-zero"
+            exit 1
+          }
+
+          echo "[helm-test] replication acceptance probe PASS"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "cnpg-pair.fullname" . }}-test
+  labels:
+    {{- include "cnpg-pair.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: hook-succeeded,before-hook-creation
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "cnpg-pair.fullname" . }}-test
+  labels:
+    {{- include "cnpg-pair.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: hook-succeeded,before-hook-creation
+rules:
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["clusters"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "cnpg-pair.fullname" . }}-test
+  labels:
+    {{- include "cnpg-pair.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: hook-succeeded,before-hook-creation
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "cnpg-pair.fullname" . }}-test
+roleRef:
+  kind: Role
+  name: {{ include "cnpg-pair.fullname" . }}-test
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}

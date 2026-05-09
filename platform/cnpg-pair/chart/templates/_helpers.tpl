@@ -82,6 +82,20 @@ ClusterMesh global Service can compute them deterministically.
 {{- printf "%s-replica" (include "cnpg-pair.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end }}
 
+{{/*
+Replication Service name — canonical alias the replica uses to reach
+the primary's read-replica endpoint over the Cilium ClusterMesh.
+
+Chart 0.1.0 named this `<name>-primary-r`, which COLLIDED with the
+auto-created CNPG `<name>-r` Service (selectorType=r). CNPG refused
+to take ownership ("not owned by the cluster") and the primary
+Cluster CR stuck at phase "Unable to create required cluster objects".
+
+Chart 0.1.1 switches to `-primary-mesh`. The Service is now declared
+via the primary Cluster CR's `spec.managed.services.additional` block
+(CNPG owns it; operator applies the `service.cilium.io/global` annotation
+directly to the right object) rather than as a standalone template.
+*/}}
 {{- define "cnpg-pair.replicationServiceName" -}}
-{{- printf "%s-primary-r" (include "cnpg-pair.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- printf "%s-primary-mesh" (include "cnpg-pair.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end }}

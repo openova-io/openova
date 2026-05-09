@@ -2,19 +2,28 @@
 Replica CNPG Cluster CR.
 
 CNPG's "replica cluster" pattern (`replica.enabled: true` +
-`externalClusters[]`) lets a Cluster CR follow a remote primary's
-WAL stream while staying a regular CNPG Cluster locally. The replica
-cannot be written to until promoted; promotion is done by Continuum
-K-Cont-2 via a CNPG `cnpg.io/cluster.replicaCluster` annotation
-flip + the operator's switchover routine.
+`bootstrap.pg_basebackup` + `externalClusters[]`) lets a Cluster CR
+follow a remote primary's WAL stream while staying a regular CNPG
+Cluster locally. The replica cannot be written to until promoted;
+promotion is done by Continuum K-Cont-2 via a CNPG
+`cnpg.io/cluster.replicaCluster` annotation flip + the operator's
+switchover routine.
 
 Replication source-discovery: the replica resolves the primary via
-the Cilium ClusterMesh-shared Service (templates/service-
-replication.yaml) — service.cilium.io/global=true makes the Service
-visible across the mesh, and ClusterMesh's local-affinity routing
-falls through to the remote region when no local backend matches
-the `cnpg-role=primary` selector. THIS IS THE replication
-source-of-truth — see DESIGN.md "replica source discovery".
+the Cilium ClusterMesh-shared Service exposed by the primary Cluster
+CR's `spec.managed.services.additional[]` entry (since chart 0.1.1).
+The `service.cilium.io/global: "true"` annotation on that Service
+makes it visible across every connected mesh peer; ClusterMesh's
+local-affinity routing falls through to the remote region because
+the replica region has zero local backends matching the selector.
+THIS IS THE replication source-of-truth — see DESIGN.md "replica
+source discovery".
+
+History: chart 0.1.0 carried a standalone `service-replication.yaml`
+template that pre-created the Service; CNPG refused to reconcile
+("not owned by the cluster") and the primary Cluster phase stuck at
+"Unable to create required cluster objects". Phase-2 multi-region
+incident #3 (qa-loop-state/incidents.md, 2026-05-09).
 */ -}}
 {{- if .Values.cnpgPair.enabled }}
 apiVersion: postgresql.cnpg.io/v1
@@ -61,15 +70,35 @@ spec:
     enabled: true
     source: {{ include "cnpg-pair.fullname" . }}-primary
 
+  # ── Bootstrap from primary ──────────────────────────────────────
+  # CNPG REQUIRES an explicit bootstrap stanza on a replica Cluster:
+  # `replica.enabled: true` alone leaves the Cluster phase stuck at
+  # "Setting up primary" (caught live on omantel-hel 2026-05-09,
+  # Phase-2 incident #3 in qa-loop-state/incidents.md). The
+  # `pg_basebackup` source pulls the initial heap from the named
+  # externalCluster (resolved via the ClusterMesh-global `-mesh`
+  # Service exposed by the primary's `spec.managed.services.additional`
+  # entry), then the replica streams WAL continuously over the same
+  # connection.  `database` + `owner` MUST match the primary's
+  # bootstrap.initdb — they identify the seed database the replica
+  # considers "owned".
+  bootstrap:
+    pg_basebackup:
+      source: {{ include "cnpg-pair.fullname" . }}-primary
+      database: {{ .Values.cnpgPair.primary.bootstrap.database | quote }}
+      owner:    {{ .Values.cnpgPair.primary.bootstrap.owner | quote }}
+
   externalClusters:
     - name: {{ include "cnpg-pair.fullname" . }}-primary
       connectionParameters:
-        # Cilium ClusterMesh-shared Service alias — see
-        # service-replication.yaml. The hostname resolves to
-        # the primary region's CNPG `-r` (read-replica) endpoint
-        # over the private mesh; ClusterMesh `affinity: local`
-        # falls through to the remote region because the replica
-        # region has zero local backends with cnpg-role=primary.
+        # Cilium ClusterMesh-global Service alias — managed by CNPG
+        # via the primary Cluster's `spec.managed.services.additional`
+        # entry (selectorType: r, name: <name>-mesh, annotated
+        # service.cilium.io/global: "true"). The hostname resolves
+        # locally and ClusterMesh's affinity routing reaches the
+        # primary region's read-replica endpoint over the private
+        # mesh; since the replica region has zero local backends
+        # matching the selector, traffic crosses to the primary.
         host: {{ include "cnpg-pair.replicationServiceName" . }}
         port: "5432"
         user: streaming_replica
@@ -78,13 +107,32 @@ spec:
         # `replication=true` regardless, but `dbname` is required
         # for the connection-string parser.
         dbname: {{ .Values.cnpgPair.primary.bootstrap.database | quote }}
+      # streaming_replica auth: CNPG provisions a TLS client cert for
+      # the streaming_replica role on every Cluster CR; the replica
+      # mounts it from the primary's `-replication` Secret. ESO/External-
+      # Secrets sync this Secret across clusters in production; in the
+      # in-cluster test path the secret is reflected via the
+      # bp-reflector annotation set in the per-Sovereign overlay.
+      sslKey:
+        name: {{ include "cnpg-pair.fullname" . }}-primary-replication
+        key: tls.key
+      sslCert:
+        name: {{ include "cnpg-pair.fullname" . }}-primary-replication
+        key: tls.crt
+      sslRootCert:
+        name: {{ include "cnpg-pair.fullname" . }}-primary-ca
+        key: ca.crt
 
+  # `hot_standby` is intentionally OMITTED — see primary-cluster.yaml
+  # for the rationale. PostgreSQL 16 hard-pins it to `on` for any
+  # Cluster running with `replica.enabled: true`, and CNPG rejects
+  # the explicit set with phase "Unable to create required cluster
+  # objects". Caught live on omantel-hel 2026-05-09.
   postgresql:
     parameters:
       max_wal_senders: "10"
       max_replication_slots: "10"
       wal_level: "logical"
-      hot_standby: "on"
 
   enableSuperuserAccess: false
 {{- end }}

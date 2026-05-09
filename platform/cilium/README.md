@@ -517,4 +517,28 @@ If migrating from Istio:
 
 ---
 
+## ClusterMesh — multi-region peering
+
+ClusterMesh peers Cilium clusters into a single L7-visible service mesh
+across regions. Per ADR-0001 §9 ClusterMesh is the canonical inter-region
+transport for OpenOva Sovereigns; replication / failover traffic
+(EPIC-6 #1101) flows over the private mesh, never public TLS.
+
+The chart ships the ClusterMesh values overlay separately at
+`chart/values-clustermesh.yaml` (default `values.yaml` keeps it OFF).
+Per-Sovereign overlays at `clusters/<sovereign>/bootstrap-kit/01-cilium.yaml`
+opt in by setting:
+
+- `spec.values.cilium.cluster.name` — peer name (e.g. `omantel-fsn`)
+- `spec.values.cilium.cluster.id` — peer ID (1..255, unique per mesh)
+- `spec.values.cilium.clustermesh.useAPIServer: true`
+- `spec.values.cilium.clustermesh.apiserver.service.{type,nodePort}`
+
+The cluster.id allocation across the OpenOva fleet is tracked in
+[`docs/CLUSTERMESH-CLUSTER-IDS.md`](../../docs/CLUSTERMESH-CLUSTER-IDS.md).
+Every PR that adds a new peer MUST also claim a row in that registry
+in the same commit.
+
+---
+
 *Part of [OpenOva](https://openova.io)*
