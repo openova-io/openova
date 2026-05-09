@@ -64,6 +64,24 @@ continuum:
     # ServiceMonitor scrape can hit /metrics without exposing health
     # publicly).
     port: 8081
+    # Slice F-3: post-switchover health-check delay in seconds.
+    # Default 30s per design doc §9.5; 0 = run immediately (tests).
+    postSwitchoverDelaySeconds: 30
+
+  # Slice F-2 + F-3: HTTP server for dry-run + health endpoints.
+  api:
+    # Port exposed on the controller Deployment + Service for the
+    # F-2 (POST .../dry-run) + F-3 (GET .../health) endpoints. Empty
+    # = disabled (no HTTP server bound).
+    port: 8082
+    # Optional bearer token gate. Leave nil to rely solely on the
+    # X-Catalyst-Owner-Tier header (catalyst-api stamps after JWT
+    # validation). When set, a SealedSecret reference like:
+    #   tokenSecretRef:
+    #     name: continuum-api-token
+    #     key:  token
+    # populates the CONTINUUM_API_TOKEN env var.
+    tokenSecretRef: null
 
   # ─── K-Cont-2 / K-Cont-3 config seams (sketch — finalized in
   # downstream slices) ─────────────────────────────────────────────────

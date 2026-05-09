@@ -117,6 +117,16 @@ type ContinuumReconciler struct {
 	// Drainer — HTTPRoute weight flipper. Shared across CRs.
 	Drainer switchover.HTTPRouteDrainer
 
+	// HealthOpts carries the F-3 post-switchover health-check
+	// dependencies (DNS resolver fanout + audit-tail). Fields nil =
+	// the corresponding check is recorded as deferred.
+	HealthOpts switchover.HealthOptions
+
+	// HealthDelay is how long to wait after a successful switchover
+	// before running the F-3 post-switchover health check. Default
+	// 30s per design doc §9.5; tests override to 0.
+	HealthDelay time.Duration
+
 	// activeContinuums tracks per-CR goroutines keyed by
 	// NamespacedName.String() (e.g. "demo/cr1").
 	activeContinuums   map[string]*continuumGoroutine
@@ -132,6 +142,12 @@ type continuumGoroutine struct {
 	cancel  context.CancelFunc
 	witness witness.Client
 	holder  string
+
+	// lastSpecFingerprint is the hash of the switchover-relevant
+	// spec fields the per-CR goroutine last observed. When the next
+	// loop iteration sees a different value, we emit
+	// `continuum-config-changed` (slice F-1).
+	lastSpecFingerprint string
 }
 
 // SetupWithManager wires the reconciler into the controller-runtime
@@ -177,6 +193,7 @@ func (r *ContinuumReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		r.activeContinuums = map[string]*continuumGoroutine{}
 	}
 	g, ok := r.activeContinuums[key]
+	newCR := !ok
 	if !ok {
 		w, sErr := r.selectWitness(req.NamespacedName, spec)
 		if sErr != nil {
@@ -189,13 +206,24 @@ func (r *ContinuumReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			})
 		}
 		gctx, cancel := context.WithCancel(context.Background())
-		g = &continuumGoroutine{cancel: cancel, witness: w, holder: r.HoldingRegion}
+		g = &continuumGoroutine{
+			cancel:              cancel,
+			witness:             w,
+			holder:              r.HoldingRegion,
+			lastSpecFingerprint: switchoverSpecFingerprint(spec),
+		}
 		r.activeContinuums[key] = g
 		go r.runPerCR(gctx, req.NamespacedName, spec, w)
 		log.Info("started per-CR goroutine")
 	}
 	_ = g
 	r.activeContinuumsMu.Unlock()
+
+	// F-1: emit `continuum-cr-created` on first observation. Done
+	// AFTER mutex release so the publish doesn't hold the lock.
+	if newCR {
+		_ = r.publishCRCreated(ctx, req.NamespacedName, spec)
+	}
 
 	return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 }
@@ -245,10 +273,29 @@ func (r *ContinuumReconciler) runPerCR(ctx context.Context, nn types.NamespacedN
 			continue
 		}
 
+		// F-1: detect spec drift on switchover-relevant fields and
+		// emit `continuum-config-changed` (rare; happens when the
+		// operator edits the CR mid-lifecycle).
+		curFingerprint := switchoverSpecFingerprint(spec)
+		r.activeContinuumsMu.Lock()
+		prevFingerprint := ""
+		if g, ok := r.activeContinuums[nn.String()]; ok {
+			prevFingerprint = g.lastSpecFingerprint
+			g.lastSpecFingerprint = curFingerprint
+		}
+		r.activeContinuumsMu.Unlock()
+		if prevFingerprint != "" && prevFingerprint != curFingerprint {
+			_ = r.publishConfigChanged(ctx, nn, spec, prevFingerprint, curFingerprint)
+		}
+
 		newState, rErr := w.Renew(ctx, r.HoldingRegion, ttl)
 		if errors.Is(rErr, witness.ErrLeaseLost) {
 			_ = r.publishLeaseLost(ctx, nn, spec, leaseState)
 			if newState, err = w.Acquire(ctx, r.HoldingRegion, ttl); err != nil {
+				// F-1: distinguish "held by another" (collision) from generic acquire failure.
+				if errors.Is(err, witness.ErrLeaseHeldByAnother) {
+					_ = r.publishLeaseCollision(ctx, nn, spec, err)
+				}
 				log.Info("lease lost; new holder in charge", "err", err)
 				_ = r.patchStatusFromCR(ctx, cr, spec, witness.State{}, cnpg.Status{}, cnpg.Status{}, false, "")
 				continue
@@ -371,6 +418,128 @@ func (r *ContinuumReconciler) runSwitchover(
 		LastSwitchoverFrom:   plan.FromRegion,
 		LastSwitchoverTo:     plan.ToRegion,
 	})
+
+	// F-3: chain the post-switchover health check after HealthDelay
+	// (default 30s; tests override to 0). Runs in a goroutine so the
+	// reconcile loop returns promptly. The health result is written
+	// back to the CR status condition `LastSwitchoverHealthy`.
+	go r.runPostSwitchoverHealth(plan, seq)
+}
+
+// runPostSwitchoverHealth waits HealthDelay then executes
+// PostSwitchoverHealth + writes the result onto the CR's status
+// condition `LastSwitchoverHealthy`. Best-effort: failures to write
+// the status are logged but don't retry (next reconcile's
+// patchStatusFromCR doesn't clobber the condition because patchStatus
+// preserves it on no-op writes).
+func (r *ContinuumReconciler) runPostSwitchoverHealth(plan switchover.SwitchoverPlan, seq *switchover.Sequencer) {
+	delay := r.HealthDelay
+	if delay <= 0 {
+		delay = 30 * time.Second
+	}
+	if delay > 0 {
+		r.sleeper(delay)
+	}
+
+	// Use a fresh context with an outer timeout so a stuck DNS lookup
+	// doesn't pin the goroutine.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	report, err := seq.PostSwitchoverHealth(ctx, plan, r.HealthOpts)
+	if err != nil {
+		// Surface failure as Unknown — health check itself errored.
+		_ = r.patchStatusByName(ctx, plan.ContinuumName, statusUpdate{
+			LastSwitchoverHealthy:       "Unknown",
+			LastSwitchoverHealthyDetail: fmt.Sprintf("PostSwitchoverHealth errored: %v", err),
+			Reason:                      "HealthCheckErrored",
+		})
+		return
+	}
+
+	condStatus := "False"
+	if report.OverallHealthy {
+		condStatus = "True"
+	}
+	detail := summarizeHealth(report)
+	_ = r.patchStatusByName(ctx, plan.ContinuumName, statusUpdate{
+		LastSwitchoverHealthy:       condStatus,
+		LastSwitchoverHealthyDetail: detail,
+		Reason:                      "PostSwitchoverHealth",
+	})
+}
+
+// patchStatusByName re-fetches a Continuum CR by its
+// "<namespace>/<name>" identifier and applies a statusUpdate. Used by
+// the F-3 background health-check goroutine, which doesn't have the
+// CR Unstructured pre-fetched.
+func (r *ContinuumReconciler) patchStatusByName(ctx context.Context, identifier string, su statusUpdate) error {
+	ns, name, ok := splitNamespacedName(identifier)
+	if !ok {
+		return fmt.Errorf("invalid identifier %q (expected <ns>/<name>)", identifier)
+	}
+	if r.Dyn == nil {
+		return nil
+	}
+	cr, err := r.Dyn.Resource(ContinuumGVR).Namespace(ns).Get(ctx, name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return r.patchStatus(ctx, cr, su)
+}
+
+// splitNamespacedName parses "<ns>/<name>" → (ns, name, ok). Returns
+// (_, _, false) when the input doesn't contain exactly one '/'.
+func splitNamespacedName(s string) (string, string, bool) {
+	for i := 0; i < len(s); i++ {
+		if s[i] == '/' {
+			if i == 0 || i == len(s)-1 {
+				return "", "", false
+			}
+			// Reject multiple '/'.
+			for j := i + 1; j < len(s); j++ {
+				if s[j] == '/' {
+					return "", "", false
+				}
+			}
+			return s[:i], s[i+1:], true
+		}
+	}
+	return "", "", false
+}
+
+// summarizeHealth renders a one-line summary suitable for the
+// LastSwitchoverHealthy condition's `message` field.
+func summarizeHealth(rep switchover.HealthReport) string {
+	passed, deferred, failed := 0, 0, 0
+	for _, c := range rep.Checks {
+		switch {
+		case c.Deferred:
+			deferred++
+		case c.Passed:
+			passed++
+		default:
+			failed++
+		}
+	}
+	verdict := "healthy"
+	if !rep.OverallHealthy {
+		verdict = "UNHEALTHY"
+	}
+	return fmt.Sprintf("%s: %d passed, %d failed, %d deferred (new primary=%s)",
+		verdict, passed, failed, deferred, rep.NewPrimaryRegion)
+}
+
+// sleeper is the injectable wait. Tests override.
+func (r *ContinuumReconciler) sleeper(d time.Duration) {
+	if r.Sleep != nil {
+		r.Sleep(d)
+		return
+	}
+	time.Sleep(d)
 }
 
 // currentZone resolves the PowerDNS zone from a record set's first
@@ -511,6 +680,12 @@ type statusUpdate struct {
 	LastSwitchoverFrom   string
 	LastSwitchoverTo     string
 
+	// LastSwitchoverHealthy — set by F-3 post-switchover health
+	// check. "True" / "False" / "Unknown" tri-state matches K8s
+	// condition status semantics.
+	LastSwitchoverHealthy       string
+	LastSwitchoverHealthyDetail string
+
 	Reason  string
 	Message string
 }
@@ -569,6 +744,13 @@ func (r *ContinuumReconciler) patchStatus(ctx context.Context, cr *unstructured.
 			if t == "LeaseHeld" || t == "Ready" {
 				continue
 			}
+			// F-3: drop the prior LastSwitchoverHealthy condition
+			// when we're about to write a new one; preserve it
+			// otherwise so the operator can see the last result
+			// across reconciles.
+			if t == "LastSwitchoverHealthy" && su.LastSwitchoverHealthy != "" {
+				continue
+			}
 			conds = append(conds, c)
 		}
 	}
@@ -586,6 +768,15 @@ func (r *ContinuumReconciler) patchStatus(ctx context.Context, cr *unstructured.
 		"message":            firstNonEmpty(su.Message, ""),
 		"lastTransitionTime": r.now().UTC().Format(time.RFC3339),
 	})
+	if su.LastSwitchoverHealthy != "" {
+		conds = append(conds, map[string]interface{}{
+			"type":               "LastSwitchoverHealthy",
+			"status":             su.LastSwitchoverHealthy,
+			"reason":             firstNonEmpty(su.Reason, "PostSwitchoverHealth"),
+			"message":            firstNonEmpty(su.LastSwitchoverHealthyDetail, su.Message),
+			"lastTransitionTime": r.now().UTC().Format(time.RFC3339),
+		})
+	}
 	status["conditions"] = conds
 	latest.Object["status"] = status
 
@@ -674,6 +865,76 @@ func (r *ContinuumReconciler) publishReconcileSuccess(ctx context.Context, nn ty
 		Reason:          "ok",
 		Message:         "reconcile loop iteration successful",
 	})
+}
+
+// publishCRCreated — F-1 audit emit fired ONCE on the first
+// observation of a Continuum CR (per-CR goroutine spin-up).
+func (r *ContinuumReconciler) publishCRCreated(ctx context.Context, nn types.NamespacedName, spec ContinuumSpec) error {
+	if r.Audit == nil {
+		return nil
+	}
+	return r.Audit.Publish(ctx, events.Event{
+		Type:            events.TypeCRCreated,
+		ContinuumName:   nn.String(),
+		ApplicationName: spec.ApplicationRef,
+		ToPrimary:       spec.PrimaryRegion,
+		Reason:          "cr-observed",
+		Message:         fmt.Sprintf("Continuum CR observed; per-CR goroutine started (primaryRegion=%s, hotStandby=%v)", spec.PrimaryRegion, spec.HotStandbyRegions),
+	})
+}
+
+// publishConfigChanged — F-1 audit emit fired when the per-CR goroutine
+// observes a switchover-relevant spec change.
+func (r *ContinuumReconciler) publishConfigChanged(ctx context.Context, nn types.NamespacedName, spec ContinuumSpec, prev, cur string) error {
+	if r.Audit == nil {
+		return nil
+	}
+	return r.Audit.Publish(ctx, events.Event{
+		Type:            events.TypeConfigChanged,
+		ContinuumName:   nn.String(),
+		ApplicationName: spec.ApplicationRef,
+		ToPrimary:       spec.PrimaryRegion,
+		Reason:          "config-drift",
+		Message:         fmt.Sprintf("switchover-relevant spec changed: prev=%s cur=%s (primaryRegion=%s, hotStandby=%v)", prev, cur, spec.PrimaryRegion, spec.HotStandbyRegions),
+	})
+}
+
+// publishLeaseCollision — F-1 audit emit fired when an Acquire on the
+// witness returns ErrLeaseHeldByAnother during the renew loop. Rare:
+// signals the lease-loss-then-rapid-acquire happened across two
+// regions (split-brain warning material).
+func (r *ContinuumReconciler) publishLeaseCollision(ctx context.Context, nn types.NamespacedName, spec ContinuumSpec, cause error) error {
+	if r.Audit == nil {
+		return nil
+	}
+	return r.Audit.Publish(ctx, events.Event{
+		Type:            events.TypeLeaseCollision,
+		ContinuumName:   nn.String(),
+		ApplicationName: spec.ApplicationRef,
+		FromPrimary:     spec.PrimaryRegion,
+		Reason:          "lease-collision",
+		Message:         fmt.Sprintf("Acquire returned ErrLeaseHeldByAnother (split-brain warning): %v", cause),
+	})
+}
+
+// switchoverSpecFingerprint returns a content hash of the
+// switchover-relevant spec fields. Used by the per-CR goroutine to
+// detect spec drift (F-1's continuum-config-changed audit emit). NOT
+// the same as switchover.planFingerprint — that one's input is a
+// SwitchoverPlan, this one's input is a ContinuumSpec.
+func switchoverSpecFingerprint(spec ContinuumSpec) string {
+	return fmt.Sprintf("primary=%s|hot=%v|kind=%s|ttl=%d|renew=%d|rto=%d|auto=%t|pair=%s/%s|hr=%s/%s|zone=%s",
+		spec.PrimaryRegion,
+		spec.HotStandbyRegions,
+		spec.LeaseClientKind,
+		spec.TTLSeconds,
+		spec.RenewSeconds,
+		spec.RTOSeconds,
+		spec.AutoFailover,
+		spec.CNPGNamespace, spec.CNPGPair,
+		spec.HTTPRouteNamespace, spec.HTTPRouteName,
+		spec.PDMZone,
+	)
 }
 
 func firstNonEmpty(s ...string) string {

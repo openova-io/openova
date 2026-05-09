@@ -59,6 +59,20 @@ spec:
               value: {{ .Values.continuum.lease.ttlSeconds | default 30 | quote }}
             - name: LEASE_RENEW_SECONDS
               value: {{ .Values.continuum.lease.renewSeconds | default 10 | quote }}
+            # Slice F-2 + F-3 — dry-run + post-switchover health
+            # endpoints. Empty CONTINUUM_API_ADDR disables the HTTP
+            # server entirely.
+            - name: CONTINUUM_API_ADDR
+              value: ":{{ .Values.continuum.api.port | default 8082 }}"
+            {{- if .Values.continuum.api.tokenSecretRef }}
+            - name: CONTINUUM_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.continuum.api.tokenSecretRef.name | quote }}
+                  key: {{ .Values.continuum.api.tokenSecretRef.key | quote }}
+            {{- end }}
+            - name: CONTINUUM_HEALTH_DELAY_SECONDS
+              value: {{ .Values.continuum.health.postSwitchoverDelaySeconds | default 30 | quote }}
             {{- range $k, $v := .Values.continuum.env }}
             - name: {{ $k | quote }}
               value: {{ $v | quote }}
@@ -68,6 +82,8 @@ spec:
               containerPort: {{ .Values.continuum.metrics.port | default 9090 }}
             - name: health
               containerPort: {{ .Values.continuum.health.port | default 8081 }}
+            - name: api
+              containerPort: {{ .Values.continuum.api.port | default 8082 }}
           livenessProbe:
             httpGet:
               path: /healthz

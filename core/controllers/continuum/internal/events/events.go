@@ -30,23 +30,43 @@ import (
 // JetStream `catalyst.audit` is the canonical audit subject.
 const Subject = "catalyst.audit"
 
-// Audit-type constants — the 9 reserved values. K-Cont-1 documented
-// them in placeholder; K-Cont-2 ships them as exported constants so
-// downstream consumers can pin to symbols, not strings.
+// Audit-type constants — the 9 reserved values from K-Cont-2 plus 3
+// added by slice F (#1101 F-1) for full state-transition coverage.
+//
+// K-Cont-1 documented the originals in placeholder; K-Cont-2 shipped
+// them as exported constants. F-1 extends the set with three audit
+// emits the K-Cont-2 reconciler did NOT cover:
+//
+//   - TypeCRCreated        — CR Reconcile-on-Create (per-CR goroutine spin-up)
+//   - TypeConfigChanged    — CR Update where switchover-relevant fields changed
+//   - TypeLeaseCollision   — Acquire returned ErrLeaseHeldByAnother during
+//     opportunistic re-acquire (the rare two-region
+//     lease race that is split-brain warning material)
+//
+// Schemas for the new types are documented in
+// products/continuum/DESIGN.md §"Slice F audit-type schemas".
 const (
-	TypeSwitchover         = "continuum-switchover"
-	TypeFailbackPending    = "continuum-failback-pending"
-	TypeFailbackCompleted  = "continuum-failback-completed"
-	TypeLeaseLost          = "continuum-lease-lost"
-	TypeLeaseAcquired      = "continuum-lease-acquired"
-	TypeCNPGLagBreach      = "continuum-cnpg-lag-breach"
-	TypeCNPGPromotable     = "continuum-cnpg-promotable"
-	TypeError              = "continuum-error"
-	TypeReconcileSuccess   = "continuum-reconcile-success"
+	TypeSwitchover        = "continuum-switchover"
+	TypeFailbackPending   = "continuum-failback-pending"
+	TypeFailbackCompleted = "continuum-failback-completed"
+	TypeLeaseLost         = "continuum-lease-lost"
+	TypeLeaseAcquired     = "continuum-lease-acquired"
+	TypeCNPGLagBreach     = "continuum-cnpg-lag-breach"
+	TypeCNPGPromotable    = "continuum-cnpg-promotable"
+	TypeError             = "continuum-error"
+	TypeReconcileSuccess  = "continuum-reconcile-success"
+
+	// F-1 additions (#1101).
+	TypeCRCreated      = "continuum-cr-created"
+	TypeConfigChanged  = "continuum-config-changed"
+	TypeLeaseCollision = "continuum-lease-collision"
 )
 
 // AuditTypes is the canonical list — used by tests + by U-DR-1's
 // audit-subscription startup wiring (filter validation).
+//
+// Order is K-Cont-2's original 9 first, then F-1's 3 — additions
+// MUST go at the end so existing index-pinned tests keep working.
 var AuditTypes = []string{
 	TypeSwitchover,
 	TypeFailbackPending,
@@ -57,6 +77,9 @@ var AuditTypes = []string{
 	TypeCNPGPromotable,
 	TypeError,
 	TypeReconcileSuccess,
+	TypeCRCreated,
+	TypeConfigChanged,
+	TypeLeaseCollision,
 }
 
 // IsValidType reports whether `t` is one of the 9 reserved values.

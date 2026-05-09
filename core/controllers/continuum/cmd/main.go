@@ -41,6 +41,17 @@
 //	                       "catalyst-controllers" (mirrors EPIC-3 F's
 //	                       `FederationSecretNamespace`).
 //
+// Slice F-2 + F-3 wires these:
+//
+//	CONTINUUM_API_ADDR  — :8082 default; HTTP server for dry-run + health
+//	                       endpoints (slice F-2 + F-3). Empty = disabled.
+//	CONTINUUM_API_TOKEN — optional bearer token gating dry-run/health
+//	                       endpoints. Empty = relies solely on the
+//	                       X-Catalyst-Owner-Tier header (catalyst-api
+//	                       stamps it after JWT validation).
+//	CONTINUUM_HEALTH_DELAY_SECONDS — post-switchover health-check delay.
+//	                       Default 30s per design doc §9.5.
+//
 // Per-CR config (lease TTL/renew, witness kind, regions) is read
 // from Continuum CR spec, NEVER env (per INVIOLABLE-PRINCIPLES #4).
 //
@@ -53,7 +64,10 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
+	"strconv"
+	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -68,6 +82,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/openova-io/openova/core/controllers/continuum/internal/api"
 	"github.com/openova-io/openova/core/controllers/continuum/internal/controller"
 	"github.com/openova-io/openova/core/controllers/continuum/internal/events"
 	"github.com/openova-io/openova/core/controllers/continuum/internal/pdm"
@@ -165,6 +180,15 @@ func main() {
 		}
 	}
 
+	// Slice F-3: post-switchover health-check delay (default 30s
+	// per design doc §9.5; 0 = run immediately, useful for tests).
+	healthDelay := 30 * time.Second
+	if v := env("CONTINUUM_HEALTH_DELAY_SECONDS", ""); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			healthDelay = time.Duration(n) * time.Second
+		}
+	}
+
 	r := &controller.ContinuumReconciler{
 		Client:          mgr.GetClient(),
 		Scheme:          mgr.GetScheme(),
@@ -174,10 +198,49 @@ func main() {
 		PDMClient:       pdmClient,
 		Audit:           audit,
 		Drainer:         switchover.NewDynamicHTTPRouteDrainer(dyn),
+		HealthDelay:     healthDelay,
+		HealthOpts: switchover.HealthOptions{
+			// Production: 8.8.8.8 / 1.1.1.1 / 9.9.9.9 multi-vantage
+			// DNS resolver fanout. Tests that don't want live DNS
+			// override via the per-CR Sequencer.
+			Resolvers: switchover.DefaultMultiResolverDial,
+			// AuditTail is left nil for now — wiring NATS PullConsumer
+			// is a separate slice (the dry-run + replicas + DNS checks
+			// are sufficient for the F-3 acceptance gate; audit-posted
+			// is recorded as deferred until a follow-up slice wires the
+			// JetStream consumer).
+		},
 	}
 	if err := r.SetupWithManager(mgr); err != nil {
 		fmt.Fprintf(os.Stderr, "setup reconciler: %v\n", err)
 		os.Exit(1)
+	}
+
+	// Slice F-2 + F-3: HTTP server for dry-run + health endpoints.
+	// Empty CONTINUUM_API_ADDR disables the server (e.g. for binaries
+	// that ship without the admin surface). Default :8082.
+	if apiAddr := env("CONTINUUM_API_ADDR", ":8082"); apiAddr != "" {
+		apiSrv := &api.Server{
+			Provider:    r,
+			HealthCache: api.NewInMemoryHealthCache(),
+			HealthOpts:  r.HealthOpts,
+			AuthToken:   env("CONTINUUM_API_TOKEN", ""),
+			Audit:       audit,
+		}
+		go func() {
+			httpSrv := &http.Server{
+				Addr:              apiAddr,
+				Handler:           apiSrv.Handler(),
+				ReadHeaderTimeout: 10 * time.Second,
+				ReadTimeout:       30 * time.Second,
+				WriteTimeout:      30 * time.Second,
+				IdleTimeout:       60 * time.Second,
+			}
+			fmt.Fprintf(os.Stderr, "continuum API server listening on %s\n", apiAddr)
+			if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				fmt.Fprintf(os.Stderr, "continuum API server: %v\n", err)
+			}
+		}()
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {

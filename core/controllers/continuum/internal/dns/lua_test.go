@@ -93,7 +93,7 @@ func TestSynthesize_FailsOnMissingPrimary(t *testing.T) {
 	t.Parallel()
 	app := newApp([]string{"a.com"})
 	_, err := Synthesize(app, SynthParams{
-		RegionToIPs: map[string][]string{"r1": {"1.1.1.1"}},
+		RegionToIPs:    map[string][]string{"r1": {"1.1.1.1"}},
 		HealthCheckURL: "https://example.com/healthz",
 	})
 	if err == nil {
