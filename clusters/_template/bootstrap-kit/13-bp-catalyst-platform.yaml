@@ -373,6 +373,13 @@ spec:
       enabled: ${QA_FIXTURES_ENABLED:-false}
       namespace: ${QA_FIXTURES_NAMESPACE:-qa-omantel}
       appName: ${QA_FIXTURES_APP:-qa-wp}
+      # Sovereign FQDN for Organization.spec.sovereignRef. CRD validation
+      # `^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$`
+      # requires a dotted FQDN (single label "omantel" rejected). Defaults
+      # to ${SOVEREIGN_FQDN} from the Kustomization postBuild substitute
+      # so every Sovereign gets its own correct FQDN automatically.
+      sovereignRef: ${SOVEREIGN_FQDN:-omantel.biz}
+      organization: ${QA_ORGANIZATION:-omantel-platform}
       continuumName: ${QA_CONTINUUM_NAME:-cont-omantel}
       cnpgPairName: ${QA_CNPGPAIR_NAME:-qa-cnpg}
       # 4-segment canonical region label per Application + Environment
