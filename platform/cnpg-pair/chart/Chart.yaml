@@ -1,0 +1,75 @@
+apiVersion: v2
+name: bp-cnpg-pair
+version: 0.1.0
+appVersion: "0.1.0"
+description: |
+  Catalyst-curated Blueprint for an active-hotstandby CNPG cluster-pair
+  across two Hetzner regions. Companions the existing `bp-cnpg`
+  (operator) Blueprint by shipping the per-Application data-plane:
+    - Primary postgresql.cnpg.io/v1.Cluster CR pinned to region A
+    - Replica postgresql.cnpg.io/v1.Cluster CR pinned to region B,
+      configured as a CNPG replica via `replica.enabled: true` +
+      `externalCluster` referencing the primary's replication endpoint
+    - Cilium ClusterMesh-shared Service so the replica region streams
+      WAL bytes over the private mesh, never public TLS
+    - Failover-readiness probe Pod that flips Ready when WAL lag falls
+      below the configured threshold (replica becomes promotable)
+    - NetworkPolicy carve-out for the replication path (default-deny
+      compatible — see platform/network-policies)
+    - audit-config ConfigMap declaring the NATS audit subjects this
+      Blueprint emits (consumed by Continuum K-Cont-2)
+
+  This chart ships ZERO upstream Helm subchart bytes — every byte is
+  Catalyst-authored, all on top of the CNPG CRDs that bp-cnpg installs.
+  The blueprint-release workflow's hollow-chart guard (issue #181)
+  requires either a `dependencies:` block OR the
+  `catalyst.openova.io/no-upstream: "true"` annotation; we use the
+  annotation.
+
+  Slice C-DB-1 of EPIC-6 (#1101). Companion to K-Cont-1 / K-Cont-2
+  (Continuum DR controller) which reconciles switchover against
+  Cluster CRs created by this Blueprint.
+
+  Changelog
+  ─────────
+  0.1.0 (2026-05-09, slice C-DB-1, #1101)
+    - Initial chart: primary + replica + replication Service +
+      failover-readiness Pod + NetworkPolicy + audit-config ConfigMap.
+    - Default-OFF (`cnpgPair.enabled: false`).
+    - Fail-fast on empty `image.tag` per Inviolable Principle #4a.
+    - Renders ZERO resources when disabled.
+
+type: application
+keywords:
+  - openova
+  - catalyst
+  - blueprint
+  - cnpg
+  - postgres
+  - postgresql
+  - multi-region
+  - active-hotstandby
+  - dr
+  - disaster-recovery
+  - clustermesh
+maintainers:
+  - name: OpenOva Catalyst
+    email: hati.yildiz@openova.io
+
+# No upstream Helm chart — every byte of this Blueprint is Catalyst-
+# authored. The blueprint-release workflow's hollow-chart guard
+# (issue #181) requires either a `dependencies:` block OR this
+# annotation. CNPG CRDs ship with bp-cnpg (umbrella subchart over
+# cnpg/cloudnative-pg 0.28.0) which is a hard dependency declared in
+# blueprint.yaml, NOT a Helm subchart of this Blueprint — Flux
+# resolves the dependency at deploy time via dependsOn / depends.
+annotations:
+  catalyst.openova.io/no-upstream: "true"
+  # Default values render zero resources (cnpgPair.enabled=false).
+  # The blueprint-release smoke gate honors this annotation and
+  # accepts a short default render; chart/tests/cnpg-pair-render.sh
+  # covers the enabled-render path with full --set overrides.
+  catalyst.openova.io/smoke-render-mode: "default-off"
+  catalyst.openova.io/depends-on: "bp-cnpg,bp-hcloud-csi,bp-cilium"
+  catalyst.openova.io/owner-epic: "6"
+  catalyst.openova.io/issue: "1101"

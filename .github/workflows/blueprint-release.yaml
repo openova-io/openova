@@ -302,6 +302,18 @@ jobs:
       # packaged chart with defaults; on render failure the build dies
       # and the rendered output (if any) ships as a workflow artifact
       # for forensics.
+      #
+      # Empty-render rule: a working umbrella with an upstream subchart
+      # should produce many resources, so `<5 lines` is suspicious AND
+      # blocks publish. EXCEPTION: charts that are both `no-upstream:
+      # true` AND default-OFF (e.g. bp-cnpg-pair, products/continuum)
+      # legitimately render zero resources at default values — they
+      # ship a `cnpgPair.enabled: true` (or equivalent) flip-on path
+      # that overlays activate per-Sovereign. Those charts opt into the
+      # exception via the `catalyst.openova.io/smoke-render-mode:
+      # default-off` annotation; their unit-tests under chart/tests/*.sh
+      # cover the enabled-render path. Without the annotation the
+      # `<5 lines` rule still fires.
       - name: "Helm template smoke render (default values)"
         if: steps.chart.outputs.skip != 'true'
         id: smoke
@@ -309,6 +321,7 @@ jobs:
           set -euo pipefail
           name="${{ steps.chart.outputs.name }}"
           version="${{ steps.chart.outputs.version }}"
+          chart_yaml="${{ matrix.path }}/chart/Chart.yaml"
           tgz="/tmp/charts/${name}-${version}.tgz"
           mkdir -p /tmp/render
           render_out="/tmp/render/${name}-${version}.default.yaml"
@@ -325,9 +338,14 @@ jobs:
           fi
           lines=$(wc -l < "$render_out")
           echo "Rendered $lines lines to $render_out"
+          smoke_mode=$(yq '.annotations["catalyst.openova.io/smoke-render-mode"] // ""' "$chart_yaml")
           if [ "$lines" -lt 5 ]; then
-            echo "::error title=Empty render::Rendered output is suspiciously short ($lines lines). A working umbrella with an upstream subchart should produce many more resources."
-            exit 1
+            if [ "$smoke_mode" = "default-off" ]; then
+              echo "Chart marked catalyst.openova.io/smoke-render-mode=default-off — short default render is expected; chart/tests/*.sh covers the enabled-render path."
+            else
+              echo "::error title=Empty render::Rendered output is suspiciously short ($lines lines). A working umbrella with an upstream subchart should produce many more resources. (For charts that are intentionally default-off, set annotations.catalyst.openova.io/smoke-render-mode: \"default-off\" in Chart.yaml.)"
+              exit 1
+            fi
           fi
 
       - name: "Upload smoke render as workflow artifact"

@@ -1,0 +1,198 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-cnpg-pair
+  labels:
+    catalyst.openova.io/section: pts-9-disaster-recovery
+    catalyst.openova.io/companion: bp-cnpg
+spec:
+  version: 0.1.0
+  card:
+    title: CNPG Cluster-Pair (Active-Hotstandby DR)
+    summary: |
+      Active-hotstandby CNPG cluster-pair across two Hetzner regions.
+      Primary postgresql.cnpg.io/v1.Cluster CR in region A; replica
+      Cluster CR in region B configured as a CNPG replica cluster
+      (replica.enabled=true + externalCluster) streaming WAL over a
+      Cilium ClusterMesh-shared Service. Failover-readiness probe Pod
+      flips Ready when WAL lag < threshold so Continuum K-Cont-2 can
+      promote on operator-triggered switchover. Per ADR-0001 §9 the
+      replication transport is ClusterMesh — never public TLS.
+    icon: cnpg-pair.svg
+    category: data
+  visibility: listed
+
+  configSchema:
+    type: object
+    required:
+      - primary
+      - replica
+      - image
+    properties:
+      primary:
+        type: object
+        required: [region]
+        properties:
+          region:
+            type: string
+            enum:
+              - hz-fsn-rtz-prod
+              - hz-hel-rtz-prod
+              - hz-nbg-mgt-prod
+            description: |
+              Hetzner region key for the primary CNPG Cluster.
+              MUST differ from `replica.region`. Matches the
+              `openova.io/region` label on data-plane nodes.
+          instances:
+            type: integer
+            minimum: 3
+            maximum: 5
+            default: 3
+            description: |
+              Number of CNPG instances in the primary region.
+              CNPG operator places one Pod per node via anti-
+              affinity; minimum 3 for HA quorum.
+          storage:
+            type: object
+            properties:
+              size:
+                type: string
+                default: "100Gi"
+                description: |
+                  Per-instance PVC size. Use Kubernetes resource
+                  quantities (e.g. "100Gi", "1Ti").
+              storageClass:
+                type: string
+                default: hcloud-volumes
+                description: |
+                  StorageClass for the primary's PVCs. H6's
+                  bp-hcloud-csi provides `hcloud-volumes` on every
+                  Hetzner Sovereign.
+      replica:
+        type: object
+        required: [region]
+        properties:
+          region:
+            type: string
+            enum:
+              - hz-fsn-rtz-prod
+              - hz-hel-rtz-prod
+              - hz-nbg-mgt-prod
+            description: |
+              Hetzner region for the replica. MUST differ from
+              `primary.region` — UI install-flow validates this
+              before submitting the Application CR; the chart's
+              _helpers.tpl `cnpg-pair.validateRegions` re-asserts
+              at template-render time.
+          instances:
+            type: integer
+            minimum: 3
+            maximum: 5
+            default: 3
+          storage:
+            type: object
+            properties:
+              size:
+                type: string
+                default: "100Gi"
+              storageClass:
+                type: string
+                default: hcloud-volumes
+      walStreaming:
+        type: object
+        properties:
+          targetLagSeconds:
+            type: integer
+            minimum: 1
+            maximum: 600
+            default: 30
+            description: |
+              Replica becomes promotable when WAL replay lag drops
+              below this threshold (seconds). Continuum K-Cont-2
+              gates switchover on the failover-readiness Pod's
+              Ready condition, which derives from this threshold.
+          timeoutSeconds:
+            type: integer
+            minimum: 5
+            maximum: 600
+            default: 60
+      clusterMesh:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: true
+            description: |
+              When true (DEFAULT, REQUIRED for production), the
+              replication Service carries the
+              `service.cilium.io/global: "true"` annotation so
+              Cilium ClusterMesh exposes it cross-region.
+              Disabling this is FORENSIC ONLY — replication
+              traffic over public TLS is NOT supported per
+              ADR-0001 §9.
+          affinity:
+            type: string
+            enum: [local, remote, none]
+            default: local
+            description: |
+              ClusterMesh affinity hint. `local` (DEFAULT) keeps
+              the primary region's reads inside the region and
+              falls through to the replica region only when no
+              local primary backend exists.
+      image:
+        type: object
+        required: [tag]
+        properties:
+          repository:
+            type: string
+            default: ghcr.io/cloudnative-pg/postgresql
+            description: |
+              CNPG postgres image. Per Inviolable Principle #4a
+              cluster overlays SHOULD pin to a digest in production.
+          tag:
+            type: string
+            description: |
+              REQUIRED — empty triggers a template-time fail-fast.
+              Example: `16.3-23` (versioned) or
+              `sha256:<digest>` (digest, recommended).
+
+  placementSchema:
+    # The cluster-pair IS the placement — primary + replica are the
+    # two regions. CNPG's replication model is asynchronous-streaming
+    # primary + 1 replica region; multi-replica-region (active-
+    # active for Postgres) is out of scope per master-brief §9.6.
+    modes: [active-hotstandby]
+    minRegions: 2
+    maxRegions: 2
+
+  manifests:
+    chart: ./chart
+
+  # Runtime dependencies — the install flow gates Apply until each
+  # of these Blueprints is reconciled in the target Sovereign.
+  depends:
+    # CNPG operator + CRDs — bp-cnpg umbrella over upstream
+    # cnpg/cloudnative-pg 0.28.0 ships postgresql.cnpg.io/v1 CRDs.
+    # We use those CRDs without installing a second copy.
+    - blueprint: bp-cnpg
+      version: ^1
+      alias: cnpg
+    # H6 — Hetzner Cloud CSI driver + `hcloud-volumes` StorageClass.
+    - blueprint: bp-hcloud-csi
+      version: ^1
+      alias: csi
+    # ClusterMesh — bp-cilium with mesh enabled (per H1 hardening
+    # in EPIC-5 #1100). The chart fails open-but-degraded if
+    # ClusterMesh is disabled (replica can't reach primary), so
+    # the dependency is structural.
+    - blueprint: bp-cilium
+      version: ^1
+      alias: cilium
+
+  upgrades:
+    # Migration path from single-region bp-cnpg installs: an
+    # operator promotes a single-region CNPG Cluster to a pair by
+    # installing this Blueprint and running a one-shot promotion
+    # job (delivered in C-DB-3 acceptance harness). Documented in
+    # DESIGN.md "single→pair migration".
+    from: ["bp-cnpg:1.x"]

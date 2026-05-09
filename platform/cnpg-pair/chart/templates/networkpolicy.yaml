@@ -1,0 +1,110 @@
+{{- /*
+NetworkPolicy carve-out for cluster-pair replication traffic.
+
+The platform default-deny CCNP (H8 seam — `platform/network-policies`)
+denies all pod-to-pod traffic by default. This NetworkPolicy opens
+the minimum required paths:
+
+  1. Replication: the replica cluster's Pods MAY reach the primary
+     cluster's `-r` Service on 5432 (cross-cluster via ClusterMesh).
+  2. Probe: the failover-readiness probe Pod MAY reach the replica
+     cluster's `-r` Service on 5432 (intra-cluster, in replica region).
+
+Everything else stays denied — no Egress to the public Internet, no
+Ingress except from the explicit selectors below.
+
+This is a NamespacePolicy (NetworkPolicy in apps/v1 sense), NOT a
+CiliumClusterwideNetworkPolicy — the chart targets a single
+namespace, and the H8 platform CCNP already covers the cluster-
+scoped default-deny.
+*/ -}}
+{{- if and .Values.cnpgPair.enabled .Values.cnpgPair.networkPolicy.enabled }}
+---
+# Allow primary CR Pods to accept replication connections from any
+# Pod with `cnpg.io/cluster=<replica>` label. ClusterMesh delivers
+# the replica region's Pods identity into the primary region; the
+# selector matches by Pod label regardless of source cluster.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "cnpg-pair.fullname" . }}-allow-replication-to-primary
+  labels:
+    {{- include "cnpg-pair.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: {{ include "cnpg-pair.primaryName" . }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: {{ include "cnpg-pair.replicaName" . }}
+      ports:
+        - port: 5432
+          protocol: TCP
+---
+# Allow failover-readiness probe Pod to reach the replica's `-r`
+# Service on 5432 (Egress) AND allow the replica cluster's Pods to
+# accept the connection (Ingress, intra-cluster).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "cnpg-pair.fullname" . }}-allow-probe-to-replica
+  labels:
+    {{- include "cnpg-pair.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: {{ include "cnpg-pair.replicaName" . }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              catalyst.openova.io/role: failover-readiness-probe
+              catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+      ports:
+        - port: 5432
+          protocol: TCP
+---
+# Egress carve-out for the probe Pod — must resolve DNS and reach
+# the replica's `-r` Service on 5432.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "cnpg-pair.fullname" . }}-probe-egress
+  labels:
+    {{- include "cnpg-pair.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+spec:
+  podSelector:
+    matchLabels:
+      catalyst.openova.io/role: failover-readiness-probe
+      catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+  policyTypes: [Egress]
+  egress:
+    # DNS to kube-dns
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Replica CR Pods on 5432
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: {{ include "cnpg-pair.replicaName" . }}
+      ports:
+        - port: 5432
+          protocol: TCP
+{{- end }}
