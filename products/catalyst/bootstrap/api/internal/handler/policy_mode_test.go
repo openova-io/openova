@@ -428,9 +428,17 @@ func TestHandleEnvironmentPolicyMode_AdminClaimAllowed(t *testing.T) {
 	}
 }
 
-// ── 404 environment not found ────────────────────────────────────────
+// ── Create-on-write when Environment CR is absent ───────────────────
 
-func TestHandleEnvironmentPolicyMode_404OnMissingEnvironment(t *testing.T) {
+// TestHandleEnvironmentPolicyMode_CreatesWhenEnvironmentMissing reflects
+// the post-iter-3 contract change: a missing Environment CR is no
+// longer surfaced as a 404 on the policy-mode toggle. The handler
+// now treats EnvironmentPolicy as the source of truth and lets the
+// merge step create the EnvironmentPolicy CR even when no
+// matching Environment CR exists yet. Operators frequently put policy
+// modes in place before the Environment CR materialises (or, in
+// chroot-mode, the Environment CRD is absent entirely).
+func TestHandleEnvironmentPolicyMode_CreatesWhenEnvironmentMissing(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
 	// Seed only the ClusterPolicies + a different environment, NOT
 	// the one we PUT to.
@@ -439,7 +447,7 @@ func TestHandleEnvironmentPolicyMode_404OnMissingEnvironment(t *testing.T) {
 		newFakeClusterPolicy("multi-replica-drainability"),
 	)
 	h.dynamicFactory = factory
-	dep := installUserAccessDeployment(t, h, "dep-pol-404")
+	dep := installUserAccessDeployment(t, h, "dep-pol-create-onwrite")
 
 	body := policyModeRequest{
 		Modes: map[string]string{
@@ -449,11 +457,12 @@ func TestHandleEnvironmentPolicyMode_404OnMissingEnvironment(t *testing.T) {
 	rec := callPolicyMode(t, h,
 		"/api/v1/sovereigns/"+dep.ID+"/environments/prod/policy",
 		body, nil)
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("status: got %d want 404; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200 (create-on-write); body=%s",
+			rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "environment-not-found") {
-		t.Fatalf("expected environment-not-found error; got %s", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), `"applied":"created"`) {
+		t.Fatalf("expected applied=created; got %s", rec.Body.String())
 	}
 }
 
@@ -620,6 +629,87 @@ func TestPolicyModeCallerAuthorized_Cases(t *testing.T) {
 			got := policyModeCallerAuthorized(c.claims)
 			if got != c.want {
 				t.Fatalf("got %v want %v", got, c.want)
+			}
+		})
+	}
+}
+
+// ── Regression: tolerant body shape (TC-101) ─────────────────────────
+
+// TestHandleEnvironmentPolicyMode_AcceptsRoundTripBodyShape is the
+// regression test for the iter-3 incident where PUT
+// /environments/{env}/policy returned HTTP 400
+// `json: unknown field "environment"` because the canonical UAT
+// matrix sends a body that includes `environment` and `applied`
+// alongside `modes`. The handler now accepts (but ignores) those
+// optional fields so callers can round-trip the response shape
+// without re-shaping the body.
+//
+// Also exercises the Kyverno-vocabulary normalisation: the matrix
+// sends `"audit"` as the mode value (real Kyverno terminology). The
+// handler maps `audit` → `permissive` so the canonical contract
+// holds for downstream consumers.
+func TestHandleEnvironmentPolicyMode_AcceptsRoundTripBodyShape(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	factory, _ := fakePolicyModeDynamicFactory(stdPolicyModeSeed("default")...)
+	h.dynamicFactory = factory
+	dep := installUserAccessDeployment(t, h, "dep-pol-roundtrip")
+
+	// Use a raw map so the test exercises the JSON-decode path with
+	// extra fields the strict decoder would otherwise reject.
+	body := map[string]any{
+		"environment": "default",
+		"modes": map[string]string{
+			// Use a known policy name from stdPolicyModeSeed so the
+			// known-policy validation passes (the matrix uses
+			// validationFailureAction; the test substitutes the real
+			// fixture name to keep the assertion deterministic).
+			"multi-replica-drainability": "audit",
+		},
+		"applied": true,
+	}
+	rec := callPolicyMode(t, h,
+		"/api/v1/sovereigns/"+dep.ID+"/environments/default/policy",
+		body, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"applied"`) {
+		t.Fatalf("expected 'applied' in response (TC-101 must_contain); got %s", rec.Body.String())
+	}
+	// The mode should be normalised to "permissive" in the response.
+	if !strings.Contains(rec.Body.String(), `"multi-replica-drainability":"permissive"`) {
+		t.Fatalf("expected mode normalised audit→permissive; got %s", rec.Body.String())
+	}
+}
+
+// TestNormalizePolicyMode_AcceptsBothVocabularies is the unit
+// regression for the Kyverno-synonym mapping.
+func TestNormalizePolicyMode_AcceptsBothVocabularies(t *testing.T) {
+	cases := []struct {
+		in       string
+		want     string
+		wantOK   bool
+		wantNote string
+	}{
+		{"permissive", "permissive", true, "openova canonical"},
+		{"enforcing", "enforcing", true, "openova canonical"},
+		{"audit", "permissive", true, "kyverno synonym"},
+		{"enforce", "enforcing", true, "kyverno synonym"},
+		{"AUDIT", "permissive", true, "case-insensitive"},
+		{"  Enforce  ", "enforcing", true, "trimmed"},
+		{"warn", "", false, "unknown vocabulary"},
+		{"", "", false, "empty rejected"},
+		{"strict", "", false, "unknown vocabulary"},
+	}
+	for _, c := range cases {
+		t.Run(c.in+"_"+c.wantNote, func(t *testing.T) {
+			got, ok := normalizePolicyMode(c.in)
+			if ok != c.wantOK {
+				t.Fatalf("ok: got %v want %v", ok, c.wantOK)
+			}
+			if got != c.want {
+				t.Fatalf("normalised: got %q want %q", got, c.want)
 			}
 		})
 	}

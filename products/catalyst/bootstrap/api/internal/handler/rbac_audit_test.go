@@ -185,7 +185,7 @@ func TestHandleRBACAssign_EmitsUpdatedAndTierChanged(t *testing.T) {
 		{Key: "openova.io/application", Value: "wordpress"},
 	}
 	existing := rbacUserAccessFromAssign("rbac-alice-deadbeef", "alice", "viewer", scopes)
-	if _, err := client.Resource(UserAccessGVR()).Namespace("").Create(
+	if _, err := client.Resource(UserAccessGVR()).Namespace(rbacAssignNamespace).Create(
 		context.Background(), existing, metav1.CreateOptions{}); err != nil {
 		t.Fatalf("seed CR: %v", err)
 	}
@@ -236,7 +236,7 @@ func TestHandleRBACAssign_NoOp_DoesNotEmit(t *testing.T) {
 		{Key: "openova.io/application", Value: "wordpress"},
 	}
 	existing := rbacUserAccessFromAssign("rbac-alice-feedface", "alice", "developer", scopes)
-	if _, err := client.Resource(UserAccessGVR()).Namespace("").Create(
+	if _, err := client.Resource(UserAccessGVR()).Namespace(rbacAssignNamespace).Create(
 		context.Background(), existing, metav1.CreateOptions{}); err != nil {
 		t.Fatalf("seed CR: %v", err)
 	}

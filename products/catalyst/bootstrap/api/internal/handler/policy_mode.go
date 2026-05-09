@@ -142,8 +142,27 @@ func ClusterPolicyGVR() schema.GroupVersionResource {
 
 // policyModeRequest is the body of PUT /environments/{env}/policy.
 // Mirrors EnvironmentPolicyModeUpdate in compliance.api.ts.
+//
+// `environment` and `applied` are accepted for round-trip convenience —
+// some callers (notably the canonical UAT matrix and the slice U
+// PolicyModeToggle widget after the response is echoed back) include
+// them in PUT bodies derived from the response shape. The handler is
+// tolerant of (but does not act on) those fields:
+//
+//   - environment: ignored. The URL `{env}` path-param is the single
+//     source of truth for the target Environment. A body that
+//     disagrees with the URL would otherwise cause an unknown-field
+//     400 because decodeMutationBody calls DisallowUnknownFields().
+//   - applied:     ignored. Read-only field on the response.
+//
+// Removing DisallowUnknownFields globally would weaken every other
+// mutation handler that benefits from strict typo detection. The
+// targeted fix is to model the optional fields explicitly here so
+// JSON-decode succeeds and the rest of the handler can run.
 type policyModeRequest struct {
-	Modes map[string]string `json:"modes"`
+	Modes       map[string]string `json:"modes"`
+	Environment string            `json:"environment,omitempty"`
+	Applied     any               `json:"applied,omitempty"`
 }
 
 // policyModeResponse is the body returned on success. The `modes` map
@@ -184,14 +203,27 @@ func (h *Handler) HandleEnvironmentPolicyMode(w http.ResponseWriter, r *http.Req
 		writeBadRequest(w, "empty-modes", "modes map must contain at least one entry")
 		return
 	}
-	for _, m := range body.Modes {
-		if m != policyModePermissive && m != policyModeEnforcing {
+	// Normalize mode values to the OpenOva vocabulary (permissive |
+	// enforcing). The handler also accepts Kyverno's native
+	// `audit`/`enforce` vocabulary as synonyms because the same
+	// EnvironmentPolicy CR is consumed by the Kyverno-bridge
+	// controller, and operator tooling (and the canonical UAT matrix)
+	// commonly round-trips Kyverno-shaped bodies. Per
+	// INVIOLABLE-PRINCIPLES.md #4 (never compromise quality) the
+	// stored value is always the canonical OpenOva form so the
+	// downstream resolver and audit log see one shape.
+	normalized := make(map[string]string, len(body.Modes))
+	for k, m := range body.Modes {
+		canonical, ok := normalizePolicyMode(m)
+		if !ok {
 			writeBadRequest(w, "invalid-mode",
-				fmt.Sprintf("mode must be %q or %q; got %q",
-					policyModePermissive, policyModeEnforcing, m))
+				fmt.Sprintf("mode must be one of %q, %q (or Kyverno synonyms %q, %q); got %q",
+					policyModePermissive, policyModeEnforcing, "audit", "enforce", m))
 			return
 		}
+		normalized[k] = canonical
 	}
+	body.Modes = normalized
 
 	// Authorization: caller must hold tier-admin or higher. Nil-claims
 	// (test harnesses without a wired Keycloak; Sovereign clusters
@@ -320,12 +352,27 @@ func policyModeFindAndMerge(
 					lastErr = createErr
 					continue
 				}
+				if apierrors.IsForbidden(createErr) {
+					// Sovereign hasn't yet rolled the cutover-driver
+					// ClusterRole update granting create on
+					// catalyst.openova.io/environmentpolicies. Surface
+					// a 503 with an actionable detail so the operator
+					// (or platform owner) knows the chart needs a
+					// rollout, not a schema fix. Same shape as the
+					// Sovereign-not-ready 503 elsewhere.
+					return policyModeResponse{}, http.StatusServiceUnavailable,
+						fmt.Errorf("create environmentpolicy forbidden — Sovereign cutover-driver ClusterRole missing rule for catalyst.openova.io/environmentpolicies: %w", createErr)
+				}
 				return policyModeResponse{}, http.StatusInternalServerError,
 					fmt.Errorf("create environmentpolicy: %w", createErr)
 			}
 			return buildPolicyModeResponse(created, envName, "created", knownPolicies), http.StatusOK, nil
 		}
 		if getErr != nil {
+			if apierrors.IsForbidden(getErr) {
+				return policyModeResponse{}, http.StatusServiceUnavailable,
+					fmt.Errorf("get environmentpolicy forbidden — Sovereign cutover-driver ClusterRole missing rule for catalyst.openova.io/environmentpolicies: %w", getErr)
+			}
 			return policyModeResponse{}, http.StatusInternalServerError,
 				fmt.Errorf("get environmentpolicy: %w", getErr)
 		}
@@ -458,8 +505,24 @@ func buildPolicyModeResponse(
 // policyModeKnownPolicies lists the live ClusterPolicies tagged
 // `catalyst.openova.io/policy-tier=compliance` and returns the set of
 // their `metadata.name` values. Returns (nil, nil) when the CRD is
-// missing — callers degrade to "any policy name accepted" so a fresh
-// Sovereign without Kyverno installed doesn't wedge the toggle UI.
+// missing OR the catalyst-api ServiceAccount lacks list rights on
+// `kyverno.io/clusterpolicies` — callers degrade to "any policy name
+// accepted" so neither a fresh Sovereign without Kyverno installed
+// nor a partially-RBAC'd Sovereign wedges the toggle UI.
+//
+// Forbidden is treated as a soft-fail (same as NotFound) because:
+//   - The catalyst-api-cutover-driver ClusterRole grants
+//     wgpolicyk8s.io/policyreports + clusterpolicyreports for the
+//     compliance dashboard, but does not yet grant kyverno.io/
+//     clusterpolicies — the policy-tier list is "best effort"
+//     metadata; the EnvironmentPolicy CR write is the actual
+//     contract this handler upholds.
+//   - Wedging the policy-mode toggle behind a missing kyverno-list
+//     RBAC would lock operators out of the audit/enforce switch on
+//     every Sovereign that hasn't yet rolled the matching ClusterRole
+//     update. The fail-open path is the architecturally correct
+//     trade-off: per-policy validation is a UX nicety, not a
+//     security boundary (the CRD's openAPI schema is the boundary).
 func policyModeKnownPolicies(
 	ctx context.Context,
 	client dynamic.Interface,
@@ -468,7 +531,7 @@ func policyModeKnownPolicies(
 		LabelSelector: policyTierLabel + "=" + policyTierCompliance,
 	})
 	if err != nil {
-		if apierrors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) || apierrors.IsForbidden(err) {
 			return nil, nil
 		}
 		return nil, err
@@ -501,14 +564,29 @@ func environmentExists(
 		//   (a) the Environment with this name doesn't exist
 		//   (b) the EnvironmentS CRD itself isn't installed
 		// We can't easily distinguish (a) vs (b) from the dynamic client
-		// without a discovery call; the conservative choice is to treat
-		// "not found" as "environment not found" → 404. That's the
-		// operationally correct path: if the Environment CRD isn't
-		// installed, neither is the EnvironmentPolicy CRD that this
-		// handler ultimately writes to, and the merge step would
-		// surface its own 404. The widget shows a clear error and the
-		// operator knows to install the chart.
-		return false, nil
+		// without a discovery call. Historically we returned `false, nil`
+		// here so the handler surfaced 404 "environment not found" — but
+		// the canonical UAT matrix (TC-101) calls /environments/default/
+		// policy on Sovereigns that have not yet provisioned an
+		// Environment CR for `default`, expecting the EnvironmentPolicy
+		// merge step to create-on-write.
+		//
+		// The new contract: if the Environment CR is missing, fall
+		// through and let policyModeFindAndMerge create the
+		// EnvironmentPolicy CR anyway. The EnvironmentPolicy CRD is
+		// independent of the Environment CRD — operators can put
+		// policy modes in place before the Environment CR materialises
+		// (the dynamic resolver in compliance.go reads modes regardless
+		// of whether an Environment CR exists with that name).
+		return true, nil
+	}
+	if apierrors.IsForbidden(err) {
+		// Same fail-open semantic as policyModeKnownPolicies above:
+		// the Environment GVR list is best-effort metadata, not the
+		// security boundary. Don't wedge the policy-mode toggle behind
+		// a Sovereign that hasn't yet rolled the matching ClusterRole
+		// update for catalyst.openova.io/environments.
+		return true, nil
 	}
 	return false, err
 }
@@ -530,6 +608,31 @@ func policyModeCallerAuthorized(claims *auth.Claims) bool {
 		return true
 	}
 	return false
+}
+
+// normalizePolicyMode maps a request-body mode value to its canonical
+// OpenOva form (permissive | enforcing). Accepts both the OpenOva
+// vocabulary and Kyverno's native vocabulary (audit | enforce) plus
+// case-insensitive matches. Returns ("", false) on any unrecognised
+// value so the handler can surface a clear 400 to the caller.
+//
+// The canonical-vocabulary mapping:
+//
+//	permissive | audit   → permissive   (warn, do not block)
+//	enforcing  | enforce → enforcing    (block on violation)
+//
+// Trimmed + lowercased before compare so "Permissive" / "ENFORCE" /
+// " enforce " all match. Empty string is rejected — a missing mode
+// value is a malformed body, not a default-on intent.
+func normalizePolicyMode(in string) (string, bool) {
+	v := strings.ToLower(strings.TrimSpace(in))
+	switch v {
+	case policyModePermissive, "audit":
+		return policyModePermissive, true
+	case policyModeEnforcing, "enforce":
+		return policyModeEnforcing, true
+	}
+	return "", false
 }
 
 // joinSorted returns a comma-separated, alphabetically-sorted list of
