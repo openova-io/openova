@@ -41,7 +41,8 @@ resources:
   - 34-velero.yaml
   - 35-coraza.yaml
   # qa-loop iter-7 Fix #39 — exec fan-out (Apache Guacamole + per-node
-  # k8s-ws-proxy DaemonSet). See clusters/_template/bootstrap-kit/
-  # kustomization.yaml for the cross-Sovereign canonical comment.
-  - 36-bp-k8s-ws-proxy.yaml
-  - 37-bp-guacamole.yaml
+  # k8s-ws-proxy DaemonSet). Slots 51/52. See
+  # clusters/_template/bootstrap-kit/kustomization.yaml for the
+  # cross-Sovereign canonical comment.
+  - 51-bp-k8s-ws-proxy.yaml
+  - 52-bp-guacamole.yaml

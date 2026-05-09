@@ -1,5 +1,6 @@
-# bp-k8s-ws-proxy — Catalyst bootstrap-kit Blueprint #36 (W2.K4 — exec
-# fan-out). Per-node WebSocket exec proxy that bridges HMAC-signed
+# bp-k8s-ws-proxy — Catalyst bootstrap-kit Blueprint slot 51 (exec
+# fan-out, post-W2.K4). Per-node WebSocket exec proxy that bridges
+# HMAC-signed
 # upstream callers (catalyst-api, Guacamole) onto the local
 # kube-apiserver /api/v1/.../pods/exec stream.
 #

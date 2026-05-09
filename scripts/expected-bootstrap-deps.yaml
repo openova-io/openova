@@ -321,6 +321,33 @@ slots:
     depends_on: []
     wave: present
 
+  # ---- Slots 51 + 52 — exec fan-out (qa-loop iter-7 Fix #39).
+  # bp-k8s-ws-proxy + bp-guacamole are the canonical operator-facing
+  # remote-shell surface (closes the gap surfaced by Fix #36 — TC-228 /
+  # TC-230 / TC-236 / TC-237 / TC-245 / TC-246). Sequenced past the
+  # W2.K4 AI-runtime cohort (slots 36-48) so they never collide.
+  #   - bp-k8s-ws-proxy: per-node DaemonSet bridging HMAC-signed
+  #     callers onto the local kube-apiserver pods/exec stream.
+  #     Depends on bp-cilium (CNI) + bp-sealed-secrets (HMAC secret).
+  #   - bp-guacamole: HTML5 RDP/SSH/exec gateway. Depends on
+  #     bp-cilium (Gateway API) + bp-cert-manager (TLS) + bp-keycloak
+  #     (OIDC) + bp-sealed-secrets (OIDC client secret) + bp-seaweedfs
+  #     (RWX recordings PVC) + bp-k8s-ws-proxy (apiserver tunnel).
+  - slot: 51
+    name: bp-k8s-ws-proxy
+    depends_on: [bp-cilium, bp-sealed-secrets]
+    wave: present
+  - slot: 52
+    name: bp-guacamole
+    depends_on:
+      - bp-cilium
+      - bp-cert-manager
+      - bp-keycloak
+      - bp-sealed-secrets
+      - bp-seaweedfs
+      - bp-k8s-ws-proxy
+    wave: present
+
   # ---- Slot 80 — bp-newapi multi-tenant LLM marketplace gateway. Issue #799.
   # Sequenced past the W2.K4 numbering plan (slots 36-48) so it never
   # collides with the AI-runtime / observability / livekit cohort. The

@@ -1,5 +1,6 @@
-# bp-guacamole — Catalyst bootstrap-kit Blueprint #37 (W2.K4 — exec
-# fan-out). Apache Guacamole HTML5 remote-desktop gateway. Brokers
+# bp-guacamole — Catalyst bootstrap-kit Blueprint slot 52 (exec
+# fan-out, post-W2.K4). Apache Guacamole HTML5 remote-desktop gateway.
+# Brokers
 # SSH / RDP / VNC sessions AND kubectl-exec sessions through one
 # browser-accessible surface. Sessions are authenticated via Keycloak
 # SSO, recorded to SeaweedFS for compliance, and reach Pods via the
