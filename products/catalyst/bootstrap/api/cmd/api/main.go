@@ -828,6 +828,27 @@ func main() {
 		rg.Post("/api/v1/sovereigns/{id}/blueprints/curate", h.HandleBlueprintCurate)
 		rg.Get("/api/v1/sovereigns/{id}/blueprints/curatable", h.HandleBlueprintListCuratable)
 
+		// EPIC-6 (#1101) slice U-DR-1 — Continuum DR UI surface.
+		// GET surfaces the CR for the AppDetail Topology DR section.
+		// POST switchover/failback patches spec — the K-Cont-2
+		// reconciler picks up the change and runs the 7-step Sequencer
+		// + emits the 9 reserved continuum-* audit events on NATS.
+		// /audit/continuum mirrors the rbac audit endpoints (slice
+		// U5-U8 #1098) but filters on the continuum-* type prefix so
+		// future audit-type additions (slice F-1 may add 3 more)
+		// require zero handler-side change. Per ADR-0001 §2.7 the CR
+		// is the source of truth; per INVIOLABLE-PRINCIPLES #5 the
+		// switchover + failback gates enforce owner tier on the
+		// Application server-side, the approve gate enforces
+		// sovereign-admin server-side, the audit endpoints enforce
+		// tier-admin or higher.
+		rg.Get("/api/v1/sovereigns/{id}/continuums/{name}", h.HandleContinuumGet)
+		rg.Post("/api/v1/sovereigns/{id}/continuums/{name}/switchover", h.HandleContinuumSwitchoverRequest)
+		rg.Post("/api/v1/sovereigns/{id}/continuums/{name}/failback", h.HandleContinuumFailbackRequest)
+		rg.Post("/api/v1/sovereigns/{id}/continuums/{name}/failback/approve", h.HandleContinuumFailbackApprove)
+		rg.Get("/api/v1/sovereigns/{id}/audit/continuum", h.HandleContinuumAuditList)
+		rg.Get("/api/v1/sovereigns/{id}/audit/continuum/stream", h.HandleContinuumAuditStream)
+
 		// SME-tier user CRUD + role mapping (issue #802, ADR-0003).
 		// Owned by the unified-rbac slice of catalyst-api. Tenant
 		// scoping is by X-Tenant-Host header (sent by the SPA from

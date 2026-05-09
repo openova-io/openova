@@ -373,6 +373,13 @@ type Handler struct {
 	// fails because audit isn't wired. Wired from main.go at startup
 	// (in-process by default; tests inject a deterministic instance).
 	auditBus *audit.Bus
+
+	// ── Continuum DR clock (EPIC-6 #1101 slice U-DR-1) ─────────────
+	// continuumClock — test seam for the Continuum switchover/failback
+	// handlers. nil ⇒ time.Now. Tests inject a deterministic clock so
+	// the audit-event timestamps + spec.switchover.requestedAt are
+	// reproducible. continuum.go is the only consumer.
+	continuumClock func() time.Time
 }
 
 // powerdnsZoneClient is the narrow interface the parent-zone handler
