@@ -15,10 +15,8 @@ catalystBlueprint:
     chart: ""
     version: ""
     repo: ""
-
 k8sWsProxy:
   enabled: false
-
   # Canonical workload name. Default `k8s-ws-proxy` so the
   # catalyst-api shells/issue handler + qa-loop test matrix
   # (TC-236, TC-237) can address the DaemonSet by canonical short name
@@ -26,52 +24,43 @@ k8sWsProxy:
   # proxy in the same namespace (rare; one per Sovereign per
   # ADR-0001 §11).
   workloadName: k8s-ws-proxy
-
   image:
     repository: ghcr.io/openova-io/openova/k8s-ws-proxy
     # SHA-pinned per INVIOLABLE-PRINCIPLES #4a. CI populates this via
     # build-k8s-ws-proxy.yaml on every push to core/cmd/k8s-ws-proxy/**
     # or platform/k8s-ws-proxy/chart/**.
-    tag: ""
+    tag: "5ca0a7d"
     pullPolicy: IfNotPresent
-
   # The DaemonSet binds to host port 0 (random); the ClusterIP
   # Service in front uses `internalTrafficPolicy: Local` so kube-proxy
   # routes only onto the local node's pod (zero cross-node hops).
   port: 8080
-
   # HMAC shared-secret reference. The chart does NOT generate the
   # secret — operator pre-creates it via SealedSecret or
   # external-secrets. Empty secretName fails the chart render.
   hmacSecret:
     name: k8s-ws-proxy-hmac
     key: secret
-
   # Skew tolerance for HMAC timestamps (in either direction).
   hmacSkewSeconds: 300
-
   # tmux-cascade — wraps every exec in a shared `catalyst-ops`
   # session. Default false; operators flip on for dedicated bastion
   # nodes.
   tmuxCascade: false
-
   # Optional namespace allowlist. Empty = all namespaces (operator
   # MUST pair with NetworkPolicy + RBAC to scope the blast radius).
   allowedNamespaces: []
-
   # Pod runs with the in-cluster ServiceAccount token. The chart
   # creates the SA + ClusterRole + ClusterRoleBinding (templates/rbac.yaml).
   serviceAccount:
     create: true
     name: ""
-
   resources:
     requests:
       cpu: 50m
       memory: 64Mi
     limits:
       memory: 256Mi
-
   podSecurityContext:
     runAsNonRoot: true
     runAsUser: 65534
@@ -83,13 +72,10 @@ k8sWsProxy:
     readOnlyRootFilesystem: true
     capabilities:
       drop: [ALL]
-
   # NodeSelector / tolerations — DaemonSet's classic "land on every
   # eligible node" semantics. Default matches Linux nodes only.
   nodeSelector:
     kubernetes.io/os: linux
   tolerations: []
-
   imagePullSecrets: []
-
   logLevel: info

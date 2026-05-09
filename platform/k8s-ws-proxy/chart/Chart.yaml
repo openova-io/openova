@@ -5,7 +5,7 @@ name: bp-k8s-ws-proxy
 # ClusterRoleBinding all named `k8s-ws-proxy` so the catalyst-api
 # shells/issue handler + qa-loop test matrix (TC-236, TC-237) can
 # address them without release-name knowledge.
-version: 0.1.1
+version: 0.1.2
 appVersion: "0.1.0"
 description: |
   Catalyst-authored Blueprint chart for the k8s-ws-proxy DaemonSet —
@@ -25,7 +25,6 @@ description: |
   failure-mode matrix.
 type: application
 keywords: [catalyst, blueprint, k8s, exec, websocket, daemonset]
-
 annotations:
   # Default values render zero resources (k8sWsProxy.enabled=false).
   # The blueprint-release smoke gate honors this annotation and
@@ -35,7 +34,6 @@ annotations:
 maintainers:
   - name: OpenOva Catalyst
     email: catalyst@openova.io
-
 dependencies:
   - name: common
     version: "0.1.3"
