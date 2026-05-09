@@ -1,0 +1,39 @@
+{{- /*
+catalyst-runtime-config ConfigMap — single source of truth for runtime
+service coordinates the Group C controllers (organization, environment,
+application) source via configMapKeyRef.
+
+Why this exists:
+  All three controller deployments reference `catalyst-runtime-config`
+  with `optional: true` (templates/controllers/*-deployment.yaml). Until
+  this template was added the ConfigMap simply did not exist on any
+  Sovereign — `optional: true` resolved every key to "", and the Go
+  process at core/controllers/organization/cmd/main.go:58 fail-fasted on
+  `mustEnv("CATALYST_KC_ADDR")` with `required env var unset`. Caught
+  live on omantel 2026-05-09 (qa-loop iter-1, cluster
+  `catalyst-runtime-config-missing`).
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) every value here
+is operator-overridable from the per-Sovereign overlay via the
+`runtime.*` block in values.yaml. Defaults match the canonical
+in-cluster Service FQDNs that bp-keycloak / bp-gitea / bp-nats-jetstream
+register on every Sovereign.
+
+Keys (all required by at least one controller):
+  - keycloak-addr      — organization-controller (CATALYST_KC_ADDR)
+  - keycloak-realm     — organization-controller (CATALYST_KC_REALM)
+  - gitea-public-url   — application-controller, environment-controller
+                         (GITEA_PUBLIC_URL)
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: catalyst-runtime-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: helm
+    app.kubernetes.io/component: catalyst-runtime-config
+data:
+  keycloak-addr: {{ .Values.runtime.keycloakAddr | quote }}
+  keycloak-realm: {{ .Values.runtime.keycloakRealm | quote }}
+  gitea-public-url: {{ .Values.runtime.giteaPublicURL | quote }}
