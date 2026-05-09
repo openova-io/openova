@@ -89,6 +89,12 @@ func TestPinIssue_HappyPath(t *testing.T) {
 	if !body.OK {
 		t.Error("ok: got false want true")
 	}
+	// qa-loop iter-6 TC-001 — Sent flag must mirror OK so callers
+	// pinning on the canonical email-dispatch verb resolve the same
+	// way as legacy callers pinning on `ok`.
+	if !body.Sent {
+		t.Error("sent: got false want true (qa-loop iter-6 TC-001 contract)")
+	}
 	if body.RequestID == "" {
 		t.Error("requestId: got empty")
 	}
@@ -403,8 +409,8 @@ func TestPinVerify_ExpiredReturns410(t *testing.T) {
 func TestPinVerify_MalformedPINReturns400(t *testing.T) {
 	h := testPinSetup(t)
 	cases := []string{
-		`{"email":"op@example.com","pin":"abc123","requestId":"r"}`, // letters
-		`{"email":"op@example.com","pin":"12345","requestId":"r"}`,  // too short
+		`{"email":"op@example.com","pin":"abc123","requestId":"r"}`,  // letters
+		`{"email":"op@example.com","pin":"12345","requestId":"r"}`,   // too short
 		`{"email":"op@example.com","pin":"1234567","requestId":"r"}`, // too long
 	}
 	for _, b := range cases {

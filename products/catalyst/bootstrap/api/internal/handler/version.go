@@ -37,6 +37,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"time"
 )
 
 // buildSHA / buildVersion / chartVersion are populated by the build
@@ -53,7 +54,20 @@ var (
 	buildSHA     = "dev"
 	buildVersion = "0.0.0"
 	chartVersion = ""
+	// buildTime — RFC3339 UTC timestamp of when the binary was linked.
+	// CI sets this via -ldflags="-X .../handler.buildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)".
+	// When the ldflag is unset the variable stays empty and the
+	// handler falls back to processStartTime (set at package init)
+	// so /version always returns a non-empty buildTime — the QA
+	// matrix (TC-014) requires the key to be present + parseable.
+	buildTime = ""
 )
+
+// processStartTime — captured once at package init so a /version
+// caller without ldflag-injected buildTime still gets a stable
+// timestamp instead of a per-request `time.Now()` (which would make
+// scrape-based monitoring see the field flap every poll).
+var processStartTime = time.Now().UTC().Format(time.RFC3339)
 
 // VersionResponse — wire shape of GET /api/v1/version.
 //
@@ -72,7 +86,16 @@ type VersionResponse struct {
 
 	// SHA — git commit the image was built from. Truthful resolution:
 	// CATALYST_BUILD_SHA env var > buildSHA ldflag > "dev".
+	// Retained as the legacy key; new callers SHOULD prefer GitSha
+	// (added qa-loop iter-6 to match the QA matrix TC-014 contract).
 	SHA string `json:"sha"`
+
+	// GitSha — alias of SHA stamped under the canonical
+	// camelCase-with-explicit-vcs name. Always equals SHA; emitted as a
+	// separate field rather than a remap so existing dashboards keyed
+	// on "sha" keep working in lockstep with new callers keyed on
+	// "gitSha". Required by qa-loop iter-6 TC-014.
+	GitSha string `json:"gitSha"`
 
 	// Version — semver of the release. Truthful resolution:
 	// CATALYST_BUILD_VERSION env var > buildVersion ldflag > "0.0.0".
@@ -82,6 +105,12 @@ type VersionResponse struct {
 	// or catalyst chart) responsible for this rollout. Set by the
 	// chart's deployment template via env if known.
 	ChartVersion string `json:"chartVersion,omitempty"`
+
+	// BuildTime — RFC3339 UTC timestamp the binary was linked.
+	// Resolution order: CATALYST_BUILD_TIME env > buildTime ldflag >
+	// processStartTime (computed once at package init). Always
+	// present + parseable per qa-loop iter-6 TC-014.
+	BuildTime string `json:"buildTime"`
 
 	// Go — runtime version (debug aid; e.g. "go1.26.0"). Useful when
 	// chasing a regression that correlates with a Go upgrade.
@@ -93,11 +122,18 @@ type VersionResponse struct {
 // Returns the running build's SHA + version. Always 200, always
 // JSON. No auth gate (probe-friendly).
 func (h *Handler) HandleVersion(w http.ResponseWriter, r *http.Request) {
+	sha := envOrTrim("CATALYST_BUILD_SHA", buildSHA)
+	bt := envOrTrim("CATALYST_BUILD_TIME", buildTime)
+	if bt == "" {
+		bt = processStartTime
+	}
 	resp := VersionResponse{
 		Service:      "catalyst-api",
-		SHA:          envOrTrim("CATALYST_BUILD_SHA", buildSHA),
+		SHA:          sha,
+		GitSha:       sha,
 		Version:      envOrTrim("CATALYST_BUILD_VERSION", buildVersion),
 		ChartVersion: envOrTrim("CATALYST_CHART_VERSION", chartVersion),
+		BuildTime:    bt,
 		Go:           runtime.Version(),
 	}
 	writeJSON(w, http.StatusOK, resp)

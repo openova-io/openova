@@ -193,7 +193,16 @@ type pinIssueRequest struct {
 }
 
 type pinIssueResponse struct {
-	OK           bool   `json:"ok"`
+	// OK — legacy success flag retained for any existing UI/SDK that
+	// pins on it. New code SHOULD prefer Sent (matches the QA matrix +
+	// the wider OpenOva email-dispatch verb conventions).
+	OK bool `json:"ok"`
+	// Sent — true when the PIN email was successfully handed off to
+	// the SMTP relay. Mirrors OK at the same instant; added in
+	// qa-loop iter-6 (TC-001) so the response shape exposes the verb
+	// operators / monitoring recognise without removing the historical
+	// `ok` key.
+	Sent         bool   `json:"sent"`
 	RequestID    string `json:"requestId"`
 	ExpiresInSec int    `json:"expiresInSec"`
 }
@@ -318,6 +327,7 @@ func (h *Handler) HandlePinIssue(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, pinIssueResponse{
 		OK:           true,
+		Sent:         true,
 		RequestID:    requestID,
 		ExpiresInSec: int(pinTTL.Seconds()),
 	})
@@ -689,7 +699,7 @@ func (h *Handler) HandleAuthLogout(w http.ResponseWriter, r *http.Request) {
 	// In that case the UI just clears local state and stays on /login.
 	logoutURL := buildKeycloakLogoutURL(r)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":               true,
+		"ok":                true,
 		"keycloakLogoutURL": logoutURL,
 	})
 }

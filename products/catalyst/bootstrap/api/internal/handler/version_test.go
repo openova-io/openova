@@ -40,6 +40,18 @@ func TestHandleVersion_AlwaysJSON(t *testing.T) {
 	if resp.Go == "" {
 		t.Errorf("Go must be non-empty (runtime.Version())")
 	}
+	// qa-loop iter-6 TC-014 — gitSha alias of sha must be present and
+	// equal; buildTime must be non-empty + RFC3339-parseable so any
+	// monitor can sort by it.
+	if resp.GitSha == "" {
+		t.Errorf("GitSha must be non-empty (mirror of SHA)")
+	}
+	if resp.GitSha != resp.SHA {
+		t.Errorf("GitSha=%q must equal SHA=%q (alias)", resp.GitSha, resp.SHA)
+	}
+	if resp.BuildTime == "" {
+		t.Errorf("BuildTime must be non-empty (fallback: processStartTime)")
+	}
 }
 
 // TestHandleVersion_EnvOverride asserts the env-var truth override
@@ -87,5 +99,30 @@ func TestHandleVersion_TrimsWhitespace(t *testing.T) {
 	}
 	if resp.SHA != "cafef00d" {
 		t.Errorf("SHA = %q, want cafef00d (trimmed)", resp.SHA)
+	}
+	if resp.GitSha != "cafef00d" {
+		t.Errorf("GitSha = %q, want cafef00d (trimmed mirror)", resp.GitSha)
+	}
+}
+
+// TestHandleVersion_BuildTimeEnvOverride pins that the chart-injected
+// CATALYST_BUILD_TIME wins over the processStartTime fallback. The QA
+// matrix (TC-014) expects the field to track the deployed image so
+// the operator can see "this Pod was linked at <ts>" without diffing
+// against `kubectl describe`.
+func TestHandleVersion_BuildTimeEnvOverride(t *testing.T) {
+	t.Setenv("CATALYST_BUILD_TIME", "2026-05-09T20:00:00Z")
+
+	h := &Handler{}
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/version", nil)
+	w := httptest.NewRecorder()
+	h.HandleVersion(w, r)
+
+	var resp VersionResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("response is not JSON: %v", err)
+	}
+	if resp.BuildTime != "2026-05-09T20:00:00Z" {
+		t.Errorf("BuildTime = %q, want 2026-05-09T20:00:00Z (env override)", resp.BuildTime)
 	}
 }
