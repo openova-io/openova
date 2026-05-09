@@ -136,7 +136,7 @@ spec:
               # Wait for the CR to exist (Helm orders apply→hooks but be
               # resilient to flux race).
               for _ in $(seq 1 60); do
-                kubectl -n "$NS" get continuum "$CN" >/dev/null 2>&1 && break
+                kubectl -n "$NS" get continuums.dr.openova.io "$CN" >/dev/null 2>&1 && break
                 sleep 2
               done
               # Patch status subresource with the matrix-required fields.
@@ -178,6 +178,6 @@ spec:
                 "observedGeneration":1
               }}
               EOF
-              kubectl -n "$NS" patch continuum "$CN" --type=merge --subresource=status --patch-file=/tmp/status.json
+              kubectl -n "$NS" patch continuums.dr.openova.io "$CN" --type=merge --subresource=status --patch-file=/tmp/status.json
               echo "seeded status for $NS/$CN"
 {{- end }}

@@ -272,7 +272,7 @@ spec:
       # through RBAC. Without this bump the chroot in-cluster fallback
       # bounces every mutation with 403 (TC-215, TC-218, TC-243, TC-247
       # in iter-7 matrix).
-      version: 1.4.102
+      version: 1.4.103
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
