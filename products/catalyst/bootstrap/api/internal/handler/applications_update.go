@@ -149,8 +149,17 @@ func (h *Handler) HandleApplicationUpdate(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	var body applicationUpdateRequest
-	if !decodeMutationBody(w, r, &body) {
+	// Dual-shape decode (qa-loop iter-7 Cluster-C, #1227): accept BOTH
+	// the canonical {"blueprintRef":...,"parameters":...,"placement":...}
+	// shape AND the simplified UI {"values":...,"version":..., string-form
+	// "placement":...} shape. See applications_wire_compat.go.
+	rawBody, readErr := readMutationBody(w, r)
+	if readErr {
+		return
+	}
+	body, decodeErr := decodeApplicationUpdateBody(rawBody)
+	if decodeErr != nil {
+		writeBadRequest(w, "invalid-body", decodeErr.Error())
 		return
 	}
 	body = applicationUpdateRequestNormalize(body)
@@ -522,8 +531,18 @@ func (h *Handler) handleApplicationChangePreview(w http.ResponseWriter, r *http.
 		}
 	}
 
-	var body applicationChangePreviewRequest
-	if !decodeMutationBody(w, r, &body) {
+	// Dual-shape decode (qa-loop iter-7 Cluster-C, #1227): topology
+	// preview accepts simplified `{"placement":"<mode>","regions":[...]}`,
+	// upgrade preview accepts simplified `{"toVersion":"x.y.z"}` —
+	// alongside the canonical {"placement":{...},"blueprintRef":{...}}
+	// shape. See applications_wire_compat.go.
+	rawBody, readErr := readMutationBody(w, r)
+	if readErr {
+		return
+	}
+	body, decodeErr := decodeApplicationChangePreviewBody(rawBody)
+	if decodeErr != nil {
+		writeBadRequest(w, "invalid-body", decodeErr.Error())
 		return
 	}
 	body = applicationChangePreviewRequestNormalize(body)
@@ -604,6 +623,20 @@ func (h *Handler) handleApplicationChangePreview(w http.ResponseWriter, r *http.
 	if perr != nil {
 		writeJSON(w, status, perr)
 		return
+	}
+	// Endpoint-flavoured echo (qa-loop iter-7 Cluster-C, #1227): the
+	// upgrade preview returns the target version under `toVersion` so
+	// the UI modal can show "previewing upgrade to <v>" and the test
+	// matrix has a deterministic field to assert against (TC-078). The
+	// topology preview returns the placement so the matrix asserts
+	// (TC-070, TC-107) hit a deterministic field.
+	if isUpgrade {
+		resp.ToVersion = target.BlueprintRef.Version
+	} else {
+		resp.Placement = &applicationPlacement{
+			Mode:    target.Placement.Mode,
+			Regions: append([]string{}, target.Placement.Regions...),
+		}
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

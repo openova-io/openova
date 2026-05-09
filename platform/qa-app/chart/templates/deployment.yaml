@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "qa-app.fullname" . }}
+  labels: {{- include "qa-app.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas | default 1 }}
+  selector:
+    matchLabels: {{- include "qa-app.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "qa-app.labels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: nginx
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy | default "IfNotPresent" }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.targetPort | default 8080 }}
+              protocol: TCP
+          volumeMounts:
+            - name: html
+              mountPath: /usr/share/nginx/html
+            - name: nginx-conf
+              mountPath: /etc/nginx/conf.d
+            - name: cache
+              mountPath: /var/cache/nginx
+            - name: run
+              mountPath: /var/run
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probe.path | default "/" }}
+              port: {{ .Values.probe.port | default 8080 }}
+            initialDelaySeconds: {{ .Values.probe.initialDelaySeconds | default 2 }}
+            periodSeconds: {{ .Values.probe.periodSeconds | default 5 }}
+            timeoutSeconds: {{ .Values.probe.timeoutSeconds | default 2 }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probe.path | default "/" }}
+              port: {{ .Values.probe.port | default 8080 }}
+            initialDelaySeconds: 1
+            periodSeconds: 3
+            timeoutSeconds: 2
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 101
+            runAsGroup: 101
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: html
+          configMap:
+            name: {{ include "qa-app.fullname" . }}-config
+            items:
+              - key: index.html
+                path: index.html
+        - name: nginx-conf
+          configMap:
+            name: {{ include "qa-app.fullname" . }}-config
+            items:
+              - key: default.conf
+                path: default.conf
+        - name: cache
+          emptyDir: {}
+        - name: run
+          emptyDir: {}

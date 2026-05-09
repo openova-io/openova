@@ -155,6 +155,16 @@ type applicationPreviewResponse struct {
 	Diff      string                         `json:"diff"`
 	Blueprint applicationPreviewBlueprintRef `json:"blueprint"`
 	Warnings  []string                       `json:"warnings"`
+	// ToVersion is echoed back on the upgrade-preview endpoint so the UI
+	// modal can show "previewing upgrade to <version>" without
+	// cross-referencing the request. Empty on install / topology
+	// previews. Added qa-loop iter-7 Cluster-C (#1227).
+	ToVersion string `json:"toVersion,omitempty"`
+	// Placement is echoed back on the topology-preview endpoint so the
+	// UI can show "previewing <mode> across <regions>" without the
+	// caller round-tripping. Empty on install previews. Added qa-loop
+	// iter-7 Cluster-C (#1227).
+	Placement *applicationPlacement `json:"placement,omitempty"`
 }
 
 // HandleApplicationPreview — POST /api/v1/sovereigns/{id}/applications/preview
@@ -175,8 +185,16 @@ func (h *Handler) HandleApplicationPreview(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	var body applicationPreviewRequest
-	if !decodeMutationBody(w, r, &body) {
+	// Dual-shape decode (qa-loop iter-7 Cluster-C, #1227): preview
+	// endpoint accepts simplified UI shape too — see
+	// applications_wire_compat.go.
+	rawBody, readErr := readMutationBody(w, r)
+	if readErr {
+		return
+	}
+	body, decodeErr := decodeApplicationPreviewBody(rawBody)
+	if decodeErr != nil {
+		writeBadRequest(w, "invalid-body", decodeErr.Error())
 		return
 	}
 	body = applicationPreviewRequestNormalize(body)

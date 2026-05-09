@@ -88,6 +88,19 @@ func main() {
 	level := parseLogLevel(env("LOG_LEVEL", "info"))
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 	slog.SetDefault(logger)
+
+	// Log startup args verbatim so operators (and the qa-loop matrix
+	// at TC-181) can confirm the flag set the binary actually parsed
+	// matches the chart's args block. Per
+	// docs/INVIOLABLE-PRINCIPLES.md #2 visible state beats inferred
+	// state — the alternative ("read /proc/<pid>/cmdline") is racy on
+	// pod restart.
+	logger.Info("application-controller startup args parsed",
+		"leader-elect", enableLeaderElection,
+		"leader-elect-namespace", leaderElectNS,
+		"metrics-bind-address", metricsAddr,
+		"health-probe-bind-address", probeAddr)
+
 	if enableLeaderElection {
 		logger.Info("leader-elect requested but unimplemented for application-controller; running as single replica",
 			"leaderElectNS", leaderElectNS)

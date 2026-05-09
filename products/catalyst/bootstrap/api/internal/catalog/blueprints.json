@@ -616,6 +616,20 @@
         "bp-reflector",
         "bp-cert-manager"
       ]
+    },
+    {
+      "id": "bp-qa-app",
+      "slug": "qa-app",
+      "title": "QA Test App",
+      "summary": "Minimal nginx workload for qa-loop matrix end-to-end Application install / topology / upgrade / delete tests.",
+      "icon": "nginx.svg",
+      "category": "testing",
+      "tagline": null,
+      "tags": ["qa", "test", "fixture"],
+      "visibility": "listed",
+      "version": "0.1.0",
+      "section": "pts-qa",
+      "depends": []
     }
   ],
   "bootstrapKit": [

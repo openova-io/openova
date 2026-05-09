@@ -1,0 +1,35 @@
+{{- if .Values.qaFixtures.enabled }}
+{{- /*
+  Environment CR for the qa-omantel test fixtures (qa-loop iter-7
+  Cluster-C, Fix #36 / #1227). Required by the application-controller
+  before the qa-wp Application reconciles. Single-region (fsn1) per
+  the matrix's primary-region default; the topology-preview /
+  upgrade-preview tests exercise mode transitions but the live
+  install starts single-region.
+
+  Name MUST match Application.spec.environmentRef on the qa-wp
+  fixture below. Convention: `<organization>-<envType>` is the
+  catalyst-wide naming pattern, but the matrix asserts the literal
+  namespace `qa-omantel`, so we use the namespace name directly to
+  keep wire-shape symmetry between the fixture and the matrix
+  assertions.
+*/ -}}
+apiVersion: catalyst.openova.io/v1
+kind: Environment
+metadata:
+  name: {{ .Values.qaFixtures.namespace | default "qa-omantel" | quote }}
+  labels:
+    openova.io/sovereign: {{ .Values.qaFixtures.sovereignRef | default "omantel" | quote }}
+    openova.io/organization: {{ .Values.qaFixtures.organization | default "omantel-platform" | quote }}
+    catalyst.openova.io/managed-by: qa-fixtures
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  organizationRef: {{ .Values.qaFixtures.organization | default "omantel-platform" | quote }}
+  envType: dev
+  placement: single-region
+  regions:
+    - provider: hetzner
+      region: {{ .Values.qaFixtures.primaryRegion | default "fsn1" | quote }}
+      buildingBlock: rtz
+{{- end }}

@@ -265,14 +265,21 @@ spec:
       # ClusterRole to grant continuums/cnpgpairs/pdms verbs (TC-344).
       # Bp-crossplane-claims 1.1.2 carries the matching tier-operator
       # extras update.
-      # 1.4.102 (qa-loop iter-7 Fix #34 follow-up #1229): catalyst-api-
-      # cutover-driver ClusterRole now grants update/patch/delete on
-      # workload kinds + scale subresources so the resource-action
-      # endpoints (PUT /k8s/{kind}/.../scale, /restart, etc.) authorise
-      # through RBAC. Without this bump the chroot in-cluster fallback
-      # bounces every mutation with 403 (TC-215, TC-218, TC-243, TC-247
-      # in iter-7 matrix).
-      version: 1.4.103
+      # 1.4.104 (qa-loop iter-7 Cluster-C Fix #36, #1231): target-state
+      # qa-fixtures stack (Org+Env+Blueprint+App) so application-controller
+      # reconciles qa-wp end-to-end into a real nginx Pod. Bp-qa-app
+      # sister chart at platform/qa-app/chart/ ships the real nginx
+      # bytes (CI publishes oci://ghcr.io/openova-io/bp-qa-app:0.1.0).
+      # Stacks on top of:
+      # 1.4.103 (Fix #37 follow-up): qa-continuum-status-seed Job FQN fix
+      # 1.4.102 (Fix #34 follow-up #1229): catalyst-api-cutover-driver
+      # ClusterRole grants update/patch/delete on workload kinds + scale
+      # subresources for the resource-action endpoints (PUT /k8s/.../scale,
+      # /restart, etc.) so chroot in-cluster fallback authorises through
+      # RBAC (TC-215, TC-218, TC-243, TC-247).
+      # 1.4.101 (Fix #37): EPIC-6 + EPIC-1 target-state qa-fixtures closeout
+      # — cnpg-clusters + Kyverno policy bundle.
+      version: 1.4.104
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

@@ -1,0 +1,63 @@
+{{- if .Values.qaFixtures.enabled }}
+{{- /*
+  Application CR for `qa-wp` (qa-loop iter-7 Cluster-C, Fix #36 / #1227).
+  This is the resource the matrix's TC-100..TC-103, TC-109, TC-216, TC-262
+  + every other qa-omantel-namespaced test asserts against.
+
+  Per docs/INVIOLABLE-PRINCIPLES.md #1 (target-state, not MVP) the
+  Application is seeded with full spec — environmentRef, blueprintRef,
+  placement, regions, parameters — so the application-controller
+  reconciles it into a real HelmRelease + nginx Pod within seconds of
+  the chart upgrade landing.
+
+  Per ADR-0001 §2.7 the controller writes manifests to a per-Org Gitea
+  repo and waits for Flux to install. The seeded Application has the
+  same shape an operator-issued POST /applications would create — same
+  controller-reconciliation path as a real install.
+
+  Naming: `qa-wp` (the matrix's literal app name) — kept for matrix
+  symmetry even though the underlying chart is `bp-qa-app` (a generic
+  nginx) rather than literal WordPress. The matrix's TC-103 expects
+  the response body to contain "WordPress"; that's intentionally NOT
+  guaranteed because the production wordpress-tenant chart requires
+  Keycloak realm + cnpg + sme-vcluster wiring outside the qa-fixtures
+  blast radius. Test-Plan Reviewer process gap — see
+  feedback_no_mvp_no_workarounds.md rule 6.
+*/ -}}
+apiVersion: apps.openova.io/v1
+kind: Application
+metadata:
+  name: {{ .Values.qaFixtures.appName | default "qa-wp" | quote }}
+  namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" | quote }}
+  labels:
+    openova.io/organization: {{ .Values.qaFixtures.organization | default "omantel-platform" | quote }}
+    openova.io/environment: {{ .Values.qaFixtures.namespace | default "qa-omantel" | quote }}
+    openova.io/application: {{ .Values.qaFixtures.appName | default "qa-wp" | quote }}
+    openova.io/env-type: dev
+    openova.io/sovereign: {{ .Values.qaFixtures.sovereignRef | default "omantel" | quote }}
+    catalyst.openova.io/managed-by: qa-fixtures
+    catalyst.openova.io/blueprint: bp-qa-app
+    catalyst.openova.io/blueprint-version: "0.1.0"
+    app.kubernetes.io/instance: {{ .Values.qaFixtures.appName | default "qa-wp" | quote }}
+    app.kubernetes.io/name: {{ .Values.qaFixtures.appName | default "qa-wp" | quote }}
+    helm.sh/chart-instance: {{ .Release.Name }}
+spec:
+  environmentRef: {{ .Values.qaFixtures.namespace | default "qa-omantel" | quote }}
+  blueprintRef:
+    name: bp-qa-app
+    version: "0.1.0"
+  placement: single-region
+  regions:
+    - {{ .Values.qaFixtures.primaryRegion | default "fsn1" | quote }}
+  parameters:
+    siteTitle: "QA WP"
+    replicas: 1
+  healthCheck:
+    path: /health
+    port: http
+    intervalSeconds: 30
+    timeoutSeconds: 5
+  owners:
+    - email: {{ .Values.qaFixtures.qaUser.email | default "qa-user1@openova.io" | quote }}
+      role: owner
+{{- end }}

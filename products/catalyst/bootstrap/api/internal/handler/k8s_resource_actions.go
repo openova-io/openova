@@ -492,11 +492,44 @@ func writeResourceMutationError(w http.ResponseWriter, err error, op string) {
 	}
 }
 
+// normalizeKindName lower-cases the URL kind segment AND normalises
+// plural / short-name / Kind-PascalCase variants to a canonical
+// singular lowercase form. Per the k8scache.Registry alias map every
+// caller-supplied form ("deployment", "deployments", "deploy", "Deployment")
+// resolves to the same canonical kind for the {scalable, restartable}
+// gates. Added qa-loop iter-7 Cluster-C (#1227) — TC-218 was
+// posting kind="deployments" (plural) and getting kind-not-restartable
+// because the gate's inner switch matched only the singular form.
+func normalizeKindName(kind string) string {
+	k := strings.ToLower(strings.TrimSpace(kind))
+	switch k {
+	case "deployments", "deploy", "deploys":
+		return "deployment"
+	case "statefulsets", "sts":
+		return "statefulset"
+	case "daemonsets", "ds":
+		return "daemonset"
+	case "replicasets", "rs":
+		return "replicaset"
+	case "configmaps", "cm":
+		return "configmap"
+	case "secrets":
+		return "secret"
+	case "services", "svc":
+		return "service"
+	case "pods", "po":
+		return "pod"
+	case "namespaces", "ns":
+		return "namespace"
+	}
+	return k
+}
+
 // isScalableKind — Deployment + StatefulSet only. ReplicaSet and
 // DaemonSet (the latter doesn't take replicas at all) are excluded by
 // design.
 func isScalableKind(kind string) bool {
-	switch strings.ToLower(kind) {
+	switch normalizeKindName(kind) {
 	case "deployment", "statefulset":
 		return true
 	}
@@ -506,7 +539,7 @@ func isScalableKind(kind string) bool {
 // isRestartableKind — Deployment + StatefulSet + DaemonSet. Other
 // workload kinds use other rollout mechanisms.
 func isRestartableKind(kind string) bool {
-	switch strings.ToLower(kind) {
+	switch normalizeKindName(kind) {
 	case "deployment", "statefulset", "daemonset":
 		return true
 	}

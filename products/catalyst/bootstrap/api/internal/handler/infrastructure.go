@@ -42,6 +42,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -1712,6 +1713,33 @@ func decodeMutationBody(w http.ResponseWriter, r *http.Request, dst any) bool {
 		return false
 	}
 	return true
+}
+
+// readMutationBody reads the request body for callers that need to do
+// dual-shape decoding (e.g. applications install accepting both the
+// canonical struct shape AND the simplified UI/matrix shape per
+// applications_wire_compat.go).
+//
+// Returns (rawBody, true) when a 4xx was already written and the
+// caller MUST early-return; (rawBody, false) on success. The boolean
+// inversion vs decodeMutationBody is intentional — callers
+// pattern-match `if errd { return }`.
+func readMutationBody(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
+	if r.Body == nil {
+		writeBadRequest(w, "empty-body", "request body is required")
+		return nil, true
+	}
+	const maxBody = int64(1 << 16)
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBody))
+	if err != nil {
+		writeBadRequest(w, "body-read-failed", err.Error())
+		return nil, true
+	}
+	if len(body) == 0 {
+		writeBadRequest(w, "empty-body", "request body is required")
+		return nil, true
+	}
+	return body, false
 }
 
 func writeNotFound(w http.ResponseWriter, depID string) {

@@ -1,0 +1,43 @@
+{{- if .Values.qaFixtures.enabled }}
+{{- /*
+  Organization CR for the qa-omantel test fixtures (qa-loop iter-7
+  Cluster-C, Fix #36 / #1227). The application-controller's reconcile
+  loop (core/controllers/application/internal/controller/
+  application_controller.go) requires:
+    Application.spec.environmentRef → Environment CR
+    Environment.spec.organizationRef → Organization CR
+  before it will reconcile the Application into a per-Org Gitea repo +
+  HelmRelease. Without this CR the qa-wp Application sits at
+  status.phase=Pending with reason=OrganizationMissing forever.
+
+  Per docs/INVIOLABLE-PRINCIPLES.md #1 (target-state, not MVP) the
+  fixture seeds the COMPLETE chain — Org + Env + Blueprint + App — so
+  the test matrix asserts on a Sovereign whose architectural state
+  matches what a freshly-installed Application looks like end-to-end.
+
+  `slug` matches metadata.name per the Organization CRD's standard
+  shape; `tier=corporate` is the simplest tier that exercises real
+  RBAC (matrix expects qa-user1 to land tier-developer through the
+  Org's policy). `sovereignRef` identifies the chroot.
+*/ -}}
+apiVersion: orgs.openova.io/v1
+kind: Organization
+metadata:
+  name: {{ .Values.qaFixtures.organization | default "omantel-platform" | quote }}
+  labels:
+    openova.io/sovereign: {{ .Values.qaFixtures.sovereignRef | default "omantel" | quote }}
+    catalyst.openova.io/managed-by: qa-fixtures
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  slug: {{ .Values.qaFixtures.organization | default "omantel-platform" | quote }}
+  displayName: "Omantel Platform (QA)"
+  kind: internal
+  tier: corporate
+  billingMode: chargeback
+  sovereignRef: {{ .Values.qaFixtures.sovereignRef | default "omantel" | quote }}
+  defaultEnvironmentType: dev
+  owners:
+    - email: {{ .Values.qaFixtures.qaUser.email | default "qa-user1@openova.io" | quote }}
+      role: owner
+{{- end }}
