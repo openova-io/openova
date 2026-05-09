@@ -1,0 +1,71 @@
+# wrangler.toml — Cloudflare Worker config for the OpenOva Continuum
+# lease-witness Worker (K-Cont-4 of EPIC-6 #1101).
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), the bindings
+# below carry only the Worker SHAPE — every concrete value (account id,
+# KV namespace id, allowed bearer tokens) is supplied at deploy time
+# by `infra/cloudflare-worker-leases/` (OpenTofu module) or by `vars.*`
+# overrides for local-dev `wrangler dev`.
+#
+# `name = "openova-continuum-lease-witness"` — the Worker route is
+# usually `<name>.<account>.workers.dev`. The tofu module exposes this
+# URL as an output so the Continuum controller can configure the
+# CFKVClient `baseURL` per the K-Cont-3 Lease witness contract entry in
+# .claude/architect-briefs/epic-0/01-canonical-seams.md.
+
+name = "openova-continuum-lease-witness"
+main = "src/index.ts"
+compatibility_date = "2024-09-09"
+
+# `nodejs_compat` is required by `@cloudflare/vitest-pool-workers`
+# (the test runner). It also harmlessly enables a subset of Node
+# built-ins in production. The Worker source itself uses ONLY Web
+# APIs (Request, Response, URL, console) and @cloudflare/workers-types,
+# so the flag is a tooling requirement rather than a runtime dependency.
+compatibility_flags = ["nodejs_compat"]
+
+# ─── KV namespace binding ──────────────────────────────────────────────
+# Per the K-Cont-3 contract, the Worker stores one record per slot.
+# Key shape: `lease:<slot-url-encoded>` (slot = "<namespace>/<name>").
+# Value: JSON of the State object (holder, acquiredAt, expiresAt,
+# generation).
+#
+# `id` is filled in by the operator's tofu apply (the CF API's
+# create_namespace returns the id; we store it in tofu state) — this
+# file ships with `id = "REPLACE_ME"` so a stray `wrangler deploy`
+# without tofu wiring fails fast instead of writing into the wrong
+# namespace.
+[[kv_namespaces]]
+binding = "OPENOVA_LEASES"
+id = "REPLACE_ME_VIA_TOFU"
+
+# ─── Vars (env-bound configuration) ────────────────────────────────────
+# `BEARER_TOKENS_CSV` is a comma-separated allow-list of valid bearer
+# tokens. The Worker validates `Authorization: Bearer <token>` against
+# this list. Per INVIOLABLE-PRINCIPLES #5 the actual values are passed
+# at deploy time from a SealedSecret -> wrangler secret -> Worker env;
+# `vars` here only documents the variable name and its *empty-string*
+# default (so a non-deployed dev session fails closed). Do NOT inline
+# tokens here.
+#
+# `LOG_LEVEL` controls request logging verbosity. `info` logs request
+# method + path + status + slot; `debug` adds X-Holder + If-Match.
+# `error` logs only failures. Per CLAUDE.md credential hygiene the
+# bearer token is NEVER logged.
+[vars]
+BEARER_TOKENS_CSV = ""
+LOG_LEVEL = "info"
+
+# ─── Observability ─────────────────────────────────────────────────────
+# Workers Logs (formerly Logpush) — enable so the operator can grep
+# audit trails for `slot=<x>` requests via the CF dashboard. Per
+# CLAUDE.md never log Authorization header values.
+[observability]
+enabled = true
+
+# ─── Limits ────────────────────────────────────────────────────────────
+# CPU limit (ms) per request. Lease ops are tiny: parse + KV get + KV
+# put + json encode = << 50ms. 100ms gives ample headroom for KV
+# replication anomalies without letting a runaway request burn budget.
+[limits]
+cpu_ms = 100

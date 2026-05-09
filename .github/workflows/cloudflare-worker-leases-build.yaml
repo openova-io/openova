@@ -1,0 +1,102 @@
+name: cloudflare-worker-leases — build + test + lint
+
+# Slice K-Cont-4 of EPIC-6 (#1101). Verifies the OpenOva Continuum
+# lease-witness Worker source at `products/continuum/cloudflare-worker/`
+# and the OpenTofu module at `infra/cloudflare-worker-leases/`.
+#
+# Per CLAUDE.md "every workflow MUST be event-driven, NEVER scheduled":
+# this workflow is push-on-merge + pull-request-on-touch + manual
+# dispatch. NO cron triggers.
+#
+# This workflow does NOT auto-deploy the Worker. Per the K-Cont-4 brief
+# "DO NOT auto-deploy — operator manually runs tofu apply for the lease
+# witness deploy". The `wrangler deploy --dry-run` step verifies the
+# Worker compiles + bundles correctly without writing to Cloudflare.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'products/continuum/cloudflare-worker/**'
+      - 'infra/cloudflare-worker-leases/**'
+      - '.github/workflows/cloudflare-worker-leases-build.yaml'
+  pull_request:
+    paths:
+      - 'products/continuum/cloudflare-worker/**'
+      - 'infra/cloudflare-worker-leases/**'
+      - '.github/workflows/cloudflare-worker-leases-build.yaml'
+  workflow_dispatch:
+
+jobs:
+  worker-test:
+    name: Worker — npm ci + test + lint + build:dryrun
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: products/continuum/cloudflare-worker
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          # Node 20 is the LTS that matches @cloudflare/workers-types
+          # 4.20240909+ tooling. Pin minor to keep CI deterministic.
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: products/continuum/cloudflare-worker/package-lock.json
+
+      - name: npm ci (clean install from lockfile)
+        run: npm ci
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: TypeScript typecheck
+        run: npm run typecheck
+
+      - name: Vitest — handler + contract suites
+        # @cloudflare/vitest-pool-workers spawns a per-test workerd
+        # runtime with in-memory KV. No network, no CF account needed.
+        run: npm test
+
+      - name: Wrangler build dry-run
+        # `wrangler deploy --dry-run --outdir=dist` compiles + bundles
+        # the Worker WITHOUT pushing to Cloudflare. Catches syntax
+        # errors, missing imports, oversized bundles. The `dist/`
+        # output is what `infra/cloudflare-worker-leases/main.tf`
+        # reads as the script content at apply time.
+        run: npm run build:dryrun
+
+  tofu-validate:
+    name: OpenTofu — fmt + validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: infra/cloudflare-worker-leases
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          # Match infra/hetzner/'s pin (see infra/hetzner/.github/workflows/
+          # infra-hetzner-tofu.yaml). Bump in lockstep.
+          tofu_version: 1.8.5
+
+      - name: tofu init (backend=false — module-local checks only)
+        run: tofu init -backend=false
+
+      - name: tofu fmt -check
+        run: tofu fmt -check -recursive
+
+      - name: tofu validate
+        # `validate` requires `init` to have downloaded the cloudflare
+        # provider plugin (above). Validates HCL syntax + provider
+        # schema conformance — won't catch runtime issues like a wrong
+        # account_id but catches every authoring error.
+        run: tofu validate
