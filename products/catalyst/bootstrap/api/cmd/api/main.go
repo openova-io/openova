@@ -736,6 +736,22 @@ func main() {
 		rg.Post("/api/v1/sovereigns/{id}/rbac/assign", h.HandleRBACAssign)
 		rg.Get("/api/v1/sovereigns/{id}/rbac/access-matrix", h.HandleRBACAccessMatrix)
 
+		// EPIC-3 (#1098) slice U2/U3/U4 — Keycloak proxy endpoints
+		// powering the multi-grant editor's user picker (U2),
+		// sovereign-admin group browser (U3), and realm/role browser
+		// (U4). All proxy to the Sovereign realm's KC Admin REST API
+		// via the wired h.kc client. U2 requires tier-admin or higher
+		// (mirrors /rbac/assign); U3 + U4 require sovereign-admin
+		// (admin or owner) per INVIOLABLE-PRINCIPLES #5.
+		rg.Get("/api/v1/sovereigns/{id}/keycloak/users", h.HandleKeycloakUsersSearch)
+		rg.Get("/api/v1/sovereigns/{id}/keycloak/groups", h.HandleKeycloakGroupsList)
+		rg.Post("/api/v1/sovereigns/{id}/keycloak/groups", h.HandleKeycloakGroupsCreate)
+		rg.Put("/api/v1/sovereigns/{id}/keycloak/groups/{groupId}", h.HandleKeycloakGroupsUpdate)
+		rg.Delete("/api/v1/sovereigns/{id}/keycloak/groups/{groupId}", h.HandleKeycloakGroupsDelete)
+		rg.Get("/api/v1/sovereigns/{id}/keycloak/roles", h.HandleKeycloakRolesList)
+		rg.Get("/api/v1/sovereigns/{id}/keycloak/roles/{name}/members", h.HandleKeycloakRoleMembers)
+		rg.Get("/api/v1/sovereigns/{id}/keycloak/clients/{clientId}/roles", h.HandleKeycloakClientRolesList)
+
 		// EPIC-2 (#1097) slice I — live install flow. Operators submit
 		// Application install requests here; the handler validates
 		// parameters against Blueprint.spec.configSchema (via the

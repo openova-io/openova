@@ -336,6 +336,17 @@ type Handler struct {
 	// from CATALYST_CATALOG_URL; tests inject a stub via
 	// SetCatalogClient.
 	catalogClient CatalogClient
+
+	// ── Keycloak admin proxy (EPIC-3 #1098 slice U2/U3/U4) ─────────
+	// kcAdminClient — proxy seam the keycloak_proxy.go handlers
+	// consume to satisfy U2 (user search), U3 (group browser), U4
+	// (role browser). Nil-tolerant: when nil the proxy handlers
+	// resolve via h.keycloakClientFor() (auth_handover.go); when both
+	// are nil the endpoints return 503 ("keycloak-not-configured").
+	// Tests inject a stub directly via SetKCAdminClient — production
+	// leaves this nil and lets the lazy resolver in keycloak_proxy.go
+	// build the client from env on first call.
+	kcAdminClient KeycloakAdminClient
 }
 
 // powerdnsZoneClient is the narrow interface the parent-zone handler
