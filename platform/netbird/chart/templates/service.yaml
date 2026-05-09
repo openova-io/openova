@@ -1,0 +1,69 @@
+{{- if .Values.netbird.enabled -}}
+# NetBird management Service — fronts the gRPC + HTTP API ports for
+# the in-cluster HTTPRoute.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "bp-netbird.fullname" . }}-management
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-netbird.labels" . | nindent 4 }}
+    catalyst.openova.io/component: management
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "bp-netbird.managementSelectorLabels" . | nindent 4 }}
+  ports:
+    - name: grpc
+      port: {{ .Values.netbird.management.grpcPort }}
+      targetPort: grpc
+      protocol: TCP
+    - name: http
+      port: {{ .Values.netbird.management.httpPort }}
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "bp-netbird.fullname" . }}-signal
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-netbird.labels" . | nindent 4 }}
+    catalyst.openova.io/component: signal
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "bp-netbird.signalSelectorLabels" . | nindent 4 }}
+  ports:
+    - name: grpc
+      port: {{ .Values.netbird.signal.port }}
+      targetPort: grpc
+      protocol: TCP
+---
+# coturn must be reachable from the public internet for NAT-traversal
+# fallback. Operator-overlay sets type=LoadBalancer per Sovereign;
+# default ClusterIP keeps the chart safe to install in test envs that
+# don't have a cloud LB.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "bp-netbird.fullname" . }}-coturn
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-netbird.labels" . | nindent 4 }}
+    catalyst.openova.io/component: coturn
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "bp-netbird.coturnSelectorLabels" . | nindent 4 }}
+  ports:
+    - name: turn-udp
+      port: {{ .Values.netbird.coturn.port }}
+      targetPort: turn-udp
+      protocol: UDP
+    - name: turn-tcp
+      port: {{ .Values.netbird.coturn.port }}
+      targetPort: turn-tcp
+      protocol: TCP
+{{- end }}

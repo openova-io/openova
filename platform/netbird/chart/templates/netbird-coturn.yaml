@@ -1,0 +1,84 @@
+{{- if .Values.netbird.enabled -}}
+# coturn TURN/STUN Deployment for NAT traversal fallback. Peers behind
+# symmetric NATs that cannot complete a direct WireGuard handshake fall
+# back through this server. The static-auth secret is shared with the
+# NetBird management Deployment via the SealedSecret declared in
+# sealed-secret-management.yaml.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "bp-netbird.fullname" . }}-coturn
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-netbird.labels" . | nindent 4 }}
+    catalyst.openova.io/component: coturn
+spec:
+  replicas: {{ .Values.netbird.coturn.replicas }}
+  selector:
+    matchLabels:
+      {{- include "bp-netbird.coturnSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "bp-netbird.labels" . | nindent 8 }}
+        catalyst.openova.io/component: coturn
+    spec:
+      securityContext:
+        {{- toYaml .Values.netbird.podSecurityContext | nindent 8 }}
+      {{- with .Values.netbird.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: coturn
+          image: {{ include "bp-netbird.coturnImage" . | quote }}
+          imagePullPolicy: {{ .Values.netbird.coturn.image.pullPolicy }}
+          args:
+            - "-n"  # foreground (don't fork)
+            - "--log-file=stdout"
+            - "--external-ip=$(POD_IP)"
+            - "--listening-port={{ .Values.netbird.coturn.port }}"
+            - "--realm={{ include "bp-netbird.turnRealm" . }}"
+            - "--use-auth-secret"
+            - "--static-auth-secret=$(NB_TURN_SECRET)"
+            # Disable the long-term-credential mechanism — we use the
+            # use-auth-secret REST flow only.
+            - "--no-cli"
+            - "--no-tlsv1"
+            - "--no-tlsv1_1"
+          ports:
+            - name: turn-udp
+              containerPort: {{ .Values.netbird.coturn.port }}
+              protocol: UDP
+            - name: turn-tcp
+              containerPort: {{ .Values.netbird.coturn.port }}
+              protocol: TCP
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: NB_TURN_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.netbird.coturn.authSecretRef.name }}
+                  key: {{ .Values.netbird.coturn.authSecretRef.key }}
+                  optional: false
+          resources:
+            {{- toYaml .Values.netbird.coturn.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          livenessProbe:
+            tcpSocket:
+              port: turn-tcp
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            tcpSocket:
+              port: turn-tcp
+            initialDelaySeconds: 5
+            periodSeconds: 10
+{{- end }}

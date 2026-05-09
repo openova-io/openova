@@ -1,0 +1,55 @@
+apiVersion: v2
+name: bp-netbird
+version: 0.1.0
+appVersion: "0.34.0"
+description: |
+  Catalyst-authored Blueprint chart for NetBird — a WireGuard-based
+  zero-trust mesh + remote-access overlay. NetBird's management +
+  signal services + coturn (TURN/STUN) deploy in the Sovereign cluster
+  and operators / engineers / customer admins enroll devices via
+  Keycloak SSO.
+
+  Per ADR-0001 §3.2.8: NetBird is an opt-in product-tier capability
+  shipped as a Sovereign-installed Blueprint under platform/ (per the
+  EPIC-5 leftovers brief — NetBird is operationally part of the
+  Sovereign-mesh story, not a customer-facing product like Continuum).
+
+  This is a scratch chart — no upstream NetBird Helm chart is bundled.
+  The container images are upstream `netbirdio/management`,
+  `netbirdio/signal`, and `coturn/coturn`, SHA-pinned per
+  docs/INVIOLABLE-PRINCIPLES.md #4a. CI populates the SHA tags via
+  `yq eval -i .image.tag = "<sha>"` when promoting a build into
+  clusters/<sovereign>/.
+
+  Includes:
+    - NetBird management Deployment + Service (peer registration,
+      ACL distribution, account/user CRUD via OIDC)
+    - NetBird signal Deployment + Service (WebRTC signaling for
+      WireGuard handshake brokering between peers)
+    - coturn TURN/STUN Deployment + Service (NAT traversal fallback
+      for peers behind symmetric NATs)
+    - HTTPRoute (Cilium Gateway) for browser ingress + OIDC callback
+    - SealedSecret placeholder for the management API setup-key seed
+      and OIDC client secret
+    - NetworkPolicy: default-deny + selective egress to keycloak
+    - ConfigMap consumed by keycloak-config-cli post-deploy Job
+      (mirrors the Guacamole pattern from slice K+P+X1+G #1164 —
+      adds NetBird OIDC client + `netbird-user` realm role +
+      `netbird-users` group)
+type: application
+keywords: [catalyst, blueprint, netbird, wireguard, mesh, vpn, oidc, remote-access]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Scratch chart — the binary surface is fully owned by NetBird upstream.
+# The `sigstore/common` library subchart below is included ONLY to
+# satisfy the platform-wide blueprint-release.yaml hollow-chart gate
+# (issue #181) — every umbrella MUST declare at least one dependency.
+# `common` is a tiny library chart (helper templates only, zero runtime
+# resources). Mirrors the same pattern used by bp-guacamole +
+# bp-cert-manager-dynadot-webhook + bp-coraza for the same reason.
+dependencies:
+  - name: common
+    version: "0.1.3"
+    repository: "https://sigstore.github.io/helm-charts"

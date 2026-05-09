@@ -1,0 +1,36 @@
+{{- if and .Values.dmz.enabled .Values.dmz.httproute.enabled .Values.dmz.httproute.hostname -}}
+# HTTPRoute fronting the DMZ vCluster's tenant Services via the
+# Sovereign's Cilium Gateway. Tenant Services that the vCluster
+# syncs into the host namespace become routable through this single
+# HTTPRoute (operator extends with per-tenant path matches as needed).
+#
+# The HTTPRoute is rendered ONLY when an operator has set a hostname.
+# Some DMZ vCluster tenants only need internal-mesh access (other
+# Sovereigns talking to them via Cilium ClusterMesh) and don't need a
+# public hostname; for those, leaving httproute.hostname empty omits
+# the HTTPRoute entirely.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "bp-dmz-vcluster.fullname" . }}
+  namespace: {{ include "bp-dmz-vcluster.hostNamespace" . }}
+  labels:
+    {{- include "bp-dmz-vcluster.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ .Values.dmz.httproute.parentRef.name }}
+      namespace: {{ .Values.dmz.httproute.parentRef.namespace }}
+  hostnames:
+    - {{ .Values.dmz.httproute.hostname | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        # The synced tenant apiserver Service. Operators ADD per-tenant
+        # path matches by overlay — extend rules[] with workload-Service
+        # backends as needed.
+        - name: {{ include "bp-dmz-vcluster.fullname" . }}-apiserver
+          port: {{ .Values.dmz.vcluster.apiPort }}
+{{- end }}

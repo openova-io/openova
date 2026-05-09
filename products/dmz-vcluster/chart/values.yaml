@@ -1,0 +1,146 @@
+# Catalyst Blueprint values for bp-dmz-vcluster (slice EPIC-5
+# leftovers DMZ #1100).
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md:
+#   #1   waterfall — chart ships the full target shape (HelmRelease
+#        wrapping upstream vcluster + isolation NetworkPolicy +
+#        Service + HTTPRoute) on the first cut; no "for now" subset.
+#   #4   never hardcode — every operationally-meaningful value is
+#        configurable via per-Sovereign overlay.
+#   #4a  SHA-pinned images; CI fills .image.tag at promotion time.
+#        Empty tag fails fast (see _helpers.tpl).
+#   #5   credentials live in K8s Secrets, never in values.yaml.
+#
+# Default-OFF: `dmz.enabled: false`. Operators opt in via per-Sovereign
+# overlay at clusters/<sovereign>/products/dmz-vcluster/release.yaml
+# once Cilium ClusterMesh + egress gateway are ready.
+
+catalystBlueprint:
+  upstream:
+    chart: vcluster
+    version: "0.20.0"
+    repo: "https://charts.loft.sh"
+
+# ─── Global registry rewrite (matches catalyst chart pattern) ──────────
+# When set, ALL DMZ-vCluster image pulls route through this registry.
+global:
+  imageRegistry: ""
+
+dmz:
+  # Top-level enable gate. When false, NO resources render. Verified by
+  # `helm template` test in tests/.
+  enabled: false
+
+  # ── Tenant identity ──────────────────────────────────────────
+  # The DMZ vCluster's own openova-system namespace name (inside the
+  # HOST cluster — the host-side openova-system namespace owns ALL
+  # vCluster pods). Default `dmz` keeps single-DMZ Sovereigns simple;
+  # multi-DMZ overlays set per-tenant names like `dmz-acme`.
+  hostNamespace: dmz
+
+  # The vCluster's Kubernetes name (becomes
+  # `<vclusterName>.<hostNamespace>.svc.cluster.local` on the host).
+  vclusterName: dmz
+
+  # ── upstream vcluster HelmRelease wrapper ───────────────────
+  # This chart emits a HelmRelease that points the host Flux at the
+  # upstream loft-sh/vcluster chart. Per-Sovereign overlays flip
+  # individual values inside `vcluster.values:` without forking the
+  # upstream chart.
+  vcluster:
+    image:
+      # The vCluster runtime image — SHA-pinned per
+      # INVIOLABLE-PRINCIPLES #4a. CI populates this via
+      # `yq eval -i ...`. Empty value fails the helm template render
+      # (see _helpers.tpl `bp-dmz-vcluster.image`).
+      repository: ghcr.io/loft-sh/vcluster
+      tag: ""
+      pullPolicy: IfNotPresent
+
+    # Resource budget for the vCluster's API server + syncer.
+    resources:
+      requests:
+        cpu: 200m
+        memory: 256Mi
+      limits:
+        cpu: "2"
+        memory: 1Gi
+
+    # Sync configuration — what host-cluster resources sync into the
+    # vCluster. Defaults are the safe minimum (no Nodes, no PVs, no
+    # Ingresses crossing the boundary). Operators expand per-tenant
+    # by overlay.
+    sync:
+      services: { enabled: true }
+      endpoints: { enabled: true }
+      pods: { enabled: true }
+      configmaps: { enabled: true }
+      secrets: { enabled: true }
+      networkpolicies: { enabled: false }   # host enforces; vcluster sees nothing
+      ingresses: { enabled: false }         # use host HTTPRoute via egress GW
+      nodes: { enabled: false }
+      persistentvolumes: { enabled: false }
+
+    # Storage for the vCluster's etcd. Defaults to hcloud-volumes per
+    # H6 — operator overlay sets per-Sovereign storage class.
+    storage:
+      persistence: true
+      size: 5Gi
+      className: hcloud-volumes
+
+    # The vCluster's apiserver listens on this port inside the host
+    # namespace. Operator-overlay sets the in-cluster Service type
+    # for tenant access (default ClusterIP — OPS access only).
+    apiPort: 8443
+
+  # ── HTTPRoute (Cilium Gateway) ─────────────────────────────────
+  # Customer-internet-facing tenant traffic enters via this HTTPRoute.
+  # The vCluster's apiserver is NOT exposed publicly — this is for the
+  # tenant-workload Services that the vCluster syncs out into the host
+  # namespace. Operator picks the per-tenant hostname.
+  httproute:
+    enabled: true
+    parentRef:
+      name: cilium-gateway
+      namespace: gateway-system
+    # Hostname this tenant answers on. Empty value means no HTTPRoute
+    # is rendered (some tenants only need internal-mesh access).
+    hostname: ""
+
+  # ── NetworkPolicy isolation baseline ─────────────────────────
+  # The DMZ vCluster's host namespace runs default-deny: every flow is
+  # denied unless explicitly allowed. The egress-allow rule routes ALL
+  # outbound public-internet traffic through the designated egress
+  # gateway (operator picks per Sovereign).
+  networkPolicy:
+    enabled: true
+    # Egress-gateway target Pod selector — every flow leaving this
+    # vCluster's host namespace toward the public internet MUST land at
+    # this Pod first. The egress gateway then SNATs to a reserved
+    # public IP so audit + threat-intel can attribute outbound flows
+    # to the tenant. Operator overlay sets per Sovereign (canonical:
+    # bp-cilium's egress-gateway in `egress-system` namespace).
+    egressGateway:
+      namespace: egress-system
+      podSelector:
+        app.kubernetes.io/name: egress-gateway
+
+  # ── Pod-level security context ─────────────────────────────────
+  # vCluster runtime runs non-root with read-only root FS. No
+  # privileged caps — host-cluster Sovereigns NEVER grant CAP_NET_ADMIN
+  # / CAP_SYS_ADMIN to DMZ vClusters, period.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 12345
+    runAsGroup: 12345
+    fsGroup: 12345
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
+
+  # ── Image pull secret ─────────────────────────────────────────
+  imagePullSecrets: []
