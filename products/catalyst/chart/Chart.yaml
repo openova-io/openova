@@ -1,5 +1,16 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.97 (qa-loop iter-4 Fix #24): apiextensions.k8s.io/v1
+# customresourcedefinitions GVR added to k8scache.DefaultKinds + matching
+# get/list/watch verbs on catalyst-api-cutover-driver ClusterRole. Fixes
+# TC-199 (CRDs list 404 — generic /k8s/{kind} surface returned "unknown
+# kind" because the CRD GVR was never registered). Pairs with the same-PR
+# UI heading rename "Install Blueprint" → "Install — Blueprint Catalog"
+# (TC-031 missing "Catalog" text). Per feedback_chroot_in_cluster_fallback.md
+# every new GVR added to k8scache.DefaultKinds MUST get a matching rule
+# in this ClusterRole — the chroot SovereignClient uses this SA via
+# in-cluster fallback.
+#
 # 1.4.96 (qa-loop iter-3 Fix #18 follow-up): exclude crds/tests/ from
 # the packaged chart via .helmignore. Helm's `crds/` directory installs
 # every YAML file inside as a CRD at the pre-render install hook,
@@ -189,7 +200,7 @@ name: bp-catalyst-platform
 # precedence so openbao auto-rotation of the source doesn't thrash the
 # controller pod. Caught live on omantel 2026-05-09 during qa-loop
 # iter-1 Executor run.
-version: 1.4.96
+version: 1.4.97
 appVersion: 1.4.94
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
