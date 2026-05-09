@@ -49,6 +49,13 @@ type fakeKCAdminClient struct {
 	// DeleteGroup
 	deleteErr error
 	deletedID string
+	// FindGroupByPath — used by the idempotency path of
+	// HandleKeycloakGroupsCreate when CreateGroup returns
+	// keycloak.ErrGroupAlreadyExists. The handler MUST recover the
+	// existing group representation rather than 502'ing.
+	findByPathGroup    keycloak.Group
+	findByPathErr      error
+	lastFindByPathPath string
 	// ListRealmRoles
 	roles      []keycloak.RealmRole
 	listRolesErr error
@@ -112,6 +119,14 @@ func (f *fakeKCAdminClient) GetGroup(_ context.Context, _ string) (keycloak.Grou
 		return keycloak.Group{}, f.getGroupErr
 	}
 	return f.getGroup, nil
+}
+
+func (f *fakeKCAdminClient) FindGroupByPath(_ context.Context, path string) (keycloak.Group, error) {
+	f.lastFindByPathPath = path
+	if f.findByPathErr != nil {
+		return keycloak.Group{}, f.findByPathErr
+	}
+	return f.findByPathGroup, nil
 }
 
 func (f *fakeKCAdminClient) ListRealmRoles(_ context.Context) ([]keycloak.RealmRole, error) {
@@ -375,6 +390,120 @@ func TestKeycloakGroupsCreate_SubGroup(t *testing.T) {
 	}
 	if stub.lastParentID != "parent-uuid" {
 		t.Errorf("parent id: got %q want parent-uuid", stub.lastParentID)
+	}
+}
+
+// TestKeycloakGroupsCreate_IdempotentTopLevel proves the qa-loop iter-7
+// TC-141 fix: a SECOND POST of the same group name MUST recover the
+// existing group's representation and return 201, NOT bubble Keycloak's
+// 409 up as a 502. This is the canonical idempotency contract for the
+// HTTP API surface (mirrors keycloak.EnsureGroup's controller-side
+// contract).
+//
+// Sequence under test:
+//   1. POST {"name":"qa-test-group"}      → 201, body {id, name, path}
+//   2. POST {"name":"qa-test-group"} again → 201, SAME id in body
+func TestKeycloakGroupsCreate_IdempotentTopLevel(t *testing.T) {
+	h, dep, stub := newKCProxyHandler(t)
+
+	// First create — succeeds normally.
+	stub.createUUID = "first-uuid"
+	stub.getGroup = keycloak.Group{ID: "first-uuid", Name: "qa-test-group", Path: "/qa-test-group"}
+	r := chi.NewRouter()
+	registerKCProxyRoutes(r, h)
+	rec := httptest.NewRecorder()
+	body := `{"name":"qa-test-group"}`
+	r.ServeHTTP(rec, reqWithClaims(http.MethodPost,
+		"/api/v1/sovereigns/"+dep.ID+"/keycloak/groups", body, adminClaims()))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("first POST status: got %d want 201; body=%s", rec.Code, rec.Body.String())
+	}
+	var first kcGroupResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &first); err != nil {
+		t.Fatalf("first POST decode: %v", err)
+	}
+	if first.ID != "first-uuid" {
+		t.Fatalf("first POST id: got %q want first-uuid", first.ID)
+	}
+
+	// Second create — KC returns 409, handler must recover.
+	stub.createErr = keycloak.ErrGroupAlreadyExists
+	stub.findByPathGroup = keycloak.Group{
+		ID: "first-uuid", Name: "qa-test-group", Path: "/qa-test-group",
+		Attributes: map[string][]string{},
+	}
+	rec2 := httptest.NewRecorder()
+	r.ServeHTTP(rec2, reqWithClaims(http.MethodPost,
+		"/api/v1/sovereigns/"+dep.ID+"/keycloak/groups", body, adminClaims()))
+	if rec2.Code != http.StatusCreated {
+		t.Fatalf("second POST status: got %d want 201; body=%s", rec2.Code, rec2.Body.String())
+	}
+	var second kcGroupResult
+	if err := json.Unmarshal(rec2.Body.Bytes(), &second); err != nil {
+		t.Fatalf("second POST decode: %v", err)
+	}
+	if second.ID != "first-uuid" {
+		t.Fatalf("second POST id: got %q want first-uuid (idempotency violated)", second.ID)
+	}
+	if second.Name != "qa-test-group" {
+		t.Errorf("second POST name: got %q want qa-test-group", second.Name)
+	}
+	// Sanity: handler asked for the group by its full path, not by name.
+	if stub.lastFindByPathPath != "/qa-test-group" {
+		t.Errorf("FindGroupByPath called with %q; want /qa-test-group", stub.lastFindByPathPath)
+	}
+}
+
+// TestKeycloakGroupsCreate_IdempotentSubGroup proves the same idempotency
+// contract for the sub-group path (POST with parentId set). Recovery
+// uses GET /groups/{parentId} → walk SubGroups by name, since
+// /group-by-path doesn't accept partial parent traversal.
+func TestKeycloakGroupsCreate_IdempotentSubGroup(t *testing.T) {
+	h, dep, stub := newKCProxyHandler(t)
+	// Simulate KC returning 409 on the create AND the parent's GET
+	// returning the existing child inline.
+	stub.createErr = keycloak.ErrGroupAlreadyExists
+	stub.getGroup = keycloak.Group{
+		ID: "parent-uuid", Name: "platform", Path: "/platform",
+		SubGroups: []keycloak.Group{
+			{ID: "existing-child", Name: "sre", Path: "/platform/sre"},
+		},
+	}
+	r := chi.NewRouter()
+	registerKCProxyRoutes(r, h)
+	rec := httptest.NewRecorder()
+	body := `{"name":"sre","parentId":"parent-uuid"}`
+	r.ServeHTTP(rec, reqWithClaims(http.MethodPost,
+		"/api/v1/sovereigns/"+dep.ID+"/keycloak/groups", body, adminClaims()))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status: got %d want 201; body=%s", rec.Code, rec.Body.String())
+	}
+	var got kcGroupResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.ID != "existing-child" {
+		t.Fatalf("recovered child id: got %q want existing-child", got.ID)
+	}
+}
+
+// TestKeycloakGroupsCreate_409ResolveEmpty exercises the defensive
+// branch where Keycloak returns 409 but the existing group can't be
+// found via FindGroupByPath. The handler MUST surface a 502 (rather
+// than 201 with an empty body) so the operator gets a clear signal
+// that KC state is inconsistent.
+func TestKeycloakGroupsCreate_409ResolveEmpty(t *testing.T) {
+	h, dep, stub := newKCProxyHandler(t)
+	stub.createErr = keycloak.ErrGroupAlreadyExists
+	stub.findByPathGroup = keycloak.Group{} // empty — not found
+	r := chi.NewRouter()
+	registerKCProxyRoutes(r, h)
+	rec := httptest.NewRecorder()
+	body := `{"name":"phantom"}`
+	r.ServeHTTP(rec, reqWithClaims(http.MethodPost,
+		"/api/v1/sovereigns/"+dep.ID+"/keycloak/groups", body, adminClaims()))
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("status: got %d want 502; body=%s", rec.Code, rec.Body.String())
 	}
 }
 

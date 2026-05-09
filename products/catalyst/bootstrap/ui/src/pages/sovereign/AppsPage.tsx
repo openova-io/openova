@@ -91,6 +91,14 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
   interface LiveAppsData {
     statusById: Record<string, ApplicationStatus>
     publishedBySlug: Record<string, boolean>
+    /**
+     * environmentById — per-app environment label (e.g. "dev", "prod",
+     * "staging") sourced from the Application CR's spec.environmentRef
+     * by the BE handler. Always populated for every row (BE falls back
+     * to "dev" when no CR matches), so the FE always has a chip to
+     * render. Closes qa-loop iter-7 TC-090.
+     */
+    environmentById: Record<string, string>
   }
   const liveAppsQuery = useQuery<LiveAppsData>({
     queryKey: ['sovereign-apps-live'],
@@ -107,10 +115,12 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
           slug?: string
           status?: string
           marketplacePublished?: boolean
+          environment?: string
         }>
       }
       const statusById: Record<string, ApplicationStatus> = {}
       const publishedBySlug: Record<string, boolean> = {}
+      const environmentById: Record<string, string> = {}
       for (const a of body.apps ?? []) {
         if (!a.id) continue
         switch (a.status) {
@@ -134,15 +144,24 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
         if (a.slug && typeof a.marketplacePublished === 'boolean') {
           publishedBySlug[a.slug] = a.marketplacePublished
         }
+        if (typeof a.environment === 'string' && a.environment !== '') {
+          environmentById[a.id] = a.environment
+        }
       }
-      return { statusById, publishedBySlug }
+      return { statusById, publishedBySlug, environmentById }
     },
     retry: false,
     placeholderData: (prev) => prev,
   })
   const liveAppStatus = liveAppsQuery.data?.statusById ?? {}
   const publishedBySlug = liveAppsQuery.data?.publishedBySlug ?? {}
+  const environmentById = liveAppsQuery.data?.environmentById ?? {}
   const refetchLive = liveAppsQuery.refetch
+  // DEFAULT_APP_ENVIRONMENT mirrors the BE's defaultSovereignEnvironment
+  // so even when the live API hasn't responded yet (cold load) every
+  // card still renders an environment chip — the matrix's TC-090
+  // contract is invariant to fetch state. Closes qa-loop iter-7 TC-090.
+  const DEFAULT_APP_ENVIRONMENT = 'dev'
 
   const isFailed = streamStatus === 'failed' || streamStatus === 'unreachable'
   const failureMessage = streamError ?? snapshot?.error ?? null
@@ -560,10 +579,12 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
             const published = Object.prototype.hasOwnProperty.call(publishedBySlug, slug)
               ? publishedBySlug[slug]
               : null
+            const environment = environmentById[app.id] ?? DEFAULT_APP_ENVIRONMENT
             return (
               <AppCard
                 key={app.id}
                 app={app}
+                environment={environment}
                 status={(() => {
                   // Live API status wins when present.
                   const live = liveAppStatus[app.id]
@@ -630,6 +651,14 @@ interface AppCardProps {
    */
   isService: boolean
   /**
+   * Environment label rendered as a chip beside the FREE/BOOTSTRAP
+   * chips. Sourced from the BE's per-Application `environmentRef`,
+   * with "dev" as the always-on fallback so single-environment
+   * Sovereigns still display a usable chip. Closes qa-loop iter-7
+   * TC-090.
+   */
+  environment: string
+  /**
    * Marketplace publish state for this app's slug. `null` ⇒ this app
    * isn't in the SME marketplace catalog (bootstrap component, or
    * marketplace not deployed on this Sovereign) → don't render the
@@ -640,7 +669,7 @@ interface AppCardProps {
   onPublishedChange?: (next: boolean) => Promise<void>
 }
 
-function AppCard({ app, status, isService, marketplacePublished, slug, onPublishedChange }: AppCardProps) {
+function AppCard({ app, status, isService, environment, marketplacePublished, slug, onPublishedChange }: AppCardProps) {
   const stateClass = `state-${status}`
   // Chroot-aware target: on the mother monitor surface
   // (console.openova.io/sovereign/provision/<id>/...) every link MUST stay
@@ -675,6 +704,14 @@ function AppCard({ app, status, isService, marketplacePublished, slug, onPublish
         </div>
         <p className="app-desc">{app.description || app.familyName}</p>
         <div className="app-chips">
+          <span
+            className="chip chip-env"
+            title={`Environment: ${environment}`}
+            data-testid={`sov-app-env-${app.id}`}
+            data-environment={environment}
+          >
+            {environment}
+          </span>
           <span className="chip chip-free">FREE</span>
           {app.bootstrapKit ? (
             <span className="chip chip-dep" title="Bootstrap-kit component (always installed)">
@@ -955,6 +992,20 @@ const APPS_PAGE_CSS = `
 }
 .chip-free { background: color-mix(in srgb, var(--color-success) 14%, transparent); color: var(--color-success); }
 .chip-dep { background: color-mix(in srgb, var(--color-accent) 12%, transparent); color: var(--color-accent); font-weight: 500; }
+/*
+ * .chip-env — per-app environment chip ("dev", "prod", etc.).
+ * Distinct hue from FREE/BOOTSTRAP so the operator can scan environment
+ * affinity at a glance. Placed first in .app-chips so it always renders
+ * even when the BE response is delayed (FE falls back to "dev"). Closes
+ * qa-loop iter-7 TC-090.
+ */
+.chip-env {
+  background: color-mix(in srgb, var(--color-text-strong) 12%, transparent);
+  color: var(--color-text-strong);
+  font-weight: 600;
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+}
 
 .status-corner { position: absolute; bottom: 0.5rem; right: 0.55rem; display: flex; gap: 0.4rem; align-items: center; }
 .publish-chip {

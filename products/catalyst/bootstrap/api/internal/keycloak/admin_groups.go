@@ -37,9 +37,23 @@ import (
 // ErrGroupNotFound is returned by GetGroup / DeleteGroup on 404.
 var ErrGroupNotFound = errors.New("keycloak: group not found")
 
-// errGroupAlreadyExists is the internal sentinel for the EnsureGroup
-// 409 race path.
-var errGroupAlreadyExists = errors.New("keycloak: group already exists")
+// ErrGroupAlreadyExists is returned by CreateGroup / CreateSubGroup when
+// Keycloak responds with 409 Conflict (a group with the same name/path
+// already exists in the target scope). Callers performing a one-shot
+// create can detect this and treat it as a no-op (the desired end state
+// — group exists — is already true), then re-fetch via FindGroupByPath
+// to recover the existing UUID. EnsureGroup uses this internally to
+// implement find-or-create semantics; HandleKeycloakGroupsCreate uses
+// it to expose the same idempotency to the HTTP API surface — POSTing
+// the same group name twice MUST return the existing group, never a
+// 502 wrapping the upstream 409 (qa-loop iter-7 TC-141).
+var ErrGroupAlreadyExists = errors.New("keycloak: group already exists")
+
+// errGroupAlreadyExists keeps the lowercase name alive as an alias so
+// pre-existing internal call sites that imported the unexported sentinel
+// (admin_groups.go EnsureGroup, admin_groups_test.go) continue to compile
+// without a sweeping rename. New code SHOULD use ErrGroupAlreadyExists.
+var errGroupAlreadyExists = ErrGroupAlreadyExists
 
 // Group is the slice of fields catalyst-api consumes/sets when
 // reconciling per-Org groups. Mirrors the upstream GroupRepresentation
