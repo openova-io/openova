@@ -20,3 +20,24 @@ if (typeof globalThis.ResizeObserver === 'undefined') {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ;(globalThis as any).ResizeObserver = StubResizeObserver
 }
+
+/**
+ * EPIC-4 X2 (#1099): xterm.js's renderer reads `window.matchMedia` to
+ * watch device-pixel-ratio changes. jsdom doesn't implement
+ * matchMedia; a no-op stub is enough for the LogViewer / ExecPanel
+ * tests which assert against the wrapper widget's data-testids, not
+ * the terminal canvas.
+ */
+if (typeof globalThis.window !== 'undefined' && !globalThis.window.matchMedia) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ;(globalThis.window as any).matchMedia = (_query: string) => ({
+    matches: false,
+    media: _query,
+    onchange: null,
+    addListener: () => undefined,
+    removeListener: () => undefined,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+    dispatchEvent: () => false,
+  })
+}

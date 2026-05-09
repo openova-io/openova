@@ -31,6 +31,8 @@ import { ResourceTree } from '@/widgets/cloud-list/ResourceTree'
 import { YamlEditor } from '@/widgets/cloud-list/YamlEditor'
 import { EventsPanel } from '@/widgets/cloud-list/EventsPanel'
 import { MetricsPanel } from '@/widgets/cloud-list/MetricsPanel'
+import { LogViewer } from '@/widgets/cloud-list/LogViewer'
+import { ExecPanel } from '@/widgets/cloud-list/ExecPanel'
 import type { K8sObject } from '@/widgets/architecture-graph/useK8sCacheStream'
 import {
   RESOURCE_DETAIL_TABS,
@@ -206,8 +208,25 @@ export function ResourceDetailPage(props: ResourceDetailPageProps) {
         <div data-testid={`resource-detail-tab-content-${tab}`}>
           {tab === 'overview' && <OverviewTab obj={obj} replicas={replicas} kind={kind} ns={ns} name={name} deploymentId={deploymentId} isTierAdmin={isTierAdmin} />}
           {tab === 'yaml' && <YamlEditor deploymentId={deploymentId} kind={kind} ns={ns || undefined} name={name} obj={obj} />}
-          {tab === 'logs' && <PlaceholderTab note="Logs viewer ships in slice X2 (xterm.js client). Tab nav is shipped at target-state per INVIOLABLE-PRINCIPLES #1." testId="resource-detail-logs-placeholder" />}
-          {tab === 'exec' && <PlaceholderTab note="Exec console ships in slice E1+E2 (Open Shell + xterm.js fallback)." testId="resource-detail-exec-placeholder" />}
+          {tab === 'logs' && (
+            <LogsTabContent
+              kind={kind}
+              deploymentId={deploymentId}
+              ns={ns}
+              name={name}
+              obj={obj}
+            />
+          )}
+          {tab === 'exec' && (
+            <ExecTabContent
+              kind={kind}
+              deploymentId={deploymentId}
+              ns={ns}
+              name={name}
+              obj={obj}
+              canExec={isTierAdmin}
+            />
+          )}
           {tab === 'events' && (
             <EventsPanel allEvents={allEvents} ns={ns} name={name} kindCanonical={kind} />
           )}
@@ -281,6 +300,63 @@ function PlaceholderTab({ note, testId }: { note: string; testId: string }) {
     <div data-testid={testId} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-2)] p-6 text-sm text-[var(--color-text-dim)]">
       {note}
     </div>
+  )
+}
+
+interface LogsTabProps {
+  kind: string
+  deploymentId: string
+  ns: string
+  name: string
+  obj: K8sObject | null
+}
+
+function LogsTabContent({ kind, deploymentId, ns, name, obj }: LogsTabProps) {
+  // Logs only meaningful for Pods (per kubelet API). For other kinds we
+  // surface a hint pointing the operator at the owned-Pod tree-view.
+  if (kind !== 'pod') {
+    return (
+      <PlaceholderTab
+        testId="resource-detail-logs-not-pod"
+        note={
+          'Logs are streamed per-Pod. Drill into the Tree tab and pick a child Pod to see logs.'
+        }
+      />
+    )
+  }
+  return <LogViewer deploymentId={deploymentId} ns={ns} pod={name} obj={obj} />
+}
+
+interface ExecTabProps {
+  kind: string
+  deploymentId: string
+  ns: string
+  name: string
+  obj: K8sObject | null
+  canExec: boolean
+}
+
+function ExecTabContent({ kind, deploymentId, ns, name, obj, canExec }: ExecTabProps) {
+  if (kind !== 'pod') {
+    return (
+      <PlaceholderTab
+        testId="resource-detail-exec-not-pod"
+        note={
+          'Exec is per-Pod. Drill into the Tree tab and pick a child Pod to open a shell.'
+        }
+      />
+    )
+  }
+  const containers = (obj?.spec as { containers?: { name?: string }[] } | undefined)?.containers ?? []
+  const container = containers[0]?.name ?? 'main'
+  return (
+    <ExecPanel
+      deploymentId={deploymentId}
+      ns={ns}
+      pod={name}
+      container={container}
+      canExec={canExec}
+    />
   )
 }
 

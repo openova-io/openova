@@ -77,34 +77,39 @@ describe('ResourceDetailPage', () => {
     expect(screen.getByTestId('resource-detail-overview')).toBeTruthy()
   })
 
-  it('renders Logs placeholder', () => {
+  // Slice X2 (#1099) replaces the Logs placeholder with a LogViewer.
+  // For non-Pod kinds the page surfaces the "Logs are streamed per-Pod"
+  // hint — easier to assert in jsdom than the xterm.js terminal mount.
+  it('renders Logs hint for non-Pod kinds', () => {
     render(
       <ResourceDetailPage
         deploymentId="dep"
         basePath="/cloud"
-        kind="pod"
+        kind="configmap"
         ns="default"
-        name="wp-1"
+        name="cm-1"
         tab="logs"
         initialObj={samplePod}
       />,
     )
-    expect(screen.getByTestId('resource-detail-logs-placeholder')).toBeTruthy()
+    expect(screen.getByTestId('resource-detail-logs-not-pod')).toBeTruthy()
   })
 
-  it('renders Exec placeholder', () => {
+  // Slice E (#1099) replaces the Exec placeholder with an ExecPanel.
+  // For non-Pod kinds the page surfaces an analogous hint.
+  it('renders Exec hint for non-Pod kinds', () => {
     render(
       <ResourceDetailPage
         deploymentId="dep"
         basePath="/cloud"
-        kind="pod"
+        kind="configmap"
         ns="default"
-        name="wp-1"
+        name="cm-1"
         tab="exec"
         initialObj={samplePod}
       />,
     )
-    expect(screen.getByTestId('resource-detail-exec-placeholder')).toBeTruthy()
+    expect(screen.getByTestId('resource-detail-exec-not-pod')).toBeTruthy()
   })
 
   it('renders YamlEditor on yaml tab', () => {

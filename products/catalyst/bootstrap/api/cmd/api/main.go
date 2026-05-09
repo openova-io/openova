@@ -587,6 +587,14 @@ func main() {
 		// rest of /k8s/* so RequireSession gates the upgrade handshake
 		// the same way it gates the SSE/REST surface.
 		rg.Get("/api/v1/sovereigns/{id}/k8s/logs/{ns}/{pod}/{container}", h.HandleK8sLogs)
+		// EPIC-4 X2+E (#1099) — exec session creation (Guacamole),
+		// exec WebSocket fallback (X1-style), session list + replay.
+		// Tier-developer or higher for create + WS fallback;
+		// tier-admin or higher for list; admin/owner for replay.
+		rg.Post("/api/v1/sovereigns/{id}/k8s/exec/{ns}/{pod}/{container}/session", h.HandleK8sExecSession)
+		rg.Get("/api/v1/sovereigns/{id}/k8s/exec/{ns}/{pod}/{container}", h.HandleK8sExecWebSocket)
+		rg.Get("/api/v1/sovereigns/{id}/sessions", h.HandleK8sSessionsList)
+		rg.Get("/api/v1/sovereigns/{id}/sessions/{sessionId}/replay", h.HandleK8sSessionReplay)
 		// EPIC-4 R1+R2+R3+R5+R6 (#1099) — Resource browser drill-down,
 		// resource tree, YAML edit (apply / dry-run), per-row actions
 		// (scale / restart / delete), metrics. Tier-admin gate is enforced
