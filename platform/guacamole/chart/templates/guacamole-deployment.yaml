@@ -77,6 +77,16 @@ spec:
               mountPath: /usr/local/tomcat/work
             - name: tomcat-temp
               mountPath: /usr/local/tomcat/temp
+            # The Apache Guacamole webapp writes its per-user runtime
+            # state (logback marker file, optional auth state) to
+            # ~/.guacamole on first start. With readOnlyRootFilesystem
+            # the container cannot mkdir under $HOME unless we mount
+            # a writable emptyDir there. Pre-Fix-#39 follow-up the
+            # chart hadn't included this mount; pods crash-looped
+            # with `mkdir: cannot create directory
+            # '/home/guacamole/.guacamole': Read-only file system`.
+            - name: guacamole-home
+              mountPath: /home/guacamole/.guacamole
           resources:
             {{- toYaml .Values.guacamole.webapp.resources | nindent 12 }}
           securityContext:
@@ -105,5 +115,7 @@ spec:
         - name: tomcat-work
           emptyDir: {}
         - name: tomcat-temp
+          emptyDir: {}
+        - name: guacamole-home
           emptyDir: {}
 {{- end }}

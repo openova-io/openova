@@ -10,11 +10,12 @@ name: bp-guacamole
 # ghcr-pull}] so the Deployments can pull from private GHCR without
 # per-Sovereign overlay. The `ghcr-pull` secret is the canonical
 # pull-credential surface across every Sovereign.
-# Note: build-bp-guacamole.yaml will auto-bump this to 0.1.4 on
-# merge. Slot pin at 0.1.4 so omantel reconciles against the chart
-# that carries BOTH the imagePullSecrets default AND the latest
-# upstream-mirror image refs.
-version: 0.1.4
+# 0.1.5 (Fix #39 follow-up): add /home/guacamole/.guacamole emptyDir
+# mount so the webapp's first-start mkdir succeeds with
+# readOnlyRootFilesystem=true. Without it pods crash-looped with
+# `mkdir: cannot create directory '/home/guacamole/.guacamole':
+# Read-only file system`.
+version: 0.1.5
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless
