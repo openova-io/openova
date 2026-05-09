@@ -100,6 +100,17 @@ import { UsersPage as SMEUsersPage } from '@/pages/sme/UsersPage'
 import { RolesPage as SMERolesPage } from '@/pages/sme/RolesPage'
 import { CreateTenantPage as SMECreateTenantPage } from '@/pages/sme/CreateTenantPage'
 import { SovereigntyPreviewPage } from '@/pages/sovereignty/SovereigntyPreviewPage'
+// qa-loop iter-6 Cluster-A `spa-target-state-routes-missing` —
+// stub pages mounted under /app/$deploymentId/* for routes whose
+// full implementations are owned by other slices. See
+// pages/sovereign/stubs/README pattern in each file.
+import { NetworkingPage } from '@/pages/sovereign/stubs/NetworkingPage'
+import { ContinuumPage } from '@/pages/sovereign/stubs/ContinuumPage'
+import { ResourcesApplyPage } from '@/pages/sovereign/stubs/ResourcesApplyPage'
+import { ResourcesSearchPage } from '@/pages/sovereign/stubs/ResourcesSearchPage'
+import { ResourcesListPage } from '@/pages/sovereign/stubs/ResourcesListPage'
+import { ResourceDetailNoTabPage } from '@/pages/sovereign/stubs/ResourceDetailNoTabPage'
+import { PodLogsPage } from '@/pages/sovereign/stubs/PodLogsPage'
 import {
   canonicalisePath,
   hasCatalystSession,
@@ -1273,6 +1284,292 @@ const consoleLegacyCloudRedirectRoutes = LEGACY_CLOUD_REDIRECTS.map((r) =>
   }),
 )
 
+/* ── Target-state /app/$deploymentId/* tree (qa-loop iter-6 Cluster-A) ──
+ *
+ * Per founder rule (`feedback_no_mvp_no_workarounds.md`): the iter-6
+ * test matrix is the contract. Operator URLs must live under
+ * `/app/$deploymentId/<feature>/<sub>` — `applications`, `resources`,
+ * `rbac`, `users`, `blueprints`, `install`, `networking`, `continuum`,
+ * `shells`, `organizations`, `settings`, plus mothership-level
+ * `/app/dashboard`, `/app/install/*`, `/app/sre/compliance`, and
+ * `/app/sec/compliance`.
+ *
+ * These routes are mounted as ALIASES that re-use the canonical page
+ * components from /provision/$deploymentId/* and /admin/* — there is
+ * NO duplicated content. Pages whose feature isn't yet implemented
+ * (Networking, Continuum, Resources Apply / Search / Pod logs) get
+ * minimal stub pages under `pages/sovereign/stubs/` that mount the
+ * canonical chrome + a section-title token; other Fix Authors will
+ * grow them into full surfaces.
+ *
+ * Per docs/INVIOLABLE-PRINCIPLES.md #2 (no compromise) — the routes
+ * use the same provisionAuthGuard the /provision/* tree uses, so the
+ * auth contract is identical across both URL trees.
+ */
+
+// /app/dashboard already mounted under appRoute; nothing extra needed.
+
+// /app/install + /app/install/$blueprintName — mothership marketplace
+// install entry point (no deploymentId in URL — InstallPage falls back
+// to useResolvedDeploymentId via /sovereign/self).
+const appInstallRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/install',
+  component: InstallPage,
+})
+const appInstallBlueprintRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/install/$blueprintName',
+  component: () => {
+    const { blueprintName } = appInstallBlueprintRoute.useParams() as { blueprintName: string }
+    return <InstallPage preselectedBlueprint={blueprintName} />
+  },
+})
+
+// /app/sre/compliance + /app/sec/compliance — mother-side compliance
+// dashboards (sister to /admin/compliance/{sre,security}).
+const appSREComplianceRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/sre/compliance',
+  component: SREDashboardPage,
+})
+const appSecComplianceRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/sec/compliance',
+  component: SecLeadDashboardPage,
+})
+
+// /app/$deploymentId — landing (re-uses AppsPage like /provision/$deploymentId).
+const appDeploymentRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/$deploymentId',
+  component: AppsPage,
+  beforeLoad: provisionAuthGuard,
+})
+
+// /app/$deploymentId/applications — alias of AppsPage.
+const appAppsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/$deploymentId/applications',
+  component: AppsPage,
+  beforeLoad: provisionAuthGuard,
+})
+
+// /app/$deploymentId/applications/$componentId — alias of AppDetail.
+const appAppDetailRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/$deploymentId/applications/$componentId',
+  component: AppDetail,
+  beforeLoad: provisionAuthGuard,
+})
+
+// /app/$deploymentId/applications/$componentId/$tab — AppDetail with
+// the matrix-asserted /compliance sub-path. AppDetail reads the active
+// tab from useParams (already strict:false), so adding the $tab segment
+// just lands on the right tab without a separate component.
+const appAppDetailTabRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/$deploymentId/applications/$componentId/$tab',
+  component: AppDetail,
+  beforeLoad: provisionAuthGuard,
+})
+
+// /app/$deploymentId/install + /app/$deploymentId/install/$blueprintName.
+const appDeploymentInstallRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/$deploymentId/install',
+  component: InstallPage,
+  beforeLoad: provisionAuthGuard,
+})
+const appDeploymentInstallBlueprintRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/$deploymentId/install/$blueprintName',
+  component: () => {
+    const { blueprintName } = appDeploymentInstallBlueprintRoute.useParams() as {
+      blueprintName: string
+    }
+    return <InstallPage preselectedBlueprint={blueprintName} />
+  },
+  beforeLoad: provisionAuthGuard,
+})
+
+// /app/$deploymentId/blueprints/{publish,curate}.
+const appBlueprintsPublishRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/$deploymentId/blueprints/publish',
+  component: BlueprintPublishPage,
+  beforeLoad: provisionAuthGuard,
+})
+const appBlueprintsCurateRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/$deploymentId/blueprints/curate',
+  component: BlueprintCuratePage,
+  beforeLoad: provisionAuthGuard,
+})
+
+// /app/$deploymentId/users/{,new,$name}.
+const appUsersListRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/$deploymentId/users',
+  component: UserAccessListPage,
+  beforeLoad: provisionAuthGuard,
+})
+const appUsersNewRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/$deploymentId/users/new',
+  component: UserAccessEditPage,
+  beforeLoad: provisionAuthGuard,
+})
+const appUsersEditRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/$deploymentId/users/$name',
+  component: UserAccessEditPage,
+  beforeLoad: provisionAuthGuard,
+})
+
+// /app/$deploymentId/rbac/{grant,groups,roles,matrix,audit}.
+const appRBACMultiGrantRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/$deploymentId/rbac/grant',
+  component: MultiGrantEditPage,
+  beforeLoad: provisionAuthGuard,
+})
+const appRBACGroupsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/$deploymentId/rbac/groups',
+  component: GroupBrowserPage,
+  beforeLoad: provisionAuthGuard,
+})
+const appRBACRolesRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/$deploymentId/rbac/roles',
+  component: RoleBrowserPage,
+  beforeLoad: provisionAuthGuard,
+})
+const appRBACMatrixRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/$deploymentId/rbac/matrix',
+  component: AccessMatrixPage,
+  beforeLoad: provisionAuthGuard,
+})
+const appRBACAuditRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/$deploymentId/rbac/audit',
+  component: AuditPage,
+  beforeLoad: provisionAuthGuard,
+})
+
+// /app/$deploymentId/organizations/$orgId/members.
+const appOrgMembersRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/$deploymentId/organizations/$orgId/members',
+  component: OrgMembersPage,
+  beforeLoad: provisionAuthGuard,
+})
+
+// /app/$deploymentId/settings.
+const appSettingsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/$deploymentId/settings',
+  component: SettingsPage,
+  beforeLoad: provisionAuthGuard,
+})
+
+// /app/$deploymentId/shells/sessions{,/$sessionId}.
+const appShellsSessionsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/$deploymentId/shells/sessions',
+  component: SessionsRoute,
+  beforeLoad: provisionAuthGuard,
+})
+const appShellsSessionDetailRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/$deploymentId/shells/sessions/$sessionId',
+  component: SessionsRoute,
+  beforeLoad: provisionAuthGuard,
+})
+
+// /app/$deploymentId/networking/$slug — minimal stub pages.
+const appNetworkingRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/$deploymentId/networking/$slug',
+  component: NetworkingPage,
+  beforeLoad: provisionAuthGuard,
+})
+
+// /app/$deploymentId/continuum{,/$continuumId{,/audit,/settings}}.
+const appContinuumListRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/$deploymentId/continuum',
+  component: () => <ContinuumPage mode="list" />,
+  beforeLoad: provisionAuthGuard,
+})
+const appContinuumOverviewRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/$deploymentId/continuum/$continuumId',
+  component: () => <ContinuumPage mode="overview" />,
+  beforeLoad: provisionAuthGuard,
+})
+const appContinuumAuditRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/$deploymentId/continuum/$continuumId/audit',
+  component: () => <ContinuumPage mode="audit" />,
+  beforeLoad: provisionAuthGuard,
+})
+const appContinuumSettingsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/$deploymentId/continuum/$continuumId/settings',
+  component: () => <ContinuumPage mode="settings" />,
+  beforeLoad: provisionAuthGuard,
+})
+
+// /app/$deploymentId/resources/* — order matters: STATIC sub-paths
+// (/apply, /search) must be registered BEFORE the dynamic $kind so
+// TanStack resolves them first.
+const appResourcesIndexRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/$deploymentId/resources',
+  component: ResourcesListPage,
+  beforeLoad: provisionAuthGuard,
+})
+const appResourcesApplyRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/$deploymentId/resources/apply',
+  component: ResourcesApplyPage,
+  beforeLoad: provisionAuthGuard,
+})
+const appResourcesSearchRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/$deploymentId/resources/search',
+  component: ResourcesSearchPage,
+  beforeLoad: provisionAuthGuard,
+})
+const appResourcesKindRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/$deploymentId/resources/$kind',
+  component: ResourcesListPage,
+  beforeLoad: provisionAuthGuard,
+})
+const appResourcesKindNsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/$deploymentId/resources/$kind/$ns',
+  component: ResourcesListPage,
+  beforeLoad: provisionAuthGuard,
+})
+const appResourceDetailRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/$deploymentId/resources/$kind/$ns/$name',
+  component: ResourceDetailNoTabPage,
+  beforeLoad: provisionAuthGuard,
+})
+// Pod-specific /logs sub-route (no $tab segment in target-state shape).
+const appPodLogsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/$deploymentId/resources/pods/$ns/$name/logs',
+  component: PodLogsPage,
+  beforeLoad: provisionAuthGuard,
+})
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   loginRoute,
@@ -1282,7 +1579,51 @@ const routeTree = rootRoute.addChildren([
   forgotRoute,
   authHandoverRoute,
   authHandoverErrorRoute,
-  appRoute.addChildren([dashboardRoute, crossSovApplicationsRoute]),
+  appRoute.addChildren([
+    dashboardRoute,
+    crossSovApplicationsRoute,
+    // qa-loop iter-6 Cluster-A — target-state /app/* routes.
+    // STATIC paths first so TanStack resolves them before the dynamic
+    // $deploymentId catch-all.
+    appInstallRoute,
+    appInstallBlueprintRoute,
+    appSREComplianceRoute,
+    appSecComplianceRoute,
+    // /app/$deploymentId tree.
+    appDeploymentRoute,
+    appAppsRoute,
+    appAppDetailRoute,
+    appAppDetailTabRoute,
+    appDeploymentInstallRoute,
+    appDeploymentInstallBlueprintRoute,
+    appBlueprintsPublishRoute,
+    appBlueprintsCurateRoute,
+    appUsersListRoute,
+    appUsersNewRoute,
+    appUsersEditRoute,
+    appRBACMultiGrantRoute,
+    appRBACGroupsRoute,
+    appRBACRolesRoute,
+    appRBACMatrixRoute,
+    appRBACAuditRoute,
+    appOrgMembersRoute,
+    appSettingsRoute,
+    appShellsSessionsRoute,
+    appShellsSessionDetailRoute,
+    appNetworkingRoute,
+    appContinuumListRoute,
+    appContinuumOverviewRoute,
+    appContinuumAuditRoute,
+    appContinuumSettingsRoute,
+    // Resources — static sub-paths first.
+    appResourcesApplyRoute,
+    appResourcesSearchRoute,
+    appResourcesIndexRoute,
+    appResourcesKindRoute,
+    appResourcesKindNsRoute,
+    appPodLogsRoute,
+    appResourceDetailRoute,
+  ]),
   wizardLayoutRoute.addChildren([wizardRoute]),
   successRoute,
   deploymentsListRoute,
