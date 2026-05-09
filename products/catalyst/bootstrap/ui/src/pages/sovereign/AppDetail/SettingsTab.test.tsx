@@ -42,7 +42,7 @@ describe('SettingsTab', () => {
         />,
       ),
     )
-    expect(screen.getByTestId('app-settings-tab')).toBeTruthy()
+    expect(screen.getByTestId('app-settings-tabpanel')).toBeTruthy()
     expect(screen.getByTestId('settings-tab-upgrade-btn')).toBeTruthy()
     expect(screen.getByTestId('settings-tab-uninstall-btn')).toBeTruthy()
   })

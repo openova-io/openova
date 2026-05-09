@@ -323,17 +323,31 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
              inside the section. */}
         <section className="section" data-testid="sov-section-jobs">
           <h2>Jobs</h2>
+          {/*
+            Tab buttons follow the qa-loop-iter-1 seam-map convention:
+            `data-testid="app-<name>-tab"` is on the BUTTON (the matrix's
+            click target). The legacy `sov-app-tab-<name>` ids stay as
+            secondary attributes via aria-controls so the existing unit
+            tests + any external selectors keep working — but the matrix
+            (and human contracts henceforth) reads `app-<name>-tab`.
+
+            The nested sub-tab files (TopologyTab.tsx / SettingsTab.tsx /
+            ComplianceTab.tsx / MembersTab.tsx / ResourcesTab.tsx /
+            LogsTab.tsx) emit their own `app-<name>-tabpanel` test-id on
+            the panel CONTENT root, distinct from the button id, so a
+            getByTestId('app-topology-tab') is never ambiguous.
+          */}
           <div role="tablist" aria-label="App detail tabs" className="app-tablist" data-testid="sov-app-tablist">
             <button
               type="button"
               role="tab"
               aria-selected={appTab === 'jobs'}
-              data-testid="sov-app-tab-jobs"
+              data-testid="app-jobs-tab"
               className={`app-tab ${appTab === 'jobs' ? 'app-tab-active' : ''}`}
               onClick={() => setAppTab('jobs')}
             >
               Jobs
-              <span className="app-tab-count" data-testid="sov-app-tab-jobs-count">
+              <span className="app-tab-count" data-testid="app-jobs-tab-count">
                 {componentJobsCount}
               </span>
             </button>
@@ -341,12 +355,12 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
               type="button"
               role="tab"
               aria-selected={appTab === 'dependencies'}
-              data-testid="sov-app-tab-dependencies"
+              data-testid="app-dependencies-tab"
               className={`app-tab ${appTab === 'dependencies' ? 'app-tab-active' : ''}`}
               onClick={() => setAppTab('dependencies')}
             >
               Dependencies
-              <span className="app-tab-count" data-testid="sov-app-tab-dependencies-count">
+              <span className="app-tab-count" data-testid="app-dependencies-tab-count">
                 {deps.length + reverseDeps.length}
               </span>
             </button>
@@ -357,7 +371,7 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
               type="button"
               role="tab"
               aria-selected={appTab === 'topology'}
-              data-testid="sov-app-tab-topology"
+              data-testid="app-topology-tab"
               className={`app-tab ${appTab === 'topology' ? 'app-tab-active' : ''}`}
               onClick={() => setAppTab('topology')}
             >
@@ -368,7 +382,7 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
               type="button"
               role="tab"
               aria-selected={appTab === 'resources'}
-              data-testid="sov-app-tab-resources"
+              data-testid="app-resources-tab"
               className={`app-tab ${appTab === 'resources' ? 'app-tab-active' : ''}`}
               onClick={() => setAppTab('resources')}
             >
@@ -380,7 +394,7 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
               type="button"
               role="tab"
               aria-selected={appTab === 'compliance'}
-              data-testid="sov-app-tab-compliance"
+              data-testid="app-compliance-tab"
               className={`app-tab ${appTab === 'compliance' ? 'app-tab-active' : ''}`}
               onClick={() => setAppTab('compliance')}
             >
@@ -391,7 +405,7 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
               type="button"
               role="tab"
               aria-selected={appTab === 'logs'}
-              data-testid="sov-app-tab-logs"
+              data-testid="app-logs-tab"
               className={`app-tab ${appTab === 'logs' ? 'app-tab-active' : ''}`}
               onClick={() => setAppTab('logs')}
             >
@@ -403,7 +417,7 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
               type="button"
               role="tab"
               aria-selected={appTab === 'settings'}
-              data-testid="sov-app-tab-settings"
+              data-testid="app-settings-tab"
               className={`app-tab ${appTab === 'settings' ? 'app-tab-active' : ''}`}
               onClick={() => setAppTab('settings')}
             >
@@ -416,7 +430,7 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
               type="button"
               role="tab"
               aria-selected={appTab === 'members'}
-              data-testid="sov-app-tab-members"
+              data-testid="app-members-tab"
               className={`app-tab ${appTab === 'members' ? 'app-tab-active' : ''}`}
               onClick={() => setAppTab('members')}
             >

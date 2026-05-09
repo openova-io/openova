@@ -150,7 +150,7 @@ export function TopologyTab({
   }, [initialApp])
 
   return (
-    <div className="topology-tab" data-testid="app-topology-tab">
+    <div className="topology-tab" data-testid="app-topology-tabpanel">
       <p className="mb-3 text-xs text-[var(--color-text-dim)]">
         Edit the placement mode and region set for{' '}
         <code className="font-mono text-[var(--color-text)]">{applicationName}</code>. Apply

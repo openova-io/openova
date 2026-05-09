@@ -36,7 +36,7 @@ export function ResourcesTab({ applicationName }: ResourcesTabProps) {
       : `/provision/${deploymentId}/cloud`
 
   return (
-    <div className="resources-tab space-y-3" data-testid="app-resources-tab">
+    <div className="resources-tab space-y-3" data-testid="app-resources-tabpanel">
       <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] p-4">
         <h3 className="mb-2 text-sm font-medium text-[var(--color-text-strong)]">Live Resources</h3>
         <p className="mb-3 text-xs text-[var(--color-text-dim)]">
