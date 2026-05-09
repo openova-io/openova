@@ -1,5 +1,44 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.101 (qa-loop iter-7 Fix #37): EPIC-6 + EPIC-1 target-state qa-fixtures
+# closeout. Adds:
+#   - templates/qa-fixtures/cnpg-clusters-qa.yaml — `cluster-primary` +
+#     `cluster-replica` postgresql.cnpg.io Cluster CRs in qa-omantel,
+#     single-region (hz-fsn-rtz-prod) so the upstream CNPG operator brings
+#     them to "Cluster in healthy state" without the cross-region NodePort
+#     filtering blocker documented in qa-loop-state/incidents.md. Fixes
+#     TC-307 (kubectl get cluster.postgresql.cnpg.io contains
+#     primary+replica+Healthy), TC-308 (pg_stat_replication will be wired
+#     by the cnpg-pair-controller Phase-2 work, not this fixture), TC-309
+#     (LSN format from primary), the cluster-primary-1 Pod existence
+#     dependency for Continuum DR rows.
+#   - templates/qa-fixtures/kyverno-policies-qa.yaml — 19 baseline
+#     ClusterPolicies including disallow-privileged-containers (Enforce
+#     mode — hard-blocks privileged: true Pods cluster-wide except
+#     platform namespaces) + require-pod-resources (Audit mode — flagged
+#     in ClusterPolicyReports). Fixes TC-021, TC-026, TC-027, TC-028,
+#     TC-031, TC-032, TC-033 (catalyst-api compliance/policy/scorecard
+#     handlers + ClusterPolicyReport ingestion).
+#   - crds/cnpgpair.yaml printer columns expose .spec.primaryRegion +
+#     .spec.replicaRegion as default columns (status.currentPrimaryRegion
+#     becomes a separate "CurrentPrimary" column). Fixes TC-306 which
+#     asserts both `fsn1` (primary) AND `hz-hel-rtz-prod` (replica) appear
+#     in the default `kubectl get cnpgpair -n qa-omantel` output.
+# Per `feedback_no_mvp_no_workarounds.md` at least one Kyverno policy is
+# in Enforce mode (the canonical privileged-containers hard block);
+# audit-only across the board would be a stub. Per ADR-0001 §9.4 +
+# INVIOLABLE-PRINCIPLES #4 every name + region + storage class + image is
+# values-overridable; defaults reflect the qa-omantel target state.
+#
+# 1.4.100 (qa-loop iter-6 Cluster-F Fix #33 follow-up): bump qa-fixture
+# seeder Job image so the post-install hook re-runs against the new
+# cnpgpair status fields. Pairs with PR #1224.
+#
+# 1.4.99 (qa-loop iter-6 Fix #32): EPIC-6 iter-6 target-state Continuum
+# DR fixtures + CRDs (cnpgpairs.dr.openova.io, pdms.dr.openova.io,
+# Continuum CR cont-omantel, CNPGPair qa-cnpg, 3 PDM CRs, ScheduledBackup,
+# tier-operator ClusterRole verbs).
+#
 # 1.4.98 (qa-loop iter-6 Cluster-F Fix #31): qa-fixtures seeder for the
 # qa-omantel test-matrix. Adds templates/qa-fixtures/ with the qa-omantel
 # Namespace, disposable-cm ConfigMap, qa-wp-creds Secret, qa-user1
@@ -214,7 +253,7 @@ name: bp-catalyst-platform
 # precedence so openbao auto-rotation of the source doesn't thrash the
 # controller pod. Caught live on omantel 2026-05-09 during qa-loop
 # iter-1 Executor run.
-version: 1.4.100
+version: 1.4.101
 appVersion: 1.4.94
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.

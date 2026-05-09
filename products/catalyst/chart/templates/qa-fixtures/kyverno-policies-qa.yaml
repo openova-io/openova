@@ -1,0 +1,700 @@
+{{- if .Values.qaFixtures.enabled }}
+{{- /*
+  Kyverno baseline ClusterPolicies for the qa-omantel matrix
+  (TC-021, TC-026, TC-027, TC-028, TC-031, TC-032, TC-033 + the
+  catalyst-api compliance/policy/scorecard handlers).
+
+  These policies implement the Kubernetes Pod Security Standards
+  "baseline" + "restricted" profiles via Kyverno ClusterPolicies. The
+  matrix asserts:
+
+    - >=19 ClusterPolicies present (TC-031)
+    - disallow-privileged-containers + require-pod-resources by name
+      (TC-021, TC-026, TC-031, TC-032)
+    - At least one Enforce-mode policy that blocks a forbidden Pod via
+      AdmissionWebhook denial (TC-032 — `disallow-privileged-containers`
+      is enforce-mode here)
+    - Kyverno reports-controller writes ClusterPolicyReports (TC-033)
+
+  Per `feedback_no_mvp_no_workarounds.md`: "audit-only never blocks
+  anything" violates target-state — at least one policy MUST be in
+  Enforce mode. `disallow-privileged-containers` is the canonical
+  hard-block (privileged: true is the most dangerous pod-spec field
+  and there is no legitimate use in qa-omantel).
+
+  Per ADR-0001 §9.4 and INVIOLABLE-PRINCIPLES #4 the policy set is
+  values-overridable so production overlays can tighten/loosen modes
+  per environment. Defaults reflect the baseline-restricted target
+  state.
+
+  Enforce-mode policy carries an explicit `validationFailureAction:
+  Enforce` AND a `policies.kyverno.io/scope` exception list excluding
+  kube-system + cnpg-system + flux-system + catalyst-system to avoid
+  blocking the platform's own privileged pods (cilium-agent, csi
+  drivers, postgres, etc.).
+*/ -}}
+{{- $excludedNamespaces := list "kube-system" "cnpg-system" "flux-system" "catalyst-system" "kyverno" "cilium" "openbao" "keycloak" "gitea" "powerdns" "sme" }}
+{{- $enforceMode := .Values.qaFixtures.kyvernoEnforceMode | default "Enforce" }}
+{{- $auditMode := "Audit" }}
+---
+# 1/19 — disallow-privileged-containers (Enforce, target-state hard block)
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-privileged-containers
+  labels:
+    openova.io/managed-by: qa-fixtures
+    pod-security.kubernetes.io/profile: baseline
+    pod-security.kubernetes.io/category: privileged-containers
+  annotations:
+    policies.kyverno.io/title: Disallow Privileged Containers
+    policies.kyverno.io/category: Pod Security Standards (Baseline)
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: |
+      Privileged containers run with all root capabilities and bypass
+      most security mechanisms. Enforced cluster-wide except for
+      platform namespaces that legitimately require privilege.
+spec:
+  validationFailureAction: {{ $enforceMode }}
+  background: true
+  rules:
+    - name: disallow-privileged
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+      exclude:
+        any:
+{{- range $ns := $excludedNamespaces }}
+          - resources:
+              namespaces: [{{ $ns | quote }}]
+{{- end }}
+      validate:
+        message: "Privileged containers are not allowed (use specific capabilities instead)."
+        pattern:
+          spec:
+            =(initContainers):
+              - =(securityContext):
+                  =(privileged): "false"
+            containers:
+              - =(securityContext):
+                  =(privileged): "false"
+---
+# 2/19 — require-pod-resources (Audit on this Sovereign; Enforce in production)
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-pod-resources
+  labels:
+    openova.io/managed-by: qa-fixtures
+    pod-security.kubernetes.io/profile: baseline
+    pod-security.kubernetes.io/category: resources
+  annotations:
+    policies.kyverno.io/title: Require Pod Resources
+    policies.kyverno.io/category: Best Practices
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: |
+      Every container MUST declare CPU + memory requests so the
+      scheduler can place workloads correctly and the autoscaler can
+      reason about utilization.
+spec:
+  validationFailureAction: {{ $auditMode }}
+  background: true
+  rules:
+    - name: validate-resources
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+      exclude:
+        any:
+{{- range $ns := $excludedNamespaces }}
+          - resources:
+              namespaces: [{{ $ns | quote }}]
+{{- end }}
+      validate:
+        message: "Containers must declare resources.requests.cpu and resources.requests.memory."
+        pattern:
+          spec:
+            containers:
+              - resources:
+                  requests:
+                    memory: "?*"
+                    cpu: "?*"
+---
+# 3/19 — disallow-host-namespaces
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-host-namespaces
+  labels:
+    openova.io/managed-by: qa-fixtures
+    pod-security.kubernetes.io/profile: baseline
+spec:
+  validationFailureAction: {{ $auditMode }}
+  background: true
+  rules:
+    - name: host-namespaces
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+      exclude:
+        any:
+{{- range $ns := $excludedNamespaces }}
+          - resources:
+              namespaces: [{{ $ns | quote }}]
+{{- end }}
+      validate:
+        message: "Pods cannot share the host PID, IPC, or Network namespace."
+        pattern:
+          spec:
+            =(hostPID): "false"
+            =(hostIPC): "false"
+            =(hostNetwork): "false"
+---
+# 4/19 — disallow-host-path
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-host-path
+  labels:
+    openova.io/managed-by: qa-fixtures
+    pod-security.kubernetes.io/profile: baseline
+spec:
+  validationFailureAction: {{ $auditMode }}
+  background: true
+  rules:
+    - name: host-path
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+      exclude:
+        any:
+{{- range $ns := $excludedNamespaces }}
+          - resources:
+              namespaces: [{{ $ns | quote }}]
+{{- end }}
+      validate:
+        message: "HostPath volumes leak the node's filesystem to the workload."
+        pattern:
+          spec:
+            =(volumes):
+              - X(hostPath): "null"
+---
+# 5/19 — disallow-host-ports
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-host-ports
+  labels:
+    openova.io/managed-by: qa-fixtures
+    pod-security.kubernetes.io/profile: baseline
+spec:
+  validationFailureAction: {{ $auditMode }}
+  background: true
+  rules:
+    - name: host-ports
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+      exclude:
+        any:
+{{- range $ns := $excludedNamespaces }}
+          - resources:
+              namespaces: [{{ $ns | quote }}]
+{{- end }}
+      validate:
+        message: "HostPort bindings interfere with multi-tenant scheduling."
+        pattern:
+          spec:
+            containers:
+              - =(ports):
+                  - X(hostPort): 0
+---
+# 6/19 — disallow-host-process
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-host-process
+  labels:
+    openova.io/managed-by: qa-fixtures
+    pod-security.kubernetes.io/profile: baseline
+spec:
+  validationFailureAction: {{ $auditMode }}
+  background: true
+  rules:
+    - name: host-process
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+      exclude:
+        any:
+{{- range $ns := $excludedNamespaces }}
+          - resources:
+              namespaces: [{{ $ns | quote }}]
+{{- end }}
+      validate:
+        message: "HostProcess containers run on the host node, bypassing isolation."
+        pattern:
+          spec:
+            =(securityContext):
+              =(windowsOptions):
+                =(hostProcess): "false"
+            containers:
+              - =(securityContext):
+                  =(windowsOptions):
+                    =(hostProcess): "false"
+---
+# 7/19 — disallow-capabilities
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-capabilities
+  labels:
+    openova.io/managed-by: qa-fixtures
+    pod-security.kubernetes.io/profile: baseline
+spec:
+  validationFailureAction: {{ $auditMode }}
+  background: true
+  rules:
+    - name: capabilities
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+      exclude:
+        any:
+{{- range $ns := $excludedNamespaces }}
+          - resources:
+              namespaces: [{{ $ns | quote }}]
+{{- end }}
+      validate:
+        message: "Adding Linux capabilities beyond the baseline set is forbidden."
+        foreach:
+          - list: request.object.spec.containers
+            deny:
+              conditions:
+                all:
+                  - key: "{{`{{ element.securityContext.capabilities.add[] || [] }}`}}"
+                    operator: AnyNotIn
+                    value:
+                      - AUDIT_WRITE
+                      - CHOWN
+                      - DAC_OVERRIDE
+                      - FOWNER
+                      - FSETID
+                      - KILL
+                      - MKNOD
+                      - NET_BIND_SERVICE
+                      - SETFCAP
+                      - SETGID
+                      - SETPCAP
+                      - SETUID
+                      - SYS_CHROOT
+---
+# 8/19 — require-non-root-groups
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-non-root-groups
+  labels:
+    openova.io/managed-by: qa-fixtures
+    pod-security.kubernetes.io/profile: restricted
+spec:
+  validationFailureAction: {{ $auditMode }}
+  background: true
+  rules:
+    - name: non-root-groups
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+      exclude:
+        any:
+{{- range $ns := $excludedNamespaces }}
+          - resources:
+              namespaces: [{{ $ns | quote }}]
+{{- end }}
+      validate:
+        message: "Pods must run as non-root group (runAsGroup, fsGroup, supplementalGroups must be > 0)."
+        anyPattern:
+          - spec:
+              securityContext:
+                runAsGroup: ">0"
+          - spec:
+              containers:
+                - securityContext:
+                    runAsGroup: ">0"
+---
+# 9/19 — restrict-seccomp-strict
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: restrict-seccomp-strict
+  labels:
+    openova.io/managed-by: qa-fixtures
+    pod-security.kubernetes.io/profile: restricted
+spec:
+  validationFailureAction: {{ $auditMode }}
+  background: true
+  rules:
+    - name: seccomp
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+      exclude:
+        any:
+{{- range $ns := $excludedNamespaces }}
+          - resources:
+              namespaces: [{{ $ns | quote }}]
+{{- end }}
+      validate:
+        message: "seccompProfile.type must be RuntimeDefault or Localhost."
+        anyPattern:
+          - spec:
+              securityContext:
+                seccompProfile:
+                  type: RuntimeDefault | Localhost
+          - spec:
+              containers:
+                - securityContext:
+                    seccompProfile:
+                      type: RuntimeDefault | Localhost
+---
+# 10/19 — restrict-sysctls
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: restrict-sysctls
+  labels:
+    openova.io/managed-by: qa-fixtures
+    pod-security.kubernetes.io/profile: baseline
+spec:
+  validationFailureAction: {{ $auditMode }}
+  background: true
+  rules:
+    - name: sysctls
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+      exclude:
+        any:
+{{- range $ns := $excludedNamespaces }}
+          - resources:
+              namespaces: [{{ $ns | quote }}]
+{{- end }}
+      validate:
+        message: "Setting unsafe sysctls is forbidden."
+        deny:
+          conditions:
+            any:
+              - key: "{{`{{ request.object.spec.securityContext.sysctls[].name || [] }}`}}"
+                operator: AnyIn
+                value:
+                  - kernel.shm_rmid_forced
+                  - net.ipv4.ip_local_port_range
+                  - net.ipv4.tcp_syncookies
+                  - net.ipv4.ping_group_range
+                  - net.ipv4.ip_unprivileged_port_start
+                  - net.ipv4.ip_local_reserved_ports
+---
+# 11/19 — disallow-proc-mount
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-proc-mount
+  labels:
+    openova.io/managed-by: qa-fixtures
+    pod-security.kubernetes.io/profile: baseline
+spec:
+  validationFailureAction: {{ $auditMode }}
+  background: true
+  rules:
+    - name: proc-mount
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+      exclude:
+        any:
+{{- range $ns := $excludedNamespaces }}
+          - resources:
+              namespaces: [{{ $ns | quote }}]
+{{- end }}
+      validate:
+        message: "Custom procMount is forbidden; only Default is allowed."
+        pattern:
+          spec:
+            containers:
+              - =(securityContext):
+                  =(procMount): "Default"
+---
+# 12/19 — disallow-selinux
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-selinux
+  labels:
+    openova.io/managed-by: qa-fixtures
+    pod-security.kubernetes.io/profile: baseline
+spec:
+  validationFailureAction: {{ $auditMode }}
+  background: true
+  rules:
+    - name: selinux
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+      exclude:
+        any:
+{{- range $ns := $excludedNamespaces }}
+          - resources:
+              namespaces: [{{ $ns | quote }}]
+{{- end }}
+      validate:
+        message: "Setting custom SELinux options is forbidden."
+        pattern:
+          spec:
+            =(securityContext):
+              =(seLinuxOptions):
+                =(type): "container_t | container_init_t | container_kvm_t"
+            containers:
+              - =(securityContext):
+                  =(seLinuxOptions):
+                    =(type): "container_t | container_init_t | container_kvm_t"
+---
+# 13/19 — restrict-volume-types
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: restrict-volume-types
+  labels:
+    openova.io/managed-by: qa-fixtures
+    pod-security.kubernetes.io/profile: restricted
+spec:
+  validationFailureAction: {{ $auditMode }}
+  background: true
+  rules:
+    - name: volume-types
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+      exclude:
+        any:
+{{- range $ns := $excludedNamespaces }}
+          - resources:
+              namespaces: [{{ $ns | quote }}]
+{{- end }}
+      validate:
+        message: "Pods may only use baseline-allowed volume types (configMap, csi, downwardAPI, emptyDir, ephemeral, persistentVolumeClaim, projected, secret)."
+        deny:
+          conditions:
+            all:
+              - key: "{{`{{ request.object.spec.volumes[].keys(@)[] || [] }}`}}"
+                operator: AnyNotIn
+                value:
+                  - name
+                  - configMap
+                  - csi
+                  - downwardAPI
+                  - emptyDir
+                  - ephemeral
+                  - persistentVolumeClaim
+                  - projected
+                  - secret
+---
+# 14/19 — require-run-as-non-root
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-run-as-non-root
+  labels:
+    openova.io/managed-by: qa-fixtures
+    pod-security.kubernetes.io/profile: restricted
+spec:
+  validationFailureAction: {{ $auditMode }}
+  background: true
+  rules:
+    - name: run-as-non-root
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+      exclude:
+        any:
+{{- range $ns := $excludedNamespaces }}
+          - resources:
+              namespaces: [{{ $ns | quote }}]
+{{- end }}
+      validate:
+        message: "Containers must set runAsNonRoot=true at pod or container level."
+        anyPattern:
+          - spec:
+              securityContext:
+                runAsNonRoot: true
+          - spec:
+              containers:
+                - securityContext:
+                    runAsNonRoot: true
+---
+# 15/19 — restrict-image-registries
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: restrict-image-registries
+  labels:
+    openova.io/managed-by: qa-fixtures
+    pod-security.kubernetes.io/profile: supply-chain
+spec:
+  validationFailureAction: {{ $auditMode }}
+  background: true
+  rules:
+    - name: image-registries
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+      exclude:
+        any:
+{{- range $ns := $excludedNamespaces }}
+          - resources:
+              namespaces: [{{ $ns | quote }}]
+{{- end }}
+      validate:
+        message: "Container images must come from approved registries (ghcr.io/openova-io, registry.k8s.io, docker.io/cloudnative-pg, ghcr.io/cloudnative-pg, docker.io/bitnamilegacy)."
+        pattern:
+          spec:
+            containers:
+              - image: "ghcr.io/openova-io/* | registry.k8s.io/* | docker.io/cloudnative-pg/* | ghcr.io/cloudnative-pg/* | docker.io/bitnamilegacy/*"
+---
+# 16/19 — disallow-latest-tag
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-latest-tag
+  labels:
+    openova.io/managed-by: qa-fixtures
+    pod-security.kubernetes.io/profile: supply-chain
+spec:
+  validationFailureAction: {{ $auditMode }}
+  background: true
+  rules:
+    - name: latest-tag
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+      exclude:
+        any:
+{{- range $ns := $excludedNamespaces }}
+          - resources:
+              namespaces: [{{ $ns | quote }}]
+{{- end }}
+      validate:
+        message: "Image tag :latest is forbidden — pin to a SHA digest or explicit version."
+        pattern:
+          spec:
+            containers:
+              - image: "!*:latest"
+---
+# 17/19 — require-pod-probes
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-pod-probes
+  labels:
+    openova.io/managed-by: qa-fixtures
+    pod-security.kubernetes.io/profile: best-practices
+spec:
+  validationFailureAction: {{ $auditMode }}
+  background: true
+  rules:
+    - name: pod-probes
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+      exclude:
+        any:
+{{- range $ns := $excludedNamespaces }}
+          - resources:
+              namespaces: [{{ $ns | quote }}]
+{{- end }}
+      validate:
+        message: "Containers must define readiness and liveness probes."
+        pattern:
+          spec:
+            containers:
+              - livenessProbe:
+                  "?*": "?*"
+                readinessProbe:
+                  "?*": "?*"
+---
+# 18/19 — require-image-pull-secrets
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-image-pull-secrets
+  labels:
+    openova.io/managed-by: qa-fixtures
+    pod-security.kubernetes.io/profile: supply-chain
+spec:
+  validationFailureAction: {{ $auditMode }}
+  background: true
+  rules:
+    - name: image-pull-secrets
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+      exclude:
+        any:
+{{- range $ns := $excludedNamespaces }}
+          - resources:
+              namespaces: [{{ $ns | quote }}]
+{{- end }}
+      validate:
+        message: "Pods pulling from private registries must declare imagePullSecrets."
+        pattern:
+          spec:
+            =(imagePullSecrets):
+              - name: "?*"
+---
+# 19/19 — require-labels
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-labels
+  labels:
+    openova.io/managed-by: qa-fixtures
+    pod-security.kubernetes.io/profile: best-practices
+spec:
+  validationFailureAction: {{ $auditMode }}
+  background: true
+  rules:
+    - name: labels
+      match:
+        any:
+          - resources:
+              kinds: [Pod, Deployment, StatefulSet, DaemonSet]
+      exclude:
+        any:
+{{- range $ns := $excludedNamespaces }}
+          - resources:
+              namespaces: [{{ $ns | quote }}]
+{{- end }}
+      validate:
+        message: "Workloads must carry app.kubernetes.io/name label for ownership tracking."
+        pattern:
+          metadata:
+            labels:
+              app.kubernetes.io/name: "?*"
+{{- end }}

@@ -24,13 +24,25 @@ spec:
       served: true
       storage: true
       additionalPrinterColumns:
+        # Spec regions are the canonical pair contract — the matrix asserts
+        # both regions are visible in the default `kubectl get cnpgpair`
+        # output (TC-306). currentPrimaryRegion (status) flips on
+        # switchover but the spec contract stays stable.
+        - name: PrimaryRegion
+          type: string
+          jsonPath: .spec.primaryRegion
+        - name: ReplicaRegion
+          type: string
+          jsonPath: .spec.replicaRegion
         - name: PrimaryCluster
           type: string
           jsonPath: .spec.primaryCluster
+          priority: 1
         - name: ReplicaCluster
           type: string
           jsonPath: .spec.replicaCluster
-        - name: PrimaryRegion
+          priority: 1
+        - name: CurrentPrimary
           type: string
           jsonPath: .status.currentPrimaryRegion
         - name: Streaming
