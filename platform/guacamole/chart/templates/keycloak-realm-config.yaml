@@ -27,7 +27,12 @@ metadata:
   # The bp-keycloak Job sorts ConfigMaps by name and applies them in
   # order; the bp-* prefix groups Catalyst-owned patches together.
   name: bp-guacamole-realm-patch
-  namespace: {{ .Values.guacamole.realmConfig.realm | default "keycloak" }}
+  # ConfigMap MUST live in the same namespace as bp-keycloak's
+  # keycloak-config-cli post-deploy Job — the Job's selector is
+  # `catalyst.openova.io/keycloak-config: realm-patch` scoped to its
+  # own namespace. Operator overrides via .Values.guacamole.realmConfig.namespace
+  # when bp-keycloak runs in a non-default namespace.
+  namespace: {{ .Values.guacamole.realmConfig.namespace | default "keycloak" }}
   labels:
     {{- include "bp-guacamole.labels" . | nindent 4 }}
     catalyst.openova.io/keycloak-config: realm-patch

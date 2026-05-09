@@ -2,7 +2,7 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: {{ include "bp-guacamole.fullname" . }}-recordings
+  name: {{ include "bp-guacamole.recordingsName" . }}
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "bp-guacamole.labels" . | nindent 4 }}

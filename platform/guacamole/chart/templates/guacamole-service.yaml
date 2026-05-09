@@ -2,7 +2,7 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "bp-guacamole.fullname" . }}-webapp
+  name: {{ include "bp-guacamole.webappName" . }}
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "bp-guacamole.labels" . | nindent 4 }}

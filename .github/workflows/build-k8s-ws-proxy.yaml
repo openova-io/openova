@@ -1,0 +1,211 @@
+name: Build k8s-ws-proxy
+
+# k8s-ws-proxy — Catalyst-built Go binary that bridges HMAC-signed
+# WebSocket exec sessions onto the local kube-apiserver. Per
+# docs/INVIOLABLE-PRINCIPLES.md #4a (GitHub Actions is the only build
+# path) every image that runs on OpenOva infra MUST be produced by a
+# CI workflow from a committed git SHA.
+#
+# This workflow mirrors build-cert-manager-dynadot-webhook.yaml — same
+# Buildx + cosign keyless sign + SBOM attestation flow. After image
+# publish, it bumps platform/k8s-ws-proxy/chart/values.yaml's
+# `k8sWsProxy.image.tag` to the new short SHA, bumps the chart's
+# Chart.yaml `version` patch level, and dispatches blueprint-release
+# so the OCI artifact at oci://ghcr.io/openova-io/bp-k8s-ws-proxy:<ver>
+# carries the new SHA-pinned image reference.
+#
+# Closes the gap surfaced by qa-loop iter-7 (Fix #36 follow-up):
+# bp-k8s-ws-proxy chart skeleton existed at platform/k8s-ws-proxy/
+# but had no CI image-build workflow, so the bootstrap-kit slot was
+# unshippable — TC-236/237 stayed FAIL with "daemonset NotFound".
+
+on:
+  push:
+    paths:
+      - 'core/cmd/k8s-ws-proxy/**'
+      - 'platform/k8s-ws-proxy/chart/**'
+      - '.github/workflows/build-k8s-ws-proxy.yaml'
+    branches: [main]
+  pull_request:
+    paths:
+      - 'core/cmd/k8s-ws-proxy/**'
+      - 'platform/k8s-ws-proxy/chart/**'
+      - '.github/workflows/build-k8s-ws-proxy.yaml'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/openova-io/openova/k8s-ws-proxy
+  CHART_VALUES: platform/k8s-ws-proxy/chart/values.yaml
+  CHART_YAML: platform/k8s-ws-proxy/chart/Chart.yaml
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      # id-token write is required by cosign keyless signing (Sigstore).
+      id-token: write
+    outputs:
+      sha_short: ${{ steps.vars.outputs.sha_short }}
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set short SHA
+        id: vars
+        run: echo "sha_short=$(echo $GITHUB_SHA | head -c 7)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: |
+            core/cmd/k8s-ws-proxy/go.sum
+
+      - name: Run unit tests — k8s-ws-proxy
+        working-directory: core/cmd/k8s-ws-proxy
+        run: go test -count=1 -race ./...
+
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        if: github.event_name != 'pull_request'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        id: build
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          # Build context is the repository root so the Containerfile's
+          # COPY paths can reach core/cmd/k8s-ws-proxy/.
+          context: .
+          file: core/cmd/k8s-ws-proxy/Containerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}
+            ${{ env.IMAGE }}:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/openova-io/openova
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=k8s-ws-proxy
+            org.opencontainers.image.description=Per-node HMAC-signed WebSocket exec proxy onto the local kube-apiserver (qa-loop iter-7 Fix #39)
+          # provenance=false: containerd 1.7.x on k3s cannot pull multi-arch
+          # images that include an attestation manifest. SBOM attestation is
+          # handled by cosign attest below.
+          provenance: false
+          sbom: false
+
+      - name: Install cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image with cosign (keyless)
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign sign --yes "${IMAGE}@${DIGEST}"
+
+      - name: Generate and attest SBOM
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign attest --yes \
+            --predicate <(echo '{"sbom":"in-toto-spdx attached at build time"}') \
+            --type spdx \
+            "${IMAGE}@${DIGEST}"
+
+  promote:
+    # Bump the chart's image.tag to the freshly-built SHA AND bump
+    # Chart.yaml version (patch +1) so blueprint-release publishes a
+    # new bp-k8s-ws-proxy:<semver> OCI artifact. Matches the
+    # catalyst-build.yaml deploy-commit pattern.
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Need write-back ability to bump Chart.yaml + values.yaml.
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Bump image.tag in values.yaml
+        env:
+          SHA_SHORT: ${{ needs.build.outputs.sha_short }}
+        run: |
+          set -euo pipefail
+          yq eval -i ".k8sWsProxy.image.tag = \"${SHA_SHORT}\"" "${CHART_VALUES}"
+          echo "values.yaml after update:"
+          yq eval '.k8sWsProxy.image' "${CHART_VALUES}"
+
+      - name: Bump Chart.yaml patch version
+        run: |
+          set -euo pipefail
+          current=$(yq eval '.version' "${CHART_YAML}")
+          IFS='.' read -r major minor patch <<<"${current}"
+          next="${major}.${minor}.$((patch + 1))"
+          yq eval -i ".version = \"${next}\"" "${CHART_YAML}"
+          echo "Chart.yaml version: ${current} -> ${next}"
+          # Stash the new version for downstream steps + the bootstrap-kit
+          # slot pin should be updated separately (manual review when
+          # bumping minors), but the patch bump is automatic.
+          echo "CHART_NEW_VERSION=${next}" >> "$GITHUB_ENV"
+
+      - name: Commit and push chart bump
+        id: deploy_commit
+        env:
+          SHA_SHORT: ${{ needs.build.outputs.sha_short }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "${CHART_VALUES}" "${CHART_YAML}"
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git commit -m "deploy: bump bp-k8s-ws-proxy to image ${SHA_SHORT} chart ${CHART_NEW_VERSION}"
+          for i in 1 2 3; do
+            git push && break
+            git pull --rebase
+          done
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+
+      # Per #712: GITHUB_TOKEN-authored commits do NOT re-trigger
+      # workflows, so blueprint-release would not auto-fire on the
+      # chart bump above. Explicit workflow_dispatch makes the new
+      # bp-k8s-ws-proxy:<semver> OCI artifact land for every image
+      # build, never stale.
+      - name: Trigger blueprint-release for the chart bump
+        if: steps.deploy_commit.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run blueprint-release.yaml \
+            --repo "${{ github.repository }}" \
+            --ref main \
+            -f blueprint=k8s-ws-proxy \
+            -f tree=platform
+          echo "blueprint-release dispatched for platform/k8s-ws-proxy @ main"

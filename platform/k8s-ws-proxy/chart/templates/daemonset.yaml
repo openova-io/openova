@@ -2,7 +2,7 @@
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: {{ include "bp-k8s-ws-proxy.fullname" . }}
+  name: {{ include "bp-k8s-ws-proxy.workloadName" . }}
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "bp-k8s-ws-proxy.labels" . | nindent 4 }}

@@ -2,7 +2,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "bp-guacamole.fullname" . }}-guacd
+  name: {{ include "bp-guacamole.guacdName" . }}
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "bp-guacamole.labels" . | nindent 4 }}
@@ -60,7 +60,7 @@ spec:
       volumes:
         - name: recordings
           persistentVolumeClaim:
-            claimName: {{ include "bp-guacamole.fullname" . }}-recordings
+            claimName: {{ include "bp-guacamole.recordingsName" . }}
         - name: tmp
           emptyDir: {}
 {{- end }}
