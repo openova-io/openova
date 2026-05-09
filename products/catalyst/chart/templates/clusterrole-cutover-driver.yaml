@@ -216,3 +216,21 @@ rules:
   - apiGroups: ["metrics.k8s.io"]
     resources: ["pods", "nodes"]
     verbs: ["get", "list", "watch"]
+
+  # ───────────────────────────────────────────────────────────────
+  # NEW KINDS added by EPIC-1 W (#1139) + EPIC-4 R (#1167):
+  #   - wgpolicyk8s.io/v1alpha2 PolicyReports + ClusterPolicyReports
+  #     (compliance score aggregator + UI score-by-resource view)
+  #   - events.k8s.io/v1 Events
+  #     (resource detail page Events tab + EventsPanel widget)
+  #
+  # Per feedback_chroot_in_cluster_fallback.md: every new GVR added
+  # to catalyst-api's k8scache.DefaultKinds MUST get a matching rule
+  # in this ClusterRole — the chroot SovereignClient uses this SA.
+  # ───────────────────────────────────────────────────────────────
+  - apiGroups: ["wgpolicyk8s.io"]
+    resources: ["policyreports", "clusterpolicyreports"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["events.k8s.io"]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
