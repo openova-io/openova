@@ -1,5 +1,24 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.108 (qa-loop iter-7 Fix #38 follow-up #4 — actual fix for #1246):
+# UserAccess sovereignRef regexReplaceAll signature fix. PR #1246 used
+# Sprig's pipe form `value | regexReplaceAll "regex" "repl"` but the
+# Sprig signature is `regexReplaceAll(regex, src, repl)` — when piped,
+# the pipe value lands in the LAST positional arg → `repl`, NOT `src`.
+# The empty `""` (intended as `repl`) became `src`, the FQDN became
+# `repl`, and every UserAccess rendered `sovereignRef: ""`. CRD
+# validation `^[a-z0-9][a-z0-9-]{0,62}$` then rejected the empty value
+# and the chart upgrade failed (HR Stalled, MissingRollbackTarget) on
+# omantel even after PRs #1239+#1243+#1244+#1245+#1246+#1247 stacked.
+# Fix: call regexReplaceAll directly so the FQDN value lands in `src`
+# and the `\..*$` strip actually fires (omantel.biz → omantel).
+#
+# 1.4.107 (Fix #40 / iter-8 Cluster-A+B, PR #1247): comprehensive
+# qa-fixtures sovereignRef chain (qaFixtures.sovereignFQDN →
+# global.sovereignFQDN → qaFixtures.sovereignRef-if-FQDN → omantel.biz)
+# + cnpg pair fixture knobs. Did NOT fix the regexReplaceAll signature
+# bug (only relaxed downstream); 1.4.108 ships the actual fix.
+#
 # 1.4.106 (qa-loop iter-7 Fix #38 follow-up #3): qa-fixtures
 # sovereignRef default = "omantel.biz" so the Organization +
 # Application + Environment + Blueprint + UserAccess CRs validate
@@ -316,7 +335,7 @@ name: bp-catalyst-platform
 #   - Organization sovereignRef resolution chain (qaFixtures.sovereignFQDN
 #     → global.sovereignFQDN → qaFixtures.sovereignRef-if-FQDN → omantel.biz)
 #     consolidated alongside #1244+#1245+#1246 fixes.
-version: 1.4.107
+version: 1.4.108
 appVersion: 1.4.94
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.

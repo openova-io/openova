@@ -298,7 +298,14 @@ spec:
       # Blueprint CR alias resolved by chained catalog client; node-labels
       # seeder Job patches Nodes with topology.kubernetes.io/region short
       # form derived from openova.io/region; CNPGPair renamed to qa-cnpgpair.
-      version: 1.4.107
+      # 1.4.108 (qa-loop iter-7 Fix #38 follow-up #4): the regexReplaceAll
+      # in PR #1246's UserAccess template was using Sprig's pipe form
+      # which mis-routes the FQDN value into the `repl` arg slot, producing
+      # an empty sovereignRef on every render. Switched to direct call form
+      # so the strip actually fires (omantel.biz → omantel). Without this
+      # the chart upgrade fails admission on UserAccess.spec.sovereignRef
+      # and pins omantel on the prior image SHA.
+      version: 1.4.108
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

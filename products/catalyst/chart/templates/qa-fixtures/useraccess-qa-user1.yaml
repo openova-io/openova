@@ -19,7 +19,15 @@ spec:
   # — single-label only (no dots). Strip the TLD/SLD from the FQDN
   # so {qaFixtures.sovereignRef = "omantel.biz"} renders as "omantel".
   # Other CRDs (Organization, Environment) want the FQDN as-is.
-  sovereignRef: {{ .Values.qaFixtures.sovereignRef | default "omantel.biz" | regexReplaceAll "\\..*$" "" | quote }}
+  #
+  # IMPORTANT: Sprig's regexReplaceAll signature is `(regex, src, repl)`,
+  # so when piped (`value | regexReplaceAll "regex" "repl"`) the pipe
+  # value lands in the LAST positional arg → `repl`, NOT `src`. PR #1246
+  # used the pipe form and consequently rendered every UserAccess with
+  # `sovereignRef: ""` (the empty `repl` was treated as `src`). This
+  # form calls regexReplaceAll directly so the FQDN value lands in
+  # `src` and the `\..*$` strip actually fires (Fix #38 follow-up #4).
+  sovereignRef: {{ regexReplaceAll "\\..*$" (.Values.qaFixtures.sovereignRef | default "omantel.biz") "" | quote }}
   tierRoleRef: openova:tier-developer
   user:
     keycloakSubject: {{ .Values.qaFixtures.qaUser.keycloakSubject | default "qa-user1" | quote }}
