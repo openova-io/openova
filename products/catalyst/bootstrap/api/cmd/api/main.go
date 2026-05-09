@@ -619,7 +619,18 @@ func main() {
 		rg.Get("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}", h.HandleK8sResourceGet)
 		rg.Get("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/tree", h.HandleK8sResourceTree)
 		rg.Post("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/scale", h.HandleK8sResourceScale)
+		// PUT /scale alias (qa-loop iter-7 Cluster-C, #1227): the
+		// Sovereign Console UI + qa-loop matrix use PUT to align with
+		// REST verb-resource semantics ("update the scale subresource").
+		// The handler is identical — both verbs land on the same
+		// MergePatch.
+		rg.Put("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/scale", h.HandleK8sResourceScale)
 		rg.Post("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/restart", h.HandleK8sResourceRestart)
+		// PUT alias for ConfigMap / Secret update (qa-loop iter-7
+		// Cluster-C, #1227). Mirrors the YAML-editor's apply path but
+		// accepts a structured body so the matrix + UI can update a
+		// single field without round-tripping the whole YAML.
+		rg.Put("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}", h.HandleK8sResourceApply)
 		rg.Post("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/dry-run", h.HandleK8sResourceDryRun)
 		rg.Post("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/apply", h.HandleK8sResourceApply)
 		rg.Delete("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}", h.HandleK8sResourceDelete)

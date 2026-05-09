@@ -1,0 +1,26 @@
+apiVersion: v2
+name: bp-qa-app
+version: 0.1.0
+appVersion: "1.27.3"
+description: |
+  Catalyst-authored Blueprint chart for the qa-loop matrix's
+  end-to-end Application install / topology / upgrade / delete
+  surface. Deploys ONE nginx pod + Service + ConfigMap (HTML body
+  honoring `siteTitle`) per region.
+
+  Per docs/INVIOLABLE-PRINCIPLES.md #1 (target-state) this is a real
+  workload — `nginx:1.27.3-alpine` from upstream — not a stub. The
+  pod reaches Ready within ~5 seconds of scheduling so the matrix's
+  TC-066 (install→Ready transition within 3min) has wide headroom.
+
+  Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) every operationally
+  meaningful value (image, replicas, resources, probe paths, siteTitle)
+  is configurable via values.yaml.
+icon: https://nginx.com/wp-content/uploads/2018/08/NGINX-logo-rgb-large.png
+keywords: [qa, test, nginx, fixture, qa-loop]
+home: https://docs.openova.io/qa/qa-app
+sources:
+  - https://github.com/openova-io/openova/tree/main/platform/qa-app
+maintainers:
+  - name: openova-platform
+    email: catalyst@openova.io

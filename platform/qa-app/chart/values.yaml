@@ -1,0 +1,58 @@
+# bp-qa-app — Catalyst Blueprint chart for qa-loop matrix end-to-end
+# Application surface tests. Defaults reflect the matrix's expected
+# wire shape (siteTitle="QA WP", replicas=1).
+
+catalystBlueprint:
+  upstream: { chart: nginx, version: "1.27.3", repo: "docker.io/library" }
+
+# Cosmetic title injected into the served HTML body via the ConfigMap.
+# The matrix's TC-108 PUTs `siteTitle="QA Updated"` and asserts the
+# Application CR's spec.parameters.siteTitle reflects it.
+siteTitle: "QA WP"
+
+# Pod replica count. matrix's TC-215 PUTs replicas=3 via /scale and
+# TC-216 verifies via kubectl.
+replicas: 1
+
+image:
+  # Per docs/INVIOLABLE-PRINCIPLES.md #4a (CI builds, no local docker)
+  # this is the upstream nginx image; per-Sovereign overlays pin to a
+  # SHA via Sovereign Harbor proxy_cache.
+  repository: nginx
+  tag: 1.27.3-alpine
+  pullPolicy: IfNotPresent
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 32Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+# Service exposes port 80; matrix's TC-262 asserts a Service named
+# `qa-wp` exists in the qa-omantel namespace.
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+
+# Liveness/readiness probes — matrix asserts /health on TC-211 events
+# query but the actual probe runs against /. nginx:alpine serves the
+# default welcome page at /.
+probe:
+  path: /
+  port: 8080
+  initialDelaySeconds: 2
+  periodSeconds: 5
+  timeoutSeconds: 2
+
+# Ingress for the matrix's TC-103 (`https://qa-wp.qa-omantel.console.<sov>/`).
+# Disabled by default; enabled by the qa-fixtures consumer via the
+# Application's spec.parameters.ingress.enabled overlay.
+ingress:
+  enabled: false
+  className: cilium
+  hostname: ""
+  tls:
+    enabled: false

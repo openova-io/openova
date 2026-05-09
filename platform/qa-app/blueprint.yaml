@@ -1,0 +1,57 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-qa-app
+  labels:
+    catalyst.openova.io/category: testing
+    catalyst.openova.io/section: pts-qa
+spec:
+  version: 0.1.0
+  card:
+    title: "QA Test App"
+    summary: |
+      Minimal single-pod nginx workload used by the qa-loop test matrix
+      to exercise the Application install + topology + upgrade + delete
+      surfaces end-to-end. Real workload (real container image, real
+      Service, real probe), no SSO / DB / external-dependency prerequisites.
+
+      Per docs/INVIOLABLE-PRINCIPLES.md #1 (target-state) this is NOT a
+      stub — a Sovereign that installs `bp-qa-app` gets a Pod serving
+      HTTP 200 on `/` with the canonical nginx welcome page, exactly
+      what an operator would deploy if they were testing the install
+      flow themselves.
+    icon: nginx.svg
+    category: testing
+    tags: [qa, test, nginx, fixture]
+    documentation: https://docs.openova.io/qa/qa-app
+    license: Apache-2.0
+  visibility: listed
+  owner:
+    team: platform
+    contact: catalyst@openova.io
+  configSchema:
+    type: object
+    properties:
+      siteTitle:
+        type: string
+        default: "QA WP"
+        description: |
+          Cosmetic title injected into the served HTML body. Per
+          docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the value
+          flows through from .Values.siteTitle to the ConfigMap that
+          backs the nginx /usr/share/nginx/html/index.html.
+      replicas:
+        type: integer
+        default: 1
+        minimum: 1
+        maximum: 10
+        description: Pod replica count.
+      image:
+        type: string
+        default: "nginx:1.27.3-alpine"
+        description: |
+          Container image. SHA-pinned overrides flow through per-Sovereign
+          overlays per docs/INVIOLABLE-PRINCIPLES.md #4a (CI builds, no
+          local docker).
+  manifests:
+    chart: bp-qa-app

@@ -1,0 +1,25 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "qa-app.fullname" . }}
+  labels: {{- include "qa-app.labels" . | nindent 4 }}
+spec:
+  ingressClassName: {{ .Values.ingress.className | default "cilium" }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts: [ {{ .Values.ingress.hostname | quote }} ]
+      secretName: {{ .Values.ingress.tls.secretName | default (printf "%s-tls" (include "qa-app.fullname" .)) }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.hostname | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "qa-app.fullname" . }}
+                port:
+                  number: {{ .Values.service.port | default 80 }}
+{{- end }}

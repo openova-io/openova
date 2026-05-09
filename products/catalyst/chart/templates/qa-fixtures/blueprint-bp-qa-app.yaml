@@ -1,0 +1,60 @@
+{{- if .Values.qaFixtures.enabled }}
+{{- /*
+  Blueprint CR for bp-qa-app — the chart bytes the application-controller
+  resolves when it reconciles the qa-wp Application. Required so that
+  Application.spec.blueprintRef.name=bp-qa-app finds a registered
+  Blueprint with manifests.chart=bp-qa-app.
+
+  Per docs/INVIOLABLE-PRINCIPLES.md #1 (target-state) the controller MUST
+  resolve the Blueprint via this CR (not via a JSON catalog read) to
+  match what a freshly-installed Sovereign offers via the on-cluster
+  Blueprint registry.
+
+  The chart bytes themselves live in `platform/qa-app/chart/` and are
+  pushed to GHCR as `oci://ghcr.io/openova-io/bp-qa-app:0.1.0` by the
+  blueprint-release.yaml CI workflow on every PR that touches
+  `platform/qa-app/chart/**`.
+*/ -}}
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-qa-app
+  labels:
+    catalyst.openova.io/managed-by: qa-fixtures
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/sovereign: {{ .Values.qaFixtures.sovereignRef | default "omantel" | quote }}
+    catalyst.openova.io/category: testing
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  version: "0.1.0"
+  card:
+    title: "QA Test App"
+    category: testing
+    family: qa
+    summary: "Minimal nginx workload for qa-loop matrix end-to-end Application surface tests."
+    icon: nginx.svg
+    license: "Apache-2.0"
+    tags: [qa, test, fixture]
+  visibility: listed
+  manifests:
+    chart: bp-qa-app
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-qa-app
+    version: 0.1.0
+  configSchema:
+    type: object
+    properties:
+      siteTitle:
+        type: string
+        default: "QA WP"
+      replicas:
+        type: integer
+        default: 1
+        minimum: 1
+        maximum: 10
+{{- end }}
