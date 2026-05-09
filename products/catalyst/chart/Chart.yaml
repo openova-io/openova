@@ -124,8 +124,19 @@ name: bp-catalyst-platform
 # otech113 2026-05-05 — chart 0.1.18 fixed the readiness-probe loop
 # but every trigger immediately got 502 in <10ms (synchronous
 # apiserver permission rejection). 2026-05-05.
-version: 1.4.91
-appVersion: 1.4.91
+# 1.4.92 (qa-loop iter-1, cluster `catalyst-runtime-config-missing`):
+# adds templates/configmap-catalyst-runtime-config.yaml so the Group C
+# controller deployments (organization, environment, application) can
+# successfully resolve their `catalyst-runtime-config` configMapKeyRef
+# (CATALYST_KC_ADDR, CATALYST_KC_REALM, GITEA_PUBLIC_URL). Until this
+# release the CM did not exist and `optional: true` collapsed every key
+# to ""; organization-controller fail-fasted on
+# `mustEnv("CATALYST_KC_ADDR")` and CrashLoopBackOff'd indefinitely.
+# Defaults under .Values.runtime.* match the canonical in-cluster
+# Service FQDNs of bp-keycloak / bp-gitea. Caught live on omantel
+# 2026-05-09. 2026-05-09.
+version: 1.4.92
+appVersion: 1.4.92
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.

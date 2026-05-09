@@ -135,6 +135,39 @@ images:
   # All 10 SME microservices share one SHA tag (built from the same mono-repo commit).
   smeTag: "b0ed216"
 
+# ─── Runtime service coordinates (qa-loop iter-1, cluster
+# `catalyst-runtime-config-missing`) ────────────────────────────────────
+# Single source of truth for the in-cluster Service URLs the Group C
+# controllers (organization, environment, application) consume via the
+# `catalyst-runtime-config` ConfigMap (templates/configmap-catalyst-
+# runtime-config.yaml). Each controller deployment references this CM
+# with `optional: true`; before this block was added, the CM did not
+# exist on any Sovereign and `mustEnv("CATALYST_KC_ADDR")` in
+# core/controllers/organization/cmd/main.go fail-fasted on every Pod
+# start. Caught live on omantel 2026-05-09.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) every value here
+# is operator-overridable from the per-Sovereign overlay. Defaults match
+# the canonical in-cluster Service FQDNs that bp-keycloak / bp-gitea
+# register on every Sovereign (see clusters/_template/bootstrap-kit/
+# 11-bp-keycloak.yaml + 12-bp-gitea.yaml).
+runtime:
+  # Keycloak admin API base URL. Consumed as CATALYST_KC_ADDR by
+  # organization-controller (per-Org realm provisioning via the KC
+  # Admin API).
+  keycloakAddr: "http://keycloak.keycloak.svc.cluster.local:80"
+  # Keycloak realm the per-Org realms are nested under. Default
+  # `sovereign` matches the bp-keycloak chart's auto-provisioned
+  # tenant realm (the contabo mothership uses `openova` instead).
+  keycloakRealm: "sovereign"
+  # Gitea public base URL stamped on Application/Environment per-Org
+  # repos. Consumed as GITEA_PUBLIC_URL by application-controller and
+  # environment-controller. Default points at the in-cluster Service;
+  # operators MAY override to the public Gitea host
+  # (https://gitea.<sovereign-fqdn>) once the parent zone's HTTPRoute
+  # is reconciled.
+  giteaPublicURL: "http://gitea-http.gitea.svc.cluster.local:3000"
+
 # ─── Group C controllers (slice CC3 of EPIC-0 #1095) ────────────────────────
 # The 5 K8s-native reconcilers consolidated by CC1 (#1135) + CC2 (#1136):
 #
