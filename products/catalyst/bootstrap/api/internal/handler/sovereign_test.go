@@ -50,6 +50,7 @@ func newSovereignHandler(t *testing.T, coreObjs []runtime.Object, dynObjs []runt
 	gvrToList := map[schema.GroupVersionResource]string{
 		helmReleaseGVR: "HelmReleaseList",
 		httpRouteGVR:   "HTTPRouteList",
+		applicationGVR: "ApplicationList",
 		{Group: "cert-manager.io", Version: "v1", Resource: "certificates"}: "CertificateList",
 	}
 	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToList, dynObjs...)
@@ -97,6 +98,26 @@ func makeHTTPRoute(name, ns string, hosts []string) *unstructured.Unstructured {
 		hostsAny[i] = h
 	}
 	_ = unstructured.SetNestedSlice(u.Object, hostsAny, "spec", "hostnames")
+	return u
+}
+
+// makeApplication builds an apps.openova.io/v1 Application CR with the
+// given name (= slug) and spec.environmentRef. Used to seed the dynamic
+// client for /api/v1/sovereign/apps environment-chip tests (qa-loop
+// iter-7 TC-090). Version matches ApplicationGVR() in applications.go
+// and the qa-fixtures chart.
+func makeApplication(name, ns, environmentRef string) *unstructured.Unstructured {
+	u := &unstructured.Unstructured{}
+	u.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "apps.openova.io",
+		Version: "v1",
+		Kind:    "Application",
+	})
+	u.SetName(name)
+	u.SetNamespace(ns)
+	if environmentRef != "" {
+		_ = unstructured.SetNestedField(u.Object, environmentRef, "spec", "environmentRef")
+	}
 	return u
 }
 
@@ -263,6 +284,110 @@ func TestSovereignApps_StatusJoinHelmReleases(t *testing.T) {
 	}
 	if got.GeneratedAt == "" {
 		t.Error("expected GeneratedAt to be populated from embedded catalog")
+	}
+}
+
+// TestSovereignApps_EnvironmentChipDefaultsToDev proves the qa-loop
+// iter-7 TC-090 fix: every app row in the /sovereign/apps response
+// MUST carry a non-empty Environment field. With no Application CR
+// seeded, every row falls back to defaultSovereignEnvironment ("dev")
+// so the AppsPage card always renders an environment chip — matrix
+// expectation `must_contain: ["dev"]` on the Apps page.
+func TestSovereignApps_EnvironmentChipDefaultsToDev(t *testing.T) {
+	dynObjs := []runtime.Object{
+		makeHR("bp-cilium", "flux-system", "True"),
+	}
+	h := newSovereignHandler(t, nil, dynObjs)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sovereign/apps", nil)
+	w := httptest.NewRecorder()
+	h.HandleSovereignApps(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status code = %d; body=%s", w.Code, w.Body.String())
+	}
+	var got sovereignAppsResponse
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Apps) == 0 {
+		t.Fatal("expected at least one app, got 0")
+	}
+	for _, a := range got.Apps {
+		if a.Environment == "" {
+			t.Errorf("app %q has empty Environment; every row must carry a chip", a.ID)
+		}
+		if a.Environment != defaultSovereignEnvironment {
+			t.Errorf("app %q Environment = %q; want default %q", a.ID, a.Environment, defaultSovereignEnvironment)
+		}
+	}
+}
+
+// TestSovereignApps_EnvironmentChipFromApplicationCR proves that when
+// an Application CR with spec.environmentRef matches the slug, the
+// chip surfaces THAT environment instead of the default. Multi-env
+// Sovereigns rely on this — without it every row would render "dev"
+// regardless of where the workload actually runs.
+func TestSovereignApps_EnvironmentChipFromApplicationCR(t *testing.T) {
+	dynObjs := []runtime.Object{
+		makeHR("bp-cilium", "flux-system", "True"),
+		// Match by the bp-cilium slug ("cilium" — Catalog.Slug is
+		// the slug WITHOUT the bp- prefix).
+		makeApplication("cilium", "default", "prod"),
+	}
+	h := newSovereignHandler(t, nil, dynObjs)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sovereign/apps", nil)
+	w := httptest.NewRecorder()
+	h.HandleSovereignApps(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: %d body=%s", w.Code, w.Body.String())
+	}
+	var got sovereignAppsResponse
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	byID := map[string]sovereignAppItem{}
+	for _, a := range got.Apps {
+		byID[a.ID] = a
+	}
+	cilium, ok := byID["bp-cilium"]
+	if !ok {
+		t.Fatalf("bp-cilium missing from response")
+	}
+	if cilium.Environment != "prod" {
+		t.Errorf("bp-cilium Environment = %q; want prod (from Application CR)", cilium.Environment)
+	}
+	// Sibling rows with no matching Application CR still default to dev.
+	for _, a := range got.Apps {
+		if a.ID == "bp-cilium" {
+			continue
+		}
+		if a.Environment != defaultSovereignEnvironment {
+			t.Errorf("non-matched app %q Environment = %q; want default %q", a.ID, a.Environment, defaultSovereignEnvironment)
+		}
+	}
+}
+
+// TestResolveAppEnvironment_FallbackOrder unit-tests the helper in
+// isolation so the fallback semantics are explicit.
+func TestResolveAppEnvironment_FallbackOrder(t *testing.T) {
+	cases := []struct {
+		name     string
+		envs     map[string]string
+		slug     string
+		expected string
+	}{
+		{name: "nil-map → dev", envs: nil, slug: "anything", expected: "dev"},
+		{name: "empty-map → dev", envs: map[string]string{}, slug: "x", expected: "dev"},
+		{name: "miss → dev", envs: map[string]string{"a": "prod"}, slug: "b", expected: "dev"},
+		{name: "empty-value → dev", envs: map[string]string{"a": ""}, slug: "a", expected: "dev"},
+		{name: "hit → returns", envs: map[string]string{"a": "stg"}, slug: "a", expected: "stg"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := resolveAppEnvironment(tc.envs, tc.slug)
+			if got != tc.expected {
+				t.Errorf("got %q want %q", got, tc.expected)
+			}
+		})
 	}
 }
 

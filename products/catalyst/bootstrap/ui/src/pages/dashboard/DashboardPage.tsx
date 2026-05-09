@@ -65,6 +65,37 @@ export function DashboardPage() {
         className="flex items-start justify-between gap-4 flex-wrap"
       >
         <div>
+          {/*
+           * Breadcrumb — the literal "Dashboard" label sits above the
+           * H1 ("Sovereign Fleet") so navigation context is preserved
+           * after the EPIC-6 redesign that re-titled the page. The
+           * matrix's TC-383 (anti-regression: /app/dashboard MUST
+           * contain the literal string "Dashboard") locks this in;
+           * removing the breadcrumb without restoring the literal
+           * elsewhere on the page would re-open the regression.
+           *
+           * Rendered as a <nav> with `aria-label="Breadcrumb"` so AT
+           * users get the same context, and as `<ol>/<li>` so future
+           * deeper routes (e.g. Dashboard › Sovereign › Apps) can
+           * extend the trail without restructuring the markup.
+           */}
+          <nav
+            aria-label="Breadcrumb"
+            data-testid="dashboard-breadcrumb"
+            className="text-xs text-[oklch(50%_0.01_250)] mb-1.5"
+          >
+            <ol className="flex items-center gap-1.5">
+              <li>
+                <span className="font-medium text-[oklch(75%_0.01_250)]">Dashboard</span>
+              </li>
+              <li aria-hidden="true" className="text-[oklch(35%_0.01_250)]">
+                /
+              </li>
+              <li aria-current="page" className="text-[oklch(60%_0.01_250)]">
+                Sovereign Fleet
+              </li>
+            </ol>
+          </nav>
           <h1 className="text-xl font-semibold text-[oklch(92%_0.01_250)]">Sovereign Fleet</h1>
           <p className="mt-1 text-sm text-[oklch(50%_0.01_250)]">
             Manage every OpenOva Sovereign across providers, regions, and Organizations.

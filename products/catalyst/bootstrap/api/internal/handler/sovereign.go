@@ -117,6 +117,31 @@ var helmReleaseGVR = schema.GroupVersionResource{
 	Resource: "helmreleases",
 }
 
+// applicationGVR — apps.openova.io/v1 Application CR. Each per-Sovereign
+// workload has an Application record carrying the `spec.environmentRef`
+// field that drives the AppsPage card's environment chip (qa-loop iter-7
+// TC-090). Catalyst joins the catalog/HelmRelease rows with Application
+// CRs by slug — when an Application matches, its environmentRef is
+// surfaced on the sovereignAppItem; otherwise the row falls back to the
+// defaultSovereignEnvironment chip ("dev" out of the box).
+//
+// Resolved via the canonical ApplicationGVR() helper in applications.go
+// so the version stays aligned with the rest of the handler suite (the
+// chart's qa-fixtures Application uses apps.openova.io/v1; the
+// k8scache kinds.go entry still references v1alpha1 for legacy reasons,
+// but the live CRD is v1).
+var applicationGVR = ApplicationGVR()
+
+// defaultSovereignEnvironment is the chip the AppsPage renders for any
+// app row that has no matching Application CR with a populated
+// spec.environmentRef. Single-environment Sovereigns (the common case
+// today, including omantel.biz) ship with everything in "dev"; multi-
+// environment Sovereigns surface the per-app environment as soon as
+// their Application CRs declare it. The matrix's TC-090 expectation
+// (Apps page must contain "dev") locks this default in place — the
+// chip MUST always render with a usable environment label.
+const defaultSovereignEnvironment = "dev"
+
 // httpRouteGVR — Gateway API HTTPRoute. The canonical Sovereign
 // install uses Cilium Gateway as the only ingress; Console / SME /
 // per-blueprint front-doors all surface as HTTPRoutes. We list both
@@ -477,6 +502,16 @@ type sovereignAppItem struct {
 	Status       string   `json:"status"` // installed | available | bootstrap
 	BootstrapKit bool     `json:"bootstrapKit"`
 
+	// Environment — deployment environment this app row is associated
+	// with on this Sovereign. Sourced from the matching Application
+	// CR's spec.environmentRef when present (apps.openova.io/v1alpha1);
+	// falls back to "dev" otherwise so single-environment Sovereigns
+	// (the common case) always display a usable chip on the AppsPage
+	// card. The FE renders this verbatim as the environment chip
+	// alongside FREE/BOOTSTRAP. Closes qa-loop iter-7 TC-090 (Apps
+	// page lost the environment chip during the SME-publish redesign).
+	Environment string `json:"environment,omitempty"`
+
 	// MarketplacePublished — null when the slug isn't in the SME
 	// catalog (bootstrap components, or marketplace not deployed on
 	// this Sovereign). When non-null, the FE renders a Publish chip
@@ -529,6 +564,14 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 	// no in-cluster client (CI) gets "available" for every entry,
 	// which is the safe, non-misleading fallback.
 	installed := map[string]string{} // hr name → "installed" | "installing"
+	// Map slug → environmentRef harvested from Application CRs. When
+	// an app row's slug matches, the chip on the FE displays the
+	// per-Application environment (e.g. "prod", "staging"); otherwise
+	// the chip falls back to defaultSovereignEnvironment ("dev").
+	// Best-effort: missing CR / RBAC / list error → empty map →
+	// every row falls back, which is the target-state behaviour for
+	// single-environment Sovereigns.
+	envBySlug := map[string]string{}
 	deps, depsErr := h.sovereignDepsFor()
 	if depsErr == nil {
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
@@ -541,6 +584,30 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 				} else {
 					installed[name] = "installing"
 				}
+			}
+		}
+		// Application CR pass — separate List so a missing CRD or
+		// RBAC denial on apps.openova.io doesn't break the HR pass
+		// above (which is the load-bearing one for status).
+		if appList, err := deps.dyn.Resource(applicationGVR).Namespace("").List(ctx, metav1.ListOptions{}); err == nil {
+			for _, app := range appList.Items {
+				env, _, _ := unstructured.NestedString(app.Object, "spec", "environmentRef")
+				if env == "" {
+					continue
+				}
+				// Application CR's name is the slug; spec.blueprintRef
+				// could also drive the join but the name is the canonical
+				// per-app identifier in the wizard catalog.
+				slug := app.GetName()
+				if existing, ok := envBySlug[slug]; ok && existing != env {
+					// Multiple Applications for the same slug across
+					// environments — keep the first deterministic
+					// non-empty hit (alphabetical iteration over
+					// namespaces). Multi-env-per-slug surfaces in a
+					// later UI iteration via the cross-Sov view.
+					continue
+				}
+				envBySlug[slug] = env
 			}
 		}
 	}
@@ -566,6 +633,7 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 			Summary:      "",
 			Status:       "bootstrap",
 			BootstrapKit: true,
+			Environment:  resolveAppEnvironment(envBySlug, b.Slug),
 		})
 	}
 
@@ -591,6 +659,7 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 			Depends:      b.Depends,
 			Status:       status,
 			BootstrapKit: false,
+			Environment:  resolveAppEnvironment(envBySlug, b.Slug),
 		})
 	}
 
@@ -617,6 +686,19 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 		GeneratedAt:  gen,
 		BootstrapKit: bootstrapList,
 	})
+}
+
+// resolveAppEnvironment returns the environment chip the FE renders on
+// the AppsPage card for a given slug. Uses the per-Application CR
+// environmentRef when populated; otherwise falls back to
+// defaultSovereignEnvironment ("dev"). Always returns a non-empty string
+// — the matrix's TC-090 contract requires every app card to display an
+// environment chip.
+func resolveAppEnvironment(envBySlug map[string]string, slug string) string {
+	if env, ok := envBySlug[slug]; ok && env != "" {
+		return env
+	}
+	return defaultSovereignEnvironment
 }
 
 // HandleSovereignAppPublish — PATCH /api/v1/sovereign/apps/{slug}/publish.

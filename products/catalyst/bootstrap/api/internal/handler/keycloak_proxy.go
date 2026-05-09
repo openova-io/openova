@@ -144,9 +144,15 @@ type KeycloakAdminClient interface {
 
 	// ListGroups — GET /admin/realms/{realm}/groups
 	ListGroups(ctx context.Context) ([]keycloak.Group, error)
-	// CreateGroup — top-level POST.
+	// CreateGroup — top-level POST. Returns
+	// keycloak.ErrGroupAlreadyExists on 409 so the handler can recover
+	// the existing group via FindGroupByPath and respond idempotently
+	// (qa-loop iter-7 TC-141).
 	CreateGroup(ctx context.Context, g keycloak.Group) (string, error)
 	// CreateSubGroup — POST /admin/realms/{realm}/groups/{parentUuid}/children.
+	// Returns keycloak.ErrGroupAlreadyExists on 409 so the handler can
+	// recover the existing sub-group from the parent's children list
+	// and respond idempotently.
 	CreateSubGroup(ctx context.Context, parentUUID string, g keycloak.Group) (string, error)
 	// UpdateGroup — PUT (g.ID required).
 	UpdateGroup(ctx context.Context, g keycloak.Group) error
@@ -154,6 +160,11 @@ type KeycloakAdminClient interface {
 	DeleteGroup(ctx context.Context, uuid string) error
 	// GetGroup — used after Create to fetch back the freshly-created group.
 	GetGroup(ctx context.Context, uuid string) (keycloak.Group, error)
+	// FindGroupByPath — GET /admin/realms/{realm}/group-by-path/{path}.
+	// Used by HandleKeycloakGroupsCreate's idempotency path to recover
+	// the existing group's representation when CreateGroup returns
+	// ErrGroupAlreadyExists. Returns the empty Group + nil error on miss.
+	FindGroupByPath(ctx context.Context, path string) (keycloak.Group, error)
 
 	// ListRealmRoles — GET /admin/realms/{realm}/roles.
 	ListRealmRoles(ctx context.Context) ([]keycloak.RealmRole, error)
@@ -315,14 +326,51 @@ func (h *Handler) HandleKeycloakGroupsCreate(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	g := keycloak.Group{Name: body.Name, Attributes: body.Attributes}
+	parentID := strings.TrimSpace(body.ParentID)
 	var (
 		uuid string
 		err  error
 	)
-	if strings.TrimSpace(body.ParentID) != "" {
-		uuid, err = kc.CreateSubGroup(r.Context(), body.ParentID, g)
+	if parentID != "" {
+		uuid, err = kc.CreateSubGroup(r.Context(), parentID, g)
 	} else {
 		uuid, err = kc.CreateGroup(r.Context(), g)
+	}
+	// Idempotency (qa-loop iter-7 TC-141): a second POST of the same
+	// group name MUST recover the existing group and return success,
+	// not bubble Keycloak's 409 up as a 502. Without this, every
+	// re-run of the QA matrix breaks once iter-1 has populated the
+	// realm. Same shape callers see on first create, just with the
+	// pre-existing UUID.
+	if errors.Is(err, keycloak.ErrGroupAlreadyExists) {
+		existing, lookupErr := h.lookupExistingGroup(r.Context(), kc, parentID, body.Name)
+		if lookupErr != nil {
+			h.log.Warn("keycloak.groups.create: 409 but re-find failed", "depId", depID, "name", body.Name, "err", lookupErr)
+			writeJSON(w, http.StatusBadGateway, map[string]string{
+				"error":  "keycloak-create-conflict-resolve-failed",
+				"detail": lookupErr.Error(),
+			})
+			return
+		}
+		if existing.ID == "" {
+			// 409 from Keycloak but the group can't be re-found — KC
+			// state contradicts itself. Surface as 502 so the operator
+			// gets a clear signal something's wrong upstream.
+			h.log.Warn("keycloak.groups.create: 409 but path-resolve empty", "depId", depID, "name", body.Name)
+			writeJSON(w, http.StatusBadGateway, map[string]string{
+				"error":  "keycloak-create-conflict-resolve-empty",
+				"detail": "Keycloak returned 409 but the existing group could not be resolved",
+			})
+			return
+		}
+		// Return 201 with the existing group's representation. POST is
+		// modelled as upsert here — same status code on first create
+		// AND idempotent re-create — so callers don't need to branch
+		// on the response status to know the group exists. The body
+		// always carries the canonical KC group shape (id/name/path/
+		// attributes), which is what every caller actually consumes.
+		writeJSON(w, http.StatusCreated, kcGroupToResult(existing))
+		return
 	}
 	if err != nil {
 		h.log.Warn("keycloak.groups.create: failed", "depId", depID, "err", err)
@@ -343,6 +391,43 @@ func (h *Handler) HandleKeycloakGroupsCreate(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	writeJSON(w, http.StatusCreated, kcGroupToResult(created))
+}
+
+// lookupExistingGroup resolves the Keycloak group representation for
+// the (parentID, name) pair returned by HandleKeycloakGroupsCreate's
+// 409 path. For top-level groups (parentID empty) it uses
+// /group-by-path/{name} — Keycloak's canonical "find by path" endpoint.
+// For sub-groups it walks the parent's GET response and matches by
+// name on the SubGroups slice.
+//
+// This is the find half of the find-or-create idempotency contract
+// the HTTP API exposes. The keycloak package's EnsureGroup uses the
+// same shape for the controller-driven path; this function is the
+// HTTP-handler-driven equivalent so both call sites share the same
+// guarantees end-users see (qa-loop iter-7 TC-141).
+func (h *Handler) lookupExistingGroup(ctx context.Context, kc KeycloakAdminClient, parentID, name string) (keycloak.Group, error) {
+	if strings.TrimSpace(parentID) == "" {
+		// Top-level group: /group-by-path/{name} returns the canonical
+		// representation including UUID, attributes, and full path.
+		return kc.FindGroupByPath(ctx, "/"+name)
+	}
+	// Sub-group: KC's GET /groups/{parentId} returns the parent with
+	// its children inline. Walk the SubGroups slice to find the leaf.
+	parent, err := kc.GetGroup(ctx, parentID)
+	if err != nil {
+		return keycloak.Group{}, err
+	}
+	for _, child := range parent.SubGroups {
+		if child.Name == name {
+			return child, nil
+		}
+	}
+	// Sub-group missing under parent — return empty (not an error).
+	// Caller treats empty UUID as "couldn't resolve" and 502s; this
+	// shouldn't happen in practice because Keycloak's 409 implies the
+	// child IS present, but an empty return is safer than fabricating
+	// a missing UUID.
+	return keycloak.Group{}, nil
 }
 
 // HandleKeycloakGroupsUpdate — PUT /api/v1/sovereigns/{id}/keycloak/groups/{groupId}
