@@ -29,8 +29,16 @@ if [[ "$off" != "0" ]]; then
 fi
 echo "PASS: default-OFF = 0 resources"
 
-# 2. Fail-fast on empty image tag
-if helm template bp-k8s-ws-proxy . --set k8sWsProxy.enabled=true \
+# 2. Fail-fast on empty image tag (operator-override path).
+#    qa-loop iter-7 Fix #39 follow-up: build-k8s-ws-proxy.yaml's promote
+#    job auto-bumps values.yaml `image.tag` to a real SHA on every push,
+#    so testing the fail-fast contract requires explicitly clearing the
+#    tag with --set. Without the explicit clear, the test stops
+#    exercising the contract once any build commit lands. The contract
+#    itself (empty tag → render fail per _helpers.tpl) is unchanged.
+if helm template bp-k8s-ws-proxy . \
+    --set k8sWsProxy.enabled=true \
+    --set k8sWsProxy.image.tag= \
     >/dev/null 2>"$TMP/err"; then
   echo "FAIL: empty tag did not abort render"
   exit 1
