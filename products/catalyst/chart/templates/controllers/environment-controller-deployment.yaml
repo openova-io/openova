@@ -57,7 +57,10 @@ spec:
                 fieldRef:
                   fieldPath: metadata.namespace
             - name: GITEA_API_URL
-              value: {{ .Values.controllers.environment.giteaURL | default "http://gitea-http.gitea.svc.cluster.local:3000/api/v1" | quote }}
+              # Gitea client appends `/api/v1/<endpoint>` to BaseURL — the env
+              # value MUST NOT include `/api/v1` itself or requests become
+              # `<host>/api/v1/api/v1/<endpoint>` and 404. (Fix #40 follow-up.)
+              value: {{ .Values.controllers.environment.giteaURL | default "http://gitea-http.gitea.svc.cluster.local:3000" | quote }}
             - name: GITEA_TOKEN
               valueFrom:
                 secretKeyRef:
