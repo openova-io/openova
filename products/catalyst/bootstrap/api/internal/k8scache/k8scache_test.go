@@ -127,6 +127,14 @@ func TestRegistry_PluralAliasResolution(t *testing.T) {
 		{name: "kubectl short ns", query: "ns", want: "namespace"},
 		{name: "kubectl short svc", query: "svc", want: "service"},
 		{name: "case-insensitive plural", query: "Pods", want: "pod"},
+		// QA-loop iter-4 Fix #24 — CRD aliases. Operators reach for
+		// `kubectl get crd` (short singular), `kubectl get crds` (short
+		// plural), and `kubectl get customresourcedefinitions` (full
+		// plural). All three must hit the same canonical Kind.
+		{name: "kubectl short crd", query: "crd", want: "customresourcedefinition"},
+		{name: "kubectl short crds", query: "crds", want: "customresourcedefinition"},
+		{name: "plural customresourcedefinitions", query: "customresourcedefinitions", want: "customresourcedefinition"},
+		{name: "case-insensitive CRD", query: "CRD", want: "customresourcedefinition"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -201,6 +209,13 @@ func TestDefaultKinds_GraphAndDashboardSurface(t *testing.T) {
 		// Caught live on omantel iter-2: TC-122/196/199/248 returned 404
 		// "unknown kind" for the cluster-wide RBAC list.
 		"clusterrole", "clusterrolebinding",
+		// QA-loop iter-4 Fix #24 — apiextensions.k8s.io
+		// /customresourcedefinitions surfaced through /k8s/{kind}. The
+		// Sovereign Console's CRD inventory pane consumes this. Caught
+		// live on omantel iter-4: TC-199 returned HTTP 404 "unknown kind"
+		// because the GVR was never registered. Both the canonical
+		// singular AND the kubectl-short forms must resolve.
+		"customresourcedefinition",
 	}
 	for _, name := range mandatory {
 		if _, ok := r.Get(name); !ok {
