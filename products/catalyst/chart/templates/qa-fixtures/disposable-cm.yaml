@@ -1,0 +1,14 @@
+{{- if .Values.qaFixtures.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: disposable-cm
+  namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+data:
+  key: value
+  note: "qa-fixture for resource browser tests (TC-221)"
+{{- end }}

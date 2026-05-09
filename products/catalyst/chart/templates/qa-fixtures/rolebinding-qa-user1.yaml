@@ -1,0 +1,28 @@
+{{- if .Values.qaFixtures.enabled }}
+{{- /*
+  RoleBinding mirrors what useraccess-controller will eventually
+  emit, but is seeded inline so the matrix asserting RoleBinding
+  presence (TC-133) passes even before the controller has reconciled
+  the seeded UserAccess CR. Once the controller catches up, the
+  controller-managed RoleBinding co-exists by name+labels.
+*/ -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: qa-user1-developer
+  namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
+  labels:
+    openova.io/managed-by: useraccess-controller
+    catalyst.openova.io/managed-by: qa-fixtures
+    catalyst.openova.io/tier: developer
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: openova:tier-developer
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: User
+  name: oidc:{{ .Values.qaFixtures.qaUser.keycloakSubject | default "qa-user1" }}
+{{- end }}

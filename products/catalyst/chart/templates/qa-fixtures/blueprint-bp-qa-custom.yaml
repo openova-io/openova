@@ -1,0 +1,24 @@
+{{- if .Values.qaFixtures.enabled }}
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-qa-custom
+  labels:
+    catalyst.openova.io/managed-by: qa-fixtures
+    catalyst.openova.io/origin: org-private
+    catalyst.openova.io/curation: org-private
+    catalyst.openova.io/sovereign: {{ .Values.qaFixtures.sovereignRef | default "omantel" }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  version: "0.1.0"
+  card:
+    title: "QA Custom (Test Fixture)"
+    category: test
+    family: qa
+    description: "QA test blueprint for org-private/curation/catalog visibility tests (TC-081/TC-082/TC-084)"
+    icon: ""
+    license: "Apache-2.0"
+  manifests:
+    chart: bp-qa-custom
+{{- end }}

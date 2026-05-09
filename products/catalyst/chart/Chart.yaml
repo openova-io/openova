@@ -1,5 +1,19 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.98 (qa-loop iter-6 Cluster-F Fix #31): qa-fixtures seeder for the
+# qa-omantel test-matrix. Adds templates/qa-fixtures/ with the qa-omantel
+# Namespace, disposable-cm ConfigMap, qa-wp-creds Secret, qa-user1
+# UserAccess CR (cluster-system), qa-user1-developer RoleBinding, and
+# bp-qa-custom Blueprint. DEFAULT-OFF gate via `qaFixtures.enabled`
+# (false by default; flip to true on test Sovereigns only). Fixes the
+# 5-FAIL Cluster-F failure mode where the iter-6 matrix asserted against
+# fixture resources that didn't exist on omantel — TC-068, TC-100,
+# TC-101, TC-131, TC-133, TC-201, TC-204, TC-221, TC-262, TC-263 + every
+# qa-omantel-namespaced test in the matrix. Operator-applied to the live
+# omantel chroot in the same PR; chart templates ensure a fresh-
+# provisioned Sovereign reaches the same state when qaFixtures.enabled
+# is set in the per-Sovereign overlay.
+#
 # 1.4.97 (qa-loop iter-4 Fix #24): apiextensions.k8s.io/v1
 # customresourcedefinitions GVR added to k8scache.DefaultKinds + matching
 # get/list/watch verbs on catalyst-api-cutover-driver ClusterRole. Fixes
@@ -200,7 +214,7 @@ name: bp-catalyst-platform
 # precedence so openbao auto-rotation of the source doesn't thrash the
 # controller pod. Caught live on omantel 2026-05-09 during qa-loop
 # iter-1 Executor run.
-version: 1.4.97
+version: 1.4.98
 appVersion: 1.4.94
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.

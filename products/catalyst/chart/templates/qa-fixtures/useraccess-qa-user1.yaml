@@ -1,0 +1,29 @@
+{{- if .Values.qaFixtures.enabled }}
+apiVersion: access.openova.io/v1alpha1
+kind: UserAccess
+metadata:
+  name: qa-user1
+  namespace: catalyst-system
+  labels:
+    catalyst.openova.io/managed-by: qa-fixtures
+    catalyst.openova.io/tier: developer
+    openova.io/env-type: dev
+    openova.io/application: {{ .Values.qaFixtures.appName | default "qa-wp" }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    catalyst.openova.io/user-email: {{ .Values.qaFixtures.qaUser.email | default "qa-user1@openova.io" | quote }}
+    catalyst.openova.io/user-name: {{ .Values.qaFixtures.qaUser.name | default "qa-user1" | quote }}
+spec:
+  sovereignRef: {{ .Values.qaFixtures.sovereignRef | default "omantel" | quote }}
+  tierRoleRef: openova:tier-developer
+  user:
+    keycloakSubject: {{ .Values.qaFixtures.qaUser.keycloakSubject | default "qa-user1" | quote }}
+  scopes:
+  - key: openova.io/env-type
+    value: dev
+  - key: openova.io/application
+    value: {{ .Values.qaFixtures.appName | default "qa-wp" | quote }}
+  - key: organization
+    value: {{ .Values.qaFixtures.organization | default "omantel-platform" | quote }}
+{{- end }}

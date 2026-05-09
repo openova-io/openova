@@ -1,0 +1,12 @@
+{{- if .Values.qaFixtures.enabled }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
+  labels:
+    openova.io/env-type: dev
+    openova.io/managed-by: qa-fixtures
+    openova.io/application: {{ .Values.qaFixtures.appName | default "qa-wp" }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}

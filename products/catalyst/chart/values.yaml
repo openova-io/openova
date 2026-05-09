@@ -918,3 +918,26 @@ smeServices:
       owner: ""
       repo: openova
       branch: main
+
+# qaFixtures — qa-loop iter-6 Cluster-F seeder for the test-matrix
+# fixtures (qa-omantel namespace, disposable-cm, qa-wp-creds, qa-user1
+# UserAccess + RoleBinding, bp-qa-custom Blueprint). DEFAULT-OFF;
+# enable only on test Sovereigns. Production Sovereigns must keep
+# `enabled: false` so test resources never leak into customer clusters.
+# See templates/qa-fixtures/_README.txt for the full rationale.
+qaFixtures:
+  enabled: false
+  namespace: qa-omantel
+  appName: qa-wp
+  sovereignRef: omantel
+  organization: omantel-platform
+  qaUser:
+    email: qa-user1@openova.io
+    name: qa-user1
+    keycloakSubject: qa-user1
+  # qaWpPassword: optional explicit value for qa-wp-creds Secret.
+  # When empty the template derives a deterministic placeholder from
+  # the release name + namespace so the chart never bakes a hard-coded
+  # credential into the manifest stream. The matrix only checks for
+  # the Secret's existence, not the password value.
+  qaWpPassword: ""
