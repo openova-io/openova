@@ -45,6 +45,10 @@ import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import type { ApplicationStatus } from './eventReducer'
 import { ComplianceTab } from './AppDetail/ComplianceTab'
 import { MembersTab } from './AppDetail/MembersTab'
+import { TopologyTab } from './AppDetail/TopologyTab'
+import { ResourcesTab } from './AppDetail/ResourcesTab'
+import { LogsTab } from './AppDetail/LogsTab'
+import { SettingsTab } from './AppDetail/SettingsTab'
 
 interface AppDetailProps {
   /** Test seam — disables the live SSE EventSource attach. */
@@ -118,7 +122,23 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
   // U3 #1096; Members tab added in EPIC-3 slice U5 #1098). Default
   // landing is the Jobs tab so the operator sees their app's jobs
   // immediately on opening AppDetail.
-  const [appTab, setAppTab] = useState<'jobs' | 'dependencies' | 'compliance' | 'members'>('jobs')
+  // Tabs were extended in EPIC-2 slice T+O+P (#1097) to surface the
+  // full "Application page" tab set: Jobs / Dependencies / Topology /
+  // Resources (EPIC-4 stub) / Compliance / Logs (EPIC-4 stub) /
+  // Settings / Members. Per docs/INVIOLABLE-PRINCIPLES.md #1
+  // (target-state shape first time) every tab in the brief renders
+  // even when its full implementation lands in a later EPIC — the
+  // EPIC-4-dependent tabs render a "Coming in EPIC-4" placeholder.
+  const [appTab, setAppTab] = useState<
+    'jobs'
+    | 'dependencies'
+    | 'topology'
+    | 'resources'
+    | 'compliance'
+    | 'logs'
+    | 'settings'
+    | 'members'
+  >('jobs')
 
   // The Connection section renders only for backing-service Applications.
   // Future-proofed: descriptors will gain a `kind` field in a later
@@ -330,6 +350,30 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
                 {deps.length + reverseDeps.length}
               </span>
             </button>
+            {/* Topology tab — EPIC-2 slice T (#1097). Embeds the
+                topology editor (mode + region picker) + live status
+                panel reading Application.status.regions[]. */}
+            <button
+              type="button"
+              role="tab"
+              aria-selected={appTab === 'topology'}
+              data-testid="sov-app-tab-topology"
+              className={`app-tab ${appTab === 'topology' ? 'app-tab-active' : ''}`}
+              onClick={() => setAppTab('topology')}
+            >
+              Topology
+            </button>
+            {/* Resources tab — placeholder for EPIC-4's k9s view. */}
+            <button
+              type="button"
+              role="tab"
+              aria-selected={appTab === 'resources'}
+              data-testid="sov-app-tab-resources"
+              className={`app-tab ${appTab === 'resources' ? 'app-tab-active' : ''}`}
+              onClick={() => setAppTab('resources')}
+            >
+              Resources
+            </button>
             {/* Compliance tab — slice U3 (#1096). Embeds the App owner
                 compliance view alongside Jobs + Dependencies. */}
             <button
@@ -341,6 +385,29 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
               onClick={() => setAppTab('compliance')}
             >
               Compliance
+            </button>
+            {/* Logs tab — placeholder for EPIC-4's logs/events stream. */}
+            <button
+              type="button"
+              role="tab"
+              aria-selected={appTab === 'logs'}
+              data-testid="sov-app-tab-logs"
+              className={`app-tab ${appTab === 'logs' ? 'app-tab-active' : ''}`}
+              onClick={() => setAppTab('logs')}
+            >
+              Logs
+            </button>
+            {/* Settings tab — EPIC-2 slice O (#1097). Parameter editor
+                + Upgrade dialog + Uninstall dialog. */}
+            <button
+              type="button"
+              role="tab"
+              aria-selected={appTab === 'settings'}
+              data-testid="sov-app-tab-settings"
+              className={`app-tab ${appTab === 'settings' ? 'app-tab-active' : ''}`}
+              onClick={() => setAppTab('settings')}
+            >
+              Settings
             </button>
             {/* Members tab — EPIC-3 slice U5 (#1098). Embeds the per-
                 Application member list (UserAccess CRs scoped to this
@@ -361,12 +428,34 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
             <div role="tabpanel" data-testid="sov-app-tabpanel-jobs" className="app-tabpanel">
               <JobsTable jobs={flatJobs} appIdFilter={componentId} />
             </div>
+          ) : appTab === 'topology' ? (
+            <div role="tabpanel" data-testid="sov-app-tabpanel-topology" className="app-tabpanel">
+              <TopologyTab
+                sovereignId={deploymentId}
+                applicationName={componentId}
+              />
+            </div>
+          ) : appTab === 'resources' ? (
+            <div role="tabpanel" data-testid="sov-app-tabpanel-resources" className="app-tabpanel">
+              <ResourcesTab applicationName={componentId} />
+            </div>
           ) : appTab === 'compliance' ? (
             <div role="tabpanel" data-testid="sov-app-tabpanel-compliance" className="app-tabpanel">
               <ComplianceTab
                 sovereignId={deploymentId}
                 applicationName={componentId}
                 disableStream={disableStream}
+              />
+            </div>
+          ) : appTab === 'logs' ? (
+            <div role="tabpanel" data-testid="sov-app-tabpanel-logs" className="app-tabpanel">
+              <LogsTab applicationName={componentId} />
+            </div>
+          ) : appTab === 'settings' ? (
+            <div role="tabpanel" data-testid="sov-app-tabpanel-settings" className="app-tabpanel">
+              <SettingsTab
+                sovereignId={deploymentId}
+                applicationName={componentId}
               />
             </div>
           ) : appTab === 'members' ? (

@@ -256,3 +256,227 @@ export function applicationStreamURL(
   const qs = params.toString()
   return `${applicationsBase(sovereignId)}/${encodeURIComponent(name)}/stream${qs ? '?' + qs : ''}`
 }
+
+/* ── EPIC-2 Slice T+O+P (#1097) — update / delete / topology /
+ *      upgrade / publish / curate ────────────────────────────────── */
+
+/**
+ * ApplicationUpdateRequest — partial body of PUT
+ * /api/v1/sovereigns/{id}/applications/{name}.
+ *
+ * All fields optional; missing fields leave the existing value
+ * unchanged. The server enforces topology safety rules (active-active →
+ * single-region requires `?force=true`).
+ */
+export interface ApplicationUpdateRequest {
+  blueprintRef?: { name?: string; version: string }
+  parameters?: Record<string, unknown>
+  placement?: { mode: string; regions: string[] }
+}
+
+export interface ApplicationUpdateResponse {
+  name: string
+  namespace: string
+  uid: string
+  status?: Record<string, unknown>
+}
+
+export interface ApplicationDeleteResponse {
+  name: string
+  namespace: string
+  message: string
+}
+
+export async function updateApplication(
+  sovereignId: string,
+  name: string,
+  body: ApplicationUpdateRequest,
+  opts: { namespace?: string; force?: boolean } = {},
+): Promise<ApplicationUpdateResponse> {
+  const params = new URLSearchParams()
+  if (opts.namespace) params.set('namespace', opts.namespace)
+  if (opts.force) params.set('force', 'true')
+  const qs = params.toString()
+  const url = `${applicationsBase(sovereignId)}/${encodeURIComponent(name)}${qs ? '?' + qs : ''}`
+  const res = await authedFetch(url, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`update: HTTP ${res.status} ${detail}`)
+  }
+  return res.json()
+}
+
+export async function deleteApplication(
+  sovereignId: string,
+  name: string,
+  opts: { namespace?: string } = {},
+): Promise<ApplicationDeleteResponse> {
+  const params = new URLSearchParams()
+  if (opts.namespace) params.set('namespace', opts.namespace)
+  const qs = params.toString()
+  const url = `${applicationsBase(sovereignId)}/${encodeURIComponent(name)}${qs ? '?' + qs : ''}`
+  const res = await authedFetch(url, {
+    method: 'DELETE',
+    headers: { Accept: 'application/json' },
+  })
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`delete: HTTP ${res.status} ${detail}`)
+  }
+  return res.json()
+}
+
+/**
+ * Topology / upgrade preview body — fields default to the existing
+ * CR's values server-side. The shape is forward-compatible with the
+ * install preview (intentionally identical response).
+ */
+export interface ApplicationChangePreviewRequest {
+  placement?: { mode: string; regions: string[] }
+  parameters?: Record<string, unknown>
+  blueprintRef?: { name?: string; version: string }
+  environmentRef?: string
+}
+
+export async function previewTopologyChange(
+  sovereignId: string,
+  name: string,
+  body: ApplicationChangePreviewRequest,
+  opts: { namespace?: string } = {},
+): Promise<ApplicationPreviewResponse> {
+  const params = new URLSearchParams()
+  if (opts.namespace) params.set('namespace', opts.namespace)
+  const qs = params.toString()
+  const url = `${applicationsBase(sovereignId)}/${encodeURIComponent(name)}/topology/preview${qs ? '?' + qs : ''}`
+  const res = await authedFetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`topology-preview: HTTP ${res.status} ${detail}`)
+  }
+  return res.json()
+}
+
+export async function previewUpgrade(
+  sovereignId: string,
+  name: string,
+  targetVersion: string,
+  body: ApplicationChangePreviewRequest = {},
+  opts: { namespace?: string } = {},
+): Promise<ApplicationPreviewResponse> {
+  const params = new URLSearchParams()
+  params.set('targetVersion', targetVersion)
+  if (opts.namespace) params.set('namespace', opts.namespace)
+  const qs = params.toString()
+  const url = `${applicationsBase(sovereignId)}/${encodeURIComponent(name)}/upgrade/preview?${qs}`
+  const res = await authedFetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`upgrade-preview: HTTP ${res.status} ${detail}`)
+  }
+  return res.json()
+}
+
+/* ── Blueprint publish + curate (slice P) ──────────────────────── */
+
+function blueprintsBase(sovereignId: string): string {
+  return `${API_BASE}/v1/sovereigns/${encodeURIComponent(sovereignId)}/blueprints`
+}
+
+export interface BlueprintPublishRequest {
+  org: string
+  name: string
+  version: string
+  blueprintYaml: string
+  chartTarball?: string
+}
+
+export interface BlueprintPublishResponse {
+  org: string
+  name: string
+  version: string
+  repo: string
+  path: string
+  url: string
+  message: string
+}
+
+export async function publishBlueprint(
+  sovereignId: string,
+  body: BlueprintPublishRequest,
+): Promise<BlueprintPublishResponse> {
+  const res = await authedFetch(`${blueprintsBase(sovereignId)}/publish`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`publish: HTTP ${res.status} ${detail}`)
+  }
+  return res.json()
+}
+
+export interface BlueprintCurateRequest {
+  sourceOrg: string
+  blueprintName: string
+}
+
+export interface BlueprintCurateResponse {
+  blueprintName: string
+  sourceOrg: string
+  targetOrg: string
+  message: string
+}
+
+export async function curateBlueprint(
+  sovereignId: string,
+  body: BlueprintCurateRequest,
+): Promise<BlueprintCurateResponse> {
+  const res = await authedFetch(`${blueprintsBase(sovereignId)}/curate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`curate: HTTP ${res.status} ${detail}`)
+  }
+  return res.json()
+}
+
+export interface CuratableBlueprint {
+  org: string
+  name: string
+  version: string
+  title?: string
+}
+
+export interface CuratableBlueprintsResponse {
+  items: CuratableBlueprint[]
+}
+
+export async function listCuratableBlueprints(
+  sovereignId: string,
+  orgs: string[],
+): Promise<CuratableBlueprintsResponse> {
+  const params = new URLSearchParams()
+  if (orgs.length > 0) params.set('orgs', orgs.join(','))
+  const url = `${blueprintsBase(sovereignId)}/curatable?${params.toString()}`
+  const res = await authedFetch(url, { headers: { Accept: 'application/json' } })
+  if (!res.ok) {
+    throw new Error(`curatable: HTTP ${res.status}`)
+  }
+  return res.json()
+}

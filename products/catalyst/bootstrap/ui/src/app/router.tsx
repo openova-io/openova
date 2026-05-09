@@ -75,6 +75,9 @@ import { OrgMembersPage } from '@/pages/admin/rbac/OrgMembersPage'
 import { AccessMatrixPage } from '@/pages/admin/rbac/AccessMatrixPage'
 import { AuditPage } from '@/pages/admin/rbac/AuditPage'
 import { ParentDomainsPage } from '@/pages/admin/parent-domains/ParentDomainsPage'
+// EPIC-2 (#1097) slice P — Blueprint publishing + curate.
+import { PublishPage as BlueprintPublishPage } from '@/pages/admin/blueprints/PublishPage'
+import { CuratePage as BlueprintCuratePage } from '@/pages/admin/blueprints/CuratePage'
 import { SREDashboardPage } from '@/pages/admin/compliance/SREDashboardPage'
 import { SecLeadDashboardPage } from '@/pages/admin/compliance/SecLeadDashboardPage'
 import { PolicyDrilldownPage } from '@/pages/admin/compliance/PolicyDrilldownPage'
@@ -710,6 +713,24 @@ const provisionRBACRolesRoute = createRoute({
   beforeLoad: provisionAuthGuard,
 })
 
+// EPIC-2 (#1097) slice P — Blueprint publishing + Curate routes.
+// Mounted under /provision/$deploymentId/blueprints/* (mothership) and
+// /blueprints/* (chroot Sovereign Console — see consoleLayoutRoute
+// children below). Publish is per-Org owner; Curate is sovereign-admin
+// only.
+const provisionBlueprintsPublishRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/provision/$deploymentId/blueprints/publish',
+  component: BlueprintPublishPage,
+  beforeLoad: provisionAuthGuard,
+})
+const provisionBlueprintsCurateRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/provision/$deploymentId/blueprints/curate',
+  component: BlueprintCuratePage,
+  beforeLoad: provisionAuthGuard,
+})
+
 // EPIC-3 (#1098) slice U5-U8 — RBAC member views (per-org Members,
 // access matrix, audit trail). Per-Application Members tab lives
 // inside AppDetail and so doesn't need its own route.
@@ -970,6 +991,18 @@ const consoleRBACRolesRoute = createRoute({
   component: RoleBrowserPage,
 })
 
+// EPIC-2 (#1097) slice P — Blueprint publishing + Curate chroot routes.
+const consoleBlueprintsPublishRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/blueprints/publish',
+  component: BlueprintPublishPage,
+})
+const consoleBlueprintsCurateRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/blueprints/curate',
+  component: BlueprintCuratePage,
+})
+
 // EPIC-3 (#1098) slice U5-U8 — RBAC member views chroot routes.
 const consoleRBACMatrixRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
@@ -1226,6 +1259,9 @@ const routeTree = rootRoute.addChildren([
   provisionRBACMatrixRoute,
   provisionRBACAuditRoute,
   provisionOrgMembersRoute,
+  // EPIC-2 (#1097) slice P — Blueprint publishing + Curate routes.
+  provisionBlueprintsPublishRoute,
+  provisionBlueprintsCurateRoute,
   provisionSettingsRoute,
   provisionNotificationsRoute,
   // Compliance — slice U (#1096). Mother-side admin routes.
@@ -1259,6 +1295,9 @@ const routeTree = rootRoute.addChildren([
     consoleRBACMatrixRoute,
     consoleRBACAuditRoute,
     consoleOrgMembersRoute,
+    // EPIC-2 (#1097) slice P — Blueprint publishing + Curate chroot routes.
+    consoleBlueprintsPublishRoute,
+    consoleBlueprintsCurateRoute,
     consoleSettingsRoute,
     consoleSettingsMarketplaceRoute,
     consoleSMEUsersRoute,

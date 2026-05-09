@@ -1,0 +1,382 @@
+// blueprints_test.go — coverage for EPIC-2 Slice T+O+P (#1097)
+// Blueprint publishing + Curate handlers.
+package handler
+
+import (
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/go-chi/chi/v5"
+
+	"github.com/openova-io/openova/core/controllers/pkg/gitea"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
+)
+
+// fakeGiteaClient is an in-memory stub of GiteaBlueprintClient.
+type fakeGiteaClient struct {
+	mu    sync.Mutex
+	files map[string][]byte // org/repo/branch/path → bytes
+	repos map[string]bool   // org/repo → exists
+	orgs  map[string]bool   // org → exists
+	dirs  map[string][]gitea.ContentEntry
+}
+
+func newFakeGitea() *fakeGiteaClient {
+	return &fakeGiteaClient{
+		files: map[string][]byte{},
+		repos: map[string]bool{},
+		orgs:  map[string]bool{},
+		dirs:  map[string][]gitea.ContentEntry{},
+	}
+}
+
+func giteaKey(org, repo, branch, path string) string {
+	return org + "/" + repo + "/" + branch + "/" + path
+}
+
+func (f *fakeGiteaClient) EnsureOrg(_ context.Context, slug, _, _, _ string) (gitea.Org, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.orgs[slug] = true
+	return gitea.Org{Username: slug}, nil
+}
+
+func (f *fakeGiteaClient) EnsureRepo(_ context.Context, org, name, _ string, _ bool) (gitea.Repo, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.repos[org+"/"+name] = true
+	return gitea.Repo{Name: name}, nil
+}
+
+func (f *fakeGiteaClient) PutFile(_ context.Context, org, repo, branch, path string, data []byte, _ string, _ ...gitea.PutFileOpts) (gitea.File, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.files[giteaKey(org, repo, branch, path)] = data
+	return gitea.File{Path: path, ContentBase64: base64.StdEncoding.EncodeToString(data)}, true, nil
+}
+
+func (f *fakeGiteaClient) GetFile(_ context.Context, org, repo, branch, path string) (gitea.File, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	b, ok := f.files[giteaKey(org, repo, branch, path)]
+	if !ok {
+		return gitea.File{}, gitea.ErrFileNotFound
+	}
+	return gitea.File{
+		Path:          path,
+		ContentBase64: base64.StdEncoding.EncodeToString(b),
+		Type:          "file",
+	}, nil
+}
+
+func (f *fakeGiteaClient) ListOrgRepos(_ context.Context, org string) ([]gitea.Repo, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := []gitea.Repo{}
+	for k := range f.repos {
+		if strings.HasPrefix(k, org+"/") {
+			out = append(out, gitea.Repo{Name: strings.TrimPrefix(k, org+"/")})
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeGiteaClient) ListContents(_ context.Context, org, repo, _, path string) ([]gitea.ContentEntry, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if v, ok := f.dirs[org+"/"+repo+"/"+path]; ok {
+		return v, nil
+	}
+	return nil, gitea.ErrFileNotFound
+}
+
+// validBlueprintYAML returns a canonical bp-acme blueprint.yaml.
+func validBlueprintYAML(name, version string) string {
+	return `apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: ` + name + `
+spec:
+  version: ` + version + `
+  card:
+    title: Test Blueprint
+  manifests:
+    chart: ` + strings.TrimPrefix(name, "bp-") + `
+    source:
+      kind: HelmRepository
+      ref: bitnami
+  configSchema:
+    type: object
+`
+}
+
+// ── Publish 200 happy path ───────────────────────────────────────────
+
+func TestHandleBlueprintPublish_WritesToGitea(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	gc := newFakeGitea()
+	h.SetGiteaClient(gc)
+	dep := installUserAccessDeployment(t, h, "dep-bp-publish")
+
+	body := blueprintPublishRequest{
+		Org:           "acme",
+		Name:          "bp-acme-internal",
+		Version:       "1.0.0",
+		BlueprintYAML: validBlueprintYAML("bp-acme-internal", "1.0.0"),
+	}
+	rec := callUserAccess(t, h, http.MethodPost,
+		"/api/v1/sovereigns/"+dep.ID+"/blueprints/publish", body, registerBlueprintRoutes)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	wrote, ok := gc.files[giteaKey("acme", sharedBlueprintsRepo, blueprintBranch, "bp-acme-internal/blueprint.yaml")]
+	if !ok {
+		t.Fatalf("expected blueprint.yaml to be written; gitea state=%v", gc.files)
+	}
+	if !strings.Contains(string(wrote), "bp-acme-internal") {
+		t.Fatalf("written content missing name; got %s", string(wrote))
+	}
+}
+
+// ── Publish 400 on bad YAML ──────────────────────────────────────────
+
+func TestHandleBlueprintPublish_RejectsBadYAML(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	gc := newFakeGitea()
+	h.SetGiteaClient(gc)
+	dep := installUserAccessDeployment(t, h, "dep-bp-bad-yaml")
+
+	// kind != Blueprint
+	bad := `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bp-bad
+spec:
+  version: 1.0.0
+`
+	body := blueprintPublishRequest{
+		Org:           "acme",
+		Name:          "bp-bad",
+		Version:       "1.0.0",
+		BlueprintYAML: bad,
+	}
+	rec := callUserAccess(t, h, http.MethodPost,
+		"/api/v1/sovereigns/"+dep.ID+"/blueprints/publish", body, registerBlueprintRoutes)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d want 400; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// ── Publish 400 on shape mismatch ────────────────────────────────────
+
+func TestHandleBlueprintPublish_RejectsBadShape(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	gc := newFakeGitea()
+	h.SetGiteaClient(gc)
+	dep := installUserAccessDeployment(t, h, "dep-bp-bad-shape")
+
+	body := blueprintPublishRequest{
+		Org:           "acme",
+		Name:          "no-prefix", // missing bp- prefix
+		Version:       "1.0.0",
+		BlueprintYAML: validBlueprintYAML("no-prefix", "1.0.0"),
+	}
+	rec := callUserAccess(t, h, http.MethodPost,
+		"/api/v1/sovereigns/"+dep.ID+"/blueprints/publish", body, registerBlueprintRoutes)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d want 400; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// ── Publish 503 when gitea unwired ───────────────────────────────────
+
+func TestHandleBlueprintPublish_503WhenGiteaUnwired(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	dep := installUserAccessDeployment(t, h, "dep-bp-unwired")
+
+	body := blueprintPublishRequest{
+		Org:           "acme",
+		Name:          "bp-x",
+		Version:       "1.0.0",
+		BlueprintYAML: validBlueprintYAML("bp-x", "1.0.0"),
+	}
+	rec := callUserAccess(t, h, http.MethodPost,
+		"/api/v1/sovereigns/"+dep.ID+"/blueprints/publish", body, registerBlueprintRoutes)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status: got %d want 503; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// ── Publish 403 unauthorized ─────────────────────────────────────────
+
+func TestHandleBlueprintPublish_ForbiddenWhenNotTierAdmin(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	h.SetGiteaClient(newFakeGitea())
+	dep := installUserAccessDeployment(t, h, "dep-bp-403")
+
+	body := blueprintPublishRequest{
+		Org:           "acme",
+		Name:          "bp-x",
+		Version:       "1.0.0",
+		BlueprintYAML: validBlueprintYAML("bp-x", "1.0.0"),
+	}
+	r := chi.NewRouter()
+	registerBlueprintRoutes(r, h)
+	raw, _ := json.Marshal(body)
+	req, _ := http.NewRequest(http.MethodPost,
+		"/api/v1/sovereigns/"+dep.ID+"/blueprints/publish", strings.NewReader(string(raw)))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(context.WithValue(req.Context(), auth.ClaimsKey, &auth.Claims{Tier: "viewer"}))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status: got %d want 403; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// ── Curate 200 happy path ────────────────────────────────────────────
+
+func TestHandleBlueprintCurate_PromotesToCatalogSovereign(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	gc := newFakeGitea()
+	h.SetGiteaClient(gc)
+	dep := installUserAccessDeployment(t, h, "dep-bp-curate")
+
+	// Pre-seed source.
+	sourceBytes := []byte(validBlueprintYAML("bp-acme-internal", "1.0.0"))
+	gc.files[giteaKey("acme", sharedBlueprintsRepo, blueprintBranch, "bp-acme-internal/blueprint.yaml")] = sourceBytes
+
+	body := blueprintCurateRequest{
+		SourceOrg:     "acme",
+		BlueprintName: "bp-acme-internal",
+	}
+	rec := callUserAccess(t, h, http.MethodPost,
+		"/api/v1/sovereigns/"+dep.ID+"/blueprints/curate", body, registerBlueprintRoutes)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	// Verify it landed in catalog-sovereign org.
+	wrote, ok := gc.files[giteaKey(catalogSovereignOrg, "bp-acme-internal", blueprintBranch, "blueprint.yaml")]
+	if !ok {
+		t.Fatalf("expected curated copy; gitea=%v", gc.files)
+	}
+	if string(wrote) != string(sourceBytes) {
+		t.Fatalf("curated content mismatch; got %s", string(wrote))
+	}
+}
+
+// ── Curate 404 on missing source ─────────────────────────────────────
+
+func TestHandleBlueprintCurate_404OnMissingSource(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	h.SetGiteaClient(newFakeGitea())
+	dep := installUserAccessDeployment(t, h, "dep-bp-curate-404")
+
+	body := blueprintCurateRequest{
+		SourceOrg:     "ghost",
+		BlueprintName: "bp-nonexistent",
+	}
+	rec := callUserAccess(t, h, http.MethodPost,
+		"/api/v1/sovereigns/"+dep.ID+"/blueprints/curate", body, registerBlueprintRoutes)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status: got %d want 404; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// ── Curate 403 when not sovereign-admin ──────────────────────────────
+
+func TestHandleBlueprintCurate_403WhenNotSovereignAdmin(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	h.SetGiteaClient(newFakeGitea())
+	dep := installUserAccessDeployment(t, h, "dep-bp-curate-403")
+
+	body := blueprintCurateRequest{
+		SourceOrg:     "acme",
+		BlueprintName: "bp-x",
+	}
+	r := chi.NewRouter()
+	registerBlueprintRoutes(r, h)
+	raw, _ := json.Marshal(body)
+	req, _ := http.NewRequest(http.MethodPost,
+		"/api/v1/sovereigns/"+dep.ID+"/blueprints/curate", strings.NewReader(string(raw)))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(context.WithValue(req.Context(), auth.ClaimsKey, &auth.Claims{Tier: "developer"}))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status: got %d want 403; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// ── List curatable ───────────────────────────────────────────────────
+
+func TestHandleBlueprintListCuratable_EnumeratesOrgRepos(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	gc := newFakeGitea()
+	h.SetGiteaClient(gc)
+	dep := installUserAccessDeployment(t, h, "dep-bp-list-curatable")
+
+	// Seed acme/shared-blueprints with two bp-* entries.
+	gc.dirs["acme/"+sharedBlueprintsRepo+"/"] = []gitea.ContentEntry{
+		{Name: "bp-foo", Type: "dir"},
+		{Name: "bp-bar", Type: "dir"},
+		{Name: "README.md", Type: "file"},
+	}
+	gc.files[giteaKey("acme", sharedBlueprintsRepo, blueprintBranch, "bp-foo/blueprint.yaml")] = []byte(validBlueprintYAML("bp-foo", "1.0.0"))
+	gc.files[giteaKey("acme", sharedBlueprintsRepo, blueprintBranch, "bp-bar/blueprint.yaml")] = []byte(validBlueprintYAML("bp-bar", "2.0.0"))
+
+	rec := callUserAccess(t, h, http.MethodGet,
+		"/api/v1/sovereigns/"+dep.ID+"/blueprints/curatable?orgs=acme,ghost",
+		nil, registerBlueprintRoutes)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var resp curatableBlueprintsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Items) != 2 {
+		t.Fatalf("items: got %d want 2; %v", len(resp.Items), resp.Items)
+	}
+}
+
+// ── Validators ───────────────────────────────────────────────────────
+
+func TestLooksLikeSemver(t *testing.T) {
+	cases := []struct {
+		in string
+		ok bool
+	}{
+		{"1.0.0", true},
+		{"1.2.3", true},
+		{"1.2.3-rc1", true},
+		{"1.2.3+build", true},
+		{"v1.0.0", false},
+		{"latest", false},
+		{"1.0", false},
+		{"", false},
+	}
+	for _, tc := range cases {
+		got := looksLikeSemver(tc.in)
+		if got != tc.ok {
+			t.Errorf("looksLikeSemver(%q) = %v, want %v", tc.in, got, tc.ok)
+		}
+	}
+}
+
+func TestParseBlueprintMeta_Roundtrip(t *testing.T) {
+	yaml := validBlueprintYAML("bp-x", "5.0.0")
+	v, title := parseBlueprintMeta([]byte(yaml))
+	if v != "5.0.0" {
+		t.Fatalf("version: got %q want 5.0.0", v)
+	}
+	if title != "Test Blueprint" {
+		t.Fatalf("title: got %q", title)
+	}
+}

@@ -349,6 +349,19 @@ type Handler struct {
 	// build the client from env on first call.
 	kcAdminClient KeycloakAdminClient
 
+	// ── Blueprint publishing (EPIC-2 #1097 slice T+O+P) ───────────
+	// giteaClient — the unified Gitea client used by the
+	// /blueprints/publish + /blueprints/curate handlers to write
+	// per-Org Blueprints into `<org>/shared-blueprints` and curate
+	// into `catalog-sovereign`. Per ADR-0001 §4.3 Gitea is the
+	// source-of-truth for Blueprints; this handler is a thin wrapper.
+	// Nil-tolerant: when nil the publish + curate endpoints return
+	// 503 ("gitea-not-wired") so existing tests keep working.
+	// Wired from main.go via NewGiteaClientFromEnv (reads
+	// CATALYST_GITEA_URL + CATALYST_GITEA_TOKEN); tests inject a stub
+	// directly via SetGiteaClient.
+	giteaClient GiteaBlueprintClient
+
 	// ── RBAC audit bus (EPIC-3 #1098 slice U8) ─────────────────────
 	// auditBus — in-process ring buffer + SSE fan-out + optional
 	// NATS-publisher forwarder. The /audit/rbac list endpoint reads

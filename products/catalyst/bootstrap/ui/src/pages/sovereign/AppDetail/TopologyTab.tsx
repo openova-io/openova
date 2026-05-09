@@ -1,0 +1,230 @@
+/**
+ * TopologyTab — per-Application topology editor + live status panel,
+ * embedded in the AppDetail page (EPIC-2 #1097 slice T).
+ *
+ * Renders, per the brief:
+ *
+ *  • Mode picker + region multi-select (TopologyEditor widget)
+ *  • Live status panel — per-region rollout state (read from
+ *    Application.status.regions[]); replication lag for
+ *    active-hotstandby (Continuum CR; "—" when absent); last
+ *    switchover event (read-only).
+ *
+ * Per docs/INVIOLABLE-PRINCIPLES.md #4 every URL derives from the
+ * catalog.api helpers (API_BASE-rooted). Status data uses the same
+ * GET /applications/{name}/status endpoint slice I shipped.
+ *
+ * Sub-page tab pattern per the seam map (slice U / ComplianceTab,
+ * slice U5 / MembersTab): tab files live in a sibling directory next
+ * to the page.
+ */
+
+import { useEffect, useMemo, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+
+import {
+  getApplicationStatus,
+  getCatalogItem,
+  type CatalogItem,
+} from '@/lib/catalog.api'
+import { TopologyEditor } from '@/widgets/topology/TopologyEditor'
+
+export interface TopologyTabProps {
+  /** Sovereign id (deploymentId on chroot, mother). */
+  sovereignId: string
+  /** Application name. */
+  applicationName: string
+  /** Org namespace. */
+  namespace?: string
+  /** Test seam — pre-fill data, skip network. */
+  initialApp?: ApplicationStatus
+  /** Test seam — bypass apply network call. */
+  disableNetwork?: boolean
+}
+
+interface ApplicationStatus {
+  name: string
+  namespace: string
+  phase?: string
+  status?: Record<string, unknown>
+  spec?: ApplicationSpec
+}
+
+interface ApplicationSpec {
+  blueprintRef?: { name?: string; version?: string }
+  placement?: string
+  regions?: string[]
+  environmentRef?: string
+}
+
+interface RegionStatus {
+  name: string
+  role?: string
+  replicas?: number
+  ready?: number
+  lastTransitionTime?: string
+}
+
+export function TopologyTab({
+  sovereignId,
+  applicationName,
+  namespace,
+  initialApp,
+  disableNetwork = false,
+}: TopologyTabProps) {
+  const qc = useQueryClient()
+  const [refreshTick, setRefreshTick] = useState(0)
+
+  const statusQ = useQuery({
+    queryKey: ['application-status', sovereignId, applicationName, namespace, refreshTick],
+    queryFn: () => getApplicationStatus(sovereignId, applicationName, namespace),
+    enabled: !initialApp && !!sovereignId && !!applicationName,
+    refetchInterval: 10_000,
+  })
+
+  // Resolve the spec view of the Application — this comes from the
+  // status endpoint AS WELL as the spec block (catalyst-api returns
+  // both for completeness on the same payload — see slice I's
+  // ApplicationStatusResponse). For tests / disableNetwork paths the
+  // initialApp prop is the source.
+  const app: ApplicationStatus | undefined = initialApp ?? statusQ.data
+
+  const currentMode = useMemo(() => {
+    if (!app) return 'single-region'
+    const fromSpec = (app.spec?.placement ?? '').trim()
+    if (fromSpec) return fromSpec
+    const fromStatus = (app.status as Record<string, unknown> | undefined)?.placement as string | undefined
+    return fromStatus ?? 'single-region'
+  }, [app])
+
+  const currentRegions = useMemo(() => {
+    if (!app) return [] as string[]
+    const fromSpec = app.spec?.regions
+    if (Array.isArray(fromSpec)) return fromSpec
+    const statusRegions = ((app.status as Record<string, unknown> | undefined)?.regions ?? []) as RegionStatus[]
+    return statusRegions.map((r) => r.name).filter(Boolean)
+  }, [app])
+
+  const regionStatuses: RegionStatus[] = useMemo(() => {
+    const statusRegions = ((app?.status as Record<string, unknown> | undefined)?.regions ?? []) as RegionStatus[]
+    return statusRegions
+  }, [app])
+
+  // Pull the Blueprint card so the placementSchema modes constraint
+  // applies. The status endpoint includes blueprintRef on the spec; we
+  // call /catalog/{name} to read placementSchema.modes.
+  const blueprintRef = app?.spec?.blueprintRef
+  const blueprintQ = useQuery({
+    queryKey: ['catalog-item', blueprintRef?.name],
+    queryFn: () => getCatalogItem(blueprintRef!.name!),
+    enabled: !!blueprintRef?.name,
+    staleTime: 60_000,
+  })
+  const blueprint: CatalogItem | undefined = blueprintQ.data
+
+  // Available regions placeholder — slice T accepts the AppDetail's
+  // canonical region pool through props in a future refactor; for now
+  // we surface the union of currently-deployed regions and let the
+  // operator type-add via region picker. Sovereign /clusters is wired
+  // via a follow-up in EPIC-4 (the Resources tab).
+  const availableRegions = useMemo(() => {
+    const set = new Set<string>(currentRegions)
+    // Add canonical Hetzner / Equinix labels so a fresh active-active
+    // upgrade has something to pick from. The list is illustrative —
+    // future EPIC-4 wires the actual cluster list.
+    for (const candidate of ['hz-fsn-rtz-prod', 'hz-hel-rtz-prod', 'hz-nbg-rtz-prod']) {
+      set.add(candidate)
+    }
+    return Array.from(set).sort()
+  }, [currentRegions])
+
+  useEffect(() => {
+    // When initialApp updates, just trigger no-op so consumers re-derive.
+  }, [initialApp])
+
+  return (
+    <div className="topology-tab" data-testid="app-topology-tab">
+      <p className="mb-3 text-xs text-[var(--color-text-dim)]">
+        Edit the placement mode and region set for{' '}
+        <code className="font-mono text-[var(--color-text)]">{applicationName}</code>. Apply
+        commits the change to the Application CR; the application-controller fans out
+        per-region HelmReleases and reconciles the rollout.
+      </p>
+
+      <TopologyEditor
+        sovereignId={sovereignId}
+        applicationName={applicationName}
+        currentMode={currentMode}
+        currentRegions={currentRegions}
+        availableRegions={availableRegions}
+        namespace={namespace}
+        blueprint={blueprint}
+        disableNetwork={disableNetwork}
+        onApplied={() => {
+          setRefreshTick((t) => t + 1)
+          void qc.invalidateQueries({ queryKey: ['application-status'] })
+        }}
+      />
+
+      <h3 className="mt-6 mb-2 text-sm font-medium text-[var(--color-text-strong)]">
+        Live status
+      </h3>
+
+      <div
+        className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] p-3"
+        data-testid="topology-tab-status-panel"
+      >
+        {!app ? (
+          <p className="text-xs text-[var(--color-text-dim)]" data-testid="topology-tab-status-loading">
+            Loading status…
+          </p>
+        ) : regionStatuses.length === 0 ? (
+          <p className="text-xs text-[var(--color-text-dim)]" data-testid="topology-tab-status-empty">
+            No per-region status yet — the controller has not reported a rollout state.
+          </p>
+        ) : (
+          <ul className="space-y-1.5" role="list">
+            {regionStatuses.map((r) => (
+              <li
+                key={r.name}
+                data-testid={`topology-tab-region-${r.name}`}
+                className="grid grid-cols-[8rem_4rem_5rem_1fr] items-center gap-2 text-xs"
+              >
+                <code className="font-mono text-[var(--color-text)]">{r.name}</code>
+                <span
+                  className={`inline-flex items-center justify-center rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase ${
+                    r.role === 'primary'
+                      ? 'bg-green-500/10 text-green-400'
+                      : r.role === 'standby'
+                        ? 'bg-yellow-500/10 text-yellow-400'
+                        : 'bg-[var(--color-border)]/40 text-[var(--color-text-dim)]'
+                  }`}
+                >
+                  {r.role ?? 'active'}
+                </span>
+                <span className="font-mono text-[var(--color-text-dim)]">
+                  {r.ready ?? 0}/{r.replicas ?? '?'}
+                </span>
+                <span className="text-[var(--color-text-dim)]">
+                  {r.lastTransitionTime ? new Date(r.lastTransitionTime).toLocaleString() : '—'}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="mt-3 grid grid-cols-2 gap-3 text-xs text-[var(--color-text-dim)]">
+          <div data-testid="topology-tab-replication-lag">
+            <strong className="text-[var(--color-text)]">Replication lag</strong>:{' '}
+            {currentMode === 'active-hotstandby' ? '—' : 'n/a (mode)'}
+          </div>
+          <div data-testid="topology-tab-last-switchover">
+            <strong className="text-[var(--color-text)]">Last switchover</strong>:{' '}
+            {(app?.status as Record<string, unknown> | undefined)?.lastSwitchover
+              ? String((app?.status as Record<string, unknown>).lastSwitchover)
+              : '—'}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
