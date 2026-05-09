@@ -64,16 +64,34 @@ import (
 
 func main() {
 	var (
-		metricsAddr string
-		probeAddr   string
+		metricsAddr          string
+		probeAddr            string
+		enableLeaderElection bool
+		leaderElectNS        string
 	)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", env("METRICS_ADDR", ":8080"), "Address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", env("HEALTH_ADDR", ":8081"), "Address the probe endpoint binds to.")
+	// Chart contract: products/catalyst/chart/templates/controllers/application-controller-deployment.yaml
+	// passes --leader-elect={{ .Values.controllers.application.leaderElection.enabled }}
+	// (and the sibling controllers do the same). Define the flag so the
+	// binary doesn't crash on parse. The application controller uses a
+	// custom unstructured.Watch loop rather than controller-runtime's
+	// Manager (see runProbes comment below for the rationale), so
+	// leader-election is currently a no-op — a single replica is
+	// authoritative. The chart defaults replicas: 1; if/when HA is
+	// introduced for this controller, wire enableLeaderElection +
+	// leaderElectNS into a Lease-based election here.
+	flag.BoolVar(&enableLeaderElection, "leader-elect", envBool("LEADER_ELECT", true), "Enable leader election (currently no-op; single-replica only).")
+	flag.StringVar(&leaderElectNS, "leader-elect-namespace", env("LEADER_ELECT_NS", podNamespace()), "Namespace for the leader-election Lease (currently no-op).")
 	flag.Parse()
 
 	level := parseLogLevel(env("LOG_LEVEL", "info"))
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 	slog.SetDefault(logger)
+	if enableLeaderElection {
+		logger.Info("leader-elect requested but unimplemented for application-controller; running as single replica",
+			"leaderElectNS", leaderElectNS)
+	}
 
 	cfg := loadConfigFromEnv()
 	logger.Info("starting application-controller",
@@ -210,4 +228,35 @@ func envInt(key string, fallback int) int {
 		}
 	}
 	return fallback
+}
+
+// envBool reads a bool env var; the empty value or invalid input
+// returns the fallback. Mirrors useraccess-controller for consistency.
+func envBool(key string, fallback bool) bool {
+	v, ok := os.LookupEnv(key)
+	if !ok {
+		return fallback
+	}
+	switch v {
+	case "true", "1", "yes":
+		return true
+	case "false", "0", "no":
+		return false
+	default:
+		return fallback
+	}
+}
+
+// podNamespace reads /var/run/secrets/kubernetes.io/serviceaccount/namespace
+// (the in-cluster ServiceAccount projection). When run out of cluster
+// (`go run ./cmd`) it falls back to "openova-system" — the canonical
+// home for Catalyst control-plane components per
+// docs/EPICS-1-6-unified-design.md §1.2.
+func podNamespace() string {
+	const path = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "openova-system"
+	}
+	return string(b)
 }
