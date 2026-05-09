@@ -12,14 +12,14 @@ export interface LogsTabProps {
 
 export function LogsTab({ applicationName }: LogsTabProps) {
   return (
-    <div className="logs-tab" data-testid="app-logs-tab">
+    <div className="logs-tab" data-testid="app-logs-tabpanel">
       <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] p-6 text-center">
         <h3 className="mb-2 text-sm font-medium text-[var(--color-text-strong)]">Logs / Events</h3>
         <p className="text-xs text-[var(--color-text-dim)]">
           Live stream of Application logs + Kubernetes events for{' '}
           <code className="font-mono text-[var(--color-text)]">{applicationName}</code>.
         </p>
-        <p className="mt-3 text-xs italic text-[var(--color-text-dim)]" data-testid="app-logs-tab-coming">
+        <p className="mt-3 text-xs italic text-[var(--color-text-dim)]" data-testid="app-logs-tabpanel-coming">
           Coming in EPIC-4.
         </p>
       </div>

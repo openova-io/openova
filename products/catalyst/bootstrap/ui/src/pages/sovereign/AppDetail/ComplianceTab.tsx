@@ -125,7 +125,7 @@ export function ComplianceTab({
   const targetGap = total !== null && total < TARGET_SCORE ? TARGET_SCORE - total : 0
 
   return (
-    <div className="app-tabpanel" data-testid="app-compliance-tab">
+    <div className="app-tabpanel" data-testid="app-compliance-tabpanel">
       {/* Score hero */}
       <div className="mb-4 flex items-center gap-4 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] p-4">
         <div

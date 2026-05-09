@@ -118,7 +118,7 @@ export function SettingsTab({
   }
 
   return (
-    <div className="settings-tab" data-testid="app-settings-tab">
+    <div className="settings-tab" data-testid="app-settings-tabpanel">
       <p className="mb-4 text-xs text-[var(--color-text-dim)]">
         Edit parameters, upgrade the Blueprint, or uninstall this Application.
       </p>

@@ -27,6 +27,7 @@ import {
   createMemoryHistory,
   Outlet,
 } from '@tanstack/react-router'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AppDetail } from './AppDetail'
 import { useWizardStore } from '@/entities/deployment/store'
 import { INITIAL_WIZARD_STATE } from '@/entities/deployment/model'
@@ -60,7 +61,17 @@ function renderDetail(deploymentId: string, componentId: string) {
       initialEntries: [`/provision/${deploymentId}/app/${componentId}`],
     }),
   })
-  return render(<RouterProvider router={router} />)
+  // QueryClientProvider is required because the EPIC-2 sub-tabs (Settings,
+  // Topology, Compliance, Members) use @tanstack/react-query under the
+  // hood. Production wraps the entire app in main.tsx; the test must
+  // mirror that or AppDetail's children throw "No QueryClient set" and
+  // the page never paints — making every sov-* / app-* assertion fail.
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(
+    <QueryClientProvider client={qc}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  )
 }
 
 beforeEach(() => {
@@ -81,10 +92,16 @@ describe('AppDetail — hero', () => {
     expect(screen.getByText('Cilium')).toBeTruthy()
   })
 
-  it('back link points to the apps grid', async () => {
+  it('back link points to the dashboard (chroot Sovereign + provision flows share one back target)', async () => {
+    // Post-#1052 (chroot Sovereign in-cluster fallback) the AppDetail
+    // back link routes to /dashboard for BOTH the wizard /provision
+    // tree and the chroot /app tree. The Sovereign Dashboard is the
+    // canonical "home" for an installed Sovereign; the wizard's apps
+    // grid (/provision/$deploymentId) is the staging surface that
+    // disappears once a deployment lands.
     renderDetail('d-1', 'bp-cilium')
     const back = await screen.findByTestId('sov-back-link')
-    expect(back.getAttribute('href')).toBe('/provision/d-1')
+    expect(back.getAttribute('href')).toBe('/dashboard')
   })
 
   it('renders a not-found fallback for an unknown componentId', async () => {
@@ -111,14 +128,14 @@ describe('AppDetail — section order', () => {
 describe('AppDetail — Jobs tab (founder spec #9 + #8b)', () => {
   it('renders a tab labelled "Jobs"', async () => {
     renderDetail('d-1', 'bp-cilium')
-    const tab = await screen.findByTestId('sov-app-tab-jobs')
+    const tab = await screen.findByTestId('app-jobs-tab')
     expect(tab.getAttribute('role')).toBe('tab')
     expect((tab.textContent ?? '').toLowerCase()).toContain('jobs')
   })
 
   it('default-selects the Jobs tab so the table renders on first paint', async () => {
     renderDetail('d-1', 'bp-cilium')
-    const tab = await screen.findByTestId('sov-app-tab-jobs')
+    const tab = await screen.findByTestId('app-jobs-tab')
     expect(tab.getAttribute('aria-selected')).toBe('true')
     const panel = await screen.findByTestId('sov-app-tabpanel-jobs')
     // Inside the panel, the JobsTable surface is present.
@@ -145,10 +162,71 @@ describe('AppDetail — Jobs tab (founder spec #9 + #8b)', () => {
 
   it('switching to the Dependencies tab swaps the panel contents', async () => {
     renderDetail('d-1', 'bp-cilium')
-    const depTab = await screen.findByTestId('sov-app-tab-dependencies')
+    const depTab = await screen.findByTestId('app-dependencies-tab')
     fireEvent.click(depTab)
     expect(depTab.getAttribute('aria-selected')).toBe('true')
     expect(screen.queryByTestId('sov-app-tabpanel-jobs')).toBeNull()
     expect(screen.queryByTestId('sov-app-tabpanel-dependencies')).toBeTruthy()
+  })
+})
+
+describe('AppDetail — qa-loop iter-1 tab test-id contract (TC-043..048)', () => {
+  // Per the qa-loop seam map: every tab BUTTON in the tablist exposes
+  // `data-testid="app-<name>-tab"` so Playwright matrix selectors find
+  // them on first paint without needing to know the legacy `sov-app-tab-*`
+  // alias. The corresponding tab PANEL exposes `app-<name>-tabpanel`.
+  const TABS = [
+    'jobs',
+    'dependencies',
+    'topology',
+    'resources',
+    'compliance',
+    'logs',
+    'settings',
+    'members',
+  ] as const
+
+  it.each(TABS)('renders the %s tab button with the seam-map test-id', async (name) => {
+    renderDetail('d-1', 'bp-cilium')
+    const btn = await screen.findByTestId(`app-${name}-tab`)
+    expect(btn.getAttribute('role')).toBe('tab')
+  })
+
+  it('clicking the Topology tab reveals the app-topology-tabpanel content', async () => {
+    renderDetail('d-1', 'bp-cilium')
+    fireEvent.click(await screen.findByTestId('app-topology-tab'))
+    expect(await screen.findByTestId('app-topology-tabpanel')).toBeTruthy()
+  })
+
+  it('clicking the Settings tab reveals upgrade + uninstall buttons', async () => {
+    renderDetail('d-1', 'bp-cilium')
+    fireEvent.click(await screen.findByTestId('app-settings-tab'))
+    expect(await screen.findByTestId('app-settings-tabpanel')).toBeTruthy()
+    expect(screen.getByTestId('settings-tab-upgrade-btn')).toBeTruthy()
+    expect(screen.getByTestId('settings-tab-uninstall-btn')).toBeTruthy()
+  })
+
+  it('clicking the Members tab reveals the app-members-tabpanel content', async () => {
+    renderDetail('d-1', 'bp-cilium')
+    fireEvent.click(await screen.findByTestId('app-members-tab'))
+    expect(await screen.findByTestId('app-members-tabpanel')).toBeTruthy()
+  })
+
+  it('clicking the Resources tab reveals the app-resources-tabpanel content', async () => {
+    renderDetail('d-1', 'bp-cilium')
+    fireEvent.click(await screen.findByTestId('app-resources-tab'))
+    expect(await screen.findByTestId('app-resources-tabpanel')).toBeTruthy()
+  })
+
+  it('clicking the Compliance tab reveals the app-compliance-tabpanel content', async () => {
+    renderDetail('d-1', 'bp-cilium')
+    fireEvent.click(await screen.findByTestId('app-compliance-tab'))
+    expect(await screen.findByTestId('app-compliance-tabpanel')).toBeTruthy()
+  })
+
+  it('clicking the Logs tab reveals the app-logs-tabpanel content', async () => {
+    renderDetail('d-1', 'bp-cilium')
+    fireEvent.click(await screen.findByTestId('app-logs-tab'))
+    expect(await screen.findByTestId('app-logs-tabpanel')).toBeTruthy()
   })
 })
