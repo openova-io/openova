@@ -285,7 +285,9 @@ controllers:
     image:
       repository: "ghcr.io/openova-io/openova/application-controller"
       # SHA pinned to the latest GHCR-published push-on-main build.
-      tag: "1b29c71"
+      # 3d1deef = qa-loop iter-1 application-controller-flag-mismatch fix
+      # (PR #1196 main.go + PR #1199 Containerfile pkg/ COPY).
+      tag: "3d1deef"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
