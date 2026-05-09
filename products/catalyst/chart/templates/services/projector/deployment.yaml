@@ -1,0 +1,109 @@
+{{- /*
+catalyst-projector Deployment.
+
+Subscribes to NATS catalyst.events JetStream and writes events into
+Valkey under `cluster:{c}:kind:{k}:{ns}/{name}` for cross-replica
+fan-out to catalyst-api SSE consumers. See
+core/cmd/projector/DESIGN.md for the wire contract.
+
+Default-OFF gate at .Values.services.projector.enabled. Per ADR-0001
+§3 the canonical event bus is NATS JetStream and the projector is
+the bridge into the in-cluster KV.
+*/ -}}
+{{- if .Values.services.projector.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "projector.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "projector.labels" (dict "root" .) | nindent 4 }}
+spec:
+  replicas: {{ .Values.services.projector.replicas | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "projector.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "projector.labels" (dict "root" .) | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "projector.fullname" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: projector
+          image: {{ include "projector.image" (dict "cfg" .Values.services.projector "root" .) | quote }}
+          imagePullPolicy: {{ .Values.services.projector.image.pullPolicy | default "IfNotPresent" }}
+          env:
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: CLUSTER_ID
+              value: {{ .Values.services.projector.clusterID | quote }}
+            - name: NATS_URL
+              value: {{ .Values.services.projector.nats.url | quote }}
+            - name: NATS_STREAM
+              value: {{ .Values.services.projector.nats.stream | default "catalyst.events" | quote }}
+            - name: NATS_SUBJECT
+              value: {{ .Values.services.projector.nats.subject | default "catalyst.events.>" | quote }}
+            - name: VALKEY_ADDR
+              value: {{ .Values.services.projector.valkey.addr | quote }}
+            {{- with .Values.services.projector.valkey.username }}
+            - name: VALKEY_USERNAME
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.services.projector.valkey.passwordSecret }}
+            - name: VALKEY_PASSWORD_FILE
+              value: /etc/projector/valkey/password
+            {{- end }}
+            - name: VALKEY_TTL
+              value: {{ .Values.services.projector.valkey.ttl | default "24h" | quote }}
+            - name: COLD_START
+              value: {{ .Values.services.projector.coldStart | default "true" | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.services.projector.logLevel | default "info" | quote }}
+          ports:
+            - name: health
+              containerPort: 8081
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            {{- toYaml (.Values.services.projector.resources | default dict) | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          {{- with .Values.services.projector.valkey.passwordSecret }}
+          volumeMounts:
+            - name: valkey-password
+              mountPath: /etc/projector/valkey
+              readOnly: true
+          {{- end }}
+      {{- with .Values.services.projector.valkey.passwordSecret }}
+      volumes:
+        - name: valkey-password
+          secret:
+            secretName: {{ .name }}
+            items:
+              - key: {{ .key | default "password" }}
+                path: password
+      {{- end }}
+{{- end }}

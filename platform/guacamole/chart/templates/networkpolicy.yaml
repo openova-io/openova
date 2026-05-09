@@ -1,0 +1,96 @@
+{{- if and .Values.guacamole.enabled .Values.guacamole.networkPolicy.enabled -}}
+# Default-deny baseline + selective egress for the Guacamole webapp.
+# Mirrors the platform/network-policies (H8) pattern: ingress is
+# inherited from the cluster-wide default-deny + the HTTPRoute
+# Gateway's allow rule; egress here is the load-bearing surface that
+# unbreaks the OIDC handshake + the kubectl-WS proxy.
+#
+# guacd has NO egress rule of its own — it only talks to k8s-ws-proxy
+# (for kubectl exec) and the captures volume. The kubectl path goes
+# via the webapp, so guacd's only allowed egress is internal
+# (recordings volume = filesystem, not network).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "bp-guacamole.fullname" . }}-webapp-egress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-guacamole.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "bp-guacamole.webappSelectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Egress
+  egress:
+    # DNS resolution.
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # Keycloak — OIDC discovery + token endpoint.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.guacamole.networkPolicy.keycloak.namespace }}
+          podSelector:
+            matchLabels:
+              {{- toYaml .Values.guacamole.networkPolicy.keycloak.podSelector | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 8080  # internal Keycloak port (when fronted by Service)
+
+    # k8s-ws-proxy DaemonSet — the webapp tunnels kubectl-exec sessions
+    # via the per-node DaemonSet pods. Selector here matches the
+    # bp-k8s-ws-proxy chart's pod labels.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.guacamole.networkPolicy.k8sWsProxy.namespace }}
+          podSelector:
+            matchLabels:
+              {{- toYaml .Values.guacamole.networkPolicy.k8sWsProxy.podSelector | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 8080
+
+    # SeaweedFS S3 — recording shipper PUTs sessions here.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.guacamole.networkPolicy.seaweedfs.namespace }}
+          podSelector:
+            matchLabels:
+              {{- toYaml .Values.guacamole.networkPolicy.seaweedfs.podSelector | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 8333
+
+    # guacd — local protocol backend.
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "bp-guacamole.guacdSelectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.guacamole.guacd.port }}
+
+    # NATS JetStream — audit-event publish path. The audit URL lives in
+    # the same namespace shape as the catalyst-curated bp-nats-jetstream.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: nats-jetstream
+      ports:
+        - protocol: TCP
+          port: 4222
+{{- end }}

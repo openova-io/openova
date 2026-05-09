@@ -343,6 +343,49 @@ services:
     tolerations: []
     affinity: {}
 
+  # ── catalyst-projector (EPIC-4 P1, #1099) ─────────────────────────
+  # Subscribes to NATS catalyst.events JetStream and writes to Valkey
+  # under the `cluster:{c}:kind:{k}:{ns}/{name}` key shape, fan-out
+  # for cross-replica catalyst-api SSE consumers. See
+  # core/cmd/projector/DESIGN.md for the wire contract.
+  #
+  # Default-OFF gate. When OFF, `helm template` emits ZERO
+  # projector-related resources. Operator opts in once
+  # bp-nats-jetstream + bp-valkey are reconciled.
+  projector:
+    enabled: false
+    image:
+      repository: "ghcr.io/openova-io/openova/projector"
+      # Empty `tag` fail-fasts at render time per Inviolable Principle #4a.
+      tag: ""
+      pullPolicy: IfNotPresent
+    replicas: 1
+    # Sovereign cluster id used as the prefix in every projected
+    # Valkey key (`cluster:{clusterID}:kind:...`). Each Sovereign
+    # sets this to its canonical id (matches kubeconfig stem in
+    # k8scache.Factory).
+    clusterID: ""
+    nats:
+      # In-cluster NATS JetStream Service URL.
+      url: "nats://nats-jetstream.nats-jetstream.svc.cluster.local:4222"
+      stream: "catalyst.events"
+      subject: "catalyst.events.>"
+    valkey:
+      addr: "valkey.valkey.svc.cluster.local:6379"
+      username: ""
+      # Optional Secret reference for the Valkey password.
+      passwordSecret: {}
+      ttl: "24h"
+    coldStart: true
+    logLevel: info
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 250m
+        memory: 256Mi
+
 # bp-catalyst-platform umbrella values
 #
 # As of 1.1.9 this umbrella ships ONLY the Catalyst-Zero control-plane

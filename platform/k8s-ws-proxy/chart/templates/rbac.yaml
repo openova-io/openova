@@ -1,0 +1,47 @@
+{{- if .Values.k8sWsProxy.enabled -}}
+{{- if .Values.k8sWsProxy.serviceAccount.create -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "bp-k8s-ws-proxy.serviceAccountName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-k8s-ws-proxy.labels" . | nindent 4 }}
+---
+{{- end }}
+# ClusterRole — the proxy needs `pods/exec` on all namespaces. Tied
+# to the proxy's SA so the apiserver authn'd subject (the SA token
+# in the pod's projected volume) carries the exec permission.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #5 the SA token is THE only
+# identity the proxy ever uses against the apiserver — there is no
+# fallback to a kubeconfig.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "bp-k8s-ws-proxy.fullname" . }}
+  labels:
+    {{- include "bp-k8s-ws-proxy.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "bp-k8s-ws-proxy.fullname" . }}
+  labels:
+    {{- include "bp-k8s-ws-proxy.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "bp-k8s-ws-proxy.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "bp-k8s-ws-proxy.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

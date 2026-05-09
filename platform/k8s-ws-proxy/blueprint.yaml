@@ -1,0 +1,41 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-k8s-ws-proxy
+  labels:
+    catalyst.openova.io/section: pts-3-3-security-and-policy
+    catalyst.openova.io/category: platform
+spec:
+  version: 0.1.0
+  card:
+    title: k8s-ws-proxy
+    summary: Per-node WebSocket exec proxy that bridges HMAC-signed upstream callers (catalyst-api, Guacamole) onto the local kube-apiserver pods/exec stream. DaemonSet with internalTrafficPolicy=Local for node-local sessions.
+    icon: k8s-ws-proxy.svg
+    category: platform
+  visibility: unlisted
+  configSchema:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+        default: false
+      tmuxCascade:
+        type: boolean
+        default: false
+        description: Wrap exec sessions in shared `catalyst-ops` tmux. Only enable on bastion nodes.
+      allowedNamespaces:
+        type: array
+        items: { type: string }
+        default: []
+        description: Optional namespace allowlist. Empty = all namespaces.
+  placementSchema:
+    modes: [single-region]
+    minRegions: 1
+    maxRegions: 1
+  upgrades:
+    from: ["0.x"]
+  manifests:
+    chart: ./chart
+  depends:
+    - blueprint: bp-sealed-secrets
+      version: ^1

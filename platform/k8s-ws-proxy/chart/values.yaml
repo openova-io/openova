@@ -1,0 +1,85 @@
+# Catalyst Blueprint values for bp-k8s-ws-proxy.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md:
+#   #1   waterfall — full DaemonSet + Service + RBAC + NetworkPolicy
+#        ships at first cut.
+#   #4   never hardcode — image tag, listen address, namespace
+#        allowlist, etc. are operator-driven.
+#   #4a  SHA-pinned tag; empty fails-fast in templates/_helpers.tpl.
+#   #5   HMAC secret comes from a K8s Secret reference; never inlined.
+#
+# Default-OFF gate.
+
+catalystBlueprint:
+  upstream:
+    chart: ""
+    version: ""
+    repo: ""
+
+k8sWsProxy:
+  enabled: false
+
+  image:
+    repository: ghcr.io/openova-io/openova/k8s-ws-proxy
+    # SHA-pinned per INVIOLABLE-PRINCIPLES #4a. CI populates this.
+    tag: ""
+    pullPolicy: IfNotPresent
+
+  # The DaemonSet binds to host port 0 (random); the ClusterIP
+  # Service in front uses `internalTrafficPolicy: Local` so kube-proxy
+  # routes only onto the local node's pod (zero cross-node hops).
+  port: 8080
+
+  # HMAC shared-secret reference. The chart does NOT generate the
+  # secret — operator pre-creates it via SealedSecret or
+  # external-secrets. Empty secretName fails the chart render.
+  hmacSecret:
+    name: k8s-ws-proxy-hmac
+    key: secret
+
+  # Skew tolerance for HMAC timestamps (in either direction).
+  hmacSkewSeconds: 300
+
+  # tmux-cascade — wraps every exec in a shared `catalyst-ops`
+  # session. Default false; operators flip on for dedicated bastion
+  # nodes.
+  tmuxCascade: false
+
+  # Optional namespace allowlist. Empty = all namespaces (operator
+  # MUST pair with NetworkPolicy + RBAC to scope the blast radius).
+  allowedNamespaces: []
+
+  # Pod runs with the in-cluster ServiceAccount token. The chart
+  # creates the SA + ClusterRole + ClusterRoleBinding (templates/rbac.yaml).
+  serviceAccount:
+    create: true
+    name: ""
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    runAsGroup: 65534
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
+
+  # NodeSelector / tolerations — DaemonSet's classic "land on every
+  # eligible node" semantics. Default matches Linux nodes only.
+  nodeSelector:
+    kubernetes.io/os: linux
+  tolerations: []
+
+  imagePullSecrets: []
+
+  logLevel: info

@@ -1,0 +1,109 @@
+{{- if .Values.guacamole.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "bp-guacamole.fullname" . }}-webapp
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-guacamole.labels" . | nindent 4 }}
+    catalyst.openova.io/component: webapp
+spec:
+  replicas: {{ .Values.guacamole.webapp.replicas }}
+  selector:
+    matchLabels:
+      {{- include "bp-guacamole.webappSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "bp-guacamole.labels" . | nindent 8 }}
+        catalyst.openova.io/component: webapp
+    spec:
+      securityContext:
+        {{- toYaml .Values.guacamole.podSecurityContext | nindent 8 }}
+      {{- with .Values.guacamole.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: guacamole
+          image: {{ include "bp-guacamole.webappImage" . | quote }}
+          imagePullPolicy: {{ .Values.guacamole.webapp.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.guacamole.webapp.port }}
+              protocol: TCP
+          env:
+            # Backend protocol-handler — the guacd Service in this namespace.
+            - name: GUACD_HOSTNAME
+              value: "{{ include "bp-guacamole.fullname" . }}-guacd"
+            - name: GUACD_PORT
+              value: {{ .Values.guacamole.guacd.port | quote }}
+
+            # OIDC — every value below is operator-driven via per-Sovereign
+            # overlay, never hardcoded (INVIOLABLE-PRINCIPLES #4). Empty
+            # values fail the helm template render via _helpers.tpl.
+            - name: OPENID_AUTHORIZATION_ENDPOINT
+              value: "{{ include "bp-guacamole.oidcIssuer" . }}/protocol/openid-connect/auth"
+            - name: OPENID_JWKS_ENDPOINT
+              value: "{{ include "bp-guacamole.oidcIssuer" . }}/protocol/openid-connect/certs"
+            - name: OPENID_ISSUER
+              value: "{{ include "bp-guacamole.oidcIssuer" . }}"
+            - name: OPENID_CLIENT_ID
+              value: {{ .Values.guacamole.oidc.clientId | quote }}
+            - name: OPENID_REDIRECT_URI
+              value: "{{ include "bp-guacamole.oidcRedirectURI" . }}"
+            - name: OPENID_GROUPS_CLAIM_TYPE
+              value: {{ .Values.guacamole.oidc.groupsClaim | quote }}
+            # Client secret — pulled from the SealedSecret's resulting
+            # Secret. The reference here keeps the plaintext OUT of the
+            # ConfigMap / Deployment manifest (INVIOLABLE-PRINCIPLES #5).
+            - name: OPENID_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.guacamole.oidc.clientSecretRef.name }}
+                  key: {{ .Values.guacamole.oidc.clientSecretRef.key }}
+                  optional: false
+
+            # Recording path — guacd writes here; the webapp ships
+            # captures off to SeaweedFS via the shipper container below.
+            - name: RECORDING_PATH
+              value: {{ .Values.guacamole.recordings.mountPath | quote }}
+          volumeMounts:
+            - name: recordings
+              mountPath: {{ .Values.guacamole.recordings.mountPath }}
+            - name: tmp
+              mountPath: /tmp
+            - name: tomcat-work
+              mountPath: /usr/local/tomcat/work
+            - name: tomcat-temp
+              mountPath: /usr/local/tomcat/temp
+          resources:
+            {{- toYaml .Values.guacamole.webapp.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.guacamole.containerSecurityContext | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: recordings
+          persistentVolumeClaim:
+            claimName: {{ include "bp-guacamole.fullname" . }}-recordings
+        - name: tmp
+          emptyDir: {}
+        # Tomcat insists on writable work + temp dirs even with
+        # readOnlyRootFilesystem. emptyDir mounts satisfy them
+        # without compromising the rest of the FS.
+        - name: tomcat-work
+          emptyDir: {}
+        - name: tomcat-temp
+          emptyDir: {}
+{{- end }}

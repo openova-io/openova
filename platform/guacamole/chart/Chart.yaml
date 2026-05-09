@@ -1,0 +1,50 @@
+apiVersion: v2
+name: bp-guacamole
+version: 0.1.0
+appVersion: "1.5.5"
+description: |
+  Catalyst-authored Blueprint chart for Apache Guacamole — a clientless
+  HTML5 remote-desktop gateway that brokers SSH / RDP / VNC sessions
+  AND kubectl-exec sessions through one browser-accessible surface.
+  Sessions land authenticated via Keycloak SSO, are recorded to
+  SeaweedFS for compliance, and reach Pods inside the same Sovereign
+  via the per-node k8s-ws-proxy DaemonSet (bp-k8s-ws-proxy).
+
+  Per ADR-0001 §11: ONE Guacamole per Sovereign — Manara-style
+  multi-cluster fan-out is intentionally NOT supported (Sovereigns
+  stay self-sufficient).
+
+  This is a scratch chart — no upstream Guacamole Helm chart is
+  bundled. The container images are upstream `guacamole/guacd` and
+  `guacamole/guacamole`, SHA-pinned per
+  docs/INVIOLABLE-PRINCIPLES.md #4a. CI populates the SHA tags via
+  `yq eval -i .image.tag = "<sha>"` when promoting a build into
+  clusters/<sovereign>/.
+
+  Includes:
+    - guacd Deployment + Service (RDP/VNC/SSH protocol backend)
+    - guacamole-web Deployment + Service (Tomcat front-end with OIDC)
+    - HTTPRoute (Cilium Gateway) for browser ingress
+    - SeaweedFS PVC for session recordings (50Gi default)
+    - SealedSecret placeholder for the Keycloak OIDC client secret
+    - NetworkPolicy: default-deny + selective egress to k8s-ws-proxy
+      and Keycloak
+    - ConfigMap consumed by keycloak-config-cli post-deploy Job
+      (mirrors the existing pattern from platform/keycloak/chart/)
+type: application
+keywords: [catalyst, blueprint, guacamole, remote-desktop, oidc, recording]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Scratch chart — the binary surface is fully owned by Apache. The
+# `sigstore/common` library subchart below is included ONLY to satisfy
+# the platform-wide blueprint-release.yaml hollow-chart gate (issue
+# #181) — every umbrella MUST declare at least one dependency.
+# `common` is a tiny library chart (helper templates only, zero
+# runtime resources). Mirrors the same pattern used by
+# bp-cert-manager-dynadot-webhook + bp-coraza for the same reason.
+dependencies:
+  - name: common
+    version: "0.1.3"
+    repository: "https://sigstore.github.io/helm-charts"

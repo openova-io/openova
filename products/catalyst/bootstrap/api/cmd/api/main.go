@@ -583,6 +583,10 @@ func main() {
 		rg.Get("/api/v1/sovereigns/{id}/k8s/{kind}", h.HandleK8sList)
 		rg.Get("/api/v1/sovereigns/{id}/k8s/stream", h.HandleK8sStream)
 		rg.Get("/api/v1/sovereigns/{id}/k8s/sync", h.HandleK8sSync)
+		// EPIC-4 X1 (#1099) — Pod-log WebSocket. Same chi.Group as the
+		// rest of /k8s/* so RequireSession gates the upgrade handshake
+		// the same way it gates the SSE/REST surface.
+		rg.Get("/api/v1/sovereigns/{id}/k8s/logs/{ns}/{pod}/{container}", h.HandleK8sLogs)
 		// NOTE: wizard pre-submit validation endpoints
 		// (/credentials/validate, /credentials/object-storage/validate,
 		// /sshkey/generate, /registrar/{r}/validate, /subdomains/check)
