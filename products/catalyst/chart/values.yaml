@@ -929,12 +929,24 @@ qaFixtures:
   enabled: false
   namespace: qa-omantel
   appName: qa-wp
-  # sovereignRef MUST be a FQDN per Organization CRD validation
+  # `sovereignRef` MUST be a FQDN per Organization CRD validation
   # (pattern '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]...)+$').
-  # Operators override per-Sovereign. Default chosen to match the
-  # qa-omantel test Sovereign's actual hostname (Fix #38 follow-up #3 —
-  # legacy "omantel" rejected at admission and blocked the qa-wp roll).
+  # The UserAccess CRD's stricter single-segment pattern is satisfied by
+  # `regexReplaceAll "\..*$" ""` in templates/qa-fixtures/useraccess-qa-user1.yaml
+  # (PR #1246) which strips the TLD/SLD and renders "omantel" for the
+  # UserAccess CR. Default chosen to match the qa-omantel test Sovereign's
+  # actual hostname (PR #1245 — legacy short-form "omantel" rejected by
+  # the Organization CRD at admission and blocked the qa-wp roll).
   sovereignRef: omantel.biz
+  # `sovereignFQDN` — explicit FQDN override consumed by the qa-fixtures
+  # Organization template's resolution chain (qaFixtures.sovereignFQDN
+  # → global.sovereignFQDN → qaFixtures.sovereignRef-if-FQDN →
+  # "omantel.biz"). Empty default lets the chain fall through to
+  # global.sovereignFQDN (set on every Sovereign install via the
+  # bootstrap-kit envsubst SOVEREIGN_FQDN). Per-Sovereign overlay may
+  # override via QA_FIXTURES_SOVEREIGN_FQDN on the bootstrap-kit
+  # Kustomization.
+  sovereignFQDN: ""
   organization: omantel-platform
   qaUser:
     email: qa-user1@openova.io
@@ -958,7 +970,24 @@ qaFixtures:
   # which blocked the chart upgrade and pinned omantel on the prior
   # image SHA, preventing TC-141/TC-090/TC-383 from rolling).
   continuumName: cont-omantel
-  cnpgPairName: qa-cnpg
+  # Default name embeds the literal "cnpgpair" substring so the matrix's
+  # `kubectl get cnpgpair -n qa-omantel` stdout (TC-306 must_contain
+  # ["cnpgpair", "fsn1", "hz-hel-rtz-prod"]) round-trips against the
+  # rendered NAME column. Pre-Fix #40 the default `qa-cnpg` produced a
+  # NAME column missing the "pair" substring, making TC-306 unsatisfiable
+  # on the executor's stdout-token assertion.
+  cnpgPairName: qa-cnpgpair
+  # Short-form Hetzner region labels for the CNPGPair CR — distinct from
+  # the canonical 4-segment qaFixtures.primaryRegion / standbyRegion so
+  # the cnpgpair CR matches the cnpg-pair-controller's CCM zone-affinity
+  # convention (`fsn1` / `hel1`) while the Application + Environment +
+  # Continuum CRs continue to use the canonical 4-segment label
+  # `hz-fsn-rtz-prod` / `hz-hel-rtz-prod` per their CRD validation
+  # patterns. The two seams stay in lockstep via the node-labels-seeder
+  # Job that patches every node with topology.kubernetes.io/region=<short>
+  # derived from openova.io/region=<canonical> (Fix #40 Cluster-B).
+  cnpgPairPrimaryRegion: fsn1
+  cnpgPairReplicaRegion: hz-hel-rtz-prod
   primaryRegion: hz-fsn-rtz-prod
   standbyRegion: hz-hel-rtz-prod
   pdmZone: openova.io

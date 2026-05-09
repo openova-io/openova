@@ -18,14 +18,44 @@
   `slug` matches metadata.name per the Organization CRD's standard
   shape; `tier=corporate` is the simplest tier that exercises real
   RBAC (matrix expects qa-user1 to land tier-developer through the
-  Org's policy). `sovereignRef` identifies the chroot.
+  Org's policy).
+
+  `sovereignRef` MUST be a FQDN per the Organization CRD validation
+  pattern `^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$`
+  (one or more dot-separated DNS labels). The legacy single-segment
+  `omantel` default rejected the CR at admission and blocked the entire
+  qa-fixtures stack from rendering on chart 1.4.105 (Fix #40).
+
+  Resolution order (so any one of the three sources produces a valid
+  FQDN, never a rejected single-segment value):
+    1. .Values.qaFixtures.sovereignFQDN — explicit qa-fixtures override
+    2. .Values.global.sovereignFQDN — chart-wide canonical Sovereign
+       FQDN (set on every Sovereign install via the bootstrap-kit
+       envsubst SOVEREIGN_FQDN)
+    3. .Values.qaFixtures.sovereignRef — kept as a backup signal. PR
+       #1245 changed this default from the single-segment "omantel" to
+       the FQDN "omantel.biz", but the chain still validates the
+       presence of a dot before accepting it so a rolled-back default
+       cannot resurrect the admission failure.
+    4. literal "omantel.biz" — last-resort fallback for chart-author
+       dry-runs without `--set` overrides.
 */ -}}
+{{- $sovFQDN := "" -}}
+{{- if .Values.qaFixtures.sovereignFQDN -}}
+  {{- $sovFQDN = .Values.qaFixtures.sovereignFQDN -}}
+{{- else if .Values.global.sovereignFQDN -}}
+  {{- $sovFQDN = .Values.global.sovereignFQDN -}}
+{{- else if and .Values.qaFixtures.sovereignRef (contains "." (.Values.qaFixtures.sovereignRef | toString)) -}}
+  {{- $sovFQDN = .Values.qaFixtures.sovereignRef -}}
+{{- else -}}
+  {{- $sovFQDN = "omantel.biz" -}}
+{{- end -}}
 apiVersion: orgs.openova.io/v1
 kind: Organization
 metadata:
   name: {{ .Values.qaFixtures.organization | default "omantel-platform" | quote }}
   labels:
-    openova.io/sovereign: {{ .Values.qaFixtures.sovereignRef | default "omantel.biz" | quote }}
+    openova.io/sovereign: {{ $sovFQDN | quote }}
     catalyst.openova.io/managed-by: qa-fixtures
     app.kubernetes.io/managed-by: {{ .Release.Service }}
     app.kubernetes.io/instance: {{ .Release.Name }}
@@ -35,7 +65,7 @@ spec:
   kind: internal
   tier: corporate
   billingMode: chargeback
-  sovereignRef: {{ .Values.qaFixtures.sovereignRef | default "omantel.biz" | quote }}
+  sovereignRef: {{ $sovFQDN | quote }}
   defaultEnvironmentType: dev
   owners:
     - email: {{ .Values.qaFixtures.qaUser.email | default "qa-user1@openova.io" | quote }}

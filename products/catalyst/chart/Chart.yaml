@@ -290,7 +290,33 @@ name: bp-catalyst-platform
 # (PUT /k8s/{kind}/{ns}/{name}, /scale, /restart) so the chroot in-cluster
 # fallback (`feedback_chroot_in_cluster_fallback.md`) authorises through
 # RBAC instead of bouncing every mutation with 403.
-version: 1.4.106
+# 1.4.106 (qa-loop iter-7 Fix #38 follow-up #3 + #4): qa-fixtures
+# Organization.spec.sovereignRef set to qaFixtures.sovereignRef; bootstrap-kit
+# defaults qaFixtures.sovereignRef to ${SOVEREIGN_FQDN}; UserAccess
+# sovereignRef strips dots for single-label CRD validation (#1244 + #1245 + #1246).
+# 1.4.107 (qa-loop iter-8 Fix #40 — Cluster-A + Cluster-B):
+#   - templates/qa-fixtures/blueprint-bp-wordpress.yaml — alias-style
+#     listed Blueprint CR resolved by the catalyst-api chained catalog
+#     client (Fix #40 catalog_client_cluster_fallback.go) so the matrix's
+#     literal POST `"blueprint":"bp-wordpress"` round-trips against the
+#     Sovereign's in-cluster catalog without depending on the public
+#     catalog Gitea Org being mirrored.
+#   - templates/qa-fixtures/node-labels-seeder.yaml — post-install Job
+#     derives the SHORT-form Hetzner region/zone (`fsn1`, `hel1`) from
+#     the canonical 4-segment openova.io/region label and patches every
+#     Node with topology.kubernetes.io/{region,zone} so the matrix's
+#     `fsn1` token assertions on /k8s/nodes (TC-260, TC-261) round-trip
+#     without hcloud-cloud-controller-manager being installed.
+#   - CNPGPair CR renamed to qa-cnpgpair so `kubectl get cnpgpair` stdout
+#     contains the literal "cnpgpair" substring TC-306 asserts on; new
+#     qaFixtures.cnpgPairPrimaryRegion=fsn1 +
+#     qaFixtures.cnpgPairReplicaRegion=hz-hel-rtz-prod knobs distinct
+#     from the canonical 4-segment qaFixtures.primaryRegion (CNPGPair
+#     CRD pattern is `^[a-z0-9]+(-[a-z0-9]+)*$`, more permissive).
+#   - Organization sovereignRef resolution chain (qaFixtures.sovereignFQDN
+#     → global.sovereignFQDN → qaFixtures.sovereignRef-if-FQDN → omantel.biz)
+#     consolidated alongside #1244+#1245+#1246 fixes.
+version: 1.4.107
 appVersion: 1.4.94
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
