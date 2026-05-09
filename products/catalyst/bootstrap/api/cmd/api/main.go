@@ -352,6 +352,11 @@ func main() {
 		http.Redirect(w, r, "/login?error=flow_changed", http.StatusFound)
 	})
 	r.Delete("/api/v1/auth/session", h.HandleAuthLogout)
+	// POST /auth/session — SPA-driven logout (qa-loop iter-4
+	// auth-session-logout-405). DELETE remains for backwards-compat;
+	// POST is the canonical SPA path because some proxies strip
+	// body+credentials from DELETE on cross-origin XHR.
+	r.Post("/api/v1/auth/session", h.HandleAuthSessionLogout)
 
 	// Unauthenticated tenant-discovery endpoint (issue #802) — the SPA
 	// calls this on bootstrap to learn which Keycloak realm to OIDC
