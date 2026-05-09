@@ -943,11 +943,18 @@ qaFixtures:
   qaWpPassword: ""
   # ── Continuum DR fixture knobs (Fix #32, Fix #37) ────────────────
   # CNPGPair name + region pair the matrix asserts on. The default pair
-  # (fsn1 ↔ hz-hel-rtz-prod) reflects the omantel test Sovereign's
-  # ClusterMesh peering. Override on a per-Sovereign basis.
+  # (hz-fsn-rtz-prod ↔ hz-hel-rtz-prod) reflects the omantel test
+  # Sovereign's ClusterMesh peering. Override on a per-Sovereign basis.
+  #
+  # Region values MUST match the canonical 4-segment region label
+  # `^[a-z]+-[a-z]+-[a-z]+-[a-z]+$` enforced by Application + Continuum
+  # CRD validation (Fix #38 follow-up — Fix #36's qa-wp Application
+  # rejected at admission with `spec.regions[0]: Invalid value: "fsn1"`
+  # which blocked the chart upgrade and pinned omantel on the prior
+  # image SHA, preventing TC-141/TC-090/TC-383 from rolling).
   continuumName: cont-omantel
   cnpgPairName: qa-cnpg
-  primaryRegion: fsn1
+  primaryRegion: hz-fsn-rtz-prod
   standbyRegion: hz-hel-rtz-prod
   pdmZone: openova.io
   publicHost: openova.io

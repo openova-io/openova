@@ -1,5 +1,14 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.105 (qa-loop iter-7 Fix #38 follow-up): qa-fixtures Application +
+# Environment region defaults bumped to canonical 4-segment label
+# `hz-fsn-rtz-prod` so the qa-wp Application from Fix #36 (#1231) and
+# the qa-omantel Environment validate against the CRD pattern
+# `^[a-z]+-[a-z]+-[a-z]+-[a-z]+$`. Without this fix the chart upgrade
+# rejected at admission with `spec.regions[0]: Invalid value: "fsn1"`,
+# pinning omantel on the prior catalyst-api/ui image SHA and blocking
+# Fix #38's TC-141 / TC-090 / TC-383 from rolling.
+#
 # 1.4.104 (qa-loop iter-7 Cluster-C Fix #36, #1231): target-state qa-fixtures
 # stack — Organization + Environment + Blueprint(bp-qa-app) +
 # Application(qa-wp) so the application-controller reconciles qa-wp
@@ -273,7 +282,7 @@ name: bp-catalyst-platform
 # (PUT /k8s/{kind}/{ns}/{name}, /scale, /restart) so the chroot in-cluster
 # fallback (`feedback_chroot_in_cluster_fallback.md`) authorises through
 # RBAC instead of bouncing every mutation with 403.
-version: 1.4.104
+version: 1.4.105
 appVersion: 1.4.94
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.

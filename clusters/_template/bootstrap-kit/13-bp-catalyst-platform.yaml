@@ -272,6 +272,13 @@ spec:
       # bytes (CI publishes oci://ghcr.io/openova-io/bp-qa-app:0.1.0).
       # Stacks on top of:
       # 1.4.103 (Fix #37 follow-up): qa-continuum-status-seed Job FQN fix
+      # 1.4.105 (Fix #38 follow-up): qa-fixtures Application + Environment
+      # region defaults bumped to canonical 4-segment label
+      # `hz-fsn-rtz-prod` so the qa-wp Application from Fix #36 (#1231)
+      # validates against the CRD pattern `^[a-z]+-[a-z]+-[a-z]+-[a-z]+$`.
+      # Without this fix, `spec.regions[0]: Invalid value: "fsn1"` rejected
+      # the chart upgrade at admission and pinned omantel on the prior
+      # image SHA, blocking Fix #38's TC-141/TC-090/TC-383 from rolling.
       # 1.4.102 (Fix #34 follow-up #1229): catalyst-api-cutover-driver
       # ClusterRole grants update/patch/delete on workload kinds + scale
       # subresources for the resource-action endpoints (PUT /k8s/.../scale,
@@ -279,7 +286,7 @@ spec:
       # RBAC (TC-215, TC-218, TC-243, TC-247).
       # 1.4.101 (Fix #37): EPIC-6 + EPIC-1 target-state qa-fixtures closeout
       # — cnpg-clusters + Kyverno policy bundle.
-      version: 1.4.104
+      version: 1.4.105
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
