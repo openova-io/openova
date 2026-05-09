@@ -1,0 +1,78 @@
+{{- /*
+Primary CNPG Cluster CR.
+
+The CNPG operator (installed by bp-cnpg) reconciles this CR into the
+StatefulSet + Services + PDB + WAL archive that make up the primary
+side of the cluster-pair. Per ADR-0001 §2.7, the Cluster CR IS the
+truth — Continuum K-Cont-2 reads `status.currentPrimary`, the per-
+instance replication slots, and `status.replicaCluster` annotations
+to drive switchover.
+
+Region-pinning: the `openova.io/region` node-affinity term (paired
+with the matching label on this CR) ensures the operator schedules
+all instances inside the configured Hetzner region.
+*/ -}}
+{{- if .Values.cnpgPair.enabled }}
+{{- include "cnpg-pair.validateRegions" . }}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ include "cnpg-pair.primaryName" . }}
+  labels:
+    {{- include "cnpg-pair.labels" . | nindent 4 }}
+    openova.io/cnpg-role: primary
+    openova.io/region: {{ .Values.cnpgPair.primary.region | quote }}
+    catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+  annotations:
+    catalyst.openova.io/blueprint: bp-cnpg-pair
+    catalyst.openova.io/cnpg-pair-role: primary
+    catalyst.openova.io/cnpg-pair-name: {{ include "cnpg-pair.fullname" . | quote }}
+spec:
+  instances: {{ .Values.cnpgPair.primary.instances }}
+  primaryUpdateMethod: switchover
+  imageName: {{ include "cnpg-pair.imageRef" . | quote }}
+
+  storage:
+    size: {{ .Values.cnpgPair.primary.storage.size | quote }}
+    storageClass: {{ .Values.cnpgPair.primary.storage.storageClass | quote }}
+
+  resources:
+    {{- toYaml .Values.cnpgPair.primary.resources | nindent 4 }}
+
+  bootstrap:
+    initdb:
+      database: {{ .Values.cnpgPair.primary.bootstrap.database | quote }}
+      owner:    {{ .Values.cnpgPair.primary.bootstrap.owner | quote }}
+
+  # Region pinning — node-affinity is the operator's idiomatic seam
+  # for region selection (Cluster CR Pods land on nodes whose
+  # openova.io/region label matches). nodeSelector is intentionally
+  # NOT used: it can't express the "MUST be in region A" constraint
+  # under controller-managed taints/tolerations.
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: openova.io/region
+                operator: In
+                values: [{{ .Values.cnpgPair.primary.region | quote }}]
+    podAntiAffinityType: required
+
+  # Postgres config: the replica region's externalCluster connects
+  # via `streaming_replica` user, which CNPG provisions automatically
+  # as part of the Cluster's role bootstrap. Replication slots are
+  # auto-created so a brief replica disconnect does not lose WAL.
+  postgresql:
+    parameters:
+      max_wal_senders: "10"
+      max_replication_slots: "10"
+      wal_level: "logical"
+      hot_standby: "on"
+
+  # Allow the CNPG operator to run automatic switchover within this
+  # primary cluster (e.g. instance pod replacement). Cross-cluster
+  # switchover (primary↔replica failover) is driven by Continuum
+  # K-Cont-2 — NOT by CNPG itself.
+  enableSuperuserAccess: false
+{{- end }}

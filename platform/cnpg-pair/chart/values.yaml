@@ -1,0 +1,127 @@
+# bp-cnpg-pair — Catalyst Blueprint values.
+#
+# Slice C-DB-1 of EPIC-6 (#1101). Active-hotstandby CNPG cluster-pair
+# across two Hetzner regions, WAL streaming over Cilium ClusterMesh.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md:
+#   #1 — target-state shape; ship full primary + replica + service.
+#   #4 — never hardcode region/storageClass/imageRepo; everything is
+#        operator-tunable via configSchema → Application.spec.parameters.
+#   #4a — image SHA-pinned (no `:latest`); fail-fast on empty tag.
+
+cnpgPair:
+  # Default-OFF gate. Per ADR-0001 §9 the cluster-pair pattern is
+  # opt-in per Application; the chart MUST render zero resources when
+  # disabled so platform overlays can include it without side effects.
+  enabled: false
+
+  # ── Primary region ────────────────────────────────────────────────
+  primary:
+    # Hetzner region key (matches openova.io/region label on nodes per
+    # G1 multi-region wiring). NEVER hardcode — operator passes this
+    # via configSchema. Empty string with enabled=true triggers a
+    # template-time `required` error.
+    region: ""
+    instances: 3
+    storage:
+      size: 100Gi
+      # H6 (bp-hcloud-csi) provides this StorageClass. Per the seam
+      # map (`platform/hcloud-csi/`) the canonical name is
+      # `hcloud-volumes`. Cluster overlays may override.
+      storageClass: hcloud-volumes
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        memory: 2Gi
+    # Bootstrap the application database. Future slices may hoist
+    # this into configSchema for per-Application names; for the
+    # C-DB-3 acceptance-test we need a known database name.
+    bootstrap:
+      database: app
+      owner: app
+
+  # ── Replica region ────────────────────────────────────────────────
+  # CNPG replica cluster — `replica.enabled: true` + an
+  # `externalClusters[]` entry pointing at the primary region's
+  # replication endpoint. The Cilium ClusterMesh-shared Service
+  # template (service-replication.yaml) provides the in-cluster DNS
+  # alias the replica resolves to reach the primary.
+  replica:
+    region: ""
+    instances: 3
+    storage:
+      size: 100Gi
+      storageClass: hcloud-volumes
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        memory: 2Gi
+
+  # ── WAL streaming + promotability threshold ───────────────────────
+  walStreaming:
+    # Replica becomes promotable when its WAL lag (lastReplayedLSN
+    # delta against primary's currentLSN) falls below this threshold.
+    # The failover-readiness probe Pod consumes this value; Continuum
+    # K-Cont-2 reads it back from the Cluster CR status before
+    # initiating a switchover.
+    targetLagSeconds: 30
+    # Hard ceiling on probe wait — exceed this and the probe goes
+    # NotReady, surfacing the lag in the UI's status panel.
+    timeoutSeconds: 60
+
+  # ── Cilium ClusterMesh ────────────────────────────────────────────
+  # Multi-region transport. Per ADR-0001 §9 ClusterMesh is the ONLY
+  # canonical inter-region transport for replication traffic. Setting
+  # this false disables the replication Service entirely; replica
+  # would then need an out-of-band public endpoint, which is NOT
+  # supported (failover-readiness probe will fail closed). Toggle
+  # exists for forensic/debug isolation only.
+  clusterMesh:
+    enabled: true
+    # Affinity hint for the global service: prefer local backends,
+    # fall through to remote when local is absent. The replica region
+    # has zero local backends with `cnpg-role=primary`, so traffic
+    # crosses the mesh; the primary region keeps reads local.
+    affinity: local
+
+  # ── Audit (NATS) ──────────────────────────────────────────────────
+  # The audit-config ConfigMap declares the NATS subject + audit-type
+  # set this Blueprint emits when the failover-readiness state flips.
+  # Continuum K-Cont-2 picks up these subjects via the same ConfigMap
+  # to wire its replication-lag + switchover audit publisher.
+  audit:
+    nats:
+      subject: catalyst.audit
+      auditType: cnpg-pair
+      # Event types this Blueprint contributes to the audit stream.
+      # Continuum extends this list with continuum-switchover-* etc.
+      eventTypes:
+        - cnpg-pair-replica-promotable
+        - cnpg-pair-replica-degraded
+        - cnpg-pair-wal-lag-threshold-breach
+
+  # ── Image (CNPG postgres image) ──────────────────────────────────
+  # CNPG operator pulls the postgres binary image from this reference.
+  # The TAG IS REQUIRED — empty triggers a template-time fail-fast.
+  # Per Inviolable Principle #4a, production overlays MUST set a
+  # SHA digest (not a floating tag); a versioned tag is acceptable
+  # in pre-prod but cluster overlays should pin to digest.
+  image:
+    repository: ghcr.io/cloudnative-pg/postgresql
+    # REQUIRED — empty fails the render. Example pin:
+    #   tag: "16.3-23"
+    tag: ""
+    pullPolicy: IfNotPresent
+
+  # ── NetworkPolicy ────────────────────────────────────────────────
+  # The platform default-deny CCNP (H8 seam) covers this namespace by
+  # default; this overlay opens ONLY the replication path between the
+  # two CNPG Cluster CR Pod selectors plus the failover-readiness
+  # probe Pod. Toggle exists in case an overlay carries its own
+  # NetworkPolicy stack.
+  networkPolicy:
+    enabled: true

@@ -1,0 +1,119 @@
+{{- /*
+Failover-readiness probe Pod.
+
+Polls the replica's CNPG `-r` Service for `pg_last_wal_replay_lsn`
+vs the primary's `pg_current_wal_lsn`; when the lag falls below
+`cnpgPair.walStreaming.targetLagSeconds` the Pod's Ready condition
+flips true and Continuum K-Cont-2's switchover sequencer treats the
+replica as promotable.
+
+Implementation: a single-replica Deployment running a tiny shell
+loop with psql + a /tmp/ready file watched by an exec readiness
+probe. The image is the same `cnpgPair.image` pin (postgres binary
+is what we need for psql), so SHA pinning + fail-fast on empty tag
+applies here too.
+
+This Pod is the BLUEPRINT's contribution to promotability — it does
+NOT promote the replica itself (Continuum does), it just publishes
+the readiness signal Continuum reads.
+*/ -}}
+{{- if .Values.cnpgPair.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cnpg-pair.fullname" . }}-failover-readiness
+  labels:
+    {{- include "cnpg-pair.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+    catalyst.openova.io/role: failover-readiness-probe
+  annotations:
+    catalyst.openova.io/blueprint: bp-cnpg-pair
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "cnpg-pair.selectorLabels" . | nindent 6 }}
+      catalyst.openova.io/role: failover-readiness-probe
+  template:
+    metadata:
+      labels:
+        {{- include "cnpg-pair.selectorLabels" . | nindent 8 }}
+        catalyst.openova.io/role: failover-readiness-probe
+        catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+    spec:
+      # Probe runs in the replica region — when the replica region
+      # is the one promoting, Continuum reads this Pod's Ready
+      # condition before flipping the primary annotation.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: openova.io/region
+                    operator: In
+                    values: [{{ .Values.cnpgPair.replica.region | quote }}]
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 26   # postgres in upstream cnpg image
+        runAsGroup: 26
+        fsGroup: 26
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: probe
+          image: {{ include "cnpg-pair.imageRef" . | quote }}
+          imagePullPolicy: {{ .Values.cnpgPair.image.pullPolicy | quote }}
+          # Loop: query lag every 10s, write /tmp/ready when below
+          # threshold, remove it when above. The exec readinessProbe
+          # then surfaces the boolean to K8s and to Continuum via
+          # `kubectl get pod ... -o jsonpath=.status.conditions`.
+          # The CNPG `-r` Service is the read-only endpoint of the
+          # local (replica) Cluster CR — it always exists once CNPG
+          # has reconciled at least one instance Pod.
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              REPLICA_HOST="{{ include "cnpg-pair.replicaName" . }}-r"
+              THRESHOLD={{ .Values.cnpgPair.walStreaming.targetLagSeconds }}
+              while true; do
+                LAG=$(psql "host=${REPLICA_HOST} port=5432 user=postgres dbname=postgres sslmode=require" \
+                       -tAXc "SELECT EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp()))::int" 2>/dev/null \
+                       || echo "999999")
+                if [ "${LAG}" -lt "${THRESHOLD}" ]; then
+                  date -u +"%FT%TZ replica lag=${LAG}s < threshold=${THRESHOLD}s — promotable" > /tmp/ready
+                else
+                  rm -f /tmp/ready
+                  date -u +"%FT%TZ replica lag=${LAG}s ≥ threshold=${THRESHOLD}s — NOT promotable"
+                fi
+                sleep 10
+              done
+          env:
+            - name: PGCONNECT_TIMEOUT
+              value: "5"
+          readinessProbe:
+            exec:
+              command: ["test", "-f", "/tmp/ready"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: {{ .Values.cnpgPair.walStreaming.timeoutSeconds }}
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

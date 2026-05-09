@@ -1,0 +1,55 @@
+{{- /*
+audit-config ConfigMap.
+
+Declares the NATS audit subjects + audit-types this Blueprint emits
+when its failover-readiness state flips. The Continuum K-Cont-2
+controller reads this ConfigMap (looked up by label
+`catalyst.openova.io/cnpg-pair=<fullname>`) and:
+
+  - subscribes to the named subject for replication-lag events
+    contributed by this pair, AND
+  - extends its own publish set with switchover/failback audit
+    types — the U-DR-1 UI subscribes filtered by
+    `audit-type=cnpg-pair-* OR audit-type=continuum-*` to render
+    the unified switchover history panel.
+
+The ConfigMap is co-located with the Blueprint (NOT owned by the
+NATS Blueprint) so any future bp-*-pair Blueprint follows the same
+pattern: ship its own audit-config alongside its CR, declare its
+audit-types, and let consumers discover them via label.
+
+This is a NEW seam — first time we co-locate a NATS audit-config
+with the Blueprint that emits the events. Logged in 01-canonical-
+seams.md "Platform" table.
+*/ -}}
+{{- if .Values.cnpgPair.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "cnpg-pair.fullname" . }}-audit-config
+  labels:
+    {{- include "cnpg-pair.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+    catalyst.openova.io/audit-config: "true"
+  annotations:
+    catalyst.openova.io/blueprint: bp-cnpg-pair
+data:
+  # Single-source-of-truth for audit publishers + subscribers in this
+  # pair. K-Cont-2 reads `subject` + `eventTypes`; the U-DR-1 UI
+  # filters its NATS subscription by `auditType`.
+  audit.subject:    {{ .Values.cnpgPair.audit.nats.subject | quote }}
+  audit.auditType:  {{ .Values.cnpgPair.audit.nats.auditType | quote }}
+  audit.eventTypes: |
+{{- range .Values.cnpgPair.audit.nats.eventTypes }}
+    - {{ . | quote }}
+{{- end }}
+  # Pair identity for cross-reference from Continuum CRs and the
+  # U-DR-1 status panel — the UI joins on this name.
+  pair.name:           {{ include "cnpg-pair.fullname" . | quote }}
+  pair.primaryRegion:  {{ .Values.cnpgPair.primary.region | quote }}
+  pair.replicaRegion:  {{ .Values.cnpgPair.replica.region | quote }}
+  pair.primaryCluster: {{ include "cnpg-pair.primaryName" . | quote }}
+  pair.replicaCluster: {{ include "cnpg-pair.replicaName" . | quote }}
+  pair.replicationService: {{ include "cnpg-pair.replicationServiceName" . | quote }}
+  pair.targetLagSeconds: {{ .Values.cnpgPair.walStreaming.targetLagSeconds | quote }}
+{{- end }}

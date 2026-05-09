@@ -1,0 +1,90 @@
+{{- /*
+Replica CNPG Cluster CR.
+
+CNPG's "replica cluster" pattern (`replica.enabled: true` +
+`externalClusters[]`) lets a Cluster CR follow a remote primary's
+WAL stream while staying a regular CNPG Cluster locally. The replica
+cannot be written to until promoted; promotion is done by Continuum
+K-Cont-2 via a CNPG `cnpg.io/cluster.replicaCluster` annotation
+flip + the operator's switchover routine.
+
+Replication source-discovery: the replica resolves the primary via
+the Cilium ClusterMesh-shared Service (templates/service-
+replication.yaml) — service.cilium.io/global=true makes the Service
+visible across the mesh, and ClusterMesh's local-affinity routing
+falls through to the remote region when no local backend matches
+the `cnpg-role=primary` selector. THIS IS THE replication
+source-of-truth — see DESIGN.md "replica source discovery".
+*/ -}}
+{{- if .Values.cnpgPair.enabled }}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ include "cnpg-pair.replicaName" . }}
+  labels:
+    {{- include "cnpg-pair.labels" . | nindent 4 }}
+    openova.io/cnpg-role: replica
+    openova.io/region: {{ .Values.cnpgPair.replica.region | quote }}
+    catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+  annotations:
+    catalyst.openova.io/blueprint: bp-cnpg-pair
+    catalyst.openova.io/cnpg-pair-role: replica
+    catalyst.openova.io/cnpg-pair-name: {{ include "cnpg-pair.fullname" . | quote }}
+spec:
+  instances: {{ .Values.cnpgPair.replica.instances }}
+  imageName: {{ include "cnpg-pair.imageRef" . | quote }}
+
+  storage:
+    size: {{ .Values.cnpgPair.replica.storage.size | quote }}
+    storageClass: {{ .Values.cnpgPair.replica.storage.storageClass | quote }}
+
+  resources:
+    {{- toYaml .Values.cnpgPair.replica.resources | nindent 4 }}
+
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: openova.io/region
+                operator: In
+                values: [{{ .Values.cnpgPair.replica.region | quote }}]
+    podAntiAffinityType: required
+
+  # ── Replica-cluster mode ─────────────────────────────────────────
+  # `replica.enabled: true` configures this Cluster as a CNPG replica
+  # cluster: instances bootstrap via streaming replication from the
+  # named externalCluster source. Continuum K-Cont-2's switchover
+  # path patches `replica.enabled: false` on this CR (and flips the
+  # primary CR to the inverse) to promote/demote atomically.
+  replica:
+    enabled: true
+    source: {{ include "cnpg-pair.fullname" . }}-primary
+
+  externalClusters:
+    - name: {{ include "cnpg-pair.fullname" . }}-primary
+      connectionParameters:
+        # Cilium ClusterMesh-shared Service alias — see
+        # service-replication.yaml. The hostname resolves to
+        # the primary region's CNPG `-r` (read-replica) endpoint
+        # over the private mesh; ClusterMesh `affinity: local`
+        # falls through to the remote region because the replica
+        # region has zero local backends with cnpg-role=primary.
+        host: {{ include "cnpg-pair.replicationServiceName" . }}
+        port: "5432"
+        user: streaming_replica
+        sslmode: require
+        # Application database — bootstrap will pull WAL via
+        # `replication=true` regardless, but `dbname` is required
+        # for the connection-string parser.
+        dbname: {{ .Values.cnpgPair.primary.bootstrap.database | quote }}
+
+  postgresql:
+    parameters:
+      max_wal_senders: "10"
+      max_replication_slots: "10"
+      wal_level: "logical"
+      hot_standby: "on"
+
+  enableSuperuserAccess: false
+{{- end }}
