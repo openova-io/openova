@@ -287,6 +287,19 @@ rules:
   - apiGroups: ["catalyst.openova.io"]
     resources: ["blueprints", "environments"]
     verbs: ["get", "list", "watch"]
+  # EnvironmentPolicy CRD — backs slice X (#1147) PUT
+  # /environments/{env}/policy, restored to working contract by Fix #19
+  # (#1208) in qa-loop iter-3. Without this rule the handler 503s on
+  # the apiserver Create/Update with body
+  #   environmentpolicies.catalyst.openova.io is forbidden.
+  # `create` MUST be split into its own rule WITHOUT resourceNames per
+  # feedback_rbac_create_no_resourcenames.md.
+  - apiGroups: ["catalyst.openova.io"]
+    resources: ["environmentpolicies"]
+    verbs: ["create"]
+  - apiGroups: ["catalyst.openova.io"]
+    resources: ["environmentpolicies"]
+    verbs: ["get", "list", "watch", "update", "patch", "delete"]
   # Organization CRD — top-level tenancy resource surfaced on the
   # /organizations page.
   - apiGroups: ["orgs.openova.io"]
