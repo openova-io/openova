@@ -225,7 +225,23 @@ export function useK8sStream<T extends K8sObject = K8sObject>(
         if (cancelled) return
         try {
           const ev = JSON.parse(msg.data) as K8sEvent<T>
-          if (!ev || !ev.kind || !ev.object) return
+          // Drop server-side multiplex frames (e.g. `{type:"ready", ...}`
+          // emitted by the catalyst-api immediate-snapshot path on
+          // connect — Fix #6 / PR #1189). They carry no `kind` /
+          // `object`, and the cacheKey() lookup would throw.
+          if (
+            !ev ||
+            !ev.kind ||
+            !ev.object ||
+            !(ev.object as Record<string, unknown>)['metadata']
+          )
+            return
+          if (
+            ev.type !== 'ADDED' &&
+            ev.type !== 'MODIFIED' &&
+            ev.type !== 'DELETED'
+          )
+            return
           const key = cacheKey(ev.kind, ev.object)
           if (ev.type === 'DELETED') {
             cacheRef.current.delete(key)

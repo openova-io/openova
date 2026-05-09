@@ -209,6 +209,31 @@ export function useK8sCacheStream(
       } catch {
         return
       }
+      // Guard against non-K8s-event frames the catalyst-api SSE encoder
+      // multiplexes onto the same channel. The first frame on connect is
+      // `{type:"ready", cluster, kinds, at}` (issued by the server's
+      // immediate-snapshot path so the UI can flip from "connecting" to
+      // "open" before any kube event arrives — Fix #6 / PR #1189). It
+      // carries no `object` payload; calling objectKey(.., undefined)
+      // would throw "Cannot read properties of undefined (reading
+      // 'metadata')" and tear down the entire /cloud route. Skip any
+      // frame whose type is not one of the three K8s delta types OR
+      // whose object/metadata is missing — the snapshot only mutates on
+      // real ADDED/MODIFIED/DELETED frames with a typed object.
+      if (
+        payload.type !== 'ADDED' &&
+        payload.type !== 'MODIFIED' &&
+        payload.type !== 'DELETED'
+      ) {
+        // Surface server-driven readiness so the page flips to "open"
+        // even if the EventSource onopen event hasn't fired yet on this
+        // browser. No snapshot mutation, no revision bump.
+        setState((prev) => ({ ...prev, status: 'open' }))
+        return
+      }
+      if (!payload.object || !payload.object.metadata) {
+        return
+      }
       const key = objectKey(payload.kind, payload.object)
       if (payload.type === 'DELETED') {
         snapshotRef.current.delete(key)
