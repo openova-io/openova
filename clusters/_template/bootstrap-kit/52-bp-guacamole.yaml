@@ -81,10 +81,13 @@ spec:
   chart:
     spec:
       chart: bp-guacamole
-      # 0.1.1: canonical short resource names (guacd / guacamole-server
-      # / guacamole-recordings); GHCR-mirrored upstream images;
-      # realm-patch ConfigMap correctly lands in the keycloak namespace.
-      version: 0.1.1
+      # 0.1.2: canonical short resource names (guacd / guacamole-server
+      # / guacamole-recordings); GHCR-mirrored upstream images
+      # auto-published by build-bp-guacamole.yaml; realm-patch ConfigMap
+      # correctly lands in the keycloak namespace. (0.1.1 base + the
+      # CI promote-job auto-bump that materialized the GHCR mirror
+      # references in values.yaml.)
+      version: 0.1.2
       sourceRef:
         kind: HelmRepository
         name: bp-guacamole

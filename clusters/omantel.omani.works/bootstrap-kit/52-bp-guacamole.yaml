@@ -47,7 +47,9 @@ spec:
   chart:
     spec:
       chart: bp-guacamole
-      version: 0.1.1
+      # 0.1.2: 0.1.1 base + CI auto-bumped values.yaml to GHCR mirror
+      # of upstream Apache Guacamole 1.5.5.
+      version: 0.1.2
       sourceRef:
         kind: HelmRepository
         name: bp-guacamole
