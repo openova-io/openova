@@ -30,6 +30,10 @@ spec:
   placement: single-region
   regions:
     - provider: hetzner
-      region: {{ .Values.qaFixtures.primaryRegion | default "fsn1" | quote }}
+      # 4-segment canonical region label per CRD validation. Inline
+      # default upgraded to hz-fsn-rtz-prod alongside the values.yaml
+      # default so a chart upgrade with the prior values.yaml still
+      # renders a valid region (Fix #38 follow-up).
+      region: {{ .Values.qaFixtures.primaryRegion | default "hz-fsn-rtz-prod" | quote }}
       buildingBlock: rtz
 {{- end }}

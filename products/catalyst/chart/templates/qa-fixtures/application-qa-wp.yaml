@@ -48,7 +48,10 @@ spec:
     version: "0.1.0"
   placement: single-region
   regions:
-    - {{ .Values.qaFixtures.primaryRegion | default "fsn1" | quote }}
+    # 4-segment canonical region label per CRD validation
+    # `^[a-z]+-[a-z]+-[a-z]+-[a-z]+$`. The legacy "fsn1" default
+    # rejected the Application at admission (Fix #38 follow-up).
+    - {{ .Values.qaFixtures.primaryRegion | default "hz-fsn-rtz-prod" | quote }}
   parameters:
     siteTitle: "QA WP"
     replicas: 1
