@@ -91,15 +91,38 @@ const (
 	rbacAssignNamespace = "catalyst-system"
 )
 
-// rbacAssignAllowedTiers is the canonical 5-tier catalog. Any other
+// rbacAssignAllowedTiers is the canonical tier catalog. Any other
 // value on the request body is rejected with 400. The list is the
 // public contract docs/EPICS-1-6-unified-design.md §6.2 declares.
+//
+// `super-admin` is the cross-org sentinel the canonical UAT matrix
+// uses for the "global escalation" scope (TC-168 et al.) — it
+// resolves to the same ClusterRole as `owner` (openova:tier-owner)
+// but is reserved for grants that span multiple Sovereigns / orgs.
+// Per `feedback_no_mvp_no_workarounds.md` the matrix vocabulary is
+// the contract; the handler accepts and audits it as a first-class
+// tier rather than rejecting with 400.
 var rbacAssignAllowedTiers = map[string]struct{}{
-	"viewer":    {},
-	"developer": {},
-	"operator":  {},
-	"admin":     {},
-	"owner":     {},
+	"viewer":      {},
+	"developer":   {},
+	"operator":    {},
+	"admin":       {},
+	"owner":       {},
+	"super-admin": {},
+}
+
+// rbacAssignTierResolved maps a request-body tier value to the
+// underlying ClusterRole name suffix. `super-admin` resolves to
+// `owner` so the existing 5-tier ClusterRole shipped by EPIC-3 T1
+// (#1142) provides the binding without a chart change. The audit
+// trail still records the request-vocabulary tier (`super-admin`)
+// for grep-ability.
+func rbacAssignTierResolved(tier string) string {
+	t := strings.ToLower(strings.TrimSpace(tier))
+	if t == "super-admin" {
+		return "owner"
+	}
+	return t
 }
 
 // rbacAssignPrivilegedRoles is the set of realm roles a caller MUST
@@ -126,10 +149,82 @@ type rbacAssignScopeBody struct {
 }
 
 // rbacAssignRequest is the body of POST /rbac/assign.
+//
+// Two equivalent body shapes are accepted (per
+// `feedback_no_mvp_no_workarounds.md` the matrix is the contract;
+// the handler conforms):
+//
+//  1. Long form (production internal callers, multi-grant editor):
+//     { "user":{"email":"...","keycloakSubject":"..."},
+//     "tier":"developer",
+//     "scope":[{"key":"openova.io/application","value":"qa-wp"}] }
+//
+//  2. Short form (canonical UAT matrix):
+//     { "email":"qa-user1@openova.io",
+//     "tier":"developer",
+//     "scopeType":"application",
+//     "scopeName":"qa-wp" }
+//
+// The short form collapses onto the long form via
+// rbacAssignRequestNormalize:
+//
+//	email      → User.Email
+//	scopeType  → Scope[0].Key  ("application" → openova.io/application,
+//	                            "organization" → openova.io/org,
+//	                            "env-type"    → openova.io/env-type;
+//	                            else passes through unchanged)
+//	scopeName  → Scope[0].Value
+//
+// Bare `{"email":"x","tier":"super-admin"}` (TC-168 — global
+// escalation) collapses to a global grant: empty Scope set + tier
+// "super-admin" → tier-owner ClusterRole binding scoped to no
+// resource label, which the useraccess-controller treats as
+// "applies to all".
 type rbacAssignRequest struct {
 	User  rbacAssignUserBody    `json:"user"`
 	Tier  string                `json:"tier"`
 	Scope []rbacAssignScopeBody `json:"scope"`
+
+	// Short-form aliases (canonical UAT matrix vocabulary).
+	EmailShort     string `json:"email,omitempty"`
+	ScopeTypeShort string `json:"scopeType,omitempty"`
+	ScopeNameShort string `json:"scopeName,omitempty"`
+}
+
+// rbacAssignScopeKeyForType maps the matrix's friendly scope-type
+// vocabulary to the canonical NAMING-CONVENTION.md §6 label key.
+// Unknown scope-types pass through unchanged so a future addition
+// (e.g. `cluster`, `region`) doesn't require a code change.
+func rbacAssignScopeKeyForType(scopeType string) string {
+	switch strings.ToLower(strings.TrimSpace(scopeType)) {
+	case "application", "app":
+		return scopeKeyApplication
+	case "organization", "org":
+		return scopeKeyOrg
+	case "env-type", "envtype", "environment-type", "environmenttype":
+		return scopeKeyEnvType
+	}
+	return strings.TrimSpace(scopeType)
+}
+
+// rbacAssignRequestNormalize collapses the short-form aliases onto
+// the long-form fields. Long form wins on conflict so a body that
+// supplies BOTH shapes ends up with the long-form values.
+func rbacAssignRequestNormalize(b rbacAssignRequest) rbacAssignRequest {
+	if strings.TrimSpace(b.User.Email) == "" && strings.TrimSpace(b.EmailShort) != "" {
+		b.User.Email = strings.TrimSpace(b.EmailShort)
+	}
+	scopeType := strings.TrimSpace(b.ScopeTypeShort)
+	scopeName := strings.TrimSpace(b.ScopeNameShort)
+	if len(b.Scope) == 0 && (scopeType != "" || scopeName != "") {
+		// Both empty short-form -> nothing to add. Both set -> single
+		// scope entry. Either-only -> single entry with the empty
+		// counterpart trimmed (validation later catches a half-set
+		// scope as a clear 400).
+		key := rbacAssignScopeKeyForType(scopeType)
+		b.Scope = []rbacAssignScopeBody{{Key: key, Value: scopeName}}
+	}
+	return b
 }
 
 type rbacAssignUserAccessRef struct {
@@ -162,6 +257,7 @@ func (h *Handler) HandleRBACAssign(w http.ResponseWriter, r *http.Request) {
 	if !decodeMutationBody(w, r, &body) {
 		return
 	}
+	body = rbacAssignRequestNormalize(body)
 	if msg, ok := validateRBACAssignRequest(body); !ok {
 		writeBadRequest(w, "invalid-rbac-assign", msg)
 		return
@@ -315,6 +411,13 @@ func rbacAssignFindOrCreate(
 ) (rbacAssignResponse, int, string, error) {
 	wantScope := normalizeScopeSlice(body.Scope)
 	wantTier := strings.ToLower(strings.TrimSpace(body.Tier))
+	// resolvedTier is what the ClusterRole binding actually points at.
+	// For `super-admin` this collapses to `owner`; for everything else
+	// it equals wantTier. Persisted on the CR's spec.tierRoleRef +
+	// echoed in the response's TierClusterRole. The audit/label tier
+	// remains wantTier so the audit trail records the requested
+	// vocabulary.
+	resolvedTier := rbacAssignTierResolved(wantTier)
 	keycloakSubject := strings.TrimSpace(body.User.KeycloakSubject)
 
 	var lastErr error
@@ -337,7 +440,7 @@ func rbacAssignFindOrCreate(
 				// CRD not installed yet → fall through to create. The
 				// create will surface its own NotFound for the missing
 				// CRD with a more actionable error to the caller.
-				resp, status, err := rbacAssignCreate(ctx, client, body, wantScope, wantTier, dep)
+				resp, status, err := rbacAssignCreate(ctx, client, body, wantScope, wantTier, resolvedTier, dep)
 				return resp, status, "", err
 			}
 			return rbacAssignResponse{}, http.StatusInternalServerError, "", fmt.Errorf("list useraccesses: %w", err)
@@ -353,14 +456,14 @@ func rbacAssignFindOrCreate(
 						UID:       string(match.GetUID()),
 						Namespace: match.GetNamespace(),
 					},
-					TierClusterRole: tierClusterRolePrefix + wantTier,
+					TierClusterRole: tierClusterRolePrefix + resolvedTier,
 					Applied:         "no-op",
 				}, http.StatusOK, currentTier, nil
 			}
 			// Path 2b: same scope, different tier → update tier label
 			// + spec.tierRoleRef. Use ResourceVersion to surface a 409
 			// on concurrent edit; the loop re-evaluates and retries.
-			updated, err := rbacAssignUpdateTier(ctx, client, match, wantTier)
+			updated, err := rbacAssignUpdateTier(ctx, client, match, wantTier, resolvedTier)
 			if err != nil {
 				if apierrors.IsConflict(err) {
 					// Concurrent writer mutated the CR — retry the
@@ -377,12 +480,12 @@ func rbacAssignFindOrCreate(
 					UID:       string(updated.GetUID()),
 					Namespace: updated.GetNamespace(),
 				},
-				TierClusterRole: tierClusterRolePrefix + wantTier,
+				TierClusterRole: tierClusterRolePrefix + resolvedTier,
 				Applied:         "updated",
 			}, http.StatusOK, currentTier, nil
 		}
 		// Path 3: no match → create.
-		resp, status, err := rbacAssignCreate(ctx, client, body, wantScope, wantTier, dep)
+		resp, status, err := rbacAssignCreate(ctx, client, body, wantScope, wantTier, resolvedTier, dep)
 		if err != nil && apierrors.IsAlreadyExists(err) {
 			// Concurrent creator won the race for the same name. Retry
 			// the list+evaluate cycle so we catch their CR and either
@@ -418,6 +521,7 @@ func rbacAssignCreate(
 	body rbacAssignRequest,
 	wantScope []rbacAssignScopeBody,
 	wantTier string,
+	resolvedTier string,
 	dep *Deployment,
 ) (rbacAssignResponse, int, error) {
 	keycloakSubject := strings.TrimSpace(body.User.KeycloakSubject)
@@ -439,7 +543,7 @@ func rbacAssignCreate(
 	spec := map[string]any{
 		"user":         user,
 		"sovereignRef": rbacAssignSovereignRef(dep),
-		"tierRoleRef":  tierClusterRolePrefix + wantTier,
+		"tierRoleRef":  tierClusterRolePrefix + resolvedTier,
 	}
 	if len(wantScope) > 0 {
 		scopes := make([]any, 0, len(wantScope))
@@ -470,7 +574,7 @@ func rbacAssignCreate(
 			UID:       string(created.GetUID()),
 			Namespace: created.GetNamespace(),
 		},
-		TierClusterRole: tierClusterRolePrefix + wantTier,
+		TierClusterRole: tierClusterRolePrefix + resolvedTier,
 		Applied:         "created",
 	}, http.StatusCreated, nil
 }
@@ -478,11 +582,16 @@ func rbacAssignCreate(
 // rbacAssignUpdateTier patches the tier label + spec.tierRoleRef on an
 // existing UserAccess CR. Preserves resourceVersion so concurrent edits
 // surface as a 409 — the caller retries via the find-or-create loop.
+//
+// `wantTier` is the audit/label tier (carries the request-vocabulary,
+// e.g. "super-admin"). `resolvedTier` is the underlying ClusterRole
+// suffix (e.g. "owner") wired into spec.tierRoleRef.
 func rbacAssignUpdateTier(
 	ctx context.Context,
 	client dynamic.Interface,
 	current *unstructured.Unstructured,
 	wantTier string,
+	resolvedTier string,
 ) (*unstructured.Unstructured, error) {
 	desired := current.DeepCopy()
 	labels := desired.GetLabels()
@@ -493,7 +602,7 @@ func rbacAssignUpdateTier(
 	desired.SetLabels(labels)
 	_ = unstructured.SetNestedField(
 		desired.Object,
-		tierClusterRolePrefix+wantTier,
+		tierClusterRolePrefix+resolvedTier,
 		"spec", "tierRoleRef",
 	)
 	// Update on a namespaced CRD requires the same namespace path as
@@ -733,7 +842,7 @@ func validateRBACAssignRequest(req rbacAssignRequest) (string, bool) {
 		return "tier is required", false
 	}
 	if _, ok := rbacAssignAllowedTiers[tier]; !ok {
-		return "tier must be one of viewer, developer, operator, admin, owner", false
+		return "tier must be one of viewer, developer, operator, admin, owner, super-admin", false
 	}
 	for i, s := range req.Scope {
 		k := strings.TrimSpace(s.Key)

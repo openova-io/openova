@@ -155,6 +155,15 @@ func ClusterPolicyGVR() schema.GroupVersionResource {
 //     400 because decodeMutationBody calls DisallowUnknownFields().
 //   - applied:     ignored. Read-only field on the response.
 //
+// `mode` (and optional `policy`) is the SHORT form the canonical UAT
+// matrix uses — `{"mode":"Audit"}` or `{"mode":"Enforce","policy":"<name>"}`.
+// When `mode` is set, the handler synthesises a single-entry `Modes`
+// map keyed on `policy` (or, when `policy` is empty, on the special
+// sentinel "*" which means "apply this mode to every known compliance
+// policy on this Environment" — the bulk-toggle case). This is the
+// target-state vocabulary per `feedback_no_mvp_no_workarounds.md`:
+// the handler conforms to the matrix, never the other way around.
+//
 // Removing DisallowUnknownFields globally would weaken every other
 // mutation handler that benefits from strict typo detection. The
 // targeted fix is to model the optional fields explicitly here so
@@ -163,6 +172,43 @@ type policyModeRequest struct {
 	Modes       map[string]string `json:"modes"`
 	Environment string            `json:"environment,omitempty"`
 	Applied     any               `json:"applied,omitempty"`
+	// Mode is the single-policy short form. When non-empty, expanded
+	// into Modes server-side (see expandShortFormMode below).
+	Mode string `json:"mode,omitempty"`
+	// Policy targets the single-policy short form. When empty alongside
+	// Mode, the bulk-apply sentinel "*" is used so every known
+	// compliance policy receives the requested mode.
+	Policy string `json:"policy,omitempty"`
+}
+
+// policyModeBulkSentinel — when the short-form body specifies `mode`
+// without `policy`, the handler applies the mode to EVERY known
+// compliance policy on the Sovereign. The sentinel survives the
+// expansion step and is replaced inline once policyModeKnownPolicies
+// returns.
+const policyModeBulkSentinel = "*"
+
+// expandShortFormMode synthesises a Modes map from the short-form body
+// fields (`mode` + optional `policy`). When `mode` is empty the call is
+// a no-op (the long-form `modes` map already populated). Returns the
+// possibly-mutated request body.
+//
+// The expansion happens BEFORE policy-name validation so the bulk
+// sentinel "*" does not collide with a user-supplied `modes` entry.
+func expandShortFormMode(body policyModeRequest) policyModeRequest {
+	mode := strings.TrimSpace(body.Mode)
+	if mode == "" {
+		return body
+	}
+	if body.Modes == nil {
+		body.Modes = map[string]string{}
+	}
+	target := strings.TrimSpace(body.Policy)
+	if target == "" {
+		target = policyModeBulkSentinel
+	}
+	body.Modes[target] = mode
+	return body
 }
 
 // policyModeResponse is the body returned on success. The `modes` map
@@ -199,8 +245,9 @@ func (h *Handler) HandleEnvironmentPolicyMode(w http.ResponseWriter, r *http.Req
 	if !decodeMutationBody(w, r, &body) {
 		return
 	}
+	body = expandShortFormMode(body)
 	if len(body.Modes) == 0 {
-		writeBadRequest(w, "empty-modes", "modes map must contain at least one entry")
+		writeBadRequest(w, "empty-modes", "modes map must contain at least one entry (or set top-level `mode`)")
 		return
 	}
 	// Normalize mode values to the OpenOva vocabulary (permissive |
@@ -266,6 +313,32 @@ func (h *Handler) HandleEnvironmentPolicyMode(w http.ResponseWriter, r *http.Req
 			"detail": knownErr.Error(),
 		})
 		return
+	}
+	// Expand the bulk-apply sentinel "*" into one entry per known
+	// compliance policy. Done AFTER policyModeKnownPolicies so the
+	// short-form `{"mode":"Audit"}` body fans out to every policy in
+	// scope without forcing the caller to enumerate them. When no
+	// known policies are registered (fresh Sovereign without Kyverno
+	// installed) the sentinel is dropped — there is nothing to apply.
+	if v, ok := body.Modes[policyModeBulkSentinel]; ok {
+		delete(body.Modes, policyModeBulkSentinel)
+		for name := range known {
+			if _, exists := body.Modes[name]; !exists {
+				body.Modes[name] = v
+			}
+		}
+		if len(body.Modes) == 0 {
+			// No known policies on this Sovereign and no explicit
+			// per-policy entry survived the expansion. Surface a 200
+			// no-op rather than a 400 so the caller sees the request
+			// was accepted but the cluster has nothing to toggle.
+			writeJSON(w, http.StatusOK, policyModeResponse{
+				Environment: envName,
+				Modes:       map[string]string{},
+				Applied:     "no-op",
+			})
+			return
+		}
 	}
 	if len(known) > 0 {
 		for name := range body.Modes {
