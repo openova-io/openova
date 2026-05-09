@@ -68,6 +68,9 @@ import { CloudPage } from '@/pages/sovereign/CloudPage'
 import { DecommissionPage } from '@/pages/sovereign/DecommissionPage'
 import { UserAccessListPage } from '@/pages/admin/user-access/UserAccessListPage'
 import { UserAccessEditPage } from '@/pages/admin/user-access/UserAccessEditPage'
+import { MultiGrantEditPage } from '@/pages/admin/rbac/MultiGrantEditPage'
+import { GroupBrowserPage } from '@/pages/admin/rbac/GroupBrowserPage'
+import { RoleBrowserPage } from '@/pages/admin/rbac/RoleBrowserPage'
 import { ParentDomainsPage } from '@/pages/admin/parent-domains/ParentDomainsPage'
 import { SREDashboardPage } from '@/pages/admin/compliance/SREDashboardPage'
 import { SecLeadDashboardPage } from '@/pages/admin/compliance/SecLeadDashboardPage'
@@ -676,6 +679,34 @@ const provisionUsersEditRoute = createRoute({
   beforeLoad: provisionAuthGuard,
 })
 
+/* ── Sovereign IAM — multi-grant editor + group/role browser
+ *      (EPIC-3 #1098 slice U1+U3+U4) ───────────────────────────────
+ *
+ * Mounted under /provision/$deploymentId/rbac/* (mothership) and
+ * /rbac/* (chroot Sovereign Console — see consoleLayoutRoute below).
+ * The legacy /users routes (UserAccessEditPage) stay in place during
+ * the deprecation grace period; the multi-grant editor lives on a
+ * dedicated path so the UI surfaces both side-by-side.
+ */
+const provisionRBACMultiGrantRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/provision/$deploymentId/rbac/grant',
+  component: MultiGrantEditPage,
+  beforeLoad: provisionAuthGuard,
+})
+const provisionRBACGroupsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/provision/$deploymentId/rbac/groups',
+  component: GroupBrowserPage,
+  beforeLoad: provisionAuthGuard,
+})
+const provisionRBACRolesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/provision/$deploymentId/rbac/roles',
+  component: RoleBrowserPage,
+  beforeLoad: provisionAuthGuard,
+})
+
 /* ── Sovereign Settings (issue #516) ─────────────────────────────
  *
  * Deployment-scoped Settings surface. Replaces the legacy sidebar
@@ -896,6 +927,24 @@ const consoleUsersEditRoute = createRoute({
   path: '/users/$name',
   component: UserAccessEditPage,
 })
+
+// EPIC-3 (#1098) slice U1+U3+U4 — RBAC management chroot routes.
+const consoleRBACMultiGrantRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/rbac/grant',
+  component: MultiGrantEditPage,
+})
+const consoleRBACGroupsRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/rbac/groups',
+  component: GroupBrowserPage,
+})
+const consoleRBACRolesRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/rbac/roles',
+  component: RoleBrowserPage,
+})
+
 const consoleSettingsRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/settings',
@@ -1125,6 +1174,10 @@ const routeTree = rootRoute.addChildren([
   provisionUsersListRoute,
   provisionUsersNewRoute,
   provisionUsersEditRoute,
+  // EPIC-3 (#1098) slice U1+U3+U4 — multi-grant editor + group/role browsers.
+  provisionRBACMultiGrantRoute,
+  provisionRBACGroupsRoute,
+  provisionRBACRolesRoute,
   provisionSettingsRoute,
   provisionNotificationsRoute,
   // Compliance — slice U (#1096). Mother-side admin routes.
@@ -1150,6 +1203,10 @@ const routeTree = rootRoute.addChildren([
     consoleUsersRoute,
     consoleUsersNewRoute,
     consoleUsersEditRoute,
+    // EPIC-3 (#1098) slice U1+U3+U4 — RBAC management chroot routes.
+    consoleRBACMultiGrantRoute,
+    consoleRBACGroupsRoute,
+    consoleRBACRolesRoute,
     consoleSettingsRoute,
     consoleSettingsMarketplaceRoute,
     consoleSMEUsersRoute,
