@@ -10,6 +10,7 @@
 package handler
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -301,6 +302,83 @@ func TestValidateRBACAssignRequest_SuperAdmin(t *testing.T) {
 	}
 	if msg, ok := validateRBACAssignRequest(body); !ok {
 		t.Errorf("super-admin should validate; got %q", msg)
+	}
+}
+
+// ── TC-167 — email shape validation ────────────────────────────────────
+
+func TestValidateRBACAssignRequest_BadEmailShortForm(t *testing.T) {
+	// {"email":"badformat","tier":"developer"} short-form normalised
+	// (the handler runs Normalize before Validate; this directly tests
+	// what Validate sees post-normalize).
+	body := rbacAssignRequestNormalize(rbacAssignRequest{
+		EmailShort: "badformat",
+		Tier:       "developer",
+	})
+	msg, ok := validateRBACAssignRequest(body)
+	if ok {
+		t.Errorf("malformed email 'badformat' should fail validation, got ok=true")
+	}
+	if !strings.Contains(msg, "email") {
+		t.Errorf("error must mention 'email'; got %q", msg)
+	}
+}
+
+func TestValidateRBACAssignRequest_BadEmailLongForm(t *testing.T) {
+	body := rbacAssignRequest{
+		User: rbacAssignUserBody{Email: "alice@@example.com"},
+		Tier: "viewer",
+	}
+	if _, ok := validateRBACAssignRequest(body); ok {
+		t.Errorf("double-@ email should fail validation")
+	}
+}
+
+func TestValidateEmailAddressShape(t *testing.T) {
+	pass := []string{
+		"qa-user1@openova.io",
+		"alice.smith+plus@example.co.uk",
+		"a@b.cd",
+		"a@b.io",
+		"x.y.z@sub.domain.example.org",
+	}
+	fail := []string{
+		"badformat",      // no @
+		"alice",          // no @
+		"x@y",            // no dot in domain
+		"@example.com",   // empty local
+		"alice@",         // empty domain
+		"alice@@x.io",    // double @
+		"alice @x.io",    // whitespace
+		"alice@x..io",    // empty label
+		"alice@-x.io",    // label leading hyphen
+		"alice@x-.io",    // label trailing hyphen
+		"alice@x.i",      // TLD too short
+		"alice@x.123_abc", // invalid label char
+	}
+	for _, e := range pass {
+		if _, ok := validateEmailAddressShape(e); !ok {
+			t.Errorf("expected pass for %q", e)
+		}
+	}
+	for _, e := range fail {
+		if _, ok := validateEmailAddressShape(e); ok {
+			t.Errorf("expected fail for %q", e)
+		}
+	}
+}
+
+func TestValidateUserAccess_BadEmailShortForm(t *testing.T) {
+	body := userAccessRequestNormalize(userAccessRequest{
+		EmailShort: "badformat",
+		TierShort:  "viewer",
+	}, "sov", "")
+	msg, ok := validateUserAccess(body)
+	if ok {
+		t.Errorf("user_access bad email should fail validation, got ok=true")
+	}
+	if !strings.Contains(msg, "email") {
+		t.Errorf("user_access error must mention 'email'; got %q", msg)
 	}
 }
 

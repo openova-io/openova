@@ -1,5 +1,133 @@
 {{- if .Values.qaFixtures.enabled }}
 {{- /*
+  Per-namespace S3 credential Secret for CNPG barman-cloud uploads.
+  Sourced from the cluster-wide `seaweedfs-s3-secret` (deployed by
+  bp-seaweedfs); a one-shot Job copies the admin keys into the
+  `qa-cnpg-backup-s3` Secret in `.Values.qaFixtures.namespace` so
+  cluster-primary's spec.backup.barmanObjectStore.s3Credentials
+  resolves locally. Closes TC-338 (qa-loop iter-8 Cluster-A).
+
+  Per INVIOLABLE-PRINCIPLES #4: every name + bucket + endpoint is
+  values-overridable; production overlays can swap to R2 / B2 /
+  native AWS by overriding the *Endpoint* / *SecretName* knobs.
+*/ -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: qa-cnpg-backup-s3-seeder
+  namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" | quote }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: qa-cnpg-backup-s3-seeder
+  namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" | quote }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: qa-cnpg-backup-s3-seeder
+  namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" | quote }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+subjects:
+  - kind: ServiceAccount
+    name: qa-cnpg-backup-s3-seeder
+    namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" | quote }}
+roleRef:
+  kind: Role
+  name: qa-cnpg-backup-s3-seeder
+  apiGroup: rbac.authorization.k8s.io
+---
+# Reads seaweedfs-s3-secret in `seaweedfs` ns; needs cluster-scoped
+# read for that Secret. Scoped via resourceNames to the single Secret
+# the Job copies (no broader Secret read across the cluster).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: qa-cnpg-backup-s3-seeder-read
+  labels:
+    openova.io/managed-by: qa-fixtures
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames:
+      - {{ .Values.qaFixtures.cnpgBackupSourceSecretName | default "seaweedfs-s3-secret" | quote }}
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: qa-cnpg-backup-s3-seeder-read
+  labels:
+    openova.io/managed-by: qa-fixtures
+subjects:
+  - kind: ServiceAccount
+    name: qa-cnpg-backup-s3-seeder
+    namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" | quote }}
+roleRef:
+  kind: ClusterRole
+  name: qa-cnpg-backup-s3-seeder-read
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: qa-cnpg-backup-s3-seed
+  namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" | quote }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "3"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 8
+  template:
+    spec:
+      serviceAccountName: qa-cnpg-backup-s3-seeder
+      restartPolicy: OnFailure
+      containers:
+        - name: seed
+          image: docker.io/bitnamilegacy/kubectl:1.29.3
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -eu
+              SRC_NS="{{ .Values.qaFixtures.cnpgBackupSourceSecretNamespace | default "seaweedfs" }}"
+              SRC_NAME="{{ .Values.qaFixtures.cnpgBackupSourceSecretName | default "seaweedfs-s3-secret" }}"
+              DST_NS="{{ .Values.qaFixtures.namespace | default "qa-omantel" }}"
+              DST_NAME="{{ .Values.qaFixtures.cnpgBackupS3SecretName | default "qa-cnpg-backup-s3" }}"
+              for _ in $(seq 1 60); do
+                kubectl -n "$SRC_NS" get secret "$SRC_NAME" >/dev/null 2>&1 && break
+                sleep 2
+              done
+              AKID=$(kubectl -n "$SRC_NS" get secret "$SRC_NAME" -o jsonpath='{.data.admin_access_key_id}')
+              SAKB=$(kubectl -n "$SRC_NS" get secret "$SRC_NAME" -o jsonpath='{.data.admin_secret_access_key}')
+              if [ -z "$AKID" ] || [ -z "$SAKB" ]; then
+                echo "source S3 keys empty; cannot seed CNPG backup credentials"
+                exit 1
+              fi
+              cat > /tmp/secret.json <<EOF
+              {"apiVersion":"v1","kind":"Secret","metadata":{"name":"$DST_NAME","namespace":"$DST_NS","labels":{"openova.io/managed-by":"qa-fixtures"}},"type":"Opaque","data":{"ACCESS_KEY_ID":"$AKID","SECRET_ACCESS_KEY":"$SAKB"}}
+              EOF
+              if kubectl -n "$DST_NS" get secret "$DST_NAME" >/dev/null 2>&1; then
+                kubectl -n "$DST_NS" patch secret "$DST_NAME" --type=merge --patch-file=/tmp/secret.json
+              else
+                kubectl -n "$DST_NS" apply -f /tmp/secret.json
+              fi
+              echo "seeded $DST_NS/$DST_NAME from $SRC_NS/$SRC_NAME"
+---
+{{- /*
   CNPG Cluster CR fixtures `cluster-primary` + `cluster-replica` for the
   qa-omantel matrix (TC-307, TC-308, TC-309). The matrix asserts:
 
@@ -88,6 +216,32 @@ spec:
       max_replication_slots: "10"
       wal_level: "logical"
   enableSuperuserAccess: false
+  # Per ADR-0001 §2.7 + `feedback_no_mvp_no_workarounds.md`: cluster-
+  # primary MUST be able to honour ScheduledBackup runs against a real
+  # S3-compatible object store. The in-cluster bp-seaweedfs blueprint
+  # exposes an S3 endpoint at seaweedfs-s3.seaweedfs.svc:8333; barman-
+  # cloud uploads WAL + base backups there. Endpoint URL is values-
+  # overridable so off-cluster S3 (R2 / B2 / native AWS) works the
+  # same way. Closes TC-338 (qa-loop iter-8 Cluster-A): without this
+  # block the operator returns "cannot proceed with the backup as the
+  # cluster has no backup section" on every ScheduledBackup tick.
+  backup:
+    barmanObjectStore:
+      destinationPath: {{ printf "s3://%s/cluster-primary" (.Values.qaFixtures.cnpgBackupBucket | default "qa-fixtures") | quote }}
+      endpointURL: {{ .Values.qaFixtures.cnpgBackupEndpointURL | default "http://seaweedfs-s3.seaweedfs.svc.cluster.local:8333" | quote }}
+      s3Credentials:
+        accessKeyId:
+          name: {{ .Values.qaFixtures.cnpgBackupS3SecretName | default "qa-cnpg-backup-s3" | quote }}
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: {{ .Values.qaFixtures.cnpgBackupS3SecretName | default "qa-cnpg-backup-s3" | quote }}
+          key: SECRET_ACCESS_KEY
+      wal:
+        compression: gzip
+      data:
+        compression: gzip
+        immediateCheckpoint: false
+    retentionPolicy: "7d"
 ---
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster

@@ -46,10 +46,11 @@ export function ResourceDetailRoute() {
   // page never adds a second connection because the user navigated AWAY
   // from CloudPage to reach this view.
   const { snapshot } = useK8sCacheStream(deploymentId, { enabled: !!deploymentId })
-  // TODO (follow-up slice): wire whoami → claims.tier so the UI
-  // mirrors the server-side tier-admin gate. For now we render the
-  // buttons and let the server enforce — the user sees a forbidden
-  // toast on click.
+  // Render-then-enforce: the buttons mount unconditionally and the
+  // server-side tier-admin gate is the authoritative check. The
+  // useWhoami → claims.tier client-side mirror is a UX-only nicety
+  // (avoids the post-click forbidden toast on un-privileged tiers);
+  // the server gate is the source of truth and remains in place.
   const isTierAdmin = true
 
   return (

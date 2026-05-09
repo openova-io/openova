@@ -85,7 +85,7 @@ interface SectionDef {
 
 const SECTIONS: readonly SectionDef[] = [
   { id: 'organization', label: 'Organization', description: 'Organisation profile, billing contact, logo.' },
-  { id: 'sovereign', label: 'Sovereign', description: 'FQDN, region, control plane sizing, deployment id, creation date.' },
+  { id: 'sovereign', label: 'Sovereign', description: 'FQDN, region, Capacity (control plane sizing), deployment id, creation date.' },
   { id: 'api-tokens', label: 'API tokens', description: 'List, create, and revoke service tokens.' },
   { id: 'cloud-credentials', label: 'Cloud credentials', description: 'Hetzner provider token + S3 backup keys.' },
   { id: 'dns', label: 'DNS', description: 'Pool domain, subdomain, TLS issuer status.' },
@@ -197,6 +197,12 @@ export function SettingsPage({ disableStream = false }: SettingsPageProps = {}) 
               <FieldGrid>
                 <Field label="Sovereign FQDN" value={sovereignFQDN} mono testId="settings-sov-fqdn" />
                 <Field label="Region" value={region} mono testId="settings-sov-region" />
+                <Field
+                  label="Capacity"
+                  value={controlPlaneSize}
+                  mono
+                  testId="settings-sov-capacity"
+                />
                 <Field
                   label="Control plane size"
                   value={controlPlaneSize}

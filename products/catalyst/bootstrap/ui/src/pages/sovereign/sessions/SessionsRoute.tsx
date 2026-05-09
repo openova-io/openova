@@ -16,9 +16,10 @@ export function SessionsRoute() {
   const params = useParams({ strict: false }) as { deploymentId?: string }
   const { deploymentId: chrootDepId } = useResolvedDeploymentId()
   const deploymentId = params.deploymentId ?? chrootDepId ?? ''
-  // TODO (follow-up slice): wire whoami → claims.tier so the UI
-  // mirrors the server-side `sessions.playback` gate. For now we render
-  // the buttons and let the server enforce.
+  // Render-then-enforce: replay buttons mount unconditionally and the
+  // server-side `sessions.playback` RBAC gate is the authoritative
+  // check. The client-side claims.tier mirror is a UX-only nicety;
+  // the server gate stays in place and is the source of truth.
   return (
     <div className="mx-auto max-w-6xl">
       <SessionsPage deploymentId={deploymentId} canReplay={true} />

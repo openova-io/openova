@@ -316,7 +316,20 @@ name: bp-catalyst-platform
 #   - Organization sovereignRef resolution chain (qaFixtures.sovereignFQDN
 #     → global.sovereignFQDN → qaFixtures.sovereignRef-if-FQDN → omantel.biz)
 #     consolidated alongside #1244+#1245+#1246 fixes.
-version: 1.4.107
+# 1.4.108 (qa-loop iter-8 Fix #41 — Cluster-A + Cluster-B closeout):
+#   - templates/qa-fixtures/environment-qa-omantel.yaml — Environment
+#     spec.regions[0] split into provider/region/buildingBlock subfields
+#     to satisfy the env CRD's `^[a-z]{3}[a-z0-9]?$` region-code regex
+#     (TC-369). Previous string-region "hz-fsn-rtz-prod" rejected at
+#     admission and pinned the chart upgrade in UpgradeFailed.
+#   - templates/qa-fixtures/cnpg-clusters-qa.yaml — cluster-primary
+#     spec.backup wired to in-cluster SeaweedFS S3 (TC-338); a post-
+#     install Job copies the seaweedfs admin keys into qa-omantel as
+#     qa-cnpg-backup-s3 so barman-cloud has a valid object store and
+#     ScheduledBackup runs succeed instead of failing every minute.
+#   - templates/clusterrole-cutover-driver.yaml — kyverno.io read access
+#     for the new compliance-handler ClusterPolicy ingest path (TC-026).
+version: 1.4.108
 appVersion: 1.4.94
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.

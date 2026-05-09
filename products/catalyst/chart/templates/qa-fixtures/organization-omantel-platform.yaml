@@ -24,9 +24,9 @@
   pattern `^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$`
   (one or more dot-separated DNS labels). The legacy single-segment
   `omantel` default rejected the CR at admission and blocked the entire
-  qa-fixtures stack from rendering on chart 1.4.105 (Fix #40).
+  qa-fixtures stack from rendering on chart 1.4.105 (Fix #40 / #41).
 
-  Resolution order (so any one of the three sources produces a valid
+  Resolution order (so any one of the four sources produces a valid
   FQDN, never a rejected single-segment value):
     1. .Values.qaFixtures.sovereignFQDN — explicit qa-fixtures override
     2. .Values.global.sovereignFQDN — chart-wide canonical Sovereign

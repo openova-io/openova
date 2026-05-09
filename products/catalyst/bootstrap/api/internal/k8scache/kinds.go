@@ -135,6 +135,14 @@ var DefaultKinds = []Kind{
 	{Name: "policyreport", GVR: schema.GroupVersionResource{Group: "wgpolicyk8s.io", Version: "v1alpha2", Resource: "policyreports"}, Namespaced: true},
 	{Name: "clusterpolicyreport", GVR: schema.GroupVersionResource{Group: "wgpolicyk8s.io", Version: "v1alpha2", Resource: "clusterpolicyreports"}, Namespaced: false},
 
+	// QA-loop iter-8 Fix #41 — ClusterPolicy CRD lookup so the
+	// per-policy drill-down (TC-026) renders Severity + Rule list off
+	// the live ClusterPolicy CR's annotations + spec.rules without an
+	// extra apiserver round-trip per request. The compliance handler's
+	// SubscribeKinds defaults include `clusterpolicy` so the Factory
+	// fanout streams these too. ClusterPolicy is cluster-scoped.
+	{Name: "clusterpolicy", GVR: schema.GroupVersionResource{Group: "kyverno.io", Version: "v1", Resource: "clusterpolicies"}, Namespaced: false},
+
 	// EPIC-4 Slice R4 (#1099) — Events panel feed.
 	//
 	// Kubernetes Events live at events.k8s.io/v1 (the modern API; the

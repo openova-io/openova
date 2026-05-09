@@ -135,14 +135,40 @@ type Score struct {
 
 // PolicyView is one row of the /policies endpoint — every active
 // policy + its current weight + mode + violation count.
+//
+// Per `feedback_no_mvp_no_workarounds.md` (TC-026 qa-loop iter-8
+// Cluster-B): the per-policy drill-down MUST surface Severity + the
+// rule list straight off the live ClusterPolicy CR rather than
+// rendering an empty section. Severity comes from the canonical
+// `policies.kyverno.io/severity` annotation (low | medium | high |
+// critical); Rules is the spec.rules[].name list. Both are
+// populated when the compliance aggregator ingests a `clusterpolicy`
+// SSE event.
 type PolicyView struct {
-	Name        string `json:"name"`
-	Weight      int    `json:"weight"`
-	Scope       string `json:"scope"` // stateful | stateless | all
-	Mode        string `json:"mode"`  // permissive | enforcing
-	Violations  int    `json:"violations"`
-	Source      string `json:"source"` // kyverno | evaluator
-	Description string `json:"description,omitempty"`
+	Name        string   `json:"name"`
+	Weight      int      `json:"weight"`
+	Scope       string   `json:"scope"` // stateful | stateless | all
+	Mode        string   `json:"mode"`  // permissive | enforcing
+	Violations  int      `json:"violations"`
+	Source      string   `json:"source"` // kyverno | evaluator
+	Description string   `json:"description,omitempty"`
+	Severity    string   `json:"severity,omitempty"` // low | medium | high | critical
+	Rules       []string `json:"rules,omitempty"`    // ClusterPolicy spec.rules[].name
+	Title       string   `json:"title,omitempty"`    // human label from policies.kyverno.io/title
+	Category    string   `json:"category,omitempty"` // policies.kyverno.io/category
+}
+
+// policyMeta carries per-policy metadata captured from ClusterPolicy
+// SSE events. Populated by ingestKyvernoClusterPolicy on every
+// clusterpolicy add/update; consumed by policiesFor when building the
+// PolicyView slice. Description / Severity / Rules / Title / Category
+// match the matrix-asserted PolicyDrilldownPage fields.
+type policyMeta struct {
+	severity    string
+	rules       []string
+	title       string
+	category    string
+	description string
 }
 
 // Violation — one offending (resource, policy) pair. The
@@ -207,6 +233,12 @@ func (c *ComplianceConfig) defaults() {
 		c.SubscribeKinds = []string{
 			"policyreport",
 			"clusterpolicyreport",
+			// `clusterpolicy` lets the aggregator capture the live
+			// ClusterPolicy CR's metadata (severity, rules, title,
+			// category, description) so the per-policy drill-down
+			// surface (TC-026) renders without an extra apiserver
+			// round-trip per request.
+			"clusterpolicy",
 			k8scache.KindComplianceEvaluator,
 		}
 	}
@@ -341,6 +373,13 @@ type ComplianceHandler struct {
 	labels    map[string]map[string]map[string]string // clusterID → resourceKey → labels
 	policySrc map[string]string                    // policy name → "kyverno" | "evaluator" — first-writer-wins
 
+	// policyMetaByName carries the live ClusterPolicy CR's metadata
+	// (severity / rules / title / category / description) so the
+	// per-policy drill-down (TC-026, slice U4) can render Severity +
+	// Rule lists without round-tripping the apiserver per request.
+	// Populated from `clusterpolicy` SSE events; read by policiesFor.
+	policyMetaByName map[string]policyMeta
+
 	// SSE subscribers — listeners on /compliance/stream.
 	subMu      sync.Mutex
 	subID      int64
@@ -401,6 +440,7 @@ func NewComplianceHandler(
 		state:             map[string]map[string]*resourceState{},
 		labels:            map[string]map[string]map[string]string{},
 		policySrc:         map[string]string{},
+		policyMetaByName:  map[string]policyMeta{},
 		subscribers:       map[int64]*complianceSubscriber{},
 		stop:              make(chan struct{}),
 		ready:             make(chan struct{}),
@@ -492,6 +532,8 @@ func (c *ComplianceHandler) onEvent(ctx context.Context, ev k8scache.Event) {
 	switch ev.Kind {
 	case "policyreport", "clusterpolicyreport":
 		c.ingestKyvernoReport(ctx, ev)
+	case "clusterpolicy":
+		c.ingestKyvernoClusterPolicy(ev)
 	case k8scache.KindComplianceEvaluator:
 		c.ingestSyntheticReport(ctx, ev)
 	default:
@@ -501,6 +543,61 @@ func (c *ComplianceHandler) onEvent(ctx context.Context, ev k8scache.Event) {
 			c.ingestWorkloadLabels(ev)
 		}
 	}
+}
+
+// ingestKyvernoClusterPolicy captures the per-policy metadata from a
+// ClusterPolicy CR so the per-policy drill-down (TC-026, slice U4) can
+// render Severity + Rule list off in-memory state without the apiserver
+// round-trip. Reads:
+//
+//   - metadata.annotations[policies.kyverno.io/severity]    → Severity
+//   - metadata.annotations[policies.kyverno.io/title]       → Title
+//   - metadata.annotations[policies.kyverno.io/category]    → Category
+//   - metadata.annotations[policies.kyverno.io/description] → Description
+//   - spec.rules[].name                                      → Rules
+//
+// Updates `policyMetaByName` keyed on the policy name. ClusterPolicies
+// are cluster-scoped; the aggregator does not partition by cluster
+// (the chroot Sovereign serves a single cluster). Per-cluster
+// partitioning is a follow-up if/when the aggregator serves multiple
+// clusters from one process — out of scope for the chroot architecture.
+func (c *ComplianceHandler) ingestKyvernoClusterPolicy(ev k8scache.Event) {
+	if ev.Object == nil {
+		return
+	}
+	name := ev.Object.GetName()
+	if name == "" {
+		return
+	}
+	annotations := ev.Object.GetAnnotations()
+	meta := policyMeta{
+		severity:    strings.TrimSpace(annotations["policies.kyverno.io/severity"]),
+		title:       strings.TrimSpace(annotations["policies.kyverno.io/title"]),
+		category:    strings.TrimSpace(annotations["policies.kyverno.io/category"]),
+		description: strings.TrimSpace(annotations["policies.kyverno.io/description"]),
+	}
+	if rules, ok, _ := unstructured.NestedSlice(ev.Object.Object, "spec", "rules"); ok {
+		for _, ri := range rules {
+			r, ok := ri.(map[string]any)
+			if !ok {
+				continue
+			}
+			ruleName, _, _ := unstructured.NestedString(r, "name")
+			ruleName = strings.TrimSpace(ruleName)
+			if ruleName != "" {
+				meta.rules = append(meta.rules, ruleName)
+			}
+		}
+	}
+	c.mu.Lock()
+	c.policyMetaByName[name] = meta
+	// First-writer-wins source — `kyverno` since the CR group is
+	// kyverno.io. Lets policiesFor surface the policy in the union
+	// even before any PolicyReport arrives.
+	if c.policySrc[name] == "" {
+		c.policySrc[name] = "kyverno"
+	}
+	c.mu.Unlock()
 }
 
 // isWorkloadKind returns true when the SSE event came in for a kind
@@ -1268,7 +1365,7 @@ func (c *ComplianceHandler) policiesFor(ctx context.Context, clusterID string) [
 		}
 	}
 
-	// Union of policy names: weights ∪ violations ∪ policySrc.
+	// Union of policy names: weights ∪ violations ∪ policySrc ∪ policyMeta.
 	names := map[string]struct{}{}
 	for n := range weights {
 		names[n] = struct{}{}
@@ -1277,6 +1374,9 @@ func (c *ComplianceHandler) policiesFor(ctx context.Context, clusterID string) [
 		names[n] = struct{}{}
 	}
 	for n := range c.policySrc {
+		names[n] = struct{}{}
+	}
+	for n := range c.policyMetaByName {
 		names[n] = struct{}{}
 	}
 	out := make([]PolicyView, 0, len(names))
@@ -1290,13 +1390,19 @@ func (c *ComplianceHandler) policiesFor(ctx context.Context, clusterID string) [
 		if src == "" {
 			src = "kyverno"
 		}
+		meta := c.policyMetaByName[n]
 		out = append(out, PolicyView{
-			Name:       n,
-			Weight:     pw.Weight,
-			Scope:      pw.Scope,
-			Mode:       mode,
-			Violations: violations[n],
-			Source:     src,
+			Name:        n,
+			Weight:      pw.Weight,
+			Scope:       pw.Scope,
+			Mode:        mode,
+			Violations:  violations[n],
+			Source:      src,
+			Description: meta.description,
+			Severity:    meta.severity,
+			Rules:       append([]string{}, meta.rules...),
+			Title:       meta.title,
+			Category:    meta.category,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })

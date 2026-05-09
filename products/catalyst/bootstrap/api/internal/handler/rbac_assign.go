@@ -831,11 +831,25 @@ func rbacAssignSlug(fqdn string) string {
 // validateRBACAssignRequest checks the request body shape per the slice
 // A1 brief. Returns ("", true) on success; (msg, false) on the first
 // problem (matches the existing user_access.go validation style).
+//
+// Per `feedback_no_mvp_no_workarounds.md` (TC-167) the email field —
+// when populated — MUST conform to RFC-5322's basic shape (one '@',
+// non-empty local + domain, domain has at least one '.', label
+// charset). Iter-8 caught the regression: `{"email":"badformat"}`
+// flowed through to a successful UserAccess CR create because the
+// previous validation only checked emptiness. Reject mal-shaped
+// emails up-front with a 400 instead of letting a downstream label
+// or namespace check surface the real problem.
 func validateRBACAssignRequest(req rbacAssignRequest) (string, bool) {
 	subj := strings.TrimSpace(req.User.KeycloakSubject)
 	email := strings.TrimSpace(req.User.Email)
 	if subj == "" && email == "" {
 		return "user.email or user.keycloakSubject is required", false
+	}
+	if email != "" {
+		if msg, ok := validateEmailAddressShape(email); !ok {
+			return "user.email " + msg, false
+		}
 	}
 	tier := strings.ToLower(strings.TrimSpace(req.Tier))
 	if tier == "" {
@@ -852,6 +866,80 @@ func validateRBACAssignRequest(req rbacAssignRequest) (string, bool) {
 		}
 		if v == "" {
 			return fmt.Sprintf("scope[%d].value is required", i), false
+		}
+	}
+	return "", true
+}
+
+// validateEmailAddressShape implements the basic RFC-5322-leaning
+// shape check the matrix asserts on (TC-167). Avoids importing
+// `net/mail` because the stdlib parser ALSO accepts display-name +
+// brackets like `"Alice <alice@x.y>"` which is wider than the
+// /rbac/assign request contract wants. Returns (msg, true) on
+// success; (msg, false) with a short reason on rejection.
+//
+// Shape: <local>@<domain> where:
+//   - local: 1..64 chars, no spaces, no ASCII control chars
+//   - domain: 1..253 chars, contains at least one dot, each label
+//     1..63 chars of alphanumeric or hyphen (no leading/trailing
+//     hyphen), TLD label 2+ chars
+//
+// Strict-enough to reject "badformat", "alice", "x@y" (no TLD dot),
+// "@example.com" (no local), "alice@@example.com" (multiple @).
+// Permissive-enough to accept the canonical work email shapes the
+// matrix uses (qa-user1@openova.io, alice.smith+plus@example.co.uk).
+func validateEmailAddressShape(email string) (string, bool) {
+	if email == "" {
+		return "is required", false
+	}
+	for _, r := range email {
+		if r <= 0x20 || r == 0x7f {
+			return "must not contain whitespace or control characters", false
+		}
+	}
+	at := strings.Index(email, "@")
+	if at < 0 || strings.Index(email[at+1:], "@") >= 0 {
+		return "must contain exactly one '@'", false
+	}
+	local := email[:at]
+	domain := email[at+1:]
+	if local == "" {
+		return "local part (before '@') is required", false
+	}
+	if len(local) > 64 {
+		return "local part is too long (max 64 chars)", false
+	}
+	if domain == "" {
+		return "domain part (after '@') is required", false
+	}
+	if len(domain) > 253 {
+		return "domain part is too long (max 253 chars)", false
+	}
+	if !strings.Contains(domain, ".") {
+		return "domain must contain at least one '.'", false
+	}
+	labels := strings.Split(domain, ".")
+	for i, label := range labels {
+		if label == "" {
+			return "domain has an empty label", false
+		}
+		if len(label) > 63 {
+			return "domain label too long (max 63 chars)", false
+		}
+		if label[0] == '-' || label[len(label)-1] == '-' {
+			return "domain label may not start or end with '-'", false
+		}
+		for _, r := range label {
+			ok := (r >= 'a' && r <= 'z') ||
+				(r >= 'A' && r <= 'Z') ||
+				(r >= '0' && r <= '9') ||
+				r == '-'
+			if !ok {
+				return "domain label contains invalid characters", false
+			}
+		}
+		if i == len(labels)-1 && len(label) < 2 {
+			return "domain TLD must be at least 2 characters", false
 		}
 	}
 	return "", true
