@@ -80,6 +80,42 @@ spec:
           enabled: false
         ui:
           enabled: false
+
+      # ── Cilium ClusterMesh — multi-region peering ──────────────────
+      #
+      # Per ADR-0001 §9 + EPIC-6 #1101 (multi-region active-hotstandby DR),
+      # ClusterMesh is the canonical inter-region transport for replication
+      # and Service-of-type-global traffic between Sovereign peer clusters.
+      #
+      # cluster.name + cluster.id are PER-SOVEREIGN anchors; per
+      # docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), they MUST come
+      # from the Flux Kustomization's postBuild.substitute block — which
+      # in turn flows from infra/hetzner/cloudinit-control-plane.tftpl
+      # (CLUSTER_MESH_NAME, CLUSTER_MESH_ID) and ultimately from the
+      # operator-supplied request.cluster_mesh_name + cluster_mesh_id at
+      # provision time. Mesh registry: docs/CLUSTERMESH-CLUSTER-IDS.md
+      # tracks the cluster.id allocation across the OpenOva fleet.
+      #
+      # NodePort 32379: clustermesh-apiserver Pod is exposed on every
+      # Cilium node so peers reach it over the Hetzner private network on
+      # `<cp-private-ip>:32379` WITHOUT requiring a Hetzner LoadBalancer
+      # per peer (LB count is project-quota'd). Hetzner firewall must
+      # open 32379/tcp from peer Sovereigns' Hetzner CIDRs.
+      #
+      # A Sovereign that does NOT join a mesh leaves CLUSTER_MESH_NAME
+      # empty (Flux envsubst rule: ${VAR:=default} -> "default" when
+      # unset/empty). The cilium subchart accepts an empty cluster.name
+      # provided cluster.id stays 0; the clustermesh-apiserver Pod still
+      # runs but no peer connects (single-cluster no-op).
+      cluster:
+        name: ${CLUSTER_MESH_NAME:=}
+        id: ${CLUSTER_MESH_ID:=0}
+      clustermesh:
+        useAPIServer: true
+        apiserver:
+          service:
+            type: NodePort
+            nodePort: 32379
 ---
 # ─── Per-Sovereign Gateway API resources (issue #387) ────────────────────
 #

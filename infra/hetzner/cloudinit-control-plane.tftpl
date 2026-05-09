@@ -908,6 +908,21 @@ write_files:
             # explicit list: single-zone array derived from
             # sovereign_fqdn (rendered in main.tf via coalesce()).
             PARENT_DOMAINS_YAML: '${parent_domains_yaml}'
+            # Cilium ClusterMesh per-Sovereign anchors (#1101 EPIC-6).
+            # Empty string + 0 = not joined to any mesh (single-cluster
+            # Sovereign); set to the registered values from
+            # docs/CLUSTERMESH-CLUSTER-IDS.md when the operator joins
+            # this Sovereign to a multi-region mesh. The bootstrap-kit
+            # cilium HelmRelease consumes via $${CLUSTER_MESH_NAME} +
+            # $${CLUSTER_MESH_ID} envsubst placeholders (the $$ escape
+            # is required so tofu does NOT treat them as tftpl vars).
+            # Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), the
+            # operator-supplied request.cluster_mesh_name +
+            # cluster_mesh_id flow through tofu vars
+            # cluster_mesh_name/cluster_mesh_id (variables.tf) into this
+            # template at provision time.
+            CLUSTER_MESH_NAME: "${cluster_mesh_name}"
+            CLUSTER_MESH_ID: "${cluster_mesh_id}"
       ---
       apiVersion: kustomize.toolkit.fluxcd.io/v1
       kind: Kustomization
