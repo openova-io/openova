@@ -926,6 +926,25 @@ func main() {
 		rg.Get("/api/v1/sovereigns/{id}/audit/continuum", h.HandleContinuumAuditList)
 		rg.Get("/api/v1/sovereigns/{id}/audit/continuum/stream", h.HandleContinuumAuditStream)
 
+		// EPIC-6 iter-6 target-state — singular `/continuum/` path aliases
+		// + the rest of the matrix-required surface (PUT for spec
+		// updates, switchover preview, status SSE, fleet aggregate, per-
+		// Sovereign DR summary). The original plural routes above stay
+		// live for back-compat. See continuum_extras.go for handler
+		// docs. Per ADR-0001 §2.7 the Continuum CR remains the source
+		// of truth; PUT patches spec.rpoSeconds + spec.rtoSeconds and
+		// the controller reconciles. Per INVIOLABLE-PRINCIPLES #5 PUT
+		// gates on operator tier (REUSES applicationInstallCallerAuthorized).
+		rg.Get("/api/v1/sovereigns/{id}/continuum/{name}", h.HandleContinuumGetEnriched)
+		rg.Put("/api/v1/sovereigns/{id}/continuum/{name}", h.HandleContinuumPut)
+		rg.Get("/api/v1/sovereigns/{id}/continuum/{name}/stream", h.HandleContinuumStream)
+		rg.Post("/api/v1/sovereigns/{id}/continuum/{name}/switchover", h.HandleContinuumSwitchoverRequest)
+		rg.Post("/api/v1/sovereigns/{id}/continuum/{name}/switchover/preview", h.HandleContinuumSwitchoverPreview)
+		rg.Post("/api/v1/sovereigns/{id}/continuum/{name}/failback", h.HandleContinuumFailbackRequest)
+		rg.Post("/api/v1/sovereigns/{id}/continuum/{name}/failback/approve", h.HandleContinuumFailbackApprove)
+		rg.Get("/api/v1/fleet/continuum", h.HandleFleetContinuum)
+		rg.Get("/api/v1/fleet/sovereigns/{id}/dr-summary", h.HandleFleetSovereignDRSummary)
+
 		// SME-tier user CRUD + role mapping (issue #802, ADR-0003).
 		// Owned by the unified-rbac slice of catalyst-api. Tenant
 		// scoping is by X-Tenant-Host header (sent by the SPA from
