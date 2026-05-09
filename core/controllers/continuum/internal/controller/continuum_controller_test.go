@@ -31,9 +31,9 @@ import (
 
 func gvrListKinds() map[schema.GroupVersionResource]string {
 	return map[schema.GroupVersionResource]string{
-		ContinuumGVR:                                   "ContinuumList",
-		cnpg.ClusterGVR:                                "ClusterList",
-		switchover.HTTPRouteGVR:                        "HTTPRouteList",
+		ContinuumGVR:            "ContinuumList",
+		cnpg.ClusterGVR:         "ClusterList",
+		switchover.HTTPRouteGVR: "HTTPRouteList",
 	}
 }
 
@@ -130,13 +130,13 @@ func newReconciler(t *testing.T, objs ...runtime.Object) (*ContinuumReconciler, 
 	sel := &witness.DefaultSelector{InMemoryAllowed: true}
 
 	r := &ContinuumReconciler{
-		Dyn:             dyn,
-		WitnessSelector: sel,
-		HoldingRegion:   "fsn",
-		Audit:           rec,
-		Drainer:         &fakeDrainer{},
-		Sleep:           func(time.Duration) {},
-		Now:             time.Now,
+		Dyn:              dyn,
+		WitnessSelector:  sel,
+		HoldingRegion:    "fsn",
+		Audit:            rec,
+		Drainer:          &fakeDrainer{},
+		Sleep:            func(time.Duration) {},
+		Now:              time.Now,
 		activeContinuums: map[string]*continuumGoroutine{},
 	}
 	return r, rec, sel
@@ -334,10 +334,18 @@ func TestParseSpec_ErrorPaths(t *testing.T) {
 		name string
 		mut  func(*unstructured.Unstructured)
 	}{
-		{"missing applicationRef", func(c *unstructured.Unstructured) { _ = unstructured.SetNestedField(c.Object, "", "spec", "applicationRef") }},
-		{"missing primaryRegion", func(c *unstructured.Unstructured) { _ = unstructured.SetNestedField(c.Object, "", "spec", "primaryRegion") }},
-		{"empty hotStandbyRegions", func(c *unstructured.Unstructured) { unstructured.RemoveNestedField(c.Object, "spec", "hotStandbyRegions") }},
-		{"missing leaseClient.kind", func(c *unstructured.Unstructured) { _ = unstructured.SetNestedField(c.Object, "", "spec", "leaseClient", "kind") }},
+		{"missing applicationRef", func(c *unstructured.Unstructured) {
+			_ = unstructured.SetNestedField(c.Object, "", "spec", "applicationRef")
+		}},
+		{"missing primaryRegion", func(c *unstructured.Unstructured) {
+			_ = unstructured.SetNestedField(c.Object, "", "spec", "primaryRegion")
+		}},
+		{"empty hotStandbyRegions", func(c *unstructured.Unstructured) {
+			unstructured.RemoveNestedField(c.Object, "spec", "hotStandbyRegions")
+		}},
+		{"missing leaseClient.kind", func(c *unstructured.Unstructured) {
+			_ = unstructured.SetNestedField(c.Object, "", "spec", "leaseClient", "kind")
+		}},
 	}
 	for _, c := range cases {
 		cr := newTestContinuumCR("ns", "cr1", "fsn", []string{"hel"}, "in-memory")
@@ -462,3 +470,269 @@ var _ cnpg.Status
 // Compile-time references to silence unused-import warnings on
 // platforms that strip them out aggressively.
 var _ = atomic.AddInt32
+
+// ----------------------------------------------------------------------
+// Slice F-1 — new audit emit tests
+// ----------------------------------------------------------------------
+
+func TestReconcile_FirstObservation_EmitsCRCreated(t *testing.T) {
+	t.Parallel()
+	cr := newTestContinuumCR("ns", "cr1", "fsn", []string{"hel"}, "in-memory")
+	objs := append([]runtime.Object{cr}, newTestClusterPair("ns", "demo", 0)...)
+	r, rec, _ := newReconciler(t, objs...)
+
+	if err := reconcile(r, "ns", "cr1"); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	got := rec.EventsByType(events.TypeCRCreated)
+	if len(got) != 1 {
+		t.Errorf("expected 1 continuum-cr-created event, got %d (all=%v)", len(got), allAuditTypes(rec))
+	}
+	if got[0].ContinuumName != "ns/cr1" {
+		t.Errorf("ContinuumName = %q want %q", got[0].ContinuumName, "ns/cr1")
+	}
+	r.stopGoroutine("ns/cr1")
+}
+
+func TestReconcile_RepeatedReconcile_EmitsCRCreatedOnce(t *testing.T) {
+	t.Parallel()
+	cr := newTestContinuumCR("ns", "cr1", "fsn", []string{"hel"}, "in-memory")
+	objs := append([]runtime.Object{cr}, newTestClusterPair("ns", "demo", 0)...)
+	r, rec, _ := newReconciler(t, objs...)
+
+	for i := 0; i < 3; i++ {
+		if err := reconcile(r, "ns", "cr1"); err != nil {
+			t.Fatalf("Reconcile #%d: %v", i, err)
+		}
+	}
+	got := rec.EventsByType(events.TypeCRCreated)
+	if len(got) != 1 {
+		t.Errorf("expected exactly 1 continuum-cr-created across N reconciles, got %d", len(got))
+	}
+	r.stopGoroutine("ns/cr1")
+}
+
+func TestPublishConfigChanged_FiresOnDrift(t *testing.T) {
+	t.Parallel()
+	r, rec, _ := newReconciler(t)
+	specA := ContinuumSpec{
+		ApplicationRef: "demo-app", PrimaryRegion: "fsn",
+		HotStandbyRegions: []string{"hel"}, LeaseClientKind: "in-memory",
+		TTLSeconds: 30, RenewSeconds: 10,
+	}
+	if err := r.publishConfigChanged(context.Background(),
+		types.NamespacedName{Namespace: "ns", Name: "cr1"},
+		specA, "old-fp", "new-fp"); err != nil {
+		t.Fatalf("publishConfigChanged: %v", err)
+	}
+	got := rec.EventsByType(events.TypeConfigChanged)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 continuum-config-changed, got %d", len(got))
+	}
+	if !strings.Contains(got[0].Message, "old-fp") || !strings.Contains(got[0].Message, "new-fp") {
+		t.Errorf("Message should include prev + cur fingerprints; got %q", got[0].Message)
+	}
+}
+
+func TestPublishLeaseCollision_FiresWithCause(t *testing.T) {
+	t.Parallel()
+	r, rec, _ := newReconciler(t)
+	specA := ContinuumSpec{
+		ApplicationRef: "demo-app", PrimaryRegion: "fsn",
+		HotStandbyRegions: []string{"hel"}, LeaseClientKind: "in-memory",
+	}
+	cause := witness.ErrLeaseHeldByAnother
+	if err := r.publishLeaseCollision(context.Background(),
+		types.NamespacedName{Namespace: "ns", Name: "cr1"},
+		specA, cause); err != nil {
+		t.Fatalf("publishLeaseCollision: %v", err)
+	}
+	got := rec.EventsByType(events.TypeLeaseCollision)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 continuum-lease-collision, got %d", len(got))
+	}
+	if !strings.Contains(got[0].Message, "ErrLeaseHeldByAnother") {
+		t.Errorf("Message should mention ErrLeaseHeldByAnother; got %q", got[0].Message)
+	}
+}
+
+func TestSwitchoverSpecFingerprint_DriftDetection(t *testing.T) {
+	t.Parallel()
+	specA := ContinuumSpec{
+		PrimaryRegion: "fsn", HotStandbyRegions: []string{"hel"},
+		LeaseClientKind: "in-memory", TTLSeconds: 30, RenewSeconds: 10,
+		RTOSeconds: 60, AutoFailover: true, CNPGNamespace: "ns",
+		CNPGPair: "demo", PDMZone: "example.com",
+	}
+	fpA := switchoverSpecFingerprint(specA)
+	if fpA == "" {
+		t.Fatal("fingerprint empty")
+	}
+	specB := specA
+	specB.PrimaryRegion = "hel"
+	fpB := switchoverSpecFingerprint(specB)
+	if fpA == fpB {
+		t.Errorf("fingerprint should change on PrimaryRegion drift; both = %q", fpA)
+	}
+	// Idempotent on same input.
+	if switchoverSpecFingerprint(specA) != fpA {
+		t.Errorf("fingerprint not idempotent")
+	}
+}
+
+// ----------------------------------------------------------------------
+// Slice F-3 — post-switchover health chain tests
+// ----------------------------------------------------------------------
+
+func TestSplitNamespacedName(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		in       string
+		ns, name string
+		ok       bool
+	}{
+		{"ns/cr1", "ns", "cr1", true},
+		{"a/b", "a", "b", true},
+		{"no-slash", "", "", false},
+		{"/leading", "", "", false},
+		{"trailing/", "", "", false},
+		{"a/b/c", "", "", false},
+	}
+	for _, c := range cases {
+		ns, name, ok := splitNamespacedName(c.in)
+		if ok != c.ok || ns != c.ns || name != c.name {
+			t.Errorf("splitNamespacedName(%q) = (%q, %q, %v) want (%q, %q, %v)",
+				c.in, ns, name, ok, c.ns, c.name, c.ok)
+		}
+	}
+}
+
+func TestSummarizeHealth_HappyPath(t *testing.T) {
+	t.Parallel()
+	rep := switchover.HealthReport{
+		NewPrimaryRegion: "hel",
+		OverallHealthy:   true,
+		Checks: []switchover.HealthCheck{
+			{Name: switchover.CheckReplicasHealthy, Passed: true},
+			{Name: switchover.CheckDNSProbes, Passed: true},
+			{Name: switchover.CheckLatencyNormal, Deferred: true},
+			{Name: switchover.CheckAuditPosted, Passed: true},
+		},
+	}
+	got := summarizeHealth(rep)
+	if !strings.Contains(got, "healthy") {
+		t.Errorf("happy path summary should say healthy: %q", got)
+	}
+	if !strings.Contains(got, "3 passed") {
+		t.Errorf("summary should say 3 passed: %q", got)
+	}
+	if !strings.Contains(got, "1 deferred") {
+		t.Errorf("summary should say 1 deferred: %q", got)
+	}
+	if !strings.Contains(got, "hel") {
+		t.Errorf("summary should mention new primary region: %q", got)
+	}
+}
+
+func TestSummarizeHealth_Unhealthy(t *testing.T) {
+	t.Parallel()
+	rep := switchover.HealthReport{
+		NewPrimaryRegion: "hel",
+		OverallHealthy:   false,
+		Checks: []switchover.HealthCheck{
+			{Name: switchover.CheckReplicasHealthy, Passed: false, Detail: "not Ready"},
+			{Name: switchover.CheckDNSProbes, Passed: true},
+			{Name: switchover.CheckLatencyNormal, Deferred: true},
+			{Name: switchover.CheckAuditPosted, Passed: true},
+		},
+	}
+	got := summarizeHealth(rep)
+	if !strings.Contains(got, "UNHEALTHY") {
+		t.Errorf("unhealthy summary should say UNHEALTHY: %q", got)
+	}
+	if !strings.Contains(got, "1 failed") {
+		t.Errorf("summary should say 1 failed: %q", got)
+	}
+}
+
+func TestPatchStatusByName_BadIdentifier(t *testing.T) {
+	t.Parallel()
+	r, _, _ := newReconciler(t)
+	err := r.patchStatusByName(context.Background(), "no-slash", statusUpdate{})
+	if err == nil {
+		t.Fatal("expected error on identifier without /")
+	}
+}
+
+func TestPatchStatusByName_HappyPath(t *testing.T) {
+	t.Parallel()
+	cr := newTestContinuumCR("ns", "cr1", "fsn", []string{"hel"}, "in-memory")
+	objs := append([]runtime.Object{cr}, newTestClusterPair("ns", "demo", 0)...)
+	r, _, _ := newReconciler(t, objs...)
+
+	if err := r.patchStatusByName(context.Background(), "ns/cr1", statusUpdate{
+		LastSwitchoverHealthy:       "True",
+		LastSwitchoverHealthyDetail: "all probes green",
+		Reason:                      "PostSwitchoverHealth",
+	}); err != nil {
+		t.Fatalf("patchStatusByName: %v", err)
+	}
+	got, _ := r.Dyn.Resource(ContinuumGVR).Namespace("ns").Get(context.Background(), "cr1", metav1.GetOptions{})
+	conds, _, _ := unstructured.NestedSlice(got.Object, "status", "conditions")
+	found := false
+	for _, c := range conds {
+		cm, _ := c.(map[string]interface{})
+		ty, _ := cm["type"].(string)
+		s, _ := cm["status"].(string)
+		if ty == "LastSwitchoverHealthy" && s == "True" {
+			found = true
+			msg, _ := cm["message"].(string)
+			if !strings.Contains(msg, "all probes green") {
+				t.Errorf("message = %q want substring 'all probes green'", msg)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("LastSwitchoverHealthy condition not found in conditions=%+v", conds)
+	}
+}
+
+func TestRunPostSwitchoverHealth_PatchesConditionFalse(t *testing.T) {
+	t.Parallel()
+	cr := newTestContinuumCR("ns", "cr1", "fsn", []string{"hel"}, "in-memory")
+	objs := append([]runtime.Object{cr}, newTestClusterPair("ns", "demo", 0)...)
+	r, _, _ := newReconciler(t, objs...)
+	r.HealthDelay = 0 // skip the 30s sleep in tests
+
+	// CNPG halves don't have Ready=true conditions in newTestClusterPair,
+	// so the replicas check fails → OverallHealthy=false.
+	plan := switchover.SwitchoverPlan{
+		ContinuumName:   "ns/cr1",
+		ApplicationName: "demo-app",
+		FromRegion:      "fsn", ToRegion: "hel",
+		CNPGPair: "demo", CNPGNamespace: "ns",
+	}
+	seq := &switchover.Sequencer{
+		CNPG:  cnpg.NewReader(r.Dyn),
+		Audit: events.NewRecorder(),
+	}
+	r.runPostSwitchoverHealth(plan, seq)
+
+	got, _ := r.Dyn.Resource(ContinuumGVR).Namespace("ns").Get(context.Background(), "cr1", metav1.GetOptions{})
+	conds, _, _ := unstructured.NestedSlice(got.Object, "status", "conditions")
+	found := false
+	for _, c := range conds {
+		cm, _ := c.(map[string]interface{})
+		ty, _ := cm["type"].(string)
+		s, _ := cm["status"].(string)
+		if ty == "LastSwitchoverHealthy" {
+			found = true
+			if s != "False" {
+				t.Errorf("expected LastSwitchoverHealthy=False (replicas not ready), got %q", s)
+			}
+		}
+	}
+	if !found {
+		t.Error("LastSwitchoverHealthy condition not written")
+	}
+}

@@ -2,20 +2,28 @@ package events
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 )
 
+// jsonUnmarshal is a thin alias so the test file's intent is clear and
+// imports stay sorted.
+func jsonUnmarshal(b []byte, v any) error { return json.Unmarshal(b, v) }
+
 func TestAuditTypes_Coverage(t *testing.T) {
 	t.Parallel()
-	if len(AuditTypes) != 9 {
-		t.Fatalf("expected 9 audit types, got %d", len(AuditTypes))
+	// K-Cont-2 reserved 9; slice F (#1101 F-1) added 3 more = 12.
+	if len(AuditTypes) != 12 {
+		t.Fatalf("expected 12 audit types, got %d", len(AuditTypes))
 	}
 	for _, want := range []string{
 		TypeSwitchover, TypeFailbackPending, TypeFailbackCompleted,
 		TypeLeaseLost, TypeLeaseAcquired, TypeCNPGLagBreach,
 		TypeCNPGPromotable, TypeError, TypeReconcileSuccess,
+		// F-1 additions
+		TypeCRCreated, TypeConfigChanged, TypeLeaseCollision,
 	} {
 		if !IsValidType(want) {
 			t.Errorf("expected %q to be valid", want)
@@ -23,6 +31,64 @@ func TestAuditTypes_Coverage(t *testing.T) {
 	}
 	if IsValidType("not-a-type") {
 		t.Error("expected unknown type to be invalid")
+	}
+}
+
+// TestSliceFAuditTypes_StringValues — pin the wire string values so a
+// rename doesn't silently break U-DR-1's subscription header filter.
+func TestSliceFAuditTypes_StringValues(t *testing.T) {
+	t.Parallel()
+	cases := map[string]string{
+		"continuum-cr-created":      TypeCRCreated,
+		"continuum-config-changed":  TypeConfigChanged,
+		"continuum-lease-collision": TypeLeaseCollision,
+	}
+	for want, got := range cases {
+		if got != want {
+			t.Errorf("audit-type constant drift: want %q got %q", want, got)
+		}
+	}
+}
+
+// TestSliceFAuditTypes_Roundtrip — encode + decode an Event for each
+// new type and assert the JSON shape is decodable into the same Event
+// (round-trip stability — U-DR-1's switchover-history panel decodes
+// against this struct).
+func TestSliceFAuditTypes_Roundtrip(t *testing.T) {
+	t.Parallel()
+	for _, ty := range []string{TypeCRCreated, TypeConfigChanged, TypeLeaseCollision} {
+		ty := ty
+		t.Run(ty, func(t *testing.T) {
+			t.Parallel()
+			e := Event{
+				Type:            ty,
+				ContinuumName:   "demo/cr1",
+				ApplicationName: "demo/app1",
+				FromPrimary:     "fsn",
+				ToPrimary:       "hel",
+				Reason:          "unit-test",
+				Message:         "round-trip",
+				InitiatedBy:     "alice@example.com",
+				Timestamp:       "2026-05-09T01:02:03Z",
+			}
+			b, err := MarshalEvent(e)
+			if err != nil {
+				t.Fatalf("MarshalEvent: %v", err)
+			}
+			if !strings.Contains(string(b), `"type":"`+ty+`"`) {
+				t.Errorf("missing %q in JSON: %s", ty, b)
+			}
+			var got Event
+			if err := jsonUnmarshal(b, &got); err != nil {
+				t.Fatalf("Unmarshal: %v", err)
+			}
+			if got.Type != ty {
+				t.Errorf("Type drift: got %q want %q", got.Type, ty)
+			}
+			if got.ContinuumName != e.ContinuumName {
+				t.Errorf("ContinuumName drift: got %q want %q", got.ContinuumName, e.ContinuumName)
+			}
+		})
 	}
 }
 

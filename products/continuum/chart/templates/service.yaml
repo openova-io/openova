@@ -27,4 +27,11 @@ spec:
       port: {{ .Values.continuum.health.port | default 8081 }}
       targetPort: health
       protocol: TCP
+    # Slice F-2 + F-3 — dry-run + health endpoints. The catalyst-api
+    # proxies /api/v1/sovereigns/{id}/continuums/{name}/{verb} to this
+    # in-cluster Service.
+    - name: api
+      port: {{ .Values.continuum.api.port | default 8082 }}
+      targetPort: api
+      protocol: TCP
 {{- end }}

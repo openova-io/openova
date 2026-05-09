@@ -13,8 +13,8 @@
 //   - cloudflare-kv: HTTP CAS against a CF Worker backed by KV (the
 //     recommended path per SRE.md §2.4)
 //   - dns-quorum:    2-of-3 voting across {8.8.8.8, 1.1.1.1, 9.9.9.9}
-//                    via TXT-record reads, with the writer side using
-//                    the existing PDM /v1/commit pattern.
+//     via TXT-record reads, with the writer side using
+//     the existing PDM /v1/commit pattern.
 //
 // K-Cont-2 (this slice) ships ONLY the InMemoryClient stub used by
 // unit tests. The Selector returns ErrNotImplemented for both real

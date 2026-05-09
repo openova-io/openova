@@ -109,11 +109,11 @@ func (w *fakeWorker) serveLease(rw http.ResponseWriter, req *http.Request) {
 		//   - slot is expired
 		//   - holder matches (re-acquire / renew)
 		var (
-			holder    = body.Holder
-			ttl       = time.Duration(body.TTLSeconds) * time.Second
-			takeable  = cur == nil
-			sameHold  = cur != nil && cur.Holder == holder
-			expired   = cur != nil && !beforeRFC3339(now, cur.ExpiresAt)
+			holder   = body.Holder
+			ttl      = time.Duration(body.TTLSeconds) * time.Second
+			takeable = cur == nil
+			sameHold = cur != nil && cur.Holder == holder
+			expired  = cur != nil && !beforeRFC3339(now, cur.ExpiresAt)
 		)
 		if !takeable && !sameHold && !expired {
 			// Held by another, non-expired holder.

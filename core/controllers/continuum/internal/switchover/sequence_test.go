@@ -41,12 +41,12 @@ func newTestApp(hostnames []string) *unstructured.Unstructured {
 
 // fakeHTTPRoute is a hand-rolled HTTPRouteDrainer for tests.
 type fakeHTTPRoute struct {
-	mu             sync.Mutex
-	setCalls       []string // region per call
-	restoreCalls   [][]int
-	failOnSet      bool
-	failOnRestore  bool
-	priorReturned  []int
+	mu            sync.Mutex
+	setCalls      []string // region per call
+	restoreCalls  [][]int
+	failOnSet     bool
+	failOnRestore bool
+	priorReturned []int
 }
 
 func (f *fakeHTTPRoute) SetWeightZero(ctx context.Context, ns, name, region string) ([]int, error) {
@@ -139,7 +139,7 @@ func defaultPlan() SwitchoverPlan {
 		FromRegion:         "fsn",
 		ToRegion:           "hel",
 		CNPGPair:           "demo",
-		CNPGNamespace:     "ns",
+		CNPGNamespace:      "ns",
 		HTTPRouteName:      "demo-app",
 		HTTPRouteNamespace: "demo",
 		PDMZone:            "example.com",
