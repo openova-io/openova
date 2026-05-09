@@ -380,6 +380,29 @@ type Handler struct {
 	// the audit-event timestamps + spec.switchover.requestedAt are
 	// reproducible. continuum.go is the only consumer.
 	continuumClock func() time.Time
+
+	// ── Guacamole exec session client (EPIC-4 #1099 slice E) ───────
+	// guacamole — narrow client surface for the per-Sovereign Apache
+	// Guacamole REST API. Nil-tolerant: when nil the /k8s/exec/.../session
+	// endpoint synthesizes an in-memory session (so the chroot Sovereign
+	// flow + CI fixture render cleanly) and the /sessions list endpoint
+	// reads from that in-memory store. Production wires a real client via
+	// SetGuacamoleClient.
+	//
+	// guacamoleStore — fallback in-memory session ledger used when
+	// guacamole is nil. Lazily allocated by ensureInMemoryStore.
+	guacamoleMu    sync.RWMutex
+	guacamole      GuacamoleClient
+	guacamoleStore *inMemoryGuacamoleStore
+
+	// ── Exec WebSocket fallback (EPIC-4 #1099 slice E2) ────────────
+	// execStreamFactory — bridge to the apiserver `pods/exec`
+	// subresource for the direct-WebSocket fallback used when
+	// Guacamole's iframe is blocked. Nil ⇒ /k8s/exec/{...} WebSocket
+	// endpoint returns 503. Production wires a real client-go SPDY
+	// executor; tests bind a fake duplex pipe.
+	execStreamMu      sync.RWMutex
+	execStreamFactory ExecStreamFactory
 }
 
 // powerdnsZoneClient is the narrow interface the parent-zone handler

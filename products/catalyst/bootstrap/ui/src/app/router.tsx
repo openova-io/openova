@@ -67,6 +67,7 @@ import { JobsTimeline } from '@/pages/sovereign/JobsTimeline'
 import { Dashboard } from '@/pages/sovereign/Dashboard'
 import { CloudPage } from '@/pages/sovereign/CloudPage'
 import { ResourceDetailRoute } from '@/pages/sovereign/cloud-list/ResourceDetailRoute'
+import { SessionsRoute } from '@/pages/sovereign/sessions/SessionsRoute'
 import { DecommissionPage } from '@/pages/sovereign/DecommissionPage'
 import { UserAccessListPage } from '@/pages/admin/user-access/UserAccessListPage'
 import { UserAccessEditPage } from '@/pages/admin/user-access/UserAccessEditPage'
@@ -578,6 +579,14 @@ const provisionResourceDetailRoute = createRoute({
   beforeLoad: provisionAuthGuard,
 })
 
+// EPIC-4 Slice E3 (#1099) — Guacamole session list + replay.
+const provisionSessionsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/provision/$deploymentId/sessions',
+  component: SessionsRoute,
+  beforeLoad: provisionAuthGuard,
+})
+
 // 301 redirects for the legacy P3 sub-routes. Each one redirects to
 // the consolidated `/cloud?view=…&kind=…` shape and renders nothing
 // itself — tanstack-router runs `beforeLoad` before the component
@@ -987,6 +996,13 @@ const consoleResourceDetailRoute = createRoute({
   path: '/cloud/resource/$kind/$ns/$name/$tab',
   component: ResourceDetailRoute,
 })
+
+// EPIC-4 Slice E3 (#1099) — Guacamole session list + replay (chroot).
+const consoleSessionsRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/sessions',
+  component: SessionsRoute,
+})
 const consoleUsersRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/users',
@@ -1272,6 +1288,7 @@ const routeTree = rootRoute.addChildren([
   provisionDecommissionRoute,
   provisionCloudRoute.addChildren(legacyCloudRedirectRoutes),
   provisionResourceDetailRoute,
+  provisionSessionsRoute,
   provisionInfrastructureRoute.addChildren([
     provisionInfrastructureIndexRoute,
     ...infraLegacyRedirectRoutes,
@@ -1315,6 +1332,7 @@ const routeTree = rootRoute.addChildren([
     consoleJobDetailRoute,
     consoleCloudRoute.addChildren(consoleLegacyCloudRedirectRoutes),
     consoleResourceDetailRoute,
+    consoleSessionsRoute,
     consoleUsersRoute,
     consoleUsersNewRoute,
     consoleUsersEditRoute,

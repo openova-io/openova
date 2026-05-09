@@ -12,6 +12,8 @@ import {
   resourceDetailHref,
   isFluxManaged,
   isManuallyManaged,
+  logsWebSocketURL,
+  execWebSocketURL,
 } from './resource.api'
 
 describe('resource.api — URL composers', () => {
@@ -65,5 +67,30 @@ describe('resource.api — managed-by detection', () => {
     expect(isManuallyManaged({ metadata: {} } as unknown as Parameters<typeof isFluxManaged>[0])).toBe(true)
     expect(isManuallyManaged({ metadata: { annotations: { 'catalyst.openova.io/managed-by': 'manual' } } } as unknown as Parameters<typeof isFluxManaged>[0])).toBe(true)
     expect(isManuallyManaged({ metadata: { labels: { 'app.kubernetes.io/managed-by': 'flux' } } } as unknown as Parameters<typeof isFluxManaged>[0])).toBe(false)
+  })
+})
+
+describe('resource.api — logs/exec WebSocket URL composers', () => {
+  it('logsWebSocketURL builds path with default options', () => {
+    const url = logsWebSocketURL('dep', 'default', 'wp-1', 'web')
+    expect(url).toContain('/v1/sovereigns/dep/k8s/logs/default/wp-1/web')
+    expect(url).toContain('follow=true')
+    expect(url).toContain('tailLines=100')
+  })
+
+  it('logsWebSocketURL adds since parameter when provided', () => {
+    const url = logsWebSocketURL('dep', 'default', 'wp-1', 'web', {
+      tailLines: 50,
+      since: '2026-05-09T12:00:00Z',
+    })
+    expect(url).toContain('tailLines=50')
+    expect(url).toContain('since=')
+    expect(url).toContain('2026-05-09T12%3A00%3A00Z')
+  })
+
+  it('execWebSocketURL encodes the command query string', () => {
+    const url = execWebSocketURL('dep', 'default', 'wp-1', 'web', '/bin/bash')
+    expect(url).toContain('/v1/sovereigns/dep/k8s/exec/default/wp-1/web')
+    expect(url).toContain('command=%2Fbin%2Fbash')
   })
 })

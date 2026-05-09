@@ -296,3 +296,172 @@ export function isManuallyManaged(obj: K8sObject | null | undefined): boolean {
   // Default: when no managed-by annotation exists, treat as manual.
   return !isFluxManaged(obj)
 }
+
+// ─── Logs WebSocket (X2) ─────────────────────────────────────────────
+
+export interface LogsURLOptions {
+  follow?: boolean
+  tailLines?: number
+  since?: string
+  previous?: boolean
+}
+
+/**
+ * Build the wss:// URL for the Pod-log WebSocket. Per slice X1 #1164
+ * the path is `/k8s/logs/{ns}/{pod}/{container}` under the standard
+ * sovereign API base; query params control tail / follow / since.
+ *
+ * The protocol is ws:// when the document is on http:// (vitest /
+ * dev) and wss:// otherwise — the same posture as authedFetch.
+ */
+export function logsWebSocketURL(
+  deploymentId: string,
+  ns: string,
+  pod: string,
+  container: string,
+  opts: LogsURLOptions = {},
+): string {
+  const params: string[] = []
+  if (opts.follow !== false) params.push('follow=true')
+  else params.push('follow=false')
+  const tailLines = typeof opts.tailLines === 'number' ? opts.tailLines : 100
+  params.push(`tailLines=${tailLines}`)
+  if (opts.since) params.push(`since=${encodeURIComponent(opts.since)}`)
+  if (opts.previous) params.push('previous=true')
+  const qs = params.length ? `?${params.join('&')}` : ''
+  // Convert API_BASE (e.g. /api or /sovereign/api) into a wss URL.
+  const path = `${API_BASE}/v1/sovereigns/${encodeURIComponent(deploymentId)}/k8s/logs/${encodeURIComponent(
+    ns,
+  )}/${encodeURIComponent(pod)}/${encodeURIComponent(container)}${qs}`
+  return absoluteWebSocketURL(path)
+}
+
+/**
+ * Build the wss:// URL for the X2/E2 fallback exec WebSocket. Used when
+ * the Guacamole iframe fails to load.
+ */
+export function execWebSocketURL(
+  deploymentId: string,
+  ns: string,
+  pod: string,
+  container: string,
+  command = '/bin/sh',
+): string {
+  const path = `${API_BASE}/v1/sovereigns/${encodeURIComponent(
+    deploymentId,
+  )}/k8s/exec/${encodeURIComponent(ns)}/${encodeURIComponent(pod)}/${encodeURIComponent(
+    container,
+  )}?command=${encodeURIComponent(command)}`
+  return absoluteWebSocketURL(path)
+}
+
+function absoluteWebSocketURL(path: string): string {
+  if (typeof window === 'undefined') return path
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${proto}//${window.location.host}${path}`
+}
+
+// ─── Exec session (E1) ───────────────────────────────────────────────
+
+export interface ExecSessionRequest {
+  command?: string[]
+}
+
+export interface ExecSessionResponse {
+  sessionId: string
+  connectionId: string
+  embedURL: string
+  namespace: string
+  pod: string
+  container: string
+  fallbackWebSocketUrl?: string
+  recording: boolean
+  issued: string
+}
+
+export async function createExecSession(
+  deploymentId: string,
+  ns: string,
+  pod: string,
+  container: string,
+  body: ExecSessionRequest = {},
+): Promise<ExecSessionResponse> {
+  const url = `${API_BASE}/v1/sovereigns/${encodeURIComponent(
+    deploymentId,
+  )}/k8s/exec/${encodeURIComponent(ns)}/${encodeURIComponent(pod)}/${encodeURIComponent(
+    container,
+  )}/session`
+  const res = await authedFetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  return parseJSON<ExecSessionResponse>(res)
+}
+
+// ─── Sessions list + replay (E3) ─────────────────────────────────────
+
+export interface SessionListItem {
+  sessionId: string
+  namespace: string
+  pod: string
+  container: string
+  user: string
+  started: string
+  ended?: string
+  durationSeconds: number
+  recordingAvailable: boolean
+}
+
+export interface SessionListResponse {
+  items: SessionListItem[]
+  total: number
+  page: number
+  pageSize: number
+  nextPage?: number
+}
+
+export interface SessionListFilter {
+  from?: string
+  to?: string
+  pod?: string
+  user?: string
+  page?: number
+  pageSize?: number
+}
+
+export async function listSessions(
+  deploymentId: string,
+  filter: SessionListFilter = {},
+  signal?: AbortSignal,
+): Promise<SessionListResponse> {
+  const params: string[] = []
+  if (filter.from) params.push(`from=${encodeURIComponent(filter.from)}`)
+  if (filter.to) params.push(`to=${encodeURIComponent(filter.to)}`)
+  if (filter.pod) params.push(`pod=${encodeURIComponent(filter.pod)}`)
+  if (filter.user) params.push(`user=${encodeURIComponent(filter.user)}`)
+  if (filter.page) params.push(`page=${filter.page}`)
+  if (filter.pageSize) params.push(`pageSize=${filter.pageSize}`)
+  const qs = params.length ? `?${params.join('&')}` : ''
+  const url = `${API_BASE}/v1/sovereigns/${encodeURIComponent(deploymentId)}/sessions${qs}`
+  const res = await authedFetch(url, { signal })
+  return parseJSON<SessionListResponse>(res)
+}
+
+export interface SessionReplayResponse {
+  sessionId: string
+  embedURL: string
+  available: boolean
+  reason?: string
+}
+
+export async function getSessionReplay(
+  deploymentId: string,
+  sessionId: string,
+): Promise<SessionReplayResponse> {
+  const url = `${API_BASE}/v1/sovereigns/${encodeURIComponent(
+    deploymentId,
+  )}/sessions/${encodeURIComponent(sessionId)}/replay`
+  const res = await authedFetch(url)
+  return parseJSON<SessionReplayResponse>(res)
+}
