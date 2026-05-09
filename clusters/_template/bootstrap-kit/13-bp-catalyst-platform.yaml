@@ -265,7 +265,7 @@ spec:
       # ClusterRole to grant continuums/cnpgpairs/pdms verbs (TC-344).
       # Bp-crossplane-claims 1.1.2 carries the matching tier-operator
       # extras update.
-      version: 1.4.100
+      version: 1.4.101
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
