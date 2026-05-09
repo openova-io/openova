@@ -1,0 +1,132 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: pdms.dr.openova.io
+  labels:
+    app.kubernetes.io/name: catalyst
+    app.kubernetes.io/component: continuum
+spec:
+  group: dr.openova.io
+  scope: Cluster
+  names:
+    kind: PDM
+    listKind: PDMList
+    singular: pdm
+    plural: pdms
+    shortNames:
+      - pdm
+    categories:
+      - catalyst
+      - openova
+      - continuum
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      additionalPrinterColumns:
+        - name: Endpoint
+          type: string
+          jsonPath: .spec.endpoint
+        - name: Region
+          type: string
+          jsonPath: .spec.region
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: LeaseQuorum
+          type: string
+          jsonPath: .status.leaseQuorum
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      subresources:
+        status: {}
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: |
+            PDM (PowerDNS Manager) — one of N PowerDNS instances that
+            collectively serve the DNS-quorum lease witness for Continuum
+            DR. Per ADR-0001 §2.7 + docs/MULTI-REGION-DNS.md the DNS-quorum
+            lease witness REQUIRES 3 instances minimum (2-of-3 vote);
+            production sovereigns deploy pdm-1, pdm-2, pdm-3 across host
+            clusters.
+
+            Each PDM CR represents one PowerDNS instance. The continuum-
+            controller reads the PDM list to discover witnesses and
+            writes lease TXT records via the PDM API endpoint declared
+            in spec.endpoint. The PDM controller (cmd/pdm) reconciles
+            zone state and surfaces health on status.phase.
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [endpoint]
+              properties:
+                endpoint:
+                  type: string
+                  description: |
+                    PDM API base URL (e.g. https://pdm-1.openova.io:8081).
+                    Used by continuum-controller to write lease TXT records
+                    via /api/v1/zones/{zone}/rrsets.
+                  pattern: '^https?://.+'
+                region:
+                  type: string
+                  description: Host-cluster region this PDM lives in.
+                zone:
+                  type: string
+                  description: |
+                    Default zone this PDM is authoritative for. May be
+                    overridden by per-Continuum spec.pdmZone.
+                role:
+                  type: string
+                  enum: [witness, primary-authority, secondary-authority]
+                  default: witness
+                tlsServerName:
+                  type: string
+                  description: SNI for TLS-pinned connections.
+                apiSecretRef:
+                  type: object
+                  required: [name, key]
+                  properties:
+                    name: { type: string }
+                    namespace: { type: string }
+                    key:
+                      type: string
+                      default: api-key
+              x-kubernetes-preserve-unknown-fields: true
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum: [Pending, Healthy, Degraded, Failed]
+                leaseQuorum:
+                  type: string
+                  description: |
+                    Per-Continuum lease quorum membership: "in-quorum" /
+                    "out-of-quorum" / "unknown".
+                lastProbedAt:
+                  type: string
+                  format: date-time
+                lastError:
+                  type: string
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required: [type, status]
+                    properties:
+                      type: { type: string }
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      reason: { type: string }
+                      message: { type: string }
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                observedGeneration:
+                  type: integer
+                  format: int64
+              x-kubernetes-preserve-unknown-fields: true

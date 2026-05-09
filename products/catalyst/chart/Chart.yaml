@@ -214,7 +214,7 @@ name: bp-catalyst-platform
 # precedence so openbao auto-rotation of the source doesn't thrash the
 # controller pod. Caught live on omantel 2026-05-09 during qa-loop
 # iter-1 Executor run.
-version: 1.4.98
+version: 1.4.99
 appVersion: 1.4.94
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.

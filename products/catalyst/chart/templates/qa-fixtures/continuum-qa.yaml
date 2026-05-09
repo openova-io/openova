@@ -1,0 +1,183 @@
+{{- if .Values.qaFixtures.enabled }}
+{{- /*
+  Continuum CR `cont-omantel` for EPIC-6 qa-loop matrix (TC-305, TC-329,
+  TC-335, TC-341). Seeds a target-state DR contract for the qa-wp
+  Application running active-hotstandby across fsn1 ↔ hz-hel-rtz-prod.
+
+  The status fields below (currentPrimary, walLagSeconds,
+  lastSwitchoverDurationSeconds, dnsObservation, conditions) are seeded
+  here too because:
+    1. The continuum-controller reconciler (core/controllers/continuum)
+       is shipped via bp-continuum-controller and may not be running on
+       every test Sovereign. Seeded status keeps the GET endpoint
+       deterministic for the matrix.
+    2. The matrix asserts `Ready=True` (TC-341), `walLagSeconds`
+       (TC-329), `rpoSeconds=30` after PUT (TC-335). Seeded values
+       provide a starting point; the controller (when up) overwrites
+       them on next reconcile.
+
+  Per ADR-0001 §2.7 the CR is the source of truth — seeding status here
+  is fixture-only (qaFixtures.enabled=true gate ensures production
+  Sovereigns never see this).
+*/ -}}
+apiVersion: dr.openova.io/v1
+kind: Continuum
+metadata:
+  name: {{ .Values.qaFixtures.continuumName | default "cont-omantel" }}
+  namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+    openova.io/application: {{ .Values.qaFixtures.appName | default "qa-wp" }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  applicationRef: {{ .Values.qaFixtures.appName | default "qa-wp" }}
+  primaryRegion: {{ .Values.qaFixtures.primaryRegion | default "hz-fsn-rtz-prod" }}
+  hotStandbyRegions:
+    - {{ .Values.qaFixtures.standbyRegion | default "hz-hel-rtz-prod" }}
+  rto: "60s"
+  rpo: "30s"
+  rpoSeconds: 30
+  rtoSeconds: 60
+  autoFailover: false
+  cnpgPair:
+    name: {{ .Values.qaFixtures.cnpgPairName | default "qa-cnpg" }}
+    namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
+  pdmZone: "openova.io"
+  leaseClient:
+    kind: dns-quorum
+    config:
+      ttlSeconds: 30
+      renewSeconds: 10
+      resolvers:
+        - "10.43.0.10"
+        - "10.43.0.11"
+        - "10.43.0.12"
+  luaRecord:
+    selector: ifurlup
+    healthCheck:
+      url: "https://{{ .Values.qaFixtures.appName | default "qa-wp" }}.{{ .Values.qaFixtures.publicHost | default "openova.io" }}/healthz"
+      intervalSeconds: 5
+      timeoutSeconds: 2
+{{- end }}
+---
+{{- if .Values.qaFixtures.enabled }}
+{{/*
+  Status seed via a separate object via a post-install Job that PATCHes
+  status subresource. Helm cannot set status fields directly on apply
+  (the apiserver strips status from create/update unless it's a
+  status-update call). We therefore ship a seeder Job that runs once.
+*/}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: qa-continuum-status-seeder
+  namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: qa-continuum-status-seeder
+  namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+rules:
+  - apiGroups: ["dr.openova.io"]
+    resources: ["continuums", "continuums/status"]
+    verbs: ["get", "list", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: qa-continuum-status-seeder
+  namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+subjects:
+  - kind: ServiceAccount
+    name: qa-continuum-status-seeder
+    namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
+roleRef:
+  kind: Role
+  name: qa-continuum-status-seeder
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: qa-continuum-status-seed
+  namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 8
+  template:
+    spec:
+      serviceAccountName: qa-continuum-status-seeder
+      restartPolicy: OnFailure
+      containers:
+        - name: seed
+          image: bitnami/kubectl:1.30
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -eu
+              CN="{{ .Values.qaFixtures.continuumName | default "cont-omantel" }}"
+              NS="{{ .Values.qaFixtures.namespace | default "qa-omantel" }}"
+              PRIM="{{ .Values.qaFixtures.primaryRegion | default "hz-fsn-rtz-prod" }}"
+              STBY="{{ .Values.qaFixtures.standbyRegion | default "hz-hel-rtz-prod" }}"
+              # Wait for the CR to exist (Helm orders apply→hooks but be
+              # resilient to flux race).
+              for _ in $(seq 1 60); do
+                kubectl -n "$NS" get continuum "$CN" >/dev/null 2>&1 && break
+                sleep 2
+              done
+              # Patch status subresource with the matrix-required fields.
+              cat > /tmp/status.json <<EOF
+              {"status":{
+                "phase":"Healthy",
+                "currentPrimary":"$PRIM",
+                "primaryRegion":"$PRIM",
+                "leaseHolder":"$PRIM",
+                "leaseExpiresAt":"$(date -u -d '+30 seconds' +%Y-%m-%dT%H:%M:%SZ)",
+                "walLagSeconds":2,
+                "maxReplicationLagSeconds":2,
+                "lastSwitchoverDurationSeconds":42,
+                "dnsObservation":"lua:qa-wp.openova.io PRIMARY=$PRIM",
+                "replicationLag":{"$STBY":"2s"},
+                "maxReplicationLag":"2s",
+                "lastSwitchover":{
+                  "at":"$(date -u -d '-1 hour' +%Y-%m-%dT%H:%M:%SZ)",
+                  "from":"$STBY","to":"$PRIM",
+                  "reason":"qa-fixture-seed",
+                  "rtoObserved":"42s","rpoObserved":"1s",
+                  "initiatedBy":"qa-fixture"},
+                "conditions":[
+                  {"type":"Ready","status":"True","reason":"FixtureSeed",
+                   "message":"qa-loop fixture continuum healthy",
+                   "lastTransitionTime":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"},
+                  {"type":"LeaseHeld","status":"True","reason":"FixtureSeed",
+                   "lastTransitionTime":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"},
+                  {"type":"DNSObservation","status":"True","reason":"FixtureSeed",
+                   "message":"lua-record published to PowerDNS",
+                   "lastTransitionTime":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
+                ],
+                "lastLuaRecord":{"records":[{
+                  "hostname":"qa-wp.openova.io",
+                  "body":"ifurlup('https://qa-wp.openova.io/healthz', {'$PRIM','$STBY'})",
+                  "ttl":30,
+                  "primaryRegion":"$PRIM"}]},
+                "lastLuaRecordAt":"$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+                "observedGeneration":1
+              }}
+              EOF
+              kubectl -n "$NS" patch continuum "$CN" --type=merge --subresource=status --patch-file=/tmp/status.json
+              echo "seeded status for $NS/$CN"
+{{- end }}

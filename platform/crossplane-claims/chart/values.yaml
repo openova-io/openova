@@ -158,6 +158,22 @@ tierActions:
       - apiGroups: ["catalyst.openova.io"]
         resources: [tickets/accept]
         verbs: [create, get, update, patch]
+      # continuum.* — DR posture: operators read continuum/cnpgpair/pdm,
+      # initiate switchover/failback (the request endpoints below patch
+      # spec.switchover.requested; the catalyst-api server-side gate
+      # `applicationInstallCallerAuthorized` enforces operator-or-higher
+      # in addition to this kubeapi RBAC). Per EPIC-6 iter-6 #1101.
+      - apiGroups: ["dr.openova.io"]
+        resources: [continuums, cnpgpairs, pdms]
+        verbs: [get, list, watch, update, patch]
+      - apiGroups: ["dr.openova.io"]
+        resources: [continuums/status, cnpgpairs/status, pdms/status]
+        verbs: [get, list, watch]
+      # cnpg.* — read-only on the underlying CNPG cluster + backup CRs
+      # operators inspect on switchover triage.
+      - apiGroups: ["postgresql.cnpg.io"]
+        resources: [clusters, clusters/status, backups, backups/status, scheduledbackups]
+        verbs: [get, list, watch]
 
   # ── tier-admin (level 40): operator + compute/credentials/applications/
   #   actions/accounts/networks/sessions.* (compute = no delete)

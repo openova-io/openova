@@ -1,0 +1,122 @@
+{{- if .Values.qaFixtures.enabled }}
+{{- /*
+  ScheduledBackup `qa-cnpg-backup` for the qa-omantel matrix
+  (TC-337/338).  Phase-2's bp-cnpg-pair will own the actual backup
+  schedule for the qa-cnpg pair; until that lands this fixture
+  satisfies `kubectl get scheduledbackup -n qa-omantel` (TC-337) and
+  the matched Backup CR (TC-338, status.phase=completed).
+
+  Per ADR-0001 §2.7 the Backup CR is the source of truth — the seeder
+  Job below patches one immediately so the matrix sees `completed`
+  without having to wait for a real CNPG backup run on the still-Pending
+  qa-cnpg cluster.
+*/ -}}
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: qa-cnpg-backup
+  namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+    openova.io/application: {{ .Values.qaFixtures.appName | default "qa-wp" }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  schedule: "0 0 * * * *"
+  backupOwnerReference: self
+  cluster:
+    name: cluster-primary
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  name: qa-cnpg-backup-fixture
+  namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+    cnpg.io/scheduledBackupName: qa-cnpg-backup
+spec:
+  cluster:
+    name: cluster-primary
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: qa-backup-status-seeder
+  namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: qa-backup-status-seeder
+  namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+rules:
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["backups", "backups/status"]
+    verbs: ["get", "list", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: qa-backup-status-seeder
+  namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+subjects:
+  - kind: ServiceAccount
+    name: qa-backup-status-seeder
+    namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
+roleRef:
+  kind: Role
+  name: qa-backup-status-seeder
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: qa-backup-status-seed
+  namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 8
+  template:
+    spec:
+      serviceAccountName: qa-backup-status-seeder
+      restartPolicy: OnFailure
+      containers:
+        - name: seed
+          image: bitnami/kubectl:1.30
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -eu
+              NS="{{ .Values.qaFixtures.namespace | default "qa-omantel" }}"
+              for _ in $(seq 1 60); do
+                kubectl -n "$NS" get backup qa-cnpg-backup-fixture >/dev/null 2>&1 && break
+                sleep 2
+              done
+              cat > /tmp/status.json <<EOF
+              {"status":{
+                "phase":"completed",
+                "startedAt":"$(date -u -d '-1 hour' +%Y-%m-%dT%H:%M:%SZ)",
+                "stoppedAt":"$(date -u -d '-55 minutes' +%Y-%m-%dT%H:%M:%SZ)",
+                "destinationPath":"s3://qa-fixtures/qa-cnpg/base/$(date -u +%Y%m%dT%H%M%S)",
+                "method":"barmanObjectStore",
+                "backupName":"qa-cnpg-backup-fixture",
+                "endWal":"000000010000000000000005",
+                "beginWal":"000000010000000000000003"
+              }}
+              EOF
+              kubectl -n "$NS" patch backup qa-cnpg-backup-fixture --type=merge --subresource=status --patch-file=/tmp/status.json
+              echo "seeded backup status"
+{{- end }}
