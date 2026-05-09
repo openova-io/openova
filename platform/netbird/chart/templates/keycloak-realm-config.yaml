@@ -1,0 +1,103 @@
+{{- if and .Values.netbird.enabled .Values.netbird.realmConfig.enabled -}}
+# Keycloak realm-config patch consumed by bp-keycloak's
+# keycloak-config-cli post-deploy Job.
+#
+# Per the canonical seam (canon §2 + platform/keycloak/chart/
+# templates/configmap-sovereign-realm.yaml + the Guacamole pattern
+# from slice K+P+X1+G #1164 — `platform/guacamole/chart/templates/
+# keycloak-realm-config.yaml`): bp-keycloak's post-deploy Job
+# iterates ConfigMaps in the keycloak namespace carrying label
+# `catalyst.openova.io/keycloak-config: realm-patch` and merges each
+# `realm-patch.json` payload into the named realm.
+#
+# This template emits one such ConfigMap that adds:
+#   - the `netbird` OIDC client (confidential, redirectURIs from
+#     values.yaml)
+#   - the `netbird-user` realm role
+#   - a default group mapping so any user in `netbird-users` receives
+#     the role
+#
+# Empty placeholder for the client-secret — Keycloak generates one
+# on first realm reconcile and the operator extracts it via the
+# admin API into the SealedSecret declared in
+# sealed-secret-management.yaml. Two-step bootstrap (chart applies →
+# operator pulls secret → kubeseal → re-apply) is the same pattern
+# the rest of the Catalyst-curated stack follows for non-pre-shared
+# OIDC clients.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  # The bp-keycloak Job sorts ConfigMaps by name and applies them in
+  # order; the bp-* prefix groups Catalyst-owned patches together.
+  name: bp-netbird-realm-patch
+  namespace: {{ .Values.netbird.realmConfig.realm | default "keycloak" }}
+  labels:
+    {{- include "bp-netbird.labels" . | nindent 4 }}
+    catalyst.openova.io/keycloak-config: realm-patch
+data:
+  realm-patch.json: |
+    {
+      "realm": {{ .Values.netbird.realmConfig.realm | quote }},
+      "clients": [
+        {
+          "clientId": {{ .Values.netbird.oidc.clientId | quote }},
+          "name": "NetBird Mesh",
+          "enabled": true,
+          "publicClient": false,
+          "standardFlowEnabled": true,
+          "implicitFlowEnabled": false,
+          "directAccessGrantsEnabled": true,
+          "serviceAccountsEnabled": true,
+          "redirectUris": [
+            "{{ include "bp-netbird.oidcRedirectURI" . }}*"
+          ],
+          "webOrigins": [
+            "https://{{ include "bp-netbird.host" . }}"
+          ],
+          "attributes": {
+            "post.logout.redirect.uris": "{{ include "bp-netbird.oidcRedirectURI" . }}*"
+          },
+          "protocolMappers": [
+            {
+              "name": {{ .Values.netbird.oidc.groupsClaim | quote }},
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-group-membership-mapper",
+              "config": {
+                "claim.name": {{ .Values.netbird.oidc.groupsClaim | quote }},
+                "full.path": "false",
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "audience-{{ include "bp-netbird.oidcAudience" . }}",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "config": {
+                "included.client.audience": "{{ include "bp-netbird.oidcAudience" . }}",
+                "id.token.claim": "false",
+                "access.token.claim": "true"
+              }
+            }
+          ]
+        }
+      ],
+      "roles": {
+        "realm": [
+          { "name": "netbird-user", "description": "NetBird authenticated mesh user" },
+          { "name": "netbird-admin", "description": "NetBird mesh admin (peer + ACL CRUD)" }
+        ]
+      },
+      "groups": [
+        {
+          "name": "netbird-users",
+          "realmRoles": ["netbird-user"]
+        },
+        {
+          "name": "netbird-admins",
+          "realmRoles": ["netbird-user", "netbird-admin"]
+        }
+      ]
+    }
+{{- end }}

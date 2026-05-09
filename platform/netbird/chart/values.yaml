@@ -1,0 +1,203 @@
+# Catalyst Blueprint values for bp-netbird (slice EPIC-5 leftovers
+# NB #1100).
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md:
+#   #1   waterfall — chart ships the full target shape (management +
+#        signal + coturn + OIDC + NetworkPolicy + Keycloak realm-config
+#        + SealedSecret) on the first cut; no "for now" subset.
+#   #4   never hardcode — every operationally-meaningful value is
+#        configurable via per-Sovereign overlay.
+#   #4a  SHA-pinned images; CI fills .tag at promotion time. Empty
+#        tag fails fast (see _helpers.tpl).
+#   #5   credentials live in K8s Secrets, never in values.yaml.
+#
+# Default-OFF: `enabled: false` per the canonical default-OFF gate.
+# Operators opt in via per-Sovereign overlay at
+# clusters/<sovereign>/bootstrap-kit/<NN>-netbird.yaml.
+
+catalystBlueprint:
+  upstream:
+    chart: ""           # scratch chart — no upstream Helm chart
+    version: ""
+    repo: ""
+
+# ─── Global registry rewrite (matches catalyst chart pattern) ──────────
+# When set, ALL NetBird image pulls route through this registry. Per-
+# Sovereign overlays set this to harbor.<sovereign-fqdn> so every image
+# pull hits the Sovereign's own Harbor proxy_cache rather than ghcr.io
+# / docker.io directly. Empty = no rewrite.
+global:
+  imageRegistry: ""
+
+# Top-level enable gate. When false, NO resources render. Verified by
+# `helm template` test in tests/.
+netbird:
+  enabled: false
+
+  # ── Management service: peer registration + ACL distribution ────
+  management:
+    image:
+      repository: netbirdio/management
+      # SHA-pinned per INVIOLABLE-PRINCIPLES #4a. CI populates this
+      # via `yq eval -i ...`. Empty value fails the helm template
+      # render (see _helpers.tpl `bp-netbird.managementImage`).
+      tag: ""
+      pullPolicy: IfNotPresent
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        memory: 1Gi
+    # gRPC + HTTP API ports.
+    grpcPort: 33073
+    httpPort: 33071
+    # Domain name customers use to reach the management API. Empty
+    # value fails the helm template render. Operator sets per-Sovereign
+    # overlay (canonical: `netbird.<sovereign-fqdn>`).
+    domain: ""
+    # Storage for management state (peers, ACLs, accounts). When the
+    # bp-cnpg or external Postgres is not yet available, the in-process
+    # SQLite default keeps the bring-up unblocked. Operator overlays
+    # `dataStoreEncryptionKey` once stable.
+    dataStore:
+      kind: sqlite       # sqlite | postgres
+      persistentVolume:
+        enabled: true
+        size: 5Gi
+        storageClass: hcloud-volumes  # H6 canonical
+        mountPath: /var/lib/netbird
+
+  # ── Signal service: WebRTC signaling for WireGuard handshakes ───
+  signal:
+    image:
+      repository: netbirdio/signal
+      tag: ""
+      pullPolicy: IfNotPresent
+    replicas: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        memory: 256Mi
+    # gRPC port.
+    port: 10000
+
+  # ── coturn TURN/STUN: NAT-traversal fallback ────────────────────
+  coturn:
+    image:
+      repository: coturn/coturn
+      tag: ""
+      pullPolicy: IfNotPresent
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
+    # UDP listen port for STUN binding + TURN relay.
+    port: 3478
+    # TURN realm — defaults to `<management.domain>` if empty.
+    realm: ""
+    # Static-auth secret reference. Per INVIOLABLE-PRINCIPLES #5 the
+    # value lives in a SealedSecret; operator seals it via kubeseal.
+    authSecretRef:
+      name: netbird-coturn-auth
+      key: secret
+
+  # ── Keycloak OIDC ──────────────────────────────────────────────
+  oidc:
+    # Issuer URL — render in per-Sovereign overlay as
+    # `https://keycloak.<sovereign-fqdn>/realms/catalyst`. Empty
+    # value fails the helm template render (see _helpers.tpl
+    # `bp-netbird.oidcIssuer`).
+    issuer: ""
+    clientId: netbird
+    # Client secret comes from a SealedSecret. The chart materializes
+    # the SealedSecret manifest with an empty placeholder; the
+    # operator seals the real value via kubeseal.
+    clientSecretRef:
+      name: netbird-oidc
+      key: client-secret
+    # Default redirect URL — defaults to https://<management.domain>/
+    # but operator overlay sets the canonical hostname.
+    redirectURI: ""
+    # Optional groups claim from the IdP — NetBird reads roles
+    # from this claim and maps them to per-network ACLs.
+    groupsClaim: groups
+    # Audience claim NetBird validates against. Defaults to clientId.
+    audience: ""
+    # Admin-user claim for first-login bootstrap (the user who lands
+    # the first OIDC handshake becomes the account owner).
+    adminUserIdClaim: sub
+
+  # ── HTTPRoute (Cilium Gateway) ─────────────────────────────────
+  httproute:
+    enabled: true
+    # Gateway reference. Defaults to the Sovereign's well-known
+    # `cilium-gateway` in namespace `gateway-system`; per-Sovereign
+    # overlay can rebind.
+    parentRef:
+      name: cilium-gateway
+      namespace: gateway-system
+    # Hostname this NetBird answers on. Defaults to .management.domain
+    # but can be overridden if the management API is fronted by a
+    # separate hostname.
+    hostname: ""
+
+  # ── NetworkPolicy ─────────────────────────────────────────────
+  # When enabled (default), a default-deny baseline is augmented with
+  # selective egress to: keycloak (443/8080), DNS (53), and inter-pod
+  # (signal ↔ management ↔ coturn).
+  networkPolicy:
+    enabled: true
+    keycloak:
+      namespace: keycloak
+      podSelector:
+        app: keycloak
+
+  # ── NATS audit trail ──────────────────────────────────────────
+  audit:
+    nats:
+      # JetStream subject NetBird publishes peer-join / peer-leave
+      # events to. Consumed by the Sovereign's audit indexer (EPIC-1
+      # compliance evaluators) — see canon §3 events bus.
+      subject: catalyst.audit
+      auditType: netbird-peer
+      url: nats://nats-jetstream.nats-jetstream.svc.cluster.local:4222
+
+  # ── Keycloak realm-config integration ─────────────────────────
+  # When enabled, the chart emits a ConfigMap that the bp-keycloak
+  # post-deploy keycloak-config-cli Job picks up. The ConfigMap
+  # patches the `catalyst` realm to add the `netbird` client +
+  # role + group mappings. Mirrors the Guacamole pattern from slice
+  # K+P+X1+G #1164. Operator opt-in to keep bp-netbird installable
+  # in test environments without bp-keycloak.
+  realmConfig:
+    enabled: true
+    # Realm name in Keycloak. Default `catalyst` per existing
+    # platform/keycloak realm-config pattern.
+    realm: catalyst
+
+  # ── Pod-level security context ─────────────────────────────────
+  # Pods run as non-root with read-only root FS where possible.
+  # coturn requires CAP_NET_BIND_SERVICE only when binding <1024 ports;
+  # default port 3478 is safe under unprivileged.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1001
+    runAsGroup: 1001
+    fsGroup: 1001
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
+
+  # ── Image pull secret ─────────────────────────────────────────
+  imagePullSecrets: []

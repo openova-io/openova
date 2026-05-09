@@ -1,0 +1,95 @@
+{{- if and .Values.dmz.enabled .Values.dmz.networkPolicy.enabled -}}
+# DMZ vCluster host-namespace isolation NetworkPolicy. The DMZ
+# vCluster's host namespace runs default-deny: every flow into or out
+# of any pod in this namespace is denied unless explicitly allowed by
+# this policy (or a sibling policy operator overlays).
+#
+# This is the LOAD-BEARING isolation primitive — without it, the DMZ
+# vCluster's pods can reach management-cluster Pods by accident,
+# defeating the whole point of the DMZ boundary. Per
+# docs/EPICS-1-6-unified-design.md §8.5 and ADR-0001 §8 (Cilium
+# enforces; this NetworkPolicy declares the intent).
+#
+# Allowed flows:
+#   - Ingress from the cilium-gateway namespace (HTTPRoute backends).
+#   - Ingress from kube-system DNS (resolution probes).
+#   - Egress to kube-system DNS (resolution).
+#   - Egress to the designated egress-gateway pod (public-internet
+#     traffic SNATs through the gateway for audit + threat-intel).
+#
+# Everything else — including egress to other host-cluster namespaces,
+# direct egress to the public internet, and ingress from any other
+# host-cluster namespace — is DENIED.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "bp-dmz-vcluster.fullname" . }}-default-deny
+  namespace: {{ include "bp-dmz-vcluster.hostNamespace" . }}
+  labels:
+    {{- include "bp-dmz-vcluster.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  # Empty ingress + egress arrays = deny-all. Subsequent NetworkPolicy
+  # objects in this namespace ADD allow rules (Kubernetes NetworkPolicy
+  # is additive — the union of all matching policies' allow rules is
+  # the effective allowlist).
+  ingress: []
+  egress: []
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "bp-dmz-vcluster.fullname" . }}-allow-essentials
+  namespace: {{ include "bp-dmz-vcluster.hostNamespace" . }}
+  labels:
+    {{- include "bp-dmz-vcluster.labels" . | nindent 4 }}
+spec:
+  # Apply to every pod in the namespace (including upstream vCluster
+  # syncer Pods that don't carry the vcluster.loft.sh label until they
+  # come up).
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # HTTPRoute backends — Cilium Gateway hits the synced Service IP,
+    # which forwards into the DMZ vCluster's tenant Pods.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.dmz.httproute.parentRef.namespace }}
+  egress:
+    # DNS resolution.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+
+    # Designated egress gateway — the ONLY public-internet egress
+    # path. The egress-gateway SNATs to a reserved public IP so audit
+    # + threat-intel can attribute outbound flows to the tenant.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.dmz.networkPolicy.egressGateway.namespace }}
+          podSelector:
+            matchLabels:
+              {{- toYaml .Values.dmz.networkPolicy.egressGateway.podSelector | nindent 14 }}
+
+    # vCluster apiserver self-talk — the syncer Pods need to talk to
+    # the in-namespace apiserver Service. Constrained to the same
+    # namespace via empty namespaceSelector + podSelector{}.
+    - to:
+        - podSelector: {}
+{{- end }}

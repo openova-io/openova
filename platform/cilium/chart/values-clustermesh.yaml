@@ -1,0 +1,108 @@
+# Cilium ClusterMesh values overlay — slice EPIC-5 leftovers CM #1100.
+#
+# This file is a VALUES OVERLAY, not a chart-level default. It sits
+# alongside `values.yaml` and is consumed by per-Sovereign overlays at
+# `clusters/<sovereign>/bootstrap-kit/01-cilium.yaml` via the
+# HelmRelease's `valuesFrom:` field, OR by a CI-promoted overlay file
+# alongside the bootstrap-kit. NEVER merged into `values.yaml` directly
+# — Cilium ClusterMesh requires a per-Sovereign cluster.name + cluster.id
+# pair (1-255 range, unique across peers), which by design (and per
+# INVIOLABLE-PRINCIPLES #4: never hardcode) the chart cannot supply.
+#
+# Why a separate file vs. inline in `values.yaml`:
+#   - cluster.name + cluster.id are LOAD-BEARING peer-uniqueness
+#     anchors. A wrong value is a silent peering failure (cluster A
+#     can't talk to cluster B because both think they're cluster id=1).
+#     Forcing operators to layer this file on per-Sovereign keeps the
+#     wrong-default footgun out of the chart.
+#   - Shipping `clustermesh.useAPIServer: true` as a default would
+#     stand up the clustermesh-apiserver Pod on every Sovereign even
+#     when only one cluster exists in the EPIC-6 C-DB-1 pair —
+#     wasteful + opens an extra LoadBalancer the operator didn't ask
+#     for. Opt-in keeps the bring-up minimal.
+#
+# After applying this overlay AND completing the operator-side runbook
+# below, `service.cilium.io/global: "true"` annotated Services (the
+# bp-cnpg-pair primary + replica Services per slice C-DB-1 of EPIC-6
+# #1101) become reachable from every peer in the mesh.
+
+cilium:
+  # Per-Sovereign anchors — ALWAYS overridden by the Sovereign's
+  # bootstrap-kit overlay. The empty-string + zero defaults here are
+  # intentionally invalid — Cilium chart fails-fast at install time when
+  # ClusterMesh is enabled and either anchor is missing/zero.
+  cluster:
+    name: ""        # required when ClusterMesh enabled — set per-Sovereign
+                    # (canonical: matches the Sovereign FQDN's first
+                    # label, e.g. "fsn1" or "hel1"; never the full FQDN)
+    id: 0           # required — Cilium ClusterMesh requires a unique
+                    # cluster ID per peer (1-255 range; 0 is reserved).
+                    # The pool-domain-manager allocates from a per-mesh
+                    # registry to avoid collisions across regions.
+
+  clustermesh:
+    # Stand up the per-cluster clustermesh-apiserver Pod that exposes
+    # the cluster's identity + service catalog to the other peers.
+    useAPIServer: true
+    apiserver:
+      service:
+        # LoadBalancer for cloud Sovereigns (Hetzner LB allocates a
+        # public IP that the other peers connect to over the
+        # `cilium clustermesh connect` runbook below). Operators on
+        # non-cloud / bare-metal Sovereigns flip this to NodePort in
+        # their per-Sovereign overlay.
+        type: LoadBalancer
+      tls:
+        # Mutual cert auth between Cilium peers — every peer's
+        # clustermesh-apiserver verifies the other's cert against the
+        # in-cluster CA. The `cluster` mode keeps the trust scope at
+        # cluster-pair granularity (vs `legacy` which is a flat shared
+        # CA across all peers).
+        authMode: cluster
+    # Render the per-peer ClusterMesh config CR. Without this block
+    # the in-cluster apiserver runs but no peer is ever connected.
+    config:
+      enabled: true
+      domain: mesh.cilium.io
+      # Per-peer connection list — populated by `cilium clustermesh
+      # connect` operator runbook below; documented as empty here so
+      # the chart-side render is identical for every Sovereign.
+      clusters: []
+
+  # ─── Operator runbook (post-merge) ───────────────────────────────
+  # 1. Apply the overlay (HelmRelease reconcile or manual `helm
+  #    upgrade`). Verify the clustermesh-apiserver Pod is running:
+  #
+  #      kubectl -n kube-system get pods -l k8s-app=clustermesh-apiserver
+  #
+  # 2. On the LOCAL cluster, enable ClusterMesh:
+  #
+  #      cilium clustermesh enable --service-type LoadBalancer \
+  #        --context <local-context>
+  #
+  # 3. On the REMOTE cluster, enable ClusterMesh likewise:
+  #
+  #      cilium clustermesh enable --service-type LoadBalancer \
+  #        --context <remote-context>
+  #
+  # 4. Connect the two:
+  #
+  #      cilium clustermesh connect \
+  #        --context <local-context> \
+  #        --destination-context <remote-context>
+  #
+  # 5. Verify peer health from either side:
+  #
+  #      cilium clustermesh status --context <local-context>
+  #
+  # 6. Test a global Service (annotate any Service with
+  #    `service.cilium.io/global: "true"` — used by EPIC-6 C-DB-1
+  #    bp-cnpg-pair):
+  #
+  #      kubectl -n cnpg get service postgres-r -o jsonpath=\
+  #        '{.metadata.annotations.service\.cilium\.io/global}'
+  #      # → "true"
+  #
+  # 7. Document the cluster.name + cluster.id pair in the Sovereign's
+  #    bootstrap-kit README so future operators don't accidentally
+  #    re-use them.

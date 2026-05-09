@@ -1,0 +1,52 @@
+apiVersion: v2
+name: bp-dmz-vcluster
+version: 0.1.0
+appVersion: "0.20.0"
+description: |
+  Catalyst-authored Blueprint chart for a DMZ vCluster — an isolated
+  customer-internet-facing virtual Kubernetes cluster running inside
+  the management cluster. Per docs/EPICS-1-6-unified-design.md §8.5,
+  the DMZ vCluster gives customer workloads that need direct internet
+  exposure (public APIs, webhooks, customer-facing dashboards) a hard
+  isolation boundary from the management plane:
+
+    - Own openova-system namespace inside the host cluster
+    - Own Cilium identity (separate from host workloads)
+    - NetworkPolicy default-deny on the host namespace
+    - Egress to the public internet only via the designated egress
+      gateway (set per Sovereign overlay)
+    - Separate Keycloak realm OR realm role (operator picks per
+      tenancy model)
+    - No privileged caps; no host-network access; read-only root FS
+      where the upstream vcluster image permits
+
+  This chart wraps the upstream loft-sh/vcluster chart in a Catalyst
+  HelmRelease so per-Sovereign overlays can flip individual values
+  (resource limits, pod-security, auth) without forking the upstream
+  chart. Per ADR-0001 §3.2.8 + the EPIC-5 leftovers brief, DMZ
+  vCluster is a customer-facing capability under products/, NOT
+  platform/.
+
+  Default-OFF gate: `dmz.enabled: false`. Operators flip true on a
+  per-Sovereign overlay once Cilium ClusterMesh (EPIC-6 C-DB-1) and
+  the egress gateway are ready.
+
+type: application
+keywords: [catalyst, blueprint, dmz, vcluster, isolation, multi-tenant]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Scratch chart at the Catalyst layer — the actual vCluster install
+# happens via a HelmRelease wrapping loft-sh/vcluster (operator
+# manages the upstream chart version pin via the HelmRelease's
+# `chart.spec.version` field). The `sigstore/common` library subchart
+# below is included ONLY to satisfy the platform-wide
+# blueprint-release.yaml hollow-chart gate (issue #181) — every
+# umbrella MUST declare at least one dependency. `common` is a tiny
+# library chart (helper templates only, zero runtime resources).
+# Mirrors bp-guacamole + bp-netbird's same workaround.
+dependencies:
+  - name: common
+    version: "0.1.3"
+    repository: "https://sigstore.github.io/helm-charts"

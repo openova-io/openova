@@ -1,0 +1,61 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-dmz-vcluster
+  labels:
+    catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
+    openova.io/category: customer-facing-capability
+spec:
+  version: 0.1.0
+  card:
+    title: DMZ vCluster
+    summary: |
+      Isolated customer-internet-facing virtual Kubernetes cluster
+      running inside the management cluster. Own openova-system
+      namespace, own Cilium identity, default-deny NetworkPolicy,
+      and egress to the public internet only via the designated
+      egress gateway. Per ADR-0001 §3.2.8 + design doc §8.5.
+    icon: dmz-vcluster.svg
+    category: networking
+  visibility: listed
+  configSchema:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+        default: false
+        description: |
+          Default-OFF gate. Flip true on a per-Sovereign overlay once
+          Cilium ClusterMesh + the egress gateway are ready.
+      hostNamespace:
+        type: string
+        default: dmz
+        description: |
+          Host-cluster namespace where the DMZ vCluster's pods land.
+          Multi-DMZ Sovereigns set per-tenant names (e.g. `dmz-acme`).
+      vclusterName:
+        type: string
+        default: dmz
+        description: vCluster Kubernetes name.
+      hostname:
+        type: string
+        description: |
+          Tenant-facing hostname for the HTTPRoute. Empty = no
+          HTTPRoute (internal-mesh-only DMZ).
+      storageClass:
+        type: string
+        default: hcloud-volumes
+        description: StorageClass for the vCluster's etcd PVC.
+  placementSchema:
+    modes: [single-region]
+    minRegions: 1
+    maxRegions: 1
+  upgrades:
+    from: ["0.x"]
+  manifests:
+    chart: ./
+  depends:
+    - blueprint: bp-cilium
+      version: ^1
+    - blueprint: bp-flux
+      version: ^1

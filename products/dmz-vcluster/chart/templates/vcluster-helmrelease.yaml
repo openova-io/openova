@@ -1,0 +1,65 @@
+{{- if .Values.dmz.enabled -}}
+# HelmRelease wrapping the upstream loft-sh/vcluster chart. The
+# Catalyst layer ONLY renders this CR — the Flux helm-controller picks
+# it up and pulls the upstream chart from the configured HelmRepository.
+#
+# Per the EPIC-5 leftovers brief: this chart does NOT vendor the
+# upstream vcluster Helm chart as a subchart (vcluster's chart shape
+# changes too quickly across minor versions; per-Sovereign overlays
+# need to flip the upstream chart version pin without forking us).
+# The HelmRepository pointing at https://charts.loft.sh is part of the
+# Sovereign's bootstrap-kit (clusters/<sov>/bootstrap-kit/00-helm-repos/).
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: {{ include "bp-dmz-vcluster.fullname" . }}
+  namespace: {{ include "bp-dmz-vcluster.hostNamespace" . }}
+  labels:
+    {{- include "bp-dmz-vcluster.labels" . | nindent 4 }}
+spec:
+  interval: 5m
+  chart:
+    spec:
+      chart: {{ .Values.catalystBlueprint.upstream.chart | quote }}
+      version: {{ .Values.catalystBlueprint.upstream.version | quote }}
+      sourceRef:
+        kind: HelmRepository
+        name: loft-sh
+        namespace: flux-system
+      interval: 12h
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  # The upstream vcluster chart is SHA-pinned via `image.tag` here —
+  # Catalyst's fail-fast helper aborts render if CI didn't stamp it.
+  values:
+    image: {{ include "bp-dmz-vcluster.image" . | quote }}
+    syncer:
+      image: {{ include "bp-dmz-vcluster.image" . | quote }}
+      resources:
+        {{- toYaml .Values.dmz.vcluster.resources | nindent 8 }}
+    storage:
+      persistence: {{ .Values.dmz.vcluster.storage.persistence }}
+      size: {{ .Values.dmz.vcluster.storage.size | quote }}
+      className: {{ .Values.dmz.vcluster.storage.className | quote }}
+    sync:
+      {{- toYaml .Values.dmz.vcluster.sync | nindent 6 }}
+    # Per-vCluster pod-security context. The upstream chart accepts
+    # both `securityContext:` (pod-level) and `containerSecurityContext:`
+    # (per-container). We provide both.
+    securityContext:
+      {{- toYaml .Values.dmz.podSecurityContext | nindent 6 }}
+    containerSecurityContext:
+      {{- toYaml .Values.dmz.containerSecurityContext | nindent 6 }}
+    # Service shape — internal ClusterIP only by default. Operator
+    # overlays flip to LoadBalancer once tenant traffic shape is known.
+    service:
+      type: ClusterIP
+    {{- with .Values.dmz.imagePullSecrets }}
+    imagePullSecrets:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+{{- end }}

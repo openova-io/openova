@@ -1,0 +1,191 @@
+{{- if .Values.netbird.enabled -}}
+# NetBird management Deployment + PVC for SQLite-backed state.
+# The management service handles peer registration, ACL distribution
+# and account/user CRUD. OIDC handshake terminates here — every value
+# below is operator-driven via per-Sovereign overlay; empty required
+# values fail the helm template render via _helpers.tpl.
+{{- if and .Values.netbird.management.dataStore.persistentVolume.enabled (eq .Values.netbird.management.dataStore.kind "sqlite") }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "bp-netbird.fullname" . }}-management-data
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-netbird.labels" . | nindent 4 }}
+    catalyst.openova.io/component: management
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.netbird.management.dataStore.persistentVolume.size }}
+  storageClassName: {{ .Values.netbird.management.dataStore.persistentVolume.storageClass | quote }}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "bp-netbird.fullname" . }}-management
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-netbird.labels" . | nindent 4 }}
+    catalyst.openova.io/component: management
+spec:
+  replicas: {{ .Values.netbird.management.replicas }}
+  selector:
+    matchLabels:
+      {{- include "bp-netbird.managementSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "bp-netbird.labels" . | nindent 8 }}
+        catalyst.openova.io/component: management
+    spec:
+      securityContext:
+        {{- toYaml .Values.netbird.podSecurityContext | nindent 8 }}
+      {{- with .Values.netbird.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: management
+          image: {{ include "bp-netbird.managementImage" . | quote }}
+          imagePullPolicy: {{ .Values.netbird.management.image.pullPolicy }}
+          ports:
+            - name: grpc
+              containerPort: {{ .Values.netbird.management.grpcPort }}
+              protocol: TCP
+            - name: http
+              containerPort: {{ .Values.netbird.management.httpPort }}
+              protocol: TCP
+          env:
+            # Management URL the dashboard + clients use to reach the
+            # API. Per-Sovereign domain via _helpers.tpl fail-fast.
+            - name: NB_MGMT_URL
+              value: "https://{{ include "bp-netbird.domain" . }}"
+            # Signal endpoint — co-located in this Sovereign's namespace
+            # via the Service shipped alongside this Deployment.
+            - name: NB_SIGNAL_URL
+              value: "https://{{ include "bp-netbird.domain" . }}/signalexchange.SignalExchange/"
+
+            # OIDC — every value below is operator-driven via per-Sovereign
+            # overlay, never hardcoded (INVIOLABLE-PRINCIPLES #4). Empty
+            # required values fail the helm template render via _helpers.tpl.
+            - name: NB_AUTH_AUTHORITY
+              value: "{{ include "bp-netbird.oidcIssuer" . }}"
+            - name: NB_AUTH_AUDIENCE
+              value: "{{ include "bp-netbird.oidcAudience" . }}"
+            - name: NB_AUTH_CLIENT_ID
+              value: {{ .Values.netbird.oidc.clientId | quote }}
+            - name: NB_AUTH_REDIRECT_URI
+              value: "{{ include "bp-netbird.oidcRedirectURI" . }}"
+            - name: NB_AUTH_USER_ID_CLAIM
+              value: {{ .Values.netbird.oidc.adminUserIdClaim | quote }}
+            - name: NB_AUTH_GROUPS_CLAIM
+              value: {{ .Values.netbird.oidc.groupsClaim | quote }}
+            # Client secret pulled from the SealedSecret's resulting
+            # Secret. The reference here keeps the plaintext OUT of the
+            # Deployment manifest (INVIOLABLE-PRINCIPLES #5).
+            - name: NB_AUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.netbird.oidc.clientSecretRef.name }}
+                  key: {{ .Values.netbird.oidc.clientSecretRef.key }}
+                  optional: false
+
+            # TURN credentials shared with coturn so peers can authenticate
+            # against the local TURN server.
+            - name: NB_TURN_DOMAIN
+              value: "{{ include "bp-netbird.turnRealm" . }}"
+            - name: NB_TURN_PORT
+              value: {{ .Values.netbird.coturn.port | quote }}
+            - name: NB_TURN_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.netbird.coturn.authSecretRef.name }}
+                  key: {{ .Values.netbird.coturn.authSecretRef.key }}
+                  optional: false
+
+            # Datastore — SQLite for solo Sovereigns; postgres for HA.
+            - name: NB_STORE_ENGINE
+              value: {{ .Values.netbird.management.dataStore.kind | quote }}
+            - name: NB_STORE_PATH
+              value: "{{ .Values.netbird.management.dataStore.persistentVolume.mountPath }}/store.db"
+          volumeMounts:
+            {{- if and .Values.netbird.management.dataStore.persistentVolume.enabled (eq .Values.netbird.management.dataStore.kind "sqlite") }}
+            - name: data
+              mountPath: {{ .Values.netbird.management.dataStore.persistentVolume.mountPath }}
+            {{- end }}
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            {{- toYaml .Values.netbird.management.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.netbird.containerSecurityContext | nindent 12 }}
+          livenessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          readinessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        {{- if and .Values.netbird.management.dataStore.persistentVolume.enabled (eq .Values.netbird.management.dataStore.kind "sqlite") }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "bp-netbird.fullname" . }}-management-data
+        {{- end }}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "bp-netbird.fullname" . }}-signal
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-netbird.labels" . | nindent 4 }}
+    catalyst.openova.io/component: signal
+spec:
+  replicas: {{ .Values.netbird.signal.replicas }}
+  selector:
+    matchLabels:
+      {{- include "bp-netbird.signalSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "bp-netbird.labels" . | nindent 8 }}
+        catalyst.openova.io/component: signal
+    spec:
+      securityContext:
+        {{- toYaml .Values.netbird.podSecurityContext | nindent 8 }}
+      {{- with .Values.netbird.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: signal
+          image: {{ include "bp-netbird.signalImage" . | quote }}
+          imagePullPolicy: {{ .Values.netbird.signal.image.pullPolicy }}
+          ports:
+            - name: grpc
+              containerPort: {{ .Values.netbird.signal.port }}
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.netbird.signal.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.netbird.containerSecurityContext | nindent 12 }}
+          livenessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 5
+            periodSeconds: 10
+{{- end }}

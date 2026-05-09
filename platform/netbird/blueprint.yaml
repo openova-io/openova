@@ -1,0 +1,47 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-netbird
+  labels:
+    catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
+    catalyst.openova.io/category: platform
+spec:
+  version: 0.1.0
+  card:
+    title: NetBird
+    summary: WireGuard-based zero-trust mesh + remote-access overlay. Operators / engineers / customer admins enroll devices via Keycloak SSO and reach Sovereign-internal services from any laptop. Includes management + signal + coturn (TURN/STUN). One NetBird per Sovereign per ADR-0001 §11.
+    icon: netbird.svg
+    category: platform
+  visibility: listed
+  configSchema:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+        default: false
+        description: Default-OFF gate. Operator opts in via per-Sovereign overlay.
+      domain:
+        type: string
+        description: Browser-facing hostname (e.g. netbird.<sovereign-fqdn>). Required when enabled.
+      oidcIssuer:
+        type: string
+        description: Keycloak realm issuer URL. Required when enabled.
+      dataStoreSize:
+        type: string
+        default: "5Gi"
+        description: Per-Sovereign management-state PVC size.
+  placementSchema:
+    modes: [single-region]
+    minRegions: 1
+    maxRegions: 1
+  upgrades:
+    from: ["0.x"]
+  manifests:
+    chart: ./chart
+  depends:
+    - blueprint: bp-keycloak
+      version: ^1
+    - blueprint: bp-cilium
+      version: ^1
+    - blueprint: bp-sealed-secrets
+      version: ^1

@@ -1,0 +1,37 @@
+{{- if and .Values.netbird.enabled .Values.netbird.httproute.enabled -}}
+# HTTPRoute fronting the NetBird management + signal Services via the
+# Sovereign's Cilium Gateway with the wildcard cert from
+# clusters/_template/sovereign-tls/. Two route rules: `/` → management
+# HTTP API + dashboard; `/signalexchange.SignalExchange/` → signal gRPC.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "bp-netbird.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-netbird.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ .Values.netbird.httproute.parentRef.name }}
+      namespace: {{ .Values.netbird.httproute.parentRef.namespace }}
+  hostnames:
+    - {{ include "bp-netbird.host" . | quote }}
+  rules:
+    # Signal gRPC — peer-handshake brokering. Path-prefix match on the
+    # gRPC service name keeps it ahead of the catch-all rule below.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /signalexchange.SignalExchange/
+      backendRefs:
+        - name: {{ include "bp-netbird.fullname" . }}-signal
+          port: {{ .Values.netbird.signal.port }}
+    # Management HTTP API + web dashboard catch-all.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: {{ include "bp-netbird.fullname" . }}-management
+          port: {{ .Values.netbird.management.httpPort }}
+{{- end }}

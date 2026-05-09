@@ -1,0 +1,77 @@
+{{- if and .Values.netbird.enabled .Values.netbird.networkPolicy.enabled -}}
+# Default-deny baseline + selective egress for the NetBird management
+# Deployment. Mirrors the platform/network-policies (H8) pattern:
+# ingress is inherited from the cluster-wide default-deny + the
+# HTTPRoute Gateway's allow rule; egress here is the load-bearing
+# surface that unbreaks the OIDC handshake + the inter-pod (signal /
+# coturn) coordination.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "bp-netbird.fullname" . }}-management-egress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-netbird.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "bp-netbird.managementSelectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Egress
+  egress:
+    # DNS resolution.
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # Keycloak — OIDC discovery + token endpoint.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.netbird.networkPolicy.keycloak.namespace }}
+          podSelector:
+            matchLabels:
+              {{- toYaml .Values.netbird.networkPolicy.keycloak.podSelector | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 8080  # internal Keycloak port (when fronted by Service)
+
+    # Signal — local gRPC handshake brokering.
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "bp-netbird.signalSelectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.netbird.signal.port }}
+
+    # coturn — local TURN/STUN coordination.
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "bp-netbird.coturnSelectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.netbird.coturn.port }}
+        - protocol: UDP
+          port: {{ .Values.netbird.coturn.port }}
+
+    # NATS JetStream — audit-event publish path. The audit URL lives in
+    # the same namespace shape as the catalyst-curated bp-nats-jetstream.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: nats-jetstream
+      ports:
+        - protocol: TCP
+          port: 4222
+{{- end }}

@@ -1,0 +1,29 @@
+{{- if .Values.dmz.enabled -}}
+# DMZ vCluster operator-access Service. Exposes the vCluster's API
+# server inside the host namespace via a stable name. Operators use
+# this Service's ClusterIP + port to:
+#   1. `vcluster connect` for kubectl access to tenant workloads
+#   2. Health-probe the vCluster apiserver from external monitoring
+#
+# Default type=ClusterIP — only host-namespace pods + operator
+# port-forwards can reach it. Operator overlay flips to LoadBalancer
+# only when an out-of-cluster GitOps controller needs apiserver access
+# (rare).
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "bp-dmz-vcluster.fullname" . }}-apiserver
+  namespace: {{ include "bp-dmz-vcluster.hostNamespace" . }}
+  labels:
+    {{- include "bp-dmz-vcluster.labels" . | nindent 4 }}
+    catalyst.openova.io/component: apiserver
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "bp-dmz-vcluster.podSelectorLabel" . | nindent 4 }}
+  ports:
+    - name: apiserver
+      port: {{ .Values.dmz.vcluster.apiPort }}
+      targetPort: 8443
+      protocol: TCP
+{{- end }}
