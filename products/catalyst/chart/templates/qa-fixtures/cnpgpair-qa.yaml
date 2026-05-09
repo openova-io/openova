@@ -86,7 +86,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: seed
-          image: bitnami/kubectl:1.30
+          image: docker.io/bitnamilegacy/kubectl:1.29.3
           command: ["sh", "-c"]
           args:
             - |
