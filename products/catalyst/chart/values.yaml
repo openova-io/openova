@@ -948,6 +948,15 @@ qaFixtures:
   # Kustomization.
   sovereignFQDN: ""
   organization: omantel-platform
+  # Environment region — split into the 3 CRD-required subfields.
+  # The Environment CRD validates `regions[].region` against
+  # `^[a-z]{3}[a-z0-9]?$` (3-4 char region code) and refuses the
+  # full 4-segment `hz-fsn-rtz-prod` label as a single string.
+  # Defaults below reflect the canonical hz-fsn-rtz-prod target so
+  # an Environment renders without per-Sovereign overrides.
+  envRegionProvider: hetzner
+  envRegionCode: fsn
+  envRegionBuildingBlock: rtz
   qaUser:
     email: qa-user1@openova.io
     name: qa-user1
@@ -1008,6 +1017,17 @@ qaFixtures:
   cnpgStorageSize: 1Gi
   cnpgStorageClass: local-path
   cnpgDatabase: app
+  # ── CNPG backup config (Fix #41, qa-loop iter-8 Cluster-A) ───────
+  # cluster-primary writes WAL + base backups to in-cluster SeaweedFS
+  # via the S3-compatible endpoint. The cnpg-backup-s3-seeder Job in
+  # cnpg-clusters-qa.yaml copies the seaweedfs admin keys into the
+  # qa-omantel namespace so cluster-primary's spec.backup resolves.
+  # Override these for off-cluster S3 (R2 / B2 / native AWS).
+  cnpgBackupBucket: qa-fixtures
+  cnpgBackupEndpointURL: http://seaweedfs-s3.seaweedfs.svc.cluster.local:8333
+  cnpgBackupS3SecretName: qa-cnpg-backup-s3
+  cnpgBackupSourceSecretNamespace: seaweedfs
+  cnpgBackupSourceSecretName: seaweedfs-s3-secret
   # ── Kyverno baseline policies (Fix #37) ──────────────────────────
   # disallow-privileged-containers ships in Enforce mode by default
   # (target-state hard block); other 18 baseline policies ship in

@@ -209,11 +209,39 @@ function PolicyMetadata({ policy, sovereignId, violations }: PolicyMetadataProps
   // came from; with multi-env support we might render N toggles — for now,
   // surface "default" and let the future expansion split it.
   const mode = (policy.mode as PolicyMode) ?? 'permissive'
+  const severity = (policy.severity ?? '').toLowerCase()
+  const rules = policy.rules ?? []
   return (
     <div
       className="mt-2 flex flex-wrap items-center gap-3 text-xs"
       data-testid="policy-drilldown-metadata"
     >
+      {policy.title ? (
+        <span className="text-[var(--color-text-dim)]">
+          Title: <code className="font-mono text-[var(--color-text)]">{policy.title}</code>
+        </span>
+      ) : null}
+      {policy.category ? (
+        <span className="text-[var(--color-text-dim)]">
+          Category: <code className="font-mono text-[var(--color-text)]">{policy.category}</code>
+        </span>
+      ) : null}
+      <span className="text-[var(--color-text-dim)]" data-testid="policy-drilldown-severity">
+        Severity:{' '}
+        <code
+          className={`font-mono ${
+            severity === 'critical'
+              ? 'text-[var(--color-danger)]'
+              : severity === 'high'
+                ? 'text-[var(--color-warning)]'
+                : severity === 'medium'
+                  ? 'text-[var(--color-info)]'
+                  : 'text-[var(--color-text)]'
+          }`}
+        >
+          {policy.severity || 'unspecified'}
+        </code>
+      </span>
       <span className="text-[var(--color-text-dim)]">
         Source: <code className="font-mono text-[var(--color-text)]">{policy.source}</code>
       </span>
@@ -239,6 +267,22 @@ function PolicyMetadata({ policy, sovereignId, violations }: PolicyMetadataProps
       {policy.description ? (
         <p className="basis-full pt-1 text-[var(--color-text)]">{policy.description}</p>
       ) : null}
+      {rules.length > 0 ? (
+        <div className="basis-full pt-1" data-testid="policy-drilldown-rules">
+          <span className="text-[var(--color-text-dim)]">Rule list ({rules.length}):</span>
+          <ul className="mt-1 ml-4 list-disc space-y-0.5">
+            {rules.map((r) => (
+              <li key={r} className="font-mono text-xs text-[var(--color-text)]">
+                {r}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <span className="basis-full pt-1 text-[var(--color-text-dim)]" data-testid="policy-drilldown-rules-empty">
+          Rule list: <code className="font-mono">(none reported by ClusterPolicy)</code>
+        </span>
+      )}
     </div>
   )
 }

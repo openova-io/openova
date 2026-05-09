@@ -56,6 +56,14 @@ export interface PolicyView {
   violations: number
   source: PolicySource | string
   description?: string
+  /** Per `policies.kyverno.io/severity` annotation: low | medium | high | critical. */
+  severity?: string
+  /** ClusterPolicy `spec.rules[].name` — the per-rule list the drill-down renders. */
+  rules?: string[]
+  /** Per `policies.kyverno.io/title` annotation — human-readable label. */
+  title?: string
+  /** Per `policies.kyverno.io/category` annotation — Pod Security Standards bucket. */
+  category?: string
 }
 
 export interface Violation {

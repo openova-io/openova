@@ -541,6 +541,16 @@ func validateUserAccess(req userAccessRequest) (string, bool) {
 	if strings.TrimSpace(req.Name) == "" {
 		return "name is required", false
 	}
+	// Per `feedback_no_mvp_no_workarounds.md` (TC-167-class): when the
+	// short-form `email` alias is supplied, validate the shape so a
+	// caller can't quietly land a UserAccess CR with an unparseable
+	// `email` masquerading as a Keycloak subject. Long-form callers
+	// that supply User.KeycloakSubject directly (a UUID) are unaffected.
+	if e := strings.TrimSpace(req.EmailShort); e != "" {
+		if msg, ok := validateEmailAddressShape(e); !ok {
+			return "email " + msg, false
+		}
+	}
 	// At least one of keycloakSubject or keycloakGroups must be set
 	// (mirrors the CRD's "either or both" semantics).
 	subject := strings.TrimSpace(req.Spec.User.KeycloakSubject)

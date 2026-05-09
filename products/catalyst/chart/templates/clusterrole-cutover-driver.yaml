@@ -258,6 +258,16 @@ rules:
     resources: ["events"]
     verbs: ["get", "list", "watch"]
 
+  # qa-loop iter-8 Fix #41 — ClusterPolicy CR read access so the
+  # compliance aggregator's `clusterpolicy` SubscribeKind ingest path
+  # populates per-policy Severity / Rule list metadata for the
+  # PolicyDrilldownPage (TC-026 cluster-B). Read-only — the aggregator
+  # never mutates ClusterPolicies; that's owned by Kyverno + the
+  # qa-fixtures chart's policy bundle.
+  - apiGroups: ["kyverno.io"]
+    resources: ["clusterpolicies", "policies"]
+    verbs: ["get", "list", "watch"]
+
   # ───────────────────────────────────────────────────────────────
   # APPLICATION CRD — backs slice I (#1152) install-flow handler +
   # slice T+O+P (#1160) AppDetail PUT/DELETE/topology-preview/upgrade-

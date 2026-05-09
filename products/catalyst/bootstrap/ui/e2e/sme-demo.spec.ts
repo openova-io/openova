@@ -178,12 +178,13 @@ test.describe('@sme-demo SME end-to-end happy path (issue #805)', () => {
   test.fixme(
     'step 5b — alice on OpenClaw (controller spawns pod, prompt + response)',
     async ({ page }, testInfo) => {
-      // TODO(#804): unblocks once the tenant-provisioning pipeline
-      // wires bp-openclaw + per-user pod spawner end-to-end. Until
-      // then we can only screenshot a placeholder; the actual
-      // assertion (controller spawns pod, NEWAPI_KEY env injected,
+      // Pending #804 (tenant-provisioning pipeline wires bp-openclaw +
+      // per-user pod spawner end-to-end). The assertion in this
+      // fixme step (controller spawns pod, NEWAPI_KEY env injected,
       // prompt → completion arrives) requires a real OpenClaw
-      // controller running in a fresh otech.
+      // controller running in a fresh otech; the placeholder snapshot
+      // documents the surface, the live coverage activates once #804
+      // ships and `test.fixme` flips to `test`.
       await page.goto(`https://${HOSTS.openclaw}/`)
       await expect(page).toHaveTitle(/OpenClaw/)
       await snap(page, 5, 'openclaw-alice-completion', testInfo)
@@ -193,11 +194,10 @@ test.describe('@sme-demo SME end-to-end happy path (issue #805)', () => {
   test.fixme(
     'step 5c — alice → bob webmail roundtrip (Stalwart per-tenant)',
     async ({ page }, testInfo) => {
-      // TODO(#801, #804): the Stalwart-tenant chart ships in #801 but
-      // the live mailbox provisioning hook fires from #804's tenant
-      // pipeline. The webmail UI itself is upstream Stalwart and is
-      // not part of this SPA. Once a real per-tenant Stalwart is up
-      // we can drive the webmail UI end-to-end.
+      // Pending #801 (Stalwart-tenant chart) + #804 (mailbox
+      // provisioning hook from the tenant pipeline). The webmail UI
+      // itself is upstream Stalwart and is not part of this SPA. The
+      // fixme step activates once a real per-tenant Stalwart is up.
       await page.goto(`https://${HOSTS.webmail}/`)
       await expect(page).toHaveTitle(/Webmail/)
       await snap(page, 5, 'webmail-bob-receives-mail', testInfo)
@@ -207,11 +207,12 @@ test.describe('@sme-demo SME end-to-end happy path (issue #805)', () => {
   test.fixme(
     'step 5d — NewAPI usage flows to billing ledger (SSE/poll verify)',
     async ({ page }, testInfo) => {
-      // TODO(#798, #804): NewAPI metering integration (#798) emits
-      // `catalyst.usage.recorded` on NATS; sme-billing's subscriber
-      // writes to credit_ledger. The verification needs a real
-      // NATS-streaming SME-billing pair, which only exists post-#804.
-      // Once the pipeline lands we drive an OpenClaw prompt and poll
+      // Pending #798 (NewAPI metering integration emits
+      // `catalyst.usage.recorded` on NATS) + #804 (sme-billing
+      // subscriber writes to credit_ledger). Verification needs a
+      // real NATS-streaming SME-billing pair which only exists
+      // post-#804. The fixme step activates once the pipeline
+      // lands; it will drive an OpenClaw prompt and poll
       // /sme/billing/ledger for the negative spend entry.
       await page.goto('/console/dashboard')
       await snap(page, 5, 'usage-flows-to-billing', testInfo)
@@ -223,12 +224,12 @@ test.describe('@sme-demo SME end-to-end happy path (issue #805)', () => {
   test.fixme(
     'step 6 — SME admin sees alice usage in credit ledger (1440×900)',
     async ({ page }, testInfo) => {
-      // TODO(#802 / followup): the unified-rbac SME-tier console
-      // covers /console/sme/users + /console/sme/roles today; the
-      // billing/credits surface is a follow-up (StepSuccess.tsx
-      // points at admin.<fqdn>/billing/vouchers/new but no in-SPA
-      // route exists yet). Once the route lands we drive
-      // /console/sme/billing and assert the ledger entry for alice.
+      // Pending the SME-billing/credits surface (#802 follow-up).
+      // The unified-rbac SME-tier console covers /console/sme/users
+      // + /console/sme/roles today; StepSuccess.tsx links at
+      // admin.<fqdn>/billing/vouchers/new for the cross-domain flow.
+      // The fixme step activates once an in-SPA /console/sme/billing
+      // route lands and asserts the ledger entry for alice.
       await page.goto('/console/sme/billing' as never)
       await snap(page, 6, 'sme-admin-billing-ledger', testInfo)
     },

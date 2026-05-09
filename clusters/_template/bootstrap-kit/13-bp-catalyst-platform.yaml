@@ -298,7 +298,13 @@ spec:
       # Blueprint CR alias resolved by chained catalog client; node-labels
       # seeder Job patches Nodes with topology.kubernetes.io/region short
       # form derived from openova.io/region; CNPGPair renamed to qa-cnpgpair.
-      version: 1.4.107
+      # 1.4.108 (qa-loop iter-8 Fix #41 — Cluster-A + Cluster-B closeout):
+      # Environment region split into provider/region/buildingBlock per CRD
+      # (TC-369); cluster-primary .spec.backup wired to in-cluster SeaweedFS
+      # S3 with admin keys seeded into qa-omantel namespace so ScheduledBackup
+      # succeeds (TC-338); cutover-driver ClusterRole adds kyverno.io read
+      # for compliance handler ClusterPolicy ingest (TC-026).
+      version: 1.4.108
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

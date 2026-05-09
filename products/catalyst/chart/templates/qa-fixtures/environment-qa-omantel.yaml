@@ -29,11 +29,17 @@ spec:
   envType: dev
   placement: single-region
   regions:
-    - provider: hetzner
-      # 4-segment canonical region label per CRD validation. Inline
-      # default upgraded to hz-fsn-rtz-prod alongside the values.yaml
-      # default so a chart upgrade with the prior values.yaml still
-      # renders a valid region (Fix #38 follow-up).
-      region: {{ .Values.qaFixtures.primaryRegion | default "hz-fsn-rtz-prod" | quote }}
-      buildingBlock: rtz
+    # Environment CRD requires the region OBJECT shape:
+    #   provider:      arbitrary slug ("hetzner", "aws", "azure")
+    #   region:        ^[a-z]{3}[a-z0-9]?$  (3-4 char region code, e.g. "fsn", "hel")
+    #   buildingBlock: arbitrary slug ("rtz")
+    #
+    # The qaFixtures.primaryRegion value carries the FULL canonical
+    # 4-segment region label (e.g. "hz-fsn-rtz-prod"); we split it
+    # into the CRD-required subfields here. Defaults below mirror
+    # the canonical hz-fsn-rtz-prod default so a vanilla install
+    # renders valid spec.regions[0] without per-Sovereign overrides.
+    - provider: {{ .Values.qaFixtures.envRegionProvider | default "hetzner" | quote }}
+      region: {{ .Values.qaFixtures.envRegionCode | default "fsn" | quote }}
+      buildingBlock: {{ .Values.qaFixtures.envRegionBuildingBlock | default "rtz" | quote }}
 {{- end }}
