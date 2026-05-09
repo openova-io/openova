@@ -234,3 +234,38 @@ rules:
   - apiGroups: ["events.k8s.io"]
     resources: ["events"]
     verbs: ["get", "list", "watch"]
+
+  # ───────────────────────────────────────────────────────────────
+  # APPLICATION CRD — backs slice I (#1152) install-flow handler +
+  # slice T+O+P (#1160) AppDetail PUT/DELETE/topology-preview/upgrade-
+  # preview handlers. Caught live on omantel iter-1: TC-040 returned
+  # HTTP 500 with body
+  #   "applications.apps.openova.io is forbidden: User
+  #    system:serviceaccount:catalyst-system:catalyst-api-cutover-driver
+  #    cannot list resource applications in API group apps.openova.io"
+  # because the cutover-driver ClusterRole had no rule for the new CRD.
+  # Per feedback_chroot_in_cluster_fallback.md every new GVR added to
+  # catalyst-api dynamic-client paths MUST get a matching rule here.
+  # `create` MUST be in its own rule WITHOUT resourceNames per
+  # feedback_rbac_create_no_resourcenames.md.
+  # ───────────────────────────────────────────────────────────────
+  - apiGroups: ["apps.openova.io"]
+    resources: ["applications"]
+    verbs: ["create"]
+  - apiGroups: ["apps.openova.io"]
+    resources: ["applications"]
+    verbs: ["get", "list", "watch", "update", "patch", "delete"]
+
+  # ───────────────────────────────────────────────────────────────
+  # CONTINUUM CRD — backs EPIC-6 slice U-DR-1 (#1162) Continuum DR UI
+  # handlers (POST switchover, POST failback, POST failback/approve,
+  # GET /continuums/{name}, GET/SSE /audit/continuum). Caught live on
+  # omantel iter-1: TC-099 returned HTTP 500 with body
+  #   "continuums.dr.openova.io is forbidden: ..."
+  # ───────────────────────────────────────────────────────────────
+  - apiGroups: ["dr.openova.io"]
+    resources: ["continuums"]
+    verbs: ["create"]
+  - apiGroups: ["dr.openova.io"]
+    resources: ["continuums"]
+    verbs: ["get", "list", "watch", "update", "patch", "delete"]
