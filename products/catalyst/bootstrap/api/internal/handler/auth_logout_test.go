@@ -126,6 +126,111 @@ func TestHandleAuthLogout_NoDomainWhenEnvUnset(t *testing.T) {
 	}
 }
 
+// TestHandleAuthSessionLogout_PostWireShape asserts the wire shape of
+// the Set-Cookie header emitted by POST /auth/session (the SPA-driven
+// logout path added to fix qa-loop iter-4 auth-session-logout-405).
+//
+// Contract:
+//   - HTTP 200 with body {"ok":true,"loggedOut":true}.
+//   - Two Set-Cookie lines (catalyst_session + catalyst_refresh), each
+//     with the literal token "Max-Age=0" (non-positive max-age =
+//     immediate expiry per RFC 6265bis).
+//   - SameSite=Strict (POST logout is same-origin XHR; strictest
+//     posture applies — no cross-site redirect to honour).
+//   - Path=/ + HttpOnly.
+//   - Secure when X-Forwarded-Proto=https.
+//   - Domain attribute appears IFF CATALYST_SESSION_COOKIE_DOMAIN set.
+func TestHandleAuthSessionLogout_PostWireShape(t *testing.T) {
+	prev := os.Getenv("CATALYST_SESSION_COOKIE_DOMAIN")
+	t.Cleanup(func() { os.Setenv("CATALYST_SESSION_COOKIE_DOMAIN", prev) })
+	os.Setenv("CATALYST_SESSION_COOKIE_DOMAIN", "console.example.test")
+
+	h := &Handler{log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", nil)
+	req.Header.Set("X-Forwarded-Proto", "https")
+	w := httptest.NewRecorder()
+	h.HandleAuthSessionLogout(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"loggedOut":true`) {
+		t.Errorf("body missing loggedOut:true — got %q", w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"ok":true`) {
+		t.Errorf("body missing ok:true — got %q", w.Body.String())
+	}
+
+	cookies := w.Result().Header.Values("Set-Cookie")
+	if len(cookies) != 2 {
+		t.Fatalf("Set-Cookie count: got %d want 2 — %v", len(cookies), cookies)
+	}
+
+	var sessionLine, refreshLine string
+	for _, line := range cookies {
+		switch {
+		case strings.HasPrefix(line, "catalyst_session=;"):
+			sessionLine = line
+		case strings.HasPrefix(line, "catalyst_refresh=;"):
+			refreshLine = line
+		}
+	}
+	if sessionLine == "" {
+		t.Fatalf("catalyst_session clear-cookie missing — cookies=%v", cookies)
+	}
+	if refreshLine == "" {
+		t.Fatalf("catalyst_refresh clear-cookie missing — cookies=%v", cookies)
+	}
+
+	for label, line := range map[string]string{
+		"catalyst_session": sessionLine,
+		"catalyst_refresh": refreshLine,
+	} {
+		for _, want := range []string{
+			"Max-Age=0",
+			"Path=/",
+			"Domain=console.example.test",
+			"Secure",
+			"HttpOnly",
+			"SameSite=Strict",
+		} {
+			if !strings.Contains(line, want) {
+				t.Errorf("%s clear-cookie missing %q in %q", label, want, line)
+			}
+		}
+		if strings.Contains(line, "Max-Age=-1") {
+			t.Errorf("%s POST logout cookie must use Max-Age=0 not -1: %q", label, line)
+		}
+	}
+}
+
+// TestHandleAuthSessionLogout_NoDomainWhenEnvUnset asserts that without
+// CATALYST_SESSION_COOKIE_DOMAIN set, the POST-logout cookie is host-only.
+func TestHandleAuthSessionLogout_NoDomainWhenEnvUnset(t *testing.T) {
+	prev := os.Getenv("CATALYST_SESSION_COOKIE_DOMAIN")
+	t.Cleanup(func() { os.Setenv("CATALYST_SESSION_COOKIE_DOMAIN", prev) })
+	os.Unsetenv("CATALYST_SESSION_COOKIE_DOMAIN")
+
+	h := &Handler{log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/session", nil)
+	req.Header.Set("X-Forwarded-Proto", "https")
+	w := httptest.NewRecorder()
+	h.HandleAuthSessionLogout(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200", w.Code)
+	}
+	for _, line := range w.Result().Header.Values("Set-Cookie") {
+		if strings.Contains(line, "Domain=") {
+			t.Errorf("Domain attr leaked when env is unset: %q", line)
+		}
+		if !strings.Contains(line, "Max-Age=0") {
+			t.Errorf("clear-cookie missing Max-Age=0: %q", line)
+		}
+	}
+}
+
 // TestHandleAuthLogout_NoSecureOverHTTP asserts the local-dev / plain
 // HTTP path: when neither r.TLS nor X-Forwarded-Proto=https is set,
 // the Secure attribute must NOT be emitted (or browsers will refuse

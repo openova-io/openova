@@ -694,6 +694,61 @@ func (h *Handler) HandleAuthLogout(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// HandleAuthSessionLogout handles POST /api/v1/auth/session as the
+// canonical SPA-driven logout (issue #qa-loop-iter4 auth-session-logout-405).
+//
+// The SPA's logout flow uses POST (idempotent intent: "create a logout
+// event") rather than DELETE (resource-deletion semantics) because some
+// browsers + reverse proxies strip body+credentials from DELETE on
+// cross-origin XHR, while POST is universally honoured. The legacy
+// DELETE handler stays in place for backwards compatibility with any
+// in-flight clients; this POST variant produces an equivalent result
+// but with a Max-Age=0 wire shape (RFC 6265bis non-positive max-age =
+// immediate expiry) and SameSite=Strict — a stricter posture than the
+// DELETE handler's Lax, appropriate for an explicit user-initiated
+// logout where no cross-site redirect is involved.
+//
+// Response body is the minimal `{ok:true, loggedOut:true}` JSON the
+// matrix asserts; the keycloakLogoutURL hop is intentionally omitted
+// here because POST-driven logout is invoked by the SPA AFTER it has
+// already chosen its own post-logout redirect (the DELETE handler still
+// returns the URL for the legacy redirect-driven flow).
+func (h *Handler) HandleAuthSessionLogout(w http.ResponseWriter, r *http.Request) {
+	cookieDomain := os.Getenv("CATALYST_SESSION_COOKIE_DOMAIN")
+	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+	w.Header().Add("Set-Cookie", buildPostLogoutClearCookie(auth.SessionCookieName, cookieDomain, secure))
+	w.Header().Add("Set-Cookie", buildPostLogoutClearCookie("catalyst_refresh", cookieDomain, secure))
+
+	h.log.Info("auth/session: POST logout", "remoteAddr", r.RemoteAddr)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":        true,
+		"loggedOut": true,
+	})
+}
+
+// buildPostLogoutClearCookie returns a Set-Cookie header value of shape:
+//
+//	<name>=; Path=/[; Domain=<domain>][; Secure]; HttpOnly; SameSite=Strict; Max-Age=0
+//
+// `Max-Age=0` is emitted literally (RFC 6265bis: any non-positive value
+// = immediate expiry). SameSite=Strict because the POST logout is an
+// explicit same-origin XHR from the SPA — there is no cross-site
+// navigation to honour, so the strictest posture applies.
+func buildPostLogoutClearCookie(name, domain string, secure bool) string {
+	var b strings.Builder
+	b.WriteString(name)
+	b.WriteString("=; Path=/")
+	if domain != "" {
+		b.WriteString("; Domain=")
+		b.WriteString(domain)
+	}
+	if secure {
+		b.WriteString("; Secure")
+	}
+	b.WriteString("; HttpOnly; SameSite=Strict; Max-Age=0")
+	return b.String()
+}
+
 // buildClearSessionCookie returns a Set-Cookie header value that
 // instructs the browser to delete `name` immediately. The shape is
 // fixed and assertable on the wire:
