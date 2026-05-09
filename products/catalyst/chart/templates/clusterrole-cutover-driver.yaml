@@ -76,10 +76,33 @@ rules:
   # ───────────────────────────────────────────────────────────────
   - apiGroups: [""]
     resources: ["configmaps"]
-    verbs: ["update", "patch"]
+    verbs: ["update", "patch", "delete"]
   - apiGroups: ["batch"]
     resources: ["jobs"]
     verbs: ["delete", "patch", "update"]
+  # qa-loop iter-7 Fix #34 follow-up — Sovereign Console mutation
+  # surface (PR #1229) added PUT/POST/DELETE semantics on every
+  # workload kind. The cutover-driver SA needs apiserver verbs to
+  # match: scale (patch /spec/replicas), restart (patch
+  # /spec/template/metadata/annotations), apply (update via Update),
+  # and delete. Per ADR-0001 §5 the in-cluster fallback runs as
+  # this SA, so without these verbs every mutation surfaces as 403
+  # (TC-215, TC-218, TC-243, TC-247 in iter-7 matrix).
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+    verbs: ["update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale", "statefulsets/scale", "replicasets/scale"]
+    verbs: ["update", "patch", "get"]
+  - apiGroups: [""]
+    resources: ["pods", "services", "endpoints", "persistentvolumeclaims"]
+    verbs: ["update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses", "networkpolicies"]
+    verbs: ["update", "patch", "delete"]
+  - apiGroups: ["batch"]
+    resources: ["cronjobs"]
+    verbs: ["update", "patch", "delete", "create"]
 
   # ───────────────────────────────────────────────────────────────
   # TokenReview — required by HandleCutoverInternalTrigger to

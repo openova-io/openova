@@ -253,7 +253,15 @@ name: bp-catalyst-platform
 # precedence so openbao auto-rotation of the source doesn't thrash the
 # controller pod. Caught live on omantel 2026-05-09 during qa-loop
 # iter-1 Executor run.
-version: 1.4.101
+# 1.4.102 (qa-loop iter-7 Fix #34 follow-up): catalyst-api-cutover-driver
+# ClusterRole now grants update/patch/delete on workload kinds (deployments,
+# statefulsets, daemonsets, replicasets, pods, services, configmaps,
+# ingresses, networkpolicies, cronjobs) + scale subresources, plus delete
+# on configmaps. Required by the resource-action endpoints PR #1229 added
+# (PUT /k8s/{kind}/{ns}/{name}, /scale, /restart) so the chroot in-cluster
+# fallback (`feedback_chroot_in_cluster_fallback.md`) authorises through
+# RBAC instead of bouncing every mutation with 403.
+version: 1.4.102
 appVersion: 1.4.94
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
