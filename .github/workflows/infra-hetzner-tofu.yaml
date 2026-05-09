@@ -35,7 +35,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install OpenTofu
-        uses: opentofu/setup-opentofu@v1
+        uses: opentofu/setup-opentofu@v2
         with:
           # Pinned to match the version `infra/hetzner/versions.tf` declares
           # (`required_version = ">= 1.6.0"`) and the version

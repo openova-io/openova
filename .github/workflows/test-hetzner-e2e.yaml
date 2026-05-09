@@ -49,7 +49,7 @@ jobs:
           cache-dependency-path: tests/e2e/hetzner-provisioning/go.sum
 
       - name: Install OpenTofu
-        uses: opentofu/setup-opentofu@v1
+        uses: opentofu/setup-opentofu@v2
         with:
           tofu_version: 1.8.5
 
