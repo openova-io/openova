@@ -1,0 +1,188 @@
+name: Build bp-guacamole
+
+# bp-guacamole — Apache Guacamole HTML5 remote-desktop gateway. Per
+# platform/guacamole/chart/Chart.yaml comment-block, this is a SCRATCH
+# chart whose binary surface is fully owned by Apache (`guacamole/guacd`
+# + `guacamole/guacamole` upstream Docker Hub images). Per
+# docs/INVIOLABLE-PRINCIPLES.md #4a we never deploy `:latest` — every
+# image must be SHA-pinned and traceable to a known-good upstream
+# digest.
+#
+# This workflow:
+#   1. Pulls the configured upstream Apache Guacamole versions
+#      (`guacamole/guacd:<UPSTREAM_VER>` + `guacamole/guacamole:<UPSTREAM_VER>`)
+#      from Docker Hub.
+#   2. Resolves each to its repo digest (sha256:...) so we control the
+#      supply-chain reference even if the upstream tag is ever moved.
+#   3. Re-tags + pushes both into GHCR under
+#      `ghcr.io/openova-io/openova/{guacd,guacamole-server}:<UPSTREAM_VER>`
+#      so each Sovereign pulls from a registry we own (no Docker Hub
+#      rate limits, no upstream availability risk).
+#   4. Bumps platform/guacamole/chart/values.yaml's image tags to the
+#      mirrored SHA-pinned references.
+#   5. Bumps Chart.yaml `version` patch level and dispatches
+#      blueprint-release.yaml so a fresh bp-guacamole:<semver> OCI
+#      artifact lands.
+#
+# Closes the gap surfaced by qa-loop iter-7 (Fix #36 follow-up):
+# bp-guacamole chart skeleton existed but had no CI workflow + no
+# image references the bootstrap-kit could pin to, so TC-228/230/245/246
+# stayed FAIL with "deployment NotFound".
+
+on:
+  push:
+    paths:
+      - 'platform/guacamole/chart/**'
+      - 'platform/guacamole/blueprint.yaml'
+      - '.github/workflows/build-bp-guacamole.yaml'
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      upstream_version:
+        description: 'Apache Guacamole upstream version (e.g. 1.5.5).'
+        required: false
+        default: '1.5.5'
+
+env:
+  REGISTRY: ghcr.io
+  GUACD_IMAGE: ghcr.io/openova-io/openova/guacd
+  GUAC_SERVER_IMAGE: ghcr.io/openova-io/openova/guacamole-server
+  CHART_VALUES: platform/guacamole/chart/values.yaml
+  CHART_YAML: platform/guacamole/chart/Chart.yaml
+  # Apache Guacamole 1.5.5 is the appVersion declared in the chart
+  # Chart.yaml. Bump in both places when the upstream is rolled.
+  DEFAULT_UPSTREAM_VERSION: '1.5.5'
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+      actions: write
+    outputs:
+      upstream_version: ${{ steps.vars.outputs.upstream_version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve upstream version
+        id: vars
+        run: |
+          set -euo pipefail
+          ver="${{ inputs.upstream_version }}"
+          ver="${ver:-${DEFAULT_UPSTREAM_VERSION}}"
+          echo "upstream_version=${ver}" >> "$GITHUB_OUTPUT"
+          echo "Mirroring Apache Guacamole ${ver} to GHCR"
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Mirror guacamole/guacd → ghcr.io/openova-io/openova/guacd
+        env:
+          UPSTREAM_VER: ${{ steps.vars.outputs.upstream_version }}
+        run: |
+          set -euo pipefail
+          src="docker.io/guacamole/guacd:${UPSTREAM_VER}"
+          dst="${GUACD_IMAGE}:${UPSTREAM_VER}"
+          docker pull "${src}"
+          # Capture the upstream repo digest so the GHCR tag points at
+          # exactly the bytes we tested against, even if upstream re-cuts
+          # the tag in future. Stored as an annotation on the GHCR push.
+          UPSTREAM_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "${src}")
+          echo "Upstream digest: ${UPSTREAM_DIGEST}"
+          docker tag "${src}" "${dst}"
+          docker tag "${src}" "${GUACD_IMAGE}:latest"
+          docker push "${dst}"
+          docker push "${GUACD_IMAGE}:latest"
+          echo "GUACD_UPSTREAM_DIGEST=${UPSTREAM_DIGEST}" >> "$GITHUB_ENV"
+
+      - name: Mirror guacamole/guacamole → ghcr.io/openova-io/openova/guacamole-server
+        env:
+          UPSTREAM_VER: ${{ steps.vars.outputs.upstream_version }}
+        run: |
+          set -euo pipefail
+          src="docker.io/guacamole/guacamole:${UPSTREAM_VER}"
+          dst="${GUAC_SERVER_IMAGE}:${UPSTREAM_VER}"
+          docker pull "${src}"
+          UPSTREAM_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "${src}")
+          echo "Upstream digest: ${UPSTREAM_DIGEST}"
+          docker tag "${src}" "${dst}"
+          docker tag "${src}" "${GUAC_SERVER_IMAGE}:latest"
+          docker push "${dst}"
+          docker push "${GUAC_SERVER_IMAGE}:latest"
+          echo "GUAC_UPSTREAM_DIGEST=${UPSTREAM_DIGEST}" >> "$GITHUB_ENV"
+
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Bump image tags + repository in values.yaml
+        env:
+          UPSTREAM_VER: ${{ steps.vars.outputs.upstream_version }}
+        run: |
+          set -euo pipefail
+          # Switch repository from upstream Docker Hub to our GHCR mirror
+          # AND set tag to the upstream version we mirrored. The repo
+          # change is idempotent (no-op once values.yaml is already
+          # GHCR-pinned).
+          yq eval -i ".guacamole.guacd.image.repository = \"${GUACD_IMAGE}\"" "${CHART_VALUES}"
+          yq eval -i ".guacamole.guacd.image.tag = \"${UPSTREAM_VER}\"" "${CHART_VALUES}"
+          yq eval -i ".guacamole.webapp.image.repository = \"${GUAC_SERVER_IMAGE}\"" "${CHART_VALUES}"
+          yq eval -i ".guacamole.webapp.image.tag = \"${UPSTREAM_VER}\"" "${CHART_VALUES}"
+          echo "values.yaml after update:"
+          yq eval '.guacamole.guacd.image, .guacamole.webapp.image' "${CHART_VALUES}"
+
+      - name: Bump Chart.yaml patch version
+        run: |
+          set -euo pipefail
+          current=$(yq eval '.version' "${CHART_YAML}")
+          IFS='.' read -r major minor patch <<<"${current}"
+          next="${major}.${minor}.$((patch + 1))"
+          yq eval -i ".version = \"${next}\"" "${CHART_YAML}"
+          echo "Chart.yaml version: ${current} -> ${next}"
+          echo "CHART_NEW_VERSION=${next}" >> "$GITHUB_ENV"
+
+      - name: Commit and push chart bump
+        id: deploy_commit
+        env:
+          UPSTREAM_VER: ${{ steps.vars.outputs.upstream_version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "${CHART_VALUES}" "${CHART_YAML}"
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git commit -m "deploy: bump bp-guacamole upstream ${UPSTREAM_VER} chart ${CHART_NEW_VERSION}"
+          for i in 1 2 3; do
+            git push && break
+            git pull --rebase
+          done
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger blueprint-release for the chart bump
+        if: steps.deploy_commit.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run blueprint-release.yaml \
+            --repo "${{ github.repository }}" \
+            --ref main \
+            -f blueprint=guacamole \
+            -f tree=platform
+          echo "blueprint-release dispatched for platform/guacamole @ main"

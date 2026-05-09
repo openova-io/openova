@@ -1,0 +1,79 @@
+# bp-guacamole — omantel-side bootstrap-kit slot. See
+# clusters/_template/bootstrap-kit/37-bp-guacamole.yaml for the full
+# canonical comment-block + dependency rationale.
+#
+# qa-loop iter-7 Fix #39: closes the gap surfaced by Fix #36's
+# scope-narrow confession. CI workflow .github/workflows/build-bp-guacamole.yaml
+# mirrors upstream Apache Guacamole 1.5.5 to GHCR and publishes
+# bp-guacamole:0.1.1; this slot installs it on omantel so
+# TC-228/TC-230/TC-245/TC-246 flip PASS.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: guacamole
+  labels:
+    catalyst.openova.io/sovereign: omantel.omani.works
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-guacamole
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-guacamole
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: guacamole
+  targetNamespace: catalyst-system
+  dependsOn:
+    - name: bp-cilium
+    - name: bp-cert-manager
+    - name: bp-keycloak
+    - name: bp-sealed-secrets
+    - name: bp-seaweedfs
+    - name: bp-k8s-ws-proxy
+  chart:
+    spec:
+      chart: bp-guacamole
+      version: 0.1.1
+      sourceRef:
+        kind: HelmRepository
+        name: bp-guacamole
+        namespace: flux-system
+  install:
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    remediation:
+      retries: 3
+  values:
+    guacamole:
+      enabled: true
+      httproute:
+        # The chroot Sovereign exposes services under omantel.biz —
+        # see live HTTPRoutes in catalyst-system (catalyst-ui hostname
+        # console.omantel.biz). Per-Sovereign cutover overlay rewrites
+        # this hostname; the slot ships the canonical
+        # `guacamole.<sovereign-fqdn>` shape.
+        hostname: guacamole.omantel.biz
+      oidc:
+        # `auth.omantel.biz` is the live Keycloak hostname per the
+        # bp-keycloak HTTPRoute on omantel. Realm name `catalyst`
+        # matches bp-keycloak's realm-config-cli default.
+        issuer: https://auth.omantel.biz/realms/catalyst
+      recordings:
+        storageClass: seaweedfs-storage

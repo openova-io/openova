@@ -59,10 +59,17 @@ fi
 echo "PASS: default-OFF renders 0 resources"
 
 # ─────────────────────────────────────────────────────────────────────
-# 2. Fail-fast on empty image tag.
+# 2. Fail-fast on empty image tag (when operator explicitly clears it).
+#    qa-loop iter-7 Fix #39: defaults seed `1.5.5` so the chart is
+#    installable without operator intervention; the empty-tag fail-fast
+#    contract now exercises the operator-override path (per the
+#    INVIOLABLE-PRINCIPLES #4a fail-fast contract — empty tag still
+#    aborts render).
 # ─────────────────────────────────────────────────────────────────────
 if helm template bp-guacamole . \
     --set guacamole.enabled=true \
+    --set guacamole.guacd.image.tag= \
+    --set guacamole.webapp.image.tag= \
     --set guacamole.httproute.hostname=guacamole.test \
     --set guacamole.oidc.issuer=https://kc.test/realms/c \
     >/dev/null 2>"$TMP/empty-tag.err"; then
@@ -129,6 +136,54 @@ if ! grep -q "https://guacamole.test" "$render_on"; then
   exit 1
 fi
 echo "PASS: keycloak realm-config wires OIDC client"
+
+# qa-loop iter-7 Fix #39 — canonical short resource names. The
+# catalyst-api shells/issue handler + the qa-loop test matrix
+# (TC-228 / TC-230 / TC-245 / TC-246) assume the Deployments are
+# addressable as `guacd` and `guacamole-server` regardless of release
+# name. Override-driven (.Values.guacamole.guacd.name +
+# .Values.guacamole.webapp.name) — but the defaults must be the
+# canonical names.
+required_names=(
+  "name: guacd"
+  "name: guacamole-server"
+  "name: guacamole-recordings"
+)
+for n in "${required_names[@]}"; do
+  if ! grep -qE "^  ${n}\$" "$render_on"; then
+    echo "FAIL: missing canonical resource ${n} in full-ON render"
+    grep -E '^  name:' "$render_on" | sort -u
+    exit 1
+  fi
+done
+echo "PASS: canonical resource names (guacd / guacamole-server / guacamole-recordings) present"
+
+# Realm-patch ConfigMap MUST land in the keycloak namespace so
+# bp-keycloak's keycloak-config-cli post-deploy Job (label-selector
+# scoped to its own namespace) actually sees it. Pre-Fix-#39 the
+# template put it in a namespace named after the REALM ("catalyst") —
+# the Job would have silently never picked it up.
+#
+# Strip Helm-template comment lines (^\s*#) before scanning so the
+# YAML structure check isn't confused by inline rationale.
+clean="$TMP/on-clean.yaml"
+grep -vE '^[[:space:]]*#' "$render_on" > "$clean"
+if ! awk '
+  /^kind: ConfigMap$/    { in_cm=1; name=""; ns=""; next }
+  in_cm && /^  name:/    { name=$2 }
+  in_cm && /^  namespace:/ { ns=$2 }
+  in_cm && /^---$/       { if (name=="bp-guacamole-realm-patch" && ns=="keycloak") found=1; in_cm=0 }
+  END {
+    # End-of-file fall-through (no trailing ---).
+    if (in_cm && name=="bp-guacamole-realm-patch" && ns=="keycloak") found=1
+    exit !found
+  }
+' "$clean"; then
+  echo "FAIL: bp-guacamole-realm-patch ConfigMap is NOT in the keycloak namespace"
+  awk '/^kind: ConfigMap$/,/^---$/' "$clean" | head -25
+  exit 1
+fi
+echo "PASS: realm-patch ConfigMap lands in keycloak namespace"
 
 echo ""
 echo "All render tests passed."

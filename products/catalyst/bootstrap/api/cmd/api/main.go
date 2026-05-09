@@ -607,6 +607,15 @@ func main() {
 		rg.Get("/api/v1/sovereigns/{id}/k8s/exec/{ns}/{pod}/{container}", h.HandleK8sExecWebSocket)
 		rg.Get("/api/v1/sovereigns/{id}/sessions", h.HandleK8sSessionsList)
 		rg.Get("/api/v1/sovereigns/{id}/sessions/{sessionId}/replay", h.HandleK8sSessionReplay)
+		// qa-loop iter-7 Fix #39 — canonical UAT-matrix vocabulary
+		// surface for "issue a remote-shell session". Same business
+		// logic as POST /k8s/exec/.../session but the matrix-canonical
+		// query-param + response-field shape (`sessionId`,
+		// `guacamoleUrl`, `recordingPath`). See
+		// internal/handler/shells_issue.go for the full contract.
+		// Tier-developer or higher (same gate as the underlying
+		// HandleK8sExecSession).
+		rg.Post("/api/v1/sovereigns/{id}/shells/issue", h.HandleShellsIssue)
 		// EPIC-4 R1+R2+R3+R5+R6 (#1099) — Resource browser drill-down,
 		// resource tree, YAML edit (apply / dry-run), per-row actions
 		// (scale / restart / delete), metrics. Tier-admin gate is enforced

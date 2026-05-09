@@ -19,9 +19,19 @@ catalystBlueprint:
 k8sWsProxy:
   enabled: false
 
+  # Canonical workload name. Default `k8s-ws-proxy` so the
+  # catalyst-api shells/issue handler + qa-loop test matrix
+  # (TC-236, TC-237) can address the DaemonSet by canonical short name
+  # without release-name knowledge. Override only when running >1
+  # proxy in the same namespace (rare; one per Sovereign per
+  # ADR-0001 §11).
+  workloadName: k8s-ws-proxy
+
   image:
     repository: ghcr.io/openova-io/openova/k8s-ws-proxy
-    # SHA-pinned per INVIOLABLE-PRINCIPLES #4a. CI populates this.
+    # SHA-pinned per INVIOLABLE-PRINCIPLES #4a. CI populates this via
+    # build-k8s-ws-proxy.yaml on every push to core/cmd/k8s-ws-proxy/**
+    # or platform/k8s-ws-proxy/chart/**.
     tag: ""
     pullPolicy: IfNotPresent
 

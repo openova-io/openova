@@ -47,6 +47,13 @@ resources:
   - 33-syft-grype.yaml
   - 34-velero.yaml
   - 35-coraza.yaml
+  # qa-loop iter-7 Fix #39 — exec fan-out (Apache Guacamole + per-node
+  # k8s-ws-proxy DaemonSet). Slots #36/#37. The k8s-ws-proxy is the
+  # apiserver-side proxy; bp-guacamole is the operator-facing browser
+  # gateway that mounts it via the chart's NetworkPolicy egress rule.
+  # Both are dependsOn-ordered so Flux installs proxy → gateway.
+  - 36-bp-k8s-ws-proxy.yaml
+  - 37-bp-guacamole.yaml
   - 49-bp-cert-manager-powerdns-webhook.yaml
   - 50-cluster-autoscaler.yaml
   # bp-newapi (slot 80) — multi-tenant LLM marketplace gateway. Sequenced

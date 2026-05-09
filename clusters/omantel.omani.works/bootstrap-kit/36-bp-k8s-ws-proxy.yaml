@@ -1,0 +1,53 @@
+# bp-k8s-ws-proxy — omantel-side bootstrap-kit slot. See
+# clusters/_template/bootstrap-kit/36-bp-k8s-ws-proxy.yaml for the
+# full canonical comment-block + dependency rationale.
+#
+# qa-loop iter-7 Fix #39: closes the gap surfaced by Fix #36's
+# scope-narrow confession. CI workflow .github/workflows/build-k8s-ws-proxy.yaml
+# builds the binary and publishes bp-k8s-ws-proxy:0.1.1 to GHCR;
+# this slot installs it on omantel so TC-236/TC-237 flip PASS.
+
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-k8s-ws-proxy
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-k8s-ws-proxy
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: k8s-ws-proxy
+  targetNamespace: catalyst-system
+  dependsOn:
+    - name: bp-cilium
+    - name: bp-sealed-secrets
+  chart:
+    spec:
+      chart: bp-k8s-ws-proxy
+      version: 0.1.1
+      sourceRef:
+        kind: HelmRepository
+        name: bp-k8s-ws-proxy
+        namespace: flux-system
+  install:
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    remediation:
+      retries: 3
+  values:
+    k8sWsProxy:
+      enabled: true

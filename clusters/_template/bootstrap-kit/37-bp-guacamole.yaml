@@ -1,0 +1,126 @@
+# bp-guacamole — Catalyst bootstrap-kit Blueprint #37 (W2.K4 — exec
+# fan-out). Apache Guacamole HTML5 remote-desktop gateway. Brokers
+# SSH / RDP / VNC sessions AND kubectl-exec sessions through one
+# browser-accessible surface. Sessions are authenticated via Keycloak
+# SSO, recorded to SeaweedFS for compliance, and reach Pods via the
+# per-node bp-k8s-ws-proxy DaemonSet.
+#
+# Per ADR-0001 §11: ONE Guacamole per Sovereign — no Manara-style
+# multi-cluster fan-out (Sovereigns stay self-sufficient).
+#
+# Wrapper chart: platform/guacamole/chart/
+# Catalyst-curated values: platform/guacamole/chart/values.yaml
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+#
+# dependsOn:
+#   - bp-cilium                — Pod network + Gateway API for the
+#                                operator-facing HTTPRoute.
+#   - bp-cert-manager          — TLS for guacamole.<sovereign-fqdn>
+#                                via the Cilium Gateway listener.
+#   - bp-keycloak              — OIDC issuer + realm-config Job that
+#                                consumes the chart's realm-patch
+#                                ConfigMap.
+#   - bp-sealed-secrets        — OIDC client-secret SealedSecret.
+#   - bp-seaweedfs             — RWX-capable PVC for session recordings.
+#   - bp-k8s-ws-proxy          — exec tunnelling onto the local-node
+#                                kube-apiserver via the DaemonSet.
+#
+# qa-loop iter-7 Fix #39 (closes the gap surfaced by Fix #36):
+# bp-guacamole was previously chart-only, no CI workflow + no
+# bootstrap-kit slot, so TC-228/TC-230/TC-245/TC-246 stayed FAIL
+# with "deployment NotFound". The CI workflow
+# .github/workflows/build-bp-guacamole.yaml mirrors the upstream
+# Apache Guacamole images to GHCR, bumps Chart.yaml, dispatches
+# blueprint-release; this slot installs the resulting OCI artifact
+# on every Sovereign.
+#
+# install/upgrade.disableWait: true — readiness signalled via Flux
+# dependsOn, never via spec.timeout watchdogs.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: guacamole
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-guacamole
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-guacamole
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: guacamole
+  # Lands in catalyst-system to be co-located with the catalyst-api +
+  # k8s-ws-proxy + the rest of the Catalyst control-plane stack. The
+  # chart's NetworkPolicies allow cross-namespace egress to keycloak
+  # / seaweedfs / nats-jetstream regardless of where it lands.
+  targetNamespace: catalyst-system
+  dependsOn:
+    - name: bp-cilium
+    - name: bp-cert-manager
+    - name: bp-keycloak
+    - name: bp-sealed-secrets
+    - name: bp-seaweedfs
+    - name: bp-k8s-ws-proxy
+  chart:
+    spec:
+      chart: bp-guacamole
+      # 0.1.1: canonical short resource names (guacd / guacamole-server
+      # / guacamole-recordings); GHCR-mirrored upstream images;
+      # realm-patch ConfigMap correctly lands in the keycloak namespace.
+      version: 0.1.1
+      sourceRef:
+        kind: HelmRepository
+        name: bp-guacamole
+        namespace: flux-system
+  install:
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    remediation:
+      retries: 3
+  # Per-Sovereign overlay surface. The Sovereign's FQDN is interpolated
+  # at Flux apply time via the bootstrap-kit Kustomization's
+  # postBuild.substitute env hook (see clusters/_template/README.md +
+  # infra/hetzner/cloudinit-control-plane.tftpl) — `${SOVEREIGN_FQDN}`
+  # below is replaced with the concrete sovereign FQDN before the HR
+  # bytes land in the cluster.
+  values:
+    guacamole:
+      # Default-OFF gate flipped ON by the bootstrap-kit slot. Operator
+      # opts out per-Sovereign by removing this slot from
+      # clusters/<sovereign>/bootstrap-kit/kustomization.yaml.
+      enabled: true
+      httproute:
+        # Resolved from the per-Sovereign Kustomize overlay's
+        # SOVEREIGN_FQDN env var, which envsubst materializes when the
+        # bootstrap-kit Kustomization renders.
+        hostname: guacamole.${SOVEREIGN_FQDN}
+      oidc:
+        # Same SOVEREIGN_FQDN substitution. The realm name (`catalyst`)
+        # matches bp-keycloak's realm-config-cli default.
+        issuer: https://keycloak.${SOVEREIGN_FQDN}/realms/catalyst
+      recordings:
+        # SeaweedFS-CSI is the canonical RWX storageClass for
+        # multi-pod session-recording workloads on Sovereigns; see
+        # platform/seaweedfs/chart values.yaml for the StorageClass
+        # name. Per-Sovereign overlay can override for non-SeaweedFS
+        # backends (e.g. hcloud-volumes single-node fallback).
+        storageClass: seaweedfs-storage

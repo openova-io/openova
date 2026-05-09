@@ -58,6 +58,28 @@ catalyst.openova.io/component: webapp
 {{- end }}
 
 {{/*
+Per-component resource names. Per qa-loop iter-7 Fix #39, the test
+matrix (TC-228 / TC-230 / TC-245 / TC-246) and the catalyst-api's
+shells/issue handler reference these resources by their canonical
+short names — `guacd` and `guacamole-server` — independent of the
+release name. Operator can override via .Values.guacamole.guacd.name
+and .Values.guacamole.webapp.name when running multiple Guacamole
+deployments in the same namespace (rare; ADR-0001 §11 caps at one
+Guacamole per Sovereign).
+*/}}
+{{- define "bp-guacamole.guacdName" -}}
+{{- default "guacd" .Values.guacamole.guacd.name -}}
+{{- end }}
+
+{{- define "bp-guacamole.webappName" -}}
+{{- default "guacamole-server" .Values.guacamole.webapp.name -}}
+{{- end }}
+
+{{- define "bp-guacamole.recordingsName" -}}
+{{- default "guacamole-recordings" .Values.guacamole.recordings.pvcName -}}
+{{- end }}
+
+{{/*
 Image-tag fail-fast helpers. Per docs/INVIOLABLE-PRINCIPLES.md #4a
 empty `:tag` MUST fail the helm template render — we never want
 floating `:latest` shipping into production.

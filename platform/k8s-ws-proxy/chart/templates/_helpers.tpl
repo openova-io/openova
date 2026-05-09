@@ -33,10 +33,23 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 
 {{- define "bp-k8s-ws-proxy.serviceAccountName" -}}
 {{- if .Values.k8sWsProxy.serviceAccount.create }}
-{{- default (include "bp-k8s-ws-proxy.fullname" .) .Values.k8sWsProxy.serviceAccount.name }}
+{{- default (include "bp-k8s-ws-proxy.workloadName" .) .Values.k8sWsProxy.serviceAccount.name }}
 {{- else }}
 {{- default "default" .Values.k8sWsProxy.serviceAccount.name }}
 {{- end }}
+{{- end }}
+
+{{/*
+Canonical workload name. Per qa-loop iter-7 Fix #39, the test matrix
+(TC-236, TC-237) and the catalyst-api shells/issue handler reference
+the DaemonSet + Service + ClusterRole(Binding) by the canonical short
+name `k8s-ws-proxy`, independent of release name. Operator can
+override via .Values.k8sWsProxy.workloadName when running multiple
+proxies in the same namespace (rare; one per Sovereign per
+ADR-0001 §11).
+*/}}
+{{- define "bp-k8s-ws-proxy.workloadName" -}}
+{{- default "k8s-ws-proxy" .Values.k8sWsProxy.workloadName -}}
 {{- end }}
 
 {{/*

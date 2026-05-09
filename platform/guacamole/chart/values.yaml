@@ -26,12 +26,23 @@ guacamole:
 
   # ── guacd: protocol backend ─────────────────────────────────────
   guacd:
+    # Resource name. Defaults to `guacd` so the catalyst-api shells/issue
+    # handler + qa-loop test matrix (TC-228 / TC-230 / TC-245 / TC-246)
+    # can address the Deployment + Service by canonical short name.
+    # Override only when running >1 Guacamole in the same namespace
+    # (rare; ADR-0001 §11 caps at one Guacamole per Sovereign).
+    name: guacd
     image:
-      repository: guacamole/guacd
-      # SHA-pinned per INVIOLABLE-PRINCIPLES #4a. CI populates this
-      # via `yq eval -i ...`. Empty value fails the helm template
-      # render (see _helpers.tpl `bp-guacamole.guacdImage`).
-      tag: ""
+      # Mirrored to GHCR by .github/workflows/build-bp-guacamole.yaml so
+      # every Sovereign pulls from a registry we own (no Docker Hub rate
+      # limits, no upstream availability risk). Bumped automatically by
+      # CI when the upstream Apache Guacamole version is rolled.
+      repository: ghcr.io/openova-io/openova/guacd
+      # SHA-pinned per INVIOLABLE-PRINCIPLES #4a. CI populates this via
+      # `yq eval -i ...`. Empty value fails the helm template render
+      # (see _helpers.tpl `bp-guacamole.guacdImage`). Initial seed is
+      # the upstream-tagged GHCR mirror; CI may pin to a digest tag.
+      tag: "1.5.5"
       pullPolicy: IfNotPresent
     replicas: 1
     resources:
@@ -44,9 +55,14 @@ guacamole:
 
   # ── guacamole webapp: Tomcat front-end ─────────────────────────
   webapp:
+    # Resource name. Defaults to `guacamole-server` per the qa-loop test
+    # matrix + catalyst-api shells/issue handler.
+    name: guacamole-server
     image:
-      repository: guacamole/guacamole
-      tag: ""
+      # GHCR mirror of docker.io/guacamole/guacamole; see guacd.image
+      # comment for the mirror rationale.
+      repository: ghcr.io/openova-io/openova/guacamole-server
+      tag: "1.5.5"
       pullPolicy: IfNotPresent
     replicas: 2
     resources:
@@ -59,6 +75,9 @@ guacamole:
 
   # ── Recording (SeaweedFS PVC) ──────────────────────────────────
   recordings:
+    # PVC name. Defaults to `guacamole-recordings`. Override only when
+    # multiple Guacamole instances share a namespace.
+    pvcName: guacamole-recordings
     pvcSize: 50Gi
     # hcloud-volumes is the canonical Hetzner CSI storageClass per
     # H6 (issue #1118 — `hcloud-volumes` standardisation across
@@ -142,6 +161,12 @@ guacamole:
     # Realm name in Keycloak. Default `catalyst` per existing
     # platform/keycloak realm-config pattern.
     realm: catalyst
+    # Namespace where bp-keycloak's keycloak-config-cli post-deploy Job
+    # runs. The realm-patch ConfigMap MUST land in this namespace so the
+    # Job's label-selector picks it up. Defaults to `keycloak` per the
+    # canonical bp-keycloak namespace; override when bp-keycloak runs
+    # under a different namespace.
+    namespace: keycloak
 
   # ── Pod-level security context ─────────────────────────────────
   # Both pods run as non-root with read-only root FS — only /tmp

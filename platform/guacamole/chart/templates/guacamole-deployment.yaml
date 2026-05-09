@@ -2,7 +2,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "bp-guacamole.fullname" . }}-webapp
+  name: {{ include "bp-guacamole.webappName" . }}
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "bp-guacamole.labels" . | nindent 4 }}
@@ -35,7 +35,7 @@ spec:
           env:
             # Backend protocol-handler — the guacd Service in this namespace.
             - name: GUACD_HOSTNAME
-              value: "{{ include "bp-guacamole.fullname" . }}-guacd"
+              value: {{ include "bp-guacamole.guacdName" . | quote }}
             - name: GUACD_PORT
               value: {{ .Values.guacamole.guacd.port | quote }}
 
@@ -96,7 +96,7 @@ spec:
       volumes:
         - name: recordings
           persistentVolumeClaim:
-            claimName: {{ include "bp-guacamole.fullname" . }}-recordings
+            claimName: {{ include "bp-guacamole.recordingsName" . }}
         - name: tmp
           emptyDir: {}
         # Tomcat insists on writable work + temp dirs even with

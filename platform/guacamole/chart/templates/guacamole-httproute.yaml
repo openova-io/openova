@@ -2,7 +2,7 @@
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
-  name: {{ include "bp-guacamole.fullname" . }}-webapp
+  name: {{ include "bp-guacamole.webappName" . }}
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "bp-guacamole.labels" . | nindent 4 }}
@@ -18,6 +18,6 @@ spec:
             type: PathPrefix
             value: /
       backendRefs:
-        - name: {{ include "bp-guacamole.fullname" . }}-webapp
+        - name: {{ include "bp-guacamole.webappName" . }}
           port: 80
 {{- end }}

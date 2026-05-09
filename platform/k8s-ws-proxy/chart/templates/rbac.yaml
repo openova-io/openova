@@ -19,7 +19,7 @@ metadata:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "bp-k8s-ws-proxy.fullname" . }}
+  name: {{ include "bp-k8s-ws-proxy.workloadName" . }}
   labels:
     {{- include "bp-k8s-ws-proxy.labels" . | nindent 4 }}
 rules:
@@ -33,13 +33,13 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "bp-k8s-ws-proxy.fullname" . }}
+  name: {{ include "bp-k8s-ws-proxy.workloadName" . }}
   labels:
     {{- include "bp-k8s-ws-proxy.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ include "bp-k8s-ws-proxy.fullname" . }}
+  name: {{ include "bp-k8s-ws-proxy.workloadName" . }}
 subjects:
   - kind: ServiceAccount
     name: {{ include "bp-k8s-ws-proxy.serviceAccountName" . }}

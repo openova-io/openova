@@ -1,0 +1,81 @@
+# bp-k8s-ws-proxy — Catalyst bootstrap-kit Blueprint #36 (W2.K4 — exec
+# fan-out). Per-node WebSocket exec proxy that bridges HMAC-signed
+# upstream callers (catalyst-api, Guacamole) onto the local
+# kube-apiserver /api/v1/.../pods/exec stream.
+#
+# DaemonSet → one pod per node. Service uses
+# `internalTrafficPolicy: Local` so kube-proxy routes every caller
+# onto the local-node pod (zero cross-node hops, zero apiserver
+# round-trips through other nodes).
+#
+# Wrapper chart: platform/k8s-ws-proxy/chart/
+# Catalyst-curated values: platform/k8s-ws-proxy/chart/values.yaml
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+#
+# dependsOn:
+#   - bp-cilium — DaemonSet pods need a working CNI before they bind
+#     the host-network listen port.
+#   - bp-sealed-secrets — the chart references a SealedSecret carrying
+#     the HMAC shared key the proxy validates inbound requests against
+#     (operator pre-seals via kubeseal before this slot reconciles).
+#
+# qa-loop iter-7 Fix #39 (closes the gap surfaced by Fix #36):
+# bp-k8s-ws-proxy was previously chart-only, no CI workflow + no
+# bootstrap-kit slot, so TC-236/TC-237 stayed FAIL with "daemonset
+# NotFound". CI workflow .github/workflows/build-k8s-ws-proxy.yaml
+# builds the binary, bumps Chart.yaml, dispatches blueprint-release;
+# this slot installs the resulting OCI artifact on every Sovereign.
+#
+# install/upgrade.disableWait: true — DaemonSet readiness is signalled
+# via Flux dependsOn, never via blanket spec.timeout watchdogs (per
+# session-2026-04-30 architectural decision).
+
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-k8s-ws-proxy
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-k8s-ws-proxy
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: k8s-ws-proxy
+  targetNamespace: catalyst-system
+  dependsOn:
+    - name: bp-cilium
+    - name: bp-sealed-secrets
+  chart:
+    spec:
+      chart: bp-k8s-ws-proxy
+      # 0.1.1: canonical workload name `k8s-ws-proxy`; first published
+      # version after Fix #39's CI workflow lands.
+      version: 0.1.1
+      sourceRef:
+        kind: HelmRepository
+        name: bp-k8s-ws-proxy
+        namespace: flux-system
+  install:
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    remediation:
+      retries: 3
+  values:
+    k8sWsProxy:
+      # Default-OFF gate flipped ON by the bootstrap-kit slot. Operator
+      # opts out per-Sovereign by removing this slot from
+      # clusters/<sovereign>/bootstrap-kit/kustomization.yaml.
+      enabled: true
