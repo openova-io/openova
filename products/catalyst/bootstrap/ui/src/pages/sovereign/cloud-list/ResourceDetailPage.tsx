@@ -38,6 +38,7 @@ import {
   RESOURCE_DETAIL_TABS,
   getResource,
   getResourceTree,
+  normaliseKindForRegistry,
   resourceDetailHref,
   type ResourceDetailTab,
   type ResourceTreeNode,
@@ -84,6 +85,14 @@ export function ResourceDetailPage(props: ResourceDetailPageProps) {
     onTabChange,
   } = props
 
+  // The URL `kind` segment may be plural (`services`) for operator
+  // ergonomics; the catalyst-api k8scache Registry only knows the
+  // canonical singular name (`service`). Normalise once and pass the
+  // singular form to every API + child widget. The display kind
+  // (used for headings + test-ids) keeps the URL-as-typed shape so
+  // operator deep-links remain stable.
+  const apiKind = useMemo(() => normaliseKindForRegistry(kind), [kind])
+
   const [obj, setObj] = useState<K8sObject | null>(initialObj ?? null)
   const [objErr, setObjErr] = useState<string | null>(null)
   const [tree, setTree] = useState<ResourceTreeNode | null>(initialTree ?? null)
@@ -94,7 +103,7 @@ export function ResourceDetailPage(props: ResourceDetailPageProps) {
     if (initialObj) return
     let cancelled = false
     const ac = new AbortController()
-    getResource(deploymentId, kind, ns, name, ac.signal)
+    getResource(deploymentId, apiKind, ns, name, ac.signal)
       .then((o) => {
         if (cancelled) return
         setObj(o)
@@ -111,13 +120,13 @@ export function ResourceDetailPage(props: ResourceDetailPageProps) {
       cancelled = true
       ac.abort()
     }
-  }, [deploymentId, kind, ns, name, initialObj])
+  }, [deploymentId, apiKind, ns, name, initialObj])
 
   useEffect(() => {
     if (initialTree || tab !== 'tree') return
     let cancelled = false
     const ac = new AbortController()
-    getResourceTree(deploymentId, kind, ns, name, ac.signal)
+    getResourceTree(deploymentId, apiKind, ns, name, ac.signal)
       .then((t) => {
         if (cancelled) return
         setTree(t)
@@ -131,7 +140,7 @@ export function ResourceDetailPage(props: ResourceDetailPageProps) {
       cancelled = true
       ac.abort()
     }
-  }, [deploymentId, kind, ns, name, tab, initialTree])
+  }, [deploymentId, apiKind, ns, name, tab, initialTree])
 
   const allEvents = useMemo<K8sObject[]>(() => {
     if (!k8sSnapshot) return []
@@ -206,11 +215,11 @@ export function ResourceDetailPage(props: ResourceDetailPageProps) {
 
       {!isLoading && !objErr && (
         <div data-testid={`resource-detail-tab-content-${tab}`}>
-          {tab === 'overview' && <OverviewTab obj={obj} replicas={replicas} kind={kind} ns={ns} name={name} deploymentId={deploymentId} isTierAdmin={isTierAdmin} />}
-          {tab === 'yaml' && <YamlEditor deploymentId={deploymentId} kind={kind} ns={ns || undefined} name={name} obj={obj} />}
+          {tab === 'overview' && <OverviewTab obj={obj} replicas={replicas} kind={apiKind} ns={ns} name={name} deploymentId={deploymentId} isTierAdmin={isTierAdmin} />}
+          {tab === 'yaml' && <YamlEditor deploymentId={deploymentId} kind={apiKind} ns={ns || undefined} name={name} obj={obj} />}
           {tab === 'logs' && (
             <LogsTabContent
-              kind={kind}
+              kind={apiKind}
               deploymentId={deploymentId}
               ns={ns}
               name={name}
@@ -219,7 +228,7 @@ export function ResourceDetailPage(props: ResourceDetailPageProps) {
           )}
           {tab === 'exec' && (
             <ExecTabContent
-              kind={kind}
+              kind={apiKind}
               deploymentId={deploymentId}
               ns={ns}
               name={name}
@@ -228,10 +237,10 @@ export function ResourceDetailPage(props: ResourceDetailPageProps) {
             />
           )}
           {tab === 'events' && (
-            <EventsPanel allEvents={allEvents} ns={ns} name={name} kindCanonical={kind} />
+            <EventsPanel allEvents={allEvents} ns={ns} name={name} kindCanonical={apiKind} />
           )}
           {tab === 'metrics' && (
-            <MetricsPanel deploymentId={deploymentId} kind={kind} ns={ns || undefined} name={name} />
+            <MetricsPanel deploymentId={deploymentId} kind={apiKind} ns={ns || undefined} name={name} />
           )}
           {tab === 'tree' && (
             <ResourceTree basePath={basePath} tree={tree} isError={!!treeErr} isLoading={!tree && !treeErr} />

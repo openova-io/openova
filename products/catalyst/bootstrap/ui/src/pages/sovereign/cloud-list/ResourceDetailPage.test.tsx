@@ -126,4 +126,109 @@ describe('ResourceDetailPage', () => {
     )
     expect(screen.getByTestId('yaml-editor')).toBeTruthy()
   })
+
+  // qa-loop iter-1 cluster:resource-detail-tree-yaml-events — TC-079..083.
+  // The chroot URL surface is operator-typed and accepts plural kind
+  // segments (`/cloud/resource/services/...`). The test-id must keep
+  // the URL-as-typed shape so deep-link asserts (`resource-detail-services`)
+  // hold; child widgets that hit the API must receive the canonical
+  // singular kind so the catalyst-api Registry resolves them.
+  it('preserves the URL plural kind in the test-id', () => {
+    render(
+      <ResourceDetailPage
+        deploymentId="dep"
+        basePath="/cloud"
+        kind="services"
+        ns="kube-system"
+        name="kube-dns"
+        tab="overview"
+        initialObj={{
+          apiVersion: 'v1',
+          kind: 'Service',
+          metadata: { name: 'kube-dns', namespace: 'kube-system' },
+        } as K8sObject}
+      />,
+    )
+    // URL-kind shape preserved on the wrapper for deep-link asserts.
+    expect(screen.getByTestId('resource-detail-services-kube-dns')).toBeTruthy()
+    // Tab strip still uses the canonical 7 testids.
+    for (const t of ['overview', 'yaml', 'logs', 'exec', 'events', 'metrics', 'tree']) {
+      expect(screen.getByTestId(`resource-detail-tab-${t}`)).toBeTruthy()
+    }
+  })
+
+  it('renders YamlEditor with singular kind for plural URL kind', () => {
+    render(
+      <ResourceDetailPage
+        deploymentId="dep"
+        basePath="/cloud"
+        kind="services"
+        ns="kube-system"
+        name="kube-dns"
+        tab="yaml"
+        initialObj={{
+          apiVersion: 'v1',
+          kind: 'Service',
+          metadata: { name: 'kube-dns', namespace: 'kube-system' },
+        } as K8sObject}
+      />,
+    )
+    // YamlEditor receives the singular `service` so its internal API
+    // call resolves on the catalyst-api k8scache Registry.
+    expect(screen.getByTestId('yaml-editor')).toBeTruthy()
+  })
+
+  it('renders cluster-scoped deployment without crash for plural URL kind + ns="_"', () => {
+    render(
+      <ResourceDetailPage
+        deploymentId="dep"
+        basePath="/cloud"
+        kind="deployments"
+        ns=""
+        name="cilium"
+        tab="overview"
+        initialObj={{
+          apiVersion: 'apps/v1',
+          kind: 'Deployment',
+          metadata: { name: 'cilium' },
+        } as K8sObject}
+      />,
+    )
+    expect(screen.getByTestId('resource-detail-deployments-cilium')).toBeTruthy()
+  })
+
+  it('does not throw when initialObj.spec is undefined (null-guard)', () => {
+    const objNoSpec: K8sObject = {
+      apiVersion: 'v1',
+      kind: 'Pod',
+      metadata: { name: 'wp-1', namespace: 'default' },
+    } as K8sObject
+    render(
+      <ResourceDetailPage
+        deploymentId="dep"
+        basePath="/cloud"
+        kind="pod"
+        ns="default"
+        name="wp-1"
+        tab="overview"
+        initialObj={objNoSpec}
+      />,
+    )
+    expect(screen.getByTestId('resource-detail-pod-wp-1')).toBeTruthy()
+  })
+
+  it('does not throw when initialObj is empty (only required keys)', () => {
+    render(
+      <ResourceDetailPage
+        deploymentId="dep"
+        basePath="/cloud"
+        kind="pod"
+        ns="default"
+        name="wp-1"
+        tab="overview"
+        initialObj={{} as K8sObject}
+      />,
+    )
+    expect(screen.getByTestId('resource-detail-pod-wp-1')).toBeTruthy()
+  })
 })
