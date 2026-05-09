@@ -1,0 +1,86 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-continuum
+  labels:
+    catalyst.openova.io/section: pts-9-disaster-recovery
+    openova.io/category: customer-facing-capability
+spec:
+  version: 0.1.0
+  card:
+    title: Continuum
+    summary: |
+      DR orchestration for active-hotstandby Applications. Watches
+      Continuum.dr.openova.io/v1 CRs, maintains a multi-region lease,
+      observes CNPG replication health, and executes the switchover
+      sequence (drain HTTPRoute → flip lua-record → flip CNPG primary
+      → audit on NATS) per docs/SRE.md §2 + docs/MULTI-REGION-DNS.md.
+    icon: continuum.svg
+    category: disaster-recovery
+  visibility: listed
+
+  # K-Cont-1 ships the SKELETON — operators install but flip
+  # `continuum.enabled` only once dependencies (bp-cnpg-pair,
+  # bp-powerdns, lease witness) are ready. K-Cont-2 fills the
+  # reconcile loop; downstream slices wire the witness + worker.
+  configSchema:
+    type: object
+    properties:
+      continuum:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: false
+            description: |
+              Default-OFF gate. Flip true on a per-Sovereign overlay
+              once bp-cnpg-pair + bp-powerdns + lease witness are
+              ready.
+          replicas:
+            type: integer
+            default: 1
+            minimum: 1
+            description: |
+              Replica count for the controller Deployment. Leader
+              election ensures only one Pod reconciles at a time;
+              spare replicas exist for HA.
+          pdmURL:
+            type: string
+            description: |
+              pool-domain-manager /v1/commit endpoint. Empty = use
+              the in-cluster Service default. Per Inviolable
+              Principle #4 fully runtime-configurable.
+          natsURL:
+            type: string
+            description: |
+              NATS endpoint for catalyst.audit publishing. Empty =
+              use the in-cluster default.
+
+  placementSchema:
+    # Continuum is itself a single-region controller — it lives on the
+    # MANAGEMENT cluster (per docs/EPICS-1-6-unified-design.md §9) and
+    # observes data-plane regions over Cilium ClusterMesh + the witness.
+    # The Application CRs it reconciles are active-hotstandby; the
+    # Continuum controller itself is single-region.
+    modes: [single-region]
+    minRegions: 1
+    maxRegions: 1
+
+  manifests:
+    chart: ./
+
+  depends:
+    # bp-cnpg-pair (C-DB-1) is the proof-point Postgres workload:
+    # primary in fsn, replica in hel via WAL streaming over Cilium
+    # ClusterMesh.
+    - blueprint: bp-cnpg-pair
+      version: ^0
+      alias: cnpg
+    # bp-powerdns + the in-cluster pool-domain-manager service are
+    # how we flip lua-record probe targets at switchover time.
+    - blueprint: bp-powerdns
+      version: ^1
+      alias: dns
+
+  upgrades:
+    from: []

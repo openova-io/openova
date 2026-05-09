@@ -1,0 +1,30 @@
+{{- /*
+Service for continuum-controller — exposes /metrics + /healthz +
+/readyz inside the cluster. Consumed by Prometheus ServiceMonitor +
+k8s liveness/readiness probes.
+
+Per Inviolable Principle #4 ports are configurable via
+.Values.continuum.metrics.port + .Values.continuum.health.port.
+*/ -}}
+{{- if .Values.continuum.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "continuum.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "continuum.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "continuum.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: metrics
+      port: {{ .Values.continuum.metrics.port | default 9090 }}
+      targetPort: metrics
+      protocol: TCP
+    - name: health
+      port: {{ .Values.continuum.health.port | default 8081 }}
+      targetPort: health
+      protocol: TCP
+{{- end }}

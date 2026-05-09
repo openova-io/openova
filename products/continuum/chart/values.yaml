@@ -1,0 +1,101 @@
+# bp-continuum values — slice K-Cont-1 of EPIC-6 (#1101).
+#
+# Continuum is a customer-facing capability (per ADR-0001 §3.2.8 — NOT
+# under platform/) that orchestrates per-Application DR for placement:
+# active-hotstandby Applications. This chart deploys the
+# continuum-controller alongside its RBAC + NetworkPolicy.
+#
+# Default-OFF gate: `continuum.enabled: false`. Operators flip this in
+# a per-Sovereign overlay once they have:
+#   - bp-cnpg-pair installed (C-DB-1 — primary + replica CNPG cluster)
+#   - bp-powerdns + pool-domain-manager reachable (lua-record commits)
+#   - lease witness configured (Cloudflare KV per K-Cont-3, or DNS
+#     quorum fallback)
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) every value
+# below is overridable per-Sovereign overlay. Per #4a (image SHA-pinned
+# from CI) `image.tag` is empty by default; the chart fail-fasts at
+# render time when `enabled: true` and `image.tag` is empty (see
+# templates/_helpers.tpl `continuum.image`). CI stamps the SHA on every
+# push to main via .github/workflows/build-continuum-controller.yaml.
+
+# ─── Global registry rewrite (matches catalyst chart pattern) ──────────
+# When set, ALL Continuum image pulls route through this registry.
+# Per-Sovereign overlays set this to harbor.<sovereign-fqdn> so every
+# image pull hits the Sovereign's own Harbor proxy_cache rather than
+# ghcr.io directly. Empty = no rewrite.
+global:
+  imageRegistry: ""
+
+# ─── Continuum controller deployment ───────────────────────────────────
+continuum:
+  # Default-OFF. Flip to true on a Sovereign overlay once dependencies
+  # (bp-cnpg-pair, bp-powerdns, lease witness) are ready.
+  enabled: false
+
+  image:
+    repository: "ghcr.io/openova-io/openova/continuum-controller"
+    # tag is empty by default — CI stamps a SHA on every push to main.
+    # Render-time fail-fast (see templates/_helpers.tpl) prevents a
+    # half-configured deploy from accidentally running with `:latest`.
+    tag: ""
+    pullPolicy: IfNotPresent
+
+  replicas: 1
+  leaderElection:
+    enabled: true
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # ─── Metrics / health endpoints ──────────────────────────────────────
+  metrics:
+    enabled: true
+    # Port exposed on the controller Deployment + Service.
+    port: 9090
+
+  health:
+    # /healthz + /readyz endpoint port (separate from metrics so the
+    # ServiceMonitor scrape can hit /metrics without exposing health
+    # publicly).
+    port: 8081
+
+  # ─── K-Cont-2 / K-Cont-3 config seams (sketch — finalized in
+  # downstream slices) ─────────────────────────────────────────────────
+  #
+  # PDM endpoint that the controller calls /v1/commit on for lua-record
+  # writes. Empty = use the in-cluster Service default. Per Inviolable
+  # Principle #4 the value is fully runtime-configurable; per-Sovereign
+  # overlays may repoint at a Sovereign-local PDM instance.
+  pdmURL: ""
+
+  # NATS endpoint for catalyst.audit publishing. Empty = use the
+  # in-cluster nats.openova-system.svc.cluster.local default.
+  natsURL: ""
+
+  # Lease witness defaults (overridden per-CR via Continuum.spec.leaseClient).
+  # These are CONTROLLER-WIDE defaults; per-Continuum-CR config wins.
+  lease:
+    ttlSeconds: 30
+    renewSeconds: 10
+
+  # Free-form extra env vars threaded into the Pod (advanced; for one-off
+  # operator-side knobs not yet promoted to a top-level value).
+  env: {}
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# ─── NetworkPolicy ────────────────────────────────────────────────────
+# Default-deny except for explicit egress to Kubernetes API server,
+# in-cluster CNPG status, NATS, PDM, and the lease witness URL. K-Cont-2
+# extends with witness-specific egress when WITNESS_KIND=cloudflare-kv
+# (egress to CF API at api.cloudflare.com:443).
+networkPolicy:
+  enabled: true

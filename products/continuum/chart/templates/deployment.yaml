@@ -1,0 +1,103 @@
+{{- /*
+continuum-controller Deployment (slice K-Cont-1 of EPIC-6 #1101).
+
+K-Cont-1 ships the SKELETON: a controller-runtime Manager wired to a
+no-op Reconcile() over Continuum.dr.openova.io/v1 CRs. K-Cont-2 fills
+in the reconcile loop (lease + replication watch + switchover
+sequencer); K-Cont-3 wires the lease witness; K-Cont-4 ships the
+Cloudflare Worker source.
+
+All configuration env-driven per Inviolable Principle #4.
+*/ -}}
+{{- if .Values.continuum.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "continuum.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "continuum.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.continuum.replicas | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "continuum.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "continuum.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "continuum.fullname" . }}
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: controller
+          image: {{ include "continuum.image" (dict "root" .) | quote }}
+          imagePullPolicy: {{ .Values.continuum.image.pullPolicy | default "IfNotPresent" }}
+          args:
+            - "--leader-elect={{ .Values.continuum.leaderElection.enabled }}"
+            - "--metrics-bind-address=:{{ .Values.continuum.metrics.port | default 9090 }}"
+            - "--health-probe-bind-address=:{{ .Values.continuum.health.port | default 8081 }}"
+          env:
+            - name: LEADER_ELECT_NS
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            # K-Cont-2 / K-Cont-3 seams (sketched here; values currently
+            # unused by the no-op Reconcile but part of the target-state
+            # shape per Inviolable Principle #1).
+            - name: PDM_API_URL
+              value: {{ .Values.continuum.pdmURL | default "" | quote }}
+            - name: NATS_URL
+              value: {{ .Values.continuum.natsURL | default "" | quote }}
+            - name: LEASE_TTL_SECONDS
+              value: {{ .Values.continuum.lease.ttlSeconds | default 30 | quote }}
+            - name: LEASE_RENEW_SECONDS
+              value: {{ .Values.continuum.lease.renewSeconds | default 10 | quote }}
+            {{- range $k, $v := .Values.continuum.env }}
+            - name: {{ $k | quote }}
+              value: {{ $v | quote }}
+            {{- end }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.continuum.metrics.port | default 9090 }}
+            - name: health
+              containerPort: {{ .Values.continuum.health.port | default 8081 }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.continuum.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+      {{- with .Values.continuum.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.continuum.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.continuum.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: 15
+{{- end }}

@@ -1,0 +1,60 @@
+# continuum-controller — slice K-Cont-1 of EPIC-6 (#1101).
+#
+# Watches Continuum.dr.openova.io/v1 CRs (and, in K-Cont-2, the
+# active-hotstandby Application CRs they reference) and orchestrates
+# per-Application DR. K-Cont-1 ships the binary skeleton + chart + CI
+# workflow; the Reconcile body itself lands in K-Cont-2.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4a (GitHub Actions is the only
+# build path) every image that runs on OpenOva infra MUST be produced
+# by a CI workflow from a committed git SHA. This Containerfile is
+# invoked by .github/workflows/build-continuum-controller.yaml with
+# the repository ROOT as the build context.
+#
+# Slice CC1 (#1095) consolidated the 5 Group C controllers under a
+# single shared go.mod at core/controllers/go.mod and shared helpers
+# under core/controllers/internal/. Per Option A in the K-Cont-1 brief,
+# Continuum's Go binary joins this same shared module — the chart +
+# Containerfile + DESIGN.md live at products/continuum/, but the Go
+# tree lives at core/controllers/continuum/. The COPY layout below
+# mirrors that.
+#
+# Two stages:
+#   build  — golang:1.23-alpine, vendored stdlib + module cache
+#   final  — alpine:3.20 minimal runtime (CA certs + the binary)
+
+FROM docker.io/library/golang:1.23-alpine AS build
+WORKDIR /workspace
+
+# Cache module downloads — go.mod/go.sum live at the shared module root.
+COPY core/controllers/go.mod core/controllers/go.sum core/controllers/
+
+WORKDIR /workspace/core/controllers
+RUN go mod download
+
+# Copy source + build. The shared internal/ packages and the per-
+# controller tree are both needed at compile time.
+WORKDIR /workspace
+COPY core/controllers/internal /workspace/core/controllers/internal
+COPY core/controllers/continuum /workspace/core/controllers/continuum
+
+WORKDIR /workspace/core/controllers/continuum
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w" \
+    -o /continuum-controller ./cmd
+
+FROM docker.io/library/alpine:3.20
+
+# CA certs for HTTPS calls to PDM, the lease witness (Cloudflare KV),
+# and cross-Sovereign instances. tzdata so log timestamps render
+# correctly.
+RUN apk add --no-cache ca-certificates tzdata
+
+COPY --from=build /continuum-controller /continuum-controller
+
+# UID 65534 (nobody on Alpine 3.20) — non-root, satisfies the
+# `runAsNonRoot: true` securityContext check k8s requires when the
+# spec uses numeric form (not the name `nobody`).
+USER 65534:65534
+
+ENTRYPOINT ["/continuum-controller"]
