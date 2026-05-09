@@ -133,7 +133,7 @@ images:
   console:
     tag: "3c2f7e4"
   # All 10 SME microservices share one SHA tag (built from the same mono-repo commit).
-  smeTag: "a57d05d"
+  smeTag: "b0ed216"
 
 # ─── Group C controllers (slice CC3 of EPIC-0 #1095) ────────────────────────
 # The 5 K8s-native reconcilers consolidated by CC1 (#1135) + CC2 (#1136):
