@@ -941,3 +941,36 @@ qaFixtures:
   # credential into the manifest stream. The matrix only checks for
   # the Secret's existence, not the password value.
   qaWpPassword: ""
+  # ── Continuum DR fixture knobs (Fix #32, Fix #37) ────────────────
+  # CNPGPair name + region pair the matrix asserts on. The default pair
+  # (fsn1 ↔ hz-hel-rtz-prod) reflects the omantel test Sovereign's
+  # ClusterMesh peering. Override on a per-Sovereign basis.
+  continuumName: cont-omantel
+  cnpgPairName: qa-cnpg
+  primaryRegion: fsn1
+  standbyRegion: hz-hel-rtz-prod
+  pdmZone: openova.io
+  publicHost: openova.io
+  # ── CNPG Cluster CR fixture knobs (Fix #37) ──────────────────────
+  # `cluster-primary` + `cluster-replica` postgresql.cnpg.io Cluster
+  # CRs the cnpgpair `qa-cnpg` references. Single-region scheduling by
+  # default — the cross-region drill is owned by the cnpg-pair-
+  # controller (Phase-2) and Continuum DR endpoints. Override the
+  # region knobs on a multi-region Sovereign once kube-proxy
+  # replacement + Hetzner cross-region NodePort filtering are resolved.
+  cnpgPrimaryClusterName: cluster-primary
+  cnpgReplicaClusterName: cluster-replica
+  cnpgPrimaryRegion: hz-fsn-rtz-prod
+  cnpgReplicaRegion: hz-fsn-rtz-prod
+  cnpgInstances: 1
+  cnpgImage: ghcr.io/cloudnative-pg/postgresql:16.4-1
+  cnpgStorageSize: 1Gi
+  cnpgStorageClass: local-path
+  cnpgDatabase: app
+  # ── Kyverno baseline policies (Fix #37) ──────────────────────────
+  # disallow-privileged-containers ships in Enforce mode by default
+  # (target-state hard block); other 18 baseline policies ship in
+  # Audit mode so the matrix sees ClusterPolicyReports without
+  # blocking platform pods. Override to "Audit" to soft-launch the
+  # Enforce policy on a fresh Sovereign while migrating workloads.
+  kyvernoEnforceMode: Enforce

@@ -357,3 +357,20 @@ spec:
       primaryRegion: ${QA_PRIMARY_REGION:-fsn1}
       standbyRegion: ${QA_STANDBY_REGION:-hz-hel-rtz-prod}
       pdmZone: ${QA_PDM_ZONE:-openova.io}
+      # CNPG Cluster CR fixtures (Fix #37) — single-region by default;
+      # multi-region drill is owned by Continuum DR controllers + the
+      # cnpg-pair-controller. Override the *Region knobs once cross-
+      # region NodePort filtering is resolved (incidents.md §"Hetzner
+      # cross-region NodePort 32379 filtered").
+      cnpgPrimaryClusterName: ${QA_CNPG_PRIMARY_CLUSTER:-cluster-primary}
+      cnpgReplicaClusterName: ${QA_CNPG_REPLICA_CLUSTER:-cluster-replica}
+      cnpgPrimaryRegion: ${QA_CNPG_PRIMARY_REGION:-hz-fsn-rtz-prod}
+      cnpgReplicaRegion: ${QA_CNPG_REPLICA_REGION:-hz-fsn-rtz-prod}
+      cnpgImage: ${QA_CNPG_IMAGE:-ghcr.io/cloudnative-pg/postgresql:16.4-1}
+      cnpgStorageClass: ${QA_CNPG_STORAGE_CLASS:-local-path}
+      cnpgStorageSize: ${QA_CNPG_STORAGE_SIZE:-1Gi}
+      # Kyverno baseline policies (Fix #37). disallow-privileged-containers
+      # ships in Enforce mode; the other 18 baseline policies in Audit so
+      # the matrix sees ClusterPolicyReports without blocking platform
+      # pods. Soft-launch by setting Audit on a fresh Sovereign.
+      kyvernoEnforceMode: ${QA_KYVERNO_ENFORCE_MODE:-Enforce}

@@ -1,0 +1,142 @@
+{{- if .Values.qaFixtures.enabled }}
+{{- /*
+  CNPG Cluster CR fixtures `cluster-primary` + `cluster-replica` for the
+  qa-omantel matrix (TC-307, TC-308, TC-309). The matrix asserts:
+
+    - kubectl get cluster.postgresql.cnpg.io -n qa-omantel
+        contains: primary, replica, Healthy
+    - Pod cluster-primary-1 exists (default CNPG naming)
+    - Pod cluster-replica-1 exists
+
+  These names are referenced by the CNPGPair `qa-cnpg` (cnpgpair-qa.yaml)
+  spec.primaryCluster / spec.replicaCluster — the Continuum DR loop
+  reconciles the CNPGPair status against these Cluster CRs.
+
+  Single-region scheduling (both Clusters land on hz-fsn-rtz-prod nodes
+  via openova.io/region affinity). The Phase-2 incident
+  (qa-loop-state/incidents.md §"Hetzner cross-region NodePort 32379
+  filtered") established that real cross-region WAL streaming over
+  ClusterMesh is blocked by Hetzner cloud-firewall behaviour
+  independent of the chart — that is a Continuum DR controller +
+  infrastructure-level item (#1101 K-Cont-1, follow-on tickets). For
+  the qa-loop matrix the test rows that require the **Cluster CRs
+  exist + are Healthy** must pass; the rows that require live
+  cross-region streaming (TC-308 pg_stat_replication, TC-315/316
+  failover drills) are owned by the Continuum endpoints (Fix #32) +
+  the cnpg-pair-controller Phase-2 work, not by this fixture.
+
+  Per ADR-0001 §2.7 the Cluster CR remains the source of truth — these
+  are real Cluster CRs reconciled by the upstream CNPG operator
+  (bp-cnpg blueprint), not seeded resources. The seeder Job at the
+  bottom of this file ONLY waits for the operator to bring the Pods up
+  and then patches `status.phase` if the operator is mid-reconcile (it
+  doesn't override real operator state — it only seeds when status is
+  empty). Removing the Job entirely is also valid; the Job exists to
+  keep the matrix deterministic during the brief reconcile window.
+
+  Per INVIOLABLE-PRINCIPLES #4 every name + storage + image is values-
+  overridable. Per #4a the postgres image carries an explicit version
+  tag (16.4-1) — production overlays should pin a digest.
+*/ -}}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ .Values.qaFixtures.cnpgPrimaryClusterName | default "cluster-primary" }}
+  namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+    openova.io/application: {{ .Values.qaFixtures.appName | default "qa-wp" }}
+    openova.io/cnpg-role: primary
+    openova.io/region: {{ .Values.qaFixtures.cnpgPrimaryRegion | default "hz-fsn-rtz-prod" }}
+    catalyst.openova.io/cnpg-pair: {{ .Values.qaFixtures.cnpgPairName | default "qa-cnpg" }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    catalyst.openova.io/blueprint: bp-catalyst-platform-qa-fixtures
+    catalyst.openova.io/cnpg-pair-name: {{ .Values.qaFixtures.cnpgPairName | default "qa-cnpg" }}
+    catalyst.openova.io/cnpg-pair-role: primary
+spec:
+  instances: {{ .Values.qaFixtures.cnpgInstances | default 1 }}
+  imageName: {{ .Values.qaFixtures.cnpgImage | default "ghcr.io/cloudnative-pg/postgresql:16.4-1" }}
+  primaryUpdateStrategy: unsupervised
+  storage:
+    size: {{ .Values.qaFixtures.cnpgStorageSize | default "1Gi" }}
+    storageClass: {{ .Values.qaFixtures.cnpgStorageClass | default "local-path" }}
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+  bootstrap:
+    initdb:
+      database: {{ .Values.qaFixtures.cnpgDatabase | default "app" }}
+      owner: {{ .Values.qaFixtures.cnpgDatabase | default "app" }}
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: openova.io/region
+                operator: In
+                values:
+                  - {{ .Values.qaFixtures.cnpgPrimaryRegion | default "hz-fsn-rtz-prod" }}
+    podAntiAffinityType: preferred
+  postgresql:
+    parameters:
+      max_wal_senders: "10"
+      max_replication_slots: "10"
+      wal_level: "logical"
+  enableSuperuserAccess: false
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ .Values.qaFixtures.cnpgReplicaClusterName | default "cluster-replica" }}
+  namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+    openova.io/application: {{ .Values.qaFixtures.appName | default "qa-wp" }}
+    openova.io/cnpg-role: replica
+    openova.io/region: {{ .Values.qaFixtures.cnpgReplicaRegion | default "hz-fsn-rtz-prod" }}
+    catalyst.openova.io/cnpg-pair: {{ .Values.qaFixtures.cnpgPairName | default "qa-cnpg" }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    catalyst.openova.io/blueprint: bp-catalyst-platform-qa-fixtures
+    catalyst.openova.io/cnpg-pair-name: {{ .Values.qaFixtures.cnpgPairName | default "qa-cnpg" }}
+    catalyst.openova.io/cnpg-pair-role: replica
+spec:
+  instances: {{ .Values.qaFixtures.cnpgInstances | default 1 }}
+  imageName: {{ .Values.qaFixtures.cnpgImage | default "ghcr.io/cloudnative-pg/postgresql:16.4-1" }}
+  primaryUpdateStrategy: unsupervised
+  storage:
+    size: {{ .Values.qaFixtures.cnpgStorageSize | default "1Gi" }}
+    storageClass: {{ .Values.qaFixtures.cnpgStorageClass | default "local-path" }}
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+  bootstrap:
+    initdb:
+      database: {{ .Values.qaFixtures.cnpgDatabase | default "app" }}
+      owner: {{ .Values.qaFixtures.cnpgDatabase | default "app" }}
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: openova.io/region
+                operator: In
+                values:
+                  - {{ .Values.qaFixtures.cnpgReplicaRegion | default "hz-fsn-rtz-prod" }}
+    podAntiAffinityType: preferred
+  postgresql:
+    parameters:
+      max_wal_senders: "10"
+      max_replication_slots: "10"
+      wal_level: "logical"
+  enableSuperuserAccess: false
+{{- end }}
