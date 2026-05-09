@@ -83,12 +83,21 @@ export function VerifyPinPage() {
         attemptsRemaining?: number
       }
       if (res.ok && body.ok) {
-        // Success — navigate to the next page (wizard by default).
-        const target = (next as never) ?? ('/wizard' as never)
-        // Hard navigation isn't required here — the cookie is set on
-        // the same origin and TanStack router's beforeLoad guard will
-        // re-poll /whoami when /wizard mounts.
-        navigate({ to: target, replace: true })
+        // Mark the rootRoute auth gate (#1090 cluster A2) as satisfied
+        // BEFORE navigating. The catalyst_session cookie just set is
+        // HttpOnly + invisible to JS, so the gate's hasCatalystSession()
+        // check would otherwise fail and bounce the operator right back
+        // to /login (regression on omantel 2026-05-09).
+        try { sessionStorage.setItem('catalyst:authed', '1') } catch { /* private browsing */ }
+        // Hard navigation so the next page boot reads the cookie via
+        // /whoami fresh and the auth gate sees the marker. Mirrors the
+        // pattern Fix #A (PR #1093) uses on the unauth path.
+        const target = next ?? '/wizard'
+        if (typeof window !== 'undefined') {
+          window.location.replace(target)
+          return
+        }
+        navigate({ to: target as never, replace: true })
         return
       }
       if (res.status === 401 && body.error === 'pin-invalid') {

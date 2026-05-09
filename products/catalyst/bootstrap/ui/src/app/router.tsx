@@ -246,6 +246,13 @@ const authHandoverRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/auth/handover',
   beforeLoad: () => {
+    // The server-side AuthHandover handler has already set the
+    // HttpOnly catalyst_session cookie before redirecting here. Mark
+    // the rootRoute auth gate (#1090 cluster A2) as satisfied so the
+    // next navigation to /dashboard isn't bounced to /login.
+    if (typeof window !== 'undefined') {
+      try { sessionStorage.setItem('catalyst:authed', '1') } catch { /* private */ }
+    }
     throw redirect({ to: '/dashboard' as never, replace: true })
   },
   component: () => null,
