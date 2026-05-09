@@ -8,10 +8,11 @@
 // switchover sequence per docs/SRE.md §2 + docs/MULTI-REGION-DNS.md.
 //
 // K-Cont-1 shipped the binary + chart + CI workflow + skeleton.
-// K-Cont-2 (this slice) replaces the Reconcile body with the full
-// per-CR goroutine + lease state machine + switchover sequencer +
-// NATS audit publisher. K-Cont-3 wires the real lease witness
-// implementations (cloudflare-kv + dns-quorum); K-Cont-4 ships the
+// K-Cont-2 ships the per-CR goroutine + lease state machine +
+// switchover sequencer + NATS audit publisher. K-Cont-3 (this
+// build) wires the real lease witness implementations
+// (cloudflare-kv + dns-quorum) — the impl packages register their
+// Factory at init() time via blank-import below. K-Cont-4 ships the
 // Cloudflare Worker source.
 //
 // Configuration is environment-only — per
@@ -32,6 +33,13 @@
 //	NATS_URL            — for catalyst.audit publishing (e.g. nats://nats.openova-system.svc.cluster.local:4222)
 //	CATALYST_REGION     — host-cluster name THIS controller represents (stamped on Witness.Acquire)
 //	WITNESS_IN_MEMORY   — "true" enables the in-memory witness selector (TEST ONLY; default false)
+//
+// K-Cont-3 wires this:
+//
+//	WITNESS_SECRET_NS   — K8s namespace where lease-witness Secret refs are
+//	                       looked up (CF API token, TSIG key). Default
+//	                       "catalyst-controllers" (mirrors EPIC-3 F's
+//	                       `FederationSecretNamespace`).
 //
 // Per-CR config (lease TTL/renew, witness kind, regions) is read
 // from Continuum CR spec, NEVER env (per INVIOLABLE-PRINCIPLES #4).
@@ -56,11 +64,21 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	"github.com/openova-io/openova/core/controllers/continuum/internal/controller"
 	"github.com/openova-io/openova/core/controllers/continuum/internal/events"
 	"github.com/openova-io/openova/core/controllers/continuum/internal/pdm"
 	"github.com/openova-io/openova/core/controllers/continuum/internal/switchover"
 	"github.com/openova-io/openova/core/controllers/continuum/internal/witness"
+	// K-Cont-3 lease-witness implementations — register their
+	// Factory at init() time so DefaultSelector dispatches them. The
+	// controller does NOT need typed access to either package; the
+	// blank-import is the WIRING — removing it disables the kinds.
+	_ "github.com/openova-io/openova/core/controllers/continuum/internal/witness/cloudflarekv"
+	_ "github.com/openova-io/openova/core/controllers/continuum/internal/witness/dnsquorum"
 )
 
 var scheme = runtime.NewScheme()
@@ -109,12 +127,20 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Witness selector. K-Cont-2 ships ErrNotImplemented for the
-	// real kinds (cloudflare-kv + dns-quorum); K-Cont-3 swaps in
-	// the implementations. The in-memory selector is gated by the
-	// WITNESS_IN_MEMORY env var — TEST ONLY.
+	// Witness selector. K-Cont-3 wires the cloudflare-kv +
+	// dns-quorum impls via blank-import (see top-of-file imports).
+	// The in-memory selector remains gated by the WITNESS_IN_MEMORY
+	// env var — TEST ONLY. The SecretReader resolves CF API tokens
+	// + TSIG keys from K8s Secrets in WITNESS_SECRET_NS (default
+	// "catalyst-controllers", same as EPIC-3 F's federation
+	// secret namespace).
+	witnessSecretNS := env("WITNESS_SECRET_NS", "catalyst-controllers")
 	sel := &witness.DefaultSelector{
 		InMemoryAllowed: envBool("WITNESS_IN_MEMORY", false),
+		SecretReader: &k8sSecretReader{
+			Client:    mgr.GetClient(),
+			Namespace: witnessSecretNS,
+		},
 	}
 
 	// PDM client — when PDM_API_URL is empty, the PDMCommit closure
@@ -206,4 +232,44 @@ func podNamespace() string {
 		return "openova-system"
 	}
 	return string(b)
+}
+
+// k8sSecretReader implements witness.SecretReader by GETting the
+// referenced K8s Secret via the controller-runtime client.
+//
+// Per Inviolable Principle #5 the value bytes stay in memory only
+// until the calling Factory hands them to the wire client (CF bearer
+// token / TSIG key). NEVER log; NEVER persist outside the Secret.
+//
+// Mirrors the EPIC-3 F readClientSecret seam — but lifted to an
+// interface so the witness package doesn't import client-go.
+type k8sSecretReader struct {
+	Client    client.Client
+	Namespace string
+}
+
+// ReadSecret implements witness.SecretReader.
+func (r *k8sSecretReader) ReadSecret(ctx context.Context, secretName, key string) ([]byte, error) {
+	if secretName == "" {
+		return nil, fmt.Errorf("witness/k8sSecretReader: secret name is empty")
+	}
+	if key == "" {
+		return nil, fmt.Errorf("witness/k8sSecretReader: secret key is empty")
+	}
+	ns := r.Namespace
+	if ns == "" {
+		ns = "catalyst-controllers"
+	}
+	var sec corev1.Secret
+	if err := r.Client.Get(ctx, types.NamespacedName{Namespace: ns, Name: secretName}, &sec); err != nil {
+		return nil, fmt.Errorf("witness/k8sSecretReader: get Secret %s/%s: %w", ns, secretName, err)
+	}
+	val, ok := sec.Data[key]
+	if !ok {
+		return nil, fmt.Errorf("witness/k8sSecretReader: Secret %s/%s missing key %q", ns, secretName, key)
+	}
+	if len(val) == 0 {
+		return nil, fmt.Errorf("witness/k8sSecretReader: Secret %s/%s key %q is empty", ns, secretName, key)
+	}
+	return val, nil
 }
