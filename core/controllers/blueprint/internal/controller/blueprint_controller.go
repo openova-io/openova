@@ -57,7 +57,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/yaml"
 
-	"github.com/openova-io/openova/core/controllers/internal/gitea"
+	"github.com/openova-io/openova/core/controllers/pkg/gitea"
 	"github.com/openova-io/openova/core/controllers/blueprint/internal/validate"
 )
 

@@ -28,7 +28,7 @@ import (
 
 	envv1 "github.com/openova-io/openova/core/controllers/environment/api/v1"
 	"github.com/openova-io/openova/core/controllers/environment/internal/controller"
-	"github.com/openova-io/openova/core/controllers/internal/gitea"
+	"github.com/openova-io/openova/core/controllers/pkg/gitea"
 )
 
 var (

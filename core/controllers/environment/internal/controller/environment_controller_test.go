@@ -17,7 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	envv1 "github.com/openova-io/openova/core/controllers/environment/api/v1"
-	"github.com/openova-io/openova/core/controllers/internal/gitea"
+	"github.com/openova-io/openova/core/controllers/pkg/gitea"
 )
 
 // fakeGitea is a deterministic test double for the GiteaClient

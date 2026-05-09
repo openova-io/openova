@@ -2,7 +2,7 @@
 
 Slice CC2 of EPIC-0 (#1095) consolidates the four divergent Gitea HTTP
 clients shipped by the Group C controllers (slices C1-C4) into a single
-shared `core/controllers/internal/gitea` package.
+shared `core/controllers/pkg/gitea` package.
 
 CC1 (#1135) explicitly DEFERRED this consolidation because the four
 `Client` surfaces collide on signature shape and return semantics.
@@ -44,7 +44,7 @@ behavior change.
 
 ## 2. The SUPERSET surface (output)
 
-The shared `core/controllers/internal/gitea/Client` exposes the
+The shared `core/controllers/pkg/gitea/Client` exposes the
 **union** of every operation currently in use. Naming separates Org/Repo
 CRUD from File CRUD so call sites read obviously.
 
@@ -248,3 +248,27 @@ new shared package's `client_test.go` covers:
 - No deploy-manifest changes.
 - No dep-version bumps.
 - No behavior change for any existing call site.
+
+## 6. Promotion to pkg/ (EPIC-2 Slice L, #1097)
+
+EPIC-2 Slice L (catalog-svc, `core/services/catalyst-catalog/`) introduced
+the FIRST consumer of this client OUTSIDE the `core/controllers/` Go module.
+Catalog-svc is a SERVICE not a CONTROLLER and lives in its own go.mod under
+`core/services/catalyst-catalog/`.
+
+Go's `internal/` packaging rule prohibits import from outside the parent
+sub-tree (`core/controllers/`). To preserve "one canonical Gitea client,
+zero per-service variants," CC2 promoted this package from
+`core/controllers/internal/gitea` to `core/controllers/pkg/gitea`.
+
+The 5 Group C controllers were updated atomically in the same PR. No
+behavior change — only the import path.
+
+After this promotion, ANY new Go module under the `openova` repo that
+needs Gitea access imports `github.com/openova-io/openova/core/controllers/pkg/gitea`
+via a `replace` directive (catalog-svc's go.mod uses
+`replace github.com/openova-io/openova/core/controllers => ../../controllers`)
+or a published-module path once the controllers module is tagged.
+
+The `internal/` → `pkg/` move is the canonical signal that this surface
+is a SHARED-LIBRARY contract, not a controllers-private helper.

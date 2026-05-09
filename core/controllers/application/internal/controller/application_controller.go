@@ -60,7 +60,7 @@ import (
 	"k8s.io/client-go/dynamic"
 
 	"github.com/openova-io/openova/core/controllers/application/internal/validate"
-	"github.com/openova-io/openova/core/controllers/internal/gitea"
+	"github.com/openova-io/openova/core/controllers/pkg/gitea"
 	"github.com/openova-io/openova/core/controllers/internal/placement"
 	"github.com/openova-io/openova/core/controllers/internal/render"
 	"github.com/openova-io/openova/core/controllers/internal/semver"

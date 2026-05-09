@@ -1,0 +1,44 @@
+# catalyst-catalog — EPIC-2 Slice L of #1097.
+#
+# Distroless-static final image; non-root UID 65532; size ~25-35 MiB.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4a, this image must be built ONLY
+# by the GitHub Actions pipeline and tagged with the git SHA. Local
+# builds never reach GHCR.
+#
+# Build context: the repository root (so we can COPY the catalyst-catalog
+# tree alongside the unified Gitea client at core/controllers/pkg/gitea
+# referenced via a `replace` directive in catalyst-catalog/go.mod).
+
+FROM golang:1.23-alpine AS build
+WORKDIR /src
+
+# Pre-stage the controllers module (Gitea client + shared helpers).
+# catalyst-catalog/go.mod uses a replace directive pointing at this
+# path, so the source MUST be present before `go mod download` runs.
+COPY core/controllers/go.mod core/controllers/go.sum core/controllers/
+COPY core/controllers/internal/ core/controllers/internal/
+COPY core/controllers/pkg/ core/controllers/pkg/
+
+# Pre-stage the catalog go.mod / go.sum for cached dep resolution.
+COPY core/services/catalyst-catalog/go.mod core/services/catalyst-catalog/go.sum core/services/catalyst-catalog/
+
+WORKDIR /src/core/services/catalyst-catalog
+RUN go mod download
+
+# Now copy the catalog source.
+WORKDIR /src
+COPY core/services/catalyst-catalog/ core/services/catalyst-catalog/
+
+WORKDIR /src/core/services/catalyst-catalog
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -trimpath \
+    -ldflags="-s -w" \
+    -o /out/catalyst-catalog \
+    ./cmd/catalog
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /out/catalyst-catalog /catalyst-catalog
+USER 65532:65532
+EXPOSE 8080
+ENTRYPOINT ["/catalyst-catalog"]

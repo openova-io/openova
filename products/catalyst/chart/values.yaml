@@ -283,6 +283,66 @@ controllers:
     tolerations: []
     affinity: {}
 
+# ─── catalyst-catalog HTTP service (EPIC-2 Slice L, #1097) ───────────────
+# Multi-source Blueprint catalog backed by Gitea (3 sources: public mirror,
+# sovereign-curated, per-Org private). Fed by the unified Gitea client at
+# core/controllers/pkg/gitea (CC2 #1136). REPLACES the per-Org SME catalog
+# per ADR-0001 §4.3 (different scope: SME's was Org-bound; catalyst-catalog
+# is Sovereign-wide multi-source).
+#
+# Default OFF per docs/INVIOLABLE-PRINCIPLES.md (operators flip on per-
+# Sovereign once Gitea Orgs are provisioned). When OFF, helm template
+# emits ZERO catalog-related resources.
+services:
+  catalog:
+    enabled: false
+    image:
+      repository: "ghcr.io/openova-io/openova/catalyst-catalog"
+      # Empty `tag` fail-fasts at render time per Inviolable Principle #4a.
+      # CI stamps the SHA on every push to main via the catalyst-catalog
+      # GitHub Actions workflow.
+      tag: ""
+      pullPolicy: IfNotPresent
+    replicas: 1
+    # Gitea endpoint — empty defaults to in-cluster Service URL.
+    giteaURL: ""
+    # Secret + key holding the Gitea admin access token. Reuses the same
+    # secret as the Group C controllers — one rotation surface.
+    giteaSecretRef: "catalyst-gitea-token"
+    # Per-Org private blueprint repo name. One repo per Org (e.g.
+    # "acme/shared-blueprints").
+    orgPrivateRepo: "shared-blueprints"
+    # Public-mirror Gitea Org (always visible to every caller).
+    publicOrg: "catalog"
+    # Sovereign-curated Gitea Org (always visible to every caller).
+    sovereignOrg: "catalog-sovereign"
+    # Session cookie name (must match catalyst-api's IssueSessionCookie
+    # name; default matches catalyst-api 1.4.x).
+    sessionCookieName: "catalyst_session"
+    # When true, anonymous callers may list public + sovereign-curated
+    # blueprints (no per-Org private). Default false (closed).
+    anonymousReads: false
+    # In-memory LRU cache for blueprint.yaml reads.
+    cache:
+      ttlSeconds: 30
+      capacity: 1024
+    # Gateway API HTTPRoute — exposes /api/v1/catalog on the api.<sov>
+    # hostname. Disable here if the operator prefers to proxy catalog
+    # calls through catalyst-api instead (follow-up).
+    httpRoute:
+      enabled: true
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        cpu: 250m
+        memory: 256Mi
+    env: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+
 # bp-catalyst-platform umbrella values
 #
 # As of 1.1.9 this umbrella ships ONLY the Catalyst-Zero control-plane

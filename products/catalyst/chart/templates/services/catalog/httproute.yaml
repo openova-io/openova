@@ -1,0 +1,60 @@
+{{- /*
+catalyst-catalog HTTPRoute (Gateway API).
+
+Per the EPIC-2 Slice L brief, catalyst-catalog runs BEHIND catalyst-api
+for auth-wiring simplicity (catalyst-api validates the Keycloak JWT
+against JWKS; catalyst-catalog parses the already-validated claims to
+compute per-Org access).
+
+This HTTPRoute exposes catalyst-catalog at:
+
+  https://api.<sovereign>/api/v1/catalog
+  https://api.<sovereign>/api/v1/catalog/{name}
+  https://api.<sovereign>/api/v1/catalog/{name}/versions
+  https://api.<sovereign>/api/v1/catalog/{name}/versions/{version}
+
+…by adding a `/api/v1/catalog` PathPrefix rule that backendRefs to the
+catalyst-catalog Service. The rule is INDEPENDENT of templates/httproute.yaml
+(which routes the api hostname's catch-all to catalyst-api) and is
+attached to the same Gateway parentRef.
+
+Operators who prefer to keep the catalog endpoint behind catalyst-api
+(rather than via a standalone HTTPRoute on the api hostname) can disable
+this template via `.Values.services.catalog.httpRoute.enabled=false`
+and add a proxy rule in catalyst-api instead — that path is left open
+as a follow-up so catalyst-api can do additional auth/audit wrapping.
+*/ -}}
+{{- if and .Values.services.catalog.enabled
+          (or (not (hasKey .Values.services.catalog "httpRoute"))
+              .Values.services.catalog.httpRoute.enabled)
+          .Values.ingress
+          .Values.ingress.gateway
+          .Values.ingress.gateway.enabled }}
+{{- $apiHost := (((.Values.ingress.hosts).api).host) }}
+{{- if $apiHost }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "catalog.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "catalog.labels" (dict "root" .) | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ .Values.ingress.gateway.parentRef.name | default "cilium-gateway" | quote }}
+      namespace: {{ .Values.ingress.gateway.parentRef.namespace | default "kube-system" | quote }}
+      {{- with .Values.ingress.gateway.parentRef.sectionName }}
+      sectionName: {{ . | quote }}
+      {{- end }}
+  hostnames:
+    - {{ $apiHost | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: "/api/v1/catalog"
+      backendRefs:
+        - name: {{ include "catalog.fullname" . }}
+          port: 8080
+{{- end }}
+{{- end }}
