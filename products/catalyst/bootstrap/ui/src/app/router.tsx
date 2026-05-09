@@ -66,6 +66,7 @@ import { JobDetail } from '@/pages/sovereign/JobDetail'
 import { JobsTimeline } from '@/pages/sovereign/JobsTimeline'
 import { Dashboard } from '@/pages/sovereign/Dashboard'
 import { CloudPage } from '@/pages/sovereign/CloudPage'
+import { ResourceDetailRoute } from '@/pages/sovereign/cloud-list/ResourceDetailRoute'
 import { DecommissionPage } from '@/pages/sovereign/DecommissionPage'
 import { UserAccessListPage } from '@/pages/admin/user-access/UserAccessListPage'
 import { UserAccessEditPage } from '@/pages/admin/user-access/UserAccessEditPage'
@@ -567,6 +568,16 @@ const provisionCloudRoute = createRoute({
   },
 })
 
+// EPIC-4 Slice R1 (#1099) — drill-down detail page (mothership tree).
+// URL shape: /provision/$deploymentId/cloud/resource/$kind/$ns/$name/$tab
+// `$ns` is `_` for cluster-scoped resources (matches server-side path).
+const provisionResourceDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/provision/$deploymentId/cloud/resource/$kind/$ns/$name/$tab',
+  component: ResourceDetailRoute,
+  beforeLoad: provisionAuthGuard,
+})
+
 // 301 redirects for the legacy P3 sub-routes. Each one redirects to
 // the consolidated `/cloud?view=…&kind=…` shape and renders nothing
 // itself — tanstack-router runs `beforeLoad` before the component
@@ -969,6 +980,13 @@ const consoleCloudRoute = createRoute({
     return out
   },
 })
+
+// EPIC-4 Slice R1 (#1099) — drill-down detail page (chroot tree).
+const consoleResourceDetailRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/cloud/resource/$kind/$ns/$name/$tab',
+  component: ResourceDetailRoute,
+})
 const consoleUsersRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/users',
@@ -1253,6 +1271,7 @@ const routeTree = rootRoute.addChildren([
   provisionDashboardRoute,
   provisionDecommissionRoute,
   provisionCloudRoute.addChildren(legacyCloudRedirectRoutes),
+  provisionResourceDetailRoute,
   provisionInfrastructureRoute.addChildren([
     provisionInfrastructureIndexRoute,
     ...infraLegacyRedirectRoutes,
@@ -1295,6 +1314,7 @@ const routeTree = rootRoute.addChildren([
     consoleJobsTimelineRoute,
     consoleJobDetailRoute,
     consoleCloudRoute.addChildren(consoleLegacyCloudRedirectRoutes),
+    consoleResourceDetailRoute,
     consoleUsersRoute,
     consoleUsersNewRoute,
     consoleUsersEditRoute,

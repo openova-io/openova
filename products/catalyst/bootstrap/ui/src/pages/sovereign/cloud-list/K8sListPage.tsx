@@ -15,6 +15,8 @@
 import { useMemo } from 'react'
 import { useCloud } from '../CloudPage'
 import type { K8sObject } from '@/widgets/architecture-graph/useK8sCacheStream'
+import { DETECTED_MODE } from '@/shared/lib/detectMode'
+import { resourceDetailHref } from './resource.api'
 
 export interface K8sListColumn {
   /** Column header — short, ≤24 chars. */
@@ -113,7 +115,11 @@ export function K8sListPage({
   // statefulsets / daemonsets / namespaces / nodes all rendered "No X
   // objects" while the graph view (which keeps its own revision-keyed
   // memo) showed full counts.
-  const { k8sSnapshot, k8sStatus, k8sRevision } = useCloud()
+  const { k8sSnapshot, k8sStatus, k8sRevision, deploymentId } = useCloud()
+  const cloudBasePath =
+    DETECTED_MODE.mode === 'sovereign' || !deploymentId
+      ? '/cloud'
+      : `/provision/${deploymentId}/cloud`
 
   const rows = useMemo(() => {
     const out: K8sObject[] = []
@@ -169,11 +175,33 @@ export function K8sListPage({
             <tbody>
               {rows.map((obj, i) => {
                 const id = obj.metadata?.uid ?? `${obj.metadata?.namespace}/${obj.metadata?.name}/${i}`
+                const name = obj.metadata?.name ?? ''
+                const ns = obj.metadata?.namespace ?? ''
+                const href = name
+                  ? resourceDetailHref(cloudBasePath, kind, ns || undefined, name)
+                  : null
+                const onRowClick = () => {
+                  if (!href || typeof window === 'undefined') return
+                  window.location.assign(href)
+                }
                 return (
                   <tr
                     key={id}
-                    className="border-b border-[var(--color-border)] last:border-0"
-                    data-testid={`cloud-${kind}-row-${obj.metadata?.name ?? i}`}
+                    className={
+                      'border-b border-[var(--color-border)] last:border-0 ' +
+                      (href ? 'cursor-pointer hover:bg-[var(--color-bg-3)]' : '')
+                    }
+                    data-testid={`cloud-${kind}-row-${name || i}`}
+                    onClick={onRowClick}
+                    onKeyDown={(e) => {
+                      if (!href) return
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        onRowClick()
+                      }
+                    }}
+                    role={href ? 'link' : undefined}
+                    tabIndex={href ? 0 : undefined}
                   >
                     {columns.map((c) => (
                       <td key={c.header} className="px-3 py-2 text-[var(--color-text)]">

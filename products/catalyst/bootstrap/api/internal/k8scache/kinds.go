@@ -134,6 +134,17 @@ var DefaultKinds = []Kind{
 	// Sensitive=false is correct.
 	{Name: "policyreport", GVR: schema.GroupVersionResource{Group: "wgpolicyk8s.io", Version: "v1alpha2", Resource: "policyreports"}, Namespaced: true},
 	{Name: "clusterpolicyreport", GVR: schema.GroupVersionResource{Group: "wgpolicyk8s.io", Version: "v1alpha2", Resource: "clusterpolicyreports"}, Namespaced: false},
+
+	// EPIC-4 Slice R4 (#1099) — Events panel feed.
+	//
+	// Kubernetes Events live at events.k8s.io/v1 (the modern API; the
+	// legacy core/v1 Events GVR is still served but the new group is
+	// canonical from K8s 1.19+). The Events panel filters Events by
+	// `involvedObject.namespace` + `involvedObject.name` matching the
+	// focused resource — client-side filter happens in the EventsPanel
+	// widget; the server-side stream surface (existing ?fieldSelector=
+	// grammar) supports metadata-level filtering today.
+	{Name: "event", GVR: schema.GroupVersionResource{Group: "events.k8s.io", Version: "v1", Resource: "events"}, Namespaced: true},
 }
 
 // Registry is a runtime-mutable lookup keyed by the short Name. It
