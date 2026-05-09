@@ -375,7 +375,13 @@ spec:
       appName: ${QA_FIXTURES_APP:-qa-wp}
       continuumName: ${QA_CONTINUUM_NAME:-cont-omantel}
       cnpgPairName: ${QA_CNPGPAIR_NAME:-qa-cnpg}
-      primaryRegion: ${QA_PRIMARY_REGION:-fsn1}
+      # 4-segment canonical region label per Application + Environment
+      # CRD validation `^[a-z]+-[a-z]+-[a-z]+-[a-z]+$`. Legacy "fsn1"
+      # rejected at admission and pinned omantel on the prior image SHA
+      # (Fix #38 follow-up — caught after chart 1.4.105 still failed
+      # because the bootstrap-kit's release-config override beat the
+      # chart values.yaml default).
+      primaryRegion: ${QA_PRIMARY_REGION:-hz-fsn-rtz-prod}
       standbyRegion: ${QA_STANDBY_REGION:-hz-hel-rtz-prod}
       pdmZone: ${QA_PDM_ZONE:-openova.io}
       # CNPG Cluster CR fixtures (Fix #37) — single-region by default;
