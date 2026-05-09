@@ -329,7 +329,22 @@ name: bp-catalyst-platform
 #     ScheduledBackup runs succeed instead of failing every minute.
 #   - templates/clusterrole-cutover-driver.yaml — kyverno.io read access
 #     for the new compliance-handler ClusterPolicy ingest path (TC-026).
-version: 1.4.108
+# 1.4.109 (qa-loop iter-8 Fix #40 follow-up #2):
+#   - controllers/{organization,environment}-controller-deployment.yaml:
+#     drop legacy `/api/v1` suffix from CATALYST_GITEA_URL / GITEA_API_URL
+#     defaults. The Gitea client (core/controllers/pkg/gitea/client.go:202)
+#     appends `/api/v1/<endpoint>` itself, so the prior default produced
+#     `http://gitea/api/v1/api/v1/admin/orgs` → 404 on every EnsureOrg /
+#     EnsureRepo call, blocking application-controller from creating per-Org
+#     Gitea repos for any qa-fixtures-seeded Application. Caught live on
+#     omantel after chart 1.4.107 install (qa-wp Application stuck
+#     Pending with reason=GiteaError). application-controller deployment
+#     was already correct — only org + env had the bug.
+#   - bootstrap-kit qaFixtures.cnpgPairName default qa-cnpg → qa-cnpgpair
+#     so the matrix's `kubectl get cnpgpair` stdout contains the literal
+#     "cnpgpair" substring TC-306 asserts on (envsubst override beat the
+#     chart values default fixed in PR #1247).
+version: 1.4.109
 appVersion: 1.4.94
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.

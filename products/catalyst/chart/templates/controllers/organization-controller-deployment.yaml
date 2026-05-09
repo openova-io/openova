@@ -85,7 +85,13 @@ spec:
                   key: client-secret
                   optional: true
             - name: CATALYST_GITEA_URL
-              value: {{ .Values.controllers.organization.giteaURL | default "http://gitea-http.gitea.svc.cluster.local:3000/api/v1" | quote }}
+              # Gitea client (core/controllers/pkg/gitea/client.go) appends
+              # `/api/v1/<endpoint>` to BaseURL — the env value MUST NOT include
+              # `/api/v1` itself or the request URL becomes
+              # `<host>/api/v1/api/v1/<endpoint>` and 404s on EnsureOrg /
+              # EnsureRepo, blocking application-controller from creating per-Org
+              # Gitea repos for any qa-fixtures-seeded Application (Fix #40).
+              value: {{ .Values.controllers.organization.giteaURL | default "http://gitea-http.gitea.svc.cluster.local:3000" | quote }}
             - name: CATALYST_GITEA_TOKEN
               valueFrom:
                 secretKeyRef:

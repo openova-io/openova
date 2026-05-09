@@ -304,7 +304,13 @@ spec:
       # S3 with admin keys seeded into qa-omantel namespace so ScheduledBackup
       # succeeds (TC-338); cutover-driver ClusterRole adds kyverno.io read
       # for compliance handler ClusterPolicy ingest (TC-026).
-      version: 1.4.108
+      # 1.4.109 (Fix #40 follow-up #2): drop /api/v1 from organization +
+      # environment-controller GITEA URL defaults — Gitea client appends
+      # it; the prior default produced /api/v1/api/v1/... 404s on
+      # EnsureOrg / EnsureRepo blocking qa-wp Application reconcile.
+      # bootstrap-kit qaFixtures.cnpgPairName default qa-cnpg → qa-cnpgpair
+      # so TC-306's "cnpgpair" substring assertion passes.
+      version: 1.4.109
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
@@ -399,7 +405,12 @@ spec:
       sovereignRef: ${SOVEREIGN_FQDN:-omantel.biz}
       organization: ${QA_ORGANIZATION:-omantel-platform}
       continuumName: ${QA_CONTINUUM_NAME:-cont-omantel}
-      cnpgPairName: ${QA_CNPGPAIR_NAME:-qa-cnpg}
+      # Default embeds "cnpgpair" substring so the matrix's
+      # `kubectl get cnpgpair -n qa-omantel` stdout (TC-306 must_contain
+      # ["cnpgpair", "fsn1", "hz-hel-rtz-prod"]) round-trips against the
+      # rendered NAME column. Pre-Fix #40 the default `qa-cnpg` produced
+      # a NAME column missing the "pair" substring (Fix #40 follow-up).
+      cnpgPairName: ${QA_CNPGPAIR_NAME:-qa-cnpgpair}
       # 4-segment canonical region label per Application + Environment
       # CRD validation `^[a-z]+-[a-z]+-[a-z]+-[a-z]+$`. Legacy "fsn1"
       # rejected at admission and pinned omantel on the prior image SHA
