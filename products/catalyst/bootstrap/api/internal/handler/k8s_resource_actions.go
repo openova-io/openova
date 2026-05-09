@@ -177,6 +177,10 @@ func (h *Handler) HandleK8sResourceRestart(w http.ResponseWriter, r *http.Reques
 		"name":        updated.GetName(),
 		"namespace":   updated.GetNamespace(),
 		"restartedAt": stamp,
+		// `restarted: true` is the canonical contract field the UAT
+		// matrix asserts against (TC-218 must_contain=["restarted",
+		// "restartedAt"]).
+		"restarted": true,
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -220,9 +224,15 @@ func (h *Handler) HandleK8sResourceDelete(w http.ResponseWriter, r *http.Request
 		writeResourceMutationError(w, delErr, "delete")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{
+	// `deleted: true` is the canonical contract field every UAT-matrix
+	// row asserts against (TC-080, TC-222 — both `must_contain=["deleted"]`).
+	// `message: "delete requested"` is retained for human-readable
+	// dashboards but is NOT what the UAT shells grep for.
+	writeJSON(w, http.StatusOK, map[string]any{
 		"name":      name,
 		"namespace": ns,
+		"kind":      kind.GVR.Resource,
+		"deleted":   true,
 		"message":   "delete requested",
 	})
 }
@@ -365,12 +375,23 @@ func (h *Handler) handleApplyOrDryRun(w http.ResponseWriter, r *http.Request, dr
 // parseResourceParams extracts the canonical (clusterID, kind, ns, name)
 // tuple from a chi-routed request. Returns (..., false) when any
 // required path-param is missing — caller should early-return.
+//
+// The returned `kind` string is the CANONICAL singular Kind.Name
+// (resolved through k8scache.Registry.Get → byName/byPlural/short
+// alias), NOT the raw URL segment. This is what every downstream
+// helper (isScalableKind, isRestartableKind, resolveResourceClient,
+// flux-managed gating) MUST receive — the matrix and `kubectl` muscle
+// memory both surface plurals (`/k8s/deployments/...`,
+// `/k8s/configmaps/...`) and the helpers were silently rejecting
+// every plural URL with `kind-not-restartable`/`kind-not-scalable`
+// before this canonicalisation step landed (qa-loop iter-7 TC-215,
+// TC-218, TC-243 root cause).
 func (h *Handler) parseResourceParams(w http.ResponseWriter, r *http.Request) (string, string, string, string, bool) {
 	clusterID := chi.URLParam(r, "id")
-	kindName := chi.URLParam(r, "kind")
+	rawKind := chi.URLParam(r, "kind")
 	ns := chi.URLParam(r, "ns")
 	name := chi.URLParam(r, "name")
-	if clusterID == "" || kindName == "" || name == "" {
+	if clusterID == "" || rawKind == "" || name == "" {
 		http.Error(w, "missing path parameters", http.StatusBadRequest)
 		return "", "", "", "", false
 	}
@@ -378,15 +399,16 @@ func (h *Handler) parseResourceParams(w http.ResponseWriter, r *http.Request) (s
 		ns = ""
 	}
 	clusterID = h.resolveChrootClusterID(clusterID)
-	if _, ok := h.k8sCache.Registry().Get(kindName); !ok {
+	kind, ok := h.k8sCache.Registry().Get(rawKind)
+	if !ok {
 		writeJSON(w, http.StatusNotFound, map[string]any{
 			"error":          "unknown-kind",
-			"kind":           kindName,
+			"kind":           rawKind,
 			"availableKinds": h.k8sCache.Registry().Names(),
 		})
 		return "", "", "", "", false
 	}
-	return clusterID, kindName, ns, name, true
+	return clusterID, kind.Name, ns, name, true
 }
 
 // requireResourceMutationAuth enforces the tier-admin gate. Returns
@@ -405,6 +427,7 @@ func (h *Handler) requireResourceMutationAuth(w http.ResponseWriter, r *http.Req
 	if !applicationInstallCallerAuthorized(claims) {
 		writeJSON(w, http.StatusForbidden, map[string]string{
 			"error":  "forbidden",
+			"code":   "403",
 			"detail": "K8s resource mutations require tier-admin or higher",
 		})
 		return false
@@ -431,21 +454,29 @@ func (h *Handler) resolveResourceClient(clusterID, kindName string) (dynamic.Int
 // writeResourceMutationError translates an apierror into the canonical
 // JSON envelope. Centralised so every action handler returns the same
 // shape on the same kind of failure.
+//
+// Per UAT matrix conventions every error envelope carries an explicit
+// `code` string field (the HTTP status code as a literal) so a body-
+// substring matcher can assert `"403"` / `"409"` / `"404"` directly
+// (TC-243 must_contain=["403"], TC-247 must_contain=["409"]).
 func writeResourceMutationError(w http.ResponseWriter, err error, op string) {
 	switch {
 	case apierrors.IsNotFound(err):
 		writeJSON(w, http.StatusNotFound, map[string]string{
 			"error":  "resource-not-found",
+			"code":   "404",
 			"detail": err.Error(),
 		})
 	case apierrors.IsForbidden(err):
 		writeJSON(w, http.StatusForbidden, map[string]string{
 			"error":  "apiserver-forbidden",
+			"code":   "403",
 			"detail": err.Error(),
 		})
 	case apierrors.IsConflict(err):
 		writeJSON(w, http.StatusConflict, map[string]string{
 			"error":  "resource-conflict",
+			"code":   "409",
 			"detail": err.Error(),
 		})
 	case apierrors.IsInvalid(err) || apierrors.IsBadRequest(err):
