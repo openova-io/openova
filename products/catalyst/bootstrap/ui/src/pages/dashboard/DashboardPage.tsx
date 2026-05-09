@@ -1,61 +1,46 @@
+/**
+ * DashboardPage — multi-Sovereign fleet view (EPIC-6 Slice U-Fleet-1,
+ * #1101).
+ *
+ * Replaces the prior MOCK_DEPLOYMENTS card list with a live
+ * TanStack-Query-backed grid of `SovereignCard`s. Each card self-fetches
+ * its per-Sov rollup so the parent `useFleet` query only carries the
+ * top-level Sovereign list (cheap PVC walk on the server side).
+ *
+ * Empty state: when zero Sovereigns are returned, render the
+ * "No Sovereigns provisioned yet — [ + Add Sovereign ]" prompt
+ * deep-linking to `/wizard`.
+ *
+ * Per the brief:
+ *   - Layout: responsive grid (sm:1, md:2, lg:3 columns)
+ *   - Cross-Sovereign view link surfaced in the header so the operator
+ *     can pivot from "by Sovereign" to "by Application".
+ *   - Pagination passthrough — for now the dashboard requests pageSize
+ *     25 (one screen of cards). Larger pageSize is supported by the
+ *     server (capped at 50) and a future "Show more" affordance can
+ *     trigger a re-fetch.
+ *
+ * Per docs/INVIOLABLE-PRINCIPLES.md:
+ *   #1 (target-state) — ships the live + cross-Sov + empty paths in
+ *      one cut.
+ *   #4 (never hardcode) — every URL via API_BASE / fleet.api.ts.
+ */
+
 import { motion } from 'framer-motion'
-import { Plus, Server, Activity, Clock, AlertCircle } from 'lucide-react'
+import { Plus, Server, Layers, AlertCircle, RefreshCw } from 'lucide-react'
 import { Link } from '@tanstack/react-router'
 import { Button } from '@/shared/ui/button'
-import { Badge } from '@/shared/ui/badge'
 import { Card, CardContent } from '@/shared/ui/card'
-
-// Mock data — will be replaced by TanStack Query + API
-const MOCK_DEPLOYMENTS = [
-  {
-    id: 'd-001',
-    name: 'hz-fsn-rtz-prod',
-    org: 'acme-corp',
-    provider: 'Hetzner',
-    region: 'Falkenstein',
-    status: 'healthy' as const,
-    nodes: 2,
-    components: 14,
-    createdAt: '2026-03-18T10:30:00Z',
-  },
-  {
-    id: 'd-002',
-    name: 'hz-hel-rtz-prod',
-    org: 'acme-corp',
-    provider: 'Hetzner',
-    region: 'Helsinki',
-    status: 'healthy' as const,
-    nodes: 2,
-    components: 14,
-    createdAt: '2026-03-18T10:45:00Z',
-  },
-  {
-    id: 'd-003',
-    name: 'hz-fsn-rtz-dev',
-    org: 'acme-corp',
-    provider: 'Hetzner',
-    region: 'Falkenstein',
-    status: 'provisioning' as const,
-    nodes: 1,
-    components: 6,
-    createdAt: '2026-03-19T09:00:00Z',
-  },
-]
-
-const STATUS_CONFIG = {
-  healthy: { label: 'Healthy', variant: 'success' as const, icon: Activity },
-  provisioning: { label: 'Provisioning', variant: 'info' as const, icon: Clock },
-  degraded: { label: 'Degraded', variant: 'warning' as const, icon: AlertCircle },
-  failed: { label: 'Failed', variant: 'error' as const, icon: AlertCircle },
-  pending: { label: 'Pending', variant: 'default' as const, icon: Clock },
-  destroying: { label: 'Destroying', variant: 'warning' as const, icon: Clock },
-}
+import { useFleet } from '@/lib/useFleet'
+import { SovereignCard } from '@/widgets/fleet/SovereignCard'
 
 function StatCard({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
   return (
     <Card>
       <CardContent className="pt-5">
-        <p className="text-xs text-[oklch(45%_0.01_250)] uppercase tracking-wider font-medium">{label}</p>
+        <p className="text-xs text-[oklch(45%_0.01_250)] uppercase tracking-wider font-medium">
+          {label}
+        </p>
         <p className="mt-1 text-2xl font-bold text-[oklch(92%_0.01_250)] tabular-nums">{value}</p>
         {sub && <p className="mt-0.5 text-xs text-[oklch(40%_0.01_250)]">{sub}</p>}
       </CardContent>
@@ -64,30 +49,41 @@ function StatCard({ label, value, sub }: { label: string; value: string | number
 }
 
 export function DashboardPage() {
-  const healthy = MOCK_DEPLOYMENTS.filter((d) => d.status === 'healthy').length
-  const totalNodes = MOCK_DEPLOYMENTS.reduce((s, d) => s + d.nodes, 0)
+  const fleet = useFleet({ pageSize: 25 })
+  const sovereigns = fleet.data?.sovereigns ?? []
+  const total = fleet.data?.total ?? 0
+  const healthy = sovereigns.filter((s) => s.health === 'green').length
+  const failed = sovereigns.filter((s) => s.health === 'red').length
 
   return (
-    <div className="flex flex-col gap-8 p-8 max-w-5xl mx-auto">
+    <div className="flex flex-col gap-8 p-8 max-w-6xl mx-auto" data-testid="dashboard-page">
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
-        className="flex items-start justify-between gap-4"
+        className="flex items-start justify-between gap-4 flex-wrap"
       >
         <div>
-          <h1 className="text-xl font-semibold text-[oklch(92%_0.01_250)]">Deployments</h1>
+          <h1 className="text-xl font-semibold text-[oklch(92%_0.01_250)]">Sovereign Fleet</h1>
           <p className="mt-1 text-sm text-[oklch(50%_0.01_250)]">
-            Manage your OpenOva clusters across providers and regions.
+            Manage every OpenOva Sovereign across providers, regions, and Organizations.
           </p>
         </div>
-        <Link to="/wizard">
-          <Button size="md">
-            <Plus className="h-4 w-4" />
-            New deployment
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link to={'/dashboard/applications' as never} data-testid="dashboard-cross-sov-link">
+            <Button variant="secondary" size="md">
+              <Layers className="h-4 w-4" />
+              Applications view
+            </Button>
+          </Link>
+          <Link to="/wizard">
+            <Button size="md">
+              <Plus className="h-4 w-4" />
+              New Sovereign
+            </Button>
+          </Link>
+        </div>
       </motion.div>
 
       {/* Stats */}
@@ -97,89 +93,78 @@ export function DashboardPage() {
         transition={{ duration: 0.3, delay: 0.05 }}
         className="grid grid-cols-2 sm:grid-cols-4 gap-4"
       >
-        <StatCard label="Total" value={MOCK_DEPLOYMENTS.length} sub="deployments" />
-        <StatCard label="Healthy" value={healthy} sub={`of ${MOCK_DEPLOYMENTS.length}`} />
-        <StatCard label="Total nodes" value={totalNodes} sub="across all clusters" />
-        <StatCard label="Provider" value="Hetzner" sub="1 active provider" />
+        <StatCard label="Total" value={total} sub="Sovereigns" />
+        <StatCard label="Healthy" value={healthy} sub={`of ${sovereigns.length}`} />
+        <StatCard label="Failed" value={failed} sub="needs attention" />
+        <StatCard
+          label="Page"
+          value={`${fleet.data?.page ?? 1} of ${Math.max(
+            1,
+            Math.ceil(total / Math.max(1, fleet.data?.pageSize ?? 25)),
+          )}`}
+        />
       </motion.div>
 
-      {/* Deployment list */}
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3, delay: 0.1 }}
-        className="flex flex-col gap-3"
-      >
-        <h2 className="text-sm font-semibold text-[oklch(60%_0.01_250)] uppercase tracking-wider">
-          Clusters
-        </h2>
-
-        {MOCK_DEPLOYMENTS.map((d, i) => {
-          const config = STATUS_CONFIG[d.status]
-          const StatusIcon = config.icon
-          return (
-            <motion.div
-              key={d.id}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.25, delay: 0.12 + i * 0.05 }}
-            >
-              <Card className="hover:border-[oklch(28%_0.02_250)] transition-colors duration-150 cursor-pointer">
-                <CardContent className="flex items-center gap-4 py-4">
-                  {/* Status dot */}
-                  <div className="shrink-0">
-                    <div
-                      className={`flex h-9 w-9 items-center justify-center rounded-[--radius-md] ${
-                        d.status === 'healthy' ? 'bg-[--color-success]/10' :
-                        d.status === 'provisioning' ? 'bg-[--color-info]/10' :
-                        'bg-[--color-surface-2]'
-                      }`}
-                    >
-                      <Server className={`h-4 w-4 ${
-                        d.status === 'healthy' ? 'text-[--color-success]' :
-                        d.status === 'provisioning' ? 'text-[--color-info]' :
-                        'text-[oklch(50%_0.01_250)]'
-                      }`} />
-                    </div>
-                  </div>
-
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="text-sm font-semibold text-[oklch(92%_0.01_250)] font-mono">{d.name}</p>
-                      <Badge variant={config.variant}>
-                        <StatusIcon className="h-3 w-3" />
-                        {config.label}
-                      </Badge>
-                    </div>
-                    <p className="mt-0.5 text-xs text-[oklch(45%_0.01_250)]">
-                      {d.provider} · {d.region} · {d.nodes} node{d.nodes !== 1 ? 's' : ''} · {d.components} components
-                    </p>
-                  </div>
-
-                  {/* Actions */}
-                  <div className="shrink-0">
-                    <Button variant="secondary" size="sm">Manage</Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </motion.div>
-          )
-        })}
-
-        {MOCK_DEPLOYMENTS.length === 0 && (
-          <div className="flex flex-col items-center justify-center gap-4 py-20 text-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[--color-surface-2]">
-              <Server className="h-6 w-6 text-[oklch(40%_0.01_250)]" />
-            </div>
-            <div>
-              <p className="font-medium text-[oklch(70%_0.01_250)]">No deployments yet</p>
-              <p className="mt-1 text-sm text-[oklch(45%_0.01_250)]">Provision your first cluster to get started.</p>
-            </div>
-            <Link to="/wizard"><Button>New deployment</Button></Link>
+      {/* Sovereign card grid */}
+      {fleet.isError ? (
+        <div
+          data-testid="dashboard-error"
+          className="flex flex-col items-center justify-center gap-4 py-16 text-center"
+        >
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[--color-error]/10">
+            <AlertCircle className="h-6 w-6 text-[--color-error]" />
           </div>
-        )}
-      </motion.div>
+          <div>
+            <p className="font-medium text-[oklch(75%_0.01_250)]">Failed to load fleet</p>
+            <p className="mt-1 text-sm text-[oklch(45%_0.01_250)]">
+              {fleet.error instanceof Error ? fleet.error.message : 'Unknown error'}
+            </p>
+          </div>
+          <Button variant="secondary" onClick={() => fleet.refetch()}>
+            <RefreshCw className="h-4 w-4" />
+            Retry
+          </Button>
+        </div>
+      ) : sovereigns.length === 0 && !fleet.isLoading ? (
+        <EmptyState />
+      ) : (
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, delay: 0.1 }}
+          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
+          data-testid="dashboard-sovereign-grid"
+        >
+          {sovereigns.map((s) => (
+            <SovereignCard key={s.id} sovereign={s} />
+          ))}
+        </motion.div>
+      )}
+    </div>
+  )
+}
+
+function EmptyState() {
+  return (
+    <div
+      data-testid="dashboard-empty-state"
+      className="flex flex-col items-center justify-center gap-4 py-20 text-center"
+    >
+      <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[--color-surface-2]">
+        <Server className="h-6 w-6 text-[oklch(40%_0.01_250)]" />
+      </div>
+      <div>
+        <p className="font-medium text-[oklch(75%_0.01_250)]">No Sovereigns provisioned yet</p>
+        <p className="mt-1 text-sm text-[oklch(45%_0.01_250)]">
+          Provision your first Sovereign to start managing applications.
+        </p>
+      </div>
+      <Link to="/wizard">
+        <Button>
+          <Plus className="h-4 w-4" />
+          Add Sovereign
+        </Button>
+      </Link>
     </div>
   )
 }

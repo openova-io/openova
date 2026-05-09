@@ -1,0 +1,215 @@
+/**
+ * SovereignCard — per-Sovereign card on the new live multi-Sov
+ * dashboard (EPIC-6 Slice U-Fleet-2, #1101).
+ *
+ * Renders:
+ *   - Sovereign FQDN (heading) + provider chip
+ *   - Health badge (green/yellow/red/unknown — palette in fleet.api.ts)
+ *   - Applications count (total + active + failing chips)
+ *   - Regions list (chip per region — derived from per-Sov summary)
+ *   - Alerts badge (placeholder — 0 today; EPIC-1 score aggregator
+ *     follow-up will populate)
+ *   - "Last activity" timestamp (most recent App creation, RFC3339)
+ *
+ * Click → navigates to that Sovereign's chroot console
+ * (`https://console.<sov.fqdn>/dashboard`). For test environments
+ * without a real FQDN, falls back to the mothership's per-deployment
+ * provision URL via `sovereignChrootURL`.
+ *
+ * Per docs/INVIOLABLE-PRINCIPLES.md #4 every URL flows through
+ * fleet.api.ts (single source of palette + URL truth).
+ */
+
+import { Server, Activity, AlertCircle, Globe2, Layers } from 'lucide-react'
+import { Card, CardContent } from '@/shared/ui/card'
+import { Badge } from '@/shared/ui/badge'
+import {
+  type SovereignSummary,
+  type SovereignDetail,
+  healthBadgeColor,
+  healthLabel,
+  sovereignChrootURL,
+} from '@/lib/fleet.api'
+import { useFleetSovereignSummary } from '@/lib/useFleet'
+
+export interface SovereignCardProps {
+  sovereign: SovereignSummary
+  /**
+   * Test seam — when supplied, the card uses this detail directly and
+   * skips its own fetch. Production always omits and the card runs its
+   * own per-Sov summary query (TanStack Query dedups so a parent that
+   * also calls useFleetSovereignSummary pays one fetch).
+   */
+  detailOverride?: SovereignDetail
+  /**
+   * Optional click override. Default behavior: navigates to the
+   * Sovereign's chroot console URL via window.location. The override
+   * lets parent pages intercept (e.g. for analytics).
+   */
+  onClick?: () => void
+}
+
+/**
+ * SovereignCard — read-only fleet card. Self-fetches per-Sov detail
+ * via useFleetSovereignSummary unless `detailOverride` is supplied.
+ */
+export function SovereignCard({ sovereign, detailOverride, onClick }: SovereignCardProps) {
+  const enabled = !detailOverride
+  const detailQuery = useFleetSovereignSummary(sovereign.id, enabled)
+  const detail = detailOverride ?? detailQuery.data
+
+  const isLoading = !detail && detailQuery.isLoading
+
+  const handleClick = () => {
+    if (onClick) {
+      onClick()
+      return
+    }
+    if (typeof window !== 'undefined') {
+      window.location.href = sovereignChrootURL(sovereign)
+    }
+  }
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      handleClick()
+    }
+  }
+
+  return (
+    <Card
+      role="button"
+      tabIndex={0}
+      onClick={handleClick}
+      onKeyDown={onKeyDown}
+      data-testid={`sovereign-card-${sovereign.id}`}
+      className="hover:border-[oklch(28%_0.02_250)] transition-colors duration-150 cursor-pointer focus:outline-none focus:ring-2 focus:ring-[--color-brand-500]/40"
+    >
+      <CardContent className="flex flex-col gap-3 p-5">
+        {/* Header — FQDN + health badge */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="shrink-0 flex h-8 w-8 items-center justify-center rounded-[--radius-md] bg-[--color-surface-2]">
+              <Server className="h-4 w-4 text-[oklch(60%_0.01_250)]" />
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-sm font-semibold text-[oklch(92%_0.01_250)] font-mono truncate">
+                {sovereign.fqdn || sovereign.id}
+              </h3>
+              {sovereign.providerType && (
+                <p className="mt-0.5 text-xs text-[oklch(45%_0.01_250)]">
+                  {sovereign.providerType}
+                  {sovereign.region ? ` · ${sovereign.region}` : ''}
+                </p>
+              )}
+            </div>
+          </div>
+          <span
+            data-testid={`sovereign-card-health-${sovereign.id}`}
+            className={
+              'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium border ' +
+              healthBadgeColor(sovereign.health)
+            }
+          >
+            <Activity className="h-3 w-3" />
+            {healthLabel(sovereign.health)}
+          </span>
+        </div>
+
+        {/* Body — metrics row */}
+        <div className="grid grid-cols-3 gap-2 text-center">
+          <Metric
+            label="Apps"
+            value={isLoading ? '…' : String(detail?.applications.total ?? 0)}
+            sub={
+              detail
+                ? `${detail.applications.active} active · ${detail.applications.failing} failing`
+                : ''
+            }
+            icon={<Layers className="h-3.5 w-3.5" />}
+          />
+          <Metric
+            label="Orgs"
+            value={isLoading ? '…' : String(detail?.orgs ?? 0)}
+            icon={<Globe2 className="h-3.5 w-3.5" />}
+          />
+          <Metric
+            label="Alerts"
+            value={isLoading ? '…' : String(detail?.alerts ?? 0)}
+            tone={detail && detail.alerts > 0 ? 'error' : 'muted'}
+            icon={<AlertCircle className="h-3.5 w-3.5" />}
+          />
+        </div>
+
+        {/* Regions chips */}
+        <div className="flex flex-wrap gap-1.5">
+          {(detail?.regions ?? []).length === 0 ? (
+            <span className="text-xs text-[oklch(40%_0.01_250)]">No regions reported</span>
+          ) : (
+            (detail?.regions ?? []).map((r) => (
+              <Badge key={r} variant="default" data-testid={`sovereign-card-region-${r}`}>
+                {r}
+              </Badge>
+            ))
+          )}
+        </div>
+
+        {/* Footer — last activity */}
+        {detail?.lastActivity && (
+          <p className="text-xs text-[oklch(45%_0.01_250)]">
+            Last activity:{' '}
+            <span className="text-[oklch(60%_0.01_250)]">{formatRelative(detail.lastActivity)}</span>
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+/* ── Internal helpers ─────────────────────────────────────────────── */
+
+function Metric({
+  label,
+  value,
+  sub,
+  tone = 'default',
+  icon,
+}: {
+  label: string
+  value: string
+  sub?: string
+  tone?: 'default' | 'muted' | 'error'
+  icon?: React.ReactNode
+}) {
+  const colorMain =
+    tone === 'error'
+      ? 'text-[--color-error]'
+      : tone === 'muted'
+        ? 'text-[oklch(60%_0.01_250)]'
+        : 'text-[oklch(92%_0.01_250)]'
+  return (
+    <div className="rounded-[--radius-md] bg-[--color-surface-2] py-2.5 px-2 flex flex-col items-center">
+      <p className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-[oklch(50%_0.01_250)]">
+        {icon}
+        {label}
+      </p>
+      <p className={`mt-0.5 text-lg font-semibold tabular-nums ${colorMain}`}>{value}</p>
+      {sub && <p className="text-[10px] text-[oklch(40%_0.01_250)] truncate">{sub}</p>}
+    </div>
+  )
+}
+
+function formatRelative(rfc3339: string): string {
+  try {
+    const t = new Date(rfc3339).getTime()
+    if (!t) return rfc3339
+    const dt = (Date.now() - t) / 1000
+    if (dt < 60) return 'just now'
+    if (dt < 3600) return `${Math.floor(dt / 60)}m ago`
+    if (dt < 86400) return `${Math.floor(dt / 3600)}h ago`
+    return `${Math.floor(dt / 86400)}d ago`
+  } catch {
+    return rfc3339
+  }
+}

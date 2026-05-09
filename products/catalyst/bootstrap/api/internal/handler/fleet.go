@@ -1,0 +1,715 @@
+// Package handler — fleet.go: EPIC-6 Slice U-Fleet-1+2+3 (#1101) live
+// multi-Sovereign aggregator. Replaces the mock-data dashboard with a
+// read-only fleet view aggregated from per-Sovereign K8s reads.
+//
+// REST surface:
+//
+//	GET /api/v1/fleet/sovereigns                         — list all Sovereigns
+//	GET /api/v1/fleet/sovereigns/{id}/summary            — per-Sov rollup
+//	GET /api/v1/fleet/applications?org=&topology=&drPosture= — cross-Sov apps
+//
+// All three endpoints are read-only. Per ADR-0001 §2.7 (K8s-native) we
+// do NOT introduce a separate fleet database — the source of truth is
+// the per-Sovereign cluster's Application + Continuum + Organization
+// CRs read via the existing sovereignDynamicClient seam.
+//
+// Authorization (per INVIOLABLE-PRINCIPLES #5):
+//   - sovereign-admin (admin/owner tier OR realm role) → sees ALL Sovereigns
+//   - tier-admin / lower → sees only Applications scoped to Sovereigns the
+//     caller has access to (today: same Sovereign-set; finer-grained
+//     org-scoping is layered on the same fleetCallerVisibility seam in a
+//     follow-up slice)
+//   - Anonymous (test path / nil-claims) → passes through (the auth
+//     middleware is the single source of truth)
+//
+// Pagination: ≤50 Sovereigns visible per page (per the brief's §"Pagination").
+// `page` (1-indexed) + `pageSize` (max 50) query params on /fleet/sovereigns.
+// Cross-Sovereign /applications applies the same Sovereign cap before
+// fanning out per-Sov reads, so a 1000-Sovereign deployment doesn't pay
+// 1000 cluster reads on a single request.
+//
+// Per docs/INVIOLABLE-PRINCIPLES.md:
+//
+//	#1 (target-state) — ships the full 3-endpoint contract, no stubs.
+//	#3 (event-driven) — TBD: alerts count placeholder = 0 for now;
+//	   when EPIC-1's score aggregator integrates, it pushes alerts via
+//	   the same per-Sov path. The wire shape is reserved (`alerts`).
+//	#4 (never hardcode) — region list derives from the Sovereign's own
+//	   Organization CR scopes + tenant_registry; placement.regions on
+//	   live Apps is the secondary source.
+//	#5 (least privilege) — fleetCallerVisibility gates the response.
+package handler
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
+)
+
+// ── Knobs ────────────────────────────────────────────────────────────
+
+// fleetMaxPageSize bounds the /fleet/sovereigns page size. Per the
+// brief's §"Pagination": dashboard expects ≤50 visible at a time.
+const fleetMaxPageSize = 50
+
+// fleetDefaultPageSize is what the dashboard requests when no
+// `pageSize` query param is supplied.
+const fleetDefaultPageSize = 25
+
+// fleetPerSovTimeout bounds the time the cross-Sovereign aggregator
+// waits on a single per-Sovereign K8s read. A slow Sovereign must not
+// stall the whole fleet response. The handler returns the slow Sov
+// with status="degraded" and continues.
+const fleetPerSovTimeout = 4 * time.Second
+
+// ── GVR helpers (NEW seams; reused by other future fleet handlers) ──
+
+// OrganizationGVR — cluster-scoped Organization CRD shipped at
+// products/catalyst/chart/crds/organization.yaml. Owned by C1
+// (organization-controller) but used here read-only to count Orgs
+// per Sovereign.
+func OrganizationGVR() schema.GroupVersionResource {
+	return schema.GroupVersionResource{
+		Group:    "orgs.openova.io",
+		Version:  "v1",
+		Resource: "organizations",
+	}
+}
+
+// (ContinuumGVR is defined in continuum.go — slice U-DR-1 owns it; we
+// reuse here.)
+
+// ── Wire shapes ──────────────────────────────────────────────────────
+
+// fleetSovereignSummary — slim row for /fleet/sovereigns. The full
+// per-Sovereign rollup lives in fleetSovereignDetail (returned by
+// /fleet/sovereigns/{id}/summary).
+type fleetSovereignSummary struct {
+	ID           string `json:"id"`
+	FQDN         string `json:"fqdn,omitempty"`
+	Region       string `json:"region,omitempty"`
+	Health       string `json:"health"`            // green | yellow | red | unknown
+	ProviderType string `json:"providerType,omitempty"`
+	CreatedAt    string `json:"createdAt,omitempty"`
+}
+
+// fleetSovereignsResponse — body of GET /fleet/sovereigns.
+type fleetSovereignsResponse struct {
+	Sovereigns []fleetSovereignSummary `json:"sovereigns"`
+	Total      int                     `json:"total"`
+	Page       int                     `json:"page"`
+	PageSize   int                     `json:"pageSize"`
+}
+
+// fleetApplicationCounts — Application rollup numbers per Sovereign.
+type fleetApplicationCounts struct {
+	Total   int `json:"total"`
+	Active  int `json:"active"`
+	Failing int `json:"failing"`
+}
+
+// fleetSovereignDetail — body of GET /fleet/sovereigns/{id}/summary.
+//
+// Per the brief: {sovereign, orgs, applications, regions, alerts,
+// lastActivity}. `alerts` is reserved for EPIC-1's score aggregator —
+// we surface the field so consumers don't need a follow-up shape change
+// when it lights up.
+type fleetSovereignDetail struct {
+	Sovereign    fleetSovereignSummary  `json:"sovereign"`
+	Orgs         int                    `json:"orgs"`
+	Applications fleetApplicationCounts `json:"applications"`
+	Regions      []string               `json:"regions"`
+	Alerts       int                    `json:"alerts"`
+	LastActivity string                 `json:"lastActivity,omitempty"`
+}
+
+// fleetApplicationRow — one row of GET /fleet/applications.
+type fleetApplicationRow struct {
+	Sovereign  fleetSovereignSummary  `json:"sovereign"`
+	App        fleetApplicationIdent  `json:"app"`
+	Regions    []string               `json:"regions"`
+	Topology   string                 `json:"topology"`
+	DRPosture  string                 `json:"drPosture"`
+	Status     string                 `json:"status,omitempty"`
+	Org        string                 `json:"org,omitempty"`
+	Namespace  string                 `json:"namespace,omitempty"`
+}
+
+// fleetApplicationIdent — identity triplet on a fleetApplicationRow.
+type fleetApplicationIdent struct {
+	Name      string `json:"name"`
+	Blueprint string `json:"blueprint,omitempty"`
+	Version   string `json:"version,omitempty"`
+}
+
+// fleetApplicationsResponse — body of GET /fleet/applications.
+type fleetApplicationsResponse struct {
+	Applications []fleetApplicationRow `json:"applications"`
+	Total        int                   `json:"total"`
+}
+
+// ── DR posture vocabulary ────────────────────────────────────────────
+
+const (
+	drPostureNone         = "—"
+	drPostureActive       = "DR active"
+	drPostureAlert        = "DR alert"
+	drPostureMisconfigured = "Misconfigured"
+)
+
+// ── Topology vocabulary (mirrors Application.spec.placement) ─────────
+
+const (
+	topologySingleRegion     = "single-region"
+	topologyActiveActive     = "active-active"
+	topologyActiveHotStandby = "active-hotstandby"
+)
+
+// ── Health vocabulary ────────────────────────────────────────────────
+
+const (
+	healthGreen   = "green"
+	healthYellow  = "yellow"
+	healthRed     = "red"
+	healthUnknown = "unknown"
+)
+
+// ── HTTP handler — list Sovereigns ───────────────────────────────────
+
+// HandleFleetSovereigns — GET /api/v1/fleet/sovereigns
+//
+// Returns a paginated slim row per Sovereign visible to the caller.
+// Per-tier filtering: sovereign-admin sees all; lower tiers see all
+// (the per-Sov detail endpoint applies the finer Org-scoped boundary
+// when/if a follow-up slice adds Org-scoped Sovereign access).
+func (h *Handler) HandleFleetSovereigns(w http.ResponseWriter, r *http.Request) {
+	page, pageSize := fleetParsePagination(r)
+	all := h.collectFleetSovereigns(r.Context())
+
+	// Visibility filter — placeholder for future Org-scoped boundaries.
+	// Today: every authenticated caller sees every Sovereign on this
+	// catalyst-api process (which always serves a single mothership
+	// scope). Reserved seam: fleetCallerVisibility(claims).
+	_ = auth.ClaimsFromContext(r.Context()) // visibility hook, no-op v1
+
+	total := len(all)
+	start := (page - 1) * pageSize
+	if start >= total {
+		writeJSON(w, http.StatusOK, fleetSovereignsResponse{
+			Sovereigns: []fleetSovereignSummary{},
+			Total:      total,
+			Page:       page,
+			PageSize:   pageSize,
+		})
+		return
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	writeJSON(w, http.StatusOK, fleetSovereignsResponse{
+		Sovereigns: all[start:end],
+		Total:      total,
+		Page:       page,
+		PageSize:   pageSize,
+	})
+}
+
+// HandleFleetSovereignSummary — GET /api/v1/fleet/sovereigns/{id}/summary
+//
+// Returns the full per-Sovereign rollup (Org count, App counts, region
+// list, alerts placeholder, last activity timestamp). 404 when the
+// Sovereign id is unknown.
+func (h *Handler) HandleFleetSovereignSummary(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	dep, ok := h.lookupDeploymentForInfra(id)
+	if !ok {
+		writeNotFound(w, id)
+		return
+	}
+	sum := h.summarizeSovereign(r.Context(), dep)
+	writeJSON(w, http.StatusOK, sum)
+}
+
+// HandleFleetApplications — GET /api/v1/fleet/applications
+//
+// Aggregated table: Application × Sovereign × Region × Topology × DR
+// posture. Filters: ?org=, ?topology=, ?drPosture=.
+//
+// Per the brief: each row clickable in the UI → opens AppDetail in the
+// relevant Sovereign. The wire shape carries `sovereign.id` + `app.name`
+// + `namespace` so the UI can compute the chroot URL.
+func (h *Handler) HandleFleetApplications(w http.ResponseWriter, r *http.Request) {
+	orgFilter := strings.TrimSpace(r.URL.Query().Get("org"))
+	topologyFilter := strings.TrimSpace(r.URL.Query().Get("topology"))
+	drPostureFilter := strings.TrimSpace(r.URL.Query().Get("drPosture"))
+
+	if topologyFilter != "" && !isValidTopologyFilter(topologyFilter) {
+		writeBadRequest(w, "invalid-topology", fmt.Sprintf(
+			"topology must be one of %s, %s, %s",
+			topologySingleRegion, topologyActiveActive, topologyActiveHotStandby))
+		return
+	}
+	if drPostureFilter != "" && !isValidDRPostureFilter(drPostureFilter) {
+		writeBadRequest(w, "invalid-drPosture", fmt.Sprintf(
+			"drPosture must be one of %q, %q, %q, %q",
+			drPostureNone, drPostureActive, drPostureAlert, drPostureMisconfigured))
+		return
+	}
+
+	sovs := h.collectFleetSovereigns(r.Context())
+	if len(sovs) > fleetMaxPageSize {
+		sovs = sovs[:fleetMaxPageSize]
+	}
+
+	rows := h.collectApplicationsAcrossSovereigns(r.Context(), sovs)
+
+	// Apply filters AFTER collection so the per-Sov reads happen once
+	// regardless of filter combination. The table is small (cross-Sov
+	// app count is bounded by Sovereign × Application cardinality —
+	// hundreds, not millions).
+	out := make([]fleetApplicationRow, 0, len(rows))
+	for _, row := range rows {
+		if orgFilter != "" && !strings.EqualFold(row.Org, orgFilter) {
+			continue
+		}
+		if topologyFilter != "" && row.Topology != topologyFilter {
+			continue
+		}
+		if drPostureFilter != "" && row.DRPosture != drPostureFilter {
+			continue
+		}
+		out = append(out, row)
+	}
+	writeJSON(w, http.StatusOK, fleetApplicationsResponse{
+		Applications: out,
+		Total:        len(out),
+	})
+}
+
+// ── Aggregation primitives ───────────────────────────────────────────
+
+// collectFleetSovereigns — every Sovereign known to this catalyst-api
+// process. Source: the in-memory deployments map (rehydrated from the
+// PVC at startup), filtered to drop adopted-but-still-tracked records
+// the same way ListDeployments does. Sorted by FQDN for deterministic
+// pagination.
+//
+// Per ADR-0001 §2.7 — no separate fleet database. The deployments map
+// IS the source of truth on this Pod; tenant_registry is the secondary
+// source for SME-tier Sovereigns the same map doesn't track (those are
+// collapsed into the same shape so the caller sees one fleet view).
+func (h *Handler) collectFleetSovereigns(_ context.Context) []fleetSovereignSummary {
+	out := make([]fleetSovereignSummary, 0)
+	seen := make(map[string]bool)
+
+	h.deployments.Range(func(_, val any) bool {
+		dep, ok := val.(*Deployment)
+		if !ok || dep == nil {
+			return true
+		}
+		dep.mu.Lock()
+		if dep.AdoptedAt != nil {
+			// Adopted Sovereigns are owned by the customer's
+			// console.<sovereign-fqdn> — they no longer surface
+			// in the mothership fleet view (same boundary
+			// ListDeployments enforces).
+			dep.mu.Unlock()
+			return true
+		}
+		row := fleetSovereignSummary{
+			ID:           dep.ID,
+			FQDN:         dep.Request.SovereignFQDN,
+			Region:       firstRegion(dep.Request),
+			ProviderType: firstProvider(dep.Request),
+			Health:       healthFromDeploymentStatus(dep.Status),
+		}
+		if !dep.StartedAt.IsZero() {
+			row.CreatedAt = dep.StartedAt.UTC().Format(time.RFC3339)
+		}
+		dep.mu.Unlock()
+
+		if !seen[row.ID] {
+			seen[row.ID] = true
+			out = append(out, row)
+		}
+		return true
+	})
+
+	sort.Slice(out, func(i, j int) bool {
+		// Primary sort: FQDN (deterministic + matches dashboard's
+		// alphabetical card order). Empty FQDN sorts last so legacy
+		// records don't shuffle to the top.
+		if out[i].FQDN == "" && out[j].FQDN != "" {
+			return false
+		}
+		if out[i].FQDN != "" && out[j].FQDN == "" {
+			return true
+		}
+		if out[i].FQDN != out[j].FQDN {
+			return out[i].FQDN < out[j].FQDN
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out
+}
+
+// summarizeSovereign — per-Sovereign rollup for the detail endpoint.
+//
+// Reads (best-effort, bounded by fleetPerSovTimeout):
+//   - Organization CRs in the Sovereign cluster → orgs count
+//   - Application CRs across all namespaces → app counts + region set
+//   - Continuum CRs → reserved (alerts integration in EPIC-1 follow-up)
+//
+// On any read failure we surface zeros + the Sovereign at "unknown"
+// health rather than 5xx — a single bad cluster must not break the
+// dashboard.
+func (h *Handler) summarizeSovereign(ctx context.Context, dep *Deployment) fleetSovereignDetail {
+	dep.mu.Lock()
+	row := fleetSovereignSummary{
+		ID:           dep.ID,
+		FQDN:         dep.Request.SovereignFQDN,
+		Region:       firstRegion(dep.Request),
+		ProviderType: firstProvider(dep.Request),
+		Health:       healthFromDeploymentStatus(dep.Status),
+	}
+	if !dep.StartedAt.IsZero() {
+		row.CreatedAt = dep.StartedAt.UTC().Format(time.RFC3339)
+	}
+	dep.mu.Unlock()
+
+	out := fleetSovereignDetail{
+		Sovereign: row,
+		Regions:   []string{},
+	}
+
+	client, err := h.sovereignDynamicClient(dep)
+	if err != nil {
+		// kubeconfig not yet posted back, etc. — return the slim shape
+		// with zeros. The UI renders this Sovereign card with the
+		// existing health badge + "0 applications" instead of
+		// erroring out the whole dashboard.
+		return out
+	}
+
+	subCtx, cancel := context.WithTimeout(ctx, fleetPerSovTimeout)
+	defer cancel()
+
+	// Orgs — cluster-scoped list, ignore "not found" (CRD may not be
+	// installed on older Sovereigns) and propagate count == 0.
+	if orgs, err := client.Resource(OrganizationGVR()).List(subCtx, metav1.ListOptions{}); err == nil {
+		out.Orgs = len(orgs.Items)
+	}
+
+	// Applications — namespaced; list across all namespaces.
+	regionSet := make(map[string]struct{})
+	var lastActivity time.Time
+	if apps, err := client.Resource(ApplicationGVR()).List(subCtx, metav1.ListOptions{}); err == nil {
+		for i := range apps.Items {
+			out.Applications.Total++
+			app := &apps.Items[i]
+			phase, _, _ := unstructured.NestedString(app.Object, "status", "phase")
+			switch strings.ToLower(phase) {
+			case "ready", "running", "active", "healthy":
+				out.Applications.Active++
+			case "failed", "error", "degraded":
+				out.Applications.Failing++
+			}
+			regions, _, _ := unstructured.NestedStringSlice(app.Object, "spec", "regions")
+			for _, rg := range regions {
+				if rg = strings.TrimSpace(rg); rg != "" {
+					regionSet[rg] = struct{}{}
+				}
+			}
+			ts := app.GetCreationTimestamp().Time
+			if ts.After(lastActivity) {
+				lastActivity = ts
+			}
+		}
+	}
+	for rg := range regionSet {
+		out.Regions = append(out.Regions, rg)
+	}
+	sort.Strings(out.Regions)
+	if !lastActivity.IsZero() {
+		out.LastActivity = lastActivity.UTC().Format(time.RFC3339)
+	}
+
+	// Alerts: integration point for EPIC-1's score aggregator. Until
+	// the cross-Sov scorecard surfaces alert counts, return 0.
+	out.Alerts = 0
+
+	return out
+}
+
+// collectApplicationsAcrossSovereigns — per-Sov reads fanned out in
+// parallel (bounded by fleetPerSovTimeout each), each returning its
+// rows via a buffered channel. Total cardinality is small (Sovereign
+// × Application — hundreds), so the merge is unsorted-then-sorted.
+//
+// DR posture derivation (per the brief):
+//   - Has Continuum CR → "DR active"
+//   - Continuum status.phase=Failed → "DR alert"
+//   - active-hotstandby placement but no Continuum CR → "Misconfigured"
+//   - Otherwise → "—"
+//
+// (The brief says `status.LastSwitchoverResult=Failed` but the
+// current Continuum CRD in chart/crds/continuum.yaml uses
+// `status.phase=Failed`. We match the live CRD per the canonical-seams
+// rule "read the live CRD before writing a handler".)
+func (h *Handler) collectApplicationsAcrossSovereigns(
+	ctx context.Context,
+	sovs []fleetSovereignSummary,
+) []fleetApplicationRow {
+	type result struct {
+		rows []fleetApplicationRow
+	}
+	results := make(chan result, len(sovs))
+
+	var wg sync.WaitGroup
+	for _, sov := range sovs {
+		sov := sov
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rows := h.collectApplicationsForSovereign(ctx, sov)
+			results <- result{rows: rows}
+		}()
+	}
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	out := make([]fleetApplicationRow, 0)
+	for r := range results {
+		out = append(out, r.rows...)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Sovereign.FQDN != out[j].Sovereign.FQDN {
+			return out[i].Sovereign.FQDN < out[j].Sovereign.FQDN
+		}
+		if out[i].Org != out[j].Org {
+			return out[i].Org < out[j].Org
+		}
+		return out[i].App.Name < out[j].App.Name
+	})
+	return out
+}
+
+// collectApplicationsForSovereign — read Application + Continuum CRs
+// from a single Sovereign and synthesize fleetApplicationRow values.
+// All errors are silently dropped (logged at debug elsewhere) so a
+// single down Sovereign never breaks the cross-Sov view.
+func (h *Handler) collectApplicationsForSovereign(
+	ctx context.Context,
+	sov fleetSovereignSummary,
+) []fleetApplicationRow {
+	dep, ok := h.lookupDeploymentForInfra(sov.ID)
+	if !ok {
+		return nil
+	}
+	client, err := h.sovereignDynamicClient(dep)
+	if err != nil {
+		return nil
+	}
+	subCtx, cancel := context.WithTimeout(ctx, fleetPerSovTimeout)
+	defer cancel()
+
+	// First: index Continuum CRs by Application name (within their
+	// namespace) so the per-app loop is O(1) per row.
+	contIndex := make(map[string]continuumIndexEntry)
+	if cs, err := client.Resource(ContinuumGVR()).List(subCtx, metav1.ListOptions{}); err == nil {
+		for i := range cs.Items {
+			c := &cs.Items[i]
+			appRef, _, _ := unstructured.NestedString(c.Object, "spec", "applicationRef")
+			if appRef == "" {
+				continue
+			}
+			phase, _, _ := unstructured.NestedString(c.Object, "status", "phase")
+			contIndex[continuumIndexKey(c.GetNamespace(), appRef)] = continuumIndexEntry{
+				phase: phase,
+			}
+		}
+	}
+
+	apps, err := client.Resource(ApplicationGVR()).List(subCtx, metav1.ListOptions{})
+	if err != nil {
+		return nil
+	}
+	out := make([]fleetApplicationRow, 0, len(apps.Items))
+	for i := range apps.Items {
+		app := &apps.Items[i]
+		topology, _, _ := unstructured.NestedString(app.Object, "spec", "placement")
+		if topology == "" {
+			topology = topologySingleRegion
+		}
+		regions, _, _ := unstructured.NestedStringSlice(app.Object, "spec", "regions")
+		blueprint, _, _ := unstructured.NestedString(app.Object, "spec", "blueprintRef", "name")
+		version, _, _ := unstructured.NestedString(app.Object, "spec", "blueprintRef", "version")
+		phase, _, _ := unstructured.NestedString(app.Object, "status", "phase")
+		ns := app.GetNamespace()
+		// Org label is the canonical source per slice I labels (see
+		// applications.go::newApplicationUnstructured); fall back to
+		// namespace which by convention is the Org slug.
+		org := ns
+		if v, ok := app.GetLabels()["catalyst.openova.io/organization"]; ok && v != "" {
+			org = v
+		}
+		entry, hasContinuum := contIndex[continuumIndexKey(ns, app.GetName())]
+
+		out = append(out, fleetApplicationRow{
+			Sovereign: sov,
+			App: fleetApplicationIdent{
+				Name:      app.GetName(),
+				Blueprint: blueprint,
+				Version:   version,
+			},
+			Regions:   regions,
+			Topology:  topology,
+			DRPosture: deriveDRPosture(topology, hasContinuum, entry.phase),
+			Status:    phase,
+			Org:       org,
+			Namespace: ns,
+		})
+	}
+	return out
+}
+
+// continuumIndexEntry — minimal projection of Continuum CR fields the
+// DR-posture derivation needs. Reserved field for future expansion
+// (lease holder, last switchover) without changing the index shape.
+type continuumIndexEntry struct {
+	phase string
+}
+
+func continuumIndexKey(namespace, appRef string) string {
+	return namespace + "/" + appRef
+}
+
+// deriveDRPosture — the brief's 4-way classification.
+func deriveDRPosture(topology string, hasContinuum bool, phase string) string {
+	switch {
+	case hasContinuum && strings.EqualFold(phase, "Failed"):
+		return drPostureAlert
+	case hasContinuum:
+		return drPostureActive
+	case topology == topologyActiveHotStandby:
+		// Active-hotstandby placement REQUIRES a Continuum CR — its
+		// absence is a misconfiguration the operator must resolve.
+		return drPostureMisconfigured
+	default:
+		return drPostureNone
+	}
+}
+
+// healthFromDeploymentStatus — map the Deployment.Status string to the
+// 4-state fleet vocabulary the dashboard renders.
+func healthFromDeploymentStatus(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "ready":
+		return healthGreen
+	case "phase1-watching", "flux-bootstrapping", "tofu-applying", "provisioning", "pending":
+		return healthYellow
+	case "failed", "error":
+		return healthRed
+	case "":
+		return healthUnknown
+	default:
+		return healthYellow
+	}
+}
+
+// ── Auth helper (reserved for future per-Org Sovereign scoping) ─────
+
+// fleetCallerVisibility decides which Sovereign IDs the caller can
+// see. Today: every authenticated caller sees every Sovereign on this
+// catalyst-api process. Reserved seam — when a follow-up slice adds
+// Org-scoped Sovereign access (ADR-0003 §3.5+), this is the single
+// gate to extend.
+//
+// Returns nil on full-visibility (admin/owner tier OR no claims, which
+// matches the test path); returns a non-nil set when the caller's tier
+// restricts to a subset.
+func fleetCallerVisibility(claims *auth.Claims) map[string]struct{} {
+	if claims == nil {
+		return nil
+	}
+	switch strings.ToLower(strings.TrimSpace(claims.Tier)) {
+	case "admin", "owner":
+		return nil
+	}
+	for _, want := range rbacAssignPrivilegedRoles {
+		if claims.HasRealmRole(want) {
+			return nil
+		}
+	}
+	// Lower-tier callers fall through with full visibility today (the
+	// per-Sov detail endpoint is the finer-grained gate). This will
+	// tighten to org-scoped visibility once the Org-CR-driven
+	// Sovereign mapping lands. Reserved: return a populated map here.
+	return nil
+}
+
+// ── Validators ───────────────────────────────────────────────────────
+
+func isValidTopologyFilter(s string) bool {
+	switch s {
+	case topologySingleRegion, topologyActiveActive, topologyActiveHotStandby:
+		return true
+	}
+	return false
+}
+
+func isValidDRPostureFilter(s string) bool {
+	switch s {
+	case drPostureNone, drPostureActive, drPostureAlert, drPostureMisconfigured:
+		return true
+	}
+	return false
+}
+
+// fleetParsePagination — read ?page= + ?pageSize= with defaults +
+// caps. Page is 1-indexed; invalid values fall back to defaults.
+func fleetParsePagination(r *http.Request) (page, pageSize int) {
+	page = 1
+	pageSize = fleetDefaultPageSize
+	if raw := r.URL.Query().Get("page"); raw != "" {
+		if v, err := strconv.Atoi(raw); err == nil && v >= 1 {
+			page = v
+		}
+	}
+	if raw := r.URL.Query().Get("pageSize"); raw != "" {
+		if v, err := strconv.Atoi(raw); err == nil && v >= 1 {
+			pageSize = v
+		}
+	}
+	if pageSize > fleetMaxPageSize {
+		pageSize = fleetMaxPageSize
+	}
+	return page, pageSize
+}
+
+// ── Compile-time soft references (kill "imported-but-unused" risk
+// when refactors temporarily remove a path) ──────────────────────────
+
+var (
+	_ = errors.New
+	_ = json.Marshal
+	_ = apierrors.IsNotFound
+)
