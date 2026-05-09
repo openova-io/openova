@@ -25,3 +25,16 @@ templates/clusterrolebinding-cutover-driver-kustomize.yaml
 # `{{- if and .Values.ingress.marketplace .Values.ingress.marketplace.enabled }}`
 # (issue #710). Non-marketplace Sovereigns get an empty render; marketplace
 # operators flip the toggle and the SME stack + HTTPRoutes deploy together.
+
+# qa-loop iter-3 Fix #18 (#1206 follow-up): exclude crds/tests/ from
+# the packaged chart. Helm's `crds/` directory installs every YAML file
+# inside as a CRD at the pre-render install hook — Helm does NOT filter
+# by `kind:` and does NOT honour resource Namespaces in this directory.
+# The sample fixtures (added by PR #1105 for chart-author validation)
+# include `kind: Application` instances in `namespace: acme`, so on every
+# Sovereign upgrade Helm tries to create them as CRDs and fails with
+# `failed to create CustomResourceDefinition bad-app: namespaces "acme"
+# not found` — caught live on omantel 2026-05-09 attempting 1.4.84 ->
+# 1.4.95. The samples are intentionally invalid for chart-author dry-runs;
+# they MUST never reach a real cluster.
+crds/tests/
