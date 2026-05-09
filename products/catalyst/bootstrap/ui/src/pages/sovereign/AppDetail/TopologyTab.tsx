@@ -28,6 +28,7 @@ import {
   type CatalogItem,
 } from '@/lib/catalog.api'
 import { TopologyEditor } from '@/widgets/topology/TopologyEditor'
+import { DRSection } from '@/widgets/continuum/DRSection'
 
 export interface TopologyTabProps {
   /** Sovereign id (deploymentId on chroot, mother). */
@@ -40,6 +41,10 @@ export interface TopologyTabProps {
   initialApp?: ApplicationStatus
   /** Test seam — bypass apply network call. */
   disableNetwork?: boolean
+  /** Caller's tier (slice U-DR-1) — controls render of switchover/failback buttons. */
+  callerTier?: string
+  /** Continuum CR name (slice U-DR-1) — when omitted, derived as `dr-<applicationName>`. */
+  continuumName?: string
 }
 
 interface ApplicationStatus {
@@ -71,6 +76,8 @@ export function TopologyTab({
   namespace,
   initialApp,
   disableNetwork = false,
+  callerTier,
+  continuumName,
 }: TopologyTabProps) {
   const qc = useQueryClient()
   const [refreshTick, setRefreshTick] = useState(0)
@@ -225,6 +232,21 @@ export function TopologyTab({
           </div>
         </div>
       </div>
+
+      {/* EPIC-6 Slice U-DR-1 (#1101) — DR section. Visible only when
+          the Application's placement is active-hotstandby. Composes the
+          live Continuum status, switchover button, failback panel, and
+          switchover history. */}
+      {currentMode === 'active-hotstandby' ? (
+        <DRSection
+          sovereignId={sovereignId}
+          continuumName={continuumName ?? `dr-${applicationName}`}
+          applicationName={applicationName}
+          namespace={namespace}
+          callerTier={callerTier}
+          disableNetwork={disableNetwork}
+        />
+      ) : null}
     </div>
   )
 }
