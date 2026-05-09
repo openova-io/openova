@@ -295,13 +295,24 @@ controllers:
 # emits ZERO catalog-related resources.
 services:
   catalog:
-    enabled: false
+    # Flipped ON per qa-loop iter-1 (TC-035..037 surfaced
+    # /api/v1/sovereigns/{id}/catalog* 404s — the catalog HTTPRoute
+    # was never rendered because this gate was off). Default-ON is
+    # safe: catalyst-api treats a 502/503 from the catalog upstream
+    # as a clean error path (handler/applications.go surfaces the
+    # "catalog upstream" detail). Per Inviolable Principle #4 the
+    # gate stays runtime-overridable — disable here for offline /
+    # CI render checks that don't have a Gitea backend wired.
+    enabled: true
     image:
       repository: "ghcr.io/openova-io/openova/catalyst-catalog"
-      # Empty `tag` fail-fasts at render time per Inviolable Principle #4a.
-      # CI stamps the SHA on every push to main via the catalyst-catalog
-      # GitHub Actions workflow.
-      tag: ""
+      # SHA-pinned per Inviolable Principle #4a (no :latest). Stamped
+      # from the latest SUCCESS run of the catalyst-catalog
+      # GitHub Actions workflow at PR-author time. Future CI bumps
+      # land via the catalyst-catalog-image-built repository_dispatch
+      # hop (catalyst-catalog-build.yaml notify job → downstream
+      # bumper PR).
+      tag: "9763286"
       pullPolicy: IfNotPresent
     replicas: 1
     # Gitea endpoint — empty defaults to in-cluster Service URL.

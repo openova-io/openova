@@ -858,6 +858,28 @@ spec:
             # over this default at template-render time).
             - name: CATALYST_SESSION_COOKIE_DOMAIN
               value: ""
+            # CATALYST_CATALOG_URL — in-cluster Service URL of
+            # catalyst-catalog (EPIC-2 Slice L, #1148). Consumed by
+            # internal/handler/catalog_client.go::NewCatalogClientFromEnv
+            # for live-install and preview flows. The default literal
+            # below matches the Service rendered by templates/services/
+            # catalog/service.yaml: name `catalyst-catalog`, namespace
+            # `.Release.Namespace` (catalyst-system on Sovereigns), port
+            # 8080. The literal keeps the dual-mode contract (Helm +
+            # Kustomize on contabo) working without Helm directives in
+            # `value:` fields. Per Inviolable Principle #4 per-Sovereign
+            # overlays MAY override via the `catalystApi.env` additional-
+            # env patch when the catalog ships in a different namespace.
+            #
+            # qa-loop iter-1 root cause: services.catalog.enabled was
+            # default false → the Service didn't exist → catalyst-api's
+            # in-code default URL pointed at a non-existent endpoint →
+            # every /api/v1/catalog* call returned 404 from the upstream
+            # round-trip wrapper. Flipping enabled=true (above) renders
+            # the Service; this env var documents the wiring contract
+            # in the manifest itself rather than only in Go source.
+            - name: CATALYST_CATALOG_URL
+              value: "http://catalyst-catalog.catalyst-system.svc.cluster.local:8080"
           resources:
             requests:
               cpu: 50m
