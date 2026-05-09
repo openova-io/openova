@@ -55,6 +55,31 @@ variable "parent_domains_yaml" {
   default     = ""
 }
 
+# Cilium ClusterMesh per-Sovereign anchors (#1101 EPIC-6 multi-region DR).
+# Empty + 0 = not joined to any mesh (single-cluster Sovereign — the chart
+# still installs the clustermesh-apiserver Pod but no peer connects). When
+# the operator joins this Sovereign to a multi-region mesh (e.g. omantel-fsn
+# + omantel-hel), set both to the registered values from
+# docs/CLUSTERMESH-CLUSTER-IDS.md. Per docs/INVIOLABLE-PRINCIPLES.md #4
+# (never hardcode), the values flow operator-request → catalyst-api
+# Request.ClusterMeshName/ClusterMeshID → tofu vars → cloudinit
+# postBuild.substitute → bootstrap-kit slot 01-cilium.yaml.
+variable "cluster_mesh_name" {
+  type        = string
+  description = "Cilium ClusterMesh peer name for this Sovereign (e.g. omantel-fsn). Empty = not in a mesh. Convention: <sovereign-stem>-<region-code>. Allocated via docs/CLUSTERMESH-CLUSTER-IDS.md."
+  default     = ""
+}
+
+variable "cluster_mesh_id" {
+  type        = number
+  description = "Cilium ClusterMesh peer id (1-255 unique within a mesh; 0 reserved for not-in-mesh). Allocated via docs/CLUSTERMESH-CLUSTER-IDS.md — every PR adding a new peer MUST claim a row in that registry."
+  default     = 0
+  validation {
+    condition     = var.cluster_mesh_id >= 0 && var.cluster_mesh_id <= 255
+    error_message = "cluster_mesh_id must be 0 (not-in-mesh) or 1-255 (peer id)."
+  }
+}
+
 variable "org_name" {
   type        = string
   description = "Organisation name for resource labels + initial sovereign-admin Org name"

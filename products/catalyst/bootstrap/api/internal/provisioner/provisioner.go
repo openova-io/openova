@@ -160,6 +160,16 @@ type RegionSpec struct {
 	ControlPlaneSize string `json:"controlPlaneSize"`
 	WorkerSize       string `json:"workerSize"`
 	WorkerCount      int    `json:"workerCount"`
+
+	// ClusterMeshName — Cilium ClusterMesh peer name override for this
+	// secondary region. Empty = auto-derive as
+	// `<sovereign-stem>-<region-code-no-digits>` (e.g. omantel + hel1
+	// -> omantel-hel) when the umbrella Request.ClusterMeshName is set.
+	// Allocated via docs/CLUSTERMESH-CLUSTER-IDS.md. Per
+	// docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), the operator
+	// MAY override per-region when the auto-derive convention conflicts
+	// with an existing peer name in the registry.
+	ClusterMeshName string `json:"clusterMeshName,omitempty"`
 }
 
 // Request carries the wizard inputs the OpenTofu module needs.
@@ -217,6 +227,20 @@ type Request struct {
 	// — operator opts in via wizard's "Enable Marketplace" component
 	// checkbox.
 	MarketplaceEnabled bool `json:"marketplaceEnabled"`
+
+	// ClusterMeshName + ClusterMeshID — Cilium ClusterMesh per-Sovereign
+	// peer anchors (#1101 EPIC-6 multi-region DR). Both empty/zero =
+	// single-cluster Sovereign (not in a mesh). When set, must match the
+	// allocation in docs/CLUSTERMESH-CLUSTER-IDS.md (every PR that adds
+	// a new peer claims a row in that registry). Threaded through:
+	// catalyst-api Request → tofu vars cluster_mesh_name/cluster_mesh_id
+	// → cloudinit postBuild.substitute (CLUSTER_MESH_NAME / CLUSTER_MESH_ID)
+	// → bootstrap-kit slot 01-cilium.yaml's spec.values.cilium.cluster.{name,id}.
+	// Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), there is NO
+	// chart-side default — operator request OR per-Sovereign overlay must
+	// supply the values when ClusterMesh is enabled.
+	ClusterMeshName string `json:"clusterMeshName,omitempty"`
+	ClusterMeshID   int    `json:"clusterMeshId,omitempty"`
 
 	// Per-region sizing payload — canonical from the per-provider rework
 	// onwards. The wizard always emits this. Multi-region tofu wiring is
@@ -1126,6 +1150,11 @@ func writeTfvars(deployDir string, req Request) error {
 		// Kustomization postBuild.substitute block at cloud-init render
 		// time without quoting surprises.
 		"marketplace_enabled": map[bool]string{true: "true", false: "false"}[req.MarketplaceEnabled],
+
+		// Cilium ClusterMesh per-Sovereign peer anchors (#1101 EPIC-6).
+		// Empty + 0 = not in a mesh. Tofu validates id ∈ [0, 255].
+		"cluster_mesh_name": req.ClusterMeshName,
+		"cluster_mesh_id":   req.ClusterMeshID,
 
 		// Hetzner — token gets baked into the state file unless the operator
 		// configures a remote backend with encryption-at-rest. Per Catalyst

@@ -192,6 +192,35 @@ locals {
     k => format("10.0.%d.0/24", 10 + index(keys(local.secondary_regions), k))
   }
 
+  # Per-secondary-region Cilium ClusterMesh peer anchors (#1101 EPIC-6).
+  # Auto-derive cluster.name as `<sovereign-stem>-<region-code-no-digits>`
+  # (e.g. omantel + hel1 -> omantel-hel) when the operator left
+  # var.cluster_mesh_name empty, OR honour the explicit override per
+  # region (RegionSpec.cluster_mesh_name when present).  cluster.id is
+  # derived as `var.cluster_mesh_id + 1 + index(secondary_regions, k)`
+  # so the primary region keeps id=cluster_mesh_id and each peer claims
+  # the next free id within the mesh — matching the registry convention
+  # in docs/CLUSTERMESH-CLUSTER-IDS.md (mesh-omantel: fsn=1, hel=2, ...).
+  # When var.cluster_mesh_name is empty AND there are no secondary
+  # regions, the peer name remains empty (single-cluster Sovereign).
+  secondary_region_cluster_mesh_name = {
+    for k, r in local.secondary_regions :
+    k => coalesce(
+      try(r.clusterMeshName, ""),
+      var.cluster_mesh_name == "" ? "" : format(
+        "%s-%s",
+        split(".", var.sovereign_fqdn)[0],
+        replace(r.cloudRegion, "/[0-9]+/", "")
+      )
+    )
+  }
+  secondary_region_cluster_mesh_id = {
+    for k, _ in local.secondary_regions :
+    k => var.cluster_mesh_id == 0 ? 0 : (
+      var.cluster_mesh_id + 1 + index(keys(local.secondary_regions), k)
+    )
+  }
+
   # Per-secondary-region first-IP for control plane. Mirrors the legacy
   # singular path's "10.0.1.2" — first usable host of the subnet. Workers
   # in the same region count up from .10 within their own subnet.
@@ -274,6 +303,8 @@ locals {
     sovereign_fqdn      = var.sovereign_fqdn
     sovereign_subdomain = var.sovereign_subdomain
     marketplace_enabled = var.marketplace_enabled
+    cluster_mesh_name   = var.cluster_mesh_name
+    cluster_mesh_id     = var.cluster_mesh_id
 
     # Multi-domain Sovereign (issue #827). When the wizard supplies an
     # explicit parent-domain list, use it verbatim. Otherwise default to a
@@ -707,6 +738,11 @@ locals {
       sovereign_fqdn      = var.sovereign_fqdn
       sovereign_subdomain = var.sovereign_subdomain
       marketplace_enabled = var.marketplace_enabled
+      # Per-secondary-region ClusterMesh anchors. id is incremented per
+      # peer index so each secondary region gets a unique slot in the
+      # mesh registry; primary region keeps var.cluster_mesh_id.
+      cluster_mesh_name = local.secondary_region_cluster_mesh_name[k]
+      cluster_mesh_id   = local.secondary_region_cluster_mesh_id[k]
       parent_domains_yaml = coalesce(
         var.parent_domains_yaml,
         format("[{name: \"%s\", role: \"primary\"}]", var.sovereign_fqdn)
