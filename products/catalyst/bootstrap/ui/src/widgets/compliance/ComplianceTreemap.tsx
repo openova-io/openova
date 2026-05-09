@@ -99,6 +99,7 @@ function renderTreemapCell(
 
     const isLeaf = !payload.children || payload.children.length === 0
     const total = payload.total ?? null
+    const name = payload.name ?? '—'
     const fill = isLeaf
       ? scoreColor(total, palette)
       : 'rgba(255, 255, 255, 0.04)'
@@ -110,7 +111,7 @@ function renderTreemapCell(
 
     return (
       <g
-        data-testid={`compliance-treemap-cell-${payload.name}`}
+        data-testid={`compliance-treemap-cell-${name}`}
         style={{ cursor }}
         onClick={() => {
           if (isLeaf && onLeafClick) onLeafClick(payload)
@@ -133,7 +134,7 @@ function renderTreemapCell(
             fontWeight={600}
             style={{ pointerEvents: 'none' }}
           >
-            {truncateLabel(payload.name, width)}
+            {truncateLabel(name, width)}
           </text>
           {isLeaf ? (
             <text

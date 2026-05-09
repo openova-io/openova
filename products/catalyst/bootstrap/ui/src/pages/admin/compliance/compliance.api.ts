@@ -123,7 +123,45 @@ export async function getScorecard(sovereignId: string): Promise<ScorecardRespon
   if (!res.ok) {
     throw new Error(`scorecard: HTTP ${res.status}`)
   }
-  return res.json()
+  const raw = (await res.json()) as Partial<ScorecardResponse> | null
+  return normalizeScorecard(raw)
+}
+
+/**
+ * normalizeScorecard — defensively coerce a partial / nullable wire
+ * payload into a fully-shaped ScorecardResponse.
+ *
+ * Why: the catalyst-api Go handler returns nil slices when a sovereign
+ * has no rollup data yet (cold-start, fresh cluster, scorecard not
+ * computed). Go's `encoding/json` serializes a nil `[]Score` to JSON
+ * `null` rather than `[]`, so consumers see `applications: null` on
+ * the wire. Calling `.map()` / `.filter()` / `.length` on `null`
+ * crashes the React render — surfacing the global "Something went
+ * wrong" fallback for the whole compliance dashboard.
+ *
+ * Coercing here gives every downstream caller (this hook, the SSE
+ * merge, the treemap helper) a guaranteed array shape, so a
+ * not-yet-computed scorecard renders the empty state instead of
+ * crashing. Mirrors the same pattern other API wrappers in this
+ * codebase use to absorb Go nil-slice quirks.
+ */
+export function normalizeScorecard(raw: Partial<ScorecardResponse> | null | undefined): ScorecardResponse {
+  const safe = raw ?? {}
+  const fallbackSovereign: Score = {
+    scope: 'sovereign',
+    id: '',
+    total: null,
+    numerator: 0,
+    denominator: 0,
+    updatedAt: new Date().toISOString(),
+  }
+  return {
+    sovereign: safe.sovereign ?? fallbackSovereign,
+    organizations: Array.isArray(safe.organizations) ? safe.organizations : [],
+    environments: Array.isArray(safe.environments) ? safe.environments : [],
+    applications: Array.isArray(safe.applications) ? safe.applications : [],
+    generatedAt: safe.generatedAt ?? new Date().toISOString(),
+  }
 }
 
 export async function getPolicies(sovereignId: string): Promise<PoliciesResponse> {
