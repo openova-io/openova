@@ -36,7 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/openova-io/openova/core/controllers/internal/gitea"
+	"github.com/openova-io/openova/core/controllers/pkg/gitea"
 	orgapi "github.com/openova-io/openova/core/controllers/organization/internal/orgapi"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

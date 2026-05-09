@@ -15,7 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
-	"github.com/openova-io/openova/core/controllers/internal/gitea"
+	"github.com/openova-io/openova/core/controllers/pkg/gitea"
 )
 
 // newScheme wires the Blueprint GVR into a runtime.Scheme so the fake

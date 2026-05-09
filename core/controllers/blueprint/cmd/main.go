@@ -37,7 +37,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/openova-io/openova/core/controllers/blueprint/internal/controller"
-	"github.com/openova-io/openova/core/controllers/internal/gitea"
+	"github.com/openova-io/openova/core/controllers/pkg/gitea"
 )
 
 func main() {

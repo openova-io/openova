@@ -40,7 +40,7 @@ import (
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
-	"github.com/openova-io/openova/core/controllers/internal/gitea"
+	"github.com/openova-io/openova/core/controllers/pkg/gitea"
 )
 
 // fakeGitea is a deterministic test double for the Gitea interface.

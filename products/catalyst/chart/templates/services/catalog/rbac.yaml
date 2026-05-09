@@ -1,0 +1,38 @@
+{{- /*
+RBAC for catalyst-catalog (EPIC-2 Slice L of #1097).
+
+The service does not interact with the K8s API server: it reads
+Blueprints from Gitea over HTTP using a static admin access token.
+The chart still ships a ClusterRole + Binding scoped to ZERO resources
+(empty rules) so an operator can add audit grants later without
+schema-churn — and so the kustomize/flux audit always sees a paired
+trio (SA + Role + RoleBinding) for the workload.
+
+If a future enhancement teaches catalyst-catalog to read
+Blueprint.catalyst.openova.io CRs (e.g. for cluster-scoped catalog
+caching), grant the rule HERE in the chart, never in the binary.
+*/ -}}
+{{- if .Values.services.catalog.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "catalog.fullname" . }}
+  labels:
+    {{- include "catalog.labels" (dict "root" .) | nindent 4 }}
+rules: []
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "catalog.fullname" . }}
+  labels:
+    {{- include "catalog.labels" (dict "root" .) | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "catalog.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "catalog.fullname" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

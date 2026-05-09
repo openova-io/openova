@@ -1,7 +1,7 @@
 // Package gitea is the SUPERSET Gitea HTTP client used by every Group
 // C controller. It consolidates the four divergent per-controller
 // clients (slices C1-C4) into a single shared surface promoted to
-// `core/controllers/internal/gitea/` by slice CC2 (#1095) per
+// `core/controllers/pkg/gitea/` by slice CC2 (#1095) per
 // `02-implementer-canon.md` §1+§2.
 //
 // The surface is the UNION of every operation any Group C controller
@@ -348,6 +348,80 @@ func (c *Client) GetRepo(ctx context.Context, owner, name string) (Repo, error) 
 			return Repo{}, ErrRepoNotFound
 		}
 		return Repo{}, err
+	}
+	return out, nil
+}
+
+// ListOrgRepos returns every repository under the named Org, walking
+// Gitea's pagination (page=1..N, limit=50). Added for EPIC-2 Slice L
+// catalog-svc (#1097) to enumerate Blueprint repos under the public
+// + sovereign-curated catalog Orgs.
+//
+// Returns ErrOrgNotFound on 404 from the first page; partial pagination
+// failures bubble up as HTTPError. Result order is the order Gitea
+// returns (no client-side sort).
+func (c *Client) ListOrgRepos(ctx context.Context, org string) ([]Repo, error) {
+	if org == "" {
+		return nil, errors.New("gitea: ListOrgRepos requires non-empty org")
+	}
+	const pageSize = 50
+	out := make([]Repo, 0, pageSize)
+	for page := 1; ; page++ {
+		endpoint := fmt.Sprintf("/orgs/%s/repos?limit=%d&page=%d",
+			url.PathEscape(org), pageSize, page)
+		var batch []Repo
+		status, _, err := c.do(ctx, http.MethodGet, endpoint, nil, &batch)
+		if err != nil {
+			if page == 1 && status == http.StatusNotFound {
+				return nil, ErrOrgNotFound
+			}
+			return nil, err
+		}
+		out = append(out, batch...)
+		if len(batch) < pageSize {
+			break
+		}
+	}
+	return out, nil
+}
+
+// ContentEntry is one element of a Gitea contents listing.
+//
+// Type is "file" or "dir"; Path is the relative path (matches what
+// Gitea returns); Name is the basename.
+type ContentEntry struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+	SHA  string `json:"sha,omitempty"`
+	Type string `json:"type"`
+	Size int64  `json:"size,omitempty"`
+}
+
+// ListContents lists the contents of `path` in the repo at `branch`.
+// `path` may be empty (root). Returns ErrFileNotFound if the path does
+// not exist, ErrRepoNotFound if the repository does not exist.
+//
+// Added for EPIC-2 Slice L catalog-svc to enumerate per-Blueprint
+// directories inside `<org>/shared-blueprints`.
+func (c *Client) ListContents(ctx context.Context, org, repo, branch, path string) ([]ContentEntry, error) {
+	if org == "" || repo == "" {
+		return nil, errors.New("gitea: ListContents requires non-empty org, repo")
+	}
+	endpoint := fmt.Sprintf("/repos/%s/%s/contents/%s",
+		url.PathEscape(org), url.PathEscape(repo), pathEscapeSegments(path))
+	if branch != "" {
+		endpoint += "?ref=" + url.QueryEscape(branch)
+	}
+	var out []ContentEntry
+	status, body, err := c.do(ctx, http.MethodGet, endpoint, nil, &out)
+	if err != nil {
+		if status == http.StatusNotFound {
+			if strings.Contains(strings.ToLower(string(body)), "repository") {
+				return nil, ErrRepoNotFound
+			}
+			return nil, ErrFileNotFound
+		}
+		return nil, err
 	}
 	return out, nil
 }

@@ -29,6 +29,10 @@ type fakeGitea struct {
 	branches map[string]map[string]bool
 	files    map[string]fakeFile
 	calls    map[string]int
+	// dirs is the set of "exists as directory" paths, keyed by
+	// "<owner>/<repo>/<branch>/<path>". The empty path "" represents
+	// the repo root and is implicitly available when the repo exists.
+	dirs map[string]bool
 }
 
 type fakeFile struct {
@@ -43,6 +47,7 @@ func newFake() *fakeGitea {
 		branches: map[string]map[string]bool{},
 		files:    map[string]fakeFile{},
 		calls:    map[string]int{},
+		dirs:     map[string]bool{},
 	}
 }
 
@@ -98,6 +103,36 @@ func (f *fakeGitea) handler() http.Handler {
 			}
 			f.orgs[body.Username] = o
 			writeJSON(w, http.StatusCreated, o)
+			return
+		}
+
+		// GET /api/v1/orgs/{org}/repos — list repos under an Org with
+		// pagination. Added by EPIC-2 Slice L (#1097) for catalog-svc's
+		// repo enumeration.
+		if r.Method == http.MethodGet && strings.HasPrefix(p, "/api/v1/orgs/") && strings.HasSuffix(p, "/repos") {
+			owner := strings.TrimSuffix(strings.TrimPrefix(p, "/api/v1/orgs/"), "/repos")
+			f.mu.Lock()
+			_, exists := f.orgs[owner]
+			if !exists {
+				f.mu.Unlock()
+				http.Error(w, "no such org", http.StatusNotFound)
+				return
+			}
+			out := make([]Repo, 0)
+			for k, rp := range f.repos {
+				if strings.HasPrefix(k, owner+"/") {
+					out = append(out, rp)
+				}
+			}
+			f.mu.Unlock()
+			// Stable order (sort by name) — clients shouldn't depend on
+			// order but tests want determinism.
+			for i := 1; i < len(out); i++ {
+				for j := i; j > 0 && out[j-1].Name > out[j].Name; j-- {
+					out[j-1], out[j] = out[j], out[j-1]
+				}
+			}
+			writeJSON(w, http.StatusOK, out)
 			return
 		}
 
@@ -246,6 +281,55 @@ func (f *fakeGitea) handler() http.Handler {
 			case http.MethodGet:
 				ff, ok := f.files[fileKey]
 				if !ok {
+					// Directory listing path — used by ListContents.
+					// We treat the path as a directory if either:
+					//   (a) it was explicitly registered in f.dirs, or
+					//   (b) the path is "" (repo root, always implicit).
+					dirKey := repoKey + "/" + branch + "/" + filePath
+					if filePath == "" || f.dirs[dirKey] {
+						entries := make([]ContentEntry, 0)
+						prefix := filePath
+						if prefix != "" {
+							prefix += "/"
+						}
+						seen := map[string]bool{}
+						for k, ff := range f.files {
+							want := repoKey + "/" + branch + "/" + prefix
+							if !strings.HasPrefix(k, want) {
+								continue
+							}
+							rest := strings.TrimPrefix(k, want)
+							if rest == "" {
+								continue
+							}
+							head, _, hasSlash := strings.Cut(rest, "/")
+							if seen[head] {
+								continue
+							}
+							seen[head] = true
+							typ := "file"
+							size := int64(len(ff.content))
+							pathOut := prefix + head
+							if hasSlash {
+								typ = "dir"
+								size = 0
+							}
+							entries = append(entries, ContentEntry{
+								Name: head,
+								Path: pathOut,
+								Type: typ,
+								Size: size,
+							})
+						}
+						// Stable order.
+						for i := 1; i < len(entries); i++ {
+							for j := i; j > 0 && entries[j-1].Name > entries[j].Name; j-- {
+								entries[j-1], entries[j] = entries[j], entries[j-1]
+							}
+						}
+						writeJSON(w, http.StatusOK, entries)
+						return
+					}
 					http.Error(w, "no such file", http.StatusNotFound)
 					return
 				}
@@ -846,5 +930,136 @@ func TestFile_Decoded(t *testing.T) {
 	var nilF *File
 	if dec, err := nilF.Decoded(); err != nil || dec != nil {
 		t.Errorf("nil File should return nil bytes, got %v %v", dec, err)
+	}
+}
+
+// ----------------------------------------------------------------------
+// ListOrgRepos / ListContents (added by EPIC-2 Slice L #1097)
+// ----------------------------------------------------------------------
+
+func TestListOrgRepos_HappyPath(t *testing.T) {
+	t.Parallel()
+	fake := newFake()
+	fake.orgs["catalog"] = Org{Username: "catalog"}
+	fake.repos["catalog/bp-wordpress"] = Repo{Name: "bp-wordpress", FullName: "catalog/bp-wordpress"}
+	fake.repos["catalog/bp-redis"] = Repo{Name: "bp-redis", FullName: "catalog/bp-redis"}
+	fake.repos["catalog/bp-postgres"] = Repo{Name: "bp-postgres", FullName: "catalog/bp-postgres"}
+	c := newClientWithFake(t, fake)
+
+	got, err := c.ListOrgRepos(context.Background(), "catalog")
+	if err != nil {
+		t.Fatalf("ListOrgRepos: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("expected 3 repos, got %d", len(got))
+	}
+	// Order is sorted-by-name in our fake.
+	expected := []string{"bp-postgres", "bp-redis", "bp-wordpress"}
+	for i, want := range expected {
+		if got[i].Name != want {
+			t.Errorf("got[%d].Name = %q, want %q", i, got[i].Name, want)
+		}
+	}
+}
+
+func TestListOrgRepos_EmptyOrg(t *testing.T) {
+	t.Parallel()
+	fake := newFake()
+	fake.orgs["empty"] = Org{Username: "empty"}
+	c := newClientWithFake(t, fake)
+
+	got, err := c.ListOrgRepos(context.Background(), "empty")
+	if err != nil {
+		t.Fatalf("ListOrgRepos empty: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("expected 0 repos, got %d", len(got))
+	}
+}
+
+func TestListOrgRepos_OrgNotFound(t *testing.T) {
+	t.Parallel()
+	fake := newFake()
+	c := newClientWithFake(t, fake)
+
+	_, err := c.ListOrgRepos(context.Background(), "missing")
+	if !errors.Is(err, ErrOrgNotFound) {
+		t.Errorf("ListOrgRepos missing org err = %v, want ErrOrgNotFound", err)
+	}
+}
+
+func TestListOrgRepos_RejectsEmptyOrg(t *testing.T) {
+	t.Parallel()
+	c := New("http://x", "tok")
+	_, err := c.ListOrgRepos(context.Background(), "")
+	if err == nil {
+		t.Error("ListOrgRepos with empty org should fail")
+	}
+}
+
+func TestListContents_RootListing(t *testing.T) {
+	t.Parallel()
+	fake := newFake()
+	fake.orgs["acme"] = Org{Username: "acme"}
+	fake.repos["acme/shared-blueprints"] = Repo{Name: "shared-blueprints", FullName: "acme/shared-blueprints"}
+	fake.branches["acme/shared-blueprints"] = map[string]bool{"main": true}
+	fake.files["acme/shared-blueprints/main/bp-foo/blueprint.yaml"] = fakeFile{content: []byte("a"), sha: "s1"}
+	fake.files["acme/shared-blueprints/main/bp-bar/blueprint.yaml"] = fakeFile{content: []byte("b"), sha: "s2"}
+	fake.files["acme/shared-blueprints/main/README.md"] = fakeFile{content: []byte("# readme"), sha: "s3"}
+	c := newClientWithFake(t, fake)
+
+	got, err := c.ListContents(context.Background(), "acme", "shared-blueprints", "main", "")
+	if err != nil {
+		t.Fatalf("ListContents root: %v", err)
+	}
+	// We expect 3 entries: bp-bar (dir), bp-foo (dir), README.md (file).
+	if len(got) != 3 {
+		t.Fatalf("expected 3 entries, got %d: %+v", len(got), got)
+	}
+	want := []ContentEntry{
+		{Name: "README.md", Path: "README.md", Type: "file", Size: 8},
+		{Name: "bp-bar", Path: "bp-bar", Type: "dir"},
+		{Name: "bp-foo", Path: "bp-foo", Type: "dir"},
+	}
+	for i, w := range want {
+		if got[i].Name != w.Name || got[i].Type != w.Type {
+			t.Errorf("entry[%d] = %+v, want %+v", i, got[i], w)
+		}
+	}
+}
+
+func TestListContents_RepoNotFound(t *testing.T) {
+	t.Parallel()
+	fake := newFake()
+	c := newClientWithFake(t, fake)
+
+	_, err := c.ListContents(context.Background(), "acme", "missing", "main", "")
+	if !errors.Is(err, ErrRepoNotFound) {
+		t.Errorf("ListContents missing-repo err = %v, want ErrRepoNotFound", err)
+	}
+}
+
+func TestListContents_FileNotFound(t *testing.T) {
+	t.Parallel()
+	fake := newFake()
+	fake.orgs["acme"] = Org{Username: "acme"}
+	fake.repos["acme/repo"] = Repo{Name: "repo", FullName: "acme/repo"}
+	fake.branches["acme/repo"] = map[string]bool{"main": true}
+	c := newClientWithFake(t, fake)
+
+	_, err := c.ListContents(context.Background(), "acme", "repo", "main", "no-such-dir")
+	if !errors.Is(err, ErrFileNotFound) {
+		t.Errorf("ListContents missing-path err = %v, want ErrFileNotFound", err)
+	}
+}
+
+func TestListContents_RejectsEmptyOrgRepo(t *testing.T) {
+	t.Parallel()
+	c := New("http://x", "tok")
+	if _, err := c.ListContents(context.Background(), "", "r", "main", ""); err == nil {
+		t.Error("ListContents with empty org should fail")
+	}
+	if _, err := c.ListContents(context.Background(), "o", "", "main", ""); err == nil {
+		t.Error("ListContents with empty repo should fail")
 	}
 }

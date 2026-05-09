@@ -1,0 +1,108 @@
+{{- /*
+catalyst-catalog Deployment.
+
+Reads Blueprint manifests from the Sovereign's Gitea instance over the
+in-cluster Service URL (no Internet egress required). The Gitea admin
+token is sourced from the existing `catalyst-gitea-token` Secret used
+by the Group C controllers (one secret, one rotation surface).
+*/ -}}
+{{- if .Values.services.catalog.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "catalog.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "catalog.labels" (dict "root" .) | nindent 4 }}
+spec:
+  replicas: {{ .Values.services.catalog.replicas | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "catalog.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "catalog.labels" (dict "root" .) | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "catalog.fullname" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: catalog
+          image: {{ include "catalog.image" (dict "cfg" .Values.services.catalog "root" .) | quote }}
+          imagePullPolicy: {{ .Values.services.catalog.image.pullPolicy | default "IfNotPresent" }}
+          env:
+            - name: CATALOG_LISTEN_ADDR
+              value: ":8080"
+            - name: CATALYST_GITEA_URL
+              value: {{ .Values.services.catalog.giteaURL | default "http://gitea-http.gitea.svc.cluster.local:3000" | quote }}
+            - name: CATALYST_GITEA_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.services.catalog.giteaSecretRef | default "catalyst-gitea-token" }}
+                  key: token
+            - name: CATALOG_PUBLIC_ORG
+              value: {{ .Values.services.catalog.publicOrg | default "catalog" | quote }}
+            - name: CATALOG_SOVEREIGN_ORG
+              value: {{ .Values.services.catalog.sovereignOrg | default "catalog-sovereign" | quote }}
+            - name: CATALOG_ORG_PRIVATE_REPO
+              value: {{ .Values.services.catalog.orgPrivateRepo | default "shared-blueprints" | quote }}
+            - name: CATALOG_CACHE_TTL_SECONDS
+              value: {{ .Values.services.catalog.cache.ttlSeconds | default 30 | quote }}
+            - name: CATALOG_CACHE_CAPACITY
+              value: {{ .Values.services.catalog.cache.capacity | default 1024 | quote }}
+            - name: CATALOG_SESSION_COOKIE
+              value: {{ .Values.services.catalog.sessionCookieName | default "catalyst_session" | quote }}
+            - name: CATALOG_ANONYMOUS_READS
+              value: {{ .Values.services.catalog.anonymousReads | default false | quote }}
+            - name: SOVEREIGN_FQDN
+              valueFrom:
+                configMapKeyRef:
+                  name: sovereign-fqdn
+                  key: fqdn
+                  optional: true
+            {{- range $k, $v := .Values.services.catalog.env }}
+            - name: {{ $k | quote }}
+              value: {{ $v | quote }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.services.catalog.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+      {{- with .Values.services.catalog.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.services.catalog.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.services.catalog.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: 30
+{{- end }}
