@@ -1,7 +1,9 @@
 {{- /*
 ClusterRole + ClusterRoleBinding for continuum-controller.
 
-K-Cont-1 ships least-privilege grants for the SKELETON path:
+K-Cont-1 shipped the SKELETON least-privilege grants. K-Cont-2
+EXTENDS with the verbs needed by the per-CR reconciler + 7-step
+switchover sequencer (#1101):
 
   resource                                                       verbs
   ────────────────────────────────────────────────────────────────────
@@ -9,17 +11,14 @@ K-Cont-1 ships least-privilege grants for the SKELETON path:
   continuums.dr.openova.io/status                                get,update,patch
   continuums.dr.openova.io/finalizers                            update
   applications.apps.openova.io                                   get,list,watch
-  httproutes.gateway.networking.k8s.io                           get,list,watch
+  clusters.postgresql.cnpg.io                                    get,list,watch,update,patch (CNPG status read + primary-flip + replica.enabled flip — K-Cont-2)
+  clusters.postgresql.cnpg.io/status                             get                          (lag observation — K-Cont-2)
+  httproutes.gateway.networking.k8s.io                           get,list,watch,update,patch  (drain step-3 — K-Cont-2)
   coordination.k8s.io/leases                                     get,list,watch,create,update,patch,delete
   ""/namespaces                                                  get,list,watch
   ""/events                                                      create,patch
-
-K-Cont-2 will EXTEND this with:
-  clusters.postgresql.cnpg.io                                    get,list,watch (+ patch on cluster annotations)
-  clusters.postgresql.cnpg.io/status                             get
-  httproutes.gateway.networking.k8s.io                           update,patch (weight=0 drain)
-  ""/configmaps                                                  get,list,watch,create,update,patch (per-CR state)
-  ""/secrets                                                     get (CF KV token, PDM token)
+  ""/configmaps                                                  get,list,watch,create,update,patch,delete (per-CR state for dns-quorum lease impl — K-Cont-3)
+  ""/secrets                                                     get                          (CF KV token, PDM token — K-Cont-3 wires SealedSecret refs)
 */ -}}
 {{- if .Values.continuum.enabled }}
 apiVersion: rbac.authorization.k8s.io/v1
@@ -41,9 +40,19 @@ rules:
   - apiGroups: ["apps.openova.io"]
     resources: ["applications"]
     verbs: ["get", "list", "watch"]
+  # CNPG cluster-pair access — K-Cont-2 reads status + patches
+  # primary annotation + flips spec.replica.enabled at switchover.
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["clusters"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["clusters/status"]
+    verbs: ["get"]
+  # Gateway API HTTPRoute — read for discovery, update for drain
+  # (step-3 of the switchover sequence sets backendRef weight=0).
   - apiGroups: ["gateway.networking.k8s.io"]
     resources: ["httproutes"]
-    verbs: ["get", "list", "watch"]
+    verbs: ["get", "list", "watch", "update", "patch"]
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
@@ -53,6 +62,19 @@ rules:
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["create", "patch"]
+  # Per-CR state ConfigMaps — K-Cont-3's dns-quorum lease impl
+  # uses a per-CR ConfigMap as a cache layer. K-Cont-2 reads/writes
+  # ConfigMaps for the same purpose during in-cluster bootstrap.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Secrets read — K-Cont-3 reads the CF API token from a
+  # SealedSecret-decrypted Secret. K-Cont-2 doesn't use this yet but
+  # ships the grant up-front per Inviolable Principle #1
+  # (target-state shape first time).
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

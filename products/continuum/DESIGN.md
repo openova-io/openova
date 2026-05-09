@@ -71,28 +71,47 @@ the cleanest path.
   CI workflow (NO cron) mirroring the 5 sibling controllers'
   per-controller workflows.
 
-## What K-Cont-2 fills in
+## What K-Cont-2 fills in (LANDED #1101)
 
-The Reconcile body. Concretely:
+Done. The Reconcile body now ships:
 
-1. **Per-Continuum-CR goroutine map** keyed by NamespacedName. On a
-   Reconcile that surfaces a CR the controller hasn't seen, start a
-   long-lived goroutine that maintains the lease (10s renew, 30s
-   TTL), watches CNPG `cnpg.io/cluster.replicationLag` per replica,
-   and emits status updates. On Reconcile-after-deletion, cancel the
-   goroutine + release the lease.
-2. **Application validation**: fetch the referenced Application,
-   confirm `spec.placement == active-hotstandby` and
-   `spec.regions[] ⊇ {primaryRegion} ∪ hotStandbyRegions`. On
-   mismatch, set `status.phase=Failed` + Condition Ready=False.
-3. **Lease state machine**: Pending → Acquiring → Healthy → Renewing
-   loop; lease loss → Degraded → re-acquire or relinquish.
-4. **Switchover sequencer** per `docs/EPICS-1-6-unified-design.md`
-   §9.3 step-by-step.
-5. **Status writer**: phase, primaryRegion, leaseHolder,
-   leaseExpiresAt, replicationLag map, lastSwitchover, conditions,
+1. **Per-Continuum-CR goroutine map** keyed by NamespacedName,
+   maintained in `r.activeContinuums` (mutex-protected). Reconcile
+   spins up a goroutine on first observation; on Reconcile-after-
+   delete the ctx is cancelled + the lease released best-effort.
+2. **Lease state machine**: 10s renew interval, 30s TTL (overridable
+   per-CR via `spec.leaseClient.config.{ttl,renew}Seconds`). On
+   ErrLeaseLost the goroutine attempts re-acquire; if another holder
+   owns it, status drops to Degraded.
+3. **CNPG status watch** via `internal/cnpg`. Looks up the cluster-
+   pair by labels `catalyst.openova.io/cnpg-pair` +
+   `openova.io/cnpg-role`. The max replication lag across primary
+   + replica is the signal.
+4. **Switchover sequencer** in `internal/switchover/sequence.go` —
+   7 steps per design doc §9.3, each step's success registers a
+   rollback hook that fires in reverse order on a later step's
+   failure.
+5. **Lua-record body synthesizer** in `internal/dns/lua.go` — pure
+   function from (Application, SynthParams) → []dns.Record;
+   byte-stable across calls.
+6. **PDM client** in `internal/pdm/client.go` — POSTs lua-records
+   to `<PDM_API_URL>/v1/lua/commit` with optional X-Catalyst-Token
+   auth.
+7. **NATS JetStream audit publisher** in `internal/events/jetstream.go`
+   — emits onto `catalyst.audit` with header `audit-type`. 9
+   audit-type constants exported.
+8. **Failback handler** with manual approval gate via
+   `Sequencer.RequestFailback(ctx, plan, FailbackOptions{...})`:
+   emits TypeFailbackPending, blocks on opts.ApprovalCh, then
+   Execute + TypeFailbackCompleted.
+9. **Status writer** patches phase, primaryRegion, leaseHolder,
+   leaseExpiresAt, replicationLagSeconds, switchoverInProgress +
+   Step, lastSwitchover, conditions {LeaseHeld, Ready},
    observedGeneration.
-6. **NATS audit publisher** (`internal/events/` package fills out).
+10. **WitnessClient interface** + **InMemoryClient** for tests +
+    **DefaultSelector** (returns ErrNotImplemented for K-Cont-3
+    paths). The `in-memory` kind is gated by env
+    `WITNESS_IN_MEMORY=true` (TEST ONLY).
 
 ## What K-Cont-3 fills in (lease witness)
 

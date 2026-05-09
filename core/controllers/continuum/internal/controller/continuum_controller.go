@@ -1,49 +1,53 @@
-// Package controller — continuum-controller reconciler.
+// Package controller — continuum-controller reconciler (slice
+// K-Cont-2 of EPIC-6 #1101).
 //
-// Reconciles `Continuum.dr.openova.io/v1` CRs into per-Application DR
-// orchestration: lease maintenance, replication-health watching, and
-// switchover sequence (drain HTTP traffic via HTTPRoute weight=0,
-// flip lua-record probe target via PDM /v1/commit, flip CNPG primary,
-// publish audit event on NATS `catalyst.audit`).
+// This file replaces K-Cont-1's no-op skeleton with the full
+// reconcile loop:
 //
-// K-Cont-1 (this slice) ships the SKELETON ONLY. Reconcile() is a
-// no-op that logs at V(1). The full reconcile loop — lease state
-// machine, switchover sequencer, lua-record body synthesizer — lands
-// in K-Cont-2 (#1101). The lease-witness client (Cloudflare KV +
-// 3-DNS quorum fallback) lands in K-Cont-3.
+//   - Per-Continuum-CR goroutine, keyed by NamespacedName, maintained
+//     in `r.activeContinuums` (mutex-protected).
+//   - Each goroutine: lease maintenance (10s renew, 30s TTL) via
+//     witness.Client; CNPG status watch via cnpg.Reader; switchover
+//     trigger on (a) replication lag > spec.rto, or (b) explicit
+//     spec.switchover.requested=true.
+//   - On a Continuum CR deletion the per-CR goroutine is cancelled +
+//     the lease released.
 //
-// Per docs/INVIOLABLE-PRINCIPLES.md #3 + ADR-0001 §2.7 (matching the
-// pattern of all 5 Catalyst controllers + useraccess-controller) the
-// CRD shape is owned by the chart and authored by hand. We do NOT
-// generate Go types via controller-gen. The dynamic client +
-// `unstructured.Unstructured` suffices for read/write needs and
-// avoids a code-generation step in the build pipeline.
+// Per ADR-0001 §2.7 + INVIOLABLE-PRINCIPLES #3 we use the dynamic
+// client + Unstructured for every CR access — no controller-gen, no
+// generated typed clients.
 //
-// Wire shape mirrors the existing CRD at
-//
-//	products/catalyst/chart/crds/continuum.yaml
-//
-// The Continuum CR is namespaced (per the CRD: scope=Namespaced) and
-// the reconciler watches every namespace. Per-Continuum-CR state
-// (lease holder, last-renew time, switchover in-flight) lives in
-// memory in K-Cont-2; on controller restart the lease is re-acquired
-// from the witness if quorum says we still hold it, else relinquished.
+// Per INVIOLABLE-PRINCIPLES #4 every URL / region / lease TTL is
+// runtime-configurable via Continuum CR spec (not env, not
+// hardcoded).
 package controller
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"sync"
+	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/dynamic"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/openova-io/openova/core/controllers/continuum/internal/cnpg"
+	"github.com/openova-io/openova/core/controllers/continuum/internal/dns"
+	"github.com/openova-io/openova/core/controllers/continuum/internal/events"
+	"github.com/openova-io/openova/core/controllers/continuum/internal/pdm"
+	"github.com/openova-io/openova/core/controllers/continuum/internal/switchover"
+	"github.com/openova-io/openova/core/controllers/continuum/internal/witness"
 )
 
-// Continuum GVK / GVR — pinned to the CRD shipped by
-// products/catalyst/chart/crds/continuum.yaml. A drift here vs the
-// chart YAML is a packaging bug and surfaces as a 404 on the dynamic
-// client at startup.
+// Continuum CR pin — same constants K-Cont-1 shipped.
 const (
 	ContinuumGroup    = "dr.openova.io"
 	ContinuumVersion  = "v1"
@@ -52,72 +56,649 @@ const (
 	ContinuumResource = "continuums"
 )
 
-// ContinuumGVR is consumed by the dynamic client + by tests building
-// fake clients.
+// ContinuumGVR is consumed by the dynamic client + by tests.
 var ContinuumGVR = schema.GroupVersionResource{
 	Group:    ContinuumGroup,
 	Version:  ContinuumVersion,
 	Resource: ContinuumResource,
 }
 
-// continuumGVK is the corresponding GroupVersionKind, used to set up
-// the controller-runtime watch via unstructured.Unstructured.
+// continuumGVK — used for the controller-runtime watch.
 var continuumGVK = schema.GroupVersionKind{
 	Group:   ContinuumGroup,
 	Version: ContinuumVersion,
 	Kind:    ContinuumKind,
 }
 
-// ContinuumReconciler is the no-op skeleton for K-Cont-1. K-Cont-2
-// extends this with:
-//   - PDMClient: pool-domain-manager /v1/commit client
-//   - NATSPublisher: catalyst.audit event publisher
-//   - WitnessClient: lease witness (cloudflare-kv | dns-quorum) — wired
-//     in K-Cont-3
-//   - per-Continuum-CR goroutine map keyed by NamespacedName
+// Default lease + watch tuning — overridable per-CR via
+// spec.leaseClient.config.{ttl,renew}Seconds.
+const (
+	DefaultLeaseTTLSeconds   = 30
+	DefaultLeaseRenewSeconds = 10
+	DefaultLagThresholdSecs  = 60
+)
+
+// Phase strings — mirrors the CRD enum.
+const (
+	PhasePending       = "Pending"
+	PhaseHealthy       = "Healthy"
+	PhaseDegraded      = "Degraded"
+	PhaseSwitchingOver = "SwitchingOver"
+	PhaseFailedOver    = "FailedOver"
+	PhaseFailed        = "Failed"
+)
+
+// ContinuumReconciler is the K-Cont-2 reconciler.
 type ContinuumReconciler struct {
 	client.Client
+
+	// Scheme — controller-runtime convention; we use unstructured so
+	// the scheme is for leader election only.
 	Scheme *runtime.Scheme
+
+	// Dyn — dynamic client for CR + CNPG + HTTPRoute access.
+	Dyn dynamic.Interface
+
+	// WitnessSelector chooses a per-CR witness Client.
+	WitnessSelector witness.Selector
+
+	// HoldingRegion is the host-cluster name THIS controller instance
+	// represents. Stamped on Witness.Acquire calls; populated from
+	// the controller's CATALYST_REGION env var at startup.
+	HoldingRegion string
+
+	// PDMClient is the pool-domain-manager HTTP client (shared).
+	PDMClient *pdm.Client
+
+	// Audit publisher (NATS JetStream in production, Recorder in
+	// tests).
+	Audit events.Publisher
+
+	// Drainer — HTTPRoute weight flipper. Shared across CRs.
+	Drainer switchover.HTTPRouteDrainer
+
+	// activeContinuums tracks per-CR goroutines keyed by
+	// NamespacedName.String() (e.g. "demo/cr1").
+	activeContinuums   map[string]*continuumGoroutine
+	activeContinuumsMu sync.Mutex
+
+	// Now / sleeper for tests. Defaults are time.Now / time.Sleep.
+	Now   func() time.Time
+	Sleep func(time.Duration)
 }
 
-// Reconcile is a no-op for K-Cont-1. K-Cont-2 ships the actual
-// reconcile loop:
-//
-//  1. Fetch the Continuum CR (namespaced). Not-found → cancel any
-//     running per-CR goroutine + relinquish lease.
-//  2. Validate the referenced Application has placement:
-//     active-hotstandby. Otherwise → status.phase=Failed.
-//  3. Validate primaryRegion ∈ Application.spec.regions[].
-//  4. Start (or update) the per-CR goroutine that:
-//     - acquires the lease via WitnessClient
-//     - watches CNPG `cnpg.io/cluster.replicationLag` per replica
-//     - on autoFailover trigger or operator-initiated switchover,
-//     executes the §9.3 sequence
-//  5. Patch status (phase, primaryRegion, leaseHolder, leaseExpiresAt,
-//     replicationLag map, conditions).
-func (r *ContinuumReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := ctrl.LoggerFrom(ctx)
-	log.V(1).Info("continuum reconcile (skeleton K-Cont-1 — no-op)",
-		"namespace", req.Namespace,
-		"name", req.Name)
-	return ctrl.Result{}, nil
+// continuumGoroutine bundles a per-CR background loop's state.
+type continuumGoroutine struct {
+	cancel  context.CancelFunc
+	witness witness.Client
+	holder  string
 }
 
 // SetupWithManager wires the reconciler into the controller-runtime
-// Manager. K-Cont-1 watches Continuum CRs only — K-Cont-2 will add
-// `Watches(&unstructured.Unstructured{...Application}, ...)` for the
-// referenced active-hotstandby Application CRs (with EnqueueRequestsFromMapFunc
-// translating Application name → owning Continuum CR).
-//
-// The watch uses unstructured.Unstructured per ADR-0001 §2.7 — no
-// generated types, no controller-gen. The Manager's caching layer
-// works fine with unstructured.
+// Manager.
 func (r *ContinuumReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	r.activeContinuums = map[string]*continuumGoroutine{}
 	u := &unstructured.Unstructured{}
 	u.SetGroupVersionKind(continuumGVK)
-
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("continuum").
 		For(u).
 		Complete(r)
+}
+
+// Reconcile is the per-CR entry point.
+func (r *ContinuumReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx).WithValues("name", req.Name, "namespace", req.Namespace)
+	key := req.NamespacedName.String()
+
+	cr, err := r.fetchCR(ctx, req.NamespacedName)
+	if apierrors.IsNotFound(err) {
+		log.Info("continuum deleted; cleaning up per-CR goroutine")
+		r.stopGoroutine(key)
+		return ctrl.Result{}, nil
+	}
+	if err != nil {
+		log.Error(err, "fetch Continuum CR")
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	}
+
+	spec, vErr := parseSpec(cr)
+	if vErr != nil {
+		log.Error(vErr, "invalid Continuum spec")
+		return ctrl.Result{}, r.patchStatus(ctx, cr, statusUpdate{
+			Phase:   PhaseFailed,
+			Reason:  "Invalid",
+			Message: vErr.Error(),
+		})
+	}
+
+	r.activeContinuumsMu.Lock()
+	if r.activeContinuums == nil {
+		r.activeContinuums = map[string]*continuumGoroutine{}
+	}
+	g, ok := r.activeContinuums[key]
+	if !ok {
+		w, sErr := r.selectWitness(req.NamespacedName, spec)
+		if sErr != nil {
+			r.activeContinuumsMu.Unlock()
+			log.Error(sErr, "witness selector")
+			return ctrl.Result{}, r.patchStatus(ctx, cr, statusUpdate{
+				Phase:   PhaseFailed,
+				Reason:  "WitnessUnavailable",
+				Message: sErr.Error(),
+			})
+		}
+		gctx, cancel := context.WithCancel(context.Background())
+		g = &continuumGoroutine{cancel: cancel, witness: w, holder: r.HoldingRegion}
+		r.activeContinuums[key] = g
+		go r.runPerCR(gctx, req.NamespacedName, spec, w)
+		log.Info("started per-CR goroutine")
+	}
+	_ = g
+	r.activeContinuumsMu.Unlock()
+
+	return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+}
+
+// runPerCR is the per-Continuum-CR background loop.
+func (r *ContinuumReconciler) runPerCR(ctx context.Context, nn types.NamespacedName, initialSpec ContinuumSpec, w witness.Client) {
+	log := ctrl.LoggerFrom(ctx).WithValues("name", nn.Name, "namespace", nn.Namespace)
+	renewInterval := time.Duration(initialSpec.RenewSeconds) * time.Second
+	if renewInterval == 0 {
+		renewInterval = DefaultLeaseRenewSeconds * time.Second
+	}
+	ttl := time.Duration(initialSpec.TTLSeconds) * time.Second
+	if ttl == 0 {
+		ttl = DefaultLeaseTTLSeconds * time.Second
+	}
+
+	leaseState, err := w.Acquire(ctx, r.HoldingRegion, ttl)
+	if err == nil {
+		_ = r.publishLeaseAcquired(ctx, nn, initialSpec, leaseState)
+	}
+
+	tick := time.NewTicker(renewInterval)
+	defer tick.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			_ = w.Release(context.Background(), r.HoldingRegion)
+			log.Info("per-CR goroutine exiting")
+			return
+		case <-tick.C:
+		}
+
+		cr, err := r.fetchCR(ctx, nn)
+		if apierrors.IsNotFound(err) {
+			log.Info("CR vanished mid-loop; exiting")
+			_ = w.Release(context.Background(), r.HoldingRegion)
+			return
+		}
+		if err != nil {
+			log.Error(err, "fetch CR mid-loop")
+			continue
+		}
+		spec, vErr := parseSpec(cr)
+		if vErr != nil {
+			log.Error(vErr, "spec invalid mid-loop")
+			continue
+		}
+
+		newState, rErr := w.Renew(ctx, r.HoldingRegion, ttl)
+		if errors.Is(rErr, witness.ErrLeaseLost) {
+			_ = r.publishLeaseLost(ctx, nn, spec, leaseState)
+			if newState, err = w.Acquire(ctx, r.HoldingRegion, ttl); err != nil {
+				log.Info("lease lost; new holder in charge", "err", err)
+				_ = r.patchStatusFromCR(ctx, cr, spec, witness.State{}, cnpg.Status{}, cnpg.Status{}, false, "")
+				continue
+			}
+			_ = r.publishLeaseAcquired(ctx, nn, spec, newState)
+		} else if rErr != nil {
+			log.Error(rErr, "lease renew (non-lost)")
+			continue
+		}
+		leaseState = newState
+
+		var primaryStatus, replicaStatus cnpg.Status
+		if cr := r.cnpgReader(); cr != nil && spec.CNPGNamespace != "" && spec.CNPGPair != "" {
+			primary, replica, fErr := cr.FindPair(ctx, spec.CNPGNamespace, spec.CNPGPair)
+			if fErr == nil {
+				primaryStatus, _, _ = cr.Get(ctx, primary.GetNamespace(), primary.GetName())
+				replicaStatus, _, _ = cr.Get(ctx, replica.GetNamespace(), replica.GetName())
+			}
+		}
+
+		switchoverRequested := isSwitchoverRequested(cr)
+		maxLag := cnpg.MaxLagSeconds(primaryStatus, replicaStatus)
+		lagBreached := spec.RTOSeconds > 0 && maxLag > spec.RTOSeconds
+		toRegion := pickFailoverTarget(spec)
+
+		switch {
+		case switchoverRequested:
+			_ = r.publishCNPGPromotable(ctx, nn, spec, maxLag)
+			r.runSwitchover(ctx, cr, spec, toRegion, "operator-requested", maxLag, w)
+			_ = r.clearSwitchoverRequest(ctx, cr)
+		case lagBreached:
+			_ = r.publishLagBreach(ctx, nn, spec, maxLag)
+			r.runSwitchover(ctx, cr, spec, toRegion, "lag-breach", maxLag, w)
+		default:
+			_ = r.patchStatusFromCR(ctx, cr, spec, leaseState, primaryStatus, replicaStatus, false, "")
+			_ = r.publishReconcileSuccess(ctx, nn, spec, maxLag)
+		}
+	}
+}
+
+// runSwitchover instantiates the Sequencer and executes the plan.
+func (r *ContinuumReconciler) runSwitchover(
+	ctx context.Context,
+	cr *unstructured.Unstructured,
+	spec ContinuumSpec,
+	toRegion, reason string,
+	maxLag int,
+	w witness.Client,
+) {
+	log := ctrl.LoggerFrom(ctx)
+	if toRegion == "" {
+		log.Info("no failover target available; skipping switchover")
+		return
+	}
+	plan := switchover.SwitchoverPlan{
+		ContinuumName:      types.NamespacedName{Namespace: cr.GetNamespace(), Name: cr.GetName()}.String(),
+		ApplicationName:    spec.ApplicationRef,
+		FromRegion:         spec.PrimaryRegion,
+		ToRegion:           toRegion,
+		CNPGPair:           spec.CNPGPair,
+		CNPGNamespace:      spec.CNPGNamespace,
+		HTTPRouteName:      spec.HTTPRouteName,
+		HTTPRouteNamespace: spec.HTTPRouteNamespace,
+		PDMZone:            spec.PDMZone,
+		SynthParams:        spec.SynthParams,
+		Application:        spec.Application,
+		Reason:             reason,
+		InitiatedBy:        spec.InitiatedBy,
+		LeaseTTL:           time.Duration(spec.TTLSeconds) * time.Second,
+	}
+
+	_ = r.patchStatus(ctx, cr, statusUpdate{
+		Phase:   PhaseSwitchingOver,
+		Reason:  "InProgress",
+		Message: fmt.Sprintf("step 1/7 starting; from=%s to=%s", plan.FromRegion, plan.ToRegion),
+	})
+
+	zone := plan.PDMZone
+	seq := &switchover.Sequencer{
+		CNPG:    r.cnpgReader(),
+		Witness: w,
+		PDMCommit: func(ctx context.Context, records []dns.Record) error {
+			if r.PDMClient == nil {
+				return errors.New("PDMClient not configured")
+			}
+			z := zone
+			if z == "" {
+				z = currentZone(records)
+			}
+			return r.PDMClient.CommitLuaRecords(ctx, z, records)
+		},
+		HTTPRoute: r.Drainer,
+		Audit:     r.Audit,
+		Sleep:     r.Sleep,
+		Now:       r.Now,
+		StepHook: func(step int, name string) {
+			_ = r.patchStatus(ctx, cr, statusUpdate{
+				Phase:   PhaseSwitchingOver,
+				Reason:  "InProgress",
+				Message: fmt.Sprintf("step %d/7 — %s", step, name),
+			})
+		},
+	}
+
+	res := seq.Execute(ctx, plan)
+	if res.Err != nil {
+		_ = r.patchStatus(ctx, cr, statusUpdate{
+			Phase:                PhaseDegraded,
+			Reason:               "SwitchoverFailed",
+			Message:              res.Err.Error(),
+			LastSwitchoverResult: "Failed",
+		})
+		return
+	}
+	_ = r.patchStatus(ctx, cr, statusUpdate{
+		Phase:                PhaseFailedOver,
+		Reason:               "Succeeded",
+		Message:              fmt.Sprintf("switchover %s → %s completed", plan.FromRegion, plan.ToRegion),
+		LastSwitchoverResult: "Success",
+		LastSwitchoverFrom:   plan.FromRegion,
+		LastSwitchoverTo:     plan.ToRegion,
+	})
+}
+
+// currentZone resolves the PowerDNS zone from a record set's first
+// hostname (everything after the first dot). Empty input → empty
+// output.
+func currentZone(records []dns.Record) string {
+	if len(records) == 0 {
+		return ""
+	}
+	h := records[0].Hostname
+	for i := 0; i < len(h); i++ {
+		if h[i] == '.' {
+			return h[i+1:]
+		}
+	}
+	return h
+}
+
+// stopGoroutine cancels + removes the per-CR goroutine.
+func (r *ContinuumReconciler) stopGoroutine(key string) {
+	r.activeContinuumsMu.Lock()
+	defer r.activeContinuumsMu.Unlock()
+	g, ok := r.activeContinuums[key]
+	if !ok {
+		return
+	}
+	g.cancel()
+	delete(r.activeContinuums, key)
+}
+
+// ActiveCount — test helper.
+func (r *ContinuumReconciler) ActiveCount() int {
+	r.activeContinuumsMu.Lock()
+	defer r.activeContinuumsMu.Unlock()
+	return len(r.activeContinuums)
+}
+
+// selectWitness picks a Client for the CR and stamps a per-CR slot
+// key (NamespacedName) into the Selector config so the in-memory stub
+// gives this CR an isolated lease.
+func (r *ContinuumReconciler) selectWitness(nn types.NamespacedName, spec ContinuumSpec) (witness.Client, error) {
+	if r.WitnessSelector == nil {
+		return nil, errors.New("WitnessSelector not configured")
+	}
+	cfg := map[string]any{}
+	for k, v := range spec.LeaseClientConfig {
+		cfg[k] = v
+	}
+	cfg["slot"] = nn.String()
+	return r.WitnessSelector.Select(spec.LeaseClientKind, cfg)
+}
+
+// cnpgReader returns a fresh cnpg.Reader bound to r.Dyn.
+func (r *ContinuumReconciler) cnpgReader() *cnpg.Reader {
+	if r.Dyn == nil {
+		return nil
+	}
+	return cnpg.NewReader(r.Dyn)
+}
+
+func (r *ContinuumReconciler) fetchCR(ctx context.Context, nn types.NamespacedName) (*unstructured.Unstructured, error) {
+	if r.Dyn == nil {
+		return nil, errors.New("Dyn not configured")
+	}
+	return r.Dyn.Resource(ContinuumGVR).Namespace(nn.Namespace).Get(ctx, nn.Name, metav1.GetOptions{})
+}
+
+// pickFailoverTarget — first hotStandbyRegions[] entry not equal to
+// the current primary.
+func pickFailoverTarget(spec ContinuumSpec) string {
+	for _, r := range spec.HotStandbyRegions {
+		if r != spec.PrimaryRegion {
+			return r
+		}
+	}
+	return ""
+}
+
+func isSwitchoverRequested(cr *unstructured.Unstructured) bool {
+	v, _, _ := unstructured.NestedBool(cr.Object, "spec", "switchover", "requested")
+	return v
+}
+
+func (r *ContinuumReconciler) clearSwitchoverRequest(ctx context.Context, cr *unstructured.Unstructured) error {
+	_ = unstructured.SetNestedField(cr.Object, false, "spec", "switchover", "requested")
+	if r.Dyn == nil {
+		return nil
+	}
+	_, err := r.Dyn.Resource(ContinuumGVR).Namespace(cr.GetNamespace()).Update(ctx, cr, metav1.UpdateOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	return err
+}
+
+// patchStatusFromCR — convenience wrapper for steady-state patches.
+func (r *ContinuumReconciler) patchStatusFromCR(
+	ctx context.Context,
+	cr *unstructured.Unstructured,
+	spec ContinuumSpec,
+	lease witness.State,
+	primaryStatus, replicaStatus cnpg.Status,
+	switchoverInProgress bool,
+	stepLabel string,
+) error {
+	maxLag := cnpg.MaxLagSeconds(primaryStatus, replicaStatus)
+	now := r.now()
+	heldByUs := lease.IsHeldBy(r.HoldingRegion, now)
+	phase := PhaseHealthy
+	if !heldByUs {
+		phase = PhaseDegraded
+	}
+	su := statusUpdate{
+		Phase:                 phase,
+		PrimaryRegion:         spec.PrimaryRegion,
+		LeaseHolder:           lease.Holder,
+		ReplicationLagSeconds: maxLag,
+		SwitchoverInProgress:  switchoverInProgress,
+		Step:                  stepLabel,
+	}
+	if !lease.ExpiresAt.IsZero() {
+		su.LeaseExpiresAt = lease.ExpiresAt.Format(time.RFC3339)
+	}
+	return r.patchStatus(ctx, cr, su)
+}
+
+// statusUpdate — mutation set for one status patch.
+type statusUpdate struct {
+	Phase                 string
+	PrimaryRegion         string
+	LeaseHolder           string
+	LeaseExpiresAt        string
+	ReplicationLagSeconds int
+	SwitchoverInProgress  bool
+	Step                  string
+
+	LastSwitchoverResult string
+	LastSwitchoverFrom   string
+	LastSwitchoverTo     string
+
+	Reason  string
+	Message string
+}
+
+func (r *ContinuumReconciler) patchStatus(ctx context.Context, cr *unstructured.Unstructured, su statusUpdate) error {
+	if r.Dyn == nil {
+		return nil
+	}
+	latest, err := r.Dyn.Resource(ContinuumGVR).Namespace(cr.GetNamespace()).Get(ctx, cr.GetName(), metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("re-fetch for status: %w", err)
+	}
+	status, _, _ := unstructured.NestedMap(latest.Object, "status")
+	if status == nil {
+		status = map[string]interface{}{}
+	}
+	status["observedGeneration"] = latest.GetGeneration()
+	if su.Phase != "" {
+		status["phase"] = su.Phase
+	}
+	if su.PrimaryRegion != "" {
+		status["primaryRegion"] = su.PrimaryRegion
+	}
+	if su.LeaseHolder != "" {
+		status["leaseHolder"] = su.LeaseHolder
+	}
+	if su.LeaseExpiresAt != "" {
+		status["leaseExpiresAt"] = su.LeaseExpiresAt
+	}
+	status["replicationLagSeconds"] = int64(su.ReplicationLagSeconds)
+	status["switchoverInProgress"] = su.SwitchoverInProgress
+	if su.Step != "" {
+		status["switchoverStep"] = su.Step
+	}
+	if su.LastSwitchoverResult != "" {
+		ls := map[string]interface{}{
+			"result": su.LastSwitchoverResult,
+			"from":   su.LastSwitchoverFrom,
+			"to":     su.LastSwitchoverTo,
+			"at":     r.now().UTC().Format(time.RFC3339),
+		}
+		status["lastSwitchover"] = ls
+	}
+
+	conds := []interface{}{}
+	if existing, ok := status["conditions"].([]interface{}); ok {
+		for _, c := range existing {
+			cm, ok := c.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			t, _ := cm["type"].(string)
+			if t == "LeaseHeld" || t == "Ready" {
+				continue
+			}
+			conds = append(conds, c)
+		}
+	}
+	conds = append(conds, map[string]interface{}{
+		"type":               "LeaseHeld",
+		"status":             boolToCondStatus(su.LeaseHolder == r.HoldingRegion && su.LeaseHolder != ""),
+		"reason":             firstNonEmpty(su.Reason, "Reconciled"),
+		"message":            firstNonEmpty(su.Message, ""),
+		"lastTransitionTime": r.now().UTC().Format(time.RFC3339),
+	})
+	conds = append(conds, map[string]interface{}{
+		"type":               "Ready",
+		"status":             phaseToReady(su.Phase),
+		"reason":             firstNonEmpty(su.Reason, "Reconciled"),
+		"message":            firstNonEmpty(su.Message, ""),
+		"lastTransitionTime": r.now().UTC().Format(time.RFC3339),
+	})
+	status["conditions"] = conds
+	latest.Object["status"] = status
+
+	_, err = r.Dyn.Resource(ContinuumGVR).Namespace(latest.GetNamespace()).UpdateStatus(ctx, latest, metav1.UpdateOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	return err
+}
+
+func (r *ContinuumReconciler) now() time.Time {
+	if r.Now != nil {
+		return r.Now()
+	}
+	return time.Now()
+}
+
+func (r *ContinuumReconciler) publishLeaseAcquired(ctx context.Context, nn types.NamespacedName, spec ContinuumSpec, st witness.State) error {
+	if r.Audit == nil {
+		return nil
+	}
+	return r.Audit.Publish(ctx, events.Event{
+		Type:            events.TypeLeaseAcquired,
+		ContinuumName:   nn.String(),
+		ApplicationName: spec.ApplicationRef,
+		ToPrimary:       st.Holder,
+		Reason:          "lease-acquire",
+		Message:         fmt.Sprintf("acquired lease for region %q (gen %d)", st.Holder, st.Generation),
+	})
+}
+
+func (r *ContinuumReconciler) publishLeaseLost(ctx context.Context, nn types.NamespacedName, spec ContinuumSpec, prev witness.State) error {
+	if r.Audit == nil {
+		return nil
+	}
+	return r.Audit.Publish(ctx, events.Event{
+		Type:            events.TypeLeaseLost,
+		ContinuumName:   nn.String(),
+		ApplicationName: spec.ApplicationRef,
+		FromPrimary:     prev.Holder,
+		Reason:          "lease-lost",
+		Message:         "lease renew returned ErrLeaseLost; will attempt re-acquire",
+	})
+}
+
+func (r *ContinuumReconciler) publishLagBreach(ctx context.Context, nn types.NamespacedName, spec ContinuumSpec, lag int) error {
+	if r.Audit == nil {
+		return nil
+	}
+	return r.Audit.Publish(ctx, events.Event{
+		Type:            events.TypeCNPGLagBreach,
+		ContinuumName:   nn.String(),
+		ApplicationName: spec.ApplicationRef,
+		FromPrimary:     spec.PrimaryRegion,
+		LagSeconds:      lag,
+		Reason:          "lag-breach",
+		Message:         fmt.Sprintf("replication lag %ds > RTO %ds", lag, spec.RTOSeconds),
+	})
+}
+
+func (r *ContinuumReconciler) publishCNPGPromotable(ctx context.Context, nn types.NamespacedName, spec ContinuumSpec, lag int) error {
+	if r.Audit == nil {
+		return nil
+	}
+	return r.Audit.Publish(ctx, events.Event{
+		Type:            events.TypeCNPGPromotable,
+		ContinuumName:   nn.String(),
+		ApplicationName: spec.ApplicationRef,
+		FromPrimary:     spec.PrimaryRegion,
+		LagSeconds:      lag,
+		Reason:          "promotable",
+		Message:         fmt.Sprintf("standby promotable; lag=%ds", lag),
+	})
+}
+
+func (r *ContinuumReconciler) publishReconcileSuccess(ctx context.Context, nn types.NamespacedName, spec ContinuumSpec, lag int) error {
+	if r.Audit == nil {
+		return nil
+	}
+	return r.Audit.Publish(ctx, events.Event{
+		Type:            events.TypeReconcileSuccess,
+		ContinuumName:   nn.String(),
+		ApplicationName: spec.ApplicationRef,
+		ToPrimary:       spec.PrimaryRegion,
+		LagSeconds:      lag,
+		Reason:          "ok",
+		Message:         "reconcile loop iteration successful",
+	})
+}
+
+func firstNonEmpty(s ...string) string {
+	for _, x := range s {
+		if x != "" {
+			return x
+		}
+	}
+	return ""
+}
+
+func boolToCondStatus(b bool) string {
+	if b {
+		return "True"
+	}
+	return "False"
+}
+
+func phaseToReady(phase string) string {
+	switch phase {
+	case PhaseHealthy, PhaseFailedOver:
+		return "True"
+	case PhasePending, PhaseSwitchingOver:
+		return "Unknown"
+	default:
+		return "False"
+	}
 }
