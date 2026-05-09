@@ -195,4 +195,4 @@ spec:
     # installing this Blueprint and running a one-shot promotion
     # job (delivered in C-DB-3 acceptance harness). Documented in
     # DESIGN.md "single→pair migration".
-    from: ["bp-cnpg:1.x"]
+    from: ["1.x"]
