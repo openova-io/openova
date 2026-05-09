@@ -16,7 +16,7 @@ terraform {
 
   required_providers {
     cloudflare = {
-      source  = "cloudflare/cloudflare"
+      source = "cloudflare/cloudflare"
       # 5.x renamed several Workers resources; pinning <6 prevents an
       # accidental jump across a future breaking-change boundary. Bump
       # the upper bound deliberately when CF ships v6 + we audit the

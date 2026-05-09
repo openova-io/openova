@@ -54,42 +54,38 @@ resource "cloudflare_workers_script" "lease_witness" {
   main_module        = "index.js"
   compatibility_date = "2024-09-09"
 
-  # KV binding — must match `wrangler.toml` `[[kv_namespaces]] binding`.
+  # Bindings — must match `wrangler.toml`'s `[[kv_namespaces]] binding`
+  # + `[vars]` keys. Per the cloudflare/cloudflare v5 provider the
+  # binding `type` enum is one of: `kv_namespace`, `plain_text`,
+  # `secret_text`, ... (see `tofu providers schema`).
+  #
+  # On secret handling: `secret_text` is the v5 canonical seam for
+  # Worker-bound secrets — encrypted at rest by Cloudflare, never
+  # visible via the dashboard read API once written. (V4 had a
+  # separate `cloudflare_workers_secret` resource; v5 collapsed both
+  # into the inline binding.)  Per Inviolable Principle #5 the actual
+  # value comes from a K8s SealedSecret extracted into
+  # TF_VAR_bearer_tokens_csv at apply time — never inlined here.
+  #
+  # Rotation: replace TF_VAR_bearer_tokens_csv with `<new>,<old>`, run
+  # `tofu apply`. The Worker now accepts both. After one renew cycle
+  # (default 10s) update controller-side SealedSecret, then run a final
+  # `tofu apply` with just `<new>` to retire the old token.
   bindings = [
     {
       name         = "OPENOVA_LEASES"
       type         = "kv_namespace"
       namespace_id = cloudflare_workers_kv_namespace.leases.id
     },
-    # NOTE on bearer tokens: in v5 of the cloudflare provider the
-    # canonical place for SECRETS is `cloudflare_workers_secret` (a
-    # separate resource); plain `vars` would expose the value via the
-    # CF dashboard read API. We therefore declare BEARER_TOKENS_CSV via
-    # the dedicated secret resource below, and only LOG_LEVEL inline as
-    # a plain text binding (non-sensitive).
     {
       name = "LOG_LEVEL"
       type = "plain_text"
       text = var.log_level
     },
+    {
+      name = "BEARER_TOKENS_CSV"
+      type = "secret_text"
+      text = var.bearer_tokens_csv
+    },
   ]
-}
-
-# ─── Bearer-token allow-list (encrypted at rest in CF) ────────────────
-#
-# `cloudflare_workers_secret` writes a Worker-bound secret env var. The
-# value is encrypted at rest by Cloudflare and never visible via the
-# dashboard read API once written. Per Inviolable Principle #5 + the
-# Worker's auth.ts, the Worker reads this as `env.BEARER_TOKENS_CSV` and
-# parses it as a comma-separated list.
-#
-# Rotation: replace TF_VAR_bearer_tokens_csv with `<new>,<old>`, run
-# `tofu apply`. The Worker now accepts both. After one renew cycle
-# (default 10s) update controller-side SealedSecret, then run a final
-# `tofu apply` with just `<new>` to retire the old token.
-resource "cloudflare_workers_secret" "bearer_tokens_csv" {
-  account_id  = var.cloudflare_account_id
-  script_name = cloudflare_workers_script.lease_witness.script_name
-  name        = "BEARER_TOKENS_CSV"
-  text        = var.bearer_tokens_csv
 }
