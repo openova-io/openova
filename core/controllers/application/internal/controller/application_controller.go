@@ -59,11 +59,11 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/dynamic"
 
-	"github.com/openova-io/openova/core/controllers/application/internal/validate"
-	"github.com/openova-io/openova/core/controllers/pkg/gitea"
 	"github.com/openova-io/openova/core/controllers/internal/placement"
-	"github.com/openova-io/openova/core/controllers/internal/render"
 	"github.com/openova-io/openova/core/controllers/internal/semver"
+	"github.com/openova-io/openova/core/controllers/pkg/gitea"
+	"github.com/openova-io/openova/core/controllers/pkg/render"
+	"github.com/openova-io/openova/core/controllers/pkg/validate"
 )
 
 // GVR pins for the three CRDs the controller reads. Storage versions

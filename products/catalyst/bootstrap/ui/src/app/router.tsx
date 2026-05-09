@@ -59,6 +59,7 @@ import { MarketplaceProductPage } from '@/pages/marketplace/MarketplaceProductPa
 import { ProvisionPage } from '@/pages/provision/ProvisionPage'
 import { AppsPage } from '@/pages/sovereign/AppsPage'
 import { AppDetail } from '@/pages/sovereign/AppDetail'
+import { InstallPage } from '@/pages/sovereign/InstallPage'
 import { JobsPage } from '@/pages/sovereign/JobsPage'
 import { JobDetail } from '@/pages/sovereign/JobDetail'
 import { JobsTimeline } from '@/pages/sovereign/JobsTimeline'
@@ -906,6 +907,53 @@ const consoleAppDetailRoute = createRoute({
   component: AppDetail,
 })
 
+// EPIC-2 Slice I (#1097) — live install flow.
+//
+// Two sibling URL trees per the same pattern as compliance dashboards
+// (slice U):
+//
+//   Mothership tenant operator (provision tree):
+//     /provision/$deploymentId/install                — catalog landing
+//     /provision/$deploymentId/install/$blueprintName — Blueprint pre-selected
+//
+//   Chroot Sovereign Console (consoleLayoutRoute children):
+//     /install                                        — same surface, deploymentId resolved via /api/v1/sovereign/self
+//     /install/$blueprintName                         — Blueprint pre-selected
+//
+// Per the brief the install page reads catalyst-catalog via the
+// catalyst-api proxy; the InstallForm widget auto-generates the form
+// from spec.configSchema (RJSF + Ajv). Submit creates the Application
+// CR, status modal subscribes to the SSE stream, "Open Apps" navigates
+// back to the canonical AppsPage when the operator dismisses.
+const provisionInstallRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/provision/$deploymentId/install',
+  component: InstallPage,
+  beforeLoad: provisionAuthGuard,
+})
+const provisionInstallBlueprintRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/provision/$deploymentId/install/$blueprintName',
+  component: () => {
+    const { blueprintName } = provisionInstallBlueprintRoute.useParams() as { blueprintName: string }
+    return <InstallPage preselectedBlueprint={blueprintName} />
+  },
+  beforeLoad: provisionAuthGuard,
+})
+const consoleInstallRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/install',
+  component: InstallPage,
+})
+const consoleInstallBlueprintRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/install/$blueprintName',
+  component: () => {
+    const { blueprintName } = consoleInstallBlueprintRoute.useParams() as { blueprintName: string }
+    return <InstallPage preselectedBlueprint={blueprintName} />
+  },
+})
+
 // /console/settings/marketplace — operator toggles marketplace mode on a
 // live Sovereign (issue #710 wave 3b). The page POSTs to
 // /api/v1/sovereigns/{id}/marketplace which commits the per-Sovereign
@@ -1062,6 +1110,8 @@ const routeTree = rootRoute.addChildren([
   deploymentsListRoute,
   provisionRoute,
   provisionAppRoute,
+  provisionInstallRoute,
+  provisionInstallBlueprintRoute,
   provisionJobsRoute,
   provisionJobsTimelineRoute,
   provisionJobDetailRoute,
@@ -1091,6 +1141,8 @@ const routeTree = rootRoute.addChildren([
     consoleDashboardRoute,
     consoleAppsRoute,
     consoleAppDetailRoute,
+    consoleInstallRoute,
+    consoleInstallBlueprintRoute,
     consoleJobsRoute,
     consoleJobsTimelineRoute,
     consoleJobDetailRoute,
