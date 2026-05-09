@@ -40,17 +40,25 @@ export function canonicalisePath(pathname: string): string {
 }
 
 /**
- * Synchronous best-effort check that the operator has a session.
+ * Synchronous best-effort check that the operator has a session marker
+ * cached in JS-readable storage.
+ *
  * The catalyst_session cookie is HttpOnly so we cannot read it from JS;
  * instead we look at sessionStorage:
  *   - any oidc:* key (legacy PKCE flow tokens)
- *   - 'catalyst:authed' marker set by SovereignConsoleLayout after a
- *     successful /whoami probe
+ *   - 'catalyst:authed' marker set by VerifyPinPage on successful PIN
+ *     verify, /auth/handover route's beforeLoad, and SovereignConsoleLayout
+ *     after a successful /whoami probe
  *
- * Conservative: false positives (claiming authed when no session) are
- * caught downstream by the layout's /whoami probe, which redirects to
- * /login with proper error context. False negatives would break
- * navigation, so we err on the side of "let it through."
+ * Returning `false` ONLY means "we don't have a fast cached marker" — it
+ * does NOT mean the operator is unauthenticated. Iter-2 fix
+ * (qa-loop iter-2 cluster `spa-route-guard-rejects-pin-session`):
+ * callers that act on `false` MUST follow up with an async /whoami probe
+ * via `probeWhoamiAndCacheMarker()` before redirecting to /login. The
+ * catalyst_session cookie is HttpOnly + arrives via Set-Cookie on
+ * /auth/pin/verify and /auth/handover — opening a new tab, refreshing
+ * after sessionStorage cleared, or pasting a deep-link URL into a fresh
+ * window all leave the cookie intact while losing the JS-side marker.
  */
 export function hasCatalystSession(): boolean {
   if (typeof window === 'undefined' || typeof sessionStorage === 'undefined') return true
@@ -62,4 +70,53 @@ export function hasCatalystSession(): boolean {
     /* private browsing may throw */
   }
   return false
+}
+
+/**
+ * Async authoritative check via GET /api/v1/whoami.
+ *
+ * Probes the catalyst-api with the HttpOnly `catalyst_session` cookie.
+ * On 200 the cookie is valid — cache the `catalyst:authed=1` marker so
+ * subsequent navigations short-circuit through `hasCatalystSession()`
+ * without re-fetching, and return true. On 401 the cookie is missing
+ * or expired — return false so the caller can redirect to /login. On
+ * any other status (5xx, network error) return null so the caller can
+ * decide whether to fail open (let the route render and let downstream
+ * handlers surface the error) or redirect.
+ *
+ * Why this exists (qa-loop iter-2 cluster
+ * `spa-route-guard-rejects-pin-session`): the synchronous gate that
+ * read sessionStorage alone bounced operators with valid HttpOnly
+ * cookies but no JS-side marker — a regression caught when the founder
+ * could not deep-link into /dashboard from a fresh tab on omantel.biz
+ * after a PIN-verify in a sibling tab. The async fallback keeps the
+ * sync fast-path for the common case (just-verified) and adds an
+ * authoritative check for the cookie-but-no-marker case.
+ *
+ * This is a pure helper: no React, no router. Callers (router.tsx
+ * rootBeforeLoad) own the redirect decision.
+ */
+export async function probeWhoamiAndCacheMarker(
+  apiBase: string,
+): Promise<true | false | null> {
+  if (typeof window === 'undefined' || typeof fetch === 'undefined') return null
+  try {
+    const res = await fetch(`${apiBase}/v1/whoami`, {
+      method: 'GET',
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+    })
+    if (res.status === 200) {
+      try {
+        sessionStorage.setItem('catalyst:authed', '1')
+      } catch {
+        /* private browsing may throw */
+      }
+      return true
+    }
+    if (res.status === 401) return false
+    return null
+  } catch {
+    return null
+  }
 }

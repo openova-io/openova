@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   canonicalisePath,
   isPublicPath,
   hasCatalystSession,
+  probeWhoamiAndCacheMarker,
   PUBLIC_PATH_PREFIXES,
 } from './auth-gate'
 
@@ -119,6 +120,64 @@ describe('hasCatalystSession', () => {
   it('returns false on unrelated keys', () => {
     sessionStorage.setItem('something:else', 'foo')
     expect(hasCatalystSession()).toBe(false)
+  })
+})
+
+describe('probeWhoamiAndCacheMarker', () => {
+  const originalFetch = globalThis.fetch
+  beforeEach(() => {
+    sessionStorage.clear()
+  })
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+    vi.restoreAllMocks()
+  })
+
+  it('returns true and caches the marker on 200', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      status: 200,
+    } as Response) as typeof fetch
+    const result = await probeWhoamiAndCacheMarker('/api')
+    expect(result).toBe(true)
+    expect(sessionStorage.getItem('catalyst:authed')).toBe('1')
+  })
+
+  it('returns false on 401 and does NOT cache the marker', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      status: 401,
+    } as Response) as typeof fetch
+    const result = await probeWhoamiAndCacheMarker('/api')
+    expect(result).toBe(false)
+    expect(sessionStorage.getItem('catalyst:authed')).toBeNull()
+  })
+
+  it('returns null on 5xx (fail-open signal to caller)', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      status: 503,
+    } as Response) as typeof fetch
+    const result = await probeWhoamiAndCacheMarker('/api')
+    expect(result).toBeNull()
+    expect(sessionStorage.getItem('catalyst:authed')).toBeNull()
+  })
+
+  it('returns null on network error (fail-open signal to caller)', async () => {
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error('network down')) as typeof fetch
+    const result = await probeWhoamiAndCacheMarker('/api')
+    expect(result).toBeNull()
+    expect(sessionStorage.getItem('catalyst:authed')).toBeNull()
+  })
+
+  it('uses credentials:include so the HttpOnly cookie is sent', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ status: 200 } as Response)
+    globalThis.fetch = fetchMock as typeof fetch
+    await probeWhoamiAndCacheMarker('/sovereign/api')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/sovereign/api/v1/whoami',
+      expect.objectContaining({
+        method: 'GET',
+        credentials: 'include',
+      }),
+    )
   })
 })
 

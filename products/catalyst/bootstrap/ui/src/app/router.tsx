@@ -100,25 +100,51 @@ import { UsersPage as SMEUsersPage } from '@/pages/sme/UsersPage'
 import { RolesPage as SMERolesPage } from '@/pages/sme/RolesPage'
 import { CreateTenantPage as SMECreateTenantPage } from '@/pages/sme/CreateTenantPage'
 import { SovereigntyPreviewPage } from '@/pages/sovereignty/SovereigntyPreviewPage'
-import { canonicalisePath, hasCatalystSession, isPublicPath } from './auth-gate'
+import {
+  canonicalisePath,
+  hasCatalystSession,
+  isPublicPath,
+  probeWhoamiAndCacheMarker,
+} from './auth-gate'
 
 /**
- * rootBeforeLoad — universal auth gate (#1090 cluster A2).
+ * rootBeforeLoad — universal auth gate (#1090 cluster A2,
+ * extended for qa-loop iter-2 cluster `spa-route-guard-rejects-pin-session`).
  *
- * Runs before EVERY route's beforeLoad in the tree. Two responsibilities:
+ * Runs before EVERY route's beforeLoad in the tree. Three responsibilities:
  *
  *   1. Path canonicalisation — redirect malformed paths (//x, /x/, /X)
  *      to canonical /x so deep-link variants don't slip past the gate.
  *
- *   2. Sovereign-mode auth gate — when no session is detected and the
- *      canonical path is NOT in PUBLIC_PATH_PREFIXES, redirect to
- *      /login?next=<canonical> with the original deep-link preserved.
+ *   2. Sovereign-mode auth fast-path — when a `catalyst:authed` marker
+ *      is present in sessionStorage (set by VerifyPinPage on PIN verify,
+ *      /auth/handover beforeLoad, or SovereignConsoleLayout on whoami
+ *      200), allow the route through without a network round-trip.
+ *
+ *   3. Sovereign-mode auth authoritative-check — when no marker is
+ *      present, fall through to GET /api/v1/whoami to authoritatively
+ *      detect the HttpOnly `catalyst_session` cookie. On 200, cache the
+ *      marker and allow through. On 401, redirect to /login with the
+ *      original deep-link preserved as ?next=. On 5xx/network error,
+ *      fail open (let the route render so the layout's own probe can
+ *      surface the failure with proper context).
+ *
+ *  Why responsibility 3 was added (2026-05-09): the previous gate
+ *  bounced any deep-link load that lacked the `catalyst:authed` marker,
+ *  even when a valid HttpOnly catalyst_session cookie was present. The
+ *  cookie is set by /auth/pin/verify and /auth/handover but is invisible
+ *  to JS — opening a new tab, refreshing after sessionStorage cleared,
+ *  or pasting a deep-link URL into a fresh window all left the cookie
+ *  intact while losing the JS-side marker, so operators with valid
+ *  sessions were redirected to /login on every fresh entry. Caught on
+ *  console.omantel.biz when the founder could not deep-link to
+ *  /dashboard from a sibling tab after a successful PIN verify.
  *
  * Mothership (catalyst-zero) mode handles its own auth via
  * provisionAuthGuard / wizardAuthGuard for its routes — the gate is a
  * no-op in non-sovereign mode (other than canonicalisation).
  */
-function rootBeforeLoad({ location }: { location: { pathname: string } }) {
+async function rootBeforeLoad({ location }: { location: { pathname: string } }) {
   if (typeof window === 'undefined') return
   const pathname = location.pathname
   const canonical = canonicalisePath(pathname)
@@ -130,6 +156,12 @@ function rootBeforeLoad({ location }: { location: { pathname: string } }) {
   if (DETECTED_MODE.mode !== 'sovereign') return
   if (isPublicPath(canonical)) return
   if (hasCatalystSession()) return
+  // No JS-side marker — authoritatively probe /whoami to detect the
+  // HttpOnly catalyst_session cookie before redirecting to /login.
+  const whoami = await probeWhoamiAndCacheMarker(API_BASE)
+  if (whoami === true) return
+  if (whoami === null) return // 5xx / network error — fail open
+  // 401 — genuinely unauthenticated. Redirect with deep-link.
   throw redirect({
     to: '/login',
     search: { next: pathname + window.location.search },
