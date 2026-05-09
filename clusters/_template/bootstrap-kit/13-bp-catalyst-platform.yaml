@@ -246,7 +246,17 @@ spec:
       # found` — caught live on omantel 2026-05-09 attempting 1.4.84 ->
       # 1.4.95. Bump pin so omantel + every other Sovereign sourcing
       # this template picks up the fix on the next reconcile.
-      version: 1.4.96
+      # 1.4.97 (qa-loop iter-4 Fix #24): apiextensions.k8s.io/v1
+      # customresourcedefinitions GVR added to k8scache.DefaultKinds +
+      # matching get/list/watch verbs on catalyst-api-cutover-driver
+      # ClusterRole (TC-199). Pairs with UI heading rename "Install
+      # Blueprint" → "Install — Blueprint Catalog" (TC-031). Per
+      # feedback_chroot_in_cluster_fallback.md every new GVR added to
+      # k8scache.DefaultKinds MUST get a matching rule on the cutover-
+      # driver SA — the chroot SovereignClient uses this SA via
+      # in-cluster fallback. Bump pin so omantel + every other Sovereign
+      # sourcing this template picks up the fix on the next reconcile.
+      version: 1.4.97
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
