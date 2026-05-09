@@ -15,7 +15,11 @@ metadata:
     catalyst.openova.io/user-email: {{ .Values.qaFixtures.qaUser.email | default "qa-user1@openova.io" | quote }}
     catalyst.openova.io/user-name: {{ .Values.qaFixtures.qaUser.name | default "qa-user1" | quote }}
 spec:
-  sovereignRef: {{ .Values.qaFixtures.sovereignRef | default "omantel.biz" | quote }}
+  # UserAccess CRD validates spec.sovereignRef against `^[a-z0-9][a-z0-9-]{0,62}$`
+  # — single-label only (no dots). Strip the TLD/SLD from the FQDN
+  # so {qaFixtures.sovereignRef = "omantel.biz"} renders as "omantel".
+  # Other CRDs (Organization, Environment) want the FQDN as-is.
+  sovereignRef: {{ .Values.qaFixtures.sovereignRef | default "omantel.biz" | regexReplaceAll "\\..*$" "" | quote }}
   tierRoleRef: openova:tier-developer
   user:
     keycloakSubject: {{ .Values.qaFixtures.qaUser.keycloakSubject | default "qa-user1" | quote }}
