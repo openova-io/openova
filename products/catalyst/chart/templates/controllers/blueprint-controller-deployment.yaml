@@ -26,6 +26,9 @@ spec:
     spec:
       serviceAccountName: {{ include "controllers.fullname" "blueprint" }}
       automountServiceAccountToken: true
+      # GHCR image is private — same pattern as catalyst-api / catalyst-ui.
+      imagePullSecrets:
+        - name: ghcr-pull
       securityContext:
         runAsNonRoot: true
         runAsUser: 65534
