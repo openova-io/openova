@@ -40,10 +40,57 @@ import (
 // KeycloakClient is the surface organization-controller depends on. The
 // interface form keeps the reconciler unit-testable with a fake — see
 // controller_test.go.
+//
+// Slice F2 (#1098) added the IdentityProvider methods so the reconciler
+// can wire per-Org Azure-SSO / Okta / generic-OIDC federation into the
+// per-Sovereign Keycloak realm. The IdP surface mirrors the F1
+// admin_idp.go shape in catalyst-api but on a narrower types-only
+// boundary so this controller does NOT take a Go-module dependency on
+// catalyst-api (per the file-doc justification above + the Group C
+// pattern).
 type KeycloakClient interface {
 	// EnsureGroup find-or-creates a group at /<slug> with the given
 	// attributes. Returns (uuid, path, error).
 	EnsureGroup(ctx context.Context, path string, attrs map[string][]string) (uuid string, kcPath string, realm string, err error)
+
+	// EnsureIdentityProvider find-or-creates a realm IdP, replacing
+	// the representation when drift is detected. Idempotent on
+	// re-runs of equal desired state.
+	EnsureIdentityProvider(ctx context.Context, idp KCIdentityProvider) error
+
+	// EnsureIdentityProviderMapper find-or-creates a claim mapper on
+	// the named IdP. Idempotent on re-runs of equal desired state.
+	EnsureIdentityProviderMapper(ctx context.Context, alias string, mapper KCIdentityProviderMapper) error
+
+	// DeleteIdentityProvider removes the realm IdP by alias. The
+	// reconciler calls this best-effort when the Org drops its
+	// federation config — absent-as-success is the contract.
+	DeleteIdentityProvider(ctx context.Context, alias string) error
+}
+
+// KCIdentityProvider mirrors the F1 catalyst-api IdentityProvider type
+// (products/catalyst/bootstrap/api/internal/keycloak/admin_idp.go).
+// The duplication is intentional — see file-level doc above.
+type KCIdentityProvider struct {
+	Alias                     string
+	DisplayName               string
+	ProviderID                string
+	Enabled                   bool
+	StoreToken                bool
+	AddReadTokenRoleOnCreate  bool
+	LinkOnly                  bool
+	FirstBrokerLoginFlowAlias string
+	Config                    map[string]string
+}
+
+// KCIdentityProviderMapper mirrors the F1 catalyst-api
+// IdentityProviderMapper type.
+type KCIdentityProviderMapper struct {
+	ID                     string
+	Name                   string
+	IdentityProviderAlias  string
+	IdentityProviderMapper string
+	Config                 map[string]string
 }
 
 // LiveKeycloak is the production KeycloakClient — wraps the Keycloak
@@ -295,4 +342,335 @@ func attrsEqual(a, b map[string][]string) bool {
 		}
 	}
 	return true
+}
+
+// ── Identity Provider CRUD (slice F2 wire-up) ────────────────────────
+//
+// The shape mirrors the F1 admin_idp.go pattern in catalyst-api: every
+// Ensure does a GET-or-list pre-flight and short-circuits on byte-equal
+// desired state, otherwise POST or PUT exactly once.
+
+// errIdentityProviderAlreadyExists is the 409 sentinel for the
+// EnsureIdentityProvider race path.
+var errIdentityProviderAlreadyExists = errors.New("keycloak: identity provider already exists")
+
+// errIdentityProviderNotFound is the 404 sentinel.
+var errIdentityProviderNotFound = errors.New("keycloak: identity provider not found")
+
+// EnsureIdentityProvider find-or-creates the realm IdP, PUT-replacing
+// when drift is observed. Re-runs on steady state make 0 writes.
+func (k *LiveKeycloak) EnsureIdentityProvider(ctx context.Context, idp KCIdentityProvider) error {
+	if idp.Alias == "" {
+		return errors.New("keycloak.EnsureIdentityProvider: idp.Alias is required")
+	}
+	tok, err := k.serviceAccountToken(ctx)
+	if err != nil {
+		return fmt.Errorf("keycloak.EnsureIdentityProvider: %w", err)
+	}
+
+	existing, err := k.getIdentityProvider(ctx, tok, idp.Alias)
+	if err != nil && !errors.Is(err, errIdentityProviderNotFound) {
+		return fmt.Errorf("keycloak.EnsureIdentityProvider: get: %w", err)
+	}
+	if err == nil {
+		if !idpDrift(existing, idp) {
+			return nil
+		}
+		if err := k.putIdentityProvider(ctx, tok, idp); err != nil {
+			return fmt.Errorf("keycloak.EnsureIdentityProvider: update on drift: %w", err)
+		}
+		return nil
+	}
+
+	// 404 → create. 409 race → re-find and update if drift.
+	if cerr := k.postIdentityProvider(ctx, tok, idp); cerr != nil {
+		if errors.Is(cerr, errIdentityProviderAlreadyExists) {
+			again, gerr := k.getIdentityProvider(ctx, tok, idp.Alias)
+			if gerr != nil {
+				return fmt.Errorf("keycloak.EnsureIdentityProvider: re-find after 409: %w", gerr)
+			}
+			if !idpDrift(again, idp) {
+				return nil
+			}
+			if uerr := k.putIdentityProvider(ctx, tok, idp); uerr != nil {
+				return fmt.Errorf("keycloak.EnsureIdentityProvider: update after 409: %w", uerr)
+			}
+			return nil
+		}
+		return fmt.Errorf("keycloak.EnsureIdentityProvider: create: %w", cerr)
+	}
+	return nil
+}
+
+// DeleteIdentityProvider removes the realm IdP by alias. Returns nil on
+// 204, also nil on 404 (treat absent-as-success — F2 finalizer contract).
+func (k *LiveKeycloak) DeleteIdentityProvider(ctx context.Context, alias string) error {
+	tok, err := k.serviceAccountToken(ctx)
+	if err != nil {
+		return fmt.Errorf("keycloak.DeleteIdentityProvider: %w", err)
+	}
+	u := fmt.Sprintf("%s/admin/realms/%s/identity-provider/instances/%s",
+		k.addr, k.realm, url.PathEscape(alias))
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, u, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+	resp, err := k.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("keycloak: DELETE identity-provider/instance: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	switch resp.StatusCode {
+	case http.StatusNoContent, http.StatusOK, http.StatusNotFound:
+		return nil
+	default:
+		return fmt.Errorf("keycloak: DELETE identity-provider/instance %d: %s", resp.StatusCode, respBody)
+	}
+}
+
+// EnsureIdentityProviderMapper find-or-creates the claim mapper, PUT-
+// replacing on drift. Idempotent.
+func (k *LiveKeycloak) EnsureIdentityProviderMapper(ctx context.Context, alias string, mapper KCIdentityProviderMapper) error {
+	if mapper.Name == "" {
+		return errors.New("keycloak.EnsureIdentityProviderMapper: mapper.Name is required")
+	}
+	if mapper.IdentityProviderAlias == "" {
+		mapper.IdentityProviderAlias = alias
+	}
+	if mapper.IdentityProviderAlias != alias {
+		return fmt.Errorf("keycloak.EnsureIdentityProviderMapper: alias mismatch %q ≠ %q",
+			mapper.IdentityProviderAlias, alias)
+	}
+	tok, err := k.serviceAccountToken(ctx)
+	if err != nil {
+		return fmt.Errorf("keycloak.EnsureIdentityProviderMapper: %w", err)
+	}
+	existing, err := k.listIdentityProviderMappers(ctx, tok, alias)
+	if err != nil {
+		return fmt.Errorf("keycloak.EnsureIdentityProviderMapper: list: %w", err)
+	}
+	for _, m := range existing {
+		if m.Name == mapper.Name {
+			if !mapperDrift(m, mapper) {
+				return nil
+			}
+			mapper.ID = m.ID
+			if err := k.putIdentityProviderMapper(ctx, tok, alias, mapper); err != nil {
+				return fmt.Errorf("keycloak.EnsureIdentityProviderMapper: update on drift: %w", err)
+			}
+			return nil
+		}
+	}
+	if err := k.postIdentityProviderMapper(ctx, tok, alias, mapper); err != nil {
+		return fmt.Errorf("keycloak.EnsureIdentityProviderMapper: create: %w", err)
+	}
+	return nil
+}
+
+func (k *LiveKeycloak) getIdentityProvider(ctx context.Context, tok, alias string) (KCIdentityProvider, error) {
+	u := fmt.Sprintf("%s/admin/realms/%s/identity-provider/instances/%s",
+		k.addr, k.realm, url.PathEscape(alias))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return KCIdentityProvider{}, err
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+	resp, err := k.http.Do(req)
+	if err != nil {
+		return KCIdentityProvider{}, fmt.Errorf("keycloak: GET idp: %w", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode == http.StatusNotFound {
+		return KCIdentityProvider{}, errIdentityProviderNotFound
+	}
+	if resp.StatusCode != http.StatusOK {
+		return KCIdentityProvider{}, fmt.Errorf("keycloak: GET idp %d: %s", resp.StatusCode, body)
+	}
+	var idp KCIdentityProvider
+	if err := json.Unmarshal(body, &idp); err != nil {
+		return KCIdentityProvider{}, fmt.Errorf("keycloak: decode idp: %w", err)
+	}
+	return idp, nil
+}
+
+func (k *LiveKeycloak) postIdentityProvider(ctx context.Context, tok string, idp KCIdentityProvider) error {
+	body, err := json.Marshal(idp)
+	if err != nil {
+		return err
+	}
+	u := fmt.Sprintf("%s/admin/realms/%s/identity-provider/instances", k.addr, k.realm)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := k.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("keycloak: POST idp: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	switch resp.StatusCode {
+	case http.StatusCreated, http.StatusNoContent:
+		return nil
+	case http.StatusConflict:
+		return errIdentityProviderAlreadyExists
+	default:
+		return fmt.Errorf("keycloak: POST idp %d: %s", resp.StatusCode, respBody)
+	}
+}
+
+func (k *LiveKeycloak) putIdentityProvider(ctx context.Context, tok string, idp KCIdentityProvider) error {
+	body, err := json.Marshal(idp)
+	if err != nil {
+		return err
+	}
+	u := fmt.Sprintf("%s/admin/realms/%s/identity-provider/instances/%s",
+		k.addr, k.realm, url.PathEscape(idp.Alias))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, u, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := k.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("keycloak: PUT idp: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	switch resp.StatusCode {
+	case http.StatusNoContent, http.StatusOK:
+		return nil
+	default:
+		return fmt.Errorf("keycloak: PUT idp %d: %s", resp.StatusCode, respBody)
+	}
+}
+
+func (k *LiveKeycloak) listIdentityProviderMappers(ctx context.Context, tok, alias string) ([]KCIdentityProviderMapper, error) {
+	u := fmt.Sprintf("%s/admin/realms/%s/identity-provider/instances/%s/mappers",
+		k.addr, k.realm, url.PathEscape(alias))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+	resp, err := k.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("keycloak: GET mappers: %w", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, errIdentityProviderNotFound
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("keycloak: GET mappers %d: %s", resp.StatusCode, body)
+	}
+	var ms []KCIdentityProviderMapper
+	if err := json.Unmarshal(body, &ms); err != nil {
+		return nil, fmt.Errorf("keycloak: decode mappers: %w", err)
+	}
+	return ms, nil
+}
+
+func (k *LiveKeycloak) postIdentityProviderMapper(ctx context.Context, tok, alias string, mapper KCIdentityProviderMapper) error {
+	body, err := json.Marshal(mapper)
+	if err != nil {
+		return err
+	}
+	u := fmt.Sprintf("%s/admin/realms/%s/identity-provider/instances/%s/mappers",
+		k.addr, k.realm, url.PathEscape(alias))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := k.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("keycloak: POST mapper: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	switch resp.StatusCode {
+	case http.StatusCreated, http.StatusNoContent, http.StatusOK:
+		return nil
+	default:
+		return fmt.Errorf("keycloak: POST mapper %d: %s", resp.StatusCode, respBody)
+	}
+}
+
+func (k *LiveKeycloak) putIdentityProviderMapper(ctx context.Context, tok, alias string, mapper KCIdentityProviderMapper) error {
+	if mapper.ID == "" {
+		return errors.New("putIdentityProviderMapper: mapper.ID required for PUT")
+	}
+	body, err := json.Marshal(mapper)
+	if err != nil {
+		return err
+	}
+	u := fmt.Sprintf("%s/admin/realms/%s/identity-provider/instances/%s/mappers/%s",
+		k.addr, k.realm, url.PathEscape(alias), url.PathEscape(mapper.ID))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, u, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := k.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("keycloak: PUT mapper: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	switch resp.StatusCode {
+	case http.StatusNoContent, http.StatusOK:
+		return nil
+	default:
+		return fmt.Errorf("keycloak: PUT mapper %d: %s", resp.StatusCode, respBody)
+	}
+}
+
+// idpDrift compares the slice of IdP fields the controller writes.
+// Mirrors the F1 admin_idp.go drift function — unknown server-side
+// Config keys (Keycloak defaults like `pkceEnabled`) are NOT drift.
+func idpDrift(existing, desired KCIdentityProvider) bool {
+	if existing.DisplayName != desired.DisplayName ||
+		existing.ProviderID != desired.ProviderID ||
+		existing.Enabled != desired.Enabled ||
+		existing.LinkOnly != desired.LinkOnly ||
+		existing.StoreToken != desired.StoreToken ||
+		existing.AddReadTokenRoleOnCreate != desired.AddReadTokenRoleOnCreate ||
+		existing.FirstBrokerLoginFlowAlias != desired.FirstBrokerLoginFlowAlias {
+		return true
+	}
+	for k, dv := range desired.Config {
+		if ev, ok := existing.Config[k]; !ok || ev != dv {
+			return true
+		}
+	}
+	return false
+}
+
+// mapperDrift compares mapper fields the controller writes.
+func mapperDrift(existing, desired KCIdentityProviderMapper) bool {
+	if existing.IdentityProviderMapper != desired.IdentityProviderMapper {
+		return true
+	}
+	if existing.IdentityProviderAlias != desired.IdentityProviderAlias {
+		return true
+	}
+	if len(existing.Config) != len(desired.Config) {
+		return true
+	}
+	for k, dv := range desired.Config {
+		if ev, ok := existing.Config[k]; !ok || ev != dv {
+			return true
+		}
+	}
+	return false
 }

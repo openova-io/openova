@@ -102,13 +102,60 @@ type OrganizationIdentity struct {
 // OrganizationFederationConf is the federation config struct mirroring
 // the CRD shape. Plaintext secrets NEVER come through this struct —
 // only a SealedSecret reference.
+//
+// Slice F2 (#1098) extends the field set with the OIDC endpoint URLs
+// and tenant identifier needed by the Keycloak IdP CRUD path. The
+// existing Issuer + ClientID + ClientSecretRef trio remains the
+// minimum-viable shape for generic OIDC federation; the four new
+// fields (TenantID, AuthorizationURL, TokenURL, JwksURL) are required
+// for Azure-AD federation specifically since Microsoft's OIDC
+// discovery endpoint scopes per-tenant. ClaimMappers carries the
+// upstream-claim → Catalyst-attribute table that Keycloak materializes
+// as IdentityProviderMappers (one per row).
 type OrganizationFederationConf struct {
 	Issuer          string                          `json:"issuer,omitempty"`
 	ClientID        string                          `json:"clientId,omitempty"`
 	ClientSecretRef OrganizationClientSecretRefSpec `json:"clientSecretRef,omitempty"`
+
+	// TenantID is the Azure AD tenant UUID (or equivalent for other
+	// IdPs). Empty for generic OIDC IdPs. Used solely as a tag on
+	// the rendered Keycloak Config map for operator-debug; Keycloak
+	// itself derives the tenant from the discovery URLs.
+	TenantID string `json:"tenantId,omitempty"`
+
+	// AuthorizationURL is the OIDC `authorization_endpoint`. For
+	// Azure AD: https://login.microsoftonline.com/{tenantId}/oauth2/v2.0/authorize
+	AuthorizationURL string `json:"authorizationUrl,omitempty"`
+
+	// TokenURL is the OIDC `token_endpoint`.
+	TokenURL string `json:"tokenUrl,omitempty"`
+
+	// JwksURL is the OIDC `jwks_uri`. Keycloak validates ID-token
+	// signatures against the JWKs published here.
+	JwksURL string `json:"jwksUrl,omitempty"`
+
+	// ClaimMappers maps upstream IdP claims (oid/upn/groups for Azure AD;
+	// sub/email/groups for generic OIDC) to Catalyst's internal claim
+	// shape. Each entry materializes as one Keycloak
+	// IdentityProviderMapper of type `oidc-user-attribute-idp-mapper`.
+	ClaimMappers []OrganizationClaimMapper `json:"claimMappers,omitempty"`
+}
+
+// OrganizationClaimMapper is one row of the upstream-claim → Catalyst-
+// attribute mapping table.
+type OrganizationClaimMapper struct {
+	// Src is the upstream IdP claim name (e.g. "oid", "upn", "groups").
+	Src string `json:"src"`
+	// Dest is the Catalyst user-attribute name (e.g. "openova.io/external-id",
+	// "email", "openova.io/groups"). Matches Keycloak's
+	// `user.attribute` config key on `oidc-user-attribute-idp-mapper`.
+	Dest string `json:"dest"`
 }
 
 // OrganizationClientSecretRefSpec is a SealedSecret pointer (name + key).
+// The K8s Secret named `Name` MUST live in the catalyst-controllers
+// namespace (where organization-controller runs) so the controller's
+// ClusterRole `secrets:get` rule can read the value at reconcile time.
 type OrganizationClientSecretRefSpec struct {
 	Name string `json:"name,omitempty"`
 	Key  string `json:"key,omitempty"`
@@ -198,7 +245,18 @@ func (s *OrganizationSpec) DeepCopyInto(out *OrganizationSpec) {
 		out.Owners = make([]OrganizationOwner, len(s.Owners))
 		copy(out.Owners, s.Owners)
 	}
-	out.Identity = s.Identity
+	s.Identity.DeepCopyInto(&out.Identity)
+}
+
+// DeepCopyInto for OrganizationIdentity. Slice F2 added the
+// ClaimMappers slice on OrganizationFederationConf so a flat shallow
+// copy no longer suffices.
+func (i *OrganizationIdentity) DeepCopyInto(out *OrganizationIdentity) {
+	*out = *i
+	if i.FederationConfig.ClaimMappers != nil {
+		out.FederationConfig.ClaimMappers = make([]OrganizationClaimMapper, len(i.FederationConfig.ClaimMappers))
+		copy(out.FederationConfig.ClaimMappers, i.FederationConfig.ClaimMappers)
+	}
 }
 
 // DeepCopyInto for OrganizationStatus.

@@ -45,4 +45,16 @@ rules:
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["create", "patch"]
+  # Slice F2 (#1098): per-Org Azure-SSO / Okta / generic-OIDC
+  # federation requires the controller to read the OIDC client secret
+  # from a K8s Secret referenced via spec.identity.federationConfig.clientSecretRef.
+  # The controller is configured to read these from a single namespace
+  # (default: catalyst-controllers — its own namespace) so this rule is
+  # cluster-wide-get-only by necessity (controller-runtime's Secret
+  # client cache is cluster-scoped). Plaintext secret values stay in
+  # memory only long enough to be PUT/POSTed onto Keycloak — never
+  # logged, never written to disk (Inviolable Principle #5).
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
 {{- end }}

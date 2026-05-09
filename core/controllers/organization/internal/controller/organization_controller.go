@@ -29,10 +29,12 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -93,6 +95,15 @@ type Reconciler struct {
 	// Branch is the Gitea branch the controller writes manifests to.
 	// Defaults to "main".
 	Branch string
+
+	// FederationSecretNamespace is the K8s namespace where the
+	// `spec.identity.federationConfig.clientSecretRef` Secret lives.
+	// Defaults to "catalyst-controllers" (the namespace the controller
+	// itself runs in). Per Inviolable Principle #5, the operator's
+	// secret-handling story is "put the SealedSecret in the controller's
+	// namespace; the controller never reaches across namespaces" —
+	// keeps RBAC scope minimal.
+	FederationSecretNamespace string
 }
 
 // SetupWithManager registers the reconciler with the controller-runtime
@@ -203,7 +214,19 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		}
 	}
 
-	// 5. Status update.
+	// 5. Federation IdP wire-up (slice F2). When
+	// `spec.identity.federationProvider` is set, reconcile the per-Org
+	// Keycloak IdP + claim mappers into the Sovereign realm. When empty,
+	// best-effort delete any stray IdP for the Org's deterministic
+	// alias (handles the "Org dropped federation" path).
+	idpCond, mappersCond, fedErr := r.reconcileFederation(ctx, &org)
+	if fedErr != nil {
+		return r.fail(ctx, &org, idpCond.Reason, fedErr.Error())
+	}
+
+	// 6. Status update — Ready=True plus the per-step federation
+	// conditions (always present so the access-matrix UI can render
+	// the federation column without conditional logic).
 	desired := orgapi.OrganizationStatus{
 		VCluster: orgapi.VClusterStatus{
 			Name:        org.Spec.Slug,
@@ -227,6 +250,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 				Message:            "vCluster HelmRelease + Keycloak group + Gitea Org reconciled",
 				LastTransitionTime: metav1.NewTime(time.Now()),
 			},
+			idpCond,
+			mappersCond,
 		},
 		ObservedGeneration: org.Generation,
 	}
@@ -396,3 +421,253 @@ func mapOwnerToUARole(role string) string {
 }
 
 func ptrBool(b bool) *bool { return &b }
+
+// federationAlias returns the deterministic per-Org IdP alias.
+// Convention (per F2 brief): `<provider>-<slug>` — e.g.
+// "azure-sso-acme". Two Orgs federating to the same upstream Azure AD
+// tenant get distinct realm-side IdP instances so claim-mapper config
+// + first-broker-login flow stay isolated per-Org.
+func federationAlias(provider, slug string) string {
+	return fmt.Sprintf("%s-%s", provider, slug)
+}
+
+// reconcileFederation is the F2 wire-up. Returns the two status
+// conditions (IdentityProviderConfigured + IdentityProviderClaimMappersConfigured)
+// and a non-nil error iff the reconcile failed in a way that should
+// requeue. On the empty-federation path it best-effort deletes any
+// stray IdP from a previous federation config and returns Ready=False
+// with reason=NoFederation (which the access-matrix UI renders as a
+// neutral "—" cell, not an error).
+func (r *Reconciler) reconcileFederation(ctx context.Context, org *orgapi.Organization) (orgapi.Condition, orgapi.Condition, error) {
+	now := metav1.NewTime(time.Now())
+	provider := strings.TrimSpace(org.Spec.Identity.FederationProvider)
+	if provider == "" {
+		// No federation requested — best-effort delete any stray IdP
+		// for THIS Org's deterministic aliases. We try every supported
+		// provider's alias to handle the "operator switched provider
+		// then dropped it" path.
+		for _, p := range []string{"azure-sso", "okta", "generic-oidc"} {
+			alias := federationAlias(p, org.Spec.Slug)
+			if err := r.Keycloak.DeleteIdentityProvider(ctx, alias); err != nil {
+				// Best-effort: log + continue. The ErrIdentityProviderNotFound
+				// case is already swallowed by the LiveKeycloak impl.
+				r.Log.V(1).Info("federation cleanup: delete idp non-fatal",
+					"alias", alias, "err", err.Error())
+			}
+		}
+		return orgapi.Condition{
+				Type:               "IdentityProviderConfigured",
+				Status:             "False",
+				Reason:             "NoFederation",
+				Message:            "spec.identity.federationProvider is empty — no IdP configured",
+				LastTransitionTime: now,
+			},
+			orgapi.Condition{
+				Type:               "IdentityProviderClaimMappersConfigured",
+				Status:             "False",
+				Reason:             "NoFederation",
+				Message:            "no IdP → no claim mappers",
+				LastTransitionTime: now,
+			},
+			nil
+	}
+
+	cfg := org.Spec.Identity.FederationConfig
+	alias := federationAlias(provider, org.Spec.Slug)
+
+	// Resolve client secret from the K8s Secret named in
+	// clientSecretRef. Per Inviolable Principle #5 the plaintext value
+	// stays in memory only long enough to be PUT/POSTed onto Keycloak.
+	clientSecret, err := r.readClientSecret(ctx, cfg.ClientSecretRef)
+	if err != nil {
+		return orgapi.Condition{
+				Type:               "IdentityProviderConfigured",
+				Status:             "False",
+				Reason:             "SecretMissing",
+				Message:            fmt.Sprintf("read clientSecretRef: %s", err),
+				LastTransitionTime: now,
+			},
+			orgapi.Condition{
+				Type:               "IdentityProviderClaimMappersConfigured",
+				Status:             "False",
+				Reason:             "SecretMissing",
+				Message:            "secret unavailable",
+				LastTransitionTime: now,
+			},
+			fmt.Errorf("federation: read client secret: %w", err)
+	}
+
+	// Build the IdentityProvider representation. ProviderID is "oidc"
+	// for every supported provider in F2 — Azure-AD-specific UX (the
+	// "microsoft" provider) can layer on later without changing the
+	// reconciler shape.
+	displayName := fmt.Sprintf("%s — %s", org.Spec.DisplayName, provider)
+	idp := KCIdentityProvider{
+		Alias:                     alias,
+		DisplayName:               displayName,
+		ProviderID:                "oidc",
+		Enabled:                   true,
+		FirstBrokerLoginFlowAlias: "first broker login",
+		Config:                    buildIdPConfig(cfg, clientSecret),
+	}
+
+	if err := r.Keycloak.EnsureIdentityProvider(ctx, idp); err != nil {
+		return orgapi.Condition{
+				Type:               "IdentityProviderConfigured",
+				Status:             "False",
+				Reason:             "KCUnreachable",
+				Message:            fmt.Sprintf("EnsureIdentityProvider: %s", err),
+				LastTransitionTime: now,
+			},
+			orgapi.Condition{
+				Type:               "IdentityProviderClaimMappersConfigured",
+				Status:             "False",
+				Reason:             "KCUnreachable",
+				Message:            "IdP not yet reconciled",
+				LastTransitionTime: now,
+			},
+			fmt.Errorf("federation: ensure idp: %w", err)
+	}
+
+	idpReason := providerReason(provider)
+	idpCond := orgapi.Condition{
+		Type:               "IdentityProviderConfigured",
+		Status:             "True",
+		Reason:             idpReason,
+		Message:            fmt.Sprintf("IdP %q reconciled in realm", alias),
+		LastTransitionTime: now,
+	}
+
+	// Reconcile claim mappers. Empty list is fine — Keycloak's defaults
+	// for `email` / `name` / `given_name` still fire.
+	for _, cm := range cfg.ClaimMappers {
+		if cm.Src == "" || cm.Dest == "" {
+			continue
+		}
+		mapper := KCIdentityProviderMapper{
+			Name:                   fmt.Sprintf("%s-to-%s", cm.Src, sanitizeMapperName(cm.Dest)),
+			IdentityProviderAlias:  alias,
+			IdentityProviderMapper: "oidc-user-attribute-idp-mapper",
+			Config: map[string]string{
+				"claim":          cm.Src,
+				"user.attribute": cm.Dest,
+				"syncMode":       "INHERIT",
+			},
+		}
+		if err := r.Keycloak.EnsureIdentityProviderMapper(ctx, alias, mapper); err != nil {
+			return idpCond,
+				orgapi.Condition{
+					Type:               "IdentityProviderClaimMappersConfigured",
+					Status:             "False",
+					Reason:             "KCUnreachable",
+					Message:            fmt.Sprintf("EnsureIdentityProviderMapper %q: %s", mapper.Name, err),
+					LastTransitionTime: now,
+				},
+				fmt.Errorf("federation: ensure mapper %q: %w", mapper.Name, err)
+		}
+	}
+
+	mappersCond := orgapi.Condition{
+		Type:   "IdentityProviderClaimMappersConfigured",
+		Status: "True",
+		Reason: idpReason,
+		Message: fmt.Sprintf("%d claim mapper(s) reconciled on IdP %q",
+			len(cfg.ClaimMappers), alias),
+		LastTransitionTime: now,
+	}
+	return idpCond, mappersCond, nil
+}
+
+// providerReason maps the provider enum to the canonical condition
+// reason string. Stable across reconciles so the access-matrix UI can
+// branch on Reason.
+func providerReason(provider string) string {
+	switch provider {
+	case "azure-sso":
+		return "AzureSSOConfigured"
+	case "okta":
+		return "OktaConfigured"
+	case "generic-oidc":
+		return "OIDCConfigured"
+	default:
+		return "OIDCConfigured"
+	}
+}
+
+// readClientSecret fetches the OIDC client secret from the K8s Secret
+// named in `clientSecretRef`. Per Inviolable Principle #5 the value
+// stays in memory only long enough to be handed to the Keycloak client.
+func (r *Reconciler) readClientSecret(ctx context.Context, ref orgapi.OrganizationClientSecretRefSpec) (string, error) {
+	if ref.Name == "" {
+		return "", errors.New("federationConfig.clientSecretRef.name is empty")
+	}
+	key := ref.Key
+	if key == "" {
+		key = "client-secret"
+	}
+	ns := r.FederationSecretNamespace
+	if ns == "" {
+		ns = "catalyst-controllers"
+	}
+	var sec corev1.Secret
+	if err := r.Get(ctx, types.NamespacedName{Namespace: ns, Name: ref.Name}, &sec); err != nil {
+		return "", fmt.Errorf("get Secret %s/%s: %w", ns, ref.Name, err)
+	}
+	val, ok := sec.Data[key]
+	if !ok {
+		return "", fmt.Errorf("Secret %s/%s missing key %q", ns, ref.Name, key)
+	}
+	if len(val) == 0 {
+		return "", fmt.Errorf("Secret %s/%s key %q is empty", ns, ref.Name, key)
+	}
+	return string(val), nil
+}
+
+// buildIdPConfig assembles the Keycloak IdP `config` map from the
+// Organization's federationConfig + the resolved client secret. Per
+// Keycloak's quirk every value is stringified (booleans → "true"/"false").
+//
+// The `tenantId` field is surfaced as `openova.tenantId` (a Catalyst-
+// specific marker key) so operator-debug can tag which tenant a given
+// IdP is bound to without conflicting with Keycloak's own config.
+func buildIdPConfig(cfg orgapi.OrganizationFederationConf, clientSecret string) map[string]string {
+	out := map[string]string{
+		"clientId":          cfg.ClientID,
+		"clientSecret":      clientSecret,
+		"clientAuthMethod":  "client_secret_post",
+		"defaultScope":      "openid profile email",
+		"validateSignature": "true",
+		"useJwksUrl":        "true",
+		"syncMode":          "IMPORT",
+	}
+	if cfg.AuthorizationURL != "" {
+		out["authorizationUrl"] = cfg.AuthorizationURL
+	}
+	if cfg.TokenURL != "" {
+		out["tokenUrl"] = cfg.TokenURL
+	}
+	if cfg.JwksURL != "" {
+		out["jwksUrl"] = cfg.JwksURL
+	}
+	if cfg.Issuer != "" {
+		out["issuer"] = cfg.Issuer
+	}
+	if cfg.TenantID != "" {
+		out["openova.tenantId"] = cfg.TenantID
+	}
+	return out
+}
+
+// sanitizeMapperName trims the Catalyst attribute name to a Keycloak-
+// safe mapper-name suffix. Keycloak accepts spaces and slashes in
+// mapper names but the access-matrix UI renders them more cleanly when
+// hyphenated.
+func sanitizeMapperName(s string) string {
+	out := strings.ToLower(s)
+	out = strings.ReplaceAll(out, "/", "-")
+	out = strings.ReplaceAll(out, ".", "-")
+	out = strings.ReplaceAll(out, " ", "-")
+	out = strings.ReplaceAll(out, ":", "-")
+	out = strings.Trim(out, "-")
+	return out
+}

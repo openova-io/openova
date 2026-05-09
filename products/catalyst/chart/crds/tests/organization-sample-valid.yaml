@@ -22,11 +22,20 @@ spec:
   identity:
     federationProvider: azure-sso
     federationConfig:
-      issuer: https://login.microsoftonline.com/<tenant-id>/v2.0
+      issuer: https://login.microsoftonline.com/00000000-0000-0000-0000-aaaaaaaaaaaa/v2.0
       clientId: acme-catalyst
       clientSecretRef:
         name: acme-azure-sso-secret
         key: client-secret
+      # Slice F2 (#1098) — OIDC discovery endpoints + claim-mapper table.
+      tenantId: 00000000-0000-0000-0000-aaaaaaaaaaaa
+      authorizationUrl: https://login.microsoftonline.com/00000000-0000-0000-0000-aaaaaaaaaaaa/oauth2/v2.0/authorize
+      tokenUrl: https://login.microsoftonline.com/00000000-0000-0000-0000-aaaaaaaaaaaa/oauth2/v2.0/token
+      jwksUrl: https://login.microsoftonline.com/00000000-0000-0000-0000-aaaaaaaaaaaa/discovery/v2.0/keys
+      claimMappers:
+        - { src: oid, dest: openova.io/external-id }
+        - { src: upn, dest: email }
+        - { src: groups, dest: openova.io/groups }
 ---
 # A second valid sample — internal-team Org with chargeback
 apiVersion: orgs.openova.io/v1

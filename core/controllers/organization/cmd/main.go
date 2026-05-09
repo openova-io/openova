@@ -68,6 +68,10 @@ func main() {
 	helmRepoName := envOr("CATALYST_VCLUSTER_HELMREPO_NAME", "loft")
 	helmRepoNs := envOr("CATALYST_VCLUSTER_HELMREPO_NAMESPACE", "vcluster-system")
 	branch := envOr("CATALYST_GITEA_BRANCH", "main")
+	// Slice F2 (#1098): namespace where federation client-secret K8s
+	// Secrets live. Defaults to the controller's own namespace so the
+	// ClusterRole `secrets:get` rule + cache scope stay minimal.
+	fedSecretNs := envOr("CATALYST_FEDERATION_SECRET_NAMESPACE", "catalyst-controllers")
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
@@ -100,6 +104,7 @@ func main() {
 		VClusterHelmRepoName:      helmRepoName,
 		VClusterHelmRepoNamespace: helmRepoNs,
 		Branch:                    branch,
+		FederationSecretNamespace: fedSecretNs,
 	}
 	if err := r.SetupWithManager(mgr); err != nil {
 		log.Error(err, "setup reconciler")

@@ -43,13 +43,21 @@ import (
 )
 
 // fakeKeycloak counts calls so idempotency tests can assert no extra
-// writes on a steady-state reconcile. EnsureGroup is the only method
-// the reconciler uses.
+// writes on a steady-state reconcile. Slice F2 added IdP-related
+// methods on top of EnsureGroup; counters are split per-method so
+// federation tests can assert counts independently.
 type fakeKeycloak struct {
 	mu        sync.Mutex
 	calls     int
 	groupID   string
 	groupPath string
+
+	// Federation surface (F2).
+	idps           map[string]KCIdentityProvider
+	mappers        map[string][]KCIdentityProviderMapper // key = alias
+	idpEnsureCalls int
+	idpDeleteCalls int
+	mapperEnsureCalls int
 }
 
 func (f *fakeKeycloak) EnsureGroup(ctx context.Context, path string, attrs map[string][]string) (string, string, string, error) {
@@ -61,6 +69,50 @@ func (f *fakeKeycloak) EnsureGroup(ctx context.Context, path string, attrs map[s
 		f.groupPath = path
 	}
 	return f.groupID, f.groupPath, "sovereign", nil
+}
+
+func (f *fakeKeycloak) EnsureIdentityProvider(ctx context.Context, idp KCIdentityProvider) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.idps == nil {
+		f.idps = map[string]KCIdentityProvider{}
+	}
+	f.idpEnsureCalls++
+	f.idps[idp.Alias] = idp
+	return nil
+}
+
+func (f *fakeKeycloak) EnsureIdentityProviderMapper(ctx context.Context, alias string, mapper KCIdentityProviderMapper) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.mappers == nil {
+		f.mappers = map[string][]KCIdentityProviderMapper{}
+	}
+	f.mapperEnsureCalls++
+	// Find-or-create-by-name in the alias bucket.
+	bucket := f.mappers[alias]
+	for i := range bucket {
+		if bucket[i].Name == mapper.Name {
+			bucket[i] = mapper
+			f.mappers[alias] = bucket
+			return nil
+		}
+	}
+	f.mappers[alias] = append(bucket, mapper)
+	return nil
+}
+
+func (f *fakeKeycloak) DeleteIdentityProvider(ctx context.Context, alias string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.idpDeleteCalls++
+	if f.idps != nil {
+		delete(f.idps, alias)
+	}
+	if f.mappers != nil {
+		delete(f.mappers, alias)
+	}
+	return nil
 }
 
 // giteaServer is a tiny in-process Gitea API stub. It only implements
@@ -411,8 +463,26 @@ func TestReconcile_HappyPath(t *testing.T) {
 	if got.Status.VCluster.Name != "acme" || got.Status.VCluster.HostCluster != "ct-eu-mgt-prod" {
 		t.Errorf("status.vcluster: got %+v", got.Status.VCluster)
 	}
-	if len(got.Status.Conditions) != 1 || got.Status.Conditions[0].Type != "Ready" || got.Status.Conditions[0].Status != "True" {
-		t.Errorf("expected single Ready=True condition, got %+v", got.Status.Conditions)
+	// Slice F2 added two federation-status conditions on every
+	// reconcile (NoFederation reason when spec.identity is empty —
+	// the access-matrix UI expects them to always be present).
+	if len(got.Status.Conditions) != 3 {
+		t.Fatalf("expected 3 conditions (Ready + 2 federation), got %d: %+v",
+			len(got.Status.Conditions), got.Status.Conditions)
+	}
+	if got.Status.Conditions[0].Type != "Ready" || got.Status.Conditions[0].Status != "True" {
+		t.Errorf("expected Ready=True at index 0, got %+v", got.Status.Conditions[0])
+	}
+	if got.Status.Conditions[1].Type != "IdentityProviderConfigured" ||
+		got.Status.Conditions[1].Status != "False" ||
+		got.Status.Conditions[1].Reason != "NoFederation" {
+		t.Errorf("expected IdentityProviderConfigured=False/NoFederation at index 1, got %+v",
+			got.Status.Conditions[1])
+	}
+	if got.Status.Conditions[2].Type != "IdentityProviderClaimMappersConfigured" ||
+		got.Status.Conditions[2].Status != "False" {
+		t.Errorf("expected IdentityProviderClaimMappersConfigured at index 2, got %+v",
+			got.Status.Conditions[2])
 	}
 
 	// UserAccess: 2 CRs (one per owner).

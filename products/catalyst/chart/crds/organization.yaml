@@ -168,6 +168,18 @@ spec:
                     Federation config — empty means use the Sovereign's own
                     Keycloak realm. Set to federate Azure SSO / Okta / generic
                     OIDC into this Org's vCluster.
+
+                    Slice F2 (#1098) extended `federationConfig` with the
+                    OIDC discovery endpoints + claim-mapper table needed
+                    by the Keycloak IdP CRUD path. The minimum set for a
+                    working Azure-AD federation is: `federationProvider:
+                    azure-sso`, `federationConfig.tenantId`,
+                    `federationConfig.clientId`,
+                    `federationConfig.clientSecretRef`,
+                    `federationConfig.authorizationUrl/tokenUrl/jwksUrl`.
+                    `claimMappers` is OPTIONAL — without it Keycloak's
+                    default `oidc-user-attribute-idp-mapper` for `email`
+                    / `name` / `given_name` still fires.
                   properties:
                     federationProvider:
                       type: string
@@ -193,6 +205,50 @@ spec:
                               type: string
                               default: client-secret
                           x-kubernetes-preserve-unknown-fields: true
+                        tenantId:
+                          type: string
+                          description: |
+                            Azure-AD tenant UUID (or equivalent for other
+                            IdPs). Empty for generic OIDC. Surfaced solely
+                            as a tag on the rendered Keycloak Config map
+                            for operator-debug; Keycloak itself derives
+                            the tenant from the discovery URLs.
+                        authorizationUrl:
+                          type: string
+                          description: |
+                            OIDC `authorization_endpoint`. For Azure AD:
+                            https://login.microsoftonline.com/{tenantId}/oauth2/v2.0/authorize
+                        tokenUrl:
+                          type: string
+                          description: OIDC `token_endpoint`.
+                        jwksUrl:
+                          type: string
+                          description: |
+                            OIDC `jwks_uri`. Keycloak validates ID-token
+                            signatures against the JWKs published here.
+                        claimMappers:
+                          type: array
+                          description: |
+                            Upstream-IdP-claim → Catalyst-user-attribute
+                            mapping table. Each row materializes as one
+                            Keycloak IdentityProviderMapper of type
+                            `oidc-user-attribute-idp-mapper` with
+                            syncMode=INHERIT.
+                          items:
+                            type: object
+                            required: [src, dest]
+                            properties:
+                              src:
+                                type: string
+                                description: |
+                                  Upstream claim name (e.g. "oid", "upn",
+                                  "groups").
+                              dest:
+                                type: string
+                                description: |
+                                  Catalyst user-attribute name (e.g.
+                                  "openova.io/external-id", "email",
+                                  "openova.io/groups").
                       x-kubernetes-preserve-unknown-fields: true
                   x-kubernetes-preserve-unknown-fields: true
               x-kubernetes-preserve-unknown-fields: true
