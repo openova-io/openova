@@ -113,6 +113,35 @@ type applicationPlacement struct {
 
 // applicationInstallRequest is the body of POST
 // /api/v1/sovereigns/{id}/applications.
+//
+// Two equivalent body shapes are accepted (per
+// `feedback_no_mvp_no_workarounds.md` — the matrix is the canonical
+// contract; the handler conforms):
+//
+//  1. Long form (production internal callers):
+//     { "blueprintRef": {"name":"bp-x","version":"1.0"},
+//     "name":"app", "organizationRef":"org",
+//     "environmentRef":"org-prod",
+//     "parameters":{...},
+//     "placement":{"mode":"single-region","regions":["fsn1"]} }
+//
+//  2. Short form (canonical UAT matrix + ergonomic CLI):
+//     { "blueprint":"bp-x", "version":"1.0",
+//     "namespace":"qa-omantel", "name":"app",
+//     "values":{...} }
+//
+// The short-form fields collapse onto the long-form via
+// applicationInstallRequestNormalize:
+//
+//	blueprint  → BlueprintRef.Name
+//	version    → BlueprintRef.Version
+//	namespace  → OrganizationRef (one Org per Sovereign in EPIC-2)
+//	values     → Parameters
+//
+// EnvironmentRef defaults to "<org>-prod" when omitted (matches the
+// matrix's omission). Placement defaults to single-region with a
+// "primary" sentinel that the validator surfaces as a clear 400 if
+// the caller forgot to set regions[].
 type applicationInstallRequest struct {
 	BlueprintRef    applicationBlueprintRef `json:"blueprintRef"`
 	Name            string                  `json:"name"`
@@ -120,6 +149,45 @@ type applicationInstallRequest struct {
 	EnvironmentRef  string                  `json:"environmentRef"`
 	Parameters      map[string]interface{}  `json:"parameters,omitempty"`
 	Placement       applicationPlacement    `json:"placement"`
+
+	// Short-form aliases (collapsed via
+	// applicationInstallRequestNormalize). Keeping them as struct
+	// fields rather than a side-map preserves the strict
+	// DisallowUnknownFields gate while letting the matrix's
+	// minimal-body shape decode cleanly.
+	BlueprintShort string                 `json:"blueprint,omitempty"`
+	VersionShort   string                 `json:"version,omitempty"`
+	NamespaceShort string                 `json:"namespace,omitempty"`
+	ValuesShort    map[string]interface{} `json:"values,omitempty"`
+}
+
+// applicationInstallRequestNormalize collapses the short-form aliases
+// onto the canonical fields. Long-form values win on conflict so a
+// caller mixing both shapes (rare; typically a script-generated body)
+// gets predictable behaviour.
+func applicationInstallRequestNormalize(b applicationInstallRequest) applicationInstallRequest {
+	if b.BlueprintRef.Name == "" && strings.TrimSpace(b.BlueprintShort) != "" {
+		b.BlueprintRef.Name = strings.TrimSpace(b.BlueprintShort)
+	}
+	if b.BlueprintRef.Version == "" && strings.TrimSpace(b.VersionShort) != "" {
+		b.BlueprintRef.Version = strings.TrimSpace(b.VersionShort)
+	}
+	if b.OrganizationRef == "" && strings.TrimSpace(b.NamespaceShort) != "" {
+		b.OrganizationRef = strings.TrimSpace(b.NamespaceShort)
+	}
+	if b.EnvironmentRef == "" && b.OrganizationRef != "" {
+		b.EnvironmentRef = b.OrganizationRef + "-prod"
+	}
+	if len(b.Parameters) == 0 && len(b.ValuesShort) > 0 {
+		b.Parameters = b.ValuesShort
+	}
+	if strings.TrimSpace(b.Placement.Mode) == "" {
+		b.Placement.Mode = "single-region"
+	}
+	if len(b.Placement.Regions) == 0 {
+		b.Placement.Regions = []string{"primary"}
+	}
+	return b
 }
 
 // applicationInstallResponse is the body returned on 201.
@@ -163,6 +231,7 @@ func (h *Handler) HandleApplicationInstall(w http.ResponseWriter, r *http.Reques
 	if !decodeMutationBody(w, r, &body) {
 		return
 	}
+	body = applicationInstallRequestNormalize(body)
 	if msg, ok := validateApplicationInstallRequest(body); !ok {
 		writeBadRequest(w, "invalid-application-install", msg)
 		return

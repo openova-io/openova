@@ -49,6 +49,10 @@ import (
 // /api/v1/sovereigns/{id}/applications/{name}. All fields are optional:
 // the handler patches only the keys that are non-zero. A bare `{}` body
 // is a no-op (returns 200 with the CR's current spec).
+//
+// Accepts both the long form (`parameters`) and the canonical UAT
+// matrix's short form (`values`) per
+// `feedback_no_mvp_no_workarounds.md`. Long form wins on conflict.
 type applicationUpdateRequest struct {
 	// BlueprintRef — when Version is non-empty, the version is updated.
 	// (We never let a UI rename the blueprint; that's an uninstall +
@@ -61,6 +65,40 @@ type applicationUpdateRequest struct {
 	// spec.regions. The handler rejects active-active → single-region
 	// (or anything that drops regions) without ?force=true.
 	Placement *applicationPlacement `json:"placement,omitempty"`
+
+	// ValuesShort is the canonical UAT matrix's alias for Parameters.
+	// Collapsed via applicationUpdateRequestNormalize.
+	ValuesShort map[string]interface{} `json:"values,omitempty"`
+	// VersionShort is the canonical UAT matrix's short alias for
+	// `BlueprintRef.Version` on a version-only update — equivalent to
+	// `{"blueprintRef":{"version":"x.y.z"}}`.
+	VersionShort string `json:"version,omitempty"`
+	// ToVersionShort mirrors the upgrade-preview endpoint's `toVersion`
+	// shorthand so a caller can issue a one-shot upgrade via PUT
+	// `/applications/{name}` with `{"toVersion":"x.y.z"}`. Same
+	// resolution path as VersionShort.
+	ToVersionShort string `json:"toVersion,omitempty"`
+}
+
+// applicationUpdateRequestNormalize collapses the short-form aliases
+// onto the canonical fields. Long-form values win on conflict.
+func applicationUpdateRequestNormalize(b applicationUpdateRequest) applicationUpdateRequest {
+	if b.Parameters == nil && len(b.ValuesShort) > 0 {
+		b.Parameters = b.ValuesShort
+	}
+	short := strings.TrimSpace(b.ToVersionShort)
+	if short == "" {
+		short = strings.TrimSpace(b.VersionShort)
+	}
+	if short != "" {
+		if b.BlueprintRef == nil {
+			b.BlueprintRef = &applicationBlueprintRef{}
+		}
+		if strings.TrimSpace(b.BlueprintRef.Version) == "" {
+			b.BlueprintRef.Version = short
+		}
+	}
+	return b
 }
 
 // applicationUpdateResponse mirrors applicationStatusResponse — the UI
@@ -115,6 +153,7 @@ func (h *Handler) HandleApplicationUpdate(w http.ResponseWriter, r *http.Request
 	if !decodeMutationBody(w, r, &body) {
 		return
 	}
+	body = applicationUpdateRequestNormalize(body)
 	if msg, ok := validateApplicationUpdateRequest(body); !ok {
 		writeBadRequest(w, "invalid-application-update", msg)
 		return
@@ -401,11 +440,52 @@ func (h *Handler) HandleApplicationUpgradePreview(w http.ResponseWriter, r *http
 // applicationChangePreviewRequest is the body of the topology / upgrade
 // preview endpoints. Everything is optional; missing fields fall back to
 // the current Application CR.
+//
+// Accepts the canonical UAT matrix's short form for the upgrade-preview
+// case: `{"toVersion":"x.y.z"}` is equivalent to
+// `{"blueprintRef":{"version":"x.y.z"}}`. The `values` alias maps to
+// `parameters` (matches the install/update bodies).
 type applicationChangePreviewRequest struct {
 	Placement      *applicationPlacement    `json:"placement,omitempty"`
 	Parameters     map[string]interface{}   `json:"parameters,omitempty"`
 	BlueprintRef   *applicationBlueprintRef `json:"blueprintRef,omitempty"`
 	EnvironmentRef string                   `json:"environmentRef,omitempty"`
+
+	// Short-form aliases per the canonical UAT matrix.
+	ToVersionShort string                 `json:"toVersion,omitempty"`
+	VersionShort   string                 `json:"version,omitempty"`
+	ValuesShort    map[string]interface{} `json:"values,omitempty"`
+	BlueprintShort string                 `json:"blueprint,omitempty"`
+}
+
+// applicationChangePreviewRequestNormalize collapses the short-form
+// aliases onto the canonical fields so renderApplicationPreview never
+// has to know about the matrix vocabulary.
+func applicationChangePreviewRequestNormalize(b applicationChangePreviewRequest) applicationChangePreviewRequest {
+	short := strings.TrimSpace(b.ToVersionShort)
+	if short == "" {
+		short = strings.TrimSpace(b.VersionShort)
+	}
+	if short != "" {
+		if b.BlueprintRef == nil {
+			b.BlueprintRef = &applicationBlueprintRef{}
+		}
+		if strings.TrimSpace(b.BlueprintRef.Version) == "" {
+			b.BlueprintRef.Version = short
+		}
+	}
+	if strings.TrimSpace(b.BlueprintShort) != "" {
+		if b.BlueprintRef == nil {
+			b.BlueprintRef = &applicationBlueprintRef{}
+		}
+		if strings.TrimSpace(b.BlueprintRef.Name) == "" {
+			b.BlueprintRef.Name = strings.TrimSpace(b.BlueprintShort)
+		}
+	}
+	if b.Parameters == nil && len(b.ValuesShort) > 0 {
+		b.Parameters = b.ValuesShort
+	}
+	return b
 }
 
 // handleApplicationChangePreview is the shared core for topology +
@@ -446,6 +526,7 @@ func (h *Handler) handleApplicationChangePreview(w http.ResponseWriter, r *http.
 	if !decodeMutationBody(w, r, &body) {
 		return
 	}
+	body = applicationChangePreviewRequestNormalize(body)
 
 	client, err := h.sovereignDynamicClient(dep)
 	if err != nil {

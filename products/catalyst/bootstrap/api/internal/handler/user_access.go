@@ -50,6 +50,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -91,9 +92,167 @@ var userAccessRoles = map[string]struct{}{
 
 /* ── Wire shapes — match the CRD .spec verbatim ─────────────────── */
 
+// userAccessRequest is the body of POST /admin/user-access and PUT
+// /admin/user-access/{name}.
+//
+// Two equivalent shapes are accepted (per
+// `feedback_no_mvp_no_workarounds.md` — the canonical UAT matrix is
+// the contract):
+//
+//  1. Long form (production internal callers + the IAM editor UI):
+//     { "name":"acme-rb-1",
+//     "spec":{ "user":{...}, "sovereignRef":"acme",
+//     "applications":[{...}] } }
+//
+//  2. Short form (canonical UAT matrix vocabulary):
+//     POST { "email":"qa-user2@openova.io", "tier":"viewer" }
+//     PUT  { "tier":"developer" }   (name comes from the URL)
+//
+// The short form collapses onto the long form via
+// userAccessRequestNormalize:
+//
+//	email      → User.KeycloakSubject (until Keycloak resolves it; the
+//	             controller will rotate this to the real subject UUID
+//	             on first reconcile via a sub-claim lookup)
+//	tier       → Applications[0].Role  (via userAccessTierToRole)
+//	            + Applications[0].App = "*" (sovereign-wide grant)
+//
+// The depId path-param drives sovereignRef when the body omits it.
 type userAccessRequest struct {
 	Name string             `json:"name"`
 	Spec userAccessSpecBody `json:"spec"`
+
+	// Short-form aliases (canonical UAT matrix vocabulary).
+	EmailShort string `json:"email,omitempty"`
+	TierShort  string `json:"tier,omitempty"`
+}
+
+// userAccessTierToRole maps the canonical 6-tier vocabulary onto the
+// 3-role short-form the UserAccess CRD's enum allows. Aligns with the
+// EPIC-3 T1 (#1142) 5-tier ClusterRoles + the cross-org `super-admin`
+// sentinel.
+//
+//	viewer       → viewer
+//	developer    → editor
+//	operator     → editor
+//	admin        → admin
+//	owner        → admin
+//	super-admin  → admin
+//
+// Unknown tiers fall through to the input — validation later rejects
+// them with a clear 400 listing the allowed set.
+func userAccessTierToRole(tier string) string {
+	switch strings.ToLower(strings.TrimSpace(tier)) {
+	case "viewer":
+		return "viewer"
+	case "developer", "operator":
+		return "editor"
+	case "admin", "owner", "super-admin":
+		return "admin"
+	}
+	return strings.TrimSpace(tier)
+}
+
+// userAccessRequestNormalize collapses the short-form aliases onto
+// the long-form fields. The `depID` is the path-param so the handler
+// can derive sovereignRef when the body omits it (the matrix's short
+// form does). `urlName` is the {name} URL-param (PUT path) when set.
+func userAccessRequestNormalize(b userAccessRequest, depID, urlName string) userAccessRequest {
+	if strings.TrimSpace(b.Name) == "" {
+		if strings.TrimSpace(urlName) != "" {
+			b.Name = strings.TrimSpace(urlName)
+		} else if strings.TrimSpace(b.EmailShort) != "" {
+			b.Name = userAccessSanitizeName(strings.ToLower(strings.TrimSpace(b.EmailShort)))
+			if b.Name == "" {
+				b.Name = fmt.Sprintf("ua-%08x", userAccessFNV32a(strings.TrimSpace(b.EmailShort)))
+			}
+			if len(b.Name) > 63 {
+				b.Name = b.Name[:63]
+			}
+		}
+	}
+	if strings.TrimSpace(b.Spec.User.KeycloakSubject) == "" && strings.TrimSpace(b.EmailShort) != "" {
+		b.Spec.User.KeycloakSubject = strings.TrimSpace(b.EmailShort)
+	}
+	if strings.TrimSpace(b.Spec.SovereignRef) == "" && strings.TrimSpace(depID) != "" {
+		b.Spec.SovereignRef = strings.TrimSpace(depID)
+	}
+	if strings.TrimSpace(b.TierShort) != "" {
+		role := userAccessTierToRole(b.TierShort)
+		if len(b.Spec.Applications) == 0 {
+			b.Spec.Applications = []userAccessAppGrantBody{{
+				App:  "*",
+				Role: role,
+			}}
+		} else {
+			// PUT short-form on an existing-shape CR: rotate every app's
+			// role to the new tier-derived role.
+			for i := range b.Spec.Applications {
+				b.Spec.Applications[i].Role = role
+			}
+		}
+	}
+	return b
+}
+
+// isUserAccessShortFormPut reports whether the request body looks like
+// the canonical UAT matrix's PUT short form — only `tier` (or `email`)
+// supplied, no full long-form spec. Used by UpdateUserAccess to merge
+// the existing CR's user/sovereignRef/applications when the body omits
+// them rather than replacing with empty values.
+func isUserAccessShortFormPut(b userAccessRequest) bool {
+	if strings.TrimSpace(b.TierShort) == "" && strings.TrimSpace(b.EmailShort) == "" {
+		return false
+	}
+	// Long-form indicators: explicit applications list, or explicit
+	// keycloakGroups, or explicit sovereignRef. When ANY of those are
+	// present the caller is doing a real long-form replace.
+	if len(b.Spec.Applications) > 1 {
+		return false
+	}
+	if len(b.Spec.Applications) == 1 && b.Spec.Applications[0].App != "*" {
+		return false
+	}
+	if len(b.Spec.User.KeycloakGroups) > 0 {
+		return false
+	}
+	return true
+}
+
+// userAccessSanitizeName — RFC 1123 lowercase alphanumeric + hyphens
+// (no leading/trailing hyphen). Mirrors sanitizeK8sNameSegment in
+// rbac_assign.go but local to user_access.go to avoid a cross-file
+// dependency on the package-private helper while keeping the import
+// graph clean.
+func userAccessSanitizeName(s string) string {
+	var sb strings.Builder
+	for _, r := range strings.ToLower(s) {
+		switch {
+		case r >= 'a' && r <= 'z':
+			sb.WriteRune(r)
+		case r >= '0' && r <= '9':
+			sb.WriteRune(r)
+		case r == '-':
+			sb.WriteRune(r)
+		}
+	}
+	return strings.Trim(sb.String(), "-")
+}
+
+// userAccessFNV32a — FNV-1a 32-bit hash. Mirrors fnv32a in
+// rbac_assign.go. Local copy keeps user_access.go independently
+// re-orderable in the package.
+func userAccessFNV32a(s string) uint32 {
+	const (
+		offset32 = 2166136261
+		prime32  = 16777619
+	)
+	var h uint32 = offset32
+	for i := 0; i < len(s); i++ {
+		h ^= uint32(s[i])
+		h *= prime32
+	}
+	return h
 }
 
 type userAccessSpecBody struct {
@@ -188,6 +347,7 @@ func (h *Handler) CreateUserAccess(w http.ResponseWriter, r *http.Request) {
 	if !decodeMutationBody(w, r, &body) {
 		return
 	}
+	body = userAccessRequestNormalize(body, depID, "")
 	if msg, ok := validateUserAccess(body); !ok {
 		writeBadRequest(w, "invalid-user-access", msg)
 		return
@@ -239,10 +399,7 @@ func (h *Handler) UpdateUserAccess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body.Name = name
-	if msg, ok := validateUserAccess(body); !ok {
-		writeBadRequest(w, "invalid-user-access", msg)
-		return
-	}
+	body = userAccessRequestNormalize(body, depID, name)
 	client, err := h.sovereignDynamicClient(dep)
 	if err != nil {
 		writeUserAccessUnavailable(w, err)
@@ -261,6 +418,43 @@ func (h *Handler) UpdateUserAccess(w http.ResponseWriter, r *http.Request) {
 			"error":  "get-failed",
 			"detail": err.Error(),
 		})
+		return
+	}
+	// PUT short-form merge: the canonical UAT matrix sends `{"tier":"X"}`
+	// expecting the existing CR's user/sovereignRef/applications to be
+	// preserved with only the role rotated. Pull the current CR's spec
+	// in as a baseline and re-run normalize so the tier rotation
+	// applies on top of the existing applications list.
+	if isUserAccessShortFormPut(body) {
+		curItem := unstructuredToUserAccess(current)
+		// Carry forward the current CR's identity + scope.
+		if strings.TrimSpace(body.Spec.User.KeycloakSubject) == "" {
+			body.Spec.User.KeycloakSubject = curItem.Spec.User.KeycloakSubject
+		}
+		if len(body.Spec.User.KeycloakGroups) == 0 {
+			body.Spec.User.KeycloakGroups = curItem.Spec.User.KeycloakGroups
+		}
+		if strings.TrimSpace(body.Spec.SovereignRef) == "" {
+			body.Spec.SovereignRef = curItem.Spec.SovereignRef
+		}
+		if len(body.Spec.Applications) == 0 || (len(body.Spec.Applications) == 1 && body.Spec.Applications[0].App == "*") {
+			// Either nothing yet (tier wasn't supplied — no change), or
+			// the tier-rotation sentinel ("*"). When the CR already has
+			// per-app grants, rotate THOSE to the new tier-derived role
+			// instead of replacing them with the wildcard sentinel.
+			if len(curItem.Spec.Applications) > 0 && strings.TrimSpace(body.TierShort) != "" {
+				role := userAccessTierToRole(body.TierShort)
+				rotated := make([]userAccessAppGrantBody, 0, len(curItem.Spec.Applications))
+				for _, app := range curItem.Spec.Applications {
+					app.Role = role
+					rotated = append(rotated, app)
+				}
+				body.Spec.Applications = rotated
+			}
+		}
+	}
+	if msg, ok := validateUserAccess(body); !ok {
+		writeBadRequest(w, "invalid-user-access", msg)
 		return
 	}
 	desired := userAccessToUnstructured(body)

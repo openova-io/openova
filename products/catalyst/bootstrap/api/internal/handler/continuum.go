@@ -129,12 +129,23 @@ type continuumGetResponse struct {
 
 // continuumSwitchoverRequest — body of POST .../switchover.
 //
-// `targetRegion` is REQUIRED (handler rejects 400 otherwise). `reason`
-// is a free-form short string surfaced on the audit event's Detail
-// field. The handler stamps `requestedAt = now` server-side.
+// `targetRegion` (or its short-form alias `target`) is REQUIRED
+// (handler rejects 400 otherwise). `reason` is a free-form short
+// string surfaced on the audit event's Detail field. The handler
+// stamps `requestedAt = now` server-side.
+//
+// The `target` alias matches the canonical UAT matrix vocabulary —
+// see `feedback_no_mvp_no_workarounds.md`. The matrix is the
+// contract; the handler conforms by accepting both names.
+// `continuumSwitchoverPreviewRequest` already established this
+// pattern (see continuum_extras.go:100).
 type continuumSwitchoverRequest struct {
 	TargetRegion string `json:"targetRegion"`
-	Reason       string `json:"reason,omitempty"`
+	// Target is the canonical UAT matrix's short alias for
+	// TargetRegion. When set and TargetRegion is empty, the handler
+	// promotes Target to TargetRegion before validation.
+	Target string `json:"target,omitempty"`
+	Reason string `json:"reason,omitempty"`
 }
 
 // continuumSwitchoverResponse — 202 Accepted body. The reconciler picks
@@ -279,8 +290,13 @@ func (h *Handler) HandleContinuumSwitchoverRequest(w http.ResponseWriter, r *htt
 	if !decodeMutationBody(w, r, &body) {
 		return
 	}
+	// Short-form alias: promote `target` to `targetRegion` when the
+	// canonical field was omitted. Long form wins on conflict.
+	if strings.TrimSpace(body.TargetRegion) == "" && strings.TrimSpace(body.Target) != "" {
+		body.TargetRegion = strings.TrimSpace(body.Target)
+	}
 	if strings.TrimSpace(body.TargetRegion) == "" {
-		writeBadRequest(w, "missing-target-region", "targetRegion is required")
+		writeBadRequest(w, "missing-target-region", "targetRegion (or its alias `target`) is required")
 		return
 	}
 	client, err := h.sovereignDynamicClient(dep)

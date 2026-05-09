@@ -80,6 +80,14 @@ import (
 
 // applicationPreviewRequest is the body of POST .../applications/preview.
 // Same shape as applicationInstallRequest except `name` is optional.
+//
+// Accepts the same SHORT FORM as applicationInstallRequest (canonical
+// UAT matrix vocabulary):
+//
+//	{ "blueprint":"bp-x", "version":"1.0", "namespace":"qa-omantel",
+//	  "values":{...} }
+//
+// Collapsed via applicationPreviewRequestNormalize before validation.
 type applicationPreviewRequest struct {
 	BlueprintRef    applicationBlueprintRef `json:"blueprintRef"`
 	Name            string                  `json:"name,omitempty"`
@@ -87,6 +95,42 @@ type applicationPreviewRequest struct {
 	EnvironmentRef  string                  `json:"environmentRef"`
 	Parameters      map[string]interface{}  `json:"parameters,omitempty"`
 	Placement       applicationPlacement    `json:"placement"`
+
+	// Short-form aliases — see applicationInstallRequest doc.
+	BlueprintShort string                 `json:"blueprint,omitempty"`
+	VersionShort   string                 `json:"version,omitempty"`
+	NamespaceShort string                 `json:"namespace,omitempty"`
+	ValuesShort    map[string]interface{} `json:"values,omitempty"`
+}
+
+// applicationPreviewRequestNormalize collapses the short-form aliases
+// onto the canonical fields. Mirrors
+// applicationInstallRequestNormalize so a body that previews
+// successfully will install successfully (one source of truth for
+// the shape coercion).
+func applicationPreviewRequestNormalize(b applicationPreviewRequest) applicationPreviewRequest {
+	if b.BlueprintRef.Name == "" && strings.TrimSpace(b.BlueprintShort) != "" {
+		b.BlueprintRef.Name = strings.TrimSpace(b.BlueprintShort)
+	}
+	if b.BlueprintRef.Version == "" && strings.TrimSpace(b.VersionShort) != "" {
+		b.BlueprintRef.Version = strings.TrimSpace(b.VersionShort)
+	}
+	if b.OrganizationRef == "" && strings.TrimSpace(b.NamespaceShort) != "" {
+		b.OrganizationRef = strings.TrimSpace(b.NamespaceShort)
+	}
+	if b.EnvironmentRef == "" && b.OrganizationRef != "" {
+		b.EnvironmentRef = b.OrganizationRef + "-prod"
+	}
+	if len(b.Parameters) == 0 && len(b.ValuesShort) > 0 {
+		b.Parameters = b.ValuesShort
+	}
+	if strings.TrimSpace(b.Placement.Mode) == "" {
+		b.Placement.Mode = "single-region"
+	}
+	if len(b.Placement.Regions) == 0 {
+		b.Placement.Regions = []string{"primary"}
+	}
+	return b
 }
 
 // PreviewManifest is one rendered file in the preview output. Path is
@@ -135,6 +179,7 @@ func (h *Handler) HandleApplicationPreview(w http.ResponseWriter, r *http.Reques
 	if !decodeMutationBody(w, r, &body) {
 		return
 	}
+	body = applicationPreviewRequestNormalize(body)
 	if msg, ok := validateApplicationPreviewRequest(body); !ok {
 		writeBadRequest(w, "invalid-application-preview", msg)
 		return
