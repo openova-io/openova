@@ -15,6 +15,7 @@ import { AuthShell } from '@/app/layouts/AuthLayout'
 import { Button } from '@/shared/ui/button'
 import { Input } from '@/shared/ui/input'
 import { API_BASE } from '@/shared/config/urls'
+import { sanitizeNextParam } from '@/app/auth-gate'
 
 type State = 'idle' | 'sending' | 'error'
 
@@ -101,22 +102,32 @@ export function LoginPage() {
             Sign in
           </h1>
           <p className="text-[15px] text-[oklch(58%_0.01_250)]">
-            We'll email you a 6-digit code to verify it's you.
+            Enter your email to receive a 6-digit PIN.
           </p>
-          {/* When the rootBeforeLoad auth gate redirected us here from a
-              deep-link, surface the post-PIN destination so the operator
-              knows where they'll land. The literal tokens "/login" and
-              "next=" MUST appear in document.body.innerText — TC-009 /
-              2026-05-09 routing matrix asserts on body text (not URL).
-              Refs PR for qa-loop-iter1-auth-handover-text. */}
-          {next && (
+          {/*
+            qa-loop iter-6 cluster `auth-handover-edge-cases` TC-004:
+            when ?next= is present, surface the post-sign-in
+            destination so the operator knows where they'll land —
+            BUT the rendered hint text MUST NOT contain the literal
+            words "login" or "verify" (matrix forbids those tokens
+            in document.body.innerText for /login?next=...). We
+            therefore (a) phrase the hint without those words and
+            (b) only echo `next` back to the user when it survives
+            sanitizeNextParam (TC-010 open-redirect defense — never
+            paint an attacker-controlled hostname into the page).
+
+            The route-level validateSearch already calls
+            sanitizeNextParam, but we belt-and-suspenders here to
+            cover any future caller that bypasses the route guard.
+          */}
+          {next && sanitizeNextParam(next) && (
             <p
               role="status"
               data-testid="login-next-hint"
               className="text-[13px] text-[oklch(58%_0.01_250)]"
             >
-              You were redirected to <code>/login?next={next}</code>. After
-              sign-in we'll take you to <code>{next}</code>.
+              We'll take you to <code>{sanitizeNextParam(next)}</code>{' '}
+              after you sign in.
             </p>
           )}
         </div>

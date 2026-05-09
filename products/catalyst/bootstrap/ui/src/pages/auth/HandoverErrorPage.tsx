@@ -56,12 +56,33 @@ export function HandoverErrorPage({ search: searchOverride }: HandoverErrorPageP
       <p className="text-sm leading-relaxed text-[var(--color-text-dim)]">
         {message}
       </p>
-      <a
-        href="/dashboard"
-        className="rounded-md border border-[var(--color-border)] bg-transparent px-4 py-2 text-sm text-[var(--color-text)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
-      >
-        Continue to console
-      </a>
+      <div className="flex flex-col items-center gap-3 sm:flex-row sm:gap-4">
+        {/*
+          TC-005 (qa-loop iter-6 cluster `auth-handover-edge-cases`):
+          the routing matrix asserts the literal token "Try again"
+          appears in document.body.innerText so the operator has an
+          obvious recovery path back to /login when the handover
+          token was missing/expired/replayed. Order matters — the
+          primary action is "Try again" (re-auth), the secondary is
+          "Continue to console" for the rare case the session is in
+          fact already valid (e.g. a stale email link replay after
+          the operator already logged in via another tab).
+        */}
+        <a
+          href="/login"
+          data-testid="handover-error-try-again"
+          className="rounded-md border border-[var(--color-accent)] bg-[var(--color-accent)] px-4 py-2 text-sm font-medium text-[var(--color-bg)] hover:opacity-90"
+        >
+          Try again
+        </a>
+        <a
+          href="/dashboard"
+          data-testid="handover-error-continue"
+          className="rounded-md border border-[var(--color-border)] bg-transparent px-4 py-2 text-sm text-[var(--color-text)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+        >
+          Continue to console
+        </a>
+      </div>
     </div>
   )
 }

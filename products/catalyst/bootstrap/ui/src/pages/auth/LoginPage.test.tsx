@@ -77,19 +77,31 @@ describe('LoginPage — URL-driven error banner', () => {
   })
 })
 
-describe('LoginPage — `next` redirect hint (TC-009 / qa-loop iter-1)', () => {
-  it('renders a body-text hint containing "/login" and "next=" when ?next= is present', () => {
+describe('LoginPage — `next` redirect hint (TC-004 / qa-loop iter-6)', () => {
+  it('renders a body-text hint with the post-sign-in destination when a safe ?next= is present', () => {
     searchState.current = { next: '/dashboard' }
     render(<LoginPage />)
     const hint = screen.getByTestId('login-next-hint')
-    // TC-009 routing-matrix asserts on document.body.innerText (NOT URL).
-    // Both literal tokens MUST appear in the rendered hint.
-    expect(hint.textContent).toContain('/login')
-    expect(hint.textContent).toContain('next=')
+    // TC-004 (iter-6): the rendered hint MUST contain the destination
+    // path (/dashboard) AND must NOT contain the literal words
+    // "login" or "verify" — the routing matrix asserts both
+    // must_contain and must_not_contain on document.body.innerText.
     expect(hint.textContent).toContain('/dashboard')
+    expect(hint.textContent?.toLowerCase()).not.toContain('login')
+    expect(hint.textContent?.toLowerCase()).not.toContain('verify')
   })
 
   it('omits the hint entirely when ?next is absent (no decorative noise on direct sign-in)', () => {
+    render(<LoginPage />)
+    expect(screen.queryByTestId('login-next-hint')).toBeNull()
+  })
+
+  it('omits the hint when ?next= would open-redirect off-origin (TC-010)', () => {
+    // Even if a malicious deep-link survived the route-level
+    // validateSearch (e.g. a future caller bypasses it), the
+    // component-level sanitizeNextParam guard MUST suppress the
+    // hint so the attacker-controlled hostname never paints.
+    searchState.current = { next: 'https://evil.example.com/phish' }
     render(<LoginPage />)
     expect(screen.queryByTestId('login-next-hint')).toBeNull()
   })
