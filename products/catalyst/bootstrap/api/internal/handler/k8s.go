@@ -270,6 +270,35 @@ func (h *Handler) HandleK8sStream(w http.ResponseWriter, r *http.Request) {
 	_, _ = fmt.Fprintf(w, ": connected cluster=%s kinds=%s\n\n", clusterID, kindsParam)
 	flusher.Flush()
 
+	enc := json.NewEncoder(w)
+
+	// Emit an immediate "ready" `data:` snapshot frame on connect so
+	// probes / EventSource consumers see a wire event without waiting
+	// for the next watch event or the 15s heartbeat. The ready frame is
+	// idempotent — UI clients filter `type:"ready"` and treat it as a
+	// connection ack; consumers that just listen for any `data:` line
+	// (smoke tests, probes) get one immediately.
+	readyKinds := make([]string, 0, len(kindsFilter))
+	for k := range kindsFilter {
+		readyKinds = append(readyKinds, k)
+	}
+	sort.Strings(readyKinds)
+	if _, err := w.Write([]byte("data: ")); err != nil {
+		return
+	}
+	if err := enc.Encode(map[string]interface{}{
+		"type":    "ready",
+		"cluster": clusterID,
+		"kinds":   readyKinds,
+		"at":      time.Now().UTC(),
+	}); err != nil {
+		return
+	}
+	if _, err := w.Write([]byte("\n")); err != nil {
+		return
+	}
+	flusher.Flush()
+
 	// Initial-state snapshot — on connect, optionally emit a synthetic
 	// ADDED for every object currently in the Indexer for the
 	// requested kinds. Triggered by ?initialState=1; off by default
@@ -283,8 +312,6 @@ func (h *Handler) HandleK8sStream(w http.ResponseWriter, r *http.Request) {
 	// Heartbeat + main loop.
 	pingT := time.NewTicker(15 * time.Second)
 	defer pingT.Stop()
-
-	enc := json.NewEncoder(w)
 
 	for {
 		select {
