@@ -929,7 +929,12 @@ qaFixtures:
   enabled: false
   namespace: qa-omantel
   appName: qa-wp
-  sovereignRef: omantel
+  # sovereignRef MUST be a FQDN per Organization CRD validation
+  # (pattern '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]...)+$').
+  # Operators override per-Sovereign. Default chosen to match the
+  # qa-omantel test Sovereign's actual hostname (Fix #38 follow-up #3 —
+  # legacy "omantel" rejected at admission and blocked the qa-wp roll).
+  sovereignRef: omantel.biz
   organization: omantel-platform
   qaUser:
     email: qa-user1@openova.io

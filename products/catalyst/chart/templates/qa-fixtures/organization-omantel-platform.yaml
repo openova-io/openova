@@ -25,7 +25,7 @@ kind: Organization
 metadata:
   name: {{ .Values.qaFixtures.organization | default "omantel-platform" | quote }}
   labels:
-    openova.io/sovereign: {{ .Values.qaFixtures.sovereignRef | default "omantel" | quote }}
+    openova.io/sovereign: {{ .Values.qaFixtures.sovereignRef | default "omantel.biz" | quote }}
     catalyst.openova.io/managed-by: qa-fixtures
     app.kubernetes.io/managed-by: {{ .Release.Service }}
     app.kubernetes.io/instance: {{ .Release.Name }}
@@ -35,7 +35,7 @@ spec:
   kind: internal
   tier: corporate
   billingMode: chargeback
-  sovereignRef: {{ .Values.qaFixtures.sovereignRef | default "omantel" | quote }}
+  sovereignRef: {{ .Values.qaFixtures.sovereignRef | default "omantel.biz" | quote }}
   defaultEnvironmentType: dev
   owners:
     - email: {{ .Values.qaFixtures.qaUser.email | default "qa-user1@openova.io" | quote }}

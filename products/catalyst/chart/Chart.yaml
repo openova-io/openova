@@ -1,5 +1,13 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.106 (qa-loop iter-7 Fix #38 follow-up #3): qa-fixtures
+# sovereignRef default = "omantel.biz" so the Organization +
+# Application + Environment + Blueprint + UserAccess CRs validate
+# against `^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]...)+$`. Without
+# this, qa-fixtures rejected at admission with `spec.sovereignRef:
+# Invalid value: "omantel"` and chart 1.4.105 still failed to install
+# on omantel even after the region-pattern fix landed.
+#
 # 1.4.105 (qa-loop iter-7 Fix #38 follow-up): qa-fixtures Application +
 # Environment region defaults bumped to canonical 4-segment label
 # `hz-fsn-rtz-prod` so the qa-wp Application from Fix #36 (#1231) and
@@ -282,7 +290,7 @@ name: bp-catalyst-platform
 # (PUT /k8s/{kind}/{ns}/{name}, /scale, /restart) so the chroot in-cluster
 # fallback (`feedback_chroot_in_cluster_fallback.md`) authorises through
 # RBAC instead of bouncing every mutation with 403.
-version: 1.4.105
+version: 1.4.106
 appVersion: 1.4.94
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.

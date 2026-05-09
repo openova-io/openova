@@ -19,7 +19,7 @@ kind: Environment
 metadata:
   name: {{ .Values.qaFixtures.namespace | default "qa-omantel" | quote }}
   labels:
-    openova.io/sovereign: {{ .Values.qaFixtures.sovereignRef | default "omantel" | quote }}
+    openova.io/sovereign: {{ .Values.qaFixtures.sovereignRef | default "omantel.biz" | quote }}
     openova.io/organization: {{ .Values.qaFixtures.organization | default "omantel-platform" | quote }}
     catalyst.openova.io/managed-by: qa-fixtures
     app.kubernetes.io/managed-by: {{ .Release.Service }}
