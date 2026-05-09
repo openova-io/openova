@@ -1,5 +1,16 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.103 (qa-loop iter-7 Fix #37 follow-up): qa-continuum-status-seed
+# Job in CrashLoopBackOff because `kubectl get continuum cont-omantel`
+# is ambiguous — `continuum` is BOTH the singular of
+# `continuums.dr.openova.io` AND the category that
+# `cnpgpairs.dr.openova.io` and `pdms.dr.openova.io` subscribe to.
+# kubectl returns "you must specify only one resource" when the named
+# lookup matches multiple kinds. Switch the seeder's get + patch to use
+# the FQN `continuums.dr.openova.io` so the lookup is unambiguous.
+# Other seeders (cnpgpair, pdm, scheduledbackup) are not affected
+# because their singular names are not also category aliases.
+#
 # 1.4.101 (qa-loop iter-7 Fix #37): EPIC-6 + EPIC-1 target-state qa-fixtures
 # closeout. Adds:
 #   - templates/qa-fixtures/cnpg-clusters-qa.yaml — `cluster-primary` +
@@ -261,7 +272,7 @@ name: bp-catalyst-platform
 # (PUT /k8s/{kind}/{ns}/{name}, /scale, /restart) so the chroot in-cluster
 # fallback (`feedback_chroot_in_cluster_fallback.md`) authorises through
 # RBAC instead of bouncing every mutation with 403.
-version: 1.4.102
+version: 1.4.103
 appVersion: 1.4.94
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
