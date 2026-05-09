@@ -623,6 +623,20 @@ func main() {
 		rg.Post("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/dry-run", h.HandleK8sResourceDryRun)
 		rg.Post("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/apply", h.HandleK8sResourceApply)
 		rg.Delete("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}", h.HandleK8sResourceDelete)
+		// QA-loop iter-7 Fix #34 — vocab widening: PUT alias for
+		// /scale and direct resource Update via PUT on the bare path.
+		// The matrix (TC-215, TC-243, TC-206, TC-244, TC-247) and
+		// kubectl-style muscle memory both surface PUT for "edit
+		// replicas" and "edit object yaml". The handlers underneath
+		// are the same as the POST shapes; the chi router needs both
+		// verbs registered explicitly because chi.Group.Post does NOT
+		// silently match PUT.
+		rg.Put("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/scale", h.HandleK8sResourceScale)
+		rg.Put("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}", h.HandleK8sResourcePut)
+		// QA-loop iter-7 Fix #34 — multi-resource server-side apply.
+		// Body: {yaml: "<one-or-more-docs>"}. Returns one entry per
+		// document with `created` vs `updated`. Matrix TC-271.
+		rg.Post("/api/v1/sovereigns/{id}/k8s/apply", h.HandleK8sMultiApply)
 		// NOTE: wizard pre-submit validation endpoints
 		// (/credentials/validate, /credentials/object-storage/validate,
 		// /sshkey/generate, /registrar/{r}/validate, /subdomains/check)
