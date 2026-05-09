@@ -4,6 +4,7 @@ import {
   isPublicPath,
   hasCatalystSession,
   probeWhoamiAndCacheMarker,
+  sanitizeNextParam,
   PUBLIC_PATH_PREFIXES,
 } from './auth-gate'
 
@@ -178,6 +179,69 @@ describe('probeWhoamiAndCacheMarker', () => {
         credentials: 'include',
       }),
     )
+  })
+})
+
+describe('sanitizeNextParam — open-redirect defense (CWE-601)', () => {
+  // qa-loop iter-4 cluster `users-page-null-map-and-open-redirect` —
+  // TC-009 surfaced /login?next=//dashboard with a leading `//` which
+  // would let an attacker craft /login?next=//evil.com to bounce the
+  // operator off-origin after sign-in.
+
+  it('returns undefined for undefined / empty / non-string input', () => {
+    expect(sanitizeNextParam(undefined)).toBeUndefined()
+    expect(sanitizeNextParam('')).toBeUndefined()
+    expect(sanitizeNextParam(null)).toBeUndefined()
+    expect(sanitizeNextParam(123)).toBeUndefined()
+    expect(sanitizeNextParam({})).toBeUndefined()
+  })
+
+  it('passes safe single-leading-slash paths through unchanged', () => {
+    expect(sanitizeNextParam('/dashboard')).toBe('/dashboard')
+    expect(sanitizeNextParam('/provision/d-1/users')).toBe('/provision/d-1/users')
+    expect(sanitizeNextParam('/users/some-user@example.org?tab=grants')).toBe(
+      '/users/some-user@example.org?tab=grants',
+    )
+    expect(sanitizeNextParam('/dashboard#anchor')).toBe('/dashboard#anchor')
+  })
+
+  it('collapses leading multi-slashes to a single slash (TC-009 attack vector)', () => {
+    // Protocol-relative URLs treated as host references by the browser
+    expect(sanitizeNextParam('//dashboard')).toBeUndefined()
+    expect(sanitizeNextParam('//evil.com/path')).toBeUndefined()
+    expect(sanitizeNextParam('///foo')).toBeUndefined()
+    expect(sanitizeNextParam('////a/b')).toBeUndefined()
+  })
+
+  it('rejects absolute URLs with explicit schemes', () => {
+    expect(sanitizeNextParam('http://evil.com/path')).toBeUndefined()
+    expect(sanitizeNextParam('https://evil.com/path')).toBeUndefined()
+    expect(sanitizeNextParam('javascript:alert(1)')).toBeUndefined()
+    expect(sanitizeNextParam('data:text/html,<script>alert(1)</script>')).toBeUndefined()
+    expect(sanitizeNextParam('file:///etc/passwd')).toBeUndefined()
+    expect(sanitizeNextParam('vbscript:msgbox(1)')).toBeUndefined()
+  })
+
+  it('rejects backslash-prefixed paths (browser quirk)', () => {
+    // Some browsers normalize \ to / in URLs — catching `\\evil.com`
+    // and `/\evil.com` as cousins of `//evil.com`.
+    expect(sanitizeNextParam('\\\\evil.com/path')).toBeUndefined()
+    expect(sanitizeNextParam('/\\evil.com')).toBeUndefined()
+    expect(sanitizeNextParam('\\evil.com')).toBeUndefined()
+  })
+
+  it('rejects strings that do not start with /', () => {
+    expect(sanitizeNextParam('dashboard')).toBeUndefined()
+    expect(sanitizeNextParam('./dashboard')).toBeUndefined()
+    expect(sanitizeNextParam('../etc/passwd')).toBeUndefined()
+    expect(sanitizeNextParam('mailto:attacker@evil.com')).toBeUndefined()
+  })
+
+  it('rejects strings containing whitespace or control characters', () => {
+    expect(sanitizeNextParam('/dashboard\n')).toBeUndefined()
+    expect(sanitizeNextParam('/dashboard ')).toBeUndefined()
+    expect(sanitizeNextParam(' /dashboard')).toBeUndefined()
+    expect(sanitizeNextParam('/dash\x00board')).toBeUndefined()
   })
 })
 

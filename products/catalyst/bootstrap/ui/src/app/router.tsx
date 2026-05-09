@@ -105,6 +105,7 @@ import {
   hasCatalystSession,
   isPublicPath,
   probeWhoamiAndCacheMarker,
+  sanitizeNextParam,
 } from './auth-gate'
 
 /**
@@ -161,10 +162,15 @@ async function rootBeforeLoad({ location }: { location: { pathname: string } }) 
   const whoami = await probeWhoamiAndCacheMarker(API_BASE)
   if (whoami === true) return
   if (whoami === null) return // 5xx / network error — fail open
-  // 401 — genuinely unauthenticated. Redirect with deep-link.
+  // 401 — genuinely unauthenticated. Redirect with deep-link, but
+  // sanitize the `next` so we can never construct an open-redirect
+  // payload (CWE-601). qa-loop iter-4 cluster
+  // `users-page-null-map-and-open-redirect`.
+  const rawNext = pathname + window.location.search
+  const safeNext = sanitizeNextParam(rawNext)
   throw redirect({
     to: '/login',
-    search: { next: pathname + window.location.search },
+    search: safeNext ? { next: safeNext } : {},
     replace: true,
   })
 }
@@ -209,7 +215,12 @@ const loginRoute = createRoute({
   component: LoginPage,
   validateSearch: (raw: Record<string, unknown>): { next?: string; error?: string } => {
     const out: { next?: string; error?: string } = {}
-    if (typeof raw.next === 'string' && raw.next.length > 0) out.next = raw.next
+    // Sanitize `next` to prevent open-redirect (CWE-601): an attacker
+    // could craft /login?next=//evil.com so post-login navigation
+    // sends the operator off-origin. qa-loop iter-4 cluster
+    // `users-page-null-map-and-open-redirect`.
+    const safeNext = sanitizeNextParam(raw.next)
+    if (safeNext) out.next = safeNext
     if (typeof raw.error === 'string' && raw.error.length > 0) out.error = raw.error
     return out
   },
@@ -237,7 +248,10 @@ const loginVerifyRoute = createRoute({
     if (typeof raw.requestId === 'string' && raw.requestId.length > 0) {
       out.requestId = raw.requestId
     }
-    if (typeof raw.next === 'string' && raw.next.length > 0) out.next = raw.next
+    // Same open-redirect sanitization as /login (CWE-601). qa-loop
+    // iter-4 cluster `users-page-null-map-and-open-redirect`.
+    const safeNext = sanitizeNextParam(raw.next)
+    if (safeNext) out.next = safeNext
     return out
   },
 })

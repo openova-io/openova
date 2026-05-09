@@ -81,6 +81,31 @@ describe('grantForScope', () => {
   })
 })
 
+describe('null-safety (qa-loop iter-4 cluster users-page-null-map-and-open-redirect)', () => {
+  // The Go zero-value `[]User` slice serializes as `null`, not `[]`.
+  // The matrix client mostly normalizes, but defense in depth here:
+  // flattenForScope and grantForScope must not crash on a null users
+  // array or a null per-user access map.
+  it('flattenForScope tolerates users: null', () => {
+    const broken = {
+      users: null as unknown as never,
+      applications: [],
+      tiers: [],
+    } as unknown as AccessMatrixResponse
+    expect(flattenForScope(broken, { kind: 'application', value: 'wordpress' })).toEqual([])
+  })
+
+  it('grantForScope tolerates user.access: null', () => {
+    const user = {
+      id: 'x',
+      source: 'keycloak',
+      access: null as unknown as never,
+    }
+    expect(grantForScope(user as never, { kind: 'application', value: 'wordpress' })).toBeUndefined()
+    expect(grantForScope(user as never, { kind: 'organization', value: 'acme' })).toBeUndefined()
+  })
+})
+
 describe('defaultScopesForScope', () => {
   it('returns application scope for kind=application', () => {
     const out = defaultScopesForScope({ kind: 'application', value: 'wordpress' })

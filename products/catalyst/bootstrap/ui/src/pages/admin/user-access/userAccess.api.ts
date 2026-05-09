@@ -64,7 +64,38 @@ export async function listUserAccess(deploymentId: string): Promise<UserAccessIt
     throw new Error(`list user-access: HTTP ${res.status}`)
   }
   const body: UserAccessListResponse = await res.json()
-  return body.items ?? []
+  // Defensive normalization: a Go zero-value `[]Item` slice serializes
+  // to `null`, not `[]`. Same for nested fields. The UI renders
+  // `applications.map(...)` directly — null would crash the page with
+  // `TypeError: Cannot read properties of null (reading 'map')`. Caught
+  // on console.omantel.biz 2026-05-09 (qa-loop iter-4 cluster
+  // `users-page-null-map-and-open-redirect`).
+  const items = body.items ?? []
+  return items.map(normalizeItem)
+}
+
+/**
+ * Defensively normalize a UserAccessItem so all array-shaped fields are
+ * arrays (never null). Callers may render fields with `.map(...)` and
+ * we never want a server-side null to crash the UI.
+ */
+function normalizeItem(item: UserAccessItem): UserAccessItem {
+  return {
+    ...item,
+    spec: {
+      ...item.spec,
+      user: {
+        keycloakSubject: item.spec?.user?.keycloakSubject,
+        keycloakGroups: item.spec?.user?.keycloakGroups ?? undefined,
+      },
+      sovereignRef: item.spec?.sovereignRef ?? '',
+      applications: (item.spec?.applications ?? []).map((g) => ({
+        ...g,
+        namespaces: g.namespaces ?? undefined,
+        vClusters: g.vClusters ?? undefined,
+      })),
+    },
+  }
 }
 
 export async function createUserAccess(
@@ -126,7 +157,11 @@ export function userLabel(user: UserAccessUser): string {
 /**
  * Compact summary of an UserAccess Claim's grants for the list view:
  *   "helmwatch (editor), catalyst (admin)"
+ *
+ * Defensively handles `null`/`undefined` because Go zero-value slices
+ * serialize as `null` over the wire. qa-loop iter-4 cluster
+ * `users-page-null-map-and-open-redirect`.
  */
-export function grantsSummary(applications: UserAccessAppGrant[]): string {
-  return applications.map((g) => `${g.app} (${g.role})`).join(', ')
+export function grantsSummary(applications: UserAccessAppGrant[] | null | undefined): string {
+  return (applications ?? []).map((g) => `${g.app} (${g.role})`).join(', ')
 }

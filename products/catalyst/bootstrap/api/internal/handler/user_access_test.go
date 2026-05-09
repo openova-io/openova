@@ -140,6 +140,51 @@ func TestListUserAccess_Empty(t *testing.T) {
 	if len(out.Items) != 0 {
 		t.Fatalf("expected empty list; got %d items", len(out.Items))
 	}
+	// qa-loop iter-4 cluster `users-page-null-map-and-open-redirect`:
+	// the empty-list body MUST serialize the items field as `[]` (not
+	// `null`) so the React UI's `items.map(...)` does not throw
+	// `TypeError: Cannot read properties of null (reading 'map')`.
+	rawBody := rec.Body.String()
+	if !strings.Contains(rawBody, `"items":[]`) {
+		t.Fatalf("expected items field to serialize as []; body=%s", rawBody)
+	}
+	if strings.Contains(rawBody, `"items":null`) {
+		t.Fatalf("items field must never be null on the wire; body=%s", rawBody)
+	}
+}
+
+// TestUnstructuredToUserAccess_NilApplicationsBecomesEmpty proves the
+// Spec.Applications field initializes to an empty slice (not nil) so
+// the JSON encoder emits `"applications":[]` for an UserAccess CR
+// missing the field. Mirrors the FE-side normalizer in
+// `userAccess.api.ts:normalizeItem`. qa-loop iter-4 cluster
+// `users-page-null-map-and-open-redirect`.
+func TestUnstructuredToUserAccess_NilApplicationsBecomesEmpty(t *testing.T) {
+	u := &unstructured.Unstructured{}
+	u.SetAPIVersion("access.openova.io/v1alpha1")
+	u.SetKind("UserAccess")
+	u.SetName("missing-apps")
+	// No spec at all — verify Applications is still [], not nil.
+
+	out := unstructuredToUserAccess(u)
+	if out.Spec.Applications == nil {
+		t.Fatalf("Spec.Applications must be initialized as empty slice (not nil)")
+	}
+	if len(out.Spec.Applications) != 0 {
+		t.Fatalf("Spec.Applications should be empty; got %d", len(out.Spec.Applications))
+	}
+	// JSON-roundtrip — must not produce a `null`.
+	body, err := json.Marshal(out)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	bodyStr := string(body)
+	if !strings.Contains(bodyStr, `"applications":[]`) {
+		t.Fatalf("expected applications:[]; got %s", bodyStr)
+	}
+	if strings.Contains(bodyStr, `"applications":null`) {
+		t.Fatalf("applications must never be null; got %s", bodyStr)
+	}
 }
 
 func TestListUserAccess_Populated(t *testing.T) {
