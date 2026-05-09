@@ -15,15 +15,13 @@
 
 catalystBlueprint:
   upstream:
-    chart: ""           # scratch chart — no upstream Helm chart
+    chart: "" # scratch chart — no upstream Helm chart
     version: ""
     repo: ""
-
 # Top-level enable gate. When false, NO resources render. Verified by
 # `helm template` test in tests/.
 guacamole:
   enabled: false
-
   # ── guacd: protocol backend ─────────────────────────────────────
   guacd:
     # Resource name. Defaults to `guacd` so the catalyst-api shells/issue
@@ -52,7 +50,6 @@ guacamole:
       limits:
         memory: 512Mi
     port: 4822
-
   # ── guacamole webapp: Tomcat front-end ─────────────────────────
   webapp:
     # Resource name. Defaults to `guacamole-server` per the qa-loop test
@@ -72,7 +69,6 @@ guacamole:
       limits:
         memory: 1Gi
     port: 8080
-
   # ── Recording (SeaweedFS PVC) ──────────────────────────────────
   recordings:
     # PVC name. Defaults to `guacamole-recordings`. Override only when
@@ -84,7 +80,6 @@ guacamole:
     # Sovereigns). Override per-Sovereign for non-Hetzner clouds.
     storageClass: hcloud-volumes
     mountPath: /recordings
-
   # ── Keycloak OIDC ──────────────────────────────────────────────
   oidc:
     # Issuer URL — render in per-Sovereign overlay as
@@ -105,7 +100,6 @@ guacamole:
     # Optional groups claim from the IdP — Guacamole reads roles
     # from this claim and maps them to per-connection ACLs.
     groupsClaim: groups
-
   # ── HTTPRoute (Cilium Gateway) ─────────────────────────────────
   httproute:
     enabled: true
@@ -118,7 +112,6 @@ guacamole:
     # Hostname this Guacamole answers on. Empty value fails the
     # helm template render (see _helpers.tpl `bp-guacamole.host`).
     hostname: ""
-
   # ── NetworkPolicy ─────────────────────────────────────────────
   # When enabled (default), a default-deny baseline is augmented with
   # selective egress to: keycloak (443), k8s-ws-proxy DaemonSet (8080),
@@ -139,7 +132,6 @@ guacamole:
       podSelector:
         app: seaweedfs
         component: s3
-
   # ── NATS audit trail ──────────────────────────────────────────
   audit:
     nats:
@@ -149,7 +141,6 @@ guacamole:
       subject: catalyst.audit
       auditType: guacamole-session
       url: nats://nats-jetstream.nats-jetstream.svc.cluster.local:4222
-
   # ── Keycloak realm-config integration ─────────────────────────
   # When enabled, the chart emits a ConfigMap that the bp-keycloak
   # post-deploy keycloak-config-cli Job picks up. The ConfigMap
@@ -167,7 +158,6 @@ guacamole:
     # canonical bp-keycloak namespace; override when bp-keycloak runs
     # under a different namespace.
     namespace: keycloak
-
   # ── Pod-level security context ─────────────────────────────────
   # Both pods run as non-root with read-only root FS — only /tmp
   # and /recordings are writable.
@@ -183,6 +173,5 @@ guacamole:
     readOnlyRootFilesystem: true
     capabilities:
       drop: [ALL]
-
   # ── Image pull secret ─────────────────────────────────────────
   imagePullSecrets: []

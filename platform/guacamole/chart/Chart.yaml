@@ -6,7 +6,7 @@ name: bp-guacamole
 # realm-patch ConfigMap lands in `keycloak` namespace (was: realm-name,
 # which would have failed on every Sovereign); `realmConfig.namespace`
 # override surface for non-default bp-keycloak placements.
-version: 0.1.1
+version: 0.1.2
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless
@@ -42,14 +42,12 @@ keywords: [catalyst, blueprint, guacamole, remote-desktop, oidc, recording]
 maintainers:
   - name: OpenOva Catalyst
     email: catalyst@openova.io
-
 annotations:
   # Default values render zero resources (guacamole.enabled=false).
   # The blueprint-release smoke gate honors this annotation and
   # accepts a short default render; chart/tests/render.sh covers the
   # enabled-render path with full --set overrides.
   catalyst.openova.io/smoke-render-mode: default-off
-
 # Scratch chart — the binary surface is fully owned by Apache. The
 # `sigstore/common` library subchart below is included ONLY to satisfy
 # the platform-wide blueprint-release.yaml hollow-chart gate (issue
