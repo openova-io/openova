@@ -148,6 +148,107 @@ func TestHandleWhoami_ChrootFromEnv(t *testing.T) {
 	}
 }
 
+// TestHandleWhoami_PinSessionRBACClaims — qa-loop iter-2 cluster B
+// regression. Fix #2 (#1184) stamps tier=owner +
+// realm_access.roles=[catalyst-owner] into the PIN session JWT so the
+// chroot SPA route-guard admits the operator into the Sovereign
+// Console after PIN login. Before this fix, HandleWhoami silently
+// dropped both claims; the SPA bounced the operator back to /login.
+//
+// Pins the wire contract: when the session carries Tier + RealmAccess
+// roles, /whoami MUST surface them with the JSON shape the SPA
+// guard reads — `tier` (top-level string) and `realm_access.roles`
+// (nested array). Drift on either side breaks the post-PIN-login
+// flow that 4 failing test rows (TC-003, TC-091, TC-122, TC-196)
+// depend on.
+func TestHandleWhoami_PinSessionRBACClaims(t *testing.T) {
+	t.Setenv("SOVEREIGN_FQDN", "")
+	t.Setenv("CATALYST_OTECH_FQDN", "")
+	t.Setenv("CATALYST_SELF_DEPLOYMENT_ID", "")
+
+	h := New(slog.New(slog.NewTextHandler(os.Stderr, nil)))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/whoami", nil)
+	ctx := context.WithValue(req.Context(), auth.ClaimsKey, &auth.Claims{
+		Sub:           "kc-sub-pin",
+		Email:         "operator@openova.io",
+		EmailVerified: true,
+		Tier:          "owner",
+		RealmAccess: auth.RealmAccess{
+			Roles: []string{"catalyst-owner"},
+		},
+	})
+	req = req.WithContext(ctx)
+	rr := httptest.NewRecorder()
+
+	h.HandleWhoami(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: want 200, got %d (body=%s)", rr.Code, rr.Body.String())
+	}
+
+	// Decode into a generic map so the assertion exercises the actual
+	// wire JSON shape the SPA route-guard reads (not the typed Go
+	// struct, which would mask a bad json tag).
+	var got map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v (body=%s)", err, rr.Body.String())
+	}
+
+	if got["tier"] != "owner" {
+		t.Errorf("tier: want %q, got %v", "owner", got["tier"])
+	}
+
+	ra, ok := got["realm_access"].(map[string]any)
+	if !ok {
+		t.Fatalf("realm_access: want object, got %T (%v)", got["realm_access"], got["realm_access"])
+	}
+	roles, ok := ra["roles"].([]any)
+	if !ok {
+		t.Fatalf("realm_access.roles: want array, got %T (%v)", ra["roles"], ra["roles"])
+	}
+	if len(roles) != 1 || roles[0] != "catalyst-owner" {
+		t.Errorf("realm_access.roles: want [catalyst-owner], got %v", roles)
+	}
+}
+
+// TestHandleWhoami_NoRBACOmitsFields — pre-RBAC wire-shape regression.
+// A session without Tier or RealmAccess roles must not introduce
+// `tier` or `realm_access` keys (omitempty preserves the original
+// shape so existing callers parse cleanly).
+func TestHandleWhoami_NoRBACOmitsFields(t *testing.T) {
+	t.Setenv("SOVEREIGN_FQDN", "")
+	t.Setenv("CATALYST_OTECH_FQDN", "")
+	t.Setenv("CATALYST_SELF_DEPLOYMENT_ID", "")
+
+	h := New(slog.New(slog.NewTextHandler(os.Stderr, nil)))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/whoami", nil)
+	ctx := context.WithValue(req.Context(), auth.ClaimsKey, &auth.Claims{
+		Sub:           "kc-sub-norbac",
+		Email:         "ops@openova.io",
+		EmailVerified: true,
+	})
+	req = req.WithContext(ctx)
+	rr := httptest.NewRecorder()
+
+	h.HandleWhoami(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: want 200, got %d (body=%s)", rr.Code, rr.Body.String())
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, k := range []string{"tier", "realm_access"} {
+		if _, present := got[k]; present {
+			t.Errorf("no-RBAC response must not include %q (got %v)", k, got[k])
+		}
+	}
+}
+
 // TestHandleWhoami_NilClaims — defensive: RequireSession should always
 // inject claims, but a logic bug stripping the middleware must surface
 // as 401, not a panic / empty 200.
