@@ -816,13 +816,24 @@ func resolvePostLogoutPath() string {
 // discover its sovereign context from a single round-trip without a
 // follow-up /api/v1/sovereign/self call. This is the contract
 // SovereignConsoleLayout + chroot SPA features assert in TC-232.
+//
+// Tier + RealmAccess surface the RBAC claims the SPA route-guard
+// relies on to decide whether to admit an operator into the chroot
+// Sovereign Console post-PIN-login. Fix #2 (#1184) stamps tier=owner
+// and realm_access.roles=[catalyst-owner] into the PIN session JWT;
+// without these fields on the wire the SPA bounces the operator back
+// to /login (qa-loop iter-2 cluster B). Both are `omitempty` so an
+// unprivileged session (no tier, no realm roles) yields the original
+// pre-RBAC wire shape and existing callers keep working.
 type whoamiResponse struct {
-	Email         string `json:"email"`
-	Sub           string `json:"sub"`
-	Verified      bool   `json:"verified"`
-	DeploymentID  string `json:"deploymentId,omitempty"`
-	SovereignFQDN string `json:"sovereignFQDN,omitempty"`
-	Mode          string `json:"mode,omitempty"`
+	Email         string            `json:"email"`
+	Sub           string            `json:"sub"`
+	Verified      bool              `json:"verified"`
+	DeploymentID  string            `json:"deploymentId,omitempty"`
+	SovereignFQDN string            `json:"sovereignFQDN,omitempty"`
+	Mode          string            `json:"mode,omitempty"`
+	Tier          string            `json:"tier,omitempty"`
+	RealmAccess   *auth.RealmAccess `json:"realm_access,omitempty"`
 }
 
 // HandleWhoami handles GET /api/v1/whoami.
@@ -870,6 +881,17 @@ func (h *Handler) HandleWhoami(w http.ResponseWriter, r *http.Request) {
 		Email:    claims.Email,
 		Sub:      claims.Sub,
 		Verified: claims.EmailVerified,
+		Tier:     claims.Tier,
+	}
+
+	// RBAC realm-role enrichment — surface the realm role list the SPA
+	// route-guard reads to admit an operator into the chroot Sovereign
+	// Console. Only emit when at least one role is set so an unprivileged
+	// session continues to omit the field entirely (omitempty preserves
+	// the pre-RBAC wire shape for non-RBAC callers).
+	if len(claims.RealmAccess.Roles) > 0 {
+		ra := claims.RealmAccess
+		resp.RealmAccess = &ra
 	}
 
 	// Sovereign-context enrichment — same precedence as HandleSovereignSelf
