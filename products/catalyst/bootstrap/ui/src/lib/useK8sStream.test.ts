@@ -155,6 +155,49 @@ describe('useK8sStream', () => {
     expect(obj.spec.phase).toBe('Running')
   })
 
+  // Regression: chroot Sovereign Console SSE wire shape — the
+  // catalyst-api immediate-snapshot path (Fix #6 / PR #1189) emits a
+  // `{type:"ready", cluster, kinds, at}` frame as the first SSE event
+  // on connect. It carries no `kind` / `object`, and a naive consumer
+  // dereferencing event.object.metadata throws "Cannot read properties
+  // of undefined (reading 'metadata')" — tearing down every /cloud
+  // route. The hook must drop the ready frame and continue processing
+  // subsequent ADDED/MODIFIED/DELETED frames cleanly. (qa-loop iter-5
+  // TC-015..018/025..027/077/142/168/193/221.)
+  it('drops a {type:"ready"} frame and processes a subsequent ADDED', async () => {
+    const { result } = renderHook(() =>
+      useK8sStream({ sovereignId: 'alpha', kinds: ['pod'] }),
+    )
+    await act(async () => {
+      activeES?.onopen?.(new Event('open'))
+      // First frame from the server: `ready` snapshot, no object.
+      activeES?.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({
+            type: 'ready',
+            cluster: 'alpha',
+            kinds: ['pod'],
+            at: new Date().toISOString(),
+          }),
+        }),
+      )
+    })
+    // Hook survived the ready frame.
+    expect(result.current.items).toHaveLength(0)
+    expect(result.current.isError).toBe(false)
+    // A real K8s event after the ready frame still lands.
+    await act(async () => {
+      send({
+        cluster: 'alpha',
+        kind: 'pod',
+        type: 'ADDED',
+        object: { metadata: { namespace: 'default', name: 'x' } },
+        at: new Date().toISOString(),
+      })
+    })
+    expect(result.current.items).toHaveLength(1)
+  })
+
   it('does not crash on malformed event payload', async () => {
     const { result } = renderHook(() =>
       useK8sStream({ sovereignId: 'alpha', kinds: ['pod'] }),
