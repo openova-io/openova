@@ -869,6 +869,11 @@ func main() {
 		rg.Post("/api/v1/sovereigns/{id}/blueprints/publish", h.HandleBlueprintPublish)
 		rg.Post("/api/v1/sovereigns/{id}/blueprints/curate", h.HandleBlueprintCurate)
 		rg.Get("/api/v1/sovereigns/{id}/blueprints/curatable", h.HandleBlueprintListCuratable)
+		// Slice Z3 follow-up: YamlEditor's flux-managed Apply path
+		// routes through here. The handler creates a branch + commits
+		// new content + opens a PR on `<org>/shared-blueprints` so the
+		// edit lands via the GitOps flow rather than side-stepping flux.
+		rg.Post("/api/v1/sovereigns/{id}/blueprints/edit-pr", h.HandleBlueprintEditPR)
 
 		// EPIC-6 (#1101) slice U-DR-1 — Continuum DR UI surface.
 		// GET surfaces the CR for the AppDetail Topology DR section.

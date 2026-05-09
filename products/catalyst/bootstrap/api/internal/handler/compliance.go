@@ -1387,6 +1387,29 @@ func (c *ComplianceHandler) violationsFor(clusterID, app string) []Violation {
 	return out
 }
 
+// SovereignAlertCount returns the number of currently-failing
+// (resource, policy) pairs the EPIC-1 score aggregator has observed
+// for the named cluster. Used by EPIC-6 U-Fleet's
+// summarizeSovereign() to populate the per-Sovereign `alerts` field
+// (slice Z2 follow-up).
+//
+// Nil-tolerant: a nil receiver returns 0 (catalyst-api Pods running
+// without compliance wired stay green at the dashboard level rather
+// than panicking).
+//
+// "Alerts" is defined as the set of resource×policy pairs that
+// currently have result=fail. We deliberately do NOT introduce a
+// severity field here — the brief calls for the canonical alert count
+// the aggregator already exposes; layering severity is a follow-up
+// when the EnvironmentPolicy schema grows a per-policy severity
+// attribute.
+func (c *ComplianceHandler) SovereignAlertCount(clusterID string) int {
+	if c == nil {
+		return 0
+	}
+	return len(c.violationsFor(clusterID, ""))
+}
+
 // HandleComplianceStream — GET /api/v1/sovereigns/{id}/compliance/stream
 //
 // SSE: real-time score updates. Each frame is a JSON document on a

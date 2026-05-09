@@ -268,6 +268,132 @@ func TestRunSwitchover_HappyPath(t *testing.T) {
 	}
 }
 
+// TestRunSwitchover_PatchesLastLuaRecord — slice Z1 follow-up.
+//
+// On a successful switchover the per-CR PDMCommit closure must patch
+// `status.lastLuaRecord` with the rendered records the controller just
+// committed via PDM /v1/lua/commit (and `status.lastLuaRecordAt` with
+// the commit timestamp). This unblocks U-DR-1's LuaRecordView from
+// rendering the empty state.
+func TestRunSwitchover_PatchesLastLuaRecord(t *testing.T) {
+	t.Parallel()
+	cr := newTestContinuumCR("ns", "cr1", "fsn", []string{"hel"}, "in-memory")
+	objs := append([]runtime.Object{cr}, newTestClusterPair("ns", "demo", 0)...)
+	r, _, sel := newReconciler(t, objs...)
+
+	w, _ := sel.Select("in-memory", map[string]any{"slot": "ns/cr1"})
+	if _, err := w.Acquire(context.Background(), "fsn", time.Hour); err != nil {
+		t.Fatalf("seed lease: %v", err)
+	}
+	r.PDMClient = newPDMClientWithFake(t, "http://pdm.local")
+
+	spec, err := parseSpec(cr)
+	if err != nil {
+		t.Fatalf("parseSpec: %v", err)
+	}
+	r.runSwitchover(context.Background(), cr, spec, "hel", "operator-requested", 0, w)
+
+	got, err := r.Dyn.Resource(ContinuumGVR).Namespace("ns").Get(context.Background(), "cr1", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("re-fetch CR: %v", err)
+	}
+	luaRec, found, err := unstructured.NestedMap(got.Object, "status", "lastLuaRecord")
+	if err != nil {
+		t.Fatalf("NestedMap lastLuaRecord: %v", err)
+	}
+	if !found {
+		t.Fatalf("status.lastLuaRecord not written; status=%+v", got.Object["status"])
+	}
+	records, ok := luaRec["records"].([]interface{})
+	if !ok || len(records) == 0 {
+		t.Fatalf("status.lastLuaRecord.records empty or wrong type: %+v", luaRec)
+	}
+	first, ok := records[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("records[0] not a map: %T", records[0])
+	}
+	body, _ := first["body"].(string)
+	if !strings.Contains(body, "ifurlup") {
+		t.Errorf("records[0].body should contain ifurlup; got %q", body)
+	}
+	primaryRegion, _ := first["primaryRegion"].(string)
+	if primaryRegion != "hel" {
+		t.Errorf("records[0].primaryRegion = %q want hel (the new primary)", primaryRegion)
+	}
+	at, _, _ := unstructured.NestedString(got.Object, "status", "lastLuaRecordAt")
+	if at == "" {
+		t.Errorf("status.lastLuaRecordAt should be populated after a successful PDM commit")
+	}
+}
+
+// TestPatchStatus_LuaRecordOnlyOnNonNil — guards the no-op path.
+//
+// status.lastLuaRecord must NOT be touched when the caller passes nil
+// (so steady-state reconciles preserve the prior value across the gap
+// between switchovers). Verifies the contract called out in the
+// statusUpdate.LastLuaRecord field doc.
+func TestPatchStatus_LuaRecordOnlyOnNonNil(t *testing.T) {
+	t.Parallel()
+	cr := newTestContinuumCR("ns", "cr1", "fsn", []string{"hel"}, "in-memory")
+	objs := append([]runtime.Object{cr}, newTestClusterPair("ns", "demo", 0)...)
+	r, _, _ := newReconciler(t, objs...)
+
+	// Seed a prior lastLuaRecord directly (simulating a successful
+	// switchover earlier in the CR's lifetime).
+	if err := r.patchStatus(context.Background(), cr, statusUpdate{
+		LastLuaRecord: map[string]interface{}{
+			"records": []interface{}{
+				map[string]interface{}{"hostname": "a.example.com", "body": "seed-body"},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("seed patchStatus: %v", err)
+	}
+
+	// Now apply a steady-state patch (lease-renew shape) with
+	// LastLuaRecord = nil.
+	if err := r.patchStatus(context.Background(), cr, statusUpdate{
+		Phase:         PhaseHealthy,
+		LeaseHolder:   "fsn",
+		PrimaryRegion: "fsn",
+	}); err != nil {
+		t.Fatalf("steady-state patchStatus: %v", err)
+	}
+
+	got, _ := r.Dyn.Resource(ContinuumGVR).Namespace("ns").Get(context.Background(), "cr1", metav1.GetOptions{})
+	luaRec, _, _ := unstructured.NestedMap(got.Object, "status", "lastLuaRecord")
+	records, _ := luaRec["records"].([]interface{})
+	if len(records) != 1 {
+		t.Fatalf("steady-state patch wiped lastLuaRecord (got len=%d)", len(records))
+	}
+	first, _ := records[0].(map[string]interface{})
+	if body, _ := first["body"].(string); body != "seed-body" {
+		t.Errorf("seeded body lost; got %q", body)
+	}
+}
+
+// TestLuaRecordStatusValue_NilOnEmpty — pure-function helper guard.
+func TestLuaRecordStatusValue_NilOnEmpty(t *testing.T) {
+	t.Parallel()
+	if luaRecordStatusValue(nil) != nil {
+		t.Errorf("nil input should produce nil output")
+	}
+	if luaRecordStatusValue([]dns.Record{}) != nil {
+		t.Errorf("empty slice should produce nil output")
+	}
+	out := luaRecordStatusValue([]dns.Record{
+		{Hostname: "a.example.com", LuaBody: "ifurlup(...)", TTL: 30, PrimaryRegion: "fsn"},
+	})
+	recs, _ := out["records"].([]interface{})
+	if len(recs) != 1 {
+		t.Fatalf("len(records) = %d want 1", len(recs))
+	}
+	row, _ := recs[0].(map[string]interface{})
+	if row["hostname"] != "a.example.com" || row["body"] != "ifurlup(...)" || row["primaryRegion"] != "fsn" {
+		t.Errorf("row mapped wrong: %+v", row)
+	}
+}
+
 func TestRunSwitchover_NoFailoverTarget_NoOp(t *testing.T) {
 	t.Parallel()
 	cr := newTestContinuumCR("ns", "cr1", "fsn", []string{"hel"}, "in-memory")

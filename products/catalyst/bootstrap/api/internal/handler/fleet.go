@@ -450,9 +450,15 @@ func (h *Handler) summarizeSovereign(ctx context.Context, dep *Deployment) fleet
 		out.LastActivity = lastActivity.UTC().Format(time.RFC3339)
 	}
 
-	// Alerts: integration point for EPIC-1's score aggregator. Until
-	// the cross-Sov scorecard surfaces alert counts, return 0.
-	out.Alerts = 0
+	// Alerts (slice Z2 follow-up): pull the per-Sovereign alert count
+	// from the EPIC-1 score aggregator. h.compliance is nil-tolerant —
+	// a catalyst-api Pod running without compliance wired keeps the
+	// dashboard green rather than 5xx-ing the fleet endpoint. Per
+	// ADR-0001 §3 the aggregator is the single source of truth for
+	// alerts; we deliberately do NOT count Application/Continuum
+	// failures here — those surface via DR posture / app status,
+	// not the alerts badge.
+	out.Alerts = h.compliance.SovereignAlertCount(dep.ID)
 
 	return out
 }

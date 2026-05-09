@@ -643,6 +643,56 @@ func TestCompliance_ViolationsPagination(t *testing.T) {
 	}
 }
 
+// TestCompliance_SovereignAlertCount — slice Z2 follow-up.
+//
+// SovereignAlertCount returns len(violationsFor(clusterID, "")). When
+// no violations have been ingested it returns 0; on N failing
+// (resource, policy) pairs it returns N. Nil receiver returns 0
+// (catalyst-api Pods running without compliance wired keep the
+// dashboard green).
+func TestCompliance_SovereignAlertCount(t *testing.T) {
+	h, _, _, f := newComplianceTestRig(t)
+
+	// Pre-violation: zero alerts.
+	if got := h.ComplianceHandler().SovereignAlertCount("acme"); got != 0 {
+		t.Fatalf("pre-violation alerts: got %d want 0", got)
+	}
+
+	publishToFactory(f, "deployment", &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "apps/v1", "kind": "Deployment",
+		"metadata": map[string]any{
+			"namespace": "ns1", "name": "web",
+			"labels": map[string]any{"catalyst.openova.io/application": "web"},
+		},
+	}})
+	for _, p := range []string{"alpha", "bravo", "charlie"} {
+		publishToFactory(f, "policyreport", mkPolicyReport("ns1", "pr-"+p, []map[string]any{
+			{"policy": p, "rule": p, "result": "fail",
+				"resources": []any{map[string]any{"kind": "Deployment", "namespace": "ns1", "name": "web"}}},
+		}))
+	}
+	waitFor(t, 1*time.Second, func() bool {
+		return h.ComplianceHandler().SovereignAlertCount("acme") == 3
+	})
+	if got := h.ComplianceHandler().SovereignAlertCount("acme"); got != 3 {
+		t.Fatalf("post-violation alerts: got %d want 3", got)
+	}
+	// Unknown cluster → 0 (no violations indexed).
+	if got := h.ComplianceHandler().SovereignAlertCount("unknown"); got != 0 {
+		t.Fatalf("unknown-cluster alerts: got %d want 0", got)
+	}
+}
+
+// TestCompliance_SovereignAlertCount_NilReceiver — guards the
+// nil-tolerant contract documented on SovereignAlertCount.
+func TestCompliance_SovereignAlertCount_NilReceiver(t *testing.T) {
+	t.Parallel()
+	var c *ComplianceHandler
+	if got := c.SovereignAlertCount("any"); got != 0 {
+		t.Fatalf("nil-receiver alerts: got %d want 0", got)
+	}
+}
+
 func TestCompliance_StreamSendsScores(t *testing.T) {
 	h, c, _, f := newComplianceTestRig(t)
 

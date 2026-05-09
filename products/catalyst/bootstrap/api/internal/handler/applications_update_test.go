@@ -39,6 +39,7 @@ func registerBlueprintRoutes(r chi.Router, h *Handler) {
 	r.Post("/api/v1/sovereigns/{id}/blueprints/publish", h.HandleBlueprintPublish)
 	r.Post("/api/v1/sovereigns/{id}/blueprints/curate", h.HandleBlueprintCurate)
 	r.Get("/api/v1/sovereigns/{id}/blueprints/curatable", h.HandleBlueprintListCuratable)
+	r.Post("/api/v1/sovereigns/{id}/blueprints/edit-pr", h.HandleBlueprintEditPR)
 }
 
 // seedAppFromObject creates the seed CR in a fake dynamic client by

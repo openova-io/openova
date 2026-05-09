@@ -89,3 +89,90 @@ describe('YamlEditor — validate dry-run', () => {
     })
   })
 })
+
+describe('YamlEditor — flux Apply opens PR (slice Z3)', () => {
+  const fluxObjOrgLabeled: K8sObject = {
+    apiVersion: 'v1',
+    kind: 'ConfigMap',
+    metadata: {
+      name: 'cm-flux',
+      namespace: 'acme',
+      labels: {
+        'app.kubernetes.io/managed-by': 'flux',
+        'catalyst.openova.io/organization': 'acme',
+      },
+    },
+    data: { foo: 'bar' } as unknown as Record<string, unknown>,
+  } as K8sObject
+
+  it('clicking Open PR posts /blueprints/edit-pr and renders the PR link', async () => {
+    ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          prURL: 'http://gitea.local/acme/shared-blueprints/pulls/42',
+          prNumber: 42,
+          branch: 'edit/abc123',
+          repo: 'shared-blueprints',
+          path: 'edits/configmap/acme/cm-flux.yaml',
+          message: 'PR #42 opened against main',
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    )
+    render(
+      <YamlEditor
+        deploymentId="dep-z3"
+        kind="configmap"
+        ns="acme"
+        name="cm-flux"
+        obj={fluxObjOrgLabeled}
+      />,
+    )
+    // Edit the textarea so dirty=true (Apply enabled).
+    fireEvent.change(screen.getByTestId('yaml-editor-textarea'), {
+      target: { value: 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: cm-flux\n' },
+    })
+    fireEvent.click(screen.getByTestId('yaml-editor-apply'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('yaml-editor-apply-ok').textContent).toContain('PR #42')
+    })
+    const link = screen.getByTestId('yaml-editor-pr-link') as HTMLAnchorElement
+    expect(link.href).toContain('/pulls/42')
+    expect(link.textContent).toContain('Open PR #42')
+
+    // Verify the request shape.
+    const fetchSpy = global.fetch as ReturnType<typeof vi.fn>
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    const [calledURL, calledOpts] = fetchSpy.mock.calls[0] as [string, RequestInit]
+    expect(calledURL).toContain('/blueprints/edit-pr')
+    const body = JSON.parse(calledOpts.body as string)
+    expect(body.org).toBe('acme')
+    expect(body.path).toBe('edits/configmap/acme/cm-flux.yaml')
+    expect(body.content).toContain('cm-flux')
+    expect(typeof body.title).toBe('string')
+  })
+
+  it('flux Apply surfaces server error', async () => {
+    ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Response('forbidden', { status: 403 }),
+    )
+    render(
+      <YamlEditor
+        deploymentId="dep-z3-err"
+        kind="configmap"
+        ns="acme"
+        name="cm-flux"
+        obj={fluxObjOrgLabeled}
+      />,
+    )
+    fireEvent.change(screen.getByTestId('yaml-editor-textarea'), {
+      target: { value: 'changed: 1\n' },
+    })
+    fireEvent.click(screen.getByTestId('yaml-editor-apply'))
+    await waitFor(() => {
+      expect(screen.getByTestId('yaml-editor-apply-err').textContent).toContain('403')
+    })
+    expect(screen.queryByTestId('yaml-editor-pr-link')).toBeNull()
+  })
+})
