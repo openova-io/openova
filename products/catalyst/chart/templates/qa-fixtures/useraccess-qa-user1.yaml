@@ -19,7 +19,7 @@ spec:
   # — single-label only (no dots). Strip the TLD/SLD from the FQDN
   # so {qaFixtures.sovereignRef = "omantel.biz"} renders as "omantel".
   # Other CRDs (Organization, Environment) want the FQDN as-is.
-  sovereignRef: {{ .Values.qaFixtures.sovereignRef | default "omantel.biz" | regexReplaceAll "\\..*$" "" | quote }}
+  sovereignRef: {{ regexReplaceAll "\\..*$" (.Values.qaFixtures.sovereignRef | default "omantel.biz") "" | quote }}
   tierRoleRef: openova:tier-developer
   user:
     keycloakSubject: {{ .Values.qaFixtures.qaUser.keycloakSubject | default "qa-user1" | quote }}
