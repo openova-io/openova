@@ -34,6 +34,11 @@ spec:
     spec:
       serviceAccountName: {{ include "controllers.fullname" "organization" }}
       automountServiceAccountToken: true
+      # GHCR image is private — same pattern as catalyst-api / catalyst-ui
+      # / sme-services. The `ghcr-pull` Secret is rendered by the chart's
+      # cloud-init / bootstrap-kit path on every Sovereign.
+      imagePullSecrets:
+        - name: ghcr-pull
       securityContext:
         runAsNonRoot: true
         runAsUser: 65534
