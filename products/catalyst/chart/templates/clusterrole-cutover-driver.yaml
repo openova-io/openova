@@ -325,3 +325,23 @@ rules:
   - apiGroups: ["rbac.authorization.k8s.io"]
     resources: ["clusterroles", "clusterrolebindings"]
     verbs: ["get", "list", "watch"]
+
+  # ───────────────────────────────────────────────────────────────
+  # QA-loop iter-4 Fix #24 — CustomResourceDefinitions surfaced
+  # through the /k8s/{kind} generic surface. The Sovereign Console's
+  # CRD inventory pane lists every installed CRD on the cluster
+  # (TC-199). Without this rule the in-cluster catalyst-api SA gets
+  # 403 from the apiserver on every dynamic-client list.list call
+  # against apiextensions.k8s.io.
+  #
+  # Per feedback_chroot_in_cluster_fallback.md every new GVR added
+  # to internal/k8scache/kinds.go DefaultKinds MUST get a matching
+  # rule in this ClusterRole — the chroot SovereignClient uses this
+  # SA via in-cluster fallback. Read-only verbs only — the Sovereign
+  # Console renders CRD inventory; CRD install/uninstall happens
+  # through Flux + the blueprint catalog (HelmRelease → CRD), not
+  # through direct apiextensions writes.
+  # ───────────────────────────────────────────────────────────────
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list", "watch"]

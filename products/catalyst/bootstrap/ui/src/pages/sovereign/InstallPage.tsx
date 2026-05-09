@@ -149,10 +149,23 @@ export function InstallPage({ preselectedBlueprint }: InstallPageProps = {}) {
 
   return (
     <div className="p-6" data-testid="install-page">
+      {/*
+       * QA-loop iter-4 Fix #24 — heading renamed from "Install Blueprint"
+       * to "Install — Blueprint Catalog" so the page surfaces both the
+       * action verb ("Install") AND the noun for the surface the operator
+       * is looking at ("Catalog"). The matrix (TC-031) asserts both words
+       * are present, matching the EPIC-2 Slice I narrative — "/install is
+       * the live catalog landing" — and the file-level comment above which
+       * has always called this the "catalog landing". Without "Catalog" in
+       * the rendered DOM operators landing here cold can't tell whether
+       * they're on a catalog browser or a single-blueprint installer.
+       */}
       <div className="mb-4 flex items-baseline justify-between">
-        <h1 className="text-2xl font-semibold text-[var(--color-text)]">Install Blueprint</h1>
+        <h1 className="text-2xl font-semibold text-[var(--color-text)]" data-testid="install-page-heading">
+          Install — Blueprint Catalog
+        </h1>
         <span className="text-sm text-[var(--color-text-dim)]">
-          {catalogQuery.data?.length ?? 0} blueprints visible
+          {catalogQuery.data?.length ?? 0} blueprints in catalog
         </span>
       </div>
 

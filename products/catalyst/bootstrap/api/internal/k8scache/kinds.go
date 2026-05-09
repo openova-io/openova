@@ -197,6 +197,26 @@ var DefaultKinds = []Kind{
 	// secret material — so Sensitive=false is correct.
 	{Name: "clusterrole", GVR: schema.GroupVersionResource{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "clusterroles"}, Namespaced: false},
 	{Name: "clusterrolebinding", GVR: schema.GroupVersionResource{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "clusterrolebindings"}, Namespaced: false},
+
+	// QA-loop iter-4 Fix #24 — CustomResourceDefinitions surfaced through
+	// GET /api/v1/sovereigns/{id}/k8s/customresourcedefinitions. The
+	// generic /k8s/ surface returned 404 "unknown kind" because the GVR
+	// for apiextensions.k8s.io/v1/customresourcedefinitions was never
+	// registered. Caught live on omantel.biz iter-4: TC-199 returned
+	// HTTP 404 with body
+	//   {"availableKinds":[…],"error":"unknown kind","kind":"customresourcedefinitions"}
+	// CRDs are cluster-scoped (Namespaced=false). The kind carries a
+	// schema definition + reconciliation rules — no secret material — so
+	// Sensitive=false is correct.
+	//
+	// Per feedback_chroot_in_cluster_fallback.md: every new GVR added
+	// here MUST get a matching rule on catalyst-api-cutover-driver
+	// ClusterRole (clusterrole-cutover-driver.yaml). The chroot
+	// SovereignClient uses that SA via in-cluster fallback. Read-only
+	// verbs only — the Sovereign Console renders CRD inventory; CRD
+	// install/uninstall happens through Flux + the blueprint catalog,
+	// not direct apiextensions writes.
+	{Name: "customresourcedefinition", GVR: schema.GroupVersionResource{Group: "apiextensions.k8s.io", Version: "v1", Resource: "customresourcedefinitions"}, Namespaced: false},
 }
 
 // Registry is a runtime-mutable lookup keyed by the short Name. It
@@ -249,6 +269,13 @@ var kindShortAliases = map[string]string{
 	"ing":    "ingress",
 	"ep":     "endpointslice",
 	"ev":     "event",
+	// QA-loop iter-4 Fix #24 — `kubectl get crd` and `kubectl get crds`
+	// are the conventional ergonomic forms operators reach for. The
+	// plural-alias index handles "customresourcedefinitions" naturally
+	// (trim-trailing-s rule); these short forms are not derivable so
+	// they live here.
+	"crd":    "customresourcedefinition",
+	"crds":   "customresourcedefinition",
 }
 
 // NewRegistry — start empty; callers pass DefaultKinds (or the loaded
