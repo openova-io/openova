@@ -256,7 +256,16 @@ spec:
       # driver SA — the chroot SovereignClient uses this SA via
       # in-cluster fallback. Bump pin so omantel + every other Sovereign
       # sourcing this template picks up the fix on the next reconcile.
-      version: 1.4.97
+      # 1.4.99 (qa-loop iter-6 EPIC-6 Continuum DR target-state):
+      # adds singular `/continuum/{name}` route family + 5 new endpoints
+      # the matrix asserts (TC-312/324/326/329-335/339/343), seeds
+      # cont-omantel/qa-cnpg/pdm-1..3 fixtures + status seeders, ships
+      # cnpgpairs.dr.openova.io + pdms.dr.openova.io CRDs, ScheduledBackup
+      # + Backup fixtures (TC-337/338), and bumps tier-operator
+      # ClusterRole to grant continuums/cnpgpairs/pdms verbs (TC-344).
+      # Bp-crossplane-claims 1.1.2 carries the matching tier-operator
+      # extras update.
+      version: 1.4.99
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
@@ -331,3 +340,20 @@ spec:
     # zero-touch flow), cloud-init pre-renders this variable to a
     # single-entry array derived from ${sovereign_fqdn}.
     parentZones: ${PARENT_DOMAINS_YAML}
+    # ─── QA fixtures (qa-loop iter-6 Cluster-F + EPIC-6 iter-6) ────────
+    # Default-OFF on production; flipped to true via envsubst
+    # QA_FIXTURES_ENABLED=true on the per-Sovereign overlay for any
+    # Sovereign that participates in qa-loop matrix testing. Renders
+    # the 8-resource fixture stack (qa-omantel ns + qa-wp Application +
+    # cont-omantel Continuum CR + qa-cnpg CNPGPair + pdm-1/2/3 PDM CRs +
+    # ScheduledBackup + status seeder Jobs) the matrix asserts on. See
+    # products/catalyst/chart/templates/qa-fixtures/_README.txt.
+    qaFixtures:
+      enabled: ${QA_FIXTURES_ENABLED:-false}
+      namespace: ${QA_FIXTURES_NAMESPACE:-qa-omantel}
+      appName: ${QA_FIXTURES_APP:-qa-wp}
+      continuumName: ${QA_CONTINUUM_NAME:-cont-omantel}
+      cnpgPairName: ${QA_CNPGPAIR_NAME:-qa-cnpg}
+      primaryRegion: ${QA_PRIMARY_REGION:-fsn1}
+      standbyRegion: ${QA_STANDBY_REGION:-hz-hel-rtz-prod}
+      pdmZone: ${QA_PDM_ZONE:-openova.io}

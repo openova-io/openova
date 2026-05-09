@@ -1,0 +1,134 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: cnpgpairs.dr.openova.io
+  labels:
+    app.kubernetes.io/name: catalyst
+    app.kubernetes.io/component: continuum
+spec:
+  group: dr.openova.io
+  scope: Namespaced
+  names:
+    kind: CNPGPair
+    listKind: CNPGPairList
+    singular: cnpgpair
+    plural: cnpgpairs
+    shortNames:
+      - cpp
+    categories:
+      - catalyst
+      - openova
+      - continuum
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      additionalPrinterColumns:
+        - name: PrimaryCluster
+          type: string
+          jsonPath: .spec.primaryCluster
+        - name: ReplicaCluster
+          type: string
+          jsonPath: .spec.replicaCluster
+        - name: PrimaryRegion
+          type: string
+          jsonPath: .status.currentPrimaryRegion
+        - name: Streaming
+          type: string
+          jsonPath: .status.streaming
+        - name: WALLag
+          type: string
+          jsonPath: .status.walLagSeconds
+          priority: 1
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      subresources:
+        status: {}
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: |
+            CNPGPair binds a CloudNative-PG primary Cluster CR + a replica
+            Cluster CR across two regions for the Continuum DR loop.
+
+            Per ADR-0001 §2.7 + docs/MULTI-REGION-DNS.md the Continuum
+            controller observes the CNPGPair status to decide when a
+            switchover is safe (replica is `streaming` AND walLagSeconds
+            ≤ rpoSeconds). The cnpg-pair-controller (Phase-2) reconciles
+            the underlying postgresql.cnpg.io Cluster CRs and writes
+            status here.
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [primaryCluster, replicaCluster, primaryRegion, replicaRegion]
+              properties:
+                primaryCluster:
+                  type: string
+                  description: Name of the primary postgresql.cnpg.io Cluster CR.
+                replicaCluster:
+                  type: string
+                  description: Name of the replica postgresql.cnpg.io Cluster CR.
+                primaryRegion:
+                  type: string
+                  pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
+                replicaRegion:
+                  type: string
+                  pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
+                rpoSeconds:
+                  type: integer
+                  minimum: 1
+                  default: 30
+                rtoSeconds:
+                  type: integer
+                  minimum: 1
+                  default: 60
+                topology:
+                  type: string
+                  enum: [active-hotstandby, active-active]
+                  default: active-hotstandby
+              x-kubernetes-preserve-unknown-fields: true
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum:
+                    - Pending
+                    - Healthy
+                    - Streaming
+                    - Degraded
+                    - Failed
+                    - SwitchingOver
+                streaming:
+                  type: boolean
+                  description: True iff replica is in streaming WAL replication.
+                currentPrimaryRegion:
+                  type: string
+                walLagSeconds:
+                  type: integer
+                  format: int64
+                  description: Lag between primary and replica in WAL bytes-time.
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required: [type, status]
+                    properties:
+                      type: { type: string }
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      reason: { type: string }
+                      message: { type: string }
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                observedGeneration:
+                  type: integer
+                  format: int64
+              x-kubernetes-preserve-unknown-fields: true

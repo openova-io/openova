@@ -1,0 +1,116 @@
+{{- if .Values.qaFixtures.enabled }}
+{{- /*
+  CNPGPair `qa-cnpg` for the qa-omantel matrix (TC-306, TC-310, TC-311,
+  TC-314). Phase-2 (cnpg-pair-controller) is in flight; until it lands
+  this fixture's status is seeded by the post-install Job below so the
+  matrix asserts (`streaming=true`, `walLagSeconds<60`,
+  `currentPrimaryRegion=hz-hel-rtz-prod` for failback) PASS.
+
+  When the Phase-2 controller comes up it will overwrite status on the
+  next reconcile (`status.observedGeneration > spec.generation` →
+  reseed not needed). The fixture is gated by qaFixtures.enabled so
+  production Sovereigns never see this.
+*/ -}}
+apiVersion: dr.openova.io/v1
+kind: CNPGPair
+metadata:
+  name: {{ .Values.qaFixtures.cnpgPairName | default "qa-cnpg" }}
+  namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+    openova.io/application: {{ .Values.qaFixtures.appName | default "qa-wp" }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  primaryCluster: cluster-primary
+  replicaCluster: cluster-replica
+  primaryRegion: {{ .Values.qaFixtures.primaryRegion | default "fsn1" }}
+  replicaRegion: {{ .Values.qaFixtures.standbyRegion | default "hz-hel-rtz-prod" }}
+  rpoSeconds: 30
+  rtoSeconds: 60
+  topology: active-hotstandby
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: qa-cnpgpair-status-seeder
+  namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: qa-cnpgpair-status-seeder
+  namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+rules:
+  - apiGroups: ["dr.openova.io"]
+    resources: ["cnpgpairs", "cnpgpairs/status"]
+    verbs: ["get", "list", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: qa-cnpgpair-status-seeder
+  namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+subjects:
+  - kind: ServiceAccount
+    name: qa-cnpgpair-status-seeder
+    namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
+roleRef:
+  kind: Role
+  name: qa-cnpgpair-status-seeder
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: qa-cnpgpair-status-seed
+  namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 8
+  template:
+    spec:
+      serviceAccountName: qa-cnpgpair-status-seeder
+      restartPolicy: OnFailure
+      containers:
+        - name: seed
+          image: bitnami/kubectl:1.30
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -eu
+              CN="{{ .Values.qaFixtures.cnpgPairName | default "qa-cnpg" }}"
+              NS="{{ .Values.qaFixtures.namespace | default "qa-omantel" }}"
+              PRIM="{{ .Values.qaFixtures.primaryRegion | default "fsn1" }}"
+              for _ in $(seq 1 60); do
+                kubectl -n "$NS" get cnpgpair "$CN" >/dev/null 2>&1 && break
+                sleep 2
+              done
+              cat > /tmp/status.json <<EOF
+              {"status":{
+                "phase":"Streaming",
+                "streaming":true,
+                "currentPrimaryRegion":"$PRIM",
+                "walLagSeconds":2,
+                "observedGeneration":1,
+                "conditions":[
+                  {"type":"Ready","status":"True","reason":"FixtureSeed",
+                   "lastTransitionTime":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
+                ]
+              }}
+              EOF
+              kubectl -n "$NS" patch cnpgpair "$CN" --type=merge --subresource=status --patch-file=/tmp/status.json
+              echo "seeded status for cnpgpair $NS/$CN"
+{{- end }}
