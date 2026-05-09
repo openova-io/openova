@@ -26,6 +26,15 @@ spec:
     spec:
       serviceAccountName: {{ include "catalog.fullname" . }}
       automountServiceAccountToken: false
+      # Pull from ghcr.io/openova-io/openova/catalyst-catalog requires the
+      # `ghcr-pull` dockerconfigjson Secret in `.Release.Namespace`.
+      # Same name + namespace pattern as ui-deployment / marketplace-api
+      # (provisioned by the bootstrap-kit slot's per-namespace ghcr-pull
+      # seal). qa-loop iter-1 surfaced an ImagePullBackOff loop on
+      # omantel because this stanza was missing — kubelet fell through
+      # to anonymous pulls and got `401 Unauthorized` from ghcr.
+      imagePullSecrets:
+        - name: ghcr-pull
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
