@@ -32,6 +32,7 @@ import { scorecardToTreemapNodes } from '@/widgets/compliance/scorecardToTreemap
 import type { ComplianceTreemapNode } from '@/widgets/compliance/ComplianceTreemapNode'
 import {
   getScorecard,
+  normalizeScorecard,
   scoreColor,
   scoreLabel,
   type ColorPalette,
@@ -89,9 +90,16 @@ export function SREDashboardPage({
 
   // Merge: REST scorecard provides initial rollups; SSE scores
   // override + add live updates. Keyed by scope:id.
+  //
+  // Both `initialDataOverride` (test seam) and `query.data` (live
+  // wire) are normalized through `normalizeScorecard` so a Go nil
+  // slice serialized as JSON `null` (cold-start sovereign with no
+  // rollup data yet) cannot crash the render path. See
+  // `normalizeScorecard` for the full rationale.
   const merged: ScorecardResponse | undefined = useMemo(() => {
-    const base = initialDataOverride ?? query.data
-    if (!base) return undefined
+    const raw = initialDataOverride ?? query.data
+    if (!raw) return undefined
+    const base = normalizeScorecard(raw)
     if (stream.scores.length === 0) return base
     // Build a lookup of streamed scores keyed by scope:id.
     const streamMap = new Map<string, Score>()
@@ -154,9 +162,9 @@ export function SREDashboardPage({
     } as never)
   }
 
-  const isEmpty =
-    (!!initialDataOverride && initialDataOverride.applications.length === 0) ||
-    (!query.isLoading && !!merged && merged.applications.length === 0)
+  // Use `merged` (already normalized) so a nil-slice payload from the
+  // backend is treated as "empty", not as a crash.
+  const isEmpty = !query.isLoading && !!merged && merged.applications.length === 0
 
   return (
     <PortalShell deploymentId={deploymentId} pageTitle="Compliance">

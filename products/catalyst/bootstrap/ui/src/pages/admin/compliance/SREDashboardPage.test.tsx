@@ -195,3 +195,59 @@ describe('SecLeadDashboardPage', () => {
     expect(legend.textContent).toContain('Hardened')
   })
 })
+
+/* ── Null-slice payloads (cold-start sovereign with no rollup data) ───
+ *
+ * Regression for qa-loop iter-1 (TC-024 + TC-025): Go's encoding/json
+ * serializes a nil `[]Score` to JSON `null`. When that wire payload
+ * landed in the SRE Lead / Security Lead dashboards, `.map()` /
+ * `.filter()` / `.length` on `null` crashed the render and surfaced
+ * the global "Something went wrong" fallback for both
+ * `/sre/compliance` and `/sec/compliance` routes.
+ *
+ * These tests render with the worst-case wire payload (every slice =
+ * null, sovereign = null) and assert the dashboard renders the empty
+ * state instead of throwing.
+ */
+describe('SREDashboardPage — null-slice wire payload', () => {
+  // The cast erases ScorecardResponse's "non-null array" guarantee so
+  // we can simulate the actual wire shape catalyst-api emits before
+  // any rollup data exists.
+  const nullSlicePayload = {
+    sovereign: null,
+    organizations: null,
+    environments: null,
+    applications: null,
+    generatedAt: NOW,
+  } as unknown as ScorecardResponse
+
+  it('SRE Lead — renders the empty state instead of crashing', async () => {
+    renderRoute(
+      '/admin/compliance/sre',
+      <SREDashboardPage disableStream initialDataOverride={nullSlicePayload} />,
+    )
+    expect(await screen.findByTestId('compliance-dashboard-title')).toBeTruthy()
+    expect(await screen.findByTestId('compliance-empty')).toBeTruthy()
+  })
+
+  it('Security Lead — renders the empty state instead of crashing', async () => {
+    renderRoute(
+      '/admin/compliance/security',
+      <SecLeadDashboardPage disableStream initialDataOverride={nullSlicePayload} />,
+    )
+    expect(await screen.findByTestId('compliance-dashboard-title')).toBeTruthy()
+    expect(await screen.findByTestId('compliance-empty')).toBeTruthy()
+  })
+
+  it('SRE Lead — renders empty state when initialDataOverride is undefined and stream is silent', async () => {
+    // No override + disabled stream + no deploymentId → loading false,
+    // merged undefined, isEmpty false → renders the loading / pending
+    // surface but still mounts the title + treemap-frame anchors.
+    renderRoute(
+      '/admin/compliance/sre',
+      <SREDashboardPage disableStream />,
+    )
+    expect(await screen.findByTestId('compliance-dashboard-title')).toBeTruthy()
+    expect(await screen.findByTestId('compliance-treemap-frame')).toBeTruthy()
+  })
+})
