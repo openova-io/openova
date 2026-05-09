@@ -1,15 +1,24 @@
 #!/usr/bin/env bash
-# bp-cnpg-pair render gate (slice C-DB-1, #1101).
+# bp-cnpg-pair render gate (slice C-DB-1, #1101; chart 0.1.1).
 #
 # Asserts the chart's load-bearing rules:
 #   1. Default render (cnpgPair.enabled=false) → ZERO resources.
-#   2. Enabled render with full values → 8 resources (primary +
-#      replica + service + probe Deployment + 3 NetworkPolicies +
-#      audit-config ConfigMap).
+#   2. Enabled render with full values → 7 resources (primary +
+#      replica + probe Deployment + 3 NetworkPolicies +
+#      audit-config ConfigMap). The replication Service is no
+#      longer hand-rendered — it is declared via the primary
+#      Cluster's `spec.managed.services.additional[]` so CNPG owns
+#      it (chart 0.1.1, fix for Phase-2 multi-region incident #3).
 #   3. Enabled with empty image.tag → fails with documented error.
 #   4. Enabled with same primary/replica region → fails with
 #      documented error.
-#   5. ClusterMesh disabled → no replication Service rendered.
+#   5. ClusterMesh disabled → primary Cluster carries no
+#      `managed.services.additional` block (no global Service
+#      published across the mesh).
+#   6. `hot_standby` is NOT set in either Cluster CR's postgresql
+#      parameters (PG16 hard-pins it; CNPG rejects explicit set).
+#   7. Replica Cluster carries `bootstrap.pg_basebackup` referencing
+#      the primary externalCluster (replica cannot bootstrap without).
 #
 # Usage: bash tests/cnpg-pair-render.sh [CHART_DIR]
 #
@@ -53,9 +62,11 @@ helm template smoke-cnpg-pair . \
   exit 1
 }
 
-# Expect 1×Cluster (primary) + 1×Cluster (replica) + 1×Service +
-# 1×Deployment (probe) + 3×NetworkPolicy + 1×ConfigMap = 8 kinds.
-EXPECTED=8
+# Expect 1×Cluster (primary) + 1×Cluster (replica) + 1×Deployment
+# (probe) + 3×NetworkPolicy + 1×ConfigMap = 7 kinds. The replication
+# Service is now CNPG-managed via primary.spec.managed.services.additional,
+# so it is NOT a kind in the rendered manifest.
+EXPECTED=7
 GOT=$(grep -cE "^kind: " "$TMP/enabled.yaml" || true)
 if [ "$GOT" -ne "$EXPECTED" ]; then
   echo "FAIL: expected $EXPECTED resources, got $GOT." >&2
@@ -68,8 +79,11 @@ grep -q "kind: Cluster" "$TMP/enabled.yaml" || {
   echo "FAIL: no CNPG Cluster CR rendered." >&2
   exit 1
 }
+# The Cilium global annotation is now nested INSIDE the primary
+# Cluster's spec.managed.services.additional[*].serviceTemplate
+# rather than on a standalone Service. Either way it must show up.
 grep -q 'service.cilium.io/global: "true"' "$TMP/enabled.yaml" || {
-  echo "FAIL: replication Service missing service.cilium.io/global=true annotation." >&2
+  echo "FAIL: primary Cluster CR missing managed.services.additional service.cilium.io/global=true annotation." >&2
   exit 1
 }
 grep -q "openova.io/cnpg-role: primary" "$TMP/enabled.yaml" || {
@@ -86,6 +100,27 @@ grep -q "kind: ConfigMap" "$TMP/enabled.yaml" || {
 }
 grep -q "audit.subject:" "$TMP/enabled.yaml" || {
   echo "FAIL: audit-config ConfigMap missing audit.subject key." >&2
+  exit 1
+}
+# Bug-fix #3 from Phase-2 incidents: hot_standby MUST NOT be present
+# in either Cluster CR's postgresql.parameters block (PG16 fixed-param,
+# CNPG rejects).
+if grep -q 'hot_standby:' "$TMP/enabled.yaml"; then
+  echo "FAIL: hot_standby parameter present in rendered manifest — PG16 fixed-param, CNPG rejects." >&2
+  grep -nE 'hot_standby:' "$TMP/enabled.yaml" >&2
+  exit 1
+fi
+# Bug-fix #2: replica Cluster MUST carry bootstrap.pg_basebackup
+# (otherwise the replica phase sticks at "Setting up primary").
+grep -q 'pg_basebackup:' "$TMP/enabled.yaml" || {
+  echo "FAIL: replica Cluster CR missing bootstrap.pg_basebackup stanza." >&2
+  exit 1
+}
+# Bug-fix #3: replica Cluster's externalCluster.host points at the
+# CNPG-managed `-mesh` Service (NOT the conflicting `-r`).
+grep -qE 'host: .*-mesh$' "$TMP/enabled.yaml" || {
+  echo "FAIL: replica externalCluster does not reference the CNPG-managed -mesh Service." >&2
+  grep -nE 'host:' "$TMP/enabled.yaml" >&2
   exit 1
 }
 echo "  PASS ($GOT resources)"
@@ -125,8 +160,12 @@ if ! grep -q "MUST NOT equal" "$TMP/sameregion.err"; then
 fi
 echo "  PASS"
 
-# ── Case 5: ClusterMesh disabled → no Service rendered ───────────
-echo "[render] Case 5: clusterMesh.enabled=false skips replication Service"
+# ── Case 5: ClusterMesh disabled → no managed-service block ──────
+# Chart 0.1.1: the replication Service is no longer a standalone kind;
+# it lives inside the primary Cluster's spec.managed.services.additional.
+# When ClusterMesh is disabled, that block must not be present so no
+# global Service annotation leaks out.
+echo "[render] Case 5: clusterMesh.enabled=false omits managed.services.additional"
 helm template smoke-cnpg-pair . \
   --set cnpgPair.enabled=true \
   --set cnpgPair.primary.region=hz-fsn-rtz-prod \
@@ -138,9 +177,13 @@ helm template smoke-cnpg-pair . \
   cat "$TMP/nomesh.err" >&2
   exit 1
 }
-SERVICES=$(awk '/^kind: Service$/{print}' "$TMP/nomesh.yaml" | wc -l)
+SERVICES=$(awk '/^kind: Service$/{print}' "$TMP/nomesh.yaml" | grep -c . || true)
 if [ "$SERVICES" -ne 0 ]; then
-  echo "FAIL: clusterMesh disabled but Service still rendered." >&2
+  echo "FAIL: clusterMesh disabled but standalone Service still rendered." >&2
+  exit 1
+fi
+if grep -q 'service.cilium.io/global' "$TMP/nomesh.yaml"; then
+  echo "FAIL: clusterMesh disabled but service.cilium.io/global annotation still rendered." >&2
   exit 1
 fi
 echo "  PASS"

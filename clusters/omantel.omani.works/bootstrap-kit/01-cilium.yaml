@@ -36,7 +36,13 @@ spec:
   chart:
     spec:
       chart: bp-cilium
-      version: 1.1.1
+      # 1.2.0 ships the upstream Cilium 1.19.3 jump (PR #684) — current
+      # minimum for the Cilium ClusterMesh + envoyConfig.enabled values
+      # shape that omantel runs live. 1.3.0 adds the Hubble UI HTTPRoute
+      # overlay (slice H7 #1095) which is opt-in via the catalystOverlay
+      # block; safe to bump when the bp-cilium 1.3.0 OCI artifact is
+      # smoke-validated on contabo (see clusters/_template).
+      version: 1.2.0
       sourceRef:
         kind: HelmRepository
         name: bp-cilium
@@ -60,6 +66,8 @@ spec:
       # cilium-agent waits for at startup. Without this, agent crash-loops
       # forever and the node.cilium.io/agent-not-ready taint never lifts.
       l7Proxy: true
+      envoyConfig:
+        enabled: true
       prometheus:
         enabled: false
         serviceMonitor:
@@ -73,3 +81,39 @@ spec:
           enabled: false
         ui:
           enabled: false
+
+      # ── Cilium ClusterMesh — multi-region peering ──────────────────
+      #
+      # Per ADR-0001 §9 + EPIC-6 #1101 (multi-region active-hotstandby),
+      # ClusterMesh is the canonical inter-region transport for
+      # replication / Service-of-type-global traffic between Sovereign
+      # peer clusters. omantel-fsn is the original (cluster.id=1);
+      # omantel-hel is the Phase-2 peer (cluster.id=2 — see its own
+      # bootstrap-kit overlay).
+      #
+      # cluster.name + cluster.id are the per-Sovereign anchors. They
+      # MUST be unique within a mesh (1-255 range, 0 reserved). The
+      # mapping is registered in docs/CLUSTERMESH-CLUSTER-IDS.md and
+      # MUST be incremented in that table whenever a new peer joins.
+      #
+      # NodePort 32379: the in-cluster clustermesh-apiserver Pod is
+      # exposed via NodePort on every Cilium node so peers reach it
+      # over the Hetzner private network on `<cp-private-ip>:32379`
+      # WITHOUT requiring a Hetzner LoadBalancer per peer (LB count
+      # is project-quota'd). Hetzner firewall rule
+      # `clustermesh-apiserver` opens 32379/tcp from the peer
+      # Sovereigns' Hetzner network CIDRs only.
+      #
+      # Promoting this from the kubectl-patch state captured in
+      # qa-loop-state/phase-2-multi-region-state.md (Phase-2 closeout).
+      # `kubectl patch` was the operational hack; this overlay is the
+      # chart-side fix mandated by feedback_no_mvp_no_workarounds.md.
+      cluster:
+        name: omantel-fsn
+        id: 1
+      clustermesh:
+        useAPIServer: true
+        apiserver:
+          service:
+            type: NodePort
+            nodePort: 32379

@@ -63,12 +63,63 @@ spec:
   # via `streaming_replica` user, which CNPG provisions automatically
   # as part of the Cluster's role bootstrap. Replication slots are
   # auto-created so a brief replica disconnect does not lose WAL.
+  #
+  # `hot_standby` is intentionally OMITTED — PostgreSQL 16 hard-pins it
+  # to `on` (it is a fixed parameter in postgres' GUC table) and the
+  # CNPG operator rejects any explicit set with phase
+  # "Unable to create required cluster objects" (BlockedConfigurationParameter).
+  # CNPG injects the correct value automatically when the Cluster CR is a
+  # primary that may serve replicas. Caught live on omantel-fsn 2026-05-09
+  # (Phase-2 multi-region incident #3 in qa-loop-state/incidents.md).
   postgresql:
     parameters:
       max_wal_senders: "10"
       max_replication_slots: "10"
       wal_level: "logical"
-      hot_standby: "on"
+
+  # ── Replication-source Service (managed by CNPG, annotated for ──────
+  #   Cilium ClusterMesh global routing) ──────────────────────────────
+  #
+  # CNPG creates an `<name>-r` Service automatically (read-replica
+  # endpoint, selectorType: r). The chart used to hand-create this
+  # Service in templates/service-replication.yaml which CNPG refused
+  # to reconcile ("refusing to reconcile service: <name>-r, not owned
+  # by the cluster"). Phase-2 incident #3 in qa-loop-state/incidents.md.
+  #
+  # The fix: declare an *additional* managed Service through CNPG's
+  # `spec.managed.services.additional[]` API (CNPG ≥ 1.22). The Service
+  # name is `<cluster-name>-mesh` (avoids collision with the auto-
+  # created `-r`) and carries the `service.cilium.io/global: "true"`
+  # annotation so Cilium ClusterMesh publishes it across every peer.
+  # The replica's externalCluster connectionParameters.host points at
+  # this Service name.
+  {{- if .Values.cnpgPair.clusterMesh.enabled }}
+  managed:
+    services:
+      additional:
+        - selectorType: r
+          serviceTemplate:
+            metadata:
+              name: {{ include "cnpg-pair.replicationServiceName" . }}
+              labels:
+                {{- include "cnpg-pair.labels" . | nindent 16 }}
+                catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+                catalyst.openova.io/role: replication-source
+              annotations:
+                # ── Cilium ClusterMesh — make this Service global ──
+                # NEW seam: bp-cnpg-pair is the canonical user of the
+                # `service.cilium.io/global` annotation pattern.
+                service.cilium.io/global: "true"
+                service.cilium.io/affinity: {{ .Values.cnpgPair.clusterMesh.affinity | quote }}
+                catalyst.openova.io/blueprint: bp-cnpg-pair
+            spec:
+              type: ClusterIP
+              ports:
+                - name: postgres
+                  port: 5432
+                  targetPort: 5432
+                  protocol: TCP
+  {{- end }}
 
   # Allow the CNPG operator to run automatic switchover within this
   # primary cluster (e.g. instance pod replacement). Cross-cluster

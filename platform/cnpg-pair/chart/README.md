@@ -23,14 +23,17 @@ Slice C-DB-1 of EPIC-6 (#1101). Companion to:
 
 | Resource | File | Purpose |
 |---|---|---|
-| `Cluster` (CNPG) — primary | `templates/primary-cluster.yaml` | Read-write Postgres in region A. Region-pinned via `openova.io/region` node-affinity. |
-| `Cluster` (CNPG) — replica | `templates/replica-cluster.yaml` | Read-only Postgres in region B. `replica.enabled: true` + `externalCluster` pointing at the ClusterMesh-shared replication Service. |
-| `Service` — replication source | `templates/service-replication.yaml` | Cilium ClusterMesh-shared Service (`service.cilium.io/global: "true"`) selecting the primary CR's read-write Pods on 5432. |
+| `Cluster` (CNPG) — primary | `templates/primary-cluster.yaml` | Read-write Postgres in region A. Region-pinned via `openova.io/region` node-affinity. Carries `spec.managed.services.additional` declaring the ClusterMesh-global `<name>-mesh` Service when `clusterMesh.enabled=true`. |
+| `Cluster` (CNPG) — replica | `templates/replica-cluster.yaml` | Read-only Postgres in region B. `replica.enabled: true` + `bootstrap.pg_basebackup` referencing the primary externalCluster + `externalClusters[]` pointing at the ClusterMesh-global `<name>-mesh` Service. |
 | `Deployment` — failover-readiness probe | `templates/failover-readiness.yaml` | Single-replica probe Pod in the replica region; flips Ready when WAL lag < `walStreaming.targetLagSeconds`. |
 | `NetworkPolicy` × 3 | `templates/networkpolicy.yaml` | Default-deny exception: replica → primary 5432, probe → replica 5432, probe Egress to DNS + replica. |
 | `ConfigMap` — audit-config | `templates/audit-config.yaml` | Declares `audit.subject` + `audit.eventTypes` for K-Cont-2 + U-DR-1. |
 
-**Total when ON:** 7 resources (1 primary Cluster + 1 replica Cluster + 1 Service + 1 Deployment + 3 NetworkPolicies + 1 ConfigMap = 8). When `cnpgPair.enabled=false`: ZERO resources.
+**Total when ON:** 7 chart-rendered resources (1 primary Cluster + 1 replica Cluster + 1 Deployment + 3 NetworkPolicies + 1 ConfigMap). The replication Service IS materialised at runtime — it is created by the CNPG operator from the primary Cluster's `spec.managed.services.additional` block — but does NOT count as a chart-rendered Kubernetes resource (and therefore is invisible to `helm template` / `kustomize build`).
+
+When `cnpgPair.enabled=false`: ZERO resources.
+
+> **Chart 0.1.1 fix.** Chart 0.1.0 hand-rendered a standalone Service in `templates/service-replication.yaml` which CNPG refused to reconcile (`refusing to reconcile service: <name>-r, not owned by the cluster`). The Service is now CNPG-owned via `spec.managed.services.additional` (CNPG ≥ 1.22 feature) and named `<name>-mesh` to avoid colliding with the auto-created `<name>-r`. The `helpers.tpl::cnpg-pair.replicationServiceName` helper still resolves to `<release>-bp-cnpg-pair-primary-mesh`, and the replica's externalCluster connection points at this name.
 
 ---
 

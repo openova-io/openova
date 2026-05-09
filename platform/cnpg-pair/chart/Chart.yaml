@@ -1,7 +1,7 @@
 apiVersion: v2
 name: bp-cnpg-pair
-version: 0.1.0
-appVersion: "0.1.0"
+version: 0.1.1
+appVersion: "0.1.1"
 description: |
   Catalyst-curated Blueprint for an active-hotstandby CNPG cluster-pair
   across two Hetzner regions. Companions the existing `bp-cnpg`
@@ -32,6 +32,22 @@ description: |
 
   Changelog
   ─────────
+  0.1.1 (2026-05-09, qa-loop iter-6 fix-33, #1101)
+    - Fix: drop hand-rendered service-replication.yaml; the replication
+      Service is now declared via primary CNPG Cluster's
+      `spec.managed.services.additional` so CNPG owns it (resolves
+      "refusing to reconcile service: <name>-r, not owned by the cluster"
+      caught live on omantel-fsn 2026-05-09 — Phase-2 incident #3).
+    - Fix: remove `hot_standby: "on"` from both Cluster CRs'
+      postgresql.parameters (PG16 hard-pins it; CNPG rejects explicit
+      set with phase "Unable to create required cluster objects").
+    - Fix: add `bootstrap.pg_basebackup` to replica Cluster CR so the
+      replica actually pulls the initial heap from the primary
+      (without it the replica phase stuck at "Setting up primary").
+    - Add: helm test asserting primary readiness, -mesh Service exists
+      with Cilium global annotation, and pg_isready against -rw endpoint.
+    - Render-gate test: expected resource count 8 → 7 (Service removed).
+
   0.1.0 (2026-05-09, slice C-DB-1, #1101)
     - Initial chart: primary + replica + replication Service +
       failover-readiness Pod + NetworkPolicy + audit-config ConfigMap.
