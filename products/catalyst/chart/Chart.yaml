@@ -135,8 +135,26 @@ name: bp-catalyst-platform
 # Defaults under .Values.runtime.* match the canonical in-cluster
 # Service FQDNs of bp-keycloak / bp-gitea. Caught live on omantel
 # 2026-05-09. 2026-05-09.
-version: 1.4.92
-appVersion: 1.4.92
+#
+# 1.4.93 (qa-loop iter-1 Fix #14, 2026-05-09):
+# Auto-provision the `catalyst-organization-controller-keycloak` Secret
+# from the canonical `keycloak/catalyst-kc-sa-credentials` source on
+# every Sovereign install. organization-controller's binary calls
+# `mustEnv("CATALYST_KC_SA_CLIENT_ID")` + `mustEnv("CATALYST_KC_SA_CLIENT_SECRET")`
+# (cmd/main.go:60-61) and CrashLoopBackOffs until the Secret exists.
+# Pre-1.4.93 the deployment template referenced the Secret with
+# `optional: true` on the secretKeyRef → the env vars collapsed to
+# empty → mustEnv panicked. New template
+# templates/secret-organization-controller-keycloak.yaml mirrors the
+# Sovereign-vs-Mothership lookup gate from
+# templates/catalyst-openova-kc-credentials-secret.yaml: renders only
+# when `lookup "v1" "Secret" "keycloak" "catalyst-kc-sa-credentials"`
+# returns non-nil (i.e. on a Sovereign), with EXISTING-TARGET-WINS
+# precedence so openbao auto-rotation of the source doesn't thrash the
+# controller pod. Caught live on omantel 2026-05-09 during qa-loop
+# iter-1 Executor run.
+version: 1.4.93
+appVersion: 1.4.93
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.
