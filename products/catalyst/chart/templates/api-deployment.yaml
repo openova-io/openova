@@ -470,7 +470,7 @@ spec:
                   name: catalyst-kc-sa-credentials
                   key: client-secret
                   optional: true
-            # KEYCLOAK_BOOTSTRAP_TIER_ROLES — EPIC-3 slice T2 (#1098).
+            # KEYCLOAK_BOOTSTRAP_TIER_ROLES — EPIC-3 slice T2 (#1098/#1146).
             # When "true", a goroutine on catalyst-api startup calls
             # EnsureTierRealmRoles (internal/keycloak/realm_bootstrap.go)
             # against the Sovereign realm to materialise the 5 catalog-
@@ -478,19 +478,19 @@ spec:
             # operator,admin,owner}) per docs/EPICS-1-6-unified-design.md
             # §6.2. Re-runs are idempotent no-ops.
             #
-            # Default "false" to preserve current behaviour on the
-            # contabo mothership (whose `openova` realm has its own role
-            # taxonomy and should not gain catalyst-* tier roles). Per-
-            # Sovereign HelmRelease overlays flip this to "true" to opt
-            # the Sovereign's catalyst-api into the bootstrap. The
-            # goroutine waits up to ~30s for KC to be reachable, then
-            # retries up to 5 times with capped backoff before giving
-            # up; the next catalyst-api restart picks the bootstrap up
-            # again. Orthogonal to the chart-install-time
-            # keycloak-config-cli Job (which seeds the realm itself) —
-            # this env var only flips the runtime tier-role bootstrap.
+            # Source-of-truth is `.Values.keycloak.bootstrap.ensureTierRoles`
+            # (default "true" per qa-loop iter-1 cluster
+            # `controllers-and-kc-bootstrap-gates`). Per-Sovereign HelmRelease
+            # overlays may set it to "false" on the contabo mothership (whose
+            # `openova` realm has its own role taxonomy and should not gain
+            # catalyst-* tier roles). The goroutine waits up to ~30s for KC
+            # to be reachable, then retries up to 5 times with capped backoff
+            # before giving up; the next catalyst-api restart picks the
+            # bootstrap up again. Orthogonal to the chart-install-time
+            # keycloak-config-cli Job (which seeds the realm itself) — this
+            # env var only flips the runtime tier-role bootstrap.
             - name: KEYCLOAK_BOOTSTRAP_TIER_ROLES
-              value: "false"
+              value: {{ .Values.keycloak.bootstrap.ensureTierRoles | default false | quote }}
             # CATALYST_HANDOVER_JWT_PUBLIC_KEY_PATH — path to the JWK file that
             # holds the RS256 public key for validating one-time handover JWTs.
             # The K8s Secret `catalyst-handover-jwt-public` (created by

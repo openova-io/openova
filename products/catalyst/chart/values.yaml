@@ -159,10 +159,17 @@ images:
 # (see templates/controllers/_helpers.tpl `controllers.image`).
 controllers:
   organization:
-    enabled: false
+    # Flipped ON per qa-loop iter-1 (cluster `controllers-and-kc-bootstrap-gates`):
+    # the EPIC-3 RBAC reconciliation loop (UserAccess CR → RoleBinding +
+    # composite realm-role) is dormant unless the 5 Group C controllers are
+    # running. Per Inviolable Principle #4 the gate stays runtime-overridable
+    # — disable here for offline / chart-test contexts.
+    enabled: true
     image:
       repository: "ghcr.io/openova-io/openova/organization-controller"
-      tag: ""
+      # SHA pinned to the latest GHCR-published push-on-main build per
+      # docs/INVIOLABLE-PRINCIPLES.md #4a. CI bumps this on every push.
+      tag: "1b29c71"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -182,10 +189,12 @@ controllers:
     tolerations: []
     affinity: {}
   environment:
-    enabled: false
+    # Flipped ON per qa-loop iter-1 — see organization controller above.
+    enabled: true
     image:
       repository: "ghcr.io/openova-io/openova/environment-controller"
-      tag: ""
+      # SHA pinned to the latest GHCR-published push-on-main build.
+      tag: "1b29c71"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -210,6 +219,12 @@ controllers:
     tolerations: []
     affinity: {}
   blueprint:
+    # NOTE: blueprint-controller image is not yet published to GHCR — the
+    # build-blueprint-controller workflow scaffolding lands in this same PR
+    # (qa-loop iter-1). Stays `enabled: false` until the first push-on-main
+    # build of core/controllers/blueprint completes. Per Inviolable
+    # Principle #4a: never reference an image that wasn't built by CI from
+    # a committed git SHA.
     enabled: false
     image:
       repository: "ghcr.io/openova-io/openova/blueprint-controller"
@@ -232,10 +247,12 @@ controllers:
     tolerations: []
     affinity: {}
   application:
-    enabled: false
+    # Flipped ON per qa-loop iter-1 — see organization controller above.
+    enabled: true
     image:
       repository: "ghcr.io/openova-io/openova/application-controller"
-      tag: ""
+      # SHA pinned to the latest GHCR-published push-on-main build.
+      tag: "1b29c71"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -262,10 +279,18 @@ controllers:
     # installed on any production Sovereign). MUST be paired with a delete of
     # the Crossplane UserAccess Composition on the same Sovereign — see
     # core/controllers/README.md §"useraccess cutover playbook".
-    enabled: false
+    #
+    # Flipped ON per qa-loop iter-1 (cluster `controllers-and-kc-bootstrap-gates`):
+    # this is the controller that materialises UserAccess CRs (created by
+    # /api/v1/sovereigns/{id}/rbac/assign) into RoleBindings + ClusterRoleBindings.
+    # Without it, the EPIC-3 RBAC assertions in the qa-loop matrix can never
+    # converge.
+    enabled: true
     image:
       repository: "ghcr.io/openova-io/openova/useraccess-controller"
-      tag: ""
+      # SHA pinned to the latest GHCR-published push-on-main build per
+      # docs/INVIOLABLE-PRINCIPLES.md #4a.
+      tag: "ff2172f"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -293,6 +318,26 @@ controllers:
 # Default OFF per docs/INVIOLABLE-PRINCIPLES.md (operators flip on per-
 # Sovereign once Gitea Orgs are provisioned). When OFF, helm template
 # emits ZERO catalog-related resources.
+
+# ─── Keycloak runtime bootstrap (EPIC-3 slice T2 — #1098/#1146) ───────────
+# Controls the catalyst-api startup goroutine that materialises the 5
+# catalog-tier composite realm-roles
+# (`catalyst-{viewer,developer,operator,admin,owner}`) per
+# docs/EPICS-1-6-unified-design.md §6.2. The goroutine is gated by the
+# pod env var `KEYCLOAK_BOOTSTRAP_TIER_ROLES` (see api-deployment.yaml)
+# which sources its default from `.Values.keycloak.bootstrap.ensureTierRoles`.
+#
+# Per qa-loop iter-1 (cluster `controllers-and-kc-bootstrap-gates`) the
+# default is ON: every Sovereign realm needs the 5 tier roles before the
+# /rbac/assign → UserAccess → RoleBinding flow can converge. Re-runs of
+# the bootstrap are idempotent no-ops. Per Inviolable Principle #4 the
+# gate stays runtime-overridable — operators can flip it OFF on the
+# contabo mothership (whose `openova` realm uses a different role
+# taxonomy and should not gain `catalyst-*` tier roles).
+keycloak:
+  bootstrap:
+    ensureTierRoles: true
+
 services:
   catalog:
     # Flipped ON per qa-loop iter-1 (TC-035..037 surfaced
