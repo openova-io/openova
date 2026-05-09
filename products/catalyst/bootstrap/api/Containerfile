@@ -21,6 +21,13 @@
 
 # ---------- Stage 1: build the Go binaries ----------
 FROM docker.io/library/golang:1.26-alpine AS build
+# core/controllers/ is required by the replace directive in
+# products/catalyst/bootstrap/api/go.mod (added by EPIC-2 slice I #1152
+# so the catalyst-api preview handler renders byte-identical manifests
+# to application-controller). The shared-module path resolves to
+# /core/controllers when WORKDIR=/app, so we COPY the controllers tree
+# BEFORE `go mod download`.
+COPY core/controllers/ /core/controllers/
 WORKDIR /app
 COPY products/catalyst/bootstrap/api/go.mod products/catalyst/bootstrap/api/go.sum ./
 RUN go mod download
