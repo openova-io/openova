@@ -7,6 +7,7 @@ import { describe, it, expect } from 'vitest'
 
 import {
   isValidResourceDetailTab,
+  normaliseKindForRegistry,
   nsSegment,
   parseTabFromPath,
   resourceDetailHref,
@@ -32,6 +33,40 @@ describe('resource.api — URL composers', () => {
     expect(resourceDetailHref('/cloud/', 'node', undefined, 'node-a', 'metrics')).toBe(
       '/cloud/resource/node/_/node-a/metrics',
     )
+  })
+})
+
+describe('resource.api — kind normalisation', () => {
+  it('normaliseKindForRegistry maps known plural kinds to singular', () => {
+    expect(normaliseKindForRegistry('services')).toBe('service')
+    expect(normaliseKindForRegistry('deployments')).toBe('deployment')
+    expect(normaliseKindForRegistry('pods')).toBe('pod')
+    expect(normaliseKindForRegistry('namespaces')).toBe('namespace')
+    expect(normaliseKindForRegistry('endpointslices')).toBe('endpointslice')
+  })
+
+  it('normaliseKindForRegistry passes through canonical singular kinds', () => {
+    expect(normaliseKindForRegistry('pod')).toBe('pod')
+    expect(normaliseKindForRegistry('service')).toBe('service')
+    expect(normaliseKindForRegistry('deployment')).toBe('deployment')
+    expect(normaliseKindForRegistry('event')).toBe('event')
+  })
+
+  it('normaliseKindForRegistry lower-cases + trims input', () => {
+    expect(normaliseKindForRegistry('  Services  ')).toBe('service')
+    expect(normaliseKindForRegistry('POD')).toBe('pod')
+  })
+
+  it('normaliseKindForRegistry returns empty string for empty input', () => {
+    expect(normaliseKindForRegistry('')).toBe('')
+    expect(normaliseKindForRegistry('   ')).toBe('')
+  })
+
+  it('normaliseKindForRegistry leaves unknown kinds unchanged (lower-cased)', () => {
+    // Caller is the API which already returns the `unknown-kind`
+    // envelope with `availableKinds` for diagnostics.
+    expect(normaliseKindForRegistry('madeupkind')).toBe('madeupkind')
+    expect(normaliseKindForRegistry('SomeNewCRD')).toBe('somenewcrd')
   })
 })
 

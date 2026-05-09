@@ -22,6 +22,54 @@ export const SCALABLE_KINDS = new Set(['deployment', 'statefulset'])
 /** Resource kinds the action endpoints accept for `restart`. */
 export const RESTARTABLE_KINDS = new Set(['deployment', 'statefulset', 'daemonset'])
 
+/**
+ * Map of plural URL kind segment → canonical singular registry name
+ * exposed by the catalyst-api k8scache Registry.
+ *
+ * The cloud-list URL surface is operator-typed so the natural English
+ * pluralisation (`/cloud/resource/services/...`) must keep working
+ * alongside the canonical singular registry name (`service`).
+ *
+ * Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), the table
+ * mirrors the UI side of `cloud-list/kinds.ts:KIND_TO_REGISTRY`.
+ *
+ * Anything not listed here is returned unchanged — kinds already in
+ * singular form (e.g. `pod`) flow through untouched, and unknown
+ * kinds bubble up to the API which returns the canonical
+ * `unknown-kind` 404 envelope.
+ */
+const KIND_PLURAL_TO_SINGULAR: Readonly<Record<string, string>> = Object.freeze({
+  pods: 'pod',
+  deployments: 'deployment',
+  statefulsets: 'statefulset',
+  daemonsets: 'daemonset',
+  replicasets: 'replicaset',
+  services: 'service',
+  ingresses: 'ingress',
+  configmaps: 'configmap',
+  secrets: 'secret',
+  namespaces: 'namespace',
+  nodes: 'node',
+  persistentvolumes: 'persistentvolume',
+  endpointslices: 'endpointslice',
+  events: 'event',
+  podmetrics: 'podmetrics',
+  policyreports: 'policyreport',
+  clusterpolicyreports: 'clusterpolicyreport',
+})
+
+/**
+ * Normalise the URL kind segment into the canonical registry name.
+ * Lower-cases input + maps known plural forms to their singular
+ * registry id; unknown kinds are returned lower-cased so the server
+ * can answer with its `availableKinds` 404 envelope.
+ */
+export function normaliseKindForRegistry(kind: string): string {
+  const lower = (kind ?? '').trim().toLowerCase()
+  if (lower === '') return ''
+  return KIND_PLURAL_TO_SINGULAR[lower] ?? lower
+}
+
 /** Resource detail tab ids — used by ResourceDetailPage routing. */
 export const RESOURCE_DETAIL_TABS = [
   'overview',
