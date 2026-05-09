@@ -7,6 +7,7 @@ require (
 	github.com/go-chi/cors v1.2.1
 	github.com/golang-jwt/jwt/v5 v5.2.1
 	github.com/google/uuid v1.6.0
+	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/minio/minio-go/v7 v7.0.91
 	github.com/openova-io/openova/core/controllers v0.0.0-00010101000000-000000000000
 	github.com/prometheus/client_golang v1.23.2

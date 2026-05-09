@@ -1,0 +1,30 @@
+apiVersion: v2
+name: bp-k8s-ws-proxy
+version: 0.1.0
+appVersion: "0.1.0"
+description: |
+  Catalyst-authored Blueprint chart for the k8s-ws-proxy DaemonSet —
+  the per-node WebSocket exec proxy that bridges HMAC-signed upstream
+  callers (catalyst-api, Guacamole) onto the local kube-apiserver
+  /api/v1/.../pods/exec stream.
+
+  Per docs/INVIOLABLE-PRINCIPLES.md the binary is shipped as a
+  DaemonSet so connections stay node-local; the Service binds with
+  `internalTrafficPolicy: Local` so kube-proxy routes onto the local
+  pod regardless of caller.
+
+  Default-OFF gate: `enabled: false`. Operator opts in via per-Sovereign
+  overlay AND populates the SHA-pinned image tag via CI.
+
+  See `core/cmd/k8s-ws-proxy/DESIGN.md` for the wire contract +
+  failure-mode matrix.
+type: application
+keywords: [catalyst, blueprint, k8s, exec, websocket, daemonset]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+dependencies:
+  - name: common
+    version: "0.1.3"
+    repository: "https://sigstore.github.io/helm-charts"

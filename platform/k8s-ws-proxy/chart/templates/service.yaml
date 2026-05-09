@@ -1,0 +1,23 @@
+{{- if .Values.k8sWsProxy.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "bp-k8s-ws-proxy.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-k8s-ws-proxy.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  # internalTrafficPolicy: Local — kube-proxy only routes traffic to
+  # the per-node DaemonSet pod on the SAME node as the caller. This
+  # is the canonical pattern for "node-local" services per K8s 1.26+
+  # and ensures exec sessions never cross node boundaries.
+  internalTrafficPolicy: Local
+  selector:
+    {{- include "bp-k8s-ws-proxy.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.k8sWsProxy.port }}
+      targetPort: http
+      protocol: TCP
+{{- end }}

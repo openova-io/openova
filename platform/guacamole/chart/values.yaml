@@ -1,0 +1,163 @@
+# Catalyst Blueprint values for bp-guacamole.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md:
+#   #1   waterfall — chart ships the full target shape (guacd + web +
+#        OIDC + recordings + NetworkPolicy + Keycloak realm-config)
+#        on the first cut; no "for now" subset.
+#   #4   never hardcode — every operationally-meaningful value is
+#        configurable via per-Sovereign overlay.
+#   #4a  SHA-pinned images; CI fills .tag at promotion time. Empty
+#        tag fails fast (see _helpers.tpl).
+#   #5   credentials live in K8s Secrets, never in values.yaml.
+#
+# Default-OFF: `enabled: false` per the standard CC3 gate. Operators
+# opt in via per-Sovereign overlay.
+
+catalystBlueprint:
+  upstream:
+    chart: ""           # scratch chart — no upstream Helm chart
+    version: ""
+    repo: ""
+
+# Top-level enable gate. When false, NO resources render. Verified by
+# `helm template` test in tests/.
+guacamole:
+  enabled: false
+
+  # ── guacd: protocol backend ─────────────────────────────────────
+  guacd:
+    image:
+      repository: guacamole/guacd
+      # SHA-pinned per INVIOLABLE-PRINCIPLES #4a. CI populates this
+      # via `yq eval -i ...`. Empty value fails the helm template
+      # render (see _helpers.tpl `bp-guacamole.guacdImage`).
+      tag: ""
+      pullPolicy: IfNotPresent
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
+    port: 4822
+
+  # ── guacamole webapp: Tomcat front-end ─────────────────────────
+  webapp:
+    image:
+      repository: guacamole/guacamole
+      tag: ""
+      pullPolicy: IfNotPresent
+    replicas: 2
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        memory: 1Gi
+    port: 8080
+
+  # ── Recording (SeaweedFS PVC) ──────────────────────────────────
+  recordings:
+    pvcSize: 50Gi
+    # hcloud-volumes is the canonical Hetzner CSI storageClass per
+    # H6 (issue #1118 — `hcloud-volumes` standardisation across
+    # Sovereigns). Override per-Sovereign for non-Hetzner clouds.
+    storageClass: hcloud-volumes
+    mountPath: /recordings
+
+  # ── Keycloak OIDC ──────────────────────────────────────────────
+  oidc:
+    # Issuer URL — render in per-Sovereign overlay as
+    # `https://keycloak.<sovereign-fqdn>/realms/catalyst`. Empty
+    # value fails the helm template render (see _helpers.tpl
+    # `bp-guacamole.oidcIssuer`).
+    issuer: ""
+    clientId: guacamole
+    # Client secret comes from a SealedSecret. The chart materializes
+    # the SealedSecret manifest with an empty placeholder; the
+    # operator seals the real value via kubeseal.
+    clientSecretRef:
+      name: guacamole-oidc
+      key: client-secret
+    # Default-redirect URL — defaults to https://guacamole.<sovereign>/
+    # but operator overlay sets the canonical hostname.
+    redirectURI: ""
+    # Optional groups claim from the IdP — Guacamole reads roles
+    # from this claim and maps them to per-connection ACLs.
+    groupsClaim: groups
+
+  # ── HTTPRoute (Cilium Gateway) ─────────────────────────────────
+  httproute:
+    enabled: true
+    # Gateway reference. Defaults to the Sovereign's well-known
+    # `cilium-gateway` in namespace `gateway-system`; per-Sovereign
+    # overlay can rebind.
+    parentRef:
+      name: cilium-gateway
+      namespace: gateway-system
+    # Hostname this Guacamole answers on. Empty value fails the
+    # helm template render (see _helpers.tpl `bp-guacamole.host`).
+    hostname: ""
+
+  # ── NetworkPolicy ─────────────────────────────────────────────
+  # When enabled (default), a default-deny baseline is augmented with
+  # selective egress to: keycloak (443), k8s-ws-proxy DaemonSet (8080),
+  # SeaweedFS S3 endpoint (8333), and the kube-apiserver (443) for
+  # the Pod-listing JSP shipped with Guacamole.
+  networkPolicy:
+    enabled: true
+    keycloak:
+      namespace: keycloak
+      podSelector:
+        app: keycloak
+    k8sWsProxy:
+      namespace: catalyst-system
+      podSelector:
+        app.kubernetes.io/name: bp-k8s-ws-proxy
+    seaweedfs:
+      namespace: seaweedfs
+      podSelector:
+        app: seaweedfs
+        component: s3
+
+  # ── NATS audit trail ──────────────────────────────────────────
+  audit:
+    nats:
+      # JetStream subject Guacamole publishes session-open / session-close
+      # events to. Consumed by the Sovereign's audit indexer (EPIC-1
+      # compliance evaluators) — see canon §3 events bus.
+      subject: catalyst.audit
+      auditType: guacamole-session
+      url: nats://nats-jetstream.nats-jetstream.svc.cluster.local:4222
+
+  # ── Keycloak realm-config integration ─────────────────────────
+  # When enabled, the chart emits a ConfigMap that the bp-keycloak
+  # post-deploy keycloak-config-cli Job picks up. The ConfigMap
+  # patches the `catalyst` realm to add the `guacamole` client +
+  # role + group mappings. Operator opt-in to keep
+  # bp-guacamole installable in test environments without bp-keycloak.
+  realmConfig:
+    enabled: true
+    # Realm name in Keycloak. Default `catalyst` per existing
+    # platform/keycloak realm-config pattern.
+    realm: catalyst
+
+  # ── Pod-level security context ─────────────────────────────────
+  # Both pods run as non-root with read-only root FS — only /tmp
+  # and /recordings are writable.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1001
+    runAsGroup: 1001
+    fsGroup: 1001
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
+
+  # ── Image pull secret ─────────────────────────────────────────
+  imagePullSecrets: []

@@ -1,0 +1,80 @@
+{{- if .Values.k8sWsProxy.enabled -}}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "bp-k8s-ws-proxy.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-k8s-ws-proxy.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "bp-k8s-ws-proxy.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "bp-k8s-ws-proxy.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "bp-k8s-ws-proxy.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.k8sWsProxy.podSecurityContext | nindent 8 }}
+      {{- with .Values.k8sWsProxy.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.k8sWsProxy.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.k8sWsProxy.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: k8s-ws-proxy
+          image: {{ include "bp-k8s-ws-proxy.image" . | quote }}
+          imagePullPolicy: {{ .Values.k8sWsProxy.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.k8sWsProxy.port }}
+              protocol: TCP
+          env:
+            - name: WS_PROXY_LISTEN_ADDR
+              value: ":{{ .Values.k8sWsProxy.port }}"
+            - name: SHARED_SECRET_FILE
+              value: /etc/k8s-ws-proxy/secret/{{ .Values.k8sWsProxy.hmacSecret.key }}
+            - name: HMAC_SKEW_SECONDS
+              value: {{ .Values.k8sWsProxy.hmacSkewSeconds | quote }}
+            - name: TMUX_CASCADE
+              value: {{ .Values.k8sWsProxy.tmuxCascade | quote }}
+            {{- if .Values.k8sWsProxy.allowedNamespaces }}
+            - name: ALLOWED_NAMESPACES
+              value: {{ join "," .Values.k8sWsProxy.allowedNamespaces | quote }}
+            {{- end }}
+            - name: LOG_LEVEL
+              value: {{ .Values.k8sWsProxy.logLevel | quote }}
+          volumeMounts:
+            - name: hmac-secret
+              mountPath: /etc/k8s-ws-proxy/secret
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.k8sWsProxy.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.k8sWsProxy.containerSecurityContext | nindent 12 }}
+      volumes:
+        - name: hmac-secret
+          secret:
+            secretName: {{ include "bp-k8s-ws-proxy.hmacSecretName" . }}
+{{- end }}

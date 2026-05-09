@@ -1,0 +1,66 @@
+{{- if .Values.guacamole.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "bp-guacamole.fullname" . }}-guacd
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-guacamole.labels" . | nindent 4 }}
+    catalyst.openova.io/component: guacd
+spec:
+  replicas: {{ .Values.guacamole.guacd.replicas }}
+  selector:
+    matchLabels:
+      {{- include "bp-guacamole.guacdSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "bp-guacamole.labels" . | nindent 8 }}
+        catalyst.openova.io/component: guacd
+    spec:
+      securityContext:
+        {{- toYaml .Values.guacamole.podSecurityContext | nindent 8 }}
+      {{- with .Values.guacamole.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: guacd
+          image: {{ include "bp-guacamole.guacdImage" . | quote }}
+          imagePullPolicy: {{ .Values.guacamole.guacd.image.pullPolicy }}
+          ports:
+            - name: guacd
+              containerPort: {{ .Values.guacamole.guacd.port }}
+              protocol: TCP
+          # /recordings is mounted from the SeaweedFS-backed PVC; guacd
+          # writes session captures here, which the webapp's S3 sidecar
+          # ships off to the SeaweedFS bucket asynchronously.
+          volumeMounts:
+            - name: recordings
+              mountPath: {{ .Values.guacamole.recordings.mountPath }}
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            {{- toYaml .Values.guacamole.guacd.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.guacamole.containerSecurityContext | nindent 12 }}
+          # guacd has no /healthz endpoint of its own — TCP probe on
+          # the protocol port is the canonical liveness signal per
+          # upstream guacamole-server docs.
+          livenessProbe:
+            tcpSocket:
+              port: guacd
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: guacd
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: recordings
+          persistentVolumeClaim:
+            claimName: {{ include "bp-guacamole.fullname" . }}-recordings
+        - name: tmp
+          emptyDir: {}
+{{- end }}

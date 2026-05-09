@@ -1,0 +1,22 @@
+{{- if .Values.guacamole.enabled -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "bp-guacamole.fullname" . }}-recordings
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-guacamole.labels" . | nindent 4 }}
+    catalyst.openova.io/component: recordings
+spec:
+  # ReadWriteMany so guacd writes captures + the webapp's shipper
+  # reads them concurrently. SeaweedFS-CSI honors RWX (verified by
+  # canon §4 — H6 hcloud-volumes works the same way for solo-node
+  # Sovereigns; per-Sovereign overlay swaps for SeaweedFS RWX on
+  # multi-node clusters).
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ .Values.guacamole.recordings.storageClass | quote }}
+  resources:
+    requests:
+      storage: {{ .Values.guacamole.recordings.pvcSize | quote }}
+{{- end }}

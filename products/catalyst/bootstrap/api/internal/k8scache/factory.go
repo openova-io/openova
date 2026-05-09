@@ -587,6 +587,25 @@ func (f *Factory) Clusters() []string {
 // path-segment → Kind without re-loading.
 func (f *Factory) Registry() *Registry { return f.registry }
 
+// CoreClient returns the typed kubernetes.Interface for the given
+// Sovereign cluster id, or nil when the cluster is not registered.
+//
+// Used by handlers that need to talk to the apiserver beyond the
+// informer cache — chiefly EPIC-4 X1 `/k8s/logs` (kubelet log
+// streaming has no informer equivalent; client-go must call the
+// apiserver subresource directly). Adding this accessor here keeps
+// the per-cluster CoreClient under the same lifecycle as the
+// dynamic + informer state — no second per-cluster client cache.
+func (f *Factory) CoreClient(clusterID string) kubernetes.Interface {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	cs, ok := f.clusters[clusterID]
+	if !ok {
+		return nil
+	}
+	return cs.core
+}
+
 // runSyncWatcher polls each informer's HasSynced under the stop
 // channel. This is event-driven from the informer's own
 // goroutine — we are NOT polling the apiserver here. The 250ms tick

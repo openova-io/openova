@@ -1,0 +1,19 @@
+{{- if .Values.guacamole.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "bp-guacamole.fullname" . }}-webapp
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-guacamole.labels" . | nindent 4 }}
+    catalyst.openova.io/component: webapp
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "bp-guacamole.webappSelectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+{{- end }}
