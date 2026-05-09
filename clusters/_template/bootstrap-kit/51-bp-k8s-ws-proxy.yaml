@@ -59,12 +59,12 @@ spec:
   chart:
     spec:
       chart: bp-k8s-ws-proxy
-      # 0.1.3: canonical workload name `k8s-ws-proxy` (0.1.1 base) +
-      # auto-bumped values.yaml.image.tag from CI promote job (0.1.2)
-      # + chart render-test stale-tag fix (0.1.3, PR #1237). 0.1.1
-      # was unrenderable because values.yaml.image.tag was empty —
-      # CI bumps populate it.
-      version: 0.1.3
+      # 0.1.5: 0.1.4 (default imagePullSecrets per this PR) +
+      # post-merge CI auto-bump that materializes the new image.tag
+      # in values.yaml. The imagePullSecrets default is required so
+      # omantel pods can pull from private GHCR without per-Sovereign
+      # overlay (the catalyst-system `ghcr-pull` secret is canonical).
+      version: 0.1.5
       sourceRef:
         kind: HelmRepository
         name: bp-k8s-ws-proxy

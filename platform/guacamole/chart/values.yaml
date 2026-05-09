@@ -174,4 +174,10 @@ guacamole:
     capabilities:
       drop: [ALL]
   # ── Image pull secret ─────────────────────────────────────────
-  imagePullSecrets: []
+  # GHCR pull credentials. The catalyst-system namespace's `ghcr-pull`
+  # secret is the canonical pull-credential surface across every
+  # Sovereign (catalyst-api / catalyst-ui / guacd / guacamole-server /
+  # all mount it), so the chart defaults to it. Operator overrides per
+  # Sovereign for non-canonical credential names.
+  imagePullSecrets:
+    - name: ghcr-pull
