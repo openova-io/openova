@@ -269,3 +269,26 @@ rules:
   - apiGroups: ["dr.openova.io"]
     resources: ["continuums"]
     verbs: ["get", "list", "watch", "update", "patch", "delete"]
+
+  # ───────────────────────────────────────────────────────────────
+  # QA-loop iter-2 Fix #17 — additional CRDs the generic /k8s/{kind}
+  # surface needs to enumerate. These live alongside the per-CRD
+  # handlers (HandleListUserAccesses, HandleBlueprintPublish, …) but
+  # the k8scache.Factory's dynamic informer pool is the read path for
+  # the SSE stream + dashboard treemap + components page.
+  #
+  # Per feedback_chroot_in_cluster_fallback.md every new GVR added to
+  # internal/k8scache/kinds.go DefaultKinds MUST get a matching rule
+  # in this ClusterRole — the chroot SovereignClient uses this SA.
+  # ───────────────────────────────────────────────────────────────
+  # Blueprint CRD — published blueprint records (already used by
+  # HandleBlueprintListCuratable etc.; the k8scache surface needs
+  # explicit list+watch verbs).
+  - apiGroups: ["catalyst.openova.io"]
+    resources: ["blueprints", "environments"]
+    verbs: ["get", "list", "watch"]
+  # Organization CRD — top-level tenancy resource surfaced on the
+  # /organizations page.
+  - apiGroups: ["orgs.openova.io"]
+    resources: ["organizations"]
+    verbs: ["get", "list", "watch"]

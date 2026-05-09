@@ -145,6 +145,43 @@ var DefaultKinds = []Kind{
 	// widget; the server-side stream surface (existing ?fieldSelector=
 	// grammar) supports metadata-level filtering today.
 	{Name: "event", GVR: schema.GroupVersionResource{Group: "events.k8s.io", Version: "v1", Resource: "events"}, Namespaced: true},
+
+	// QA-loop iter-2 Fix #17 — CRDs surfaced through /k8s/{kind} need
+	// matching registry entries; otherwise the handler returns
+	// `{"error":"unknown kind",...}` even when the CRD is installed
+	// and the apiserver would happily serve it. Caught live on
+	// omantel.biz: TC-070..075, TC-184/192/194/227 all returned the
+	// "unknown kind" body for helmreleases / applications / blueprints
+	// / useraccesses / organizations / environments — the kinds were
+	// reachable individually via the existing per-CRD handlers
+	// (HandleListUserAccesses, etc.) but the generic SSE / list surface
+	// at /api/v1/sovereigns/{id}/k8s/{kind} did not know about them.
+	//
+	// Per feedback_chroot_in_cluster_fallback.md: every new GVR added
+	// here MUST get a matching rule on catalyst-api-cutover-driver
+	// ClusterRole (clusterrole-cutover-driver.yaml) — the chroot
+	// SovereignClient uses that SA via in-cluster fallback.
+	//
+	// helm.toolkit.fluxcd.io/v2 HelmReleases — Flux's release records
+	// for every blueprint installed on the cluster. The dashboard's
+	// platform-health view + the components page both consume this.
+	{Name: "helmrelease", GVR: schema.GroupVersionResource{Group: "helm.toolkit.fluxcd.io", Version: "v2", Resource: "helmreleases"}, Namespaced: true},
+	// access.openova.io/v1alpha1 UserAccess — RBAC binding CRD
+	// surfaced on the /users page.
+	{Name: "useraccess", GVR: schema.GroupVersionResource{Group: "access.openova.io", Version: "v1alpha1", Resource: "useraccesses"}, Namespaced: true},
+	// apps.openova.io/v1alpha1 Application — workload CRD owning the
+	// `/apps` and AppDetail pages (EPIC-2 slice T+O+P).
+	{Name: "application", GVR: schema.GroupVersionResource{Group: "apps.openova.io", Version: "v1alpha1", Resource: "applications"}, Namespaced: true},
+	// catalyst.openova.io/v1alpha1 Blueprint — published blueprint
+	// records the curate/publish handlers operate on.
+	{Name: "blueprint", GVR: schema.GroupVersionResource{Group: "catalyst.openova.io", Version: "v1alpha1", Resource: "blueprints"}, Namespaced: true},
+	// orgs.openova.io/v1alpha1 Organization — top-level tenancy CRD
+	// surfaced on the /organizations page.
+	{Name: "organization", GVR: schema.GroupVersionResource{Group: "orgs.openova.io", Version: "v1alpha1", Resource: "organizations"}, Namespaced: false},
+	// catalyst.openova.io/v1alpha1 Environment — logical environment
+	// dimension (one Environment realised by N Clusters per
+	// docs/NAMING-CONVENTION.md). Surfaced on the /environments page.
+	{Name: "environment", GVR: schema.GroupVersionResource{Group: "catalyst.openova.io", Version: "v1alpha1", Resource: "environments"}, Namespaced: true},
 }
 
 // Registry is a runtime-mutable lookup keyed by the short Name. It
