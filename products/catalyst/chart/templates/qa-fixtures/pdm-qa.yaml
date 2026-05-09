@@ -94,7 +94,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: seed
-          image: bitnami/kubectl:1.30
+          image: docker.io/bitnamilegacy/kubectl:1.29.3
           env:
             - name: PDNS_ZONE
               value: {{ .Values.qaFixtures.pdmZone | default "openova.io" | quote }}
