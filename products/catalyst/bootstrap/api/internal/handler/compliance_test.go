@@ -33,6 +33,7 @@
 package handler
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"io"
@@ -798,5 +799,78 @@ func TestCompliance_LabelOr(t *testing.T) {
 	}
 	if got := labelOr(lbls, "z"); got != "" {
 		t.Fatalf("labelOr missing: %s", got)
+	}
+}
+
+// TestHandleComplianceStream_ImmediateSnapshotFrame asserts the SSE
+// /compliance/stream endpoint emits a `data:` snapshot frame on
+// connect — even when the cluster has no compliance state yet.
+//
+// Regression test for qa-loop iter-1 TC-030: the prior implementation
+// only sent a `: connected ...` comment line on connect and waited up
+// to SSEHeartbeatInterval (15s default) for the next event, causing
+// 6s probe timeouts on quiet clusters.
+func TestHandleComplianceStream_ImmediateSnapshotFrame(t *testing.T) {
+	h, _, _, _ := newComplianceTestRig(t)
+
+	r := chi.NewRouter()
+	r.Get("/api/v1/sovereigns/{id}/compliance/stream", h.HandleComplianceStream)
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/v1/sovereigns/acme/compliance/stream")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/event-stream") {
+		t.Fatalf("content-type: %q", ct)
+	}
+
+	// Expect at least one `data:` line within 1s.
+	type result struct {
+		payload string
+		err     error
+	}
+	doneCh := make(chan result, 1)
+	go func() {
+		br := bufio.NewReader(resp.Body)
+		for {
+			line, err := br.ReadString('\n')
+			if err != nil {
+				doneCh <- result{err: err}
+				return
+			}
+			if strings.HasPrefix(line, "data: ") {
+				doneCh <- result{payload: strings.TrimSpace(strings.TrimPrefix(line, "data: "))}
+				return
+			}
+		}
+	}()
+
+	select {
+	case got := <-doneCh:
+		if got.err != nil {
+			t.Fatalf("never received `data:` frame: %v", got.err)
+		}
+		var ev complianceEvent
+		if err := json.Unmarshal([]byte(got.payload), &ev); err != nil {
+			t.Fatalf("decode payload %q: %v", got.payload, err)
+		}
+		if ev.Type != "snapshot" {
+			t.Fatalf("first event type: want snapshot, got %q", ev.Type)
+		}
+		if ev.Cluster != "acme" {
+			t.Fatalf("event cluster: want acme, got %q", ev.Cluster)
+		}
+		if ev.Score.Scope != "sovereign" {
+			t.Fatalf("snapshot score scope: want sovereign, got %q", ev.Score.Scope)
+		}
+	case <-time.After(1 * time.Second):
+		_ = resp.Body.Close()
+		t.Fatalf("timed out waiting for initial `data:` snapshot frame")
 	}
 }

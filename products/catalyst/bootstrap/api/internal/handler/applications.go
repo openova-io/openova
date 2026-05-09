@@ -393,13 +393,34 @@ func (h *Handler) HandleApplicationStream(w http.ResponseWriter, r *http.Request
 	defer pollT.Stop()
 
 	var lastPhase string
-	emit := func() {
+	// emitSnapshot writes a `data:` frame for the current Application
+	// state. Always emits at least one frame on first call so probes /
+	// EventSource consumers see a wire event without waiting 2s for the
+	// poll tick — even when the Application CR doesn't exist yet
+	// (returns a `notFound` snapshot in that case).
+	emitSnapshot := func(force bool) {
 		obj, err := getApplicationCR(r.Context(), client, name, ns)
 		if err != nil {
+			if !force {
+				return
+			}
+			// First-call fallback: emit a "notFound" snapshot so the
+			// stream consumer always sees an initial `data:` frame.
+			// The UI renders this as the empty / not-installed state.
+			_, _ = w.Write([]byte("data: "))
+			_ = enc.Encode(map[string]interface{}{
+				"name":      name,
+				"namespace": ns,
+				"phase":     "",
+				"status":    map[string]interface{}{},
+				"notFound":  true,
+			})
+			_, _ = w.Write([]byte("\n"))
+			flusher.Flush()
 			return
 		}
 		phase, _, _ := unstructured.NestedString(obj.Object, "status", "phase")
-		if phase == lastPhase {
+		if !force && phase == lastPhase {
 			return
 		}
 		lastPhase = phase
@@ -414,10 +435,13 @@ func (h *Handler) HandleApplicationStream(w http.ResponseWriter, r *http.Request
 		_, _ = w.Write([]byte("\n"))
 		flusher.Flush()
 	}
+	emit := func() { emitSnapshot(false) }
 
 	// Emit initial state immediately so subscribers see today's snapshot
-	// without waiting for the first poll tick.
-	emit()
+	// without waiting for the first poll tick. Forces a `data:` frame
+	// even when the CR doesn't exist yet so probes never time out
+	// waiting for a wire event.
+	emitSnapshot(true)
 	for {
 		select {
 		case <-r.Context().Done():

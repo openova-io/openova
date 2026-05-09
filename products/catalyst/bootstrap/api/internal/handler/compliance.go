@@ -1442,10 +1442,44 @@ func (h *Handler) HandleComplianceStream(w http.ResponseWriter, r *http.Request)
 	_, _ = fmt.Fprintf(w, ": connected cluster=%s\n\n", clusterID)
 	flusher.Flush()
 
+	enc := json.NewEncoder(w)
+
+	// Emit an immediate snapshot `data:` frame on connect so subscribers
+	// (and probes / tests) see at least one event without waiting for
+	// the next score recompute or heartbeat. The snapshot reuses the
+	// existing /scorecard rollups; a fresh Sovereign with no
+	// PolicyReports yet will see an event with score=null which the UI
+	// renders as "no data yet" — same shape as the steady-state stream.
+	rolls := h.compliance.rollupsFor(clusterID)
+	var snapScore Score
+	for _, s := range rolls {
+		if s.Scope == "sovereign" {
+			snapScore = s
+			break
+		}
+	}
+	if snapScore.Scope == "" {
+		snapScore = Score{Scope: "sovereign", ID: clusterID, UpdatedAt: time.Now().UTC()}
+	}
+	snapEv := complianceEvent{
+		Type:    "snapshot",
+		Cluster: clusterID,
+		Score:   snapScore,
+		At:      time.Now().UTC(),
+	}
+	if _, err := w.Write([]byte("data: ")); err != nil {
+		return
+	}
+	if err := enc.Encode(snapEv); err != nil {
+		return
+	}
+	if _, err := w.Write([]byte("\n")); err != nil {
+		return
+	}
+	flusher.Flush()
+
 	pingT := time.NewTicker(h.compliance.cfg.SSEHeartbeatInterval)
 	defer pingT.Stop()
-
-	enc := json.NewEncoder(w)
 	for {
 		select {
 		case <-r.Context().Done():
