@@ -203,10 +203,13 @@ locals {
   # in docs/CLUSTERMESH-CLUSTER-IDS.md (mesh-omantel: fsn=1, hel=2, ...).
   # When var.cluster_mesh_name is empty AND there are no secondary
   # regions, the peer name remains empty (single-cluster Sovereign).
+  # `coalesce` is intentionally NOT used here: it errors when every
+  # argument is empty (e.g. tofu test mock with var.cluster_mesh_name="").
+  # The conditional yields "" when both the per-region override AND the
+  # umbrella var are empty (the not-in-mesh path).
   secondary_region_cluster_mesh_name = {
     for k, r in local.secondary_regions :
-    k => coalesce(
-      try(r.clusterMeshName, ""),
+    k => try(r.clusterMeshName, "") != "" ? r.clusterMeshName : (
       var.cluster_mesh_name == "" ? "" : format(
         "%s-%s",
         split(".", var.sovereign_fqdn)[0],
