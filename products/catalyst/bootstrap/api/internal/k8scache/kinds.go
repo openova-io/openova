@@ -182,6 +182,21 @@ var DefaultKinds = []Kind{
 	// dimension (one Environment realised by N Clusters per
 	// docs/NAMING-CONVENTION.md). Surfaced on the /environments page.
 	{Name: "environment", GVR: schema.GroupVersionResource{Group: "catalyst.openova.io", Version: "v1alpha1", Resource: "environments"}, Namespaced: true},
+
+	// QA-loop iter-3 Fix #18 — RBAC ClusterRole + ClusterRoleBinding
+	// surfaced through GET /api/v1/sovereigns/{id}/k8s/clusterroles and
+	// /clusterrolebindings. Both are cluster-scoped (Namespaced=false).
+	// The matrix expects these on TC-122/196/199/248 to render the RBAC
+	// section of the Sovereign Console; without them the generic /k8s/
+	// surface returned 404 "unknown kind".
+	//
+	// Per feedback_chroot_in_cluster_fallback.md: every new GVR added
+	// here MUST get a matching rule on catalyst-api-cutover-driver
+	// ClusterRole (clusterrole-cutover-driver.yaml). Both RBAC kinds
+	// carry binding metadata only (subject + roleRef references) — no
+	// secret material — so Sensitive=false is correct.
+	{Name: "clusterrole", GVR: schema.GroupVersionResource{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "clusterroles"}, Namespaced: false},
+	{Name: "clusterrolebinding", GVR: schema.GroupVersionResource{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "clusterrolebindings"}, Namespaced: false},
 }
 
 // Registry is a runtime-mutable lookup keyed by the short Name. It

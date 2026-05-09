@@ -168,6 +168,39 @@ spec:
           env:
             - name: PORT
               value: "8080"
+            # CATALYST_BUILD_SHA / CATALYST_CHART_VERSION — qa-loop iter-3
+            # Fix #18 (TC-261). The /api/v1/version handler resolves these
+            # env vars first (envOrTrim) before falling back to the ldflag
+            # defaults `dev` / `0.0.0`. Without this injection the live
+            # version probe returned `{"sha":"dev","version":"0.0.0"}` on
+            # every Sovereign — masking which image was actually live.
+            #
+            # LITERAL values (not Helm template directives) are mandatory
+            # here: this file is consumed by both Helm (per-Sovereign
+            # install via bp-catalyst-platform OCI) AND Kustomize
+            # (clusters/contabo-mkt/apps/catalyst-platform). Helm
+            # directives in `value:` fields break the Kustomize build
+            # with `yaml: invalid map key` (see DUAL-MODE CONTRACT note
+            # on CATALYST_POWERDNS_API_URL below).
+            #
+            # The CATALYST_BUILD_SHA literal is bumped by the same CI
+            # sed-pass that bumps the catalyst-api image tag literal in
+            # this file — see .github/workflows/catalyst-build.yaml's
+            # "Bump literal image refs in chart templates" step. Both
+            # sides converge on the same SHA on every push to main, so
+            # /api/v1/version returns the SHA the Pod is actually
+            # running (no drift between image tag and reported SHA).
+            #
+            # CATALYST_CHART_VERSION mirrors Chart.yaml's `version:` —
+            # bumped manually whenever the chart shape changes, per the
+            # existing bp-catalyst-platform release discipline. The
+            # value carries through to /api/v1/version's `chartVersion`
+            # field so dashboards can correlate api-version <-> chart-
+            # version on a single probe.
+            - name: CATALYST_BUILD_SHA
+              value: "c5bfa34"
+            - name: CATALYST_CHART_VERSION
+              value: "1.4.95"
             - name: CORS_ORIGIN
               value: "https://console.openova.io"
             - name: DYNADOT_API_KEY
