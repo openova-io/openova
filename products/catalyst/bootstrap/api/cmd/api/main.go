@@ -846,6 +846,24 @@ func main() {
 		rg.Get("/api/v1/sovereigns/{id}/applications/{name}/status", h.HandleApplicationStatus)
 		rg.Get("/api/v1/sovereigns/{id}/applications/{name}/stream", h.HandleApplicationStream)
 
+		// qa-loop iter-3 — catalog proxy. Slice-L originally exposed
+		// catalyst-catalog only via a Gateway HTTPRoute on the
+		// `api.<sovereign>` hostname; the Sovereign Console at
+		// `console.<sovereign>` proxies its `/api/*` calls through
+		// catalyst-api's ingress, so without these registrations the
+		// UI's `/api/v1/catalog*` fetches 404'd at chi's NotFound
+		// handler. See internal/handler/catalog_proxy.go for the
+		// architectural rationale (Fix #5's HTTPRoute template
+		// explicitly flagged this as the in-tier follow-up). Routes
+		// are session-gated like the rest of /api/v1/* — anonymous
+		// catalog browsing is not a UI surface and the catalog client
+		// forwards the caller's token so AnonymousReads policy on
+		// catalyst-catalog still applies if the upstream is configured
+		// for it.
+		rg.Get("/api/v1/catalog", h.HandleCatalogList)
+		rg.Get("/api/v1/catalog/{name}", h.HandleCatalogGet)
+		rg.Get("/api/v1/catalog/{name}/versions/{version}", h.HandleCatalogGetVersion)
+
 		// EPIC-6 (#1101) slice U-Fleet — multi-Sovereign fleet view.
 		// Read-only aggregator that backs the new live DashboardPage,
 		// per-Sovereign card detail rollup, and cross-Sovereign
