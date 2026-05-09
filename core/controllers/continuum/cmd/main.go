@@ -1,16 +1,18 @@
-// Command continuum-controller — slice K-Cont-1 of EPIC-6 (#1101).
+// Command continuum-controller — slices K-Cont-1 + K-Cont-2 of
+// EPIC-6 (#1101).
 //
-// Watches `Continuum.dr.openova.io/v1` CRs (and, in K-Cont-2, the
-// `active-hotstandby` Application CRs they reference) and orchestrates
-// per-Application DR — lease maintenance, replication-health watching,
+// Watches `Continuum.dr.openova.io/v1` CRs (and, via the per-CR
+// goroutine, the referenced `active-hotstandby` Application CRs +
+// CNPG cluster-pair Cluster CRs) and orchestrates per-Application
+// DR — lease maintenance, replication-health watching, 7-step
 // switchover sequence per docs/SRE.md §2 + docs/MULTI-REGION-DNS.md.
 //
-// K-Cont-1 ships the binary + chart + CI workflow ONLY — the
-// Reconcile() body is a no-op. The reconcile loop lands in K-Cont-2
-// (lease witness wiring is K-Cont-3, Cloudflare Worker source is
-// K-Cont-4). Per INVIOLABLE-PRINCIPLES #1 the FULL chart + binary
-// shape ships first time so K-Cont-2 only needs to fill in the
-// Reconcile body without restructuring.
+// K-Cont-1 shipped the binary + chart + CI workflow + skeleton.
+// K-Cont-2 (this slice) replaces the Reconcile body with the full
+// per-CR goroutine + lease state machine + switchover sequencer +
+// NATS audit publisher. K-Cont-3 wires the real lease witness
+// implementations (cloudflare-kv + dns-quorum); K-Cont-4 ships the
+// Cloudflare Worker source.
 //
 // Configuration is environment-only — per
 // docs/INVIOLABLE-PRINCIPLES.md #4 nothing is hardcoded:
@@ -23,16 +25,16 @@
 //	                       back to "openova-system" if unreadable)
 //	LOG_LEVEL           — debug | info | warn | error (default info)
 //
-// Sketches for K-Cont-2 + K-Cont-3 env vars (DESIGN.md captures the
-// full list — out of scope for K-Cont-1):
+// K-Cont-2 wires these additional env vars:
 //
-//	PDM_API_URL         — pool-domain-manager /v1/commit endpoint
-//	NATS_URL            — for catalyst.audit publishing
-//	LEASE_TTL_SECONDS   — default 30
-//	LEASE_RENEW_SECONDS — default 10
-//	WITNESS_KIND        — cloudflare-kv | dns-quorum
-//	WITNESS_CONFIG_*    — per-kind config (read from Continuum CR
-//	                       spec.leaseClient.config, not env)
+//	PDM_API_URL         — pool-domain-manager URL (POSTs lua-records to /v1/lua/commit)
+//	PDM_AUTH_TOKEN      — optional X-Catalyst-Token header value
+//	NATS_URL            — for catalyst.audit publishing (e.g. nats://nats.openova-system.svc.cluster.local:4222)
+//	CATALYST_REGION     — host-cluster name THIS controller represents (stamped on Witness.Acquire)
+//	WITNESS_IN_MEMORY   — "true" enables the in-memory witness selector (TEST ONLY; default false)
+//
+// Per-CR config (lease TTL/renew, witness kind, regions) is read
+// from Continuum CR spec, NEVER env (per INVIOLABLE-PRINCIPLES #4).
 //
 // The binary uses controller-runtime's Manager which gives leader
 // election (Lease-backed), graceful shutdown on SIGINT/SIGTERM, and a
@@ -40,12 +42,14 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/dynamic"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -53,6 +57,10 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	"github.com/openova-io/openova/core/controllers/continuum/internal/controller"
+	"github.com/openova-io/openova/core/controllers/continuum/internal/events"
+	"github.com/openova-io/openova/core/controllers/continuum/internal/pdm"
+	"github.com/openova-io/openova/core/controllers/continuum/internal/switchover"
+	"github.com/openova-io/openova/core/controllers/continuum/internal/witness"
 )
 
 var scheme = runtime.NewScheme()
@@ -93,9 +101,53 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Build the dynamic client (Continuum CRs + CNPG Cluster CRs +
+	// HTTPRoute access via Unstructured per ADR-0001 §2.7).
+	dyn, err := dynamic.NewForConfig(ctrl.GetConfigOrDie())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "dynamic client: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Witness selector. K-Cont-2 ships ErrNotImplemented for the
+	// real kinds (cloudflare-kv + dns-quorum); K-Cont-3 swaps in
+	// the implementations. The in-memory selector is gated by the
+	// WITNESS_IN_MEMORY env var — TEST ONLY.
+	sel := &witness.DefaultSelector{
+		InMemoryAllowed: envBool("WITNESS_IN_MEMORY", false),
+	}
+
+	// PDM client — when PDM_API_URL is empty, the PDMCommit closure
+	// surfaces a "not configured" error, which keeps the
+	// switchover-step-4 path explicit rather than silently no-oping.
+	var pdmClient *pdm.Client
+	if u := env("PDM_API_URL", ""); u != "" {
+		pdmClient = pdm.New(u, env("PDM_AUTH_TOKEN", ""))
+	}
+
+	// Audit publisher — JetStreamPublisher when NATS_URL is set,
+	// else nil (the controller no-ops audit publishes when nil; this
+	// is OK for dev/test but production deploys MUST set NATS_URL).
+	var audit events.Publisher
+	if u := env("NATS_URL", ""); u != "" {
+		jp, err := events.NewJetStreamPublisher(context.Background(), u)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: NATS init failed (%v); audit emits will be dropped\n", err)
+		} else {
+			defer jp.Close()
+			audit = jp
+		}
+	}
+
 	r := &controller.ContinuumReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:          mgr.GetClient(),
+		Scheme:          mgr.GetScheme(),
+		Dyn:             dyn,
+		WitnessSelector: sel,
+		HoldingRegion:   env("CATALYST_REGION", ""),
+		PDMClient:       pdmClient,
+		Audit:           audit,
+		Drainer:         switchover.NewDynamicHTTPRouteDrainer(dyn),
 	}
 	if err := r.SetupWithManager(mgr); err != nil {
 		fmt.Fprintf(os.Stderr, "setup reconciler: %v\n", err)
