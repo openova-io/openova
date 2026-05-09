@@ -45,9 +45,10 @@ var ErrLeaseHeldByAnother = errors.New("witness: lease held by another holder")
 // itself as demoted.
 var ErrLeaseLost = errors.New("witness: lease lost")
 
-// ErrNotImplemented — the K-Cont-3 implementations are not wired in
-// this controller build. Returned by the Selector for kinds
-// `cloudflare-kv` and `dns-quorum`.
+// ErrNotImplemented — the requested kind has no registered factory
+// in this build. K-Cont-3 (#1101) registers `cloudflare-kv` and
+// `dns-quorum` via blank-import in continuum/cmd/main.go; tests can
+// register fakes via Register.
 var ErrNotImplemented = errors.New("witness: implementation not built into this controller")
 
 // State is the full lease snapshot returned by Read.
@@ -146,15 +147,100 @@ func (f SelectorFunc) Select(kind string, cfg map[string]any) (Client, error) {
 	return f(kind, cfg)
 }
 
-// DefaultSelector is the production Selector. K-Cont-2 returns
-// ErrNotImplemented for the two real kinds (cloudflare-kv,
-// dns-quorum) so the system fails CLOSED until K-Cont-3 lands. The
-// special kind `in-memory` is recognised for envtest / smoke
-// scenarios — DO NOT enable in production.
+// Factory constructs a Client for a kind from cfg. Returned errors
+// from the Factory propagate out of Selector.Select.
+//
+// Per K-Cont-3's contract, cfg always carries:
+//   - "slot" (string) — "<ns>/<name>" — mandatory; isolates per-CR
+//   - kind-specific keys (baseURL, dnsServers, tokenSecretRef, etc.)
+//
+// SecretReader (or nil) lets the Factory resolve K8s Secret refs
+// without dragging client-go into the witness package.
+type Factory func(cfg map[string]any, secrets SecretReader) (Client, error)
+
+// SecretReader resolves a K8s SecretRef (name + key from a known
+// namespace) into a plaintext value. The DefaultSelector wraps the
+// controller's K8s client; tests pass an in-memory implementation.
+//
+// Per Inviolable Principle #5 the returned plaintext stays in memory
+// only long enough to be handed to the wire client. NEVER log.
+type SecretReader interface {
+	// ReadSecret returns the bytes at secretName/key. Implementations
+	// MUST NOT log the value.
+	ReadSecret(ctx context.Context, secretName, key string) ([]byte, error)
+}
+
+// SecretReaderFunc adapts a plain function to SecretReader.
+type SecretReaderFunc func(ctx context.Context, secretName, key string) ([]byte, error)
+
+// ReadSecret implements SecretReader.
+func (f SecretReaderFunc) ReadSecret(ctx context.Context, secretName, key string) ([]byte, error) {
+	return f(ctx, secretName, key)
+}
+
+// registry holds package-global Factory bindings registered by impl
+// packages at init() time (typically via blank-import in cmd/main.go).
+//
+// We use a registry rather than direct imports because the impl
+// packages (cloudflarekv, dnsquorum) live UNDER `internal/witness/`
+// and therefore CANNOT be imported by `internal/witness/` itself
+// without a cycle. The registry pattern decouples the dispatch table
+// from the concrete clients.
+var (
+	registryMu sync.RWMutex
+	registry   = map[string]Factory{}
+)
+
+// Register binds `factory` as the Client constructor for `kind`.
+// Calling Register twice for the same kind PANICS — the second
+// caller is almost certainly a duplicate import / wiring bug.
+//
+// Impl packages call Register from their init() function. cmd/main.go
+// in the consuming binary blank-imports the impl packages it wants
+// active. Tests can pre-register fakes by calling Register directly.
+func Register(kind string, factory Factory) {
+	registryMu.Lock()
+	defer registryMu.Unlock()
+	if _, exists := registry[kind]; exists {
+		panic(fmt.Sprintf("witness: duplicate Register for kind %q", kind))
+	}
+	registry[kind] = factory
+}
+
+// Unregister removes a kind. Test-only — production code never
+// calls this. (Public so test packages outside `witness/` can use it
+// when wiring/unwiring fakes.)
+func Unregister(kind string) {
+	registryMu.Lock()
+	defer registryMu.Unlock()
+	delete(registry, kind)
+}
+
+// lookup returns the registered Factory for kind, or false.
+func lookup(kind string) (Factory, bool) {
+	registryMu.RLock()
+	defer registryMu.RUnlock()
+	f, ok := registry[kind]
+	return f, ok
+}
+
+// DefaultSelector is the production Selector. The `in-memory` kind
+// is built-in (gated by InMemoryAllowed); `cloudflare-kv` and
+// `dns-quorum` come from the package registry — when their impl
+// packages are imported (via blank-import in cmd/main.go), they
+// register a Factory at init() time.
+//
+// Per Inviolable Principle #5 the SecretReader is the ONLY path the
+// real impls have to credentials — they never read env vars directly.
 type DefaultSelector struct {
 	// InMemoryAllowed gates the `in-memory` kind. Default false in
 	// production; tests flip true.
 	InMemoryAllowed bool
+
+	// SecretReader resolves K8s Secret refs for the real impls. May
+	// be nil for tests that only exercise in-memory or fake-registered
+	// impls.
+	SecretReader SecretReader
 
 	// inMemoryShared is the shared backing store across all
 	// in-memory clients in this process — Continuum CRs in the same
@@ -168,10 +254,6 @@ type DefaultSelector struct {
 // Select implements Selector.
 func (s *DefaultSelector) Select(kind string, cfg map[string]any) (Client, error) {
 	switch kind {
-	case "cloudflare-kv":
-		return nil, fmt.Errorf("%w: cloudflare-kv (K-Cont-3)", ErrNotImplemented)
-	case "dns-quorum":
-		return nil, fmt.Errorf("%w: dns-quorum (K-Cont-3)", ErrNotImplemented)
 	case "in-memory":
 		if !s.InMemoryAllowed {
 			return nil, fmt.Errorf("witness: in-memory selector is test-only; refused in production")
@@ -181,15 +263,14 @@ func (s *DefaultSelector) Select(kind string, cfg map[string]any) (Client, error
 		if s.inMemoryShared == nil {
 			s.inMemoryShared = NewInMemoryStore()
 		}
-		// Every in-memory client gets its own per-CR slot keyed by
-		// the `slot` config field. Tests pass slot="ns/name" so each
-		// Continuum CR gets an isolated lease.
 		slot, _ := cfg["slot"].(string)
 		if slot == "" {
 			slot = "default"
 		}
 		return s.inMemoryShared.Client(slot), nil
-	default:
-		return nil, fmt.Errorf("witness: unknown kind %q (expected one of: cloudflare-kv, dns-quorum)", kind)
 	}
+	if f, ok := lookup(kind); ok {
+		return f(cfg, s.SecretReader)
+	}
+	return nil, fmt.Errorf("%w: %s", ErrNotImplemented, kind)
 }
