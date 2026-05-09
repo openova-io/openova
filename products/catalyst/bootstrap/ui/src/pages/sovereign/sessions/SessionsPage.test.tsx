@@ -152,7 +152,7 @@ describe('SessionsPage', () => {
     await waitFor(() => {
       expect(listFn).toHaveBeenCalledTimes(2)
     })
-    const lastCall = listFn.mock.calls[listFn.mock.calls.length - 1]
+    const lastCall = listFn.mock.calls[listFn.mock.calls.length - 1] as unknown as [string, { pod?: string; user?: string; page?: number }]
     expect(lastCall[1]).toMatchObject({ pod: 'wp-1', page: 1 })
   })
 
