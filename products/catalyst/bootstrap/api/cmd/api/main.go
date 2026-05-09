@@ -247,6 +247,19 @@ func main() {
 		}
 	}
 
+	// EPIC-2 #1097 slice I — live install flow. The catalog client is
+	// the proxy hop catalyst-api uses to fetch Blueprints from
+	// catalyst-catalog (slice L, #1148). Per
+	// docs/INVIOLABLE-PRINCIPLES.md #4 the URL is env-overridable
+	// (CATALYST_CATALOG_URL); the in-cluster service FQDN is the
+	// production default. Wiring here is unconditional — when the
+	// catalog upstream is down the handlers surface 502/503 with a
+	// clear "catalog upstream" detail rather than 500.
+	h.SetCatalogClient(handler.NewCatalogClientFromEnv())
+	log.Info("catalog: client wired",
+		"url", env("CATALYST_CATALOG_URL", "http://catalyst-catalog.openova-system.svc.cluster.local:8080"),
+	)
+
 	// /healthz is LIVENESS — always 200 if the process is up and the
 	// HTTP server is serving. /readyz is READINESS — 200 only when
 	// the primary Sovereign's informers are synced (or no Sovereigns
@@ -722,6 +735,22 @@ func main() {
 		// with one pre-computed users × applications × tier grid.
 		rg.Post("/api/v1/sovereigns/{id}/rbac/assign", h.HandleRBACAssign)
 		rg.Get("/api/v1/sovereigns/{id}/rbac/access-matrix", h.HandleRBACAccessMatrix)
+
+		// EPIC-2 (#1097) slice I — live install flow. Operators submit
+		// Application install requests here; the handler validates
+		// parameters against Blueprint.spec.configSchema (via the
+		// promoted core/controllers/pkg/validate package) and creates
+		// the Application CR per ADR-0001 §2.7. The application-
+		// controller (slice C4 #1133) reconciles the rest. The
+		// preview endpoint runs the SAME renderer the controller uses
+		// (core/controllers/pkg/render, promoted in this slice) so a
+		// "looks-good in preview" cannot diverge from the actual
+		// install. Both endpoints require tier-admin or higher per
+		// docs/INVIOLABLE-PRINCIPLES.md #5.
+		rg.Post("/api/v1/sovereigns/{id}/applications", h.HandleApplicationInstall)
+		rg.Post("/api/v1/sovereigns/{id}/applications/preview", h.HandleApplicationPreview)
+		rg.Get("/api/v1/sovereigns/{id}/applications/{name}/status", h.HandleApplicationStatus)
+		rg.Get("/api/v1/sovereigns/{id}/applications/{name}/stream", h.HandleApplicationStream)
 
 		// SME-tier user CRUD + role mapping (issue #802, ADR-0003).
 		// Owned by the unified-rbac slice of catalyst-api. Tenant

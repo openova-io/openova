@@ -325,6 +325,17 @@ type Handler struct {
 	// from main.go at startup AFTER k8sCache is up; tests set this
 	// directly via SetComplianceHandler.
 	compliance *ComplianceHandler
+
+	// ── Live install flow (EPIC-2 #1097 slice I) ───────────────────
+	// catalogClient — REST client to catalyst-catalog (slice L,
+	// #1148). The install + preview handlers use this to fetch
+	// Blueprint definitions before validating parameters and
+	// creating Application CRs. Nil-tolerant: when nil the
+	// /api/v1/sovereigns/{id}/applications endpoints return 503
+	// ("catalog client not wired"). Wired from main.go at startup
+	// from CATALYST_CATALOG_URL; tests inject a stub via
+	// SetCatalogClient.
+	catalogClient CatalogClient
 }
 
 // powerdnsZoneClient is the narrow interface the parent-zone handler

@@ -1,0 +1,243 @@
+// Package handler — catalog_client.go: EPIC-2 Slice I (#1097) thin
+// REST client to catalyst-catalog (slice L, #1148).
+//
+// The catalyst-api install + preview handlers call into catalyst-catalog
+// via this client (proxy mode, NOT direct from the UI):
+//
+//   UI ─POST /api/v1/sovereigns/{id}/applications─▶ catalyst-api ──┐
+//                                                                   │ GET /api/v1/catalog/{name}/versions/{version}
+//                                                                   ▼
+//                                                          catalyst-catalog
+//
+// Why proxy: the UI presents one tier-prefixed origin; catalyst-api is
+// the single auth-enforcement seam (Keycloak JWT validation already
+// happens here). Adding a second cross-origin call from the browser to
+// catalyst-catalog would force CORS + duplicate token-handling for no
+// architectural gain. catalyst-catalog stays behind the catalyst-api
+// Cilium-Gateway HTTPRoute as designed in slice L's DESIGN.md §"Auth
+// model".
+//
+// Per docs/INVIOLABLE-PRINCIPLES.md #4 the upstream URL is configurable
+// (CATALYST_CATALOG_URL env var); the in-cluster service FQDN
+// `http://catalyst-catalog.openova-system.svc.cluster.local:8080` is
+// the production default but a debug deployment can point this at a
+// localhost catalog for offline iteration.
+package handler
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"strings"
+	"time"
+)
+
+// CatalogBlueprint is the wire shape catalyst-catalog returns. Mirrors
+// `core/services/catalyst-catalog/internal/source.Blueprint`.
+//
+// `Raw` is populated on the GET-by-version endpoint so the install
+// handler can validate parameters against `spec.configSchema` without
+// a second round-trip to the catalog.
+type CatalogBlueprint struct {
+	Name            string                 `json:"name"`
+	Version         string                 `json:"version"`
+	Visibility      string                 `json:"visibility,omitempty"`
+	Card            CatalogBlueprintCard   `json:"card"`
+	PlacementSchema *CatalogPlacement      `json:"placementSchema,omitempty"`
+	UpgradeFrom     []string               `json:"upgradeFrom,omitempty"`
+	UpgradeBlocks   []string               `json:"upgradeBlocks,omitempty"`
+	Origin          int                    `json:"origin"`
+	Source          string                 `json:"source"`
+	Org             string                 `json:"org,omitempty"`
+	Raw             map[string]interface{} `json:"raw,omitempty"`
+}
+
+// CatalogBlueprintCard mirrors `spec.card` block.
+type CatalogBlueprintCard struct {
+	Title       string   `json:"title"`
+	Summary     string   `json:"summary,omitempty"`
+	Description string   `json:"description,omitempty"`
+	Tagline     string   `json:"tagline,omitempty"`
+	Icon        string   `json:"icon,omitempty"`
+	Category    string   `json:"category,omitempty"`
+	Family      string   `json:"family,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
+	License     string   `json:"license,omitempty"`
+	Docs        string   `json:"docs,omitempty"`
+}
+
+// CatalogPlacement mirrors `spec.placementSchema` (subset).
+type CatalogPlacement struct {
+	Modes      []string `json:"modes,omitempty"`
+	Default    string   `json:"default,omitempty"`
+	MinRegions int      `json:"minRegions,omitempty"`
+	MaxRegions int      `json:"maxRegions,omitempty"`
+}
+
+// CatalogListResponse is the body of GET /api/v1/catalog.
+type CatalogListResponse struct {
+	Items []CatalogBlueprint `json:"items"`
+}
+
+// ErrBlueprintNotFound surfaces a 404 from catalyst-catalog so the
+// install handler can return its own 404 to the UI.
+var ErrBlueprintNotFound = errors.New("catalog: blueprint not found")
+
+// CatalogClient is a narrow REST client to catalyst-catalog. The caller
+// passes the request context through so catalyst-api's per-request
+// timeouts / cancellations propagate to the upstream call.
+type CatalogClient interface {
+	List(ctx context.Context, org, sessionToken string) ([]CatalogBlueprint, error)
+	Get(ctx context.Context, name, sessionToken string) (*CatalogBlueprint, error)
+	GetVersion(ctx context.Context, name, version, sessionToken string) (*CatalogBlueprint, error)
+}
+
+// httpCatalogClient is the production implementation. Tests substitute
+// a stub via SetCatalogClient.
+type httpCatalogClient struct {
+	baseURL    string
+	httpClient *http.Client
+}
+
+// defaultCatalogURL is the in-cluster service FQDN. Per
+// docs/INVIOLABLE-PRINCIPLES.md #4 it is configuration-overridable via
+// CATALYST_CATALOG_URL.
+const defaultCatalogURL = "http://catalyst-catalog.openova-system.svc.cluster.local:8080"
+
+// NewCatalogClientFromEnv reads CATALYST_CATALOG_URL (defaulting to the
+// in-cluster service FQDN) and returns the production client.
+func NewCatalogClientFromEnv() CatalogClient {
+	base := strings.TrimRight(os.Getenv("CATALYST_CATALOG_URL"), "/")
+	if base == "" {
+		base = defaultCatalogURL
+	}
+	return &httpCatalogClient{
+		baseURL: base,
+		httpClient: &http.Client{
+			Timeout: 10 * time.Second,
+		},
+	}
+}
+
+// List fetches `/api/v1/catalog?org=<slug>` and returns the items array.
+// `sessionToken` is forwarded as a Cookie matching catalyst-catalog's
+// configured SessionCookieName when non-empty; otherwise the call is
+// anonymous (catalyst-catalog falls through to its AnonymousReads
+// policy).
+func (c *httpCatalogClient) List(ctx context.Context, org, sessionToken string) ([]CatalogBlueprint, error) {
+	u := c.baseURL + "/api/v1/catalog"
+	if org != "" {
+		u += "?org=" + url.QueryEscape(org)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, fmt.Errorf("catalog list: build request: %w", err)
+	}
+	c.attachAuth(req, sessionToken)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("catalog list: do request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("catalog list: upstream %d %s", resp.StatusCode, readErrSnippet(resp.Body))
+	}
+	var body CatalogListResponse
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil, fmt.Errorf("catalog list: decode: %w", err)
+	}
+	return body.Items, nil
+}
+
+// Get fetches `/api/v1/catalog/{name}` (latest visible version).
+func (c *httpCatalogClient) Get(ctx context.Context, name, sessionToken string) (*CatalogBlueprint, error) {
+	if strings.TrimSpace(name) == "" {
+		return nil, errors.New("catalog get: name is required")
+	}
+	u := c.baseURL + "/api/v1/catalog/" + url.PathEscape(name)
+	return c.fetchOne(ctx, u, sessionToken)
+}
+
+// GetVersion fetches `/api/v1/catalog/{name}/versions/{version}` —
+// returns the Blueprint at the requested version. The Raw field is
+// populated by catalyst-catalog on this endpoint per slice L's contract.
+func (c *httpCatalogClient) GetVersion(ctx context.Context, name, version, sessionToken string) (*CatalogBlueprint, error) {
+	if strings.TrimSpace(name) == "" || strings.TrimSpace(version) == "" {
+		return nil, errors.New("catalog getVersion: name and version are required")
+	}
+	u := c.baseURL + "/api/v1/catalog/" + url.PathEscape(name) + "/versions/" + url.PathEscape(version)
+	return c.fetchOne(ctx, u, sessionToken)
+}
+
+func (c *httpCatalogClient) fetchOne(ctx context.Context, u, sessionToken string) (*CatalogBlueprint, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, fmt.Errorf("catalog get: build request: %w", err)
+	}
+	c.attachAuth(req, sessionToken)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("catalog get: do request: %w", err)
+	}
+	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var bp CatalogBlueprint
+		if err := json.NewDecoder(resp.Body).Decode(&bp); err != nil {
+			return nil, fmt.Errorf("catalog get: decode: %w", err)
+		}
+		return &bp, nil
+	case http.StatusNotFound:
+		return nil, ErrBlueprintNotFound
+	default:
+		return nil, fmt.Errorf("catalog get: upstream %d %s", resp.StatusCode, readErrSnippet(resp.Body))
+	}
+}
+
+// attachAuth wires the session token into the upstream request. The
+// catalog service reads its session cookie by configurable name. For
+// the in-cluster proxy hop we forward as both `Authorization: Bearer
+// <tok>` and `Cookie: catalyst_session=<tok>` so the catalog accepts
+// whichever pattern its env-config selects.
+//
+// Per docs/INVIOLABLE-PRINCIPLES.md #10 the credential never reaches
+// the terminal: this function does NOT log the token.
+func (c *httpCatalogClient) attachAuth(req *http.Request, sessionToken string) {
+	if sessionToken == "" {
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+sessionToken)
+	// Catalog's default cookie name is `catalyst_session` per the
+	// slice L config; we forward under that name. If the deployment
+	// overrides it, the operator must set the same name on both sides
+	// — unrelated to this client.
+	req.AddCookie(&http.Cookie{Name: "catalyst_session", Value: sessionToken})
+}
+
+// readErrSnippet returns up to the first 256 bytes of an error body so
+// upstream failures surface a short, log-safe context to the caller.
+// Truncation is by RUNES of the head; we never echo unbounded upstream
+// responses to the catalyst-api log line.
+func readErrSnippet(r io.Reader) string {
+	buf := make([]byte, 256)
+	n, _ := io.ReadFull(io.LimitReader(r, 256), buf)
+	out := strings.TrimSpace(string(buf[:n]))
+	if out == "" {
+		return ""
+	}
+	return out
+}
+
+// ── Wiring on *Handler ───────────────────────────────────────────────────
+
+// SetCatalogClient injects a CatalogClient. main.go calls this once at
+// startup; tests inject a stub directly.
+func (h *Handler) SetCatalogClient(c CatalogClient) { h.catalogClient = c }
+
+// CatalogClient returns the wired client (or nil if unwired).
+func (h *Handler) CatalogClient() CatalogClient { return h.catalogClient }
