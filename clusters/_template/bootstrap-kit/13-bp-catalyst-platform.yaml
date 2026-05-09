@@ -231,7 +231,15 @@ spec:
       # fallback (data renders the moment cutover-import lands without
       # waiting for the orchestrator's chart-values overlay write).
       # 2026-05-05.
-      version: 1.4.84
+      # 1.4.95 (qa-loop iter-3 Fix #18, #1206): clusterroles +
+      # clusterrolebindings GVR added to k8scache.DefaultKinds + matching
+      # get/list/watch verbs on catalyst-api-cutover-driver ClusterRole
+      # (TC-122/196/199/248). Pairs with new CATALYST_BUILD_SHA +
+      # CATALYST_CHART_VERSION env vars on api-deployment.yaml so
+      # /api/v1/version returns the live SHA instead of `dev`/`0.0.0`
+      # (TC-261). Bump pin so omantel + every other Sovereign sourcing
+      # this template picks up the chart on the next reconcile.
+      version: 1.4.95
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
