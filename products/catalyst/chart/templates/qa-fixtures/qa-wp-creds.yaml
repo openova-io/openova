@@ -1,0 +1,22 @@
+{{- if .Values.qaFixtures.enabled }}
+{{- /*
+  qa-wp-creds: backing Secret for the qa-wp Application CR.
+  Operators may pre-seed `.Values.qaFixtures.qaWpPassword`; otherwise
+  derive a deterministic-per-release-but-cluster-unique placeholder
+  from the release name + namespace so the chart never bakes a hard-
+  coded credential into the manifest stream. The matrix only checks
+  for the Secret's existence, not the password value.
+*/ -}}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: qa-wp-creds
+  namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+type: Opaque
+stringData:
+  password: {{ .Values.qaFixtures.qaWpPassword | default (printf "qa-fixture-placeholder-%s" (sha256sum (printf "%s/%s" .Release.Namespace .Release.Name) | trunc 24)) | quote }}
+{{- end }}
