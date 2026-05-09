@@ -50,6 +50,7 @@ import { AuthCallbackPage } from '@/pages/auth/AuthCallbackPage'
 import { SignupPage } from '@/pages/auth/SignupPage'
 import { ForgotPage } from '@/pages/auth/ForgotPage'
 import { DashboardPage } from '@/pages/dashboard/DashboardPage'
+import { CrossSovereignView } from '@/pages/dashboard/CrossSovereignView'
 import { WizardPage } from '@/pages/wizard/WizardPage'
 import { SuccessPage } from '@/pages/success/SuccessPage'
 import { DesignShowcase } from '@/pages/designs/DesignShowcase'
@@ -312,6 +313,16 @@ const authHandoverErrorRoute = createRoute({
 // App routes
 const appRoute = createRoute({ getParentRoute: () => rootRoute, path: '/app', component: AppLayout })
 const dashboardRoute = createRoute({ getParentRoute: () => appRoute, path: '/dashboard', component: DashboardPage })
+
+// EPIC-6 (#1101) slice U-Fleet-3 — cross-Sovereign Applications view.
+// Pivot from the Sovereign-card grid to the Application × Sovereign
+// table. Filters: org / topology / DR posture. Each row links to the
+// per-Sovereign chroot console's AppDetail.
+const crossSovApplicationsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/dashboard/applications',
+  component: CrossSovereignView,
+})
 
 /**
  * provisionAuthGuard — beforeLoad for /provision/$deploymentId routes
@@ -1228,7 +1239,7 @@ const routeTree = rootRoute.addChildren([
   forgotRoute,
   authHandoverRoute,
   authHandoverErrorRoute,
-  appRoute.addChildren([dashboardRoute]),
+  appRoute.addChildren([dashboardRoute, crossSovApplicationsRoute]),
   wizardLayoutRoute.addChildren([wizardRoute]),
   successRoute,
   deploymentsListRoute,

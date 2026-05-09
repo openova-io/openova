@@ -815,6 +815,20 @@ func main() {
 		rg.Get("/api/v1/sovereigns/{id}/applications/{name}/status", h.HandleApplicationStatus)
 		rg.Get("/api/v1/sovereigns/{id}/applications/{name}/stream", h.HandleApplicationStream)
 
+		// EPIC-6 (#1101) slice U-Fleet — multi-Sovereign fleet view.
+		// Read-only aggregator that backs the new live DashboardPage,
+		// per-Sovereign card detail rollup, and cross-Sovereign
+		// Applications table. Per ADR-0001 §2.7 the data is read
+		// LIVE from each Sovereign's CRs (no separate fleet DB);
+		// per INVIOLABLE-PRINCIPLES #5 the per-tier visibility gate
+		// is centralised in fleetCallerVisibility() on the handler
+		// side. See internal/handler/fleet.go for the contract +
+		// per-Sov timeout (4s) so a slow cluster doesn't stall the
+		// whole dashboard.
+		rg.Get("/api/v1/fleet/sovereigns", h.HandleFleetSovereigns)
+		rg.Get("/api/v1/fleet/sovereigns/{id}/summary", h.HandleFleetSovereignSummary)
+		rg.Get("/api/v1/fleet/applications", h.HandleFleetApplications)
+
 		// EPIC-2 (#1097) slice T+O+P — Application page bundle.
 		// PUT/DELETE on the Application CR + topology / upgrade preview
 		// + Blueprint publishing (per-Org) + Curate (sovereign-admin).
