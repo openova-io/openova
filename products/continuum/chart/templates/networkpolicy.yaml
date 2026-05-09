@@ -1,0 +1,79 @@
+{{- /*
+NetworkPolicy for continuum-controller — default-deny except for
+explicit ingress (metrics scrape from Prometheus + health probe from
+kubelet) and egress (Kubernetes API server, in-cluster CNPG status,
+NATS, PDM, lease witness URL).
+
+K-Cont-1 ships the SKELETON envelope. K-Cont-2 / K-Cont-3 will tighten
+egress rules per witness kind:
+  cloudflare-kv → egress to api.cloudflare.com:443 (TCP)
+  dns-quorum    → egress to 8.8.8.8:53 / 1.1.1.1:53 / 9.9.9.9:53 (UDP+TCP)
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 the NetworkPolicy is opt-in via
+`.Values.networkPolicy.enabled` so per-Sovereign overlays may disable
+it during initial bring-up if their CNI doesn't enforce the policy
+shape (e.g. a vCluster running on a non-Cilium host).
+*/ -}}
+{{- if and .Values.continuum.enabled .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "continuum.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "continuum.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "continuum.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Prometheus scrape on /metrics. Restrict by namespace label so
+    # only the monitoring namespace can hit the metrics port.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - port: metrics
+          protocol: TCP
+    # kubelet liveness/readiness probes — NetworkPolicy can't restrict
+    # source by node IP cleanly, so allow any source on health port.
+    # The endpoints (/healthz + /readyz) only return literal "ok".
+    - ports:
+        - port: health
+          protocol: TCP
+  egress:
+    # Kubernetes API server (controller-runtime watch + status writes).
+    # The actual API server CIDR varies per cluster — use a label-less
+    # rule so this works on every distro. K-Cont-2 may tighten by
+    # depending on a per-Sovereign overlay value.
+    - ports:
+        - port: 443
+          protocol: TCP
+        - port: 6443
+          protocol: TCP
+    # DNS resolution (kube-dns / coredns).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # NATS for catalyst.audit publishing (K-Cont-2). The default
+    # in-cluster nats Service runs in openova-system; override the
+    # namespace label match per Sovereign overlay if your NATS
+    # instance lives elsewhere.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: openova-system
+      ports:
+        - port: 4222
+          protocol: TCP
+{{- end }}

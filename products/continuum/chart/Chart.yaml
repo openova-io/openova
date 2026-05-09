@@ -1,0 +1,30 @@
+apiVersion: v2
+name: bp-continuum
+description: |
+  OpenOva Continuum — DR orchestration for active-hotstandby
+  Applications. Watches Continuum.dr.openova.io/v1 CRs and orchestrates
+  per-Application DR (lease maintenance, replication-health watch,
+  switchover sequence). Slice K-Cont-1 of EPIC-6 (#1101) ships the
+  product skeleton; K-Cont-2 fills the reconcile loop.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://openova.io
+sources:
+  - https://github.com/openova-io/openova/tree/main/products/continuum
+keywords:
+  - openova
+  - catalyst
+  - continuum
+  - dr
+  - disaster-recovery
+  - multi-region
+  - active-hotstandby
+maintainers:
+  - name: OpenOva
+    email: hati.yildiz@openova.io
+annotations:
+  openova.io/product: continuum
+  openova.io/category: customer-facing-capability
+  openova.io/epic: "6"
+  openova.io/depends-on: bp-cnpg-pair,bp-powerdns,pdm

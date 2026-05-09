@@ -1,0 +1,71 @@
+{{- /*
+ClusterRole + ClusterRoleBinding for continuum-controller.
+
+K-Cont-1 ships least-privilege grants for the SKELETON path:
+
+  resource                                                       verbs
+  ────────────────────────────────────────────────────────────────────
+  continuums.dr.openova.io                                       get,list,watch,update,patch
+  continuums.dr.openova.io/status                                get,update,patch
+  continuums.dr.openova.io/finalizers                            update
+  applications.apps.openova.io                                   get,list,watch
+  httproutes.gateway.networking.k8s.io                           get,list,watch
+  coordination.k8s.io/leases                                     get,list,watch,create,update,patch,delete
+  ""/namespaces                                                  get,list,watch
+  ""/events                                                      create,patch
+
+K-Cont-2 will EXTEND this with:
+  clusters.postgresql.cnpg.io                                    get,list,watch (+ patch on cluster annotations)
+  clusters.postgresql.cnpg.io/status                             get
+  httproutes.gateway.networking.k8s.io                           update,patch (weight=0 drain)
+  ""/configmaps                                                  get,list,watch,create,update,patch (per-CR state)
+  ""/secrets                                                     get (CF KV token, PDM token)
+*/ -}}
+{{- if .Values.continuum.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "continuum.fullname" . }}
+  labels:
+    {{- include "continuum.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["dr.openova.io"]
+    resources: ["continuums"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["dr.openova.io"]
+    resources: ["continuums/status"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: ["dr.openova.io"]
+    resources: ["continuums/finalizers"]
+    verbs: ["update"]
+  - apiGroups: ["apps.openova.io"]
+    resources: ["applications"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["httproutes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "continuum.fullname" . }}
+  labels:
+    {{- include "continuum.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "continuum.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "continuum.fullname" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

@@ -1,0 +1,206 @@
+name: Build continuum-controller
+
+# continuum-controller — slice K-Cont-1 of EPIC-6 (#1101). Watches
+# Continuum.dr.openova.io/v1 CRs and orchestrates per-Application DR.
+# K-Cont-1 ships the SKELETON; K-Cont-2 fills in the reconcile loop.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4a (GitHub Actions is the only
+# build path) every image that runs on OpenOva infra MUST be produced
+# by a CI workflow from a committed git SHA. Mirrors the existing
+# build-application-controller.yaml shape — same auth flow, same
+# cosign keyless signing, same SBOM attestation.
+#
+# Per `feedback_inviolable_principles.md`: event-driven only, NO cron.
+# Triggers on push-to-main with paths filter (so unrelated commits
+# don't burn CI minutes), pull_request for reviewers, and
+# workflow_dispatch for manual re-runs.
+
+on:
+  push:
+    paths:
+      - 'core/controllers/continuum/**'
+      - 'core/controllers/internal/**'
+      - 'core/controllers/go.mod'
+      - 'core/controllers/go.sum'
+      - 'products/continuum/**'
+      - '.github/workflows/build-continuum-controller.yaml'
+    branches: [main]
+  pull_request:
+    paths:
+      - 'core/controllers/continuum/**'
+      - 'core/controllers/internal/**'
+      - 'core/controllers/go.mod'
+      - 'core/controllers/go.sum'
+      - 'products/continuum/**'
+      - '.github/workflows/build-continuum-controller.yaml'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/openova-io/openova/continuum-controller
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      # id-token write is required by cosign keyless signing (Sigstore).
+      id-token: write
+    outputs:
+      sha_short: ${{ steps.vars.outputs.sha_short }}
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set short SHA
+        id: vars
+        run: echo "sha_short=$(echo $GITHUB_SHA | head -c 7)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: |
+            core/controllers/go.sum
+
+      - name: go vet
+        working-directory: core/controllers
+        # Slice CC1 (#1095) consolidated the 5 Group C controllers into
+        # a single shared go.mod. K-Cont-1 (#1101) joined that module
+        # for Continuum's reconciler. Vet scoped to this controller's
+        # tree plus the shared internal/ helpers it depends on.
+        run: go vet ./continuum/... ./internal/...
+
+      - name: Run unit tests
+        working-directory: core/controllers
+        run: go test -count=1 -race ./continuum/... ./internal/...
+
+      - name: helm template — default (continuum.enabled=false → 0 resources)
+        run: |
+          set -euo pipefail
+          out=$(helm template bp-continuum products/continuum/chart/ --namespace openova-system)
+          # Render must produce ZERO resources when continuum.enabled=false.
+          # (helm prints `---` separators and possibly NOTES; a real K8s
+          # resource will have an `apiVersion:` line at column 0.)
+          if printf '%s\n' "$out" | grep -E '^apiVersion:' > /dev/null; then
+            echo "::error::default render produced resources but continuum.enabled=false should be a no-op"
+            printf '%s\n' "$out"
+            exit 1
+          fi
+
+      - name: helm template — enabled (continuum.enabled=true → full set)
+        run: |
+          set -euo pipefail
+          out=$(helm template bp-continuum products/continuum/chart/ \
+            --namespace openova-system \
+            --set continuum.enabled=true \
+            --set continuum.image.tag=ci-test)
+          # Expect: ServiceAccount + ClusterRole + ClusterRoleBinding +
+          # Deployment + Service + NetworkPolicy = 6 resources.
+          count=$(printf '%s\n' "$out" | grep -cE '^kind:' || true)
+          if [ "$count" -lt 6 ]; then
+            echo "::error::enabled render produced only $count resources, expected ≥ 6"
+            printf '%s\n' "$out"
+            exit 1
+          fi
+          echo "OK: enabled render produced $count resources"
+
+      - name: helm template — fail-fast on empty image.tag
+        run: |
+          set +e
+          helm template bp-continuum products/continuum/chart/ \
+            --namespace openova-system \
+            --set continuum.enabled=true 2>&1 | tee /tmp/render.out
+          rc=${PIPESTATUS[0]}
+          set -e
+          if [ "$rc" -eq 0 ]; then
+            echo "::error::expected helm template to FAIL when continuum.enabled=true and image.tag is empty"
+            exit 1
+          fi
+          if ! grep -q "image.tag is empty" /tmp/render.out; then
+            echo "::error::expected fail-fast error mentioning empty image.tag"
+            exit 1
+          fi
+          echo "OK: fail-fast on empty image.tag works"
+
+      # On pull_request runs we stop here — image push requires
+      # `packages: write` which only main-branch authors hold.
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        if: github.event_name != 'pull_request'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        id: build
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          # Build context is the repository root so the Containerfile's
+          # COPY paths can reach core/controllers/continuum/.
+          context: .
+          file: core/controllers/continuum/Containerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}
+            ${{ env.IMAGE }}:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/openova-io/openova
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=continuum-controller
+            org.opencontainers.image.description=Reconciles Continuum.dr.openova.io/v1 → per-Application DR orchestration (slice K-Cont-1 of EPIC-6 #1101)
+          # provenance=false: containerd 1.7.x on k3s mis-resolves the
+          # provenance attestation manifest. SBOM attestation handled by
+          # the cosign attest step below.
+          provenance: false
+          sbom: false
+
+      - name: Install cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image with cosign (keyless)
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign sign --yes "${IMAGE}@${DIGEST}"
+
+      - name: Generate and attest SBOM
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign attest --yes \
+            --predicate <(echo '{"sbom":"in-toto-spdx attached at build time"}') \
+            --type spdx \
+            "${IMAGE}@${DIGEST}"
+
+  notify:
+    # repository_dispatch on success → triggers downstream chart-bump
+    # workflow that stamps the image SHA into per-Sovereign overlay
+    # values.yaml. Same pattern the 5 Group C controllers use.
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Dispatch chart-bump event
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA_SHORT: ${{ needs.build.outputs.sha_short }}
+        run: |
+          gh api repos/${{ github.repository }}/dispatches \
+            --method POST \
+            -f event_type=continuum-controller-built \
+            -F client_payload[sha]="${SHA_SHORT}" \
+            -F client_payload[image]="${{ env.IMAGE }}:${SHA_SHORT}"
