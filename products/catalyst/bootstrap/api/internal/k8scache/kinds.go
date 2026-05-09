@@ -152,18 +152,69 @@ var DefaultKinds = []Kind{
 // path-segment → Kind → GVR, the SSE handler resolves ?kinds=foo,bar
 // → []Kind, and the factory iterates over Registry.All() to spawn
 // informers.
+//
+// Two indexes are maintained internally:
+//
+//   - byName    — canonical singular short-name (the wire identifier).
+//   - byPlural  — alias index covering the GVR.Resource (plural form
+//     emitted by `kubectl api-resources`) plus a small set of
+//     common short-name aliases (pvc → persistentvolumeclaim,
+//     pv → persistentvolume, ns → namespace, …). Handlers
+//     accept any of these forms transparently.
+//
+// `kubectl get pods` and `kubectl get pod` both work; the catalyst-api
+// REST list endpoint must mirror that ergonomic. Without the plural
+// index a path like `/k8s/services` returned 404 even though
+// `/k8s/service` succeeded — surprising for operators with kubectl
+// muscle memory and surfaced in the iter-1 QA loop matrix as TC-084 /
+// TC-085 / TC-090 / TC-091 / TC-130 (cloud-list 404s on plural paths).
 type Registry struct {
-	byName map[string]Kind
+	byName   map[string]Kind
+	byPlural map[string]string // alias → canonical singular Name
+}
+
+// kindShortAliases maps common kubectl short-names to the canonical
+// singular Name a Kind is registered under. Mirrors the conventional
+// `kubectl api-resources -o wide` short-name column for the few cases
+// where the short form is in widespread operator muscle memory and
+// not derivable from the GVR.Resource (the simple "trim trailing s"
+// rule the plural index handles).
+var kindShortAliases = map[string]string{
+	"ns":     "namespace",
+	"no":     "node",
+	"po":     "pod",
+	"svc":    "service",
+	"cm":     "configmap",
+	"sec":    "secret", // not a real kubectl alias but unambiguous
+	"pvc":    "persistentvolumeclaim",
+	"pvcs":   "persistentvolumeclaim", // pluralised short form (matrix usage)
+	"pv":     "persistentvolume",
+	"pvs":    "persistentvolume",
+	"deploy": "deployment",
+	"sts":    "statefulset",
+	"ds":     "daemonset",
+	"rs":     "replicaset",
+	"ing":    "ingress",
+	"ep":     "endpointslice",
+	"ev":     "event",
 }
 
 // NewRegistry — start empty; callers pass DefaultKinds (or the loaded
 // ConfigMap registry) to Add to build the runtime set.
 func NewRegistry() *Registry {
-	return &Registry{byName: map[string]Kind{}}
+	return &Registry{
+		byName:   map[string]Kind{},
+		byPlural: map[string]string{},
+	}
 }
 
 // Add or replace a Kind in the registry. Name is canonicalised
 // lower-case so the ?kinds=Pod query path resolves correctly.
+//
+// Two index entries are written:
+//
+//  1. byName[canonical(k.Name)] = k         — singular wire identifier
+//  2. byPlural[canonical(k.GVR.Resource)]   — kubectl plural form
 //
 // Returns an error when GVR.Resource is empty — every registered Kind
 // must specify the resource (the GVR's plural form). Group + Version
@@ -175,16 +226,55 @@ func (r *Registry) Add(k Kind) error {
 	if k.GVR.Resource == "" {
 		return fmt.Errorf("k8scache: Kind.GVR.Resource is required for %q", k.Name)
 	}
-	r.byName[canonicalKindName(k.Name)] = k
+	canonName := canonicalKindName(k.Name)
+	r.byName[canonName] = k
+	// Maintain the plural alias index. Two collision rules:
+	//
+	//   (1) If the plural collides with a registered singular Name
+	//       (e.g. someone registered Name="services"), the singular wins
+	//       and the alias is skipped.
+	//   (2) If the plural is already aliased to a DIFFERENT singular
+	//       (concrete: metrics.k8s.io/PodMetrics has GVR.Resource="pods"
+	//       same as core/v1 Pod's plural), the FIRST registration wins.
+	//       Without this guard, registration order silently flips which
+	//       Kind `/k8s/pods` resolves to, depending on whether pod or
+	//       podmetrics was loaded first.
+	plural := canonicalKindName(k.GVR.Resource)
+	if plural != "" && plural != canonName {
+		if _, takenSingular := r.byName[plural]; !takenSingular {
+			if _, alreadyAliased := r.byPlural[plural]; !alreadyAliased {
+				r.byPlural[plural] = canonName
+			}
+		}
+	}
 	return nil
 }
 
-// Get returns the Kind for a name (case-insensitive). Returns false
-// when the name is not registered — handlers translate that to a
-// 404 with the kinds list.
+// Get returns the Kind for a name (case-insensitive). Resolution order:
+//
+//  1. Exact canonical match against the registered singular Name.
+//  2. Plural alias (matches against GVR.Resource — the form `kubectl
+//     api-resources` prints, e.g. "services", "namespaces", "pods").
+//  3. Common short alias (pvc, ns, svc, …) — see kindShortAliases.
+//
+// Returns false when none of the three resolve — handlers translate
+// that to a 404 with the kinds list.
 func (r *Registry) Get(name string) (Kind, bool) {
-	k, ok := r.byName[canonicalKindName(name)]
-	return k, ok
+	canon := canonicalKindName(name)
+	if k, ok := r.byName[canon]; ok {
+		return k, true
+	}
+	if singular, ok := r.byPlural[canon]; ok {
+		if k, ok := r.byName[singular]; ok {
+			return k, true
+		}
+	}
+	if singular, ok := kindShortAliases[canon]; ok {
+		if k, ok := r.byName[singular]; ok {
+			return k, true
+		}
+	}
+	return Kind{}, false
 }
 
 // All returns every registered Kind. Allocation-light — callers iterate

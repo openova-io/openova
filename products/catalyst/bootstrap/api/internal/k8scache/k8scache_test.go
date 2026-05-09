@@ -97,6 +97,76 @@ func TestRegistry_AddRequiresResource(t *testing.T) {
 	}
 }
 
+// TestRegistry_PluralAliasResolution asserts that operators with kubectl
+// muscle memory can hit the catalyst-api REST list endpoint with the
+// plural form (`/k8s/services`) and have it resolve to the canonical
+// singular Kind. Iter-1 QA-loop matrix surfaced the gap as TC-084 /
+// TC-085 / TC-090 / TC-091 / TC-130 — every cloud-list HTTP call was
+// using the K8s plural and got 404 from the singular-only registry.
+func TestRegistry_PluralAliasResolution(t *testing.T) {
+	r := NewRegistry()
+	for _, k := range DefaultKinds {
+		if err := r.Add(k); err != nil {
+			t.Fatalf("Add %q: %v", k.Name, err)
+		}
+	}
+
+	cases := []struct {
+		name    string
+		query   string
+		want    string // canonical singular Name expected on resolution
+	}{
+		{name: "singular still works", query: "service", want: "service"},
+		{name: "plural service", query: "services", want: "service"},
+		{name: "plural node", query: "nodes", want: "node"},
+		{name: "plural namespace", query: "namespaces", want: "namespace"},
+		{name: "plural pvc", query: "persistentvolumeclaims", want: "persistentvolumeclaim"},
+		{name: "plural deployment", query: "deployments", want: "deployment"},
+		{name: "kubectl short pvc", query: "pvc", want: "persistentvolumeclaim"},
+		{name: "kubectl short pvcs", query: "pvcs", want: "persistentvolumeclaim"},
+		{name: "kubectl short ns", query: "ns", want: "namespace"},
+		{name: "kubectl short svc", query: "svc", want: "service"},
+		{name: "case-insensitive plural", query: "Pods", want: "pod"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			k, ok := r.Get(tc.query)
+			if !ok {
+				t.Fatalf("Get(%q) returned !ok — alias should resolve", tc.query)
+			}
+			if k.Name != tc.want {
+				t.Fatalf("Get(%q) → Name=%q; want %q", tc.query, k.Name, tc.want)
+			}
+		})
+	}
+
+	// Negative — a bogus name still rejects.
+	if _, ok := r.Get("notakind"); ok {
+		t.Fatalf("Get(%q) should not resolve", "notakind")
+	}
+}
+
+// TestRegistry_PluralDoesNotShadowSingular guards the Add() invariant
+// that a plural-alias write never overwrites a registered singular Kind
+// with a different GVR. Concrete: the metrics.k8s.io PodMetrics resource
+// is registered with GVR.Resource="pods" — same plural as core/v1 Pod.
+// The plural-alias index must not point "pods" at podmetrics and shadow
+// the canonical Pod registration.
+func TestRegistry_PluralDoesNotShadowSingular(t *testing.T) {
+	r := NewRegistry()
+	for _, k := range DefaultKinds {
+		_ = r.Add(k)
+	}
+	got, ok := r.Get("pods")
+	if !ok {
+		t.Fatalf("Get(%q) returned !ok", "pods")
+	}
+	if got.Name != "pod" {
+		t.Fatalf("Get(%q) → %q; expected canonical singular %q (shadow guard)",
+			"pods", got.Name, "pod")
+	}
+}
+
 // TestDefaultKinds_GraphAndDashboardSurface asserts the kinds the
 // architecture-graph adapter and dashboard treemap depend on are part
 // of the default registry. A regression here would silently break the
