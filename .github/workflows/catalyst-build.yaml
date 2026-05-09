@@ -351,8 +351,19 @@ jobs:
           UI_TPL="products/catalyst/chart/templates/ui-deployment.yaml"
           sed -i -E "s|(image: \"ghcr\.io/openova-io/openova/catalyst-api:)[^\"]*\"|\1${SHA_SHORT}\"|" "${API_TPL}"
           sed -i -E "s|(image: \"ghcr\.io/openova-io/openova/catalyst-ui:)[^\"]*\"|\1${SHA_SHORT}\"|"  "${UI_TPL}"
+          # qa-loop iter-3 Fix #18 — also bump the CATALYST_BUILD_SHA env
+          # literal in the api-deployment so /api/v1/version returns the
+          # SHA the Pod is actually running. Without this, the env stays
+          # frozen at whatever value was committed manually and the live
+          # version probe lies. The env block uses literal values (not
+          # Helm directives) per the dual-mode contract — this sed
+          # targets the literal directly. Pattern: 6-12 hex chars in
+          # double-quotes immediately after `name: CATALYST_BUILD_SHA`
+          # + newline + `              value:`.
+          sed -i -E "/name: CATALYST_BUILD_SHA/{n;s|(value: )\"[a-f0-9]+\"|\1\"${SHA_SHORT}\"|;}" "${API_TPL}"
           echo "templates after update:"
           grep -E "image: \".*catalyst-(api|ui):" "${API_TPL}" "${UI_TPL}"
+          grep -A1 "CATALYST_BUILD_SHA" "${API_TPL}" | head -2
 
           # contabo's catalyst-platform Kustomization at
           # ./products/catalyst/chart/templates reconciles every 10 min

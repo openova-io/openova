@@ -195,6 +195,12 @@ func TestDefaultKinds_GraphAndDashboardSurface(t *testing.T) {
 		// "unknown kind" 404 surface seen on omantel iter-2.
 		"helmrelease", "useraccess", "application", "blueprint",
 		"organization", "environment",
+		// QA-loop iter-3 Fix #18 — RBAC kinds surfaced through
+		// /k8s/{kind}. The Sovereign Console's RBAC pane consumes
+		// rbac.authorization.k8s.io/clusterroles + clusterrolebindings.
+		// Caught live on omantel iter-2: TC-122/196/199/248 returned 404
+		// "unknown kind" for the cluster-wide RBAC list.
+		"clusterrole", "clusterrolebinding",
 	}
 	for _, name := range mandatory {
 		if _, ok := r.Get(name); !ok {

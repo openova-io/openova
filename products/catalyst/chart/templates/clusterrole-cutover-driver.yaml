@@ -292,3 +292,23 @@ rules:
   - apiGroups: ["orgs.openova.io"]
     resources: ["organizations"]
     verbs: ["get", "list", "watch"]
+
+  # ───────────────────────────────────────────────────────────────
+  # QA-loop iter-3 Fix #18 — RBAC kinds surfaced through the
+  # /k8s/{kind} generic surface. The Sovereign Console's RBAC pane
+  # lists ClusterRoles + ClusterRoleBindings (TC-122/196/199/248).
+  # Without this rule the in-cluster catalyst-api SA gets 403 from
+  # the apiserver on every dynamic-client list.list call against
+  # rbac.authorization.k8s.io.
+  #
+  # Per feedback_chroot_in_cluster_fallback.md every new GVR added
+  # to internal/k8scache/kinds.go DefaultKinds MUST get a matching
+  # rule in this ClusterRole — the chroot SovereignClient uses this
+  # SA via in-cluster fallback. Read-only verbs only — the Sovereign
+  # Console renders RBAC inventory; mutation goes through the
+  # UserAccess CR reconciliation loop, not through direct ClusterRole/
+  # ClusterRoleBinding writes.
+  # ───────────────────────────────────────────────────────────────
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles", "clusterrolebindings"]
+    verbs: ["get", "list", "watch"]
