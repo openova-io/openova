@@ -806,7 +806,17 @@ func (f *Factory) List(clusterID, kindName string, sel labels.Selector) ([]*unst
 	if !ok {
 		return nil, 0, fmt.Errorf("k8scache: cluster %q not registered", clusterID)
 	}
-	idx, ok := cs.indexers[CanonicalKindName(kindName)]
+	// Resolve the inbound kind name (which may be a plural alias like
+	// "services" or a kubectl short-form like "pvc") to the canonical
+	// singular Name informers are keyed under. Registry.Get handles the
+	// alias mapping; without this hop the indexer lookup below would
+	// see "services" / "pvc" and return "kind not registered" even
+	// though the registry resolved the same query at the handler tier.
+	canonName := CanonicalKindName(kindName)
+	if k, ok := f.registry.Get(kindName); ok {
+		canonName = CanonicalKindName(k.Name)
+	}
+	idx, ok := cs.indexers[canonName]
 	if !ok {
 		return nil, 0, fmt.Errorf("k8scache: kind %q not registered", kindName)
 	}
@@ -819,16 +829,19 @@ func (f *Factory) List(clusterID, kindName string, sel labels.Selector) ([]*unst
 		if sel != nil && !sel.Matches(labels.Set(u.GetLabels())) {
 			continue
 		}
-		out = append(out, redactObject(mustKind(f.registry, kindName), u))
+		out = append(out, redactObject(mustKind(f.registry, canonName), u))
 	}
 	cs.lastEventLock.RLock()
-	last := cs.lastEventAt[CanonicalKindName(kindName)]
+	last := cs.lastEventAt[canonName]
 	cs.lastEventLock.RUnlock()
 	var age time.Duration
 	if !last.IsZero() {
 		age = time.Since(last)
 	}
-	metricCacheSize.WithLabelValues(clusterID, kindName).Set(float64(len(out)))
+	// Use the canonical singular Name on the metric label so prometheus
+	// rolls up alias forms (services + service + svc) into one
+	// time-series instead of fanning out to N inflated cardinalities.
+	metricCacheSize.WithLabelValues(clusterID, canonName).Set(float64(len(out)))
 	return out, age, nil
 }
 

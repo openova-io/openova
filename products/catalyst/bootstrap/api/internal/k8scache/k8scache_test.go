@@ -281,6 +281,70 @@ func TestFactory_StartAndList(t *testing.T) {
 	t.Fatalf("informer never synced")
 }
 
+// TestFactory_ListResolvesPluralAlias asserts that the indexer lookup
+// in Factory.List honours the same plural / short-form aliases the
+// REST handler tier already accepts. Without this the handler would
+// resolve `/k8s/services` at the registry level (200 path) but the
+// downstream factory.List would still see "services" and return
+// "kind not registered" — exactly the iter-1 cloud-list 404 chain
+// surfaced live on omantel for TC-084 / TC-085 / TC-090 / TC-091.
+func TestFactory_ListResolvesPluralAlias(t *testing.T) {
+	pod := newPod("default", "x")
+	dyn, core := fakeClients(pod)
+
+	cfg := Config{
+		Logger:   quietLogger(),
+		Registry: minimalRegistry(),
+		Clusters: []ClusterRef{
+			{ID: "alpha", DynamicClient: dyn, CoreClient: core},
+		},
+	}
+	f, err := NewFactory(cfg)
+	if err != nil {
+		t.Fatalf("NewFactory: %v", err)
+	}
+	defer f.Stop()
+	if err := f.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// Wait for sync via the canonical singular form first.
+	deadline := time.Now().Add(2 * time.Second)
+	synced := false
+	for time.Now().Before(deadline) {
+		items, _, err := f.List("alpha", "pod", labels.Everything())
+		if err == nil && len(items) == 1 {
+			synced = true
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !synced {
+		t.Fatalf("informer never synced via singular form")
+	}
+
+	// Now exercise alias forms — every one MUST resolve to the same Pod.
+	for _, alias := range []string{"pods", "Pod", "PODS", "po"} {
+		items, _, err := f.List("alpha", alias, labels.Everything())
+		if err != nil {
+			t.Errorf("List(%q): %v — alias should resolve via Registry", alias, err)
+			continue
+		}
+		if len(items) != 1 {
+			t.Errorf("List(%q): got %d items; want 1", alias, len(items))
+			continue
+		}
+		if items[0].GetName() != "x" {
+			t.Errorf("List(%q): unexpected pod name %q", alias, items[0].GetName())
+		}
+	}
+
+	// Negative — a truly unknown kind still returns "not registered".
+	if _, _, err := f.List("alpha", "notakind", labels.Everything()); err == nil {
+		t.Fatalf("List(notakind) should error — Registry has no entry")
+	}
+}
+
 func TestFactory_ListUnknownClusterErrors(t *testing.T) {
 	cfg := Config{
 		Logger:   quietLogger(),
