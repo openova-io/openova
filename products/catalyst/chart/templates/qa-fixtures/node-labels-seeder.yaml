@@ -1,0 +1,130 @@
+{{- if .Values.qaFixtures.enabled }}
+{{- /*
+  Node-label seeder Job for the qa-loop matrix (Fix #40 Cluster-B).
+
+  The matrix asserts on the SHORT-FORM Hetzner region label `fsn1` /
+  `hel1` in node listings (TC-260 + TC-261), the canonical Kubernetes
+  `topology.kubernetes.io/region` + `topology.kubernetes.io/zone`
+  labels, and the Application Topology UI's region badges (TC-112,
+  TC-296). On a chart-shipped Sovereign without hcloud-cloud-controller-
+  manager (CCM) installed yet, k3s nodes carry only the cloud-init-set
+  `openova.io/region=<canonical-4-segment>` label — neither the
+  Kubernetes-canonical `topology.*` labels NOR the Hetzner short-form
+  `fsn1`/`hel1` are present.
+
+  Per docs/INVIOLABLE-PRINCIPLES.md #1 (target-state, not MVP) the
+  proper seam is hcloud-cloud-controller-manager, which sets
+  `topology.kubernetes.io/{region,zone}` from the Hetzner cloud API.
+  Until that Blueprint is wired into bootstrap-kit, this Job derives
+  the equivalent labels from the existing `openova.io/region` label
+  (4-segment `hz-<short>-rtz-prod`) and patches every node:
+
+    openova.io/region=hz-fsn-rtz-prod
+    →
+    topology.kubernetes.io/region=fsn1
+    topology.kubernetes.io/zone=fsn1
+    failure-domain.beta.kubernetes.io/region=fsn1   # legacy alias
+    failure-domain.beta.kubernetes.io/zone=fsn1     # legacy alias
+
+  The label values match exactly what hcloud-CCM would set, so the
+  Sovereign's node listings + Topology UI render the same regardless
+  of whether the operator subsequently installs CCM. CCM-set labels
+  win on race because CCM patches every reconcile cycle (~30s); the
+  Job is one-shot post-install and does not contend.
+
+  Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the canonical
+  → short-form mapping is data-driven by parsing the existing
+  openova.io/region value (3rd path segment after the `hz-` prefix
+  is the Hetzner short region: `hz-fsn-rtz-prod` → `fsn`, `hz-hel-rtz-prod`
+  → `hel`). The 4-character zone (e.g. `fsn1`, `hel1`) is suffixed `1`
+  per Hetzner's single-AZ-per-region datacentre mapping.
+*/ -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: qa-node-labels-seeder
+  namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" | quote }}
+  labels:
+    catalyst.openova.io/managed-by: qa-fixtures
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: qa-node-labels-seeder
+  labels:
+    catalyst.openova.io/managed-by: qa-fixtures
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: qa-node-labels-seeder
+  labels:
+    catalyst.openova.io/managed-by: qa-fixtures
+subjects:
+  - kind: ServiceAccount
+    name: qa-node-labels-seeder
+    namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" | quote }}
+roleRef:
+  kind: ClusterRole
+  name: qa-node-labels-seeder
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: qa-node-labels-seed
+  namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" | quote }}
+  labels:
+    catalyst.openova.io/managed-by: qa-fixtures
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 8
+  template:
+    spec:
+      serviceAccountName: qa-node-labels-seeder
+      restartPolicy: OnFailure
+      containers:
+        - name: seed
+          image: docker.io/bitnamilegacy/kubectl:1.29.3
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -eu
+              # Walk every node, parse openova.io/region, derive Hetzner
+              # short-form region/zone, patch the canonical Kubernetes
+              # topology labels.
+              for n in $(kubectl get nodes -o name); do
+                region=$(kubectl get "$n" -o jsonpath='{.metadata.labels.openova\.io/region}')
+                if [ -z "$region" ]; then
+                  echo "$n has no openova.io/region label; skipping"
+                  continue
+                fi
+                # hz-<short>-rtz-prod  →  short
+                short=$(echo "$region" | awk -F- '{print $2}')
+                if [ -z "$short" ] || [ "$short" = "$region" ]; then
+                  echo "$n openova.io/region=$region not in canonical 4-segment shape; skipping"
+                  continue
+                fi
+                # short-form zone is short+1 (Hetzner single-AZ-per-region
+                # convention: fsn1, hel1, nbg1, ash1).
+                zone="${short}1"
+                echo "patching $n: region=$zone zone=$zone (from openova.io/region=$region)"
+                kubectl label "$n" --overwrite \
+                  "topology.kubernetes.io/region=${zone}" \
+                  "topology.kubernetes.io/zone=${zone}" \
+                  "failure-domain.beta.kubernetes.io/region=${zone}" \
+                  "failure-domain.beta.kubernetes.io/zone=${zone}" \
+                  "node.openova.io/region-short=${zone}"
+              done
+              echo "qa node-labels seed complete"
+{{- end }}

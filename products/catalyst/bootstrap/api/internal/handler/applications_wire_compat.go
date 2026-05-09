@@ -60,8 +60,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 )
+
+// osGetenv is a tiny indirection so tests can stub the env lookup.
+// The function-variable shape lets one-off tests replace osGetenv with
+// a fixture without touching the real environment.
+var osGetenv = os.Getenv
 
 // ── shared simplified-shape decoders ──────────────────────────────────
 
@@ -70,7 +76,25 @@ import (
 // Sovereign-side hint (e.g. test matrix on a fresh-provisioned cluster
 // before the catalyst-cataloged region list is populated). Per
 // docs/INVIOLABLE-PRINCIPLES.md #4 this MUST be the last resort.
-const applicationDefaultPrimaryRegion = "fsn1"
+//
+// MUST be a 4-segment canonical region label per the Application +
+// Environment + Continuum CRD validation `^[a-z]+-[a-z]+-[a-z]+-[a-z]+$`.
+// Legacy "fsn1" rejected the Application at admission and blocked
+// chart 1.4.105 (Fix #40 follow-up). Operator override available via
+// `CATALYST_APPLICATION_DEFAULT_PRIMARY_REGION` env on the catalyst-api
+// Deployment so a non-Hetzner Sovereign can substitute its own canonical
+// label without a code change.
+const applicationDefaultPrimaryRegion = "hz-fsn-rtz-prod"
+
+// applicationDefaultPrimaryRegionFromEnv resolves the literal fallback
+// at request time, honouring the operator override. Falls back to the
+// constant when the env is unset or the value is malformed.
+func applicationDefaultPrimaryRegionFromEnv() string {
+	if v := strings.TrimSpace(osGetenv("CATALYST_APPLICATION_DEFAULT_PRIMARY_REGION")); v != "" {
+		return v
+	}
+	return applicationDefaultPrimaryRegion
+}
 
 // applicationDefaultPlacementMode is the literal fallback placement.
 // Single-region is the safest default; the caller can always promote
@@ -166,7 +190,7 @@ func (s applicationSimplifiedInstall) promoteToCanonicalInstall() (applicationIn
 		out.Placement.Mode = applicationDefaultPlacementMode
 	}
 	if len(out.Placement.Regions) == 0 {
-		out.Placement.Regions = []string{applicationDefaultPrimaryRegion}
+		out.Placement.Regions = []string{applicationDefaultPrimaryRegionFromEnv()}
 	}
 
 	return out, nil

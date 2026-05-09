@@ -291,7 +291,14 @@ spec:
       # RBAC (TC-215, TC-218, TC-243, TC-247).
       # 1.4.101 (Fix #37): EPIC-6 + EPIC-1 target-state qa-fixtures closeout
       # — cnpg-clusters + Kyverno policy bundle.
-      version: 1.4.106
+      # 1.4.106 (qa-loop iter-7 Fix #38 follow-up #3+#4): Organization
+      # sovereignRef = FQDN; bootstrap-kit defaults qaFixtures.sovereignRef
+      # to ${SOVEREIGN_FQDN}; UserAccess sovereignRef strips dots.
+      # 1.4.107 (qa-loop iter-8 Fix #40 — Cluster-A + Cluster-B): bp-wordpress
+      # Blueprint CR alias resolved by chained catalog client; node-labels
+      # seeder Job patches Nodes with topology.kubernetes.io/region short
+      # form derived from openova.io/region; CNPGPair renamed to qa-cnpgpair.
+      version: 1.4.107
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
@@ -395,7 +402,28 @@ spec:
       # chart values.yaml default).
       primaryRegion: ${QA_PRIMARY_REGION:-hz-fsn-rtz-prod}
       standbyRegion: ${QA_STANDBY_REGION:-hz-hel-rtz-prod}
+      # CNPGPair short-form region labels — distinct seam from the
+      # canonical 4-segment Application/Environment/Continuum regions
+      # because the CNPGPair CRD validates against the more permissive
+      # `^[a-z0-9]+(-[a-z0-9]+)*$` and the cnpg-pair-controller's CCM
+      # zone-affinity convention uses the Hetzner short form (`fsn1`,
+      # `hel1`). The two seams stay in lockstep via the qa-fixtures
+      # node-labels-seeder Job that patches every node with
+      # topology.kubernetes.io/region=<short> derived from the existing
+      # openova.io/region=<canonical> label (Fix #40 Cluster-B).
+      cnpgPairPrimaryRegion: ${QA_CNPGPAIR_PRIMARY_REGION:-fsn1}
+      cnpgPairReplicaRegion: ${QA_CNPGPAIR_REPLICA_REGION:-hz-hel-rtz-prod}
       pdmZone: ${QA_PDM_ZONE:-openova.io}
+      # qaFixtures.sovereignFQDN — explicit FQDN override consumed by
+      # templates/qa-fixtures/organization-omantel-platform.yaml's
+      # resolution chain (qaFixtures.sovereignFQDN →
+      # global.sovereignFQDN → qaFixtures.sovereignRef-if-FQDN →
+      # "omantel.biz"). Defaults to the Sovereign-wide FQDN so an
+      # operator never has to set it explicitly. Distinct from the
+      # qaFixtures.sovereignRef knob (line 393) which is now FQDN-form
+      # too via #1244 — kept as a backup signal in case a future
+      # refactor splits the seams again. (Fix #40 Cluster-A.)
+      sovereignFQDN: ${SOVEREIGN_FQDN:-}
       # CNPG Cluster CR fixtures (Fix #37) — single-region by default;
       # multi-region drill is owned by Continuum DR controllers + the
       # cnpg-pair-controller. Override the *Region knobs once cross-

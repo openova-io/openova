@@ -11,10 +11,27 @@
   reseed not needed). The fixture is gated by qaFixtures.enabled so
   production Sovereigns never see this.
 */ -}}
+{{- /*
+  CNPGPair regions use the SHORT-form Hetzner region label (`fsn1`,
+  `hel1`) — the CNPGPair CRD validates against
+  `^[a-z0-9]+(-[a-z0-9]+)*$` (1+ dash-separated segments) which is more
+  permissive than the Application + Environment + Continuum CRD's
+  4-segment pattern. The matrix's TC-306 must_contain ["cnpgpair",
+  "fsn1", "hz-hel-rtz-prod"] expects the SHORT form on primaryRegion
+  (matches the cnpg-pair-controller's Hetzner cloud-controller-manager
+  zone-affinity convention) and the canonical 4-segment on replicaRegion
+  (matches openova.io/region label on Sovereign nodes).
+
+  Per docs/INVIOLABLE-PRINCIPLES.md #4 the short ↔ canonical mapping
+  is data-driven via the `cnpgPairPrimaryRegion` knob; tests +
+  Phase-2 cnpg-pair-controller will keep both shapes in lockstep
+  once node-labels-seeder.yaml ships matching topology.kubernetes.io/region
+  short-form labels (Fix #40 Cluster-B).
+*/ -}}
 apiVersion: dr.openova.io/v1
 kind: CNPGPair
 metadata:
-  name: {{ .Values.qaFixtures.cnpgPairName | default "qa-cnpg" }}
+  name: {{ .Values.qaFixtures.cnpgPairName | default "qa-cnpgpair" }}
   namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
   labels:
     openova.io/managed-by: qa-fixtures
@@ -24,8 +41,8 @@ metadata:
 spec:
   primaryCluster: cluster-primary
   replicaCluster: cluster-replica
-  primaryRegion: {{ .Values.qaFixtures.primaryRegion | default "fsn1" }}
-  replicaRegion: {{ .Values.qaFixtures.standbyRegion | default "hz-hel-rtz-prod" }}
+  primaryRegion: {{ .Values.qaFixtures.cnpgPairPrimaryRegion | default "fsn1" }}
+  replicaRegion: {{ .Values.qaFixtures.cnpgPairReplicaRegion | default (.Values.qaFixtures.standbyRegion | default "hz-hel-rtz-prod") }}
   rpoSeconds: 30
   rtoSeconds: 60
   topology: active-hotstandby
@@ -91,9 +108,9 @@ spec:
           args:
             - |
               set -eu
-              CN="{{ .Values.qaFixtures.cnpgPairName | default "qa-cnpg" }}"
+              CN="{{ .Values.qaFixtures.cnpgPairName | default "qa-cnpgpair" }}"
               NS="{{ .Values.qaFixtures.namespace | default "qa-omantel" }}"
-              PRIM="{{ .Values.qaFixtures.primaryRegion | default "fsn1" }}"
+              PRIM="{{ .Values.qaFixtures.cnpgPairPrimaryRegion | default "fsn1" }}"
               for _ in $(seq 1 60); do
                 kubectl -n "$NS" get cnpgpair "$CN" >/dev/null 2>&1 && break
                 sleep 2

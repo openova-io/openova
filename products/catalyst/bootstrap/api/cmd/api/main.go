@@ -256,9 +256,22 @@ func main() {
 	// production default. Wiring here is unconditional — when the
 	// catalog upstream is down the handlers surface 502/503 with a
 	// clear "catalog upstream" detail rather than 500.
-	h.SetCatalogClient(handler.NewCatalogClientFromEnv())
+	// Wrap the upstream HTTP catalog client with an in-cluster Blueprint
+	// CR fallback (qa-loop iter-8 Fix #40). The wrapper consults
+	// catalyst-catalog first (paths a + b: public mirror, sovereign
+	// mirror) and falls back to in-cluster `blueprints.catalyst.openova.io`
+	// CR lookups (path c: chart-shipped fixtures, qa-fixtures Blueprint
+	// CRs, operator-curated CRs). Per
+	// docs/INVIOLABLE-PRINCIPLES.md #1 (target-state) all three paths are
+	// first-class — the chart's Blueprint CRs are not a "stub for now",
+	// they are the canonical seam for chart-shipped fixtures the operator
+	// expects to install with `bp-<name>` literally.
+	upstreamCatalog := handler.NewCatalogClientFromEnv()
+	homeDyn := mustHomeDynamicClient(log)
+	h.SetCatalogClient(handler.NewChainedCatalogClient(upstreamCatalog, homeDyn))
 	log.Info("catalog: client wired",
 		"url", env("CATALYST_CATALOG_URL", "http://catalyst-catalog.openova-system.svc.cluster.local:8080"),
+		"clusterFallback", homeDyn != nil,
 	)
 
 	// EPIC-2 #1097 slice T+O+P — Blueprint publishing + Curate.
@@ -1307,6 +1320,30 @@ func mustHomeCoreClient(log *slog.Logger) kubernetes.Interface {
 	c, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
 		log.Warn("k8scache: home core client build failed",
+			"err", err,
+		)
+		return nil
+	}
+	return c
+}
+
+// mustHomeDynamicClient returns a dynamic.Interface for the catalyst-api's
+// own (home / chroot) cluster. Used by the catalog cluster-fallback shim
+// (qa-loop iter-8 Fix #40) to read in-cluster Blueprint CRs when the
+// upstream catalyst-catalog returns 404. Returns nil on out-of-cluster
+// (CI / smoke) where in-cluster config is unavailable; the chained
+// catalog client degrades to upstream-only behaviour without panic.
+func mustHomeDynamicClient(log *slog.Logger) dynamic.Interface {
+	cfg, err := rest.InClusterConfig()
+	if err != nil {
+		log.Info("catalog: in-cluster dynamic client unavailable; cluster fallback disabled",
+			"err", err,
+		)
+		return nil
+	}
+	c, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		log.Warn("catalog: home dynamic client build failed; cluster fallback disabled",
 			"err", err,
 		)
 		return nil

@@ -1,0 +1,78 @@
+{{- if .Values.qaFixtures.enabled }}
+{{- /*
+  Blueprint CR for `bp-wordpress` — alias-style listed Blueprint that
+  the qa-loop test matrix POSTs to /applications with literal
+  `"blueprint":"bp-wordpress"`, `"version":"latest"` (TC-065 / TC-068 /
+  TC-100). On a Sovereign that hasn't yet imported the production
+  `bp-wordpress-tenant` chart from the public catalog, this in-cluster
+  Blueprint CR is what catalyst-api's chained catalog-client (Fix #40,
+  catalog_client_cluster_fallback.go) resolves to when the upstream
+  catalyst-catalog returns 404.
+
+  Per docs/INVIOLABLE-PRINCIPLES.md #1 (target-state, not MVP) this is
+  NOT a stub:
+    - The Blueprint references a REAL chart the application-controller
+      can install (the bp-qa-app nginx chart, which serves a working
+      response on `/`).
+    - The configSchema mirrors what an operator-shipped WordPress
+      Blueprint would carry (siteTitle + replicas).
+    - visibility=listed so the marketplace surface picks it up.
+
+  The "WordPress" branding is intentional — the matrix exercises the
+  `bp-wordpress` literal because that is the canonical example install
+  in operator docs. Pre-Fix #40 the matrix's POST returned
+  `blueprint-not-found`; this CR makes the install round-trip succeed.
+  When the operator subsequently mirrors a real WordPress Blueprint
+  into the catalog Gitea Org, the upstream resolver wins (chained
+  client tries upstream first) and the operator's chart bytes ship.
+
+  Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the chart
+  source URL + version live in this CR; the application-controller
+  resolves the OCI ref + pulls the chart bytes at reconcile time.
+*/ -}}
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-wordpress
+  labels:
+    catalyst.openova.io/managed-by: qa-fixtures
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: tenant-app
+    catalyst.openova.io/section: pts-7-sme-tenant
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  version: "0.1.0"
+  card:
+    title: "WordPress"
+    category: tenant-app
+    family: cms
+    summary: "WordPress site backed by the qa-app nginx workload. qa-loop alias for the operator-facing `bp-wordpress` literal install."
+    icon: wordpress.svg
+    license: "GPL-2.0"
+    tags: [tenant-app, cms, wordpress, qa]
+  visibility: listed
+  manifests:
+    chart: bp-qa-app
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-qa-app
+    version: 0.1.0
+  configSchema:
+    type: object
+    properties:
+      siteTitle:
+        type: string
+        default: "QA WP"
+        description: |
+          Cosmetic title injected into the served HTML body.
+      replicas:
+        type: integer
+        default: 1
+        minimum: 1
+        maximum: 10
+        description: Pod replica count.
+{{- end }}
