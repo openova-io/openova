@@ -59,6 +59,36 @@ const pinIssuer = "https://console.openova.io"
 // without any further change.
 const pinSessionRole = "openova-user"
 
+// pinSessionTier — Catalyst tier stamped into PIN-derived session JWTs
+// (chroot Sovereign Console operator login). PIN-via-IMAP proves the
+// authenticated party controls the inbox at the Sovereign's mail domain
+// (e.g. emrah.baysal@openova.io for omantel.biz). On a chroot Sovereign
+// the only operator who can log in via PIN-IMAP is, by definition, the
+// Sovereign owner — there is no "non-admin Sovereign operator" path
+// today because no third party has been granted PIN-issue rights on
+// the Sovereign's mail server.
+//
+// Per docs/EPICS-1-6-unified-design.md §6.2 the canonical tier vocab is
+// viewer < developer < operator < admin < owner. PIN-mint stamps `owner`
+// so every privileged catalyst-api endpoint (rbac_audit, rbac_assign,
+// keycloak_proxy U2/U3/U4, blueprints/curate, policy_mode) resolves to
+// "authorized" without a separate per-handler nil-claim escape hatch.
+//
+// The realm-role mirror (`pinSessionRealmRole`) is also stamped so the
+// realm-role-list authorization path on the same gates resolves the same
+// way — both gate seams (Tier vs RealmAccess.Roles) accept the operator.
+const pinSessionTier = "owner"
+
+// pinSessionRealmRole — Keycloak realm-role mirror of pinSessionTier.
+// Stamped into the JWT's realm_access.roles so handler gates that walk
+// the realm-role list (rbacAssignCallerAuthorized's HasRealmRole loop)
+// accept the PIN-derived operator without a per-handler tier-claim
+// special case. Matches the EPIC-3 T2 bootstrap vocabulary
+// (catalyst-admin / catalyst-owner / application-admin) so the PIN
+// session looks indistinguishable from a real Keycloak-issued token
+// for the privileged caller — single contract surface for the gates.
+const pinSessionRealmRole = "catalyst-owner"
+
 // pinSessionTTL — how long a PIN-derived session lasts. 8 hours, matching
 // the magic-link session TTL so operator-facing UX is unchanged.
 const pinSessionTTL = 8 * time.Hour
@@ -527,16 +557,39 @@ func (h *Handler) HandlePinVerify(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// ── On match: mint session JWT + set cookie ─────────────────────────────
+	//
+	// The PIN-derived JWT carries BOTH the legacy single-string `role`
+	// claim AND the Keycloak-shaped `tier` + `realm_access.roles` claims
+	// the EPIC-3 (#1098) RBAC gates consume (rbac_audit, rbac_assign,
+	// keycloak_proxy U2/U3/U4, blueprints/curate, policy_mode).
+	//
+	// Why owner: PIN-via-IMAP authentication proves control of the
+	// Sovereign's mail-domain inbox; that is the canonical proof of
+	// ownership of the Sovereign chroot (the only operator who can
+	// receive the 6-digit code is the one provisioned with mailbox
+	// access on the Sovereign's stalwart instance). Stamping
+	// tier=owner / realm_access.roles=[catalyst-owner] makes the JWT's
+	// authorization context match the real-world authority the auth
+	// flow already granted — without it, every privileged endpoint
+	// returns 403 even though the caller is the Sovereign owner.
+	//
+	// Per CLAUDE.md INVIOLABLE-PRINCIPLES #5 (least privilege): the
+	// stamp happens ONLY at PIN-verify (i.e. only after the operator
+	// proved IMAP control); pre-PIN sessions never carry these claims.
 	sessionClaims := jwt.MapClaims{
 		"iss":            pinIssuer,
 		"sub":            email, // email == subject; downstream reads claims.Email
 		"email":          email,
 		"email_verified": true,
 		"role":           pinSessionRole,
-		"iat":            time.Now().Unix(),
-		"exp":            time.Now().Add(pinSessionTTL).Unix(),
-		"jti":            uuid.NewString(),
-		"typ":            "session",
+		"tier":           pinSessionTier,
+		"realm_access": map[string]any{
+			"roles": []string{pinSessionRealmRole},
+		},
+		"iat": time.Now().Unix(),
+		"exp": time.Now().Add(pinSessionTTL).Unix(),
+		"jti": uuid.NewString(),
+		"typ": "session",
 	}
 	accessToken, err := h.handoverSigner.SignCustomClaims(sessionClaims)
 	if err != nil {
