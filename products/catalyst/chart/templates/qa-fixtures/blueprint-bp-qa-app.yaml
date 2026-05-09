@@ -23,7 +23,7 @@ metadata:
     catalyst.openova.io/managed-by: qa-fixtures
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/sovereign: {{ .Values.qaFixtures.sovereignRef | default "omantel" | quote }}
+    catalyst.openova.io/sovereign: {{ .Values.qaFixtures.sovereignRef | default "omantel.biz" | quote }}
     catalyst.openova.io/category: testing
     app.kubernetes.io/managed-by: {{ .Release.Service }}
     app.kubernetes.io/instance: {{ .Release.Name }}

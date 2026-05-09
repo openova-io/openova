@@ -34,7 +34,7 @@ metadata:
     openova.io/environment: {{ .Values.qaFixtures.namespace | default "qa-omantel" | quote }}
     openova.io/application: {{ .Values.qaFixtures.appName | default "qa-wp" | quote }}
     openova.io/env-type: dev
-    openova.io/sovereign: {{ .Values.qaFixtures.sovereignRef | default "omantel" | quote }}
+    openova.io/sovereign: {{ .Values.qaFixtures.sovereignRef | default "omantel.biz" | quote }}
     catalyst.openova.io/managed-by: qa-fixtures
     catalyst.openova.io/blueprint: bp-qa-app
     catalyst.openova.io/blueprint-version: "0.1.0"

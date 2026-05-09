@@ -7,7 +7,7 @@ metadata:
     catalyst.openova.io/managed-by: qa-fixtures
     catalyst.openova.io/origin: org-private
     catalyst.openova.io/curation: org-private
-    catalyst.openova.io/sovereign: {{ .Values.qaFixtures.sovereignRef | default "omantel" }}
+    catalyst.openova.io/sovereign: {{ .Values.qaFixtures.sovereignRef | default "omantel.biz" }}
     app.kubernetes.io/managed-by: {{ .Release.Service }}
     app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
