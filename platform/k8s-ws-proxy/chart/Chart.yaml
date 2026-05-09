@@ -5,7 +5,7 @@ name: bp-k8s-ws-proxy
 # ClusterRoleBinding all named `k8s-ws-proxy` so the catalyst-api
 # shells/issue handler + qa-loop test matrix (TC-236, TC-237) can
 # address them without release-name knowledge.
-version: 0.1.2
+version: 0.1.3
 appVersion: "0.1.0"
 description: |
   Catalyst-authored Blueprint chart for the k8s-ws-proxy DaemonSet —
