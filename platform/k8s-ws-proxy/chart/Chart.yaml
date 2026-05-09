@@ -5,7 +5,16 @@ name: bp-k8s-ws-proxy
 # ClusterRoleBinding all named `k8s-ws-proxy` so the catalyst-api
 # shells/issue handler + qa-loop test matrix (TC-236, TC-237) can
 # address them without release-name knowledge.
-version: 0.1.3
+# 0.1.4 (Fix #39 follow-up): default imagePullSecrets to [{name:
+# ghcr-pull}] so the DaemonSet can pull from private GHCR without
+# per-Sovereign overlay. The `ghcr-pull` secret is the canonical
+# pull-credential surface across every Sovereign (catalyst-api,
+# catalyst-ui, k8s-ws-proxy all mount it).
+# Note: build-k8s-ws-proxy.yaml's promote job will auto-bump this to
+# 0.1.5 on merge (with the new image SHA in values.yaml). Slot pin
+# at 0.1.5 so omantel reconciles against the chart that carries
+# BOTH the imagePullSecrets default AND the new image SHA.
+version: 0.1.4
 appVersion: "0.1.0"
 description: |
   Catalyst-authored Blueprint chart for the k8s-ws-proxy DaemonSet —

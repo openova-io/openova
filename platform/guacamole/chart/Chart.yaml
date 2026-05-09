@@ -6,7 +6,15 @@ name: bp-guacamole
 # realm-patch ConfigMap lands in `keycloak` namespace (was: realm-name,
 # which would have failed on every Sovereign); `realmConfig.namespace`
 # override surface for non-default bp-keycloak placements.
-version: 0.1.2
+# 0.1.3 (Fix #39 follow-up): default imagePullSecrets to [{name:
+# ghcr-pull}] so the Deployments can pull from private GHCR without
+# per-Sovereign overlay. The `ghcr-pull` secret is the canonical
+# pull-credential surface across every Sovereign.
+# Note: build-bp-guacamole.yaml will auto-bump this to 0.1.4 on
+# merge. Slot pin at 0.1.4 so omantel reconciles against the chart
+# that carries BOTH the imagePullSecrets default AND the latest
+# upstream-mirror image refs.
+version: 0.1.3
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless

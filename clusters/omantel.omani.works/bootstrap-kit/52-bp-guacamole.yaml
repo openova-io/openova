@@ -47,9 +47,10 @@ spec:
   chart:
     spec:
       chart: bp-guacamole
-      # 0.1.2: 0.1.1 base + CI auto-bumped values.yaml to GHCR mirror
-      # of upstream Apache Guacamole 1.5.5.
-      version: 0.1.2
+      # 0.1.4: 0.1.3 (default imagePullSecrets) + CI auto-bumped
+      # values.yaml. imagePullSecrets default required for omantel pods
+      # to pull from private GHCR.
+      version: 0.1.4
       sourceRef:
         kind: HelmRepository
         name: bp-guacamole
