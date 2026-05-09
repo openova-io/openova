@@ -1,5 +1,17 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.96 (qa-loop iter-3 Fix #18 follow-up): exclude crds/tests/ from
+# the packaged chart via .helmignore. Helm's `crds/` directory installs
+# every YAML file inside as a CRD at the pre-render install hook,
+# regardless of the file's `kind:` field or resource namespace. The
+# sample fixtures added by PR #1105 (Application CRs in `namespace: acme`,
+# intentionally invalid for chart-author dry-run testing) were therefore
+# being submitted to the apiserver as real CRDs on every Sovereign
+# upgrade — every install of any chart ≥ 1.4.85 failed with
+# `failed to create CustomResourceDefinition bad-app: namespaces
+# "acme" not found`. Caught live on omantel 2026-05-09 attempting
+# 1.4.84 -> 1.4.95.
+#
 # 1.4.95 (qa-loop iter-3 Fix #18): clusterroles + clusterrolebindings GVR
 # added to k8scache.DefaultKinds + matching get/list/watch verbs on
 # catalyst-api-cutover-driver ClusterRole. Pairs with new
@@ -177,7 +189,7 @@ name: bp-catalyst-platform
 # precedence so openbao auto-rotation of the source doesn't thrash the
 # controller pod. Caught live on omantel 2026-05-09 during qa-loop
 # iter-1 Executor run.
-version: 1.4.95
+version: 1.4.96
 appVersion: 1.4.94
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
