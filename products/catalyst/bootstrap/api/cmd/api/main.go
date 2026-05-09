@@ -587,6 +587,22 @@ func main() {
 		// rest of /k8s/* so RequireSession gates the upgrade handshake
 		// the same way it gates the SSE/REST surface.
 		rg.Get("/api/v1/sovereigns/{id}/k8s/logs/{ns}/{pod}/{container}", h.HandleK8sLogs)
+		// EPIC-4 R1+R2+R3+R5+R6 (#1099) — Resource browser drill-down,
+		// resource tree, YAML edit (apply / dry-run), per-row actions
+		// (scale / restart / delete), metrics. Tier-admin gate is enforced
+		// inside each mutation handler (UI hides the buttons too, but the
+		// server is the authoritative gate per INVIOLABLE-PRINCIPLES #5).
+		// /metrics has its own static path-prefix so chi resolves it
+		// correctly against /k8s/{kind} (kind="metrics" would otherwise
+		// shadow it). Static must come BEFORE dynamic.
+		rg.Get("/api/v1/sovereigns/{id}/k8s/metrics/{kind}/{ns}/{name}", h.HandleK8sResourceMetrics)
+		rg.Get("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}", h.HandleK8sResourceGet)
+		rg.Get("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/tree", h.HandleK8sResourceTree)
+		rg.Post("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/scale", h.HandleK8sResourceScale)
+		rg.Post("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/restart", h.HandleK8sResourceRestart)
+		rg.Post("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/dry-run", h.HandleK8sResourceDryRun)
+		rg.Post("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/apply", h.HandleK8sResourceApply)
+		rg.Delete("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}", h.HandleK8sResourceDelete)
 		// NOTE: wizard pre-submit validation endpoints
 		// (/credentials/validate, /credentials/object-storage/validate,
 		// /sshkey/generate, /registrar/{r}/validate, /subdomains/check)

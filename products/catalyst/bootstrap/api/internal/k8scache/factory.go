@@ -606,6 +606,42 @@ func (f *Factory) CoreClient(clusterID string) kubernetes.Interface {
 	return cs.core
 }
 
+// DynamicClientFor returns the dynamic.Interface for a registered
+// Sovereign cluster, or an error when no such cluster is registered.
+//
+// Used by EPIC-4 Slice R (#1099) — the resource-detail GET, the
+// per-resource action handlers (scale/restart/delete), and the YAML
+// editor's apply/dry-run path all need an apiserver-direct mutation
+// channel beyond the informer cache. Per ADR-0001 §5 the same
+// dynamic client used by the informer is the canonical one — this
+// accessor exposes it without leaking the cluster bookkeeping.
+//
+// Lifecycle parity with CoreClient: same map, same lock, no new
+// per-cluster pool.
+func (f *Factory) DynamicClientFor(clusterID string) (dynamic.Interface, error) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	cs, ok := f.clusters[clusterID]
+	if !ok {
+		return nil, fmt.Errorf("k8scache: cluster %q not registered", clusterID)
+	}
+	if cs.dyn == nil {
+		return nil, fmt.Errorf("k8scache: cluster %q has no dynamic client", clusterID)
+	}
+	return cs.dyn, nil
+}
+
+// RedactForKind returns a deep-copy of the supplied unstructured object
+// with sensitive fields stripped per the kind's Sensitive flag. Same
+// rules as the watch-side redactor — Secret/ConfigMap data + stringData
+// are scrubbed and replaced with the redaction marker.
+//
+// Resource-GET handlers in slice R (#1099) call this after fetching live
+// from apiserver so the wire payload matches the SSE/list path's bytes.
+func (f *Factory) RedactForKind(k Kind, u *unstructured.Unstructured) *unstructured.Unstructured {
+	return redactObject(k, u)
+}
+
 // runSyncWatcher polls each informer's HasSynced under the stop
 // channel. This is event-driven from the informer's own
 // goroutine — we are NOT polling the apiserver here. The 250ms tick
