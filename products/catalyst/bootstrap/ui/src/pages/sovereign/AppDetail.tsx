@@ -44,6 +44,7 @@ import { findComponent } from '@/pages/wizard/steps/componentGroups'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import type { ApplicationStatus } from './eventReducer'
 import { ComplianceTab } from './AppDetail/ComplianceTab'
+import { MembersTab } from './AppDetail/MembersTab'
 
 interface AppDetailProps {
   /** Test seam — disables the live SSE EventSource attach. */
@@ -112,11 +113,12 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
     [flatJobs, componentId],
   )
 
-  // Tab state for the Jobs/Dependencies/Compliance tabset (founder
-  // spec item #9 + item #8b; Compliance tab added in slice U3 #1096).
-  // Default landing is the Jobs tab so the operator sees their app's
-  // jobs immediately on opening AppDetail.
-  const [appTab, setAppTab] = useState<'jobs' | 'dependencies' | 'compliance'>('jobs')
+  // Tab state for the Jobs/Dependencies/Compliance/Members tabset
+  // (founder spec item #9 + item #8b; Compliance tab added in slice
+  // U3 #1096; Members tab added in EPIC-3 slice U5 #1098). Default
+  // landing is the Jobs tab so the operator sees their app's jobs
+  // immediately on opening AppDetail.
+  const [appTab, setAppTab] = useState<'jobs' | 'dependencies' | 'compliance' | 'members'>('jobs')
 
   // The Connection section renders only for backing-service Applications.
   // Future-proofed: descriptors will gain a `kind` field in a later
@@ -340,6 +342,19 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
             >
               Compliance
             </button>
+            {/* Members tab — EPIC-3 slice U5 (#1098). Embeds the per-
+                Application member list (UserAccess CRs scoped to this
+                app via the access-matrix endpoint). */}
+            <button
+              type="button"
+              role="tab"
+              aria-selected={appTab === 'members'}
+              data-testid="sov-app-tab-members"
+              className={`app-tab ${appTab === 'members' ? 'app-tab-active' : ''}`}
+              onClick={() => setAppTab('members')}
+            >
+              Members
+            </button>
           </div>
 
           {appTab === 'jobs' ? (
@@ -353,6 +368,10 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
                 applicationName={componentId}
                 disableStream={disableStream}
               />
+            </div>
+          ) : appTab === 'members' ? (
+            <div role="tabpanel" data-testid="sov-app-tabpanel-members" className="app-tabpanel">
+              <MembersTab sovereignId={deploymentId} applicationName={componentId} />
             </div>
           ) : (
             <div role="tabpanel" data-testid="sov-app-tabpanel-dependencies" className="app-tabpanel">

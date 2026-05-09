@@ -13,6 +13,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/audit"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handoverjwt"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobs"
@@ -347,6 +348,18 @@ type Handler struct {
 	// leaves this nil and lets the lazy resolver in keycloak_proxy.go
 	// build the client from env on first call.
 	kcAdminClient KeycloakAdminClient
+
+	// ── RBAC audit bus (EPIC-3 #1098 slice U8) ─────────────────────
+	// auditBus — in-process ring buffer + SSE fan-out + optional
+	// NATS-publisher forwarder. The /audit/rbac list endpoint reads
+	// from the ring; the /audit/rbac/stream SSE endpoint subscribes
+	// to the fan-out. The rbac_assign.go handler publishes to it on
+	// every successful create/update/delete (rbac-grant-* events).
+	// Nil-tolerant: when nil the audit endpoints return 503 and the
+	// publish-side is a no-op so the rbac_assign hot path never
+	// fails because audit isn't wired. Wired from main.go at startup
+	// (in-process by default; tests inject a deterministic instance).
+	auditBus *audit.Bus
 }
 
 // powerdnsZoneClient is the narrow interface the parent-zone handler
@@ -567,6 +580,15 @@ func (h *Handler) SetOpenovaKC(kc keycloakClient) { h.openovaKC = kc }
 // startup when CATALYST_POWERDNS_API_URL + CATALYST_POWERDNS_API_KEY are
 // set. Tests inject a stub directly via this setter.
 func (h *Handler) SetPowerDNSZoneClient(c powerdnsZoneClient) { h.powerdnsZoneClient = c }
+
+// SetAuditBus wires the RBAC audit Bus (EPIC-3 #1098 slice U8). Called
+// by main.go at startup; tests inject a deterministic Bus directly.
+// Nil is allowed and disables every audit endpoint (returning 503) and
+// makes the rbac_assign emit-side a no-op.
+func (h *Handler) SetAuditBus(bus *audit.Bus) { h.auditBus = bus }
+
+// AuditBus returns the wired Bus or nil. Test helper.
+func (h *Handler) AuditBus() *audit.Bus { return h.auditBus }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")

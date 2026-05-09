@@ -71,6 +71,9 @@ import { UserAccessEditPage } from '@/pages/admin/user-access/UserAccessEditPage
 import { MultiGrantEditPage } from '@/pages/admin/rbac/MultiGrantEditPage'
 import { GroupBrowserPage } from '@/pages/admin/rbac/GroupBrowserPage'
 import { RoleBrowserPage } from '@/pages/admin/rbac/RoleBrowserPage'
+import { OrgMembersPage } from '@/pages/admin/rbac/OrgMembersPage'
+import { AccessMatrixPage } from '@/pages/admin/rbac/AccessMatrixPage'
+import { AuditPage } from '@/pages/admin/rbac/AuditPage'
 import { ParentDomainsPage } from '@/pages/admin/parent-domains/ParentDomainsPage'
 import { SREDashboardPage } from '@/pages/admin/compliance/SREDashboardPage'
 import { SecLeadDashboardPage } from '@/pages/admin/compliance/SecLeadDashboardPage'
@@ -707,6 +710,28 @@ const provisionRBACRolesRoute = createRoute({
   beforeLoad: provisionAuthGuard,
 })
 
+// EPIC-3 (#1098) slice U5-U8 — RBAC member views (per-org Members,
+// access matrix, audit trail). Per-Application Members tab lives
+// inside AppDetail and so doesn't need its own route.
+const provisionRBACMatrixRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/provision/$deploymentId/rbac/matrix',
+  component: AccessMatrixPage,
+  beforeLoad: provisionAuthGuard,
+})
+const provisionRBACAuditRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/provision/$deploymentId/rbac/audit',
+  component: AuditPage,
+  beforeLoad: provisionAuthGuard,
+})
+const provisionOrgMembersRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/provision/$deploymentId/organizations/$orgId/members',
+  component: OrgMembersPage,
+  beforeLoad: provisionAuthGuard,
+})
+
 /* ── Sovereign Settings (issue #516) ─────────────────────────────
  *
  * Deployment-scoped Settings surface. Replaces the legacy sidebar
@@ -945,6 +970,23 @@ const consoleRBACRolesRoute = createRoute({
   component: RoleBrowserPage,
 })
 
+// EPIC-3 (#1098) slice U5-U8 — RBAC member views chroot routes.
+const consoleRBACMatrixRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/rbac/matrix',
+  component: AccessMatrixPage,
+})
+const consoleRBACAuditRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/rbac/audit',
+  component: AuditPage,
+})
+const consoleOrgMembersRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/organizations/$orgId/members',
+  component: OrgMembersPage,
+})
+
 const consoleSettingsRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/settings',
@@ -1178,6 +1220,12 @@ const routeTree = rootRoute.addChildren([
   provisionRBACMultiGrantRoute,
   provisionRBACGroupsRoute,
   provisionRBACRolesRoute,
+  // EPIC-3 (#1098) slice U5-U8 — member views (per-org members,
+  // access matrix, audit trail). U5 (per-app Members tab) is mounted
+  // inside AppDetail and so doesn't appear here.
+  provisionRBACMatrixRoute,
+  provisionRBACAuditRoute,
+  provisionOrgMembersRoute,
   provisionSettingsRoute,
   provisionNotificationsRoute,
   // Compliance — slice U (#1096). Mother-side admin routes.
@@ -1207,6 +1255,10 @@ const routeTree = rootRoute.addChildren([
     consoleRBACMultiGrantRoute,
     consoleRBACGroupsRoute,
     consoleRBACRolesRoute,
+    // EPIC-3 (#1098) slice U5-U8 — RBAC member views chroot routes.
+    consoleRBACMatrixRoute,
+    consoleRBACAuditRoute,
+    consoleOrgMembersRoute,
     consoleSettingsRoute,
     consoleSettingsMarketplaceRoute,
     consoleSMEUsersRoute,
