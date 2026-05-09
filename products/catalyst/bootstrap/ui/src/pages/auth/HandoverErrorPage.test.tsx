@@ -52,4 +52,15 @@ describe('HandoverErrorPage — body-text contract (TC-004)', () => {
     expect(page.textContent).toContain('Handover incomplete')
     expect(page.textContent).toContain('Continue to console')
   })
+
+  it('renders a "Try again" link pointing back to /login (TC-005, iter-6)', () => {
+    // qa-loop iter-6 cluster `auth-handover-edge-cases`: the routing
+    // matrix asserts the literal token "Try again" appears in
+    // document.body.innerText so the operator has an obvious recovery
+    // path back to /login when the handover token was bad.
+    render(<HandoverErrorPage search="?reason=expired" />)
+    const tryAgain = screen.getByTestId('handover-error-try-again') as HTMLAnchorElement
+    expect(tryAgain.textContent).toContain('Try again')
+    expect(tryAgain.getAttribute('href')).toBe('/login')
+  })
 })
