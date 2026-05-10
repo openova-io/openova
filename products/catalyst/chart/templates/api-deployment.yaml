@@ -913,6 +913,16 @@ spec:
             # in the manifest itself rather than only in Go source.
             - name: CATALYST_CATALOG_URL
               value: "http://catalyst-catalog.catalyst-system.svc.cluster.local:8080"
+            # CATALYST_TEST_SESSION_ENABLED — gates POST /api/v1/auth/test-session
+            # (qa-loop iter-11 Cluster-A). Default empty/false → endpoint
+            # returns 404 to the public, indistinguishable from "this
+            # route doesn't exist". On QA/chroot Sovereigns the value
+            # "true" enables the endpoint so the 5-agent QA executor
+            # can mint per-tier session cookies and assert tier-boundary
+            # 403/200 contracts. Per qaFixtures.testSessionEnabled in
+            # values.yaml. NEVER enable on customer Sovereigns.
+            - name: CATALYST_TEST_SESSION_ENABLED
+              value: {{ if and .Values.qaFixtures .Values.qaFixtures.testSessionEnabled }}"true"{{ else }}""{{ end }}
           resources:
             requests:
               cpu: 50m

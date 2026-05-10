@@ -448,6 +448,20 @@ spec:
     # products/catalyst/chart/templates/qa-fixtures/_README.txt.
     qaFixtures:
       enabled: ${QA_FIXTURES_ENABLED:-false}
+      # qa-loop iter-11 Cluster-A: tier-scoped test-session minting.
+      # Enables POST /api/v1/auth/test-session?tier=<viewer|...|owner>
+      # in catalyst-api so the 5-agent QA executor can mint per-tier
+      # session cookies and assert the matrix's tier-boundary 403/200
+      # contracts on every privileged endpoint. Default true on the
+      # bootstrap-kit because every Sovereign that has qaFixtures.enabled
+      # is by definition a QA Sovereign — keeping the second knob to
+      # off-by-default would force a per-Sovereign override on the same
+      # axis the first knob already gates. Production Sovereigns (qaFixtures.enabled=false)
+      # don't render the seeder UserAccess CRs so the endpoint has no
+      # tier-bound users to authenticate against — wire-safe by
+      # construction. Override to "false" to disable the endpoint on
+      # an otherwise-QA Sovereign that wants only the resource fixtures.
+      testSessionEnabled: ${QA_TEST_SESSION_ENABLED:-true}
       namespace: ${QA_FIXTURES_NAMESPACE:-qa-omantel}
       appName: ${QA_FIXTURES_APP:-qa-wp}
       # Sovereign FQDN for Organization.spec.sovereignRef. CRD validation
