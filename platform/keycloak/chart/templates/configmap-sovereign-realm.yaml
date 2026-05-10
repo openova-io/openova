@@ -329,7 +329,7 @@ data:
         {
           "clientId": "catalyst-api-server",
           "name": "Catalyst API Server (service account)",
-          "description": "Confidential service-account client for catalyst-api. Holds impersonate + manage-users roles on realm-management for token-exchange (issue #604) AND manage-realm + view-realm + view-clients so the EPIC-3 T2 tier-role bootstrap (KEYCLOAK_BOOTSTRAP_TIER_ROLES=true, products/catalyst/bootstrap/api/internal/keycloak/realm_bootstrap.go) can materialize the catalyst-{viewer,developer,operator,admin,owner} realm-roles + composite chain (qa-loop iter-4 Fix #23).",
+          "description": "Service-account client for catalyst-api: token-exchange (impersonate, manage-users) + tier-role bootstrap (manage-realm, view-realm, view-clients).",
           "enabled": true,
           "publicClient": false,
           "standardFlowEnabled": false,
