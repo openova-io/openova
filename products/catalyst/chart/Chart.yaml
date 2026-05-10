@@ -1,5 +1,39 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.136 (qa-loop bounded-provision-cycle Fix #123, LE rate-limit
+# bypass via staging ClusterIssuer for QA Sovereigns):
+#
+# Root cause (iter-1 wedge, 2026-05-10):
+#   Let's Encrypt production hit the 5-certs/168h rate limit on
+#   `*.omantel.biz` (retry after 2026-05-11 22:08 UTC). Cilium-envoy
+#   could not get a wildcard cert → console.omantel.biz TLS handshake
+#   failed → iter-1 Test Executor could not run. Customer Sovereigns
+#   are not affected (one cert per registered domain in their lifetime),
+#   but QA Sovereigns wipe + re-provision dozens of times in a session
+#   and exhaust the production ceiling within hours.
+#
+# Fix:
+#   - bp-cert-manager-powerdns-webhook 1.1.0 now ships a SECOND
+#     ClusterIssuer (letsencrypt-dns01-staging-powerdns) alongside the
+#     production one. Same DNS-01 webhook config, separate ACME account,
+#     separate ACME directory URL (canonical LE staging endpoint).
+#     Production rate limit is wholly independent of staging.
+#   - This chart adds `wildcardCert.useStaging` (bool, default false).
+#     When true, sovereign-wildcard-certs.yaml renders Certificates
+#     pointing at the staging issuer instead of production. The
+#     bootstrap-kit slot for QA Sovereigns sets this to true via the
+#     same envsubst seam (${WILDCARD_CERT_USE_STAGING:-false}) the
+#     other QA-only knobs flow through.
+#   - cilium-envoy then gets a staging-signed wildcard cert in <2 min.
+#     `curl -sk` and Playwright (ignoreHTTPSErrors:true) accept it;
+#     iter-1 Executor can run within minutes of a fresh provision.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), the issuer
+# name is fully values-overridable — operators that wire a private
+# staging ACME (e.g. internal Smallstep CA) override the issuer
+# alongside the bp-cert-manager-powerdns-webhook staging URL without
+# touching this chart.
+#
 # 1.4.135 (qa-loop bounded-provision-cycle Fix #119, sanitize illegal
 # `/` in qa-fixtures Continuum mirror label value — unblocks prov #11):
 #
@@ -924,7 +958,7 @@ name: bp-catalyst-platform
 #   - values.yaml: new knobs `cnpgPairAliasName`,
 #     `cnpgPairPostSwitchoverPrimary`, `continuumPlatformNamespace` —
 #     all values-overridable per INVIOLABLE-PRINCIPLES #4.
-version: 1.4.135
+version: 1.4.136
 appVersion: 1.4.94
 # 1.4.129 (qa-loop iter-16 Fix #65): ship the missing
 # `openova-catalog` Flux v1 HelmRepository in flux-system. The

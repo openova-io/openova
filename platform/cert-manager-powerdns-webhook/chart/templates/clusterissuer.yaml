@@ -1,5 +1,5 @@
 {{/*
-ClusterIssuer paired with the PowerDNS webhook above.
+ClusterIssuer(s) paired with the PowerDNS webhook above.
 
 Skip-render pattern (lesson from #387 follow-up #402): when the operator
 has not supplied a PowerDNS host (default-values render, e.g. CI smoke
@@ -17,13 +17,80 @@ Either being absent means "this Sovereign isn't ready to issue via
 PowerDNS yet" and the chart silently omits the resource. cert-manager's
 admission would reject the issuer at apply time anyway if we tried to
 emit it with an empty host, so failing soft here is strictly better.
+
+──────────────────────────────────────────────────────────────────────────
+Two ClusterIssuers — production AND staging (Fix #123, LE rate-limit)
+──────────────────────────────────────────────────────────────────────────
+This template renders TWO ClusterIssuers when both are enabled:
+
+  - letsencrypt-dns01-prod-powerdns      (production LE — real-trusted
+                                          certs, 5/168h rate limit per
+                                          registered domain)
+  - letsencrypt-dns01-staging-powerdns   (staging LE — separate generous
+                                          rate limits, certs are NOT
+                                          real-trusted but `curl -sk`
+                                          accepts them; intended for QA
+                                          Sovereigns and bring-up so the
+                                          production rate limit is never
+                                          tripped during iteration)
+
+Both ClusterIssuers reuse the same DNS-01 webhook config (same PowerDNS
+endpoint, same API key) — the ONLY difference is the ACME directory URL
+each one points at. cert-manager treats them as wholly independent
+issuers (separate ACME account keys, separate registration), so a rate-
+limit hit on production does NOT block staging issuance.
+
+The active issuer for a given Sovereign is selected by chart consumers
+(typically bp-catalyst-platform's wildcardCert.useStaging gate, which
+flips `wildcardCert.issuerName` to the staging issuer's name when the
+Sovereign is QA-flavoured) — this chart simply makes both available.
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), both ACME
+directory URLs are operator-overridable via clusterIssuer.acmeServer
+(production) and clusterIssuer.staging.acmeServer (staging). The
+staging default is the canonical Let's Encrypt staging endpoint
+(https://acme-staging-v02.api.letsencrypt.org/directory). A future
+operator wiring a private ACME staging server overrides via the
+per-Sovereign overlay without rebuilding this Blueprint.
+
+The staging variant is gated by clusterIssuer.staging.enabled (default
+true so every Sovereign has a staging fallback ready). Operators that
+want production-only on a customer Sovereign flip
+clusterIssuer.staging.enabled=false in the cluster overlay.
 */}}
 {{- if and .Values.clusterIssuer.enabled .Values.powerdns.host }}
+{{- $stagingCfg := .Values.clusterIssuer.staging | default dict }}
+{{- $stagingEnabled := true }}
+{{- if hasKey $stagingCfg "enabled" }}
+  {{- $stagingEnabled = $stagingCfg.enabled }}
+{{- end }}
+{{- /* Variants list drives a two-pass render so prod+staging stay
+       byte-identical except for `name`, ACME directory URL, and
+       privateKeySecretRefName. */}}
+{{- $variants := list (dict
+    "name"          .Values.clusterIssuer.name
+    "acmeServer"    .Values.clusterIssuer.acmeServer
+    "privateKeyRef" .Values.clusterIssuer.privateKeySecretRefName
+    "issuerEnv"     "production"
+    "render"        true
+) }}
+{{- $variants = append $variants (dict
+    "name"          ($stagingCfg.name | default "letsencrypt-dns01-staging-powerdns")
+    "acmeServer"    ($stagingCfg.acmeServer | default "https://acme-staging-v02.api.letsencrypt.org/directory")
+    "privateKeyRef" ($stagingCfg.privateKeySecretRefName | default "letsencrypt-dns01-staging-powerdns-account-key")
+    "issuerEnv"     "staging"
+    "render"        $stagingEnabled
+) }}
+{{- range $i, $v := $variants }}
+{{- if $v.render }}
+{{- if $i }}
+---
+{{- end }}
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
-  name: {{ .Values.clusterIssuer.name }}
-  {{- if .Values.clusterIssuer.helmHookEnabled }}
+  name: {{ $v.name }}
+  {{- if $.Values.clusterIssuer.helmHookEnabled }}
   annotations:
     # Helm post-install/post-upgrade hook: ClusterIssuer is a
     # cert-manager.io/v1 CRD that only exists AFTER the cert-manager
@@ -37,48 +104,49 @@ metadata:
     "helm.sh/hook-delete-policy": before-hook-creation
   {{- end }}
   labels:
-    {{- include "bp-cert-manager-powerdns-webhook.labels" . | nindent 4 }}
+    {{- include "bp-cert-manager-powerdns-webhook.labels" $ | nindent 4 }}
     catalyst.openova.io/issuer-class: dns01
     catalyst.openova.io/issuer-backend: powerdns
+    catalyst.openova.io/issuer-env: {{ $v.issuerEnv | quote }}
 spec:
   acme:
-    server: {{ .Values.clusterIssuer.acmeServer | quote }}
-    email: {{ .Values.clusterIssuer.email | quote }}
+    server: {{ $v.acmeServer | quote }}
+    email: {{ $.Values.clusterIssuer.email | quote }}
     privateKeySecretRef:
-      name: {{ .Values.clusterIssuer.privateKeySecretRefName }}
+      name: {{ $v.privateKeyRef }}
     solvers:
       - dns01:
           webhook:
-            groupName: {{ .Values.webhook.groupName | quote }}
-            solverName: {{ .Values.webhook.solverName | quote }}
+            groupName: {{ $.Values.webhook.groupName | quote }}
+            solverName: {{ $.Values.webhook.solverName | quote }}
             config:
               # Base URL of the per-Sovereign PowerDNS REST API. Operator
               # MUST set this in the cluster overlay; see chart values
               # comment for the in-cluster vs external routing patterns.
-              host: {{ .Values.powerdns.host | quote }}
-              serverID: {{ .Values.powerdns.serverID | quote }}
-              {{- with .Values.powerdns.apiKeyHeaderName }}
+              host: {{ $.Values.powerdns.host | quote }}
+              serverID: {{ $.Values.powerdns.serverID | quote }}
+              {{- with $.Values.powerdns.apiKeyHeaderName }}
               apiKeyHeaderName: {{ . | quote }}
               {{- end }}
-              {{- with .Values.powerdns.apiKeyScheme }}
+              {{- with $.Values.powerdns.apiKeyScheme }}
               apiKeyScheme: {{ . | quote }}
               {{- end }}
-              ttl: {{ .Values.powerdns.ttl }}
-              {{- with .Values.powerdns.caBundle }}
+              ttl: {{ $.Values.powerdns.ttl }}
+              {{- with $.Values.powerdns.caBundle }}
               # PEM bundle MUST be base64-encoded for the JSON wire
               # format used by cert-manager's ChallengeRequest config
               # decoder. Operators paste the raw PEM into values; we
               # b64encode here so the cluster overlay never has to.
               caBundle: {{ . | b64enc | quote }}
               {{- end }}
-              {{- with .Values.powerdns.headers }}
+              {{- with $.Values.powerdns.headers }}
               headers:
                 {{- toYaml . | nindent 16 }}
               {{- end }}
               apiKeySecretRef:
-                name: {{ .Values.powerdns.apiKeySecretRef.name | quote }}
-                key: {{ .Values.powerdns.apiKeySecretRef.key | quote }}
-                {{- with .Values.powerdns.apiKeySecretRef.namespace }}
+                name: {{ $.Values.powerdns.apiKeySecretRef.name | quote }}
+                key: {{ $.Values.powerdns.apiKeySecretRef.key | quote }}
+                {{- with $.Values.powerdns.apiKeySecretRef.namespace }}
                 # Cluster-scoped namespace — only set if the operator
                 # places the API-key secret outside the cert-manager
                 # namespace. cert-manager's webhook framework uses
@@ -87,4 +155,6 @@ spec:
                 # required cross-namespace access.
                 namespace: {{ . | quote }}
                 {{- end }}
+{{- end }}
+{{- end }}
 {{- end }}

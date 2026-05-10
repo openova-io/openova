@@ -945,6 +945,18 @@ write_files:
             QA_TEST_SESSION_ENABLED: "${qa_test_session_enabled}"
             QA_FIXTURES_NAMESPACE: "${qa_fixtures_namespace}"
             QA_ORGANIZATION: "${qa_organization}"
+            # Wildcard cert ACME directory selector (Fix #123 — qa-loop
+            # iter-1 LE rate-limit unblock). "true" makes
+            # bp-catalyst-platform 1.4.136+ render
+            # sovereign-wildcard-tls Certificate(s) against the staging
+            # ClusterIssuer (`letsencrypt-dns01-staging-powerdns`,
+            # shipped by bp-cert-manager-powerdns-webhook 1.1.0+) so the
+            # production 5/168h LE rate limit per registered domain is
+            # bypassed during high-cadence QA iteration. Catalyst-api
+            # auto-stamps "true" alongside QA_FIXTURES_ENABLED on QA
+            # Sovereigns; default "false" → real-trusted production
+            # certs on customer Sovereigns.
+            WILDCARD_CERT_USE_STAGING: "${wildcard_cert_use_staging}"
       ---
       apiVersion: kustomize.toolkit.fluxcd.io/v1
       kind: Kustomization

@@ -75,6 +75,34 @@ variable "qa_test_session_enabled" {
   }
 }
 
+# Wildcard cert ACME directory selector (Fix #123 — qa-loop iter-1 LE
+# rate-limit unblock). When 'true', bp-catalyst-platform 1.4.136+
+# sovereign-wildcard-tls Certificate(s) reference the staging
+# ClusterIssuer (`letsencrypt-dns01-staging-powerdns`, shipped by
+# bp-cert-manager-powerdns-webhook 1.1.0+) instead of production. The
+# staging ACME directory has separate, generous rate limits — the
+# production 5-certs/168h ceiling per registered domain is wholly
+# bypassed. Staging certs are signed by Fake LE Intermediate X1; browsers
+# reject without an explicit exception, but `curl -sk` and Playwright
+# (ignoreHTTPSErrors:true) accept them. Auto-set to match
+# qa_fixtures_enabled on QA Sovereigns by catalyst-api; default 'false'
+# here so a Sovereign that omits the QA flags entirely (production)
+# cannot accidentally issue staging certs and break browser TLS.
+# Threaded into bootstrap-kit Kustomization postBuild.substitute as
+# WILDCARD_CERT_USE_STAGING — the chart reads via
+# `${WILDCARD_CERT_USE_STAGING:-false}` so this var is the canonical
+# operator-controlled seam per docs/INVIOLABLE-PRINCIPLES.md #4
+# (never hardcode).
+variable "wildcard_cert_use_staging" {
+  type        = string
+  description = "When 'true', bp-catalyst-platform issues sovereign wildcard certs from the staging Let's Encrypt issuer (separate generous rate limits, certs signed by Fake LE Intermediate X1 — browsers reject, curl -sk + Playwright ignoreHTTPSErrors:true accept). Auto-set by catalyst-api to match qa_fixtures_enabled on QA Sovereigns. Default 'false' for customer Sovereigns."
+  default     = "false"
+  validation {
+    condition     = contains(["true", "false"], var.wildcard_cert_use_staging)
+    error_message = "wildcard_cert_use_staging must be the string 'true' or 'false'."
+  }
+}
+
 # qa-fixtures namespace + Organization names. Default to derivation-friendly
 # fallbacks that survive when qa_fixtures_enabled='false' (the chart
 # short-circuits before materialising them). When qa_fixtures_enabled='true',

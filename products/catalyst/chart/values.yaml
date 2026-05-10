@@ -135,6 +135,35 @@ wildcardCert:
   # override to a per-cluster issuer (e.g. a private ACME) via
   # cluster overlay.
   issuerName: letsencrypt-dns01-prod-powerdns
+  # ─── Let's Encrypt staging fallback (Fix #123) ─────────────────────
+  # When `useStaging: true`, the rendered Certificate(s) reference the
+  # staging issuer (`issuerNameStaging`, default
+  # `letsencrypt-dns01-staging-powerdns` shipped by
+  # bp-cert-manager-powerdns-webhook 1.1.0+) instead of `issuerName`.
+  # The staging issuer hits Let's Encrypt's staging ACME directory
+  # (https://acme-staging-v02.api.letsencrypt.org/directory), which
+  # has separate, generous rate limits — the production 5-certs/168h
+  # ceiling per registered domain is wholly bypassed. The cert is
+  # signed by Fake LE Intermediate X1 so browsers reject without an
+  # explicit exception, but `curl -sk` and Playwright
+  # (ignoreHTTPSErrors:true) accept it. Intended for QA Sovereigns
+  # whose wipe + re-provision cadence would otherwise exhaust LE
+  # production within hours.
+  #
+  # Default false — customer Sovereigns issue real-trusted production
+  # certs. The bootstrap-kit slot 13-bp-catalyst-platform.yaml flips
+  # this to true on QA Sovereigns via the
+  # ${WILDCARD_CERT_USE_STAGING:-false} envsubst seam (same pattern
+  # as ${QA_FIXTURES_ENABLED:-false}). Per
+  # docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every Sovereign
+  # may flip this independently from a per-cluster overlay.
+  useStaging: false
+  # Name of the staging ClusterIssuer. Defaults to the canonical name
+  # shipped by bp-cert-manager-powerdns-webhook 1.1.0+. Operators that
+  # wire a private staging ACME (e.g. internal Smallstep CA) override
+  # both this and the bp-cert-manager-powerdns-webhook staging block
+  # via the per-cluster overlay.
+  issuerNameStaging: letsencrypt-dns01-staging-powerdns
   # Cert renew window. cert-manager defaults are conservative; we
   # match the per-Sovereign cilium-gateway-cert.yaml legacy values.
   duration: ""        # empty = cert-manager default (90d for LE)
