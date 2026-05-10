@@ -37,6 +37,8 @@ description: |
       adds NetBird OIDC client + `netbird-user` realm role +
       `netbird-users` group)
 type: application
+annotations:
+  catalyst.openova.io/smoke-render-mode: "default-off"
 keywords: [catalyst, blueprint, netbird, wireguard, mesh, vpn, oidc, remote-access]
 maintainers:
   - name: OpenOva Catalyst

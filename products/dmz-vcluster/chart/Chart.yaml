@@ -32,6 +32,8 @@ description: |
   the egress gateway are ready.
 
 type: application
+annotations:
+  catalyst.openova.io/smoke-render-mode: "default-off"
 keywords: [catalyst, blueprint, dmz, vcluster, isolation, multi-tenant]
 maintainers:
   - name: OpenOva Catalyst
