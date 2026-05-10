@@ -930,7 +930,7 @@ write_files:
             # namespace + Organization names when the wizard / API
             # caller sets Request.QATestEnabled=true (QA Sovereigns
             # only). The bp-catalyst-platform chart's bootstrap-kit
-            # slot 13 reads via ${QA_FIXTURES_ENABLED:-false} and the
+            # slot 13 reads via $${QA_FIXTURES_ENABLED:-false} and the
             # other three placeholders below — see
             # clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml
             # lines 496/510/511/519.
