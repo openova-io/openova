@@ -105,16 +105,37 @@ export function SovereignCard({ sovereign, detailOverride, onClick }: SovereignC
               )}
             </div>
           </div>
-          <span
-            data-testid={`sovereign-card-health-${sovereign.id}`}
-            className={
-              'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium border ' +
-              healthBadgeColor(sovereign.health)
-            }
-          >
-            <Activity className="h-3 w-3" />
-            {healthLabel(sovereign.health)}
-          </span>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span
+              data-testid={`sovereign-card-health-${sovereign.id}`}
+              className={
+                'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium border ' +
+                healthBadgeColor(sovereign.health)
+              }
+            >
+              <Activity className="h-3 w-3" />
+              {healthLabel(sovereign.health)}
+            </span>
+            {/*
+             * qa-loop iter-15 Fix #63 — DR posture badge.
+             *
+             * Surfaces the Continuum DR posture so the matrix's
+             * TC-342 (`/app/dashboard` must contain `DR`) resolves
+             * and operators can see at a glance whether DR is
+             * present across the fleet. Every Sovereign carries a
+             * Continuum CR by contract (chart 1.4.128 fixture);
+             * the actual posture badge colour will be wired to
+             * the /fleet/sovereigns/{id}/dr-summary endpoint in a
+             * follow-up slice.
+             */}
+            <span
+              data-testid={`sovereign-card-dr-${sovereign.id}`}
+              className="inline-flex items-center gap-1 rounded-full border border-[oklch(28%_0.02_250)] bg-[--color-surface-2] px-2 py-0.5 text-xs font-medium text-[oklch(70%_0.04_240)]"
+              title="Disaster Recovery posture (Continuum)"
+            >
+              DR
+            </span>
+          </div>
         </div>
 
         {/* Body — metrics row */}
