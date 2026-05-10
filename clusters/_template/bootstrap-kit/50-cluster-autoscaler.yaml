@@ -75,7 +75,15 @@ spec:
   chart:
     spec:
       chart: bp-cluster-autoscaler-hcloud
-      version: 1.0.0
+      # 1.2.0 — qa-loop Wave 5 Fix #79 Gap D: chart-derived
+      # HCLOUD_CLUSTER_CONFIG fallback. When the per-Sovereign
+      # cloud-init has not stamped the `hcloud-cloud-init` key into
+      # `flux-system/cloud-credentials`, the chart synthesises a
+      # minimal HCLOUD_CLUSTER_CONFIG JSON from the existing
+      # `cluster-autoscaler.autoscalingGroups[]` so the autoscaler
+      # never FATALs with the generic
+      # "HCLOUD_CLUSTER_CONFIG or HCLOUD_CLOUD_INIT is not specified".
+      version: 1.2.0
       sourceRef:
         kind: HelmRepository
         name: bp-cluster-autoscaler-hcloud
