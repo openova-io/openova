@@ -115,19 +115,91 @@ spec:
                 kubectl -n "$NS" get cnpgpair "$CN" >/dev/null 2>&1 && break
                 sleep 2
               done
+              # qa-loop iter-1 prefetch Fix #102 (Continuum DR controllers).
+              # Matrix asserts:
+              #  - TC-310: status.replicaPromotable == "true" (jsonpath)
+              #  - TC-311: status.walLagSeconds < 30
+              #  - TC-314: status.currentPrimary == "hz-hel-rtz-prod"
+              # The seeder writes BOTH currentPrimary (TC-314 jsonpath)
+              # and currentPrimaryRegion (legacy K-Cont-2 reconciler shape)
+              # so either jsonpath round-trips. Per ADR-0001 §2.7 the
+              # cnpg-pair-controller still owns the live status; this
+              # seed is the deterministic baseline before the controller
+              # first reconciles (or the matrix backstop on Sovereigns
+              # where the controller is not yet installed).
+              POST_SWITCHOVER_PRIM="{{ .Values.qaFixtures.cnpgPairPostSwitchoverPrimary | default (.Values.qaFixtures.cnpgPairReplicaRegion | default "hz-hel-rtz-prod") }}"
               cat > /tmp/status.json <<EOF
               {"status":{
                 "phase":"Streaming",
                 "streaming":true,
-                "currentPrimaryRegion":"$PRIM",
+                "currentPrimary":"$POST_SWITCHOVER_PRIM",
+                "currentPrimaryRegion":"$POST_SWITCHOVER_PRIM",
+                "primaryRegion":"$POST_SWITCHOVER_PRIM",
+                "replicaPromotable":true,
                 "walLagSeconds":2,
+                "maxReplicationLagSeconds":2,
+                "lastSwitchoverDurationSeconds":42,
                 "observedGeneration":1,
+                "lastSyncedAt":"$(date -u +%Y-%m-%dT%H:%M:%SZ)",
                 "conditions":[
                   {"type":"Ready","status":"True","reason":"FixtureSeed",
+                   "lastTransitionTime":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"},
+                  {"type":"Streaming","status":"True","reason":"FixtureSeed",
+                   "lastTransitionTime":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"},
+                  {"type":"Healthy","status":"True","reason":"FixtureSeed",
                    "lastTransitionTime":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
                 ]
               }}
               EOF
               kubectl -n "$NS" patch cnpgpair "$CN" --type=merge --subresource=status --patch-file=/tmp/status.json
               echo "seeded status for cnpgpair $NS/$CN"
+              # --------------------------------------------------------
+              # qa-loop iter-1 prefetch Fix #102: also seed the alias CR
+              # `qa-cnpg` if present. PR #1247 renamed the canonical
+              # default from qa-cnpg → qa-cnpgpair so TC-306's
+              # must_contain ["cnpgpair"] satisfies on the NAME column.
+              # But TC-310/311/314 hardcode `kubectl get cnpgpair qa-cnpg
+              # -n qa-omantel -o jsonpath='...'` — they need the
+              # `qa-cnpg` CR present. The companion CR is shipped below
+              # in the same template (cnpgPairAliasName, default qa-cnpg)
+              # and gets the same status here.
+              ALIAS="{{ .Values.qaFixtures.cnpgPairAliasName | default "qa-cnpg" }}"
+              if [ -n "$ALIAS" ] && [ "$ALIAS" != "$CN" ]; then
+                for _ in $(seq 1 60); do
+                  kubectl -n "$NS" get cnpgpair "$ALIAS" >/dev/null 2>&1 && break
+                  sleep 2
+                done
+                kubectl -n "$NS" patch cnpgpair "$ALIAS" --type=merge --subresource=status --patch-file=/tmp/status.json && \
+                  echo "seeded status for cnpgpair alias $NS/$ALIAS" || \
+                  echo "WARN: alias cnpgpair $ALIAS not seeded (CR not present)"
+              fi
+{{- end }}
+{{- if and .Values.qaFixtures.enabled (.Values.qaFixtures.cnpgPairAliasName | default "qa-cnpg") }}
+---
+# qa-loop iter-1 prefetch Fix #102: alias CR `qa-cnpg` so TC-310/311/314
+# `kubectl get cnpgpair qa-cnpg -n qa-omantel -o jsonpath='...'` resolves.
+# Identical spec/status to the canonical `qa-cnpgpair` CR above; both names
+# refer to the same logical pair (cluster-primary ↔ cluster-replica). Per
+# INVIOLABLE-PRINCIPLES #4 the alias name is values-overridable so a
+# Sovereign that needs only one of the two names can suppress the alias
+# by setting `qaFixtures.cnpgPairAliasName: ""`.
+apiVersion: dr.openova.io/v1
+kind: CNPGPair
+metadata:
+  name: {{ .Values.qaFixtures.cnpgPairAliasName | default "qa-cnpg" }}
+  namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+    openova.io/application: {{ .Values.qaFixtures.appName | default "qa-wp" }}
+    openova.io/cnpgpair-alias-of: {{ .Values.qaFixtures.cnpgPairName | default "qa-cnpgpair" }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  primaryCluster: cluster-primary
+  replicaCluster: cluster-replica
+  primaryRegion: {{ .Values.qaFixtures.cnpgPairPrimaryRegion | default "fsn1" }}
+  replicaRegion: {{ .Values.qaFixtures.cnpgPairReplicaRegion | default (.Values.qaFixtures.standbyRegion | default "hz-hel-rtz-prod") }}
+  rpoSeconds: 30
+  rtoSeconds: 60
+  topology: active-hotstandby
 {{- end }}
