@@ -51,10 +51,19 @@ spec:
             - name: CATALYST_GITEA_URL
               value: {{ .Values.services.catalog.giteaURL | default "http://gitea-http.gitea.svc.cluster.local:3000" | quote }}
             - name: CATALYST_GITEA_TOKEN
+              # qa-loop iter-1 Fix #124 alignment: the canonical wiring
+              # for this Secret reference is the pre-install hook in
+              # templates/catalyst-gitea-token-secret.yaml (chart 1.4.136+).
+              # `optional: true` matches api-deployment + organization-
+              # controller-deployment so a missing Secret does not block
+              # the kubelet from starting the Pod (the app will still
+              # error at startup if CATALYST_GITEA_TOKEN is empty — which
+              # is the contract it requires from the in-cluster Gitea).
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.services.catalog.giteaSecretRef | default "catalyst-gitea-token" }}
                   key: token
+                  optional: true
             - name: CATALOG_PUBLIC_ORG
               value: {{ .Values.services.catalog.publicOrg | default "catalog" | quote }}
             - name: CATALOG_SOVEREIGN_ORG
