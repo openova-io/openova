@@ -15,7 +15,10 @@ The cutover runner needs cluster-scope reach because:
   - Step 02 reads ghcr-pull Secret in `flux-system` namespace.
   - Step 03 only writes to local Harbor over HTTP (no K8s API).
   - Step 05 patches GitRepository in `flux-system` namespace.
-  - Step 06 patches HelmRepositories in `flux-system` namespace.
+  - Step 06 patches HelmRepositories in `flux-system` namespace, AND
+    (phase-0, #1184) merges harbor.<sov-fqdn> auth into the ghcr-pull
+    Secret in `flux-system` so source-controller can pull from the
+    per-Sovereign Harbor mirror without manual kubectl patch.
   - Step 07 patches Deployment in `catalyst-platform` namespace.
   - Step 08 creates+deletes a CiliumNetworkPolicy cluster-wide and
     queries HelmRelease/Kustomization status across all namespaces.
@@ -91,6 +94,9 @@ rules:
   - apiGroups: [""]
     resources: ["configmaps"]
     verbs: ["update", "patch"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["update", "patch"]   # step 06 phase-0 merges harbor.<sov-fqdn> auth into ghcr-pull (#1184)
   - apiGroups: ["apps"]
     resources: ["deployments"]
     verbs: ["update", "patch"]   # step 07 sets env on catalyst-api deployment

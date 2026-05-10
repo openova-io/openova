@@ -1,9 +1,26 @@
 {{- /*
 Step 06 — helmrepository-patches.
 
-For each HelmRepository in .Values.helmRepositories.names, patches
-spec.url from oci://ghcr.io/openova-io/<name> to
-oci://harbor.<sov-fqdn>/openova-io/<name>.
+Three phases run in this Job:
+
+  Phase 0  Merge harbor.<sov-fqdn> auth into the flux-system/ghcr-pull
+           dockerconfigjson Secret so source-controller can pull from the
+           per-Sovereign Harbor mirror once the URLs are pivoted in
+           Phase 1. Without this, every HelmRepository pivoted to
+           oci://harbor.<sov-fqdn>/openova-io 401s on the very first
+           reconcile because ghcr-pull only carries auth for
+           ghcr.io / harbor.openova.io. Caught manually on omantel
+           2026-05-10 (session 5c468708) — bp-guacamole / bp-netbird /
+           bp-dmz-vcluster all stuck Reconciling until a manual
+           `kubectl patch secret ghcr-pull` was run. Idempotent: if
+           harbor.<sov-fqdn> already maps to an auth entry the script
+           no-ops. (#1184)
+  Phase 1  Live K8s patches: for each HelmRepository in
+           .Values.helmRepositories.names, patches spec.url from
+           oci://ghcr.io/openova-io/<name> to
+           oci://harbor.<sov-fqdn>/openova-io/<name>.
+  Phase 2  Push the YAML edit to local Gitea so the bootstrap-kit
+           Kustomization reconcile doesn't revert Phase 1 within ~1m.
 
 Image phase: post.
 */ -}}
@@ -58,6 +75,27 @@ data:
             value: {{ .Values.gitea.org | quote }}
           - name: GITEA_REPO
             value: {{ .Values.gitea.repo | quote }}
+          # Phase 0 (#1184) — harbor.<sov-fqdn> auth merge into ghcr-pull.
+          # HARBOR_PASSWORD comes from the Reflector-mirrored
+          # harbor-admin Secret in this namespace (bp-harbor 1.2.14+
+          # emits it in the harbor ns with allowed-namespaces=catalyst).
+          - name: HARBOR_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.harbor.adminSecretRef.name }}
+                key: {{ .Values.harbor.adminSecretRef.usernameKey }}
+                optional: true
+          - name: HARBOR_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.harbor.adminSecretRef.name }}
+                key: {{ .Values.harbor.adminSecretRef.passwordKey }}
+          - name: GHCR_PULL_SECRET_NAME
+            value: {{ .Values.harbor.ghcrSecretRef.name | quote }}
+          - name: GHCR_PULL_SECRET_NAMESPACE
+            value: {{ .Values.harbor.ghcrSecretRef.namespace | quote }}
+          - name: GHCR_PULL_SECRET_KEY
+            value: {{ .Values.harbor.ghcrSecretRef.dockerConfigKey | quote }}
         volumeMounts:
           - name: helmrepository-list
             mountPath: /work
@@ -72,6 +110,88 @@ data:
             local_prefix="oci://${harbor_host}/openova-io"
 
             echo "[helmrepository-patches] upstream=${UPSTREAM_PREFIX} -> local=${local_prefix}"
+
+            # ---- Phase 0: merge harbor.<sov-fqdn> auth into ghcr-pull (#1184) ----
+            #
+            # source-controller pulls Helm OCI charts from
+            # oci://harbor.<sov-fqdn>/openova-io using the imagePullSecret
+            # named on each HelmRepository (`secretRef.name: ghcr-pull`,
+            # see clusters/_template/bootstrap-kit/*.yaml). The ghcr-pull
+            # Secret ships from cloud-init carrying ghcr.io +
+            # harbor.openova.io auth only — it has NO entry for
+            # harbor.<sov-fqdn>. Once Phase-1 below pivots HelmRepository
+            # URLs, every reconcile against the local Harbor 401s.
+            #
+            # Manual fix done on omantel 2026-05-10 (session 5c468708):
+            #   HARBOR_AUTH=$(echo -n "admin:${HADMIN_PW}" | base64 -w0)
+            #   NEW=$(jq --arg auth "$HARBOR_AUTH" \
+            #           '.auths["harbor.omantel.biz"] = {
+            #              "username":"admin","auth":$auth }' <existing>)
+            #   kubectl patch secret ghcr-pull -n flux-system \
+            #     --type=merge -p "{\"data\":{...}}"
+            #
+            # Phase 0 codifies that patch so the next fresh `tofu apply`
+            # comes up GREEN without operator intervention.
+            : "${HARBOR_USERNAME:=admin}"
+            if [ -z "${HARBOR_PASSWORD:-}" ]; then
+              echo "[helmrepository-patches] FATAL: HARBOR_PASSWORD env empty — cannot derive harbor.${harbor_host} auth" >&2
+              exit 1
+            fi
+
+            # Bracket-form jsonpath quotes the key literally so the
+            # leading dot in `.dockerconfigjson` is not interpreted as
+            # path traversal.
+            existing_b64=$(kubectl get secret "${GHCR_PULL_SECRET_NAME}" \
+              -n "${GHCR_PULL_SECRET_NAMESPACE}" \
+              -o "jsonpath={.data['${GHCR_PULL_SECRET_KEY}']}" 2>/dev/null || echo "")
+            if [ -z "${existing_b64}" ]; then
+              echo "[helmrepository-patches] FATAL: ghcr-pull Secret has no ${GHCR_PULL_SECRET_KEY} key — cloud-init did not run?" >&2
+              exit 1
+            fi
+
+            existing_json=$(printf '%s' "${existing_b64}" | base64 -d)
+
+            # Idempotency guard: if harbor.<sov-fqdn> already maps to an
+            # auth entry, no-op. Re-runs of step-06 (catalyst-api may
+            # retry) MUST NOT churn the Secret resourceVersion every
+            # time — that triggers a noisy reflector cascade.
+            already=$(printf '%s' "${existing_json}" | jq -r --arg h "${harbor_host}" \
+              '.auths[$h].auth // empty')
+            harbor_auth=$(printf '%s:%s' "${HARBOR_USERNAME}" "${HARBOR_PASSWORD}" | base64 -w0)
+            if [ -n "${already}" ] && [ "${already}" = "${harbor_auth}" ]; then
+              echo "[helmrepository-patches] Phase-0 skip: ghcr-pull already carries auth for ${harbor_host}"
+            else
+              new_json=$(printf '%s' "${existing_json}" | jq --arg h "${harbor_host}" \
+                --arg user "${HARBOR_USERNAME}" --arg auth "${harbor_auth}" \
+                '.auths[$h] = {"username":$user,"auth":$auth}')
+              new_b64=$(printf '%s' "${new_json}" | base64 -w0)
+              # Merge-patch the data field. Quoting note: ${GHCR_PULL_SECRET_KEY}
+              # is `.dockerconfigjson` which is a literal key (the leading
+              # dot is part of the field name); JSON merge-patch treats it
+              # as a single key, no path traversal.
+              patch_payload=$(printf '{"data":{"%s":"%s"}}' "${GHCR_PULL_SECRET_KEY}" "${new_b64}")
+              if kubectl patch secret "${GHCR_PULL_SECRET_NAME}" \
+                  -n "${GHCR_PULL_SECRET_NAMESPACE}" \
+                  --type=merge --patch "${patch_payload}" >/dev/null; then
+                echo "[helmrepository-patches] Phase-0 OK: merged ${harbor_host} auth into ${GHCR_PULL_SECRET_NAMESPACE}/${GHCR_PULL_SECRET_NAME}"
+              else
+                echo "[helmrepository-patches] FATAL: kubectl patch ${GHCR_PULL_SECRET_NAME} failed" >&2
+                exit 1
+              fi
+              # Trigger an immediate refresh of every HelmRepository so
+              # source-controller re-loads the Secret on next pull.
+              # Phase 1 below only annotates HRs in HELMREPO_NAMESPACE
+              # whose URL it pivots — but the auth merge benefits every
+              # HR pulling from harbor.<sov-fqdn>, so kick all of them.
+              now_ts=$(date +%s)
+              kubectl get helmrepositories -A \
+                -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' \
+                2>/dev/null | while read -r ns name; do
+                [ -z "${ns}" ] && continue
+                kubectl annotate --overwrite -n "${ns}" "helmrepository/${name}" \
+                  "reconcile.fluxcd.io/requestedAt=${now_ts}" >/dev/null 2>&1 || true
+              done || true
+            fi
 
             # ---- Phase 1: live K8s patches (immediate) ----
             ok=0

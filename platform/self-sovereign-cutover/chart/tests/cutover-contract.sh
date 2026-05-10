@@ -267,6 +267,35 @@ if ! grep -q 'gitea_host=' "$TMP/render.yaml"; then
 fi
 echo "  PASS (Step-01 has DNS readiness probe)"
 
+echo "[cutover-contract] Case 17: Step-06 phase-0 merges harbor.<sov-fqdn> auth into ghcr-pull (#1184)"
+# 0.1.23 only patched HelmRepository URLs; the pivoted URLs 401 on
+# first reconcile because ghcr-pull lacks auth for harbor.<sov-fqdn>.
+# 0.1.24 adds Phase-0 to Step-06 that merges admin:<password> into the
+# Secret. Guard against future regressions that drop the merge.
+if ! grep -q 'Phase 0: merge harbor' "$TMP/render.yaml"; then
+  echo "FAIL: Step-06 missing Phase 0 (harbor.<sov-fqdn> auth merge into ghcr-pull) (#1184)" >&2
+  exit 1
+fi
+if ! grep -q 'GHCR_PULL_SECRET_NAME' "$TMP/render.yaml"; then
+  echo "FAIL: Step-06 PodSpec missing GHCR_PULL_SECRET_NAME env (#1184)" >&2
+  exit 1
+fi
+if ! grep -q 'GHCR_PULL_SECRET_NAMESPACE' "$TMP/render.yaml"; then
+  echo "FAIL: Step-06 PodSpec missing GHCR_PULL_SECRET_NAMESPACE env (#1184)" >&2
+  exit 1
+fi
+if ! grep -q 'HARBOR_PASSWORD' "$TMP/render.yaml"; then
+  echo "FAIL: Step-06 PodSpec missing HARBOR_PASSWORD env (#1184)" >&2
+  exit 1
+fi
+# RBAC must allow patching Secrets cluster-wide for the merge.
+if ! awk '/^kind: ClusterRole$/,/^---$/' "$TMP/render.yaml" \
+     | grep -B1 -A2 '"secrets"' | grep -E 'verbs:.*"patch"|verbs:.*"update"' >/dev/null; then
+  echo "FAIL: ClusterRole missing secrets [update|patch] (Phase-0 will 403) (#1184)" >&2
+  exit 1
+fi
+echo "  PASS (Step-06 Phase-0 ghcr-pull merge wired)"
+
 echo "[cutover-contract] Case 16: Step-06 helmrepository-patches pushes YAML edit to local Gitea (#970)"
 # 0.1.19 Step-06 only ran kubectl patch against live HelmRepository
 # objects. bootstrap-kit Kustomization reconciled YAML from local
