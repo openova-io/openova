@@ -222,6 +222,42 @@ clusterAutoscalerHcloud:
   clusterConfig: ""
   cloudInit: ""
 
+  # ─── Chart-derived HCLOUD_CLUSTER_CONFIG fallback (qa-loop Wave 5 #79) ──
+  # When `clusterConfig:` above is empty AND the per-Sovereign cloud-init
+  # has not yet stamped the `hcloud-cloud-init` key into
+  # `flux-system/cloud-credentials`, the chart's
+  # `templates/hetzner-node-config-secret.yaml` synthesises a minimal
+  # HCLOUD_CLUSTER_CONFIG JSON from the existing
+  # `cluster-autoscaler.autoscalingGroups[]` array (already mandatory for
+  # the `--nodes` flag) and the values below. This guarantees the
+  # autoscaler binary always finds a non-empty HCLOUD_CLUSTER_CONFIG and
+  # never FATALs with the generic "not specified" error.
+  #
+  # Live evidence (omantel.biz prov #7, 2026-05-10):
+  #   F0510 17:02:56 cluster_autoscaler.go:309 Failed to create Hetzner
+  #   manager: HCLOUD_CLUSTER_CONFIG or HCLOUD_CLOUD_INIT is not specified
+  #
+  # Per docs/INVIOLABLE-PRINCIPLES.md #4 every field below is operator-
+  # tunable through `clusterAutoscalerHcloud.derivedClusterConfig.*`.
+  derivedClusterConfig:
+    # Default OS images per architecture — passed to the Hetzner provider
+    # so the autoscaler-spawned servers come up on the same image family
+    # the OpenTofu Phase-0 module used for the initial worker fleet.
+    # `ubuntu-24.04` matches the Tofu module default; per-Sovereign
+    # overlays MAY override (e.g. RHEL UBI for compliance Sovereigns).
+    imagesForArch:
+      amd64: ubuntu-24.04
+      arm64: ubuntu-24.04
+    # Per-pool overrides keyed by pool name (matches `name:` in
+    # `cluster-autoscaler.autoscalingGroups[]`). Each entry MAY supply:
+    #   cloudInit — pool-specific cloud-init override (otherwise inherits
+    #               .clusterAutoscalerHcloud.cloudInit)
+    #   labels    — node labels stamped at server creation
+    #   taints    — node taints stamped at server creation
+    # Empty by default — every pool inherits the shared cloudInit and
+    # ships with no extra labels/taints.
+    nodeConfigs: {}
+
   # NetworkPolicy — locks the autoscaler pod down to: egress to the
   # apiserver + DNS + Hetzner API (api.hetzner.cloud). DEFAULT FALSE
   # because the apiserver/Hetzner-API allowlist needs cluster-specific

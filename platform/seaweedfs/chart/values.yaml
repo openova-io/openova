@@ -321,6 +321,43 @@ seaweedfsOverlay:
     namespace: ""                 # default: release namespace
   externalSecret:
     enabled: false
+
+  # ─── StorageClasses (qa-loop Wave 5 Fix #79, Gap B) ────────────────────
+  # Catalyst-curated StorageClass aliases for SeaweedFS-fronted persistence.
+  # Per docs/PLATFORM-TECH-STACK.md §3.5 + ADR-0001 §3 (5-store rule),
+  # bp-seaweedfs is THE owner of every `seaweedfs-*` StorageClass — every
+  # downstream consumer that defaults to `storageClassName: seaweedfs-storage`
+  # (bp-guacamole recordings PVC, future bp-loki/mimir/tempo cache PVCs)
+  # binds against the class registered here.
+  #
+  # Default `provisioner: rancher.io/local-path` — k3s ships the
+  # local-path-provisioner pre-installed on every Sovereign, so PVCs bind
+  # day-1 without waiting for bp-hcloud-csi or the SeaweedFS CSI driver to
+  # install. Per-Sovereign overlay flips `provisioner:` to
+  # `csi.hetzner.cloud` (Hetzner Sovereigns with bp-hcloud-csi installed)
+  # or `seaweedfs-csi-driver.csi.k8s.io` (when the dedicated SeaweedFS CSI
+  # is rolled out at slot 18.1) without modifying the chart.
+  #
+  # Per docs/INVIOLABLE-PRINCIPLES.md #4 every field below is operator-
+  # tunable through `seaweedfsOverlay.storageClasses[]` — list semantics
+  # let a Sovereign register multiple tiers (`seaweedfs-storage` warm,
+  # `seaweedfs-cold` Glacier-backed, etc.) without bespoke chart edits.
+  storageClasses:
+    - name: seaweedfs-storage
+      enabled: true
+      # Single-Sovereign safe default — k3s ships local-path. Overlay
+      # MAY override to csi.hetzner.cloud / seaweedfs-csi-driver.csi.k8s.io.
+      provisioner: rancher.io/local-path
+      reclaimPolicy: Delete
+      # WaitForFirstConsumer keeps PV creation lazy so overlay can re-tier
+      # the underlying provisioner without re-binding existing PVCs.
+      volumeBindingMode: WaitForFirstConsumer
+      allowVolumeExpansion: true
+      tier: warm
+      isDefault: false
+      parameters: {}
+      mountOptions: []
+      annotations: {}
   # Cold tier — per-Sovereign overlay MUST populate one of these blocks
   # (or leave both null for hot-only). Catalyst's tier-config ConfigMap is
   # rendered in the overlay PR.

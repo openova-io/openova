@@ -1,0 +1,75 @@
+{{/*
+Catalyst-curated StorageClass(es) for SeaweedFS-fronted persistence.
+
+Live evidence motivating this template (qa-loop Wave 5 audit, Gap B,
+prov #7 omantel.biz 2026-05-10):
+  - PVC `guacamole-recordings` Pending — Event:
+    `storageclass.storage.k8s.io "seaweedfs-storage" not found`
+  - `kubectl get sc` returned only `local-path (default)`
+  - Effect: bp-guacamole `guacamole-server` + `guacd` pods stuck Pending
+    (unbound PVC), blocks operator-bastion Phase-1 user flow.
+
+Why bp-seaweedfs ships this StorageClass (not bp-guacamole / overlay):
+  - Per docs/PLATFORM-TECH-STACK.md §3.5, SeaweedFS is THE unified S3 +
+    persistence surface. Every consumer that defaults to
+    `seaweedfs-storage` (bp-guacamole recordings, future bp-loki ruler
+    PVC, bp-tempo cache, etc.) gets a single owner: this Blueprint.
+  - Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every field
+    is operator-tunable through `seaweedfsOverlay.storageClasses[]`.
+  - Per BLUEPRINT-AUTHORING.md §11 (umbrella ownership), per-Sovereign
+    overlays select the underlying provisioner via Flux `valuesFrom` so
+    Sovereigns with hcloud-csi installed map `seaweedfs-storage` →
+    `csi.hetzner.cloud` while bare-k3s Sovereigns map onto
+    `rancher.io/local-path` (always present on k3s).
+
+Default provisioner is `rancher.io/local-path` because:
+  - Every Sovereign provisioned by the OpenTofu Phase 0 module runs k3s
+    which ships the local-path provisioner pre-installed.
+  - bp-hcloud-csi installs LATER in the bootstrap-kit ordering and is
+    optional (single-node Sovereigns or non-Hetzner clouds skip it).
+  - Defaulting to local-path means PVCs requesting `seaweedfs-storage`
+    bind successfully on day-1 without operator intervention. Operators
+    flip to `csi.hetzner.cloud` (or the dedicated `seaweedfs-csi-driver`
+    once installed) by overriding `seaweedfsOverlay.storageClasses[].provisioner`
+    in the per-Sovereign HelmRelease.
+
+Disabled by default (`seaweedfsOverlay.storageClasses[].enabled` per entry)
+so this template is a no-op until the operator explicitly opts in. The
+default values.yaml ships ONE entry (`seaweedfs-storage`) enabled to
+satisfy the bp-guacamole + bp-loki/mimir/tempo defaults, but a Sovereign
+that has its own pre-existing `seaweedfs-storage` class can disable the
+chart-rendered one cleanly.
+*/}}
+{{- range $i, $sc := .Values.seaweedfsOverlay.storageClasses }}
+{{- if $sc.enabled }}
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: {{ $sc.name | quote }}
+  labels:
+    {{- include "bp-seaweedfs.labels" $ | nindent 4 }}
+    catalyst.openova.io/storage-tier: {{ $sc.tier | default "warm" | quote }}
+  annotations:
+    catalyst.openova.io/blueprint: bp-seaweedfs
+    catalyst.openova.io/blueprint-version: {{ $.Chart.Version | quote }}
+    {{- if $sc.isDefault }}
+    storageclass.kubernetes.io/is-default-class: "true"
+    {{- end }}
+    {{- with $sc.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+provisioner: {{ $sc.provisioner | default "rancher.io/local-path" | quote }}
+reclaimPolicy: {{ $sc.reclaimPolicy | default "Delete" | quote }}
+volumeBindingMode: {{ $sc.volumeBindingMode | default "WaitForFirstConsumer" | quote }}
+allowVolumeExpansion: {{ $sc.allowVolumeExpansion | default true }}
+{{- with $sc.parameters }}
+parameters:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- with $sc.mountOptions }}
+mountOptions:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- end }}
+{{- end }}
