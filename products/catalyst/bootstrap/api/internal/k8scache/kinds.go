@@ -225,6 +225,35 @@ var DefaultKinds = []Kind{
 	// install/uninstall happens through Flux + the blueprint catalog,
 	// not direct apiextensions writes.
 	{Name: "customresourcedefinition", GVR: schema.GroupVersionResource{Group: "apiextensions.k8s.io", Version: "v1", Resource: "customresourcedefinitions"}, Namespaced: false},
+
+	// QA-loop iter-11 Fix #48 — Networking GVRs surfaced through the
+	// generic /k8s/{kind} endpoint AND the new networking aggregator
+	// handlers (HandleNetworkingPolicies / ClusterMesh / NetBird /
+	// DMZ / Hubble). Caught live on omantel iter-11: TC-279 and
+	// TC-294 returned "missing required token: 'CiliumNetworkPolicy'"
+	// because the GVRs were never registered.
+	//
+	// Cilium NetworkPolicy CRDs (cilium.io/v2) — namespace-scoped and
+	// cluster-scoped tier-3 micro-segmentation policies. Matrix
+	// asserts `kubectl get cnp -A` and `kubectl get ccnp` for the
+	// default-deny baseline (TC-278/279/280/287/294).
+	{Name: "ciliumnetworkpolicy", GVR: schema.GroupVersionResource{Group: "cilium.io", Version: "v2", Resource: "ciliumnetworkpolicies"}, Namespaced: true},
+	{Name: "ciliumclusterwidenetworkpolicy", GVR: schema.GroupVersionResource{Group: "cilium.io", Version: "v2", Resource: "ciliumclusterwidenetworkpolicies"}, Namespaced: false},
+	// Gateway API (gateway.networking.k8s.io/v1) — Cilium implements
+	// GatewayClass `cilium`. Matrix asserts on TC-302 (gateway class
+	// presence) + TC-295 (HTTPRoute listing for ingress visibility).
+	{Name: "gatewayclass", GVR: schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gatewayclasses"}, Namespaced: false},
+	{Name: "gateway", GVR: schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gateways"}, Namespaced: true},
+	{Name: "httproute", GVR: schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "httproutes"}, Namespaced: true},
+	// Cilium ClusterMesh (cilium.io/v2alpha1) — multi-region peering
+	// records. Matrix asserts on TC-273/297 (omantel-fsn ↔ omantel-hel
+	// peer status).
+	{Name: "ciliumendpointslice", GVR: schema.GroupVersionResource{Group: "cilium.io", Version: "v2alpha1", Resource: "ciliumendpointslices"}, Namespaced: false},
+	// k8s.io NetworkPolicy (networking.k8s.io/v1) — vanilla NPs
+	// surfaced alongside CNPs on the Policies tab. Already covered by
+	// the cutover-driver ClusterRole (`networking.k8s.io/networkpolicies`)
+	// but the kind was never registered for the generic /k8s/ surface.
+	{Name: "networkpolicy", GVR: schema.GroupVersionResource{Group: "networking.k8s.io", Version: "v1", Resource: "networkpolicies"}, Namespaced: true},
 }
 
 // Registry is a runtime-mutable lookup keyed by the short Name. It

@@ -104,7 +104,7 @@ import { SovereigntyPreviewPage } from '@/pages/sovereignty/SovereigntyPreviewPa
 // stub pages mounted under /app/$deploymentId/* for routes whose
 // full implementations are owned by other slices. See
 // pages/sovereign/stubs/README pattern in each file.
-import { NetworkingPage } from '@/pages/sovereign/stubs/NetworkingPage'
+import { NetworkingPage } from '@/pages/sovereign/networking/NetworkingPage'
 import { ContinuumPage } from '@/pages/sovereign/stubs/ContinuumPage'
 import { ResourcesApplyPage } from '@/pages/sovereign/stubs/ResourcesApplyPage'
 import { ResourcesSearchPage } from '@/pages/sovereign/stubs/ResourcesSearchPage'
@@ -1489,7 +1489,17 @@ const appShellsSessionDetailRoute = createRoute({
   beforeLoad: provisionAuthGuard,
 })
 
-// /app/$deploymentId/networking/$slug — minimal stub pages.
+// /app/$deploymentId/networking{,/$slug} — qa-loop iter-11 Fix #48.
+// The index route mounts at the bare `/networking` URL and the
+// sub-route at `/networking/$slug` (policies | clustermesh | netbird |
+// dmz | hubble). Both render the same NetworkingPage which dispatches
+// on the URL slug.
+const appNetworkingIndexRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/$deploymentId/networking',
+  component: NetworkingPage,
+  beforeLoad: provisionAuthGuard,
+})
 const appNetworkingRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/$deploymentId/networking/$slug',
@@ -1610,6 +1620,7 @@ const routeTree = rootRoute.addChildren([
     appSettingsRoute,
     appShellsSessionsRoute,
     appShellsSessionDetailRoute,
+    appNetworkingIndexRoute,
     appNetworkingRoute,
     appContinuumListRoute,
     appContinuumOverviewRoute,

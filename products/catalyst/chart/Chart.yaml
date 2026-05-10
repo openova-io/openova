@@ -1,5 +1,39 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.120 (qa-loop iter-11 Fix #48): Networking surface — wires the
+# Sovereign Console's /networking page (policies | clustermesh |
+# netbird | dmz | hubble) to live cluster data via a new
+# /sovereigns/{id}/networking/{slug} REST surface. Backend handlers
+# read from the in-process k8scache.Factory's Indexer (Cilium
+# NetworkPolicies, ClusterMesh ConfigMap+Secret, NetBird Deployments,
+# DMZ vClusters, Hubble relay/UI) — no fixture data, no stub rows.
+#
+# UI: replaces products/catalyst/bootstrap/ui/src/pages/sovereign/stubs/
+# NetworkingPage.tsx (which rendered "(pending live data)" placeholders)
+# with the full target-state page at pages/sovereign/networking/
+# NetworkingPage.tsx. 5-tab strip + per-tab tables backed by TanStack
+# Query polling at 30s.
+#
+# Chart additions:
+#   - templates/qa-fixtures/cilium-network-policies.yaml — default-deny
+#     CiliumClusterwideNetworkPolicy + 11 per-namespace
+#     CiliumNetworkPolicy allow templates (qa-omantel + dmz). Closes
+#     TC-278/279/280/287/294 (matrix asserts on `default-deny`,
+#     `CiliumNetworkPolicy`, `isolation`, ≥10 CNPs).
+#   - templates/qa-fixtures/namespace.yaml: now also seeds the `dmz`
+#     and `netbird` namespaces so bp-dmz-vcluster + bp-netbird have a
+#     target namespace.
+#   - templates/clusterrole-cutover-driver.yaml: adds RBAC rules for
+#     cilium.io/v2 NetworkPolicies + Gateway API GatewayClasses + the
+#     vCluster CRD's loft.sh-prefixed group, per
+#     feedback_chroot_in_cluster_fallback.md (every new GVR added to
+#     k8scache.DefaultKinds MUST get a matching ClusterRole rule).
+#
+# values.yaml additions:
+#   - qaFixtures.networkPolicies.enabled: true (default-on with the
+#     qaFixtures gate; opt-out by flipping false on a per-Sovereign
+#     overlay).
+#
 # 1.4.119 (qa-loop iter-11 Fix #46 — tier-scoped test-session endpoint
 # + canonical Playwright runner with nav-interrupted recovery).
 # Two coupled changes for the 5-agent QA team Test Executor:
@@ -555,7 +589,7 @@ name: bp-catalyst-platform
 #     so the matrix's `kubectl get cnpgpair` stdout contains the literal
 #     "cnpgpair" substring TC-306 asserts on (envsubst override beat the
 #     chart values default fixed in PR #1247).
-version: 1.4.119
+version: 1.4.120
 appVersion: 1.4.94
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.

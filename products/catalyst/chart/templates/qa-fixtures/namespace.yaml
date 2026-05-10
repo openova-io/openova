@@ -9,4 +9,39 @@ metadata:
     openova.io/application: {{ .Values.qaFixtures.appName | default "qa-wp" }}
     app.kubernetes.io/managed-by: {{ .Release.Service }}
     app.kubernetes.io/instance: {{ .Release.Name }}
+---
+# qa-loop iter-11 Fix #48 — `dmz` namespace ships with the qa-fixtures
+# bundle so the DMZ isolation CiliumNetworkPolicy + (eventually) the
+# bp-dmz-vcluster HelmRelease have a target namespace. Default-deny is
+# excluded from `dmz` via the cilium-network-policies.yaml exclusion
+# list — DMZ traffic is governed by the `isolation` CNP in this
+# namespace, not the cluster-wide default-deny. Matrix asserts on
+# TC-286 (`dmz`, `Running` tokens) once bp-dmz-vcluster lands.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dmz
+  labels:
+    openova.io/env-type: dmz
+    openova.io/managed-by: qa-fixtures
+    openova.io/zone: dmz
+    pod-security.kubernetes.io/enforce: baseline
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+---
+# qa-loop iter-11 Fix #48 — `netbird` namespace ships with the
+# qa-fixtures bundle so bp-netbird (slot 53 in the bootstrap-kit) has
+# a target namespace + so the per-namespace CiliumNetworkPolicy
+# template (allow-keycloak / allow-dns) has a valid scope. Matrix
+# asserts on TC-281/282/283 (netbird-management/signal/coturn
+# Deployments) once the bootstrap-kit slot publishes the chart.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: netbird
+  labels:
+    openova.io/env-type: platform
+    openova.io/managed-by: qa-fixtures
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}

@@ -1078,3 +1078,15 @@ qaFixtures:
   # blocking platform pods. Override to "Audit" to soft-launch the
   # Enforce policy on a fresh Sovereign while migrating workloads.
   kyvernoEnforceMode: Enforce
+
+  # ── Cilium NetworkPolicy baseline (qa-loop iter-11 Fix #48) ──────
+  # Default-deny CCNP + 11 per-namespace allow templates ship as part
+  # of the qa-fixtures bundle. Per `feedback_no_mvp_no_workarounds.md`
+  # rule #1 (target-state) the matrix asserts on
+  #   - TC-278 default-deny CCNP exists with Ingress + Egress denied
+  #   - TC-279 per-namespace CiliumNetworkPolicy templates rendered
+  #   - TC-294 ≥10 CNPs total across all namespaces
+  # Disable on a per-Sovereign basis if the operator wants to author
+  # their own policy bundle.
+  networkPolicies:
+    enabled: true
