@@ -1,5 +1,12 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.113 (qa-loop iter-8 Fix #42 image bump #2): env+app controllers
+# bumped to :a3ba200 — env-controller has EnsureBranch (PR #1257);
+# app-controller drops cross-namespace ownerRefs (was being silently
+# GC'd because Application is in qa-omantel but the host Flux CRs
+# live in flux-system; cross-namespace ownerRefs trigger immediate
+# K8s GC delete).
+#
 # 1.4.112 (qa-loop iter-8 Fix #42 follow-up: env-controller EnsureBranch).
 # environment-controller now calls EnsureBranch right after EnsureRepo
 # so the env-type-mapped branch (`develop` for envType=dev) exists
@@ -412,7 +419,7 @@ name: bp-catalyst-platform
 #     so the matrix's `kubectl get cnpgpair` stdout contains the literal
 #     "cnpgpair" substring TC-306 asserts on (envsubst override beat the
 #     chart values default fixed in PR #1247).
-version: 1.4.112
+version: 1.4.113
 appVersion: 1.4.94
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
