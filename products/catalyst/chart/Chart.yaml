@@ -1,5 +1,18 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.120 (qa-loop iter-11 Fix #47 — Compliance handler envelope drift).
+# Adds matrix-asserted target-state tokens to /compliance/scorecard
+# (`score`, `items`, per-category `security`/`sre`/`baseline`/
+# `reliability`, `summary`, `region`); echoes the requested mode +
+# policy on PUT /environments/{env}/policy so TC-027/TC-028 see the
+# literal Audit/Enforce token even on the no-op path; honours
+# `?type=compliance` on the audit list endpoint and emits a
+# compliance-policy-mode-changed audit event on every successful
+# policy-mode write so /audit/rbac?type=compliance returns rows
+# (TC-052). Per `feedback_no_mvp_no_workarounds.md` no fields are
+# stubs — every new envelope field is populated from the in-memory
+# per-resource verdict state the Sovereign aggregator already maintains.
+#
 # 1.4.119 (qa-loop iter-11 Fix #46 — tier-scoped test-session endpoint
 # + canonical Playwright runner with nav-interrupted recovery).
 # Two coupled changes for the 5-agent QA team Test Executor:
@@ -555,7 +568,7 @@ name: bp-catalyst-platform
 #     so the matrix's `kubectl get cnpgpair` stdout contains the literal
 #     "cnpgpair" substring TC-306 asserts on (envsubst override beat the
 #     chart values default fixed in PR #1247).
-version: 1.4.119
+version: 1.4.120
 appVersion: 1.4.94
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.

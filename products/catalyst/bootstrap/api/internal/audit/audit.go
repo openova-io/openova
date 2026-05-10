@@ -66,6 +66,16 @@ const (
 	// changed the tier (vs only the scope or labels). Lets the audit
 	// trail UI render a tier-rotation pill.
 	AuditTypeRBACTierChanged = "rbac-tier-changed"
+
+	// AuditTypeCompliancePolicyModeChanged fires when the
+	// PUT /api/v1/sovereigns/{id}/environments/{env}/policy handler
+	// successfully updates EnvironmentPolicy.spec.compliance.modes.
+	// Per `feedback_no_mvp_no_workarounds.md` the compliance audit
+	// trail is target-state — every mode toggle is a durable audit
+	// event the security team can replay against the catalyst.audit
+	// JetStream stream. Surfaced via GET /audit/rbac?type=compliance
+	// for the U8 audit-trail UI's compliance-filter view.
+	AuditTypeCompliancePolicyModeChanged = "compliance-policy-mode-changed"
 )
 
 // IsRBACAuditType reports whether `t` is one of the canonical RBAC
@@ -81,6 +91,38 @@ func IsRBACAuditType(t string) bool {
 		return true
 	}
 	return false
+}
+
+// IsComplianceAuditType reports whether `t` is one of the canonical
+// compliance audit-type names. Used by the GET /audit/rbac?type=compliance
+// filter so the compliance-trail subset of the ring buffer surfaces in
+// the audit UI without inventing a separate endpoint per type.
+func IsComplianceAuditType(t string) bool {
+	switch t {
+	case AuditTypeCompliancePolicyModeChanged:
+		return true
+	}
+	return false
+}
+
+// AuditTypeFilterFor returns the predicate matching the requested
+// `?type=` query parameter on the audit listing endpoint. Empty +
+// unknown types fall back to IsRBACAuditType (the historical default
+// before the type filter shipped) so existing /audit/rbac callers
+// stay green.
+func AuditTypeFilterFor(typeQuery string) func(string) bool {
+	switch strings.ToLower(strings.TrimSpace(typeQuery)) {
+	case "compliance":
+		return IsComplianceAuditType
+	case "rbac", "":
+		return IsRBACAuditType
+	case "all", "*":
+		return func(string) bool { return true }
+	}
+	// Unknown type — preserve historical "rbac-only" behaviour rather
+	// than returning empty, so a typo in the URL doesn't silently
+	// black-hole the listing.
+	return IsRBACAuditType
 }
 
 // ── Event shape ──────────────────────────────────────────────────────

@@ -874,3 +874,137 @@ func TestHandleComplianceStream_ImmediateSnapshotFrame(t *testing.T) {
 		t.Fatalf("timed out waiting for initial `data:` snapshot frame")
 	}
 }
+
+// TestCompliance_ScorecardEnvelope_NewTokens — qa-loop iter-11 Fix #47
+// Cluster (Compliance handler envelope drift). Asserts the matrix-
+// asserted target-state tokens (`score`, `items`, per-category
+// breakdown, `summary`) are populated on every /scorecard response,
+// per `feedback_no_mvp_no_workarounds.md` (no stub fields — REAL
+// per-resource verdicts feed the categories).
+func TestCompliance_ScorecardEnvelope_NewTokens(t *testing.T) {
+	h, _, _, f := newComplianceTestRig(t)
+
+	// Seed a Deployment in an env WITHOUT an EnvironmentPolicy CR
+	// (so computeScore's fallback "weight=1 per observed policy"
+	// fires and the rollups + categories materialise off the
+	// observed verdicts directly).
+	publishToFactory(f, "deployment", &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "apps/v1", "kind": "Deployment",
+		"metadata": map[string]any{
+			"namespace": "ns1", "name": "web",
+			"labels": map[string]any{
+				"catalyst.openova.io/application":  "web",
+				"catalyst.openova.io/environment":  "acme-default",
+				"catalyst.openova.io/organization": "acme",
+			},
+		},
+	}})
+	// Two PolicyReports: one pass + one fail. The categoryFor()
+	// heuristic buckets "disallow-privileged-containers" into
+	// security and "probes-present" into reliability so the
+	// per-category test assertions cover both pass + fail paths.
+	publishToFactory(f, "policyreport", mkPolicyReport("ns1", "web-pr", []map[string]any{
+		{"policy": "disallow-privileged-containers", "rule": "deny-priv", "result": "fail",
+			"message": "container.securityContext.privileged=true",
+			"resources": []any{map[string]any{"kind": "Deployment", "namespace": "ns1", "name": "web"}}},
+		{"policy": "probes-present", "rule": "probes-present", "result": "pass",
+			"resources": []any{map[string]any{"kind": "Deployment", "namespace": "ns1", "name": "web"}}},
+	}))
+	waitFor(t, 2*time.Second, func() bool {
+		return len(h.ComplianceHandler().rollupsFor("acme")) > 0
+	})
+
+	r := chi.NewRouter()
+	r.Get("/api/v1/sovereigns/{id}/compliance/scorecard", h.HandleComplianceScorecard)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sovereigns/acme/compliance/scorecard", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("scorecard: %d body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+
+	// Matrix-asserted literal tokens (TC-018 / TC-029 / TC-040 etc.).
+	for _, tok := range []string{`"score"`, `"items"`, `"security"`, `"sre"`, `"baseline"`, `"reliability"`, `"summary"`, `"region"`} {
+		if !strings.Contains(body, tok) {
+			t.Errorf("envelope missing required token %s\nbody=%s", tok, body)
+		}
+	}
+	// Empty arrays must serialise as []; the matrix forbids null.
+	for _, forbidden := range []string{`"organizations":null`, `"environments":null`, `"applications":null`, `"categories":null`, `"items":null`} {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("envelope contains forbidden %s\nbody=%s", forbidden, body)
+		}
+	}
+
+	// Decode + assert per-category data populated for the seeded fail.
+	var resp ScorecardResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Security.Failing != 1 {
+		t.Errorf("security.failing: want 1, got %d (full=%+v)", resp.Security.Failing, resp.Security)
+	}
+	if resp.Summary.Total < 1 {
+		t.Errorf("summary.total should reflect the verdict; got %+v", resp.Summary)
+	}
+	if len(resp.Items) == 0 {
+		t.Errorf("items should mirror rollups; got 0")
+	}
+	if resp.Score < 0 || resp.Score > 100 {
+		t.Errorf("envelope score out of range: %d", resp.Score)
+	}
+	// Category list must always include the canonical four — even if
+	// the underlying state has zero entries for some.
+	have := map[string]bool{}
+	for _, c := range resp.Categories {
+		have[c.Category] = true
+	}
+	for _, want := range []string{"security", "sre", "baseline", "reliability"} {
+		if !have[want] {
+			t.Errorf("categories missing canonical %q (got %v)", want, have)
+		}
+	}
+}
+
+// TestCompliance_ScorecardEnvelope_AppFilterSurfacesAppName asserts
+// TC-029: filtering /scorecard?app=qa-wordpress produces a body that
+// contains the literal "qa-wordpress" token even when no per-app
+// rollup row exists yet (a fresh App with no PolicyReports). Per
+// `feedback_no_mvp_no_workarounds.md` the contract is "the filter
+// echoes the requested scope" — empty results don't excuse a missing
+// scope token.
+func TestCompliance_ScorecardEnvelope_AppFilterSurfacesAppName(t *testing.T) {
+	h, _, _, _ := newComplianceTestRig(t)
+
+	r := chi.NewRouter()
+	r.Get("/api/v1/sovereigns/{id}/compliance/scorecard", h.HandleComplianceScorecard)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sovereigns/acme/compliance/scorecard?app=qa-wordpress", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("scorecard: %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "qa-wordpress") {
+		t.Errorf("filtered scorecard missing app token: %s", rec.Body.String())
+	}
+}
+
+// TestCompliance_ScorecardEnvelope_RegionEcho asserts TC-050: the
+// region literal is present in the body so the dashboard's per-region
+// scorecard view renders the slice scope without a follow-up call.
+func TestCompliance_ScorecardEnvelope_RegionEcho(t *testing.T) {
+	h, _, _, _ := newComplianceTestRig(t)
+
+	r := chi.NewRouter()
+	r.Get("/api/v1/sovereigns/{id}/compliance/scorecard", h.HandleComplianceScorecard)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sovereigns/acme/compliance/scorecard?region=hz-hel-rtz-prod", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("scorecard: %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "hz-hel-rtz-prod") {
+		t.Errorf("region filter not echoed in body: %s", rec.Body.String())
+	}
+}

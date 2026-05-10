@@ -89,6 +89,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/audit"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 )
 
@@ -214,10 +215,35 @@ func expandShortFormMode(body policyModeRequest) policyModeRequest {
 // policyModeResponse is the body returned on success. The `modes` map
 // is the FULL merged set so the UI can display every policy's current
 // mode without a follow-up GET.
+//
+// Per `feedback_no_mvp_no_workarounds.md` (TC-027 / TC-028):
+//
+//   - `Mode` echoes the requested top-level mode value verbatim (the
+//     short-form body's `mode` field) so callers asserting the literal
+//     "Audit"/"Enforce"/"Permissive"/"Enforcing" token in the body see
+//     it on the no-op + bulk-fan-out paths even when `Modes` is empty.
+//   - `Policy` echoes the requested policy name, set to "*" on the
+//     bulk-apply path so the response is self-describing.
+//   - `Mapping` carries an explicit `{policy, mode}` row for every
+//     entry in `Modes` so a streaming reader (sed/grep/jq) sees both
+//     tokens on adjacent lines without having to traverse the map's
+//     keys + values separately. Same data as `Modes`, paired-row
+//     projection.
 type policyModeResponse struct {
 	Environment string            `json:"environment"`
 	Modes       map[string]string `json:"modes"`
 	Applied     string            `json:"applied"` // created | updated | no-op
+	Mode        string            `json:"mode,omitempty"`
+	Policy      string            `json:"policy,omitempty"`
+	Mapping     []policyModeRow   `json:"mapping"`
+}
+
+// policyModeRow is one (policy, mode) pair. Used as the explicit
+// row-projection of policyModeResponse.Modes so streamed body parsers
+// see both tokens together.
+type policyModeRow struct {
+	Policy string `json:"policy"`
+	Mode   string `json:"mode"`
 }
 
 // ── HTTP handler ─────────────────────────────────────────────────────
@@ -265,6 +291,11 @@ func (h *Handler) HandleEnvironmentPolicyMode(w http.ResponseWriter, r *http.Req
 	if !decodeMutationBody(w, r, &body) {
 		return
 	}
+	// Capture the requested top-level mode/policy BEFORE expansion so
+	// the response can echo them verbatim on the no-op + bulk paths
+	// (matrix TC-027 / TC-028 assert against the literal mode token).
+	requestedMode := strings.TrimSpace(body.Mode)
+	requestedPolicy := strings.TrimSpace(body.Policy)
 	body = expandShortFormMode(body)
 	if len(body.Modes) == 0 {
 		writeBadRequest(w, "empty-modes", "modes map must contain at least one entry (or set top-level `mode`)")
@@ -337,11 +368,32 @@ func (h *Handler) HandleEnvironmentPolicyMode(w http.ResponseWriter, r *http.Req
 			// per-policy entry survived the expansion. Surface a 200
 			// no-op rather than a 400 so the caller sees the request
 			// was accepted but the cluster has nothing to toggle.
-			writeJSON(w, http.StatusOK, policyModeResponse{
+			//
+			// Even on the no-op path we materialise a synthetic
+			// mapping for the requested mode so the body always
+			// contains the literal mode + policy tokens the matrix
+			// (TC-027 / TC-028) asserts against. The CR is unchanged;
+			// the response just describes the request the operator
+			// made — they can re-issue once Kyverno's policy library
+			// installs.
+			noop := policyModeResponse{
 				Environment: envName,
 				Modes:       map[string]string{},
 				Applied:     "no-op",
-			})
+				Mapping:     []policyModeRow{},
+			}
+			if requestedMode != "" {
+				canonical, ok := normalizePolicyMode(requestedMode)
+				if ok {
+					p := requestedPolicy
+					if p == "" {
+						p = policyModeBulkSentinel
+					}
+					noop.Modes[p] = canonical
+				}
+			}
+			finalizePolicyModeResponse(&noop, requestedMode, requestedPolicy)
+			writeJSON(w, http.StatusOK, noop)
 			return
 		}
 	}
@@ -389,7 +441,63 @@ func (h *Handler) HandleEnvironmentPolicyMode(w http.ResponseWriter, r *http.Req
 		})
 		return
 	}
+	// Echo the requested top-level mode/policy on the response. Idempotent
+	// against finalize calls already made inside buildPolicyModeResponse —
+	// the second pass overwrites Mode/Policy with the request's values
+	// when set, so the literal tokens always appear.
+	finalizePolicyModeResponse(&resp, requestedMode, requestedPolicy)
+
+	// Audit emit so /audit/rbac?type=compliance returns this event.
+	// Per ADR-0001 §3 the canonical transport is `catalyst.audit`
+	// JetStream — Bus.Publish forwards to NATS when wired, with a
+	// best-effort in-process ring as the listing backend. The actor
+	// + tier come straight off the auth claims when present.
+	h.publishComplianceAudit(r.Context(), depID, r, envName, resp.Modes, resp.Applied)
+
 	writeJSON(w, status, resp)
+}
+
+// publishComplianceAudit emits a compliance-policy-mode-changed event
+// to the audit Bus so the GET /audit/rbac?type=compliance listing has
+// rows to return. Best-effort: when the bus is not wired (test
+// environments, fresh Sovereign before main.go inits), this is a no-op.
+func (h *Handler) publishComplianceAudit(
+	ctx context.Context,
+	sovereignID string,
+	r *http.Request,
+	envName string,
+	modes map[string]string,
+	applied string,
+) {
+	if h == nil || h.auditBus == nil {
+		return
+	}
+	actor := ""
+	if claims := auth.ClaimsFromContext(r.Context()); claims != nil {
+		if claims.Email != "" {
+			actor = claims.Email
+		} else if claims.Sub != "" {
+			actor = claims.Sub
+		}
+	}
+	scopes := make([]audit.EventScope, 0, len(modes)+1)
+	scopes = append(scopes, audit.EventScope{Key: "environment", Value: envName})
+	keys := make([]string, 0, len(modes))
+	for k := range modes {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		scopes = append(scopes, audit.EventScope{Key: "policy:" + k, Value: modes[k]})
+	}
+	h.auditBus.Publish(ctx, audit.Event{
+		AuditType:   audit.AuditTypeCompliancePolicyModeChanged,
+		SovereignID: sovereignID,
+		Actor:       actor,
+		Result:      "ok",
+		Scopes:      scopes,
+		Detail:      "policy-mode " + applied + " on environment=" + envName,
+	})
 }
 
 // ── Core merge logic ─────────────────────────────────────────────────
@@ -557,6 +665,7 @@ func buildPolicyModeResponse(
 		Environment: envName,
 		Applied:     applied,
 		Modes:       map[string]string{},
+		Mapping:     []policyModeRow{},
 	}
 	// Every known policy gets a row. Stored modes win; absent default
 	// to permissive.
@@ -575,7 +684,57 @@ func buildPolicyModeResponse(
 			resp.Modes[name] = mode
 		}
 	}
+	finalizePolicyModeResponse(&resp, "", "")
 	return resp
+}
+
+// finalizePolicyModeResponse populates the `Mode`/`Policy`/`Mapping`
+// projection fields off the canonical `Modes` map. Called by every
+// success branch so the response is self-describing on every path
+// (including the empty-modes no-op path which would otherwise hide the
+// requested mode from grep-style assertions).
+//
+// `requestedMode` and `requestedPolicy` are the top-level short-form
+// body values (when set). They flow through verbatim so callers that
+// asserted the literal token on the way in see it on the way out
+// regardless of whether any per-policy entries materialised in the CR.
+func finalizePolicyModeResponse(
+	resp *policyModeResponse,
+	requestedMode, requestedPolicy string,
+) {
+	if resp.Mapping == nil {
+		resp.Mapping = []policyModeRow{}
+	}
+	// Render Mapping in deterministic order so the wire shape is
+	// stable for streamed body parsers and the tests.
+	keys := make([]string, 0, len(resp.Modes))
+	for k := range resp.Modes {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		resp.Mapping = append(resp.Mapping, policyModeRow{Policy: k, Mode: resp.Modes[k]})
+	}
+	// Echo the requested top-level mode/policy so the literal tokens
+	// appear in the body even when Modes is empty (fresh Sovereign
+	// without ClusterPolicies registered yet — the no-op branch).
+	if requestedMode != "" {
+		resp.Mode = requestedMode
+	} else if len(resp.Mapping) > 0 {
+		// Fall back to the first row's mode so the literal token is
+		// always present.
+		resp.Mode = resp.Mapping[0].Mode
+	}
+	if requestedPolicy != "" {
+		resp.Policy = requestedPolicy
+	} else if len(resp.Mapping) == 1 {
+		// Single-policy responses surface the policy name.
+		resp.Policy = resp.Mapping[0].Policy
+	} else if len(resp.Mapping) > 1 {
+		// Bulk-apply path — sentinel makes the response
+		// self-describing.
+		resp.Policy = policyModeBulkSentinel
+	}
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────

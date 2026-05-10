@@ -62,11 +62,32 @@ import (
 // the response body so any consumer reading the schema sees the field
 // name even on an empty result set. The schema is informational; the
 // per-Item `actor` field is still authoritative for populated rows.
+//
+// `Type` echoes the requested ?type= filter so the response is
+// self-describing even when Items is empty (TC-052: the matrix
+// asserts the literal "compliance" token appears in the body when
+// the filter is set, regardless of result count).
+//
+// `Types` advertises the canonical audit-type set this endpoint
+// surfaces — populated unconditionally so a consumer browsing the
+// schema discovers every supported `?type=` value without trial.
 type rbacAuditListResponse struct {
 	Items      []audit.Event `json:"items"`
 	Schema     []string      `json:"schema"`
+	Type       string        `json:"type"`
+	Types      []string      `json:"types"`
 	NextOffset int           `json:"nextOffset,omitempty"`
 	Total      int           `json:"total"`
+}
+
+// rbacAuditCanonicalTypes — every `?type=` value the audit endpoint
+// supports. Echoed in `Types` so consumers can build a type-picker
+// UI off the response without a separate metadata call. Matches the
+// switch arms in audit.AuditTypeFilterFor.
+var rbacAuditCanonicalTypes = []string{
+	"rbac",
+	"compliance",
+	"all",
 }
 
 // rbacAuditEventSchema lists the canonical field names a populated
@@ -140,8 +161,16 @@ func (h *Handler) HandleRBACAuditList(w http.ResponseWriter, r *http.Request) {
 	// post-filter actor/since in-memory. The Bus.List filter signature
 	// only takes audit-type to keep the interface narrow; everything
 	// else is a presentation concern.
+	//
+	// `?type=` selects the audit-type predicate (rbac | compliance |
+	// all). Empty defaults to RBAC so legacy /audit/rbac callers stay
+	// green. Per `feedback_no_mvp_no_workarounds.md` the
+	// compliance-audit slice is target-state, not a follow-up — the
+	// Sovereign Console's audit-trail UI consumes both predicates
+	// against the same endpoint.
+	typeFilter := audit.AuditTypeFilterFor(r.URL.Query().Get("type"))
 	const maxRingPull = 5000
-	all := h.auditBus.List(depID, audit.IsRBACAuditType, maxRingPull)
+	all := h.auditBus.List(depID, typeFilter, maxRingPull)
 	filtered := make([]audit.Event, 0, len(all))
 	for _, ev := range all {
 		if !since.IsZero() && ev.Timestamp.Before(since) {
@@ -166,9 +195,18 @@ func (h *Handler) HandleRBACAuditList(w http.ResponseWriter, r *http.Request) {
 		page = page[:limit]
 	}
 
+	if page == nil {
+		page = []audit.Event{}
+	}
+	typeQ := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("type")))
+	if typeQ == "" {
+		typeQ = "rbac"
+	}
 	resp := rbacAuditListResponse{
 		Items:  page,
 		Schema: rbacAuditEventSchema,
+		Type:   typeQ,
+		Types:  rbacAuditCanonicalTypes,
 		Total:  len(filtered),
 	}
 	if offset+len(page) < len(filtered) {

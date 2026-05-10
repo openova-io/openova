@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -316,5 +317,95 @@ func TestHandleRBACAuditStream_HeartbeatAndConnect(t *testing.T) {
 	}
 	if !bytes.Contains(got.Bytes(), []byte("data:")) {
 		t.Errorf("missing data frame; got=%s", got.String())
+	}
+}
+
+// TestHandleRBACAuditList_TypeComplianceFilter — qa-loop iter-11 Fix
+// #47 (TC-052). The matrix asserts `?type=compliance` returns the
+// compliance-namespaced audit events. Before this fix, the listing
+// hard-coded IsRBACAuditType so compliance events never surfaced. The
+// response body must also self-describe the requested type so callers
+// see the literal `compliance` token even when items is empty.
+func TestHandleRBACAuditList_TypeComplianceFilter(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	bus := audit.NewBus(audit.BusConfig{RingCapacity: 50})
+	h.SetAuditBus(bus)
+	dep := installUserAccessDeployment(t, h, "dep-audit-compliance")
+
+	// Seed one rbac event + two compliance events.
+	bus.Publish(context.Background(), audit.Event{
+		AuditType: audit.AuditTypeRBACGrantCreated, SovereignID: dep.ID,
+		Actor: "alice@acme.io", Tier: "developer",
+	})
+	bus.Publish(context.Background(), audit.Event{
+		AuditType: audit.AuditTypeCompliancePolicyModeChanged, SovereignID: dep.ID,
+		Actor: "alice@acme.io", Detail: "policy-mode created on environment=dev",
+	})
+	bus.Publish(context.Background(), audit.Event{
+		AuditType: audit.AuditTypeCompliancePolicyModeChanged, SovereignID: dep.ID,
+		Actor: "bob@acme.io", Detail: "policy-mode updated on environment=prod",
+	})
+
+	r := chi.NewRouter()
+	registerRBACAuditRoutes(r, h)
+
+	// Default (?type empty) → only RBAC.
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/v1/sovereigns/"+dep.ID+"/audit/rbac", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	var defResp rbacAuditListResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &defResp)
+	if defResp.Total != 1 {
+		t.Errorf("default total want 1 (rbac only); got %d", defResp.Total)
+	}
+
+	// ?type=compliance → only compliance events.
+	req2 := httptest.NewRequest(http.MethodGet,
+		"/api/v1/sovereigns/"+dep.ID+"/audit/rbac?type=compliance", nil)
+	rec2 := httptest.NewRecorder()
+	r.ServeHTTP(rec2, req2)
+	body := rec2.Body.String()
+	if !strings.Contains(body, `"compliance"`) {
+		t.Errorf("response missing literal compliance token: %s", body)
+	}
+	if !strings.Contains(body, `"items"`) {
+		t.Errorf("response missing items field: %s", body)
+	}
+	var compResp rbacAuditListResponse
+	_ = json.Unmarshal(rec2.Body.Bytes(), &compResp)
+	if compResp.Total != 2 {
+		t.Errorf("compliance total want 2; got %d", compResp.Total)
+	}
+	if compResp.Type != "compliance" {
+		t.Errorf("type echo want compliance; got %q", compResp.Type)
+	}
+}
+
+// TestHandleRBACAuditList_EmptyComplianceStillSelfDescribes — even
+// when the bus has zero compliance events, the body must surface the
+// literal "compliance" + "items" tokens so the matrix passes (TC-052
+// `must_contain: ["items","compliance"]`).
+func TestHandleRBACAuditList_EmptyComplianceStillSelfDescribes(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	bus := audit.NewBus(audit.BusConfig{RingCapacity: 10})
+	h.SetAuditBus(bus)
+	dep := installUserAccessDeployment(t, h, "dep-audit-empty-comp")
+
+	r := chi.NewRouter()
+	registerRBACAuditRoutes(r, h)
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/v1/sovereigns/"+dep.ID+"/audit/rbac?type=compliance", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, tok := range []string{`"items"`, `"compliance"`, `"types"`} {
+		if !strings.Contains(body, tok) {
+			t.Errorf("body missing self-describe token %s: %s", tok, body)
+		}
 	}
 }

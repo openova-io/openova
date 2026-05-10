@@ -714,3 +714,84 @@ func TestNormalizePolicyMode_AcceptsBothVocabularies(t *testing.T) {
 		})
 	}
 }
+
+// TestHandleEnvironmentPolicyMode_EchoesShortFormMode — qa-loop iter-11
+// Fix #47 (TC-027 / TC-028). The matrix asserts the literal `mode` +
+// `Audit`/`Enforce` tokens appear in the response body even when the
+// CR write is a no-op (fresh Sovereign without ClusterPolicies in
+// Kyverno yet). Per `feedback_no_mvp_no_workarounds.md` the response
+// echoes the request — the no-op path must self-describe.
+func TestHandleEnvironmentPolicyMode_EchoesShortFormMode(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	// Seed with an Environment CR but NO ClusterPolicies — so the
+	// known set is empty and the bulk-apply sentinel `*` falls
+	// through to the no-op path. This is the matrix-realistic
+	// scenario for a fresh Sovereign before the Kyverno chart
+	// installs the K-slice baseline.
+	factory, _ := fakePolicyModeDynamicFactory(newFakeEnvironment("dev"))
+	h.dynamicFactory = factory
+	dep := installUserAccessDeployment(t, h, "dep-pol-echo")
+
+	// Short-form body with `mode` only — bulk-apply intent.
+	body := map[string]any{"mode": "Audit"}
+	rec := callPolicyMode(t, h,
+		"/api/v1/sovereigns/"+dep.ID+"/environments/dev/policy",
+		body, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	bodyStr := rec.Body.String()
+	// Literal tokens — the matrix asserts both must be present.
+	for _, tok := range []string{`"mode"`, `"Audit"`, `permissive`} {
+		// "permissive" is the canonical OpenOva form for Audit;
+		// either casing must surface so the body documents what the
+		// CR would have stored.
+		_ = tok
+	}
+	if !strings.Contains(bodyStr, `"mode"`) {
+		t.Errorf("response missing literal `mode` field: %s", bodyStr)
+	}
+	if !strings.Contains(bodyStr, "Audit") && !strings.Contains(bodyStr, "permissive") {
+		t.Errorf("response missing requested mode token (Audit or canonical permissive): %s", bodyStr)
+	}
+	// The response must also surface the canonical "policy" key (set
+	// to the bulk sentinel `*` on this path) so a streaming reader
+	// sees both tokens together.
+	var resp policyModeResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Applied != "no-op" {
+		t.Errorf("applied: got %q want no-op", resp.Applied)
+	}
+	if resp.Mode == "" {
+		t.Errorf("Mode echo not populated; want %q got %q", "Audit", resp.Mode)
+	}
+	if resp.Policy == "" {
+		t.Errorf("Policy echo not populated; want %q (bulk sentinel) got %q", policyModeBulkSentinel, resp.Policy)
+	}
+}
+
+// TestHandleEnvironmentPolicyMode_EnforceModeAlsoEchoes — TC-028 mirror
+// of the Audit echo test for the Enforce vocabulary.
+func TestHandleEnvironmentPolicyMode_EnforceModeAlsoEchoes(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	factory, _ := fakePolicyModeDynamicFactory(stdPolicyModeSeed("dev")...)
+	h.dynamicFactory = factory
+	dep := installUserAccessDeployment(t, h, "dep-pol-enforce")
+
+	body := map[string]any{"mode": "Enforce", "policy": "multi-replica-drainability"}
+	rec := callPolicyMode(t, h,
+		"/api/v1/sovereigns/"+dep.ID+"/environments/dev/policy",
+		body, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	bodyStr := rec.Body.String()
+	if !strings.Contains(bodyStr, `"mode"`) {
+		t.Errorf("response missing literal `mode` field: %s", bodyStr)
+	}
+	if !strings.Contains(bodyStr, "enforcing") && !strings.Contains(bodyStr, "Enforce") {
+		t.Errorf("response missing enforce token: %s", bodyStr)
+	}
+}
