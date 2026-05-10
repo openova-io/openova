@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-keycloak
-version: 1.4.2
+version: 1.4.3
 description: |
   Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
   upstream `keycloak` chart (bitnami) as a Helm subchart so
@@ -36,6 +36,19 @@ description: |
   credentials Secret `realm` key flow from the same value, keeping
   Keycloak realm and catalyst-api CATALYST_KC_REALM env in sync. Closes
   TC-124, TC-125, TC-159, TC-160, TC-161, TC-176, TC-190, TC-285.
+  1.4.3 (issue #129, post-upgrade hook timeout wedge): bump bitnami
+  keycloakConfigCli.availabilityCheck.timeout 120s → 600s and
+  backoffLimit 1 → 5. Fresh-Sovereign provision #15 (otech
+  0ad3687ddd72deb7) wedged at phase1-watching because the
+  keycloak-config-cli Job (rendered as a Helm post-install/post-upgrade
+  hook by the bitnami subchart's default annotations) timed out twice
+  inside its 120s availability window before Postgres+Liquibase finished
+  bootstrapping Keycloak. Helm reported "post-upgrade hooks failed:
+  timed out waiting for the condition" → bp-keycloak HR never reached
+  Ready → bp-gitea (dependsOn keycloak OIDC) blocked → bp-self-sovereign-
+  cutover never converged. New defaults sit comfortably inside the parent
+  HR's 15m install/upgrade timeout. Both knobs remain per-Sovereign
+  overridable via valuesFrom (Inviolable Principle #4: no hardcoding).
 type: application
 keywords: [catalyst, blueprint, keycloak]
 maintainers:
