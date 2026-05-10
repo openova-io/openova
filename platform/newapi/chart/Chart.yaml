@@ -1,5 +1,33 @@
 apiVersion: v2
 name: bp-newapi
+# 1.4.2 (qa-loop bounded-cycle audit prov #7 Gap F, 2026-05-10): point
+# `.Values.newapi.image.tag` at a tag that ACTUALLY EXISTS in GHCR. Pre-
+# 1.4.2 the chart referenced `ghcr.io/openova-io/openova/newapi-mirror:
+# v0.4.5` — a tag that was never built by any CI workflow and never
+# pushed to GHCR (the package itself didn't exist; the original commit
+# 44d0200a invented the tag with no matching CI build). Every fresh
+# Sovereign's NewAPI Pod ImagePullBackOff'd, blocking alice signup
+# gate 5 (LLM).
+#
+# Fix:
+#   - NEW .github/workflows/build-bp-newapi.yaml — mirrors
+#     `docker.io/calciumion/new-api:<UPSTREAM_VER>` to
+#     `ghcr.io/openova-io/openova/newapi-mirror:<UPSTREAM_VER>` on every
+#     push to platform/newapi/chart/**. Mirrors the bp-guacamole CI
+#     pattern: capture upstream repo digest, re-tag into GHCR, bump
+#     values.yaml + Chart.yaml + dispatch blueprint-release.
+#   - values.yaml — bump `newapi.image.tag` from `v0.4.5` (fictitious)
+#     to `v0.13.2` (latest stable Calcium-Ion/new-api on Docker Hub
+#     at the authoring date, 2026-04-27 upstream publish). The
+#     v1.0.0-rc.x line is gated on upstream stabilising the schema
+#     migration; the channel-seed Job uses the legacy admin-API request
+#     shape, so do NOT auto-roll past v0.13.x without re-running the
+#     channel-seed integration smoke.
+#   - appVersion bumped from `0.4.5` to `0.13.2` to match the mirrored
+#     upstream (Helm convention: appVersion = upstream version without
+#     the `v` prefix; consumers reading `helm list` see the actual
+#     NewAPI release running).
+#
 # 1.4.1 (issue #952, 2026-05-05): templatize spec.imagePullSecrets on the
 # Deployment + channel-seed Job and default `imagePullSecrets:
 # [{name: ghcr-pull}]` in values.yaml. Pre-1.4.1 the Pod template emitted
@@ -58,8 +86,8 @@ name: bp-newapi
 # Issue #915 (epic SME tenant integration DoD: alice → OpenClaw →
 # NewAPI → Qwen3.6@BankDhofar end-to-end).
 # 1.2.0: Traefik Middleware gated behind ingress.middleware.enabled.
-version: 1.4.1
-appVersion: "0.4.5"
+version: 1.4.2
+appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
   marketplace gateway.
