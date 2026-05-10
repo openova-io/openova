@@ -33,7 +33,7 @@ catalystBlueprint:
 
 cilium:
   # kube-proxy replacement (faster + simpler than iptables)
-  kubeProxyReplacement: true
+  kubeProxyReplacement: false
   # k8sServiceHost: CP's stable private IP on the Sovereign's 10.0.1.0/24
   # subnet (cp1=10.0.1.2 per infra/hetzner/main.tf). Multi-node-aware:
   # works on the CP itself (10.0.1.2 IS its own private IP) AND on
