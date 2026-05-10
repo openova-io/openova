@@ -1,0 +1,274 @@
+{{- if .Values.qaFixtures.enabled }}
+{{- /*
+  pre-install-finalizer-strip.yaml — Fix #114 (prov #9 wedge, qa-loop iter-1).
+
+  ROOT CAUSE chained on prov #9:
+    1. bp-catalyst-platform install creates `qa-omantel` namespace +
+       `qa-wp` Application CR + controller Deployments in the SAME
+       install pass (no hook ordering).
+    2. The `qa-cnpg-backup-s3-seed` post-install hook Job is created
+       in qa-omantel; the chart waits up to 15m on its completion.
+    3. If anything in the install pass fails (or the Job stalls past
+       15m), `cleanupOnFail: true` triggers a rollback.
+    4. Rollback deletes the controllers (catalyst-application-controller,
+       catalyst-organization-controller, ...). Their CRs get
+       `deletionTimestamp` but still hold the controller's finalizer
+       (e.g. `application.apps.openova.io/finalizer`).
+    5. The qa-omantel namespace itself enters `Terminating` because
+       the Application CR has `metadata.finalizers` set.
+    6. With NO controller running, the finalizer is never removed.
+       Namespace is wedged in Terminating forever.
+    7. Next install retry: `creating Namespace qa-omantel` no-ops
+       (namespace already exists, Terminating); subsequent resource
+       creates against qa-omantel are REJECTED by the apiserver
+       (`unable to create new content in namespace qa-omantel because
+       it is being terminated`). The seed Job's RBAC can't be created
+       → Job never spawns → 15m hook timeout → rollback again.
+       Infinite loop, install NEVER converges.
+
+  TARGET-STATE FIX (per INVIOLABLE-PRINCIPLES #1, #4 — no MVP, no
+  workaround):
+    Run a pre-install / pre-upgrade Helm hook Job at the VERY START
+    of every install attempt that:
+      a. Strips finalizers from any pre-existing qa-fixture
+         controller-managed CRs (Application, Organization,
+         Environment, UserAccess) in the qa-omantel namespace + the
+         catalyst-system namespace.
+      b. If the qa-omantel namespace is in `Terminating` state, strips
+         its `kubernetes` finalizer so the apiserver completes the
+         deletion.
+    This guarantees every install attempt starts from a clean slate,
+    breaking the finalizer-deadlock chain at step 7 above. Once the
+    namespace is fully deleted, the chart's regular install pass
+    re-creates it cleanly and the seed Job's RBAC can be created.
+
+  hook-weight `-100` puts this Job FIRST in the pre-install ordering
+  (Helm sorts ascending; default weight is 0). It runs before the
+  namespace template is applied, before controllers, before the seed
+  Job — guaranteeing the cleanup completes before any other resource
+  attempts to land in qa-omantel.
+
+  This is a defense-in-depth measure; under normal operation (clean
+  first install, no rollback) the Job runs, finds nothing to clean,
+  and exits 0 in seconds.
+*/ -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: qa-finalizer-strip
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    catalyst.openova.io/managed-by: qa-fixtures
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-100"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: qa-finalizer-strip
+  labels:
+    catalyst.openova.io/managed-by: qa-fixtures
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-100"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+rules:
+  # Read + patch any qa-fixture CR that may carry a controller
+  # finalizer. We only patch `metadata.finalizers` — never delete the
+  # CR itself (the namespace deletion will reap it once the
+  # finalizer is gone).
+  - apiGroups: ["apps.openova.io"]
+    resources: ["applications"]
+    verbs: ["get", "list", "patch", "update"]
+  - apiGroups: ["orgs.openova.io"]
+    resources: ["organizations"]
+    verbs: ["get", "list", "patch", "update"]
+  - apiGroups: ["catalyst.openova.io"]
+    resources: ["environments"]
+    verbs: ["get", "list", "patch", "update"]
+  - apiGroups: ["access.openova.io"]
+    resources: ["useraccesses"]
+    verbs: ["get", "list", "patch", "update"]
+  # Namespace finalizer strip: only when the namespace is in
+  # `Terminating` state (the Job's script checks status.phase before
+  # patching). Patching `spec.finalizers` requires the
+  # `finalize` subresource verb on namespaces — listed explicitly
+  # so the Role is minimal-rights.
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["namespaces/finalize"]
+    verbs: ["update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: qa-finalizer-strip
+  labels:
+    catalyst.openova.io/managed-by: qa-fixtures
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-100"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+subjects:
+  - kind: ServiceAccount
+    name: qa-finalizer-strip
+    namespace: {{ .Release.Namespace | quote }}
+roleRef:
+  kind: ClusterRole
+  name: qa-finalizer-strip
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: qa-finalizer-strip
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    catalyst.openova.io/managed-by: qa-fixtures
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-99"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 4
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: qa-finalizer-strip
+        catalyst.openova.io/managed-by: qa-fixtures
+    spec:
+      serviceAccountName: qa-finalizer-strip
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: strip
+          image: docker.io/bitnamilegacy/kubectl:1.29.3
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -eu
+              QA_NS="{{ .Values.qaFixtures.namespace | default "qa-omantel" }}"
+              CTRL_NS="{{ .Release.Namespace }}"
+
+              echo "=== Fix #114: qa-fixtures finalizer strip ==="
+              echo "qa-namespace=${QA_NS}  controller-namespace=${CTRL_NS}"
+
+              # ---- Step 1: strip finalizers off any leftover
+              # controller-managed CRs in qa-namespace + ctrl-namespace.
+              # Each CR class is processed independently so a missing
+              # CRD (chart fresh-install, no prior wedge) doesn't fail
+              # the Job.
+              strip_cr() {
+                local kind="$1"
+                local ns="$2"
+                # `2>/dev/null || true` — kind may not be registered yet
+                # on a fresh cluster; that's fine.
+                local names
+                names=$(kubectl -n "${ns}" get "${kind}" -o name 2>/dev/null || true)
+                if [ -z "${names}" ]; then
+                  echo "  ${kind} in ${ns}: none found, skipping"
+                  return 0
+                fi
+                for n in ${names}; do
+                  echo "  stripping finalizers on ${ns}/${n}"
+                  kubectl -n "${ns}" patch "${n}" \
+                    --type=merge \
+                    -p '{"metadata":{"finalizers":[]}}' \
+                    2>&1 || echo "  warn: patch failed (CR may be gone)"
+                done
+              }
+
+              echo "--- qa-namespace CRs ---"
+              strip_cr applications.apps.openova.io        "${QA_NS}"
+              strip_cr environments.catalyst.openova.io    "${QA_NS}"
+
+              echo "--- controller-namespace CRs ---"
+              strip_cr useraccesses.access.openova.io      "${CTRL_NS}"
+
+              # Cluster-scoped (Organization is cluster-scoped per the
+              # CRD; useraccesses are namespaced in catalyst-system).
+              strip_cr_clusterscoped() {
+                local kind="$1"
+                local names
+                names=$(kubectl get "${kind}" -o name 2>/dev/null || true)
+                if [ -z "${names}" ]; then
+                  echo "  ${kind} (cluster): none found, skipping"
+                  return 0
+                fi
+                # Only strip CRs labelled by qa-fixtures so we never
+                # touch real Organizations on a production-Sovereign-
+                # turned-qa-Sovereign cluster (defense-in-depth).
+                for n in ${names}; do
+                  local label
+                  label=$(kubectl get "${n}" \
+                    -o jsonpath='{.metadata.labels.catalyst\.openova\.io/managed-by}' \
+                    2>/dev/null || true)
+                  if [ "${label}" != "qa-fixtures" ]; then
+                    echo "  ${n}: not managed-by qa-fixtures (label=${label}), skipping"
+                    continue
+                  fi
+                  echo "  stripping finalizers on ${n}"
+                  kubectl patch "${n}" \
+                    --type=merge \
+                    -p '{"metadata":{"finalizers":[]}}' \
+                    2>&1 || echo "  warn: patch failed (CR may be gone)"
+                done
+              }
+
+              echo "--- cluster-scoped CRs ---"
+              strip_cr_clusterscoped organizations.orgs.openova.io
+
+              # ---- Step 2: if qa-namespace itself is stuck Terminating,
+              # strip its `kubernetes` finalizer so the apiserver
+              # finishes the delete. We only do this when phase=
+              # Terminating (never strip a healthy namespace's
+              # finalizer, which would orphan its child resources).
+              ns_phase=$(kubectl get ns "${QA_NS}" \
+                -o jsonpath='{.status.phase}' 2>/dev/null || true)
+              if [ "${ns_phase}" = "Terminating" ]; then
+                echo "namespace ${QA_NS} is Terminating; stripping kubernetes finalizer"
+                # `/finalize` subresource is the only way to mutate
+                # spec.finalizers post-deletionTimestamp. kubectl's
+                # `--raw` PUT against the subresource is the standard
+                # recipe (works under readOnlyRootFilesystem: no temp
+                # files needed; body is passed via stdin).
+                BODY='{"apiVersion":"v1","kind":"Namespace","metadata":{"name":"'"${QA_NS}"'"},"spec":{"finalizers":[]}}'
+                printf '%s' "${BODY}" | kubectl replace --raw \
+                  "/api/v1/namespaces/${QA_NS}/finalize" \
+                  -f - 2>&1 \
+                  || echo "warn: namespace finalize PUT failed (apiserver may have already reaped)"
+                echo "namespace finalize PUT submitted; apiserver will reap"
+              else
+                echo "namespace ${QA_NS} phase=${ns_phase:-<absent>}; no finalizer strip needed"
+              fi
+
+              echo "=== finalizer strip complete ==="
+{{- end }}
