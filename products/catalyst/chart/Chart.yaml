@@ -738,8 +738,28 @@ name: bp-catalyst-platform
 # documented in qa-loop-state/iter12-diagnostic-audit.md §"(e)
 # infra-blocked" TC-081 (per `feedback_no_mvp_no_workarounds.md`
 # rule #3 "no operational hacks instead of chart fixes").
-version: 1.4.128
+version: 1.4.129
 appVersion: 1.4.94
+# 1.4.129 (qa-loop iter-16 Fix #65): ship the missing
+# `openova-catalog` Flux v1 HelmRepository in flux-system. The
+# application-controller has always defaulted its rendered HelmRelease
+# `sourceRef.name` to `openova-catalog` (env: CATALOG_SOURCE_REF), but
+# no chart template ever shipped the matching CR. Result: every
+# Application reconciled by the controller produced a HelmRelease
+# pointing at a non-existent source, Flux's helm-controller logged
+# `Source 'HelmRepository/openova-catalog' not found`, and no Pod was
+# ever scheduled. The Application CR sat at status.phase=Pending
+# forever — the qa-wp Application on qa-omantel never materialised
+# its nginx Pod / Service / ConfigMap, blocking ~30 qa-loop matrix TCs
+# (TC-066/100/103/104/109/113/216/262 + every other qa-omantel
+# namespaced test). Per docs/INVIOLABLE-PRINCIPLES.md #1 (target-state)
+# the chart now ships the missing source CR; the controller's default
+# is now a non-dangling reference on every Sovereign install. Per
+# Inviolable Principle #4 every field is overridable via per-Sovereign
+# overlays (e.g. swing url to a local Harbor proxy_cache via the
+# cutover-driver). New file: templates/openova-catalog-helmrepository.
+# yaml. New values block: catalog.helmRepository.{enabled,name,
+# namespace,type,url,secretRef,interval}.
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
   Composes the catalyst-{ui,api}, console, admin, marketplace UI modules and the marketplace-api backend.
