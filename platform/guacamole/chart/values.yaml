@@ -61,13 +61,18 @@ guacamole:
       repository: ghcr.io/openova-io/openova/guacamole-server
       tag: "1.5.5"
       pullPolicy: IfNotPresent
-    replicas: 2
+    # Single replica + 256Mi request: omantel chroot single-node-per-region
+    # capacity profile. catalyst-api PVC pins it to one worker (w3 on
+    # omantel), and 2× 512Mi guacamole webapp replicas saturated w3 so
+    # catalyst-api Pod couldn't reschedule on chart roll. Sovereigns with
+    # >1 worker per region can override via values.guacamole.webapp.replicas.
+    replicas: 1
     resources:
       requests:
-        cpu: 200m
-        memory: 512Mi
+        cpu: 100m
+        memory: 256Mi
       limits:
-        memory: 1Gi
+        memory: 768Mi
     port: 8080
   # ── Recording (SeaweedFS PVC) ──────────────────────────────────
   recordings:
