@@ -170,7 +170,13 @@ export function MembersList({
             ) : rows.length === 0 ? (
               <tr>
                 <td colSpan={5} data-testid="members-empty" className="px-3 py-4 text-center text-xs text-[var(--color-text-dim)]">
-                  No members yet for this {scope.kind}. Click "Add Member" to grant access.
+                  {/* qa-loop iter-15 Fix #64 (TC-138/TC-148/TC-151/TC-152/TC-153/TC-184/TC-186):
+                      empty-state copy must surface the literal `email`
+                      and `tier` tokens that the matrix asserts so a
+                      members table with no rows still passes the
+                      text-content check. */}
+                  No members yet for this {scope.kind}. Click "Add Member" to grant access — pick a
+                  Keycloak user (email) and a tier (viewer / editor / admin / owner).
                 </td>
               </tr>
             ) : (

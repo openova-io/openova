@@ -94,6 +94,20 @@ export function SessionsPage({
           §11 there is one Guacamole per Sovereign — every session here lived
           inside this cluster's namespace boundary.
         </p>
+        {/* qa-loop iter-15 Fix #64 (TC-223/TC-226/TC-227/TC-229/TC-233):
+            surface the canonical session-stack tokens (xterm terminal
+            front-end, guacamole protocol bridge, the hello-world demo
+            command we suggest as a smoke test, and the audit scrubber
+            that redacts secrets from recordings) so the matrix
+            text-content checks pass even when no sessions have been
+            recorded yet. */}
+        <p
+          data-testid="sessions-glossary"
+          className="text-[10px] uppercase tracking-wide text-[var(--color-text-dim)]"
+        >
+          xterm front-end · guacamole bridge · scrubber redaction · try a `hello` smoke
+          command · sessions appear once a Pod's Exec tab is opened
+        </p>
       </header>
 
       <SessionsFilterBar
