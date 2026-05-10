@@ -531,6 +531,27 @@ spec:
     # zero-touch flow), cloud-init pre-renders this variable to a
     # single-entry array derived from ${sovereign_fqdn}.
     parentZones: ${PARENT_DOMAINS_YAML}
+    # ─── Wildcard cert issuer environment (Fix #123, LE rate-limit) ────
+    # Default-OFF (production LE issuer); flipped to true via envsubst
+    # WILDCARD_CERT_USE_STAGING=true on the per-Sovereign overlay for any
+    # Sovereign that should issue staging-LE certs instead of production.
+    # The qa-loop coordinator pairs this knob with QA_FIXTURES_ENABLED on
+    # QA Sovereigns (omantel.biz and qa.* pools) so the wipe + re-provision
+    # cadence never trips Let's Encrypt's 5-certs/168h production ceiling
+    # per registered domain. Customer Sovereigns leave this empty (=false)
+    # and get real-trusted production certs.
+    #
+    # Staging certs are signed by Fake LE Intermediate X1; browsers
+    # reject without an explicit exception, but `curl -sk` and Playwright
+    # (ignoreHTTPSErrors:true) accept them — sufficient for the qa-loop
+    # Test Executor's contract assertions.
+    #
+    # Per docs/INVIOLABLE-PRINCIPLES.md #4 every Sovereign may flip this
+    # independently; the chart values.yaml carries the staging issuer
+    # name (`letsencrypt-dns01-staging-powerdns`, shipped by
+    # bp-cert-manager-powerdns-webhook 1.1.0+) as an overridable default.
+    wildcardCert:
+      useStaging: ${WILDCARD_CERT_USE_STAGING:-false}
     # ─── QA fixtures (qa-loop iter-6 Cluster-F + EPIC-6 iter-6) ────────
     # Default-OFF on production; flipped to true via envsubst
     # QA_FIXTURES_ENABLED=true on the per-Sovereign overlay for any

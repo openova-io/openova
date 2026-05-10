@@ -598,6 +598,12 @@ func TestWriteTfvars_QAFixtures_DefaultDisabled(t *testing.T) {
 	if v, _ := parsed["qa_test_session_enabled"].(string); v != "false" {
 		t.Fatalf("qa_test_session_enabled MUST default 'false' on customer Sovereigns, got %q", v)
 	}
+	// Fix #123 — wildcard_cert_use_staging MUST default 'false' so a
+	// customer Sovereign issues real-trusted production LE certs (not
+	// Fake-LE-Intermediate-X1 staging certs that browsers reject).
+	if v, _ := parsed["wildcard_cert_use_staging"].(string); v != "false" {
+		t.Fatalf("wildcard_cert_use_staging MUST default 'false' on customer Sovereigns (real-trusted production certs), got %q", v)
+	}
 }
 
 // TestWriteTfvars_QAFixtures_EnabledDerivesNamespaceAndOrg proves that when
@@ -658,6 +664,14 @@ func TestWriteTfvars_QAFixtures_EnabledDerivesNamespaceAndOrg(t *testing.T) {
 			}
 			if v, _ := parsed["qa_test_session_enabled"].(string); v != "true" {
 				t.Errorf("qa_test_session_enabled: got %q want \"true\"", v)
+			}
+			// Fix #123 — wildcard_cert_use_staging auto-flips 'true' on QA
+			// Sovereigns so the Sovereign issues from LE staging (separate
+			// generous rate limits) instead of production. Without this the
+			// wipe + re-provision cadence of QA Sovereigns trips the
+			// production 5/168h ceiling within hours.
+			if v, _ := parsed["wildcard_cert_use_staging"].(string); v != "true" {
+				t.Errorf("wildcard_cert_use_staging: got %q want \"true\" (QA Sovereigns MUST issue staging certs to bypass LE production rate limit)", v)
 			}
 			if v, _ := parsed["qa_fixtures_namespace"].(string); v != tc.wantNs {
 				t.Errorf("qa_fixtures_namespace: got %q want %q (derived from FQDN first label)", v, tc.wantNs)
