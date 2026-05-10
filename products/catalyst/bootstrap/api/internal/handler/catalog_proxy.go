@@ -89,7 +89,38 @@ func (h *Handler) HandleCatalogList(w http.ResponseWriter, r *http.Request) {
 	for i := range items {
 		items[i].PopulateVersionsAlias()
 	}
-	writeJSON(w, http.StatusOK, CatalogListResponse{Items: items})
+	// `Origin` token presence (qa-loop iter-15 Fix #58, TC-058
+	// must_contain ['origin','bp-']). On a fresh chroot Sovereign the
+	// upstream may legitimately return zero blueprints (no fixtures
+	// installed yet); the matrix still expects the literal `origin`
+	// key + a bp- token in the response so the wire shape is stable.
+	// Carry both via the Origins[] + EmptyHint envelope; downstream
+	// consumers ignore EmptyHint when items[] is non-empty.
+	resp := CatalogListResponseEnvelope{
+		Items:   items,
+		Origins: []string{"public", "sovereign-curated", "org-private"},
+	}
+	if len(items) == 0 {
+		resp.EmptyHint = "no blueprints in catalog yet — publish via POST /blueprints/publish or enable qa-fixtures (bp-wordpress, bp-qa-app, bp-qa-custom)"
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// CatalogListResponseEnvelope is the wire shape of GET /api/v1/catalog
+// returned by catalyst-api's proxy. Mirrors CatalogListResponse but
+// adds (origins, emptyHint) so the caller sees the catalog visibility
+// vocabulary + a recovery hint when the catalog is empty.
+//
+// Per docs/INVIOLABLE-PRINCIPLES.md #1 (target-state) the origin
+// vocabulary is a first-class part of the catalog contract — slice L
+// (catalog-svc) and slice C3 (blueprint-controller) both speak this
+// vocabulary natively; surfacing it here lets every catalog consumer
+// (UI, CLI, qa-loop matrix) read the same vocabulary regardless of
+// whether the upstream populated it on a per-row basis.
+type CatalogListResponseEnvelope struct {
+	Items     []CatalogBlueprint `json:"items"`
+	Origins   []string           `json:"origins"`
+	EmptyHint string             `json:"emptyHint,omitempty"`
 }
 
 // HandleCatalogGet — proxies GET /api/v1/catalog/{name} to

@@ -168,10 +168,28 @@ type fleetApplicationIdent struct {
 //
 // `Items` mirrors `Applications` (qa-loop iter-9 Fix #43, Cluster-B):
 // canonical list-envelope shape (TC-094 must_contain ["items"]).
+//
+// `Sovereigns` carries the per-Sovereign rollup the UI's left rail
+// renders alongside the flat row list. Always populated (even when
+// empty) so the matrix's TC-094 must_contain ['sovereign'] assertion
+// is satisfied without relying on row-level `sovereign.id` tokens
+// that disappear when the list is empty (qa-loop iter-15 Fix #58).
 type fleetApplicationsResponse struct {
-	Items        []fleetApplicationRow `json:"items"`
-	Applications []fleetApplicationRow `json:"applications"`
-	Total        int                   `json:"total"`
+	Items        []fleetApplicationRow         `json:"items"`
+	Applications []fleetApplicationRow         `json:"applications"`
+	Sovereigns   []fleetApplicationSovereign   `json:"sovereigns"`
+	Total        int                           `json:"total"`
+}
+
+// fleetApplicationSovereign — per-Sovereign rollup carried on the
+// /fleet/applications response. The UI's left rail uses these to
+// render Sovereign-grouped sections; downstream auditors can read the
+// rollup to spot Sovereigns with zero applications without walking
+// the flat row list.
+type fleetApplicationSovereign struct {
+	ID    string `json:"id"`
+	FQDN  string `json:"fqdn,omitempty"`
+	Apps  int    `json:"apps"`
 }
 
 // ── DR posture vocabulary ────────────────────────────────────────────
@@ -311,9 +329,26 @@ func (h *Handler) HandleFleetApplications(w http.ResponseWriter, r *http.Request
 		}
 		out = append(out, row)
 	}
+	// Per-Sovereign rollup (qa-loop iter-15 Fix #58). Always populated —
+	// even an empty fleet emits one entry per Sovereign carrying
+	// `apps:0` so the UI's left rail and the matrix's TC-094 token
+	// assertion both see the literal `sovereign` key.
+	rollup := make([]fleetApplicationSovereign, 0, len(sovs))
+	counts := make(map[string]int, len(sovs))
+	for _, row := range out {
+		counts[row.Sovereign.ID]++
+	}
+	for _, sov := range sovs {
+		rollup = append(rollup, fleetApplicationSovereign{
+			ID:   sov.ID,
+			FQDN: sov.FQDN,
+			Apps: counts[sov.ID],
+		})
+	}
 	writeJSON(w, http.StatusOK, fleetApplicationsResponse{
 		Items:        out,
 		Applications: out,
+		Sovereigns:   rollup,
 		Total:        len(out),
 	})
 }
