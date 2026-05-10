@@ -45,7 +45,7 @@ spec:
       # parameter so each Sovereign owns its KC realm named after the tenant
       # short-name (omantel chroot → "omantel"). Default `sovereign` is kept
       # in the chart for backward compat with overlays not yet migrated.
-      version: 1.4.1
+      version: 1.4.2
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak
