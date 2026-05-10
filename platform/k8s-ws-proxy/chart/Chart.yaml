@@ -14,7 +14,18 @@ name: bp-k8s-ws-proxy
 # 0.1.5 on merge (with the new image SHA in values.yaml). Slot pin
 # at 0.1.5 so omantel reconciles against the chart that carries
 # BOTH the imagePullSecrets default AND the new image SHA.
-version: 0.1.5
+# 0.1.6 (qa-loop bounded-cycle Wave 5 Fix #78, Gap E): adds
+# templates/hmac-bootstrap-job.yaml — a Helm pre-install/pre-upgrade
+# hook (weight -10) that auto-generates the `k8s-ws-proxy-hmac` Secret
+# from /dev/urandom when absent. Pre-this, on every fresh Sovereign
+# the DaemonSet pods sat ContainerCreating forever with
+# "secret k8s-ws-proxy-hmac not found" because the chart referenced
+# but never created it (audit prov #7 Gap E). Idempotent on upgrade
+# (preserves existing key — rotating it would invalidate every
+# in-flight catalyst-api signature). build-k8s-ws-proxy.yaml's promote
+# job will auto-bump this to 0.1.7 on merge with the new image SHA;
+# slot pins should be lifted to 0.1.7 once that promote runs.
+version: 0.1.6
 appVersion: "0.1.0"
 description: |
   Catalyst-authored Blueprint chart for the k8s-ws-proxy DaemonSet —

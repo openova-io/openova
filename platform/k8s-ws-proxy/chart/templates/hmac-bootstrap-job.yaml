@@ -1,0 +1,288 @@
+{{- /*
+HMAC Secret bootstrap Job (qa-loop bounded-cycle Wave 5 Fix #78, Gap E).
+
+ROOT CAUSE
+----------
+Pre-this-fix the chart's _helpers.tpl `bp-k8s-ws-proxy.hmacSecretName`
+fails-fast if `.Values.k8sWsProxy.hmacSecret.name` is empty, BUT with the
+default `name: k8s-ws-proxy-hmac` set in values.yaml, render proceeds and
+the DaemonSet mounts a Secret that NOTHING in the chart, sibling chart, or
+bootstrap-kit ever creates. On a fresh provision (prov #7 audit, Gap E)
+all three k8s-ws-proxy pods sat ContainerCreating for 25+ min with:
+
+   MountVolume.SetUp failed for volume "hmac-secret":
+     secret "k8s-ws-proxy-hmac" not found
+
+Impact: Phase-1 Sovereign Console in-browser kubectl/exec broken on every
+fresh Sovereign — operator UI's exec tunnel (catalyst-api ➜ k8s-ws-proxy
+DaemonSet) cannot mint signed URLs because the upstream caller and the
+DaemonSet have no shared HMAC key.
+
+FIX PATTERN
+-----------
+Helm pre-install/pre-upgrade Job (hook-weight: "-10" so it runs BEFORE
+the DaemonSet rolls) that:
+
+  1. Idempotency check — GET the target Secret. If it exists, exit 0
+     immediately (operator-pre-provisioned via SealedSecret + bp-sealed-
+     secrets reflector path is still respected; idempotent re-runs on
+     `helm upgrade` skip the generate path).
+  2. Generate 32 random bytes via `head -c 32 /dev/urandom`, pipe DIRECTLY
+     to `base64 | tr -d '\n'`, then INTO the JSON body posted to the
+     apiserver. Per global CLAUDE.md §10 the bytes are NEVER echoed to
+     stdout, NEVER written to a file outside the in-pod tmpfs, and never
+     leave the apiserver→kubelet→Job-pod path.
+  3. POST to /api/v1/namespaces/<ns>/secrets. On 409 Already-Exists treat
+     as success (race with operator pre-provision is benign). Any other
+     non-2xx is FATAL.
+
+The Job runs as a Helm pre-install AND pre-upgrade hook so:
+  - Fresh install: Secret created BEFORE DaemonSet → no ContainerCreating
+    blackout window.
+  - Helm upgrade: idempotent skip (Secret exists from prior install) →
+    HMAC key is preserved across chart upgrades. CRITICAL — rotating the
+    key would invalidate every in-flight catalyst-api signature, and the
+    chart upgrade path must not be a silent break.
+
+KEY ROTATION
+------------
+Operator-driven: `kubectl delete secret k8s-ws-proxy-hmac -n catalyst-
+system && flux reconcile helmrelease bp-k8s-ws-proxy -n flux-system` will
+trigger this Job to regenerate. Coupled rotation of the upstream caller's
+HMAC env var is the operator's responsibility — out of scope here.
+
+RBAC SPLIT
+----------
+Per memory/feedback_rbac_create_no_resourcenames.md: `create` MUST be in
+its own rule WITHOUT resourceNames. The combined-rule pattern (verbs:
+[create, get, patch] resourceNames: [k8s-ws-proxy-hmac]) was the silent
+root cause of bp-openbao 1.2.5..1.2.11's "POST 403 swallowed by
+busybox-wget" loop.
+
+CANONICAL SEAM
+--------------
+Modelled after platform/gitea/chart/templates/database-secret-sync-job.yaml:
+  - curlimages/curl:8.10.1 (alpine + curl + sh; no kubectl required;
+    proven image — bitnami/kubectl moved to sha256-only tags, rancher/
+    kubectl is distroless and has no /bin/sh).
+  - In-cluster ServiceAccount token from the projected
+    /var/run/secrets/kubernetes.io/serviceaccount path.
+  - Hook-weight 0 for SA/Role/RoleBinding (must exist before -10 Job
+    pod's API calls); -10 for the Job itself.
+  - hook-delete-policy: before-hook-creation,hook-succeeded — every
+    upgrade replaces the prior Job artefacts; succeeded ones are reaped.
+*/}}
+{{- if .Values.k8sWsProxy.enabled -}}
+{{- $secretName := include "bp-k8s-ws-proxy.hmacSecretName" . }}
+{{- $secretKey := .Values.k8sWsProxy.hmacSecret.key }}
+{{- $ns := .Release.Namespace }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: k8s-ws-proxy-hmac-bootstrap
+  namespace: {{ $ns }}
+  labels:
+    catalyst.openova.io/blueprint: bp-k8s-ws-proxy
+    catalyst.openova.io/component: hmac-bootstrap
+  annotations:
+    "helm.sh/hook": "pre-install,pre-upgrade"
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": "before-hook-creation"
+{{- with .Values.k8sWsProxy.imagePullSecrets }}
+imagePullSecrets:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+---
+# Per memory/feedback_rbac_create_no_resourcenames.md:
+# `create` is in a SEPARATE rule WITH NO resourceNames. The apiserver
+# rejects POST /secrets with 403 if `create` carries resourceNames, and
+# the silent failure historically wedged 6+ chart iterations of bp-openbao
+# debugging the wrong layer (busybox-wget exit codes, image versions,
+# etc.). Splitting the verbs makes the create path correct AND keeps the
+# read/update path scoped to ONLY this Secret name.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: k8s-ws-proxy-hmac-bootstrap
+  namespace: {{ $ns }}
+  labels:
+    catalyst.openova.io/blueprint: bp-k8s-ws-proxy
+    catalyst.openova.io/component: hmac-bootstrap
+  annotations:
+    "helm.sh/hook": "pre-install,pre-upgrade"
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": "before-hook-creation"
+rules:
+  # Rule 1: create — NO resourceNames (apiserver authz rejects otherwise).
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+  # Rule 2: read/update — scoped to the single Secret this Job manages.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: [{{ $secretName | quote }}]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: k8s-ws-proxy-hmac-bootstrap
+  namespace: {{ $ns }}
+  labels:
+    catalyst.openova.io/blueprint: bp-k8s-ws-proxy
+    catalyst.openova.io/component: hmac-bootstrap
+  annotations:
+    "helm.sh/hook": "pre-install,pre-upgrade"
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": "before-hook-creation"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: k8s-ws-proxy-hmac-bootstrap
+subjects:
+  - kind: ServiceAccount
+    name: k8s-ws-proxy-hmac-bootstrap
+    namespace: {{ $ns }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: k8s-ws-proxy-hmac-bootstrap
+  namespace: {{ $ns }}
+  labels:
+    catalyst.openova.io/blueprint: bp-k8s-ws-proxy
+    catalyst.openova.io/component: hmac-bootstrap
+  annotations:
+    "helm.sh/hook": "pre-install,pre-upgrade"
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": "before-hook-creation,hook-succeeded"
+spec:
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        catalyst.openova.io/blueprint: bp-k8s-ws-proxy
+        catalyst.openova.io/component: hmac-bootstrap
+    spec:
+      serviceAccountName: k8s-ws-proxy-hmac-bootstrap
+      restartPolicy: Never
+      {{- with .Values.k8sWsProxy.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: bootstrap
+          # curlimages/curl is the canonical Catalyst seam for in-chart
+          # k8s-API operations from a Job — alpine-based, has /bin/sh,
+          # has /dev/urandom, has base64. No kubectl dependency.
+          image: curlimages/curl:8.10.1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: SECRET_NAME
+              value: {{ $secretName | quote }}
+            - name: SECRET_KEY
+              value: {{ $secretKey | quote }}
+            - name: NAMESPACE
+              value: {{ $ns | quote }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              APISERVER="https://kubernetes.default.svc"
+              TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+              CA=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+
+              echo "[hmac-bootstrap] target: ${NAMESPACE}/${SECRET_NAME} (key=${SECRET_KEY})"
+
+              # ─── Step 1: idempotency probe ─────────────────────────────
+              # GET /secrets/<name>. 200 = exists → operator pre-provisioned
+              # OR a prior install ran this Job → skip generate. 404 = not
+              # found → proceed to create. Any other code is FATAL.
+              code=$(curl -sS -o /tmp/probe.json -w '%{http_code}' \
+                --cacert "${CA}" \
+                -H "Authorization: Bearer ${TOKEN}" \
+                "${APISERVER}/api/v1/namespaces/${NAMESPACE}/secrets/${SECRET_NAME}")
+              if [ "${code}" = "200" ]; then
+                echo "[hmac-bootstrap] Secret already exists — idempotent skip (preserves HMAC across upgrades)"
+                exit 0
+              fi
+              if [ "${code}" != "404" ]; then
+                echo "[hmac-bootstrap] FATAL: idempotency probe returned HTTP ${code}" >&2
+                cat /tmp/probe.json >&2 || true
+                exit 1
+              fi
+
+              # ─── Step 2: generate 32 random bytes → base64 ──────────────
+              # CRITICAL (global CLAUDE.md §10): the HMAC bytes are NEVER
+              # echoed/cat/printed. /dev/urandom → base64 → variable
+              # consumed only by the JSON-builder printf. The Secret data
+              # field is itself base64 (k8s wire format) — so the value
+              # we POST is base64(<random_bytes>). The proxy decodes once
+              # via the ConfigMap-style projection (subPath), getting the
+              # raw 32 bytes back as the HMAC key file content.
+              HMAC_B64=$(head -c 32 /dev/urandom | base64 | tr -d '\n')
+              if [ -z "${HMAC_B64}" ]; then
+                echo "[hmac-bootstrap] FATAL: empty random output (no entropy?)" >&2
+                exit 1
+              fi
+              # The Secret data value must itself be base64 of the file
+              # content. We want the file content to BE the base64 of the
+              # raw bytes (a printable token), so the wire-format value
+              # is base64(base64(raw_bytes)).
+              WIRE_B64=$(printf '%s' "${HMAC_B64}" | base64 | tr -d '\n')
+
+              # ─── Step 3: POST Secret ────────────────────────────────────
+              BODY=$(printf '{"apiVersion":"v1","kind":"Secret","metadata":{"name":"%s","namespace":"%s","labels":{"catalyst.openova.io/blueprint":"bp-k8s-ws-proxy","catalyst.openova.io/component":"hmac-bootstrap","app.kubernetes.io/managed-by":"Helm"}},"type":"Opaque","data":{"%s":"%s"}}' \
+                "${SECRET_NAME}" "${NAMESPACE}" "${SECRET_KEY}" "${WIRE_B64}")
+              code=$(curl -sS -o /tmp/create.json -w '%{http_code}' \
+                --cacert "${CA}" \
+                -H "Authorization: Bearer ${TOKEN}" \
+                -H "Content-Type: application/json" \
+                -X POST --data "${BODY}" \
+                "${APISERVER}/api/v1/namespaces/${NAMESPACE}/secrets")
+              # Clear the secret bytes from the env immediately after POST.
+              HMAC_B64="" ; WIRE_B64="" ; BODY=""
+              if [ "${code}" = "201" ] || [ "${code}" = "200" ]; then
+                echo "[hmac-bootstrap] Secret ${NAMESPACE}/${SECRET_NAME} created"
+                exit 0
+              fi
+              # 409 — race with operator pre-provision (or another concurrent
+              # bootstrap on a multi-replica HelmRelease retry). Treat as
+              # success: the existing Secret is preserved.
+              if [ "${code}" = "409" ]; then
+                echo "[hmac-bootstrap] Secret already created concurrently (HTTP 409) — accepting (preserves existing key)"
+                exit 0
+              fi
+              echo "[hmac-bootstrap] FATAL: POST returned HTTP ${code}" >&2
+              cat /tmp/create.json >&2 || true
+              exit 1
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 8Mi
+{{- end }}
