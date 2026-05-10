@@ -412,14 +412,24 @@ spec:
   # leaving the release Secret pinned at `pending-upgrade` for the full
   # timeout ceiling. Net effect: a failed-then-recoverable upgrade
   # collapses from ~75m worst case → ~15m worst case.
+  #
+  # post-prov7 fix (2026-05-10, refs chart-roll-rca-iter15): the
+  # HelmRelease v2 schema only allows `cleanupOnFail` and
+  # `remediation.strategy` on the `upgrade` block. The previous version
+  # of this file placed both fields on the `install` block as well,
+  # which caused the bootstrap-kit Kustomization to fail dry-run on a
+  # fresh Sovereign with `field not declared in schema`, blocking ALL
+  # HRs from rendering. The install block here keeps only the schema-
+  # legal fields (`retries`, `remediateLastFailure`); rollback semantics
+  # apply naturally to upgrades, and a failed first install is
+  # remediated via retry without rollback (no prior release to roll
+  # back to).
   install:
     disableWait: true
     timeout: 15m
     remediation:
       retries: 3
-      strategy: rollback
       remediateLastFailure: true
-    cleanupOnFail: true
   upgrade:
     disableWait: true
     timeout: 15m
