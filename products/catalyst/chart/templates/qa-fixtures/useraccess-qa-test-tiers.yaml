@@ -23,7 +23,13 @@ Per qa-omantel naming conventions (see useraccess-qa-user1.yaml):
 - Scopes mirror qa-user1 so the test users live in the same env-type/app
   space the matrix's resource fixtures (qa-omantel ns, qa-wp app) use.
 */ -}}
-{{- if and .Values.qaFixtures.enabled .Values.qaFixtures.testSessionEnabled }}
+{{- /*
+chart-roll-rca iter-15 (2026-05-10) defense-in-depth: APIVersions.Has
+gate — see useraccess-qa-user1.yaml for full rationale. If the XRD
+is missing the file evaluates to empty bytes, eliminating the
+admission-rejection class of chart-roll wedges.
+*/ -}}
+{{- if and .Values.qaFixtures.enabled .Values.qaFixtures.testSessionEnabled (.Capabilities.APIVersions.Has "access.openova.io/v1alpha1/UserAccess") }}
 {{- $tiers := list "viewer" "developer" "operator" "admin" "owner" -}}
 {{- $sovRef := regexReplaceAll "\\..*$" (.Values.qaFixtures.sovereignRef | default "omantel.biz") "" -}}
 {{- range $tier := $tiers }}
