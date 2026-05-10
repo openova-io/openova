@@ -46,7 +46,15 @@ spec:
       # that nothing ever created. Idempotent on upgrade (preserves
       # the existing key — rotating it would invalidate every
       # in-flight catalyst-api signature).
-      version: 0.1.6
+      # 0.1.9 (qa-loop bounded-cycle Fix #95, regression of Fix #78):
+      # explicit hook-weight ordering for the hmac-bootstrap quartet
+      # (SA=-20, Role+RoleBinding=-15, Job=-10) so the SA lands BEFORE
+      # the Job that references it. Pre-this, prov #8 failed with
+      # `serviceaccount "k8s-ws-proxy-hmac-bootstrap" not found`
+      # because the Job (weight -10, lower=earlier in Helm) was
+      # applied before its SA (weight 0). CI promote auto-bumps from
+      # Chart.yaml 0.1.8 to 0.1.9 with the new image SHA on merge.
+      version: 0.1.9
       sourceRef:
         kind: HelmRepository
         name: bp-k8s-ws-proxy
