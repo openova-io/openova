@@ -63,8 +63,6 @@ resources:
   # + DMZ vCluster isolation). Slots 53/54. Both default-OFF; flip on
   # via NETBIRD_ENABLED=true / DMZ_VCLUSTER_ENABLED=true on the
   # bootstrap-kit Kustomization substitute.
-  - 53-bp-netbird.yaml
-  - 54-bp-dmz-vcluster.yaml
   # qa-loop iter-12 Fix #54 Workstream 1 — bp-hcloud-ccm (slot 55).
   # Hetzner Cloud Controller Manager. The CCM owns node providerID
   # flips (k3s://… → hcloud://<server-id>) AND materialisation of
