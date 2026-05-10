@@ -816,13 +816,23 @@ func resolvePostLogoutPath() string {
 // discover its sovereign context from a single round-trip without a
 // follow-up /api/v1/sovereign/self call. This is the contract
 // SovereignConsoleLayout + chroot SPA features assert in TC-232.
+// whoamiRealmAccess mirrors the Keycloak `realm_access` claim shape
+// the wire emits to clients. Kept as its own type (not the auth.RealmAccess
+// re-export) so a future addition there doesn't accidentally widen the
+// public whoami contract.
+type whoamiRealmAccess struct {
+	Roles []string `json:"roles,omitempty"`
+}
+
 type whoamiResponse struct {
-	Email         string `json:"email"`
-	Sub           string `json:"sub"`
-	Verified      bool   `json:"verified"`
-	DeploymentID  string `json:"deploymentId,omitempty"`
-	SovereignFQDN string `json:"sovereignFQDN,omitempty"`
-	Mode          string `json:"mode,omitempty"`
+	Email         string            `json:"email"`
+	Sub           string            `json:"sub"`
+	Verified      bool              `json:"verified"`
+	DeploymentID  string            `json:"deploymentId,omitempty"`
+	SovereignFQDN string            `json:"sovereignFQDN,omitempty"`
+	Mode          string            `json:"mode,omitempty"`
+	Tier          string            `json:"tier,omitempty"`
+	RealmAccess   whoamiRealmAccess `json:"realm_access,omitempty"`
 }
 
 // HandleWhoami handles GET /api/v1/whoami.
@@ -870,7 +880,19 @@ func (h *Handler) HandleWhoami(w http.ResponseWriter, r *http.Request) {
 		Email:    claims.Email,
 		Sub:      claims.Sub,
 		Verified: claims.EmailVerified,
+		Tier:     strings.ToLower(strings.TrimSpace(claims.Tier)),
 	}
+	if len(claims.RealmAccess.Roles) > 0 {
+		resp.RealmAccess.Roles = append([]string(nil), claims.RealmAccess.Roles...)
+	}
+	// EPIC-3 (#1184) tier→catalyst-* role projection: when the operator
+	// holds a `tier` claim but the realm-access role list lacks the
+	// matching `catalyst-<tier>` + `catalyst-viewer` entries (typical
+	// on PIN-derived sessions and chroot-internal JWTs that don't run
+	// through the protocol mapper), synthesize them so downstream UI
+	// authorization checks (which look at realm_access.roles) work
+	// regardless of how the session was minted.
+	whoamiInjectTierRoles(&resp.RealmAccess, resp.Tier)
 
 	// Sovereign-context enrichment — same precedence as HandleSovereignSelf
 	// so the two endpoints never disagree about which sovereign this is.
@@ -898,4 +920,60 @@ func (h *Handler) HandleWhoami(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// whoamiTierInheritance is the EPIC-3 §6.2 tier-inherit chain. Each
+// tier inherits every entry below itself in the slice, so an operator
+// at tier=admin holds catalyst-{viewer,developer,operator,admin}
+// realm roles in addition to the tier-* RBAC ClusterRoles.
+//
+// owner inherits admin which inherits operator which inherits developer
+// which inherits viewer. Same chain enforced by the
+// platform/crossplane-claims chart's tierActions[*].inherits values.
+var whoamiTierInheritance = []string{
+	"viewer",
+	"developer",
+	"operator",
+	"admin",
+	"owner",
+}
+
+// whoamiInjectTierRoles guarantees that every catalyst-<inherited-tier>
+// realm role is present in resp.RealmAccess.Roles when the operator's
+// `tier` claim is set. PIN-derived sessions and a few chroot-internal
+// JWT mint paths set the `tier` claim but skip the full role-list
+// projection — without this enrichment, the EPIC-3 access-matrix UI's
+// per-user role chips render as "viewer only" even for admins.
+//
+// Idempotent: existing roles are preserved; missing ones are appended
+// in inheritance order so the chip list reads bottom-up (viewer first,
+// then developer, ..., then the operator's own tier).
+func whoamiInjectTierRoles(ra *whoamiRealmAccess, tier string) {
+	tier = strings.ToLower(strings.TrimSpace(tier))
+	if tier == "" {
+		return
+	}
+	// Find the operator's tier index in the inheritance chain. Unknown
+	// tiers (legacy `application-admin`, future tiers) are no-ops here.
+	tierIdx := -1
+	for i, t := range whoamiTierInheritance {
+		if t == tier {
+			tierIdx = i
+			break
+		}
+	}
+	if tierIdx < 0 {
+		return
+	}
+	have := map[string]struct{}{}
+	for _, r := range ra.Roles {
+		have[strings.ToLower(strings.TrimSpace(r))] = struct{}{}
+	}
+	for i := 0; i <= tierIdx; i++ {
+		want := "catalyst-" + whoamiTierInheritance[i]
+		if _, ok := have[want]; !ok {
+			ra.Roles = append(ra.Roles, want)
+			have[want] = struct{}{}
+		}
+	}
 }

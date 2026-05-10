@@ -482,3 +482,95 @@ func TestValidateRBACAssignRequest_Cases(t *testing.T) {
 		})
 	}
 }
+
+// ── Ergonomic body shape (qa-loop iter-15 Fix #60) ────────────────────
+
+// TestNormalizeRBACAssignRequest_TopLevelEmail covers the ergonomic
+// shape used by the qa-loop matrix (TC-128, TC-168) and any CLI
+// caller that omits the {"user":{"email":...}} nesting.
+func TestNormalizeRBACAssignRequest_TopLevelEmail(t *testing.T) {
+	req := rbacAssignRequest{
+		Email:     "qa-user1@openova.io",
+		Tier:      "developer",
+		ScopeType: "application",
+		ScopeName: "qa-wp",
+	}
+	normalizeRBACAssignRequest(&req)
+	if req.User.Email != "qa-user1@openova.io" {
+		t.Fatalf("user.email: got %q want qa-user1@openova.io", req.User.Email)
+	}
+	if len(req.Scope) != 1 || req.Scope[0].Key != "openova.io/application" || req.Scope[0].Value != "qa-wp" {
+		t.Fatalf("scope: got %+v want [{openova.io/application qa-wp}]", req.Scope)
+	}
+	if msg, ok := validateRBACAssignRequest(req); !ok {
+		t.Fatalf("validation failed after normalize: %s", msg)
+	}
+}
+
+// TestNormalizeRBACAssignRequest_CanonicalShapeWins asserts the
+// canonical (nested) shape takes precedence when both shapes set the
+// same field. Idempotent on already-canonical bodies.
+func TestNormalizeRBACAssignRequest_CanonicalShapeWins(t *testing.T) {
+	req := rbacAssignRequest{
+		User:  rbacAssignUserBody{Email: "canonical@x.io"},
+		Email: "ergonomic@x.io",
+		Tier:  "viewer",
+	}
+	normalizeRBACAssignRequest(&req)
+	if req.User.Email != "canonical@x.io" {
+		t.Fatalf("expected canonical to win: got %q", req.User.Email)
+	}
+}
+
+// TestHandleRBACAssign_AcceptsMatrixErgonomicBody is the explicit
+// regression for TC-128 — POST {"email":"...","tier":"developer",
+// "scopeType":"application","scopeName":"qa-wp"} must reach the
+// find-or-create code path and create a UserAccess CR.
+func TestHandleRBACAssign_AcceptsMatrixErgonomicBody(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	factory, _ := fakeUserAccessDynamicFactory()
+	h.dynamicFactory = factory
+	dep := installUserAccessDeployment(t, h, "dep-rbac-ergonomic")
+
+	body := map[string]any{
+		"email":     "qa-user1@openova.io",
+		"tier":      "developer",
+		"scopeType": "application",
+		"scopeName": "qa-wp",
+	}
+	rec := callUserAccess(t, h, http.MethodPost,
+		"/api/v1/sovereigns/"+dep.ID+"/rbac/assign", body, registerRBACAssignRoute)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status: got %d want 201; body=%s", rec.Code, rec.Body.String())
+	}
+	var resp rbacAssignResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Applied != "created" {
+		t.Fatalf("applied: got %q want created", resp.Applied)
+	}
+}
+
+// TestHandleRBACAssign_RejectsUnknownTierWith400 — TC-168 regression.
+// {"email":"qa@openova.io","tier":"super-admin"} must be rejected at
+// the validator with HTTP 400 mentioning "tier", not surface as a
+// downstream K8s 500.
+func TestHandleRBACAssign_RejectsUnknownTierWith400(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	factory, _ := fakeUserAccessDynamicFactory()
+	h.dynamicFactory = factory
+	dep := installUserAccessDeployment(t, h, "dep-rbac-bad-tier")
+	body := map[string]any{
+		"email": "qa@openova.io",
+		"tier":  "super-admin",
+	}
+	rec := callUserAccess(t, h, http.MethodPost,
+		"/api/v1/sovereigns/"+dep.ID+"/rbac/assign", body, registerRBACAssignRoute)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "tier") {
+		t.Fatalf("expected body to mention 'tier'; got %s", rec.Body.String())
+	}
+}

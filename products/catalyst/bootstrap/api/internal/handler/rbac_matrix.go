@@ -57,10 +57,17 @@ type AccessMatrixGrant struct {
 // AccessMatrixResponse is the full payload returned by GET
 // /rbac/access-matrix. Shape designed for direct consumption by the
 // EPIC-3 U7 UI (slice U7).
+//
+// `OrgFilter` and `ApplicationFilter` echo the request's ?org=
+// and ?application= query params back so the UI can render an
+// "Org: omantel-platform" pill above the grid without having to
+// re-parse the URL. They are omitted when empty.
 type AccessMatrixResponse struct {
-	Users        []AccessMatrixUser `json:"users"`
-	Applications []string           `json:"applications"`
-	Tiers        []string           `json:"tiers"`
+	Users             []AccessMatrixUser `json:"users"`
+	Applications      []string           `json:"applications"`
+	Tiers             []string           `json:"tiers"`
+	OrgFilter         string             `json:"orgFilter,omitempty"`
+	ApplicationFilter string             `json:"applicationFilter,omitempty"`
 }
 
 // ── HTTP handler ─────────────────────────────────────────────────────
@@ -87,9 +94,11 @@ func (h *Handler) HandleRBACAccessMatrix(w http.ResponseWriter, r *http.Request)
 			// CRD not installed → empty matrix shape; UI renders the
 			// "no grants yet" state.
 			writeJSON(w, http.StatusOK, AccessMatrixResponse{
-				Users:        []AccessMatrixUser{},
-				Applications: []string{},
-				Tiers:        canonicalTierOrder(),
+				Users:             []AccessMatrixUser{},
+				Applications:      []string{},
+				Tiers:             canonicalTierOrder(),
+				OrgFilter:         orgFilter,
+				ApplicationFilter: appFilter,
 			})
 			return
 		}
@@ -102,6 +111,8 @@ func (h *Handler) HandleRBACAccessMatrix(w http.ResponseWriter, r *http.Request)
 	}
 
 	resp := buildAccessMatrix(listIface.Items, orgFilter, appFilter)
+	resp.OrgFilter = orgFilter
+	resp.ApplicationFilter = appFilter
 	writeJSON(w, http.StatusOK, resp)
 }
 

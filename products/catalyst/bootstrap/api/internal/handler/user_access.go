@@ -94,6 +94,21 @@ var userAccessRoles = map[string]struct{}{
 type userAccessRequest struct {
 	Name string             `json:"name"`
 	Spec userAccessSpecBody `json:"spec"`
+
+	// Ergonomic top-level shape — collapsed into Spec.* on decode.
+	// Matches the qa-loop matrix POST body for /admin/user-access:
+	//   {"email": "qa-user2@openova.io", "tier": "viewer"}
+	// The handler synthesizes:
+	//   - Name = "useraccess-<sanitized-email-prefix>"
+	//   - Spec.User.KeycloakSubject = email (Keycloak issues subjects
+	//     equal to the email when the realm uses email-as-username,
+	//     which is the default for OpenOva-shipped Sovereigns)
+	//   - Spec.SovereignRef = depID-derived slug
+	//   - Spec.Applications = [{app: "*", role: <tierToRole(tier)>}]
+	// when these fields are present and the canonical Spec.* counterparts
+	// are unset.
+	Email string `json:"email,omitempty"`
+	Tier  string `json:"tier,omitempty"`
 }
 
 type userAccessSpecBody struct {
@@ -188,6 +203,7 @@ func (h *Handler) CreateUserAccess(w http.ResponseWriter, r *http.Request) {
 	if !decodeMutationBody(w, r, &body) {
 		return
 	}
+	normalizeUserAccessErgonomicShape(&body, dep)
 	if msg, ok := validateUserAccess(body); !ok {
 		writeBadRequest(w, "invalid-user-access", msg)
 		return
@@ -239,6 +255,7 @@ func (h *Handler) UpdateUserAccess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body.Name = name
+	normalizeUserAccessErgonomicShape(&body, dep)
 	if msg, ok := validateUserAccess(body); !ok {
 		writeBadRequest(w, "invalid-user-access", msg)
 		return
@@ -341,6 +358,79 @@ func tryDeleteUserAccess(ctx context.Context, client dynamic.Interface, name str
 		return err
 	}
 	return nil
+}
+
+// userAccessTierToRole maps the 5-tier RBAC vocabulary used by the
+// qa-loop matrix and the EPIC-3 access-matrix UI onto the 3-role
+// vocabulary the UserAccess CRD's per-application grant accepts.
+//
+//   - viewer / developer  → viewer (read access; developer adds
+//     exec/console/tickets via the tier-developer ClusterRole, which
+//     the controller binds *in addition to* the per-app role)
+//   - operator / admin    → admin
+//   - owner               → admin (owner is global; no app-level form)
+//
+// Mapping is intentionally lossy — the canonical EPIC-3 path is the
+// /rbac/assign endpoint, which writes the tier directly. The
+// /admin/user-access endpoint pre-dates the 5-tier model and is kept
+// alive for the issue-#323 sovereign-IAM editor; the ergonomic body
+// shape lets the qa-loop matrix exercise it without inventing per-app
+// grant rows.
+func userAccessTierToRole(tier string) string {
+	switch strings.ToLower(strings.TrimSpace(tier)) {
+	case "viewer", "developer":
+		return "viewer"
+	case "operator", "admin", "owner":
+		return "admin"
+	}
+	return ""
+}
+
+// normalizeUserAccessErgonomicShape collapses the qa-loop matrix's
+// {"email":"...","tier":"..."} POST body into the canonical
+// userAccessRequest shape so validateUserAccess + userAccessToUnstructured
+// can run unchanged. Idempotent: when Spec.* is already populated by
+// the canonical shape, this is a no-op (canonical wins).
+func normalizeUserAccessErgonomicShape(req *userAccessRequest, dep *Deployment) {
+	email := strings.TrimSpace(req.Email)
+	tier := strings.TrimSpace(req.Tier)
+
+	// User identity: Keycloak issues subjects equal to the email when
+	// the realm uses email-as-username (default for OpenOva-shipped
+	// Sovereigns). Stamp both spec.user.keycloakSubject and the email
+	// hint annotation upstream consumers (matrix, audit) read.
+	if email != "" && strings.TrimSpace(req.Spec.User.KeycloakSubject) == "" &&
+		len(req.Spec.User.KeycloakGroups) == 0 {
+		req.Spec.User.KeycloakSubject = email
+	}
+
+	// SovereignRef: derive from the deployment's FQDN slug if unset.
+	// This is the same slug rbacAssignSovereignRef computes for the
+	// /rbac/assign path.
+	if strings.TrimSpace(req.Spec.SovereignRef) == "" && dep != nil {
+		req.Spec.SovereignRef = rbacAssignSovereignRef(dep)
+	}
+
+	// Applications: when the ergonomic body sets a tier but no
+	// per-application grant, synthesize a single wildcard "*" grant
+	// at the mapped role. The useraccess-controller treats "*" as
+	// "every Application discovered on the Sovereign".
+	if tier != "" && len(req.Spec.Applications) == 0 {
+		role := userAccessTierToRole(tier)
+		if role != "" {
+			req.Spec.Applications = []userAccessAppGrantBody{{
+				App:  "*",
+				Role: role,
+			}}
+		}
+	}
+
+	// Name: synthesize a deterministic name from the email when unset.
+	// The UI's create-form populates Name explicitly; the matrix
+	// doesn't, so we fall back to "useraccess-<sanitized-email-prefix>".
+	if strings.TrimSpace(req.Name) == "" && email != "" {
+		req.Name = "useraccess-" + sanitizeK8sNameSegment(strings.SplitN(email, "@", 2)[0])
+	}
 }
 
 func validateUserAccess(req userAccessRequest) (string, bool) {

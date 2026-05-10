@@ -107,10 +107,82 @@ type rbacAssignScopeBody struct {
 }
 
 // rbacAssignRequest is the body of POST /rbac/assign.
+//
+// Two ergonomic shapes are accepted (post EPIC-3 U1 + matrix-target):
+//
+//  1. Canonical (used by U1 multi-grant editor):
+//     {"user":{"email":"...","keycloakSubject":"..."},
+//      "tier":"developer",
+//      "scope":[{"key":"openova.io/application","value":"qa-wp"}]}
+//
+//  2. Ergonomic top-level (used by CLI / scripts / qa-loop matrix):
+//     {"email":"qa-user1@openova.io","tier":"developer",
+//      "scopeType":"application","scopeName":"qa-wp"}
+//
+// The handler normalizes shape (2) into shape (1) before validation
+// + find-or-create. The top-level Email + KeycloakSubject collapse
+// onto User.{Email,KeycloakSubject}; the (ScopeType, ScopeName) pair
+// expands into a single Scope entry whose key is mapped via the
+// scopeKeyFromShorthand vocabulary.
 type rbacAssignRequest struct {
+	// Canonical shape.
 	User  rbacAssignUserBody    `json:"user"`
 	Tier  string                `json:"tier"`
 	Scope []rbacAssignScopeBody `json:"scope"`
+
+	// Ergonomic top-level shape — collapsed into User on decode.
+	Email           string `json:"email,omitempty"`
+	KeycloakSubject string `json:"keycloakSubject,omitempty"`
+
+	// Ergonomic shorthand for a single scope entry. ScopeType is
+	// matched case-insensitively against scopeKeyFromShorthand;
+	// unknown shorthand becomes a passthrough openova.io/<scopeType>
+	// scope key.
+	ScopeType string `json:"scopeType,omitempty"`
+	ScopeName string `json:"scopeName,omitempty"`
+}
+
+// scopeKeyFromShorthand maps the ergonomic shorthand on POST
+// /rbac/assign to the canonical NAMING-CONVENTION.md §6 scope key.
+// Unknown shorthand falls through as `openova.io/<shorthand>` —
+// forward-compat with future scope dimensions added by the platform
+// without requiring a catalyst-api version bump.
+var scopeKeyFromShorthand = map[string]string{
+	"application":  scopeKeyApplication,
+	"app":          scopeKeyApplication,
+	"organization": scopeKeyOrg,
+	"org":          scopeKeyOrg,
+	"envtype":      scopeKeyEnvType,
+	"env-type":     scopeKeyEnvType,
+	"env":          scopeKeyEnvType,
+}
+
+// normalizeRBACAssignRequest collapses the two ergonomic shapes into
+// the canonical (User, Tier, Scope) form. Idempotent: calling it on
+// an already-canonical body is a no-op.
+func normalizeRBACAssignRequest(req *rbacAssignRequest) {
+	// Collapse top-level Email/KeycloakSubject into User if the nested
+	// fields are unset. Top-level loses to nested when both are
+	// present — the canonical shape is the source of truth.
+	if strings.TrimSpace(req.User.Email) == "" {
+		req.User.Email = strings.TrimSpace(req.Email)
+	}
+	if strings.TrimSpace(req.User.KeycloakSubject) == "" {
+		req.User.KeycloakSubject = strings.TrimSpace(req.KeycloakSubject)
+	}
+	// Expand ScopeType/ScopeName shorthand into Scope[] when Scope is
+	// empty. Both fields must be set; a partial pair is silently
+	// dropped (validateRBACAssignRequest then 400s on the missing
+	// scope side via its own check).
+	scopeType := strings.TrimSpace(req.ScopeType)
+	scopeName := strings.TrimSpace(req.ScopeName)
+	if len(req.Scope) == 0 && scopeType != "" && scopeName != "" {
+		key, ok := scopeKeyFromShorthand[strings.ToLower(scopeType)]
+		if !ok {
+			key = "openova.io/" + strings.ToLower(scopeType)
+		}
+		req.Scope = []rbacAssignScopeBody{{Key: key, Value: scopeName}}
+	}
 }
 
 type rbacAssignUserAccessRef struct {
@@ -139,16 +211,13 @@ func (h *Handler) HandleRBACAssign(w http.ResponseWriter, r *http.Request) {
 		writeNotFound(w, depID)
 		return
 	}
-	var body rbacAssignRequest
-	if !decodeMutationBody(w, r, &body) {
-		return
-	}
-	if msg, ok := validateRBACAssignRequest(body); !ok {
-		writeBadRequest(w, "invalid-rbac-assign", msg)
-		return
-	}
 
-	// Authorization: caller must hold one of the privileged realm roles.
+	// Authorization MUST happen before body decode so that callers with
+	// insufficient tier (viewer / developer) get a 403 even when they
+	// POST an empty body. Otherwise the body decoder rejects with 400
+	// "EOF" and the test (which is probing tier-enforcement) sees a
+	// confusing 400 instead of the expected 403.
+	//
 	// Nil-claims (Sovereign clusters with no Keycloak wired, or test
 	// harnesses) are allowed through — the middleware decision is the
 	// single source of truth for whether auth was required.
@@ -160,6 +229,16 @@ func (h *Handler) HandleRBACAssign(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+	}
+
+	var body rbacAssignRequest
+	if !decodeMutationBody(w, r, &body) {
+		return
+	}
+	normalizeRBACAssignRequest(&body)
+	if msg, ok := validateRBACAssignRequest(body); !ok {
+		writeBadRequest(w, "invalid-rbac-assign", msg)
+		return
 	}
 
 	client, err := h.sovereignDynamicClient(dep)
