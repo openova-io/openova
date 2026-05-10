@@ -36,7 +36,11 @@ spec:
   chart:
     spec:
       chart: bp-cilium
-      version: 1.2.0
+      # 1.3.0 (qa-loop iter-12 Fix #53C+D): adds the Hubble UI HTTPRoute
+      # overlay (slice H7 #1095) that the catalystOverlay.hubbleUI block
+      # below depends on. Backward-compat: catalystOverlay.hubbleUI defaults
+      # to enabled=false; only Sovereigns that flip it on get the route.
+      version: 1.3.0
       sourceRef:
         kind: HelmRepository
         name: bp-cilium
@@ -76,10 +80,20 @@ spec:
           enabled: null
           serviceMonitor:
             enabled: false
+        # qa-loop iter-12 Fix #53C: envsubst-gated hubble-relay + hubble-ui
+        # so per-Sovereign overlay flips them on (HUBBLE_ENABLED=true) for
+        # network observability. Default false → backward-compat.
         relay:
-          enabled: false
+          enabled: ${HUBBLE_ENABLED:=false}
         ui:
-          enabled: false
+          enabled: ${HUBBLE_ENABLED:=false}
+
+      # qa-loop iter-12 Fix #53C: BGP control plane (default off, opt-in
+      # via BGP_ENABLED=true). Per ADR-0001 §9 the BGP control plane is the
+      # canonical path for Sovereign-to-customer-router prefix advertisement
+      # (LoadBalancer VIPs, Pod CIDRs to customer's existing core network).
+      bgpControlPlane:
+        enabled: ${BGP_ENABLED:=false}
 
       # ── Cilium ClusterMesh — multi-region peering ──────────────────
       #
@@ -114,8 +128,34 @@ spec:
         useAPIServer: true
         apiserver:
           service:
-            type: NodePort
+            # qa-loop iter-12 Fix #53D: ${CLUSTERMESH_SERVICE_TYPE:=NodePort}
+            # Default NodePort keeps backward-compat (existing Sovereigns
+            # don't break). Sovereigns that need cross-region peering set
+            # CLUSTERMESH_SERVICE_TYPE=LoadBalancer in their bootstrap-kit
+            # Kustomization substitute (requires Hetzner CCM bootstrap).
+            type: ${CLUSTERMESH_SERVICE_TYPE:=NodePort}
             nodePort: 32379
+
+    # ── Catalyst overlay templates (chart/templates/) ────────────────────
+    # qa-loop iter-12 Fix #53C: Hubble UI HTTPRoute (envsubst-gated).
+    # Enabled per-Sovereign by setting HUBBLE_ENABLED=true and
+    # HUBBLE_HOSTNAME=hubble.<sovereign-fqdn> on the bootstrap-kit
+    # Kustomization substitute. Default off → backward-compat.
+    catalystOverlay:
+      hubbleUI:
+        enabled: ${HUBBLE_ENABLED:=false}
+        hostname: ${HUBBLE_HOSTNAME:=}
+        gatewayRef:
+          name: cilium-gateway
+          namespace: cilium-gateway
+        # `none` until the Keycloak `hubble-ui` OIDC client is wired by
+        # bp-keycloak realm-config; flip to `oidc` per per-Sovereign
+        # overlay once that lands.
+        auth: ${HUBBLE_AUTH:=none}
+        serviceRef:
+          name: hubble-ui
+          namespace: kube-system
+          port: 80
 ---
 # ─── Per-Sovereign Gateway API resources (issue #387) ────────────────────
 #

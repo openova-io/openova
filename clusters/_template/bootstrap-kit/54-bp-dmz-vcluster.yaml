@@ -1,0 +1,71 @@
+# bp-dmz-vcluster — Catalyst bootstrap-kit Blueprint slot 54. DMZ
+# isolated virtual Kubernetes cluster running inside the management
+# cluster.
+#
+# Per ADR-0001 §3.2.8 + EPIC-5 leftovers slice DMZ #1100: every
+# Sovereign that publishes customer-facing APIs / webhooks gets a
+# DMZ vCluster.
+#
+# qa-loop iter-12 Fix #53C: matrix asserts dmz namespace + vcluster
+# CRD registered + omantel-dmz kubeconfig context (TC-286, TC-287,
+# TC-288). Without this slot the chart was authored but never installed.
+#
+# Wrapper chart: products/dmz-vcluster/chart/
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+#
+# Default-OFF gate: DMZ_VCLUSTER_ENABLED defaults to "false" via envsubst.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dmz
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+    catalyst.openova.io/isolation: dmz
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-dmz-vcluster
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-dmz-vcluster
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: dmz-vcluster
+  targetNamespace: dmz
+  dependsOn:
+    - name: bp-cilium
+    - name: bp-cert-manager
+  chart:
+    spec:
+      chart: bp-dmz-vcluster
+      version: 0.1.1
+      sourceRef:
+        kind: HelmRepository
+        name: bp-dmz-vcluster
+        namespace: flux-system
+  install:
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    remediation:
+      retries: 3
+  values:
+    dmz:
+      enabled: ${DMZ_VCLUSTER_ENABLED:=false}
+      hostNamespace: dmz
+      vclusterName: ${DMZ_VCLUSTER_NAME:=dmz}

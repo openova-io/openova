@@ -348,6 +348,32 @@ slots:
       - bp-k8s-ws-proxy
     wave: present
 
+  # ---- Slot 53 — bp-netbird WireGuard zero-trust mesh + remote-access overlay.
+  # qa-loop iter-12 Fix #53C (EPIC-5 leftovers slice NB #1100). Sovereign-side
+  # NetBird management + signal + coturn services. Default-OFF gate via
+  # NETBIRD_ENABLED=true on the bootstrap-kit Kustomization substitute.
+  - slot: 53
+    name: bp-netbird
+    depends_on:
+      - bp-cilium
+      - bp-cert-manager
+      - bp-keycloak
+      - bp-sealed-secrets
+      - bp-nats-jetstream
+    wave: present
+
+  # ---- Slot 54 — bp-dmz-vcluster isolated customer-internet-facing vCluster.
+  # qa-loop iter-12 Fix #53C (EPIC-5 leftovers slice DMZ #1100). Customer
+  # workloads needing direct internet exposure land here; host-side
+  # NetworkPolicy + Cilium identity isolation keeps them off the Catalyst
+  # control plane. Default-OFF gate via DMZ_VCLUSTER_ENABLED=true.
+  - slot: 54
+    name: bp-dmz-vcluster
+    depends_on:
+      - bp-cilium
+      - bp-cert-manager
+    wave: present
+
   # ---- Slot 80 — bp-newapi multi-tenant LLM marketplace gateway. Issue #799.
   # Sequenced past the W2.K4 numbering plan (slots 36-48) so it never
   # collides with the AI-runtime / observability / livekit cohort. The
