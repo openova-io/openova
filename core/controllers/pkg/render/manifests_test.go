@@ -8,6 +8,7 @@ import (
 func baseInputs() Inputs {
 	return Inputs{
 		AppName:          "marketing-site",
+		AppNamespace:     "acme",
 		Org:              "acme",
 		EnvType:          "prod",
 		Region:           "hetzner-fsn-rtz-prod",
@@ -151,18 +152,79 @@ func TestRender_OCIRepositoryForOAM(t *testing.T) {
 	}
 }
 
-func TestRender_NamespaceIsOrg(t *testing.T) {
+// TestRender_NamespaceIsAppNamespace asserts the rendered HelmRelease
+// + Kustomization both target the Application's K8s namespace
+// (Inputs.AppNamespace), NOT the Organization slug (Inputs.Org). This
+// is the regression test for qa-loop iter-10 Fix #44 where on omantel
+// the Application CR `qa-wp` lived in `qa-omantel` ns but the Org name
+// was `omantel-platform`; the controller used Org for namespace and
+// the workload Pod landed in the wrong namespace, breaking matrix
+// rows TC-068 / TC-100 / TC-204 / TC-262 / TC-263.
+func TestRender_NamespaceIsAppNamespace(t *testing.T) {
+	in := baseInputs()
+	in.AppNamespace = "qa-omantel"
+	in.Org = "omantel-platform"
+	res, err := Render(in)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	hr := string(res.HelmReleaseYAML)
+	ks := string(res.KustomizationYAML)
+
+	if !strings.Contains(hr, "namespace: qa-omantel") {
+		t.Errorf("HelmRelease metadata.namespace should be the Application namespace (qa-omantel), got:\n%s", hr)
+	}
+	if !strings.Contains(hr, "targetNamespace: qa-omantel") {
+		t.Errorf("HelmRelease spec.targetNamespace should be the Application namespace (qa-omantel), got:\n%s", hr)
+	}
+	if strings.Contains(hr, "targetNamespace: omantel-platform") {
+		t.Errorf("HelmRelease spec.targetNamespace must NOT be the Org slug; got:\n%s", hr)
+	}
+	if !strings.Contains(ks, "namespace: qa-omantel") {
+		t.Errorf("Kustomization namespace should be the Application namespace (qa-omantel), got:\n%s", ks)
+	}
+	// Org-as-label assertion: the Org is still stamped on labels for
+	// traceability, just not used as the K8s namespace.
+	if !strings.Contains(hr, "catalyst.openova.io/organization: omantel-platform") {
+		t.Errorf("HelmRelease should still stamp the Org slug as a label, got:\n%s", hr)
+	}
+}
+
+// TestRender_CreateNamespaceTrue asserts the rendered HelmRelease
+// installs into a fresh namespace without an operator pre-creating
+// it. Per docs/INVIOLABLE-PRINCIPLES.md #1 (target-state) the
+// controller must always work — qa-loop iter-10 Fix #44 secondary fix
+// after the omantel-platform namespace was missing entirely on a
+// fresh provision.
+func TestRender_CreateNamespaceTrue(t *testing.T) {
 	res, err := Render(baseInputs())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(string(res.HelmReleaseYAML), "namespace: acme") {
-		t.Error("HelmRelease namespace should be Org slug")
+	hr := string(res.HelmReleaseYAML)
+	if !strings.Contains(hr, "createNamespace: true") {
+		t.Errorf("HelmRelease spec.install.createNamespace must be true so missing namespaces are created on install:\n%s", hr)
 	}
-	if !strings.Contains(string(res.HelmReleaseYAML), "targetNamespace: acme") {
-		t.Error("HelmRelease targetNamespace should be Org slug")
+}
+
+// TestRender_AppNamespaceFallbackToOrg asserts the back-compat default:
+// callers that haven't been updated to pass AppNamespace explicitly
+// still produce valid output (matching the legacy bug-compatible shape
+// before the fix). All in-tree callers should pass AppNamespace; this
+// is a safety net for out-of-tree callers and existing tests.
+func TestRender_AppNamespaceFallbackToOrg(t *testing.T) {
+	in := baseInputs()
+	in.AppNamespace = ""
+	in.Org = "legacy-org"
+	res, err := Render(in)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(string(res.KustomizationYAML), "namespace: acme") {
-		t.Error("Kustomization namespace should be Org slug")
+	hr := string(res.HelmReleaseYAML)
+	if !strings.Contains(hr, "namespace: legacy-org") {
+		t.Errorf("AppNamespace fallback should resolve to Org when empty, got:\n%s", hr)
+	}
+	if !strings.Contains(hr, "targetNamespace: legacy-org") {
+		t.Errorf("targetNamespace fallback should resolve to Org when AppNamespace empty, got:\n%s", hr)
 	}
 }

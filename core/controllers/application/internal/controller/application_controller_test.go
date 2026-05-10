@@ -971,3 +971,82 @@ func TestReconcile_HostFluxBootstrap_Idempotent(t *testing.T) {
 		t.Errorf("GitRepository resourceVersion changed across idempotent reconcile passes (%q → %q); steady state must be a no-op", rv1, rv2)
 	}
 }
+
+// --- qa-loop iter-10 Fix #44: HelmRelease targetNamespace = App's namespace
+//
+// TestReconcile_HelmReleaseTargetNamespaceIsAppNamespace asserts the
+// rendered HelmRelease in Gitea sets `metadata.namespace` AND
+// `spec.targetNamespace` to the Application CR's own namespace, NOT
+// the Organization slug.
+//
+// Live regression: on omantel the Application(qa-wp) lived in ns
+// `qa-omantel` while the parent Organization was named `omantel-platform`.
+// The application-controller passed Org for both fields → HelmRelease
+// committed with `targetNamespace: omantel-platform` → workload Pod
+// landed in the wrong namespace → matrix rows TC-068 / TC-100 / TC-204
+// / TC-262 / TC-263 (all asserting Pod in qa-omantel) FAILed.
+//
+// Fix: pass app.GetNamespace() as render.Inputs.AppNamespace; the
+// render template targets AppNamespace for both fields. The Org slug
+// is still stamped on labels for traceability.
+//
+// Also asserts `spec.install.createNamespace = true` — per
+// docs/INVIOLABLE-PRINCIPLES.md #1 (target-state) the controller MUST
+// install successfully without an operator pre-creating the namespace.
+func TestReconcile_HelmReleaseTargetNamespaceIsAppNamespace(t *testing.T) {
+	bp := makeBlueprint("bp-qa-app", "0.1.0", nil, []string{"single-region"})
+	// Live shape: App in `qa-omantel`, Organization is `omantel-platform`,
+	// envType=dev (Gitea branch=develop).
+	env := makeEnv("qa-omantel", "omantel-platform", "dev")
+	org := makeOrg("omantel-platform")
+	app := makeApp("qa-omantel", "qa-wp", "qa-omantel", "bp-qa-app", "0.1.0",
+		"single-region",
+		[]string{"hz-fsn-rtz-prod"},
+		map[string]interface{}{"replicas": int64(1)})
+	fg := newFakeGitea()
+	fg.orgsExist["omantel-platform"] = true
+	r := newReconciler(t, fg, app, env, org, bp)
+
+	reconcileFromCluster(t, r, "qa-omantel", "qa-wp")
+
+	// HelmRelease lives on Gitea branch=develop (envType=dev).
+	hrPath := "clusters/hz-fsn-rtz-prod/applications/qa-wp/helmrelease.yaml"
+	hr, ok := fg.get("omantel-platform", "qa-wp", "develop", hrPath)
+	if !ok {
+		t.Fatalf("expected HelmRelease at %s in branch develop", hrPath)
+	}
+	hrStr := string(hr)
+
+	// metadata.namespace = qa-omantel (the App's namespace), NOT omantel-platform.
+	if !strings.Contains(hrStr, "namespace: qa-omantel") {
+		t.Errorf("HelmRelease metadata.namespace should be 'qa-omantel' (Application namespace), got:\n%s", hrStr)
+	}
+	// spec.targetNamespace = qa-omantel.
+	if !strings.Contains(hrStr, "targetNamespace: qa-omantel") {
+		t.Errorf("HelmRelease spec.targetNamespace should be 'qa-omantel' (Application namespace), got:\n%s", hrStr)
+	}
+	// Negative: must NOT use omantel-platform as the K8s namespace.
+	if strings.Contains(hrStr, "targetNamespace: omantel-platform") {
+		t.Errorf("HelmRelease spec.targetNamespace must NOT be the Org slug (omantel-platform); got:\n%s", hrStr)
+	}
+	// Positive: createNamespace must be true so missing namespaces are
+	// provisioned on install.
+	if !strings.Contains(hrStr, "createNamespace: true") {
+		t.Errorf("HelmRelease spec.install.createNamespace must be true (target-state per docs/INVIOLABLE-PRINCIPLES.md #1); got:\n%s", hrStr)
+	}
+	// Org-as-label still present for traceability.
+	if !strings.Contains(hrStr, "catalyst.openova.io/organization: omantel-platform") {
+		t.Errorf("HelmRelease should still stamp Org as a label; got:\n%s", hrStr)
+	}
+
+	// Same checks on the Kustomization wrapper.
+	ksPath := "clusters/hz-fsn-rtz-prod/applications/qa-wp/kustomization.yaml"
+	ks, ok := fg.get("omantel-platform", "qa-wp", "develop", ksPath)
+	if !ok {
+		t.Fatalf("expected Kustomization at %s in branch develop", ksPath)
+	}
+	ksStr := string(ks)
+	if !strings.Contains(ksStr, "namespace: qa-omantel") {
+		t.Errorf("Kustomization namespace should be 'qa-omantel'; got:\n%s", ksStr)
+	}
+}
