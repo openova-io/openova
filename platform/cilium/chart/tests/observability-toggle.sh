@@ -96,6 +96,9 @@ echo "  PASS"
 # ── Case 4: default render must NOT contain Hubble relay/ui Deployments ──
 # Hubble relay+ui pull in the kube-prometheus-stack CRDs transitively —
 # bp-cilium must not render either by default on a fresh Sovereign.
+# (Bootstrap-kit overlay flips them on per-Sovereign — see
+# clusters/_template/bootstrap-kit/01-cilium.yaml. Chart-level default
+# remains OFF so a bare `helm install bp-cilium .` is observability-safe.)
 echo "[observability-toggle] Case 4: default render produces no hubble-relay / hubble-ui resources"
 if grep -qE "name: (smoke-cilium-)?hubble-relay$" "$TMP/default.yaml"; then
   echo "FAIL: default render of bp-cilium contains hubble-relay — must default false." >&2
@@ -103,6 +106,77 @@ if grep -qE "name: (smoke-cilium-)?hubble-relay$" "$TMP/default.yaml"; then
 fi
 if grep -qE "name: (smoke-cilium-)?hubble-ui$" "$TMP/default.yaml"; then
   echo "FAIL: default render of bp-cilium contains hubble-ui — must default false." >&2
+  exit 1
+fi
+# Defence-in-depth: default render must NOT contain a hubble-ui HTTPRoute
+# either (the catalystOverlay.hubbleUI gate stays OFF at chart level).
+if grep -qE "^kind: HTTPRoute" "$TMP/default.yaml"; then
+  echo "FAIL: default render of bp-cilium contains an HTTPRoute — catalystOverlay.hubbleUI must default off." >&2
+  exit 1
+fi
+echo "  PASS"
+
+# ── Case 5: Hubble UI HTTPRoute renders when overlay enabled ────────────
+# qa-loop iter-16 Fix #70 — exercise the catalystOverlay.hubbleUI gate +
+# the auto-derive-hostname-from-sovereignFQDN code path the bootstrap-kit
+# overlay relies on. Three sub-assertions:
+#   (a) explicit hostname wins, parentRef defaults to kube-system
+#   (b) sovereignFQDN auto-derives hubble.<sovereignFQDN>
+#   (c) enabled-but-no-hostname renders nothing (gateway would NACK)
+echo "[observability-toggle] Case 5a: explicit hostname renders HTTPRoute"
+if ! helm template smoke-cilium . \
+    --set catalystOverlay.hubbleUI.enabled=true \
+    --set catalystOverlay.hubbleUI.hostname=hubble.example.test \
+    > "$TMP/hubble-explicit.yaml" 2> "$TMP/hubble-explicit.err"; then
+  echo "FAIL: explicit-hostname render failed:" >&2
+  cat "$TMP/hubble-explicit.err" >&2
+  exit 1
+fi
+if ! grep -qE "^kind: HTTPRoute" "$TMP/hubble-explicit.yaml"; then
+  echo "FAIL: explicit-hostname render did NOT produce an HTTPRoute." >&2
+  exit 1
+fi
+if ! grep -qE "^\s+- \"hubble\.example\.test\"$" "$TMP/hubble-explicit.yaml"; then
+  echo "FAIL: explicit-hostname HTTPRoute does not list hubble.example.test as a hostname." >&2
+  grep -nE "hostnames|hubble" "$TMP/hubble-explicit.yaml" >&2
+  exit 1
+fi
+# parentRef namespace must default to kube-system (canonical Sovereign
+# Gateway location — clusters/_template/sovereign-tls/cilium-gateway.yaml).
+# We grep within the HTTPRoute's parentRefs block.
+if ! awk '/^kind: HTTPRoute$/,/^---$/' "$TMP/hubble-explicit.yaml" \
+     | grep -qE "namespace: \"kube-system\""; then
+  echo "FAIL: HTTPRoute parentRef namespace must default to kube-system (Sovereign Gateway namespace)." >&2
+  exit 1
+fi
+echo "  PASS"
+
+echo "[observability-toggle] Case 5b: sovereignFQDN auto-derives hubble.<sovereignFQDN>"
+if ! helm template smoke-cilium . \
+    --set catalystOverlay.hubbleUI.enabled=true \
+    --set catalystOverlay.hubbleUI.sovereignFQDN=omantel.biz \
+    > "$TMP/hubble-derived.yaml" 2> "$TMP/hubble-derived.err"; then
+  echo "FAIL: sovereignFQDN-derive render failed:" >&2
+  cat "$TMP/hubble-derived.err" >&2
+  exit 1
+fi
+if ! grep -qE "^\s+- \"hubble\.omantel\.biz\"$" "$TMP/hubble-derived.yaml"; then
+  echo "FAIL: sovereignFQDN auto-derive did NOT produce hostname hubble.omantel.biz." >&2
+  grep -nE "hostnames|hubble" "$TMP/hubble-derived.yaml" >&2
+  exit 1
+fi
+echo "  PASS"
+
+echo "[observability-toggle] Case 5c: enabled=true with empty hostname AND empty sovereignFQDN renders no HTTPRoute"
+if ! helm template smoke-cilium . \
+    --set catalystOverlay.hubbleUI.enabled=true \
+    > "$TMP/hubble-empty.yaml" 2> "$TMP/hubble-empty.err"; then
+  echo "FAIL: enabled-but-empty render failed:" >&2
+  cat "$TMP/hubble-empty.err" >&2
+  exit 1
+fi
+if grep -qE "^kind: HTTPRoute" "$TMP/hubble-empty.yaml"; then
+  echo "FAIL: enabled-but-empty render produced an HTTPRoute — Cilium Gateway would NACK an empty hostname." >&2
   exit 1
 fi
 echo "  PASS"

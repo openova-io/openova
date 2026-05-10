@@ -1,10 +1,25 @@
 apiVersion: v2
 name: bp-cilium
+# 1.3.3 — qa-loop iter-16 Fix #70: Hubble UI HTTPRoute defaults corrected
+# so every Sovereign exposes Hubble UI through the Cilium Gateway out of
+# the box (TC-289 was NXDOMAIN on hubble.<sovereignFQDN>).
+# Two real bugs in 1.3.2's HubbleUI overlay defaults:
+#   - catalystOverlay.hubbleUI.gatewayRef.namespace was "cilium-gateway"
+#     but the Sovereign Gateway lives in "kube-system" (see
+#     clusters/_template/sovereign-tls/cilium-gateway.yaml + every other
+#     bootstrap-kit HTTPRoute in clusters/_template/bootstrap-kit/).
+#   - catalystOverlay.hubbleUI.serviceRef.namespace was "cilium" but the
+#     bp-cilium HelmRelease installs Cilium into "kube-system"
+#     (clusters/_template/bootstrap-kit/01-cilium.yaml `targetNamespace:
+#     kube-system`), so hubble-ui Service is in kube-system.
+# Plus: chart now derives hostname `hubble.<sovereignFQDN>` automatically
+# when catalystOverlay.hubbleUI.sovereignFQDN is set (matches the
+# canonical pattern used by gitea.<fqdn>, auth.<fqdn>, grafana.<fqdn>).
 # 1.3.1 — qa-loop iter-12 Fix #54 Workstream 2: bpf.preallocateMaps=true
 # + socketLB.hostNamespaceOnly=true defaults so fresh worker pods can
 # resolve DNS reliably on first-join (cilium/cilium#28456 mitigation).
 # Backward-compat: per-Sovereign overlays MAY override either knob.
-version: 1.3.2
+version: 1.3.3
 description: |
   Catalyst-curated Blueprint umbrella chart for Cilium. Depends on the
   upstream `cilium` chart as a Helm subchart so `helm dependency build`

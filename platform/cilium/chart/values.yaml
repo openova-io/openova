@@ -233,22 +233,48 @@ catalystOverlay:
   hubbleUI:
     enabled: false
     # Hostname under the Sovereign domain. Per docs/NAMING-CONVENTION.md
-    # §5.1 the canonical form is `{component}.{location-code}.{sovereign-domain}`,
-    # but operators MAY pick a flat `hubble.{sovereign-domain}` for SME
-    # Sovereigns where the location-code prefix is not yet wired. Empty
-    # = no HTTPRoute rendered.
+    # §5.1 the canonical control-plane DNS pattern is
+    # `{component}.{location-code}.{sovereign-domain}`, but every existing
+    # bootstrap-kit HTTPRoute (gitea, auth/keycloak, grafana, harbor,
+    # openbao, powerdns, console/catalyst-platform) uses the flat
+    # `{component}.{sovereign-domain}` form because the Cilium Gateway's
+    # wildcard cert + listener is `*.${SOVEREIGN_FQDN}` — a single-level
+    # wildcard. Multi-level forms like `hubble.console.<fqdn>` would NOT
+    # match `*.<fqdn>` (TLS wildcards are single-label). For consistency
+    # this overlay uses the flat form.
+    #
+    # Two ways to populate this:
+    #   1. Set hostname directly (full FQDN, e.g. "hubble.omantel.biz").
+    #   2. Set sovereignFQDN (e.g. "omantel.biz") and the chart derives
+    #      `hubble.<sovereignFQDN>` automatically — preferred for Flux
+    #      envsubst flows where the Sovereign FQDN is the single source.
+    # Explicit hostname wins when both are set.
     hostname: ""
+    # Optional: when set AND hostname is empty, the chart auto-derives
+    # `hubble.<sovereignFQDN>` so per-Sovereign overlays only need to
+    # forward ${SOVEREIGN_FQDN} once (matches the gitea/auth/grafana
+    # bootstrap-kit pattern). Empty = no auto-derivation.
+    sovereignFQDN: ""
     # Reference to the Cilium Gateway that fronts this Sovereign's wildcard
-    # cert. Defaults match clusters/_template/sovereign-tls/cilium-gateway.yaml.
+    # cert. Defaults match clusters/_template/sovereign-tls/cilium-gateway.yaml,
+    # which installs the Gateway into kube-system (NOT a separate
+    # cilium-gateway namespace — the previous default was a stale leftover
+    # from an earlier design that never landed).
     gatewayRef:
       name: cilium-gateway
-      namespace: cilium-gateway
+      namespace: kube-system
     # Authentication mode at the gateway boundary. `oidc` requires the
     # Keycloak realm to have an `hubble-ui` client (slice D1). `none` is
-    # only acceptable for fully air-gapped lab Sovereigns.
+    # only acceptable for fully air-gapped lab Sovereigns; per-Sovereign
+    # overlays flip to `oidc` once the realm-config wires the client.
     auth: oidc
-    # Hubble UI Service ref in the cilium namespace.
+    # Hubble UI Service ref. The bp-cilium HelmRelease installs Cilium
+    # into kube-system (clusters/_template/bootstrap-kit/01-cilium.yaml
+    # `targetNamespace: kube-system`), so the upstream subchart renders
+    # the hubble-ui Service in kube-system. The previous default
+    # `namespace: cilium` would have routed traffic to a non-existent
+    # Service on every Sovereign.
     serviceRef:
       name: hubble-ui
-      namespace: cilium
+      namespace: kube-system
       port: 80
