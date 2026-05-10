@@ -72,6 +72,8 @@ tenant mode is on. The orchestrator (A3 / PR #911) currently sets BOTH
 tenant emit; tenant takes precedence here.
 */}}
 {{- if and .Values.sovereignRealm.enabled (not (and .Values.realmConfig (and .Values.realmConfig.tenant .Values.realmConfig.tenant.enabled))) }}
+{{- /* ── Resolve realm name (per-Sovereign tenant short-name) ─────────── */}}
+{{- $realmName := default "sovereign" .Values.sovereignRealm.name -}}
 {{- /* ── Resolve catalyst-api-server client secret ─────────────────────── */}}
 {{- $saSecretName := "catalyst-kc-sa-credentials" -}}
 {{- $existing := lookup "v1" "Secret" .Release.Namespace $saSecretName -}}
@@ -132,9 +134,9 @@ metadata:
 data:
   sovereign-realm.json: |
     {
-      "realm": "sovereign",
+      "realm": {{ $realmName | quote }},
       "enabled": true,
-      "displayName": "Sovereign",
+      "displayName": {{ default "Sovereign" .Values.sovereignRealm.displayName | quote }},
       "sslRequired": "external",
       "registrationAllowed": false,
       "loginWithEmailAllowed": true,
@@ -435,7 +437,7 @@ metadata:
 type: Opaque
 stringData:
   addr: {{ $kcAddr | quote }}
-  realm: "sovereign"
+  realm: {{ $realmName | quote }}
   client-id: "catalyst-api-server"
   client-secret: {{ $saSecret | quote }}
 {{- end }}
