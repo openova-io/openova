@@ -738,7 +738,7 @@ name: bp-catalyst-platform
 # documented in qa-loop-state/iter12-diagnostic-audit.md §"(e)
 # infra-blocked" TC-081 (per `feedback_no_mvp_no_workarounds.md`
 # rule #3 "no operational hacks instead of chart fixes").
-version: 1.4.127
+version: 1.4.128
 appVersion: 1.4.94
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
