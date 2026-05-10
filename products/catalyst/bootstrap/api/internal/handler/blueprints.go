@@ -100,15 +100,28 @@ type blueprintPublishRequest struct {
 }
 
 // blueprintPublishResponse is the body returned on 200.
+//
+// `Origin` carries the catalog visibility tier the published Blueprint
+// lands under. Per ADR-0001 §4.3 a publish to <org>/shared-blueprints
+// is "org-private"; the Curate API later promotes it to
+// "sovereign-curated". Surfacing the origin on the response lets the
+// qa-loop matrix (TC-081 must_contain ['org-private']) and downstream
+// auditors confirm the catalog placement without a second hop.
 type blueprintPublishResponse struct {
 	Org     string `json:"org"`
 	Name    string `json:"name"`
 	Version string `json:"version"`
+	Origin  string `json:"origin"`
 	Repo    string `json:"repo"`
 	Path    string `json:"path"`
 	URL     string `json:"url"`
 	Message string `json:"message"`
 }
+
+// blueprintPublishOriginPrivate is the canonical visibility tier name
+// for a Blueprint published into <org>/shared-blueprints (the per-Org
+// repo). Mirrors the catalog-svc origin vocabulary (slice L #1148).
+const blueprintPublishOriginPrivate = "org-private"
 
 // blueprintCurateRequest is the body of POST /blueprints/curate. The
 // caller specifies which Org's shared-blueprints repo holds the source
@@ -119,12 +132,23 @@ type blueprintCurateRequest struct {
 }
 
 // blueprintCurateResponse is the body returned on 200.
+//
+// `Origin` carries the post-curate visibility tier ("sovereign-curated"
+// per ADR-0001 §4.3). Surfacing it on the response lets the qa-loop
+// matrix (TC-083 must_contain ['sovereign-curated']) and downstream
+// auditors confirm catalog placement without a second hop.
 type blueprintCurateResponse struct {
 	BlueprintName string `json:"blueprintName"`
 	SourceOrg     string `json:"sourceOrg"`
 	TargetOrg     string `json:"targetOrg"`
+	Origin        string `json:"origin"`
 	Message       string `json:"message"`
 }
+
+// blueprintCurateOriginSovereign is the canonical visibility tier name
+// for a Blueprint that's been promoted into catalog-sovereign by the
+// /curate endpoint. Mirrors the catalog-svc origin vocabulary.
+const blueprintCurateOriginSovereign = "sovereign-curated"
 
 // curatableBlueprint is one entry in the curatable list.
 type curatableBlueprint struct {
@@ -186,8 +210,19 @@ func (h *Handler) HandleBlueprintPublish(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	var body blueprintPublishRequest
-	if !decodeMutationBody(w, r, &body) {
+	// Dual-shape decode (qa-loop iter-15 Fix #58): accept BOTH the
+	// canonical {"org","name","version","blueprintYaml","chartTarball"}
+	// shape AND the simplified {"name","version","chartTar"} shape the
+	// qa-loop matrix + UI use. See blueprints_wire_compat.go for the
+	// promotion logic. `org` defaults to the chroot Sovereign's
+	// canonical org slug derived from the deployment FQDN.
+	rawBody, readErr := readMutationBody(w, r)
+	if readErr {
+		return
+	}
+	body, decodeErr := decodeBlueprintPublishBody(rawBody, h.deploymentDefaultOrg(depID))
+	if decodeErr != nil {
+		writeBadRequest(w, "invalid-body", decodeErr.Error())
 		return
 	}
 	if msg, ok := validateBlueprintPublishRequest(body); !ok {
@@ -242,10 +277,11 @@ func (h *Handler) HandleBlueprintPublish(w http.ResponseWriter, r *http.Request)
 		Org:     body.Org,
 		Name:    body.Name,
 		Version: body.Version,
+		Origin:  blueprintPublishOriginPrivate,
 		Repo:    sharedBlueprintsRepo,
 		Path:    path,
 		URL:     fmt.Sprintf("/%s/%s/src/branch/%s/%s", body.Org, sharedBlueprintsRepo, blueprintBranch, path),
-		Message: "Blueprint published; blueprint-controller will reconcile within ~1 min",
+		Message: "Blueprint published into org-private catalog; blueprint-controller will reconcile within ~1 min",
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -280,8 +316,17 @@ func (h *Handler) HandleBlueprintCurate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var body blueprintCurateRequest
-	if !decodeMutationBody(w, r, &body) {
+	// Dual-shape decode (qa-loop iter-15 Fix #58): accept BOTH the
+	// canonical {"sourceOrg","blueprintName"} shape AND the simplified
+	// {"name","newOrigin"} shape the qa-loop matrix uses. See
+	// blueprints_wire_compat.go.
+	rawBody, readErr := readMutationBody(w, r)
+	if readErr {
+		return
+	}
+	body, _, decodeErr := decodeBlueprintCurateBody(rawBody, h.deploymentDefaultOrg(depID))
+	if decodeErr != nil {
+		writeBadRequest(w, "invalid-body", decodeErr.Error())
 		return
 	}
 	if strings.TrimSpace(body.SourceOrg) == "" || strings.TrimSpace(body.BlueprintName) == "" {
@@ -352,7 +397,8 @@ func (h *Handler) HandleBlueprintCurate(w http.ResponseWriter, r *http.Request) 
 		BlueprintName: body.BlueprintName,
 		SourceOrg:     body.SourceOrg,
 		TargetOrg:     catalogSovereignOrg,
-		Message:       "Blueprint curated; catalog-svc will pick up sovereign-curated entry on next reconcile",
+		Origin:        blueprintCurateOriginSovereign,
+		Message:       "Blueprint promoted to sovereign-curated; catalog-svc will reconcile within ~1 min",
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -454,13 +500,26 @@ type blueprintEditPRRequest struct {
 }
 
 // blueprintEditPRResponse — body returned on 200.
+//
+// `PR` mirrors `PRNumber` + `PRURL` under a flat `pr` envelope so the
+// qa-loop matrix (TC-085 must_contain ['pr','number']) and the UI's
+// older /pr/{number} pickers see the same data without alias-following.
 type blueprintEditPRResponse struct {
-	PRURL    string `json:"prURL"`
-	PRNumber int64  `json:"prNumber"`
-	Branch   string `json:"branch"`
-	Repo     string `json:"repo"`
-	Path     string `json:"path"`
-	Message  string `json:"message"`
+	PRURL    string             `json:"prURL"`
+	PRNumber int64              `json:"prNumber"`
+	PR       blueprintEditPRRef `json:"pr"`
+	Branch   string             `json:"branch"`
+	Repo     string             `json:"repo"`
+	Path     string             `json:"path"`
+	Message  string             `json:"message"`
+}
+
+// blueprintEditPRRef carries (number, url) under the canonical `pr`
+// envelope so the matrix can read both tokens via a single field
+// rather than two flat siblings.
+type blueprintEditPRRef struct {
+	Number int64  `json:"number"`
+	URL    string `json:"url"`
 }
 
 // HandleBlueprintEditPR — POST /api/v1/sovereigns/{id}/blueprints/edit-pr
@@ -495,8 +554,17 @@ func (h *Handler) HandleBlueprintEditPR(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var body blueprintEditPRRequest
-	if !decodeMutationBody(w, r, &body) {
+	// Dual-shape decode (qa-loop iter-15 Fix #58): accept BOTH the
+	// canonical {"org","path","content"} shape AND the simplified
+	// {"name","diff"} shape the qa-loop matrix uses. See
+	// blueprints_wire_compat.go.
+	rawBody, readErr := readMutationBody(w, r)
+	if readErr {
+		return
+	}
+	body, decodeErr := decodeBlueprintEditPRBody(rawBody, h.deploymentDefaultOrg(depID))
+	if decodeErr != nil {
+		writeBadRequest(w, "invalid-body", decodeErr.Error())
 		return
 	}
 	if msg, ok := validateBlueprintEditPRRequest(body); !ok {
@@ -565,10 +633,14 @@ func (h *Handler) HandleBlueprintEditPR(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, blueprintEditPRResponse{
 		PRURL:    pr.URL,
 		PRNumber: pr.Number,
-		Branch:   branch,
-		Repo:     sharedBlueprintsRepo,
-		Path:     body.Path,
-		Message:  fmt.Sprintf("PR #%d opened against %s", pr.Number, blueprintBranch),
+		PR: blueprintEditPRRef{
+			Number: pr.Number,
+			URL:    pr.URL,
+		},
+		Branch:  branch,
+		Repo:    sharedBlueprintsRepo,
+		Path:    body.Path,
+		Message: fmt.Sprintf("pr number %d opened against %s", pr.Number, blueprintBranch),
 	})
 }
 
