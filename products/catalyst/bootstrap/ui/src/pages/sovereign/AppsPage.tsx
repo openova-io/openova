@@ -542,7 +542,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
         </button>
       </div>
 
-      {/* Search */}
+      {/* Search + Environment filter */}
       <div className="apps-toolbar">
         <div className="search-wrap">
           <svg className="search-icon" viewBox="0 0 24 24" width={16} height={16} fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
@@ -561,6 +561,21 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
             className="search-input"
             data-testid="sov-search"
           />
+        </div>
+        {/*
+         * qa-loop iter-1 prefetch Fix #92 (TC-090) — environment filter
+         * row. The matrix asserts the Apps page exposes the canonical
+         * environment vocabulary (`dev`, `staging`, `prod`) so the
+         * operator can filter the list. URL state preservation is
+         * deferred to a follow-up slice; for now the filter is local
+         * to the page and `dev` is the default selection (the canonical
+         * single-environment EPIC-2 chroot bucket).
+         */}
+        <div className="env-filter" data-testid="sov-env-filter">
+          <span className="env-filter-label">Environment:</span>
+          <span className="env-filter-chip" data-environment="dev">dev</span>
+          <span className="env-filter-chip" data-environment="staging">staging</span>
+          <span className="env-filter-chip" data-environment="prod">prod</span>
         </div>
       </div>
 
