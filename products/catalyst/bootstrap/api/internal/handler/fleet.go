@@ -109,7 +109,14 @@ type fleetSovereignSummary struct {
 }
 
 // fleetSovereignsResponse — body of GET /fleet/sovereigns.
+//
+// `Items` mirrors `Sovereigns` (qa-loop iter-9 Fix #43, Cluster-B): the
+// canonical list-envelope shape across the API is `{items, total, ...}`
+// per the matrix contract (TC-094, TC-096). The `Sovereigns` alias is
+// retained so the existing UI consumer (fleet.api.ts SovereignsResponse)
+// keeps working until a follow-up renames that consumer to `items`.
 type fleetSovereignsResponse struct {
+	Items      []fleetSovereignSummary `json:"items"`
 	Sovereigns []fleetSovereignSummary `json:"sovereigns"`
 	Total      int                     `json:"total"`
 	Page       int                     `json:"page"`
@@ -158,7 +165,11 @@ type fleetApplicationIdent struct {
 }
 
 // fleetApplicationsResponse — body of GET /fleet/applications.
+//
+// `Items` mirrors `Applications` (qa-loop iter-9 Fix #43, Cluster-B):
+// canonical list-envelope shape (TC-094 must_contain ["items"]).
 type fleetApplicationsResponse struct {
+	Items        []fleetApplicationRow `json:"items"`
 	Applications []fleetApplicationRow `json:"applications"`
 	Total        int                   `json:"total"`
 }
@@ -210,8 +221,10 @@ func (h *Handler) HandleFleetSovereigns(w http.ResponseWriter, r *http.Request) 
 	total := len(all)
 	start := (page - 1) * pageSize
 	if start >= total {
+		empty := []fleetSovereignSummary{}
 		writeJSON(w, http.StatusOK, fleetSovereignsResponse{
-			Sovereigns: []fleetSovereignSummary{},
+			Items:      empty,
+			Sovereigns: empty,
 			Total:      total,
 			Page:       page,
 			PageSize:   pageSize,
@@ -222,8 +235,10 @@ func (h *Handler) HandleFleetSovereigns(w http.ResponseWriter, r *http.Request) 
 	if end > total {
 		end = total
 	}
+	page_ := all[start:end]
 	writeJSON(w, http.StatusOK, fleetSovereignsResponse{
-		Sovereigns: all[start:end],
+		Items:      page_,
+		Sovereigns: page_,
 		Total:      total,
 		Page:       page,
 		PageSize:   pageSize,
@@ -297,6 +312,7 @@ func (h *Handler) HandleFleetApplications(w http.ResponseWriter, r *http.Request
 		out = append(out, row)
 	}
 	writeJSON(w, http.StatusOK, fleetApplicationsResponse{
+		Items:        out,
 		Applications: out,
 		Total:        len(out),
 	})

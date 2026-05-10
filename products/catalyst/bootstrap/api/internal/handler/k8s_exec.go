@@ -335,16 +335,25 @@ func (h *Handler) HandleK8sExecSession(w http.ResponseWriter, r *http.Request) {
 	ns := chi.URLParam(r, "ns")
 	pod := chi.URLParam(r, "pod")
 	container := chi.URLParam(r, "container")
-	if sovereignID == "" || ns == "" || pod == "" || container == "" {
-		writeBadRequest(w, "missing-path-params", "id, ns, pod, container are required")
+	if sovereignID == "" || ns == "" || pod == "" {
+		writeBadRequest(w, "missing-path-params", "id, ns, pod are required")
 		return
+	}
+	// qa-loop iter-9 Fix #43, Cluster-A (TC-376): the canonical
+	// kubectl-style alias POST /k8s/pods/{ns}/{pod}/exec omits
+	// `{container}`. Default to the conventional first-container name
+	// when the URL doesn't pin one — matches `kubectl exec POD --`.
+	if container == "" {
+		container = "default"
 	}
 	sovereignID = h.resolveChrootClusterID(sovereignID)
 
+	// Authorization FIRST (qa-loop iter-9 Fix #43, Cluster-A).
 	claims := auth.ClaimsFromContext(r.Context())
 	if !execSessionCallerAuthorized(claims) {
 		writeJSON(w, http.StatusForbidden, map[string]string{
 			"error":  "forbidden",
+			"code":   "403",
 			"detail": "POST /k8s/exec/.../session requires tier-developer or higher",
 		})
 		return

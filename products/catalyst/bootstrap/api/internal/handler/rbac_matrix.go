@@ -57,7 +57,12 @@ type AccessMatrixGrant struct {
 // AccessMatrixResponse is the full payload returned by GET
 // /rbac/access-matrix. Shape designed for direct consumption by the
 // EPIC-3 U7 UI (slice U7).
+//
+// `Items` mirrors `Users` (qa-loop iter-9 Fix #43, Cluster-B): the
+// canonical list-envelope shape across the API is `{items, ...}` per
+// the matrix contract (TC-193 must_contain ["items"]).
 type AccessMatrixResponse struct {
+	Items        []AccessMatrixUser `json:"items"`
 	Users        []AccessMatrixUser `json:"users"`
 	Applications []string           `json:"applications"`
 	Tiers        []string           `json:"tiers"`
@@ -86,8 +91,10 @@ func (h *Handler) HandleRBACAccessMatrix(w http.ResponseWriter, r *http.Request)
 		if apierrors.IsNotFound(err) {
 			// CRD not installed → empty matrix shape; UI renders the
 			// "no grants yet" state.
+			empty := []AccessMatrixUser{}
 			writeJSON(w, http.StatusOK, AccessMatrixResponse{
-				Users:        []AccessMatrixUser{},
+				Items:        empty,
+				Users:        empty,
 				Applications: []string{},
 				Tiers:        canonicalTierOrder(),
 			})
@@ -216,6 +223,9 @@ func buildAccessMatrix(items []unstructured.Unstructured, orgFilter, appFilter s
 	}
 	sort.Slice(out.Users, func(i, j int) bool { return out.Users[i].ID < out.Users[j].ID })
 	sort.Strings(out.Applications)
+	// Mirror Users into Items for the canonical list-envelope contract
+	// (qa-loop iter-9 Fix #43, Cluster-B / TC-193).
+	out.Items = out.Users
 	return out
 }
 

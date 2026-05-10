@@ -277,10 +277,14 @@ func (h *Handler) HandleContinuumSwitchoverRequest(w http.ResponseWriter, r *htt
 		writeNotFound(w, depID)
 		return
 	}
+	// Authorization FIRST (qa-loop iter-9 Fix #43, Cluster-A): tier
+	// gate runs before body decode/validation so a viewer/developer
+	// caller receives 403 regardless of body shape.
 	if claims := auth.ClaimsFromContext(r.Context()); claims != nil {
 		if !applicationInstallCallerAuthorized(claims) {
 			writeJSON(w, http.StatusForbidden, map[string]string{
 				"error":  "forbidden",
+				"code":   "403",
 				"detail": "POST /continuums/{name}/switchover requires owner tier on the Application",
 			})
 			return

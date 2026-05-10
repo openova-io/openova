@@ -65,6 +65,16 @@ func (h *Handler) HandleK8sResourceScale(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "k8scache disabled", http.StatusServiceUnavailable)
 		return
 	}
+	// Authorization FIRST (qa-loop iter-9 Fix #43, Cluster-A): tier
+	// gate runs before path-param parsing + kind validation so a
+	// viewer/developer caller receives 403 regardless of whether the
+	// kind/ns/name resolve. Matches the iter-9 contract for
+	// /policy, /applications, /rbac/assign, /switchover. The {id}
+	// chi param is read directly to avoid the resolveChrootClusterID
+	// → registry round-trip which would 404 before the auth gate runs.
+	if !h.requireResourceMutationAuth(w, r) {
+		return
+	}
 	clusterID, kindName, ns, name, ok := h.parseResourceParams(w, r)
 	if !ok {
 		return
@@ -74,9 +84,6 @@ func (h *Handler) HandleK8sResourceScale(w http.ResponseWriter, r *http.Request)
 			"error":  "kind-not-scalable",
 			"detail": fmt.Sprintf("scale only supported on Deployment + StatefulSet (got %q)", kindName),
 		})
-		return
-	}
-	if !h.requireResourceMutationAuth(w, r) {
 		return
 	}
 
@@ -131,6 +138,10 @@ func (h *Handler) HandleK8sResourceRestart(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "k8scache disabled", http.StatusServiceUnavailable)
 		return
 	}
+	// Authorization FIRST (qa-loop iter-9 Fix #43, Cluster-A).
+	if !h.requireResourceMutationAuth(w, r) {
+		return
+	}
 	clusterID, kindName, ns, name, ok := h.parseResourceParams(w, r)
 	if !ok {
 		return
@@ -140,9 +151,6 @@ func (h *Handler) HandleK8sResourceRestart(w http.ResponseWriter, r *http.Reques
 			"error":  "kind-not-restartable",
 			"detail": fmt.Sprintf("restart only supported on Deployment / StatefulSet / DaemonSet (got %q)", kindName),
 		})
-		return
-	}
-	if !h.requireResourceMutationAuth(w, r) {
 		return
 	}
 
@@ -199,11 +207,12 @@ func (h *Handler) HandleK8sResourceDelete(w http.ResponseWriter, r *http.Request
 		http.Error(w, "k8scache disabled", http.StatusServiceUnavailable)
 		return
 	}
-	clusterID, kindName, ns, name, ok := h.parseResourceParams(w, r)
-	if !ok {
+	// Authorization FIRST (qa-loop iter-9 Fix #43, Cluster-A).
+	if !h.requireResourceMutationAuth(w, r) {
 		return
 	}
-	if !h.requireResourceMutationAuth(w, r) {
+	clusterID, kindName, ns, name, ok := h.parseResourceParams(w, r)
+	if !ok {
 		return
 	}
 	dyn, kind, err := h.resolveResourceClient(clusterID, kindName)
@@ -266,11 +275,12 @@ func (h *Handler) handleApplyOrDryRun(w http.ResponseWriter, r *http.Request, dr
 		http.Error(w, "k8scache disabled", http.StatusServiceUnavailable)
 		return
 	}
-	clusterID, kindName, ns, name, ok := h.parseResourceParams(w, r)
-	if !ok {
+	// Authorization FIRST (qa-loop iter-9 Fix #43, Cluster-A).
+	if !h.requireResourceMutationAuth(w, r) {
 		return
 	}
-	if !h.requireResourceMutationAuth(w, r) {
+	clusterID, kindName, ns, name, ok := h.parseResourceParams(w, r)
+	if !ok {
 		return
 	}
 

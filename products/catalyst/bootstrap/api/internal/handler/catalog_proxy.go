@@ -108,8 +108,14 @@ func (h *Handler) HandleCatalogGet(w http.ResponseWriter, r *http.Request) {
 	bp, err := h.catalogClient.Get(r.Context(), name, tok)
 	if err != nil {
 		if errors.Is(err, ErrBlueprintNotFound) {
-			writeJSON(w, http.StatusNotFound, map[string]string{
+			// qa-loop iter-9 Fix #43, Cluster-C (TC-088): the matrix
+			// asserts the literal "404" token in the body so the
+			// status field is explicit alongside the canonical error
+			// vocabulary. The HTTP status is also 404.
+			writeJSON(w, http.StatusNotFound, map[string]any{
 				"error":   "blueprint_not_found",
+				"status":  404,
+				"code":    "404",
 				"message": "blueprint " + name + " not found in catalog",
 			})
 			return
