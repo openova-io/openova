@@ -44,10 +44,26 @@ newapi:
   # Pin upstream image — DO NOT use floating tags per
   # docs/INVIOLABLE-PRINCIPLES.md #4. The chart references a
   # GHCR-mirrored image (operator's GHCR or OpenOva's mirror namespace)
-  # to avoid pulling from Docker Hub at runtime.
+  # to avoid pulling from Docker Hub at runtime. The mirror is built by
+  # `.github/workflows/build-bp-newapi.yaml` — every push to
+  # `platform/newapi/chart/**` triggers the mirror Job which captures the
+  # upstream repo digest and re-tags into
+  # `ghcr.io/openova-io/openova/newapi-mirror:<UPSTREAM_VER>`.
+  #
+  # Pre-2026-05-10 the chart referenced `:v0.4.5` — a tag that never
+  # existed in any upstream OR in our GHCR (the original commit
+  # 44d0200a invented the tag with no matching CI build). Every fresh
+  # Sovereign's NewAPI Pod ImagePullBackOff'd, blocking alice signup
+  # gate 5 (LLM). Bounded-cycle audit prov #7 Gap F.
+  #
+  # The tag is the upstream Calcium-Ion/new-api git tag (verbatim,
+  # including the leading `v`). Bump in lockstep with
+  # `.github/workflows/build-bp-newapi.yaml`'s `DEFAULT_UPSTREAM_VERSION`
+  # AND `Chart.yaml` `appVersion` (which strips the leading `v` per
+  # Helm convention).
   image:
     repository: ghcr.io/openova-io/openova/newapi-mirror
-    tag: "v0.4.5"
+    tag: "v0.13.2"
     pullPolicy: IfNotPresent
 
   # NewAPI HTTP listener — port 3000 is the upstream default.

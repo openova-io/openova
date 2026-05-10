@@ -1,0 +1,197 @@
+name: Build bp-newapi
+
+# bp-newapi — Catalyst Blueprint wrapping the upstream NewAPI multi-tenant
+# LLM gateway (github.com/Calcium-Ion/new-api, MIT). Per
+# platform/newapi/chart/Chart.yaml the upstream ships a docker-compose
+# image only at `docker.io/calciumion/new-api:<UPSTREAM_VER>`. Per
+# docs/INVIOLABLE-PRINCIPLES.md #4a we never let production Sovereigns
+# pull from Docker Hub at runtime — every image must live in
+# ghcr.io/openova-io/* under a registry we own (no Docker Hub rate
+# limits, no upstream availability risk).
+#
+# This workflow mirrors the bp-guacamole pattern
+# (.github/workflows/build-bp-guacamole.yaml):
+#   1. Pulls `docker.io/calciumion/new-api:<UPSTREAM_VER>` from Docker Hub.
+#   2. Captures the upstream repo digest (sha256:...) so the GHCR tag
+#      points at exactly the bytes we tested against, even if upstream
+#      re-cuts the tag in the future.
+#   3. Re-tags + pushes into GHCR under
+#      `ghcr.io/openova-io/openova/newapi-mirror:<UPSTREAM_VER>` so each
+#      Sovereign pulls from a registry we own.
+#   4. Bumps platform/newapi/chart/values.yaml `newapi.image.tag` to the
+#      mirrored tag.
+#   5. Bumps platform/newapi/chart/Chart.yaml `version` patch level + sets
+#      `appVersion` to the upstream version + dispatches
+#      blueprint-release.yaml so a fresh bp-newapi:<semver> OCI artifact
+#      lands.
+#
+# Closes the gap surfaced by qa-loop bounded-cycle audit (prov #7, Gap F):
+# the chart referenced `ghcr.io/openova-io/openova/newapi-mirror:v0.4.5`
+# but no CI workflow ever built that image — the GHCR package didn't
+# exist and the Pod ImagePullBackOff'd on every fresh Sovereign, blocking
+# alice signup gate 5 (LLM).
+
+on:
+  push:
+    paths:
+      - 'platform/newapi/chart/**'
+      - 'platform/newapi/blueprint.yaml'
+      - '.github/workflows/build-bp-newapi.yaml'
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      upstream_version:
+        description: 'Calcium-Ion/new-api upstream version (e.g. v0.13.2).'
+        required: false
+        default: 'v0.13.2'
+
+env:
+  REGISTRY: ghcr.io
+  NEWAPI_IMAGE: ghcr.io/openova-io/openova/newapi-mirror
+  CHART_VALUES: platform/newapi/chart/values.yaml
+  CHART_YAML: platform/newapi/chart/Chart.yaml
+  # v0.13.2 is the latest stable (non-rc) Calcium-Ion/new-api release on
+  # Docker Hub at the time this workflow was authored (2026-04-27 upstream
+  # publish date). Bump in both this default AND in the chart Chart.yaml
+  # `appVersion` when rolling forward. The v1.0.0-rc.x line is gated on
+  # upstream stabilising the schema migration; do NOT auto-roll past
+  # v0.13.x without re-running the channel-seed integration smoke against
+  # NewAPI's `/api/channel/` admin shape (the seed Job uses the legacy
+  # request body shape).
+  DEFAULT_UPSTREAM_VERSION: 'v0.13.2'
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+      actions: write
+    outputs:
+      upstream_version: ${{ steps.vars.outputs.upstream_version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve upstream version
+        id: vars
+        run: |
+          set -euo pipefail
+          ver="${{ inputs.upstream_version }}"
+          ver="${ver:-${DEFAULT_UPSTREAM_VERSION}}"
+          echo "upstream_version=${ver}" >> "$GITHUB_OUTPUT"
+          echo "Mirroring Calcium-Ion/new-api ${ver} to GHCR"
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Mirror calciumion/new-api → ghcr.io/openova-io/openova/newapi-mirror
+        env:
+          UPSTREAM_VER: ${{ steps.vars.outputs.upstream_version }}
+        run: |
+          set -euo pipefail
+          src="docker.io/calciumion/new-api:${UPSTREAM_VER}"
+          dst="${NEWAPI_IMAGE}:${UPSTREAM_VER}"
+          docker pull "${src}"
+          # Capture the upstream repo digest so the GHCR tag points at
+          # exactly the bytes we tested against, even if upstream ever
+          # re-cuts the tag. Stored in GITHUB_ENV for the step summary.
+          UPSTREAM_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "${src}")
+          echo "Upstream digest: ${UPSTREAM_DIGEST}"
+          docker tag "${src}" "${dst}"
+          docker tag "${src}" "${NEWAPI_IMAGE}:latest"
+          docker push "${dst}"
+          docker push "${NEWAPI_IMAGE}:latest"
+          echo "NEWAPI_UPSTREAM_DIGEST=${UPSTREAM_DIGEST}" >> "$GITHUB_ENV"
+
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Bump image tag in values.yaml
+        env:
+          UPSTREAM_VER: ${{ steps.vars.outputs.upstream_version }}
+        run: |
+          set -euo pipefail
+          # Set repository to GHCR mirror AND tag to the upstream version
+          # we just mirrored. Repository write is idempotent (no-op once
+          # values.yaml is already GHCR-pinned).
+          yq eval -i ".newapi.image.repository = \"${NEWAPI_IMAGE}\"" "${CHART_VALUES}"
+          yq eval -i ".newapi.image.tag = \"${UPSTREAM_VER}\"" "${CHART_VALUES}"
+          echo "values.yaml after update:"
+          yq eval '.newapi.image' "${CHART_VALUES}"
+
+      - name: Bump Chart.yaml patch version + appVersion
+        env:
+          UPSTREAM_VER: ${{ steps.vars.outputs.upstream_version }}
+        run: |
+          set -euo pipefail
+          current=$(yq eval '.version' "${CHART_YAML}")
+          IFS='.' read -r major minor patch <<<"${current}"
+          next="${major}.${minor}.$((patch + 1))"
+          yq eval -i ".version = \"${next}\"" "${CHART_YAML}"
+          # appVersion mirrors the upstream tag we just mirrored (strip
+          # leading v: Helm convention is appVersion = upstream version
+          # without the v prefix). Operators reading `helm list` see the
+          # actual NewAPI release running in their Sovereign.
+          app_ver="${UPSTREAM_VER#v}"
+          yq eval -i ".appVersion = \"${app_ver}\"" "${CHART_YAML}"
+          echo "Chart.yaml: version ${current} -> ${next}, appVersion -> ${app_ver}"
+          echo "CHART_NEW_VERSION=${next}" >> "$GITHUB_ENV"
+
+      - name: Commit and push chart bump
+        id: deploy_commit
+        env:
+          UPSTREAM_VER: ${{ steps.vars.outputs.upstream_version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "${CHART_VALUES}" "${CHART_YAML}"
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git commit -m "deploy: bump bp-newapi upstream ${UPSTREAM_VER} chart ${CHART_NEW_VERSION}"
+          for i in 1 2 3; do
+            git push && break
+            git pull --rebase
+          done
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger blueprint-release for the chart bump
+        if: steps.deploy_commit.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run blueprint-release.yaml \
+            --repo "${{ github.repository }}" \
+            --ref main \
+            -f blueprint=newapi \
+            -f tree=platform
+          echo "blueprint-release dispatched for platform/newapi @ main"
+
+      - name: Summary
+        env:
+          UPSTREAM_VER: ${{ steps.vars.outputs.upstream_version }}
+        run: |
+          {
+            echo "## bp-newapi mirror complete"
+            echo ""
+            echo "- Upstream: \`docker.io/calciumion/new-api:${UPSTREAM_VER}\`"
+            echo "- Mirrored: \`${NEWAPI_IMAGE}:${UPSTREAM_VER}\`"
+            echo "- Upstream digest: \`${NEWAPI_UPSTREAM_DIGEST:-unknown}\`"
+            echo "- Chart bumped to: \`${CHART_NEW_VERSION:-unchanged}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -84,7 +84,15 @@ spec:
       # of the PRIVATE newapi-mirror + metering-sidecar images. Paired
       # with cloud-init adding `newapi` to flux-system/ghcr-pull's
       # reflector auto-namespaces list.
-      version: 1.4.1
+      # 1.4.2 (qa-loop bounded-cycle audit prov #7 Gap F, 2026-05-10):
+      # `.Values.newapi.image.tag` repointed from `v0.4.5` (fictitious —
+      # never built by any CI workflow) to `v0.13.2` (actual upstream
+      # Calcium-Ion/new-api Docker Hub release, mirrored into
+      # ghcr.io/openova-io/openova/newapi-mirror by the new
+      # `.github/workflows/build-bp-newapi.yaml` workflow). Pre-1.4.2
+      # the NewAPI Pod ImagePullBackOff'd 403 on every fresh Sovereign,
+      # blocking alice signup gate 5 (LLM).
+      version: 1.4.2
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
