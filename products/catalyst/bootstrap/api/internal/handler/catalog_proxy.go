@@ -81,6 +81,14 @@ func (h *Handler) HandleCatalogList(w http.ResponseWriter, r *http.Request) {
 		// json marshalling: never emit `null` for a list endpoint.
 		items = []CatalogBlueprint{}
 	}
+	// Populate the versions[] + chartRef wire alias on every entry so
+	// every consumer (UI version-picker, CLI, matrix asserters) sees a
+	// stable shape regardless of whether the upstream catalog inlined
+	// the version index. Per `feedback_no_mvp_no_workarounds.md` the
+	// alias carries the REAL OCI chart reference (TC-059, TC-060).
+	for i := range items {
+		items[i].PopulateVersionsAlias()
+	}
 	writeJSON(w, http.StatusOK, CatalogListResponse{Items: items})
 }
 
@@ -126,6 +134,7 @@ func (h *Handler) HandleCatalogGet(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	bp.PopulateVersionsAlias()
 	writeJSON(w, http.StatusOK, bp)
 }
 
@@ -167,5 +176,6 @@ func (h *Handler) HandleCatalogGetVersion(w http.ResponseWriter, r *http.Request
 		})
 		return
 	}
+	bp.PopulateVersionsAlias()
 	writeJSON(w, http.StatusOK, bp)
 }

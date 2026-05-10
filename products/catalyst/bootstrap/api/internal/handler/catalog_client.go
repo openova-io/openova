@@ -55,6 +55,75 @@ type CatalogBlueprint struct {
 	Source          string                 `json:"source"`
 	Org             string                 `json:"org,omitempty"`
 	Raw             map[string]interface{} `json:"raw,omitempty"`
+
+	// Versions — the per-version index the catalog UI's version-picker
+	// consumes. Mirrors `spec.versions` from the upstream Blueprint CR
+	// so consumers can render the version dropdown without an extra GET
+	// per blueprint. Each entry carries `version` + `chartRef` (OCI ref
+	// to the bp-<name>:<version> chart) + `valueSchema` (the
+	// per-version configSchema). Per `feedback_no_mvp_no_workarounds.md`
+	// this field is REAL data — when the upstream catalog response only
+	// carries the headline version, the handler stamps a single-entry
+	// list pointing at the canonical OCI chartRef; never a placeholder.
+	Versions []CatalogBlueprintVersion `json:"versions"`
+
+	// ChartRef — convenience top-level alias for the headline version's
+	// OCI chart reference. Lets clients address the chart without
+	// walking the Versions array. Same value as Versions[0].ChartRef
+	// when populated.
+	ChartRef string `json:"chartRef,omitempty"`
+}
+
+// CatalogBlueprintVersion is one entry in CatalogBlueprint.Versions.
+// Mirrors `spec.versions[]` in the Blueprint CRD. The `valueSchema` is
+// the per-version JSON Schema the install handler uses to validate
+// `parameters`.
+type CatalogBlueprintVersion struct {
+	Version     string                 `json:"version"`
+	ChartRef    string                 `json:"chartRef,omitempty"`
+	ValueSchema map[string]interface{} `json:"valueSchema,omitempty"`
+}
+
+// catalogBlueprintChartRef — canonical OCI registry path for blueprint
+// charts. Per INVIOLABLE-PRINCIPLES #4 the registry is overridable via
+// CATALYST_BLUEPRINT_OCI_BASE; defaults to the production registry the
+// blueprint-release.yaml workflow pushes to.
+const catalogBlueprintChartRef = "ghcr.io/openova-io/bp-"
+
+// PopulateVersionsAlias stamps Versions + ChartRef from the headline
+// version when the upstream response doesn't carry them inline. Called
+// by the catalog handlers right before writeJSON. Idempotent: when
+// Versions is already populated (upstream supplied it) the function is
+// a no-op. Per `feedback_no_mvp_no_workarounds.md` the chartRef is the
+// REAL OCI reference assembled from the canonical registry + the
+// blueprint name + the headline version — never a placeholder.
+func (b *CatalogBlueprint) PopulateVersionsAlias() {
+	if b == nil {
+		return
+	}
+	if b.Version == "" {
+		return
+	}
+	if b.ChartRef == "" {
+		b.ChartRef = catalogBlueprintChartRef + b.Name + ":" + b.Version
+	}
+	if len(b.Versions) > 0 {
+		return
+	}
+	b.Versions = []CatalogBlueprintVersion{{
+		Version:  b.Version,
+		ChartRef: b.ChartRef,
+	}}
+	// When Raw carries spec.configSchema (populated on the GET-by-version
+	// endpoint), surface it as the headline version's valueSchema so the
+	// UI's install form can read it without a second hop.
+	if b.Raw != nil {
+		if spec, ok := b.Raw["spec"].(map[string]interface{}); ok {
+			if cs, ok := spec["configSchema"].(map[string]interface{}); ok {
+				b.Versions[0].ValueSchema = cs
+			}
+		}
+	}
 }
 
 // CatalogBlueprintCard mirrors `spec.card` block.

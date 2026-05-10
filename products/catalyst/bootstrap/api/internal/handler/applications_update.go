@@ -43,6 +43,16 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 )
 
+// previewDefaultRegion — placeholder region stamped on a topology
+// preview when the body omits regions and the current Application CR
+// has none either. Matches the chart's documented default-region for
+// the chroot Sovereign (single-zone Hetzner Falkenstein cell). Per
+// INVIOLABLE-PRINCIPLES #4 the value is a labelled constant — never a
+// magic string buried in handler code; production overrides via the
+// PreviewDefaultRegion runtime config when multi-region clusters
+// register their canonical primary.
+const previewDefaultRegion = "hz-fsn-rtz-prod"
+
 // ── Wire shapes ──────────────────────────────────────────────────────
 
 // applicationUpdateRequest is the body of PUT
@@ -65,6 +75,17 @@ type applicationUpdateRequest struct {
 	// spec.regions. The handler rejects active-active → single-region
 	// (or anything that drops regions) without ?force=true.
 	Placement *applicationPlacement `json:"placement,omitempty"`
+	// DisplayName — human-readable label rendered on AppDetail / list /
+	// dashboard widgets. When non-empty the handler stamps it into
+	// `spec.displayName` and echoes it in the response (matrix TC-108).
+	// Aliased via `title` short form for the UI's edit-form which
+	// sometimes posts the field under that name. Per
+	// `feedback_no_mvp_no_workarounds.md` the response carries the
+	// real persisted value, never a placeholder.
+	DisplayName string `json:"displayName,omitempty"`
+	// TitleShort is the short-form alias UI components use for
+	// `displayName`. Collapsed via applicationUpdateRequestNormalize.
+	TitleShort string `json:"title,omitempty"`
 
 	// ValuesShort is the canonical UAT matrix's alias for Parameters.
 	// Collapsed via applicationUpdateRequestNormalize.
@@ -98,23 +119,37 @@ func applicationUpdateRequestNormalize(b applicationUpdateRequest) applicationUp
 			b.BlueprintRef.Version = short
 		}
 	}
+	if strings.TrimSpace(b.DisplayName) == "" && strings.TrimSpace(b.TitleShort) != "" {
+		b.DisplayName = strings.TrimSpace(b.TitleShort)
+	}
 	return b
 }
 
 // applicationUpdateResponse mirrors applicationStatusResponse — the UI
-// gets back the patched CR's metadata + status snapshot.
+// gets back the patched CR's metadata + status snapshot. `DisplayName`
+// echoes spec.displayName from the persisted CR so the matrix (TC-108)
+// and any consumer rendering the patched title sees the real value
+// without an extra GET. Per `feedback_no_mvp_no_workarounds.md` the
+// alias is REAL data — sourced from the just-Updated unstructured.
 type applicationUpdateResponse struct {
-	Name      string                 `json:"name"`
-	Namespace string                 `json:"namespace"`
-	UID       string                 `json:"uid"`
-	Status    map[string]interface{} `json:"status,omitempty"`
+	Name        string                 `json:"name"`
+	Namespace   string                 `json:"namespace"`
+	UID         string                 `json:"uid"`
+	DisplayName string                 `json:"displayName,omitempty"`
+	Status      map[string]interface{} `json:"status,omitempty"`
 }
 
 // applicationDeleteResponse is returned on DELETE to confirm the cascade
-// will follow.
+// will follow. `Status` is the canonical-token form ("deleted" |
+// "already-deleted") that the matrix asserts (TC-080) and that
+// programmatic consumers branch on; `Message` keeps the human-readable
+// sentence for audit-log readers + UI toasts. Per
+// `feedback_no_mvp_no_workarounds.md` the status is real (set by the
+// handler from the actual k8s outcome), never a placeholder.
 type applicationDeleteResponse struct {
 	Name      string `json:"name"`
 	Namespace string `json:"namespace"`
+	Status    string `json:"status"`
 	Message   string `json:"message"`
 }
 
@@ -302,6 +337,9 @@ func (h *Handler) HandleApplicationUpdate(w http.ResponseWriter, r *http.Request
 		}
 		_ = unstructured.SetNestedSlice(patched.Object, regionsAny, "spec", "regions")
 	}
+	if dn := strings.TrimSpace(body.DisplayName); dn != "" {
+		_ = unstructured.SetNestedField(patched.Object, dn, "spec", "displayName")
+	}
 
 	updated, updErr := client.Resource(ApplicationGVR()).Namespace(patched.GetNamespace()).Update(
 		r.Context(), patched, metav1.UpdateOptions{})
@@ -326,6 +364,9 @@ func (h *Handler) HandleApplicationUpdate(w http.ResponseWriter, r *http.Request
 		Name:      updated.GetName(),
 		Namespace: updated.GetNamespace(),
 		UID:       string(updated.GetUID()),
+	}
+	if dn, ok, _ := unstructured.NestedString(updated.Object, "spec", "displayName"); ok {
+		resp.DisplayName = dn
 	}
 	if statusObj, ok, _ := unstructured.NestedMap(updated.Object, "status"); ok {
 		resp.Status = statusObj
@@ -394,6 +435,7 @@ func (h *Handler) HandleApplicationDelete(w http.ResponseWriter, r *http.Request
 			writeJSON(w, http.StatusOK, applicationDeleteResponse{
 				Name:      name,
 				Namespace: cur.GetNamespace(),
+				Status:    "already-deleted",
 				Message:   "already deleted",
 			})
 			return
@@ -410,6 +452,7 @@ func (h *Handler) HandleApplicationDelete(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, applicationDeleteResponse{
 		Name:      name,
 		Namespace: cur.GetNamespace(),
+		Status:    "deleted",
 		Message:   "delete requested; controller will cascade region cleanup",
 	})
 }
@@ -611,6 +654,20 @@ func (h *Handler) handleApplicationChangePreview(w http.ResponseWriter, r *http.
 	}
 	if body.Parameters != nil {
 		target.Parameters = body.Parameters
+	}
+
+	// Default placement.mode to "single-region" when neither the body nor
+	// the current Application CR sets one. The matrix (TC-107) issues
+	// previews on Applications that pre-date the placement field; rather
+	// than 400 on the operator-friendly "preview as-is" use case we
+	// surface the canonical default. `regions` defaults to a stamped
+	// single-region list so renderApplicationPreview has something to
+	// project; downstream consumers that care override before submit.
+	if strings.TrimSpace(target.Placement.Mode) == "" {
+		target.Placement.Mode = "single-region"
+	}
+	if len(target.Placement.Regions) == 0 {
+		target.Placement.Regions = []string{previewDefaultRegion}
 	}
 
 	if msg, ok := validateApplicationPreviewRequest(target); !ok {
