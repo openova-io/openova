@@ -261,3 +261,71 @@ func TestHandleWhoami_NilClaims(t *testing.T) {
 		t.Fatalf("nil-claims path: want 401, got %d (body=%s)", rr.Code, rr.Body.String())
 	}
 }
+
+// TestHandleWhoami_ProjectsTierToRealmRoles — TC-177 regression.
+// When the operator's session carries a `tier` claim (e.g. PIN-derived
+// session, chroot-internal JWT), whoami's response.realm_access.roles
+// MUST include catalyst-<tier> + every inherited catalyst-<tier-below>
+// role so the EPIC-3 access-matrix UI's per-user role chips render
+// correctly regardless of how the session was minted.
+func TestHandleWhoami_ProjectsTierToRealmRoles(t *testing.T) {
+	t.Setenv("SOVEREIGN_FQDN", "")
+	t.Setenv("CATALYST_OTECH_FQDN", "")
+	t.Setenv("CATALYST_SELF_DEPLOYMENT_ID", "")
+
+	h := New(slog.New(slog.NewTextHandler(os.Stderr, nil)))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/whoami", nil)
+	ctx := context.WithValue(req.Context(), auth.ClaimsKey, &auth.Claims{
+		Sub:           "kc-sub-dev",
+		Email:         "qa-user1@openova.io",
+		EmailVerified: true,
+		Tier:          "developer",
+	})
+	req = req.WithContext(ctx)
+	rr := httptest.NewRecorder()
+
+	h.HandleWhoami(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: want 200, got %d (body=%s)", rr.Code, rr.Body.String())
+	}
+	var got whoamiResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v (body=%s)", err, rr.Body.String())
+	}
+	if got.Tier != "developer" {
+		t.Errorf("tier: want developer, got %q", got.Tier)
+	}
+	wantRoles := map[string]bool{"catalyst-viewer": false, "catalyst-developer": false}
+	for _, r := range got.RealmAccess.Roles {
+		if _, ok := wantRoles[r]; ok {
+			wantRoles[r] = true
+		}
+		if r == "catalyst-owner" {
+			t.Errorf("did not expect catalyst-owner for tier=developer; roles=%v", got.RealmAccess.Roles)
+		}
+	}
+	for role, found := range wantRoles {
+		if !found {
+			t.Errorf("expected role %q in realm_access.roles=%v", role, got.RealmAccess.Roles)
+		}
+	}
+}
+
+// TestWhoamiInjectTierRoles_PreservesExistingRoles — defensive: when
+// Keycloak already stamps the catalyst-* role list on the JWT, the
+// projection MUST be idempotent (no duplicate appends).
+func TestWhoamiInjectTierRoles_PreservesExistingRoles(t *testing.T) {
+	ra := &whoamiRealmAccess{Roles: []string{"catalyst-viewer", "catalyst-developer", "extra-role"}}
+	whoamiInjectTierRoles(ra, "developer")
+	want := []string{"catalyst-viewer", "catalyst-developer", "extra-role"}
+	if len(ra.Roles) != len(want) {
+		t.Fatalf("roles: got %v want %v", ra.Roles, want)
+	}
+	for i := range want {
+		if ra.Roles[i] != want[i] {
+			t.Fatalf("[%d]: got %q want %q", i, ra.Roles[i], want[i])
+		}
+	}
+}

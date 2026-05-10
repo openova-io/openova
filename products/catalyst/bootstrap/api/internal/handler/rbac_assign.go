@@ -70,59 +70,17 @@ const (
 	// `openova:tier-<tier>` per platform/crossplane-claims/chart/
 	// templates/tier-clusterroles.yaml.
 	tierClusterRolePrefix = "openova:tier-"
-
-	// rbacAssignNamespace is the namespace UserAccess CRs are written
-	// into. The CRD is `Namespaced` (per chart/crds/useraccess.yaml +
-	// the live cluster verification: `kubectl get crd
-	// useraccesses.access.openova.io -o jsonpath='{.spec.scope}'`
-	// returns `Namespaced`). For namespaced CRDs the apiserver returns
-	// the confusing 404 `the server could not find the requested
-	// resource` when Create is called with an empty namespace string —
-	// it reads the empty path as a request for the cluster-scoped
-	// REST endpoint, which doesn't exist for a namespaced CR.
-	//
-	// Hardcoded to `catalyst-system` because that is the canonical
-	// namespace the catalyst-platform Helm release ships into on every
-	// Sovereign + chroot, and is the same namespace the
-	// useraccess-controller watches for its reconcile loop. Mirrors
-	// the SMTP-seed handler's hardcoded `sovereignSMTPSeedNamespace`
-	// pattern (sovereign_smtp_seed.go) — a Sovereign without
-	// catalyst-system is not a Sovereign at all.
-	rbacAssignNamespace = "catalyst-system"
 )
 
-// rbacAssignAllowedTiers is the canonical tier catalog. Any other
+// rbacAssignAllowedTiers is the canonical 5-tier catalog. Any other
 // value on the request body is rejected with 400. The list is the
 // public contract docs/EPICS-1-6-unified-design.md §6.2 declares.
-//
-// `super-admin` is the cross-org sentinel the canonical UAT matrix
-// uses for the "global escalation" scope (TC-168 et al.) — it
-// resolves to the same ClusterRole as `owner` (openova:tier-owner)
-// but is reserved for grants that span multiple Sovereigns / orgs.
-// Per `feedback_no_mvp_no_workarounds.md` the matrix vocabulary is
-// the contract; the handler accepts and audits it as a first-class
-// tier rather than rejecting with 400.
 var rbacAssignAllowedTiers = map[string]struct{}{
-	"viewer":      {},
-	"developer":   {},
-	"operator":    {},
-	"admin":       {},
-	"owner":       {},
-	"super-admin": {},
-}
-
-// rbacAssignTierResolved maps a request-body tier value to the
-// underlying ClusterRole name suffix. `super-admin` resolves to
-// `owner` so the existing 5-tier ClusterRole shipped by EPIC-3 T1
-// (#1142) provides the binding without a chart change. The audit
-// trail still records the request-vocabulary tier (`super-admin`)
-// for grep-ability.
-func rbacAssignTierResolved(tier string) string {
-	t := strings.ToLower(strings.TrimSpace(tier))
-	if t == "super-admin" {
-		return "owner"
-	}
-	return t
+	"viewer":    {},
+	"developer": {},
+	"operator":  {},
+	"admin":     {},
+	"owner":     {},
 }
 
 // rbacAssignPrivilegedRoles is the set of realm roles a caller MUST
@@ -150,81 +108,81 @@ type rbacAssignScopeBody struct {
 
 // rbacAssignRequest is the body of POST /rbac/assign.
 //
-// Two equivalent body shapes are accepted (per
-// `feedback_no_mvp_no_workarounds.md` the matrix is the contract;
-// the handler conforms):
+// Two ergonomic shapes are accepted (post EPIC-3 U1 + matrix-target):
 //
-//  1. Long form (production internal callers, multi-grant editor):
-//     { "user":{"email":"...","keycloakSubject":"..."},
-//     "tier":"developer",
-//     "scope":[{"key":"openova.io/application","value":"qa-wp"}] }
+//  1. Canonical (used by U1 multi-grant editor):
+//     {"user":{"email":"...","keycloakSubject":"..."},
+//      "tier":"developer",
+//      "scope":[{"key":"openova.io/application","value":"qa-wp"}]}
 //
-//  2. Short form (canonical UAT matrix):
-//     { "email":"qa-user1@openova.io",
-//     "tier":"developer",
-//     "scopeType":"application",
-//     "scopeName":"qa-wp" }
+//  2. Ergonomic top-level (used by CLI / scripts / qa-loop matrix):
+//     {"email":"qa-user1@openova.io","tier":"developer",
+//      "scopeType":"application","scopeName":"qa-wp"}
 //
-// The short form collapses onto the long form via
-// rbacAssignRequestNormalize:
-//
-//	email      → User.Email
-//	scopeType  → Scope[0].Key  ("application" → openova.io/application,
-//	                            "organization" → openova.io/org,
-//	                            "env-type"    → openova.io/env-type;
-//	                            else passes through unchanged)
-//	scopeName  → Scope[0].Value
-//
-// Bare `{"email":"x","tier":"super-admin"}` (TC-168 — global
-// escalation) collapses to a global grant: empty Scope set + tier
-// "super-admin" → tier-owner ClusterRole binding scoped to no
-// resource label, which the useraccess-controller treats as
-// "applies to all".
+// The handler normalizes shape (2) into shape (1) before validation
+// + find-or-create. The top-level Email + KeycloakSubject collapse
+// onto User.{Email,KeycloakSubject}; the (ScopeType, ScopeName) pair
+// expands into a single Scope entry whose key is mapped via the
+// scopeKeyFromShorthand vocabulary.
 type rbacAssignRequest struct {
+	// Canonical shape.
 	User  rbacAssignUserBody    `json:"user"`
 	Tier  string                `json:"tier"`
 	Scope []rbacAssignScopeBody `json:"scope"`
 
-	// Short-form aliases (canonical UAT matrix vocabulary).
-	EmailShort     string `json:"email,omitempty"`
-	ScopeTypeShort string `json:"scopeType,omitempty"`
-	ScopeNameShort string `json:"scopeName,omitempty"`
+	// Ergonomic top-level shape — collapsed into User on decode.
+	Email           string `json:"email,omitempty"`
+	KeycloakSubject string `json:"keycloakSubject,omitempty"`
+
+	// Ergonomic shorthand for a single scope entry. ScopeType is
+	// matched case-insensitively against scopeKeyFromShorthand;
+	// unknown shorthand becomes a passthrough openova.io/<scopeType>
+	// scope key.
+	ScopeType string `json:"scopeType,omitempty"`
+	ScopeName string `json:"scopeName,omitempty"`
 }
 
-// rbacAssignScopeKeyForType maps the matrix's friendly scope-type
-// vocabulary to the canonical NAMING-CONVENTION.md §6 label key.
-// Unknown scope-types pass through unchanged so a future addition
-// (e.g. `cluster`, `region`) doesn't require a code change.
-func rbacAssignScopeKeyForType(scopeType string) string {
-	switch strings.ToLower(strings.TrimSpace(scopeType)) {
-	case "application", "app":
-		return scopeKeyApplication
-	case "organization", "org":
-		return scopeKeyOrg
-	case "env-type", "envtype", "environment-type", "environmenttype":
-		return scopeKeyEnvType
-	}
-	return strings.TrimSpace(scopeType)
+// scopeKeyFromShorthand maps the ergonomic shorthand on POST
+// /rbac/assign to the canonical NAMING-CONVENTION.md §6 scope key.
+// Unknown shorthand falls through as `openova.io/<shorthand>` —
+// forward-compat with future scope dimensions added by the platform
+// without requiring a catalyst-api version bump.
+var scopeKeyFromShorthand = map[string]string{
+	"application":  scopeKeyApplication,
+	"app":          scopeKeyApplication,
+	"organization": scopeKeyOrg,
+	"org":          scopeKeyOrg,
+	"envtype":      scopeKeyEnvType,
+	"env-type":     scopeKeyEnvType,
+	"env":          scopeKeyEnvType,
 }
 
-// rbacAssignRequestNormalize collapses the short-form aliases onto
-// the long-form fields. Long form wins on conflict so a body that
-// supplies BOTH shapes ends up with the long-form values.
-func rbacAssignRequestNormalize(b rbacAssignRequest) rbacAssignRequest {
-	if strings.TrimSpace(b.User.Email) == "" && strings.TrimSpace(b.EmailShort) != "" {
-		b.User.Email = strings.TrimSpace(b.EmailShort)
+// normalizeRBACAssignRequest collapses the two ergonomic shapes into
+// the canonical (User, Tier, Scope) form. Idempotent: calling it on
+// an already-canonical body is a no-op.
+func normalizeRBACAssignRequest(req *rbacAssignRequest) {
+	// Collapse top-level Email/KeycloakSubject into User if the nested
+	// fields are unset. Top-level loses to nested when both are
+	// present — the canonical shape is the source of truth.
+	if strings.TrimSpace(req.User.Email) == "" {
+		req.User.Email = strings.TrimSpace(req.Email)
 	}
-	scopeType := strings.TrimSpace(b.ScopeTypeShort)
-	scopeName := strings.TrimSpace(b.ScopeNameShort)
-	if len(b.Scope) == 0 && (scopeType != "" || scopeName != "") {
-		// Both empty short-form -> nothing to add. Both set -> single
-		// scope entry. Either-only -> single entry with the empty
-		// counterpart trimmed (validation later catches a half-set
-		// scope as a clear 400).
-		key := rbacAssignScopeKeyForType(scopeType)
-		b.Scope = []rbacAssignScopeBody{{Key: key, Value: scopeName}}
+	if strings.TrimSpace(req.User.KeycloakSubject) == "" {
+		req.User.KeycloakSubject = strings.TrimSpace(req.KeycloakSubject)
 	}
-	return b
+	// Expand ScopeType/ScopeName shorthand into Scope[] when Scope is
+	// empty. Both fields must be set; a partial pair is silently
+	// dropped (validateRBACAssignRequest then 400s on the missing
+	// scope side via its own check).
+	scopeType := strings.TrimSpace(req.ScopeType)
+	scopeName := strings.TrimSpace(req.ScopeName)
+	if len(req.Scope) == 0 && scopeType != "" && scopeName != "" {
+		key, ok := scopeKeyFromShorthand[strings.ToLower(scopeType)]
+		if !ok {
+			key = "openova.io/" + strings.ToLower(scopeType)
+		}
+		req.Scope = []rbacAssignScopeBody{{Key: key, Value: scopeName}}
+	}
 }
 
 type rbacAssignUserAccessRef struct {
@@ -254,19 +212,19 @@ func (h *Handler) HandleRBACAssign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Authorization FIRST (qa-loop iter-9 Fix #43, Cluster-A): tier
-	// gate runs before body decode/validation so a viewer/developer
-	// caller receives 403 regardless of body shape. Mirrors the
-	// post-iter-9 contract for /policy, /applications, /scale,
-	// /switchover. Nil-claims (Sovereign clusters with no Keycloak
-	// wired, or test harnesses) are allowed through — the middleware
-	// decision is the single source of truth for whether auth was
-	// required.
+	// Authorization MUST happen before body decode so that callers with
+	// insufficient tier (viewer / developer) get a 403 even when they
+	// POST an empty body. Otherwise the body decoder rejects with 400
+	// "EOF" and the test (which is probing tier-enforcement) sees a
+	// confusing 400 instead of the expected 403.
+	//
+	// Nil-claims (Sovereign clusters with no Keycloak wired, or test
+	// harnesses) are allowed through — the middleware decision is the
+	// single source of truth for whether auth was required.
 	if claims := auth.ClaimsFromContext(r.Context()); claims != nil {
 		if !rbacAssignCallerAuthorized(claims) {
 			writeJSON(w, http.StatusForbidden, map[string]string{
 				"error":  "forbidden",
-				"code":   "403",
 				"detail": "/rbac/assign requires tier-admin or higher",
 			})
 			return
@@ -277,7 +235,7 @@ func (h *Handler) HandleRBACAssign(w http.ResponseWriter, r *http.Request) {
 	if !decodeMutationBody(w, r, &body) {
 		return
 	}
-	body = rbacAssignRequestNormalize(body)
+	normalizeRBACAssignRequest(&body)
 	if msg, ok := validateRBACAssignRequest(body); !ok {
 		writeBadRequest(w, "invalid-rbac-assign", msg)
 		return
@@ -417,13 +375,6 @@ func rbacAssignFindOrCreate(
 ) (rbacAssignResponse, int, string, error) {
 	wantScope := normalizeScopeSlice(body.Scope)
 	wantTier := strings.ToLower(strings.TrimSpace(body.Tier))
-	// resolvedTier is what the ClusterRole binding actually points at.
-	// For `super-admin` this collapses to `owner`; for everything else
-	// it equals wantTier. Persisted on the CR's spec.tierRoleRef +
-	// echoed in the response's TierClusterRole. The audit/label tier
-	// remains wantTier so the audit trail records the requested
-	// vocabulary.
-	resolvedTier := rbacAssignTierResolved(wantTier)
 	keycloakSubject := strings.TrimSpace(body.User.KeycloakSubject)
 
 	var lastErr error
@@ -433,20 +384,13 @@ func rbacAssignFindOrCreate(
 		//    spec fields and a label-selector for the subject UUID is
 		//    expensive to set up at write time. List sizes are bounded
 		//    to (users × applications) per Sovereign — typically <1000.
-		//
-		//    Scoped to rbacAssignNamespace: every UserAccess CR
-		//    rbac_assign emits lives in catalyst-system, so listing
-		//    cluster-wide is wasteful and (after the namespace fix
-		//    below) would surface CRs we can't update via the same
-		//    GVR namespace. Cluster-wide listing also widens the RBAC
-		//    surface unnecessarily.
-		listIface, err := client.Resource(UserAccessGVR()).Namespace(rbacAssignNamespace).List(ctx, metav1.ListOptions{})
+		listIface, err := client.Resource(UserAccessGVR()).Namespace("").List(ctx, metav1.ListOptions{})
 		if err != nil {
 			if apierrors.IsNotFound(err) {
 				// CRD not installed yet → fall through to create. The
 				// create will surface its own NotFound for the missing
 				// CRD with a more actionable error to the caller.
-				resp, status, err := rbacAssignCreate(ctx, client, body, wantScope, wantTier, resolvedTier, dep)
+				resp, status, err := rbacAssignCreate(ctx, client, body, wantScope, wantTier, dep)
 				return resp, status, "", err
 			}
 			return rbacAssignResponse{}, http.StatusInternalServerError, "", fmt.Errorf("list useraccesses: %w", err)
@@ -462,14 +406,14 @@ func rbacAssignFindOrCreate(
 						UID:       string(match.GetUID()),
 						Namespace: match.GetNamespace(),
 					},
-					TierClusterRole: tierClusterRolePrefix + resolvedTier,
+					TierClusterRole: tierClusterRolePrefix + wantTier,
 					Applied:         "no-op",
 				}, http.StatusOK, currentTier, nil
 			}
 			// Path 2b: same scope, different tier → update tier label
 			// + spec.tierRoleRef. Use ResourceVersion to surface a 409
 			// on concurrent edit; the loop re-evaluates and retries.
-			updated, err := rbacAssignUpdateTier(ctx, client, match, wantTier, resolvedTier)
+			updated, err := rbacAssignUpdateTier(ctx, client, match, wantTier)
 			if err != nil {
 				if apierrors.IsConflict(err) {
 					// Concurrent writer mutated the CR — retry the
@@ -486,12 +430,12 @@ func rbacAssignFindOrCreate(
 					UID:       string(updated.GetUID()),
 					Namespace: updated.GetNamespace(),
 				},
-				TierClusterRole: tierClusterRolePrefix + resolvedTier,
+				TierClusterRole: tierClusterRolePrefix + wantTier,
 				Applied:         "updated",
 			}, http.StatusOK, currentTier, nil
 		}
 		// Path 3: no match → create.
-		resp, status, err := rbacAssignCreate(ctx, client, body, wantScope, wantTier, resolvedTier, dep)
+		resp, status, err := rbacAssignCreate(ctx, client, body, wantScope, wantTier, dep)
 		if err != nil && apierrors.IsAlreadyExists(err) {
 			// Concurrent creator won the race for the same name. Retry
 			// the list+evaluate cycle so we catch their CR and either
@@ -527,7 +471,6 @@ func rbacAssignCreate(
 	body rbacAssignRequest,
 	wantScope []rbacAssignScopeBody,
 	wantTier string,
-	resolvedTier string,
 	dep *Deployment,
 ) (rbacAssignResponse, int, error) {
 	keycloakSubject := strings.TrimSpace(body.User.KeycloakSubject)
@@ -549,7 +492,7 @@ func rbacAssignCreate(
 	spec := map[string]any{
 		"user":         user,
 		"sovereignRef": rbacAssignSovereignRef(dep),
-		"tierRoleRef":  tierClusterRolePrefix + resolvedTier,
+		"tierRoleRef":  tierClusterRolePrefix + wantTier,
 	}
 	if len(wantScope) > 0 {
 		scopes := make([]any, 0, len(wantScope))
@@ -563,13 +506,7 @@ func rbacAssignCreate(
 	}
 	_ = unstructured.SetNestedMap(obj.Object, spec, "spec")
 
-	// Set the namespace on the CR before Create — namespaced CRDs
-	// reject empty-namespace Create with a confusing 404 ("the server
-	// could not find the requested resource") because the apiserver
-	// dispatches to the cluster-scoped REST endpoint, which doesn't
-	// exist for a namespaced kind. See rbacAssignNamespace doc.
-	obj.SetNamespace(rbacAssignNamespace)
-	created, err := client.Resource(UserAccessGVR()).Namespace(rbacAssignNamespace).Create(ctx, obj, metav1.CreateOptions{})
+	created, err := client.Resource(UserAccessGVR()).Namespace("").Create(ctx, obj, metav1.CreateOptions{})
 	if err != nil {
 		// Caller distinguishes IsAlreadyExists for the retry loop.
 		return rbacAssignResponse{}, http.StatusInternalServerError, err
@@ -580,7 +517,7 @@ func rbacAssignCreate(
 			UID:       string(created.GetUID()),
 			Namespace: created.GetNamespace(),
 		},
-		TierClusterRole: tierClusterRolePrefix + resolvedTier,
+		TierClusterRole: tierClusterRolePrefix + wantTier,
 		Applied:         "created",
 	}, http.StatusCreated, nil
 }
@@ -588,16 +525,11 @@ func rbacAssignCreate(
 // rbacAssignUpdateTier patches the tier label + spec.tierRoleRef on an
 // existing UserAccess CR. Preserves resourceVersion so concurrent edits
 // surface as a 409 — the caller retries via the find-or-create loop.
-//
-// `wantTier` is the audit/label tier (carries the request-vocabulary,
-// e.g. "super-admin"). `resolvedTier` is the underlying ClusterRole
-// suffix (e.g. "owner") wired into spec.tierRoleRef.
 func rbacAssignUpdateTier(
 	ctx context.Context,
 	client dynamic.Interface,
 	current *unstructured.Unstructured,
 	wantTier string,
-	resolvedTier string,
 ) (*unstructured.Unstructured, error) {
 	desired := current.DeepCopy()
 	labels := desired.GetLabels()
@@ -608,19 +540,10 @@ func rbacAssignUpdateTier(
 	desired.SetLabels(labels)
 	_ = unstructured.SetNestedField(
 		desired.Object,
-		tierClusterRolePrefix+resolvedTier,
+		tierClusterRolePrefix+wantTier,
 		"spec", "tierRoleRef",
 	)
-	// Update on a namespaced CRD requires the same namespace path as
-	// Create — fall back to rbacAssignNamespace when the existing CR
-	// somehow lacks one (defensive; the list path scopes to the same
-	// namespace so this should always be set).
-	ns := desired.GetNamespace()
-	if ns == "" {
-		ns = rbacAssignNamespace
-		desired.SetNamespace(ns)
-	}
-	return client.Resource(UserAccessGVR()).Namespace(ns).Update(ctx, desired, metav1.UpdateOptions{})
+	return client.Resource(UserAccessGVR()).Namespace("").Update(ctx, desired, metav1.UpdateOptions{})
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -837,32 +760,18 @@ func rbacAssignSlug(fqdn string) string {
 // validateRBACAssignRequest checks the request body shape per the slice
 // A1 brief. Returns ("", true) on success; (msg, false) on the first
 // problem (matches the existing user_access.go validation style).
-//
-// Per `feedback_no_mvp_no_workarounds.md` (TC-167) the email field —
-// when populated — MUST conform to RFC-5322's basic shape (one '@',
-// non-empty local + domain, domain has at least one '.', label
-// charset). Iter-8 caught the regression: `{"email":"badformat"}`
-// flowed through to a successful UserAccess CR create because the
-// previous validation only checked emptiness. Reject mal-shaped
-// emails up-front with a 400 instead of letting a downstream label
-// or namespace check surface the real problem.
 func validateRBACAssignRequest(req rbacAssignRequest) (string, bool) {
 	subj := strings.TrimSpace(req.User.KeycloakSubject)
 	email := strings.TrimSpace(req.User.Email)
 	if subj == "" && email == "" {
 		return "user.email or user.keycloakSubject is required", false
 	}
-	if email != "" {
-		if msg, ok := validateEmailAddressShape(email); !ok {
-			return "user.email " + msg, false
-		}
-	}
 	tier := strings.ToLower(strings.TrimSpace(req.Tier))
 	if tier == "" {
 		return "tier is required", false
 	}
 	if _, ok := rbacAssignAllowedTiers[tier]; !ok {
-		return "tier must be one of viewer, developer, operator, admin, owner, super-admin", false
+		return "tier must be one of viewer, developer, operator, admin, owner", false
 	}
 	for i, s := range req.Scope {
 		k := strings.TrimSpace(s.Key)
@@ -872,80 +781,6 @@ func validateRBACAssignRequest(req rbacAssignRequest) (string, bool) {
 		}
 		if v == "" {
 			return fmt.Sprintf("scope[%d].value is required", i), false
-		}
-	}
-	return "", true
-}
-
-// validateEmailAddressShape implements the basic RFC-5322-leaning
-// shape check the matrix asserts on (TC-167). Avoids importing
-// `net/mail` because the stdlib parser ALSO accepts display-name +
-// brackets like `"Alice <alice@x.y>"` which is wider than the
-// /rbac/assign request contract wants. Returns (msg, true) on
-// success; (msg, false) with a short reason on rejection.
-//
-// Shape: <local>@<domain> where:
-//   - local: 1..64 chars, no spaces, no ASCII control chars
-//   - domain: 1..253 chars, contains at least one dot, each label
-//     1..63 chars of alphanumeric or hyphen (no leading/trailing
-//     hyphen), TLD label 2+ chars
-//
-// Strict-enough to reject "badformat", "alice", "x@y" (no TLD dot),
-// "@example.com" (no local), "alice@@example.com" (multiple @).
-// Permissive-enough to accept the canonical work email shapes the
-// matrix uses (qa-user1@openova.io, alice.smith+plus@example.co.uk).
-func validateEmailAddressShape(email string) (string, bool) {
-	if email == "" {
-		return "is required", false
-	}
-	for _, r := range email {
-		if r <= 0x20 || r == 0x7f {
-			return "must not contain whitespace or control characters", false
-		}
-	}
-	at := strings.Index(email, "@")
-	if at < 0 || strings.Index(email[at+1:], "@") >= 0 {
-		return "must contain exactly one '@'", false
-	}
-	local := email[:at]
-	domain := email[at+1:]
-	if local == "" {
-		return "local part (before '@') is required", false
-	}
-	if len(local) > 64 {
-		return "local part is too long (max 64 chars)", false
-	}
-	if domain == "" {
-		return "domain part (after '@') is required", false
-	}
-	if len(domain) > 253 {
-		return "domain part is too long (max 253 chars)", false
-	}
-	if !strings.Contains(domain, ".") {
-		return "domain must contain at least one '.'", false
-	}
-	labels := strings.Split(domain, ".")
-	for i, label := range labels {
-		if label == "" {
-			return "domain has an empty label", false
-		}
-		if len(label) > 63 {
-			return "domain label too long (max 63 chars)", false
-		}
-		if label[0] == '-' || label[len(label)-1] == '-' {
-			return "domain label may not start or end with '-'", false
-		}
-		for _, r := range label {
-			ok := (r >= 'a' && r <= 'z') ||
-				(r >= 'A' && r <= 'Z') ||
-				(r >= '0' && r <= '9') ||
-				r == '-'
-			if !ok {
-				return "domain label contains invalid characters", false
-			}
-		}
-		if i == len(labels)-1 && len(label) < 2 {
-			return "domain TLD must be at least 2 characters", false
 		}
 	}
 	return "", true

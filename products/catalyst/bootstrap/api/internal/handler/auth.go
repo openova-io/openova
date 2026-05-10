@@ -193,16 +193,7 @@ type pinIssueRequest struct {
 }
 
 type pinIssueResponse struct {
-	// OK — legacy success flag retained for any existing UI/SDK that
-	// pins on it. New code SHOULD prefer Sent (matches the QA matrix +
-	// the wider OpenOva email-dispatch verb conventions).
-	OK bool `json:"ok"`
-	// Sent — true when the PIN email was successfully handed off to
-	// the SMTP relay. Mirrors OK at the same instant; added in
-	// qa-loop iter-6 (TC-001) so the response shape exposes the verb
-	// operators / monitoring recognise without removing the historical
-	// `ok` key.
-	Sent         bool   `json:"sent"`
+	OK           bool   `json:"ok"`
 	RequestID    string `json:"requestId"`
 	ExpiresInSec int    `json:"expiresInSec"`
 }
@@ -327,7 +318,6 @@ func (h *Handler) HandlePinIssue(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, pinIssueResponse{
 		OK:           true,
-		Sent:         true,
 		RequestID:    requestID,
 		ExpiresInSec: int(pinTTL.Seconds()),
 	})
@@ -699,64 +689,9 @@ func (h *Handler) HandleAuthLogout(w http.ResponseWriter, r *http.Request) {
 	// In that case the UI just clears local state and stays on /login.
 	logoutURL := buildKeycloakLogoutURL(r)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":                true,
+		"ok":               true,
 		"keycloakLogoutURL": logoutURL,
 	})
-}
-
-// HandleAuthSessionLogout handles POST /api/v1/auth/session as the
-// canonical SPA-driven logout (issue #qa-loop-iter4 auth-session-logout-405).
-//
-// The SPA's logout flow uses POST (idempotent intent: "create a logout
-// event") rather than DELETE (resource-deletion semantics) because some
-// browsers + reverse proxies strip body+credentials from DELETE on
-// cross-origin XHR, while POST is universally honoured. The legacy
-// DELETE handler stays in place for backwards compatibility with any
-// in-flight clients; this POST variant produces an equivalent result
-// but with a Max-Age=0 wire shape (RFC 6265bis non-positive max-age =
-// immediate expiry) and SameSite=Strict — a stricter posture than the
-// DELETE handler's Lax, appropriate for an explicit user-initiated
-// logout where no cross-site redirect is involved.
-//
-// Response body is the minimal `{ok:true, loggedOut:true}` JSON the
-// matrix asserts; the keycloakLogoutURL hop is intentionally omitted
-// here because POST-driven logout is invoked by the SPA AFTER it has
-// already chosen its own post-logout redirect (the DELETE handler still
-// returns the URL for the legacy redirect-driven flow).
-func (h *Handler) HandleAuthSessionLogout(w http.ResponseWriter, r *http.Request) {
-	cookieDomain := os.Getenv("CATALYST_SESSION_COOKIE_DOMAIN")
-	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
-	w.Header().Add("Set-Cookie", buildPostLogoutClearCookie(auth.SessionCookieName, cookieDomain, secure))
-	w.Header().Add("Set-Cookie", buildPostLogoutClearCookie("catalyst_refresh", cookieDomain, secure))
-
-	h.log.Info("auth/session: POST logout", "remoteAddr", r.RemoteAddr)
-	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":        true,
-		"loggedOut": true,
-	})
-}
-
-// buildPostLogoutClearCookie returns a Set-Cookie header value of shape:
-//
-//	<name>=; Path=/[; Domain=<domain>][; Secure]; HttpOnly; SameSite=Strict; Max-Age=0
-//
-// `Max-Age=0` is emitted literally (RFC 6265bis: any non-positive value
-// = immediate expiry). SameSite=Strict because the POST logout is an
-// explicit same-origin XHR from the SPA — there is no cross-site
-// navigation to honour, so the strictest posture applies.
-func buildPostLogoutClearCookie(name, domain string, secure bool) string {
-	var b strings.Builder
-	b.WriteString(name)
-	b.WriteString("=; Path=/")
-	if domain != "" {
-		b.WriteString("; Domain=")
-		b.WriteString(domain)
-	}
-	if secure {
-		b.WriteString("; Secure")
-	}
-	b.WriteString("; HttpOnly; SameSite=Strict; Max-Age=0")
-	return b.String()
 }
 
 // buildClearSessionCookie returns a Set-Cookie header value that
@@ -881,15 +816,14 @@ func resolvePostLogoutPath() string {
 // discover its sovereign context from a single round-trip without a
 // follow-up /api/v1/sovereign/self call. This is the contract
 // SovereignConsoleLayout + chroot SPA features assert in TC-232.
-//
-// Tier + RealmAccess surface the RBAC claims the SPA route-guard
-// relies on to decide whether to admit an operator into the chroot
-// Sovereign Console post-PIN-login. Fix #2 (#1184) stamps tier=owner
-// and realm_access.roles=[catalyst-owner] into the PIN session JWT;
-// without these fields on the wire the SPA bounces the operator back
-// to /login (qa-loop iter-2 cluster B). Both are `omitempty` so an
-// unprivileged session (no tier, no realm roles) yields the original
-// pre-RBAC wire shape and existing callers keep working.
+// whoamiRealmAccess mirrors the Keycloak `realm_access` claim shape
+// the wire emits to clients. Kept as its own type (not the auth.RealmAccess
+// re-export) so a future addition there doesn't accidentally widen the
+// public whoami contract.
+type whoamiRealmAccess struct {
+	Roles []string `json:"roles,omitempty"`
+}
+
 type whoamiResponse struct {
 	Email         string            `json:"email"`
 	Sub           string            `json:"sub"`
@@ -898,7 +832,7 @@ type whoamiResponse struct {
 	SovereignFQDN string            `json:"sovereignFQDN,omitempty"`
 	Mode          string            `json:"mode,omitempty"`
 	Tier          string            `json:"tier,omitempty"`
-	RealmAccess   *auth.RealmAccess `json:"realm_access,omitempty"`
+	RealmAccess   whoamiRealmAccess `json:"realm_access,omitempty"`
 }
 
 // HandleWhoami handles GET /api/v1/whoami.
@@ -946,18 +880,19 @@ func (h *Handler) HandleWhoami(w http.ResponseWriter, r *http.Request) {
 		Email:    claims.Email,
 		Sub:      claims.Sub,
 		Verified: claims.EmailVerified,
-		Tier:     claims.Tier,
+		Tier:     strings.ToLower(strings.TrimSpace(claims.Tier)),
 	}
-
-	// RBAC realm-role enrichment — surface the realm role list the SPA
-	// route-guard reads to admit an operator into the chroot Sovereign
-	// Console. Only emit when at least one role is set so an unprivileged
-	// session continues to omit the field entirely (omitempty preserves
-	// the pre-RBAC wire shape for non-RBAC callers).
 	if len(claims.RealmAccess.Roles) > 0 {
-		ra := claims.RealmAccess
-		resp.RealmAccess = &ra
+		resp.RealmAccess.Roles = append([]string(nil), claims.RealmAccess.Roles...)
 	}
+	// EPIC-3 (#1184) tier→catalyst-* role projection: when the operator
+	// holds a `tier` claim but the realm-access role list lacks the
+	// matching `catalyst-<tier>` + `catalyst-viewer` entries (typical
+	// on PIN-derived sessions and chroot-internal JWTs that don't run
+	// through the protocol mapper), synthesize them so downstream UI
+	// authorization checks (which look at realm_access.roles) work
+	// regardless of how the session was minted.
+	whoamiInjectTierRoles(&resp.RealmAccess, resp.Tier)
 
 	// Sovereign-context enrichment — same precedence as HandleSovereignSelf
 	// so the two endpoints never disagree about which sovereign this is.
@@ -985,4 +920,60 @@ func (h *Handler) HandleWhoami(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// whoamiTierInheritance is the EPIC-3 §6.2 tier-inherit chain. Each
+// tier inherits every entry below itself in the slice, so an operator
+// at tier=admin holds catalyst-{viewer,developer,operator,admin}
+// realm roles in addition to the tier-* RBAC ClusterRoles.
+//
+// owner inherits admin which inherits operator which inherits developer
+// which inherits viewer. Same chain enforced by the
+// platform/crossplane-claims chart's tierActions[*].inherits values.
+var whoamiTierInheritance = []string{
+	"viewer",
+	"developer",
+	"operator",
+	"admin",
+	"owner",
+}
+
+// whoamiInjectTierRoles guarantees that every catalyst-<inherited-tier>
+// realm role is present in resp.RealmAccess.Roles when the operator's
+// `tier` claim is set. PIN-derived sessions and a few chroot-internal
+// JWT mint paths set the `tier` claim but skip the full role-list
+// projection — without this enrichment, the EPIC-3 access-matrix UI's
+// per-user role chips render as "viewer only" even for admins.
+//
+// Idempotent: existing roles are preserved; missing ones are appended
+// in inheritance order so the chip list reads bottom-up (viewer first,
+// then developer, ..., then the operator's own tier).
+func whoamiInjectTierRoles(ra *whoamiRealmAccess, tier string) {
+	tier = strings.ToLower(strings.TrimSpace(tier))
+	if tier == "" {
+		return
+	}
+	// Find the operator's tier index in the inheritance chain. Unknown
+	// tiers (legacy `application-admin`, future tiers) are no-ops here.
+	tierIdx := -1
+	for i, t := range whoamiTierInheritance {
+		if t == tier {
+			tierIdx = i
+			break
+		}
+	}
+	if tierIdx < 0 {
+		return
+	}
+	have := map[string]struct{}{}
+	for _, r := range ra.Roles {
+		have[strings.ToLower(strings.TrimSpace(r))] = struct{}{}
+	}
+	for i := 0; i <= tierIdx; i++ {
+		want := "catalyst-" + whoamiTierInheritance[i]
+		if _, ok := have[want]; !ok {
+			ra.Roles = append(ra.Roles, want)
+			have[want] = struct{}{}
+		}
+	}
 }
