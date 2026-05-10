@@ -67,8 +67,22 @@ Modelled after platform/gitea/chart/templates/database-secret-sync-job.yaml:
     kubectl is distroless and has no /bin/sh).
   - In-cluster ServiceAccount token from the projected
     /var/run/secrets/kubernetes.io/serviceaccount path.
-  - Hook-weight 0 for SA/Role/RoleBinding (must exist before -10 Job
-    pod's API calls); -10 for the Job itself.
+  - Hook-weight ORDERING (Fix #95, regression of Fix #78). Helm hook-
+    weight semantics: within the same hook phase, LOWER weights run
+    FIRST. Pre-Fix-#95 the SA/Role/RoleBinding had weight "0" while
+    the Job had weight "-10", so the Job (lower number) was applied
+    BEFORE its ServiceAccount, surfacing on prov #8 as
+    `pods "k8s-ws-proxy-hmac-bootstrap-" is forbidden: error looking
+    up service account catalyst-system/k8s-ws-proxy-hmac-bootstrap:
+    serviceaccount "k8s-ws-proxy-hmac-bootstrap" not found`. Fix #95
+    re-orders to explicit weights so the dependency graph (SA → Role
+    → RoleBinding → Job) materialises in apiserver order regardless
+    of YAML order in this template:
+      ServiceAccount:        helm.sh/hook-weight: "-20" (first)
+      Role + RoleBinding:    helm.sh/hook-weight: "-15"
+      Job:                   helm.sh/hook-weight: "-10" (last)
+    The Job weight is preserved at -10 to keep the Fix #78 render-
+    test gate 3a stable (`grep "helm.sh/hook-weight": "-10"`).
   - hook-delete-policy: before-hook-creation,hook-succeeded — every
     upgrade replaces the prior Job artefacts; succeeded ones are reaped.
 */}}
@@ -87,7 +101,8 @@ metadata:
     catalyst.openova.io/component: hmac-bootstrap
   annotations:
     "helm.sh/hook": "pre-install,pre-upgrade"
-    "helm.sh/hook-weight": "0"
+    # Fix #95: -20 (lowest = applied FIRST, before Role/RoleBinding/Job).
+    "helm.sh/hook-weight": "-20"
     "helm.sh/hook-delete-policy": "before-hook-creation"
 {{- with .Values.k8sWsProxy.imagePullSecrets }}
 imagePullSecrets:
@@ -111,7 +126,8 @@ metadata:
     catalyst.openova.io/component: hmac-bootstrap
   annotations:
     "helm.sh/hook": "pre-install,pre-upgrade"
-    "helm.sh/hook-weight": "0"
+    # Fix #95: -15 (after SA at -20, before Job at -10).
+    "helm.sh/hook-weight": "-15"
     "helm.sh/hook-delete-policy": "before-hook-creation"
 rules:
   # Rule 1: create — NO resourceNames (apiserver authz rejects otherwise).
@@ -134,7 +150,8 @@ metadata:
     catalyst.openova.io/component: hmac-bootstrap
   annotations:
     "helm.sh/hook": "pre-install,pre-upgrade"
-    "helm.sh/hook-weight": "0"
+    # Fix #95: -15 (with Role; both must exist before Job at -10).
+    "helm.sh/hook-weight": "-15"
     "helm.sh/hook-delete-policy": "before-hook-creation"
 roleRef:
   apiGroup: rbac.authorization.k8s.io

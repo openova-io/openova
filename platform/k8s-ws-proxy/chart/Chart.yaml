@@ -25,7 +25,21 @@ name: bp-k8s-ws-proxy
 # in-flight catalyst-api signature). build-k8s-ws-proxy.yaml's promote
 # job will auto-bump this to 0.1.7 on merge with the new image SHA;
 # slot pins should be lifted to 0.1.7 once that promote runs.
-version: 0.1.7
+# 0.1.8 (qa-loop bounded-cycle Fix #95, regression of Fix #78):
+# explicit hook-weight ordering for the hmac-bootstrap quartet so the
+# ServiceAccount lands BEFORE the Job that references it. Fix #78 set
+# SA/Role/RoleBinding=0 and Job=-10; per Helm semantics (lower weights
+# run first within the same hook phase) this caused the Job to be
+# applied BEFORE its SA, surfacing on prov #8 as
+# `serviceaccount "k8s-ws-proxy-hmac-bootstrap" not found` →
+# CrashLoopBackOff → bp-k8s-ws-proxy HR Stalled → bp-guacamole blocked.
+# Fix #95 weights: SA=-20 (first), Role+RoleBinding=-15, Job=-10
+# (last; preserves Fix #78 render-test gate 3a). Render gate 9 added
+# in tests/render.sh asserts the four-tier ordering. build-k8s-ws-
+# proxy.yaml's promote job will auto-bump to 0.1.9 with the new image
+# SHA on merge; bootstrap-kit slot pins should be lifted to 0.1.9 once
+# that promote runs.
+version: 0.1.8
 appVersion: "0.1.0"
 description: |
   Catalyst-authored Blueprint chart for the k8s-ws-proxy DaemonSet —

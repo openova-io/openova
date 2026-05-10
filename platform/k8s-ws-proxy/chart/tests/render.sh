@@ -101,6 +101,68 @@ if ! grep -qE 'verbs: \[ *"create" *\]|verbs:\s*-\s*create|verbs: \[create\]' "$
 fi
 echo "PASS: hmac-bootstrap Job + RBAC rendered with correct hook-weight + split verbs"
 
+# 3c. (Fix #95, regression of Fix #78) Hook-weight ORDERING across the
+# hmac-bootstrap quartet. Helm semantics: within the same hook phase,
+# LOWER weights run FIRST. The Job references its ServiceAccount, so
+# the SA MUST be applied before the Job — i.e. the SA's weight MUST be
+# numerically LESS than the Job's (-10). Pre-Fix-#95 SA/Role/RoleBinding
+# all had weight 0 (later than the Job at -10), causing prov #8 to fail
+# with `serviceaccount "k8s-ws-proxy-hmac-bootstrap" not found`. Target
+# ordering: SA=-20, Role+RoleBinding=-15, Job=-10.
+#
+# Use awk to walk each `kind:` block in the rendered YAML and capture
+# its hook-weight; assert the ServiceAccount weight is the most
+# negative, the Job weight is -10, and the Role/RoleBinding sit between.
+weights="$(awk '
+  /^kind:/                                      { kind=$2; weight="" }
+  /name: k8s-ws-proxy-hmac-bootstrap$/          { is_hmac=1 }
+  /"helm\.sh\/hook-weight"/                     { gsub(/.*"helm\.sh\/hook-weight":[ ]*"/,""); gsub(/".*/,""); weight=$0 }
+  /^---$/ {
+    if (is_hmac && weight != "") print kind"="weight
+    is_hmac=0; kind=""; weight=""
+  }
+  END {
+    if (is_hmac && weight != "") print kind"="weight
+  }
+' "$on_render")"
+
+sa_w="$(echo "$weights" | grep -E '^ServiceAccount=' | head -1 | cut -d= -f2)"
+role_w="$(echo "$weights" | grep -E '^Role=' | head -1 | cut -d= -f2)"
+rb_w="$(echo "$weights" | grep -E '^RoleBinding=' | head -1 | cut -d= -f2)"
+job_w="$(echo "$weights" | grep -E '^Job=' | head -1 | cut -d= -f2)"
+
+if [[ -z "$sa_w" || -z "$role_w" || -z "$rb_w" || -z "$job_w" ]]; then
+  echo "FAIL: gate-9 could not extract all four hmac-bootstrap hook-weights"
+  echo "Captured: SA=$sa_w Role=$role_w RoleBinding=$rb_w Job=$job_w"
+  echo "All weights:"
+  echo "$weights"
+  exit 1
+fi
+# Ordering invariant: SA < Role <= RoleBinding < Job (numerically; all negative).
+# Lower number = applied first by Helm.
+if (( sa_w >= role_w )); then
+  echo "FAIL: gate-9 ordering — SA weight ($sa_w) must be LESS THAN Role weight ($role_w) so SA lands first"
+  exit 1
+fi
+if (( sa_w >= rb_w )); then
+  echo "FAIL: gate-9 ordering — SA weight ($sa_w) must be LESS THAN RoleBinding weight ($rb_w) so SA lands first"
+  exit 1
+fi
+if (( role_w >= job_w )); then
+  echo "FAIL: gate-9 ordering — Role weight ($role_w) must be LESS THAN Job weight ($job_w)"
+  exit 1
+fi
+if (( rb_w >= job_w )); then
+  echo "FAIL: gate-9 ordering — RoleBinding weight ($rb_w) must be LESS THAN Job weight ($job_w)"
+  exit 1
+fi
+# Belt-and-suspenders: Job MUST stay at -10 (Fix #78 gate 3a requires it).
+if [[ "$job_w" != "-10" ]]; then
+  echo "FAIL: gate-9 — Job weight is $job_w, want -10 (Fix #78 gate 3a invariant)"
+  exit 1
+fi
+echo "PASS: gate-9 hook-weight ordering — SA=$sa_w < Role=$role_w / RoleBinding=$rb_w < Job=$job_w"
+
 # 4. Canonical workload name. Per qa-loop iter-7 Fix #39, the test
 #    matrix (TC-236, TC-237) and the catalyst-api shells/issue handler
 #    address the DaemonSet + Service by `k8s-ws-proxy` regardless of
