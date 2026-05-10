@@ -107,6 +107,35 @@ describe('LoginPage — `next` redirect hint (TC-004 / qa-loop iter-6)', () => {
   })
 })
 
+describe('LoginPage — canonical hostname display (TC-010 anti-phishing, qa-loop iter-1 Fix #94)', () => {
+  it('renders window.location.host so operator can verify the canonical Sovereign hostname', () => {
+    // jsdom's default window.location.host is 'localhost:3000' (or
+    // similar). Override on the running window so we can assert the
+    // node renders whatever the browser reports — the production
+    // contract is "show the host string, no transformation".
+    const originalHref = window.location.href
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      writable: true,
+      value: {
+        ...window.location,
+        host: 'console.omantel.biz',
+        hostname: 'console.omantel.biz',
+        href: 'https://console.omantel.biz/login',
+      },
+    })
+    render(<LoginPage />)
+    const host = screen.getByTestId('login-canonical-host')
+    expect(host.textContent).toBe('console.omantel.biz')
+    // Restore for downstream tests.
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      writable: true,
+      value: { ...window.location, href: originalHref },
+    })
+  })
+})
+
 describe('LoginPage — deep-link `next` propagation (#1089)', () => {
   it('forwards a deep-linked `next` param into /login/verify after PIN issue', async () => {
     searchState.current = { next: '/jobs/timeline' }

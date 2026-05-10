@@ -1,5 +1,32 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.130 (qa-loop iter-1 prefetch Fix #94, auth lifecycle + nginx
+# security headers): forces a fresh roll of the catalyst-ui + catalyst-
+# api images so the chroot Sovereign at console.omantel.biz lands on
+# code that already contains:
+#   - POST /api/v1/auth/pin/issue + /verify (main.go L342/L343,
+#     restored 2026-05-10 after Fix #60 cherry-pick lost the wire shape)
+#   - POST /api/v1/auth/session SPA logout with Max-Age=0 cookies
+#     (main.go L389, HandleAuthSessionLogout @ auth.go:989)
+#   - nginx HSTS + CSP + X-Frame-Options + X-Content-Type-Options +
+#     Referrer-Policy + Permissions-Policy (nginx.conf L17-22, also
+#     restated in the /api/ + static-asset blocks because nginx's
+#     add_header inheritance is shadowed by per-location declarations)
+# UI change: LoginPage now surfaces window.location.host as a small
+# mono caption beneath the "Sign in" heading (TC-010 anti-phishing —
+# operator sees the canonical Sovereign hostname even when arriving
+# via /login?next=https://evil.example.com/phish).
+#
+# Closes (or unblocks via fresh chart roll) qa-loop iter-1 prefetch
+# Fix #94 claimed TCs: TC-001, TC-002, TC-007, TC-008, TC-010,
+# TC-017, TC-352, TC-353, TC-355, TC-377, TC-379.
+#
+# Pure version bump + UI text addition; no template-side change.
+# This is the canonical pattern for "code is already target-state but
+# the live deploy is on a stale SHA": ship a chart bump so Flux
+# reconciles the new image SHA the CI sed-bumps in templates/ui-
+# deployment.yaml.
+#
 # 1.4.126 (qa-loop iter-12 Fix #52, Phase 2 codemods): bulk
 # wire-shape codemods for the catalyst-api responses so the canonical
 # UAT matrix asserts on Phase 2 patterns (a1..a12) flip from FAIL to
@@ -738,7 +765,7 @@ name: bp-catalyst-platform
 # documented in qa-loop-state/iter12-diagnostic-audit.md §"(e)
 # infra-blocked" TC-081 (per `feedback_no_mvp_no_workarounds.md`
 # rule #3 "no operational hacks instead of chart fixes").
-version: 1.4.129
+version: 1.4.130
 appVersion: 1.4.94
 # 1.4.129 (qa-loop iter-16 Fix #65): ship the missing
 # `openova-catalog` Flux v1 HelmRepository in flux-system. The

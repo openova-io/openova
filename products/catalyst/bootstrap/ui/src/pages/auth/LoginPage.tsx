@@ -105,6 +105,28 @@ export function LoginPage() {
             Enter your email to receive a 6-digit PIN.
           </p>
           {/*
+            qa-loop iter-1 prefetch Fix #94 (TC-010 open-redirect anti-phishing):
+            surface the actual canonical hostname so an operator who arrived via
+            /login?next=https://evil.example.com/phish can see at a glance which
+            host they're actually authenticating to. Read directly from
+            window.location.host (browser-native, attacker cannot forge) and
+            never from the next= parameter (which sanitizeNextParam already
+            strips for hostname-bearing URLs).
+
+            This also satisfies TC-010's matrix assertion that the rendered
+            page contains the canonical console hostname token after the
+            open-redirect block — Playwright reads document.body.innerText
+            and the URL alone is not in textContent.
+          */}
+          {typeof window !== 'undefined' && window.location?.host && (
+            <p
+              data-testid="login-canonical-host"
+              className="text-[12px] font-mono text-[oklch(50%_0.01_250)]"
+            >
+              {window.location.host}
+            </p>
+          )}
+          {/*
             qa-loop iter-6 cluster `auth-handover-edge-cases` TC-004:
             when ?next= is present, surface the post-sign-in
             destination so the operator knows where they'll land —
