@@ -106,11 +106,17 @@ import { SovereigntyPreviewPage } from '@/pages/sovereignty/SovereigntyPreviewPa
 // pages/sovereign/stubs/README pattern in each file.
 import { NetworkingPage } from '@/pages/sovereign/networking/NetworkingPage'
 import { ContinuumPage } from '@/pages/sovereign/stubs/ContinuumPage'
-import { ResourcesApplyPage } from '@/pages/sovereign/stubs/ResourcesApplyPage'
-import { ResourcesSearchPage } from '@/pages/sovereign/stubs/ResourcesSearchPage'
-import { ResourcesListPage } from '@/pages/sovereign/stubs/ResourcesListPage'
+// qa-loop iter-12 Fix #50: Resources family — moved out of `stubs/` into
+// the wired `pages/sovereign/resources/` package. Each component now
+// subscribes to a real catalyst-api endpoint via TanStack Query (no
+// "(pending live data)" placeholders). The legacy `stubs/Resources*`
+// + `stubs/PodLogsPage` files have been deleted to prevent future
+// imports from routing back to a stub. See `feedback_no_mvp_no_workarounds.md`.
+import { ResourcesApplyPage } from '@/pages/sovereign/resources/ResourcesApplyPage'
+import { ResourcesSearchPage } from '@/pages/sovereign/resources/ResourcesSearchPage'
+import { ResourcesListPage } from '@/pages/sovereign/resources/ResourcesListPage'
 import { ResourceDetailNoTabPage } from '@/pages/sovereign/stubs/ResourceDetailNoTabPage'
-import { PodLogsPage } from '@/pages/sovereign/stubs/PodLogsPage'
+import { PodLogsPage } from '@/pages/sovereign/resources/PodLogsPage'
 import {
   canonicalisePath,
   hasCatalystSession,

@@ -1,5 +1,48 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.121 (qa-loop iter-12 Fix #50): Resources surface — wires the
+# Sovereign Console's /resources family (list / search / apply /
+# pod-logs) to live cluster data via TanStack Query against the
+# existing /sovereigns/{id}/k8s/* REST + WebSocket endpoints.
+# Replaces the iter-6 stubs at products/catalyst/bootstrap/ui/src/
+# pages/sovereign/stubs/{Resources*,PodLogs}Page.tsx ("Resource list
+# (pending live data binding)") with full target-state pages under
+# pages/sovereign/resources/.
+#
+# UI changes (no chart-side template changes — this is a pure UI rev
+# that ships via the catalyst-ui image SHA the CI sed-bumps in
+# templates/ui-deployment.yaml):
+#   - resources/ResourcesListPage.tsx — kind tab strip (Pods,
+#     Deployments, StatefulSets, DaemonSets, ReplicaSets, Services,
+#     Ingresses, ConfigMaps, Secrets, Namespaces, Nodes,
+#     PersistentVolumes, EndpointSlices), per-kind columns (Pods get
+#     Name/Ready/Status/Restarts/Age/Node/Region; Services get
+#     Type/ClusterIP/Ports; etc.), namespace filter dropdown, search
+#     filter, region filter, sortable Restarts column, row-click
+#     drill-in to /resources/{kind}/{ns}/{name}. Polls 15s. Closes
+#     TC-198/241/249/251/255/261/262/263/264/268/269.
+#   - resources/ResourcesSearchPage.tsx — debounced cross-kind search
+#     against /k8s/search?q=, results grouped by Pods/Deployments/
+#     Services/ConfigMaps/Secrets/Ingresses with drill-in links.
+#     Closes TC-266.
+#   - resources/ResourcesApplyPage.tsx — multi-doc YAML editor wired
+#     to POST /k8s/apply, per-doc result rows (created/updated/error)
+#     with Flux-managed Gitea PR-link fallback. Closes TC-270.
+#   - resources/PodLogsPage.tsx — reuses widgets/cloud-list/LogViewer
+#     (xterm.js + WebSocket binary frames at /k8s/logs/{ns}/{pod}/
+#     {container} per the X1/X2 contract), container picker from the
+#     live Pod object. Closes TC-223/226/252/253.
+#   - resources/resources.api.ts — typed REST client (listK8s,
+#     searchK8s, multiApplyYAML) + KIND catalogue + region helpers.
+#   - app/router.tsx — /app/$deploymentId/resources* routes now point
+#     at the wired components in pages/sovereign/resources/ instead
+#     of the deleted stubs.
+#
+# Stubs deleted to prevent future routing-back-to-stub mistakes (per
+# memory/feedback_no_mvp_no_workarounds.md): ResourcesListPage,
+# ResourcesApplyPage, ResourcesSearchPage, PodLogsPage. ContinuumPage
+# and ResourceDetailNoTabPage remain (out of scope for this Fix Author).
+#
 # 1.4.120 (qa-loop iter-11 Fix #48): Networking surface — wires the
 # Sovereign Console's /networking page (policies | clustermesh |
 # netbird | dmz | hubble) to live cluster data via a new
@@ -589,7 +632,7 @@ name: bp-catalyst-platform
 #     so the matrix's `kubectl get cnpgpair` stdout contains the literal
 #     "cnpgpair" substring TC-306 asserts on (envsubst override beat the
 #     chart values default fixed in PR #1247).
-version: 1.4.120
+version: 1.4.121
 appVersion: 1.4.94
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
