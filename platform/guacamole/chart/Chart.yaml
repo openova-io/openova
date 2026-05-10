@@ -26,7 +26,7 @@ name: bp-guacamole
 # Forbidden: spec is immutable after creation`). Operator escape hatch:
 # `.Values.guacamole.recordings.allowMigration: false` suppresses the
 # hook for Sovereigns with long-lived recording state.
-version: 0.1.9
+version: 0.1.10
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless
