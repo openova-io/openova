@@ -104,10 +104,24 @@ spec:
       # `clustermesh-apiserver` opens 32379/tcp from the peer
       # Sovereigns' Hetzner network CIDRs only.
       #
-      # Promoting this from the kubectl-patch state captured in
-      # qa-loop-state/phase-2-multi-region-state.md (Phase-2 closeout).
-      # `kubectl patch` was the operational hack; this overlay is the
-      # chart-side fix mandated by feedback_no_mvp_no_workarounds.md.
+      # qa-loop iter-12 Fix #53D — flip NodePort → LoadBalancer to escape
+      # the Hetzner cross-region NodePort-32379 stateful-firewall filter
+      # documented in qa-loop-state/incidents.md. Per
+      # feedback_no_mvp_no_workarounds.md "no operational hacks instead
+      # of chart fixes": NodePort 32379 was the workaround that triggered
+      # silent cross-region SYN drops; LoadBalancer (path-1) is the
+      # canonical multi-region transport. Hetzner CCM allocates a public
+      # LB IP per peer; quota allows headroom (was 1/5 used).
+      #
+      # PRECONDITION: Hetzner cloud-controller-manager (hcloud-ccm) must
+      # be installed AND each node's spec.providerID rewritten from
+      # `k3s://...` to `hcloud://<server-id>`. Without CCM the LB Service
+      # sits in `<pending>` indefinitely. The CCM bootstrap is tracked as
+      # a separate slot install (bootstrap-kit slot 00 — must run before
+      # cilium since cilium-agent reads providerID at startup). Until
+      # CCM is bootstrapped, the in-cluster clustermesh-apiserver remains
+      # reachable via the ClusterIP for intra-cluster traffic; only
+      # cross-region peering is unblocked when the LB IP materializes.
       cluster:
         name: omantel-fsn
         id: 1
@@ -115,5 +129,11 @@ spec:
         useAPIServer: true
         apiserver:
           service:
-            type: NodePort
-            nodePort: 32379
+            # Path (1) per qa-loop-state/incidents.md remediation table.
+            type: LoadBalancer
+            # Hetzner LB allocation hints — fsn1 region matches the
+            # 4 omantel control-plane / worker nodes' location.
+            annotations:
+              load-balancer.hetzner.cloud/location: fsn1
+              load-balancer.hetzner.cloud/use-private-ip: "true"
+              load-balancer.hetzner.cloud/name: omantel-clustermesh-fsn
