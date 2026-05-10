@@ -59,6 +59,12 @@ resources:
   # installs proxy → gateway.
   - 51-bp-k8s-ws-proxy.yaml
   - 52-bp-guacamole.yaml
+  # qa-loop iter-12 Fix #53C — EPIC-5 leftovers (NetBird zero-trust mesh
+  # + DMZ vCluster isolation). Slots 53/54. Both default-OFF; flip on
+  # via NETBIRD_ENABLED=true / DMZ_VCLUSTER_ENABLED=true on the
+  # bootstrap-kit Kustomization substitute.
+  - 53-bp-netbird.yaml
+  - 54-bp-dmz-vcluster.yaml
   # bp-newapi (slot 80) — multi-tenant LLM marketplace gateway. Sequenced
   # after the W2.K1 dependency wave (cnpg/keycloak/openbao Ready) so
   # NewAPI's ExternalSecret + DSN dependencies resolve on first reconcile.
