@@ -137,7 +137,10 @@ describe('NetworkingPage', () => {
     }))
     renderAtSlug('policies')
     await waitFor(() => screen.getByTestId('policies-tab'))
-    expect(screen.getByText(/CiliumNetworkPolicy/)).toBeTruthy()
+    // CiliumNetworkPolicy appears in BOTH the count card and the row;
+    // assert via testid hooks (deterministic) + getAllByText for the
+    // duplicate-by-design label.
+    expect(screen.getAllByText(/CiliumNetworkPolicy/).length).toBeGreaterThan(0)
     expect(screen.getByText(/default-deny/)).toBeTruthy()
     expect(screen.queryByText(/pending live data/)).toBeNull()
   })

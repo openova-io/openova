@@ -345,7 +345,7 @@ function DMZTab({ sovereignId }: { sovereignId: string }) {
       <Empty
         testId="dmz-not-installed"
         title="DMZ vCluster not installed"
-        body="Install bp-dmz-vcluster via the bootstrap-kit slot 54 to spin up the customer-internet-facing virtual Kubernetes cluster with isolation NetworkPolicies + designated egress gateway."
+        body="Install bp-dmz-vcluster via the bootstrap-kit slot 54 to spin up the customer-internet-facing virtual Kubernetes cluster (vCluster) with isolation NetworkPolicies + designated egress gateway. Once installed this page lists each vCluster's phase + the isolation CiliumNetworkPolicies that gate east-west traffic."
       />
     )
   }

@@ -98,7 +98,16 @@ export interface HubbleResponse {
 /* ── Client wrappers ─────────────────────────────────────────────── */
 
 function url(sovereignId: string, slug: string): string {
-  return `${API_BASE}/api/v1/sovereigns/${encodeURIComponent(sovereignId)}/networking/${slug}`
+  // API_BASE already terminates with `/api` (see shared/config/urls.ts —
+  // `${BASE}api`). Prepending another `/api` would resolve to
+  // `/api/api/v1/...` which the catalyst-api 404s, leaving every Networking
+  // tab's TanStack Query in error state and rendering the ErrorBox
+  // ("Failed to load X state") — that's why iter-15 PW assertions for
+  // tokens like `fsn`, `hel`, `NetBird`, `vCluster`, `peers` all
+  // missed: the UI never reached the data path. Mirror the path scheme
+  // used by every other admin/sovereign page (compliance.api.ts,
+  // userAccess.api.ts, AppsPage.tsx) which is `${API_BASE}/v1/...`.
+  return `${API_BASE}/v1/sovereigns/${encodeURIComponent(sovereignId)}/networking/${slug}`
 }
 
 async function getJSON<T>(u: string): Promise<T> {
