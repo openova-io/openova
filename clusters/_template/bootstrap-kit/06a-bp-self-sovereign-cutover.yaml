@@ -220,7 +220,21 @@ spec:
       #   matches), reads HARBOR_PASSWORD from the harbor-admin Secret
       #   already mirrored into `catalyst` ns by bp-harbor 1.2.14+.
       #   Adds `secrets: [update,patch]` to the runner ClusterRole.
-      version: 0.1.24
+      # 0.1.25: Step-06 Phase-0 probe brittleness fix (qa-loop bounded-
+      #   cycle Wave 5 Fix #77, Gap A). 0.1.24 used kubectl jsonpath
+      #   `{.data['.dockerconfigjson']}` which silently returns EMPTY
+      #   because kubectl interprets the leading dot inside the bracket
+      #   as a child accessor (escape `\.dockerconfigjson` would work
+      #   but is a footgun). Caught live on omantel prov #7 2026-05-10:
+      #   `cutover-helmrepository-patches` Job FAILED 4× with
+      #   `FATAL: ghcr-pull Secret has no .dockerconfigjson key —
+      #   cloud-init did not run?` despite `kubectl get secret -o yaml`
+      #   showing the key present. 0.1.25 replaces the probe with
+      #   `kubectl get -o json | jq -r --arg k ...` (escape-free), adds
+      #   a 60s wait-loop for Reflector lag, and falls back to the
+      #   source namespace (flux-system) if the local copy is still
+      #   missing. Idempotent path unchanged.
+      version: 0.1.25
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
