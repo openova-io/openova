@@ -162,6 +162,13 @@ export interface InstallFormProps {
   initialFormData?: Record<string, unknown>
   /** Disable the submit button (e.g. while a parent install is in flight). */
   disabled?: boolean
+  /**
+   * Submit-button label. Defaults to `Install` (the wizard install
+   * surface). The AppDetail SettingsTab passes `Save` so the same form
+   * doubles as a Day-2 parameter editor without re-implementing the
+   * RJSF + configSchema plumbing.
+   */
+  submitLabel?: string
 }
 
 /**
@@ -176,6 +183,7 @@ export function InstallForm({
   onPreview,
   initialFormData,
   disabled,
+  submitLabel = 'Install',
 }: InstallFormProps) {
   const schema = useMemo(() => extractConfigSchema(blueprint), [blueprint])
   const uiSchema = useMemo(() => buildUiSchema(schema), [schema])
@@ -208,7 +216,7 @@ export function InstallForm({
             disabled={disabled}
             onClick={() => onSubmit({})}
           >
-            Install
+            {submitLabel}
           </button>
         </div>
       </div>
@@ -244,7 +252,7 @@ export function InstallForm({
           data-testid="install-form-submit-btn"
           disabled={disabled}
         >
-          Install
+          {submitLabel}
         </button>
       </div>
     </RJSFForm>

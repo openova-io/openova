@@ -118,9 +118,11 @@ export function SettingsTab({
   }
 
   return (
-    <div className="settings-tab" data-testid="app-settings-tabpanel">
-      <p className="mb-4 text-xs text-[var(--color-text-dim)]">
-        Edit parameters, upgrade the Blueprint, or uninstall this Application.
+    <div className="settings-tab" data-testid="app-tab-settings-panel-content">
+      <p className="mb-4 text-xs text-[var(--color-text-dim)]" data-testid="settings-tab-intro">
+        Edit parameters and Save them to the Application CR; Upgrade the Blueprint to a new
+        version (a list of available versions opens in a dialog); or Uninstall this
+        Application — the dialog will ask you to Type the application name to confirm.
       </p>
 
       {/* Parameters editor */}
@@ -128,7 +130,8 @@ export function SettingsTab({
         <h3 className="mb-2 text-sm font-medium text-[var(--color-text-strong)]">Parameters</h3>
         <p className="mb-3 text-xs text-[var(--color-text-dim)]">
           Edit values against the Blueprint's <code className="font-mono">configSchema</code>.
-          Save commits to the Application CR; the controller re-renders the manifests.
+          Click Save to commit the changes to the Application CR; the controller re-renders
+          the manifests. Required fields are marked.
         </p>
         {!blueprintForForm ? (
           <p className="text-xs text-[var(--color-text-dim)]" data-testid="settings-tab-no-blueprint">
@@ -140,6 +143,7 @@ export function SettingsTab({
             initialFormData={initialParams}
             disabled={busy}
             onSubmit={handleSaveParameters}
+            submitLabel="Save"
           />
         )}
         {info ? (

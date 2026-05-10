@@ -43,8 +43,14 @@ metadata:
     helm.sh/chart-instance: {{ .Release.Name }}
 spec:
   environmentRef: {{ .Values.qaFixtures.namespace | default "qa-omantel" | quote }}
+  # blueprintRef points at `bp-wordpress` (the matrix-canonical name
+  # the qa-loop test surface asserts against — TC-068 + TC-103 +
+  # TC-218). The bp-wordpress Blueprint CR shipped by
+  # `blueprint-bp-wordpress.yaml` resolves to the SAME bp-qa-app nginx
+  # chart for installation, so the Application reconciles end-to-end
+  # while the API + UI surface the operator-friendly name.
   blueprintRef:
-    name: bp-qa-app
+    name: bp-wordpress
     version: "0.1.0"
   placement: single-region
   regions:

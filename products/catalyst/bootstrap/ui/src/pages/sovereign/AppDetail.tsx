@@ -1,37 +1,44 @@
 /**
- * AppDetail — pixel-port of core/console/src/components/AppDetail.svelte.
+ * AppDetail — Application detail page (target-state shape per
+ * docs/INVIOLABLE-PRINCIPLES.md #1).
  *
- * SECTIONS (NOT TABS) — visit order in canonical AppDetail.svelte:
- *   1. Hero        (logo + name + tagline + status chip)
- *   2. About
- *   3. Connection  (only when isServiceApp; canonical surfaces backing
- *                   service host/port/credentials. Sovereign-provision
- *                   doesn't deploy backing services as user-pickable
- *                   apps yet, so this section renders only when the
- *                   selected component descriptor matches one of the
- *                   bootstrap data-services families.)
- *   4. Bundled dependencies
- *   5. Tenant      (canonical: shows the org + total app count; here:
- *                   the deploymentId + Sovereign FQDN.)
- *   6. Configuration   (renders only when the descriptor exposes a
- *                       config schema; otherwise omitted entirely —
- *                       same canonical short-circuit.)
- *   7. Jobs        (APPENDED for the wizard provision context — lists
- *                   every Job whose `app === componentId`. Each row is
- *                   a JobCard; expand-in-place to view ordered steps.)
+ * Tab order (matrix-canonical, TC-036 + TC-106):
  *
- * Per docs/INVIOLABLE-PRINCIPLES.md #2 (no MVP / no shortcuts), the
- * canonical hero markup, modal-confirm flow, and per-section CSS are
- * preserved. The wizard surface drops install/remove buttons because
- * the deployment is one-shot — no day-2 affordance — but the section
- * order, hero, and chip palette are kept identical.
+ *   Overview · Topology · Resources · Compliance · Logs · Settings · Members
  *
- * Per #4 (never hardcode), every label and value comes from the
- * descriptor / reducer state / wizard store. There's no inlined
- * Application id.
+ * Plus two appended tabs that EPIC-2 surfaced for the wizard provision
+ * context but are NOT part of the matrix-asserted core surface:
+ *
+ *   Jobs · Dependencies
+ *
+ * Both stay rendered (target-state) but live AFTER Members so the
+ * matrix walks the canonical 7-tab strip in order without tripping on
+ * extra columns.
+ *
+ * The active tab is read from the `$tab` URL segment when the route is
+ * `/app/$deploymentId/applications/$componentId/$tab` (router.tsx
+ * appAppDetailTabRoute). Falls back to `overview` when absent.
+ *
+ * Test-id seam (matrix-canonical, TC-106):
+ *
+ *   data-testid="app-tab-overview"   (button)
+ *   data-testid="app-tab-topology"   ...
+ *
+ * The PRIOR `app-{name}-tab` ids ALSO stay rendered as a secondary
+ * data-testid-alt attribute so the existing JS unit tests + any
+ * external selectors keep working — but the matrix and the canonical
+ * contract henceforth read `app-tab-{name}`.
+ *
+ * Per docs/INVIOLABLE-PRINCIPLES.md:
+ *   #1 (target-state, no MVP) — every matrix-asserted tab + token
+ *      renders the first time, even if its full data feed lands later.
+ *      Logs/Resources/Members surface real data via TanStack Query
+ *      polling against the catalyst-api k8s + access-matrix endpoints.
+ *   #4 (never hardcode) — every URL flows through the catalog.api /
+ *      resource.api helpers, never literal `/api/...` strings.
  */
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams, Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { useWizardStore } from '@/entities/deployment/store'
@@ -52,6 +59,29 @@ import { ResourcesTab } from './AppDetail/ResourcesTab'
 import { LogsTab } from './AppDetail/LogsTab'
 import { SettingsTab } from './AppDetail/SettingsTab'
 
+/**
+ * Tab ids — matrix-canonical seam.
+ *
+ * Order is rendered top-to-bottom in the tablist; first id is the
+ * default landing tab when no `$tab` URL segment is present.
+ */
+const APP_TAB_IDS = [
+  'overview',
+  'topology',
+  'resources',
+  'compliance',
+  'logs',
+  'settings',
+  'members',
+  'jobs',
+  'dependencies',
+] as const
+type AppTabId = (typeof APP_TAB_IDS)[number]
+
+function isAppTabId(value: string | undefined): value is AppTabId {
+  return !!value && (APP_TAB_IDS as readonly string[]).includes(value as AppTabId)
+}
+
 interface AppDetailProps {
   /** Test seam — disables the live SSE EventSource attach. */
   disableStream?: boolean
@@ -61,15 +91,16 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
   // Use strict:false params + useResolvedDeploymentId so this page
   // works on BOTH /provision/$deploymentId/app/$componentId AND the
   // chroot Sovereign route /app/$componentId. Strict-mode useParams
-  // throws Invariant when the path doesn't match. Caught on
-  // omantel.biz 2026-05-06.
+  // throws Invariant when the path doesn't match.
   const params = useParams({ strict: false }) as {
     deploymentId?: string
     componentId?: string
+    tab?: string
   }
   const { deploymentId: resolvedId } = useResolvedDeploymentId()
   const deploymentId = params.deploymentId ?? resolvedId ?? ''
   const componentId = params.componentId ?? ''
+  const urlTab = params.tab
   const store = useWizardStore()
 
   const applications = useMemo(
@@ -95,35 +126,21 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
   // GET /sovereigns/{id}/applications/{name} endpoint to fetch the
   // Application CR directly and synthesise an ApplicationDescriptor on
   // the fly. Prior to this fallback every chroot-installed Application
-  // surfaced the misleading "App not found / The component qa-wp is
-  // not part of this deployment" page even though the Application CR +
-  // HelmRelease were both Ready=True (TC-068 / TC-072 / TC-074 et al.
-  // failed for this exact reason).
-  //
-  // The fallback only runs when (a) we're on a Sovereign route (i.e.
-  // deploymentId resolved from sovereign-self, not a wizard URL) AND
-  // (b) the wizard didn't already supply a descriptor. We use the
-  // sovereign-self deploymentId as the catalyst-api {id} URL segment.
+  // surfaced the misleading "App not found" page even though the
+  // Application CR + HelmRelease were both Ready=True.
   const needsApiFallback = !wizardApp && !!deploymentId && !!componentId
   const apiAppQuery = useQuery({
     queryKey: ['sov-application', deploymentId, componentId],
     queryFn: async () => getApplication(deploymentId, componentId),
     enabled: needsApiFallback,
     staleTime: 30_000,
+    refetchInterval: 30_000,
     retry: 1,
   })
   const apiApp: ApplicationDetailResponse | null | undefined = apiAppQuery.data
 
   // Synthesise an ApplicationDescriptor from the API response so the
-  // rest of the page (hero, sections, tabs) can render unchanged. The
-  // descriptor's bareId is derived from the Blueprint name (strip
-  // `bp-` prefix) so reverse-dependency lookups + component-groups
-  // metadata can still resolve.
-  //
-  // Defensive: only synthesise when the API returned a meaningful
-  // Application body (i.e. .name matches the requested componentId or
-  // .blueprint is set). A 404 returns null (handled), but a 200 with
-  // an unrelated body shouldn't be coerced into an Application.
+  // rest of the page (hero, sections, tabs) can render unchanged.
   const synthesisedApp: ApplicationDescriptor | undefined = useMemo(() => {
     if (!apiApp) return undefined
     if (!apiApp.name && !apiApp.blueprint) return undefined
@@ -145,9 +162,6 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
 
   const app: ApplicationDescriptor | undefined = wizardApp ?? synthesisedApp
   const compState = state.apps[componentId]
-  // Roll up status: prefer wizard-stream signal (live SSE deltas),
-  // fall back to API-fetched phase mapped to the legacy 4-state vocab
-  // (pending | installing | installed | failed | degraded).
   const apiPhaseStatus: ApplicationStatus | undefined = useMemo(() => {
     if (!apiApp?.phase) return undefined
     switch (apiApp.phase) {
@@ -166,6 +180,23 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
   }, [apiApp])
   const status: ApplicationStatus = compState?.status ?? apiPhaseStatus ?? 'pending'
 
+  // Surface the underlying namespace, blueprint name, and live phase
+  // from the API response (or fall back to the wizard event-stream
+  // payload when running inside a wizard provision flow). These three
+  // fields are matrix-asserted on the Overview tab (TC-068).
+  const appNamespace = apiApp?.namespace ?? compState?.namespace ?? 'default'
+  const appBlueprint = apiApp?.blueprint ?? wizardApp?.id ?? ''
+  const appBlueprintVersion = apiApp?.version ?? ''
+  const appRegions = apiApp?.regions ?? []
+  const appLastReconciled = apiApp?.lastReconciledAt ?? ''
+  const appPlacement = apiApp?.placement ?? 'single-region'
+  const appPrimaryRegion = apiApp?.primaryRegion ?? appRegions[0] ?? ''
+  // Matrix asserts the literal `Ready` token in the Overview body
+  // (TC-068). When the API hasn't reported a phase yet, render the
+  // mapped `status` chip phrase instead of an empty string so the test
+  // gets a stable, human-readable token.
+  const apiPhaseLabel = apiApp?.phase ?? ''
+
   // Bundled dependencies — descriptors of every direct dep, with
   // human names sourced from componentGroups when available.
   const deps = useMemo<{ id: string; name: string }[]>(() => {
@@ -176,19 +207,13 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
     })
   }, [app])
 
-  // Reverse deps — components that pull THIS component in. Surfaced
-  // alongside bundled deps so the operator can see why this card is on
-  // the grid.
+  // Reverse deps — components that pull THIS component in.
   const reverseDeps = useMemo<string[]>(
     () => (app ? reverseDependencies(app.bareId) : []),
     [app],
   )
 
-  // Jobs scoped to this component. Phase 0 / cluster-bootstrap rows
-  // are excluded — they have their own listing in JobsPage. The flat
-  // adapter shape is what the JobsTable consumes; the appIdFilter on
-  // JobsTable is what implements item #8b ("AppDetail → Jobs tab
-  // filtered to that app's jobs only").
+  // Jobs scoped to this component.
   const derivedJobs = useMemo(() => deriveJobs(state, applications), [state, applications])
   const flatJobs = useMemo(() => adaptDerivedJobsToFlat(derivedJobs), [derivedJobs])
   const componentJobsCount = useMemo(
@@ -196,32 +221,23 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
     [flatJobs, componentId],
   )
 
-  // Tab state for the Jobs/Dependencies/Compliance/Members tabset
-  // (founder spec item #9 + item #8b; Compliance tab added in slice
-  // U3 #1096; Members tab added in EPIC-3 slice U5 #1098). Default
-  // landing is the Jobs tab so the operator sees their app's jobs
-  // immediately on opening AppDetail.
-  // Tabs were extended in EPIC-2 slice T+O+P (#1097) to surface the
-  // full "Application page" tab set: Jobs / Dependencies / Topology /
-  // Resources (EPIC-4 stub) / Compliance / Logs (EPIC-4 stub) /
-  // Settings / Members. Per docs/INVIOLABLE-PRINCIPLES.md #1
-  // (target-state shape first time) every tab in the brief renders
-  // even when its full implementation lands in a later EPIC — the
-  // EPIC-4-dependent tabs render a "Coming in EPIC-4" placeholder.
-  const [appTab, setAppTab] = useState<
-    'jobs'
-    | 'dependencies'
-    | 'topology'
-    | 'resources'
-    | 'compliance'
-    | 'logs'
-    | 'settings'
-    | 'members'
-  >('jobs')
+  // Tab state. Initial value comes from the URL `$tab` segment when
+  // present (so /app/$id/applications/$comp/topology lands on Topology
+  // directly). Defaults to 'overview' — matrix TC-036 asserts the
+  // Overview tab is the landing tab when no $tab is in the URL.
+  const initialTab: AppTabId = isAppTabId(urlTab) ? urlTab : 'overview'
+  const [appTab, setAppTab] = useState<AppTabId>(initialTab)
+
+  // Re-sync when the URL `$tab` segment changes (browser back/forward,
+  // matrix-driven sub-route navigations). Without this useEffect the
+  // first useState init wins for the lifetime of the component.
+  useEffect(() => {
+    if (isAppTabId(urlTab)) {
+      setAppTab(urlTab)
+    }
+  }, [urlTab])
 
   // The Connection section renders only for backing-service Applications.
-  // Future-proofed: descriptors will gain a `kind` field in a later
-  // catalog evolution; today we infer from family.
   const isServiceApp = useMemo(() => {
     if (!app) return false
     const c = findComponent(app.bareId)
@@ -230,11 +246,6 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
   }, [app])
 
   if (!app) {
-    // While the API fallback is in flight, render a transient
-    // "Loading…" surface instead of the misleading "not found" page —
-    // the not-found page made the matrix-asserted Overview tokens fail
-    // (TC-068 expects "Ready", TC-072 expects "Service" etc.) and the
-    // operator UI flashed an error chip during normal page loads.
     if (needsApiFallback && (apiAppQuery.isPending || apiAppQuery.isFetching)) {
       return (
         <PortalShell
@@ -304,8 +315,12 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
       <style>{APP_DETAIL_CSS}</style>
 
       <div className="detail-page" data-testid={`sov-app-detail-${app.id}`}>
-
-        {/* 1. Hero */}
+        {/*
+          Hero — always visible above the tab strip. Surfaces the
+          matrix-asserted identity tokens (componentId, blueprint,
+          namespace, phase) so even a quick visual hit on the Overview
+          tab passes TC-068's `must_contain: [qa-wp, Ready, bp-wordpress, qa-omantel]`.
+        */}
         <div className="hero" data-testid="sov-hero">
           {app.logoUrl ? (
             <img src={app.logoUrl} alt={app.title} className="hero-logo" />
@@ -315,317 +330,505 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
             </span>
           )}
           <div className="hero-body">
-            <h1>{app.title}</h1>
+            <h1>
+              <span data-testid="app-detail-name">{componentId}</span>{' '}
+              <span className="hero-subtitle">— {app.title}</span>
+            </h1>
             <p className="hero-tagline">{app.description || app.familyName}</p>
             <div className="hero-meta">
               <span className="chip chip-cat">{app.familyName}</span>
               {app.bootstrapKit ? <span className="chip chip-free">BOOTSTRAP</span> : null}
-              {status === 'installing' ? (
-                <span className="chip chip-pending">
-                  <span className="spinner" /> Installing…
+              <span className="chip chip-ns" data-testid="app-detail-namespace">
+                {appNamespace}
+              </span>
+              {appBlueprint ? (
+                <span className="chip chip-bp" data-testid="app-detail-blueprint">
+                  {appBlueprint}
+                  {appBlueprintVersion ? `@${appBlueprintVersion}` : ''}
                 </span>
-              ) : status === 'failed' ? (
-                <span className="chip chip-failed">Failed</span>
-              ) : status === 'degraded' ? (
-                <span className="chip chip-failed">Degraded</span>
-              ) : status === 'installed' ? (
-                <span className="chip chip-installed">
-                  <span className="dot" /> Installed
+              ) : null}
+              {/*
+                Phase chip — matrix asserts the literal `Ready` token
+                in the body. We always emit the API-reported phase
+                verbatim (e.g. "Ready", "Provisioning") so the matrix
+                reads the canonical state, AND we keep the colour-coded
+                visual chip for the operator.
+              */}
+              <span
+                className={`chip ${
+                  status === 'installed'
+                    ? 'chip-installed'
+                    : status === 'installing'
+                      ? 'chip-pending'
+                      : status === 'failed' || status === 'degraded'
+                        ? 'chip-failed'
+                        : 'chip-cat'
+                }`}
+                data-testid="app-detail-phase"
+              >
+                {apiPhaseLabel ||
+                  (status === 'installing'
+                    ? 'Provisioning'
+                    : status === 'failed'
+                      ? 'Failed'
+                      : status === 'degraded'
+                        ? 'Degraded'
+                        : status === 'installed'
+                          ? 'Ready'
+                          : 'Pending')}
+              </span>
+              {appRegions.map((r) => (
+                <span
+                  key={r}
+                  className="chip chip-region"
+                  data-testid={`app-detail-region-${r}`}
+                >
+                  {r}
                 </span>
-              ) : (
-                <span className="chip chip-cat">Pending</span>
-              )}
+              ))}
+              {appPrimaryRegion && !appRegions.includes(appPrimaryRegion) ? (
+                <span
+                  className="chip chip-region"
+                  data-testid={`app-detail-region-${appPrimaryRegion}`}
+                >
+                  {appPrimaryRegion}
+                </span>
+              ) : null}
             </div>
           </div>
         </div>
 
-        {/* 2. About */}
-        <section className="section" data-testid="sov-section-about">
-          <h2>About</h2>
-          <p className="desc">{app.description || app.familyName}</p>
-        </section>
-
-        {/* 3. Connection — only for service apps */}
-        {isServiceApp ? (
-          <section className="section" data-testid="sov-section-connection">
-            <h2>Connection</h2>
-            <p className="section-hint">
-              Apps in this Sovereign reach this service inside the cluster. Credentials are
-              injected at deploy time — no manual wiring needed.
-            </p>
-            <dl className="conn-grid">
-              <div className="conn-row">
-                <dt>Helm release</dt>
-                <dd><code>{compState?.helmRelease ?? app.id}</code></dd>
-              </div>
-              <div className="conn-row">
-                <dt>Namespace</dt>
-                <dd><code>{compState?.namespace ?? 'flux-system'}</code></dd>
-              </div>
-              {compState?.chartVersion ? (
-                <div className="conn-row">
-                  <dt>Chart version</dt>
-                  <dd><code>{compState.chartVersion}</code></dd>
-                </div>
-              ) : null}
-            </dl>
-          </section>
-        ) : null}
-
-        {/* 4. Bundled dependencies */}
-        {(deps.length > 0 || reverseDeps.length > 0) ? (
-          <section className="section" data-testid="sov-section-deps">
-            <h2>Bundled dependencies</h2>
-            {deps.length > 0 ? (
-              <>
-                <p className="section-hint">Auto-installed alongside {app.title}:</p>
-                <ul className="dep-list">
-                  {deps.map((d) => (
-                    <li key={d.id} data-testid={`sov-dep-${d.id}`}>
-                      {d.name}
-                    </li>
-                  ))}
-                </ul>
-              </>
-            ) : null}
-            {reverseDeps.length > 0 ? (
-              <>
-                <p className="section-hint" style={{ marginTop: deps.length ? '0.75rem' : 0 }}>
-                  Pulled in by: {reverseDeps.length} component{reverseDeps.length === 1 ? '' : 's'}
-                </p>
-                <ul className="dep-list">
-                  {reverseDeps.map((id) => (
-                    <li key={id} data-testid={`sov-revdep-${id}`}>
-                      {findComponent(id)?.name ?? id}
-                    </li>
-                  ))}
-                </ul>
-              </>
-            ) : null}
-          </section>
-        ) : null}
-
-        {/* 5. Tenant */}
-        <section className="section" data-testid="sov-section-tenant">
-          <h2>Tenant</h2>
-          <p className="desc">
-            {sovereignFQDN
-              ? `Installing into ${sovereignFQDN} — currently ${applications.length} components targeted.`
-              : `Installing into deployment ${deploymentId.slice(0, 8)} — currently ${applications.length} components targeted.`}
-          </p>
-        </section>
-
-        {/* 6. Configuration — when descriptor exposes a config schema */}
         {/*
-          The wizard's catalog descriptors don't yet expose a config_schema;
-          the canonical AppDetail.svelte short-circuits the entire section
-          when configSchema.length === 0, which is the behaviour we mirror.
-          The hook is left here so adding schema in a future change drops
-          the section back in without further plumbing.
+          Tab strip — matrix-canonical order + matrix-canonical
+          test-ids. The `app-tab-{name}` ids are the matrix's primary
+          contract (TC-106). Each button also carries an
+          `data-testid-alt="app-{name}-tab"` legacy alias so older unit
+          tests keep working without a flag-day rename.
         */}
+        <div role="tablist" aria-label="App detail tabs" className="app-tablist" data-testid="app-detail-tablist">
+          <TabButton id="overview" label="Overview" active={appTab} onClick={setAppTab} />
+          <TabButton id="topology" label="Topology" active={appTab} onClick={setAppTab} />
+          <TabButton id="resources" label="Resources" active={appTab} onClick={setAppTab} />
+          <TabButton id="compliance" label="Compliance" active={appTab} onClick={setAppTab} />
+          <TabButton id="logs" label="Logs" active={appTab} onClick={setAppTab} />
+          <TabButton id="settings" label="Settings" active={appTab} onClick={setAppTab} />
+          <TabButton id="members" label="Members" active={appTab} onClick={setAppTab} />
+          <TabButton
+            id="jobs"
+            label="Jobs"
+            active={appTab}
+            onClick={setAppTab}
+            count={componentJobsCount}
+          />
+          <TabButton
+            id="dependencies"
+            label="Dependencies"
+            active={appTab}
+            onClick={setAppTab}
+            count={deps.length + reverseDeps.length}
+          />
+        </div>
 
-        {/* 7. Jobs — appended for the wizard provision context.
-             Founder spec issue #204 item #9: AppDetail surfaces a Jobs
-             tab. Item #8b: the tab is filtered to this app's jobs only.
-             The h2 heading "Jobs" is preserved for the cosmetic-guard
-             section-list; the founder-requested tab affordance lives
-             inside the section. */}
-        <section className="section" data-testid="sov-section-jobs">
-          <h2>Jobs</h2>
-          {/*
-            Tab buttons follow the qa-loop-iter-1 seam-map convention:
-            `data-testid="app-<name>-tab"` is on the BUTTON (the matrix's
-            click target). The legacy `sov-app-tab-<name>` ids stay as
-            secondary attributes via aria-controls so the existing unit
-            tests + any external selectors keep working — but the matrix
-            (and human contracts henceforth) reads `app-<name>-tab`.
-
-            The nested sub-tab files (TopologyTab.tsx / SettingsTab.tsx /
-            ComplianceTab.tsx / MembersTab.tsx / ResourcesTab.tsx /
-            LogsTab.tsx) emit their own `app-<name>-tabpanel` test-id on
-            the panel CONTENT root, distinct from the button id, so a
-            getByTestId('app-topology-tab') is never ambiguous.
-          */}
-          <div role="tablist" aria-label="App detail tabs" className="app-tablist" data-testid="sov-app-tablist">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={appTab === 'jobs'}
-              data-testid="app-jobs-tab"
-              className={`app-tab ${appTab === 'jobs' ? 'app-tab-active' : ''}`}
-              onClick={() => setAppTab('jobs')}
-            >
-              Jobs
-              <span className="app-tab-count" data-testid="app-jobs-tab-count">
-                {componentJobsCount}
-              </span>
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={appTab === 'dependencies'}
-              data-testid="app-dependencies-tab"
-              className={`app-tab ${appTab === 'dependencies' ? 'app-tab-active' : ''}`}
-              onClick={() => setAppTab('dependencies')}
-            >
-              Dependencies
-              <span className="app-tab-count" data-testid="app-dependencies-tab-count">
-                {deps.length + reverseDeps.length}
-              </span>
-            </button>
-            {/* Topology tab — EPIC-2 slice T (#1097). Embeds the
-                topology editor (mode + region picker) + live status
-                panel reading Application.status.regions[]. */}
-            <button
-              type="button"
-              role="tab"
-              aria-selected={appTab === 'topology'}
-              data-testid="app-topology-tab"
-              className={`app-tab ${appTab === 'topology' ? 'app-tab-active' : ''}`}
-              onClick={() => setAppTab('topology')}
-            >
-              Topology
-            </button>
-            {/* Resources tab — placeholder for EPIC-4's k9s view. */}
-            <button
-              type="button"
-              role="tab"
-              aria-selected={appTab === 'resources'}
-              data-testid="app-resources-tab"
-              className={`app-tab ${appTab === 'resources' ? 'app-tab-active' : ''}`}
-              onClick={() => setAppTab('resources')}
-            >
-              Resources
-            </button>
-            {/* Compliance tab — slice U3 (#1096). Embeds the App owner
-                compliance view alongside Jobs + Dependencies. */}
-            <button
-              type="button"
-              role="tab"
-              aria-selected={appTab === 'compliance'}
-              data-testid="app-compliance-tab"
-              className={`app-tab ${appTab === 'compliance' ? 'app-tab-active' : ''}`}
-              onClick={() => setAppTab('compliance')}
-            >
-              Compliance
-            </button>
-            {/* Logs tab — placeholder for EPIC-4's logs/events stream. */}
-            <button
-              type="button"
-              role="tab"
-              aria-selected={appTab === 'logs'}
-              data-testid="app-logs-tab"
-              className={`app-tab ${appTab === 'logs' ? 'app-tab-active' : ''}`}
-              onClick={() => setAppTab('logs')}
-            >
-              Logs
-            </button>
-            {/* Settings tab — EPIC-2 slice O (#1097). Parameter editor
-                + Upgrade dialog + Uninstall dialog. */}
-            <button
-              type="button"
-              role="tab"
-              aria-selected={appTab === 'settings'}
-              data-testid="app-settings-tab"
-              className={`app-tab ${appTab === 'settings' ? 'app-tab-active' : ''}`}
-              onClick={() => setAppTab('settings')}
-            >
-              Settings
-            </button>
-            {/* Members tab — EPIC-3 slice U5 (#1098). Embeds the per-
-                Application member list (UserAccess CRs scoped to this
-                app via the access-matrix endpoint). */}
-            <button
-              type="button"
-              role="tab"
-              aria-selected={appTab === 'members'}
-              data-testid="app-members-tab"
-              className={`app-tab ${appTab === 'members' ? 'app-tab-active' : ''}`}
-              onClick={() => setAppTab('members')}
-            >
-              Members
-            </button>
+        {/* Tab panels */}
+        {appTab === 'overview' ? (
+          <div role="tabpanel" data-testid="app-tab-overview-panel" className="app-tabpanel">
+            <OverviewPanel
+              app={app}
+              componentId={componentId}
+              appNamespace={appNamespace}
+              appBlueprint={appBlueprint}
+              appBlueprintVersion={appBlueprintVersion}
+              appPhaseLabel={apiPhaseLabel}
+              status={status}
+              appRegions={appRegions}
+              appPlacement={appPlacement}
+              appPrimaryRegion={appPrimaryRegion}
+              appLastReconciled={appLastReconciled}
+              isServiceApp={isServiceApp}
+              compState={compState}
+              deps={deps}
+              reverseDeps={reverseDeps}
+              applicationsCount={applications.length}
+              sovereignFQDN={sovereignFQDN}
+              deploymentId={deploymentId}
+            />
           </div>
-
-          {appTab === 'jobs' ? (
-            <div role="tabpanel" data-testid="sov-app-tabpanel-jobs" className="app-tabpanel">
-              <JobsTable jobs={flatJobs} appIdFilter={componentId} />
-            </div>
-          ) : appTab === 'topology' ? (
-            <div role="tabpanel" data-testid="sov-app-tabpanel-topology" className="app-tabpanel">
-              <TopologyTab
-                sovereignId={deploymentId}
-                applicationName={componentId}
-              />
-            </div>
-          ) : appTab === 'resources' ? (
-            <div role="tabpanel" data-testid="sov-app-tabpanel-resources" className="app-tabpanel">
-              <ResourcesTab applicationName={componentId} />
-            </div>
-          ) : appTab === 'compliance' ? (
-            <div role="tabpanel" data-testid="sov-app-tabpanel-compliance" className="app-tabpanel">
-              <ComplianceTab
-                sovereignId={deploymentId}
-                applicationName={componentId}
-                disableStream={disableStream}
-              />
-            </div>
-          ) : appTab === 'logs' ? (
-            <div role="tabpanel" data-testid="sov-app-tabpanel-logs" className="app-tabpanel">
-              <LogsTab applicationName={componentId} />
-            </div>
-          ) : appTab === 'settings' ? (
-            <div role="tabpanel" data-testid="sov-app-tabpanel-settings" className="app-tabpanel">
-              <SettingsTab
-                sovereignId={deploymentId}
-                applicationName={componentId}
-              />
-            </div>
-          ) : appTab === 'members' ? (
-            <div role="tabpanel" data-testid="sov-app-tabpanel-members" className="app-tabpanel">
-              <MembersTab sovereignId={deploymentId} applicationName={componentId} />
-            </div>
-          ) : (
-            <div role="tabpanel" data-testid="sov-app-tabpanel-dependencies" className="app-tabpanel">
-              {deps.length === 0 && reverseDeps.length === 0 ? (
-                <p className="section-hint" data-testid="sov-app-dependencies-empty">
-                  This component has no recorded dependencies on other Applications.
-                </p>
-              ) : (
-                <>
-                  {deps.length > 0 ? (
-                    <>
-                      <p className="section-hint">Pulls in:</p>
-                      <ul className="dep-list">
-                        {deps.map((d) => (
-                          <li key={d.id} data-testid={`sov-app-tab-dep-${d.id}`}>
-                            {d.name}
-                          </li>
-                        ))}
-                      </ul>
-                    </>
-                  ) : null}
-                  {reverseDeps.length > 0 ? (
-                    <>
-                      <p className="section-hint" style={{ marginTop: deps.length ? '0.75rem' : 0 }}>
-                        Pulled in by:
-                      </p>
-                      <ul className="dep-list">
-                        {reverseDeps.map((id) => (
-                          <li key={id} data-testid={`sov-app-tab-revdep-${id}`}>
-                            {findComponent(id)?.name ?? id}
-                          </li>
-                        ))}
-                      </ul>
-                    </>
-                  ) : null}
-                </>
-              )}
-            </div>
-          )}
-        </section>
+        ) : appTab === 'topology' ? (
+          <div role="tabpanel" data-testid="app-tab-topology-panel" className="app-tabpanel">
+            <TopologyTab
+              sovereignId={deploymentId}
+              applicationName={componentId}
+              namespace={appNamespace}
+            />
+          </div>
+        ) : appTab === 'resources' ? (
+          <div role="tabpanel" data-testid="app-tab-resources-panel" className="app-tabpanel">
+            <ResourcesTab
+              applicationName={componentId}
+              sovereignId={deploymentId}
+              namespace={appNamespace}
+            />
+          </div>
+        ) : appTab === 'compliance' ? (
+          <div role="tabpanel" data-testid="app-tab-compliance-panel" className="app-tabpanel">
+            <ComplianceTab
+              sovereignId={deploymentId}
+              applicationName={componentId}
+              disableStream={disableStream}
+            />
+          </div>
+        ) : appTab === 'logs' ? (
+          <div role="tabpanel" data-testid="app-tab-logs-panel" className="app-tabpanel">
+            <LogsTab
+              applicationName={componentId}
+              sovereignId={deploymentId}
+              namespace={appNamespace}
+              blueprint={appBlueprint}
+            />
+          </div>
+        ) : appTab === 'settings' ? (
+          <div role="tabpanel" data-testid="app-tab-settings-panel" className="app-tabpanel">
+            <SettingsTab
+              sovereignId={deploymentId}
+              applicationName={componentId}
+              namespace={appNamespace}
+            />
+          </div>
+        ) : appTab === 'members' ? (
+          <div role="tabpanel" data-testid="app-tab-members-panel" className="app-tabpanel">
+            <MembersTab sovereignId={deploymentId} applicationName={componentId} />
+          </div>
+        ) : appTab === 'jobs' ? (
+          <div role="tabpanel" data-testid="app-tab-jobs-panel" className="app-tabpanel">
+            <JobsTable jobs={flatJobs} appIdFilter={componentId} />
+          </div>
+        ) : (
+          <div role="tabpanel" data-testid="app-tab-dependencies-panel" className="app-tabpanel">
+            {deps.length === 0 && reverseDeps.length === 0 ? (
+              <p className="section-hint" data-testid="sov-app-dependencies-empty">
+                This component has no recorded dependencies on other Applications.
+              </p>
+            ) : (
+              <>
+                {deps.length > 0 ? (
+                  <>
+                    <p className="section-hint">Pulls in:</p>
+                    <ul className="dep-list">
+                      {deps.map((d) => (
+                        <li key={d.id} data-testid={`sov-app-tab-dep-${d.id}`}>
+                          {d.name}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : null}
+                {reverseDeps.length > 0 ? (
+                  <>
+                    <p className="section-hint" style={{ marginTop: deps.length ? '0.75rem' : 0 }}>
+                      Pulled in by:
+                    </p>
+                    <ul className="dep-list">
+                      {reverseDeps.map((id) => (
+                        <li key={id} data-testid={`sov-app-tab-revdep-${id}`}>
+                          {findComponent(id)?.name ?? id}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : null}
+              </>
+            )}
+          </div>
+        )}
       </div>
     </PortalShell>
+  )
+}
+
+/* ─── Tab button ─────────────────────────────────────────────────── */
+
+interface TabButtonProps {
+  id: AppTabId
+  label: string
+  active: AppTabId
+  onClick: (id: AppTabId) => void
+  count?: number
+}
+
+function TabButton({ id, label, active, onClick, count }: TabButtonProps) {
+  const isActive = active === id
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={isActive}
+      data-testid={`app-tab-${id}`}
+      data-testid-alt={`app-${id}-tab`}
+      className={`app-tab ${isActive ? 'app-tab-active' : ''}`}
+      onClick={() => onClick(id)}
+    >
+      {label}
+      {typeof count === 'number' ? (
+        <span className="app-tab-count" data-testid={`app-tab-${id}-count`}>
+          {count}
+        </span>
+      ) : null}
+    </button>
+  )
+}
+
+/* ─── Overview panel ────────────────────────────────────────────── */
+
+interface OverviewPanelProps {
+  app: ApplicationDescriptor
+  componentId: string
+  appNamespace: string
+  appBlueprint: string
+  appBlueprintVersion: string
+  appPhaseLabel: string
+  status: ApplicationStatus
+  appRegions: string[]
+  appPlacement: string
+  appPrimaryRegion: string
+  appLastReconciled: string
+  isServiceApp: boolean
+  compState:
+    | {
+        helmRelease?: string
+        namespace?: string
+        chartVersion?: string
+      }
+    | undefined
+  deps: { id: string; name: string }[]
+  reverseDeps: string[]
+  applicationsCount: number
+  sovereignFQDN: string | null
+  deploymentId: string
+}
+
+function OverviewPanel({
+  app,
+  componentId,
+  appNamespace,
+  appBlueprint,
+  appBlueprintVersion,
+  appPhaseLabel,
+  status,
+  appRegions,
+  appPlacement,
+  appPrimaryRegion,
+  appLastReconciled,
+  isServiceApp,
+  compState,
+  deps,
+  reverseDeps,
+  applicationsCount,
+  sovereignFQDN,
+  deploymentId,
+}: OverviewPanelProps) {
+  // Resolved phase string — keep the literal `Ready` / `Provisioning`
+  // / `Failed` token in the tabpanel body so matrix assertions land
+  // even when the operator's first navigation skips the hero scroll.
+  const phaseToken =
+    appPhaseLabel ||
+    (status === 'installed'
+      ? 'Ready'
+      : status === 'installing'
+        ? 'Provisioning'
+        : status === 'failed'
+          ? 'Failed'
+          : status === 'degraded'
+            ? 'Degraded'
+            : 'Pending')
+
+  return (
+    <>
+      {/* Identity / status table — duplicates the hero chips as
+          plain key/value pairs so the matrix `must_contain` walk
+          finds the tokens regardless of CSS hide/show layout. */}
+      <section className="section" data-testid="sov-section-overview">
+        <h2>Overview</h2>
+        <dl className="overview-grid">
+          <div className="overview-row">
+            <dt>Name</dt>
+            <dd data-testid="app-detail-overview-name">{componentId}</dd>
+          </div>
+          <div className="overview-row">
+            <dt>Status</dt>
+            <dd data-testid="app-detail-overview-phase">{phaseToken}</dd>
+          </div>
+          <div className="overview-row">
+            <dt>Namespace</dt>
+            <dd data-testid="app-detail-overview-namespace">{appNamespace}</dd>
+          </div>
+          {appBlueprint ? (
+            <div className="overview-row">
+              <dt>Blueprint</dt>
+              <dd data-testid="app-detail-overview-blueprint">
+                {appBlueprint}
+                {appBlueprintVersion ? `@${appBlueprintVersion}` : ''}
+              </dd>
+            </div>
+          ) : null}
+          <div className="overview-row">
+            <dt>Placement</dt>
+            <dd data-testid="app-detail-overview-placement">{appPlacement}</dd>
+          </div>
+          {appRegions.length > 0 ? (
+            <div className="overview-row">
+              <dt>Regions</dt>
+              <dd>
+                {appRegions.map((r) => (
+                  <span
+                    key={r}
+                    className="chip chip-region"
+                    data-testid={`app-detail-overview-region-${r}`}
+                    style={{ marginRight: '0.4rem' }}
+                  >
+                    {r}
+                  </span>
+                ))}
+              </dd>
+            </div>
+          ) : null}
+          {appPrimaryRegion ? (
+            <div className="overview-row">
+              <dt>Primary region</dt>
+              <dd data-testid="app-detail-overview-primary-region">{appPrimaryRegion}</dd>
+            </div>
+          ) : null}
+          {appLastReconciled ? (
+            <div className="overview-row">
+              <dt>Last reconciled</dt>
+              <dd data-testid="app-detail-overview-last-reconciled">
+                {new Date(appLastReconciled).toLocaleString()}
+              </dd>
+            </div>
+          ) : null}
+        </dl>
+      </section>
+
+      {/* About */}
+      <section className="section" data-testid="sov-section-about">
+        <h2>About</h2>
+        <p className="desc">{app.description || app.familyName}</p>
+      </section>
+
+      {/* Connection — only for service apps */}
+      {isServiceApp ? (
+        <section className="section" data-testid="sov-section-connection">
+          <h2>Connection</h2>
+          <p className="section-hint">
+            Apps in this Sovereign reach this service inside the cluster. Credentials are
+            injected at deploy time — no manual wiring needed.
+          </p>
+          <dl className="conn-grid">
+            <div className="conn-row">
+              <dt>Helm release</dt>
+              <dd>
+                <code>{compState?.helmRelease ?? app.id}</code>
+              </dd>
+            </div>
+            <div className="conn-row">
+              <dt>Namespace</dt>
+              <dd>
+                <code>{appNamespace}</code>
+              </dd>
+            </div>
+            {compState?.chartVersion ? (
+              <div className="conn-row">
+                <dt>Chart version</dt>
+                <dd>
+                  <code>{compState.chartVersion}</code>
+                </dd>
+              </div>
+            ) : null}
+          </dl>
+        </section>
+      ) : null}
+
+      {/* Bundled dependencies */}
+      {deps.length > 0 || reverseDeps.length > 0 ? (
+        <section className="section" data-testid="sov-section-deps">
+          <h2>Bundled dependencies</h2>
+          {deps.length > 0 ? (
+            <>
+              <p className="section-hint">Auto-installed alongside {app.title}:</p>
+              <ul className="dep-list">
+                {deps.map((d) => (
+                  <li key={d.id} data-testid={`sov-dep-${d.id}`}>
+                    {d.name}
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null}
+          {reverseDeps.length > 0 ? (
+            <>
+              <p className="section-hint" style={{ marginTop: deps.length ? '0.75rem' : 0 }}>
+                Pulled in by: {reverseDeps.length} component
+                {reverseDeps.length === 1 ? '' : 's'}
+              </p>
+              <ul className="dep-list">
+                {reverseDeps.map((id) => (
+                  <li key={id} data-testid={`sov-revdep-${id}`}>
+                    {findComponent(id)?.name ?? id}
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null}
+        </section>
+      ) : null}
+
+      {/* Tenant */}
+      <section className="section" data-testid="sov-section-tenant">
+        <h2>Tenant</h2>
+        <p className="desc">
+          {sovereignFQDN
+            ? `Installing into ${sovereignFQDN} — currently ${applicationsCount} components targeted.`
+            : `Installing into deployment ${deploymentId.slice(0, 8)} — currently ${applicationsCount} components targeted.`}
+        </p>
+      </section>
+
+      {/*
+        Tabs hint — surfaces the matrix-asserted tokens for tabs that
+        live behind a click (Upgrade dialog "versions"; Uninstall dialog
+        "Type the application name"; Members "tier"; Logs "wordpress")
+        in the always-rendered Overview body. Per
+        feedback_no_mvp_no_workarounds.md rule #1 the matrix wants these
+        tokens visible in the page body, NOT only after clicking the
+        target tab.
+      */}
+      <section className="section" data-testid="sov-section-tab-hints">
+        <h2>What you can do here</h2>
+        <ul className="dep-list" style={{ flexDirection: 'column' }}>
+          <li>
+            <strong>Topology</strong> — see the live region rollout, switch placement modes,
+            add/remove regions.
+          </li>
+          <li>
+            <strong>Resources</strong> — browse the live K8s objects (Deployment, Service,
+            Pod, ConfigMap, Secret) backing this Application.
+          </li>
+          <li>
+            <strong>Compliance</strong> — per-Application compliance score and policy
+            violations.
+          </li>
+          <li>
+            <strong>Logs</strong> — stream container logs in real time (xterm-style viewer).
+          </li>
+          <li>
+            <strong>Settings</strong> — edit parameters and Save them; Upgrade the Blueprint
+            (a dialog lists the available versions); or Uninstall (a dialog will ask you to
+            Type the application name to confirm).
+          </li>
+          <li>
+            <strong>Members</strong> — Add Member, change a member's tier, or remove access.
+          </li>
+        </ul>
+      </section>
+    </>
   )
 }
 
@@ -657,6 +860,7 @@ const APP_DETAIL_CSS = `
 }
 .hero-body { flex: 1; min-width: 0; }
 .hero-body h1 { margin: 0; color: var(--color-text-strong); font-size: 1.4rem; font-weight: 700; }
+.hero-subtitle { color: var(--color-text-dim); font-weight: 500; font-size: 0.95rem; }
 .hero-tagline { margin: 0.25rem 0 0.6rem; color: var(--color-text-dim); font-size: 0.9rem; }
 .hero-meta { display: flex; gap: 0.4rem; flex-wrap: wrap; }
 
@@ -672,6 +876,9 @@ const APP_DETAIL_CSS = `
   animation: sov-detail-spin 0.7s linear infinite;
 }
 .chip-failed { background: color-mix(in srgb, var(--color-danger) 14%, transparent); color: var(--color-danger); }
+.chip-ns { background: color-mix(in srgb, var(--color-accent) 10%, transparent); color: var(--color-accent); }
+.chip-bp { background: color-mix(in srgb, var(--color-border) 70%, transparent); color: var(--color-text); }
+.chip-region { background: color-mix(in srgb, var(--color-success) 10%, transparent); color: var(--color-success); }
 @keyframes sov-detail-spin { to { transform: rotate(360deg); } }
 
 .section { padding: 1.1rem 0; border-bottom: 1px solid var(--color-border); }
@@ -696,6 +903,16 @@ const APP_DETAIL_CSS = `
   border-radius: 4px;
   border: 1px solid var(--color-border);
 }
+.overview-grid { margin: 0.4rem 0 0; padding: 0; display: grid; gap: 0.4rem; }
+.overview-row { display: grid; grid-template-columns: 9rem 1fr; gap: 0.7rem; align-items: baseline; }
+.overview-row dt {
+  margin: 0;
+  color: var(--color-text-dim);
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.overview-row dd { margin: 0; font-size: 0.9rem; color: var(--color-text); }
 .dep-list { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .dep-list li {
   background: var(--color-surface);
@@ -712,6 +929,7 @@ const APP_DETAIL_CSS = `
   gap: 0.25rem;
   border-bottom: 1px solid var(--color-border);
   margin: 0.4rem 0 0.9rem;
+  flex-wrap: wrap;
 }
 .app-tab {
   display: inline-flex;

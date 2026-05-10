@@ -38,11 +38,12 @@ export interface MembersTabProps {
 
 export function MembersTab({ sovereignId, applicationName, initialMatrix }: MembersTabProps) {
   return (
-    <div className="app-tabpanel" data-testid="app-members-tabpanel">
-      <p className="mb-3 text-xs text-[var(--color-text-dim)]">
-        Operators with access to{' '}
-        <code className="font-mono text-[var(--color-text)]">{applicationName}</code>. Source:
-        UserAccess CRs whose scope binds them to this Application or grants them global access.
+    <div className="app-tabpanel" data-testid="app-tab-members-panel-content">
+      <p className="mb-3 text-xs text-[var(--color-text-dim)]" data-testid="app-members-intro">
+        Members with access to{' '}
+        <code className="font-mono text-[var(--color-text)]">{applicationName}</code>. Each row
+        shows the user's tier (viewer, developer, operator, admin, owner). Use the inline tier
+        picker to change a user's tier; use Add Member to grant a new operator access.
       </p>
       <MembersList
         sovereignId={sovereignId}

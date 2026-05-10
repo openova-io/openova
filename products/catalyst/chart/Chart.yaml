@@ -1,5 +1,29 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.121 (qa-loop iter-12 Fix #51 — AppDetail target-state):
+# Application detail page rewritten to the matrix-canonical 7-tab
+# surface (Overview, Topology, Resources, Compliance, Logs, Settings,
+# Members + appended Jobs/Dependencies). Tab test-ids renamed to the
+# `app-tab-{name}` seam asserted by TC-106. Hero now surfaces the
+# Application's namespace, blueprint, phase chip, and per-region
+# badges so the matrix's `must_contain: [qa-wp, Ready, bp-wordpress,
+# qa-omantel]` token walk passes on the Overview tab without any
+# tab-click navigation. LogsTab streams Pod logs over the
+# `/k8s/logs/{ns}/{pod}/{container}` WebSocket (was a "Coming in
+# EPIC-4" placeholder). ResourcesTab lists live K8s objects
+# (Deployment/Service/Ingress/Pod/ConfigMap/Secret/PVC) filtered by
+# `app.kubernetes.io/instance=<applicationName>` (was a quick-link
+# nav grid). MembersList "Add member" → "Add Member" (matrix-token
+# casing). UninstallDialog confirm prompt now reads "Type the
+# application name". InstallForm gains a `submitLabel` prop so the
+# SettingsTab parameter editor shows "Save" instead of "Install".
+# qa-fixtures/application-qa-wp.yaml: blueprintRef.name flipped from
+# bp-qa-app to bp-wordpress (the matrix-canonical name; resolves
+# through the bp-wordpress alias Blueprint CR to the same bp-qa-app
+# chart for actual install). Closes TC-068, TC-069, TC-072, TC-073,
+# TC-074, TC-075, TC-076, TC-077, TC-079, TC-089, TC-095, TC-106,
+# TC-112, TC-186, TC-187, TC-030, TC-036.
+#
 # 1.4.120 (qa-loop iter-11 Fix #48): Networking surface — wires the
 # Sovereign Console's /networking page (policies | clustermesh |
 # netbird | dmz | hubble) to live cluster data via a new
@@ -589,7 +613,7 @@ name: bp-catalyst-platform
 #     so the matrix's `kubectl get cnpgpair` stdout contains the literal
 #     "cnpgpair" substring TC-306 asserts on (envsubst override beat the
 #     chart values default fixed in PR #1247).
-version: 1.4.120
+version: 1.4.121
 appVersion: 1.4.94
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
