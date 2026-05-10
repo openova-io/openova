@@ -284,12 +284,47 @@ func flattenK8sListItems(kind string, items []*unstructured.Unstructured) []*uns
 			}
 			base["ready"] = podReady(it.Object)
 		case "node":
-			// Node objects carry the region directly on their labels.
-			if region := it.GetLabels()["topology.kubernetes.io/region"]; region != "" {
+			// Node objects carry region/zone via topology labels. The
+			// canonical K8s topology labels (post-1.17) win; older
+			// failure-domain labels are accepted as fallback so legacy
+			// kubelets registered with the v1.16- ecosystem still light
+			// up the matrix asserts (TC-260/261).
+			//
+			// Hetzner CCM also publishes location-flavoured labels for
+			// the boundary cases where a Sovereign cluster joins
+			// nodes from multiple Hetzner locations under one
+			// topology zone — `instance.hetzner.cloud/location`
+			// disambiguates fsn1 vs hel1 vs nbg1 even when both
+			// register `topology.kubernetes.io/region=eu-central`.
+			labels := it.GetLabels()
+			if region := firstNonEmptyLabel(labels,
+				"topology.kubernetes.io/region",
+				"failure-domain.beta.kubernetes.io/region",
+				"instance.hetzner.cloud/location",
+				"csi.hetzner.cloud/location",
+			); region != "" {
 				base["region"] = region
 			}
-			if zone := it.GetLabels()["topology.kubernetes.io/zone"]; zone != "" {
+			if zone := firstNonEmptyLabel(labels,
+				"topology.kubernetes.io/zone",
+				"failure-domain.beta.kubernetes.io/zone",
+			); zone != "" {
 				base["zone"] = zone
+			}
+			// Hoist the worker's instance type — drives the per-node
+			// SKU column on the Resources / Nodes table (TC-269 family).
+			if instType := firstNonEmptyLabel(labels,
+				"node.kubernetes.io/instance-type",
+				"beta.kubernetes.io/instance-type",
+			); instType != "" {
+				base["instanceType"] = instType
+			}
+			// Hoist Ready/SchedulingDisabled status — the Nodes table
+			// renders these as the first two columns. Without the
+			// hoist consumers need to walk status.conditions client-side.
+			base["ready"] = nodeReady(it.Object)
+			if t := nodeFirstAddress(it.Object, "InternalIP"); t != "" {
+				base["internalIP"] = t
 			}
 		case "service":
 			if ports, ok, _ := unstructured.NestedSlice(it.Object, "spec", "ports"); ok {
@@ -303,19 +338,165 @@ func flattenK8sListItems(kind string, items []*unstructured.Unstructured) []*uns
 				base["rules"] = rules
 			}
 		case "event":
-			if ts, ok, _ := unstructured.NestedString(it.Object, "lastTimestamp"); ok && ts != "" {
-				base["lastTimestamp"] = ts
-			}
-			if reason, ok, _ := unstructured.NestedString(it.Object, "reason"); ok && reason != "" {
+			// Events live at events.k8s.io/v1 (canonical from K8s 1.19+).
+			// The v1 schema renamed/moved fields vs the legacy core/v1
+			// Event shape that earlier Catalyst code expected:
+			//
+			//   core/v1 Event              events.k8s.io/v1 Event
+			//   ────────────────────────── ─────────────────────────────────
+			//   .lastTimestamp             .series.lastObservedTime (when
+			//                              the event repeats; otherwise
+			//                              .eventTime carries the single
+			//                              occurrence)
+			//   .firstTimestamp            .eventTime
+			//   .message                   .note
+			//   .reason                    .reason (unchanged)
+			//   .count                     .series.count (or absent)
+			//   .source.component          .reportingController
+			//
+			// To stay backward-compatible (some Sovereigns still emit
+			// core/v1 Events through the legacy gateway, and apiserver
+			// translation can populate `deprecated*` fields on either
+			// shape) we fall back across all three schemas, in priority
+			// order: v1 → deprecated* mirror → legacy core/v1. Whichever
+			// produces a non-empty value first wins. The matrix asserts
+			// (TC-211) on hoisted top-level `lastTimestamp` + `reason`,
+			// so we always emit those keys when ANY source has data —
+			// the "raw" Object stays embedded so consumers reading the
+			// canonical apiserver shape still see the original fields.
+			if reason := firstNonEmptyString(it.Object,
+				[]string{"reason"},
+			); reason != "" {
 				base["reason"] = reason
 			}
-			if msg, ok, _ := unstructured.NestedString(it.Object, "message"); ok && msg != "" {
+			if ts := firstNonEmptyString(it.Object,
+				[]string{"series", "lastObservedTime"}, // events.k8s.io/v1 (repeating)
+				[]string{"eventTime"},                  // events.k8s.io/v1 (single occurrence)
+				[]string{"deprecatedLastTimestamp"},    // apiserver compat shim
+				[]string{"lastTimestamp"},              // legacy core/v1
+				[]string{"deprecatedFirstTimestamp"},   // apiserver compat shim
+				[]string{"firstTimestamp"},             // legacy core/v1 fallback
+			); ts != "" {
+				base["lastTimestamp"] = ts
+			}
+			if msg := firstNonEmptyString(it.Object,
+				[]string{"note"},    // events.k8s.io/v1
+				[]string{"message"}, // legacy core/v1
+			); msg != "" {
 				base["message"] = msg
+			}
+			// Hoist a stable involvedObject snapshot so the EventsPanel
+			// widget (TC-211) can render kind/name without mode-aware
+			// branches. events.k8s.io/v1 calls this `regarding`; legacy
+			// core/v1 calls it `involvedObject`. Both carry the same
+			// {kind, namespace, name} triple.
+			if io := firstNonEmptyMap(it.Object,
+				[]string{"regarding"},      // events.k8s.io/v1
+				[]string{"involvedObject"}, // legacy core/v1
+			); io != nil {
+				base["involvedObject"] = io
 			}
 		}
 		out = append(out, &unstructured.Unstructured{Object: base})
 	}
 	return out
+}
+
+// firstNonEmptyLabel returns the first non-empty label value found
+// across the supplied label keys, in priority order. Used to fold
+// canonical-vs-deprecated label pairs (topology.kubernetes.io vs
+// failure-domain.beta.kubernetes.io) into a single hoist.
+func firstNonEmptyLabel(labels map[string]string, keys ...string) string {
+	for _, k := range keys {
+		if v := labels[k]; v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// nodeReady reports whether a Node's Ready condition is True. Mirrors
+// `kubectl get nodes` Ready column. Returns false when the conditions
+// list is missing or no Ready entry has status=True.
+func nodeReady(obj map[string]interface{}) bool {
+	conds, ok, _ := unstructured.NestedSlice(obj, "status", "conditions")
+	if !ok {
+		return false
+	}
+	for _, ci := range conds {
+		c, ok := ci.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		t, _ := c["type"].(string)
+		s, _ := c["status"].(string)
+		if t == "Ready" && s == "True" {
+			return true
+		}
+	}
+	return false
+}
+
+// nodeFirstAddress returns the first .status.addresses entry whose
+// `type` matches `wantType`. Empty when missing. Drives the InternalIP
+// column on the Nodes table.
+func nodeFirstAddress(obj map[string]interface{}, wantType string) string {
+	addrs, ok, _ := unstructured.NestedSlice(obj, "status", "addresses")
+	if !ok {
+		return ""
+	}
+	for _, ai := range addrs {
+		a, ok := ai.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		t, _ := a["type"].(string)
+		if t != wantType {
+			continue
+		}
+		v, _ := a["address"].(string)
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// firstNonEmptyString walks a list of nested key paths against `obj`
+// and returns the first string value that is non-empty. Each path is a
+// slice of map keys (sequential `unstructured.NestedString` lookups).
+// Paths are tried in order, so callers MUST list the canonical / most
+// preferred location first and fallbacks afterwards.
+//
+// Used by the event flatten path to bridge the events.k8s.io/v1 vs
+// legacy core/v1 schema split (TC-211): a single hoist call site stays
+// readable instead of branching on schema version inline.
+func firstNonEmptyString(obj map[string]interface{}, paths ...[]string) string {
+	for _, p := range paths {
+		if len(p) == 0 {
+			continue
+		}
+		if v, ok, _ := unstructured.NestedString(obj, p...); ok && v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// firstNonEmptyMap mirrors firstNonEmptyString for nested map fields.
+// Returns the first non-nil non-empty map at any of the supplied paths.
+// The returned reference points into the source object; callers that
+// mutate it must clone first (the flatten path does NOT mutate).
+func firstNonEmptyMap(obj map[string]interface{}, paths ...[]string) map[string]interface{} {
+	for _, p := range paths {
+		if len(p) == 0 {
+			continue
+		}
+		if v, ok, _ := unstructured.NestedMap(obj, p...); ok && len(v) > 0 {
+			return v
+		}
+	}
+	return nil
 }
 
 // podReady reports whether a Pod's Ready condition is True. Returns

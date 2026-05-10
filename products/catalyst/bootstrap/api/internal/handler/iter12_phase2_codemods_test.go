@@ -339,6 +339,154 @@ func TestFlattenK8sListItems_NodeHoistsRegion(t *testing.T) {
 	}
 }
 
+// TestFlattenK8sListItems_EventV1HoistsLastTimestampAndReason — Events
+// at events.k8s.io/v1 carry `eventTime` / `note` (instead of legacy
+// core/v1 `lastTimestamp` / `message`); the flatten helper must read
+// the v1 schema AND fall back to the legacy fields so TC-211's
+// `must_contain: [items, lastTimestamp, reason]` passes regardless of
+// which schema the apiserver emits. qa-loop iter-15 Fix #59.
+func TestFlattenK8sListItems_EventV1HoistsLastTimestampAndReason(t *testing.T) {
+	v1Event := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion":             "events.k8s.io/v1",
+			"kind":                   "Event",
+			"metadata":               map[string]interface{}{"name": "qa-wp.evt", "namespace": "qa-omantel"},
+			"eventTime":              "2026-05-10T10:30:00.000000Z",
+			"note":                   "Successfully assigned qa-omantel/qa-wp-0 to hz-fsn-rtz-prod-1",
+			"reason":                 "Scheduled",
+			"reportingController":    "default-scheduler",
+			"regarding": map[string]interface{}{
+				"kind":      "Pod",
+				"name":      "qa-wp-0",
+				"namespace": "qa-omantel",
+			},
+		},
+	}
+	out := flattenK8sListItems("event", []*unstructured.Unstructured{v1Event})
+	got := out[0].Object
+	if got["lastTimestamp"] != "2026-05-10T10:30:00.000000Z" {
+		t.Errorf("expected lastTimestamp from eventTime, got %v", got["lastTimestamp"])
+	}
+	if got["reason"] != "Scheduled" {
+		t.Errorf("expected reason=Scheduled, got %v", got["reason"])
+	}
+	if got["message"] != "Successfully assigned qa-omantel/qa-wp-0 to hz-fsn-rtz-prod-1" {
+		t.Errorf("expected message hoisted from note, got %v", got["message"])
+	}
+	if io, ok := got["involvedObject"].(map[string]interface{}); !ok || io["kind"] != "Pod" {
+		t.Errorf("expected involvedObject hoisted from regarding, got %v", got["involvedObject"])
+	}
+}
+
+// TestFlattenK8sListItems_EventV1SeriesPrefersLastObservedTime — Events
+// that have repeated emit `series.lastObservedTime` (events.k8s.io/v1).
+// That field wins over the single-occurrence `eventTime`.
+func TestFlattenK8sListItems_EventV1SeriesPrefersLastObservedTime(t *testing.T) {
+	v1Event := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "events.k8s.io/v1",
+			"kind":       "Event",
+			"metadata":   map[string]interface{}{"name": "qa-wp.evt", "namespace": "qa-omantel"},
+			"eventTime":  "2026-05-10T10:00:00.000000Z",
+			"reason":     "BackOff",
+			"note":       "Back-off pulling image",
+			"series": map[string]interface{}{
+				"count":            int64(7),
+				"lastObservedTime": "2026-05-10T10:30:00.000000Z",
+			},
+		},
+	}
+	out := flattenK8sListItems("event", []*unstructured.Unstructured{v1Event})
+	got := out[0].Object
+	if got["lastTimestamp"] != "2026-05-10T10:30:00.000000Z" {
+		t.Errorf("expected series.lastObservedTime to win over eventTime; got %v", got["lastTimestamp"])
+	}
+}
+
+// TestFlattenK8sListItems_EventLegacyCoreV1Compat — older core/v1
+// Events still flow through the apiserver translation layer; the
+// flatten helper MUST keep surfacing them.
+func TestFlattenK8sListItems_EventLegacyCoreV1Compat(t *testing.T) {
+	legacyEvent := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion":     "v1",
+			"kind":           "Event",
+			"metadata":       map[string]interface{}{"name": "old.evt", "namespace": "qa-omantel"},
+			"lastTimestamp":  "2026-05-09T08:00:00Z",
+			"firstTimestamp": "2026-05-09T07:55:00Z",
+			"reason":         "FailedScheduling",
+			"message":        "0/3 nodes are available",
+			"involvedObject": map[string]interface{}{
+				"kind":      "Pod",
+				"name":      "qa-wp-0",
+				"namespace": "qa-omantel",
+			},
+		},
+	}
+	out := flattenK8sListItems("event", []*unstructured.Unstructured{legacyEvent})
+	got := out[0].Object
+	if got["lastTimestamp"] != "2026-05-09T08:00:00Z" {
+		t.Errorf("legacy lastTimestamp should still hoist; got %v", got["lastTimestamp"])
+	}
+	if got["reason"] != "FailedScheduling" {
+		t.Errorf("expected reason=FailedScheduling, got %v", got["reason"])
+	}
+	if got["message"] != "0/3 nodes are available" {
+		t.Errorf("legacy message should hoist; got %v", got["message"])
+	}
+	if io, ok := got["involvedObject"].(map[string]interface{}); !ok || io["name"] != "qa-wp-0" {
+		t.Errorf("legacy involvedObject should hoist; got %v", got["involvedObject"])
+	}
+}
+
+// TestFlattenK8sListItems_NodeFallbackLabels — when canonical
+// topology.kubernetes.io labels are absent, the flatten helper falls
+// back to failure-domain.beta + Hetzner location labels so legacy
+// kubelets and multi-location Sovereigns still light up the matrix
+// asserts (TC-260 / TC-261).
+func TestFlattenK8sListItems_NodeFallbackLabels(t *testing.T) {
+	node := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "Node",
+			"metadata": map[string]interface{}{
+				"name": "hz-fsn-1",
+				"labels": map[string]interface{}{
+					"failure-domain.beta.kubernetes.io/region": "fsn1",
+					"failure-domain.beta.kubernetes.io/zone":   "fsn1-dc14",
+					"node.kubernetes.io/instance-type":         "cx21",
+				},
+			},
+			"status": map[string]interface{}{
+				"conditions": []interface{}{
+					map[string]interface{}{"type": "Ready", "status": "True"},
+				},
+				"addresses": []interface{}{
+					map[string]interface{}{"type": "InternalIP", "address": "10.0.0.5"},
+					map[string]interface{}{"type": "Hostname", "address": "hz-fsn-1"},
+				},
+			},
+		},
+	}
+	out := flattenK8sListItems("node", []*unstructured.Unstructured{node})
+	got := out[0].Object
+	if got["region"] != "fsn1" {
+		t.Errorf("expected region=fsn1 from failure-domain.beta, got %v", got["region"])
+	}
+	if got["zone"] != "fsn1-dc14" {
+		t.Errorf("expected zone=fsn1-dc14 from failure-domain.beta, got %v", got["zone"])
+	}
+	if got["instanceType"] != "cx21" {
+		t.Errorf("expected instanceType=cx21, got %v", got["instanceType"])
+	}
+	if got["ready"] != true {
+		t.Errorf("expected ready=true, got %v", got["ready"])
+	}
+	if got["internalIP"] != "10.0.0.5" {
+		t.Errorf("expected internalIP=10.0.0.5, got %v", got["internalIP"])
+	}
+}
+
 // TestFlattenK8sListItems_DoesNotMutateInput — the cached Indexer
 // returns the same pointer to every reader; the flatten helper MUST
 // produce a fresh map so concurrent readers don't race on top-level
