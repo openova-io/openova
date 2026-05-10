@@ -89,7 +89,7 @@ spec:
       # chart wanted seaweedfs-storage, K8s rejected the immutable-spec
       # patch with `cannot patch ... PersistentVolumeClaim ... is
       # invalid: spec: Forbidden: spec is immutable after creation`).
-      version: 0.1.9
+      version: 0.1.12
       sourceRef:
         kind: HelmRepository
         name: bp-guacamole
