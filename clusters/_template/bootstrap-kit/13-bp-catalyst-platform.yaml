@@ -390,7 +390,24 @@ spec:
       # bp-self-sovereign-cutover HR went Ready=False and bp-catalyst-
       # platform never reached Ready → console.<sov> Ingress never
       # materialised → iter-1 was unrunnable.
-      version: 1.4.133
+      # 1.4.134 (qa-loop iter-1 prefetch Fix #114, prov #9 unwedge):
+      # New pre-install hook Job (qa-finalizer-strip, weight -99)
+      # strips orphaned controller finalizers off Application /
+      # Organization / Environment / UserAccess CRs in the qa-
+      # namespace + force-finalizes the namespace itself if it's
+      # stuck Terminating. Breaks the rollback-orphan finalizer
+      # deadlock that left prov #9 in an unrecoverable install loop:
+      #   1. install creates qa-omantel ns + Application + controllers
+      #      in same pass (no hook ordering)
+      #   2. qa-cnpg-backup-s3-seed post-install hook stalls 15m
+      #   3. cleanupOnFail rolls back, killing controllers BEFORE they
+      #      can process Application's deletion finalizer
+      #   4. qa-omantel ns wedged in Terminating; no controller exists
+      #   5. retry: "namespace is being terminated" → seed Job RBAC
+      #      creation rejected → 15m hook timeout → loop forever.
+      # This Job runs at the very start of every install attempt and
+      # guarantees a clean slate.
+      version: 1.4.134
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

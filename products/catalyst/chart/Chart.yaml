@@ -1,5 +1,60 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.134 (qa-loop iter-1 prefetch Fix #114, qa-fixtures finalizer
+# strip pre-install hook to break the rollback-orphan deadlock):
+#
+# Root cause (prov #9 wedge, 2026-05-10):
+#   bp-catalyst-platform install creates qa-omantel namespace +
+#   `qa-wp` Application CR + 4 controller Deployments in the same
+#   install pass (no hook ordering). When the chart's `qa-cnpg-
+#   backup-s3-seed` post-install hook stalls past the 15m timeout,
+#   `cleanupOnFail: true` rolls back, killing the controllers BEFORE
+#   the controllers can process their own CRs' deletion finalizers.
+#   The Application CR is left with `application.apps.openova.io/
+#   finalizer` and a `deletionTimestamp` — but no controller exists to
+#   remove it. The qa-omantel namespace is wedged in `Terminating`
+#   forever. Every retry hits "unable to create new content in
+#   namespace qa-omantel because it is being terminated" → seed Job
+#   never spawns → 15m timeout → infinite loop.
+#
+# Live diagnosis on prov #9 cluster (omantel.biz) confirmed:
+#   - HR `bp-catalyst-platform`: status=False, Helm install failed
+#     for chart 1.4.128: failed post-install: timed out waiting for
+#     the condition (qa-cnpg-backup-s3-seed Job).
+#   - `kubectl get ns qa-omantel`: STATUS=Terminating, age=16m+,
+#     `SomeFinalizersRemain: application.apps.openova.io/finalizer
+#     in 1 resource instances`.
+#   - Application qa-wp present with `deletionTimestamp` set,
+#     `metadata.finalizers: [application.apps.openova.io/finalizer]`.
+#   - catalyst-application-controller Pod was killed at rollback
+#     time, never restarted (no controller to process the finalizer).
+#
+# Fix (target-state per INVIOLABLE-PRINCIPLES #1, #4):
+#   New template `qa-fixtures/pre-install-finalizer-strip.yaml`
+#   ships a pre-install + pre-upgrade Helm hook bundle (SA + Role +
+#   RoleBinding + Job) that runs at hook-weight -100 / -99, BEFORE
+#   any other resource lands. The Job:
+#     1. Strips finalizers off any pre-existing qa-fixture controller-
+#        managed CRs (Application, Organization, Environment,
+#        UserAccess) in qa-namespace + catalyst-system.
+#     2. If the qa-namespace is in `Terminating` state, strips its
+#        `kubernetes` finalizer via the `/finalize` subresource so
+#        the apiserver completes the deletion.
+#   Defense-in-depth — on a healthy install (no prior wedge) the Job
+#   finds nothing to clean and exits 0 in seconds. On a wedged
+#   install (post-rollback orphan finalizer state) the Job unblocks
+#   the namespace deletion so the chart's regular install pass
+#   re-creates it cleanly. ClusterRole is scoped to the 4 specific
+#   xRDs + namespaces/finalize subresource (minimal-rights). Cluster-
+#   scoped Organization patches are gated on the
+#   `catalyst.openova.io/managed-by=qa-fixtures` label so production
+#   Organizations on a qa-enabled Sovereign are never touched.
+#
+# Unblocks (no TCs claimed directly): catalyst-catalog +
+#   catalyst-organization-controller + catalyst-application-controller
+#   + downstream catalyst-ui Ingress reach Ready → console.<sov>
+#   reachable → qa-loop iter-1 can execute.
+#
 # 1.4.133 (qa-loop iter-1 prefetch Fix #113, Kyverno catalyst-namespace
 # exemption for registry-pivot DaemonSet): adds `catalyst` to the
 # qa-fixtures Kyverno disallow-privileged-containers exclusion list.
@@ -833,7 +888,7 @@ name: bp-catalyst-platform
 #   - values.yaml: new knobs `cnpgPairAliasName`,
 #     `cnpgPairPostSwitchoverPrimary`, `continuumPlatformNamespace` —
 #     all values-overridable per INVIOLABLE-PRINCIPLES #4.
-version: 1.4.133
+version: 1.4.134
 appVersion: 1.4.94
 # 1.4.129 (qa-loop iter-16 Fix #65): ship the missing
 # `openova-catalog` Flux v1 HelmRepository in flux-system. The
