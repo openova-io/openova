@@ -363,7 +363,7 @@ spec:
       # EnsureOrg / EnsureRepo blocking qa-wp Application reconcile.
       # bootstrap-kit qaFixtures.cnpgPairName default qa-cnpg → qa-cnpgpair
       # so TC-306's "cnpgpair" substring assertion passes.
-      version: 1.4.122
+      version: 1.4.123
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

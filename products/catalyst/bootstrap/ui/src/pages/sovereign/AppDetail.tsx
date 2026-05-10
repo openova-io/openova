@@ -594,9 +594,14 @@ interface OverviewPanelProps {
   isServiceApp: boolean
   compState:
     | {
-        helmRelease?: string
-        namespace?: string
-        chartVersion?: string
+        // Aligned with ApplicationState in eventReducer.ts — those three
+        // fields are `string | null` on the wire (initial-state / unset),
+        // not `string | undefined`. Accepting both keeps OverviewPanel's
+        // signature compatible with both `compState={someApplicationState}`
+        // and the synthetic test-fixture object shape.
+        helmRelease?: string | null
+        namespace?: string | null
+        chartVersion?: string | null
       }
     | undefined
   deps: { id: string; name: string }[]

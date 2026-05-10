@@ -1,5 +1,16 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.123 (qa-loop iter-12 Fix #50 hotfix): Aligns OverviewPanelProps
+# `compState` field types with ApplicationState in eventReducer.ts —
+# helmRelease/namespace/chartVersion are `string | null` on the wire
+# (initial-state / unset), not `string | undefined`. Without this the
+# UI image build fails with TS2322 on AppDetail.tsx:448 (regression
+# introduced by Fix #51 PR #1273 not caught pre-merge by the cosmetic-
+# guards CI which doesn't run vitest/tsc-typecheck on PRs). Pure type-
+# signature fix; no behaviour change. Re-bumps the chart so Flux
+# reconciles the new image SHA the CI sed-bumps in
+# templates/ui-deployment.yaml.
+#
 # 1.4.122 (qa-loop iter-12 Fix #50): Resources surface — wires the
 # Sovereign Console's /resources family (list / search / apply /
 # pod-logs) to live cluster data via TanStack Query against the
@@ -656,7 +667,7 @@ name: bp-catalyst-platform
 #     so the matrix's `kubectl get cnpgpair` stdout contains the literal
 #     "cnpgpair" substring TC-306 asserts on (envsubst override beat the
 #     chart values default fixed in PR #1247).
-version: 1.4.122
+version: 1.4.123
 appVersion: 1.4.94
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
