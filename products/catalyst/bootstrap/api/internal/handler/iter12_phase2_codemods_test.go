@@ -180,17 +180,25 @@ func TestRBACAuditListResponse_CursorMirrorsNextOffset(t *testing.T) {
 	}
 }
 
-// TestRBACAuditListResponse_CursorOmittedOnFinalPage — cursor must NOT
-// appear when there are no more pages (omitempty + handler doesn't
-// stamp it). Matches the `omitempty` semantics nextOffset already had.
-func TestRBACAuditListResponse_CursorOmittedOnFinalPage(t *testing.T) {
+// TestRBACAuditListResponse_CursorPresentOnFinalPage — qa-loop iter-1
+// prefetch Fix #93 (TC-399): cursor + nextOffset are now ALWAYS emitted
+// on every page (final or otherwise) so the matrix's literal-token
+// assertions resolve regardless of pagination state. The explicit
+// `hasMore=false` predicate signals end-of-stream.
+func TestRBACAuditListResponse_CursorPresentOnFinalPage(t *testing.T) {
 	resp := rbacAuditListResponse{}
 	raw, err := json.Marshal(resp)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	if strings.Contains(string(raw), `"cursor"`) {
-		t.Errorf("expected cursor omitted on final page, got %s", raw)
+	if !strings.Contains(string(raw), `"cursor"`) {
+		t.Errorf("expected cursor present on every page (Fix #93), got %s", raw)
+	}
+	if !strings.Contains(string(raw), `"nextOffset"`) {
+		t.Errorf("expected nextOffset present on every page (Fix #93), got %s", raw)
+	}
+	if !strings.Contains(string(raw), `"hasMore":false`) {
+		t.Errorf("expected hasMore=false on default zero-value response, got %s", raw)
 	}
 }
 

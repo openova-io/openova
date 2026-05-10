@@ -75,23 +75,30 @@ const (
 // rbacAssignAllowedTiers is the canonical 5-tier catalog. Any other
 // value on the request body is rejected with 400. The list is the
 // public contract docs/EPICS-1-6-unified-design.md §6.2 declares.
+//
+// qa-loop iter-1 prefetch Fix #93 (TC-168): the legacy "super-admin"
+// alias is intentionally NOT in this map — the matrix asserts that
+// any tier outside the canonical 5-tier set returns 400 with an
+// "error" + "tier" message. Operators that historically sent
+// "super-admin" must now send "owner" directly. The alias was
+// removed (vs being silently resolved to owner) to keep the wire
+// contract honest: an unknown tier is a programmer error, not an
+// implicit promotion.
 var rbacAssignAllowedTiers = map[string]struct{}{
-	"viewer":      {},
-	"developer":   {},
-	"operator":    {},
-	"admin":       {},
-	"owner":       {},
-	"super-admin": {}, // alias → owner via rbacAssignTierResolved
+	"viewer":    {},
+	"developer": {},
+	"operator":  {},
+	"admin":     {},
+	"owner":     {},
 }
 
-// rbacAssignTierResolved canonicalises a request tier label. `super-admin`
-// is an alias for `owner`. Case-insensitive.
+// rbacAssignTierResolved canonicalises a request tier label. Today this
+// is a pure lower+trim normalisation; the legacy `super-admin` → `owner`
+// alias was removed in Fix #93 (TC-168). Kept as a function rather than
+// inlining `strings.ToLower` so a future alias (if the catalog ever
+// grows) lands here without scattering call sites.
 func rbacAssignTierResolved(in string) string {
-	t := strings.ToLower(strings.TrimSpace(in))
-	if t == "super-admin" {
-		return "owner"
-	}
-	return t
+	return strings.ToLower(strings.TrimSpace(in))
 }
 
 // rbacAssignScopeKeyForType returns the canonical scope key for a
