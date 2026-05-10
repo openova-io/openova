@@ -352,13 +352,18 @@ spec:
       #      on TC-068 / TC-072 / TC-074). TC-262 / TC-263 (services
       #      filtered to qa-omantel only) flip PASS via the namespace
       #      alias.
+      # 1.4.118 (Fix #45 follow-up — chart re-publish): bakes the
+      # rebuilt application-controller image (:dfd48b1) into values.yaml.
+      # Chart 1.4.117 was packaged before the auto-bump commit landed,
+      # same race as 1.4.115/116; this bump re-publishes with the new
+      # tag and explicit blueprint-release dispatch.
       # 1.4.109 (Fix #40 follow-up #2): drop /api/v1 from organization +
       # environment-controller GITEA URL defaults — Gitea client appends
       # it; the prior default produced /api/v1/api/v1/... 404s on
       # EnsureOrg / EnsureRepo blocking qa-wp Application reconcile.
       # bootstrap-kit qaFixtures.cnpgPairName default qa-cnpg → qa-cnpgpair
       # so TC-306's "cnpgpair" substring assertion passes.
-      version: 1.4.117
+      version: 1.4.118
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

@@ -1,5 +1,16 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.118 (qa-loop iter-11 Fix #45 follow-up — re-publish with the
+# rebuilt application-controller image baked into values.yaml).
+# Chart 1.4.117 was published from PR #1265's merge commit which still
+# had the previous application-controller image tag (9780e8d) in
+# values.yaml; the auto-bump commit b90127c9 ("deploy: bump
+# application-controller image to dfd48b1") landed seconds later but
+# GitHub Actions filters bot pushes from triggering blueprint-release
+# by default — same race as 1.4.115/116. This bump re-publishes the
+# chart with the new tag (dfd48b1) AND dispatches blueprint-release
+# explicitly via gh workflow run.
+#
 # 1.4.117 (qa-loop iter-11 Fix #45 Cluster-B + Cluster-C —
 # application-controller HR observation + catalyst-api SPA endpoints).
 #
@@ -505,7 +516,7 @@ name: bp-catalyst-platform
 #     so the matrix's `kubectl get cnpgpair` stdout contains the literal
 #     "cnpgpair" substring TC-306 asserts on (envsubst override beat the
 #     chart values default fixed in PR #1247).
-version: 1.4.117
+version: 1.4.118
 appVersion: 1.4.94
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
