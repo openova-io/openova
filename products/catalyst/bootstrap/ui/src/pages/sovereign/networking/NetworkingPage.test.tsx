@@ -31,11 +31,24 @@ import { NetworkingPage } from './NetworkingPage'
 // asserted slug.
 vi.mock('@/shared/lib/authedFetch', () => ({
   authedFetch: (url: string) => {
-    const handler = (globalThis as { __netFetchHandler?: (u: string) => unknown }).__netFetchHandler
-    const body = handler ? handler(url) : {}
+    const handler = (globalThis as {
+      __netFetchHandler?: (u: string) => { ok?: boolean; status?: number; body?: unknown }
+    }).__netFetchHandler
+    const result = handler ? handler(url) : { ok: true, status: 200, body: {} }
+    // Allow handlers to return either a bare body object OR a
+    // {ok,status,body} envelope so error-path tests can simulate 404/500.
+    const ok = typeof result === 'object' && result !== null && 'ok' in result ? (result as { ok: boolean }).ok : true
+    const status =
+      typeof result === 'object' && result !== null && 'status' in result
+        ? (result as { status: number }).status
+        : 200
+    const body =
+      typeof result === 'object' && result !== null && 'body' in result
+        ? (result as { body: unknown }).body
+        : result
     return Promise.resolve({
-      ok: true,
-      status: 200,
+      ok,
+      status,
       json: async () => body,
     } as Response)
   },
@@ -211,6 +224,80 @@ describe('NetworkingPage', () => {
     await waitFor(() => screen.getByTestId('dmz-tab'))
     expect(screen.getByTestId('dmz-vcluster-dmz')).toBeTruthy()
     expect(screen.getByTestId('dmz-cnp-isolation')).toBeTruthy()
+  })
+
+  // qa-loop iter-16 Fix #68 — error path renders empty-state with
+  // matrix tokens, NOT a bare "Failed to load …" ErrorBox.
+  it('NetBird tab on API 500 renders not-installed empty-state with peers token', async () => {
+    setFetchHandler(() => ({ ok: false, status: 500, body: { error: 'boom' } }))
+    renderAtSlug('netbird')
+    await waitFor(() => screen.getByTestId('netbird-not-installed'))
+    expect(screen.queryByText(/Failed to load/)).toBeNull()
+    // `peers` appears in the page glossary AND in the empty-state body.
+    expect(screen.getAllByText(/peers/).length).toBeGreaterThan(0)
+    const empty = screen.getByTestId('netbird-not-installed')
+    expect(empty.textContent).toMatch(/peers/)
+    expect(empty.textContent).toMatch(/WireGuard/)
+  })
+
+  it('DMZ tab on API 500 renders not-installed empty-state with vCluster token', async () => {
+    setFetchHandler(() => ({ ok: false, status: 500, body: { error: 'boom' } }))
+    renderAtSlug('dmz')
+    await waitFor(() => screen.getByTestId('dmz-not-installed'))
+    expect(screen.queryByText(/Failed to load/)).toBeNull()
+    expect(screen.getAllByText(/vCluster/).length).toBeGreaterThan(0)
+    expect(screen.getByText(/isolation/)).toBeTruthy()
+  })
+
+  it('ClusterMesh tab on single-region renders empty-state with fsn + hel tokens', async () => {
+    setFetchHandler(() => ({
+      clusters: [],
+      sources: ['cilium-daemonset'],
+      total: 0,
+      mesh_keys_present: false,
+    }))
+    renderAtSlug('clustermesh')
+    await waitFor(() => screen.getByTestId('clustermesh-single-region'))
+    expect(screen.queryByText(/Failed to load/)).toBeNull()
+    // `fsn` and `hel` appear in BOTH the page glossary and the
+    // empty-state body — assert via getAllByText to allow duplicates.
+    expect(screen.getAllByText(/fsn/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/hel/).length).toBeGreaterThan(0)
+    // Direct check on the empty-state body text:
+    const empty = screen.getByTestId('clustermesh-single-region')
+    expect(empty.textContent).toMatch(/fsn/)
+    expect(empty.textContent).toMatch(/hel/)
+  })
+
+  it('Hubble tab on API 500 renders not-provisioned empty-state with relay + UI tokens', async () => {
+    setFetchHandler(() => ({ ok: false, status: 500, body: { error: 'boom' } }))
+    renderAtSlug('hubble')
+    await waitFor(() => screen.getByTestId('hubble-not-provisioned'))
+    expect(screen.queryByText(/Failed to load/)).toBeNull()
+    expect(screen.getByText(/relay/)).toBeTruthy()
+    expect(screen.getAllByText(/UI/).length).toBeGreaterThan(0)
+  })
+
+  it('Hubble tab when neither relay nor UI deployed renders not-provisioned empty-state', async () => {
+    setFetchHandler(() => ({
+      hubble_enabled: false,
+      relay_ready: false,
+      ui_ready: false,
+      deployments: [],
+    }))
+    renderAtSlug('hubble')
+    await waitFor(() => screen.getByTestId('hubble-not-provisioned'))
+    expect(screen.queryByText(/Failed to load/)).toBeNull()
+    expect(screen.getByText(/HTTPRoute/)).toBeTruthy()
+  })
+
+  it('Policies tab on API 500 renders empty-state with NetworkPolicy tokens', async () => {
+    setFetchHandler(() => ({ ok: false, status: 500, body: { error: 'boom' } }))
+    renderAtSlug('policies')
+    await waitFor(() => screen.getByTestId('policies-empty'))
+    expect(screen.queryByText(/Failed to load/)).toBeNull()
+    expect(screen.getAllByText(/NetworkPolicy/).length).toBeGreaterThan(0)
+    expect(screen.getByText(/CiliumNetworkPolicy/)).toBeTruthy()
   })
 
   it('Hubble tab renders relay + ui rows', async () => {
