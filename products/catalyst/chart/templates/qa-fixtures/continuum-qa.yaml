@@ -244,7 +244,20 @@ metadata:
   labels:
     openova.io/managed-by: qa-fixtures
     openova.io/scope: platform
-    openova.io/continuum-mirror-of: {{ printf "%s/%s" (.Values.qaFixtures.namespace | default "qa-omantel") (.Values.qaFixtures.continuumName | default "cont-omantel") }}
+    # Fix #119 (qa-loop bounded-provision-cycle prov #11 unblocker):
+    # k8s label VALUES may not contain `/` (only label KEYS may). The
+    # original single-label `<namespace>/<name>` form rendered to
+    # `qa-omantel/cont-omantel` which violates the metadata.labels
+    # validation regex `^[a-z0-9A-Z]([-_.a-z0-9A-Z]*[a-z0-9A-Z])?$`,
+    # crashing helm install of bp-catalyst-platform on every fresh
+    # Sovereign. Split into two labels so the cross-namespace reference
+    # (parent-namespace + parent-name) is still queryable via
+    # `kubectl get -l openova.io/continuum-mirror-of-namespace=<ns>`
+    # without forming an illegal value. Per
+    # `feedback_inviolable_principles.md` #4 both halves stay
+    # values-overridable.
+    openova.io/continuum-mirror-of-namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" | quote }}
+    openova.io/continuum-mirror-of-name: {{ .Values.qaFixtures.continuumName | default "cont-omantel" | quote }}
     app.kubernetes.io/managed-by: {{ .Release.Service }}
     app.kubernetes.io/instance: {{ .Release.Name }}
 spec:

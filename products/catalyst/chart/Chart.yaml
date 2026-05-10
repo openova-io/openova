@@ -1,5 +1,41 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.135 (qa-loop bounded-provision-cycle Fix #119, sanitize illegal
+# `/` in qa-fixtures Continuum mirror label value — unblocks prov #11):
+#
+# Root cause (prov #10 wedge, 2026-05-10):
+#   The platform-mirror Continuum CR (added by Fix #102, PR #1326)
+#   in `templates/qa-fixtures/continuum-qa.yaml` carried label
+#   `openova.io/continuum-mirror-of: <namespace>/<name>` which renders
+#   to `qa-omantel/cont-omantel`. K8s rejects label VALUES containing
+#   `/` (the regex `^[a-z0-9A-Z]([-_.a-z0-9A-Z]*[a-z0-9A-Z])?$`
+#   forbids `/` — only label KEYS may use it as the prefix separator).
+#   Helm install of bp-catalyst-platform crashes on CR validation:
+#     Continuum.dr.openova.io "cont-omantel" is invalid:
+#     metadata.labels: Invalid value: "qa-omantel/cont-omantel": a
+#     valid label must be an empty string or consist of alphanumeric...
+#   This cascade-wedges every fresh Sovereign provision because the
+#   chart never reaches Ready=True.
+#
+# Fix:
+#   Split the cross-namespace reference into two separate, valid
+#   labels — both keys carry the canonical `openova.io/` prefix:
+#     openova.io/continuum-mirror-of-namespace: qa-omantel
+#     openova.io/continuum-mirror-of-name:      cont-omantel
+#   The information is preserved (still queryable via `kubectl get
+#   continuums -A -l openova.io/continuum-mirror-of-namespace=...`
+#   and `...-name=...`) and target-state per OpenOva canonical
+#   pattern (label keys may have `/`, label values never).
+#
+# Per principle 4 / `feedback_inviolable_principles.md` #4 both
+# halves stay values-overridable through `qaFixtures.namespace` and
+# `qaFixtures.continuumName`.
+#
+# Closes/unblocks via fresh chart roll (Fix #119 claimed TCs):
+#   _None directly — infrastructure fix; unblocks bp-catalyst-platform
+#   install on prov #11+ (Continuum/Application/UserAccess CRs no
+#   longer fail label validation)._
+#
 # 1.4.134 (qa-loop iter-1 prefetch Fix #114, qa-fixtures finalizer
 # strip pre-install hook to break the rollback-orphan deadlock):
 #
@@ -888,7 +924,7 @@ name: bp-catalyst-platform
 #   - values.yaml: new knobs `cnpgPairAliasName`,
 #     `cnpgPairPostSwitchoverPrimary`, `continuumPlatformNamespace` —
 #     all values-overridable per INVIOLABLE-PRINCIPLES #4.
-version: 1.4.134
+version: 1.4.135
 appVersion: 1.4.94
 # 1.4.129 (qa-loop iter-16 Fix #65): ship the missing
 # `openova-catalog` Flux v1 HelmRepository in flux-system. The
