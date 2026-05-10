@@ -922,7 +922,7 @@ spec:
             # 403/200 contracts. Per qaFixtures.testSessionEnabled in
             # values.yaml. NEVER enable on customer Sovereigns.
             - name: CATALYST_TEST_SESSION_ENABLED
-              value: {{ if and .Values.qaFixtures .Values.qaFixtures.testSessionEnabled }}"true"{{ else }}""{{ end }}
+              value: {{ and .Values.qaFixtures .Values.qaFixtures.testSessionEnabled | default false | toString | quote }}
           resources:
             requests:
               cpu: 50m
