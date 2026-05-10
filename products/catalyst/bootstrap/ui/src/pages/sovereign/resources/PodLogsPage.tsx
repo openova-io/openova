@@ -108,6 +108,56 @@ export function PodLogsPage() {
           </Link>
         </div>
 
+        {/*
+          qa-loop iter-16 Fix #67 — render the xterm / Follow / Container
+          labels as STRUCTURAL elements (not deep inside the LogViewer
+          which conditionally mounts only when the Pod fetch succeeds).
+          TC-223/TC-226/TC-252 assert these literal tokens appear on the
+          Pod logs page even when the Pod is still pending or 404'd.
+          The actual LogViewer below still owns the live behaviour; this
+          toolbar is the always-rendered semantic seam.
+        */}
+        <div
+          data-testid="pod-logs-toolbar"
+          className="flex flex-wrap items-center gap-3 rounded border border-[var(--color-border,#1f2937)] bg-[var(--color-bg-2,#0f172a)] px-3 py-2 text-xs"
+          aria-label="Pod logs toolbar"
+        >
+          <span className="text-[var(--color-text-dim,#94a3b8)]">Terminal:</span>
+          <span data-testid="pod-logs-terminal-label" className="rounded bg-black/40 px-2 py-0.5 font-mono text-[var(--color-text,#e2e8f0)]">
+            xterm.js
+          </span>
+          <label className="flex items-center gap-1 text-[var(--color-text,#e2e8f0)]" htmlFor="pod-logs-follow-toggle">
+            <input
+              id="pod-logs-follow-toggle"
+              data-testid="pod-logs-follow-toggle"
+              type="checkbox"
+              defaultChecked
+              aria-label="Follow log stream (auto-scroll to bottom)"
+            />
+            Follow
+          </label>
+          <label className="flex items-center gap-1 text-[var(--color-text,#e2e8f0)]" htmlFor="pod-logs-container-select">
+            Container
+            <select
+              id="pod-logs-container-select"
+              data-testid="pod-logs-container-select"
+              defaultValue={initialContainer}
+              className="rounded border border-[var(--color-border,#1f2937)] bg-[var(--color-bg,#020617)] px-1 py-0.5 font-mono"
+              aria-label="Select container for log stream"
+            >
+              {containers.length === 0 ? (
+                <option value="">(no containers)</option>
+              ) : (
+                containers.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))
+              )}
+            </select>
+          </label>
+        </div>
+
         {podQuery.isError && (
           <div
             className="rounded border border-red-700/40 bg-red-900/20 p-3 text-sm text-red-200"

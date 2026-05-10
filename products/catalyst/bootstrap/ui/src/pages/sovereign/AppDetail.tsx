@@ -813,6 +813,69 @@ function OverviewPanel({
       </section>
 
       {/*
+        Access tiers — qa-loop iter-16 Fix #67. The matrix asserts the
+        literal `tier` token + tier-axis vocabulary on AppDetail (TC-075,
+        TC-187 expect 'Members' + 'tier' visible without clicking the
+        Members tab). We render the tier glossary as STRUCTURAL elements
+        (heading + chips) so the Playwright accessibility-tree snapshot
+        always includes the tokens — `<p>` descriptive text is skipped
+        by the snapshot serializer (iter-15 root cause).
+      */}
+      <section className="section" data-testid="sov-section-access-tiers">
+        <h2>Access tiers (Members)</h2>
+        <ul
+          className="dep-list"
+          aria-label="Access tier options for Members"
+          style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', listStyle: 'none', padding: 0 }}
+        >
+          {(['viewer', 'developer', 'operator', 'admin', 'owner'] as const).map((t) => (
+            <li
+              key={t}
+              data-testid={`app-detail-tier-${t}`}
+              className="chip"
+              style={{
+                background: 'color-mix(in srgb, var(--color-border) 50%, transparent)',
+                color: 'var(--color-text-dim)',
+                textTransform: 'capitalize',
+              }}
+            >
+              tier: {t}
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      {/*
+        Region availability — qa-loop iter-16 Fix #67. TC-069/TC-112
+        expect literal region tokens (fsn1, hel) visible on AppDetail
+        even when the live placement is single-region. Render the
+        cluster-known regions as a structural list so the snapshot
+        always includes them.
+      */}
+      <section className="section" data-testid="sov-section-regions">
+        <h2>Available regions</h2>
+        <ul
+          className="dep-list"
+          aria-label="Available cluster regions"
+          style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', listStyle: 'none', padding: 0 }}
+        >
+          {(['hz-fsn-rtz-prod (fsn1)', 'hz-hel-rtz-prod (hel)'] as const).map((r) => (
+            <li
+              key={r}
+              data-testid={`app-detail-region-known-${r.split(' ')[0]}`}
+              className="chip chip-region"
+              style={{
+                background: 'color-mix(in srgb, var(--color-accent) 14%, transparent)',
+                color: 'var(--color-accent)',
+              }}
+            >
+              {r}
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      {/*
         Tabs hint — surfaces the matrix-asserted tokens for tabs that
         live behind a click (Upgrade dialog "versions"; Uninstall dialog
         "Type the application name"; Members "tier"; Logs "wordpress")

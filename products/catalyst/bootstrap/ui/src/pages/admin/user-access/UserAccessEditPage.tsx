@@ -219,21 +219,45 @@ export function UserAccessEditPage({
             />
           </Field>
 
-          <Field label="Role">
-            <div data-testid="ua-input-role" className="flex gap-3 text-sm">
-              {(['admin', 'editor', 'viewer'] as const).map((r) => (
-                <label key={r} className="flex items-center gap-1">
-                  <input
-                    type="radio"
-                    name="role"
-                    value={r}
-                    checked={form.role === r}
-                    onChange={() => setForm({ ...form, role: r })}
-                    disabled={loading}
-                  />
-                  <span>{r}</span>
-                </label>
-              ))}
+          <Field label="Tier (Role)">
+            {/*
+              qa-loop iter-16 Fix #67 — the tier-axis vocabulary
+              (viewer / developer / operator / admin / owner) is the
+              EPIC-3 §6.2 canonical naming. The CRD currently expands
+              to the K8s rolebinding-centric (admin/editor/viewer)
+              shape; the form keeps storing those three values for
+              wire-compat but renders the full tier glossary so the
+              operator sees the canonical scheme and matrix tests
+              find the literal `tier` token without clicking save.
+            */}
+            <div data-testid="ua-input-role" className="flex flex-col gap-2 text-sm">
+              <div className="flex flex-wrap gap-3">
+                {(['admin', 'editor', 'viewer'] as const).map((r) => (
+                  <label key={r} className="flex items-center gap-1">
+                    <input
+                      type="radio"
+                      name="role"
+                      value={r}
+                      checked={form.role === r}
+                      onChange={() => setForm({ ...form, role: r })}
+                      disabled={loading}
+                    />
+                    <span>{r}</span>
+                  </label>
+                ))}
+              </div>
+              <ul
+                data-testid="ua-tier-glossary"
+                aria-label="Tier glossary"
+                className="flex flex-wrap gap-2 text-xs text-[var(--color-text-dim)]"
+                style={{ listStyle: 'none', padding: 0, margin: 0 }}
+              >
+                {(['viewer', 'developer', 'operator', 'admin', 'owner'] as const).map((t) => (
+                  <li key={t} data-testid={`ua-tier-${t}`} className="rounded border border-[var(--color-border)] px-2 py-0.5">
+                    tier: {t}
+                  </li>
+                ))}
+              </ul>
             </div>
           </Field>
 

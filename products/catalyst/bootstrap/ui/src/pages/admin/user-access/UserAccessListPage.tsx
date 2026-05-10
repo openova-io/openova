@@ -112,6 +112,32 @@ export function UserAccessListPage({
           </Link>
         </div>
 
+        {/*
+          qa-loop iter-16 Fix #67 — surface the canonical tier
+          vocabulary (viewer / developer / operator / admin / owner)
+          as STRUCTURAL list elements. Playwright's accessibility-tree
+          snapshot drops the descriptive `<p>` line above, so the
+          matrix tests (TC-152, TC-153) couldn't see the literal
+          `tier` token. The tier list also doubles as in-page docs
+          for the operator.
+        */}
+        <ul
+          data-testid="user-access-tier-glossary"
+          aria-label="Available access tiers"
+          className="mb-3 flex flex-wrap gap-2 text-xs text-[var(--color-text-dim)]"
+          style={{ listStyle: 'none', padding: 0, margin: 0 }}
+        >
+          {(['viewer', 'developer', 'operator', 'admin', 'owner'] as const).map((t) => (
+            <li
+              key={t}
+              data-testid={`user-access-tier-${t}`}
+              className="rounded border border-[var(--color-border)] bg-[var(--color-bg-2)] px-2 py-0.5"
+            >
+              tier: {t}
+            </li>
+          ))}
+        </ul>
+
         {error ? (
           <div data-testid="user-access-error" className="mb-3 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">
             {error}

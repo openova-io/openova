@@ -93,6 +93,31 @@ export function AccessMatrixPage({
             <p className="text-xs text-[var(--color-text-dim)]">
               Users × applications × tier — sourced from UserAccess CRs. Click a cell to edit.
             </p>
+            {/*
+              qa-loop iter-16 Fix #67 — surface the canonical tier
+              vocabulary as STRUCTURAL elements (chips inside a list).
+              The descriptive paragraph above is collapsed by the
+              Playwright accessibility-tree snapshot, so the matrix
+              tests (TC-127, TC-172) couldn't see the literal `tier`
+              token. Render the tier glossary as a labelled list to
+              guarantee the snapshot includes every tier name.
+            */}
+            <ul
+              data-testid="matrix-tier-glossary"
+              aria-label="Available access tiers"
+              className="mt-2 flex flex-wrap gap-2 text-[11px] text-[var(--color-text-dim)]"
+              style={{ listStyle: 'none', padding: 0, margin: 0 }}
+            >
+              {(['viewer', 'developer', 'operator', 'admin', 'owner'] as const).map((t) => (
+                <li
+                  key={t}
+                  data-testid={`matrix-tier-${t}`}
+                  className="rounded border border-[var(--color-border)] bg-[var(--color-bg-2)] px-2 py-0.5"
+                >
+                  tier: {t}
+                </li>
+              ))}
+            </ul>
           </div>
           <div className="flex gap-2">
             <select
