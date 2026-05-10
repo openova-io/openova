@@ -86,7 +86,7 @@ name: bp-newapi
 # Issue #915 (epic SME tenant integration DoD: alice → OpenClaw →
 # NewAPI → Qwen3.6@BankDhofar end-to-end).
 # 1.2.0: Traefik Middleware gated behind ingress.middleware.enabled.
-version: 1.4.2
+version: 1.4.3
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
@@ -117,7 +117,6 @@ keywords: [catalyst, blueprint, newapi, llm, gateway, marketplace, multi-tenant,
 maintainers:
   - name: OpenOva Catalyst
     email: catalyst@openova.io
-
 # Scratch chart — see comments in bp-librechat/chart/Chart.yaml for the
 # rationale on the `common` library subchart dependency (issue #181
 # hollow-chart gate).

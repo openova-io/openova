@@ -9,12 +9,11 @@
 
 catalystBlueprint:
   upstream:
-    chart: ""              # scratch chart — no upstream Helm chart
+    chart: "" # scratch chart — no upstream Helm chart
     version: ""
     repo: ""
     images:
       newapi: "ghcr.io/openova-io/openova/newapi-mirror"
-
 # ─── Image pull secrets (issue #952) ─────────────────────────────────────
 # Both the NewAPI mirror image and the metering sidecar live in PRIVATE
 # ghcr.io/openova-io/openova/* repositories. Without an imagePullSecret
@@ -32,7 +31,6 @@ catalystBlueprint:
 # overlays (set to `[]` for clusters that pull from public repos only).
 imagePullSecrets:
   - name: ghcr-pull
-
 # ─── NewAPI application ──────────────────────────────────────────────────
 newapi:
   enabled: true
@@ -40,7 +38,6 @@ newapi:
   # to 2+ once HA is needed (NewAPI is stateless once Postgres + Valkey
   # carry the persistent state).
   replicas: 1
-
   # Pin upstream image — DO NOT use floating tags per
   # docs/INVIOLABLE-PRINCIPLES.md #4. The chart references a
   # GHCR-mirrored image (operator's GHCR or OpenOva's mirror namespace)
@@ -65,10 +62,8 @@ newapi:
     repository: ghcr.io/openova-io/openova/newapi-mirror
     tag: "v0.13.2"
     pullPolicy: IfNotPresent
-
   # NewAPI HTTP listener — port 3000 is the upstream default.
   port: 3000
-
   resources:
     requests:
       cpu: 100m
@@ -76,7 +71,6 @@ newapi:
     limits:
       cpu: 2
       memory: 1Gi
-
   # SecurityContext — non-root.
   securityContext:
     runAsNonRoot: true
@@ -85,7 +79,6 @@ newapi:
     allowPrivilegeEscalation: false
     capabilities:
       drop: ["ALL"]
-
   # Liveness / readiness — NewAPI exposes /api/status (verified via
   # upstream code path controller/misc.go:GetStatus).
   probes:
@@ -103,7 +96,6 @@ newapi:
       periodSeconds: 10
       timeoutSeconds: 5
       failureThreshold: 3
-
 # ─── Postgres backend (bp-cnpg) ──────────────────────────────────────────
 # NewAPI persists users, credits, channels, tokens, audit log to
 # Postgres. Catalyst routes this to a managed Postgres provisioned via a
@@ -119,9 +111,8 @@ database:
   # the chart-emitted DSN Secret. Operator may still set this to
   # bypass auto-provision and wire NewAPI at an external Postgres
   # (the contabo path historically did this via Crossplane).
-  existingSecret: ""              # operator-supplied (e.g. "newapi-db-dsn")
+  existingSecret: "" # operator-supplied (e.g. "newapi-db-dsn")
   existingSecretKey: "SQL_DSN"
-
 # ─── CNPG-backed auto-provisioned Postgres (issue #943) ──────────────────
 # When enabled (DEFAULT true), the chart renders templates/cnpg-cluster.yaml:
 #   - postgresql.cnpg.io/v1.Cluster `<release>-newapi-pg`
@@ -148,7 +139,7 @@ cnpg:
     instances: 1
     imageName: "ghcr.io/cloudnative-pg/postgresql:16.4"
     storage: "5Gi"
-    storageClassName: ""          # empty ⇒ default StorageClass
+    storageClassName: "" # empty ⇒ default StorageClass
     owner: "newapi"
     # Optional bootstrap SQL — empty by default. Operators may add
     # CREATE EXTENSION / additional databases here without forking
@@ -161,7 +152,6 @@ cnpg:
       limits:
         cpu: 500m
         memory: 512Mi
-
 # ─── Valkey cache (bp-valkey) ────────────────────────────────────────────
 # Session store and rate-limit counters. Optional but recommended
 # (NewAPI falls back to in-memory; in-memory loses state on restart).
@@ -170,9 +160,8 @@ valkey:
   url: "redis://valkey.valkey.svc.cluster.local:6379"
   # If the operator's Valkey requires auth, supply via ExternalSecret.
   # Required key: REDIS_CONN_STRING (full URL with credentials).
-  existingSecret: ""              # e.g. "newapi-valkey-conn"
+  existingSecret: "" # e.g. "newapi-valkey-conn"
   existingSecretKey: "REDIS_CONN_STRING"
-
 # ─── App credentials (NewAPI-internal) ───────────────────────────────────
 # SESSION_SECRET (random 32+ bytes) and CRYPTO_SECRET (random 32+ bytes)
 # are NewAPI-internal cryptographic material.
@@ -190,38 +179,35 @@ valkey:
 # `existingSecret` — when non-empty it takes precedence and the chart-
 # emitted Secret is NOT rendered.
 credentials:
-  existingSecret: ""              # operator-supplied (e.g. "newapi-app-creds")
+  existingSecret: "" # operator-supplied (e.g. "newapi-app-creds")
   autoProvision: true
   # Override the auto-emitted credentials Secret name. Default empty
   # ⇒ derived from release name (`<release>-app-creds`).
   autoSecretName: ""
-
 # ─── Auth: ops-staff admin UI ────────────────────────────────────────────
 # The admin UI at admin.<host> is gated by the operator's IdP. Default
 # mode is `keycloak` (OIDC against bp-keycloak). `masterKey` is allowed
 # only for bootstrap-time access before Keycloak realm is ready.
 auth:
   adminUI:
-    mode: "keycloak"              # keycloak | masterKey
+    mode: "keycloak" # keycloak | masterKey
     keycloak:
-      issuer: ""                  # operator-supplied (e.g. "https://keycloak.<sovereign>/realms/ops")
+      issuer: "" # operator-supplied (e.g. "https://keycloak.<sovereign>/realms/ops")
       clientId: "newapi-admin"
       callbackPath: "/oauth/callback"
       # ExternalSecret carrying client_secret. Required key:
       # OIDC_CLIENT_SECRET.
-      existingSecret: ""          # e.g. "newapi-oidc"
+      existingSecret: "" # e.g. "newapi-oidc"
     # Bootstrap-only master key. Set via ExternalSecret. Required key:
     # MASTER_KEY. The blueprint's smoke test ASSERTS this is unset on
     # production overlays.
     masterKeySecret: ""
-
   customerAPI:
     # `catalyst` (DEFAULT): customer-facing portal UI is disabled at
     # ingress. Catalyst issues per-user keys via NewAPI's admin API.
     # `self-serve`: customer-facing portal is enabled (NOT recommended
     # in Catalyst Sovereigns).
     keyIssuer: "catalyst"
-
 # ─── Channels ────────────────────────────────────────────────────────────
 # Operator-defined LLM provider channels. Every channel MUST carry a
 # verifiable `attestation` block; render fails with a helpful error if
@@ -252,7 +238,6 @@ auth:
 #     attestation:
 #       kind: byok
 channels: []
-
 # First-otech default vLLM channel. Disabled by default — opt-in per
 # Sovereign via the bootstrap-kit overlay (slot 80-newapi.yaml). When
 # `enabled: true` AND `endpoint != ""`, the chart composes a `vllm`-typed
@@ -291,7 +276,6 @@ defaultChannels:
     attestation:
       kind: "in-cluster"
       owner: ""
-
   # ─── Qwen3.6 @ BankDhofar (canonical first channel — issue #915) ─────
   # First-class default channel: Qwen3.6 hosted at BankDhofar
   # (`https://llm-api.omtd.bankdhofar.com`, model `qwen3-coder` / alias
@@ -359,7 +343,6 @@ defaultChannels:
       kind: "commercial-contract"
       accountId: ""
       contractRef: ""
-
 # ─── Channel-seed Job (issue #915) ───────────────────────────────────────
 # Post-install / post-upgrade Helm hook Job that POSTs default channels
 # (currently `defaultChannels.qwenBankDhofar`) into NewAPI's admin API
@@ -409,7 +392,6 @@ channelSeed:
   # is generous for a single-channel seed loop that retries through
   # NewAPI's startup window.
   activeDeadlineSeconds: 300
-
 # ─── Geographic AUP enforcement ──────────────────────────────────────────
 # Blocks requests from sanctioned regions on commercial-provider
 # channels. US/EU export-control baseline by default. Operator extends
@@ -425,11 +407,9 @@ geo:
       - CU
       - "RU-occupied-UA"
     allowRelaxation: false
-
 # ─── Provider AUP enforcement ────────────────────────────────────────────
 aup:
-  enforcement: "provider-strictest"  # provider-strictest | per-channel | off
-
+  enforcement: "provider-strictest" # provider-strictest | per-channel | off
 # ─── Audit log ───────────────────────────────────────────────────────────
 audit:
   enabled: true
@@ -437,15 +417,12 @@ audit:
   # Default false — metadata only. Operator may opt in per privacy
   # posture; MUST be disclosed in customer ToS if enabled.
   logPromptContent: false
-
 # ─── BYOK ────────────────────────────────────────────────────────────────
 byok:
-  scope: "request-scoped"          # request-scoped | never
-
+  scope: "request-scoped" # request-scoped | never
 # ─── Reseller disclosure ─────────────────────────────────────────────────
 reseller:
   disclosureRequired: true
-
 # ─── Catalyst integration ───────────────────────────────────────────────
 # When enabled, the chart provisions a Kubernetes secret
 # `catalyst-newapi-admin-token` consumed by Catalyst's signup hook to
@@ -463,7 +440,6 @@ catalystIntegration:
   # the operator on a schedule documented in
   # docs/CATALYST-CLI-AGENT.md.
   existingSecret: "catalyst-newapi-admin-token"
-
   # ExternalSecret render — gated, default true. Sources the admin token
   # from the operator's OpenBao via a ClusterSecretStore (default
   # `vault-region1`, the bp-external-secrets-stores default). The remote
@@ -494,18 +470,15 @@ catalystIntegration:
       # `property` is the JSON field inside the OpenBao secret holding
       # the bearer token used by the Catalyst signup hook (ADR-0003 §3.2).
       property: "ADMIN_API_TOKEN"
-
 # ─── Service ─────────────────────────────────────────────────────────────
 service:
   type: ClusterIP
   port: 3000
   targetPort: 3000
-
 # ─── ServiceAccount ──────────────────────────────────────────────────────
 serviceAccount:
   create: true
   name: ""
-
 # ─── Ingress + cert-manager TLS ──────────────────────────────────────────
 # Two virtual hosts:
 #   - `host`      : customer-facing OpenAI-compatible API at /v1/*
@@ -517,11 +490,11 @@ serviceAccount:
 ingress:
   enabled: true
   className: "traefik"
-  host: ""                        # operator-supplied (e.g. api.<sovereign-fqdn>)
-  adminHost: ""                   # operator-supplied (e.g. admin.<sovereign-fqdn>)
+  host: "" # operator-supplied (e.g. api.<sovereign-fqdn>)
+  adminHost: "" # operator-supplied (e.g. admin.<sovereign-fqdn>)
   tls:
     enabled: true
-    issuer: "letsencrypt-prod"    # cert-manager ClusterIssuer
+    issuer: "letsencrypt-prod" # cert-manager ClusterIssuer
     apiSecretName: "newapi-api-tls"
     adminSecretName: "newapi-admin-tls"
   # Path allowlist for the customer-facing host. Anything not on this
@@ -539,7 +512,6 @@ ingress:
   middleware:
     enabled: false
   annotations: {}
-
 # ─── NetworkPolicy ───────────────────────────────────────────────────────
 # Default-allow ingress from the platform's gateway namespace; egress
 # to Postgres, Valkey, Keycloak, in-cluster vLLM, DNS, and the operator-
@@ -563,7 +535,6 @@ networkPolicy:
     # bp-vllm (in-cluster cheap-tier channel)
     - namespaceLabel: vllm
       port: 8000
-
 # ─── ServiceMonitor ──────────────────────────────────────────────────────
 # Default false per docs/BLUEPRINT-AUTHORING.md §11.2 (Observability
 # toggles must default false). Operator opts in via per-cluster overlay
@@ -574,7 +545,6 @@ serviceMonitor:
   scrapeTimeout: "10s"
   path: "/metrics"
   labels: {}
-
 # ─── HorizontalPodAutoscaler ─────────────────────────────────────────────
 # Default false. Multi-tenant Sovereigns enable HPA via the per-cluster
 # overlay once kube-prometheus-stack + metrics-server reconcile.
@@ -584,7 +554,6 @@ hpa:
   maxReplicas: 8
   targetCPUUtilizationPercentage: 70
   targetMemoryUtilizationPercentage: 80
-
 # ─── Metering sidecar (#798) ─────────────────────────────────────────────
 # Per-pod sidecar that:
 #   1. Front-ends NewAPI as a transparent reverse proxy on its own port.
@@ -610,32 +579,27 @@ hpa:
 # channel carries its own out-of-band ledger).
 meteringSidecar:
   enabled: true
-
   image:
     # services-build CI publishes this image alongside the SME services
     # on every push to core/services/metering-sidecar/**.
     repository: ghcr.io/openova-io/openova/services-metering-sidecar
     tag: "latest"
     pullPolicy: IfNotPresent
-
   # The sidecar listens on this port; the Service routes traffic
   # (port 3000) → sidecar → newapi:3000-on-127.0.0.1. We expose the
   # sidecar at the same external port (3000) and have it forward
   # locally to NewAPI on a per-pod loopback address.
   port: 8086
-
   # Per-token price in micro-OMR. 1 OMR = 1,000,000 micro-OMR;
   # priceMicroOMRPerToken=156 means each token costs 0.000156 OMR
   # (~ 0.156 baisa per token). Operator overlays per region/channel.
   priceMicroOMRPerToken: 156
-
   # NATS broker URL. Empty → in-cluster default
   # (`nats://nats-jetstream.nats-system.svc.cluster.local:4222`). Per
   # docs/INVIOLABLE-PRINCIPLES.md #4 the sidecar accepts an explicit
   # override for cross-namespace or external-broker deployments.
   natsURL: ""
   natsPublishTimeout: "5s"
-
   # Spool directory for envelopes generated during a NATS outage. The
   # sidecar's background drain loop republishes once NATS recovers, so
   # persistence across pod restarts is unnecessary; an emptyDir is the
@@ -643,13 +607,11 @@ meteringSidecar:
   # the rare occasion it happens, NewAPI's own ledger backstops
   # reconciliation per #795 [Q-mine-4]).
   spoolDir: "/var/lib/metering-sidecar/spool"
-
   # HTTP header names the proxy reads for customer + tenant
   # identification. The cluster ingress / NewAPI's customer-API admin
   # layer is expected to inject these on every authenticated request.
   customerIDHeader: "X-Customer-Id"
-  tenantIDHeader:   "X-Tenant-Id"
-
+  tenantIDHeader: "X-Tenant-Id"
   resources:
     requests:
       cpu: 25m
@@ -657,7 +619,6 @@ meteringSidecar:
     limits:
       cpu: 500m
       memory: 256Mi
-
   securityContext:
     runAsNonRoot: true
     runAsUser: 65534
