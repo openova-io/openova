@@ -1,5 +1,19 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.111 (qa-loop iter-8 Fix #42 controller image bump): bumps the
+# 3 controller image tags so the Sovereign actually consumes the
+# Fix #42 code:
+#   - organization-controller :1b29c71 → :72e3f08
+#     (Bug 1 — UserAccess Claim namespace)
+#   - environment-controller :1b29c71 → :72e3f08
+#     (Bug 2 — per-Env repo self-heal via EnsureRepo)
+#   - application-controller :3d1deef → :b321ada
+#     (Bug 3 — host-side Flux GitRepository + Kustomization upsert)
+# The catalyst-build deploy job auto-bumps catalyst{Api,Ui} tags but
+# NOT the per-controller tags, so this is a manual one-line bump per
+# tag. Once 1.4.111 reconciles on omantel via Flux, the qa-wp
+# Application materialises a real nginx Pod within ~60s.
+#
 # 1.4.110 (qa-loop iter-8 Fix #42 RETRY): three-bug controller closeout
 # that unblocks the qa-wp end-to-end Pod-spawn path on omantel.
 #
@@ -388,7 +402,7 @@ name: bp-catalyst-platform
 #     so the matrix's `kubectl get cnpgpair` stdout contains the literal
 #     "cnpgpair" substring TC-306 asserts on (envsubst override beat the
 #     chart values default fixed in PR #1247).
-version: 1.4.110
+version: 1.4.111
 appVersion: 1.4.94
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
