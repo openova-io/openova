@@ -90,6 +90,42 @@ func FilterByLabel(key, value string) string {
 	return key + "=" + value
 }
 
+// validateSovereignFQDNForPurge guards Purge against the
+// dash-converted-FQDN regression vector that left omantel.biz prov #9
+// (otech133, 2026-05-10) with surviving Hetzner servers after wipe
+// reported "tofuDestroyed:false". The bug class: a caller passes the
+// workdir-style dash form (`omantel-biz`) into Purge instead of the
+// FQDN dot form (`omantel.biz`). The Hetzner label_selector then
+// queries `catalyst.openova.io/sovereign=omantel-biz` while the
+// OpenTofu module at infra/hetzner/main.tf stamps
+// `catalyst.openova.io/sovereign=omantel.biz` on every resource — so
+// List returns 0 matches, the orphan-purge silently no-ops, and the
+// next provision attempt collides with surviving infra.
+//
+// Every legitimate Sovereign FQDN contains at least one dot
+// (`omantel.biz`, `acme.omani.works`, `tenant.openova.io`). A caller
+// passing a dotless string is necessarily wrong — either the
+// dash-converted workdir name leaked across the seam (provisioner.go's
+// Request.sovereignName() form, or handler/wipe.go's
+// deploymentSovereignName()), or the value was never normalised. Refuse
+// loudly so the wipe handler surfaces the error in the SSE log instead
+// of silently running a no-op orphan sweep that returns
+// "tofuDestroyed:false; 0 resources purged" and hands a ghost cluster
+// back to the operator. Fix #120 (Fix #117 secondary).
+func validateSovereignFQDNForPurge(sovereignFQDN string) error {
+	trimmed := strings.TrimSpace(sovereignFQDN)
+	if trimmed == "" {
+		return fmt.Errorf("sovereign fqdn is empty")
+	}
+	if !strings.Contains(trimmed, ".") {
+		return fmt.Errorf("sovereign fqdn %q is not a fully-qualified domain (no dot) — "+
+			"refusing to query Hetzner with a dash-converted workdir name; "+
+			"caller must pass the FQDN form (e.g. \"omantel.biz\"), not the "+
+			"workdir form (e.g. \"omantel-biz\"). See Fix #120, otech133 incident", trimmed)
+	}
+	return nil
+}
+
 // NamePrefixForSovereign returns the deterministic Hetzner-resource name
 // prefix that the OpenTofu module at infra/hetzner/main.tf uses for every
 // resource it provisions for the given Sovereign FQDN. Pattern:
@@ -133,8 +169,8 @@ func Purge(ctx context.Context, token, sovereignFQDN string, progress func(msg s
 	if strings.TrimSpace(token) == "" {
 		return report, fmt.Errorf("hetzner token is empty")
 	}
-	if strings.TrimSpace(sovereignFQDN) == "" {
-		return report, fmt.Errorf("sovereign fqdn is empty")
+	if err := validateSovereignFQDNForPurge(sovereignFQDN); err != nil {
+		return report, err
 	}
 
 	labelSelector := FilterByLabel(PurgeLabelKey, sovereignFQDN)
