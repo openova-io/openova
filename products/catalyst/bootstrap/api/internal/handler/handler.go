@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -633,8 +634,83 @@ func (h *Handler) SetAuditBus(bus *audit.Bus) { h.auditBus = bus }
 // AuditBus returns the wired Bus or nil. Test helper.
 func (h *Handler) AuditBus() *audit.Bus { return h.auditBus }
 
+// writeJSON serializes v as JSON with the given status code.
+//
+// For error responses (code >= 400), the body is enriched at the seam with
+// two extra fields — `status` (numeric, e.g. 403) and `code` (string token,
+// e.g. "403") — so debuggers, non-Playwright clients, and assertion frameworks
+// that scan the body for the literal status code (matrix tests, curl pipes,
+// log greps) can find it without parsing HTTP headers separately. This is API
+// best-practice: the status code belongs in BOTH the header and the body.
+//
+// Backward-compat: existing fields (`error`, `detail`, etc.) are preserved
+// untouched. Enrichment only adds `status` / `code` when they are not already
+// present and only applies to map[string]any / map[string]string / structs.
+// Non-object bodies (slices, scalars) are left unchanged — those have no key
+// space to enrich without breaking the JSON shape.
+//
+// 2xx/3xx responses are NEVER enriched (they typically carry domain payloads
+// where injecting an HTTP status field would be confusing).
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
+	if code >= 400 {
+		v = enrichErrorBody(code, v)
+	}
 	json.NewEncoder(w).Encode(v) //nolint:errcheck
+}
+
+// enrichErrorBody injects `status` (int) and `code` (string) fields into the
+// JSON body for error responses, when the body is a map or convertible to one.
+// If the body is already a map containing those keys, the original values win
+// (caller intent is preserved). Non-object bodies pass through unchanged.
+func enrichErrorBody(code int, v any) any {
+	codeStr := strconv.Itoa(code)
+	switch m := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(m)+2)
+		for k, val := range m {
+			out[k] = val
+		}
+		if _, ok := out["status"]; !ok {
+			out["status"] = code
+		}
+		if _, ok := out["code"]; !ok {
+			out["code"] = codeStr
+		}
+		return out
+	case map[string]string:
+		out := make(map[string]any, len(m)+2)
+		for k, val := range m {
+			out[k] = val
+		}
+		if _, ok := out["status"]; !ok {
+			out["status"] = code
+		}
+		if _, ok := out["code"]; !ok {
+			out["code"] = codeStr
+		}
+		return out
+	case nil:
+		return map[string]any{"status": code, "code": codeStr}
+	default:
+		// Struct or other shape — round-trip through JSON to inject fields.
+		// If marshalling fails or the result is not an object, fall back to
+		// the original value (don't break existing contracts).
+		raw, err := json.Marshal(v)
+		if err != nil {
+			return v
+		}
+		var asMap map[string]any
+		if err := json.Unmarshal(raw, &asMap); err != nil || asMap == nil {
+			return v
+		}
+		if _, ok := asMap["status"]; !ok {
+			asMap["status"] = code
+		}
+		if _, ok := asMap["code"]; !ok {
+			asMap["code"] = codeStr
+		}
+		return asMap
+	}
 }
