@@ -834,10 +834,18 @@ func TestReconcile_HostFluxBootstrap_CreatesGitRepoAndKustomization(t *testing.T
 	if branch != "main" {
 		t.Errorf("GitRepository.spec.ref.branch = %q, want %q (envType=prod → branch=main)", branch, "main")
 	}
-	// Owner ref points back at the Application.
-	owners := gr.GetOwnerReferences()
-	if len(owners) != 1 || owners[0].Name != "site" || owners[0].Kind != "Application" {
-		t.Errorf("GitRepository ownerRefs = %+v, want exactly 1 ref to Application/site", owners)
+	// NO ownerRef — cross-namespace ownerRefs would trigger the K8s GC
+	// to immediately delete the GitRepository (Application is in
+	// `acme`, GitRepository is in `flux-system`). Cross-namespace lookup
+	// is treated as missing-owner. Cleanup is via labels +
+	// handleDeletion.
+	if owners := gr.GetOwnerReferences(); len(owners) != 0 {
+		t.Errorf("GitRepository must NOT carry ownerRefs (cross-namespace GC); got %+v", owners)
+	}
+	// Cascade-delete reference labels.
+	gotAppNS, _, _ := unstructured.NestedString(gr.Object, "metadata", "labels", "catalyst.openova.io/app-namespace")
+	if gotAppNS != "acme" {
+		t.Errorf("GitRepository missing catalyst.openova.io/app-namespace label = %q, want %q", gotAppNS, "acme")
 	}
 
 	// Kustomization assertion.
@@ -868,9 +876,12 @@ func TestReconcile_HostFluxBootstrap_CreatesGitRepoAndKustomization(t *testing.T
 	if targetNS != "acme" {
 		t.Errorf("Kustomization.spec.targetNamespace = %q, want %q (the Application's namespace)", targetNS, "acme")
 	}
-	ksOwners := ks.GetOwnerReferences()
-	if len(ksOwners) != 1 || ksOwners[0].Name != "site" {
-		t.Errorf("Kustomization ownerRefs = %+v, want exactly 1 ref to Application/site", ksOwners)
+	if ksOwners := ks.GetOwnerReferences(); len(ksOwners) != 0 {
+		t.Errorf("Kustomization must NOT carry ownerRefs (cross-namespace GC); got %+v", ksOwners)
+	}
+	gotKsAppNS, _, _ := unstructured.NestedString(ks.Object, "metadata", "labels", "catalyst.openova.io/app-namespace")
+	if gotKsAppNS != "acme" {
+		t.Errorf("Kustomization missing catalyst.openova.io/app-namespace label = %q, want %q", gotKsAppNS, "acme")
 	}
 }
 

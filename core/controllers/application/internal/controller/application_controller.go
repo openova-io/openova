@@ -661,22 +661,33 @@ func (r *Reconciler) ensureHostFluxBootstrap(
 		envSpec.OrganizationRef,
 		app.GetName())
 
-	ownerRefs := []interface{}{
-		map[string]interface{}{
-			"apiVersion":         app.GetAPIVersion(),
-			"kind":               app.GetKind(),
-			"name":               app.GetName(),
-			"uid":                string(app.GetUID()),
-			"controller":         true,
-			"blockOwnerDeletion": true,
-		},
-	}
-
+	// IMPORTANT: NO ownerReferences here.
+	//
+	// K8s ownerRefs only resolve INSIDE the same namespace (when both
+	// owner and dependent are namespaced) — the K8s garbage collector
+	// hard-deletes any dependent whose owner it cannot find in the
+	// SAME namespace. The Application CR lives in
+	// `app.GetNamespace()` (e.g. `qa-omantel`) but the GitRepository +
+	// Kustomization live in `flux-system`. With ownerRef pointing at a
+	// namespaced owner in a different namespace, the GC silently
+	// deletes the GitRepository the moment it's created — the
+	// controller log says "ensured" but `kubectl get` shows nothing.
+	// First version of Fix #42 hit this exact bug live on omantel.
+	//
+	// Cleanup on Application delete is handled by handleDeletion()
+	// which deletes the Gitea-side files; Flux then GCs the workload
+	// via prune=true on the Kustomization. The host-cluster Flux CRs
+	// themselves are removed by an explicit Delete call in
+	// handleDeletion (separate Fix #42 follow-up — TODO).
 	commonLabels := map[string]interface{}{
-		"app.kubernetes.io/managed-by":     "application-controller",
-		"catalyst.openova.io/application":  app.GetName(),
-		"catalyst.openova.io/organization": envSpec.OrganizationRef,
-		"catalyst.openova.io/env-type":     envSpec.EnvType,
+		"app.kubernetes.io/managed-by":         "application-controller",
+		"catalyst.openova.io/application":      app.GetName(),
+		"catalyst.openova.io/organization":     envSpec.OrganizationRef,
+		"catalyst.openova.io/env-type":         envSpec.EnvType,
+		// Reference labels for cascade-delete (replaces ownerRef which
+		// can't span namespaces). handleDeletion() looks these up.
+		"catalyst.openova.io/app-namespace":    app.GetNamespace(),
+		"catalyst.openova.io/app-uid":          string(app.GetUID()),
 	}
 
 	// --- GitRepository ---
@@ -685,9 +696,7 @@ func (r *Reconciler) ensureHostFluxBootstrap(
 	gr.SetKind("GitRepository")
 	gr.SetNamespace(ns)
 	gr.SetName(repoName)
-	if err := unstructured.SetNestedSlice(gr.Object, ownerRefs, "metadata", "ownerReferences"); err != nil {
-		return fmt.Errorf("set GitRepository ownerReferences: %w", err)
-	}
+	// NO ownerRef — see top-of-function note about cross-namespace GC.
 	if err := unstructured.SetNestedMap(gr.Object, commonLabels, "metadata", "labels"); err != nil {
 		return fmt.Errorf("set GitRepository labels: %w", err)
 	}
@@ -722,9 +731,7 @@ func (r *Reconciler) ensureHostFluxBootstrap(
 		ks.SetKind("Kustomization")
 		ks.SetNamespace(ns)
 		ks.SetName(ksName)
-		if err := unstructured.SetNestedSlice(ks.Object, ownerRefs, "metadata", "ownerReferences"); err != nil {
-			return fmt.Errorf("set Kustomization ownerReferences: %w", err)
-		}
+		// NO ownerRef — see top-of-function note about cross-namespace GC.
 		labels := map[string]interface{}{}
 		for k, v := range commonLabels {
 			labels[k] = v
