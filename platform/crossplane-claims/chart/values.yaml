@@ -26,13 +26,56 @@ catalystBlueprint:
   upstream: null
 
 # Sovereign IAM access plane (epic #320). Renders the
-# access.openova.io/v1alpha1 XUserAccess XRD, its Composition, and the
-# three canonical openova:application-{admin,editor,viewer} ClusterRoles
-# that the Composition's RoleBindings reference. Default-on; toggle-off
+# access.openova.io/v1alpha1 XUserAccess XRD and the three canonical
+# openova:application-{admin,editor,viewer} ClusterRoles that the
+# legacy Composition's RoleBindings reference. Default-on; toggle-off
 # is reserved for the rare case where a Sovereign uses an external IAM
 # stack and does not consume the Catalyst access plane.
+#
+# IMPORTANT: the XRD MUST stay enabled because it owns the
+# `useraccesses.access.openova.io` CRD that the catalyst-useraccess-controller
+# (products/catalyst/chart/templates/controllers/useraccess-controller-*)
+# watches as its primary resource. Removing the XRD would un-register
+# the CRD and silence the controller.
+#
+# The legacy Composition path (`compositionEnabled`) is now retired by
+# default — see the long-form note on `compositionEnabled` below.
 userAccess:
   enabled: true
+
+  # Legacy Crossplane Composition path for XUserAccess (qa-loop iter-16
+  # Fix #71 — superseded by catalyst-useraccess-controller).
+  #
+  # ROOT CAUSE FROM LIVE: with `compositionEnabled: true` the Crossplane
+  # composite controller fights the catalyst-useraccess-controller over
+  # status on every UserAccess CR — both write `.status.conditions[]`
+  # (Ready/Synced) and the composite controller's last-write wins.
+  # Composite controller writes `Ready=False` because:
+  #   1) provider-kubernetes is NOT installed on production Sovereigns
+  #      (only provider-hcloud ships in clusters/<sovereign>/infrastructure/),
+  #      so the Composition's Object resource has no ProviderConfig kind
+  #      to land against;
+  #   2) post-EPIC-3 (#1098) UserAccess CRs are authored with
+  #      `tierRoleRef`+`scopes[]` and NO `applications[]` — the legacy
+  #      Composition only patches `spec.applications[0]` and emits an
+  #      Object with empty roleRef/namespace/subjects.
+  #
+  # The controller (catalyst-useraccess-controller) is the canonical
+  # day-2 path per the deployment-template header
+  # (products/catalyst/chart/templates/controllers/useraccess-controller-deployment.yaml
+  # lines 11-16): "Operators MUST disable the Crossplane path (delete the
+  # UserAccess Composition) BEFORE flipping `useraccess.enabled=true`".
+  # That cutover is now baked into chart defaults: the controller is
+  # `enabled: true` in products/catalyst/chart/values.yaml, and this
+  # gate ships `false` so the legacy Composition is never installed.
+  #
+  # Setting this to `true` is reserved for a Sovereign that genuinely
+  # cannot run the controller (e.g. air-gapped image-pull lockdown
+  # without the GHCR controller image cached) — and even then the
+  # operator MUST also install provider-kubernetes via
+  # clusters/<sovereign>/infrastructure/provider-kubernetes.yaml +
+  # ProviderConfig before flipping this on.
+  compositionEnabled: false
 
 # 5-tier catalog system (EPIC-3 #1098, slice T1). Renders 5 ClusterRoles
 # `openova:tier-{viewer,developer,operator,admin,owner}` that the
