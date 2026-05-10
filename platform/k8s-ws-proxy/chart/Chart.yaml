@@ -39,7 +39,7 @@ name: bp-k8s-ws-proxy
 # proxy.yaml's promote job will auto-bump to 0.1.9 with the new image
 # SHA on merge; bootstrap-kit slot pins should be lifted to 0.1.9 once
 # that promote runs.
-version: 0.1.8
+version: 0.1.9
 appVersion: "0.1.0"
 description: |
   Catalyst-authored Blueprint chart for the k8s-ws-proxy DaemonSet —
