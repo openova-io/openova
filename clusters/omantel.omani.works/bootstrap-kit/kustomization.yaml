@@ -46,3 +46,8 @@ resources:
   # cross-Sovereign canonical comment.
   - 51-bp-k8s-ws-proxy.yaml
   - 52-bp-guacamole.yaml
+  # qa-loop iter-12 Fix #53C — EPIC-5 leftovers (NetBird zero-trust mesh
+  # + DMZ vCluster isolation). Slots 53/54. Hubble UI ingress is enabled
+  # via the catalystOverlay block in 01-cilium.yaml (no separate slot).
+  - 53-bp-netbird.yaml
+  - 54-bp-dmz-vcluster.yaml

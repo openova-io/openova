@@ -503,6 +503,44 @@ spec:
                   name: catalyst-kc-sa-credentials
                   key: client-secret
                   optional: true
+            # ── Gitea client (qa-loop iter-12 Fix #53B) ──────────────────
+            # CATALYST_GITEA_URL + CATALYST_GITEA_TOKEN feed
+            # internal/handler/blueprints.go giteaClientFromEnv() so the
+            # /api/v1/sovereigns/.../blueprints/{publish,curatable,curate,
+            # edit-pr} endpoints can proxy into the Sovereign's in-cluster
+            # Gitea. Without these env vars every blueprint-CRUD endpoint
+            # returned the 503 "Gitea client unconfigured" error documented
+            # at blueprints.go:184 + blueprints.go:493 (matrix TC-081, TC-082,
+            # TC-083, TC-085 FAIL).
+            #
+            # Mirrors the wiring already used by blueprint-controller,
+            # application-controller, environment-controller, organization-
+            # controller (see controllers/blueprint-controller-deployment.yaml
+            # for the canonical pattern). The catalyst-gitea-token Secret
+            # is materialised by the bp-gitea chart's post-install Job and
+            # mirrored into catalyst-system by emberstack/reflector.
+            #
+            # optional=true: Catalyst-Zero (contabo) doesn't run a local
+            # Gitea — these endpoints return 503 there, which is the
+            # intended behaviour (only Sovereigns curate blueprints).
+            # CATALYST_GITEA_URL: in-cluster Gitea service FQDN. Identical
+            # across every Sovereign (the bp-gitea chart always lands in
+            # `gitea` ns with the same Service name). Hardcoded literal
+            # rather than .Values lookup because this file is consumed by
+            # BOTH Helm AND Kustomize (see SOVEREIGN_FQDN comment ~line 550)
+            # — Helm template directives break the Kustomize parse.
+            # Catalyst-Zero (contabo) doesn't run a local Gitea; the
+            # endpoint is unreachable there which the blueprints handler
+            # treats as "Gitea unconfigured" (returns 503 on blueprint
+            # CRUD endpoints — intended behaviour, only Sovereigns curate).
+            - name: CATALYST_GITEA_URL
+              value: "http://gitea-http.gitea.svc.cluster.local:3000"
+            - name: CATALYST_GITEA_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: catalyst-gitea-token
+                  key: token
+                  optional: true
             # KEYCLOAK_BOOTSTRAP_TIER_ROLES — EPIC-3 slice T2 (#1098/#1146).
             # When "true", a goroutine on catalyst-api startup calls
             # EnsureTierRealmRoles (internal/keycloak/realm_bootstrap.go)

@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-dmz-vcluster
-version: 0.1.0
+version: 0.1.1
 appVersion: "0.20.0"
 description: |
   Catalyst-authored Blueprint chart for a DMZ vCluster — an isolated

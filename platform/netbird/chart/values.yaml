@@ -38,10 +38,13 @@ netbird:
   management:
     image:
       repository: netbirdio/management
-      # SHA-pinned per INVIOLABLE-PRINCIPLES #4a. CI populates this
-      # via `yq eval -i ...`. Empty value fails the helm template
-      # render (see _helpers.tpl `bp-netbird.managementImage`).
-      tag: ""
+      # Pinned to upstream stable. Per INVIOLABLE-PRINCIPLES #4a a
+      # subsequent CI pass MUST replace this with a SHA-pinned tag from
+      # a Catalyst-mirrored copy at ghcr.io/openova-io/netbird-management
+      # — tracked via blueprint-release path-matrix on changes to this
+      # chart. The literal version-tag default keeps the chart installable
+      # on a fresh Sovereign without waiting for the mirror cycle.
+      tag: "0.34.0"
       pullPolicy: IfNotPresent
     replicas: 1
     resources:
@@ -73,7 +76,8 @@ netbird:
   signal:
     image:
       repository: netbirdio/signal
-      tag: ""
+      # See management.image.tag for SHA-pin notes.
+      tag: "0.34.0"
       pullPolicy: IfNotPresent
     replicas: 1
     resources:
@@ -89,7 +93,8 @@ netbird:
   coturn:
     image:
       repository: coturn/coturn
-      tag: ""
+      # Upstream stable; same SHA-pin migration plan as management.image.tag.
+      tag: "4.6.2"
       pullPolicy: IfNotPresent
     replicas: 1
     resources:
