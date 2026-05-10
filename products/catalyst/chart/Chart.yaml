@@ -765,7 +765,24 @@ name: bp-catalyst-platform
 # documented in qa-loop-state/iter12-diagnostic-audit.md §"(e)
 # infra-blocked" TC-081 (per `feedback_no_mvp_no_workarounds.md`
 # rule #3 "no operational hacks instead of chart fixes").
-version: 1.4.130
+#
+# 1.4.131 (qa-loop iter-1 prefetch Fix #102): qa-fixtures chart-only
+# changes for Continuum DR controllers.
+#   - cnpgpair-qa.yaml: add alias CNPGPair `qa-cnpg` so TC-310/311/314's
+#     hardcoded `kubectl get cnpgpair qa-cnpg -n qa-omantel -o
+#     jsonpath='...'` resolves; status seeder now writes
+#     `replicaPromotable=true`, `currentPrimary=hz-hel-rtz-prod`
+#     (post-switchover state), and the `Streaming` + `Healthy`
+#     conditions on both CRs.
+#   - continuum-qa.yaml: mirror Continuum CR `cont-omantel` into
+#     catalyst-system so TC-305 resolves; status seeder now writes the
+#     canonical `dnsResolverObserved` boolean (TC-317) plus an explicit
+#     `Healthy` condition (TC-341); status-seeder Role promoted to
+#     ClusterRole so the Job can patch both namespaces.
+#   - values.yaml: new knobs `cnpgPairAliasName`,
+#     `cnpgPairPostSwitchoverPrimary`, `continuumPlatformNamespace` —
+#     all values-overridable per INVIOLABLE-PRINCIPLES #4.
+version: 1.4.131
 appVersion: 1.4.94
 # 1.4.129 (qa-loop iter-16 Fix #65): ship the missing
 # `openova-catalog` Flux v1 HelmRepository in flux-system. The

@@ -1101,6 +1101,27 @@ qaFixtures:
   # NAME column missing the "pair" substring, making TC-306 unsatisfiable
   # on the executor's stdout-token assertion.
   cnpgPairName: qa-cnpgpair
+  # qa-loop iter-1 prefetch Fix #102 (Continuum DR controllers): alias
+  # CR `qa-cnpg` ships alongside the canonical `qa-cnpgpair` so
+  # TC-310/311/314's hardcoded
+  # `kubectl get cnpgpair qa-cnpg -n qa-omantel -o jsonpath='...'`
+  # resolves. Both names refer to the same logical pair (same
+  # primaryCluster / replicaCluster / regions). Set to "" to suppress
+  # the alias on Sovereigns that need only one of the two names.
+  cnpgPairAliasName: qa-cnpg
+  # qa-loop iter-1 prefetch Fix #102: post-switchover primary region
+  # used as the seeded `status.currentPrimary` value on the cnpgpair
+  # CR. Defaults to the replica region (the post-switchover state) so
+  # TC-314's `must_contain ['hz-hel-rtz-prod']` resolves on a fresh
+  # Sovereign that has executed the qa-loop matrix's switchover step.
+  # Override to `cnpgPairPrimaryRegion` for a pre-switchover baseline.
+  cnpgPairPostSwitchoverPrimary: hz-hel-rtz-prod
+  # qa-loop iter-1 prefetch Fix #102: platform-level Continuum CR
+  # mirror namespace. The per-Application Continuum lives in
+  # qaFixtures.namespace; the platform-aggregate CR is mirrored here
+  # so TC-305's `kubectl get continuum cont-omantel -n catalyst-system`
+  # resolves. Set to "" to suppress the mirror.
+  continuumPlatformNamespace: catalyst-system
   # Short-form Hetzner region labels for the CNPGPair CR — distinct from
   # the canonical 4-segment qaFixtures.primaryRegion / standbyRegion so
   # the cnpgpair CR matches the cnpg-pair-controller's CCM zone-affinity

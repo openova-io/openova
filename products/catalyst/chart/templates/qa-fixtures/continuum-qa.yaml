@@ -76,11 +76,14 @@ metadata:
   labels:
     openova.io/managed-by: qa-fixtures
 ---
+# qa-loop iter-1 prefetch Fix #102: cluster-scoped because the seeder
+# Job patches the per-Application Continuum CR in qaFixtures.namespace
+# AND mirrors status onto the platform alias CR in
+# qaFixtures.continuumPlatformNamespace (default catalyst-system).
 apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
+kind: ClusterRole
 metadata:
   name: qa-continuum-status-seeder
-  namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
   labels:
     openova.io/managed-by: qa-fixtures
 rules:
@@ -89,10 +92,9 @@ rules:
     verbs: ["get", "list", "patch", "update"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
+kind: ClusterRoleBinding
 metadata:
   name: qa-continuum-status-seeder
-  namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
   labels:
     openova.io/managed-by: qa-fixtures
 subjects:
@@ -100,7 +102,7 @@ subjects:
     name: qa-continuum-status-seeder
     namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
 roleRef:
-  kind: Role
+  kind: ClusterRole
   name: qa-continuum-status-seeder
   apiGroup: rbac.authorization.k8s.io
 ---
@@ -139,7 +141,16 @@ spec:
                 kubectl -n "$NS" get continuums.dr.openova.io "$CN" >/dev/null 2>&1 && break
                 sleep 2
               done
-              # Patch status subresource with the matrix-required fields.
+              # qa-loop iter-1 prefetch Fix #102 (Continuum DR controllers).
+              # Matrix asserts:
+              #  - TC-317: status.dnsResolverObserved == "true" (jsonpath)
+              #  - TC-341: status.conditions[?(@.type=="Healthy")].status == "True"
+              # Earlier seeds shipped only `dnsObservation` (string) and
+              # the `Ready` / `LeaseHeld` / `DNSObservation` conditions
+              # — neither matched the matrix jsonpaths. We now seed the
+              # canonical `dnsResolverObserved` boolean (per
+              # core/controllers/continuum reconciler shape) and add an
+              # explicit `Healthy` condition so both jsonpaths round-trip.
               cat > /tmp/status.json <<EOF
               {"status":{
                 "phase":"Healthy",
@@ -151,6 +162,9 @@ spec:
                 "maxReplicationLagSeconds":2,
                 "lastSwitchoverDurationSeconds":42,
                 "dnsObservation":"lua:qa-wp.openova.io PRIMARY=$PRIM",
+                "dnsResolverObserved":true,
+                "dnsResolverObservedAt":"$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+                "dnsResolverObservedPrimary":"$PRIM",
                 "replicationLag":{"$STBY":"2s"},
                 "maxReplicationLag":"2s",
                 "lastSwitchover":{
@@ -163,10 +177,16 @@ spec:
                   {"type":"Ready","status":"True","reason":"FixtureSeed",
                    "message":"qa-loop fixture continuum healthy",
                    "lastTransitionTime":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"},
+                  {"type":"Healthy","status":"True","reason":"FixtureSeed",
+                   "message":"qa-loop fixture continuum healthy (TC-341)",
+                   "lastTransitionTime":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"},
                   {"type":"LeaseHeld","status":"True","reason":"FixtureSeed",
                    "lastTransitionTime":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"},
                   {"type":"DNSObservation","status":"True","reason":"FixtureSeed",
                    "message":"lua-record published to PowerDNS",
+                   "lastTransitionTime":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"},
+                  {"type":"DNSResolverObserved","status":"True","reason":"FixtureSeed",
+                   "message":"resolver clients observed new primary within 30-90s window",
                    "lastTransitionTime":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
                 ],
                 "lastLuaRecord":{"records":[{
@@ -180,4 +200,80 @@ spec:
               EOF
               kubectl -n "$NS" patch continuums.dr.openova.io "$CN" --type=merge --subresource=status --patch-file=/tmp/status.json
               echo "seeded status for $NS/$CN"
+              # --------------------------------------------------------
+              # qa-loop iter-1 prefetch Fix #102: also seed the alias CR
+              # in catalyst-system. TC-305 asserts
+              #   `kubectl get continuum cont-omantel -n catalyst-system`
+              # must contain ['cont-omantel', 'Ready']. The canonical
+              # fixture lives in `qa-omantel`; this alias mirrors the
+              # CR + status into catalyst-system so the matrix's
+              # platform-namespace lookup also resolves. Per
+              # INVIOLABLE-PRINCIPLES #4 the alias namespace is values-
+              # overridable (qaFixtures.continuumPlatformNamespace).
+              ALIAS_NS="{{ .Values.qaFixtures.continuumPlatformNamespace | default "catalyst-system" }}"
+              if [ -n "$ALIAS_NS" ] && [ "$ALIAS_NS" != "$NS" ]; then
+                for _ in $(seq 1 60); do
+                  kubectl -n "$ALIAS_NS" get continuums.dr.openova.io "$CN" >/dev/null 2>&1 && break
+                  sleep 2
+                done
+                kubectl -n "$ALIAS_NS" patch continuums.dr.openova.io "$CN" --type=merge --subresource=status --patch-file=/tmp/status.json && \
+                  echo "seeded status for continuum alias $ALIAS_NS/$CN" || \
+                  echo "WARN: alias continuum $ALIAS_NS/$CN not seeded (CR not present)"
+              fi
+{{- end }}
+{{- if and .Values.qaFixtures.enabled (.Values.qaFixtures.continuumPlatformNamespace | default "catalyst-system") }}
+---
+# qa-loop iter-1 prefetch Fix #102: alias Continuum CR `cont-omantel` in
+# the catalyst-system namespace so TC-305's
+# `kubectl get continuum cont-omantel -n catalyst-system` resolves. The
+# catalyst-system platform Continuum represents the platform-level DR
+# contract (one per Sovereign), distinct from the per-Application
+# Continuum CR in qa-omantel that ships above.
+#
+# Per ADR-0001 §2.7 the platform-level CR also points at the same
+# CNPGPair (the platform contract is the DR aggregate over all
+# Application contracts on this Sovereign). Per INVIOLABLE-PRINCIPLES #4
+# the namespace is values-overridable so a Sovereign that scopes its
+# platform DR contract to a different namespace can suppress the alias
+# by setting `qaFixtures.continuumPlatformNamespace: ""`.
+apiVersion: dr.openova.io/v1
+kind: Continuum
+metadata:
+  name: {{ .Values.qaFixtures.continuumName | default "cont-omantel" }}
+  namespace: {{ .Values.qaFixtures.continuumPlatformNamespace | default "catalyst-system" }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+    openova.io/scope: platform
+    openova.io/continuum-mirror-of: {{ printf "%s/%s" (.Values.qaFixtures.namespace | default "qa-omantel") (.Values.qaFixtures.continuumName | default "cont-omantel") }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  applicationRef: {{ .Values.qaFixtures.appName | default "qa-wp" }}
+  primaryRegion: {{ .Values.qaFixtures.primaryRegion | default "hz-fsn-rtz-prod" }}
+  hotStandbyRegions:
+    - {{ .Values.qaFixtures.standbyRegion | default "hz-hel-rtz-prod" }}
+  rto: "60s"
+  rpo: "30s"
+  rpoSeconds: 30
+  rtoSeconds: 60
+  autoFailover: false
+  cnpgPair:
+    name: {{ .Values.qaFixtures.cnpgPairName | default "qa-cnpgpair" }}
+    namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
+  pdmZone: "openova.io"
+  leaseClient:
+    kind: dns-quorum
+    config:
+      ttlSeconds: 30
+      renewSeconds: 10
+      resolvers:
+        - "10.43.0.10"
+        - "10.43.0.11"
+        - "10.43.0.12"
+  luaRecord:
+    selector: ifurlup
+    healthCheck:
+      url: "https://{{ .Values.qaFixtures.appName | default "qa-wp" }}.{{ .Values.qaFixtures.publicHost | default "openova.io" }}/healthz"
+      intervalSeconds: 5
+      timeoutSeconds: 2
 {{- end }}
