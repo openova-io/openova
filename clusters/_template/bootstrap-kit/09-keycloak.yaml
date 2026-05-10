@@ -41,7 +41,11 @@ spec:
   chart:
     spec:
       chart: bp-keycloak
-      version: 1.4.0
+      # 1.5.0 (qa-loop iter-12 Fix #53A): adds .Values.sovereignRealm.name
+      # parameter so each Sovereign owns its KC realm named after the tenant
+      # short-name (omantel chroot → "omantel"). Default `sovereign` is kept
+      # in the chart for backward compat with overlays not yet migrated.
+      version: 1.5.0
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak
@@ -61,11 +65,21 @@ spec:
     timeout: 15m
     remediation:
       retries: 3
-  # Per-Sovereign overrides — issue #387 + #604:
+  # Per-Sovereign overrides — issue #387 + #604 + qa-loop iter-12 Fix #53A:
   # Wire the per-Sovereign hostname into the HTTPRoute template and
   # sovereign realm ConfigMap (catalyst-ui redirect URIs). The HTTPRoute
   # attaches to cilium-gateway/kube-system installed by 01-cilium.yaml.
+  #
+  # sovereignRealm.name: per `feedback_no_mvp_no_workarounds.md` target-state
+  # rule, each Sovereign owns its KC realm named after the tenant short-name.
+  # The bootstrap-kit Kustomization's postBuild.substitute supplies
+  # SOVEREIGN_REALM_NAME (canonical: first label of SOVEREIGN_FQDN, e.g.
+  # `omantel` for omantel.biz). When unset the envsubst rule
+  # ${VAR:=default} resolves to "sovereign" — backward-compat with
+  # overlays that haven't been migrated.
   values:
     sovereignFQDN: ${SOVEREIGN_FQDN}
+    sovereignRealm:
+      name: ${SOVEREIGN_REALM_NAME:=sovereign}
     gateway:
       host: auth.${SOVEREIGN_FQDN}
