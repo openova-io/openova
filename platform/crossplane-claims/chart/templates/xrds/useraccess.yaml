@@ -37,8 +37,17 @@ spec:
   claimNames:
     kind: UserAccess
     plural: useraccesses
+  {{- if .Values.userAccess.compositionEnabled }}
+  # defaultCompositionRef is rendered ONLY when the legacy Crossplane
+  # Composition path is enabled (qa-loop iter-16 Fix #71). When the
+  # canonical catalyst-useraccess-controller is in charge (default),
+  # the composite controller has nothing to reconcile and stops fighting
+  # the controller over `.status.conditions[]`. The XRD itself stays
+  # installed because it owns the `useraccesses.access.openova.io` CRD
+  # the controller watches.
   defaultCompositionRef:
     name: useraccess.compose.openova.io
+  {{- end }}
   versions:
     - name: v1alpha1
       served: true

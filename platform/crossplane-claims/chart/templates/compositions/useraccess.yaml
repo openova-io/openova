@@ -1,6 +1,13 @@
-{{- if .Values.userAccess.enabled }}
+{{- if and .Values.userAccess.enabled .Values.userAccess.compositionEnabled }}
 # Composition: useraccess.compose.openova.io — default realization for
 # XUserAccess.
+#
+# Gated behind BOTH `userAccess.enabled` (XRD on) AND
+# `userAccess.compositionEnabled` (default false post qa-loop iter-16
+# Fix #71). The catalyst-useraccess-controller is now the canonical
+# day-2 path; this Composition is retired by default. See
+# `userAccess.compositionEnabled` in values.yaml for the full root-cause
+# write-up and re-enable conditions.
 #
 # Translates a UserAccess Claim into a single provider-kubernetes Object
 # whose embedded manifest is a RoleBinding referencing one of the three

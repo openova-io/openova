@@ -44,7 +44,18 @@ spec:
   chart:
     spec:
       chart: bp-crossplane-claims
-      version: 1.1.2
+      # 1.1.3 (qa-loop iter-16 Fix #71): legacy XUserAccess Composition
+      # gated behind new `userAccess.compositionEnabled` (default false).
+      # The catalyst-useraccess-controller is now the canonical day-2
+      # path; the Composition was setting `Ready=False` on every CR
+      # because (a) provider-kubernetes is not installed and (b) post-EPIC-3
+      # CRs use `tierRoleRef` not `applications[0]`. The composite
+      # controller's status-write was overwriting the controller's
+      # `Ready=True`. Disabling the Composition (and `defaultCompositionRef`)
+      # leaves the controller in sole charge of `useraccesses.access.openova.io`
+      # while the XRD itself stays installed (it owns the CRD the
+      # controller watches).
+      version: 1.1.3
       sourceRef:
         kind: HelmRepository
         name: bp-crossplane-claims
