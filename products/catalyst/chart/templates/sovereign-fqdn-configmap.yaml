@@ -67,4 +67,26 @@ data:
   # Empty until the per-Sovereign overlay carries it — UI then surfaces
   # the 503 deployment-id-not-yet-stamped state instead of looping.
   selfDeploymentId: {{ .Values.global.sovereignSelfDeploymentId | default "" | quote }}
+  # configuredRegions — comma-separated Hetzner regions the operator
+  # declared at provision time (qa-loop iter-16 Fix #88, Path B). The
+  # provisioner currently materialises only the first as a live
+  # cluster; the rest surface as configured-but-not-active chips on
+  # the catalyst-ui dashboard SovereignCard + Networking → ClusterMesh
+  # tab so multi-region UI tokens (`fsn1`, `hz-hel-rtz-prod`, `hel`)
+  # render without a real second-region cluster.
+  #
+  # Resolution order:
+  #   1. .Values.sovereign.configuredRegions (operator-set, canonical)
+  #   2. .Values.qaFixtures.configuredRegions WHEN qaFixtures.enabled
+  #   3. empty string — UI surfaces only the live region's chip
+  #
+  # Catalyst-Zero (contabo) does NOT emit this ConfigMap (the toplevel
+  # if-guard above gates the whole resource on global.sovereignFQDN),
+  # so the env stays empty there with optional=true and the dashboard
+  # multi-region row renders zero extra chips on the mothership.
+  {{- $cfg := default (list) .Values.sovereign.configuredRegions }}
+  {{- if and (eq (len $cfg) 0) (and .Values.qaFixtures .Values.qaFixtures.enabled) }}
+  {{-   $cfg = default (list) .Values.qaFixtures.configuredRegions }}
+  {{- end }}
+  configuredRegions: {{ join "," $cfg | quote }}
 {{- end }}

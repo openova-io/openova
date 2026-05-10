@@ -72,12 +72,28 @@ export interface ApplicationCounts {
  * `alerts` is reserved for EPIC-1's score aggregator integration; today
  * the server returns 0 (the field exists so consumers don't pay a wire
  * change when it lights up).
+ *
+ * `configuredRegions` (qa-loop iter-16 Fix #88, Path B) — the SUPERSET
+ * of every region the operator declared at provision time AND every
+ * region carrying a live Application. The catalyst-ui dashboard
+ * SovereignCard renders the difference (`configuredRegions \ regions`)
+ * as muted "configured · no peer cluster" chips so multi-region tokens
+ * (`fsn1`, `hz-hel-rtz-prod`, `hel`) resolve on a single-region QA
+ * cluster without provisioning a real second-region cluster (the
+ * provisioner currently materialises only the first region as a live
+ * cluster — true multi-region with Cilium ClusterMesh is Path A
+ * follow-up work).
+ *
+ * Optional on the wire: pre-Fix-#88 catalyst-api responses omit the
+ * field; the UI treats absence as "single-region only" (no extra
+ * chips) so older Sovereigns keep rendering cleanly.
  */
 export interface SovereignDetail {
   sovereign: SovereignSummary
   orgs: number
   applications: ApplicationCounts
   regions: string[]
+  configuredRegions?: string[]
   alerts: number
   /** RFC3339 timestamp of the most recent Application creation in this Sov. */
   lastActivity?: string

@@ -307,8 +307,62 @@ func TestHandleFleetSovereignSummary_Happy(t *testing.T) {
 		resp.Regions[1] != "hz-hel-rtz-prod" {
 		t.Fatalf("regions: %+v", resp.Regions)
 	}
+	// qa-loop iter-16 Fix #88 (Path B): ConfiguredRegions is the
+	// union of declared (Request.Region == "fsn1") + live regions
+	// from Application CRs. The empty Regions[] slice on the
+	// installFleetSovereign helper falls through to the singular
+	// Request.Region field.
+	wantCfg := map[string]bool{"fsn1": true, "hz-fsn-rtz-prod": true, "hz-hel-rtz-prod": true}
+	if len(resp.ConfiguredRegions) != len(wantCfg) {
+		t.Fatalf("configuredRegions: got %+v want %+v", resp.ConfiguredRegions, wantCfg)
+	}
+	for _, r := range resp.ConfiguredRegions {
+		if !wantCfg[r] {
+			t.Fatalf("configuredRegions: unexpected %q in %+v", r, resp.ConfiguredRegions)
+		}
+	}
 	if resp.Alerts != 0 {
 		t.Fatalf("alerts placeholder: got %d want 0", resp.Alerts)
+	}
+}
+
+// TestHandleFleetSovereignSummary_ConfiguredRegions_FromEnv — qa-loop
+// iter-16 Fix #88 (Path B). When the Deployment record carries no
+// Regions slice and no singular Region (e.g. a chroot Sovereign whose
+// catalyst-api Pod has no provisioner records of its own), the env
+// fallback CATALYST_CONFIGURED_REGIONS supplies the chip set so the
+// dashboard surfaces multi-region tokens (`fsn1`, `hz-hel-rtz-prod`)
+// without provisioning a real second-region cluster.
+func TestHandleFleetSovereignSummary_ConfiguredRegions_FromEnv(t *testing.T) {
+	t.Setenv("CATALYST_CONFIGURED_REGIONS", "fsn1, hz-hel-rtz-prod ,")
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	dep := &Deployment{
+		ID:        "sov-cfg",
+		Status:    "ready",
+		Request:   provisioner.Request{SovereignFQDN: "qa.example.com"},
+		Result:    &provisioner.Result{SovereignFQDN: "qa.example.com", KubeconfigPath: "/dev/null"},
+		StartedAt: time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC),
+	}
+	h.deployments.Store(dep.ID, dep)
+	// no Application CRs — verifies the env-fallback branch.
+	factory, _ := fakeFleetDynamicFactory()
+	h.dynamicFactory = factory
+
+	rec := callUserAccess(t, h, http.MethodGet, "/api/v1/fleet/sovereigns/"+dep.ID+"/summary", nil, registerFleetRoutes)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var resp fleetSovereignDetail
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.ConfiguredRegions) != 2 ||
+		resp.ConfiguredRegions[0] != "fsn1" ||
+		resp.ConfiguredRegions[1] != "hz-hel-rtz-prod" {
+		t.Fatalf("configuredRegions: %+v", resp.ConfiguredRegions)
+	}
+	if len(resp.Regions) != 0 {
+		t.Fatalf("regions: got %+v want []", resp.Regions)
 	}
 }
 

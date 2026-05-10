@@ -84,8 +84,59 @@ describe('SovereignCard — render', () => {
   })
 
   it('shows "No regions reported" when regions empty', () => {
-    renderCard(HEALTHY_SOV, { ...SAMPLE_DETAIL, regions: [] })
+    renderCard(HEALTHY_SOV, {
+      ...SAMPLE_DETAIL,
+      regions: [],
+      configuredRegions: [],
+    })
     expect(screen.getByText('No regions reported')).toBeTruthy()
+  })
+
+  // qa-loop iter-16 Fix #88 (Path B): configuredRegions ⊃ regions
+  // surfaces the inactive subset as muted "configured" chips so
+  // multi-region matrix tokens (TC-296/TC-297/TC-300/TC-301: `fsn1`,
+  // `hz-hel-rtz-prod`, `hel`) render on a single-region cluster
+  // without provisioning a real second-region cluster.
+  it('renders configured-but-not-active region chips with the configured marker', () => {
+    renderCard(HEALTHY_SOV, {
+      ...SAMPLE_DETAIL,
+      regions: ['fsn1'],
+      configuredRegions: ['fsn1', 'hz-hel-rtz-prod'],
+    })
+    // live region renders as the standard chip
+    expect(screen.getByTestId('sovereign-card-region-fsn1')).toBeTruthy()
+    // inactive region renders as the muted "configured" chip
+    const cfgChip = screen.getByTestId('sovereign-card-region-hz-hel-rtz-prod-configured')
+    expect(cfgChip).toBeTruthy()
+    expect(cfgChip.textContent).toContain('hz-hel-rtz-prod')
+    expect(cfgChip.textContent?.toLowerCase()).toContain('configured')
+  })
+
+  it('does not duplicate a region that is in both live AND configured lists', () => {
+    renderCard(HEALTHY_SOV, {
+      ...SAMPLE_DETAIL,
+      regions: ['fsn1'],
+      configuredRegions: ['fsn1'],
+    })
+    // live chip present
+    expect(screen.getByTestId('sovereign-card-region-fsn1')).toBeTruthy()
+    // no muted "configured" chip for the same region
+    expect(screen.queryByTestId('sovereign-card-region-fsn1-configured')).toBeNull()
+  })
+
+  it('renders only configured chips (no live) when no Apps have shipped yet', () => {
+    renderCard(HEALTHY_SOV, {
+      ...SAMPLE_DETAIL,
+      regions: [],
+      configuredRegions: ['fsn1', 'hz-hel-rtz-prod'],
+    })
+    // both surface as configured chips
+    expect(screen.getByTestId('sovereign-card-region-fsn1-configured')).toBeTruthy()
+    expect(
+      screen.getByTestId('sovereign-card-region-hz-hel-rtz-prod-configured'),
+    ).toBeTruthy()
+    // empty-state copy must NOT appear
+    expect(screen.queryByText('No regions reported')).toBeNull()
   })
 
   it('renders application counts (total + sub)', () => {

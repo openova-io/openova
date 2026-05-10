@@ -56,6 +56,30 @@ sovereign:
     host: mail.openova.io
     port: "587"
     from: noreply@openova.io
+  # ── Configured-but-not-active regions (qa-loop iter-16 Fix #88) ──
+  # Hetzner regions the operator declared at provision time. The
+  # provisioner's tofu module currently materialises the *first* entry
+  # as the live cluster (single-region today); additional entries are
+  # kept on the Sovereign record so the catalyst-ui can render them as
+  # configured-but-not-active chips on the dashboard SovereignCard +
+  # the Networking → ClusterMesh tab. Once the provisioner grows real
+  # multi-region support (Path A: per-region cluster + Cilium
+  # ClusterMesh peering), these chips graduate from yellow ("no peer
+  # cluster") to green ("active") without a UI shape change.
+  #
+  # Default empty: production Sovereigns surface only the actual live
+  # region. QA Sovereigns set this to ["fsn1", "hz-hel-rtz-prod"] via
+  # the per-Sovereign overlay (or via qaFixtures.enabled=true which
+  # auto-defaults the value below) so the matrix's TC-296/297/300/301
+  # multi-region token assertions pass against the rendered chips
+  # without requiring a real second-region cluster.
+  #
+  # Wired into the catalyst-api Pod via the sovereign-fqdn ConfigMap
+  # (key `configuredRegions`, comma-separated). The CATALYST_CONFIGURED_REGIONS
+  # env on api-deployment.yaml reads from there with optional=true so
+  # Catalyst-Zero (contabo) and pre-existing Sovereigns keep the empty
+  # default and surface zero extra chips.
+  configuredRegions: []
 
 # ─── Multi-zone parent domains (issue #827, parent epic #825) ──────────
 # A franchised Sovereign supports N parent zones, NOT one. The operator
@@ -1090,6 +1114,18 @@ qaFixtures:
   cnpgPairReplicaRegion: hz-hel-rtz-prod
   primaryRegion: hz-fsn-rtz-prod
   standbyRegion: hz-hel-rtz-prod
+  # ── Configured-but-not-active regions for the QA Sovereign UI ───
+  # qa-loop iter-16 Fix #88 (Path B). When qaFixtures is enabled the
+  # sovereign-fqdn ConfigMap's configuredRegions key falls back to
+  # this list (sovereign.configuredRegions takes precedence when
+  # explicitly set). The default mirrors the cnpgPair regions so the
+  # dashboard SovereignCard renders fsn1 + hz-hel-rtz-prod chips and
+  # the matrix's TC-296/TC-297/TC-300/TC-301 multi-region tokens
+  # resolve on a single-region QA cluster without provisioning a real
+  # second cluster (multi-cluster ClusterMesh = Path A follow-up).
+  configuredRegions:
+    - fsn1
+    - hz-hel-rtz-prod
   pdmZone: openova.io
   publicHost: openova.io
   # ── CNPG Cluster CR fixture knobs (Fix #37) ──────────────────────
