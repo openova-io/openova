@@ -919,6 +919,25 @@ func main() {
 		rg.Get("/api/v1/sovereigns/{id}/keycloak/roles/{name}/members", h.HandleKeycloakRoleMembers)
 		rg.Get("/api/v1/sovereigns/{id}/keycloak/clients/{clientId}/roles", h.HandleKeycloakClientRolesList)
 
+		// qa-loop iter-1 Fix #104 — Keycloak admin proxy for the
+		// matrix-asserted endpoints (TC-124 / TC-125 / TC-159 / TC-160 /
+		// TC-161 / TC-176 / TC-190 / TC-285). Keycloak is NOT externally
+		// exposed on the chroot Sovereign and the matrix runner cannot
+		// `kubectl exec`, so without this proxy these 8 TCs were stuck
+		// at FAIL/BLOCKED. The proxy gates every endpoint with the
+		// sovereign-admin tier (admin or owner) — same gate as the U3/U4
+		// browser endpoints — and uses the catalyst-api SA credential to
+		// perform the privileged Keycloak Admin call in-cluster (the
+		// operator's password / SA secret never leaves the cluster).
+		rg.Get("/api/v1/sovereigns/{id}/keycloak/admin/realms/{realm}/roles", h.HandleKeycloakAdminRealmRolesList)
+		rg.Get("/api/v1/sovereigns/{id}/keycloak/admin/realms/{realm}/roles/{role}/composites", h.HandleKeycloakAdminRoleComposites)
+		rg.Get("/api/v1/sovereigns/{id}/keycloak/admin/realms/{realm}/identity-provider/instances", h.HandleKeycloakAdminIdPList)
+		rg.Post("/api/v1/sovereigns/{id}/keycloak/admin/realms/{realm}/identity-provider/instances", h.HandleKeycloakAdminIdPCreate)
+		rg.Post("/api/v1/sovereigns/{id}/keycloak/admin/realms/{realm}/identity-provider/instances/{alias}/mappers", h.HandleKeycloakAdminIdPMapperCreate)
+		rg.Post("/api/v1/sovereigns/{id}/keycloak/admin/realms/{realm}/protocol/openid-connect/token", h.HandleKeycloakAdminTokenMint)
+		rg.Get("/api/v1/sovereigns/{id}/keycloak/admin/realms/{realm}/clients", h.HandleKeycloakAdminClientsByClientID)
+		rg.Get("/api/v1/sovereigns/{id}/keycloak/admin/realms/{realm}/clients/{client}/service-account-user/role-mappings/realm", h.HandleKeycloakAdminClientServiceAccountRoles)
+
 		// EPIC-2 (#1097) slice I — live install flow. Operators submit
 		// Application install requests here; the handler validates
 		// parameters against Blueprint.spec.configSchema (via the

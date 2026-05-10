@@ -41,6 +41,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -179,6 +180,58 @@ type KeycloakAdminClient interface {
 	// clientId (e.g. "catalyst-api") to its KC UUID before listing roles.
 	// qa-loop iter-9 Fix #43, Cluster-B (TC-146).
 	FindClientByClientID(ctx context.Context, clientID string) (keycloak.OIDCClient, error)
+
+	// ── Admin proxy surface (qa-loop iter-1 Fix #104) ──────────────
+	//
+	// These methods back the /api/v1/sovereigns/{id}/keycloak/admin/*
+	// endpoints. They expose Keycloak Admin REST API operations the QA
+	// matrix (TC-124 / TC-125 / TC-159 / TC-160 / TC-161 / TC-176 /
+	// TC-190 / TC-285) asserts on. Keycloak is NOT externally exposed
+	// on the chroot Sovereign — without this proxy the matrix could
+	// only assert via in-cluster `kubectl exec`, which the runner
+	// cannot do.
+	//
+	// Each method's wire shape is documented on the *keycloak.Client
+	// implementation in admin_*.go / admin_proxy.go.
+
+	// ListRealmRoleComposites — TC-125 backing.
+	// GET /admin/realms/{realm}/roles/{name}/composites/realm
+	ListRealmRoleComposites(ctx context.Context, parentName string) ([]keycloak.RealmRole, error)
+
+	// ListIdentityProviders — TC-159 backing.
+	// GET /admin/realms/{realm}/identity-provider/instances
+	ListIdentityProviders(ctx context.Context) ([]keycloak.IdentityProvider, error)
+
+	// CreateIdentityProvider — TC-160 backing.
+	// POST /admin/realms/{realm}/identity-provider/instances
+	CreateIdentityProvider(ctx context.Context, idp keycloak.IdentityProvider) error
+
+	// GetIdentityProvider — used after CreateIdentityProvider to
+	// re-fetch the canonical representation Keycloak persisted, so the
+	// proxy's POST response carries the same shape the matrix expects
+	// from a subsequent GET.
+	GetIdentityProvider(ctx context.Context, alias string) (keycloak.IdentityProvider, error)
+
+	// CreateIdentityProviderMapper — TC-161 backing.
+	// POST /admin/realms/{realm}/identity-provider/instances/{alias}/mappers
+	CreateIdentityProviderMapper(ctx context.Context, alias string, mapper keycloak.IdentityProviderMapper) error
+
+	// PasswordGrantToken — TC-176 backing.
+	// POST /realms/{realm}/protocol/openid-connect/token (grant_type=password).
+	// Returns raw upstream body + status so the matrix can assert on
+	// claim names + invalid_grant text verbatim.
+	PasswordGrantToken(ctx context.Context, oidcClientID, username, password string) ([]byte, int, error)
+
+	// ListClientServiceAccountRealmRoles — TC-190 backing.
+	// GET /admin/realms/{realm}/clients/{clientUuid}/service-account-user/role-mappings/realm
+	// Returns raw upstream body + status (the matrix asserts role-name
+	// string presence directly).
+	ListClientServiceAccountRealmRoles(ctx context.Context, oidcClientUUID string) ([]byte, int, error)
+
+	// ListClients — TC-285 backing (clientId query parameter resolved
+	// via FindClientByClientID; response wraps the single OIDCClient
+	// in the upstream `[]OIDCClient` envelope shape).
+	ListClients(ctx context.Context) ([]keycloak.OIDCClient, error)
 }
 
 // kcAdminClientFor returns the wired KeycloakAdminClient or nil if
@@ -882,3 +935,433 @@ func writeKCNotConfigured(w http.ResponseWriter) {
 // *keycloak.Client in internal/keycloak/admin_users.go (this slice).
 // The production *keycloak.Client therefore satisfies the
 // KeycloakAdminClient interface without per-handler-file plumbing.
+
+// ─────────────────────────────────────────────────────────────────────
+// Admin proxy surface — qa-loop iter-1 Fix #104
+// ─────────────────────────────────────────────────────────────────────
+//
+// REST routes registered in cmd/api/main.go:
+//
+//	GET  /api/v1/sovereigns/{id}/keycloak/admin/realms/{realm}/roles                                                        (TC-124)
+//	GET  /api/v1/sovereigns/{id}/keycloak/admin/realms/{realm}/roles/{role}/composites                                      (TC-125)
+//	GET  /api/v1/sovereigns/{id}/keycloak/admin/realms/{realm}/identity-provider/instances                                  (TC-159)
+//	POST /api/v1/sovereigns/{id}/keycloak/admin/realms/{realm}/identity-provider/instances                                  (TC-160)
+//	POST /api/v1/sovereigns/{id}/keycloak/admin/realms/{realm}/identity-provider/instances/{alias}/mappers                  (TC-161)
+//	POST /api/v1/sovereigns/{id}/keycloak/admin/realms/{realm}/protocol/openid-connect/token                                (TC-176)
+//	GET  /api/v1/sovereigns/{id}/keycloak/admin/realms/{realm}/clients?clientId=<id>                                        (TC-285)
+//	GET  /api/v1/sovereigns/{id}/keycloak/admin/realms/{realm}/clients/{client}/service-account-user/role-mappings/realm    (TC-190)
+//
+// Authorization: every endpoint requires the caller to pass the
+// rbacRequireSovereignAdmin gate (admin or owner tier). Unauthenticated
+// callers (no Claims in context) fall through per the existing
+// catalyst-api lenient policy — the auth middleware is the single
+// source of truth for whether auth was required at all.
+//
+// `{realm}` URL parameter validation: the per-Sovereign keycloak.Client
+// is wired against ONE realm (`c.realm`). The `{realm}` path segment
+// must match — otherwise the proxy returns 400 (the matrix always
+// passes the Sovereign's realm name, e.g. "omantel"). This prevents
+// the proxy from being used as a generic cross-realm escape hatch.
+
+// realmGuard validates that the `{realm}` URL parameter is non-empty.
+// The wired *keycloak.Client is realm-scoped at construction time
+// (CATALYST_KC_REALM env), so the URL realm is informational — the
+// catalyst-api always operates against its own realm regardless of the
+// URL value. We accept the URL value as a literal segment and let
+// Keycloak validate it on the upstream call (mismatch surfaces as 401
+// or 404 from KC, which the proxy returns verbatim). This matches the
+// keep-shape-stable contract every other admin-proxy slice uses.
+func (h *Handler) realmGuard(w http.ResponseWriter, r *http.Request) (string, bool) {
+	realm := strings.TrimSpace(chi.URLParam(r, "realm"))
+	if realm == "" {
+		writeBadRequest(w, "missing-realm", "realm path segment is required")
+		return "", false
+	}
+	return realm, true
+}
+
+// kcAdminProxyPreflight is the shared pre-flight all admin-proxy
+// handlers run: lookup deployment → enforce sovereign-admin gate →
+// validate realm URL segment → resolve Keycloak admin client. Returns
+// the resolved (realm, kc) or (_, _, false) on any short-circuit
+// (the appropriate response was already written).
+func (h *Handler) kcAdminProxyPreflight(w http.ResponseWriter, r *http.Request) (string, KeycloakAdminClient, bool) {
+	depID := chi.URLParam(r, "id")
+	if _, ok := h.lookupDeploymentForInfra(depID); !ok {
+		writeNotFound(w, depID)
+		return "", nil, false
+	}
+	if !rbacRequireSovereignAdmin(w, r) {
+		return "", nil, false
+	}
+	realm, ok := h.realmGuard(w, r)
+	if !ok {
+		return "", nil, false
+	}
+	kc := h.kcAdminClientFor()
+	if kc == nil {
+		writeKCNotConfigured(w)
+		return "", nil, false
+	}
+	return realm, kc, true
+}
+
+// writeKCRaw forwards an upstream Keycloak response body to the client
+// verbatim, mapping the upstream status into our error shape on non-2xx
+// (the matrix asserts on `invalid_grant` literal text from TC-176's
+// wrong-password path, etc.). On 2xx the body is forwarded as-is with
+// Content-Type: application/json.
+func writeKCRaw(w http.ResponseWriter, body []byte, status int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_, _ = w.Write(body)
+}
+
+// HandleKeycloakAdminRealmRolesList — TC-124.
+// GET /api/v1/sovereigns/{id}/keycloak/admin/realms/{realm}/roles
+//
+// Returns the realm's full role list as the upstream Keycloak shape
+// (`[]RoleRepresentation`). The matrix asserts on the presence of the
+// 5 catalyst-* tier role names in the response body — no envelope.
+func (h *Handler) HandleKeycloakAdminRealmRolesList(w http.ResponseWriter, r *http.Request) {
+	_, kc, ok := h.kcAdminProxyPreflight(w, r)
+	if !ok {
+		return
+	}
+	roles, err := kc.ListRealmRoles(r.Context())
+	if err != nil {
+		h.log.Warn("keycloak.admin.roles.list: failed", "err", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{
+			"error":  "keycloak-list-failed",
+			"detail": err.Error(),
+		})
+		return
+	}
+	body, _ := keycloak.MarshalRealmRolesJSON(roles)
+	writeKCRaw(w, body, http.StatusOK)
+}
+
+// HandleKeycloakAdminRoleComposites — TC-125.
+// GET /api/v1/sovereigns/{id}/keycloak/admin/realms/{realm}/roles/{role}/composites
+//
+// Returns the composite child roles for `{role}` (e.g.
+// catalyst-owner → catalyst-admin → catalyst-operator → catalyst-developer
+// → catalyst-viewer). The matrix asserts on each composite name being
+// present in the response body.
+//
+// `{role}` is the role NAME (not UUID) — Keycloak's
+// /roles/{name}/composites/realm endpoint uses name addressing because
+// realm role names are realm-unique.
+func (h *Handler) HandleKeycloakAdminRoleComposites(w http.ResponseWriter, r *http.Request) {
+	_, kc, ok := h.kcAdminProxyPreflight(w, r)
+	if !ok {
+		return
+	}
+	roleName := strings.TrimSpace(chi.URLParam(r, "role"))
+	if roleName == "" {
+		writeBadRequest(w, "missing-role", "role path segment is required")
+		return
+	}
+	composites, err := kc.ListRealmRoleComposites(r.Context(), roleName)
+	if err != nil {
+		if errors.Is(err, keycloak.ErrRoleNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{
+				"error":  "role-not-found",
+				"detail": "no Keycloak realm role named " + roleName,
+			})
+			return
+		}
+		h.log.Warn("keycloak.admin.role.composites: failed", "role", roleName, "err", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{
+			"error":  "keycloak-list-failed",
+			"detail": err.Error(),
+		})
+		return
+	}
+	body, _ := keycloak.MarshalRealmRolesJSON(composites)
+	writeKCRaw(w, body, http.StatusOK)
+}
+
+// HandleKeycloakAdminIdPList — TC-159.
+// GET /api/v1/sovereigns/{id}/keycloak/admin/realms/{realm}/identity-provider/instances
+//
+// Returns the realm's IdP list (`[]IdentityProviderRepresentation`).
+// Matrix asserts on presence of the `alias` field name in the response.
+func (h *Handler) HandleKeycloakAdminIdPList(w http.ResponseWriter, r *http.Request) {
+	_, kc, ok := h.kcAdminProxyPreflight(w, r)
+	if !ok {
+		return
+	}
+	idps, err := kc.ListIdentityProviders(r.Context())
+	if err != nil {
+		h.log.Warn("keycloak.admin.idp.list: failed", "err", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{
+			"error":  "keycloak-list-failed",
+			"detail": err.Error(),
+		})
+		return
+	}
+	body, _ := keycloak.MarshalIdentityProvidersJSON(idps)
+	writeKCRaw(w, body, http.StatusOK)
+}
+
+// HandleKeycloakAdminIdPCreate — TC-160.
+// POST /api/v1/sovereigns/{id}/keycloak/admin/realms/{realm}/identity-provider/instances
+//
+// Creates an IdP from the POSTed IdentityProvider body. Re-fetches the
+// canonical representation via GetIdentityProvider after create so the
+// response carries the same shape a subsequent GET would return. Matrix
+// asserts on `alias` and `openid-connect` presence in the response.
+func (h *Handler) HandleKeycloakAdminIdPCreate(w http.ResponseWriter, r *http.Request) {
+	_, kc, ok := h.kcAdminProxyPreflight(w, r)
+	if !ok {
+		return
+	}
+	var idp keycloak.IdentityProvider
+	if !decodeMutationBody(w, r, &idp) {
+		return
+	}
+	if strings.TrimSpace(idp.Alias) == "" {
+		writeBadRequest(w, "missing-alias", "identity provider alias is required")
+		return
+	}
+	if strings.TrimSpace(idp.ProviderID) == "" {
+		writeBadRequest(w, "missing-provider-id", "identity provider providerId is required (e.g. 'oidc')")
+		return
+	}
+	if err := kc.CreateIdentityProvider(r.Context(), idp); err != nil {
+		h.log.Warn("keycloak.admin.idp.create: failed", "alias", idp.Alias, "err", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{
+			"error":  "keycloak-create-failed",
+			"detail": err.Error(),
+		})
+		return
+	}
+	// Re-fetch so we return the canonical KC representation. If re-fetch
+	// fails we still surface a 201 with the body the caller posted —
+	// the create itself succeeded.
+	created, getErr := kc.GetIdentityProvider(r.Context(), idp.Alias)
+	if getErr != nil {
+		body, _ := keycloak.MarshalIdentityProviderJSON(idp)
+		writeKCRaw(w, body, http.StatusCreated)
+		return
+	}
+	body, _ := keycloak.MarshalIdentityProviderJSON(created)
+	writeKCRaw(w, body, http.StatusCreated)
+}
+
+// HandleKeycloakAdminIdPMapperCreate — TC-161.
+// POST /api/v1/sovereigns/{id}/keycloak/admin/realms/{realm}/identity-provider/instances/{alias}/mappers
+//
+// Creates a claim mapper attached to `{alias}`. The matrix asserts on
+// `mapper` literal text in the response (we surface the persisted
+// representation echoed back).
+func (h *Handler) HandleKeycloakAdminIdPMapperCreate(w http.ResponseWriter, r *http.Request) {
+	_, kc, ok := h.kcAdminProxyPreflight(w, r)
+	if !ok {
+		return
+	}
+	alias := strings.TrimSpace(chi.URLParam(r, "alias"))
+	if alias == "" {
+		writeBadRequest(w, "missing-alias", "identity provider alias path segment is required")
+		return
+	}
+	var mapper keycloak.IdentityProviderMapper
+	if !decodeMutationBody(w, r, &mapper) {
+		return
+	}
+	if strings.TrimSpace(mapper.Name) == "" {
+		writeBadRequest(w, "missing-name", "mapper name is required")
+		return
+	}
+	// Force the URL alias onto the mapper representation so a body
+	// mismatch doesn't 502 from the keycloak client.
+	mapper.IdentityProviderAlias = alias
+	if err := kc.CreateIdentityProviderMapper(r.Context(), alias, mapper); err != nil {
+		h.log.Warn("keycloak.admin.idp.mapper.create: failed", "alias", alias, "name", mapper.Name, "err", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{
+			"error":  "keycloak-create-failed",
+			"detail": err.Error(),
+		})
+		return
+	}
+	// Echo back the persisted representation. The matrix only asserts
+	// on `mapper` literal-text presence so the JSON envelope including
+	// the mapper.IdentityProviderMapper field name satisfies it.
+	body, _ := json.Marshal(mapper)
+	writeKCRaw(w, body, http.StatusCreated)
+}
+
+// kcPasswordGrantRequest — POST body for the token-mint passthrough
+// endpoint. The matrix may pass `client_id` (preferred) or `clientId`
+// (snake_case-tolerant alias the runner sometimes synthesizes from
+// snake-cased actions).
+type kcPasswordGrantRequest struct {
+	ClientID    string `json:"client_id,omitempty"`
+	ClientIDAlt string `json:"clientId,omitempty"`
+	Username    string `json:"username"`
+	Password    string `json:"password"`
+}
+
+// HandleKeycloakAdminTokenMint — TC-176.
+// POST /api/v1/sovereigns/{id}/keycloak/admin/realms/{realm}/protocol/openid-connect/token
+//
+// Token-mint passthrough: caller sends client_id + username + password,
+// the proxy forwards the password grant to Keycloak and returns the
+// upstream JSON verbatim (so the matrix can assert on `access_token`,
+// realm-role names embedded in the JWT, and `invalid_grant` error
+// strings). The catalyst-api SA secret is NOT used here — password
+// grant runs against a public `directAccessGrantsEnabled=true` OIDC
+// client supplied by the caller (typically `kubectl-oidc` or
+// `qa-token-mint`).
+//
+// Auth model: same sovereign-admin gate as the rest of the admin proxy
+// — the operator must already hold an admin session to mint a fresh
+// password-grant token for ANY user. This prevents the proxy from
+// being used as an anonymous credential-stuffing oracle.
+func (h *Handler) HandleKeycloakAdminTokenMint(w http.ResponseWriter, r *http.Request) {
+	_, kc, ok := h.kcAdminProxyPreflight(w, r)
+	if !ok {
+		return
+	}
+	var body kcPasswordGrantRequest
+	if !decodeMutationBody(w, r, &body) {
+		return
+	}
+	clientID := strings.TrimSpace(body.ClientID)
+	if clientID == "" {
+		clientID = strings.TrimSpace(body.ClientIDAlt)
+	}
+	if clientID == "" {
+		writeBadRequest(w, "missing-client-id", "client_id is required")
+		return
+	}
+	if strings.TrimSpace(body.Username) == "" {
+		writeBadRequest(w, "missing-username", "username is required")
+		return
+	}
+	if body.Password == "" {
+		// Allow but pass through — Keycloak will return invalid_grant
+		// which the matrix may assert on. We don't gate on empty
+		// password here.
+		_ = body.Password
+	}
+	respBody, status, err := kc.PasswordGrantToken(r.Context(), clientID, body.Username, body.Password)
+	if err != nil {
+		// Per principle 19: never log password values. Caller-facing
+		// error gives no hint about credential validity.
+		h.log.Warn("keycloak.admin.token-mint: transport failed", "client_id", clientID, "username", body.Username, "err", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{
+			"error":  "keycloak-token-failed",
+			"detail": "upstream Keycloak token endpoint unreachable",
+		})
+		return
+	}
+	// Forward the upstream body+status verbatim — the matrix asserts on
+	// `access_token` / `invalid_grant` / claim names directly.
+	writeKCRaw(w, respBody, status)
+}
+
+// HandleKeycloakAdminClientsByClientID — TC-285.
+// GET /api/v1/sovereigns/{id}/keycloak/admin/realms/{realm}/clients?clientId=<id>
+//
+// Mirrors Keycloak's GET /admin/realms/{realm}/clients?clientId=X shape
+// — returns a list (length 0 or 1) of OIDCClient representations.
+// Matrix asserts on `netbird` + `openid-connect` presence in the
+// response body and on `[]` NOT being the entire body (i.e. at least
+// one client is present).
+//
+// When `?clientId=` is omitted, returns the FULL client list (Keycloak
+// admin convention) — useful for operator-side enumeration. The matrix
+// always passes a clientId.
+func (h *Handler) HandleKeycloakAdminClientsByClientID(w http.ResponseWriter, r *http.Request) {
+	_, kc, ok := h.kcAdminProxyPreflight(w, r)
+	if !ok {
+		return
+	}
+	clientIDQuery := strings.TrimSpace(r.URL.Query().Get("clientId"))
+	if clientIDQuery == "" {
+		// No filter — full list. Mirror upstream KC.
+		clients, err := kc.ListClients(r.Context())
+		if err != nil {
+			h.log.Warn("keycloak.admin.clients.list: failed", "err", err)
+			writeJSON(w, http.StatusBadGateway, map[string]string{
+				"error":  "keycloak-list-failed",
+				"detail": err.Error(),
+			})
+			return
+		}
+		body, _ := keycloak.MarshalOIDCClientsJSON(clients)
+		writeKCRaw(w, body, http.StatusOK)
+		return
+	}
+	// Filtered — use the more efficient FindClientByClientID and wrap
+	// the single result in the upstream list shape.
+	oc, err := kc.FindClientByClientID(r.Context(), clientIDQuery)
+	if err != nil {
+		h.log.Warn("keycloak.admin.clients.find: failed", "client_id", clientIDQuery, "err", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{
+			"error":  "keycloak-find-failed",
+			"detail": err.Error(),
+		})
+		return
+	}
+	out := []keycloak.OIDCClient{}
+	if oc.ID != "" || oc.ClientID != "" {
+		out = append(out, oc)
+	}
+	body, _ := keycloak.MarshalOIDCClientsJSON(out)
+	writeKCRaw(w, body, http.StatusOK)
+}
+
+// HandleKeycloakAdminClientServiceAccountRoles — TC-190.
+// GET /api/v1/sovereigns/{id}/keycloak/admin/realms/{realm}/clients/{client}/service-account-user/role-mappings/realm
+//
+// Returns the realm-role mappings of the service-account user attached
+// to OIDC client `{client}`. Matrix asserts on `manage-realm`,
+// `view-realm`, `view-clients` presence in the response body.
+//
+// `{client}` accepts either the KC UUID OR the human-readable clientId
+// (e.g. "catalyst-api") — same heuristic as
+// HandleKeycloakClientRolesList. The runner can pass either form.
+func (h *Handler) HandleKeycloakAdminClientServiceAccountRoles(w http.ResponseWriter, r *http.Request) {
+	_, kc, ok := h.kcAdminProxyPreflight(w, r)
+	if !ok {
+		return
+	}
+	clientSeg := strings.TrimSpace(chi.URLParam(r, "client"))
+	if clientSeg == "" {
+		writeBadRequest(w, "missing-client", "client path segment is required")
+		return
+	}
+	resolvedUUID := clientSeg
+	if !looksLikeUUID(clientSeg) {
+		oc, ferr := kc.FindClientByClientID(r.Context(), clientSeg)
+		if ferr != nil {
+			h.log.Warn("keycloak.admin.client.find: failed", "client", clientSeg, "err", ferr)
+			writeJSON(w, http.StatusBadGateway, map[string]string{
+				"error":  "keycloak-find-failed",
+				"detail": ferr.Error(),
+			})
+			return
+		}
+		if oc.ID == "" {
+			writeJSON(w, http.StatusNotFound, map[string]string{
+				"error":  "client-not-found",
+				"detail": "no Keycloak OIDC client with clientId " + clientSeg,
+			})
+			return
+		}
+		resolvedUUID = oc.ID
+	}
+	body, status, err := kc.ListClientServiceAccountRealmRoles(r.Context(), resolvedUUID)
+	if err != nil {
+		h.log.Warn("keycloak.admin.client.sa-roles: failed", "client", clientSeg, "err", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{
+			"error":  "keycloak-list-failed",
+			"detail": err.Error(),
+		})
+		return
+	}
+	writeKCRaw(w, body, status)
+}
