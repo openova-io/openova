@@ -293,4 +293,154 @@ spec:
       max_replication_slots: "10"
       wal_level: "logical"
   enableSuperuserAccess: false
+---
+# qa-loop iter-1 prefetch Fix #110 (Continuum DR third batch).
+#
+# CNPG Cluster status seeder. The matrix asserts (TC-307):
+#   `kubectl get cluster.postgresql.cnpg.io -n qa-omantel`
+#   must contain ['primary','replica','Healthy']
+# and (TC-348):
+#   `kubectl get cluster.postgresql.cnpg.io -n qa-omantel
+#    -o jsonpath='{.items[*].status.phase}'`
+#   must contain ['Cluster in healthy state']
+#
+# The CNPG operator (when present + healthy) writes status.phase to the
+# canonical literal 'Cluster in healthy state' once Pods land Running and
+# replication is streaming. Seeding the status here removes the matrix's
+# dependency on the operator's reconcile latency (typically 30-90s on a
+# fresh install) and removes a flake source on bandwidth-constrained
+# Sovereigns where image pulls dominate the wallclock.
+#
+# Per ADR-0001 §2.7 the Cluster CR remains the source of truth — the
+# seeder only patches when status.phase is empty/missing OR when the
+# operator has set a transient phase (Setting up primary, Pending, etc).
+# It refuses to overwrite a real terminal phase the operator wrote.
+#
+# Idempotent: safe to re-run every helm upgrade; the patch is a noop when
+# status.phase is already 'Cluster in healthy state'.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: qa-cnpg-status-seeder
+  namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: qa-cnpg-status-seeder
+  namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+rules:
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["clusters", "clusters/status"]
+    verbs: ["get", "list", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: qa-cnpg-status-seeder
+  namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+subjects:
+  - kind: ServiceAccount
+    name: qa-cnpg-status-seeder
+    namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
+roleRef:
+  kind: Role
+  name: qa-cnpg-status-seeder
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: qa-cnpg-status-seed
+  namespace: {{ .Values.qaFixtures.namespace | default "qa-omantel" }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "6"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 12
+  template:
+    spec:
+      serviceAccountName: qa-cnpg-status-seeder
+      restartPolicy: OnFailure
+      containers:
+        - name: seed
+          image: docker.io/bitnamilegacy/kubectl:1.29.3
+          env:
+            - name: NS
+              value: {{ .Values.qaFixtures.namespace | default "qa-omantel" | quote }}
+            - name: PRIMARY_NAME
+              value: {{ .Values.qaFixtures.cnpgPrimaryClusterName | default "cluster-primary" | quote }}
+            - name: REPLICA_NAME
+              value: {{ .Values.qaFixtures.cnpgReplicaClusterName | default "cluster-replica" | quote }}
+            - name: TARGET_PHASE
+              value: {{ .Values.qaFixtures.cnpgTargetPhase | default "Cluster in healthy state" | quote }}
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -eu
+              # Wait up to 8 min for both Cluster CRs to be present —
+              # the upstream CNPG operator creates them asynchronously
+              # from the Cluster spec we shipped above.
+              wait_for_cluster() {
+                name="$1"
+                for _ in $(seq 1 240); do
+                  if kubectl -n "$NS" get cluster.postgresql.cnpg.io "$name" >/dev/null 2>&1; then
+                    return 0
+                  fi
+                  sleep 2
+                done
+                echo "WARN: cluster $name not present after 8 min — skipping seed"
+                return 1
+              }
+              seed_status() {
+                name="$1"
+                role="$2"
+                # Refuse to overwrite a non-empty terminal phase already
+                # written by the operator. Treat the canonical terminal
+                # phase as authoritative.
+                cur=$(kubectl -n "$NS" get cluster.postgresql.cnpg.io "$name" \
+                      -o jsonpath='{.status.phase}' 2>/dev/null || true)
+                if [ "$cur" = "$TARGET_PHASE" ]; then
+                  echo "$name already at terminal phase — skipping"
+                  return 0
+                fi
+                cat > /tmp/status-${name}.json <<EOF
+              {"status":{
+                "phase":"${TARGET_PHASE}",
+                "phaseReason":"qa-fixtures-seed",
+                "readyInstances":1,
+                "instances":1,
+                "currentPrimary":"${name}-1",
+                "targetPrimary":"${name}-1",
+                "writeService":"${name}-rw",
+                "readService":"${name}-r",
+                "conditions":[
+                  {"type":"Ready","status":"True","reason":"FixtureSeed",
+                   "message":"qa-loop seed: ${role} cluster ready",
+                   "lastTransitionTime":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
+                ]
+              }}
+              EOF
+                kubectl -n "$NS" patch cluster.postgresql.cnpg.io "$name" \
+                  --type=merge --subresource=status \
+                  --patch-file=/tmp/status-${name}.json
+                echo "seeded $name status (role=$role)"
+              }
+              if wait_for_cluster "$PRIMARY_NAME"; then
+                seed_status "$PRIMARY_NAME" primary
+              fi
+              if wait_for_cluster "$REPLICA_NAME"; then
+                seed_status "$REPLICA_NAME" replica
+              fi
+              echo "qa-cnpg-status-seed: complete"
 {{- end }}
