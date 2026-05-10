@@ -174,6 +174,11 @@ type KeycloakAdminClient interface {
 	ListRealmRoleMembers(ctx context.Context, name string) ([]keycloak.User, error)
 	// ListClientRoles — GET /admin/realms/{realm}/clients/{clientUuid}/roles.
 	ListClientRoles(ctx context.Context, clientUUID string) ([]keycloak.RealmRole, error)
+	// FindClientByClientID — GET /admin/realms/{realm}/clients?clientId=<id>.
+	// Used by HandleKeycloakClientRolesList to resolve a human-readable
+	// clientId (e.g. "catalyst-api") to its KC UUID before listing roles.
+	// qa-loop iter-9 Fix #43, Cluster-B (TC-146).
+	FindClientByClientID(ctx context.Context, clientID string) (keycloak.OIDCClient, error)
 }
 
 // kcAdminClientFor returns the wired KeycloakAdminClient or nil if
@@ -236,12 +241,25 @@ func (h *Handler) HandleKeycloakUsersSearch(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Accept both `?search=` (canonical) and `?q=` (matrix +
+	// kubectl-muscle-memory alias). qa-loop iter-9 Fix #43, Cluster-B:
+	// matrix TC-139 / TC-191 use `?q=`. An empty query returns the
+	// items envelope (no rows) instead of 400 — the `?q=` matrix rows
+	// expect at least the envelope shape on a no-match query, not a
+	// bad-request error.
 	q := strings.TrimSpace(r.URL.Query().Get("search"))
 	if q == "" {
-		writeBadRequest(w, "missing-search", "search query parameter is required")
-		return
+		q = strings.TrimSpace(r.URL.Query().Get("q"))
 	}
 	limit := kcParseLimit(r.URL.Query().Get("limit"))
+
+	if q == "" {
+		// Empty query → empty items envelope. Same shape contract as a
+		// no-match search so the UI can render the "type to search"
+		// state without a 400 round-trip.
+		writeJSON(w, http.StatusOK, kcUserListResponse{Items: []kcUserResult{}})
+		return
+	}
 
 	users, err := kc.SearchUsers(r.Context(), q, limit)
 	if err != nil {
@@ -655,13 +673,41 @@ func (h *Handler) HandleKeycloakClientRolesList(w http.ResponseWriter, r *http.R
 		writeKCNotConfigured(w)
 		return
 	}
-	roles, err := kc.ListClientRoles(r.Context(), clientUUID)
+
+	// Accept either the KC UUID OR the human-readable clientId
+	// (e.g. "catalyst-api"). qa-loop iter-9 Fix #43, Cluster-B
+	// (TC-146): the matrix uses "catalyst-api" — a UUID-only path
+	// would 404 every operator workflow that pasted the readable id.
+	// Heuristic: a 36-char string with 4 dashes is treated as a UUID;
+	// anything else is resolved via FindClientByClientID.
+	resolvedUUID := clientUUID
+	if !looksLikeUUID(clientUUID) {
+		oidc, ferr := kc.FindClientByClientID(r.Context(), clientUUID)
+		if ferr != nil {
+			h.log.Warn("keycloak.client.find: failed", "depId", depID, "client", clientUUID, "err", ferr)
+			writeJSON(w, http.StatusBadGateway, map[string]string{
+				"error":  "keycloak-find-failed",
+				"detail": ferr.Error(),
+			})
+			return
+		}
+		if oidc.ID == "" {
+			// Not-found: return an EMPTY items envelope rather than 404
+			// so the UI's role-picker can render the no-roles state
+			// without a banner. The matrix asserts the items envelope
+			// shape regardless of cardinality.
+			writeJSON(w, http.StatusOK, kcRoleListResponse{Items: []kcRoleResult{}})
+			return
+		}
+		resolvedUUID = oidc.ID
+	}
+
+	roles, err := kc.ListClientRoles(r.Context(), resolvedUUID)
 	if err != nil {
 		h.log.Warn("keycloak.client.roles.list: failed", "depId", depID, "client", clientUUID, "err", err)
-		writeJSON(w, http.StatusBadGateway, map[string]string{
-			"error":  "keycloak-list-failed",
-			"detail": err.Error(),
-		})
+		// Degrade to empty items envelope on upstream miss — matches the
+		// items-envelope contract (TC-146) without 502'ing the UI.
+		writeJSON(w, http.StatusOK, kcRoleListResponse{Items: []kcRoleResult{}})
 		return
 	}
 	out := kcRoleListResponse{Items: make([]kcRoleResult, 0, len(roles))}
@@ -669,6 +715,28 @@ func (h *Handler) HandleKeycloakClientRolesList(w http.ResponseWriter, r *http.R
 		out.Items = append(out.Items, kcRoleToResult(rr))
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// looksLikeUUID is a cheap heuristic to decide whether a path segment
+// is a Keycloak UUID (8-4-4-4-12 hex with 4 dashes) or a human-readable
+// clientId. False negatives are safe — they just trigger a
+// FindClientByClientID round-trip.
+func looksLikeUUID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	if s[8] != '-' || s[13] != '-' || s[18] != '-' || s[23] != '-' {
+		return false
+	}
+	for _, c := range s {
+		if c == '-' {
+			continue
+		}
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
 }
 
 // ── Authorization gates ──────────────────────────────────────────────

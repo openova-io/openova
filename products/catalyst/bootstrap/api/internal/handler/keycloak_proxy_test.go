@@ -157,6 +157,15 @@ func (f *fakeKCAdminClient) ListClientRoles(_ context.Context, _ string) ([]keyc
 	return f.clientRoles, nil
 }
 
+// FindClientByClientID — qa-loop iter-9 Fix #43, Cluster-B (TC-146)
+// stub. Tests don't exercise the human-readable-id path; the
+// production handler falls back to the empty-items envelope when the
+// returned OIDCClient.ID is empty so this minimal stub keeps existing
+// behaviour for tests that pass a UUID-shaped clientId.
+func (f *fakeKCAdminClient) FindClientByClientID(_ context.Context, _ string) (keycloak.OIDCClient, error) {
+	return keycloak.OIDCClient{}, nil
+}
+
 // ── Test scaffolding ─────────────────────────────────────────────────
 
 func registerKCProxyRoutes(r chi.Router, h *Handler) {
@@ -241,15 +250,23 @@ func TestKeycloakUsersSearch_HappyPath(t *testing.T) {
 	}
 }
 
-func TestKeycloakUsersSearch_RequiresSearchParam(t *testing.T) {
+func TestKeycloakUsersSearch_EmptyQueryReturnsEmptyItems(t *testing.T) {
+	// qa-loop iter-9 Fix #43, Cluster-B (TC-191): empty `?q=` /
+	// `?search=` returns the canonical items envelope with an empty
+	// list rather than 400. Matches the "no rows matched" contract
+	// the matrix asserts so the UI can render the type-to-search
+	// state without a banner.
 	h, dep, _ := newKCProxyHandler(t)
 	r := chi.NewRouter()
 	registerKCProxyRoutes(r, h)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, reqWithClaims(http.MethodGet,
 		"/api/v1/sovereigns/"+dep.ID+"/keycloak/users", "", adminClaims()))
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status: got %d want 400; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"items"`) {
+		t.Errorf("body missing items envelope: %s", rec.Body.String())
 	}
 }
 
@@ -655,8 +672,12 @@ func TestKeycloakClientRoles_HappyPath(t *testing.T) {
 	r := chi.NewRouter()
 	registerKCProxyRoutes(r, h)
 	rec := httptest.NewRecorder()
+	// Use a real-shaped UUID so the handler skips the
+	// FindClientByClientID resolver (qa-loop iter-9 Fix #43,
+	// Cluster-B / TC-146 — human-readable id path is exercised by
+	// TestKeycloakClientRoles_ResolvesHumanReadableId below).
 	r.ServeHTTP(rec, reqWithClaims(http.MethodGet,
-		"/api/v1/sovereigns/"+dep.ID+"/keycloak/clients/client-uuid/roles", "", adminClaims()))
+		"/api/v1/sovereigns/"+dep.ID+"/keycloak/clients/12345678-1234-1234-1234-123456789012/roles", "", adminClaims()))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status: got %d", rec.Code)
 	}

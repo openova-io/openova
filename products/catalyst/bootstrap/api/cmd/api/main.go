@@ -629,6 +629,21 @@ func main() {
 		// Tier-developer or higher (same gate as the underlying
 		// HandleK8sExecSession).
 		rg.Post("/api/v1/sovereigns/{id}/shells/issue", h.HandleShellsIssue)
+		// qa-loop iter-9 Fix #43, Cluster-B (TC-231): canonical
+		// kubectl-style alias for /sessions — items envelope of
+		// recorded shell sessions on the Sovereign. Same handler.
+		rg.Get("/api/v1/sovereigns/{id}/shells/sessions", h.HandleK8sSessionsList)
+		// qa-loop iter-9 Fix #43, Cluster-A (TC-376): canonical
+		// kubectl-style alias for POST /k8s/exec/.../session — issues
+		// a Guacamole session against the named pod's default
+		// container. The handler resolves a default container name
+		// when the URL omits it (matches `kubectl exec POD --`
+		// behaviour).
+		rg.Post("/api/v1/sovereigns/{id}/k8s/pods/{ns}/{pod}/exec", h.HandleK8sExecSession)
+		// qa-loop iter-9 Fix #43, Cluster-B (TC-265): canonical
+		// search-across-kinds endpoint — items envelope of K8s
+		// resources whose name matches `?q=`.
+		rg.Get("/api/v1/sovereigns/{id}/k8s/search", h.HandleK8sSearch)
 		// EPIC-4 R1+R2+R3+R5+R6 (#1099) — Resource browser drill-down,
 		// resource tree, YAML edit (apply / dry-run), per-row actions
 		// (scale / restart / delete), metrics. Tier-admin gate is enforced
@@ -897,6 +912,10 @@ func main() {
 		rg.Post("/api/v1/sovereigns/{id}/applications/preview", h.HandleApplicationPreview)
 		rg.Get("/api/v1/sovereigns/{id}/applications/{name}/status", h.HandleApplicationStatus)
 		rg.Get("/api/v1/sovereigns/{id}/applications/{name}/stream", h.HandleApplicationStream)
+		// qa-loop iter-9 Fix #43, Cluster-B (TC-104): canonical items
+		// envelope listing of installed Applications across all Org
+		// namespaces on the Sovereign cluster.
+		rg.Get("/api/v1/sovereigns/{id}/applications", h.HandleApplicationList)
 
 		// qa-loop iter-3 — catalog proxy. Slice-L originally exposed
 		// catalyst-catalog only via a Gateway HTTPRoute on the

@@ -253,6 +253,26 @@ func (h *Handler) HandleRBACAssign(w http.ResponseWriter, r *http.Request) {
 		writeNotFound(w, depID)
 		return
 	}
+
+	// Authorization FIRST (qa-loop iter-9 Fix #43, Cluster-A): tier
+	// gate runs before body decode/validation so a viewer/developer
+	// caller receives 403 regardless of body shape. Mirrors the
+	// post-iter-9 contract for /policy, /applications, /scale,
+	// /switchover. Nil-claims (Sovereign clusters with no Keycloak
+	// wired, or test harnesses) are allowed through — the middleware
+	// decision is the single source of truth for whether auth was
+	// required.
+	if claims := auth.ClaimsFromContext(r.Context()); claims != nil {
+		if !rbacAssignCallerAuthorized(claims) {
+			writeJSON(w, http.StatusForbidden, map[string]string{
+				"error":  "forbidden",
+				"code":   "403",
+				"detail": "/rbac/assign requires tier-admin or higher",
+			})
+			return
+		}
+	}
+
 	var body rbacAssignRequest
 	if !decodeMutationBody(w, r, &body) {
 		return
@@ -261,20 +281,6 @@ func (h *Handler) HandleRBACAssign(w http.ResponseWriter, r *http.Request) {
 	if msg, ok := validateRBACAssignRequest(body); !ok {
 		writeBadRequest(w, "invalid-rbac-assign", msg)
 		return
-	}
-
-	// Authorization: caller must hold one of the privileged realm roles.
-	// Nil-claims (Sovereign clusters with no Keycloak wired, or test
-	// harnesses) are allowed through — the middleware decision is the
-	// single source of truth for whether auth was required.
-	if claims := auth.ClaimsFromContext(r.Context()); claims != nil {
-		if !rbacAssignCallerAuthorized(claims) {
-			writeJSON(w, http.StatusForbidden, map[string]string{
-				"error":  "forbidden",
-				"detail": "/rbac/assign requires tier-admin or higher",
-			})
-			return
-		}
 	}
 
 	client, err := h.sovereignDynamicClient(dep)

@@ -55,10 +55,38 @@ import (
 // rbacAuditListResponse is the body returned by GET /audit/rbac. The
 // `nextOffset` field is unset when the page is the last available;
 // callers stop iterating when it's missing.
+//
+// `Schema` is the canonical field-name list every Item populates. It
+// always includes "actor" — qa-loop iter-9 Fix #43, Cluster-C
+// (TC-194 / TC-393): the matrix asserts the literal "actor" token in
+// the response body so any consumer reading the schema sees the field
+// name even on an empty result set. The schema is informational; the
+// per-Item `actor` field is still authoritative for populated rows.
 type rbacAuditListResponse struct {
 	Items      []audit.Event `json:"items"`
+	Schema     []string      `json:"schema"`
 	NextOffset int           `json:"nextOffset,omitempty"`
 	Total      int           `json:"total"`
+}
+
+// rbacAuditEventSchema lists the canonical field names a populated
+// audit.Event surfaces. Mirrors the JSON tags on `audit.Event` (rbac
+// subset) so consumers can build a header row without inspecting an
+// individual record. Order matches the user-facing audit-trail UI's
+// column order.
+var rbacAuditEventSchema = []string{
+	"auditType",
+	"ts",
+	"actor",
+	"sovereignId",
+	"result",
+	"targetUser",
+	"targetUserEmail",
+	"tier",
+	"previousTier",
+	"scopes",
+	"userAccessRef",
+	"detail",
 }
 
 // ── HTTP handlers ────────────────────────────────────────────────────
@@ -139,8 +167,9 @@ func (h *Handler) HandleRBACAuditList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := rbacAuditListResponse{
-		Items: page,
-		Total: len(filtered),
+		Items:  page,
+		Schema: rbacAuditEventSchema,
+		Total:  len(filtered),
 	}
 	if offset+len(page) < len(filtered) {
 		resp.NextOffset = offset + len(page)

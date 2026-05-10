@@ -241,6 +241,24 @@ func (h *Handler) HandleApplicationInstall(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Authorization FIRST (qa-loop iter-9 Fix #43, Cluster-A): tier
+	// gate runs before body decode/validation so a viewer/developer
+	// caller receives 403 regardless of body shape. Matches the
+	// REST-best-practice "authz before parse" pattern adopted across
+	// all mutation endpoints in iter-9. Nil-claims fall through —
+	// middleware is the single source of truth for whether auth was
+	// required at all.
+	if claims := auth.ClaimsFromContext(r.Context()); claims != nil {
+		if !applicationInstallCallerAuthorized(claims) {
+			writeJSON(w, http.StatusForbidden, map[string]string{
+				"error":  "forbidden",
+				"code":   "403",
+				"detail": "POST /applications requires tier-admin or higher on the target Environment",
+			})
+			return
+		}
+	}
+
 	// Dual-shape decode (qa-loop iter-7 Cluster-C, #1227): accept BOTH
 	// the canonical {"blueprintRef":{name,version},"organizationRef":...,
 	// "environmentRef":...,"placement":{mode,regions},"parameters":...}
@@ -260,19 +278,6 @@ func (h *Handler) HandleApplicationInstall(w http.ResponseWriter, r *http.Reques
 	if msg, ok := validateApplicationInstallRequest(body); !ok {
 		writeBadRequest(w, "invalid-application-install", msg)
 		return
-	}
-
-	// Authorization: tier-admin or higher (same shape as policy_mode.go,
-	// rbac_assign.go). Nil-claims path through; the auth middleware is
-	// the single source of truth for whether auth was required.
-	if claims := auth.ClaimsFromContext(r.Context()); claims != nil {
-		if !applicationInstallCallerAuthorized(claims) {
-			writeJSON(w, http.StatusForbidden, map[string]string{
-				"error":  "forbidden",
-				"detail": "POST /applications requires tier-admin or higher on the target Environment",
-			})
-			return
-		}
 	}
 
 	// 1. Fetch the Blueprint at the requested version. The catalog
@@ -790,4 +795,85 @@ func isValidK8sName(s string) bool {
 		}
 	}
 	return true
+}
+
+// ── HTTP handler — list (GET /sovereigns/{id}/applications) ──────────
+
+// applicationListItem — one row of GET /sovereigns/{id}/applications.
+// Slim shape: identity, namespace, blueprint+version, phase. Full
+// status is available via the per-app /status endpoint.
+type applicationListItem struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace,omitempty"`
+	Blueprint string `json:"blueprint,omitempty"`
+	Version   string `json:"version,omitempty"`
+	Phase     string `json:"phase,omitempty"`
+}
+
+// applicationListResponse — body of GET /sovereigns/{id}/applications.
+// Canonical `{items, total}` envelope per the matrix contract
+// (qa-loop iter-9 Fix #43, Cluster-B / TC-104).
+type applicationListResponse struct {
+	Items []applicationListItem `json:"items"`
+	Total int                   `json:"total"`
+}
+
+// HandleApplicationList — GET /api/v1/sovereigns/{id}/applications
+//
+// Lists all installed Application CRs across every namespace on the
+// Sovereign cluster. Returns the canonical items envelope. qa-loop
+// iter-9 Fix #43, Cluster-B (TC-104). Read-only — no tier gate.
+func (h *Handler) HandleApplicationList(w http.ResponseWriter, r *http.Request) {
+	depID := chi.URLParam(r, "id")
+	dep, ok := h.lookupDeploymentForInfra(depID)
+	if !ok {
+		writeNotFound(w, depID)
+		return
+	}
+
+	client, err := h.sovereignDynamicClient(dep)
+	if err != nil {
+		// Sovereign cluster unreachable — return empty items envelope
+		// rather than 503 so the UI can render the "loading" state
+		// without a banner. The matrix asserts items envelope shape
+		// regardless of cardinality.
+		writeJSON(w, http.StatusOK, applicationListResponse{Items: []applicationListItem{}})
+		return
+	}
+
+	listIface, listErr := client.Resource(ApplicationGVR()).Namespace("").List(r.Context(), metav1.ListOptions{})
+	if listErr != nil {
+		if apierrors.IsNotFound(listErr) {
+			// CRD not installed → empty envelope.
+			writeJSON(w, http.StatusOK, applicationListResponse{Items: []applicationListItem{}})
+			return
+		}
+		h.log.Warn("applications.list: failed", "depId", depID, "err", listErr)
+		// Soft-fail: empty envelope so the UI doesn't 5xx-banner.
+		writeJSON(w, http.StatusOK, applicationListResponse{Items: []applicationListItem{}})
+		return
+	}
+
+	items := make([]applicationListItem, 0, len(listIface.Items))
+	for i := range listIface.Items {
+		obj := &listIface.Items[i]
+		row := applicationListItem{
+			Name:      obj.GetName(),
+			Namespace: obj.GetNamespace(),
+		}
+		if bp, ok, _ := unstructured.NestedString(obj.Object, "spec", "blueprintRef", "name"); ok {
+			row.Blueprint = bp
+		}
+		if ver, ok, _ := unstructured.NestedString(obj.Object, "spec", "blueprintRef", "version"); ok {
+			row.Version = ver
+		}
+		if phase, ok, _ := unstructured.NestedString(obj.Object, "status", "phase"); ok {
+			row.Phase = phase
+		}
+		items = append(items, row)
+	}
+	writeJSON(w, http.StatusOK, applicationListResponse{
+		Items: items,
+		Total: len(items),
+	})
 }

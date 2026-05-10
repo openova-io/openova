@@ -241,6 +241,26 @@ func (h *Handler) HandleEnvironmentPolicyMode(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// Authorization FIRST (qa-loop iter-9 Fix #43, Cluster-A): the
+	// matrix asserts that a viewer/developer caller receives 403 for
+	// this endpoint regardless of body shape. The auth gate runs
+	// before body decode/validation so a malformed body from a
+	// non-privileged caller still produces 403 (not 400). REST best
+	// practice + matches the post-iter-8 contract for /rbac/assign,
+	// /applications, /scale and /switchover. Nil-claims fall through
+	// (test harnesses, pre-OIDC Sovereigns) — middleware is the
+	// single source of truth for whether auth was required at all.
+	if claims := auth.ClaimsFromContext(r.Context()); claims != nil {
+		if !policyModeCallerAuthorized(claims) {
+			writeJSON(w, http.StatusForbidden, map[string]string{
+				"error":  "forbidden",
+				"code":   "403",
+				"detail": "PUT /environments/{env}/policy requires tier-admin or higher",
+			})
+			return
+		}
+	}
+
 	var body policyModeRequest
 	if !decodeMutationBody(w, r, &body) {
 		return
@@ -271,21 +291,6 @@ func (h *Handler) HandleEnvironmentPolicyMode(w http.ResponseWriter, r *http.Req
 		normalized[k] = canonical
 	}
 	body.Modes = normalized
-
-	// Authorization: caller must hold tier-admin or higher. Nil-claims
-	// (test harnesses without a wired Keycloak; Sovereign clusters
-	// pre-OIDC) fall through — the auth middleware is the single
-	// source of truth for whether auth was required at all. Mirrors
-	// rbac_assign.go's authz seam.
-	if claims := auth.ClaimsFromContext(r.Context()); claims != nil {
-		if !policyModeCallerAuthorized(claims) {
-			writeJSON(w, http.StatusForbidden, map[string]string{
-				"error":  "forbidden",
-				"detail": "PUT /environments/{env}/policy requires tier-admin or higher",
-			})
-			return
-		}
-	}
 
 	client, err := h.sovereignDynamicClient(dep)
 	if err != nil {
