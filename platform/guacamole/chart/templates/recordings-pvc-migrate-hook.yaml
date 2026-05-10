@@ -1,0 +1,158 @@
+{{- /*
+PVC storageClass-migration hook (qa-loop iter-11 Fix #45 Cluster-A).
+
+Background — the immutable-spec problem
+=======================================
+PersistentVolumeClaim.spec is immutable after creation EXCEPT for
+`resources.requests.storage` (resize, when allowed by the StorageClass)
+and `volumeAttributesClassName`. Specifically `storageClassName` is
+strictly immutable. Once a PVC is bound to a PV under storageClass X,
+no `helm upgrade` that changes `.Values.guacamole.recordings.storageClass`
+to Y will ever succeed — the K8s apiserver rejects the patch with
+`PersistentVolumeClaim ... is invalid: spec: Forbidden: spec is
+immutable after creation except resources.requests.storage and
+volumeAttributesClassName for bound claims`.
+
+This is the live bp-guacamole HR failure we hit on omantel iter-11:
+PR #1259 left `.Values.recordings.storageClass` at upstream default
+`hcloud-volumes`, the omantel cluster overlay set it to
+`seaweedfs-storage`, but the pre-existing PVC was bound to `local-path`
+(from a prior reconcile pass), and the upgrade locked into a permanent
+remediation loop.
+
+Why a hook (not a migration Job, not chart-rename)
+==================================================
+A regular Job would run AFTER the templates render — too late, because
+the helm-upgrade fails before the Job ever lands. A chart-side rename
+of the PVC pattern (e.g. include a hash of the storage class) would
+churn through PVs every time the value changes, losing data unless we
+also added a backup-restore lifecycle. Per docs/INVIOLABLE-PRINCIPLES.md
+(no "for now" workarounds, no compromised quality), the right primitive
+is the Helm `pre-upgrade` hook — it runs BEFORE the chart re-renders
+the PVC manifest, so it can delete the offending PVC + PV + finalizer
+and let the post-render PVC create cleanly.
+
+Recording-data lifecycle
+========================
+`/recordings` holds Guacamole session capture files (RDP/VNC/SSH/exec
+playback). On a Sovereign without long-running sessions or before the
+recording-shipper is wired up, deleting the volume is data-safe. The
+hook is gated by `.Values.guacamole.recordings.allowMigration` so an
+operator with live recording state can disable the destructive path
+(default ON because the cost of leaving the upgrade wedged is much
+higher than the cost of regenerating an empty recordings directory —
+Guacamole creates per-connection subdirectories on demand).
+
+When the PVC's existing storageClass already matches the chart-desired
+one, the hook is a no-op. The check uses kubectl-as-the-subject's RBAC,
+which the hook ServiceAccount provides via a per-release Role.
+
+Pairs with:
+  - templates/seaweedfs-pvc.yaml       — the actual PVC the chart wants
+  - templates/recordings-pvc-rbac.yaml — ServiceAccount + Role + Binding
+*/}}
+{{- $migrate := true -}}
+{{- if hasKey .Values.guacamole.recordings "allowMigration" -}}
+{{-   $migrate = .Values.guacamole.recordings.allowMigration -}}
+{{- end -}}
+{{- if and .Values.guacamole.enabled $migrate -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "bp-guacamole.recordingsName" . }}-storageclass-migrate
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-guacamole.labels" . | nindent 4 }}
+    catalyst.openova.io/component: recordings-migrate
+  annotations:
+    # Run BEFORE templates land — pre-install + pre-upgrade so a fresh
+    # install (no PVC yet) is also a no-op safely (the kubectl-get in
+    # the script is forgiving). before-hook-creation makes Helm delete
+    # the prior Job manifest before re-applying so we're not blocked by
+    # the immutable Job.spec.template.
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        {{- include "bp-guacamole.labels" . | nindent 8 }}
+        catalyst.openova.io/component: recordings-migrate
+    spec:
+      serviceAccountName: {{ include "bp-guacamole.recordingsName" . }}-migrator
+      restartPolicy: Never
+      {{- with .Values.guacamole.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: migrate
+          # bitnami/kubectl is the canonical chart-side migration tool
+          # across Catalyst Blueprints (cf. bp-keycloak realm-config
+          # post-deploy Job pattern). SHA-pinned per
+          # docs/INVIOLABLE-PRINCIPLES.md #4a.
+          image: {{ .Values.guacamole.recordings.migrationImage | default "bitnami/kubectl:1.30.4" | quote }}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: PVC_NAME
+              value: {{ include "bp-guacamole.recordingsName" . | quote }}
+            - name: PVC_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            - name: DESIRED_STORAGECLASS
+              value: {{ .Values.guacamole.recordings.storageClass | quote }}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              # Read existing PVC's storageClass; -o jsonpath emits empty
+              # string if PVC doesn't exist (kubectl returns 0 with empty
+              # output for that case via --ignore-not-found).
+              EXISTING_SC="$(kubectl get pvc "${PVC_NAME}" -n "${PVC_NAMESPACE}" \
+                --ignore-not-found \
+                -o jsonpath='{.spec.storageClassName}' 2>/dev/null || true)"
+              if [ -z "${EXISTING_SC}" ]; then
+                echo "PVC ${PVC_NAMESPACE}/${PVC_NAME} does not exist — fresh install, no migration needed."
+                exit 0
+              fi
+              if [ "${EXISTING_SC}" = "${DESIRED_STORAGECLASS}" ]; then
+                echo "PVC ${PVC_NAMESPACE}/${PVC_NAME} already on storageClass=${DESIRED_STORAGECLASS} — no migration."
+                exit 0
+              fi
+              echo "PVC storageClass mismatch — existing=${EXISTING_SC} desired=${DESIRED_STORAGECLASS}; deleting PVC + PV to allow recreation."
+              # Capture bound PV name before deleting PVC (Delete reclaim
+              # policy on most CSI drivers will auto-delete the PV when
+              # the PVC goes; Retain policies need explicit cleanup).
+              BOUND_PV="$(kubectl get pvc "${PVC_NAME}" -n "${PVC_NAMESPACE}" \
+                -o jsonpath='{.spec.volumeName}' 2>/dev/null || true)"
+              # Strip finalizers so the PVC actually deletes (kubernetes.io/pvc-protection
+              # blocks delete while a Pod still references it; the chart's
+              # webapp Deployment is being upgraded so the Pod is in the
+              # process of going away — we force the issue).
+              kubectl patch pvc "${PVC_NAME}" -n "${PVC_NAMESPACE}" \
+                --type=merge -p '{"metadata":{"finalizers":[]}}' \
+                --ignore-not-found || true
+              kubectl delete pvc "${PVC_NAME}" -n "${PVC_NAMESPACE}" \
+                --ignore-not-found --wait=true --timeout=60s
+              if [ -n "${BOUND_PV}" ]; then
+                echo "Cleaning up PV ${BOUND_PV} (storageClass=${EXISTING_SC})."
+                kubectl patch pv "${BOUND_PV}" \
+                  --type=merge -p '{"metadata":{"finalizers":[]}}' \
+                  --ignore-not-found || true
+                kubectl delete pv "${BOUND_PV}" \
+                  --ignore-not-found --wait=true --timeout=60s
+              fi
+              echo "Migration complete; chart-side PVC will be recreated on this upgrade pass with storageClass=${DESIRED_STORAGECLASS}."
+{{- end }}

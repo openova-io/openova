@@ -1,0 +1,115 @@
+{{- /*
+RBAC for the storageClass-migration hook (qa-loop iter-11 Fix #45 Cluster-A).
+
+ServiceAccount + Role + RoleBinding scoped to the chart's namespace —
+the hook only ever touches the recordings PVC and (via cluster-level
+PV cleanup) the bound PV. PVs are cluster-scoped so we need a
+ClusterRole + ClusterRoleBinding for that one verb.
+
+Pairs with templates/recordings-pvc-migrate-hook.yaml.
+*/}}
+{{- $migrate := true -}}
+{{- if hasKey .Values.guacamole.recordings "allowMigration" -}}
+{{-   $migrate = .Values.guacamole.recordings.allowMigration -}}
+{{- end -}}
+{{- if and .Values.guacamole.enabled $migrate -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "bp-guacamole.recordingsName" . }}-migrator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-guacamole.labels" . | nindent 4 }}
+    catalyst.openova.io/component: recordings-migrate
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-20"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+{{- with .Values.guacamole.imagePullSecrets }}
+imagePullSecrets:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "bp-guacamole.recordingsName" . }}-migrator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-guacamole.labels" . | nindent 4 }}
+    catalyst.openova.io/component: recordings-migrate
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-20"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+rules:
+  # Read-then-decide: get is for the storageClass-mismatch check; the
+  # destructive verbs run only when the check fires.
+  - apiGroups: [""]
+    resources: [persistentvolumeclaims]
+    verbs: [get, list, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "bp-guacamole.recordingsName" . }}-migrator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-guacamole.labels" . | nindent 4 }}
+    catalyst.openova.io/component: recordings-migrate
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-20"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "bp-guacamole.recordingsName" . }}-migrator
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "bp-guacamole.recordingsName" . }}-migrator
+    namespace: {{ .Release.Namespace }}
+---
+# PV is cluster-scoped — needs ClusterRole. Scoped via resourceNames is
+# impossible because the PV name is the dynamically-provisioned UUID
+# (we don't know it at chart-render time). Verbs are the minimum needed
+# to clear the bound PV when the underlying CSI Reclaim policy is Retain.
+# Per docs/INVIOLABLE-PRINCIPLES.md #3 (least-privilege), this is the
+# narrowest cluster-scoped grant we can express; create is intentionally
+# omitted.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ printf "%s-%s-migrator-pv" .Release.Namespace (include "bp-guacamole.recordingsName" .) | trunc 253 | trimSuffix "-" }}
+  labels:
+    {{- include "bp-guacamole.labels" . | nindent 4 }}
+    catalyst.openova.io/component: recordings-migrate
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-20"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: [""]
+    resources: [persistentvolumes]
+    verbs: [get, list, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ printf "%s-%s-migrator-pv" .Release.Namespace (include "bp-guacamole.recordingsName" .) | trunc 253 | trimSuffix "-" }}
+  labels:
+    {{- include "bp-guacamole.labels" . | nindent 4 }}
+    catalyst.openova.io/component: recordings-migrate
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-20"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ printf "%s-%s-migrator-pv" .Release.Namespace (include "bp-guacamole.recordingsName" .) | trunc 253 | trimSuffix "-" }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "bp-guacamole.recordingsName" . }}-migrator
+    namespace: {{ .Release.Namespace }}
+{{- end }}

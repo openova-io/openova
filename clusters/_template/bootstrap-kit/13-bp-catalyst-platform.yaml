@@ -337,13 +337,28 @@ spec:
       # rebuilt application-controller image (:24aab61) into values.yaml
       # — chart 1.4.115 had stale tag (:a3ba200) because GH Actions
       # silently filters bot pushes from triggering blueprint-release.
+      # 1.4.117 (qa-loop iter-11 Fix #45 Cluster-B + Cluster-C):
+      #   B) application-controller now observes downstream HelmRelease
+      #      readiness (helm.toolkit.fluxcd.io/helmreleases get/list/
+      #      watch added to ClusterRole) and rolls up Application
+      #      .status.phase from Provisioning → Ready. Periodic 30s
+      #      re-list ticker so HR readiness flips reach the parent.
+      #      status.lastReconciledAt populated for TC-113.
+      #   C) catalyst-api gains GET /sovereigns/{id}/applications/{name}
+      #      (full Application detail) and accepts ?namespace= alias on
+      #      /sovereigns/{id}/k8s/{kind}. SPA AppDetail.tsx falls back
+      #      to the new GET when wizard store has no descriptor (typical
+      #      chroot Sovereign case — closes the "App not found" misfire
+      #      on TC-068 / TC-072 / TC-074). TC-262 / TC-263 (services
+      #      filtered to qa-omantel only) flip PASS via the namespace
+      #      alias.
       # 1.4.109 (Fix #40 follow-up #2): drop /api/v1 from organization +
       # environment-controller GITEA URL defaults — Gitea client appends
       # it; the prior default produced /api/v1/api/v1/... 404s on
       # EnsureOrg / EnsureRepo blocking qa-wp Application reconcile.
       # bootstrap-kit qaFixtures.cnpgPairName default qa-cnpg → qa-cnpgpair
       # so TC-306's "cnpgpair" substring assertion passes.
-      version: 1.4.116
+      version: 1.4.117
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

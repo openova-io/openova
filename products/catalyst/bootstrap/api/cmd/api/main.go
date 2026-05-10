@@ -912,6 +912,16 @@ func main() {
 		rg.Post("/api/v1/sovereigns/{id}/applications/preview", h.HandleApplicationPreview)
 		rg.Get("/api/v1/sovereigns/{id}/applications/{name}/status", h.HandleApplicationStatus)
 		rg.Get("/api/v1/sovereigns/{id}/applications/{name}/stream", h.HandleApplicationStream)
+		// qa-loop iter-11 Fix #45 Cluster-C: full Application detail
+		// (identity + spec + status) so the Sovereign Console SPA's
+		// AppDetail page can synthesise an ApplicationDescriptor on the
+		// fly when the Application isn't part of the wizard's
+		// `selectedComponents` (the typical chroot Sovereign case —
+		// Apps installed via `kubectl apply -f application.yaml` or
+		// the catalyst-api install endpoint, NOT via the wizard).
+		// Without this route the SPA fell into the "App not found"
+		// surface for every chroot-installed Application.
+		rg.Get("/api/v1/sovereigns/{id}/applications/{name}", h.HandleApplicationGet)
 		// qa-loop iter-9 Fix #43, Cluster-B (TC-104): canonical items
 		// envelope listing of installed Applications across all Org
 		// namespaces on the Sovereign cluster.

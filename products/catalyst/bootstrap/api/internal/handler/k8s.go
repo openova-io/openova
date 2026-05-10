@@ -96,7 +96,20 @@ func (h *Handler) HandleK8sList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	q := r.URL.Query()
+	// qa-loop iter-11 Fix #45 Cluster-C: accept BOTH `?ns=` (the
+	// historical short form) AND `?namespace=` (the kubectl /
+	// API-server canonical form that the SPA's `getApplicationStatus`
+	// helper, the catalog API client, and downstream tooling all emit).
+	// Prior to this fix `?namespace=qa-omantel` was silently ignored —
+	// the handler returned the un-filtered list across every namespace
+	// (TC-262 / TC-263: `?namespace=qa-omantel` returned alloy + newapi
+	// services + every other namespace's services, with `qa-wp` buried
+	// in noise). `ns=` wins when both are passed (preserves any caller
+	// that may have set both for paranoia).
 	ns := q.Get("ns")
+	if ns == "" {
+		ns = q.Get("namespace")
+	}
 	limit := parseIntDefault(q.Get("limit"), 500)
 	if limit < 1 {
 		limit = 500

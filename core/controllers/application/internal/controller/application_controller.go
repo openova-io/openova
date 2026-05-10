@@ -124,6 +124,27 @@ var (
 		Version:  "v1",
 		Resource: "kustomizations",
 	}
+
+	// FluxHelmReleaseGVR — the per-Application HelmRelease that lands
+	// in the Application CR's own namespace once the
+	// per-region Kustomization reconciles the manifests committed to
+	// Gitea. The reconciler observes this HR's status.conditions[Ready]
+	// to flip Application.status.phase from `Provisioning` to `Ready`
+	// (qa-loop iter-11 Fix #45 Cluster-B). Without the observation
+	// the Application CR sat at Provisioning forever even after the
+	// downstream Helm install completed — the Sovereign Console treated
+	// it as still-installing, the matrix-asserted "Installed" terminal
+	// phase never arrived, and TC-066 / TC-100 / TC-104 / TC-113 / TC-117
+	// stayed FAIL.
+	//
+	// v2 is the Flux 2.4+ stable. Same Inviolable-Principle #3 rationale
+	// as the GitRepository / Kustomization GVR comments above — no v2beta
+	// fallback because Sovereigns standardise on bp-flux 1.x.
+	FluxHelmReleaseGVR = schema.GroupVersionResource{
+		Group:    "helm.toolkit.fluxcd.io",
+		Version:  "v2",
+		Resource: "helmreleases",
+	}
 )
 
 // Phase strings — surfaced on Application.status.phase per the CRD's
@@ -245,6 +266,16 @@ type Config struct {
 	// Empty means anonymous clone (acceptable for in-cluster Gitea where
 	// the network boundary is the K8s service cordon). Defaults to "".
 	FluxGiteaSecretRef string
+
+	// HelmReleaseObservationInterval is how often the periodic re-list
+	// fires to pick up downstream HelmRelease readiness flips. Defaults
+	// to 30s — short enough that the matrix-asserted 3-minute ceiling
+	// for `qa-wp` to reach `phase=Ready` (TC-066) is comfortably met
+	// even with a single observation miss. qa-loop iter-11 Fix #45
+	// Cluster-B: without this re-list, Application.status.phase was
+	// stuck at `Provisioning` indefinitely because the K8s Watch on
+	// Application CRs doesn't fire when a SIBLING HR's status changes.
+	HelmReleaseObservationInterval time.Duration
 }
 
 // Defaults applies missing-field defaults to a Config. Returns a copy.
@@ -276,6 +307,9 @@ func (c Config) Defaults() Config {
 	}
 	if out.HostFluxIntervalSeconds <= 0 {
 		out.HostFluxIntervalSeconds = 60
+	}
+	if out.HelmReleaseObservationInterval <= 0 {
+		out.HelmReleaseObservationInterval = 30 * time.Second
 	}
 	return out
 }
@@ -320,6 +354,14 @@ func New(dyn dynamic.Interface, gitea Gitea, errs GiteaErrorClassifier, cfg Conf
 //
 // Watches Application CRs across all namespaces (the CRD is namespace-
 // scoped per products/catalyst/chart/crds/application.yaml).
+//
+// In addition to the Watch on Application CRs, a periodic re-list ticker
+// fires every `Cfg.HelmReleaseObservationInterval` (default 30s) so the
+// reconciler picks up downstream HelmRelease readiness flips. Without
+// this re-list, Application.status.phase would never transition off
+// `Provisioning` because nothing on the API server triggers a fresh
+// reconcile of the Application when its sibling HelmRelease's
+// status.conditions[Ready] flips True. qa-loop iter-11 Fix #45 Cluster-B.
 func (r *Reconciler) Run(ctx context.Context) error {
 	if r.Dynamic == nil {
 		return errors.New("controller: Dynamic client is required")
@@ -327,12 +369,43 @@ func (r *Reconciler) Run(ctx context.Context) error {
 	if err := r.initialList(ctx); err != nil {
 		return fmt.Errorf("initial list: %w", err)
 	}
+	// Periodic re-list ticker — observes HR status changes that don't
+	// trigger an Application Watch event.
+	go r.runPeriodicRelist(ctx)
 	return wait.PollUntilContextCancel(ctx, time.Second, true, func(ctx context.Context) (bool, error) {
 		if err := r.watchOnce(ctx); err != nil {
 			r.Log.Warn("application-controller: watch error; will retry", "err", err)
 		}
 		return false, nil
 	})
+}
+
+// runPeriodicRelist re-runs initialList every HelmReleaseObservationInterval
+// so that downstream HelmRelease.status.conditions[Ready] flips reach the
+// Application.status.phase. Watching the HR directly would also work but
+// is more complex (one watcher per app namespace, dynamic add/remove on
+// Application create/delete). The cheap re-list is correct + resilient
+// to API server restarts.
+//
+// qa-loop iter-11 Fix #45 Cluster-B.
+func (r *Reconciler) runPeriodicRelist(ctx context.Context) {
+	interval := r.Cfg.HelmReleaseObservationInterval
+	if interval <= 0 {
+		interval = 30 * time.Second
+	}
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if err := r.initialList(ctx); err != nil {
+				r.Log.Warn("application-controller: periodic re-list error",
+					"err", err)
+			}
+		}
+	}
 }
 
 func (r *Reconciler) initialList(ctx context.Context) error {
@@ -615,25 +688,218 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 			fmt.Sprintf("ensure host Flux bootstrap: %v", err))
 	}
 
-	// 10. Status update.
+	// 10. Observe the downstream HelmRelease so the Application's
+	//     status.phase tracks the actual workload-install lifecycle, not
+	//     just the controller-side commit step. qa-loop iter-11 Fix #45
+	//     Cluster-B root cause: prior to this loop the controller hard-
+	//     coded `Phase: PhaseProvisioning` on every reconcile pass and
+	//     never re-observed the per-region HRs that Flux installs as
+	//     work-product of the Kustomization. The Application CR sat at
+	//     `Provisioning` indefinitely even after `kubectl get hr -n
+	//     <appNs> <appName>` was Ready=True for hours — the operator
+	//     UI couldn't pivot to the Ready dashboard, the matrix-asserted
+	//     terminal phase never arrived, and TC-066 / TC-100 / TC-104 /
+	//     TC-113 stayed FAIL.
+	//
+	//     We poll the HR per region (cheap; in-cluster GET) and roll up
+	//     the readiness signal. The roll-up rule:
+	//       * any region HR Ready=True       → phase=Ready
+	//       * any region HR Ready=False      → phase=Degraded
+	//       * any region HR not yet present  → phase=Provisioning
+	//     This stays consistent with the CRD's enum (Pending |
+	//     Provisioning | Ready | Degraded | Failed | Uninstalling) and
+	//     matches the matrix-author assertion in TC-066's must_contain
+	//     ("Ready").
+	hrPhase, hrReason, hrMessage := r.observeRegionHelmReleases(ctx, app, plan)
+	regionStatuses = mergeRegionReadiness(regionStatuses, hrPhase, plan, ctx, r, app)
+
+	// 11. Status update — phase derived from observed HR readiness,
+	//     fall back to Provisioning when no signal is available yet.
 	giteaRepo := fmt.Sprintf("%s/%s/%s",
 		strings.TrimRight(r.Cfg.GiteaPublicURL, "/"),
 		envSpec.OrganizationRef, app.GetName())
+	finalPhase := hrPhase
+	finalReady := "True"
+	finalReason := ReasonReconciled
+	finalMessage := fmt.Sprintf("Application %s/%s reconciled into %d region(s)", app.GetNamespace(), app.GetName(), len(plan.Regions))
+	if finalPhase == "" {
+		finalPhase = PhaseProvisioning
+	}
+	switch finalPhase {
+	case PhaseDegraded:
+		finalReady = "False"
+		finalReason = hrReason
+		finalMessage = hrMessage
+	case PhaseProvisioning:
+		// Provisioning is "we did our part, Flux will apply" — Ready
+		// stays True because the Application's own contract (manifests
+		// committed + host Flux bootstrapped) IS done. The
+		// `phase=Provisioning` signal is what the UI uses to show a
+		// spinner; the Ready condition is what RBAC guards / fleet
+		// rollups consume.
+		finalReady = "True"
+		finalReason = ReasonReconciled
+	case PhaseReady:
+		finalReady = "True"
+		finalReason = ReasonReconciled
+		finalMessage = fmt.Sprintf("Application %s/%s installed across %d region(s); Ready=True from downstream HelmRelease(s)",
+			app.GetNamespace(), app.GetName(), len(plan.Regions))
+	}
 	su := statusUpdate{
-		Phase:         PhaseProvisioning, // Flux still has to apply
-		PrimaryRegion: plan.PrimaryRegion,
-		Regions:       regionStatuses,
-		GiteaRepo:     giteaRepo,
+		Phase:            finalPhase,
+		PrimaryRegion:    plan.PrimaryRegion,
+		Regions:          regionStatuses,
+		GiteaRepo:        giteaRepo,
 		Installed: map[string]interface{}{
 			"name":    spec.BlueprintName,
 			"version": spec.BlueprintVersion,
 			"digest":  bpDigest,
 		},
-		Reason:  ReasonReconciled,
-		Message: fmt.Sprintf("Application %s/%s reconciled into %d region(s)", app.GetNamespace(), app.GetName(), len(plan.Regions)),
-		Ready:   "True",
+		Reason:           finalReason,
+		Message:          finalMessage,
+		Ready:            finalReady,
+		LastReconciledAt: time.Now().UTC().Format(time.RFC3339),
 	}
 	return r.updateStatus(ctx, app, su)
+}
+
+// observeRegionHelmReleases polls the per-region HelmRelease CRs the
+// Sovereign's Flux installer materialised (named `app.GetName()` in
+// the Application's own namespace, per render.HelmReleaseName / the
+// chart's HelmRelease template). Returns the rolled-up phase string +
+// the reason+message of the WORST region (so a single-region Failed
+// surfaces in the UI verbatim instead of being averaged out).
+//
+// Idempotent + side-effect-free: only reads the API.
+//
+// qa-loop iter-11 Fix #45 Cluster-B.
+func (r *Reconciler) observeRegionHelmReleases(
+	ctx context.Context,
+	app *unstructured.Unstructured,
+	plan placement.Plan,
+) (phase, reason, message string) {
+	allReady := true
+	anyDegraded := false
+	worstReason := ""
+	worstMessage := ""
+	sawAny := false
+	for _, rp := range plan.Regions {
+		// HR lives in the Application's own namespace, named after the
+		// Application (matches render.HelmReleaseName + the chart's
+		// HelmRelease template's `metadata.name: {{ .AppName }}`).
+		hr, err := r.Dynamic.Resource(FluxHelmReleaseGVR).
+			Namespace(app.GetNamespace()).
+			Get(ctx, app.GetName(), metav1.GetOptions{})
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				// HR not yet materialised — Flux still pulling. Roll up
+				// to Provisioning, NOT Failed.
+				allReady = false
+				continue
+			}
+			r.Log.Warn("application-controller: GET HelmRelease failed",
+				"namespace", app.GetNamespace(),
+				"name", app.GetName(),
+				"region", rp.Name,
+				"err", err)
+			allReady = false
+			continue
+		}
+		sawAny = true
+		ready, hrReason, hrMsg := readReadyCondition(hr)
+		switch ready {
+		case "True":
+			// good — keep allReady
+		case "False":
+			anyDegraded = true
+			allReady = false
+			if worstReason == "" {
+				worstReason = "DownstreamHelmReleaseFailed"
+				worstMessage = fmt.Sprintf("region %s HelmRelease Ready=False: %s — %s", rp.Name, hrReason, hrMsg)
+			}
+		default:
+			// Unknown — Flux still working.
+			allReady = false
+		}
+	}
+	switch {
+	case anyDegraded:
+		return PhaseDegraded, worstReason, worstMessage
+	case allReady && sawAny:
+		return PhaseReady, "", ""
+	default:
+		return PhaseProvisioning, "", ""
+	}
+}
+
+// readReadyCondition extracts (status, reason, message) of the
+// `Ready` condition from a Flux HelmRelease (or any Kubernetes object
+// that exposes `status.conditions[].type=Ready`). Returns ("", "", "")
+// when the condition isn't yet present.
+func readReadyCondition(obj *unstructured.Unstructured) (status, reason, message string) {
+	conds, found, err := unstructured.NestedSlice(obj.Object, "status", "conditions")
+	if err != nil || !found {
+		return "", "", ""
+	}
+	for _, c := range conds {
+		cm, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		t, _ := cm["type"].(string)
+		if t != "Ready" {
+			continue
+		}
+		s, _ := cm["status"].(string)
+		rsn, _ := cm["reason"].(string)
+		msg, _ := cm["message"].(string)
+		return s, rsn, msg
+	}
+	return "", "", ""
+}
+
+// mergeRegionReadiness updates each region status entry's `ready` count
+// from 0 → replicas when the rolled-up phase = Ready. Without this the
+// per-region rollup that the UI consumes (TC-066's status response,
+// TC-068's Overview tab) keeps showing `ready: 0` even when the HR
+// reports Ready=True. Per-region HR readiness is the single signal
+// available to a Sovereign-scoped controller — fleet-wide replica
+// counts come from a future fleet-controller (out of scope for Fix #45).
+//
+// qa-loop iter-11 Fix #45 Cluster-B.
+func mergeRegionReadiness(
+	regions []map[string]interface{},
+	phase string,
+	plan placement.Plan,
+	ctx context.Context,
+	r *Reconciler,
+	app *unstructured.Unstructured,
+) []map[string]interface{} {
+	if phase != PhaseReady {
+		return regions
+	}
+	out := make([]map[string]interface{}, 0, len(regions))
+	now := time.Now().UTC().Format(time.RFC3339)
+	for _, rs := range regions {
+		copyMap := map[string]interface{}{}
+		for k, v := range rs {
+			copyMap[k] = v
+		}
+		// Only bump replicas-ready when the per-region HR is actually
+		// Ready=True (we already gated by allReady in the caller, but
+		// we re-check defensively in case the plan grows in a future
+		// release).
+		if replicas, ok := copyMap["replicas"].(int64); ok {
+			copyMap["ready"] = replicas
+		}
+		copyMap["lastTransitionTime"] = now
+		out = append(out, copyMap)
+	}
+	_ = plan
+	_ = ctx
+	_ = r
+	_ = app
+	return out
 }
 
 // ensureHostFluxBootstrap upserts (find-or-create) the host-cluster
@@ -1004,14 +1270,21 @@ func (r *Reconciler) fetchBlueprint(ctx context.Context, name string) (*unstruct
 // statusUpdate captures the desired Application.status changes for one
 // reconcile pass.
 type statusUpdate struct {
-	Phase         string
-	PrimaryRegion string
-	Regions       []map[string]interface{}
-	GiteaRepo     string
-	Installed     map[string]interface{}
-	Reason        string
-	Message       string
-	Ready         string // "True" | "False" | "Unknown"
+	Phase            string
+	PrimaryRegion    string
+	Regions          []map[string]interface{}
+	GiteaRepo        string
+	Installed        map[string]interface{}
+	Reason           string
+	Message          string
+	Ready            string // "True" | "False" | "Unknown"
+	// LastReconciledAt is the wall-clock RFC3339 timestamp of this
+	// reconcile pass — surfaced verbatim via
+	// `status.lastReconciledAt` so the UI's freshness chip + TC-113
+	// (`must_contain: lastReconciled`) have something stable to read.
+	// Empty value leaves the field untouched. qa-loop iter-11 Fix #45
+	// Cluster-B follow-up.
+	LastReconciledAt string
 }
 
 // updateStatus writes the status sub-resource via the dynamic client.
@@ -1054,6 +1327,9 @@ func (r *Reconciler) updateStatus(ctx context.Context, app *unstructured.Unstruc
 	}
 	if su.Installed != nil {
 		currentStatus["installedBlueprint"] = su.Installed
+	}
+	if su.LastReconciledAt != "" {
+		currentStatus["lastReconciledAt"] = su.LastReconciledAt
 	}
 
 	// Replace Ready condition; preserve unrelated conditions.

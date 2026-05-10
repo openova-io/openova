@@ -81,10 +81,15 @@ spec:
   chart:
     spec:
       chart: bp-guacamole
-      # 0.1.6: 0.1.5 (added /home/guacamole/.guacamole emptyDir
-      # mount for readOnlyRootFilesystem compatibility) +
-      # post-merge CI auto-bump.
-      version: 0.1.6
+      # 0.1.9 (qa-loop iter-11 Fix #45 Cluster-A): adds the
+      # storageClass-migration pre-install/pre-upgrade hook that
+      # unwedges Sovereigns where the existing `guacamole-recordings`
+      # PVC is bound to a different storageClass than the chart-desired
+      # one (live failure on omantel iter-11: PVC bound to local-path,
+      # chart wanted seaweedfs-storage, K8s rejected the immutable-spec
+      # patch with `cannot patch ... PersistentVolumeClaim ... is
+      # invalid: spec: Forbidden: spec is immutable after creation`).
+      version: 0.1.9
       sourceRef:
         kind: HelmRepository
         name: bp-guacamole

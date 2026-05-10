@@ -186,6 +186,9 @@ func newScheme() *runtime.Scheme {
 		{Group: "orgs.openova.io", Version: "v1", Kind: "Organization"},
 		{Group: "source.toolkit.fluxcd.io", Version: "v1", Kind: "GitRepository"},
 		{Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Kind: "Kustomization"},
+		// qa-loop iter-11 Fix #45 Cluster-B — observation of downstream
+		// HelmRelease readiness for Application.status.phase rollup.
+		{Group: "helm.toolkit.fluxcd.io", Version: "v2", Kind: "HelmRelease"},
 	} {
 		s.AddKnownTypeWithName(gvk, &unstructured.Unstructured{})
 		listGVK := schema.GroupVersionKind{Group: gvk.Group, Version: gvk.Version, Kind: gvk.Kind + "List"}
@@ -203,6 +206,7 @@ func listKindMap() map[schema.GroupVersionResource]string {
 		BlueprintGVRv1alpha1:  "BlueprintList",
 		FluxGitRepositoryGVR:  "GitRepositoryList",
 		FluxKustomizationGVR:  "KustomizationList",
+		FluxHelmReleaseGVR:    "HelmReleaseList",
 	}
 }
 
@@ -1048,5 +1052,148 @@ func TestReconcile_HelmReleaseTargetNamespaceIsAppNamespace(t *testing.T) {
 	ksStr := string(ks)
 	if !strings.Contains(ksStr, "namespace: qa-omantel") {
 		t.Errorf("Kustomization namespace should be 'qa-omantel'; got:\n%s", ksStr)
+	}
+}
+
+// --- qa-loop iter-11 Fix #45 Cluster-B: Application.status.phase tracks
+// downstream HelmRelease.status.conditions[Ready] -----------------------
+//
+// The matrix-asserted contract (TC-066, TC-100, TC-104, TC-113):
+// once the per-region HelmRelease the controller writes to Gitea is
+// installed by Flux and reports `Ready=True`, the parent Application
+// CR's `status.phase` MUST flip from `Provisioning` to `Ready` within
+// 3 minutes. Prior to Fix #45 the controller hard-coded
+// `Phase: PhaseProvisioning` on every reconcile pass — the Application
+// sat at `Provisioning` indefinitely even after `kubectl get hr -n
+// <ns> <app>` was Ready=True for hours.
+//
+// This test seeds a fake HelmRelease in the Application's namespace
+// with status.conditions[Ready]=True and asserts the phase rolls up.
+func TestReconcile_PhaseFollowsDownstreamHelmReleaseReady(t *testing.T) {
+	bp := makeBlueprint("bp-wordpress", "1.2.3", nil, []string{"single-region"})
+	env := makeEnv("acme-prod", "acme", "prod")
+	org := makeOrg("acme")
+	app := makeApp("acme", "site", "acme-prod", "bp-wordpress", "1.2.3", "single-region",
+		[]string{"hetzner-fsn-rtz-prod"},
+		map[string]interface{}{"replicas": int64(1)})
+
+	// Pre-seed the downstream HelmRelease in the Application's
+	// namespace with status.conditions[Ready]=True (mirrors what Flux
+	// would write after a successful install).
+	hr := &unstructured.Unstructured{}
+	hr.SetAPIVersion("helm.toolkit.fluxcd.io/v2")
+	hr.SetKind("HelmRelease")
+	hr.SetNamespace("acme")
+	hr.SetName("site")
+	hr.Object["status"] = map[string]interface{}{
+		"conditions": []interface{}{
+			map[string]interface{}{
+				"type":    "Ready",
+				"status":  "True",
+				"reason":  "InstallSucceeded",
+				"message": "Helm install succeeded for release acme/site.v1 with chart bp-wordpress@1.2.3",
+			},
+		},
+	}
+
+	fg := newFakeGitea()
+	fg.orgsExist["acme"] = true
+	r := newReconciler(t, fg, app, env, org, bp, hr)
+
+	reconcileFromCluster(t, r, "acme", "site")
+
+	got := readApp(t, r, "acme", "site")
+	phase, _, message := readPhaseAndReason(t, got)
+	if phase != PhaseReady {
+		t.Errorf("phase = %q, want %q (msg=%q)", phase, PhaseReady, message)
+	}
+	// Per-region replicas-ready should bump from 0 → declared.
+	regions, _, _ := unstructured.NestedSlice(got.Object, "status", "regions")
+	if len(regions) != 1 {
+		t.Fatalf("regions = %d, want 1", len(regions))
+	}
+	rs := regions[0].(map[string]interface{})
+	ready, _ := rs["ready"].(int64)
+	replicas, _ := rs["replicas"].(int64)
+	if ready != replicas {
+		t.Errorf("region.ready=%d, region.replicas=%d — should match when phase=Ready", ready, replicas)
+	}
+	// status.lastReconciledAt should be populated for TC-113.
+	lr, _, _ := unstructured.NestedString(got.Object, "status", "lastReconciledAt")
+	if lr == "" {
+		t.Errorf("status.lastReconciledAt is empty — must be set on every reconcile pass")
+	}
+}
+
+// TestReconcile_PhaseDegradedOnDownstreamHelmReleaseFailure asserts the
+// inverse: a downstream HR Ready=False (e.g. helm-install rolled-back)
+// surfaces as Application.status.phase=Degraded, NOT Provisioning, NOT
+// Ready. The reason+message of the worst-region HR are lifted into the
+// Application's Ready condition so the operator UI can render the
+// failure verbatim.
+func TestReconcile_PhaseDegradedOnDownstreamHelmReleaseFailure(t *testing.T) {
+	bp := makeBlueprint("bp-wordpress", "1.2.3", nil, []string{"single-region"})
+	env := makeEnv("acme-prod", "acme", "prod")
+	org := makeOrg("acme")
+	app := makeApp("acme", "site", "acme-prod", "bp-wordpress", "1.2.3", "single-region",
+		[]string{"hetzner-fsn-rtz-prod"},
+		map[string]interface{}{"replicas": int64(1)})
+
+	hr := &unstructured.Unstructured{}
+	hr.SetAPIVersion("helm.toolkit.fluxcd.io/v2")
+	hr.SetKind("HelmRelease")
+	hr.SetNamespace("acme")
+	hr.SetName("site")
+	hr.Object["status"] = map[string]interface{}{
+		"conditions": []interface{}{
+			map[string]interface{}{
+				"type":    "Ready",
+				"status":  "False",
+				"reason":  "InstallFailed",
+				"message": "chart pull failed: 401 Unauthorized",
+			},
+		},
+	}
+	fg := newFakeGitea()
+	fg.orgsExist["acme"] = true
+	r := newReconciler(t, fg, app, env, org, bp, hr)
+
+	reconcileFromCluster(t, r, "acme", "site")
+
+	got := readApp(t, r, "acme", "site")
+	phase, reason, message := readPhaseAndReason(t, got)
+	if phase != PhaseDegraded {
+		t.Errorf("phase = %q, want %q", phase, PhaseDegraded)
+	}
+	if reason == "" {
+		t.Errorf("reason should be set when phase=Degraded; got empty")
+	}
+	if !strings.Contains(message, "InstallFailed") && !strings.Contains(message, "401 Unauthorized") {
+		t.Errorf("message should surface the downstream HR failure verbatim; got %q", message)
+	}
+}
+
+// TestReconcile_PhaseStaysProvisioningWhenHelmReleaseAbsent asserts the
+// no-signal case: no HR exists yet (Flux still pulling Gitea), the
+// Application stays at Provisioning. This is the existing happy-path
+// behaviour — the new HR-observation logic must be a strict superset.
+func TestReconcile_PhaseStaysProvisioningWhenHelmReleaseAbsent(t *testing.T) {
+	bp := makeBlueprint("bp-wordpress", "1.2.3", nil, []string{"single-region"})
+	env := makeEnv("acme-prod", "acme", "prod")
+	org := makeOrg("acme")
+	app := makeApp("acme", "site", "acme-prod", "bp-wordpress", "1.2.3", "single-region",
+		[]string{"hetzner-fsn-rtz-prod"},
+		map[string]interface{}{"replicas": int64(1)})
+	fg := newFakeGitea()
+	fg.orgsExist["acme"] = true
+	// NOTE: no HR seeded — fresh install, Flux hasn't pulled yet.
+	r := newReconciler(t, fg, app, env, org, bp)
+
+	reconcileFromCluster(t, r, "acme", "site")
+
+	got := readApp(t, r, "acme", "site")
+	phase, _, _ := readPhaseAndReason(t, got)
+	if phase != PhaseProvisioning {
+		t.Errorf("phase = %q, want %q (HR-absent must roll up to Provisioning, not Ready or Degraded)", phase, PhaseProvisioning)
 	}
 }
