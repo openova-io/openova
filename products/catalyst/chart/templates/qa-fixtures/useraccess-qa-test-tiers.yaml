@@ -1,0 +1,61 @@
+{{- /*
+useraccess-qa-test-tiers.yaml — qa-loop iter-11 Cluster-A.
+
+Seeds 5 UserAccess CRs (one per tier: viewer/developer/operator/admin/owner)
+that match the synthetic test users `qa-test-{tier}@openova.io` minted by
+POST /api/v1/auth/test-session in catalyst-api (handler/auth_test_session.go).
+
+Each CR binds the synthetic user to the canonical tier role
+`openova:tier-{tier}` so the useraccess-controller materializes per-cluster
+RoleBindings with the correct authority — making the JWT's authorization
+context (tier claim + realm_access.roles) match the cluster's authorization
+context byte-for-byte. The 5-agent QA executor can then assert the matrix's
+tier-boundary 403/200 contracts on every privileged endpoint.
+
+Gated on .Values.qaFixtures.enabled AND .Values.qaFixtures.testSessionEnabled
+so the synthetic users are seeded ONLY when the test-session endpoint is
+reachable. Production Sovereigns keep both flags false → these CRs never
+render → no synthetic users in the cluster.
+
+Per qa-omantel naming conventions (see useraccess-qa-user1.yaml):
+- spec.sovereignRef MUST be the single-label form (TLD/SLD stripped).
+- All CRs land in catalyst-system (cluster-scoped logical principals).
+- Scopes mirror qa-user1 so the test users live in the same env-type/app
+  space the matrix's resource fixtures (qa-omantel ns, qa-wp app) use.
+*/ -}}
+{{- if and .Values.qaFixtures.enabled .Values.qaFixtures.testSessionEnabled }}
+{{- $tiers := list "viewer" "developer" "operator" "admin" "owner" -}}
+{{- $sovRef := regexReplaceAll "\\..*$" (.Values.qaFixtures.sovereignRef | default "omantel.biz") "" -}}
+{{- range $tier := $tiers }}
+---
+apiVersion: access.openova.io/v1alpha1
+kind: UserAccess
+metadata:
+  name: qa-test-{{ $tier }}
+  namespace: catalyst-system
+  labels:
+    catalyst.openova.io/managed-by: qa-fixtures
+    catalyst.openova.io/tier: {{ $tier }}
+    catalyst.openova.io/qa-test-session: "true"
+    openova.io/env-type: dev
+    openova.io/application: {{ $.Values.qaFixtures.appName | default "qa-wp" }}
+    app.kubernetes.io/managed-by: {{ $.Release.Service }}
+    app.kubernetes.io/instance: {{ $.Release.Name }}
+  annotations:
+    catalyst.openova.io/user-email: "qa-test-{{ $tier }}@openova.io"
+    catalyst.openova.io/user-name: "qa-test-{{ $tier }}"
+    catalyst.openova.io/qa-test-session-tier: {{ $tier | quote }}
+spec:
+  sovereignRef: {{ $sovRef | quote }}
+  tierRoleRef: openova:tier-{{ $tier }}
+  user:
+    keycloakSubject: "qa-test-{{ $tier }}"
+  scopes:
+  - key: openova.io/env-type
+    value: dev
+  - key: openova.io/application
+    value: {{ $.Values.qaFixtures.appName | default "qa-wp" | quote }}
+  - key: organization
+    value: {{ $.Values.qaFixtures.organization | default "omantel-platform" | quote }}
+{{- end }}
+{{- end }}

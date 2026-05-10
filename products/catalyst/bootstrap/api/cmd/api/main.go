@@ -342,6 +342,16 @@ func main() {
 	r.Post("/api/v1/auth/pin/issue", h.HandlePinIssue)
 	r.Post("/api/v1/auth/pin/verify", h.HandlePinVerify)
 
+	// QA-loop iter-11 Cluster-A: tier-scoped session minting.
+	// POST /api/v1/auth/test-session?tier=<viewer|developer|operator|admin|owner>
+	// Gated by env CATALYST_TEST_SESSION_ENABLED — returns 404 to
+	// the public when unset (production-safe). On QA Sovereigns
+	// (chroot, omantel-style) the env is set to "true" so the
+	// 5-agent QA executor can mint per-tier session cookies and
+	// assert the tier-boundary 403/200 contract on every privileged
+	// endpoint. See handler/auth_test_session.go for the rationale.
+	r.Post("/api/v1/auth/test-session", h.HandleAuthTestSession)
+
 	// /api/v1/subdomains/check — public, read-only availability query.
 	// Same model as a username-availability check on a signup form: an
 	// anonymous visitor lands on the wizard's Domain step BEFORE they

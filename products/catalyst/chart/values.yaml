@@ -956,6 +956,20 @@ smeServices:
 # See templates/qa-fixtures/_README.txt for the full rationale.
 qaFixtures:
   enabled: false
+  # ── Tier-scoped test-session minting (qa-loop iter-11 Cluster-A) ─
+  # `testSessionEnabled` switches on POST /api/v1/auth/test-session
+  # in catalyst-api. This endpoint mints a session JWT for a synthetic
+  # `qa-test-{tier}@openova.io` user with the requested tier so the
+  # 5-agent QA executor can assert tier-boundary 403/200 contracts on
+  # privileged endpoints without going through PIN-via-IMAP (which
+  # always lands tier=owner). Default is `false` (production-safe);
+  # enabled on QA/chroot Sovereigns only. The endpoint returns 404 to
+  # the public when this is false — wire-indistinguishable from a
+  # missing route, so customer Sovereigns expose nothing about the
+  # existence of QA hooks in the catalyst-api binary.
+  # See products/catalyst/bootstrap/api/internal/handler/auth_test_session.go
+  # and templates/qa-fixtures/useraccess-qa-test-{tier}.yaml.
+  testSessionEnabled: false
   namespace: qa-omantel
   appName: qa-wp
   # `sovereignRef` MUST be a FQDN per Organization CRD validation

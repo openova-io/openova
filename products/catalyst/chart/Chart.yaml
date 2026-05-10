@@ -1,5 +1,44 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.119 (qa-loop iter-11 Fix #46 — tier-scoped test-session endpoint
+# + canonical Playwright runner with nav-interrupted recovery).
+# Two coupled changes for the 5-agent QA team Test Executor:
+#
+# 1. Cluster-A: NEW POST /api/v1/auth/test-session?tier=<tier>
+#    endpoint in catalyst-api mints a session JWT for synthetic
+#    `qa-test-{tier}@openova.io` users with the requested tier
+#    (viewer/developer/operator/admin/owner). PIN-via-IMAP always
+#    lands tier=owner because the inbox itself is the owner's, so
+#    the matrix's ~37 tier-boundary 403/200 rows mis-fired every
+#    iteration. Endpoint is gated by env CATALYST_TEST_SESSION_ENABLED
+#    (default ""/false → 404 Not Found, indistinguishable from
+#    missing route on production Sovereigns). The qaFixtures.testSessionEnabled
+#    chart value (default false) sets the env to "true"; the
+#    bootstrap-kit defaults this to true on QA Sovereigns
+#    (QA_TEST_SESSION_ENABLED:-true).
+#
+#    Adds 5 UserAccess CRs (qa-test-viewer/developer/operator/admin/owner)
+#    via templates/qa-fixtures/useraccess-qa-test-tiers.yaml so the
+#    useraccess-controller binds each synthetic user to its
+#    canonical tier role. Gated on AND of qaFixtures.enabled and
+#    qaFixtures.testSessionEnabled.
+#
+# 2. Cluster-B: NEW canonical Playwright runner at
+#    tools/qa-loop/playwright-runner.js with nav-interrupted
+#    recovery — catches `page.goto: Navigation ... interrupted by
+#    another navigation` exceptions thrown when SPA route guards
+#    redirect mid-goto, settles on the final URL, and re-runs the
+#    matrix's must_contain assertions there. Iter-10/11 lost ~32
+#    rows to this exception; the new runner recovers them. Future
+#    qa-loop iterations dispatch this runner instead of inventing
+#    a new /tmp/iterN/playwright-runner.js each cycle.
+#
+# Per /home/openova/.claude/projects/-home-openova-repos-openova-private/memory/feedback_no_mvp_no_workarounds.md
+# both changes are target-state (real, gated, complete) — NOT stubs.
+# The endpoint is REAL (mints a real JWT via the real signer the PIN
+# flow uses); the runner is REAL (handles the failure modes seen on
+# omantel-chroot, with diagnostic reasons for irrecoverable bounces).
+#
 # 1.4.118 (qa-loop iter-11 Fix #45 follow-up — re-publish with the
 # rebuilt application-controller image baked into values.yaml).
 # Chart 1.4.117 was published from PR #1265's merge commit which still
@@ -516,7 +555,7 @@ name: bp-catalyst-platform
 #     so the matrix's `kubectl get cnpgpair` stdout contains the literal
 #     "cnpgpair" substring TC-306 asserts on (envsubst override beat the
 #     chart values default fixed in PR #1247).
-version: 1.4.118
+version: 1.4.119
 appVersion: 1.4.94
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
