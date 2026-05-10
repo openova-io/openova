@@ -1,5 +1,37 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.115 (qa-loop iter-10 Fix #44 — application-controller targetNamespace).
+# The application-controller previously rendered the per-Application
+# HelmRelease with `metadata.namespace = Org` and `spec.targetNamespace
+# = Org` (where Org is the parent Organization slug). On omantel the
+# Application(qa-wp) lives in ns `qa-omantel` while the Org name is
+# `omantel-platform` — so the workload Pod landed in the wrong
+# namespace, breaking matrix rows TC-068 / TC-100 / TC-204 / TC-262 /
+# TC-263 (all asserting Pod in qa-omantel). Symmetric Kustomization
+# wrapper had the same bug.
+#
+# Fix:
+#   - render.Inputs gains AppNamespace field; the helmRelease +
+#     kustomization templates resolve `metadata.namespace` and
+#     `spec.targetNamespace` to AppNamespace (defaults to Org for
+#     back-compat).
+#   - application_controller.go now passes app.GetNamespace() as
+#     AppNamespace on every render.Render call.
+#   - HelmRelease spec.install.createNamespace = true so a missing
+#     workload namespace is provisioned by helm-controller (per
+#     docs/INVIOLABLE-PRINCIPLES.md #1 target-state — controller works
+#     without an operator pre-creating the namespace).
+#   - Org slug is still stamped on the
+#     `catalyst.openova.io/organization` label for traceability.
+#   - 3 new Go tests:
+#       TestRender_NamespaceIsAppNamespace
+#       TestRender_CreateNamespaceTrue
+#       TestReconcile_HelmReleaseTargetNamespaceIsAppNamespace
+#     The third drives the omantel scenario end-to-end through the
+#     controller fake (App qa-wp in qa-omantel, Org omantel-platform).
+#   - application-controller image will roll forward via build-on-merge
+#     (deploy commit auto-bumps the per-controller tag).
+#
 # 1.4.114 (qa-loop iter-8 Fix #42 follow-up #3): env+app controllers
 # now create per-Org/per-App Gitea repos as PUBLIC (private=false).
 # In-cluster Gitea is on the K8s service cordon (host-only); the
@@ -429,7 +461,7 @@ name: bp-catalyst-platform
 #     so the matrix's `kubectl get cnpgpair` stdout contains the literal
 #     "cnpgpair" substring TC-306 asserts on (envsubst override beat the
 #     chart values default fixed in PR #1247).
-version: 1.4.114
+version: 1.4.115
 appVersion: 1.4.94
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.

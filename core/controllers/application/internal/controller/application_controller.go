@@ -528,22 +528,30 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 	for _, rp := range plan.Regions {
 		merged := mergeMaps(bpManifestsValues, spec.Parameters)
 		out, err := render.Render(render.Inputs{
-			AppName:                    app.GetName(),
-			Org:                        envSpec.OrganizationRef,
-			EnvType:                    envSpec.EnvType,
-			Region:                     rp.Name,
-			PlacementRole:              rp.Role,
-			Standby:                    rp.Standby,
-			BlueprintName:              spec.BlueprintName,
-			BlueprintVersion:           spec.BlueprintVersion,
-			SourceKind:                 bpSourceKind,
-			SourceRef:                  ifEmpty(bpSourceRef, r.Cfg.CatalogSourceRef),
-			Chart:                      bpChart,
-			Values:                     merged,
-			SourceNamespace:            r.Cfg.SourceNamespace,
-			IntervalSeconds:            r.Cfg.HelmReleaseIntervalSeconds,
-			OwnerAppUID:                string(app.GetUID()),
-			OwnerAppGen:                app.GetGeneration(),
+			AppName: app.GetName(),
+			// AppNamespace = the Application CR's own namespace. The
+			// rendered HelmRelease metadata.namespace + spec.targetNamespace
+			// both resolve here, matching the host-side Flux Kustomization
+			// targetNamespace. qa-loop iter-10 Fix #44 root cause: previously
+			// we passed Org for both, which on omantel made the workload Pod
+			// land in `omantel-platform` instead of the operator's chosen
+			// `qa-omantel` namespace.
+			AppNamespace:     app.GetNamespace(),
+			Org:              envSpec.OrganizationRef,
+			EnvType:          envSpec.EnvType,
+			Region:           rp.Name,
+			PlacementRole:    rp.Role,
+			Standby:          rp.Standby,
+			BlueprintName:    spec.BlueprintName,
+			BlueprintVersion: spec.BlueprintVersion,
+			SourceKind:       bpSourceKind,
+			SourceRef:        ifEmpty(bpSourceRef, r.Cfg.CatalogSourceRef),
+			Chart:            bpChart,
+			Values:           merged,
+			SourceNamespace:  r.Cfg.SourceNamespace,
+			IntervalSeconds:  r.Cfg.HelmReleaseIntervalSeconds,
+			OwnerAppUID:      string(app.GetUID()),
+			OwnerAppGen:      app.GetGeneration(),
 		})
 		if err != nil {
 			return r.markDegraded(ctx, app, ReasonRenderError,

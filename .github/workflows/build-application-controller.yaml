@@ -41,10 +41,18 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      # contents: write — the deploy job below pushes a values.yaml SHA
+      # bump back to main so the bp-catalyst-platform chart picks up the
+      # newly-built image without an operator manually editing the file
+      # (per `feedback_no_mvp_no_workarounds.md` rule 1: target-state,
+      # never "manual follow-up bump").
+      contents: write
       packages: write
       # id-token write is required by cosign keyless signing (Sigstore).
       id-token: write
+      # actions: write — required for `gh workflow run` if/when we
+      # dispatch downstream chart-publish workflows.
+      actions: write
     outputs:
       sha_short: ${{ steps.vars.outputs.sha_short }}
       digest: ${{ steps.build.outputs.digest }}
@@ -132,3 +140,45 @@ jobs:
             --predicate <(echo '{"sbom":"in-toto-spdx attached at build time"}') \
             --type spdx \
             "${IMAGE}@${DIGEST}"
+
+      # Auto-bump the chart values.yaml tag so the next Sovereign chart
+      # rollout picks up this image without a manual edit. Per
+      # `feedback_no_mvp_no_workarounds.md` rule 1 (target-state, no
+      # operator-action gates) and `feedback_inviolable_principles.md`
+      # (event-driven, never cron). Mirrors the pattern in
+      # catalyst-build.yaml's `deploy` job for catalyst-api/catalyst-ui.
+      - name: Bump controllers.application.image.tag in values.yaml
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          SHA_SHORT: ${{ steps.vars.outputs.sha_short }}
+        run: |
+          VALUES="products/catalyst/chart/values.yaml"
+          # awk: find `  application:` under `controllers:`, then update
+          # the next `tag: "..."` line. Stops at the next top-level key
+          # so we don't accidentally bump a sibling controller's tag.
+          awk -v sha="${SHA_SHORT}" '
+            /^controllers:/ { in_ctrls=1 }
+            in_ctrls && /^  application:/ { print; in_app=1; next }
+            in_ctrls && /^  [a-z]/ && !/^  application:/ { in_app=0 }
+            in_app && /^      tag:/ { sub(/"[^"]*"/, "\"" sha "\""); in_app=0 }
+            { print }
+          ' "${VALUES}" > "${VALUES}.tmp" && mv "${VALUES}.tmp" "${VALUES}"
+          echo "values.yaml after bump:"
+          grep -A4 "^  application:" "${VALUES}" | head -10
+
+      - name: Commit and push values.yaml bump
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          SHA_SHORT: ${{ steps.vars.outputs.sha_short }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet products/catalyst/chart/values.yaml; then
+            echo "no values.yaml change — already pinned to ${SHA_SHORT}"
+            exit 0
+          fi
+          git add products/catalyst/chart/values.yaml
+          git commit -m "deploy: bump application-controller image to ${SHA_SHORT}"
+          # Pull-rebase to avoid races with parallel build commits.
+          git pull --rebase --autostash origin main || true
+          git push origin HEAD:main
