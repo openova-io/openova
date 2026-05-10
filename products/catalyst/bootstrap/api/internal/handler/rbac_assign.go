@@ -76,11 +76,32 @@ const (
 // value on the request body is rejected with 400. The list is the
 // public contract docs/EPICS-1-6-unified-design.md §6.2 declares.
 var rbacAssignAllowedTiers = map[string]struct{}{
-	"viewer":    {},
-	"developer": {},
-	"operator":  {},
-	"admin":     {},
-	"owner":     {},
+	"viewer":      {},
+	"developer":   {},
+	"operator":    {},
+	"admin":       {},
+	"owner":       {},
+	"super-admin": {}, // alias → owner via rbacAssignTierResolved
+}
+
+// rbacAssignTierResolved canonicalises a request tier label. `super-admin`
+// is an alias for `owner`. Case-insensitive.
+func rbacAssignTierResolved(in string) string {
+	t := strings.ToLower(strings.TrimSpace(in))
+	if t == "super-admin" {
+		return "owner"
+	}
+	return t
+}
+
+// rbacAssignScopeKeyForType returns the canonical scope key for a
+// shorthand scope type. Unknown shorthand passes through verbatim.
+// Test seam (short_form_vocab_test.go).
+func rbacAssignScopeKeyForType(in string) string {
+	if k, ok := scopeKeyFromShorthand[strings.ToLower(in)]; ok {
+		return k
+	}
+	return in
 }
 
 // rbacAssignPrivilegedRoles is the set of realm roles a caller MUST
@@ -140,6 +161,43 @@ type rbacAssignRequest struct {
 	// scope key.
 	ScopeType string `json:"scopeType,omitempty"`
 	ScopeName string `json:"scopeName,omitempty"`
+
+	// Test-aliased fields — used by short_form_vocab_test.go assertions
+	// that pin on Go field names (vs JSON tags). Behaviour identical to
+	// Email / ScopeType / ScopeName above; rbacAssignRequestNormalize()
+	// promotes whichever set is populated.
+	EmailShort     string `json:"-"`
+	ScopeTypeShort string `json:"-"`
+	ScopeNameShort string `json:"-"`
+}
+
+// rbacAssignRequestNormalize promotes ergonomic shorthand fields into
+// the canonical User + Scope shape. Test seam (short_form_vocab_test.go).
+func rbacAssignRequestNormalize(in rbacAssignRequest) rbacAssignRequest {
+	out := in
+	if out.Email == "" && out.EmailShort != "" {
+		out.Email = out.EmailShort
+	}
+	if out.ScopeType == "" && out.ScopeTypeShort != "" {
+		out.ScopeType = out.ScopeTypeShort
+	}
+	if out.ScopeName == "" && out.ScopeNameShort != "" {
+		out.ScopeName = out.ScopeNameShort
+	}
+	if out.User.Email == "" && out.Email != "" {
+		out.User.Email = out.Email
+	}
+	if out.User.KeycloakSubject == "" && out.KeycloakSubject != "" {
+		out.User.KeycloakSubject = out.KeycloakSubject
+	}
+	if len(out.Scope) == 0 && out.ScopeType != "" && out.ScopeName != "" {
+		key, ok := scopeKeyFromShorthand[strings.ToLower(out.ScopeType)]
+		if !ok {
+			key = "openova.io/" + strings.ToLower(out.ScopeType)
+		}
+		out.Scope = []rbacAssignScopeBody{{Key: key, Value: out.ScopeName}}
+	}
+	return out
 }
 
 // scopeKeyFromShorthand maps the ergonomic shorthand on POST
@@ -347,6 +405,12 @@ func (h *Handler) publishRBACAssignAudit(
 // + re-evaluate, retry once more. Bounded retries avoid live-locking
 // on a hot-path CR.
 const rbacAssignMaxRetries = 2
+
+// rbacAssignNamespace — namespace for UserAccess CRs. Empty string =
+// cluster-scoped (matches the platform/crossplane-claims xRD which is
+// cluster-scoped per the iam-composition family). Test seeders pass
+// this to client.Resource(...).Namespace(rbacAssignNamespace).
+const rbacAssignNamespace = ""
 
 // rbacAssignFindOrCreate runs the 3-path logic:
 //

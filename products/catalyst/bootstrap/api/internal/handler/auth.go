@@ -31,6 +31,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"net/http"
 	"net/smtp"
@@ -194,6 +195,7 @@ type pinIssueRequest struct {
 
 type pinIssueResponse struct {
 	OK           bool   `json:"ok"`
+	Sent         bool   `json:"sent"`
 	RequestID    string `json:"requestId"`
 	ExpiresInSec int    `json:"expiresInSec"`
 }
@@ -318,6 +320,7 @@ func (h *Handler) HandlePinIssue(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, pinIssueResponse{
 		OK:           true,
+		Sent:         true,
 		RequestID:    requestID,
 		ExpiresInSec: int(pinTTL.Seconds()),
 	})
@@ -976,4 +979,28 @@ func whoamiInjectTierRoles(ra *whoamiRealmAccess, tier string) {
 			have[want] = struct{}{}
 		}
 	}
+}
+
+// HandleAuthSessionLogout is the SPA-driven POST logout that clears
+// catalyst_session + catalyst_refresh cookies with Max-Age=0 + SameSite=Strict
+// (same-origin XHR — strictest posture). Mirrors the wire shape contracted by
+// auth_logout_test.go's TestHandleAuthSessionLogout_PostWireShape (qa-loop iter-4
+// auth-session-logout-405 fix; restored 2026-05-10 after a cherry-pick lost it).
+func (h *Handler) HandleAuthSessionLogout(w http.ResponseWriter, r *http.Request) {
+	domain := strings.TrimSpace(os.Getenv("CATALYST_SESSION_COOKIE_DOMAIN"))
+	secure := strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+	for _, name := range []string{"catalyst_session", "catalyst_refresh"} {
+		var b strings.Builder
+		fmt.Fprintf(&b, "%s=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict", name)
+		if domain != "" {
+			fmt.Fprintf(&b, "; Domain=%s", domain)
+		}
+		if secure {
+			b.WriteString("; Secure")
+		}
+		w.Header().Add("Set-Cookie", b.String())
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.WriteString(w, `{"ok":true,"loggedOut":true}`+"\n")
 }
