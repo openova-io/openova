@@ -26,7 +26,14 @@ name: bp-guacamole
 # Forbidden: spec is immutable after creation`). Operator escape hatch:
 # `.Values.guacamole.recordings.allowMigration: false` suppresses the
 # hook for Sovereigns with long-lived recording state.
-version: 0.1.10
+# 0.1.11 (Fix #45 Cluster-A follow-up): default `migrationImage` is
+# now `docker.io/bitnamilegacy/kubectl:1.29.3` (the canonical kubectl
+# surface used across every other Catalyst Blueprint). The 0.1.9
+# default `bitnami/kubectl:1.30.4` 401'd on omantel because the
+# Sovereign's Harbor docker.io proxy doesn't have it cached, leaving
+# the migration Job in ImagePullBackOff and the bp-guacamole HR
+# Reconciling forever.
+version: 0.1.11
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless

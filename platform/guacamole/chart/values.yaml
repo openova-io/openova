@@ -97,10 +97,18 @@ guacamole:
     # ephemeral; flip OFF on Sovereigns with long-lived recording data
     # (operator should snapshot first then re-enable for the upgrade).
     allowMigration: true
-    # Image used by the migration hook. SHA-pinned to bitnami/kubectl
-    # 1.30.4 (matches Sovereign k3s 1.30 client/server skew). Operator
-    # overrides for air-gapped Sovereigns by re-mirroring the image.
-    migrationImage: bitnami/kubectl:1.30.4
+    # Image used by the migration hook. The canonical kubectl image
+    # surface across OpenOva Sovereigns is `docker.io/bitnamilegacy/
+    # kubectl:1.29.3` (the same one bp-keycloak's realm-config-cli
+    # post-deploy Job pulls); Sovereigns route Docker Hub through the
+    # in-cluster Harbor proxy at `harbor.openova.io` which currently
+    # 401s on bitnami/kubectl:1.30.4 (live ImagePullBackOff observed on
+    # omantel iter-11). Pinning to the legacy registry path gets us a
+    # cache-resident image. Operator overrides for non-Hetzner Sovereigns
+    # by re-mirroring through their own registry (per
+    # docs/INVIOLABLE-PRINCIPLES.md #4a — every image traceable to a
+    # known-good SHA).
+    migrationImage: docker.io/bitnamilegacy/kubectl:1.29.3
   # ── Keycloak OIDC ──────────────────────────────────────────────
   oidc:
     # Issuer URL — render in per-Sovereign overlay as
