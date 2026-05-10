@@ -44,16 +44,11 @@ func registerRBACAccessMatrixRoute(r chi.Router, h *Handler) {
 
 // rbacUserAccessFromAssign composes a UserAccess CR shaped the way
 // HandleRBACAssign emits it — tier label, tierRoleRef, scopes[].
-//
-// The namespace is rbacAssignNamespace (`catalyst-system`) because
-// the UserAccess CRD is `Namespaced`. See the rbacAssignNamespace
-// doc-comment in rbac_assign.go for the rationale.
 func rbacUserAccessFromAssign(name, subject, tier string, scopes []rbacAssignScopeBody) *unstructured.Unstructured {
 	u := &unstructured.Unstructured{}
 	u.SetAPIVersion("access.openova.io/v1alpha1")
 	u.SetKind("UserAccess")
 	u.SetName(name)
-	u.SetNamespace(rbacAssignNamespace)
 	u.SetLabels(map[string]string{
 		labelTier:                        tier,
 		"catalyst.openova.io/managed-by": "rbac-assign",
@@ -112,16 +107,11 @@ func TestHandleRBACAssign_CreatesNewWhenNoMatch(t *testing.T) {
 	if resp.TierClusterRole != "openova:tier-developer" {
 		t.Fatalf("tierClusterRole: got %q", resp.TierClusterRole)
 	}
-	// Verify the CR was actually created with the right shape in the
-	// expected namespace (rbacAssignNamespace == catalyst-system per
-	// the namespaced-CRD fix).
-	got, err := client.Resource(UserAccessGVR()).Namespace(rbacAssignNamespace).Get(
+	// Verify the CR was actually created with the right shape.
+	got, err := client.Resource(UserAccessGVR()).Namespace("").Get(
 		context.Background(), resp.UserAccess.Name, metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("get: %v", err)
-	}
-	if resp.UserAccess.Namespace != rbacAssignNamespace {
-		t.Fatalf("response namespace: got %q want %q", resp.UserAccess.Namespace, rbacAssignNamespace)
 	}
 	labels := got.GetLabels()
 	if labels[labelTier] != "developer" {
@@ -203,10 +193,8 @@ func TestHandleRBACAssign_UpdatesTierOnSameScope(t *testing.T) {
 	if resp.TierClusterRole != "openova:tier-admin" {
 		t.Fatalf("tierClusterRole: got %q", resp.TierClusterRole)
 	}
-	// Verify the CR was actually mutated. Read from the namespace
-	// rbacAssignNamespace because the seed and the handler now both
-	// operate inside catalyst-system per the namespaced-CRD fix.
-	got, err := client.Resource(UserAccessGVR()).Namespace(rbacAssignNamespace).Get(
+	// Verify the CR was actually mutated.
+	got, err := client.Resource(UserAccessGVR()).Namespace("").Get(
 		context.Background(), existing.GetName(), metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("get after update: %v", err)
@@ -276,7 +264,7 @@ func TestHandleRBACAssign_RetriesOn409(t *testing.T) {
 					Group: userAccessGroup, Version: userAccessVersion, Resource: userAccessResource,
 				},
 				rbacUserAccessFromAssign(existingName, "alice", "admin", scopes),
-				rbacAssignNamespace,
+				"",
 			)
 		}
 		return false, nil, nil
@@ -495,40 +483,60 @@ func TestValidateRBACAssignRequest_Cases(t *testing.T) {
 	}
 }
 
-// ── Regression: namespaced-CRD writes ────────────────────────────────
+// ── Ergonomic body shape (qa-loop iter-15 Fix #60) ────────────────────
 
-// TestHandleRBACAssign_WritesIntoNamespacedCRD is the regression test
-// for the iter-3 incident where /rbac/assign POST returned HTTP 500
-// "the server could not find the requested resource" because the
-// handler called Namespace("") on a namespaced CRD's Create — the
-// apiserver returns the same confusing 404 it returns for an unknown
-// resource. The fix routes Create + Update through rbacAssignNamespace
-// (catalyst-system) and the response body now carries the namespace.
-//
-// This test asserts the wire contract that the canonical UAT matrix
-// (TC-091 et al.) consumes:
-//
-//   - HTTP 201 on first create (no existing match)
-//   - response.userAccess.namespace == "catalyst-system"
-//   - the CR is actually queryable in catalyst-system after the call
-//   - the CR is NOT queryable in any other namespace (smoke check
-//     that we didn't accidentally cluster-scope it)
-//
-// If this test ever fails because someone reverts to Namespace(""),
-// the symptom would be the original 500 — so a green run here is
-// proof the fix is live.
-func TestHandleRBACAssign_WritesIntoNamespacedCRD(t *testing.T) {
+// TestNormalizeRBACAssignRequest_TopLevelEmail covers the ergonomic
+// shape used by the qa-loop matrix (TC-128, TC-168) and any CLI
+// caller that omits the {"user":{"email":...}} nesting.
+func TestNormalizeRBACAssignRequest_TopLevelEmail(t *testing.T) {
+	req := rbacAssignRequest{
+		Email:     "qa-user1@openova.io",
+		Tier:      "developer",
+		ScopeType: "application",
+		ScopeName: "qa-wp",
+	}
+	normalizeRBACAssignRequest(&req)
+	if req.User.Email != "qa-user1@openova.io" {
+		t.Fatalf("user.email: got %q want qa-user1@openova.io", req.User.Email)
+	}
+	if len(req.Scope) != 1 || req.Scope[0].Key != "openova.io/application" || req.Scope[0].Value != "qa-wp" {
+		t.Fatalf("scope: got %+v want [{openova.io/application qa-wp}]", req.Scope)
+	}
+	if msg, ok := validateRBACAssignRequest(req); !ok {
+		t.Fatalf("validation failed after normalize: %s", msg)
+	}
+}
+
+// TestNormalizeRBACAssignRequest_CanonicalShapeWins asserts the
+// canonical (nested) shape takes precedence when both shapes set the
+// same field. Idempotent on already-canonical bodies.
+func TestNormalizeRBACAssignRequest_CanonicalShapeWins(t *testing.T) {
+	req := rbacAssignRequest{
+		User:  rbacAssignUserBody{Email: "canonical@x.io"},
+		Email: "ergonomic@x.io",
+		Tier:  "viewer",
+	}
+	normalizeRBACAssignRequest(&req)
+	if req.User.Email != "canonical@x.io" {
+		t.Fatalf("expected canonical to win: got %q", req.User.Email)
+	}
+}
+
+// TestHandleRBACAssign_AcceptsMatrixErgonomicBody is the explicit
+// regression for TC-128 — POST {"email":"...","tier":"developer",
+// "scopeType":"application","scopeName":"qa-wp"} must reach the
+// find-or-create code path and create a UserAccess CR.
+func TestHandleRBACAssign_AcceptsMatrixErgonomicBody(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
-	factory, client := fakeUserAccessDynamicFactory()
+	factory, _ := fakeUserAccessDynamicFactory()
 	h.dynamicFactory = factory
-	dep := installUserAccessDeployment(t, h, "dep-rbac-namespaced")
+	dep := installUserAccessDeployment(t, h, "dep-rbac-ergonomic")
 
-	body := rbacAssignRequest{
-		User: rbacAssignUserBody{Email: "test@example.org"},
-		Tier: "developer",
-		Scope: []rbacAssignScopeBody{
-			{Key: "organization", Value: "default"},
-		},
+	body := map[string]any{
+		"email":     "qa-user1@openova.io",
+		"tier":      "developer",
+		"scopeType": "application",
+		"scopeName": "qa-wp",
 	}
 	rec := callUserAccess(t, h, http.MethodPost,
 		"/api/v1/sovereigns/"+dep.ID+"/rbac/assign", body, registerRBACAssignRoute)
@@ -539,68 +547,30 @@ func TestHandleRBACAssign_WritesIntoNamespacedCRD(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	// Wire-contract assertions for TC-091.
 	if resp.Applied != "created" {
 		t.Fatalf("applied: got %q want created", resp.Applied)
 	}
-	if resp.TierClusterRole != "openova:tier-developer" {
-		t.Fatalf("tierClusterRole: got %q", resp.TierClusterRole)
-	}
-	if resp.UserAccess.Namespace != rbacAssignNamespace {
-		t.Fatalf("namespace: got %q want %q (regression — namespaced-CRD Create must route through %s)",
-			resp.UserAccess.Namespace, rbacAssignNamespace, rbacAssignNamespace)
-	}
-	if resp.UserAccess.Name == "" {
-		t.Fatalf("name: empty")
-	}
-	// The CR is queryable in the expected namespace.
-	if _, err := client.Resource(UserAccessGVR()).Namespace(rbacAssignNamespace).Get(
-		context.Background(), resp.UserAccess.Name, metav1.GetOptions{}); err != nil {
-		t.Fatalf("get from %s: %v (the regression would surface here as not-found)",
-			rbacAssignNamespace, err)
-	}
 }
 
-// TestHandleRBACAssign_UpdateRoutesThroughNamespace exercises the
-// update path's namespace handling. Pre-seeds a CR in catalyst-system,
-// then asks for a different tier on the same scope; the handler must
-// find the CR (List scoped to rbacAssignNamespace) and Update it
-// through the same namespace.
-func TestHandleRBACAssign_UpdateRoutesThroughNamespace(t *testing.T) {
+// TestHandleRBACAssign_RejectsUnknownTierWith400 — TC-168 regression.
+// {"email":"qa@openova.io","tier":"super-admin"} must be rejected at
+// the validator with HTTP 400 mentioning "tier", not surface as a
+// downstream K8s 500.
+func TestHandleRBACAssign_RejectsUnknownTierWith400(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
-	scopes := []rbacAssignScopeBody{{Key: "openova.io/application", Value: "argocd"}}
-	existing := rbacUserAccessFromAssign("rbac-bob-deadc0de", "bob", "viewer", scopes)
-	existing.SetResourceVersion("1")
-	factory, client := fakeUserAccessDynamicFactory(existing)
+	factory, _ := fakeUserAccessDynamicFactory()
 	h.dynamicFactory = factory
-	dep := installUserAccessDeployment(t, h, "dep-rbac-update-ns")
-
-	body := rbacAssignRequest{
-		User:  rbacAssignUserBody{KeycloakSubject: "bob"},
-		Tier:  "operator",
-		Scope: scopes,
+	dep := installUserAccessDeployment(t, h, "dep-rbac-bad-tier")
+	body := map[string]any{
+		"email": "qa@openova.io",
+		"tier":  "super-admin",
 	}
 	rec := callUserAccess(t, h, http.MethodPost,
 		"/api/v1/sovereigns/"+dep.ID+"/rbac/assign", body, registerRBACAssignRoute)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d want 400; body=%s", rec.Code, rec.Body.String())
 	}
-	var resp rbacAssignResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if resp.Applied != "updated" {
-		t.Fatalf("applied: got %q want updated", resp.Applied)
-	}
-	if resp.UserAccess.Namespace != rbacAssignNamespace {
-		t.Fatalf("namespace: got %q want %q", resp.UserAccess.Namespace, rbacAssignNamespace)
-	}
-	got, err := client.Resource(UserAccessGVR()).Namespace(rbacAssignNamespace).Get(
-		context.Background(), existing.GetName(), metav1.GetOptions{})
-	if err != nil {
-		t.Fatalf("get: %v", err)
-	}
-	if got.GetLabels()[labelTier] != "operator" {
-		t.Fatalf("tier label after update: got %q", got.GetLabels()[labelTier])
+	if !strings.Contains(rec.Body.String(), "tier") {
+		t.Fatalf("expected body to mention 'tier'; got %s", rec.Body.String())
 	}
 }

@@ -619,3 +619,52 @@ func TestValidateUserAccess_Cases(t *testing.T) {
 		})
 	}
 }
+
+// TestCreateUserAccess_AcceptsErgonomicEmailTierBody — TC-156 regression
+// (qa-loop iter-15). The matrix POSTs the ergonomic shape
+// {"email":"qa-user2@openova.io","tier":"viewer"} and expects HTTP 201
+// with qa-user2 echoed in the response body.
+func TestCreateUserAccess_AcceptsErgonomicEmailTierBody(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	factory, _ := fakeUserAccessDynamicFactory()
+	h.dynamicFactory = factory
+	dep := installUserAccessDeployment(t, h, "dep-ua-ergonomic")
+	body := map[string]any{
+		"email": "qa-user2@openova.io",
+		"tier":  "viewer",
+	}
+	rec := callUserAccess(t, h, http.MethodPost,
+		"/api/v1/deployments/"+dep.ID+"/admin/user-access", body, registerUserAccessRoutes)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status: got %d want 201; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "qa-user2") {
+		t.Fatalf("expected body to contain qa-user2; body=%s", rec.Body.String())
+	}
+}
+
+// TestNormalizeUserAccessErgonomicShape_TierMapping verifies the tier
+// → role mapping that lets the qa-loop matrix exercise /admin/user-access
+// with the 5-tier vocabulary while the CRD's per-app grant accepts only
+// {viewer, editor, admin}.
+func TestNormalizeUserAccessErgonomicShape_TierMapping(t *testing.T) {
+	cases := []struct {
+		tier     string
+		wantRole string
+	}{
+		{"viewer", "viewer"},
+		{"developer", "viewer"},
+		{"operator", "admin"},
+		{"admin", "admin"},
+		{"owner", "admin"},
+		{"BOGUS", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.tier, func(t *testing.T) {
+			got := userAccessTierToRole(c.tier)
+			if got != c.wantRole {
+				t.Fatalf("userAccessTierToRole(%q): got %q want %q", c.tier, got, c.wantRole)
+			}
+		})
+	}
+}
