@@ -45,7 +45,12 @@ spec:
       # parameter so each Sovereign owns its KC realm named after the tenant
       # short-name (omantel chroot → "omantel"). Default `sovereign` is kept
       # in the chart for backward compat with overlays not yet migrated.
-      version: 1.4.2
+      # 1.4.3 (issue #129): bumps keycloakConfigCli.availabilityCheck.timeout
+      # 120s → 600s + backoffLimit 1 → 5. Fixes "post-upgrade hooks failed:
+      # timed out waiting for the condition" wedge on fresh provisions where
+      # Postgres+Liquibase bootstrap exceeds the bitnami subchart's 120s
+      # default Keycloak-availability window for the realm-import Job.
+      version: 1.4.3
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak

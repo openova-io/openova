@@ -276,13 +276,63 @@ keycloak:
   #     k3s --oidc-groups-prefix flag)
   keycloakConfigCli:
     enabled: true
-    # Run the realm-import Job as a Helm post-install hook so the realm
-    # is provisioned exactly once per fresh release. Re-run on upgrade
-    # is idempotent (config-cli reconciles the realm to spec).
+    # Run the realm-import Job as a Helm post-install/post-upgrade/post-rollback
+    # hook (bitnami subchart default — annotations defined on the Job template
+    # via .Values.keycloakConfigCli.annotations: helm.sh/hook = post-install,
+    # post-upgrade,post-rollback with weight 5). The realm is provisioned
+    # exactly once per fresh release; re-run on upgrade is idempotent
+    # (config-cli reconciles the realm to spec).
     image:
       registry: docker.io
       repository: bitnamilegacy/keycloak-config-cli
       tag: 6.4.0-debian-12-r11
+    # ─── Hook timing — issue #129 (post-upgrade hook timeout wedge) ─────────
+    #
+    # Root cause history (prov #15, otech 0ad3687ddd72deb7, 2026-05-10):
+    # Flux's first install of bp-keycloak races against PostgreSQL readiness;
+    # when keycloak-config-cli's first run-attempt fires before Keycloak's
+    # admin endpoint is reachable, it counts toward Job retries. Bitnami
+    # subchart defaults are too tight for a fresh Sovereign:
+    #   - availabilityCheck.timeout="" → keycloak-config-cli falls back to
+    #     its own internal default (~120s) waiting for Keycloak
+    #   - backoffLimit: 1 → only 2 Pod attempts total before Job marked Failed
+    # On a brand-new k3s where Postgres+Liquibase migrations + Keycloak
+    # bootstrap legitimately take 3-10+ minutes, both attempts time out
+    # inside the 120s window → Job Failed → Helm reports
+    # "post-upgrade hooks failed: timed out waiting for the condition"
+    # → bp-keycloak HelmRelease never reaches Ready=True → bp-gitea
+    # (dependsOn keycloak OIDC) never installs → bp-self-sovereign-cutover
+    # never converges → fresh provision wedges at phase1-watching.
+    #
+    # Fix per Inviolable Principle #4 (no hardcoding) — both knobs are
+    # operator-overridable via per-Sovereign overlay valuesFrom path:
+    #   keycloak.keycloakConfigCli.availabilityCheck.timeout
+    #   keycloak.keycloakConfigCli.backoffLimit
+    # The chart defaults below are tuned for the documented worst case
+    # (slow Postgres + cold image-pull); operators with faster substrates
+    # may shorten them.
+    #
+    # Numbers picked to fit inside the parent HR's 15m install/upgrade
+    # timeout while leaving headroom for Job pod scheduling + image pull:
+    #   - availabilityCheck.timeout 600s (10 min) — keycloak-config-cli
+    #     polls Keycloak's /admin REST endpoint; this caps the single-Pod
+    #     wait. Covers Postgres bootstrap + Liquibase + Keycloak internal
+    #     startup with margin.
+    #   - backoffLimit 5 — Job retries with exponential backoff (cap 6m by
+    #     default). Combined with a 10m availability poll the realistic
+    #     worst case is one Pod hitting the timeout, then a successful
+    #     retry once Keycloak Ready.
+    #
+    # NOT a workaround per Inviolable Principle #3. The workaround would
+    # be disabling the hook semantics entirely (set annotations: {}); that
+    # breaks the documented contract that the realm is imported before
+    # the Helm release reaches Ready (downstream bp-gitea + catalyst-api
+    # depend on the realm existing). Tuning the hook's internal timing
+    # respects the contract.
+    availabilityCheck:
+      enabled: true
+      timeout: "600s"
+    backoffLimit: 5
     # ─── Phase-8b realm ConfigMap (issue #604, #899) ─────────────────────────
     # The realm import JSON is now owned by the parent bp-keycloak chart's
     # templates/configmap-sovereign-realm.yaml template. That template has
