@@ -1,0 +1,217 @@
+# cilium-envoy SDS hot-reload trigger.
+#
+# Root cause (qa-loop bounded-cycle Provision #7, ad2532a8):
+#
+# cilium-envoy DaemonSet starts as part of the bp-cilium HelmRelease,
+# which lands ~20 min before the wildcard cert backing the
+# `sovereign-wildcard-tls` Secret is issued by cert-manager (the cert
+# resource itself is in this same Kustomization, but the DNS-01 challenge
+# round-trip against the central PowerDNS adds 60-90s on top of the
+# Kustomization apply). Envoy's xDS subscription for the SDS Secret
+# observed the Secret was missing at startup, hit its initial-fetch
+# timeout, and marked the Gateway listener unready. cilium-envoy does
+# NOT re-subscribe after the Secret materialises — once the SDS bind
+# is in `error` state the listener stays down until the envoy process
+# restarts. Symptom: `console.<sov>` returns curl rc=000 (TLS handshake
+# failure: "no listener on this port") indefinitely after a fresh
+# provision, even though every HelmRelease reaches Ready.
+#
+# Affected: every fresh Sovereign provision will hit this until the
+# upstream cilium-envoy ships SDS hot-reload. Each one previously
+# required a manual `kubectl rollout restart ds/cilium-envoy` for the
+# console to come up — exactly the kind of out-of-band step that
+# violates the zero-touch-provision rule (memory entry
+# feedback_zero_touch_provision_no_questions.md).
+#
+# Fix path B from the brief: ship a Job in this same Kustomization that
+# (a) waits for the `sovereign-wildcard-tls` Secret to materialise with
+# a non-empty `tls.crt` field, then (b) bumps the cilium-envoy DaemonSet
+# pod template via `kubectl rollout restart`. The fresh envoy pods
+# subscribe to the now-existing Secret and the listener comes up cleanly
+# within ~30s of the cert appearing.
+#
+# Why this Kustomization (and not the bp-cilium chart):
+#   - The cert lifecycle and the restart trigger live together. When the
+#     cert resource is removed (multi-zone migration via #831), removing
+#     this Job is a single-PR delete.
+#   - bp-cilium chart has wide blast radius; bumping its OCI artifact for
+#     a Sovereign-bootstrap-only behaviour would force every cluster
+#     (including SME, contabo) to take the change.
+#   - The SDS Secret name + namespace are the contract between this
+#     Kustomization (cert producer) and cilium-envoy (cert consumer);
+#     keeping the restart trigger here keeps both ends of the contract
+#     in one file tree.
+#
+# Re-fire semantics:
+#   - The Job has a deterministic name (no generateName) so re-applying
+#     this Kustomization with the same revision is a no-op once the Job
+#     reached Complete.
+#   - On a chart-bump or re-provision (different revision), Kustomize
+#     re-creates the Job with the new generation; it runs again, re-
+#     bumps the DaemonSet, and exits — idempotent.
+#   - ttlSecondsAfterFinished cleans up the Pod/Job after 1h so kubectl
+#     output stays clean.
+#
+# Idempotency at the envoy side:
+#   - `kubectl rollout restart` patches a `kubectl.kubernetes.io/restartedAt`
+#     annotation on the pod template. If the cert was already present at
+#     envoy startup (steady-state cluster), the restart still happens but
+#     incurs only a ~10s data-plane blip; the bootstrap window is short
+#     enough that this is the expected hot-path on every fresh provision
+#     and a no-op-cost on every subsequent revision.
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cilium-envoy-tls-restart
+  namespace: kube-system
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+    catalyst.openova.io/component: cilium-envoy-tls-restart
+---
+# Namespaced Role — only needs to (a) read the Secret to detect
+# materialisation and (b) patch the DaemonSet pod template to trigger
+# rollout. Both verbs scoped to kube-system, both resources scoped to
+# the exact resource names so this SA cannot be repurposed to mutate
+# other workloads.
+#
+# Note: `patch` (not `update`) on daemonsets is sufficient for
+# `kubectl rollout restart` because that command issues a strategic-
+# merge patch on `.spec.template.metadata.annotations`. Verified
+# against kubectl 1.31.4 source (pkg/cmd/rollout/rollout_restart.go).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cilium-envoy-tls-restart
+  namespace: kube-system
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+    catalyst.openova.io/component: cilium-envoy-tls-restart
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["sovereign-wildcard-tls"]
+    verbs: ["get", "watch", "list"]
+  - apiGroups: ["apps"]
+    resources: ["daemonsets"]
+    resourceNames: ["cilium-envoy"]
+    verbs: ["get", "patch"]
+  # Read DaemonSet rollout status so the Job can wait for the new pods
+  # to come up before exiting. `kubectl rollout status` issues GET on
+  # the DaemonSet resource (no extra verbs needed).
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cilium-envoy-tls-restart
+  namespace: kube-system
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+    catalyst.openova.io/component: cilium-envoy-tls-restart
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: cilium-envoy-tls-restart
+subjects:
+  - kind: ServiceAccount
+    name: cilium-envoy-tls-restart
+    namespace: kube-system
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cilium-envoy-tls-restart
+  namespace: kube-system
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+    catalyst.openova.io/component: cilium-envoy-tls-restart
+spec:
+  # backoffLimit 6 with a default backoff of 10s..6m == ≈10 min of total
+  # retry headroom. The cert provisioning DNS-01 round-trip is the only
+  # thing this Job waits on, and that completes ≤90s in steady-state. A
+  # higher limit absorbs the rare PowerDNS propagation flake.
+  backoffLimit: 6
+  # Clean up Job + Pod 1h after success so kubectl get jobs stays sane.
+  ttlSecondsAfterFinished: 3600
+  # 15 min hard cap. If the cert hasn't arrived in 15 min, something is
+  # broken upstream (cert-manager, PowerDNS webhook, ACME) and a Job
+  # restart loop won't fix it; surface the failure to Flux so the
+  # operator sees Kustomization NotReady.
+  activeDeadlineSeconds: 900
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cilium-envoy-tls-restart
+        catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+        catalyst.openova.io/component: cilium-envoy-tls-restart
+    spec:
+      serviceAccountName: cilium-envoy-tls-restart
+      restartPolicy: OnFailure
+      # alpine/k8s:1.31.4 — canonical kubectl image used across the
+      # Catalyst fleet (self-sovereign-cutover, seaweedfs, harbor have
+      # all converged on this after Bitnami deprecated public Docker
+      # Hub in 2025). Ships kubectl + sh + standard busybox toolchain.
+      containers:
+        - name: wait-and-restart
+          image: alpine/k8s:1.31.4
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities:
+              drop: ["ALL"]
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+
+              SECRET_NS=kube-system
+              SECRET_NAME=sovereign-wildcard-tls
+              DS_NS=kube-system
+              DS_NAME=cilium-envoy
+
+              echo "[tls-restart] waiting for ${SECRET_NS}/${SECRET_NAME} with non-empty tls.crt"
+              # Poll up to ~14 min (84 * 10s); activeDeadlineSeconds=900
+              # is the outer hard limit. We treat "not yet" and "empty
+              # tls.crt" the same — both mean the cert hasn't been issued.
+              for i in $(seq 1 84); do
+                # `--ignore-not-found` so the early polls (Secret not
+                # created yet) don't error — kubectl returns empty
+                # output and the for-loop continues.
+                tls_crt=$(kubectl get secret -n "${SECRET_NS}" "${SECRET_NAME}" \
+                  --ignore-not-found \
+                  -o jsonpath='{.data.tls\.crt}' 2>/dev/null || true)
+                if [ -n "${tls_crt}" ]; then
+                  echo "[tls-restart] ${SECRET_NAME} present with non-empty tls.crt (attempt ${i})"
+                  break
+                fi
+                if [ "${i}" = "84" ]; then
+                  echo "[tls-restart] FATAL: ${SECRET_NAME} did not become non-empty after 14m" >&2
+                  exit 1
+                fi
+                sleep 10
+              done
+
+              echo "[tls-restart] bumping ds/${DS_NAME} in ${DS_NS} to force envoy SDS re-subscribe"
+              kubectl rollout restart -n "${DS_NS}" "ds/${DS_NAME}"
+
+              # Block until the new pods are Ready. `kubectl rollout
+              # status` exits 0 on full rollout, non-zero on timeout.
+              # Bound to 5 min — a single-node k3s rolls 1 pod, a 3-node
+              # HA cluster rolls 3 in parallel; both finish ≤90s in
+              # practice.
+              echo "[tls-restart] waiting for ds/${DS_NAME} rollout"
+              kubectl rollout status -n "${DS_NS}" "ds/${DS_NAME}" --timeout=5m
+
+              echo "[tls-restart] complete — cilium-envoy now serves SDS Secret ${SECRET_NAME}"
