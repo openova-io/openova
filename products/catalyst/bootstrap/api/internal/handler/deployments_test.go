@@ -149,12 +149,15 @@ func TestCreateDeployment_BYODoesNotReserve(t *testing.T) {
 }
 
 // TestCreateDeployment_DerivesObjectStorageBucketFromFQDN verifies the
-// per-Sovereign Object Storage bucket name (issue #371) is derived
-// deterministically from the FQDN — `catalyst-<fqdn-with-dots-replaced>`.
-// The wizard never surfaces this; the handler derives it before
-// Validate() runs. We assert the persisted Deployment carries the
-// derived value so the OpenTofu module's `aminueza/minio` provider
-// finds a non-empty bucket name when writeTfvars renders.
+// per-Sovereign Object Storage bucket name (issue #371, Fix #111) is
+// derived deterministically from the (FQDN, deployment-id) pair —
+// `catalyst-<fqdn-with-dots-replaced>-<8-hex>`. The wizard never
+// surfaces this; the handler derives it before Validate() runs. We
+// assert the persisted Deployment carries the derived value so the
+// OpenTofu module's `aminueza/minio` provider finds a non-empty
+// bucket name when writeTfvars renders, AND that the suffix matches
+// the deployment ID's first 8 chars (proves Fix #111 collision-
+// avoidance is in effect).
 func TestCreateDeployment_DerivesObjectStorageBucketFromFQDN(t *testing.T) {
 	t.Setenv("DYNADOT_MANAGED_DOMAINS", "omani.works")
 	t.Setenv("CATALYST_HARBOR_ROBOT_TOKEN", "harbor_TEST_PLACEHOLDER")
@@ -195,9 +198,16 @@ func TestCreateDeployment_DerivesObjectStorageBucketFromFQDN(t *testing.T) {
 		t.Fatalf("deployment %s missing from sync.Map", resp.ID)
 	}
 	dep := val.(*Deployment)
-	const want = "catalyst-k8s-acme-io"
+	// Fix #111: bucket name is `catalyst-<fqdn-with-dashes>-<id-first-8>`.
+	// The deployment ID is generated inside CreateDeployment via newID()
+	// (16-hex random); we know what `dep.ID` is, so we can rebuild the
+	// expected bucket name and assert exact equality.
+	if len(dep.ID) < 8 {
+		t.Fatalf("dep.ID = %q, expected >=8 hex chars from newID()", dep.ID)
+	}
+	want := "catalyst-k8s-acme-io-" + dep.ID[:8]
 	if dep.Request.ObjectStorageBucket != want {
-		t.Errorf("ObjectStorageBucket = %q, want %q", dep.Request.ObjectStorageBucket, want)
+		t.Errorf("ObjectStorageBucket = %q, want %q (deployment-id-suffix shape per Fix #111)", dep.Request.ObjectStorageBucket, want)
 	}
 }
 

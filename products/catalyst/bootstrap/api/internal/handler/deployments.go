@@ -35,6 +35,7 @@ import (
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/hetzner"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobs"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/pdm"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
@@ -872,29 +873,36 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 		req.HarborRobotToken = tok
 	}
 
-	// Derive the per-Sovereign Object Storage bucket name (issue #371).
-	// Hetzner Object Storage bucket names share a global namespace across
-	// every tenant, so a deterministic per-FQDN slug minimises collision
-	// risk while keeping the resource name predictable for operators
-	// inspecting the Hetzner Console. The wizard never surfaces this as
-	// a free-form input — it's plumbing, not user-facing.
+	// Mint the deployment ID NOW (before bucket-name derivation) so the
+	// per-Sovereign Object Storage bucket name (issue #371, Fix #111) can
+	// take a deterministic suffix from it. This fixes a real Hetzner
+	// global-namespace collision: bucket names are GLOBAL across every
+	// Hetzner Object Storage tenant, so two CreateDeployment calls for
+	// the same FQDN (re-provision, race, two operators on adjacent pools)
+	// would have collided on `catalyst-<fqdn>` and the second `tofu apply`
+	// would have failed with `BucketAlreadyExists`. Suffix derivation lives
+	// in hetzner.BucketNameForSovereign so the wipe handler can reproduce
+	// the same name without re-deriving here.
+	id := newID()
+
+	// Derive the per-Sovereign Object Storage bucket name (issue #371,
+	// Fix #111 suffix). The wizard never surfaces this as a free-form
+	// input — it's plumbing, not user-facing.
 	//
-	// Pattern: catalyst-<sovereign-fqdn-with-dots-replaced-by-dashes>.
-	// `catalyst-omantel-omani-works` for the reference deployment. The
-	// downstream Validate() re-checks the resulting string against the
-	// S3 bucket-naming RFC; if a future FQDN format breaks the rule the
-	// validator emits a clear error rather than letting tofu apply fail
-	// 5 minutes in.
+	// Pattern: catalyst-<fqdn-with-dots-replaced-by-dashes>-<8-hex>.
+	// `catalyst-omantel-omani-works-b3b837a2` for the reference deployment
+	// with id `b3b837a22d7a8e5c`. The downstream Validate() re-checks the
+	// resulting string against the S3 bucket-naming RFC; if a future FQDN
+	// format breaks the rule the validator emits a clear error rather
+	// than letting tofu apply fail 5 minutes in.
 	if strings.TrimSpace(req.ObjectStorageBucket) == "" && strings.TrimSpace(req.SovereignFQDN) != "" {
-		req.ObjectStorageBucket = "catalyst-" + strings.ReplaceAll(req.SovereignFQDN, ".", "-")
+		req.ObjectStorageBucket = hetzner.BucketNameForSovereign(req.SovereignFQDN, id)
 	}
 
 	if err := req.Validate(); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-
-	id := newID()
 
 	// Mint the cloud-init kubeconfig postback bearer token (issue
 	// #183, Option D) BEFORE kicking off the provisioner so

@@ -381,12 +381,21 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 				Region:    dep.Request.ObjectStorageRegion,
 			},
 			dep.Request.SovereignFQDN,
+			// Per Fix #111: deploymentID feeds the bucket-name suffix so
+			// PurgeBuckets targets the same global-namespace bucket that
+			// CreateDeployment provisioned. dep.ID (URL path lookup key)
+			// IS the deployment ID; we prefer it over Request.DeploymentID
+			// because the on-disk record's stamping flow lands the value
+			// on req only after newID() runs in CreateDeployment, and
+			// dep.ID is always present whether the record came from the
+			// in-memory map or store.Load on Pod restart.
+			dep.ID,
 			func(msg string) { emit("wipe", "info", "object-storage: "+msg) },
 		)
 		bucketCancel()
 		if removed > 0 {
 			report.HetznerPurge.S3Buckets = append(report.HetznerPurge.S3Buckets,
-				hetzner.BucketNameForSovereign(dep.Request.SovereignFQDN))
+				hetzner.BucketNameForSovereign(dep.Request.SovereignFQDN, dep.ID))
 		}
 		if berr != nil {
 			report.HetznerPurge.Errors = append(report.HetznerPurge.Errors,

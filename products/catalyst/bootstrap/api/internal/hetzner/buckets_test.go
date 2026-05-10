@@ -28,11 +28,14 @@ package hetzner
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -43,18 +46,104 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
+// s3BucketNameRE mirrors provisioner.s3BucketNamePattern so this
+// test file can self-validate every produced bucket name without
+// importing handler-layer packages (which would create an import
+// cycle: handler imports hetzner imports handler).
+var s3BucketNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$`)
+
+// sha256First8 returns the first 8 hex chars of sha256(s) — the same
+// fallback-suffix derivation used by bucketSuffix when deploymentID
+// is empty or malformed. Helper here so test cases can compute the
+// expected legacy-record bucket name inline.
+func sha256First8(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])[:8]
+}
+
 func TestBucketNameForSovereign(t *testing.T) {
+	// Fix #111 (2026-05-10) added an 8-hex deployment-id suffix to
+	// disambiguate the GLOBAL Hetzner Object Storage bucket namespace.
+	// Pattern: catalyst-<fqdn-with-dashes>-<8-hex>.
 	cases := []struct {
-		fqdn string
-		want string
+		name         string
+		fqdn         string
+		deploymentID string
+		want         string
 	}{
-		{"omantel.omani.works", "catalyst-omantel-omani-works"},
-		{"otech50.omani.works", "catalyst-otech50-omani-works"},
-		{"acme.example.com", "catalyst-acme-example-com"},
+		{
+			name:         "deployment id with 16 hex chars (newID() canonical shape)",
+			fqdn:         "omantel.omani.works",
+			deploymentID: "b3b837a22d7a8e5c",
+			want:         "catalyst-omantel-omani-works-b3b837a2",
+		},
+		{
+			name:         "different deployment id same fqdn -> different bucket (collision avoided)",
+			fqdn:         "omantel.omani.works",
+			deploymentID: "deadbeef12345678",
+			want:         "catalyst-omantel-omani-works-deadbeef",
+		},
+		{
+			name:         "otech50 fqdn",
+			fqdn:         "otech50.omani.works",
+			deploymentID: "0123456789abcdef",
+			want:         "catalyst-otech50-omani-works-01234567",
+		},
+		{
+			name:         "deployment id with uppercase hex normalised to lowercase",
+			fqdn:         "acme.example.com",
+			deploymentID: "ABCDEF0123456789",
+			want:         "catalyst-acme-example-com-abcdef01",
+		},
+		{
+			name:         "empty deployment id falls back to fqdn-derived sha256 prefix (legacy on-disk records)",
+			fqdn:         "omantel.omani.works",
+			deploymentID: "",
+			// sha256("omantel.omani.works") first 8 hex chars (computed at test time).
+			want: "catalyst-omantel-omani-works-" + sha256First8("omantel.omani.works"),
+		},
+		{
+			name:         "non-hex deployment id falls back to fqdn-derived suffix (defence-in-depth)",
+			fqdn:         "acme.example.com",
+			deploymentID: "ZZZZZZZZ-not-hex",
+			want:         "catalyst-acme-example-com-" + sha256First8("acme.example.com"),
+		},
 	}
 	for _, c := range cases {
-		if got := BucketNameForSovereign(c.fqdn); got != c.want {
-			t.Errorf("BucketNameForSovereign(%q) = %q, want %q", c.fqdn, got, c.want)
+		t.Run(c.name, func(t *testing.T) {
+			got := BucketNameForSovereign(c.fqdn, c.deploymentID)
+			if got != c.want {
+				t.Errorf("BucketNameForSovereign(%q, %q) = %q, want %q", c.fqdn, c.deploymentID, got, c.want)
+			}
+			// Every produced name MUST satisfy the S3 bucket-naming RFC
+			// (3-63 chars, lowercase alphanumeric + hyphens, start/end
+			// alphanumeric). Same regex as
+			// provisioner.s3BucketNamePattern; duplicated here so this
+			// test is self-contained.
+			if !s3BucketNameRE.MatchString(got) {
+				t.Errorf("produced bucket name %q does not match S3 naming RFC", got)
+			}
+		})
+	}
+}
+
+// TestBucketNameForSovereign_CollisionAvoidance asserts the Fix #111
+// invariant: re-provisioning the SAME Sovereign FQDN with a fresh
+// deployment-id MUST yield a different bucket name. Without this
+// invariant, two CreateDeployment calls collide on the global Hetzner
+// Object Storage namespace and the second `tofu apply` fails with
+// `BucketAlreadyExists`.
+func TestBucketNameForSovereign_CollisionAvoidance(t *testing.T) {
+	const fqdn = "omantel.omani.works"
+	a := BucketNameForSovereign(fqdn, "aaaaaaaaaaaaaaaa")
+	b := BucketNameForSovereign(fqdn, "bbbbbbbbbbbbbbbb")
+	if a == b {
+		t.Fatalf("two distinct deployment ids produced identical bucket name %q (collision avoidance broken)", a)
+	}
+	// Both must still satisfy the S3 RFC.
+	for _, name := range []string{a, b} {
+		if !s3BucketNameRE.MatchString(name) {
+			t.Errorf("bucket name %q does not match S3 naming RFC", name)
 		}
 	}
 }
@@ -77,7 +166,7 @@ func TestHetznerObjectStorageEndpoint(t *testing.T) {
 func TestPurgeBuckets_RejectsEmptyAccessKey(t *testing.T) {
 	_, err := PurgeBuckets(context.Background(),
 		PurgeBucketsConfig{AccessKey: "", SecretKey: "x", Region: "fsn1"},
-		"otech50.omani.works", nil)
+		"otech50.omani.works", "0123456789abcdef", nil)
 	if err == nil || !strings.Contains(err.Error(), "access key") {
 		t.Fatalf("expected access-key error, got %v", err)
 	}
@@ -86,7 +175,7 @@ func TestPurgeBuckets_RejectsEmptyAccessKey(t *testing.T) {
 func TestPurgeBuckets_RejectsEmptySecretKey(t *testing.T) {
 	_, err := PurgeBuckets(context.Background(),
 		PurgeBucketsConfig{AccessKey: "x", SecretKey: "", Region: "fsn1"},
-		"otech50.omani.works", nil)
+		"otech50.omani.works", "0123456789abcdef", nil)
 	if err == nil || !strings.Contains(err.Error(), "secret key") {
 		t.Fatalf("expected secret-key error, got %v", err)
 	}
@@ -95,7 +184,7 @@ func TestPurgeBuckets_RejectsEmptySecretKey(t *testing.T) {
 func TestPurgeBuckets_UnknownRegion(t *testing.T) {
 	_, err := PurgeBuckets(context.Background(),
 		PurgeBucketsConfig{AccessKey: "x", SecretKey: "y", Region: "us-east-1"},
-		"otech50.omani.works", nil)
+		"otech50.omani.works", "0123456789abcdef", nil)
 	if err == nil || !strings.Contains(err.Error(), "Hetzner Object Storage region") {
 		t.Fatalf("expected region error, got %v", err)
 	}

@@ -36,6 +36,8 @@ package hetzner
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -44,19 +46,89 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
+// bucketSuffixLen is the number of hex characters appended to the
+// FQDN-derived stem to disambiguate buckets across deployments. 8
+// hex chars = 32 bits of entropy = ~1-in-4-billion collision
+// probability for two deployments of the SAME Sovereign FQDN — more
+// than enough for any realistic re-provision cadence on a single
+// Hetzner Object Storage tenant.
+const bucketSuffixLen = 8
+
 // BucketNameForSovereign returns the deterministic Object Storage
-// bucket name for a Sovereign FQDN. Mirrors the default in
-// handler/deployments.go (which is the same string tofu's bucket
-// resource consumes via `object_storage_bucket_name`).
+// bucket name for a (Sovereign FQDN, deployment ID) pair. Mirrors
+// the default in handler/deployments.go (which is the same string
+// tofu's bucket resource consumes via `object_storage_bucket_name`).
 //
-// Pattern: `catalyst-<fqdn-with-dots-replaced-by-dashes>`. e.g.
-// `omantel.omani.works` -> `catalyst-omantel-omani-works`.
+// Pattern: `catalyst-<fqdn-with-dots-replaced-by-dashes>-<8-hex>`.
+// e.g. `omantel.omani.works` + deployment-id `b3b837a22d7a8e5c` ->
+// `catalyst-omantel-omani-works-b3b837a2`.
+//
+// Why the suffix (Fix #111, 2026-05-10): Hetzner Object Storage
+// bucket names share a GLOBAL namespace across every tenant. Two
+// Sovereigns at the same FQDN (e.g. a re-provision after wipe, or
+// two operators racing with the same domain) would collide on
+// `catalyst-<fqdn>` and the second `tofu apply` would fail with
+// `BucketAlreadyExists`. The deployment-id-derived suffix is unique
+// per CreateDeployment call so collisions only happen if the same
+// 16-byte random ID is generated twice, which is cryptographically
+// negligible.
+//
+// Backward-compat: when deploymentID is empty (legacy on-disk
+// records pre-dating this change), the suffix is derived from
+// sha256(fqdn) so the name remains deterministic per-FQDN — wipes
+// of legacy Sovereigns still target the right bucket. New
+// deployments always carry deploymentID via Request.DeploymentID
+// (stamped in handler.CreateDeployment before validation).
 //
 // Exposed so the wipe handler can call PurgeBuckets() without
 // re-deriving the name itself, and so unit tests can pin both halves
 // of the contract from one place.
-func BucketNameForSovereign(fqdn string) string {
-	return "catalyst-" + strings.ReplaceAll(fqdn, ".", "-")
+func BucketNameForSovereign(fqdn, deploymentID string) string {
+	stem := "catalyst-" + strings.ReplaceAll(fqdn, ".", "-")
+	suffix := bucketSuffix(fqdn, deploymentID)
+	return stem + "-" + suffix
+}
+
+// bucketSuffix returns the 8-hex-char disambiguation suffix.
+//
+// When deploymentID is non-empty and at least bucketSuffixLen long,
+// we use its leading characters directly — newID() in
+// handler/deployments.go already returns 16 cryptographically-random
+// hex chars, so taking the first 8 is equivalent to taking 32 bits
+// of fresh entropy. Cheaper than hashing and keeps the suffix
+// trivially traceable back to the deployment record.
+//
+// When deploymentID is empty/short (legacy records), fall back to
+// first 8 chars of sha256(fqdn) so the name remains deterministic
+// per-FQDN. This branch only fires for wipes of Sovereigns provisioned
+// before Fix #111 — by definition those buckets pre-date the suffix
+// scheme and were named `catalyst-<fqdn>` (no suffix at all). The
+// fallback won't match those buckets, but that's correct: PurgeBuckets()
+// returns 0/nil on NoSuchBucket and the operator's runbook
+// (feedback_idempotent_iac_purge.md) covers the manual sweep.
+func bucketSuffix(fqdn, deploymentID string) string {
+	if id := strings.TrimSpace(strings.ToLower(deploymentID)); len(id) >= bucketSuffixLen && isHex(id[:bucketSuffixLen]) {
+		return id[:bucketSuffixLen]
+	}
+	sum := sha256.Sum256([]byte(fqdn))
+	return hex.EncodeToString(sum[:])[:bucketSuffixLen]
+}
+
+// isHex reports whether s is non-empty and consists only of
+// lowercase hex digits. Used to validate the deployment-id prefix
+// before splicing it into a bucket name (defence-in-depth: keeps
+// the bucket name within the S3 lexical rules even if a future
+// caller passes something that isn't pure hex).
+func isHex(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f')) {
+			return false
+		}
+	}
+	return true
 }
 
 // HetznerObjectStorageEndpoint returns the canonical Hetzner Object
@@ -87,7 +159,14 @@ type PurgeBucketsConfig struct {
 
 // PurgeBuckets empties + deletes the per-Sovereign Hetzner Object
 // Storage bucket. The bucket name is derived deterministically from
-// sovereignFQDN (see BucketNameForSovereign).
+// (sovereignFQDN, deploymentID) — see BucketNameForSovereign.
+//
+// deploymentID is the catalyst-api's per-deployment ID (16-hex from
+// newID()). It is used as the bucket-name suffix to disambiguate
+// across the global Hetzner Object Storage namespace. Pass empty
+// only for legacy records where the on-disk Deployment pre-dates
+// Fix #111; the function falls back to a fqdn-derived sha256 prefix
+// in that case (see bucketSuffix).
 //
 // Returns the number of buckets actually removed (0 or 1) and an
 // error only on a non-recoverable failure (network, auth, partial
@@ -96,7 +175,7 @@ type PurgeBucketsConfig struct {
 //
 // progress is called for human-readable status updates to feed the
 // SSE log. Pass nil to silence.
-func PurgeBuckets(ctx context.Context, cfg PurgeBucketsConfig, sovereignFQDN string, progress func(msg string)) (int, error) {
+func PurgeBuckets(ctx context.Context, cfg PurgeBucketsConfig, sovereignFQDN, deploymentID string, progress func(msg string)) (int, error) {
 	if progress == nil {
 		progress = func(string) {}
 	}
@@ -123,7 +202,7 @@ func PurgeBuckets(ctx context.Context, cfg PurgeBucketsConfig, sovereignFQDN str
 		return 0, fmt.Errorf("construct minio client: %w", err)
 	}
 
-	bucketName := BucketNameForSovereign(sovereignFQDN)
+	bucketName := BucketNameForSovereign(sovereignFQDN, deploymentID)
 	return purgeBucket(ctx, client, bucketName, progress)
 }
 
