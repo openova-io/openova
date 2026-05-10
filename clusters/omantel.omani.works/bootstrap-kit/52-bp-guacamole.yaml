@@ -47,9 +47,17 @@ spec:
   chart:
     spec:
       chart: bp-guacamole
-      # 0.1.6: 0.1.5 (.guacamole home emptyDir mount for
-      # readOnlyRootFilesystem) + CI auto-bumped values.yaml.
-      version: 0.1.6
+      # 0.1.9 (qa-loop iter-11 Fix #45 Cluster-A): storageClass-
+      # migration pre-install/pre-upgrade hook. The live bp-guacamole HR
+      # wedged on omantel iter-11 because the existing
+      # `guacamole-recordings` PVC was bound to local-path while the
+      # in-cluster HR object had `seaweedfs-storage` (drift between
+      # the on-disk overlay below and what was already on the API
+      # server). With this version the chart's pre-upgrade hook reads
+      # the existing PVC and either no-ops (storageClass matches) or
+      # deletes the PVC + bound PV so the post-render PVC manifest
+      # creates cleanly with whatever storageClass is desired.
+      version: 0.1.9
       sourceRef:
         kind: HelmRepository
         name: bp-guacamole

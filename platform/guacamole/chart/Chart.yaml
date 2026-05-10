@@ -15,7 +15,18 @@ name: bp-guacamole
 # readOnlyRootFilesystem=true. Without it pods crash-looped with
 # `mkdir: cannot create directory '/home/guacamole/.guacamole':
 # Read-only file system`.
-version: 0.1.8
+# 0.1.9 (qa-loop iter-11 Fix #45 Cluster-A): pre-install/pre-upgrade
+# Helm hook (Job + per-release ServiceAccount/Role/RoleBinding +
+# cluster-scoped ClusterRole/ClusterRoleBinding for PV cleanup) that
+# detects when the existing `guacamole-recordings` PVC is bound to a
+# storageClass different from `.Values.guacamole.recordings.storageClass`
+# and deletes the PVC + bound PV so the chart-side PVC manifest can
+# recreate cleanly. Closes the live bp-guacamole HelmRelease wedge on
+# omantel iter-11 (`PersistentVolumeClaim ... is invalid: spec:
+# Forbidden: spec is immutable after creation`). Operator escape hatch:
+# `.Values.guacamole.recordings.allowMigration: false` suppresses the
+# hook for Sovereigns with long-lived recording state.
+version: 0.1.9
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless

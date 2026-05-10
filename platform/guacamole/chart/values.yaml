@@ -85,6 +85,22 @@ guacamole:
     # Sovereigns). Override per-Sovereign for non-Hetzner clouds.
     storageClass: hcloud-volumes
     mountPath: /recordings
+    # qa-loop iter-11 Fix #45 Cluster-A: when an existing PVC is bound
+    # to a storageClass different from .storageClass above, the chart's
+    # pre-upgrade hook deletes the PVC + bound PV so the new chart-side
+    # PVC can be recreated cleanly. PersistentVolumeClaim.spec is K8s-
+    # immutable on storageClassName, so without this hook a per-Sovereign
+    # overlay flip (e.g. `local-path` → `seaweedfs-storage` after
+    # bp-seaweedfs lands) would wedge the bp-guacamole HelmRelease in
+    # `Failed to perform remediation: missing target release for rollback`.
+    # Default ON because session-recording state on omantel today is
+    # ephemeral; flip OFF on Sovereigns with long-lived recording data
+    # (operator should snapshot first then re-enable for the upgrade).
+    allowMigration: true
+    # Image used by the migration hook. SHA-pinned to bitnami/kubectl
+    # 1.30.4 (matches Sovereign k3s 1.30 client/server skew). Operator
+    # overrides for air-gapped Sovereigns by re-mirroring the image.
+    migrationImage: bitnami/kubectl:1.30.4
   # ── Keycloak OIDC ──────────────────────────────────────────────
   oidc:
     # Issuer URL — render in per-Sovereign overlay as

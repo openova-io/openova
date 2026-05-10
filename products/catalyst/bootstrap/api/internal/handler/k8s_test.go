@@ -320,3 +320,96 @@ func TestHandleK8sStream_EmitsEvent(t *testing.T) {
 // keep metav1 imported even if a future test refactor drops the
 // explicit reference.
 var _ = metav1.GetOptions{}
+
+// TestHandleK8sList_NamespaceAliasFiltering — qa-loop iter-11 Fix #45
+// Cluster-C. The handler accepts both `?ns=` (historic short form) and
+// `?namespace=` (the kubectl/SPA-canonical form). When neither is set,
+// every namespace's items are returned.
+func TestHandleK8sList_NamespaceAliasFiltering(t *testing.T) {
+	podA := newPod("qa-omantel", "qa-wp")
+	podB := newPod("alloy", "alloy-host")
+	f := newFactoryWithMultiplePods(t, podA, podB)
+	h := &Handler{log: quietLog()}
+	h.SetK8sCache(f, k8scache.NewSARCache(), "X-Forwarded-User")
+	r := newRouter(h)
+
+	type tc struct {
+		name      string
+		query     string
+		wantCount int
+		wantNS    string
+	}
+	cases := []tc{
+		{"namespace_param_filters_to_qa_omantel", "?namespace=qa-omantel", 1, "qa-omantel"},
+		{"ns_param_still_works", "?ns=qa-omantel", 1, "qa-omantel"},
+		{"ns_wins_when_both_set", "?ns=alloy&namespace=qa-omantel", 1, "alloy"},
+		{"no_filter_returns_all_namespaces", "", 2, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/api/v1/sovereigns/alpha/k8s/pod"+c.query, nil)
+			rec := httptest.NewRecorder()
+			r.ServeHTTP(rec, req)
+			if rec.Code != 200 {
+				t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+			}
+			var resp K8sListResponse
+			if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			if len(resp.Items) != c.wantCount {
+				gotNS := []string{}
+				for _, it := range resp.Items {
+					gotNS = append(gotNS, it.GetNamespace()+"/"+it.GetName())
+				}
+				t.Fatalf("query=%q items=%d want=%d got=%v", c.query, len(resp.Items), c.wantCount, gotNS)
+			}
+			if c.wantCount == 1 && resp.Items[0].GetNamespace() != c.wantNS {
+				t.Fatalf("query=%q expected namespace=%q got %q", c.query, c.wantNS, resp.Items[0].GetNamespace())
+			}
+		})
+	}
+}
+
+// newFactoryWithMultiplePods builds an in-memory K8s cache pre-populated
+// with N pods across N namespaces — exercises the namespace-filter path
+// (single-ns cache wouldn't surface the bug).
+func newFactoryWithMultiplePods(t *testing.T, pods ...*unstructured.Unstructured) *k8scache.Factory {
+	t.Helper()
+	scheme := runtime.NewScheme()
+	scheme.AddKnownTypeWithName(schema.GroupVersionKind{Version: "v1", Kind: "PodList"}, &unstructured.UnstructuredList{})
+	scheme.AddKnownTypeWithName(schema.GroupVersionKind{Version: "v1", Kind: "Pod"}, &unstructured.Unstructured{})
+	gvrList := map[schema.GroupVersionResource]string{
+		{Version: "v1", Resource: "pods"}: "PodList",
+	}
+	objs := make([]runtime.Object, 0, len(pods))
+	for _, p := range pods {
+		objs = append(objs, p)
+	}
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrList, objs...)
+	core := kfake.NewSimpleClientset()
+	cfg := k8scache.Config{
+		Logger:   quietLog(),
+		Registry: minimalRegistry(),
+		Clusters: []k8scache.ClusterRef{
+			{ID: "alpha", DynamicClient: dyn, CoreClient: core},
+		},
+	}
+	f, err := k8scache.NewFactory(cfg)
+	if err != nil {
+		t.Fatalf("NewFactory: %v", err)
+	}
+	if err := f.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(f.Stop)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		items, _, _ := f.List("alpha", "pod", nil)
+		if len(items) >= len(pods) {
+			return f
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return f
+}

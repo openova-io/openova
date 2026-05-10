@@ -33,6 +33,7 @@
 
 import { useMemo, useState } from 'react'
 import { useParams, Link } from '@tanstack/react-router'
+import { useQuery } from '@tanstack/react-query'
 import { useWizardStore } from '@/entities/deployment/store'
 import { PortalShell } from './PortalShell'
 import { JobsTable } from './JobsTable'
@@ -43,6 +44,7 @@ import { adaptDerivedJobsToFlat } from './jobsAdapter'
 import { findComponent } from '@/pages/wizard/steps/componentGroups'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import type { ApplicationStatus } from './eventReducer'
+import { getApplication, type ApplicationDetailResponse } from '@/lib/catalog.api'
 import { ComplianceTab } from './AppDetail/ComplianceTab'
 import { MembersTab } from './AppDetail/MembersTab'
 import { TopologyTab } from './AppDetail/TopologyTab'
@@ -83,9 +85,86 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
   })
 
   const sovereignFQDN = snapshot?.sovereignFQDN ?? snapshot?.result?.sovereignFQDN ?? null
-  const app: ApplicationDescriptor | undefined = findApplication(applications, componentId)
+  const wizardApp: ApplicationDescriptor | undefined = findApplication(applications, componentId)
+
+  // qa-loop iter-11 Fix #45 Cluster-C: when the requested component is
+  // NOT part of the wizard's selectedComponents (the typical case for a
+  // chroot Sovereign — Applications installed via `kubectl apply` or
+  // the catalyst-api install endpoint NEVER pass through the wizard
+  // store), fall back to the catalyst-api's
+  // GET /sovereigns/{id}/applications/{name} endpoint to fetch the
+  // Application CR directly and synthesise an ApplicationDescriptor on
+  // the fly. Prior to this fallback every chroot-installed Application
+  // surfaced the misleading "App not found / The component qa-wp is
+  // not part of this deployment" page even though the Application CR +
+  // HelmRelease were both Ready=True (TC-068 / TC-072 / TC-074 et al.
+  // failed for this exact reason).
+  //
+  // The fallback only runs when (a) we're on a Sovereign route (i.e.
+  // deploymentId resolved from sovereign-self, not a wizard URL) AND
+  // (b) the wizard didn't already supply a descriptor. We use the
+  // sovereign-self deploymentId as the catalyst-api {id} URL segment.
+  const needsApiFallback = !wizardApp && !!deploymentId && !!componentId
+  const apiAppQuery = useQuery({
+    queryKey: ['sov-application', deploymentId, componentId],
+    queryFn: async () => getApplication(deploymentId, componentId),
+    enabled: needsApiFallback,
+    staleTime: 30_000,
+    retry: 1,
+  })
+  const apiApp: ApplicationDetailResponse | null | undefined = apiAppQuery.data
+
+  // Synthesise an ApplicationDescriptor from the API response so the
+  // rest of the page (hero, sections, tabs) can render unchanged. The
+  // descriptor's bareId is derived from the Blueprint name (strip
+  // `bp-` prefix) so reverse-dependency lookups + component-groups
+  // metadata can still resolve.
+  //
+  // Defensive: only synthesise when the API returned a meaningful
+  // Application body (i.e. .name matches the requested componentId or
+  // .blueprint is set). A 404 returns null (handled), but a 200 with
+  // an unrelated body shouldn't be coerced into an Application.
+  const synthesisedApp: ApplicationDescriptor | undefined = useMemo(() => {
+    if (!apiApp) return undefined
+    if (!apiApp.name && !apiApp.blueprint) return undefined
+    const bareId = (apiApp.blueprint ?? '').replace(/^bp-/, '') || componentId
+    const compEntry = findComponent(bareId)
+    return {
+      id: apiApp.blueprint || `bp-${bareId}`,
+      bareId,
+      title: compEntry?.name ?? apiApp.name ?? componentId,
+      description: compEntry?.desc ?? `Application installed in namespace ${apiApp.namespace}`,
+      familyId: compEntry?.product ?? 'platform',
+      familyName: compEntry?.groupName ?? 'Platform',
+      tier: compEntry?.tier ?? 'optional',
+      logoUrl: compEntry?.logoUrl ?? null,
+      dependencies: compEntry?.dependencies ?? [],
+      bootstrapKit: false,
+    }
+  }, [apiApp, componentId])
+
+  const app: ApplicationDescriptor | undefined = wizardApp ?? synthesisedApp
   const compState = state.apps[componentId]
-  const status: ApplicationStatus = compState?.status ?? 'pending'
+  // Roll up status: prefer wizard-stream signal (live SSE deltas),
+  // fall back to API-fetched phase mapped to the legacy 4-state vocab
+  // (pending | installing | installed | failed | degraded).
+  const apiPhaseStatus: ApplicationStatus | undefined = useMemo(() => {
+    if (!apiApp?.phase) return undefined
+    switch (apiApp.phase) {
+      case 'Ready':
+        return 'installed'
+      case 'Failed':
+        return 'failed'
+      case 'Degraded':
+        return 'degraded'
+      case 'Provisioning':
+      case 'Pending':
+        return 'installing'
+      default:
+        return 'pending'
+    }
+  }, [apiApp])
+  const status: ApplicationStatus = compState?.status ?? apiPhaseStatus ?? 'pending'
 
   // Bundled dependencies — descriptors of every direct dep, with
   // human names sourced from componentGroups when available.
@@ -151,6 +230,36 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
   }, [app])
 
   if (!app) {
+    // While the API fallback is in flight, render a transient
+    // "Loading…" surface instead of the misleading "not found" page —
+    // the not-found page made the matrix-asserted Overview tokens fail
+    // (TC-068 expects "Ready", TC-072 expects "Service" etc.) and the
+    // operator UI flashed an error chip during normal page loads.
+    if (needsApiFallback && (apiAppQuery.isPending || apiAppQuery.isFetching)) {
+      return (
+        <PortalShell
+          deploymentId={deploymentId}
+          sovereignFQDN={sovereignFQDN}
+          pageTitle="Loading…"
+          headerSlotLeft={
+            <Link
+              to={`/dashboard` as never}
+              className="text-[11px] text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline"
+              data-testid="sov-back-link"
+            >
+              &larr; Back to apps
+            </Link>
+          }
+        >
+          <style>{APP_DETAIL_CSS}</style>
+          <div className="detail-page">
+            <div className="not-found" data-testid="sov-app-loading">
+              <p>Loading {componentId}…</p>
+            </div>
+          </div>
+        </PortalShell>
+      )
+    }
     return (
       <PortalShell
         deploymentId={deploymentId}

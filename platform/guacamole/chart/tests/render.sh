@@ -84,7 +84,12 @@ fi
 echo "PASS: empty image.tag fails fast"
 
 # ─────────────────────────────────────────────────────────────────────
-# 3. Full-ON: the canonical 9-resource bundle.
+# 3. Full-ON: the canonical 15-resource bundle.
+#
+# qa-loop iter-11 Fix #45 Cluster-A added the recordings storageClass-
+# migration pre-upgrade hook (1 Job + 1 ServiceAccount + 1 Role +
+# 1 RoleBinding + 1 ClusterRole + 1 ClusterRoleBinding = +6 resources
+# vs. the prior 9-doc bundle).
 # ─────────────────────────────────────────────────────────────────────
 render_on="$TMP/on.yaml"
 helm template bp-guacamole . \
@@ -95,11 +100,11 @@ helm template bp-guacamole . \
   --set guacamole.oidc.issuer=https://kc.test/realms/catalyst \
   > "$render_on"
 
-# Check each canonical kind appears exactly once. We assert 9 distinct
-# `name:` headers under `^kind:` lines that start with one of the
-# expected kinds. `Deployment` appears twice (guacd + webapp) — Service
-# also appears twice — total = 9.
-expect_total=9
+# Check each canonical kind appears the expected number of times. The
+# 15-doc target: Deployment×2 (guacd + webapp), Service×2, HTTPRoute,
+# PVC, SealedSecret, NetworkPolicy, ConfigMap, Job, ServiceAccount,
+# Role, RoleBinding, ClusterRole, ClusterRoleBinding.
+expect_total=15
 got_total="$(grep -cE '^kind:' "$render_on")"
 if [[ "$got_total" != "$expect_total" ]]; then
   echo "FAIL: full-ON rendered $got_total resources, want $expect_total"
@@ -117,6 +122,12 @@ required_kinds=(
   SealedSecret
   NetworkPolicy
   ConfigMap
+  Job
+  ServiceAccount
+  Role
+  RoleBinding
+  ClusterRole
+  ClusterRoleBinding
 )
 for k in "${required_kinds[@]}"; do
   if ! grep -qE "^kind: ${k}$" "$render_on"; then
@@ -184,6 +195,39 @@ if ! awk '
   exit 1
 fi
 echo "PASS: realm-patch ConfigMap lands in keycloak namespace"
+
+# qa-loop iter-11 Fix #45 Cluster-A — recordings storageClass-migration
+# pre-upgrade hook is wired to the correct hook lifecycle (pre-install
+# AND pre-upgrade so a chart-overlay storageClass change at any point
+# in the Sovereign's lifetime is recoverable) and references the
+# desired storageClass via env var (so the in-Pod script can compare
+# against the live PVC's existing storageClass).
+if ! grep -q '"helm.sh/hook": pre-install,pre-upgrade' "$render_on"; then
+  echo "FAIL: recordings migration hook missing pre-install,pre-upgrade lifecycle"
+  exit 1
+fi
+if ! grep -q 'name: DESIRED_STORAGECLASS' "$render_on"; then
+  echo "FAIL: migration hook missing DESIRED_STORAGECLASS env"
+  exit 1
+fi
+echo "PASS: recordings storageClass-migration hook wired correctly"
+
+# Toggle: when allowMigration=false, the hook must NOT render (operator
+# escape hatch for Sovereigns with live recording state).
+no_mig="$TMP/no-migration.yaml"
+helm template bp-guacamole . \
+  --set guacamole.enabled=true \
+  --set guacamole.guacd.image.tag=1.5.5-r1 \
+  --set guacamole.webapp.image.tag=1.5.5-r1 \
+  --set guacamole.httproute.hostname=guacamole.test \
+  --set guacamole.oidc.issuer=https://kc.test/realms/catalyst \
+  --set guacamole.recordings.allowMigration=false \
+  > "$no_mig"
+if grep -q 'storageclass-migrate' "$no_mig"; then
+  echo "FAIL: allowMigration=false still rendered the migration Job"
+  exit 1
+fi
+echo "PASS: allowMigration=false suppresses the migration hook"
 
 echo ""
 echo "All render tests passed."

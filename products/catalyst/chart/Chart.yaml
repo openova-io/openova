@@ -1,5 +1,39 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.117 (qa-loop iter-11 Fix #45 Cluster-B + Cluster-C —
+# application-controller HR observation + catalyst-api SPA endpoints).
+#
+# Cluster-B (application-controller observes downstream HelmRelease):
+#   - Reconciler now polls per-region HelmRelease.status.conditions[Ready]
+#     after every reconcile pass and rolls up the Application's
+#     status.phase: any region Ready=True → phase=Ready, any
+#     Ready=False → phase=Degraded, no HR yet → phase=Provisioning.
+#   - Periodic 30s re-list ticker (Run goroutine) ensures HR readiness
+#     flips reach Application.status.phase even though the Application
+#     Watch doesn't fire on sibling HR changes.
+#   - Application-controller ClusterRole gains
+#     helm.toolkit.fluxcd.io/helmreleases get/list/watch.
+#   - status.lastReconciledAt populated on every pass for TC-113.
+#   - Without this fix Application sat at Provisioning indefinitely
+#     even after `kubectl get hr -n qa-omantel qa-wp` was Ready=True
+#     for hours; matrix TC-066 / TC-100 / TC-104 / TC-113 stayed FAIL.
+#
+# Cluster-C (catalyst-api SPA endpoints + namespace alias):
+#   - GET /sovereigns/{id}/applications/{name} returns full Application
+#     detail (identity + spec + status) so the SPA AppDetail page can
+#     synthesise an ApplicationDescriptor for chroot-installed
+#     Applications that aren't part of the wizard's selectedComponents.
+#     Unblocks TC-068 / TC-072 / TC-074 et al ("App not found" misfire).
+#   - GET /sovereigns/{id}/k8s/{kind} accepts both ?ns= and ?namespace=
+#     query params (was: only ?ns=, silently ignored ?namespace=). The
+#     SPA + kubectl-canonical clients all emit ?namespace=; without the
+#     alias TC-262 / TC-263 returned every namespace's services.
+#   - SPA AppDetail.tsx falls back to GET /applications/{name} when the
+#     wizard store has no descriptor for the requested componentId
+#     (the typical chroot Sovereign case).
+#
+# Image bumps follow this chart bump in the same PR.
+#
 # 1.4.116 (qa-loop iter-10 Fix #44 follow-up — chart re-publish).
 # Chart 1.4.115 was published from the merge commit which still had
 # the OLD application-controller image tag (a3ba200) baked into
@@ -471,7 +505,7 @@ name: bp-catalyst-platform
 #     so the matrix's `kubectl get cnpgpair` stdout contains the literal
 #     "cnpgpair" substring TC-306 asserts on (envsubst override beat the
 #     chart values default fixed in PR #1247).
-version: 1.4.116
+version: 1.4.117
 appVersion: 1.4.94
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.

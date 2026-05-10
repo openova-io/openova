@@ -177,6 +177,35 @@ export interface ApplicationStatusResponse {
   status?: Record<string, unknown>
 }
 
+/**
+ * ApplicationDetailResponse — body of GET
+ * /sovereigns/{id}/applications/{name}. Lifts the same fields the
+ * Sovereign Console's AppDetail page reads in one round-trip:
+ * identity + spec + roll-up status. Stable shape so the matrix-asserted
+ * contract (TC-068, TC-095, TC-106) and the SPA's
+ * findApplicationByName fallback consume the same JSON without
+ * per-caller post-processing.
+ *
+ * qa-loop iter-11 Fix #45 Cluster-C.
+ */
+export interface ApplicationDetailResponse {
+  name: string
+  namespace: string
+  blueprint?: string
+  version?: string
+  environmentRef?: string
+  placement?: string
+  regions?: string[]
+  parameters?: Record<string, unknown>
+  phase?: string
+  primaryRegion?: string
+  giteaRepo?: string
+  lastReconciledAt?: string
+  conditions: Array<Record<string, unknown>>
+  regionStatuses?: Array<Record<string, unknown>>
+  installedBlueprint?: Record<string, unknown>
+}
+
 /** PreviewManifest — one rendered file in the preview output. */
 export interface PreviewManifest {
   path: string
@@ -226,6 +255,28 @@ export async function previewApplication(
   if (!res.ok) {
     const detail = await res.text().catch(() => '')
     throw new Error(`preview: HTTP ${res.status} ${detail}`)
+  }
+  return res.json()
+}
+
+/**
+ * getApplication — fetch full Application detail by name.
+ * Returns null on 404 (not-an-error in the SPA-fallback context).
+ * qa-loop iter-11 Fix #45 Cluster-C.
+ */
+export async function getApplication(
+  sovereignId: string,
+  name: string,
+  namespace?: string,
+): Promise<ApplicationDetailResponse | null> {
+  const params = new URLSearchParams()
+  if (namespace) params.set('namespace', namespace)
+  const qs = params.toString()
+  const url = `${applicationsBase(sovereignId)}/${encodeURIComponent(name)}${qs ? '?' + qs : ''}`
+  const res = await authedFetch(url, { headers: { Accept: 'application/json' } })
+  if (res.status === 404) return null
+  if (!res.ok) {
+    throw new Error(`getApplication: HTTP ${res.status}`)
   }
   return res.json()
 }

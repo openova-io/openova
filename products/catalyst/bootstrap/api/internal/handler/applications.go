@@ -797,6 +797,138 @@ func isValidK8sName(s string) bool {
 	return true
 }
 
+// ── HTTP handler — get (GET /sovereigns/{id}/applications/{name}) ───
+
+// applicationDetailResponse — body of GET
+// /sovereigns/{id}/applications/{name}. Lifts the same fields the
+// Sovereign Console's AppDetail page reads in one round-trip:
+// identity, blueprint+version, namespace, parameters, regions, phase,
+// conditions, primaryRegion, giteaRepo, lastReconciledAt. Stable shape
+// so the matrix-asserted contract (TC-068, TC-095, TC-106 et al) and
+// the SPA's `findApplicationByName` fallback both consume the same
+// JSON without per-caller post-processing.
+//
+// qa-loop iter-11 Fix #45 Cluster-C: prior to this handler the SPA
+// fell into "App not found" for any Application CR that wasn't part of
+// the wizard's `selectedComponents` (i.e. every Application installed
+// outside the bootstrap-kit + wizard flow — which on chroot Sovereigns
+// is the typical case). The catalyst-api had a /status sub-route but
+// nothing returning the Application's full spec + identity, so the SPA
+// couldn't synthesise an ApplicationDescriptor on the fly.
+type applicationDetailResponse struct {
+	Name             string                   `json:"name"`
+	Namespace        string                   `json:"namespace"`
+	Blueprint        string                   `json:"blueprint,omitempty"`
+	Version          string                   `json:"version,omitempty"`
+	EnvironmentRef   string                   `json:"environmentRef,omitempty"`
+	Placement        string                   `json:"placement,omitempty"`
+	Regions          []string                 `json:"regions,omitempty"`
+	Parameters       map[string]interface{}   `json:"parameters,omitempty"`
+	Phase            string                   `json:"phase,omitempty"`
+	PrimaryRegion    string                   `json:"primaryRegion,omitempty"`
+	GiteaRepo        string                   `json:"giteaRepo,omitempty"`
+	LastReconciled   string                   `json:"lastReconciledAt,omitempty"`
+	Conditions       []map[string]interface{} `json:"conditions"`
+	RegionStatuses   []map[string]interface{} `json:"regionStatuses,omitempty"`
+	InstalledBlueprint map[string]interface{} `json:"installedBlueprint,omitempty"`
+}
+
+// HandleApplicationGet — GET /api/v1/sovereigns/{id}/applications/{name}
+//
+// Returns the full Application detail (identity, spec, status). Like
+// HandleApplicationStatus, the optional `?namespace=<org>` query selects
+// the Org namespace; when absent the handler returns the first
+// Application CR named `name` across every namespace on the Sovereign.
+//
+// qa-loop iter-11 Fix #45 Cluster-C.
+func (h *Handler) HandleApplicationGet(w http.ResponseWriter, r *http.Request) {
+	depID := chi.URLParam(r, "id")
+	name := chi.URLParam(r, "name")
+	if name == "" {
+		writeBadRequest(w, "missing-name", "application name is required")
+		return
+	}
+	dep, ok := h.lookupDeploymentForInfra(depID)
+	if !ok {
+		writeNotFound(w, depID)
+		return
+	}
+	client, err := h.sovereignDynamicClient(dep)
+	if err != nil {
+		writeUserAccessUnavailable(w, err)
+		return
+	}
+	ns := strings.TrimSpace(r.URL.Query().Get("namespace"))
+	obj, getErr := getApplicationCR(r.Context(), client, name, ns)
+	if getErr != nil {
+		if apierrors.IsNotFound(getErr) {
+			writeJSON(w, http.StatusNotFound, map[string]string{
+				"error":  "application-not-found",
+				"detail": fmt.Sprintf("Application %q not found", name),
+			})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error":  "application-get-failed",
+			"detail": getErr.Error(),
+		})
+		return
+	}
+	resp := applicationDetailResponse{
+		Name:       obj.GetName(),
+		Namespace:  obj.GetNamespace(),
+		Conditions: []map[string]interface{}{},
+	}
+	if v, ok, _ := unstructured.NestedString(obj.Object, "spec", "blueprintRef", "name"); ok {
+		resp.Blueprint = v
+	}
+	if v, ok, _ := unstructured.NestedString(obj.Object, "spec", "blueprintRef", "version"); ok {
+		resp.Version = v
+	}
+	if v, ok, _ := unstructured.NestedString(obj.Object, "spec", "environmentRef"); ok {
+		resp.EnvironmentRef = v
+	}
+	if v, ok, _ := unstructured.NestedString(obj.Object, "spec", "placement"); ok {
+		resp.Placement = v
+	}
+	if regs, ok, _ := unstructured.NestedStringSlice(obj.Object, "spec", "regions"); ok {
+		resp.Regions = regs
+	}
+	if params, ok, _ := unstructured.NestedMap(obj.Object, "spec", "parameters"); ok {
+		resp.Parameters = params
+	}
+	if phase, ok, _ := unstructured.NestedString(obj.Object, "status", "phase"); ok {
+		resp.Phase = phase
+	}
+	if pr, ok, _ := unstructured.NestedString(obj.Object, "status", "primaryRegion"); ok {
+		resp.PrimaryRegion = pr
+	}
+	if gr, ok, _ := unstructured.NestedString(obj.Object, "status", "giteaRepo"); ok {
+		resp.GiteaRepo = gr
+	}
+	if lr, ok, _ := unstructured.NestedString(obj.Object, "status", "lastReconciledAt"); ok {
+		resp.LastReconciled = lr
+	}
+	if conds, ok, _ := unstructured.NestedSlice(obj.Object, "status", "conditions"); ok {
+		for _, c := range conds {
+			if cm, isMap := c.(map[string]interface{}); isMap {
+				resp.Conditions = append(resp.Conditions, cm)
+			}
+		}
+	}
+	if rgs, ok, _ := unstructured.NestedSlice(obj.Object, "status", "regions"); ok {
+		for _, rg := range rgs {
+			if rm, isMap := rg.(map[string]interface{}); isMap {
+				resp.RegionStatuses = append(resp.RegionStatuses, rm)
+			}
+		}
+	}
+	if ib, ok, _ := unstructured.NestedMap(obj.Object, "status", "installedBlueprint"); ok {
+		resp.InstalledBlueprint = ib
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
 // ── HTTP handler — list (GET /sovereigns/{id}/applications) ──────────
 
 // applicationListItem — one row of GET /sovereigns/{id}/applications.

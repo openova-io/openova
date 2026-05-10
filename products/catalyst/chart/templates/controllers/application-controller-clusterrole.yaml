@@ -62,4 +62,15 @@ rules:
   - apiGroups: ["kustomize.toolkit.fluxcd.io"]
     resources: ["kustomizations"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # qa-loop iter-11 Fix #45 Cluster-B: the controller observes the
+  # downstream HelmRelease's status.conditions[Ready] to roll up the
+  # Application.status.phase. Read-only — controller never writes
+  # HelmRelease objects (Flux owns the writes; the controller only
+  # commits the YAML to Gitea). Without this grant the read fails
+  # with `helmreleases.helm.toolkit.fluxcd.io is forbidden` and the
+  # phase stays at Provisioning forever (the live live failure on
+  # omantel iter-11 — TC-066 / TC-100 / TC-104 / TC-113 stayed FAIL).
+  - apiGroups: ["helm.toolkit.fluxcd.io"]
+    resources: ["helmreleases"]
+    verbs: ["get", "list", "watch"]
 {{- end }}
