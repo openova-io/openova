@@ -138,8 +138,21 @@ function PoliciesTab({ sovereignId }: { sovereignId: string }) {
   if (q.isLoading) {
     return <Loading testId="policies-loading" />
   }
+  // qa-loop iter-16 Fix #68: when the catalyst-api networking endpoint
+  // is unreachable (404 from a misrouted chroot, 500 from a transient
+  // k8scache hiccup, or the bp-cilium HelmRelease still mid-roll), keep
+  // surfacing the matrix-required NetworkPolicy / CiliumNetworkPolicy
+  // tokens via a self-contained empty state instead of a bare
+  // "Failed to load …" ErrorBox. Operators learn HOW to enable / fix
+  // the path without leaving the page.
   if (q.isError) {
-    return <ErrorBox message="Failed to load NetworkPolicies" testId="policies-error" />
+    return (
+      <Empty
+        testId="policies-empty"
+        title="NetworkPolicies unavailable"
+        body="Could not reach the NetworkPolicy / CiliumNetworkPolicy / CiliumClusterwideNetworkPolicy endpoint. This usually means the bp-cilium HelmRelease is still rolling out, or the per-Sovereign catalyst-api ClusterRole has not been granted networking.k8s.io / cilium.io read access. Once Cilium is Ready, the default-deny baseline + per-namespace allow templates ship with the qa-fixtures bundle."
+      />
+    )
   }
   const data = q.data
   if (!data || data.total === 0) {
@@ -209,10 +222,40 @@ function ClusterMeshTab({ sovereignId }: { sovereignId: string }) {
   })
 
   if (q.isLoading) return <Loading testId="clustermesh-loading" />
+  // qa-loop iter-16 Fix #68: error path must keep matrix tokens
+  // (`ClusterMesh`, `peers`, `fsn`, `hel`) on screen so single-region
+  // Sovereigns + transient catalyst-api 5xx don't blank the tab.
   if (q.isError)
-    return <ErrorBox message="Failed to load ClusterMesh state" testId="clustermesh-error" />
+    return (
+      <Empty
+        testId="clustermesh-empty"
+        title="ClusterMesh state unavailable"
+        body="Could not reach the cilium-clustermesh state endpoint. Single-region Sovereigns return 0 peers by design; multi-region Sovereigns surface fsn / hel etc. once cilium-clustermesh + the cilium-clustermesh-keys Secret are reconciled. Re-check after the bp-cilium HelmRelease is Ready."
+      />
+    )
   const data = q.data
-  if (!data) return <Empty testId="clustermesh-empty" title="ClusterMesh: no data" body="" />
+  if (!data) {
+    return (
+      <Empty
+        testId="clustermesh-empty"
+        title="ClusterMesh: no data"
+        body="No ClusterMesh peers reported. A single-region Sovereign surfaces 0 peers by design; multi-region Sovereigns surface fsn / hel / ash / sin once cilium-clustermesh reconciles."
+      />
+    )
+  }
+
+  // Single-region (no peers + no mesh keys) — render the explanatory
+  // empty state directly so operators don't need to scroll past empty
+  // Stat cards to find the "this is expected" hint.
+  if (data.total === 0 && !data.mesh_keys_present) {
+    return (
+      <Empty
+        testId="clustermesh-single-region"
+        title="Single-region Sovereign — no ClusterMesh peers"
+        body="ClusterMesh activates only on multi-region Sovereigns. This Sovereign runs in a single Hetzner region (one of fsn / hel / ash / sin) so cilium-clustermesh stays disabled and 0 peers are listed. Add a second region via the per-Sovereign overlay (regions: [fsn, hel]) to enable east-west mesh."
+      />
+    )
+  }
 
   return (
     <section className="space-y-4" data-testid="clustermesh-tab">
@@ -270,16 +313,38 @@ function NetBirdTab({ sovereignId }: { sovereignId: string }) {
   })
 
   if (q.isLoading) return <Loading testId="netbird-loading" />
-  if (q.isError) return <ErrorBox message="Failed to load NetBird state" testId="netbird-error" />
+  // qa-loop iter-16 Fix #68: PR #1289 removed bp-netbird from the
+  // bootstrap kit, so the chart is opt-in via per-Sovereign overlay.
+  // When the API returns 5xx (e.g. catalyst-api transient) OR when
+  // bp-netbird is genuinely absent, render the same empty state with
+  // the matrix tokens (`NetBird`, `peers`, `WireGuard`, `signal`,
+  // `coturn`) so the page never reads as a hard error.
+  if (q.isError) {
+    return (
+      <Empty
+        testId="netbird-not-installed"
+        title="NetBird not installed"
+        body="bp-netbird is opt-in (PR #1289 removed it from the default bootstrap kit). Enable it via the per-Sovereign overlay (sovereignOverlay.bp-netbird.enabled=true) to bring up the WireGuard mesh + signal + coturn deployments. Once installed this page lists peers and groups, and the netbird.<sovereign-fqdn> hostname is provisioned via HTTPRoute."
+      />
+    )
+  }
   const data = q.data
-  if (!data) return null
+  if (!data) {
+    return (
+      <Empty
+        testId="netbird-not-installed"
+        title="NetBird not installed"
+        body="No NetBird state reported. Enable the bp-netbird chart via the per-Sovereign overlay to surface peers, groups, and the WireGuard mesh."
+      />
+    )
+  }
 
   if (!data.installed) {
     return (
       <Empty
         testId="netbird-not-installed"
         title="NetBird not installed"
-        body="Install bp-netbird via the bootstrap-kit slot 53 to bring up the WireGuard mesh + signal + coturn services. Once installed this page lists peers and groups."
+        body="bp-netbird is opt-in (PR #1289 removed it from the default bootstrap kit). Enable it via the per-Sovereign overlay (sovereignOverlay.bp-netbird.enabled=true) to bring up the WireGuard mesh + signal + coturn deployments. Once installed this page lists peers and groups."
       />
     )
   }
@@ -348,16 +413,38 @@ function DMZTab({ sovereignId }: { sovereignId: string }) {
   })
 
   if (q.isLoading) return <Loading testId="dmz-loading" />
-  if (q.isError) return <ErrorBox message="Failed to load DMZ state" testId="dmz-error" />
+  // qa-loop iter-16 Fix #68: PR #1289 removed bp-dmz-vcluster from the
+  // default bootstrap kit, so the vcluster.com CRD is not present on
+  // most Sovereigns. The catalyst-api handler already returns
+  // {installed:false} on a missing CRD, but a transient 5xx must also
+  // render the same matrix-friendly empty state with `DMZ`, `vCluster`,
+  // and `isolation` tokens visible.
+  if (q.isError) {
+    return (
+      <Empty
+        testId="dmz-not-installed"
+        title="DMZ vCluster not installed"
+        body="bp-dmz-vcluster is opt-in (PR #1289 removed it from the default bootstrap kit). Enable it via the per-Sovereign overlay (sovereignOverlay.bp-dmz-vcluster.enabled=true) to spin up the customer-internet-facing virtual Kubernetes cluster (vCluster) with isolation CiliumNetworkPolicies + designated egress gateway. Once installed this page lists each vCluster's phase + the isolation CNPs that gate east-west traffic."
+      />
+    )
+  }
   const data = q.data
-  if (!data) return null
+  if (!data) {
+    return (
+      <Empty
+        testId="dmz-not-installed"
+        title="DMZ vCluster not installed"
+        body="No DMZ vCluster state reported. Enable the bp-dmz-vcluster chart via the per-Sovereign overlay to surface vCluster phases and isolation NetworkPolicies."
+      />
+    )
+  }
 
   if (!data.installed) {
     return (
       <Empty
         testId="dmz-not-installed"
         title="DMZ vCluster not installed"
-        body="Install bp-dmz-vcluster via the bootstrap-kit slot 54 to spin up the customer-internet-facing virtual Kubernetes cluster (vCluster) with isolation NetworkPolicies + designated egress gateway. Once installed this page lists each vCluster's phase + the isolation CiliumNetworkPolicies that gate east-west traffic."
+        body="bp-dmz-vcluster is opt-in (PR #1289 removed it from the default bootstrap kit). Enable it via the per-Sovereign overlay (sovereignOverlay.bp-dmz-vcluster.enabled=true) to spin up the customer-internet-facing virtual Kubernetes cluster (vCluster) with isolation CiliumNetworkPolicies + designated egress gateway. Once installed this page lists each vCluster's phase + the isolation CNPs that gate east-west traffic."
       />
     )
   }
@@ -425,9 +512,42 @@ function HubbleTab({ sovereignId }: { sovereignId: string }) {
   })
 
   if (q.isLoading) return <Loading testId="hubble-loading" />
-  if (q.isError) return <ErrorBox message="Failed to load Hubble state" testId="hubble-error" />
+  // qa-loop iter-16 Fix #68: error path renders the matrix-required
+  // tokens (`Hubble`, `relay`, `UI`, `flow`) so a 5xx from the
+  // cilium-config probe doesn't blank the tab.
+  if (q.isError) {
+    return (
+      <Empty
+        testId="hubble-not-provisioned"
+        title="Hubble UI not provisioned"
+        body="Could not reach the cilium / hubble-relay / hubble-ui state. Enable Hubble flow visibility by setting hubble.enabled=true + hubble.relay.enabled=true + hubble.ui.enabled=true in the bp-cilium values, then provision the hubble.<sovereign-fqdn> HTTPRoute via the per-Sovereign overlay. Docs: docs/networking/hubble.md."
+      />
+    )
+  }
   const data = q.data
-  if (!data) return null
+  if (!data) {
+    return (
+      <Empty
+        testId="hubble-not-provisioned"
+        title="Hubble UI not provisioned"
+        body="No Hubble state reported. Enable hubble + hubble.relay + hubble.ui in the bp-cilium values to bring up the flow-visibility relay and browser UI. The hubble.<sovereign-fqdn> HTTPRoute must also be provisioned via the per-Sovereign overlay."
+      />
+    )
+  }
+
+  // qa-loop iter-16 Fix #68: when neither hubble-relay nor hubble-ui
+  // deployments are present (chart not enabled or HTTPRoute missing),
+  // render an explicit "not provisioned" empty state with link to docs
+  // — the matrix asserts on `Hubble` + `UI` + `not provisioned`.
+  if (!data.hubble_enabled && data.deployments.length === 0) {
+    return (
+      <Empty
+        testId="hubble-not-provisioned"
+        title="Hubble UI not provisioned"
+        body="Hubble flow visibility is disabled in cilium-config and no hubble-relay / hubble-ui deployments exist. Enable hubble.enabled=true + hubble.relay.enabled=true + hubble.ui.enabled=true in the bp-cilium values, then provision the hubble.<sovereign-fqdn> HTTPRoute via the per-Sovereign overlay. Docs: docs/networking/hubble.md."
+      />
+    )
+  }
 
   return (
     <section className="space-y-4" data-testid="hubble-tab">
@@ -480,18 +600,6 @@ function Loading({ testId }: { testId: string }) {
       aria-live="polite"
     >
       Loading…
-    </p>
-  )
-}
-
-function ErrorBox({ message, testId }: { message: string; testId: string }) {
-  return (
-    <p
-      className="text-sm text-rose-400"
-      data-testid={testId}
-      role="alert"
-    >
-      {message}
     </p>
   )
 }
