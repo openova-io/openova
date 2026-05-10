@@ -523,12 +523,22 @@ spec:
             # optional=true: Catalyst-Zero (contabo) doesn't run a local
             # Gitea — these endpoints return 503 there, which is the
             # intended behaviour (only Sovereigns curate blueprints).
+            # CATALYST_GITEA_URL: in-cluster Gitea service FQDN. Identical
+            # across every Sovereign (the bp-gitea chart always lands in
+            # `gitea` ns with the same Service name). Hardcoded literal
+            # rather than .Values lookup because this file is consumed by
+            # BOTH Helm AND Kustomize (see SOVEREIGN_FQDN comment ~line 550)
+            # — Helm template directives break the Kustomize parse.
+            # Catalyst-Zero (contabo) doesn't run a local Gitea; the
+            # endpoint is unreachable there which the blueprints handler
+            # treats as "Gitea unconfigured" (returns 503 on blueprint
+            # CRUD endpoints — intended behaviour, only Sovereigns curate).
             - name: CATALYST_GITEA_URL
-              value: {{ dig "api" "giteaURL" "http://gitea-http.gitea.svc.cluster.local:3000" .Values | quote }}
+              value: "http://gitea-http.gitea.svc.cluster.local:3000"
             - name: CATALYST_GITEA_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: {{ dig "api" "giteaSecretRef" "catalyst-gitea-token" .Values | quote }}
+                  name: catalyst-gitea-token
                   key: token
                   optional: true
             # KEYCLOAK_BOOTSTRAP_TIER_ROLES — EPIC-3 slice T2 (#1098/#1146).
