@@ -28,6 +28,14 @@ RUN go mod download
 # Stage 2: copy source + build.
 WORKDIR /workspace
 COPY core/controllers/internal /workspace/core/controllers/internal
+# Slice CC2 (#1095) consolidated the gitea HTTP client + render +
+# validate helpers under core/controllers/pkg. The org-controller
+# imports github.com/openova-io/openova/core/controllers/pkg/gitea —
+# without this COPY the `go build` step fails with `no required module
+# provides package github.com/openova-io/openova/core/controllers/pkg/gitea`.
+# qa-loop iter-8 Fix #42 follow-up: latent bug in the bot-generated
+# Containerfile (PR #1252's first build surfaced it).
+COPY core/controllers/pkg /workspace/core/controllers/pkg
 COPY core/controllers/organization /workspace/core/controllers/organization
 
 WORKDIR /workspace/core/controllers/organization
