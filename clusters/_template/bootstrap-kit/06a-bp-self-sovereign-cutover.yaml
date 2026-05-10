@@ -204,7 +204,23 @@ spec:
       #   commits, and pushes. Subsequent reconciles see local Harbor
       #   as steady-state. Image bumped to alpine/k8s:1.31.4 (kubectl
       #   + git in one image; verified live on otech116).
-      version: 0.1.23
+      # 0.1.24: Step-06 phase-0 ghcr-pull harbor.<sov-fqdn> auth merge
+      #   (#1184, bounded-cycle backfill). Once 0.1.20's phase-1 pivots
+      #   HelmRepository URLs to oci://harbor.<sov-fqdn>/openova-io,
+      #   source-controller hits a 401 on every pull because the
+      #   ghcr-pull Secret only carries auth for ghcr.io and
+      #   harbor.openova.io (cloud-init writes those two; harbor.<sov
+      #   -fqdn> is a per-Sovereign coordinate that doesn't exist at
+      #   bake time). Manually fixed on omantel 2026-05-10 (session
+      #   5c468708) — bp-guacamole / bp-netbird / bp-dmz-vcluster all
+      #   stuck Reconciling until `kubectl patch secret ghcr-pull` was
+      #   run by hand. 0.1.24 codifies that patch as Phase-0 of Step-06
+      #   so the next fresh `tofu apply` comes up GREEN with zero
+      #   manual intervention. Idempotent (no-op when entry already
+      #   matches), reads HARBOR_PASSWORD from the harbor-admin Secret
+      #   already mirrored into `catalyst` ns by bp-harbor 1.2.14+.
+      #   Adds `secrets: [update,patch]` to the runner ClusterRole.
+      version: 0.1.24
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
