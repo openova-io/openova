@@ -171,7 +171,10 @@ type fakeClassifier struct{}
 func (fakeClassifier) IsNotFound(err error) bool    { return err == errFileMissing }
 func (fakeClassifier) IsOrgNotFound(err error) bool { return err == errOrgNotFound }
 
-// newScheme registers the four GVKs the fake dynamic client needs.
+// newScheme registers the GVKs the fake dynamic client needs.
+//
+// qa-loop iter-8 Fix #42 bug 3 added Flux GitRepository + Kustomization
+// (the host-side bootstrap upsert path).
 func newScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
 	_ = corev1.AddToScheme(s)
@@ -181,6 +184,8 @@ func newScheme() *runtime.Scheme {
 		{Group: "catalyst.openova.io", Version: "v1", Kind: "Blueprint"},
 		{Group: "catalyst.openova.io", Version: "v1alpha1", Kind: "Blueprint"},
 		{Group: "orgs.openova.io", Version: "v1", Kind: "Organization"},
+		{Group: "source.toolkit.fluxcd.io", Version: "v1", Kind: "GitRepository"},
+		{Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Kind: "Kustomization"},
 	} {
 		s.AddKnownTypeWithName(gvk, &unstructured.Unstructured{})
 		listGVK := schema.GroupVersionKind{Group: gvk.Group, Version: gvk.Version, Kind: gvk.Kind + "List"}
@@ -196,6 +201,8 @@ func listKindMap() map[schema.GroupVersionResource]string {
 		OrganizationGVR:       "OrganizationList",
 		BlueprintGVR:          "BlueprintList",
 		BlueprintGVRv1alpha1:  "BlueprintList",
+		FluxGitRepositoryGVR:  "GitRepositoryList",
+		FluxKustomizationGVR:  "KustomizationList",
 	}
 }
 
@@ -321,6 +328,10 @@ func newReconciler(t *testing.T, fg *fakeGitea, objs ...*unstructured.Unstructur
 		HelmReleaseIntervalSeconds: 600,
 		SourceNamespace:            "flux-system",
 		CatalogSourceRef:           "openova-catalog",
+		// qa-loop iter-8 Fix #42 bug 3 — host-side Flux bootstrap.
+		HostFluxNamespace:       "flux-system",
+		GiteaInClusterURL:       "http://gitea.test.svc.cluster.local:3000",
+		HostFluxIntervalSeconds: 60,
 	}, nil)
 }
 
@@ -767,5 +778,185 @@ func TestReconcile_InvalidPlacementForBlueprint(t *testing.T) {
 	}
 	if reason != ReasonInvalid {
 		t.Errorf("reason = %q, want %q", reason, ReasonInvalid)
+	}
+}
+
+// --- qa-loop iter-8 Fix #42 bug 3: host-side Flux bootstrap ---------
+
+// TestReconcile_HostFluxBootstrap_CreatesGitRepoAndKustomization is the
+// regression test for qa-loop iter-8 Fix #42 bug 3.
+//
+// Before the fix the application-controller committed kustomization +
+// helmrelease YAMLs to Gitea but no Flux GitRepository or Kustomization
+// existed on the host cluster to pull them — Pods never spawned, even
+// though the controller marked the Application Ready=True.
+//
+// This test asserts a successful reconcile creates:
+//   - 1 GitRepository in flux-system named `catalyst-app-{org}-{app}`
+//     pointing at the in-cluster Gitea URL with the env-type-mapped
+//     branch.
+//   - 1 Kustomization per region named
+//     `catalyst-app-{org}-{app}-{region}` with path
+//     `./clusters/{region}/applications/{app}` and sourceRef pointing
+//     at the GitRepository above.
+//   - Both CRs carry an ownerRef back to the Application so they're
+//     garbage-collected on Application deletion.
+//   - Both CRs use the v1 Flux API (NOT v1beta2 — Flux 2.4+ deprecates
+//     it).
+func TestReconcile_HostFluxBootstrap_CreatesGitRepoAndKustomization(t *testing.T) {
+	bp := makeBlueprint("bp-wp", "1.0.0", nil, []string{"single-region"})
+	env := makeEnv("acme-prod", "acme", "prod")
+	org := makeOrg("acme")
+	app := makeApp("acme", "site", "acme-prod", "bp-wp", "1.0.0", "single-region",
+		[]string{"hetzner-fsn-rtz-prod"},
+		map[string]interface{}{"replicas": int64(1)})
+	fg := newFakeGitea()
+	fg.orgsExist["acme"] = true
+	r := newReconciler(t, fg, app, env, org, bp)
+
+	reconcileFromCluster(t, r, "acme", "site")
+
+	// GitRepository assertion.
+	grName := "catalyst-app-acme-site"
+	gr, err := r.Dynamic.Resource(FluxGitRepositoryGVR).Namespace("flux-system").
+		Get(context.Background(), grName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("expected Flux GitRepository %q in flux-system; got: %v", grName, err)
+	}
+	if gr.GetAPIVersion() != "source.toolkit.fluxcd.io/v1" {
+		t.Errorf("GitRepository apiVersion = %q, want source.toolkit.fluxcd.io/v1 (Flux 2.4+ deprecated v1beta2)", gr.GetAPIVersion())
+	}
+	url, _, _ := unstructured.NestedString(gr.Object, "spec", "url")
+	if !strings.Contains(url, "/acme/site.git") {
+		t.Errorf("GitRepository.spec.url = %q, want substring %q", url, "/acme/site.git")
+	}
+	branch, _, _ := unstructured.NestedString(gr.Object, "spec", "ref", "branch")
+	if branch != "main" {
+		t.Errorf("GitRepository.spec.ref.branch = %q, want %q (envType=prod → branch=main)", branch, "main")
+	}
+	// Owner ref points back at the Application.
+	owners := gr.GetOwnerReferences()
+	if len(owners) != 1 || owners[0].Name != "site" || owners[0].Kind != "Application" {
+		t.Errorf("GitRepository ownerRefs = %+v, want exactly 1 ref to Application/site", owners)
+	}
+
+	// Kustomization assertion.
+	ksName := "catalyst-app-acme-site-hetzner-fsn-rtz-prod"
+	ks, err := r.Dynamic.Resource(FluxKustomizationGVR).Namespace("flux-system").
+		Get(context.Background(), ksName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("expected Flux Kustomization %q in flux-system; got: %v", ksName, err)
+	}
+	if ks.GetAPIVersion() != "kustomize.toolkit.fluxcd.io/v1" {
+		t.Errorf("Kustomization apiVersion = %q, want kustomize.toolkit.fluxcd.io/v1", ks.GetAPIVersion())
+	}
+	path, _, _ := unstructured.NestedString(ks.Object, "spec", "path")
+	wantPath := "./clusters/hetzner-fsn-rtz-prod/applications/site"
+	if path != wantPath {
+		t.Errorf("Kustomization.spec.path = %q, want %q", path, wantPath)
+	}
+	srcKind, _, _ := unstructured.NestedString(ks.Object, "spec", "sourceRef", "kind")
+	srcName, _, _ := unstructured.NestedString(ks.Object, "spec", "sourceRef", "name")
+	if srcKind != "GitRepository" || srcName != grName {
+		t.Errorf("Kustomization.spec.sourceRef = {%q, %q}, want {GitRepository, %q}", srcKind, srcName, grName)
+	}
+	prune, _, _ := unstructured.NestedBool(ks.Object, "spec", "prune")
+	if !prune {
+		t.Errorf("Kustomization.spec.prune = false, want true (orphan workloads must be GC'd on app delete)")
+	}
+	targetNS, _, _ := unstructured.NestedString(ks.Object, "spec", "targetNamespace")
+	if targetNS != "acme" {
+		t.Errorf("Kustomization.spec.targetNamespace = %q, want %q (the Application's namespace)", targetNS, "acme")
+	}
+	ksOwners := ks.GetOwnerReferences()
+	if len(ksOwners) != 1 || ksOwners[0].Name != "site" {
+		t.Errorf("Kustomization ownerRefs = %+v, want exactly 1 ref to Application/site", ksOwners)
+	}
+}
+
+// TestReconcile_HostFluxBootstrap_FanOutOnePerRegion asserts an
+// active-active Application with N regions produces 1 GitRepository
+// (shared by all regions on the same per-app Gitea repo) and N
+// Kustomizations (one per region with its own path).
+func TestReconcile_HostFluxBootstrap_FanOutOnePerRegion(t *testing.T) {
+	bp := makeBlueprint("bp-api", "2.0.0", nil, []string{"active-active"})
+	env := makeEnv("acme-prod", "acme", "prod")
+	org := makeOrg("acme")
+	app := makeApp("acme", "api", "acme-prod", "bp-api", "2.0.0", "active-active",
+		[]string{"hetzner-fsn-rtz-prod", "hetzner-nbg-rtz-prod"},
+		map[string]interface{}{"replicas": int64(2)})
+	fg := newFakeGitea()
+	fg.orgsExist["acme"] = true
+	r := newReconciler(t, fg, app, env, org, bp)
+
+	reconcileFromCluster(t, r, "acme", "api")
+
+	// Exactly one GitRepository.
+	grList, err := r.Dynamic.Resource(FluxGitRepositoryGVR).Namespace("flux-system").
+		List(context.Background(), metav1.ListOptions{})
+	if err != nil {
+		t.Fatalf("list GitRepositories: %v", err)
+	}
+	if len(grList.Items) != 1 {
+		t.Errorf("expected exactly 1 GitRepository per Application, got %d", len(grList.Items))
+	}
+
+	// Two Kustomizations — one per region.
+	ksList, err := r.Dynamic.Resource(FluxKustomizationGVR).Namespace("flux-system").
+		List(context.Background(), metav1.ListOptions{})
+	if err != nil {
+		t.Fatalf("list Kustomizations: %v", err)
+	}
+	if len(ksList.Items) != 2 {
+		t.Fatalf("expected 2 Kustomizations (one per region), got %d", len(ksList.Items))
+	}
+	regionsSeen := map[string]bool{}
+	for _, ks := range ksList.Items {
+		path, _, _ := unstructured.NestedString(ks.Object, "spec", "path")
+		for _, region := range []string{"hetzner-fsn-rtz-prod", "hetzner-nbg-rtz-prod"} {
+			if strings.Contains(path, region) {
+				regionsSeen[region] = true
+			}
+		}
+	}
+	for _, region := range []string{"hetzner-fsn-rtz-prod", "hetzner-nbg-rtz-prod"} {
+		if !regionsSeen[region] {
+			t.Errorf("no Kustomization saw region %q", region)
+		}
+	}
+}
+
+// TestReconcile_HostFluxBootstrap_Idempotent asserts re-reconciling a
+// steady-state Application makes ZERO new K8s writes (drift-free path).
+// We assert by counting the apiVersion/spec hash between passes —
+// nothing should change.
+func TestReconcile_HostFluxBootstrap_Idempotent(t *testing.T) {
+	bp := makeBlueprint("bp-wp", "1.0.0", nil, []string{"single-region"})
+	env := makeEnv("acme-prod", "acme", "prod")
+	org := makeOrg("acme")
+	app := makeApp("acme", "site", "acme-prod", "bp-wp", "1.0.0", "single-region",
+		[]string{"hetzner-fsn-rtz-prod"},
+		map[string]interface{}{"replicas": int64(1)})
+	fg := newFakeGitea()
+	fg.orgsExist["acme"] = true
+	r := newReconciler(t, fg, app, env, org, bp)
+
+	reconcileFromCluster(t, r, "acme", "site")
+	gr1, err := r.Dynamic.Resource(FluxGitRepositoryGVR).Namespace("flux-system").
+		Get(context.Background(), "catalyst-app-acme-site", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("first GitRepository fetch: %v", err)
+	}
+	rv1 := gr1.GetResourceVersion()
+
+	reconcileFromCluster(t, r, "acme", "site")
+	gr2, err := r.Dynamic.Resource(FluxGitRepositoryGVR).Namespace("flux-system").
+		Get(context.Background(), "catalyst-app-acme-site", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("second GitRepository fetch: %v", err)
+	}
+	rv2 := gr2.GetResourceVersion()
+	if rv1 != rv2 {
+		t.Errorf("GitRepository resourceVersion changed across idempotent reconcile passes (%q → %q); steady state must be a no-op", rv1, rv2)
 	}
 }

@@ -74,6 +74,18 @@ spec:
               value: {{ .Values.controllers.application.helmReleaseIntervalSeconds | default 600 | quote }}
             - name: REQUEUE_AFTER_SECONDS
               value: {{ .Values.controllers.application.requeueAfterSeconds | default 300 | quote }}
+            # qa-loop iter-8 Fix #42 bug 3 — host-side Flux bootstrap.
+            # Without these env vars the per-Application manifests sit
+            # in Gitea forever and no Pod is ever scheduled. Default
+            # values match the canonical Sovereign topology.
+            - name: HOST_FLUX_NAMESPACE
+              value: {{ .Values.controllers.application.hostFluxNamespace | default "flux-system" | quote }}
+            - name: GITEA_IN_CLUSTER_URL
+              value: {{ .Values.controllers.application.giteaInClusterURL | default "http://gitea-http.gitea.svc.cluster.local:3000" | quote }}
+            - name: HOST_FLUX_INTERVAL_SECONDS
+              value: {{ .Values.controllers.application.hostFluxIntervalSeconds | default 60 | quote }}
+            - name: FLUX_GITEA_SECRET_REF
+              value: {{ .Values.controllers.application.fluxGiteaSecretRef | default "" | quote }}
             {{- range $k, $v := .Values.controllers.application.env }}
             - name: {{ $k | quote }}
               value: {{ $v | quote }}

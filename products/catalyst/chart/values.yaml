@@ -215,6 +215,14 @@ controllers:
         memory: 512Mi
     # Optional Gitea base URL override. Empty = in-cluster default.
     giteaURL: ""
+    # Namespace where per-Org UserAccess Claim CRs are written. Crossplane
+    # Claims are namespace-scoped on the live API server even when the
+    # backing XR is cluster-scoped — the controller's Get/Create calls
+    # MUST carry a namespace or the apiserver rejects with `an empty
+    # namespace may not be set when a resource name is provided` (qa-loop
+    # iter-8 Fix #42 root cause). Default matches the qa-fixtures
+    # convention at templates/qa-fixtures/useraccess-qa-user1.yaml.
+    userAccessNamespace: "catalyst-system"
     # Free-form extra env vars threaded into the Pod (advanced; for one-off
     # operator-side knobs not yet promoted to a top-level value).
     env: {}
@@ -304,6 +312,23 @@ controllers:
     catalogSourceRef: "openova-catalog"
     helmReleaseIntervalSeconds: 600
     requeueAfterSeconds: 300
+    # qa-loop iter-8 Fix #42 bug 3 — host-side Flux bootstrap. The
+    # controller upserts a per-Application Flux GitRepository +
+    # per-region Kustomization in this namespace so Flux on the HOST
+    # cluster reconciles the per-app manifests we commit to Gitea.
+    # Without these, the per-app manifests sit in Gitea forever.
+    hostFluxNamespace: "flux-system"
+    # In-cluster Gitea URL (used by Flux on the host to clone the
+    # per-app repo). Distinct from giteaURL (operator-facing) — defaults
+    # to the in-cluster service so no external DNS dependency.
+    giteaInClusterURL: "http://gitea-http.gitea.svc.cluster.local:3000"
+    # Flux poll interval on the per-Application GitRepository +
+    # Kustomization (seconds). Defaults to 60s for fast initial Pod
+    # spin-up; operators with hundreds of Apps may raise this.
+    hostFluxIntervalSeconds: 60
+    # Optional Secret in HostFluxNamespace holding the Gitea token Flux
+    # uses to clone. Empty = anonymous (acceptable for in-cluster Gitea).
+    fluxGiteaSecretRef: ""
     env: {}
     nodeSelector: {}
     tolerations: []

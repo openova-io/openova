@@ -154,6 +154,15 @@ func loadConfigFromEnv() controller.Config {
 		HelmReleaseIntervalSeconds: envInt("HELMRELEASE_INTERVAL", 600),
 		CatalogSourceRef:           env("CATALOG_SOURCE_REF", "openova-catalog"),
 		RequeueAfter:               time.Duration(envInt("REQUEUE_AFTER_SECONDS", 300)) * time.Second,
+		// qa-loop iter-8 Fix #42 bug 3: host-side Flux bootstrap so the
+		// per-Application manifests we commit to Gitea actually get
+		// pulled by Flux on the host cluster. Without these the
+		// Application reaches Provisioning + Ready=True but no Pod
+		// is ever scheduled.
+		HostFluxNamespace:       env("HOST_FLUX_NAMESPACE", "flux-system"),
+		GiteaInClusterURL:       env("GITEA_IN_CLUSTER_URL", "http://gitea-http.gitea.svc.cluster.local:3000"),
+		HostFluxIntervalSeconds: envInt("HOST_FLUX_INTERVAL_SECONDS", 60),
+		FluxGiteaSecretRef:      env("FLUX_GITEA_SECRET_REF", ""),
 	}
 }
 

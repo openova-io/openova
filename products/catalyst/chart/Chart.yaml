@@ -1,5 +1,49 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.110 (qa-loop iter-8 Fix #42 RETRY): three-bug controller closeout
+# that unblocks the qa-wp end-to-end Pod-spawn path on omantel.
+#
+# Bug 1 — organization-controller: UserAccess Claim CR is namespace-
+# scoped on the live API server (Crossplane convention: Claims are
+# namespaced even when the backing XR is cluster-scoped). The reconciler
+# previously called Get/Create with `client.ObjectKey{Name: name}` (no
+# namespace) and the apiserver rejected with `an empty namespace may
+# not be set when a resource name is provided`. Fix: SetNamespace +
+# Get-with-namespace; new Reconciler.UserAccessNamespace field
+# (default `catalyst-system` matching qa-fixtures) wired via
+# CATALYST_USERACCESS_NAMESPACE env. Two new tests
+# (TestUpsertUserAccess_NamespaceScoped + DefaultsToCatalystSystem)
+# regression-guard the empty-namespace bug.
+#
+# Bug 2 — environment-controller: per-Env Gitea repo `<org>-environment`
+# was never created by any controller in the chain. The reconciler
+# only Get'd the Org and PutFile'd manifests, so reconcile fell into a
+# permanent re-queue loop with `gitea repo not found — re-queueing`.
+# Fix: GiteaClient interface gains EnsureRepo; reconcile calls it
+# idempotently right after the Org check. Two new tests
+# (TestReconcile_RepoMissingSelfHeals + the
+# OrgVanishesBetweenGetAndEnsureRepoIsPending race-safety case) replace
+# the now-stale RepoMissingSurfacesPending test.
+#
+# Bug 3 — application-controller: per-Application kustomization +
+# helmrelease YAMLs were committed to Gitea, but no Flux GitRepository
+# or Kustomization existed on the host cluster to pull them — Pods
+# never spawned even though the Application reached Provisioning +
+# Ready=True. Fix: ensureHostFluxBootstrap upserts 1 GitRepository
+# (per Application, on the per-app Gitea repo) + N Kustomizations (one
+# per region) in flux-system on the HOST cluster, with ownerRefs back
+# to the Application for cascade delete. The application-controller's
+# ClusterRole gains source.toolkit.fluxcd.io/gitrepositories +
+# kustomize.toolkit.fluxcd.io/kustomizations write verbs. Three new
+# tests (HostFluxBootstrap_CreatesGitRepoAndKustomization +
+# FanOutOnePerRegion + Idempotent) regression-guard the new path.
+#
+# Cumulative impact: with 1.4.110 rolled to omantel, the qa-wp
+# Application materialises a real nginx Pod within ~60s (Flux pull
+# interval + HelmRelease install). All three controller-side blockers
+# from Fix #40 final report are closed by chart-side fixes — no
+# operational `kubectl apply` workaround.
+#
 # 1.4.106 (qa-loop iter-7 Fix #38 follow-up #3): qa-fixtures
 # sovereignRef default = "omantel.biz" so the Organization +
 # Application + Environment + Blueprint + UserAccess CRs validate
@@ -344,7 +388,7 @@ name: bp-catalyst-platform
 #     so the matrix's `kubectl get cnpgpair` stdout contains the literal
 #     "cnpgpair" substring TC-306 asserts on (envsubst override beat the
 #     chart values default fixed in PR #1247).
-version: 1.4.109
+version: 1.4.110
 appVersion: 1.4.94
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.

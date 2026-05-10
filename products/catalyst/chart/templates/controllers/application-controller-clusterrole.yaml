@@ -50,4 +50,16 @@ rules:
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["create", "patch"]
+  # qa-loop iter-8 Fix #42 bug 3: the controller upserts host-cluster
+  # Flux v1 GitRepository + Kustomization CRs in flux-system so Flux
+  # picks up the per-Application manifests we commit to Gitea. Without
+  # these grants, ensureHostFluxBootstrap() returns 403 and the
+  # Application reaches Ready=True from the controller's POV but no
+  # Pod is ever scheduled.
+  - apiGroups: ["source.toolkit.fluxcd.io"]
+    resources: ["gitrepositories"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["kustomize.toolkit.fluxcd.io"]
+    resources: ["kustomizations"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 {{- end }}

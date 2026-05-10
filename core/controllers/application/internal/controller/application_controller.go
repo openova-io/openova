@@ -44,6 +44,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -97,6 +98,31 @@ var (
 		Group:    "catalyst.openova.io",
 		Version:  "v1alpha1",
 		Resource: "blueprints",
+	}
+
+	// FluxGitRepositoryGVR + FluxKustomizationGVR are the host-cluster
+	// Flux v2 CRs the controller upserts in flux-system so Flux picks up
+	// the per-Application manifests we commit to Gitea (qa-loop iter-8
+	// Fix #42 bug 3 root cause: without these, Application CRs reached
+	// status=Provisioning + Ready=True from the controller's POV but
+	// nothing on the host cluster ever pulled the per-app helmrelease.yaml
+	// from Gitea, so no Pod was scheduled).
+	//
+	// v1 is the Flux 2.4+ stable; v1beta2 was deprecated. Sovereigns
+	// running on bp-flux 1.x ship v1 directly. If a Sovereign is pinned
+	// to bp-flux <1.0 the operator must upgrade — we don't fall back to
+	// v1beta2 because Inviolable Principle #3 ("follow documented
+	// architecture") makes Flux the only reconciler and v1 the only
+	// supported API version.
+	FluxGitRepositoryGVR = schema.GroupVersionResource{
+		Group:    "source.toolkit.fluxcd.io",
+		Version:  "v1",
+		Resource: "gitrepositories",
+	}
+	FluxKustomizationGVR = schema.GroupVersionResource{
+		Group:    "kustomize.toolkit.fluxcd.io",
+		Version:  "v1",
+		Resource: "kustomizations",
 	}
 )
 
@@ -183,6 +209,42 @@ type Config struct {
 	// RequeueAfter is how long to wait before re-running the
 	// reconcile when nothing else triggered it. Defaults to 5 minutes.
 	RequeueAfter time.Duration
+
+	// HostFluxNamespace is the K8s namespace on the HOST cluster (not
+	// the vCluster) where the per-Application Flux GitRepository +
+	// Kustomization CRs are upserted. Defaults to "flux-system" — the
+	// canonical Flux namespace on every Sovereign per
+	// products/catalyst/bootstrap/api/internal/handler/infrastructure.go.
+	// Per Inviolable Principle #4 the deployment env can override this
+	// for non-canonical installs.
+	//
+	// IMPORTANT: this is distinct from SourceNamespace (which lives
+	// inside the vCluster and is stamped on the rendered HelmRelease's
+	// chart sourceRef). The host-side bootstrap reconciles via
+	// HostFluxNamespace; the in-vCluster HelmRelease pulls its chart
+	// payload from SourceNamespace.
+	HostFluxNamespace string
+
+	// GiteaInClusterURL is the Gitea HTTP base URL the HOST cluster's
+	// Flux uses to clone per-Application Gitea repos. Distinct from
+	// GiteaPublicURL (which is operator-facing, stamped on
+	// Application.status.giteaRepo). The default
+	// `http://gitea-http.gitea.svc.cluster.local:3000` is the in-cluster
+	// service URL — Flux on the host cluster resolves it via cluster DNS,
+	// which is the one path that doesn't depend on external DNS being
+	// fully provisioned (Inviolable Principle #4: never hardcode external
+	// FQDNs in source paths that the platform itself bootstraps).
+	GiteaInClusterURL string
+
+	// HostFluxIntervalSeconds is the reconcile interval stamped on the
+	// host-side GitRepository + Kustomization. Defaults to 60.
+	HostFluxIntervalSeconds int
+
+	// FluxGiteaSecretRef is the Secret in HostFluxNamespace that holds
+	// the Gitea token Flux uses to clone the per-Application repo.
+	// Empty means anonymous clone (acceptable for in-cluster Gitea where
+	// the network boundary is the K8s service cordon). Defaults to "".
+	FluxGiteaSecretRef string
 }
 
 // Defaults applies missing-field defaults to a Config. Returns a copy.
@@ -205,6 +267,15 @@ func (c Config) Defaults() Config {
 	}
 	if out.RequeueAfter == 0 {
 		out.RequeueAfter = 5 * time.Minute
+	}
+	if out.HostFluxNamespace == "" {
+		out.HostFluxNamespace = "flux-system"
+	}
+	if out.GiteaInClusterURL == "" {
+		out.GiteaInClusterURL = "http://gitea-http.gitea.svc.cluster.local:3000"
+	}
+	if out.HostFluxIntervalSeconds <= 0 {
+		out.HostFluxIntervalSeconds = 60
 	}
 	return out
 }
@@ -508,6 +579,22 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 	}
 	_ = allCommitted
 
+	// 9b. Upsert the host-cluster Flux GitRepository + per-region
+	//     Kustomization CRs that reconcile the manifests we just
+	//     committed to Gitea. Without this step the manifests sit in
+	//     Gitea forever; nothing on the host cluster ever pulls them
+	//     and no Pod gets scheduled. qa-loop iter-8 Fix #42 bug 3
+	//     root cause.
+	//
+	//     Failure here is non-fatal-but-degraded: the manifests are
+	//     already in Gitea so a future reconcile pass (or operator
+	//     re-apply) can resolve. We log + mark Degraded so the
+	//     Application visibly fails its Ready bar.
+	if err := r.ensureHostFluxBootstrap(ctx, app, envSpec, plan); err != nil {
+		return r.markDegraded(ctx, app, ReasonGiteaError,
+			fmt.Sprintf("ensure host Flux bootstrap: %v", err))
+	}
+
 	// 10. Status update.
 	giteaRepo := fmt.Sprintf("%s/%s/%s",
 		strings.TrimRight(r.Cfg.GiteaPublicURL, "/"),
@@ -527,6 +614,198 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 		Ready:   "True",
 	}
 	return r.updateStatus(ctx, app, su)
+}
+
+// ensureHostFluxBootstrap upserts (find-or-create) the host-cluster
+// Flux v1 GitRepository + per-region Kustomization CRs that pull the
+// per-Application manifests we committed to Gitea. Idempotent: a
+// steady-state Application produces zero K8s writes after the first
+// pass (we re-Get and only call Update when a meaningful field
+// diverged from desired). Owner-references on every CR target the
+// parent Application so the Flux CRs are garbage-collected when the
+// Application is deleted.
+//
+// Schema:
+//
+//	GitRepository (1 per Application):
+//	  metadata.namespace: cfg.HostFluxNamespace (default flux-system)
+//	  metadata.name:      catalyst-app-{org}-{app}
+//	  spec.url:           {GiteaInClusterURL}/{org}/{app}.git
+//	  spec.ref.branch:    {branchForEnvType(envSpec.EnvType)}
+//	  spec.interval:      {HostFluxIntervalSeconds}s
+//	  spec.secretRef.name: {FluxGiteaSecretRef}  (only if non-empty)
+//
+//	Kustomization (1 per per-region work plan):
+//	  metadata.namespace: cfg.HostFluxNamespace
+//	  metadata.name:      catalyst-app-{org}-{app}-{region}
+//	  spec.path:          ./clusters/{region}/applications/{app}
+//	  spec.sourceRef:     GitRepository: catalyst-app-{org}-{app}
+//	  spec.interval:      {HostFluxIntervalSeconds}s
+//	  spec.prune:         true
+//	  spec.targetNamespace: {app.GetNamespace()}
+//
+// Per Inviolable Principle #3 (Flux is the only reconciler), we do NOT
+// `kubectl apply` workload manifests directly — only the Flux CR pair
+// that wires Gitea → Flux → workload.
+func (r *Reconciler) ensureHostFluxBootstrap(
+	ctx context.Context,
+	app *unstructured.Unstructured,
+	envSpec envParsedSpec,
+	plan placement.Plan,
+) error {
+	ns := r.Cfg.HostFluxNamespace
+	branch := branchForEnvType(envSpec.EnvType)
+	repoName := fmt.Sprintf("catalyst-app-%s-%s", envSpec.OrganizationRef, app.GetName())
+	repoURL := fmt.Sprintf("%s/%s/%s.git",
+		strings.TrimRight(r.Cfg.GiteaInClusterURL, "/"),
+		envSpec.OrganizationRef,
+		app.GetName())
+
+	ownerRefs := []interface{}{
+		map[string]interface{}{
+			"apiVersion":         app.GetAPIVersion(),
+			"kind":               app.GetKind(),
+			"name":               app.GetName(),
+			"uid":                string(app.GetUID()),
+			"controller":         true,
+			"blockOwnerDeletion": true,
+		},
+	}
+
+	commonLabels := map[string]interface{}{
+		"app.kubernetes.io/managed-by":     "application-controller",
+		"catalyst.openova.io/application":  app.GetName(),
+		"catalyst.openova.io/organization": envSpec.OrganizationRef,
+		"catalyst.openova.io/env-type":     envSpec.EnvType,
+	}
+
+	// --- GitRepository ---
+	gr := &unstructured.Unstructured{}
+	gr.SetAPIVersion(FluxGitRepositoryGVR.Group + "/" + FluxGitRepositoryGVR.Version)
+	gr.SetKind("GitRepository")
+	gr.SetNamespace(ns)
+	gr.SetName(repoName)
+	if err := unstructured.SetNestedSlice(gr.Object, ownerRefs, "metadata", "ownerReferences"); err != nil {
+		return fmt.Errorf("set GitRepository ownerReferences: %w", err)
+	}
+	if err := unstructured.SetNestedMap(gr.Object, commonLabels, "metadata", "labels"); err != nil {
+		return fmt.Errorf("set GitRepository labels: %w", err)
+	}
+	grSpec := map[string]interface{}{
+		"interval": fmt.Sprintf("%ds", r.Cfg.HostFluxIntervalSeconds),
+		"url":      repoURL,
+		"ref": map[string]interface{}{
+			"branch": branch,
+		},
+	}
+	if r.Cfg.FluxGiteaSecretRef != "" {
+		grSpec["secretRef"] = map[string]interface{}{
+			"name": r.Cfg.FluxGiteaSecretRef,
+		}
+	}
+	if err := unstructured.SetNestedMap(gr.Object, grSpec, "spec"); err != nil {
+		return fmt.Errorf("set GitRepository spec: %w", err)
+	}
+
+	if err := r.upsertHostResource(ctx, FluxGitRepositoryGVR, ns, repoName, gr); err != nil {
+		return fmt.Errorf("upsert GitRepository %s/%s: %w", ns, repoName, err)
+	}
+	r.Log.Info("ensured host Flux GitRepository",
+		"namespace", ns, "name", repoName, "url", repoURL, "branch", branch)
+
+	// --- Kustomization (one per region) ---
+	for _, rp := range plan.Regions {
+		ksName := fmt.Sprintf("catalyst-app-%s-%s-%s",
+			envSpec.OrganizationRef, app.GetName(), rp.Name)
+		ks := &unstructured.Unstructured{}
+		ks.SetAPIVersion(FluxKustomizationGVR.Group + "/" + FluxKustomizationGVR.Version)
+		ks.SetKind("Kustomization")
+		ks.SetNamespace(ns)
+		ks.SetName(ksName)
+		if err := unstructured.SetNestedSlice(ks.Object, ownerRefs, "metadata", "ownerReferences"); err != nil {
+			return fmt.Errorf("set Kustomization ownerReferences: %w", err)
+		}
+		labels := map[string]interface{}{}
+		for k, v := range commonLabels {
+			labels[k] = v
+		}
+		labels["catalyst.openova.io/region"] = rp.Name
+		if err := unstructured.SetNestedMap(ks.Object, labels, "metadata", "labels"); err != nil {
+			return fmt.Errorf("set Kustomization labels: %w", err)
+		}
+		ksSpec := map[string]interface{}{
+			"interval":        fmt.Sprintf("%ds", r.Cfg.HostFluxIntervalSeconds),
+			"path":            fmt.Sprintf("./clusters/%s/applications/%s", rp.Name, app.GetName()),
+			"prune":           true,
+			"targetNamespace": app.GetNamespace(),
+			"sourceRef": map[string]interface{}{
+				"kind":      "GitRepository",
+				"name":      repoName,
+				"namespace": ns,
+			},
+		}
+		if err := unstructured.SetNestedMap(ks.Object, ksSpec, "spec"); err != nil {
+			return fmt.Errorf("set Kustomization spec: %w", err)
+		}
+		if err := r.upsertHostResource(ctx, FluxKustomizationGVR, ns, ksName, ks); err != nil {
+			return fmt.Errorf("upsert Kustomization %s/%s: %w", ns, ksName, err)
+		}
+		r.Log.Info("ensured host Flux Kustomization",
+			"namespace", ns, "name", ksName, "region", rp.Name, "path", ksSpec["path"])
+	}
+
+	return nil
+}
+
+// upsertHostResource find-or-creates the resource via the dynamic
+// client, then drift-restores spec when an existing instance diverges
+// from desired. Idempotent on byte-equal spec.
+func (r *Reconciler) upsertHostResource(
+	ctx context.Context,
+	gvr schema.GroupVersionResource,
+	namespace, name string,
+	desired *unstructured.Unstructured,
+) error {
+	current, err := r.Dynamic.Resource(gvr).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			if _, cerr := r.Dynamic.Resource(gvr).Namespace(namespace).Create(ctx, desired, metav1.CreateOptions{}); cerr != nil {
+				if apierrors.IsAlreadyExists(cerr) {
+					// Race with parallel reconcile — re-Get + update path.
+					return r.upsertHostResource(ctx, gvr, namespace, name, desired)
+				}
+				return cerr
+			}
+			return nil
+		}
+		return err
+	}
+	// Drift check: only update if desired.spec differs from current.spec.
+	desiredSpec, _, _ := unstructured.NestedMap(desired.Object, "spec")
+	currentSpec, _, _ := unstructured.NestedMap(current.Object, "spec")
+	if specsEqual(desiredSpec, currentSpec) {
+		// Steady state — no API write.
+		return nil
+	}
+	// Restore desired spec; preserve resourceVersion + status to avoid
+	// clobbering the Flux controller's status writes.
+	current.Object["spec"] = desiredSpec
+	if labels, found, _ := unstructured.NestedMap(desired.Object, "metadata", "labels"); found {
+		_ = unstructured.SetNestedMap(current.Object, labels, "metadata", "labels")
+	}
+	if _, err := r.Dynamic.Resource(gvr).Namespace(namespace).Update(ctx, current, metav1.UpdateOptions{}); err != nil {
+		return err
+	}
+	return nil
+}
+
+// specsEqual does a deep-equality compare of two map[string]interface{}
+// trees by JSON-marshaled byte equality. Stable because the JSON encoder
+// sorts keys.
+func specsEqual(a, b map[string]interface{}) bool {
+	aj, _ := json.Marshal(a)
+	bj, _ := json.Marshal(b)
+	return string(aj) == string(bj)
 }
 
 // handleDeletion is the cascade-delete path. We remove every manifest

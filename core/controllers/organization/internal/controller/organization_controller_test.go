@@ -378,6 +378,7 @@ func makeReconciler(t *testing.T, objs ...client.Object) (*Reconciler, *giteaSer
 		VClusterHelmRepoName:      "loft",
 		VClusterHelmRepoNamespace: "vcluster-system",
 		Branch:                    "main",
+		UserAccessNamespace:       "catalyst-system",
 	}
 	return r, gs, kc
 }
@@ -644,6 +645,110 @@ func TestReconcile_Missing_NoError(t *testing.T) {
 	}
 	if res.RequeueAfter != 0 {
 		t.Errorf("missing CR should not requeue, got %v", res)
+	}
+}
+
+// TestUpsertUserAccess_NamespaceScoped — qa-loop iter-8 Fix #42 regression.
+//
+// The Crossplane Claim CR (`useraccesses.access.openova.io`) is
+// namespace-scoped on the live API server. A previous code path called
+// r.Get / r.Create with `client.ObjectKey{Name: name}` (empty
+// namespace), which the apiserver rejects with `an empty namespace may
+// not be set when a resource name is provided`. That single error
+// blocked the entire downstream chain on omantel — Organization
+// transitioned to Failed/UserAccessFailed, Environment never created
+// the per-Org repo, Application never registered Flux GitRepository,
+// no Pod was ever scheduled.
+//
+// This test asserts:
+//   1. Upsert writes the UserAccess CR into the configured
+//      r.UserAccessNamespace (default `catalyst-system`).
+//   2. The CR carries metadata.namespace == that namespace (NOT empty).
+//   3. The owner-per-CR mapping holds (1 owner = 1 CR).
+func TestUpsertUserAccess_NamespaceScoped(t *testing.T) {
+	t.Parallel()
+	org := sampleOrg()
+	r, _, _ := makeReconciler(t, org)
+
+	res, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "acme"},
+	})
+	if err != nil {
+		t.Fatalf("reconcile failed (regression — empty-namespace bug?): %v", err)
+	}
+	if res.RequeueAfter != 0 {
+		t.Errorf("happy path must not requeue: got %v", res)
+	}
+
+	// Assert every UserAccess CR carries metadata.namespace =
+	// r.UserAccessNamespace (catalyst-system).
+	uaList := unstructured.UnstructuredList{}
+	uaList.SetGroupVersionKind(schema.GroupVersionKind{
+		Group: "access.openova.io", Version: "v1alpha1", Kind: "UserAccessList",
+	})
+	if err := r.List(context.Background(), &uaList); err != nil {
+		t.Fatalf("list UserAccess: %v", err)
+	}
+	if len(uaList.Items) != 2 {
+		t.Fatalf("expected 2 UserAccess CRs (one per owner), got %d", len(uaList.Items))
+	}
+	for _, ua := range uaList.Items {
+		if ua.GetNamespace() != "catalyst-system" {
+			t.Errorf("UserAccess %s: namespace = %q, want %q (the apiserver rejects an empty namespace on namespaced CRs)",
+				ua.GetName(), ua.GetNamespace(), "catalyst-system")
+		}
+	}
+
+	// Idempotency: a second reconcile MUST not error (would error if the
+	// Get path still used the empty-namespace key).
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "acme"},
+	}); err != nil {
+		t.Fatalf("second reconcile errored (regression — empty-namespace key on Get path?): %v", err)
+	}
+
+	// Listing must still see exactly 2 (no duplicates from a re-create
+	// path triggered by an empty-namespace Get returning IsNotFound on
+	// the live API server).
+	uaList2 := unstructured.UnstructuredList{}
+	uaList2.SetGroupVersionKind(schema.GroupVersionKind{
+		Group: "access.openova.io", Version: "v1alpha1", Kind: "UserAccessList",
+	})
+	if err := r.List(context.Background(), &uaList2); err != nil {
+		t.Fatalf("list UserAccess (post-second-reconcile): %v", err)
+	}
+	if len(uaList2.Items) != 2 {
+		t.Errorf("post-second-reconcile expected 2 UserAccess CRs, got %d (duplicates indicate the find-or-create path re-creates)", len(uaList2.Items))
+	}
+}
+
+// TestUpsertUserAccess_DefaultsToCatalystSystem — when the Reconciler
+// is constructed with UserAccessNamespace=="" (e.g. main.go env var
+// missing), the upsert path must default to "catalyst-system" rather
+// than panic or write into the empty namespace.
+func TestUpsertUserAccess_DefaultsToCatalystSystem(t *testing.T) {
+	t.Parallel()
+	org := sampleOrg()
+	r, _, _ := makeReconciler(t, org)
+	r.UserAccessNamespace = "" // simulate unset env var
+
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "acme"},
+	}); err != nil {
+		t.Fatalf("reconcile with empty UserAccessNamespace must default and succeed: %v", err)
+	}
+	uaList := unstructured.UnstructuredList{}
+	uaList.SetGroupVersionKind(schema.GroupVersionKind{
+		Group: "access.openova.io", Version: "v1alpha1", Kind: "UserAccessList",
+	})
+	if err := r.List(context.Background(), &uaList); err != nil {
+		t.Fatalf("list UserAccess: %v", err)
+	}
+	for _, ua := range uaList.Items {
+		if ua.GetNamespace() != "catalyst-system" {
+			t.Errorf("UserAccess %s: namespace = %q, want default %q",
+				ua.GetName(), ua.GetNamespace(), "catalyst-system")
+		}
 	}
 }
 
