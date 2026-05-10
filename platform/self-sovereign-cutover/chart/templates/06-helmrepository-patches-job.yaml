@@ -138,14 +138,54 @@ data:
               exit 1
             fi
 
-            # Bracket-form jsonpath quotes the key literally so the
-            # leading dot in `.dockerconfigjson` is not interpreted as
-            # path traversal.
-            existing_b64=$(kubectl get secret "${GHCR_PULL_SECRET_NAME}" \
-              -n "${GHCR_PULL_SECRET_NAMESPACE}" \
-              -o "jsonpath={.data['${GHCR_PULL_SECRET_KEY}']}" 2>/dev/null || echo "")
+            # Read the dockerconfigjson via `-o json | jq` (NOT kubectl
+            # jsonpath bracket-form). kubectl jsonpath interprets the
+            # leading dot in `.dockerconfigjson` as a child accessor
+            # INSIDE the bracket, returning empty even though the key
+            # exists. Fix #77 (Gap A) — caught live on omantel prov #7
+            # 2026-05-10: Job logged
+            # `FATAL: ghcr-pull Secret has no .dockerconfigjson key`
+            # despite `kubectl get secret ... -o yaml` clearly showing
+            # the key present. Confirmed reproducer:
+            #   kubectl get secret ghcr-pull -n flux-system \
+            #     -o "jsonpath={.data['.dockerconfigjson']}"   → empty
+            #   kubectl get secret ghcr-pull -n flux-system \
+            #     -o "jsonpath={.data['\.dockerconfigjson']}"  → b64
+            # Using `-o json | jq` avoids the escape ambiguity entirely
+            # and works regardless of the literal key name.
+            #
+            # Wait-loop (up to 60s) handles the case where Reflector has
+            # not yet propagated the Secret into ${GHCR_PULL_SECRET_NAMESPACE}
+            # when this Job stamps. Falls back to the source namespace
+            # (flux-system, where cloud-init writes the original) if the
+            # local copy is still missing after the timeout.
+            read_secret_key() {
+              # $1 = namespace
+              # Echoes base64 value of GHCR_PULL_SECRET_KEY or empty.
+              kubectl get secret "${GHCR_PULL_SECRET_NAME}" -n "$1" -o json 2>/dev/null \
+                | jq -r --arg k "${GHCR_PULL_SECRET_KEY}" '.data[$k] // empty'
+            }
+            existing_b64=""
+            target_ns="${GHCR_PULL_SECRET_NAMESPACE}"
+            for i in $(seq 1 12); do
+              existing_b64=$(read_secret_key "${target_ns}")
+              if [ -n "${existing_b64}" ]; then
+                break
+              fi
+              echo "[helmrepository-patches] Phase-0: ${target_ns}/${GHCR_PULL_SECRET_NAME} key ${GHCR_PULL_SECRET_KEY} not yet readable (attempt ${i}/12) — sleeping 5s"
+              sleep 5
+            done
+            if [ -z "${existing_b64}" ] && [ "${target_ns}" != "flux-system" ]; then
+              # Fallback: read from the source ns (flux-system) where
+              # cloud-init wrote the original. Reflector copies into
+              # ${GHCR_PULL_SECRET_NAMESPACE} but the source is always
+              # readable by the runner ClusterRole.
+              echo "[helmrepository-patches] Phase-0: falling back to flux-system/${GHCR_PULL_SECRET_NAME} (Reflector lag suspected)"
+              target_ns="flux-system"
+              existing_b64=$(read_secret_key "${target_ns}")
+            fi
             if [ -z "${existing_b64}" ]; then
-              echo "[helmrepository-patches] FATAL: ghcr-pull Secret has no ${GHCR_PULL_SECRET_KEY} key — cloud-init did not run?" >&2
+              echo "[helmrepository-patches] FATAL: ${GHCR_PULL_SECRET_NAME} Secret has no ${GHCR_PULL_SECRET_KEY} key in ${GHCR_PULL_SECRET_NAMESPACE} or flux-system after 60s — cloud-init did not run?" >&2
               exit 1
             fi
 

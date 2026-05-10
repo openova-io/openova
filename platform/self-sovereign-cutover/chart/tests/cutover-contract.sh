@@ -320,4 +320,43 @@ if ! grep -q 'clusters/_template/bootstrap-kit' "$TMP/render.yaml"; then
 fi
 echo "  PASS (Step-06 pushes YAML edit to local Gitea)"
 
+echo "[cutover-contract] Case 18: Step-06 Phase-0 probe is escape-free + has wait-loop (Fix #77, Gap A)"
+# 0.1.24 used kubectl jsonpath `{.data['.dockerconfigjson']}` which
+# silently returns EMPTY because the leading dot inside bracket-form
+# is interpreted as a child accessor. 0.1.25 replaces the probe with
+# `kubectl get -o json | jq -r --arg k` and adds a wait-loop +
+# flux-system fallback for Reflector lag.
+#
+# Guard against future regressions that re-introduce the brittle
+# jsonpath form against the dockerconfigjson key. The check anchors on
+# `-o "jsonpath=` so the documentation example in the inline-comment
+# block (which appears verbatim as `-o "jsonpath={.data['.dockerconfigjson']}"`
+# in the comment for posterity, prefixed with a `#` and three leading
+# spaces of comment indentation) is excluded — comment-prefixed lines
+# never start with `kubectl`/`-o` at any indent level recognized by
+# this check.
+if grep -E "^[[:space:]]*-o[[:space:]]+\"jsonpath=\{\.data\['.dockerconfigjson'\]\}\"" "$TMP/render.yaml" >/dev/null; then
+  echo "FAIL: Step-06 Phase-0 still uses brittle jsonpath bracket-form for .dockerconfigjson (Fix #77, Gap A)" >&2
+  exit 1
+fi
+# Must use jq-based read OR escaped jsonpath. Assert the new pattern.
+if ! grep -E "jq -r --arg k .* GHCR_PULL_SECRET_KEY|jq -r --arg k \"\\\$\\{GHCR_PULL_SECRET_KEY\\}\"" "$TMP/render.yaml" >/dev/null; then
+  # Looser fallback: any `jq -r --arg k` reading .data[$k] is acceptable.
+  if ! grep -E "jq -r --arg k .* '\.data\[\\\$k\]" "$TMP/render.yaml" >/dev/null; then
+    echo "FAIL: Step-06 Phase-0 missing jq-based read of .data[\$k] (Fix #77, Gap A)" >&2
+    exit 1
+  fi
+fi
+# Wait-loop + fallback presence — assert Phase-0 explicitly handles
+# Reflector lag without cratering on first miss.
+if ! grep -q 'Reflector lag suspected' "$TMP/render.yaml"; then
+  echo "FAIL: Step-06 Phase-0 missing Reflector-lag fallback to flux-system (Fix #77, Gap A)" >&2
+  exit 1
+fi
+if ! grep -q 'sleep 5' "$TMP/render.yaml"; then
+  echo "FAIL: Step-06 Phase-0 missing wait-loop sleep (Fix #77, Gap A)" >&2
+  exit 1
+fi
+echo "  PASS (Phase-0 probe escape-free + wait-loop + fallback)"
+
 echo "[cutover-contract] All gates green."
