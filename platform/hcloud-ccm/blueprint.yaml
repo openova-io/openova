@@ -1,0 +1,50 @@
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: hcloud-ccm
+  labels:
+    catalyst.openova.io/section: pts-3-1-cloud-integration
+spec:
+  version: 1.0.0
+  card:
+    title: Hetzner Cloud Controller Manager
+    family: cloud-integration
+    description: |
+      hcloud-cloud-controller-manager — the Hetzner cloud-provider integration
+      for Kubernetes. Sets node providerIDs (`hcloud://<server-id>`) so
+      kube-controller-manager + scheduler can correlate Pod placement with
+      Hetzner zones, hot-fills node IPs/labels from the Hetzner API, and
+      materialises Service-of-type-LoadBalancer as Hetzner Cloud Load
+      Balancers (ADR-0001 §13). Without this CCM running, every LB-typed
+      Service stays Pending forever and the Cilium clustermesh-apiserver
+      cannot expose itself across regions via a Hetzner LB.
+    docs: https://github.com/hetznercloud/hcloud-cloud-controller-manager
+  visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  configSchema:
+    type: object
+    properties:
+      networkID:
+        type: string
+        default: ""
+        description: |
+          Hetzner Cloud Network ID the cluster runs on. When set, hcloud-CCM
+          configures Cilium-routed pod CIDR routes through the Hetzner private
+          network and exposes node InternalIP from the network interface.
+          Leave empty for clusters that don't use a private Hetzner Network.
+      loadBalancersEnabled:
+        type: boolean
+        default: true
+        description: |
+          When true, type=LoadBalancer Service objects are materialised as
+          Hetzner Cloud LBs (per the `load-balancer.hetzner.cloud/*`
+          annotation contract). When false, only providerID + node-info
+          reconciliation runs — useful for clusters that source LBs from
+          MetalLB or another path.
+  placementSchema:
+    modes: [single-region, active-active]
+    default: active-active           # one CCM per host cluster
+  manifests:
+    chart: ./chart
+  depends: []                        # cloud-credentials Secret is provisioned by cloud-init before Flux installs anything
+  upgrades:
+    from: ["0.x"]

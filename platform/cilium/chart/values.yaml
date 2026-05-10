@@ -52,6 +52,34 @@ cilium:
   # eBPF-host-routing — bypasses iptables stack
   bpf:
     masquerade: true
+    # qa-loop iter-12 Fix #54 Workstream 2 — fresh worker pods on
+    # catalyst-omantel-biz-w2/w3 could not resolve github.com (BPF map
+    # capacity exhaustion when a node first joins). Pre-allocate the
+    # NAT/connection BPF map slots at agent startup so DNS lookups from
+    # newly-scheduled pods succeed on the first eBPF socketLB hit instead
+    # of falling through to iptables fallback (which on k3s with
+    # --disable-network-policy is no-op — the lookup just fails).
+    #
+    # Cost: ~12 MiB extra RSS per cilium-agent. Benefit: DNS lookups from
+    # pods on first-join workers don't transient-fail for the 30-90s
+    # window the lazy-allocate path otherwise takes (see Cilium issue
+    # cilium/cilium#28456 — "DNS races during node bring-up when BPF maps
+    # allocate on-demand"). Worth the RSS cost; canonical fix per upstream.
+    preallocateMaps: true
+
+  # qa-loop iter-12 Fix #54 Workstream 2 — socket-level load-balancing
+  # MUST stay in the host network namespace (default true is correct, but
+  # we pin the value explicitly so a future upstream default-flip doesn't
+  # silently re-introduce the per-pod-netns kube-proxy-replacement DNS
+  # race). When socketLB runs in the pod netns (hostNamespaceOnly: false),
+  # a brand-new pod's first DNS query can race with cilium-agent's
+  # service-map sync and miss kube-dns; the lookup then falls back to
+  # the iptables stack which on a kube-proxy-replacement cluster is
+  # absent → DNS fails. Keeping socketLB host-only ensures every
+  # pod-egress lookup goes through the cilium-agent's already-synced
+  # service map.
+  socketLB:
+    hostNamespaceOnly: true
 
   # IPAM — k8s mode uses the k8s pod CIDR allocator (works with k3s defaults)
   ipam:

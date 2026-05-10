@@ -36,11 +36,12 @@ spec:
   chart:
     spec:
       chart: bp-cilium
-      # 1.3.0 (qa-loop iter-12 Fix #53C): Hubble UI HTTPRoute overlay
-      # (slice H7 #1095) that the catalystOverlay.hubbleUI block depends
-      # on; +Cilium ClusterMesh values shape (LoadBalancer-typed Service
-      # for cross-region peering per Fix #53D).
-      version: 1.3.0
+      # 1.3.1 (qa-loop iter-12 Fix #54 Workstream 2): bpf.preallocateMaps=true
+      # + socketLB.hostNamespaceOnly=true defaults so fresh worker pods on
+      # catalyst-omantel-biz-w2/w3 can resolve DNS on first-join.
+      # 1.3.0 (qa-loop iter-12 Fix #53C): Hubble UI HTTPRoute overlay +
+      # Cilium ClusterMesh LoadBalancer-typed Service shape.
+      version: 1.3.1
       sourceRef:
         kind: HelmRepository
         name: bp-cilium

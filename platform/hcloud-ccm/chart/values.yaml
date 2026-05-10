@@ -1,0 +1,144 @@
+# Catalyst Blueprint umbrella metadata — the upstream chart is resolved as a
+# Helm subchart via Chart.yaml `dependencies:`. This values.yaml carries:
+#   1. The catalystBlueprint metadata block (provenance + version) so
+#      observability/audit pipelines can inspect the artifact and report
+#      which upstream chart + version is bundled.
+#   2. The upstream subchart values overlay under the
+#      `hcloud-cloud-controller-manager:` key (umbrella-chart convention —
+#      the dependency name from Chart.yaml is the values namespace).
+#   3. The vendor-agnostic `hcloudCcm.*` block with the namespace-local
+#      `hcloud-token` Secret payload + Catalyst overlay knobs (network ID,
+#      LB toggle).
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every
+# operationally-meaningful value is configurable; cluster overlays in
+# clusters/<sovereign>/ may override any of these without rebuilding the
+# Blueprint OCI artifact.
+
+catalystBlueprint:
+  upstream:
+    chart: hcloud-cloud-controller-manager
+    version: "1.20.0"
+    repo: "https://charts.hetzner.cloud"
+    # Catalyst rationale for this upstream:
+    # - hetznercloud/hcloud-cloud-controller-manager is the canonical
+    #   publisher (Hetzner Cloud's own GitHub org).
+    # - 1.20.x is the first release that natively recognises k3s
+    #   `node-role.kubernetes.io/control-plane` label and is upstream-
+    #   tested against k8s 1.31 (the k3s 1.31.x apiserver shipping on
+    #   every Sovereign).
+    # - MIT licence.
+
+# ─── Catalyst overlay block ────────────────────────────────────────────
+# Vendor-agnostic knobs that the umbrella's templates/ consume. Per-
+# Sovereign overlays in clusters/<sovereign>/bootstrap-kit/55-bp-hcloud-
+# ccm.yaml SHOULD override these via Flux `valuesFrom` so the Hetzner-
+# API token always flows from the canonical `flux-system/cloud-
+# credentials` Secret cloud-init writes at Phase 0 (matches the
+# bp-cluster-autoscaler-hcloud + bp-hcloud-csi wiring pattern).
+hcloudCcm:
+  # Hetzner Cloud API token — mandatory. The chart's
+  # templates/hcloud-token-secret.yaml renders a namespace-local Secret
+  # `hcloud/<release-namespace>/hcloud-token` with this value as the
+  # `token` key. The upstream subchart's deployment template reads from
+  # `env.HCLOUD_TOKEN.valueFrom.secretKeyRef.name=hcloud-token,key=token`
+  # by default, so the in-namespace Secret is the canonical seam.
+  hcloudToken: ""
+  # Hetzner Cloud Network ID. When set, the upstream Deployment's
+  # HCLOUD_NETWORK env var is filled and the CCM annotates each node with
+  # InternalIP from the private network interface. Leave empty to skip
+  # (typical for clusters that don't use a Hetzner private Network).
+  networkID: ""
+
+# ─── Upstream chart values (subchart key: hcloud-cloud-controller-manager) ─
+# `helm dependency build` resolves the upstream as a subchart; values here
+# under the `hcloud-cloud-controller-manager:` key flow into that subchart
+# unchanged. The upstream values schema is documented at
+# https://github.com/hetznercloud/hcloud-cloud-controller-manager/blob/main/chart/values.yaml
+hcloud-cloud-controller-manager:
+  # Reference the in-namespace Secret rendered by templates/hcloud-token-
+  # secret.yaml in this umbrella chart. Upstream chart's deployment template
+  # mounts this as the HCLOUD_TOKEN env var.
+  env:
+    HCLOUD_TOKEN:
+      valueFrom:
+        secretKeyRef:
+          name: hcloud-token
+          key: token
+
+  # Single replica is sufficient — cloud-controller-manager uses leader
+  # election internally (--leader-elect=true is the default for v1.20.x).
+  # The upstream chart deploys a single ReplicaSet; HA is achieved at
+  # the apiserver-via-leader-election level, not at the pod-replica level.
+  replicaCount: 1
+
+  # ─── Pin to the k3s control plane ────────────────────────────────────
+  # The CCM reads/writes Node objects via the apiserver — colocate with
+  # the apiserver to keep latency low and avoid a hard dependency on
+  # worker nodes (which the CCM itself manages providerIDs for).
+  #
+  # k3s control-plane nodes carry both labels — the selector + tolerations
+  # below match either (issue #921 + bp-cluster-autoscaler-hcloud
+  # precedent). Per-Sovereign overlays MAY override this when the
+  # Sovereign is multi-CP or wants the Pod elsewhere.
+  nodeSelector:
+    node-role.kubernetes.io/control-plane: "true"
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+    - key: node-role.kubernetes.io/master
+      operator: Exists
+      effect: NoSchedule
+    # The CCM must tolerate the cloud-provider taint upstream `kubelet`
+    # may set on a fresh node — without this the Pod cannot run on a node
+    # whose providerID hasn't been set yet (chicken-and-egg with self-
+    # bootstrap on the very first Sovereign install).
+    - key: node.cloudprovider.kubernetes.io/uninitialized
+      value: "true"
+      effect: NoSchedule
+    - key: CriticalAddonsOnly
+      operator: Exists
+    - key: node.kubernetes.io/not-ready
+      effect: NoSchedule
+      operator: Exists
+
+  # Hetzner Cloud Network ID — references hcloudCcm.networkID via Helm's
+  # values overlay. When empty, the upstream subchart's Deployment skips
+  # the HCLOUD_NETWORK env var.
+  networking:
+    enabled: false
+    # When per-Sovereign overlays set hcloudCcm.networkID, this block
+    # overrides via the upstream chart's networking.cluster.cidr +
+    # networking.cluster.id schema.
+
+  # Default mode: load-balancer materialisation enabled.
+  # Set to false on clusters that source LB IPs from MetalLB / kube-vip.
+  # The upstream subchart honours `env.HCLOUD_LOAD_BALANCERS_ENABLED`
+  # which we leave at default (true on hcloud-CCM 1.20.x).
+
+  # SecurityContext — non-root, read-only rootfs (CCM only needs to talk
+  # to the apiserver and the Hetzner Cloud API; no local writes needed).
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    fsGroup: 65532
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    runAsUser: 65532
+
+  # Resources — CCM is lightweight (one Hetzner API call per Node per
+  # 5min reconcile loop, plus on Service-LB-create events). Conservative
+  # defaults match the upstream chart's recommendation and the bp-cluster-
+  # autoscaler-hcloud sibling.
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
