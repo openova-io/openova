@@ -124,12 +124,19 @@ func TestCheckOwnership_RejectsCrossTenantWith404(t *testing.T) {
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("cross-tenant rejection MUST be 404 (not 403 — never leak existence); got %d", w.Code)
 	}
-	var body map[string]string
+	// Body is now map[string]any because writeJSON enriches error responses
+	// with `status` (numeric) and `code` (string token) at the seam — see
+	// handler.go:writeJSON / enrichErrorBody (qa-loop iter-16 Fix #66).
+	var body map[string]any
 	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
 		t.Fatalf("body did not decode as JSON: %v", err)
 	}
-	if body["error"] != "deployment not found" {
+	if got, _ := body["error"].(string); got != "deployment not found" {
 		t.Fatalf("body must say 'deployment not found' (NOT 'forbidden' or similar); got %q", body["error"])
+	}
+	// Verify the seam enrichment: 404 status code is in the body.
+	if got, _ := body["code"].(string); got != "404" {
+		t.Fatalf("body[code] must be '404' (seam enrichment); got %q", body["code"])
 	}
 }
 
