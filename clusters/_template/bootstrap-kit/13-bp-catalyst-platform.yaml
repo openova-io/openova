@@ -304,13 +304,22 @@ spec:
       # S3 with admin keys seeded into qa-omantel namespace so ScheduledBackup
       # succeeds (TC-338); cutover-driver ClusterRole adds kyverno.io read
       # for compliance handler ClusterPolicy ingest (TC-026).
+      # 1.4.111 (qa-loop iter-8 Fix #42 + controller image bumps,
+      # PRs #1252 + #1253 + #1254): closes 3 controller bugs blocking
+      # qa-wp Pod spawn:
+      #   - org-controller: UserAccess Claim namespace (was empty → 422)
+      #   - env-controller: per-Env repo self-heal via EnsureRepo
+      #   - app-controller: host-side Flux GitRepository + Kustomization
+      #     upsert so per-Application manifests get pulled by Flux on
+      #     the host cluster.
+      # Image tags bumped: org/env :1b29c71 → :72e3f08, app :3d1deef → :b321ada.
       # 1.4.109 (Fix #40 follow-up #2): drop /api/v1 from organization +
       # environment-controller GITEA URL defaults — Gitea client appends
       # it; the prior default produced /api/v1/api/v1/... 404s on
       # EnsureOrg / EnsureRepo blocking qa-wp Application reconcile.
       # bootstrap-kit qaFixtures.cnpgPairName default qa-cnpg → qa-cnpgpair
       # so TC-306's "cnpgpair" substring assertion passes.
-      version: 1.4.109
+      version: 1.4.111
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
