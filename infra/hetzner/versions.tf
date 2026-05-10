@@ -16,11 +16,29 @@ terraform {
     # are operator-issued exactly once via the Hetzner Console.
     #
     # Buckets, however, ARE creatable via standard S3 once credentials
-    # exist. Hetzner officially recommends the `aminueza/minio` Terraform
-    # provider for this path (https://docs.hetzner.com/storage/object-storage/
-    # getting-started/creating-a-bucket-minio-terraform/). The provider
-    # speaks both the MinIO admin API (irrelevant to us) AND the underlying
-    # S3 bucket API (which is what Hetzner's Object Storage exposes).
+    # exist. We use `hashicorp/aws` configured against Hetzner's S3
+    # endpoint (`<region>.your-objectstorage.com`). The aws provider
+    # talks vanilla S3 to any S3-compatible backend and — critically —
+    # does NOT call DeleteBucketPolicy as part of its Create handler.
+    #
+    # Why we moved off `aminueza/minio`:
+    #   `aminueza/minio v3.34.0`'s `minio_s3_bucket` Create handler calls
+    #   `DeleteBucketPolicy` post-create as part of state normalization
+    #   (the provider treats "no policy" as the canonical zero state and
+    #   forcibly clears any inherited policy). Hetzner Object Storage's
+    #   standard read/write credentials don't grant `s3:DeleteBucketPolicy`
+    #   so this fails with AccessDenied EVERY TIME, even though the bucket
+    #   itself is created on Hetzner's side. tofu marks the resource as
+    #   failed and rolls back the apply, blocking every fresh Sovereign
+    #   provision from reaching Phase 1. Provisions #13 / #17 both wedged
+    #   on this in <2 min — the wedge is deterministic, not flaky.
+    #
+    # The aws provider does no such normalization: a successful CreateBucket
+    # response is the terminal state for `aws_s3_bucket` Create. Hetzner
+    # officially documents AWS CLI / SDK as a supported S3 client (see
+    # https://docs.hetzner.com/storage/object-storage/getting-started/
+    # using-s3-api-tools/) so this is the canonical-vendor path, not a
+    # workaround.
     #
     # The bucket is a per-Sovereign Phase-0 resource — Harbor and Velero
     # consume the `s3-*` keys of the K8s Secret cloud-init writes into the
@@ -28,9 +46,9 @@ terraform {
     # cannot create the bucket and the operator would be forced to bring
     # up the Sovereign and then create the bucket out-of-band — violating
     # the principle that Phase 0 is end-to-end declarative.
-    minio = {
-      source  = "aminueza/minio"
-      version = "~> 3.5"
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
     }
   }
 }
@@ -51,19 +69,27 @@ provider "hcloud" {
 # Object Storage region in the wizard; Velero/Harbor backup latency is
 # acceptable for the use case (asynchronous tarball push).
 #
-# `minio_ssl = true` is mandatory — Hetzner Object Storage rejects plaintext
-# HTTP. The minio provider uses the AWS S3 SDK under the hood and works
-# against any S3-compatible service whose region+endpoint pair is set.
+# `s3_use_path_style = true` is mandatory — Hetzner Object Storage uses
+# path-style addressing (https://endpoint/bucket), not virtual-host
+# (https://bucket.endpoint). The four `skip_*` flags disable AWS-specific
+# preflight calls (STS GetCallerIdentity, IMDS metadata discovery) that
+# Hetzner does not implement and that would otherwise fail provider init.
 #
 # Credentials come from the wizard's StepCredentials object-storage section,
 # operator-issued in the Hetzner Console (Console → Object Storage →
 # Manage Credentials). Like hcloud_token, they never live in environment
 # variables on the catalyst-api process — every Sovereign apply uses its
 # own tenant's credentials.
-provider "minio" {
-  minio_server   = "${var.object_storage_region}.your-objectstorage.com"
-  minio_user     = var.object_storage_access_key
-  minio_password = var.object_storage_secret_key
-  minio_region   = var.object_storage_region
-  minio_ssl      = true
+provider "aws" {
+  region                      = var.object_storage_region
+  access_key                  = var.object_storage_access_key
+  secret_key                  = var.object_storage_secret_key
+  skip_credentials_validation = true
+  skip_metadata_api_check     = true
+  skip_requesting_account_id  = true
+  s3_use_path_style           = true
+
+  endpoints {
+    s3 = "https://${var.object_storage_region}.your-objectstorage.com"
+  }
 }

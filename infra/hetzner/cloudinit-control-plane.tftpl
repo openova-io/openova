@@ -410,7 +410,7 @@ write_files:
         s3-region: ${object_storage_region}
         # Bucket name — deterministic per-Sovereign identifier composed by
         # the catalyst-api from the Sovereign's FQDN slug. Created (or
-        # adopted if already present) by the minio_s3_bucket resource in
+        # adopted if already present) by the aws_s3_bucket resource in
         # main.tf earlier in this same `tofu apply`.
         s3-bucket: ${object_storage_bucket_name}
         # Operator-issued S3 access key + secret key. Hetzner's docs note
@@ -1463,7 +1463,7 @@ runcmd:
   # against an existing Sovereign overwrites the manifest with the same
   # bytes (or rotated bytes when the operator has issued fresh keys); a
   # missing-bucket scenario is impossible by construction because main.tf's
-  # minio_s3_bucket resource creates the bucket in the same `tofu apply`
+  # aws_s3_bucket resource creates the bucket in the same `tofu apply`
   # run that renders this user_data.
   - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f /var/lib/catalyst/object-storage-secret.yaml'
 

@@ -84,19 +84,32 @@ mock_provider "hcloud" {
   }
 }
 
-# The aminueza/minio provider's `minio_server` attribute is Required
-# at the schema level. Under `tofu test`, OpenTofu still type-checks
-# the provider block before any `mock_provider` rewriting fires, and
-# the production provider config in versions.tf reads from
+# The hashicorp/aws provider has Required attributes (region etc.) at
+# the schema level. Under `tofu test`, OpenTofu still type-checks the
+# provider block before any `mock_provider` rewriting fires, and the
+# production provider config in versions.tf reads from
 # `var.object_storage_region` which the test framework cannot supply
-# pre-evaluation in 1.8.5. Workaround: bypass the provider entirely
-# by overriding the only minio resource in the module
-# (`minio_s3_bucket.main`). The override returns synthetic values
-# without ever invoking the provider — same outcome as a mock but
-# without the schema-validation race. Slice G1 doesn't touch this
-# resource; the override is a test-harness concession only.
+# pre-evaluation in 1.8.5. Workaround: bypass the provider entirely by
+# overriding the two aws resources the module declares (the bucket +
+# its ACL). The overrides return synthetic values without ever invoking
+# the provider — same outcome as a mock but without the schema-validation
+# race. Slice G1 doesn't touch these resources; the overrides are a
+# test-harness concession only.
+#
+# History: pre-fix-#133 this file overrode `minio_s3_bucket.main` for
+# the same reason against the aminueza/minio provider. The provider was
+# swapped to hashicorp/aws to escape that provider's AccessDenied wedge
+# on Hetzner Object Storage credentials (see versions.tf).
 override_resource {
-  target = minio_s3_bucket.main
+  target = aws_s3_bucket.main
+  values = {
+    id     = "catalyst-test-example-com"
+    bucket = "catalyst-test-example-com"
+  }
+}
+
+override_resource {
+  target = aws_s3_bucket_acl.main
   values = {}
 }
 

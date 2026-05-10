@@ -654,30 +654,53 @@ resource "hcloud_load_balancer_service" "dns" {
 # product, for example), that is a Crossplane-managed XR/XRC, not a
 # rerun of this OpenTofu module.
 #
-# The aminueza/minio provider's `minio_s3_bucket` resource is idempotent:
-# applying twice against the same name returns the existing bucket without
-# error. This is critical because:
+# The hashicorp/aws provider's `aws_s3_bucket` resource is idempotent
+# enough for our needs: the Create handler issues a single CreateBucket
+# call. If the bucket already exists IN THE SAME ACCOUNT (Hetzner's
+# tenant-scoped S3 ownership model — the access key fully scopes the
+# tenant), Hetzner returns 200 OK + BucketAlreadyOwnedByYou which the
+# AWS SDK normalises into a no-op. This is critical because:
 #   - re-running `tofu apply` (e.g. operator changed worker count) must
 #     not bounce off the bucket with AlreadyExists
 #   - the wipe + re-provision flow (issue #318) destroys the Sovereign
 #     servers but does NOT destroy the bucket — Velero backup data must
 #     survive a control-plane reinstall
 #
+# Why we moved off `aminueza/minio v3.34.0`:
+#   That provider's Create handler post-create called DeleteBucketPolicy
+#   as part of state normalization. Hetzner Object Storage's standard
+#   read/write credentials don't grant `s3:DeleteBucketPolicy`, so the
+#   call returned AccessDenied and tofu rolled back the resource — even
+#   though Hetzner had created the bucket. Provisions #13 and #17 both
+#   wedged on this in <2 min. The aws provider does no such normalization;
+#   a successful CreateBucket is its terminal Create state. See the
+#   matching prose in versions.tf for the full root-cause writeup.
+#
 # We deliberately do NOT set `force_destroy = true`: a `tofu destroy` of
 # this module must NOT take the Velero archive with it. The operator
-# performs explicit bucket deletion via the Hetzner Console as a
-# separate, auditable step when a Sovereign is decommissioned.
-resource "minio_s3_bucket" "main" {
+# performs explicit bucket deletion via the Hetzner Console (or the
+# wipe-handler S3 purge step, when present) as a separate, auditable
+# step when a Sovereign is decommissioned.
+resource "aws_s3_bucket" "main" {
   bucket = var.object_storage_bucket_name
-  acl    = "private"
 
   # No `force_destroy` — see comment block above.
+}
 
-  # Object lock disabled: Velero relies on standard S3 versioning + the
-  # operator's retention policy, not on WORM semantics. Harbor stores
-  # immutable image layers but doesn't require object lock — the layer
-  # content-addressed digest IS the immutability guarantee.
-  object_locking = false
+# ACL is a separate resource on aws_s3_bucket (the bucket-level `acl`
+# argument was deprecated upstream when aws-provider 4.x split the ACL
+# into its own resource, and removed entirely from the bucket schema in
+# 5.x). Hetzner Object Storage supports the standard canned `private`
+# ACL; we set it explicitly so a bucket adopted from a previous
+# provisioning run can never be left world-readable by a stale ACL.
+#
+# Object lock is intentionally NOT configured: Velero relies on standard
+# S3 versioning + the operator's retention policy, not on WORM semantics.
+# Harbor stores immutable image layers but doesn't require object lock —
+# the layer content-addressed digest IS the immutability guarantee.
+resource "aws_s3_bucket_acl" "main" {
+  bucket = aws_s3_bucket.main.id
+  acl    = "private"
 }
 
 # ── Multi-region overlay (slice G1, EPIC-0 #1095) ─────────────────────────

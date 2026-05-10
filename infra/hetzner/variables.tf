@@ -612,8 +612,12 @@ variable "enable_fail2ban" {
 # Constraints baked into the rest of this module:
 #   1. No native `hcloud_object_storage_*` Terraform resource exists today
 #      (see versions.tf for the upstream provider audit). Bucket creation
-#      is delegated to the `aminueza/minio` provider, which speaks the
-#      S3 bucket API against `<region>.your-objectstorage.com`.
+#      is delegated to the `hashicorp/aws` provider configured against
+#      Hetzner's S3 endpoint (`<region>.your-objectstorage.com`). We
+#      moved off `aminueza/minio` in fix #133 because that provider's
+#      Create handler called DeleteBucketPolicy post-create, which
+#      Hetzner credentials cannot grant — see versions.tf for the full
+#      root-cause writeup.
 #   2. Hetzner does NOT expose a Cloud API to create S3 access keys
 #      programmatically — the operator issues them once in the Hetzner
 #      Console (Object Storage → Manage Credentials, secret half shown
@@ -766,11 +770,12 @@ variable "object_storage_bucket_name" {
     surfaces a free-form bucket-name input to the operator). Pattern:
     `catalyst-<sovereign-fqdn-with-dots-replaced-by-dashes>`.
 
-    The bucket is created idempotently via the `aminueza/minio` provider
-    in main.tf. Existing buckets with a matching name are adopted (the
-    minio_s3_bucket resource is idempotent on Create when the bucket
-    already exists in the same tenant — re-running `tofu apply` against
-    a previously-provisioned Sovereign is a no-op, never an error).
+    The bucket is created idempotently via the `hashicorp/aws` provider
+    in main.tf (Hetzner-pointed via versions.tf). Existing buckets with
+    a matching name in the same tenant return BucketAlreadyOwnedByYou
+    on Create, which the AWS SDK normalises into a no-op — re-running
+    `tofu apply` against a previously-provisioned Sovereign is therefore
+    a no-op, never an error.
   EOT
   validation {
     # S3 bucket naming rules:

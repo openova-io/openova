@@ -47,7 +47,7 @@ output "object_storage_region" {
 
 output "object_storage_bucket" {
   description = "Per-Sovereign Object Storage bucket name (catalyst-<sovereign-slug>)"
-  value       = minio_s3_bucket.main.bucket
+  value       = aws_s3_bucket.main.bucket
 }
 
 # ── Multi-region outputs (slice G1, EPIC-0 #1095) ─────────────────────────
