@@ -407,6 +407,17 @@ spec:
       #      creation rejected → 15m hook timeout → loop forever.
       # This Job runs at the very start of every install attempt and
       # guarantees a clean slate.
+      # 1.4.136 (qa-loop iter-1 Fix #124, secondary Fix #122): convert
+      # catalyst-gitea-token bootstrap from post-install to pre-install
+      # hook so catalyst-catalog + catalyst-organization-controller
+      # (which validate non-empty CATALYST_GITEA_TOKEN at startup) see
+      # a populated Secret at first container start. Prior post-install
+      # ordering caused chicken-and-egg deadlock: Deployments crashed
+      # because Secret was empty; mint Job ran AFTER Deployments,
+      # exponential back-off blew past Helm's 15m install timeout,
+      # remediation looped forever. Pre-install hook (weight=10) now
+      # populates the Secret (weight=5) BEFORE any consumer Deployment
+      # rolls. See Chart.yaml top comment for the full diagnostic chain.
       # 1.4.135 (qa-loop bounded-provision-cycle Fix #119): sanitize
       # illegal `/` in qa-fixtures Continuum mirror label value. Prov
       # #10 wedge — helm install crashed on Continuum CR validation
@@ -416,7 +427,7 @@ spec:
       # keys as the prefix separator). Split into two valid labels:
       # `openova.io/continuum-mirror-of-namespace` +
       # `openova.io/continuum-mirror-of-name`. Unblocks prov #11+.
-      version: 1.4.135
+      version: 1.4.136
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
