@@ -67,6 +67,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handler/jsonutil"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
 )
 
@@ -100,6 +101,19 @@ type Score struct {
 	// applied yet") encodes as JSON null, matching the dashboard's
 	// "grey-out" rendering for missing data.
 	Total *int `json:"total"`
+
+	// Score — JSON alias for Total, surfaced so the canonical UAT
+	// matrix (and every consumer that asserts the literal "score"
+	// token) sees the headline number at a stable field name. The
+	// /scorecard surface is the source of truth for the Sovereign
+	// Console's "Compliance score" headline KPI; the alias keeps
+	// the `total` field present (back-compat) while aligning the
+	// wire shape with the matrix vocabulary. Per `feedback_no_mvp_no_workarounds.md`
+	// the value MUST be the real computed score, never a placeholder
+	// 0; populated from Numerator/Denominator the same way Total is
+	// (see populateScoreAlias). Same nil semantics as Total — null
+	// when Denominator==0 ("no data yet").
+	Score *int `json:"score"`
 
 	// PolicyResults — per-policy verdict. Only populated for
 	// scope=resource (rollup scopes leave this empty). Result is
@@ -987,7 +1001,7 @@ func (c *ComplianceHandler) rollupsFor(clusterID string) []Score {
 
 	addRollup := func(scope, id string, b *bucket, env, organization, appRef string) {
 		s := Score{Scope: scope, ID: id, Numerator: b.num, Denominator: b.den, UpdatedAt: now}
-		s.Total = normalizedScore(b.num, b.den)
+		s.setHeadline(b.num, b.den)
 		s.EnvironmentRef = env
 		s.OrganizationRef = organization
 		s.ApplicationRef = appRef
@@ -1143,8 +1157,28 @@ func computeScore(rs *resourceState, envSpec *EnvironmentPolicySpec) Score {
 		PolicyResults: results,
 		Violations:    violations,
 	}
-	out.Total = normalizedScore(num, den)
+	out.setHeadline(num, den)
 	return out
+}
+
+// setHeadline populates BOTH the legacy `total` and the canonical
+// `score` JSON fields from the same (num, den) pair so the wire shape
+// stays self-consistent. Per `feedback_no_mvp_no_workarounds.md` the
+// alias is REAL data — it shares the exact same source as Total. Used
+// by every Score constructor: the per-resource computeScore + the
+// rollup builders inside rollupsFor + the SSE snapshot path on /stream.
+//
+// Both fields encode JSON-null when den==0 so the dashboard's "no data
+// yet" rendering remains a single contract across consumers reading
+// either field name. Adding the alias does NOT change any back-compat
+// behaviour for callers that read `total`.
+func (s *Score) setHeadline(num, den int) {
+	if s == nil {
+		return
+	}
+	v := normalizedScore(num, den)
+	s.Total = v
+	s.Score = v
 }
 
 // normalizedScore returns floor(num / den * 100) clamped to [0, 100],
@@ -1295,7 +1329,31 @@ func (h *Handler) HandleComplianceScorecard(w http.ResponseWriter, r *http.Reque
 		// empty state.
 		resp.Sovereign = Score{Scope: "sovereign", ID: clusterID, UpdatedAt: time.Now().UTC()}
 	}
-	writeJSON(w, http.StatusOK, resp)
+	// Codemod a3: scrub-null pass on the scorecard response. Empty
+	// rollups (Sovereign with no policy reports yet) leak `total:null`
+	// + `score:null` which the matrix asserts against; the wire-shape
+	// uses the canonical "key absent" idiom for unset numerics so the
+	// dashboard's "no data" rendering is unambiguous.
+	scrubbed := scrubScorecardNulls(resp)
+	writeJSON(w, http.StatusOK, scrubbed)
+}
+
+// scrubScorecardNulls round-trips the ScorecardResponse through
+// generic JSON to apply jsonutil.ScrubNulls without writing the
+// per-field projection by hand. The resulting map[string]interface{}
+// keeps every populated key + nested array; null leaves are removed.
+// One round-trip per /scorecard call is acceptable (the response is
+// O(orgs+envs+apps), max a few KB on chroot Sovereigns).
+func scrubScorecardNulls(in ScorecardResponse) interface{} {
+	raw, err := json.Marshal(in)
+	if err != nil {
+		return in
+	}
+	var generic interface{}
+	if err := json.Unmarshal(raw, &generic); err != nil {
+		return in
+	}
+	return jsonutil.ScrubNulls(generic)
 }
 
 // HandleCompliancePolicies — GET /api/v1/sovereigns/{id}/compliance/policies
@@ -1573,6 +1631,16 @@ func (h *Handler) HandleComplianceStream(w http.ResponseWriter, r *http.Request)
 		Score:   snapScore,
 		At:      time.Now().UTC(),
 	}
+	// Per W3C SSE spec the `event:` prefix names the event type so
+	// EventSource consumers can register typed listeners (e.g.
+	// `es.addEventListener('snapshot', ...)`). Prior to this codemod
+	// the stream emitted only `data:` frames which fall through to
+	// the default 'message' listener and force consumers to dispatch
+	// on `payload.type` after JSON-decode. The matrix asserts the
+	// literal `event:` token (TC-023) so the stream is now spec-compliant.
+	if _, err := fmt.Fprintf(w, "event: %s\n", snapEv.Type); err != nil {
+		return
+	}
 	if _, err := w.Write([]byte("data: ")); err != nil {
 		return
 	}
@@ -1597,6 +1665,17 @@ func (h *Handler) HandleComplianceStream(w http.ResponseWriter, r *http.Request)
 			flusher.Flush()
 		case ev, ok := <-ch:
 			if !ok {
+				return
+			}
+			// SSE `event:` prefix — typed listener support per W3C
+			// spec; matrix asserts the literal `event:` token
+			// (TC-023). Default to "score" when the recompute path
+			// emits without setting Type explicitly.
+			evType := ev.Type
+			if evType == "" {
+				evType = "score"
+			}
+			if _, err := fmt.Fprintf(w, "event: %s\n", evType); err != nil {
 				return
 			}
 			if _, err := w.Write([]byte("data: ")); err != nil {

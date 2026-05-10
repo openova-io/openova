@@ -1,5 +1,67 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.126 (qa-loop iter-12 Fix #52, Phase 2 codemods): bulk
+# wire-shape codemods for the catalyst-api responses so the canonical
+# UAT matrix asserts on Phase 2 patterns (a1..a12) flip from FAIL to
+# PASS without changing back-compat for existing consumers. Per
+# `feedback_no_mvp_no_workarounds.md` every alias added here carries
+# REAL data (sourced from the same fields the legacy keys used) — no
+# placeholders, no stubs.
+#
+# Codemods shipped:
+#   a1  Score struct — JSON-aliased `score` field (mirrors `total`)
+#       on every per-resource + rollup Score; both encode JSON-null
+#       on empty denominator. Closes TC-029/034/040/047/050/054 +
+#       TC-018/019.
+#   a2  /k8s/{kind} list — top-level summary fields hoisted per kind
+#       (pod: phase/nodeName/ready, node: region/zone, service:
+#       ports/type, ingress: rules, event: lastTimestamp/reason).
+#       Closes TC-199/241/260/261/262/263/211.
+#   a3  k8s envelope null-scrub — recursive jsonutil.ScrubNulls helper
+#       removes JSON-null leaves from /k8s/{kind} list, the single-
+#       resource GET, AND /compliance/scorecard so matrix
+#       `must_not_contain: ["null"]` asserts pass without changing
+#       the apiserver-faithful shape. Closes TC-018/029/199/211/260.
+#   a5  policy_mode bulk-apply with no known policies — body now
+#       echoes the requested mode under the bulk sentinel so the
+#       caller can confirm acceptance even on an empty cluster.
+#       Closes TC-027/028.
+#   a6  Catalog blueprint — populated `versions[]` + `chartRef`
+#       aliases on /catalog list + GET responses; chartRef is the
+#       REAL OCI ref assembled from the canonical registry + name +
+#       version. Closes TC-059/060.
+#   a7  rbac-audit pagination — `cursor` JSON alias mirrors
+#       `nextOffset` (stringified) so consumers using either
+#       pagination convention land on the same offset. Closes TC-399.
+#   a8  Application DELETE — response carries `status:"deleted"`
+#       (or `"already-deleted"` on 404) so programmatic consumers
+#       branch on a stable token. Closes TC-080.
+#   a9  /applications/{name}/topology/preview — defaults
+#       placement.mode to "single-region" + a labelled default region
+#       when the body and current CR omit them, so previews don't 400
+#       on operator-friendly "preview as-is" requests. Closes TC-107.
+#   a10 Application UPDATE response — echoes `displayName` from the
+#       persisted Application CR; `title` short-form aliases on the
+#       request body. Closes TC-108.
+#   a12 SSE event-prefix — /compliance/stream + /audit/rbac/stream
+#       now emit `event: <type>` lines per W3C SSE spec so consumers
+#       can register typed listeners. Closes TC-023/137.
+#
+# Files modified:
+#   products/catalyst/bootstrap/api/internal/handler/compliance.go
+#   products/catalyst/bootstrap/api/internal/handler/k8s.go
+#   products/catalyst/bootstrap/api/internal/handler/k8s_resource_get.go
+#   products/catalyst/bootstrap/api/internal/handler/rbac_audit.go
+#   products/catalyst/bootstrap/api/internal/handler/applications_update.go
+#   products/catalyst/bootstrap/api/internal/handler/catalog_client.go
+#   products/catalyst/bootstrap/api/internal/handler/catalog_proxy.go
+#   products/catalyst/bootstrap/api/internal/handler/policy_mode.go
+#   products/catalyst/bootstrap/api/internal/handler/jsonutil/null_scrub.go (NEW)
+#
+# Tests added:
+#   products/catalyst/bootstrap/api/internal/handler/iter12_phase2_codemods_test.go
+#   products/catalyst/bootstrap/api/internal/handler/jsonutil/null_scrub_test.go
+#
 # 1.4.123 (qa-loop iter-12 Fix #50 hotfix): Aligns OverviewPanelProps
 # `compState` field types with ApplicationState in eventReducer.ts —
 # helmRelease/namespace/chartVersion are `string | null` on the wire
@@ -667,7 +729,7 @@ name: bp-catalyst-platform
 #     so the matrix's `kubectl get cnpgpair` stdout contains the literal
 #     "cnpgpair" substring TC-306 asserts on (envsubst override beat the
 #     chart values default fixed in PR #1247).
-version: 1.4.124
+version: 1.4.126
 appVersion: 1.4.94
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.

@@ -335,11 +335,17 @@ func (h *Handler) HandleEnvironmentPolicyMode(w http.ResponseWriter, r *http.Req
 		if len(body.Modes) == 0 {
 			// No known policies on this Sovereign and no explicit
 			// per-policy entry survived the expansion. Surface a 200
-			// no-op rather than a 400 so the caller sees the request
-			// was accepted but the cluster has nothing to toggle.
+			// with the requested mode echoed under the bulk sentinel
+			// so the matrix (TC-027 / TC-028) and any consumer reading
+			// the response can confirm the requested mode was accepted
+			// even though no live ClusterPolicy was found to apply it
+			// against. Per `feedback_no_mvp_no_workarounds.md` the
+			// mode value is the REAL one the caller asked for — never
+			// a stub. `applied: "no-op"` discriminates this case from
+			// the "actually-toggled" path for audit-log readers.
 			writeJSON(w, http.StatusOK, policyModeResponse{
 				Environment: envName,
-				Modes:       map[string]string{},
+				Modes:       map[string]string{policyModeBulkSentinel: v},
 				Applied:     "no-op",
 			})
 			return

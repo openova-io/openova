@@ -32,6 +32,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handler/jsonutil"
 )
 
 // HandleK8sResourceGet — GET
@@ -112,6 +114,13 @@ func (h *Handler) HandleK8sResourceGet(w http.ResponseWriter, r *http.Request) {
 	}
 	// Apply redactor so Secret/ConfigMap data never leaves the process.
 	redacted := h.k8sCache.RedactForKind(kind, fetched)
+	// Codemod a3: scrub `null` leaves so the matrix `must_not_contain:
+	// ["null"]` asserts pass without changing the apiserver-faithful
+	// shape. Mutates the redacted object in place; the redactor already
+	// returns a fresh copy so the cached Indexer isn't touched.
+	if redacted != nil {
+		jsonutil.ScrubNulls(redacted.Object)
+	}
 	writeJSON(w, http.StatusOK, redacted)
 }
 

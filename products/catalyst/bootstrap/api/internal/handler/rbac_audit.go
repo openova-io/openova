@@ -66,7 +66,18 @@ type rbacAuditListResponse struct {
 	Items      []audit.Event `json:"items"`
 	Schema     []string      `json:"schema"`
 	NextOffset int           `json:"nextOffset,omitempty"`
-	Total      int           `json:"total"`
+	// Cursor — JSON alias for NextOffset, surfaced so the canonical
+	// UAT matrix (TC-399) and consumers using the conventional REST
+	// `cursor` pagination vocabulary see the offset under a stable
+	// field name. Same value as NextOffset; both fields are emitted
+	// only on non-final pages (omitempty). Per
+	// `feedback_no_mvp_no_workarounds.md` the alias carries REAL data
+	// — the same byte-for-byte offset NextOffset carries — never a
+	// placeholder. Kept stringly so future opaque-token cursors can
+	// land here without breaking the wire shape; today it's the
+	// decimal offset.
+	Cursor string `json:"cursor,omitempty"`
+	Total  int    `json:"total"`
 }
 
 // rbacAuditEventSchema lists the canonical field names a populated
@@ -173,6 +184,7 @@ func (h *Handler) HandleRBACAuditList(w http.ResponseWriter, r *http.Request) {
 	}
 	if offset+len(page) < len(filtered) {
 		resp.NextOffset = offset + len(page)
+		resp.Cursor = strconv.Itoa(resp.NextOffset)
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -233,6 +245,20 @@ func (h *Handler) HandleRBACAuditStream(w http.ResponseWriter, r *http.Request) 
 			flusher.Flush()
 		case ev, ok := <-ch:
 			if !ok {
+				return
+			}
+			// SSE `event:` prefix — typed-listener spec compliance
+			// (W3C SSE) so consumers can register
+			// `es.addEventListener('rbac-assign', ...)` without
+			// dispatching on the JSON body. Matrix asserts the
+			// literal `event:` token (TC-137). The audit type names
+			// (`rbac-assign`, `rbac-revoke`, …) come from the
+			// canonical audit.Event vocabulary.
+			evType := ev.AuditType
+			if evType == "" {
+				evType = "audit"
+			}
+			if _, err := fmt.Fprintf(w, "event: %s\n", evType); err != nil {
 				return
 			}
 			if _, err := w.Write([]byte("data: ")); err != nil {
