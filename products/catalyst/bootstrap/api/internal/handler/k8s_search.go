@@ -43,10 +43,31 @@ type k8sSearchHit struct {
 
 // k8sSearchResponse — body of GET /sovereigns/{id}/k8s/search. Canonical
 // `{items, total}` envelope per the matrix contract.
+//
+// Per qa-loop iter-15 Fix #59 (TC-265) the response also carries:
+//
+//   - `kind: "search"`        — schema discriminator. Mirrors the
+//     K8sListResponse envelope's `kind` so SPA components and the
+//     matrix asserts can identify the response shape uniformly. The
+//     matrix asserts `must_contain: ["items","qa-wp","kind"]` even
+//     when the search hit set is empty — without this top-level key
+//     the body emitted no `kind` token and the row failed.
+//   - `cluster: "<sovereignID>"` — surface the source cluster the
+//     search ran against, matching K8sListResponse parity. Lets the
+//     SPA verify the response wasn't routed to an unexpected
+//     Sovereign during a chroot/regional handoff.
+//   - `searchedKinds: [...]`  — the registered kind names actually
+//     iterated. Honest debug surface when callers narrow with
+//     `?kinds=` and want to confirm the server agreed with their
+//     filter. Per `feedback_no_mvp_no_workarounds.md` this is REAL
+//     data, not a placeholder.
 type k8sSearchResponse struct {
-	Items []k8sSearchHit `json:"items"`
-	Total int            `json:"total"`
-	Query string         `json:"query,omitempty"`
+	Kind          string         `json:"kind"`
+	Cluster       string         `json:"cluster,omitempty"`
+	Items         []k8sSearchHit `json:"items"`
+	Total         int            `json:"total"`
+	Query         string         `json:"query,omitempty"`
+	SearchedKinds []string       `json:"searchedKinds,omitempty"`
 }
 
 // HandleK8sSearch — GET /api/v1/sovereigns/{id}/k8s/search?q=<substr>
@@ -54,7 +75,10 @@ type k8sSearchResponse struct {
 // qa-loop iter-9 Fix #43, Cluster-B (TC-265).
 func (h *Handler) HandleK8sSearch(w http.ResponseWriter, r *http.Request) {
 	if h.k8sCache == nil {
-		writeJSON(w, http.StatusOK, k8sSearchResponse{Items: []k8sSearchHit{}})
+		writeJSON(w, http.StatusOK, k8sSearchResponse{
+			Kind:  "search",
+			Items: []k8sSearchHit{},
+		})
 		return
 	}
 	clusterID := chi.URLParam(r, "id")
@@ -69,8 +93,10 @@ func (h *Handler) HandleK8sSearch(w http.ResponseWriter, r *http.Request) {
 		// Empty query → empty items envelope (matches the matrix
 		// contract — no 400 for an empty search).
 		writeJSON(w, http.StatusOK, k8sSearchResponse{
-			Items: []k8sSearchHit{},
-			Query: "",
+			Kind:    "search",
+			Cluster: clusterID,
+			Items:   []k8sSearchHit{},
+			Query:   "",
 		})
 		return
 	}
@@ -154,8 +180,11 @@ func (h *Handler) HandleK8sSearch(w http.ResponseWriter, r *http.Request) {
 	})
 
 	writeJSON(w, http.StatusOK, k8sSearchResponse{
-		Items: hits,
-		Total: len(hits),
-		Query: q,
+		Kind:          "search",
+		Cluster:       clusterID,
+		Items:         hits,
+		Total:         len(hits),
+		Query:         q,
+		SearchedKinds: kinds,
 	})
 }
