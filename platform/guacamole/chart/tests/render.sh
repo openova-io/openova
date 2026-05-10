@@ -77,7 +77,15 @@ fi
 echo "PASS: empty image.tag fails fast"
 
 # ─────────────────────────────────────────────────────────────────────
-# 3. Full-ON: the canonical 9-resource bundle.
+# 3. Full-ON: the canonical 13-resource bundle.
+#
+# Pre-Fix-#125: 9 resources (Deployment x2, Service x2, HTTPRoute, PVC,
+# SealedSecret, NetworkPolicy, ConfigMap).
+#
+# Fix #125 (qa-loop iter-1 monitor) adds 4 more for the OIDC client-
+# secret bootstrap quartet (ServiceAccount + Role + RoleBinding + Job)
+# so the chart guarantees a usable `guacamole-oidc` Secret exists
+# BEFORE the webapp Deployment rolls. Total = 13.
 # ─────────────────────────────────────────────────────────────────────
 render_on="$TMP/on.yaml"
 helm template bp-guacamole . \
@@ -88,11 +96,7 @@ helm template bp-guacamole . \
   --set guacamole.oidc.issuer=https://kc.test/realms/catalyst \
   > "$render_on"
 
-# Check each canonical kind appears exactly once. We assert 9 distinct
-# `name:` headers under `^kind:` lines that start with one of the
-# expected kinds. `Deployment` appears twice (guacd + webapp) — Service
-# also appears twice — total = 9.
-expect_total=9
+expect_total=13
 got_total="$(grep -cE '^kind:' "$render_on")"
 if [[ "$got_total" != "$expect_total" ]]; then
   echo "FAIL: full-ON rendered $got_total resources, want $expect_total"
@@ -110,6 +114,10 @@ required_kinds=(
   SealedSecret
   NetworkPolicy
   ConfigMap
+  ServiceAccount
+  Role
+  RoleBinding
+  Job
 )
 for k in "${required_kinds[@]}"; do
   if ! grep -qE "^kind: ${k}$" "$render_on"; then
@@ -129,6 +137,73 @@ if ! grep -q "https://guacamole.test" "$render_on"; then
   exit 1
 fi
 echo "PASS: keycloak realm-config wires OIDC client"
+
+# ─────────────────────────────────────────────────────────────────────
+# 4. (Fix #125, qa-loop iter-1 monitor) OIDC bootstrap Job + RBAC.
+#
+# Asserts the bootstrap quartet exists with split RBAC verbs (per
+# memory/feedback_rbac_create_no_resourcenames.md) and the hook-weight
+# ordering invariant from Fix #95 (SA most-negative, Role/RoleBinding
+# intermediate, Job at -10 — lower number runs first).
+# ─────────────────────────────────────────────────────────────────────
+if ! grep -q 'name: bp-guacamole-oidc-bootstrap' "$render_on"; then
+  echo "FAIL: OIDC bootstrap Job/SA/Role/RoleBinding not rendered"
+  exit 1
+fi
+# `create` must appear in its own rule (no resourceNames on that line).
+if ! grep -qE 'verbs: \[ *"create" *\]|verbs:\s*-\s*create|verbs: \[create\]' "$render_on"; then
+  echo "FAIL: OIDC bootstrap Role missing split-out create verb"
+  exit 1
+fi
+echo "PASS: OIDC bootstrap quartet rendered with split verbs"
+
+# Hook-weight ordering — SA < Role <= RoleBinding < Job AND Job == -10.
+weights="$(awk '
+  /^kind:/                                           { kind=$2; weight="" }
+  /name: bp-guacamole-oidc-bootstrap$/               { is_oidc=1 }
+  /"helm\.sh\/hook-weight"/                          { gsub(/.*"helm\.sh\/hook-weight":[ ]*"/,""); gsub(/".*/,""); weight=$0 }
+  /^---$/ {
+    if (is_oidc && weight != "") print kind"="weight
+    is_oidc=0; kind=""; weight=""
+  }
+  END {
+    if (is_oidc && weight != "") print kind"="weight
+  }
+' "$render_on")"
+
+sa_w="$(echo "$weights" | grep -E '^ServiceAccount=' | head -1 | cut -d= -f2)"
+role_w="$(echo "$weights" | grep -E '^Role=' | head -1 | cut -d= -f2)"
+rb_w="$(echo "$weights" | grep -E '^RoleBinding=' | head -1 | cut -d= -f2)"
+job_w="$(echo "$weights" | grep -E '^Job=' | head -1 | cut -d= -f2)"
+
+if [[ -z "$sa_w" || -z "$role_w" || -z "$rb_w" || -z "$job_w" ]]; then
+  echo "FAIL: could not extract all four oidc-bootstrap hook-weights"
+  echo "Captured: SA=$sa_w Role=$role_w RoleBinding=$rb_w Job=$job_w"
+  echo "All weights:"
+  echo "$weights"
+  exit 1
+fi
+if (( sa_w >= role_w )); then
+  echo "FAIL: ordering — SA weight ($sa_w) must be LESS THAN Role weight ($role_w)"
+  exit 1
+fi
+if (( sa_w >= rb_w )); then
+  echo "FAIL: ordering — SA weight ($sa_w) must be LESS THAN RoleBinding weight ($rb_w)"
+  exit 1
+fi
+if (( role_w >= job_w )); then
+  echo "FAIL: ordering — Role weight ($role_w) must be LESS THAN Job weight ($job_w)"
+  exit 1
+fi
+if (( rb_w >= job_w )); then
+  echo "FAIL: ordering — RoleBinding weight ($rb_w) must be LESS THAN Job weight ($job_w)"
+  exit 1
+fi
+if [[ "$job_w" != "-10" ]]; then
+  echo "FAIL: Job weight is $job_w, want -10 (mirrors Fix #78 invariant)"
+  exit 1
+fi
+echo "PASS: hook-weight ordering — SA=$sa_w < Role=$role_w / RoleBinding=$rb_w < Job=$job_w"
 
 echo ""
 echo "All render tests passed."
