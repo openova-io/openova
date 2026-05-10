@@ -1,5 +1,15 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.112 (qa-loop iter-8 Fix #42 follow-up: env-controller EnsureBranch).
+# environment-controller now calls EnsureBranch right after EnsureRepo
+# so the env-type-mapped branch (`develop` for envType=dev) exists
+# before PutFile. Without this the production env-controller hit a
+# Gitea API quirk: PutFile to a missing branch returns 404 with
+# "repository" in the body, which the gitea client maps to
+# ErrRepoNotFound, dropping the controller into a permanent
+# `gitea repo not found — re-queueing` loop even though the repo
+# itself exists. Bug surfaced live on omantel after 1.4.111 rolled.
+#
 # 1.4.111 (qa-loop iter-8 Fix #42 controller image bump): bumps the
 # 3 controller image tags so the Sovereign actually consumes the
 # Fix #42 code:
@@ -402,7 +412,7 @@ name: bp-catalyst-platform
 #     so the matrix's `kubectl get cnpgpair` stdout contains the literal
 #     "cnpgpair" substring TC-306 asserts on (envsubst override beat the
 #     chart values default fixed in PR #1247).
-version: 1.4.111
+version: 1.4.112
 appVersion: 1.4.94
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.

@@ -38,6 +38,11 @@ type fakeGitea struct {
 	repos            map[string]struct{}
 	ensureRepoCalls  int
 	ensureRepoErrFor map[string]error
+
+	// ensureBranchCalls counts EnsureBranch invocations.
+	// ensureBranchErrFor (key=`org/repo/branch`) lets tests inject errors.
+	ensureBranchCalls  int
+	ensureBranchErrFor map[string]error
 }
 
 type upsertCall struct {
@@ -48,11 +53,12 @@ type upsertCall struct {
 
 func newFakeGitea() *fakeGitea {
 	return &fakeGitea{
-		orgs:             make(map[string]*gitea.Org),
-		orgErrors:        make(map[string]error),
-		files:            make(map[string][]byte),
-		repos:            make(map[string]struct{}),
-		ensureRepoErrFor: make(map[string]error),
+		orgs:               make(map[string]*gitea.Org),
+		orgErrors:          make(map[string]error),
+		files:              make(map[string][]byte),
+		repos:              make(map[string]struct{}),
+		ensureRepoErrFor:   make(map[string]error),
+		ensureBranchErrFor: make(map[string]error),
 	}
 }
 
@@ -72,6 +78,20 @@ func (f *fakeGitea) EnsureRepo(_ context.Context, org, repo, _ string, _ bool) (
 	}
 	f.repos[key] = struct{}{}
 	return gitea.Repo{Name: repo, FullName: key}, nil
+}
+
+// EnsureBranch is a no-op stub for the in-memory fake — the fake's
+// PutFile path doesn't gate on branch existence, so EnsureBranch is
+// purely a contract-compliance method here. ensureBranchCalls counts
+// invocations so tests can assert the production call site fires.
+// ensureBranchErrFor (org/repo/branch → err) lets tests inject errors.
+func (f *fakeGitea) EnsureBranch(_ context.Context, org, repo, branch string) error {
+	f.ensureBranchCalls++
+	key := org + "/" + repo + "/" + branch
+	if err, ok := f.ensureBranchErrFor[key]; ok && err != nil {
+		return err
+	}
+	return nil
 }
 
 func (f *fakeGitea) GetOrg(_ context.Context, org string) (gitea.Org, error) {

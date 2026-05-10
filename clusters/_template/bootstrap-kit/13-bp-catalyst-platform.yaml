@@ -313,13 +313,20 @@ spec:
       #     upsert so per-Application manifests get pulled by Flux on
       #     the host cluster.
       # Image tags bumped: org/env :1b29c71 → :72e3f08, app :3d1deef → :b321ada.
+      # 1.4.112 (Fix #42 follow-up): env-controller now calls
+      # EnsureBranch right after EnsureRepo so the env-type-mapped
+      # branch (`develop` for envType=dev) exists before PutFile.
+      # Without this Gitea returned 404 with "repository" in the body
+      # mapping to ErrRepoNotFound, dropping the controller into a
+      # permanent re-queue loop. Will need an env-controller image
+      # rebuild before the chart actually consumes the fix.
       # 1.4.109 (Fix #40 follow-up #2): drop /api/v1 from organization +
       # environment-controller GITEA URL defaults — Gitea client appends
       # it; the prior default produced /api/v1/api/v1/... 404s on
       # EnsureOrg / EnsureRepo blocking qa-wp Application reconcile.
       # bootstrap-kit qaFixtures.cnpgPairName default qa-cnpg → qa-cnpgpair
       # so TC-306's "cnpgpair" substring assertion passes.
-      version: 1.4.111
+      version: 1.4.112
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

@@ -70,6 +70,13 @@ type GiteaClient interface {
 		org, repo, description string,
 		private bool,
 	) (gitea.Repo, error)
+	// EnsureBranch was added in Fix #42 follow-up — Gitea returns 404
+	// on PutFile when the target branch doesn't exist (only `main` exists
+	// after EnsureRepo's auto_init), AND the 404 body contains the word
+	// "repository" so the gitea client maps it to ErrRepoNotFound rather
+	// than a benign branch-missing error. EnsureBranch creates the branch
+	// from `main` if absent; idempotent (409/422 → success).
+	EnsureBranch(ctx context.Context, org, repo, branch string) error
 	PutFile(
 		ctx context.Context,
 		org, repo, branch, path string,
@@ -258,6 +265,20 @@ func (r *EnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			cfg.RequeueAfter)
 	}
 	logger.V(1).Info("gitea repo ensured", "org", env.Spec.OrganizationRef, "repo", repo)
+
+	// 3b. Ensure the env-type-mapped branch exists (`develop`/`staging`/`main`
+	//     per BranchForEnvType + NAMING §11.2 item 1). EnsureRepo's auto_init
+	//     created `main` only; PutFile to a missing branch returns
+	//     ErrRepoNotFound (Gitea API quirk: 404 body contains "repository"
+	//     when the branch is missing on an existing repo). qa-loop iter-8
+	//     Fix #42 follow-up.
+	if err := r.Gitea.EnsureBranch(ctx, env.Spec.OrganizationRef, repo, branch); err != nil {
+		return r.markDegraded(ctx, &env, branch, subjectPrefix,
+			"GiteaBranchEnsureError",
+			fmt.Sprintf("EnsureBranch %s/%s/%s: %v", env.Spec.OrganizationRef, repo, branch, err),
+			cfg.RequeueAfter)
+	}
+	logger.V(1).Info("gitea branch ensured", "org", env.Spec.OrganizationRef, "repo", repo, "branch", branch)
 
 	vclusters := make([]envv1.EnvironmentVClusterStatus, 0, len(env.Spec.Regions))
 	now := metav1.Now()
