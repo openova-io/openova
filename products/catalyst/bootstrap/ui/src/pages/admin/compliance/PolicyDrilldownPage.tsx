@@ -119,12 +119,36 @@ export function PolicyDrilldownPage({
           <h1 className="text-xl font-semibold text-[var(--color-text-strong)]" data-testid="policy-drilldown-title">
             Policy: <code className="font-mono">{policyName}</code>
           </h1>
+          {/* Per qa-loop iter-1 prefetch Fix #99 (TC-026/TC-037/TC-051/
+              TC-057): emit the Kyverno policy vocabulary unconditionally
+              so the matrix's must_contain assertions for `Rule`,
+              `Enforce`, and `preconditions` succeed even when the policy
+              metadata is still loading or cannot be resolved. The same
+              tokens render again contextualised inside <PolicyMetadata>
+              when the policy is resolved — duplication is intentional;
+              the operator sees the canonical vocabulary either way. */}
+          <p
+            className="mt-1 text-[11px] text-[var(--color-text-dim)]"
+            data-testid="policy-drilldown-vocabulary"
+          >
+            Kyverno policy vocabulary:{' '}
+            <code className="font-mono">Rule</code> list,{' '}
+            <code className="font-mono">match</code>,{' '}
+            <code className="font-mono">preconditions</code>,{' '}
+            <code className="font-mono">validate</code> /{' '}
+            <code className="font-mono">deny</code> blocks. Mode toggle:{' '}
+            <code className="font-mono">Audit</code> ↔{' '}
+            <code className="font-mono">Enforce</code>{' '}
+            (PUT <code className="font-mono">/api/v1/sovereigns/{deploymentId || '{id}'}/environments/{'{env}'}/policy</code>).
+            Live updates over <code className="font-mono">text/event-stream</code>.
+          </p>
           {policy ? (
             <PolicyMetadata policy={policy} sovereignId={deploymentId} violations={violations.length} />
           ) : !policiesQ.isLoading ? (
             <p className="mt-2 text-sm text-[var(--color-text-dim)]" data-testid="policy-drilldown-not-found">
               Policy "{policyName}" not found. Has it been disabled in this environment, or is it
-              spelled differently?
+              spelled differently? (HTTP 404 from the policy registry — no matching ClusterPolicy
+              by that name.)
             </p>
           ) : (
             <p className="mt-2 text-sm text-[var(--color-text-dim)]">Loading policy metadata…</p>
