@@ -333,13 +333,17 @@ spec:
       # namespace is provisioned by helm-controller on install. Closes
       # matrix rows TC-068 / TC-100 / TC-204 / TC-262 / TC-263 (workload
       # Pod was landing in `omantel-platform` instead of `qa-omantel`).
+      # 1.4.116 (Fix #44 follow-up): chart re-publish to bake the
+      # rebuilt application-controller image (:24aab61) into values.yaml
+      # — chart 1.4.115 had stale tag (:a3ba200) because GH Actions
+      # silently filters bot pushes from triggering blueprint-release.
       # 1.4.109 (Fix #40 follow-up #2): drop /api/v1 from organization +
       # environment-controller GITEA URL defaults — Gitea client appends
       # it; the prior default produced /api/v1/api/v1/... 404s on
       # EnsureOrg / EnsureRepo blocking qa-wp Application reconcile.
       # bootstrap-kit qaFixtures.cnpgPairName default qa-cnpg → qa-cnpgpair
       # so TC-306's "cnpgpair" substring assertion passes.
-      version: 1.4.115
+      version: 1.4.116
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

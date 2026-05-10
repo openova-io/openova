@@ -167,6 +167,7 @@ jobs:
           grep -A4 "^  application:" "${VALUES}" | head -10
 
       - name: Commit and push values.yaml bump
+        id: deploy_commit
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         env:
           SHA_SHORT: ${{ steps.vars.outputs.sha_short }}
@@ -175,6 +176,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           if git diff --quiet products/catalyst/chart/values.yaml; then
             echo "no values.yaml change — already pinned to ${SHA_SHORT}"
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           git add products/catalyst/chart/values.yaml
@@ -182,3 +184,28 @@ jobs:
           # Pull-rebase to avoid races with parallel build commits.
           git pull --rebase --autostash origin main || true
           git push origin HEAD:main
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+
+      # GitHub Actions does NOT trigger workflows from bot pushes by
+      # default (anti-recursion safeguard). The bot commit above changes
+      # products/catalyst/chart/values.yaml which would normally fire
+      # blueprint-release.yaml's path filter — but bot pushes are
+      # silently filtered. Without this dispatch the rebuilt image is
+      # NEVER baked into a new chart version, so Sovereigns keep
+      # installing the previous chart with the previous image tag, and
+      # `feedback_no_mvp_no_workarounds.md` rule 1 is violated (operator
+      # has to manually click "Run workflow" or push a Chart.yaml bump).
+      # Caught live 2026-05-10 (qa-loop iter-10 Fix #44) — chart 1.4.115
+      # was published from the merge commit (which still had the old
+      # image tag), so the chart shipped with the WRONG image despite
+      # the auto-bump landing seconds later.
+      - name: Dispatch blueprint-release for chart re-publish
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && steps.deploy_commit.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run blueprint-release.yaml \
+            --repo "${GITHUB_REPOSITORY}" \
+            --ref main \
+            -f blueprint=catalyst \
+            -f tree=products
