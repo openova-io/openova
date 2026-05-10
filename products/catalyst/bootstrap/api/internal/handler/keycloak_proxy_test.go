@@ -68,6 +68,43 @@ type fakeKCAdminClient struct {
 	// ListClientRoles
 	clientRoles    []keycloak.RealmRole
 	clientRolesErr error
+
+	// ── Fix #104 admin proxy stubs ──────────────────────────────
+	// FindClientByClientID
+	findClient       keycloak.OIDCClient
+	findClientErr    error
+	lastFindClientID string
+	// ListRealmRoleComposites (TC-125)
+	composites           []keycloak.RealmRole
+	compositesErr        error
+	lastCompositesParent string
+	// ListIdentityProviders / CreateIdentityProvider / GetIdentityProvider
+	idps            []keycloak.IdentityProvider
+	listIdPsErr     error
+	createIdPErr    error
+	lastCreatedIdP  keycloak.IdentityProvider
+	getIdP          keycloak.IdentityProvider
+	getIdPErr       error
+	lastGetIdPAlias string
+	// CreateIdentityProviderMapper (TC-161)
+	createMapperErr error
+	lastMapperAlias string
+	lastMapper      keycloak.IdentityProviderMapper
+	// PasswordGrantToken (TC-176)
+	tokenBody         []byte
+	tokenStatus       int
+	tokenErr          error
+	lastTokenClientID string
+	lastTokenUsername string
+	lastTokenPassword string
+	// ListClientServiceAccountRealmRoles (TC-190)
+	saRolesBody   []byte
+	saRolesStatus int
+	saRolesErr    error
+	lastSAUUID    string
+	// ListClients (TC-285)
+	allClients     []keycloak.OIDCClient
+	listClientsErr error
 }
 
 func (f *fakeKCAdminClient) SearchUsers(_ context.Context, search string, limit int) ([]keycloak.User, error) {
@@ -158,12 +195,76 @@ func (f *fakeKCAdminClient) ListClientRoles(_ context.Context, _ string) ([]keyc
 }
 
 // FindClientByClientID — qa-loop iter-9 Fix #43, Cluster-B (TC-146)
-// stub. Tests don't exercise the human-readable-id path; the
-// production handler falls back to the empty-items envelope when the
-// returned OIDCClient.ID is empty so this minimal stub keeps existing
-// behaviour for tests that pass a UUID-shaped clientId.
-func (f *fakeKCAdminClient) FindClientByClientID(_ context.Context, _ string) (keycloak.OIDCClient, error) {
-	return keycloak.OIDCClient{}, nil
+// + Fix #104 stub. Records the lookup so the admin-proxy tests can
+// assert on the resolved clientId. Returns the configured stub
+// OIDCClient (empty by default → handler treats as not-found).
+func (f *fakeKCAdminClient) FindClientByClientID(_ context.Context, clientID string) (keycloak.OIDCClient, error) {
+	f.lastFindClientID = clientID
+	if f.findClientErr != nil {
+		return keycloak.OIDCClient{}, f.findClientErr
+	}
+	return f.findClient, nil
+}
+
+// ── Fix #104 admin proxy stubs ───────────────────────────────────────
+
+func (f *fakeKCAdminClient) ListRealmRoleComposites(_ context.Context, parentName string) ([]keycloak.RealmRole, error) {
+	f.lastCompositesParent = parentName
+	if f.compositesErr != nil {
+		return nil, f.compositesErr
+	}
+	return f.composites, nil
+}
+
+func (f *fakeKCAdminClient) ListIdentityProviders(_ context.Context) ([]keycloak.IdentityProvider, error) {
+	if f.listIdPsErr != nil {
+		return nil, f.listIdPsErr
+	}
+	return f.idps, nil
+}
+
+func (f *fakeKCAdminClient) CreateIdentityProvider(_ context.Context, idp keycloak.IdentityProvider) error {
+	f.lastCreatedIdP = idp
+	return f.createIdPErr
+}
+
+func (f *fakeKCAdminClient) GetIdentityProvider(_ context.Context, alias string) (keycloak.IdentityProvider, error) {
+	f.lastGetIdPAlias = alias
+	if f.getIdPErr != nil {
+		return keycloak.IdentityProvider{}, f.getIdPErr
+	}
+	return f.getIdP, nil
+}
+
+func (f *fakeKCAdminClient) CreateIdentityProviderMapper(_ context.Context, alias string, mapper keycloak.IdentityProviderMapper) error {
+	f.lastMapperAlias = alias
+	f.lastMapper = mapper
+	return f.createMapperErr
+}
+
+func (f *fakeKCAdminClient) PasswordGrantToken(_ context.Context, oidcClientID, username, password string) ([]byte, int, error) {
+	f.lastTokenClientID = oidcClientID
+	f.lastTokenUsername = username
+	f.lastTokenPassword = password
+	if f.tokenErr != nil {
+		return nil, 0, f.tokenErr
+	}
+	return f.tokenBody, f.tokenStatus, nil
+}
+
+func (f *fakeKCAdminClient) ListClientServiceAccountRealmRoles(_ context.Context, oidcClientUUID string) ([]byte, int, error) {
+	f.lastSAUUID = oidcClientUUID
+	if f.saRolesErr != nil {
+		return nil, 0, f.saRolesErr
+	}
+	return f.saRolesBody, f.saRolesStatus, nil
+}
+
+func (f *fakeKCAdminClient) ListClients(_ context.Context) ([]keycloak.OIDCClient, error) {
+	if f.listClientsErr != nil {
+		return nil, f.listClientsErr
+	}
+	return f.allClients, nil
 }
 
 // ── Test scaffolding ─────────────────────────────────────────────────
