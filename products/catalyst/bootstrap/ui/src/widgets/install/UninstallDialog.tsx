@@ -81,8 +81,9 @@ export function UninstallDialog({
           underlying data (PVCs / databases / object storage) survives unless the Blueprint
           declares otherwise.
         </p>
-        <p className="mb-2 text-xs text-[var(--color-text-dim)]">
-          Type <code className="font-mono text-red-300">{applicationName}</code> to confirm:
+        <p className="mb-2 text-xs text-[var(--color-text-dim)]" data-testid="uninstall-dialog-confirm-prompt">
+          Type the application name —{' '}
+          <code className="font-mono text-red-300">{applicationName}</code> — to confirm:
         </p>
         <input
           type="text"

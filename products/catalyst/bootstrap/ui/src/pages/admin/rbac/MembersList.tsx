@@ -145,7 +145,7 @@ export function MembersList({
           onClick={() => setAddOpen(true)}
           className="rounded-md bg-[var(--color-accent)] px-3 py-1.5 text-xs font-medium text-white hover:opacity-90"
         >
-          + Add member
+          + Add Member
         </button>
       </div>
 
@@ -170,7 +170,7 @@ export function MembersList({
             ) : rows.length === 0 ? (
               <tr>
                 <td colSpan={5} data-testid="members-empty" className="px-3 py-4 text-center text-xs text-[var(--color-text-dim)]">
-                  No members yet for this {scope.kind}. Click "Add member" to grant access.
+                  No members yet for this {scope.kind}. Click "Add Member" to grant access.
                 </td>
               </tr>
             ) : (
@@ -334,7 +334,7 @@ function AddMemberModal({
       data-testid="members-add-modal"
       role="dialog"
       aria-modal="true"
-      aria-label="Add member"
+      aria-label="Add Member"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose()
@@ -342,7 +342,7 @@ function AddMemberModal({
     >
       <div className="w-full max-w-md rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] p-4 shadow-xl">
         <h3 className="mb-3 text-sm font-semibold text-[var(--color-text-strong)]">
-          Add member —{' '}
+          Add Member —{' '}
           <code className="font-mono text-[var(--color-text)]">{scope.value}</code>
         </h3>
         <p className="mb-3 text-xs text-[var(--color-text-dim)]">
