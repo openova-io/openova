@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-keycloak
-version: 1.4.1
+version: 1.5.0
 description: |
   Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
   upstream `keycloak` chart (bitnami) as a Helm subchart so
@@ -27,6 +27,15 @@ description: |
   at catalyst-api startup. Without these, GET /admin/realms/<r>/roles/<n>
   returned 403 and EnsureRealmRole gave up after 5 retries → TC-248
   failure on the access-matrix UI.
+  1.5.0 (qa-loop iter-12 Fix #53, target-state realm-per-Sovereign):
+  parameterize the realm name via .Values.sovereignRealm.name (default
+  "sovereign" for backward compat). Per-Sovereign overlays now set this
+  to the tenant short-name (e.g. omantel.omani.works → "omantel") so
+  matrix tests asserting `/admin/realms/<tenant>/...` paths PASS. Both
+  the realm import JSON (`"realm": "<name>"`) and the catalyst-kc-sa-
+  credentials Secret `realm` key flow from the same value, keeping
+  Keycloak realm and catalyst-api CATALYST_KC_REALM env in sync. Closes
+  TC-124, TC-125, TC-159, TC-160, TC-161, TC-176, TC-190, TC-285.
 type: application
 keywords: [catalyst, blueprint, keycloak]
 maintainers:

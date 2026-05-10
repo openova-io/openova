@@ -38,7 +38,7 @@ spec:
   chart:
     spec:
       chart: bp-keycloak
-      version: 1.3.0
+      version: 1.5.0
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak
@@ -58,10 +58,17 @@ spec:
     timeout: 15m
     remediation:
       retries: 3
-  # Per-Sovereign overrides — issue #387 + #604:
+  # Per-Sovereign overrides — issue #387 + #604 + qa-loop iter-12:
   # Wire the per-Sovereign hostname into the HTTPRoute template and
   # sovereign realm ConfigMap (catalyst-ui redirect URIs).
+  # sovereignRealm.name: per `feedback_no_mvp_no_workarounds.md` target-state
+  # rule, each Sovereign owns its KC realm named after the tenant short-name.
+  # Matrix tests (TC-124, TC-125, TC-159, TC-160, TC-161, TC-176, TC-190,
+  # TC-285) assert paths like `/admin/realms/omantel/...`.
   values:
     sovereignFQDN: omantel.omani.works
+    sovereignRealm:
+      name: omantel
+      displayName: "Omantel Sovereign"
     gateway:
       host: auth.omantel.omani.works

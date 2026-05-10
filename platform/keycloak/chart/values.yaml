@@ -34,8 +34,19 @@ sovereignFQDN: ""
 # template emits the realm import ConfigMap and keycloakConfigCli references it
 # via existingConfigmap. Set false only if running Keycloak without the Sovereign
 # realm (e.g. Catalyst-Zero admin-only install — tracked as future work).
+#
+# sovereignRealm.name: the Keycloak realm name imported by keycloak-config-cli.
+# Per `feedback_no_mvp_no_workarounds.md` (target-state = each Sovereign owns
+# its KC realm), the canonical realm name is the Sovereign's tenant short-name
+# (e.g. `omantel` for omantel.omani.works, `acme` for acme.openova.io). The
+# chroot bootstrap-kit overlay supplies it. Default `sovereign` is kept ONLY
+# for backward-compat with overlays that haven't been migrated; new Sovereigns
+# MUST set this to their tenant short-name. Matrix tests assert paths like
+# `/admin/realms/{name}/...` so the value must match the operator's tenant
+# convention.
 sovereignRealm:
   enabled: true
+  name: "sovereign"
 
 # catalystApiServerClientSecret: the client secret for the catalyst-api-server
 # confidential client in the sovereign realm.
