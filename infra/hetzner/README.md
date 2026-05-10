@@ -378,4 +378,31 @@ If you find yourself adding any of these to `main.tf`, you're violating [`docs/I
 
 ---
 
+## Editing `*.tftpl` — escape `${VAR:-default}` in comments
+
+OpenTofu's `templatefile()` parses **every** `${...}` interpolation in a `.tftpl` file regardless of whether it appears inside a YAML comment, an HCL string, or a shell heredoc. When the interpolation contains a colon (`${VAR:-default}` — the bash default-value shape envsubst uses on the Sovereign), tofu rejects it with:
+
+```
+Error: Extra characters after interpolation expression;
+Template interpolation doesn't expect a colon at this location.
+```
+
+The colon is reserved in HCL's interpolation grammar (it's the conditional-expression `cond ? a : b` operator).
+
+**Fix:** prefix the dollar with another dollar — `$$` is HCL's literal-dollar escape and emits one literal `$` from `templatefile()`:
+
+```yaml
+# WRONG — breaks `tofu plan`:
+# slot 13 reads via ${QA_FIXTURES_ENABLED:-false} and the …
+
+# RIGHT — survives templatefile() and reaches the shell as ${QA_FIXTURES_ENABLED:-false}:
+# slot 13 reads via $${QA_FIXTURES_ENABLED:-false} and the …
+```
+
+This applies to **comments AND code lines**. Code lines also fail `tofu validate`; comment lines do not, so a CI guard in [`.github/workflows/infra-hetzner-tofu.yaml`](../../.github/workflows/infra-hetzner-tofu.yaml) (added by Fix #111 after PR #1311 / PR #1328) greps every `*.tftpl` here for the unescaped pattern and fails the workflow if any are introduced.
+
+History: PR #1311 (Fix #73) shipped exactly this bug, broke `tofu plan` immediately, wasted ~30 min of provision-cycle on prov #9 before PR #1328 caught the one offender. The CI guard exists to ensure it never recurs.
+
+---
+
 *Part of the public OpenOva Catalyst monorepo. See [`docs/SOVEREIGN-PROVISIONING.md`](../../docs/SOVEREIGN-PROVISIONING.md) for the end-to-end provisioning narrative and [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) for the resource budget that drives the sizing defaults.*

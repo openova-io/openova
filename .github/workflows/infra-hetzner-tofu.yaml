@@ -52,6 +52,53 @@ jobs:
       - name: tofu validate
         run: tofu validate
 
+      # Fix #111 (2026-05-10) — guard against the PR #1311 regression class.
+      #
+      # tftpl files (cloudinit-control-plane.tftpl, cloudinit-worker.tftpl,
+      # any future *.tftpl) are consumed by tofu's `templatefile()` function
+      # which parses ALL `${...}` interpolation sequences regardless of
+      # YAML/HCL/shell context — including ones that appear inside YAML
+      # comments. When a comment references a downstream shell-envsubst
+      # variable like `${QA_FIXTURES_ENABLED:-false}`, tofu sees the colon
+      # inside the interpolation and dies with:
+      #
+      #     Error: Extra characters after interpolation expression;
+      #     Template interpolation doesn't expect a colon at this location.
+      #
+      # PR #1311 (Fix #73) shipped exactly this bug, broke `tofu plan`
+      # immediately, and prov #9 (4204f0b0c5e37a80) wasted ~30 min before
+      # PR #1328 caught and escaped the one offender. Without a CI guard,
+      # the next operator who adds a similar comment will repeat the
+      # incident.
+      #
+      # The fix is to use HCL's literal-dollar escape: `$$` → emits one
+      # literal `$` from templatefile(), so `$${VAR:-default}` survives
+      # tofu and reaches the cloud-init shell as `${VAR:-default}`.
+      #
+      # This grep scans every *.tftpl in infra/hetzner/ for any line that:
+      #   - starts with `#` (a comment) — leading whitespace optional
+      #   - contains a single-`$` `${UPPERCASE_VAR:-...}` interpolation —
+      #     the colon-in-interpolation shape that breaks tofu
+      # and fails the build with an actionable error message. The regex
+      # uses PCRE's negative lookbehind `(?<!\$)` so correctly-escaped
+      # `$${VAR:-default}` (which expands to literal `${VAR:-default}` after
+      # templatefile()) does NOT trip the guard. Code lines (non-comment)
+      # that reference shell vars are caught at `tofu validate` time; this
+      # guard plugs the comment-line gap that validate misses because
+      # templatefile() doesn't actually run during `validate`.
+      #
+      # Ubuntu-latest runners ship GNU grep with PCRE (`-P`) enabled.
+      - name: tftpl shell-expansion escape guard (Fix #111)
+        run: |
+          set -euo pipefail
+          violations=$(grep -rEnP '^\s*#.*(?<!\$)\$\{[A-Z_]+:-' *.tftpl || true)
+          if [ -n "$violations" ]; then
+            echo "::error title=Unescaped tftpl shell expansion::Use \$\${VAR:-default} (double-dollar) in tftpl YAML comments — bare \${VAR:-default} is consumed by tofu's templatefile() and breaks 'tofu plan' with 'Template interpolation doesn't expect a colon at this location' (see PR #1311 / PR #1328 / Fix #111)."
+            echo "Offending lines:"
+            echo "$violations"
+            exit 1
+          fi
+
       - name: tofu test (offline — mock_provider + override_resource)
         # The module's tests/multi_region.tftest.hcl exercises the
         # multi-region wiring shape WITHOUT touching real Hetzner.
