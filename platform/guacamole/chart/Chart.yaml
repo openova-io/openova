@@ -33,7 +33,7 @@ name: bp-guacamole
 # Sovereign's Harbor docker.io proxy doesn't have it cached, leaving
 # the migration Job in ImagePullBackOff and the bp-guacamole HR
 # Reconciling forever.
-version: 0.1.13
+version: 0.1.14
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless
