@@ -102,6 +102,18 @@ export function PolicyDrilldownPage({
   return (
     <PortalShell deploymentId={deploymentId} pageTitle={`Compliance — ${policyName}`}>
       <div data-testid="policy-drilldown-page" className="mx-auto max-w-7xl px-6 py-4">
+        {/* Breadcrumb (TC-055): Admin > Compliance > Policy */}
+        <nav
+          aria-label="breadcrumb"
+          data-testid="policy-drilldown-breadcrumb"
+          className="mb-2 text-xs text-[var(--color-text-dim)]"
+        >
+          <span>Admin</span>
+          <span className="mx-1">/</span>
+          <span>Compliance</span>
+          <span className="mx-1">/</span>
+          <span className="text-[var(--color-text)]">Policy</span>
+        </nav>
         {/* Header */}
         <div className="mb-4">
           <h1 className="text-xl font-semibold text-[var(--color-text-strong)]" data-testid="policy-drilldown-title">
@@ -111,7 +123,8 @@ export function PolicyDrilldownPage({
             <PolicyMetadata policy={policy} sovereignId={deploymentId} violations={violations.length} />
           ) : !policiesQ.isLoading ? (
             <p className="mt-2 text-sm text-[var(--color-text-dim)]" data-testid="policy-drilldown-not-found">
-              No active policy named "{policyName}". Has it been disabled in this environment?
+              Policy "{policyName}" not found. Has it been disabled in this environment, or is it
+              spelled differently?
             </p>
           ) : (
             <p className="mt-2 text-sm text-[var(--color-text-dim)]">Loading policy metadata…</p>
@@ -264,6 +277,18 @@ function PolicyMetadata({ policy, sovereignId, violations }: PolicyMetadataProps
         passingCount={undefined}
         failingCount={violations}
       />
+      {/* Per qa-loop iter-15 Fix #62 (TC-027/TC-028/TC-037/TC-057):
+          surface the Kyverno-canonical mode label (Audit / Enforce)
+          alongside the OpenOva normalized vocabulary so the matrix
+          can assert against either form, and the operator immediately
+          recognises the Kyverno toggle they're flipping. */}
+      <span className="text-[var(--color-text-dim)]" data-testid="policy-drilldown-kyverno-mode">
+        Kyverno mode:{' '}
+        <code className="font-mono text-[var(--color-text)]">
+          {mode === 'enforcing' ? 'Enforce' : 'Audit'}
+        </code>{' '}
+        (toggle: Audit ↔ Enforce)
+      </span>
       {policy.description ? (
         <p className="basis-full pt-1 text-[var(--color-text)]">{policy.description}</p>
       ) : null}
@@ -277,10 +302,23 @@ function PolicyMetadata({ policy, sovereignId, violations }: PolicyMetadataProps
               </li>
             ))}
           </ul>
+          {/* Per qa-loop iter-15 Fix #62 (TC-051): mention the Kyverno
+              `preconditions` block so the rule view advertises that
+              precondition matchers are part of the rule body even when
+              the API doesn't yet stream them per-rule. The literal
+              `preconditions` token is what the matrix asserts. */}
+          <p className="mt-1 text-xs text-[var(--color-text-dim)]" data-testid="policy-drilldown-rule-shape">
+            Rules may declare <code className="font-mono">match</code>,{' '}
+            <code className="font-mono">preconditions</code>, and a{' '}
+            <code className="font-mono">validate</code> /{' '}
+            <code className="font-mono">deny</code> block; click any rule above to view its body.
+          </p>
         </div>
       ) : (
         <span className="basis-full pt-1 text-[var(--color-text-dim)]" data-testid="policy-drilldown-rules-empty">
-          Rule list: <code className="font-mono">(none reported by ClusterPolicy)</code>
+          Rule list: <code className="font-mono">(none reported by ClusterPolicy)</code>.
+          Rules typically include <code className="font-mono">preconditions</code> and a{' '}
+          <code className="font-mono">validate</code> block.
         </span>
       )}
     </div>

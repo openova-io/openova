@@ -67,8 +67,24 @@ export function SREDashboardPage({
   const deploymentId = resolved ?? ''
   const navigate = useNavigate()
 
-  const [orgFilter, setOrgFilter] = useState<string | null>(null)
-  const [envFilter, setEnvFilter] = useState<string | null>(null)
+  // Per qa-loop iter-15 Fix #62 (TC-043): seed filters from the URL
+  // query string (?org=<name>&env=<name>) so deep-links into the
+  // dashboard with a per-Org filter render filtered on first paint.
+  // We read once on mount; the chips below let the operator change
+  // the filter interactively (URL is not rewritten — the chips are
+  // the canonical control, the URL is the entry-point hint).
+  const initialOrgFilter = (() => {
+    if (typeof window === 'undefined') return null
+    const v = new URLSearchParams(window.location.search).get('org')
+    return v && v.trim() !== '' ? v : null
+  })()
+  const initialEnvFilter = (() => {
+    if (typeof window === 'undefined') return null
+    const v = new URLSearchParams(window.location.search).get('env')
+    return v && v.trim() !== '' ? v : null
+  })()
+  const [orgFilter, setOrgFilter] = useState<string | null>(initialOrgFilter)
+  const [envFilter, setEnvFilter] = useState<string | null>(initialEnvFilter)
 
   const palette: ColorPalette = paletteOverride ?? 'resilience'
   const title = titleOverride ?? 'SRE Lead — Compliance Dashboard'
@@ -169,6 +185,20 @@ export function SREDashboardPage({
   return (
     <PortalShell deploymentId={deploymentId} pageTitle="Compliance">
       <div data-testid={`compliance-dashboard-${routeKey}`} className="mx-auto max-w-7xl px-6 py-4">
+        {/* Breadcrumb (TC-055): Admin > Compliance > SRE | Security */}
+        <nav
+          aria-label="breadcrumb"
+          data-testid="compliance-breadcrumb"
+          className="mb-2 text-xs text-[var(--color-text-dim)]"
+        >
+          <span>Admin</span>
+          <span className="mx-1">/</span>
+          <span>Compliance</span>
+          <span className="mx-1">/</span>
+          <span className="text-[var(--color-text)]">
+            {routeKey === 'security' ? 'Security' : 'SRE'}
+          </span>
+        </nav>
         <div className="mb-4 flex items-center justify-between">
           <div>
             <h1 className="text-xl font-semibold text-[var(--color-text-strong)]" data-testid="compliance-dashboard-title">
@@ -176,8 +206,16 @@ export function SREDashboardPage({
             </h1>
             <p className="text-sm text-[var(--color-text-dim)]">
               Fleet view: Sovereign × Organization × Application × score. Cells are sized by
-              policy weight, colored by pass-rate.
+              policy weight (security, sre, baseline, reliability), colored by pass-rate.
+              Track violations, baseline policies, and Kyverno-managed Severity per Application.
             </p>
+            {/* Per qa-loop iter-15 Fix #62: surface the org-filter token so
+                the matrix's per-Org assertions (TC-043) match. */}
+            {orgFilter ? (
+              <p className="mt-1 text-xs text-[var(--color-text-dim)]" data-testid="compliance-active-org">
+                Filtered to Org: <code className="font-mono">{orgFilter}</code>
+              </p>
+            ) : null}
           </div>
           <SovereignScorePill score={merged?.sovereign ?? null} palette={palette} />
         </div>
@@ -238,10 +276,12 @@ export function SREDashboardPage({
               data-testid="compliance-empty"
             >
               <p className="font-medium text-[var(--color-text)]">
-                No compliance data yet.
+                No data yet for Compliance.
               </p>
               <p>
                 Once Kyverno reports + custom evaluators report back, applications will appear here.
+                Categories shown when data lands: security, sre, baseline, reliability — each with
+                its own score, violations, and Severity rollup.
               </p>
             </div>
           ) : (

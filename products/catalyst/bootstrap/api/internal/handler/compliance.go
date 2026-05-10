@@ -201,12 +201,52 @@ type Violation struct {
 
 // ScorecardResponse is the /scorecard endpoint shape. Sorted
 // children at every level for stable rendering.
+//
+// Per qa-loop iter-15 Fix #62 the response carries an additional
+// `items` array + per-category breakdown (`security`, `sre`, `baseline`)
+// per the canonical UAT matrix TC-018 contract. The category breakdown
+// is computed from the same per-resource Score state by partitioning
+// PolicyViews on the `policies.kyverno.io/category` annotation:
+//
+//   - "security"  — PSS / RBAC / Kyverno security policies
+//   - "sre"       — Reliability / availability / SLO policies
+//   - "baseline"  — Pod / namespace baseline (the K-slice baseline tier)
+//
+// Categories are ALWAYS rendered (even when their numerator is zero) so
+// the `score` literal + each category key are present at every wire
+// shape — the matrix asserts both presence + the absence of `null`.
 type ScorecardResponse struct {
 	Sovereign     Score   `json:"sovereign"`
 	Organizations []Score `json:"organizations"`
 	Environments  []Score `json:"environments"`
 	Applications  []Score `json:"applications"`
-	GeneratedAt   time.Time `json:"generatedAt"`
+	// Items — flat slice of every Score in the document. Lets matrix
+	// consumers grep `items` once without walking each rollup level.
+	// Sorted by (Scope, ID) for stable rendering.
+	Items []Score `json:"items"`
+	// CategoryScores — per-category headline numbers. Keyed on canonical
+	// category names: "security", "sre", "baseline". Always present
+	// (zero-denominator entries render `score:0`, never `null`).
+	CategoryScores map[string]CategoryScore `json:"categoryScores"`
+	// Security/SRE/Baseline — flat aliases the matrix asserts on. The
+	// alias mirrors CategoryScores[name].Score so a consumer that wants
+	// the headline number doesn't have to descend into the map.
+	Security    int       `json:"security"`
+	SRE         int       `json:"sre"`
+	Baseline    int       `json:"baseline"`
+	GeneratedAt time.Time `json:"generatedAt"`
+}
+
+// CategoryScore — per-category headline (security / sre / baseline).
+// Score is normalised to [0, 100]; Numerator/Denominator surface the
+// raw aggregation behind it. PolicyCount is the number of distinct
+// policies contributing to this category (so the UI can render
+// "<n> policies" alongside the score).
+type CategoryScore struct {
+	Score       int `json:"score"`
+	Numerator   int `json:"numerator"`
+	Denominator int `json:"denominator"`
+	PolicyCount int `json:"policyCount"`
 }
 
 // ── Configuration (env-driven, per INVIOLABLE-PRINCIPLES #4) ─────────────
@@ -1309,7 +1349,8 @@ func (h *Handler) HandleComplianceScorecard(w http.ResponseWriter, r *http.Reque
 	clusterID = h.resolveChrootClusterID(clusterID)
 	rolls := h.compliance.rollupsFor(clusterID)
 	resp := ScorecardResponse{
-		GeneratedAt: time.Now().UTC(),
+		GeneratedAt:    time.Now().UTC(),
+		CategoryScores: map[string]CategoryScore{},
 	}
 	for _, s := range rolls {
 		switch s.Scope {
@@ -1322,12 +1363,48 @@ func (h *Handler) HandleComplianceScorecard(w http.ResponseWriter, r *http.Reque
 		case "application":
 			resp.Applications = append(resp.Applications, s)
 		}
+		resp.Items = append(resp.Items, s)
 	}
 	if resp.Sovereign.Scope == "" {
 		// No data yet — return a well-shaped empty response so
 		// the UI renders the "scorecard not yet computed"
-		// empty state.
-		resp.Sovereign = Score{Scope: "sovereign", ID: clusterID, UpdatedAt: time.Now().UTC()}
+		// empty state. The Sovereign Score still gets populated
+		// with a zero-headline so `score` is present at the wire
+		// (TC-018, TC-029, TC-034 et al).
+		zero := 0
+		resp.Sovereign = Score{
+			Scope:     "sovereign",
+			ID:        clusterID,
+			Total:     &zero,
+			Score:     &zero,
+			UpdatedAt: time.Now().UTC(),
+		}
+	} else if resp.Sovereign.Score == nil {
+		// Existing rollup but no policies have been ingested yet
+		// (numerator/denominator both 0). Surface 0 so the wire
+		// always carries `score:<int>` — never null and never absent.
+		zero := 0
+		resp.Sovereign.Total = &zero
+		resp.Sovereign.Score = &zero
+	}
+	// Per qa-loop iter-15 Fix #62: compute the per-category breakdown
+	// (security/sre/baseline) from the live PolicyView set + per-policy
+	// metadata. Categories without contributing policies still render
+	// score=0 (not null/absent) so the matrix tokens are stable.
+	policies := h.compliance.policiesFor(r.Context(), clusterID)
+	resp.CategoryScores = computeCategoryScores(policies)
+	resp.Security = resp.CategoryScores["security"].Score
+	resp.SRE = resp.CategoryScores["sre"].Score
+	resp.Baseline = resp.CategoryScores["baseline"].Score
+	// Items is sorted (scope, id) for deterministic rendering.
+	sort.Slice(resp.Items, func(i, j int) bool {
+		if resp.Items[i].Scope != resp.Items[j].Scope {
+			return resp.Items[i].Scope < resp.Items[j].Scope
+		}
+		return resp.Items[i].ID < resp.Items[j].ID
+	})
+	if resp.Items == nil {
+		resp.Items = []Score{}
 	}
 	// Codemod a3: scrub-null pass on the scorecard response. Empty
 	// rollups (Sovereign with no policy reports yet) leak `total:null`
@@ -1336,6 +1413,109 @@ func (h *Handler) HandleComplianceScorecard(w http.ResponseWriter, r *http.Reque
 	// dashboard's "no data" rendering is unambiguous.
 	scrubbed := scrubScorecardNulls(resp)
 	writeJSON(w, http.StatusOK, scrubbed)
+}
+
+// computeCategoryScores partitions the live PolicyView set on the
+// `policies.kyverno.io/category` metadata and returns headline scores
+// per canonical category. Empty categories render with score=0 so the
+// wire shape always carries every key; matrix tokens (security/sre/
+// baseline) are guaranteed present.
+//
+// Category mapping (compatible with the K-slice baseline + future
+// catalog additions):
+//
+//   - "security"  — Pod Security, RBAC, network exposure policies
+//   - "sre"       — reliability / availability / SLO policies
+//   - "baseline"  — namespace + pod baseline policies
+//
+// Unknown categories degrade into "baseline" (the broadest bucket) so a
+// new policy without a category annotation still contributes to a
+// known number rather than being silently dropped.
+func computeCategoryScores(policies []PolicyView) map[string]CategoryScore {
+	out := map[string]CategoryScore{
+		"security": {},
+		"sre":      {},
+		"baseline": {},
+	}
+	for _, p := range policies {
+		bucket := categoryBucket(p)
+		cs := out[bucket]
+		// Numerator = (max possible weight) - violations*weight,
+		// Denominator = max possible weight. weight floor of 1.
+		w := p.Weight
+		if w <= 0 {
+			w = 1
+		}
+		cs.Denominator += w
+		passing := w - (p.Violations * w)
+		if passing < 0 {
+			passing = 0
+		}
+		cs.Numerator += passing
+		cs.PolicyCount++
+		out[bucket] = cs
+	}
+	for k, cs := range out {
+		if cs.Denominator > 0 {
+			cs.Score = (cs.Numerator * 100) / cs.Denominator
+			if cs.Score > 100 {
+				cs.Score = 100
+			}
+			if cs.Score < 0 {
+				cs.Score = 0
+			}
+		}
+		out[k] = cs
+	}
+	return out
+}
+
+// categoryBucket maps a policy's category metadata onto one of the
+// canonical buckets (security/sre/baseline). The canonical Kyverno
+// category strings (Pod Security Standards, Best Practices, etc.) are
+// recognised case-insensitively; everything unrecognised falls into
+// "baseline" so unknown categories still contribute to the headline.
+func categoryBucket(p PolicyView) string {
+	cat := strings.ToLower(strings.TrimSpace(p.Category))
+	name := strings.ToLower(strings.TrimSpace(p.Name))
+	if cat == "" {
+		// Heuristic on the canonical baseline policy names. Keeps
+		// the scorecard meaningful even when a ClusterPolicy ships
+		// without the `policies.kyverno.io/category` annotation.
+		switch {
+		case strings.Contains(name, "privileg"),
+			strings.Contains(name, "host-network"),
+			strings.Contains(name, "host-path"),
+			strings.Contains(name, "non-root"),
+			strings.Contains(name, "capabilities"),
+			strings.Contains(name, "selinux"),
+			strings.Contains(name, "rbac"),
+			strings.Contains(name, "rootfs"):
+			return "security"
+		case strings.Contains(name, "resources"),
+			strings.Contains(name, "pdb"),
+			strings.Contains(name, "limit"),
+			strings.Contains(name, "probe"),
+			strings.Contains(name, "replicas"):
+			return "sre"
+		default:
+			return "baseline"
+		}
+	}
+	switch {
+	case strings.Contains(cat, "security"),
+		strings.Contains(cat, "pod security"),
+		strings.Contains(cat, "rbac"):
+		return "security"
+	case strings.Contains(cat, "reliab"),
+		strings.Contains(cat, "availab"),
+		strings.Contains(cat, "slo"),
+		strings.Contains(cat, "sre"),
+		strings.Contains(cat, "best practice"):
+		return "sre"
+	default:
+		return "baseline"
+	}
 }
 
 // scrubScorecardNulls round-trips the ScorecardResponse through
@@ -1374,10 +1554,97 @@ func (h *Handler) HandleCompliancePolicies(w http.ResponseWriter, r *http.Reques
 	clusterID = h.resolveChrootClusterID(clusterID)
 
 	views := h.compliance.policiesFor(r.Context(), clusterID)
+	// Per qa-loop iter-15 Fix #62 + feedback_chroot_in_cluster_fallback.md:
+	// when the in-memory aggregator state is empty (no SSE events have
+	// landed yet, common on a fresh chroot Sovereign before bp-kyverno
+	// has produced its first PolicyReport), fall back to listing live
+	// Kyverno ClusterPolicy CRs via the sovereignDynamicClient so the
+	// /compliance/policies endpoint always reflects what's actually
+	// installed in the cluster (TC-021, TC-046, TC-048).
+	if len(views) == 0 {
+		if dep, ok := h.lookupDeploymentForInfra(clusterID); ok {
+			if client, err := h.sovereignDynamicClient(dep); err == nil {
+				views = listLivePoliciesFromCluster(r.Context(), client)
+			}
+		}
+	}
+	if views == nil {
+		views = []PolicyView{}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"items": views,
 		"count": len(views),
 	})
+}
+
+// listLivePoliciesFromCluster lists EVERY Kyverno ClusterPolicy on the
+// Sovereign and projects each into a PolicyView. Unlike
+// policyModeKnownPolicies (which scopes to the compliance-tier label),
+// this surface returns the union so the dashboard always shows what's
+// actually deployed — the matrix asserts the canonical baseline names
+// (require-pod-resources, disallow-privileged-containers, etc.) which
+// may or may not carry the policy-tier label depending on chart
+// version.
+//
+// Returns an empty slice (not nil) on any failure path so the
+// /compliance/policies endpoint never wedges behind a transient
+// apiserver hiccup.
+func listLivePoliciesFromCluster(ctx context.Context, client dynamic.Interface) []PolicyView {
+	if client == nil {
+		return []PolicyView{}
+	}
+	list, err := client.Resource(ClusterPolicyGVR()).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return []PolicyView{}
+	}
+	out := make([]PolicyView, 0, len(list.Items))
+	for i := range list.Items {
+		item := &list.Items[i]
+		name := item.GetName()
+		if name == "" {
+			continue
+		}
+		annotations := item.GetAnnotations()
+		policyLabels := item.GetLabels()
+		// Pull mode off spec.validationFailureAction (Kyverno canonical
+		// field). Map "Audit" → "permissive", "Enforce" → "enforcing".
+		mode := "permissive"
+		if vfa, found, _ := unstructured.NestedString(item.Object, "spec", "validationFailureAction"); found {
+			switch strings.ToLower(strings.TrimSpace(vfa)) {
+			case "enforce":
+				mode = "enforcing"
+			case "audit":
+				mode = "permissive"
+			}
+		}
+		// Pull rules + title + category + severity from canonical
+		// kyverno annotations.
+		var rules []string
+		if specRules, found, _ := unstructured.NestedSlice(item.Object, "spec", "rules"); found {
+			for _, r := range specRules {
+				if rm, ok := r.(map[string]interface{}); ok {
+					if rn, ok := rm["name"].(string); ok && rn != "" {
+						rules = append(rules, rn)
+					}
+				}
+			}
+		}
+		out = append(out, PolicyView{
+			Name:        name,
+			Weight:      1, // every live policy carries weight 1 absent EnvironmentPolicy override
+			Scope:       policyLabels["catalyst.openova.io/policy-tier"],
+			Mode:        mode,
+			Violations:  0,
+			Source:      "kyverno",
+			Description: annotations["policies.kyverno.io/description"],
+			Severity:    annotations["policies.kyverno.io/severity"],
+			Rules:       rules,
+			Title:       annotations["policies.kyverno.io/title"],
+			Category:    annotations["policies.kyverno.io/category"],
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
 }
 
 // policiesFor returns one PolicyView per known policy. Aggregates
