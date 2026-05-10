@@ -4,7 +4,11 @@
 # Verifies:
 #   - default-OFF renders 0 resources
 #   - empty image.tag fails fast
-#   - full-ON renders DaemonSet + Service + ServiceAccount + ClusterRole + ClusterRoleBinding (5 resources)
+#   - full-ON renders DaemonSet + Service + ServiceAccount (DS) + ClusterRole + ClusterRoleBinding +
+#     ServiceAccount (HMAC bootstrap) + Role + RoleBinding + Job (HMAC bootstrap) = 9 resources
+#   - HMAC bootstrap Job is a pre-install/pre-upgrade hook with weight -10
+#   - HMAC bootstrap Role splits `create` (no resourceNames) from `get`
+#     per memory/feedback_rbac_create_no_resourcenames.md
 
 set -euo pipefail
 
@@ -51,17 +55,51 @@ fi
 echo "PASS: empty image.tag fails fast"
 
 # 3. Full-ON
+# Pre-Fix-#78 expected 5 resources (DaemonSet + Service + ServiceAccount +
+# ClusterRole + ClusterRoleBinding). Fix #78 (Gap E) added 4 more for
+# the HMAC-bootstrap pre-install hook (ServiceAccount + Role +
+# RoleBinding + Job), bringing the full-ON total to 9.
 on_render="$TMP/on.yaml"
 helm template bp-k8s-ws-proxy . \
   --set k8sWsProxy.enabled=true \
   --set k8sWsProxy.image.tag=abc1234 > "$on_render"
 on="$(grep -cE '^kind:' "$on_render" || true)"
-if [[ "$on" != "5" ]]; then
-  echo "FAIL: full-ON rendered $on resources, want 5"
+if [[ "$on" != "9" ]]; then
+  echo "FAIL: full-ON rendered $on resources, want 9"
   grep -E '^kind:' "$on_render"
   exit 1
 fi
-echo "PASS: full-ON = 5 resources"
+echo "PASS: full-ON = 9 resources"
+
+# 3a. HMAC-bootstrap Job present with correct hook annotations (Fix #78).
+# The Job MUST be a pre-install/pre-upgrade hook with weight -10 so it
+# runs BEFORE the DaemonSet rolls — without this the DS pods stick in
+# ContainerCreating waiting for the absent Secret.
+if ! grep -qE '^  name: k8s-ws-proxy-hmac-bootstrap$' "$on_render"; then
+  echo "FAIL: hmac-bootstrap resources not rendered (Fix #78 missing)"
+  exit 1
+fi
+if ! grep -qE '"helm\.sh/hook-weight": *"-10"' "$on_render"; then
+  echo "FAIL: hmac-bootstrap Job missing pre-install hook-weight -10"
+  grep -E 'helm.sh/hook' "$on_render"
+  exit 1
+fi
+if ! grep -qE '"helm\.sh/hook": *"pre-install,pre-upgrade"' "$on_render"; then
+  echo "FAIL: hmac-bootstrap Job missing pre-install,pre-upgrade hook"
+  grep -E 'helm.sh/hook' "$on_render"
+  exit 1
+fi
+# 3b. RBAC split per memory/feedback_rbac_create_no_resourcenames.md:
+# the Role MUST have a `create` rule WITHOUT resourceNames, and the
+# `get` rule WITH resourceNames as a separate rule. Combined-rule
+# pattern (verbs:[create,get] resourceNames:[...]) is the silent-403
+# trap that wedged bp-openbao 6+ chart iterations.
+if ! grep -qE 'verbs: \[ *"create" *\]|verbs:\s*-\s*create|verbs: \[create\]' "$on_render"; then
+  echo "FAIL: hmac-bootstrap Role missing isolated 'create' verb"
+  grep -E 'verbs:|resourceNames:' "$on_render"
+  exit 1
+fi
+echo "PASS: hmac-bootstrap Job + RBAC rendered with correct hook-weight + split verbs"
 
 # 4. Canonical workload name. Per qa-loop iter-7 Fix #39, the test
 #    matrix (TC-236, TC-237) and the catalyst-api shells/issue handler

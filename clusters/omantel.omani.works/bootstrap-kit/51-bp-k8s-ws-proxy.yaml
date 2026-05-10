@@ -38,7 +38,15 @@ spec:
       # 0.1.5: 0.1.4 (default imagePullSecrets) + CI auto-bumped
       # image.tag. imagePullSecrets default required for omantel pods
       # to pull from private GHCR.
-      version: 0.1.5
+      # 0.1.6 (qa-loop bounded-cycle Wave 5 Fix #78, Gap E): adds
+      # pre-install hook-weight -10 Job that auto-generates the
+      # `k8s-ws-proxy-hmac` Secret from /dev/urandom. Without this,
+      # every fresh Sovereign provision left k8s-ws-proxy pods stuck
+      # ContainerCreating forever — the chart referenced a Secret
+      # that nothing ever created. Idempotent on upgrade (preserves
+      # the existing key — rotating it would invalidate every
+      # in-flight catalyst-api signature).
+      version: 0.1.6
       sourceRef:
         kind: HelmRepository
         name: bp-k8s-ws-proxy
