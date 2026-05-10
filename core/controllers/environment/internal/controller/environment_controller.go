@@ -245,7 +245,7 @@ func (r *EnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		repo,
 		fmt.Sprintf("Per-Environment Flux GitRepository manifests for %s/%s — auto-managed by environment-controller. Do not edit manually.",
 			env.Spec.OrganizationRef, envName),
-		true, // private
+		false, // public on the K8s service cordon — see app-controller comment
 	); err != nil {
 		if errors.Is(err, gitea.ErrOrgNotFound) {
 			// Org disappeared between step 2 and step 3a — surface a

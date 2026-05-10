@@ -489,10 +489,22 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 	}
 
 	// 8. Ensure the per-Application Gitea repo exists.
+	//
+	// private=false: the in-cluster Gitea is on the K8s service cordon
+	// (host-only, no external network access via gitea-http svc), so
+	// "private" is redundant security theater that breaks Flux's
+	// anonymous clone path. Without anonymous-clone the host-side Flux
+	// GitRepository requires a token Secret in flux-system, which would
+	// be yet another bootstrapped state. Public-on-cordon is the
+	// architecturally clean default; operators who want hard isolation
+	// can swap private=true + bootstrap the Secret in a follow-up.
+	// qa-loop iter-8 Fix #42 follow-up #2: live on omantel, private=true
+	// caused `failed to checkout: authentication required` on the
+	// Flux side.
 	branch := branchForEnvType(envSpec.EnvType)
 	if _, err := r.Gitea.EnsureRepo(ctx, envSpec.OrganizationRef, app.GetName(),
 		"Application manifests — auto-managed by application-controller. Do not edit manually.",
-		true); err != nil {
+		false); err != nil {
 		if r.GiteaErrors != nil && r.GiteaErrors.IsOrgNotFound(err) {
 			return r.markPending(ctx, app, ReasonOrgGiteaMissing,
 				fmt.Sprintf("Gitea Org %q does not exist; organization-controller (C1) creates it",

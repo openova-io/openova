@@ -323,13 +323,16 @@ spec:
       # 1.4.113 (Fix #42 image bump #2): env+app controllers bumped to
       # :a3ba200 — env-controller has EnsureBranch (PR #1257);
       # app-controller drops cross-namespace ownerRefs.
+      # 1.4.114 (Fix #42 follow-up #3): env+app controllers create the
+      # per-Org/per-App Gitea repos as PUBLIC so Flux can clone them
+      # anonymously (was failing on "authentication required").
       # 1.4.109 (Fix #40 follow-up #2): drop /api/v1 from organization +
       # environment-controller GITEA URL defaults — Gitea client appends
       # it; the prior default produced /api/v1/api/v1/... 404s on
       # EnsureOrg / EnsureRepo blocking qa-wp Application reconcile.
       # bootstrap-kit qaFixtures.cnpgPairName default qa-cnpg → qa-cnpgpair
       # so TC-306's "cnpgpair" substring assertion passes.
-      version: 1.4.113
+      version: 1.4.114
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

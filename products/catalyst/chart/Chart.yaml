@@ -1,5 +1,15 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.114 (qa-loop iter-8 Fix #42 follow-up #3): env+app controllers
+# now create per-Org/per-App Gitea repos as PUBLIC (private=false).
+# In-cluster Gitea is on the K8s service cordon (host-only); the
+# private flag was redundant security theater that broke Flux's
+# anonymous clone path with "authentication required". Operators who
+# need hard isolation can flip back via a future config knob +
+# bootstrap a Secret in flux-system. Without this fix Flux GitRepository
+# (catalyst-app-{org}-{app}) created by app-controller's host-Flux
+# bootstrap couldn't pull the manifests it just wrote — Pods never spawn.
+#
 # 1.4.113 (qa-loop iter-8 Fix #42 image bump #2): env+app controllers
 # bumped to :a3ba200 — env-controller has EnsureBranch (PR #1257);
 # app-controller drops cross-namespace ownerRefs (was being silently
@@ -419,7 +429,7 @@ name: bp-catalyst-platform
 #     so the matrix's `kubectl get cnpgpair` stdout contains the literal
 #     "cnpgpair" substring TC-306 asserts on (envsubst override beat the
 #     chart values default fixed in PR #1247).
-version: 1.4.113
+version: 1.4.114
 appVersion: 1.4.94
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
