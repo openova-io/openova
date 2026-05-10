@@ -1,4 +1,12 @@
-{{- if .Values.qaFixtures.enabled }}
+{{- /*
+chart-roll-rca iter-15 (2026-05-10) defense-in-depth: APIVersions.Has
+gate ensures the manifest evaluates to empty bytes when the
+access.openova.io/v1alpha1 XRD is not yet registered (e.g., bp-crossplane-claims
+mid-install). Even if dependsOn ordering breaks again, the umbrella
+chart will not block on missing-CRD admission failure. The next
+reconcile pass once the XRD is live will render and apply the CR.
+*/ -}}
+{{- if and .Values.qaFixtures.enabled (.Capabilities.APIVersions.Has "access.openova.io/v1alpha1/UserAccess") }}
 apiVersion: access.openova.io/v1alpha1
 kind: UserAccess
 metadata:

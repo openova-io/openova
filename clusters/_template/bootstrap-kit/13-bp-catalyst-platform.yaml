@@ -55,6 +55,16 @@ spec:
     # the umbrella install, eliminating the race.
     - name: bp-keycloak
     - name: bp-cnpg
+    # bp-crossplane-claims (chart-roll-rca iter-15, 2026-05-10): owns the
+    # access.openova.io/v1alpha1 XRD that qa-fixtures UserAccess CRs
+    # require. Without this dep, slot 13 races slot 14 and the umbrella
+    # upgrade fails admission with `no matches for kind "UserAccess" in
+    # version "access.openova.io/v1alpha1"`. The release Secret then
+    # enters `pending-upgrade` and waits the full 15m timeout × 3 retries
+    # before any operator-visible failure (the 2026-05-10 omantel.biz
+    # 90-min wedge). With this edge, the chart never enters the failing
+    # state on a fresh roll.
+    - name: bp-crossplane-claims
   chart:
     spec:
       chart: bp-catalyst-platform
@@ -389,16 +399,35 @@ spec:
   # specifically for this umbrella chart — every other bp-* chart
   # remains at its previous (or default) timeout because they install
   # in well under 5 minutes empirically.
+  #
+  # chart-roll-rca iter-15 (2026-05-10): timeout reduced 25m → 15m and
+  # remediation hardened with cleanupOnFail + strategy: rollback +
+  # remediateLastFailure. Background: the 25m ceiling existed to absorb
+  # the dep-ordering race RC-1 (qa-fixtures UserAccess CRs rendering
+  # before the bp-crossplane-claims XRD existed). With that race fixed
+  # via the bp-crossplane-claims dependsOn edge above, 15m is plenty for
+  # the umbrella's true install latency on a healthy cluster.
+  # cleanupOnFail purges partial release artifacts on retry; rollback
+  # strategy reverts to the last good release before retrying instead of
+  # leaving the release Secret pinned at `pending-upgrade` for the full
+  # timeout ceiling. Net effect: a failed-then-recoverable upgrade
+  # collapses from ~75m worst case → ~15m worst case.
   install:
     disableWait: true
-    timeout: 25m
+    timeout: 15m
     remediation:
       retries: 3
+      strategy: rollback
+      remediateLastFailure: true
+    cleanupOnFail: true
   upgrade:
     disableWait: true
-    timeout: 25m
+    timeout: 15m
     remediation:
       retries: 3
+      strategy: rollback
+      remediateLastFailure: true
+    cleanupOnFail: true
   # Per-Sovereign overrides for the umbrella — sovereign-FQDN-derived hostnames
   # for console/admin/api. All chart-level Catalyst service config (image refs,
   # OTel endpoints, NATS subjects) lives in products/catalyst/chart/values.yaml.
