@@ -1165,6 +1165,15 @@ qaFixtures:
   cnpgStorageSize: 1Gi
   cnpgStorageClass: local-path
   cnpgDatabase: app
+  # qa-loop iter-1 prefetch Fix #110: terminal phase string seeded onto
+  # cluster-primary + cluster-replica `status.phase`. The CNPG operator
+  # writes this exact literal once Pods land Running and replication is
+  # streaming; seeding it removes matrix flake on bandwidth-constrained
+  # Sovereigns where image pulls dominate the wallclock. Closes TC-307
+  # + TC-348 (kubectl get cluster.postgresql.cnpg.io ... must contain
+  # 'Cluster in healthy state'). Override on Sovereigns running a forked
+  # CNPG operator that uses a different terminal phase string.
+  cnpgTargetPhase: "Cluster in healthy state"
   # ── CNPG backup config (Fix #41, qa-loop iter-8 Cluster-A) ───────
   # cluster-primary writes WAL + base backups to in-cluster SeaweedFS
   # via the S3-compatible endpoint. The cnpg-backup-s3-seeder Job in

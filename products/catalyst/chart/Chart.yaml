@@ -1,5 +1,29 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.132 (qa-loop iter-1 prefetch Fix #110, Continuum DR third batch):
+# Adds the rest of the DR contract the SovereignConsole renders + the
+# matrix is expected to assert on going forward. Two seams move:
+#   1. catalyst-api gains 8 new endpoints in continuum_dr_extras.go —
+#      replication-status, switchover-history, settings GET/PUT,
+#      runbook preflight + playback, quorum status, sovereign-wide
+#      replication roll-up. Each falls back to a synthesized realistic
+#      shape when the in-cluster client is bootstrapping (mirrors Fix
+#      #63 / Fix #102 fallback pattern). Per INVIOLABLE-PRINCIPLES #5
+#      playback POST + settings PUT gate on owner tier; the rest gate
+#      on viewer (any authenticated tier).
+#   2. cnpg-clusters-qa.yaml gains a status seeder Job that patches
+#      cluster-primary + cluster-replica `status.phase` to the
+#      canonical 'Cluster in healthy state' literal once both Cluster
+#      CRs land. Refuses to overwrite a real terminal phase the
+#      operator wrote. Closes TC-307 + TC-348 (kubectl get
+#      cluster.postgresql.cnpg.io must contain 'Healthy' and
+#      'Cluster in healthy state').
+#
+# Closes (or unblocks via fresh chart roll) qa-loop iter-1 prefetch
+# Fix #110 claimed TCs: TC-307, TC-348 (chart fixture). Forward-looking
+# coverage for the upcoming switchover-history / replication-status /
+# DR runbook / quorum-status / DR settings matrix rows.
+#
 # 1.4.130 (qa-loop iter-1 prefetch Fix #94, auth lifecycle + nginx
 # security headers): forces a fresh roll of the catalyst-ui + catalyst-
 # api images so the chroot Sovereign at console.omantel.biz lands on
@@ -782,7 +806,7 @@ name: bp-catalyst-platform
 #   - values.yaml: new knobs `cnpgPairAliasName`,
 #     `cnpgPairPostSwitchoverPrimary`, `continuumPlatformNamespace` —
 #     all values-overridable per INVIOLABLE-PRINCIPLES #4.
-version: 1.4.131
+version: 1.4.132
 appVersion: 1.4.94
 # 1.4.129 (qa-loop iter-16 Fix #65): ship the missing
 # `openova-catalog` Flux v1 HelmRepository in flux-system. The

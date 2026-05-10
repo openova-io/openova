@@ -1062,6 +1062,25 @@ func main() {
 		rg.Get("/api/v1/fleet/continuum", h.HandleFleetContinuum)
 		rg.Get("/api/v1/fleet/sovereigns/{id}/dr-summary", h.HandleFleetSovereignDRSummary)
 
+		// qa-loop iter-1 prefetch Fix #110 (Continuum DR third batch):
+		// adds the rest of the DR contract the SovereignConsole renders +
+		// the matrix is expected to assert on going forward —
+		// replication-status, switchover-history, runbook preflight +
+		// playback, quorum status, sovereign-wide replication roll-up,
+		// per-Application DR settings GET/PUT. See
+		// continuum_dr_extras.go for shapes + fallback semantics.
+		// Per INVIOLABLE-PRINCIPLES #5 the playback POST + settings PUT
+		// gate on owner tier (REUSE applicationInstallCallerAuthorized);
+		// preflight + GET endpoints gate on viewer.
+		rg.Get("/api/v1/sovereigns/{id}/continuum/{name}/replication-status", h.HandleContinuumReplicationStatus)
+		rg.Get("/api/v1/sovereigns/{id}/continuum/{name}/switchover/history", h.HandleContinuumSwitchoverHistory)
+		rg.Get("/api/v1/sovereigns/{id}/continuum/{name}/settings", h.HandleContinuumSettingsGet)
+		rg.Put("/api/v1/sovereigns/{id}/continuum/{name}/settings", h.HandleContinuumSettingsPut)
+		rg.Post("/api/v1/sovereigns/{id}/dr/runbook/preflight", h.HandleDRRunbookPreflight)
+		rg.Post("/api/v1/sovereigns/{id}/dr/runbook/playback", h.HandleDRRunbookPlayback)
+		rg.Get("/api/v1/sovereigns/{id}/dr/quorum/status", h.HandleDRQuorumStatus)
+		rg.Get("/api/v1/sovereigns/{id}/dr/replication-status", h.HandleDRReplicationStatus)
+
 		// SME-tier user CRUD + role mapping (issue #802, ADR-0003).
 		// Owned by the unified-rbac slice of catalyst-api. Tenant
 		// scoping is by X-Tenant-Host header (sent by the SPA from
