@@ -1,5 +1,15 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.116 (qa-loop iter-10 Fix #44 follow-up — chart re-publish).
+# Chart 1.4.115 was published from the merge commit which still had
+# the OLD application-controller image tag (a3ba200) baked into
+# values.yaml — the auto-bump commit landed seconds later but
+# GitHub Actions does NOT trigger workflows from bot pushes by
+# default, so blueprint-release was never re-run. This bump
+# re-publishes the chart with the new tag (24aab61) AND extends
+# build-application-controller.yaml to dispatch blueprint-release
+# explicitly so the same race never happens again.
+#
 # 1.4.115 (qa-loop iter-10 Fix #44 — application-controller targetNamespace).
 # The application-controller previously rendered the per-Application
 # HelmRelease with `metadata.namespace = Org` and `spec.targetNamespace
@@ -461,7 +471,7 @@ name: bp-catalyst-platform
 #     so the matrix's `kubectl get cnpgpair` stdout contains the literal
 #     "cnpgpair" substring TC-306 asserts on (envsubst override beat the
 #     chart values default fixed in PR #1247).
-version: 1.4.115
+version: 1.4.116
 appVersion: 1.4.94
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.
