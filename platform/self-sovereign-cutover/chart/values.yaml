@@ -331,14 +331,19 @@ trigger:
   catalystAPIURL: "http://catalyst-api.catalyst-system.svc.cluster.local:8080"
   # How long the auto-trigger Job will wait for catalyst-api to be
   # reachable before giving up (and exiting 0 so the operator can fire
-  # manually). 5 minutes is enough for a Sovereign mid-cold-start.
-  autoWaitForAPISeconds: 300
+  # manually). Must finish below the HelmRelease install/upgrade
+  # timeout (15m for bp-self-sovereign-cutover) AND the activeDeadline
+  # below so the Job exits cleanly even when catalyst-api never comes
+  # up — 12 minutes leaves a healthy 3m buffer below the 15m HR cap.
+  autoWaitForAPISeconds: 720
   # Overall cap on the auto-trigger Job runtime. activeDeadlineSeconds
   # on the Job spec — anything longer means catalyst-api is sick and
   # the operator should investigate. The Job exiting at this deadline
   # is non-fatal for the chart install (the cutover engine already
   # runs detached inside catalyst-api once /start returns 200).
-  autoTimeoutSeconds: 600
+  # Must stay below the HelmRelease install/upgrade timeout (15m =
+  # 900s) so the Job ends and the hook unblocks before Helm gives up.
+  autoTimeoutSeconds: 840
   # TTL on the completed Job — kept for audit so operators can read
   # the trigger Pod logs if something looks wrong.
   autoJobTTLSeconds: 86400
