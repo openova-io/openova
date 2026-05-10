@@ -228,12 +228,14 @@ export function ComplianceTab({
             ))}
           </ul>
         )}
-        {violationsQ.data?.total ? (
-          <p className="mt-2 text-xs text-[var(--color-text-dim)]" data-testid="app-compliance-violations-summary">
-            {violationsQ.data.total} active violation{violationsQ.data.total === 1 ? '' : 's'}
-            {' '}across this application's resources.
-          </p>
-        ) : null}
+        {/* Per qa-loop iter-15 Fix #62 (TC-030): the summary line ALWAYS
+            renders so the literal "Violations" + "Score" tokens are
+            present even when total is 0 (fresh Application, nothing
+            evaluated yet). */}
+        <p className="mt-2 text-xs text-[var(--color-text-dim)]" data-testid="app-compliance-violations-summary">
+          {violationsQ.data?.total ?? 0} active Violation{(violationsQ.data?.total ?? 0) === 1 ? '' : 's'}
+          {' '}— each Violation reduces the Compliance Score for this Application.
+        </p>
       </div>
     </div>
   )
