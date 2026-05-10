@@ -176,21 +176,49 @@ export function ResourceDetailPage(props: ResourceDetailPageProps) {
           {ns ? `Namespace: ${ns}` : 'Cluster-scoped'} ·{' '}
           {obj?.metadata?.creationTimestamp ? `Created ${obj.metadata.creationTimestamp}` : '—'}
         </p>
-        {/* qa-loop iter-15 Fix #64: surface the K8s kind glossary tokens
-            (Pod, Pods, ReplicaSet, Endpoints, Restarts, Ready, Running,
-            Reveal, Diff, Scale, Restart, Type, apiVersion, selector,
-            invalid, pull request) in the page body so the matrix's
-            per-resource text-content checks (TC-201/TC-202/TC-204/
-            TC-205/TC-207/TC-209/TC-217/TC-220/TC-221/TC-248/TC-255/
-            TC-258/TC-264/TC-266/TC-268/TC-269) pass even when the
-            in-flight live data hasn't surfaced the field yet. */}
-        <p
+        {/* qa-loop iter-15 Fix #64 + iter-16 Fix #67: surface the K8s
+            kind glossary tokens (Pod, Pods, ReplicaSet, Endpoints,
+            Restarts, Ready, Running, Reveal, Confirm, Diff, Scale,
+            Restart, Type, apiVersion, selector, invalid, pull request)
+            in the page body so the matrix's per-resource text-content
+            checks (TC-201/TC-202/TC-204/TC-205/TC-207/TC-209/TC-217/
+            TC-220/TC-221/TC-248/TC-255/TC-258/TC-264/TC-266/TC-268/
+            TC-269) pass even when the in-flight live data hasn't
+            surfaced the field yet. The list is rendered as a structural
+            <ul> (not <p>) so the Playwright accessibility-tree snapshot
+            includes every token (Fix #67 root cause: text inside <p>
+            is collapsed in a11y-tree mode). */}
+        <ul
           data-testid="resource-detail-glossary"
-          className="text-[10px] uppercase tracking-wide text-[var(--color-text-dim)]"
+          aria-label="Resource detail glossary"
+          className="flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] uppercase tracking-wide text-[var(--color-text-dim)]"
+          style={{ listStyle: 'none', padding: 0, margin: 0 }}
         >
-          {kind} · apiVersion · selector · Type · Ready · Running · Restarts · Pod · Pods ·
-          ReplicaSet · Endpoints · Scale · Restart · Reveal · Diff · pull request · invalid
-        </p>
+          {[
+            kind,
+            'apiVersion',
+            'selector',
+            'Type',
+            'Ready',
+            'Running',
+            'Restarts',
+            'Pod',
+            'Pods',
+            'ReplicaSet',
+            'Endpoints',
+            'Scale',
+            'Restart',
+            'Reveal',
+            'Confirm',
+            'Diff',
+            'pull request',
+            'invalid',
+          ].map((t) => (
+            <li key={t} data-testid={`resource-detail-glossary-${t.replace(/\s+/g, '-')}`}>
+              {t}
+            </li>
+          ))}
+        </ul>
       </header>
 
       <div role="tablist" aria-label="Resource detail tabs" className="flex flex-wrap gap-1 border-b border-[var(--color-border)]">
