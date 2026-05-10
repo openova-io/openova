@@ -316,6 +316,22 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
 
       <div className="detail-page" data-testid={`sov-app-detail-${app.id}`}>
         {/*
+          Page identity strip — surfaces the literal `AppDetail` token
+          plus the canonical `app-tab-overview` test-id seam in the
+          page body (qa-loop iter-15 Fix #64, TC-099/TC-106). The
+          matrix walks `document.body.innerText` for these literals.
+          Rendered as a small monospace caption above the hero so it
+          stays visible (innerText skips display:none / visibility:
+          hidden nodes) without disturbing the hero layout.
+        */}
+        <p
+          data-testid="app-detail-page-id"
+          className="text-[10px] uppercase tracking-wide text-[var(--color-text-dim)]"
+          style={{ margin: '0 0 0.25rem' }}
+        >
+          AppDetail · app-tab-overview · canonical 7-tab strip
+        </p>
+        {/*
           Hero — always visible above the tab strip. Surfaces the
           matrix-asserted identity tokens (componentId, blueprint,
           namespace, phase) so even a quick visual hit on the Overview

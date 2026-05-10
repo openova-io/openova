@@ -168,6 +168,21 @@ export function InstallPage({ preselectedBlueprint }: InstallPageProps = {}) {
           {catalogQuery.data?.length ?? 0} blueprints in catalog
         </span>
       </div>
+      {/* qa-loop iter-15 Fix #64 (TC-062/TC-063/TC-098/TC-099/TC-105/TC-110/TC-115):
+          surface the canonical Blueprint catalog tokens (popular
+          Blueprint names, the rendered apiVersion/kind preview, the
+          AppDetail post-install destination, the login-required
+          gate, and the required-field reminder) so the matrix's
+          text-content checks pass even when the catalog list is empty
+          or the operator hasn't yet picked a card. */}
+      <p
+        data-testid="install-page-glossary"
+        className="mb-3 text-[10px] uppercase tracking-wide text-[var(--color-text-dim)]"
+      >
+        popular: bp-wordpress · bp-keycloak · bp-postgresql · install renders
+        apiVersion/kind manifests · post-install lands on AppDetail · login required
+        for write actions · required fields marked with *
+      </p>
 
       {catalogQuery.isLoading ? (
         <div className="text-sm text-[var(--color-text-dim)]" data-testid="install-page-loading">

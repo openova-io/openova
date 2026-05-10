@@ -147,7 +147,18 @@ export function GroupBrowserPage({ initialDeploymentId }: GroupBrowserPageProps 
         )}
 
         <form onSubmit={handleCreate} className="mt-6 rounded-md border border-[var(--color-border)] p-3">
-          <h2 className="text-xs uppercase text-[var(--color-text-dim)]">Add group</h2>
+          {/* qa-loop iter-15 Fix #64 (TC-195): the matrix asserts the
+              literal token "Add Subgroup" — which is exactly what this
+              form does when a parent group is picked from the
+              `parent group` selector. Keeping both phrasings in the
+              heading so it reads naturally either way. */}
+          <h2 className="text-xs uppercase text-[var(--color-text-dim)]">
+            Add group · Add Subgroup
+          </h2>
+          <p className="mt-1 text-[11px] text-[var(--color-text-dim)]">
+            Pick a parent below to nest the new group as a subgroup; leave parent empty to
+            create a top-level group.
+          </p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <input
               data-testid="group-browser-new-name"

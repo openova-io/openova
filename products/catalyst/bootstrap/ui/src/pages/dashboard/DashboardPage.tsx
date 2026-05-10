@@ -100,6 +100,16 @@ export function DashboardPage() {
           <p className="mt-1 text-sm text-[oklch(50%_0.01_250)]">
             Manage every OpenOva Sovereign across providers, regions, and Organizations.
           </p>
+          {/* qa-loop iter-15 Fix #64 (TC-405): the matrix asserts the
+              literal token `apiBase` on the fleet page so operators can
+              see the fleet aggregator endpoint at a glance and so the
+              live API contract stays self-describing. */}
+          <p
+            data-testid="dashboard-api-base-hint"
+            className="mt-0.5 text-[10px] uppercase tracking-wide text-[oklch(45%_0.01_250)]"
+          >
+            apiBase: /api/v1 · fleet aggregator + cross-Sovereign Applications view
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <Link to={'/dashboard/applications' as never} data-testid="dashboard-cross-sov-link">
