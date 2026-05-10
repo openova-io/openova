@@ -326,13 +326,20 @@ spec:
       # 1.4.114 (Fix #42 follow-up #3): env+app controllers create the
       # per-Org/per-App Gitea repos as PUBLIC so Flux can clone them
       # anonymously (was failing on "authentication required").
+      # 1.4.115 (qa-loop iter-10 Fix #44 — application-controller targetNamespace).
+      # Rendered HelmRelease.spec.targetNamespace now resolves to the
+      # Application CR's own namespace (was the parent Org slug). Also
+      # sets spec.install.createNamespace=true so a missing workload
+      # namespace is provisioned by helm-controller on install. Closes
+      # matrix rows TC-068 / TC-100 / TC-204 / TC-262 / TC-263 (workload
+      # Pod was landing in `omantel-platform` instead of `qa-omantel`).
       # 1.4.109 (Fix #40 follow-up #2): drop /api/v1 from organization +
       # environment-controller GITEA URL defaults — Gitea client appends
       # it; the prior default produced /api/v1/api/v1/... 404s on
       # EnsureOrg / EnsureRepo blocking qa-wp Application reconcile.
       # bootstrap-kit qaFixtures.cnpgPairName default qa-cnpg → qa-cnpgpair
       # so TC-306's "cnpgpair" substring assertion passes.
-      version: 1.4.114
+      version: 1.4.115
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
