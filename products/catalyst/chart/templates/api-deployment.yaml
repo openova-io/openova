@@ -560,8 +560,18 @@ spec:
             # bootstrap up again. Orthogonal to the chart-install-time
             # keycloak-config-cli Job (which seeds the realm itself) — this
             # env var only flips the runtime tier-role bootstrap.
+            # LITERAL value (not Helm template directive) — dual-mode contract:
+            # this file is consumed by both Helm AND Kustomize (contabo-mkt's
+            # clusters/contabo-mkt/apps/catalyst-platform). Helm directives in
+            # `value:` fields break the Kustomize build with `yaml: invalid map
+            # key` (caught live on contabo 2026-05-10 from #1311 regression at
+            # commit 92228bc — Flux Kustomization stuck for 2 days, blocking
+            # catalyst-api roll on contabo). Default OFF; per-Sovereign
+            # HelmRelease overlays MAY set this to "true" via the
+            # `catalystApi.env` additional-env patch (Helm-only codepath, takes
+            # precedence over this default at template-render time).
             - name: KEYCLOAK_BOOTSTRAP_TIER_ROLES
-              value: {{ .Values.keycloak.bootstrap.ensureTierRoles | default false | quote }}
+              value: "false"
             # CATALYST_HANDOVER_JWT_PUBLIC_KEY_PATH — path to the JWK file that
             # holds the RS256 public key for validating one-time handover JWTs.
             # The K8s Secret `catalyst-handover-jwt-public` (created by
@@ -980,8 +990,14 @@ spec:
             # can mint per-tier session cookies and assert tier-boundary
             # 403/200 contracts. Per qaFixtures.testSessionEnabled in
             # values.yaml. NEVER enable on customer Sovereigns.
+            # LITERAL value (not Helm template directive) — dual-mode contract,
+            # see KEYCLOAK_BOOTSTRAP_TIER_ROLES block above. Default OFF (404 on
+            # public Sovereigns). qa-loop chroot Sovereigns enable it via the
+            # `catalystApi.env` additional-env patch in their per-cluster
+            # HelmRelease (Helm-only codepath, takes precedence over this
+            # default). NEVER enable on customer Sovereigns.
             - name: CATALYST_TEST_SESSION_ENABLED
-              value: {{ and .Values.qaFixtures .Values.qaFixtures.testSessionEnabled | default false | toString | quote }}
+              value: "false"
           resources:
             requests:
               cpu: 50m
