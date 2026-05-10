@@ -1205,6 +1205,20 @@ func writeTfvars(deployDir string, req Request) error {
 		"qa_fixtures_enabled":     map[bool]string{true: "true", false: "false"}[req.QATestEnabled],
 		"qa_test_session_enabled": map[bool]string{true: "true", false: "false"}[req.QATestEnabled],
 
+		// Wildcard cert staging-LE selector (Fix #123 — qa-loop iter-1 LE
+		// rate-limit unblock). When QATestEnabled=true the per-Sovereign
+		// overlay sets WILDCARD_CERT_USE_STAGING=true → bp-catalyst-platform
+		// 1.4.136+ renders the sovereign-wildcard-tls Certificate(s) with
+		// `issuerRef.name: letsencrypt-dns01-staging-powerdns` instead of
+		// the production issuer. Staging hits LE's separate ACME directory
+		// with generous rate limits, so the wipe + re-provision cadence
+		// of QA Sovereigns no longer trips production's 5-certs/168h
+		// ceiling per registered domain. Customer Sovereigns
+		// (QATestEnabled=false) provision real-trusted production certs.
+		// Stringified for the same envsubst-passthrough reason as
+		// qa_fixtures_enabled.
+		"wildcard_cert_use_staging": map[bool]string{true: "true", false: "false"}[req.QATestEnabled],
+
 		// QA namespace + Organization names — derived from the Sovereign
 		// FQDN's first label at provision time per principle #4 (never
 		// hardcode). The chart's defaults (qa-omantel / omantel-platform)

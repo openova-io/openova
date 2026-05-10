@@ -1,58 +1,38 @@
 apiVersion: v2
 name: bp-catalyst-platform
-# 1.4.136 (qa-loop iter-1 Fix #124, secondary Fix #122 — convert
-# catalyst-gitea-token bootstrap to pre-install hook so consumers
-# (catalog + organization-controller + api) see a populated token at
-# their first container start):
+# 1.4.136 (qa-loop bounded-provision-cycle Fix #123, LE rate-limit
+# bypass via staging ClusterIssuer for QA Sovereigns):
 #
-# Root cause (qa-loop iter-1 monitor Fix #122 surfaced 2026-05-10):
-#   On every fresh Sovereign install of bp-catalyst-platform 1.4.135
-#   the `catalyst-catalog` and `catalyst-organization-controller`
-#   Pods enter CrashLoopBackOff with:
-#     {"level":"ERROR","msg":"config load failed",
-#      "err":"config: CATALYST_GITEA_TOKEN is required"}
-#   even though the Secret `catalyst-system/catalyst-gitea-token`
-#   exists. Inspection shows `data.token: ""` — the Secret was
-#   created empty by the chart's lookup-existing-target idempotency
-#   path (lookup returns nil on a fresh install → token bytes are
-#   empty), and the post-install mint Job that was supposed to
-#   populate it ran AFTER the Deployments had already crashed and
-#   accumulated exponential back-off windows. Helm's 15m install
-#   timeout lapsed before the Pods could pick up the patched token,
-#   triggering uninstall-remediation → reinstall → loop.
+# Root cause (iter-1 wedge, 2026-05-10):
+#   Let's Encrypt production hit the 5-certs/168h rate limit on
+#   `*.omantel.biz` (retry after 2026-05-11 22:08 UTC). Cilium-envoy
+#   could not get a wildcard cert → console.omantel.biz TLS handshake
+#   failed → iter-1 Test Executor could not run. Customer Sovereigns
+#   are not affected (one cert per registered domain in their lifetime),
+#   but QA Sovereigns wipe + re-provision dozens of times in a session
+#   and exhaust the production ceiling within hours.
 #
-#   This is the chicken-and-egg ordering hazard documented in
-#   docs/INVIOLABLE-PRINCIPLES.md #1 (waterfall, not iterative MVP):
-#   credential bootstrap MUST land before the consumers it serves.
+# Fix:
+#   - bp-cert-manager-powerdns-webhook 1.1.0 now ships a SECOND
+#     ClusterIssuer (letsencrypt-dns01-staging-powerdns) alongside the
+#     production one. Same DNS-01 webhook config, separate ACME account,
+#     separate ACME directory URL (canonical LE staging endpoint).
+#     Production rate limit is wholly independent of staging.
+#   - This chart adds `wildcardCert.useStaging` (bool, default false).
+#     When true, sovereign-wildcard-certs.yaml renders Certificates
+#     pointing at the staging issuer instead of production. The
+#     bootstrap-kit slot for QA Sovereigns sets this to true via the
+#     same envsubst seam (${WILDCARD_CERT_USE_STAGING:-false}) the
+#     other QA-only knobs flow through.
+#   - cilium-envoy then gets a staging-signed wildcard cert in <2 min.
+#     `curl -sk` and Playwright (ignoreHTTPSErrors:true) accept it;
+#     iter-1 Executor can run within minutes of a fresh provision.
 #
-# Fix (chart-side, no app-code change required):
-#   Move the entire token-bootstrap flow (Secret, ServiceAccount,
-#   Roles, RoleBinding, Job) from `helm.sh/hook: post-install,
-#   post-upgrade` to `helm.sh/hook: pre-install,pre-upgrade`. The
-#   Secret is created at hook-weight=5; the mint Job at hook-weight=
-#   10. Helm runs the entire pre-install hook chain to completion
-#   BEFORE applying any regular release resource. Result: when the
-#   catalog / organization-controller Deployments are applied, the
-#   Secret already carries a real PAT, the kubelet mounts it as
-#   CATALYST_GITEA_TOKEN, and the Pods start cleanly on first try.
-#
-#   Defensive alignment in services/catalog/deployment.yaml: add
-#   `optional: true` to the secretKeyRef so the wiring matches the
-#   existing api-deployment + organization-controller convention
-#   (cosmetic — the Secret always exists in the pre-install path,
-#   but `optional: true` keeps kubelet from blocking Pod start
-#   should any future reordering regress this).
-#
-# Lookup contract preserved: on upgrades, `lookup` returns the
-# existing Secret with the populated token, the template re-emits
-# the same bytes, and the mint Job's runtime check (`EXISTING_TOKEN
-# != ""`) short-circuits with exit 0. helm.sh/resource-policy: keep
-# is retained on the Secret so it survives helm uninstalls.
-#
-# Per principle 4 / feedback_inviolable_principles.md #1: target
-# state, not MVP. The pre-install hook IS the canonical seam for
-# Sovereign credential bootstrap (mirrors bp-keycloak's keycloak-
-# config-cli pre-install pattern).
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), the issuer
+# name is fully values-overridable — operators that wire a private
+# staging ACME (e.g. internal Smallstep CA) override the issuer
+# alongside the bp-cert-manager-powerdns-webhook staging URL without
+# touching this chart.
 #
 # 1.4.135 (qa-loop bounded-provision-cycle Fix #119, sanitize illegal
 # `/` in qa-fixtures Continuum mirror label value — unblocks prov #11):
@@ -978,7 +958,7 @@ name: bp-catalyst-platform
 #   - values.yaml: new knobs `cnpgPairAliasName`,
 #     `cnpgPairPostSwitchoverPrimary`, `continuumPlatformNamespace` —
 #     all values-overridable per INVIOLABLE-PRINCIPLES #4.
-version: 1.4.136
+version: 1.4.137
 appVersion: 1.4.94
 # 1.4.129 (qa-loop iter-16 Fix #65): ship the missing
 # `openova-catalog` Flux v1 HelmRepository in flux-system. The

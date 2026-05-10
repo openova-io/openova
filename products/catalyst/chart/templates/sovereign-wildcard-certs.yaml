@@ -52,7 +52,29 @@ Resource naming:
 */}}
 {{- if .Values.wildcardCert.enabled }}
 {{- $ns := .Values.wildcardCert.namespace | default "kube-system" }}
+{{/*
+   Issuer selection (Fix #123, LE rate-limit bypass for QA Sovereigns):
+     - .Values.wildcardCert.useStaging=true  → staging issuer (default
+       `letsencrypt-dns01-staging-powerdns`, shipped by
+       bp-cert-manager-powerdns-webhook 1.1.0+ alongside the production
+       issuer). Hits LE's staging ACME endpoint
+       (https://acme-staging-v02.api.letsencrypt.org/directory). Cert is
+       signed by Fake LE Intermediate X1 so browsers reject without an
+       explicit exception, but `curl -sk` and Playwright
+       (ignoreHTTPSErrors:true) accept it. Production rate limit (5
+       certs/168h per registered domain) does NOT apply to staging.
+     - .Values.wildcardCert.useStaging=false → production issuer (default
+       `letsencrypt-dns01-prod-powerdns`). Real-trusted certs.
+
+   Default false on the chart; the bootstrap-kit slot for QA Sovereigns
+   flips this to true via ${WILDCARD_CERT_USE_STAGING:-false} envsubst.
+   Per docs/INVIOLABLE-PRINCIPLES.md #4 every issuer name is values-
+   overridable (e.g. private ACME).
+*/}}
 {{- $issuer := .Values.wildcardCert.issuerName | default "letsencrypt-dns01-prod-powerdns" }}
+{{- if .Values.wildcardCert.useStaging }}
+  {{- $issuer = .Values.wildcardCert.issuerNameStaging | default "letsencrypt-dns01-staging-powerdns" }}
+{{- end }}
 {{- $duration := .Values.wildcardCert.duration }}
 {{- $renewBefore := .Values.wildcardCert.renewBefore }}
 

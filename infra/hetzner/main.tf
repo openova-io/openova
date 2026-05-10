@@ -306,12 +306,13 @@ locals {
     sovereign_fqdn          = var.sovereign_fqdn
     sovereign_subdomain     = var.sovereign_subdomain
     marketplace_enabled     = var.marketplace_enabled
-    qa_fixtures_enabled     = var.qa_fixtures_enabled
-    qa_test_session_enabled = var.qa_test_session_enabled
-    qa_fixtures_namespace   = var.qa_fixtures_namespace
-    qa_organization         = var.qa_organization
-    cluster_mesh_name       = var.cluster_mesh_name
-    cluster_mesh_id         = var.cluster_mesh_id
+    qa_fixtures_enabled       = var.qa_fixtures_enabled
+    qa_test_session_enabled   = var.qa_test_session_enabled
+    qa_fixtures_namespace     = var.qa_fixtures_namespace
+    qa_organization           = var.qa_organization
+    wildcard_cert_use_staging = var.wildcard_cert_use_staging
+    cluster_mesh_name         = var.cluster_mesh_name
+    cluster_mesh_id           = var.cluster_mesh_id
 
     # Multi-domain Sovereign (issue #827). When the wizard supplies an
     # explicit parent-domain list, use it verbatim. Otherwise default to a
@@ -745,10 +746,11 @@ locals {
       sovereign_fqdn          = var.sovereign_fqdn
       sovereign_subdomain     = var.sovereign_subdomain
       marketplace_enabled     = var.marketplace_enabled
-      qa_fixtures_enabled     = var.qa_fixtures_enabled
-      qa_test_session_enabled = var.qa_test_session_enabled
-      qa_fixtures_namespace   = var.qa_fixtures_namespace
-      qa_organization         = var.qa_organization
+      qa_fixtures_enabled       = var.qa_fixtures_enabled
+      qa_test_session_enabled   = var.qa_test_session_enabled
+      qa_fixtures_namespace     = var.qa_fixtures_namespace
+      qa_organization           = var.qa_organization
+      wildcard_cert_use_staging = var.wildcard_cert_use_staging
       # Per-secondary-region ClusterMesh anchors. id is incremented per
       # peer index so each secondary region gets a unique slot in the
       # mesh registry; primary region keeps var.cluster_mesh_id.

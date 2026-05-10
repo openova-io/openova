@@ -211,9 +211,15 @@ clusterIssuer:
   name: letsencrypt-dns01-prod-powerdns
   # ACME account email used for renewal notifications.
   email: ops@openova.io
-  # Production Let's Encrypt directory. Set to the staging URL during
-  # bring-up:
-  #   https://acme-staging-v02.api.letsencrypt.org/directory
+  # Production Let's Encrypt directory. Per docs/INVIOLABLE-PRINCIPLES.md
+  # #4 (never hardcode), this is operator-overridable from the cluster
+  # overlay. The staging endpoint
+  # (https://acme-staging-v02.api.letsencrypt.org/directory) is now
+  # exposed as a SECOND ClusterIssuer (see clusterIssuer.staging below)
+  # so production-vs-staging is no longer a one-or-the-other knob —
+  # both issuers live side by side and chart consumers (e.g.
+  # bp-catalyst-platform's wildcardCert.useStaging) flip the cert's
+  # issuerRef to pick.
   acmeServer: https://acme-v02.api.letsencrypt.org/directory
   # Name of the Secret cert-manager uses to store the ACME account key.
   privateKeySecretRefName: letsencrypt-dns01-prod-powerdns-account-key
@@ -221,6 +227,33 @@ clusterIssuer:
   # that only exists after bp-cert-manager has installed its CRDs. Same
   # post-install hook pattern as bp-cert-manager's own ClusterIssuers.
   helmHookEnabled: true
+
+  # ─── Staging (Let's Encrypt staging) ClusterIssuer (Fix #123) ────────
+  # Renders a SECOND ClusterIssuer alongside the production one above,
+  # pointing at LE's staging ACME directory. Same DNS-01 webhook config,
+  # same PowerDNS endpoint, same API key — only the ACME account +
+  # directory URL differ. Staging issues from a separate trust root
+  # (Fake LE Intermediate X1) so browsers reject without an explicit
+  # exception, but `curl -sk` and Playwright's `ignoreHTTPSErrors: true`
+  # accept the cert. Generous rate limits (~30k certs/3h) make staging
+  # the safe default for QA Sovereigns whose iteration cadence would
+  # exhaust LE production's 5/168h ceiling on the first wipe-cycle hour.
+  #
+  # Default `enabled: true` so every Sovereign that has the production
+  # issuer ALSO has staging available. Operators that want production-
+  # only on a customer Sovereign flip `staging.enabled: false` in the
+  # per-cluster overlay. The `name` is distinct from production so the
+  # two ClusterIssuers never collide.
+  #
+  # Per docs/INVIOLABLE-PRINCIPLES.md #4 the ACME URL is overridable —
+  # an operator wiring a private staging ACME (e.g. an internal Smallstep
+  # CA) sets `staging.acmeServer` from the per-cluster overlay without
+  # rebuilding this Blueprint.
+  staging:
+    enabled: true
+    name: letsencrypt-dns01-staging-powerdns
+    acmeServer: https://acme-staging-v02.api.letsencrypt.org/directory
+    privateKeySecretRefName: letsencrypt-dns01-staging-powerdns-account-key
 
 # ─── Service + APIService ────────────────────────────────────────────────
 service:
