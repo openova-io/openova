@@ -948,6 +948,54 @@ smeServices:
       repo: openova
       branch: main
 
+# ─── Catalog (qa-loop iter-16 Fix #65) ─────────────────────────────────
+# `openova-catalog` Flux HelmRepository — the named source ref every
+# Application's rendered HelmRelease points at by default.
+#
+# The application-controller (core/controllers/application/) renders
+# per-region HelmReleases with `sourceRef.name` = `controllers.application.
+# catalogSourceRef` (env: CATALOG_SOURCE_REF, default `openova-catalog`)
+# in `controllers.application.sourceNamespace` (env: SOURCE_NAMESPACE,
+# default `flux-system`). Without a HelmRepository CR at that
+# namespace/name pair, Flux's helm-controller cannot resolve the chart
+# bytes and the workload Pod is never scheduled — the qa-wp Application
+# CR sits at status.phase=Pending forever, blocking ~30 qa-loop TCs.
+#
+# This block ships the missing CR. Per Inviolable Principle #4 every
+# field is operator-overridable via per-Sovereign overlays (e.g. a
+# Sovereign with a local Harbor proxy_cache flips `url:` to its own
+# `oci://harbor.<sovereign-fqdn>` mirror without forking the chart).
+catalog:
+  helmRepository:
+    enabled: true
+    # MUST equal controllers.application.catalogSourceRef (default
+    # "openova-catalog"). Operators that re-target the controller's
+    # source ref (e.g. "openova-catalog-mirror") must also bump this so
+    # the HelmRepository name and the controller's render output stay
+    # in lockstep.
+    name: openova-catalog
+    # MUST equal controllers.application.sourceNamespace (default
+    # "flux-system"). Same lockstep rule as `name`.
+    namespace: flux-system
+    # `oci` — matches blueprint-release.yaml publish path (`helm push
+    # <chart>.tgz oci://ghcr.io/openova-io`). Default `http` would 404
+    # on a chart pull.
+    type: oci
+    # Canonical OpenOva blueprint registry. Per-Sovereign overlays may
+    # override to a local Harbor mirror (cutover.go re-targets every
+    # bp-* HelmRepository to `oci://harbor.<sovereign-fqdn>`; this CR
+    # follows the same convention).
+    url: oci://ghcr.io/openova-io
+    # `ghcr-pull` Secret is bootstrapped in flux-system by every
+    # Sovereign's bootstrap-kit (clusters/_template/bootstrap-kit/
+    # 03-flux.yaml et al). Empty disables auth (public packages only).
+    secretRef: ghcr-pull
+    # 15m matches sibling bootstrap-kit HelmRepositories
+    # (kyverno/grafana/trivy/cert-manager-powerdns-webhook). Tighter
+    # wastes GHCR API quota; looser delays new chart-version
+    # propagation post blueprint-release.yaml.
+    interval: 15m
+
 # qaFixtures — qa-loop iter-6 Cluster-F seeder for the test-matrix
 # fixtures (qa-omantel namespace, disposable-cm, qa-wp-creds, qa-user1
 # UserAccess + RoleBinding, bp-qa-custom Blueprint). DEFAULT-OFF;

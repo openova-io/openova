@@ -1,0 +1,105 @@
+{{- /*
+Flux v1 HelmRepository — the `openova-catalog` source the
+application-controller's rendered HelmReleases reference by default.
+
+ROOT CAUSE (qa-loop iter-16 Fix #65):
+  The application-controller (core/controllers/application/internal/
+  controller/application_controller.go) renders every per-region
+  HelmRelease with `spec.chart.spec.sourceRef.name` defaulted via the
+  CATALOG_SOURCE_REF env var (default `openova-catalog`) when the
+  parent Blueprint omits an explicit `source.ref` (or sets only
+  `source.url`). The renderer in core/controllers/pkg/render/manifests.go
+  always emits a `name:` ref into a Flux `HelmRepository` — never an
+  inline `OCIRepository url:` form — because the control-plane wants ONE
+  registry handle (the named HelmRepository) that operators can
+  re-target per Sovereign (e.g. swing every catalog pull from
+  `oci://ghcr.io/openova-io` to a local Harbor proxy_cache via the
+  cutover-driver, see products/catalyst/bootstrap/api/internal/handler/
+  cutover.go) without re-rendering every Application's manifest set.
+
+  The chart shipped the controller + the default ref name, but NEVER
+  shipped the `HelmRepository` CR with that name. Result: every
+  Application reconciled by the controller emitted a HelmRelease
+  pointing at `sourceRef.name=openova-catalog` in `flux-system`, which
+  did not exist. Flux's helm-controller logged
+  `Source 'HelmRepository/openova-catalog' not found` and the workload
+  install never happened. The Application CR sat at
+  `status.phase=Pending` (then `Provisioning`) forever; no Pod, no
+  Service, no ConfigMap was ever created.
+
+  Live symptom on qa-omantel (provision #6, 2026-05-10):
+    - Application qa-wp exists in qa-omantel ns
+    - GET /api/v1/sovereigns/.../applications returns qa-wp in items
+    - GET /api/v1/sovereigns/.../resources/pods?ns=qa-omantel returns
+      empty (no qa-wp-0 pod ever scheduled)
+    - kubectl get pods -n qa-omantel → no qa-wp-* pods
+    - kubectl get hr -n qa-omantel qa-wp → Source not found
+
+  ~30 TCs assert on a running qa-wp Pod / Service / ConfigMap +
+  Application reaching `Ready=True`. All of them stayed FAIL until
+  this template lands on a fresh provision.
+
+FIX (target-state per docs/INVIOLABLE-PRINCIPLES.md #1):
+  Ship the missing piece. The chart now emits a `HelmRepository` named
+  `openova-catalog` in `flux-system` pointing at
+  `oci://ghcr.io/openova-io` (the canonical OpenOva blueprint registry
+  every other bootstrap-kit slot already uses — see clusters/_template/
+  bootstrap-kit/27-kyverno.yaml et al). The controller's default
+  `CATALOG_SOURCE_REF=openova-catalog` is now a non-dangling reference
+  on every Sovereign install.
+
+  Per Inviolable Principle #4 (never hardcode) the URL + secretRef +
+  interval are operator-overridable via `.Values.catalog.*`. Defaults
+  match the canonical openova-io GHCR org + the `ghcr-pull` Secret the
+  rest of the chart already deploys for catalyst-api / catalyst-ui /
+  controller image pulls.
+
+  Per Inviolable Principle #4a (CI is the only build path) the chart
+  bytes referenced via this HelmRepository (e.g. `bp-qa-app:0.1.0`,
+  `bp-wordpress:0.1.0`) are produced by .github/workflows/blueprint-
+  release.yaml on every commit to platform/<name>/chart/** — never
+  hand-pushed.
+
+WHY `flux-system` (matches controller default `SOURCE_NAMESPACE`):
+  The application-controller's render pipeline pins the HelmRelease's
+  `sourceRef.namespace` to `r.Cfg.SourceNamespace` which defaults to
+  `flux-system` (env: `SOURCE_NAMESPACE`). Flux's helm-controller
+  resolves cross-namespace HelmRepository refs only via this explicit
+  namespace pin. Putting the HelmRepository here means every
+  Application namespace can reference it without per-Application
+  ServiceAccount or RBAC plumbing.
+
+WHY type=oci (matches blueprint-release.yaml publish path):
+  blueprint-release.yaml pushes every chart as an OCI artifact via
+  `helm push <chart>.tgz oci://ghcr.io/openova-io`. The matching
+  HelmRepository MUST set `spec.type: oci` so Flux source-controller
+  uses the OCI client; the default (`http`) would 404 on a chart pull.
+
+WHY interval=15m (matches sibling bootstrap-kit HelmRepositories):
+  The chart bytes are immutable by version (Helm/OCI semver tagging
+  rules + cosign keyless signing in CI). 15m is the canonical interval
+  used by every other bootstrap-kit HelmRepository (kyverno, grafana,
+  trivy, cert-manager-powerdns-webhook). Tighter intervals waste GHCR
+  API quota; looser intervals delay the propagation of new chart
+  versions once a blueprint-release.yaml run lands.
+*/ -}}
+{{- if .Values.catalog.helmRepository.enabled }}
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: {{ .Values.catalog.helmRepository.name | default "openova-catalog" | quote }}
+  namespace: {{ .Values.catalog.helmRepository.namespace | default "flux-system" | quote }}
+  labels:
+    app.kubernetes.io/managed-by: helm
+    app.kubernetes.io/component: openova-catalog
+    catalyst.openova.io/managed-by: catalyst-platform-chart
+    helm.sh/chart-instance: {{ .Release.Name }}
+spec:
+  type: {{ .Values.catalog.helmRepository.type | default "oci" | quote }}
+  interval: {{ .Values.catalog.helmRepository.interval | default "15m" | quote }}
+  url: {{ .Values.catalog.helmRepository.url | default "oci://ghcr.io/openova-io" | quote }}
+  {{- if .Values.catalog.helmRepository.secretRef }}
+  secretRef:
+    name: {{ .Values.catalog.helmRepository.secretRef | quote }}
+  {{- end }}
+{{- end }}
