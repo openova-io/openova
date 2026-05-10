@@ -1,5 +1,32 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.133 (qa-loop iter-1 prefetch Fix #113, Kyverno catalyst-namespace
+# exemption for registry-pivot DaemonSet): adds `catalyst` to the
+# qa-fixtures Kyverno disallow-privileged-containers exclusion list.
+#
+# Root cause (prov #9 wedge, 2026-05-10):
+#   bp-self-sovereign-cutover HR went Ready=False with admission webhook
+#   `validate.kyverno.svc-fail` denying DaemonSet/catalyst/registry-pivot
+#   on `autogen-disallow-privileged` because the rule applied to every
+#   namespace not in the exclusion list — and `catalyst` (the DaemonSet's
+#   targetNamespace, see clusters/_template/bootstrap-kit/06a-bp-self-
+#   sovereign-cutover.yaml `targetNamespace: catalyst`) was missing from
+#   the list. registry-pivot legitimately needs `securityContext.privileged:
+#   true` + `hostPID: true` to atomically rewrite /etc/rancher/k3s/
+#   registries.yaml on every node when the cutover endpoint pivots
+#   from the upstream Harbor mirror to the local Sovereign one.
+#
+# Fix (Path A, narrowest change): list `catalyst` alongside the existing
+#   platform-namespace exemptions (kube-system, cnpg-system, flux-system,
+#   catalyst-system, kyverno, cilium, openbao, keycloak, gitea, powerdns,
+#   sme). The Kyverno policy stays in Enforce mode for tenant workloads;
+#   only the catalyst platform namespace gains the same exemption every
+#   other platform namespace already has.
+#
+# Unblocks (no TCs claimed directly): bp-self-sovereign-cutover HR
+#   Ready=True → bp-catalyst-platform reaches Ready → console.<sov>
+#   Ingress materialised → qa-loop iter-1 can run.
+#
 # 1.4.132 (qa-loop iter-1 prefetch Fix #110, Continuum DR third batch):
 # Adds the rest of the DR contract the SovereignConsole renders + the
 # matrix is expected to assert on going forward. Two seams move:
@@ -806,7 +833,7 @@ name: bp-catalyst-platform
 #   - values.yaml: new knobs `cnpgPairAliasName`,
 #     `cnpgPairPostSwitchoverPrimary`, `continuumPlatformNamespace` —
 #     all values-overridable per INVIOLABLE-PRINCIPLES #4.
-version: 1.4.132
+version: 1.4.133
 appVersion: 1.4.94
 # 1.4.129 (qa-loop iter-16 Fix #65): ship the missing
 # `openova-catalog` Flux v1 HelmRepository in flux-system. The

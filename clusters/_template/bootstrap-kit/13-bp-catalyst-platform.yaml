@@ -380,7 +380,17 @@ spec:
       # templates/catalyst-gitea-token-secret.yaml + post-install Job
       # auto-mints the Gitea PAT into catalyst-gitea-token (replaces
       # kubectl-applied operational hack).
-      version: 1.4.128
+      # 1.4.133 (qa-loop iter-1 prefetch Fix #113, prov #9 wedge):
+      # qa-fixtures Kyverno disallow-privileged-containers exclusion
+      # list now includes `catalyst` namespace so the registry-pivot
+      # DaemonSet shipped by bp-self-sovereign-cutover (which legitimately
+      # needs `securityContext.privileged: true` to rewrite
+      # /etc/rancher/k3s/registries.yaml on every node) is not blocked
+      # by the validating admission webhook. Without this, prov #9
+      # bp-self-sovereign-cutover HR went Ready=False and bp-catalyst-
+      # platform never reached Ready → console.<sov> Ingress never
+      # materialised → iter-1 was unrunnable.
+      version: 1.4.133
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

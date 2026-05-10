@@ -33,7 +33,30 @@
   blocking the platform's own privileged pods (cilium-agent, csi
   drivers, postgres, etc.).
 */ -}}
-{{- $excludedNamespaces := list "kube-system" "cnpg-system" "flux-system" "catalyst-system" "kyverno" "cilium" "openbao" "keycloak" "gitea" "powerdns" "sme" }}
+{{- /*
+  Fix #113 (prov #9 wedge, 2026-05-10):
+  Added `catalyst` to the exclusion list. The bp-self-sovereign-cutover
+  chart deploys the `registry-pivot` DaemonSet into the `catalyst`
+  namespace (NOT `catalyst-system`) — see clusters/_template/bootstrap-kit/
+  06a-bp-self-sovereign-cutover.yaml `targetNamespace: catalyst` and
+  platform/self-sovereign-cutover/chart/templates/04-registry-pivot-daemonset.yaml.
+  registry-pivot legitimately requires `securityContext.privileged: true`
+  + `hostPID: true` to atomically rewrite /etc/rancher/k3s/registries.yaml
+  on every node when the cutover endpoint pivots from the upstream
+  Harbor mirror to the local Sovereign one. With the namespace not
+  exempt, the autogen-disallow-privileged rule denied the DaemonSet
+  via the validating admission webhook (`validate.kyverno.svc-fail`),
+  blocking bp-self-sovereign-cutover Ready=True and therefore stalling
+  bp-catalyst-platform → console.<sov> Ingress → iter-1.
+
+  Path A chosen (per Fix #113 brief): exempt the specific platform
+  namespace, keep the policy in Enforce mode for tenant workloads.
+  This matches the existing pattern for kube-system / cnpg-system /
+  flux-system / cilium / openbao / keycloak / gitea / powerdns / sme,
+  all of which are platform namespaces that legitimately host pods
+  with privileged-class capabilities (CSI drivers, CNI, etc.).
+*/ -}}
+{{- $excludedNamespaces := list "kube-system" "cnpg-system" "flux-system" "catalyst-system" "catalyst" "kyverno" "cilium" "openbao" "keycloak" "gitea" "powerdns" "sme" }}
 {{- $enforceMode := .Values.qaFixtures.kyvernoEnforceMode | default "Enforce" }}
 {{- $auditMode := "Audit" }}
 ---
