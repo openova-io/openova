@@ -30,6 +30,14 @@ type fakeGitea struct {
 	upsertErrorPath string             // when set, return upsertError on this path
 	upsertError     error
 	upsertCalls     []upsertCall
+
+	// repos tracks {org/repo → struct{}} so EnsureRepo idempotency is
+	// observable. ensureRepoCalls counts mutating calls; ensureRepoErr
+	// (if non-nil for a particular org/repo key) overrides default
+	// success.
+	repos            map[string]struct{}
+	ensureRepoCalls  int
+	ensureRepoErrFor map[string]error
 }
 
 type upsertCall struct {
@@ -40,10 +48,30 @@ type upsertCall struct {
 
 func newFakeGitea() *fakeGitea {
 	return &fakeGitea{
-		orgs:      make(map[string]*gitea.Org),
-		orgErrors: make(map[string]error),
-		files:     make(map[string][]byte),
+		orgs:             make(map[string]*gitea.Org),
+		orgErrors:        make(map[string]error),
+		files:            make(map[string][]byte),
+		repos:            make(map[string]struct{}),
+		ensureRepoErrFor: make(map[string]error),
 	}
+}
+
+// EnsureRepo records every call. If the org doesn't exist, returns
+// gitea.ErrOrgNotFound. If ensureRepoErrFor[org/repo] is set, returns
+// that error. Otherwise stamps the repo as existing and returns
+// success. Per the production gitea.Client contract this is
+// idempotent — recall on an existing repo is a no-op return.
+func (f *fakeGitea) EnsureRepo(_ context.Context, org, repo, _ string, _ bool) (gitea.Repo, error) {
+	f.ensureRepoCalls++
+	key := org + "/" + repo
+	if err, ok := f.ensureRepoErrFor[key]; ok && err != nil {
+		return gitea.Repo{}, err
+	}
+	if _, ok := f.orgs[org]; !ok {
+		return gitea.Repo{}, gitea.ErrOrgNotFound
+	}
+	f.repos[key] = struct{}{}
+	return gitea.Repo{Name: repo, FullName: key}, nil
 }
 
 func (f *fakeGitea) GetOrg(_ context.Context, org string) (gitea.Org, error) {
@@ -413,11 +441,60 @@ func TestReconcile_BranchPerEnvTypeMapping(t *testing.T) {
 }
 
 // T8: Gitea repo missing → Pending + GiteaRepoMissing reason.
-func TestReconcile_RepoMissingSurfacesPending(t *testing.T) {
+// T8: per-Env repo MISSING-on-first-pass is now self-healed by the
+// controller via EnsureRepo (qa-loop iter-8 Fix #42). The controller
+// no longer surfaces a Pending condition for missing repos — it
+// creates the repo idempotently and proceeds to commit the per-region
+// manifest. This test asserts the new contract.
+//
+// The "race delete" safety path (PutFile → ErrRepoNotFound after
+// EnsureRepo succeeded) is preserved by the existing in-loop branch
+// at line ~268 and remains testable via fg.upsertErrorPath +
+// upsertError if a future regression appears.
+func TestReconcile_RepoMissingSelfHeals(t *testing.T) {
 	fg := newFakeGitea()
 	fg.orgs["acme"] = &gitea.Org{Username: "acme"}
-	fg.upsertErrorPath = "clusters/hetzner-fsn-rtz-prod/environments/acme-prod/gitrepository.yaml"
-	fg.upsertError = gitea.ErrRepoNotFound
+	// Note: NO ensureRepoErrFor entry, NO upsertError — defaults to
+	// success from EnsureRepo onward, mirroring the production path.
+
+	env := &envv1.Environment{
+		ObjectMeta: metav1.ObjectMeta{Name: "acme-prod", Generation: 1},
+		Spec: envv1.EnvironmentSpec{
+			OrganizationRef: "acme",
+			EnvType:         "prod",
+			Placement:       "single-region",
+			Regions: []envv1.EnvironmentRegion{
+				{Provider: "hetzner", Region: "fsn", BuildingBlock: "rtz"},
+			},
+		},
+	}
+	r, c := newReconciler(t, fg, env)
+
+	_, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: "acme-prod"}})
+	require.NoError(t, err)
+
+	// Expect the controller to have called EnsureRepo at least once on
+	// `<org><suffix>` = `acme-environment`.
+	assert.GreaterOrEqual(t, fg.ensureRepoCalls, 1, "controller must call EnsureRepo to self-heal the missing repo")
+	_, repoExists := fg.repos["acme/acme-environment"]
+	assert.True(t, repoExists, "acme/acme-environment must exist after reconcile")
+
+	// And the per-region gitrepository.yaml must be committed.
+	got := mustGet(t, c, "acme-prod")
+	assert.Equal(t, envv1.PhaseReady, got.Status.Phase)
+	requireCondition(t, got, envv1.ConditionGiteaOrgReady, envv1.ConditionTrue)
+	requireCondition(t, got, envv1.ConditionGitRepositoryWritten, envv1.ConditionTrue)
+}
+
+// T8b: org disappearing between Get and EnsureRepo (rare race) → mark
+// pending so the operator (or org-controller) re-creates the slug.
+func TestReconcile_OrgVanishesBetweenGetAndEnsureRepoIsPending(t *testing.T) {
+	fg := newFakeGitea()
+	fg.orgs["acme"] = &gitea.Org{Username: "acme"}
+	// Force EnsureRepo to return ErrOrgNotFound on this exact org/repo
+	// — mirrors the apiserver returning the typed sentinel when the
+	// parent Org has been hard-deleted between phases.
+	fg.ensureRepoErrFor["acme/acme-environment"] = gitea.ErrOrgNotFound
 
 	env := &envv1.Environment{
 		ObjectMeta: metav1.ObjectMeta{Name: "acme-prod", Generation: 1},
@@ -433,16 +510,14 @@ func TestReconcile_RepoMissingSurfacesPending(t *testing.T) {
 	r, c := newReconciler(t, fg, env)
 
 	res, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: "acme-prod"}})
-	require.NoError(t, err, "missing repo is recoverable; controller must not crash")
+	require.NoError(t, err, "org-vanish race must be recoverable, not fatal")
 	assert.Greater(t, res.RequeueAfter, time.Duration(0))
 
 	got := mustGet(t, c, "acme-prod")
 	assert.Equal(t, envv1.PhasePending, got.Status.Phase)
-	requireCondition(t, got, envv1.ConditionGiteaOrgReady, envv1.ConditionFalse)
-	// Reason should mention the repo
 	cond := getCondition(got, envv1.ConditionReady)
 	require.NotNil(t, cond)
-	assert.Equal(t, "GiteaRepoMissing", cond.Reason)
+	assert.Equal(t, "GiteaOrgMissing", cond.Reason)
 }
 
 // T9: transient Gitea error on one region of a multi-region Env →

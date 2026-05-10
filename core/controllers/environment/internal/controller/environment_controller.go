@@ -54,8 +54,22 @@ import (
 // controller needs. Defining it as an interface here lets tests
 // inject a fake without spinning up a real Gitea server, AND keeps
 // the production gitea.Client free of test-only behavior.
+//
+// EnsureRepo was added in qa-loop iter-8 Fix #42 — the prior contract
+// only Get'd the org and PutFile'd manifests, but no controller in the
+// chain owned creation of the per-Org `<org><suffix>` (e.g.
+// `omantel-platform-environment`) repo, so reconcile fell into a
+// permanent re-queue loop with `gitea repo not found — re-queueing`
+// and the per-Env Flux GitRepository manifest was never written.
+// EnsureRepo is idempotent (find-or-create on Gitea side) so the
+// reconcile path is safe across replicas + restart loops.
 type GiteaClient interface {
 	GetOrg(ctx context.Context, org string) (gitea.Org, error)
+	EnsureRepo(
+		ctx context.Context,
+		org, repo, description string,
+		private bool,
+	) (gitea.Repo, error)
 	PutFile(
 		ctx context.Context,
 		org, repo, branch, path string,
@@ -212,6 +226,38 @@ func (r *EnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		env.Spec.OrganizationRef,
 		repo,
 	)
+
+	// 3a. Ensure the per-Env Gitea repo exists. Idempotent on
+	//     find-or-create (errAlreadyExists 409/422 → re-find). Without
+	//     this, reconcile loops on `gitea repo not found — re-queueing`
+	//     forever because no controller in the chain owns creation of
+	//     `<org><suffix>` (the org-controller creates `<org>/catalyst-tenant`,
+	//     a different per-Org repo). qa-loop iter-8 Fix #42 root cause.
+	if _, err := r.Gitea.EnsureRepo(ctx,
+		env.Spec.OrganizationRef,
+		repo,
+		fmt.Sprintf("Per-Environment Flux GitRepository manifests for %s/%s — auto-managed by environment-controller. Do not edit manually.",
+			env.Spec.OrganizationRef, envName),
+		true, // private
+	); err != nil {
+		if errors.Is(err, gitea.ErrOrgNotFound) {
+			// Org disappeared between step 2 and step 3a — surface a
+			// pending so the operator (or organization-controller)
+			// re-creates the Org slug.
+			return r.markPending(ctx, &env, branch, subjectPrefix,
+				"GiteaOrgMissing",
+				fmt.Sprintf("Gitea org %q vanished between Get and EnsureRepo; re-queueing", env.Spec.OrganizationRef),
+				cfg.RequeueAfter,
+			)
+		}
+		// Any other failure is transient (5xx, 429, transport): mark
+		// degraded and re-queue.
+		return r.markDegraded(ctx, &env, branch, subjectPrefix,
+			"GiteaRepoEnsureError",
+			fmt.Sprintf("EnsureRepo %s/%s: %v", env.Spec.OrganizationRef, repo, err),
+			cfg.RequeueAfter)
+	}
+	logger.V(1).Info("gitea repo ensured", "org", env.Spec.OrganizationRef, "repo", repo)
 
 	vclusters := make([]envv1.EnvironmentVClusterStatus, 0, len(env.Spec.Regions))
 	now := metav1.Now()

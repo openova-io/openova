@@ -72,6 +72,11 @@ func main() {
 	// Secrets live. Defaults to the controller's own namespace so the
 	// ClusterRole `secrets:get` rule + cache scope stay minimal.
 	fedSecretNs := envOr("CATALYST_FEDERATION_SECRET_NAMESPACE", "catalyst-controllers")
+	// Namespace where per-Org UserAccess Claim CRs are written. Defaults
+	// to `catalyst-system` per the qa-fixtures convention. Per Inviolable
+	// Principle #4 the deployment env can override this for non-canonical
+	// installs.
+	uaNs := envOr("CATALYST_USERACCESS_NAMESPACE", "catalyst-system")
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
@@ -105,6 +110,7 @@ func main() {
 		VClusterHelmRepoNamespace: helmRepoNs,
 		Branch:                    branch,
 		FederationSecretNamespace: fedSecretNs,
+		UserAccessNamespace:       uaNs,
 	}
 	if err := r.SetupWithManager(mgr); err != nil {
 		log.Error(err, "setup reconciler")

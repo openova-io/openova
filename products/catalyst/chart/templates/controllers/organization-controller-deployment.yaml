@@ -98,6 +98,16 @@ spec:
                   name: catalyst-gitea-token
                   key: token
                   optional: true
+            # Per-Org UserAccess Claim CRs are namespace-scoped on the
+            # live API server (qa-loop iter-8 Fix #42 root cause: the
+            # controller previously called Get/Create with an empty
+            # namespace and the apiserver rejected with `an empty
+            # namespace may not be set when a resource name is
+            # provided`). Default `catalyst-system` matches the
+            # qa-fixtures convention at
+            # products/catalyst/chart/templates/qa-fixtures/useraccess-qa-user1.yaml.
+            - name: CATALYST_USERACCESS_NAMESPACE
+              value: {{ .Values.controllers.organization.userAccessNamespace | default "catalyst-system" | quote }}
             {{- range $k, $v := .Values.controllers.organization.env }}
             - name: {{ $k | quote }}
               value: {{ $v | quote }}
