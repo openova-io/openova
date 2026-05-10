@@ -407,7 +407,16 @@ spec:
       #      creation rejected → 15m hook timeout → loop forever.
       # This Job runs at the very start of every install attempt and
       # guarantees a clean slate.
-      version: 1.4.134
+      # 1.4.135 (qa-loop bounded-provision-cycle Fix #119): sanitize
+      # illegal `/` in qa-fixtures Continuum mirror label value. Prov
+      # #10 wedge — helm install crashed on Continuum CR validation
+      # because the Fix #102 platform-mirror label
+      # `openova.io/continuum-mirror-of: <ns>/<name>` violates k8s
+      # label-value spec (`/` forbidden in values, allowed only in
+      # keys as the prefix separator). Split into two valid labels:
+      # `openova.io/continuum-mirror-of-namespace` +
+      # `openova.io/continuum-mirror-of-name`. Unblocks prov #11+.
+      version: 1.4.135
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
