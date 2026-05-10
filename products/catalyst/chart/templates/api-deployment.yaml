@@ -660,6 +660,27 @@ spec:
                   name: sovereign-fqdn
                   key: lbIP
                   optional: true
+            # CATALYST_CONFIGURED_REGIONS — comma-separated Hetzner regions
+            # the operator declared at provision time (qa-loop iter-16
+            # Fix #88, Path B). The fleet handler reads this when the
+            # in-memory deployment record's Regions slice is empty (e.g.
+            # on the chroot Sovereign post-handover where catalyst-api
+            # has no provisioner records of its own) so the
+            # /api/v1/fleet/sovereigns/{id}/summary `configuredRegions`
+            # field is non-empty even on a self-Sovereign API call.
+            #
+            # Source: sovereign-fqdn ConfigMap key `configuredRegions`,
+            # populated from .Values.sovereign.configuredRegions (or
+            # .Values.qaFixtures.configuredRegions when qaFixtures is
+            # enabled). optional=true so Catalyst-Zero (contabo) and
+            # legacy Sovereigns without the key start cleanly with the
+            # env empty — the UI then surfaces only the live region.
+            - name: CATALYST_CONFIGURED_REGIONS
+              valueFrom:
+                configMapKeyRef:
+                  name: sovereign-fqdn
+                  key: configuredRegions
+                  optional: true
             # CATALYST_GITOPS_USER + CATALYST_GITOPS_TOKEN — basic-auth
             # credentials embedded in the GitOps clone URL (issue #878).
             # Pre-cutover (Catalyst-Zero): User=x-access-token, Token=GitHub

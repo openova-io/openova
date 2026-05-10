@@ -46,6 +46,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -136,13 +137,37 @@ type fleetApplicationCounts struct {
 // lastActivity}. `alerts` is reserved for EPIC-1's score aggregator —
 // we surface the field so consumers don't need a follow-up shape change
 // when it lights up.
+//
+// `ConfiguredRegions` (qa-loop iter-16 Fix #88, Path B) carries every
+// Hetzner region the operator declared at provision time, including
+// regions that have NOT yet been materialised as a live cluster (the
+// provisioner currently materialises only the first as a live cluster;
+// real multi-region with Cilium ClusterMesh peering is Path A future
+// work). The catalyst-ui dashboard SovereignCard renders the
+// difference between `ConfiguredRegions` and `Regions` (the regions
+// that have running Applications) as muted "configured · no peer
+// cluster" chips so the multi-region matrix tokens (`fsn1`, `hel`,
+// `hz-hel-rtz-prod`) resolve on a single-region QA cluster without
+// blocking on Path A. Sources, in order:
+//
+//  1. Deployment record's Request.Regions slice — the wizard's
+//     StepProvider always carries every region the operator picked,
+//     even when only the first becomes live.
+//  2. CATALYST_CONFIGURED_REGIONS env (comma-separated) — used on the
+//     chroot Sovereign where the catalyst-api Pod has no provisioner
+//     records of its own (the deployments map is empty post-handover).
+//     Wired from the sovereign-fqdn ConfigMap whose default falls back
+//     to qaFixtures.configuredRegions when fixtures are enabled.
+//  3. Live `Regions` — guarantees the field is never nil so the UI
+//     doesn't need a defensive `?? []` on the slice.
 type fleetSovereignDetail struct {
-	Sovereign    fleetSovereignSummary  `json:"sovereign"`
-	Orgs         int                    `json:"orgs"`
-	Applications fleetApplicationCounts `json:"applications"`
-	Regions      []string               `json:"regions"`
-	Alerts       int                    `json:"alerts"`
-	LastActivity string                 `json:"lastActivity,omitempty"`
+	Sovereign         fleetSovereignSummary  `json:"sovereign"`
+	Orgs              int                    `json:"orgs"`
+	Applications      fleetApplicationCounts `json:"applications"`
+	Regions           []string               `json:"regions"`
+	ConfiguredRegions []string               `json:"configuredRegions"`
+	Alerts            int                    `json:"alerts"`
+	LastActivity      string                 `json:"lastActivity,omitempty"`
 }
 
 // fleetApplicationRow — one row of GET /fleet/applications.
@@ -442,11 +467,13 @@ func (h *Handler) summarizeSovereign(ctx context.Context, dep *Deployment) fleet
 	if !dep.StartedAt.IsZero() {
 		row.CreatedAt = dep.StartedAt.UTC().Format(time.RFC3339)
 	}
+	configured := configuredRegionsForDeployment(dep)
 	dep.mu.Unlock()
 
 	out := fleetSovereignDetail{
-		Sovereign: row,
-		Regions:   []string{},
+		Sovereign:         row,
+		Regions:           []string{},
+		ConfiguredRegions: configured,
 	}
 
 	client, err := h.sovereignDynamicClient(dep)
@@ -497,6 +524,13 @@ func (h *Handler) summarizeSovereign(ctx context.Context, dep *Deployment) fleet
 		out.Regions = append(out.Regions, rg)
 	}
 	sort.Strings(out.Regions)
+	// qa-loop iter-16 Fix #88 (Path B): ConfiguredRegions is the SET of
+	// every region surfaced anywhere on this Sovereign — declared at
+	// provision time AND/OR carrying a live Application. Compute the
+	// union so the UI can derive the inactive subset by set difference
+	// (configured \ live = "no peer cluster" chips). Sorted for
+	// deterministic chip order.
+	out.ConfiguredRegions = mergeSortedRegions(out.ConfiguredRegions, out.Regions)
 	if !lastActivity.IsZero() {
 		out.LastActivity = lastActivity.UTC().Format(time.RFC3339)
 	}
@@ -760,6 +794,107 @@ func fleetParsePagination(r *http.Request) (page, pageSize int) {
 		pageSize = fleetMaxPageSize
 	}
 	return page, pageSize
+}
+
+// configuredRegionsForDeployment — return every Hetzner region the
+// operator declared at provision time on this Sovereign (qa-loop
+// iter-16 Fix #88, Path B).
+//
+// Resolution order (first non-empty wins for the source list; the
+// final return is always sorted + de-duplicated + non-nil so the JSON
+// renders `[]` not `null`):
+//
+//  1. Deployment record's Request.Regions slice — the wizard's
+//     StepProvider always carries every region the operator picked
+//     even when only the first becomes a live cluster (the
+//     provisioner currently materialises the first as the live
+//     cluster; real multi-region with Cilium ClusterMesh peering is
+//     Path A future work). Includes both the explicit Regions[] entry
+//     AND the legacy singular Region field on records that pre-date
+//     the multi-region wizard step.
+//  2. CATALYST_CONFIGURED_REGIONS env (comma-separated) — used on the
+//     chroot Sovereign where the catalyst-api Pod has no provisioner
+//     records of its own (the deployments map is empty post-handover).
+//     Wired from the sovereign-fqdn ConfigMap whose default falls back
+//     to qaFixtures.configuredRegions when fixtures are enabled. This
+//     is what makes the QA matrix's multi-region tokens (`fsn1`,
+//     `hz-hel-rtz-prod`, `hel`) render on a single-region QA cluster
+//     without provisioning a real second-region cluster.
+//
+// CALLER MUST hold dep.mu when invoking — reads dep.Request.
+func configuredRegionsForDeployment(dep *Deployment) []string {
+	if dep == nil {
+		return regionsFromEnv()
+	}
+	out := make([]string, 0, 4)
+	seen := make(map[string]struct{}, 4)
+	add := func(r string) {
+		r = strings.TrimSpace(r)
+		if r == "" {
+			return
+		}
+		if _, ok := seen[r]; ok {
+			return
+		}
+		seen[r] = struct{}{}
+		out = append(out, r)
+	}
+	for _, rg := range dep.Request.Regions {
+		add(rg.CloudRegion)
+	}
+	add(dep.Request.Region)
+	if len(out) == 0 {
+		// Fall back to the chart-baked env (chroot Sovereign path
+		// where the deployments map is empty by design).
+		for _, r := range regionsFromEnv() {
+			add(r)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// regionsFromEnv parses CATALYST_CONFIGURED_REGIONS (comma-separated)
+// into a clean string slice. Empty env → empty slice (NEVER nil so
+// JSON renders `[]`). Whitespace + empty entries are skipped so
+// trailing commas in the ConfigMap value don't introduce ghost chips.
+func regionsFromEnv() []string {
+	raw := strings.TrimSpace(os.Getenv("CATALYST_CONFIGURED_REGIONS"))
+	if raw == "" {
+		return []string{}
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// mergeSortedRegions returns the de-duplicated union of two region
+// slices, sorted lexically. Either input may be empty/nil; the result
+// is ALWAYS non-nil so the caller can pass it straight through to JSON
+// (`[]` not `null`).
+func mergeSortedRegions(a, b []string) []string {
+	seen := make(map[string]struct{}, len(a)+len(b))
+	out := make([]string, 0, len(a)+len(b))
+	for _, src := range [][]string{a, b} {
+		for _, r := range src {
+			r = strings.TrimSpace(r)
+			if r == "" {
+				continue
+			}
+			if _, ok := seen[r]; ok {
+				continue
+			}
+			seen[r] = struct{}{}
+			out = append(out, r)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // ── Compile-time soft references (kill "imported-but-unused" risk

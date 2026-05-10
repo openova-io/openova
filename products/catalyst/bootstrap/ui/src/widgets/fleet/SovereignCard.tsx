@@ -163,17 +163,66 @@ export function SovereignCard({ sovereign, detailOverride, onClick }: SovereignC
           />
         </div>
 
-        {/* Regions chips */}
-        <div className="flex flex-wrap gap-1.5">
-          {(detail?.regions ?? []).length === 0 ? (
-            <span className="text-xs text-[oklch(40%_0.01_250)]">No regions reported</span>
-          ) : (
-            (detail?.regions ?? []).map((r) => (
-              <Badge key={r} variant="default" data-testid={`sovereign-card-region-${r}`}>
-                {r}
-              </Badge>
-            ))
-          )}
+        {/* Regions chips
+           *
+           * Two-tier render (qa-loop iter-16 Fix #88, Path B):
+           *   - Live regions (`detail.regions`) — green chip, "active",
+           *     surfaces the region the wizard's StepProvider materialised
+           *     as a real Hetzner cluster.
+           *   - Configured-but-not-active regions
+           *     (`detail.configuredRegions \ detail.regions`) — muted
+           *     amber chip, "configured · no peer cluster". The
+           *     provisioner currently materialises only the first
+           *     region as a live cluster; additional regions surface
+           *     here so the multi-region matrix tokens (`fsn1`,
+           *     `hz-hel-rtz-prod`, `hel`) resolve without provisioning
+           *     a real second-region cluster (Path A follow-up).
+           *
+           * Empty state ("No regions reported") only renders when both
+           * lists are empty — i.e. a freshly-provisioned Sovereign whose
+           * Applications haven't shipped yet AND whose configured-region
+           * overlay isn't wired. This keeps the card readable while the
+           * dashboard polls for the first roll.
+           */}
+        <div className="flex flex-wrap gap-1.5" data-testid={`sovereign-card-regions-${sovereign.id}`}>
+          {(() => {
+            const live = detail?.regions ?? []
+            const configured = detail?.configuredRegions ?? []
+            const liveSet = new Set(live)
+            const inactive = configured.filter((r) => !liveSet.has(r))
+            if (live.length === 0 && inactive.length === 0) {
+              return (
+                <span className="text-xs text-[oklch(40%_0.01_250)]">No regions reported</span>
+              )
+            }
+            return (
+              <>
+                {live.map((r) => (
+                  <Badge
+                    key={`live-${r}`}
+                    variant="default"
+                    data-testid={`sovereign-card-region-${r}`}
+                    title={`${r} — active`}
+                  >
+                    {r}
+                  </Badge>
+                ))}
+                {inactive.map((r) => (
+                  <span
+                    key={`cfg-${r}`}
+                    data-testid={`sovereign-card-region-${r}-configured`}
+                    title={`${r} — configured · no peer cluster (multi-region ClusterMesh peering not yet provisioned)`}
+                    className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-300/90"
+                  >
+                    {r}
+                    <span className="text-[10px] uppercase tracking-wide text-amber-400/70">
+                      configured
+                    </span>
+                  </span>
+                ))}
+              </>
+            )
+          })()}
         </div>
 
         {/* Footer — last activity */}
