@@ -214,10 +214,27 @@ func expandShortFormMode(body policyModeRequest) policyModeRequest {
 // policyModeResponse is the body returned on success. The `modes` map
 // is the FULL merged set so the UI can display every policy's current
 // mode without a follow-up GET.
+//
+// `Mode` is the canonical Kyverno-vocab echo of the mode just applied
+// (Audit | Enforce — capitalized to match the Kyverno
+// `validationFailureAction` field on the underlying ClusterPolicy CR).
+// The matrix (TC-027 / TC-028) asserts the Kyverno literal in the
+// response so a consumer round-tripping a Kyverno-shaped body sees
+// the same vocabulary back. Per
+// `feedback_no_mvp_no_workarounds.md` the value is the REAL applied
+// mode, never a placeholder; populated from the request body's
+// `mode` field (or the bulk-sentinel value when the request used
+// short-form).
 type policyModeResponse struct {
 	Environment string            `json:"environment"`
 	Modes       map[string]string `json:"modes"`
-	Applied     string            `json:"applied"` // created | updated | no-op
+	// Mode — canonical Kyverno-vocab echo (Audit | Enforce). Set
+	// when the request applied a single mode value (short-form
+	// `{"mode":"Audit"}` or per-policy single-entry); omitted when
+	// per-policy modes diverge in the same request (consumers should
+	// read the per-policy `Modes` map in that case).
+	Mode    string `json:"mode,omitempty"`
+	Applied string `json:"applied"` // created | updated | no-op
 }
 
 // ── HTTP handler ─────────────────────────────────────────────────────
@@ -346,7 +363,15 @@ func (h *Handler) HandleEnvironmentPolicyMode(w http.ResponseWriter, r *http.Req
 			writeJSON(w, http.StatusOK, policyModeResponse{
 				Environment: envName,
 				Modes:       map[string]string{policyModeBulkSentinel: v},
-				Applied:     "no-op",
+				// Echo the canonical Kyverno-vocab name (Audit /
+				// Enforce) so a consumer round-tripping a Kyverno
+				// body sees the same vocabulary back. Matrix
+				// (TC-027 / TC-028) asserts the literal — without
+				// this echo the response only carries the OpenOva
+				// canonical form ("permissive" / "enforcing") and
+				// the matrix substring fails.
+				Mode:    kyvernoVocabMode(v),
+				Applied: "no-op",
 			})
 			return
 		}
@@ -581,6 +606,14 @@ func buildPolicyModeResponse(
 			resp.Modes[name] = mode
 		}
 	}
+	// Top-level `mode` echo (Kyverno-vocab) — set when every entry in
+	// the merged Modes map agrees on the same canonical OpenOva
+	// vocabulary value. The matrix (TC-027 / TC-028) asserts the
+	// literal Kyverno token in the response so a consumer round-
+	// tripping a Kyverno-shaped `{"mode":"Audit"}` body sees the same
+	// vocabulary back. When per-policy modes diverge the field is
+	// omitted (consumers read the per-policy `Modes` map instead).
+	resp.Mode = uniformKyvernoVocabMode(resp.Modes)
 	return resp
 }
 
@@ -717,6 +750,55 @@ func normalizePolicyMode(in string) (string, bool) {
 		return policyModeEnforcing, true
 	}
 	return "", false
+}
+
+// kyvernoVocabMode maps an OpenOva canonical mode value to its
+// Kyverno-vocab capitalized equivalent (Audit | Enforce). Returns
+// "" for empty input or unrecognised values so the wire shape's
+// `mode,omitempty` field is dropped rather than leaking a placeholder.
+//
+// Why two vocabularies — see normalizePolicyMode docstring. The matrix
+// asserts the Kyverno literal in the response (TC-027 expects
+// "Audit", TC-028 expects "Enforce") because the canonical UAT
+// vocabulary mirrors the underlying ClusterPolicy CR's
+// `validationFailureAction` field.
+func kyvernoVocabMode(in string) string {
+	switch strings.ToLower(strings.TrimSpace(in)) {
+	case policyModePermissive, "audit":
+		return "Audit"
+	case policyModeEnforcing, "enforce":
+		return "Enforce"
+	}
+	return ""
+}
+
+// uniformKyvernoVocabMode returns the Kyverno-vocab echo (Audit |
+// Enforce) when every entry in `modes` agrees on the same canonical
+// OpenOva vocabulary value, "" otherwise. Used by buildPolicyModeResponse
+// to set the top-level `mode` field on responses where the request
+// applied a single mode across every policy (the common short-form
+// `{"mode":"Audit"}` case the dashboard's PolicyModeToggle widget
+// emits). Per-policy divergence drops the field so consumers don't see
+// a misleading uniform value when modes actually differ.
+func uniformKyvernoVocabMode(modes map[string]string) string {
+	if len(modes) == 0 {
+		return ""
+	}
+	var canonical string
+	for _, v := range modes {
+		c, ok := normalizePolicyMode(v)
+		if !ok {
+			return ""
+		}
+		if canonical == "" {
+			canonical = c
+			continue
+		}
+		if canonical != c {
+			return ""
+		}
+	}
+	return kyvernoVocabMode(canonical)
 }
 
 // joinSorted returns a comma-separated, alphabetically-sorted list of

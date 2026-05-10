@@ -318,3 +318,31 @@ func TestHandleRBACAuditStream_HeartbeatAndConnect(t *testing.T) {
 		t.Errorf("missing data frame; got=%s", got.String())
 	}
 }
+
+// ── qa-loop iter-1 prov #8 Fix #97 — compliance audit type filter ────
+
+// TestIsComplianceAuditType verifies the compliance audit-type prefix
+// predicate (TC-052). Matches every audit type with the canonical
+// "compliance" prefix (compliance-policy-mode-changed, compliance-…)
+// and rejects everything else.
+func TestIsComplianceAuditType(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"compliance-policy-mode-changed", true},
+		{"compliance-policy-deleted", true},
+		{"compliance", true},
+		{"continuum-switchover-completed", false},
+		{"rbac-assign", false},
+		{"", false},
+		{"compliancex-something", true}, // prefix-only by design
+	}
+	for _, c := range cases {
+		t.Run(c.in, func(t *testing.T) {
+			if got := IsComplianceAuditType(c.in); got != c.want {
+				t.Fatalf("IsComplianceAuditType(%q): got %v want %v", c.in, got, c.want)
+			}
+		})
+	}
+}

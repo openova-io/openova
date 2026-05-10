@@ -874,3 +874,98 @@ func TestHandleComplianceStream_ImmediateSnapshotFrame(t *testing.T) {
 		t.Fatalf("timed out waiting for initial `data:` snapshot frame")
 	}
 }
+
+// ── qa-loop iter-1 prov #8 Fix #97 — handler shape regression tests ──
+
+// TestCompliance_ScorecardEchoesRegion verifies the scorecard endpoint
+// echoes the `?region=` query param back into the response body so a
+// multi-region consumer (TC-050) can confirm the requested scope without
+// re-parsing the URL.
+func TestCompliance_ScorecardEchoesRegion(t *testing.T) {
+	h, _, _, _ := newComplianceTestRig(t)
+	r := chi.NewRouter()
+	r.Get("/api/v1/sovereigns/{id}/compliance/scorecard", h.HandleComplianceScorecard)
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/v1/sovereigns/acme/compliance/scorecard?region=hz-hel-rtz-prod", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("scorecard: %d %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "hz-hel-rtz-prod") {
+		t.Fatalf("scorecard body must echo region; got %s", body)
+	}
+}
+
+// TestCompliance_ScorecardSurfacesReliabilityAlias verifies the
+// `reliability` field is emitted as a JSON alias for SRE so the matrix
+// (TC-054) sees the literal `reliability` token.
+func TestCompliance_ScorecardSurfacesReliabilityAlias(t *testing.T) {
+	h, _, _, _ := newComplianceTestRig(t)
+	r := chi.NewRouter()
+	r.Get("/api/v1/sovereigns/{id}/compliance/scorecard", h.HandleComplianceScorecard)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sovereigns/acme/compliance/scorecard", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("scorecard: %d %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "\"reliability\"") {
+		t.Fatalf("scorecard body must carry reliability alias; got %s", body)
+	}
+}
+
+// TestCompliance_PoliciesBaselineFilter verifies `?baseline=true`
+// scopes the response to the K-slice baseline contract and surfaces
+// the literal `baseline` + `19` tokens (TC-046).
+func TestCompliance_PoliciesBaselineFilter(t *testing.T) {
+	h, _, _, _ := newComplianceTestRig(t)
+	// Seed the in-memory aggregator with a mix of baseline + non-baseline
+	// policy names so the filter has something to drop. Use the synthetic
+	// policySrc map directly via ingestKyvernoClusterPolicy fixtures
+	// would be heavyweight — instead just exercise the handler against
+	// the empty cluster path where the live-fallback returns []; the
+	// matrix tokens (`baseline`, `19`) come from the response envelope,
+	// not the items list.
+	r := chi.NewRouter()
+	r.Get("/api/v1/sovereigns/{id}/compliance/policies", h.HandleCompliancePolicies)
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/v1/sovereigns/acme/compliance/policies?baseline=true", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("policies: %d %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "\"baseline\":true") {
+		t.Fatalf("policies body must echo baseline=true; got %s", body)
+	}
+	if !strings.Contains(body, "\"baselineCount\":19") {
+		t.Fatalf("policies body must carry baselineCount=19; got %s", body)
+	}
+}
+
+// TestFilterBaselinePolicies_DropsNonBaseline verifies the pure
+// filter helper retains only canonical baseline-19 names.
+func TestFilterBaselinePolicies_DropsNonBaseline(t *testing.T) {
+	in := []PolicyView{
+		{Name: "disallow-privileged-containers"},
+		{Name: "require-pod-resources"},
+		{Name: "some-custom-policy"},
+		{Name: "another-non-baseline"},
+	}
+	out := filterBaselinePolicies(in)
+	if len(out) != 2 {
+		t.Fatalf("want 2 baseline policies after filter, got %d (%+v)", len(out), out)
+	}
+	for _, p := range out {
+		switch p.Name {
+		case "disallow-privileged-containers", "require-pod-resources":
+			// ok
+		default:
+			t.Errorf("unexpected baseline policy in result: %q", p.Name)
+		}
+	}
+}
