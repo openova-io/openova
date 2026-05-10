@@ -923,6 +923,28 @@ write_files:
             # template at provision time.
             CLUSTER_MESH_NAME: "${cluster_mesh_name}"
             CLUSTER_MESH_ID: "${cluster_mesh_id}"
+            # QA fixtures auto-enable (Fix #73 — qa-loop bounded-cycle
+            # iter-16). Default "false" so a customer-facing zero-touch
+            # provision lands a Sovereign with NO qaFixtures stack
+            # rendered. Catalyst-api flips to "true" + populates the
+            # namespace + Organization names when the wizard / API
+            # caller sets Request.QATestEnabled=true (QA Sovereigns
+            # only). The bp-catalyst-platform chart's bootstrap-kit
+            # slot 13 reads via ${QA_FIXTURES_ENABLED:-false} and the
+            # other three placeholders below — see
+            # clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml
+            # lines 496/510/511/519.
+            #
+            # QA_FIXTURES_NAMESPACE / QA_ORGANIZATION are derived
+            # server-side from SovereignFQDN's first label per
+            # docs/INVIOLABLE-PRINCIPLES.md #4 — "qa-omantel" /
+            # "omantel-platform" for omantel.biz, etc. — so a
+            # non-omantel QA Sovereign never inherits the chart's
+            # legacy bootstrapping defaults.
+            QA_FIXTURES_ENABLED: "${qa_fixtures_enabled}"
+            QA_TEST_SESSION_ENABLED: "${qa_test_session_enabled}"
+            QA_FIXTURES_NAMESPACE: "${qa_fixtures_namespace}"
+            QA_ORGANIZATION: "${qa_organization}"
       ---
       apiVersion: kustomize.toolkit.fluxcd.io/v1
       kind: Kustomization

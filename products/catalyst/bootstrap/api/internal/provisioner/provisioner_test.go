@@ -552,3 +552,161 @@ func TestWriteTfvars_EmitsSingularSizesWhenSet(t *testing.T) {
 		t.Fatalf("worker_size must round-trip operator override: got %q want cpx41", v)
 	}
 }
+
+// TestWriteTfvars_QAFixtures_DefaultDisabled proves writeTfvars emits
+// qa_fixtures_enabled="false" + qa_test_session_enabled="false" when the
+// caller does NOT set Request.QATestEnabled. This is the customer-Sovereign
+// invariant: a zero-touch provision MUST NOT spawn the qaFixtures stack
+// (qa-<sov> ns + qa-wp Application + Continuum CR + CNPGPair + PDM CRs +
+// status-seeder Jobs + tier-bound UserAccess seeder) on a customer's
+// production Sovereign — those resources are QA scaffolding, not customer
+// workloads. Fix #73 root-cause: the provisioner never threaded the
+// toggle so the chart's `${QA_FIXTURES_ENABLED:-false}` default fired
+// uniformly — including on QA Sovereigns where ~140 matrix TCs depend
+// on the fixtures being present.
+func TestWriteTfvars_QAFixtures_DefaultDisabled(t *testing.T) {
+	dir, err := os.MkdirTemp("", "writeTfvars-qa-*")
+	if err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	defer os.RemoveAll(dir)
+
+	req := Request{
+		SovereignFQDN:    "acme-customer.openova.io",
+		OrgName:          "Acme",
+		OrgEmail:         "ops@acme.io",
+		HetznerToken:     "tok",
+		HetznerProjectID: "p1",
+		Region:           "fsn1",
+		WorkerCount:      2,
+		// QATestEnabled intentionally false (customer Sovereign).
+	}
+	if err := writeTfvars(dir, req); err != nil {
+		t.Fatalf("writeTfvars: %v", err)
+	}
+	raw, err := os.ReadFile(dir + "/tofu.auto.tfvars.json")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if v, _ := parsed["qa_fixtures_enabled"].(string); v != "false" {
+		t.Fatalf("qa_fixtures_enabled MUST default 'false' on customer Sovereigns, got %q", v)
+	}
+	if v, _ := parsed["qa_test_session_enabled"].(string); v != "false" {
+		t.Fatalf("qa_test_session_enabled MUST default 'false' on customer Sovereigns, got %q", v)
+	}
+}
+
+// TestWriteTfvars_QAFixtures_EnabledDerivesNamespaceAndOrg proves that when
+// QATestEnabled=true, writeTfvars emits qa_fixtures_enabled="true" AND
+// derives qa_fixtures_namespace + qa_organization from the SovereignFQDN's
+// first DNS label per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode).
+//
+// "qa.example.com" → "qa-qa" / "qa-platform"  (first label is "qa")
+// "omantel.biz"    → "qa-omantel" / "omantel-platform"
+// "demo.openova.io" → "qa-demo" / "demo-platform"
+//
+// Without this derivation the chart's bootstrapping defaults
+// ("qa-omantel" / "omantel-platform") would leak onto every QA Sovereign
+// — exactly the cross-Sovereign collision shape principle #4 forbids.
+func TestWriteTfvars_QAFixtures_EnabledDerivesNamespaceAndOrg(t *testing.T) {
+	cases := []struct {
+		name        string
+		fqdn        string
+		wantNs      string
+		wantOrgName string
+	}{
+		{name: "omantel", fqdn: "omantel.biz", wantNs: "qa-omantel", wantOrgName: "omantel-platform"},
+		{name: "qa-prefix", fqdn: "qa.example.com", wantNs: "qa-qa", wantOrgName: "qa-platform"},
+		{name: "demo-openova", fqdn: "demo.openova.io", wantNs: "qa-demo", wantOrgName: "demo-platform"},
+		{name: "uppercase-input-normalised", fqdn: "QA.Example.COM", wantNs: "qa-qa", wantOrgName: "qa-platform"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir, err := os.MkdirTemp("", "writeTfvars-qa-on-*")
+			if err != nil {
+				t.Fatalf("mkdir: %v", err)
+			}
+			defer os.RemoveAll(dir)
+
+			req := Request{
+				SovereignFQDN:    tc.fqdn,
+				OrgName:          "QA",
+				OrgEmail:         "qa@openova.io",
+				HetznerToken:     "tok",
+				HetznerProjectID: "p1",
+				Region:           "fsn1",
+				WorkerCount:      2,
+				QATestEnabled:    true,
+			}
+			if err := writeTfvars(dir, req); err != nil {
+				t.Fatalf("writeTfvars: %v", err)
+			}
+			raw, err := os.ReadFile(dir + "/tofu.auto.tfvars.json")
+			if err != nil {
+				t.Fatalf("read: %v", err)
+			}
+			var parsed map[string]any
+			if err := json.Unmarshal(raw, &parsed); err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if v, _ := parsed["qa_fixtures_enabled"].(string); v != "true" {
+				t.Errorf("qa_fixtures_enabled: got %q want \"true\"", v)
+			}
+			if v, _ := parsed["qa_test_session_enabled"].(string); v != "true" {
+				t.Errorf("qa_test_session_enabled: got %q want \"true\"", v)
+			}
+			if v, _ := parsed["qa_fixtures_namespace"].(string); v != tc.wantNs {
+				t.Errorf("qa_fixtures_namespace: got %q want %q (derived from FQDN first label)", v, tc.wantNs)
+			}
+			if v, _ := parsed["qa_organization"].(string); v != tc.wantOrgName {
+				t.Errorf("qa_organization: got %q want %q (derived from FQDN first label)", v, tc.wantOrgName)
+			}
+		})
+	}
+}
+
+// TestWriteTfvars_QAFixtures_OperatorOverrideWins proves that explicit
+// Request.QAFixturesNamespace / QAOrganization values take precedence
+// over the FQDN-derived defaults. Reserved for the rare future case
+// where one Sovereign hosts multiple isolated QA tenants.
+func TestWriteTfvars_QAFixtures_OperatorOverrideWins(t *testing.T) {
+	dir, err := os.MkdirTemp("", "writeTfvars-qa-override-*")
+	if err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	defer os.RemoveAll(dir)
+
+	req := Request{
+		SovereignFQDN:       "omantel.biz",
+		OrgName:             "QA",
+		OrgEmail:            "qa@openova.io",
+		HetznerToken:        "tok",
+		HetznerProjectID:    "p1",
+		Region:              "fsn1",
+		WorkerCount:         2,
+		QATestEnabled:       true,
+		QAFixturesNamespace: "qa-team-alpha",
+		QAOrganization:      "team-alpha-platform",
+	}
+	if err := writeTfvars(dir, req); err != nil {
+		t.Fatalf("writeTfvars: %v", err)
+	}
+	raw, err := os.ReadFile(dir + "/tofu.auto.tfvars.json")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if v, _ := parsed["qa_fixtures_namespace"].(string); v != "qa-team-alpha" {
+		t.Errorf("qa_fixtures_namespace: operator override must win, got %q", v)
+	}
+	if v, _ := parsed["qa_organization"].(string); v != "team-alpha-platform" {
+		t.Errorf("qa_organization: operator override must win, got %q", v)
+	}
+}

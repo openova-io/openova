@@ -33,6 +33,75 @@ variable "marketplace_enabled" {
   }
 }
 
+# ── QA fixtures auto-enable (Fix #73 — qa-loop bounded-cycle iter-16) ──
+# When set, bp-catalyst-platform's qaFixtures stack (qa-<sov> namespace +
+# qa-wp Application + Continuum CR + CNPGPair + PDM CRs + ScheduledBackup
+# + status-seeder Jobs + tier-bound UserAccess seeder) renders so the
+# qa-loop matrix Test Executor finds every Sovereign-side fixture it
+# asserts on. Customer-facing Sovereigns provision with the default
+# 'false' → no fixture artifacts. QA Sovereigns (omantel.biz, qa.<x>)
+# provision with 'true' (set by catalyst-api from
+# Request.QATestEnabled). Threaded into bootstrap-kit Kustomization
+# postBuild.substitute as QA_FIXTURES_ENABLED — the chart reads via
+# `${QA_FIXTURES_ENABLED:-false}` so this var is the canonical
+# operator-controlled seam.
+variable "qa_fixtures_enabled" {
+  type        = string
+  description = "When 'true', the Sovereign provisions with the bp-catalyst-platform qaFixtures stack rendered (qa-loop matrix consumers). Default 'false' for customer Sovereigns. Set 'true' only on QA Sovereigns."
+  default     = "false"
+  validation {
+    condition     = contains(["true", "false"], var.qa_fixtures_enabled)
+    error_message = "qa_fixtures_enabled must be the string 'true' or 'false'."
+  }
+}
+
+# Tier-scoped test-session minting endpoint (qa-loop iter-11 Cluster-A).
+# Companion to qa_fixtures_enabled — defaults 'true' inside the chart
+# already (because every Sovereign that has qaFixtures.enabled is by
+# definition a QA Sovereign), but we still thread the toggle so an
+# operator can disable the endpoint on an otherwise-QA Sovereign that
+# wants only the resource fixtures. Defaults 'false' here (NOT 'true')
+# because catalyst-api stamps 'true' alongside qa_fixtures_enabled when
+# QATestEnabled fires; leaving the default 'false' ensures a Sovereign
+# that omits qa_fixtures_enabled entirely (production) cannot accidentally
+# expose the test-session endpoint.
+variable "qa_test_session_enabled" {
+  type        = string
+  description = "When 'true', catalyst-api on the Sovereign exposes POST /api/v1/auth/test-session for tier-scoped session minting (qa-loop matrix executor needs this for tier-boundary 403/200 contracts). Auto-set to match qa_fixtures_enabled on QA Sovereigns; default 'false' for customer Sovereigns."
+  default     = "false"
+  validation {
+    condition     = contains(["true", "false"], var.qa_test_session_enabled)
+    error_message = "qa_test_session_enabled must be the string 'true' or 'false'."
+  }
+}
+
+# qa-fixtures namespace + Organization names. Default to derivation-friendly
+# fallbacks that survive when qa_fixtures_enabled='false' (the chart
+# short-circuits before materialising them). When qa_fixtures_enabled='true',
+# catalyst-api derives "qa-<first-FQDN-label>" + "<first-FQDN-label>-platform"
+# from Request.SovereignFQDN per docs/INVIOLABLE-PRINCIPLES.md #4 (never
+# hardcode) so a non-omantel QA Sovereign doesn't inherit "qa-omantel" /
+# "omantel-platform" from the chart's bootstrapping defaults.
+variable "qa_fixtures_namespace" {
+  type        = string
+  description = "QA fixtures namespace name. Inert when qa_fixtures_enabled='false'. catalyst-api derives 'qa-<first-FQDN-label>' from SovereignFQDN at provision time."
+  default     = "qa-default"
+  validation {
+    condition     = can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?$", var.qa_fixtures_namespace))
+    error_message = "qa_fixtures_namespace must be a valid DNS-1123 label."
+  }
+}
+
+variable "qa_organization" {
+  type        = string
+  description = "qa-fixtures Organization CR name. Inert when qa_fixtures_enabled='false'. catalyst-api derives '<first-FQDN-label>-platform' from SovereignFQDN at provision time."
+  default     = "default-platform"
+  validation {
+    condition     = can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?$", var.qa_organization))
+    error_message = "qa_organization must be a valid DNS-1123 label."
+  }
+}
+
 # ── Multi-domain Sovereign (issue #827, parent epic #825) ─────────────────
 #
 # The Sovereign supports N parent zones, NOT one. The wizard captures the

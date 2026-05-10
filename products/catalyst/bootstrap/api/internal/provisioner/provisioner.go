@@ -228,6 +228,49 @@ type Request struct {
 	// checkbox.
 	MarketplaceEnabled bool `json:"marketplaceEnabled"`
 
+	// QATestEnabled — when true, bp-catalyst-platform's qaFixtures stack
+	// (qa-<sov> namespace + qa-wp Application + Continuum CR + CNPGPair
+	// + PDM CRs + ScheduledBackup + status-seeder Jobs + tier-bound
+	// UserAccess seeder) renders so the qa-loop matrix Test Executor
+	// finds every Sovereign-side fixture it asserts on. Default false —
+	// customer-facing Sovereigns NEVER auto-enable this. QA Sovereigns
+	// (omantel.biz, qa.<anything>) provision with `qaTestEnabled: true`.
+	//
+	// Threaded into tofu via var.qa_fixtures_enabled +
+	// var.qa_test_session_enabled + var.qa_fixtures_namespace +
+	// var.qa_organization, then into the bootstrap-kit Flux Kustomization
+	// postBuild.substitute as QA_FIXTURES_ENABLED / QA_TEST_SESSION_ENABLED
+	// / QA_FIXTURES_NAMESPACE / QA_ORGANIZATION (the four envsubst
+	// placeholders the chart reads at clusters/_template/bootstrap-kit/
+	// 13-bp-catalyst-platform.yaml lines 496/510/511/519).
+	//
+	// Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), the namespace
+	// and organization names DERIVE from SovereignFQDN's first label at
+	// writeTfvars() time — `qa-<label>` and `<label>-platform`. There is
+	// no chart-side default of "qa-omantel" / "omantel-platform" leaking
+	// onto a non-omantel QA Sovereign.
+	//
+	// Fix #73 (qa-loop bounded-cycle iter-16): provision #7 came up
+	// zero-touch but qaFixtures defaulted false because the provisioner
+	// never threaded the toggle. ~140 matrix TCs were inherently fixture-
+	// blocked. This field is the canonical seam.
+	QATestEnabled bool `json:"qaTestEnabled"`
+
+	// QAFixturesNamespace — explicit override for the qa-fixtures
+	// namespace name. Empty (default) → derived from SovereignFQDN's
+	// first label as "qa-<label>" at writeTfvars() time. Operator may
+	// override when a Sovereign hosts multiple isolated QA tenants
+	// (extremely rare; reserved for future use). Ignored when
+	// QATestEnabled=false.
+	QAFixturesNamespace string `json:"qaFixturesNamespace,omitempty"`
+
+	// QAOrganization — explicit override for the qa-fixtures Organization
+	// name (Organization.metadata.name in the qa-fixtures stack). Empty
+	// (default) → derived from SovereignFQDN's first label as
+	// "<label>-platform" at writeTfvars() time. Ignored when
+	// QATestEnabled=false.
+	QAOrganization string `json:"qaOrganization,omitempty"`
+
 	// ClusterMeshName + ClusterMeshID — Cilium ClusterMesh per-Sovereign
 	// peer anchors (#1101 EPIC-6 multi-region DR). Both empty/zero =
 	// single-cluster Sovereign (not in a mesh). When set, must match the
@@ -1151,6 +1194,27 @@ func writeTfvars(deployDir string, req Request) error {
 		// time without quoting surprises.
 		"marketplace_enabled": map[bool]string{true: "true", false: "false"}[req.MarketplaceEnabled],
 
+		// QA fixtures auto-enable (Fix #73 — qa-loop bounded-cycle iter-16).
+		// Stringified for symmetric reasons as marketplace_enabled. When
+		// QATestEnabled=true the bp-catalyst-platform qaFixtures stack
+		// renders on the Sovereign so the qa-loop matrix executor finds
+		// every fixture (qa-<label> ns + qa-wp Application + Continuum CR
+		// + CNPGPair + PDM CRs + tier-bound UserAccess seeder).
+		// Customer-facing Sovereigns provision with QATestEnabled=false
+		// (default) → no fixture artifacts.
+		"qa_fixtures_enabled":     map[bool]string{true: "true", false: "false"}[req.QATestEnabled],
+		"qa_test_session_enabled": map[bool]string{true: "true", false: "false"}[req.QATestEnabled],
+
+		// QA namespace + Organization names — derived from the Sovereign
+		// FQDN's first label at provision time per principle #4 (never
+		// hardcode). The chart's defaults (qa-omantel / omantel-platform)
+		// are correct ONLY for omantel.biz and would leak onto every other
+		// QA Sovereign without this derivation. Operator may override
+		// via Request.QAFixturesNamespace / QAOrganization for the rare
+		// multi-tenant-per-Sovereign QA case.
+		"qa_fixtures_namespace": deriveQAFixturesNamespace(req),
+		"qa_organization":       deriveQAOrganization(req),
+
 		// Cilium ClusterMesh per-Sovereign peer anchors (#1101 EPIC-6).
 		// Empty + 0 = not in a mesh. Tofu validates id ∈ [0, 255].
 		"cluster_mesh_name": req.ClusterMeshName,
@@ -1659,4 +1723,73 @@ func mapDomainModeForTofu(wizardMode string) string {
 		return "pool"
 	}
 	return "byo"
+}
+
+// deriveQAFixturesNamespace returns the qa-fixtures namespace name to thread
+// into the bootstrap-kit Kustomization's QA_FIXTURES_NAMESPACE substitute
+// envvar. Resolution order:
+//
+//  1. req.QAFixturesNamespace if non-empty (operator override).
+//  2. "qa-<first-label-of-FQDN>" derived from req.SovereignFQDN — e.g.
+//     "omantel.biz" → "qa-omantel", "qa.example.com" → "qa-qa".
+//  3. "qa-default" fallback when SovereignFQDN is empty (defensive — the
+//     Validate() pass already guarantees non-empty FQDN at provision time).
+//
+// Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), the chart's default
+// of "qa-omantel" is correct ONLY for omantel.biz; deriving from FQDN here
+// guarantees every QA Sovereign gets its own unambiguous namespace name
+// without relying on operator-set values.
+//
+// When req.QATestEnabled=false this value still computes (cheap) but is
+// inert: the chart's `qaFixtures.enabled: false` short-circuits before
+// the namespace name is materialised.
+func deriveQAFixturesNamespace(req Request) string {
+	if s := strings.TrimSpace(req.QAFixturesNamespace); s != "" {
+		return s
+	}
+	label := firstFQDNLabel(req.SovereignFQDN)
+	if label == "" {
+		return "qa-default"
+	}
+	return "qa-" + label
+}
+
+// deriveQAOrganization returns the qa-fixtures Organization CR name (the
+// `organization` chart value at clusters/_template/bootstrap-kit/
+// 13-bp-catalyst-platform.yaml line 519). Same resolution shape as
+// deriveQAFixturesNamespace: explicit override → derived "<label>-platform"
+// → "default-platform" defensive fallback.
+//
+// "default-platform" is the safe degenerate value (validates against the
+// Organization CRD's name regex `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$` and
+// avoids any cross-Sovereign collision because Validate() blocks
+// SovereignFQDN-empty requests upstream).
+func deriveQAOrganization(req Request) string {
+	if s := strings.TrimSpace(req.QAOrganization); s != "" {
+		return s
+	}
+	label := firstFQDNLabel(req.SovereignFQDN)
+	if label == "" {
+		return "default-platform"
+	}
+	return label + "-platform"
+}
+
+// firstFQDNLabel returns the first DNS label of an FQDN — "omantel" from
+// "omantel.biz", "qa" from "qa.example.com", "" from "" or a single-label
+// input (single-label inputs are caught upstream by the FQDN regex
+// validator at variables.tf line 14, but the helper degrades gracefully
+// here so unit tests against partial requests don't panic).
+func firstFQDNLabel(fqdn string) string {
+	s := strings.ToLower(strings.TrimSpace(fqdn))
+	if s == "" {
+		return ""
+	}
+	if i := strings.Index(s, "."); i > 0 {
+		return s[:i]
+	}
+	// No dot — return as-is. The Validate() FQDN regex rejects single-
+	// label inputs upstream so this branch is unreachable in normal
+	// operation; kept as a non-panicking fallback for unit tests.
+	return s
 }

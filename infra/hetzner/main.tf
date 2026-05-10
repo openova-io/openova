@@ -303,11 +303,15 @@ locals {
   # Guardrail in this same module: see `validate_user_data_size` precondition
   # below — any future bloat that pushes user_data ≥ 30 KiB fails at plan-time.
   control_plane_cloud_init = replace(templatefile("${path.module}/cloudinit-control-plane.tftpl", {
-    sovereign_fqdn      = var.sovereign_fqdn
-    sovereign_subdomain = var.sovereign_subdomain
-    marketplace_enabled = var.marketplace_enabled
-    cluster_mesh_name   = var.cluster_mesh_name
-    cluster_mesh_id     = var.cluster_mesh_id
+    sovereign_fqdn          = var.sovereign_fqdn
+    sovereign_subdomain     = var.sovereign_subdomain
+    marketplace_enabled     = var.marketplace_enabled
+    qa_fixtures_enabled     = var.qa_fixtures_enabled
+    qa_test_session_enabled = var.qa_test_session_enabled
+    qa_fixtures_namespace   = var.qa_fixtures_namespace
+    qa_organization         = var.qa_organization
+    cluster_mesh_name       = var.cluster_mesh_name
+    cluster_mesh_id         = var.cluster_mesh_id
 
     # Multi-domain Sovereign (issue #827). When the wizard supplies an
     # explicit parent-domain list, use it verbatim. Otherwise default to a
@@ -738,9 +742,13 @@ locals {
   secondary_region_cloud_init = {
     for k, r in local.secondary_regions :
     k => replace(templatefile("${path.module}/cloudinit-control-plane.tftpl", {
-      sovereign_fqdn      = var.sovereign_fqdn
-      sovereign_subdomain = var.sovereign_subdomain
-      marketplace_enabled = var.marketplace_enabled
+      sovereign_fqdn          = var.sovereign_fqdn
+      sovereign_subdomain     = var.sovereign_subdomain
+      marketplace_enabled     = var.marketplace_enabled
+      qa_fixtures_enabled     = var.qa_fixtures_enabled
+      qa_test_session_enabled = var.qa_test_session_enabled
+      qa_fixtures_namespace   = var.qa_fixtures_namespace
+      qa_organization         = var.qa_organization
       # Per-secondary-region ClusterMesh anchors. id is incremented per
       # peer index so each secondary region gets a unique slot in the
       # mesh registry; primary region keeps var.cluster_mesh_id.
