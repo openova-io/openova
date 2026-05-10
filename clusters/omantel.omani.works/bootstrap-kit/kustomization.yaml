@@ -51,3 +51,14 @@ resources:
   # via the catalystOverlay block in 01-cilium.yaml (no separate slot).
   - 53-bp-netbird.yaml
   - 54-bp-dmz-vcluster.yaml
+  # qa-loop iter-12 Fix #54 Workstream 1 — bp-hcloud-ccm (slot 55).
+  # The chroot omantel reconciles from clusters/_template/bootstrap-kit/
+  # which carries the actual 55-bp-hcloud-ccm.yaml file. The line below
+  # is intentionally omitted from this per-Sovereign overlay until Phase-2
+  # cutover separates the chroot reconcile from the per-Sovereign one
+  # (per the same pattern as 26-langfuse.yaml — present in this overlay
+  # but NOT in _template, vs slot 55 — present in _template only). When
+  # the per-Sovereign overlay becomes the canonical reconcile target,
+  # copy clusters/_template/bootstrap-kit/55-bp-hcloud-ccm.yaml here AND
+  # uncomment the resource list entry below.
+  # - 55-bp-hcloud-ccm.yaml

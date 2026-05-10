@@ -729,7 +729,16 @@ name: bp-catalyst-platform
 #     so the matrix's `kubectl get cnpgpair` stdout contains the literal
 #     "cnpgpair" substring TC-306 asserts on (envsubst override beat the
 #     chart values default fixed in PR #1247).
-version: 1.4.126
+#
+# 1.4.127 (qa-loop iter-12 Fix #54 Workstream 4): chart-side
+# templates/catalyst-gitea-token-secret.yaml — auto-provisions the
+# `catalyst-gitea-token` Secret on Sovereign install via Helm `lookup`
+# of `gitea/gitea-admin-secret` + a post-install Job that mints a
+# Gitea PAT zero-touch. Replaces the kubectl-applied operational hack
+# documented in qa-loop-state/iter12-diagnostic-audit.md §"(e)
+# infra-blocked" TC-081 (per `feedback_no_mvp_no_workarounds.md`
+# rule #3 "no operational hacks instead of chart fixes").
+version: 1.4.127
 appVersion: 1.4.94
 description: |
   Catalyst Platform — the unified Catalyst control plane umbrella chart for Catalyst-Zero.

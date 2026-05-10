@@ -1,0 +1,41 @@
+apiVersion: v2
+name: bp-hcloud-ccm
+description: |
+  Catalyst Blueprint umbrella chart for hcloud-cloud-controller-manager —
+  the Hetzner Cloud integration for Kubernetes' cloud-provider interface.
+  Sets node providerIDs (`hcloud://<server-id>`), hot-fills node IPs from
+  the Hetzner API, and materialises Service-of-type-LoadBalancer as
+  Hetzner Cloud LBs (ADR-0001 §13).
+
+  Without this CCM running, every LB-typed Service stays in
+  `EXTERNAL-IP: <pending>` forever and node providerID stays as the k3s
+  default `k3s://<node-name>` (which kube-controller-manager + scheduler
+  cannot use to correlate Pod placement with Hetzner zones).
+
+  Depends on the upstream `hcloud-cloud-controller-manager` chart from
+  hetznercloud/hcloud-cloud-controller-manager as a Helm subchart so
+  `helm dependency build` pulls the upstream payload into this artifact.
+  Catalyst-curated values flow into the upstream subchart under the
+  `hcloud-cloud-controller-manager:` key in values.yaml.
+
+  See platform/hcloud-ccm/README.md for the rationale and ADR-0001 §13
+  for the cloud-direct architecture rule.
+type: application
+version: 1.0.0
+appVersion: "1.20.0"
+keywords: [catalyst, blueprint, hcloud, cloud-controller-manager, hetzner, loadbalancer]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Pinned to hetznercloud/hcloud-cloud-controller-manager 1.20.x (chart
+# version aligned with appVersion 1.20.0 — the first hcloud-CCM release
+# that natively recognises k3s `node-role.kubernetes.io/control-plane`
+# label and supports k3s 1.31.x apiserver). Per
+# docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the version is
+# operator-bumpable via PR + Blueprint release; mirrors bp-cluster-
+# autoscaler-hcloud + bp-hcloud-csi wrapper shape.
+dependencies:
+  - name: hcloud-cloud-controller-manager
+    version: "1.20.0"
+    repository: "https://charts.hetzner.cloud"

@@ -1,0 +1,106 @@
+# bp-hcloud-ccm — Catalyst bootstrap-kit Blueprint #55
+# (Tier 5 — Cloud Integration). Pairs with bp-cluster-autoscaler-hcloud
+# (slot 50) and bp-hcloud-csi (slot 51, when present) — the full
+# Hetzner-cloud-direct trio.
+#
+# Wires hcloud-cloud-controller-manager into the cluster as the canonical
+# Hetzner cloud-provider integration. Without this CCM running:
+#   - Node providerID stays as k3s://<node-name> (kube-controller-manager
+#     + scheduler cannot correlate Pods with Hetzner zones).
+#   - Service-of-type-LoadBalancer stays in EXTERNAL-IP: <pending> forever
+#     (no cloud-provider to call out to).
+#
+# The second consequence is the proximate root cause clustermesh-apiserver
+# could not migrate from NodePort to LB on omantel multi-region (qa-loop
+# iter-12 Fix #53D + Fix #54 Workstream 1) — until hcloud-CCM is
+# installed, the LB-typed Service from Fix #53D's PR #1274 stays Pending.
+#
+# Wrapper chart: platform/hcloud-ccm/chart/ — umbrella over upstream
+# hetznercloud/hcloud-cloud-controller-manager chart 1.20.0
+# (appVersion 1.20.0). Catalyst-curated values flow under the
+# `hcloud-cloud-controller-manager:` key + a vendor-agnostic
+# `hcloudCcm.*` block that ships the namespace-local Hetzner-API-token
+# Secret (`hcloud-token`).
+#
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+#
+# Hetzner-token wiring (mirrors bp-cluster-autoscaler-hcloud at slot 50
+# + bp-velero at slot 34 + bp-harbor at slot 19):
+#   - cloud-init writes `flux-system/cloud-credentials` Secret with the
+#     `hcloud-token` key (see infra/hetzner/cloudinit-control-plane.tftpl
+#     §"cloud-credentials-secret").
+#   - This HelmRelease lifts the `hcloud-token` value into the umbrella
+#     chart's `hcloudCcm.hcloudToken` value via Flux `valuesFrom`. The
+#     umbrella chart then synthesises a namespace-local
+#     `kube-system/hcloud-token` Secret (templates/hcloud-token-secret.yaml)
+#     the upstream chart's `env.HCLOUD_TOKEN` wiring binds as the
+#     deployment's HCLOUD_TOKEN env var.
+#
+# dependsOn: (none) — hcloud-CCM is the FIRST cloud-provider seam, must
+# install BEFORE any blueprint that creates a LoadBalancer Service. The
+# cloud-credentials Secret is provisioned by cloud-init BEFORE Flux
+# installs anything.
+
+---
+# kube-system is built into every Kubernetes cluster — never re-declare it.
+# The HelmRelease's targetNamespace below installs hcloud-CCM into
+# kube-system (canonical CCM placement; mirrors hcloud-CCM upstream
+# documentation).
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-hcloud-ccm
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-hcloud-ccm
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: hcloud-ccm
+  targetNamespace: kube-system
+  chart:
+    spec:
+      chart: bp-hcloud-ccm
+      version: 1.0.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-hcloud-ccm
+        namespace: flux-system
+  # Event-driven install: hcloud-CCM is a single Deployment +
+  # ServiceAccount + RBAC. Helm install completes when manifests apply;
+  # the binary's Hetzner-API connectivity check is a runtime concern,
+  # not a Helm-wait concern. disableWait keeps Flux's Ready signal
+  # aligned with manifest apply.
+  install:
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    remediation:
+      retries: 3
+  # ── Hetzner-token wiring ─────────────────────────────────────────────
+  # Pulls the `hcloud-token` key from the canonical
+  # `flux-system/cloud-credentials` Secret cloud-init writes at Phase 0
+  # (infra/hetzner/cloudinit-control-plane.tftpl §"cloud-credentials-secret").
+  # Flux dereferences `valuesFrom` at HelmRelease apply time, so the
+  # plaintext payload never appears in this committed manifest.
+  #
+  # The chart's templates/hcloud-token-secret.yaml renders this value
+  # into a namespace-local `kube-system/hcloud-token` Secret which the
+  # upstream chart's `env.HCLOUD_TOKEN.valueFrom.secretKeyRef` binding
+  # lifts onto the deployment's env.
+  valuesFrom:
+    - kind: Secret
+      name: cloud-credentials
+      valuesKey: hcloud-token
+      targetPath: hcloudCcm.hcloudToken
