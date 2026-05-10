@@ -378,3 +378,37 @@ rules:
   - apiGroups: ["apiextensions.k8s.io"]
     resources: ["customresourcedefinitions"]
     verbs: ["get", "list", "watch"]
+
+  # ───────────────────────────────────────────────────────────────
+  # QA-loop iter-11 Fix #48 — Networking GVRs (Cilium NetworkPolicy
+  # tier-3 micro-segmentation + Gateway API + ClusterMesh metadata)
+  # surfaced through the generic /k8s/{kind} endpoint AND the new
+  # networking aggregator handlers (HandleNetworkingPolicies /
+  # ClusterMesh / NetBird / DMZ / Hubble).
+  #
+  # Per feedback_chroot_in_cluster_fallback.md every new GVR added
+  # to internal/k8scache/kinds.go DefaultKinds MUST get a matching
+  # rule here — the chroot SovereignClient uses this SA via
+  # in-cluster fallback. Read-only verbs only: NetworkPolicies are
+  # authored by the qa-fixtures chart + customer overlays, never
+  # by catalyst-api at runtime.
+  # ───────────────────────────────────────────────────────────────
+  - apiGroups: ["cilium.io"]
+    resources:
+      - "ciliumnetworkpolicies"
+      - "ciliumclusterwidenetworkpolicies"
+      - "ciliumendpointslices"
+      - "ciliumnodes"
+      - "ciliumendpoints"
+      - "ciliumidentities"
+      - "ciliumexternalworkloads"
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gatewayclasses"]
+    verbs: ["get", "list", "watch"]
+  # vCluster CRD (vcluster.com) — already registered for `vcluster`
+  # but the DMZ aggregator queries the legacy `cluster.loft.sh` group
+  # too for older vCluster operator versions. Defensive duplication.
+  - apiGroups: ["cluster.loft.sh"]
+    resources: ["virtualclusters"]
+    verbs: ["get", "list", "watch"]

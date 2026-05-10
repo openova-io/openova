@@ -801,6 +801,18 @@ func main() {
 		rg.Get("/api/v1/sovereigns/{id}/compliance/policies", h.HandleCompliancePolicies)
 		rg.Get("/api/v1/sovereigns/{id}/compliance/violations", h.HandleComplianceViolations)
 		rg.Get("/api/v1/sovereigns/{id}/compliance/stream", h.HandleComplianceStream)
+		// QA-loop iter-11 Fix #48 — Networking page surface. Each
+		// endpoint joins live K8s objects from the in-process k8scache
+		// Indexer (Cilium NetworkPolicies, ClusterMesh ConfigMaps,
+		// NetBird Deployments, DMZ vClusters, Hubble relay/UI) into
+		// the wire shape the UI's NetworkingPage subscribes to.
+		// Per docs/INVIOLABLE-PRINCIPLES.md #2 every byte traces back
+		// to a real K8s object — no fixture data, no stub rows.
+		rg.Get("/api/v1/sovereigns/{id}/networking/policies", h.HandleNetworkingPolicies)
+		rg.Get("/api/v1/sovereigns/{id}/networking/clustermesh", h.HandleNetworkingClusterMesh)
+		rg.Get("/api/v1/sovereigns/{id}/networking/netbird", h.HandleNetworkingNetBird)
+		rg.Get("/api/v1/sovereigns/{id}/networking/dmz", h.HandleNetworkingDMZ)
+		rg.Get("/api/v1/sovereigns/{id}/networking/hubble", h.HandleNetworkingHubble)
 		// EPIC-1 #1096 slice X — EnvironmentPolicy mode toggle backend
 		// for the slice U PolicyModeToggle widget. Writes
 		// EnvironmentPolicy.spec.compliance.modes; the EnvironmentPolicy

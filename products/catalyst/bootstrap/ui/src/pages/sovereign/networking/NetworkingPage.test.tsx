@@ -1,0 +1,229 @@
+/**
+ * NetworkingPage.test.tsx — render lock-in for the Sovereign Networking
+ * page (qa-loop iter-11 Fix #48).
+ *
+ * Coverage:
+ *   1. Tab strip renders all 5 slugs (policies / clustermesh / netbird /
+ *      dmz / hubble) with the expected data-testid hooks.
+ *   2. Per slug, the corresponding section renders the matrix-required
+ *      tokens (CiliumNetworkPolicy, NetBird, DMZ, ClusterMesh, Hubble,
+ *      fsn, hel) when the API returns seeded data.
+ *   3. Empty path: when the API returns 0 rows, the empty state renders
+ *      WITHOUT the iter-6 stub's "(pending live data)" placeholder.
+ */
+
+import { describe, it, expect, afterEach, vi } from 'vitest'
+import { render, screen, cleanup, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import {
+  RouterProvider,
+  createRouter,
+  createRootRoute,
+  createRoute,
+  createMemoryHistory,
+  Outlet,
+} from '@tanstack/react-router'
+
+import { NetworkingPage } from './NetworkingPage'
+
+// Mock authedFetch to short-circuit network calls. Each test's
+// fetchHandler returns the response payload for the URL matching the
+// asserted slug.
+vi.mock('@/shared/lib/authedFetch', () => ({
+  authedFetch: (url: string) => {
+    const handler = (globalThis as { __netFetchHandler?: (u: string) => unknown }).__netFetchHandler
+    const body = handler ? handler(url) : {}
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      json: async () => body,
+    } as Response)
+  },
+}))
+
+// Mock useResolvedDeploymentId to avoid the wizard store dance.
+vi.mock('@/shared/lib/useResolvedDeploymentId', () => ({
+  useResolvedDeploymentId: () => ({ deploymentId: 'test-sovereign' }),
+}))
+
+// Mock PortalShell so we don't need to wire the entire layout.
+vi.mock('../PortalShell', () => ({
+  PortalShell: ({ children, pageTitle }: { children: React.ReactNode; pageTitle: string }) => (
+    <div data-testid="portal-shell">
+      <h1 data-testid="page-title">{pageTitle}</h1>
+      {children}
+    </div>
+  ),
+}))
+
+afterEach(() => {
+  cleanup()
+  delete (globalThis as { __netFetchHandler?: unknown }).__netFetchHandler
+})
+
+function setFetchHandler(handler: (url: string) => unknown) {
+  ;(globalThis as { __netFetchHandler?: (u: string) => unknown }).__netFetchHandler = handler
+}
+
+function renderAtSlug(slug: string) {
+  const rootRoute = createRootRoute({ component: () => <Outlet /> })
+  const appRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/app',
+    component: () => <Outlet />,
+  })
+  const slugRoute = createRoute({
+    getParentRoute: () => appRoute,
+    path: '/$deploymentId/networking/$slug',
+    component: NetworkingPage,
+  })
+  const tree = rootRoute.addChildren([appRoute.addChildren([slugRoute])])
+  const router = createRouter({
+    routeTree: tree,
+    history: createMemoryHistory({
+      initialEntries: [`/app/test-sovereign/networking/${slug}`],
+    }),
+  })
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  })
+  return render(
+    <QueryClientProvider client={qc}>
+      <RouterProvider router={router as never} />
+    </QueryClientProvider>,
+  )
+}
+
+describe('NetworkingPage', () => {
+  it('renders all 5 tabs', async () => {
+    setFetchHandler(() => ({
+      items: [],
+      counts_by_kind: {},
+      counts_by_namespace: {},
+      total: 0,
+    }))
+    renderAtSlug('policies')
+    await waitFor(() => screen.getByTestId('networking-tabs'))
+    expect(screen.getByTestId('networking-tab-policies')).toBeTruthy()
+    expect(screen.getByTestId('networking-tab-clustermesh')).toBeTruthy()
+    expect(screen.getByTestId('networking-tab-netbird')).toBeTruthy()
+    expect(screen.getByTestId('networking-tab-dmz')).toBeTruthy()
+    expect(screen.getByTestId('networking-tab-hubble')).toBeTruthy()
+  })
+
+  it('Policies tab renders CiliumNetworkPolicy rows when seeded', async () => {
+    setFetchHandler(() => ({
+      items: [
+        {
+          kind: 'CiliumNetworkPolicy',
+          name: 'allow-dns',
+          namespace: 'qa-omantel',
+          ingress_rules: 1,
+          egress_rules: 1,
+          created_at: new Date().toISOString(),
+        },
+        {
+          kind: 'CiliumClusterwideNetworkPolicy',
+          name: 'default-deny',
+          namespace: '',
+          ingress_rules: 1,
+          egress_rules: 1,
+          created_at: new Date().toISOString(),
+        },
+      ],
+      counts_by_kind: { CiliumNetworkPolicy: 1, CiliumClusterwideNetworkPolicy: 1 },
+      counts_by_namespace: { 'qa-omantel': 1, '(cluster-scoped)': 1 },
+      total: 2,
+    }))
+    renderAtSlug('policies')
+    await waitFor(() => screen.getByTestId('policies-tab'))
+    expect(screen.getByText(/CiliumNetworkPolicy/)).toBeTruthy()
+    expect(screen.getByText(/default-deny/)).toBeTruthy()
+    expect(screen.queryByText(/pending live data/)).toBeNull()
+  })
+
+  it('ClusterMesh tab renders fsn + hel peers', async () => {
+    setFetchHandler(() => ({
+      clusters: [
+        { name: 'omantel-fsn', connected: true },
+        { name: 'omantel-hel', connected: true },
+      ],
+      sources: ['cilium-clustermesh-configmap'],
+      total: 2,
+      mesh_keys_present: true,
+      self_cluster_name: 'omantel-fsn',
+      self_cluster_id: '1',
+    }))
+    renderAtSlug('clustermesh')
+    await waitFor(() => screen.getByTestId('clustermesh-tab'))
+    expect(screen.getByTestId('clustermesh-peer-omantel-fsn')).toBeTruthy()
+    expect(screen.getByTestId('clustermesh-peer-omantel-hel')).toBeTruthy()
+    expect(screen.queryByText(/pending live data/)).toBeNull()
+  })
+
+  it('NetBird tab renders 3 deployments when installed', async () => {
+    setFetchHandler(() => ({
+      installed: true,
+      deployments: [
+        { name: 'netbird-management', namespace: 'netbird', ready: 1, desired: 1, available: true },
+        { name: 'netbird-signal', namespace: 'netbird', ready: 1, desired: 1, available: true },
+        { name: 'coturn', namespace: 'netbird', ready: 1, desired: 1, available: true },
+      ],
+      peers: [],
+      hostname_hint: 'netbird.test-sovereign',
+    }))
+    renderAtSlug('netbird')
+    await waitFor(() => screen.getByTestId('netbird-tab'))
+    expect(screen.getByTestId('netbird-deployment-netbird-management')).toBeTruthy()
+    expect(screen.getByTestId('netbird-deployment-netbird-signal')).toBeTruthy()
+    expect(screen.getByTestId('netbird-deployment-coturn')).toBeTruthy()
+  })
+
+  it('NetBird tab renders not-installed state when no deployments', async () => {
+    setFetchHandler(() => ({
+      installed: false,
+      deployments: [],
+      peers: [],
+    }))
+    renderAtSlug('netbird')
+    await waitFor(() => screen.getByTestId('netbird-not-installed'))
+    expect(screen.queryByText(/pending live data/)).toBeNull()
+  })
+
+  it('DMZ tab renders vCluster row when installed', async () => {
+    setFetchHandler(() => ({
+      installed: true,
+      vclusters: [{ name: 'dmz', namespace: 'dmz', phase: 'Running', running: true }],
+      isolation_cnps: [
+        {
+          kind: 'CiliumNetworkPolicy',
+          name: 'isolation',
+          namespace: 'dmz',
+          created_at: new Date().toISOString(),
+        },
+      ],
+      total: 1,
+    }))
+    renderAtSlug('dmz')
+    await waitFor(() => screen.getByTestId('dmz-tab'))
+    expect(screen.getByTestId('dmz-vcluster-dmz')).toBeTruthy()
+    expect(screen.getByTestId('dmz-cnp-isolation')).toBeTruthy()
+  })
+
+  it('Hubble tab renders relay + ui rows', async () => {
+    setFetchHandler(() => ({
+      hubble_enabled: true,
+      relay_ready: true,
+      ui_ready: true,
+      relay_listen: ':4244',
+      deployments: [
+        { name: 'hubble-relay', namespace: 'kube-system', ready: 1, desired: 1, available: true },
+        { name: 'hubble-ui', namespace: 'kube-system', ready: 1, desired: 1, available: true },
+      ],
+    }))
+    renderAtSlug('hubble')
+    await waitFor(() => screen.getByTestId('hubble-tab'))
+    expect(screen.getByTestId('hubble-deployment-hubble-relay')).toBeTruthy()
+    expect(screen.getByTestId('hubble-deployment-hubble-ui')).toBeTruthy()
+  })
+})

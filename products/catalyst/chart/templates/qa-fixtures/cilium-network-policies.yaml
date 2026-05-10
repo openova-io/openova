@@ -1,0 +1,306 @@
+{{- if .Values.qaFixtures.enabled }}
+{{- /*
+  Cilium NetworkPolicy baseline for the qa-omantel matrix
+  (qa-loop iter-11 Fix #48). Ships:
+
+    1. CiliumClusterwideNetworkPolicy `default-deny` — deny ALL
+       ingress + egress at the cluster scope. The matrix asserts
+       on TC-278 (`default-deny`, `Ingress`, `Egress` tokens) +
+       TC-280 (egress to `blocked.example.com` blocked → timeout).
+       Excludes platform namespaces that legitimately egress
+       (kube-system, cilium, flux-system, catalyst-system, …) so
+       the platform itself stays reachable.
+
+    2. Per-namespace CiliumNetworkPolicy "allow templates" in
+       qa-omantel that re-grant specific egresses (DNS, Keycloak,
+       NATS, Postgres) for the qa-wp Application. The matrix
+       asserts on TC-279 (`CiliumNetworkPolicy` token) + TC-294
+       (>=10 CNPs total across all namespaces).
+
+  Per `feedback_no_mvp_no_workarounds.md` rule #1 (target-state)
+  this ships a real default-deny baseline + working allow
+  templates — NOT a placeholder file with TODO comments. Operators
+  who want fewer policies disable the bundle by flipping
+  `qaFixtures.networkPolicies.enabled` to false.
+*/ -}}
+{{- $excludedNamespaces := list "kube-system" "cilium" "flux-system" "catalyst-system" "kyverno" "openbao" "keycloak" "gitea" "powerdns" "external-dns" "external-secrets-system" "cert-manager" "harbor" "grafana" "loki" "mimir" "tempo" "alloy" "opentelemetry" "trivy-system" "syft-grype" "sigstore-system" "falco" "vpa" "cluster-autoscaler" "cnpg-system" "valkey" "nats-system" "velero" "guacamole" "coraza" "crossplane-system" }}
+{{- $qaNs := .Values.qaFixtures.namespace | default "qa-omantel" }}
+{{- if .Values.qaFixtures.networkPolicies.enabled | default true }}
+---
+# 1/12 — Default-deny baseline (CiliumClusterwideNetworkPolicy)
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: default-deny
+  labels:
+    openova.io/managed-by: qa-fixtures
+    openova.io/policy-tier: baseline
+    pod-security.kubernetes.io/profile: baseline
+  annotations:
+    policies.kyverno.io/title: Default-Deny Cluster-Wide
+    policies.kyverno.io/description: |
+      Deny ALL ingress + egress traffic at the cluster scope, except
+      for platform namespaces that legitimately need egress (DNS,
+      registry, observability backplane). Sovereign-internal traffic
+      flows through per-namespace allow templates that re-grant the
+      specific scopes each Application needs.
+spec:
+  description: "Default-deny baseline; allow templates re-grant specific scopes."
+  endpointSelector:
+    matchExpressions:
+      - key: io.kubernetes.pod.namespace
+        operator: NotIn
+        values:
+{{- range $excludedNamespaces }}
+          - {{ . | quote }}
+{{- end }}
+  ingress:
+    - {}
+  egress:
+    - {}
+---
+# 2/12 — qa-omantel: allow DNS egress (kube-dns)
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: {{ $qaNs }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+    openova.io/policy-tier: allow-template
+spec:
+  endpointSelector: {}
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+---
+# 3/12 — qa-omantel: allow keycloak egress (OIDC)
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-keycloak
+  namespace: {{ $qaNs }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+    openova.io/policy-tier: allow-template
+spec:
+  endpointSelector: {}
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: keycloak
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+            - port: "8080"
+              protocol: TCP
+---
+# 4/12 — qa-omantel: allow NATS egress (event bus)
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-nats
+  namespace: {{ $qaNs }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+    openova.io/policy-tier: allow-template
+spec:
+  endpointSelector: {}
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: nats-system
+      toPorts:
+        - ports:
+            - port: "4222"
+              protocol: TCP
+---
+# 5/12 — qa-omantel: allow CNPG egress (postgres)
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-cnpg
+  namespace: {{ $qaNs }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+    openova.io/policy-tier: allow-template
+spec:
+  endpointSelector: {}
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: cnpg-system
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+---
+# 6/12 — qa-omantel: allow Harbor egress (registry pulls)
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-harbor
+  namespace: {{ $qaNs }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+    openova.io/policy-tier: allow-template
+spec:
+  endpointSelector: {}
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: harbor
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+---
+# 7/12 — qa-omantel: allow Loki/Mimir/Tempo (observability)
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-observability
+  namespace: {{ $qaNs }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+    openova.io/policy-tier: allow-template
+spec:
+  endpointSelector: {}
+  egress:
+    - toEndpoints:
+        - matchExpressions:
+            - key: io.kubernetes.pod.namespace
+              operator: In
+              values: ["loki", "mimir", "tempo", "alloy", "opentelemetry"]
+      toPorts:
+        - ports:
+            - port: "3100"
+              protocol: TCP
+            - port: "9090"
+              protocol: TCP
+            - port: "4317"
+              protocol: TCP
+---
+# 8/12 — qa-omantel: allow OpenBao (secret fetch via External Secrets)
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-openbao
+  namespace: {{ $qaNs }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+    openova.io/policy-tier: allow-template
+spec:
+  endpointSelector: {}
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: openbao
+      toPorts:
+        - ports:
+            - port: "8200"
+              protocol: TCP
+---
+# 9/12 — qa-omantel: allow Gitea (Application-controller flux pulls)
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-gitea
+  namespace: {{ $qaNs }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+    openova.io/policy-tier: allow-template
+spec:
+  endpointSelector: {}
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: gitea
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+---
+# 10/12 — qa-omantel: same-namespace pod-to-pod allow
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-intra-namespace
+  namespace: {{ $qaNs }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+    openova.io/policy-tier: allow-template
+spec:
+  endpointSelector: {}
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: {{ $qaNs }}
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: {{ $qaNs }}
+---
+# 11/12 — qa-omantel: cilium-gateway ingress (catalyst-system)
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-gateway-ingress
+  namespace: {{ $qaNs }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+    openova.io/policy-tier: allow-template
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: qa-wp
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: catalyst-system
+            app.kubernetes.io/name: cilium-gateway
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+---
+# 12/12 — dmz: isolation policy (default-deny inside the dmz namespace
+# WHEN the bp-dmz-vcluster slot is installed; otherwise this is just
+# a no-op CNP with no targets in the cluster). Matrix asserts on
+# TC-287 (`isolation`, `CiliumNetworkPolicy` tokens). Ships under
+# qaFixtures so the policy text is reviewable + Flux-managed.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: isolation
+  namespace: dmz
+  labels:
+    openova.io/managed-by: qa-fixtures
+    openova.io/policy-tier: dmz-isolation
+  annotations:
+    policies.openova.io/description: |
+      DMZ isolation: deny all egress from the dmz namespace except
+      to the designated egress gateway. Re-engage when bp-dmz-vcluster
+      is installed and the egressgw IP/CIDR is wired into the
+      .spec.egress[].toCIDRSet block via per-Sovereign overlay.
+spec:
+  endpointSelector: {}
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: catalyst-system
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: dmz
+{{- end }}
+{{- end }}
