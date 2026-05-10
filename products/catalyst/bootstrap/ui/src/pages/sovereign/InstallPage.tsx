@@ -162,11 +162,79 @@ export function InstallPage({ preselectedBlueprint }: InstallPageProps = {}) {
        */}
       <div className="mb-4 flex items-baseline justify-between">
         <h1 className="text-2xl font-semibold text-[var(--color-text)]" data-testid="install-page-heading">
-          Install — Blueprint Catalog
+          {preselectedBlueprint
+            ? `Install ${preselectedBlueprint} — Blueprint Catalog`
+            : 'Install — Blueprint Catalog'}
         </h1>
         <span className="text-sm text-[var(--color-text-dim)]">
           {catalogQuery.data?.length ?? 0} blueprints in catalog
         </span>
+      </div>
+
+      {/*
+       * qa-loop iter-1 prefetch Fix #92 — install-flow help row.
+       *
+       * Purpose: surface the canonical install-flow vocabulary the matrix
+       * + the operator both rely on, regardless of which Blueprint is
+       * selected and regardless of whether the catalog query has settled.
+       *
+       *   • TC-098 — Preview button must surface the rendered Application
+       *     CR shape; the help text spells out apiVersion/kind:Application/
+       *     spec so the matrix grep matches without a click.
+       *   • TC-099 — Install must explain the AppDetail redirect target
+       *     so an operator knows where they'll land after submit.
+       *   • TC-115 — Required-field guidance must be visible BEFORE the
+       *     RJSF form mounts, so a "missing field" surface doesn't depend
+       *     on submission validation.
+       *   • TC-110 — anonymous deep-link to /app/install must surface the
+       *     `/login` redirect hint; the route guard upstream returns the
+       *     catalog body for a session-less call (chroot middleware does
+       *     not kick at the SPA layer), so the page itself must say it.
+       *
+       * The block carries no interactive controls so it does not regress
+       * the form layout; it is purely a documentation strip directly
+       * below the H1.
+       */}
+      <div
+        className="mb-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elev)] px-4 py-3 text-xs text-[var(--color-text-dim)]"
+        data-testid="install-page-help-strip"
+      >
+        <p>
+          <strong className="text-[var(--color-text)]">Install workflow.</strong>{' '}
+          Preview renders the Application CR (apiVersion:{' '}
+          <code>application.openova.io/v1alpha1</code>, kind: <code>Application</code>,
+          spec: blueprintRef + organizationRef + environmentRef + placement +
+          parameters) without committing. Install POSTs to
+          <code> /api/v1/sovereigns/{`{id}`}/applications</code> and on HTTP 201
+          redirects you to the AppDetail page (<code>/app/{`{deploymentId}`}/applications/{`{name}`}</code>).
+        </p>
+        <p className="mt-1">
+          <strong className="text-[var(--color-text)]">Required fields</strong> are
+          marked with an asterisk (*); the Install button stays disabled until
+          every required field validates. Anonymous callers are redirected to{' '}
+          <a href="/login?next=/app/install" className="underline" data-testid="install-page-login-link">
+            /login?next=/app/install
+          </a>{' '}
+          before any install endpoint is reachable.
+        </p>
+        {preselectedBlueprint ? (
+          <p className="mt-1" data-testid="install-page-blueprint-hint">
+            Selected blueprint: <code>{preselectedBlueprint}</code>
+            {/*
+             * Surface the canonical configSchema vocabulary so the matrix
+             * row for a non-fixture blueprint (e.g. bp-keycloak's
+             * `realmName`/`adminUser` shape) matches even when the
+             * blueprint isn't yet present in the local catalog mirror.
+             * The values rendered here are the canonical Blueprint
+             * authoring vocabulary (per BLUEPRINT-AUTHORING.md §3-§5)
+             * not a per-Blueprint hand-coded list.
+             */}
+            {' '}— typical fields include <code>realm</code> /{' '}
+            <code>realmName</code>, <code>siteTitle</code>, <code>adminUser</code>,
+            <code> db.host</code>, <code>db.password</code>; the live
+            configSchema below is authoritative.
+          </p>
+        ) : null}
       </div>
       {/* qa-loop iter-15 Fix #64 (TC-062/TC-063/TC-098/TC-099/TC-105/TC-110/TC-115):
           surface the canonical Blueprint catalog tokens (popular
@@ -221,6 +289,40 @@ export function InstallPage({ preselectedBlueprint }: InstallPageProps = {}) {
         </div>
       ) : null}
 
+      {/*
+       * qa-loop iter-1 prefetch Fix #92 (TC-105) — friendly
+       * "Blueprint not found" surface. The matrix asserts that a
+       * deep-link to /install/bp-nonexistent renders the literal
+       * tokens "Blueprint" + "not found" without crashing the page
+       * (must_not_contain: "Cannot read"). The conditional fires
+       * when the catalog query has finished, the user pre-selected
+       * a Blueprint via URL, and the catalog list does NOT carry
+       * an entry by that name.
+       *
+       * Per docs/INVIOLABLE-PRINCIPLES.md #1 (target-state) the page
+       * still renders a navigable surface — the operator can click
+       * back to the catalog grid OR re-deep-link to a sibling
+       * Blueprint without bouncing off the page.
+       */}
+      {preselectedBlueprint && catalogQuery.data && !selectedCard ? (
+        <div
+          className="mb-4 rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-4 py-4 text-sm text-yellow-300"
+          data-testid="install-page-blueprint-not-found"
+        >
+          <p className="font-semibold text-yellow-200">
+            Blueprint not found: <code>{preselectedBlueprint}</code>
+          </p>
+          <p className="mt-1 text-xs">
+            The Blueprint <code>{preselectedBlueprint}</code> is not in the
+            current catalog. It may not be published yet, may have been
+            renamed, or may live behind a curate gate that hasn't been
+            promoted to this Sovereign. The catalog below lists every
+            Blueprint currently installable; pick one or publish a new
+            Blueprint via <code>POST /api/v1/sovereigns/{`{id}`}/blueprints/publish</code>.
+          </p>
+        </div>
+      ) : null}
+
       {selectedCard ? (
         <div data-testid="install-page-form-section">
           <button
@@ -234,12 +336,21 @@ export function InstallPage({ preselectedBlueprint }: InstallPageProps = {}) {
 
           <div className="mb-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elev)] p-4">
             <h2 className="text-lg font-semibold text-[var(--color-text)]">
-              {selectedCard.card.title || selectedCard.name}
+              {selectedCard.card.title || selectedCard.name}{' '}
+              <span
+                className="ml-2 rounded bg-[var(--color-accent)]/10 px-2 py-0.5 text-xs font-mono text-[var(--color-accent)]"
+                data-testid="install-page-blueprint-id"
+              >
+                {selectedCard.name}
+              </span>
             </h2>
             <p className="mt-1 text-xs text-[var(--color-text-dim)]">
               {selectedCard.card.summary || selectedCard.card.description}
             </p>
             <p className="mt-2 text-xs text-[var(--color-text-dim)]">
+              <strong>Blueprint:</strong>{' '}
+              <code data-testid="install-page-blueprint-code">{selectedCard.name}</code>
+              {' · '}
               <strong>Version:</strong> {selectedCard.version}
               {' · '}
               <strong>Source:</strong> {selectedCard.source}

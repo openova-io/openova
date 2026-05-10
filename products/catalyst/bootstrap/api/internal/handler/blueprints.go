@@ -437,11 +437,31 @@ func (h *Handler) HandleBlueprintListCuratable(w http.ResponseWriter, r *http.Re
 	}
 
 	// The unified client doesn't expose ListOrgs (cross-org enumeration
-	// is rare); the canonical caller passes orgs[] via query for now.
-	// Future enhancement: walk the Gitea admin /orgs endpoint when slice
-	// L promotes that surface.
+	// is rare); the canonical caller passes orgs[] via query, BUT the
+	// qa-loop matrix and the default UI surface call without a `?orgs=`
+	// query — so when the caller doesn't supply one we fall back to the
+	// chroot Sovereign's canonical org slug (deploymentDefaultOrg) plus
+	// the always-present `default-org` bucket. This covers the common
+	// EPIC-2 chroot case (one Org per Sovereign) without forcing the
+	// caller to know the org slug. Future enhancement: walk the Gitea
+	// admin /orgs endpoint when slice L promotes that surface.
+	//
+	// qa-loop iter-1 prefetch Fix #92 (TC-082): a publish followed
+	// immediately by a curatable list MUST surface the just-published
+	// bp-* in the items envelope; the prior empty-list-on-no-query
+	// behaviour silently filtered it out.
 	ctx := r.Context()
-	orgs := strings.Split(strings.TrimSpace(r.URL.Query().Get("orgs")), ",")
+	rawOrgs := strings.TrimSpace(r.URL.Query().Get("orgs"))
+	var orgs []string
+	if rawOrgs != "" {
+		orgs = strings.Split(rawOrgs, ",")
+	} else {
+		orgs = []string{}
+		if dep := strings.TrimSpace(h.deploymentDefaultOrg(depID)); dep != "" {
+			orgs = append(orgs, dep)
+		}
+		orgs = append(orgs, "default-org")
+	}
 	out := make([]curatableBlueprint, 0)
 	for _, orgRaw := range orgs {
 		org := strings.TrimSpace(orgRaw)

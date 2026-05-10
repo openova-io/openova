@@ -165,6 +165,65 @@ type applicationPreviewResponse struct {
 	// caller round-tripping. Empty on install previews. Added qa-loop
 	// iter-7 Cluster-C (#1227).
 	Placement *applicationPlacement `json:"placement,omitempty"`
+	// Application carries the rendered Application CR (apiVersion / kind:
+	// Application / metadata / spec) the install POST would persist. The
+	// qa-loop matrix (TC-064) asserts the preview response surfaces the
+	// CR shape directly so it can be diffed against the live cluster
+	// state without re-rendering on the client. Added qa-loop iter-1
+	// prefetch Fix #92.
+	Application *applicationPreviewCR `json:"application,omitempty"`
+}
+
+// applicationPreviewCR — minimal Application CR shape echoed in the
+// preview response. Mirrors the (apiVersion, kind, metadata, spec)
+// shape the controller reconciles so a "looks-good in preview" matches
+// the actual install at the CR level.
+type applicationPreviewCR struct {
+	APIVersion string                 `json:"apiVersion"`
+	Kind       string                 `json:"kind"`
+	Metadata   map[string]interface{} `json:"metadata"`
+	Spec       map[string]interface{} `json:"spec"`
+}
+
+// renderApplicationCRPreview composes the Application CR shape that the
+// install endpoint would persist, given the same body. Keeps the CR
+// shape in lock-step with newApplicationUnstructured (applications.go)
+// so preview-vs-install never diverges.
+func renderApplicationCRPreview(body applicationPreviewRequest) *applicationPreviewCR {
+	appName := strings.TrimSpace(body.Name)
+	if appName == "" {
+		appName = body.BlueprintRef.Name + "-preview"
+	}
+	gvr := ApplicationGVR()
+	regions := append([]string(nil), body.Placement.Regions...)
+	if regions == nil {
+		regions = []string{}
+	}
+	params := body.Parameters
+	if params == nil {
+		params = map[string]interface{}{}
+	}
+	return &applicationPreviewCR{
+		APIVersion: gvr.Group + "/" + gvr.Version,
+		Kind:       "Application",
+		Metadata: map[string]interface{}{
+			"name":      appName,
+			"namespace": body.OrganizationRef,
+		},
+		Spec: map[string]interface{}{
+			"blueprintRef": map[string]interface{}{
+				"name":    body.BlueprintRef.Name,
+				"version": body.BlueprintRef.Version,
+			},
+			"organizationRef": body.OrganizationRef,
+			"environmentRef":  body.EnvironmentRef,
+			"placement": map[string]interface{}{
+				"mode":    body.Placement.Mode,
+				"regions": regions,
+			},
+			"parameters": params,
+		},
+	}
 }
 
 // HandleApplicationPreview — POST /api/v1/sovereigns/{id}/applications/preview
@@ -322,7 +381,8 @@ func (h *Handler) HandleApplicationPreview(w http.ResponseWriter, r *http.Reques
 			Name:    bp.Name,
 			Version: bp.Version,
 		},
-		Warnings: warnings,
+		Warnings:    warnings,
+		Application: renderApplicationCRPreview(body),
 	})
 	_ = dep // kept for future per-Sovereign Gitea diff
 }
@@ -427,7 +487,8 @@ func (h *Handler) renderApplicationPreview(
 			Name:    bp.Name,
 			Version: bp.Version,
 		},
-		Warnings: warnings,
+		Warnings:    warnings,
+		Application: renderApplicationCRPreview(body),
 	}, 0, nil
 }
 
