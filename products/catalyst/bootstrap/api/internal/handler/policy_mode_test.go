@@ -714,3 +714,82 @@ func TestNormalizePolicyMode_AcceptsBothVocabularies(t *testing.T) {
 		})
 	}
 }
+
+// ── qa-loop iter-1 prov #8 Fix #97 — Kyverno-vocab echo ──────────────
+
+// TestKyvernoVocabMode_BothVocabularies verifies the canonical OpenOva
+// vocabulary maps to the Kyverno-vocab capitalized form so the matrix
+// (TC-027 / TC-028) sees the literal "Audit" / "Enforce" tokens.
+func TestKyvernoVocabMode_BothVocabularies(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"permissive", "Audit"},
+		{"audit", "Audit"},
+		{"PERMISSIVE", "Audit"},
+		{"enforcing", "Enforce"},
+		{"enforce", "Enforce"},
+		{"ENFORCING", "Enforce"},
+		{"", ""},
+		{"warn", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.in, func(t *testing.T) {
+			got := kyvernoVocabMode(c.in)
+			if got != c.want {
+				t.Fatalf("kyvernoVocabMode(%q): got %q want %q", c.in, got, c.want)
+			}
+		})
+	}
+}
+
+// TestUniformKyvernoVocabMode_AgreesAndDiverges checks the uniform-mode
+// helper returns the Kyverno vocab only when every entry in the modes
+// map carries the same canonical value.
+func TestUniformKyvernoVocabMode_AgreesAndDiverges(t *testing.T) {
+	cases := []struct {
+		name  string
+		modes map[string]string
+		want  string
+	}{
+		{
+			name:  "all permissive → Audit",
+			modes: map[string]string{"a": "permissive", "b": "permissive"},
+			want:  "Audit",
+		},
+		{
+			name:  "all enforcing → Enforce",
+			modes: map[string]string{"a": "enforcing"},
+			want:  "Enforce",
+		},
+		{
+			name:  "Kyverno-vocab agrees → Audit",
+			modes: map[string]string{"a": "audit", "b": "permissive"},
+			want:  "Audit",
+		},
+		{
+			name:  "diverges → empty",
+			modes: map[string]string{"a": "permissive", "b": "enforcing"},
+			want:  "",
+		},
+		{
+			name:  "empty map → empty",
+			modes: map[string]string{},
+			want:  "",
+		},
+		{
+			name:  "unknown vocabulary → empty",
+			modes: map[string]string{"a": "permissive", "b": "warn"},
+			want:  "",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := uniformKyvernoVocabMode(c.modes)
+			if got != c.want {
+				t.Fatalf("uniformKyvernoVocabMode: got %q want %q", got, c.want)
+			}
+		})
+	}
+}
