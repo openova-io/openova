@@ -73,9 +73,12 @@ export default defineConfig({
       // pre-build step. CI replaces these with proper package resolution
       // once a top-level workspace is wired (Agent #2 step).
       //
-      // ORDER MATTERS: @rollup/plugin-alias matches in definition order;
-      // longer/more-specific keys MUST come before shorter ones. '@' is a
-      // prefix that would otherwise shadow '@openova/...'.
+      // NB on alias matching: Vite (and @rollup/plugin-alias) match an
+      // alias key against an importee with EXACT equality OR prefix
+      // followed by `/`. The bare `@` alias below therefore only matches
+      // `@/...` paths — it does NOT shadow `@openova/...`. Order between
+      // these three is irrelevant for correctness; keeping the longer
+      // keys first is purely a readability convention.
       '@openova/flow-core': resolve(__dirname, '../../../openova-flow/core/src/index.ts'),
       '@openova/flow-canvas': resolve(__dirname, '../../../openova-flow/canvas/src/index.ts'),
       '@': resolve(__dirname, './src'),
@@ -83,13 +86,17 @@ export default defineConfig({
       // this package and have no node_modules tree of their own (the
       // workspace wiring lands in Agent #2). Until then, force their peer
       // deps (react, react-dom, d3-*) to resolve to THIS package's own
-      // installs — otherwise Vite/Rolldown walks up from the canvas
-      // source path and finds nothing, breaking the production build with
-      // "Rolldown failed to resolve import 'react' from .../FlowLogFeed.tsx".
+      // installs — otherwise Vite walks up from the canvas source path
+      // and finds nothing, breaking `vite dev` (`/wizard` returns an
+      // un-hydrated shell because the import graph reachable from
+      // main.tsx → router → JobDetail → FlowPage → @openova/flow-canvas
+      // throws "Failed to resolve import 'd3-drag'", which Vite surfaces
+      // as a top-level module load failure on the browser side). The
+      // same fix unblocks `vite build` (Rolldown emits the same error)
+      // and vitest (which shares this resolver).
       // Each entry maps the bare-spec import to the absolute path of the
-      // dep in this package's node_modules. Using resolve.dedupe is
-      // insufficient here because Node's resolution fails before dedupe
-      // ever runs.
+      // dep in this package's node_modules. `resolve.dedupe` alone is
+      // insufficient because Node's resolution fails before dedupe runs.
       react: resolve(__dirname, './node_modules/react'),
       'react-dom': resolve(__dirname, './node_modules/react-dom'),
       'd3-force': resolve(__dirname, './node_modules/d3-force'),
