@@ -1,0 +1,118 @@
+/**
+ * @openova/flow-canvas — default theme tokens.
+ *
+ * Hosts import this CSS once via `@openova/flow-canvas/theme.css` to
+ * get the standard OpenovaFlow look. Override individual tokens in
+ * your own stylesheet to reskin without forking the package.
+ *
+ * The canvas itself reads `var(--flow-bubble-*)` inline so token
+ * changes hot-reload without remounting. All tokens are scoped under
+ * `.flow-canvas-host` so they do NOT leak into the host page's
+ * cascade.
+ *
+ * Dark theme is the default; light theme is opted in via
+ * `[data-theme="light"] .flow-canvas-host`.
+ */
+
+.flow-canvas-host {
+  /* Bubble surface (status === 'pending' / 'running' / 'succeeded' /
+   * 'failed'). Adapters supply their OWN statusPalette via the
+   * FlowAdapter contract — these tokens are the canvas's defaults
+   * when a status string has no palette entry. */
+  --flow-bubble-fill-pending:    #0F1A2A;
+  --flow-bubble-ring-pending:    rgba(148,163,184,0.55);
+  --flow-bubble-glyph-pending:   rgba(148,163,184,0.75);
+  --flow-bubble-glow-pending:    transparent;
+  --flow-bubble-edge-pending:    rgba(148,163,184,0.32);
+  --flow-bubble-arrow-pending:   rgba(148,163,184,0.60);
+
+  --flow-bubble-fill-running:    #0E1A33;
+  --flow-bubble-ring-running:    rgba(56,189,248,0.85);
+  --flow-bubble-glyph-running:   #BAE6FD;
+  --flow-bubble-glow-running:    rgba(56,189,248,0.30);
+  --flow-bubble-edge-running:    rgba(56,189,248,0.65);
+  --flow-bubble-arrow-running:   #38BDF8;
+
+  --flow-bubble-fill-succeeded:  #16A34A;
+  --flow-bubble-ring-succeeded:  rgba(22,163,74,0.95);
+  --flow-bubble-glyph-succeeded: #FFFFFF;
+  --flow-bubble-glow-succeeded:  rgba(74,222,128,0.20);
+  --flow-bubble-edge-succeeded:  rgba(74,222,128,0.55);
+  --flow-bubble-arrow-succeeded: #4ADE80;
+
+  --flow-bubble-fill-failed:     #23070A;
+  --flow-bubble-ring-failed:     rgba(248,113,113,0.85);
+  --flow-bubble-glyph-failed:    #FCA5A5;
+  --flow-bubble-glow-failed:     rgba(248,113,113,0.30);
+  --flow-bubble-edge-failed:     rgba(248,113,113,0.65);
+  --flow-bubble-arrow-failed:    #F87171;
+
+  /* Label text (drawn below each bubble). */
+  --flow-bubble-label:           rgba(255,255,255,0.85);
+  --flow-bubble-sublabel:        rgba(255,255,255,0.45);
+
+  /* Selection rings — host (teal), selection (amber), neighbour
+   * (lighter amber). These are NOT status tones — they sit above
+   * the status ring as overlays. */
+  --flow-host-ring:              #14B8A6;
+  --flow-selection-ring:         #FBBF24;
+  --flow-neighbor-ring:          #FCD34D;
+
+  /* Canvas backdrop. */
+  --flow-canvas-bg:              radial-gradient(ellipse at 20% 0%, rgba(11,28,58,0.85) 0%, rgba(7,10,18,0.85) 75%);
+  --flow-canvas-border:          rgba(255,255,255,0.04);
+}
+
+[data-theme="light"] .flow-canvas-host {
+  --flow-bubble-fill-pending:    #E2E8F0;
+  --flow-bubble-ring-pending:    rgba(100,116,139,0.65);
+  --flow-bubble-glyph-pending:   rgba(71,85,105,0.85);
+  --flow-bubble-glow-pending:    transparent;
+  --flow-bubble-edge-pending:    rgba(100,116,139,0.45);
+  --flow-bubble-arrow-pending:   rgba(100,116,139,0.70);
+
+  --flow-bubble-fill-running:    #DBEAFE;
+  --flow-bubble-ring-running:    rgba(37,99,235,0.85);
+  --flow-bubble-glyph-running:   #1E3A8A;
+  --flow-bubble-glow-running:    rgba(56,189,248,0.30);
+  --flow-bubble-edge-running:    rgba(37,99,235,0.65);
+  --flow-bubble-arrow-running:   #2563EB;
+
+  --flow-bubble-fill-succeeded:  #15803D;
+  --flow-bubble-ring-succeeded:  rgba(21,128,61,0.95);
+  --flow-bubble-glyph-succeeded: #FFFFFF;
+  --flow-bubble-glow-succeeded:  rgba(34,197,94,0.18);
+  --flow-bubble-edge-succeeded:  rgba(21,128,61,0.65);
+  --flow-bubble-arrow-succeeded: #15803D;
+
+  --flow-bubble-fill-failed:     #FEE2E2;
+  --flow-bubble-ring-failed:     rgba(220,38,38,0.95);
+  --flow-bubble-glyph-failed:    #7F1D1D;
+  --flow-bubble-glow-failed:     rgba(248,113,113,0.20);
+  --flow-bubble-edge-failed:     rgba(220,38,38,0.65);
+  --flow-bubble-arrow-failed:    #DC2626;
+
+  --flow-bubble-label:           rgba(15,23,42,0.85);
+  --flow-bubble-sublabel:        rgba(15,23,42,0.55);
+
+  --flow-canvas-bg:              radial-gradient(ellipse at 20% 0%, #f1f5f9 0%, #e2e8f0 75%);
+  --flow-canvas-border:          #cbd5e1;
+}
+
+.flow-canvas-host {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: var(--flow-canvas-bg);
+  border-radius: 12px;
+  border: 1px solid var(--flow-canvas-border);
+  overflow: auto;
+}
+
+.flow-canvas-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}

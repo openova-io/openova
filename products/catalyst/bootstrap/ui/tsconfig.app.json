@@ -25,7 +25,9 @@
     "noUncheckedSideEffectImports": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@openova/flow-core": ["../../../openova-flow/core/src/index.ts"],
+      "@openova/flow-canvas": ["../../../openova-flow/canvas/src/index.ts"]
     }
   },
   "include": ["src"]

@@ -69,6 +69,12 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(__dirname, './src'),
+      // OpenovaFlow Foundation — alias the workspace packages to their
+      // source so `npm run dev` / vitest can pick them up without a
+      // pre-build step. CI replaces these with proper package resolution
+      // once a top-level workspace is wired (Agent #2 step).
+      '@openova/flow-core': resolve(__dirname, '../../../openova-flow/core/src/index.ts'),
+      '@openova/flow-canvas': resolve(__dirname, '../../../openova-flow/canvas/src/index.ts'),
     },
   },
   server: {
