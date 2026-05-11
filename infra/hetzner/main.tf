@@ -131,9 +131,19 @@ locals {
   # already permits (solo Sovereign, worker_count=0): an empty
   # qa_worker_size would otherwise short-circuit to "" — coalesce() falls
   # back to the production default in that mode.
-  qa_mode               = var.qa_fixtures_enabled == "true"
-  effective_cp_size     = local.qa_mode ? coalesce(var.qa_control_plane_size, var.control_plane_size) : var.control_plane_size
-  effective_worker_size = local.qa_mode ? coalesce(var.qa_worker_size, var.worker_size) : var.worker_size
+  qa_mode = var.qa_fixtures_enabled == "true"
+  # Fix #183: body's control_plane_size / worker_size win over QA defaults
+  # when present. Previously `coalesce(var.qa_*, var.*)` returned the QA
+  # default whenever it was non-empty, silently downgrading a body's
+  # explicit cpx42 → cpx32. Now QA defaults only kick in when the body
+  # left the SKU empty (zero-override prov / legacy QA path). On customer
+  # Sovereigns (qa_fixtures_enabled='false') the QA defaults are never
+  # considered. See provisioner.go writeTfvars — body-supplied SKUs are
+  # emitted as JSON only when non-empty, so var.control_plane_size /
+  # var.worker_size already inherit variables.tf defaults when the body
+  # left them blank; coalesce-with-body-first is the right precedence.
+  effective_cp_size     = local.qa_mode ? coalesce(var.control_plane_size, var.qa_control_plane_size) : var.control_plane_size
+  effective_worker_size = local.qa_mode ? coalesce(var.worker_size, var.qa_worker_size) : var.worker_size
 
   # k3s deterministic bootstrap token derived from project ID + sovereign FQDN.
   # Workers join with this; k3s rotates it after first join.
