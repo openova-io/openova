@@ -157,25 +157,45 @@ type PurgeBucketsConfig struct {
 	Region    string
 }
 
-// PurgeBuckets empties + deletes the per-Sovereign Hetzner Object
-// Storage bucket. The bucket name is derived deterministically from
-// (sovereignFQDN, deploymentID) — see BucketNameForSovereign.
+// PurgeBuckets empties + deletes EVERY Hetzner Object Storage bucket
+// owned by the (Hetzner Object Storage credentials) tenant whose name
+// matches the per-Sovereign prefix (see BucketNamePrefixForSovereign).
 //
-// deploymentID is the catalyst-api's per-deployment ID (16-hex from
-// newID()). It is used as the bucket-name suffix to disambiguate
-// across the global Hetzner Object Storage namespace. Pass empty
-// only for legacy records where the on-disk Deployment pre-dates
-// Fix #111; the function falls back to a fqdn-derived sha256 prefix
-// in that case (see bucketSuffix).
+// Why prefix-match instead of a single deterministic name (issue
+// #153): every fresh provision of the same Sovereign FQDN gets a new
+// deployment-id, and post Fix #111 the bucket name carries an 8-hex
+// suffix derived from that deployment-id. So a sequence of
+// provision -> wipe -> re-provision -> wipe -> ... left one bucket
+// per provision behind because the wipe-time deployment-id suffix
+// only ever matched the CURRENT provision, never the previous ones.
+// Hetzner Object Storage caps each tenant at a finite bucket quota,
+// so the leak was unbounded tech debt (4+ stale catalyst-omantel-biz-*
+// buckets observed live for omantel.biz alone).
 //
-// Returns the number of buckets actually removed (0 or 1) and an
-// error only on a non-recoverable failure (network, auth, partial
-// delete that left the bucket non-empty). A 404 NoSuchBucket is
-// idempotent success: BucketsRemoved=0, err=nil.
+// The matched set is ANY bucket whose name == "catalyst-<fqdn-slug>"
+// (legacy pre-Fix-#111 records, no suffix) OR starts with
+// "catalyst-<fqdn-slug>-" (Fix #111 onward, 8-hex deployment-id
+// suffix). The dash boundary in the prefix prevents accidental
+// matches against unrelated Sovereigns whose slug shares a prefix
+// (e.g. "catalyst-omantel-biz-" never matches "catalyst-omantel-bizz-...").
+//
+// deploymentID is retained on the signature for caller backward-
+// compatibility (the wipe handler still passes it) but is no longer
+// used to derive a single bucket name — the prefix-match strategy
+// above purges the current AND any prior deployment-id's bucket in
+// one call.
+//
+// Returns the number of buckets actually removed and an error
+// only on the FIRST non-recoverable failure encountered while
+// iterating the matched set. Per-bucket failures are accumulated
+// and returned in aggregate (best-effort: one wedged bucket must
+// not block the remaining N-1). A 404 NoSuchBucket on any individual
+// bucket is treated as idempotent success.
 //
 // progress is called for human-readable status updates to feed the
 // SSE log. Pass nil to silence.
 func PurgeBuckets(ctx context.Context, cfg PurgeBucketsConfig, sovereignFQDN, deploymentID string, progress func(msg string)) (int, error) {
+	_ = deploymentID // kept for caller compat; prefix-match supersedes
 	if progress == nil {
 		progress = func(string) {}
 	}
@@ -202,8 +222,74 @@ func PurgeBuckets(ctx context.Context, cfg PurgeBucketsConfig, sovereignFQDN, de
 		return 0, fmt.Errorf("construct minio client: %w", err)
 	}
 
-	bucketName := BucketNameForSovereign(sovereignFQDN, deploymentID)
-	return purgeBucket(ctx, client, bucketName, progress)
+	return purgeBucketsByPrefix(ctx, client, sovereignFQDN, progress)
+}
+
+// BucketNamePrefixForSovereign returns the prefix that every per-
+// Sovereign Hetzner Object Storage bucket name shares for a given
+// FQDN. The legacy bucket name (no Fix #111 suffix) equals the
+// prefix exactly; the Fix #111+ bucket names extend the prefix with
+// "-<8-hex-deployment-id>".
+//
+// Exposed so the wipe handler can log the prefix it is purging
+// without re-deriving it, and so unit tests can pin both halves of
+// the contract from one place.
+func BucketNamePrefixForSovereign(fqdn string) string {
+	return "catalyst-" + strings.ReplaceAll(fqdn, ".", "-")
+}
+
+// purgeBucketsByPrefix lists every bucket the credentials can see
+// and purges any whose name matches the per-Sovereign prefix
+// (exact match for legacy no-suffix, or prefix + "-" for Fix #111+).
+//
+// Split out from PurgeBuckets so tests can drive a real fake S3
+// server without depending on Hetzner's region table or credential
+// validation.
+func purgeBucketsByPrefix(ctx context.Context, client *minio.Client, sovereignFQDN string, progress func(string)) (int, error) {
+	if progress == nil {
+		progress = func(string) {}
+	}
+
+	prefix := BucketNamePrefixForSovereign(sovereignFQDN)
+	prefixDash := prefix + "-"
+
+	all, err := client.ListBuckets(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("list buckets: %w", err)
+	}
+
+	var matched []string
+	for _, b := range all {
+		if b.Name == prefix || strings.HasPrefix(b.Name, prefixDash) {
+			matched = append(matched, b.Name)
+		}
+	}
+	if len(matched) == 0 {
+		progress(fmt.Sprintf("no buckets matched prefix %s — clean tenant", prefix))
+		return 0, nil
+	}
+	progress(fmt.Sprintf("found %d bucket(s) matching prefix %s — purging each", len(matched), prefix))
+
+	totalRemoved := 0
+	var perBucketErrs []string
+	for _, name := range matched {
+		removed, perr := purgeBucket(ctx, client, name, progress)
+		totalRemoved += removed
+		if perr != nil {
+			// Best-effort across the matched set: log + continue. One
+			// wedged bucket must NOT block the remaining N-1 from being
+			// cleaned up. Errors are accumulated and returned in
+			// aggregate so the SSE banner can surface "investigate the
+			// log; M of N buckets failed".
+			progress(fmt.Sprintf("bucket %s: purge failed (continuing): %v", name, perr))
+			perBucketErrs = append(perBucketErrs, fmt.Sprintf("%s: %v", name, perr))
+		}
+	}
+	if len(perBucketErrs) > 0 {
+		return totalRemoved, fmt.Errorf("%d of %d bucket purges failed: %s",
+			len(perBucketErrs), len(matched), strings.Join(perBucketErrs, "; "))
+	}
+	return totalRemoved, nil
 }
 
 // purgeBucket runs the empty + delete sequence against a single

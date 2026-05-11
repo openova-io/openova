@@ -393,9 +393,22 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 			func(msg string) { emit("wipe", "info", "object-storage: "+msg) },
 		)
 		bucketCancel()
-		if removed > 0 {
-			report.HetznerPurge.S3Buckets = append(report.HetznerPurge.S3Buckets,
-				hetzner.BucketNameForSovereign(dep.Request.SovereignFQDN, dep.ID))
+		// Issue #153 — PurgeBuckets is now prefix-match: every bucket
+		// matching `catalyst-<fqdn-slug>` (legacy) or
+		// `catalyst-<fqdn-slug>-*` (Fix #111+ deployment-id-suffixed)
+		// gets emptied + deleted. Pre-fix this only purged the ONE
+		// bucket whose suffix matched the CURRENT deployment-id,
+		// leaving every prior provision's bucket orphaned (4+ stale
+		// catalyst-omantel-biz-* buckets observed live).
+		//
+		// Log the prefix actually swept so an operator inspecting the
+		// SSE log can correlate with the `removed` count without
+		// re-deriving the deterministic name. The S3Buckets slice gets
+		// one entry per removed bucket (name not surfaced from the
+		// purge layer; the SSE log already carries per-bucket detail).
+		bucketPrefix := hetzner.BucketNamePrefixForSovereign(dep.Request.SovereignFQDN)
+		for i := 0; i < removed; i++ {
+			report.HetznerPurge.S3Buckets = append(report.HetznerPurge.S3Buckets, bucketPrefix+"-*")
 		}
 		if berr != nil {
 			report.HetznerPurge.Errors = append(report.HetznerPurge.Errors,
