@@ -110,7 +110,21 @@ spec:
       # Helm post-install hook failed, HR FAILED 4× → terminal.
       # New deadline (14m) sits below the HR install.timeout cap of
       # 15m so Flux's remediation can still reclaim a true failure.
-      version: 1.2.2
+      # 1.2.3 (Fix #144-followup, prov #37+#38 recurrence 2026-05-12):
+      # bumping activeDeadlineSeconds alone was insufficient — the Job
+      # hit BackoffLimitExceeded (NOT DeadlineExceeded) at ~10min
+      # because each container invocation curl'd a Service with empty
+      # Ready endpoints (powerdns Pods Pending behind a worker-capacity
+      # wedge that kept bp-cnpg's pdns-pg-1-initdb itself Pending).
+      # Container restartPolicy=OnFailure + backoffLimit=6 killed the
+      # Job long before activeDeadlineSeconds had any effect. Fix moves
+      # the wait-for-API loop INSIDE the container (restartPolicy=Never,
+      # bounded by new apiReadyTimeoutSeconds=600s) so one Pod owns
+      # the full 14m budget. Trace: in chroot prov #38, HR status
+      # message read "Helm install failed for release powerdns/powerdns
+      # with chart bp-powerdns@1.2.2: failed post-install: 1 error
+      # occurred: * job powerdns-zone-bootstrap failed: BackoffLimitExceeded".
+      version: 1.2.3
       sourceRef:
         kind: HelmRepository
         name: bp-powerdns

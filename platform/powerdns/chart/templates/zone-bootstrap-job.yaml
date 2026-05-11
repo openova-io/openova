@@ -145,13 +145,40 @@ metadata:
 spec:
   backoffLimit: {{ .Values.zoneBootstrap.backoffLimit | default 6 }}
   activeDeadlineSeconds: {{ .Values.zoneBootstrap.activeDeadlineSeconds | default 300 }}
+  # Fix #144-followup (recurrence on prov #37 + #38, 2026-05-12):
+  # The 14m activeDeadlineSeconds bumped by Fix #144 is harmless if the
+  # Job's container is allowed to RUN to that deadline. But this Job
+  # exited within ~6 backoffs (~10 minutes wall-time) and tripped
+  # `BackoffLimitExceeded` — NOT `DeadlineExceeded`. Each container
+  # invocation curl'd `http://powerdns:8081`, the in-cluster PowerDNS
+  # Service whose endpoints were empty because the powerdns Deployment
+  # Pods were Pending (worker CPU 99% requested; bp-cnpg `pdns-pg-1-initdb`
+  # also Pending behind same scheduling wedge; cluster-autoscaler in
+  # backoff after gitea/gitea-* PV affinity conflict). curl exited 7
+  # (connection refused) → container restarted → 6 backoffs → Job dead
+  # at ~10 minutes, well before activeDeadlineSeconds=840s.
+  #
+  # The Fix: move the readiness wait INTO the container — one pod, one
+  # long inner loop. See `command:` below. Combined with
+  # `restartPolicy: Never` (one chance, no Kubernetes-level backoff
+  # against backoffLimit) so the inner loop owns the wait budget,
+  # bounded by activeDeadlineSeconds. backoffLimit kept at 6 to recover
+  # from genuinely transient pod failures (image-pull retry, node
+  # eviction) without papering over a stuck Deployment.
   template:
     metadata:
       labels:
         {{- include "bp-powerdns.labels" . | nindent 8 }}
         catalyst.openova.io/component: zone-bootstrap
     spec:
-      restartPolicy: OnFailure
+      # Fix #144-followup: switched OnFailure → Never. The inner
+      # poll-for-API-ready loop now owns the wait budget (bounded by
+      # activeDeadlineSeconds + POWERDNS_API_READY_TIMEOUT_S env var).
+      # If the container itself crashes (image-pull retry, OS-level
+      # error), the Job's backoffLimit still triggers a new Pod —
+      # so transient failures recover. Steady-state retries for an
+      # un-Ready upstream stay inside the single Pod.
+      restartPolicy: Never
       serviceAccountName: powerdns-zone-bootstrap
       volumes:
         - name: tmp
@@ -199,11 +226,83 @@ spec:
                 secretKeyRef:
                   name: powerdns-api-credentials
                   key: api-key
+            # Fix #144-followup: inner-loop deadline for the wait-for-API
+            # poll. Default 600s = 10 min; surfaced via values.yaml so
+            # operators on slower clusters can raise it without forking
+            # the chart. Sits below activeDeadlineSeconds (840s) so the
+            # zone-creation phase has ≥240s of headroom after the API
+            # comes Ready.
+            - name: POWERDNS_API_READY_TIMEOUT_S
+              value: {{ .Values.zoneBootstrap.apiReadyTimeoutSeconds | default 600 | quote }}
           command:
             - /bin/sh
             - -c
             - |
               set -eu
+
+              api="${POWERDNS_API}"
+              key="${POWERDNS_API_KEY}"
+
+              # ─── Wait for PowerDNS API to come Ready ──────────────────────
+              #
+              # Fix #144-followup (recurrence on prov #37+#38, 2026-05-12):
+              # The Helm post-install hook fires the moment the `powerdns`
+              # Deployment + Service manifests apply — but the Service has
+              # no Ready endpoints until the powerdns Pods themselves come
+              # up, and THOSE wait on bp-cnpg's `pdns-pg-app` Secret which
+              # only materialises after `pdns-pg-1-initdb` Pod schedules,
+              # runs, and completes. On a fresh Sovereign with the worker
+              # under capacity pressure (gitea+harbor+keycloak racing for
+              # CPU) that whole chain can take >10 minutes — longer than
+              # the Job's 6-backoff retry budget.
+              #
+              # Approach: one container run, one inner poll loop. We retry
+              # every 10s for up to .Values.zoneBootstrap.apiReadyTimeoutSeconds
+              # (default 600s = 10min, well within activeDeadlineSeconds=840s
+              # budget so there's still headroom for the zone-creation loop
+              # below). Authenticated GET /api/v1/servers returns:
+              #   200 — server up; proceed to bootstrap
+              #   401 — server up but key mismatch (FATAL, no retry)
+              #   anything else — keep waiting
+              # curl's exit codes:
+              #   7  — connection refused (Service endpoints empty)
+              #   28 — operation timeout (network blip / pod warming)
+              # Both are retryable. Anything terminal (DNS resolution fail,
+              # which would mean Service object missing) we surface after
+              # the deadline.
+
+              ready_deadline_s="${POWERDNS_API_READY_TIMEOUT_S:-600}"
+              poll_interval_s=10
+              waited=0
+              echo "Waiting up to ${ready_deadline_s}s for PowerDNS API at ${api}/api/v1/servers"
+              while :; do
+                status=$(curl --silent --output /tmp/api-probe \
+                  --write-out '%{http_code}' \
+                  --max-time 5 \
+                  -H "X-API-Key: ${key}" \
+                  "${api}/api/v1/servers" 2>/dev/null || echo "000")
+
+                case "${status}" in
+                  200)
+                    echo "  PowerDNS API ready (HTTP 200) after ${waited}s"
+                    break
+                    ;;
+                  401|403)
+                    echo "  PowerDNS API reachable but auth rejected (HTTP ${status}) — FATAL"
+                    cat /tmp/api-probe 2>/dev/null || true
+                    exit 1
+                    ;;
+                  *)
+                    # 000 = curl exit (refused/timeout); 5xx = upstream not ready
+                    if [ "${waited}" -ge "${ready_deadline_s}" ]; then
+                      echo "  PowerDNS API did not become ready within ${ready_deadline_s}s (last status=${status}) — FATAL"
+                      exit 1
+                    fi
+                    ;;
+                esac
+                sleep "${poll_interval_s}"
+                waited=$((waited + poll_interval_s))
+              done
 
               # Idempotent zone-creation loop.
               #
@@ -231,9 +330,6 @@ spec:
               # GET /zones/<zone> probe — POST-then-handle-409 is
               # one round trip; GET-then-POST is two. Same outcome,
               # half the cost.
-
-              api="${POWERDNS_API}"
-              key="${POWERDNS_API_KEY}"
 
               create_zone() {
                 local name="$1"
