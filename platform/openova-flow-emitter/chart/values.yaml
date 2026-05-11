@@ -20,7 +20,10 @@ flowEmitter:
   # per cluster (rare).
   workloadName: openova-flow-emitter
   image:
-    repository: harbor.openova.io/proxy-ghcr/openova-io/openova/openova-flow-adapter-flux
+    # Direct ghcr.io path — see openova-flow-server values.yaml for the
+    # full rationale. catalyst-api/catalyst-ui already use the same
+    # pattern. containerd rewrites at the wire.
+    repository: ghcr.io/openova-io/openova/openova-flow-adapter-flux
     # SHA-pinned by CI's build-openova-flow-adapter-flux.yaml (seds
     # this value with the short-SHA). Default `latest` lets Blueprint
     # Release smoke-render the chart with default values before the

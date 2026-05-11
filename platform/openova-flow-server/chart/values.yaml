@@ -23,7 +23,18 @@ flowServer:
     # Mothership Harbor pull-through proxy. The Sovereign-local Harbor
     # rewrites this prefix to its own proxy at registry-pivot time per
     # platform/self-sovereign-cutover/chart/.
-    repository: harbor.openova.io/proxy-ghcr/openova-io/openova/openova-flow-server
+    # Direct ghcr.io path mirrors the catalyst-api/catalyst-ui pattern:
+    # kubelet auths with the ghcr-pull imagePullSecret (reflected by
+    # bp-reflector into every namespace that needs it), and the
+    # node's containerd registries.yaml transparently rewrites
+    # ghcr.io → harbor.openova.io/proxy-ghcr/ on the wire so the
+    # mothership Harbor still caches the bytes (MIRROR-EVERYTHING
+    # preserved at the containerd layer). Using `harbor.openova.io/
+    # proxy-ghcr/...` here directly bypassed that rewrite AND Harbor
+    # doesn't currently carry ghcr.io auth for private packages —
+    # pods CrashLoopped on `not found` (live regression on prov #34,
+    # 2026-05-11).
+    repository: ghcr.io/openova-io/openova/openova-flow-server
     # SHA-pinned by CI's build-openova-flow-server.yaml (seds this
     # value with the short-SHA). Default `latest` lets Blueprint
     # Release smoke-render the chart with default values before the
