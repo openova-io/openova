@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-powerdns
-version: 1.2.2
+version: 1.2.3
 description: |
   Catalyst-curated Blueprint wrapper for PowerDNS Authoritative.
   Carries Catalyst-specific values.yaml + templates (CNPG cluster, dnsdist
@@ -14,6 +14,18 @@ description: |
   Chart.yaml lists the upstream chart as a Helm dependency so
   `helm dependency build` resolves it; values.yaml carries both the
   catalystBlueprint metadata block and the upstream subchart values.
+
+  1.2.3 — Fix #144 recurrence (prov #37+#38 InstallFailed
+  BackoffLimitExceeded, 2026-05-12). Bumping activeDeadlineSeconds alone
+  (Fix #144) was insufficient: the post-install hook Job's container
+  exited within backoffLimit=6 (~10min wall-time) because curl against
+  http://powerdns:8081 hit a Service with empty Ready endpoints (powerdns
+  Deployment Pods Pending behind a CNPG initdb that itself waited for
+  worker capacity). The 14m deadline never got a chance — the Job died
+  at BackoffLimit. Fix moves the wait-for-API loop INSIDE the container
+  (restartPolicy: Never) so one Pod owns the full activeDeadlineSeconds
+  budget. New value apiReadyTimeoutSeconds (default 600s) bounds the
+  inner poll; surfaced via values.yaml per INVIOLABLE-PRINCIPLES #4.
 
   Bumped to 1.2.0 — multi-zone bootstrap (issue #827, parent epic #825).
   A franchised Sovereign now supports N parent zones, NOT one. New

@@ -540,3 +540,22 @@ zoneBootstrap:
   # leave Flux waiting forever; a Job that fits inside the HR cap lets
   # Flux's own remediation cycle reclaim the failure path).
   activeDeadlineSeconds: 840
+  # apiReadyTimeoutSeconds — inner poll budget the container spends
+  # waiting for http://powerdns:8081/api/v1/servers to return HTTP 200
+  # before giving up.
+  #
+  # Recurrence of #144 on prov #37+#38 (2026-05-12) traced to
+  # BackoffLimitExceeded, NOT DeadlineExceeded: each container invocation
+  # curl'd the in-cluster PowerDNS Service whose endpoints stayed empty
+  # (powerdns Pods Pending behind a worker-capacity wedge + slow CNPG
+  # initdb). curl exited 7 (connection refused), the container restarted,
+  # 6 backoffs (~10min wall-time) tripped the Job's backoffLimit well
+  # before activeDeadlineSeconds=840s.
+  #
+  # New posture: one container run, one long inner loop. This timeout
+  # bounds the inner poll; restartPolicy is `Never` (the container owns
+  # the wait budget). 600s default sits below activeDeadlineSeconds=840s
+  # so the zone-creation phase retains >=240s of headroom AFTER the API
+  # comes Ready. Operators on slower clusters can raise this without
+  # forking the chart per docs/INVIOLABLE-PRINCIPLES.md #4.
+  apiReadyTimeoutSeconds: 600
