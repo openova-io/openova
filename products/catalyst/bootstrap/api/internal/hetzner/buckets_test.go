@@ -621,3 +621,208 @@ func TestBucketPurge_Progress_Receives_Messages(t *testing.T) {
 		t.Errorf("progress callback never emitted 'deleted bucket' message; got %v", msgs)
 	}
 }
+
+// --- Multi-bucket fake + tests for purgeBucketsByPrefix (issue #153) ---
+//
+// The fakeS3 above is single-tenant by design. For the prefix-match
+// purge (issue #153) we need a richer fake that (a) reports a list of
+// buckets via ListBuckets (`GET /`) and (b) handles per-bucket purges
+// for any matching name. We compose multiple fakeS3 instances behind
+// a single router so we can re-use the existing per-bucket purge
+// handlers.
+
+type multiBucketFake struct {
+	mu      sync.Mutex
+	buckets map[string]*fakeS3 // bucket name -> per-bucket state
+}
+
+func newMultiBucketFake(names ...string) *multiBucketFake {
+	m := &multiBucketFake{buckets: map[string]*fakeS3{}}
+	for _, n := range names {
+		m.buckets[n] = &fakeS3{bucket: n, exists: true}
+	}
+	return m
+}
+
+type listAllMyBucketsResult struct {
+	XMLName xml.Name           `xml:"ListAllMyBucketsResult"`
+	Owner   listBucketsOwner   `xml:"Owner"`
+	Buckets listBucketsWrapper `xml:"Buckets"`
+}
+
+type listBucketsOwner struct {
+	ID          string `xml:"ID"`
+	DisplayName string `xml:"DisplayName"`
+}
+
+type listBucketsWrapper struct {
+	Bucket []listBucketEntry `xml:"Bucket"`
+}
+
+type listBucketEntry struct {
+	Name         string `xml:"Name"`
+	CreationDate string `xml:"CreationDate"`
+}
+
+func (m *multiBucketFake) handler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := strings.TrimPrefix(r.URL.Path, "/")
+
+		// GET / -> ListBuckets
+		if r.Method == http.MethodGet && p == "" {
+			m.mu.Lock()
+			defer m.mu.Unlock()
+			res := listAllMyBucketsResult{
+				Owner: listBucketsOwner{ID: "test", DisplayName: "test"},
+			}
+			for name := range m.buckets {
+				res.Buckets.Bucket = append(res.Buckets.Bucket, listBucketEntry{
+					Name:         name,
+					CreationDate: "2026-01-01T00:00:00Z",
+				})
+			}
+			w.Header().Set("Content-Type", "application/xml")
+			_ = xml.NewEncoder(w).Encode(res)
+			return
+		}
+
+		// Per-bucket: dispatch to the matching fakeS3 handler. First
+		// path segment is the bucket name.
+		var bucket string
+		if i := strings.IndexByte(p, '/'); i >= 0 {
+			bucket = p[:i]
+		} else {
+			bucket = p
+		}
+
+		m.mu.Lock()
+		f, ok := m.buckets[bucket]
+		m.mu.Unlock()
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			_ = xmlError(w, "NoSuchBucket", "bucket does not exist")
+			return
+		}
+		f.handler().ServeHTTP(w, r)
+	})
+}
+
+// TestPurgeBucketsByPrefix_PurgesAllMatching is the core regression
+// for issue #153 — a sequence of provisions for the same Sovereign
+// FQDN must be cleaned up by ONE wipe call, not one orphan bucket
+// left per prior provision.
+func TestPurgeBucketsByPrefix_PurgesAllMatching(t *testing.T) {
+	// Setup: tenant has 4 catalyst buckets for omantel.biz across 4
+	// different deployment-id suffixes (the orphan accumulation
+	// pattern observed live), plus 2 unrelated buckets that must NOT
+	// be touched.
+	fake := newMultiBucketFake(
+		"catalyst-omantel-biz-aaaaaaaa",
+		"catalyst-omantel-biz-bbbbbbbb",
+		"catalyst-omantel-biz-cccccccc",
+		"catalyst-omantel-biz-dddddddd",
+		"catalyst-other-customer-eeeeeeee",
+		"unrelated-bucket",
+	)
+	srv := httptest.NewServer(fake.handler())
+	defer srv.Close()
+	client := newTestMinio(t, srv)
+
+	var msgs []string
+	progress := func(s string) { msgs = append(msgs, s) }
+
+	removed, err := purgeBucketsByPrefix(context.Background(), client, "omantel.biz", progress)
+	if err != nil {
+		t.Fatalf("purgeBucketsByPrefix: %v", err)
+	}
+	if removed != 4 {
+		t.Errorf("removed = %d, want 4 (one per deployment-id suffix for omantel.biz)", removed)
+	}
+	// The 4 matched buckets must be deleted; the 2 unrelated ones
+	// must remain.
+	matchedDeleted := 0
+	for _, name := range []string{
+		"catalyst-omantel-biz-aaaaaaaa",
+		"catalyst-omantel-biz-bbbbbbbb",
+		"catalyst-omantel-biz-cccccccc",
+		"catalyst-omantel-biz-dddddddd",
+	} {
+		if fake.buckets[name].bucketDel.Load() {
+			matchedDeleted++
+		}
+	}
+	if matchedDeleted != 4 {
+		t.Errorf("matched-bucket DeleteBucket count = %d, want 4", matchedDeleted)
+	}
+	if fake.buckets["catalyst-other-customer-eeeeeeee"].bucketDel.Load() {
+		t.Errorf("unrelated catalyst bucket for a DIFFERENT Sovereign was deleted — prefix match too greedy")
+	}
+	if fake.buckets["unrelated-bucket"].bucketDel.Load() {
+		t.Errorf("non-catalyst bucket was deleted — prefix match too greedy")
+	}
+}
+
+// TestPurgeBucketsByPrefix_LegacyNoSuffix exercises the legacy
+// pre-Fix-#111 record where the bucket name equals the prefix
+// exactly (no -<8-hex> suffix). The wipe must still find + delete
+// such a bucket so legacy Sovereigns aren't permanently orphaned
+// after the new code lands.
+func TestPurgeBucketsByPrefix_LegacyNoSuffix(t *testing.T) {
+	fake := newMultiBucketFake(
+		"catalyst-otech50-omani-works", // legacy: prefix only
+	)
+	srv := httptest.NewServer(fake.handler())
+	defer srv.Close()
+	client := newTestMinio(t, srv)
+
+	removed, err := purgeBucketsByPrefix(context.Background(), client, "otech50.omani.works", nil)
+	if err != nil {
+		t.Fatalf("purgeBucketsByPrefix legacy: %v", err)
+	}
+	if removed != 1 {
+		t.Errorf("removed = %d, want 1 (legacy single bucket)", removed)
+	}
+	if !fake.buckets["catalyst-otech50-omani-works"].bucketDel.Load() {
+		t.Errorf("legacy bucket was not deleted")
+	}
+}
+
+// TestPurgeBucketsByPrefix_NoMatch returns 0 + nil err when the
+// tenant has no matching buckets — wipe of an FQDN that never
+// completed Phase 0 must not error.
+func TestPurgeBucketsByPrefix_NoMatch(t *testing.T) {
+	fake := newMultiBucketFake(
+		"catalyst-someone-else-12345678",
+		"random-tenant-bucket",
+	)
+	srv := httptest.NewServer(fake.handler())
+	defer srv.Close()
+	client := newTestMinio(t, srv)
+
+	removed, err := purgeBucketsByPrefix(context.Background(), client, "neverexisted.biz", nil)
+	if err != nil {
+		t.Fatalf("purgeBucketsByPrefix no-match: %v", err)
+	}
+	if removed != 0 {
+		t.Errorf("removed = %d, want 0", removed)
+	}
+}
+
+// TestBucketNamePrefixForSovereign pins the prefix derivation so
+// a future rename of the bucket-naming scheme can't silently
+// orphan buckets from prior versions.
+func TestBucketNamePrefixForSovereign(t *testing.T) {
+	cases := []struct {
+		fqdn string
+		want string
+	}{
+		{"omantel.biz", "catalyst-omantel-biz"},
+		{"otech50.omani.works", "catalyst-otech50-omani-works"},
+		{"acme.example.com", "catalyst-acme-example-com"},
+	}
+	for _, c := range cases {
+		if got := BucketNamePrefixForSovereign(c.fqdn); got != c.want {
+			t.Errorf("BucketNamePrefixForSovereign(%q) = %q, want %q", c.fqdn, got, c.want)
+		}
+	}
+}
