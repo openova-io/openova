@@ -29,6 +29,8 @@ kind: HelmRelease
 metadata:
   name: bp-openbao
   namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "08"
 spec:
   interval: 15m
   releaseName: openbao

@@ -47,6 +47,8 @@ kind: HelmRelease
 metadata:
   name: bp-openova-flow-server
   namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "56"
 spec:
   interval: 15m
   releaseName: openova-flow-server

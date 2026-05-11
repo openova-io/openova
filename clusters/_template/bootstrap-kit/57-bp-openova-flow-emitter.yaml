@@ -40,6 +40,8 @@ kind: HelmRelease
 metadata:
   name: bp-openova-flow-emitter
   namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "57"
 spec:
   interval: 15m
   releaseName: openova-flow-emitter

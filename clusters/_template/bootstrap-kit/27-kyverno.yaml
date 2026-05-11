@@ -43,6 +43,8 @@ kind: HelmRelease
 metadata:
   name: bp-kyverno
   namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "27"
 spec:
   interval: 15m
   releaseName: kyverno

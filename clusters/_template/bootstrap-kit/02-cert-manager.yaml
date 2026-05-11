@@ -29,6 +29,8 @@ kind: HelmRelease
 metadata:
   name: bp-cert-manager
   namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "02"
 spec:
   interval: 15m
   releaseName: cert-manager

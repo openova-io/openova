@@ -43,6 +43,8 @@ kind: HelmRelease
 metadata:
   name: bp-mimir
   namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "23"
 spec:
   interval: 15m
   timeout: 15m

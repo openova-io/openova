@@ -70,6 +70,8 @@ kind: HelmRelease
 metadata:
   name: bp-powerdns
   namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "11"
 spec:
   interval: 15m
   timeout: 15m

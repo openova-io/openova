@@ -49,6 +49,8 @@ kind: HelmRelease
 metadata:
   name: bp-k8s-ws-proxy
   namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "51"
 spec:
   interval: 15m
   releaseName: k8s-ws-proxy

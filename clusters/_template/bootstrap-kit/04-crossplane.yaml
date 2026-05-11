@@ -29,6 +29,8 @@ kind: HelmRelease
 metadata:
   name: bp-crossplane
   namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "04"
 spec:
   interval: 15m
   timeout: 15m

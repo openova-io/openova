@@ -42,6 +42,8 @@ kind: HelmRelease
 metadata:
   name: bp-trivy
   namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "30"
 spec:
   interval: 15m
   releaseName: trivy

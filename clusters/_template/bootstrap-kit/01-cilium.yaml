@@ -29,6 +29,8 @@ kind: HelmRelease
 metadata:
   name: bp-cilium
   namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "01"
 spec:
   interval: 15m
   releaseName: cilium

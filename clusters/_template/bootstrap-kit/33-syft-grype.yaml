@@ -40,6 +40,8 @@ kind: HelmRelease
 metadata:
   name: bp-syft-grype
   namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "33"
 spec:
   interval: 15m
   releaseName: syft-grype

@@ -46,6 +46,8 @@ kind: HelmRelease
 metadata:
   name: bp-alloy
   namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "21"
 spec:
   interval: 15m
   timeout: 15m
