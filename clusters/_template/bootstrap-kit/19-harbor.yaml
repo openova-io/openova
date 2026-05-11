@@ -105,11 +105,18 @@ spec:
         name: bp-harbor
         namespace: flux-system
   # Event-driven install per docs/INVIOLABLE-PRINCIPLES.md #3.
+  # timeout: 15m — Harbor's post-install hooks (DB migration, job-service
+  # init) legitimately need >5m on cold k3s. Same canonical-seam pattern
+  # as Fix #127 (cutover), Fix #131 (gitea), Fix #143 (es-stores):
+  # explicit HR-level timeout overrides Helm's 5m default which expires
+  # before Harbor reaches Ready (prov #24 c776423270f4ae30 04:17 incident).
   install:
+    timeout: 15m
     disableWait: true
     remediation:
       retries: 3
   upgrade:
+    timeout: 15m
     disableWait: true
     remediation:
       retries: 3
