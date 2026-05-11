@@ -100,7 +100,15 @@ spec:
       # provisioning paths operative.
       # 1.2.1: zone-bootstrap Job needs /tmp emptyDir (readOnlyRootFS+
       # curl -o /tmp/zone-resp). Caught live on otech103 2026-05-04.
-      version: 1.2.1
+      # 1.2.2 (issue #144): zone-bootstrap Job activeDeadlineSeconds
+      # raised 300s → 840s. Cold Sovereign on prov #22 had bp-cnpg
+      # still synthesising the `pdns-pg-app` Secret when this Job
+      # ran; powerdns Pod was not Ready, curl against
+      # http://powerdns:8081 looped, Job hit 5m DeadlineExceeded,
+      # Helm post-install hook failed, HR FAILED 4× → terminal.
+      # New deadline (14m) sits below the HR install.timeout cap of
+      # 15m so Flux's remediation can still reclaim a true failure.
+      version: 1.2.2
       sourceRef:
         kind: HelmRepository
         name: bp-powerdns

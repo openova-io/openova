@@ -521,6 +521,22 @@ zoneBootstrap:
   # backoffLimit — retries on transient API errors (powerdns Pod still
   # warming up, etc.) before the Job marks itself Failed.
   backoffLimit: 6
-  # activeDeadlineSeconds — upper bound on Job runtime. 5 minutes is
-  # ample for N=10 zones at a few hundred ms per zone API call.
-  activeDeadlineSeconds: 300
+  # activeDeadlineSeconds — upper bound on Job runtime.
+  #
+  # Issue #144: raised from 300s → 840s (14m, below the HR install.timeout
+  # of 15m in clusters/_template/bootstrap-kit/11-powerdns.yaml). Cold
+  # Sovereign provisioning observed on prov #22 (e2fc1004362ce765): bp-cnpg
+  # had not yet synthesised the `pdns-pg-app` Secret when this post-install
+  # hook Job started, so the powerdns Deployment was not Ready and curl
+  # against http://powerdns:8081 kept failing. With backoffLimit=6 +
+  # restartPolicy=OnFailure the script will keep retrying within the Job,
+  # but the 5-minute Job deadline triggered DeadlineExceeded → Helm hook
+  # failure → HR `post-install: timed out waiting for the condition` →
+  # 4 retries (one initial + 3 remediation) → terminal HR FAILED.
+  #
+  # 840s gives the upstream CNPG cluster + powerdns subchart Deployment
+  # ample time to converge on a cold k3s control plane while staying
+  # under the HR 15m wrapper cap (a Job that exceeded the HR cap would
+  # leave Flux waiting forever; a Job that fits inside the HR cap lets
+  # Flux's own remediation cycle reclaim the failure path).
+  activeDeadlineSeconds: 840
