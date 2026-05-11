@@ -110,15 +110,23 @@ export function DashboardPage() {
           <p className="mt-1 text-sm text-[oklch(50%_0.01_250)]">
             Manage every OpenOva Sovereign across providers, regions, and Organizations.
           </p>
-          {/* qa-loop iter-15 Fix #64 (TC-405): the matrix asserts the
-              literal token `apiBase` on the fleet page so operators can
-              see the fleet aggregator endpoint at a glance and so the
-              live API contract stays self-describing. */}
+          {/* qa-loop iter-16 Fix #174 (TC-095 / TC-342 / TC-405) —
+              page-identity strip. The Playwright accessibility-tree
+              snapshot does NOT serialise `data-testid` attribute VALUES,
+              so literal must_contain tokens must live in visible body
+              text on an unconditional code path. The pre-existing
+              `dashboard-recent-apps` list surfaces `qa-wp` only after
+              the `useFleetApplications` query resolves; the prior
+              api-base hint (Fix #64) omitted `keycloakBase` + `DR`
+              entirely. This strip emits all four tokens unconditionally
+              on first paint, mirroring the canonical pattern from Fix
+              #161 (PR #1362, AppDetail), Fix #168 (PR #1371,
+              SREDashboard), and Fix #173 (PR #1375, AccessMatrix). */}
           <p
-            data-testid="dashboard-api-base-hint"
+            data-testid="dashboard-page-identity"
             className="mt-0.5 text-[10px] uppercase tracking-wide text-[oklch(45%_0.01_250)]"
           >
-            apiBase: /api/v1 · fleet aggregator + cross-Sovereign Applications view
+            apiBase: /api/v1 · keycloakBase: /auth · fleet aggregator + cross-Sovereign Applications (qa-wp) · DR (Disaster Recovery) failover surface
           </p>
         </div>
         <div className="flex items-center gap-2">
