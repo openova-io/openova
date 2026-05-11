@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-keycloak
-version: 1.4.3
+version: 1.4.4
 description: |
   Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
   upstream `keycloak` chart (bitnami) as a Helm subchart so
@@ -36,6 +36,29 @@ description: |
   credentials Secret `realm` key flow from the same value, keeping
   Keycloak realm and catalyst-api CATALYST_KC_REALM env in sync. Closes
   TC-124, TC-125, TC-159, TC-160, TC-161, TC-176, TC-190, TC-285.
+  1.4.4 (issue #140, post-upgrade hook regression on prov #21): Fix #129
+  set 600s + backoffLimit=5, which works for fresh-install but races on
+  upgrade. On prov #21 (f84f6c3ff2b60296, 2026-05-11) the chart-roll on
+  contabo (PR #1346/#1347 stack) triggered an HR UPGRADE; the keycloak
+  StatefulSet rolled, Helm fired the post-upgrade hook before the new
+  Pod's admin endpoint recovered (Liquibase re-validation + JVM cold
+  start on freshly-provisioned node), and the inner 600s availability
+  window expired before the first attempt found Keycloak Ready. With
+  backoffLimit=5 + 10s..6m exponential backoff the worst-case wall clock
+  exceeds the parent HR's 15m upgrade.timeout → Helm aborts the hook →
+  "post-upgrade hooks failed". Target-state fix:
+    - keycloakConfigCli.availabilityCheck.timeout 600s → 900s (15m inner
+      wait covers a single rolling-restart + Liquibase cycle without
+      retry, eliminating most backoff time)
+    - keycloakConfigCli.cleanupAfterFinished.enabled true (1h TTL) so
+      stale hook Pods don't race the before-hook-creation delete on
+      subsequent upgrades
+    - HR install.timeout + upgrade.timeout 15m → 30m
+      (clusters/_template/bootstrap-kit/09-keycloak.yaml) so Helm's
+      outer hook-wait accommodates the inner 15m availability window
+      plus normal backoff.
+  Coupled chart + HR move per Principle #3 (no half-fix). All knobs stay
+  operator-overridable via valuesFrom (Principle #4).
   1.4.3 (issue #129, post-upgrade hook timeout wedge): bump bitnami
   keycloakConfigCli.availabilityCheck.timeout 120s → 600s and
   backoffLimit 1 → 5. Fresh-Sovereign provision #15 (otech

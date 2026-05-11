@@ -286,7 +286,7 @@ keycloak:
       registry: docker.io
       repository: bitnamilegacy/keycloak-config-cli
       tag: 6.4.0-debian-12-r11
-    # ─── Hook timing — issue #129 (post-upgrade hook timeout wedge) ─────────
+    # ─── Hook timing — issue #129 (install) + #140 (post-upgrade) ───────────
     #
     # Root cause history (prov #15, otech 0ad3687ddd72deb7, 2026-05-10):
     # Flux's first install of bp-keycloak races against PostgreSQL readiness;
@@ -304,35 +304,70 @@ keycloak:
     # (dependsOn keycloak OIDC) never installs → bp-self-sovereign-cutover
     # never converges → fresh provision wedges at phase1-watching.
     #
-    # Fix per Inviolable Principle #4 (no hardcoding) — both knobs are
-    # operator-overridable via per-Sovereign overlay valuesFrom path:
+    # Post-upgrade regression (prov #21, f84f6c3ff2b60296, 2026-05-11):
+    # bp-keycloak@1.4.3 HR FAILED with `post-upgrade hooks failed` AFTER
+    # Fix #129. Different code path than fresh-install:
+    #   - chart-roll on contabo (PR #1346/#1347 stack) triggered an HR
+    #     UPGRADE on the new Sovereign. Helm post-upgrade hook fires when
+    #     manifests apply (`upgrade.disableWait: true` does NOT skip hooks
+    #     — Helm always waits for hook-Pod completion).
+    #   - Keycloak StatefulSet pods restart during upgrade (config delta
+    #     rolls them); during the rolling restart the Service has 0
+    #     Endpoints for tens of seconds.
+    #   - Even with availabilityCheck.timeout=600s (10m for inner wait), if
+    #     Keycloak's admin endpoint takes > 10m to recover under load
+    #     (Liquibase migrations re-validate on restart, JVM warm-up cold
+    #     after image-pull on a freshly-provisioned node), the FIRST Pod
+    #     attempt times out. With backoffLimit=5 we get up to 6 attempts
+    #     total — but each subsequent retry adds an exponential delay
+    #     (10s, 20s, 40s, … capped 6m). Worst-case wall-clock for the
+    #     hook to complete: 6 × (10m availability + up to 6m backoff) ≈
+    #     60m+, which BLOWS PAST the parent HR's 15m upgrade.timeout →
+    #     Helm aborts the hook → "post-upgrade hooks failed".
+    #
+    # Target-state fix (issue #140, NOT a workaround per Principle #3):
+    #   - Bump availabilityCheck.timeout 600s → 900s (15m) — covers a
+    #     legitimate StatefulSet rolling-restart + Liquibase re-validation
+    #     window in a single Pod attempt, eliminating most retries.
+    #   - Keep backoffLimit at 5 (no need to bump; first attempt now fits).
+    #   - cleanupAfterFinished.enabled: true with 1h TTL — without this,
+    #     stale Failed/Completed Job pods accumulate across upgrades and
+    #     `helm.sh/hook-delete-policy: before-hook-creation` may race with
+    #     a still-being-deleted Pod from the previous upgrade, causing
+    #     spurious "object is being deleted" hook errors. Bitnami's
+    #     ttlSecondsAfterFinished hook surfaces this knob via .seconds.
+    #
+    # Coupled HR change (clusters/_template/bootstrap-kit/09-keycloak.yaml):
+    # bumps install.timeout AND upgrade.timeout 15m → 30m so Helm's
+    # outer hook-wait gracefully accommodates the inner 15m availability
+    # window plus normal backoff (the realistic worst case is now ≤ 25m).
+    # The two timeouts MUST move together — chart-side tuning without HR
+    # outer-bound is a half-fix.
+    #
+    # All knobs remain operator-overridable via per-Sovereign overlay
+    # valuesFrom paths (Inviolable Principle #4: no hardcoding):
     #   keycloak.keycloakConfigCli.availabilityCheck.timeout
     #   keycloak.keycloakConfigCli.backoffLimit
-    # The chart defaults below are tuned for the documented worst case
-    # (slow Postgres + cold image-pull); operators with faster substrates
-    # may shorten them.
-    #
-    # Numbers picked to fit inside the parent HR's 15m install/upgrade
-    # timeout while leaving headroom for Job pod scheduling + image pull:
-    #   - availabilityCheck.timeout 600s (10 min) — keycloak-config-cli
-    #     polls Keycloak's /admin REST endpoint; this caps the single-Pod
-    #     wait. Covers Postgres bootstrap + Liquibase + Keycloak internal
-    #     startup with margin.
-    #   - backoffLimit 5 — Job retries with exponential backoff (cap 6m by
-    #     default). Combined with a 10m availability poll the realistic
-    #     worst case is one Pod hitting the timeout, then a successful
-    #     retry once Keycloak Ready.
+    #   keycloak.keycloakConfigCli.cleanupAfterFinished.enabled
+    #   keycloak.keycloakConfigCli.cleanupAfterFinished.seconds
+    # Operators with faster substrates may shorten them.
     #
     # NOT a workaround per Inviolable Principle #3. The workaround would
     # be disabling the hook semantics entirely (set annotations: {}); that
     # breaks the documented contract that the realm is imported before
     # the Helm release reaches Ready (downstream bp-gitea + catalyst-api
     # depend on the realm existing). Tuning the hook's internal timing
-    # respects the contract.
+    # AND the outer Helm hook-wait both respect the contract.
     availabilityCheck:
       enabled: true
-      timeout: "600s"
+      timeout: "900s"
     backoffLimit: 5
+    # Bitnami exposes ttlSecondsAfterFinished via .cleanupAfterFinished.
+    # 3600s = 1h — long enough for an operator post-mortem on a Failed
+    # hook Pod, short enough that a re-upgrade an hour later starts clean.
+    cleanupAfterFinished:
+      enabled: true
+      seconds: 3600
     # ─── Phase-8b realm ConfigMap (issue #604, #899) ─────────────────────────
     # The realm import JSON is now owned by the parent bp-keycloak chart's
     # templates/configmap-sovereign-realm.yaml template. That template has
