@@ -1,5 +1,41 @@
 apiVersion: v2
 name: bp-newapi
+# 1.4.4 (qa-loop bounded-cycle audit prov #20 Fix #138, 2026-05-11): add
+# pre-install/pre-upgrade hook (templates/000-external-secrets-webhook-
+# readiness-job.yaml) that polls the external-secrets validating-
+# admission webhook (`external-secrets-webhook.external-secrets-system.
+# svc:443/validate-external-secrets-io-v1beta1-externalsecret`) until
+# it returns a structured HTTP response (200/400/405/415/422). Closes
+# the race between bp-external-secrets reaching HR Ready=True (Pods
+# Ready) and the apiserver-side EndpointSlice for the webhook Service
+# being observable by the validating admission controller.
+#
+# ROOT CAUSE (prov #20):
+#   bp-newapi 1.4.2 HR FAILED with the chart's templates/external-
+#   secret.yaml apply rejected by the apiserver:
+#     Internal error occurred: failed calling webhook
+#     "validate.externalsecret.external-secrets.io": ...
+#     no endpoints available for service "external-secrets-webhook"
+#   bp-external-secrets satisfies Flux dependsOn the moment its
+#   Deployments report Ready, but Pod Ready ≠ webhook EndpointSlice
+#   reachable. The chart immediately tried to apply ExternalSecret and
+#   the webhook returned 503/connect-error.
+#
+# CANONICAL SEAM (Inviolable Principle #16):
+#   The chart that CONSUMES the webhook owns the readiness gate — NOT
+#   the upstream external-secrets chart (owned by Fix #137 territory)
+#   and NOT a Flux HR-level dependsOn (which checks the wrong layer).
+#   Fix #138 mirrors Fix #137's pattern but probes a different
+#   validation endpoint (ExternalSecret vs ClusterSecretStore).
+#
+# TEMPLATABILITY (Inviolable Principle #4):
+#   Every knob (webhook service name, namespace, port, path, timeout,
+#   interval, gate-enabled flag) is operator-tunable from per-
+#   Sovereign overlays via .Values.externalSecretsWebhookGate.*.
+#
+# 1.4.3: deploy-only bump (a9861f94 — no semantic change beyond
+#        carrying the v0.13.2 image-tag fix to the bootstrap-kit).
+#
 # 1.4.2 (qa-loop bounded-cycle audit prov #7 Gap F, 2026-05-10): point
 # `.Values.newapi.image.tag` at a tag that ACTUALLY EXISTS in GHCR. Pre-
 # 1.4.2 the chart referenced `ghcr.io/openova-io/openova/newapi-mirror:
@@ -86,7 +122,7 @@ name: bp-newapi
 # Issue #915 (epic SME tenant integration DoD: alice → OpenClaw →
 # NewAPI → Qwen3.6@BankDhofar end-to-end).
 # 1.2.0: Traefik Middleware gated behind ingress.middleware.enabled.
-version: 1.4.3
+version: 1.4.4
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
