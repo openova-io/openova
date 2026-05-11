@@ -916,3 +916,123 @@ func TestPolicyReport_FlowsThroughSSEFanout(t *testing.T) {
 		}
 	}
 }
+
+// TestFactory_RemoveClusterIdempotentAndStops asserts the issue #156
+// reflector-cleanup contract:
+//
+//   - RemoveCluster on an unknown id is a no-op (no panic, no slog
+//     side effects observable at the test layer).
+//   - RemoveCluster removes the entry from Factory.Clusters() and
+//     subsequent List calls return "cluster not registered".
+//   - RemoveCluster called twice in a row on the same id is safe (no
+//     close-of-closed-channel panic).
+//
+// The third bullet is the contract the wipe handler relies on — a
+// repeat-wipe of the same deployment id must not crash catalyst-api.
+func TestFactory_RemoveClusterIdempotentAndStops(t *testing.T) {
+	pod := newPod("default", "x")
+	dyn, core := fakeClients(pod)
+
+	cfg := Config{
+		Logger:   quietLogger(),
+		Registry: minimalRegistry(),
+		Clusters: []ClusterRef{
+			{ID: "wiped-soon", DynamicClient: dyn, CoreClient: core},
+		},
+	}
+	f, err := NewFactory(cfg)
+	if err != nil {
+		t.Fatalf("NewFactory: %v", err)
+	}
+	defer f.Stop()
+	if err := f.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// Sanity: cluster is registered.
+	clusters := f.Clusters()
+	found := false
+	for _, id := range clusters {
+		if id == "wiped-soon" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("cluster not registered before RemoveCluster: %v", clusters)
+	}
+
+	// Unknown id — no-op, no panic.
+	f.RemoveCluster("not-a-real-cluster")
+
+	// Empty id — no-op, no panic.
+	f.RemoveCluster("")
+
+	// Real removal.
+	f.RemoveCluster("wiped-soon")
+	clusters = f.Clusters()
+	for _, id := range clusters {
+		if id == "wiped-soon" {
+			t.Fatalf("cluster still present after RemoveCluster: %v", clusters)
+		}
+	}
+	if _, _, err := f.List("wiped-soon", "pod", labels.Everything()); err == nil {
+		t.Fatalf("List after RemoveCluster expected error, got nil")
+	}
+
+	// Idempotent — second RemoveCluster on the same id must NOT panic
+	// (close-of-closed-channel would surface here).
+	f.RemoveCluster("wiped-soon")
+}
+
+// TestFactory_AddClusterReplacesPriorEntry asserts that re-AddCluster
+// on the same id closes the previous stop channel (so its informers
+// exit) before swapping in the new clusterState. Without this an
+// operator rotating a kubeconfig — or chroot self-register racing a
+// posted-back kubeconfig with the same id — would silently leak the
+// prior reflector goroutines. Issue #156.
+func TestFactory_AddClusterReplacesPriorEntry(t *testing.T) {
+	pod := newPod("default", "x")
+	dyn1, core1 := fakeClients(pod)
+	dyn2, core2 := fakeClients(pod)
+
+	cfg := Config{
+		Logger:   quietLogger(),
+		Registry: minimalRegistry(),
+	}
+	f, err := NewFactory(cfg)
+	if err != nil {
+		t.Fatalf("NewFactory: %v", err)
+	}
+	defer f.Stop()
+
+	if err := f.AddCluster(ClusterRef{ID: "rotate", DynamicClient: dyn1, CoreClient: core1}); err != nil {
+		t.Fatalf("AddCluster #1: %v", err)
+	}
+	// Capture the first clusterState's stop channel via the internal
+	// map — a small reach into package internals so the test asserts
+	// the actual goroutine-shutdown contract, not just observable
+	// state.
+	f.mu.RLock()
+	prev := f.clusters["rotate"]
+	f.mu.RUnlock()
+	if prev == nil {
+		t.Fatalf("first AddCluster did not register clusterState")
+	}
+
+	if err := f.AddCluster(ClusterRef{ID: "rotate", DynamicClient: dyn2, CoreClient: core2}); err != nil {
+		t.Fatalf("AddCluster #2: %v", err)
+	}
+
+	// After the second AddCluster, the first cs.stop channel must be
+	// closed (drained without blocking).
+	select {
+	case <-prev.stop:
+	case <-time.After(time.Second):
+		t.Fatalf("prior clusterState.stop was not closed after re-AddCluster")
+	}
+
+	// Cleanup so the test doesn't leak.
+	f.RemoveCluster("rotate")
+}
+

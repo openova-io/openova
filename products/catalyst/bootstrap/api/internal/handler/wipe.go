@@ -303,13 +303,6 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 	dep.eventsCh = make(chan provisioner.Event, 256)
 	dep.mu.Unlock()
 
-	// Note: any live Phase-1 watcher for this deployment will exit
-	// naturally as `tofu destroy` removes the API server it's watching
-	// (the watch reconnect will fail with "no route to host" / "EOF" and
-	// the watcher's own context-deadline-exceeded path takes over).
-	// We don't need to explicitly cancel here.
-	_ = dep.liveWatcher
-
 	report := wipeResponse{
 		DeploymentID:  id,
 		SovereignFQDN: dep.Request.SovereignFQDN,
@@ -330,6 +323,40 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	emit("wipe", "info", "Wipe initiated for "+dep.Request.SovereignFQDN+" (was: "+prevStatus+")")
+
+	// Cancel the per-deployment helmwatch.Watcher BEFORE we destroy the
+	// underlying apiserver. Issue #156: previously this site relied on
+	// the watcher exiting "naturally" once `tofu destroy` removed the
+	// apiserver — but the dynamicinformer's Reflector keeps reconnecting
+	// against the cached CA bundle on the destroyed control-plane IP,
+	// spamming `x509: certificate signed by unknown authority` hundreds
+	// of times per second for hours. The leaked goroutines burn CPU,
+	// hide real errors in catalyst-api logs, and (worst of all) hold
+	// stale Indexer state that subsequent fresh provisions inherit
+	// through the SSE event stream — exactly the "event stream stale at
+	// T+18 min" symptom Fix #151 surfaced on prov #25.
+	//
+	// Watcher.Cancel is safe pre-Start, post-terminate, and twice in a
+	// row; we read the pointer under dep.mu to race against the
+	// phase1_watch goroutine clearing it on its terminal exit.
+	dep.mu.Lock()
+	live := dep.liveWatcher
+	dep.mu.Unlock()
+	if live != nil {
+		live.Cancel()
+		emit("wipe", "info", "phase-1 watcher cancelled to stop reflector spam against the about-to-be-destroyed apiserver")
+	}
+
+	// Tear down the per-Sovereign k8scache informer set so its
+	// reflectors don't keep retrying against the destroyed apiserver
+	// either. Issue #156. Same canonical seam as Watcher.Cancel above:
+	// stop the goroutines BEFORE Hetzner cleanup makes the IP a
+	// sinkhole. Idempotent + nil-tolerant — production wires k8sCache
+	// via main.go; tests building Handler{} directly leave it nil.
+	if h.k8sCache != nil {
+		h.k8sCache.RemoveCluster(id)
+		emit("wipe", "info", "k8scache informer set removed for "+id)
+	}
 
 	// Step 1 — tofu destroy. Pass the freshly-prompted Hetzner token via
 	// the Request so writeTfvars renders it for the destroy run.

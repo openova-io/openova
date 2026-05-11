@@ -208,6 +208,16 @@ type clusterState struct {
 	synced        map[string]bool                      // keyed by Kind.Name
 	lastEventAt   map[string]time.Time                 // keyed by Kind.Name
 	lastEventLock sync.RWMutex
+
+	// stop — per-cluster shutdown channel passed into
+	// dynamicinformer.Factory.Start. Closing it tears down every
+	// per-kind informer goroutine for THIS cluster only — a fan-out of
+	// the Factory-wide `f.stop` channel that survives until process
+	// exit. RemoveCluster closes this channel so a wiped Sovereign's
+	// reflectors stop their TLS-loop spam against the destroyed
+	// apiserver (issue #156). Idempotent close protected by stopOnce.
+	stop     chan struct{}
+	stopOnce sync.Once
 }
 
 // subscriber — one SSE consumer.
@@ -454,6 +464,7 @@ func (f *Factory) AddCluster(c ClusterRef) error {
 		indexers:    map[string]cache.Indexer{},
 		synced:      map[string]bool{},
 		lastEventAt: map[string]time.Time{},
+		stop:        make(chan struct{}),
 	}
 
 	// Spawn one informer per registered kind. AddCluster MUST stay
@@ -499,11 +510,71 @@ func (f *Factory) AddCluster(c ClusterRef) error {
 	}
 
 	f.mu.Lock()
+	// If a cluster with the same id was already registered, close its
+	// stop channel so its informer goroutines exit before we overwrite
+	// the map entry. Without this the previous reflectors would leak —
+	// a re-AddCluster after a kubeconfig rotation (or a chroot
+	// self-register that races a posted-back kubeconfig) silently
+	// stacked another set of informers on top of the dead ones.
+	if prev, ok := f.clusters[c.ID]; ok && prev != nil {
+		prev.stopOnce.Do(func() { close(prev.stop) })
+	}
 	f.clusters[c.ID] = cs
 	f.mu.Unlock()
 	f.log.Info("k8scache: cluster registered",
 		"cluster", c.ID, "kinds", len(cs.informers))
 	return nil
+}
+
+// RemoveCluster tears down the per-Sovereign informer factory for
+// `id` and removes it from the Factory's cluster map. Safe to call
+// from any goroutine and idempotent — calling on an unknown id, or
+// twice in succession, is a no-op.
+//
+// Issue #156 — when a Sovereign is wiped (POST /wipe → tofu destroy +
+// Hetzner orphan purge), the cluster's apiserver IP becomes
+// unreachable. Without RemoveCluster the per-kind reflectors keep
+// retrying with the cached CA bundle and spam catalyst-api logs
+// hundreds-per-second with x509: unknown-authority errors against
+// the destroyed control plane IP. They also burn CPU and (worst of
+// all) hold stale Indexer state that subsequent fresh provisions
+// see via the SSE event stream.
+//
+// Per docs/INVIOLABLE-PRINCIPLES.md #4 (event-driven, no polling):
+// stopping is via channel close, not a wait-loop. The
+// dynamicinformer factory's Start(stopCh) plumbs the channel down
+// into every per-resource Reflector; closing the channel triggers
+// the reflector goroutines to return on their next select tick.
+//
+// Optional snapshot cleanup: when SnapshotDir is configured, drop
+// the per-(cluster, kind) snapshot files so a Pod restart after
+// the wipe doesn't hydrate from stale disk state.
+func (f *Factory) RemoveCluster(id string) {
+	if id == "" {
+		return
+	}
+	f.mu.Lock()
+	cs, ok := f.clusters[id]
+	if ok {
+		delete(f.clusters, id)
+	}
+	f.mu.Unlock()
+	if !ok || cs == nil {
+		return
+	}
+	cs.stopOnce.Do(func() { close(cs.stop) })
+
+	if f.cfg.SnapshotDir != "" {
+		for kindName := range cs.informers {
+			path := snapshotPath(f.cfg.SnapshotDir, id, kindName)
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				f.log.Warn("k8scache: snapshot cleanup failed",
+					"cluster", id, "kind", kindName, "err", err)
+			}
+		}
+	}
+	f.log.Info("k8scache: cluster removed",
+		"cluster", id, "kinds", len(cs.informers))
 }
 
 // Start kicks off every informer + the snapshot loop. Safe to call
@@ -533,7 +604,21 @@ func (f *Factory) Start(ctx context.Context) error {
 	f.mu.RUnlock()
 
 	for _, cs := range clusters {
-		cs.factory.Start(f.stop)
+		// Start with the per-cluster stop channel so RemoveCluster can
+		// tear down THIS cluster's informers without affecting others.
+		// Issue #156. Process-shutdown semantics are preserved by the
+		// fan-out goroutine below: when f.stop closes (Factory.Stop),
+		// every per-cluster stop channel closes too.
+		cs.factory.Start(cs.stop)
+		cs := cs
+		go func() {
+			select {
+			case <-f.stop:
+				cs.stopOnce.Do(func() { close(cs.stop) })
+			case <-cs.stop:
+				// Already removed via RemoveCluster — exit goroutine.
+			}
+		}()
 	}
 
 	// Sync watcher per cluster.
