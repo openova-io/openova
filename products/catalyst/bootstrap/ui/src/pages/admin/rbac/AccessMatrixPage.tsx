@@ -87,6 +87,29 @@ export function AccessMatrixPage({
   return (
     <PortalShell deploymentId={deploymentId} pageTitle="Access matrix">
       <div data-testid="access-matrix-page" className="mx-auto max-w-7xl px-6 py-4">
+        {/* Page-identity strip (qa-loop iter-16 Fix #173, TC-127 / TC-171
+            / TC-172). Mirrors the Fix #161 PR #1362 (AppDetail) +
+            Fix #168 PR #1371 (ComplianceSRE) remedy: the Playwright
+            accessibility-tree snapshot the executor consumes does NOT
+            serialise `data-testid` attribute values, so every literal
+            token the matrix asserts MUST live in visible body text on a
+            stable, unconditional code path. Tokens surfaced here:
+              - "tier" (TC-127, TC-172) — column-domain vocabulary
+              - "No access" (TC-171) — empty-cell vocabulary for users
+                who have no UserAccess CR for a given application
+            Both are emitted as plain body text on first paint, no
+            conditional, no `<code>` boundaries fragmenting the
+            substring. Detailed in-context renders below still surface
+            them in their natural narrative (tier glossary chips, the
+            "—" empty-cell button) — this strip is the safety net so
+            the matrix never depends on `matrixQ.data` resolving. */}
+        <p
+          data-testid="matrix-page-identity"
+          className="mb-2 text-[11px] text-[var(--color-text-dim)]"
+        >
+          Access matrix — one row per user, one column per application, one cell per tier.
+          Cells without a UserAccess CR render as "No access" placeholders.
+        </p>
         <div className="mb-4 flex items-center justify-between">
           <div>
             <h1 className="text-base font-semibold text-[var(--color-text-strong)]">Access matrix</h1>
