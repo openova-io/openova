@@ -55,6 +55,8 @@ import type { Job } from '@/lib/jobs.types'
 import { LogPane } from '@/components/LogPane'
 import type { LogLine, LogLevel } from '@/components/ExecutionLogs'
 import { FlowPage } from './FlowPage'
+import { useFlowStream } from '@/lib/openflow-adapter-sse'
+import { synthesizeJobFromFlowNode } from '@/lib/synthesizeJobFromFlowNode'
 
 interface JobDetailProps {
   /** Test seam — disables the live SSE EventSource attach. */
@@ -127,7 +129,34 @@ export function JobDetail({
     }
     return out
   }, [jobs])
-  const job = jobsById[jobId]
+
+  // OpenovaFlow fallback. The legacy `useDeploymentEvents` reducer +
+  // `useLiveJobsBackfill` polling only see jobs that have flowed
+  // through the catalyst-api event bridge. Sovereigns whose state
+  // lives ONLY in the openova-flow snapshot (post-flux-only flow,
+  // fresh chroot before the bridge has emitted any rows) produce an
+  // empty `jobsById[jobId]` lookup even though the canvas has
+  // authoritative state for the node. Without this fallback JobDetail
+  // short-circuits to the "Job not found" panel and never mounts
+  // FlowPage — which is the very surface that would have painted the
+  // node. The fix: read the same SSE stream FlowPage uses, build a
+  // FlowNode lookup, and when the legacy lookup misses, synthesize a
+  // Job stub from the FlowNode so the canvas mounts with the real
+  // hostJobId. Behaviour for Sovereigns WITH an active event stream
+  // is unchanged — the legacy `jobsById[jobId]` wins and the
+  // synthesized stub is never read.
+  const flowStream = useFlowStream({ deploymentId, disableStream })
+  const flowNodeById = useMemo(
+    () => flowStream.nodes,
+    [flowStream.nodes],
+  )
+  const legacyJob = jobsById[jobId]
+  const job: Job | undefined = useMemo(() => {
+    if (legacyJob) return legacyJob
+    const flowNode = flowNodeById.get(jobId)
+    if (flowNode) return synthesizeJobFromFlowNode(flowNode)
+    return undefined
+  }, [legacyJob, flowNodeById, jobId])
 
   // Host job = the page owner. The canvas paints a persistent teal
   // ring on this id and the LogPane defaults to the host's logs.
