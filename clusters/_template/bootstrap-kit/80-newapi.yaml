@@ -92,7 +92,17 @@ spec:
       # `.github/workflows/build-bp-newapi.yaml` workflow). Pre-1.4.2
       # the NewAPI Pod ImagePullBackOff'd 403 on every fresh Sovereign,
       # blocking alice signup gate 5 (LLM).
-      version: 1.4.2
+      # 1.4.4 (qa-loop bounded-cycle audit prov #20 Fix #138, 2026-05-11):
+      # add pre-install/pre-upgrade hook that polls the external-secrets
+      # validating-admission webhook until it returns a structured HTTP
+      # response — closes the race between bp-external-secrets reaching
+      # HR Ready=True and the apiserver-side EndpointSlice for the
+      # webhook Service being observable. Pre-1.4.4 the chart's
+      # ExternalSecret apply was rejected with `no endpoints available
+      # for service "external-secrets-webhook"` on every fresh provision,
+      # blocking the chart from reaching Ready and the Catalyst signup
+      # hook (ADR-0003 §3.2) from finding the admin-token Secret.
+      version: 1.4.4
       sourceRef:
         kind: HelmRepository
         name: bp-newapi

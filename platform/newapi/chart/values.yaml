@@ -470,6 +470,48 @@ catalystIntegration:
       # `property` is the JSON field inside the OpenBao secret holding
       # the bearer token used by the Catalyst signup hook (ADR-0003 §3.2).
       property: "ADMIN_API_TOKEN"
+# ─── External-Secrets webhook readiness gate (Fix #138, prov #20) ────────
+# Pre-install/pre-upgrade hook that polls the external-secrets validating-
+# admission webhook until it serves a structured response (HTTP 200/400/
+# 405/415/422). Closes the race between bp-external-secrets reaching
+# HR Ready=True (Pods Ready) and the apiserver-side EndpointSlice for
+# the webhook Service being observable by the admission controller.
+#
+# Without this gate the chart's templates/external-secret.yaml apply
+# attempt fails with:
+#   Internal error occurred: failed calling webhook
+#   "validate.externalsecret.external-secrets.io": ... no endpoints
+#   available for service "external-secrets-webhook"
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 every knob is operator-tunable
+# via per-Sovereign overlay (e.g. swap to a different webhook namespace
+# if external-secrets is provisioned via a non-Catalyst distribution).
+# Per #3 the gate is event-driven (probe-then-proceed), NOT a blanket
+# `helm install --timeout`.
+externalSecretsWebhookGate:
+  # Default ON. Set false ONLY on Sovereigns where external-secrets is
+  # provisioned outside the Catalyst bootstrap-kit and the operator has
+  # confirmed the webhook is already serving by the time bp-newapi
+  # installs (rare; recommended to leave true).
+  enabled: true
+  # Webhook Service name (default = upstream external-secrets chart's
+  # `<release>-webhook` Service when releaseName is `external-secrets`).
+  service: "external-secrets-webhook"
+  # Namespace the webhook Service lives in. Catalyst default per
+  # clusters/_template/bootstrap-kit/15-external-secrets.yaml.
+  namespace: "external-secrets-system"
+  # HTTPS port the webhook serves on (upstream chart default is 443).
+  port: 443
+  # Validation path for ExternalSecret resources. Sourced from upstream
+  # chart's templates/validatingwebhook.yaml — different from the
+  # ClusterSecretStore path (used by bp-external-secrets-stores in Fix
+  # #137); each consumer probes its own validation endpoint.
+  path: "/validate-external-secrets-io-v1beta1-externalsecret"
+  # Wall-clock budget. 60s comfortably exceeds the typical 5–15s
+  # EndpointSlice propagation window observed across fresh provisions.
+  timeoutSeconds: 60
+  # Probe interval inside the wall-clock budget.
+  intervalSeconds: 2
 # ─── Service ─────────────────────────────────────────────────────────────
 service:
   type: ClusterIP
