@@ -86,6 +86,51 @@ cert-manager:
 # runtime-configurable; cluster overlays in clusters/<sovereign>/ may set
 # certManager.issuers.* to flip between issuers without rebuilding the
 # Blueprint OCI artifact.
+# ─── CRD-establishment gate (templates/crd-gate-{hook,rbac}.yaml) ────────
+# Closes #149 — bp-cert-manager terminal failure on prov #24
+# (`c776423270f4ae30`): the post-install ClusterIssuer hook (weight 5)
+# fired before the cert-manager.io ClusterIssuer CRD reached
+# `status.conditions[?(@.type=="Established")].status == "True"`. The
+# upstream Jetstack subchart installs the CRD as a regular template
+# (no helm.sh/hook), so `kubectl apply` returns when the resource is
+# CREATED — not when the apiextensions-apiserver controller has finished
+# Establishing it. Asynchronous in the apiserver; observed up to 30s on
+# fresh Hetzner cold-start k3s.
+#
+# This Job (post-install,post-upgrade hook-weight -10) polls every CRD
+# in `crds` for Established=True before the ClusterIssuer hook (weight
+# 5) fires. Per docs/INVIOLABLE-PRINCIPLES.md #4 (no hardcoded band-
+# aids, target-state every time): closes the race rather than papering
+# with `helm.sh/hook-weight: 50` or a longer Flux retry loop.
+crdGate:
+  enabled: true
+  # CRDs the gate waits for. Defaults cover the cert-manager.io types
+  # the Catalyst overlay templates instantiate (ClusterIssuer ships in
+  # this chart; Issuer + Certificate are consumed by dependent
+  # Blueprints — gating them here too means downstream HRs that
+  # immediately apply Certificate CRs don't have to ship their own
+  # gate). Cluster overlays MAY append CRDs here (e.g. when a custom
+  # webhook ships its own CRD that should also be Established before
+  # any dependent CR applies).
+  crds:
+    - clusterissuers.cert-manager.io
+    - issuers.cert-manager.io
+    - certificates.cert-manager.io
+  # Total wait budget. 300s gives ~10x headroom over the worst-case
+  # observed Established latency (~30s on a fresh Hetzner cold-start)
+  # while still failing fast on a genuinely broken upstream (5min vs
+  # an unbounded Helm timeout). Same sizing rationale as
+  # bp-external-secrets-stores webhookGate.timeoutSeconds (#143).
+  timeoutSeconds: 300
+  # Poll interval. 2s matches bp-external-secrets-stores; <1s would
+  # spam the apiserver, >5s would over-pad the success path.
+  intervalSeconds: 2
+  # kubectl image. Default is a known-good bitnami tag that ships bash
+  # + kubectl 1.30 (matches k3s 1.30 on Hetzner Sovereigns). Cluster
+  # overlays MAY pin to a digest for air-gap or supply-chain reasons.
+  image: bitnami/kubectl:1.30.4
+  imagePullPolicy: IfNotPresent
+
 certManager:
   issuers:
     # ACME account email used for renewal notifications. Per Sovereign
