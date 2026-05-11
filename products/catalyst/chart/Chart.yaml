@@ -1015,7 +1015,14 @@ name: bp-catalyst-platform
 #   - values.yaml: new knobs `cnpgPairAliasName`,
 #     `cnpgPairPostSwitchoverPrimary`, `continuumPlatformNamespace` —
 #     all values-overridable per INVIOLABLE-PRINCIPLES #4.
-version: 1.4.138
+# 1.4.139 (Fix #163, 2026-05-11, MIRROR-EVERYTHING): every chart-hook
+# image reference in this Blueprint (catalyst-gitea-token-secret +
+# qa-fixtures Jobs) now uses the explicit
+# harbor.openova.io/proxy-dockerhub prefix per CLAUDE.md inviolable
+# rule. No functional change — node-level containerd mirror already
+# routed these pulls correctly; this makes the routing auditable in
+# SBOM scans and Kyverno harbor-proxy-pull ClusterPolicy.
+version: 1.4.139
 appVersion: 1.4.94
 # 1.4.129 (qa-loop iter-16 Fix #65): ship the missing
 # `openova-catalog` Flux v1 HelmRepository in flux-system. The

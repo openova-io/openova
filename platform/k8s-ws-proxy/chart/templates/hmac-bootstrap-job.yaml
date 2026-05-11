@@ -200,7 +200,10 @@ spec:
           # curlimages/curl is the canonical Catalyst seam for in-chart
           # k8s-API operations from a Job — alpine-based, has /bin/sh,
           # has /dev/urandom, has base64. No kubectl dependency.
-          image: curlimages/curl:8.10.1
+          # Fix #163 (2026-05-11, MIRROR-EVERYTHING): explicit
+          # harbor.openova.io/proxy-dockerhub prefix per CLAUDE.md
+          # inviolable rule.
+          image: harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1
           imagePullPolicy: IfNotPresent
           env:
             - name: SECRET_NAME

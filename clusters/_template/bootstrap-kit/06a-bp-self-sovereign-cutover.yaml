@@ -256,7 +256,7 @@ spec:
       # platform-wide migration off bitnami/kubectl (deleted from
       # Docker Hub 2025-08). This Blueprint already uses alpine/k8s
       # + alpine since 0.1.10; no functional image change here.
-      version: 0.1.28
+      version: 0.1.29
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

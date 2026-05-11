@@ -102,7 +102,7 @@ spec:
       # for service "external-secrets-webhook"` on every fresh provision,
       # blocking the chart from reaching Ready and the Catalyst signup
       # hook (ADR-0003 §3.2) from finding the admin-token Secret.
-      version: 1.4.4
+      version: 1.4.6
       sourceRef:
         kind: HelmRepository
         name: bp-newapi

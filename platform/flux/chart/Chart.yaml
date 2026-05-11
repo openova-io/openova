@@ -5,7 +5,13 @@ name: bp-flux
 # docker.io/bitnamilegacy/kubectl:1.31.4. Bitnami's 2025-08 secure-images
 # cutover deleted every versioned tag from docker.io/bitnami/kubectl.
 # bitnamilegacy is Bitnami's deprecation-fallback path.
-version: 1.2.1
+#
+# 1.2.2 (Fix #163, 2026-05-11, MIRROR-EVERYTHING): stuckHelmReleaseRecovery
+# CronJob image switched from bitnamilegacy/kubectl:1.31.4 to
+# harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.31.4.
+# Per CLAUDE.md inviolable rule, ALL chart-hook references MUST be
+# explicit Harbor proxy-cache form.
+version: 1.2.2
 description: |
   Catalyst-curated Blueprint umbrella chart for Flux. Depends on the
   upstream `flux2` chart (fluxcd-community) as a Helm subchart so

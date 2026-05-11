@@ -37,7 +37,17 @@ name: bp-external-secrets-stores
 # bitnamilegacy is Bitnami's deprecation-fallback path with bash/sh
 # preserved (rancher/kubectl is distroless and would break the inline
 # shell script).
-version: 1.0.4
+#
+# 1.0.5 (Fix #163, 2026-05-11, MIRROR-EVERYTHING): webhookGate hook image
+# switched from bitnamilegacy/kubectl:1.30.7 to
+# harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.30.7.
+# Per CLAUDE.md inviolable rule, ALL chart-hook image references must
+# pull through the Harbor proxy-cache explicitly — not just rely on
+# the node-level containerd mirror in registries.yaml. This protects
+# the bootstrap-kit from upstream Docker Hub deletions (Bitnami 2025-08
+# is exactly such an incident) and satisfies the Kyverno
+# `harbor-proxy-pull` ClusterPolicy.
+version: 1.0.5
 description: |
   Catalyst-curated Blueprint chart for the default ESO ClusterSecretStore(s)
   that wire each Sovereign's bp-external-secrets controller to its bp-openbao

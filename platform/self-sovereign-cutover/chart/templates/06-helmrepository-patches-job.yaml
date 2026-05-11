@@ -46,9 +46,12 @@ data:
     activeDeadlineSeconds: {{ .Values.stepTimeouts.helmRepositoryPatchesSeconds }}
     containers:
       - name: helmrepository-patches
-        image: alpine/k8s:1.31.4   # ships kubectl + git so we can both
-                                   # patch the live K8s object AND push
-                                   # the YAML edit to local Gitea (#970).
+        # alpine/k8s ships kubectl + git so we can both patch the live
+        # K8s object AND push the YAML edit to local Gitea (#970).
+        # Fix #163 (2026-05-11, MIRROR-EVERYTHING): explicit
+        # harbor.openova.io/proxy-dockerhub prefix per CLAUDE.md
+        # inviolable rule.
+        image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4
         imagePullPolicy: IfNotPresent
         env:
           - name: HELMREPO_NAMESPACE
