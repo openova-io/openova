@@ -198,6 +198,125 @@ func TestRBACAuditList_SecretRevealEmpty_Synthesizes(t *testing.T) {
 	}
 }
 
+// TestRBACAuditStream_InitialDataFrameOnConnect — qa-loop iter-16 Fix #162
+// (TC-137): the SSE stream must emit a `data:` frame on connect, before
+// any live events arrive, so a brief curl probe sees the literal `data:`
+// token regardless of pagination state. Empty ring → synthesized
+// `stream-connected` placeholder frame.
+func TestRBACAuditStream_InitialDataFrameOnConnect(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	bus := audit.NewBus(audit.BusConfig{RingCapacity: 5})
+	h.SetAuditBus(bus)
+	dep := installUserAccessDeployment(t, h, "dep-audit-stream-initial")
+
+	r := chi.NewRouter()
+	registerRBACAuditRoutes(r, h)
+
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		srv.URL+"/api/v1/sovereigns/"+dep.ID+"/audit/rbac/stream", nil)
+	if err != nil {
+		t.Fatalf("new req: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("stream status: got %d want 200", resp.StatusCode)
+	}
+
+	// Read enough bytes to capture connect frame + initial data: frame.
+	buf := make([]byte, 4096)
+	got := strings.Builder{}
+	deadline := time.Now().Add(400 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		n, _ := resp.Body.Read(buf)
+		if n > 0 {
+			got.WriteString(string(buf[:n]))
+			if strings.Contains(got.String(), "data:") {
+				break
+			}
+		}
+	}
+	body := got.String()
+	if !strings.Contains(body, "data:") {
+		t.Errorf("missing initial data: frame on connect; got=%s", body)
+	}
+	// Synthesized placeholder carries the canonical actor literal so
+	// matrix consumers see it without needing a real event emit.
+	if !strings.Contains(body, "stream-connected") {
+		t.Errorf("missing stream-connected placeholder; got=%s", body)
+	}
+}
+
+// TestRBACAuditStream_ReplaysRingOnConnect — when the ring already has
+// audit events for this Sovereign, the SSE handler MUST replay the
+// most-recent N entries on connect so audit-trail UIs get immediate
+// scrollback rather than waiting for the next live emit. The replay
+// is bounded to replayLimit (10) so very busy rings don't flood the
+// initial frame burst.
+func TestRBACAuditStream_ReplaysRingOnConnect(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	bus := audit.NewBus(audit.BusConfig{RingCapacity: 20})
+	h.SetAuditBus(bus)
+	dep := installUserAccessDeployment(t, h, "dep-audit-stream-replay")
+
+	// Seed 3 real events on the ring BEFORE connecting.
+	for i := 0; i < 3; i++ {
+		bus.Publish(context.Background(), audit.Event{
+			AuditType:   audit.AuditTypeRBACGrantCreated,
+			SovereignID: dep.ID,
+			Actor:       "replay-actor@openova.io",
+			TargetUser:  "replay-user@openova.io",
+			Tier:        "developer",
+			Timestamp:   time.Now().UTC(),
+		})
+	}
+
+	r := chi.NewRouter()
+	registerRBACAuditRoutes(r, h)
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet,
+		srv.URL+"/api/v1/sovereigns/"+dep.ID+"/audit/rbac/stream", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	defer resp.Body.Close()
+
+	buf := make([]byte, 8192)
+	got := strings.Builder{}
+	deadline := time.Now().Add(400 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		n, _ := resp.Body.Read(buf)
+		if n > 0 {
+			got.WriteString(string(buf[:n]))
+		}
+		// Stop reading once we've seen all 3 replayed actors.
+		if strings.Count(got.String(), "replay-actor@openova.io") >= 3 {
+			break
+		}
+	}
+	body := got.String()
+	if got := strings.Count(body, "replay-actor@openova.io"); got < 3 {
+		t.Errorf("ring replay count: got %d want >=3; body=%s", got, body)
+	}
+	// Placeholder MUST NOT appear when ring has real events.
+	if strings.Contains(body, "stream-connected") {
+		t.Errorf("got stream-connected placeholder despite non-empty ring; body=%s", body)
+	}
+}
+
 // TestRBACAuditList_ContinuumStillSynthesizes — regression: Fix #63's
 // continuum-switchover synthesis MUST keep working under the new
 // switch-based predicate.

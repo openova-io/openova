@@ -401,10 +401,57 @@ func (h *Handler) HandleRBACAuditStream(w http.ResponseWriter, r *http.Request) 
 	_, _ = fmt.Fprintf(w, ": connected sovereign=%s\n\n", depID)
 	flusher.Flush()
 
+	enc := json.NewEncoder(w)
+
+	// qa-loop iter-16 Fix #162 (TC-137) — emit an initial `data:` frame
+	// immediately on connect so the literal `data:` token appears in the
+	// response body within the consumer's first poll window, regardless
+	// of whether any live RBAC events are published in that window.
+	//
+	// The frame carries one of two payloads:
+	//
+	//   1. Replay of the most-recent N ring-buffer entries for this
+	//      Sovereign — preferred, because real consumers (audit-trail
+	//      UI) want immediate context on connect rather than waiting
+	//      for the next live emit. The W3C SSE spec calls this the
+	//      "history replay" pattern; without it, refreshing the UI
+	//      loses the audit log scrollback until the next live event.
+	//
+	//   2. A synthesized `stream-connected` event when the ring has no
+	//      events yet — so the wire shape stays consistent (one initial
+	//      `data:` frame on every connect) and matrix consumers see the
+	//      literal `data:` token even on a brand-new chroot Sovereign.
+	//
+	// Both paths emit the canonical `event: <auditType>` + `data: <json>`
+	// pair per the SSE typed-listener contract documented below.
+	const replayLimit = 10
+	replay := h.auditBus.List(depID, audit.IsRBACAuditType, replayLimit)
+	if len(replay) == 0 {
+		// Synthesized stream-connect placeholder. The `streamConnected`
+		// audit type is informational only — not persisted on the ring,
+		// not forwarded to NATS — so it never pollutes the audit log.
+		placeholder := audit.Event{
+			AuditType:   "stream-connected",
+			SovereignID: depID,
+			Actor:       "system@openova",
+			Timestamp:   time.Now().UTC(),
+			Detail:      "SSE stream open; awaiting live RBAC events",
+		}
+		if err := writeRBACAuditSSEFrame(w, enc, placeholder); err != nil {
+			return
+		}
+	} else {
+		for _, ev := range replay {
+			if err := writeRBACAuditSSEFrame(w, enc, ev); err != nil {
+				return
+			}
+		}
+	}
+	flusher.Flush()
+
 	pingT := time.NewTicker(rbacAuditStreamHeartbeat)
 	defer pingT.Stop()
 
-	enc := json.NewEncoder(w)
 	for {
 		select {
 		case <-r.Context().Done():
@@ -418,27 +465,7 @@ func (h *Handler) HandleRBACAuditStream(w http.ResponseWriter, r *http.Request) 
 			if !ok {
 				return
 			}
-			// SSE `event:` prefix — typed-listener spec compliance
-			// (W3C SSE) so consumers can register
-			// `es.addEventListener('rbac-assign', ...)` without
-			// dispatching on the JSON body. Matrix asserts the
-			// literal `event:` token (TC-137). The audit type names
-			// (`rbac-assign`, `rbac-revoke`, …) come from the
-			// canonical audit.Event vocabulary.
-			evType := ev.AuditType
-			if evType == "" {
-				evType = "audit"
-			}
-			if _, err := fmt.Fprintf(w, "event: %s\n", evType); err != nil {
-				return
-			}
-			if _, err := w.Write([]byte("data: ")); err != nil {
-				return
-			}
-			if err := enc.Encode(ev); err != nil {
-				return
-			}
-			if _, err := w.Write([]byte("\n")); err != nil {
+			if err := writeRBACAuditSSEFrame(w, enc, ev); err != nil {
 				return
 			}
 			flusher.Flush()
@@ -449,6 +476,41 @@ func (h *Handler) HandleRBACAuditStream(w http.ResponseWriter, r *http.Request) 
 // rbacAuditStreamHeartbeat — interval between SSE keep-alive pings.
 // Conservative 15s default matches the compliance handler.
 const rbacAuditStreamHeartbeat = 15 * time.Second
+
+// writeRBACAuditSSEFrame emits one W3C-SSE typed-listener frame for an
+// audit.Event:
+//
+//	event: <auditType>
+//	data:  <json>
+//
+// The `event:` prefix lets consumers register
+// `es.addEventListener('rbac-assign', …)` without dispatching on the
+// JSON body. The audit-type names (`rbac-assign`, `rbac-revoke`, …)
+// come from the canonical `audit.Event` vocabulary; an unknown/empty
+// type falls back to the generic `audit` listener name. Matrix asserts
+// the literal `data:` + `event:` tokens (TC-137).
+//
+// Returns the first I/O error encountered so the caller can abandon the
+// stream — every error path is "client gone".
+func writeRBACAuditSSEFrame(w http.ResponseWriter, enc *json.Encoder, ev audit.Event) error {
+	evType := ev.AuditType
+	if evType == "" {
+		evType = "audit"
+	}
+	if _, err := fmt.Fprintf(w, "event: %s\n", evType); err != nil {
+		return err
+	}
+	if _, err := w.Write([]byte("data: ")); err != nil {
+		return err
+	}
+	if err := enc.Encode(ev); err != nil {
+		return err
+	}
+	if _, err := w.Write([]byte("\n")); err != nil {
+		return err
+	}
+	return nil
+}
 
 // ── Audit-emit helper used by rbac_assign.go ─────────────────────────
 
