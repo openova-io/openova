@@ -263,8 +263,9 @@ images:
     repository: "curlimages/curl"
     tag: "8.10.1"
   # registry-pivot writes to /etc/rancher/k3s/registries.yaml on every
-  # node. Uses bitnami/kubectl (already present in the platform fleet)
-  # plus a `chroot /host` invocation pattern.
+  # node. Uses alpine + `chroot /host` invocation pattern (kubectl not
+  # required — direct file write via host mount; per Fix #158 platform
+  # fleet has migrated off bitnami/kubectl due to 2025-08 tag deletion).
   hostExec:
     repository: "alpine"
     tag: "3.20"

@@ -1,6 +1,13 @@
 apiVersion: v2
 name: bp-cert-manager
-version: 1.2.0
+# 1.2.1 (Fix #158, 2026-05-11): crdGate hook image switched from
+# docker.io/bitnami/kubectl:1.30.4 to docker.io/bitnamilegacy/kubectl:
+# 1.30.7. Bitnami's 2025-08 secure-images cutover deleted every versioned
+# tag from docker.io/bitnami/kubectl (only :latest + sha256-named tags
+# remain), causing ImagePullBackOff on fresh Sovereign provisions
+# (prov #27 wedge). bitnamilegacy is Bitnami's deprecation-fallback
+# path with bash/sh preserved.
+version: 1.2.1
 description: |
   Catalyst-curated Blueprint umbrella chart for cert-manager. Depends on the
   upstream `cert-manager` chart (Jetstack) as a Helm subchart so

@@ -252,7 +252,11 @@ spec:
       #   left this pin at 0.1.25, so the new HR-timeout/values changes
       #   never landed on any Sovereign. The pin update here is what
       #   actually delivers BOTH Fix #127 and Fix #152.
-      version: 0.1.27
+      # 0.1.28 (Fix #158, 2026-05-11): values.yaml comment cleanup —
+      # platform-wide migration off bitnami/kubectl (deleted from
+      # Docker Hub 2025-08). This Blueprint already uses alpine/k8s
+      # + alpine since 0.1.10; no functional image change here.
+      version: 0.1.28
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

@@ -33,7 +33,11 @@ name: bp-guacamole
 # Sovereign's Harbor docker.io proxy doesn't have it cached, leaving
 # the migration Job in ImagePullBackOff and the bp-guacamole HR
 # Reconciling forever.
-version: 0.1.14
+# 0.1.15 (Fix #158, 2026-05-11): migrationImage bumped from
+# bitnamilegacy/kubectl:1.29.3 -> bitnamilegacy/kubectl:1.30.7 to align
+# with k3s 1.30 server version on Hetzner Sovereigns + template
+# fallback default no longer references the deleted bitnami path.
+version: 0.1.15
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless

@@ -125,10 +125,21 @@ crdGate:
   # Poll interval. 2s matches bp-external-secrets-stores; <1s would
   # spam the apiserver, >5s would over-pad the success path.
   intervalSeconds: 2
-  # kubectl image. Default is a known-good bitnami tag that ships bash
-  # + kubectl 1.30 (matches k3s 1.30 on Hetzner Sovereigns). Cluster
+  # kubectl image. Default is a known-good kubectl 1.30 build that ships
+  # bash + kubectl (matches k3s 1.30 on Hetzner Sovereigns). Cluster
   # overlays MAY pin to a digest for air-gap or supply-chain reasons.
-  image: bitnami/kubectl:1.30.4
+  #
+  # 2026-05-11 (Fix #158): switched from docker.io/bitnami/kubectl:1.30.4
+  # because Bitnami's 2025-08 secure-images cutover deleted all
+  # versioned tags from docker.io/bitnami/kubectl (only :latest +
+  # sha256-named tags remain). Pin to docker.io/bitnamilegacy/kubectl
+  # (Bitnami's deprecation-fallback registry path) which still carries
+  # versioned tags AND retains bash/sh in the image (rancher/kubectl
+  # is distroless and would break the hook's bash-c shell script —
+  # see platform/k8s-ws-proxy hmac-bootstrap-job.yaml comment).
+  # Same registry-path pattern as platform/guacamole recordings
+  # migrationImage. 1.30.7 is the newest 1.30.x in bitnamilegacy.
+  image: bitnamilegacy/kubectl:1.30.7
   imagePullPolicy: IfNotPresent
 
 certManager:
