@@ -5,7 +5,7 @@ name: bp-openova-flow-emitter
 # Opt out of the hollow-chart guard per docs/BLUEPRINT-AUTHORING.md §11.1.
 annotations:
   catalyst.openova.io/no-upstream: "true"
-version: 0.1.0
+version: 0.1.1
 appVersion: "0.1.0"
 description: |
   Catalyst Blueprint chart for the openova-flow-adapter-flux emitter
