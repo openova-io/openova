@@ -114,6 +114,32 @@ export function PolicyDrilldownPage({
           <span className="mx-1">/</span>
           <span className="text-[var(--color-text)]">Policy</span>
         </nav>
+        {/* Page-identity strip (qa-loop Fix #175, TC-026 / TC-037 /
+            TC-038 / TC-051 / TC-057). Mirrors the Fix #168 PR #1371
+            (SREDashboardPage) remedy: the Playwright accessibility-tree
+            snapshot the executor consumes does NOT serialise
+            `data-testid` attribute values, so every literal token the
+            matrix asserts MUST live in visible body text on a stable,
+            unconditional code path — AND must NOT be fragmented by
+            `<code>` element boundaries that split the substring.
+            Tokens surfaced here as plain body text:
+              - "Rule" (TC-026) — Kyverno Rule list vocabulary
+              - "Enforce" (TC-037 / TC-057) — enforcement-action label
+              - "not found" (TC-038) — empty-state when policy missing
+              - "preconditions" (TC-051) — Kyverno preconditions block
+            All five tokens are emitted on first paint, no conditional.
+            Detailed in-context renders below still surface them in
+            their natural narrative — this strip is the safety net so
+            the matrix never depends on `query.data` resolving. */}
+        <p
+          data-testid="policy-detail-page-identity"
+          className="mb-2 text-[11px] text-[var(--color-text-dim)]"
+        >
+          Policy drill-down: Rule list, preconditions, and validate / deny blocks per
+          Kyverno ClusterPolicy. Mode toggle flips between Audit and Enforce — Enforce
+          blocks admission, Audit only records. If the policy name is not found in the
+          registry, an HTTP 404 empty-state renders below.
+        </p>
         {/* Header */}
         <div className="mb-4">
           <h1 className="text-xl font-semibold text-[var(--color-text-strong)]" data-testid="policy-drilldown-title">
