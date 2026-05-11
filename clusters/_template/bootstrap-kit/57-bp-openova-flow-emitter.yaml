@@ -64,36 +64,27 @@ spec:
     disableWait: true
     remediation:
       retries: 3
-  # Per-Sovereign overlay surface. ${SOVEREIGN_FQDN} is provided today
-  # by the bootstrap-kit Kustomization's postBuild.substitute env hook
-  # (see infra/hetzner/cloudinit-control-plane.tftpl).
+  # Per-Sovereign overlay surface. ${SOVEREIGN_FQDN},
+  # ${SOVEREIGN_DEPLOYMENT_ID} and ${SOVEREIGN_REGION_KEY} are all
+  # provided by the bootstrap-kit Kustomization's postBuild.substitute
+  # env hook (see infra/hetzner/cloudinit-control-plane.tftpl, wired in
+  # main.tf for primary CP + secondary CP for_each so multi-region
+  # Sovereigns get distinct region tags on FlowNodes).
   #
-  # ${SOVEREIGN_DEPLOYMENT_ID} and ${REGION_KEY} are added by Agent #3's
-  # integration PR — they need to be threaded into the
-  # postBuild.substitute block in cloudinit-control-plane.tftpl alongside
-  # SOVEREIGN_FQDN / SOVEREIGN_LB_IP. Until Agent #3 lands that, the
-  # bootstrap-kit slot can be locally overridden in per-Sovereign Kustomize
-  # overlays to inject concrete values.
-  #
-  # FlowID — falls back to SOVEREIGN_FQDN-derived id when DEPLOYMENT_ID is
-  # not substituted. Agent #3 swaps this to the canonical deployment id.
-  # RegionKey — defaults to "primary" pre-Agent-#3; per-Sovereign overlay
-  # patches the value to the concrete region (e.g. "fsn1", "hel1").
+  # FlowID — the catalyst-api per-deployment 16-char hex id. The catalyst-
+  # api proxy /api/v1/flows/{deploymentId}/* queries the openova-flow-
+  # server under the same id, so this is the canonical key linking the
+  # canvas to the emitter.
+  # RegionKey — Hetzner region code for this cluster ("fsn1" for primary,
+  # "hel1"/etc for secondaries). Stamped onto every FlowNode.region so
+  # the canvas groups bubbles into per-region super-bubbles via
+  # `contains` relationships.
   values:
     flowEmitter:
       enabled: true
       # The mothership-Harbor proxied server URL. Resolves to the
       # primary cluster's HTTPRoute through the Cilium Gateway.
       flowServerUrl: https://openova-flow.${SOVEREIGN_FQDN}
-      # Per the OpenovaFlow contract, FlowID is the runtime
-      # FlowInstance id — the Sovereign's deployment id is the
-      # natural choice (one flow per deployment). Agent #3 substitutes
-      # ${SOVEREIGN_DEPLOYMENT_ID} for the literal string below once the
-      # postBuild env wiring is in place.
-      flowId: ${SOVEREIGN_FQDN}
-      # Region the adapter operates on. Per-Sovereign overlay patches
-      # the value to the concrete region (e.g. "fsn1", "hel1") via the
-      # secondary's bootstrap-kit Kustomize overlay; Agent #3's
-      # integration adds substitution wiring for multi-region.
-      regionKey: primary
+      flowId: ${SOVEREIGN_DEPLOYMENT_ID}
+      regionKey: ${SOVEREIGN_REGION_KEY}
       namespaceFilter: flux-system

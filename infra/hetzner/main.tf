@@ -342,6 +342,14 @@ locals {
   control_plane_cloud_init = replace(templatefile("${path.module}/cloudinit-control-plane.tftpl", {
     sovereign_fqdn          = var.sovereign_fqdn
     sovereign_subdomain     = var.sovereign_subdomain
+    # OpenovaFlow integration (Agent #3, PR #1389/#1390 follow-up). The
+    # bp-openova-flow-emitter (bootstrap-kit slot 57) reads SOVEREIGN_
+    # DEPLOYMENT_ID + SOVEREIGN_REGION_KEY from the bootstrap-kit
+    # Kustomization's postBuild.substitute env. Primary CP renders
+    # var.region as the region key; secondary CPs render each.key from
+    # the for_each loop in local.secondary_region_cloud_init.
+    sovereign_deployment_id = var.sovereign_deployment_id
+    sovereign_region_key    = var.region
     marketplace_enabled     = var.marketplace_enabled
     qa_fixtures_enabled       = var.qa_fixtures_enabled
     qa_test_session_enabled   = var.qa_test_session_enabled
@@ -820,6 +828,13 @@ locals {
     k => replace(templatefile("${path.module}/cloudinit-control-plane.tftpl", {
       sovereign_fqdn          = var.sovereign_fqdn
       sovereign_subdomain     = var.sovereign_subdomain
+      # OpenovaFlow integration (Agent #3). The secondary CP's region
+      # key is each.key from the secondary_regions for_each (e.g. "hel1"
+      # for a Helsinki secondary). Multi-region Sovereigns thus emit
+      # distinct region tags on FlowNodes, which the canvas groups into
+      # per-region super-bubbles via `contains` relationships.
+      sovereign_deployment_id = var.sovereign_deployment_id
+      sovereign_region_key    = k
       marketplace_enabled     = var.marketplace_enabled
       qa_fixtures_enabled       = var.qa_fixtures_enabled
       qa_test_session_enabled   = var.qa_test_session_enabled

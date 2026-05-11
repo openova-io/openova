@@ -23,6 +23,19 @@ variable "sovereign_subdomain" {
   default     = ""
 }
 
+# OpenovaFlow integration (Agent #3, PR #1389/#1390 follow-up). The
+# bp-openova-flow-emitter chart's HelmRelease reads SOVEREIGN_DEPLOYMENT_ID
+# from the bootstrap-kit Kustomization's postBuild.substitute env. catalyst-
+# api writes it via writeTfvars() from req.DeploymentID. Empty default keeps
+# the tofu module callable from `tofu test` mocks that don't supply a
+# deployment id; in that case the emitter's FlowID degrades to the literal
+# string "" which the openova-flow-server treats as a missing key.
+variable "sovereign_deployment_id" {
+  type        = string
+  description = "Catalyst-api per-deployment 16-char hex id, used as the OpenovaFlow FlowID for this Sovereign. Empty when the tofu module is exercised outside catalyst-api (CI mocks, manual `tofu plan`)."
+  default     = ""
+}
+
 variable "marketplace_enabled" {
   type        = string
   description = "When 'true', bp-catalyst-platform 1.3.0+ renders the marketplace + tenant-wildcard HTTPRoutes exposing marketplace.<sov> + *.<sov>. Operator opt-in (issue #710). Default 'false' for non-marketplace Sovereigns."

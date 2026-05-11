@@ -1371,6 +1371,14 @@ func writeTfvars(deployDir string, req Request) error {
 		// #4 so air-gapped franchises override without code changes.
 		"deployment_id":           req.DeploymentID,
 		"kubeconfig_bearer_token": req.KubeconfigBearerToken,
+		// OpenovaFlow integration (Agent #3, PR #1389/#1390 follow-up).
+		// Same value as deployment_id, distinct variable name so the
+		// cloud-init template's postBuild.substitute (SOVEREIGN_DEPLOYMENT_ID)
+		// reads from a semantically named knob. bp-openova-flow-emitter
+		// uses this as the FlowID so the openova-flow-server keys all
+		// FlowNodes (one per HelmRelease per region) under the same id
+		// the catalyst-api proxy /api/v1/flows/{deploymentId}/* queries.
+		"sovereign_deployment_id": req.DeploymentID,
 		"catalyst_api_url": env(
 			"CATALYST_API_PUBLIC_URL",
 			"https://console.openova.io/sovereign",
