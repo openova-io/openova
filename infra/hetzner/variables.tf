@@ -302,6 +302,88 @@ variable "worker_size" {
   }
 }
 
+# ── QA-mode node sizing overrides (Fix #157 — qa-loop bounded-cycle root-cause) ──
+#
+# Production defaults (`control_plane_size = cpx22`, `worker_size = cpx32`) are
+# the documented cost-optimised baseline for customer-facing Sovereigns
+# (SME / marketplace / admin / console) — those Sovereigns provision a
+# narrower workload set and amortise heavy stacks across `worker_count >= 2`
+# nodes plus deliberate scheduling tolerations.
+#
+# QA-mode Sovereigns (qa_fixtures_enabled='true') provision a SUPERSET:
+# qa-loop iter-N matrix runs install bp-keycloak (2Gi JVM limit) +
+# bp-harbor (6 sub-components ≈ 2.5Gi req) + bp-cnpg (WAL+DB) + bp-openbao
+# (3-replica Raft) AND additionally the qaFixtures stack (qa-<sov>
+# namespace + qa-wp Application + Continuum CR + CNPGPair + status-seeder
+# Jobs). Per `memory/session_2026_05_10_bounded_cycle_handover.md`
+# (entry: "provision #5 cpx22 OOM"), 12 of 12 fresh QA Sovereign provisions
+# in the bounded-cycle session wedged with the production defaults — the
+# CP's ~3.5GB k3s+cilium+flux+cert-manager+sealed-secrets working set
+# leaves zero budget for Flux source-controller's burst (~700MB during
+# the 44-slot apply) and worker_count=2 × cpx32 (8GB each) is too tight
+# for the keycloak+harbor+cnpg+openbao race.
+#
+# These two variables auto-flip in main.tf when `qa_fixtures_enabled='true'`
+# (the QA-mode gate already wired by Fix #123 via wildcard_cert_use_staging).
+# Production Sovereigns NEVER read these defaults — `coalesce(...)` in
+# main.tf falls back to `var.control_plane_size` / `var.worker_size`. The
+# operator can still pin smaller QA SKUs by setting these explicitly to
+# match the production defaults — runtime configuration, never hardcoded
+# (per docs/INVIOLABLE-PRINCIPLES.md #4).
+variable "qa_control_plane_size" {
+  type        = string
+  description = <<-EOT
+    Hetzner control-plane SKU used when `qa_fixtures_enabled='true'`.
+    Default cpx32 (4 vCPU / 8 GB AMD shared) — one tier above the
+    production cpx22 default. Justification: QA Sovereigns carry the
+    full bp-* stack PLUS the qaFixtures stack (Continuum CR + CNPGPair
+    + status-seeder Jobs + ScheduledBackup + tier-bound UserAccess
+    seeder). The 3.5GB CP working set documented for cpx22 leaves
+    zero RAM headroom for Flux source-controller's ~700MB burst
+    during the 44-slot bootstrap-kit apply, which OOM-cascades all
+    flux-system Pods on Sovereign provision #5..#12 of the
+    2026-05-10 bounded-cycle session. cpx32 doubles the RAM ceiling
+    so the burst lands within budget.
+
+    When qa_fixtures_enabled='false' (every customer Sovereign) the
+    coalesce() in main.tf bypasses this var entirely and falls back
+    to var.control_plane_size — production paths are unaffected.
+  EOT
+  default     = "cpx32"
+  validation {
+    condition     = can(regex("^(cx[0-9]+|cpx[0-9]+|ccx[0-9]+|cax[0-9]+)$", var.qa_control_plane_size))
+    error_message = "qa_control_plane_size must match Hetzner server-type naming (cxNN | cpxNN | ccxNN | caxNN)."
+  }
+}
+
+variable "qa_worker_size" {
+  type        = string
+  description = <<-EOT
+    Hetzner worker SKU used when `qa_fixtures_enabled='true'`. Default
+    cpx42 (8 vCPU / 16 GB AMD shared) — one tier above the production
+    cpx32 default. Justification: bp-keycloak (2Gi JVM limit) +
+    bp-harbor (6 sub-components ≈ 2.5Gi req across registry, core,
+    portal, jobservice, trivy, redis) + bp-cnpg primary (1Gi req +
+    WAL spill) + bp-openbao 3-replica Raft (3 × 512Mi req) all race
+    for the 8GB worker budget on cpx32. With worker_count=2, two
+    workers × 8GB cannot satisfy the simultaneous request set
+    without eviction loops once the qaFixtures Continuum + CNPGPair
+    Jobs queue. cpx42 (16GB) doubles the per-worker headroom so the
+    full QA matrix lands without OOM.
+
+    When qa_fixtures_enabled='false' (every customer Sovereign) the
+    coalesce() in main.tf bypasses this var entirely and falls back
+    to var.worker_size — production paths are unaffected.
+  EOT
+  default     = "cpx42"
+  validation {
+    # Match worker_size's empty-string allowance so a solo QA Sovereign
+    # (worker_count=0) can still validate.
+    condition     = var.qa_worker_size == "" || can(regex("^(cx[0-9]+|cpx[0-9]+|ccx[0-9]+|cax[0-9]+)$", var.qa_worker_size))
+    error_message = "qa_worker_size must be empty (solo QA Sovereign, worker_count=0) or match Hetzner server-type naming (cxNN | cpxNN | ccxNN | caxNN)."
+  }
+}
+
 variable "worker_count" {
   type        = number
   description = <<-EOT

@@ -344,3 +344,71 @@ run "non_hetzner_regions_are_filtered_out" {
     error_message = "fsn1-1 (regions[1], hetzner) must be present after filtering."
   }
 }
+
+# ── Scenario 6: QA-mode auto-flips to bigger SKUs (Fix #157) ─────────────
+# Customer Sovereigns (qa_fixtures_enabled='false') keep the cpx22 CP /
+# cpx32 worker production defaults. QA Sovereigns (qa_fixtures_enabled=
+# 'true') auto-flip to qa_control_plane_size (cpx32 default) and
+# qa_worker_size (cpx42 default) so the bp-keycloak/harbor/cnpg/openbao +
+# qaFixtures Continuum + status-seeder Jobs race doesn't OOM-cascade on
+# the production-tier 4GB/8GB envelope (validated in 2026-05-10 bounded-
+# cycle session, 12 of 12 fresh provisions wedged with the production
+# defaults). The wiring lives in locals.effective_cp_size /
+# locals.effective_worker_size which the singular-path hcloud_server
+# resources read.
+
+run "qa_mode_off_keeps_production_defaults" {
+  command = plan
+
+  variables {
+    qa_fixtures_enabled = "false"
+  }
+
+  assert {
+    condition     = hcloud_server.control_plane[0].server_type == "cpx22"
+    error_message = "qa_fixtures_enabled='false' must NOT alter the production cpx22 CP default (customer Sovereign path)."
+  }
+
+  assert {
+    condition     = hcloud_server.worker[0].server_type == "cpx32"
+    error_message = "qa_fixtures_enabled='false' must NOT alter the production cpx32 worker default (customer Sovereign path)."
+  }
+}
+
+run "qa_mode_on_flips_to_bigger_skus" {
+  command = plan
+
+  variables {
+    qa_fixtures_enabled = "true"
+  }
+
+  assert {
+    condition     = hcloud_server.control_plane[0].server_type == "cpx32"
+    error_message = "qa_fixtures_enabled='true' must auto-flip CP to qa_control_plane_size default 'cpx32' (Fix #157 — eliminates cpx22 CP OOM-cascade root cause)."
+  }
+
+  assert {
+    condition     = hcloud_server.worker[0].server_type == "cpx42"
+    error_message = "qa_fixtures_enabled='true' must auto-flip workers to qa_worker_size default 'cpx42' (Fix #157 — eliminates cpx32 worker OOM-cascade root cause)."
+  }
+}
+
+run "qa_mode_on_respects_explicit_overrides" {
+  command = plan
+
+  variables {
+    qa_fixtures_enabled   = "true"
+    qa_control_plane_size = "cpx42"
+    qa_worker_size        = "ccx33"
+  }
+
+  assert {
+    condition     = hcloud_server.control_plane[0].server_type == "cpx42"
+    error_message = "QA-mode CP SKU must follow operator-supplied qa_control_plane_size verbatim (no hardcoded override)."
+  }
+
+  assert {
+    condition     = hcloud_server.worker[0].server_type == "ccx33"
+    error_message = "QA-mode worker SKU must follow operator-supplied qa_worker_size verbatim (no hardcoded override)."
+  }
+}
