@@ -116,10 +116,18 @@ export function reduceFlowMessage(
 ): FlowStreamState {
   switch (msg.type) {
     case 'snapshot': {
+      // `nodes` / `relationships` / `ids` / `pairs` are all OPTIONAL on
+      // the wire — the Go server omits empty slices (omitempty) so a
+      // legitimate empty-state snapshot arrives as `{"type":"snapshot",
+      // "nodes":[]}` with NO `relationships` key at all. Without a
+      // nullish coalesce here the reducer blows up with
+      // `t.relationships is not iterable` the moment the first frame
+      // lands. (Crash observed 2026-05-11 on a snapshot with 2 nodes
+      // and 0 relationships — bundle index-CEnQMVBy.js@2285:51356.)
       const nodes = new Map<string, FlowNode>()
-      for (const n of msg.nodes) nodes.set(n.id, n)
+      for (const n of (msg.nodes ?? [])) nodes.set(n.id, n)
       const relationships = new Map<string, Relationship>()
-      for (const r of msg.relationships) relationships.set(relKey(r), r)
+      for (const r of (msg.relationships ?? [])) relationships.set(relKey(r), r)
       return {
         flow: msg.flow,
         nodes,
@@ -133,16 +141,16 @@ export function reduceFlowMessage(
     }
     case 'upsert-nodes': {
       const nodes = new Map(state.nodes)
-      for (const n of msg.nodes) nodes.set(n.id, n)
+      for (const n of (msg.nodes ?? [])) nodes.set(n.id, n)
       return { ...state, nodes }
     }
     case 'upsert-rels': {
       const relationships = new Map(state.relationships)
-      for (const r of msg.relationships) relationships.set(relKey(r), r)
+      for (const r of (msg.relationships ?? [])) relationships.set(relKey(r), r)
       return { ...state, relationships }
     }
     case 'delete-nodes': {
-      const toDrop = new Set(msg.ids)
+      const toDrop = new Set(msg.ids ?? [])
       const nodes = new Map(state.nodes)
       for (const id of toDrop) nodes.delete(id)
       // Prune relationships pointing to/from the removed nodes — per
@@ -158,7 +166,7 @@ export function reduceFlowMessage(
     }
     case 'delete-rels': {
       const relationships = new Map(state.relationships)
-      for (const pair of msg.pairs) relationships.delete(relKey(pair))
+      for (const pair of (msg.pairs ?? [])) relationships.delete(relKey(pair))
       return { ...state, relationships }
     }
   }
