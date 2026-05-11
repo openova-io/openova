@@ -27,7 +27,7 @@ import {
   createMemoryHistory,
   Outlet,
 } from '@tanstack/react-router'
-import type { ReactNode } from 'react'
+import type  from 'react'
 
 import { DeploymentsList } from './DeploymentsList'
 import type { DeploymentListEntry } from '@/shared/lib/useInflightDeployment'
