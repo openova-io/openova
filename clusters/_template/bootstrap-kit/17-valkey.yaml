@@ -53,10 +53,12 @@ spec:
         namespace: flux-system
   # Event-driven install per docs/INVIOLABLE-PRINCIPLES.md #3.
   install:
+    timeout: 15m
     disableWait: true
     remediation:
       retries: 3
   upgrade:
+    timeout: 15m
     disableWait: true
     remediation:
       retries: 3

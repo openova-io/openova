@@ -123,10 +123,12 @@ spec:
   # cleanly; runtime convergence (powerdns pods becoming Ready once
   # CNPG lands) is observed via kubectl, not gated on Helm.
   install:
+    timeout: 15m
     disableWait: true
     remediation:
       retries: 3
   upgrade:
+    timeout: 15m
     disableWait: true
     remediation:
       retries: 3

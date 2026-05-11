@@ -45,8 +45,10 @@ spec:
         name: bp-crossplane
         namespace: flux-system
   install:
+    timeout: 15m
     remediation:
       retries: 3
   upgrade:
+    timeout: 15m
     remediation:
       retries: 3

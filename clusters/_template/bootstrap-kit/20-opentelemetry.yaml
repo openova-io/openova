@@ -65,10 +65,12 @@ spec:
         name: bp-opentelemetry
         namespace: flux-system
   install:
+    timeout: 15m
     disableWait: true
     remediation:
       retries: 3
   upgrade:
+    timeout: 15m
     disableWait: true
     remediation:
       retries: 3

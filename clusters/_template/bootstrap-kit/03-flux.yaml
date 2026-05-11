@@ -69,6 +69,7 @@ spec:
   # a target of the chart, so blocking on Ready=True is structurally
   # impossible. disableWait avoids the deadlock. Replaces PR #221 timeout.
   install:
+    timeout: 15m
     disableWait: true
     # Adopt cloud-init-installed Flux objects rather than fail on
     # ownership conflict (the objects exist before the HelmRelease ever
@@ -77,6 +78,7 @@ spec:
     remediation:
       retries: 3
   upgrade:
+    timeout: 15m
     disableWait: true
     # Keep operator-supplied values (e.g. resource overrides applied via
     # helm-controller out-of-band, or dry-run patches during incident

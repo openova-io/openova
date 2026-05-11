@@ -49,10 +49,12 @@ spec:
   # Helm install completes when manifests apply; subsequent dependsOn
   # checks Ready=True independently. Replaces PR #221 spec.timeout: 15m.
   install:
+    timeout: 15m
     disableWait: true
     remediation:
       retries: 3
   upgrade:
+    timeout: 15m
     disableWait: true
     remediation:
       retries: 3
