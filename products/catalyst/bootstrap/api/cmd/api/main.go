@@ -710,6 +710,13 @@ func main() {
 		// silently overridden when a session is present.
 		rg.Get("/api/v1/deployments", h.ListDeployments)
 		rg.Get("/api/v1/deployments/{id}", h.GetDeployment)
+		// Record-only delete (issue #178). Removes the deployment from
+		// the in-memory map + on-disk store + kubeconfig file. Does NOT
+		// touch Hetzner — for the "kill the kid" path the operator's UI
+		// POSTs /wipe instead (which already chains record-delete on
+		// success). Refuses adopted (422) + in-flight (409) deployments
+		// to keep the customer breadcrumb + Commit safety intact.
+		rg.Delete("/api/v1/deployments/{id}", h.DeleteDeployment)
 		rg.Get("/api/v1/deployments/{id}/logs", h.StreamLogs)
 		// Buffered event history endpoint (issue #180). Returns the full event
 		// slice + state JSON so the wizard's ProvisionPage can render history
