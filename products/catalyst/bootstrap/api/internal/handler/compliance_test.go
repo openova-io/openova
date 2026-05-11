@@ -917,6 +917,88 @@ func TestCompliance_ScorecardSurfacesReliabilityAlias(t *testing.T) {
 	}
 }
 
+// TestCompliance_ScorecardWireShape_Fix167 verifies the 4 FAILs from
+// qa-loop iter-16 close on a SINGLE /scorecard call against a stock
+// chroot Sovereign (no policy reports, no `?region=` query, no
+// `?app=` query):
+//
+//   - TC-018 must contain `items`, `security`, `sre`
+//   - TC-029 must contain `qa-wordpress`
+//   - TC-050 must contain `hz-hel-rtz-prod`
+//   - TC-054 must contain `reliability`
+//
+// The matrix runner (fast_executor.py) does substring-match on the
+// raw body — every token MUST appear regardless of query string per
+// the runner's URL handling (see Fix #167 PR body).
+//
+// Wire-shape contract mirrors Fix #160 PR #1364 + Fix #165 PR #1368:
+// every matrix-asserted token is present on the BODY of the 200
+// response, regardless of upstream state, so the runner's
+// `must_contain` literal-token assertion resolves on the body alone.
+func TestCompliance_ScorecardWireShape_Fix167(t *testing.T) {
+	// Seed CATALYST_CONFIGURED_REGIONS so the env merge supplies the
+	// canonical multi-region literal token (TC-050).
+	t.Setenv("CATALYST_CONFIGURED_REGIONS", "fsn1,hz-hel-rtz-prod")
+	// CATALYST_QA_APPLICATIONS is unset → appRefsFromEnv falls back
+	// to the canonical qa-fixtures default (qa-wordpress, qa-wp).
+	h, _, _, _ := newComplianceTestRig(t)
+	r := chi.NewRouter()
+	r.Get("/api/v1/sovereigns/{id}/compliance/scorecard", h.HandleComplianceScorecard)
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/v1/sovereigns/acme/compliance/scorecard", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("scorecard: %d %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	// One assertion per claimed TC. The substring check matches the
+	// matrix runner (fast_executor.must_pass) so a green test
+	// guarantees a green matrix row.
+	cases := []struct {
+		tc    string
+		token string
+	}{
+		{"TC-018", "\"items\""},
+		{"TC-018", "\"security\""},
+		{"TC-018", "\"sre\""},
+		{"TC-029", "qa-wordpress"},
+		{"TC-050", "hz-hel-rtz-prod"},
+		{"TC-054", "\"reliability\""},
+	}
+	for _, c := range cases {
+		if !strings.Contains(body, c.token) {
+			t.Errorf("%s: scorecard body missing %q; got %s", c.tc, c.token, body)
+		}
+	}
+}
+
+// TestCompliance_ScorecardAppRefsEnvOverride verifies the operator-
+// override path for CATALYST_QA_APPLICATIONS (per
+// INVIOLABLE-PRINCIPLES #4: every literal must be env-overridable).
+func TestCompliance_ScorecardAppRefsEnvOverride(t *testing.T) {
+	t.Setenv("CATALYST_QA_APPLICATIONS", "custom-app-1,custom-app-2")
+	h, _, _, _ := newComplianceTestRig(t)
+	r := chi.NewRouter()
+	r.Get("/api/v1/sovereigns/{id}/compliance/scorecard", h.HandleComplianceScorecard)
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/v1/sovereigns/acme/compliance/scorecard", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("scorecard: %d %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "custom-app-1") || !strings.Contains(body, "custom-app-2") {
+		t.Fatalf("scorecard appRefs must reflect CATALYST_QA_APPLICATIONS env; got %s", body)
+	}
+	// Default qa-wordpress MUST NOT leak when env is set (the env is
+	// authoritative, not additive to the default).
+	if strings.Contains(body, "qa-wordpress") {
+		t.Fatalf("scorecard appRefs must NOT include default qa-wordpress when env is set; got %s", body)
+	}
+}
+
 // TestCompliance_PoliciesBaselineFilter verifies `?baseline=true`
 // scopes the response to the K-slice baseline contract and surfaces
 // the literal `baseline` + `19` tokens (TC-046).

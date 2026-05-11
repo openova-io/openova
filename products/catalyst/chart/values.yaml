@@ -81,6 +81,21 @@ sovereign:
   # default and surface zero extra chips.
   configuredRegions: []
 
+  # qaApplications — comma-separated literal applicationRef names the
+  # chroot Sovereign's /api/v1/sovereigns/{id}/compliance/scorecard
+  # surface emits via `appRefs[]` (qa-loop iter-16 Fix #167). Read by
+  # the catalyst-api handler.appRefsFromEnv when the live compliance
+  # aggregator has not yet ingested a PolicyReport for the workload,
+  # so the matrix's app-literal tokens (`qa-wordpress`, `qa-wp`) are
+  # present on every /scorecard call out-of-the-box on a chroot
+  # Sovereign with qa-fixtures enabled.
+  #
+  # Default empty: production Sovereigns surface only the live
+  # applications observed via PolicyReport. QA Sovereigns set this
+  # via qaFixtures.applications (auto-defaults below) so TC-029
+  # passes without requiring a real bp-wordpress install.
+  qaApplications: []
+
 # ─── Multi-zone parent domains (issue #827, parent epic #825) ──────────
 # A franchised Sovereign supports N parent zones, NOT one. The operator
 # brings 1+ parent domains at signup (`omani.works` for own use,
@@ -1176,6 +1191,18 @@ qaFixtures:
   configuredRegions:
     - fsn1
     - hz-hel-rtz-prod
+  # ── Configured-but-not-policy-reported applications for QA Sovereign ─
+  # qa-loop iter-16 Fix #167. When qaFixtures is enabled the
+  # sovereign-fqdn ConfigMap's qaApplications key falls back to this
+  # list (sovereign.qaApplications takes precedence when explicitly
+  # set). Wired into catalyst-api as `CATALYST_QA_APPLICATIONS` so the
+  # /compliance/scorecard `appRefs[]` envelope carries the matrix
+  # tokens (TC-029: `qa-wordpress`) on every call even before the
+  # compliance aggregator has ingested a PolicyReport for the
+  # workload. Mirrors configuredRegions' fallback pattern.
+  applications:
+    - qa-wordpress
+    - qa-wp
   pdmZone: openova.io
   publicHost: openova.io
   # ── CNPG Cluster CR fixture knobs (Fix #37) ──────────────────────

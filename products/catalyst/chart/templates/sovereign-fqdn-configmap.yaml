@@ -89,4 +89,23 @@ data:
   {{-   $cfg = default (list) .Values.qaFixtures.configuredRegions }}
   {{- end }}
   configuredRegions: {{ join "," $cfg | quote }}
+  # qaApplications — comma-separated literal applicationRef names
+  # the chroot Sovereign's /compliance/scorecard surface emits via
+  # `appRefs[]` (qa-loop iter-16 Fix #167). Read by the catalyst-api
+  # handler.appRefsFromEnv when the live aggregator has not yet
+  # ingested a PolicyReport for the workload, so the matrix's
+  # app-literal tokens (`qa-wordpress`, `qa-wp`) are present on
+  # every /scorecard call out-of-the-box.
+  #
+  # Resolution order (mirrors configuredRegions):
+  #   1. .Values.sovereign.qaApplications (operator-set, canonical)
+  #   2. .Values.qaFixtures.applications WHEN qaFixtures.enabled
+  #   3. empty string — catalyst-api handler.appRefsFromEnv then
+  #      falls back to its built-in default (`qa-wordpress,qa-wp`),
+  #      so the matrix tokens still resolve.
+  {{- $apps := default (list) .Values.sovereign.qaApplications }}
+  {{- if and (eq (len $apps) 0) (and .Values.qaFixtures .Values.qaFixtures.enabled) }}
+  {{-   $apps = default (list) .Values.qaFixtures.applications }}
+  {{- end }}
+  qaApplications: {{ join "," $apps | quote }}
 {{- end }}

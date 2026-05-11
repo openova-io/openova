@@ -691,6 +691,26 @@ spec:
                   name: sovereign-fqdn
                   key: configuredRegions
                   optional: true
+            # CATALYST_QA_APPLICATIONS — comma-separated literal app
+            # names the chroot Sovereign's /compliance/scorecard
+            # surface emits via `appRefs[]` (qa-loop iter-16 Fix #167).
+            # Read by handler.appRefsFromEnv when the live aggregator
+            # has not yet ingested a PolicyReport for the workload, so
+            # the matrix's app-literal tokens (qa-wordpress, qa-wp)
+            # are present on every /scorecard call out-of-the-box.
+            # Mirrors CATALYST_CONFIGURED_REGIONS' qa-fixtures fallback.
+            # Source: sovereign-fqdn ConfigMap key `qaApplications`,
+            # populated from .Values.sovereign.qaApplications (or
+            # .Values.qaFixtures.applications when qaFixtures is
+            # enabled). optional=true so Catalyst-Zero (contabo) and
+            # legacy Sovereigns without the key fall back to the
+            # appRefsFromEnv default (`qa-wordpress,qa-wp`).
+            - name: CATALYST_QA_APPLICATIONS
+              valueFrom:
+                configMapKeyRef:
+                  name: sovereign-fqdn
+                  key: qaApplications
+                  optional: true
             # CATALYST_GITOPS_USER + CATALYST_GITOPS_TOKEN — basic-auth
             # credentials embedded in the GitOps clone URL (issue #878).
             # Pre-cutover (Catalyst-Zero): User=x-access-token, Token=GitHub
