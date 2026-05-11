@@ -244,6 +244,55 @@ describe('JobsPage — OpenovaFlow snapshot merge (TC-035 fix)', () => {
     })
   })
 
+  it('Case 4 — openova-flow row anchor href carries the full region-prefixed id (TC-035)', async () => {
+    // TC-035 (2026-05-11): the canonical OpenovaFlow node id is
+    // "<region>:<jobName>" (e.g. "contabo:bp-openova-flow-server").
+    // Iter-2 surfaced that JobsTable's link builder USED to slice off
+    // the "<prefix>:" segment, producing an href of
+    //   /sovereign/provision/<id>/jobs/bp-openova-flow-server
+    // and dropping the region identity. The matrix asserts the
+    // verbatim form "/jobs/contabo:bp-openova-flow-server" must
+    // appear in the rendered DOM — which means the row anchor's
+    // href attribute must contain the literal "contabo:" prefix.
+    // FlowPage canvas navigation (PR #1411) + JobDetail flow-fallback
+    // (PR #1412) both depend on this same colon-present form and are
+    // already PASSING, so preserving the colon round-trips end-to-end.
+    const deploymentId = '12e194090631a885'
+    const liveJobs: Job[] = [
+      makeLegacyJob(`${deploymentId}:install-cilium`, 'install-cilium'),
+    ]
+    mockStreamState.nodes = new Map<string, FlowNode>([
+      [
+        'contabo:bp-openova-flow-server',
+        {
+          id: 'contabo:bp-openova-flow-server',
+          flowId: deploymentId,
+          label: 'openova-flow-server',
+          status: 'succeeded',
+        },
+      ],
+    ])
+
+    renderJobs(deploymentId, liveJobs)
+
+    await screen.findByTestId('jobs-table')
+    const link = await waitFor(() => {
+      const el = screen.queryByTestId(
+        'jobs-row-link-contabo:bp-openova-flow-server',
+      ) as HTMLAnchorElement | null
+      if (!el) throw new Error('flow row link not yet mounted')
+      return el
+    })
+    const href = link.getAttribute('href') ?? ''
+    // The matrix's literal substring assertion — the region prefix
+    // MUST survive into the URL path segment, not be stripped or
+    // %3A-encoded.
+    expect(href).toContain('/jobs/contabo:bp-openova-flow-server')
+    // And the row must NOT degrade to the bare-jobName form that the
+    // pre-fix slice produced (regression guard).
+    expect(href).not.toMatch(/\/jobs\/bp-openova-flow-server$/)
+  })
+
   it('Case 3 — legacy 5 / flow has 1 ID-collision + 1 new: legacy wins, total 6 rows', async () => {
     const deploymentId = 'd-case3'
     const collidingId = `${deploymentId}:install-cilium`

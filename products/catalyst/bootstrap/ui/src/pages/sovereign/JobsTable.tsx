@@ -365,19 +365,22 @@ function useJobLinkBuilder(): (jobId: string) => string {
   const params = useParams({ strict: false }) as { deploymentId?: string }
   const isSovereign = DETECTED_MODE.mode === 'sovereign'
   const depId = params.deploymentId ?? ''
-  // Strip the "<deploymentId>:" prefix from the canonical Job id so the
-  // URL carries the bare jobName ("install-keycloak", not
-  // "69e73b3abe673840:install-keycloak"). Traefik (and other upstream
-  // proxies) silently drop the URL-encoding of `:` in path segments,
-  // so a route URL like `/jobs/<id>%3Ainstall-keycloak` arrives at the
-  // backend with %3A unprocessed and Store.GetJob's exact-match path
-  // misses. The bare-jobName lookup is unambiguous per (depId, name)
-  // and is the path Store.GetJob already documents (lines 781–789).
-  // URL-encode the rest so live K8s job ids that contain `/` (e.g.
-  // "job/syft-grype/...") don't fragment the route.
+  // Encode the Job id for use as a URL path segment, but preserve the
+  // literal `:` so region-prefixed OpenovaFlow ids
+  // ("contabo:bp-openova-flow-server" — TC-035, 2026-05-11) survive
+  // verbatim into the href. Previously we stripped the "<prefix>:"
+  // segment entirely to dodge a documented Traefik bug that dropped
+  // the URL-encoding of `:` in path segments — but stripping the
+  // region prefix loses the entity identity that the OpenovaFlow
+  // contract carries (the same node id is used by FlowPage canvas
+  // navigation + JobDetail flow-fallback, both PASSING with the
+  // colon-present form). `encodeURIComponent` is still used so live
+  // K8s job ids containing `/` (e.g. "job/syft-grype/…") stay safe
+  // path segments; we then restore the literal `:` because RFC 3986
+  // permits it inside a path segment (a `pchar`) and JobDetail's
+  // `useParams` lookup keys both the full id AND the bare jobName.
   return (jobId: string) => {
-    const bare = jobId.includes(':') ? jobId.slice(jobId.indexOf(':') + 1) : jobId
-    const encoded = encodeURIComponent(bare)
+    const encoded = encodeURIComponent(jobId).replace(/%3A/g, ':')
     return isSovereign || !depId
       ? `/jobs/${encoded}`
       : `/provision/${depId}/jobs/${encoded}`
