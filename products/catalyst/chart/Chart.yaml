@@ -1,5 +1,62 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.138 (qa-loop iter-1 Fix #138, prov #20 wedge — circular-dep
+# post-install hook):
+#
+# Symptom (prov #20, 1ae1dbcbc9e3c3d7, 2026-05-11):
+#   bp-catalyst-platform HR stuck Reconciling → InstallFailed →
+#   "post-install: timed out waiting for the condition" after 15m.
+#   Helm remediation triggers cleanupOnFail + rollback → loop forever.
+#   prov #20 wedged at phase1-failed.
+#
+# Root cause (canonical-seam map):
+#   The qa-fixtures stack ships two post-install Jobs that depend on
+#   resources provided by bootstrap-kit slots that depend on this HR
+#   being Ready. Circular dependency in the bootstrap-kit DAG:
+#
+#     • templates/qa-fixtures/cnpg-clusters-qa.yaml :: qa-cnpg-backup-s3-seed
+#       waits for `seaweedfs/seaweedfs-s3-secret`. bp-seaweedfs is
+#       bootstrap-kit slot 18; it doesn't even start until slot 13
+#       (this HR) is Ready. Job's 120s poll fails → exponential backoff
+#       (10s/20s/40s/.../1280s, total ~21 min) blows past the 15m
+#       Helm install timeout.
+#
+#     • templates/qa-fixtures/cnpg-clusters-qa.yaml :: qa-cnpg-status-seed
+#       waits 8 min (240×2s) for CNPG Cluster CR controller-side reconcile.
+#       Same chart-self-dependency — adds another long wait window inside
+#       the install timeout budget.
+#
+#   This is documented in the 1.4.134 changelog (Fix #114) as a known
+#   wedge class but never closed: *"qa-cnpg-backup-s3-seed post-install
+#   hook stalls 15m"*. Fix #114 patched the symptom (qa-finalizer-strip
+#   pre-install Job to break the rollback-orphan finalizer deadlock) but
+#   not the root cause (the circular dep itself).
+#
+# Fix:
+#   Drop helm.sh/hook annotations on both Jobs so they become regular
+#   release resources. Helm applies them with `disableWait: true` on the
+#   HR (already set) without waiting for completion. The Jobs run their
+#   wait loops concurrently with bp-seaweedfs / bp-cnpg in later slots;
+#   once the upstream resources materialise, the Jobs complete naturally.
+#   bp-catalyst-platform HR reaches Ready within ~5 min (the actual chart
+#   install time) instead of timing out at 15 min.
+#
+#   Side benefits:
+#   - cluster-primary's barman-cloud retries its S3 connection until
+#     qa-cnpg-backup-s3 Secret is present (CNPG operator behaviour).
+#   - qa-cnpg-status-seed wait extended (no longer constrained by Helm
+#     timeout) — ScheduledBackup runs succeed once the Pods land.
+#   - Per INVIOLABLE-PRINCIPLES #4 the new wait window is operator-
+#     overridable via qaFixtures.s3SeedWaitIterations (default 900 ≈
+#     30 min at 2s/iter).
+#
+# Verification path:
+#   prov #21 (next bounded-cycle re-provision) — bp-catalyst-platform HR
+#   should reach Ready=True within 8 min of dependsOn slots flipping
+#   Ready, instead of failing post-install at 15 min.
+#
+# 1.4.137: deploy-bot auto-bump (no chart-template changes).
+#
 # 1.4.136 (qa-loop bounded-provision-cycle Fix #123, LE rate-limit
 # bypass via staging ClusterIssuer for QA Sovereigns):
 #
@@ -958,7 +1015,7 @@ name: bp-catalyst-platform
 #   - values.yaml: new knobs `cnpgPairAliasName`,
 #     `cnpgPairPostSwitchoverPrimary`, `continuumPlatformNamespace` —
 #     all values-overridable per INVIOLABLE-PRINCIPLES #4.
-version: 1.4.137
+version: 1.4.138
 appVersion: 1.4.94
 # 1.4.129 (qa-loop iter-16 Fix #65): ship the missing
 # `openova-catalog` Flux v1 HelmRepository in flux-system. The

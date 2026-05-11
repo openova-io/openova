@@ -427,7 +427,15 @@ spec:
       # keys as the prefix separator). Split into two valid labels:
       # `openova.io/continuum-mirror-of-namespace` +
       # `openova.io/continuum-mirror-of-name`. Unblocks prov #11+.
-      version: 1.4.136
+      # 1.4.138 (qa-loop iter-1 Fix #138, prov #20 wedge): converts
+      # qa-fixtures qa-cnpg-backup-s3-seed + qa-cnpg-status-seed Jobs
+      # from post-install hooks → regular release resources. Resolves
+      # the circular bootstrap-kit DAG (this slot 13 install hook needed
+      # bp-seaweedfs slot 18 to be Ready, which couldn't happen until
+      # this HR was Ready). bp-catalyst-platform install now completes
+      # in ~5 min instead of timing out at 15 min then loop-rolling back.
+      # 1.4.137: deploy-bot auto-bump (no template changes).
+      version: 1.4.138
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
