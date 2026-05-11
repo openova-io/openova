@@ -115,6 +115,26 @@ resource "hcloud_ssh_key" "main" {
 locals {
   control_plane_count = var.ha_enabled ? 3 : 1
 
+  # ── Effective singular-path SKU selection (Fix #157) ─────────────────────
+  # When qa_fixtures_enabled='true', the Sovereign is a QA-loop matrix
+  # consumer carrying the full bp-* stack PLUS qaFixtures (Continuum +
+  # CNPGPair + status-seeder Jobs + bp-keycloak/harbor/cnpg/openbao race).
+  # The production cpx22 CP / cpx32 worker defaults OOM-cascade on first
+  # apply (validated 12 of 12 fresh provisions in the 2026-05-10 bounded-
+  # cycle session — see memory/session_2026_05_10_bounded_cycle_handover.md).
+  # Auto-flip the SKUs to qa_control_plane_size / qa_worker_size for QA
+  # provisions WITHOUT touching customer-facing Sovereign defaults
+  # (qa_fixtures_enabled='false' → coalesce returns var.control_plane_size /
+  # var.worker_size verbatim, preserving the cpx22/cpx32 baseline).
+  #
+  # coalesce() guards the empty-string corner case the worker_size schema
+  # already permits (solo Sovereign, worker_count=0): an empty
+  # qa_worker_size would otherwise short-circuit to "" — coalesce() falls
+  # back to the production default in that mode.
+  qa_mode               = var.qa_fixtures_enabled == "true"
+  effective_cp_size     = local.qa_mode ? coalesce(var.qa_control_plane_size, var.control_plane_size) : var.control_plane_size
+  effective_worker_size = local.qa_mode ? coalesce(var.qa_worker_size, var.worker_size) : var.worker_size
+
   # k3s deterministic bootstrap token derived from project ID + sovereign FQDN.
   # Workers join with this; k3s rotates it after first join.
   k3s_token = sha256("${var.hcloud_project_id}/${var.sovereign_fqdn}/k3s-bootstrap")
@@ -428,10 +448,13 @@ locals {
 }
 
 resource "hcloud_server" "control_plane" {
-  count        = local.control_plane_count
-  name         = "catalyst-${replace(var.sovereign_fqdn, ".", "-")}-cp${count.index + 1}"
-  image        = "ubuntu-24.04"
-  server_type  = var.control_plane_size
+  count = local.control_plane_count
+  name  = "catalyst-${replace(var.sovereign_fqdn, ".", "-")}-cp${count.index + 1}"
+  image = "ubuntu-24.04"
+  # Fix #157 — auto-flip to qa_control_plane_size on QA Sovereigns
+  # (qa_fixtures_enabled='true'); customer Sovereigns continue to read
+  # var.control_plane_size verbatim. See locals.effective_cp_size.
+  server_type  = local.effective_cp_size
   location     = var.region
   ssh_keys     = [hcloud_ssh_key.main.id]
   firewall_ids = [hcloud_firewall.main.id]
@@ -475,10 +498,13 @@ resource "hcloud_server" "control_plane" {
 # ── Workers: variable count ───────────────────────────────────────────────
 
 resource "hcloud_server" "worker" {
-  count        = var.worker_count
-  name         = "catalyst-${replace(var.sovereign_fqdn, ".", "-")}-w${count.index + 1}"
-  image        = "ubuntu-24.04"
-  server_type  = var.worker_size
+  count = var.worker_count
+  name  = "catalyst-${replace(var.sovereign_fqdn, ".", "-")}-w${count.index + 1}"
+  image = "ubuntu-24.04"
+  # Fix #157 — auto-flip to qa_worker_size on QA Sovereigns
+  # (qa_fixtures_enabled='true'); customer Sovereigns continue to read
+  # var.worker_size verbatim. See locals.effective_worker_size.
+  server_type  = local.effective_worker_size
   location     = var.region
   ssh_keys     = [hcloud_ssh_key.main.id]
   firewall_ids = [hcloud_firewall.main.id]
