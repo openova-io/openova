@@ -50,10 +50,12 @@ spec:
   # cold start. Helm install completes when manifests apply; downstream
   # dependsOn checks Ready=True independently. Replaces PR #221 timeout.
   install:
+    timeout: 15m
     disableWait: true
     remediation:
       retries: 3
   upgrade:
+    timeout: 15m
     disableWait: true
     remediation:
       retries: 3

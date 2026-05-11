@@ -71,10 +71,12 @@ spec:
   # `dependsOn: bp-gateway-api` so Flux gates them on this release's
   # Ready condition.
   install:
+    timeout: 15m
     disableWait: true
     remediation:
       retries: 3
   upgrade:
+    timeout: 15m
     disableWait: true
     remediation:
       retries: 3

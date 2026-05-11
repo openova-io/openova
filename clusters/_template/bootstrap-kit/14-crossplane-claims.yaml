@@ -65,10 +65,12 @@ spec:
   # HR on the upstream CRDs being live; disableWait replaces PR #221's
   # blanket spec.timeout: 15m band-aid.
   install:
+    timeout: 15m
     disableWait: true
     remediation:
       retries: 3
   upgrade:
+    timeout: 15m
     disableWait: true
     remediation:
       retries: 3

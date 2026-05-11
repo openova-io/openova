@@ -112,10 +112,12 @@ spec:
   # ~10 s once the Postgres DSN Secret is present; the long pole is
   # waiting for the operator's Crossplane claim to materialise the DB.
   install:
+    timeout: 15m
     disableWait: true
     remediation:
       retries: 3
   upgrade:
+    timeout: 15m
     disableWait: true
     remediation:
       retries: 3

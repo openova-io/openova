@@ -55,10 +55,12 @@ spec:
   # when manifests apply. disableWait per architecture convention —
   # replaces blanket spec.timeout band-aid.
   install:
+    timeout: 15m
     disableWait: true
     remediation:
       retries: 3
   upgrade:
+    timeout: 15m
     disableWait: true
     remediation:
       retries: 3

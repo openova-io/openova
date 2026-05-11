@@ -64,10 +64,12 @@ spec:
   # past the point where downstream HRs could legitimately reconcile.
   # disableWait lets Flux mark this Ready as soon as manifests apply.
   install:
+    timeout: 15m
     disableWait: true
     remediation:
       retries: 3
   upgrade:
+    timeout: 15m
     disableWait: true
     remediation:
       retries: 3

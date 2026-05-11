@@ -105,10 +105,12 @@ spec:
   # so blocking on Helm `--wait` for the leaf Certificate to reach
   # Ready is unnecessary. Replaces blanket spec.timeout band-aids.
   install:
+    timeout: 15m
     disableWait: true
     remediation:
       retries: 3
   upgrade:
+    timeout: 15m
     disableWait: true
     remediation:
       retries: 3

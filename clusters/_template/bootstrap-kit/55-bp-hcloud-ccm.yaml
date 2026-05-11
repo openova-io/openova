@@ -81,10 +81,12 @@ spec:
   # not a Helm-wait concern. disableWait keeps Flux's Ready signal
   # aligned with manifest apply.
   install:
+    timeout: 15m
     disableWait: true
     remediation:
       retries: 3
   upgrade:
+    timeout: 15m
     disableWait: true
     remediation:
       retries: 3

@@ -60,10 +60,12 @@ spec:
   # Helm `--wait`. disableWait keeps Flux's signal aligned with
   # manifest apply.
   install:
+    timeout: 15m
     disableWait: true
     remediation:
       retries: 3
   upgrade:
+    timeout: 15m
     disableWait: true
     remediation:
       retries: 3

@@ -76,10 +76,12 @@ spec:
   # observes via the BSL CR phase, not via Helm `--wait`. disableWait
   # keeps the HR's Ready signal aligned with manifest apply.
   install:
+    timeout: 15m
     disableWait: true
     remediation:
       retries: 3
   upgrade:
+    timeout: 15m
     disableWait: true
     remediation:
       retries: 3
