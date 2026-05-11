@@ -242,6 +242,40 @@ keycloak:
   resources:
     requests: { cpu: 250m, memory: 512Mi }
     limits: { memory: 2Gi }
+  # ─── Probes — issue #146 (decouple slow Liquibase from livenessProbe) ─────
+  #
+  # Diagnostic finding (prov #21 + #22): the Keycloak StatefulSet's Service
+  # had no Endpoints for 5-10 min after Pod start because Liquibase
+  # migrations + JVM cold-start + first realm load take that long before
+  # `/realms/master` answers 200. With ONLY a livenessProbe (initialDelay
+  # 300s), Liquibase that legitimately runs longer than the probe's grace
+  # window is killed mid-flight by the kubelet, restarting the cycle from
+  # zero — Pod never reaches Ready.
+  #
+  # Fix: enable a startupProbe with a 30m budget (failureThreshold 360 ×
+  # periodSeconds 5 = 1800s). The kubelet treats startupProbe as an
+  # exclusive gate — livenessProbe + readinessProbe are SUSPENDED until
+  # startupProbe passes. Once Keycloak first answers /realms/master,
+  # liveness+readiness take over with their normal cadence.
+  #
+  # livenessProbe.initialDelaySeconds dropped 300 → 60 because cold-start
+  # protection is now the startupProbe's job; lower initial delay means
+  # we detect a genuinely-hung Keycloak ~4 min sooner post-startup.
+  #
+  # All knobs operator-overridable via per-Sovereign overlay valuesFrom
+  # (Inviolable Principle #4: no hardcoding):
+  #   keycloak.startupProbe.failureThreshold
+  #   keycloak.startupProbe.periodSeconds
+  #   keycloak.livenessProbe.initialDelaySeconds
+  startupProbe:
+    enabled: true
+    failureThreshold: 360
+    periodSeconds: 5
+    timeoutSeconds: 5
+    successThreshold: 1
+  livenessProbe:
+    enabled: true
+    initialDelaySeconds: 60
   # ─── keycloak-config-cli: Sovereign realm + kubectl OIDC client (issue #326) ──
   #
   # Bootstrap a `sovereign` realm with a public OIDC client `kubectl` so
@@ -325,11 +359,20 @@ keycloak:
     #     60m+, which BLOWS PAST the parent HR's 15m upgrade.timeout →
     #     Helm aborts the hook → "post-upgrade hooks failed".
     #
-    # Target-state fix (issue #140, NOT a workaround per Principle #3):
-    #   - Bump availabilityCheck.timeout 600s → 900s (15m) — covers a
-    #     legitimate StatefulSet rolling-restart + Liquibase re-validation
-    #     window in a single Pod attempt, eliminating most retries.
-    #   - Keep backoffLimit at 5 (no need to bump; first attempt now fits).
+    # Target-state fix (issue #146, post-#140 retune — prov #21 + #22 hung
+    # 30+ min on bp-keycloak install). Diagnostic finding: 900s (15m) per
+    # availability attempt was TOO COARSE — a single failed attempt busts
+    # the 30m HR window before Job-level backoff has any chance to retry.
+    # Faster failure beats coarser retry: shrink the per-attempt window so
+    # MORE attempts fit inside the HR's 30m envelope.
+    #   - availabilityCheck.timeout 900s → 300s (5m). At backoffLimit=5
+    #     and 10s..6m exponential backoff this fits ~5 attempts inside
+    #     the parent HR's 30m install/upgrade timeout, vs. ~1.5 at 900s.
+    #     Each attempt is still long enough to cover one Liquibase pass +
+    #     JVM warm-up (typical 90-180s) on a fresh-provisioned node.
+    #   - Keep backoffLimit at 5 (Job-level retry handles transient races
+    #     without losing state across Helm hook restarts — see HR-side
+    #     `install.remediation.retries: 1` in 09-keycloak.yaml).
     #   - cleanupAfterFinished.enabled: true with 1h TTL — without this,
     #     stale Failed/Completed Job pods accumulate across upgrades and
     #     `helm.sh/hook-delete-policy: before-hook-creation` may race with
@@ -338,11 +381,12 @@ keycloak:
     #     ttlSecondsAfterFinished hook surfaces this knob via .seconds.
     #
     # Coupled HR change (clusters/_template/bootstrap-kit/09-keycloak.yaml):
-    # bumps install.timeout AND upgrade.timeout 15m → 30m so Helm's
-    # outer hook-wait gracefully accommodates the inner 15m availability
-    # window plus normal backoff (the realistic worst case is now ≤ 25m).
-    # The two timeouts MUST move together — chart-side tuning without HR
-    # outer-bound is a half-fix.
+    # install.remediation.retries 3 → 1 + upgrade.remediation.retries 3 → 1.
+    # Flux HR remediation retries do a FULL Helm rollback + reinstall on
+    # each attempt — losing all hook-Pod state, restarting Liquibase from
+    # zero, and consuming a fresh 30m HR timeout per loop. The Job's own
+    # backoffLimit=5 already provides retry semantics WITHOUT losing
+    # state. HR-level retries on top compound to 90m of wasted work.
     #
     # All knobs remain operator-overridable via per-Sovereign overlay
     # valuesFrom paths (Inviolable Principle #4: no hardcoding):
@@ -352,6 +396,14 @@ keycloak:
     #   keycloak.keycloakConfigCli.cleanupAfterFinished.seconds
     # Operators with faster substrates may shorten them.
     #
+    # TODO (issue #146 follow-up — out of scope for this fix per diagnostic
+    # "ship knob bumps first to validate hypothesis"): move realm-import
+    # OUT of the bitnami post-install Helm hook into a Catalyst-owned
+    # Job that runs after Keycloak Service has Endpoints. The Helm-hook
+    # design forces the entire HR Ready-state to depend on hook
+    # completion; a Catalyst-owned Job decouples HR-Ready from realm-
+    # imported and lets the orchestrator wait on the Job CR directly.
+    #
     # NOT a workaround per Inviolable Principle #3. The workaround would
     # be disabling the hook semantics entirely (set annotations: {}); that
     # breaks the documented contract that the realm is imported before
@@ -360,7 +412,7 @@ keycloak:
     # AND the outer Helm hook-wait both respect the contract.
     availabilityCheck:
       enabled: true
-      timeout: "900s"
+      timeout: "300s"
     backoffLimit: 5
     # Bitnami exposes ttlSecondsAfterFinished via .cleanupAfterFinished.
     # 3600s = 1h — long enough for an operator post-mortem on a Failed

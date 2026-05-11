@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-keycloak
-version: 1.4.4
+version: 1.4.5
 description: |
   Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
   upstream `keycloak` chart (bitnami) as a Helm subchart so
@@ -36,6 +36,37 @@ description: |
   credentials Secret `realm` key flow from the same value, keeping
   Keycloak realm and catalyst-api CATALYST_KC_REALM env in sync. Closes
   TC-124, TC-125, TC-159, TC-160, TC-161, TC-176, TC-190, TC-285.
+  1.4.5 (issue #146, post-#140 retune — prov #21 + #22 hung 30+ min on
+  bp-keycloak install): Fix #140 set availabilityCheck.timeout=900s +
+  HR install/upgrade.timeout=30m + remediation.retries=3. In practice
+  the 900s per-attempt window meant a single failed availability check
+  busted the 30m HR window before Job-level backoff could retry —
+  AND each HR remediation triggered a full Helm uninstall+reinstall,
+  losing all hook-Pod state and restarting Liquibase from zero
+  (90m+ wasted wall-clock). On top, Liquibase + JVM cold-start
+  legitimately took 5-10min before the StatefulSet's Service had
+  Endpoints, but the Bitnami Pod's livenessProbe (initialDelaySeconds
+  300) was killing it mid-migration on slower-disk Sovereigns.
+  Three coupled changes for target-state fix:
+    - keycloakConfigCli.availabilityCheck.timeout 900s → 300s. Faster
+      failure means more attempts fit inside 30m HR envelope (~5 vs.
+      ~1.5 with 900s). Each 300s window still covers one full
+      Liquibase pass + JVM warm-up (typical 90-180s).
+    - HR install.remediation.retries + upgrade.remediation.retries
+      3 → 1 (in clusters/_template/bootstrap-kit/09-keycloak.yaml).
+      The Job's own backoffLimit=5 handles transient races without
+      losing state; HR-level remediation is reserved for genuine
+      release-failure.
+    - keycloak.startupProbe.enabled=true (failureThreshold 360 ×
+      periodSeconds 5 = 30m budget). startupProbe is an exclusive
+      kubelet gate — livenessProbe + readinessProbe are SUSPENDED
+      until startupProbe passes, so slow Liquibase isn't killed
+      mid-migration. keycloak.livenessProbe.initialDelaySeconds
+      300 → 60 (cold-start protection now lives in startupProbe).
+  All knobs operator-overridable via valuesFrom (Principle #4). TODO
+  follow-up: move realm-import OUT of the bitnami post-install Helm
+  hook into a Catalyst-owned Job that runs after Keycloak Service
+  has Endpoints — decouples HR-Ready from realm-imported.
   1.4.4 (issue #140, post-upgrade hook regression on prov #21): Fix #129
   set 600s + backoffLimit=5, which works for fresh-install but races on
   upgrade. On prov #21 (f84f6c3ff2b60296, 2026-05-11) the chart-roll on

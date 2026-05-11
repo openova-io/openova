@@ -45,6 +45,16 @@ spec:
       # parameter so each Sovereign owns its KC realm named after the tenant
       # short-name (omantel chroot → "omantel"). Default `sovereign` is kept
       # in the chart for backward compat with overlays not yet migrated.
+      # 1.4.5 (issue #146, prov #21+#22 hung 30+ min on bp-keycloak install):
+      # post-#140 retune. (a) availabilityCheck.timeout 900s → 300s — coarser
+      # retry was busting HR window before backoff could retry; faster
+      # failure means more attempts fit. (b) startupProbe enabled with 30m
+      # budget so slow Liquibase doesn't get killed by livenessProbe mid-
+      # migration. (c) livenessProbe.initialDelaySeconds 300 → 60 (cold-
+      # start protection now lives in startupProbe). Coupled HR change
+      # below: install/upgrade.remediation.retries 3 → 1 (Job's own
+      # backoffLimit handles retries without losing state across Helm
+      # restarts). Together: ≤ 30m wall-clock vs. 90m+ before.
       # 1.4.4 (issue #140, post-upgrade hook regression on prov #21): bumps
       # keycloakConfigCli.availabilityCheck.timeout 600s → 900s + adds
       # cleanupAfterFinished (1h TTL) so stale hook Pods don't race
@@ -53,7 +63,7 @@ spec:
       # outer hook-wait accommodates the inner 15m availability window.
       # 1.4.3 (issue #129): bumped keycloakConfigCli.availabilityCheck.timeout
       # 120s → 600s + backoffLimit 1 → 5 (fresh-install wedge).
-      version: 1.4.4
+      version: 1.4.5
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak
@@ -74,16 +84,27 @@ spec:
   # window. 30m gives Helm room to wait out one full inner attempt plus
   # exponential backoff if needed, without blowing past Flux's HR timer.
   # If you bump availabilityCheck.timeout further, bump THIS too.
+  # remediation.retries 3 → 1 (issue #146, prov #21+#22 hung 30+ min):
+  # Flux HR remediation does a full Helm uninstall+reinstall on each retry,
+  # losing all hook-Pod state and restarting Liquibase from zero. With 3
+  # retries × 30m HR timeout = up to 90m of wasted work before Flux gives
+  # up. The keycloak-config-cli Job already retries internally via
+  # `backoffLimit: 5` (set in chart values.yaml) — Job-level backoff
+  # preserves Keycloak's state and only re-runs the realm-import sidecar.
+  # HR-level remediation is reserved for genuine release-failure (e.g.
+  # invalid manifest) where a clean reinstall is the right answer; one
+  # retry is sufficient for that. Job-level vs. HR-level retry is the
+  # correct separation per the bitnami subchart's design.
   install:
     disableWait: true
     timeout: 30m
     remediation:
-      retries: 3
+      retries: 1
   upgrade:
     disableWait: true
     timeout: 30m
     remediation:
-      retries: 3
+      retries: 1
   # Per-Sovereign overrides — issue #387 + #604 + qa-loop iter-12 Fix #53A:
   # Wire the per-Sovereign hostname into the HTTPRoute template and
   # sovereign realm ConfigMap (catalyst-ui redirect URIs). The HTTPRoute
