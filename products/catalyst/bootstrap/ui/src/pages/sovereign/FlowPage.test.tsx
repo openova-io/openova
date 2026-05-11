@@ -121,14 +121,10 @@ describe('FlowPage — render', () => {
     expect(await screen.findByTestId('flow-canvas-svg')).toBeTruthy()
   })
 
-  it('renders at least one node bubble (default catalog)', async () => {
+  it('renders at least one job bubble (default catalog)', async () => {
     renderFlow('/provision/d-1/flow')
     await screen.findByTestId('flow-canvas-svg')
-    // OpenovaFlow Foundation: bubbles are now `data-testid="flow-node-*"`
-    // (was `flow-job-*` under the legacy FlowCanvasOrganic). The legacy
-    // testid is retained by the deprecated FlowCanvasOrganic so its own
-    // tests still pass; FlowPage now drives @openova/flow-canvas.
-    const bubbles = document.querySelectorAll('[data-testid^="flow-node-"]')
+    const bubbles = document.querySelectorAll('[data-testid^="flow-job-"]')
     expect(bubbles.length).toBeGreaterThan(0)
   })
 
