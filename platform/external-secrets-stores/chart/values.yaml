@@ -49,20 +49,35 @@ webhookGate:
   service:
     name: external-secrets-webhook
     namespace: external-secrets-system
-  # Total wait budget. Originally 60s (1.0.1) — proved too tight on prov #21
-  # (`f84f6c3ff2b60296`) where the upstream ESO webhook took ~75-105s to
-  # reach a fully serving state on a fresh Hetzner cold-start k3s. The full
-  # convergence path is:
-  #   1. external-secrets-webhook Pod Ready          (~30-60s after install)
-  #   2. cert-manager TLS Secret created + mounted   (~30s after Pod Ready)
-  #   3. cainjector patches ValidatingWebhookConfig CA (~10s)
-  #   4. Endpoints object populates                  (~5s)
-  # Total: 75-105s end-to-end. 300s gives ~3x headroom for the slowest
-  # observed cold-start while still failing fast on a genuinely broken
-  # upstream (5min vs an unbounded Helm timeout). This is target-state per
-  # docs/INVIOLABLE-PRINCIPLES.md #4 — sized to the real worst-case, not
-  # padded retry-bandaid.
-  timeoutSeconds: 300
+  # Total wait budget. History:
+  #   1.0.1 — 60s (issue #137 / prov #20): caught most cases but raced on
+  #           prov #21 where convergence took 75-105s.
+  #   1.0.2 — 300s (issue #141 / prov #21): ~3x headroom over observed
+  #           75-105s, but STILL raced on provs #22+#23+#23retry where
+  #           image pull (cold node, no warmed layer cache) + cert-manager
+  #           transient retries earlier in the run pushed total webhook
+  #           convergence past the 300s budget.
+  #   1.0.3 — 600s (issue #147 / prov #23, this bump): defensive 10x hedge
+  #           over the 60s realistic warm-start cold-path, sized for the
+  #           pathological cold provision where:
+  #             a. node has no image cache → ESO image pull adds 60-120s
+  #             b. cert-manager itself was retrying earlier in the run,
+  #                so the TLS Secret materialises later than its own HR
+  #                Ready=True implies
+  #             c. cainjector queue can be backed up patching multiple
+  #                ValidatingWebhookConfiguration objects in parallel
+  # Full convergence path:
+  #   1. external-secrets-webhook image pull          (~60-120s cold)
+  #   2. external-secrets-webhook Pod Ready           (~30-60s)
+  #   3. cert-manager TLS Secret created + mounted    (~30-60s)
+  #   4. cainjector patches ValidatingWebhookConfig CA(~10-30s)
+  #   5. Endpoints object populates                   (~5-10s)
+  # Worst-case total: ~135-280s; 600s gives ~2x headroom even at the
+  # pathological end. This is target-state per docs/INVIOLABLE-PRINCIPLES.md
+  # #4 — realistic max budget for cold-start, not a band-aid retry pad.
+  # Still bounded (10min) so a genuinely broken upstream fails the HR
+  # rather than wedging Flux indefinitely.
+  timeoutSeconds: 600
   # Poll interval. 2s gives ~30 attempts in the 60s budget.
   intervalSeconds: 2
   # Hook image. bitnami/kubectl is the canonical chart-side tooling across
