@@ -52,6 +52,13 @@ kind: HelmRelease
 metadata:
   name: bp-self-sovereign-cutover
   namespace: flux-system
+  labels:
+    # slot drives the openova-flow adapter's Phase derivation
+    # (clusters/_template/bootstrap-kit/<NN>-...yaml encodes the
+    # install order). component=cutover overrides the slot rule so
+    # this HR lands in Phase 2 (Cutover) on the canvas, NOT Phase 1.
+    catalyst.openova.io/slot: "06a"
+    catalyst.openova.io/component: cutover
 spec:
   interval: 15m
   releaseName: self-sovereign-cutover

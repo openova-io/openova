@@ -41,6 +41,8 @@ kind: HelmRelease
 metadata:
   name: bp-seaweedfs
   namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "18"
 spec:
   interval: 15m
   releaseName: seaweedfs

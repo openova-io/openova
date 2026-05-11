@@ -45,6 +45,8 @@ kind: HelmRelease
 metadata:
   name: bp-coraza
   namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "35"
 spec:
   interval: 15m
   releaseName: coraza

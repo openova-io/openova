@@ -68,6 +68,8 @@ kind: HelmRelease
 metadata:
   name: bp-cluster-autoscaler-hcloud
   namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "50"
 spec:
   interval: 15m
   releaseName: cluster-autoscaler

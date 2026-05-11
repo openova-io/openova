@@ -34,6 +34,13 @@ kind: HelmRelease
 metadata:
   name: bp-catalyst-platform
   namespace: flux-system
+  labels:
+    # slot encodes bootstrap-kit install order; component=catalyst-platform
+    # overrides the default Phase 1 mapping so this HR lands in
+    # Phase 3 (Sovereign Live) on the openova-flow canvas — once
+    # Ready=True the Sovereign is fully self-sufficient.
+    catalyst.openova.io/slot: "13"
+    catalyst.openova.io/component: catalyst-platform
 spec:
   interval: 15m
   releaseName: catalyst-platform

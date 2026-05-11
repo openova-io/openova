@@ -29,6 +29,8 @@ kind: HelmRelease
 metadata:
   name: bp-keycloak
   namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "09"
 spec:
   interval: 15m
   releaseName: keycloak

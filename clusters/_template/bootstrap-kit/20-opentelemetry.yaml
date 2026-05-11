@@ -49,6 +49,8 @@ kind: HelmRelease
 metadata:
   name: bp-opentelemetry
   namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "20"
 spec:
   interval: 15m
   timeout: 15m

@@ -82,6 +82,8 @@ kind: HelmRelease
 metadata:
   name: bp-cert-manager-powerdns-webhook
   namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "49"
 spec:
   interval: 15m
   releaseName: cert-manager-powerdns-webhook

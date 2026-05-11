@@ -40,6 +40,8 @@ kind: HelmRelease
 metadata:
   name: bp-newapi
   namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "80"
 spec:
   interval: 15m
   releaseName: newapi

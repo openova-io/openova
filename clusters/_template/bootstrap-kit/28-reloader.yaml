@@ -41,6 +41,8 @@ kind: HelmRelease
 metadata:
   name: bp-reloader
   namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "28"
 spec:
   interval: 15m
   releaseName: reloader

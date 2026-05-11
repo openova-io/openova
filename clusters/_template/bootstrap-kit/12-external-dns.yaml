@@ -44,6 +44,8 @@ kind: HelmRelease
 metadata:
   name: bp-external-dns
   namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "12"
 spec:
   interval: 15m
   releaseName: external-dns

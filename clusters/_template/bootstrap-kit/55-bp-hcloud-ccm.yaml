@@ -63,6 +63,8 @@ kind: HelmRelease
 metadata:
   name: bp-hcloud-ccm
   namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "55"
 spec:
   interval: 15m
   releaseName: hcloud-ccm

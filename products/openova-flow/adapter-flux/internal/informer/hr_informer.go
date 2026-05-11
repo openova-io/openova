@@ -58,6 +58,16 @@ type Runtime struct {
 	// (same id, same status) into a single POST.
 	mu         sync.Mutex
 	lastStatus map[string]string
+
+	// tracker — per-group rollup state. Region root + each phase
+	// column are group nodes; the tracker drives their status
+	// re-emission whenever a child HR changes status.
+	tracker *StatusTracker
+
+	// nodeGroups — last-known group memberships for each leaf node
+	// (region ID + phase ID). Used to compute Forget targets on
+	// delete events.
+	nodeGroups map[string][]string
 }
 
 // NewRuntime constructs the adapter runtime. The caller supplies the
@@ -74,6 +84,8 @@ func NewRuntime(cfg config.Config, restCfg *rest.Config, log *slog.Logger) (*Run
 		log:        log,
 		factory:    dynamicinformer.NewFilteredDynamicSharedInformerFactory(dyn, 0, cfg.NamespaceFilter, nil),
 		lastStatus: map[string]string{},
+		tracker:    NewStatusTracker(),
+		nodeGroups: map[string][]string{},
 	}, nil
 }
 
@@ -88,6 +100,8 @@ func NewRuntimeForTest(cfg config.Config, dyn dynamic.Interface, log *slog.Logge
 		log:        log,
 		factory:    dynamicinformer.NewFilteredDynamicSharedInformerFactory(dyn, 0, cfg.NamespaceFilter, nil),
 		lastStatus: map[string]string{},
+		tracker:    NewStatusTracker(),
+		nodeGroups: map[string][]string{},
 	}
 }
 
@@ -95,8 +109,9 @@ func NewRuntimeForTest(cfg config.Config, dyn dynamic.Interface, log *slog.Logge
 // envelope so the server has a parent bubble before the first HR
 // arrives. Blocks on the supplied context — returns when ctx is cancelled.
 func (r *Runtime) Start(ctx context.Context) error {
-	// 1) Emit synthetic FlowInstance + region node up-front. The
-	//    canvas needs the per-region container before the first HR
+	// 1) Emit synthetic FlowInstance + region node + phase nodes +
+	//    phase-to-phase edges up-front. The canvas needs the
+	//    per-region container + phase columns before the first HR
 	//    upsert lands.
 	if err := r.bootstrap(ctx); err != nil {
 		r.log.Warn("informer: bootstrap emit failed; continuing", "err", err)
@@ -129,8 +144,9 @@ func (r *Runtime) Start(ctx context.Context) error {
 }
 
 // bootstrap emits the FlowInstance + the per-region synthetic
-// FlowNode so the canvas has a stable parent for the HR nodes
-// before any HR event has flowed.
+// FlowNode + the four phase synthetic nodes + the three phase-to-phase
+// finish-to-start edges so the canvas has the full Phase/Region
+// skeleton before any HR event has flowed.
 func (r *Runtime) bootstrap(ctx context.Context) error {
 	region := r.cfg.RegionKey
 	now := time.Now().UnixMilli()
@@ -146,12 +162,36 @@ func (r *Runtime) bootstrap(ctx context.Context) error {
 	if err := r.emit.Emit(ctx, types.FlowMessage{Type: types.TypeUpsertFlow, Flow: flow}); err != nil {
 		return err
 	}
+
+	// Region root.
 	regionNode := BuildRegionNode(region)
 	regionNode.FlowID = r.cfg.FlowID
-	return r.emit.Emit(ctx, types.FlowMessage{
+
+	// Phase columns — all four.
+	phaseNodes := BuildPhaseNodes(region)
+	for i := range phaseNodes {
+		phaseNodes[i].FlowID = r.cfg.FlowID
+	}
+
+	allNodes := append([]types.FlowNode{regionNode}, phaseNodes...)
+	if err := r.emit.Emit(ctx, types.FlowMessage{
 		Type:  types.TypeUpsertNodes,
-		Nodes: []types.FlowNode{regionNode},
-	})
+		Nodes: allNodes,
+	}); err != nil {
+		return err
+	}
+
+	// Phase-to-phase finish-to-start edges (3 per region).
+	phaseEdges := BuildPhaseEdges(region)
+	if len(phaseEdges) > 0 {
+		if err := r.emit.Emit(ctx, types.FlowMessage{
+			Type:          types.TypeUpsertRels,
+			Relationships: phaseEdges,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // handle is invoked on every HR informer event. Maps to FlowMessage
@@ -172,13 +212,20 @@ func (r *Runtime) handle(ctx context.Context, obj any, deleted bool) {
 		nodeID := r.cfg.RegionKey + "/" + u.GetName()
 		r.mu.Lock()
 		delete(r.lastStatus, nodeID)
+		groups := r.nodeGroups[nodeID]
+		delete(r.nodeGroups, nodeID)
 		r.mu.Unlock()
+		for _, g := range groups {
+			r.tracker.Forget(g, nodeID)
+		}
 		if err := r.emit.Emit(ctx, types.FlowMessage{
 			Type: types.TypeDeleteNodes,
 			IDs:  []string{nodeID},
 		}); err != nil {
 			r.log.Warn("informer: delete emit failed", "err", err, "id", nodeID)
 		}
+		// Re-emit affected synthetic parents with their new rollup.
+		r.reemitGroups(ctx, groups)
 		return
 	}
 
@@ -187,6 +234,16 @@ func (r *Runtime) handle(ctx context.Context, obj any, deleted bool) {
 		return
 	}
 	res.Node.FlowID = r.cfg.FlowID
+
+	// Track this leaf's membership in its region root + phase column,
+	// then update the rollup tracker.
+	groups := []string{r.cfg.RegionKey, res.PhaseID}
+	r.mu.Lock()
+	r.nodeGroups[res.Node.ID] = groups
+	r.mu.Unlock()
+	for _, g := range groups {
+		r.tracker.Record(g, res.Node.ID, res.Node.Status)
+	}
 
 	// Dedupe per (id, status).
 	r.mu.Lock()
@@ -220,4 +277,75 @@ func (r *Runtime) handle(ctx context.Context, obj any, deleted bool) {
 	}); err != nil {
 		r.log.Warn("informer: rel emit failed", "err", err)
 	}
+
+	// Status changed — re-emit synthetic parents with rolled-up status.
+	r.reemitGroups(ctx, groups)
+}
+
+// reemitGroups — push an upsert-nodes for each synthetic parent so
+// its status reflects the latest rollup. Phase-0 is special-cased to
+// always emit "succeeded" (the adapter can only see HRs after Phase 0
+// has completed).
+func (r *Runtime) reemitGroups(ctx context.Context, groups []string) {
+	for _, g := range groups {
+		node, ok := r.buildGroupNode(g)
+		if !ok {
+			continue
+		}
+		if err := r.emit.Emit(ctx, types.FlowMessage{
+			Type:  types.TypeUpsertNodes,
+			Nodes: []types.FlowNode{node},
+		}); err != nil {
+			r.log.Warn("informer: group re-emit failed", "err", err, "id", g)
+		}
+	}
+}
+
+// buildGroupNode — reconstruct one synthetic parent (region or phase)
+// with its current rolled-up status. Returns (_, false) for unknown
+// group ids.
+func (r *Runtime) buildGroupNode(groupID string) (types.FlowNode, bool) {
+	region := r.cfg.RegionKey
+	if region == "" {
+		region = "default"
+	}
+
+	// Region root.
+	if groupID == region {
+		n := BuildRegionNode(region)
+		n.FlowID = r.cfg.FlowID
+		n.Status = r.tracker.Rollup(groupID)
+		return n, true
+	}
+
+	// Phase column — look up suffix.
+	prefix := region + "/"
+	if len(groupID) <= len(prefix) || groupID[:len(prefix)] != prefix {
+		return types.FlowNode{}, false
+	}
+	suffix := groupID[len(prefix):]
+	label, knownPhase := phaseLabels[suffix]
+	if !knownPhase {
+		return types.FlowNode{}, false
+	}
+	regionCopy := region
+	status := r.tracker.Rollup(groupID)
+	if suffix == PhaseSuffixCloudProvisioning {
+		// Phase 0 stays "succeeded" by definition — see BuildPhaseNodes
+		// docstring.
+		status = "succeeded"
+	}
+	return types.FlowNode{
+		ID:     groupID,
+		FlowID: r.cfg.FlowID,
+		Label:  label,
+		Status: status,
+		Family: ptr("phase"),
+		Region: &regionCopy,
+		Meta: map[string]interface{}{
+			"layout":  "lane-horizontal",
+			"isGroup": true,
+			"sortKey": phaseSortKey[suffix],
+		},
+	}, true
 }

@@ -58,6 +58,8 @@ kind: HelmRelease
 metadata:
   name: bp-velero
   namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "34"
 spec:
   interval: 15m
   releaseName: velero

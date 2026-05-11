@@ -50,6 +50,8 @@ kind: HelmRelease
 metadata:
   name: bp-flux
   namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "03"
 spec:
   interval: 15m
   releaseName: flux

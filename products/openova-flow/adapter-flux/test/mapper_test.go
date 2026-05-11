@@ -57,21 +57,25 @@ status:
 	if res.Node.Region == nil || *res.Node.Region != "fsn1" {
 		t.Fatalf("region: %+v", res.Node.Region)
 	}
-	// One "contains" rel + one dependsOn rel.
-	if len(res.Relationships) != 2 {
-		t.Fatalf("rels=%d want 2: %+v", len(res.Relationships), res.Relationships)
+	// Two "contains" rels (region + phase) + one dependsOn rel.
+	if len(res.Relationships) != 3 {
+		t.Fatalf("rels=%d want 3: %+v", len(res.Relationships), res.Relationships)
 	}
-	var hasContains, hasDep bool
+	var hasRegionContains, hasPhaseContains, hasDep bool
 	for _, r := range res.Relationships {
 		if r.Type == "contains" && r.FromID == "fsn1" && r.ToID == "fsn1/bp-cert-manager" {
-			hasContains = true
+			hasRegionContains = true
+		}
+		if r.Type == "contains" && r.FromID == "fsn1/phase-1" && r.ToID == "fsn1/bp-cert-manager" {
+			hasPhaseContains = true
 		}
 		if r.Type == "finish-to-start" && r.FromID == "fsn1/bp-cilium" && r.ToID == "fsn1/bp-cert-manager" {
 			hasDep = true
 		}
 	}
-	if !hasContains || !hasDep {
-		t.Fatalf("missing rels: %+v", res.Relationships)
+	if !hasRegionContains || !hasPhaseContains || !hasDep {
+		t.Fatalf("missing rels: regionContains=%v phaseContains=%v dep=%v rels=%+v",
+			hasRegionContains, hasPhaseContains, hasDep, res.Relationships)
 	}
 }
 
@@ -233,9 +237,9 @@ status:
       status: "True"
 `)
 	res, _ := informer.BuildFromHR(hr, "fsn1")
-	// 1 "contains" + 6 finish-to-start.
-	if len(res.Relationships) != 7 {
-		t.Fatalf("rels=%d want 7", len(res.Relationships))
+	// 2 "contains" (region + phase) + 6 finish-to-start.
+	if len(res.Relationships) != 8 {
+		t.Fatalf("rels=%d want 8", len(res.Relationships))
 	}
 }
 
@@ -247,10 +251,19 @@ func TestMapper_RegionNodeBootstrap(t *testing.T) {
 	if n.Region == nil || *n.Region != "hel1" {
 		t.Fatalf("region: %+v", n.Region)
 	}
-	if n.Status != "running" {
+	// Region root starts pending — rollup is driven by the
+	// StatusTracker as child HRs arrive. "pending" is the no-children
+	// default per RollupStatus contract.
+	if n.Status != "pending" {
 		t.Fatalf("status: %s", n.Status)
 	}
 	if n.Family == nil || *n.Family != "region" {
 		t.Fatalf("family: %+v", n.Family)
+	}
+	if n.Meta["layout"] != "lane-vertical" {
+		t.Fatalf("layout: %+v", n.Meta["layout"])
+	}
+	if n.Meta["isGroup"] != true {
+		t.Fatalf("isGroup: %+v", n.Meta["isGroup"])
 	}
 }

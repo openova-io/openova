@@ -44,6 +44,8 @@ kind: HelmRelease
 metadata:
   name: bp-cnpg
   namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "16"
 spec:
   interval: 15m
   releaseName: cnpg

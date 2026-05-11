@@ -30,6 +30,8 @@ kind: HelmRelease
 metadata:
   name: bp-gitea
   namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "10"
 spec:
   interval: 15m
   releaseName: gitea

@@ -41,6 +41,8 @@ kind: HelmRelease
 metadata:
   name: bp-tempo
   namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "24"
 spec:
   interval: 15m
   timeout: 15m

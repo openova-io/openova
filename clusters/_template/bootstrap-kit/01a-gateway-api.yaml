@@ -48,6 +48,8 @@ kind: HelmRelease
 metadata:
   name: bp-gateway-api
   namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "01a"
 spec:
   interval: 15m
   releaseName: gateway-api

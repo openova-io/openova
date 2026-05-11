@@ -63,6 +63,8 @@ kind: HelmRelease
 metadata:
   name: bp-guacamole
   namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "52"
 spec:
   interval: 15m
   releaseName: guacamole

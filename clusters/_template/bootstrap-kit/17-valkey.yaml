@@ -36,6 +36,8 @@ kind: HelmRelease
 metadata:
   name: bp-valkey
   namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "17"
 spec:
   interval: 15m
   releaseName: valkey

@@ -46,6 +46,8 @@ kind: HelmRelease
 metadata:
   name: bp-grafana
   namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "25"
 spec:
   interval: 15m
   timeout: 15m

@@ -67,6 +67,8 @@ kind: HelmRelease
 metadata:
   name: bp-harbor
   namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "19"
 spec:
   interval: 15m
   releaseName: harbor
