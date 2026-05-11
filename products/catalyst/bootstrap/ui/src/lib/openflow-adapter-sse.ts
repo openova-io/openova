@@ -229,6 +229,21 @@ export function useFlowStream(args: UseFlowStreamArgs): FlowStreamState {
         reconnectAttemptsRef.current = 0
         setState((prev) => ({ ...prev, streamStatus: 'streaming' }))
       }
+      // The server emits NAMED SSE events (`event: snapshot`, `event:
+      // upsert-nodes`, etc.) per the OpenovaFlow contract. EventSource's
+      // `onmessage` handler ONLY fires for the default-named "message"
+      // event, so it never sees these frames. We register explicit
+      // addEventListener handlers for every named event the contract
+      // defines. The `onmessage` assignment below is retained as a safety
+      // net for any future un-named frame the server might emit.
+      next.addEventListener('snapshot', onMessage as EventListener)
+      next.addEventListener('upsert-flow', onMessage as EventListener)
+      next.addEventListener('upsert-nodes', onMessage as EventListener)
+      next.addEventListener('upsert-rels', onMessage as EventListener)
+      next.addEventListener('delete-nodes', onMessage as EventListener)
+      next.addEventListener('delete-rels', onMessage as EventListener)
+      // Heartbeats carry no payload — listen but don't reduce.
+      next.addEventListener('heartbeat', () => {})
       next.onmessage = onMessage
       next.onerror = () => {
         if (cancelled) return
