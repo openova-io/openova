@@ -8,10 +8,22 @@
 //	GET  /api/v1/flows/{deploymentId}/stream   — SSE: snapshot + tail (pass-through)
 //	POST /api/v1/flows/{deploymentId}/events   — ingest one FlowMessage envelope
 //
-// All three proxy to the openova-flow-server at OPENOVA_FLOW_SERVER_URL
-// (default in-cluster Service URL for the Sovereign-side catalyst-api;
-// the mother-side catalyst-api consumes its own per-Sovereign HTTPRoute
-// — see main.go where the env is read from the deployment record).
+// Two deploy contexts share this handler:
+//
+//   - Sovereign chroot (catalyst-api running INSIDE a Sovereign) — talks
+//     to its own openova-flow-server via the in-cluster Service DNS.
+//     The env `OPENOVA_FLOW_SERVER_URL` is set so the resolver returns
+//     it verbatim and the per-deployment lookup is skipped.
+//   - Mothership (catalyst-api on contabo) — must talk to a DIFFERENT
+//     Sovereign per request because the in-cluster DNS only points at
+//     its OWN cluster. We resolve the upstream URL from the deployment
+//     record's sovereignFQDN: each Sovereign exposes its flow-server
+//     publicly via the bp-openova-flow-server chart's HTTPRoute as
+//     `openova-flow.<sovereign-fqdn>` (see
+//     `platform/openova-flow-server/chart/values.yaml` →
+//     `httproute.hostname`, and the per-Sovereign overlay in
+//     `clusters/_template/bootstrap-kit/56-bp-openova-flow-server.yaml`
+//     which sets `hostname: openova-flow.${SOVEREIGN_FQDN}`).
 //
 // The flowId on the upstream is the catalyst-api deploymentId — the
 // openova-flow-server uses flowId as an opaque key so the same string
@@ -26,32 +38,41 @@
 //     read-write loop so every `data:` frame from the upstream lands
 //     in the browser within ~milliseconds.
 //   - docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode): the upstream
-//     URL is sourced from env `OPENOVA_FLOW_SERVER_URL`. There is no
-//     default `https://…` literal that would tie this code to a
-//     specific Sovereign FQDN.
+//     URL is either explicitly env-driven (chroot mode) or derived at
+//     runtime from the deployment record's sovereignFQDN (mother mode).
+//     No hostname suffix or region literal is baked into this file —
+//     only the public hostname prefix `openova-flow.` which is itself
+//     the chart's documented convention.
 //   - Canonical SSE pattern in this codebase: deployments.go
 //     `StreamLogs` (lines 1208-1287) — Content-Type: text/event-stream,
 //     Cache-Control: no-cache, Connection: keep-alive, X-Accel-Buffering:
 //     no, http.Flusher.Flush after every event. This proxy mirrors that
 //     header set on the response side AND streams the upstream body
 //     verbatim.
-//   - Headers propagated to upstream: cookies (the openova-flow-server
-//     itself is unauthenticated today, but future iterations may want
-//     to assert the operator's session). Request-context propagation
-//     ensures the upstream connection closes when the browser tab
-//     closes.
+//   - Canonical PDM-by-deploymentId lookup pattern: deployments.go
+//     `GetDeployment` (lines 1201-1216) — `h.deployments.Load(id)` →
+//     `(*Deployment).Request.SovereignFQDN`. The `chrootEnsureDeployment`
+//     fallback (jobs.go lines 53-86) covers the chroot mode where the
+//     deployment record isn't pre-populated; on the mother that
+//     fallback is a no-op so we surface 404.
+//   - Canonical self-signed-TLS pattern: deployment_handover_export.go
+//     line 62 — `&tls.Config{InsecureSkipVerify: true}` is only used
+//     when explicitly opted-in. Here we gate it on the env
+//     `OPENOVA_FLOW_TLS_SKIP_VERIFY=true` so a qa-loop Sovereign with
+//     LE-staging certs (Fake LE Intermediate X1) is reachable, while
+//     production deployments default to strict TLS verification.
 //
 // Per docs/INVIOLABLE-PRINCIPLES.md #21 (two-repo discipline) this
-// proxy lives in openova-io/openova (public). The per-Sovereign
-// concrete openova-flow-server URL lives in the deployment record
-// (private state inside the Sovereign's K8s — Service DNS resolution
-// or HTTPRoute hostname is derived at runtime, not committed).
+// proxy lives in openova-io/openova (public). Per-Sovereign concrete
+// FQDNs live in the deployment record (in-memory + on-disk store under
+// CATALYST_DEPLOYMENTS_DIR — private state inside the cluster).
 
 package handler
 
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net/http"
@@ -63,20 +84,45 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-// defaultFlowServerURL is the in-cluster Service URL the bp-openova-
-// flow-server chart's templates/service.yaml lands. The catalyst-api
-// inside a Sovereign chroot reaches its own openova-flow-server via
-// this URL with zero extra plumbing.
-//
-// For the mother-side catalyst-api, OPENOVA_FLOW_SERVER_URL is set per-
-// deployment (resolved from each deployment's sovereignFQDN to the
-// Cilium Gateway HTTPRoute) so the proxy fans out to the correct
-// Sovereign's flow-server. See main.go for the env wiring.
+// defaultFlowServerURL — the in-cluster Service URL the
+// bp-openova-flow-server chart's `templates/service.yaml` exposes. Used
+// ONLY when the env `OPENOVA_FLOW_SERVER_URL` is set explicitly (chroot
+// catalyst-api), since the in-cluster DNS doesn't resolve from the
+// mother. The mother path derives the URL from the deployment record's
+// sovereignFQDN.
 const defaultFlowServerURL = "http://openova-flow-server.catalyst-system.svc.cluster.local:8080"
 
-// flowProxyHTTPClient is the singleton http.Client used by the
-// snapshot + ingest proxies. SSE uses a separate client below because
-// it disables timeouts.
+// flowServerHostnamePrefix — the canonical hostname prefix the
+// bp-openova-flow-server chart's HTTPRoute uses on every Sovereign:
+// `openova-flow.<sovereign-fqdn>` (see chart values.yaml comment + the
+// bootstrap-kit overlay 56-bp-openova-flow-server.yaml which sets
+// `hostname: openova-flow.${SOVEREIGN_FQDN}`). This is a chart-level
+// convention, NOT a region/domain hardcoding — the FQDN suffix itself
+// comes from the per-deployment record at runtime.
+const flowServerHostnamePrefix = "openova-flow."
+
+// flowProxyTLSSkipVerify is the boot-time setting for whether the
+// per-deployment HTTPS dial trusts self-signed certs. Used while
+// qa-loop Sovereigns mint LE-staging "Fake LE Intermediate X1" certs
+// (see infra `qa_acme_use_staging` tofu var). Set
+// OPENOVA_FLOW_TLS_SKIP_VERIFY=true to enable. Production stays strict
+// (false).
+var flowProxyTLSSkipVerify = strings.EqualFold(strings.TrimSpace(os.Getenv("OPENOVA_FLOW_TLS_SKIP_VERIFY")), "true")
+
+// flowProxyTransport — shared http.Transport with the env-gated
+// TLSClientConfig. Mirrors the canonical pattern in
+// deployment_handover_export.go (handler exporting to a Sovereign whose
+// LE cert may be seconds behind handover).
+func newFlowProxyTransport() *http.Transport {
+	t := &http.Transport{}
+	if flowProxyTLSSkipVerify {
+		t.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // gated by OPENOVA_FLOW_TLS_SKIP_VERIFY=true; only set in qa-loop where Sovereigns mint LE-staging certs
+	}
+	return t
+}
+
+// flowProxyHTTPClient — singleton http.Client for snapshot + ingest.
+// SSE uses a separate client below because it disables timeouts.
 //
 // Per docs/INVIOLABLE-PRINCIPLES.md #4 every knob is env-tunable: we
 // initialize once at package-init time using OPENOVA_FLOW_PROXY_TIMEOUT
@@ -89,38 +135,76 @@ var flowProxyHTTPClient = func() *http.Client {
 			t = d
 		}
 	}
-	return &http.Client{Timeout: t}
+	return &http.Client{Timeout: t, Transport: newFlowProxyTransport()}
 }()
 
 // flowSSEHTTPClient — for the SSE long-lived stream. Zero timeout (the
 // stream is held open until the browser disconnects). The per-request
 // context still cancels the upstream conn.
-var flowSSEHTTPClient = &http.Client{}
+var flowSSEHTTPClient = &http.Client{Transport: newFlowProxyTransport()}
 
 // resolveFlowServerURL returns the upstream openova-flow-server base
-// URL for the given deploymentId, picking up OPENOVA_FLOW_SERVER_URL
-// at runtime so the env can be updated without restarting the binary
-// (the mother-side catalyst-api re-resolves per-request to support
-// per-deployment URLs in a future iteration).
-func (h *Handler) resolveFlowServerURL(_ string) string {
+// URL for the given deploymentId.
+//
+// Resolution order:
+//
+//  1. OPENOVA_FLOW_SERVER_URL env override — when set, win. This is
+//     the Sovereign chroot path: catalyst-api inside a Sovereign sets
+//     this to the in-cluster Service DNS and the per-deployment lookup
+//     is skipped entirely.
+//
+//  2. Per-deployment derivation — look up the deployment record by ID
+//     and build `https://openova-flow.<sovereignFQDN>` from
+//     `dep.Request.SovereignFQDN`. This is the mothership path.
+//
+// Returns the resolved URL (trimmed of trailing `/`) and a nil error
+// on success. Returns a non-nil error when neither path resolves —
+// caller should respond 502 (upstream not configured for this
+// deployment) or 404 (deployment not known).
+func (h *Handler) resolveFlowServerURL(deploymentID string) (string, error) {
 	if s := strings.TrimSpace(os.Getenv("OPENOVA_FLOW_SERVER_URL")); s != "" {
-		return strings.TrimRight(s, "/")
+		return strings.TrimRight(s, "/"), nil
 	}
-	return defaultFlowServerURL
+	// Canonical per-deployment lookup, mirroring deployments.go
+	// GetDeployment (lines 1201-1216): `h.deployments.Load(id)` →
+	// (*Deployment).Request.SovereignFQDN. On the chroot,
+	// chrootEnsureDeployment synthesises a record when the in-memory
+	// map is empty (jobs.go lines 53-86); on the mother it returns
+	// nil and we propagate the 404 to the caller.
+	val, ok := h.deployments.Load(deploymentID)
+	var dep *Deployment
+	if ok {
+		dep = val.(*Deployment)
+	} else if dep = h.chrootEnsureDeployment(deploymentID); dep == nil {
+		return "", fmt.Errorf("deployment %q not found", deploymentID)
+	}
+	fqdn := strings.TrimSpace(dep.Request.SovereignFQDN)
+	if fqdn == "" {
+		return "", fmt.Errorf("deployment %q has no sovereignFQDN", deploymentID)
+	}
+	// The HTTPRoute always serves on the gateway's default HTTPS port
+	// (443); leaving the port off the URL keeps the scheme+host shape
+	// canonical and lets the Go http client pick the right default.
+	return "https://" + flowServerHostnamePrefix + fqdn, nil
 }
 
 // HandleFlowSnapshot proxies GET /api/v1/flows/{deploymentId}/snapshot →
 // GET <upstream>/v1/flows/{deploymentId}/snapshot.
 //
 // Status, headers, and body pass through verbatim. On upstream-network
-// error the proxy returns 502.
+// error or unresolvable deploymentId, the proxy returns 502 / 404.
 func (h *Handler) HandleFlowSnapshot(w http.ResponseWriter, r *http.Request) {
 	flowID := chi.URLParam(r, "deploymentId")
 	if strings.TrimSpace(flowID) == "" {
 		http.Error(w, "deploymentId required", http.StatusBadRequest)
 		return
 	}
-	upstream := h.resolveFlowServerURL(flowID) + "/v1/flows/" + url.PathEscape(flowID) + "/snapshot"
+	base, err := h.resolveFlowServerURL(flowID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	upstream := base + "/v1/flows/" + url.PathEscape(flowID) + "/snapshot"
 	h.flowProxyGET(w, r, upstream)
 }
 
@@ -138,7 +222,12 @@ func (h *Handler) HandleFlowEvents(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "deploymentId required", http.StatusBadRequest)
 		return
 	}
-	upstream := h.resolveFlowServerURL(flowID) + "/v1/flows/" + url.PathEscape(flowID) + "/events"
+	base, err := h.resolveFlowServerURL(flowID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	upstream := base + "/v1/flows/" + url.PathEscape(flowID) + "/events"
 
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, upstream, r.Body)
 	if err != nil {
@@ -194,7 +283,12 @@ func (h *Handler) HandleFlowStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	upstream := h.resolveFlowServerURL(flowID) + "/v1/flows/" + url.PathEscape(flowID) + "/stream"
+	base, err := h.resolveFlowServerURL(flowID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	upstream := base + "/v1/flows/" + url.PathEscape(flowID) + "/stream"
 
 	// Headers BEFORE first write (canonical SSE pattern, mirrors
 	// deployments.go:1244). Setting after the first body byte would
