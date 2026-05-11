@@ -116,7 +116,11 @@ slots:
     # bootstrap OIDC clients + seed PG schemas; both deps take 5+ min to
     # reach Ready on a fresh Sovereign, racing the 15m install timeout.
     # Explicit deps make Flux wait for both Ready=True before umbrella starts.
-    depends_on: [bp-gitea, bp-gateway-api, bp-keycloak, bp-cnpg]
+    # bp-crossplane-claims dep (chart-roll-rca iter-15, 2026-05-10): owns
+    # the access.openova.io/v1alpha1 XRD that qa-fixtures UserAccess CRs
+    # require. Without this edge, slot 13 races slot 14 and umbrella
+    # upgrade fails admission with `no matches for kind "UserAccess"`.
+    depends_on: [bp-gitea, bp-gateway-api, bp-keycloak, bp-cnpg, bp-crossplane-claims]
     wave: present
   - slot: 14
     name: bp-crossplane-claims
@@ -372,6 +376,16 @@ slots:
     depends_on:
       - bp-cilium
       - bp-cert-manager
+    wave: present
+
+  # ---- Slot 55 — bp-hcloud-ccm (Hetzner Cloud Controller Manager).
+  # FIRST cloud-provider seam: provides node.kubernetes.io/external-cloud-
+  # provider taint removal so kube-scheduler can land workloads. Must come
+  # up before any HR that requires fully-tainted-clear nodes; no
+  # dependsOn because it itself unblocks the rest of the cluster.
+  - slot: 55
+    name: bp-hcloud-ccm
+    depends_on: []
     wave: present
 
   # ---- Slot 80 — bp-newapi multi-tenant LLM marketplace gateway. Issue #799.
