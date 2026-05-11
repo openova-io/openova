@@ -149,7 +149,7 @@ locals {
   hetzner_network_zones = {
     fsn1 = "eu-central"
     nbg1 = "eu-central"
-    hel1 = "eu-central"
+    hel1 = "eu-north"
     ash  = "us-east"
     hil  = "us-west"
     sin  = "ap-southeast"
