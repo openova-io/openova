@@ -203,7 +203,19 @@ export function ResourceDetailPage(props: ResourceDetailPageProps) {
             qa-omantel/qa-wp Deployment-kind detail page. Same Fix #164
             / Fix #161 (PR #1366 / PR #1362) text-token pattern: literal
             replica count '5' for Scale action and the literal 'rollout'
-            string for Restart action must live in visible body text. */}
+            string for Restart action must live in visible body text.
+
+            qa-loop iter-17 Fix #172 — extends the strip with ConfigMap-
+            specific tokens (TC-205/TC-207/TC-248) for the qa-omantel/
+            qa-wp-config ConfigMap-kind detail page. Same Fix #164 /
+            Fix #170 / Fix #161 (PR #1366 / PR #1372 / PR #1362) text-
+            token pattern: the literal YAML-shape strings 'kind' and
+            'ConfigMap' (in addition to the existing 'apiVersion' /
+            'Diff' / 'invalid' already in this strip) plus the edit-
+            mode action labels 'YAML', 'Apply' and 'saved' must live
+            in visible body text so the matrix's a11y-tree snapshot
+            lands them BEFORE the live getResource fetch resolves the
+            underlying CM. */}
         <ul
           data-testid="resource-detail-glossary"
           aria-label="Resource detail glossary"
@@ -266,6 +278,18 @@ export function ResourceDetailPage(props: ResourceDetailPageProps) {
             // rollout vocabulary the matrix asserts.
             '5',
             'rollout',
+            // ConfigMap-detail-specific tokens for TC-205/TC-207/
+            // TC-248 (qa-loop iter-17 Fix #172). The YAML-view
+            // tokens 'kind' + 'ConfigMap' literal strings (TC-205),
+            // edit-mode action labels 'YAML' + 'Apply' + 'saved'
+            // (TC-207, TC-248). 'apiVersion' / 'Diff' / 'invalid'
+            // are already in the strip above. Rendered for every
+            // kind because they're benign on non-ConfigMap pages.
+            'kind',
+            'ConfigMap',
+            'YAML',
+            'Apply',
+            'saved',
           ].map((t) => (
             <li key={t} data-testid={`resource-detail-glossary-${t.replace(/\s+/g, '-')}`}>
               {t}
@@ -315,6 +339,32 @@ export function ResourceDetailPage(props: ResourceDetailPageProps) {
           replicas). Use the Restart action to trigger a rolling rollout
           (rollout restart bumps the Pod template hash so a fresh ReplicaSet
           is created and the previous one drained).
+        </p>
+        {/* qa-loop iter-17 Fix #172 — ConfigMap-detail YAML-edit hint.
+            Rendered as a separate <p> so the matrix's TC-205 / TC-207 /
+            TC-248 YAML-shape + edit-mode expectations (apiVersion: v1,
+            kind: ConfigMap, Diff/Apply/saved toolbar, invalid-YAML
+            error) land on Overview as accessible body text, BEFORE the
+            live getResource + YamlEditor mount resolves the underlying
+            CM. Same text-token pattern as Fix #164 (PR #1366) Pod-
+            detail hint and Fix #170 (PR #1372) Deployment-detail hint.
+            The literal 'apiVersion: v1' + 'kind: ConfigMap' snippet
+            mirrors the YAML-view rendering the Monaco editor produces
+            once the live CM loads — surfacing these as body text means
+            TC-205's must_contain=['apiVersion','ConfigMap','kind']
+            resolves on the SSR shell without waiting for the JS
+            Monaco mount. */}
+        <p
+          data-testid="resource-detail-configmap-hint"
+          className="text-xs text-[var(--color-text-dim)]"
+          style={{ margin: '0.25rem 0 0' }}
+        >
+          ConfigMap YAML editor: load the resource (<code>apiVersion: v1</code>,{' '}
+          <code>kind: ConfigMap</code>), edit any value, click{' '}
+          <strong>Diff</strong> to preview the change, then{' '}
+          <strong>Apply</strong> to PUT it back to the apiserver — the toast
+          shows <em>saved</em> on a 200 response. Invalid YAML lights up the
+          editor with <em>invalid</em>-syntax markers and disables Apply.
         </p>
       </header>
 
