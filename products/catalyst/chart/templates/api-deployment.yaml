@@ -168,6 +168,24 @@ spec:
           env:
             - name: PORT
               value: "8080"
+            # OPENOVA_FLOW_SERVER_URL — catalyst-api proxy upstream for
+            # /api/v1/flows/{deploymentId}/snapshot|stream|events. When
+            # set, the proxy short-circuits per-deployment FQDN lookup
+            # (see openova_flow_proxy.go resolveFlowServerURL) and uses
+            # this URL for every flow id. Used by the mothership
+            # (contabo) and by Sovereign chroots that install the
+            # openova-flow chart in the same cluster — both can reach
+            # their LOCAL openova-flow-server via in-cluster Service DNS
+            # without needing the public HTTPRoute. Empty on Sovereigns
+            # that rely on per-deployment FQDN resolution.
+            #
+            # Without this env, the proxy returns 502 on every
+            # /api/v1/flows/{id}/snapshot because the resolver tries to
+            # reach https://openova-flow.<sovereignFQDN> which only
+            # exists on a Sovereign that has installed bootstrap-kit
+            # slot 56 with httproute.enabled=true.
+            - name: OPENOVA_FLOW_SERVER_URL
+              value: "http://openova-flow-server.catalyst.svc.cluster.local"
             # CATALYST_BUILD_SHA / CATALYST_CHART_VERSION — qa-loop iter-3
             # Fix #18 (TC-261). The /api/v1/version handler resolves these
             # env vars first (envOrTrim) before falling back to the ldflag
