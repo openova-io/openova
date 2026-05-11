@@ -71,6 +71,16 @@ resources:
   # clustermesh-apiserver could not migrate from NodePort to LB on
   # omantel multi-region (qa-loop iter-12 Fix #53D).
   - 55-bp-hcloud-ccm.yaml
+  # OpenovaFlow observability cohort — slots 56/57. Three-agent split
+  # (Agent #1: TS @openova/flow-core + @openova/flow-canvas, Agent #2:
+  # Go server + flux adapter, Agent #3: bootstrap-kit + catalyst-api
+  # proxy integration). Slot 56 (server) installs on PRIMARY clusters
+  # only; per-Sovereign overlay disables on secondaries. Slot 57
+  # (emitter) is a DaemonSet — runs on every cluster (mother + every
+  # Sovereign + every secondary region) so each region's Flux events
+  # land in the same per-deployment flow.
+  - 56-bp-openova-flow-server.yaml
+  - 57-bp-openova-flow-emitter.yaml
   # bp-newapi (slot 80) — multi-tenant LLM marketplace gateway. Sequenced
   # after the W2.K1 dependency wave (cnpg/keycloak/openbao Ready) so
   # NewAPI's ExternalSecret + DSN dependencies resolve on first reconcile.

@@ -1,0 +1,60 @@
+{{- if .Values.flowServer.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "bp-openova-flow-server.workloadName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "bp-openova-flow-server.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.flowServer.replicas | default 1 }}
+  selector:
+    matchLabels: {{- include "bp-openova-flow-server.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "bp-openova-flow-server.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "bp-openova-flow-server.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.flowServer.podSecurityContext | nindent 8 }}
+      {{- with .Values.flowServer.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.flowServer.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.flowServer.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: openova-flow-server
+          image: {{ include "bp-openova-flow-server.image" . | quote }}
+          imagePullPolicy: {{ .Values.flowServer.image.pullPolicy | default "IfNotPresent" }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.flowServer.port }}
+              protocol: TCP
+          env:
+            - name: FLOW_SERVER_LISTEN_ADDR
+              value: ":{{ .Values.flowServer.port }}"
+            - name: FLOW_SERVER_RING_CAPACITY
+              value: {{ .Values.flowServer.ringCapacity | quote }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.flowServer.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.flowServer.containerSecurityContext | nindent 12 }}
+{{- end -}}

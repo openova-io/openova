@@ -1,0 +1,83 @@
+# bp-openova-flow-server — Catalyst Blueprint chart values.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md:
+#   #4   never hardcode — image tag, replicas, ring capacity, hostname
+#   #4a  SHA-pinned image tag; the chart fails fast on empty tag
+#
+# Per MIRROR-EVERYTHING the image reference goes through the mothership
+# Harbor proxy at harbor.openova.io/proxy-ghcr/...
+
+catalystBlueprint:
+  upstream:
+    chart: ""
+    version: ""
+    repo: ""
+
+flowServer:
+  enabled: true
+  # Canonical workload name. Override only when running >1 server in
+  # the same namespace (rare; one per primary cluster per ADR-0001 §11).
+  workloadName: openova-flow-server
+  replicas: 1
+  image:
+    # Mothership Harbor pull-through proxy. The Sovereign-local Harbor
+    # rewrites this prefix to its own proxy at registry-pivot time per
+    # platform/self-sovereign-cutover/chart/.
+    repository: harbor.openova.io/proxy-ghcr/openova-io/openova/openova-flow-server
+    # SHA-pinned per INVIOLABLE-PRINCIPLES #4a. CI populates this via
+    # build-openova-flow-server.yaml on every push to
+    # products/openova-flow/server/** or platform/openova-flow-server/chart/**.
+    # Empty fails chart render via _helpers.tpl image-fail-fast.
+    tag: ""
+    pullPolicy: IfNotPresent
+  port: 8080
+  # Per-flow ring buffer capacity (FlowMessage envelopes). The server
+  # folds the ring to a snapshot on demand; FIFO drop on overflow.
+  ringCapacity: 4096
+
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 8080
+
+  # Cilium Gateway HTTPRoute. Disabled by default; per-Sovereign
+  # overlay flips on with hostname `openova-flow.<sov-fqdn>`. Server
+  # is reachable cross-cluster via this gateway over public HTTPS.
+  httproute:
+    enabled: false
+    hostname: ""
+    gatewayRef:
+      name: ""
+      namespace: kube-system
+
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1001
+    runAsGroup: 1001
+    seccompProfile:
+      type: RuntimeDefault
+
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
+
+  imagePullSecrets:
+    - name: ghcr-pull
+
+  serviceAccount:
+    create: true
+    name: ""
+
+  nodeSelector:
+    kubernetes.io/os: linux
+  tolerations: []

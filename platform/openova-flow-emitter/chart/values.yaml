@@ -1,0 +1,83 @@
+# bp-openova-flow-emitter — Catalyst Blueprint chart values.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md:
+#   #1   waterfall — full DaemonSet + Service + RBAC ships at first cut.
+#   #4   never hardcode — flowServerUrl, flowId, regionKey, image tag.
+#   #4a  SHA-pinned image tag; the chart fails fast on empty tag.
+#
+# Per MIRROR-EVERYTHING the image reference goes through the mothership
+# Harbor proxy at harbor.openova.io/proxy-ghcr/...
+
+catalystBlueprint:
+  upstream:
+    chart: ""
+    version: ""
+    repo: ""
+
+flowEmitter:
+  enabled: true
+  # Canonical workload name. Override only when running >1 emitter
+  # per cluster (rare).
+  workloadName: openova-flow-emitter
+  image:
+    repository: harbor.openova.io/proxy-ghcr/openova-io/openova/openova-flow-adapter-flux
+    # SHA-pinned per INVIOLABLE-PRINCIPLES #4a. CI populates this via
+    # build-openova-flow-adapter-flux.yaml on every push to
+    # products/openova-flow/adapter-flux/** or this chart.
+    # Empty fails chart render via _helpers.tpl image-fail-fast.
+    tag: ""
+    pullPolicy: IfNotPresent
+
+  # ── Runtime configuration ──────────────────────────────────────────
+  # Per docs/INVIOLABLE-PRINCIPLES.md #4 every value is operator-driven.
+  # The chart fails fast when any required value is empty.
+  #
+  # Per-Sovereign overlay sets these via the bootstrap-kit HelmRelease's
+  # spec.values block: see clusters/_template/bootstrap-kit/57-bp-openova-flow-emitter.yaml.
+  flowServerUrl: ""    # e.g. "https://openova-flow.<sov-fqdn>"
+  flowId: ""           # typically the deployment id; falls back to SOVEREIGN_FQDN-derived
+  regionKey: ""        # e.g. "fsn1"
+  namespaceFilter: flux-system
+  emitInterval: "200ms"
+  postTimeout: "10s"
+  healthPort: 8081
+
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 192Mi
+
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1001
+    runAsGroup: 1001
+    seccompProfile:
+      type: RuntimeDefault
+
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
+
+  imagePullSecrets:
+    - name: ghcr-pull
+
+  serviceAccount:
+    create: true
+    name: ""
+
+  nodeSelector:
+    kubernetes.io/os: linux
+  tolerations:
+    # DaemonSet semantics: run on every Linux node including the
+    # control-plane (the control-plane runs Flux on Sovereigns).
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+    - key: node-role.kubernetes.io/master
+      operator: Exists
+      effect: NoSchedule

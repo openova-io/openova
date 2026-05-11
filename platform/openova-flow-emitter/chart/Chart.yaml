@@ -1,0 +1,34 @@
+apiVersion: v2
+name: bp-openova-flow-emitter
+# Catalyst-authored umbrella with no upstream Helm chart dependency —
+# ships only the in-repo openova-flow-adapter-flux DaemonSet.
+# Opt out of the hollow-chart guard per docs/BLUEPRINT-AUTHORING.md §11.1.
+annotations:
+  catalyst.openova.io/no-upstream: "true"
+version: 0.1.0
+appVersion: "0.1.0"
+description: |
+  Catalyst Blueprint chart for the openova-flow-adapter-flux emitter
+  — a region-aware DaemonSet sidecar that watches Flux HelmRelease +
+  HelmChart CRs on the local cluster and POSTs FlowMessage envelopes
+  to a configured openova-flow-server.
+
+  Runs on EVERY cluster (mother + primary Sovereign + every secondary
+  region). The receiving openova-flow-server runs only on the primary
+  cluster (slot 56). Cross-cluster reachability is via the Cilium
+  Gateway HTTPRoute over public HTTPS.
+
+  Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the
+  FLOW_SERVER_URL, FLOW_ID, REGION_KEY, and NAMESPACE_FILTER are
+  operator-driven via values.yaml; the chart fails fast when any
+  required value is empty.
+
+  Per MIRROR-EVERYTHING the image reference goes through the
+  mothership Harbor proxy at harbor.openova.io/proxy-ghcr/...
+keywords: [catalyst, blueprint, openova-flow, observability, flux]
+home: https://docs.openova.io/openova-flow
+sources:
+  - https://github.com/openova-io/openova/tree/main/products/openova-flow/adapter-flux
+maintainers:
+  - name: openova-platform
+    email: catalyst@openova.io

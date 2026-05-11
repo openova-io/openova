@@ -1,0 +1,37 @@
+{{- if .Values.flowEmitter.enabled -}}
+{{- if .Values.flowEmitter.serviceAccount.create -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "bp-openova-flow-emitter.serviceAccountName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "bp-openova-flow-emitter.labels" . | nindent 4 }}
+---
+{{- end }}
+# ClusterRole — the emitter needs read-only access to HelmRelease +
+# HelmChart CRs across all namespaces (informer scope is configurable
+# via NAMESPACE_FILTER but the SA still needs cluster-wide read).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "bp-openova-flow-emitter.workloadName" . }}
+  labels: {{- include "bp-openova-flow-emitter.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["helm.toolkit.fluxcd.io"]
+    resources: ["helmreleases", "helmcharts"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "bp-openova-flow-emitter.workloadName" . }}
+  labels: {{- include "bp-openova-flow-emitter.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "bp-openova-flow-emitter.workloadName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "bp-openova-flow-emitter.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end -}}
