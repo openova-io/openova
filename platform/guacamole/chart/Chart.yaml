@@ -37,7 +37,7 @@ name: bp-guacamole
 # bitnamilegacy/kubectl:1.29.3 -> bitnamilegacy/kubectl:1.30.7 to align
 # with k3s 1.30 server version on Hetzner Sovereigns + template
 # fallback default no longer references the deleted bitnami path.
-version: 0.1.15
+version: 0.1.16
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless
