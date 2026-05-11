@@ -193,6 +193,27 @@ type SimNode = SimulationNodeDatum & {
   isGroup: boolean
 }
 
+/* ── Additive fold-disclosure props (2026-05-11 restore) ──────────
+ *
+ * `onFoldToggle` — when supplied AND a node is a group, a top-right
+ *   "⊕ K" (folded) or "⊖" (expanded) badge renders on the bubble.
+ *   Click invokes the callback with the group id. K reads from
+ *   `descendantCountByGroup`, supplied as the optional `badgeCounts`
+ *   prop (defaults to `node.childCount` when absent).
+ *
+ * `nodeActions` + `onNodeAction` — when supplied AND a node is a
+ *   group, a right-click on the bubble opens a small floating menu
+ *   with the action labels. Actions are domain-supplied (e.g. "Fold
+ *   subtree", "Expand all under here") so the canvas stays purely
+ *   presentational.
+ */
+export interface FlowOrganicAction {
+  id: string
+  label: string
+  /** Predicate — return false to hide this action for the given node. */
+  enabled?: (nodeId: string) => boolean
+}
+
 export interface FlowCanvasOrganicProps {
   layout: OrganicLayoutResult
   /** The job whose log pane is currently displayed (amber selection ring). */
@@ -203,6 +224,19 @@ export interface FlowCanvasOrganicProps {
   onJobClick: (jobId: string, event: ReactMouseEvent<SVGGElement>) => void
   onJobDoubleClick: (jobId: string) => void
   onCanvasBackgroundClick: () => void
+  /** Additive — toggle fold for a group node from a click on the
+   *  per-bubble disclosure badge. When undefined, no badge renders
+   *  (the natural-view's pre-2026-05-11 contract). */
+  onFoldToggle?: (jobId: string) => void
+  /** Additive — descendant counts for fold-disclosure badges. Keyed by
+   *  group id; absent ids fall back to `node.childCount`. */
+  badgeCounts?: ReadonlyMap<string, number>
+  /** Additive — right-click menu items for group nodes. When empty or
+   *  omitted, no menu opens (the natural-view's pre-2026-05-11
+   *  contract). */
+  nodeActions?: ReadonlyArray<FlowOrganicAction>
+  /** Additive — invoked when the operator picks a menu item. */
+  onNodeAction?: (jobId: string, actionId: string) => void
 }
 
 export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
@@ -213,7 +247,34 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
     onJobClick,
     onJobDoubleClick,
     onCanvasBackgroundClick,
+    onFoldToggle,
+    badgeCounts,
+    nodeActions,
+    onNodeAction,
   } = props
+  /* Context-menu state — null = closed. */
+  const [menu, setMenu] = useState<{
+    nodeId: string
+    x: number
+    y: number
+  } | null>(null)
+  const onCloseMenu = useCallback(() => setMenu(null), [])
+  /* Close the menu on any outside click / escape. */
+  useEffect(() => {
+    if (!menu) return
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setMenu(null)
+    }
+    function onDocClick() {
+      setMenu(null)
+    }
+    document.addEventListener('keydown', onKey)
+    document.addEventListener('click', onDocClick)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.removeEventListener('click', onDocClick)
+    }
+  }, [menu])
 
   const svgRef = useRef<SVGSVGElement | null>(null)
   const hostRef = useRef<HTMLDivElement | null>(null)
@@ -1208,6 +1269,12 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
         const isNeighbor = neighborIds.has(node.id)
         const isOpen = openJobId === node.id
         const isHost = hostJobId === node.id
+        // Badge renders only when (a) the caller wired onFoldToggle AND
+        // (b) the node is a real group. Folded → "⊕ K" (where K is the
+        // descendant count). Expanded → "⊖".
+        const showBadge = !!onFoldToggle && node.isGroup
+        const badgeCount = badgeCounts?.get(node.id) ?? node.childCount
+        const hasMenuActions = !!nodeActions && nodeActions.length > 0 && node.isGroup
         return (
           <FlowNode
             key={node.id}
@@ -1223,10 +1290,100 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
             onDoubleClick={() => onJobDoubleClick(node.id)}
             r={R}
             gr={GR}
+            showBadge={showBadge}
+            badgeCount={badgeCount}
+            onBadgeClick={onFoldToggle}
+            onContextMenu={
+              hasMenuActions
+                ? (e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    setMenu({
+                      nodeId: node.id,
+                      x: e.clientX,
+                      y: e.clientY,
+                    })
+                  }
+                : undefined
+            }
           />
         )
       })}
     </svg>
+    {menu && nodeActions && onNodeAction ? (
+      <FlowNodeMenu
+        nodeId={menu.nodeId}
+        x={menu.x}
+        y={menu.y}
+        actions={nodeActions}
+        onPick={(actionId) => {
+          onNodeAction(menu.nodeId, actionId)
+          setMenu(null)
+        }}
+        onClose={onCloseMenu}
+      />
+    ) : null}
+    </div>
+  )
+}
+
+/* ── FlowNodeMenu — right-click action menu (additive 2026-05-11) ── */
+
+interface FlowNodeMenuProps {
+  nodeId: string
+  x: number
+  y: number
+  actions: ReadonlyArray<FlowOrganicAction>
+  onPick: (actionId: string) => void
+  onClose: () => void
+}
+
+function FlowNodeMenu({ nodeId, x, y, actions, onPick }: FlowNodeMenuProps) {
+  const visible = actions.filter(
+    (a) => a.enabled === undefined || a.enabled(nodeId),
+  )
+  if (visible.length === 0) return null
+  return (
+    <div
+      role="menu"
+      data-testid={`flow-node-menu-${nodeId}`}
+      style={{
+        position: 'fixed',
+        top: y,
+        left: x,
+        zIndex: 100,
+        background: 'var(--color-surface)',
+        border: '1px solid var(--color-border)',
+        borderRadius: 6,
+        boxShadow: '0 4px 16px rgba(0,0,0,0.35)',
+        padding: '4px 0',
+        minWidth: 180,
+        fontSize: 12,
+      }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {visible.map((a) => (
+        <button
+          key={a.id}
+          type="button"
+          role="menuitem"
+          data-testid={`flow-node-menu-item-${a.id}`}
+          onClick={() => onPick(a.id)}
+          style={{
+            appearance: 'none',
+            background: 'transparent',
+            border: 0,
+            width: '100%',
+            textAlign: 'left',
+            padding: '6px 12px',
+            color: 'var(--color-text)',
+            cursor: 'pointer',
+            font: 'inherit',
+          }}
+        >
+          {a.label}
+        </button>
+      ))}
     </div>
   )
 }
@@ -1295,6 +1452,14 @@ interface FlowNodeProps {
   onDoubleClick: () => void
   r: number
   gr: number
+  /** Additive — render the per-bubble fold-disclosure badge. */
+  showBadge?: boolean
+  /** Additive — descendant count shown next to ⊕ when folded. */
+  badgeCount?: number
+  /** Additive — click handler for the disclosure badge. */
+  onBadgeClick?: (nodeId: string) => void
+  /** Additive — right-click handler (group bubbles only). */
+  onContextMenu?: (e: ReactMouseEvent<SVGGElement>) => void
 }
 
 function FlowNode({
@@ -1310,6 +1475,10 @@ function FlowNode({
   onDoubleClick,
   r,
   gr,
+  showBadge = false,
+  badgeCount,
+  onBadgeClick,
+  onContextMenu,
 }: FlowNodeProps) {
   const tone = STATUS_TONE[node.status]
   // Inner ring priority — drawn on the bubble itself:
@@ -1347,6 +1516,7 @@ function FlowNode({
       data-dimmed={isDimmed ? 'true' : 'false'}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
+      onContextMenu={onContextMenu}
       style={grpStyle}
       transform={`translate(${x.toFixed(1)}, ${y.toFixed(1)})`}
       opacity={groupOpacity}
@@ -1458,6 +1628,58 @@ function FlowNode({
         >
           {node.subLabel}
         </text>
+      ) : null}
+
+      {/* Fold-disclosure badge — top-right corner. Renders only when
+          the caller wired onBadgeClick AND the node is a parent group.
+          Folded → "⊕ K" with the descendant count K. Expanded → "⊖". */}
+      {showBadge && onBadgeClick ? (
+        (() => {
+          const bx = radius * 0.7
+          const by = -radius * 0.7
+          const folded = node.isFolded
+          const count = typeof badgeCount === 'number' ? badgeCount : node.childCount
+          const text = folded ? `⊕ ${count}` : '⊖'
+          const w = folded ? 30 : 18
+          const h = 14
+          return (
+            <g
+              data-testid={`flow-fold-badge-${node.id}`}
+              data-folded={folded ? 'true' : 'false'}
+              transform={`translate(${bx.toFixed(1)}, ${by.toFixed(1)})`}
+              style={{ cursor: 'pointer' }}
+              onClick={(e) => {
+                e.stopPropagation()
+                onBadgeClick(node.id)
+              }}
+            >
+              <rect
+                x={-w / 2}
+                y={-h / 2}
+                width={w}
+                height={h}
+                rx={4}
+                ry={4}
+                fill={tone.fill}
+                stroke={tone.ring}
+                strokeWidth={1.2}
+                opacity={0.95}
+              />
+              <text
+                x={0}
+                y={3}
+                textAnchor="middle"
+                fontSize={9}
+                fontWeight={700}
+                fill={tone.glyph}
+                fontFamily="ui-sans-serif, system-ui, sans-serif"
+                pointerEvents="none"
+              >
+                {text}
+              </text>
+            </g>
+          )
+        })()
       ) : null}
     </g>
   )
