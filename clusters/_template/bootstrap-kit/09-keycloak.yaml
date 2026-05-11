@@ -45,12 +45,15 @@ spec:
       # parameter so each Sovereign owns its KC realm named after the tenant
       # short-name (omantel chroot → "omantel"). Default `sovereign` is kept
       # in the chart for backward compat with overlays not yet migrated.
-      # 1.4.3 (issue #129): bumps keycloakConfigCli.availabilityCheck.timeout
-      # 120s → 600s + backoffLimit 1 → 5. Fixes "post-upgrade hooks failed:
-      # timed out waiting for the condition" wedge on fresh provisions where
-      # Postgres+Liquibase bootstrap exceeds the bitnami subchart's 120s
-      # default Keycloak-availability window for the realm-import Job.
-      version: 1.4.3
+      # 1.4.4 (issue #140, post-upgrade hook regression on prov #21): bumps
+      # keycloakConfigCli.availabilityCheck.timeout 600s → 900s + adds
+      # cleanupAfterFinished (1h TTL) so stale hook Pods don't race
+      # before-hook-creation deletes on subsequent upgrades. Coupled with
+      # the install/upgrade timeout bump below (15m → 30m) so Helm's
+      # outer hook-wait accommodates the inner 15m availability window.
+      # 1.4.3 (issue #129): bumped keycloakConfigCli.availabilityCheck.timeout
+      # 120s → 600s + backoffLimit 1 → 5 (fresh-install wedge).
+      version: 1.4.4
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak
@@ -60,14 +63,25 @@ spec:
   # 100+ Liquibase changesets). Helm install completes when manifests
   # apply; downstream dependsOn checks Ready=True independently.
   # Replaces PR #221 spec.timeout: 15m.
+  #
+  # 15m → 30m bump (issue #140, post-upgrade hook regression on prov #21):
+  # `disableWait: true` skips Pod-Ready waits but does NOT skip Helm hook
+  # waits — Helm always blocks on hook-Pod completion bounded by this
+  # timeout. The bp-keycloak chart's keycloak-config-cli post-install/
+  # post-upgrade hook now has an inner availabilityCheck.timeout of 900s
+  # (15m), and on chart-roll-triggered upgrades the keycloak StatefulSet
+  # rolling-restart + Liquibase re-validation can consume that full
+  # window. 30m gives Helm room to wait out one full inner attempt plus
+  # exponential backoff if needed, without blowing past Flux's HR timer.
+  # If you bump availabilityCheck.timeout further, bump THIS too.
   install:
     disableWait: true
-    timeout: 15m
+    timeout: 30m
     remediation:
       retries: 3
   upgrade:
     disableWait: true
-    timeout: 15m
+    timeout: 30m
     remediation:
       retries: 3
   # Per-Sovereign overrides — issue #387 + #604 + qa-loop iter-12 Fix #53A:
