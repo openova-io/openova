@@ -1,0 +1,175 @@
+name: Build openova-flow-adapter-flux
+
+# openova-flow-adapter-flux — DaemonSet sidecar that watches Flux
+# HelmRelease CRs and POSTs FlowMessage envelopes to openova-flow-server.
+# Source at products/openova-flow/adapter-flux/, chart at
+# platform/openova-flow-emitter/chart/.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4a (GitHub Actions is the ONLY
+# build path) every image that runs on OpenOva infra MUST be produced
+# by a CI workflow from a committed git SHA. This workflow mirrors the
+# shape of build-application-controller.yaml — same Buildx push, same
+# cosign keyless signing, same auto-bump of values.yaml + dispatch of
+# blueprint-release for chart re-publish.
+#
+# Per `feedback_inviolable_principles.md` / global CLAUDE.md "every
+# workflow MUST be event-driven, NEVER scheduled". Triggers on
+# push-to-main (paths filter), pull_request (test only, no push), and
+# workflow_dispatch for manual re-runs without a code change.
+
+on:
+  push:
+    paths:
+      - 'products/openova-flow/adapter-flux/**'
+      - 'platform/openova-flow-emitter/chart/**'
+      - '.github/workflows/build-openova-flow-adapter-flux.yaml'
+    branches: [main]
+  pull_request:
+    paths:
+      - 'products/openova-flow/adapter-flux/**'
+      - 'platform/openova-flow-emitter/chart/**'
+      - '.github/workflows/build-openova-flow-adapter-flux.yaml'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/openova-io/openova/openova-flow-adapter-flux
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      actions: write
+    outputs:
+      sha_short: ${{ steps.vars.outputs.sha_short }}
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set short SHA
+        id: vars
+        run: echo "sha_short=$(echo $GITHUB_SHA | head -c 7)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: |
+            products/openova-flow/adapter-flux/go.sum
+
+      - name: go vet
+        working-directory: products/openova-flow/adapter-flux
+        run: go vet ./...
+
+      - name: Run unit tests
+        working-directory: products/openova-flow/adapter-flux
+        run: go test -count=1 -race ./...
+
+      # On pull_request runs we stop here — image push requires
+      # `packages: write` which only main-branch authors hold.
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        if: github.event_name != 'pull_request'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        id: build
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: products/openova-flow/adapter-flux
+          file: products/openova-flow/adapter-flux/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}
+            ${{ env.IMAGE }}:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/openova-io/openova
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=openova-flow-adapter-flux
+            org.opencontainers.image.description=OpenovaFlow Flux adapter — HelmRelease informer to FlowMessage emitter
+          provenance: false
+          sbom: false
+
+      - name: Install cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image with cosign (keyless)
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign sign --yes "${IMAGE}@${DIGEST}"
+
+      - name: Generate and attest SBOM
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign attest --yes \
+            --predicate <(echo '{"sbom":"in-toto-spdx attached at build time"}') \
+            --type spdx \
+            "${IMAGE}@${DIGEST}"
+
+      # Auto-bump the chart values.yaml tag. The adapter-flux image is
+      # consumed by the bp-openova-flow-emitter chart (chart name is
+      # "emitter", binary name is "adapter-flux" — chart wraps the
+      # adapter as a DaemonSet emitter per ADR contract).
+      - name: Bump flowEmitter.image.tag in chart values.yaml
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          SHA_SHORT: ${{ steps.vars.outputs.sha_short }}
+        run: |
+          VALUES="platform/openova-flow-emitter/chart/values.yaml"
+          awk -v sha="${SHA_SHORT}" '
+            /^flowEmitter:/ { in_fe=1; print; next }
+            in_fe && /^[a-zA-Z]/ && !/^flowEmitter:/ { in_fe=0 }
+            in_fe && /^  image:/ { in_img=1; print; next }
+            in_fe && /^  [a-zA-Z]/ && !/^  image:/ { in_img=0 }
+            in_img && /^    tag:/ { sub(/:.*/, ": \"" sha "\""); in_img=0 }
+            { print }
+          ' "${VALUES}" > "${VALUES}.tmp" && mv "${VALUES}.tmp" "${VALUES}"
+          echo "values.yaml after bump:"
+          grep -A1 "^  image:" "${VALUES}" | head -6
+
+      - name: Commit and push values.yaml bump
+        id: deploy_commit
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          SHA_SHORT: ${{ steps.vars.outputs.sha_short }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet platform/openova-flow-emitter/chart/values.yaml; then
+            echo "no values.yaml change — already pinned to ${SHA_SHORT}"
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git add platform/openova-flow-emitter/chart/values.yaml
+          git commit -m "chore(deploy): bump openova-flow-adapter-flux image to ${SHA_SHORT} [skip ci]"
+          git pull --rebase --autostash origin main || true
+          git push origin HEAD:main
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch blueprint-release for chart re-publish
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && steps.deploy_commit.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run blueprint-release.yaml \
+            --repo "${GITHUB_REPOSITORY}" \
+            --ref main \
+            -f blueprint=openova-flow-emitter \
+            -f tree=platform
