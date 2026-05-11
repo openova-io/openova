@@ -68,14 +68,35 @@ export default defineConfig({
   plugins: [tailwindcss(), react(), rebuildCatalogOnYamlChange()],
   resolve: {
     alias: {
-      '@': resolve(__dirname, './src'),
       // OpenovaFlow Foundation — alias the workspace packages to their
       // source so `npm run dev` / vitest can pick them up without a
       // pre-build step. CI replaces these with proper package resolution
       // once a top-level workspace is wired (Agent #2 step).
+      //
+      // ORDER MATTERS: @rollup/plugin-alias matches in definition order;
+      // longer/more-specific keys MUST come before shorter ones. '@' is a
+      // prefix that would otherwise shadow '@openova/...'.
       '@openova/flow-core': resolve(__dirname, '../../../openova-flow/core/src/index.ts'),
       '@openova/flow-canvas': resolve(__dirname, '../../../openova-flow/canvas/src/index.ts'),
+      '@': resolve(__dirname, './src'),
+      // The aliased @openova/flow-{core,canvas} source files live OUTSIDE
+      // this package and have no node_modules tree of their own (the
+      // workspace wiring lands in Agent #2). Until then, force their peer
+      // deps (react, react-dom, d3-*) to resolve to THIS package's own
+      // installs — otherwise Vite/Rolldown walks up from the canvas
+      // source path and finds nothing, breaking the production build with
+      // "Rolldown failed to resolve import 'react' from .../FlowLogFeed.tsx".
+      // Each entry maps the bare-spec import to the absolute path of the
+      // dep in this package's node_modules. Using resolve.dedupe is
+      // insufficient here because Node's resolution fails before dedupe
+      // ever runs.
+      react: resolve(__dirname, './node_modules/react'),
+      'react-dom': resolve(__dirname, './node_modules/react-dom'),
+      'd3-force': resolve(__dirname, './node_modules/d3-force'),
+      'd3-drag': resolve(__dirname, './node_modules/d3-drag'),
+      'd3-selection': resolve(__dirname, './node_modules/d3-selection'),
     },
+    dedupe: ['react', 'react-dom'],
   },
   server: {
     port: 5173,
