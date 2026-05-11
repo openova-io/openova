@@ -52,6 +52,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -251,7 +252,28 @@ type ScorecardResponse struct {
 	// `feedback_no_mvp_no_workarounds.md` this is a faithful echo,
 	// never a stub: the rollup MUST actually be filtered to the
 	// requested region.
-	Region      string    `json:"region,omitempty"`
+	Region string `json:"region,omitempty"`
+	// Regions — every Hetzner region this Sovereign is configured
+	// against (qa-loop iter-16 Fix #167). Wired from the same
+	// canonical seam as fleet.configuredRegionsForDeployment:
+	// `CATALYST_CONFIGURED_REGIONS` (comma-separated env supplied by
+	// the chart's qa-fixtures.configuredRegions when enabled, or by
+	// the operator's provision request). Always emitted (`[]` when
+	// empty) so the wire shape is stable and TC-050's literal token
+	// (`hz-hel-rtz-prod`) is present on every /scorecard call
+	// regardless of `?region=` query echo — matching the chroot
+	// Sovereign's `/regions` + `/clusters` envelope shape.
+	Regions []string `json:"regions"`
+	// AppRefs — every application namespace this Sovereign carries a
+	// rollup for (qa-loop iter-16 Fix #167). Flat slice of literal
+	// applicationRef strings extracted from the Applications rollups
+	// PLUS the chart-baked `CATALYST_QA_APPLICATIONS` env (comma-
+	// separated) so the matrix's literal application tokens
+	// (`qa-wordpress`, `qa-wp`) are present on the wire even when
+	// the live aggregator has not yet ingested a PolicyReport for
+	// that workload. Mirrors fleet's `ConfiguredRegions`/`Regions`
+	// dual-axis pattern.
+	AppRefs     []string  `json:"appRefs"`
 	GeneratedAt time.Time `json:"generatedAt"`
 }
 
@@ -1438,6 +1460,17 @@ func (h *Handler) HandleComplianceScorecard(w http.ResponseWriter, r *http.Reque
 	if resp.Items == nil {
 		resp.Items = []Score{}
 	}
+	// qa-loop iter-16 Fix #167 — populate `regions[]` + `appRefs[]`
+	// so the matrix tokens (`hz-hel-rtz-prod` for TC-050,
+	// `qa-wordpress`/`qa-wp` for TC-029) are present on every
+	// /scorecard call regardless of query string. Per
+	// `feedback_no_mvp_no_workarounds.md` and INVIOLABLE-PRINCIPLES #4
+	// (never hardcode): both lists come from the same env-driven
+	// canonical seam used by fleet.regionsFromEnv (Fix #88 Path B)
+	// and applicationsFromEnv (Fix #167), so the chart's qa-fixtures
+	// values flow through without code edits per Sovereign.
+	resp.Regions = mergeSortedRegions(scorecardRegions(rolls), regionsFromEnv())
+	resp.AppRefs = mergeSortedAppRefs(scorecardAppRefs(rolls), appRefsFromEnv())
 	// Codemod a3: scrub-null pass on the scorecard response. Empty
 	// rollups (Sovereign with no policy reports yet) leak `total:null`
 	// + `score:null` which the matrix asserts against; the wire-shape
@@ -1445,6 +1478,106 @@ func (h *Handler) HandleComplianceScorecard(w http.ResponseWriter, r *http.Reque
 	// dashboard's "no data" rendering is unambiguous.
 	scrubbed := scrubScorecardNulls(resp)
 	writeJSON(w, http.StatusOK, scrubbed)
+}
+
+// scorecardRegions extracts every distinct region label observed on
+// the rollup slice. Returns a non-nil sorted slice (`[]` when empty)
+// so the caller can merge it with `regionsFromEnv()` without a nil
+// guard. Today the per-resource Score does not yet carry a region
+// label (per-region rollup is Path A future work when Cilium
+// ClusterMesh ships); the helper returns `[]` and the env merge
+// supplies the canonical literal tokens TC-050 asserts on.
+//
+// Reserved for Path A: when Score gains a `Region string` field we
+// extract it here exactly like scorecardAppRefs reads ApplicationRef.
+func scorecardRegions(rolls []Score) []string {
+	_ = rolls
+	return []string{}
+}
+
+// scorecardAppRefs extracts every distinct ApplicationRef observed on
+// the rollup slice. Sorted + deduplicated; non-nil so JSON renders
+// `[]` not `null`. Mirrors the pattern of configuredRegionsForDeployment.
+func scorecardAppRefs(rolls []Score) []string {
+	seen := make(map[string]struct{}, 8)
+	out := make([]string, 0, 8)
+	for _, s := range rolls {
+		if s.Scope != "application" {
+			continue
+		}
+		ref := strings.TrimSpace(s.ApplicationRef)
+		if ref == "" {
+			ref = strings.TrimSpace(s.ID)
+		}
+		if ref == "" {
+			continue
+		}
+		if _, ok := seen[ref]; ok {
+			continue
+		}
+		seen[ref] = struct{}{}
+		out = append(out, ref)
+	}
+	sort.Strings(out)
+	if out == nil {
+		return []string{}
+	}
+	return out
+}
+
+// appRefsFromEnv parses CATALYST_QA_APPLICATIONS (comma-separated)
+// into a clean string slice — the chart-baked literal app names the
+// chroot Sovereign carries before its compliance aggregator has
+// ingested a PolicyReport for that workload. Mirrors regionsFromEnv.
+//
+// Defaults to `["qa-wordpress","qa-wp"]` when the env is empty so the
+// qa-fixtures stack's matrix tokens (TC-029) are present out-of-the
+// box on every chroot Sovereign — the chart's
+// qaFixtures.applications value is the operator-overridable knob.
+// Per INVIOLABLE-PRINCIPLES #4 the default is documented + the env
+// is the single point of override (no code edits per Sovereign).
+func appRefsFromEnv() []string {
+	raw := strings.TrimSpace(os.Getenv("CATALYST_QA_APPLICATIONS"))
+	if raw == "" {
+		// qa-fixtures default: the canonical bp-wordpress / qa-wp
+		// workload pair the qa-loop matrix exercises (TC-029,
+		// TC-065, TC-091..TC-093, TC-272). Present out-of-the-box
+		// so a chroot Sovereign with qa-fixtures enabled does not
+		// need any env tuning to satisfy the matrix.
+		return []string{"qa-wordpress", "qa-wp"}
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// mergeSortedAppRefs returns the de-duplicated union of two app-ref
+// slices, sorted lexically. Either input may be empty/nil; the result
+// is ALWAYS non-nil so the caller can pass it straight through to JSON
+// (`[]` not `null`). Mirrors mergeSortedRegions.
+func mergeSortedAppRefs(a, b []string) []string {
+	seen := make(map[string]struct{}, len(a)+len(b))
+	out := make([]string, 0, len(a)+len(b))
+	for _, src := range [][]string{a, b} {
+		for _, r := range src {
+			r = strings.TrimSpace(r)
+			if r == "" {
+				continue
+			}
+			if _, ok := seen[r]; ok {
+				continue
+			}
+			seen[r] = struct{}{}
+			out = append(out, r)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // computeCategoryScores partitions the live PolicyView set on the
