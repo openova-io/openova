@@ -28,6 +28,9 @@ import { deriveJobs } from './jobs'
 import { adaptDerivedJobsToFlat } from './jobsAdapter'
 import { useLiveJobsBackfill, mergeJobs } from './useLiveJobsBackfill'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
+import { useFlowStream } from '@/lib/openflow-adapter-sse'
+import { synthesizeJobFromFlowNode } from '@/lib/synthesizeJobFromFlowNode'
+import type { Job } from '@/lib/jobs.types'
 
 interface JobsPageProps {
   /** Test seam — disables the live SSE EventSource attach. */
@@ -82,10 +85,48 @@ export function JobsPage({
     disablePolling: disableJobsBackfill || (!inFlight && !isSovereignMode),
   })
 
-  const flatJobs = useMemo(
+  const legacyMerged = useMemo(
     () => mergeJobs(reducerJobs, liveJobs),
     [reducerJobs, liveJobs],
   )
+
+  // OpenovaFlow snapshot merge — TC-035 (2026-05-11). Some Sovereign
+  // jobs (notably the openova-flow-server + openova-flow-emitter HRs)
+  // exist ONLY in the OpenovaFlow snapshot — the legacy
+  // /api/v1/deployments/<id>/jobs endpoint has no entry for those ids.
+  // Without this merge the JobsTable misses entire HelmReleases for any
+  // Sovereign with an active flow surface. Verified live: GET
+  // /v1/flows/<id>/snapshot returns 2 leaf nodes (contabo:bp-openova-
+  // flow-server, contabo:bp-openova-flow-emitter) whose ids never
+  // appear in the legacy /jobs payload. Reuses the same SSE seam +
+  // FlowNode→Job adapter the JobDetail flow-fallback (PR #1412) shipped.
+  const flowStream = useFlowStream({ deploymentId, disableStream })
+  const flowJobs = useMemo(
+    () =>
+      Array.from(flowStream.nodes.values()).map(synthesizeJobFromFlowNode),
+    [flowStream.nodes],
+  )
+
+  // Final merge: legacy (reducer + live backfill) is authoritative on
+  // id collisions because it carries real execution timeline / status
+  // / appId / parentId — the flow-stream synth job is a minimal stub.
+  // Flow rows whose id is NOT present in legacy are appended so the
+  // table covers HRs that live only in the OpenovaFlow snapshot.
+  // Behavior unchanged when the flow stream is empty (Sovereigns
+  // without openova-flow-server deployed) — flowJobs.length === 0 and
+  // the dedupe loop returns legacyMerged untouched.
+  const flatJobs: Job[] = useMemo(() => {
+    if (flowJobs.length === 0) return legacyMerged
+    const seen = new Set(legacyMerged.map((j) => j.id))
+    const extra: Job[] = []
+    for (const fj of flowJobs) {
+      if (seen.has(fj.id)) continue
+      seen.add(fj.id)
+      extra.push(fj)
+    }
+    if (extra.length === 0) return legacyMerged
+    return [...legacyMerged, ...extra]
+  }, [legacyMerged, flowJobs])
 
   const liveBackfillActive = liveJobs.length > 0
 
