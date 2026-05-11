@@ -20,6 +20,18 @@
 FROM docker.io/library/node:22-alpine AS build
 WORKDIR /repo
 
+# OpenovaFlow Foundation — catalyst-ui consumes @openova/flow-core and
+# @openova/flow-canvas as workspace siblings (file:../../../openova-flow/{core,canvas}
+# refs in package.json). npm ci validates those file:-target dirs exist
+# AT INSTALL TIME, so we must copy them BEFORE `npm ci`. Only the
+# package.json files + src/ trees are needed at install time — the
+# rest of products/openova-flow/ is layered in by the subsequent
+# COPY products/ that hydrates the Vite catalog walker.
+COPY products/openova-flow/core/package.json /repo/products/openova-flow/core/package.json
+COPY products/openova-flow/core/src/         /repo/products/openova-flow/core/src/
+COPY products/openova-flow/canvas/package.json /repo/products/openova-flow/canvas/package.json
+COPY products/openova-flow/canvas/src/       /repo/products/openova-flow/canvas/src/
+
 # Bring the directories the Vite prebuild script reads from + the UI source
 # itself. Order is structured so docker layer-caching sees package.json
 # before the rest, preserving npm-cache hits when only sources change.

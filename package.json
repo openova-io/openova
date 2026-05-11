@@ -1,0 +1,11 @@
+{
+  "name": "openova-monorepo",
+  "private": true,
+  "version": "0.0.0",
+  "description": "OpenOva platform monorepo — npm workspaces root for the TypeScript surfaces (catalyst-ui + @openova/flow-*).",
+  "workspaces": [
+    "products/openova-flow/core",
+    "products/openova-flow/canvas",
+    "products/catalyst/bootstrap/ui"
+  ]
+}

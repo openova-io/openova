@@ -68,8 +68,26 @@ export default defineConfig({
   plugins: [tailwindcss(), react(), rebuildCatalogOnYamlChange()],
   resolve: {
     alias: {
+      // OpenovaFlow Foundation — the @openova/* packages live in
+      // products/openova-flow/{core,canvas}/. They publish source-only
+      // entry points (./src/index.ts) so Vite + Vitest + tsc all bind
+      // straight to TS source. Workspaces (root package.json) hoist
+      // react/react-dom/d3-* into the monorepo's node_modules tree so
+      // the canvas source's bare imports resolve via standard
+      // upward-walking node_modules — no per-package node_modules
+      // sibling needed. Per-package aliases are listed BEFORE the '@'
+      // alias because @rollup/plugin-alias matches whole-name (so
+      // ordering is academic) but the documented convention is
+      // "longer key first" defensively.
+      '@openova/flow-core': resolve(__dirname, '../../../openova-flow/core/src/index.ts'),
+      '@openova/flow-canvas': resolve(__dirname, '../../../openova-flow/canvas/src/index.ts'),
       '@': resolve(__dirname, './src'),
     },
+    // Workspaces install one copy of react/react-dom at the monorepo
+    // root; dedupe makes sure both the catalyst-ui bundle AND the
+    // flow-canvas source bind to the same instance (otherwise React
+    // throws "invalid hook call" when two copies coexist).
+    dedupe: ['react', 'react-dom'],
   },
   server: {
     port: 5173,
