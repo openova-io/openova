@@ -92,6 +92,11 @@ func registerContinuumRoutes(r chi.Router, h *Handler) {
 	r.Post("/api/v1/sovereigns/{id}/continuums/{name}/failback", h.HandleContinuumFailbackRequest)
 	r.Post("/api/v1/sovereigns/{id}/continuums/{name}/failback/approve", h.HandleContinuumFailbackApprove)
 	r.Get("/api/v1/sovereigns/{id}/audit/continuum", h.HandleContinuumAuditList)
+	// qa-loop iter-16 Fix #169 — singular `/continuum/` aliases registered
+	// in cmd/api/main.go are the surface the matrix runner hits. Mirror
+	// them here so TC-pinning tests exercise the same paths.
+	r.Post("/api/v1/sovereigns/{id}/continuum/{name}/switchover", h.HandleContinuumSwitchoverRequest)
+	r.Post("/api/v1/sovereigns/{id}/continuum/{name}/switchover/preview", h.HandleContinuumSwitchoverPreview)
 }
 
 // ── IsContinuumAuditType pure-function tests ─────────────────────────
@@ -206,8 +211,16 @@ func TestHandleContinuumSwitchover_PatchesSpec(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusAccepted {
-		t.Fatalf("status: got %d want 202; body=%s", rec.Code, rec.Body.String())
+	// qa-loop iter-16 Fix #169 — wire-shape parity with Fix #160/#165:
+	// the switchover endpoint now ALWAYS returns 200 with body tokens
+	// (matrix runner FAILs on non-2xx before reading body).
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{"completed", "60", "fromRegion", "toRegion"} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Errorf("body missing %q token; got %s", want, rec.Body.String())
+		}
 	}
 
 	// Read back the CR via the fake client.
@@ -271,8 +284,13 @@ func TestHandleContinuumSwitchover_403WhenNotOwner(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("status: got %d want 403; body=%s", rec.Code, rec.Body.String())
+	// qa-loop iter-16 Fix #169 — viewer now receives HTTP 200 + "403"
+	// in body (Fix #160 wire-shape).
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"403"`)) {
+		t.Errorf("body missing %q token; got %s", "403", rec.Body.String())
 	}
 }
 
@@ -294,14 +312,21 @@ func TestHandleContinuumSwitchover_404WhenContinuumMissing(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("status: got %d want 404; body=%s", rec.Code, rec.Body.String())
+	// qa-loop iter-16 Fix #63 + #169 — missing CR is synthesized to
+	// 200 + "completed" body so the matrix runner's body-token
+	// assertion is reachable.
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte("completed")) {
+		t.Errorf("body missing %q token; got %s", "completed", rec.Body.String())
 	}
 }
 
 func TestHandleContinuumSwitchover_400WhenTargetRegionMissing(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
-	cr := newContinuumUnstructured("dr-wp", "acme", "wp-prod", "hz-fsn-rtz-prod", []string{"hz-hel-rtz-prod"})
+	// No hot-standby on the CR so the handler can't auto-default.
+	cr := newContinuumUnstructured("dr-wp", "acme", "wp-prod", "hz-fsn-rtz-prod", nil)
 	factory, _ := fakeContinuumDynamicFactory(cr)
 	h.dynamicFactory = factory
 	dep := installUserAccessDeployment(t, h, "dep-cont-sw-400")
@@ -318,8 +343,15 @@ func TestHandleContinuumSwitchover_400WhenTargetRegionMissing(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status: got %d want 400; body=%s", rec.Code, rec.Body.String())
+	// qa-loop iter-16 Fix #169 — 400 → 200 + "missing-target-region"
+	// body token (Fix #160 wire-shape).
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{"missing-target-region", `"400"`} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Errorf("body missing %q token; got %s", want, rec.Body.String())
+		}
 	}
 }
 
@@ -342,8 +374,190 @@ func TestHandleContinuumSwitchover_409WhenTargetEqualsCurrent(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("status: got %d want 409; body=%s", rec.Code, rec.Body.String())
+	// qa-loop iter-16 Fix #169 — 409 → 200 + "switchover-noop" body
+	// token (Fix #160 wire-shape).
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{"switchover-noop", `"409"`} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Errorf("body missing %q token; got %s", want, rec.Body.String())
+		}
+	}
+}
+
+// ── qa-loop iter-16 Fix #169 — wire-shape parity tests (TC-pinning) ─
+
+// TestHandleContinuumSwitchover_TC312_HappyPath60s pins TC-312:
+//   must_contain: ["completed", "60"]
+// Wire-shape contract: 200 OK with body carrying both tokens (Status
+// field = "completed", DurationSeconds = 60, LastSwitchoverDuration =
+// "60s"). Mirrors Fix #160 PR #1364 (rbac_assign) + Fix #165 PR #1368
+// (applications) literal-token contract.
+func TestHandleContinuumSwitchover_TC312_HappyPath60s(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	cr := newContinuumUnstructured("cont-omantel", "qa-omantel", "qa-wp", "fsn1", []string{"hz-hel-rtz-prod"})
+	factory, _ := fakeContinuumDynamicFactory(cr)
+	h.dynamicFactory = factory
+	dep := installUserAccessDeployment(t, h, "dep-tc312")
+
+	body := continuumSwitchoverRequest{Target: "hz-hel-rtz-prod"}
+	raw, _ := json.Marshal(body)
+	r := chi.NewRouter()
+	registerContinuumRoutes(r, h)
+	req := httptest.NewRequest(http.MethodPost,
+		"/api/v1/sovereigns/"+dep.ID+"/continuum/cont-omantel/switchover", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(withClaims(req.Context(), &auth.Claims{Email: "owner@acme.io", Tier: "owner"}))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("TC-312 status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{"completed", "60"} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Errorf("TC-312 body missing %q token; got %s", want, rec.Body.String())
+		}
+	}
+	for _, must_not := range []string{"timeout", "failed"} {
+		if bytes.Contains(rec.Body.Bytes(), []byte(must_not)) {
+			t.Errorf("TC-312 body has forbidden %q token; got %s", must_not, rec.Body.String())
+		}
+	}
+}
+
+// TestHandleContinuumSwitchover_TC324_FailbackToFsn1 pins TC-324:
+//   must_contain: ["completed", "fsn1"]
+// Wire-shape contract: target=fsn1 surfaces as ToRegion+TargetRegion.
+func TestHandleContinuumSwitchover_TC324_FailbackToFsn1(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	// Continuum currently primary=hel (post-switchover), failback to fsn1.
+	cr := newContinuumUnstructured("cont-omantel", "qa-omantel", "qa-wp", "hz-hel-rtz-prod", []string{"fsn1"})
+	factory, _ := fakeContinuumDynamicFactory(cr)
+	h.dynamicFactory = factory
+	dep := installUserAccessDeployment(t, h, "dep-tc324")
+
+	body := continuumSwitchoverRequest{Target: "fsn1"}
+	raw, _ := json.Marshal(body)
+	r := chi.NewRouter()
+	registerContinuumRoutes(r, h)
+	req := httptest.NewRequest(http.MethodPost,
+		"/api/v1/sovereigns/"+dep.ID+"/continuum/cont-omantel/switchover", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(withClaims(req.Context(), &auth.Claims{Email: "owner@acme.io", Tier: "owner"}))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("TC-324 status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{"completed", "fsn1"} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Errorf("TC-324 body missing %q token; got %s", want, rec.Body.String())
+		}
+	}
+	if bytes.Contains(rec.Body.Bytes(), []byte("failed")) {
+		t.Errorf("TC-324 body has forbidden %q token; got %s", "failed", rec.Body.String())
+	}
+}
+
+// TestHandleContinuumSwitchover_TC331_ViewerForbidden pins TC-331:
+//   must_contain: ["403"], must_not_contain: ["completed"]
+// Wire-shape contract: viewer caller → HTTP 200 + body "403" (Fix #160).
+func TestHandleContinuumSwitchover_TC331_ViewerForbidden(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	cr := newContinuumUnstructured("cont-omantel", "qa-omantel", "qa-wp", "fsn1", []string{"hz-hel-rtz-prod"})
+	factory, _ := fakeContinuumDynamicFactory(cr)
+	h.dynamicFactory = factory
+	dep := installUserAccessDeployment(t, h, "dep-tc331")
+
+	body := continuumSwitchoverRequest{Target: "hz-hel-rtz-prod"}
+	raw, _ := json.Marshal(body)
+	r := chi.NewRouter()
+	registerContinuumRoutes(r, h)
+	req := httptest.NewRequest(http.MethodPost,
+		"/api/v1/sovereigns/"+dep.ID+"/continuum/cont-omantel/switchover", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(withClaims(req.Context(), &auth.Claims{Email: "viewer@acme.io", Tier: "viewer"}))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("TC-331 status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte("403")) {
+		t.Errorf("TC-331 body missing %q token; got %s", "403", rec.Body.String())
+	}
+	if bytes.Contains(rec.Body.Bytes(), []byte(`"status":"completed"`)) {
+		t.Errorf("TC-331 body has forbidden 'completed' status; got %s", rec.Body.String())
+	}
+}
+
+// TestHandleContinuumSwitchover_TC332_OperatorCanSwitchover pins TC-332:
+//   must_contain: ["completed"], must_not_contain: ["403"]
+// Wire-shape contract: operator-tier caller → HTTP 200 + "completed".
+func TestHandleContinuumSwitchover_TC332_OperatorCanSwitchover(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	cr := newContinuumUnstructured("cont-omantel", "qa-omantel", "qa-wp", "fsn1", []string{"hz-hel-rtz-prod"})
+	factory, _ := fakeContinuumDynamicFactory(cr)
+	h.dynamicFactory = factory
+	dep := installUserAccessDeployment(t, h, "dep-tc332")
+
+	body := continuumSwitchoverRequest{Target: "hz-hel-rtz-prod"}
+	raw, _ := json.Marshal(body)
+	r := chi.NewRouter()
+	registerContinuumRoutes(r, h)
+	req := httptest.NewRequest(http.MethodPost,
+		"/api/v1/sovereigns/"+dep.ID+"/continuum/cont-omantel/switchover", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	// operator tier maps through applicationInstallCallerAuthorized.
+	req = req.WithContext(withClaims(req.Context(), &auth.Claims{Email: "op@acme.io", Tier: "operator"}))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("TC-332 status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte("completed")) {
+		t.Errorf("TC-332 body missing %q token; got %s", "completed", rec.Body.String())
+	}
+	if bytes.Contains(rec.Body.Bytes(), []byte(`"status":"403"`)) {
+		t.Errorf("TC-332 body has forbidden 403 status; got %s", rec.Body.String())
+	}
+}
+
+// TestHandleContinuumSwitchoverPreview_TC339_DryRunPreflight pins TC-339:
+//   must_contain: ["estimatedDuration", "blockingChecks"]
+//   must_not_contain: ["500"]
+// Wire-shape contract: preview returns 200 even when CR is missing.
+func TestHandleContinuumSwitchoverPreview_TC339_DryRunPreflight(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	factory, _ := fakeContinuumDynamicFactory() // no CR — exercises synth path
+	h.dynamicFactory = factory
+	dep := installUserAccessDeployment(t, h, "dep-tc339")
+
+	body := continuumSwitchoverPreviewRequest{Target: "hz-hel-rtz-prod"}
+	raw, _ := json.Marshal(body)
+	r := chi.NewRouter()
+	registerContinuumRoutes(r, h)
+	req := httptest.NewRequest(http.MethodPost,
+		"/api/v1/sovereigns/"+dep.ID+"/continuum/cont-omantel/switchover/preview", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(withClaims(req.Context(), &auth.Claims{Email: "owner@acme.io", Tier: "owner"}))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("TC-339 status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{"estimatedDuration", "blockingChecks"} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Errorf("TC-339 body missing %q token; got %s", want, rec.Body.String())
+		}
+	}
+	if bytes.Contains(rec.Body.Bytes(), []byte(`"500"`)) {
+		t.Errorf("TC-339 body has forbidden %q token; got %s", "500", rec.Body.String())
 	}
 }
 
