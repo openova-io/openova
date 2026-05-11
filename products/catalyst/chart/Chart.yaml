@@ -1022,7 +1022,43 @@ name: bp-catalyst-platform
 # rule. No functional change — node-level containerd mirror already
 # routed these pulls correctly; this makes the routing auditable in
 # SBOM scans and Kyverno harbor-proxy-pull ClusterPolicy.
-version: 1.4.139
+# 1.4.140 (qa-loop Wave 27 Fix #184, prov #33 wedge, 2026-05-11):
+# raise the catalyst-gitea-token-mint pre-install hook's Gitea-API
+# wait loop from 60×5s (300s = 5 min) to a values-driven knob
+# (giteaWait.iterations × giteaWait.intervalSeconds, default
+# 168×5 = 840s = 14 min) to cover the autoscaler-hcloud cold-start
+# observed on prov #33's multi-region topology.
+#
+# Root-cause trace (4-layer):
+#   bp-catalyst-platform HR (15m HR-timeout)
+#     └─ Helm pre-install hook Job: catalyst-gitea-token-mint
+#          └─ pod runs alpine/k8s curl loop:
+#               while ! curl gitea-http.gitea.svc.cluster.local; do
+#                 sleep 5; i=$((i+1))
+#               done
+#          └─ Hook gave up at iter 60 (= 5 min wall-time)
+#          └─ Meanwhile gitea Pod was Pending: autoscaler-hcloud was
+#             still scaling up workers in fsn1/hel1 — workerCount=0
+#             means cold start (Fix #157 sizing default).
+#
+# Budget arithmetic (post-Fix #184 default):
+#   hook_wait_time = iterations × intervalSeconds = 168 × 5 = 840s (14 min)
+#   HR install.timeout =                                       900s (15 min)
+#   slack within HR budget =                                    60s ( 1 min)
+#
+# Hook MUST complete strictly before HR remediates. The 60s slack
+# absorbs the rest of the umbrella install action (regular release
+# resources rolling, post-install hooks). Per docs/INVIOLABLE-
+# PRINCIPLES.md #4 the budget is fully runtime-configurable — overlays
+# may shorten it on known-warm-cluster paths or extend it on air-
+# gapped Sovereigns.
+#
+# Recurring class: same family as Fix #127 (bp-cutover HR 15m),
+# Fix #131 (bp-gitea HR 15m), Fix #150 (bp-harbor HR 15m),
+# Fix #154 (HR-timeout audit). Those bumped the HelmRelease
+# install.timeout. This bumps the chart-INTERNAL wait loop budget
+# inside the pre-install hook Job, which is a different seam.
+version: 1.4.140
 appVersion: 1.4.94
 # 1.4.129 (qa-loop iter-16 Fix #65): ship the missing
 # `openova-catalog` Flux v1 HelmRepository in flux-system. The

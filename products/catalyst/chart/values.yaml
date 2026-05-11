@@ -96,6 +96,43 @@ sovereign:
   # passes without requiring a real bp-wordpress install.
   qaApplications: []
 
+# ─── Gitea-API wait budget (qa-loop Wave 27 Fix #184) ──────────────────
+# Knobs consumed by templates/catalyst-gitea-token-secret.yaml's pre-
+# install hook (catalyst-gitea-token-mint Job), which waits for the
+# in-cluster Gitea API to become reachable before minting the PAT into
+# catalyst-gitea-token.
+#
+# iterations × intervalSeconds defines the wall-clock budget. Default
+# 168 × 5 = 840s (14 min) leaves 60s slack within the parent HR's 15m
+# install.timeout (clusters/_template/bootstrap-kit/13-bp-catalyst-
+# platform.yaml). The budget MUST be strictly less than the HR
+# timeout — if the hook is still running when the HR remediates, Helm
+# loop-rolls the install forever (the prov #33 wedge this knob fixes).
+#
+# Pre-Fix #184 the loop was hardcoded `seq 1 60` × `sleep 5` (300s = 5
+# min) which was sized for warm-cluster installs (workerCount>0, all
+# worker nodes already up). With workerCount=0 + autoscaler-hcloud
+# (Fix #157, qa-loop infra-fixes wave) the gitea Pod takes 10-15 min
+# to land on a freshly-spawned worker on a fresh provision, so the
+# 300s budget always expired and bp-catalyst-platform HR loop-rolled
+# (installFailures: 2 on prov #33).
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the budget is
+# fully runtime-configurable so an operator can shorten it on a known-
+# warm-cluster overlay (e.g. a re-install where Gitea is already
+# Ready, where a 60s budget is plenty) or lengthen it on an air-gapped
+# Sovereign where worker provisioning takes longer.
+giteaWait:
+  # Number of iterations of the curl-probe loop. Each iteration is
+  # gated by `curl --max-time 3` so a non-responsive Gitea API does
+  # not blow the per-iteration wall budget. Default 168 paired with
+  # intervalSeconds=5 → 840s wall = 14 min budget.
+  iterations: 168
+  # Sleep between iterations. 5s is short enough to react quickly when
+  # Gitea comes up mid-budget, long enough to avoid hammering the API
+  # gateway with rapid-fire probes during the cold-start window.
+  intervalSeconds: 5
+
 # ─── Multi-zone parent domains (issue #827, parent epic #825) ──────────
 # A franchised Sovereign supports N parent zones, NOT one. The operator
 # brings 1+ parent domains at signup (`omani.works` for own use,

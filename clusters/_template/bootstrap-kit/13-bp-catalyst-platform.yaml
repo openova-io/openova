@@ -435,7 +435,23 @@ spec:
       # this HR was Ready). bp-catalyst-platform install now completes
       # in ~5 min instead of timing out at 15 min then loop-rolling back.
       # 1.4.137: deploy-bot auto-bump (no template changes).
-      version: 1.4.138
+      # 1.4.139 (Fix #163, 2026-05-11, MIRROR-EVERYTHING): every
+      # chart-hook image reference in this Blueprint uses the explicit
+      # harbor.openova.io/proxy-dockerhub prefix per CLAUDE.md
+      # inviolable rule. SBOM-auditable, no functional change.
+      # 1.4.140 (qa-loop Wave 27 Fix #184, prov #33 wedge, 2026-05-11):
+      # catalyst-gitea-token-mint pre-install hook Gitea-API wait loop
+      # raised from hardcoded 60×5s (300s = 5m) to values-driven knob
+      # (giteaWait.iterations × giteaWait.intervalSeconds, default
+      # 168×5 = 840s = 14m). Covers the autoscaler-hcloud cold-start
+      # observed on multi-region prov #33: workerCount=0 (Fix #157
+      # sizing) means the autoscaler must spawn a worker in fsn1/hel1
+      # before bp-gitea's Pod can schedule, which takes 10-15m on a
+      # fresh provision. Pre-Fix #184 budget (300s) always expired
+      # before gitea was reachable → bp-catalyst-platform installFailed
+      # and HR loop-rolled forever. Budget arithmetic: hook 840s + 60s
+      # slack ≤ HR install.timeout 900s (15m).
+      version: 1.4.140
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
