@@ -1,5 +1,22 @@
 apiVersion: v2
 name: bp-external-secrets-stores
+# 1.0.3 (issue #147 / prov #23): bump webhookGate.timeoutSeconds 300 -> 600.
+# Fix #141's 300s budget converged on provs #21 and #22 baseline, but
+# raced on prov #23 (`3ea80c75e1568a5c`, 3rd consecutive FAIL of this HR)
+# where the cold-start path was:
+#   - ESO webhook image pull on a fresh node (no warmed layer cache):
+#     +60-120s on top of the previously observed 75-105s
+#   - cert-manager itself was retrying earlier in the run, so the TLS
+#     Secret materialised later than the cert-manager HR Ready=True
+#     implied
+#   - cainjector queue backlog patching multiple ValidatingWebhookConfig
+#     objects in parallel during the bootstrap-kit fan-out
+# Pathological worst-case: ~135-280s; 600s gives ~2x headroom even at
+# that end. 10min is the realistic max budget for a pathological cold
+# Hetzner provision, not a band-aid — still bounded so a genuinely
+# broken upstream fails the HR. Unblocks remaining 3/43 HRs that
+# converge except this one.
+#
 # 1.0.2 (issue #141 / prov #21): bump webhookGate.timeoutSeconds 60 -> 300.
 # Fix #137's 60s budget caught most cases but raced on prov #21
 # (`f84f6c3ff2b60296`) where the full webhook convergence (Pod Ready +
@@ -11,7 +28,7 @@ name: bp-external-secrets-stores
 # apply on the upstream ESO admission webhook being dial-able. Closes the
 # Pod-Ready ≠ webhook-serving race that wedged prov #20 with `exceeded
 # max retries`.
-version: 1.0.2
+version: 1.0.3
 description: |
   Catalyst-curated Blueprint chart for the default ESO ClusterSecretStore(s)
   that wire each Sovereign's bp-external-secrets controller to its bp-openbao
