@@ -792,6 +792,16 @@ func (d *Deployment) State() map[string]any {
 	if d.AdoptedAt != nil {
 		out["adoptedAt"] = d.AdoptedAt.UTC().Format(time.RFC3339)
 	}
+	// OpenovaFlow integration (Agent #3, PR #1389/#1390 follow-up). Lit
+	// up on every new deployment so the FlowPage canvas can swap from
+	// the legacy bridge to the openova-flow-server-driven adapter. The
+	// flag is server-driven (not request-driven) so a future
+	// blueprint-side flip stays a one-line change here, not a
+	// migration of every stored deployment record. Per docs/INVIOLABLE-
+	// PRINCIPLES.md #1 (target-state) the canvas is the real consumer
+	// from first cut; legacy deployments without bp-openova-flow-server
+	// running degrade gracefully (the bridge still renders).
+	out["openovaFlowEnabled"] = true
 	return out
 }
 
