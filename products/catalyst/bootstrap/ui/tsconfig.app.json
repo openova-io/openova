@@ -25,17 +25,8 @@
     "noUncheckedSideEffectImports": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"],
-      "@openova/flow-core": ["../../../openova-flow/core/src/index.ts"],
-      "@openova/flow-canvas": ["../../../openova-flow/canvas/src/index.ts"],
-      "react": ["./node_modules/react"],
-      "react/*": ["./node_modules/react/*"],
-      "react-dom": ["./node_modules/react-dom"],
-      "react-dom/*": ["./node_modules/react-dom/*"],
-      "d3-force": ["./node_modules/d3-force"],
-      "d3-drag": ["./node_modules/d3-drag"],
-      "d3-selection": ["./node_modules/d3-selection"]
+      "@/*": ["./src/*"]
     }
   },
-  "include": ["src", "../../../openova-flow/core/src/**/*", "../../../openova-flow/canvas/src/**/*"]
+  "include": ["src"]
 }
