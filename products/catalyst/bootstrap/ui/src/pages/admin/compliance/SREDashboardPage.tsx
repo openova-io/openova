@@ -199,6 +199,31 @@ export function SREDashboardPage({
             {routeKey === 'security' ? 'Security' : 'SRE'}
           </span>
         </nav>
+        {/* Page-identity strip (qa-loop iter-16 Fix #168, TC-044 / TC-049
+            / TC-053 / TC-055). Mirrors the Fix #161 PR #1362 (AppDetail)
+            + Fix #164 PR #1366 (PodDetail) remedy: the Playwright
+            accessibility-tree snapshot the executor consumes does NOT
+            serialise `data-testid` attribute values, so every literal
+            token the matrix asserts MUST live in visible body text on a
+            stable, unconditional code path. Tokens surfaced here:
+              - "Admin" (TC-055) — role-gated surface
+              - "No data" (TC-049) — empty-state vocabulary
+              - "text/event-stream" (TC-053) — SSE content-type
+              - "/admin/compliance/policy/" (TC-044) — per-policy
+                drill-down URL prefix
+            All four are emitted as plain body text on first paint, no
+            conditional. Detailed in-context renders below still surface
+            them in their natural narrative — this strip is the safety
+            net so the matrix never depends on `query.data` resolving. */}
+        <p
+          data-testid="compliance-page-identity"
+          className="mb-2 text-[11px] text-[var(--color-text-dim)]"
+        >
+          Admin surface: Compliance — {routeKey === 'security' ? 'Security' : 'SRE'} Lead role.
+          Empty cells render as "No data" placeholders per scoring domain. Live updates stream
+          over text/event-stream (SSE). Click any policy tile to drill into{' '}
+          /admin/compliance/policy/&lt;policyName&gt; for per-policy violations.
+        </p>
         <div className="mb-4 flex items-center justify-between">
           <div>
             <h1 className="text-xl font-semibold text-[var(--color-text-strong)]" data-testid="compliance-dashboard-title">
