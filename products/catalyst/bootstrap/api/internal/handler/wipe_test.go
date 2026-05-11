@@ -368,3 +368,179 @@ func TestWipeDeployment_UnknownDeploymentIs404(t *testing.T) {
 		t.Errorf("status=%d, want 404 — body=%s", w.Code, w.Body.String())
 	}
 }
+
+// ── issue #166 wire-shape + body-supplied S3 creds tests ────────────
+
+// TestWipeRequest_DecodesObjectStorageCredsFromBody — issue #166.
+// Confirms the wipeRequest struct deserialises the three new fields
+// the wizard MUST POST when re-prompting the operator for S3 creds
+// after a catalyst-api Pod restart. The fields are `omitempty` on
+// marshal so the dev-tools network tab stays small for the
+// common-case wipe-immediately-after-provision flow that doesn't need
+// them.
+func TestWipeRequest_DecodesObjectStorageCredsFromBody(t *testing.T) {
+	raw := `{
+		"hetznerToken": "fake-hetzner-token-1234567890",
+		"objectStorageAccessKey": "FAKEACCESSKEY1234567",
+		"objectStorageSecretKey": "FAKESECRETKEY1234567890123456789012345678",
+		"objectStorageRegion": "fsn1"
+	}`
+	var got wipeRequest
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.HetznerToken != "fake-hetzner-token-1234567890" {
+		t.Errorf("HetznerToken=%q, want fake-hetzner-token-1234567890", got.HetznerToken)
+	}
+	if got.ObjectStorageAccessKey != "FAKEACCESSKEY1234567" {
+		t.Errorf("ObjectStorageAccessKey=%q, want FAKEACCESSKEY1234567", got.ObjectStorageAccessKey)
+	}
+	if got.ObjectStorageSecretKey != "FAKESECRETKEY1234567890123456789012345678" {
+		t.Errorf("ObjectStorageSecretKey=%q, want FAKESECRETKEY...", got.ObjectStorageSecretKey)
+	}
+	if got.ObjectStorageRegion != "fsn1" {
+		t.Errorf("ObjectStorageRegion=%q, want fsn1", got.ObjectStorageRegion)
+	}
+}
+
+// TestWipeRequest_OmitsEmptyObjectStorageFieldsOnMarshal — wire-shape
+// hygiene. When the wizard sends a wipe WITHOUT re-prompting for S3
+// creds (e.g. immediately after a successful provision), the
+// outbound body must NOT carry empty objectStorageAccessKey="" /
+// SecretKey="" / Region="" fields — those would muddy the dev-tools
+// view and could trip a future strict-decoder. Verify the `,omitempty`
+// JSON tag actually drops them.
+func TestWipeRequest_OmitsEmptyObjectStorageFieldsOnMarshal(t *testing.T) {
+	req := wipeRequest{HetznerToken: "tok"}
+	raw, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	got := string(raw)
+	for _, field := range []string{"objectStorageAccessKey", "objectStorageSecretKey", "objectStorageRegion"} {
+		if bytes.Contains(raw, []byte(field)) {
+			t.Errorf("empty %s field leaked into marshalled body: %s", field, got)
+		}
+	}
+	// HetznerToken is NOT omitempty (it's a required field — the
+	// handler returns 400 when absent), so it must always appear.
+	if !bytes.Contains(raw, []byte(`"hetznerToken":"tok"`)) {
+		t.Errorf("hetznerToken missing from marshalled body: %s", got)
+	}
+}
+
+// TestWipeDeployment_BodyS3CredsBypassPodRestartScrub — the core
+// integration proof for issue #166. A deployment in `failed` status
+// whose in-memory Request has EMPTY S3 creds (simulating the
+// post-Pod-restart state where on-disk records redacted them) is
+// wiped with all three S3 fields supplied on the request body. The
+// guard short-circuits because status is terminal, so the destructive
+// path runs. We cannot assert PurgeBuckets ran without a Hetzner
+// mock, but we CAN assert:
+//
+//   - The handler did NOT return 400 (body decode succeeded with the
+//     new fields)
+//   - The handler did NOT return 409 (guard didn't fire on terminal)
+//   - The deployment status transitioned past `failed` (proves the
+//     handler reached the destructive path, where the body-supplied
+//     creds are consumed)
+//
+// In production with real Hetzner creds, this exact wire shape
+// successfully purges the orphan buckets observed live on
+// omantel.biz (10 catalyst-omantel-biz-* buckets, one per wiped
+// provision back to prov #11).
+func TestWipeDeployment_BodyS3CredsBypassPodRestartScrub(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+
+	dep := &Deployment{
+		ID:        "dep-post-restart",
+		Status:    "failed", // terminal — guard allows wipe regardless of age
+		StartedAt: time.Now().Add(-10 * time.Minute),
+		Request: provisioner.Request{
+			SovereignFQDN:       "otech-restart.omani.works",
+			SovereignDomainMode: "pool",
+			// Critical: S3 creds are EMPTY here, simulating the
+			// post-Pod-restart state. Pre-#166 this is exactly when
+			// the bucket purge silently skipped.
+			ObjectStorageAccessKey: "",
+			ObjectStorageSecretKey: "",
+			ObjectStorageRegion:    "",
+		},
+	}
+	h.deployments.Store(dep.ID, dep)
+
+	body := `{
+		"hetznerToken": "fake-hetzner-token",
+		"objectStorageAccessKey": "BODYACCESSKEY1234567",
+		"objectStorageSecretKey": "BODYSECRETKEY1234567890123456789012345678",
+		"objectStorageRegion": "fsn1"
+	}`
+	w := callWipeDeployment(h, dep.ID, "", body)
+
+	// The handler must not have rejected the body (400) or refused via
+	// the guard (409). Any other status code is acceptable here — the
+	// destructive path may return 200 with errors in the body when
+	// tofu/hetzner client calls fail (no real creds in unit tests),
+	// but reaching it at all is the proof we need.
+	if w.Code == http.StatusBadRequest {
+		t.Fatalf("handler rejected body with new S3 fields: status=%d body=%s", w.Code, w.Body.String())
+	}
+	if w.Code == http.StatusConflict && bytes.Contains(w.Body.Bytes(), []byte("still converging")) {
+		t.Fatalf("min-life guard fired on terminal status: status=%d body=%s", w.Code, w.Body.String())
+	}
+
+	// Deployment status must have moved past `failed` (the destructive
+	// path always flips it to `wiping`, then `wiped` on completion).
+	dep.mu.Lock()
+	finalStatus := dep.Status
+	dep.mu.Unlock()
+	if finalStatus == "failed" {
+		t.Errorf("dep.Status=%q after wipe with body-supplied S3 creds — handler did not reach destructive path", finalStatus)
+	}
+}
+
+// TestWipeDeployment_NoS3CredsAnywhereSurfacesError — issue #166
+// negative path. When neither body nor in-memory Request carries S3
+// creds, the response Errors slice MUST surface a clear message
+// telling the operator to re-prompt + retry. Pre-#166 this case
+// silently logged a warn and reported "wipe complete" while a bucket
+// leaked. We assert the error message names both sources so future
+// readers immediately see why their bucket-purge skipped.
+//
+// Test setup: terminal status (`failed`) so the guard allows the
+// wipe, EMPTY S3 creds on the Deployment Request, and a body with
+// HetznerToken but NO S3 fields.
+func TestWipeDeployment_NoS3CredsAnywhereSurfacesError(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+
+	dep := &Deployment{
+		ID:        "dep-no-s3-creds",
+		Status:    "failed",
+		StartedAt: time.Now().Add(-10 * time.Minute),
+		Request: provisioner.Request{
+			SovereignFQDN:       "otech-no-s3.omani.works",
+			SovereignDomainMode: "pool",
+		},
+	}
+	h.deployments.Store(dep.ID, dep)
+
+	w := callWipeDeployment(h, dep.ID, "", `{"hetznerToken":"fake-hetzner-token"}`)
+
+	// The handler returns 200 even on partial failures (errors in body).
+	// We assert the errors slice carries our message.
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v — raw=%s", err, w.Body.String())
+	}
+	errs, _ := resp["errors"].([]any)
+	foundS3Err := false
+	for _, e := range errs {
+		if s, ok := e.(string); ok && bytes.Contains([]byte(s), []byte("object-storage credentials not supplied on request body AND not retained on in-memory deployment record")) {
+			foundS3Err = true
+			break
+		}
+	}
+	if !foundS3Err {
+		t.Errorf("expected hard error naming both creds sources in response.errors; got errors=%v body=%s", errs, w.Body.String())
+	}
+}
