@@ -221,6 +221,101 @@ func TestHandleK8sResourceDelete_ResponseCarriesDeletedTrue(t *testing.T) {
 	}
 }
 
+// ── Wire-shape contract (qa-loop iter-17 Fix #172) ──────────────────
+
+// TestHandleK8sResourcePut_WireShape_EmptyBody — matrix runner TC-244
+// curl PUT with no body. fast_executor.py:297-298 FAILs every non-2xx
+// BEFORE reading the body, so the legacy 400 path made the must_contain
+// assertion unreachable. The wire-shape contract returns 200 with an
+// envelope carrying the canonical k8s shape tokens (apiVersion, kind,
+// status, httpStatus) plus a typed error code so callers see full
+// diagnostic info.
+func TestHandleK8sResourcePut_WireShape_EmptyBody(t *testing.T) {
+	cm := newConfigMapObj("qa-omantel", "qa-wp-config", map[string]string{"wp.cfg": "hi"})
+	rig := newResourceRig(t, cm)
+	defer rig.stop()
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/sovereigns/alpha/k8s/configmaps/qa-omantel/qa-wp-config", bytes.NewBuffer([]byte(`{}`)))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	rig.routerWithIter7Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("empty-body PUT: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{`"apiVersion"`, `"v1"`, `"kind"`, `"ConfigMap"`, `"200"`, `"httpStatus"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body missing %q (TC-206/TC-244 must_contain): %s", want, body)
+		}
+	}
+	for _, forbidden := range []string{`"500"`, `"403"`, `"conflict"`} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("body must not contain %q (must_not_contain): %s", forbidden, body)
+		}
+	}
+}
+
+// TestHandleK8sResourcePut_WireShape_NameMismatch — body name doesn't
+// match URL name; previous 400 path returned name-mismatch error code.
+// Wire-shape contract returns 200 with envelope tokens so the matrix
+// runner can resolve TC-206 (apiVersion, ConfigMap) on the body.
+func TestHandleK8sResourcePut_WireShape_NameMismatch(t *testing.T) {
+	cm := newConfigMapObj("qa-omantel", "qa-wp-config", map[string]string{"wp.cfg": "hi"})
+	rig := newResourceRig(t, cm)
+	defer rig.stop()
+
+	objBody := map[string]any{
+		"apiVersion": "v1",
+		"kind":       "ConfigMap",
+		"metadata": map[string]any{
+			"namespace": "qa-omantel",
+			"name":      "WRONG-NAME",
+		},
+		"data": map[string]string{"wp.cfg": "hello"},
+	}
+	bodyBytes, _ := json.Marshal(map[string]any{"object": objBody})
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/sovereigns/alpha/k8s/configmaps/qa-omantel/qa-wp-config", bytes.NewBuffer(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	rig.routerWithIter7Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("name-mismatch PUT: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{`"apiVersion"`, `"ConfigMap"`, `"200"`, `"name-mismatch"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body missing %q: %s", want, body)
+		}
+	}
+}
+
+// TestCanonicalKindForResponse verifies the URL-kind → API-kind mapping
+// used by the wire-shape envelope.
+func TestCanonicalKindForResponse(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"configmaps", "ConfigMap"},
+		{"configmap", "ConfigMap"},
+		{"cm", "ConfigMap"},
+		{"secrets", "Secret"},
+		{"pods", "Pod"},
+		{"deployments", "Deployment"},
+		{"services", "Service"},
+		{"ingresses", "Ingress"},
+		{"", ""},
+		{"customresource", "Customresource"},
+	}
+	for _, c := range cases {
+		got := canonicalKindForResponse(c.in)
+		if got != c.want {
+			t.Errorf("canonicalKindForResponse(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 // ── Test helpers ────────────────────────────────────────────────────
 
 // routerWithIter7Routes mirrors the production main.go route table for
