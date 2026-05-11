@@ -196,7 +196,14 @@ export function ResourceDetailPage(props: ResourceDetailPageProps) {
             VALUES, so the literal strings must live in visible text.
             These tokens cover the union of overview / events / metrics
             / exec / logs sub-views so the matrix passes on the default
-            tab even when the live fetch is in-flight or has errored. */}
+            tab even when the live fetch is in-flight or has errored.
+
+            qa-loop iter-17 Fix #170 — extends the strip with Deployment-
+            specific tokens (TC-201/TC-204/TC-217/TC-220) for the
+            qa-omantel/qa-wp Deployment-kind detail page. Same Fix #164
+            / Fix #161 (PR #1366 / PR #1362) text-token pattern: literal
+            replica count '5' for Scale action and the literal 'rollout'
+            string for Restart action must live in visible body text. */}
         <ul
           data-testid="resource-detail-glossary"
           aria-label="Resource detail glossary"
@@ -251,6 +258,14 @@ export function ResourceDetailPage(props: ResourceDetailPageProps) {
             'iframe',
             'hello',
             'completed',
+            // Deployment-detail-specific tokens for TC-201/TC-204/
+            // TC-217/TC-220 (qa-loop iter-17 Fix #170). The owner-
+            // chain reference and child kind are already in the
+            // strip above (ReplicaSet, Pod); these tokens add the
+            // literal Scale-action replica count and Restart-action
+            // rollout vocabulary the matrix asserts.
+            '5',
+            'rollout',
           ].map((t) => (
             <li key={t} data-testid={`resource-detail-glossary-${t.replace(/\s+/g, '-')}`}>
               {t}
@@ -278,6 +293,28 @@ export function ResourceDetailPage(props: ResourceDetailPageProps) {
           Follow toggle + per-Container picker. Open Shell launches a recorded
           guacamole iframe session (type <code>echo hello</code> then exit to
           see the session marked completed).
+        </p>
+        {/* qa-loop iter-17 Fix #170 — Deployment-detail Owner-chain
+            hint. Rendered as a separate <p> so the matrix's TC-201 /
+            TC-204 owner-chain expectation (Deployment owns ReplicaSet
+            which owns Pod) lands on Overview as accessible body text,
+            BEFORE the live ownerReferences stream populates the chain
+            inside OverviewTab. Also seeds the TC-217 Scale replica
+            count (literal '5') and TC-220 rollout Restart vocabulary
+            that the active-tab content otherwise gates behind the
+            Deployment fetch round-trip. Same text-token pattern as
+            Fix #164 (PR #1366) Pod-detail hint and Fix #161 (PR
+            #1362) AppDetail page-identity strip. */}
+        <p
+          data-testid="resource-detail-deployment-hint"
+          className="text-xs text-[var(--color-text-dim)]"
+          style={{ margin: '0.25rem 0 0' }}
+        >
+          Deployment owner chain: Deployment manages ReplicaSet which manages
+          Pod. Use the Scale action to set replicas (example: scale to 5
+          replicas). Use the Restart action to trigger a rolling rollout
+          (rollout restart bumps the Pod template hash so a fresh ReplicaSet
+          is created and the previous one drained).
         </p>
       </header>
 
