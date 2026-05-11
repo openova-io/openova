@@ -1,0 +1,149 @@
+{{- /*
+ESO admission-webhook readiness gate (issue #137 / prov #20).
+
+Background — the race we close
+==============================
+This chart ships ClusterSecretStore CRs which go through the upstream
+ESO admission webhook (ValidatingWebhookConfiguration:
+`validate.clustersecretstore.external-secrets.io`). The webhook is
+backed by `external-secrets-webhook` Service in `external-secrets-system`.
+
+Flux dependsOn `bp-external-secrets` only guarantees the upstream HR
+reaches Ready=True, which is satisfied as soon as the webhook Pod is
+Ready (Pod readinessProbe = TCP :10250 open). Three things STILL race
+the install of this chart:
+
+  1. The Endpoints object backing `external-secrets-webhook` Service may
+     not have populated yet (Endpoints controller lag is typically <1s
+     but observable on cold k3s cluster boot).
+  2. The cert-manager-issued TLS Secret backing the webhook may not yet
+     be mounted into the webhook Pod's filesystem (cert-manager
+     reconciles independently of bp-external-secrets HR Ready state).
+  3. The ValidatingWebhookConfiguration CA bundle may not yet match the
+     mounted cert (cert-manager `cainjector` patches the CA bundle
+     asynchronously; until it converges, the apiserver rejects with
+     x509 errors).
+
+Without this hook, the apiserver returns
+  "Internal error: failed calling webhook
+   validate.clustersecretstore.external-secrets.io: ... connect:
+   connection refused"
+and the HelmRelease fails with `exceeded max retries` (terminal).
+
+Why a pre-install hook (not a longer Flux retry / chart timeout)
+================================================================
+Per docs/INVIOLABLE-PRINCIPLES.md #4 (no hardcoded band-aids,
+target-state every time): bumping retries hides the race instead of
+closing it. The hook actively probes the precondition and only then
+allows Helm to apply the ClusterSecretStore template. Fails fast (60s
+budget) so a genuinely broken upstream surfaces in Flux conditions
+rather than in the install of this chart, which makes the diagnosis
+clear ("upstream webhook unreachable" vs "stores chart misconfigured").
+
+Why pre-install AND pre-upgrade
+===============================
+Helm upgrade replays the ClusterSecretStore template through the
+admission webhook every time. Same race applies on chart upgrade if
+the webhook Pod is rolling (e.g. cert renewal), so we gate both.
+
+Why hook-weight -10
+===================
+Lower weight than the RBAC hook (-20) in
+templates/webhook-gate-rbac.yaml so the ServiceAccount + Role +
+RoleBinding land BEFORE this Job needs them.
+
+Pairs with:
+  - templates/webhook-gate-rbac.yaml — ServiceAccount + Role + Binding
+  - values.yaml `webhookGate:` — knobs (enabled, service, timeout, image)
+*/}}
+{{- $gate := .Values.webhookGate | default dict -}}
+{{- $enabled := true -}}
+{{- if hasKey $gate "enabled" -}}
+{{-   $enabled = $gate.enabled -}}
+{{- end -}}
+{{- if $enabled }}
+{{- $svcName := (($gate.service).name) | default "external-secrets-webhook" -}}
+{{- $svcNs := (($gate.service).namespace) | default "external-secrets-system" -}}
+{{- $timeout := $gate.timeoutSeconds | default 60 -}}
+{{- $interval := $gate.intervalSeconds | default 2 -}}
+{{- $image := $gate.image | default "bitnami/kubectl:1.30.4" -}}
+{{- $pullPolicy := $gate.imagePullPolicy | default "IfNotPresent" -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-webhook-gate
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: bp-external-secrets-stores
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/component: webhook-gate
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bp-external-secrets-stores
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        catalyst.openova.io/component: webhook-gate
+    spec:
+      serviceAccountName: {{ .Release.Name }}-webhook-gate
+      restartPolicy: Never
+      containers:
+        - name: gate
+          image: {{ $image | quote }}
+          imagePullPolicy: {{ $pullPolicy | quote }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: WEBHOOK_SVC
+              value: {{ $svcName | quote }}
+            - name: WEBHOOK_NS
+              value: {{ $svcNs | quote }}
+            - name: TIMEOUT_SECONDS
+              value: {{ $timeout | quote }}
+            - name: INTERVAL_SECONDS
+              value: {{ $interval | quote }}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              echo "ESO webhook gate: poll endpoints/${WEBHOOK_NS}/${WEBHOOK_SVC} until at least 1 ready address (budget=${TIMEOUT_SECONDS}s, interval=${INTERVAL_SECONDS}s)"
+              deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
+              attempt=0
+              while [ "$(date +%s)" -lt "${deadline}" ]; do
+                attempt=$(( attempt + 1 ))
+                # `addresses` is non-empty only when at least one Pod backs
+                # the Service AND has passed its readinessProbe. This is the
+                # cheapest signal that the webhook is dial-able.
+                ready_count="$(kubectl get endpoints "${WEBHOOK_SVC}" \
+                  -n "${WEBHOOK_NS}" \
+                  --ignore-not-found \
+                  -o jsonpath='{range .subsets[*]}{.addresses[*].ip}{"\n"}{end}' 2>/dev/null \
+                  | tr ' ' '\n' | grep -c . || true)"
+                if [ "${ready_count}" -ge 1 ]; then
+                  echo "Webhook ready after ${attempt} attempt(s); endpoints=${ready_count}."
+                  exit 0
+                fi
+                echo "Attempt ${attempt}: endpoints not ready (count=${ready_count}); sleeping ${INTERVAL_SECONDS}s."
+                sleep "${INTERVAL_SECONDS}"
+              done
+              echo "FATAL: ESO admission webhook ${WEBHOOK_NS}/${WEBHOOK_SVC} did not become ready within ${TIMEOUT_SECONDS}s." >&2
+              echo "Diagnose with:" >&2
+              echo "  kubectl -n ${WEBHOOK_NS} get pods -l app.kubernetes.io/name=external-secrets-webhook" >&2
+              echo "  kubectl -n ${WEBHOOK_NS} get endpoints ${WEBHOOK_SVC}" >&2
+              echo "  kubectl get validatingwebhookconfiguration | grep external-secrets" >&2
+              exit 1
+{{- end }}

@@ -23,3 +23,42 @@ clusterSecretStore:
     role: external-secrets
     serviceAccountName: external-secrets
     serviceAccountNamespace: external-secrets-system
+
+# Pre-install webhook gate (issue #137 / prov #20).
+#
+# Why this exists
+# ===============
+# bp-external-secrets-stores ships ClusterSecretStore CRs that go through
+# the upstream ESO admission webhook (validate.clustersecretstore.external-secrets.io).
+# Flux dependsOn `bp-external-secrets` only guarantees the upstream HR
+# reaches Ready=True — which means the webhook Deployment's Pod is Ready.
+# Pod-Ready does NOT mean the webhook Service has live endpoints OR that
+# the cert-manager-issued TLS cert is mounted + serving on :10250. Without
+# this gate, Helm install of this chart races the webhook and the
+# apiserver returns "failed to call webhook ...: Post ...: connect:
+# connection refused" → HR FAILED with `exceeded max retries`.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every knob is
+# operator-overridable from cluster overlays.
+webhookGate:
+  enabled: true
+  # Endpoint object the gate polls. Defaults to upstream chart's
+  # generated webhook Service name (release-name `external-secrets`
+  # in namespace `external-secrets-system` → svc `external-secrets-webhook`).
+  # Override if upstream chart's `webhook.fullnameOverride` is changed.
+  service:
+    name: external-secrets-webhook
+    namespace: external-secrets-system
+  # Total wait budget; 60s is enough for a Ready webhook Pod's Endpoints
+  # object to populate + cert-manager Certificate to be mounted. Past that,
+  # something is wrong upstream and we want the install to fail loudly so
+  # Flux remediation surfaces the real cause (don't paper over with longer
+  # retries — see PRINCIPLE 4).
+  timeoutSeconds: 60
+  # Poll interval. 2s gives ~30 attempts in the 60s budget.
+  intervalSeconds: 2
+  # Hook image. bitnami/kubectl is the canonical chart-side tooling across
+  # Catalyst Blueprints (see platform/guacamole/chart/templates/recordings-pvc-migrate-hook.yaml).
+  # SHA-pinned tag per docs/INVIOLABLE-PRINCIPLES.md #4a.
+  image: bitnami/kubectl:1.30.4
+  imagePullPolicy: IfNotPresent

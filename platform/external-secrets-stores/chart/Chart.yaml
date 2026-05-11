@@ -1,6 +1,10 @@
 apiVersion: v2
 name: bp-external-secrets-stores
-version: 1.0.0
+# 1.0.1 (issue #137 / prov #20): pre-install hook gates ClusterSecretStore
+# apply on the upstream ESO admission webhook being dial-able. Closes the
+# Pod-Ready ≠ webhook-serving race that wedged prov #20 with `exceeded
+# max retries`.
+version: 1.0.1
 description: |
   Catalyst-curated Blueprint chart for the default ESO ClusterSecretStore(s)
   that wire each Sovereign's bp-external-secrets controller to its bp-openbao

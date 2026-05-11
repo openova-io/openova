@@ -1,0 +1,80 @@
+{{- /*
+RBAC for the ESO admission-webhook readiness gate (issue #137).
+
+Per docs/INVIOLABLE-PRINCIPLES.md #3 (least-privilege): the gate Job
+ONLY needs `get` + `list` on Endpoints in the upstream ESO namespace.
+We grant a Role in the upstream `webhookGate.service.namespace`
+(default external-secrets-system), NOT in the chart's targetNamespace,
+because the Endpoints object the gate polls lives with the upstream
+webhook Service, not with the ClusterSecretStore CRs.
+
+Hook ordering: weight -20 ensures SA + Role + Binding are applied
+BEFORE the gate Job (weight -10) starts.
+
+Pairs with templates/webhook-gate-hook.yaml.
+*/}}
+{{- $gate := .Values.webhookGate | default dict -}}
+{{- $enabled := true -}}
+{{- if hasKey $gate "enabled" -}}
+{{-   $enabled = $gate.enabled -}}
+{{- end -}}
+{{- if $enabled }}
+{{- $svcNs := (($gate.service).namespace) | default "external-secrets-system" -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-webhook-gate
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: bp-external-secrets-stores
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/component: webhook-gate
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-20"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+---
+# Role lives in the UPSTREAM ESO namespace (where the webhook Service +
+# Endpoints object live), not in this chart's targetNamespace, even when
+# they happen to coincide. Templating keeps them independently
+# overridable from values.yaml.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-webhook-gate
+  namespace: {{ $svcNs }}
+  labels:
+    app.kubernetes.io/name: bp-external-secrets-stores
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/component: webhook-gate
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-20"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: [""]
+    resources: [endpoints]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-webhook-gate
+  namespace: {{ $svcNs }}
+  labels:
+    app.kubernetes.io/name: bp-external-secrets-stores
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/component: webhook-gate
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-20"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .Release.Name }}-webhook-gate
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-webhook-gate
+    namespace: {{ .Release.Namespace }}
+{{- end }}
