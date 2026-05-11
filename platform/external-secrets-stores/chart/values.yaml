@@ -49,12 +49,20 @@ webhookGate:
   service:
     name: external-secrets-webhook
     namespace: external-secrets-system
-  # Total wait budget; 60s is enough for a Ready webhook Pod's Endpoints
-  # object to populate + cert-manager Certificate to be mounted. Past that,
-  # something is wrong upstream and we want the install to fail loudly so
-  # Flux remediation surfaces the real cause (don't paper over with longer
-  # retries — see PRINCIPLE 4).
-  timeoutSeconds: 60
+  # Total wait budget. Originally 60s (1.0.1) — proved too tight on prov #21
+  # (`f84f6c3ff2b60296`) where the upstream ESO webhook took ~75-105s to
+  # reach a fully serving state on a fresh Hetzner cold-start k3s. The full
+  # convergence path is:
+  #   1. external-secrets-webhook Pod Ready          (~30-60s after install)
+  #   2. cert-manager TLS Secret created + mounted   (~30s after Pod Ready)
+  #   3. cainjector patches ValidatingWebhookConfig CA (~10s)
+  #   4. Endpoints object populates                  (~5s)
+  # Total: 75-105s end-to-end. 300s gives ~3x headroom for the slowest
+  # observed cold-start while still failing fast on a genuinely broken
+  # upstream (5min vs an unbounded Helm timeout). This is target-state per
+  # docs/INVIOLABLE-PRINCIPLES.md #4 — sized to the real worst-case, not
+  # padded retry-bandaid.
+  timeoutSeconds: 300
   # Poll interval. 2s gives ~30 attempts in the 60s budget.
   intervalSeconds: 2
   # Hook image. bitnami/kubectl is the canonical chart-side tooling across
