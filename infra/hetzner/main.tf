@@ -146,10 +146,17 @@ locals {
   # means updating this lookup AND the var.region validation in
   # variables.tf in the same PR (so the multi-region for_each below cannot
   # land in a location whose zone we can't resolve).
+  # Hetzner /v1/locations as of 2026-05-11: hel1 is in eu-central
+  # (not eu-north — Fix #179 incorrectly used "eu-north" and tofu apply
+  # FATALed with `network zone does not exist` on prov #32). Verified
+  # via `curl https://api.hetzner.cloud/v1/locations` — single source
+  # of truth. The original prov #29/#30 "IP not available" on
+  # secondary[hel1-1] was misdiagnosed; both regions live in eu-central
+  # and the failure has a different root cause to be re-traced.
   hetzner_network_zones = {
     fsn1 = "eu-central"
     nbg1 = "eu-central"
-    hel1 = "eu-north"
+    hel1 = "eu-central"
     ash  = "us-east"
     hil  = "us-west"
     sin  = "ap-southeast"
@@ -551,6 +558,15 @@ resource "hcloud_load_balancer" "main" {
 resource "hcloud_load_balancer_network" "main" {
   load_balancer_id = hcloud_load_balancer.main.id
   network_id       = hcloud_network.main.id
+  # Fix #182: pin LB private IP to top-of-subnet so it cannot race the
+  # CP server's explicit `ip = "10.0.1.2"` during parallel apply. Without
+  # this, Hetzner auto-allocates the first free IP in the matching-zone
+  # subnet — in multi-region prov #32 the secondary LB attached at t+16s
+  # took 10.0.1.2 from main subnet (only eu-central subnet existing then),
+  # causing CP creation to FATAL with `inlineAttachServerToNetwork: IP
+  # not available`. .254 is the last usable host in /24 and is reserved
+  # platform-wide for LB anchors.
+  ip = "10.0.1.254"
 }
 
 resource "hcloud_load_balancer_target" "control_plane" {
@@ -987,6 +1003,13 @@ resource "hcloud_load_balancer_network" "secondary" {
 
   load_balancer_id = hcloud_load_balancer.secondary[each.key].id
   network_id       = hcloud_network.main.id
+  # Fix #182: pin secondary LB to top-of-its-own-subnet (10.0.10.254,
+  # 10.0.11.254, ...) so multi-region apply cannot race for IPs across
+  # subnets sharing a network zone. See `hcloud_load_balancer_network.main`
+  # comment for full context. depends_on ensures the subnet exists before
+  # Hetzner is asked to allocate inside its CIDR.
+  ip         = cidrhost(local.secondary_region_subnets[each.key], 254)
+  depends_on = [hcloud_network_subnet.secondary]
 }
 
 resource "hcloud_load_balancer_target" "secondary_control_plane" {
