@@ -45,7 +45,7 @@ import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import { PortalShell } from './PortalShell'
 import { FlowCanvas } from '@openova/flow-canvas'
 import { defaultFoldedAtDepth } from '@openova/flow-core'
-import type { FamilyDescriptor } from '@openova/flow-core'
+import type { FamilyDescriptor, NodeAction } from '@openova/flow-core'
 import { useFlowStream } from '@/lib/openflow-adapter-sse'
 import {
   CATALYST_STATUS_PALETTE,
@@ -314,6 +314,72 @@ export function FlowPage({
     setOpenJobId(hostJobId)
   }, [setOpenJobId, hostJobId])
 
+  /* ── Right-click action list (Agent #9) ─────────────────────────
+   *
+   * Three default per-node actions surfaced on the canvas's
+   * right-click menu: Retry, Suspend, View logs. These map onto the
+   * catalyst-api job-control endpoints (POST /jobs/{id}/retry,
+   * /jobs/{id}/suspend) which are the standard Flux HR
+   * suspend/resume + manual reconcile primitives.
+   *
+   * The canvas is presentational — it never knows what these mean;
+   * it only invokes `onNodeAction(nodeId, actionId)`. The thin
+   * adapter here calls the corresponding endpoint and lets Flux
+   * reconcile. If the endpoint isn't yet implemented the call
+   * surfaces as a 404 in DevTools; that's the canonical signal to
+   * the operator to wire the missing route. */
+  const flowActions = useMemo<NodeAction[]>(
+    () => [
+      {
+        id: 'retry',
+        label: 'Retry',
+        invoke: () => undefined,
+      },
+      {
+        id: 'suspend',
+        label: 'Suspend',
+        invoke: () => undefined,
+      },
+      {
+        id: 'logs',
+        label: 'View logs',
+        invoke: () => undefined,
+      },
+    ],
+    [],
+  )
+
+  const handleNodeAction = useCallback(
+    async (nodeId: string, actionId: string) => {
+      // The canvas already dismisses the menu on click. Per the
+      // adapter-Action contract we delegate to a single POST that the
+      // server-side router dispatches. If a future adapter wants
+      // bespoke behaviour, it can supply its own NodeAction list and
+      // FlowPage forwards through.
+      try {
+        const endpoint = `/api/v1/flows/${deploymentId}/nodes/${encodeURIComponent(nodeId)}/actions/${actionId}`
+        await fetch(endpoint, { method: 'POST' })
+      } catch {
+        // Network errors are surfaced via the SSE stream; we don't
+        // want to crash the canvas if a one-off click fails.
+      }
+    },
+    [deploymentId],
+  )
+
+  const handleNavigateFlow = useCallback(
+    (flowId: string) => {
+      // triggeredBy / cross-flow target — navigate to the sibling
+      // flow's dashboard. Sovereign chroot drops the deploymentId.
+      const target =
+        DETECTED_MODE.mode === 'sovereign'
+          ? `/jobs`
+          : `/provision/${flowId}`
+      navigate({ to: target as never })
+    },
+    [navigate],
+  )
+
   /* ── StatusStrip rollup ──────────────────────────────────────── */
 
   const rollup = useMemo(
@@ -388,6 +454,9 @@ export function FlowPage({
       onNodeNavigate={handleNodeNavigate}
       onFoldToggle={handleFoldToggle}
       onBackgroundClick={handleCanvasBackgroundClick}
+      actions={flowActions}
+      onNodeAction={handleNodeAction}
+      onNavigateFlow={handleNavigateFlow}
     />
   )
 

@@ -32,5 +32,6 @@ export type {
   PositionedNode,
   PositionedEdge,
   ComponentInfo,
+  LaneDescriptor,
 } from './layout'
 export { layout, defaultFoldedAtDepth, FALLBACK_REGION_ID, MAX_VISIBLE_DEPTH } from './layout'

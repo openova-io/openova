@@ -56,7 +56,10 @@ import {
   type LayoutOutput,
   type PositionedNode,
   type PositionedEdge,
+  type LaneDescriptor,
+  type NodeAction,
 } from '@openova/flow-core'
+import { NodeActionsMenu } from './NodeActionsMenu'
 
 /* ─── Layout constants ────────────────────────────────────────────── */
 
@@ -149,6 +152,16 @@ export interface FlowCanvasProps {
   onFoldToggle?: (groupId: string) => void
   onBackgroundClick?: () => void
   renderDetail?: (nodeId: string) => ReactNode
+  /** Adapter-supplied custom actions for the right-click context menu.
+   *  Each action's `enabled` predicate is consulted per node. */
+  actions?: ReadonlyArray<NodeAction>
+  /** Operator picked an action from the right-click menu. The canvas
+   *  delegates the actual side-effect to the host (which typically
+   *  calls `action.invoke(nodeId)`). */
+  onNodeAction?: (nodeId: string, actionId: string) => void | Promise<void>
+  /** Operator clicked a `triggeredBy` badge or a cross-flow edge tag.
+   *  Hosts wire this to their router (e.g. `navigate({ to: '/sovereign/provision/$id' })`). */
+  onNavigateFlow?: (flowId: string) => void
   /** Test seam: pre-computed layout (skips the internal `computeLayout`
    *  call). Used in tests + adapters that already have a layout. */
   precomputedLayout?: LayoutOutput
@@ -172,6 +185,9 @@ export function FlowCanvas(props: FlowCanvasProps) {
     onNodeNavigate,
     onFoldToggle,
     onBackgroundClick,
+    actions,
+    onNodeAction,
+    onNavigateFlow,
     precomputedLayout,
   } = props
 
@@ -185,6 +201,13 @@ export function FlowCanvas(props: FlowCanvasProps) {
     w: MIN_HOST_W,
     h: MIN_HOST_H,
   })
+  /** Right-click context menu state. `null` = closed. */
+  const [actionMenu, setActionMenu] = useState<
+    { nodeId: string; x: number; y: number } | null
+  >(null)
+  /** Hover dim state — node id currently hovered (null = none). When
+   *  set, all non-neighbor nodes + non-incident edges dim to 35%. */
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null)
 
   /* ── Compute (or accept) the layout ───────────────────────────── */
 
@@ -300,10 +323,254 @@ export function FlowCanvas(props: FlowCanvasProps) {
   const PER_DEPTH_X = layoutMetrics.gap
   const LINK_DISTANCE = layoutMetrics.linkDistance
 
+  /* ── Lane geometry — derived from layoutOut.lanes ──────────────────
+   *
+   * The canvas honours `meta.layout` on `contains`-parents by laying
+   * out the parent as a rounded-rect "lane" with its label on top,
+   * and packing its direct children left→right (horizontal) or
+   * top→bottom (vertical) inside the box.
+   *
+   * Lanes nest: top-level lanes (`laneDepth = 0`) split the host
+   * surface; nested lanes occupy a sub-region inside their parent
+   * lane. We compute boxes outermost-first so nested lanes inherit
+   * their parent's box bounds.
+   *
+   * If no lane is declared by the adapter, this Map is empty and the
+   * existing organic d3-force layout runs unchanged. */
+  type LaneBox = {
+    lane: LaneDescriptor
+    /** Box origin (top-left) in canvas pixel coords. */
+    x: number
+    y: number
+    /** Box dimensions in canvas pixel coords. */
+    w: number
+    h: number
+  }
+  const laneGeometry = useMemo(() => {
+    const lanes = layoutOut.lanes
+    const byLane = new Map<string, LaneBox>()
+    /** Per-leaf anchor — drives forceX/forceY for the simulation. */
+    const anchor = new Map<string, { x: number; y: number }>()
+    if (!lanes || lanes.length === 0) {
+      return { byLane, anchor }
+    }
+    const PAD_X = 24
+    const PAD_Y_TOP = 32 // room for lane label on top
+    const PAD_Y_BOTTOM = 16
+    const NESTED_GAP = 16
+    const LANE_GAP = 18
+
+    // Split lanes by parent: outer top-level lanes vs nested.
+    const topLevel = lanes.filter((l) => l.parentLaneId === null)
+    const childrenOfLane = new Map<string, LaneDescriptor[]>()
+    for (const l of lanes) {
+      if (l.parentLaneId === null) continue
+      const arr = childrenOfLane.get(l.parentLaneId) ?? []
+      arr.push(l)
+      childrenOfLane.set(l.parentLaneId, arr)
+    }
+    // Sort children deterministically.
+    for (const arr of childrenOfLane.values()) {
+      arr.sort((a, b) => {
+        if (a.sortKey !== b.sortKey) return a.sortKey - b.sortKey
+        return a.id.localeCompare(b.id)
+      })
+    }
+
+    // Outer layout: top-level lanes split the surface along the AXIS
+    // of the OUTERMOST lane. Convention: when top-level axis is
+    // 'vertical' the top-level lanes stack as vertical columns
+    // (region = vertical swimlane = View 4 in the spec); when
+    // 'horizontal' the top-level lanes stack as horizontal rows.
+    // Default to vertical when mixed.
+    const outerAxis: 'horizontal' | 'vertical' =
+      topLevel.length > 0 && topLevel.every((l) => l.axis === 'horizontal')
+        ? 'horizontal'
+        : 'vertical'
+
+    const surfaceW = Math.max(MIN_HOST_W, hostSize.w)
+    const surfaceH = Math.max(MIN_HOST_H, hostSize.h)
+    const innerW = Math.max(200, surfaceW - 2 * LANE_GAP)
+    const innerH = Math.max(200, surfaceH - 2 * LANE_GAP)
+
+    // Compute top-level lane boxes.
+    if (outerAxis === 'vertical') {
+      // Columns side-by-side, each occupying the full height.
+      const perLaneW = Math.max(
+        220,
+        Math.floor((innerW - (topLevel.length - 1) * LANE_GAP) / Math.max(1, topLevel.length)),
+      )
+      let cursorX = LANE_GAP
+      for (const lane of topLevel) {
+        byLane.set(lane.id, {
+          lane,
+          x: cursorX,
+          y: LANE_GAP,
+          w: perLaneW,
+          h: innerH,
+        })
+        cursorX += perLaneW + LANE_GAP
+      }
+    } else {
+      // Rows stacked, each occupying the full width.
+      const perLaneH = Math.max(
+        180,
+        Math.floor((innerH - (topLevel.length - 1) * LANE_GAP) / Math.max(1, topLevel.length)),
+      )
+      let cursorY = LANE_GAP
+      for (const lane of topLevel) {
+        byLane.set(lane.id, {
+          lane,
+          x: LANE_GAP,
+          y: cursorY,
+          w: innerW,
+          h: perLaneH,
+        })
+        cursorY += perLaneH + LANE_GAP
+      }
+    }
+
+    // Compute nested lane boxes — packed inside their parent's inner
+    // rect along the parent's AXIS.
+    const visited = new Set<string>()
+    function placeNested(parent: LaneBox) {
+      if (visited.has(parent.lane.id)) return
+      visited.add(parent.lane.id)
+      const kids = childrenOfLane.get(parent.lane.id) ?? []
+      if (kids.length === 0) return
+      const innerLaneX = parent.x + PAD_X
+      const innerLaneY = parent.y + PAD_Y_TOP
+      const innerLaneW = Math.max(0, parent.w - 2 * PAD_X)
+      const innerLaneH = Math.max(0, parent.h - PAD_Y_TOP - PAD_Y_BOTTOM)
+      if (parent.lane.axis === 'horizontal') {
+        // Children packed L→R inside the parent's inner rect.
+        const perKidW = Math.max(
+          120,
+          Math.floor((innerLaneW - (kids.length - 1) * NESTED_GAP) / Math.max(1, kids.length)),
+        )
+        let cx = innerLaneX
+        for (const kid of kids) {
+          byLane.set(kid.id, {
+            lane: kid,
+            x: cx,
+            y: innerLaneY,
+            w: perKidW,
+            h: innerLaneH,
+          })
+          cx += perKidW + NESTED_GAP
+        }
+      } else {
+        // Vertical lanes nest by stacking T→B inside the parent.
+        const perKidH = Math.max(
+          100,
+          Math.floor((innerLaneH - (kids.length - 1) * NESTED_GAP) / Math.max(1, kids.length)),
+        )
+        let cy = innerLaneY
+        for (const kid of kids) {
+          byLane.set(kid.id, {
+            lane: kid,
+            x: innerLaneX,
+            y: cy,
+            w: innerLaneW,
+            h: perKidH,
+          })
+          cy += perKidH + NESTED_GAP
+        }
+      }
+      // Recurse into grandkids.
+      for (const kid of kids) {
+        const kidBox = byLane.get(kid.id)
+        if (kidBox) placeNested(kidBox)
+      }
+    }
+    for (const lane of topLevel) {
+      const parentBox = byLane.get(lane.id)
+      if (parentBox) placeNested(parentBox)
+    }
+
+    // Compute per-child-node anchors. For each leaf inside a lane,
+    // its anchor is determined by:
+    //   1. The deepest enclosing lane's box.
+    //   2. The leaf's index inside that lane's `childIds`.
+    //   3. The lane axis.
+    // The deepest enclosing lane is the one whose `childIds` contains
+    // the leaf. (Lanes only list direct children — leaves of the
+    // deepest enclosing group are the direct children.)
+    for (const lane of lanes) {
+      const box = byLane.get(lane.id)
+      if (!box) continue
+      const innerX = box.x + PAD_X
+      const innerY = box.y + PAD_Y_TOP
+      const innerW = Math.max(0, box.w - 2 * PAD_X)
+      const innerH = Math.max(0, box.h - PAD_Y_TOP - PAD_Y_BOTTOM)
+      // Filter children that are NOT themselves lanes (those have
+      // their own box). The remaining children are leaves placed
+      // directly inside this lane.
+      const leafKids = lane.childIds.filter((id) => !byLane.has(id))
+      if (leafKids.length === 0) continue
+      if (lane.axis === 'horizontal') {
+        // Pack L→R. Use grid wrap if too many for one row.
+        const maxPerRow = Math.max(1, Math.floor(innerW / 90))
+        const rows = Math.max(1, Math.ceil(leafKids.length / maxPerRow))
+        const cols = Math.min(maxPerRow, leafKids.length)
+        const colW = cols > 0 ? innerW / cols : innerW
+        const rowH = rows > 0 ? innerH / rows : innerH
+        leafKids.forEach((kid, i) => {
+          const col = i % cols
+          const row = Math.floor(i / cols)
+          anchor.set(kid, {
+            x: innerX + colW * (col + 0.5),
+            y: innerY + rowH * (row + 0.5),
+          })
+        })
+      } else {
+        // Vertical: pack T→B. Wrap to multiple columns if dense.
+        const maxPerCol = Math.max(1, Math.floor(innerH / 90))
+        const cols = Math.max(1, Math.ceil(leafKids.length / maxPerCol))
+        const rows = Math.min(maxPerCol, leafKids.length)
+        const colW = cols > 0 ? innerW / cols : innerW
+        const rowH = rows > 0 ? innerH / rows : innerH
+        leafKids.forEach((kid, i) => {
+          const row = i % rows
+          const col = Math.floor(i / rows)
+          anchor.set(kid, {
+            x: innerX + colW * (col + 0.5),
+            y: innerY + rowH * (row + 0.5),
+          })
+        })
+      }
+    }
+
+    // Lane GROUP nodes themselves (when present in positionedNodes,
+    // e.g. when folded) anchor at the centre of their box so they
+    // render as a single super-bubble inside the lane.
+    for (const [laneId, box] of byLane) {
+      anchor.set(laneId, {
+        x: box.x + box.w / 2,
+        y: box.y + box.h / 2,
+      })
+    }
+
+    return { byLane, anchor }
+  }, [layoutOut.lanes, hostSize.w, hostSize.h])
+
+  const hasLanes = laneGeometry.byLane.size > 0
+
   const depthToX = useCallback(
     (depth: number) =>
       layoutMetrics.xByDepth.get(depth) ?? R + COLLIDE_PADDING + depth * (R * 4),
     [layoutMetrics, R],
+  )
+
+  /** When the canvas has lane geometry, leaves inside a lane use the
+   *  lane anchor directly; everything else falls back to depthToX. */
+  const xForNode = useCallback(
+    (nodeId: string, depth: number) => {
+      const a = laneGeometry.anchor.get(nodeId)
+      if (a) return a.x
+      return depthToX(depth)
+    },
+    [laneGeometry, depthToX],
   )
 
   /* ── Per-bucket Y rank ─────────────────────────────────────── */
@@ -338,6 +605,10 @@ export function FlowCanvas(props: FlowCanvasProps) {
 
   const yForBucket = useCallback(
     (id: string) => {
+      // Lane override: if the node is anchored by a lane, use that Y
+      // — the lane has already decided the visual rank.
+      const a = laneGeometry.anchor.get(id)
+      if (a) return a.y
       const b = bucketRank.get(id)
       if (!b) return Y_CENTER
       if (b.size === 1) {
@@ -347,7 +618,7 @@ export function FlowCanvas(props: FlowCanvasProps) {
       }
       return Y_CENTER + (b.idx - (b.size - 1) / 2) * PITCH
     },
-    [bucketRank, Y_CENTER, PITCH, ZIGZAG_AMPLITUDE, depthByNodeId],
+    [bucketRank, Y_CENTER, PITCH, ZIGZAG_AMPLITUDE, depthByNodeId, laneGeometry],
   )
 
   const familyById = useMemo(() => {
@@ -374,7 +645,7 @@ export function FlowCanvas(props: FlowCanvasProps) {
         next.push(existing)
       } else {
         const seed = hashSeed(n.id)
-        const initX = depthToX(n.depth) + (seed.fx - 0.5) * R * 1.5
+        const initX = xForNode(n.id, n.depth) + (seed.fx - 0.5) * R * 1.5
         const initY = yForBucket(n.id) + (seed.fy - 0.5) * R * 0.6
         const fresh: SimNode = {
           id: n.id,
@@ -395,7 +666,7 @@ export function FlowCanvas(props: FlowCanvasProps) {
       if (!seen.has(id)) nodesRef.current.delete(id)
     }
     return next
-  }, [layoutOut.positionedNodes, depthToX, yForBucket, R])
+  }, [layoutOut.positionedNodes, xForNode, yForBucket, R])
 
   /* ── d3-force simulation ─────────────────────────────────────── */
 
@@ -415,11 +686,15 @@ export function FlowCanvas(props: FlowCanvasProps) {
     for (const n of simNodes) {
       if (typeof n.fx === 'number' && typeof n.fy === 'number') continue
       const seed = hashSeed(n.id)
-      n.x = depthToX(n.depth) + (seed.fx - 0.5) * R * 1.5
+      n.x = xForNode(n.id, n.depth) + (seed.fx - 0.5) * R * 1.5
       n.y = yForBucket(n.id) + (seed.fy - 0.5) * R * 0.6
       n.vx = 0
       n.vy = 0
     }
+    // Lane-anchored nodes pull harder toward their target — keeps
+    // children inside the lane rectangle even with strong link
+    // tensions across regions.
+    const LANE_FORCE_STRENGTH = 0.55
     const sim = forceSimulation<SimNode>(simNodes)
       .alpha(0.9)
       .alphaDecay(0.06)
@@ -432,8 +707,18 @@ export function FlowCanvas(props: FlowCanvasProps) {
           .strength(0.95)
           .iterations(2),
       )
-      .force('x', forceX<SimNode>().x((d) => depthToX(d.depth)).strength(FORCE_X_STRENGTH))
-      .force('y', forceY<SimNode>().y((d) => yForBucket(d.id)).strength(FORCE_Y_STRENGTH))
+      .force(
+        'x',
+        forceX<SimNode>()
+          .x((d) => xForNode(d.id, d.depth))
+          .strength((d) => (laneGeometry.anchor.has(d.id) ? LANE_FORCE_STRENGTH : FORCE_X_STRENGTH)),
+      )
+      .force(
+        'y',
+        forceY<SimNode>()
+          .y((d) => yForBucket(d.id))
+          .strength((d) => (laneGeometry.anchor.has(d.id) ? LANE_FORCE_STRENGTH : FORCE_Y_STRENGTH)),
+      )
       .force(
         'link',
         forceLink<SimNode, SimulationLinkDatum<SimNode>>(links)
@@ -444,15 +729,17 @@ export function FlowCanvas(props: FlowCanvasProps) {
       .on('tick', () => {
         for (const n of simNodes) {
           if (typeof n.fx === 'number' && typeof n.fy === 'number') continue
-          const baseX = depthToX(n.depth)
-          const xMin = Math.max(R, baseX - PER_DEPTH_X)
-          const xMax = Math.min(layoutMetrics.totalWidth - R, baseX + PER_DEPTH_X)
+          const baseX = xForNode(n.id, n.depth)
+          const inLane = laneGeometry.anchor.has(n.id)
+          const xBand = inLane ? R * 1.5 : PER_DEPTH_X
+          const xMin = Math.max(R, baseX - xBand)
+          const xMax = Math.min(layoutMetrics.totalWidth - R, baseX + xBand)
           if (typeof n.x === 'number') {
             if (n.x < xMin) n.x = xMin
             else if (n.x > xMax) n.x = xMax
           }
           const targetY = yForBucket(n.id)
-          const Y_HALF_BAND = R * 2 + COLLIDE_PADDING
+          const Y_HALF_BAND = inLane ? R * 1.5 : R * 2 + COLLIDE_PADDING
           const yMin = Math.max(R, targetY - Y_HALF_BAND)
           const yMax = Math.min(hostSize.h - R, targetY + Y_HALF_BAND)
           if (typeof n.y === 'number') {
@@ -470,7 +757,7 @@ export function FlowCanvas(props: FlowCanvasProps) {
     return () => {
       sim.stop()
     }
-  }, [simNodes, layoutOut.edges, depthToX, yForBucket, hostSize.h, R, GR, PER_DEPTH_X, LINK_DISTANCE, layoutMetrics.totalWidth])
+  }, [simNodes, layoutOut.edges, xForNode, yForBucket, hostSize.h, R, GR, PER_DEPTH_X, LINK_DISTANCE, layoutMetrics.totalWidth, laneGeometry])
 
   /* ── Drag wiring ────────────────────────────────────────────── */
 
@@ -543,8 +830,45 @@ export function FlowCanvas(props: FlowCanvasProps) {
 
   const handleBackgroundClick = useCallback(() => {
     cancelPendingClick()
+    setActionMenu(null)
     onBackgroundClick?.()
   }, [cancelPendingClick, onBackgroundClick])
+
+  /* ── Right-click → actions menu ─────────────────────────────── */
+
+  const handleNodeContextMenu = useCallback(
+    (nodeId: string, event: ReactMouseEvent<SVGGElement>) => {
+      // Only open when the adapter actually supplied actions.
+      if (!actions || actions.length === 0) return
+      event.preventDefault()
+      event.stopPropagation()
+      const host = hostRef.current
+      const rect = host?.getBoundingClientRect()
+      const relX = rect ? event.clientX - rect.left : event.clientX
+      const relY = rect ? event.clientY - rect.top : event.clientY
+      setActionMenu({ nodeId, x: relX, y: relY })
+    },
+    [actions],
+  )
+
+  const handleActionSelect = useCallback(
+    (actionId: string) => {
+      const target = actionMenu
+      setActionMenu(null)
+      if (!target) return
+      void onNodeAction?.(target.nodeId, actionId)
+    },
+    [actionMenu, onNodeAction],
+  )
+
+  /* ── Hover handlers — hover dim ─────────────────────────────── */
+
+  const handleNodeMouseEnter = useCallback((nodeId: string) => {
+    setHoveredNodeId(nodeId)
+  }, [])
+  const handleNodeMouseLeave = useCallback(() => {
+    setHoveredNodeId(null)
+  }, [])
 
   /* ── Render ────────────────────────────────────────────────── */
 
@@ -583,6 +907,33 @@ export function FlowCanvas(props: FlowCanvasProps) {
     }
   }
 
+  /* ── Hover-dim sets ──────────────────────────────────────────── */
+  const hoverNeighborIds = new Set<string>()
+  if (hoveredNodeId) {
+    hoverNeighborIds.add(hoveredNodeId)
+    for (const e of layoutOut.edges) {
+      if (e.fromId === hoveredNodeId) hoverNeighborIds.add(e.toId)
+      else if (e.toId === hoveredNodeId) hoverNeighborIds.add(e.fromId)
+    }
+  }
+
+  /* ── Cross-flow edges — `Relationship.toFlowId !== flow.id` and
+   *      target is NOT in the visible node set. Render as a "→" tag
+   *      from the source node. ─────────────────────────────────── */
+  const visibleIds = new Set(layoutOut.positionedNodes.map((n) => n.id))
+  const crossFlowTags = new Map<string, string>() // sourceId → targetFlowId
+  for (const r of relationships) {
+    if (r.type === 'contains') continue
+    if (!r.toFlowId) continue
+    if (r.toFlowId === flow.id) continue
+    if (visibleIds.has(r.toId)) continue
+    // The source MUST be a visible node — only then can we render
+    // an arrow off the bubble.
+    if (visibleIds.has(r.fromId)) {
+      crossFlowTags.set(r.fromId, r.toFlowId)
+    }
+  }
+
   const vbW = Math.max(hostSize.w, layoutMetrics.totalWidth)
   const vbH = hostSize.h
   const CLAMP_INSET = R + 8
@@ -593,16 +944,69 @@ export function FlowCanvas(props: FlowCanvasProps) {
   const renderPos = new Map<string, { x: number; y: number }>()
   for (const [id, p] of livePos) renderPos.set(id, project(p))
 
+  /* ── triggeredBy banner — only when the flow declares one. ─── */
+  const triggeredBy = flow.triggeredBy ?? []
+
   return (
     <div
       ref={hostRef}
       className="flow-canvas-host"
       data-testid="flow-canvas-host"
       style={{
+        position: 'relative',
         overflowX: layoutMetrics.totalWidth > hostSize.w ? 'auto' : 'hidden',
         overflowY: 'hidden',
       }}
     >
+      {triggeredBy.length > 0 ? (
+        <div
+          data-testid="flow-triggered-by-banner"
+          style={{
+            position: 'absolute',
+            top: 10,
+            left: 12,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '5px 10px',
+            background: 'var(--flow-banner-bg, rgba(15,23,42,0.85))',
+            border: '1px solid var(--flow-banner-border, rgba(255,255,255,0.10))',
+            borderRadius: 999,
+            color: 'var(--flow-banner-text, #cbd5e1)',
+            fontSize: 11,
+            fontWeight: 600,
+            letterSpacing: 0.02,
+            zIndex: 30,
+            pointerEvents: 'auto',
+          }}
+        >
+          <span style={{ color: 'var(--flow-banner-label, #94a3b8)', textTransform: 'uppercase', fontSize: 10 }}>
+            triggeredBy
+          </span>
+          {triggeredBy.map((t, i) => (
+            <button
+              key={`${t.flowId}-${i}`}
+              type="button"
+              data-testid={`flow-triggered-by-${t.flowId}`}
+              data-flow-id={t.flowId}
+              data-when={t.when}
+              onClick={() => onNavigateFlow?.(t.flowId)}
+              style={{
+                background: 'transparent',
+                border: 0,
+                padding: 0,
+                font: 'inherit',
+                fontSize: 11,
+                color: 'var(--flow-banner-link, #38BDF8)',
+                cursor: 'pointer',
+                textDecoration: 'underline dotted',
+              }}
+            >
+              {`▣ ${t.flowId} (↗ open flow)`}
+            </button>
+          ))}
+        </div>
+      ) : null}
       <svg
         ref={svgRef}
         width={vbW}
@@ -619,6 +1023,7 @@ export function FlowCanvas(props: FlowCanvasProps) {
         }}
       >
         <FlowArrowDefs palette={palette} />
+        {hasLanes ? <FlowLanes geometry={laneGeometry} onFoldToggle={onFoldToggle} /> : null}
         {layoutOut.edges.map((e) => {
           const s = renderPos.get(e.fromId)
           const t = renderPos.get(e.toId)
@@ -627,6 +1032,10 @@ export function FlowCanvas(props: FlowCanvasProps) {
             selectedNodeId !== null && (e.fromId === selectedNodeId || e.toId === selectedNodeId)
           const onHostPath =
             hostNodeId !== null && !onSelectionPath && (e.fromId === hostNodeId || e.toId === hostNodeId)
+          // Hover-dim non-incident edges to 35%.
+          const onHoverPath =
+            hoveredNodeId !== null && (e.fromId === hoveredNodeId || e.toId === hoveredNodeId)
+          const hoverDimmed = hoveredNodeId !== null && !onHoverPath
           return (
             <FlowEdge
               key={`${e.fromId}-${e.toId}-${e.relType}`}
@@ -635,6 +1044,7 @@ export function FlowCanvas(props: FlowCanvasProps) {
               to={t}
               palette={palette}
               highlighted={onSelectionPath ? 'selection' : onHostPath ? 'host' : 'none'}
+              hoverDimmed={hoverDimmed}
               r={R}
             />
           )
@@ -646,6 +1056,17 @@ export function FlowCanvas(props: FlowCanvasProps) {
           const isNeighbor = neighborIds.has(node.id)
           const isOpen = selectedNodeId === node.id
           const isHost = hostNodeId === node.id
+          // Selection-dim still takes precedence over hover-dim.
+          const selectionDimmed =
+            selectedNodeId !== null && !isNeighbor && !isOpen && !isHost
+          const hoverDimmed =
+            hoveredNodeId !== null && hoveredNodeId !== node.id && !hoverNeighborIds.has(node.id)
+          // Selection ring takes precedence per the docstring; hover
+          // never dims an already-selected/host/neighbor node.
+          const isDimmed =
+            selectionDimmed ||
+            (hoverDimmed && !isOpen && !isHost && !isNeighbor)
+          const crossFlowTargetFlow = crossFlowTags.get(node.id) ?? null
           return (
             <FlowNodeView
               key={node.id}
@@ -657,16 +1078,93 @@ export function FlowCanvas(props: FlowCanvasProps) {
               isOpen={isOpen}
               isHost={isHost}
               isNeighbor={isNeighbor}
-              isDimmed={selectedNodeId !== null && !isNeighbor && !isOpen && !isHost}
+              isDimmed={isDimmed}
+              hasActions={Boolean(actions && actions.length > 0)}
+              crossFlowTargetFlow={crossFlowTargetFlow}
+              onCrossFlowClick={() => {
+                if (crossFlowTargetFlow) onNavigateFlow?.(crossFlowTargetFlow)
+              }}
               onClick={(e) => handleNodeClick(node.id, e)}
               onDoubleClick={() => handleNodeDoubleClick(node.id)}
+              onContextMenu={(e) => handleNodeContextMenu(node.id, e)}
+              onMouseEnter={() => handleNodeMouseEnter(node.id)}
+              onMouseLeave={handleNodeMouseLeave}
               r={R}
               gr={GR}
             />
           )
         })}
       </svg>
+      {actionMenu && actions ? (
+        <NodeActionsMenu
+          nodeId={actionMenu.nodeId}
+          actions={actions.filter((a) => !a.enabled || a.enabled(actionMenu.nodeId))}
+          x={actionMenu.x}
+          y={actionMenu.y}
+          onSelect={handleActionSelect}
+          onDismiss={() => setActionMenu(null)}
+        />
+      ) : null}
     </div>
+  )
+}
+
+/* ─── FlowLanes — rounded-rect backgrounds for `meta.layout` groups ── */
+
+interface FlowLanesProps {
+  geometry: { byLane: Map<string, { lane: LaneDescriptor; x: number; y: number; w: number; h: number }> }
+  onFoldToggle?: (groupId: string) => void
+}
+
+function FlowLanes({ geometry, onFoldToggle }: FlowLanesProps) {
+  const boxes = Array.from(geometry.byLane.values()).sort(
+    (a, b) => a.lane.laneDepth - b.lane.laneDepth,
+  )
+  return (
+    <g data-testid="flow-lanes" pointerEvents="none">
+      {boxes.map((box) => {
+        const isNested = box.lane.laneDepth > 0
+        const fill = isNested
+          ? 'rgba(56,189,248,0.04)'
+          : 'rgba(148,163,184,0.04)'
+        const stroke = isNested
+          ? 'rgba(56,189,248,0.18)'
+          : 'rgba(148,163,184,0.22)'
+        return (
+          <g
+            key={box.lane.id}
+            data-testid={`flow-lane-${box.lane.id}`}
+            data-lane-id={box.lane.id}
+            data-lane-axis={box.lane.axis}
+            data-lane-depth={box.lane.laneDepth}
+          >
+            <rect
+              x={box.x}
+              y={box.y}
+              width={box.w}
+              height={box.h}
+              rx={14}
+              ry={14}
+              fill={fill}
+              stroke={stroke}
+              strokeWidth={1}
+            />
+            <text
+              x={box.x + 14}
+              y={box.y + 20}
+              fontSize={11}
+              fontWeight={700}
+              fill="var(--flow-lane-label, #cbd5e1)"
+              fontFamily="ui-sans-serif, system-ui, sans-serif"
+              style={{ pointerEvents: onFoldToggle ? 'auto' : 'none', cursor: onFoldToggle ? 'pointer' : 'default' }}
+              onDoubleClick={() => onFoldToggle?.(box.lane.id)}
+            >
+              {box.lane.label}
+            </text>
+          </g>
+        )
+      })}
+    </g>
   )
 }
 
@@ -731,10 +1229,13 @@ interface FlowEdgeProps {
   to: { x: number; y: number }
   palette: Record<string, StatusTone>
   highlighted: 'none' | 'selection' | 'host'
+  /** When true, the edge dims to 35% opacity (hover-dim). Overridden
+   *  by `highlighted !== 'none'`. */
+  hoverDimmed: boolean
   r: number
 }
 
-function FlowEdge({ edge, from, to, palette, highlighted, r }: FlowEdgeProps) {
+function FlowEdge({ edge, from, to, palette, highlighted, hoverDimmed, r }: FlowEdgeProps) {
   const tone = toneFor(palette, edge.fromStatus)
   const dx = to.x - from.x
   const dy = to.y - from.y
@@ -763,7 +1264,7 @@ function FlowEdge({ edge, from, to, palette, highlighted, r }: FlowEdgeProps) {
         : isFailure
           ? 'var(--flow-bubble-edge-failed, #F87171)'
           : tone.edge
-  const opacity =
+  const baseOpacity =
     highlighted !== 'none'
       ? 1
       : isFailure
@@ -771,6 +1272,7 @@ function FlowEdge({ edge, from, to, palette, highlighted, r }: FlowEdgeProps) {
           ? 0.85
           : 0.25
         : 0.7
+  const opacity = highlighted === 'none' && hoverDimmed ? 0.35 : baseOpacity
   const width = highlighted !== 'none' ? 2.6 : 1.4
   const marker =
     highlighted === 'selection'
@@ -855,7 +1357,12 @@ function FlowEdge({ edge, from, to, palette, highlighted, r }: FlowEdgeProps) {
   })()
 
   return (
-    <g data-flow-edge="" data-rel-type={edge.relType} data-condition={edge.condition}>
+    <g
+      data-flow-edge=""
+      data-rel-type={edge.relType}
+      data-condition={edge.condition}
+      data-hover-dimmed={hoverDimmed ? 'true' : 'false'}
+    >
       <line
         x1={fx.toFixed(1)}
         y1={fy.toFixed(1)}
@@ -884,8 +1391,18 @@ interface FlowNodeViewProps {
   isHost: boolean
   isNeighbor: boolean
   isDimmed: boolean
+  /** True when the adapter supplied actions — used to set the cursor /
+   *  ARIA attrs so the right-click affordance is discoverable. */
+  hasActions: boolean
+  /** Target flow id for a cross-flow tag — when non-null the bubble
+   *  renders a "→ <flowId>" tag pointing at the other flow. */
+  crossFlowTargetFlow: string | null
+  onCrossFlowClick: () => void
   onClick: (e: ReactMouseEvent<SVGGElement>) => void
   onDoubleClick: () => void
+  onContextMenu: (e: ReactMouseEvent<SVGGElement>) => void
+  onMouseEnter: () => void
+  onMouseLeave: () => void
   r: number
   gr: number
 }
@@ -900,8 +1417,14 @@ function FlowNodeView({
   isHost,
   isNeighbor,
   isDimmed,
+  hasActions,
+  crossFlowTargetFlow,
+  onCrossFlowClick,
   onClick,
   onDoubleClick,
+  onContextMenu,
+  onMouseEnter,
+  onMouseLeave,
   r,
   gr,
 }: FlowNodeViewProps) {
@@ -934,8 +1457,13 @@ function FlowNodeView({
       data-host={isHost ? 'true' : 'false'}
       data-neighbor={isNeighbor ? 'true' : 'false'}
       data-dimmed={isDimmed ? 'true' : 'false'}
+      data-has-actions={hasActions ? 'true' : 'false'}
+      data-cross-flow={crossFlowTargetFlow ?? ''}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
+      onContextMenu={onContextMenu}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
       style={grpStyle}
       transform={`translate(${x.toFixed(1)}, ${y.toFixed(1)})`}
       opacity={groupOpacity}
@@ -1007,6 +1535,77 @@ function FlowNodeView({
       >
         {node.label.length > 18 ? node.label.slice(0, 17) + '…' : node.label}
       </text>
+      {/* Child-count badge `[N]` top-right — only on foldable parents
+       *   (groups with descendants). Independent of fold state per
+       *   founder lock (View 4 still shows `[43]` on the region even
+       *   when expanded to phases). */}
+      {node.isGroup && node.descendantCount > 0 ? (
+        <g
+          data-testid={`flow-node-badge-${node.id}`}
+          data-descendant-count={node.descendantCount}
+          pointerEvents="none"
+        >
+          <rect
+            x={radius - 2}
+            y={-radius - 12}
+            width={node.descendantCount > 99 ? 28 : 22}
+            height={14}
+            rx={7}
+            ry={7}
+            fill="var(--flow-badge-bg, rgba(15,23,42,0.92))"
+            stroke="var(--flow-badge-border, rgba(56,189,248,0.45))"
+            strokeWidth={1}
+          />
+          <text
+            x={radius - 2 + (node.descendantCount > 99 ? 14 : 11)}
+            y={-radius - 1}
+            textAnchor="middle"
+            fontSize={10}
+            fontWeight={700}
+            fontFamily="ui-monospace, monospace"
+            fill="var(--flow-badge-text, #38BDF8)"
+          >
+            {`[${node.descendantCount}]`}
+          </text>
+        </g>
+      ) : null}
+      {/* Cross-flow tag — when the node has a Relationship targeting a
+       *   node in another flow, render a "↗" tag pointing right. Click
+       *   navigates the host's router. */}
+      {crossFlowTargetFlow ? (
+        <g
+          data-testid={`flow-node-crossflow-${node.id}`}
+          data-cross-flow-target={crossFlowTargetFlow}
+          onClick={(e) => {
+            e.stopPropagation()
+            onCrossFlowClick()
+          }}
+          style={{ cursor: 'pointer' }}
+        >
+          <rect
+            x={radius + 6}
+            y={-7}
+            width={36}
+            height={14}
+            rx={4}
+            ry={4}
+            fill="var(--flow-crossflow-bg, rgba(15,23,42,0.92))"
+            stroke="var(--flow-crossflow-border, rgba(56,189,248,0.5))"
+            strokeWidth={1}
+          />
+          <text
+            x={radius + 24}
+            y={4}
+            textAnchor="middle"
+            fontSize={10}
+            fontWeight={700}
+            fontFamily="ui-monospace, monospace"
+            fill="var(--flow-crossflow-text, #38BDF8)"
+          >
+            → flow
+          </text>
+        </g>
+      ) : null}
     </g>
   )
 }
