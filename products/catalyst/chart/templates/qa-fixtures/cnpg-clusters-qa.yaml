@@ -78,6 +78,43 @@ roleRef:
   name: qa-cnpg-backup-s3-seeder-read
   apiGroup: rbac.authorization.k8s.io
 ---
+{{- /*
+  qa-loop iter-1 Fix #138 (chart 1.4.138) — REGULAR JOB CONVERSION.
+
+  Prior post-install,post-upgrade hook ordering caused bp-catalyst-platform
+  HR to wedge at "post-install: timed out waiting for the condition" after
+  15m on a fresh Sovereign provision (prov #20 wedge, 2026-05-11):
+
+    1. Job polls `seaweedfs/seaweedfs-s3-secret` for 120s (60×2s)
+    2. bp-seaweedfs is bootstrap-kit slot 18 — it provisions AFTER
+       bp-catalyst-platform (slot 13) reaches Ready, so the source Secret
+       cannot exist while this Job is blocking the install
+    3. Job exits non-zero, retries with exponential backoff (10s, 20s,
+       40s, 80s, ...) up to backoffLimit=8 — easily blows past the 15m
+       Helm install timeout
+    4. Helm marks release InstallFailed, remediation triggers cleanupOnFail
+       + rollback, loop repeats forever
+
+  Root cause: post-install hook depends on a resource provided by a slot
+  that depends on this HR being Ready. Circular dependency in the
+  bootstrap-kit DAG.
+
+  Fix: drop helm.sh/hook annotations so this becomes a regular release
+  resource. Helm applies it (with `disableWait: true` on the HR) without
+  waiting for completion. The Job's wait loop runs concurrently with
+  bp-seaweedfs install in slot 18; once seaweedfs-s3-secret materialises,
+  the Job seeds qa-cnpg-backup-s3 naturally. cluster-primary's barman-cloud
+  retries its S3 connection until the Secret is present — no chart-install
+  blocker.
+
+  Idempotent + ttlSecondsAfterFinished=600 still cleans up post-success.
+  helm.sh/resource-policy: keep so an upgrade with an unchanged spec does
+  not try to recreate a completed Job.
+
+  Per INVIOLABLE-PRINCIPLES #4 (no hardcoding) the wait-window iterations
+  are values-overridable via qaFixtures.s3SeedWaitIterations (default 900
+  ≈ 30 min at 2s/iter), giving operators a knob to extend on slow Sovereigns.
+*/ -}}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -86,9 +123,7 @@ metadata:
   labels:
     openova.io/managed-by: qa-fixtures
   annotations:
-    helm.sh/hook: post-install,post-upgrade
-    helm.sh/hook-weight: "3"
-    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    helm.sh/resource-policy: keep
 spec:
   ttlSecondsAfterFinished: 600
   backoffLimit: 8
@@ -107,7 +142,10 @@ spec:
               SRC_NAME="{{ .Values.qaFixtures.cnpgBackupSourceSecretName | default "seaweedfs-s3-secret" }}"
               DST_NS="{{ .Values.qaFixtures.namespace | default "qa-omantel" }}"
               DST_NAME="{{ .Values.qaFixtures.cnpgBackupS3SecretName | default "qa-cnpg-backup-s3" }}"
-              for _ in $(seq 1 60); do
+              # Fix #138 (chart 1.4.138): Job is no longer a post-install
+              # hook so it can wait the full bootstrap-kit window for slot 18
+              # (bp-seaweedfs) to come up. Default 900 iter × 2s = 30 min.
+              for _ in $(seq 1 {{ .Values.qaFixtures.s3SeedWaitIterations | default 900 }}); do
                 kubectl -n "$SRC_NS" get secret "$SRC_NAME" >/dev/null 2>&1 && break
                 sleep 2
               done
@@ -354,6 +392,15 @@ roleRef:
   name: qa-cnpg-status-seeder
   apiGroup: rbac.authorization.k8s.io
 ---
+{{- /*
+  qa-loop iter-1 Fix #138 (chart 1.4.138) — REGULAR JOB CONVERSION.
+  See qa-cnpg-backup-s3-seed Job header above for the full root-cause
+  analysis. Same circular-dep wedge: this Job's 8-min wait for CNPG
+  Cluster CRs ate into the 15m Helm install timeout when bp-cnpg
+  scheduling was slow on a fresh Sovereign. Converting from post-install
+  hook → regular release resource so install completes immediately;
+  the seeder runs concurrently and patches status when the CRs land.
+*/ -}}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -362,9 +409,7 @@ metadata:
   labels:
     openova.io/managed-by: qa-fixtures
   annotations:
-    helm.sh/hook: post-install,post-upgrade
-    helm.sh/hook-weight: "6"
-    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    helm.sh/resource-policy: keep
 spec:
   ttlSecondsAfterFinished: 600
   backoffLimit: 12

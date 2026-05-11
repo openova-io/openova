@@ -1214,6 +1214,14 @@ qaFixtures:
   cnpgBackupS3SecretName: qa-cnpg-backup-s3
   cnpgBackupSourceSecretNamespace: seaweedfs
   cnpgBackupSourceSecretName: seaweedfs-s3-secret
+  # qa-loop iter-1 Fix #138 (chart 1.4.138): qa-cnpg-backup-s3-seed Job
+  # is no longer a post-install hook (was wedging bp-catalyst-platform
+  # install at 15m on fresh Sovereign — circular dep, see Chart.yaml
+  # changelog top entry). Job runs concurrently with bp-seaweedfs install
+  # in bootstrap-kit slot 18 and waits up to 30 min (900×2s) for the
+  # source seaweedfs-s3-secret to materialise. Override on bandwidth-
+  # constrained Sovereigns where bp-seaweedfs install takes longer.
+  s3SeedWaitIterations: 900
   # ── Kyverno baseline policies (Fix #37) ──────────────────────────
   # disallow-privileged-containers ships in Enforce mode by default
   # (target-state hard block); other 18 baseline policies ship in
