@@ -110,7 +110,10 @@ guacamole:
     # image traceable to a known-good SHA).
     # Fix #158 (2026-05-11): bumped 1.29.3 -> 1.30.7 to align with
     # k3s 1.30 server version on Hetzner Sovereigns.
-    migrationImage: docker.io/bitnamilegacy/kubectl:1.30.7
+    # Fix #163 (2026-05-11, MIRROR-EVERYTHING): explicit
+    # harbor.openova.io/proxy-dockerhub prefix per CLAUDE.md inviolable
+    # rule.
+    migrationImage: harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.30.7
   # ── Keycloak OIDC ──────────────────────────────────────────────
   oidc:
     # Issuer URL — render in per-Sovereign overlay as

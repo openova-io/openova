@@ -92,7 +92,7 @@ spec:
       # 0.1.15 (Fix #158): migrationImage bumped to
       # bitnamilegacy/kubectl:1.30.7 (was 1.29.3); template fallback no
       # longer references bitnami/kubectl (deleted from Docker Hub 2025-08).
-      version: 0.1.15
+      version: 0.1.17
       sourceRef:
         kind: HelmRepository
         name: bp-guacamole

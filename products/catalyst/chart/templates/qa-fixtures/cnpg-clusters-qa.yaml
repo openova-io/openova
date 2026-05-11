@@ -133,7 +133,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: seed
-          image: docker.io/bitnamilegacy/kubectl:1.29.3
+          image: harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.29.3
           command: ["sh", "-c"]
           args:
             - |
@@ -419,7 +419,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: seed
-          image: docker.io/bitnamilegacy/kubectl:1.29.3
+          image: harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.29.3
           env:
             - name: NS
               value: {{ .Values.qaFixtures.namespace | default "qa-omantel" | quote }}

@@ -247,27 +247,33 @@ catalystAPI:
 # BEFORE registries.yaml v2 takes effect on the node containerd.
 # Post-pivot steps (≥ 05) MAY use the local Harbor copy via
 # global.imageRegistry — defaulted off so smoke render is clean.
+#
+# Fix #163 (2026-05-11, MIRROR-EVERYTHING): every default repository
+# is now the explicit Harbor proxy-cache path per CLAUDE.md inviolable
+# rule. The Sovereign's k3s cloudinit (infra/hetzner/cloudinit-control-
+# plane.tftpl line 706) ALWAYS configures containerd with
+# /etc/rancher/k3s/registries.yaml routing docker.io → harbor.openova.io
+# BEFORE k3s starts, so the pre-cutover Jobs can reach the explicit
+# Harbor URL just fine. Post-cutover overlay via global.imageRegistry
+# remains the operator override for true air-gap mode.
 images:
   kubectl:
-    # Switched from bitnami/kubectl (Bitnami deprecated public Docker Hub
-    # in 2025; both :1.31 and :1.31.4 returned 404). alpine/k8s is the
-    # canonical alternative — alpine-based image with kubectl + helm +
-    # the standard k8s CLI surface, actively maintained on Docker Hub.
-    # Caught live on otech103 2026-05-04.
-    repository: "alpine/k8s"
+    # alpine/k8s is the canonical alpine-based image carrying kubectl +
+    # helm + the standard k8s CLI surface (replaced bitnami/kubectl in
+    # 2025 after Bitnami's deprecation on Docker Hub).
+    repository: "harbor.openova.io/proxy-dockerhub/alpine/k8s"
     tag: "1.31.4"
   git:
-    repository: "alpine/git"
+    repository: "harbor.openova.io/proxy-dockerhub/alpine/git"
     tag: "v2.45.2"
   curl:
-    repository: "curlimages/curl"
+    repository: "harbor.openova.io/proxy-dockerhub/curlimages/curl"
     tag: "8.10.1"
   # registry-pivot writes to /etc/rancher/k3s/registries.yaml on every
   # node. Uses alpine + `chroot /host` invocation pattern (kubectl not
-  # required — direct file write via host mount; per Fix #158 platform
-  # fleet has migrated off bitnami/kubectl due to 2025-08 tag deletion).
+  # required — direct file write via host mount).
   hostExec:
-    repository: "alpine"
+    repository: "harbor.openova.io/proxy-dockerhub/library/alpine"
     tag: "3.20"
 
 # registry-pivot DaemonSet — runs from chart install to converge

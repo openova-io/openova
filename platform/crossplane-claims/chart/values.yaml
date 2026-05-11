@@ -24,8 +24,13 @@ global:
   # versioned tags from docker.io/bitnami/kubectl (only :latest +
   # sha256-named tags remain). bitnamilegacy is Bitnami's deprecation-
   # fallback registry path; retains bash/sh.
+  #
+  # 2026-05-11 (Fix #163, MIRROR-EVERYTHING): explicit
+  # harbor.openova.io/proxy-dockerhub prefix per CLAUDE.md inviolable
+  # rule. Operator override still works — entire `repository` is one
+  # configurable string.
   kubectlImage:
-    repository: bitnamilegacy/kubectl
+    repository: harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl
     tag: "1.31.4"
 
 catalystBlueprint:

@@ -57,7 +57,7 @@ spec:
       # controller watches).
       # 1.1.4 (Fix #158): kubectlImage switched from bitnami/kubectl:1.31
       # (deleted from Docker Hub 2025-08) to bitnamilegacy/kubectl:1.31.4.
-      version: 1.1.4
+      version: 1.1.5
       sourceRef:
         kind: HelmRepository
         name: bp-crossplane-claims

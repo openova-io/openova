@@ -5,7 +5,16 @@ name: bp-self-sovereign-cutover
 # alpine for chroot-pivot). Comment text now reflects the platform-wide
 # Fix #158 migration to bitnamilegacy/kubectl across other Blueprints.
 # No functional change in this Blueprint.
-version: 0.1.28
+#
+# 0.1.29 (Fix #163, 2026-05-11, MIRROR-EVERYTHING): every default image
+# reference (kubectl/git/curl/hostExec + the hardcoded alpine/k8s in
+# step 06) now uses the explicit harbor.openova.io/proxy-dockerhub
+# prefix per CLAUDE.md inviolable rule. The Sovereign cloudinit already
+# routes containerd through this proxy at node-boot time, so the
+# pre-cutover Jobs can reach the explicit URL just fine. Operator
+# override via .Values.global.imageRegistry remains intact for true
+# air-gap or alternate mirror deployments.
+version: 0.1.29
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

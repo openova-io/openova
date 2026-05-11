@@ -24,7 +24,11 @@ name: bp-wordpress-tenant
 #     sme_tenant_gitops.go `smeTenantBPWordPress`) bumped to emit both
 #     `oidc.*` and `keycloak.*` so chart 0.1.x and 0.2.0 reconciles work.
 # 0.1.0 — initial release (#800).
-version: 0.2.0
+# 0.2.1 (Fix #163, 2026-05-11, MIRROR-EVERYTHING): database-secret-sync-job
+# hook image switched from curlimages/curl:8.10.1 to
+# harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1 per CLAUDE.md
+# inviolable rule.
+version: 0.2.1
 appVersion: "6"
 description: |
   Catalyst Blueprint scratch chart for in-vcluster WordPress, one
