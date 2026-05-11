@@ -24,11 +24,12 @@ flowServer:
     # rewrites this prefix to its own proxy at registry-pivot time per
     # platform/self-sovereign-cutover/chart/.
     repository: harbor.openova.io/proxy-ghcr/openova-io/openova/openova-flow-server
-    # SHA-pinned per INVIOLABLE-PRINCIPLES #4a. CI populates this via
-    # build-openova-flow-server.yaml on every push to
-    # products/openova-flow/server/** or platform/openova-flow-server/chart/**.
-    # Empty fails chart render via _helpers.tpl image-fail-fast.
-    tag: ""
+    # SHA-pinned by CI's build-openova-flow-server.yaml (seds this
+    # value with the short-SHA). Default `latest` lets Blueprint
+    # Release smoke-render the chart with default values before the
+    # first CI run has populated a SHA. Bootstrap-kit HR overrides at
+    # install time so runtime always pulls a deterministic image.
+    tag: "latest"
     pullPolicy: IfNotPresent
   port: 8080
   # Per-flow ring buffer capacity (FlowMessage envelopes). The server
