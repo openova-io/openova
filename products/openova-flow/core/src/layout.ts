@@ -114,8 +114,53 @@ export interface PositionedNode {
   isFolded: boolean
   /** Count of direct children — surfaced as a badge on folded groups. */
   childCount: number
+  /** Count of ALL descendants reachable through `contains` edges.
+   *  Independent of fold state — surfaced as the `[N]` badge on every
+   *  foldable parent regardless of whether it is currently folded.
+   *  Equals `childCount` for groups whose children are all leaves. */
+  descendantCount: number
   /** Forwarded for tooltip / click handlers. */
   node: FlowNode
+}
+
+/**
+ * Lane descriptor — surfaced for any `contains`-parent whose
+ * `meta.layout` is `'lane-horizontal'` or `'lane-vertical'`. The
+ * canvas reads this list to position children inside a rounded-rect
+ * lane (horizontal: left→right; vertical: top→bottom). `parentLaneId`
+ * is set when this lane is itself the child of another lane (region
+ * lane contains phase lanes), so the canvas can nest them.
+ *
+ * Lanes are emitted even when the parent is unfolded; the canvas
+ * positions visible (non-elided) children inside the lane's box.
+ * When the parent is folded the lane is still emitted so the canvas
+ * can fall back to a single super-bubble at the lane's anchor.
+ *
+ * Sort key is read from `meta.sortKey` (number) when present; the
+ * canvas uses it to order sibling lanes deterministically.
+ */
+export interface LaneDescriptor {
+  /** Group node id — matches the `toId` of the `contains` edges that
+   *  point at the lane's children. */
+  id: string
+  /** Axis: 'horizontal' (children L→R) or 'vertical' (children T→B). */
+  axis: 'horizontal' | 'vertical'
+  /** Optional parent lane id — non-null when nested (region → phase). */
+  parentLaneId: string | null
+  /** Direct child node ids that are members of this lane. Ordered by
+   *  their `meta.sortKey` (when supplied) then their visible-list
+   *  position; gives the canvas a deterministic left-to-right / top-to-
+   *  bottom packing order. */
+  childIds: string[]
+  /** Optional deterministic sort key from `meta.sortKey`. */
+  sortKey: number
+  /** Display label for the lane header (pass-through of FlowNode.label). */
+  label: string
+  /** Depth from the outermost lane (0 = top-level region, 1 = phase
+   *  inside region). Cycle-safe; capped at MAX_VISIBLE_DEPTH. */
+  laneDepth: number
+  /** True when the lane's owning group is currently folded. */
+  isFolded: boolean
 }
 
 export interface PositionedEdge {
@@ -157,6 +202,11 @@ export interface LayoutOutput {
   maxDepth: number
   families: FamilyDescriptor[]
   regions: RegionDescriptor[]
+  /** Lane descriptors derived from `meta.layout` on `contains`-parents.
+   *  Empty when no group declares a lane layout hint — the canvas
+   *  falls back to the organic d3-force layout in that case. Sorted
+   *  outermost-first (top-level lanes before nested phase lanes). */
+  lanes: LaneDescriptor[]
 }
 
 /* ────────────────────────────────────────────────────────────────────
@@ -625,12 +675,35 @@ export function layout(input: LayoutInput): LayoutOutput {
 
   /* ── 13. Emit positioned nodes. ─────────────────────────────── */
 
+  // Recursive descendant count through `contains` edges — cycle-safe.
+  // Memoised so a node with deep sub-trees only pays O(N) once.
+  const descendantMemo = new Map<string, number>()
+  function descendantCountOf(nodeId: string): number {
+    const cached = descendantMemo.get(nodeId)
+    if (typeof cached === 'number') return cached
+    const visited = new Set<string>([nodeId])
+    let count = 0
+    const stack = [...(childrenOf.get(nodeId) ?? [])]
+    while (stack.length > 0) {
+      const cid = stack.pop()!
+      if (visited.has(cid)) continue
+      visited.add(cid)
+      count++
+      for (const gc of childrenOf.get(cid) ?? []) {
+        if (!visited.has(gc)) stack.push(gc)
+      }
+    }
+    descendantMemo.set(nodeId, count)
+    return count
+  }
+
   const positionedNodes: PositionedNode[] = visibleNodes.map((n) => {
     const h = perNode.get(n.id)
     const familyId = h?.family ?? n.family ?? (families[0]?.id ?? 'platform')
     const isGroup = isGroupNode(n.id)
     const isFolded = isGroup && folded.has(n.id)
     const childCount = (childrenOf.get(n.id) ?? []).length
+    const descendantCount = isGroup ? descendantCountOf(n.id) : 0
     return {
       id: n.id,
       flowId: n.flowId,
@@ -643,6 +716,7 @@ export function layout(input: LayoutInput): LayoutOutput {
       isGroup,
       isFolded,
       childCount,
+      descendantCount,
       node: n,
     }
   })
@@ -663,6 +737,107 @@ export function layout(input: LayoutInput): LayoutOutput {
 
   const maxDepth = positionedNodes.reduce((m, n) => Math.max(m, n.depth), 0)
 
+  /* ── 16. Lanes — derived from `meta.layout` on `contains`-parents.
+   *        Surfaces a deterministic per-group layout hint so the
+   *        canvas can render rounded-rect swimlanes. The lane set
+   *        is empty when no group declares a layout hint — the
+   *        canvas falls back to the organic d3-force layout in
+   *        that case. ─────────────────────────────────────────── */
+
+  const lanes: LaneDescriptor[] = []
+  const laneById = new Map<string, LaneDescriptor>()
+  function readLayoutAxis(n: FlowNode): 'horizontal' | 'vertical' | null {
+    const v = n.meta?.['layout']
+    if (v === 'lane-horizontal') return 'horizontal'
+    if (v === 'lane-vertical') return 'vertical'
+    return null
+  }
+  function readSortKey(n: FlowNode): number {
+    const v = n.meta?.['sortKey']
+    if (typeof v === 'number' && Number.isFinite(v)) return v
+    return 0
+  }
+  for (const n of nodes) {
+    const axis = readLayoutAxis(n)
+    if (axis === null) continue
+    // Note: we DO NOT require `isGroupNode(n.id)` here. An adapter
+    // may emit an empty lane (e.g. Phase 0 before any children have
+    // arrived) and expect the canvas to render the empty box —
+    // omitting it would make the View 4 collapsed-region view flicker
+    // every time the child list rolls over. The lane is emitted
+    // whenever `meta.layout` is set on the node, regardless of
+    // whether it currently has visible children.
+    const lane: LaneDescriptor = {
+      id: n.id,
+      axis,
+      parentLaneId: null,
+      childIds: [],
+      sortKey: readSortKey(n),
+      label: n.label,
+      laneDepth: 0,
+      isFolded: folded.has(n.id),
+    }
+    laneById.set(n.id, lane)
+    lanes.push(lane)
+  }
+  // Resolve parent-lane chain (cycle-safe).
+  for (const lane of lanes) {
+    let cursor = parentOf.get(lane.id)
+    const seen = new Set<string>([lane.id])
+    while (cursor) {
+      if (seen.has(cursor)) break
+      seen.add(cursor)
+      if (laneById.has(cursor)) {
+        lane.parentLaneId = cursor
+        break
+      }
+      const next = parentOf.get(cursor)
+      if (!next) break
+      cursor = next
+    }
+  }
+  // Compute lane depth (0 = outermost). Cycle-safe via visited set.
+  for (const lane of lanes) {
+    let d = 0
+    let cursor = lane.parentLaneId
+    const seen = new Set<string>([lane.id])
+    while (cursor) {
+      if (seen.has(cursor)) break
+      seen.add(cursor)
+      d++
+      if (d > MAX_VISIBLE_DEPTH) break
+      const parentLane = laneById.get(cursor)
+      cursor = parentLane?.parentLaneId ?? null
+    }
+    lane.laneDepth = d
+  }
+  // Collect direct children of each lane — children come from
+  // `contains` edges where `toId === lane.id`. Order by their meta
+  // sortKey then by visible-list position.
+  const visibleIndex = new Map<string, number>()
+  visibleNodes.forEach((n, i) => visibleIndex.set(n.id, i))
+  for (const lane of lanes) {
+    const direct = (childrenOf.get(lane.id) ?? []).slice()
+    direct.sort((a, b) => {
+      const na = byId.get(a)
+      const nb = byId.get(b)
+      const ka = na ? readSortKey(na) : 0
+      const kb = nb ? readSortKey(nb) : 0
+      if (ka !== kb) return ka - kb
+      const ia = visibleIndex.get(a) ?? Number.MAX_SAFE_INTEGER
+      const ib = visibleIndex.get(b) ?? Number.MAX_SAFE_INTEGER
+      return ia - ib
+    })
+    lane.childIds = direct
+  }
+  // Sort lanes outermost-first, then by sortKey. Outermost lanes get
+  // sortKey-ordered too so consumers see deterministic region order.
+  lanes.sort((a, b) => {
+    if (a.laneDepth !== b.laneDepth) return a.laneDepth - b.laneDepth
+    if (a.sortKey !== b.sortKey) return a.sortKey - b.sortKey
+    return a.id.localeCompare(b.id)
+  })
+
   return {
     positionedNodes,
     edges,
@@ -670,6 +845,7 @@ export function layout(input: LayoutInput): LayoutOutput {
     maxDepth,
     families: [...families],
     regions: regions.length > 0 ? [...regions] : [fallbackRegion],
+    lanes,
   }
 }
 

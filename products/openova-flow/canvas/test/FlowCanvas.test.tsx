@@ -172,3 +172,257 @@ describe('FlowCanvas — interaction', () => {
     expect(onNodeNavigate).toHaveBeenCalledWith('a')
   })
 })
+
+/* ────────────────────────────────────────────────────────────────────
+ * Agent #9 — fold UX, lane layout, actions menu, cross-flow nav.
+ * ──────────────────────────────────────────────────────────────────── */
+
+function group(id: string, meta?: Record<string, unknown>): FlowNode {
+  return { id, flowId: FLOW.id, label: id, status: 'pending', meta }
+}
+
+describe('FlowCanvas — lane layout (Agent #9)', () => {
+  it('renders a lane rectangle for each `contains`-parent with meta.layout', () => {
+    const nodes: FlowNode[] = [
+      group('fsn1', { layout: 'lane-vertical', isGroup: true }),
+      group('hel1', { layout: 'lane-vertical', isGroup: true }),
+      leaf('hr-a'),
+      leaf('hr-b'),
+    ]
+    const rels: Relationship[] = [
+      { fromId: 'hr-a', toId: 'fsn1', type: 'contains' },
+      { fromId: 'hr-b', toId: 'hel1', type: 'contains' },
+    ]
+    const { container } = render(
+      <FlowCanvas flow={FLOW} nodes={nodes} relationships={rels} folded={new Set()} />,
+    )
+    expect(container.querySelector('g[data-testid="flow-lane-fsn1"]')).toBeTruthy()
+    expect(container.querySelector('g[data-testid="flow-lane-hel1"]')).toBeTruthy()
+    expect(
+      container.querySelector('g[data-testid="flow-lane-fsn1"]')?.getAttribute('data-lane-axis'),
+    ).toBe('vertical')
+  })
+
+  it('nests phase lanes inside region lanes (lane-depth surfaced)', () => {
+    const nodes: FlowNode[] = [
+      group('fsn1', { layout: 'lane-vertical', isGroup: true }),
+      group('fsn1/phase-1', { layout: 'lane-horizontal', isGroup: true, sortKey: 1 }),
+      leaf('hr-1'),
+    ]
+    const rels: Relationship[] = [
+      { fromId: 'fsn1/phase-1', toId: 'fsn1', type: 'contains' },
+      { fromId: 'hr-1', toId: 'fsn1/phase-1', type: 'contains' },
+    ]
+    const { container } = render(
+      <FlowCanvas flow={FLOW} nodes={nodes} relationships={rels} folded={new Set()} />,
+    )
+    const region = container.querySelector('g[data-testid="flow-lane-fsn1"]')
+    const phase = container.querySelector('g[data-testid="flow-lane-fsn1/phase-1"]')
+    expect(region).toBeTruthy()
+    expect(phase).toBeTruthy()
+    expect(region?.getAttribute('data-lane-depth')).toBe('0')
+    expect(phase?.getAttribute('data-lane-depth')).toBe('1')
+    expect(phase?.getAttribute('data-lane-axis')).toBe('horizontal')
+  })
+
+  it('falls back to organic layout (no lane rect) when no group has meta.layout', () => {
+    const nodes: FlowNode[] = [leaf('a'), leaf('b')]
+    const rels: Relationship[] = [
+      { fromId: 'a', toId: 'b', type: 'finish-to-start' },
+    ]
+    const { container } = render(
+      <FlowCanvas flow={FLOW} nodes={nodes} relationships={rels} folded={new Set()} />,
+    )
+    expect(container.querySelector('g[data-testid="flow-lanes"]')).toBeNull()
+  })
+})
+
+describe('FlowCanvas — child-count badge (Agent #9)', () => {
+  it('renders a recursive descendant-count badge on foldable parents', () => {
+    // fsn1 contains phase-1 contains hr-a, hr-b → fsn1.descendantCount=3
+    const nodes: FlowNode[] = [
+      group('fsn1'),
+      group('phase-1'),
+      leaf('hr-a'),
+      leaf('hr-b'),
+    ]
+    const rels: Relationship[] = [
+      { fromId: 'phase-1', toId: 'fsn1', type: 'contains' },
+      { fromId: 'hr-a', toId: 'phase-1', type: 'contains' },
+      { fromId: 'hr-b', toId: 'phase-1', type: 'contains' },
+    ]
+    const { container } = render(
+      <FlowCanvas
+        flow={FLOW}
+        nodes={nodes}
+        relationships={rels}
+        folded={new Set(['fsn1'])}
+      />,
+    )
+    const badge = container.querySelector('g[data-testid="flow-node-badge-fsn1"]')
+    expect(badge).toBeTruthy()
+    expect(badge?.getAttribute('data-descendant-count')).toBe('3')
+  })
+
+  it('does NOT render a badge on leaf nodes', () => {
+    const nodes: FlowNode[] = [leaf('a')]
+    const { container } = render(
+      <FlowCanvas flow={FLOW} nodes={nodes} relationships={[]} folded={new Set()} />,
+    )
+    expect(container.querySelector('g[data-testid="flow-node-badge-a"]')).toBeNull()
+  })
+})
+
+describe('FlowCanvas — hover dim (Agent #9)', () => {
+  it('dims non-neighbor nodes when one is hovered, restores on mouseleave', () => {
+    const nodes: FlowNode[] = [leaf('a'), leaf('b'), leaf('c')]
+    const rels: Relationship[] = [
+      { fromId: 'a', toId: 'b', type: 'finish-to-start' },
+    ]
+    render(
+      <FlowCanvas flow={FLOW} nodes={nodes} relationships={rels} folded={new Set()} />,
+    )
+    fireEvent.mouseEnter(screen.getByTestId('flow-node-a'))
+    // c is NOT a neighbor of a → dimmed.
+    expect(screen.getByTestId('flow-node-c').getAttribute('data-dimmed')).toBe('true')
+    // b IS a neighbor → not dimmed.
+    expect(screen.getByTestId('flow-node-b').getAttribute('data-dimmed')).toBe('false')
+    // a itself is hovered → not dimmed.
+    expect(screen.getByTestId('flow-node-a').getAttribute('data-dimmed')).toBe('false')
+    fireEvent.mouseLeave(screen.getByTestId('flow-node-a'))
+    expect(screen.getByTestId('flow-node-c').getAttribute('data-dimmed')).toBe('false')
+  })
+
+  it('selection ring keeps full opacity even while hover is active', () => {
+    const nodes: FlowNode[] = [leaf('a'), leaf('b')]
+    render(
+      <FlowCanvas
+        flow={FLOW}
+        nodes={nodes}
+        relationships={[]}
+        folded={new Set()}
+        selectedNodeId="b"
+      />,
+    )
+    fireEvent.mouseEnter(screen.getByTestId('flow-node-a'))
+    // b is selected — selection-dim already calculated based on
+    // neighborhood; hover should NOT downgrade it further.
+    expect(screen.getByTestId('flow-node-b').getAttribute('data-open')).toBe('true')
+  })
+})
+
+describe('FlowCanvas — right-click actions menu (Agent #9)', () => {
+  it('opens a context menu on right-click when actions are supplied', () => {
+    const onNodeAction = vi.fn()
+    const invoke = vi.fn()
+    const actions = [
+      { id: 'retry', label: 'Retry', invoke },
+      { id: 'logs', label: 'View logs', invoke },
+    ]
+    const nodes: FlowNode[] = [leaf('a')]
+    render(
+      <FlowCanvas
+        flow={FLOW}
+        nodes={nodes}
+        relationships={[]}
+        folded={new Set()}
+        actions={actions}
+        onNodeAction={onNodeAction}
+      />,
+    )
+    fireEvent.contextMenu(screen.getByTestId('flow-node-a'))
+    const menu = screen.getByTestId('flow-node-actions-menu')
+    expect(menu).toBeTruthy()
+    expect(menu.getAttribute('data-node-id')).toBe('a')
+    fireEvent.click(screen.getByTestId('flow-node-action-retry'))
+    expect(onNodeAction).toHaveBeenCalledWith('a', 'retry')
+  })
+
+  it('does NOT open a menu when no actions are supplied', () => {
+    const nodes: FlowNode[] = [leaf('a')]
+    render(
+      <FlowCanvas flow={FLOW} nodes={nodes} relationships={[]} folded={new Set()} />,
+    )
+    fireEvent.contextMenu(screen.getByTestId('flow-node-a'))
+    expect(screen.queryByTestId('flow-node-actions-menu')).toBeNull()
+  })
+
+  it('filters actions whose `enabled` predicate returns false', () => {
+    const nodes: FlowNode[] = [leaf('a')]
+    const actions = [
+      { id: 'visible', label: 'Visible', invoke: vi.fn() },
+      { id: 'hidden', label: 'Hidden', invoke: vi.fn(), enabled: (_id: string) => false },
+    ]
+    render(
+      <FlowCanvas
+        flow={FLOW}
+        nodes={nodes}
+        relationships={[]}
+        folded={new Set()}
+        actions={actions}
+      />,
+    )
+    fireEvent.contextMenu(screen.getByTestId('flow-node-a'))
+    expect(screen.getByTestId('flow-node-action-visible')).toBeTruthy()
+    expect(screen.queryByTestId('flow-node-action-hidden')).toBeNull()
+  })
+})
+
+describe('FlowCanvas — triggeredBy banner + cross-flow nav (Agent #9)', () => {
+  it('renders a triggeredBy banner when flow.triggeredBy is non-empty', () => {
+    const onNavigateFlow = vi.fn()
+    const triggeringFlow: FlowInstance = {
+      ...FLOW,
+      triggeredBy: [{ flowId: 'parent-flow-1', when: 'success' }],
+    }
+    const nodes: FlowNode[] = [leaf('a')]
+    render(
+      <FlowCanvas
+        flow={triggeringFlow}
+        nodes={nodes}
+        relationships={[]}
+        folded={new Set()}
+        onNavigateFlow={onNavigateFlow}
+      />,
+    )
+    const badge = screen.getByTestId('flow-triggered-by-parent-flow-1')
+    expect(badge).toBeTruthy()
+    fireEvent.click(badge)
+    expect(onNavigateFlow).toHaveBeenCalledWith('parent-flow-1')
+  })
+
+  it('does NOT render the banner when triggeredBy is missing/empty', () => {
+    const nodes: FlowNode[] = [leaf('a')]
+    render(
+      <FlowCanvas flow={FLOW} nodes={nodes} relationships={[]} folded={new Set()} />,
+    )
+    expect(screen.queryByTestId('flow-triggered-by-banner')).toBeNull()
+  })
+
+  it('renders a cross-flow "→ flow" tag on a node whose Relationship targets another flow', () => {
+    const onNavigateFlow = vi.fn()
+    const nodes: FlowNode[] = [leaf('a')]
+    const rels: Relationship[] = [
+      {
+        fromId: 'a',
+        toId: 'remote-node',
+        toFlowId: 'remote-flow',
+        type: 'triggers',
+      },
+    ]
+    render(
+      <FlowCanvas
+        flow={FLOW}
+        nodes={nodes}
+        relationships={rels}
+        folded={new Set()}
+        onNavigateFlow={onNavigateFlow}
+      />,
+    )
+    const tag = screen.getByTestId('flow-node-crossflow-a')
+    expect(tag).toBeTruthy()
+    expect(tag.getAttribute('data-cross-flow-target')).toBe('remote-flow')
+    fireEvent.click(tag)
+    expect(onNavigateFlow).toHaveBeenCalledWith('remote-flow')
+  })
+})

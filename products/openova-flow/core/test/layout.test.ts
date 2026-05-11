@@ -430,3 +430,126 @@ describe('@openova/flow-core defaultFoldedAtDepth — cycle protection (bug #476
     expect(out.size).toBe(0)
   })
 })
+
+/* ────────────────────────────────────────────────────────────────────
+ * Agent #9 — lanes + recursive descendantCount.
+ * ──────────────────────────────────────────────────────────────────── */
+
+describe('@openova/flow-core layout — lanes (Agent #9)', () => {
+  function laneGroup(id: string, layoutHint: 'lane-horizontal' | 'lane-vertical', sortKey?: number): FlowNode {
+    return {
+      id,
+      flowId: FLOW.id,
+      label: id,
+      status: 'pending',
+      meta: typeof sortKey === 'number'
+        ? { layout: layoutHint, isGroup: true, sortKey }
+        : { layout: layoutHint, isGroup: true },
+    }
+  }
+
+  it('emits a LaneDescriptor for each contains-parent whose meta.layout is set', () => {
+    const nodes: FlowNode[] = [
+      laneGroup('fsn1', 'lane-vertical'),
+      laneGroup('hel1', 'lane-vertical'),
+      leaf('hr-a'),
+      leaf('hr-b'),
+    ]
+    const rels: Relationship[] = [
+      contains('fsn1', 'hr-a'),
+      contains('hel1', 'hr-b'),
+    ]
+    const out = layout({
+      flow: FLOW,
+      nodes,
+      relationships: rels,
+      folded: new Set(),
+      hints: { perNode: HINTS, regions: REGIONS, families: FAMILIES },
+    })
+    expect(out.lanes.length).toBe(2)
+    const fsn = out.lanes.find((l) => l.id === 'fsn1')
+    expect(fsn?.axis).toBe('vertical')
+    expect(fsn?.laneDepth).toBe(0)
+    expect(fsn?.parentLaneId).toBeNull()
+    expect(fsn?.childIds).toContain('hr-a')
+  })
+
+  it('nests phase lanes inside region lanes with laneDepth=1', () => {
+    const nodes: FlowNode[] = [
+      laneGroup('fsn1', 'lane-vertical'),
+      laneGroup('fsn1/phase-1', 'lane-horizontal', 1),
+      laneGroup('fsn1/phase-2', 'lane-horizontal', 2),
+      leaf('hr-a'),
+    ]
+    const rels: Relationship[] = [
+      contains('fsn1', 'fsn1/phase-1'),
+      contains('fsn1', 'fsn1/phase-2'),
+      contains('fsn1/phase-1', 'hr-a'),
+    ]
+    const out = layout({
+      flow: FLOW,
+      nodes,
+      relationships: rels,
+      folded: new Set(),
+      hints: { perNode: HINTS, regions: REGIONS, families: FAMILIES },
+    })
+    const region = out.lanes.find((l) => l.id === 'fsn1')
+    const phase1 = out.lanes.find((l) => l.id === 'fsn1/phase-1')
+    const phase2 = out.lanes.find((l) => l.id === 'fsn1/phase-2')
+    expect(region?.laneDepth).toBe(0)
+    expect(phase1?.laneDepth).toBe(1)
+    expect(phase2?.laneDepth).toBe(1)
+    expect(phase1?.parentLaneId).toBe('fsn1')
+    // Phase sortKey ordering: phase-1 before phase-2.
+    const phasesInOrder = out.lanes.filter((l) => l.laneDepth === 1).map((l) => l.id)
+    expect(phasesInOrder).toEqual(['fsn1/phase-1', 'fsn1/phase-2'])
+  })
+
+  it('returns empty lanes when no group declares meta.layout', () => {
+    const nodes: FlowNode[] = [leaf('a'), leaf('b')]
+    const rels: Relationship[] = [fs('a', 'b')]
+    const out = layout({
+      flow: FLOW,
+      nodes,
+      relationships: rels,
+      folded: new Set(),
+      hints: { perNode: HINTS, regions: REGIONS, families: FAMILIES },
+    })
+    expect(out.lanes).toEqual([])
+  })
+})
+
+describe('@openova/flow-core layout — descendantCount (Agent #9)', () => {
+  it('computes recursive descendant count through contains edges', () => {
+    // fsn1 → phase-1 → hr-a, hr-b
+    // descendantCount(fsn1) = 3 (phase-1 + hr-a + hr-b)
+    // descendantCount(phase-1) = 2 (hr-a + hr-b)
+    const nodes: FlowNode[] = [group('fsn1'), group('phase-1'), leaf('hr-a'), leaf('hr-b')]
+    const rels: Relationship[] = [
+      contains('fsn1', 'phase-1'),
+      contains('phase-1', 'hr-a'),
+      contains('phase-1', 'hr-b'),
+    ]
+    const out = layout({
+      flow: FLOW,
+      nodes,
+      relationships: rels,
+      folded: new Set(['fsn1']),
+      hints: { perNode: HINTS, regions: REGIONS, families: FAMILIES },
+    })
+    const fsn = out.positionedNodes.find((n) => n.id === 'fsn1')
+    expect(fsn?.descendantCount).toBe(3)
+  })
+
+  it('descendantCount is 0 for leaf nodes', () => {
+    const nodes: FlowNode[] = [leaf('a')]
+    const out = layout({
+      flow: FLOW,
+      nodes,
+      relationships: [],
+      folded: new Set(),
+      hints: { perNode: HINTS, regions: REGIONS, families: FAMILIES },
+    })
+    expect(out.positionedNodes[0]?.descendantCount).toBe(0)
+  })
+})
