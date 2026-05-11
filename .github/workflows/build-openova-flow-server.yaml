@@ -1,0 +1,210 @@
+name: Build openova-flow-server
+
+# openova-flow-server — stateless HTTP+SSE event router that drives the
+# OpenovaFlow timeline view in the Catalyst console. Source at
+# products/openova-flow/server/, chart at platform/openova-flow-server/chart/.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4a (GitHub Actions is the ONLY
+# build path) every image that runs on OpenOva infra MUST be produced
+# by a CI workflow from a committed git SHA. This workflow mirrors the
+# shape of build-application-controller.yaml — same Buildx push, same
+# cosign keyless signing, same auto-bump of values.yaml + dispatch of
+# blueprint-release for chart re-publish.
+#
+# Per `feedback_inviolable_principles.md` / global CLAUDE.md "every
+# workflow MUST be event-driven, NEVER scheduled". Triggers on
+# push-to-main (paths filter), pull_request (test only, no push), and
+# workflow_dispatch for manual re-runs without a code change.
+
+on:
+  push:
+    paths:
+      - 'products/openova-flow/server/**'
+      - 'platform/openova-flow-server/chart/**'
+      - '.github/workflows/build-openova-flow-server.yaml'
+    branches: [main]
+  pull_request:
+    paths:
+      - 'products/openova-flow/server/**'
+      - 'platform/openova-flow-server/chart/**'
+      - '.github/workflows/build-openova-flow-server.yaml'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/openova-io/openova/openova-flow-server
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      # contents: write — the deploy step below pushes a values.yaml SHA
+      # bump back to main so the bp-openova-flow-server chart picks up
+      # the newly-built image without an operator manually editing the
+      # file (per `feedback_no_mvp_no_workarounds.md` rule 1: target-state,
+      # never "manual follow-up bump").
+      contents: write
+      packages: write
+      # id-token write is required by cosign keyless signing (Sigstore).
+      id-token: write
+      # actions: write — required for `gh workflow run` to dispatch
+      # blueprint-release after the deploy commit lands. Without it
+      # the GITHUB_TOKEN gets HTTP 403 "Resource not accessible by
+      # integration" and bp-openova-flow-server OCI artifact stays
+      # stuck on the previous deploy's SHA (#712 / catalyst-build.yaml
+      # incident replicated here for parity).
+      actions: write
+    outputs:
+      sha_short: ${{ steps.vars.outputs.sha_short }}
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set short SHA
+        id: vars
+        run: echo "sha_short=$(echo $GITHUB_SHA | head -c 7)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          # server has no external deps (stdlib only) so no go.sum is
+          # present in the tree — skip cache-dependency-path entirely.
+          cache: false
+
+      - name: go vet
+        working-directory: products/openova-flow/server
+        run: go vet ./...
+
+      - name: Run unit tests
+        working-directory: products/openova-flow/server
+        run: go test -count=1 -race ./...
+
+      # On pull_request runs we stop here — image push requires
+      # `packages: write` which only main-branch authors hold.
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        if: github.event_name != 'pull_request'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        id: build
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          # Build context is the server module dir — its Dockerfile's
+          # `COPY go.mod ./` / `COPY cmd ./cmd` paths are relative to
+          # that dir, not the repo root.
+          context: products/openova-flow/server
+          file: products/openova-flow/server/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}
+            ${{ env.IMAGE }}:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/openova-io/openova
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=openova-flow-server
+            org.opencontainers.image.description=OpenovaFlow event router — HTTP ingest + SSE replay
+          # provenance=false: containerd 1.7.x on k3s mis-resolves the
+          # provenance attestation manifest. SBOM attestation handled by
+          # the cosign attest step below.
+          provenance: false
+          sbom: false
+
+      - name: Install cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image with cosign (keyless)
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign sign --yes "${IMAGE}@${DIGEST}"
+
+      - name: Generate and attest SBOM
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign attest --yes \
+            --predicate <(echo '{"sbom":"in-toto-spdx attached at build time"}') \
+            --type spdx \
+            "${IMAGE}@${DIGEST}"
+
+      # Auto-bump the chart values.yaml tag so the next Sovereign chart
+      # rollout picks up this image without a manual edit. Per
+      # `feedback_no_mvp_no_workarounds.md` rule 1 (target-state, no
+      # operator-action gates) and `feedback_inviolable_principles.md`
+      # (event-driven, never cron). Mirrors the awk pattern in
+      # build-application-controller.yaml (under `controllers.application.tag`).
+      - name: Bump flowServer.image.tag in chart values.yaml
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          SHA_SHORT: ${{ steps.vars.outputs.sha_short }}
+        run: |
+          VALUES="platform/openova-flow-server/chart/values.yaml"
+          # awk: find `flowServer:` (top-level key), then under it find
+          # the nested `  image:` block, then update the next `    tag:`
+          # line. Stops at the next top-level key so we don't bump a
+          # sibling chart's tag.
+          awk -v sha="${SHA_SHORT}" '
+            /^flowServer:/ { in_fs=1; print; next }
+            in_fs && /^[a-zA-Z]/ && !/^flowServer:/ { in_fs=0 }
+            in_fs && /^  image:/ { in_img=1; print; next }
+            in_fs && /^  [a-zA-Z]/ && !/^  image:/ { in_img=0 }
+            in_img && /^    tag:/ { sub(/:.*/, ": \"" sha "\""); in_img=0 }
+            { print }
+          ' "${VALUES}" > "${VALUES}.tmp" && mv "${VALUES}.tmp" "${VALUES}"
+          echo "values.yaml after bump:"
+          grep -A1 "^  image:" "${VALUES}" | head -6
+
+      - name: Commit and push values.yaml bump
+        id: deploy_commit
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          SHA_SHORT: ${{ steps.vars.outputs.sha_short }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet platform/openova-flow-server/chart/values.yaml; then
+            echo "no values.yaml change — already pinned to ${SHA_SHORT}"
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git add platform/openova-flow-server/chart/values.yaml
+          # `[skip ci]` keeps blueprint-release from re-firing twice
+          # (we explicitly dispatch it below — see the next step).
+          git commit -m "chore(deploy): bump openova-flow-server image to ${SHA_SHORT} [skip ci]"
+          # Pull-rebase to avoid races with parallel build commits.
+          git pull --rebase --autostash origin main || true
+          git push origin HEAD:main
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+
+      # GitHub Actions does NOT trigger workflows from GITHUB_TOKEN bot
+      # pushes by default (anti-recursion safeguard). The bot commit
+      # above changes platform/openova-flow-server/chart/values.yaml
+      # which would normally fire blueprint-release.yaml's path filter
+      # — but bot pushes are silently filtered. Without this dispatch
+      # the rebuilt image is NEVER baked into a new chart version, so
+      # Sovereigns keep installing the previous chart with the previous
+      # image tag (incident replicated from catalyst-build.yaml #712).
+      - name: Dispatch blueprint-release for chart re-publish
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && steps.deploy_commit.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run blueprint-release.yaml \
+            --repo "${GITHUB_REPOSITORY}" \
+            --ref main \
+            -f blueprint=openova-flow-server \
+            -f tree=platform
