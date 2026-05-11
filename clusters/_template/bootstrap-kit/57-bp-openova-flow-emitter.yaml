@@ -95,7 +95,7 @@ spec:
       # bp-catalyst-platform InstallFailed → no wildcard *.<fqdn> cert
       # → no Gateway listener → emitter retry-loop → server stays empty
       # → canvas showed "No nodes to render".
-      flowServerUrl: http://openova-flow-server.catalyst-system.svc.cluster.local:8080
+      flowServerUrl: http://openova-flow-server.catalyst-system.svc.cluster.local
       flowId: ${SOVEREIGN_DEPLOYMENT_ID}
       regionKey: ${SOVEREIGN_REGION_KEY}
       namespaceFilter: flux-system
