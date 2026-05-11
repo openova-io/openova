@@ -84,9 +84,18 @@ spec:
   values:
     flowEmitter:
       enabled: true
-      # The mothership-Harbor proxied server URL. Resolves to the
-      # primary cluster's HTTPRoute through the Cilium Gateway.
-      flowServerUrl: https://openova-flow.${SOVEREIGN_FQDN}
+      # In-cluster Service URL — the emitter DaemonSet lives in the same
+      # k3s as the openova-flow-server Deployment, so the POST stays
+      # cluster-local with no TLS dependency. The public HTTPRoute at
+      # https://openova-flow.<fqdn> exists for the MOTHERSHIP
+      # catalyst-api proxy (Agent #8 PR #1405) and any external consumer,
+      # NOT for the in-cluster emitter. Using the public URL was a live
+      # regression on prov #34, 2026-05-11: emitter posted to
+      # https://openova-flow.omantel.biz, TLS handshake EOF'd because
+      # bp-catalyst-platform InstallFailed → no wildcard *.<fqdn> cert
+      # → no Gateway listener → emitter retry-loop → server stays empty
+      # → canvas showed "No nodes to render".
+      flowServerUrl: http://openova-flow-server.catalyst-system.svc.cluster.local:8080
       flowId: ${SOVEREIGN_DEPLOYMENT_ID}
       regionKey: ${SOVEREIGN_REGION_KEY}
       namespaceFilter: flux-system
