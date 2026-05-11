@@ -234,19 +234,37 @@ spec:
       #   a 60s wait-loop for Reflector lag, and falls back to the
       #   source namespace (flux-system) if the local copy is still
       #   missing. Idempotent path unchanged.
-      version: 0.1.25
+      # 0.1.26: HR install/upgrade timeout 15m + values
+      #   autoWaitForAPISeconds=720, autoTimeoutSeconds=840 (Fix #127).
+      #   Provisions #12 + #14 wedged at phase1-watching because the
+      #   HR had no explicit timeout → Helm 5m default → hit before
+      #   the auto-trigger Job's 600s activeDeadline could complete.
+      # 0.1.27: HR install/upgrade timeout 15m → 30m + values
+      #   autoWaitForAPISeconds 720→1500s (25m wait), autoTimeoutSeconds
+      #   840→1740s (29m Job deadline) (Fix #152). Prov #23 wedged
+      #   identically with 3× consecutive DeadlineExceeded on the auto-
+      #   trigger Job: catalyst-api had not yet become reachable inside
+      #   the 14m Job deadline. Cold-start of catalyst-platform on a
+      #   fresh Sovereign exceeds 14m on slow Hetzner regions; 2×
+      #   headroom (29m Job, 30m HR) restores the safety margin Fix #127
+      #   intended. NOTE: also bumps HR version pin from 0.1.25 → 0.1.27
+      #   — Fix #127 (commit 58f518ff) bumped Chart.yaml to 0.1.26 but
+      #   left this pin at 0.1.25, so the new HR-timeout/values changes
+      #   never landed on any Sovereign. The pin update here is what
+      #   actually delivers BOTH Fix #127 and Fix #152.
+      version: 0.1.27
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
         namespace: flux-system
   install:
     disableWait: true
-    timeout: 15m
+    timeout: 30m
     remediation:
       retries: 3
   upgrade:
     disableWait: true
-    timeout: 15m
+    timeout: 30m
     remediation:
       retries: 3
   # Per-Sovereign overrides — the chart's values.yaml carries
