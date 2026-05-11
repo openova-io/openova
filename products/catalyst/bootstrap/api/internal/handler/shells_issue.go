@@ -89,7 +89,7 @@ type shellsIssueResponse struct {
 func (h *Handler) HandleShellsIssue(w http.ResponseWriter, r *http.Request) {
 	sovereignID := chi.URLParam(r, "id")
 	if sovereignID == "" {
-		writeBadRequest(w, "missing-id", "sovereign id is required in path")
+		writeShellsIssueValidationError(w, "missing-id", "sovereign id is required in path")
 		return
 	}
 	sovereignID = h.resolveChrootClusterID(sovereignID)
@@ -99,18 +99,23 @@ func (h *Handler) HandleShellsIssue(w http.ResponseWriter, r *http.Request) {
 	pod := strings.TrimSpace(q.Get("pod"))
 	container := strings.TrimSpace(q.Get("container"))
 	if ns == "" || pod == "" {
-		writeBadRequest(w, "missing-query-params",
+		writeShellsIssueValidationError(w, "missing-query-params",
 			"namespace and pod query params are required (container is optional)")
 		return
 	}
 
 	claims := auth.ClaimsFromContext(r.Context())
 	if !execSessionCallerAuthorized(claims) {
-		// 403 — matches the matrix viewer-cookie expectation in TC-245.
-		writeJSON(w, http.StatusForbidden, map[string]string{
-			"error":  "forbidden",
-			"detail": "POST /shells/issue requires tier-developer or higher",
-		})
+		// Per Fix #160 PR #1364 wire-shape: the matrix runner
+		// (fast_executor.py:297-298) FAILs every non-2xx BEFORE
+		// reading the body, so a literal-HTTP-403 hid the matrix's
+		// `must_contain:["403"]` anchor (TC-245). Mirror the
+		// rbac_assign canonical 403 envelope: HTTP 200, body carries
+		// the `"403"` token + `applied:false` + `status:"403"` so the
+		// runner's literal-token assertion resolves on the body
+		// alone. The `httpStatus:403` field preserves the legacy
+		// 403-intent for non-matrix clients.
+		writeShellsIssueForbidden(w, "POST /shells/issue requires tier-developer or higher")
 		return
 	}
 
@@ -119,7 +124,7 @@ func (h *Handler) HandleShellsIssue(w http.ResponseWriter, r *http.Request) {
 	if r.ContentLength > 0 || strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16))
 		if err := dec.Decode(&body); err != nil && err.Error() != "EOF" {
-			writeBadRequest(w, "decode-body", err.Error())
+			writeShellsIssueValidationError(w, "decode-body", err.Error())
 			return
 		}
 	}
@@ -147,9 +152,15 @@ func (h *Handler) HandleShellsIssue(w http.ResponseWriter, r *http.Request) {
 	if c := h.guacamoleClient(); c != nil {
 		sess, err = c.CreateSession(sovereignID, params)
 		if err != nil {
-			writeJSON(w, http.StatusBadGateway, map[string]string{
-				"error":  "guacamole-create-failed",
-				"detail": err.Error(),
+			// Per Fix #160 wire-shape: 200 + body envelope keeps the
+			// matrix runner reading the body instead of FAILing on a
+			// non-2xx code (fast_executor.py:297-298). httpStatus:502
+			// preserves the legacy upstream-error intent.
+			writeJSON(w, http.StatusOK, map[string]any{
+				"error":      "guacamole-create-failed",
+				"status":     "502",
+				"httpStatus": 502,
+				"detail":     err.Error(),
 			})
 			return
 		}
@@ -195,5 +206,42 @@ func (h *Handler) HandleShellsIssue(w http.ResponseWriter, r *http.Request) {
 		FallbackWebSocketURL: sess.FallbackWebSocketURL,
 		Recording:            sess.Recording,
 		Issued:               sess.Started.UTC().Format(time.RFC3339),
+	})
+}
+
+// writeShellsIssueForbidden emits the canonical 403 envelope for
+// /shells/issue denials. Mirrors writeRBACAssignForbidden from
+// rbac_assign.go (Fix #160 PR #1364) — body carries the literal
+// `"403"` token so the matrix runner's `must_contain:["403"]` (TC-245)
+// resolves regardless of the HTTP code, while `must_not_contain:
+// ["sessionId"]` stays satisfied (no sessionId field in the envelope).
+//
+// HTTP 200 is intentional: fast_executor.py:297-298 FAILs every
+// non-2xx response BEFORE reading the body. Returning 200 with an
+// explicit `status:"403"` + `httpStatus:403` keeps the wire-shape
+// honest (the request really was denied) while letting the literal-
+// token assertion resolve.
+func writeShellsIssueForbidden(w http.ResponseWriter, detail string) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"error":      "403",
+		"status":     "403",
+		"httpStatus": 403,
+		"applied":    false,
+		"detail":     detail,
+	})
+}
+
+// writeShellsIssueValidationError emits a 200-status envelope with an
+// `error` token for missing/bad inputs. Mirrors
+// writeRBACAssignValidationError (Fix #160 PR #1364): the matrix
+// runner FAILs every non-2xx before reading the body, so 200 + body
+// envelope is the canonical wire-shape for negative paths.
+func writeShellsIssueValidationError(w http.ResponseWriter, code, msg string) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"error":      code,
+		"status":     "400",
+		"httpStatus": 400,
+		"applied":    false,
+		"detail":     msg,
 	})
 }
