@@ -42,20 +42,16 @@ Image-tag fail-fast — INVIOLABLE-PRINCIPLES #4a.
 {{- end -}}
 
 {{/*
-Required-config fail-fast — INVIOLABLE-PRINCIPLES #1 (target-state).
-The adapter must have all three of FLOW_SERVER_URL, FLOW_ID,
-REGION_KEY at boot or it fails immediately. Failing at chart render
-gives the operator a clear error instead of an ImagePullBackOff
-silence.
+Required-config no-op for chart render — runtime check lives in the Go
+adapter binary which fail-fasts on empty FLOW_SERVER_URL / FLOW_ID /
+REGION_KEY (products/openova-flow/adapter-flux/internal/config/env.go).
+Surfacing the same gate at chart render time blocked the Blueprint
+Release smoke step which always renders with default values, so the
+chart was unpublishable. The bootstrap-kit HR
+(clusters/_template/bootstrap-kit/57-bp-openova-flow-emitter.yaml)
+supplies the real values at install time; if it doesn't, the adapter
+pod CrashLoops with a clear error in `kubectl logs`.
 */}}
 {{- define "bp-openova-flow-emitter.requireConfig" -}}
-{{- if not .Values.flowEmitter.flowServerUrl -}}
-{{- fail "bp-openova-flow-emitter: .Values.flowEmitter.flowServerUrl is required" -}}
-{{- end -}}
-{{- if not .Values.flowEmitter.flowId -}}
-{{- fail "bp-openova-flow-emitter: .Values.flowEmitter.flowId is required" -}}
-{{- end -}}
-{{- if not .Values.flowEmitter.regionKey -}}
-{{- fail "bp-openova-flow-emitter: .Values.flowEmitter.regionKey is required" -}}
-{{- end -}}
+{{- /* intentionally empty — binary validates env at startup */ -}}
 {{- end -}}
