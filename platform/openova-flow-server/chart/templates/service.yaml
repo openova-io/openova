@@ -1,0 +1,16 @@
+{{- if .Values.flowServer.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "bp-openova-flow-server.workloadName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "bp-openova-flow-server.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.flowServer.service.type | default "ClusterIP" }}
+  selector: {{- include "bp-openova-flow-server.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.flowServer.service.port | default 80 }}
+      targetPort: {{ .Values.flowServer.service.targetPort | default 8080 }}
+      protocol: TCP
+{{- end -}}

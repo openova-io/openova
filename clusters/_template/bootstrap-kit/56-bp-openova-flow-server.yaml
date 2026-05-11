@@ -1,0 +1,97 @@
+# bp-openova-flow-server — Catalyst bootstrap-kit Blueprint slot 56
+# (Observability / OpenovaFlow event router).
+#
+# Stateless HTTP+SSE event router for OpenovaFlow. Emitters
+# (bp-openova-flow-emitter on every cluster, catalyst-api proxy on the
+# mother) POST FlowMessage envelopes; consumers (Sovereign Console
+# canvas) GET snapshots and subscribe to the SSE stream.
+#
+# Architecture:
+#   - Primary-cluster only — one Service per Sovereign, reached
+#     cross-region via Cilium Gateway HTTPRoute over public HTTPS.
+#     No NetBird required for v1.
+#   - In-memory ring buffer per flowId (default 4096 envelopes).
+#     State is lost on Pod restart; emitters re-emit snapshot on
+#     reconnect.
+#   - Workload: single Deployment, ClusterIP Service, optional
+#     HTTPRoute for cross-cluster reachability.
+#
+# Wrapper chart: platform/openova-flow-server/chart/
+# Catalyst-curated values: platform/openova-flow-server/chart/values.yaml
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+#
+# dependsOn:
+#   - bp-cilium       — Pod network + Gateway API for the operator-
+#                       facing HTTPRoute.
+#   - bp-cert-manager — TLS for openova-flow.<sovereign-fqdn>.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #1 (target-state) the chart ships
+# the real workload. Per #4 (never hardcode) the hostname,
+# ringCapacity, and image tag are operator-driven.
+
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-openova-flow-server
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-openova-flow-server
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: openova-flow-server
+  # Lands in catalyst-system co-located with the rest of the
+  # Catalyst control-plane stack (catalyst-api / catalyst-ui / etc.).
+  targetNamespace: catalyst-system
+  dependsOn:
+    - name: bp-cilium
+    - name: bp-cert-manager
+  chart:
+    spec:
+      chart: bp-openova-flow-server
+      version: 0.1.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-openova-flow-server
+        namespace: flux-system
+  # Event-driven install: openova-flow-server is a single Deployment +
+  # Service + ServiceAccount. Helm install completes when manifests
+  # apply; readiness signalled via Flux dependsOn, never via
+  # spec.timeout watchdogs.
+  install:
+    timeout: 15m
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    timeout: 15m
+    disableWait: true
+    remediation:
+      retries: 3
+  # Per-Sovereign overlay surface. The Sovereign's FQDN is interpolated
+  # at Flux apply time via the bootstrap-kit Kustomization's
+  # postBuild.substitute env hook — `${SOVEREIGN_FQDN}` is replaced
+  # with the concrete sovereign FQDN before the HR bytes land in the
+  # cluster.
+  values:
+    flowServer:
+      enabled: true
+      httproute:
+        # Default ON — cross-cluster emitters reach this server's
+        # public HTTPS endpoint via the Cilium Gateway. Per-Sovereign
+        # overlay disables when only the in-cluster Service is needed.
+        enabled: true
+        hostname: openova-flow.${SOVEREIGN_FQDN}
+        gatewayRef:
+          name: catalyst-gateway
+          namespace: kube-system

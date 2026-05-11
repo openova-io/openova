@@ -1,0 +1,70 @@
+{{- if .Values.flowEmitter.enabled -}}
+{{- include "bp-openova-flow-emitter.requireConfig" . -}}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "bp-openova-flow-emitter.workloadName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "bp-openova-flow-emitter.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels: {{- include "bp-openova-flow-emitter.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "bp-openova-flow-emitter.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "bp-openova-flow-emitter.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.flowEmitter.podSecurityContext | nindent 8 }}
+      {{- with .Values.flowEmitter.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.flowEmitter.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.flowEmitter.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: openova-flow-adapter-flux
+          image: {{ include "bp-openova-flow-emitter.image" . | quote }}
+          imagePullPolicy: {{ .Values.flowEmitter.image.pullPolicy | default "IfNotPresent" }}
+          ports:
+            - name: health
+              containerPort: {{ .Values.flowEmitter.healthPort | default 8081 }}
+              protocol: TCP
+          env:
+            - name: FLOW_SERVER_URL
+              value: {{ .Values.flowEmitter.flowServerUrl | quote }}
+            - name: FLOW_ID
+              value: {{ .Values.flowEmitter.flowId | quote }}
+            - name: REGION_KEY
+              value: {{ .Values.flowEmitter.regionKey | quote }}
+            - name: NAMESPACE_FILTER
+              value: {{ .Values.flowEmitter.namespaceFilter | quote }}
+            - name: EMIT_INTERVAL
+              value: {{ .Values.flowEmitter.emitInterval | quote }}
+            - name: POST_TIMEOUT
+              value: {{ .Values.flowEmitter.postTimeout | quote }}
+            - name: HEALTH_LISTEN_ADDR
+              value: ":{{ .Values.flowEmitter.healthPort | default 8081 }}"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.flowEmitter.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.flowEmitter.containerSecurityContext | nindent 12 }}
+{{- end -}}

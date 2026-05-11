@@ -1,0 +1,99 @@
+# bp-openova-flow-emitter — Catalyst bootstrap-kit Blueprint slot 57
+# (Observability / OpenovaFlow Flux adapter).
+#
+# Region-aware DaemonSet sidecar that watches HelmRelease + HelmChart
+# CRs on the LOCAL cluster's Flux and POSTs FlowMessage envelopes to
+# the configured openova-flow-server (slot 56, primary cluster only).
+#
+# Topology — runs on EVERY cluster (mother + primary Sovereign + every
+# secondary region). The receiving server sits on the primary cluster;
+# cross-cluster reachability is via the Cilium Gateway HTTPRoute over
+# public HTTPS.
+#
+# Wrapper chart: platform/openova-flow-emitter/chart/
+# Catalyst-curated values: platform/openova-flow-emitter/chart/values.yaml
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+#
+# dependsOn:
+#   - bp-flux         — informer needs Flux's helmrelease CRDs.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #1 (target-state) the emitter runs
+# from first cut on every cluster. Per #4 (never hardcode) the
+# FLOW_SERVER_URL, FLOW_ID, and REGION_KEY all flow from the
+# per-Sovereign overlay's substitute env.
+
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-openova-flow-emitter
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-openova-flow-emitter
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: openova-flow-emitter
+  targetNamespace: catalyst-system
+  dependsOn:
+    - name: bp-flux
+  chart:
+    spec:
+      chart: bp-openova-flow-emitter
+      version: 0.1.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-openova-flow-emitter
+        namespace: flux-system
+  install:
+    timeout: 15m
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    timeout: 15m
+    disableWait: true
+    remediation:
+      retries: 3
+  # Per-Sovereign overlay surface. ${SOVEREIGN_FQDN} is provided today
+  # by the bootstrap-kit Kustomization's postBuild.substitute env hook
+  # (see infra/hetzner/cloudinit-control-plane.tftpl).
+  #
+  # ${SOVEREIGN_DEPLOYMENT_ID} and ${REGION_KEY} are added by Agent #3's
+  # integration PR — they need to be threaded into the
+  # postBuild.substitute block in cloudinit-control-plane.tftpl alongside
+  # SOVEREIGN_FQDN / SOVEREIGN_LB_IP. Until Agent #3 lands that, the
+  # bootstrap-kit slot can be locally overridden in per-Sovereign Kustomize
+  # overlays to inject concrete values.
+  #
+  # FlowID — falls back to SOVEREIGN_FQDN-derived id when DEPLOYMENT_ID is
+  # not substituted. Agent #3 swaps this to the canonical deployment id.
+  # RegionKey — defaults to "primary" pre-Agent-#3; per-Sovereign overlay
+  # patches the value to the concrete region (e.g. "fsn1", "hel1").
+  values:
+    flowEmitter:
+      enabled: true
+      # The mothership-Harbor proxied server URL. Resolves to the
+      # primary cluster's HTTPRoute through the Cilium Gateway.
+      flowServerUrl: https://openova-flow.${SOVEREIGN_FQDN}
+      # Per the OpenovaFlow contract, FlowID is the runtime
+      # FlowInstance id — the Sovereign's deployment id is the
+      # natural choice (one flow per deployment). Agent #3 substitutes
+      # ${SOVEREIGN_DEPLOYMENT_ID} for the literal string below once the
+      # postBuild env wiring is in place.
+      flowId: ${SOVEREIGN_FQDN}
+      # Region the adapter operates on. Per-Sovereign overlay patches
+      # the value to the concrete region (e.g. "fsn1", "hel1") via the
+      # secondary's bootstrap-kit Kustomize overlay; Agent #3's
+      # integration adds substitution wiring for multi-region.
+      regionKey: primary
+      namespaceFilter: flux-system

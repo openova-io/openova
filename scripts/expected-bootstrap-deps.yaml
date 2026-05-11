@@ -388,6 +388,23 @@ slots:
     depends_on: []
     wave: present
 
+  # ---- Slots 56/57 — OpenovaFlow observability cohort.
+  # Stateless HTTP+SSE event router (slot 56, primary cluster only) +
+  # region-aware Flux adapter DaemonSet (slot 57, every cluster).
+  # The adapter watches helm.toolkit.fluxcd.io/HelmRelease CRs and
+  # POSTs FlowMessage envelopes to the configured openova-flow-server.
+  # Three-agent build: Agent #1 (TS @openova/flow-core +
+  # @openova/flow-canvas), Agent #2 (this Go server + flux adapter),
+  # Agent #3 (catalyst-api proxy + bootstrap-kit integration).
+  - slot: 56
+    name: bp-openova-flow-server
+    depends_on: [bp-cilium, bp-cert-manager]
+    wave: present
+  - slot: 57
+    name: bp-openova-flow-emitter
+    depends_on: [bp-flux]
+    wave: present
+
   # ---- Slot 80 — bp-newapi multi-tenant LLM marketplace gateway. Issue #799.
   # Sequenced past the W2.K4 numbering plan (slots 36-48) so it never
   # collides with the AI-runtime / observability / livekit cohort. The

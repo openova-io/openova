@@ -1,0 +1,35 @@
+apiVersion: v2
+name: bp-openova-flow-server
+# Catalyst-authored umbrella with no upstream Helm chart dependency —
+# ships only the in-repo openova-flow-server Deployment+Service.
+# Opt out of the hollow-chart guard per docs/BLUEPRINT-AUTHORING.md §11.1.
+annotations:
+  catalyst.openova.io/no-upstream: "true"
+version: 0.1.0
+appVersion: "0.1.0"
+description: |
+  Catalyst Blueprint chart for the openova-flow-server — the
+  stateless HTTP+SSE event router that backs OpenovaFlow. Holds an
+  in-memory ring buffer of FlowMessage envelopes per flowId; emitters
+  POST events, consumers GET the snapshot or subscribe to the SSE
+  stream.
+
+  Per docs/INVIOLABLE-PRINCIPLES.md #1 (target-state) the chart ships
+  the real workload, not a stub. Per #4 (never hardcode) every
+  operational knob (listen port, ring capacity, image tag, replicas,
+  HTTPRoute hostname) flows through values.yaml.
+
+  Per MIRROR-EVERYTHING the image reference goes through the
+  mothership Harbor proxy at harbor.openova.io/proxy-ghcr/... — never
+  direct ghcr.io references.
+
+  Wired into the bootstrap-kit at slot 56 on the PRIMARY cluster
+  only; cross-cluster emitters reach this server's Service via the
+  Cilium Gateway HTTPRoute (public HTTPS — no NetBird required for v1).
+keywords: [catalyst, blueprint, openova-flow, observability]
+home: https://docs.openova.io/openova-flow
+sources:
+  - https://github.com/openova-io/openova/tree/main/products/openova-flow/server
+maintainers:
+  - name: openova-platform
+    email: catalyst@openova.io
