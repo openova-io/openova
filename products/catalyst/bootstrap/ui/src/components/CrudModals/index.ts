@@ -37,6 +37,9 @@ export type { DeleteCascadeConfirmProps } from './DeleteCascadeConfirm'
 export { WipeDeploymentModal } from './WipeDeploymentModal'
 export type { WipeDeploymentModalProps, WipeReport } from './WipeDeploymentModal'
 
+export { DeleteDeploymentModal } from './DeleteDeploymentModal'
+export type { DeleteDeploymentModalProps, DeleteMode } from './DeleteDeploymentModal'
+
 /* ── #349 — Update / Delete on every resource type ───────────────── */
 
 export { EditRegionModal } from './EditRegionModal'

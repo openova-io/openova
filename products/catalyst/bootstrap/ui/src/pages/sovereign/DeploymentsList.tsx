@@ -8,21 +8,37 @@
  *     one historical row).
  *   - /sovereign/deployments  (this route).
  *
- * The page is intentionally minimal — a single table with the columns
- * the operator needs to reopen a previous run (id, FQDN, status, dates,
- * error preview). Each row links to /sovereign/provision/<id> which
- * already renders the canonical Sovereign-Admin shell for both live
- * and terminated deployments (issue #689 reuses the same surface).
+ * Issue #178 adds two operator features:
  *
- * No filters, no search, no per-row actions: anything beyond
- * "go look at this deployment" belongs on the deployment page itself.
+ *   - Sortable columns: click any column header to sort the table by
+ *     that field. Second click reverses the direction. The default
+ *     sort is "Started DESC" so the newest deployment appears at the
+ *     top. Sort is purely client-side (the list is small enough that
+ *     adding ?sort=&order= query params would just add round-trip cost
+ *     without operator benefit).
+ *
+ *   - Per-row Delete with a two-mode confirmation modal:
+ *       1. Delete record only — drops the catalyst-api row but leaves
+ *          the Hetzner Sovereign running.
+ *       2. Delete record AND wipe Sovereign — chains POST /wipe (the
+ *          existing destructive purge) followed by an implicit record
+ *          delete on the wipe handler's way out.
+ *     Destructive mode requires typing the FQDN to confirm (same
+ *     safety pattern WipeDeploymentModal uses).
+ *
+ * Each row's FQDN cell still links to /sovereign/provision/<id> which
+ * renders the canonical Sovereign-Admin shell for both live and
+ * terminated deployments (issue #689 reuses the same surface).
  */
 
+import { useMemo, useState } from 'react'
 import { Link } from '@tanstack/react-router'
+import { useQueryClient } from '@tanstack/react-query'
 import { useSession } from '@/shared/lib/useSession'
 import { useInflightDeployment, INFLIGHT_STATUSES } from '@/shared/lib/useInflightDeployment'
 import type { DeploymentListEntry } from '@/shared/lib/useInflightDeployment'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
+import { DeleteDeploymentModal } from '@/components/CrudModals'
 
 function formatDate(iso?: string): string {
   if (!iso) return '—'
@@ -37,12 +53,105 @@ function statusVariant(status: string): 'live' | 'done' | 'failed' {
   return 'done'
 }
 
+type SortKey =
+  | 'sovereignFQDN'
+  | 'status'
+  | 'startedAt'
+  | 'finishedAt'
+  | 'region'
+type SortOrder = 'asc' | 'desc'
+
+const SORT_LABELS: Record<SortKey, string> = {
+  sovereignFQDN: 'FQDN',
+  status: 'Status',
+  startedAt: 'Started',
+  finishedAt: 'Finished',
+  region: 'Region',
+}
+
+/**
+ * Comparator factory — empty / undefined sort lowest in ASC.
+ * Dates are parsed once per key, strings compared case-insensitively.
+ */
+function makeComparator(key: SortKey, order: SortOrder) {
+  const dir = order === 'asc' ? 1 : -1
+  return (a: DeploymentListEntry, b: DeploymentListEntry): number => {
+    const av = a[key]
+    const bv = b[key]
+    // Treat undefined / empty as "lowest" — they pile up at the bottom
+    // in ASC and the top in DESC, which matches operator intuition
+    // ("show me rows with real values first").
+    if (!av && !bv) return 0
+    if (!av) return 1
+    if (!bv) return -1
+    if (key === 'startedAt' || key === 'finishedAt') {
+      const ta = Date.parse(av)
+      const tb = Date.parse(bv)
+      if (Number.isNaN(ta) && Number.isNaN(tb)) return 0
+      if (Number.isNaN(ta)) return 1
+      if (Number.isNaN(tb)) return -1
+      return (ta - tb) * dir
+    }
+    return av.toString().toLowerCase().localeCompare(bv.toString().toLowerCase()) * dir
+  }
+}
+
+interface SortHeaderProps {
+  label: string
+  sortKey: SortKey
+  active: SortKey
+  order: SortOrder
+  onSort: (k: SortKey) => void
+}
+function SortHeader({ label, sortKey, active, order, onSort }: SortHeaderProps) {
+  const isActive = active === sortKey
+  const arrow = isActive ? (order === 'asc' ? ' ▲' : ' ▼') : ''
+  return (
+    <th
+      data-testid={`deployments-list-sort-${sortKey}`}
+      data-sort-active={isActive ? 'true' : 'false'}
+      data-sort-order={isActive ? order : ''}
+      onClick={() => onSort(sortKey)}
+      style={{
+        padding: '8px 12px',
+        borderBottom: '1px solid var(--wiz-border)',
+        cursor: 'pointer',
+        userSelect: 'none',
+      }}
+    >
+      {label}
+      <span aria-hidden style={{ opacity: isActive ? 1 : 0.3 }}>{arrow || ' ↕'}</span>
+    </th>
+  )
+}
+
 export function DeploymentsList() {
   const session = useSession()
+  const queryClient = useQueryClient()
   const { all, loading, isError } = useInflightDeployment({
     ownerEmail: session.email,
     enabled: !session.loading,
   })
+
+  const [sortKey, setSortKey] = useState<SortKey>('startedAt')
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
+  const [deleteTarget, setDeleteTarget] = useState<DeploymentListEntry | null>(null)
+
+  const sorted = useMemo(() => {
+    const copy = [...all]
+    copy.sort(makeComparator(sortKey, sortOrder))
+    return copy
+  }, [all, sortKey, sortOrder])
+
+  function onSort(key: SortKey) {
+    if (key === sortKey) {
+      setSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortKey(key)
+      // Default: dates DESC (newest-first), strings ASC.
+      setSortOrder(key === 'startedAt' || key === 'finishedAt' ? 'desc' : 'asc')
+    }
+  }
 
   if (session.loading || loading) {
     return (
@@ -95,7 +204,7 @@ export function DeploymentsList() {
         </Link>
       </header>
 
-      {all.length === 0 ? (
+      {sorted.length === 0 ? (
         <p data-testid="deployments-list-empty">
           You don&rsquo;t have any deployments yet.{' '}
           <Link to="/wizard">Start the wizard</Link> to provision your first
@@ -104,6 +213,8 @@ export function DeploymentsList() {
       ) : (
         <table
           data-testid="deployments-list-table"
+          data-sort-key={sortKey}
+          data-sort-order={sortOrder}
           style={{
             width: '100%',
             borderCollapse: 'collapse',
@@ -112,15 +223,16 @@ export function DeploymentsList() {
         >
           <thead>
             <tr style={{ textAlign: 'left', color: 'var(--wiz-text-sub)' }}>
-              <th style={{ padding: '8px 12px', borderBottom: '1px solid var(--wiz-border)' }}>FQDN</th>
-              <th style={{ padding: '8px 12px', borderBottom: '1px solid var(--wiz-border)' }}>Status</th>
-              <th style={{ padding: '8px 12px', borderBottom: '1px solid var(--wiz-border)' }}>Started</th>
-              <th style={{ padding: '8px 12px', borderBottom: '1px solid var(--wiz-border)' }}>Finished</th>
-              <th style={{ padding: '8px 12px', borderBottom: '1px solid var(--wiz-border)' }}>Region</th>
+              <SortHeader label={SORT_LABELS.sovereignFQDN} sortKey="sovereignFQDN" active={sortKey} order={sortOrder} onSort={onSort} />
+              <SortHeader label={SORT_LABELS.status} sortKey="status" active={sortKey} order={sortOrder} onSort={onSort} />
+              <SortHeader label={SORT_LABELS.startedAt} sortKey="startedAt" active={sortKey} order={sortOrder} onSort={onSort} />
+              <SortHeader label={SORT_LABELS.finishedAt} sortKey="finishedAt" active={sortKey} order={sortOrder} onSort={onSort} />
+              <SortHeader label={SORT_LABELS.region} sortKey="region" active={sortKey} order={sortOrder} onSort={onSort} />
+              <th style={{ padding: '8px 12px', borderBottom: '1px solid var(--wiz-border)', width: 90 }}>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {all.map((d: DeploymentListEntry) => {
+            {sorted.map((d: DeploymentListEntry) => {
               const variant = statusVariant(d.status)
               const colour =
                 variant === 'live' ? '#38bdf8' : variant === 'failed' ? '#f87171' : '#10b981'
@@ -128,7 +240,6 @@ export function DeploymentsList() {
                 <tr
                   key={d.id}
                   data-testid={`deployments-list-row-${d.id}`}
-                  style={{ cursor: 'pointer' }}
                 >
                   <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--wiz-border)' }}>
                     <Link
@@ -168,12 +279,55 @@ export function DeploymentsList() {
                   <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--wiz-border)' }}>
                     {d.region || '—'}
                   </td>
+                  <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--wiz-border)' }}>
+                    <button
+                      type="button"
+                      data-testid={`deployments-list-delete-${d.id}`}
+                      onClick={() => setDeleteTarget(d)}
+                      // In-flight deployments can't be deleted (the API
+                      // refuses 409); reflect that in the button.
+                      disabled={INFLIGHT_STATUSES.has(d.status)}
+                      title={
+                        INFLIGHT_STATUSES.has(d.status)
+                          ? 'Wait for terminal state before deleting'
+                          : 'Delete deployment'
+                      }
+                      style={{
+                        padding: '4px 10px',
+                        fontSize: 11,
+                        fontWeight: 600,
+                        borderRadius: 5,
+                        border: '1px solid rgba(248,113,113,0.4)',
+                        background: 'rgba(248,113,113,0.1)',
+                        color: '#f87171',
+                        cursor: INFLIGHT_STATUSES.has(d.status) ? 'not-allowed' : 'pointer',
+                        opacity: INFLIGHT_STATUSES.has(d.status) ? 0.5 : 1,
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </td>
                 </tr>
               )
             })}
           </tbody>
         </table>
       )}
+
+      {deleteTarget ? (
+        <DeleteDeploymentModal
+          open
+          deploymentId={deleteTarget.id}
+          sovereignFQDN={deleteTarget.sovereignFQDN ?? null}
+          onClose={() => setDeleteTarget(null)}
+          onDeleted={() => {
+            setDeleteTarget(null)
+            // Invalidate every cached "deployments list" query so the
+            // table re-fetches without the just-deleted row.
+            queryClient.invalidateQueries({ queryKey: ['catalyst', 'deployments', 'list'] })
+          }}
+        />
+      ) : null}
     </div>
   )
 }
