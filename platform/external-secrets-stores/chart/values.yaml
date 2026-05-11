@@ -80,8 +80,16 @@ webhookGate:
   timeoutSeconds: 600
   # Poll interval. 2s gives ~30 attempts in the 60s budget.
   intervalSeconds: 2
-  # Hook image. bitnami/kubectl is the canonical chart-side tooling across
-  # Catalyst Blueprints (see platform/guacamole/chart/templates/recordings-pvc-migrate-hook.yaml).
-  # SHA-pinned tag per docs/INVIOLABLE-PRINCIPLES.md #4a.
-  image: bitnami/kubectl:1.30.4
+  # Hook image. bitnamilegacy/kubectl is the canonical chart-side tooling
+  # across Catalyst Blueprints (see platform/guacamole/chart/templates/
+  # recordings-pvc-migrate-hook.yaml). Versioned tag per
+  # docs/INVIOLABLE-PRINCIPLES.md #4a.
+  #
+  # 2026-05-11 (Fix #158): switched from docker.io/bitnami/kubectl:1.30.4
+  # because Bitnami's 2025-08 secure-images cutover deleted all
+  # versioned tags from docker.io/bitnami/kubectl (only :latest +
+  # sha256-named tags remain). bitnamilegacy is Bitnami's deprecation-
+  # fallback registry path; retains bash/sh (rancher/kubectl is
+  # distroless and would break the hook's bash-c shell script).
+  image: bitnamilegacy/kubectl:1.30.7
   imagePullPolicy: IfNotPresent

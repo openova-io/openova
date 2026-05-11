@@ -18,9 +18,15 @@ global:
   # kubectl container image used in XNodeActionClaim Jobs.
   # Repository and tag are separately configurable so post-handover per-Sovereign
   # overlays can point at a Harbor-cached copy without rebuilding this Blueprint.
+  #
+  # 2026-05-11 (Fix #158): switched from docker.io/bitnami/kubectl:1.31
+  # because Bitnami's 2025-08 secure-images cutover deleted all
+  # versioned tags from docker.io/bitnami/kubectl (only :latest +
+  # sha256-named tags remain). bitnamilegacy is Bitnami's deprecation-
+  # fallback registry path; retains bash/sh.
   kubectlImage:
-    repository: bitnami/kubectl
-    tag: "1.31"
+    repository: bitnamilegacy/kubectl
+    tag: "1.31.4"
 
 catalystBlueprint:
   upstream: null

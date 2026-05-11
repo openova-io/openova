@@ -1,6 +1,11 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
-version: 0.1.27
+# 0.1.28 (Fix #158, 2026-05-11): values.yaml comment cleanup — chart
+# already migrated off bitnami/kubectl on 0.1.10 (alpine/k8s for kubectl,
+# alpine for chroot-pivot). Comment text now reflects the platform-wide
+# Fix #158 migration to bitnamilegacy/kubectl across other Blueprints.
+# No functional change in this Blueprint.
+version: 0.1.28
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

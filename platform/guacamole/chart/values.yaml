@@ -98,17 +98,19 @@ guacamole:
     # (operator should snapshot first then re-enable for the upgrade).
     allowMigration: true
     # Image used by the migration hook. The canonical kubectl image
-    # surface across OpenOva Sovereigns is `docker.io/bitnamilegacy/
-    # kubectl:1.29.3` (the same one bp-keycloak's realm-config-cli
-    # post-deploy Job pulls); Sovereigns route Docker Hub through the
-    # in-cluster Harbor proxy at `harbor.openova.io` which currently
-    # 401s on bitnami/kubectl:1.30.4 (live ImagePullBackOff observed on
-    # omantel iter-11). Pinning to the legacy registry path gets us a
-    # cache-resident image. Operator overrides for non-Hetzner Sovereigns
-    # by re-mirroring through their own registry (per
-    # docs/INVIOLABLE-PRINCIPLES.md #4a — every image traceable to a
-    # known-good SHA).
-    migrationImage: docker.io/bitnamilegacy/kubectl:1.29.3
+    # surface across OpenOva Sovereigns is docker.io/bitnamilegacy/kubectl
+    # (the same one bp-keycloak's realm-config-cli post-deploy Job
+    # pulls). Bitnami's 2025-08 secure-images cutover deleted all
+    # versioned tags from docker.io/bitnami/kubectl (only :latest +
+    # sha256-named tags remain) — bitnamilegacy is the deprecation-
+    # fallback path which retains versioned tags AND bash/sh
+    # (rancher/kubectl is distroless, would break inline shell). Operator
+    # overrides for non-Hetzner Sovereigns by re-mirroring through
+    # their own registry (per docs/INVIOLABLE-PRINCIPLES.md #4a — every
+    # image traceable to a known-good SHA).
+    # Fix #158 (2026-05-11): bumped 1.29.3 -> 1.30.7 to align with
+    # k3s 1.30 server version on Hetzner Sovereigns.
+    migrationImage: docker.io/bitnamilegacy/kubectl:1.30.7
   # ── Keycloak OIDC ──────────────────────────────────────────────
   oidc:
     # Issuer URL — render in per-Sovereign overlay as

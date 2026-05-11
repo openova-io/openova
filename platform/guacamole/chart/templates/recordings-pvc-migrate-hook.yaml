@@ -90,11 +90,17 @@ spec:
       {{- end }}
       containers:
         - name: migrate
-          # bitnami/kubectl is the canonical chart-side migration tool
+          # bitnamilegacy/kubectl is the canonical chart-side migration tool
           # across Catalyst Blueprints (cf. bp-keycloak realm-config
-          # post-deploy Job pattern). SHA-pinned per
+          # post-deploy Job pattern). Versioned tag per
           # docs/INVIOLABLE-PRINCIPLES.md #4a.
-          image: {{ .Values.guacamole.recordings.migrationImage | default "bitnami/kubectl:1.30.4" | quote }}
+          #
+          # 2026-05-11 (Fix #158): the fallback default tracks the
+          # values.yaml convention — Bitnami deleted versioned tags
+          # from docker.io/bitnami/kubectl 2025-08; bitnamilegacy is the
+          # deprecation-fallback path. Operator override via
+          # `.Values.guacamole.recordings.migrationImage`.
+          image: {{ .Values.guacamole.recordings.migrationImage | default "bitnamilegacy/kubectl:1.30.7" | quote }}
           imagePullPolicy: IfNotPresent
           securityContext:
             runAsNonRoot: true
