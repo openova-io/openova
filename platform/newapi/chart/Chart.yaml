@@ -126,7 +126,7 @@ name: bp-newapi
 # webhook-readiness-job hook image switched from curlimages/curl:8.10.1
 # to harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1 per
 # CLAUDE.md inviolable rule.
-version: 1.4.6
+version: 1.4.7
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
