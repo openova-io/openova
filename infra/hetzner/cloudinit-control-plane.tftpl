@@ -809,6 +809,41 @@ write_files:
   # per-FQDN copy that prior provisioning depended on becomes a no-op:
   # one shared tree serves every Sovereign, with the Sovereign's FQDN
   # injected by Flux on the cluster instead of by sed in the repo.
+  #
+  # ── Per-region Kustomization path (slice G3-flux) ────────────────────
+  #
+  # Multi-region Sovereigns (var.regions[] with len > 1) provision N
+  # independent k3s clusters in N Hetzner regions. Before this slice the
+  # primary's AND every secondary's Flux Kustomization rendered the
+  # SAME spec.path (`./clusters/_template/bootstrap-kit`), so the only
+  # thing differentiating each region's reconcile loop was which k3s
+  # API server happened to receive the apply. That left no architectural
+  # surface for region-specific overrides (different chart versions per
+  # region, different bp-* slot lists, region-pinned worker shapes…).
+  # Founder caught this on prov #33 (multi-region fsn1+hel1, 2026-05-11):
+  # /sovereign/provision/<id>/jobs/install-trivy showed ONE bubble — the
+  # UI fan-out assumes one bp-trivy install bubble per region.
+  #
+  # Slice G3-flux refines path separation. The `SOVEREIGN_REGION_KEY`
+  # envsubst variable below carries each region's stable identifier
+  # ("fsn1" on the primary, "hel1-1" / "ash-2" / … on secondaries —
+  # matches the local.secondary_regions map key in main.tf). Manifests
+  # in clusters/_template/bootstrap-kit/*.yaml that need per-region
+  # labels / namespaces / Job names consume it via
+  # `$${SOVEREIGN_REGION_KEY}` (the $$ escape avoids tftpl interp).
+  #
+  # The Kustomization spec.path STILL points at the shared `_template/`
+  # tree pre-cutover — that's the path that exists in the upstream
+  # openova-io public repo every Sovereign pulls Phase-1 from. Slice
+  # G3-flux's per-Sovereign per-region subtree path
+  # (`./clusters/<sovereign_fqdn>/<region_key>/bootstrap-kit`) is
+  # materialised by self-sovereign-cutover step-01 gitea-mirror at
+  # cutover time — see 01-gitea-mirror-job.yaml. After cutover step-05
+  # (flux-gitrepository-patch) pivots both the GitRepository URL AND
+  # this Kustomization's spec.path onto the per-region subtree. Pre-
+  # cutover the SOVEREIGN_REGION_KEY substitute is the entire signal a
+  # region's bp-* manifests have to differentiate themselves; post-
+  # cutover the per-region git path adds physical isolation.
   - path: /var/lib/catalyst/flux-bootstrap.yaml
     permissions: '0644'
     content: |
@@ -884,6 +919,30 @@ write_files:
         postBuild:
           substitute:
             SOVEREIGN_FQDN: ${sovereign_fqdn}
+            # Per-region Kustomization marker (slice G3-flux). Carries
+            # this cluster's stable region key — "fsn1" on the primary
+            # (matches var.region) or "<cloudRegion>-<index>" on a
+            # secondary (matches the local.secondary_regions map key in
+            # main.tf, e.g. "hel1-1", "ash-2"). Manifests in
+            # clusters/_template/bootstrap-kit/*.yaml that need per-
+            # region labels / namespaces / Job names consume this via
+            # $${SOVEREIGN_REGION_KEY}. Single-region Sovereigns get
+            # a single non-empty key (no special-casing); secondary
+            # CPs render with their own key from secondary_region_cloud_init
+            # in main.tf locals. Per docs/INVIOLABLE-PRINCIPLES.md #4
+            # the value flows from runtime — never hardcoded in the
+            # template.
+            SOVEREIGN_REGION_KEY: ${sovereign_region_key}
+            # Per-region Sovereign topology — CSV list of every region
+            # key in the Sovereign's regions[] body (slice G3-flux).
+            # Only consumed by the bp-self-sovereign-cutover HelmRelease
+            # values block (06a-bp-self-sovereign-cutover.yaml's
+            # `sovereign.regionsCSV`) — gitea-mirror reads it at cutover
+            # time and materialises one bootstrap-kit subtree per entry.
+            # Format = "fsn1" (single region) or "fsn1,hel1-1,ash-2"
+            # (multi-region). Threaded from tofu var.region (primary) +
+            # local.secondary_regions keys (joined comma-no-space).
+            SOVEREIGN_REGION_KEYS_CSV: "${sovereign_region_keys_csv}"
             # SOVEREIGN_LB_IP — Hetzner load balancer's public IPv4 (issue
             # #900). Threaded into bp-catalyst-platform's
             # `global.sovereignLBIP` so catalyst-api can pre-register glue
@@ -987,6 +1046,12 @@ write_files:
         postBuild:
           substitute:
             SOVEREIGN_FQDN: ${sovereign_fqdn}
+            # Per-region Kustomization marker (slice G3-flux) — see the
+            # bootstrap-kit Kustomization's substitute block above for
+            # the full rationale. Mirrored here so sovereign-tls
+            # manifests that need per-region labels / cert names
+            # consume the same source of truth.
+            SOVEREIGN_REGION_KEY: ${sovereign_region_key}
             # SOVEREIGN_LB_IP — Hetzner load balancer's public IPv4 (issue
             # #900). Threaded into bp-catalyst-platform's
             # `global.sovereignLBIP` so catalyst-api can pre-register glue
@@ -1031,6 +1096,11 @@ write_files:
         postBuild:
           substitute:
             SOVEREIGN_FQDN: ${sovereign_fqdn}
+            # Per-region Kustomization marker (slice G3-flux) — see the
+            # bootstrap-kit Kustomization's substitute block above for
+            # the full rationale. Mirrored here so infrastructure-config
+            # manifests stay consistent with their per-region peers.
+            SOVEREIGN_REGION_KEY: ${sovereign_region_key}
             # SOVEREIGN_LB_IP — Hetzner load balancer's public IPv4 (issue
             # #900). Threaded into bp-catalyst-platform's
             # `global.sovereignLBIP` so catalyst-api can pre-register glue

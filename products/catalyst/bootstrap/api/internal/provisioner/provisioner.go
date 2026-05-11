@@ -1273,7 +1273,7 @@ func writeTfvars(deployDir string, req Request) error {
 		// `tofu plan`. Live failure on otech86 (DID 103c52d08510006f,
 		// 2026-05-04 11:12:43Z). The variables.tf default = [] is what
 		// the validator expects; emit that shape explicitly.
-		"regions": coalesceRegions(req.Regions),
+		"regions": coalesceRegions(req),
 
 		// SSH key — module creates an hcloud_ssh_key from this and attaches
 		// to all servers. We never generate keys here; sovereign-admin
@@ -1691,18 +1691,56 @@ func defaultRegistrarKindFromEnv() string {
 	return defaultRegistrarKind
 }
 
-// coalesceRegions normalises a nil RegionSpec slice to an empty slice so
-// JSON marshalling emits `[]` instead of `null`. The OpenTofu module's
-// `variable "regions"` validator runs `for r in var.regions` which fails
-// on null with "Error: Iteration over null value" but accepts an empty
-// list (the variables.tf default). Live failure on otech86 (DID
-// 103c52d08510006f, 2026-05-04 11:12:43Z) when the autopilot zero-touch
-// cycle launched without any per-region overrides.
-func coalesceRegions(rs []RegionSpec) []RegionSpec {
-	if rs == nil {
-		return []RegionSpec{}
+// coalesceRegions returns the request's regions[] slice with a guarantee
+// of at least one entry: when the request supplies a non-empty list it
+// is returned verbatim, otherwise a single entry is synthesised from
+// the legacy singular fields (req.Region / ControlPlaneSize / WorkerSize /
+// WorkerCount). This makes the tofu side a single-shape consumer —
+// `var.regions` is always non-empty, so every for_each + iteration in
+// main.tf can drop conditional fallbacks to the legacy singular fields.
+//
+// Slice G3-flux refactor: previously this function only normalised nil →
+// []. That left tofu with a "len(regions) ∈ {0, ≥1}" branch every time
+// the legacy single-region request shape arrived, which forced
+// duplicate logic in main.tf and the cloud-init templates. The
+// architectural shape the wizard intends is "one entry per topology
+// slot, ALWAYS" — the legacy singular fields exist only for back-compat
+// with older wizard payloads + handler/load_test.go fixtures, and the
+// synthesis happens here at the catalyst-api boundary so tofu only ever
+// sees the canonical multi-region shape.
+//
+// Pre-G3-flux failure mode (now removed): the empty-slice contract used
+// to live in tofu — variables.tf `default = []`, validation `for r in
+// var.regions` — and main.tf had to read singular var.region /
+// var.control_plane_size whenever regions[] was empty. That created two
+// parallel render paths (singular + per-region), each maintained in
+// step with the other. The canonical legacy failure was otech86 (DID
+// 103c52d08510006f, 2026-05-04 11:12:43Z) where Go's nil slice
+// marshalled as JSON null and broke the validator; that fix shipped
+// the nil→[] guard. Slice G3-flux closes the remaining divergence by
+// always producing the multi-region shape.
+//
+// `req` is passed by value because writeTfvars's parameter is already
+// `Request` by value — no aliasing concern.
+func coalesceRegions(req Request) []RegionSpec {
+	if len(req.Regions) > 0 {
+		return req.Regions
 	}
-	return rs
+	// Synthesise a single entry from the singular fields. Validate()
+	// requires req.Region to be non-empty before writeTfvars runs, so
+	// the synthesised entry always has a non-empty cloudRegion. The
+	// ControlPlaneSize / WorkerSize may legitimately be empty — that's
+	// the "default-cost-optimised" path documented in the writeTfvars
+	// comment above (variables.tf carries the SKU defaults). Tofu's
+	// `var.regions` validation accepts empty SKU strings; the per-
+	// region for_each in main.tf reads them via local lookup.
+	return []RegionSpec{{
+		Provider:         "hetzner",
+		CloudRegion:      req.Region,
+		ControlPlaneSize: req.ControlPlaneSize,
+		WorkerSize:       req.WorkerSize,
+		WorkerCount:      req.WorkerCount,
+	}}
 }
 
 // coalesceParentDomains is the parent-domain analogue of coalesceRegions.

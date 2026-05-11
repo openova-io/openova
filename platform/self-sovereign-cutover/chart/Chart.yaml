@@ -14,7 +14,17 @@ name: bp-self-sovereign-cutover
 # pre-cutover Jobs can reach the explicit URL just fine. Operator
 # override via .Values.global.imageRegistry remains intact for true
 # air-gap or alternate mirror deployments.
-version: 0.1.29
+#
+# 0.1.30 (slice G3-flux, 2026-05-11): per-region Flux Kustomization
+# git paths. Step-01 gitea-mirror now reads sovereign.regionsCSV and
+# materialises one bootstrap-kit subtree per region under
+# clusters/${SOVEREIGN_FQDN}/<region_key>/ + writes a top-level
+# kustomization.yaml index. Step-05 flux-gitrepository-patch reads
+# sovereign.regionKey and pivots the local cluster's bootstrap-kit
+# Flux Kustomization spec.path to its per-region subtree post-cutover.
+# Empty regionKey is a no-op (back-compat with pre-G3-flux Sovereigns
+# already running on `./clusters/_template/bootstrap-kit`).
+version: 0.1.30
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

@@ -162,6 +162,47 @@ func TestCloudInit_PostBuildSubstituteFQDN(t *testing.T) {
 	}
 }
 
+// TestCloudInit_PostBuildSubstituteRegionKey proves every Flux
+// Kustomization renders a SOVEREIGN_REGION_KEY postBuild.substitute.
+// Slice G3-flux uses this token to mark per-region cluster manifests
+// (labels, namespaces, Job names) so a Sovereign provisioned across
+// fsn1 + hel1 has each region's bp-* charts independently identifiable.
+// The pre-G3-flux cloud-init was missing this substitute, so secondary
+// CPs reconciled byte-identical manifests and the UI's per-region
+// fan-out (e.g. /sovereign/provision/<id>/jobs/install-trivy) saw one
+// install bubble instead of N.
+func TestCloudInit_PostBuildSubstituteRegionKey(t *testing.T) {
+	tpl := readCloudInit(t)
+
+	const want = "SOVEREIGN_REGION_KEY: ${sovereign_region_key}"
+	if !strings.Contains(tpl, want) {
+		t.Errorf("Flux Kustomization postBuild.substitute must include %q so each region's manifests can carry distinct labels/names (slice G3-flux)", want)
+	}
+	// Every Kustomization needs the substitute (same partial-fix
+	// regression class as SOVEREIGN_FQDN — three Kustomizations
+	// in the cloud-init: bootstrap-kit, sovereign-tls,
+	// infrastructure-config). Expect ≥3 occurrences.
+	count := strings.Count(tpl, want)
+	if count < 3 {
+		t.Errorf("expected SOVEREIGN_REGION_KEY substitute on every Kustomization (got %d occurrences, want ≥3 — slice G3-flux partial-fix regression)", count)
+	}
+}
+
+// TestCloudInit_PostBuildSubstituteRegionKeysCSV proves the
+// bootstrap-kit Kustomization carries the SOVEREIGN_REGION_KEYS_CSV
+// substitute. The cutover step-01 gitea-mirror Job reads this list
+// at cutover time and materialises one bootstrap-kit subtree per
+// entry under clusters/<sovereign_fqdn>/<region_key>/ — without it
+// only a single region's subtree would land in local Gitea.
+func TestCloudInit_PostBuildSubstituteRegionKeysCSV(t *testing.T) {
+	tpl := readCloudInit(t)
+
+	const want = "SOVEREIGN_REGION_KEYS_CSV: \"${sovereign_region_keys_csv}\""
+	if !strings.Contains(tpl, want) {
+		t.Errorf("Flux Kustomization postBuild.substitute must include %q so cutover step-01 gitea-mirror materialises one bootstrap-kit subtree per region (slice G3-flux)", want)
+	}
+}
+
 // TestCloudInit_NoPerFQDNPathReferences is the catch-all regression
 // guard: NO substring of the form `clusters/${sovereign_fqdn}`
 // appears as an actual Flux resource path/ignore selector anywhere

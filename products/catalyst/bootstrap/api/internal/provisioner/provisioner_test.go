@@ -464,14 +464,23 @@ func TestWriteTfvars_OmitsEmptySingularSizes(t *testing.T) {
 	}
 }
 
-// TestWriteTfvars_EmitsRegionsAsEmptyArrayNotNull proves writeTfvars
-// emits an empty JSON array for `regions` when the request has no
-// per-region overrides — never JSON null. The OpenTofu module's
-// variables.tf has a validation block (`for r in var.regions`) that
-// fails on null with "Error: Iteration over null value" but accepts
-// an empty list. Live failure on otech86 (DID 103c52d08510006f,
-// 2026-05-04 11:12:43Z).
-func TestWriteTfvars_EmitsRegionsAsEmptyArrayNotNull(t *testing.T) {
+// TestWriteTfvars_RegionsAlwaysNonEmpty proves writeTfvars emits a
+// non-empty JSON array for `regions` — never JSON null, never `[]`.
+//
+// Slice G3-flux refactor: the OpenTofu module is now a single-shape
+// consumer ("len(var.regions) ≥ 1, always"). writeTfvars closes the
+// gap at the catalyst-api boundary by synthesising a single entry
+// from the legacy singular fields (Region / ControlPlaneSize /
+// WorkerSize / WorkerCount) whenever the request body doesn't carry
+// per-region overrides. This eliminates the "regions empty?" branch
+// from main.tf, cloud-init, and downstream chart wiring.
+//
+// The pre-G3-flux behaviour (regions: []) traced back to otech86 (DID
+// 103c52d08510006f, 2026-05-04 11:12:43Z) where Go's nil slice
+// marshalled as JSON null and broke OpenTofu's `for r in var.regions`
+// validator. That fix shipped the nil→[] guard. This test now guards
+// the stronger contract: empty becomes a synthesised len=1 slice.
+func TestWriteTfvars_RegionsAlwaysNonEmpty(t *testing.T) {
 	dir, err := os.MkdirTemp("", "writeTfvars-*")
 	if err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -485,8 +494,10 @@ func TestWriteTfvars_EmitsRegionsAsEmptyArrayNotNull(t *testing.T) {
 		HetznerToken:     "tok",
 		HetznerProjectID: "p1",
 		Region:           "fsn1",
+		ControlPlaneSize: "cpx21",
+		WorkerSize:       "cpx31",
 		WorkerCount:      2,
-		// Regions intentionally nil — the legacy singular path.
+		// Regions intentionally nil — exercises the synth path.
 	}
 	if err := writeTfvars(dir, req); err != nil {
 		t.Fatalf("writeTfvars: %v", err)
@@ -495,9 +506,8 @@ func TestWriteTfvars_EmitsRegionsAsEmptyArrayNotNull(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	// Must contain `"regions": []` — never `"regions": null`.
 	if strings.Contains(string(raw), `"regions": null`) {
-		t.Fatalf("regions must serialise as [] (not null) so OpenTofu's `for r in var.regions` validator accepts the input. Got:\n%s", string(raw))
+		t.Fatalf("regions must serialise as a non-null JSON array. Got:\n%s", string(raw))
 	}
 	var parsed map[string]any
 	if err := json.Unmarshal(raw, &parsed); err != nil {
@@ -507,8 +517,67 @@ func TestWriteTfvars_EmitsRegionsAsEmptyArrayNotNull(t *testing.T) {
 	if !ok {
 		t.Fatalf("regions must be a JSON array, got %T (%v)", parsed["regions"], parsed["regions"])
 	}
-	if len(regions) != 0 {
-		t.Fatalf("regions must be empty when request has none, got %d entries", len(regions))
+	if len(regions) != 1 {
+		t.Fatalf("legacy single-region body must synthesise exactly one regions[] entry, got %d", len(regions))
+	}
+	entry, ok := regions[0].(map[string]any)
+	if !ok {
+		t.Fatalf("regions[0] must be an object, got %T (%v)", regions[0], regions[0])
+	}
+	if entry["cloudRegion"] != "fsn1" {
+		t.Fatalf("synth regions[0].cloudRegion = %v, want fsn1", entry["cloudRegion"])
+	}
+	if entry["provider"] != "hetzner" {
+		t.Fatalf("synth regions[0].provider = %v, want hetzner (legacy singular path is hetzner-only)", entry["provider"])
+	}
+	if entry["controlPlaneSize"] != "cpx21" {
+		t.Fatalf("synth regions[0].controlPlaneSize = %v, want cpx21 (from req.ControlPlaneSize)", entry["controlPlaneSize"])
+	}
+	if entry["workerSize"] != "cpx31" {
+		t.Fatalf("synth regions[0].workerSize = %v, want cpx31", entry["workerSize"])
+	}
+	wc, _ := entry["workerCount"].(float64)
+	if int(wc) != 2 {
+		t.Fatalf("synth regions[0].workerCount = %v, want 2", entry["workerCount"])
+	}
+}
+
+// TestWriteTfvars_MultiRegionBodyPreserved proves writeTfvars preserves
+// an operator-supplied regions[] slice unchanged — synthesis only
+// triggers on empty input.
+func TestWriteTfvars_MultiRegionBodyPreserved(t *testing.T) {
+	dir, err := os.MkdirTemp("", "writeTfvars-mr-*")
+	if err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	defer os.RemoveAll(dir)
+
+	req := Request{
+		SovereignFQDN:    "otech.omani.works",
+		OrgName:          "Acme",
+		OrgEmail:         "ops@acme.io",
+		HetznerToken:     "tok",
+		HetznerProjectID: "p1",
+		Region:           "fsn1",
+		Regions: []RegionSpec{
+			{Provider: "hetzner", CloudRegion: "fsn1", ControlPlaneSize: "cpx32", WorkerSize: "cpx41", WorkerCount: 2},
+			{Provider: "hetzner", CloudRegion: "hel1", ControlPlaneSize: "cpx32", WorkerSize: "cpx41", WorkerCount: 1},
+		},
+	}
+	if err := writeTfvars(dir, req); err != nil {
+		t.Fatalf("writeTfvars: %v", err)
+	}
+	raw, err := os.ReadFile(dir + "/tofu.auto.tfvars.json")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	regions, _ := parsed["regions"].([]any)
+	if len(regions) != 2 {
+		t.Fatalf("multi-region body must emit two entries verbatim, got %d", len(regions))
 	}
 }
 

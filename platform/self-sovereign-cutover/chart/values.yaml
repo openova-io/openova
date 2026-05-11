@@ -45,6 +45,29 @@ sovereign:
   giteaInternalURL: "http://gitea-http.gitea.svc.cluster.local:3000"
   # ↓ overlay supplies https://gitea.${SOVEREIGN_FQDN} (informational; jobs use internal URL).
   giteaPublicURL: "https://gitea.example.local"
+  # ── Per-region Flux Kustomization paths (slice G3-flux) ──────────────
+  # Comma-separated list of region keys the Sovereign was provisioned
+  # across. Primary region first ("fsn1"), secondary regions appended
+  # in local.secondary_regions iteration order ("hel1-1", "ash-2", …).
+  # Step-01 gitea-mirror materialises ONE bootstrap-kit subtree per
+  # entry at clusters/<sovereign.fqdn>/<region_key>/bootstrap-kit/ so
+  # each region's Flux Kustomization can target its own git path
+  # post-cutover. Default = "fsn1" keeps single-region Sovereigns on
+  # the same per-region layout (no special-casing); the overlay
+  # populates the real list via $${SOVEREIGN_REGION_KEYS_CSV} envsubst.
+  # CSV is the wire format because Flux postBuild.substitute is string-
+  # substitution (a YAML list literal cannot be reliably emitted from a
+  # substitute value); the Job parses CSV with shell IFS=,
+  regionsCSV: "fsn1"
+  # ── Per-cluster region key (slice G3-flux) ───────────────────────────
+  # THIS k3s's own region key — one entry from the regionsCSV list.
+  # Primary CP gets "fsn1" (= var.region in tofu); secondaries get
+  # their local.secondary_regions map key (e.g. "hel1-1"). Step-05
+  # flux-gitrepository-patch reads this to pivot the bootstrap-kit
+  # Kustomization spec.path post-cutover. Empty default lets `helm
+  # template` smoke-render cleanly in CI; runtime overlay supplies
+  # the real value via $${SOVEREIGN_REGION_KEY} envsubst.
+  regionKey: ""
 
 # Upstream openova-io read-only public clone — the source for cutover
 # step 01. Step-1 calls Gitea's /repos/migrate API with mirror=true so

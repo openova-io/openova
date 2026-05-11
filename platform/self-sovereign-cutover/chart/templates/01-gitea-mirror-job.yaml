@@ -51,6 +51,17 @@ data:
             value: {{ .Values.gitea.repo | quote }}
           - name: MIRROR_INTERVAL
             value: {{ .Values.upstream.mirrorInterval | quote }}
+          # Slice G3-flux — per-region Flux Kustomization paths.
+          # Comma-separated list of region keys ("fsn1" or
+          # "fsn1,hel1-1,ash-2"). The script materialises one
+          # bootstrap-kit subtree per entry under
+          # clusters/${SOVEREIGN_FQDN}/<region_key>/. SOVEREIGN_FQDN
+          # is the per-Sovereign git path root; sovereign.fqdn flows
+          # in from the bp-self-sovereign-cutover HelmRelease values.
+          - name: SOVEREIGN_FQDN
+            value: {{ .Values.sovereign.fqdn | quote }}
+          - name: SOVEREIGN_REGION_KEYS_CSV
+            value: {{ .Values.sovereign.regionsCSV | quote }}
           - name: GITEA_USERNAME
             valueFrom:
               secretKeyRef:
@@ -215,6 +226,116 @@ data:
             if printf '%s' "${repo_meta}" | grep -q '"mirror":false'; then
               echo "[gitea-mirror] verified: mirror=false on ${GITEA_ORG}/${GITEA_REPO} (writable for cutover step-06)"
             fi
+
+            # 5. Slice G3-flux — materialise per-region bootstrap-kit
+            #    subtrees so each cluster's Flux Kustomization can target
+            #    its own git path post-cutover.
+            #
+            #    Pre-cutover every cluster's Flux Kustomization renders
+            #    `./clusters/_template/bootstrap-kit` from the upstream
+            #    openova-io public repo (the per-Sovereign tree doesn't
+            #    exist upstream — see cloudinit-control-plane.tftpl). At
+            #    cutover step-05 the GitRepository URL flips to local
+            #    Gitea AND the Kustomization spec.path pivots to the per-
+            #    region subtree this step materialises here. The pre/post
+            #    cutover layouts agree on chart content (we just `cp -r`
+            #    _template into each per-region dir) — the only thing
+            #    that changes is the path Flux watches AND the per-region
+            #    SOVEREIGN_REGION_KEY envsubst marker each cluster's Flux
+            #    independently substitutes into its own subtree.
+            #
+            #    Layout after this block lands:
+            #      clusters/${SOVEREIGN_FQDN}/
+            #        kustomization.yaml         # top-level index
+            #        <region_key>/              # one per CSV entry
+            #          bootstrap-kit/
+            #            <every file copied from clusters/_template/bootstrap-kit/>
+            #
+            #    Empty SOVEREIGN_REGION_KEYS_CSV is a noop — keeps the
+            #    upgrade path open for a Sovereign provisioned before
+            #    slice G3-flux landed. SOVEREIGN_FQDN identifies the
+            #    per-Sovereign tree root.
+            if [ -z "${SOVEREIGN_REGION_KEYS_CSV}" ] || [ -z "${SOVEREIGN_FQDN}" ]; then
+              echo "[gitea-mirror] G3-flux: SOVEREIGN_REGION_KEYS_CSV or SOVEREIGN_FQDN empty, skipping per-region subtree materialisation"
+              echo "[gitea-mirror] step complete"
+              exit 0
+            fi
+            echo "[gitea-mirror] G3-flux: materialising per-region subtrees for ${SOVEREIGN_REGION_KEYS_CSV}"
+
+            # Fresh work-tree clone (NOT --bare) so we can edit files.
+            work2=$(mktemp -d)
+            cd "${work2}"
+            if ! git clone "${local_url}" worktree >/dev/null 2>&1; then
+              echo "[gitea-mirror] FATAL: G3-flux failed to clone local Gitea for per-region materialisation" >&2
+              exit 1
+            fi
+            cd worktree
+            git checkout "${UPSTREAM_BRANCH}" >/dev/null 2>&1 || true
+
+            template_dir="clusters/_template/bootstrap-kit"
+            if [ ! -d "${template_dir}" ]; then
+              echo "[gitea-mirror] FATAL: G3-flux: ${template_dir} missing in upstream — cannot materialise per-region subtrees" >&2
+              exit 1
+            fi
+
+            sovereign_dir="clusters/${SOVEREIGN_FQDN}"
+            mkdir -p "${sovereign_dir}"
+
+            # Walk the CSV, copy template into each region's subtree.
+            # IFS=, parses CSV without temp files. The shell-builtin
+            # `set --` is busybox-safe word-splitting.
+            old_ifs="${IFS}"
+            IFS=,
+            set -- ${SOVEREIGN_REGION_KEYS_CSV}
+            IFS="${old_ifs}"
+
+            region_dirs=""
+            for region_key in "$@"; do
+              # Strip whitespace; busybox tr is reliably present in alpine/git.
+              region_key=$(printf '%s' "${region_key}" | tr -d ' ')
+              if [ -z "${region_key}" ]; then
+                continue
+              fi
+              echo "[gitea-mirror] G3-flux:   region=${region_key}"
+              region_dst="${sovereign_dir}/${region_key}/bootstrap-kit"
+              rm -rf "${region_dst}"
+              mkdir -p "$(dirname ${region_dst})"
+              cp -R "${template_dir}" "${region_dst}"
+              region_dirs="${region_dirs} ${region_key}"
+            done
+
+            # Top-level index — Kustomize-format index referencing each
+            # per-region bootstrap-kit subtree. Post-cutover step-05
+            # patches each cluster's Flux Kustomization spec.path to its
+            # OWN region subtree (not this index), but the index is a
+            # convenient single-pane manifest of "what regions does this
+            # Sovereign have?" for ops + auditing.
+            {
+              echo "# Slice G3-flux — per-region bootstrap-kit index for ${SOVEREIGN_FQDN}."
+              echo "# Materialised by self-sovereign-cutover step-01 gitea-mirror."
+              echo "# Each entry is the bootstrap-kit subtree the corresponding"
+              echo "# region's Flux Kustomization targets at spec.path."
+              echo "apiVersion: kustomize.config.k8s.io/v1beta1"
+              echo "kind: Kustomization"
+              echo "resources:"
+              for region_key in ${region_dirs}; do
+                echo "  - ${region_key}/bootstrap-kit"
+              done
+            } > "${sovereign_dir}/kustomization.yaml"
+
+            # Commit + push (idempotent: empty diff = no commit, no push).
+            git add "${sovereign_dir}"
+            if git diff --cached --quiet; then
+              echo "[gitea-mirror] G3-flux: no diff to commit (idempotent re-run)"
+            else
+              git commit -m "chore(cutover): materialise per-region bootstrap-kit subtrees for ${SOVEREIGN_FQDN}" >/dev/null
+              if ! git push "${local_url}" "${UPSTREAM_BRANCH}" >/dev/null 2>&1; then
+                echo "[gitea-mirror] FATAL: G3-flux: failed to push per-region subtree commit" >&2
+                exit 1
+              fi
+              echo "[gitea-mirror] G3-flux: per-region subtrees pushed to local Gitea"
+            fi
+
             echo "[gitea-mirror] step complete"
         resources:
           requests: { cpu: 100m, memory: 256Mi }

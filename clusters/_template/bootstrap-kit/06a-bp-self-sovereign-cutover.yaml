@@ -256,7 +256,12 @@ spec:
       # platform-wide migration off bitnami/kubectl (deleted from
       # Docker Hub 2025-08). This Blueprint already uses alpine/k8s
       # + alpine since 0.1.10; no functional image change here.
-      version: 0.1.29
+      # 0.1.30 (slice G3-flux, 2026-05-11): per-region Flux Kustomization
+      # git paths. Step-01 gitea-mirror materialises per-region
+      # bootstrap-kit subtrees under clusters/${SOVEREIGN_FQDN}/<region_key>/;
+      # step-05 flux-gitrepository-patch pivots the local Kustomization
+      # spec.path to its own region subtree post-cutover.
+      version: 0.1.30
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
@@ -281,3 +286,23 @@ spec:
       harborPublicURL: https://harbor.${SOVEREIGN_FQDN}
       giteaInternalURL: http://gitea-http.gitea.svc.cluster.local:3000
       giteaPublicURL: https://gitea.${SOVEREIGN_FQDN}
+      # Per-region Flux Kustomization paths (slice G3-flux). Comma-
+      # separated list of the Sovereign's region keys — substituted by
+      # Flux postBuild.substitute from a list rendered by catalyst-api's
+      # writeTfvars + cloud-init flow (primary region key + each
+      # secondary's local.secondary_regions map key). Single-region
+      # Sovereigns default to one entry; multi-region Sovereigns get N.
+      # Step-01 gitea-mirror reads this list and materialises one
+      # clusters/${SOVEREIGN_FQDN}/<region_key>/bootstrap-kit subtree
+      # per entry. Format: comma-separated string parsed inside the
+      # mirror Job script (Helm string-list -> shell-friendly). CSV
+      # required because Flux postBuild.substitute can only inject
+      # string values — a real YAML list cannot be reliably emitted.
+      regionsCSV: "${SOVEREIGN_REGION_KEYS_CSV}"
+      # THIS k3s's own region key (slice G3-flux). One entry from
+      # regionsCSV — primary CP renders with `var.region` (e.g. "fsn1"),
+      # every secondary CP renders with its own local.secondary_regions
+      # map key (e.g. "hel1-1"). Step-05 flux-gitrepository-patch reads
+      # this to pivot the bootstrap-kit Kustomization spec.path to the
+      # per-region subtree post-cutover.
+      regionKey: "${SOVEREIGN_REGION_KEY}"

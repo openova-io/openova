@@ -342,6 +342,26 @@ locals {
   control_plane_cloud_init = replace(templatefile("${path.module}/cloudinit-control-plane.tftpl", {
     sovereign_fqdn          = var.sovereign_fqdn
     sovereign_subdomain     = var.sovereign_subdomain
+    # Per-region Flux Kustomization marker (slice G3-flux). Primary CP
+    # carries the singular `region` field as its key — same shape secondary
+    # CPs use ("hel1-1", "ash-2" — see local.secondary_regions) so chart
+    # manifests reading $${SOVEREIGN_REGION_KEY} get a consistent identifier
+    # whether they land on the primary or a secondary cluster. Per
+    # docs/INVIOLABLE-PRINCIPLES.md #4 the value flows from runtime; the
+    # singular region field is the canonical primary-region identifier.
+    sovereign_region_key    = var.region
+    # Comma-separated list of every region key the Sovereign was
+    # provisioned across (slice G3-flux). Primary region first, then
+    # every secondary in local.secondary_regions iteration order.
+    # Consumed by the cutover gitea-mirror Job to materialise one
+    # bootstrap-kit subtree per region under
+    # clusters/<sovereign_fqdn>/<region_key>/. Empty secondary_regions
+    # map yields a CSV of just the primary key — keeps single-region
+    # Sovereigns on the same per-region layout (no special-casing).
+    sovereign_region_keys_csv = join(",", concat(
+      [var.region],
+      [for k, _ in local.secondary_regions : k]
+    ))
     marketplace_enabled     = var.marketplace_enabled
     qa_fixtures_enabled       = var.qa_fixtures_enabled
     qa_test_session_enabled   = var.qa_test_session_enabled
@@ -820,6 +840,21 @@ locals {
     k => replace(templatefile("${path.module}/cloudinit-control-plane.tftpl", {
       sovereign_fqdn          = var.sovereign_fqdn
       sovereign_subdomain     = var.sovereign_subdomain
+      # Per-region Flux Kustomization marker (slice G3-flux). Secondary
+      # CPs use the local.secondary_regions map key as their region
+      # identifier (e.g. "hel1-1", "ash-2") — the same key threaded into
+      # node labels (catalyst.openova.io/region-id) and used by the
+      # post-cutover gitea-mirror step to materialise per-region subtrees
+      # at clusters/<sovereign_fqdn>/<region_key>/bootstrap-kit/.
+      sovereign_region_key      = k
+      # Same CSV as the primary CP receives — every CP renders the
+      # SAME list because the cutover gitea-mirror Job runs on the
+      # primary and the bp-self-sovereign-cutover HelmRelease's
+      # values must agree across every region's reconciliation.
+      sovereign_region_keys_csv = join(",", concat(
+        [var.region],
+        [for kk, _ in local.secondary_regions : kk]
+      ))
       marketplace_enabled     = var.marketplace_enabled
       qa_fixtures_enabled       = var.qa_fixtures_enabled
       qa_test_session_enabled   = var.qa_test_session_enabled

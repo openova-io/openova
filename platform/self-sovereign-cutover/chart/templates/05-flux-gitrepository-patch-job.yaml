@@ -5,6 +5,17 @@ Patches `flux-system/<gitopsRepository.name>` GitRepository.spec.url
 to the local Sovereign Gitea URL. After this patch source-controller
 reconciles against the in-cluster Gitea Service.
 
+Slice G3-flux: ALSO patches the bootstrap-kit Kustomization spec.path
+from the pre-cutover shared template (`./clusters/_template/bootstrap-kit`)
+to the per-region subtree this Sovereign's gitea-mirror materialised
+in step-01 (`./clusters/<SOVEREIGN_FQDN>/<SOVEREIGN_REGION_KEY>/bootstrap-kit`).
+Each region's Flux Kustomization is patched independently — the patch
+matches THIS k3s's Kustomization (Flux is per-cluster), so the primary
+CP's Flux gets primary-region path, every secondary CP gets its own.
+SOVEREIGN_REGION_KEY is sourced from the catalyst-api-rendered
+cloud-init substitute (cloudinit-control-plane.tftpl) and threaded
+through the bp-self-sovereign-cutover overlay values.
+
 Image phase: post.
 */ -}}
 apiVersion: v1
@@ -44,6 +55,16 @@ data:
           # "kustomization path not found".
           - name: SOVEREIGN_FQDN
             value: {{ .Values.sovereign.fqdn | quote }}
+          # Slice G3-flux — per-region Kustomization path pivot. The
+          # SOVEREIGN_REGION_KEY env var carries the local cluster's
+          # region key (e.g. "fsn1" on the primary, "hel1-1" on a
+          # secondary), sourced from this chart's Helm values where
+          # the overlay's $${SOVEREIGN_REGION_KEY} envsubst landed it.
+          # When empty (legacy single-region Sovereign provisioned
+          # before slice G3-flux), the Kustomization-path patch is
+          # skipped — GitRepository URL pivot still runs.
+          - name: SOVEREIGN_REGION_KEY
+            value: {{ .Values.sovereign.regionKey | default "" | quote }}
         command: ["/bin/sh", "-c"]
         args:
           - |
@@ -72,6 +93,31 @@ data:
             kubectl annotate --overwrite gitrepository "${GITREPO_NAME}" \
               -n "${GITREPO_NAMESPACE}" \
               "reconcile.fluxcd.io/requestedAt=$(date +%s)"
+
+            # Slice G3-flux — pivot the bootstrap-kit Flux Kustomization
+            # spec.path from the pre-cutover shared template to the per-
+            # region subtree that step-01 gitea-mirror just materialised.
+            # Each CP's Flux is per-cluster, so we patch THIS cluster's
+            # Kustomization with THIS cluster's region key. SOVEREIGN_REGION_KEY
+            # empty = legacy single-region Sovereign provisioned before
+            # G3-flux landed → skip path pivot to keep upgrade idempotent.
+            if [ -n "${SOVEREIGN_REGION_KEY}" ]; then
+              new_path="./clusters/${SOVEREIGN_FQDN}/${SOVEREIGN_REGION_KEY}/bootstrap-kit"
+              echo "[flux-gitrepository-patch] G3-flux: pivoting bootstrap-kit Kustomization path -> ${new_path}"
+              cat >/tmp/ks-patch.yaml <<EOF
+            spec:
+              path: ${new_path}
+            EOF
+              kubectl patch kustomization "bootstrap-kit" \
+                -n "${GITREPO_NAMESPACE}" \
+                --type=merge --patch-file /tmp/ks-patch.yaml
+              kubectl annotate --overwrite kustomization "bootstrap-kit" \
+                -n "${GITREPO_NAMESPACE}" \
+                "reconcile.fluxcd.io/requestedAt=$(date +%s)"
+            else
+              echo "[flux-gitrepository-patch] G3-flux: SOVEREIGN_REGION_KEY empty, skipping per-region path pivot (legacy single-region path)"
+            fi
+
             echo "[flux-gitrepository-patch] done"
         resources:
           requests: { cpu: 50m, memory: 64Mi }
