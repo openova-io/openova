@@ -20,36 +20,32 @@
 FROM docker.io/library/node:22-alpine AS build
 WORKDIR /repo
 
-# OpenovaFlow Foundation — catalyst-ui consumes @openova/flow-core and
-# @openova/flow-canvas as workspace siblings (file:../../../openova-flow/{core,canvas}
-# refs in package.json). npm ci validates those file:-target dirs exist
-# AT INSTALL TIME, so we must copy them BEFORE `npm ci`. Only the
-# package.json files + src/ trees are needed at install time — the
-# rest of products/openova-flow/ is layered in by the subsequent
-# COPY products/ that hydrates the Vite catalog walker.
-COPY products/openova-flow/core/package.json /repo/products/openova-flow/core/package.json
-COPY products/openova-flow/core/src/         /repo/products/openova-flow/core/src/
-COPY products/openova-flow/canvas/package.json /repo/products/openova-flow/canvas/package.json
-COPY products/openova-flow/canvas/src/       /repo/products/openova-flow/canvas/src/
-
-# Bring the directories the Vite prebuild script reads from + the UI source
-# itself. Order is structured so docker layer-caching sees package.json
-# before the rest, preserving npm-cache hits when only sources change.
-COPY products/catalyst/bootstrap/ui/package.json products/catalyst/bootstrap/ui/package-lock.json /repo/products/catalyst/bootstrap/ui/
-WORKDIR /repo/products/catalyst/bootstrap/ui
-RUN npm ci
+# npm workspaces — catalyst-ui consumes @openova/flow-core and
+# @openova/flow-canvas as workspace siblings via the root
+# package.json's `workspaces:` field. `npm ci` MUST run from the
+# workspace root (/repo) — running it from products/catalyst/bootstrap/ui/
+# skips workspaces and breaks cross-workspace bare-spec resolution for
+# react/d3-* inside the canvas source (caught live B&D fail on
+# 2c6595a3, 2026-05-11). Always install at the root, then build from
+# the leaf workspace dir.
+COPY package.json package-lock.json /repo/
+COPY products/catalyst/bootstrap/ui/package.json /repo/products/catalyst/bootstrap/ui/
+COPY products/openova-flow/core/package.json     /repo/products/openova-flow/core/
+COPY products/openova-flow/canvas/package.json   /repo/products/openova-flow/canvas/
+RUN npm ci --workspaces --include-workspace-root
 
 # Source-of-truth directories the prebuild script reads.
 COPY platform/                          /repo/platform/
 COPY products/                          /repo/products/
 COPY clusters/_template/bootstrap-kit/  /repo/clusters/_template/bootstrap-kit/
 
-# UI source proper. WORKDIR is already /repo/products/catalyst/bootstrap/ui;
-# the COPY lines above already populated /repo/products/catalyst/bootstrap/ui
-# from the products/ tree, but we re-COPY the ui subtree explicitly so
-# changes to it don't get masked by docker layer caching of products/.
+# UI source proper. The COPY products/ above already populated all
+# workspace dirs but we re-COPY the leaf subtree explicitly so changes
+# to it don't get masked by docker layer caching of products/.
 COPY products/catalyst/bootstrap/ui/    /repo/products/catalyst/bootstrap/ui/
+COPY products/openova-flow/             /repo/products/openova-flow/
 
+WORKDIR /repo/products/catalyst/bootstrap/ui
 ARG VITE_APP_MODE=selfhosted
 ENV OPENOVA_REPO_ROOT=/repo
 RUN npm run build
