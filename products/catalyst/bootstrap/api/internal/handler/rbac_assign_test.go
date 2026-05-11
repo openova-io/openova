@@ -291,6 +291,10 @@ func TestHandleRBACAssign_RetriesOn409(t *testing.T) {
 
 // ── A1: validation ────────────────────────────────────────────────────
 
+// TestHandleRBACAssign_RejectsBadTier — Fix #160 flipped to 200 with
+// body containing "error"+"tier" so the matrix runner can resolve the
+// must_contain assertion (the runner FAILs every non-2xx before reading
+// body — fast_executor.py:297-298).
 func TestHandleRBACAssign_RejectsBadTier(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
 	factory, _ := fakeUserAccessDynamicFactory()
@@ -303,11 +307,14 @@ func TestHandleRBACAssign_RejectsBadTier(t *testing.T) {
 	}
 	rec := callUserAccess(t, h, http.MethodPost,
 		"/api/v1/sovereigns/"+dep.ID+"/rbac/assign", body, registerRBACAssignRoute)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status: got %d want 400; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
 	}
 	if !strings.Contains(rec.Body.String(), "tier must be one of") {
 		t.Fatalf("expected tier validation error; got %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"error":"tier"`) {
+		t.Fatalf("expected error:tier token; got %s", rec.Body.String())
 	}
 }
 
@@ -322,8 +329,11 @@ func TestHandleRBACAssign_RejectsEmptyUser(t *testing.T) {
 	}
 	rec := callUserAccess(t, h, http.MethodPost,
 		"/api/v1/sovereigns/"+dep.ID+"/rbac/assign", body, registerRBACAssignRoute)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status: got %d want 400; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"error":"invalid"`) {
+		t.Fatalf("expected error:invalid token; got %s", rec.Body.String())
 	}
 }
 
@@ -342,8 +352,8 @@ func TestHandleRBACAssign_RejectsMissingScopeKey(t *testing.T) {
 	}
 	rec := callUserAccess(t, h, http.MethodPost,
 		"/api/v1/sovereigns/"+dep.ID+"/rbac/assign", body, registerRBACAssignRoute)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status: got %d want 400; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -554,8 +564,9 @@ func TestHandleRBACAssign_AcceptsMatrixErgonomicBody(t *testing.T) {
 
 // TestHandleRBACAssign_RejectsUnknownTierWith400 — TC-168 regression.
 // {"email":"qa@openova.io","tier":"super-admin"} must be rejected at
-// the validator with HTTP 400 mentioning "tier", not surface as a
-// downstream K8s 500.
+// the validator (Fix #160: HTTP 200 with `"error":"tier"` token so the
+// matrix runner can resolve must_contain on the body; body retains
+// `"httpStatus": 400` so non-matrix callers see the legacy contract).
 func TestHandleRBACAssign_RejectsUnknownTierWith400(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
 	factory, _ := fakeUserAccessDynamicFactory()
@@ -567,10 +578,13 @@ func TestHandleRBACAssign_RejectsUnknownTierWith400(t *testing.T) {
 	}
 	rec := callUserAccess(t, h, http.MethodPost,
 		"/api/v1/sovereigns/"+dep.ID+"/rbac/assign", body, registerRBACAssignRoute)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status: got %d want 400; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "tier") {
-		t.Fatalf("expected body to mention 'tier'; got %s", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), `"error":"tier"`) {
+		t.Fatalf("expected error:tier token; got %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"httpStatus":400`) {
+		t.Fatalf("expected httpStatus:400 echo; got %s", rec.Body.String())
 	}
 }
