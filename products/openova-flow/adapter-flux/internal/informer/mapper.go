@@ -14,29 +14,17 @@
 //	Ready=Unknown                               → "running"
 //	No Ready condition yet                      → "pending"
 //
-// FlowNode.id = "{regionKey}/{hrName}" — region-aware so multi-region
+// FlowNode.id = "{regionKey}:{hrName}" — region-aware so multi-region
 // renders correctly when the canvas pulls bubbles from N adapter sidecars.
+// Separator is ":" (not "/") so node ids do not collide with URL routing
+// — founder hit "Not Found" drilling into `contabo/phase-0`.
 //
-// Synthetic group nodes (Agent #6 brief):
-//
-//   - "{regionKey}" — region root, meta.layout=lane-vertical, isGroup=true
-//   - "{regionKey}/phase-{0..3}" — phase columns, meta.layout=lane-horizontal,
-//     isGroup=true, sortKey=N. Phase 0/1/2/3 follow the documented
-//     Catalyst lifecycle (Cloud Provisioning → Bootstrap-Kit → Cutover →
-//     Sovereign Live).
-//
-// Leaf-to-phase mapping is driven by HR labels (no hardcoded names):
-//
-//   - catalyst.openova.io/slot: "<NN>"  → Phase 1 (bootstrap-kit slots 1–57)
-//   - catalyst.openova.io/component: cutover → Phase 2
-//   - HR name = "bp-catalyst-platform" or component=catalyst-platform → Phase 3
-//   - default                            → Phase 1
-//
-// Phase 0 (Cloud Provisioning) is signalled by catalyst-api state events
-// (tofu-apply / lb-create / cp-init) which a sibling adapter will emit.
-// For this PR the adapter emits a stub Phase-0 parent with status=succeeded
-// at bootstrap — by the time HRs are installable on a cluster, Phase 0
-// has completed by definition.
+// The adapter emits ONE FlowNode per HR (the real leaf) and the
+// finish-to-start edges for every spec.dependsOn entry. The natural
+// canvas (FlowCanvasOrganic) does its own bounded force layout — there
+// are NO synthetic region / phase parent nodes. That earlier
+// scaffolding (Agent #6) was rejected by the founder 2026-05-11; this
+// file is the post-revert minimum.
 package informer
 
 import (
@@ -53,52 +41,39 @@ const LabelFamily = "catalyst.openova.io/family"
 
 // LabelSlot — slot number embedded in the bootstrap-kit HR filename
 // (`<NN>-bp-<name>.yaml`). Surfaced as a chart label so the adapter
-// can derive the phase column without hardcoding HR names. Mirrors
-// the catalyst.openova.io/component pattern already used by
+// can derive metadata without hardcoding HR names. Mirrors the
+// catalyst.openova.io/component pattern already used by
 // platform/external-secrets-stores/chart/templates/*.yaml and
 // platform/openclaw/chart/templates/*.yaml.
 const LabelSlot = "catalyst.openova.io/slot"
 
 // LabelComponent — generic component-classifier label already in use
-// across platform/* charts. The adapter reads it to distinguish
-// cutover HRs (Phase 2) from regular bootstrap-kit HRs (Phase 1).
+// across platform/* charts. Forwarded to the FlowNode meta for
+// downstream consumers; not used here to bucket nodes.
 const LabelComponent = "catalyst.openova.io/component"
-
-// RegionContainsType — relationship type the adapter emits to group
-// each HR FlowNode under the per-region synthetic parent node.
-const RegionContainsType = "contains"
 
 // DependsOnType — relationship type the adapter emits for every
 // HelmRelease.spec.dependsOn entry.
 const DependsOnType = "finish-to-start"
 
-// Phase identifiers — scoped under the region key by callers, e.g.
-// "fsn1/phase-1". Kept as constants so the canvas + tests can rely
-// on them.
-const (
-	PhaseSuffixCloudProvisioning = "phase-0"
-	PhaseSuffixBootstrapKit      = "phase-1"
-	PhaseSuffixCutover           = "phase-2"
-	PhaseSuffixSovereignLive     = "phase-3"
-)
+// idSep — node-id separator. ":" not "/" so node ids do not collide
+// with URL routing. Founder caught "/" colliding mid-prov.
+const idSep = ":"
 
 // MapResult — what BuildFromHR returns: the FlowNode for this HR + the
-// edges (dependsOn fan-in + the region-contains edge + the phase-contains edge).
+// finish-to-start edges from spec.dependsOn entries.
 type MapResult struct {
 	Node          types.FlowNode
 	Relationships []types.Relationship
-	// PhaseID — the phase synthetic node ID this leaf belongs to,
-	// e.g. "fsn1/phase-1". Callers use it to update rollup state.
-	PhaseID string
 }
 
-// BuildFromHR converts one HelmRelease (as unstructured) into a
-// FlowNode + Relationship set. regionKey is the env-driven cluster id
-// (e.g. "fsn1"); the FlowNode id becomes "{regionKey}/{hr.metadata.name}".
+// BuildFromHR converts one HelmRelease (as unstructured) into a single
+// FlowNode + zero-or-more finish-to-start Relationships from
+// spec.dependsOn. regionKey is the env-driven cluster id (e.g. "fsn1");
+// the FlowNode id becomes "{regionKey}:{hr.metadata.name}".
 //
-// Two `contains` rels are emitted per HR:
-//   - leaf → {regionKey}                         (region row)
-//   - leaf → {regionKey}/phase-{N}               (phase column)
+// No synthetic parents (region root / phase columns) — the canvas does
+// its own bounded force layout.
 //
 // Pure: no I/O, no clock, deterministic given the input.
 func BuildFromHR(hr *unstructured.Unstructured, regionKey string) (MapResult, bool) {
@@ -114,11 +89,8 @@ func BuildFromHR(hr *unstructured.Unstructured, regionKey string) (MapResult, bo
 		region = "default"
 	}
 
-	phaseSuffix := derivePhase(hr, name)
-	phaseID := region + "/" + phaseSuffix
-
 	node := types.FlowNode{
-		ID:     region + "/" + name,
+		ID:     region + idSep + name,
 		FlowID: "", // populated by emitter with the deployment id
 		Label:  name,
 		Status: statusFromConditions(hr),
@@ -126,22 +98,7 @@ func BuildFromHR(hr *unstructured.Unstructured, regionKey string) (MapResult, bo
 		Region: ptr(region),
 	}
 
-	rels := []types.Relationship{
-		// Region row containment.
-		{
-			FromID:    region,
-			ToID:      node.ID,
-			Type:      RegionContainsType,
-			Condition: "always",
-		},
-		// Phase column containment.
-		{
-			FromID:    phaseID,
-			ToID:      node.ID,
-			Type:      RegionContainsType,
-			Condition: "always",
-		},
-	}
+	rels := make([]types.Relationship, 0)
 
 	// Relationships from spec.dependsOn — one per entry.
 	deps, _, _ := unstructured.NestedSlice(hr.Object, "spec", "dependsOn")
@@ -155,184 +112,14 @@ func BuildFromHR(hr *unstructured.Unstructured, regionKey string) (MapResult, bo
 			continue
 		}
 		rels = append(rels, types.Relationship{
-			FromID:    region + "/" + depName,
+			FromID:    region + idSep + depName,
 			ToID:      node.ID,
 			Type:      DependsOnType,
 			Condition: "on-success",
 		})
 	}
-	return MapResult{Node: node, Relationships: rels, PhaseID: phaseID}, true
+	return MapResult{Node: node, Relationships: rels}, true
 }
-
-// derivePhase — slot-label-first, then component-label, then HR-name
-// heuristics. NEVER hardcoded HR-name → phase tables (per the
-// brief's no-hardcode rule).
-//
-// Returns one of the PhaseSuffix* constants.
-func derivePhase(hr *unstructured.Unstructured, name string) string {
-	labels := hr.GetLabels()
-
-	// Component label wins for cutover + catalyst-platform.
-	if comp, ok := labels[LabelComponent]; ok {
-		c := strings.ToLower(strings.TrimSpace(comp))
-		switch c {
-		case "cutover", "self-sovereign-cutover":
-			return PhaseSuffixCutover
-		case "catalyst-platform":
-			return PhaseSuffixSovereignLive
-		}
-	}
-
-	// HR name fallback for the two known terminal-phase Blueprints.
-	// Mirrors the convention used in
-	// clusters/_template/bootstrap-kit/06a-bp-self-sovereign-cutover.yaml
-	// and 13-bp-catalyst-platform.yaml. Reading the HR name here is
-	// NOT a hardcoded "name → phase" table; it's a fallback when the
-	// component label isn't set yet (chart-level patch is a follow-up).
-	lower := strings.ToLower(name)
-	if strings.Contains(lower, "self-sovereign-cutover") || strings.Contains(lower, "bp-cutover") {
-		return PhaseSuffixCutover
-	}
-	if lower == "bp-catalyst-platform" {
-		return PhaseSuffixSovereignLive
-	}
-
-	// Slot label → Phase 1 (bootstrap-kit). Any slot, any tier.
-	if _, ok := labels[LabelSlot]; ok {
-		return PhaseSuffixBootstrapKit
-	}
-
-	// Default: bootstrap-kit Phase 1. Every HR the adapter sees
-	// reconciled by Flux on a Sovereign is a bootstrap-kit Blueprint
-	// unless explicitly tagged otherwise.
-	return PhaseSuffixBootstrapKit
-}
-
-// BuildRegionNode emits the synthetic per-region parent FlowNode the
-// adapter sends on startup so the canvas has a stable container for
-// the region's HRs. Status is computed by the caller via the
-// StatusTracker; the bootstrap call passes "pending".
-//
-// meta.layout = lane-vertical so the canvas renders the region as a
-// vertical swim-lane; isGroup = true mirrors how the canvas already
-// auto-detects groups (any node that is the toId of a contains edge),
-// but emitting it explicitly lets the canvas honour the hint even
-// before the first child edge arrives.
-func BuildRegionNode(regionKey string) types.FlowNode {
-	if strings.TrimSpace(regionKey) == "" {
-		regionKey = "default"
-	}
-	r := regionKey
-	return types.FlowNode{
-		ID:     regionKey,
-		Label:  regionKey,
-		Status: "pending",
-		Family: ptr("region"),
-		Region: &r,
-		Meta: map[string]interface{}{
-			"layout":  "lane-vertical",
-			"isGroup": true,
-		},
-	}
-}
-
-// phaseLabels — human-readable labels for each phase. Kept here so
-// changes to user-facing strings are one-file edits.
-var phaseLabels = map[string]string{
-	PhaseSuffixCloudProvisioning: "Phase 0 — Cloud Provisioning",
-	PhaseSuffixBootstrapKit:      "Phase 1 — Bootstrap-Kit",
-	PhaseSuffixCutover:           "Phase 2 — Cutover",
-	PhaseSuffixSovereignLive:     "Phase 3 — Sovereign Live",
-}
-
-// phaseSortKey — visual ordering for the canvas. 0 = leftmost.
-var phaseSortKey = map[string]int{
-	PhaseSuffixCloudProvisioning: 0,
-	PhaseSuffixBootstrapKit:      1,
-	PhaseSuffixCutover:           2,
-	PhaseSuffixSovereignLive:     3,
-}
-
-// AllPhaseSuffixes — emission-order. Used by BuildPhaseNodes /
-// BuildPhaseEdges and the informer's bootstrap routine.
-var AllPhaseSuffixes = []string{
-	PhaseSuffixCloudProvisioning,
-	PhaseSuffixBootstrapKit,
-	PhaseSuffixCutover,
-	PhaseSuffixSovereignLive,
-}
-
-// BuildPhaseNodes — the four synthetic phase column nodes for a
-// region. Each carries:
-//
-//   - meta.layout = "lane-horizontal" so the canvas renders the
-//     phases as horizontal swim-lanes across the region.
-//   - meta.isGroup = true (explicit hint; canvas also auto-detects
-//     via contains edges).
-//   - meta.sortKey = 0..3 so the canvas can deterministically order
-//     the columns left-to-right.
-//
-// Status starts at "pending" — the informer fills it in via the
-// StatusTracker as child HRs arrive. Phase 0 is special-cased: HRs
-// being installable means Phase 0 (cloud provisioning) is done, so
-// Phase 0 is emitted with status=succeeded.
-func BuildPhaseNodes(regionKey string) []types.FlowNode {
-	if strings.TrimSpace(regionKey) == "" {
-		regionKey = "default"
-	}
-	out := make([]types.FlowNode, 0, len(AllPhaseSuffixes))
-	for _, suffix := range AllPhaseSuffixes {
-		status := "pending"
-		if suffix == PhaseSuffixCloudProvisioning {
-			// Phase 0 happened before bootstrap-kit could be installed;
-			// from the adapter's vantage point it's already done.
-			// A follow-up Agent will hook the catalyst-api FlowMessage
-			// emit (tofu-apply / lb-create / cp-init events) to refine
-			// this — see brief §E.
-			status = "succeeded"
-		}
-		region := regionKey
-		out = append(out, types.FlowNode{
-			ID:     regionKey + "/" + suffix,
-			Label:  phaseLabels[suffix],
-			Status: status,
-			Family: ptr("phase"),
-			Region: &region,
-			Meta: map[string]interface{}{
-				"layout":  "lane-horizontal",
-				"isGroup": true,
-				"sortKey": phaseSortKey[suffix],
-			},
-		})
-	}
-	return out
-}
-
-// BuildPhaseEdges — finish-to-start edges between consecutive phases
-// in a region. Three edges per region: 0→1, 1→2, 2→3. The canvas
-// renders these as visible arrows between phase lanes.
-func BuildPhaseEdges(regionKey string) []types.Relationship {
-	if strings.TrimSpace(regionKey) == "" {
-		regionKey = "default"
-	}
-	out := make([]types.Relationship, 0, len(AllPhaseSuffixes)-1)
-	for i := 0; i < len(AllPhaseSuffixes)-1; i++ {
-		out = append(out, types.Relationship{
-			FromID:    regionKey + "/" + AllPhaseSuffixes[i],
-			ToID:      regionKey + "/" + AllPhaseSuffixes[i+1],
-			Type:      DependsOnType,
-			Condition: "on-success",
-		})
-	}
-	return out
-}
-
-// PhaseLabel — exported lookup for tests + the informer's re-emit
-// path (which rebuilds a phase node with the rolled-up status).
-func PhaseLabel(suffix string) string { return phaseLabels[suffix] }
-
-// PhaseSortKey — exported lookup for tests + re-emit.
-func PhaseSortKey(suffix string) int { return phaseSortKey[suffix] }
 
 // statusFromConditions — maps the HR's Ready condition to the
 // FlowNode.status palette. Reads from the standard
@@ -378,8 +165,7 @@ func statusFromConditions(hr *unstructured.Unstructured) string {
 }
 
 // familyFor reads the operator-set label first; falls back to the
-// heuristic "<name without bp- prefix without first word>" only when
-// the label is absent.
+// heuristic "<name without bp- prefix>" only when the label is absent.
 //
 // Examples:
 //

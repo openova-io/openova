@@ -1,6 +1,12 @@
 // mapper_test.go — covers every HelmRelease state → FlowNode.status
 // transition that the adapter has to ship. Fixtures are inline YAML
 // (no testdata files) so the test is self-contained.
+//
+// Post-2026-05-11 revert: no synthetic region / phase parent nodes.
+// BuildFromHR emits ONE leaf FlowNode plus finish-to-start edges from
+// spec.dependsOn entries. The canvas does its own bounded force
+// layout. The node-id separator is ":" (not "/") so node ids do not
+// collide with URL routing.
 package test
 
 import (
@@ -48,7 +54,7 @@ status:
 	if res.Node.Status != "succeeded" {
 		t.Fatalf("status: %s", res.Node.Status)
 	}
-	if res.Node.ID != "fsn1/bp-cert-manager" {
+	if res.Node.ID != "fsn1:bp-cert-manager" {
 		t.Fatalf("id: %s", res.Node.ID)
 	}
 	if res.Node.Family == nil || *res.Node.Family != "cert-manager" {
@@ -57,25 +63,13 @@ status:
 	if res.Node.Region == nil || *res.Node.Region != "fsn1" {
 		t.Fatalf("region: %+v", res.Node.Region)
 	}
-	// Two "contains" rels (region + phase) + one dependsOn rel.
-	if len(res.Relationships) != 3 {
-		t.Fatalf("rels=%d want 3: %+v", len(res.Relationships), res.Relationships)
+	// One dependsOn rel only — no synthetic contains rels.
+	if len(res.Relationships) != 1 {
+		t.Fatalf("rels=%d want 1: %+v", len(res.Relationships), res.Relationships)
 	}
-	var hasRegionContains, hasPhaseContains, hasDep bool
-	for _, r := range res.Relationships {
-		if r.Type == "contains" && r.FromID == "fsn1" && r.ToID == "fsn1/bp-cert-manager" {
-			hasRegionContains = true
-		}
-		if r.Type == "contains" && r.FromID == "fsn1/phase-1" && r.ToID == "fsn1/bp-cert-manager" {
-			hasPhaseContains = true
-		}
-		if r.Type == "finish-to-start" && r.FromID == "fsn1/bp-cilium" && r.ToID == "fsn1/bp-cert-manager" {
-			hasDep = true
-		}
-	}
-	if !hasRegionContains || !hasPhaseContains || !hasDep {
-		t.Fatalf("missing rels: regionContains=%v phaseContains=%v dep=%v rels=%+v",
-			hasRegionContains, hasPhaseContains, hasDep, res.Relationships)
+	r := res.Relationships[0]
+	if r.Type != "finish-to-start" || r.FromID != "fsn1:bp-cilium" || r.ToID != "fsn1:bp-cert-manager" {
+		t.Fatalf("unexpected rel: %+v", r)
 	}
 }
 
@@ -209,7 +203,7 @@ metadata:
   name: bp-cilium
 `)
 	res, _ := informer.BuildFromHR(hr, "")
-	if res.Node.ID != "default/bp-cilium" {
+	if res.Node.ID != "default:bp-cilium" {
 		t.Fatalf("id: %s", res.Node.ID)
 	}
 	if res.Node.Region == nil || *res.Node.Region != "default" {
@@ -237,33 +231,34 @@ status:
       status: "True"
 `)
 	res, _ := informer.BuildFromHR(hr, "fsn1")
-	// 2 "contains" (region + phase) + 6 finish-to-start.
-	if len(res.Relationships) != 8 {
-		t.Fatalf("rels=%d want 8", len(res.Relationships))
+	// 6 finish-to-start edges — one per dependsOn entry. No synthetic
+	// contains rels.
+	if len(res.Relationships) != 6 {
+		t.Fatalf("rels=%d want 6", len(res.Relationships))
+	}
+	for _, r := range res.Relationships {
+		if r.Type != "finish-to-start" {
+			t.Fatalf("unexpected rel type: %+v", r)
+		}
+		if !strings.HasPrefix(r.FromID, "fsn1:") || r.ToID != "fsn1:bp-guacamole" {
+			t.Fatalf("unexpected rel endpoints: %+v", r)
+		}
 	}
 }
 
-func TestMapper_RegionNodeBootstrap(t *testing.T) {
-	n := informer.BuildRegionNode("hel1")
-	if n.ID != "hel1" {
-		t.Fatalf("id: %s", n.ID)
-	}
-	if n.Region == nil || *n.Region != "hel1" {
-		t.Fatalf("region: %+v", n.Region)
-	}
-	// Region root starts pending — rollup is driven by the
-	// StatusTracker as child HRs arrive. "pending" is the no-children
-	// default per RollupStatus contract.
-	if n.Status != "pending" {
-		t.Fatalf("status: %s", n.Status)
-	}
-	if n.Family == nil || *n.Family != "region" {
-		t.Fatalf("family: %+v", n.Family)
-	}
-	if n.Meta["layout"] != "lane-vertical" {
-		t.Fatalf("layout: %+v", n.Meta["layout"])
-	}
-	if n.Meta["isGroup"] != true {
-		t.Fatalf("isGroup: %+v", n.Meta["isGroup"])
+func TestMapper_NoDependsOn_NoRels(t *testing.T) {
+	hr := parseHR(t, `
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-cilium
+status:
+  conditions:
+    - type: Ready
+      status: "True"
+`)
+	res, _ := informer.BuildFromHR(hr, "fsn1")
+	if len(res.Relationships) != 0 {
+		t.Fatalf("rels=%d want 0: %+v", len(res.Relationships), res.Relationships)
 	}
 }

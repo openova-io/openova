@@ -1,32 +1,25 @@
 /**
- * FlowPage — multi-region OpenovaFlow canvas (Agent #5).
+ * FlowPage — restored natural (force-directed, bounded, palette-tuned)
+ * canvas wired to the live openova-flow SSE stream.
  *
- * The page drives the standalone {@link FlowCanvas} from
- * `@openova/flow-canvas` against the openova-flow SSE stream surfaced by
- * catalyst-api (`GET /api/v1/flows/{deploymentId}/stream`). Per-region
- * adapter-flux DaemonSets emit FlowMessage envelopes for each
- * HelmRelease they observe; the openova-flow-server merges those
- * emissions into a single contract-shaped stream keyed by
- * `flowId = deploymentId`. The canvas renders the merged graph — one
- * bubble per (region, HR) pair.
+ * # 2026-05-11 restore
  *
- * Founder-locked design (2026-05-11):
- *   • Multi-region provisions produce N bubbles per HR (one per region).
- *     The adapter-flux tags every FlowNode with `region: '<location-code>'`;
- *     the canvas swimlane layout buckets by `region` so fsn1 and hel1
- *     each get their own column.
- *   • Single-region provisions look identical to the legacy single-cluster
- *     view because the canvas falls back to a single synthetic region
- *     descriptor.
+ * Founder rejected the lane-layout / synthetic-phase scaffolding shipped
+ * via PR #1399/#1400/#1407 (Agent #5/#6/#9). The natural canvas is
+ * `FlowCanvasOrganic` — same component the rest of the operator UX has
+ * been tuned against (Bug #481, #532, #669 etc.). This file is the
+ * post-revert wrapper:
  *
- * Per docs/INVIOLABLE-PRINCIPLES.md:
- *   #1 (waterfall) — full target shape: live SSE consumer, merged
- *     multi-region graph, host/selection rings, no MVP fallback.
- *   #2 (no compromise) — one update path. No "Job-shape adapter" or
- *     legacy `/logs` consumer remains on the FlowPage code path.
- *   #4 (never hardcode) — endpoint composed from `API_BASE`, region
- *     descriptors derived from live FlowNode tags, palette/families
- *     supplied by props.
+ *   • Data path: useFlowStream → flowStreamToOrganic → flowLayoutOrganic
+ *     → FlowCanvasOrganic. No `regionDescriptorsFromFlow` lane columns,
+ *     no `defaultFoldedAtDepth` from @openova/flow-core, no
+ *     `FoldControls` chrome strip.
+ *   • Fold UX: per-bubble disclosure badge (⊕ K / ⊖) anchored on group
+ *     bubbles, plus a top-right depth chip (◀ L<n>/<max> ▶) overlaid on
+ *     the canvas. ?folded= + ?depth= preserved as the shareable-link
+ *     state.
+ *   • Right-click on a group opens a small "Fold subtree / Expand all
+ *     under here / Open in new tab" menu.
  *
  * Embedded mode (`embedded` prop, used by JobDetail) drops the
  * PortalShell + StatusStrip chrome — JobDetail owns those.
@@ -43,23 +36,22 @@ import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { useWizardStore } from '@/entities/deployment/store'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import { PortalShell } from './PortalShell'
-import { FlowCanvas } from '@openova/flow-canvas'
-import { defaultFoldedAtDepth } from '@openova/flow-core'
-import type { FamilyDescriptor, NodeAction } from '@openova/flow-core'
+import { FlowCanvasOrganic } from './FlowCanvasOrganic'
+import type { FlowOrganicAction } from './FlowCanvasOrganic'
+import { flowLayoutOrganic } from '@/lib/flowLayoutOrganic'
 import { useFlowStream } from '@/lib/openflow-adapter-sse'
+import { rollupFlowStatus } from '@/lib/flow-bridge'
 import {
-  CATALYST_STATUS_PALETTE,
-  flowStateToArrays,
-  regionDescriptorsFromFlow,
-  rollupFlowStatus,
-} from '@/lib/flow-bridge'
-import { DEFAULT_FAMILIES } from '@/lib/flowFamilyPalette'
+  defaultFoldedAtContainmentDepth,
+  descendantCountByGroup,
+  flowStreamToOrganic,
+  maxContainmentDepth,
+} from '@/lib/flowStreamToOrganic'
+import { resolveDepth, type FoldDepth } from './FoldControls'
 import {
   StatusStrip,
   type ProvisioningStatus,
 } from '@/components/StatusStrip'
-import { FoldControls, resolveDepth, type FoldDepth } from './FoldControls'
-import { PRODUCTS } from '@/pages/wizard/steps/componentGroups'
 
 /* ──────────────────────────────────────────────────────────────────
  * URL helpers
@@ -77,25 +69,12 @@ export function resolveFolded(raw: unknown): Set<string> {
 }
 
 /* ──────────────────────────────────────────────────────────────────
- * Family palette — catalog-merged DEFAULT_FAMILIES
+ * Depth normalisation — the natural canvas already speaks integer
+ * depth + 'all'. Convert FoldDepth → number|'all'.
  * ────────────────────────────────────────────────────────────────── */
 
-function useFamilyPalette(): FamilyDescriptor[] {
-  return useMemo(() => {
-    const fromCatalog = PRODUCTS.map((p) => {
-      const fallback = DEFAULT_FAMILIES.find((f) => f.id === p.id)
-      return {
-        id: p.id,
-        label: p.name,
-        color: fallback?.color ?? '#94A3B8',
-      } satisfies FamilyDescriptor
-    })
-    const seen = new Set(fromCatalog.map((f) => f.id))
-    for (const f of DEFAULT_FAMILIES) {
-      if (!seen.has(f.id)) fromCatalog.push(f)
-    }
-    return fromCatalog
-  }, [])
+function depthToNumeric(d: FoldDepth): number | 'all' {
+  return d === 'all' ? 'all' : d
 }
 
 /* ──────────────────────────────────────────────────────────────────
@@ -163,39 +142,56 @@ export function FlowPage({
     return typeof fromStream === 'string' && fromStream.length > 0 ? fromStream : null
   }, [stream.flow])
 
-  /* ── Region descriptors (multi-region support) ───────────────── */
+  /* ── Translate SSE state → Job[] + hints ─────────────────────── */
 
-  const regions = useMemo(
-    () => regionDescriptorsFromFlow(stream.nodes, store.regions),
-    [stream.nodes, store.regions],
+  const adapter = useMemo(
+    () =>
+      flowStreamToOrganic({
+        nodes: [...stream.nodes.values()],
+        relationships: [...stream.relationships.values()],
+        wizardRegions: store.regions,
+      }),
+    [stream.nodes, stream.relationships, store.regions],
   )
 
-  /* ── Family palette ──────────────────────────────────────────── */
-
-  const families = useFamilyPalette()
-
-  /* ── Fold state — URL (depth + folded) + per-node manual ─────── */
+  /* ── URL state — depth + folded ──────────────────────────────── */
 
   const urlDepth = resolveDepth(search?.depth)
   const depth: FoldDepth = initialDepth ?? urlDepth
   const urlFoldedSet = useMemo(() => resolveFolded(search?.folded), [search?.folded])
 
-  // Materialise the live Map state into the readonly arrays the
-  // canvas + layout expect. The Maps live in the hook so envelope
-  // merges stay O(1); this is one O(N) materialisation per render.
-  const { nodes, relationships } = useMemo(() => flowStateToArrays(stream), [stream])
+  /* ── Compose the folded set: depth baseline + manual overrides ── */
 
   const foldedSet = useMemo(() => {
-    const baseline =
-      depth === 'all'
-        ? new Set<string>()
-        : defaultFoldedAtDepth(nodes, relationships, depth)
-    // Manual per-node overrides: an id present in `?folded=` forces
-    // folded (additive) — the UI's Expand-all sets `?folded=` to empty
-    // so this composition reads cleanly.
+    const baseline = defaultFoldedAtContainmentDepth(adapter.jobs, depthToNumeric(depth))
     for (const id of urlFoldedSet) baseline.add(id)
     return baseline
-  }, [nodes, relationships, depth, urlFoldedSet])
+  }, [adapter.jobs, depth, urlFoldedSet])
+
+  /* ── Run the natural organic layout ──────────────────────────── */
+
+  const layout = useMemo(
+    () =>
+      flowLayoutOrganic(adapter.jobs, {
+        hints: adapter.hints,
+        regions: adapter.regions,
+        families: adapter.families,
+        folded: foldedSet,
+      }),
+    [adapter, foldedSet],
+  )
+
+  /* ── Fold-disclosure helpers ─────────────────────────────────── */
+
+  const badgeCounts = useMemo(
+    () => descendantCountByGroup(adapter.jobs, foldedSet),
+    [adapter.jobs, foldedSet],
+  )
+
+  const maxDepth = useMemo(
+    () => maxContainmentDepth(adapter.jobs),
+    [adapter.jobs],
+  )
 
   const setSearchPatch = useCallback(
     (patch: { folded?: string | undefined; depth?: string | undefined }) => {
@@ -218,39 +214,38 @@ export function FlowPage({
     [navigate],
   )
 
-  const onDepthChange = useCallback(
-    (next: FoldDepth) => {
+  const stepDepth = useCallback(
+    (dir: 1 | -1) => {
+      // Translate FoldDepth ↔ number for stepping; 'all' is just past
+      // maxDepth so ▶ from L<max> moves to 'all', ◀ from 'all' moves
+      // back to L<max>.
+      const cur = depth === 'all' ? maxDepth + 1 : depth
+      const next = Math.max(1, Math.min(maxDepth + 1, cur + dir))
+      const nextDepth: FoldDepth =
+        next > maxDepth ? 'all' : (next as FoldDepth)
+      // Clear manual overrides on chip step — chip is the global truth.
       setSearchPatch({
-        depth: next === 2 ? undefined : String(next),
-        // Clear manual overrides — depth is the new global truth.
+        depth: nextDepth === 2 ? undefined : String(nextDepth),
         folded: undefined,
       })
     },
-    [setSearchPatch],
+    [depth, maxDepth, setSearchPatch],
   )
 
-  // Group ids are the contains-edge `toId`s — a node is a group iff
-  // at least one contains-edge points at it.
-  const groupIds = useMemo(() => {
-    const out = new Set<string>()
-    for (const r of relationships) {
-      if (r.type === 'contains') out.add(r.toId)
+  // Esc clears manual overrides — snap to chip depth.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== 'Escape') return
+      if (urlFoldedSet.size === 0) return
+      setSearchPatch({ folded: undefined })
     }
-    return out
-  }, [relationships])
-  const hasGroups = groupIds.size > 0
-
-  const onCollapseAll = useCallback(() => {
-    setSearchPatch({ depth: '1', folded: [...groupIds].join(',') })
-  }, [groupIds, setSearchPatch])
-
-  const onExpandAll = useCallback(() => {
-    setSearchPatch({ depth: 'all', folded: undefined })
-  }, [setSearchPatch])
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [urlFoldedSet.size, setSearchPatch])
 
   const toggleFold = useCallback(
     (nodeId: string) => {
-      if (!groupIds.has(nodeId)) return
+      if (!adapter.groupIds.has(nodeId)) return
       const next = new Set(urlFoldedSet)
       const isFolded = foldedSet.has(nodeId)
       if (isFolded) next.delete(nodeId)
@@ -258,7 +253,7 @@ export function FlowPage({
       const arr = [...next].filter(Boolean)
       setSearchPatch({ folded: arr.length > 0 ? arr.join(',') : undefined })
     },
-    [groupIds, foldedSet, urlFoldedSet, setSearchPatch],
+    [adapter.groupIds, foldedSet, urlFoldedSet, setSearchPatch],
   )
 
   /* ── Selection / host node tracking ──────────────────────────── */
@@ -280,20 +275,19 @@ export function FlowPage({
     [onOpenJobChange],
   )
 
-  // FlowCanvas handles single-vs-double-click debounce internally; the
-  // page only supplies the callbacks.
-  const handleNodeOpen = useCallback(
+  const handleNodeClick = useCallback(
     (nodeId: string) => {
       setOpenJobId(nodeId)
     },
     [setOpenJobId],
   )
 
-  const handleNodeNavigate = useCallback(
+  const handleNodeDoubleClick = useCallback(
     (nodeId: string) => {
-      // Chroot-aware target: on the mother's monitoring surface the
-      // deploymentId is in the URL; on the Sovereign's adult hostname
-      // the deploymentId is implicit so the clean root form is correct.
+      // Double-click navigates to the job-detail surface. Chroot-aware:
+      // on the mother's monitoring view the deploymentId is in the URL;
+      // on the Sovereign's adult hostname the deploymentId is implicit
+      // so the clean root form is correct.
       const target =
         deploymentId && DETECTED_MODE.mode !== 'sovereign'
           ? `/provision/${deploymentId}/jobs/${nodeId}`
@@ -303,81 +297,92 @@ export function FlowPage({
     [navigate, deploymentId],
   )
 
-  const handleFoldToggle = useCallback(
-    (nodeId: string) => {
-      toggleFold(nodeId)
-    },
-    [toggleFold],
-  )
-
   const handleCanvasBackgroundClick = useCallback(() => {
     setOpenJobId(hostJobId)
   }, [setOpenJobId, hostJobId])
 
-  /* ── Right-click action list (Agent #9) ─────────────────────────
-   *
-   * Three default per-node actions surfaced on the canvas's
-   * right-click menu: Retry, Suspend, View logs. These map onto the
-   * catalyst-api job-control endpoints (POST /jobs/{id}/retry,
-   * /jobs/{id}/suspend) which are the standard Flux HR
-   * suspend/resume + manual reconcile primitives.
-   *
-   * The canvas is presentational — it never knows what these mean;
-   * it only invokes `onNodeAction(nodeId, actionId)`. The thin
-   * adapter here calls the corresponding endpoint and lets Flux
-   * reconcile. If the endpoint isn't yet implemented the call
-   * surfaces as a 404 in DevTools; that's the canonical signal to
-   * the operator to wire the missing route. */
-  const flowActions = useMemo<NodeAction[]>(
+  /* ── Right-click action list ─────────────────────────────────── */
+
+  const flowActions = useMemo<FlowOrganicAction[]>(
     () => [
       {
-        id: 'retry',
-        label: 'Retry',
-        invoke: () => undefined,
+        id: 'fold-subtree',
+        label: 'Fold subtree',
       },
       {
-        id: 'suspend',
-        label: 'Suspend',
-        invoke: () => undefined,
+        id: 'fold-to-level',
+        label: 'Fold to level N',
       },
       {
-        id: 'logs',
-        label: 'View logs',
-        invoke: () => undefined,
+        id: 'expand-all-under',
+        label: 'Expand all under here',
+      },
+      {
+        id: 'open-new-tab',
+        label: 'Open in new tab',
       },
     ],
     [],
   )
 
   const handleNodeAction = useCallback(
-    async (nodeId: string, actionId: string) => {
-      // The canvas already dismisses the menu on click. Per the
-      // adapter-Action contract we delegate to a single POST that the
-      // server-side router dispatches. If a future adapter wants
-      // bespoke behaviour, it can supply its own NodeAction list and
-      // FlowPage forwards through.
-      try {
-        const endpoint = `/api/v1/flows/${deploymentId}/nodes/${encodeURIComponent(nodeId)}/actions/${actionId}`
-        await fetch(endpoint, { method: 'POST' })
-      } catch {
-        // Network errors are surfaced via the SSE stream; we don't
-        // want to crash the canvas if a one-off click fails.
+    (nodeId: string, actionId: string) => {
+      switch (actionId) {
+        case 'fold-subtree': {
+          if (adapter.groupIds.has(nodeId)) {
+            const next = new Set(urlFoldedSet)
+            next.add(nodeId)
+            setSearchPatch({
+              folded: next.size > 0 ? [...next].join(',') : undefined,
+            })
+          }
+          return
+        }
+        case 'fold-to-level': {
+          // Folds to one level deeper than the clicked node's own depth.
+          // Best-effort: step the global chip up by one if there's room.
+          stepDepth(-1)
+          return
+        }
+        case 'expand-all-under': {
+          if (adapter.groupIds.has(nodeId)) {
+            const next = new Set(urlFoldedSet)
+            next.delete(nodeId)
+            // Also remove any descendants of nodeId that were manually
+            // folded — best-effort using the live job graph.
+            const byId = new Map(adapter.jobs.map((j) => [j.id, j]))
+            const stack = [nodeId]
+            const seen = new Set<string>()
+            while (stack.length > 0) {
+              const id = stack.pop()!
+              if (seen.has(id)) continue
+              seen.add(id)
+              const j = byId.get(id)
+              if (!j) continue
+              for (const c of j.childIds ?? []) {
+                next.delete(c)
+                stack.push(c)
+              }
+            }
+            setSearchPatch({
+              folded: next.size > 0 ? [...next].join(',') : undefined,
+            })
+          }
+          return
+        }
+        case 'open-new-tab': {
+          const target =
+            deploymentId && DETECTED_MODE.mode !== 'sovereign'
+              ? `/provision/${deploymentId}/jobs/${nodeId}`
+              : `/jobs/${nodeId}`
+          if (typeof window !== 'undefined') {
+            window.open(target, '_blank', 'noopener,noreferrer')
+          }
+          return
+        }
       }
     },
-    [deploymentId],
-  )
-
-  const handleNavigateFlow = useCallback(
-    (flowId: string) => {
-      // triggeredBy / cross-flow target — navigate to the sibling
-      // flow's dashboard. Sovereign chroot drops the deploymentId.
-      const target =
-        DETECTED_MODE.mode === 'sovereign'
-          ? `/jobs`
-          : `/provision/${flowId}`
-      navigate({ to: target as never })
-    },
-    [navigate],
+    [adapter.groupIds, adapter.jobs, urlFoldedSet, setSearchPatch, stepDepth, deploymentId],
   )
 
   /* ── StatusStrip rollup ──────────────────────────────────────── */
@@ -424,39 +429,23 @@ export function FlowPage({
     return () => document.removeEventListener('keydown', onKey)
   }, [canvasFullScreen])
 
-  /* ── Flow envelope for canvas ────────────────────────────────── */
-
-  const flowInstance = useMemo(() => {
-    if (stream.flow) return stream.flow
-    // Synthetic placeholder for the canvas on first paint — the canvas
-    // tolerates this (it only reads flow.id for the SVG title).
-    return {
-      id: deploymentId || 'pending',
-      status: 'pending',
-      startedAt: 0,
-    }
-  }, [stream.flow, deploymentId])
-
   /* ── Render ──────────────────────────────────────────────────── */
 
+  const hasGroups = adapter.groupIds.size > 0
+  const depthLabel = depth === 'all' ? `L${maxDepth || 0}/${maxDepth || 0}` : `L${depth}/${maxDepth || depth}`
   const canvas = (
-    <FlowCanvas
-      flow={flowInstance}
-      nodes={nodes}
-      relationships={relationships}
-      folded={foldedSet}
-      hostNodeId={hostJobId}
-      selectedNodeId={openJobId}
-      palette={CATALYST_STATUS_PALETTE}
-      families={families}
-      regions={regions}
-      onNodeOpen={handleNodeOpen}
-      onNodeNavigate={handleNodeNavigate}
-      onFoldToggle={handleFoldToggle}
-      onBackgroundClick={handleCanvasBackgroundClick}
-      actions={flowActions}
-      onNodeAction={handleNodeAction}
-      onNavigateFlow={handleNavigateFlow}
+    <FlowCanvasOrganic
+      layout={layout}
+      openJobId={openJobId}
+      hostJobId={hostJobId}
+      embedded={embedded}
+      onJobClick={(jobId) => handleNodeClick(jobId)}
+      onJobDoubleClick={(jobId) => handleNodeDoubleClick(jobId)}
+      onCanvasBackgroundClick={handleCanvasBackgroundClick}
+      onFoldToggle={hasGroups ? toggleFold : undefined}
+      badgeCounts={badgeCounts}
+      nodeActions={hasGroups ? flowActions : undefined}
+      onNodeAction={hasGroups ? handleNodeAction : undefined}
     />
   )
 
@@ -484,6 +473,39 @@ export function FlowPage({
     </button>
   )
 
+  const depthChip = hasGroups ? (
+    <div
+      className="flow-depth-chip"
+      data-testid="flow-depth-chip"
+      role="toolbar"
+      aria-label="Canvas depth"
+    >
+      <button
+        type="button"
+        className="flow-depth-chip-btn"
+        data-testid="flow-depth-chip-prev"
+        aria-label="Decrease depth"
+        title="Fold one level deeper"
+        onClick={() => stepDepth(-1)}
+      >
+        ◀
+      </button>
+      <span className="flow-depth-chip-label" data-testid="flow-depth-chip-label">
+        {depthLabel}
+      </span>
+      <button
+        type="button"
+        className="flow-depth-chip-btn"
+        data-testid="flow-depth-chip-next"
+        aria-label="Increase depth"
+        title="Unfold one more level"
+        onClick={() => stepDepth(1)}
+      >
+        ▶
+      </button>
+    </div>
+  ) : null
+
   const flowSurface = (
     <div
       className={`flow-surface${canvasFullScreen ? ' is-fullscreen' : ''}`}
@@ -492,6 +514,7 @@ export function FlowPage({
     >
       <div className="flow-canvas-host" data-testid="flow-canvas-host">
         {canvas}
+        {depthChip}
         {fullScreenButton}
       </div>
     </div>
@@ -531,15 +554,6 @@ export function FlowPage({
           finished={finishedCount}
           total={totalCount}
           elapsedMs={elapsedMs}
-          trailing={
-            <FoldControls
-              depth={depth}
-              onDepthChange={onDepthChange}
-              onCollapseAll={onCollapseAll}
-              onExpandAll={onExpandAll}
-              hasGroups={hasGroups}
-            />
-          }
         />
       </div>
 
@@ -660,5 +674,49 @@ const FLOW_PAGE_CSS = `
   color: var(--color-accent, #38BDF8);
   border-color: var(--color-accent, #38BDF8);
   background: rgba(56, 189, 248, 0.12);
+}
+
+/* Depth chip — top-right gutter, just left of the full-screen
+   toggle. Tucks above the canvas SVG; never moves the bubble
+   layout. */
+.flow-depth-chip {
+  position: absolute;
+  top: 12px;
+  right: 52px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(7, 10, 18, 0.78);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-dim);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  z-index: 50;
+}
+[data-theme="light"] .flow-depth-chip {
+  background: rgba(241, 245, 249, 0.95);
+  color: var(--color-text-dim);
+}
+.flow-depth-chip-btn {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 2px 4px;
+  color: var(--color-text-dim);
+  cursor: pointer;
+  font: inherit;
+  border-radius: 4px;
+  transition: color 0.12s ease, background-color 0.12s ease;
+}
+.flow-depth-chip-btn:hover {
+  color: var(--color-text);
+  background: rgba(148, 163, 184, 0.12);
+}
+.flow-depth-chip-label {
+  min-width: 56px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 `
