@@ -148,8 +148,29 @@ func shouldRefuseWipe(status string, startedAt, now time.Time, threshold time.Du
 // re-prompts the operator for the token in the Cancel & Wipe modal, so
 // the value survives just long enough to drive `tofu destroy` + the
 // Hetzner orphan purge, then is forgotten.
+//
+// ObjectStorageAccessKey / ObjectStorageSecretKey / ObjectStorageRegion
+// mirror the same pattern (issue #166): the on-disk Deployment record
+// strips S3 credentials at Save() time per the credential-hygiene
+// principle, so after a catalyst-api Pod restart `dep.Request` carries
+// EMPTY S3 creds and the bucket purge in WipeDeployment silently
+// skipped — leaking 10+ orphan buckets in the field (one per wiped
+// provision back to prov #11, observed 2026-05-11). The wizard MUST
+// re-prompt the operator for the same triplet it captured at provision
+// time and pass it on the wipe body; the handler then prefers body
+// values over `dep.Request` so the purge runs whether or not the Pod
+// has rolled. Wire shape mirrors the existing HetznerToken sibling.
+//
+// TODO(#166-followup): consider Option B (per-deployment K8s Secret
+// holding S3 creds, reaped on wipe) if a future security review
+// objects to the operator re-prompt model. Option A is shipped today
+// because it matches the canonical HetznerToken pattern and survives
+// Pod restarts with zero extra storage.
 type wipeRequest struct {
-	HetznerToken string `json:"hetznerToken"`
+	HetznerToken           string `json:"hetznerToken"`
+	ObjectStorageAccessKey string `json:"objectStorageAccessKey,omitempty"`
+	ObjectStorageSecretKey string `json:"objectStorageSecretKey,omitempty"`
+	ObjectStorageRegion    string `json:"objectStorageRegion,omitempty"`
 }
 
 // wipeResponse summarises what was actually purged. The wizard renders
@@ -394,18 +415,66 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 	// tofu state, BEFORE the local-record cleanup so the UI banner can
 	// surface the count + any error.
 	//
-	// Credentials come from the in-memory Request (the wizard captured
-	// them at provision time and they live on dep.Request until the Pod
-	// restarts; on-disk records redact them). When they're absent, skip
-	// with a recorded note rather than fail — the operator can run the
-	// manual sweep documented in feedback_idempotent_iac_purge.md.
-	if dep.Request.ObjectStorageAccessKey != "" && dep.Request.ObjectStorageSecretKey != "" && dep.Request.ObjectStorageRegion != "" {
+	// Credential resolution order (issue #166):
+	//
+	//   1. Wipe REQUEST body (canonical, survives Pod restart) — this
+	//      mirrors the existing HetznerToken-in-body pattern at the top
+	//      of this handler. The wizard re-prompts the operator for the
+	//      same triplet it captured at provision time and POSTs it on
+	//      the Cancel & Wipe modal submit.
+	//   2. In-memory dep.Request (the wizard captured them at provision
+	//      time and they live there until the Pod restarts; on-disk
+	//      records redact them per credential-hygiene principle). Kept
+	//      as a fallback so wipes triggered immediately after a
+	//      successful provision — without a re-prompt — still work.
+	//
+	// When BOTH are empty (Pod restarted AND wizard didn't re-prompt),
+	// surface a HARD error in the response rather than silently leaving
+	// the bucket behind. Bucket orphans cost real money + count against
+	// the Hetzner project's S3-bucket quota; the pre-#166 silent-skip
+	// leaked 10 buckets on omantel.biz alone (catalyst-omantel-biz-*,
+	// one per wiped provision back to prov #11, manually purged via
+	// boto3 with the same creds — confirming the creds work, the
+	// handler just lacked them).
+	//
+	// SSE log hygiene (principle 19): we emit a structural notice that
+	// the bucket-purge step ran with body-supplied vs in-memory creds,
+	// but NEVER the access/secret key values themselves. Credentials
+	// stay in transit-encrypted POST body → in-process variables →
+	// Hetzner S3 SDK, never on the events channel or in logs.
+	//
+	// TODO(#166-followup): consider Option B (per-deployment K8s Secret
+	// holding S3 creds, reaped on wipe) if a future security review
+	// objects to the operator re-prompt model. Option A is shipped
+	// today because it matches the canonical HetznerToken pattern and
+	// survives Pod restarts with zero extra storage.
+	accessKey := strings.TrimSpace(body.ObjectStorageAccessKey)
+	secretKey := strings.TrimSpace(body.ObjectStorageSecretKey)
+	region := strings.TrimSpace(body.ObjectStorageRegion)
+	credsSource := "request-body"
+	if accessKey == "" || secretKey == "" || region == "" {
+		// Fall back to in-memory dep.Request — still useful when the
+		// operator triggers wipe seconds after a successful provision
+		// (no Pod restart in between).
+		if accessKey == "" {
+			accessKey = dep.Request.ObjectStorageAccessKey
+		}
+		if secretKey == "" {
+			secretKey = dep.Request.ObjectStorageSecretKey
+		}
+		if region == "" {
+			region = dep.Request.ObjectStorageRegion
+		}
+		credsSource = "in-memory-request-record"
+	}
+	if accessKey != "" && secretKey != "" && region != "" {
+		emit("wipe", "info", "object-storage: bucket purge starting (creds source: "+credsSource+")")
 		bucketCtx, bucketCancel := context.WithTimeout(r.Context(), 5*time.Minute)
 		removed, berr := hetzner.PurgeBuckets(bucketCtx,
 			hetzner.PurgeBucketsConfig{
-				AccessKey: dep.Request.ObjectStorageAccessKey,
-				SecretKey: dep.Request.ObjectStorageSecretKey,
-				Region:    dep.Request.ObjectStorageRegion,
+				AccessKey: accessKey,
+				SecretKey: secretKey,
+				Region:    region,
 			},
 			dep.Request.SovereignFQDN,
 			// Per Fix #111: deploymentID feeds the bucket-name suffix so
@@ -443,7 +512,14 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 			report.Errors = append(report.Errors, "object-storage bucket purge: "+berr.Error())
 		}
 	} else {
-		emit("wipe", "warn", "object-storage credentials not on in-memory deployment record (Pod likely restarted) — skipping bucket purge; run the manual sweep from docs/feedback_idempotent_iac_purge.md")
+		// Both sources empty. Surface as a hard error in the response
+		// (NOT a silent warn) so the wizard banner forces the operator
+		// to re-prompt + retry, instead of pretending the wipe is
+		// complete while a bucket leaks. Issue #166 root cause was
+		// exactly this silent-skip path.
+		msg := "object-storage credentials not supplied on request body AND not retained on in-memory deployment record (Pod likely restarted) — bucket purge SKIPPED; re-issue the wipe with objectStorageAccessKey/SecretKey/Region in the body, or run the manual sweep from docs/feedback_idempotent_iac_purge.md"
+		emit("wipe", "warn", msg)
+		report.Errors = append(report.Errors, msg)
 	}
 
 	if report.HetznerPurge.Total() > 0 {
