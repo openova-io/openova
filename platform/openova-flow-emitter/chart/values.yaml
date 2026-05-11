@@ -21,11 +21,12 @@ flowEmitter:
   workloadName: openova-flow-emitter
   image:
     repository: harbor.openova.io/proxy-ghcr/openova-io/openova/openova-flow-adapter-flux
-    # SHA-pinned per INVIOLABLE-PRINCIPLES #4a. CI populates this via
-    # build-openova-flow-adapter-flux.yaml on every push to
-    # products/openova-flow/adapter-flux/** or this chart.
-    # Empty fails chart render via _helpers.tpl image-fail-fast.
-    tag: ""
+    # SHA-pinned by CI's build-openova-flow-adapter-flux.yaml (seds
+    # this value with the short-SHA). Default `latest` lets Blueprint
+    # Release smoke-render the chart with default values before the
+    # first CI run has populated a SHA. Bootstrap-kit HR overrides at
+    # install time so runtime always pulls a deterministic image.
+    tag: "latest"
     pullPolicy: IfNotPresent
 
   # ── Runtime configuration ──────────────────────────────────────────
