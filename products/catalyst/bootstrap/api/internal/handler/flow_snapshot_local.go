@@ -252,17 +252,33 @@ func (h *Handler) flowSnapshotFromJobs(deploymentID string) (*flowSnapshotLocalM
 			})
 		}
 		// Dependency edges — finish-to-start arrows from upstream
-		// installs to this job. jobs.Bridge already normalises the
-		// dep ids into the JobID(deploymentID, "install-<chart>")
-		// form, so we copy them verbatim.
+		// installs to this job. helmwatch.Bridge currently writes
+		// SOME Job.DependsOn entries as bare names ("install-flux")
+		// rather than the canonical JobID form
+		// ("<deploymentId>:install-flux"). Either form is valid as
+		// the persistence-side key the Bridge uses internally, but
+		// the canvas reducer matches FlowNode.id by exact string, so
+		// a bare-name fromId becomes a phantom edge to a non-existent
+		// node — which the layout then routes through the nearest
+		// real bubbles, manifesting as spurious 5-edge fan-outs from
+		// Phase-0 tofu jobs to every install-* bubble. Normalise
+		// every dep id to the canonical
+		// jobs.JobID(deploymentID, jobName) form before emitting.
 		seenDep := map[string]bool{}
 		for _, dep := range j.DependsOn {
-			if dep == "" || dep == j.ID {
+			if dep == "" {
 				continue
 			}
-			seenDep[dep] = true
+			normalised := dep
+			if !strings.Contains(dep, ":") {
+				normalised = jobs.JobID(deploymentID, dep)
+			}
+			if normalised == j.ID || seenDep[normalised] {
+				continue
+			}
+			seenDep[normalised] = true
 			rels = append(rels, flowSnapshotLocalRelationship{
-				FromID: dep,
+				FromID: normalised,
 				ToID:   j.ID,
 				Type:   "finish-to-start",
 			})
