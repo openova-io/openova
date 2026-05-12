@@ -16,7 +16,7 @@ description: |
   `platform/cluster-autoscaler-hcloud/README.md` for the rationale and
   ADR-0001 §13 for the cloud-direct architecture rule.
 type: application
-version: 1.2.0
+version: 1.3.0
 appVersion: "1.32.0"
 keywords: [catalyst, blueprint, cluster-autoscaler, hetzner, autoscaling]
 maintainers:

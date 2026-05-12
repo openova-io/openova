@@ -112,4 +112,38 @@ if ! grep -qE "^[[:space:]]*cloud-init:[[:space:]]*\"?${canary}\"?\$" "$TMP/popu
 fi
 echo "  PASS"
 
+# ── Case 5: HCLOUD_NETWORK / HCLOUD_FIREWALL / HCLOUD_SSH_KEY env vars ──
+# Issue #1778 — without HCLOUD_NETWORK the autoscaler-spawned VMs come up
+# with a public IP only (no private 10.0.0.0/16 attachment) and the
+# worker cloud-init's `K3S_URL=https://10.0.1.2:6443` is unreachable →
+# k3s join fails → scale-up times out at 15m → backoff → bp-catalyst-
+# platform install wedges. This case gates against regression of the
+# three env-var slots in chart/values.yaml `cluster-autoscaler.extraEnv`.
+echo "[hetzner-node-config] Case 5: HCLOUD_NETWORK / HCLOUD_FIREWALL / HCLOUD_SSH_KEY env vars present"
+for v in HCLOUD_NETWORK HCLOUD_FIREWALL HCLOUD_SSH_KEY; do
+  if ! grep -qE "name: ${v}" "$TMP/default.yaml"; then
+    echo "FAIL: deployment missing ${v} env var (issue #1778)." >&2
+    echo "      values.yaml MUST declare an extraEnv key for ${v} so per-" >&2
+    echo "      Sovereign Flux valuesFrom can populate it from cloud-init." >&2
+    exit 1
+  fi
+done
+echo "  PASS"
+
+# ── Case 6: overlay-supplied HCLOUD_NETWORK threads through verbatim ────
+echo "[hetzner-node-config] Case 6: cluster-autoscaler.extraEnv.HCLOUD_NETWORK overlay threads verbatim"
+canary_net="catalyst-test-canary-net"
+if ! helm template smoke-cas . \
+      --set "cluster-autoscaler.extraEnv.HCLOUD_NETWORK=${canary_net}" \
+      > "$TMP/net-overlay.yaml" 2> "$TMP/net-overlay.err"; then
+  echo "FAIL: overlay render failed:" >&2
+  cat "$TMP/net-overlay.err" >&2
+  exit 1
+fi
+if ! grep -qE "value: \"?${canary_net}\"?\$" "$TMP/net-overlay.yaml"; then
+  echo "FAIL: cluster-autoscaler.extraEnv.HCLOUD_NETWORK overlay did NOT thread to deployment env." >&2
+  exit 1
+fi
+echo "  PASS"
+
 echo "[hetzner-node-config] All bp-cluster-autoscaler-hcloud node-config gates green."

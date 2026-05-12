@@ -77,6 +77,15 @@ spec:
   chart:
     spec:
       chart: bp-cluster-autoscaler-hcloud
+      # 1.3.0 — qa-loop chroot-canvas Fix: wire HCLOUD_NETWORK /
+      # HCLOUD_FIREWALL / HCLOUD_SSH_KEY env vars onto the autoscaler
+      # deployment so scale-up VMs land on the Phase-0 private network +
+      # firewall + ssh-key, identical to Phase-0 workers. Without these
+      # the autoscaler-spawned VMs only receive a public IP, the worker
+      # cloud-init's `K3S_URL=https://10.0.1.2:6443` is unreachable, the
+      # k3s agent join silently fails, and every scale-up times out at
+      # 15m → backoff. Live evidence: prov #38/#39/#41/#43 omantel.biz.
+      #
       # 1.2.0 — qa-loop Wave 5 Fix #79 Gap D: chart-derived
       # HCLOUD_CLUSTER_CONFIG fallback. When the per-Sovereign
       # cloud-init has not stamped the `hcloud-cloud-init` key into
@@ -85,7 +94,7 @@ spec:
       # `cluster-autoscaler.autoscalingGroups[]` so the autoscaler
       # never FATALs with the generic
       # "HCLOUD_CLUSTER_CONFIG or HCLOUD_CLOUD_INIT is not specified".
-      version: 1.2.0
+      version: 1.3.0
       sourceRef:
         kind: HelmRepository
         name: bp-cluster-autoscaler-hcloud
@@ -142,6 +151,39 @@ spec:
       # FATAL at startup, surfacing the missing-cloud-init in Pod logs;
       # operators rotate by re-running cloud-init or by patching
       # cloud-credentials directly).
+      optional: true
+    # ── Issue #1778 — Hetzner network/firewall/ssh-key attachment ──────
+    # The cluster-autoscaler-hcloud provider only attaches scale-up
+    # servers to an existing private network when HCLOUD_NETWORK is set
+    # at startup. Without it, the Phase-0 workers (which join via
+    # 10.0.1.2:6443 on the private subnet) and the autoscaler-spawned
+    # workers (which only have a public IP) live on different network
+    # planes — the autoscaler VMs cannot reach the apiserver private
+    # endpoint, the k3s agent join times out, the node never registers,
+    # the autoscaler hits a 15m scale-up timeout and enters backoff.
+    # Names are written by cloud-init (see
+    # infra/hetzner/cloudinit-control-plane.tftpl `hcloud-network-name`
+    # etc.) so the autoscaler attaches every scale-up VM to the
+    # SAME network + firewall + ssh-key the Phase-0 Tofu module created.
+    # The chart's values.yaml default of empty-string keeps the upstream
+    # deployment shape valid for legacy Sovereigns whose cloud-init
+    # never stamped these keys; on those Sovereigns Flux just skips the
+    # entry (optional: true) and the autoscaler runs in its pre-#1778
+    # shape (still broken, but no Helm render error).
+    - kind: Secret
+      name: cloud-credentials
+      valuesKey: hcloud-network-name
+      targetPath: cluster-autoscaler.extraEnv.HCLOUD_NETWORK
+      optional: true
+    - kind: Secret
+      name: cloud-credentials
+      valuesKey: hcloud-firewall-name
+      targetPath: cluster-autoscaler.extraEnv.HCLOUD_FIREWALL
+      optional: true
+    - kind: Secret
+      name: cloud-credentials
+      valuesKey: hcloud-ssh-key-name
+      targetPath: cluster-autoscaler.extraEnv.HCLOUD_SSH_KEY
       optional: true
   # Per-Sovereign baseline values. clusters/<sovereign>/bootstrap-kit/
   # 40-cluster-autoscaler.yaml MAY override `autoscalingGroups` to set
