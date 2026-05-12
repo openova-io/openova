@@ -45,6 +45,7 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -228,6 +229,30 @@ func (h *Handler) RefreshWatch(w http.ResponseWriter, r *http.Request) {
 		kubeconfigPath = dep.Result.KubeconfigPath
 	}
 	dep.mu.Unlock()
+
+	// Disk-fallback — when the Pod restarted between PutKubeconfig
+	// writing the file AND the next Result.Save() persisting the path
+	// field, dep.Result.KubeconfigPath comes back empty even though
+	// the file exists at the canonical convention <kubeconfigsDir>/
+	// <deploymentID>.yaml. RefreshWatch is supposed to RESUME a watch
+	// after a Pod restart, so failing here would leave the canvas
+	// frozen until the next cloud-init PUT (which only fires once per
+	// deployment). Fall back to the canonical path and patch the
+	// record so subsequent endpoints see a populated KubeconfigPath.
+	if kubeconfigPath == "" && h.kubeconfigsDir != "" {
+		candidate := filepath.Join(h.kubeconfigsDir, depID+".yaml")
+		if _, err := os.Stat(candidate); err == nil {
+			kubeconfigPath = candidate
+			dep.mu.Lock()
+			if dep.Result == nil {
+				dep.Result = &provisioner.Result{}
+			}
+			if dep.Result.KubeconfigPath == "" {
+				dep.Result.KubeconfigPath = candidate
+			}
+			dep.mu.Unlock()
+		}
+	}
 
 	if kubeconfigPath == "" {
 		writeJSON(w, http.StatusConflict, map[string]string{
