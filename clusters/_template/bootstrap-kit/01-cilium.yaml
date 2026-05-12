@@ -75,6 +75,19 @@ spec:
       retries: 3
   values:
     cilium:
+      # Multi-region (operator mandate 2026-05-12) — each region's k3s
+      # is an INDEPENDENT cluster per NAMING-CONVENTION §1.3, so each
+      # region's cilium MUST talk to its OWN local CP, not the primary's
+      # 10.0.1.2. Flux postBuild.substitute in
+      # cloudinit-control-plane.tftpl renders CILIUM_K8S_SERVICE_HOST to
+      # the local CP's private IP per region (10.0.1.2 for primary,
+      # 10.0.<10+idx>.2 for secondaries — see main.tf:267
+      # secondary_region_cp_ips). Without this, secondary regions'
+      # cilium-operator crash-loops with x509 unknown authority (the
+      # primary's CA doesn't sign the secondary cluster's API cert).
+      # The :=10.0.1.2 fallback preserves single-region (primary-only)
+      # provisions where the substitute var would be empty/absent.
+      k8sServiceHost: ${CILIUM_K8S_SERVICE_HOST:=10.0.1.2}
       # Phase-8a bug #15 (otech8 deployment 1bfc46347564467b 2026-05-01):
       # cilium-agent waits forever for the operator to register
       # ciliumenvoyconfigs + ciliumclusterwideenvoyconfigs CRDs.

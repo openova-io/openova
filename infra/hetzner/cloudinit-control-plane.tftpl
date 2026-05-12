@@ -652,17 +652,25 @@ write_files:
       # comment block immediately above this write_files entry, and
       # cilium_values_parity_test.go for the regression guard.
       kubeProxyReplacement: true
-      # k8sServiceHost: the CP's stable private IP on the 10.0.1.0/24
-      # subnet (cp1=10.0.1.2 per main.tf network block). Was previously
-      # 127.0.0.1 which works on the CP (k3s server listens on
-      # localhost:6443) but FAILS on workers (k3s agent does NOT expose
-      # apiserver on localhost — only the supervisor port on :6444).
-      # When worker_count>0 (issue #733 multi-node default), the Cilium
-      # DaemonSet on workers used to crashloop with "127.0.0.1:6443:
-      # connect: connection refused" forever. Routing every Cilium agent
-      # to the CP private IP fixes the worker path and is a no-op on
-      # the CP itself (10.0.1.2 IS its own private IP).
-      k8sServiceHost: 10.0.1.2
+      # k8sServiceHost: the LOCAL CP's stable private IP per region.
+      # Primary cluster: 10.0.1.2 (main.tf:317). Each secondary region's
+      # cloud-init renders ${cp_private_ip} to its own subnet's .2
+      # (e.g. 10.0.11.2 for nbg1-1, 10.0.12.2 for hel1-2 — main.tf:267
+      # secondary_region_cp_ips). Without this each region's pre-Flux
+      # cilium install would talk to the PRIMARY's 10.0.1.2 which
+      # presents the primary cluster's CA, NOT this cluster's CA →
+      # x509 unknown authority → cilium-operator crash-loops →
+      # no CNI → flux controllers Pending forever.
+      #
+      # Was previously 127.0.0.1 which works on the CP (k3s server
+      # listens on localhost:6443) but FAILS on workers (k3s agent
+      # does NOT expose apiserver on localhost — only the supervisor
+      # port on :6444). When worker_count>0 (issue #733 multi-node
+      # default), the Cilium DaemonSet on workers used to crashloop
+      # with "127.0.0.1:6443: connect: connection refused" forever.
+      # Routing every Cilium agent to the LOCAL CP's private IP fixes
+      # both the multi-node worker path AND the multi-region path.
+      k8sServiceHost: ${cp_private_ip}
       k8sServicePort: 6443
       tunnelProtocol: vxlan
       bpf:
@@ -989,6 +997,20 @@ write_files:
             # Sovereigns; default "false" → real-trusted production
             # certs on customer Sovereigns.
             WILDCARD_CERT_USE_STAGING: "${wildcard_cert_use_staging}"
+            # Cilium's apiserver target — must be the LOCAL CP's
+            # private IP for the cluster this Flux is running in.
+            # Primary cluster: 10.0.1.2 (hardcoded in main.tf:317).
+            # Secondary clusters: cidrhost(<subnet>, 2) (main.tf:267).
+            # Without this each region's bp-cilium would use the
+            # chart-default 10.0.1.2 — which is the PRIMARY's IP, NOT
+            # the local cluster's. Result on secondary regions: cilium
+            # operator crash-loops with `tls: failed to verify
+            # certificate: x509: certificate signed by unknown
+            # authority` because the primary's k3s API presents the
+            # primary's CA, not the secondary cluster's CA. Each
+            # region is an INDEPENDENT k3s cluster per
+            # NAMING-CONVENTION §1.3.
+            CILIUM_K8S_SERVICE_HOST: "${cp_private_ip}"
       ---
       apiVersion: kustomize.toolkit.fluxcd.io/v1
       kind: Kustomization
@@ -1181,7 +1203,7 @@ runcmd:
   # becomes ready. Skip the taint when there are no workers; fall back
   # to k3s default (CP fully schedulable) so the solo node carries
   # everything.
-  - 'curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=${k3s_version} K3S_TOKEN=${k3s_token} INSTALL_K3S_EXEC="server --cluster-init --flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --tls-san=${sovereign_fqdn} --tls-san=10.0.1.2 --kube-apiserver-arg=oidc-issuer-url=https://auth.${sovereign_fqdn}/realms/sovereign --kube-apiserver-arg=oidc-client-id=kubectl --kube-apiserver-arg=oidc-username-claim=preferred_username --kube-apiserver-arg=oidc-username-prefix=oidc: --kube-apiserver-arg=oidc-groups-claim=groups --kube-apiserver-arg=oidc-groups-prefix=oidc: --node-label catalyst.openova.io/role=control-plane ${worker_count > 0 ? "--node-taint node-role.kubernetes.io/control-plane=true:NoSchedule " : ""}--write-kubeconfig-mode=0644" sh -'
+  - 'curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=${k3s_version} K3S_TOKEN=${k3s_token} INSTALL_K3S_EXEC="server --cluster-init --flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --tls-san=${sovereign_fqdn} --tls-san=${cp_private_ip} --kube-apiserver-arg=oidc-issuer-url=https://auth.${sovereign_fqdn}/realms/sovereign --kube-apiserver-arg=oidc-client-id=kubectl --kube-apiserver-arg=oidc-username-claim=preferred_username --kube-apiserver-arg=oidc-username-prefix=oidc: --kube-apiserver-arg=oidc-groups-claim=groups --kube-apiserver-arg=oidc-groups-prefix=oidc: --node-label catalyst.openova.io/role=control-plane ${worker_count > 0 ? "--node-taint node-role.kubernetes.io/control-plane=true:NoSchedule " : ""}--write-kubeconfig-mode=0644" sh -'
 
   # Wait for the API server to be reachable. Cilium needs to come up before
   # nodes Ready, so we wait specifically for the API endpoint.
