@@ -33,7 +33,9 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -264,6 +266,17 @@ func (h *Handler) runPhase1Watch(dep *Deployment) {
 		dep.mu.Unlock()
 	}()
 
+	// Multi-region: spawn one helmwatch.Watcher per secondary region
+	// whose kubeconfig has been PUT back (cloudinit-control-plane.tftpl
+	// passes `?region=<k>` for each secondary CP). The watchers run
+	// in background goroutines; their SnapshotComponents() is
+	// composed into the flow snapshot per region so the canvas shows
+	// install-* HRs from every region. A poll loop catches secondary
+	// kubeconfigs that arrive AFTER the primary's watch starts (they
+	// typically race within ~10s of each other but not always).
+	stopSecondaries := h.spawnSecondaryRegionWatchers(dep)
+	defer stopSecondaries()
+
 	// Use the background context so a finished HTTP request from the
 	// caller doesn't cancel a multi-minute Phase-1 watch. The watch
 	// has its own configured timeout via cfg.WatchTimeout.
@@ -396,6 +409,135 @@ func (h *Handler) setPhase1Substate(dep *Deployment, substate string) {
 	dep.Result.Phase1Substate = substate
 	dep.mu.Unlock()
 	h.persistDeployment(dep)
+}
+
+// spawnSecondaryRegionWatchers reads `<kubeconfigsDir>/<id>-*.yaml`
+// every 15s for the lifetime of the parent runPhase1Watch and spawns
+// one helmwatch.Watcher per secondary region whose kubeconfig has been
+// PUT back. Returns a stop function the caller defers; the stop fn
+// cancels the ticker AND each per-region watcher's context.
+//
+// Each per-region watcher emits ordinary helmwatch events into the
+// parent SSE channel (so the wizard still sees them) — but it does
+// NOT contribute to the parent's `markPhase1Done` terminal call,
+// since secondary regions can succeed/fail independently and the
+// parent's outcome is taken from the primary's watcher.
+//
+// The composed `Snapshot` of all regions lives on
+// dep.secondaryWatchers, read by flowSnapshotFromJobs to emit
+// per-region FlowNodes for the canvas.
+func (h *Handler) spawnSecondaryRegionWatchers(dep *Deployment) func() {
+	if h.kubeconfigsDir == "" {
+		return func() {}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+	stopWatchers := make(map[string]context.CancelFunc)
+	var mu sync.Mutex
+
+	spawn := func(region, kcPath string) {
+		mu.Lock()
+		if _, exists := stopWatchers[region]; exists {
+			mu.Unlock()
+			return
+		}
+		raw, err := os.ReadFile(kcPath)
+		if err != nil {
+			mu.Unlock()
+			h.log.Warn("secondary kubeconfig read failed",
+				"id", dep.ID, "region", region, "path", kcPath, "err", err)
+			return
+		}
+		cfg := h.phase1WatchConfigForDeployment(dep, string(raw))
+		watcher, err := helmwatch.NewWatcher(cfg, func(ev provisioner.Event) {
+			// Region-tag the component events so the SSE consumer
+			// can group them per region. Bare bp-* names from
+			// secondary regions would otherwise collide with the
+			// primary's events in the wizard's per-component view.
+			ev.Component = region + "/" + ev.Component
+			h.emitWatchEvent(dep, ev)
+		})
+		if err != nil {
+			mu.Unlock()
+			h.log.Error("secondary helmwatch.NewWatcher failed",
+				"id", dep.ID, "region", region, "err", err)
+			return
+		}
+		wctx, wcancel := context.WithCancel(ctx)
+		stopWatchers[region] = wcancel
+		dep.mu.Lock()
+		if dep.secondaryWatchers == nil {
+			dep.secondaryWatchers = make(map[string]*helmwatch.Watcher)
+		}
+		dep.secondaryWatchers[region] = watcher
+		dep.mu.Unlock()
+		mu.Unlock()
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			h.log.Info("secondary phase1 watch starting", "id", dep.ID, "region", region)
+			_, werr := watcher.Watch(wctx)
+			if werr != nil && wctx.Err() == nil {
+				h.log.Warn("secondary phase1 watch returned error",
+					"id", dep.ID, "region", region, "err", werr)
+			}
+			dep.mu.Lock()
+			if dep.secondaryWatchers != nil && dep.secondaryWatchers[region] == watcher {
+				delete(dep.secondaryWatchers, region)
+			}
+			dep.mu.Unlock()
+		}()
+	}
+
+	scan := func() {
+		entries, err := os.ReadDir(h.kubeconfigsDir)
+		if err != nil {
+			return
+		}
+		prefix := dep.ID + "-"
+		for _, e := range entries {
+			n := e.Name()
+			if !strings.HasPrefix(n, prefix) || !strings.HasSuffix(n, ".yaml") {
+				continue
+			}
+			region := strings.TrimSuffix(strings.TrimPrefix(n, prefix), ".yaml")
+			if region == "" {
+				continue
+			}
+			spawn(region, filepath.Join(h.kubeconfigsDir, n))
+		}
+	}
+
+	// Initial scan + periodic refresh — secondary CPs may PUT their
+	// kubeconfigs ~minutes apart depending on per-region tofu apply
+	// timing.
+	go func() {
+		scan()
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				scan()
+			}
+		}
+	}()
+
+	return func() {
+		cancel()
+		mu.Lock()
+		for _, c := range stopWatchers {
+			c()
+		}
+		mu.Unlock()
+		wg.Wait()
+		dep.mu.Lock()
+		dep.secondaryWatchers = nil
+		dep.mu.Unlock()
+	}
 }
 
 // markPhase1Done writes the watch outcome onto dep.Result and flips

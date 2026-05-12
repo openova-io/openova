@@ -388,12 +388,20 @@ func rewriteKubeconfigContext(in []byte, target string) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-// PutKubeconfig — PUT /api/v1/deployments/{id}/kubeconfig.
+// PutKubeconfig — PUT /api/v1/deployments/{id}/kubeconfig[?region=<k>].
 //
 // The cloud-init postback endpoint. See file header for the full
 // contract.
+//
+// Multi-region (2026-05-12): when `?region=<k>` is present the body
+// is stored at `<kubeconfigsDir>/<id>-<k>.yaml` and the single-use
+// guard fires PER REGION rather than per deployment. This lets each
+// secondary CP's cloud-init PUT its own kubeconfig without colliding
+// with the primary's PUT. The primary's path (no ?region=) is
+// unchanged.
 func (h *Handler) PutKubeconfig(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	region := strings.TrimSpace(r.URL.Query().Get("region"))
 	val, ok := h.deployments.Load(id)
 	if !ok {
 		http.Error(w, "deployment not found", http.StatusNotFound)
@@ -416,9 +424,21 @@ func (h *Handler) PutKubeconfig(w http.ResponseWriter, r *http.Request) {
 	// Snapshot the persisted hash + already-set state under the
 	// lock so a concurrent retry/double-PUT can't observe the old
 	// hash while we write the new file.
+	//
+	// Multi-region: `alreadySet` is region-scoped. For the primary
+	// (region=="") it means Result.KubeconfigPath is populated. For a
+	// secondary region it means the secondaryKubeconfigPaths[region]
+	// entry is already populated.
 	dep.mu.Lock()
 	persistedHash := dep.kubeconfigBearerHash
-	alreadySet := dep.Result != nil && dep.Result.KubeconfigPath != ""
+	alreadySet := false
+	if region == "" {
+		alreadySet = dep.Result != nil && dep.Result.KubeconfigPath != ""
+	} else {
+		if dep.secondaryKubeconfigPaths != nil {
+			_, alreadySet = dep.secondaryKubeconfigPaths[region]
+		}
+	}
 	dep.mu.Unlock()
 
 	if persistedHash == "" {
@@ -498,7 +518,14 @@ func (h *Handler) PutKubeconfig(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	target := filepath.Join(h.kubeconfigsDir, id+".yaml")
+	// Multi-region: secondary CPs land at <dir>/<id>-<region>.yaml so
+	// the primary's <dir>/<id>.yaml stays the canonical entry the rest
+	// of catalyst-api (and the GET /kubeconfig endpoint) reads.
+	filename := id + ".yaml"
+	if region != "" {
+		filename = id + "-" + region + ".yaml"
+	}
+	target := filepath.Join(h.kubeconfigsDir, filename)
 	if err := writeFileAtomic0600(target, body); err != nil {
 		h.log.Error("kubeconfig file write failed", "id", id, "err", err)
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
@@ -531,9 +558,21 @@ func (h *Handler) PutKubeconfig(w http.ResponseWriter, r *http.Request) {
 			SovereignFQDN: dep.Request.SovereignFQDN,
 		}
 	}
-	dep.Result.KubeconfigPath = target
+	if region == "" {
+		dep.Result.KubeconfigPath = target
+	} else {
+		if dep.secondaryKubeconfigPaths == nil {
+			dep.secondaryKubeconfigPaths = make(map[string]string)
+		}
+		dep.secondaryKubeconfigPaths[region] = target
+	}
 	relaunchAfterTerminalKubeconfigMissing := false
-	if dep.Result.Phase1Outcome == helmwatch.OutcomeKubeconfigMissing {
+	// Secondary-region PUTs skip the Phase-1 relaunch / channel
+	// re-init machinery — that's owned by the primary's first PUT.
+	// A secondary kubeconfig arriving later just makes a new file on
+	// disk available for the per-region helmwatch.Bridge spawned by
+	// runPhase1Watch (which scans the kubeconfigsDir).
+	if region == "" && dep.Result.Phase1Outcome == helmwatch.OutcomeKubeconfigMissing {
 		// Clear the terminal markers so markPhase1Done writes the
 		// new outcome cleanly when the relaunched watch finishes,
 		// and clear phase1Started so the goroutine below isn't
@@ -567,50 +606,34 @@ func (h *Handler) PutKubeconfig(w http.ResponseWriter, r *http.Request) {
 		"relaunchAfterKubeconfigMissing", relaunchAfterTerminalKubeconfigMissing,
 	)
 
-	// Issue #883 — seed the Sovereign-side
-	// catalyst-system/sovereign-smtp-credentials Secret with the
-	// mothership's SMTP submission credentials BEFORE Phase-1 watch
-	// launches. The bp-catalyst-platform chart's auto-create step
-	// (#901) runs Helm `lookup` against this Secret when rendering
-	// the Sovereign-local catalyst-openova-kc-credentials Secret;
-	// seeding now (kubeconfig present, bp-catalyst-platform not yet
-	// installed) is exactly the window that makes the lookup land
-	// real bytes instead of empty placeholders.
-	//
-	// The seed is best-effort: a failure here does NOT abort
-	// Phase-1. PIN email delivery may degrade, but the Sovereign
-	// itself still bootstraps. Outcome flows through the SSE event
-	// bus so the wizard surfaces it inline with helmwatch events.
-	seedOutcome := h.seedSovereignSMTPCredentials(r.Context(), dep, string(body))
-	h.emitSovereignSMTPSeedEvent(dep, seedOutcome)
+	// SMTP seed + Phase-1 watch launch happen ONCE per deployment, on
+	// the primary CP's PUT. Secondary-region PUTs just deposit the
+	// per-region kubeconfig file; runPhase1Watch's per-region
+	// helmwatch.Bridge spawner picks them up at its next refresh.
+	if region == "" {
+		// Issue #883 — seed the Sovereign-side
+		// catalyst-system/sovereign-smtp-credentials Secret with the
+		// mothership's SMTP submission credentials BEFORE Phase-1 watch
+		// launches.
+		seedOutcome := h.seedSovereignSMTPCredentials(r.Context(), dep, string(body))
+		h.emitSovereignSMTPSeedEvent(dep, seedOutcome)
 
-	// Launch the helmwatch goroutine in the background. The PUT
-	// returns immediately; per-component events flow via the SSE
-	// stream the wizard already has open. The phase1Started guard
-	// ensures runProvisioning's later (synchronous) call is a
-	// no-op so we don't run two informers — except in the
-	// relaunch-after-kubeconfig-missing case, where we cleared the
-	// guard above so this fresh watch can run and supersede the
-	// terminal-failed state. Issue #538.
-	go func() {
-		h.runPhase1Watch(dep)
-		// On the relaunch path we own the channels we just
-		// allocated under the lock above (the original
-		// runProvisioning's close()s ran long ago). Mirror
-		// resumePhase1Watch's close-on-terminate logic so any SSE
-		// consumer waiting on `event: done` is released.
-		if relaunchAfterTerminalKubeconfigMissing {
-			dep.mu.Lock()
-			select {
-			case <-dep.done:
-				// Already closed (defensive).
-			default:
-				close(dep.eventsCh)
-				close(dep.done)
+		// Launch the helmwatch goroutine in the background.
+		go func() {
+			h.runPhase1Watch(dep)
+			if relaunchAfterTerminalKubeconfigMissing {
+				dep.mu.Lock()
+				select {
+				case <-dep.done:
+					// Already closed (defensive).
+				default:
+					close(dep.eventsCh)
+					close(dep.done)
+				}
+				dep.mu.Unlock()
 			}
-			dep.mu.Unlock()
-		}
-	}()
+		}()
+	}
 
 	w.WriteHeader(http.StatusNoContent)
 }
