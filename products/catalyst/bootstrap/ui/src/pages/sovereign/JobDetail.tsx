@@ -253,7 +253,7 @@ export function JobDetail({
       >
         <div className="mx-auto max-w-3xl py-8" data-testid="job-detail-not-found">
           <Link
-            to={`/jobs` as never}
+            to={(deploymentId ? `/provision/${deploymentId}/jobs` : `/jobs`) as never}
             className="text-xs text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline"
             data-testid="job-detail-back"
           >
@@ -305,7 +305,7 @@ export function JobDetail({
          * does not. */}
         <header className="job-detail-header" data-testid="job-detail-header">
           <Link
-            to={`/jobs` as never}
+            to={(deploymentId ? `/provision/${deploymentId}/jobs` : `/jobs`) as never}
             className="job-detail-back"
             data-testid="job-detail-back"
           >

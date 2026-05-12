@@ -429,9 +429,17 @@ export function flowLayoutOrganic(
       for (const dep of deps) {
         const depJob = byId.get(dep)
         if (depJob && elidedIds.has(depJob.id)) {
-          for (const fanned of fanOutVisibleChildren(depJob.id)) {
-            if (fanned !== childId) addEdge(fanned, childId, 'depends-on')
-          }
+          // BOTH endpoints elided — skip the M×N fan-out. The
+          // server-side snapshot still emits the original
+          // group→group edge for the depth=1 (groups-folded) view
+          // where both endpoints render as folded bubbles and the
+          // edge between them is meaningful. When both groups elide
+          // (depth=all) every install-* in bootstrap-kit was getting
+          // a spurious dep on every tofu-* in provisioner. Operator-
+          // reported "install-cnpg has 5 connections from terraform
+          // jobs" — exactly this fan-out. The actual install-* deps
+          // are already visible via each leaf's own dependsOn, so
+          // skipping the lift here costs no information.
           continue
         }
         const depRep = visibleRepresentative(dep)

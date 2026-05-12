@@ -309,21 +309,36 @@ func (h *Handler) flowSnapshotFromJobs(deploymentID string) (*flowSnapshotLocalM
 		}
 	}
 
-	// Intentionally NO group-to-group sequential edge between
-	// `provisioner` and `bootstrap-kit` here. An earlier revision
-	// emitted provisioner→bootstrap-kit as a finish-to-start edge so
-	// the canvas would visualise Phase-0/Phase-1 ordering — but the
-	// canvas layout (flowLayoutOrganic.ts lines 414-442) lifts an
-	// elided group's outbound deps onto each of its visible children,
-	// and if the dep target is ALSO an elided group, fans out to that
-	// group's visible children. With both groups elided at depth=all
-	// the single group→group edge cascades into M×N phantom edges
-	// (each install-* gaining a dependency on every tofu-* + the
-	// cluster-bootstrap step). The operator-reported "install-cnpg
-	// has 5 connections from terraform jobs" was exactly this fan-out.
-	// Leaving Phase-0 and Phase-1 as separate connected components is
-	// the correct minimum-edge rendering; the ordering between them
-	// is implicit in the timestamps + status flow.
+	// Group-level sequential edge — `provisioner` (Phase-0 tofu chain)
+	// must complete before `bootstrap-kit` (Phase-1 Flux reconcile)
+	// starts. This is the real temporal relationship between the two
+	// top-level groups. At ?depth=1 both groups render folded and this
+	// edge correctly shows the ordering between them. At ?depth=all
+	// the FE layout would normally LIFT this edge onto every child of
+	// each elided group (flowLayoutOrganic.ts lines 414-442), causing
+	// the spurious M×N fan-out the operator originally reported. The
+	// matching FE fix in flowLayoutOrganic skips the lift when BOTH
+	// endpoints of the elided-group edge are elided — so this edge is
+	// safe to emit unconditionally.
+	provisionerID := jobs.JobID(deploymentID, jobs.GroupProvisioner)
+	bootstrapID := jobs.JobID(deploymentID, jobs.GroupBootstrapKit)
+	hasProvisioner := false
+	hasBootstrap := false
+	for _, j := range js {
+		if j.ID == provisionerID {
+			hasProvisioner = true
+		}
+		if j.ID == bootstrapID {
+			hasBootstrap = true
+		}
+	}
+	if hasProvisioner && hasBootstrap {
+		rels = append(rels, flowSnapshotLocalRelationship{
+			FromID: provisionerID,
+			ToID:   bootstrapID,
+			Type:   "finish-to-start",
+		})
+	}
 
 	return &flowSnapshotLocalMessage{
 		Type: "snapshot",
