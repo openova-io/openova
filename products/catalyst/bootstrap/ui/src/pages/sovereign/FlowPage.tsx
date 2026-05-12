@@ -195,8 +195,20 @@ export function FlowPage({
 
   const setSearchPatch = useCallback(
     (patch: { folded?: string | undefined; depth?: string | undefined }) => {
+      // Why no `to:` field: on contabo the router's basepath is
+      // `/sovereign` (see app/router.tsx), and a literal `to: '.'`
+      // resolves through TanStack's path matcher in a way that
+      // drops the basepath AND re-encodes path params — so a
+      // depth-chip click on /sovereign/provision/<id>/jobs/<depId>:install-X
+      // would push the browser to /provision/<id>/jobs/<depId>%3Ainstall-X
+      // (no /sovereign, colon encoded as %3A → 404 at the BE since
+      // jobs.Store keys by bare jobName). Omitting `to:` keeps the
+      // navigate as a search-params-only mutation; TanStack preserves
+      // the current pathname verbatim including the basepath. The
+      // colon-prefixed jobId comes from older deep-links — the fix
+      // for those URLs lives in handleNodeDoubleClick (strips the
+      // prefix); here we just refuse to rewrite the path.
       navigate({
-        to: '.',
         search: (prev) => {
           const next: Record<string, unknown> = { ...(prev ?? {}) }
           if ('folded' in patch) {
@@ -381,10 +393,19 @@ export function FlowPage({
           return
         }
         case 'open-new-tab': {
+          // Same prefix-strip + encode logic as handleNodeDoubleClick —
+          // jobs.Store.GetJob keys by bare jobName, so the
+          // "<deploymentId>:install-X" form returns 404. On contabo the
+          // browser is at /sovereign/<path>; window.open of an absolute
+          // path /provision/... lands at the same origin so the basepath
+          // is preserved automatically by the browser (it's the click
+          // target href, not a router navigate).
+          const bare = nodeId.includes(':') ? nodeId.slice(nodeId.indexOf(':') + 1) : nodeId
+          const encoded = encodeURIComponent(bare)
           const target =
             deploymentId && DETECTED_MODE.mode !== 'sovereign'
-              ? `/provision/${deploymentId}/jobs/${nodeId}`
-              : `/jobs/${nodeId}`
+              ? `/sovereign/provision/${deploymentId}/jobs/${encoded}`
+              : `/jobs/${encoded}`
           if (typeof window !== 'undefined') {
             window.open(target, '_blank', 'noopener,noreferrer')
           }
