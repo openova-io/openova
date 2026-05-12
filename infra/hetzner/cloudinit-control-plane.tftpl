@@ -459,6 +459,25 @@ write_files:
         # worker servers' user_data so autoscaler-spawned workers join the
         # cluster identically.
         hcloud-cloud-init: ${worker_cloud_init_b64}
+        # Issue #1778 — Hetzner network + firewall + ssh-key names so the
+        # cluster-autoscaler attaches scale-up Pods to the SAME private
+        # network + firewall the Phase-0 workers landed in. Without
+        # `HCLOUD_NETWORK`, the autoscaler-spawned VMs only receive public
+        # IPs; the worker cloud-init runs
+        # `K3S_URL=https://10.0.1.2:6443` (CP private IP) which is
+        # unreachable from a node without the 10.0.0.0/16 attachment → the
+        # k3s agent join silently fails → node never registers → autoscaler
+        # times out at 15m → backoff. The Hetzner provider docs at
+        # https://github.com/kubernetes/autoscaler/tree/master/cluster-
+        # autoscaler/cloudprovider/hetzner#environment-variables list
+        # HCLOUD_NETWORK / HCLOUD_FIREWALL / HCLOUD_SSH_KEY as the env
+        # vars that attach the spawned servers to existing resources by
+        # name. Names match the Phase-0 Tofu resource names verbatim
+        # (catalyst-<sov-fqdn-with-dashes>-{net,fw} + catalyst-<sov-fqdn-
+        # with-dashes>).
+        hcloud-network-name: ${hcloud_network_name}
+        hcloud-firewall-name: ${hcloud_firewall_name}
+        hcloud-ssh-key-name: ${hcloud_ssh_key_name}
 
   # ── Crossplane provider-hcloud + ProviderConfig (issue #425) ────────
   #

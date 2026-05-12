@@ -145,6 +145,57 @@ cluster-autoscaler:
       name: hetzner-node-config
       key: cloud-init
 
+  # ─── HCLOUD_NETWORK / FIREWALL / SSH_KEY (issue #1778) ───────────────
+  # cluster-autoscaler's Hetzner provider creates servers via the Hetzner
+  # Cloud API. By DEFAULT those servers come up with PUBLIC ipv4 only —
+  # they are NOT attached to any existing private network. That is fatal
+  # for Catalyst Sovereigns because the worker cloud-init (identical to
+  # the Phase-0 user_data) issues
+  #   curl -sfL https://get.k3s.io | K3S_URL=https://10.0.1.2:6443 ... sh -
+  # against the control plane's PRIVATE network IP (10.0.1.2). Without
+  # the 10.0.0.0/16 attachment that URL is unreachable, the k3s agent
+  # install fails, the node never registers with the apiserver, and the
+  # autoscaler times out the scale-up after 15m → enters backoff →
+  # bp-catalyst-platform install (which depends on Pending Pods being
+  # placeable) wedges → chroot canvas tests blocked.
+  #
+  # Live evidence (prov #38/#39/#41/#43 omantel.biz, 2026-05-12):
+  #   hcloud_server name=workers-77439321e2047e3e
+  #     public_net.ipv4=178.105.102.237  private_net=[]
+  #     ← never attached, never joined
+  # Autoscaler log line at scale-up timeout:
+  #   W orchestrator.go:626 Node group workers is not ready for scaleup -
+  #     backoff with status: Scale-up timed out for node group workers
+  #     after 15m2s
+  #
+  # The Hetzner provider docs (autoscaler/cluster-autoscaler/
+  # cloudprovider/hetzner/README.md §"Environment Variables") name the
+  # env vars that fix this:
+  #   HCLOUD_NETWORK  — existing network name OR id to attach to
+  #   HCLOUD_FIREWALL — existing firewall name(s) to attach to
+  #   HCLOUD_SSH_KEY  — existing ssh-key name (debug + recovery parity
+  #                     with Phase-0 nodes)
+  #
+  # Wired through the upstream chart's `extraEnv` (raw env vars; the
+  # values are not credentials — they're Hetzner resource names the
+  # autoscaler resolves via API at scale-up time). Per-Sovereign
+  # overlays populate these strings via Flux `valuesFrom` against
+  # `flux-system/cloud-credentials` keys `hcloud-network-name`,
+  # `hcloud-firewall-name`, `hcloud-ssh-key-name` (written by cloud-init
+  # — see infra/hetzner/cloudinit-control-plane.tftpl) onto the
+  # `targetPath: cluster-autoscaler.extraEnv.HCLOUD_*` slots below.
+  #
+  # Empty string defaults: when an overlay leaves a name blank the
+  # upstream chart still renders an `HCLOUD_*=""` env var on the
+  # deployment. The Hetzner provider treats empty as unset (no
+  # attachment / no firewall / no ssh-key), preserving the legacy
+  # pre-#1778 shape for Sovereigns whose cloud-init never stamped the
+  # name keys.
+  extraEnv:
+    HCLOUD_NETWORK: ""
+    HCLOUD_FIREWALL: ""
+    HCLOUD_SSH_KEY: ""
+
   # Resources — modest defaults for a controller-pattern workload that
   # mainly polls the apiserver + Hetzner API.
   resources:

@@ -469,6 +469,20 @@ locals {
     # bootstrap content the Phase-0 workers receive, so autoscaler-spawned
     # workers join the cluster identically.
     worker_cloud_init_b64 = base64encode(local.worker_cloud_init)
+
+    # Issue #1778 — Hetzner resource names threaded into
+    # flux-system/cloud-credentials so the cluster-autoscaler can map them
+    # onto HCLOUD_NETWORK / HCLOUD_FIREWALL / HCLOUD_SSH_KEY env vars.
+    # Without these the autoscaler-spawned VMs come up on public-only
+    # interfaces (no private 10.0.0.0/16 attachment), the worker cloud-
+    # init's `K3S_URL=https://10.0.1.2:6443` is unreachable, the k3s
+    # agent join silently fails, and the autoscaler times out the
+    # scale-up after 15m → backoff. Names are the Phase-0 resource names
+    # verbatim — the autoscaler resolves them via the Hetzner API at
+    # scale-up time.
+    hcloud_network_name  = hcloud_network.main.name
+    hcloud_firewall_name = hcloud_firewall.main.name
+    hcloud_ssh_key_name  = hcloud_ssh_key.main.name
   }), "/(?m)^[ ]*#( |$).*\n/", "")
 }
 
