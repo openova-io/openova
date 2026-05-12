@@ -291,13 +291,22 @@ export function FlowPage({
 
   const handleNodeNavigate = useCallback(
     (nodeId: string) => {
+      // Drill-down id form: jobs.Store.GetJob keys by bare jobName
+      // (e.g. "install-reflector"), NOT the full "<deploymentId>:install-reflector"
+      // id form the canvas emits. Mirror useJobLinkBuilder (JobsTable.tsx
+      // line 364): strip the "<deploymentId>:" prefix and URL-encode the
+      // remainder. Without this, the backend returns 404 because the
+      // exact-match path misses on the colon-prefixed id (Traefik drops
+      // the URL-encoding of `:` in path segments — see PR #1414 history).
+      const bare = nodeId.includes(':') ? nodeId.slice(nodeId.indexOf(':') + 1) : nodeId
+      const encoded = encodeURIComponent(bare)
       // Chroot-aware target: on the mother's monitoring surface the
       // deploymentId is in the URL; on the Sovereign's adult hostname
       // the deploymentId is implicit so the clean root form is correct.
       const target =
         deploymentId && DETECTED_MODE.mode !== 'sovereign'
-          ? `/provision/${deploymentId}/jobs/${nodeId}`
-          : `/jobs/${nodeId}`
+          ? `/provision/${deploymentId}/jobs/${encoded}`
+          : `/jobs/${encoded}`
       navigate({ to: target as never })
     },
     [navigate, deploymentId],
