@@ -340,6 +340,14 @@ locals {
   # Guardrail in this same module: see `validate_user_data_size` precondition
   # below — any future bloat that pushes user_data ≥ 30 KiB fails at plan-time.
   control_plane_cloud_init = replace(templatefile("${path.module}/cloudinit-control-plane.tftpl", {
+    # Primary CP's stable private IP — first allocatable host in the
+    # primary subnet (10.0.1.2 for the canonical 10.0.1.0/24). Used by
+    # the bp-cilium HelmRelease's CILIUM_K8S_SERVICE_HOST substitute
+    # so cilium-operator on the primary cluster reaches its OWN local
+    # CP (matching CA), not a different region's CP. Secondary CPs
+    # render `cidrhost(secondary_region_subnets[k], 2)` for the same
+    # var — main.tf:267 secondary_region_cp_ips.
+    cp_private_ip           = "10.0.1.2"
     sovereign_fqdn          = var.sovereign_fqdn
     sovereign_subdomain     = var.sovereign_subdomain
     # OpenovaFlow integration (Agent #3, PR #1389/#1390 follow-up). The
