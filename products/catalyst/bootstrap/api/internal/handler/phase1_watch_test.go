@@ -519,6 +519,28 @@ func TestPhase1WatchConfig_FieldOverrideBeatsEnv(t *testing.T) {
 	}
 }
 
+// TestPhase1WatchConfig_ProductionDefaultIs120m pins the F8 production
+// default (2026-05-12, prov #44 RCA) so a future drift back to 60m gets
+// caught by CI. The outer watch budget MUST exceed the inner bp-
+// catalyst-platform HR install.timeout × retries (30m × 3 = 90m worst
+// case) or Phase-1 terminates while helm-controller still has remediation
+// attempts left — the wedge prov #44 hit on d9399223c3caa4f9.
+func TestPhase1WatchConfig_ProductionDefaultIs120m(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	// Explicitly clear the env so the production default-fallback path
+	// is exercised (prevents leakage from a parent process env).
+	t.Setenv("CATALYST_PHASE1_WATCH_TIMEOUT", "")
+
+	dep := makeDeploymentWithKubeconfig(t, h, "phase1-default-timeout", "fake-kubeconfig: yaml")
+	cfg := h.phase1WatchConfigForDeployment(dep, "fake-kubeconfig: yaml")
+	if cfg.WatchTimeout != helmwatch.DefaultWatchTimeout {
+		t.Errorf("WatchTimeout = %v, want helmwatch.DefaultWatchTimeout (%v)", cfg.WatchTimeout, helmwatch.DefaultWatchTimeout)
+	}
+	if helmwatch.DefaultWatchTimeout != 120*time.Minute {
+		t.Errorf("DefaultWatchTimeout = %v, want 120m (F8 floor)", helmwatch.DefaultWatchTimeout)
+	}
+}
+
 // TestPodRestart_ResumeRehydratesComponentStates proves that
 // ComponentStates + Phase1FinishedAt round-trip through the on-disk
 // store. A Pod restart that loads a completed Phase-1 deployment

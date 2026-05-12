@@ -173,9 +173,9 @@ type Handler struct {
 	// (e.g. 100ms) to exercise the protection path in milliseconds.
 	//
 	// The threshold is sized vs the Phase-1 watcher's overall budget
-	// (DefaultWatchTimeout = 60m) so a deployment that's still
-	// converging gets at least half the watch budget before any
-	// external wipe can destroy it. otech106 incident, 2026-05-05:
+	// (DefaultWatchTimeout = 120m post-F8 2026-05-12) so a deployment
+	// that's still converging gets multiple watch-budget multiples
+	// before any external wipe can destroy it. otech106 incident, 2026-05-05:
 	// an external POST /wipe at T+24m killed a still-converging
 	// 28/40-installed Sovereign because no minimum-life guard
 	// existed.

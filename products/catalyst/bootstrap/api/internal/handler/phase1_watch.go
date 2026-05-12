@@ -47,9 +47,11 @@ import (
 )
 
 // phase1WatchTimeoutEnv — env var override for the watch budget. The
-// default DefaultWatchTimeout (60 minutes) is sized for bp-catalyst-
-// platform's worst-observed install on the omantel.omani.works DoD run.
-// Tests inject a much shorter value via Handler.phase1WatchTimeout.
+// default DefaultWatchTimeout (120 minutes after F8 2026-05-12) must
+// comfortably contain bp-catalyst-platform's install.timeout × retries
+// (30m × 3 = 90m worst case per clusters/_template/bootstrap-kit/13-
+// bp-catalyst-platform.yaml). Tests inject a much shorter value via
+// Handler.phase1WatchTimeout.
 const phase1WatchTimeoutEnv = "CATALYST_PHASE1_WATCH_TIMEOUT"
 
 // phase1MinBootstrapKitHRsEnv — env var override for the lower bound

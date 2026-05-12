@@ -90,10 +90,22 @@ const FluxNamespace = "flux-system"
 const HelmControllerSelector = "app=helm-controller"
 
 // Default watch timeout — bp-catalyst-platform has the longest install
-// because it depends on Crossplane CRDs settling. 60 minutes is the
-// upper bound observed in DoD runs against omantel.omani.works; the
-// median is closer to 8 minutes.
-const DefaultWatchTimeout = 60 * time.Minute
+// because it depends on Crossplane CRDs settling. The watch budget
+// must comfortably contain the inner HR install timeout × retries.
+//
+// F8 fix (2026-05-12, prov #44 RCA): bumped 60m → 120m. The companion
+// bp-catalyst-platform HR install/upgrade timeout was bumped 15m → 30m
+// (see clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml).
+// prov #44 (d9399223c3caa4f9) hit the prior 60m phase1 cap with the
+// umbrella HR still mid-retry (failures=3) and 41/45 HRs True. The
+// outer watch budget MUST be larger than the inner HR's worst-case
+// retry chain (30m × 3 = 90m) so the watch never terminates while
+// helm-controller still has remediation attempts left.
+//
+// Runtime override remains via CATALYST_PHASE1_WATCH_TIMEOUT — wired
+// into products/catalyst/chart/templates/api-deployment.yaml so the
+// operator can dial it down for capacity-bounded environments.
+const DefaultWatchTimeout = 120 * time.Minute
 
 // MinComponentCount — historical minimum bootstrap-kit cardinality.
 // The Watch terminates when the informer's initial List has synced

@@ -517,15 +517,26 @@ spec:
   # apply naturally to upgrades, and a failed first install is
   # remediated via retry without rollback (no prior release to roll
   # back to).
+  #
+  # F8 fix (2026-05-12, prov #44 RCA): bumped install + upgrade timeout
+  # 15m → 30m. F1-F7 ship live on main, qa-finalizer-strip Completed
+  # and autoscaler workers joined, but bp-catalyst-platform HR was
+  # still mid-retry (failures=3) at the catalyst-api 60m phase1 watch
+  # cap on d9399223c3caa4f9. Total bootstrap-kit install on a fresh
+  # cpx42×1 Sovereign genuinely exceeds the 15m PR #221 ceiling when
+  # the umbrella chart's full SME + Catalyst service stack rolls
+  # without a warm Harbor proxy-cache. Paired with the F8 catalyst-api
+  # DefaultWatchTimeout bump (60m → 120m) so the outer watch budget
+  # comfortably contains the new 30m × 3-retry inner HR ceiling.
   install:
     disableWait: true
-    timeout: 15m
+    timeout: 30m
     remediation:
       retries: 3
       remediateLastFailure: true
   upgrade:
     disableWait: true
-    timeout: 15m
+    timeout: 30m
     remediation:
       retries: 3
       strategy: rollback

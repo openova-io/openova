@@ -301,6 +301,21 @@ spec:
             # kit had drifted to 37. The HasSynced gate is drift-proof.
             - name: CATALYST_PHASE1_MIN_BOOTSTRAP_KIT_HRS
               value: "1"
+            # CATALYST_PHASE1_WATCH_TIMEOUT — overall budget for the
+            # Phase-1 HelmRelease watch (helmwatch.DefaultWatchTimeout).
+            # F8 fix (2026-05-12, prov #44 RCA): the previous 60m default
+            # was tighter than the inner bp-catalyst-platform HR install
+            # × retries chain after that chart's timeout was raised
+            # 15m → 30m. With retries=3 and strategy=rollback, worst-case
+            # inner HR is 30m × 3 = 90m; the outer watch budget MUST be
+            # larger so it never terminates while helm-controller still
+            # has remediation attempts left. Per docs/INVIOLABLE-
+            # PRINCIPLES.md #4 the knob is runtime-configurable here so
+            # capacity-bounded sandboxes can dial it down without a
+            # code change. Parsed by helmwatch.CompileWatchTimeout —
+            # accepts any time.ParseDuration value (e.g. "120m", "2h").
+            - name: CATALYST_PHASE1_WATCH_TIMEOUT
+              value: "120m"
             # CATALYST_KUBECONFIGS_DIR — sibling directory on the same
             # PVC for the plaintext kubeconfigs the new Sovereign POSTs
             # back via the bearer-token endpoint (issue #183, Option D).
