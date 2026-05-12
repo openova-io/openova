@@ -342,6 +342,64 @@ export function flowLayoutOrganic(
     return out
   }
 
+  // Temporal endpoints — operator-reported design fix (2026-05-12):
+  //
+  //   When a group→group dependency edge gets lifted onto leaf level
+  //   because one or both endpoints are elided, the previous code
+  //   fanned out to EVERY visible child of the elided side. For a
+  //   provisioner→bootstrap-kit edge this meant every tofu-* node
+  //   gained a phantom edge to every install-* bubble — M×N. The
+  //   operator reported "install-cnpg has 5 connections from
+  //   terraform jobs" — exactly this fan-out.
+  //
+  //   The fix: cascade ONLY to the temporal endpoints of the leaf
+  //   graph. The upstream's terminal nodes (sinks within the group —
+  //   the leaves nothing else in the group depends on) connect to
+  //   the downstream's initial nodes (sources within the group —
+  //   the leaves that depend on nothing else in the group). For the
+  //   tofu chain this collapses to just `cluster-bootstrap →
+  //   {install-cilium, install-flux, install-gateway-api, ...}` —
+  //   the real temporal gate at leaf level.
+  //
+  //   "Group terminals" = visible descendants of G where no other
+  //   visible descendant of G has them as a dep. (Sinks of the
+  //   intra-group DAG.)
+  //
+  //   "Group initials" = visible descendants of G where none of
+  //   their `dependsOn` ids resolve to another visible descendant
+  //   of G. (Sources of the intra-group DAG.)
+
+  function groupTerminals(groupId: string): string[] {
+    const descendants = fanOutVisibleChildren(groupId)
+    if (descendants.length <= 1) return descendants
+    const descSet = new Set(descendants)
+    const hasDownstream = new Set<string>()
+    for (const id of descendants) {
+      const j = byId.get(id)
+      if (!j) continue
+      for (const dep of j.dependsOn ?? []) {
+        // dep is "id this depends on" — so if dep is in our set, dep
+        // has a downstream consumer (this id) within the group.
+        if (descSet.has(dep)) hasDownstream.add(dep)
+      }
+    }
+    return descendants.filter((id) => !hasDownstream.has(id))
+  }
+
+  function groupInitials(groupId: string): string[] {
+    const descendants = fanOutVisibleChildren(groupId)
+    if (descendants.length <= 1) return descendants
+    const descSet = new Set(descendants)
+    return descendants.filter((id) => {
+      const j = byId.get(id)
+      if (!j) return true
+      for (const dep of j.dependsOn ?? []) {
+        if (descSet.has(dep)) return false
+      }
+      return true
+    })
+  }
+
   // Build edge set.
   const inEdges = new Map<string, Set<string>>()
   const outEdges = new Map<string, Set<string>>()
@@ -398,11 +456,14 @@ export function flowLayoutOrganic(
     for (const dep of deps) {
       // Resolve the dep to one or more rendered representatives. For a
       // non-elided dep this is the single visibleRepresentative result.
-      // For an elided group dep, we fan out to its visible children.
+      // For an elided group dep, we cascade to its TERMINAL leaves
+      // only — the nodes that finish last within the group, gating
+      // this dependent's start. (See temporal-endpoint comment near
+      // groupTerminals/groupInitials.)
       const depJob = byId.get(dep)
       if (depJob && elidedIds.has(depJob.id)) {
-        for (const fanned of fanOutVisibleChildren(depJob.id)) {
-          if (fanned !== fromRep) addEdge(fanned, fromRep, 'depends-on')
+        for (const t of groupTerminals(depJob.id)) {
+          if (t !== fromRep) addEdge(t, fromRep, 'depends-on')
         }
         continue
       }
@@ -417,6 +478,21 @@ export function flowLayoutOrganic(
   // every visible child of Applications now depends on bp-foundation
   // (or whichever visible representative bp-foundation resolves to).
   // The hints (extraDepIds) are forwarded the same way.
+  // Elided-group OUTBOUND deps — cascade only to the temporal-endpoint
+  // pair (upstream-terminals → downstream-initials). For a single
+  // edge from elided group G with G.dependsOn = [D]:
+  //   - When D is also an elided group: edges from terminals(D) to
+  //     initials(G). For provisioner→bootstrap-kit this is exactly
+  //     one edge per provisioner-terminal × bootstrap-kit-initial.
+  //     The chain stays connected at leaf level without M×N fan-out.
+  //   - When D is a visible job: edges from D → initials(G). D itself
+  //     is the "terminal" since it's not a group.
+  //
+  // Previously this loop fanned to EVERY visible child of G (=initials
+  // + middles + terminals), AND we tried to dodge it by `continue`ing
+  // when both were elided, which dropped the leaf-level connection
+  // entirely. The operator caught both halves: M×N fan-out at depth=all
+  // AND missing cross-phase edges at the pure-child view.
   for (const elidedId of elidedIds) {
     const elided = byId.get(elidedId)
     if (!elided) continue
@@ -424,27 +500,22 @@ export function flowLayoutOrganic(
     const h = hints.get(elidedId)
     for (const d of h?.extraDepIds ?? []) deps.add(d)
     if (deps.size === 0) continue
-    const visibleChildrenOfElided = fanOutVisibleChildren(elidedId)
-    for (const childId of visibleChildrenOfElided) {
-      for (const dep of deps) {
-        const depJob = byId.get(dep)
-        if (depJob && elidedIds.has(depJob.id)) {
-          // BOTH endpoints elided — skip the M×N fan-out. The
-          // server-side snapshot still emits the original
-          // group→group edge for the depth=1 (groups-folded) view
-          // where both endpoints render as folded bubbles and the
-          // edge between them is meaningful. When both groups elide
-          // (depth=all) every install-* in bootstrap-kit was getting
-          // a spurious dep on every tofu-* in provisioner. Operator-
-          // reported "install-cnpg has 5 connections from terraform
-          // jobs" — exactly this fan-out. The actual install-* deps
-          // are already visible via each leaf's own dependsOn, so
-          // skipping the lift here costs no information.
-          continue
+    const downstreamInitials = groupInitials(elidedId)
+    for (const dep of deps) {
+      const depJob = byId.get(dep)
+      if (depJob && elidedIds.has(depJob.id)) {
+        const upstreamTerminals = groupTerminals(depJob.id)
+        for (const u of upstreamTerminals) {
+          for (const v of downstreamInitials) {
+            if (u !== v) addEdge(u, v, 'depends-on')
+          }
         }
-        const depRep = visibleRepresentative(dep)
-        if (!depRep) continue
-        if (depRep !== childId) addEdge(depRep, childId, 'depends-on')
+        continue
+      }
+      const depRep = visibleRepresentative(dep)
+      if (!depRep) continue
+      for (const v of downstreamInitials) {
+        if (depRep !== v) addEdge(depRep, v, 'depends-on')
       }
     }
   }
