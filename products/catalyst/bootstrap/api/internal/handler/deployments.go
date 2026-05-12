@@ -174,6 +174,20 @@ type Deployment struct {
 	// for SnapshotComponents() and the GC reclaims the old one
 	// once the field is overwritten.
 	liveWatcher *helmwatch.Watcher
+
+	// Multi-region kubeconfig PUT-back (operator mandate, 2026-05-12).
+	// secondaryKubeconfigPaths maps region key (e.g. "nbg1-1",
+	// "hel1-2") → on-disk path of the per-region kubeconfig file.
+	// Populated by PutKubeconfig when ?region=<k> is set; consumed
+	// by runPhase1Watch to spawn one helmwatch.Bridge per region so
+	// the canvas surfaces install-* HRs from EVERY region, not just
+	// primary. The primary's kubeconfig stays on Result.KubeconfigPath.
+	//
+	// secondaryWatchers parallels the map — one running helmwatch
+	// .Watcher per region whose Snapshot is composed into the flow
+	// snapshot. Cleared on wipe.
+	secondaryKubeconfigPaths map[string]string
+	secondaryWatchers        map[string]*helmwatch.Watcher
 }
 
 // SlimForHandover returns a copy of the receiver retaining ONLY the

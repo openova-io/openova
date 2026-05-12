@@ -55,6 +55,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobs"
 )
 
@@ -164,20 +165,34 @@ func (h *Handler) flowSnapshotFromJobs(deploymentID string) (*flowSnapshotLocalM
 		return nil, false
 	}
 
-	// Pull spec.dependsOn from the live helmwatch.Watcher's informer
-	// cache. jobs.Store does NOT persist Job.DependsOn for Phase-1
-	// install-* Jobs today (only the Phase-0 tofu chain + cluster-
-	// bootstrap gets dep wiring — see jobs/types.go PhaseTofu*).
-	// Without this every install-* bubble renders disconnected on
-	// the canvas. SnapshotComponents() returns ComponentSnapshot
-	// {AppID, DependsOn} populated by extractDependsOn from each
-	// HelmRelease's spec.dependsOn[].name (bp- prefix stripped). We
-	// index by AppID so the per-Job lookup is O(1).
+	// Pull spec.dependsOn from the PRIMARY region's live helmwatch
+	// .Watcher's informer cache. jobs.Store does NOT persist
+	// Job.DependsOn for Phase-1 install-* Jobs today (only the Phase-0
+	// tofu chain + cluster-bootstrap gets dep wiring). Without this
+	// every primary install-* bubble renders disconnected.
+	//
+	// Multi-region: separately, secondary regions each have their own
+	// helmwatch.Watcher (dep.secondaryWatchers) whose components are
+	// emitted below as REGION-PREFIXED FlowNodes so the canvas shows
+	// install-* HRs from EVERY region. They do NOT contribute to
+	// hrDeps used for the primary-leaf-only dep derivation — each
+	// region's intra-cluster deps are computed against its OWN
+	// snapshot inside the per-region block below.
 	hrDeps := map[string][]string{}
+	var secondaryWatchers map[string]*helmwatch.Watcher
 	if val, ok := h.deployments.Load(deploymentID); ok {
 		if dep, ok := val.(*Deployment); ok && dep != nil {
 			dep.mu.Lock()
 			w := dep.liveWatcher
+			// Snapshot the secondaryWatchers map under the lock; the
+			// per-watcher SnapshotComponents() calls below are
+			// individually goroutine-safe.
+			if len(dep.secondaryWatchers) > 0 {
+				secondaryWatchers = make(map[string]*helmwatch.Watcher, len(dep.secondaryWatchers))
+				for r, sw := range dep.secondaryWatchers {
+					secondaryWatchers[r] = sw
+				}
+			}
 			dep.mu.Unlock()
 			if w != nil {
 				for _, cs := range w.SnapshotComponents() {
@@ -338,6 +353,109 @@ func (h *Handler) flowSnapshotFromJobs(deploymentID string) (*flowSnapshotLocalM
 			ToID:   bootstrapID,
 			Type:   "finish-to-start",
 		})
+	}
+
+	// Multi-region — append one synthetic group bubble per secondary
+	// region + one FlowNode per HR observed in that region's watcher
+	// + contains edges parent→child + finish-to-start edges between
+	// siblings (same-region only). Region tag is set so the canvas
+	// can colour-group by region.
+	if len(secondaryWatchers) > 0 {
+		statusToFlow := func(state string) string {
+			switch state {
+			case "installed":
+				return "succeeded"
+			case "failed":
+				return "failed"
+			case "installing", "pending", "degraded":
+				return "running"
+			}
+			return "pending"
+		}
+		for region, sw := range secondaryWatchers {
+			if sw == nil {
+				continue
+			}
+			snap := sw.SnapshotComponents()
+			if len(snap) == 0 {
+				continue
+			}
+			regionGroupID := deploymentID + ":" + region + ":bootstrap-kit"
+			regionStr := region
+			regionFamily := "group"
+			nodes = append(nodes, flowSnapshotLocalNode{
+				ID:     regionGroupID,
+				FlowID: deploymentID,
+				Label:  "Bootstrap (" + region + ")",
+				Status: "running",
+				Family: &regionFamily,
+				Region: &regionStr,
+			})
+			// Hierarchy: this region's group is contained by the
+			// top-level bootstrap-kit (so the canvas can fold all
+			// regions under one parent).
+			rels = append(rels, flowSnapshotLocalRelationship{
+				FromID: regionGroupID,
+				ToID:   bootstrapID,
+				Type:   "contains",
+			})
+
+			// Index this region's components for intra-region dep edges.
+			regionAppIDs := map[string]string{} // appID → full node id
+			for _, cs := range snap {
+				appID := cs.AppID
+				if appID == "" {
+					continue
+				}
+				nodeID := deploymentID + ":" + region + ":install-" + appID
+				regionAppIDs[appID] = nodeID
+			}
+
+			installFamily := "install"
+			for _, cs := range snap {
+				appID := cs.AppID
+				if appID == "" {
+					continue
+				}
+				nodeID := regionAppIDs[appID]
+				startedAt := int64(0)
+				if !cs.LastTransitionAt.IsZero() {
+					startedAt = cs.LastTransitionAt.Unix()
+				}
+				node := flowSnapshotLocalNode{
+					ID:     nodeID,
+					FlowID: deploymentID,
+					Label:  "install-" + appID,
+					Status: statusToFlow(cs.Status),
+					Family: &installFamily,
+					Region: &regionStr,
+				}
+				if startedAt > 0 {
+					node.StartedAt = &startedAt
+				}
+				nodes = append(nodes, node)
+				// Hierarchy
+				rels = append(rels, flowSnapshotLocalRelationship{
+					FromID: nodeID,
+					ToID:   regionGroupID,
+					Type:   "contains",
+				})
+				// Intra-region deps (same region only — DO NOT cross
+				// region edges, since each region is an independent
+				// fault domain per NAMING-CONVENTION §1.3).
+				for _, depApp := range cs.DependsOn {
+					depID, ok := regionAppIDs[depApp]
+					if !ok {
+						continue
+					}
+					rels = append(rels, flowSnapshotLocalRelationship{
+						FromID: depID,
+						ToID:   nodeID,
+						Type:   "finish-to-start",
+					})
+				}
+			}
+		}
 	}
 
 	return &flowSnapshotLocalMessage{

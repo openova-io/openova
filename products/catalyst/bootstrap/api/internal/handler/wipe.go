@@ -559,11 +559,27 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 	//     defensive in case Destroy returned an error and left it)
 	//   - on-disk deployment record JSON
 	if h.kubeconfigsDir != "" {
+		// Primary kubeconfig.
 		kcPath := filepath.Join(h.kubeconfigsDir, id+".yaml")
 		if err := os.Remove(kcPath); err != nil && !os.IsNotExist(err) {
 			report.Errors = append(report.Errors, "remove kubeconfig: "+err.Error())
 		} else if err == nil {
 			emit("wipe", "info", "kubeconfig file removed: "+kcPath)
+		}
+		// Multi-region secondaries — <id>-<region>.yaml glob.
+		if entries, derr := os.ReadDir(h.kubeconfigsDir); derr == nil {
+			prefix := id + "-"
+			for _, e := range entries {
+				n := e.Name()
+				if strings.HasPrefix(n, prefix) && strings.HasSuffix(n, ".yaml") {
+					p := filepath.Join(h.kubeconfigsDir, n)
+					if rerr := os.Remove(p); rerr != nil && !os.IsNotExist(rerr) {
+						report.Errors = append(report.Errors, "remove secondary kubeconfig "+n+": "+rerr.Error())
+					} else if rerr == nil {
+						emit("wipe", "info", "secondary kubeconfig file removed: "+p)
+					}
+				}
+			}
 		}
 	}
 

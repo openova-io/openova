@@ -1260,7 +1260,7 @@ runcmd:
       -H "Authorization: Bearer ${kubeconfig_bearer_token}" \
       -H "Content-Type: application/x-yaml" \
       --data-binary @/etc/rancher/k3s/k3s.yaml.public \
-      ${catalyst_api_url}/api/v1/deployments/${deployment_id}/kubeconfig
+      "${catalyst_api_url}/api/v1/deployments/${deployment_id}/kubeconfig${kubeconfig_postback_region != "" ? "?region=" : ""}${kubeconfig_postback_region}"
   - rm -f /etc/rancher/k3s/k3s.yaml.public
 %{ endif ~}
 

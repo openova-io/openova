@@ -483,6 +483,16 @@ locals {
     hcloud_network_name  = hcloud_network.main.name
     hcloud_firewall_name = hcloud_firewall.main.name
     hcloud_ssh_key_name  = hcloud_ssh_key.main.name
+
+    # Multi-region kubeconfig PUT-back (operator mandate, 2026-05-12).
+    # Empty string for the primary CP → catalyst-api stores the file
+    # at <kubeconfigsDir>/<id>.yaml (back-compat with single-region).
+    # Secondary regions pass their region key here (see the for_each
+    # call below) so catalyst-api stores them at
+    # <kubeconfigsDir>/<id>-<region>.yaml. catalyst-api's phase1Watch
+    # then spawns one helmwatch.Bridge per kubeconfig so the canvas
+    # surfaces install-* HRs from EVERY region, not just primary.
+    kubeconfig_postback_region = ""
   }), "/(?m)^[ ]*#( |$).*\n/", "")
 }
 
@@ -901,16 +911,19 @@ locals {
       # Issue #1778 (F7 multi-region completion) — same hcloud_*_name
       # threading as the primary CP templatefile call (lines 483-485)
       # so the secondary regions' cluster-autoscaler also has the
-      # private-network attachment names. Without this every secondary
-      # region's tofu plan blows up with "vars map does not contain
-      # key hcloud_network_name" referenced in cloudinit-control-plane
-      # .tftpl:478. Primary cluster shares one Network/Firewall/SSHKey
-      # across all regions (multi-zone subnets, slice G1) so the same
-      # resource refs go to every region's CP.
+      # private-network attachment names.
       hcloud_network_name  = hcloud_network.main.name
       hcloud_firewall_name = hcloud_firewall.main.name
       hcloud_ssh_key_name  = hcloud_ssh_key.main.name
-    }), "/(?m)^[ ]*#( |$).*\n/", "")
+
+      # Multi-region kubeconfig PUT-back — region key for this secondary
+      # CP. cloudinit-control-plane.tftpl appends `?region=<k>` to the
+      # PUT URL so catalyst-api stores it at
+      # <kubeconfigsDir>/<id>-<k>.yaml and phase1Watch can spawn a
+      # per-region helmwatch.Bridge.
+      kubeconfig_postback_region = k
+    }), "/(?m)^[ ]*#( |$).*
+/", "")
   }
 
   # Per-secondary-region worker cloud-init — joins the secondary region's
