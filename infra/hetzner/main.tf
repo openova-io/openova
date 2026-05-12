@@ -858,6 +858,12 @@ locals {
   secondary_region_cloud_init = {
     for k, r in local.secondary_regions :
     k => replace(templatefile("${path.module}/cloudinit-control-plane.tftpl", {
+      # Per-region CP's stable private IP (first allocatable host in the
+      # secondary subnet — see main.tf local.secondary_region_cp_ips). The
+      # bp-cilium HelmRelease's CILIUM_K8S_SERVICE_HOST substitute uses this
+      # so cilium-operator on the secondary cluster reaches its OWN local CP
+      # (matching CA), not the primary region's CP across regions.
+      cp_private_ip           = local.secondary_region_cp_ips[k]
       sovereign_fqdn          = var.sovereign_fqdn
       sovereign_subdomain     = var.sovereign_subdomain
       # OpenovaFlow integration (Agent #3). The secondary CP's region
