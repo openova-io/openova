@@ -301,27 +301,43 @@ export function FlowPage({
 
   const handleNodeDoubleClick = useCallback(
     (nodeId: string) => {
+      // Tree-explorer UX: double-click on a GROUP toggles its fold
+      // in-place; double-click on a LEAF navigates to the job-detail
+      // surface. Without this branch the operator could not "open"
+      // a single group bubble — clicking a group navigated to a new
+      // page where the URL's ?depth= filter was lost, defaulting back
+      // to depth=2, which elides the very group they wanted to open
+      // AND every other group on the canvas. Operator reported
+      // "double-click on a parent bubble it is expanding all the
+      // parent instead of expanding only the respective parent" —
+      // exactly the consequence of the dropped depth filter.
+      if (adapter.groupIds.has(nodeId)) {
+        toggleFold(nodeId)
+        return
+      }
       // Drill-down id form: jobs.Store.GetJob keys by bare jobName
       // (e.g. "install-reflector"), NOT the full
       // "<deploymentId>:install-reflector" id form the canvas emits.
       // Mirror useJobLinkBuilder (JobsTable.tsx line 364): strip the
       // "<deploymentId>:" prefix and URL-encode the remainder. Without
       // this the backend returns 404 because the exact-match path
-      // misses on the colon-prefixed id (Traefik also drops the URL
-      // encoding of `:` in path segments — see PR #1414 history).
+      // misses on the colon-prefixed id.
       const bare = nodeId.includes(':') ? nodeId.slice(nodeId.indexOf(':') + 1) : nodeId
       const encoded = encodeURIComponent(bare)
-      // Double-click navigates to the job-detail surface. Chroot-aware:
-      // on the mother's monitoring view the deploymentId is in the URL;
-      // on the Sovereign's adult hostname the deploymentId is implicit
-      // so the clean root form is correct.
+      // Preserve current search params (?depth= + ?folded=) across
+      // the navigate so the destination page renders the SAME canvas
+      // state the operator was looking at. Without this the new page
+      // defaults to depth=2 and the visible bubble set changes
+      // beneath them.
+      const currentSearch =
+        typeof window !== 'undefined' ? window.location.search : ''
       const target =
         deploymentId && DETECTED_MODE.mode !== 'sovereign'
-          ? `/provision/${deploymentId}/jobs/${encoded}`
-          : `/jobs/${encoded}`
+          ? `/provision/${deploymentId}/jobs/${encoded}${currentSearch}`
+          : `/jobs/${encoded}${currentSearch}`
       navigate({ to: target as never })
     },
-    [navigate, deploymentId],
+    [navigate, deploymentId, adapter.groupIds, toggleFold],
   )
 
   const handleCanvasBackgroundClick = useCallback(() => {
