@@ -62,14 +62,28 @@ spec:
         kind: HelmRepository
         name: bp-cnpg
         namespace: flux-system
-  # Event-driven install per docs/INVIOLABLE-PRINCIPLES.md #3.
+  # CNPG: KEEP Helm wait (disableWait: false / default). Consumers
+  # bp-harbor + bp-powerdns + bp-keycloak + bp-gitea apply
+  # postgresql.cnpg.io/v1.Cluster CRs gated by the cnpg mutating webhook
+  # `mcluster.cnpg.io`. If bp-cnpg's HelmRelease goes Ready before the
+  # cnpg-webhook-service has endpoints, Flux dependsOn lets downstream
+  # HRs proceed → their Cluster CR apply gets:
+  #   "failed calling webhook \"mcluster.cnpg.io\": no endpoints
+  #    available for service \"cnpg-webhook-service\""
+  # → Helm install fails → RetriesExceeded → entire DB-backed chain
+  # (Harbor/PowerDNS/Keycloak/Gitea) wedges. Caught on prov #55/#56
+  # (2026-05-12). disableWait: false (the default) tells Helm to block
+  # the HR's Ready until the webhook deployment is rolled and the
+  # service has endpoints, which is exactly what downstream consumers
+  # need. This is the carve-out from the INVIOLABLE-PRINCIPLES #3
+  # event-driven blanket — the rule's WHY (avoiding agent-waits-for-
+  # its-own-CRDs cilium-style deadlock) does NOT apply here because
+  # bp-cnpg's CRDs are loaded by helm-controller before pods schedule.
   install:
     timeout: 15m
-    disableWait: true
     remediation:
       retries: 3
   upgrade:
     timeout: 15m
-    disableWait: true
     remediation:
       retries: 3
