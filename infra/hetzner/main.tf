@@ -922,8 +922,7 @@ locals {
       # <kubeconfigsDir>/<id>-<k>.yaml and phase1Watch can spawn a
       # per-region helmwatch.Bridge.
       kubeconfig_postback_region = k
-    }), "/(?m)^[ ]*#( |$).*
-/", "")
+    }), "/(?m)^[ ]*#( |$).*\n/", "")
   }
 
   # Per-secondary-region worker cloud-init — joins the secondary region's
