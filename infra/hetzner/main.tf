@@ -897,6 +897,19 @@ locals {
       handover_jwt_public_key    = var.handover_jwt_public_key
       load_balancer_ipv4         = hcloud_load_balancer.secondary[k].ipv4
       worker_cloud_init_b64      = base64encode(local.secondary_region_worker_cloud_init[k])
+
+      # Issue #1778 (F7 multi-region completion) — same hcloud_*_name
+      # threading as the primary CP templatefile call (lines 483-485)
+      # so the secondary regions' cluster-autoscaler also has the
+      # private-network attachment names. Without this every secondary
+      # region's tofu plan blows up with "vars map does not contain
+      # key hcloud_network_name" referenced in cloudinit-control-plane
+      # .tftpl:478. Primary cluster shares one Network/Firewall/SSHKey
+      # across all regions (multi-zone subnets, slice G1) so the same
+      # resource refs go to every region's CP.
+      hcloud_network_name  = hcloud_network.main.name
+      hcloud_firewall_name = hcloud_firewall.main.name
+      hcloud_ssh_key_name  = hcloud_ssh_key.main.name
     }), "/(?m)^[ ]*#( |$).*\n/", "")
   }
 
