@@ -32,8 +32,27 @@ catalystBlueprint:
 # --disable-network-policy.
 
 cilium:
-  # kube-proxy replacement (faster + simpler than iptables)
-  kubeProxyReplacement: false
+  # kube-proxy replacement (faster + simpler than iptables). MUST be true
+  # because we also set `bpf.masquerade: true` (line 54) — Cilium rejects
+  # the BPF masquerade datapath without NodePort enabled, and Cilium only
+  # auto-enables NodePort when kubeProxyReplacement is true:
+  #   "BPF masquerade requires NodePort (--enable-node-port=\"true\")"
+  # The Sovereign cloud-init pre-Flux Cilium install (infra/hetzner/
+  # cloudinit-control-plane.tftpl `/var/lib/catalyst/cilium-values.yaml`)
+  # already uses kubeProxyReplacement: true, so this aligns the Flux HR
+  # overlay with the pre-Flux bootstrap. Symptom when divergent: CP
+  # cilium-agent kept its old in-memory state and stayed Ready, but every
+  # WORKER node that joined AFTER the Flux upgrade saw the new ConfigMap
+  # with enable-bpf-masquerade=true + enable-node-port=false → fatal
+  # "BPF masquerade requires NodePort" → cilium-agent CrashLoopBackOff →
+  # node.cilium.io/agent-not-ready taint never lifts → every keycloak/
+  # gitea/catalyst-platform/openbao/powerdns/mimir post-install Job pod
+  # stays Pending → whole bootstrap-kit chain stalls.
+  # Caught on prov #55 (8d85a64cb8807cdc, 2026-05-12). The DaemonSet
+  # is started with kube-proxy-replacement off → NodePort off → masq off
+  # incompat. Both single-node and multi-node Sovereigns hit this once
+  # cluster-autoscaler scales workers.
+  kubeProxyReplacement: true
   # k8sServiceHost: CP's stable private IP on the Sovereign's 10.0.1.0/24
   # subnet (cp1=10.0.1.2 per infra/hetzner/main.tf). Multi-node-aware:
   # works on the CP itself (10.0.1.2 IS its own private IP) AND on

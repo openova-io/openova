@@ -1,5 +1,18 @@
 apiVersion: v2
 name: bp-cilium
+# 1.3.4 — prov #55 worker-cilium crashloop fix: flip kubeProxyReplacement
+# false → true. Caught on 3-region prov 8d85a64cb8807cdc 2026-05-12: every
+# worker node that joined AFTER the Flux helm-upgrade saw the rendered
+# cilium-config with enable-bpf-masquerade=true + enable-node-port=false
+# (because kubeProxyReplacement was false → Cilium left NodePort off →
+# BPF masq datapath rejected at agent start: "BPF masquerade requires
+# NodePort"). Worker cilium-agent CrashLoopBackOff → node.cilium.io/
+# agent-not-ready taint never lifts → every keycloak/gitea/openbao/
+# powerdns/mimir post-install Job pod stayed Pending → whole bootstrap-
+# kit chain stalled at ~60% Ready. The Sovereign cloud-init pre-Flux
+# Cilium already used kubeProxyReplacement: true (infra/hetzner/
+# cloudinit-control-plane.tftpl:654, /var/lib/catalyst/cilium-values.yaml).
+# This aligns the Flux HR overlay with the working pre-Flux bootstrap.
 # 1.3.3 — qa-loop iter-16 Fix #70: Hubble UI HTTPRoute defaults corrected
 # so every Sovereign exposes Hubble UI through the Cilium Gateway out of
 # the box (TC-289 was NXDOMAIN on hubble.<sovereignFQDN>).
@@ -19,7 +32,7 @@ name: bp-cilium
 # + socketLB.hostNamespaceOnly=true defaults so fresh worker pods can
 # resolve DNS reliably on first-join (cilium/cilium#28456 mitigation).
 # Backward-compat: per-Sovereign overlays MAY override either knob.
-version: 1.3.3
+version: 1.3.4
 description: |
   Catalyst-curated Blueprint umbrella chart for Cilium. Depends on the
   upstream `cilium` chart as a Helm subchart so `helm dependency build`
