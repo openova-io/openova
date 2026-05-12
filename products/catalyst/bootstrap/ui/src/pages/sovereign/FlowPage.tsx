@@ -379,16 +379,16 @@ export function FlowPage({
   const flowActions = useMemo<FlowOrganicAction[]>(
     () => [
       {
-        id: 'fold-subtree',
-        label: 'Fold subtree',
+        id: 'show-only-this',
+        label: 'Show only this group',
       },
       {
-        id: 'fold-to-level',
-        label: 'Fold to level N',
+        id: 'hide-this',
+        label: 'Hide this group',
       },
       {
         id: 'expand-all-under',
-        label: 'Expand all under here',
+        label: 'Expand subtree',
       },
       {
         id: 'open-new-tab',
@@ -401,46 +401,70 @@ export function FlowPage({
   const handleNodeAction = useCallback(
     (nodeId: string, actionId: string) => {
       switch (actionId) {
-        case 'fold-subtree': {
-          if (adapter.groupIds.has(nodeId)) {
-            const next = new Set(urlFoldedSet)
-            next.add(nodeId)
-            setSearchPatch({
-              folded: next.size > 0 ? [...next].join(',') : undefined,
-            })
+        case 'show-only-this': {
+          // "Show only this group" — unfold the clicked group and fold
+          // every OTHER group on the canvas. Same composed-state pattern
+          // as toggleFold's unfold branch: switch to depth=all so the
+          // group itself stays addressable, then put every OTHER group
+          // into the explicit folded set. The operator gets exactly one
+          // expanded subtree with all sibling groups collapsed —
+          // matching the "expand only the respective parent" UX the
+          // operator asked for.
+          if (!adapter.groupIds.has(nodeId)) return
+          const otherGroups = new Set<string>()
+          for (const gid of adapter.groupIds) {
+            if (gid !== nodeId) otherGroups.add(gid)
           }
+          const arr = [...otherGroups].filter(Boolean)
+          setSearchPatch({
+            depth: 'all',
+            folded: arr.length > 0 ? arr.join(',') : undefined,
+          })
           return
         }
-        case 'fold-to-level': {
-          // Folds to one level deeper than the clicked node's own depth.
-          // Best-effort: step the global chip up by one if there's room.
-          stepDepth(-1)
+        case 'hide-this': {
+          // "Hide this group" — collapse the clicked group regardless
+          // of current depth. Setting depth=2 puts other groups at the
+          // default elide state; adding the clicked group to the URL
+          // fold set keeps it visible as a folded bubble (its subtree
+          // hidden). Without depth=2 the FE's depth=all overrides would
+          // keep the rest of the canvas in fully-expanded mode.
+          if (!adapter.groupIds.has(nodeId)) return
+          const next = new Set(urlFoldedSet)
+          next.add(nodeId)
+          const arr = [...next].filter(Boolean)
+          setSearchPatch({
+            depth: undefined,
+            folded: arr.length > 0 ? arr.join(',') : undefined,
+          })
           return
         }
         case 'expand-all-under': {
-          if (adapter.groupIds.has(nodeId)) {
-            const next = new Set(urlFoldedSet)
-            next.delete(nodeId)
-            // Also remove any descendants of nodeId that were manually
-            // folded — best-effort using the live job graph.
-            const byId = new Map(adapter.jobs.map((j) => [j.id, j]))
-            const stack = [nodeId]
-            const seen = new Set<string>()
-            while (stack.length > 0) {
-              const id = stack.pop()!
-              if (seen.has(id)) continue
-              seen.add(id)
-              const j = byId.get(id)
-              if (!j) continue
-              for (const c of j.childIds ?? []) {
-                next.delete(c)
-                stack.push(c)
-              }
+          // "Expand subtree" — fully unfold this group and any nested
+          // groups beneath it. Switch to depth=all + remove this group
+          // and all its descendant groups from the URL fold set.
+          if (!adapter.groupIds.has(nodeId)) return
+          const next = new Set(urlFoldedSet)
+          next.delete(nodeId)
+          const byId = new Map(adapter.jobs.map((j) => [j.id, j]))
+          const stack = [nodeId]
+          const seen = new Set<string>()
+          while (stack.length > 0) {
+            const id = stack.pop()!
+            if (seen.has(id)) continue
+            seen.add(id)
+            const j = byId.get(id)
+            if (!j) continue
+            for (const c of j.childIds ?? []) {
+              next.delete(c)
+              stack.push(c)
             }
-            setSearchPatch({
-              folded: next.size > 0 ? [...next].join(',') : undefined,
-            })
           }
+          const arr = [...next].filter(Boolean)
+          setSearchPatch({
+            depth: 'all',
+            folded: arr.length > 0 ? arr.join(',') : undefined,
+          })
           return
         }
         case 'open-new-tab': {
