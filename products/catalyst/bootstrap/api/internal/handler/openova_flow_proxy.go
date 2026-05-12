@@ -73,6 +73,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -191,12 +192,33 @@ func (h *Handler) resolveFlowServerURL(deploymentID string) (string, error) {
 // HandleFlowSnapshot proxies GET /api/v1/flows/{deploymentId}/snapshot →
 // GET <upstream>/v1/flows/{deploymentId}/snapshot.
 //
-// Status, headers, and body pass through verbatim. On upstream-network
-// error or unresolvable deploymentId, the proxy returns 502 / 404.
+// Local-first: catalyst-api OWNS the Phase-0 OpenTofu Jobs +
+// Phase-1 install-bp-<chart> Jobs (writes them into jobs.Store via
+// helmwatch.Bridge + provisioner lifecycle emits). When the local
+// store has Jobs for this deploymentId, we synthesise the snapshot
+// envelope from the store and return it directly — the mothership
+// canvas renders the full mothership-owned flow FROM T+0, no
+// dependency on the chroot's openova-flow-server. See
+// flow_snapshot_local.go for the assembly logic.
+//
+// Fallback: if the store has nothing for this deploymentId (e.g.
+// catalyst-api restarted before the deployment record was rehydrated,
+// or the canvas was loaded with a flowId that's not a deployment id),
+// we fall through to the upstream openova-flow-server proxy path.
+//
+// Status, headers, and body of the proxy path pass through verbatim.
+// On upstream-network error or unresolvable deploymentId, the proxy
+// returns 502 / 404.
 func (h *Handler) HandleFlowSnapshot(w http.ResponseWriter, r *http.Request) {
 	flowID := chi.URLParam(r, "deploymentId")
 	if strings.TrimSpace(flowID) == "" {
 		http.Error(w, "deploymentId required", http.StatusBadRequest)
+		return
+	}
+	if snapshot, ok := h.flowSnapshotFromJobs(flowID); ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(snapshot)
 		return
 	}
 	base, err := h.resolveFlowServerURL(flowID)
@@ -280,6 +302,18 @@ func (h *Handler) HandleFlowStream(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	// Local-first SSE: if catalyst-api's jobs.Store has Jobs for this
+	// deploymentId, serve the stream from the local store directly —
+	// emit a `snapshot` frame on connect, then poll every 3s and
+	// re-emit when the assembled envelope changes. The OpenovaFlow
+	// reducer is idempotent on snapshot replay, so re-emitting an
+	// unchanged snapshot is harmless; the canvas only re-renders on
+	// material changes. See flow_snapshot_local.go.
+	if _, hasLocal := h.flowSnapshotFromJobs(flowID); hasLocal {
+		h.flowStreamLocal(w, r, flusher, flowID)
 		return
 	}
 
