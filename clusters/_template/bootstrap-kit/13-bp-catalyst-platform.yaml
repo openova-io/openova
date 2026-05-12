@@ -458,7 +458,22 @@ spec:
       # before gitea was reachable → bp-catalyst-platform installFailed
       # and HR loop-rolled forever. Budget arithmetic: hook 840s + 60s
       # slack ≤ HR install.timeout 900s (15m).
-      version: 1.4.140
+      # 1.4.141 (qa-loop Fix #185, prov #38/#39/#41 recurrence,
+      # 2026-05-12): qa-finalizer-strip pre-install hook (helm.sh/hook-
+      # weight -99) now tolerates the control-plane NoSchedule taint
+      # and runs with priorityClassName: system-cluster-critical so it
+      # is ALWAYS schedulable regardless of worker-node CPU saturation.
+      # Root cause on prov #41: after bootstrap-kit fan-out the worker
+      # (cpx32, 8vCPU/16GB) sat at 99% CPU requests; the autoscaler
+      # had backed off scale-up of a second worker; the Job's 50m CPU
+      # request couldn't be satisfied; Helm pre-install timed out at
+      # 15m; Flux remediated 3× and gave up. Same recurring failure on
+      # prov #38, #39, #41 — all on chart pin 1.4.140 which (correctly)
+      # had no scheduling concession for the -99 hook. Image switched
+      # from bitnamilegacy/kubectl:1.29.3 → alpine/k8s:1.31.4 in same
+      # commit (rule-17 MIRROR-EVERYTHING hygiene; bitnamilegacy is
+      # the Docker-Hub redirect for deprecated Bitnami 2025-08 cutover).
+      version: 1.4.141
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
