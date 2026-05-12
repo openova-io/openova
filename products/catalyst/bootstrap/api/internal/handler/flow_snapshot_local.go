@@ -309,30 +309,21 @@ func (h *Handler) flowSnapshotFromJobs(deploymentID string) (*flowSnapshotLocalM
 		}
 	}
 
-	// Group-level sequential edge — `provisioner` (Phase-0 tofu chain)
-	// must complete before `bootstrap-kit` (Phase-1 Flux reconcile)
-	// starts. This is the real temporal relationship between the two
-	// top-level groups; without it the canvas renders them as siblings
-	// with no ordering hint.
-	provisionerID := jobs.JobID(deploymentID, jobs.GroupProvisioner)
-	bootstrapID := jobs.JobID(deploymentID, jobs.GroupBootstrapKit)
-	hasProvisioner := false
-	hasBootstrap := false
-	for _, j := range js {
-		if j.ID == provisionerID {
-			hasProvisioner = true
-		}
-		if j.ID == bootstrapID {
-			hasBootstrap = true
-		}
-	}
-	if hasProvisioner && hasBootstrap {
-		rels = append(rels, flowSnapshotLocalRelationship{
-			FromID: provisionerID,
-			ToID:   bootstrapID,
-			Type:   "finish-to-start",
-		})
-	}
+	// Intentionally NO group-to-group sequential edge between
+	// `provisioner` and `bootstrap-kit` here. An earlier revision
+	// emitted provisioner→bootstrap-kit as a finish-to-start edge so
+	// the canvas would visualise Phase-0/Phase-1 ordering — but the
+	// canvas layout (flowLayoutOrganic.ts lines 414-442) lifts an
+	// elided group's outbound deps onto each of its visible children,
+	// and if the dep target is ALSO an elided group, fans out to that
+	// group's visible children. With both groups elided at depth=all
+	// the single group→group edge cascades into M×N phantom edges
+	// (each install-* gaining a dependency on every tofu-* + the
+	// cluster-bootstrap step). The operator-reported "install-cnpg
+	// has 5 connections from terraform jobs" was exactly this fan-out.
+	// Leaving Phase-0 and Phase-1 as separate connected components is
+	// the correct minimum-edge rendering; the ordering between them
+	// is implicit in the timestamps + status flow.
 
 	return &flowSnapshotLocalMessage{
 		Type: "snapshot",
