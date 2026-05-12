@@ -94,7 +94,15 @@ spec:
       # 0.1.15 (Fix #158): migrationImage bumped to
       # bitnamilegacy/kubectl:1.30.7 (was 1.29.3); template fallback no
       # longer references bitnami/kubectl (deleted from Docker Hub 2025-08).
-      version: 0.1.17
+      # 0.1.19 (2026-05-12): chart-bump mirror chain caught up — tests/
+      # render.sh expect_total realigned from 15 → 19 (Fix #125's
+      # bootstrap Job for guacamole-oidc Secret added 4 resources: 1 Job
+      # + 1 ServiceAccount + 1 Role + 1 RoleBinding). Prior to the test
+      # fix, every Build bp-guacamole run published images but the
+      # Blueprint Release dispatched on the bump commit failed render.sh
+      # → 0.1.13–0.1.18 were never published to GHCR → bootstrap-kit
+      # HRs wedged at "ghcr.io/openova-io/bp-guacamole:0.1.17: not found".
+      version: 0.1.19
       sourceRef:
         kind: HelmRepository
         name: bp-guacamole

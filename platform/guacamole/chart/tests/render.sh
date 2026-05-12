@@ -84,12 +84,15 @@ fi
 echo "PASS: empty image.tag fails fast"
 
 # ─────────────────────────────────────────────────────────────────────
-# 3. Full-ON: the canonical 15-resource bundle.
+# 3. Full-ON: the canonical 19-resource bundle.
 #
 # qa-loop iter-11 Fix #45 Cluster-A added the recordings storageClass-
 # migration pre-upgrade hook (1 Job + 1 ServiceAccount + 1 Role +
 # 1 RoleBinding + 1 ClusterRole + 1 ClusterRoleBinding = +6 resources
-# vs. the prior 9-doc bundle).
+# vs. the prior 9-doc bundle → 15).
+# Fix #125 (5b711427) then added the bp-guacamole bootstrap Job for
+# the guacamole-oidc Secret + matching ServiceAccount + Role +
+# RoleBinding (+4 resources → 19).
 # ─────────────────────────────────────────────────────────────────────
 render_on="$TMP/on.yaml"
 helm template bp-guacamole . \
@@ -104,7 +107,7 @@ helm template bp-guacamole . \
 # 15-doc target: Deployment×2 (guacd + webapp), Service×2, HTTPRoute,
 # PVC, SealedSecret, NetworkPolicy, ConfigMap, Job, ServiceAccount,
 # Role, RoleBinding, ClusterRole, ClusterRoleBinding.
-expect_total=15
+expect_total=19
 got_total="$(grep -cE '^kind:' "$render_on")"
 if [[ "$got_total" != "$expect_total" ]]; then
   echo "FAIL: full-ON rendered $got_total resources, want $expect_total"
