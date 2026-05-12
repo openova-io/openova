@@ -164,6 +164,31 @@ func (h *Handler) flowSnapshotFromJobs(deploymentID string) (*flowSnapshotLocalM
 		return nil, false
 	}
 
+	// Pull spec.dependsOn from the live helmwatch.Watcher's informer
+	// cache. jobs.Store does NOT persist Job.DependsOn for Phase-1
+	// install-* Jobs today (only the Phase-0 tofu chain + cluster-
+	// bootstrap gets dep wiring — see jobs/types.go PhaseTofu*).
+	// Without this every install-* bubble renders disconnected on
+	// the canvas. SnapshotComponents() returns ComponentSnapshot
+	// {AppID, DependsOn} populated by extractDependsOn from each
+	// HelmRelease's spec.dependsOn[].name (bp- prefix stripped). We
+	// index by AppID so the per-Job lookup is O(1).
+	hrDeps := map[string][]string{}
+	if val, ok := h.deployments.Load(deploymentID); ok {
+		if dep, ok := val.(*Deployment); ok && dep != nil {
+			dep.mu.Lock()
+			w := dep.liveWatcher
+			dep.mu.Unlock()
+			if w != nil {
+				for _, cs := range w.SnapshotComponents() {
+					if len(cs.DependsOn) > 0 {
+						hrDeps[cs.AppID] = cs.DependsOn
+					}
+				}
+			}
+		}
+	}
+
 	// FlowInstance.StartedAt — earliest non-zero Job.StartedAt across
 	// the deployment. If every Job is still pending (no StartedAt
 	// set), default to 0 — the canvas just shows the flow as "newly
@@ -226,16 +251,67 @@ func (h *Handler) flowSnapshotFromJobs(deploymentID string) (*flowSnapshotLocalM
 		// installs to this job. jobs.Bridge already normalises the
 		// dep ids into the JobID(deploymentID, "install-<chart>")
 		// form, so we copy them verbatim.
+		seenDep := map[string]bool{}
 		for _, dep := range j.DependsOn {
 			if dep == "" || dep == j.ID {
 				continue
 			}
+			seenDep[dep] = true
 			rels = append(rels, flowSnapshotLocalRelationship{
 				FromID: dep,
 				ToID:   j.ID,
 				Type:   "finish-to-start",
 			})
 		}
+		// Layer-2 dependency derivation — helmwatch.Bridge does NOT
+		// persist Job.DependsOn for Phase-1 install-* Jobs today, but
+		// the live HR informer cache HAS the data (HR.spec.dependsOn).
+		// For each install-<chart> Job, look up the chart's AppID and
+		// emit finish-to-start edges to its sibling install-* Jobs.
+		// Skipped for group jobs (j.AppID empty) and when the live
+		// watcher hasn't attached yet.
+		if j.AppID != "" {
+			for _, depAppID := range hrDeps[j.AppID] {
+				if depAppID == "" {
+					continue
+				}
+				depJobID := jobs.JobID(deploymentID, jobs.JobNamePrefix+depAppID)
+				if depJobID == j.ID || seenDep[depJobID] {
+					continue
+				}
+				seenDep[depJobID] = true
+				rels = append(rels, flowSnapshotLocalRelationship{
+					FromID: depJobID,
+					ToID:   j.ID,
+					Type:   "finish-to-start",
+				})
+			}
+		}
+	}
+
+	// Group-level sequential edge — `provisioner` (Phase-0 tofu chain)
+	// must complete before `bootstrap-kit` (Phase-1 Flux reconcile)
+	// starts. This is the real temporal relationship between the two
+	// top-level groups; without it the canvas renders them as siblings
+	// with no ordering hint.
+	provisionerID := jobs.JobID(deploymentID, jobs.GroupProvisioner)
+	bootstrapID := jobs.JobID(deploymentID, jobs.GroupBootstrapKit)
+	hasProvisioner := false
+	hasBootstrap := false
+	for _, j := range js {
+		if j.ID == provisionerID {
+			hasProvisioner = true
+		}
+		if j.ID == bootstrapID {
+			hasBootstrap = true
+		}
+	}
+	if hasProvisioner && hasBootstrap {
+		rels = append(rels, flowSnapshotLocalRelationship{
+			FromID: provisionerID,
+			ToID:   bootstrapID,
+			Type:   "finish-to-start",
+		})
 	}
 
 	return &flowSnapshotLocalMessage{
