@@ -263,12 +263,42 @@ export function FlowPage({
   const toggleFold = useCallback(
     (nodeId: string) => {
       if (!adapter.groupIds.has(nodeId)) return
-      const next = new Set(urlFoldedSet)
+      // foldedSet is the COMPOSED set: depth-default-folded ∪ urlFoldedSet.
+      // The previous implementation only mutated urlFoldedSet, which had
+      // no effect when the node was folded by the depth default — the
+      // composed set stayed the same and the canvas didn't budge. The
+      // operator-reported "double-click on a parent bubble it is
+      // expanding all the parent instead of expanding only the respective
+      // parent" was the consequence: the dblclick was firing on a
+      // default-folded node, so toggleFold's delete on urlFoldedSet was
+      // a no-op AND the dblclick handler used to instead navigate to
+      // /jobs/<group>, dropping the ?depth= filter and re-rendering
+      // with everything elided.
+      //
+      // New behaviour:
+      //   - If the node is currently folded (by ANY source), unfold it:
+      //     switch to depth=all and explicitly fold every OTHER group
+      //     that was previously folded. Result: only this one group is
+      //     visibly unfolded; other groups stay collapsed.
+      //   - If the node is currently unfolded, add it to urlFoldedSet
+      //     to collapse it without changing the depth.
       const isFolded = foldedSet.has(nodeId)
-      if (isFolded) next.delete(nodeId)
-      else next.add(nodeId)
-      const arr = [...next].filter(Boolean)
-      setSearchPatch({ folded: arr.length > 0 ? arr.join(',') : undefined })
+      if (isFolded) {
+        const others = new Set<string>(foldedSet)
+        others.delete(nodeId)
+        const arr = [...others].filter(Boolean)
+        setSearchPatch({
+          depth: 'all',
+          folded: arr.length > 0 ? arr.join(',') : undefined,
+        })
+      } else {
+        const next = new Set(urlFoldedSet)
+        next.add(nodeId)
+        const arr = [...next].filter(Boolean)
+        setSearchPatch({
+          folded: arr.length > 0 ? arr.join(',') : undefined,
+        })
+      }
     },
     [adapter.groupIds, foldedSet, urlFoldedSet, setSearchPatch],
   )
