@@ -195,35 +195,40 @@ export function FlowPage({
 
   const setSearchPatch = useCallback(
     (patch: { folded?: string | undefined; depth?: string | undefined }) => {
-      // Why no `to:` field: on contabo the router's basepath is
-      // `/sovereign` (see app/router.tsx), and a literal `to: '.'`
-      // resolves through TanStack's path matcher in a way that
-      // drops the basepath AND re-encodes path params — so a
-      // depth-chip click on /sovereign/provision/<id>/jobs/<depId>:install-X
-      // would push the browser to /provision/<id>/jobs/<depId>%3Ainstall-X
-      // (no /sovereign, colon encoded as %3A → 404 at the BE since
-      // jobs.Store keys by bare jobName). Omitting `to:` keeps the
-      // navigate as a search-params-only mutation; TanStack preserves
-      // the current pathname verbatim including the basepath. The
-      // colon-prefixed jobId comes from older deep-links — the fix
-      // for those URLs lives in handleNodeDoubleClick (strips the
-      // prefix); here we just refuse to rewrite the path.
-      navigate({
-        search: (prev) => {
-          const next: Record<string, unknown> = { ...(prev ?? {}) }
-          if ('folded' in patch) {
-            if (patch.folded && patch.folded.length > 0) next.folded = patch.folded
-            else delete next.folded
-          }
-          if ('depth' in patch) {
-            if (patch.depth) next.depth = patch.depth
-            else delete next.depth
-          }
-          return next
-        },
-      })
+      // Why window.history instead of TanStack navigate: on contabo
+      // the router's basepath is `/sovereign` (see app/router.tsx),
+      // and a literal `to: '.'` in navigate() resolves through
+      // TanStack's path matcher in a way that drops the basepath AND
+      // re-encodes path params — so a depth-chip click on
+      // /sovereign/provision/<id>/jobs/<depId>:install-X pushed the
+      // browser to /provision/<id>/jobs/<depId>%3Ainstall-X (no
+      // /sovereign, colon encoded as %3A → 404 at the BE since
+      // jobs.Store keys by bare jobName). Updating the URL directly
+      // via window.history.replaceState preserves the path verbatim
+      // (basepath + path params + the colon in <depId>:install-X)
+      // and TanStack's search subscribers re-render on the popstate
+      // emit. The colon-prefixed jobId in the URL comes from older
+      // deep-links; the strip-on-click fix landed in #1431.
+      if (typeof window === 'undefined') return
+      const params = new URLSearchParams(window.location.search)
+      if ('folded' in patch) {
+        if (patch.folded && patch.folded.length > 0) params.set('folded', patch.folded)
+        else params.delete('folded')
+      }
+      if ('depth' in patch) {
+        if (patch.depth) params.set('depth', patch.depth)
+        else params.delete('depth')
+      }
+      const qs = params.toString()
+      const target = window.location.pathname + (qs ? '?' + qs : '')
+      window.history.replaceState({}, '', target)
+      // TanStack reads search from window.location on every render,
+      // but we need to nudge a re-render. The cleanest cross-version
+      // way is to dispatch a synthetic popstate; useSearch() picks up
+      // the new query string on the next render.
+      window.dispatchEvent(new PopStateEvent('popstate'))
     },
-    [navigate],
+    [],
   )
 
   const stepDepth = useCallback(
