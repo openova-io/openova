@@ -144,6 +144,70 @@ spec:
     spec:
       serviceAccountName: qa-finalizer-strip
       restartPolicy: OnFailure
+      # ── Fix #185 (prov #38/#39/#41 recurrence, 2026-05-12) ────────
+      # Tolerate the control-plane NoSchedule taint so this pre-install
+      # hook can ALWAYS land somewhere on the cluster regardless of
+      # worker-node CPU saturation. On a fresh Sovereign with
+      # workerCount=0 + autoscaler-hcloud (Fix #157), the FIRST worker
+      # is sized just large enough for the bootstrap-kit Pods themselves;
+      # bp-catalyst-platform's umbrella install lands several Deployments
+      # + StatefulSets that push that worker to 99% CPU requests before
+      # the umbrella's own pre-install hooks complete. Without this
+      # toleration the pre-install Job sits Pending forever (autoscaler
+      # backoff after failed scale-up of a second worker), Helm pre-
+      # install times out at 15m, Flux remediates 3× then gives up.
+      # prov #38/#39/#41 each hit this in succession on chart pin 1.4.140.
+      #
+      # 4-layer trace (prov #41, omantel.biz, 2026-05-12 00:28 UTC):
+      #   bp-catalyst-platform HR install.timeout=15m
+      #     → Helm pre-install hook: qa-finalizer-strip Job (weight -99)
+      #       → Pod requests 50m CPU + 64Mi memory (tiny)
+      #         → BUT no tolerations → scheduler restricted to worker
+      #           → worker cpx32 (8vCPU/16GB) at 99% CPU requests
+      #             (7980m of 8000m allocated) after bootstrap-kit fan-out
+      #             → FailedScheduling: Insufficient cpu (event quoted:
+      #               "0/2 nodes are available: 1 Insufficient cpu, 1
+      #               node(s) had untolerated taint
+      #               {node-role.kubernetes.io/control-plane: true}")
+      #             → autoscaler triggers scale-up worker 2→3 but goes
+      #               into "1 in backoff after failed scale-up"
+      #               → still Pending → 15m timeout → InstallFailed
+      #               → Flux rollback → ∞ loop (installFailures: 3)
+      #
+      # Fix: the qa-finalizer-strip hook is a defense-in-depth cleanup
+      # that completes in seconds on a clean cluster. It legitimately
+      # belongs ANYWHERE there's free capacity, including the control-
+      # plane node (which on prov #41 sits at 7% CPU / 9% memory —
+      # 7365m CPU free vs. 50m request). Tolerating the CP taint +
+      # system-cluster-critical priority is the canonical pattern for
+      # short-lived chart-bootstrap Jobs that MUST not be capacity-
+      # blocked.
+      #
+      # Why prior fixes didn't suffice:
+      #   - Fix #114 introduced this hook to break a finalizer-deadlock
+      #     loop on prov #9. Correct scope, never anticipated worker
+      #     saturation as a scheduling failure mode.
+      #   - Fix #138 (chart 1.4.138) converted the qa-cnpg-backup-s3-
+      #     seed + qa-cnpg-status-seed hooks (weight 0/post-install) to
+      #     regular release resources to break a circular DAG dep.
+      #     Different hook surface from this one.
+      #   - Fix #184 (chart 1.4.140) raised the gitea-token-mint hook
+      #     (weight +10) wait budget for cold-start autoscaler. That
+      #     hook runs AFTER qa-finalizer-strip (-99 < +10); if the -99
+      #     hook never starts, weight-10 hook never runs.
+      #
+      # priorityClassName: system-cluster-critical is a stock built-in
+      # k8s PriorityClass (value 2000000000) — high enough to preempt
+      # user workloads if the scheduler exhausts other options. Safe
+      # on every Sovereign.
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+      priorityClassName: system-cluster-critical
       securityContext:
         runAsNonRoot: true
         runAsUser: 65534
@@ -153,7 +217,15 @@ spec:
           type: RuntimeDefault
       containers:
         - name: strip
-          image: harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.29.3
+          # Fix #185: switch bitnamilegacy/kubectl → alpine/k8s per
+          # CLAUDE.md ARCHITECT-FIRST + MIRROR-EVERYTHING rules.
+          # bitnamilegacy is a Docker-Hub redirect for the deprecated
+          # Bitnami images (2025-08 cutover documented in platform/
+          # self-sovereign-cutover/chart/values.yaml:252). alpine/k8s
+          # is the canonical alpine-based kubectl image already used
+          # by the sibling pre-install hook catalyst-gitea-token-mint
+          # (Fix #163). Tag 1.31.4 matches the rest of the chart family.
+          image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false

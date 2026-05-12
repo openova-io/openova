@@ -1058,8 +1058,59 @@ name: bp-catalyst-platform
 # Fix #154 (HR-timeout audit). Those bumped the HelmRelease
 # install.timeout. This bumps the chart-INTERNAL wait loop budget
 # inside the pre-install hook Job, which is a different seam.
-version: 1.4.140
+version: 1.4.141
 appVersion: 1.4.94
+# 1.4.141 (qa-loop Fix #185, prov #38/#39/#41 recurrence — pre-install
+# hook unscheduable on saturated worker):
+#
+# Symptom (prov #41, omantel.biz, 2026-05-12 00:28 UTC):
+#   bp-catalyst-platform HR stuck Reconciling → InstallFailed →
+#   "failed pre-install: timed out waiting for the condition" after 15m.
+#   Flux uninstall remediation runs, then re-installs, loop forever.
+#   `installFailures: 3` after which Flux gives up entirely.
+#
+# Root cause:
+#   The qa-finalizer-strip pre-install Job (helm.sh/hook-weight -99,
+#   introduced by Fix #114 to break a finalizer-deadlock loop) has no
+#   tolerations. On a fresh Sovereign with workerCount=0 + autoscaler
+#   (Fix #157), the FIRST autoscaled worker is sized just large enough
+#   for the rest of the bootstrap-kit Pods; by the time
+#   bp-catalyst-platform HR triggers pre-install, the worker is at
+#   99% CPU requests (7980m of 8000m allocated) and the autoscaler
+#   has backed off scale-up of a second worker. Pod sits Pending
+#   forever ("FailedScheduling: 0/2 nodes are available: 1
+#   Insufficient cpu, 1 node(s) had untolerated taint
+#   {node-role.kubernetes.io/control-plane: true}"). Helm pre-install
+#   times out, Flux remediates 3×, gives up.
+#
+# Fix: add tolerations for control-plane NoSchedule + master taints +
+# priorityClassName: system-cluster-critical to the qa-finalizer-strip
+# Job. The hook is a defense-in-depth cleanup that runs in seconds; it
+# MUST be schedulable somewhere on the cluster regardless of worker
+# saturation. Control-plane node on prov #41 sits at 7% CPU / 9%
+# memory — 7365m CPU free vs. the hook's 50m request.
+#
+# Why prior fixes didn't suffice:
+#   - Fix #114 introduced this hook; never anticipated worker
+#     saturation at install time.
+#   - Fix #138 (1.4.138) addressed CIRCULAR-DEP post-install seeders,
+#     a different hook surface.
+#   - Fix #184 (1.4.140) raised the gitea-token-mint pre-install hook
+#     (weight +10) wait budget. That hook runs AFTER qa-finalizer-strip
+#     (-99 < +10); if the -99 hook never starts, the +10 hook never
+#     runs either.
+#
+# Coupled chart hygiene (rule 17, MIRROR-EVERYTHING + ARCHITECT-FIRST):
+#   - Switch image from bitnamilegacy/kubectl:1.29.3 (Docker-Hub
+#     redirect for deprecated Bitnami images, 2025-08 cutover) to
+#     harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4 — the
+#     canonical alpine-based kubectl image already used by sibling
+#     hook catalyst-gitea-token-mint (Fix #163).
+#
+# Recurring class: same family as Fix #114 (hook scheduling failure
+# wedges entire HR install), Fix #138 (circular-dep hooks), Fix #184
+# (cold-start budget). This addresses the SCHEDULING surface of the
+# weight -99 hook itself.
 # 1.4.129 (qa-loop iter-16 Fix #65): ship the missing
 # `openova-catalog` Flux v1 HelmRepository in flux-system. The
 # application-controller has always defaulted its rendered HelmRelease
