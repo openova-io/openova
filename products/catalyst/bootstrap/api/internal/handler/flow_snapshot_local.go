@@ -238,12 +238,16 @@ func (h *Handler) flowSnapshotFromJobs(deploymentID string) (*flowSnapshotLocalM
 			n.EndedAt = &t
 		}
 		nodes = append(nodes, n)
-		// Hierarchy edge — parent contains child. Skipped for
-		// top-level Jobs whose ParentID is empty (root group jobs).
+		// Hierarchy edge — `contains` per OpenovaFlow canon (see
+		// products/openova-flow/core/src/types.ts line 112):
+		// "`toId` (parent) contains `fromId` (child)". So the child
+		// id goes in FromID and the parent in ToID — NOT the
+		// intuitive "parent → child" reading. Skipped for top-level
+		// Jobs whose ParentID is empty (root group jobs themselves).
 		if j.ParentID != "" {
 			rels = append(rels, flowSnapshotLocalRelationship{
-				FromID: j.ParentID,
-				ToID:   j.ID,
+				FromID: j.ID,
+				ToID:   j.ParentID,
 				Type:   "contains",
 			})
 		}
