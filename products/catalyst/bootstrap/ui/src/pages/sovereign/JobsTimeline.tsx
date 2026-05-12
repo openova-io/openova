@@ -122,7 +122,7 @@ export function JobsTimeline({
       pageTitle="Jobs timeline"
       headerSlotLeft={
         <Link
-          to={`/jobs` as never}
+          to={(deploymentId ? `/provision/${deploymentId}/jobs` : `/jobs`) as never}
           className="text-[11px] text-[var(--color-text-dim)] hover:text-[var(--color-text)] no-underline"
           data-testid="sov-jobs-timeline-back"
         >
