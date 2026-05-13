@@ -352,6 +352,34 @@ func (h *Handler) flowSnapshotFromJobs(deploymentID string) (*flowSnapshotLocalM
 		// Phase-0 tofu jobs to every install-* bubble. Normalise
 		// every dep id to the canonical
 		// jobs.JobID(deploymentID, jobName) form before emitting.
+		// Dep-region helper: if this Job is regional (jobRegion != ""),
+		// every dep we emit MUST be in the SAME region. The bridge
+		// persists secondary-region Jobs with bare dep names like
+		// "install-cilium" (NOT "install-<region>/cilium") because
+		// HR.spec.dependsOn carries chart names, not region-prefixed
+		// names. Without the region prefix injection below, the
+		// normaliser produces `<dep>:install-cilium` which is the
+		// PRIMARY's cilium job → every secondary install renders a
+		// cross-region edge to primary. Caught on prov #66 (2026-05-13)
+		// where hel1-2 install jobs all pointed at primary's installs.
+		// Per NAMING-CONVENTION §1.3 secondary regions are independent
+		// fault domains — NO cross-region edges. Fix: when jobRegion
+		// is non-empty AND the dep name starts with "install-" without
+		// a region prefix, inject the region into the dep id.
+		regionalise := func(depName string) string {
+			if jobRegion == "" {
+				return depName // primary job — no prefix needed
+			}
+			if strings.Contains(depName, "/") {
+				return depName // already region-prefixed (e.g. "install-hel1-2/cilium")
+			}
+			if strings.HasPrefix(depName, jobs.JobNamePrefix) {
+				// "install-cilium" → "install-hel1-2/cilium"
+				return jobs.JobNamePrefix + jobRegion + "/" + strings.TrimPrefix(depName, jobs.JobNamePrefix)
+			}
+			return depName
+		}
+
 		seenDep := map[string]bool{}
 		for _, dep := range j.DependsOn {
 			if dep == "" {
@@ -359,7 +387,9 @@ func (h *Handler) flowSnapshotFromJobs(deploymentID string) (*flowSnapshotLocalM
 			}
 			normalised := dep
 			if !strings.Contains(dep, ":") {
-				normalised = jobs.JobID(deploymentID, dep)
+				// Bare jobName form — apply region scoping FIRST, then
+				// turn into full deploymentID-prefixed JobID.
+				normalised = jobs.JobID(deploymentID, regionalise(dep))
 			}
 			if normalised == j.ID || seenDep[normalised] {
 				continue
@@ -378,12 +408,25 @@ func (h *Handler) flowSnapshotFromJobs(deploymentID string) (*flowSnapshotLocalM
 		// emit finish-to-start edges to its sibling install-* Jobs.
 		// Skipped for group jobs (j.AppID empty) and when the live
 		// watcher hasn't attached yet.
+		//
+		// The hrDeps map is from the PRIMARY watcher only, so each entry
+		// is the bare chart dep (e.g. "cilium"). When this loop is
+		// emitting deps for a REGIONAL install, the dep must be
+		// region-prefixed for the same NAMING-CONVENTION §1.3 reason.
 		if j.AppID != "" {
-			for _, depAppID := range hrDeps[j.AppID] {
+			// Look up hrDeps by the appID stripped of any region prefix
+			// — the primary watcher's keys are bare chart names.
+			lookupAppID := j.AppID
+			if slash := strings.IndexByte(lookupAppID, '/'); slash > 0 {
+				lookupAppID = lookupAppID[slash+1:]
+			}
+			for _, depAppID := range hrDeps[lookupAppID] {
 				if depAppID == "" {
 					continue
 				}
-				depJobID := jobs.JobID(deploymentID, jobs.JobNamePrefix+depAppID)
+				// Region-scope the dep AppID so e.g. hel1-2's install-
+				// cilium points at hel1-2's install-cilium, not primary's.
+				depJobID := jobs.JobID(deploymentID, regionalise(jobs.JobNamePrefix+depAppID))
 				if depJobID == j.ID || seenDep[depJobID] {
 					continue
 				}
