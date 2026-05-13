@@ -1053,14 +1053,21 @@ spec:
               value: "false"
           resources:
             requests:
-              cpu: 50m
-              memory: 128Mi
+              cpu: 100m
+              memory: 512Mi
             limits:
               # tofu provider plugins (hcloud ~80MB, dynadot ~30MB) + state +
-              # plan files easily exceed the prior 64Mi cap. 1Gi gives headroom
-              # for parallel provider init and sustained `apply` work.
-              cpu: 1000m
-              memory: 1Gi
+              # plan files easily exceed the prior 64Mi cap. 1Gi was the
+              # post-tofu floor.
+              # Multi-region (prov #61, 2026-05-13): the API now holds
+              # in-memory helmwatch.Watcher state for N regions plus
+              # composes per-snapshot region groups across N kubeconfigs.
+              # OOMKilled at 1Gi on a 3-region prov when concurrent
+              # /snapshot polls hit during phase 1. Bumped to 4Gi for
+              # headroom — same machine has plenty (Hetzner CPX42 mothership
+              # node is 16GB-resident).
+              cpu: 2000m
+              memory: 4Gi
           # Liveness vs readiness — the split is REQUIRED, not cosmetic
           # (issue #530). /healthz is liveness: it returns 200 whenever
           # the catalyst-api process is up and the HTTP server is
