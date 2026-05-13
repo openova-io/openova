@@ -236,13 +236,45 @@ func (h *Handler) flowSnapshotFromJobs(deploymentID string) (*flowSnapshotLocalM
 
 	nodes := make([]flowSnapshotLocalNode, 0, len(js))
 	rels := make([]flowSnapshotLocalRelationship, 0, len(js)*2)
+	// Track secondary-region keys discovered from persisted Job names
+	// like "install-nbg1-1/cilium" — emitted as `<region>/<chart>` by
+	// spawnSecondaryRegionWatchers' callback in phase1_watch.go:457.
+	// We synthesize one bootstrap-kit sub-group per region AFTER the
+	// per-Job loop so the canvas can fold each region independently
+	// AND so the temporal-endpoint cascade in flowLayoutOrganic.ts
+	// stops at region boundaries (not at the flat bootstrap-kit set
+	// of 135 leaves). Caught on prov #59 (a43364f11c10cde3, 2026-05-13):
+	// after phase 1 terminates, dep.secondaryWatchers clears, the
+	// multi-region snapshot block below (line ~363) becomes a no-op,
+	// and all 135 secondary install Jobs render flat as direct children
+	// of bootstrap-kit with the provision-hetzner→bootstrap-kit edge
+	// fanning M×N onto every leaf. The persisted Job rows are the
+	// durable source of truth — derive region from them.
+	regionsFromJobs := map[string]bool{}
+	bootstrapID := jobs.JobID(deploymentID, jobs.GroupBootstrapKit)
 	for _, j := range js {
+		// Derive region prefix from JobName of the form
+		// "install-<region>/<chart>". The "/" separator is the
+		// canonical multi-region marker emitted by phase1_watch.go.
+		// Single-region (primary) install jobs have no `/` so this
+		// branch is a no-op for them.
+		jobRegion := ""
+		if j.Type == jobs.JobTypeInstall && j.AppID != "" {
+			if slash := strings.IndexByte(j.AppID, '/'); slash > 0 {
+				jobRegion = j.AppID[:slash]
+				regionsFromJobs[jobRegion] = true
+			}
+		}
 		n := flowSnapshotLocalNode{
 			ID:     j.ID,
 			FlowID: deploymentID,
 			Label:  jobDisplayLabel(j),
 			Status: jobStatusToFlowStatus(j.Status),
 			Family: jobFamilyForJob(j),
+		}
+		if jobRegion != "" {
+			rs := jobRegion
+			n.Region = &rs
 		}
 		if j.StartedAt != nil {
 			t := j.StartedAt.Unix()
@@ -259,10 +291,28 @@ func (h *Handler) flowSnapshotFromJobs(deploymentID string) (*flowSnapshotLocalM
 		// id goes in FromID and the parent in ToID — NOT the
 		// intuitive "parent → child" reading. Skipped for top-level
 		// Jobs whose ParentID is empty (root group jobs themselves).
-		if j.ParentID != "" {
+		//
+		// For multi-region install Jobs (JobName "install-<region>/<chart>"),
+		// REPARENT under the synthesized "<deploymentId>:<region>:bootstrap-kit"
+		// group so the canvas's organic layout renders each region as
+		// its own sub-bubble. The region groups themselves are
+		// synthesised after this loop and `contains`-edged under
+		// bootstrap-kit, so the tree shape is:
+		//   bootstrap-kit
+		//   ├── 45 primary install-* (legacy parent)
+		//   ├── <region-A>:bootstrap-kit ── 45 install-*
+		//   └── <region-B>:bootstrap-kit ── 45 install-*
+		// The temporal-endpoint cascade in flowLayoutOrganic then
+		// finds region-bounded initials/terminals instead of fanning
+		// out M×N across all 135 leaves.
+		parentID := j.ParentID
+		if jobRegion != "" {
+			parentID = deploymentID + ":" + jobRegion + ":bootstrap-kit"
+		}
+		if parentID != "" {
 			rels = append(rels, flowSnapshotLocalRelationship{
 				FromID: j.ID,
-				ToID:   j.ParentID,
+				ToID:   parentID,
 				Type:   "contains",
 			})
 		}
@@ -324,6 +374,41 @@ func (h *Handler) flowSnapshotFromJobs(deploymentID string) (*flowSnapshotLocalM
 		}
 	}
 
+	// Synthesise one bootstrap-kit sub-group per discovered region.
+	// These node IDs match the parent IDs the per-Job loop above
+	// re-parented multi-region install Jobs to. Without this
+	// post-loop append, those re-parent edges would dangle (the FE
+	// adapter's `contains` index would point at IDs with no
+	// corresponding node row).
+	//
+	// Status "running" is a placeholder — the FE rolls per-group
+	// status up from descendants on the read path. Same family/group
+	// shape as the secondaryWatchers block below so the canvas
+	// renders both code paths' region bubbles identically.
+	{
+		regionFamily := "group"
+		for region := range regionsFromJobs {
+			regionGroupID := deploymentID + ":" + region + ":bootstrap-kit"
+			regionStr := region
+			nodes = append(nodes, flowSnapshotLocalNode{
+				ID:     regionGroupID,
+				FlowID: deploymentID,
+				Label:  "Bootstrap (" + region + ")",
+				Status: "running",
+				Family: &regionFamily,
+				Region: &regionStr,
+			})
+			// Hierarchy: this region's group is contained by the
+			// top-level bootstrap-kit so the canvas can fold all
+			// regions under one parent.
+			rels = append(rels, flowSnapshotLocalRelationship{
+				FromID: regionGroupID,
+				ToID:   bootstrapID,
+				Type:   "contains",
+			})
+		}
+	}
+
 	// Group-level sequential edge — `provisioner` (Phase-0 tofu chain)
 	// must complete before `bootstrap-kit` (Phase-1 Flux reconcile)
 	// starts. This is the real temporal relationship between the two
@@ -336,7 +421,6 @@ func (h *Handler) flowSnapshotFromJobs(deploymentID string) (*flowSnapshotLocalM
 	// endpoints of the elided-group edge are elided — so this edge is
 	// safe to emit unconditionally.
 	provisionerID := jobs.JobID(deploymentID, jobs.GroupProvisioner)
-	bootstrapID := jobs.JobID(deploymentID, jobs.GroupBootstrapKit)
 	hasProvisioner := false
 	hasBootstrap := false
 	for _, j := range js {
