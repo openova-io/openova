@@ -365,22 +365,29 @@ function useJobLinkBuilder(): (jobId: string) => string {
   const params = useParams({ strict: false }) as { deploymentId?: string }
   const isSovereign = DETECTED_MODE.mode === 'sovereign'
   const depId = params.deploymentId ?? ''
-  // Encode the Job id for use as a URL path segment, but preserve the
-  // literal `:` so region-prefixed OpenovaFlow ids
-  // ("contabo:bp-openova-flow-server" — TC-035, 2026-05-11) survive
-  // verbatim into the href. Previously we stripped the "<prefix>:"
-  // segment entirely to dodge a documented Traefik bug that dropped
-  // the URL-encoding of `:` in path segments — but stripping the
-  // region prefix loses the entity identity that the OpenovaFlow
-  // contract carries (the same node id is used by FlowPage canvas
-  // navigation + JobDetail flow-fallback, both PASSING with the
-  // colon-present form). `encodeURIComponent` is still used so live
-  // K8s job ids containing `/` (e.g. "job/syft-grype/…") stay safe
-  // path segments; we then restore the literal `:` because RFC 3986
-  // permits it inside a path segment (a `pchar`) and JobDetail's
-  // `useParams` lookup keys both the full id AND the bare jobName.
+  // Strip the "<deploymentId>:" prefix from the FULL canvas JobID form
+  // before encoding. The mothership canvas emits ids like
+  // "<deploymentId>:install-X" (single-region) and
+  // "<deploymentId>:<region>:install-X" (multi-region per
+  // flow_snapshot_local.go:410). jobs.Store.GetJob keys by the BARE
+  // jobName ("install-X" or "<region>:install-X" for secondary
+  // regions) — exact-match URL lookup of the full prefix-bearing form
+  // returns 404. FlowPage.handleNodeDoubleClick already strips the
+  // first `:` prefix (FlowPage.tsx:355); this JobsTable build path
+  // must do the same so a /jobs row click and a canvas drill-down
+  // resolve to the SAME backend endpoint.
+  //
+  // Caught on prov #59 (a43364f11c10cde3, 2026-05-13): clicking a
+  // running secondary-region install-* row on /sovereign/provision/
+  // <id>/jobs landed on /provision/<id>/jobs/<id>:install-nbg1-1/
+  // self-sovereign-cutover → 404 "page not found" at the SPA boundary
+  // because no Job ID matches the prefix-bearing form in jobs.Store.
+  // Note: keep encodeURIComponent so the `/` inside multi-region bare
+  // names ("nbg1-1/self-sovereign-cutover") stays safe in a path
+  // segment; jobs.Store.GetJob URL-decodes its lookup key on the BE.
   return (jobId: string) => {
-    const encoded = encodeURIComponent(jobId).replace(/%3A/g, ':')
+    const bare = jobId.includes(':') ? jobId.slice(jobId.indexOf(':') + 1) : jobId
+    const encoded = encodeURIComponent(bare)
     return isSovereign || !depId
       ? `/jobs/${encoded}`
       : `/provision/${depId}/jobs/${encoded}`
