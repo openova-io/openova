@@ -1203,7 +1203,17 @@ runcmd:
   # becomes ready. Skip the taint when there are no workers; fall back
   # to k3s default (CP fully schedulable) so the solo node carries
   # everything.
-  - 'curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=${k3s_version} K3S_TOKEN=${k3s_token} INSTALL_K3S_EXEC="server --cluster-init --flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --tls-san=${sovereign_fqdn} --tls-san=${cp_private_ip} --kube-apiserver-arg=oidc-issuer-url=https://auth.${sovereign_fqdn}/realms/sovereign --kube-apiserver-arg=oidc-client-id=kubectl --kube-apiserver-arg=oidc-username-claim=preferred_username --kube-apiserver-arg=oidc-username-prefix=oidc: --kube-apiserver-arg=oidc-groups-claim=groups --kube-apiserver-arg=oidc-groups-prefix=oidc: --node-label catalyst.openova.io/role=control-plane ${worker_count > 0 ? "--node-taint node-role.kubernetes.io/control-plane=true:NoSchedule " : ""}--write-kubeconfig-mode=0644" sh -'
+  #
+  # --node-ip + --advertise-address pin the API server to ${cp_private_ip}
+  # (10.0.1.2 primary; 10.0.<10+idx>.2 secondary). Without them k3s
+  # auto-detects the public interface (49.x.x.x), kube-apiserver
+  # advertises that IP, and any pod (cilium init/operator, coredns)
+  # dialing 10.0.1.2:6443 times out because nothing listens on it.
+  # Symptom on prov #62 (cpx52, kernel 6.8.0-111): cilium-agent init
+  # CrashLoop with "dial tcp 10.0.1.2:6443: i/o timeout" → primary
+  # cluster never makes a Ready node. Worked by luck on cpx42 (earlier
+  # kernel + network-init order); cpx52 reproduces reliably.
+  - 'curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=${k3s_version} K3S_TOKEN=${k3s_token} INSTALL_K3S_EXEC="server --cluster-init --flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --node-ip=${cp_private_ip} --advertise-address=${cp_private_ip} --tls-san=${sovereign_fqdn} --tls-san=${cp_private_ip} --kube-apiserver-arg=oidc-issuer-url=https://auth.${sovereign_fqdn}/realms/sovereign --kube-apiserver-arg=oidc-client-id=kubectl --kube-apiserver-arg=oidc-username-claim=preferred_username --kube-apiserver-arg=oidc-username-prefix=oidc: --kube-apiserver-arg=oidc-groups-claim=groups --kube-apiserver-arg=oidc-groups-prefix=oidc: --node-label catalyst.openova.io/role=control-plane ${worker_count > 0 ? "--node-taint node-role.kubernetes.io/control-plane=true:NoSchedule " : ""}--write-kubeconfig-mode=0644" sh -'
 
   # Wait for the API server to be reachable. Cilium needs to come up before
   # nodes Ready, so we wait specifically for the API endpoint.
