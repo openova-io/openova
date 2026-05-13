@@ -252,16 +252,39 @@ func (h *Handler) flowSnapshotFromJobs(deploymentID string) (*flowSnapshotLocalM
 	// durable source of truth — derive region from them.
 	regionsFromJobs := map[string]bool{}
 	bootstrapID := jobs.JobID(deploymentID, jobs.GroupBootstrapKit)
+
+	// Primary region key from deployment request — primary install jobs
+	// have NO "/" prefix in their JobName (they're written by the
+	// primary helmwatch.Bridge with bare bp-<chart> names), so we MUST
+	// derive the primary region label from dep.Request.Region. Without
+	// this the primary's 45 install jobs render as bare leaves directly
+	// under bootstrap-kit while secondaries are nested in region groups
+	// → asymmetric canvas (caught on prov #65, 2026-05-13). With this,
+	// primary's install jobs get a <region> tag + reparent under a
+	// `<deploymentId>:<primaryRegion>:bootstrap-kit` group so all
+	// regions render symmetrically as siblings under bootstrap-kit.
+	primaryRegion := ""
+	if val, ok := h.deployments.Load(deploymentID); ok {
+		if dep, ok := val.(*Deployment); ok && dep != nil {
+			primaryRegion = dep.Request.Region
+		}
+	}
+
 	for _, j := range js {
 		// Derive region prefix from JobName of the form
 		// "install-<region>/<chart>". The "/" separator is the
 		// canonical multi-region marker emitted by phase1_watch.go.
-		// Single-region (primary) install jobs have no `/` so this
-		// branch is a no-op for them.
+		// Primary install jobs have no `/` — fall through to the
+		// primary region from dep.Request below.
 		jobRegion := ""
 		if j.Type == jobs.JobTypeInstall && j.AppID != "" {
 			if slash := strings.IndexByte(j.AppID, '/'); slash > 0 {
 				jobRegion = j.AppID[:slash]
+				regionsFromJobs[jobRegion] = true
+			} else if primaryRegion != "" {
+				// Primary region install job — reparent into the
+				// primary region group for symmetry with secondaries.
+				jobRegion = primaryRegion
 				regionsFromJobs[jobRegion] = true
 			}
 		}
