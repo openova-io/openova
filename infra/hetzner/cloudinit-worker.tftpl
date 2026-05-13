@@ -93,7 +93,13 @@ runcmd:
   # Join the control plane via private network IP (10.0.1.2 — the first
   # control-plane node in the network subnet). k3s_version pinned so all
   # workers in this Sovereign land on the same Kubernetes minor as the CP.
-  - 'curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=${k3s_version} K3S_URL=https://${cp_private_ip}:6443 K3S_TOKEN=${k3s_token} INSTALL_K3S_EXEC="agent --node-label catalyst.openova.io/role=worker" sh -'
+  # --kubelet-arg=max-pods=220 doubles the kubelet default 110. Without
+  # it the qa-fixtures + full bootstrap-kit pod set saturates one node
+  # cleanly (catalyst-api, helm-controller, source-controller, plus the
+  # 45-HR install chain → Helm hooks → bp-* runtime pods). Caught on
+  # prov #63 (cpx52 × 3): CP at 110/110 pods, bp-catalyst-platform's
+  # catalyst-api pod stuck "Too many pods" → install hook timed out.
+  - 'curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=${k3s_version} K3S_URL=https://${cp_private_ip}:6443 K3S_TOKEN=${k3s_token} INSTALL_K3S_EXEC="agent --kubelet-arg=max-pods=220 --node-label catalyst.openova.io/role=worker" sh -'
   - mkdir -p /var/lib/catalyst
   - touch /var/lib/catalyst/cloud-init-complete
 final_message: "Catalyst worker bootstrap complete after $UPTIME seconds"
