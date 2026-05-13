@@ -439,108 +439,20 @@ func (h *Handler) flowSnapshotFromJobs(deploymentID string) (*flowSnapshotLocalM
 		})
 	}
 
-	// Multi-region — append one synthetic group bubble per secondary
-	// region + one FlowNode per HR observed in that region's watcher
-	// + contains edges parent→child + finish-to-start edges between
-	// siblings (same-region only). Region tag is set so the canvas
-	// can colour-group by region.
-	if len(secondaryWatchers) > 0 {
-		statusToFlow := func(state string) string {
-			switch state {
-			case "installed":
-				return "succeeded"
-			case "failed":
-				return "failed"
-			case "installing", "pending", "degraded":
-				return "running"
-			}
-			return "pending"
-		}
-		for region, sw := range secondaryWatchers {
-			if sw == nil {
-				continue
-			}
-			snap := sw.SnapshotComponents()
-			if len(snap) == 0 {
-				continue
-			}
-			regionGroupID := deploymentID + ":" + region + ":bootstrap-kit"
-			regionStr := region
-			regionFamily := "group"
-			nodes = append(nodes, flowSnapshotLocalNode{
-				ID:     regionGroupID,
-				FlowID: deploymentID,
-				Label:  "Bootstrap (" + region + ")",
-				Status: "running",
-				Family: &regionFamily,
-				Region: &regionStr,
-			})
-			// Hierarchy: this region's group is contained by the
-			// top-level bootstrap-kit (so the canvas can fold all
-			// regions under one parent).
-			rels = append(rels, flowSnapshotLocalRelationship{
-				FromID: regionGroupID,
-				ToID:   bootstrapID,
-				Type:   "contains",
-			})
-
-			// Index this region's components for intra-region dep edges.
-			regionAppIDs := map[string]string{} // appID → full node id
-			for _, cs := range snap {
-				appID := cs.AppID
-				if appID == "" {
-					continue
-				}
-				nodeID := deploymentID + ":" + region + ":install-" + appID
-				regionAppIDs[appID] = nodeID
-			}
-
-			installFamily := "install"
-			for _, cs := range snap {
-				appID := cs.AppID
-				if appID == "" {
-					continue
-				}
-				nodeID := regionAppIDs[appID]
-				startedAt := int64(0)
-				if !cs.LastTransitionAt.IsZero() {
-					startedAt = cs.LastTransitionAt.Unix()
-				}
-				node := flowSnapshotLocalNode{
-					ID:     nodeID,
-					FlowID: deploymentID,
-					Label:  "install-" + appID,
-					Status: statusToFlow(cs.Status),
-					Family: &installFamily,
-					Region: &regionStr,
-				}
-				if startedAt > 0 {
-					node.StartedAt = &startedAt
-				}
-				nodes = append(nodes, node)
-				// Hierarchy
-				rels = append(rels, flowSnapshotLocalRelationship{
-					FromID: nodeID,
-					ToID:   regionGroupID,
-					Type:   "contains",
-				})
-				// Intra-region deps (same region only — DO NOT cross
-				// region edges, since each region is an independent
-				// fault domain per NAMING-CONVENTION §1.3).
-				for _, depApp := range cs.DependsOn {
-					depID, ok := regionAppIDs[depApp]
-					if !ok {
-						continue
-					}
-					rels = append(rels, flowSnapshotLocalRelationship{
-						FromID: depID,
-						ToID:   nodeID,
-						Type:   "finish-to-start",
-					})
-				}
-			}
-		}
-	}
+	// NOTE — the legacy live-watcher multi-region composition block was
+	// removed in PR #1455 (2026-05-13). The per-Job loop above already
+	// derives region from `j.AppID` containing `/` and synthesises the
+	// region sub-groups from persisted Job rows, which is the durable
+	// source of truth. The old code path read dep.secondaryWatchers
+	// (transient — cleared by stopSecondaries() when phase 1
+	// terminates) AND emitted nodes with the SAME region-group IDs as
+	// the new path, double-counting children + duplicating the region
+	// group bubbles during phase 1 (caught on prov #61: 90 children
+	// per region group, not 45). Reading secondaryWatchers earlier
+	// (lines ~182-205) still serves the hrDeps lookup for the primary
+	// region's intra-cluster dep edges; that path is unchanged.
+	// _ = secondaryWatchers — intentionally unused after this rewrite.
+	_ = secondaryWatchers
 
 	return &flowSnapshotLocalMessage{
 		Type: "snapshot",
