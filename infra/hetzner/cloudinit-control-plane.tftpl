@@ -1213,7 +1213,31 @@ runcmd:
   # CrashLoop with "dial tcp 10.0.1.2:6443: i/o timeout" → primary
   # cluster never makes a Ready node. Worked by luck on cpx42 (earlier
   # kernel + network-init order); cpx52 reproduces reliably.
-  - 'curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=${k3s_version} K3S_TOKEN=${k3s_token} INSTALL_K3S_EXEC="server --cluster-init --flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --node-ip=${cp_private_ip} --advertise-address=${cp_private_ip} --kubelet-arg=max-pods=220 --tls-san=${sovereign_fqdn} --tls-san=${cp_private_ip} --kube-apiserver-arg=oidc-issuer-url=https://auth.${sovereign_fqdn}/realms/sovereign --kube-apiserver-arg=oidc-client-id=kubectl --kube-apiserver-arg=oidc-username-claim=preferred_username --kube-apiserver-arg=oidc-username-prefix=oidc: --kube-apiserver-arg=oidc-groups-claim=groups --kube-apiserver-arg=oidc-groups-prefix=oidc: --node-label catalyst.openova.io/role=control-plane ${worker_count > 0 ? "--node-taint node-role.kubernetes.io/control-plane=true:NoSchedule " : ""}--write-kubeconfig-mode=0644" sh -'
+  # Pre-fetch the CP's public IPv4 from Hetzner metadata so the k3s
+  # server's TLS cert includes it as a SAN. The mothership catalyst-api's
+  # helmwatch.Bridge connects to secondary CPs via PUBLIC IP (kubeconfig
+  # public-IP rewrite at line ~1310), and without the public IP in
+  # --tls-san k3s presents a cert valid only for private 10.0.x.2 +
+  # 127.0.0.1 + cluster-ip 10.43.0.1 → "x509: certificate is valid for
+  # 10.0.10.2, 10.43.0.1, 127.0.0.1, ::1, not <public>" → silent
+  # helmwatch failure → secondary regions' bp-* HRs never reach the
+  # mothership canvas. Caught on prov #64 (hel1-2 kubeconfig posted
+  # but bridge connection failed; 0 HRs observed). 169.254.169.254 is
+  # the Hetzner metadata endpoint; same path used by the public-IP
+  # rewrite step at line 1310.
+  # --node-label openova.io/region=hz-fsn-rtz-prod (NAMING-CONVENTION
+  # §2.1 canonical region tag): qa-fixtures Pods (CNPGPair primary/replica,
+  # status seeder Jobs, qa-wp Application) carry hard nodeAffinity for
+  # `openova.io/region in [hz-fsn-rtz-prod]`. Without the label k8s
+  # FailedScheduling rejects every fixture pod → bp-catalyst-platform
+  # post-install hook waits forever → entire bootstrap-kit chain hangs
+  # at 44/45 with bp-catalyst-platform Running. Caught on prov #64
+  # (qaTestEnabled=true). Pinned to the canonical fsn1 region tag — the
+  # qa-fixtures template (products/catalyst/chart/templates/qa-fixtures/
+  # *.yaml) hardcodes "hz-fsn-rtz-prod" as Values.qaFixtures.primaryRegion
+  # default. Secondary regions don't need the label; qa fixtures pin to
+  # primary by design (qaFixtures.primaryRegion is singular).
+  - 'CP_PUBLIC_IPV4=$(curl -fsSL --retry 30 --retry-delay 2 http://169.254.169.254/hetzner/v1/metadata/public-ipv4) && curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=${k3s_version} K3S_TOKEN=${k3s_token} INSTALL_K3S_EXEC="server --cluster-init --flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --node-ip=${cp_private_ip} --advertise-address=${cp_private_ip} --kubelet-arg=max-pods=220 --tls-san=${sovereign_fqdn} --tls-san=${cp_private_ip} --tls-san=$${CP_PUBLIC_IPV4} --kube-apiserver-arg=oidc-issuer-url=https://auth.${sovereign_fqdn}/realms/sovereign --kube-apiserver-arg=oidc-client-id=kubectl --kube-apiserver-arg=oidc-username-claim=preferred_username --kube-apiserver-arg=oidc-username-prefix=oidc: --kube-apiserver-arg=oidc-groups-claim=groups --kube-apiserver-arg=oidc-groups-prefix=oidc: --node-label catalyst.openova.io/role=control-plane --node-label openova.io/region=hz-fsn-rtz-prod ${worker_count > 0 ? "--node-taint node-role.kubernetes.io/control-plane=true:NoSchedule " : ""}--write-kubeconfig-mode=0644" sh -'
 
   # Wait for the API server to be reachable. Cilium needs to come up before
   # nodes Ready, so we wait specifically for the API endpoint.
