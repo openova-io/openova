@@ -215,6 +215,12 @@ func (h *Handler) HandleFlowSnapshot(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "deploymentId required", http.StatusBadRequest)
 		return
 	}
+	// Lazy-start the emit loop. The phase1 watch start hook already
+	// invokes startFlowEmitLoop, but a catalyst-api Pod restart AFTER
+	// the deployment reached status=ready leaves the loop dead until
+	// someone hits the snapshot endpoint. The call is idempotent —
+	// re-entry on an already-running loop is a no-op.
+	h.startFlowEmitLoop(flowID)
 	// Snapshot is served from openova-flow-server's CNPG-backed store.
 	// catalyst-api's role is to PROXY — no local composition. The
 	// background flow emit loop (flow_emitter.go) keeps openova-flow-
