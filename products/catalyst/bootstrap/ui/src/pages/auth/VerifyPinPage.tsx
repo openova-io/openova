@@ -101,7 +101,27 @@ export function VerifyPinPage() {
         // cluster `users-page-null-map-and-open-redirect`.
         const target = sanitizeNextParam(next) ?? '/wizard'
         if (typeof window !== 'undefined') {
-          window.location.replace(target)
+          // window.location.replace is a HARD navigation — it bypasses
+          // the TanStack Router's basepath config. On contabo the SPA
+          // mounts under `/sovereign/*`; nginx 404s any request that
+          // doesn't start with that prefix. The sanitized `next` value
+          // is post-basepath (see basepathRelative.ts: e.g. `next` of
+          // `/provision/$id/jobs` represents the route the router
+          // would navigate to AT `/sovereign/provision/$id/jobs`). So
+          // we must re-prefix `/sovereign` before the hard nav,
+          // otherwise the operator lands on a bare `/provision/...`
+          // URL that nginx never routes to the SPA.
+          //
+          // Caught live on prov #82 (omani.works, 2026-05-14): after
+          // PIN-login from console.openova.io/sovereign/login,
+          // window.location.replace('/provision/$id/jobs') went to a
+          // raw `/provision/...` URL → nginx 404 page-not-found.
+          const basepath =
+            window.location.pathname.startsWith('/sovereign')
+              ? '/sovereign'
+              : ''
+          const fullTarget = basepath + target
+          window.location.replace(fullTarget)
           return
         }
         navigate({ to: target as never, replace: true })
