@@ -499,13 +499,30 @@ func (b *Bridge) OnHelmReleaseEvent(componentID, state, level, message string, t
 	// no-op merge; if it wasn't (e.g. the bootstrap-kit hot-shipped a
 	// new chart helmwatch wasn't seeded with) the bridge still
 	// auto-creates a row so no event is dropped.
+	//
+	// IMPORTANT: explicitly carry forward the existing Job's DependsOn
+	// rather than passing []string{}. The canvas snapshot's Layer-1
+	// dep-edge derivation reads Job.DependsOn from the store, and the
+	// catalyst-api Pod's in-memory hrDeps cache is RESET on every
+	// restart — so the persisted DependsOn is the only durable source
+	// of HR-graph wiring once the live informer is gone. Relying on
+	// mergeJob's prev.DependsOn preservation is correct on paper but
+	// fragile in practice (caught on prov #75 2026-05-14 after a PR
+	// #1469 pod restart wiped Layer-2 → all 135 install Jobs ended up
+	// with `dependsOn: []` in the store → canvas showed flat fan-out).
+	// Same pattern as OnRawComponentLog at line ~939: query then
+	// preserve.
+	existingDeps := []string{}
+	if existing, _, err := b.store.GetJob(b.deploymentID, JobID(b.deploymentID, jobName)); err == nil && len(existing.DependsOn) > 0 {
+		existingDeps = existing.DependsOn
+	}
 	if err := b.store.UpsertJob(Job{
 		DeploymentID: b.deploymentID,
 		JobName:      jobName,
 		AppID:        componentID,
 		Type:         JobTypeInstall,
 		ParentID:     JobID(b.deploymentID, GroupBootstrapKit),
-		DependsOn:    []string{},
+		DependsOn:    existingDeps,
 		Status:       nextStatus,
 	}); err != nil {
 		return err
