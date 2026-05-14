@@ -440,37 +440,55 @@ func (h *Handler) flowSnapshotFromJobs(deploymentID string) (*flowSnapshotLocalM
 		// fault domains — NO cross-region edges. Fix: when jobRegion
 		// is non-empty AND the dep name starts with "install-" without
 		// a region prefix, inject the region into the dep id.
+		// isSecondaryRegionJob: true when this Job is a secondary
+		// region install (j.AppID contains "<region>:<chart>"). False
+		// for primary install jobs even though they are now rendered
+		// under a primary region sub-group (jobRegion derived from
+		// dep.Request.Region for symmetric layout). The distinction
+		// matters because primary jobs have BARE JobNames
+		// ("install-cilium") with bare-form DependsOn entries
+		// ("install-cilium"), while secondary jobs have prefixed
+		// JobNames ("install-hel1-2:cilium") with prefixed-form
+		// DependsOn entries ("install-hel1-2:cilium"). Region-
+		// prefixing a primary dep produces a phantom JobID that no
+		// node matches.
+		isSecondaryRegionJob := strings.IndexByte(j.AppID, ':') > 0
+
 		regionalise := func(depName string) string {
-			if jobRegion == "" {
-				return depName // primary job — no prefix needed
+			if !isSecondaryRegionJob {
+				return depName // primary job — JobName is bare, deps stay bare
 			}
-			// "install-<region>:<chart>" is already region-prefixed.
-			// strings.Count guard avoids matching the dep/jobName
-			// separator colon — JobName itself has at most one ":"
-			// when regional ("hel1-2:cilium") and zero when bare
-			// ("cilium").
-			if strings.Count(depName, ":") >= 1 && strings.HasPrefix(depName, jobs.JobNamePrefix) {
+			// Secondary region. If depName is already region-prefixed
+			// ("install-<region>:<chart>") leave it; otherwise inject
+			// the region prefix so the dep resolves to the same
+			// region's sibling install Job.
+			if strings.HasPrefix(depName, jobs.JobNamePrefix) {
 				rest := strings.TrimPrefix(depName, jobs.JobNamePrefix)
 				if strings.IndexByte(rest, ':') > 0 {
 					return depName // already region-prefixed
 				}
-			}
-			if strings.HasPrefix(depName, jobs.JobNamePrefix) {
-				// "install-cilium" → "install-hel1-2:cilium"
-				return jobs.JobNamePrefix + jobRegion + ":" + strings.TrimPrefix(depName, jobs.JobNamePrefix)
+				return jobs.JobNamePrefix + jobRegion + ":" + rest
 			}
 			return depName
 		}
 
 		seenDep := map[string]bool{}
+		// fullJobIDPrefix is "<deploymentID>:" — used to detect whether
+		// a stored dep entry is already a fully-qualified JobID. The
+		// previous heuristic `!strings.Contains(dep, ":")` mis-classified
+		// region-prefixed JobNames ("install-hel1-2:cilium") as
+		// already-full-JobIDs because they contain a colon — yielding
+		// invalid FromIDs without the deploymentID prefix.
+		fullJobIDPrefix := deploymentID + ":"
 		for _, dep := range j.DependsOn {
 			if dep == "" {
 				continue
 			}
 			normalised := dep
-			if !strings.Contains(dep, ":") {
-				// Bare jobName form — apply region scoping FIRST, then
-				// turn into full deploymentID-prefixed JobID.
+			if !strings.HasPrefix(dep, fullJobIDPrefix) {
+				// Bare jobName form ("install-cilium" or
+				// "install-hel1-2:cilium") — apply region scoping then
+				// prefix with deploymentID.
 				normalised = jobs.JobID(deploymentID, regionalise(dep))
 			}
 			if normalised == j.ID || seenDep[normalised] {
