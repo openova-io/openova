@@ -1236,6 +1236,13 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
         </marker>
       </defs>
 
+      {/* EDGES LAYER — wrapped in an explicit <g> rendered BEFORE the
+          nodes layer so SVG paint order guarantees wires sit behind
+          every bubble. Without the wrapper the JSX siblings already
+          paint in source order, but a future code change that inserts
+          another element between edges and nodes could quietly defeat
+          that contract — the wrapper makes the layering explicit. */}
+      <g className="flow-edges-layer" data-layer="edges">
       {layout.edges.map((e) => {
         // Bug #481 — use clamped renderPos, not raw livePos. Edges
         // between clamped endpoints are bounded by the viewBox
@@ -1259,7 +1266,12 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
           />
         )
       })}
+      </g>
 
+      {/* NODES LAYER — opaque bubbles painted OVER the edges layer.
+          The bubble inner fill is solid (no alpha) so any edge whose
+          path crosses the bubble bounding box is occluded. */}
+      <g className="flow-nodes-layer" data-layer="nodes">
       {layout.nodes.map((node) => {
         // Bug #481 — render at clamped position so no bubble ever sits
         // outside the viewBox.
@@ -1309,6 +1321,7 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
           />
         )
       })}
+      </g>
     </svg>
     {menu && nodeActions && onNodeAction ? (
       <FlowNodeMenu
@@ -1496,8 +1509,15 @@ function FlowNode({
         : tone.ring
   const familyColor = family?.color ?? 'rgba(148,163,184,0.55)'
   const radius = node.isGroup ? gr : r
-  const grpStyle: CSSProperties = { cursor: 'grab' }
-  const groupOpacity = isDimmed ? 0.35 : 1
+  // Founder rule (prov #75 review): bubbles MUST stay opaque so wires
+  // never bleed through. The dimmed visual treatment is now done via
+  // SVG `filter: grayscale + brightness` on the OUTER ring/glow halo,
+  // NOT via group-level opacity — opacity = 0.35 made the bubble fill
+  // see-through and the wires-behind-bubble paint order was wasted.
+  const grpStyle: CSSProperties = isDimmed
+    ? { cursor: 'grab', filter: 'grayscale(70%) brightness(0.65)' }
+    : { cursor: 'grab' }
+  const groupOpacity = 1
   const innerWidth = isOpen ? 4 : isNeighbor ? 3 : isHost ? 3.5 : 2
 
   return (
