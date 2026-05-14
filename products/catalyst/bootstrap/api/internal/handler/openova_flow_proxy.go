@@ -215,19 +215,30 @@ func (h *Handler) HandleFlowSnapshot(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "deploymentId required", http.StatusBadRequest)
 		return
 	}
+	// Snapshot is served from openova-flow-server's CNPG-backed store.
+	// catalyst-api's role is to PROXY — no local composition. The
+	// background flow emit loop (flow_emitter.go) keeps openova-flow-
+	// server's state hot via periodic snapshot POSTs; pod restart on
+	// either side does not lose data (CNPG is the source of truth).
+	//
+	// FALLBACK: if openova-flow-server is unreachable AND
+	// flowSnapshotFromJobs CAN compose locally from the persisted
+	// jobs.Store, serve that. This is purely a degraded-mode safety
+	// net; production traffic ALWAYS goes through the proxy.
+	base, err := h.resolveFlowServerURL(flowID)
+	if err == nil && base != "" {
+		upstream := base + "/v1/flows/" + url.PathEscape(flowID) + "/snapshot"
+		h.flowProxyGET(w, r, upstream)
+		return
+	}
+	// Proxy unavailable — degraded-mode fallback.
 	if snapshot, ok := h.flowSnapshotFromJobs(flowID); ok {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(snapshot)
 		return
 	}
-	base, err := h.resolveFlowServerURL(flowID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
-		return
-	}
-	upstream := base + "/v1/flows/" + url.PathEscape(flowID) + "/snapshot"
-	h.flowProxyGET(w, r, upstream)
+	http.Error(w, err.Error(), http.StatusNotFound)
 }
 
 // HandleFlowEvents proxies POST /api/v1/flows/{deploymentId}/events →
