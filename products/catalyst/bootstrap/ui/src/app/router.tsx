@@ -167,7 +167,29 @@ async function rootBeforeLoad({ location }: { location: { pathname: string } }) 
   const pathname = location.pathname
   const canonical = canonicalisePath(pathname)
   if (canonical !== pathname) {
-    const newURL = canonical + window.location.search + window.location.hash
+    // TanStack Router's `location.pathname` is POST-basepath — i.e. on
+    // contabo (basepath='/sovereign') a visit to
+    // `/sovereign/provision/$id/jobs/install-X%3AY` arrives here with
+    // pathname=`/provision/$id/jobs/install-X%3AY`. `canonicalisePath`
+    // lowercases, so `%3A` → `%3a` and the comparison triggers a
+    // hard-nav to `canonical`. But `window.location.replace` operates
+    // on the FULL URL — calling replace(canonical) navigates to a
+    // bare `/provision/...` URL without the `/sovereign/` prefix,
+    // which nginx (which only serves the SPA under `/sovereign/*`)
+    // 404s. Re-add the basepath here for the hard-nav target.
+    //
+    // Caught live on prov #82 + #84 (omani.works, 2026-05-14): the
+    // canvas-row-click + open-link patterns produced `install-X%3AY`
+    // URLs that the operator opened, canonicalisation lowercased the
+    // hex, and the resulting hard-nav landed on a bare `/provision/`
+    // path → nginx 404 "page not found". The `<Link to>` and
+    // `navigate({to})` paths are fine because the router re-adds
+    // basepath on internal navigation; only this hard-nav escape was
+    // broken.
+    const basepath = window.location.pathname.startsWith('/sovereign')
+      ? '/sovereign'
+      : ''
+    const newURL = basepath + canonical + window.location.search + window.location.hash
     window.location.replace(newURL)
     throw redirect({ to: canonical as never, replace: true })
   }

@@ -99,23 +99,26 @@ export function VerifyPinPage() {
         // sanitizes `next`, we sanitize again here in case a future
         // caller bypasses the route's validateSearch. qa-loop iter-4
         // cluster `users-page-null-map-and-open-redirect`.
-        const target = sanitizeNextParam(next) ?? '/wizard'
+        let target = sanitizeNextParam(next) ?? '/wizard'
         if (typeof window !== 'undefined') {
           // window.location.replace is a HARD navigation — it bypasses
           // the TanStack Router's basepath config. On contabo the SPA
           // mounts under `/sovereign/*`; nginx 404s any request that
           // doesn't start with that prefix. The sanitized `next` value
-          // is post-basepath (see basepathRelative.ts: e.g. `next` of
-          // `/provision/$id/jobs` represents the route the router
-          // would navigate to AT `/sovereign/provision/$id/jobs`). So
-          // we must re-prefix `/sovereign` before the hard nav,
-          // otherwise the operator lands on a bare `/provision/...`
-          // URL that nginx never routes to the SPA.
+          // may arrive in EITHER form depending on which redirectToLogin
+          // variant produced it: SovereignConsoleLayout.tsx:91 (variant
+          // A) sets next = window.location.pathname which INCLUDES the
+          // basepath, while :178 (variant B) uses
+          // currentPathRelativeToBasepath() which STRIPS it. Normalize
+          // both forms to "post-basepath" before re-prefixing so we
+          // never double-prefix and never miss-prefix.
           //
-          // Caught live on prov #82 (omani.works, 2026-05-14): after
-          // PIN-login from console.openova.io/sovereign/login,
-          // window.location.replace('/provision/$id/jobs') went to a
-          // raw `/provision/...` URL → nginx 404 page-not-found.
+          // Caught live on prov #82 + #84 (omani.works, 2026-05-14):
+          // variant-A produced `next=/sovereign/provision/...` which my
+          // original #1486 fix would double-prefix to
+          // `/sovereign/sovereign/...` → nginx 404.
+          if (target.startsWith('/sovereign/')) target = target.slice('/sovereign'.length)
+          else if (target === '/sovereign') target = '/'
           const basepath =
             window.location.pathname.startsWith('/sovereign')
               ? '/sovereign'
