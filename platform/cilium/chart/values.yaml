@@ -183,6 +183,30 @@ cilium:
     # but TLS handshake never completes.
     hostNetwork:
       enabled: true
+      # nodes.matchLabels MUST be non-empty for Cilium hostNetwork
+      # mode to activate. An empty selector becomes the configmap key
+      # `gateway-api-hostnetwork-nodelabelselector =` (empty value),
+      # which Cilium docs explicitly call out as DISABLED state:
+      # https://docs.cilium.io/en/stable/network/servicemesh/gateway-api/host-network/
+      # Without this, the Gateway listener config has empty bind
+      # address, eBPF never programs a redirect for the gateway
+      # NodePorts, and incoming traffic on 30443/30080 never reaches
+      # envoy. Hetzner LB health checks against those NodePorts
+      # report `unhealthy` indefinitely.
+      #
+      # Caught live on prov #76 (2026-05-14): TLS handshake initiates
+      # at the Hetzner LB, then SSL_ERROR_SYSCALL because no backend
+      # answers — envoy is running with the listener config but not
+      # bound to a socket because hostNetwork mode is silently OFF.
+      #
+      # Match labels are conservative — `kubernetes.io/os: linux` is
+      # universally present on every k3s node we ship, so the gateway
+      # listener is exposed on every node in single- and multi-CP
+      # Sovereign topologies. Operators that want gateway-only-on-
+      # primary-region can tighten this in their per-cluster overlay.
+      nodes:
+        matchLabels:
+          kubernetes.io/os: linux
 
   # L7 proxy via Envoy — for HTTPRoute, gRPCRoute, L7 NetworkPolicy
   envoy:
