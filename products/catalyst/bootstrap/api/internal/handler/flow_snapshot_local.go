@@ -716,23 +716,39 @@ func (h *Handler) flowSnapshotFromJobs(deploymentID string) (*flowSnapshotLocalM
 		// (which may themselves be groups) to be resolved first.
 		var resolve func(id string) string
 		memo := map[string]string{}
+		// idxByID gives O(1) status lookup for the fallback below.
+		idxByID := map[string]int{}
+		for i, n := range nodes {
+			idxByID[n.ID] = i
+		}
 		resolve = func(id string) string {
 			if s, ok := memo[id]; ok {
 				return s
 			}
-			// Leaf node — use stored status.
+			// Leaf node (not a group/bootstrap) — use stored status.
 			if _, isGroup := groupNodeIdx[id]; !isGroup {
-				for _, n := range nodes {
-					if n.ID == id {
-						memo[id] = n.Status
-						return n.Status
-					}
+				if i, ok := idxByID[id]; ok {
+					memo[id] = nodes[i].Status
+					return nodes[i].Status
 				}
 				memo[id] = "pending"
 				return "pending"
 			}
 			kids := childrenOf[id]
 			if len(kids) == 0 {
+				// Group with no children — keep its stored status
+				// rather than forcing pending. This covers two cases:
+				// (1) genuine leaf nodes that carry family=bootstrap
+				//     (cluster-bootstrap is a single-row "bootstrap"
+				//     family job, not a parent of anything); (2) phase
+				//     groups that legitimately have no descendants yet
+				//     (handover/apps on a fresh prov before those Jobs
+				//     are emitted) — their hardcoded "pending" status
+				//     should bubble through unchanged.
+				if i, ok := idxByID[id]; ok {
+					memo[id] = nodes[i].Status
+					return nodes[i].Status
+				}
 				memo[id] = "pending"
 				return "pending"
 			}
