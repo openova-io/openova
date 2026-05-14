@@ -67,6 +67,54 @@ spec:
   egress:
     - {}
 ---
+# 1b/12 — Allow external traffic into Cilium Gateway (reserved:ingress).
+#
+# Root cause: Cilium Gateway API (gatewayAPI.hostNetwork.enabled=true)
+# creates a special endpoint with identity `reserved:ingress` (8) that
+# represents the gateway listener. By default this endpoint has
+# policy-enabled=both, allowed-ingress-identities=[1 (host)], and an
+# empty L4 rule set — i.e. world traffic that arrives at the gateway
+# is dropped by cilium.l7policy with a 403 "Access denied" before any
+# HTTPRoute is evaluated.
+#
+# Symptom: every public Sovereign host (console, auth, gitea, api, …)
+# returns `HTTP/1.1 403 Forbidden` body=`Access denied` server=envoy
+# even though the HTTPRoutes are Programmed, the Gateway is Accepted,
+# and the backend services are healthy in-cluster. Caught live on
+# prov #80 (omantel.biz, 2026-05-14): TLS handshake OK with the
+# correct cert, envoy reachable on :30443, but every request 403'd.
+# Confirmed via `cilium-dbg endpoint get 3282 -o json` showing
+# `l4.ingress: []` and `allowed-ingress-identities: [1]` only.
+#
+# Fix: a CCNP scoped to the `reserved:ingress` endpoint that allows
+# ingress from `world`, `cluster`, `host`, `remote-node` (multi-region
+# CP-to-CP), and `kube-apiserver`, plus egress to `all` so envoy can
+# forward to any backend service. This is the canonical Cilium pattern
+# for hostNetwork Gateway-API zero-trust — without it the gateway
+# becomes a black hole the moment a default-deny CCNP is present.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-gateway-world-ingress
+  labels:
+    openova.io/managed-by: qa-fixtures
+    openova.io/policy-tier: gateway-allow
+spec:
+  description: "Allow world + cluster traffic to reach the Cilium Gateway listener; default-deny would otherwise drop all public requests at the gateway."
+  endpointSelector:
+    matchLabels:
+      reserved.ingress: ""
+  ingress:
+    - fromEntities:
+        - world
+        - cluster
+        - host
+        - remote-node
+        - kube-apiserver
+  egress:
+    - toEntities:
+        - all
+---
 # 2/12 — qa-omantel: allow DNS egress (kube-dns)
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
