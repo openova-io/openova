@@ -1,9 +1,6 @@
 // openova-flow-server — stateless HTTP+SSE event router for
-// OpenovaFlow. See products/openova-flow/server/README.md for the
-// wire contract.
-//
-// Per docs/INVIOLABLE-PRINCIPLES.md #4 every operational knob is env-
-// driven; no hardcoded port, no hardcoded ring capacity.
+// OpenovaFlow. CNPG-backed persistence; in-memory fallback ONLY for
+// development environments without a database (FLOW_SERVER_BACKEND=memory).
 package main
 
 import (
@@ -14,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -32,20 +30,44 @@ func main() {
 		bufCap = 4096
 	}
 
-	s := store.NewStore(bufCap)
+	backendKind := envDefault("FLOW_SERVER_BACKEND", "pg")
+	var backend store.Backend
+	switch backendKind {
+	case "memory", "mem":
+		log.Info("using in-memory backend (FLOW_SERVER_BACKEND=memory)")
+		backend = store.NewMemBackend(bufCap)
+	case "pg", "postgres":
+		dsn := os.Getenv("FLOW_SERVER_PG_DSN")
+		if dsn == "" {
+			log.Error("FLOW_SERVER_PG_DSN is required when FLOW_SERVER_BACKEND=pg")
+			os.Exit(1)
+		}
+		bootCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		pg, err := store.NewPGStore(bootCtx, dsn)
+		cancel()
+		if err != nil {
+			log.Error("open PGStore failed", "err", err)
+			os.Exit(1)
+		}
+		log.Info("PGStore ready", "dsn-masked", maskDSN(dsn))
+		defer pg.Close()
+		backend = pg
+	default:
+		log.Error("invalid FLOW_SERVER_BACKEND (want pg|memory)", "got", backendKind)
+		os.Exit(1)
+	}
+
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           api.NewRouter(s),
+		Handler:           api.NewRouter(backend),
 		ReadHeaderTimeout: 10 * time.Second,
-		// SSE streams are long-lived; no overall write timeout.
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
 	go func() {
-		log.Info("openova-flow-server listening",
-			"addr", addr, "ringCapacity", bufCap)
+		log.Info("openova-flow-server listening", "addr", addr, "backend", backendKind, "ringCapacity", bufCap)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error("listen failed", "err", err)
 			os.Exit(1)
@@ -54,7 +76,6 @@ func main() {
 
 	<-ctx.Done()
 	log.Info("shutting down")
-
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
@@ -63,10 +84,21 @@ func main() {
 }
 
 func envDefault(k, def string) string {
-	v := os.Getenv(k)
-	if v == "" {
-		return def
+	if v := os.Getenv(k); v != "" {
+		return v
 	}
-	return v
+	return def
 }
 
+// maskDSN hides the password segment of a libpq DSN for log lines.
+func maskDSN(dsn string) string {
+	if i := strings.Index(dsn, "://"); i >= 0 {
+		rest := dsn[i+3:]
+		if at := strings.Index(rest, "@"); at >= 0 {
+			if colon := strings.Index(rest[:at], ":"); colon >= 0 {
+				return dsn[:i+3] + rest[:colon+1] + "***" + rest[at:]
+			}
+		}
+	}
+	return "***"
+}

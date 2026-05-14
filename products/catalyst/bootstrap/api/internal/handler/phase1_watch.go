@@ -255,6 +255,11 @@ func (h *Handler) runPhase1Watch(dep *Deployment) {
 	dep.mu.Lock()
 	dep.liveWatcher = watcher
 	dep.mu.Unlock()
+	// Spin up the background snapshot-emit loop for this deployment.
+	// Idempotent — re-entering phase1 (post-restart resume) is a
+	// no-op. The loop POSTs a snapshot every 5s to openova-flow-
+	// server's CNPG store + ad-hoc on trigger from event-path code.
+	h.startFlowEmitLoop(dep.ID)
 	defer func() {
 		// Clear the live-watcher pointer so a subsequent
 		// /refresh-watch invocation doesn't see a stale reference

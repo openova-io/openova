@@ -1,0 +1,65 @@
+{{- /*
+CNPG-managed Postgres cluster for openova-flow-server.
+
+Replaces the in-memory map+RingBuffer that lost ALL flow state on pod
+restart. Schema lives in
+products/openova-flow/server/internal/store/migrations/001_initial.sql
+and is applied at server startup via embedded migrations.
+
+The Cluster name defaults to `openova-flow-pg`; CNPG synthesises an
+`openova-flow-pg-app` Secret that `templates/database-secret.yaml`
+mirrors via reflector into `openova-flow-server-db` for the server
+Deployment to consume.
+
+Capabilities gate: bp-cnpg ships postgresql.cnpg.io/v1. On a cold
+install before bp-cnpg reconciles, the apiserver rejects this Cluster
+manifest. The Sovereign bootstrap order must land bp-cnpg before
+bp-openova-flow-server.
+*/}}
+{{- if and .Values.postgres.enabled (.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1") }}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ .Values.postgres.cluster.name | default "openova-flow-pg" }}
+  namespace: {{ .Values.postgres.cluster.namespace | default .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openova-flow-server
+    catalyst.openova.io/component: openova-flow-server
+spec:
+  instances: {{ .Values.postgres.cluster.instances | default 1 }}
+  imageName: ghcr.io/cloudnative-pg/postgresql:{{ .Values.postgres.cluster.pgVersion | default "16" }}
+
+  bootstrap:
+    initdb:
+      database: {{ .Values.postgres.cluster.database | default "openova_flow" | quote }}
+      owner: {{ .Values.postgres.cluster.owner | default "openova_flow" | quote }}
+
+  inheritedMetadata:
+    annotations:
+      reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+      reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: {{ .Values.postgres.cluster.namespace | default .Release.Namespace | quote }}
+      reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+      reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: {{ .Values.postgres.cluster.namespace | default .Release.Namespace | quote }}
+
+  postgresql:
+    parameters:
+      max_connections: "100"
+      shared_buffers: "64MB"
+      effective_cache_size: "192MB"
+      work_mem: "4MB"
+      maintenance_work_mem: "64MB"
+      log_statement: "ddl"
+      log_min_duration_statement: "1000"
+
+  resources:
+    {{- toYaml .Values.postgres.cluster.resources | nindent 4 }}
+
+  storage:
+    size: {{ .Values.postgres.cluster.storageSize | default "5Gi" }}
+    storageClass: {{ .Values.postgres.cluster.storageClass | default "local-path" | quote }}
+
+  enableSuperuserAccess: true
+
+  monitoring:
+    enablePodMonitor: false
+{{- end }}

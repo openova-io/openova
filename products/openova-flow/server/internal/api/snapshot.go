@@ -8,11 +8,12 @@ import (
 	"github.com/openova-io/openova/products/openova-flow/server/internal/types"
 )
 
-// HandleSnapshot folds the per-flow ring into a `snapshot` envelope
-// and writes it as a single JSON object. 404 when the flow id has
-// never been ingested.
-func HandleSnapshot(s *store.Store, flowID string, w http.ResponseWriter, r *http.Request) {
-	flow, nodes, rels := s.Snapshot(flowID)
+func HandleSnapshot(s store.Backend, flowID string, w http.ResponseWriter, r *http.Request) {
+	flow, nodes, rels, err := s.Snapshot(flowID)
+	if err != nil {
+		http.Error(w, "snapshot read failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 	if flow == nil && len(nodes) == 0 && len(rels) == 0 {
 		http.NotFound(w, r)
 		return
@@ -29,7 +30,10 @@ func HandleSnapshot(s *store.Store, flowID string, w http.ResponseWriter, r *htt
 
 // HandleDelete drops a flow's state. 204 on success regardless of
 // whether the flow existed (idempotent).
-func HandleDelete(s *store.Store, flowID string, w http.ResponseWriter, r *http.Request) {
-	s.Drop(flowID)
+func HandleDelete(s store.Backend, flowID string, w http.ResponseWriter, r *http.Request) {
+	if err := s.Drop(flowID); err != nil {
+		http.Error(w, "drop failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }

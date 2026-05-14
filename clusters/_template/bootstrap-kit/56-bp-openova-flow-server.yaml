@@ -58,10 +58,17 @@ spec:
   dependsOn:
     - name: bp-cilium
     - name: bp-cert-manager
+    # CNPG provides postgresql.cnpg.io/v1, the CRD used by the chart's
+    # cnpg-cluster.yaml. Without this dep the cold install's `kind:
+    # Cluster` manifest is rejected and the HR loops on InstallFailed.
+    # Added 2026-05-14 alongside the in-memory → CNPG-backed store
+    # rewrite (PR replacing the brittle in-memory map+RingBuffer that
+    # lost ALL flow state on pod restart).
+    - name: bp-cnpg
   chart:
     spec:
       chart: bp-openova-flow-server
-      version: 0.1.1
+      version: 0.2.0
       sourceRef:
         kind: HelmRepository
         name: bp-openova-flow-server

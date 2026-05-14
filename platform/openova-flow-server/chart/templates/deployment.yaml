@@ -41,6 +41,18 @@ spec:
               value: ":{{ .Values.flowServer.port }}"
             - name: FLOW_SERVER_RING_CAPACITY
               value: {{ .Values.flowServer.ringCapacity | quote }}
+            - name: FLOW_SERVER_BACKEND
+              value: {{ .Values.flowServer.backend | default "pg" | quote }}
+            {{- if eq (.Values.flowServer.backend | default "pg") "pg" }}
+            # CNPG synthesises an `<cluster-name>-app` Secret with keys
+            # uri/username/password/dbname/host/port. We consume the
+            # full libpq URI which carries auth + host + db in one env.
+            - name: FLOW_SERVER_PG_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ printf "%s-app" (.Values.postgres.cluster.name | default "openova-flow-pg") }}
+                  key: uri
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /healthz

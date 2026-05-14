@@ -17,12 +17,12 @@ import (
 	"github.com/openova-io/openova/products/openova-flow/server/internal/types"
 )
 
-func newServer(t *testing.T) (*httptest.Server, *store.Store) {
+func newServer(t *testing.T) (*httptest.Server, *store.MemBackend) {
 	t.Helper()
-	s := store.NewStore(64)
-	ts := httptest.NewServer(api.NewRouter(s))
+	b := store.NewMemBackend(64)
+	ts := httptest.NewServer(api.NewRouter(b))
 	t.Cleanup(ts.Close)
-	return ts, s
+	return ts, b
 }
 
 func post(t *testing.T, ts *httptest.Server, flowID string, body string) *http.Response {

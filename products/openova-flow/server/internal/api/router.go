@@ -1,20 +1,16 @@
 // Package api wires the HTTP+SSE endpoints. Uses stdlib net/http
-// servemux + a tiny path-param helper — we do NOT pull chi in here
-// because the surface is five routes and zero middleware chains.
+// servemux + a tiny path-param helper.
 //
 // Wire contract — locked across the three OpenovaFlow agents:
 //
 //	POST   /v1/flows/{flowId}/events           ingest one FlowMessage
 //	GET    /v1/flows/{flowId}/snapshot         current FlowInstance + nodes + rels
 //	GET    /v1/flows/{flowId}/stream           SSE: replay snapshot + tail
-//	DELETE /v1/flows/{flowId}                  purge a flow
+//	POST   /v1/flows/{flowId}/log-lines        bulk-append exec log lines
+//	GET    /v1/flows/{flowId}/log-lines        list log lines for a (node_id, exec_id)
+//	DELETE /v1/flows/{flowId}                  purge a flow (CASCADE all children)
 //	GET    /healthz                            liveness
 //	GET    /readyz                             readiness
-//
-// Per docs/INVIOLABLE-PRINCIPLES.md #3 the implementation is
-// event-driven — POST appends to the per-flow ring, fanout pushes onto
-// every subscriber channel, the SSE handler reads from the channel.
-// No polling loops.
 package api
 
 import (
@@ -25,12 +21,11 @@ import (
 )
 
 // NewRouter returns an http.Handler routing the OpenovaFlow surface.
-// The store is a long-lived process-global; multiple HTTP servers
-// (the main listener and any test server) share the same store.
-func NewRouter(s *store.Store) http.Handler {
+// The backend is a long-lived process-global (in-memory Store for
+// tests/dev, PGStore for production).
+func NewRouter(s store.Backend) http.Handler {
 	mux := http.NewServeMux()
 
-	// Health endpoints are first-class — no auth, no flowId.
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok\n"))
@@ -41,7 +36,6 @@ func NewRouter(s *store.Store) http.Handler {
 	})
 
 	mux.HandleFunc("/v1/flows/", func(w http.ResponseWriter, r *http.Request) {
-		// Parse: /v1/flows/{flowId}[/sub]
 		path := strings.TrimPrefix(r.URL.Path, "/v1/flows/")
 		if path == "" {
 			http.NotFound(w, r)
@@ -64,6 +58,10 @@ func NewRouter(s *store.Store) http.Handler {
 			HandleSnapshot(s, flowID, w, r)
 		case sub == "stream" && r.Method == http.MethodGet:
 			HandleStream(s, flowID, w, r)
+		case sub == "log-lines" && r.Method == http.MethodPost:
+			HandleLogLinesAppend(s, flowID, w, r)
+		case sub == "log-lines" && r.Method == http.MethodGet:
+			HandleLogLinesList(s, flowID, w, r)
 		case sub == "" && r.Method == http.MethodDelete:
 			HandleDelete(s, flowID, w, r)
 		default:

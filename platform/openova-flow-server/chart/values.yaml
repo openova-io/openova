@@ -93,3 +93,31 @@ flowServer:
   nodeSelector:
     kubernetes.io/os: linux
   tolerations: []
+
+  # Persistence backend — "pg" (default, CNPG-backed) or "memory"
+  # (dev only, lost on restart). The default is overridden ONLY when
+  # an operator explicitly wants a stateless dev mode; production
+  # MUST be pg.
+  backend: pg
+
+# CNPG-managed Postgres cluster for the flow server. Provisioned by
+# templates/cnpg-cluster.yaml when bp-cnpg's CRDs are present. Mirrors
+# the bp-gitea + bp-harbor pattern of one Cluster CR per blueprint.
+postgres:
+  enabled: true
+  cluster:
+    name: openova-flow-pg
+    namespace: ""    # defaults to .Release.Namespace
+    instances: 1
+    pgVersion: "16"
+    database: openova_flow
+    owner: openova_flow
+    storageSize: "5Gi"
+    storageClass: local-path
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 1
+        memory: 512Mi

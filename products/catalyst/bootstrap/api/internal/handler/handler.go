@@ -17,6 +17,7 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/audit"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handoverjwt"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/flowemit"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobs"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/openbao"
@@ -71,6 +72,23 @@ type Handler struct {
 	// New() wires this from CATALYST_EXECUTIONS_DIR. The 4 jobs HTTP
 	// handlers respond 503 when this is nil.
 	jobs *jobs.Store
+
+	// flowEmit — HTTP client that POSTs FlowMessage envelopes into
+	// openova-flow-server's CNPG-backed store. Replaces the in-process
+	// snapshot composition from flow_snapshot_local.go. The emit path
+	// is fire-and-forget with bounded retry; an emit failure does not
+	// block the helmwatch event flow. Nil-tolerant: when
+	// OPENOVA_FLOW_SERVER_URL is empty the client is a no-op (every
+	// method returns nil), matching test/dev fixtures.
+	flowEmit *flowemit.Client
+
+	// flowEmitMu + flowEmitters — per-deployment background goroutines
+	// that compose snapshots from jobs.Store and POST them to
+	// openova-flow-server every defaultEmitInterval (5s). State changes
+	// can trigger out-of-cycle emits via triggerFlowEmit(). See
+	// flow_emitter.go for the loop body.
+	flowEmitMu   sync.Mutex
+	flowEmitters map[string]*flowEmitter
 
 	// kubeconfigsDir — directory the cloud-init postback handler
 	// (PutKubeconfig, issue #183) writes the new Sovereign's
@@ -518,6 +536,14 @@ func New(log *slog.Logger) *Handler {
 	} else {
 		h.jobs = js
 	}
+
+	// flowemit — POST events to openova-flow-server's CNPG-backed
+	// store. URL from OPENOVA_FLOW_SERVER_URL env (same var the
+	// snapshot/stream proxy uses). Empty → no-op client; production
+	// chart wires this to http://openova-flow-server.catalyst.svc
+	// .cluster.local on mothership, in-cluster service DNS on
+	// Sovereigns.
+	h.flowEmit = flowemit.NewClient(os.Getenv("OPENOVA_FLOW_SERVER_URL"), log)
 
 	return h
 }
