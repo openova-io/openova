@@ -1069,7 +1069,7 @@ write_files:
             PARENT_DOMAINS_YAML: '${parent_domains_yaml}'
             # WILDCARD_CERT_ISSUER (Fix #176 — qa-loop iter-1 LE
             # rate-limit unblock). cilium-gateway-cert.yaml references
-            # this via ${WILDCARD_CERT_ISSUER}. When
+            # this via $${WILDCARD_CERT_ISSUER}. When
             # wildcard_cert_use_staging=true → STAGING ClusterIssuer
             # (no 5/168h limit); default → PROD. Locals in main.tf
             # render the final string so this template stays declarative.
