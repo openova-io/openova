@@ -583,7 +583,12 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	tofuWorkDir := filepath.Join(prov.WorkDir, deploymentSovereignName(dep.Request.SovereignFQDN))
+	// Key the workdir by the deployment ID — the provisioner does the same
+// (provisioner.go:workdirKey()), so this matches what was actually
+// created at provision time. FQDN-keyed lookups would miss when two
+// reprovs of the same FQDN existed in sequence.
+tofuWorkDir := filepath.Join(prov.WorkDir, id)
+_ = deploymentSovereignName // retained for backwards-compat callers; unused on the wipe path now
 	if err := os.RemoveAll(tofuWorkDir); err != nil {
 		report.Errors = append(report.Errors, "remove tofu workdir: "+err.Error())
 	}

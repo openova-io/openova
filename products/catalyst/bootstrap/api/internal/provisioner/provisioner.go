@@ -966,7 +966,7 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 
 	// Per-deployment workdir keyed by Sovereign FQDN — re-running with the
 	// same FQDN is idempotent (tofu apply on existing state).
-	deployDir := filepath.Join(p.WorkDir, req.sovereignName())
+	deployDir := filepath.Join(p.WorkDir, req.workdirKey())
 	if err := os.MkdirAll(deployDir, 0o700); err != nil {
 		return nil, fmt.Errorf("create workdir: %w", err)
 	}
@@ -1049,7 +1049,7 @@ func (p *Provisioner) Destroy(ctx context.Context, req Request, events chan<- Ev
 		}
 	}
 
-	deployDir := filepath.Join(p.WorkDir, req.sovereignName())
+	deployDir := filepath.Join(p.WorkDir, req.workdirKey())
 
 	// If the workdir doesn't exist, there's no tofu state to destroy —
 	// either the deployment never made it past CreateDeployment, or it
@@ -1466,8 +1466,42 @@ func stageModule(src, dst string) error {
 	return nil
 }
 
-func (r Request) sovereignName() string {
+// workdirKey returns the per-deployment tofu workdir name. Keyed by
+// DeploymentID (not FQDN) so concurrent or sequential reprovisions of the
+// SAME SovereignFQDN never share state — each POST /deployments gets a
+// unique workdir because CreateDeployment generates a fresh DeploymentID
+// on every call (deployments.go:CreateDeployment).
+//
+// History: this was originally keyed by `strings.ReplaceAll(FQDN, ".", "-")`
+// so wizard-resume on the same FQDN would re-enter the same workdir and
+// idempotently `tofu apply` on existing state. The downside surfaced on
+// prov #82 (omani.works, 2026-05-14): a force-wipe whose `tofu destroy`
+// failed (because of a stale-tftpl bug in the workdir) left tfstate
+// referencing destroyed-via-Hetzner-purge cloud resources. The NEXT
+// reprov of the same FQDN inherited the dirty tfstate and `tofu apply`
+// failed with "Saved plan is stale" / "resource already exists". By
+// keying on DeploymentID every reprov is hermetic; wizard-resume can
+// re-use the same DeploymentID via an explicit retry endpoint instead.
+//
+// Tests-load-bearing: the workdir name is referenced from wipe.go and
+// handover.go via dep.ID directly (no shared helper). The on-disk
+// kubeconfig naming was ALREADY keyed by DeploymentID, so this brings
+// the tofu workdir into alignment.
+func (r Request) workdirKey() string {
+	if r.DeploymentID != "" {
+		return r.DeploymentID
+	}
+	// Fallback only used by the legacy Destroy code-path that was called
+	// without a DeploymentID set on Request. Modern paths always set it
+	// in CreateDeployment before invoking Provision/Destroy.
 	return strings.ReplaceAll(r.SovereignFQDN, ".", "-")
+}
+
+// sovereignName is the legacy name retained for documentation references
+// in handler/wipe.go and hetzner/purge.go comments. New callers use
+// workdirKey() above.
+func (r Request) sovereignName() string {
+	return r.workdirKey()
 }
 
 func env(key, def string) string {

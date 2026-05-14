@@ -200,7 +200,7 @@ func (h *Handler) FinaliseHandover(w http.ResponseWriter, r *http.Request) {
 	// `secret/catalyst/tofu-phase0-archive` and replies 200 OK; only on
 	// that confirmation do we delete the local workdir.
 	prov := provisioner.New()
-	tofuWorkdir := filepath.Join(prov.WorkDir, deploymentSovereignName(dep.Request.SovereignFQDN))
+	tofuWorkdir := filepath.Join(prov.WorkDir, id)
 	archive, err := buildTofuArchive(tofuWorkdir)
 	if err != nil {
 		resp.Errors = append(resp.Errors, "build tofu archive: "+err.Error())
