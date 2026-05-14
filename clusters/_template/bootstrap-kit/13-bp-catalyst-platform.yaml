@@ -473,7 +473,7 @@ spec:
       # from bitnamilegacy/kubectl:1.29.3 → alpine/k8s:1.31.4 in same
       # commit (rule-17 MIRROR-EVERYTHING hygiene; bitnamilegacy is
       # the Docker-Hub redirect for deprecated Bitnami 2025-08 cutover).
-      version: 1.4.141
+      version: 1.4.142
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
