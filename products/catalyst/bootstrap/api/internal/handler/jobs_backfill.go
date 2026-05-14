@@ -428,6 +428,19 @@ func (h *Handler) RefreshWatch(w http.ResponseWriter, r *http.Request) {
 	dep.liveWatcher = watcher
 	dep.mu.Unlock()
 
+	// Also respawn secondary-region watchers (multi-region) — without
+	// this, /refresh-watch only restores PRIMARY's HR.spec.dependsOn
+	// into Job.DependsOn, leaving the secondaries' 90 install Jobs
+	// permanently flat. spawnSecondaryRegionWatchers reads kubeconfig
+	// files from <kubeconfigsDir>/<id>-<region>.yaml and wires the
+	// region-aware seeder hook (attachSecondaryBridgeSeederHook). It
+	// is idempotent — re-spawning watchers for regions that are
+	// already up is a no-op because the spawn() inner func short-
+	// circuits when stopWatchers[region] is already set. Caught on
+	// prov #75 (2026-05-14): /refresh-watch fixed fsn1's 71 edges but
+	// hel1-2 + nbg1-1 stayed at 0 edges until this fan-out was added.
+	h.spawnSecondaryRegionWatchers(dep)
+
 	go func() {
 		// Background context so the HTTP request finishing does not
 		// cancel the multi-minute watch. The watcher's own
