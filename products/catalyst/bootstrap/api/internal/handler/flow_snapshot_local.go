@@ -674,6 +674,100 @@ func (h *Handler) flowSnapshotFromJobs(deploymentID string) (*flowSnapshotLocalM
 		}
 	}
 
+	// Group-status roll-up — synthetic group nodes (provisioner, bootstrap-
+	// kit, per-region sub-groups, cutover/handover/apps phase groups)
+	// carry hardcoded placeholder statuses (`running` / `pending`) when
+	// emitted above. Now that ALL leaf install-* nodes + their statuses
+	// are present, walk the contains tree bottom-up and replace each
+	// group's placeholder with a value derived from its descendants:
+	//
+	//   - all descendants succeeded → succeeded
+	//   - any descendant failed     → failed
+	//   - any descendant running    → running
+	//   - else (all pending or no descendants) → pending
+	//
+	// Without this, the canvas shows cutover/handover/apps bubbles
+	// permanently "running" or "pending" even when their underlying HRs
+	// (or in handover/apps' case, no HRs at all yet) are succeeded.
+	// Founder reported on prov #76: "I dont think they are true" — same
+	// concern.
+	{
+		childrenOf := map[string][]string{}
+		parentOf := map[string]string{}
+		for _, r := range rels {
+			if r.Type == "contains" {
+				childrenOf[r.ToID] = append(childrenOf[r.ToID], r.FromID)
+				parentOf[r.FromID] = r.ToID
+			}
+		}
+		// Collect group + bootstrap nodes (these are the parents that
+		// need status roll-up). Leaves keep their stored status.
+		groupNodeIdx := map[string]int{}
+		for i, n := range nodes {
+			fam := ""
+			if n.Family != nil {
+				fam = *n.Family
+			}
+			if fam == "group" || fam == "bootstrap" {
+				groupNodeIdx[n.ID] = i
+			}
+		}
+		// Post-order traversal: a group's roll-up requires its children
+		// (which may themselves be groups) to be resolved first.
+		var resolve func(id string) string
+		memo := map[string]string{}
+		resolve = func(id string) string {
+			if s, ok := memo[id]; ok {
+				return s
+			}
+			// Leaf node — use stored status.
+			if _, isGroup := groupNodeIdx[id]; !isGroup {
+				for _, n := range nodes {
+					if n.ID == id {
+						memo[id] = n.Status
+						return n.Status
+					}
+				}
+				memo[id] = "pending"
+				return "pending"
+			}
+			kids := childrenOf[id]
+			if len(kids) == 0 {
+				memo[id] = "pending"
+				return "pending"
+			}
+			anyFailed, anyRunning, allSucceeded := false, false, true
+			for _, k := range kids {
+				s := resolve(k)
+				switch s {
+				case "failed":
+					anyFailed = true
+					allSucceeded = false
+				case "running":
+					anyRunning = true
+					allSucceeded = false
+				case "succeeded":
+					// keeps allSucceeded true
+				default:
+					allSucceeded = false
+				}
+			}
+			out := "pending"
+			if anyFailed {
+				out = "failed"
+			} else if anyRunning {
+				out = "running"
+			} else if allSucceeded {
+				out = "succeeded"
+			}
+			memo[id] = out
+			return out
+		}
+		for id, idx := range groupNodeIdx {
+			nodes[idx].Status = resolve(id)
+		}
+	}
+
 	// NOTE — the legacy live-watcher multi-region composition block was
 	// removed in PR #1455 (2026-05-13). The per-Job loop above already
 	// derives region from `j.AppID` containing `/` and synthesises the
