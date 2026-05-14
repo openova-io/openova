@@ -4,7 +4,7 @@ name: bp-gitea
 # hook image switched from curlimages/curl:8.10.1 to
 # harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1 per CLAUDE.md
 # inviolable rule.
-version: 1.2.6
+version: 1.2.7
 description: |
   Catalyst-curated Blueprint umbrella chart for Gitea. Depends on the
   upstream `gitea` chart (dl.gitea.com) as a Helm subchart so

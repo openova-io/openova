@@ -5,9 +5,13 @@ migration). Replaces any networking.k8s.io/v1.Ingress on Sovereigns.
 The upstream gitea-charts/gitea chart's `gitea.ingress.enabled` defaults
 to false; we keep it that way and route via Cilium Gateway here.
 
-Backend reference: the upstream gitea chart's HTTP Service is named
-`<release>-gitea-http` (port 3000 by default). With releaseName=gitea
-in the bootstrap-kit slot the Service is `gitea-gitea-http`.
+Backend reference: the upstream gitea chart's HTTP Service is named per
+its `gitea.fullname` helper — when `.Release.Name` already contains the
+chart name `gitea` (as with releaseName=gitea), `gitea.fullname` returns
+just `.Release.Name`, so the Service ends up as `gitea-http`. Only when
+the release name does NOT contain `gitea` does the Service get the
+double-prefixed `<release>-gitea-http` form. We replicate that logic
+here so the default backend always matches the live Service.
 */}}
 {{- if and .Values.gateway .Values.gateway.enabled -}}
 {{- if .Values.gateway.host }}
@@ -34,7 +38,7 @@ spec:
             type: PathPrefix
             value: {{ .Values.gateway.path | default "/" | quote }}
       backendRefs:
-        - name: {{ .Values.gateway.backendService | default (printf "%s-gitea-http" .Release.Name) | quote }}
+        - name: {{ .Values.gateway.backendService | default (printf "%s-http" (ternary .Release.Name (printf "%s-gitea" .Release.Name) (contains "gitea" .Release.Name))) | quote }}
           port: {{ .Values.gateway.backendPort | default 3000 }}
 {{- end }}
 {{- end }}

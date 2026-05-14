@@ -6,10 +6,13 @@ The upstream openbao chart does not ship its own ingress template — UI
 exposure is the operator's responsibility. This template provides it
 through the per-Sovereign Cilium Gateway.
 
-Backend reference: the upstream openbao chart's active-instance Service
-is `<release>-openbao` (port 8200 — the OpenBao API/UI port). With
-releaseName=openbao in the bootstrap-kit slot the Service is
-`openbao-openbao`.
+Backend reference: the upstream openbao chart's primary Service is
+named per its `openbao.fullname` helper — when `.Release.Name` already
+contains the chart name `openbao` (as with releaseName=openbao), the
+helper returns just `.Release.Name`, so the Service ends up as `openbao`.
+Only when the release name does NOT contain `openbao` does the Service
+get the `<release>-openbao` form. We replicate that logic so the default
+backend always matches the live Service.
 */}}
 {{- if and .Values.gateway .Values.gateway.enabled -}}
 {{- if .Values.gateway.host }}
@@ -36,7 +39,7 @@ spec:
             type: PathPrefix
             value: {{ .Values.gateway.path | default "/" | quote }}
       backendRefs:
-        - name: {{ .Values.gateway.backendService | default (printf "%s-openbao" .Release.Name) | quote }}
+        - name: {{ .Values.gateway.backendService | default (ternary .Release.Name (printf "%s-openbao" .Release.Name) (contains "openbao" .Release.Name)) | quote }}
           port: {{ .Values.gateway.backendPort | default 8200 }}
 {{- end }}
 {{- end }}

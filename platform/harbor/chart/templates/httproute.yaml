@@ -6,9 +6,13 @@ on Sovereigns; the upstream `harbor.expose.type` is set to `clusterIP` (or
 HTTPRoute is the sole HTTP exposure.
 
 Backend reference: the upstream goharbor/harbor chart's core Service is
-`<release>-harbor-core` (port 80 → 8080 internally, when expose.type=clusterIP).
-Or when expose.type=ingress is disabled, the chart still creates the core
-Service at the same name. Operators can override via `gateway.backendService`.
+named per its `harbor.fullname` helper — when `.Release.Name` already
+contains the chart name `harbor` (as with releaseName=harbor), the
+helper returns just `.Release.Name`, so the Service ends up as
+`harbor-core`. Only when the release name does NOT contain `harbor`
+does the Service get the double-prefixed `<release>-harbor-core` form.
+We replicate that logic so the default backend always matches the live
+Service. Operators can override via `gateway.backendService`.
 
 Path coverage: Harbor needs both UI (`/`) and registry-v2 API (`/v2/`)
 served on the same hostname; both go to harbor-core, so a single rule
@@ -39,7 +43,7 @@ spec:
             type: PathPrefix
             value: {{ .Values.gateway.path | default "/" | quote }}
       backendRefs:
-        - name: {{ .Values.gateway.backendService | default (printf "%s-harbor-core" .Release.Name) | quote }}
+        - name: {{ .Values.gateway.backendService | default (printf "%s-core" (ternary .Release.Name (printf "%s-harbor" .Release.Name) (contains "harbor" .Release.Name))) | quote }}
           port: {{ .Values.gateway.backendPort | default 80 }}
 {{- end }}
 {{- end }}
