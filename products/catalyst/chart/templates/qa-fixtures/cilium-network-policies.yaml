@@ -23,7 +23,15 @@
   who want fewer policies disable the bundle by flipping
   `qaFixtures.networkPolicies.enabled` to false.
 */ -}}
-{{- $excludedNamespaces := list "kube-system" "cilium" "flux-system" "catalyst-system" "kyverno" "openbao" "keycloak" "gitea" "powerdns" "external-dns" "external-secrets-system" "cert-manager" "harbor" "grafana" "loki" "mimir" "tempo" "alloy" "opentelemetry" "trivy-system" "syft-grype" "sigstore-system" "falco" "vpa" "cluster-autoscaler" "cnpg-system" "valkey" "nats-system" "velero" "guacamole" "coraza" "crossplane-system" }}
+{{- /*
+  catalyst — bp-self-sovereign-cutover ships Jobs into this NS that legitimately
+  call catalyst-api.catalyst-system.svc (auto-trigger, gitea-mirror, harbor-projects,
+  registry-pivot, etc.). Without inclusion, the default-deny CCNP blocks them and
+  bp-catalyst-platform's --wait never completes. Caught on prov #72 (omantel.biz):
+  auto-trigger Job stuck 20m on "catalyst-api not ready HTTP 000000" (DNS+egress denied).
+  newapi — bp-newapi ships an Application namespace whose pods need DNS/apiserver.
+*/ -}}
+{{- $excludedNamespaces := list "kube-system" "cilium" "flux-system" "catalyst-system" "catalyst" "newapi" "kyverno" "openbao" "keycloak" "gitea" "powerdns" "external-dns" "external-secrets-system" "cert-manager" "harbor" "grafana" "loki" "mimir" "tempo" "alloy" "opentelemetry" "trivy-system" "syft-grype" "sigstore-system" "falco" "vpa" "cluster-autoscaler" "cnpg-system" "valkey" "nats-system" "velero" "guacamole" "coraza" "crossplane-system" }}
 {{- $qaNs := .Values.qaFixtures.namespace | default "qa-omantel" }}
 {{- if .Values.qaFixtures.networkPolicies.enabled | default true }}
 ---
@@ -249,6 +257,34 @@ spec:
     - toEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: {{ $qaNs }}
+---
+# 10b/12 — qa-omantel: allow egress to kube-apiserver entity.
+#
+# Without this rule cnpg initdb pods (cluster-primary-1-initdb,
+# cluster-replica-1-initdb) timeout on `dial tcp 10.43.0.1:443:
+# i/o timeout` when running `kubectl get cluster.postgresql.cnpg.io`,
+# which CNPG uses to bootstrap a Cluster's primary. The kube-proxy-
+# replacement Cilium eBPF redirects ClusterIP 10.43.0.1 → CP node
+# 10.0.1.2:6443, but the egress L3/L4 enforcement still requires
+# explicit allow. `toEntities: [kube-apiserver]` is Cilium's
+# canonical way to express "allow egress to the kube-apiserver"
+# regardless of whether it's a Service VIP, ClusterIP, or node IP.
+# Caught on prov #72: cluster-primary stuck "Setting up primary"
+# for 18m, catalyst-platform --wait never completed → cutover Job
+# never fires → handover blocked.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-kube-apiserver
+  namespace: {{ $qaNs }}
+  labels:
+    openova.io/managed-by: qa-fixtures
+    openova.io/policy-tier: allow-template
+spec:
+  endpointSelector: {}
+  egress:
+    - toEntities:
+        - kube-apiserver
 ---
 # 11/12 — qa-omantel: cilium-gateway ingress (catalyst-system)
 apiVersion: cilium.io/v2
