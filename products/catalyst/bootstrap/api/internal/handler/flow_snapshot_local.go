@@ -568,11 +568,18 @@ func (h *Handler) flowSnapshotFromJobs(deploymentID string) (*flowSnapshotLocalM
 			for phaseSlug, phaseLabel := range phaseLabels {
 				regionGroupID := deploymentID + ":" + region + ":" + phaseSlug
 				regionStr := region
+				// Default to "pending" — the bottom-up rollup below
+				// recomputes from descendants, so region groups WITH
+				// children (e.g. bootstrap-kit, cutover) get accurate
+				// succeeded/running/failed status. Groups with NO
+				// children (handover/apps on a fresh prov before those
+				// Jobs are emitted) keep this stored "pending" value
+				// after the rollup's no-children branch fires.
 				nodes = append(nodes, flowSnapshotLocalNode{
 					ID:     regionGroupID,
 					FlowID: deploymentID,
 					Label:  phaseLabel + " (" + region + ")",
-					Status: "running",
+					Status: "pending",
 					Family: &regionFamily,
 					Region: &regionStr,
 				})
