@@ -60,7 +60,14 @@ metadata:
 spec:
   secretName: sovereign-wildcard-tls
   issuerRef:
-    name: letsencrypt-dns01-prod-powerdns
+    # Resolved by Flux postBuild to either
+    # `letsencrypt-dns01-prod-powerdns` (default) or
+    # `letsencrypt-dns01-staging-powerdns` (qaTestEnabled=true) per
+    # tofu local.wildcard_cert_issuer. PROD has a 5/168h rate limit
+    # per exact set of identifiers — high-cadence QA reprovs hit it
+    # within hours and pin the Cilium Gateway listener to a Ready=False
+    # Certificate; STAGING is rate-limit-free for QA iteration.
+    name: ${WILDCARD_CERT_ISSUER}
     kind: ClusterIssuer
   commonName: "*.${SOVEREIGN_FQDN}"
   dnsNames:

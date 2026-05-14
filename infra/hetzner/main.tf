@@ -115,6 +115,19 @@ resource "hcloud_ssh_key" "main" {
 locals {
   control_plane_count = var.ha_enabled ? 3 : 1
 
+  # Wildcard cert ClusterIssuer selector (Fix #176 — qa-loop iter-1 LE
+  # PROD rate-limit unblock for clusters/_template/sovereign-tls/cilium-
+  # gateway-cert.yaml). The sovereign-tls Kustomization's
+  # postBuild.substitute WILDCARD_CERT_ISSUER below resolves to:
+  #   - letsencrypt-dns01-staging-powerdns  when qa_test_session_enabled (or
+  #     wildcard_cert_use_staging) is "true" → fast iteration, no rate limit
+  #   - letsencrypt-dns01-prod-powerdns     when "false" → real-trusted cert
+  # Both ClusterIssuers are shipped by bp-cert-manager-powerdns-webhook
+  # (bootstrap-kit slot 49). Without this, cilium-gateway-cert.yaml
+  # always hits PROD even on qaTestEnabled Sovereigns, and the 5/168h
+  # rate limit pins the Gateway to a `Ready=False` Certificate.
+  wildcard_cert_issuer = var.wildcard_cert_use_staging == "true" ? "letsencrypt-dns01-staging-powerdns" : "letsencrypt-dns01-prod-powerdns"
+
   # ── Effective singular-path SKU selection (Fix #157) ─────────────────────
   # When qa_fixtures_enabled='true', the Sovereign is a QA-loop matrix
   # consumer carrying the full bp-* stack PLUS qaFixtures (Continuum +
@@ -364,6 +377,7 @@ locals {
     qa_fixtures_namespace     = var.qa_fixtures_namespace
     qa_organization           = var.qa_organization
     wildcard_cert_use_staging = var.wildcard_cert_use_staging
+    wildcard_cert_issuer      = local.wildcard_cert_issuer
     cluster_mesh_name         = var.cluster_mesh_name
     cluster_mesh_id           = var.cluster_mesh_id
 
@@ -879,6 +893,7 @@ locals {
       qa_fixtures_namespace     = var.qa_fixtures_namespace
       qa_organization           = var.qa_organization
       wildcard_cert_use_staging = var.wildcard_cert_use_staging
+      wildcard_cert_issuer      = local.wildcard_cert_issuer
       # Per-secondary-region ClusterMesh anchors. id is incremented per
       # peer index so each secondary region gets a unique slot in the
       # mesh registry; primary region keeps var.cluster_mesh_id.

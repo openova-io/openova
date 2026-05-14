@@ -1017,6 +1017,13 @@ write_files:
       metadata:
         name: sovereign-tls
         namespace: flux-system
+        annotations:
+          # WILDCARD_CERT_ISSUER selector (Fix #176 — qa-loop iter-1 LE
+          # rate-limit unblock for the cilium-gateway-cert.yaml path).
+          # When wildcard_cert_use_staging=true the issuer string below
+          # routes the Certificate to LE STAGING (no 5/168h rate limit);
+          # default false → real-trusted production certs.
+          openova.io/wildcard-cert-issuer-tag: "${wildcard_cert_use_staging}"
       spec:
         # Carries the cert-manager Certificate that backs Cilium Gateway's
         # wildcard-TLS listener. Split out of bootstrap-kit so its
@@ -1060,6 +1067,13 @@ write_files:
             # bp-catalyst-platform into clusters/_template/sovereign-tls/
             # has access to the parent-zone list without a config copy.
             PARENT_DOMAINS_YAML: '${parent_domains_yaml}'
+            # WILDCARD_CERT_ISSUER (Fix #176 — qa-loop iter-1 LE
+            # rate-limit unblock). cilium-gateway-cert.yaml references
+            # this via ${WILDCARD_CERT_ISSUER}. When
+            # wildcard_cert_use_staging=true → STAGING ClusterIssuer
+            # (no 5/168h limit); default → PROD. Locals in main.tf
+            # render the final string so this template stays declarative.
+            WILDCARD_CERT_ISSUER: "${wildcard_cert_issuer}"
       ---
       apiVersion: kustomize.toolkit.fluxcd.io/v1
       kind: Kustomization
