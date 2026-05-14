@@ -1293,7 +1293,27 @@ runcmd:
           dhcp4: true
           dhcp4-overrides:
             use-dns: false
-            use-routes: false
+            # use-routes: true — accept Hetzner DHCP's classless static
+            # routes (including the per-subnet route that lets the kernel
+            # reach OTHER hosts on the private network without going
+            # through eth0's default route). Without this, Hetzner LB ->
+            # backend asymmetric routing breaks LB health checks:
+            # inbound SYN arrives on enp7s0 (private NIC), but the
+            # kernel routes SYN-ACK via eth0 because 10.0.0.0/8 has no
+            # route on the private NIC. Hetzner drops the reply at the
+            # LB and the target stays unhealthy forever.
+            #
+            # The default route (0.0.0.0/0 via eth0) wins because eth0's
+            # DHCP route is set first (metric 100). Hetzner private-net
+            # DHCP routes get a default metric of 200+, so eth0 stays
+            # the default. We DO need the per-subnet 10.0.0.0/N route
+            # from private DHCP for cross-host private traffic.
+            #
+            # Caught live on prov omani.works/6dfade27 (2026-05-14):
+            # interface had 10.0.1.2/32 (host route only, no subnet),
+            # LB health checks for 80/443/53 all unhealthy → public
+            # surface blackholed.
+            use-routes: true
     NETPLAN
         chmod 0600 /etc/netplan/60-private-network.yaml
         netplan apply || true
