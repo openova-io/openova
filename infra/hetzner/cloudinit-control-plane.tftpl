@@ -1237,6 +1237,61 @@ runcmd:
   # *.yaml) hardcodes "hz-fsn-rtz-prod" as Values.qaFixtures.primaryRegion
   # default. Secondary regions don't need the label; qa fixtures pin to
   # primary by design (qaFixtures.primaryRegion is singular).
+
+  # ── Private NIC bring-up BEFORE k3s install (prov #71 root cause) ────────
+  #
+  # Hetzner Cloud attaches the private-network NIC by hot-plug AFTER the
+  # server is created. cloud-init init-local runs at boot and reads
+  # /hetzner/v1/metadata/private-networks to render netplan — but on
+  # secondary regions (and intermittently on primaries) the NIC is
+  # attached ~10-20s AFTER cloud-init finalises 50-cloud-init.yaml.
+  # Result: netplan only has eth0, the private NIC (kernel-renamed eth1
+  # → enp7s0 by udev) stays DOWN with no IP, k3s starts with
+  # --node-ip=${cp_private_ip} and fatals on
+  #   "bind: cannot assign requested address"
+  # then crashloops forever. Prov #71 (omantel.biz, nbg1-1-cp1) hit this:
+  # k3s.service restart counter reached 5394, /var/lib/rancher/k3s never
+  # became ready, kubeconfig was never PUT back to the mothership, and
+  # the canvas showed the secondary region as a permanent black hole.
+  # Diagnosed via Hetzner rescue mode 2026-05-14.
+  #
+  # Fix: poll for ${cp_private_ip} on any interface. If absent after the
+  # NIC is detected, write a netplan stanza for it and apply. Bail loudly
+  # if the IP never appears so failures surface in cloud-init.log instead
+  # of disguising as a slow k3s boot.
+  - |
+    EXPECTED_PRIVATE_IP="${cp_private_ip}"
+    PRIMARY_NIC=$(ip -br link | awk '$1 == "eth0" {print $1; exit}')
+    echo "[private-nic] waiting for $${EXPECTED_PRIVATE_IP} on any interface (primary=$${PRIMARY_NIC})..."
+    for i in $(seq 1 60); do
+      if ip -4 addr show | grep -qE "inet $${EXPECTED_PRIVATE_IP}/"; then
+        echo "[private-nic] $${EXPECTED_PRIVATE_IP} is up (iter $${i})"
+        break
+      fi
+      EXTRA=$(ip -br link | awk -v primary="$${PRIMARY_NIC}" '$1 != "lo" && $1 != primary && $1 !~ /^(docker|veth|tun|wg|cni|flannel|cilium)/ {print $1; exit}')
+      if [ -n "$${EXTRA}" ] && ! grep -q "$${EXTRA}:" /etc/netplan/*.yaml 2>/dev/null; then
+        echo "[private-nic] generating netplan stanza for $${EXTRA}"
+        cat >/etc/netplan/60-private-network.yaml <<NETPLAN
+    network:
+      version: 2
+      ethernets:
+        $${EXTRA}:
+          dhcp4: true
+          dhcp4-overrides:
+            use-dns: false
+            use-routes: false
+    NETPLAN
+        chmod 0600 /etc/netplan/60-private-network.yaml
+        netplan apply || true
+      fi
+      sleep 2
+    done
+    if ! ip -4 addr show | grep -qE "inet $${EXPECTED_PRIVATE_IP}/"; then
+      echo "[private-nic] FATAL: $${EXPECTED_PRIVATE_IP} never appeared after 120s; k3s would crashloop" >&2
+      ip -br addr >&2
+      exit 1
+    fi
+
   - 'CP_PUBLIC_IPV4=$(curl -fsSL --retry 30 --retry-delay 2 http://169.254.169.254/hetzner/v1/metadata/public-ipv4) && curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=${k3s_version} K3S_TOKEN=${k3s_token} INSTALL_K3S_EXEC="server --cluster-init --flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --node-ip=${cp_private_ip} --advertise-address=${cp_private_ip} --kubelet-arg=max-pods=220 --tls-san=${sovereign_fqdn} --tls-san=${cp_private_ip} --tls-san=$${CP_PUBLIC_IPV4} --kube-apiserver-arg=oidc-issuer-url=https://auth.${sovereign_fqdn}/realms/sovereign --kube-apiserver-arg=oidc-client-id=kubectl --kube-apiserver-arg=oidc-username-claim=preferred_username --kube-apiserver-arg=oidc-username-prefix=oidc: --kube-apiserver-arg=oidc-groups-claim=groups --kube-apiserver-arg=oidc-groups-prefix=oidc: --node-label catalyst.openova.io/role=control-plane --node-label openova.io/region=hz-fsn-rtz-prod ${worker_count > 0 ? "--node-taint node-role.kubernetes.io/control-plane=true:NoSchedule " : ""}--write-kubeconfig-mode=0644" sh -'
 
   # Wait for the API server to be reachable. Cilium needs to come up before

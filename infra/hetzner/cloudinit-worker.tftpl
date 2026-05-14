@@ -90,6 +90,46 @@ runcmd:
 %{ if enable_unattended_upgrades ~}
   - systemctl enable --now unattended-upgrades
 %{ endif ~}
+  # ── Private NIC bring-up BEFORE k3s agent join (prov #71 root cause) ────
+  #
+  # Same Hetzner private-NIC hot-attach race as the control-plane template
+  # — see cloudinit-control-plane.tftpl for the full rationale. Without
+  # this wait, k3s agent's `K3S_URL=https://${cp_private_ip}:6443` dials
+  # the CP via a private IP that has no route, agent join silently fails,
+  # the worker never becomes Ready, autoscaler times out the scale-up.
+  - |
+    PRIMARY_NIC=$(ip -br link | awk '$1 == "eth0" {print $1; exit}')
+    echo "[private-nic] waiting for private NIC to reach the CP ${cp_private_ip}..."
+    for i in $(seq 1 60); do
+      if ip -4 route get ${cp_private_ip} 2>/dev/null | grep -qE "dev (eth|en|ens|enp)"; then
+        SRC=$(ip -4 route get ${cp_private_ip} | awk '/src/ {for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}')
+        echo "[private-nic] route to ${cp_private_ip} is up via src $${SRC} (iter $${i})"
+        break
+      fi
+      EXTRA=$(ip -br link | awk -v primary="$${PRIMARY_NIC}" '$1 != "lo" && $1 != primary && $1 !~ /^(docker|veth|tun|wg|cni|flannel|cilium)/ {print $1; exit}')
+      if [ -n "$${EXTRA}" ] && ! grep -q "$${EXTRA}:" /etc/netplan/*.yaml 2>/dev/null; then
+        echo "[private-nic] generating netplan stanza for $${EXTRA}"
+        cat >/etc/netplan/60-private-network.yaml <<NETPLAN
+    network:
+      version: 2
+      ethernets:
+        $${EXTRA}:
+          dhcp4: true
+          dhcp4-overrides:
+            use-dns: false
+            use-routes: false
+    NETPLAN
+        chmod 0600 /etc/netplan/60-private-network.yaml
+        netplan apply || true
+      fi
+      sleep 2
+    done
+    if ! ip -4 route get ${cp_private_ip} 2>/dev/null | grep -qE "dev (eth|en|ens|enp)"; then
+      echo "[private-nic] FATAL: no route to CP ${cp_private_ip} after 120s; k3s agent join will fail" >&2
+      ip -br addr >&2
+      exit 1
+    fi
+
   # Join the control plane via private network IP (10.0.1.2 — the first
   # control-plane node in the network subnet). k3s_version pinned so all
   # workers in this Sovereign land on the same Kubernetes minor as the CP.
