@@ -137,6 +137,24 @@ spec:
                 sleep 5
               done
 
+              # ─── Token-validity gate (post-upgrade no-op) ─────────────
+              # On post-install (first run) BAO_TOKEN is the freshly-minted
+              # root token from openbao-root-token Secret and is valid.
+              # On post-upgrade re-runs the same root token has ALREADY
+              # been revoked by the previous run (see "revoke + cleanup"
+              # section below) so every privileged call returns 403. There
+              # is nothing meaningful for this Job to do on a re-run — the
+              # auth method, the role, and the kv backend are already
+              # configured. Detect the revoked-token case and exit 0 so a
+              # routine chart bump doesn't fail the HR's post-upgrade hook
+              # and rollback the release. Caught live on prov #80 when
+              # bp-openbao 1.2.14 → 1.2.15 (an HTTPRoute-only bump) replayed
+              # the hook and 403'd on `bao auth enable`.
+              if ! bao token lookup >/dev/null 2>&1; then
+                echo "[openbao-auth-bootstrap] BAO_TOKEN no longer valid (likely revoked by a prior successful run); nothing to do — exiting 0"
+                exit 0
+              fi
+
               # ─── Idempotency: skip if auth method + role already exist ─
               # `bao auth list` returns 200 and the JSON includes the mount
               # path key (e.g. "kubernetes/") when the method is enabled.
