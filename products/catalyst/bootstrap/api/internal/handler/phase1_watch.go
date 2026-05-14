@@ -454,7 +454,16 @@ func (h *Handler) spawnSecondaryRegionWatchers(dep *Deployment) func() {
 			// can group them per region. Bare bp-* names from
 			// secondary regions would otherwise collide with the
 			// primary's events in the wizard's per-component view.
-			ev.Component = region + "/" + ev.Component
+			// Separator is ":" not "/" so URLs of the form
+			// /jobs/install-<region>:<chart> survive TanStack
+			// Router's decode (the router decodes %2F→/ and then
+			// the `$jobId` param fails to match the multi-segment
+			// path → 404). "/" was the legacy separator caught by
+			// the founder on prov #73 (install-hel1-2/newapi route
+			// 404'd from the JobsTable click). Canonical rule per
+			// feedback_natural_view_is_canon.md: "Node id separator
+			// `:` not `/`".
+			ev.Component = region + ":" + ev.Component
 			h.emitWatchEvent(dep, ev)
 		})
 		if err != nil {
@@ -463,6 +472,14 @@ func (h *Handler) spawnSecondaryRegionWatchers(dep *Deployment) func() {
 				"id", dep.ID, "region", region, "err", err)
 			return
 		}
+		// Attach the region-aware seeder hook so SeedJobsFromInformerList
+		// runs against this secondary's informer cache and writes
+		// `install-<region>/<chart>` Jobs with region-prefixed DependsOn.
+		// Without this the secondary install-* Jobs are only created via
+		// the per-event OnHelmReleaseEvent path (DependsOn=[]) and the
+		// canvas dep graph stays flat for the entire secondary region.
+		// Caught on prov #73 (8cd1ff1a80430dc5, 2026-05-14).
+		h.attachSecondaryBridgeSeederHook(dep, watcher, region)
 		wctx, wcancel := context.WithCancel(ctx)
 		stopWatchers[region] = wcancel
 		dep.mu.Lock()

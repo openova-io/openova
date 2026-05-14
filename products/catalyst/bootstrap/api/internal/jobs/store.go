@@ -280,6 +280,21 @@ func (s *Store) UpsertJob(j Job) error {
 // LatestExecutionID. The status from the new event always wins (the
 // helmwatch bridge is the only writer; later state-machine events
 // supersede earlier ones).
+//
+// DependsOn preservation: when the incoming event has empty DependsOn,
+// keep the previously-stored list. The Bridge's per-HR state-transition
+// path (OnHelmReleaseEvent at helmwatch_bridge.go:502) hardcodes
+// `DependsOn: []string{}` because it does not look up sibling
+// dependencies on every event — only the seed path
+// (SeedJobsFromInformerList) computes the real list from
+// HR.spec.dependsOn. Without this preservation, every subsequent state
+// transition CLOBBERS the seeded deps and the canvas snapshot's
+// inter-HR dep edges disappear after the first state change. Caught on
+// prov #73 (8cd1ff1a80430dc5, 2026-05-14): 135/135 install Jobs ended
+// up with `dependsOn=[]` despite SeedJobsFromInformerList running with
+// proper deps, because every HR Ready=True event after the seed wrote
+// empty deps. Founder caught the resulting flat-leaf canvas 4 sessions
+// in a row.
 func mergeJob(prev, next Job) Job {
 	out := next
 	if next.StartedAt == nil && prev.StartedAt != nil {
@@ -290,6 +305,9 @@ func mergeJob(prev, next Job) Job {
 	}
 	if next.LatestExecutionID == "" && prev.LatestExecutionID != "" {
 		out.LatestExecutionID = prev.LatestExecutionID
+	}
+	if len(next.DependsOn) == 0 && len(prev.DependsOn) > 0 {
+		out.DependsOn = prev.DependsOn
 	}
 	if out.StartedAt != nil && out.FinishedAt != nil {
 		out.DurationMs = out.FinishedAt.Sub(*out.StartedAt).Milliseconds()

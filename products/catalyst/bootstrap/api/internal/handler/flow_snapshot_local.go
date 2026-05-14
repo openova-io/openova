@@ -178,15 +178,22 @@ func (h *Handler) flowSnapshotFromJobs(deploymentID string) (*flowSnapshotLocalM
 	// hrDeps used for the primary-leaf-only dep derivation — each
 	// region's intra-cluster deps are computed against its OWN
 	// snapshot inside the per-region block below.
+	// hrDeps is the Layer-2 fallback used when a Job row's stored
+	// DependsOn is empty (e.g., the seed hook hadn't fired yet at the
+	// moment a Job was auto-created by OnHelmReleaseEvent's first-event
+	// path). Keys are bare AppIDs (primary watcher) AND region-prefixed
+	// AppIDs (secondary watchers, "<region>/<chart>") so the Layer-2
+	// lookup in the install-* leaf block below can find deps for any
+	// region's Job. After fix #1467 (mergeJob preserves prev.DependsOn
+	// + SeedJobsFromInformerList attached to secondary watchers) the
+	// stored DependsOn IS the canonical source and this fallback is
+	// effectively a safety net for hot-shipped charts.
 	hrDeps := map[string][]string{}
 	var secondaryWatchers map[string]*helmwatch.Watcher
 	if val, ok := h.deployments.Load(deploymentID); ok {
 		if dep, ok := val.(*Deployment); ok && dep != nil {
 			dep.mu.Lock()
 			w := dep.liveWatcher
-			// Snapshot the secondaryWatchers map under the lock; the
-			// per-watcher SnapshotComponents() calls below are
-			// individually goroutine-safe.
 			if len(dep.secondaryWatchers) > 0 {
 				secondaryWatchers = make(map[string]*helmwatch.Watcher, len(dep.secondaryWatchers))
 				for r, sw := range dep.secondaryWatchers {
@@ -199,6 +206,28 @@ func (h *Handler) flowSnapshotFromJobs(deploymentID string) (*flowSnapshotLocalM
 					if len(cs.DependsOn) > 0 {
 						hrDeps[cs.AppID] = cs.DependsOn
 					}
+				}
+			}
+			// Layer-2 enrichment from secondary watchers — each
+			// secondary's HR.spec.dependsOn carries bare chart names,
+			// so we region-prefix them BOTH on the map key AND the
+			// list entries so the lookup below (lookupAppID built off
+			// j.AppID which is already region-prefixed for secondaries)
+			// finds the right region-bounded sibling.
+			for region, sw := range secondaryWatchers {
+				if sw == nil {
+					continue
+				}
+				for _, cs := range sw.SnapshotComponents() {
+					if len(cs.DependsOn) == 0 {
+						continue
+					}
+					regionKey := region + ":" + cs.AppID
+					rescoped := make([]string, 0, len(cs.DependsOn))
+					for _, d := range cs.DependsOn {
+						rescoped = append(rescoped, region+":"+d)
+					}
+					hrDeps[regionKey] = rescoped
 				}
 			}
 		}
@@ -252,6 +281,27 @@ func (h *Handler) flowSnapshotFromJobs(deploymentID string) (*flowSnapshotLocalM
 	// durable source of truth — derive region from them.
 	regionsFromJobs := map[string]bool{}
 	bootstrapID := jobs.JobID(deploymentID, jobs.GroupBootstrapKit)
+	cutoverID := jobs.JobID(deploymentID, jobs.GroupCutover)
+	handoverID := jobs.JobID(deploymentID, jobs.GroupHandover)
+	appsID := jobs.JobID(deploymentID, jobs.GroupApps)
+
+	// phaseForChart classifies an install-* job's chart name into one of
+	// the five canonical Sovereign-lifecycle phases. The composer uses
+	// this to reparent self-sovereign-cutover under the cutover group
+	// instead of bootstrap-kit, so the canvas surfaces cutover as a
+	// distinct first-class phase rather than burying it inside the
+	// 45-HR install fan-out. Charts NOT classified here fall through to
+	// bootstrap-kit (the default phase for the install wave).
+	//
+	// Chart name is the post-`install-` slug (and post-`<region>/` for
+	// secondary regions), so the caller must strip both before calling.
+	phaseForChart := func(chart string) string {
+		switch chart {
+		case "self-sovereign-cutover":
+			return jobs.GroupCutover
+		}
+		return jobs.GroupBootstrapKit
+	}
 
 	// Primary region key from deployment request — primary install jobs
 	// have NO "/" prefix in their JobName (they're written by the
@@ -272,14 +322,16 @@ func (h *Handler) flowSnapshotFromJobs(deploymentID string) (*flowSnapshotLocalM
 
 	for _, j := range js {
 		// Derive region prefix from JobName of the form
-		// "install-<region>/<chart>". The "/" separator is the
+		// "install-<region>:<chart>". The ":" separator is the
 		// canonical multi-region marker emitted by phase1_watch.go.
-		// Primary install jobs have no `/` — fall through to the
-		// primary region from dep.Request below.
+		// Primary install jobs have no `:` in AppID — fall through to
+		// the primary region from dep.Request below. (NB. the legacy
+		// "/" separator was retired post-prov #73 because TanStack
+		// Router decodes %2F → / and splits the route param.)
 		jobRegion := ""
 		if j.Type == jobs.JobTypeInstall && j.AppID != "" {
-			if slash := strings.IndexByte(j.AppID, '/'); slash > 0 {
-				jobRegion = j.AppID[:slash]
+			if sep := strings.IndexByte(j.AppID, ':'); sep > 0 {
+				jobRegion = j.AppID[:sep]
 				regionsFromJobs[jobRegion] = true
 			} else if primaryRegion != "" {
 				// Primary region install job — reparent into the
@@ -329,8 +381,30 @@ func (h *Handler) flowSnapshotFromJobs(deploymentID string) (*flowSnapshotLocalM
 		// finds region-bounded initials/terminals instead of fanning
 		// out M×N across all 135 leaves.
 		parentID := j.ParentID
-		if jobRegion != "" {
+		// Classify install-* Jobs by the phase their chart belongs to.
+		// Cutover-owning chart (self-sovereign-cutover) reparents under
+		// the cutover phase group so the canvas surfaces cutover as a
+		// distinct top-level phase, not buried in bootstrap-kit's
+		// 45-HR install fan-out. For multi-region cutover charts, we
+		// also keep them out of the bootstrap-kit region group (they're
+		// a separate phase that runs once per region).
+		phaseSlug := jobs.GroupBootstrapKit
+		if j.Type == jobs.JobTypeInstall && j.AppID != "" {
+			// Strip region prefix to get bare chart name for classification.
+			bareChart := j.AppID
+			if sep := strings.IndexByte(bareChart, ':'); sep > 0 {
+				bareChart = bareChart[sep+1:]
+			}
+			phaseSlug = phaseForChart(bareChart)
+		}
+		if jobRegion != "" && phaseSlug == jobs.GroupBootstrapKit {
 			parentID = deploymentID + ":" + jobRegion + ":bootstrap-kit"
+		} else if jobRegion != "" && phaseSlug != jobs.GroupBootstrapKit {
+			// Cutover/handover/apps go under per-region phase sub-group
+			// (e.g. `<dep>:hel1-2:cutover`) so canvas surfaces each
+			// region's cutover progress independently — region-bounded
+			// just like bootstrap-kit.
+			parentID = deploymentID + ":" + jobRegion + ":" + phaseSlug
 		}
 		if parentID != "" {
 			rels = append(rels, flowSnapshotLocalRelationship{
@@ -370,12 +444,20 @@ func (h *Handler) flowSnapshotFromJobs(deploymentID string) (*flowSnapshotLocalM
 			if jobRegion == "" {
 				return depName // primary job — no prefix needed
 			}
-			if strings.Contains(depName, "/") {
-				return depName // already region-prefixed (e.g. "install-hel1-2/cilium")
+			// "install-<region>:<chart>" is already region-prefixed.
+			// strings.Count guard avoids matching the dep/jobName
+			// separator colon — JobName itself has at most one ":"
+			// when regional ("hel1-2:cilium") and zero when bare
+			// ("cilium").
+			if strings.Count(depName, ":") >= 1 && strings.HasPrefix(depName, jobs.JobNamePrefix) {
+				rest := strings.TrimPrefix(depName, jobs.JobNamePrefix)
+				if strings.IndexByte(rest, ':') > 0 {
+					return depName // already region-prefixed
+				}
 			}
 			if strings.HasPrefix(depName, jobs.JobNamePrefix) {
-				// "install-cilium" → "install-hel1-2/cilium"
-				return jobs.JobNamePrefix + jobRegion + "/" + strings.TrimPrefix(depName, jobs.JobNamePrefix)
+				// "install-cilium" → "install-hel1-2:cilium"
+				return jobs.JobNamePrefix + jobRegion + ":" + strings.TrimPrefix(depName, jobs.JobNamePrefix)
 			}
 			return depName
 		}
@@ -401,31 +483,30 @@ func (h *Handler) flowSnapshotFromJobs(deploymentID string) (*flowSnapshotLocalM
 				Type:   "finish-to-start",
 			})
 		}
-		// Layer-2 dependency derivation — helmwatch.Bridge does NOT
-		// persist Job.DependsOn for Phase-1 install-* Jobs today, but
-		// the live HR informer cache HAS the data (HR.spec.dependsOn).
-		// For each install-<chart> Job, look up the chart's AppID and
-		// emit finish-to-start edges to its sibling install-* Jobs.
-		// Skipped for group jobs (j.AppID empty) and when the live
-		// watcher hasn't attached yet.
+		// Layer-2 dependency derivation — fallback used when the Job
+		// row's stored DependsOn is empty (e.g., a chart was hot-shipped
+		// post-seed, or the seed hook hadn't fired yet at the moment a
+		// Job was auto-created by OnHelmReleaseEvent). Reads from
+		// hrDeps which is populated from BOTH the primary watcher
+		// (bare AppID keys, bare AppID values) AND every secondary
+		// watcher (region-prefixed keys + region-prefixed values).
 		//
-		// The hrDeps map is from the PRIMARY watcher only, so each entry
-		// is the bare chart dep (e.g. "cilium"). When this loop is
-		// emitting deps for a REGIONAL install, the dep must be
-		// region-prefixed for the same NAMING-CONVENTION §1.3 reason.
+		// Skipped for group jobs (j.AppID empty).
 		if j.AppID != "" {
-			// Look up hrDeps by the appID stripped of any region prefix
-			// — the primary watcher's keys are bare chart names.
-			lookupAppID := j.AppID
-			if slash := strings.IndexByte(lookupAppID, '/'); slash > 0 {
-				lookupAppID = lookupAppID[slash+1:]
-			}
-			for _, depAppID := range hrDeps[lookupAppID] {
+			// hrDeps now keys regional entries under "<region>/<chart>"
+			// directly, so j.AppID is the correct lookup string for
+			// both primary ("cilium") and secondary ("hel1-2/cilium").
+			for _, depAppID := range hrDeps[j.AppID] {
 				if depAppID == "" {
 					continue
 				}
-				// Region-scope the dep AppID so e.g. hel1-2's install-
-				// cilium points at hel1-2's install-cilium, not primary's.
+				// For PRIMARY (j.AppID is bare), depAppID is also bare —
+				// regionalise() is a no-op so the install-<chart> form
+				// is final. For SECONDARY (j.AppID is "<region>/chart"),
+				// depAppID is already "<region>/<dep-chart>" so
+				// regionalise() detects the "/" and returns the value
+				// unchanged. Either branch yields the correct region-
+				// bounded sibling JobID.
 				depJobID := jobs.JobID(deploymentID, regionalise(jobs.JobNamePrefix+depAppID))
 				if depJobID == j.ID || seenDep[depJobID] {
 					continue
@@ -440,37 +521,87 @@ func (h *Handler) flowSnapshotFromJobs(deploymentID string) (*flowSnapshotLocalM
 		}
 	}
 
-	// Synthesise one bootstrap-kit sub-group per discovered region.
-	// These node IDs match the parent IDs the per-Job loop above
-	// re-parented multi-region install Jobs to. Without this
-	// post-loop append, those re-parent edges would dangle (the FE
-	// adapter's `contains` index would point at IDs with no
-	// corresponding node row).
+	// Synthesise one phase sub-group per discovered region for each of
+	// bootstrap-kit + cutover. These node IDs match the parent IDs the
+	// per-Job loop above re-parented multi-region install Jobs to.
+	// Without this post-loop append, those re-parent edges would
+	// dangle (the FE adapter's `contains` index would point at IDs
+	// with no corresponding node row).
 	//
 	// Status "running" is a placeholder — the FE rolls per-group
-	// status up from descendants on the read path. Same family/group
-	// shape as the secondaryWatchers block below so the canvas
-	// renders both code paths' region bubbles identically.
+	// status up from descendants on the read path.
 	{
 		regionFamily := "group"
+		phaseLabels := map[string]string{
+			jobs.GroupBootstrapKit: "Bootstrap",
+			jobs.GroupCutover:      "Cutover",
+			jobs.GroupHandover:     "Handover",
+			jobs.GroupApps:         "Apps",
+		}
+		phaseRoots := map[string]string{
+			jobs.GroupBootstrapKit: bootstrapID,
+			jobs.GroupCutover:      cutoverID,
+			jobs.GroupHandover:     handoverID,
+			jobs.GroupApps:         appsID,
+		}
+		// Emit per-region sub-groups for every phase, so the canvas
+		// shows symmetric region bubbles inside each phase.
 		for region := range regionsFromJobs {
-			regionGroupID := deploymentID + ":" + region + ":bootstrap-kit"
-			regionStr := region
+			for phaseSlug, phaseLabel := range phaseLabels {
+				regionGroupID := deploymentID + ":" + region + ":" + phaseSlug
+				regionStr := region
+				nodes = append(nodes, flowSnapshotLocalNode{
+					ID:     regionGroupID,
+					FlowID: deploymentID,
+					Label:  phaseLabel + " (" + region + ")",
+					Status: "running",
+					Family: &regionFamily,
+					Region: &regionStr,
+				})
+				rels = append(rels, flowSnapshotLocalRelationship{
+					FromID: regionGroupID,
+					ToID:   phaseRoots[phaseSlug],
+					Type:   "contains",
+				})
+			}
+		}
+	}
+
+	// Synthesise the three additional top-level phase groups
+	// (cutover, handover, apps) so the canvas always shows the full
+	// five-phase lifecycle (provisioner + bootstrap-kit + cutover +
+	// handover + apps) at depth=1. Sequential edges below wire the
+	// canonical ordering. Empty phase groups (e.g. handover/apps for a
+	// fresh prov that hasn't reached those phases yet) render as
+	// pending bubbles waiting for content — far more honest than
+	// hiding them entirely.
+	{
+		groupFamily := "group"
+		extraPhases := []struct {
+			id      string
+			slug    string
+			display string
+		}{
+			{cutoverID, jobs.GroupCutover, jobs.GroupCutoverDisplay},
+			{handoverID, jobs.GroupHandover, jobs.GroupHandoverDisplay},
+			{appsID, jobs.GroupApps, jobs.GroupAppsDisplay},
+		}
+		// Skip group nodes already present (the Bridge may have
+		// materialised one already via ensureGroupJob).
+		existingIDs := map[string]bool{}
+		for _, n := range nodes {
+			existingIDs[n.ID] = true
+		}
+		for _, gp := range extraPhases {
+			if existingIDs[gp.id] {
+				continue
+			}
 			nodes = append(nodes, flowSnapshotLocalNode{
-				ID:     regionGroupID,
+				ID:     gp.id,
 				FlowID: deploymentID,
-				Label:  "Bootstrap (" + region + ")",
-				Status: "running",
-				Family: &regionFamily,
-				Region: &regionStr,
-			})
-			// Hierarchy: this region's group is contained by the
-			// top-level bootstrap-kit so the canvas can fold all
-			// regions under one parent.
-			rels = append(rels, flowSnapshotLocalRelationship{
-				FromID: regionGroupID,
-				ToID:   bootstrapID,
-				Type:   "contains",
+				Label:  gp.display,
+				Status: "pending",
+				Family: &groupFamily,
 			})
 		}
 	}
@@ -488,21 +619,41 @@ func (h *Handler) flowSnapshotFromJobs(deploymentID string) (*flowSnapshotLocalM
 	// safe to emit unconditionally.
 	provisionerID := jobs.JobID(deploymentID, jobs.GroupProvisioner)
 	hasProvisioner := false
-	hasBootstrap := false
 	for _, j := range js {
 		if j.ID == provisionerID {
 			hasProvisioner = true
 		}
-		if j.ID == bootstrapID {
-			hasBootstrap = true
-		}
 	}
-	if hasProvisioner && hasBootstrap {
-		rels = append(rels, flowSnapshotLocalRelationship{
-			FromID: provisionerID,
-			ToID:   bootstrapID,
-			Type:   "finish-to-start",
-		})
+	// Sequential phase chain: provisioner → bootstrap-kit → cutover →
+	// handover → apps. Each edge corresponds to a real temporal
+	// dependency in the Sovereign lifecycle:
+	//   - bootstrap-kit installs 45 HRs in dep order (cilium → ... →
+	//     catalyst-platform); cannot start until tofu provisioner has
+	//     created the cluster.
+	//   - cutover (bp-self-sovereign-cutover) flips the Sovereign from
+	//     bootstrap-credentials to its own per-Sovereign identity;
+	//     depends on bootstrap-kit having installed gitea, harbor,
+	//     keycloak, and the cutover chart itself.
+	//   - handover mints the operator-facing JWT and redirects the
+	//     wizard to console.<sovereign-fqdn>; depends on cutover having
+	//     reached cutoverComplete=true.
+	//   - apps is where operator-authored Application CRs reconcile;
+	//     depends on the wizard reaching the post-handover console.
+	phaseChain := []string{
+		provisionerID,
+		bootstrapID,
+		cutoverID,
+		handoverID,
+		appsID,
+	}
+	if hasProvisioner {
+		for i := 0; i+1 < len(phaseChain); i++ {
+			rels = append(rels, flowSnapshotLocalRelationship{
+				FromID: phaseChain[i],
+				ToID:   phaseChain[i+1],
+				Type:   "finish-to-start",
+			})
+		}
 	}
 
 	// NOTE — the legacy live-watcher multi-region composition block was

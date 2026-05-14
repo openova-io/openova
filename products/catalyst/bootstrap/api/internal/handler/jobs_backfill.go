@@ -152,17 +152,95 @@ func (h *Handler) attachBridgeSeederHook(dep *Deployment, watcher *helmwatch.Wat
 // out so the runPhase1Watch attach path and the /refresh-watch path
 // both produce identical seeds for the same cache contents.
 func snapshotsToSeeds(snap []helmwatch.ComponentSnapshot) []jobs.InformerSeed {
+	return snapshotsToSeedsForRegion(snap, "")
+}
+
+// snapshotsToSeedsForRegion is the region-aware variant. When region is
+// non-empty, each emitted seed's Component and DependsOn entries are
+// prefixed with `<region>/` so the resulting Job rows materialise as
+// `install-<region>/<chart>` with intra-region DependsOn links. The
+// secondary helmwatch.Watchers spawned by spawnSecondaryRegionWatchers
+// use this variant so their seed call doesn't collide with the
+// primary's bare-named install-* Job rows and so the canvas snapshot's
+// dep-edge derivation in flow_snapshot_local.go finds the right
+// sibling-in-region entries to wire finish-to-start arrows between.
+// Caught on prov #73: secondary regions' install-* Jobs were created
+// via the per-event OnHelmReleaseEvent path (with DependsOn=[]) only,
+// never seeded, so the canvas rendered all 45 secondary leaves
+// disconnected from each other.
+func snapshotsToSeedsForRegion(snap []helmwatch.ComponentSnapshot, region string) []jobs.InformerSeed {
 	out := make([]jobs.InformerSeed, 0, len(snap))
+	prefix := ""
+	if region != "" {
+		// ":" separator (NOT "/") — see phase1_watch.go for the URL-
+		// routing rationale. JobName ends up as
+		// "install-<region>:<chart>" which renders as
+		// /jobs/install-<region>:<chart> in the SPA without TanStack
+		// Router splitting the path.
+		prefix = region + ":"
+	}
 	for _, s := range snap {
+		regionDeps := s.DependsOn
+		if prefix != "" && len(regionDeps) > 0 {
+			rescoped := make([]string, 0, len(regionDeps))
+			for _, d := range regionDeps {
+				rescoped = append(rescoped, prefix+d)
+			}
+			regionDeps = rescoped
+		}
 		out = append(out, jobs.InformerSeed{
-			Component:  s.AppID,
+			Component:  prefix + s.AppID,
 			State:      s.Status,
 			Message:    s.Message,
 			ObservedAt: s.LastTransitionAt,
-			DependsOn:  s.DependsOn,
+			DependsOn:  regionDeps,
 		})
 	}
 	return out
+}
+
+// attachSecondaryBridgeSeederHook is the region-aware variant of
+// attachBridgeSeederHook. Wires the secondary helmwatch.Watcher's
+// OnInitialListSynced callback to feed region-prefixed seeds into the
+// SAME Bridge instance used by the primary watcher — so all 135
+// install-* Jobs (45 primary + 2×45 secondaries) live in one store
+// and share idempotency cursors. Without this, secondary install Jobs
+// are auto-materialised only by the per-event OnHelmReleaseEvent path
+// (which writes DependsOn=[]) so the canvas dep graph is permanently
+// flat under secondary region groups.
+func (h *Handler) attachSecondaryBridgeSeederHook(dep *Deployment, watcher *helmwatch.Watcher, region string) {
+	if h.jobs == nil || watcher == nil || region == "" {
+		return
+	}
+	depID := dep.ID
+	dep.mu.Lock()
+	bridge := dep.jobsBridge
+	if bridge == nil {
+		bridge = jobs.NewBridge(h.jobs, depID)
+		dep.jobsBridge = bridge
+	}
+	dep.mu.Unlock()
+
+	watcher.OnInitialListSynced(func(snap []helmwatch.ComponentSnapshot) {
+		seeds := snapshotsToSeedsForRegion(snap, region)
+		jobsCount, execsSeeded, err := bridge.SeedJobsFromInformerList(seeds)
+		if err != nil {
+			h.log.Warn("jobs bridge: secondary informer initial-list seed failed",
+				"id", depID,
+				"region", region,
+				"snapshotCount", len(snap),
+				"err", err,
+			)
+			return
+		}
+		h.log.Info("jobs bridge: seeded secondary region from informer initial-list",
+			"id", depID,
+			"region", region,
+			"snapshotCount", len(snap),
+			"jobsWritten", jobsCount,
+			"executionsSeeded", execsSeeded,
+		)
+	})
 }
 
 // RefreshWatch handles POST /api/v1/deployments/{depId}/refresh-watch.

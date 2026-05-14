@@ -88,6 +88,9 @@ const (
 	GroupBootstrapKit   = "bootstrap-kit"
 	GroupDay2Mutations  = "day-2-mutations"
 	GroupProvisioner    = "provisioner"
+	GroupCutover        = "cutover"
+	GroupHandover       = "handover"
+	GroupApps           = "apps"
 )
 
 // Group display names — user-visible labels for the synthesised
@@ -97,6 +100,9 @@ const (
 	GroupBootstrapKitDisplay   = "Bootstrap"
 	GroupDay2MutationsDisplay  = "Day-2 Mutations"
 	GroupProvisionerDisplay    = "Provision Hetzner"
+	GroupCutoverDisplay        = "Cutover"
+	GroupHandoverDisplay       = "Handover"
+	GroupAppsDisplay           = "Apps"
 )
 
 // Phase-0 lifecycle phase slugs — durable Job rows the bridge writes
