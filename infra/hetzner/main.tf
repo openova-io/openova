@@ -458,25 +458,25 @@ locals {
     # render 10.0.1.2 since every region has its OWN /24 (see
     # local.secondary_region_cp_ips above — the per-region network refactor
     # made every CP uniform on 10.0.1.2 within its own subnet).
-    cp_private_ip           = "10.0.1.2"
+    cp_private_ip = "10.0.1.2"
     # Per-region k3s pod/service CIDRs (DoD gate D11 — no collision across
     # ClusterMesh peers). Primary uses region_cluster_cidr["primary"]
     # (= 10.42.0.0/16) and region_service_cidr["primary"] (= 10.96.0.0/16).
     # Threaded into the k3s install line as --cluster-cidr= / --service-cidr=
     # in cloudinit-control-plane.tftpl.
-    cluster_cidr            = local.region_cluster_cidr["primary"]
-    service_cidr            = local.region_service_cidr["primary"]
-    sovereign_fqdn          = var.sovereign_fqdn
-    sovereign_subdomain     = var.sovereign_subdomain
+    cluster_cidr        = local.region_cluster_cidr["primary"]
+    service_cidr        = local.region_service_cidr["primary"]
+    sovereign_fqdn      = var.sovereign_fqdn
+    sovereign_subdomain = var.sovereign_subdomain
     # OpenovaFlow integration (Agent #3, PR #1389/#1390 follow-up). The
     # bp-openova-flow-emitter (bootstrap-kit slot 57) reads SOVEREIGN_
     # DEPLOYMENT_ID + SOVEREIGN_REGION_KEY from the bootstrap-kit
     # Kustomization's postBuild.substitute env. Primary CP renders
     # var.region as the region key; secondary CPs render each.key from
     # the for_each loop in local.secondary_region_cloud_init.
-    sovereign_deployment_id = var.sovereign_deployment_id
-    sovereign_region_key    = var.region
-    marketplace_enabled     = var.marketplace_enabled
+    sovereign_deployment_id   = var.sovereign_deployment_id
+    sovereign_region_key      = var.region
+    marketplace_enabled       = var.marketplace_enabled
     qa_fixtures_enabled       = var.qa_fixtures_enabled
     qa_test_session_enabled   = var.qa_test_session_enabled
     qa_fixtures_namespace     = var.qa_fixtures_namespace
@@ -977,22 +977,22 @@ locals {
       # 10.0.1.2 — uniform with the primary. Used by the bp-cilium
       # HelmRelease's CILIUM_K8S_SERVICE_HOST substitute so cilium-
       # operator on each cluster reaches its OWN local CP (matching CA).
-      cp_private_ip           = local.secondary_region_cp_ips[k]
+      cp_private_ip = local.secondary_region_cp_ips[k]
       # Per-region k3s pod/service CIDRs (DoD gate D11). Each region gets
       # its own /16 off the 10.42+i.0/12 + 10.96+i.0/12 supernets so
       # ClusterMesh peer pods/services don't collide in routing tables.
-      cluster_cidr            = local.region_cluster_cidr[k]
-      service_cidr            = local.region_service_cidr[k]
-      sovereign_fqdn          = var.sovereign_fqdn
-      sovereign_subdomain     = var.sovereign_subdomain
+      cluster_cidr        = local.region_cluster_cidr[k]
+      service_cidr        = local.region_service_cidr[k]
+      sovereign_fqdn      = var.sovereign_fqdn
+      sovereign_subdomain = var.sovereign_subdomain
       # OpenovaFlow integration (Agent #3). The secondary CP's region
       # key is each.key from the secondary_regions for_each (e.g. "hel1"
       # for a Helsinki secondary). Multi-region Sovereigns thus emit
       # distinct region tags on FlowNodes, which the canvas groups into
       # per-region super-bubbles via `contains` relationships.
-      sovereign_deployment_id = var.sovereign_deployment_id
-      sovereign_region_key    = k
-      marketplace_enabled     = var.marketplace_enabled
+      sovereign_deployment_id   = var.sovereign_deployment_id
+      sovereign_region_key      = k
+      marketplace_enabled       = var.marketplace_enabled
       qa_fixtures_enabled       = var.qa_fixtures_enabled
       qa_test_session_enabled   = var.qa_test_session_enabled
       qa_fixtures_namespace     = var.qa_fixtures_namespace
