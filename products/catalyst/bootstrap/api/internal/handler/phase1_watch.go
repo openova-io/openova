@@ -477,12 +477,27 @@ func (h *Handler) spawnSecondaryRegionWatchers(dep *Deployment) func() {
 			// pointing at the PRIMARY region's bare-named jobs,
 			// and the canvas fan-out collapses cross-region edges
 			// that aren't real. helmwatch.processEvent populated
-			// ev.DependsOn from the live spec.dependsOn; we just
-			// rescope here.
+			// ev.DependsOn from the live spec.dependsOn (bare chart
+			// names like "gitea"); we both region-prefix AND inject
+			// the canonical "install-" prefix so the stored Job
+			// row's DependsOn matches the JobName scheme exactly.
+			//
+			// Why "install-<region>:<chart>" not "<region>:<chart>":
+			// the FE canvas adapter looks up node ids by exact match;
+			// node ids are `<dep>:install-<region>:<chart>` for
+			// install Jobs. Storing "<region>:<chart>" as a dep
+			// produces a `<dep>:<region>:<chart>` fromId in the
+			// finish-to-start relationship, which matches no node →
+			// edge invisible. Caught on prov t103.omani.works
+			// (005080699326a7ac, 2026-05-15): openova-flow snapshot
+			// had 224 finish-to-start rels emitted but their fromIds
+			// were `<dep>:hel1-2:seaweedfs` etc., missing "install-"
+			// → canvas rendered every secondary HR with no sibling
+			// edges despite the rel count being non-zero.
 			if len(ev.DependsOn) > 0 {
 				rescoped := make([]string, 0, len(ev.DependsOn))
 				for _, d := range ev.DependsOn {
-					rescoped = append(rescoped, region+":"+d)
+					rescoped = append(rescoped, "install-"+region+":"+d)
 				}
 				ev.DependsOn = rescoped
 			}
