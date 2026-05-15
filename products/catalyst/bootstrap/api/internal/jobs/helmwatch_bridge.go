@@ -489,6 +489,33 @@ func (b *Bridge) OnHelmReleaseEvent(componentID, state, level, message string, t
 		dependsOn = []string{}
 	}
 
+	// Prepend the canonical JobNamePrefix ("install-") to every dep so
+	// the stored Job.DependsOn matches the format other Jobs use as
+	// their JobName. Without this, the openova-flow snapshot composer
+	// emits finish-to-start relationships with fromIds like
+	// "<dep>:hel1-2:seaweedfs" (missing "install-"), which match no
+	// FlowNode and the canvas renders every sibling-edge invisible.
+	// Caught on prov t103.omani.works (005080699326a7ac, 2026-05-15):
+	// 224 finish-to-start rels emitted, every fromId malformed.
+	//
+	// Three input shapes the watcher may emit:
+	//   "cilium"               (primary, bare chart)        → "install-cilium"
+	//   "hel1-2:cilium"        (secondary, region-prefixed) → "install-hel1-2:cilium"
+	//   "install-hel1-2:cilium"(already canonical, idempotent) → same
+	if len(dependsOn) > 0 {
+		canon := make([]string, 0, len(dependsOn))
+		for _, d := range dependsOn {
+			if d == "" {
+				continue
+			}
+			if !strings.HasPrefix(d, JobNamePrefix) {
+				d = JobNamePrefix + d
+			}
+			canon = append(canon, d)
+		}
+		dependsOn = canon
+	}
+
 	// Ensure the bootstrap-kit parent group exists before any leaf is
 	// written underneath it (idempotent — UpsertJob's merge preserves
 	// any prior row).
