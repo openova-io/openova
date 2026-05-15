@@ -31,6 +31,8 @@ package provisioner
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1247,8 +1249,20 @@ func writeTfvars(deployDir string, req Request) error {
 
 		// Cilium ClusterMesh per-Sovereign peer anchors (#1101 EPIC-6).
 		// Empty + 0 = not in a mesh. Tofu validates id ∈ [0, 255].
-		"cluster_mesh_name": req.ClusterMeshName,
-		"cluster_mesh_id":   req.ClusterMeshID,
+		//
+		// Auto-derivation for zero-touch multi-region provs: when the
+		// operator omits ClusterMeshName/ClusterMeshID AND len(Regions)>1,
+		// derive both deterministically so the mesh comes up by default.
+		// Without this, every multi-region prov lands with cluster.id=0
+		// and Cilium kvstoremesh refuses to start: "ClusterID 0 is
+		// reserved". Operator may still override; auto-derive only kicks
+		// in when both fields are zero/empty (the omit-from-POST default).
+		// Caught on prov t104.omani.works (98395b3d9bd9c1aa, 2026-05-15):
+		// all 3 regions had cluster.id=0, clustermesh-apiserver
+		// CrashLoopBackOff 16 restarts, no inter-region mesh ever
+		// formed.
+		"cluster_mesh_name": deriveClusterMeshName(req),
+		"cluster_mesh_id":   deriveClusterMeshID(req),
 
 		// Hetzner — token gets baked into the state file unless the operator
 		// configures a remote backend with encryption-at-rest. Per Catalyst
@@ -1864,4 +1878,70 @@ func firstFQDNLabel(fqdn string) string {
 	// label inputs upstream so this branch is unreachable in normal
 	// operation; kept as a non-panicking fallback for unit tests.
 	return s
+}
+
+// deriveClusterMeshName returns the canonical Cilium ClusterMesh name
+// for this Sovereign. Operator may override via Request.ClusterMeshName;
+// otherwise auto-derived from the FQDN's first label suffixed with
+// "-mesh". For single-region provs (len(Regions) <= 1) returns empty
+// string — single-cluster Sovereigns don't need a mesh.
+//
+// Caught on prov t104.omani.works (2026-05-15): operator submitted the
+// canonical multi-region request without ClusterMeshName, defaulted to
+// "" → cilium-config rendered cluster.name="default" on all 3 regions
+// → kvstoremesh refused to start. Auto-derive closes the gap.
+func deriveClusterMeshName(req Request) string {
+	if s := strings.TrimSpace(req.ClusterMeshName); s != "" {
+		return s
+	}
+	if len(req.Regions) <= 1 {
+		return ""
+	}
+	label := firstFQDNLabel(req.SovereignFQDN)
+	if label == "" {
+		return ""
+	}
+	return label + "-mesh"
+}
+
+// deriveClusterMeshID returns the canonical Cilium ClusterMesh peer ID
+// for this Sovereign's PRIMARY region. Operator may override via
+// Request.ClusterMeshID; otherwise auto-derived deterministically from
+// the deployment ID hash, modulo 252, plus 1 (range 1..252; leaves
+// 253-255 as a 3-slot pad for secondaries which main.tf computes as
+// primary+1, primary+2, etc.).
+//
+// For single-region provs (len(Regions) <= 1) returns 0 (the
+// "not-in-mesh" sentinel that variables.tf documents). The tofu module
+// at infra/hetzner/main.tf has matching logic that emits secondaries
+// at 0 when the primary is 0.
+//
+// Caught on prov t104.omani.works (2026-05-15): operator submitted
+// multi-region request without ClusterMeshID, defaulted to 0 →
+// cilium-config rendered cluster.id=0 on all 3 regions → Cilium
+// reserves 0 → kvstoremesh CrashLoopBackOff with "ClusterID 0 is
+// reserved" → no mesh ever formed → cross-region observability
+// permanently broken.
+func deriveClusterMeshID(req Request) int {
+	if req.ClusterMeshID != 0 {
+		return req.ClusterMeshID
+	}
+	if len(req.Regions) <= 1 {
+		return 0
+	}
+	src := strings.TrimSpace(req.DeploymentID)
+	if src == "" {
+		src = strings.TrimSpace(req.SovereignFQDN)
+	}
+	if src == "" {
+		return 0
+	}
+	sum := sha256.Sum256([]byte(src))
+	// Take a 32-bit window of the hash and reduce to [1, 252]. The
+	// primary uses this value; main.tf increments for secondaries so
+	// the max id any region sees is primary+(N-1) ≤ 252+2 = 254.
+	// 255 is intentionally avoided — Cilium uses it as a sentinel
+	// in some configs.
+	v := int(binary.BigEndian.Uint32(sum[:4]))
+	return (v % 252) + 1
 }
