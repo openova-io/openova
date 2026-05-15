@@ -14,24 +14,113 @@
 #   - No bespoke API calls (we use the canonical hcloud terraform provider)
 #   - Phase 0 is OpenTofu, day-2 is Crossplane, GitOps is Flux, install unit is Blueprints
 
-# ── Network: private 10.0.0.0/16 with control-plane subnet ────────────────
+# ── Network: ONE hcloud_network PER REGION — no shared private net ────────
+#
+# Founder ruling 2026-05-15 (see docs/SOVEREIGN-MULTI-REGION-DOD.md A2):
+#
+#   > "fuck!!! You can never use private links between regions, why are you
+#   >  wasting my time, how many times I need to explain the architecture!!!
+#   >  irrespective from the same provider or different providers, your
+#   >  wireguard always happens through the DMZ wireguard, never internal
+#   >  shitty routing!!!!!!"
+#
+# Earlier slice-G1 design used ONE shared hcloud_network.main with a /24
+# subnet per region inside the same /16. That gave every CP across every
+# region addresses in 10.0.x.0/24 inside a Hetzner-routed Network — i.e.
+# Hetzner's internal cross-zone routing carrying inter-region pod and
+# control-plane traffic. The DoD contract forbids that explicitly.
+#
+# The replacement: ONE hcloud_network PER REGION, each carrying its OWN
+# 10.0.0.0/16 (the /16 ranges are identical inside each network — they
+# don't share a routing domain, so the collision is harmless and intended).
+# Each network gets a single /24 subnet 10.0.1.0/24, so every CP across
+# every region is at the SAME private IP 10.0.1.2 — uniform, intra-region-
+# only. Inter-region traffic flows EXCLUSIVELY over Cilium WireGuard
+# (UDP 51871) on the public IPs through each region's DMZ vCluster.
+#
+# Provider-agnostic by design (A6): whether the second/third region is
+# Hetzner, AWS, or Huawei, the inter-region link is the same DMZ-WG
+# overlay on public IPs. The Hetzner module never assumes a Hetzner peer
+# on the other side.
+#
+# Resource address impact: the legacy `hcloud_network.main` and
+# `hcloud_network_subnet.main` (singletons) are REPLACED by
+# `hcloud_network.region[<key>]` and `hcloud_network_subnet.region[<key>]`
+# (for_each maps keyed by region key — "primary" for regions[0], the
+# slice-G1 "{cloudRegion}-{index}" form for secondaries). The legacy
+# `hcloud_network_subnet.secondary` (for_each) is also replaced by the
+# unified `hcloud_network_subnet.region` map. Any pre-2026-05-15 Sovereign
+# state will plan a network-recreate on the next apply — by founder
+# directive every Sovereign re-provisions cleanly from the fresh DoD
+# contract, so the state-migration cost is consciously accepted.
+locals {
+  # Region key set: "primary" for regions[0] (driven by the singular
+  # path) plus every secondary region key. Used as the for_each map of
+  # hcloud_network.region / hcloud_network_subnet.region so EVERY region —
+  # primary and secondary — has its own isolated /16.
+  all_region_keys = concat(["primary"], [for k, _ in local.secondary_regions : k])
 
-resource "hcloud_network" "main" {
-  name     = "catalyst-${replace(var.sovereign_fqdn, ".", "-")}-net"
-  ip_range = "10.0.0.0/16"
-  labels = {
-    "catalyst.openova.io/sovereign" = var.sovereign_fqdn
+  # Per-region network zone. The primary region reads var.region; each
+  # secondary reads its cloudRegion from local.secondary_regions. The
+  # network zone is just a Hetzner placement hint for the subnet; the
+  # subnet CIDR (10.0.1.0/24) is identical across regions because they
+  # live in DIFFERENT networks.
+  region_network_zones = merge(
+    {
+      primary = lookup(local.hetzner_network_zones, var.region, "eu-central")
+    },
+    {
+      for k, r in local.secondary_regions :
+      k => lookup(local.hetzner_network_zones, r.cloudRegion, "eu-central")
+    }
+  )
+
+  # Per-region k3s cluster-cidr / service-cidr — must NOT collide across
+  # ClusterMesh peers, otherwise inter-region pod-to-pod packets (DoD
+  # gate D11) double-DNAT inside Cilium. Each region gets its own /16
+  # off two non-overlapping /12 supernets:
+  #   - cluster (pod) CIDR: 10.42+i.0/16 (10.42.0.0/16 .. 10.57.0.0/16 — 16 regions)
+  #   - service CIDR:        10.96+i.0/16 (10.96.0.0/16 .. 10.111.0.0/16)
+  # Index 0 = primary, secondary entries in stable insertion order of
+  # local.secondary_regions. These are threaded into the k3s install
+  # line via --cluster-cidr= / --service-cidr= (cloudinit-control-plane.tftpl).
+  region_index = {
+    for i, k in local.all_region_keys : k => i
+  }
+  region_cluster_cidr = {
+    for k, _ in local.region_index :
+    k => format("10.%d.0.0/16", 42 + local.region_index[k])
+  }
+  region_service_cidr = {
+    for k, _ in local.region_index :
+    k => format("10.%d.0.0/16", 96 + local.region_index[k])
   }
 }
 
-resource "hcloud_network_subnet" "main" {
-  network_id   = hcloud_network.main.id
-  type         = "cloud"
-  network_zone = local.network_zone
-  ip_range     = "10.0.1.0/24"
+resource "hcloud_network" "region" {
+  for_each = toset(local.all_region_keys)
+
+  name     = "catalyst-${replace(var.sovereign_fqdn, ".", "-")}-${each.key}-net"
+  ip_range = "10.0.0.0/16"
+  labels = {
+    "catalyst.openova.io/sovereign"  = var.sovereign_fqdn
+    "catalyst.openova.io/region-key" = each.key
+  }
 }
 
-# ── Firewall: 80/443 + 6443 + ICMP open; 22 only when ssh_allowed_cidrs set ─
+resource "hcloud_network_subnet" "region" {
+  for_each = toset(local.all_region_keys)
+
+  network_id   = hcloud_network.region[each.key].id
+  type         = "cloud"
+  network_zone = local.region_network_zones[each.key]
+  # Same /24 inside every region's /16. Each subnet sits in its OWN
+  # hcloud_network, so addresses don't collide across regions. CP at .2,
+  # workers at .10+, LB pinned at .254 — uniform across regions.
+  ip_range = "10.0.1.0/24"
+}
+
+# ── Firewall: 80/443 + 6443 + ICMP + DMZ-WG 51871 open; 22 only when ssh_allowed_cidrs set ─
 
 resource "hcloud_firewall" "main" {
   name = "catalyst-${replace(var.sovereign_fqdn, ".", "-")}-fw"
@@ -78,6 +167,27 @@ resource "hcloud_firewall" "main" {
     protocol   = "udp"
     port       = "53"
     source_ips = ["0.0.0.0/0", "::/0"]
+  }
+
+  # Cilium WireGuard inter-region node encryption (DMZ-WG). Per DoD A2
+  # (docs/SOVEREIGN-MULTI-REGION-DOD.md), inter-region traffic flows
+  # EXCLUSIVELY over Cilium WireGuard on the DMZ vCluster's public IPs,
+  # NEVER over Hetzner's internal network. Cilium's default WG port is
+  # UDP 51871 (config: `encryption.wireguard.userspaceFallback=false`
+  # + `encryption.type=wireguard` in bp-cilium). Without this rule, the
+  # WG mesh between regions cannot form on a fresh provision and DoD
+  # gate D11 (inter-region pod-to-pod packet test) fails immediately.
+  # Open to the world because each region's CP/worker public IP rotates
+  # at provision time and the catalyst-api does not know the public IP
+  # of sister-region peers ahead of time — Cilium's node-discovery
+  # auth + WG static-key crypto is the actual security boundary, not
+  # the firewall source filter.
+  rule {
+    direction   = "in"
+    protocol    = "udp"
+    port        = "51871"
+    source_ips  = ["0.0.0.0/0", "::/0"]
+    description = "Cilium WireGuard inter-region node encryption (DMZ-WG)"
   }
 
   # SSH (22) is intentionally NOT open to the world. When ssh_allowed_cidrs is
@@ -227,21 +337,6 @@ locals {
     if i > 0 && r.provider == "hetzner"
   }
 
-  # Per-secondary-region subnet CIDR. The legacy singular subnet uses
-  # 10.0.1.0/24 (cp at .2, workers at .10+). Secondary regions allocate
-  # 10.0.<10+index>.0/24 so the slash-16 hcloud_network can hold up to
-  # 245 secondary subnets without collision. Subnet allocation is
-  # deterministic on the region's index in var.regions[] — re-running
-  # `tofu apply` after an intra-list reorder would shift subnets, so
-  # the catalyst-api MUST keep regions[] order stable across re-applies
-  # of the same deployment (it does — the wizard's StepProvider emits
-  # regions in the operator's selection order and provisioner.go never
-  # reorders).
-  secondary_region_subnets = {
-    for k, r in local.secondary_regions :
-    k => format("10.0.%d.0/24", 10 + index(keys(local.secondary_regions), k))
-  }
-
   # Per-secondary-region Cilium ClusterMesh peer anchors (#1101 EPIC-6).
   # Auto-derive cluster.name as `<sovereign-stem>-<region-code-no-digits>`
   # (e.g. omantel + hel1 -> omantel-hel) when the operator left
@@ -274,12 +369,14 @@ locals {
     )
   }
 
-  # Per-secondary-region first-IP for control plane. Mirrors the legacy
-  # singular path's "10.0.1.2" — first usable host of the subnet. Workers
-  # in the same region count up from .10 within their own subnet.
+  # Per-secondary-region first-IP for control plane. Every region now has
+  # its OWN hcloud_network with its OWN 10.0.1.0/24 subnet — so every
+  # secondary CP sits at 10.0.1.2, the same as the primary CP. This was
+  # cidrhost(local.secondary_region_subnets[k], 2) under the old shared-
+  # /16 design; with per-region networks the subnet is uniform.
   secondary_region_cp_ips = {
     for k, _ in local.secondary_regions :
-    k => cidrhost(local.secondary_region_subnets[k], 2)
+    k => "10.0.1.2"
   }
 
   # GHCR pull token + the dockerconfigjson `auth` field, computed once here
@@ -354,24 +451,32 @@ locals {
   # below — any future bloat that pushes user_data ≥ 30 KiB fails at plan-time.
   control_plane_cloud_init = replace(templatefile("${path.module}/cloudinit-control-plane.tftpl", {
     # Primary CP's stable private IP — first allocatable host in the
-    # primary subnet (10.0.1.2 for the canonical 10.0.1.0/24). Used by
+    # primary subnet (10.0.1.2 in the canonical 10.0.1.0/24). Used by
     # the bp-cilium HelmRelease's CILIUM_K8S_SERVICE_HOST substitute
     # so cilium-operator on the primary cluster reaches its OWN local
-    # CP (matching CA), not a different region's CP. Secondary CPs
-    # render `cidrhost(secondary_region_subnets[k], 2)` for the same
-    # var — main.tf:267 secondary_region_cp_ips.
-    cp_private_ip           = "10.0.1.2"
-    sovereign_fqdn          = var.sovereign_fqdn
-    sovereign_subdomain     = var.sovereign_subdomain
+    # CP (matching CA), not a different region's CP. Secondary CPs also
+    # render 10.0.1.2 since every region has its OWN /24 (see
+    # local.secondary_region_cp_ips above — the per-region network refactor
+    # made every CP uniform on 10.0.1.2 within its own subnet).
+    cp_private_ip = "10.0.1.2"
+    # Per-region k3s pod/service CIDRs (DoD gate D11 — no collision across
+    # ClusterMesh peers). Primary uses region_cluster_cidr["primary"]
+    # (= 10.42.0.0/16) and region_service_cidr["primary"] (= 10.96.0.0/16).
+    # Threaded into the k3s install line as --cluster-cidr= / --service-cidr=
+    # in cloudinit-control-plane.tftpl.
+    cluster_cidr        = local.region_cluster_cidr["primary"]
+    service_cidr        = local.region_service_cidr["primary"]
+    sovereign_fqdn      = var.sovereign_fqdn
+    sovereign_subdomain = var.sovereign_subdomain
     # OpenovaFlow integration (Agent #3, PR #1389/#1390 follow-up). The
     # bp-openova-flow-emitter (bootstrap-kit slot 57) reads SOVEREIGN_
     # DEPLOYMENT_ID + SOVEREIGN_REGION_KEY from the bootstrap-kit
     # Kustomization's postBuild.substitute env. Primary CP renders
     # var.region as the region key; secondary CPs render each.key from
     # the for_each loop in local.secondary_region_cloud_init.
-    sovereign_deployment_id = var.sovereign_deployment_id
-    sovereign_region_key    = var.region
-    marketplace_enabled     = var.marketplace_enabled
+    sovereign_deployment_id   = var.sovereign_deployment_id
+    sovereign_region_key      = var.region
+    marketplace_enabled       = var.marketplace_enabled
     qa_fixtures_enabled       = var.qa_fixtures_enabled
     qa_test_session_enabled   = var.qa_test_session_enabled
     qa_fixtures_namespace     = var.qa_fixtures_namespace
@@ -501,8 +606,11 @@ locals {
     # agent join silently fails, and the autoscaler times out the
     # scale-up after 15m → backoff. Names are the Phase-0 resource names
     # verbatim — the autoscaler resolves them via the Hetzner API at
-    # scale-up time.
-    hcloud_network_name  = hcloud_network.main.name
+    # scale-up time. Primary CP points at the primary region's per-region
+    # network so autoscaler-spawned workers join the primary region's k3s
+    # (which is reachable on the local 10.0.1.2). Secondary CPs render
+    # their own region's network name (see local.secondary_region_cloud_init).
+    hcloud_network_name  = hcloud_network.region["primary"].name
     hcloud_firewall_name = hcloud_firewall.main.name
     hcloud_ssh_key_name  = hcloud_ssh_key.main.name
 
@@ -532,7 +640,7 @@ resource "hcloud_server" "control_plane" {
   user_data    = local.control_plane_cloud_init
 
   network {
-    network_id = hcloud_network.main.id
+    network_id = hcloud_network.region["primary"].id
     ip         = "10.0.1.${count.index + 2}" # cp1=10.0.1.2, cp2=10.0.1.3, cp3=10.0.1.4
   }
 
@@ -563,7 +671,7 @@ resource "hcloud_server" "control_plane" {
     }
   }
 
-  depends_on = [hcloud_network_subnet.main]
+  depends_on = [hcloud_network_subnet.region]
 }
 
 # ── Workers: variable count ───────────────────────────────────────────────
@@ -582,7 +690,7 @@ resource "hcloud_server" "worker" {
   user_data    = local.worker_cloud_init
 
   network {
-    network_id = hcloud_network.main.id
+    network_id = hcloud_network.region["primary"].id
     ip         = "10.0.1.${count.index + 10}" # workers start at .10
   }
 
@@ -621,16 +729,18 @@ resource "hcloud_load_balancer" "main" {
 
 resource "hcloud_load_balancer_network" "main" {
   load_balancer_id = hcloud_load_balancer.main.id
-  network_id       = hcloud_network.main.id
+  network_id       = hcloud_network.region["primary"].id
   # Fix #182: pin LB private IP to top-of-subnet so it cannot race the
   # CP server's explicit `ip = "10.0.1.2"` during parallel apply. Without
   # this, Hetzner auto-allocates the first free IP in the matching-zone
-  # subnet — in multi-region prov #32 the secondary LB attached at t+16s
-  # took 10.0.1.2 from main subnet (only eu-central subnet existing then),
-  # causing CP creation to FATAL with `inlineAttachServerToNetwork: IP
-  # not available`. .254 is the last usable host in /24 and is reserved
-  # platform-wide for LB anchors.
+  # subnet. .254 is the last usable host in /24 and is reserved platform-
+  # wide for LB anchors. After the per-region network refactor each region
+  # has its OWN /24 inside its OWN hcloud_network, so the cross-region IP
+  # collision class (prov #32 root cause) is gone by construction — but
+  # the .254 pin still guards intra-region CP/LB races.
   ip = "10.0.1.254"
+
+  depends_on = [hcloud_network_subnet.region]
 }
 
 resource "hcloud_load_balancer_target" "control_plane" {
@@ -809,50 +919,39 @@ resource "aws_s3_bucket_acl" "main" {
   acl    = "private"
 }
 
-# ── Multi-region overlay (slice G1, EPIC-0 #1095) ─────────────────────────
+# ── Multi-region overlay (slice G1 → DMZ-WG refactor 2026-05-15) ──────────
 #
 # Realises every var.regions[1+] entry as a parallel set of Hetzner
-# resources keyed off local.secondary_regions. Slice G3 wires Cilium
-# ClusterMesh between these and the primary region; this slice only
-# provisions the cloud substrate so the network + compute exist for G3
-# to connect.
+# resources keyed off local.secondary_regions. Cilium ClusterMesh joins
+# the regions over the public DMZ WireGuard endpoint (UDP 51871) — this
+# module only provisions the cloud substrate.
 #
-# Architectural decision (slice G1): hybrid singular-path-plus-overlay,
-# NOT a wholesale refactor of every existing resource into a `for_each`.
-# The hybrid is purely additive — every new resource address below
-# (`hcloud_network_subnet.secondary`, `hcloud_server.secondary_control_plane`,
-# `hcloud_load_balancer.secondary`, …) is keyed on `for_each =
-# local.secondary_regions` and therefore shares NO address space with
-# the legacy singular resources above. Existing Sovereign state that
-# was provisioned with var.regions = [] or len(var.regions) == 1
-# carries no entries in `local.secondary_regions` (the iteration filter
-# `if i > 0` excludes regions[0]; regions[0] is owned by the singular
-# path) and thus produces a no-op plan diff for the entire overlay
-# block. No `tofu state mv` runbook is required for any pre-G1 state.
+# Architectural decision (2026-05-15, founder ruling, see
+# docs/SOVEREIGN-MULTI-REGION-DOD.md): no shared private network across
+# regions. Each region gets its OWN hcloud_network + its OWN /24 subnet
+# (declared at the TOP of this file under `hcloud_network.region` and
+# `hcloud_network_subnet.region`, both keyed `for_each = toset(
+# local.all_region_keys)` so they cover the "primary" key plus every
+# secondary key). Inter-region pod-to-pod traffic flows EXCLUSIVELY
+# over Cilium WireGuard on each region's public IP through the DMZ
+# vCluster — provider-agnostic (works the same way for an AWS or
+# Huawei secondary region, A6) and zero-trust against the provider's
+# internal network fabric.
 #
-# When a new Sovereign request body carries len(regions) ≥ 2 (the
-# EPIC-6 mgmt + fsn + hel shape per docs/EPICS-1-6-unified-design.md
-# §3.8 + §11), the for_each fires and creates one network subnet, one
-# CP server, N worker servers, and one LB per secondary region — all
-# wrapped under the same hcloud_network.main and hcloud_firewall.main
-# the primary region uses (Hetzner Networks span multiple network
-# zones; one Network + one Firewall per Sovereign is the canonical
-# tenant boundary).
-
-# Per-secondary-region subnet — separate /24 inside the shared /16
-# hcloud_network.main. Sub-zoning is allocated deterministically off
-# the region's index in var.regions[] (see local.secondary_region_subnets
-# above). Subnets in different network_zones inside the same Network
-# are supported by Hetzner; cross-zone routing is what Cilium ClusterMesh
-# (slice G3) consumes.
-resource "hcloud_network_subnet" "secondary" {
-  for_each = local.secondary_regions
-
-  network_id   = hcloud_network.main.id
-  type         = "cloud"
-  network_zone = lookup(local.hetzner_network_zones, each.value.cloudRegion, "eu-central")
-  ip_range     = local.secondary_region_subnets[each.key]
-}
+# Architectural decision (2026-05-15, founder ruling): no shared private
+# network across regions, full stop. The previous slice-G1 design had
+# one shared `/16` with per-region `/24`s and was explicitly rejected
+# (DoD A2 trigger phrase: "Hetzner private net spans zones, let me use
+# that for cross-region" → STOP). Replaced with one Network per region,
+# each carrying an identical 10.0.1.0/24 subnet — addresses don't
+# collide because the networks are isolated.
+#
+# Resource-address impact: every legacy Sovereign would replan the
+# network resources on the next apply. By founder directive (DoD cycle
+# protocol — every wipe-and-create cycle is a fresh provision), the
+# state-migration cost is consciously accepted: NO `tofu state mv`
+# runbook ships with this PR; pre-2026-05-15 state is destroyed and
+# reprovisioned cleanly.
 
 # Per-secondary-region cloud-init — same template as the primary CP,
 # parameterised with the secondary region's LB IPv4 and CP private IP
@@ -872,22 +971,28 @@ locals {
   secondary_region_cloud_init = {
     for k, r in local.secondary_regions :
     k => replace(templatefile("${path.module}/cloudinit-control-plane.tftpl", {
-      # Per-region CP's stable private IP (first allocatable host in the
-      # secondary subnet — see main.tf local.secondary_region_cp_ips). The
-      # bp-cilium HelmRelease's CILIUM_K8S_SERVICE_HOST substitute uses this
-      # so cilium-operator on the secondary cluster reaches its OWN local CP
-      # (matching CA), not the primary region's CP across regions.
-      cp_private_ip           = local.secondary_region_cp_ips[k]
-      sovereign_fqdn          = var.sovereign_fqdn
-      sovereign_subdomain     = var.sovereign_subdomain
+      # Per-region CP's stable private IP. After the per-region network
+      # refactor (2026-05-15 DoD A2) every region has its OWN /24 inside
+      # its OWN hcloud_network, so every secondary CP also sits at
+      # 10.0.1.2 — uniform with the primary. Used by the bp-cilium
+      # HelmRelease's CILIUM_K8S_SERVICE_HOST substitute so cilium-
+      # operator on each cluster reaches its OWN local CP (matching CA).
+      cp_private_ip = local.secondary_region_cp_ips[k]
+      # Per-region k3s pod/service CIDRs (DoD gate D11). Each region gets
+      # its own /16 off the 10.42+i.0/12 + 10.96+i.0/12 supernets so
+      # ClusterMesh peer pods/services don't collide in routing tables.
+      cluster_cidr        = local.region_cluster_cidr[k]
+      service_cidr        = local.region_service_cidr[k]
+      sovereign_fqdn      = var.sovereign_fqdn
+      sovereign_subdomain = var.sovereign_subdomain
       # OpenovaFlow integration (Agent #3). The secondary CP's region
       # key is each.key from the secondary_regions for_each (e.g. "hel1"
       # for a Helsinki secondary). Multi-region Sovereigns thus emit
       # distinct region tags on FlowNodes, which the canvas groups into
       # per-region super-bubbles via `contains` relationships.
-      sovereign_deployment_id = var.sovereign_deployment_id
-      sovereign_region_key    = k
-      marketplace_enabled     = var.marketplace_enabled
+      sovereign_deployment_id   = var.sovereign_deployment_id
+      sovereign_region_key      = k
+      marketplace_enabled       = var.marketplace_enabled
       qa_fixtures_enabled       = var.qa_fixtures_enabled
       qa_test_session_enabled   = var.qa_test_session_enabled
       qa_fixtures_namespace     = var.qa_fixtures_namespace
@@ -938,10 +1043,13 @@ locals {
       worker_cloud_init_b64      = base64encode(local.secondary_region_worker_cloud_init[k])
 
       # Issue #1778 (F7 multi-region completion) — same hcloud_*_name
-      # threading as the primary CP templatefile call (lines 483-485)
-      # so the secondary regions' cluster-autoscaler also has the
-      # private-network attachment names.
-      hcloud_network_name  = hcloud_network.main.name
+      # threading as the primary CP templatefile call so the secondary
+      # regions' cluster-autoscaler also has the private-network
+      # attachment names. Each secondary references its OWN region's
+      # network (per the 2026-05-15 DoD A2 per-region-network refactor)
+      # so autoscaler-spawned workers land in the same isolated /16 as
+      # the region's CP and reach k3s at 10.0.1.2 locally.
+      hcloud_network_name  = hcloud_network.region[k].name
       hcloud_firewall_name = hcloud_firewall.main.name
       hcloud_ssh_key_name  = hcloud_ssh_key.main.name
 
@@ -990,7 +1098,7 @@ resource "hcloud_server" "secondary_control_plane" {
   user_data    = local.secondary_region_cloud_init[each.key]
 
   network {
-    network_id = hcloud_network.main.id
+    network_id = hcloud_network.region[each.key].id
     ip         = local.secondary_region_cp_ips[each.key]
   }
 
@@ -1014,12 +1122,17 @@ resource "hcloud_server" "secondary_control_plane" {
     }
   }
 
-  depends_on = [hcloud_network_subnet.secondary]
+  depends_on = [hcloud_network_subnet.region]
 }
 
 # Per-secondary-region workers. Hetzner's `count` semantics inside a
 # `for_each` map require flattening — we expand the (region, worker-index)
 # product into a single map keyed on "{region-key}-w{index}".
+#
+# Worker private IPs are uniform across regions now that each region has
+# its own 10.0.1.0/24: workers count up from 10.0.1.10 in their region's
+# subnet, identical to the primary region's hcloud_server.worker layout
+# (`10.0.1.${count.index + 10}`).
 locals {
   secondary_workers = {
     for pair in flatten([
@@ -1029,7 +1142,7 @@ locals {
           region_key = k
           region     = r
           worker_idx = i
-          private_ip = cidrhost(local.secondary_region_subnets[k], 10 + i)
+          private_ip = "10.0.1.${10 + i}"
         }
       ]
     ]) :
@@ -1049,7 +1162,7 @@ resource "hcloud_server" "secondary_worker" {
   user_data    = local.secondary_region_worker_cloud_init[each.value.region_key]
 
   network {
-    network_id = hcloud_network.main.id
+    network_id = hcloud_network.region[each.value.region_key].id
     ip         = each.value.private_ip
   }
 
@@ -1095,14 +1208,15 @@ resource "hcloud_load_balancer_network" "secondary" {
   for_each = local.secondary_regions
 
   load_balancer_id = hcloud_load_balancer.secondary[each.key].id
-  network_id       = hcloud_network.main.id
-  # Fix #182: pin secondary LB to top-of-its-own-subnet (10.0.10.254,
-  # 10.0.11.254, ...) so multi-region apply cannot race for IPs across
-  # subnets sharing a network zone. See `hcloud_load_balancer_network.main`
-  # comment for full context. depends_on ensures the subnet exists before
-  # Hetzner is asked to allocate inside its CIDR.
-  ip         = cidrhost(local.secondary_region_subnets[each.key], 254)
-  depends_on = [hcloud_network_subnet.secondary]
+  network_id       = hcloud_network.region[each.key].id
+  # Fix #182: pin LB private IP to top-of-its-own-subnet (10.0.1.254) so
+  # an apply cannot race the CP's explicit `ip = "10.0.1.2"`. After the
+  # per-region network refactor (DoD A2) every region has its OWN /24
+  # inside its OWN hcloud_network, so the cross-region IP collision
+  # class (prov #32 root cause) is gone by construction — but the .254
+  # pin still guards intra-region CP/LB races at apply time.
+  ip         = "10.0.1.254"
+  depends_on = [hcloud_network_subnet.region]
 }
 
 resource "hcloud_load_balancer_target" "secondary_control_plane" {

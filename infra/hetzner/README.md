@@ -10,28 +10,97 @@ This module is the implementation of [`docs/SOVEREIGN-PROVISIONING.md`](../../do
 
 | Resource | Purpose |
 |---|---|
-| `hcloud_network` + `hcloud_network_subnet` | Private 10.0.0.0/16 with 10.0.1.0/24 reserved for control-plane and workers. |
-| `hcloud_firewall` | Inbound rules for 80/443 (HTTPS), 6443 (k3s API), ICMP, and an opt-in SSH rule keyed to operator CIDRs. |
-| `hcloud_ssh_key` | The operator's existing SSH key (from their Hetzner project) — never auto-generated. |
-| `hcloud_server` (control plane) | 1 node by default (`ha_enabled=false`); 3 nodes when HA is on. Cloud-init installs k3s + Flux + the bootstrap kit pointer. |
-| `hcloud_server` (workers) | `worker_count` nodes (default **2** — issue #733 multi-node Sovereign). Set to 0 explicitly for solo dev/POC. |
-| `hcloud_load_balancer` (`lb11`) | Public IPv4; forwards 80→31080 and 443→31443 (Cilium Gateway NodePorts post-bootstrap). |
-| `null_resource.dns_pool` | Calls `/usr/local/bin/catalyst-dns` (a helper inside the catalyst-api container) when `domain_mode=pool` to write Dynadot A records for the new sovereign FQDN. |
+| `hcloud_network.region[*]` | **One private 10.0.0.0/16 PER REGION.** Each region gets its own isolated Network — never shared across regions. See [Network](#network) below. |
+| `hcloud_network_subnet.region[*]` | One 10.0.1.0/24 subnet inside each region's Network. Uniform layout: CP at .2, workers at .10+, LB anchor at .254. |
+| `hcloud_firewall.main` | Inbound rules for 80/443 (HTTPS), 6443 (k3s API), 53 (DNS), ICMP, **UDP 51871 (Cilium WireGuard inter-region encryption)**, and an opt-in SSH rule keyed to operator CIDRs. |
+| `hcloud_ssh_key.main` | The operator's existing SSH key (from their Hetzner project) — never auto-generated. |
+| `hcloud_server.control_plane[*]` (primary) | 1 node by default (`ha_enabled=false`); 3 nodes when HA is on. Cloud-init installs k3s + Flux + the bootstrap kit pointer. Attaches to `hcloud_network.region["primary"]`. |
+| `hcloud_server.worker[*]` (primary) | `worker_count` nodes (default **2** — issue #733 multi-node Sovereign). Set to 0 explicitly for solo dev/POC. |
+| `hcloud_server.secondary_control_plane[*]` | One per secondary region, single-CP. Attaches to its own region's `hcloud_network.region[<key>]`. |
+| `hcloud_server.secondary_worker[*]` | Per-region worker fleet, sized by `regions[i].workerCount`. |
+| `hcloud_load_balancer.main` (`lb11`) | Public IPv4 in the primary region; forwards 80→30080, 443→30443, 53→30053 (Cilium Gateway NodePorts). |
+| `hcloud_load_balancer.secondary[*]` | One `lb11` per secondary region. PowerDNS lua-records aggregate every LB IP behind the Sovereign FQDN with `ifurlup` health probes. |
 
 After Phase 0, the cluster's Flux pulls `clusters/<sovereign_fqdn>/` from the public OpenOva monorepo and installs the 11-component bootstrap kit (Cilium → cert-manager → Crossplane → ESO → SPIRE → NATS → OpenBao → Keycloak → Gitea → catalyst-platform). Hetzner adoption by Crossplane happens once `provider-hcloud` is up.
 
 ---
 
-## Multi-region wiring (slice G1, EPIC-0 #1095)
+## Network
 
-The module accepts a `var.regions[]` list-of-objects payload that captures the wizard's per-region sizing. Slice G1 wires every entry in that list end-to-end:
+**Per [`docs/SOVEREIGN-MULTI-REGION-DOD.md`](../../docs/SOVEREIGN-MULTI-REGION-DOD.md) A2 (founder ruling 2026-05-15): every region has its OWN `hcloud_network`. Provider private networks NEVER span regions — inter-region traffic flows exclusively over Cilium WireGuard (UDP 51871) on each region's public IP through the DMZ vCluster.**
+
+This is the same rule whether the secondary region is Hetzner, AWS, or Huawei (DoD A6). The Hetzner module is provider-mix-friendly: a sister-provider module owns its own regions, and the inter-region link sits ABOVE the provider layer.
+
+### Per-region addressing (uniform across regions)
+
+Every region's Network carries an identical `/16` and `/24`:
+
+| Address | Role |
+|---|---|
+| `10.0.0.0/16` | Region's private Network (one per region; ranges are identical inside isolated Networks). |
+| `10.0.1.0/24` | Region's subnet (only subnet inside that Network). |
+| `10.0.1.2` | Control plane (every region's CP — primary AND secondary). |
+| `10.0.1.10` .. `10.0.1.<10+worker_count-1>` | Workers in that region. |
+| `10.0.1.254` | LB anchor (pinned via `hcloud_load_balancer_network.ip`). |
+
+### Phase-2 topology (DMZ-WG over public IPs)
+
+```
+                ┌────────────── DMZ WireGuard mesh (UDP 51871, public IPs) ──────────────┐
+                │                                                                         │
+   ┌────────────┴────────────┐    ┌─────────────────────────┐    ┌──────────────────────┐
+   │ Region: primary (nbg1)  │    │ Region: fsn1-1 (fsn1)   │    │ Region: hel1-2 (hel1)│
+   │  ┌───────────────────┐  │    │  ┌───────────────────┐  │    │  ┌─────────────────┐ │
+   │  │ hcloud_network    │  │    │  │ hcloud_network    │  │    │  │ hcloud_network  │ │
+   │  │ 10.0.0.0/16       │  │    │  │ 10.0.0.0/16       │  │    │  │ 10.0.0.0/16     │ │
+   │  │  └ subnet 10.0.1.0/24 │ │  │  │  └ subnet 10.0.1.0/24 │ │ │  │  └ subnet 10.0.1.0/24 │ │
+   │  └───────────────────┘  │    │  └───────────────────┘  │    │  └─────────────────┘ │
+   │   CP @ 10.0.1.2         │    │   CP @ 10.0.1.2         │    │   CP @ 10.0.1.2      │
+   │   Workers @ 10.0.1.10+  │    │   Workers @ 10.0.1.10+  │    │   Workers @ 10.0.1.10+│
+   │   LB  @ 10.0.1.254      │    │   LB  @ 10.0.1.254      │    │   LB  @ 10.0.1.254   │
+   │                         │    │                         │    │                      │
+   │  k3s cluster-cidr:      │    │  k3s cluster-cidr:      │    │  k3s cluster-cidr:   │
+   │   10.42.0.0/16          │    │   10.43.0.0/16          │    │   10.44.0.0/16       │
+   │  k3s service-cidr:      │    │  k3s service-cidr:      │    │  k3s service-cidr:   │
+   │   10.96.0.0/16          │    │   10.97.0.0/16          │    │   10.98.0.0/16       │
+   │                         │    │                         │    │                      │
+   │     ┌───────────────┐   │    │     ┌───────────────┐   │    │     ┌─────────────┐  │
+   │     │ DMZ vCluster  │◀──┼────┼────▶│ DMZ vCluster  │◀──┼────┼────▶│ DMZ vCluster│  │
+   │     └───────────────┘   │    │     └───────────────┘   │    │     └─────────────┘  │
+   └─────────────────────────┘    └─────────────────────────┘    └──────────────────────┘
+       │                              │                              │
+       └─ Cilium ClusterMesh apiserver (Service type = LoadBalancer) ─┘
+              public IPs only, never NodePort (DoD A3+A5)
+```
+
+The arrows between DMZ vClusters are WireGuard tunnels carried over each region's public IPv4 + UDP 51871. The provider's internal cross-region routing fabric is **never** in the path — even when all three regions are Hetzner.
+
+### Per-region k3s CIDRs (DoD gate D11)
+
+Cilium ClusterMesh demands non-overlapping pod and service CIDRs across peer clusters. The module allocates them deterministically from the regional index in `local.all_region_keys`:
+
+| Region index | Region key | cluster-cidr (pods) | service-cidr |
+|---|---|---|---|
+| 0 | `primary` | `10.42.0.0/16` | `10.96.0.0/16` |
+| 1 | `<region>-1` (first secondary) | `10.43.0.0/16` | `10.97.0.0/16` |
+| 2 | `<region>-2` (second secondary) | `10.44.0.0/16` | `10.98.0.0/16` |
+| 3 | `<region>-3` | `10.45.0.0/16` | `10.99.0.0/16` |
+| ... up to 16 regions | ... | `10.42+i.0/16` | `10.96+i.0/16` |
+
+The flags `--cluster-cidr` and `--service-cidr` are threaded into the k3s install line in `cloudinit-control-plane.tftpl` via the `${cluster_cidr}` and `${service_cidr}` template substitutes. The catalyst-api passes nothing region-related at runtime — the allocation is pure tofu.
+
+---
+
+## Multi-region wiring (slice G1, EPIC-0 #1095 → DMZ-WG refactor 2026-05-15)
+
+The module accepts a `var.regions[]` list-of-objects payload that captures the wizard's per-region sizing. Slice G1 wires every entry in that list end-to-end; the 2026-05-15 DMZ-WG refactor replaced the shared-network model with one Network per region.
 
 | `var.regions[i]` | Realised by | Notes |
 |---|---|---|
-| `regions[0]` | Legacy singular path (`hcloud_server.control_plane[0]`, `hcloud_load_balancer.main`, …) | Identity-preserving — no resource-address change for any Sovereign provisioned before slice G1. The catalyst-api provisioner mirrors `regions[0]` into `var.region` / `var.control_plane_size` / `var.worker_size` / `var.worker_count` before `tofu apply`. |
-| `regions[1+]` | Multi-region overlay (`hcloud_server.secondary_control_plane["fsn1-1"]`, `hcloud_load_balancer.secondary["hel1-2"]`, …) | New resources keyed by `for_each = local.secondary_regions`. Same `hcloud_network.main` + `hcloud_firewall.main` + `hcloud_ssh_key.main` (one tenant boundary per Sovereign). Each secondary region gets its own `/24` subnet inside the shared `/16` and its own `lb11`. |
+| `regions[0]` | Legacy singular path (`hcloud_server.control_plane[0]`, `hcloud_load_balancer.main`, attached to `hcloud_network.region["primary"]`, …) | The catalyst-api provisioner mirrors `regions[0]` into `var.region` / `var.control_plane_size` / `var.worker_size` / `var.worker_count` before `tofu apply`. |
+| `regions[1+]` | Multi-region overlay (`hcloud_server.secondary_control_plane["fsn1-1"]`, `hcloud_load_balancer.secondary["hel1-2"]`, …) | New resources keyed by `for_each = local.secondary_regions`. Each secondary region has its OWN `hcloud_network.region[<key>]`, its OWN `/24` subnet, and its OWN `lb11`. The shared resources across the Sovereign are `hcloud_firewall.main` + `hcloud_ssh_key.main` only. |
 
-The hybrid (singular path + secondary-region overlay) is purely **additive**: no existing Sovereign state has entries in `local.secondary_regions` (the iteration filter `if i > 0` excludes `regions[0]`), so legacy `tofu plan` outputs are unchanged for any Sovereign whose request body has `len(regions) ≤ 1`. **No `tofu state mv` is required for any pre-G1 state.**
+**Network address impact:** the legacy `hcloud_network.main` + `hcloud_network_subnet.main` singletons (and the slice-G1 `hcloud_network_subnet.secondary` overlay) were removed in this refactor. Every region — primary and secondary — is keyed under `hcloud_network.region[<key>]` / `hcloud_network_subnet.region[<key>]`. Per the DoD cycle protocol (every wipe-and-create is a fresh provision), legacy state migrates by destroy-and-recreate, **NOT** by `tofu state mv` — this is intentional.
 
 ### EPIC-6 (#1101) example: 3-region Continuum DR shape
 
@@ -92,10 +161,32 @@ The catalyst-api joins `secondary_region_keys` with `Request.Regions[1+]` to pro
 
 ### Resource address contract
 
-Every legacy resource keeps its existing address. New addresses introduced by slice G1, all keyed `for_each = local.secondary_regions` (key shape: `{cloudRegion}-{index}` where `index` is the position in `var.regions[]`):
+The 2026-05-15 DMZ-WG refactor introduced one Network per region (replacing the singleton `hcloud_network.main` and the slice-G1 secondary overlay) — pre-2026-05-15 Sovereigns will recreate the network on the next apply per the DoD cycle protocol.
+
+Per-region resources (keyed by `for_each` on `toset(local.all_region_keys)`; the primary key is the literal string `"primary"`, secondary keys follow the slice-G1 `{cloudRegion}-{index}` shape):
 
 ```
-hcloud_network_subnet.secondary["{key}"]
+hcloud_network.region["primary"]
+hcloud_network.region["{cloudRegion}-{index}"]
+hcloud_network_subnet.region["primary"]
+hcloud_network_subnet.region["{cloudRegion}-{index}"]
+```
+
+Primary-region resources (legacy singular path, regions[0]):
+
+```
+hcloud_server.control_plane[0..2]              # count = 1 or 3 (HA)
+hcloud_server.worker[0..N-1]                   # N = var.worker_count
+hcloud_load_balancer.main
+hcloud_load_balancer_network.main
+hcloud_load_balancer_target.control_plane[0..2]
+hcloud_load_balancer_target.workers[0..N-1]
+hcloud_load_balancer_service.{http,https,dns}
+```
+
+Secondary-region resources (slice-G1 overlay, regions[1+], all keyed `for_each = local.secondary_regions`):
+
+```
 hcloud_server.secondary_control_plane["{key}"]
 hcloud_server.secondary_worker["{key}-w{i}"]   # i = 1..workerCount
 hcloud_load_balancer.secondary["{key}"]
@@ -196,6 +287,8 @@ The Phase-0 firewall is intentionally minimal. All long-term policy is enforced 
 | 80 | TCP | `0.0.0.0/0`, `::/0` | HTTP — for ACME HTTP-01 challenges and the cert-manager bootstrap. Cilium Gateway terminates. |
 | 443 | TCP | `0.0.0.0/0`, `::/0` | HTTPS — the only port end-users reach. All Catalyst surfaces (`console`, `gitea`, `harbor`, `admin`, `api`) are served behind 443 via Cilium Gateway and SNI routing. |
 | 6443 | TCP | `0.0.0.0/0`, `::/0` | k3s API server. Open to allow the wizard to fetch the kubeconfig and confirm the cluster is healthy. Crossplane Composition tightens this to operator-owned CIDRs in Phase 2. |
+| 53 | TCP+UDP | `0.0.0.0/0`, `::/0` | Sovereign's PowerDNS authoritative server — open for LE DNS-01 challenges and subdomain NS delegation. |
+| 51871 | UDP | `0.0.0.0/0`, `::/0` | **Cilium WireGuard inter-region encryption (DMZ-WG)**. Per DoD A2, inter-region pod-to-pod traffic flows exclusively over WireGuard on public IPs — never over the provider's internal network. Source is `0.0.0.0/0` because each region's CP/worker public IP rotates at provision time; Cilium's static-key crypto + node-discovery auth is the real security boundary, not the firewall source filter. |
 | ICMP | ICMP | `0.0.0.0/0`, `::/0` | Diagnostics (Path MTU Discovery, traceroute). Open by default; closing it is a foot-gun that breaks PMTU. |
 | 22 | TCP | `var.ssh_allowed_cidrs` (default: empty) | SSH break-glass. **Off by default** — the rule is omitted entirely when the list is empty. Operators add their own CIDRs at provisioning time or via a Crossplane Composition later. |
 
@@ -234,6 +327,8 @@ k3s is installed via `curl get.k3s.io | sh -` from cloud-init. The `INSTALL_K3S_
 | `--disable=servicelb` | k3s ships with klipper-lb; we use the Hetzner load balancer for ingress (`hcloud_load_balancer.main`) and PowerDNS lua-records (`ifurlup`) for cross-region failover. klipper-lb would steal the NodePort 80/443 binding. |
 | `--disable=local-storage` | k3s ships local-path-provisioner; we use **hcloud-csi** (provisioned by Crossplane after Phase 1) so PVCs survive node deletion and can be migrated across regions via Velero. |
 | `--disable-network-policy` | k3s ships kube-router NetworkPolicy; **Cilium** handles NetworkPolicy. Two NetworkPolicy controllers fight each other. |
+| `--cluster-cidr=10.42+i.0/16` | Pod CIDR — non-overlapping across ClusterMesh peers (DoD gate D11). Index `i` is the region's position in `local.all_region_keys` (0 = primary). Allocated by `local.region_cluster_cidr` in `main.tf`. |
+| `--service-cidr=10.96+i.0/16` | Service CIDR — non-overlapping across ClusterMesh peers. Same allocation rule as `--cluster-cidr`. |
 | `--tls-san=<sovereign_fqdn>` | API server TLS cert must be valid for the public sovereign FQDN, otherwise the wizard's kubeconfig fetch and any operator running `kubectl --server=https://<fqdn>:6443` get a SAN mismatch. |
 | `--node-label catalyst.openova.io/role=control-plane` | Used by NodeAffinity on Catalyst control-plane services (Console, projector, etc.) to pin them off worker nodes. |
 | `--write-kubeconfig-mode=0644` | Lets the catalyst-api fetch the kubeconfig over the wizard channel without sudo. The kubeconfig is rotated and replaced with a SPIFFE-issued identity in Phase 2. |

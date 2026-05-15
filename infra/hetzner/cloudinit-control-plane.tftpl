@@ -1341,7 +1341,16 @@ runcmd:
       exit 1
     fi
 
-  - 'CP_PUBLIC_IPV4=$(curl -fsSL --retry 30 --retry-delay 2 http://169.254.169.254/hetzner/v1/metadata/public-ipv4) && curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=${k3s_version} K3S_TOKEN=${k3s_token} INSTALL_K3S_EXEC="server --cluster-init --flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --node-ip=${cp_private_ip} --advertise-address=${cp_private_ip} --kubelet-arg=max-pods=220 --tls-san=${sovereign_fqdn} --tls-san=${cp_private_ip} --tls-san=$${CP_PUBLIC_IPV4} --kube-apiserver-arg=oidc-issuer-url=https://auth.${sovereign_fqdn}/realms/sovereign --kube-apiserver-arg=oidc-client-id=kubectl --kube-apiserver-arg=oidc-username-claim=preferred_username --kube-apiserver-arg=oidc-username-prefix=oidc: --kube-apiserver-arg=oidc-groups-claim=groups --kube-apiserver-arg=oidc-groups-prefix=oidc: --node-label catalyst.openova.io/role=control-plane --node-label openova.io/region=hz-fsn-rtz-prod ${worker_count > 0 ? "--node-taint node-role.kubernetes.io/control-plane=true:NoSchedule " : ""}--write-kubeconfig-mode=0644" sh -'
+  # k3s install — server mode, embedded etcd (--cluster-init), Cilium-ready
+  # (flannel/network-policy/traefik/servicelb all disabled). The
+  # --cluster-cidr and --service-cidr flags are per-region (10.42+i.0/16
+  # for pods, 10.96+i.0/16 for services) so ClusterMesh peers across
+  # regions don't collide on pod/service routing tables — DoD gate D11
+  # (docs/SOVEREIGN-MULTI-REGION-DOD.md) verifies inter-region pod-to-pod
+  # packet flow over Cilium WireGuard which requires non-overlapping
+  # CIDRs end-to-end. Values are interpolated by OpenTofu from
+  # local.region_cluster_cidr / local.region_service_cidr in main.tf.
+  - 'CP_PUBLIC_IPV4=$(curl -fsSL --retry 30 --retry-delay 2 http://169.254.169.254/hetzner/v1/metadata/public-ipv4) && curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=${k3s_version} K3S_TOKEN=${k3s_token} INSTALL_K3S_EXEC="server --cluster-init --flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --cluster-cidr=${cluster_cidr} --service-cidr=${service_cidr} --node-ip=${cp_private_ip} --advertise-address=${cp_private_ip} --kubelet-arg=max-pods=220 --tls-san=${sovereign_fqdn} --tls-san=${cp_private_ip} --tls-san=$${CP_PUBLIC_IPV4} --kube-apiserver-arg=oidc-issuer-url=https://auth.${sovereign_fqdn}/realms/sovereign --kube-apiserver-arg=oidc-client-id=kubectl --kube-apiserver-arg=oidc-username-claim=preferred_username --kube-apiserver-arg=oidc-username-prefix=oidc: --kube-apiserver-arg=oidc-groups-claim=groups --kube-apiserver-arg=oidc-groups-prefix=oidc: --node-label catalyst.openova.io/role=control-plane --node-label openova.io/region=hz-fsn-rtz-prod ${worker_count > 0 ? "--node-taint node-role.kubernetes.io/control-plane=true:NoSchedule " : ""}--write-kubeconfig-mode=0644" sh -'
 
   # Wait for the API server to be reachable. Cilium needs to come up before
   # nodes Ready, so we wait specifically for the API endpoint.
