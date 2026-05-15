@@ -223,6 +223,62 @@ func (c *Client) ZoneExists(ctx context.Context, name string) (bool, error) {
 	}
 }
 
+// RRSet is the wire shape for PATCH /zones/<zone> rrsets entries.
+// REPLACE is idempotent: PowerDNS replaces the entire rrset with the
+// supplied records, so re-calling with the same set is a no-op.
+type RRSet struct {
+	Name       string    `json:"name"`              // e.g. "console.t110.omani.works."
+	Type       string    `json:"type"`              // "A" / "AAAA" / "CNAME" / "TXT"
+	TTL        int       `json:"ttl"`               // seconds
+	ChangeType string    `json:"changetype"`        // "REPLACE" or "DELETE"
+	Records    []Record  `json:"records,omitempty"` // omitempty so DELETE works without empty array
+}
+
+// Record is a single resource record inside an RRSet.
+type Record struct {
+	Content  string `json:"content"`  // e.g. "49.12.16.160"
+	Disabled bool   `json:"disabled"`
+}
+
+// PatchRRSets PATCHes /api/v1/servers/<serverID>/zones/<zone> with a
+// list of RRset operations. Used to upsert per-Sovereign subdomain A
+// records into the parent zone after Phase-0 tofu output captures the
+// load-balancer public IP.
+//
+// PowerDNS returns 204 No Content on success. 4xx/5xx surface verbatim.
+func (c *Client) PatchRRSets(ctx context.Context, zone string, rrsets []RRSet) error {
+	if c.BaseURL == "" {
+		return errors.New("powerdns: BaseURL not set")
+	}
+	if c.APIKey == "" {
+		return errors.New("powerdns: APIKey not set")
+	}
+	if !strings.HasSuffix(zone, ".") {
+		zone = zone + "."
+	}
+	body, _ := json.Marshal(struct {
+		RRSets []RRSet `json:"rrsets"`
+	}{RRSets: rrsets})
+	u := fmt.Sprintf("%s/api/v1/servers/%s/zones/%s", c.BaseURL, c.ServerID, zone)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, u, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("powerdns: build patch request: %w", err)
+	}
+	req.Header.Set("X-API-Key", c.APIKey)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return fmt.Errorf("powerdns: do patch: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusOK {
+		return nil
+	}
+	return fmt.Errorf("powerdns: patch zone %q status %d: %s",
+		zone, resp.StatusCode, truncate(string(respBody), 256))
+}
+
 func truncate(s string, max int) string {
 	if len(s) <= max {
 		return s
