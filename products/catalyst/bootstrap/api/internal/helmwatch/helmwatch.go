@@ -1529,6 +1529,11 @@ func (w *Watcher) processEvent(obj any, terminated chan struct{}, closeOnce *syn
 			Component: componentID,
 			State:     state,
 			Message:   message,
+			// Plumb spec.dependsOn so the bridge can write Job.DependsOn
+			// on every event (not only on the seed). Closes the
+			// "sibling deps lost on every fresh provision" gap that
+			// PR #1431 / PR #1470 worked around at the wrong layer.
+			DependsOn: extractDependsOn(u),
 		})
 	}
 
