@@ -22,6 +22,14 @@
 //	DYNADOT_DOMAIN             — legacy single-domain fallback
 //	DYNADOT_API_KEY            — kept for the registrar adapter (#170 BYO flow)
 //	DYNADOT_API_SECRET         — kept for the registrar adapter (#170 BYO flow)
+//	POOL_DOMAIN_MANAGER_NS_GLUE_IP — IPv4 of the mothership PowerDNS LB. When
+//	                              set, the Dynadot registrar adapter pre-
+//	                              registers every out-of-bailiwick NS hostname
+//	                              against the customer's Dynadot account before
+//	                              set_ns, fixing the parent-domain onboard
+//	                              flow that previously failed on Dynadot's
+//	                              "'ns3.openova.io' needs to be registered
+//	                              with an ip address" rejection (issue #1500).
 //	PDM_RESERVATION_TTL        — go duration string, default "10m"
 //	PDM_SWEEPER_INTERVAL       — go duration string, default "30s"
 //	PDM_LOG_LEVEL              — debug | info | warn | error (default info)
@@ -107,15 +115,30 @@ func main() {
 	// because the customer's API token is supplied per request, not at
 	// service-start. Disabling an adapter would only mean omitting it from
 	// the map; today we ship all 5.
+	//
+	// Dynadot adapter is constructed with NSGlueIP from
+	// POOL_DOMAIN_MANAGER_NS_GLUE_IP (when set) so SetNameservers can
+	// pre-register every out-of-bailiwick NS hostname against the
+	// customer's account before set_ns. This unblocks the mothership
+	// parent-domain onboard flow for fresh Dynadot domains that haven't
+	// yet had ns1/ns2/ns3.openova.io registered as glue records (issue
+	// #1500, 2026-05-15). Empty value → adapter falls back to its
+	// pre-fix behaviour and the handler-level glueIP path (BYO Flow B)
+	// remains authoritative for per-request glue.
+	dynadotAdapter := regDynadot.New()
+	dynadotAdapter.NSGlueIP = strings.TrimSpace(os.Getenv("POOL_DOMAIN_MANAGER_NS_GLUE_IP"))
 	reg := registrar.Registry{
 		regCloudflare.New().Name(): regCloudflare.New(),
 		regGoDaddy.New().Name():    regGoDaddy.New(),
 		regNamecheap.New().Name():  regNamecheap.New(),
 		regOVH.New().Name():        regOVH.New(),
-		regDynadot.New().Name():    regDynadot.New(),
+		dynadotAdapter.Name():      dynadotAdapter,
 	}
 	h.SetRegistry(reg)
-	log.Info("registrar adapters wired", "registrars", reg.Names())
+	log.Info("registrar adapters wired",
+		"registrars", reg.Names(),
+		"dynadotGlueAutoRegister", dynadotAdapter.NSGlueIP != "",
+	)
 
 	root := chi.NewRouter()
 	root.Use(middleware.RequestID)

@@ -502,3 +502,259 @@ func TestAdapterImplementsGlueRegistrar(t *testing.T) {
 		t.Fatal("New() does not implement registrar.GlueRegistrar")
 	}
 }
+
+// ── Adapter-level auto-glue-registration on SetNameservers (issue #1500) ──
+//
+// These tests cover the mothership parent-domain onboard path: when the
+// adapter is constructed with NSGlueIP set (POOL_DOMAIN_MANAGER_NS_GLUE_IP),
+// SetNameservers MUST pre-register every out-of-bailiwick NS hostname as a
+// Dynadot glue record before issuing set_ns. Each NS hostname costs a
+// get_ns probe; only the ones that are missing or stale incur a
+// register_ns / set_ns_ip write.
+
+// TestSetNameserversAutoGlue_AllFresh — 3 NS hostnames, none yet
+// registered. Adapter must run 3 (get_ns + register_ns) pairs followed
+// by 1 set_ns. Total: 7 API calls.
+func TestSetNameserversAutoGlue_AllFresh(t *testing.T) {
+	calls := 0
+	a, _ := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		cmd := r.URL.Query().Get("command")
+		switch calls {
+		case 1, 3, 5: // get_ns probes (one per NS hostname) → all "not found"
+			if cmd != "get_ns" {
+				t.Errorf("call %d: command = %q, want get_ns", calls, cmd)
+			}
+			fmt.Fprintln(w, `{"GetNsResponse":{"ResponseCode":"-1","Status":"error","Error":"Name server not found"}}`)
+		case 2, 4, 6: // register_ns writes
+			if cmd != "register_ns" {
+				t.Errorf("call %d: command = %q, want register_ns", calls, cmd)
+			}
+			if got := r.URL.Query().Get("ip0"); got != "192.0.2.10" {
+				t.Errorf("call %d: ip0 = %q, want 192.0.2.10", calls, got)
+			}
+			fmt.Fprintln(w, `{"RegisterNsResponse":{"ResponseCode":0,"Status":"success"}}`)
+		case 7: // set_ns flip
+			if cmd != "set_ns" {
+				t.Errorf("call %d: command = %q, want set_ns", calls, cmd)
+			}
+			if got := r.URL.Query().Get("domain"); got != "omani.homes" {
+				t.Errorf("set_ns domain = %q, want omani.homes", got)
+			}
+			fmt.Fprintln(w, `{"SetNsResponse":{"ResponseCode":0,"Status":"success"}}`)
+		default:
+			t.Errorf("unexpected call %d (cmd=%s)", calls, cmd)
+		}
+	})
+	a.NSGlueIP = "192.0.2.10"
+	if err := a.SetNameservers(context.Background(), "k:s", "omani.homes",
+		[]string{"ns1.openova.io", "ns2.openova.io", "ns3.openova.io"}); err != nil {
+		t.Fatalf("SetNameservers err = %v", err)
+	}
+	if calls != 7 {
+		t.Fatalf("expected 7 api calls (3× get_ns + 3× register_ns + set_ns), got %d", calls)
+	}
+}
+
+// TestSetNameserversAutoGlue_OneAlreadyRegistered — 3 NS hostnames, the
+// second is already registered at the same IP. Adapter must short-circuit
+// only that one (no register_ns), still register the other two, then
+// set_ns. Total: 6 API calls (3× get_ns + 2× register_ns + set_ns).
+func TestSetNameserversAutoGlue_OneAlreadyRegistered(t *testing.T) {
+	calls := 0
+	a, _ := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		cmd := r.URL.Query().Get("command")
+		ns := r.URL.Query().Get("ns")
+		switch cmd {
+		case "get_ns":
+			if ns == "ns2.openova.io" {
+				// Already registered at the same IP — short-circuits.
+				fmt.Fprintln(w, `{
+				  "GetNsResponse":{
+				    "ResponseCode":0,"Status":"success",
+				    "NsInfo":{"NameServer":{"Host":"ns2.openova.io","IP":["192.0.2.10"]}}
+				  }
+				}`)
+			} else {
+				fmt.Fprintln(w, `{"GetNsResponse":{"ResponseCode":"-1","Status":"error","Error":"Name server not found"}}`)
+			}
+		case "register_ns":
+			if ns == "ns2.openova.io" {
+				t.Errorf("unexpected register_ns for ns2.openova.io (it was already registered)")
+			}
+			fmt.Fprintln(w, `{"RegisterNsResponse":{"ResponseCode":0,"Status":"success"}}`)
+		case "set_ns":
+			fmt.Fprintln(w, `{"SetNsResponse":{"ResponseCode":0,"Status":"success"}}`)
+		default:
+			t.Errorf("unexpected command %q on call %d", cmd, calls)
+		}
+	})
+	a.NSGlueIP = "192.0.2.10"
+	if err := a.SetNameservers(context.Background(), "k:s", "omani.homes",
+		[]string{"ns1.openova.io", "ns2.openova.io", "ns3.openova.io"}); err != nil {
+		t.Fatalf("SetNameservers err = %v", err)
+	}
+	if calls != 6 {
+		t.Fatalf("expected 6 api calls (3× get_ns + 2× register_ns + set_ns), got %d", calls)
+	}
+}
+
+// TestSetNameserversAutoGlue_RegisterFails_SetNsNotCalled — when
+// register_ns returns a non-idempotent error mid-loop, set_ns MUST NOT
+// be called. The error surfaces unwrapped so the HTTP handler can map
+// it to the right status code (this scenario uses a 429 → ErrRateLimited).
+func TestSetNameserversAutoGlue_RegisterFails_SetNsNotCalled(t *testing.T) {
+	calls := 0
+	setNsCalled := false
+	a, _ := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		cmd := r.URL.Query().Get("command")
+		switch cmd {
+		case "get_ns":
+			fmt.Fprintln(w, `{"GetNsResponse":{"ResponseCode":"-1","Status":"error","Error":"Name server not found"}}`)
+		case "register_ns":
+			// Surface a rate-limit so the typed registrar.ErrRateLimited
+			// is the chain head. classifyHTTP maps 429 to that error.
+			w.WriteHeader(http.StatusTooManyRequests)
+		case "set_ns":
+			setNsCalled = true
+			fmt.Fprintln(w, `{"SetNsResponse":{"ResponseCode":0,"Status":"success"}}`)
+		default:
+			t.Errorf("unexpected command %q on call %d", cmd, calls)
+		}
+	})
+	a.NSGlueIP = "192.0.2.10"
+	err := a.SetNameservers(context.Background(), "k:s", "omani.homes",
+		[]string{"ns1.openova.io", "ns2.openova.io"})
+	if err == nil {
+		t.Fatal("expected error when register_ns fails")
+	}
+	if !errors.Is(err, registrar.ErrRateLimited) {
+		t.Fatalf("err = %v, want ErrRateLimited unwrapped through pre-register wrap", err)
+	}
+	if setNsCalled {
+		t.Fatal("set_ns must NOT be called when register_ns failed")
+	}
+}
+
+// TestSetNameserversAutoGlue_SetNsFailsAfterRegister — register_ns
+// completes successfully for both NS hostnames, but set_ns then returns
+// a Dynadot error. The error must surface; nothing in the register path
+// should mask it. (Covers the legitimate-failure case after pre-register.)
+func TestSetNameserversAutoGlue_SetNsFailsAfterRegister(t *testing.T) {
+	calls := 0
+	a, _ := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		cmd := r.URL.Query().Get("command")
+		switch cmd {
+		case "get_ns":
+			fmt.Fprintln(w, `{"GetNsResponse":{"ResponseCode":"-1","Status":"error","Error":"Name server not found"}}`)
+		case "register_ns":
+			fmt.Fprintln(w, `{"RegisterNsResponse":{"ResponseCode":0,"Status":"success"}}`)
+		case "set_ns":
+			fmt.Fprintln(w, `{"SetNsResponse":{"ResponseCode":"-1","Status":"error","Error":"Domain not in your account"}}`)
+		default:
+			t.Errorf("unexpected command %q on call %d", cmd, calls)
+		}
+	})
+	a.NSGlueIP = "192.0.2.10"
+	err := a.SetNameservers(context.Background(), "k:s", "not-mine.homes",
+		[]string{"ns1.openova.io", "ns2.openova.io"})
+	if err == nil {
+		t.Fatal("expected error from set_ns")
+	}
+	if !errors.Is(err, registrar.ErrDomainNotInAccount) {
+		t.Fatalf("err = %v, want ErrDomainNotInAccount", err)
+	}
+	// Walk: 2× get_ns + 2× register_ns + 1× set_ns = 5
+	if calls != 5 {
+		t.Fatalf("expected 5 api calls, got %d", calls)
+	}
+}
+
+// TestSetNameserversAutoGlue_SkipsInBailiwick — when an NS hostname is
+// a child of the domain being set (in-bailiwick per RFC 1034), the
+// adapter MUST skip glue registration for that host. It still registers
+// the out-of-bailiwick siblings and runs set_ns.
+func TestSetNameserversAutoGlue_SkipsInBailiwick(t *testing.T) {
+	calls := 0
+	a, _ := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		cmd := r.URL.Query().Get("command")
+		ns := r.URL.Query().Get("ns")
+		switch cmd {
+		case "get_ns":
+			if ns == "ns1.customer.tld" {
+				t.Errorf("unexpected get_ns for in-bailiwick host %q (must be skipped)", ns)
+			}
+			fmt.Fprintln(w, `{"GetNsResponse":{"ResponseCode":"-1","Status":"error","Error":"Name server not found"}}`)
+		case "register_ns":
+			if ns == "ns1.customer.tld" {
+				t.Errorf("unexpected register_ns for in-bailiwick host %q", ns)
+			}
+			fmt.Fprintln(w, `{"RegisterNsResponse":{"ResponseCode":0,"Status":"success"}}`)
+		case "set_ns":
+			fmt.Fprintln(w, `{"SetNsResponse":{"ResponseCode":0,"Status":"success"}}`)
+		default:
+			t.Errorf("unexpected command %q on call %d", cmd, calls)
+		}
+	})
+	a.NSGlueIP = "192.0.2.10"
+	if err := a.SetNameservers(context.Background(), "k:s", "customer.tld",
+		[]string{"ns1.customer.tld", "ns1.openova.io"}); err != nil {
+		t.Fatalf("SetNameservers err = %v", err)
+	}
+	// 1× get_ns + 1× register_ns (for ns1.openova.io) + 1× set_ns = 3
+	if calls != 3 {
+		t.Fatalf("expected 3 api calls (1 NS registered, in-bailiwick skipped, set_ns), got %d", calls)
+	}
+}
+
+// TestSetNameserversAutoGlue_DisabledWhenNSGlueIPEmpty — when NSGlueIP
+// is not configured (empty string, the default), SetNameservers MUST
+// preserve its pre-fix behaviour: a single set_ns call, no glue
+// pre-registration. Guards backward-compat with the handler-level
+// glueIP path (BYO Flow B) and non-Dynadot adapter parity.
+func TestSetNameserversAutoGlue_DisabledWhenNSGlueIPEmpty(t *testing.T) {
+	calls := 0
+	a, _ := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		cmd := r.URL.Query().Get("command")
+		if cmd != "set_ns" {
+			t.Errorf("unexpected command %q (NSGlueIP empty → only set_ns expected)", cmd)
+		}
+		fmt.Fprintln(w, `{"SetNsResponse":{"ResponseCode":0,"Status":"success"}}`)
+	})
+	// NSGlueIP intentionally left empty.
+	if err := a.SetNameservers(context.Background(), "k:s", "customer.tld",
+		[]string{"ns1.openova.io", "ns2.openova.io"}); err != nil {
+		t.Fatalf("SetNameservers err = %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("expected 1 api call (set_ns only), got %d", calls)
+	}
+}
+
+// TestIsInBailiwickHost — case- and dot-tolerant; non-children fall
+// through to glue registration. Mirrors handler.TestIsInBailiwick.
+func TestIsInBailiwickHost(t *testing.T) {
+	cases := []struct {
+		nsHost, zone string
+		want         bool
+	}{
+		{"ns1.example.com", "example.com", true},
+		{"NS1.Example.COM", "example.com", true},
+		{"ns1.example.com.", "example.com.", true},
+		{"example.com", "example.com", true},
+		{"ns1.openova.io", "example.com", false},
+		{"ns1.notexample.com", "example.com", false},
+		{"", "example.com", false},
+		{"ns1.example.com", "", false},
+	}
+	for _, tc := range cases {
+		if got := isInBailiwickHost(tc.nsHost, tc.zone); got != tc.want {
+			t.Errorf("isInBailiwickHost(%q, %q) = %v, want %v", tc.nsHost, tc.zone, got, tc.want)
+		}
+	}
+}

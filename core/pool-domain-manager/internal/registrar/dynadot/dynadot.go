@@ -58,13 +58,33 @@ import (
 )
 
 // Adapter implements registrar.Registrar by speaking Dynadot api3.json.
+//
+// NSGlueIP, when non-empty, opts-in to the adapter-level auto-glue path:
+// SetNameservers will pre-register every out-of-bailiwick NS hostname
+// against the customer's account (via RegisterGlueRecord, idempotent)
+// BEFORE issuing set_ns. This is required for the mothership parent-
+// domain onboard flow (issue #1500 — fresh Dynadot domains pick set_ns
+// rejection on ns3.openova.io until it is registered as a glue record).
+//
+// The IP is the mothership PowerDNS LoadBalancer public IPv4 — the
+// ground-truth A-record value for ns1/ns2/ns3.openova.io. Sourced from
+// POOL_DOMAIN_MANAGER_NS_GLUE_IP at PDM startup (cmd/pdm/main.go); plumbed
+// through the openova-private deployment.yaml so the value is operator-
+// configurable and never hardcoded (Inviolable Principle #4).
+//
+// When NSGlueIP is empty (no env var set), SetNameservers preserves its
+// historical pass-through behaviour — the handler-level glueIP path
+// (handler/registrar.go SetNS, BYO Flow B) is still authoritative for
+// per-request glue, so customer Sovereign flows are unaffected.
 type Adapter struct {
-	BaseURL string
-	HTTP    *http.Client
+	BaseURL  string
+	HTTP     *http.Client
+	NSGlueIP string
 }
 
 // New returns a Dynadot registrar adapter pointing at the production
-// api3.json endpoint. Override BaseURL after construction in tests.
+// api3.json endpoint. Override BaseURL / NSGlueIP after construction in
+// tests and at PDM startup respectively.
 func New() *Adapter {
 	return &Adapter{
 		BaseURL: "https://api.dynadot.com/api3.json",
@@ -204,6 +224,21 @@ func (a *Adapter) ValidateToken(ctx context.Context, token, domain string) error
 // SetNameservers replaces the domain's nameserver list via set_ns.
 // Dynadot accepts up to 13 nameservers; the API uses indexed params
 // ns0, ns1, ... — same as the DNS records writer.
+//
+// When the adapter is configured with NSGlueIP (POOL_DOMAIN_MANAGER_NS_GLUE_IP
+// at PDM startup) — the mothership parent-domain onboard path — every
+// out-of-bailiwick NS hostname is pre-registered as a Dynadot glue
+// record BEFORE set_ns. This is non-optional and idempotent: the
+// underlying RegisterGlueRecord short-circuits on already-registered
+// hosts with the same IP, and updates via set_ns_ip on a different IP.
+// Without this, Dynadot rejects set_ns the first time a previously-
+// unregistered NS (e.g. ns3.openova.io for a fresh parent domain) is
+// referenced — the live blocker that motivated this change (issue
+// #1500, 2026-05-15 omani.homes onboard).
+//
+// When NSGlueIP is empty, this method preserves its prior pass-through
+// behaviour — the handler-level glueIP path (BYO Flow B) is the
+// authoritative per-request seam and is unchanged.
 func (a *Adapter) SetNameservers(ctx context.Context, token, domain string, ns []string) error {
 	if len(ns) == 0 {
 		return errors.New("dynadot: nameservers list is empty")
@@ -212,6 +247,25 @@ func (a *Adapter) SetNameservers(ctx context.Context, token, domain string, ns [
 	if err != nil {
 		return err
 	}
+
+	// Adapter-level glue auto-registration — runs before set_ns when the
+	// mothership PowerDNS LB IPv4 is configured on the adapter. Per the
+	// issue header above, set_ns will fail with "needs to be registered
+	// with an ip address" otherwise. In-bailiwick NS hostnames (children
+	// of the domain whose NS we are setting) are skipped: Dynadot
+	// resolves those via the child-zone's own DNS and they do NOT need
+	// an account-level registered-host entry.
+	if a.NSGlueIP != "" {
+		for _, host := range ns {
+			if isInBailiwickHost(host, domain) {
+				continue
+			}
+			if err := a.RegisterGlueRecord(ctx, token, host, a.NSGlueIP); err != nil {
+				return fmt.Errorf("dynadot: pre-register glue %s: %w", host, err)
+			}
+		}
+	}
+
 	params := url.Values{}
 	params.Set("key", key)
 	params.Set("secret", secret)
@@ -487,6 +541,27 @@ func (a *Adapter) RegisterGlueRecord(ctx context.Context, token, host, ip string
 		return fmt.Errorf("dynadot: parse register_ns: %w", err)
 	}
 	return classifyDynadotError(raw.RegisterNsResponse.respHeader)
+}
+
+// isInBailiwickHost reports whether nsHost is a child of zone (the
+// domain whose NS we are flipping). Used by SetNameservers to skip
+// glue pre-registration for in-bailiwick NS hostnames (RFC 1034
+// §4.2.1) — those resolve via the customer's own DNS and never
+// require an account-level registered-host entry on Dynadot.
+//
+// Mirrors handler.isInBailiwick (kept package-local so the adapter
+// has zero dependency on the handler layer). Both arguments are
+// case-insensitive; a trailing dot on either is tolerated.
+func isInBailiwickHost(nsHost, zone string) bool {
+	nsHost = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(nsHost), "."))
+	zone = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(zone), "."))
+	if nsHost == "" || zone == "" {
+		return false
+	}
+	if nsHost == zone {
+		return true
+	}
+	return strings.HasSuffix(nsHost, "."+zone)
 }
 
 // compile-time guards.
