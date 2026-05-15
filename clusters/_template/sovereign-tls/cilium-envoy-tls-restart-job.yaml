@@ -96,7 +96,7 @@ rules:
   - apiGroups: ["apps"]
     resources: ["daemonsets"]
     resourceNames: ["cilium-envoy"]
-    verbs: ["get", "patch"]
+    verbs: ["get", "patch", "list", "watch"]
   # ALSO patch the cilium-operator Deployment. Reason: on a fresh
   # Sovereign, cilium-operator's first CEC reconciliation produces a
   # CiliumEnvoyConfig WITHOUT the hostNetwork bind `additionalAddresses.
@@ -113,10 +113,16 @@ rules:
   - apiGroups: ["apps"]
     resources: ["deployments"]
     resourceNames: ["cilium-operator"]
-    verbs: ["get", "patch"]
-  # Read DaemonSet rollout status so the Job can wait for the new pods
-  # to come up before exiting. `kubectl rollout status` issues GET on
-  # the DaemonSet resource (no extra verbs needed).
+    verbs: ["get", "patch", "list", "watch"]
+  # Read rollout status so the Job can wait for new pods to come up
+  # before exiting. `kubectl rollout status` does NOT just GET — it
+  # uses client-go informerwatcher to LIST+WATCH the
+  # Deployment/DaemonSet resource. Without list+watch verbs the
+  # informer fails with "forbidden: cannot list resource ..." and the
+  # Job stalls at the rollout-status check until activeDeadlineSeconds.
+  # Caught on prov t110.omani.works (fe09897a1b6b3c1d, 2026-05-15):
+  # tls-restart Job stuck Running 10m+ on the cilium-operator rollout
+  # check, never restarted cilium-envoy, console.<fqdn> never served.
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
