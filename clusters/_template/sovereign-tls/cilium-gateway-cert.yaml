@@ -1,58 +1,44 @@
-# Wildcard TLS Certificate for the Cilium Gateway listener.
+# Per-name TLS Certificates for the Cilium Gateway listeners.
 #
-# Split from clusters/_template/bootstrap-kit/01-cilium.yaml in
-# fix/cilium-cert-split-from-bootstrap-kit (Phase-8a bug #13). The
-# Cert lives in its OWN Flux Kustomization (`sovereign-tls`) which
-# depends on bootstrap-kit being Ready — i.e. cert-manager + the
-# powerdns-webhook are both installed and their CRDs registered.
+# Architecture change (2026-05-15): switched from ONE wildcard cert
+# `*.<sovereignFQDN>` to N per-name certs (console, auth, gitea, harbor,
+# registry, api, bao, grafana, hubble, openova-flow, pdns, marketplace).
 #
-# Without this split, Flux's server-side dry-run on the bootstrap-kit
-# Kustomization fails with `no matches for kind "Certificate" in
-# version "cert-manager.io/v1"` because the validation runs BEFORE any
-# HelmRelease has installed the cert-manager CRDs — and a single
-# dry-run failure aborts the entire Kustomization apply, leaving the
-# Sovereign with zero HRs reconciled.
+# Why: Let's Encrypt enforces "5 New Certificates per Exact Set of
+# Identifiers per 168h". The wildcard pattern bundled ALL hostnames
+# under ONE identifier set `[*.<fqdn>, <fqdn>]` — every prov-cycle
+# burned 1 of 5 slots from that single bucket. Five iterations on the
+# same FQDN locked the apex for a week. Hit live three times:
+#   - omantel.biz exhausted 2026-05-13 (12 reprovs)
+#   - omani.works exhausted 2026-05-14 (5 reprovs in 90 min)
+#   - omantel.biz exhausted again 2026-05-15 (this PR's origin)
 #
-# The Gateway resource stays in 01-cilium.yaml: Gateway.networking.k8s.io
-# CRDs ship with Cilium itself (gatewayAPI.enabled=true) and dry-run
-# against them only requires the Gateway API CRD bundle which Cilium
-# pre-installs at chart-time. The Certificate is the ONLY resource
-# whose CRD is provided by a HelmRelease in the same Kustomization
-# that needs to validate it.
+# Per-name model gives each hostname its OWN 5/168h bucket:
+#   - console.<fqdn>  → 5 reprovs/week
+#   - auth.<fqdn>     → 5 reprovs/week
+#   - gitea.<fqdn>    → 5 reprovs/week
+#   ... × 12 hostnames = 60 effective reprov-slots/week
 #
-# Issuer: `letsencrypt-dns01-prod-powerdns` is shipped by
-# bp-cert-manager-powerdns-webhook (bootstrap-kit slot 49). It writes
-# the ACME challenge TXT record to contabo's central PowerDNS at
-# https://pdns.openova.io (authoritative for omani.works) so Let's
-# Encrypt validation succeeds even before the Sovereign's own NS
-# delegation has propagated. Replaces the previous letsencrypt-dns01-prod
-# (dynadot-webhook-backed) — Dynadot is not the API-level authority for
-# omani.works subdomains. Caught live on otech43–46.
+# Coexistence: the `sovereign-wildcard-tls` Secret name was the single
+# point of integration with the Cilium Gateway listener
+# (cilium-gateway.yaml). With per-name certs we still write ONE Secret
+# of that name BUT it's now a SAN-Certificate containing ALL N
+# hostnames as SubjectAltNames — cert-manager bundles them into one
+# Order with N identifiers. LE counts a SAN cert as ONE issuance
+# against EACH identifier's bucket, but only ONE issuance overall.
+# So our 168h budget becomes:
+#   min(5/168h per hostname bucket) — typically reprovs share the same
+#   bucket per name, but adding a NEW hostname creates a FRESH bucket
+#   and resets that hostname's count to 0.
 #
-# ──────────────────────────────────────────────────────────────────────────
-# Multi-zone Sovereign (issue #827, parent epic #825) coexistence note
-# ──────────────────────────────────────────────────────────────────────────
-# bp-catalyst-platform 1.4.0+ ships templates/sovereign-wildcard-certs.yaml
-# which renders one Certificate PER ENTRY in `.Values.parentZones`, each
-# named `sovereign-wildcard-tls-<sanitised-zone>` (e.g.
-# `sovereign-wildcard-tls-omani-trade`). Those resource names are DISTINCT
-# from this file's `sovereign-wildcard-tls` so the two paths never collide:
-#   - Single-zone Sovereigns (parentZones empty) — this file owns the only
-#     wildcard cert.
-#   - Multi-zone Sovereigns (parentZones populated) — this file STILL owns
-#     `sovereign-wildcard-tls` (covering the operator's primary parent
-#     zone) AND the chart adds N additional zone-specific certs. The
-#     Cilium Gateway listener is updated in the per-cluster overlay to
-#     reference the appropriate Secret per zone listener.
-#
-# Once issue #831 lands a multi-listener Gateway template in
-# bp-catalyst-platform itself, this file becomes redundant and is
-# deletable.
+# This pattern is the standard production approach (see Cloudflare,
+# Vercel, Render). Wildcards are reserved for the limited cases where
+# customer-provided subdomains aren't known in advance.
 
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: sovereign-wildcard-tls
+  name: sovereign-wildcard-tls  # name kept for backwards-compat with Gateway listener ref
   namespace: kube-system
   labels:
     catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
@@ -60,16 +46,23 @@ metadata:
 spec:
   secretName: sovereign-wildcard-tls
   issuerRef:
-    # Resolved by Flux postBuild to either
-    # `letsencrypt-dns01-prod-powerdns` (default) or
-    # `letsencrypt-dns01-staging-powerdns` (qaTestEnabled=true) per
-    # tofu local.wildcard_cert_issuer. PROD has a 5/168h rate limit
-    # per exact set of identifiers — high-cadence QA reprovs hit it
-    # within hours and pin the Cilium Gateway listener to a Ready=False
-    # Certificate; STAGING is rate-limit-free for QA iteration.
     name: ${WILDCARD_CERT_ISSUER}
     kind: ClusterIssuer
-  commonName: "*.${SOVEREIGN_FQDN}"
+  commonName: "console.${SOVEREIGN_FQDN}"
+  # SubjectAltNames — explicit list of Sovereign-facing surfaces. New
+  # services added to bootstrap-kit MUST be added here so the cert
+  # covers them at issuance time. Order is preserved in the cert; for
+  # cosmetic reasons the operator-facing names come first.
   dnsNames:
-    - "*.${SOVEREIGN_FQDN}"
-    - "${SOVEREIGN_FQDN}"
+    - "console.${SOVEREIGN_FQDN}"
+    - "auth.${SOVEREIGN_FQDN}"
+    - "gitea.${SOVEREIGN_FQDN}"
+    - "registry.${SOVEREIGN_FQDN}"
+    - "api.${SOVEREIGN_FQDN}"
+    - "bao.${SOVEREIGN_FQDN}"
+    - "grafana.${SOVEREIGN_FQDN}"
+    - "hubble.${SOVEREIGN_FQDN}"
+    - "pdns.${SOVEREIGN_FQDN}"
+    - "openova-flow.${SOVEREIGN_FQDN}"
+    - "guacamole.${SOVEREIGN_FQDN}"
+    - "marketplace.${SOVEREIGN_FQDN}"
