@@ -978,6 +978,17 @@ write_files:
             # template at provision time.
             CLUSTER_MESH_NAME: "${cluster_mesh_name}"
             CLUSTER_MESH_ID: "${cluster_mesh_id}"
+            # 2026-05-15 DoD A3 wiring: bp-cilium chart defaults
+            # clustermesh-apiserver Service to LoadBalancer for cloud
+            # Sovereigns. Per-Sovereign overrides flow through these
+            # substitutes (see clusters/_template/bootstrap-kit/01-cilium.yaml
+            # apiserver.service block). HCLOUD_LB_LOCATION carries this
+            # region's Hetzner location so hcloud-ccm allocates the LB
+            # in the right datacenter; SOVEREIGN_FQDN_SLUG names the LB
+            # so operator can find it in the Hetzner Console.
+            CLUSTERMESH_SERVICE_TYPE: "LoadBalancer"
+            HCLOUD_LB_LOCATION: "${region}"
+            SOVEREIGN_FQDN_SLUG: "${sovereign_fqdn_slug}"
             # QA fixtures auto-enable (Fix #73 — qa-loop bounded-cycle
             # iter-16). Default "false" so a customer-facing zero-touch
             # provision lands a Sovereign with NO qaFixtures stack

@@ -179,13 +179,32 @@ spec:
         useAPIServer: true
         apiserver:
           service:
-            # qa-loop iter-12 Fix #53D: ${CLUSTERMESH_SERVICE_TYPE:=NodePort}
-            # Default NodePort keeps backward-compat (existing Sovereigns
-            # don't break). Sovereigns that need cross-region peering set
-            # CLUSTERMESH_SERVICE_TYPE=LoadBalancer in their bootstrap-kit
-            # Kustomization substitute (requires Hetzner CCM bootstrap).
-            type: ${CLUSTERMESH_SERVICE_TYPE:=NodePort}
-            nodePort: 32379
+            # 2026-05-15: default flipped NodePort → LoadBalancer per DoD A3
+            # (docs/SOVEREIGN-MULTI-REGION-DOD.md). Founder ruling:
+            # "ClusterMesh apiserver Service = LoadBalancer (NEVER NodePort)".
+            #
+            # On Hetzner, hcloud-ccm allocates a public-IPv4 LB per peer
+            # region; AutoEstablishClusterMesh (handler/clustermesh.go,
+            # PR #1508) hard-fails on type != LoadBalancer and reads the
+            # LB ingress IP for the peer endpoint. Cilium WG node
+            # encryption secures the LB→node→pod path end-to-end.
+            #
+            # ${CLUSTERMESH_SERVICE_TYPE:=LoadBalancer} keeps the
+            # operator escape hatch (e.g. bare-metal Sovereigns with
+            # MetalLB or non-cloud peers can override to NodePort) but
+            # the cloud-Hetzner default is now A3-compliant out of the
+            # box.
+            type: ${CLUSTERMESH_SERVICE_TYPE:=LoadBalancer}
+            # Hetzner CCM requires location OR network-zone annotation
+            # to allocate the LB. ${HCLOUD_LB_LOCATION} flows from the
+            # bootstrap-kit Kustomization substitute (provisioner.go
+            # emits the primary region by default; per-region overlays
+            # can override).
+            annotations:
+              load-balancer.hetzner.cloud/location: "${HCLOUD_LB_LOCATION:=hel1}"
+              load-balancer.hetzner.cloud/type: "lb11"
+              load-balancer.hetzner.cloud/use-private-ip: "false"
+              load-balancer.hetzner.cloud/name: "${SOVEREIGN_FQDN_SLUG:=catalyst}-clustermesh"
 
     # ── Catalyst overlay templates (chart/templates/) ────────────────────
     # qa-loop iter-16 Fix #70: Hubble UI HTTPRoute now defaults ON for
