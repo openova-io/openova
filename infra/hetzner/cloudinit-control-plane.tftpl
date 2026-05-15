@@ -651,6 +651,21 @@ write_files:
       # in clusters/_template/bootstrap-kit/01-cilium.yaml. See the
       # comment block immediately above this write_files entry, and
       # cilium_values_parity_test.go for the regression guard.
+      # cluster.name + cluster.id — set from the FIRST helm install so
+      # cilium-agent announces with the correct identity from boot. If
+      # we relied on the post-bootstrap Flux helm-upgrade to fix these,
+      # the agent would NOT pick up the change without a DaemonSet
+      # rollout (it reads cilium-config once at startup) and downstream
+      # consumers (hubble-relay, clustermesh-apiserver, kvstoremesh)
+      # would x509-fail their TLS handshakes because the cert SAN list
+      # contains the new cluster.name but the peer announcements still
+      # carry "default". Caught on prov t105.omani.works
+      # (a6c0f5dfebd63bd0, 2026-05-15) — hubble-relay crashlooping with
+      # `certificate is valid for *.t105-mesh.hubble-grpc.cilium.io,
+      # not catalyst-t105-omani-works-cp1.default.hubble-grpc.cilium.io`.
+      cluster:
+        name: "${cluster_mesh_name}"
+        id: ${cluster_mesh_id}
       kubeProxyReplacement: true
       # k8sServiceHost: the LOCAL CP's stable private IP per region.
       # Primary cluster: 10.0.1.2 (main.tf:317). Each secondary region's
