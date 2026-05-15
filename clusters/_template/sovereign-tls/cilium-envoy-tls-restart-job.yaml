@@ -190,6 +190,15 @@ spec:
           command:
             - /bin/sh
             - -c
+            # NOTE: Flux postBuild.substitute processes ${...} in this
+            # YAML BEFORE it lands as a Job. Bash variable references
+            # below MUST be escaped as $${...} so Flux emits a literal
+            # ${...} that bash then evaluates at Job runtime. Without
+            # the escape, Flux replaces $${SECRET_NS} (etc.) with an
+            # empty string because those names aren't in
+            # substituteFrom, and the Job ends up running
+            # `kubectl get secret -n "" ""` forever (caught live on
+            # prov c9df5eed1c1ba6cf, t101.omani.works, 2026-05-15).
             - |
               set -eu
 
@@ -198,7 +207,7 @@ spec:
               DS_NS=kube-system
               DS_NAME=cilium-envoy
 
-              echo "[tls-restart] waiting for ${SECRET_NS}/${SECRET_NAME} with non-empty tls.crt"
+              echo "[tls-restart] waiting for $${SECRET_NS}/$${SECRET_NAME} with non-empty tls.crt"
               # Poll up to ~14 min (84 * 10s); activeDeadlineSeconds=900
               # is the outer hard limit. We treat "not yet" and "empty
               # tls.crt" the same — both mean the cert hasn't been issued.
@@ -206,15 +215,15 @@ spec:
                 # `--ignore-not-found` so the early polls (Secret not
                 # created yet) don't error — kubectl returns empty
                 # output and the for-loop continues.
-                tls_crt=$(kubectl get secret -n "${SECRET_NS}" "${SECRET_NAME}" \
+                tls_crt=$(kubectl get secret -n "$${SECRET_NS}" "$${SECRET_NAME}" \
                   --ignore-not-found \
                   -o jsonpath='{.data.tls\.crt}' 2>/dev/null || true)
-                if [ -n "${tls_crt}" ]; then
-                  echo "[tls-restart] ${SECRET_NAME} present with non-empty tls.crt (attempt ${i})"
+                if [ -n "$${tls_crt}" ]; then
+                  echo "[tls-restart] $${SECRET_NAME} present with non-empty tls.crt (attempt $${i})"
                   break
                 fi
-                if [ "${i}" = "84" ]; then
-                  echo "[tls-restart] FATAL: ${SECRET_NAME} did not become non-empty after 14m" >&2
+                if [ "$${i}" = "84" ]; then
+                  echo "[tls-restart] FATAL: $${SECRET_NAME} did not become non-empty after 14m" >&2
                   exit 1
                 fi
                 sleep 10
@@ -232,22 +241,22 @@ spec:
               # 127.0.0.1:* control sockets — host:30443 stays empty,
               # Hetzner LB targets stay unhealthy, console returns 000.
               echo "[tls-restart] bumping deploy/cilium-operator to regenerate CEC with hostNetwork bind"
-              kubectl rollout restart -n "${DS_NS}" deploy/cilium-operator
+              kubectl rollout restart -n "$${DS_NS}" deploy/cilium-operator
               echo "[tls-restart] waiting for deploy/cilium-operator rollout"
-              kubectl rollout status -n "${DS_NS}" deploy/cilium-operator --timeout=3m
+              kubectl rollout status -n "$${DS_NS}" deploy/cilium-operator --timeout=3m
 
               # Step 2 — restart cilium-envoy so it picks up (a) the
               # freshly-regenerated CEC with the hostNetwork bind, AND
               # (b) the now-existing sovereign-wildcard-tls SDS Secret.
-              echo "[tls-restart] bumping ds/${DS_NAME} in ${DS_NS} to force envoy SDS re-subscribe + CEC reload"
-              kubectl rollout restart -n "${DS_NS}" "ds/${DS_NAME}"
+              echo "[tls-restart] bumping ds/$${DS_NAME} in $${DS_NS} to force envoy SDS re-subscribe + CEC reload"
+              kubectl rollout restart -n "$${DS_NS}" "ds/$${DS_NAME}"
 
               # Block until the new pods are Ready. `kubectl rollout
               # status` exits 0 on full rollout, non-zero on timeout.
               # Bound to 5 min — a single-node k3s rolls 1 pod, a 3-node
               # HA cluster rolls 3 in parallel; both finish ≤90s in
               # practice.
-              echo "[tls-restart] waiting for ds/${DS_NAME} rollout"
-              kubectl rollout status -n "${DS_NS}" "ds/${DS_NAME}" --timeout=5m
+              echo "[tls-restart] waiting for ds/$${DS_NAME} rollout"
+              kubectl rollout status -n "$${DS_NS}" "ds/$${DS_NAME}" --timeout=5m
 
-              echo "[tls-restart] complete — cilium-operator regenerated hostNetwork CEC + cilium-envoy serves SDS Secret ${SECRET_NAME}"
+              echo "[tls-restart] complete — cilium-operator regenerated hostNetwork CEC + cilium-envoy serves SDS Secret $${SECRET_NAME}"
