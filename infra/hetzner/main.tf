@@ -467,6 +467,10 @@ locals {
     cluster_cidr        = local.region_cluster_cidr["primary"]
     service_cidr        = local.region_service_cidr["primary"]
     sovereign_fqdn      = var.sovereign_fqdn
+    # Slug form of the FQDN (dots → dashes) used to name per-Sovereign
+    # Hetzner LBs (e.g. clustermesh-apiserver LB). Hetzner LB names are
+    # limited to 63 chars and exclude dots; the slug is safe.
+    sovereign_fqdn_slug = replace(var.sovereign_fqdn, ".", "-")
     sovereign_subdomain = var.sovereign_subdomain
     # OpenovaFlow integration (Agent #3, PR #1389/#1390 follow-up). The
     # bp-openova-flow-emitter (bootstrap-kit slot 57) reads SOVEREIGN_
