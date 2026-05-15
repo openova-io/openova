@@ -1477,17 +1477,50 @@ func (w *Watcher) Cancel() {
 
 // processEvent maps an informer Add/Update event to a state-change Event.
 //
-// We emit ONLY on transitions: if the component's last-seen state
-// equals the derived current state, no event flows. This matters
-// because dynamic informers fire UpdateFunc on every status subresource
-// patch (including helm-controller's own observedGeneration touches),
-// and the Sovereign Admin's status pill should not flicker at sub-
-// second cadence.
+// Emission policy — TWO conditions cause a dispatch:
+//
+//  1. FIRST OBSERVATION: this Watcher has never observed `componentID`
+//     before (`prev == ""` because the map default is the empty string).
+//     We ALWAYS dispatch in this case so the downstream Subscribe stream
+//     and openova-flow-server job state machine learn about every HR
+//     the cluster currently has — including HRs that are ALREADY
+//     Ready=True at attach time (the Pod-restart resume path: the
+//     previous catalyst-api Pod died after the HR converged, the new
+//     Pod's informer initial-list returns the HR in `installed` state,
+//     and the bridge MUST receive a terminal Succeeded event so the
+//     mothership Jobs.Status stops reporting "running" / "failed").
+//
+//  2. TRANSITION: the derived state differs from the last-seen state.
+//     This is the steady-state behaviour — the dynamic informer fires
+//     UpdateFunc on every status subresource patch (including
+//     helm-controller's own observedGeneration touches) and we MUST NOT
+//     re-emit at sub-second cadence; the wizard's status pill would
+//     flicker.
+//
+// The first-observation branch is the load-bearing fix for the prov
+// t112.omani.works incident (f2e7f02e6ffb6a18, 2026-05-15): 4 HRs
+// converged AFTER a catalyst-api Pod restart at 19:16, but the
+// mothership Jobs API kept reporting `install-self-sovereign-cutover`,
+// `install-powerdns`, `install-catalyst-platform` as `running` and
+// `install-sin-2:reloader` as `failed`. The pre-fix
+// `if prev != state` path was IMPLICITLY equivalent to "first
+// observation OR transition" because `prev == ""` differs from any
+// non-empty state — but a future refactor that initialised `w.states`
+// pre-emptively (e.g. seeding from a prior snapshot on restart) would
+// silently break the first-observation guarantee. Making it explicit
+// turns that into a test failure rather than a regression hunt.
 //
 // The first observed bp-* HelmRelease stamps Watcher.firstSeenAt —
 // the terminate-on-all-done gate refuses to consider termination
 // until firstSeenAt is non-zero AND len(observed) ≥
 // MinBootstrapKitHRs.
+//
+// Downstream idempotency: the jobs.Bridge's `lastState` map dedupes
+// (componentID, state) pairs across re-emissions, so a re-emit of an
+// already-Succeeded job is a no-op at the bridge layer. The
+// openova-flow-server's TypeSnapshot envelope is idempotent at the
+// receiver, so any re-emit propagated by the flow_emitter is also
+// safe.
 func (w *Watcher) processEvent(obj any, terminated chan struct{}, closeOnce *sync.Once) {
 	u, ok := obj.(*unstructured.Unstructured)
 	if !ok {
@@ -1505,7 +1538,7 @@ func (w *Watcher) processEvent(obj any, terminated chan struct{}, closeOnce *syn
 	message := messageFromConditions(conds, state)
 
 	w.mu.Lock()
-	prev := w.states[componentID]
+	prev, hadPrev := w.states[componentID]
 	w.states[componentID] = state
 	w.observed[componentID] = struct{}{}
 	if w.firstSeenAt.IsZero() {
@@ -1521,7 +1554,12 @@ func (w *Watcher) processEvent(obj any, terminated chan struct{}, closeOnce *syn
 	allTerminal := allObservedTerminal(w.states, w.observed, w.cfg.MinBootstrapKitHRs, w.firstSeenAt, w.informerSynced)
 	w.mu.Unlock()
 
-	if prev != state {
+	// Dispatch on first observation (this watcher has never seen
+	// componentID — `!hadPrev` is true even when state happens to be
+	// the empty-string default) OR on a real transition. See the
+	// emission-policy comment on this function for the t112.omani.works
+	// rationale.
+	if !hadPrev || prev != state {
 		w.dispatch(provisioner.Event{
 			Time:      w.cfg.Now().UTC().Format(time.RFC3339),
 			Phase:     PhaseComponent,

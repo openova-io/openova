@@ -435,3 +435,190 @@ func TestAllObservedTerminal_SyncedGate(t *testing.T) {
 		})
 	}
 }
+
+// TestTransition_AttachTimeReady_EmitsSucceededViaSubscribe pins the
+// load-bearing contract for the catalyst-api Pod-restart resume path:
+// when the new Pod's helmwatch.Watcher attaches to a child cluster
+// where bp-* HelmReleases are ALREADY Ready=True at attach time, the
+// informer's initial-list AddFunc fires for each HR — and the
+// Subscribe stream MUST receive a `phase=component state=installed`
+// event for every one of them.
+//
+// Bug source (prov t112.omani.works, deployment f2e7f02e6ffb6a18,
+// 2026-05-15): the mothership Jobs API kept showing
+// install-self-sovereign-cutover / install-powerdns /
+// install-catalyst-platform as "running" and install-sin-2:reloader
+// as "failed", even though kubectl on each child cluster showed all
+// 135/135 HRs Ready=True. The mothership state stayed stale because
+// the bridge subscribed via Watcher.Subscribe didn't receive the
+// terminal "installed" event for the HRs that were Ready at attach
+// time. This breaks DoD gate D6 (0 pending / 0 running) and D7
+// (mothership ≡ child) on every Pod-restart cycle.
+//
+// Fix surface: helmwatch.processEvent's emission policy is "dispatch
+// on FIRST observation OR on a real state transition". The pre-fix
+// code implicitly relied on `prev != state` (prev defaults to "" so
+// "" != "installed" → dispatch). This test pins the contract
+// explicitly so a future refactor that pre-seeds w.states cannot
+// silently regress it.
+func TestTransition_AttachTimeReady_EmitsSucceededViaSubscribe(t *testing.T) {
+	scheme := newFakeScheme()
+	releases := []runtime.Object{
+		// Every HR is ALREADY Ready=True at attach time — the
+		// rehydrate-from-PVC / Pod-restart scenario.
+		makeReadyHRForTransition("bp-self-sovereign-cutover"),
+		makeReadyHRForTransition("bp-powerdns"),
+		makeReadyHRForTransition("bp-catalyst-platform"),
+		makeReadyHRForTransition("bp-reloader"),
+	}
+	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{HelmReleaseGVR: "HelmReleaseList"},
+		releases...,
+	)
+
+	primary := &recorder{}
+	subscriber := &recorder{}
+
+	cfg := Config{
+		KubeconfigYAML: "fake",
+		WatchTimeout:   5 * time.Second,
+		DynamicFactory: fakeFactory(client),
+		Resync:         0,
+	}
+	w, err := NewWatcher(cfg, primary.emit)
+	if err != nil {
+		t.Fatalf("NewWatcher: %v", err)
+	}
+	// Subscribe the simulated jobs.Bridge fan-out before Watch starts
+	// — same wiring `attachBridgeSeederHook` applies in production.
+	w.Subscribe(subscriber.emit)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := w.Watch(ctx); err != nil {
+		t.Fatalf("Watch: %v", err)
+	}
+
+	// Both sinks must receive exactly one phase=component event per
+	// HR, each with State=installed. Anything less means the bridge's
+	// Subscribe stream didn't observe the attach-time Ready=True HRs
+	// — the prov t112 bug.
+	wantComponents := map[string]bool{
+		"self-sovereign-cutover": false,
+		"powerdns":               false,
+		"catalyst-platform":      false,
+		"reloader":               false,
+	}
+
+	primaryComponents := primary.componentStateEvents()
+	if len(primaryComponents) != len(wantComponents) {
+		t.Errorf("primary emit: want %d component events (one per attach-time-Ready HR), got %d: %+v",
+			len(wantComponents), len(primaryComponents), primaryComponents)
+	}
+	for _, ev := range primaryComponents {
+		if _, ok := wantComponents[ev.Component]; !ok {
+			t.Errorf("primary emit: unexpected component %q", ev.Component)
+			continue
+		}
+		if ev.State != StateInstalled {
+			t.Errorf("primary emit: %s state=%q, want %q (attach-time Ready=True must surface as installed)",
+				ev.Component, ev.State, StateInstalled)
+		}
+	}
+
+	// Subscribe stream must mirror the primary exactly — this is the
+	// load-bearing assertion. The jobs.Bridge subscribes here, and a
+	// missing event means the bridge's OnHelmReleaseEvent never fires
+	// for that HR, leaving the mothership Jobs.Status stale.
+	subscriberComponents := subscriber.componentStateEvents()
+	if len(subscriberComponents) != len(wantComponents) {
+		t.Fatalf("subscriber: want %d component events (one per attach-time-Ready HR — this is the bridge wiring), got %d: %+v",
+			len(wantComponents), len(subscriberComponents), subscriberComponents)
+	}
+	seen := map[string]int{}
+	for _, ev := range subscriberComponents {
+		if _, ok := wantComponents[ev.Component]; !ok {
+			t.Errorf("subscriber: unexpected component %q", ev.Component)
+			continue
+		}
+		if ev.State != StateInstalled {
+			t.Errorf("subscriber: %s state=%q, want %q (the bridge MUST translate this into Status=succeeded; pre-fix it stayed at Status=running because no event arrived)",
+				ev.Component, ev.State, StateInstalled)
+		}
+		seen[ev.Component]++
+	}
+	for comp := range wantComponents {
+		if seen[comp] == 0 {
+			t.Errorf("subscriber: missing event for %q (the t112 bug — bridge never received the attach-time Ready=True event for this HR)", comp)
+		}
+		if seen[comp] > 1 {
+			t.Errorf("subscriber: %q received %d events, want exactly 1 (idempotency violation)", comp, seen[comp])
+		}
+	}
+
+	// The watch must also terminate with OutcomeReady on the
+	// resume-after-restart path. If processEvent's emission policy
+	// regressed in a way that broke first-observation dispatch, the
+	// ready-transition would still fire (the terminal gate uses
+	// w.states + w.observed, not the dispatch path) — so this is a
+	// supporting assertion, not the primary signal.
+	if w.Outcome() != OutcomeReady {
+		t.Errorf("Outcome = %q, want %q", w.Outcome(), OutcomeReady)
+	}
+}
+
+// TestTransition_FirstObservation_NeverDedupsAcrossWatchers proves the
+// idempotency surface: a Watcher constructed against an HR that was
+// observed by a PRIOR Watcher (now garbage-collected) MUST still emit
+// the per-component event because each Watcher's w.states map is
+// independent. The catalyst-api Pod-restart path relies on this:
+// every new Pod spins up a new Watcher with an empty states map, and
+// every attach-time AddFunc must propagate to the new bridge.
+//
+// Concretely: this re-runs the watch lifecycle twice against the same
+// fake client and asserts each run's subscriber sees the full
+// component-event set.
+func TestTransition_FirstObservation_NeverDedupsAcrossWatchers(t *testing.T) {
+	scheme := newFakeScheme()
+	releases := []runtime.Object{
+		makeReadyHRForTransition("bp-cilium"),
+		makeReadyHRForTransition("bp-cert-manager"),
+		makeReadyHRForTransition("bp-flux"),
+	}
+	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{HelmReleaseGVR: "HelmReleaseList"},
+		releases...,
+	)
+
+	runOnce := func(label string) {
+		t.Helper()
+		primary := &recorder{}
+		subscriber := &recorder{}
+		cfg := Config{
+			KubeconfigYAML: "fake",
+			WatchTimeout:   3 * time.Second,
+			DynamicFactory: fakeFactory(client),
+			Resync:         0,
+		}
+		w, err := NewWatcher(cfg, primary.emit)
+		if err != nil {
+			t.Fatalf("[%s] NewWatcher: %v", label, err)
+		}
+		w.Subscribe(subscriber.emit)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if _, err := w.Watch(ctx); err != nil {
+			t.Fatalf("[%s] Watch: %v", label, err)
+		}
+		if got := len(primary.componentStateEvents()); got != 3 {
+			t.Errorf("[%s] primary: want 3 component events, got %d", label, got)
+		}
+		if got := len(subscriber.componentStateEvents()); got != 3 {
+			t.Errorf("[%s] subscriber: want 3 component events, got %d", label, got)
+		}
+	}
+
+	runOnce("first attach")
+	runOnce("re-attach after Pod restart")
+}
