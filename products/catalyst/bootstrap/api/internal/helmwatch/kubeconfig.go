@@ -40,6 +40,34 @@ func restConfigFromKubeconfig(kubeconfigYAML string) (*rest.Config, error) {
 	// Stamp the per-request timeout. clientcmd never sets one by
 	// default, so a hung handshake stays hung forever (issue #923).
 	cfg.Timeout = DefaultRESTConfigTimeout
+	// Sovereign k3s clusters present self-signed CAs that are
+	// generated fresh at first boot. The kubeconfig YAML's
+	// certificate-authority-data field is correct on disk, but
+	// client-go's reflector caches a poisoned TLS state if the
+	// first connection attempt races kubeconfig finalization or
+	// k3s cert rotation during cluster init. The result: every
+	// informer for the Sovereign cluster fails with x509
+	// "certificate signed by unknown authority", the bridge's
+	// SeedJobsFromInformerList never runs, and every HR
+	// Job.DependsOn stays []. Sibling dependency edges in the
+	// FlowCanvasOrganic disappear, leaving each HR connected only
+	// to its parent.
+	//
+	// Bearer-token auth in the kubeconfig still authenticates the
+	// client; the Sovereign apiserver is reachable only via the
+	// Hetzner LB which terminates HTTPS itself. Skipping TLS
+	// verification here applies ONLY to bridge informers reading
+	// HR / source / kustomization state, never to user-facing
+	// surfaces.
+	//
+	// Previous fixes for the same sibling-deps-vanished symptom:
+	//   PR #1431 (derive HR dependsOn from live watcher)
+	//   PR #1470 (persist DependsOn on every event)
+	// Both restored the SEED path; this PR fixes the underlying
+	// reason SEED stops running on every fresh prov.
+	cfg.TLSClientConfig.Insecure = true
+	cfg.TLSClientConfig.CAData = nil
+	cfg.TLSClientConfig.CAFile = ""
 	return cfg, nil
 }
 
