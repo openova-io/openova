@@ -1521,6 +1521,15 @@ func (h *Handler) runProvisioning(dep *Deployment) {
 	// reservation TTL doesn't have to expire to free the name.
 	if err == nil && result != nil {
 		h.commitPDMWithRetry(dep, result)
+		// Parent-zone A records — BYO Sovereigns (operator-owned
+		// parent like omani.works, sovereign FQDN like
+		// t111.omani.works) need console.<fqdn>, auth.<fqdn>, etc.
+		// written into the parent zone so browsers resolve them at
+		// the primary LB. commitPDMWithRetry handles pool-allocated
+		// FQDNs; this handles every other shape. Best-effort: log +
+		// continue on failure so the Sovereign still reaches
+		// phase1-watching even if PowerDNS is briefly unavailable.
+		h.upsertSovereignParentZoneRecordsFromResult(context.Background(), dep, result)
 	} else {
 		h.releasePDMReservation(dep)
 	}

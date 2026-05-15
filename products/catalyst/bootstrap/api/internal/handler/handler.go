@@ -432,6 +432,7 @@ type Handler struct {
 type powerdnsZoneClient interface {
 	CreateZone(ctx context.Context, spec powerdns.ZoneSpec) error
 	ZoneExists(ctx context.Context, name string) (bool, error)
+	PatchRRSets(ctx context.Context, zone string, rrsets []powerdns.RRSet) error
 }
 
 // defaultDeploymentsDir is the on-PVC path the chart mounts. A separate
