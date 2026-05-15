@@ -167,6 +167,37 @@ run "legacy_no_regions_payload" {
     condition     = length(output.load_balancer_ips_by_region) == 0
     error_message = "load_balancer_ips_by_region must be empty when var.regions=[]."
   }
+
+  # Per-region network refactor: even with NO secondary regions, the
+  # primary region's hcloud_network.region["primary"] must exist. The
+  # legacy `hcloud_network.main` and `hcloud_network_subnet.main`
+  # singletons have been deleted; their job is now done by the
+  # for_each map keyed on local.all_region_keys.
+  assert {
+    condition     = length(hcloud_network.region) == 1
+    error_message = "Single-region (var.regions=[]) must still produce exactly 1 hcloud_network keyed 'primary' (the legacy hcloud_network.main was retired)."
+  }
+
+  assert {
+    condition     = contains(keys(hcloud_network.region), "primary")
+    error_message = "The primary region key must be 'primary'; for_each over local.all_region_keys."
+  }
+
+  assert {
+    condition     = hcloud_network_subnet.region["primary"].ip_range == "10.0.1.0/24"
+    error_message = "Primary subnet must be 10.0.1.0/24 — uniform layout across regions."
+  }
+
+  # Firewall must include the Cilium WG inter-region rule (UDP 51871).
+  # DoD A2 (docs/SOVEREIGN-MULTI-REGION-DOD.md) — without this, the
+  # WireGuard mesh between regions cannot form and gate D11 fails.
+  assert {
+    condition = length([
+      for r in hcloud_firewall.main.rule :
+      r if r.protocol == "udp" && r.port == "51871"
+    ]) == 1
+    error_message = "hcloud_firewall.main must declare exactly 1 inbound rule for UDP 51871 (Cilium WireGuard inter-region encryption per DoD A2)."
+  }
 }
 
 # ── Scenario 2: single-entry regions[] ────────────────────────────────────
@@ -247,6 +278,64 @@ run "three_region_mgmt_fsn_hel" {
   assert {
     condition     = contains(output.secondary_region_keys, "hel1-2")
     error_message = "secondary_region_keys must contain the hel1-2 key for regions[2] (Helsinki data plane)."
+  }
+
+  # Per-region network refactor (2026-05-15 DoD A2) — one hcloud_network
+  # per region, NO shared private net across regions. Verify the
+  # for_each map declares one Network for "primary" + one for each
+  # secondary region, all on the same 10.0.0.0/16 (the ranges live in
+  # ISOLATED networks so the collision is intentional).
+  assert {
+    condition     = length(hcloud_network.region) == 3
+    error_message = "Three-region payload must produce exactly 3 hcloud_network entries (primary + 2 secondaries) — one isolated /16 per region per DoD A2."
+  }
+
+  assert {
+    condition     = hcloud_network.region["primary"].ip_range == "10.0.0.0/16"
+    error_message = "Each region's hcloud_network must be 10.0.0.0/16 (identical inside isolated networks)."
+  }
+
+  assert {
+    condition     = hcloud_network.region["fsn1-1"].ip_range == "10.0.0.0/16"
+    error_message = "Secondary region's hcloud_network must be 10.0.0.0/16 (same range as primary inside its OWN isolated network)."
+  }
+
+  assert {
+    condition     = length(hcloud_network_subnet.region) == 3
+    error_message = "Three-region payload must produce exactly 3 hcloud_network_subnet entries — one /24 per region's isolated /16."
+  }
+
+  assert {
+    condition     = hcloud_network_subnet.region["hel1-2"].ip_range == "10.0.1.0/24"
+    error_message = "Each region's subnet must be 10.0.1.0/24 (uniform CP=.2, workers=.10+, LB=.254 layout)."
+  }
+
+  # Per-region pod/service CIDRs (DoD gate D11 — no collision across
+  # ClusterMesh peers). Verify primary, fsn1-1, hel1-2 get distinct
+  # cluster-cidrs (10.42/43/44.0.0/16) + service-cidrs (10.96/97/98.0.0/16).
+  assert {
+    condition     = local.region_cluster_cidr["primary"] == "10.42.0.0/16"
+    error_message = "primary region's cluster-cidr must be 10.42.0.0/16 (index 0)."
+  }
+
+  assert {
+    condition     = local.region_cluster_cidr["fsn1-1"] == "10.43.0.0/16"
+    error_message = "fsn1-1 (secondary index 0 → region index 1) must get cluster-cidr 10.43.0.0/16."
+  }
+
+  assert {
+    condition     = local.region_cluster_cidr["hel1-2"] == "10.44.0.0/16"
+    error_message = "hel1-2 (secondary index 1 → region index 2) must get cluster-cidr 10.44.0.0/16."
+  }
+
+  assert {
+    condition     = local.region_service_cidr["primary"] == "10.96.0.0/16"
+    error_message = "primary region's service-cidr must be 10.96.0.0/16 (index 0)."
+  }
+
+  assert {
+    condition     = local.region_service_cidr["hel1-2"] == "10.98.0.0/16"
+    error_message = "hel1-2 (region index 2) must get service-cidr 10.98.0.0/16 — non-overlapping across peers."
   }
 }
 
