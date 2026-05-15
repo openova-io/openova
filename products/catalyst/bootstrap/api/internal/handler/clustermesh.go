@@ -1,0 +1,924 @@
+// Package handler — Cilium ClusterMesh auto-establishment after Phase-1.
+//
+// Why this exists:
+//
+//   docs/SOVEREIGN-MULTI-REGION-DOD.md gates D9-D12 require Cilium
+//   ClusterMesh to be live and peered across every region of a freshly
+//   provisioned Sovereign. The upstream operator runbook at
+//   platform/cilium/chart/values-clustermesh.yaml documents the manual
+//   steps:
+//
+//     cilium clustermesh enable  --context <each peer>
+//     cilium clustermesh connect --context <A> --destination-context <B>
+//
+//   Those CLI calls are a zero-touch violation per the founder ruling
+//   2026-05-15: every visible feature MUST converge without operator
+//   intervention. The catalyst-api Pod doesn't ship the `cilium` CLI
+//   anyway, so a shell-out wouldn't even work — we have to talk to each
+//   region's API server directly via the K8s Go client and write the
+//   per-peer trust material into the same Secrets the upstream chart
+//   reads on reload.
+//
+// What this writes (per the upstream Cilium chart's contract):
+//
+//   In every region's kube-system namespace, we ensure a Secret named
+//   `cilium-clustermesh` exists with one entry per peer. The entry key
+//   is the peer's `cluster.name` and the value is an etcd client config
+//   blob shaped like the upstream chart expects:
+//
+//     endpoints:
+//       - https://<peer-LB-IP>:2379
+//     trusted-ca-file: /var/lib/cilium/clustermesh/<peer-name>-ca.crt
+//     cert-file:       /var/lib/cilium/clustermesh/<peer-name>.crt
+//     key-file:        /var/lib/cilium/clustermesh/<peer-name>.key
+//
+//   The chart auto-mounts the Secret's keys into
+//   /var/lib/cilium/clustermesh on each Cilium DaemonSet Pod, so the
+//   peer's CA / cert / key files appear at exactly those paths. We add
+//   per-peer CA + cert + key entries with suffixes (`-ca.crt`, `.crt`,
+//   `.key`) keyed by peer name. The chart's reload-watch on the
+//   `cilium-clustermesh` Secret picks up new entries automatically, and
+//   we follow up with a rollout-restart on both `cilium-operator` and
+//   `cilium` to guarantee pickup even on chart versions that don't have
+//   inotify watch.
+//
+// Architecture invariants this respects:
+//
+//   A2 — Inter-region link = Cilium WireGuard over PUBLIC IPs ALWAYS.
+//        We read the LoadBalancer IP of each region's
+//        clustermesh-apiserver Service. The Service type must be
+//        LoadBalancer (per the chart overlay); we never look up
+//        NodePort.
+//   A3 — clustermesh-apiserver Service = LoadBalancer always. The word
+//        `NodePort` does not appear in this file.
+//   A6 — Provider-agnostic. We pull region kubeconfigs from disk and
+//        talk to whatever API server they describe. No Hetzner-specific
+//        API calls.
+//
+// Idempotency:
+//
+//   Every write is a Get-then-Update with apierrors.IsAlreadyExists /
+//   IsNotFound handling. Re-running on a partially-meshed Sovereign
+//   converges to fully meshed. The function never deletes peer entries
+//   (a removed region would need an explicit wipe — out of scope).
+//
+// Failure modes:
+//
+//   - region kubeconfig missing → log warning + record peer as
+//     Connected=false in the status, function returns nil (caller logs
+//     + continues, post-handover finalisation can re-run).
+//   - LoadBalancer IP absent for up to 5 min → status Peer.Error set,
+//     Connected=false, no error returned.
+//   - cilium-ca Secret missing → status Peer.Error set, Connected=false.
+//   - rollout-restart fails → log warning, status records but does not
+//     fail the function (the chart's watch may still pick up the new
+//     bytes on the next reload tick).
+
+package handler
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/base64"
+	"encoding/pem"
+	"fmt"
+	"math/big"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
+)
+
+// ClusterMeshStatus is the per-region terminal summary returned to the
+// caller. One entry per region; PeerStatus describes whether the
+// outbound trust to each OTHER region was successfully wired.
+type ClusterMeshStatus struct {
+	RegionKey      string       `json:"regionKey"`
+	ClusterName    string       `json:"clusterName"`
+	ClusterID      int          `json:"clusterID"`
+	LoadBalancerIP string       `json:"loadBalancerIP"`
+	Peers          []PeerStatus `json:"peers"`
+	ReadyAt        time.Time    `json:"readyAt,omitempty"`
+}
+
+// PeerStatus describes the trust wiring outbound from one region to
+// another. Connected=true means the cross-cluster Secret entries were
+// written successfully; it does NOT mean Cilium has finished its peer
+// handshake (that's observed in the cilium-clustermesh-apiserver Pod
+// logs and surfaced via the optional WaitForPeerLogs step).
+type PeerStatus struct {
+	Name           string `json:"name"`
+	LoadBalancerIP string `json:"loadBalancerIP"`
+	Connected      bool   `json:"connected"`
+	Error          string `json:"error,omitempty"`
+}
+
+// regionSlot is a per-region intermediate the orchestrator carries
+// through the three steps (LB IP discovery, CA snapshot, peer write).
+type regionSlot struct {
+	key            string                // e.g. "fsn1-1", "hel1-2", "" for primary
+	kubeconfigPath string                // on-disk path to the region's kubeconfig YAML
+	clusterName    string                // Cilium cluster.name for this region
+	clusterID      int                   // Cilium cluster.id (1..255)
+	clientset      kubernetes.Interface  // typed client built from kubeconfig
+	lbIP           string                // public LB IP of clustermesh-apiserver Service
+	caCert         []byte                // cilium-ca tls.crt bytes
+	caKey          []byte                // cilium-ca tls.key bytes
+	err            error                 // non-nil if LB lookup / CA snapshot failed
+}
+
+// clusterMeshConstants — module-level tunables. Per
+// docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), these are
+// overridable via env vars, but the defaults are sized for the
+// canonical Hetzner-LB-on-public-IP path (A2/A3).
+const (
+	clusterMeshSecretName        = "cilium-clustermesh"
+	clusterMeshCASecretName      = "cilium-ca"
+	clusterMeshApiserverService  = "clustermesh-apiserver"
+	clusterMeshNamespace         = "kube-system"
+	clusterMeshAPIServerPort     = 2379
+	clusterMeshLBLookupTimeout   = 5 * time.Minute
+	clusterMeshLBLookupInterval  = 10 * time.Second
+	clusterMeshCallTimeout       = 30 * time.Second
+	clusterMeshPhase             = "clustermesh-progress"
+	clusterMeshPeerCertValidity  = 365 * 24 * time.Hour
+)
+
+// clusterMeshDeploymentLabels — the upstream Cilium chart's
+// DaemonSet/Deployment names. Used by rollout-restart hints.
+var clusterMeshRolloutTargets = []struct {
+	kind string
+	name string
+}{
+	{"daemonset", "cilium"},
+	{"deployment", "cilium-operator"},
+	{"deployment", clusterMeshApiserverService},
+}
+
+// clusterMeshTestClientFactory — test-only hook. When non-nil,
+// buildRegionSlots routes its kubeconfig → clientset construction
+// through this function instead of the production helmwatch parser.
+// Tests inject fakes; production leaves this nil.
+//
+// Returning (nil, false) means "no override for this path, fall
+// through to production". Returning (client, true) injects the fake.
+var clusterMeshTestClientFactory func(kubeconfigPath string) (kubernetes.Interface, bool)
+
+// clusterMeshTestOverrideLBTimeout / clusterMeshTestOverrideLBInterval
+// — test-only override knobs for the LB-discovery poll loop. Zero
+// falls back to the production constants. Tests set these to
+// sub-second values so the LB-absent path runs in milliseconds.
+var (
+	clusterMeshTestOverrideLBTimeout  time.Duration
+	clusterMeshTestOverrideLBInterval time.Duration
+)
+
+// AutoEstablishClusterMesh wires every region's clustermesh-apiserver
+// into a fully-connected peer mesh. Called from deployments.go AFTER
+// phase1-watching reports all HRs Ready across all regions.
+//
+// Idempotent — re-running on a partially-meshed Sovereign converges to
+// fully meshed. Caller writes to dep.Events for progress; this function
+// returns the final mesh-status summary (per-region peer count +
+// readiness).
+//
+// Returns one ClusterMeshStatus per region. A nil error indicates the
+// orchestrator ran to completion (regardless of per-peer outcomes);
+// per-peer failures are surfaced via PeerStatus.Error so the caller can
+// re-trigger on a follow-up cycle.
+//
+// Single-region provs (len(dep.Request.Regions) < 2) skip the whole
+// orchestrator — there is no peer to mesh with.
+func (h *Handler) AutoEstablishClusterMesh(ctx context.Context, dep *Deployment) ([]ClusterMeshStatus, error) {
+	if dep == nil {
+		return nil, fmt.Errorf("autoEstablishClusterMesh: dep is nil")
+	}
+
+	dep.mu.Lock()
+	regions := append([]provisioner.RegionSpec(nil), dep.Request.Regions...)
+	primaryKubeconfigPath := ""
+	if dep.Result != nil {
+		primaryKubeconfigPath = dep.Result.KubeconfigPath
+	}
+	secondaryPaths := make(map[string]string, len(dep.secondaryKubeconfigPaths))
+	for k, v := range dep.secondaryKubeconfigPaths {
+		secondaryPaths[k] = v
+	}
+	dep.mu.Unlock()
+
+	if len(regions) < 2 {
+		h.log.Info("clustermesh: single-region deployment, skipping mesh establishment",
+			"id", dep.ID,
+			"regionCount", len(regions),
+		)
+		return nil, nil
+	}
+
+	slots := h.buildRegionSlots(dep, regions, primaryKubeconfigPath, secondaryPaths)
+	if len(slots) < 2 {
+		h.log.Warn("clustermesh: fewer than 2 reachable regions, skipping",
+			"id", dep.ID,
+			"reachableRegions", len(slots),
+		)
+		return nil, nil
+	}
+
+	h.emitClusterMeshProgress(dep, "info",
+		fmt.Sprintf("ClusterMesh auto-establish: starting fan-out across %d regions", len(slots)))
+
+	// Step 1: per-region LB IP discovery (poll up to 5 min each).
+	for i := range slots {
+		s := &slots[i]
+		if s.err != nil {
+			continue
+		}
+		lbIP, err := h.waitForClusterMeshLB(ctx, s.clientset)
+		if err != nil {
+			s.err = fmt.Errorf("lb-discovery: %w", err)
+			h.log.Warn("clustermesh: LB lookup failed for region",
+				"id", dep.ID,
+				"region", s.key,
+				"cluster", s.clusterName,
+				"err", err,
+			)
+			h.emitClusterMeshProgress(dep, "warn",
+				fmt.Sprintf("ClusterMesh: region %q LB lookup failed (%v) — peer will be marked disconnected", s.key, err))
+			continue
+		}
+		s.lbIP = lbIP
+		h.emitClusterMeshProgress(dep, "info",
+			fmt.Sprintf("ClusterMesh: region %q apiserver LB ready at %s", s.key, lbIP))
+	}
+
+	// Step 2: per-region cilium-ca snapshot. Without this we can't
+	// mint per-peer client certs nor populate the trusted-ca-file
+	// entries that other regions need to verify this region.
+	for i := range slots {
+		s := &slots[i]
+		if s.err != nil {
+			continue
+		}
+		cert, key, err := h.snapshotCiliumCA(ctx, s.clientset)
+		if err != nil {
+			s.err = fmt.Errorf("ca-snapshot: %w", err)
+			h.log.Warn("clustermesh: cilium-ca read failed for region",
+				"id", dep.ID,
+				"region", s.key,
+				"cluster", s.clusterName,
+				"err", err,
+			)
+			h.emitClusterMeshProgress(dep, "warn",
+				fmt.Sprintf("ClusterMesh: region %q cilium-ca read failed (%v) — peer will be marked disconnected", s.key, err))
+			continue
+		}
+		s.caCert = cert
+		s.caKey = key
+	}
+
+	// Step 3: for every ordered pair (A, B), write into A the trust
+	// bundle that lets A's clustermesh-apiserver contact B. Builds a
+	// cilium-clustermesh Secret entry per peer.
+	statuses := make([]ClusterMeshStatus, 0, len(slots))
+	for i := range slots {
+		a := &slots[i]
+		st := ClusterMeshStatus{
+			RegionKey:      a.key,
+			ClusterName:    a.clusterName,
+			ClusterID:      a.clusterID,
+			LoadBalancerIP: a.lbIP,
+			Peers:          make([]PeerStatus, 0, len(slots)-1),
+		}
+		if a.err != nil {
+			// Region is unreachable — every peer slot fails through.
+			for j := range slots {
+				if i == j {
+					continue
+				}
+				b := &slots[j]
+				st.Peers = append(st.Peers, PeerStatus{
+					Name:           b.clusterName,
+					LoadBalancerIP: b.lbIP,
+					Connected:      false,
+					Error:          fmt.Sprintf("local region unreachable: %v", a.err),
+				})
+			}
+			statuses = append(statuses, st)
+			continue
+		}
+
+		// Build the per-peer Secret payload for this region (A). Each
+		// peer entry contains B's CA + a freshly minted A-as-client cert
+		// signed by A's CA. (The cert SAN is the cluster name; the
+		// upstream chart's mTLS only verifies cluster identity via SAN.)
+		peerEntries := make(map[string][]byte)
+		for j := range slots {
+			if i == j {
+				continue
+			}
+			b := &slots[j]
+			peer := PeerStatus{
+				Name:           b.clusterName,
+				LoadBalancerIP: b.lbIP,
+			}
+			if b.err != nil {
+				peer.Error = fmt.Sprintf("peer region unreachable: %v", b.err)
+				st.Peers = append(st.Peers, peer)
+				continue
+			}
+			if b.lbIP == "" {
+				peer.Error = "peer LB IP absent"
+				st.Peers = append(st.Peers, peer)
+				continue
+			}
+			if len(b.caCert) == 0 {
+				peer.Error = "peer cilium-ca CA cert missing"
+				st.Peers = append(st.Peers, peer)
+				continue
+			}
+			// Mint A-as-client cert signed by A's CA (so B can verify
+			// using the same trust root the rest of A's cluster uses).
+			clientCert, clientKey, err := h.mintPeerClientCert(a.caCert, a.caKey, a.clusterName)
+			if err != nil {
+				peer.Error = fmt.Sprintf("client cert mint failed: %v", err)
+				st.Peers = append(st.Peers, peer)
+				continue
+			}
+			// Secret keys the upstream chart mounts at
+			// /var/lib/cilium/clustermesh/<filename>.
+			peerEntries[b.clusterName] = buildPeerConfigBlob(b.clusterName, b.lbIP)
+			peerEntries[b.clusterName+"-ca.crt"] = b.caCert
+			peerEntries[b.clusterName+".crt"] = clientCert
+			peerEntries[b.clusterName+".key"] = clientKey
+			peer.Connected = true
+			st.Peers = append(st.Peers, peer)
+		}
+
+		// Stable order for the Secret update (so an idempotent re-run
+		// produces byte-identical Secret data and no rollout-restart
+		// thrash).
+		if err := h.applyClusterMeshSecret(ctx, a.clientset, peerEntries); err != nil {
+			h.log.Warn("clustermesh: Secret apply failed",
+				"id", dep.ID,
+				"region", a.key,
+				"cluster", a.clusterName,
+				"err", err,
+			)
+			h.emitClusterMeshProgress(dep, "warn",
+				fmt.Sprintf("ClusterMesh: region %q Secret write failed (%v) — chart's reload-watch will not see peer config", a.key, err))
+			for k := range st.Peers {
+				if st.Peers[k].Error == "" {
+					st.Peers[k].Connected = false
+					st.Peers[k].Error = fmt.Sprintf("secret apply failed: %v", err)
+				}
+			}
+			statuses = append(statuses, st)
+			continue
+		}
+
+		// Trigger rollout-restart on cilium + cilium-operator +
+		// clustermesh-apiserver in this region so they pick up the
+		// new peer entries deterministically. Best-effort: errors are
+		// logged, not fatal.
+		h.rolloutRestartClusterMeshTargets(ctx, dep, a)
+
+		readyCount := 0
+		for _, p := range st.Peers {
+			if p.Connected {
+				readyCount++
+			}
+		}
+		if readyCount == len(slots)-1 {
+			st.ReadyAt = time.Now().UTC()
+		}
+		statuses = append(statuses, st)
+
+		h.emitClusterMeshProgress(dep, "info",
+			fmt.Sprintf("ClusterMesh: region %q wired %d/%d peers", a.key, readyCount, len(slots)-1))
+	}
+
+	// Stable order for the caller — primary first, then secondaries by
+	// region key.
+	sort.SliceStable(statuses, func(i, j int) bool {
+		if statuses[i].RegionKey == "" {
+			return true
+		}
+		if statuses[j].RegionKey == "" {
+			return false
+		}
+		return statuses[i].RegionKey < statuses[j].RegionKey
+	})
+
+	totalReady := 0
+	for _, st := range statuses {
+		if !st.ReadyAt.IsZero() {
+			totalReady++
+		}
+	}
+	h.emitClusterMeshProgress(dep, "info",
+		fmt.Sprintf("ClusterMesh auto-establish: completed (%d/%d regions fully meshed)", totalReady, len(statuses)))
+
+	h.log.Info("clustermesh: orchestrator completed",
+		"id", dep.ID,
+		"regions", len(statuses),
+		"fullyMeshed", totalReady,
+	)
+
+	return statuses, nil
+}
+
+// buildRegionSlots gathers per-region clients + identity. The primary
+// kubeconfig path is `<kubeconfigsDir>/<id>.yaml`; each secondary is
+// `<kubeconfigsDir>/<id>-<region>.yaml`. The first non-empty region in
+// dep.Request.Regions is treated as the primary.
+//
+// Regions whose kubeconfig is missing on disk are returned as
+// already-failed slots so the per-peer status surfaces the gap.
+func (h *Handler) buildRegionSlots(
+	dep *Deployment,
+	regions []provisioner.RegionSpec,
+	primaryKubeconfigPath string,
+	secondaryPaths map[string]string,
+) []regionSlot {
+	out := make([]regionSlot, 0, len(regions))
+
+	// Index secondaries by the cloud region string (e.g. "hel1") and by
+	// the suffixed key (e.g. "hel1-2") so we tolerate either form on
+	// disk. spawnSecondaryRegionWatchers writes by the suffixed key.
+	pickPath := func(key, cloudRegion string) string {
+		if p, ok := secondaryPaths[key]; ok && p != "" {
+			return p
+		}
+		if p, ok := secondaryPaths[cloudRegion]; ok && p != "" {
+			return p
+		}
+		if h.kubeconfigsDir == "" {
+			return ""
+		}
+		// Best-effort filesystem fallback: <dir>/<id>-<key>.yaml.
+		candidate := filepath.Join(h.kubeconfigsDir, dep.ID+"-"+key+".yaml")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+		return ""
+	}
+
+	// Cilium cluster IDs are deterministic: primary gets the derived id,
+	// each secondary gets primary+1, primary+2, … (matching infra
+	// /hetzner/main.tf's allocation).
+	primaryID := dep.Request.ClusterMeshID
+	if primaryID == 0 {
+		// Fallback: derive via the same hash main.tf uses. Per
+		// docs/INVIOLABLE-PRINCIPLES.md #3 we don't reach into the
+		// provisioner package's private helper here; we accept that
+		// if Request.ClusterMeshID is unset, the slot.ClusterID is
+		// 0 and the status row reports it that way.
+		primaryID = 0
+	}
+
+	for idx, rs := range regions {
+		key := regionKeyFromSpec(rs, idx)
+		isPrimary := idx == 0
+		kc := ""
+		if isPrimary {
+			kc = primaryKubeconfigPath
+		} else {
+			kc = pickPath(key, rs.CloudRegion)
+		}
+
+		clusterName := strings.TrimSpace(rs.ClusterMeshName)
+		if clusterName == "" {
+			clusterName = strings.TrimSpace(dep.Request.ClusterMeshName)
+			if !isPrimary && clusterName != "" {
+				// Auto-derive secondary peer name per the convention
+				// in deriveClusterMeshName: "<sovereign-stem>-<region>".
+				clusterName = clusterName + "-" + key
+			}
+		}
+
+		slot := regionSlot{
+			key:            key,
+			kubeconfigPath: kc,
+			clusterName:    clusterName,
+		}
+		if isPrimary {
+			slot.clusterID = primaryID
+		} else if primaryID != 0 {
+			slot.clusterID = primaryID + idx
+		}
+
+		if kc == "" {
+			slot.err = fmt.Errorf("kubeconfig path empty (cloud-init may not have posted back yet)")
+			out = append(out, slot)
+			continue
+		}
+
+		// Test-only short-circuit: if a factory override is wired,
+		// route the path through it. Production override is nil; the
+		// fall-through reads the file and calls helmwatch.
+		if clusterMeshTestClientFactory != nil {
+			if c, ok := clusterMeshTestClientFactory(kc); ok {
+				slot.clientset = c
+				out = append(out, slot)
+				continue
+			}
+		}
+		raw, err := os.ReadFile(kc)
+		if err != nil {
+			slot.err = fmt.Errorf("read kubeconfig %q: %w", kc, err)
+			out = append(out, slot)
+			continue
+		}
+		client, err := helmwatch.NewKubernetesClientFromKubeconfig(string(raw))
+		if err != nil {
+			slot.err = fmt.Errorf("build client from kubeconfig: %w", err)
+			out = append(out, slot)
+			continue
+		}
+		slot.clientset = client
+		out = append(out, slot)
+	}
+	return out
+}
+
+// regionKeyFromSpec returns the per-region key string used to disambiguate
+// kubeconfig filenames + secondaryWatchers / secondaryKubeconfigPaths
+// map keys. The primary region (idx 0) returns "" so its kubeconfig
+// path stays `<dir>/<id>.yaml`.
+func regionKeyFromSpec(rs provisioner.RegionSpec, idx int) string {
+	if idx == 0 {
+		return ""
+	}
+	// Convention used by spawnSecondaryRegionWatchers: the per-region
+	// key is rs.CloudRegion plus a "-<idx>" suffix when more than one
+	// secondary shares a cloud region. We match the convention exactly
+	// so an existing kubeconfig file written by PutKubeconfig is
+	// findable.
+	return fmt.Sprintf("%s-%d", rs.CloudRegion, idx+1)
+}
+
+// waitForClusterMeshLB polls Service kube-system/clustermesh-apiserver
+// up to clusterMeshLBLookupTimeout for a LoadBalancer ingress IP. Per
+// invariants A2/A3 the Service type MUST be LoadBalancer (always public
+// IP, never NodePort). A typed-mismatch is treated as a hard failure
+// rather than retried.
+func (h *Handler) waitForClusterMeshLB(ctx context.Context, client kubernetes.Interface) (string, error) {
+	timeout := clusterMeshLBLookupTimeout
+	if clusterMeshTestOverrideLBTimeout > 0 {
+		timeout = clusterMeshTestOverrideLBTimeout
+	}
+	interval := clusterMeshLBLookupInterval
+	if clusterMeshTestOverrideLBInterval > 0 {
+		interval = clusterMeshTestOverrideLBInterval
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		callCtx, cancel := context.WithTimeout(ctx, clusterMeshCallTimeout)
+		svc, err := client.CoreV1().Services(clusterMeshNamespace).Get(callCtx, clusterMeshApiserverService, metav1.GetOptions{})
+		cancel()
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				if time.Now().After(deadline) {
+					return "", fmt.Errorf("Service %s/%s not found after %s",
+						clusterMeshNamespace, clusterMeshApiserverService, timeout)
+				}
+				if err := sleepCtx(ctx, interval); err != nil {
+					return "", err
+				}
+				continue
+			}
+			return "", fmt.Errorf("Get Service %s/%s: %w",
+				clusterMeshNamespace, clusterMeshApiserverService, err)
+		}
+		// Hard-fail if someone has retyped the Service: invariant A3.
+		if svc.Spec.Type != corev1.ServiceTypeLoadBalancer {
+			return "", fmt.Errorf("Service %s/%s type %q violates invariant A3 (must be LoadBalancer)",
+				clusterMeshNamespace, clusterMeshApiserverService, svc.Spec.Type)
+		}
+		for _, ing := range svc.Status.LoadBalancer.Ingress {
+			if ing.IP != "" {
+				return ing.IP, nil
+			}
+			if ing.Hostname != "" {
+				return ing.Hostname, nil
+			}
+		}
+		if time.Now().After(deadline) {
+			return "", fmt.Errorf("Service %s/%s has no LoadBalancer ingress after %s",
+				clusterMeshNamespace, clusterMeshApiserverService, timeout)
+		}
+		if err := sleepCtx(ctx, interval); err != nil {
+			return "", err
+		}
+	}
+}
+
+// snapshotCiliumCA reads kube-system/cilium-ca and returns the CA cert
+// + key bytes. The upstream Cilium chart auto-generates this Secret on
+// every cluster where clustermesh.useAPIServer is true.
+func (h *Handler) snapshotCiliumCA(ctx context.Context, client kubernetes.Interface) (cert, key []byte, err error) {
+	callCtx, cancel := context.WithTimeout(ctx, clusterMeshCallTimeout)
+	defer cancel()
+	secret, err := client.CoreV1().Secrets(clusterMeshNamespace).Get(callCtx, clusterMeshCASecretName, metav1.GetOptions{})
+	if err != nil {
+		return nil, nil, fmt.Errorf("Get Secret %s/%s: %w",
+			clusterMeshNamespace, clusterMeshCASecretName, err)
+	}
+	// Cilium chart uses ca.crt / ca.key by default; some older builds
+	// used tls.crt / tls.key. Accept either, prefer ca.*.
+	cert = firstNonEmptyBytes(secret.Data["ca.crt"], secret.Data["tls.crt"])
+	key = firstNonEmptyBytes(secret.Data["ca.key"], secret.Data["tls.key"])
+	if len(cert) == 0 || len(key) == 0 {
+		return nil, nil, fmt.Errorf("Secret %s/%s missing CA cert/key bytes (have keys: %v)",
+			clusterMeshNamespace, clusterMeshCASecretName, secretKeys(secret))
+	}
+	return cert, key, nil
+}
+
+// mintPeerClientCert issues a short-lived client certificate signed by
+// the local Cilium CA. The SAN is the local cluster name; that's what
+// the upstream chart's clustermesh-apiserver verifies on the mTLS
+// handshake.
+//
+// The cert is intentionally not stored in a K8s Secret on the local
+// cluster — it's transmitted as the value of one peer entry in B's
+// cilium-clustermesh Secret. (B verifies it against A's CA, which we
+// also write into the same entry under `<peer>-ca.crt`.)
+func (h *Handler) mintPeerClientCert(caCertPEM, caKeyPEM []byte, clusterName string) (certPEM, keyPEM []byte, err error) {
+	caBlock, _ := pem.Decode(caCertPEM)
+	if caBlock == nil {
+		return nil, nil, fmt.Errorf("decode CA cert PEM: empty")
+	}
+	caCert, err := x509.ParseCertificate(caBlock.Bytes)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parse CA cert: %w", err)
+	}
+	keyBlock, _ := pem.Decode(caKeyPEM)
+	if keyBlock == nil {
+		return nil, nil, fmt.Errorf("decode CA key PEM: empty")
+	}
+	caKey, err := parsePrivateKey(keyBlock.Bytes)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parse CA key: %w", err)
+	}
+	clientKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, nil, fmt.Errorf("generate client key: %w", err)
+	}
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return nil, nil, fmt.Errorf("generate serial: %w", err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: serial,
+		Subject:      pkix.Name{CommonName: clusterName},
+		DNSNames:     []string{clusterName, clusterMeshApiserverService},
+		NotBefore:    time.Now().Add(-5 * time.Minute),
+		NotAfter:     time.Now().Add(clusterMeshPeerCertValidity),
+		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
+	}
+	derBytes, err := x509.CreateCertificate(rand.Reader, tmpl, caCert, &clientKey.PublicKey, caKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("create certificate: %w", err)
+	}
+	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
+	keyBytes := x509.MarshalPKCS1PrivateKey(clientKey)
+	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: keyBytes})
+	return certPEM, keyPEM, nil
+}
+
+// parsePrivateKey accepts both PKCS1 and PKCS8-encoded RSA keys, which
+// is the union of what cert-manager and openssl emit.
+func parsePrivateKey(der []byte) (any, error) {
+	if k, err := x509.ParsePKCS1PrivateKey(der); err == nil {
+		return k, nil
+	}
+	if k, err := x509.ParsePKCS8PrivateKey(der); err == nil {
+		return k, nil
+	}
+	if k, err := x509.ParseECPrivateKey(der); err == nil {
+		return k, nil
+	}
+	return nil, fmt.Errorf("unsupported private key encoding")
+}
+
+// buildPeerConfigBlob returns the YAML clustermesh peer config the
+// upstream chart's apiserver consumes. Filename paths inside the blob
+// point at the well-known mount path /var/lib/cilium/clustermesh —
+// those filenames must match the Secret entry keys we write (peer ->
+// `<peer>-ca.crt`, `<peer>.crt`, `<peer>.key`).
+func buildPeerConfigBlob(peerClusterName, peerLBIP string) []byte {
+	endpoint := fmt.Sprintf("https://%s:%d", peerLBIP, clusterMeshAPIServerPort)
+	blob := strings.Join([]string{
+		"endpoints:",
+		"- " + endpoint,
+		fmt.Sprintf("trusted-ca-file: /var/lib/cilium/clustermesh/%s-ca.crt", peerClusterName),
+		fmt.Sprintf("cert-file:       /var/lib/cilium/clustermesh/%s.crt", peerClusterName),
+		fmt.Sprintf("key-file:        /var/lib/cilium/clustermesh/%s.key", peerClusterName),
+		"",
+	}, "\n")
+	return []byte(blob)
+}
+
+// applyClusterMeshSecret writes/merges peer entries into the local
+// cluster's kube-system/cilium-clustermesh Secret. Existing entries
+// for OTHER peer names are preserved; entries for the peer names in
+// `entries` are overwritten with the freshly minted bytes (idempotent
+// re-runs converge byte-identically because mintPeerClientCert is the
+// only non-deterministic step and the new bytes always supersede).
+func (h *Handler) applyClusterMeshSecret(ctx context.Context, client kubernetes.Interface, entries map[string][]byte) error {
+	if len(entries) == 0 {
+		return nil
+	}
+	callCtx, cancel := context.WithTimeout(ctx, clusterMeshCallTimeout)
+	defer cancel()
+	existing, err := client.CoreV1().Secrets(clusterMeshNamespace).Get(callCtx, clusterMeshSecretName, metav1.GetOptions{})
+	if err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("Get Secret %s/%s: %w",
+			clusterMeshNamespace, clusterMeshSecretName, err)
+	}
+	if apierrors.IsNotFound(err) {
+		s := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      clusterMeshSecretName,
+				Namespace: clusterMeshNamespace,
+				Labels: map[string]string{
+					"app.kubernetes.io/name":       "cilium-clustermesh",
+					"app.kubernetes.io/managed-by": "catalyst-api",
+					"catalyst.openova.io/seed":     "clustermesh-peers",
+				},
+			},
+			Type: corev1.SecretTypeOpaque,
+			Data: entries,
+		}
+		if _, createErr := client.CoreV1().Secrets(clusterMeshNamespace).Create(callCtx, s, metav1.CreateOptions{}); createErr != nil {
+			if apierrors.IsAlreadyExists(createErr) {
+				// Race window — fall through to Update.
+				return h.updateClusterMeshSecret(ctx, client, entries)
+			}
+			return fmt.Errorf("Create Secret %s/%s: %w",
+				clusterMeshNamespace, clusterMeshSecretName, createErr)
+		}
+		return nil
+	}
+	// Merge: keep entries we don't manage, overwrite ones we do.
+	merged := make(map[string][]byte, len(existing.Data)+len(entries))
+	for k, v := range existing.Data {
+		merged[k] = v
+	}
+	for k, v := range entries {
+		merged[k] = v
+	}
+	patch := []byte(fmt.Sprintf(`{"data":%s}`, encodeSecretDataJSON(merged)))
+	if _, patchErr := client.CoreV1().Secrets(clusterMeshNamespace).Patch(callCtx, clusterMeshSecretName, types.MergePatchType, patch, metav1.PatchOptions{}); patchErr != nil {
+		return fmt.Errorf("Patch Secret %s/%s: %w",
+			clusterMeshNamespace, clusterMeshSecretName, patchErr)
+	}
+	return nil
+}
+
+// updateClusterMeshSecret is the race-window fallback when Create
+// raced an external writer.
+func (h *Handler) updateClusterMeshSecret(ctx context.Context, client kubernetes.Interface, entries map[string][]byte) error {
+	callCtx, cancel := context.WithTimeout(ctx, clusterMeshCallTimeout)
+	defer cancel()
+	existing, err := client.CoreV1().Secrets(clusterMeshNamespace).Get(callCtx, clusterMeshSecretName, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("Get Secret %s/%s: %w",
+			clusterMeshNamespace, clusterMeshSecretName, err)
+	}
+	merged := make(map[string][]byte, len(existing.Data)+len(entries))
+	for k, v := range existing.Data {
+		merged[k] = v
+	}
+	for k, v := range entries {
+		merged[k] = v
+	}
+	existing.Data = merged
+	if _, updErr := client.CoreV1().Secrets(clusterMeshNamespace).Update(callCtx, existing, metav1.UpdateOptions{}); updErr != nil {
+		return fmt.Errorf("Update Secret %s/%s: %w",
+			clusterMeshNamespace, clusterMeshSecretName, updErr)
+	}
+	return nil
+}
+
+// rolloutRestartClusterMeshTargets bumps a restartedAt annotation on
+// cilium, cilium-operator, and clustermesh-apiserver so they pick up
+// the new Secret entries deterministically. Failures here are logged
+// but never abort the orchestrator — the chart's reload watch can
+// still pick up the new bytes on its next tick.
+func (h *Handler) rolloutRestartClusterMeshTargets(ctx context.Context, dep *Deployment, slot *regionSlot) {
+	stamp := time.Now().UTC().Format(time.RFC3339)
+	patch := []byte(fmt.Sprintf(`{"spec":{"template":{"metadata":{"annotations":{"catalyst.openova.io/restartedAt":%q}}}}}`, stamp))
+	for _, t := range clusterMeshRolloutTargets {
+		callCtx, cancel := context.WithTimeout(ctx, clusterMeshCallTimeout)
+		var err error
+		switch t.kind {
+		case "daemonset":
+			_, err = slot.clientset.AppsV1().DaemonSets(clusterMeshNamespace).Patch(callCtx, t.name, types.StrategicMergePatchType, patch, metav1.PatchOptions{})
+		case "deployment":
+			_, err = slot.clientset.AppsV1().Deployments(clusterMeshNamespace).Patch(callCtx, t.name, types.StrategicMergePatchType, patch, metav1.PatchOptions{})
+		}
+		cancel()
+		if err != nil && !apierrors.IsNotFound(err) {
+			h.log.Warn("clustermesh: rollout-restart failed (continuing)",
+				"id", dep.ID,
+				"region", slot.key,
+				"kind", t.kind,
+				"name", t.name,
+				"err", err,
+			)
+		}
+	}
+}
+
+// emitClusterMeshProgress pushes a typed SSE event onto the deployment
+// event bus so the canvas can render per-peer progress in real time.
+// Phase is hardcoded to clusterMeshPhase ("clustermesh-progress") so
+// the canvas reducer can filter on it.
+func (h *Handler) emitClusterMeshProgress(dep *Deployment, level, msg string) {
+	h.emitWatchEvent(dep, provisioner.Event{
+		Time:    time.Now().UTC().Format(time.RFC3339),
+		Phase:   clusterMeshPhase,
+		Level:   level,
+		Message: msg,
+	})
+}
+
+// ── small helpers ───────────────────────────────────────────────────
+
+func firstNonEmptyBytes(a, b []byte) []byte {
+	if len(a) > 0 {
+		return a
+	}
+	return b
+}
+
+func secretKeys(s *corev1.Secret) []string {
+	if s == nil {
+		return nil
+	}
+	out := make([]string, 0, len(s.Data))
+	for k := range s.Data {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// encodeSecretDataJSON marshals a map[string][]byte as the JSON shape
+// the K8s API expects for Secret.data (base64-encoded values keyed by
+// the entry name). Keeps the order stable so idempotent re-runs
+// produce byte-identical patches.
+func encodeSecretDataJSON(data map[string][]byte) string {
+	keys := make([]string, 0, len(data))
+	for k := range data {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var sb strings.Builder
+	sb.WriteString("{")
+	for i, k := range keys {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		sb.WriteString(`"`)
+		sb.WriteString(k)
+		sb.WriteString(`":"`)
+		sb.WriteString(base64Encode(data[k]))
+		sb.WriteString(`"`)
+	}
+	sb.WriteString("}")
+	return sb.String()
+}
+
+// base64Encode is std-lib base64.
+func base64Encode(b []byte) string {
+	return base64.StdEncoding.EncodeToString(b)
+}
+
+// sleepCtx is context.Sleep — interruptible sleep. Returns ctx.Err()
+// if the context is cancelled before the duration elapses.
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}

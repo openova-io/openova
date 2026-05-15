@@ -731,6 +731,44 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 	// it.
 	if outcome == helmwatch.OutcomeReady && finalStatus == "ready" {
 		h.fireHandover(dep)
+		// Auto-establish Cilium ClusterMesh across regions after
+		// Phase-1 converges. The orchestrator wires every region's
+		// clustermesh-apiserver into a fully-connected peer mesh.
+		// Skipped automatically for single-region provs
+		// (len(dep.Request.Regions) < 2) inside the helper.
+		//
+		// Run on a background goroutine so the helmwatch terminate
+		// path (which holds no locks now) doesn't block on the
+		// per-region LB IP wait loops (each up to 5 min).
+		// docs/SOVEREIGN-MULTI-REGION-DOD.md gates D9-D12.
+		go h.runAutoEstablishClusterMesh(dep)
+	}
+}
+
+// runAutoEstablishClusterMesh is the goroutine wrapper around
+// AutoEstablishClusterMesh — used by markPhase1Done so the terminate
+// path returns immediately. Centralising the recover() + ctx bound +
+// log path here keeps markPhase1Done's hot path one line.
+func (h *Handler) runAutoEstablishClusterMesh(dep *Deployment) {
+	defer func() {
+		if r := recover(); r != nil {
+			h.log.Error("clustermesh: orchestrator panic recovered",
+				"id", dep.ID,
+				"panic", r,
+			)
+		}
+	}()
+	// Bounded budget: the orchestrator's per-region LB lookup is the
+	// longest internal wait (5 min). Three regions x 5 min worst case
+	// is ~15 min; pad to 20 min for the per-peer cert mint + Patch
+	// stack.
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+	defer cancel()
+	if _, err := h.AutoEstablishClusterMesh(ctx, dep); err != nil {
+		h.log.Warn("clustermesh: orchestrator returned error",
+			"id", dep.ID,
+			"err", err,
+		)
 	}
 }
 
