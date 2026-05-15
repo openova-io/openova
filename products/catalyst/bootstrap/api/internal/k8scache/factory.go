@@ -443,6 +443,16 @@ func (f *Factory) AddCluster(c ClusterRef) error {
 		// not minutes.
 		restCfg.QPS = 50
 		restCfg.Burst = 100
+		// Skip TLS verify on Sovereign k3s self-signed CAs. See the
+		// matching comment in helmwatch/kubeconfig.go for the full
+		// rationale — bearer-token auth is preserved, this only
+		// affects mothership informers reading Sovereign resource
+		// state. Without this, the reflector x509-fails on every
+		// fresh prov and the CloudPage resource explorer stays
+		// empty.
+		restCfg.TLSClientConfig.Insecure = true
+		restCfg.TLSClientConfig.CAData = nil
+		restCfg.TLSClientConfig.CAFile = ""
 		dyn, err = dynamic.NewForConfig(restCfg)
 		if err != nil {
 			return fmt.Errorf("dynamic client: %w", err)
