@@ -570,6 +570,26 @@ func (b *Bridge) OnHelmReleaseEvent(componentID, state, level, message string, t
 	} else if len(dependsOn) > 0 {
 		resolvedDeps = dependsOn
 	}
+	// Also canonicalise any malformed entries inherited from prior
+	// writes (pre-PR-1500 stored "hel1-2:gitea" without "install-"
+	// prefix; the snapshot composer emits a FromId that matches no
+	// FlowNode, edge invisible). The canon block above only ran on
+	// the event-carried dependsOn arg; this final pass guarantees
+	// the persisted Job.DependsOn is canonical regardless of where
+	// the entries came from.
+	if len(resolvedDeps) > 0 {
+		canon := make([]string, 0, len(resolvedDeps))
+		for _, d := range resolvedDeps {
+			if d == "" {
+				continue
+			}
+			if !strings.HasPrefix(d, JobNamePrefix) {
+				d = JobNamePrefix + d
+			}
+			canon = append(canon, d)
+		}
+		resolvedDeps = canon
+	}
 	if err := b.store.UpsertJob(Job{
 		DeploymentID: b.deploymentID,
 		JobName:      jobName,
