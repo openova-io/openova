@@ -988,6 +988,7 @@ locals {
       cluster_cidr        = local.region_cluster_cidr[k]
       service_cidr        = local.region_service_cidr[k]
       sovereign_fqdn      = var.sovereign_fqdn
+      sovereign_fqdn_slug = replace(var.sovereign_fqdn, ".", "-")
       sovereign_subdomain = var.sovereign_subdomain
       # OpenovaFlow integration (Agent #3). The secondary CP's region
       # key is each.key from the secondary_regions for_each (e.g. "hel1"
