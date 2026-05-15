@@ -729,6 +729,22 @@ type Event struct {
 	// phase: "component-log" events (which carry the original log
 	// level instead).
 	State string `json:"state,omitempty"`
+
+	// DependsOn carries the HelmRelease's spec.dependsOn[].name list
+	// (with the "bp-" prefix stripped) on every phase:"component"
+	// event. Without this, the bridge writes Jobs with DependsOn=[]
+	// for every HR observed AFTER the watcher's initial-list sync —
+	// i.e. on every fresh provision, where Flux installs the 45 bp-*
+	// HRs over ~10 min AFTER the watcher attaches with an empty
+	// initial list. PR #1431 and PR #1470 patched the seed + persist
+	// paths but did not close this gap; the per-event emit at
+	// helmwatch.go:1525 silently dropped spec.dependsOn. Caught on
+	// prov t102.omani.works (22af2b1120158239, 2026-05-15). For
+	// secondary regions, the entries are region-prefixed
+	// ("gitea" → "hel1-2:gitea") by spawnSecondaryRegionWatchers' emit
+	// callback so intra-region sibling edges land in the
+	// install-<region>:<chart> namespace.
+	DependsOn []string `json:"dependsOn,omitempty"`
 }
 
 // Result captures the OpenTofu outputs the wizard's success screen needs

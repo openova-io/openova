@@ -117,7 +117,7 @@ func TestBridge_OnHelmReleaseEvent_HappyPath(t *testing.T) {
 	st, br, depID := newBridgeFixture(t)
 
 	t0 := time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC)
-	if err := br.OnHelmReleaseEvent("cilium", HelmStatePending, "info", "observed", t0); err != nil {
+	if err := br.OnHelmReleaseEvent("cilium", HelmStatePending, "info", "observed", t0, nil); err != nil {
 		t.Fatal(err)
 	}
 	leaves := leafJobs(mustList(t, st, depID))
@@ -130,7 +130,7 @@ func TestBridge_OnHelmReleaseEvent_HappyPath(t *testing.T) {
 
 	// Transition into installing — allocates an Execution.
 	t1 := t0.Add(2 * time.Second)
-	if err := br.OnHelmReleaseEvent("cilium", HelmStateInstalling, "info", "Helm install in progress", t1); err != nil {
+	if err := br.OnHelmReleaseEvent("cilium", HelmStateInstalling, "info", "Helm install in progress", t1, nil); err != nil {
 		t.Fatal(err)
 	}
 	leaves = leafJobs(mustList(t, st, depID))
@@ -146,7 +146,7 @@ func TestBridge_OnHelmReleaseEvent_HappyPath(t *testing.T) {
 
 	// Terminal: installed.
 	t2 := t1.Add(30 * time.Second)
-	if err := br.OnHelmReleaseEvent("cilium", HelmStateInstalled, "info", "Ready=True", t2); err != nil {
+	if err := br.OnHelmReleaseEvent("cilium", HelmStateInstalled, "info", "Ready=True", t2, nil); err != nil {
 		t.Fatal(err)
 	}
 	job, execs, err := st.GetJob(depID, JobID(depID, "install-cilium"))
@@ -182,10 +182,10 @@ func TestBridge_OnHelmReleaseEvent_HappyPath(t *testing.T) {
 func TestBridge_OnHelmReleaseEvent_FailedTerminal(t *testing.T) {
 	st, br, depID := newBridgeFixture(t)
 	t0 := time.Now().UTC()
-	if err := br.OnHelmReleaseEvent("flux", HelmStateInstalling, "info", "first reconcile", t0); err != nil {
+	if err := br.OnHelmReleaseEvent("flux", HelmStateInstalling, "info", "first reconcile", t0, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := br.OnHelmReleaseEvent("flux", HelmStateFailed, "error", "InstallFailed: chart not found", t0.Add(time.Second)); err != nil {
+	if err := br.OnHelmReleaseEvent("flux", HelmStateFailed, "error", "InstallFailed: chart not found", t0.Add(time.Second), nil); err != nil {
 		t.Fatal(err)
 	}
 	job, _, _ := st.GetJob(depID, JobID(depID, "install-flux"))
@@ -208,7 +208,7 @@ func TestBridge_DuplicateStateSuppressed(t *testing.T) {
 	st, br, depID := newBridgeFixture(t)
 	t0 := time.Now().UTC()
 	for i := 0; i < 5; i++ {
-		if err := br.OnHelmReleaseEvent("foo", HelmStateInstalling, "info", "spinning", t0.Add(time.Duration(i)*time.Second)); err != nil {
+		if err := br.OnHelmReleaseEvent("foo", HelmStateInstalling, "info", "spinning", t0.Add(time.Duration(i)*time.Second), nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -522,7 +522,7 @@ func TestSeedJobsFromInformerList_subsequentTransitionSuppressed(t *testing.T) {
 	// installed state. Because lastState[cilium] is already
 	// "installed" from the seed, the bridge must short-circuit and
 	// NOT allocate a second Execution.
-	if err := br.OnHelmReleaseEvent("cilium", HelmStateInstalled, "info", "still ok", now.Add(time.Second)); err != nil {
+	if err := br.OnHelmReleaseEvent("cilium", HelmStateInstalled, "info", "still ok", now.Add(time.Second), nil); err != nil {
 		t.Fatalf("OnHelmReleaseEvent: %v", err)
 	}
 	_, execs, err := st.GetJob(depID, JobID(depID, "install-cilium"))
@@ -769,7 +769,7 @@ func TestBridge_SeedThenRuntimeTransitions(t *testing.T) {
 	// HR-1 (cilium) goes Ready=True → bridge sees the runtime
 	// transition through OnHelmReleaseEvent (Watcher.Subscribe path).
 	// Job status flips to succeeded; siblings remain pending.
-	if err := br.OnHelmReleaseEvent("cilium", HelmStateInstalled, "info", "Helm install succeeded", now.Add(30*time.Second)); err != nil {
+	if err := br.OnHelmReleaseEvent("cilium", HelmStateInstalled, "info", "Helm install succeeded", now.Add(30*time.Second), nil); err != nil {
 		t.Fatalf("OnHelmReleaseEvent cilium installed: %v", err)
 	}
 
@@ -809,7 +809,7 @@ func TestBridge_SeedThenRuntimeTransitions(t *testing.T) {
 
 	// HR-2 (cert-manager) goes Ready=Unknown → state="installing"
 	// → Job status=running. Siblings keep their prior state.
-	if err := br.OnHelmReleaseEvent("cert-manager", HelmStateInstalling, "info", "first reconcile in flight", now.Add(45*time.Second)); err != nil {
+	if err := br.OnHelmReleaseEvent("cert-manager", HelmStateInstalling, "info", "first reconcile in flight", now.Add(45*time.Second), nil); err != nil {
 		t.Fatalf("OnHelmReleaseEvent cert-manager installing: %v", err)
 	}
 

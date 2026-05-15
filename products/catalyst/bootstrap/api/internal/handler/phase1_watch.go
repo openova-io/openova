@@ -469,6 +469,23 @@ func (h *Handler) spawnSecondaryRegionWatchers(dep *Deployment) func() {
 			// feedback_natural_view_is_canon.md: "Node id separator
 			// `:` not `/`".
 			ev.Component = region + ":" + ev.Component
+			// Region-prefix the sibling DependsOn entries so the
+			// install-<region>:<chart> Jobs get intra-region edges
+			// (e.g. install-hel1-2:catalyst-platform depends on
+			// install-hel1-2:gitea, NOT install:gitea). Without
+			// this, every secondary HR's DependsOn list ends up
+			// pointing at the PRIMARY region's bare-named jobs,
+			// and the canvas fan-out collapses cross-region edges
+			// that aren't real. helmwatch.processEvent populated
+			// ev.DependsOn from the live spec.dependsOn; we just
+			// rescope here.
+			if len(ev.DependsOn) > 0 {
+				rescoped := make([]string, 0, len(ev.DependsOn))
+				for _, d := range ev.DependsOn {
+					rescoped = append(rescoped, region+":"+d)
+				}
+				ev.DependsOn = rescoped
+			}
 			h.emitWatchEvent(dep, ev)
 		})
 		if err != nil {

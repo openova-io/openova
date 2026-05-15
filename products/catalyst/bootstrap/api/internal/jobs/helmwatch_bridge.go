@@ -459,7 +459,17 @@ func isTerminalHelmState(state string) bool {
 // The bridge tolerates store errors (returns them) but does not abort
 // the helmwatch event loop — the handler's emit path treats this as
 // a non-fatal best-effort write.
-func (b *Bridge) OnHelmReleaseEvent(componentID, state, level, message string, t time.Time) error {
+//
+// dependsOn carries the HelmRelease's spec.dependsOn[].name list (or
+// nil/empty when the watcher couldn't extract it). Every event writes
+// dependsOn through to the Job row via UpsertJob — mergeJob preserves
+// a non-empty prior value if the current event arrives empty, so the
+// seed's prior writes are never erased. Without this plumbing, the
+// bridge was always writing DependsOn=[]string{} and relying on a
+// pre-existing seed to have populated deps — which failed on every
+// fresh provision because the seed ran on an empty initial-list
+// snapshot.
+func (b *Bridge) OnHelmReleaseEvent(componentID, state, level, message string, t time.Time, dependsOn []string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -470,6 +480,14 @@ func (b *Bridge) OnHelmReleaseEvent(componentID, state, level, message string, t
 		return nil
 	}
 	b.lastState[componentID] = state
+
+	// Canonicalise dependsOn so downstream UpsertJob mergeJob treats
+	// the value consistently — nil and []string{} both serialise to
+	// the same JSON but mergeJob compares by length, so prefer an
+	// empty slice over nil for predictable behaviour.
+	if dependsOn == nil {
+		dependsOn = []string{}
+	}
 
 	// Ensure the bootstrap-kit parent group exists before any leaf is
 	// written underneath it (idempotent — UpsertJob's merge preserves
@@ -512,9 +530,18 @@ func (b *Bridge) OnHelmReleaseEvent(componentID, state, level, message string, t
 	// with `dependsOn: []` in the store → canvas showed flat fan-out).
 	// Same pattern as OnRawComponentLog at line ~939: query then
 	// preserve.
-	existingDeps := []string{}
+	// Resolve DependsOn with a 3-tier preference: prior store value >
+	// event-carried (live HR spec.dependsOn) > empty. The prior-store
+	// branch handles pod restarts (per the comment above). The
+	// event-carried branch fires on FRESH provisions where the seed
+	// observed an empty initial-list snapshot but subsequent events
+	// carry the now-installed HR's spec.dependsOn (PR XXXX,
+	// 2026-05-15).
+	resolvedDeps := []string{}
 	if existing, _, err := b.store.GetJob(b.deploymentID, JobID(b.deploymentID, jobName)); err == nil && len(existing.DependsOn) > 0 {
-		existingDeps = existing.DependsOn
+		resolvedDeps = existing.DependsOn
+	} else if len(dependsOn) > 0 {
+		resolvedDeps = dependsOn
 	}
 	if err := b.store.UpsertJob(Job{
 		DeploymentID: b.deploymentID,
@@ -522,7 +549,7 @@ func (b *Bridge) OnHelmReleaseEvent(componentID, state, level, message string, t
 		AppID:        componentID,
 		Type:         JobTypeInstall,
 		ParentID:     JobID(b.deploymentID, GroupBootstrapKit),
-		DependsOn:    existingDeps,
+		DependsOn:    resolvedDeps,
 		Status:       nextStatus,
 	}); err != nil {
 		return err
@@ -601,7 +628,7 @@ func (b *Bridge) OnProvisionerEvent(ev provisioner.Event) error {
 		if ev.Component == "" || ev.State == "" {
 			return nil
 		}
-		return b.OnHelmReleaseEvent(ev.Component, ev.State, ev.Level, ev.Message, t)
+		return b.OnHelmReleaseEvent(ev.Component, ev.State, ev.Level, ev.Message, t, ev.DependsOn)
 	case phaseComponentLog:
 		if ev.Component == "" {
 			return nil
