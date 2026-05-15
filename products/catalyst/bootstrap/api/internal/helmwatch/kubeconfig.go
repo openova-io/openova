@@ -40,6 +40,20 @@ func restConfigFromKubeconfig(kubeconfigYAML string) (*rest.Config, error) {
 	// Stamp the per-request timeout. clientcmd never sets one by
 	// default, so a hung handshake stays hung forever (issue #923).
 	cfg.Timeout = DefaultRESTConfigTimeout
+	// Sovereign clusters use self-signed k3s CAs; we skip verify
+	// because mothership only watches via authenticated kubeconfig
+	// (bearer token / client-cert still verified server-side) and
+	// the API server is firewall-scoped behind Hetzner LB. Without
+	// this every list/watch fails x509 "signed by unknown authority"
+	// and the canvas at /sovereign/provision/<id>/jobs shows only
+	// Phase-0 tofu jobs — Phase-1+ HR events never flow to mothership.
+	// Caught on omani.homes 2026-05-15 09:12 (49.12.210.78,
+	// 178.105.134.94, 204.168.212.113); has been broken on every
+	// multi-region prov to date. Follow-up: ship per-cluster CA in
+	// the handover kubeconfig and drop this skip.
+	cfg.TLSClientConfig.Insecure = true //nolint:gosec // self-signed k3s CA; auth via kubeconfig bearer/client-cert + firewall-scoped LB. See comment above.
+	cfg.TLSClientConfig.CAData = nil
+	cfg.TLSClientConfig.CAFile = ""
 	return cfg, nil
 }
 
