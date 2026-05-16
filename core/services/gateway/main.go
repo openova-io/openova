@@ -62,8 +62,19 @@ func main() {
 		{PathPrefix: "/api/provisioning/status/", Upstream: provisioningURL, StripPrefix: "/api", Public: true},
 		{PathPrefix: "/api/provisioning/tenant/", Upstream: provisioningURL, StripPrefix: "/api", Public: true},
 		{PathPrefix: "/api/provisioning/", Upstream: provisioningURL, StripPrefix: "/api", Public: false},
-		// Billing (mixed — webhook is public, rest requires auth).
+		// Billing (mixed — public list of plans/addons/redeem-preview for
+		// the marketplace landing + /redeem flow; webhook for Stripe;
+		// everything else requires auth).
+		// D29 fix 2026-05-16: /redeem?code=XXX page calls
+		// /api/billing/vouchers/redeem-preview unauthenticated per
+		// docs/FRANCHISE-MODEL.md §3; the catch-all entry was returning
+		// 401 and breaking the entire voucher-redeem zero-touch flow.
+		// Plans + addons must also be public so the marketplace landing
+		// can render pricing without a session.
 		{PathPrefix: "/api/billing/webhook", Upstream: billingURL, StripPrefix: "/api", Public: true},
+		{PathPrefix: "/api/billing/vouchers/redeem-preview", Upstream: billingURL, StripPrefix: "/api", Public: true},
+		{PathPrefix: "/api/billing/plans", Upstream: billingURL, StripPrefix: "/api", Public: true},
+		{PathPrefix: "/api/billing/addons", Upstream: billingURL, StripPrefix: "/api", Public: true},
 		{PathPrefix: "/api/billing/", Upstream: billingURL, StripPrefix: "/api", Public: false},
 		// Domain (requires auth).
 		{PathPrefix: "/api/domain/", Upstream: domainURL, StripPrefix: "/api", Public: false},
