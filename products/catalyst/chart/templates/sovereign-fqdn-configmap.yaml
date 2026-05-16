@@ -108,4 +108,16 @@ data:
   {{-   $apps = default (list) .Values.qaFixtures.applications }}
   {{- end }}
   qaApplications: {{ join "," $apps | quote }}
+  # regionsJson — canonical multi-region RegionSpec[] JSON. Threaded
+  # in from the mothership prov body's `regions` array via
+  # .Values.sovereign.regionsJson (operator-set during provision).
+  # Read by catalyst-api's chrootEnsureDeployment → populates
+  # Request.Regions so /infrastructure/topology returns 3 Regions on
+  # a 3-region Sovereign. Without this the chroot synth falls back
+  # to live-Nodes enumeration which only sees THIS cluster (D5 ❌).
+  #
+  # Shape: a JSON array literal [{provider, cloudRegion, controlPlaneSize,
+  # workerSize, workerCount}, ...]. Empty string → chroot uses
+  # buildRegionFromLiveNodes (legacy single-region path).
+  regionsJson: {{ default "" .Values.sovereign.regionsJson | quote }}
 {{- end }}

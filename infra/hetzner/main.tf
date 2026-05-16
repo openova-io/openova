@@ -533,6 +533,15 @@ locals {
       var.parent_domains_yaml,
       format("[{name: \"%s\", role: \"primary\"}]", var.sovereign_fqdn)
     )
+    # sovereign_regions_json — canonical multi-region RegionSpec[]
+    # JSON literal. Threaded into bp-catalyst-platform's
+    # .Values.sovereign.regionsJson via the bootstrap-kit slot 13
+    # postBuild.substitute `SOVEREIGN_REGIONS_JSON`. Catalyst-api on
+    # the Sovereign side reads via the `sovereign-fqdn` ConfigMap env
+    # `SOVEREIGN_REGIONS_JSON` and uses to seed Request.Regions on the
+    # chroot Deployment so /infrastructure/topology returns the
+    # full multi-region tree (DoD D5).
+    sovereign_regions_json = jsonencode(var.regions)
     org_name  = var.org_name
     org_email = var.org_email
     region    = var.region
@@ -1067,6 +1076,10 @@ locals {
         var.parent_domains_yaml,
         format("[{name: \"%s\", role: \"primary\"}]", var.sovereign_fqdn)
       )
+      # Same JSON-encoded RegionSpec[] as the primary CP — every region's
+      # bp-catalyst-platform renders the same sovereign.regionsJson value
+      # (the cluster topology is Sovereign-wide, not per-region).
+      sovereign_regions_json = jsonencode(var.regions)
       org_name  = var.org_name
       org_email = var.org_email
       region    = r.cloudRegion

@@ -1029,6 +1029,17 @@ write_files:
             # failure mode (caught on t127, 2026-05-16).
             MGMT_VCLUSTER_ENABLED: "${mgmt_vcluster_enabled}"
             RTZ_VCLUSTER_ENABLED: "${rtz_vcluster_enabled}"
+            # SOVEREIGN_REGIONS_JSON — JSON-encoded RegionSpec[] from
+            # mothership prov body. Read by bp-catalyst-platform slot 13
+            # (sovereign.regionsJson) → sovereign-fqdn ConfigMap
+            # `regionsJson` → catalyst-api env SOVEREIGN_REGIONS_JSON →
+            # chrootEnsureDeployment seeds Request.Regions[] →
+            # /cloud?view=graph renders multi-region (DoD D5).
+            # Single-quoted so YAML treats JSON braces/quotes/commas
+            # as literal. Caught on t126 (2026-05-16): UI showed
+            # "1 cluster 1 region" because chroot fell back to
+            # live-Nodes enumeration.
+            SOVEREIGN_REGIONS_JSON: '${sovereign_regions_json}'
             # QA fixtures auto-enable (Fix #73 — qa-loop bounded-cycle
             # iter-16). Default "false" so a customer-facing zero-touch
             # provision lands a Sovereign with NO qaFixtures stack

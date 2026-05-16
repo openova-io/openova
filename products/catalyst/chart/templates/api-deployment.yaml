@@ -650,6 +650,25 @@ spec:
                   name: sovereign-fqdn
                   key: fqdn
                   optional: true
+            # SOVEREIGN_REGIONS_JSON — the canonical multi-region request
+            # array threaded from the mothership's prov body via the
+            # `sovereign-fqdn` ConfigMap key `regionsJson`. Read by the
+            # chroot Sovereign-side catalyst-api so its
+            # chrootEnsureDeployment populates Request.Regions →
+            # /api/v1/.../infrastructure/topology emits all 3 regions →
+            # /cloud?view=graph renders the multi-region topology
+            # correctly. Without this the chroot synth fell back to
+            # buildRegionFromLiveNodes which only sees THIS cluster's
+            # Nodes → operator sees "1 cluster 1 region" on every
+            # multi-region Sovereign. Caught on t126 (2026-05-16).
+            # optional=true so single-region Sovereigns / chart bring-up
+            # before the ConfigMap key is wired don't crash on missing.
+            - name: SOVEREIGN_REGIONS_JSON
+              valueFrom:
+                configMapKeyRef:
+                  name: sovereign-fqdn
+                  key: regionsJson
+                  optional: true
             # CATALYST_OTECH_FQDN — same value as SOVEREIGN_FQDN, but read by
             # the SME tenant create handler (sme_tenant.go) and the
             # sovereign-parent-domains seed (sovereign_parent_domains.go).
