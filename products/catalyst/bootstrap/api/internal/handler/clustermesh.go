@@ -83,6 +83,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"math/big"
@@ -436,10 +437,34 @@ func (h *Handler) AutoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 			continue
 		}
 
+		// Patch cilium DaemonSet's pod spec with hostAliases mapping
+		// `<peer>.mesh.cilium.io` -> peer LB IP, so the agent's TLS
+		// client connects to a hostname the apiserver-server-cert
+		// covers via its `*.mesh.cilium.io` SAN. Without this the
+		// handshake fails on hostname verification — agents stay
+		// `0/N remote clusters ready` despite valid peer Secrets.
+		peers := make([]hostAliasPeer, 0, len(slots)-1)
+		for j := range slots {
+			if i == j {
+				continue
+			}
+			b := &slots[j]
+			if b.err == nil && b.lbIP != "" && b.clusterName != "" {
+				peers = append(peers, hostAliasPeer{PeerName: b.clusterName, LBIP: b.lbIP})
+			}
+		}
+		if err := h.patchCiliumHostAliases(ctx, a.clientset, peers); err != nil {
+			h.log.Warn("clustermesh: hostAliases patch failed (continuing)",
+				"id", dep.ID,
+				"region", a.key,
+				"err", err,
+			)
+		}
+
 		// Trigger rollout-restart on cilium + cilium-operator +
 		// clustermesh-apiserver in this region so they pick up the
-		// new peer entries deterministically. Best-effort: errors are
-		// logged, not fatal.
+		// new peer entries + hostAliases deterministically. Best-effort:
+		// errors are logged, not fatal.
 		h.rolloutRestartClusterMeshTargets(ctx, dep, a)
 
 		readyCount := 0
@@ -784,8 +809,19 @@ func parsePrivateKey(der []byte) (any, error) {
 // point at the well-known mount path /var/lib/cilium/clustermesh —
 // those filenames must match the Secret entry keys we write (peer ->
 // `<peer>-ca.crt`, `<peer>.crt`, `<peer>.key`).
+//
+// The endpoint uses the canonical Cilium `<peer>.mesh.cilium.io`
+// hostname, NOT the LB IP directly. That hostname matches the
+// `*.mesh.cilium.io` SAN in the clustermesh-apiserver server cert
+// the upstream Cilium chart generates by default. Cilium agents
+// resolve this hostname via a hostAliases entry on the cilium
+// DaemonSet pod spec that maps `<peer>.mesh.cilium.io` -> LB IP
+// (written by patchCiliumHostAliasesForPeer below). Caught on
+// t128 (9680edbdce8fefe8, 2026-05-16): the prior code put the
+// LB IP in the endpoint URL; TLS handshake failed because the
+// server cert had no IP SAN matching the public LB IP.
 func buildPeerConfigBlob(peerClusterName, peerLBIP string) []byte {
-	endpoint := fmt.Sprintf("https://%s:%d", peerLBIP, clusterMeshAPIServerPort)
+	endpoint := fmt.Sprintf("https://%s:%d", peerMeshHostname(peerClusterName), clusterMeshAPIServerPort)
 	blob := strings.Join([]string{
 		"endpoints:",
 		"- " + endpoint,
@@ -795,6 +831,16 @@ func buildPeerConfigBlob(peerClusterName, peerLBIP string) []byte {
 		"",
 	}, "\n")
 	return []byte(blob)
+}
+
+// peerMeshHostname returns the canonical Cilium clustermesh hostname
+// for a peer — `<cluster-name>.mesh.cilium.io`. Used by both the
+// peer config blob (etcd endpoint URL) and the hostAliases patch on
+// the local cilium DaemonSet pod spec, so the agent's TLS client
+// connects to a hostname the apiserver-server-cert covers via its
+// `*.mesh.cilium.io` SAN.
+func peerMeshHostname(peerClusterName string) string {
+	return peerClusterName + ".mesh.cilium.io"
 }
 
 // applyClusterMeshSecret writes/merges peer entries into the local
@@ -877,6 +923,61 @@ func (h *Handler) updateClusterMeshSecret(ctx context.Context, client kubernetes
 			clusterMeshNamespace, clusterMeshSecretName, updErr)
 	}
 	return nil
+}
+
+// patchCiliumHostAliases adds one hostAliases entry per peer to the
+// cilium DaemonSet's pod spec, mapping `<peer>.mesh.cilium.io` to
+// the peer's clustermesh-apiserver LoadBalancer IP. Without this
+// the agent can resolve the hostname but the TLS handshake fails
+// because the LB IP is not in the apiserver-server-cert's SANs.
+//
+// The hostAliases list is a strategic-merge replace of the entire
+// list on each call — idempotent re-runs converge to the same set.
+// Caught on t128 (9680edbdce8fefe8, 2026-05-16): clustermesh agents
+// stayed `0/2 remote clusters ready` despite full peer entries
+// because TLS hostname verification failed at handshake time.
+func (h *Handler) patchCiliumHostAliases(ctx context.Context, client kubernetes.Interface, peers []hostAliasPeer) error {
+	if len(peers) == 0 {
+		return nil
+	}
+	aliases := make([]map[string]any, 0, len(peers))
+	for _, p := range peers {
+		if p.LBIP == "" || p.PeerName == "" {
+			continue
+		}
+		aliases = append(aliases, map[string]any{
+			"ip":        p.LBIP,
+			"hostnames": []string{peerMeshHostname(p.PeerName)},
+		})
+	}
+	if len(aliases) == 0 {
+		return nil
+	}
+	patch := map[string]any{
+		"spec": map[string]any{
+			"template": map[string]any{
+				"spec": map[string]any{
+					"hostAliases": aliases,
+				},
+			},
+		},
+	}
+	patchBytes, err := json.Marshal(patch)
+	if err != nil {
+		return fmt.Errorf("marshal hostAliases patch: %w", err)
+	}
+	callCtx, cancel := context.WithTimeout(ctx, clusterMeshCallTimeout)
+	defer cancel()
+	if _, err := client.AppsV1().DaemonSets(clusterMeshNamespace).Patch(callCtx, "cilium", types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{}); err != nil {
+		return fmt.Errorf("patch cilium DaemonSet hostAliases: %w", err)
+	}
+	return nil
+}
+
+// hostAliasPeer is a minimal projection used by patchCiliumHostAliases.
+type hostAliasPeer struct {
+	PeerName string
+	LBIP     string
 }
 
 // rolloutRestartClusterMeshTargets bumps a restartedAt annotation on
