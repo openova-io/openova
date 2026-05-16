@@ -129,15 +129,15 @@ type PeerStatus struct {
 // regionSlot is a per-region intermediate the orchestrator carries
 // through the three steps (LB IP discovery, CA snapshot, peer write).
 type regionSlot struct {
-	key            string                // e.g. "fsn1-1", "hel1-2", "" for primary
-	kubeconfigPath string                // on-disk path to the region's kubeconfig YAML
-	clusterName    string                // Cilium cluster.name for this region
-	clusterID      int                   // Cilium cluster.id (1..255)
-	clientset      kubernetes.Interface  // typed client built from kubeconfig
-	lbIP           string                // public LB IP of clustermesh-apiserver Service
-	caCert         []byte                // cilium-ca tls.crt bytes
-	caKey          []byte                // cilium-ca tls.key bytes
-	err            error                 // non-nil if LB lookup / CA snapshot failed
+	key            string               // e.g. "fsn1-1", "hel1-2", "" for primary
+	kubeconfigPath string               // on-disk path to the region's kubeconfig YAML
+	clusterName    string               // Cilium cluster.name for this region
+	clusterID      int                  // Cilium cluster.id (1..255)
+	clientset      kubernetes.Interface // typed client built from kubeconfig
+	lbIP           string               // public LB IP of clustermesh-apiserver Service
+	caCert         []byte               // cilium-ca tls.crt bytes
+	caKey          []byte               // cilium-ca tls.key bytes
+	err            error                // non-nil if LB lookup / CA snapshot failed
 }
 
 // clusterMeshConstants — module-level tunables. Per
@@ -145,16 +145,16 @@ type regionSlot struct {
 // overridable via env vars, but the defaults are sized for the
 // canonical Hetzner-LB-on-public-IP path (A2/A3).
 const (
-	clusterMeshSecretName        = "cilium-clustermesh"
-	clusterMeshCASecretName      = "cilium-ca"
-	clusterMeshApiserverService  = "clustermesh-apiserver"
-	clusterMeshNamespace         = "kube-system"
-	clusterMeshAPIServerPort     = 2379
-	clusterMeshLBLookupTimeout   = 5 * time.Minute
-	clusterMeshLBLookupInterval  = 10 * time.Second
-	clusterMeshCallTimeout       = 30 * time.Second
-	clusterMeshPhase             = "clustermesh-progress"
-	clusterMeshPeerCertValidity  = 365 * 24 * time.Hour
+	clusterMeshSecretName       = "cilium-clustermesh"
+	clusterMeshCASecretName     = "cilium-ca"
+	clusterMeshApiserverService = "clustermesh-apiserver"
+	clusterMeshNamespace        = "kube-system"
+	clusterMeshAPIServerPort    = 2379
+	clusterMeshLBLookupTimeout  = 5 * time.Minute
+	clusterMeshLBLookupInterval = 10 * time.Second
+	clusterMeshCallTimeout      = 30 * time.Second
+	clusterMeshPhase            = "clustermesh-progress"
+	clusterMeshPeerCertValidity = 365 * 24 * time.Hour
 )
 
 // clusterMeshDeploymentLabels — the upstream Cilium chart's
@@ -366,6 +366,26 @@ func (h *Handler) AutoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 			st.Peers = append(st.Peers, peer)
 		}
 
+		// Surface empty peerEntries explicitly — silent applyClusterMeshSecret
+		// no-op (line 743) used to make every-peer-failed runs invisible.
+		// Caught on t124 (2026-05-16): regionKeyFromSpec off-by-one had
+		// every slot.err set, so peerEntries stayed empty for all 3
+		// regions and the only stdout line was the misleading
+		// `fullyMeshed=0`. Log per-peer reasons so the next regression
+		// is debuggable from logs alone.
+		if len(peerEntries) == 0 {
+			reasons := make([]string, 0, len(st.Peers))
+			for _, p := range st.Peers {
+				reasons = append(reasons, fmt.Sprintf("%s=%q", p.Name, p.Error))
+			}
+			h.log.Warn("clustermesh: zero peer entries built for region",
+				"id", dep.ID,
+				"region", a.key,
+				"cluster", a.clusterName,
+				"reasons", strings.Join(reasons, ", "),
+			)
+		}
+
 		// Stable order for the Secret update (so an idempotent re-run
 		// produces byte-identical Secret data and no rollout-restart
 		// thrash).
@@ -561,12 +581,17 @@ func regionKeyFromSpec(rs provisioner.RegionSpec, idx int) string {
 	if idx == 0 {
 		return ""
 	}
-	// Convention used by spawnSecondaryRegionWatchers: the per-region
-	// key is rs.CloudRegion plus a "-<idx>" suffix when more than one
-	// secondary shares a cloud region. We match the convention exactly
-	// so an existing kubeconfig file written by PutKubeconfig is
-	// findable.
-	return fmt.Sprintf("%s-%d", rs.CloudRegion, idx+1)
+	// Convention used by tofu's `secondary_regions = { for i, r in
+	// var.regions : "${r.cloudRegion}-${i}" => r if i > 0 }` AND by
+	// PutKubeconfig (?region=<k>) AND by spawnSecondaryRegionWatchers
+	// (scan of `<id>-<rest>.yaml`): the suffix is the ORIGINAL spec
+	// index `i`, NOT `i+1`. With 3 regions (idx 0=primary, idx 1, idx 2)
+	// the secondary keys are `<region>-1` and `<region>-2` respectively.
+	// The prior `idx+1` here returned `<region>-2`/`<region>-3` and
+	// missed the kubeconfigs cloud-init had stored under `-1`/`-2`,
+	// silently producing empty peer entries and `fullyMeshed=0` —
+	// caught on t124 (2026-05-16).
+	return fmt.Sprintf("%s-%d", rs.CloudRegion, idx)
 }
 
 // waitForClusterMeshLB polls Service kube-system/clustermesh-apiserver
