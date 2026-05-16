@@ -83,3 +83,16 @@ spec:
     # cilium-gateway from clusters/_template/bootstrap-kit/01-cilium.yaml.
     gateway:
       host: gitea.${SOVEREIGN_FQDN}
+    # DoD D25 (t129 2026-05-16): override the chart's baked dev hostname
+    # `gitea.catalyst.local` so the Gitea Web UI renders the LIVE
+    # Sovereign FQDN in pageData.appUrl, clone URLs, and internal links.
+    # Without this every Sovereign's Gitea page told the operator to
+    # clone from `gitea.catalyst.local` (which public DNS can't resolve),
+    # breaking the canonical "Sovereign-local Git server" contract that
+    # bp-self-sovereign-cutover relies on.
+    gitea:
+      gitea:
+        config:
+          server:
+            DOMAIN: gitea.${SOVEREIGN_FQDN}
+            ROOT_URL: https://gitea.${SOVEREIGN_FQDN}
