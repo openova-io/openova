@@ -1216,11 +1216,20 @@ func (h *Handler) ListDeployments(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetDeployment(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	val, ok := h.deployments.Load(id)
-	if !ok {
+	var dep *Deployment
+	if ok {
+		dep = val.(*Deployment)
+	} else if dep = h.chrootEnsureDeployment(id); dep == nil {
+		// Match StreamLogs (deployments.go:1247-1254) — on the Sovereign
+		// chroot the in-memory store is empty across catalyst-api Pod
+		// restarts; chrootEnsureDeployment synthesises from SOVEREIGN_FQDN
+		// env + the populated Result/Request fields (PR #1567, D22).
+		// Without this fallback the Settings page renders 404 on every
+		// post-restart load until some OTHER handler (StreamLogs, jobs
+		// list, etc.) primes the store via its own synth call.
 		http.Error(w, "deployment not found", http.StatusNotFound)
 		return
 	}
-	dep := val.(*Deployment)
 	// Issue #689 — ownership check. Returns 404 (not 403) on mismatch so
 	// the existence of someone else's deployment is never leaked.
 	if !h.checkOwnership(w, r, dep) {
