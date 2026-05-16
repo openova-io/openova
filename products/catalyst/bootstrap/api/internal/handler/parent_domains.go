@@ -933,6 +933,20 @@ func (h *Handler) pdmFlipNS(ctx context.Context, registrarKind, domain, token st
 	if len(nameservers) == 0 {
 		return fmt.Errorf("expected-ns-unavailable: cannot compute nameservers (primary domain unknown)")
 	}
+	// D30 short-circuit (caught on t134 2026-05-17): when the domain's
+	// current NS records already match the expected nameservers, the
+	// PDM registrar-flip step is a no-op — there's nothing to flip.
+	// Skipping avoids burning the registrar API credit + sidesteps the
+	// Dynadot pdm-status-401 blocker for sme-pool domains already
+	// delegated to OpenOva (e.g. omani.homes which already points at
+	// ns1/2/3.openova.io). When the lookup fails or returns a different
+	// NS set, fall through to the original pipeline so PDM does the
+	// flip via the registrar API.
+	if h.nsAlreadyMatches(ctx, domain, nameservers) {
+		h.log.Info("pdm-flip-ns: NS already matches expected, skipping registrar-flip",
+			"domain", domain, "registrarKind", registrarKind)
+		return nil
+	}
 	// glueIP — Sovereign's load-balancer public IPv4 (issue #900). When
 	// non-empty PDM pre-registers each NS hostname against the customer's
 	// account before the set_ns flip, unblocking Dynadot's "needs to be
@@ -1028,6 +1042,39 @@ func (h *Handler) lookupSovereignLBIP() string {
 		return true
 	})
 	return picked
+}
+
+// nsAlreadyMatches returns true when domain's current NS records (per
+// the public DNS) already include EVERY name in expected. Case-
+// insensitive, trailing-dot tolerant. Used by pdmFlipNS to short-circuit
+// the registrar-flip step for sme-pool domains already delegated to
+// OpenOva's PowerDNS (D30 — t134 2026-05-17). Returns false on lookup
+// error or partial match so the original PDM pipeline still runs.
+func (h *Handler) nsAlreadyMatches(ctx context.Context, domain string, expected []string) bool {
+	if len(expected) == 0 {
+		return false
+	}
+	lookupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	resolver := net.DefaultResolver
+	got, err := resolver.LookupNS(lookupCtx, domain)
+	if err != nil {
+		return false
+	}
+	have := make(map[string]struct{}, len(got))
+	for _, ns := range got {
+		have[strings.ToLower(strings.TrimSuffix(ns.Host, "."))] = struct{}{}
+	}
+	for _, want := range expected {
+		w := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(want), "."))
+		if w == "" {
+			continue
+		}
+		if _, ok := have[w]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // pdmBasicAuth reads the basic-auth credentials for the PDM public
