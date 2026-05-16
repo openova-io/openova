@@ -1004,6 +1004,27 @@ write_files:
             # but their qaFixtures Pods stay Pending by design (no node
             # carries the primary's label on a secondary cluster).
             QA_PRIMARY_REGION: "${primary_region_canonical_label}"
+            # SOVEREIGN_REGION_CANONICAL_LABEL — THIS region's canonical
+            # k3s node label value (e.g. "hz-hel-rtz-prod" for hel1,
+            # "hz-nbg-rtz-prod" for nbg1, "hz-sin-rtz-prod" for sin).
+            # Used by bp-{mgmt,dmz,rtz}-vcluster slots 54/58/59 for the
+            # vCluster Pod nodeSelector — the SOVEREIGN_REGION_KEY
+            # ("hel1", "nbg1-1") does NOT match the k3s node-label value
+            # written at install time. Caught on t126 (2026-05-16): DMZ
+            # vCluster Pods Pending on every region because nodeSelector
+            # `openova.io/region=hel1` didn't match node label
+            # `openova.io/region=hz-hel-rtz-prod`.
+            SOVEREIGN_REGION_CANONICAL_LABEL: "${region_canonical_label}"
+            # Per-role vCluster enable flags (DoD A4 topology):
+            #   primary    region → MGMT  + DMZ  vCluster
+            #   secondary  region → DMZ   + RTZ  vCluster
+            # The bp-dmz-vcluster slot 54 stays ${DMZ_VCLUSTER_ENABLED:=true}
+            # since DMZ runs everywhere by design — both fall through to
+            # the chart-side default. MGMT_VCLUSTER_ENABLED/RTZ_VCLUSTER_ENABLED
+            # are flipped here per-region so the bootstrap-kit slot reads
+            # the right value at apply time.
+            MGMT_VCLUSTER_ENABLED: "${mgmt_vcluster_enabled}"
+            RTZ_VCLUSTER_ENABLED: "${rtz_vcluster_enabled}"
             # QA fixtures auto-enable (Fix #73 — qa-loop bounded-cycle
             # iter-16). Default "false" so a customer-facing zero-touch
             # provision lands a Sovereign with NO qaFixtures stack

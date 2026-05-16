@@ -86,15 +86,18 @@ spec:
       role: every-region
       nodeSelector:
         regionLabelKey: openova.io/region
-        # Substituted per region by the bootstrap-kit Kustomization.
-        # Primary CP renders the bare region (e.g. `nbg1`); secondary
-        # CPs render their region key (e.g. `hel1-2`). The DMZ vCluster
-        # pod MUST land on the region's own CP so the inter-region WG
-        # endpoint binds the correct region's public IP.
-        regionLabelValue: ${SOVEREIGN_REGION_KEY}
+        # Substituted by the bootstrap-kit Kustomization with the THIS
+        # region's CANONICAL k3s node-label value (e.g.
+        # `hz-hel-rtz-prod` on hel1, `hz-nbg-rtz-prod` on nbg1,
+        # `hz-sin-rtz-prod` on sin). Caught on t126 (2026-05-16): the
+        # prior `${SOVEREIGN_REGION_KEY}` ("hel1"/"nbg1-1"/"sin-2")
+        # didn't match the node label written by cloud-init (which uses
+        # `region_canonical_label` not `sovereign_region_key`) so every
+        # DMZ vCluster Pod sat Pending with FailedScheduling.
+        regionLabelValue: ${SOVEREIGN_REGION_CANONICAL_LABEL}
     vcluster:
       controlPlane:
         statefulSet:
           scheduling:
             nodeSelector:
-              openova.io/region: ${SOVEREIGN_REGION_KEY}
+              openova.io/region: ${SOVEREIGN_REGION_CANONICAL_LABEL}
