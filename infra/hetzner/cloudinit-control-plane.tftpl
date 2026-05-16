@@ -1434,7 +1434,7 @@ runcmd:
   # The metadata API field is `instance-id` (canonical Hetzner Cloud
   # metadata key per https://docs.hetzner.com/cloud/servers/cloud-init/
   # — distinct from AWS `instance-id` but same role).
-  - 'HCLOUD_SERVER_ID=$(curl -fsSL --retry 30 --retry-delay 2 http://169.254.169.254/hetzner/v1/metadata/instance-id) && NODE_NAME=$(hostname) && kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml patch node "$NODE_NAME" --type=merge -p "{\"spec\":{\"providerID\":\"hcloud://$HCLOUD_SERVER_ID\"}}" || echo "providerID patch failed (non-fatal — bp-hcloud-ccm may set it later)"'
+  - 'HCLOUD_SERVER_ID=$(curl -fsSL --retry 30 --retry-delay 2 http://169.254.169.254/hetzner/v1/metadata/instance-id) && NODE_NAME=$(hostname) && for i in $(seq 1 30); do kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get node "$NODE_NAME" >/dev/null 2>&1 && kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml patch node "$NODE_NAME" --type=merge -p "{\"spec\":{\"providerID\":\"hcloud://$HCLOUD_SERVER_ID\"}}" && break || sleep 5; done || echo "providerID patch failed after 30 retries (non-fatal — bp-hcloud-ccm may set it later)"'
 
   # ── Default StorageClass: local-path (k3s built-in) ─────────────────────
   #
