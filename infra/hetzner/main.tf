@@ -203,6 +203,41 @@ resource "hcloud_firewall" "main" {
     source_ips = ["0.0.0.0/0", "::/0"]
   }
 
+  # Kubernetes NodePort range (30000-32767) — required so:
+  #
+  # 1. Hetzner LB → backend health checks can probe the NodePort the
+  #    clustermesh-apiserver Service binds (each region's LB probes
+  #    `<node-public-ip>:<NodePort>`; without this rule the probe is
+  #    dropped → LB marks target unhealthy → external clustermesh
+  #    clients see "unexpected eof while reading" at TLS handshake →
+  #    cilium-dbg status reports `0/N remote clusters ready`).
+  # 2. Cross-region peer agents can connect to the remote
+  #    clustermesh-apiserver via the LB. Hetzner LB use-private-ip is
+  #    not viable because the per-region LB has no private-network
+  #    attachment by default and our network topology pins one
+  #    private /24 per region; the LB->backend hop must transit the
+  #    public path. The cross-region case is by design public per
+  #    DoD A2 (inter-region link = WireGuard over public IPs ALWAYS).
+  #
+  # Security: clustermesh-apiserver requires mTLS — peer agents present
+  # a client cert signed by the peer cluster's cilium-ca. Anonymous
+  # connections are immediately rejected at TLS handshake. The
+  # firewall is therefore not the security boundary here; mTLS is.
+  #
+  # Caught on t129 (6cddff7ef4432bdc, 2026-05-16) — completes the D11
+  # chain that began with PR #1525 (regionKeyFromSpec) and continued
+  # through #1528 (clusterName derivation), #1530 (peer cert with
+  # peer's CA), #1536 (hostAlias pattern). With this firewall rule
+  # landed AND all the earlier fixes, the chain becomes end-to-end
+  # working on a fresh prov.
+  rule {
+    direction   = "in"
+    protocol    = "tcp"
+    port        = "30000-32767"
+    source_ips  = ["0.0.0.0/0", "::/0"]
+    description = "Kubernetes NodePort range — clustermesh-apiserver LB health + cross-region traffic (mTLS-protected)"
+  }
+
   # Cilium WireGuard inter-region node encryption (DMZ-WG). Per DoD A2
   # (docs/SOVEREIGN-MULTI-REGION-DOD.md), inter-region traffic flows
   # EXCLUSIVELY over Cilium WireGuard on the DMZ vCluster's public IPs,
