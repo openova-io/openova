@@ -1404,6 +1404,38 @@ runcmd:
   # nodes Ready, so we wait specifically for the API endpoint.
   - 'until kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get --raw /healthz; do sleep 5; done'
 
+  # ── Patch node providerID — DoD A3/D10/D11/D12 unblocker (2026-05-16) ───
+  #
+  # k3s sets node.spec.providerID to `k3s://<hostname>` by default. Hetzner
+  # CCM (bp-hcloud-ccm, bootstrap-kit slot ~55) rejects LB allocation for
+  # any Service type=LoadBalancer with:
+  #
+  #   hcops/LoadBalancerOps.ReconcileHCLBTargets: providerID does not have
+  #   one of the expected prefixes (hcloud://, hrobot://, hcloud://bm-):
+  #   k3s://catalyst-tNNN-omani-works-cp1
+  #
+  # That blocks D12 (clustermesh-apiserver Service stays <pending>), which
+  # cascades into D10 (no peer entries), D11 (no inter-region pod traffic),
+  # D5 (child /cloud can't see secondaries).
+  #
+  # Prior attempts to flip k3s into `--cloud-provider=external` mode
+  # (PR #1513) or pre-install hcloud-ccm in cloud-init (PR #1516) both
+  # broke cold-start (chicken-and-egg: kubelet tainted uninitialized,
+  # Flux couldn't schedule, bp-hcloud-ccm never installed to lift the
+  # taint). Both reverted.
+  #
+  # This patch is the architecturally-clean alternative: k3s boots
+  # normally (no taint), we look up THIS server's Hetzner ID via the
+  # metadata API (169.254.169.254 — every Hetzner Cloud server's link-
+  # local instance metadata endpoint), and patch the local Node's
+  # spec.providerID once k3s apiserver is reachable. hcloud-ccm then
+  # sees `hcloud://<id>` and allocates LBs normally.
+  #
+  # The metadata API field is `instance-id` (canonical Hetzner Cloud
+  # metadata key per https://docs.hetzner.com/cloud/servers/cloud-init/
+  # — distinct from AWS `instance-id` but same role).
+  - 'HCLOUD_SERVER_ID=$(curl -fsSL --retry 30 --retry-delay 2 http://169.254.169.254/hetzner/v1/metadata/instance-id) && NODE_NAME=$(hostname) && kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml patch node "$NODE_NAME" --type=merge -p "{\"spec\":{\"providerID\":\"hcloud://$HCLOUD_SERVER_ID\"}}" || echo "providerID patch failed (non-fatal — bp-hcloud-ccm may set it later)"'
+
   # ── Default StorageClass: local-path (k3s built-in) ─────────────────────
   #
   # k3s ships local-path-provisioner (deployment in kube-system,
