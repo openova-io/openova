@@ -147,6 +147,66 @@ database:
   # at minimum the `password` key (mirrored from `<cluster>-app`).
   secretName: "wordpress-database-secret"
 
+# ─── Postgres topology (D31 active-hot-standby) ─────────────────────────
+# Sovereign DoD D31 — tenants subscribing to an HA-capable marketplace
+# app (catalog Tags include `ha` + `cnpg-pair`) may opt into a cross-
+# region active-hot-standby Postgres pair instead of the default single
+# CNPG Cluster declared by `database.cluster.enabled` above.
+#
+# When `pg.activeHotStandby.enabled=true`:
+#   - templates/cnpg-cluster.yaml renders TWO Cluster.postgresql.cnpg.io
+#     resources (primary in `primaryRegion`, replica in `replicaRegion`)
+#     mirroring the bp-cnpg-pair pattern (see platform/cnpg-pair/chart/
+#     templates/primary-cluster.yaml + replica-cluster.yaml).
+#   - WAL streams from primary -> replica over Cilium ClusterMesh via the
+#     primary's `spec.managed.services.additional` entry annotated
+#     `service.cilium.io/global: "true"`. The replica's externalCluster
+#     resolves the primary's read-replica endpoint via the mesh-global
+#     `<cluster>-mesh` Service alias.
+#   - WordPress connects to `<cnpgClusterName>-rw.<ns>.svc.cluster.local`
+#     in the PRIMARY region; CNPG handles RW endpoint routing through
+#     the operator's switchover sequencer.
+#   - Operator/tenant must ensure bp-cnpg is installed in BOTH regions
+#     (today's bootstrap-kit installs it in every region — verified on
+#     t132). Cilium ClusterMesh must be wired (DoD D11 — clustermesh
+#     apiserver via LoadBalancer + peer cert exchange).
+#
+# When `pg.activeHotStandby.enabled=false` (default): the existing
+# single Cluster declared by `database.cluster.*` is rendered with no
+# regression for non-HA tenants.
+pg:
+  activeHotStandby:
+    # Default OFF — keep the single-cluster shape backward compatible.
+    enabled: false
+    # Region keys (matches `openova.io/region` node labels per G1 multi-
+    # region wiring). NEVER hardcode — operator passes these via the
+    # marketplace voucher -> org wizard (D29) when the tenant ticks the
+    # HA checkbox. With enabled=true both MUST be set AND differ.
+    primaryRegion: ""
+    replicaRegion: ""
+    # WAL streaming + promotability threshold — mirrors bp-cnpg-pair
+    # walStreaming defaults. Continuum K-Cont-2 reads these back from
+    # the Cluster CR status before initiating cross-cluster switchover.
+    walStreaming:
+      targetLagSeconds: 30
+      timeoutSeconds: 60
+    # Cilium ClusterMesh — required transport for cross-region WAL.
+    # Disabling makes the replica unreachable; toggle exists for
+    # forensic isolation only.
+    clusterMesh:
+      enabled: true
+      # Local-affinity routing: keep reads local in each region, fall
+      # through to the remote region only when no local backend exists
+      # (replica region has zero `cnpg-role=primary` backends so its
+      # WAL traffic ALWAYS crosses the mesh to the primary region).
+      affinity: local
+    # NOTE: instances/storage/resources are NOT re-declared here. The
+    # primary + replica BOTH inherit from `database.cluster.{instances,
+    # storageSize,storageClass,resources}` above so the operator wizard
+    # tunes ONE sizing block and both sides stay symmetric. Operator
+    # bumps `database.cluster.instances` to >=3 + storageSize to >=100Gi
+    # when ticking the HA checkbox per the D31 sizing guidance.
+
 # ─── SSO via SME-vcluster Keycloak (openid-connect-generic plugin) ──────
 # The plugin is installed + activated + configured by the post-install
 # `oidc-config` Job (templates/oidc-config-job.yaml) using `wp-cli` so

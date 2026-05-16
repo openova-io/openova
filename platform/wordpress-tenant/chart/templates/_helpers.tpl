@@ -107,9 +107,54 @@ install time.
 {{/*
 CNPG-emitted read-write Service hostname. CNPG synthesises this Service
 from the Cluster CR; suffix is `-rw` per the CNPG operator convention.
+
+D31 active-hot-standby: WordPress always connects to the PRIMARY's RW
+endpoint (`<cnpgClusterName>-rw`). After a cross-region switchover
+Continuum K-Cont-2 flips `replica.enabled` on both Cluster CRs so the
+former replica becomes the new primary and its `-rw` Service is what
+the renamed-primary publishes — the hostname is unchanged from the
+client side because the cnpgClusterName itself does not move.
 */}}
 {{- define "bp-wordpress-tenant.cnpgRwHost" -}}
 {{- printf "%s-rw.%s.svc.cluster.local" .Values.database.cnpgClusterName (include "bp-wordpress-tenant.cnpgNamespace" .) -}}
+{{- end -}}
+
+{{/*
+─── D31 active-hot-standby helpers ──────────────────────────────────────
+Mirror bp-cnpg-pair's naming + validation pattern (see
+platform/cnpg-pair/chart/templates/_helpers.tpl).
+*/}}
+
+{{/*
+D31: replica Cluster CR name. Suffix `-replica` matches bp-cnpg-pair.
+Truncated to 63 chars per the K8s resource-name limit.
+*/}}
+{{- define "bp-wordpress-tenant.cnpgPairReplicaName" -}}
+{{- printf "%s-replica" .Values.database.cnpgClusterName | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{/*
+D31: ClusterMesh global replication Service alias the replica uses to
+reach the primary's read-replica endpoint over the mesh. Suffix `-mesh`
+avoids collision with the auto-created `<cluster>-r` Service (lesson
+from bp-cnpg-pair chart 0.1.0 -> 0.1.1, Phase-2 incident #3 in
+qa-loop-state/incidents.md).
+*/}}
+{{- define "bp-wordpress-tenant.cnpgPairReplicationServiceName" -}}
+{{- printf "%s-mesh" .Values.database.cnpgClusterName | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{/*
+D31: validate primary + replica regions when active-hot-standby is on.
+Both MUST be set AND differ (a same-region pair is degenerate — no
+failure-isolation gain). Triggered only when enabled=true.
+*/}}
+{{- define "bp-wordpress-tenant.validateActiveHotStandbyRegions" -}}
+{{- $p := required "pg.activeHotStandby.primaryRegion is REQUIRED when pg.activeHotStandby.enabled=true" .Values.pg.activeHotStandby.primaryRegion -}}
+{{- $r := required "pg.activeHotStandby.replicaRegion is REQUIRED when pg.activeHotStandby.enabled=true" .Values.pg.activeHotStandby.replicaRegion -}}
+{{- if eq $p $r -}}
+{{- fail (printf "pg.activeHotStandby.primaryRegion (%s) MUST NOT equal pg.activeHotStandby.replicaRegion (%s) — active-hot-standby requires two distinct regions" $p $r) -}}
+{{- end -}}
 {{- end -}}
 
 {{/*
