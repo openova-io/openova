@@ -1016,13 +1016,17 @@ write_files:
             # `openova.io/region=hz-hel-rtz-prod`.
             SOVEREIGN_REGION_CANONICAL_LABEL: "${region_canonical_label}"
             # Per-role vCluster enable flags (DoD A4 topology):
-            #   primary    region → MGMT  + DMZ  vCluster
-            #   secondary  region → DMZ   + RTZ  vCluster
-            # The bp-dmz-vcluster slot 54 stays ${DMZ_VCLUSTER_ENABLED:=true}
-            # since DMZ runs everywhere by design — both fall through to
-            # the chart-side default. MGMT_VCLUSTER_ENABLED/RTZ_VCLUSTER_ENABLED
-            # are flipped here per-region so the bootstrap-kit slot reads
-            # the right value at apply time.
+            #   primary    region -> MGMT  + DMZ  vCluster
+            #   secondary  region -> DMZ   + RTZ  vCluster
+            # bp-dmz-vcluster slot 54 stays default-on (chart-side default).
+            # MGMT_VCLUSTER_ENABLED / RTZ_VCLUSTER_ENABLED are flipped
+            # per-region by tofu so the bootstrap-kit slot reads the
+            # right value at apply time. Note: tofu's templatefile()
+            # also parses comments for $${...} interpolations, so any
+            # Flux envsubst expressions in comments would need to be
+            # escaped. Keeping comments free of $${...} avoids the
+            # tofu-plan "Extra characters after interpolation expression"
+            # failure mode (caught on t127, 2026-05-16).
             MGMT_VCLUSTER_ENABLED: "${mgmt_vcluster_enabled}"
             RTZ_VCLUSTER_ENABLED: "${rtz_vcluster_enabled}"
             # QA fixtures auto-enable (Fix #73 — qa-loop bounded-cycle
