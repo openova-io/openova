@@ -101,26 +101,26 @@ spec:
   # cloud-init).
   values:
     mgmtVcluster:
-      # Default off until tofu's primary-CP postBuild flips it; see
-      # the slot header comment for the migration plan.
-      enabled: false
+      # Flipped on for the primary region by tofu's primary postBuild
+      # (mgmt_vcluster_enabled=true). Secondaries render this slot but
+      # tofu sets the substitute false → chart renders zero resources.
+      enabled: ${MGMT_VCLUSTER_ENABLED:=false}
       hostNamespace: mgmt
       vclusterName: mgmt
       role: primary
       nodeSelector:
         regionLabelKey: openova.io/region
-        # Substituted by the bootstrap-kit Kustomization. Primary CP
-        # renders the bare region (e.g. `nbg1`); secondary CPs render
-        # their region key (e.g. `hel1-2`). The MGMT vCluster pod is
-        # node-pinned to this label so it never lands on a foreign
-        # region's worker.
-        regionLabelValue: ${SOVEREIGN_REGION_KEY}
-    # Subchart values overlay — pinned to the per-region label too so
-    # the upstream vcluster StatefulSet's nodeSelector binds the same
+        # Canonical region label (hz-<stem>-rtz-prod) — matches the
+        # k3s node-label written at install time. See slot 54 + the
+        # SOVEREIGN_REGION_CANONICAL_LABEL substitute in
+        # infra/hetzner/cloudinit-control-plane.tftpl.
+        regionLabelValue: ${SOVEREIGN_REGION_CANONICAL_LABEL}
+    # Subchart values overlay — pinned to the per-region canonical label
+    # so the upstream vcluster StatefulSet's nodeSelector binds the same
     # CP node as the umbrella's nodeSelector helper.
     vcluster:
       controlPlane:
         statefulSet:
           scheduling:
             nodeSelector:
-              openova.io/region: ${SOVEREIGN_REGION_KEY}
+              openova.io/region: ${SOVEREIGN_REGION_CANONICAL_LABEL}

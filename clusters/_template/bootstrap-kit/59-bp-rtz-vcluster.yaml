@@ -79,18 +79,19 @@ spec:
       retries: 3
   values:
     rtzVcluster:
-      # Default off until tofu's secondary-CP postBuild flips it; see
-      # the slot header comment for the migration plan.
-      enabled: false
+      # Flipped on by tofu's secondary-CP postBuild (rtz_vcluster_enabled=true).
+      # Primary renders this slot too but tofu sets the substitute false →
+      # chart renders zero resources on the primary.
+      enabled: ${RTZ_VCLUSTER_ENABLED:=false}
       hostNamespace: rtz
       vclusterName: rtz
       role: secondary
       nodeSelector:
         regionLabelKey: openova.io/region
-        regionLabelValue: ${SOVEREIGN_REGION_KEY}
+        regionLabelValue: ${SOVEREIGN_REGION_CANONICAL_LABEL}
     vcluster:
       controlPlane:
         statefulSet:
           scheduling:
             nodeSelector:
-              openova.io/region: ${SOVEREIGN_REGION_KEY}
+              openova.io/region: ${SOVEREIGN_REGION_CANONICAL_LABEL}

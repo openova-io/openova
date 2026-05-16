@@ -549,6 +549,13 @@ locals {
     # primaryRegion follows the actual Sovereign primary, never the
     # chart's hardcoded `hz-fsn-rtz-prod` default.
     primary_region_canonical_label = local.region_canonical_label["primary"]
+    # Per-role vCluster enable flags (DoD A4 topology). Primary region
+    # renders MGMT+DMZ vClusters → mgmt_vcluster_enabled=true. RTZ stays
+    # off here — secondary regions flip RTZ on. The bp-dmz-vcluster slot
+    # 54 chart-side default already enables DMZ everywhere, so no flag
+    # for DMZ here. See clusters/_template/bootstrap-kit/54,58,59-*.yaml.
+    mgmt_vcluster_enabled          = "true"
+    rtz_vcluster_enabled           = "false"
     ha_enabled                     = var.ha_enabled
     worker_count                   = var.worker_count
     k3s_version                    = var.k3s_version
@@ -1074,6 +1081,11 @@ locals {
       # Sovereign-wide primary region (qaFixtures.primaryRegion is
       # singular per the chart contract).
       primary_region_canonical_label = local.region_canonical_label["primary"]
+      # Per-role vCluster enable flags (DoD A4). Secondary region
+      # renders DMZ+RTZ vCluster → rtz_vcluster_enabled=true. MGMT
+      # stays off on secondaries (single MGMT vCluster on primary).
+      mgmt_vcluster_enabled          = "false"
+      rtz_vcluster_enabled           = "true"
       ha_enabled                     = false # secondary regions land single-CP in slice G1; G3 introduces per-region HA
       worker_count                   = r.workerCount
       k3s_version                    = var.k3s_version
