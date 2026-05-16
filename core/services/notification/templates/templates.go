@@ -275,6 +275,55 @@ func DomainRemovedEmail(orgName, domain string) string {
 	return layout("Domain Removed", body)
 }
 
+// VoucherIssuedEmail returns the "you've been gifted a voucher" email HTML.
+//
+// Sent zero-touch by sme-billing on successful POST /billing/vouchers/issue
+// when the request body carries a `recipient_email`. D28 of the Sovereign
+// DoD requires that issuing a voucher emails it to the recipient with a
+// clickable redeem link — see docs/FRANCHISE-MODEL.md §3 and the redeem
+// landing page at `marketplace.<sovereign-fqdn>/redeem/?code=<CODE>`.
+//
+// sovereignFQDN is the per-Sovereign apex domain (e.g. "omani.works") —
+// NEVER hardcoded; sme-billing reads it from an env var (per Sovereign,
+// values.yaml `billing.sovereignFQDN`) and forwards it as `sovereign_fqdn`
+// in the notification-service payload.
+//
+// validityHint is optional copy like "Use within 30 days" — kept loose so
+// the operator UI in D28b can compose the hint from MaxRedemptions / end
+// date / campaign name without the template caring about the math.
+func VoucherIssuedEmail(code string, creditOMR int, description, sovereignFQDN, validityHint string) string {
+	redeemURL := fmt.Sprintf("https://marketplace.%s/redeem/?code=%s", sovereignFQDN, code)
+	descBlock := ""
+	if description != "" {
+		descBlock = fmt.Sprintf(`<p style="margin:0 0 16px;color:#3f3f46;font-size:15px;line-height:1.6;">
+  %s
+</p>`, description)
+	}
+	validityBlock := ""
+	if validityHint != "" {
+		validityBlock = fmt.Sprintf(`<p style="margin:0 0 16px;color:#71717a;font-size:13px;">
+  %s
+</p>`, validityHint)
+	}
+	body := fmt.Sprintf(`<h2 style="margin:0 0 16px;color:#18181b;font-size:22px;font-weight:600;">You've been gifted a voucher</h2>
+<p style="margin:0 0 16px;color:#3f3f46;font-size:15px;line-height:1.6;">
+  Someone has gifted you <strong>%d OMR</strong> in credit on OpenOva SME. Redeem the code below to apply it to your subscription.
+</p>
+%s
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto 24px;">
+  <tr>
+    <td style="background-color:#f4f4f5;border:2px solid #e4e4e7;border-radius:8px;padding:16px 32px;">
+      <span style="font-size:28px;font-weight:700;letter-spacing:0.12em;color:%s;font-family:'Courier New',monospace;">%s</span>
+    </td>
+  </tr>
+</table>
+%s
+%s
+<p style="margin:0;color:#71717a;font-size:13px;">If you weren't expecting this voucher, you can safely ignore this email.</p>`,
+		creditOMR, descBlock, brandColor, code, button("Redeem voucher", redeemURL), validityBlock)
+	return layout("You've been gifted a voucher for OpenOva SME", body)
+}
+
 // PaymentReceivedEmail returns the payment confirmation email HTML.
 // amount is in cents.
 func PaymentReceivedEmail(orgName string, amount int) string {

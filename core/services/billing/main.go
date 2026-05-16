@@ -26,6 +26,15 @@ func main() {
 	cancelURL := getEnv("CANCEL_URL", "https://sme.openova.io/checkout")
 	catalogURL := getEnv("CATALOG_URL", "http://catalog.sme.svc.cluster.local:8082")
 	tenantURL := getEnv("TENANT_URL", "http://tenant.sme.svc.cluster.local:8083")
+	// NOTIFICATION_SERVICE_URL — sme-notification's POST /notification/send
+	// endpoint, used by D28 (voucher-issued gifting email). Default points at
+	// the in-cluster ClusterIP DNS the chart wires per sovereign.
+	notificationURL := getEnv("NOTIFICATION_SERVICE_URL", "http://notification.sme.svc.cluster.local:8087/notification/send")
+	// SOVEREIGN_FQDN — per-Sovereign apex domain (e.g. "omani.works") used to
+	// build the public marketplace redeem URL in voucher emails. NEVER
+	// hardcoded; the chart pipes it from `billing.sovereignFQDN`. Empty is
+	// tolerated for dev loops — the template emits a relative-ish fallback.
+	sovereignFQDN := getEnv("SOVEREIGN_FQDN", "")
 	// NATS_URL — JetStream broker URL for the catalyst.usage.recorded
 	// metering stream (#798). Empty disables the metering subscriber so
 	// developer environments without NATS can still run the legacy
@@ -57,12 +66,17 @@ func main() {
 	slog.Info("connected to RedPanda")
 
 	h := &handlers.Handler{
-		Store:      billingStore,
-		Producer:   producer,
-		SuccessURL: successURL,
-		CancelURL:  cancelURL,
-		CatalogURL: catalogURL,
-		TenantURL:  tenantURL,
+		Store:           billingStore,
+		Producer:        producer,
+		SuccessURL:      successURL,
+		CancelURL:       cancelURL,
+		CatalogURL:      catalogURL,
+		TenantURL:       tenantURL,
+		NotificationURL: notificationURL,
+		SovereignFQDN:   sovereignFQDN,
+		NotificationClient: &http.Client{
+			Timeout: 5 * time.Second,
+		},
 	}
 
 	// Start the tenant-events consumer so tenant.deleted cascades clean up

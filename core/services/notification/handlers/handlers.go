@@ -164,6 +164,27 @@ func renderTemplate(tmpl, subject string, data json.RawMessage) (string, string,
 		}
 		return templates.PaymentReceivedEmail(d.OrgName, d.Amount), subject, nil
 
+	case "voucher-issued":
+		// D28 — voucher gifting email. sme-billing's IssueVoucher handler
+		// POSTs here whenever a successful upsert carries a non-empty
+		// `recipient_email`. The `sovereign_fqdn` value is per-Sovereign
+		// and originates from the chart `billing.sovereignFQDN` env var;
+		// never hardcoded here.
+		var d struct {
+			Code          string `json:"code"`
+			CreditOMR     int    `json:"credit_omr"`
+			Description   string `json:"description"`
+			SovereignFQDN string `json:"sovereign_fqdn"`
+			ValidityHint  string `json:"validity_hint"`
+		}
+		if err := json.Unmarshal(data, &d); err != nil {
+			return "", "", err
+		}
+		if subject == "" {
+			subject = "You've been gifted a voucher for OpenOva SME"
+		}
+		return templates.VoucherIssuedEmail(d.Code, d.CreditOMR, d.Description, d.SovereignFQDN, d.ValidityHint), subject, nil
+
 	default:
 		return "", "", fmt.Errorf("unknown template: %s", tmpl)
 	}

@@ -82,6 +82,14 @@ spec:
                 configMapKeyRef:
                   name: sme-services-config
                   key: TENANT_URL
+            # D28 — voucher gifting email wire. NEVER hardcoded: the
+            # service URL is canonical K8s ClusterIP DNS, and the
+            # sovereign FQDN is piped from `global.sovereignFQDN` (empty
+            # on Catalyst-Zero, populated on every Sovereign install).
+            - name: NOTIFICATION_SERVICE_URL
+              value: "http://notification.sme.svc.cluster.local:8087/notification/send"
+            - name: SOVEREIGN_FQDN
+              value: {{ .Values.global.sovereignFQDN | default "" | quote }}
           resources:
             requests:
               cpu: 25m
