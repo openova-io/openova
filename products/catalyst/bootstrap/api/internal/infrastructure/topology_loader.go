@@ -528,25 +528,66 @@ func loadVClusters(ctx context.Context, in LoaderInput) (out []VCluster) {
 	if in.DynamicClient == nil {
 		return out
 	}
+
+	// First-source: vcluster.io/v1alpha1 VCluster CRs. Returned when the
+	// vcluster-platform / loft-platform operator is installed (provides
+	// a VCluster CRD that aggregates pod+service+secret behind a single
+	// resource). Our bootstrap topology ships loft-sh/vcluster as a
+	// plain Helm chart (StatefulSet+Service, no CRD), so the CR list
+	// is empty on a converged Sovereign.
 	gvr := schema.GroupVersionResource{
 		Group:    "vcluster.io",
 		Version:  "v1alpha1",
 		Resource: "vclusters",
 	}
 	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
 	list, err := in.DynamicClient.Resource(gvr).Namespace("").List(cctx, metav1.ListOptions{})
-	if err != nil || list == nil {
+	cancel()
+	if err == nil && list != nil {
+		for _, item := range list.Items {
+			role := vclusterRole(item.GetLabels())
+			out = append(out, VCluster{
+				ID:        "vcluster-" + item.GetNamespace() + "-" + item.GetName(),
+				Name:      item.GetName(),
+				Namespace: item.GetNamespace(),
+				Role:      role,
+				Status:    statusFromUnstructured(item.Object),
+			})
+		}
+	}
+	if len(out) > 0 {
 		return out
 	}
-	for _, item := range list.Items {
-		role := vclusterRole(item.GetLabels())
+
+	// Fallback: enumerate Namespaces carrying our canonical role label
+	// `catalyst.openova.io/vcluster-role`. bp-{mgmt,dmz,rtz}-vcluster
+	// stamps this on the host namespace; the loft-sh/vcluster
+	// StatefulSet renders pods inside that namespace. One Namespace
+	// per vCluster instance — name = label value (mgmt/dmz/rtz).
+	// Caught on t129 2026-05-16: canvas chip showed `vCluster 0/0`
+	// despite vCluster Pods Running because the CR-first path returned
+	// empty (no vcluster.io CRD) and there was no fallback. Refs DoD D15.
+	nsGVR := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "namespaces"}
+	nsCtx, nsCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer nsCancel()
+	nsList, nsErr := in.DynamicClient.Resource(nsGVR).List(nsCtx, metav1.ListOptions{
+		LabelSelector: "catalyst.openova.io/vcluster-role",
+	})
+	if nsErr != nil || nsList == nil {
+		return out
+	}
+	for _, ns := range nsList.Items {
+		name := ns.GetName()
+		role := ns.GetLabels()["catalyst.openova.io/vcluster-role"]
+		if role == "" {
+			role = vclusterRole(ns.GetLabels())
+		}
 		out = append(out, VCluster{
-			ID:        "vcluster-" + item.GetNamespace() + "-" + item.GetName(),
-			Name:      item.GetName(),
-			Namespace: item.GetNamespace(),
+			ID:        "vcluster-" + name,
+			Name:      name,
+			Namespace: name,
 			Role:      role,
-			Status:    statusFromUnstructured(item.Object),
+			Status:    "healthy",
 		})
 	}
 	return out
