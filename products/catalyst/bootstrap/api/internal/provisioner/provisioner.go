@@ -1891,6 +1891,15 @@ func firstFQDNLabel(fqdn string) string {
 // "" → cilium-config rendered cluster.name="default" on all 3 regions
 // → kvstoremesh refused to start. Auto-derive closes the gap.
 func deriveClusterMeshName(req Request) string {
+	return DeriveClusterMeshName(req)
+}
+
+// DeriveClusterMeshName is the exported wrapper around deriveClusterMeshName
+// so the handler package can derive a consistent default at orchestrator
+// time without duplicating the firstFQDNLabel logic. Same semantics as
+// the unexported version: operator override > FQDN-based default >
+// empty string for single-region provs.
+func DeriveClusterMeshName(req Request) string {
 	if s := strings.TrimSpace(req.ClusterMeshName); s != "" {
 		return s
 	}
@@ -1923,6 +1932,14 @@ func deriveClusterMeshName(req Request) string {
 // reserved" → no mesh ever formed → cross-region observability
 // permanently broken.
 func deriveClusterMeshID(req Request) int {
+	return DeriveClusterMeshID(req)
+}
+
+// DeriveClusterMeshID is the exported wrapper around deriveClusterMeshID
+// so the handler package can derive a consistent default at orchestrator
+// time. Same semantics: operator override > deterministic hash(DepID|FQDN)
+// % 252 + 1 > 0 for single-region.
+func DeriveClusterMeshID(req Request) int {
 	if req.ClusterMeshID != 0 {
 		return req.ClusterMeshID
 	}

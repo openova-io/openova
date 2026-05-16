@@ -348,6 +348,20 @@ func (h *Handler) AutoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 				st.Peers = append(st.Peers, peer)
 				continue
 			}
+			if strings.TrimSpace(b.clusterName) == "" {
+				// Empty cluster name would become an empty Secret data
+				// key and Kubernetes rejects empty keys ("Invalid value:
+				// '': a valid config key must consist of alphanumeric
+				// characters, '-', '_' or '.'"). Skip this peer pair
+				// loudly rather than silently producing a Secret-Create
+				// error that kills the whole region's write. Caught on
+				// t125 (2026-05-16) — fixed in same PR by deriving
+				// clusterName from SovereignFQDN when the operator body
+				// omits ClusterMeshName.
+				peer.Error = "peer cluster name empty (operator ClusterMeshName unset AND auto-derive failed — check FQDN)"
+				st.Peers = append(st.Peers, peer)
+				continue
+			}
 			// Mint A-as-client cert signed by A's CA (so B can verify
 			// using the same trust root the rest of A's cluster uses).
 			clientCert, clientKey, err := h.mintPeerClientCert(a.caCert, a.caKey, a.clusterName)
@@ -497,15 +511,22 @@ func (h *Handler) buildRegionSlots(
 
 	// Cilium cluster IDs are deterministic: primary gets the derived id,
 	// each secondary gets primary+1, primary+2, … (matching infra
-	// /hetzner/main.tf's allocation).
-	primaryID := dep.Request.ClusterMeshID
-	if primaryID == 0 {
-		// Fallback: derive via the same hash main.tf uses. Per
-		// docs/INVIOLABLE-PRINCIPLES.md #3 we don't reach into the
-		// provisioner package's private helper here; we accept that
-		// if Request.ClusterMeshID is unset, the slot.ClusterID is
-		// 0 and the status row reports it that way.
-		primaryID = 0
+	// /hetzner/main.tf's allocation). When dep.Request.ClusterMeshID is
+	// unset (operator submitted the canonical multi-region body without
+	// pinning IDs), derive via the same hash main.tf uses so the
+	// orchestrator + tofu + cilium-config agree byte-identically.
+	// Caught on t125 (2026-05-16): primaryID stayed 0 → every peer's
+	// clusterName fell back to dep.Request.ClusterMeshName which was
+	// also empty → empty-string key in cilium-clustermesh Secret →
+	// "Invalid value" Create rejection.
+	primaryID := provisioner.DeriveClusterMeshID(dep.Request)
+
+	// Derive primary mesh name once for consistent secondary suffixing.
+	// Same trio of fallbacks as the per-region loop below, but lifted
+	// out so secondaries don't re-derive on every iteration.
+	primaryMeshName := strings.TrimSpace(dep.Request.ClusterMeshName)
+	if primaryMeshName == "" {
+		primaryMeshName = provisioner.DeriveClusterMeshName(dep.Request)
 	}
 
 	for idx, rs := range regions {
@@ -520,10 +541,14 @@ func (h *Handler) buildRegionSlots(
 
 		clusterName := strings.TrimSpace(rs.ClusterMeshName)
 		if clusterName == "" {
-			clusterName = strings.TrimSpace(dep.Request.ClusterMeshName)
+			clusterName = primaryMeshName
 			if !isPrimary && clusterName != "" {
 				// Auto-derive secondary peer name per the convention
-				// in deriveClusterMeshName: "<sovereign-stem>-<region>".
+				// in DeriveClusterMeshName: "<sovereign-stem>-<region>".
+				// tofu's main.tf computes secondary_region_cluster_mesh_name
+				// as the same pattern, so the orchestrator's Secret
+				// entries match cilium's cluster.name override on the
+				// secondary regions byte-identically.
 				clusterName = clusterName + "-" + key
 			}
 		}
