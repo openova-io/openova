@@ -37,6 +37,8 @@ export type TreemapDimension =
   | 'cluster'
   | 'family'
   | 'sovereign'
+  | 'region'
+  | 'vcluster'
 
 /**
  * What the gradient maps to. The backend stamps every cell with a

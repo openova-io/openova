@@ -88,9 +88,14 @@ type treemapResponse struct {
 
 // dashboardDimension is the validated set of group_by tokens. Mirror
 // of the TreemapDimension union in the UI.
+// region and vcluster added 2026-05-16 (DoD D16/D19) so multi-region
+// operators can pivot the treemap by their actual topology hierarchy
+// (Cloud → Region → Cluster → vCluster → Namespace → Application).
 var dashboardDimension = map[string]struct{}{
 	"sovereign":   {},
+	"region":      {},
 	"cluster":     {},
+	"vcluster":    {},
 	"family":      {},
 	"namespace":   {},
 	"application": {},
@@ -188,6 +193,8 @@ type podRow struct {
 	application string  // app.kubernetes.io/instance OR top-level ownerRef name
 	family      string  // catalyst.openova.io/family (default "other")
 	cluster     string  // cluster id (single-Sovereign per page today)
+	region      string  // openova.io/region label value (e.g. hz-hel-rtz-prod); empty on single-region
+	vcluster    string  // catalyst.openova.io/vcluster-role label value on the pod's host namespace (mgmt/dmz/rtz); empty for host pods
 	cpuReq      float64 // millicores summed across containers (resources.requests.cpu)
 	memReq      float64 // bytes (resources.requests.memory)
 	cpuLim      float64 // millicores summed across containers (resources.limits.cpu)
@@ -223,6 +230,16 @@ func buildPodRows(pods, pvcs, podMetrics []*unstructured.Unstructured, clusterID
 			cluster:     clusterID,
 			application: applicationKey(p),
 			family:      stringLabel(p, "catalyst.openova.io/family", "other"),
+			// region from pod-level label (set by some controllers) or
+			// inherited from namespace; for multi-region the chroot's
+			// k8scache layer enriches the pod with this label at
+			// buildPodRows ingestion time. Empty falls back to cluster
+			// in dimensionKey so single-region renders fine.
+			region:      stringLabel(p, "openova.io/region", ""),
+			// vcluster from pod-host-namespace label catalyst.openova.io/vcluster-role
+			// (mgmt/dmz/rtz). Pods outside any vCluster namespace return
+			// "" which dimensionKey buckets as "host".
+			vcluster:    stringLabel(p, "catalyst.openova.io/vcluster-role", ""),
 			isReady:     podIsReady(p),
 			createdAt:   p.GetCreationTimestamp().Time,
 		}
@@ -429,8 +446,27 @@ func dimensionKey(r podRow, dim string) (string, string) {
 	switch dim {
 	case "sovereign":
 		return r.cluster, r.cluster
+	case "region":
+		// Region key derives from the host node's
+		// `openova.io/region` label, populated at buildPodRows time
+		// from the pod's node + per-cluster node-label cache. Fall
+		// back to cluster id so single-region Sovereigns still
+		// render one bucket.
+		if r.region != "" {
+			return r.region, r.region
+		}
+		return r.cluster, r.cluster
 	case "cluster":
 		return r.cluster, r.cluster
+	case "vcluster":
+		// vCluster name derives from the pod's host-namespace
+		// `catalyst.openova.io/vcluster-role` label. Pods OUTSIDE
+		// any vCluster (the bootstrap-kit host workloads) bucket
+		// under "host" so they're visible, not silently dropped.
+		if r.vcluster != "" {
+			return r.vcluster, r.vcluster
+		}
+		return "host", "host"
 	case "family":
 		return r.family, titleCase(r.family)
 	case "namespace":
