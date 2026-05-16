@@ -213,7 +213,14 @@ spec:
               load-balancer.hetzner.cloud/location: "${HCLOUD_LB_LOCATION}"
               load-balancer.hetzner.cloud/type: "lb11"
               load-balancer.hetzner.cloud/use-private-ip: "false"
-              load-balancer.hetzner.cloud/name: "${SOVEREIGN_FQDN_SLUG:=catalyst}-clustermesh"
+              # 2026-05-16: per-region LB name suffix. Without
+              # ${SOVEREIGN_REGION_KEY} interpolated, all 3 regions'
+              # clustermesh-apiserver Services adopted the FIRST LB
+              # CCM-created (Hetzner LBs are unique by name; second
+              # creation just reuses the first). Caught on t121
+              # (48d8fe77...): primary + nbg1 both reported external_ip
+              # 167.233.14.208 (nbg1 LB), sin stayed <pending>.
+              load-balancer.hetzner.cloud/name: "${SOVEREIGN_FQDN_SLUG:=catalyst}-${SOVEREIGN_REGION_KEY:=primary}-clustermesh"
 
     # ── Catalyst overlay templates (chart/templates/) ────────────────────
     # qa-loop iter-16 Fix #70: Hubble UI HTTPRoute now defaults ON for
