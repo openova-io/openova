@@ -127,12 +127,39 @@ func (h *Handler) GetKubeconfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Multi-region: honour ?region=<key> so the operator can fetch any
+	// secondary region's kubeconfig (e.g. ?region=nbg1-1). The PUT
+	// endpoint stores secondary CPs at <kubeconfigsDir>/<id>-<key>.yaml
+	// (see PutKubeconfig L520+); without this branch, GET always
+	// returned the primary's kubeconfig regardless of the query param,
+	// blocking D-gate validation against secondary clusters on
+	// multi-region Sovereigns. Caught on prov t117.omani.works
+	// (7152ad51e7838836, 2026-05-16) — every per-region kubeconfig
+	// fetch returned 89.167.22.182:6443 (primary), defeating D8/D9/D12
+	// per-region inspection from the CLI.
+	region := strings.TrimSpace(r.URL.Query().Get("region"))
+
 	dep.mu.Lock()
 	var path string
 	if dep.Result != nil {
 		path = dep.Result.KubeconfigPath
 	}
 	dep.mu.Unlock()
+
+	// Per-region override: derive the path from kubeconfigsDir +
+	// id-region.yaml. Empty region falls through to the primary path
+	// stamped on Result.KubeconfigPath (preserves backwards-compat for
+	// every caller that doesn't pass the query).
+	if region != "" {
+		if h.kubeconfigsDir == "" {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+				"error":  "kubeconfigs-dir-unconfigured",
+				"detail": "catalyst-api has no kubeconfigs directory configured; cannot serve per-region kubeconfig.",
+			})
+			return
+		}
+		path = filepath.Join(h.kubeconfigsDir, id+"-"+region+".yaml")
+	}
 
 	if path == "" {
 		writeJSON(w, http.StatusConflict, map[string]string{
