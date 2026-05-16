@@ -27,10 +27,21 @@ metadata:
     {{- include "bp-mgmt-vcluster.labels" . | nindent 4 }}
     catalyst.openova.io/vcluster-role: mgmt
     catalyst.openova.io/topology: dod-a4
-    # pod-security: restricted by default — vCluster pods are NOT
-    # privileged. The upstream chart's syncer runs as a regular
-    # workload (no host-network, no privileged caps).
-    pod-security.kubernetes.io/enforce: restricted
-    pod-security.kubernetes.io/audit: restricted
-    pod-security.kubernetes.io/warn: restricted
+    # pod-security: baseline — the upstream loft-sh/vcluster 0.20.0
+    # StatefulSet runs init containers (vcluster-copy) and a syncer
+    # container that need elevated permissions vs `restricted`
+    # (writes to a volume, no seccompProfile pinned at pod spec level,
+    # runAsUser=0 in the syncer). Caught on t128 (2026-05-16): mgmt
+    # ns at `restricted` blocked Pod creation:
+    #   "violates PodSecurity restricted:latest: allowPrivilegeEscalation
+    #    != false, unrestricted capabilities, runAsNonRoot != true,
+    #    runAsUser=0 (syncer), seccompProfile (vcluster-copy, kube-*-manager,
+    #    syncer)"
+    # DMZ + RTZ already ship `baseline` and their Pods are Running.
+    # MGMT lives on the primary's host k3s + accepts the same baseline
+    # Risk envelope as DMZ/RTZ (the in-vCluster workloads run inside a
+    # nested kubelet, not host PIDs).
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline
 {{- end }}
