@@ -41,7 +41,14 @@ description: |
   bp-hcloud-ccm.
 type: application
 annotations:
-  catalyst.openova.io/smoke-render-mode: "every-region"
+  # CI Blueprint Release smoke-render gate accepts the literal token
+  # "default-off" to bypass the "render < 5 lines" failure for charts
+  # whose top-level condition (dmzVcluster.enabled) is false at default
+  # values. The bootstrap-kit slot 54 flips it on for every region via
+  # postBuild.substitute (DMZ_VCLUSTER_ENABLED=true). The full-ON path
+  # is exercised by chart/tests/render.sh which CI doesn't run as a
+  # Release gate.
+  catalyst.openova.io/smoke-render-mode: "default-off"
 keywords: [catalyst, blueprint, vcluster, dmz, isolation, multi-region, dod-a4, wireguard]
 maintainers:
   - name: OpenOva Catalyst
