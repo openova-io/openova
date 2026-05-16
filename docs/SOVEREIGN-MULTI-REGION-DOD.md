@@ -19,12 +19,15 @@ Mirrored to auto-memory at `~/.claude/projects/-home-openova-repos-openova-priva
 
 ---
 
-## DoD gates (D1–D14)
+## DoD gates (D0–D14)
 
 Every gate must pass on a SINGLE fresh provision in one continuous run. No partial credit.
 
+**D0 sits ABOVE D1.** Without successful handover + auto-redirect, the operator never sees that provisioning succeeded — every other gate becomes invisible from their perspective. The zero-touch contract is end-to-end OPERATOR experience, not just backend convergence.
+
 | # | Gate | Verifier |
 |---|---|---|
+| **D0** | **Successful handover + auto-redirect to Sovereign Console.** Once `deployment.status=ready` AND `deployment.handoverFiredAt != null`, the mothership UI auto-routes operator's browser to `deployment.handoverURL` (`/auth/handover?token=<jwt>` on the Sovereign Console). Synthetic `Apps` / `Handover` per-region stage rows MUST be marked Succeeded (or not-applicable), never stuck Pending after handover fires. **No operator action required** — they should land on the Sovereign Console without copying/typing the FQDN. Cost-on-failure: operator has no idea their Sovereign is ready, sees synthetic stages stuck Pending on mothership, gives up. | Playwright MCP |
 | D1 | `dig console.<fqdn> @1.1.1.1` returns primary LB IP (auto-written by catalyst-api after Phase-0) | dig |
 | D2 | `curl https://console.<fqdn>/` → 200, cert publicly trusted (verify=0) | curl |
 | D3 | PIN-login: enter email → receive PIN via IMAP → enter PIN → dashboard | Playwright MCP |
