@@ -132,4 +132,14 @@ data:
   # valid JSON. Caught on t132 chart 1.4.147 — env var rendered as
   # `[map[cloudRegion:hel1 ...]]` despite PR #1551 single-quote fix.
   regionsJson: {{ toJson (default (list) .Values.sovereign.regionsJson) | quote }}
+  # D22 (settings empty values) — operator-identity + control-plane + gitops
+  # fields chrootEnsureDeployment reads to populate the deployment record so
+  # the Sovereign Console Settings page renders real values instead of `—`.
+  # All four are optional (empty default) — operator wires them per
+  # Sovereign via .Values.sovereign.{orgEmail,orgName,controlPlaneIP,gitopsRepoURL}
+  # OR via cloud-init postBuild substitute (mirrors regionsJson pattern).
+  orgEmail: {{ default "" .Values.sovereign.orgEmail | quote }}
+  orgName: {{ default "" .Values.sovereign.orgName | quote }}
+  controlPlaneIP: {{ default "" .Values.sovereign.controlPlaneIP | quote }}
+  gitopsRepoURL: {{ default "" .Values.sovereign.gitopsRepoURL | quote }}
 {{- end }}

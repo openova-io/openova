@@ -669,6 +669,37 @@ spec:
                   name: sovereign-fqdn
                   key: regionsJson
                   optional: true
+            # D22 (settings empty values) — three env vars chrootEnsureDeployment
+            # reads to populate the deployment record. Without these, the
+            # Sovereign Console Settings page renders `—` placeholders for
+            # ownerEmail, controlPlaneIP, and gitopsRepoURL. Sourced from
+            # `sovereign-fqdn` ConfigMap keys wired by sovereign-fqdn-configmap.yaml
+            # from .Values.sovereign.{orgEmail,controlPlaneIP,gitopsRepoURL}.
+            # optional=true so an unwired chart bring-up doesn't crash.
+            - name: OPERATOR_EMAIL
+              valueFrom:
+                configMapKeyRef:
+                  name: sovereign-fqdn
+                  key: orgEmail
+                  optional: true
+            - name: SOVEREIGN_CONTROL_PLANE_IP
+              valueFrom:
+                configMapKeyRef:
+                  name: sovereign-fqdn
+                  key: controlPlaneIP
+                  optional: true
+            - name: GITOPS_REPO_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sovereign-fqdn
+                  key: gitopsRepoURL
+                  optional: true
+            - name: ORG_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: sovereign-fqdn
+                  key: orgName
+                  optional: true
             # CATALYST_OTECH_FQDN — same value as SOVEREIGN_FQDN, but read by
             # the SME tenant create handler (sme_tenant.go) and the
             # sovereign-parent-domains seed (sovereign_parent_domains.go).
