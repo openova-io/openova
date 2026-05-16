@@ -489,11 +489,11 @@ export const INITIAL_WIZARD_STATE: WizardState = {
   // explicitly for solo dev/POC topologies.
   regions: [], controlPlaneSize: '', workerSize: '', workerCount: 2,
   haEnabled: false, selectedComponents: [...computeDefaultSelection()].sort(),
-  // Marketplace mode (issue #710 wave 3a) — opt-in. Defaults off so a
-  // first-run wizard provisions a private Sovereign; the operator can
-  // flip the toggle on StepMarketplace before launch, and a future
-  // settings page can flip it post-launch without touching the wizard.
-  marketplaceEnabled: false,
+  // Marketplace mode (issue #710 wave 3a) — DEFAULT ON for D27 zero-touch.
+  // Founder ruling 2026-05-16: a Sovereign is provisioned ready to host
+  // tenant organizations (D27-D31). Operator can still flip the toggle
+  // off on StepMarketplace if they explicitly want a private Sovereign.
+  marketplaceEnabled: true,
   marketplaceBrand: { name: '', tagline: '', primaryColor: '' },
   airgap: false,
   currentStep: 1, completedSteps: [], deploymentId: null,
