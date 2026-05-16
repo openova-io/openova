@@ -84,12 +84,29 @@ func (h *Handler) chrootEnsureDeployment(depID string) *Deployment {
 	// single-region despite the mothership openova-flow snapshot
 	// holding all 3 regions correctly.
 	regions := chrootRegionsFromEnv()
+	// SOVEREIGN_LB_IP — Sovereign's primary load-balancer public IPv4
+	// (set by bp-catalyst-platform from sovereign-fqdn ConfigMap key
+	// `lbIP`). Populate Result.LoadBalancerIP so the topology loader's
+	// buildLBs() emits a LoadBalancer entry per region instead of
+	// returning [] — caught on t131 2026-05-16 (BUG-021 / D15):
+	// `/cloud?view=graph` rendered `LoadBalancer 0/0` despite the
+	// canonical Sovereign ingress LB being allocated and serving
+	// console/auth/gitea hostnames.
+	lbIP := strings.TrimSpace(os.Getenv("SOVEREIGN_LB_IP"))
+	var result *provisioner.Result
+	if lbIP != "" || selfFQDN != "" {
+		result = &provisioner.Result{
+			SovereignFQDN:  selfFQDN,
+			LoadBalancerIP: lbIP,
+		}
+	}
 	dep := &Deployment{
 		ID: depID,
 		Request: provisioner.Request{
 			SovereignFQDN: selfFQDN,
 			Regions:       regions,
 		},
+		Result:   result,
 		Status:   "ready",
 		eventsCh: closedCh,
 		done:     closedDone,
