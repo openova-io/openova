@@ -372,16 +372,30 @@ func (h *Handler) AutoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 			// signing root. B's apiserver (running B's cilium-ca trust
 			// pool) rejected the handshake with "unexpected eof while
 			// reading" because A's CA was not in B's trust root. Result:
-			// peer entries written + cilium agents reloaded, but
-			// `0/2 remote clusters ready` in `cilium-dbg status --verbose`.
+			// Snapshot B's existing `clustermesh-apiserver-remote-cert`
+			// Secret and use THOSE bytes as the client cert A presents
+			// when connecting to B's etcd. The upstream Cilium chart
+			// generates this Secret on every cluster where
+			// clustermesh.useAPIServer=true; the cert's CN is `remote`
+			// — exactly the etcd RBAC user that has read access on the
+			// cilium/* prefix (etcd auth was set up by the chart's
+			// post-install Job).
 			//
-			// The SAN remains A's clusterName — that's the identity B's
-			// apiserver authorises against (per upstream Cilium chart's
-			// clustermesh-apiserver default RBAC) and what the upstream
-			// `cilium clustermesh connect` CLI also stamps as the CN.
-			clientCert, clientKey, err := h.mintPeerClientCert(b.caCert, b.caKey, a.clusterName)
+			// Minting a fresh cert (the prior approach across PRs #1525,
+			// #1528, #1530) produced a valid TLS handshake but etcd
+			// returned `permission denied` because the cert's CN was
+			// the LOCAL cluster name, not `remote`. Caught on t129
+			// (6cddff7ef4432bdc, 2026-05-16): cilium-dbg status showed
+			// `etcd: 1/1 connected` (TLS OK) but
+			// `remote configuration: expected=true, retrieved=false`
+			// (etcd RBAC blocking the kvstore List call).
+			//
+			// This matches the canonical `cilium clustermesh connect`
+			// CLI behavior — it copies the peer's existing remote-cert
+			// rather than minting a new one.
+			clientCert, clientKey, err := h.snapshotRemoteCert(ctx, b.clientset)
 			if err != nil {
-				peer.Error = fmt.Sprintf("client cert mint failed: %v", err)
+				peer.Error = fmt.Sprintf("peer remote-cert snapshot failed: %v", err)
 				st.Peers = append(st.Peers, peer)
 				continue
 			}
@@ -712,6 +726,36 @@ func (h *Handler) waitForClusterMeshLB(ctx context.Context, client kubernetes.In
 			return "", err
 		}
 	}
+}
+
+// snapshotRemoteCert reads kube-system/clustermesh-apiserver-remote-cert
+// and returns the tls.crt + tls.key bytes. The upstream Cilium chart
+// generates this Secret on every cluster where useAPIServer=true; the
+// cert's CN is `remote` and matches an etcd RBAC user that has read
+// access on the cilium/* prefix. Use these bytes verbatim as the
+// client cert a REMOTE cluster presents when connecting in — matches
+// the canonical `cilium clustermesh connect` CLI behavior.
+//
+// Caught on t129 (6cddff7ef4432bdc, 2026-05-16): minting a fresh
+// cert (CN=local-cluster-name) failed etcd RBAC even though TLS
+// handshake succeeded. Snapshotting the existing remote-cert puts
+// the right CN on the wire.
+func (h *Handler) snapshotRemoteCert(ctx context.Context, client kubernetes.Interface) (cert, key []byte, err error) {
+	const name = "clustermesh-apiserver-remote-cert"
+	callCtx, cancel := context.WithTimeout(ctx, clusterMeshCallTimeout)
+	defer cancel()
+	secret, err := client.CoreV1().Secrets(clusterMeshNamespace).Get(callCtx, name, metav1.GetOptions{})
+	if err != nil {
+		return nil, nil, fmt.Errorf("Get Secret %s/%s: %w",
+			clusterMeshNamespace, name, err)
+	}
+	cert = firstNonEmptyBytes(secret.Data["tls.crt"], secret.Data["ca.crt"])
+	key = firstNonEmptyBytes(secret.Data["tls.key"], secret.Data["ca.key"])
+	if len(cert) == 0 || len(key) == 0 {
+		return nil, nil, fmt.Errorf("Secret %s/%s missing tls.crt/tls.key (have keys: %v)",
+			clusterMeshNamespace, name, secretKeys(secret))
+	}
+	return cert, key, nil
 }
 
 // snapshotCiliumCA reads kube-system/cilium-ca and returns the CA cert
