@@ -1015,9 +1015,9 @@ export const BOOTSTRAP_KIT: readonly BootstrapKitEntry[] = [
     "order": 12
   },
   {
-    "id": "bp-bp-catalyst-platform",
-    "slug": "bp-catalyst-platform",
-    "label": "bp-catalyst-platform",
+    "id": "bp-catalyst-platform",
+    "slug": "catalyst-platform",
+    "label": "catalyst-platform",
     "file": "13-bp-catalyst-platform.yaml",
     "order": 13
   },
@@ -1169,9 +1169,9 @@ export const BOOTSTRAP_KIT: readonly BootstrapKitEntry[] = [
     "order": 35
   },
   {
-    "id": "bp-bp-cert-manager-powerdns-webhook",
-    "slug": "bp-cert-manager-powerdns-webhook",
-    "label": "bp-cert-manager-powerdns-webhook",
+    "id": "bp-cert-manager-powerdns-webhook",
+    "slug": "cert-manager-powerdns-webhook",
+    "label": "cert-manager-powerdns-webhook",
     "file": "49-bp-cert-manager-powerdns-webhook.yaml",
     "order": 49
   },
@@ -1183,58 +1183,58 @@ export const BOOTSTRAP_KIT: readonly BootstrapKitEntry[] = [
     "order": 50
   },
   {
-    "id": "bp-bp-k8s-ws-proxy",
-    "slug": "bp-k8s-ws-proxy",
-    "label": "bp-k8s-ws-proxy",
+    "id": "bp-k8s-ws-proxy",
+    "slug": "k8s-ws-proxy",
+    "label": "k8s-ws-proxy",
     "file": "51-bp-k8s-ws-proxy.yaml",
     "order": 51
   },
   {
-    "id": "bp-bp-guacamole",
-    "slug": "bp-guacamole",
-    "label": "bp-guacamole",
+    "id": "bp-guacamole",
+    "slug": "guacamole",
+    "label": "guacamole",
     "file": "52-bp-guacamole.yaml",
     "order": 52
   },
   {
-    "id": "bp-bp-dmz-vcluster",
-    "slug": "bp-dmz-vcluster",
-    "label": "bp-dmz-vcluster",
+    "id": "bp-dmz-vcluster",
+    "slug": "dmz-vcluster",
+    "label": "dmz-vcluster",
     "file": "54-bp-dmz-vcluster.yaml",
     "order": 54
   },
   {
-    "id": "bp-bp-hcloud-ccm",
-    "slug": "bp-hcloud-ccm",
-    "label": "bp-hcloud-ccm",
+    "id": "bp-hcloud-ccm",
+    "slug": "hcloud-ccm",
+    "label": "hcloud-ccm",
     "file": "55-bp-hcloud-ccm.yaml",
     "order": 55
   },
   {
-    "id": "bp-bp-openova-flow-server",
-    "slug": "bp-openova-flow-server",
-    "label": "bp-openova-flow-server",
+    "id": "bp-openova-flow-server",
+    "slug": "openova-flow-server",
+    "label": "openova-flow-server",
     "file": "56-bp-openova-flow-server.yaml",
     "order": 56
   },
   {
-    "id": "bp-bp-openova-flow-emitter",
-    "slug": "bp-openova-flow-emitter",
-    "label": "bp-openova-flow-emitter",
+    "id": "bp-openova-flow-emitter",
+    "slug": "openova-flow-emitter",
+    "label": "openova-flow-emitter",
     "file": "57-bp-openova-flow-emitter.yaml",
     "order": 57
   },
   {
-    "id": "bp-bp-mgmt-vcluster",
-    "slug": "bp-mgmt-vcluster",
-    "label": "bp-mgmt-vcluster",
+    "id": "bp-mgmt-vcluster",
+    "slug": "mgmt-vcluster",
+    "label": "mgmt-vcluster",
     "file": "58-bp-mgmt-vcluster.yaml",
     "order": 58
   },
   {
-    "id": "bp-bp-rtz-vcluster",
-    "slug": "bp-rtz-vcluster",
-    "label": "bp-rtz-vcluster",
+    "id": "bp-rtz-vcluster",
+    "slug": "rtz-vcluster",
+    "label": "rtz-vcluster",
     "file": "59-bp-rtz-vcluster.yaml",
     "order": 59
   },
