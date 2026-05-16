@@ -362,9 +362,23 @@ func (h *Handler) AutoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 				st.Peers = append(st.Peers, peer)
 				continue
 			}
-			// Mint A-as-client cert signed by A's CA (so B can verify
-			// using the same trust root the rest of A's cluster uses).
-			clientCert, clientKey, err := h.mintPeerClientCert(a.caCert, a.caKey, a.clusterName)
+			// Mint A's client cert signed by B's CA (so B's
+			// clustermesh-apiserver, which trusts B's cilium-ca as its
+			// mTLS root, accepts the handshake when A connects).
+			//
+			// Caught on t126 (84c0848406dd6fdd, 2026-05-16): the prior
+			// code signed with `a.caCert/a.caKey`, putting A's CA at the
+			// signing root. B's apiserver (running B's cilium-ca trust
+			// pool) rejected the handshake with "unexpected eof while
+			// reading" because A's CA was not in B's trust root. Result:
+			// peer entries written + cilium agents reloaded, but
+			// `0/2 remote clusters ready` in `cilium-dbg status --verbose`.
+			//
+			// The SAN remains A's clusterName — that's the identity B's
+			// apiserver authorises against (per upstream Cilium chart's
+			// clustermesh-apiserver default RBAC) and what the upstream
+			// `cilium clustermesh connect` CLI also stamps as the CN.
+			clientCert, clientKey, err := h.mintPeerClientCert(b.caCert, b.caKey, a.clusterName)
 			if err != nil {
 				peer.Error = fmt.Sprintf("client cert mint failed: %v", err)
 				st.Peers = append(st.Peers, peer)
