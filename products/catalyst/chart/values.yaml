@@ -237,6 +237,15 @@ images:
     tag: "3c2f7e4"
   console:
     tag: "3c2f7e4"
+  # Admin pod has a separate tag from the smeTag bundle because the admin
+  # image build is decoupled from the SME microservices CI run — when
+  # smeTag is bumped, admin may not have published for that SHA. Caught
+  # live on t132 2026-05-16 (ImagePullBackOff on admin:b0ed216 — admin
+  # image for that SHA never landed in GHCR even though the other 10
+  # SME services did). Default to a known-published tag; bump in lockstep
+  # with marketplaceApi/console when admin's UI changes.
+  admin:
+    tag: "3c2f7e4"
   # All 10 SME microservices share one SHA tag (built from the same mono-repo commit).
   smeTag: "b0ed216"
 
