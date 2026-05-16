@@ -392,21 +392,28 @@ const appRoute = createRoute({
   component: AppLayout,
   beforeLoad: ({ location }) => {
     if (DETECTED_MODE.mode === 'sovereign') {
-      // Strip the `/app` prefix; the rest is the path the chroot's
-      // consoleAppDetailRoute / consoleAppsRoute expect (e.g.
-      // `/app/bp-cnpg` → `/bp-cnpg`, which matches
-      // consoleAppDetailRoute with $componentId=bp-cnpg).
-      // If the path after `/app` is empty or `/`, send the operator
-      // to the canonical apps grid.
-      const remainder = location.pathname.replace(/^\/app/, '') || '/apps'
-      // Mothership-only sub-paths (e.g. `/app/dashboard`, `/app/install`,
-      // `/app/sre/compliance`) are NOT valid on the Sovereign Console —
-      // redirect those to the Sovereign dashboard so the operator
-      // doesn't land on a 404. AppDetail handles `/app/<componentId>`
-      // verbatim.
+      // D17/D17b walkthrough on t132 2026-05-17: the previous
+      // strip-`/app`-prefix-and-redirect logic broke /app/<componentId>
+      // because no chroot route matches `/<componentId>` directly —
+      // consoleAppDetailRoute is registered at `/app/$componentId` under
+      // consoleLayoutRoute, so we must NOT strip the prefix. Instead,
+      // only redirect when the sub-path is a mothership-only surface
+      // (Fleet view dashboard, install wizard, SRE/SEC consoles,
+      // blueprint catalog) — those have no Sovereign Console equivalent
+      // and would 404. For any other sub-path (component name like
+      // `/app/bp-cnpg`, or bare `/app`) leave routing alone so the
+      // child consoleAppDetailRoute / consoleAppsRoute can claim it.
+      const remainder = location.pathname.replace(/^\/app/, '')
       const motherOnly = ['/dashboard', '/install', '/sre', '/sec', '/blueprints']
-      const target = motherOnly.some(p => remainder.startsWith(p)) ? '/dashboard' : remainder
-      throw redirect({ to: target as never })
+      if (motherOnly.some(p => remainder.startsWith(p))) {
+        throw redirect({ to: '/dashboard' as never })
+      }
+      // bare `/app` with nothing after → canonical apps grid
+      if (remainder === '' || remainder === '/') {
+        throw redirect({ to: '/apps' as never })
+      }
+      // Otherwise: let TanStack match the most-specific child route
+      // (consoleAppDetailRoute at `/app/$componentId`). No redirect.
     }
   },
 })
