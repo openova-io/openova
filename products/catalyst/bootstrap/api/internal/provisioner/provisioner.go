@@ -1913,6 +1913,54 @@ func DeriveClusterMeshName(req Request) string {
 	return label + "-mesh"
 }
 
+// DeriveSecondaryClusterMeshName returns the per-secondary cluster name
+// MATCHING tofu's `secondary_region_cluster_mesh_name` local at
+// infra/hetzner/main.tf:389: `<sovereign-stem>-<region-stem-no-digits>`
+// e.g. for FQDN=t129.omani.works + CloudRegion=nbg1 → `t129-nbg`.
+//
+// IMPORTANT — different shape from DeriveClusterMeshName (primary uses
+// `<stem>-mesh`, secondaries use `<stem>-<region-no-digits>`). The
+// asymmetry is baked into tofu; the orchestrator MUST match the names
+// cilium-config carries on each region's cluster, otherwise the agent
+// queries `cilium/cluster-config/v1/<peer-name>` against a key the
+// peer's etcd doesn't have → "failed to retrieve cluster configuration:
+// not found" and the cluster stays not-ready.
+//
+// Caught on t129 (6cddff7ef4432bdc, 2026-05-16): orchestrator used
+// `<primary-name>-<region-key>` (e.g. `t129-mesh-nbg1-1`) but actual
+// cilium-config rendered `<stem>-<region-stem>` (`t129-nbg`).
+//
+// Operator override via RegionSpec.ClusterMeshName takes precedence.
+// Returns empty for single-region or when the FQDN can't be parsed.
+func DeriveSecondaryClusterMeshName(req Request, rs RegionSpec) string {
+	if s := strings.TrimSpace(rs.ClusterMeshName); s != "" {
+		return s
+	}
+	if len(req.Regions) <= 1 {
+		return ""
+	}
+	stem := firstFQDNLabel(req.SovereignFQDN)
+	if stem == "" {
+		return ""
+	}
+	regionStem := stripTrailingDigits(rs.CloudRegion)
+	if regionStem == "" {
+		return ""
+	}
+	return stem + "-" + regionStem
+}
+
+// stripTrailingDigits removes trailing digit runs from a region name —
+// `nbg1` → `nbg`, `hel1` → `hel`, `fsn1` → `fsn`, `sin` → `sin`.
+// Matches tofu's `replace(r.cloudRegion, "/[0-9]+/", "")`.
+func stripTrailingDigits(s string) string {
+	end := len(s)
+	for end > 0 && s[end-1] >= '0' && s[end-1] <= '9' {
+		end--
+	}
+	return s[:end]
+}
+
 // deriveClusterMeshID returns the canonical Cilium ClusterMesh peer ID
 // for this Sovereign's PRIMARY region. Operator may override via
 // Request.ClusterMeshID; otherwise auto-derived deterministically from
