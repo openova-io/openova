@@ -94,6 +94,23 @@ func buildFakeClusterMeshCluster(t *testing.T, lbIP string, caCert, caKey []byte
 	}, metav1.CreateOptions{}); err != nil {
 		t.Fatalf("create cilium-ca: %v", err)
 	}
+	// clustermesh-apiserver-remote-cert — the upstream chart generates
+	// this with CN=remote. orchestrator's snapshotRemoteCert reads
+	// these bytes verbatim and writes them as the peer client cert in
+	// the REMOTE cluster's cilium-clustermesh Secret. Use the same
+	// fake CA bytes as the cilium-ca Secret so the seeded "cert" is
+	// at least syntactically a PEM blob.
+	if _, err := cs.CoreV1().Secrets(clusterMeshNamespace).Create(ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "clustermesh-apiserver-remote-cert", Namespace: clusterMeshNamespace},
+		Type:       corev1.SecretTypeTLS,
+		Data: map[string][]byte{
+			"ca.crt":  caCert,
+			"tls.crt": caCert,
+			"tls.key": caKey,
+		},
+	}, metav1.CreateOptions{}); err != nil {
+		t.Fatalf("create clustermesh-apiserver-remote-cert: %v", err)
+	}
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: clusterMeshApiserverService, Namespace: clusterMeshNamespace},
 		Spec:       corev1.ServiceSpec{Type: corev1.ServiceTypeLoadBalancer},
