@@ -473,6 +473,11 @@ spec:
       # from bitnamilegacy/kubectl:1.29.3 → alpine/k8s:1.31.4 in same
       # commit (rule-17 MIRROR-EVERYTHING hygiene; bitnamilegacy is
       # the Docker-Hub redirect for deprecated Bitnami 2025-08 cutover).
+      # 1.4.147 (D31 wordpress-tenant activeHotStandby + D21 owner auto-seed):
+      # - PR #1562 wires bp-cnpg-pair Primary+Replica pattern into
+      #   wordpress-tenant chart via pg.activeHotStandby knob
+      # - PR #1564 baked into catalyst-api:8d2a947 — handover now
+      #   auto-seeds the operator's UserAccess CR (D21 zero-touch)
       # 1.4.146 (D29 billing internal JWT bypass for public routes):
       # - PR #1561 mirrors PR #1559's gateway public routes in the billing
       #   service's own JWT middleware. Without this, the gateway passed
@@ -488,7 +493,7 @@ spec:
       #   2026-05-16 with admin:b0ed216 stuck in ImagePullBackOff)
       # - PR #1556 adds the billing→notification wire so the voucher
       #   issuance flow emails the recipient (D28 zero-touch contract)
-      version: 1.4.146
+      version: 1.4.147
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
