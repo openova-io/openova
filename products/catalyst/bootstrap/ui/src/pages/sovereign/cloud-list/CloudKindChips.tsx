@@ -81,6 +81,16 @@ interface KindChipProps {
 
 function KindChip({ kind, active, count, onClick }: KindChipProps) {
   const showCount = kind.hasData && count !== null
+  // D15 polish (Playwright walkthrough t132 2026-05-17): hide chips
+  // whose count is exactly 0 unless they're the active selection.
+  // The founder rule "no kind chip shows 0/0 for a resource that
+  // exists" is honoured by treating count=0 as "nothing of this kind
+  // on this Sovereign" — so don't show a chip the operator can't
+  // meaningfully click. Active chip stays visible so the operator
+  // doesn't lose context after navigating to an empty kind.
+  if (!active && showCount && count === 0) {
+    return null
+  }
   return (
     <button
       type="button"
