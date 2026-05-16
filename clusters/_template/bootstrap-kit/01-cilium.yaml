@@ -212,25 +212,21 @@ spec:
             annotations:
               load-balancer.hetzner.cloud/location: "${HCLOUD_LB_LOCATION}"
               load-balancer.hetzner.cloud/type: "lb11"
-              # use-private-ip: true so the LB → backend connection
-              # transits the per-region private network (10.0.1.0/24)
-              # — bypasses the Sovereign firewall which only permits
-              # public ingress on 80/443/6443/53/icmp/wg-udp and
-              # blocks the NodePort range (30000-32767). Caught on
-              # t129 (6cddff7ef4432bdc, 2026-05-16): all 3 clustermesh
-              # LB targets reported `health_status=unhealthy` because
-              # Hetzner LB health checks probe `<node-ip>:<destination_port>`
-              # — `<destination_port>` is the NodePort which the
-              # firewall blocks. LB rejects connections from external
-              # clients with "unexpected eof while reading" at TLS
-              # handshake → cilium clustermesh agent stays
-              # `0/N remote clusters ready`.
+              # use-private-ip: false — LB→backend connection transits
+              # the PUBLIC IP. PR #1537 had set this to "true" attempting
+              # to bypass the firewall NodePort block; that approach was
+              # NOT viable because the per-region Hetzner LB has no
+              # private-network attachment by default. CCM rejected:
+              #     "ReconcileHCLBTargets: use private ip: missing network id"
+              # → LB never allocated → clustermesh apiserver Service
+              # stayed `<pending>` → clustermesh orchestrator waited 5min
+              # for LB IP then bailed with empty peerEntries.
               #
-              # External clients (other regions' Cilium agents) still
-              # connect to the LB's PUBLIC IP — this annotation only
-              # controls the LB→backend transit, which stays
-              # in-region.
-              load-balancer.hetzner.cloud/use-private-ip: "true"
+              # PR #1538's canonical fix opens TCP 30000-32767 in the
+              # Hetzner firewall so the public-IP LB health checks pass.
+              # This file reverts to use-private-ip=false to align with
+              # that approach. Caught on t130 (30463cd0a5a931be, 2026-05-16).
+              load-balancer.hetzner.cloud/use-private-ip: "false"
               # 2026-05-16: per-region LB name suffix. Without
               # ${SOVEREIGN_REGION_KEY} interpolated, all 3 regions'
               # clustermesh-apiserver Services adopted the FIRST LB
