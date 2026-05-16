@@ -160,9 +160,21 @@ func main() {
 	billingRoutes := h.Routes()
 	jwtMiddleware := middleware.JWTAuth(jwtSecret)
 
+	// Public paths that bypass JWT validation. These match the gateway's
+	// public routes (D29 voucher-redeem zero-touch flow). The gateway
+	// passes these through with no auth header; this service must accept
+	// them OR the marketplace /redeem landing returns 401 to unauth visitors.
+	// Caught live on t132 2026-05-16 after PR #1559 made the gateway public —
+	// the billing service was still JWT-gating internally.
+	publicBillingPaths := map[string]bool{
+		"/billing/webhook":                  true, // Stripe (sig-verified)
+		"/billing/vouchers/redeem-preview":  true, // D29 voucher landing
+		"/billing/plans":                    true, // marketplace pricing
+		"/billing/addons":                   true, // marketplace add-on pricing
+	}
+
 	mux.Handle("/billing/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Webhook endpoint is public (Stripe signature verification handles auth).
-		if r.URL.Path == "/billing/webhook" && r.Method == http.MethodPost {
+		if publicBillingPaths[r.URL.Path] {
 			billingRoutes.ServeHTTP(w, r)
 			return
 		}
