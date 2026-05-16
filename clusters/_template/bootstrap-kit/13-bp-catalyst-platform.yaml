@@ -623,7 +623,17 @@ spec:
     # live-Nodes path and emitted "1 cluster 1 region" on every
     # multi-region Sovereign (caught on t126, 2026-05-16).
     sovereign:
-      regionsJson: ${SOVEREIGN_REGIONS_JSON:-}
+      # MUST be quoted: SOVEREIGN_REGIONS_JSON contains valid JSON like
+      # `[{"cloudRegion":"hel1",...}]`. Without quotes, YAML interprets
+      # the JSON as a YAML flow-sequence-of-flow-mappings, parses into
+      # `[]map[string]interface{}`, then Helm's chart template `{{ .Values.
+      # sovereign.regionsJson }}` stringifies via Go's `%v` printf —
+      # producing `[map[cloudRegion:hel1 ...]]` (Go map syntax, NOT JSON).
+      # The chroot's chrootRegionsFromEnv then can't json.Unmarshal it →
+      # falls back to live-Nodes path → /cloud renders "1 region 1 cluster"
+      # on every multi-region Sovereign. Caught on t131 2026-05-16.
+      # Single-quoted so embedded double-quotes in the JSON are literal.
+      regionsJson: '${SOVEREIGN_REGIONS_JSON:-}'
     # ─── QA fixtures (qa-loop iter-6 Cluster-F + EPIC-6 iter-6) ────────
     # Default-OFF on production; flipped to true via envsubst
     # QA_FIXTURES_ENABLED=true on the per-Sovereign overlay for any
