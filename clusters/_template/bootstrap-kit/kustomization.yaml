@@ -63,6 +63,13 @@ resources:
   # + DMZ vCluster isolation). Slots 53/54. Both default-OFF; flip on
   # via NETBIRD_ENABLED=true / DMZ_VCLUSTER_ENABLED=true on the
   # bootstrap-kit Kustomization substitute.
+  #
+  # Slot 54 (bp-dmz-vcluster) implements docs/SOVEREIGN-MULTI-REGION-
+  # DOD.md A4 ("each region runs a DMZ vCluster") + A2 ("inter-region
+  # link = DMZ WireGuard over PUBLIC IPs"). Default-ON because the DMZ
+  # vCluster is the public-fronted vCluster AND the inter-region WG
+  # hop — every region needs it for the topology to converge.
+  - 54-bp-dmz-vcluster.yaml
   # qa-loop iter-12 Fix #54 Workstream 1 — bp-hcloud-ccm (slot 55).
   # Hetzner Cloud Controller Manager. The CCM owns node providerID
   # flips (k3s://… → hcloud://<server-id>) AND materialisation of
@@ -81,6 +88,17 @@ resources:
   # land in the same per-deployment flow.
   - 56-bp-openova-flow-server.yaml
   - 57-bp-openova-flow-emitter.yaml
+  # DoD A4 vCluster topology (2026-05-16) — slots 58 + 59 finish the
+  # primary-mgmt + secondary-rtz pair that goes alongside the slot 54
+  # DMZ vCluster (every region). Combined topology per region:
+  #   primary    region → MGMT (58) + DMZ (54) vCluster
+  #   secondary  region → DMZ  (54) + RTZ (59) vCluster
+  # Slot 58 default-OFF until the per-CP postBuild substitute follow-up
+  # PR adds MGMT_VCLUSTER_ENABLED only on primary. Slot 59 same shape
+  # for secondaries via RTZ_VCLUSTER_ENABLED. See each slot's header
+  # comment for the migration plan.
+  - 58-bp-mgmt-vcluster.yaml
+  - 59-bp-rtz-vcluster.yaml
   # bp-newapi (slot 80) — multi-tenant LLM marketplace gateway. Sequenced
   # after the W2.K1 dependency wave (cnpg/keycloak/openbao Ready) so
   # NewAPI's ExternalSecret + DSN dependencies resolve on first reconcile.

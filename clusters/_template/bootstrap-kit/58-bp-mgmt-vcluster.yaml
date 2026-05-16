@@ -1,0 +1,126 @@
+# bp-mgmt-vcluster — Catalyst bootstrap-kit Blueprint slot 58.
+#
+# Primary-region MGMT vCluster. Hosts catalyst-api, catalyst-ui,
+# openova-flow-server, and other Sovereign control-plane workloads.
+#
+# Per docs/SOVEREIGN-MULTI-REGION-DOD.md A4 (vCluster topology):
+#   primary    region → MGMT  + DMZ  vCluster (this slot + slot 54)
+#   secondary  region → DMZ   + RTZ  vCluster (slot 54   + slot 59)
+#
+# Cross-vCluster intra-region traffic between MGMT and DMZ stays
+# inside the host k3s via Cilium endpoint identity routing. Inter-
+# region traffic goes over the DMZ WireGuard hop per DoD A2.
+#
+# Wrapper chart: platform/bp-mgmt-vcluster/chart/
+#   Bundles loft-sh/vcluster 0.20.0 as a Helm subchart so
+#   `helm dependency build` packages it into the OCI artifact.
+#
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+#
+# dependsOn:
+#   - bp-cilium       — CNI + Gateway API
+#   - bp-cert-manager — TLS for ClusterIssuers (vCluster's exported
+#                       kubeconfig needs the cluster's CA chain)
+#
+# Per-role gating: this slot defaults to DISABLED (mgmtVcluster.
+# enabled=${MGMT_VCLUSTER_ENABLED:=false}). The Sovereign-provisioning
+# tofu module (infra/hetzner/main.tf primary-CP block) flips this to
+# "true" via postBuild.substitute on the PRIMARY region's CP only.
+# Secondary regions leave it unset → defaults to false → no resources
+# render.
+#
+# Until the tofu-substitute follow-up PR lands (which adds
+# MGMT_VCLUSTER_ENABLED to the substitute block per the v3.2 Gap A
+# refactor), operators can opt in per-Sovereign overlay by patching
+# `values.mgmtVcluster.enabled: true` on the primary cluster's
+# bootstrap-kit slot.
+
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-mgmt-vcluster
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-mgmt-vcluster
+  namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "58"
+    catalyst.openova.io/vcluster-role: mgmt
+    catalyst.openova.io/topology: dod-a4
+spec:
+  interval: 15m
+  releaseName: mgmt-vcluster
+  # The chart's templates/namespace.yaml creates the host namespace,
+  # so we point Flux to install INTO that namespace. The vCluster
+  # subchart's StatefulSet + Service + RBAC land here.
+  targetNamespace: mgmt
+  dependsOn:
+    - name: bp-cilium
+    - name: bp-cert-manager
+  chart:
+    spec:
+      chart: bp-mgmt-vcluster
+      version: 0.1.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-mgmt-vcluster
+        namespace: flux-system
+  install:
+    timeout: 15m
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    timeout: 15m
+    disableWait: true
+    remediation:
+      retries: 3
+  # Per-Sovereign overlay surface.
+  #
+  # mgmtVcluster.enabled — flipped on by the primary CP's tofu postBuild
+  # substitute (MGMT_VCLUSTER_ENABLED). When the substitute is unset
+  # (secondary regions, or pre-substitute-rollout primary), envsubst
+  # leaves the placeholder which Flux resolves to the literal
+  # "${MGMT_VCLUSTER_ENABLED:=false}" → Helm's YAML parser interprets
+  # the rendered string. To prevent that subtlety, the chart's default
+  # in values.yaml is already `enabled: false`; this slot ONLY sets it
+  # via valuesFrom on the primary CP. The simplest correct shape is to
+  # leave the value at chart-default `false` and rely on per-Sovereign
+  # overlay patches OR the follow-up tofu substitute (which will add
+  # `values.mgmtVcluster.enabled: true` only on the primary CP's
+  # cloud-init).
+  values:
+    mgmtVcluster:
+      # Default off until tofu's primary-CP postBuild flips it; see
+      # the slot header comment for the migration plan.
+      enabled: false
+      hostNamespace: mgmt
+      vclusterName: mgmt
+      role: primary
+      nodeSelector:
+        regionLabelKey: openova.io/region
+        # Substituted by the bootstrap-kit Kustomization. Primary CP
+        # renders the bare region (e.g. `nbg1`); secondary CPs render
+        # their region key (e.g. `hel1-2`). The MGMT vCluster pod is
+        # node-pinned to this label so it never lands on a foreign
+        # region's worker.
+        regionLabelValue: ${SOVEREIGN_REGION_KEY}
+    # Subchart values overlay — pinned to the per-region label too so
+    # the upstream vcluster StatefulSet's nodeSelector binds the same
+    # CP node as the umbrella's nodeSelector helper.
+    vcluster:
+      controlPlane:
+        statefulSet:
+          scheduling:
+            nodeSelector:
+              openova.io/region: ${SOVEREIGN_REGION_KEY}

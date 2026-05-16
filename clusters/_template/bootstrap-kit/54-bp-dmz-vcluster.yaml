@@ -1,0 +1,100 @@
+# bp-dmz-vcluster — Catalyst bootstrap-kit Blueprint slot 54.
+#
+# Per-region DMZ vCluster — installed on EVERY region (primary AND
+# every secondary). The DMZ vCluster is:
+#   - the public-fronted vCluster (hosts Cilium Gateway HTTPS ingress)
+#   - the inter-region WireGuard hop per docs/SOVEREIGN-MULTI-REGION-
+#     DOD.md A2 (inter-region link = DMZ WG over PUBLIC IPs, ALWAYS)
+#   - the home of clustermesh-apiserver Service type=LoadBalancer
+#     per DoD A3
+#
+# Per docs/SOVEREIGN-MULTI-REGION-DOD.md A4 (vCluster topology):
+#   primary    region → MGMT  + DMZ  vCluster (slot 58 + this slot)
+#   secondary  region → DMZ   + RTZ  vCluster (this slot + slot 59)
+#
+# Supersedes the inert `bp-dmz-vcluster` slot 54 entry declared in
+# scripts/expected-bootstrap-deps.yaml since qa-loop iter-12 Fix #53C
+# (the chart was authored at products/dmz-vcluster but never wired
+# into the bootstrap kit). The chart at products/dmz-vcluster
+# remains the per-tenant marketplace deliverable — different artifact.
+#
+# Wrapper chart: platform/bp-dmz-vcluster/chart/
+#   Bundles loft-sh/vcluster 0.20.0 as a Helm subchart.
+#
+# Reconciled by: Flux on every region's k3s control plane.
+#
+# dependsOn:
+#   - bp-cilium       — CNI + Gateway API
+#   - bp-cert-manager — TLS for ClusterIssuers / wildcard cert
+
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-dmz-vcluster
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-dmz-vcluster
+  namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "54"
+    catalyst.openova.io/vcluster-role: dmz
+    catalyst.openova.io/topology: dod-a4
+spec:
+  interval: 15m
+  releaseName: dmz-vcluster
+  targetNamespace: dmz
+  dependsOn:
+    - name: bp-cilium
+    - name: bp-cert-manager
+  chart:
+    spec:
+      chart: bp-dmz-vcluster
+      version: 0.1.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-dmz-vcluster
+        namespace: flux-system
+  install:
+    timeout: 15m
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    timeout: 15m
+    disableWait: true
+    remediation:
+      retries: 3
+  # Per-Sovereign overlay surface.
+  #
+  # dmzVcluster.enabled — DMZ runs on every region by design (DoD A4).
+  # Default-ON to deliver the topology contract on day-one.
+  values:
+    dmzVcluster:
+      enabled: true
+      hostNamespace: dmz
+      vclusterName: dmz
+      role: every-region
+      nodeSelector:
+        regionLabelKey: openova.io/region
+        # Substituted per region by the bootstrap-kit Kustomization.
+        # Primary CP renders the bare region (e.g. `nbg1`); secondary
+        # CPs render their region key (e.g. `hel1-2`). The DMZ vCluster
+        # pod MUST land on the region's own CP so the inter-region WG
+        # endpoint binds the correct region's public IP.
+        regionLabelValue: ${SOVEREIGN_REGION_KEY}
+    vcluster:
+      controlPlane:
+        statefulSet:
+          scheduling:
+            nodeSelector:
+              openova.io/region: ${SOVEREIGN_REGION_KEY}

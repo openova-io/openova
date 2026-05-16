@@ -1,0 +1,28 @@
+{{- if .Values.rtzVcluster.enabled -}}
+{{- /*
+Fail-fast on empty image tag — even though the upstream subchart
+renders the actual StatefulSet, we validate ours at the umbrella
+layer because per-Sovereign overlay paths may override
+.Values.rtzVcluster.image.tag without touching the subchart values.
+The helper aborts render with the canonical "image.tag is empty"
+message per docs/INVIOLABLE-PRINCIPLES.md #4a (SHA-pinned images).
+*/}}
+{{- $_ := include "bp-rtz-vcluster.image" . -}}
+# Host namespace the RTZ vCluster lives in.
+# Per docs/SOVEREIGN-MULTI-REGION-DOD.md A4: each secondary region
+# runs an RTZ vCluster for regional tenant workloads + caches.
+#
+# Label `catalyst.openova.io/vcluster-role: rtz` is consumed by the
+# OpenovaFlow canvas adapter for the dashboard vCluster count tile.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ include "bp-rtz-vcluster.hostNamespace" . }}
+  labels:
+    {{- include "bp-rtz-vcluster.labels" . | nindent 4 }}
+    catalyst.openova.io/vcluster-role: rtz
+    catalyst.openova.io/topology: dod-a4
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline
+{{- end }}

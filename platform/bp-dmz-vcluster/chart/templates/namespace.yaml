@@ -1,0 +1,37 @@
+{{- if .Values.dmzVcluster.enabled -}}
+{{- /*
+Fail-fast on empty image tag — even though the upstream subchart
+renders the actual StatefulSet, we validate ours at the umbrella
+layer because per-Sovereign overlay paths may override
+.Values.dmzVcluster.image.tag without touching the subchart values.
+The helper aborts render with the canonical "image.tag is empty"
+message per docs/INVIOLABLE-PRINCIPLES.md #4a (SHA-pinned images).
+*/}}
+{{- $_ := include "bp-dmz-vcluster.image" . -}}
+# Host namespace the DMZ vCluster lives in.
+# Per docs/SOVEREIGN-MULTI-REGION-DOD.md A4: every region (primary AND
+# every secondary) runs a DMZ vCluster. It is the public-fronted
+# vCluster and the inter-region WireGuard hop per DoD A2.
+#
+# Label `catalyst.openova.io/vcluster-role: dmz` is consumed by the
+# OpenovaFlow canvas adapter — the vCluster count on the Sovereign
+# Console canvas reads off these labels per region. A converged
+# 3-region Sovereign shows `vCluster 6/6` = 1 mgmt (primary) + 3 dmz
+# (every region) + 2 rtz (each secondary).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ include "bp-dmz-vcluster.hostNamespace" . }}
+  labels:
+    {{- include "bp-dmz-vcluster.labels" . | nindent 4 }}
+    catalyst.openova.io/vcluster-role: dmz
+    catalyst.openova.io/topology: dod-a4
+    # pod-security: baseline — DMZ vCluster may host workloads that
+    # need slightly more capability than `restricted` (Cilium Gateway
+    # binds privileged ports via the host network namespace via
+    # hostPort; future WG endpoint pod). The restriction is enforced
+    # by the host-level CCNP, NOT by pod-security here.
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline
+{{- end }}

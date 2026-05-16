@@ -1,0 +1,36 @@
+{{- if .Values.mgmtVcluster.enabled -}}
+{{- /*
+Fail-fast on empty image tag — even though the upstream subchart
+renders the actual StatefulSet, we validate ours at the umbrella
+layer because per-Sovereign overlay paths may override
+.Values.mgmtVcluster.image.tag without touching the subchart values.
+The helper aborts render with the canonical "image.tag is empty"
+message per docs/INVIOLABLE-PRINCIPLES.md #4a (SHA-pinned images).
+*/}}
+{{- $_ := include "bp-mgmt-vcluster.image" . -}}
+# Host namespace the MGMT vCluster lives in.
+# Per docs/SOVEREIGN-MULTI-REGION-DOD.md A4: the primary region's host
+# k3s runs MGMT + DMZ vClusters; each lives in its own dedicated
+# namespace so the host-level NetworkPolicy/CiliumNetworkPolicy can
+# default-deny + selectively allow cross-vCluster intra-region traffic.
+#
+# Label `catalyst.openova.io/vcluster-role` is consumed by the
+# OpenovaFlow canvas adapter (products/openova-flow/adapter-flux) which
+# emits a vCluster FlowNode per namespace bearing this label — the
+# vCluster X/Y count on the Sovereign Console canvas reads off these
+# labels per region.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ include "bp-mgmt-vcluster.hostNamespace" . }}
+  labels:
+    {{- include "bp-mgmt-vcluster.labels" . | nindent 4 }}
+    catalyst.openova.io/vcluster-role: mgmt
+    catalyst.openova.io/topology: dod-a4
+    # pod-security: restricted by default — vCluster pods are NOT
+    # privileged. The upstream chart's syncer runs as a regular
+    # workload (no host-network, no privileged caps).
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+{{- end }}

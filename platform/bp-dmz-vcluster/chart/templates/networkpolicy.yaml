@@ -1,0 +1,56 @@
+{{- if and .Values.dmzVcluster.enabled .Values.dmzVcluster.networkPolicy.enabled -}}
+# Host-namespace NetworkPolicy.
+#
+# Per docs/SOVEREIGN-MULTI-REGION-DOD.md A4 + A2: the DMZ vCluster is
+# the public-fronted vCluster AND the inter-region WireGuard hop. So:
+#
+#   - World ingress allowed on Gateway HTTPS ports (handled by the
+#     Cilium Gateway, NOT this NetworkPolicy; this policy permits
+#     same-namespace traffic + intra-region cross-vCluster traffic
+#     from MGMT/RTZ + Gateway control-plane traffic).
+#
+#   - Intra-region cross-vCluster traffic (MGMT calls DMZ for cert
+#     readiness, RTZ calls DMZ for outbound public-facing routes)
+#     is allowed via `from.namespaceSelector` on the listed
+#     allowedIngressNamespaces.
+#
+#   - World ingress (UDP 51871 WireGuard, TCP 443 Gateway) is
+#     ENABLED at the L3 layer when allowWorldIngress=true. The
+#     fine-grained per-port allow is enforced by Cilium's
+#     CCNP at the host level — this policy is the L3 baseline.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "bp-dmz-vcluster.fullname" . }}-isolation
+  namespace: {{ include "bp-dmz-vcluster.hostNamespace" . }}
+  labels:
+    {{- include "bp-dmz-vcluster.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allowlist from sibling vClusters in this region.
+    {{- range .Values.dmzVcluster.networkPolicy.allowedIngressNamespaces }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . | quote }}
+    {{- end }}
+    # Same-namespace traffic always allowed.
+    - from:
+        - podSelector: {}
+    {{- if .Values.dmzVcluster.networkPolicy.allowWorldIngress }}
+    # World ingress for Gateway HTTPS + WireGuard UDP 51871.
+    # No `from` block = world (matches any source). Cilium's
+    # CCNP at the host layer narrows this to the actual ports
+    # the Gateway pod + WG endpoint pod listen on.
+    - {}
+    {{- end }}
+  egress:
+    # Egress unconstrained by default — DMZ vCluster must reach
+    # MGMT (catalyst-api), peer DMZs (inter-region WG), and the
+    # public internet (LetsEncrypt + customer-facing services).
+    - {}
+{{- end }}

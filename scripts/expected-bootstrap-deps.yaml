@@ -366,11 +366,19 @@ slots:
       - bp-nats-jetstream
     wave: present
 
-  # ---- Slot 54 — bp-dmz-vcluster isolated customer-internet-facing vCluster.
-  # qa-loop iter-12 Fix #53C (EPIC-5 leftovers slice DMZ #1100). Customer
-  # workloads needing direct internet exposure land here; host-side
-  # NetworkPolicy + Cilium identity isolation keeps them off the Catalyst
-  # control plane. Default-OFF gate via DMZ_VCLUSTER_ENABLED=true.
+  # ---- Slot 54 — bp-dmz-vcluster (DoD A4 — public-fronted vCluster).
+  # Implements docs/SOVEREIGN-MULTI-REGION-DOD.md A4 ("each region runs a
+  # DMZ vCluster") + A2 ("inter-region link = DMZ WireGuard"). Installed
+  # on every region (primary AND every secondary). Hosts the Cilium
+  # Gateway, the inter-region WireGuard endpoint, and the clustermesh-
+  # apiserver LoadBalancer Service (DoD A3). Wraps loft-sh/vcluster
+  # 0.20.0 as a Helm subchart. Default-ON.
+  #
+  # 2026-05-16 implementation PR (feat/vcluster-mgmt-dmz-rtz-blueprints):
+  # supersedes the inert entry that was declared at qa-loop iter-12 Fix
+  # #53C but never landed as a real chart at platform/. The chart at
+  # products/dmz-vcluster remains the per-tenant marketplace artifact —
+  # different layer.
   - slot: 54
     name: bp-dmz-vcluster
     depends_on:
@@ -398,11 +406,42 @@ slots:
   # Agent #3 (catalyst-api proxy + bootstrap-kit integration).
   - slot: 56
     name: bp-openova-flow-server
-    depends_on: [bp-cilium, bp-cert-manager]
+    # Added bp-cnpg 2026-05-14 alongside the in-memory → CNPG-backed
+    # store rewrite (see 56-bp-openova-flow-server.yaml comment) —
+    # the chart's cnpg-cluster.yaml requires postgresql.cnpg.io/v1
+    # CRD before InstallSucceeded.
+    depends_on: [bp-cilium, bp-cert-manager, bp-cnpg]
     wave: present
   - slot: 57
     name: bp-openova-flow-emitter
     depends_on: [bp-flux]
+    wave: present
+
+  # ---- Slot 58 — bp-mgmt-vcluster (DoD A4 — primary-only MGMT vCluster).
+  # Implements docs/SOVEREIGN-MULTI-REGION-DOD.md A4 ("primary region
+  # runs MGMT + DMZ vCluster"). Hosts catalyst-api, catalyst-ui,
+  # openova-flow-server, mgmt control-plane workloads. Wraps loft-sh/
+  # vcluster 0.20.0 as a Helm subchart. Default-OFF until the per-CP
+  # postBuild substitute follow-up PR adds MGMT_VCLUSTER_ENABLED on the
+  # primary CP only.
+  - slot: 58
+    name: bp-mgmt-vcluster
+    depends_on:
+      - bp-cilium
+      - bp-cert-manager
+    wave: present
+
+  # ---- Slot 59 — bp-rtz-vcluster (DoD A4 — secondary-only RTZ vCluster).
+  # Implements docs/SOVEREIGN-MULTI-REGION-DOD.md A4 ("each secondary
+  # region runs DMZ + RTZ vCluster"). Hosts regional tenant workloads
+  # and caches. Wraps loft-sh/vcluster 0.20.0 as a Helm subchart.
+  # Default-OFF until the per-CP postBuild substitute follow-up PR adds
+  # RTZ_VCLUSTER_ENABLED on secondary CPs.
+  - slot: 59
+    name: bp-rtz-vcluster
+    depends_on:
+      - bp-cilium
+      - bp-cert-manager
     wave: present
 
   # ---- Slot 80 — bp-newapi multi-tenant LLM marketplace gateway. Issue #799.

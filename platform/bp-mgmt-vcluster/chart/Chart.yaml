@@ -1,0 +1,63 @@
+apiVersion: v2
+name: bp-mgmt-vcluster
+# 0.1.0 — initial implementation of DoD A4 vCluster topology
+# (sovereign-multi-region-DoD invariant #4). Founder ruling
+# 2026-05-16: every Sovereign must materialise the MGMT + DMZ + RTZ
+# vCluster topology before convergence is declared. Slot 58 in the
+# bootstrap-kit (renders ONLY on the primary region — secondaries
+# render bp-dmz-vcluster + bp-rtz-vcluster instead).
+version: 0.1.0
+appVersion: "0.20.0"
+description: |
+  Catalyst-curated Blueprint umbrella chart for the Sovereign MGMT
+  vCluster. Implements docs/SOVEREIGN-MULTI-REGION-DOD.md A4
+  ("primary region = MGMT + DMZ vCluster topology") as a Helm
+  release of the upstream loft-sh/vcluster chart wrapped in
+  Catalyst conventions (namespace creation, nodeSelector pin to
+  the region's CP, fail-fast image-tag guard, MIRROR-EVERYTHING
+  Harbor proxy by default, NetworkPolicy isolation).
+
+  Hosts the Sovereign mgmt-control-plane workloads:
+    - catalyst-api (Sovereign-side)
+    - catalyst-ui (sovereign-admin SPA)
+    - openova-flow-server (per-Sovereign event bus)
+    - any mgmt-tier service that should NOT face the public internet
+
+  Topology contract (re-read docs/SOVEREIGN-MULTI-REGION-DOD.md):
+    primary    region → MGMT  + DMZ  vCluster (this chart + bp-dmz-vcluster)
+    secondary  region → DMZ   + RTZ  vCluster (bp-dmz-vcluster + bp-rtz-vcluster)
+
+  Inter-vCluster intra-region traffic stays inside the host k3s
+  cluster via Cilium endpoint identity routing. Inter-region traffic
+  goes over the DMZ WireGuard hop per DoD A2.
+
+  The upstream chart is pulled in as a Helm subchart so
+  `helm dependency build` bundles it into the OCI artifact — the
+  same umbrella shape used by bp-cert-manager + bp-cilium +
+  bp-hcloud-ccm.
+type: application
+annotations:
+  catalyst.openova.io/smoke-render-mode: "primary-only"
+keywords: [catalyst, blueprint, vcluster, mgmt, isolation, multi-region, dod-a4]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Upstream chart pulled in as a Helm subchart so `helm dependency build`
+# bundles it into the OCI artifact. Pinned to loft-sh/vcluster 0.20.0
+# — matches the canonical version proven by products/dmz-vcluster
+# (qa-loop iter-12) and core/services/provisioning/gitops/gitops.go's
+# generateVCluster() helper (`chart: "vcluster" version: "0.33.*"` is
+# the per-tenant marketplace path; the bootstrap topology uses the
+# stable 0.20.x line). Per docs/INVIOLABLE-PRINCIPLES.md #4 (never
+# hardcode) the version is operator-bumpable via PR.
+dependencies:
+  - name: vcluster
+    version: "0.20.0"
+    repository: "https://charts.loft.sh"
+    # The subchart only renders when the umbrella's top-level
+    # `mgmtVcluster.enabled` is true. Default-OFF therefore renders
+    # ZERO resources (umbrella namespace + NetworkPolicy AND subchart).
+    # The bootstrap-kit Kustomization flips this on ONLY for the
+    # primary region (per the DoD A4 topology contract).
+    condition: mgmtVcluster.enabled
