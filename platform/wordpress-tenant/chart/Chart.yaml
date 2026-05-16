@@ -28,7 +28,21 @@ name: bp-wordpress-tenant
 # hook image switched from curlimages/curl:8.10.1 to
 # harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1 per CLAUDE.md
 # inviolable rule.
-version: 0.2.1
+# 0.3.0 (D31, 2026-05-16): Sovereign DoD D31 — active-hot-standby Postgres.
+#   - New `pg.activeHotStandby.{enabled,primaryRegion,replicaRegion,
+#     walStreaming,clusterMesh}` block in values.yaml.
+#   - templates/cnpg-cluster.yaml now renders TWO Cluster.postgresql.cnpg.io
+#     resources (primary + replica) when enabled=true, mirroring the
+#     bp-cnpg-pair pattern (platform/cnpg-pair/chart/templates/
+#     {primary,replica}-cluster.yaml). WAL streams over Cilium ClusterMesh
+#     via the primary's spec.managed.services.additional entry annotated
+#     `service.cilium.io/global: "true"`.
+#   - When enabled=false (default) the existing single Cluster shape is
+#     preserved bit-for-bit — no regression for non-HA tenants.
+#   - New tests/active-hot-standby-render.sh render-gate asserts default
+#     render emits 1 Cluster and enabled render emits 2 Cluster CRs with
+#     the right nodeSelectors + replica.source + externalCluster.host.
+version: 0.3.0
 appVersion: "6"
 description: |
   Catalyst Blueprint scratch chart for in-vcluster WordPress, one
