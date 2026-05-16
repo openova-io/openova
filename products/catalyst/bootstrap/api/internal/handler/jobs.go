@@ -93,18 +93,48 @@ func (h *Handler) chrootEnsureDeployment(depID string) *Deployment {
 	// canonical Sovereign ingress LB being allocated and serving
 	// console/auth/gitea hostnames.
 	lbIP := strings.TrimSpace(os.Getenv("SOVEREIGN_LB_IP"))
+	// D22 (settings empty values) — populate ConsoleURL + GitOpsRepoURL +
+	// ControlPlaneIP from env vars threaded in by bp-catalyst-platform.
+	// Without these, the chroot's GET /api/v1/deployments/<id> returns
+	// empty strings and the Sovereign Console Settings page renders `—`
+	// placeholders for every Sovereign field. ConsoleURL is derived
+	// (canonical `https://console.<fqdn>`); the rest come from env (empty
+	// when chart hasn't wired them yet, which is no worse than today).
+	consoleURL := ""
+	if selfFQDN != "" {
+		consoleURL = "https://console." + selfFQDN
+	}
+	gitopsRepoURL := strings.TrimSpace(os.Getenv("GITOPS_REPO_URL"))
+	cpIP := strings.TrimSpace(os.Getenv("SOVEREIGN_CONTROL_PLANE_IP"))
 	var result *provisioner.Result
-	if lbIP != "" || selfFQDN != "" {
+	if lbIP != "" || selfFQDN != "" || consoleURL != "" || gitopsRepoURL != "" || cpIP != "" {
 		result = &provisioner.Result{
 			SovereignFQDN:  selfFQDN,
 			LoadBalancerIP: lbIP,
+			ConsoleURL:     consoleURL,
+			GitOpsRepoURL:  gitopsRepoURL,
+			ControlPlaneIP: cpIP,
 		}
+	}
+	// D22 — populate Request fields that flow into the Settings page
+	// (OrgEmail / OrgName / Region). OrgEmail + OrgName from env;
+	// Region from regions[0].CloudRegion when regions is non-empty so
+	// the top-level legacy field matches the canonical multi-region
+	// shape's primary region.
+	orgEmail := strings.TrimSpace(os.Getenv("OPERATOR_EMAIL"))
+	orgName := strings.TrimSpace(os.Getenv("ORG_NAME"))
+	primaryRegion := ""
+	if len(regions) > 0 {
+		primaryRegion = regions[0].CloudRegion
 	}
 	dep := &Deployment{
 		ID: depID,
 		Request: provisioner.Request{
 			SovereignFQDN: selfFQDN,
 			Regions:       regions,
+			Region:        primaryRegion,
+			OrgEmail:      orgEmail,
+			OrgName:       orgName,
 		},
 		Result:   result,
 		Status:   "ready",
