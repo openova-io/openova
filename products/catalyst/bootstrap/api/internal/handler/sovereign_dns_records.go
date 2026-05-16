@@ -183,15 +183,43 @@ func (h *Handler) upsertSovereignParentZoneRecordsFromResult(ctx context.Context
 	}
 
 	for _, parent := range parents {
-		if err := h.upsertSovereignParentZoneRecords(ctx, result.SovereignFQDN, parent, result.LoadBalancerIP); err != nil {
-			// Best-effort: log + continue. The Sovereign still
-			// reaches phase1-watching; the operator can hit the
-			// parent-domain refresh endpoint to retry later.
-			h.log.Warn("sovereign-dns-records: write failed (continuing)",
-				"id", dep.ID,
-				"parent", parent,
-				"err", err,
-			)
+		err := h.upsertSovereignParentZoneRecords(ctx, result.SovereignFQDN, parent, result.LoadBalancerIP)
+		if err == nil {
+			continue
 		}
+		// Per-instance 404 fallback: the synthesized ParentDomain may
+		// equal SovereignFQDN itself (Validate's back-compat synthesis
+		// stamps r.ParentDomains[0].Name = SovereignFQDN when neither
+		// SovereignPoolDomain nor an explicit parentDomains slice was
+		// supplied). For a SUB-zone FQDN like "t126.omani.works", the
+		// authoritative PowerDNS zone is "omani.works" — so PATCH zone
+		// "t126.omani.works." returns 404 and no A records ever land.
+		// Retry against parent-of-FQDN before giving up. Caught on t126
+		// (84c0848406dd6fdd, 2026-05-16): handover fired but D1/D2
+		// stayed red because every console hostname resolved NXDOMAIN
+		// despite the wildcard cert being valid + LB IP assigned.
+		if strings.Contains(err.Error(), "status 404") && parent == result.SovereignFQDN {
+			if i := strings.Index(result.SovereignFQDN, "."); i > 0 {
+				derivedParent := result.SovereignFQDN[i+1:]
+				h.log.Info("sovereign-dns-records: parent zone 404 — retrying with derived sub-zone parent",
+					"id", dep.ID,
+					"originalParent", parent,
+					"derivedParent", derivedParent,
+				)
+				if err2 := h.upsertSovereignParentZoneRecords(ctx, result.SovereignFQDN, derivedParent, result.LoadBalancerIP); err2 == nil {
+					continue
+				} else {
+					err = fmt.Errorf("original=%w, derived-fallback=%v", err, err2)
+				}
+			}
+		}
+		// Best-effort: log + continue. The Sovereign still
+		// reaches phase1-watching; the operator can hit the
+		// parent-domain refresh endpoint to retry later.
+		h.log.Warn("sovereign-dns-records: write failed (continuing)",
+			"id", dep.ID,
+			"parent", parent,
+			"err", err,
+		)
 	}
 }
