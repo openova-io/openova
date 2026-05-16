@@ -345,6 +345,21 @@ func Purge(ctx context.Context, token, sovereignFQDN string, progress func(msg s
 	prefix := NamePrefixForSovereign(sovereignFQDN)
 	purgeByNamePrefix(ctx, token, prefix, &report, progress)
 
+	// Second name-prefix pass for CCM-allocated resources that don't carry
+	// the "catalyst-" prefix. The Cilium chart's clustermesh-apiserver
+	// Service overlay (clusters/_template/bootstrap-kit/01-cilium.yaml)
+	// names its CCM-allocated LB as
+	// `${SOVEREIGN_FQDN_SLUG}-${SOVEREIGN_REGION_KEY}-clustermesh`
+	// (e.g. `t126-omani-works-hel1-clustermesh`) — no "catalyst-" stem.
+	// The first prefix pass therefore misses these LBs and they survive
+	// `tofu destroy` because tofu doesn't manage them either. Caught
+	// repeatedly: t124, t125 wipes both left 3 orphan clustermesh LBs
+	// per Sovereign that had to be cleaned via direct Hetzner API DELETE.
+	fqdnSlugPrefix := strings.ReplaceAll(sovereignFQDN, ".", "-") + "-"
+	if fqdnSlugPrefix != prefix && fqdnSlugPrefix != "-" {
+		purgeByNamePrefix(ctx, token, fqdnSlugPrefix, &report, progress)
+	}
+
 	return report, nil
 }
 
