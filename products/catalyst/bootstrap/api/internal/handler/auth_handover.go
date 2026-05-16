@@ -239,6 +239,18 @@ func (h *Handler) AuthHandover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ── 5b. Auto-seed owner UserAccess CR (D21) ─────────────────────────
+	// D21 (docs/SOVEREIGN-MULTI-REGION-DOD.md) requires Sovereign Console
+	// /users to list the operator who PIN-logged-in as tier=owner. The
+	// useraccess Composition (issue #322) reconciles the CR into
+	// per-app RoleBindings on the Sovereign cluster.
+	//
+	// Best-effort: any error here MUST NOT fail the handover — the
+	// operator's session is more important than the CR. If the
+	// access.openova.io CRD has not rolled yet, the next handover will
+	// succeed once the chart catches up. See user_access_owner_seed.go.
+	h.seedOwnerUserAccess(r.Context(), claims.Email, claims.SovereignFQDN, claims.DeploymentID)
+
 	// ── 6. Mint local session JWT ───────────────────────────────────────
 	// Keycloak v26 dropped the legacy `requested_subject` token-exchange
 	// flow ("Parameter 'requested_subject' is not supported for standard
@@ -312,6 +324,47 @@ func (h *Handler) AuthHandover(w http.ResponseWriter, r *http.Request) {
 		redirectTarget = "/dashboard"
 	}
 	http.Redirect(w, r, redirectTarget, http.StatusFound)
+}
+
+// seedOwnerUserAccess upserts a tier=owner UserAccess CR for the
+// operator who just completed handover (D21).
+//
+// Best-effort: every failure mode logs a Warn and returns; the handover
+// itself is never failed because the operator's session is more
+// important than this CR. The next handover will retry idempotently.
+//
+// On the Sovereign chroot, `lookupDeploymentForInfra(depID)` synthesises
+// an in-memory Deployment from SOVEREIGN_FQDN when one isn't already
+// loaded (see infrastructure.go:1776 `chrootEnsureDeployment`), so
+// `sovereignDynamicClient(dep)` routes through the in-cluster client.
+func (h *Handler) seedOwnerUserAccess(ctx context.Context, email, sovereignFQDN, depID string) {
+	if email == "" {
+		h.log.Debug("user-access: owner seed skipped — empty email")
+		return
+	}
+	if depID == "" {
+		h.log.Debug("user-access: owner seed skipped — empty deployment id")
+		return
+	}
+	dep, ok := h.lookupDeploymentForInfra(depID)
+	if !ok || dep == nil {
+		h.log.Warn("user-access: owner seed skipped — deployment not resolvable",
+			"depId", depID)
+		return
+	}
+	client, err := h.sovereignDynamicClient(dep)
+	if err != nil {
+		h.log.Warn("user-access: owner seed dynamic client unavailable",
+			"depId", depID, "err", err)
+		return
+	}
+	if err := EnsureOwnerUserAccess(ctx, client, email, sovereignFQDN); err != nil {
+		h.log.Warn("user-access: owner seed failed",
+			"depId", depID, "email", email, "err", err)
+		return
+	}
+	h.log.Info("user-access: owner auto-seeded",
+		"depId", depID, "email", email)
 }
 
 // ────────────────────────────────────────────────────────────────────────────
