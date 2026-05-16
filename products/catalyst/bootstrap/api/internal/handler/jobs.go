@@ -22,6 +22,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
@@ -70,10 +71,24 @@ func (h *Handler) chrootEnsureDeployment(depID string) *Deployment {
 	closedDone := make(chan struct{})
 	close(closedCh)
 	close(closedDone)
+	// SOVEREIGN_REGIONS_JSON — chroot-side region list, threaded in by
+	// bp-catalyst-platform Helm values (Sovereign-side env). When
+	// present, populate Request.Regions so the topology loader emits
+	// one Region per spec entry instead of falling into the chroot
+	// "single-region from live Nodes" path — without this the
+	// /cloud?view=graph view shows "1 cluster 1 region" on every
+	// multi-region Sovereign because the live-Nodes path only sees
+	// THIS cluster's Nodes, not the cross-region peers. Caught on
+	// t126 (84c0848406dd6fdd, 2026-05-16) — operator reported
+	// `console.t126.omani.works/cloud?view=graph` rendered as
+	// single-region despite the mothership openova-flow snapshot
+	// holding all 3 regions correctly.
+	regions := chrootRegionsFromEnv()
 	dep := &Deployment{
 		ID: depID,
 		Request: provisioner.Request{
 			SovereignFQDN: selfFQDN,
+			Regions:       regions,
 		},
 		Status:   "ready",
 		eventsCh: closedCh,
@@ -81,8 +96,27 @@ func (h *Handler) chrootEnsureDeployment(depID string) *Deployment {
 	}
 	h.deployments.Store(depID, dep)
 	h.log.Info("chroot: synthesised in-memory deployment record",
-		"depId", depID, "sovereignFQDN", selfFQDN)
+		"depId", depID, "sovereignFQDN", selfFQDN,
+		"regionCount", len(regions))
 	return dep
+}
+
+// chrootRegionsFromEnv parses SOVEREIGN_REGIONS_JSON (the canonical
+// regions list threaded in by bp-catalyst-platform). Returns empty
+// slice when unset or malformed — the caller falls back to the live-
+// Nodes path. The JSON shape matches the wizard's request.regions
+// array: [{provider, cloudRegion, controlPlaneSize, workerSize,
+// workerCount}, ...].
+func chrootRegionsFromEnv() []provisioner.RegionSpec {
+	raw := strings.TrimSpace(os.Getenv("SOVEREIGN_REGIONS_JSON"))
+	if raw == "" {
+		return nil
+	}
+	var out []provisioner.RegionSpec
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil
+	}
+	return out
 }
 
 // chrootSeedJobsStoreIfEmpty — when the chroot Sovereign-side

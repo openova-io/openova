@@ -609,6 +609,21 @@ spec:
     # bp-cert-manager-powerdns-webhook 1.1.0+) as an overridable default.
     wildcardCert:
       useStaging: ${WILDCARD_CERT_USE_STAGING:-false}
+    # ─── Sovereign-side region seeding (DoD D5) ─────────────────────
+    # regionsJson — JSON-array literal of the canonical multi-region
+    # RegionSpec[] this Sovereign was provisioned with. Threaded
+    # through from the mothership prov body via the tofu cloud-init
+    # `SOVEREIGN_REGIONS_JSON` envsubst placeholder. The chart writes
+    # this string into the `sovereign-fqdn` ConfigMap's `regionsJson`
+    # key (sovereign-fqdn-configmap.yaml); the catalyst-api Pod reads
+    # via env `SOVEREIGN_REGIONS_JSON`; chrootEnsureDeployment parses
+    # and stamps Request.Regions so /infrastructure/topology emits
+    # the right per-region tree and /cloud?view=graph renders all
+    # N regions correctly. Without this the chroot fell back to the
+    # live-Nodes path and emitted "1 cluster 1 region" on every
+    # multi-region Sovereign (caught on t126, 2026-05-16).
+    sovereign:
+      regionsJson: ${SOVEREIGN_REGIONS_JSON:-}
     # ─── QA fixtures (qa-loop iter-6 Cluster-F + EPIC-6 iter-6) ────────
     # Default-OFF on production; flipped to true via envsubst
     # QA_FIXTURES_ENABLED=true on the per-Sovereign overlay for any
