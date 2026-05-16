@@ -90,7 +90,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.1.2",
+    "version": "1.2.0",
     "section": "pts-3-3-security-and-policy",
     "depends": []
   },
@@ -136,7 +136,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.0",
+    "version": "1.3.0",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": []
   },
@@ -154,6 +154,24 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "section": "pts-4-1-data-services",
     "depends": [
       "bp-flux"
+    ]
+  },
+  {
+    "id": "bp-cnpg-pair",
+    "slug": "cnpg-pair",
+    "title": "CNPG Cluster-Pair (Active-Hotstandby DR)",
+    "summary": "|",
+    "icon": "cnpg-pair.svg",
+    "category": "data",
+    "tagline": null,
+    "tags": [],
+    "visibility": "listed",
+    "version": "0.1.1",
+    "section": "pts-9-disaster-recovery",
+    "depends": [
+      "bp-cnpg",
+      "bp-hcloud-csi",
+      "bp-cilium"
     ]
   },
   {
@@ -184,6 +202,23 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "section": "pts-3-2-gitops-and-iac",
     "depends": [
       "bp-crossplane"
+    ]
+  },
+  {
+    "id": "bp-dmz-vcluster",
+    "slug": "dmz-vcluster",
+    "title": "DMZ vCluster",
+    "summary": "|",
+    "icon": "vcluster.svg",
+    "category": "platform",
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "0.1.0",
+    "section": "pts-3-1-networking-and-service-mesh",
+    "depends": [
+      "bp-cilium",
+      "bp-cert-manager"
     ]
   },
   {
@@ -227,7 +262,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.1.4",
+    "version": "1.2.0",
     "section": "pts-3-2-gitops-and-iac",
     "depends": []
   },
@@ -255,9 +290,59 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.4",
+    "version": "1.2.5",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": []
+  },
+  {
+    "id": "bp-guacamole",
+    "slug": "guacamole",
+    "title": "Apache Guacamole",
+    "summary": "Clientless HTML5 remote-desktop gateway. Browser-based RDP / VNC / SSH and kubectl-exec into Pods, with Keycloak SSO and full session recording to SeaweedFS. One Guacamole per Sovereign per ADR-0001 §11.",
+    "icon": "guacamole.svg",
+    "category": "platform",
+    "tagline": null,
+    "tags": [],
+    "visibility": "listed",
+    "version": "0.1.0",
+    "section": "pts-3-1-networking-and-service-mesh",
+    "depends": [
+      "bp-keycloak",
+      "bp-cilium",
+      "bp-seaweedfs",
+      "bp-sealed-secrets",
+      "bp-k8s-ws-proxy"
+    ]
+  },
+  {
+    "id": "bp-hcloud-csi",
+    "slug": "hcloud-csi",
+    "title": "Hetzner Cloud CSI",
+    "summary": "|",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.0.0",
+    "section": "pts-3-5-storage-and-data",
+    "depends": []
+  },
+  {
+    "id": "bp-k8s-ws-proxy",
+    "slug": "k8s-ws-proxy",
+    "title": "k8s-ws-proxy",
+    "summary": "Per-node WebSocket exec proxy that bridges HMAC-signed upstream callers (catalyst-api, Guacamole) onto the local kube-apiserver pods/exec stream. DaemonSet with internalTrafficPolicy=Local for node-local sessions.",
+    "icon": "k8s-ws-proxy.svg",
+    "category": "platform",
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "0.1.0",
+    "section": "pts-3-3-security-and-policy",
+    "depends": [
+      "bp-sealed-secrets"
+    ]
   },
   {
     "id": "bp-keycloak",
@@ -269,7 +354,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.3.2",
+    "version": "1.5.0",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": []
   },
@@ -382,6 +467,23 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ]
   },
   {
+    "id": "bp-mgmt-vcluster",
+    "slug": "mgmt-vcluster",
+    "title": "Management vCluster",
+    "summary": "|",
+    "icon": "vcluster.svg",
+    "category": "platform",
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "0.1.0",
+    "section": "pts-3-2-control-plane-isolation",
+    "depends": [
+      "bp-cilium",
+      "bp-cert-manager"
+    ]
+  },
+  {
     "id": "bp-nats-jetstream",
     "slug": "nats-jetstream",
     "title": "nats-jetstream",
@@ -391,7 +493,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.1.2",
+    "version": "1.2.0",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": []
   },
@@ -409,6 +511,40 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "section": "pts-4-7-ai-safety",
     "depends": [
       "bp-vllm"
+    ]
+  },
+  {
+    "id": "bp-netbird",
+    "slug": "netbird",
+    "title": "NetBird",
+    "summary": "WireGuard-based zero-trust mesh + remote-access overlay. Operators / engineers / customer admins enroll devices via Keycloak SSO and reach Sovereign-internal services from any laptop. Includes management + signal + coturn (TURN/STUN). One NetBird per Sovereign per ADR-0001 §11.",
+    "icon": "netbird.svg",
+    "category": "platform",
+    "tagline": null,
+    "tags": [],
+    "visibility": "listed",
+    "version": "0.1.0",
+    "section": "pts-3-1-networking-and-service-mesh",
+    "depends": [
+      "bp-keycloak",
+      "bp-cilium",
+      "bp-sealed-secrets"
+    ]
+  },
+  {
+    "id": "bp-network-policies",
+    "slug": "network-policies",
+    "title": "Network Policies (zero-trust baseline)",
+    "summary": "|",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.0.0",
+    "section": "pts-3-1-networking-and-service-mesh",
+    "depends": [
+      "bp-cilium"
     ]
   },
   {
@@ -482,6 +618,23 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     ]
   },
   {
+    "id": "bp-opentelemetry-operator",
+    "slug": "opentelemetry-operator",
+    "title": "OpenTelemetry Operator",
+    "summary": "|",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.0.0",
+    "section": "pts-3-2-observability-and-tracing",
+    "depends": [
+      "bp-opentelemetry",
+      "bp-cert-manager"
+    ]
+  },
+  {
     "id": "bp-powerdns",
     "slug": "powerdns",
     "title": "PowerDNS",
@@ -494,6 +647,37 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "version": "1.1.8",
     "section": "pts-3-2-gitops-and-iac",
     "depends": [
+      "bp-cert-manager"
+    ]
+  },
+  {
+    "id": "bp-qa-app",
+    "slug": "qa-app",
+    "title": "QA Test App",
+    "summary": "|",
+    "icon": "nginx.svg",
+    "category": "testing",
+    "tagline": null,
+    "tags": [],
+    "visibility": "listed",
+    "version": "0.1.0",
+    "section": "pts-qa",
+    "depends": []
+  },
+  {
+    "id": "bp-rtz-vcluster",
+    "slug": "rtz-vcluster",
+    "title": "RTZ vCluster",
+    "summary": "|",
+    "icon": "vcluster.svg",
+    "category": "platform",
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "0.1.0",
+    "section": "pts-3-2-control-plane-isolation",
+    "depends": [
+      "bp-cilium",
       "bp-cert-manager"
     ]
   },
@@ -521,7 +705,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.0",
+    "version": "0.1.14",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-gitea",
@@ -543,6 +727,24 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "depends": []
   },
   {
+    "id": "bp-stalwart-sovereign",
+    "slug": "stalwart-sovereign",
+    "title": "Stalwart (Sovereign Console mail)",
+    "summary": "|",
+    "icon": "stalwart.svg",
+    "category": "communication",
+    "tagline": null,
+    "tags": [],
+    "visibility": "listed",
+    "version": "0.1.0",
+    "section": "pts-4-5-communication",
+    "depends": [
+      "bp-cert-manager",
+      "bp-cert-manager-powerdns-webhook",
+      "bp-powerdns"
+    ]
+  },
+  {
     "id": "bp-stalwart-tenant",
     "slug": "stalwart-tenant",
     "title": "Stalwart (per-tenant)",
@@ -552,7 +754,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.1.0",
+    "version": "0.1.2",
     "section": "pts-4-5-communication",
     "depends": [
       "bp-keycloak",
@@ -637,7 +839,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "section": "pts-7-sme-tenant",
     "depends": [
       "bp-cnpg",
@@ -669,14 +871,19 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/cert-manager-powerdns-webhook/blueprint.yaml",
   "platform/cert-manager/blueprint.yaml",
   "platform/cilium/blueprint.yaml",
+  "platform/cnpg-pair/blueprint.yaml",
   "platform/cnpg/blueprint.yaml",
   "platform/crossplane-claims/blueprint.yaml",
   "platform/crossplane/blueprint.yaml",
+  "platform/dmz-vcluster/blueprint.yaml",
   "platform/external-secrets-stores/blueprint.yaml",
   "platform/external-secrets/blueprint.yaml",
   "platform/flux/blueprint.yaml",
   "platform/gateway-api/blueprint.yaml",
   "platform/gitea/blueprint.yaml",
+  "platform/guacamole/blueprint.yaml",
+  "platform/hcloud-csi/blueprint.yaml",
+  "platform/k8s-ws-proxy/blueprint.yaml",
   "platform/keycloak/blueprint.yaml",
   "platform/knative/blueprint.yaml",
   "platform/kserve/blueprint.yaml",
@@ -684,16 +891,23 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/livekit/blueprint.yaml",
   "platform/llm-gateway/blueprint.yaml",
   "platform/matrix/blueprint.yaml",
+  "platform/mgmt-vcluster/blueprint.yaml",
   "platform/nats-jetstream/blueprint.yaml",
   "platform/nemo-guardrails/blueprint.yaml",
+  "platform/netbird/blueprint.yaml",
+  "platform/network-policies/blueprint.yaml",
   "platform/newapi/blueprint.yaml",
   "platform/openbao/blueprint.yaml",
   "platform/openclaw/blueprint.yaml",
   "platform/openmeter/blueprint.yaml",
+  "platform/opentelemetry-operator/blueprint.yaml",
   "platform/powerdns/blueprint.yaml",
+  "platform/qa-app/blueprint.yaml",
+  "platform/rtz-vcluster/blueprint.yaml",
   "platform/sealed-secrets/blueprint.yaml",
   "platform/self-sovereign-cutover/blueprint.yaml",
   "platform/spire/blueprint.yaml",
+  "platform/stalwart-sovereign/blueprint.yaml",
   "platform/stalwart-tenant/blueprint.yaml",
   "platform/stunner/blueprint.yaml",
   "platform/temporal/blueprint.yaml",
@@ -967,6 +1181,62 @@ export const BOOTSTRAP_KIT: readonly BootstrapKitEntry[] = [
     "label": "cluster-autoscaler",
     "file": "50-cluster-autoscaler.yaml",
     "order": 50
+  },
+  {
+    "id": "bp-bp-k8s-ws-proxy",
+    "slug": "bp-k8s-ws-proxy",
+    "label": "bp-k8s-ws-proxy",
+    "file": "51-bp-k8s-ws-proxy.yaml",
+    "order": 51
+  },
+  {
+    "id": "bp-bp-guacamole",
+    "slug": "bp-guacamole",
+    "label": "bp-guacamole",
+    "file": "52-bp-guacamole.yaml",
+    "order": 52
+  },
+  {
+    "id": "bp-bp-dmz-vcluster",
+    "slug": "bp-dmz-vcluster",
+    "label": "bp-dmz-vcluster",
+    "file": "54-bp-dmz-vcluster.yaml",
+    "order": 54
+  },
+  {
+    "id": "bp-bp-hcloud-ccm",
+    "slug": "bp-hcloud-ccm",
+    "label": "bp-hcloud-ccm",
+    "file": "55-bp-hcloud-ccm.yaml",
+    "order": 55
+  },
+  {
+    "id": "bp-bp-openova-flow-server",
+    "slug": "bp-openova-flow-server",
+    "label": "bp-openova-flow-server",
+    "file": "56-bp-openova-flow-server.yaml",
+    "order": 56
+  },
+  {
+    "id": "bp-bp-openova-flow-emitter",
+    "slug": "bp-openova-flow-emitter",
+    "label": "bp-openova-flow-emitter",
+    "file": "57-bp-openova-flow-emitter.yaml",
+    "order": 57
+  },
+  {
+    "id": "bp-bp-mgmt-vcluster",
+    "slug": "bp-mgmt-vcluster",
+    "label": "bp-mgmt-vcluster",
+    "file": "58-bp-mgmt-vcluster.yaml",
+    "order": 58
+  },
+  {
+    "id": "bp-bp-rtz-vcluster",
+    "slug": "bp-rtz-vcluster",
+    "label": "bp-rtz-vcluster",
+    "file": "59-bp-rtz-vcluster.yaml",
+    "order": 59
   },
   {
     "id": "bp-newapi",

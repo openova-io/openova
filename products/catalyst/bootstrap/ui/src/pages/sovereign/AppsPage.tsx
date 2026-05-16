@@ -228,7 +228,16 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
 
   useEffect(() => {
     const id = `phase1-unavailable:${deploymentId}`
-    if (!state.phase1WatchSkipped) {
+    // DoD D18 (t129 2026-05-16): suppress on chroot. The Sovereign-side
+    // catalyst-api runs IN the cluster it's reporting on; the
+    // Phase-1-watch-skipped event is a mothership-only concept (mother's
+    // observer pod couldn't fetch the new cluster's kubeconfig). The
+    // chroot has the in-cluster ServiceAccount + the bundled
+    // sovereignDynamicClient and watches HelmReleases directly via the
+    // informer cache. Firing the "monitoring unavailable" notification
+    // here misinforms the operator and tells them to drop to kubectl
+    // when the data is already on the page.
+    if (!state.phase1WatchSkipped || DETECTED_MODE.mode === 'sovereign') {
       dismiss(id)
       return
     }
@@ -256,9 +265,20 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
   // backend" message that hides the truncation. Uses a `notify` (not
   // `throw`) so the rest of the page still renders — preserves the
   // canonical empty-grid + Cancel-and-Wipe affordance.
+  //
+  // CHROOT EXEMPTION (DoD D17, caught on t129 2026-05-16): on the
+  // Sovereign Console the canonical deployment id returned by
+  // /api/v1/sovereign/self is `sovereign-<fqdn>` (not a 16-char hex).
+  // Likewise the AppsPage on the SovereignConsoleLayout has no
+  // `:deploymentId` URL param to inspect — the id is resolved via
+  // sovereign-self, NOT the URL. Firing the "malformed" notification
+  // on every `/apps` and `/app/<name>` visit on the chroot is a
+  // false-positive. Suppress on chroot (DETECTED_MODE.mode==='sovereign')
+  // since the chroot id-resolution path is not URL-driven.
+  const suppressMalformedBanner = DETECTED_MODE.mode === 'sovereign'
   useEffect(() => {
     const id = `deployment-id-malformed:${rawDeploymentId}`
-    if (deploymentIdValid) {
+    if (deploymentIdValid || suppressMalformedBanner) {
       dismiss(id)
       return
     }
@@ -279,7 +299,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
         },
       ],
     })
-  }, [deploymentIdValid, rawDeploymentId, notify, dismiss, router])
+  }, [deploymentIdValid, suppressMalformedBanner, rawDeploymentId, notify, dismiss, router])
 
   // Issues #764 + #768 — Sovereign-is-ready handover surface. Once
   // catalyst-api auto-fires the JWT mint (markPhase1Done →
