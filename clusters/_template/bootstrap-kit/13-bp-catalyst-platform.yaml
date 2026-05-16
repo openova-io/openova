@@ -654,6 +654,21 @@ spec:
       # on every multi-region Sovereign. Caught on t131 2026-05-16.
       # Single-quoted so embedded double-quotes in the JSON are literal.
       regionsJson: '${SOVEREIGN_REGIONS_JSON:-}'
+      # ─── D22 (settings empty values) sovereign-side identity ──────────
+      # ORG_EMAIL / ORG_NAME / SOVEREIGN_CONTROL_PLANE_IP / GITOPS_REPO_URL
+      # threaded from cloud-init (provisioner.go::writeTfvars + Hetzner
+      # tofu cloudinit-control-plane.tftpl). Chart's sovereign-fqdn
+      # ConfigMap exposes these as keys; catalyst-api reads via env in
+      # api-deployment.yaml (PR #1569); chrootEnsureDeployment populates
+      # the deployment record so Sovereign Console Settings page renders
+      # real ownerEmail/region/controlPlaneIP/gitopsRepoURL/consoleURL
+      # instead of `—` placeholders. Empty default = same as today,
+      # backwards-compatible for charts that don't have the cloud-init
+      # placeholders wired yet.
+      orgEmail: '${ORG_EMAIL:-}'
+      orgName: '${ORG_NAME:-}'
+      controlPlaneIP: '${SOVEREIGN_CONTROL_PLANE_IP:-}'
+      gitopsRepoURL: '${GITOPS_REPO_URL:-}'
     # ─── QA fixtures (qa-loop iter-6 Cluster-F + EPIC-6 iter-6) ────────
     # Default-OFF on production; flipped to true via envsubst
     # QA_FIXTURES_ENABLED=true on the per-Sovereign overlay for any
