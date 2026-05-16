@@ -75,6 +75,16 @@ const userAccessOwnerEmailAnnotation = "catalyst.openova.io/user-email"
 // limit (the apiserver rejects longer names with a 422).
 const userAccessOwnerNamePrefix = "useraccess-owner-"
 
+// userAccessOwnerNamespace is the namespace the auto-seeded owner CR
+// lives in. useraccesses.access.openova.io is a NAMESPACED Crossplane
+// Claim per platform/crossplane-claims/chart/templates/xrds/useraccess.yaml
+// (`claimNames` block). catalyst-system is canonical — every other
+// Catalyst-authored CR lives there too, and the listing/admin handler
+// at user_access.go::ListUserAccess uses `Namespace("")` which surfaces
+// CRs from every namespace, so the operator entry surfaces on /users
+// without per-namespace filtering. Caught on t134 2026-05-17.
+const userAccessOwnerNamespace = "catalyst-system"
+
 // EnsureOwnerUserAccess creates an owner-tier UserAccess CR for the
 // operator who just completed PIN-login + handover, if one does not
 // already exist. Idempotent: AlreadyExists is folded to a nil return.
@@ -114,9 +124,14 @@ func EnsureOwnerUserAccess(ctx context.Context, client dynamic.Interface, email,
 	sovRef := rbacAssignSlug(sovereignFQDN)
 
 	obj := buildOwnerUserAccessUnstructured(name, email, sovRef)
-
+	// D21 fix on t134 2026-05-17: the prior Namespace("") call returned
+	// "the server could not find the requested resource" because
+	// useraccesses.access.openova.io is NAMESPACED (Claim semantics per
+	// the XRD's claimNames block). Pin to catalyst-system + stamp the
+	// namespace on the CR object so the apiserver routes the Create.
+	obj.SetNamespace(userAccessOwnerNamespace)
 	_, err := client.Resource(UserAccessGVR()).
-		Namespace("").
+		Namespace(userAccessOwnerNamespace).
 		Create(ctx, obj, metav1.CreateOptions{})
 	if err != nil {
 		if apierrors.IsAlreadyExists(err) {
