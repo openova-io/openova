@@ -473,13 +473,18 @@ spec:
       # from bitnamilegacy/kubectl:1.29.3 → alpine/k8s:1.31.4 in same
       # commit (rule-17 MIRROR-EVERYTHING hygiene; bitnamilegacy is
       # the Docker-Hub redirect for deprecated Bitnami 2025-08 cutover).
+      # 1.4.145 (D29 gateway public routes for redeem flow):
+      # - PR #1559 makes /api/billing/{vouchers/redeem-preview,plans,addons}
+      #   public so the marketplace /redeem?code=XXX landing can validate
+      #   codes without auth (the entire D29 voucher-redeem zero-touch
+      #   flow is broken without this)
       # 1.4.144 (D27 admin tag override + D28 voucher email wire):
       # - PR #1557 decouples admin tag from smeTag bundle (admin image
       #   may not publish for every SME services CI SHA — caught t132
       #   2026-05-16 with admin:b0ed216 stuck in ImagePullBackOff)
       # - PR #1556 adds the billing→notification wire so the voucher
       #   issuance flow emails the recipient (D28 zero-touch contract)
-      version: 1.4.144
+      version: 1.4.145
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
