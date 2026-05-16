@@ -1,0 +1,96 @@
+# bp-rtz-vcluster — Catalyst bootstrap-kit Blueprint slot 59.
+#
+# Per-secondary-region RTZ vCluster — installed ONLY on secondary
+# regions. Hosts regional tenant workloads + caches.
+#
+# Per docs/SOVEREIGN-MULTI-REGION-DOD.md A4 (vCluster topology):
+#   primary    region → MGMT  + DMZ  vCluster (slot 58 + slot 54)
+#   secondary  region → DMZ   + RTZ  vCluster (slot 54 + this slot)
+#
+# Cross-vCluster intra-region traffic between RTZ and DMZ stays
+# inside the host k3s via Cilium endpoint identity routing. Cross-
+# region traffic (RTZ secondary ↔ MGMT primary) goes through the DMZ
+# WireGuard hop per DoD A2.
+#
+# Wrapper chart: platform/bp-rtz-vcluster/chart/
+#   Bundles loft-sh/vcluster 0.20.0 as a Helm subchart.
+#
+# Reconciled by: Flux on every secondary region's k3s control plane.
+#
+# dependsOn:
+#   - bp-cilium       — CNI + Gateway API
+#   - bp-cert-manager — TLS for ClusterIssuers
+#
+# Per-role gating: defaults to DISABLED (rtzVcluster.enabled=false).
+# The Sovereign-provisioning tofu module (infra/hetzner/main.tf
+# secondary-CP block) flips this to "true" via postBuild.substitute
+# on secondary regions only — pending the follow-up substitute PR
+# (which adds RTZ_VCLUSTER_ENABLED to the substitute block). Until
+# that lands, operators opt in per-Sovereign overlay by patching
+# `values.rtzVcluster.enabled: true` on secondary clusters'
+# bootstrap-kit slot.
+
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-rtz-vcluster
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-rtz-vcluster
+  namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "59"
+    catalyst.openova.io/vcluster-role: rtz
+    catalyst.openova.io/topology: dod-a4
+spec:
+  interval: 15m
+  releaseName: rtz-vcluster
+  targetNamespace: rtz
+  dependsOn:
+    - name: bp-cilium
+    - name: bp-cert-manager
+  chart:
+    spec:
+      chart: bp-rtz-vcluster
+      version: 0.1.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-rtz-vcluster
+        namespace: flux-system
+  install:
+    timeout: 15m
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    timeout: 15m
+    disableWait: true
+    remediation:
+      retries: 3
+  values:
+    rtzVcluster:
+      # Default off until tofu's secondary-CP postBuild flips it; see
+      # the slot header comment for the migration plan.
+      enabled: false
+      hostNamespace: rtz
+      vclusterName: rtz
+      role: secondary
+      nodeSelector:
+        regionLabelKey: openova.io/region
+        regionLabelValue: ${SOVEREIGN_REGION_KEY}
+    vcluster:
+      controlPlane:
+        statefulSet:
+          scheduling:
+            nodeSelector:
+              openova.io/region: ${SOVEREIGN_REGION_KEY}

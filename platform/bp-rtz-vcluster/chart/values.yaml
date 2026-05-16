@@ -1,0 +1,105 @@
+# Catalyst Blueprint values for bp-rtz-vcluster (DoD A4 — vCluster
+# topology, 2026-05-16).
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #1/#4/#4a + MIRROR-EVERYTHING.
+
+catalystBlueprint:
+  upstream:
+    chart: vcluster
+    version: "0.20.0"
+    repo: "https://charts.loft.sh"
+
+global:
+  imageRegistry: ""
+
+rtzVcluster:
+  # Top-level enable gate. False by default; bootstrap-kit slot 59
+  # postBuild.substitute flips it on ONLY for secondary regions.
+  enabled: false
+
+  # ── Topology identity ───────────────────────────────────────────────
+  hostNamespace: rtz
+  vclusterName: rtz
+  role: secondary
+
+  # ── NodeSelector pin to this region's CP ────────────────────────────
+  # The RTZ vCluster pod MUST run on the region's own CP node so
+  # tenant traffic never silently lands in a foreign region.
+  nodeSelector:
+    regionLabelKey: "openova.io/region"
+    regionLabelValue: ""
+
+  image:
+    repository: "harbor.openova.io/proxy-ghcr/loft-sh/vcluster"
+    tag: "0.20.0"
+    pullPolicy: "IfNotPresent"
+
+  # ── NetworkPolicy isolation baseline ──────────────────────────────
+  # RTZ default-deny: tenant workloads only reach DMZ for outbound
+  # routes. NO direct mgmt access (mgmt only lives on the primary —
+  # MGMT calls cross-region via DMZ WG).
+  networkPolicy:
+    enabled: true
+    allowedIngressNamespaces:
+      - dmz     # always present on the same region
+    allowWorldIngress: false   # tenant pods never face world directly
+
+vcluster:
+  controlPlane:
+    distro:
+      k8s:
+        enabled: true
+    backingStore:
+      database:
+        embedded:
+          enabled: true
+    statefulSet:
+      scheduling:
+        nodeSelector: {}
+      image:
+        registry: harbor.openova.io
+        repository: proxy-ghcr/loft-sh/vcluster
+        tag: "0.20.0"
+      resources:
+        requests:
+          cpu: "200m"
+          memory: "384Mi"
+        limits:
+          cpu: "2"
+          memory: "1Gi"
+      persistence:
+        volumeClaim:
+          enabled: true
+          size: "5Gi"
+          storageClass: "local-path"
+    service:
+      enabled: true
+      spec:
+        type: ClusterIP
+
+  sync:
+    toHost:
+      services:
+        enabled: true
+      ingresses:
+        enabled: false
+      persistentVolumeClaims:
+        enabled: true
+      configMaps:
+        enabled: true
+      secrets:
+        enabled: true
+    fromHost:
+      ingressClasses:
+        enabled: true
+
+  # Writes a host-namespace Secret named `vc-rtz` containing a kubeconfig
+  # for the vCluster's apiserver. The Sovereign-side handler
+  # (core/services/provisioning/handlers/handlers.go
+  # mirrorVClusterKubeconfig) mirrors this Secret into flux-system as
+  # `rtz-vcluster-kubeconfig` so per-Sovereign Flux Kustomization CRs
+  # can reconcile RTZ-vCluster-targeted resources.
+  exportKubeConfig:
+    context: vcluster
+    secret:
+      name: vc-rtz

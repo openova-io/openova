@@ -1,0 +1,45 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-dmz-vcluster
+  labels:
+    catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
+    catalyst.openova.io/category: platform
+spec:
+  version: 0.1.0
+  card:
+    title: DMZ vCluster
+    summary: |
+      Per-region DMZ vCluster — the public-fronted vCluster on every
+      region. Hosts Cilium Gateway + Cilium WG endpoint + HTTPRoutes
+      for console / auth / gitea / harbor. Inter-region WG hop per
+      DoD A2 (inter-region link = DMZ WireGuard over PUBLIC IPs).
+      Implements DoD A4 — every region (primary AND secondary) runs a
+      DMZ vCluster.
+    icon: vcluster.svg
+    category: platform
+  visibility: unlisted              # mandatory bootstrap topology
+  placementSchema:
+    modes: [every-region]
+    minRegions: 1
+    maxRegions: 16
+  upgrades:
+    from: ["0.x"]
+  manifests:
+    chart: ./chart
+  depends:
+    - blueprint: bp-cilium
+      version: ^1
+    - blueprint: bp-cert-manager
+      version: ^1
+
+  # ── Outputs advertised to dependent Blueprints ───────────────────────────
+  # Dependent charts (catalyst-platform HTTPRoutes, gateway-api,
+  # bp-keycloak Sovereign-side login) consume the vCluster kubeconfig
+  # secret name + host-namespace name rather than hardcoding so
+  # per-Sovereign overlays can rename without rewiring downstream.
+  outputs:
+    hostNamespace: dmz
+    vclusterName: dmz
+    kubeconfigSecretName: vc-dmz
+    role: every-region

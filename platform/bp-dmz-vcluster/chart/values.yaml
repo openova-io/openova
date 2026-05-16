@@ -1,0 +1,127 @@
+# Catalyst Blueprint values for bp-dmz-vcluster (DoD A4 — vCluster
+# topology implementation, 2026-05-16).
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md:
+#   #1   waterfall — chart ships the full target shape on the first cut.
+#   #4   never hardcode — every value is overridable per-Sovereign.
+#   #4a  SHA-pinned images.
+#   MIRROR-EVERYTHING — Harbor proxy by default.
+
+catalystBlueprint:
+  upstream:
+    chart: vcluster
+    version: "0.20.0"
+    repo: "https://charts.loft.sh"
+
+global:
+  imageRegistry: ""
+
+dmzVcluster:
+  # Top-level enable gate. False by default; bootstrap-kit slot 54
+  # postBuild.substitute flips it on every region.
+  enabled: false
+
+  # ── Topology identity ───────────────────────────────────────────────
+  hostNamespace: dmz
+  vclusterName: dmz
+  role: every-region
+
+  # ── NodeSelector pin to this region's CP ────────────────────────────
+  # The DMZ vCluster pod MUST run on the region's own CP node so the
+  # inter-region WireGuard endpoint binds the correct region's public
+  # IP. Per docs/SOVEREIGN-MULTI-REGION-DOD.md A2 — inter-region link
+  # goes over the DMZ WG over PUBLIC IPs.
+  nodeSelector:
+    regionLabelKey: "openova.io/region"
+    # The region's key — substituted by the bootstrap-kit Kustomization
+    # via `${SOVEREIGN_REGION_LABEL}`. Empty default keeps the chart
+    # renderable for `helm template` smoke tests.
+    regionLabelValue: ""
+
+  # ── Image (MIRROR-EVERYTHING) ─────────────────────────────────────
+  image:
+    repository: "harbor.openova.io/proxy-ghcr/loft-sh/vcluster"
+    tag: "0.20.0"
+    pullPolicy: "IfNotPresent"
+
+  # ── NetworkPolicy isolation baseline ──────────────────────────────
+  # DMZ is public-fronted. Ingress from world (Gateway) IS allowed
+  # but only on the Cilium Gateway path — the rest is default-deny.
+  # The DMZ also needs to call the MGMT vCluster (catalyst-api etc.)
+  # and the RTZ vCluster (tenant workloads). Cross-region MGMT calls
+  # go through the inter-region WG.
+  networkPolicy:
+    enabled: true
+    # Namespaces allowed to ingress this vCluster from inside the host
+    # k3s (intra-region cross-vCluster traffic). Per DoD A4 traffic
+    # stays inside host k3s via Cilium.
+    allowedIngressNamespaces:
+      - mgmt    # primary-only — RTZ secondaries won't have this NS
+      - rtz     # secondary-only — primary won't have this NS
+      - kube-system    # Gateway control-plane
+      - gateway-system # Gateway data-plane
+    # World ingress: allow Cilium Gateway pods to reach DMZ vCluster
+    # via the in-cluster Service. Operators override per-Sovereign
+    # to add WireGuard port (UDP 51871) allowance from world.
+    allowWorldIngress: true
+
+# ─── Upstream chart values (subchart key: vcluster) ────────────────
+vcluster:
+  controlPlane:
+    distro:
+      k8s:
+        enabled: true
+    backingStore:
+      database:
+        embedded:
+          enabled: true
+    statefulSet:
+      scheduling:
+        nodeSelector: {}
+      image:
+        registry: harbor.openova.io
+        repository: proxy-ghcr/loft-sh/vcluster
+        tag: "0.20.0"
+      resources:
+        requests:
+          cpu: "200m"
+          memory: "384Mi"
+        limits:
+          cpu: "2"
+          memory: "1Gi"
+      persistence:
+        volumeClaim:
+          enabled: true
+          size: "5Gi"
+          storageClass: "local-path"
+    service:
+      enabled: true
+      spec:
+        type: ClusterIP
+
+  sync:
+    toHost:
+      services:
+        enabled: true
+      ingresses:
+        enabled: false
+      persistentVolumeClaims:
+        enabled: true
+      configMaps:
+        enabled: true
+      secrets:
+        enabled: true
+    fromHost:
+      ingressClasses:
+        enabled: true
+
+  # Writes a host-namespace Secret named `vc-dmz` containing a kubeconfig
+  # for the vCluster's apiserver. The Sovereign-side handler
+  # (core/services/provisioning/handlers/handlers.go
+  # mirrorVClusterKubeconfig) mirrors this Secret into flux-system as
+  # `dmz-vcluster-kubeconfig` so per-Sovereign Flux Kustomization CRs
+  # can reconcile DMZ-vCluster-targeted resources.
+  exportKubeConfig:
+    context: vcluster
+    secret:
+      name: vc-dmz

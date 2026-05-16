@@ -1,0 +1,186 @@
+# Catalyst Blueprint values for bp-mgmt-vcluster (DoD A4 — vCluster
+# topology implementation, 2026-05-16).
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md:
+#   #1   waterfall — chart ships the full target shape on the first cut
+#        (namespace + HelmRelease of upstream vcluster + NetworkPolicy
+#        isolation). No "for now" subset.
+#   #4   never hardcode — every operationally-meaningful value is
+#        configurable via per-Sovereign overlay.
+#   #4a  SHA-pinned images; CI fills .image.tag at promotion time when
+#        the chart graduates to ghcr. The 0.20.0 default keeps the
+#        bootstrap installable on a fresh Sovereign without waiting
+#        for the SHA-mirror cycle (same migration plan as products/
+#        dmz-vcluster/chart/values.yaml).
+#   MIRROR-EVERYTHING — image repository routes through
+#        harbor.openova.io/proxy-* (mothership Harbor proxy-cache) so
+#        upstream-registry deletes / rate-limits never break a fresh
+#        provision. Per-Sovereign post-handover overlay points at the
+#        Sovereign's OWN Harbor.
+
+catalystBlueprint:
+  upstream:
+    chart: vcluster
+    version: "0.20.0"
+    repo: "https://charts.loft.sh"
+
+# ─── Global registry rewrite (matches other Catalyst umbrella charts) ───
+# When set, ALL image pulls in this chart route through this registry.
+# Used post-handover when the Sovereign's own Harbor takes over the
+# proxy_cache role from contabo's central Harbor. Empty = no rewrite
+# (upstream defaults via the subchart's image keys).
+global:
+  imageRegistry: ""
+
+mgmtVcluster:
+  # Top-level enable gate. When false, NO resources render. The
+  # bootstrap-kit Kustomization sets this true via postBuild.substitute
+  # ONLY on the primary region (see clusters/_template/bootstrap-kit/
+  # 58-bp-mgmt-vcluster.yaml).
+  enabled: false
+
+  # ── Topology identity ───────────────────────────────────────────────
+  # Host namespace this vCluster's pods land in (inside the HOST k3s).
+  # The vCluster syncer creates `<pod>-x-<inner-ns>-x-<vclusterName>`
+  # mirror pods in this namespace per upstream convention.
+  hostNamespace: mgmt
+
+  # The vCluster's Kubernetes name. Becomes
+  # `<vclusterName>.<hostNamespace>.svc.cluster.local` on the host.
+  vclusterName: mgmt
+
+  # Per the topology contract this chart renders ONLY on the primary
+  # region. The bootstrap-kit Kustomization gates render via the
+  # SOVEREIGN_REGION_ROLE substitute (introduced 2026-05-16 alongside
+  # this chart, see infra/hetzner/cloudinit-control-plane.tftpl primary
+  # CP postBuild block).
+  role: primary
+
+  # ── NodeSelector pin to this region's CP ────────────────────────────
+  # vCluster pods MUST run on the region's own CP node so cross-region
+  # traffic never silently lands in a foreign region. Per docs/
+  # SOVEREIGN-MULTI-REGION-DOD.md A2 inter-region link goes through
+  # DMZ WG; intra-region stays inside host k3s. The nodeSelector key
+  # `openova.io/region` is stamped on every Hetzner CP node by
+  # cloud-init (infra/hetzner/cloudinit-control-plane.tftpl §node-
+  # labels). Empty value = no pinning (single-region or test
+  # rendering).
+  nodeSelector:
+    regionLabelKey: "openova.io/region"
+    # The primary region's key — substituted by the bootstrap-kit
+    # Kustomization via `${SOVEREIGN_REGION_LABEL}` (e.g.
+    # `hz-nbg-rtz-prod`). Empty default keeps the chart renderable
+    # for `helm template` smoke tests without a Sovereign context.
+    regionLabelValue: ""
+
+  # ── Image (MIRROR-EVERYTHING) ─────────────────────────────────────
+  # Default routes through harbor.openova.io/proxy-ghcr/... per
+  # CLAUDE.md inviolable rule. Post-handover, the per-Sovereign
+  # overlay rewrites to `harbor.<sovereign-fqdn>/proxy-ghcr/...`.
+  image:
+    repository: "harbor.openova.io/proxy-ghcr/loft-sh/vcluster"
+    tag: "0.20.0"
+    pullPolicy: "IfNotPresent"
+
+  # ── NetworkPolicy isolation baseline ───────────────────────────
+  # The MGMT vCluster's host namespace runs default-deny: every
+  # ingress flow is denied unless explicitly allowed. Cross-vCluster
+  # intra-region traffic between MGMT and DMZ stays inside the host
+  # k3s via Cilium endpoint identity routing — the allowlist below
+  # permits the DMZ namespace to call MGMT for the catalyst-api
+  # control plane.
+  networkPolicy:
+    enabled: true
+    # Namespaces that may ingress this vCluster. Defaults to {dmz}
+    # so the DMZ-fronted public services (console, gitea, etc.) can
+    # reach catalyst-api on the MGMT side. Operators add more
+    # entries via per-Sovereign overlay.
+    allowedIngressNamespaces:
+      - dmz
+
+# ─── Upstream chart values (subchart key: vcluster) ────────────────
+# `helm dependency build` resolves the upstream loft-sh/vcluster
+# chart as a subchart; values here under the `vcluster:` key flow
+# into that subchart unchanged. Schema is the upstream 0.20.0
+# values.yaml. Per docs/INVIOLABLE-PRINCIPLES.md #4 every knob is
+# operator-bumpable via per-Sovereign overlay.
+vcluster:
+  controlPlane:
+    distro:
+      k8s:
+        enabled: true
+    backingStore:
+      database:
+        embedded:
+          enabled: true
+    statefulSet:
+      # NodeSelector pin — see mgmtVcluster.nodeSelector above. The
+      # umbrella's _helpers.tpl `bp-mgmt-vcluster.nodeSelector` helper
+      # injects this at render time so per-Sovereign overlays can
+      # override either of the two keys without touching the subchart
+      # directly. NOTE: when bootstrap-kit slot 58 substitutes a real
+      # region label the rendered map below becomes `{openova.io/
+      # region: hz-nbg-rtz-prod}`; empty value = empty map.
+      scheduling:
+        nodeSelector: {}
+      image:
+        # The upstream chart's controlPlane.statefulSet.image is the
+        # vCluster syncer image. MIRROR-EVERYTHING via Harbor proxy.
+        registry: harbor.openova.io
+        repository: proxy-ghcr/loft-sh/vcluster
+        tag: "0.20.0"
+      resources:
+        requests:
+          cpu: "200m"
+          memory: "384Mi"
+        limits:
+          cpu: "2"
+          memory: "1Gi"
+      persistence:
+        volumeClaim:
+          enabled: true
+          size: "5Gi"
+          storageClass: "local-path"
+    service:
+      enabled: true
+      spec:
+        type: ClusterIP
+
+  # sync — what host-cluster resources sync into the vCluster. The
+  # MGMT vCluster needs services + endpoints + configmaps + secrets
+  # to talk to the bootstrap services that live in the host (cnpg,
+  # gitea, openbao, keycloak). Ingresses + nodes + PVs are
+  # intentionally NOT synced (host enforces, vcluster sees abstract
+  # versions).
+  sync:
+    toHost:
+      services:
+        enabled: true
+      ingresses:
+        enabled: false
+      persistentVolumeClaims:
+        enabled: true
+      configMaps:
+        enabled: true
+      secrets:
+        enabled: true
+    fromHost:
+      ingressClasses:
+        enabled: true
+
+  # exportKubeConfig — writes vc-<vclusterName> Secret into the host
+  # namespace with a kubeconfig pointing at the vCluster's apiserver.
+  # The Sovereign-side handlers (core/services/provisioning/handlers/
+  # handlers.go mirrorVClusterKubeconfig) mirror this Secret into
+  # flux-system as `mgmt-vcluster-kubeconfig` so per-Sovereign Flux
+  # Kustomization CRs can reconcile MGMT-vCluster-targeted resources.
+  # Writes a host-namespace Secret named `vc-mgmt` containing a kubeconfig
+  # for the vCluster's apiserver. The Sovereign-side handler
+  # (core/services/provisioning/handlers/handlers.go
+  # mirrorVClusterKubeconfig) mirrors this Secret into flux-system as
+  # `mgmt-vcluster-kubeconfig` so per-Sovereign Flux Kustomization CRs
+  # can reconcile MGMT-vCluster-targeted resources.
+  exportKubeConfig:
+    context: vcluster
+    secret:
+      name: vc-mgmt

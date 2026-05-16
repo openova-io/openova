@@ -1,0 +1,45 @@
+{{- if and .Values.mgmtVcluster.enabled .Values.mgmtVcluster.networkPolicy.enabled -}}
+# Host-namespace NetworkPolicy default-deny + DMZ-allow.
+#
+# Per docs/SOVEREIGN-MULTI-REGION-DOD.md A4: cross-vCluster intra-region
+# traffic stays inside host k3s via Cilium. The MGMT vCluster is the
+# control-plane plane — only the DMZ vCluster (public-facing) needs to
+# reach it for catalyst-api endpoints (PIN-login, dashboard, /sovereign
+# proxy). Direct public ingress to MGMT is forbidden — that's what
+# the DMZ vCluster exists for.
+#
+# This policy applies to ALL pods in the MGMT host namespace (including
+# the vCluster syncer + vCluster-synced workloads visible to the host).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "bp-mgmt-vcluster.fullname" . }}-isolation
+  namespace: {{ include "bp-mgmt-vcluster.hostNamespace" . }}
+  labels:
+    {{- include "bp-mgmt-vcluster.labels" . | nindent 4 }}
+spec:
+  # podSelector {} = all pods in this namespace
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allowlist: each entry in .Values.mgmtVcluster.networkPolicy.allowedIngressNamespaces
+    # becomes one `from.namespaceSelector` rule. The match uses the
+    # kubernetes.io/metadata.name label which the K8s control plane
+    # auto-stamps on every namespace (since K8s 1.21).
+    {{- range .Values.mgmtVcluster.networkPolicy.allowedIngressNamespaces }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . | quote }}
+    {{- end }}
+    # Always allow same-namespace traffic (vCluster syncer + synced
+    # pods talk to each other through the host APIs).
+    - from:
+        - podSelector: {}
+  egress:
+    # Egress: unconstrained by default. Per-Sovereign overlay may
+    # narrow this once observability captures the call graph.
+    - {}
+{{- end }}

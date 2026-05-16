@@ -1,0 +1,44 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-mgmt-vcluster
+  labels:
+    catalyst.openova.io/section: pts-3-2-control-plane-isolation
+    catalyst.openova.io/category: platform
+spec:
+  version: 0.1.0
+  card:
+    title: Management vCluster
+    summary: |
+      Primary-region MGMT vCluster hosting catalyst-api / catalyst-ui /
+      openova-flow-server and other Sovereign control-plane workloads.
+      Implements DoD A4 — every Sovereign's primary region runs a MGMT
+      vCluster alongside its DMZ vCluster (cross-vCluster intra-region
+      traffic stays inside host k3s via Cilium).
+    icon: vcluster.svg
+    category: platform
+  visibility: unlisted              # mandatory bootstrap topology
+  placementSchema:
+    modes: [primary-only]
+    minRegions: 1
+    maxRegions: 1
+  upgrades:
+    from: ["0.x"]
+  manifests:
+    chart: ./chart
+  depends:
+    - blueprint: bp-cilium
+      version: ^1
+    - blueprint: bp-cert-manager
+      version: ^1
+
+  # ── Outputs advertised to dependent Blueprints ───────────────────────────
+  # Dependent charts (catalyst-platform mgmt-side workloads, openova-flow-
+  # server) consume the vCluster kubeconfig secret name + host-namespace
+  # name rather than hardcoding "mgmt" / "vc-mgmt" so per-Sovereign
+  # overlays can rename without rewiring downstream charts.
+  outputs:
+    hostNamespace: mgmt
+    vclusterName: mgmt
+    kubeconfigSecretName: vc-mgmt
+    role: primary

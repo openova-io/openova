@@ -1,0 +1,34 @@
+{{- if and .Values.rtzVcluster.enabled .Values.rtzVcluster.networkPolicy.enabled -}}
+# Host-namespace NetworkPolicy.
+#
+# Per DoD A4: tenant pods land here. Default-deny + allow DMZ ingress
+# (the only sibling vCluster on a secondary region). Tenant pods MUST
+# NOT face world directly — `allowWorldIngress: false` is non-
+# negotiable for this vCluster.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "bp-rtz-vcluster.fullname" . }}-isolation
+  namespace: {{ include "bp-rtz-vcluster.hostNamespace" . }}
+  labels:
+    {{- include "bp-rtz-vcluster.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    {{- range .Values.rtzVcluster.networkPolicy.allowedIngressNamespaces }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . | quote }}
+    {{- end }}
+    - from:
+        - podSelector: {}
+    {{- if .Values.rtzVcluster.networkPolicy.allowWorldIngress }}
+    - {}
+    {{- end }}
+  egress:
+    - {}
+{{- end }}
