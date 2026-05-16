@@ -26,28 +26,61 @@ package handlers
 // matches `requireVoucherIssuer` introduced in #115.
 
 import (
+	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/openova-io/openova/core/services/billing/store"
 	"github.com/openova-io/openova/core/services/shared/respond"
 )
 
+// issueVoucherRequest is the wire shape for POST /billing/vouchers/issue.
+//
+// It embeds store.PromoCode so all the existing JSON tags continue to
+// work (Code, CreditOMR, Description, Active, MaxRedemptions, etc.) and
+// adds one request-only field — `recipient_email`. The store.PromoCode
+// row never carries the email; D28's contract is "fire-and-forget
+// delivery on issue", not "persist who the voucher was gifted to". A
+// separate audit/CRM table is the right home for that, deferred to D28b.
+//
+// On re-issue (same code), the email re-fires alongside the upsert —
+// per #91 the upsert resurrects soft-deleted rows and we mirror that
+// semantics on the email path so the operator can re-deliver a lost
+// voucher by simply re-issuing it. The handler comment documents this.
+type issueVoucherRequest struct {
+	store.PromoCode
+	RecipientEmail string `json:"recipient_email,omitempty"`
+}
+
 // IssueVoucher creates or updates a voucher. Identical semantics to
 // AdminUpsertPromo (#91 resurrects soft-deleted codes on conflict).
+//
+// D28 — if the request body carries `recipient_email`, the handler fires
+// a `voucher-issued` notification to the recipient via the notification
+// service AFTER a successful upsert. The recipient email is NOT
+// persisted on the PromoCode row; it is request-only. A re-issue of the
+// same code (which resurrects a soft-deleted row per #91) re-fires the
+// email — this matches operator intent: "I lost the email, please
+// re-send" is satisfied by re-issuing the same code. The notification
+// call is best-effort: a failure logs but does NOT roll back or fail the
+// voucher upsert, since the row is already saved and the operator can
+// re-fire by calling the endpoint again.
 func (h *Handler) IssueVoucher(w http.ResponseWriter, r *http.Request) {
 	if err := requireVoucherIssuer(r); err != nil {
 		respond.Error(w, http.StatusForbidden, err.Error())
 		return
 	}
-	var p store.PromoCode
-	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+	var req issueVoucherRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respond.Error(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
+	p := req.PromoCode
 	if p.Code == "" || p.CreditOMR <= 0 {
 		respond.Error(w, http.StatusBadRequest, "code and credit_omr are required")
 		return
@@ -60,7 +93,90 @@ func (h *Handler) IssueVoucher(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusInternalServerError, "failed to save voucher")
 		return
 	}
+
+	// D28 — fire the gifting email if a recipient was supplied. The
+	// notification service owns SMTP delivery; we never touch stalwart
+	// directly from billing. A non-nil error here is logged but does NOT
+	// fail the response — the row is already persisted and re-issuing
+	// the same code re-fires the email.
+	recipient := strings.TrimSpace(req.RecipientEmail)
+	if recipient != "" {
+		if err := h.sendVoucherIssuedEmail(r.Context(), recipient, p); err != nil {
+			slog.Error("voucher email dispatch failed",
+				"code", p.Code, "recipient", recipient, "err", err.Error())
+		}
+	}
+
 	respond.OK(w, p)
+}
+
+// notificationSendRequest mirrors notification/handlers.sendRequest so we
+// can encode it without importing the notification package (which would
+// create a service-to-service Go dependency we don't want).
+type notificationSendRequest struct {
+	To       string         `json:"to"`
+	Subject  string         `json:"subject,omitempty"`
+	Template string         `json:"template"`
+	Data     map[string]any `json:"data"`
+}
+
+// sendVoucherIssuedEmail POSTs a voucher-issued notification to the
+// notification service. Returns an error only on local issues (bad URL,
+// transport failure, non-2xx response) — the caller logs but does not
+// propagate to the HTTP response.
+//
+// Uses h.NotificationClient if set so tests can inject a round-tripper;
+// production wires a 5s-timeout default in main.go.
+func (h *Handler) sendVoucherIssuedEmail(ctx context.Context, recipient string, p store.PromoCode) error {
+	if h.NotificationURL == "" {
+		// Notification not configured — log via caller, exit clean.
+		return nil
+	}
+	payload := notificationSendRequest{
+		To:       recipient,
+		Template: "voucher-issued",
+		Data: map[string]any{
+			"code":           p.Code,
+			"credit_omr":     p.CreditOMR,
+			"description":    p.Description,
+			"sovereign_fqdn": h.SovereignFQDN,
+		},
+	}
+	buf, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	// 5s budget per the D28 brief. A separate ctx is fine — the request
+	// context may be very tight (e.g. test fixtures with short deadlines)
+	// and we want the email dispatch to be resilient to that.
+	dispatchCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(dispatchCtx, http.MethodPost, h.NotificationURL, bytes.NewReader(buf))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	client := h.NotificationClient
+	if client == nil {
+		client = &http.Client{Timeout: 5 * time.Second}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return &notificationErrorf{status: resp.StatusCode}
+	}
+	return nil
+}
+
+// notificationErrorf is a tiny named error so callers can distinguish
+// transport vs. status failures via errors.As without a sentinel value.
+type notificationErrorf struct{ status int }
+
+func (e *notificationErrorf) Error() string {
+	return "notification service returned status " + http.StatusText(e.status)
 }
 
 // ListVouchers returns all live (not soft-deleted) vouchers.

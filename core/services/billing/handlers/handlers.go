@@ -33,6 +33,25 @@ type Handler struct {
 	CatalogURL string // internal URL to catalog service, e.g. http://catalog.sme.svc.cluster.local:8082
 	TenantURL  string // internal URL to tenant service (to dispatch provisioning without broker)
 
+	// NotificationURL is the internal URL of the notification service's
+	// POST /notification/send endpoint. Default in main.go is
+	// `http://notification.sme.svc.cluster.local:8087/notification/send`.
+	// Used by IssueVoucher (#D28) to deliver the voucher gifting email to
+	// the recipient.
+	NotificationURL string
+
+	// SovereignFQDN is the per-Sovereign apex domain (e.g. "omani.works")
+	// used to build the public redeem landing URL in voucher-issued
+	// emails. NEVER hardcoded; sme-billing reads it from chart env
+	// `billing.sovereignFQDN`. Empty = best-effort fallback that omits the
+	// redeem URL (the template handles it).
+	SovereignFQDN string
+
+	// NotificationClient is the HTTP client used to call the notification
+	// service. Production wires a 5s-timeout default; tests substitute a
+	// round-tripper that captures requests without network I/O.
+	NotificationClient *http.Client
+
 	// MeteringCustomerResolver is the resolver POST
 	// /billing/metering/record uses to map NewAPI external_id (the SME-
 	// vcluster Keycloak user UUID) to the billing customer row. Tests
