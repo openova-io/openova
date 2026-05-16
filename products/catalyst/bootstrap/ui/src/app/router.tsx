@@ -361,7 +361,55 @@ const authHandoverErrorRoute = createRoute({
 })
 
 // App routes
-const appRoute = createRoute({ getParentRoute: () => rootRoute, path: '/app', component: AppLayout })
+//
+// DoD D17b (caught on t131 2026-05-16): the mothership `appRoute`
+// claims the `/app` path PREFIX with AppLayout chrome + dozens of
+// child routes (/app/$deploymentId/applications, /app/$deploymentId/
+// settings, etc.). The chroot Sovereign Console ALSO has a clean
+// `/app/$componentId` route (consoleAppDetailRoute → AppDetail).
+//
+// When the operator clicks an app card on the Sovereign Console
+// `/apps`, the AppCard generates HREF `/app/<name>` (line ~720 in
+// AppsPage.tsx). On chroot the URL resolves to the MOTHERSHIP
+// appRoute because:
+//   1. appRoute is registered first under rootRoute (line 1640+)
+//   2. The mothership's children `/app/$deploymentId/...` accept
+//      `bp-cnpg` as $deploymentId
+//   3. AppLayout renders with the mothership Sidebar
+//
+// Result: clicking ANY app card on the Sovereign Console renders
+// the mothership-context AppsPage with 44 cards INSTEAD of the
+// AppDetail page for the clicked component.
+//
+// Fix: appRoute's beforeLoad redirects to the canonical Sovereign
+// AppDetail route (`/app/$componentId` under consoleLayoutRoute)
+// whenever DETECTED_MODE.mode === 'sovereign'. The `/app` path is
+// then exclusively the mothership's territory on Catalyst-Zero, and
+// the Sovereign Console resolves cleanly to consoleAppDetailRoute.
+const appRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/app',
+  component: AppLayout,
+  beforeLoad: ({ location }) => {
+    if (DETECTED_MODE.mode === 'sovereign') {
+      // Strip the `/app` prefix; the rest is the path the chroot's
+      // consoleAppDetailRoute / consoleAppsRoute expect (e.g.
+      // `/app/bp-cnpg` → `/bp-cnpg`, which matches
+      // consoleAppDetailRoute with $componentId=bp-cnpg).
+      // If the path after `/app` is empty or `/`, send the operator
+      // to the canonical apps grid.
+      const remainder = location.pathname.replace(/^\/app/, '') || '/apps'
+      // Mothership-only sub-paths (e.g. `/app/dashboard`, `/app/install`,
+      // `/app/sre/compliance`) are NOT valid on the Sovereign Console —
+      // redirect those to the Sovereign dashboard so the operator
+      // doesn't land on a 404. AppDetail handles `/app/<componentId>`
+      // verbatim.
+      const motherOnly = ['/dashboard', '/install', '/sre', '/sec', '/blueprints']
+      const target = motherOnly.some(p => remainder.startsWith(p)) ? '/dashboard' : remainder
+      throw redirect({ to: target as never })
+    }
+  },
+})
 // /app/dashboard renders the mothership multi-Sovereign Fleet view
 // (DashboardPage). On a Sovereign Console (chroot, console.<sov-fqdn>)
 // this surface MUST NOT be reachable — the Sovereign owns a single
