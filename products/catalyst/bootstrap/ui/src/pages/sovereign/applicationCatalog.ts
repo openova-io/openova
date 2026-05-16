@@ -81,7 +81,7 @@ export function resolveApplications(
     seen.add(b.id)
     // Look up by bare slug so descriptions / family come from componentGroups
     // when available; fall back to the catalog summary if the component
-    // isn't represented in componentGroups (e.g. bp-bp-catalyst-platform).
+    // isn't represented in componentGroups (e.g. catalyst-platform).
     const bare = b.slug
     const compEntry = findComponent(bare)
     out.push(makeDescriptor({

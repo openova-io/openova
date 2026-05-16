@@ -20,6 +20,7 @@ import { Button } from '@/shared/ui/button'
 import { PinInput6 } from '@/components/PinInput6'
 import { API_BASE } from '@/shared/config/urls'
 import { sanitizeNextParam } from '@/app/auth-gate'
+import { DETECTED_MODE } from '@/shared/lib/detectMode'
 
 type State = 'idle' | 'verifying' | 'error'
 
@@ -99,7 +100,20 @@ export function VerifyPinPage() {
         // sanitizes `next`, we sanitize again here in case a future
         // caller bypasses the route's validateSearch. qa-loop iter-4
         // cluster `users-page-null-map-and-open-redirect`.
-        let target = sanitizeNextParam(next) ?? '/wizard'
+        //
+        // Default landing depends on operating mode:
+        //   • Sovereign Console (chroot, post-handover) → `/dashboard`.
+        //     The operator has just been redirected from the mothership
+        //     handover URL; their Sovereign is converged. Sending them
+        //     to `/wizard` (the mothership new-prov wizard) would
+        //     re-prompt for organisation details on an already-built
+        //     Sovereign and violate D0/D23.  Caught live on t129
+        //     (2026-05-16, BUG-015).
+        //   • Catalyst-Zero (mothership) → keep `/wizard` so PIN-login
+        //     drops the operator into a new-prov flow.
+        const sovereignDefault =
+          DETECTED_MODE.mode === 'sovereign' ? '/dashboard' : '/wizard'
+        let target = sanitizeNextParam(next) ?? sovereignDefault
         if (typeof window !== 'undefined') {
           // window.location.replace is a HARD navigation — it bypasses
           // the TanStack Router's basepath config. On contabo the SPA

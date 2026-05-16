@@ -362,7 +362,27 @@ const authHandoverErrorRoute = createRoute({
 
 // App routes
 const appRoute = createRoute({ getParentRoute: () => rootRoute, path: '/app', component: AppLayout })
-const dashboardRoute = createRoute({ getParentRoute: () => appRoute, path: '/dashboard', component: DashboardPage })
+// /app/dashboard renders the mothership multi-Sovereign Fleet view
+// (DashboardPage). On a Sovereign Console (chroot, console.<sov-fqdn>)
+// this surface MUST NOT be reachable — the Sovereign owns a single
+// deployment, the "fleet" concept belongs to the mothership only.
+// Caught live on t129.omani.works (2026-05-16, BUG-016 / D24): the
+// fleet view rendered "7 Sovereigns" with duplicate t129.omani.works
+// rows and "APPS 0, ORGS 0" despite 44 apps installed.
+//
+// Beforeload-redirect to the canonical Sovereign dashboard at
+// `/dashboard` (consoleDashboardRoute, the per-Sovereign landing).
+// Mothership-side (`catalyst-zero`) keeps the fleet view as today.
+const dashboardRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/dashboard',
+  component: DashboardPage,
+  beforeLoad: () => {
+    if (DETECTED_MODE.mode === 'sovereign') {
+      throw redirect({ to: '/dashboard' as never, replace: true })
+    }
+  },
+})
 
 // EPIC-6 (#1101) slice U-Fleet-3 — cross-Sovereign Applications view.
 // Pivot from the Sovereign-card grid to the Application × Sovereign

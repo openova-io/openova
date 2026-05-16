@@ -279,7 +279,20 @@ function listBootstrapKit() {
     const m = name.match(/^(\d+)-(.+)\.yaml$/)
     if (!m) continue
     const order = Number(m[1])
-    const slug = m[2]
+    // Strip the optional `bp-` prefix from the captured filename remainder
+    // BEFORE forming the canonical Blueprint id. Some bootstrap-kit files
+    // are named with the `bp-` already present (e.g.
+    // `13-bp-catalyst-platform.yaml`) for historical reasons — without
+    // this strip, the captured slug would be `bp-catalyst-platform` and
+    // the emitted id would be `bp-bp-catalyst-platform`, which:
+    //   (a) produces doubled `/app/bp-bp-*` hrefs on the AppsPage card
+    //       grid (BUG-001 / D19 on t129.omani.works, 2026-05-16)
+    //   (b) breaks the FE↔BE join in /api/v1/sovereign/apps where HR
+    //       name `bp-<slug>` is matched against blueprint id `bp-<slug>`
+    //   (c) prints `bp-` twice in the operator-facing card title fallback
+    // Canonical contract: filename `NN[-bp]-<slug>.yaml` → id `bp-<slug>`
+    // → slug `<slug>` (no bp- prefix), matching the blueprint.yaml side.
+    const slug = m[2].replace(/^bp-/, '')
     out.push({
       id: `bp-${slug}`,
       slug,
