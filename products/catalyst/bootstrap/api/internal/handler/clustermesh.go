@@ -594,15 +594,23 @@ func (h *Handler) buildRegionSlots(
 
 		clusterName := strings.TrimSpace(rs.ClusterMeshName)
 		if clusterName == "" {
-			clusterName = primaryMeshName
-			if !isPrimary && clusterName != "" {
-				// Auto-derive secondary peer name per the convention
-				// in DeriveClusterMeshName: "<sovereign-stem>-<region>".
-				// tofu's main.tf computes secondary_region_cluster_mesh_name
-				// as the same pattern, so the orchestrator's Secret
-				// entries match cilium's cluster.name override on the
-				// secondary regions byte-identically.
-				clusterName = clusterName + "-" + key
+			if isPrimary {
+				clusterName = primaryMeshName
+			} else {
+				// Match tofu's `secondary_region_cluster_mesh_name`
+				// local exactly: `<sovereign-stem>-<region-stem-no-digits>`
+				// (e.g. `t129-nbg`). Tofu sets the SECONDARY's
+				// cilium-config cluster.name to this value via
+				// CLUSTER_MESH_NAME envsubst; the orchestrator MUST
+				// use the same string as the peer-name key in
+				// `cilium-clustermesh` so the agent's
+				// `cilium/cluster-config/v1/<peer-name>` etcd query
+				// hits an existing key. Caught on t129 (2026-05-16):
+				// orchestrator used `<primary>-<region-key>` (e.g.
+				// `t129-mesh-nbg1-1`) but actual cluster.name was
+				// `t129-nbg` → agent got
+				// `failed to retrieve cluster configuration: not found`.
+				clusterName = provisioner.DeriveSecondaryClusterMeshName(dep.Request, rs)
 			}
 		}
 
