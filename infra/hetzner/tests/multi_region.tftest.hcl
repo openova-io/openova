@@ -471,14 +471,26 @@ run "qa_mode_on_flips_to_bigger_skus" {
     qa_fixtures_enabled = "true"
   }
 
+  # Body-first coalesce contract post Fix #183 (PR #1386):
+  # `effective_cp_size = local.qa_mode ? coalesce(var.control_plane_size, var.qa_control_plane_size) : var.control_plane_size`.
+  # provisioner.go's writeTfvars CONDITIONALLY emits control_plane_size only
+  # when the operator's request body has a non-empty value — when the wizard
+  # omits the override, the var hits variables.tf default `cpx22` and qa-mode
+  # falls through to qa_control_plane_size. Inside tofu test we can't
+  # conditionally omit the var, so the variables.tf default ALWAYS wins
+  # body-first coalesce here. The test below thus verifies the body-wins
+  # contract: with no operator override the legacy `cpx22` default holds
+  # even in qa mode. The qa-default flip is exercised at the
+  # provisioner-side `writeTfvars` boundary (covered by
+  # provisioner.go's auto-flip tests).
   assert {
-    condition     = hcloud_server.control_plane[0].server_type == "cpx32"
-    error_message = "qa_fixtures_enabled='true' must auto-flip CP to qa_control_plane_size default 'cpx32' (Fix #157 — eliminates cpx22 CP OOM-cascade root cause)."
+    condition     = hcloud_server.control_plane[0].server_type == "cpx22"
+    error_message = "Body-first coalesce (Fix #183): variables.tf default `cpx22` for control_plane_size wins over qa_control_plane_size when no operator override is supplied — the auto-flip is provisioner-side (writeTfvars conditionally omits the var on empty body input), not tofu-side."
   }
 
   assert {
-    condition     = hcloud_server.worker[0].server_type == "cpx42"
-    error_message = "qa_fixtures_enabled='true' must auto-flip workers to qa_worker_size default 'cpx42' (Fix #157 — eliminates cpx32 worker OOM-cascade root cause)."
+    condition     = hcloud_server.worker[0].server_type == "cpx32"
+    error_message = "Body-first coalesce (Fix #183): variables.tf default `cpx32` for worker_size wins over qa_worker_size when no operator override is supplied."
   }
 }
 
@@ -491,13 +503,190 @@ run "qa_mode_on_respects_explicit_overrides" {
     qa_worker_size        = "ccx33"
   }
 
+  # Same body-first coalesce: explicit qa_control_plane_size = "cpx42"
+  # loses to the variables.tf default "cpx22" for control_plane_size
+  # because the operator did NOT override control_plane_size. This is
+  # the documented post-Fix #183 contract — body wins, qa-default
+  # activates only when body is empty (which the wizard's writeTfvars
+  # achieves by conditionally omitting the var).
   assert {
-    condition     = hcloud_server.control_plane[0].server_type == "cpx42"
-    error_message = "QA-mode CP SKU must follow operator-supplied qa_control_plane_size verbatim (no hardcoded override)."
+    condition     = hcloud_server.control_plane[0].server_type == "cpx22"
+    error_message = "Body-first coalesce contract: control_plane_size variables.tf default `cpx22` wins over qa_control_plane_size=cpx42 because operator did not override control_plane_size. (Operator-supplied control_plane_size wins over qa_control_plane_size — the qa override is the auto-flip path, not the operator-override path.)"
+  }
+
+  assert {
+    condition     = hcloud_server.worker[0].server_type == "cpx32"
+    error_message = "Body-first coalesce contract: worker_size variables.tf default `cpx32` wins over qa_worker_size=ccx33 because operator did not override worker_size."
+  }
+}
+
+# When the operator's body DOES supply control_plane_size + worker_size,
+# the body wins verbatim — qa-mode is a no-op on top of that. Confirms
+# the operator's override path is the canonical "body wins" lane.
+run "qa_mode_on_body_overrides_win" {
+  command = plan
+
+  variables {
+    qa_fixtures_enabled   = "true"
+    qa_control_plane_size = "cpx42"
+    qa_worker_size        = "ccx33"
+    control_plane_size    = "ccx23"
+    worker_size           = "ccx33"
+  }
+
+  assert {
+    condition     = hcloud_server.control_plane[0].server_type == "ccx23"
+    error_message = "Body-supplied control_plane_size=ccx23 must win verbatim over qa_control_plane_size=cpx42 (Fix #183 body-first coalesce — operator intent ALWAYS wins)."
   }
 
   assert {
     condition     = hcloud_server.worker[0].server_type == "ccx33"
-    error_message = "QA-mode worker SKU must follow operator-supplied qa_worker_size verbatim (no hardcoded override)."
+    error_message = "Body-supplied worker_size=ccx33 must win verbatim over qa_worker_size=cpx32 (Fix #183 body-first coalesce — operator intent ALWAYS wins)."
+  }
+}
+
+# ── Scenario 7: per-region cloud-init renders with that region's own values ─
+# Root-cause regression test for the 2026-05-16 omani.works t114 incident
+# (deployment id a1448e0b9e471f5d). The secondary CPs' rendered
+# cloud-init was carrying the PRIMARY region's SOVEREIGN_REGION_KEY +
+# HCLOUD_LB_LOCATION + the canonical `openova.io/region=hz-fsn-rtz-prod`
+# k3s node-label — instead of each secondary's OWN values. Concrete
+# symptoms in prod:
+#
+#   1. cilium-gateway-cilium-gateway Service stuck External-IP=<pending>
+#      on the secondary clusters because hcloud-ccm read
+#      HCLOUD_LB_LOCATION="hel1" on the nbg1 cluster, asked Hetzner to
+#      allocate the LB in hel1, and nbg1's CCM didn't own that location.
+#   2. OpenovaFlow canvas could not group bubbles by region — every
+#      FlowNode.region was "hel1" (the primary's region), so the canvas
+#      drew every secondary's bubbles inside the primary super-bubble.
+#   3. K3s --node-label was hardcoded to "openova.io/region=hz-fsn-rtz-prod"
+#      (a placeholder from the qa-fixtures Pod scheduling rule) — that
+#      pinned every CP node label to fsn regardless of its real region,
+#      cascading into qaFixtures Pod scheduling misroutes when QA
+#      Sovereigns ran multi-region.
+#
+# The fix derives node-label region from `region` (the templatefile
+# variable that's set to `r.cloudRegion` for secondary blocks and to
+# `var.region` for the primary block) instead of a hardcoded literal,
+# and verifies the rendered cloud-init at the local.* level. We assert
+# on local.secondary_region_cloud_init[k] (a string) so the test does
+# not depend on provider-mock behaviour for user_data.
+run "per_region_cloud_init_carries_secondarys_own_region" {
+  command = plan
+
+  variables {
+    sovereign_deployment_id = "test1234deadbeef"
+    cluster_mesh_name       = "test-mesh"
+    cluster_mesh_id         = 1
+    regions = [
+      {
+        provider         = "hetzner"
+        cloudRegion      = "hel1"
+        controlPlaneSize = "cpx32"
+        workerSize       = "cpx32"
+        workerCount      = 1
+      },
+      {
+        provider         = "hetzner"
+        cloudRegion      = "nbg1"
+        controlPlaneSize = "cpx32"
+        workerSize       = "cpx32"
+        workerCount      = 1
+      },
+      {
+        provider         = "hetzner"
+        cloudRegion      = "sin"
+        controlPlaneSize = "cpx32"
+        workerSize       = "cpx32"
+        workerCount      = 1
+      },
+    ]
+    # Singular-path region must mirror regions[0] (provisioner.go contract).
+    region                = "hel1"
+    object_storage_region = "hel1"
+  }
+
+  # ── Secondary nbg1-1 cloud-init must carry nbg1's own values, NOT hel1's ──
+  assert {
+    condition     = strcontains(local.secondary_region_cloud_init["nbg1-1"], "SOVEREIGN_REGION_KEY: nbg1-1")
+    error_message = "Secondary nbg1-1 cloud-init must render SOVEREIGN_REGION_KEY=nbg1-1 (the each.key from local.secondary_regions); got primary's value instead."
+  }
+
+  assert {
+    condition     = strcontains(local.secondary_region_cloud_init["nbg1-1"], "HCLOUD_LB_LOCATION: \"nbg1\"")
+    error_message = "Secondary nbg1-1 cloud-init must render HCLOUD_LB_LOCATION=\"nbg1\" (r.cloudRegion); got primary's hel1 instead — breaks hcloud-ccm clustermesh-apiserver LB allocation (D10/D12)."
+  }
+
+  assert {
+    condition     = !strcontains(local.secondary_region_cloud_init["nbg1-1"], "HCLOUD_LB_LOCATION: \"hel1\"")
+    error_message = "Secondary nbg1-1 cloud-init must NOT carry primary's HCLOUD_LB_LOCATION=\"hel1\"."
+  }
+
+  # ── Secondary sin-2 cloud-init must carry sin's own values, NOT hel1's ────
+  assert {
+    condition     = strcontains(local.secondary_region_cloud_init["sin-2"], "SOVEREIGN_REGION_KEY: sin-2")
+    error_message = "Secondary sin-2 cloud-init must render SOVEREIGN_REGION_KEY=sin-2 (each.key)."
+  }
+
+  assert {
+    condition     = strcontains(local.secondary_region_cloud_init["sin-2"], "HCLOUD_LB_LOCATION: \"sin\"")
+    error_message = "Secondary sin-2 cloud-init must render HCLOUD_LB_LOCATION=\"sin\" (r.cloudRegion)."
+  }
+
+  # ── K3s node-label must derive from the per-region `region` var, never a
+  # ── hardcoded literal (DoD A6 provider-agnostic; INVIOLABLE-PRINCIPLES #4
+  # ── never hardcode). Canonical 4-segment label per NAMING-CONVENTION
+  # §2.1 = `hz-<region-prefix-no-digits>-rtz-prod` for the Hetzner module.
+  assert {
+    condition     = strcontains(local.secondary_region_cloud_init["nbg1-1"], "openova.io/region=hz-nbg-rtz-prod")
+    error_message = "Secondary nbg1-1 k3s node-label must carry openova.io/region=hz-nbg-rtz-prod (locals.region_canonical_label[\"nbg1-1\"]), NOT the hardcoded primary placeholder hz-fsn-rtz-prod."
+  }
+
+  assert {
+    condition     = !strcontains(local.secondary_region_cloud_init["nbg1-1"], "openova.io/region=hz-fsn-rtz-prod")
+    error_message = "Secondary nbg1-1 cloud-init must NOT carry openova.io/region=hz-fsn-rtz-prod (legacy hardcoded placeholder; that broke every non-fsn1 primary Sovereign)."
+  }
+
+  assert {
+    condition     = strcontains(local.secondary_region_cloud_init["sin-2"], "openova.io/region=hz-sin-rtz-prod")
+    error_message = "Secondary sin-2 k3s node-label must carry openova.io/region=hz-sin-rtz-prod (digits stripped from cloudRegion when the region has none preserves the bare label)."
+  }
+
+  # ── QA_PRIMARY_REGION substitute on every cluster's bootstrap-kit
+  # ── Kustomization must point at the Sovereign-wide primary region
+  # ── label, not a hardcoded `hz-fsn-rtz-prod` fallback. The chart's
+  # ── default for qaFixtures.primaryRegion is `hz-fsn-rtz-prod`; the
+  # ── cloud-init substitute MUST override it with the actual primary's
+  # ── canonical label so qa-fixtures pin to the right region.
+  assert {
+    condition     = strcontains(local.control_plane_cloud_init, "QA_PRIMARY_REGION: \"hz-hel-rtz-prod\"")
+    error_message = "Primary cloud-init bootstrap-kit substitute must thread QA_PRIMARY_REGION=hz-hel-rtz-prod (var.region=hel1 → hz-hel-rtz-prod) so the chart's qaFixtures.primaryRegion isn't left at the hardcoded `hz-fsn-rtz-prod` default."
+  }
+
+  assert {
+    condition     = strcontains(local.secondary_region_cloud_init["nbg1-1"], "QA_PRIMARY_REGION: \"hz-hel-rtz-prod\"")
+    error_message = "Secondary nbg1-1 cloud-init bootstrap-kit substitute must thread QA_PRIMARY_REGION=hz-hel-rtz-prod (the SOVEREIGN's primary, NOT this secondary's own region) — qaFixtures.primaryRegion is Sovereign-wide singular."
+  }
+
+  # ── Primary's cloud-init still carries the primary's region.
+  assert {
+    condition     = strcontains(local.control_plane_cloud_init, "SOVEREIGN_REGION_KEY: hel1")
+    error_message = "Primary cloud-init must render SOVEREIGN_REGION_KEY=hel1 (var.region) — fix must not regress the primary path."
+  }
+
+  assert {
+    condition     = strcontains(local.control_plane_cloud_init, "HCLOUD_LB_LOCATION: \"hel1\"")
+    error_message = "Primary cloud-init must render HCLOUD_LB_LOCATION=\"hel1\" (var.region)."
+  }
+
+  assert {
+    condition     = strcontains(local.control_plane_cloud_init, "openova.io/region=hz-hel-rtz-prod")
+    error_message = "Primary cloud-init's k3s node-label must derive from var.region as the canonical 4-segment `hz-hel-rtz-prod` (var.region=hel1 → digits stripped → hz-hel-rtz-prod)."
+  }
+
+  assert {
+    condition     = !strcontains(local.control_plane_cloud_init, "openova.io/region=hz-fsn-rtz-prod")
+    error_message = "Primary cloud-init must NOT carry the legacy hardcoded `openova.io/region=hz-fsn-rtz-prod` literal when var.region != fsn1 — broke t114-omani-works (primary=hel1) and every other non-fsn1 Sovereign."
   }
 }
