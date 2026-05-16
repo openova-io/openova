@@ -31,17 +31,28 @@ import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import { useFlowStream } from '@/lib/openflow-adapter-sse'
 import { synthesizeJobFromFlowNode } from '@/lib/synthesizeJobFromFlowNode'
 import type { Job } from '@/lib/jobs.types'
+import { applyHandoverStageOverride } from './handoverStageOverride'
+import { HandoverRedirectBanner } from './HandoverRedirectBanner'
+import { HANDOVER_REDIRECT_BANNER_CSS } from './HandoverRedirectBanner.css'
 
 interface JobsPageProps {
   /** Test seam — disables the live SSE EventSource attach. */
   disableStream?: boolean
   /** Test seam — disables the live-jobs backfill polling. */
   disableJobsBackfill?: boolean
+  /**
+   * Test seam — disables the auto-redirect timer + window.location.assign()
+   * on the handover banner. The banner DOM still renders so tests can
+   * assert visibility + cancel-button behavior without faking timers
+   * or window.location. Production call sites never set this.
+   */
+  disableHandoverAutoRedirect?: boolean
 }
 
 export function JobsPage({
   disableStream = false,
   disableJobsBackfill = false,
+  disableHandoverAutoRedirect = false,
 }: JobsPageProps = {}) {
   const { deploymentId: resolvedId } = useResolvedDeploymentId()
   const deploymentId = resolvedId ?? ''
@@ -53,7 +64,7 @@ export function JobsPage({
   )
   const applicationIds = useMemo(() => applications.map((a) => a.id), [applications])
 
-  const { state, snapshot, streamStatus } = useDeploymentEvents({
+  const { state, snapshot, streamStatus, handoverReady } = useDeploymentEvents({
     deploymentId,
     applicationIds,
     disableStream,
@@ -115,7 +126,7 @@ export function JobsPage({
   // Behavior unchanged when the flow stream is empty (Sovereigns
   // without openova-flow-server deployed) — flowJobs.length === 0 and
   // the dedupe loop returns legacyMerged untouched.
-  const flatJobs: Job[] = useMemo(() => {
+  const mergedJobs: Job[] = useMemo(() => {
     if (flowJobs.length === 0) return legacyMerged
     const seen = new Set(legacyMerged.map((j) => j.id))
     const extra: Job[] = []
@@ -128,7 +139,43 @@ export function JobsPage({
     return [...legacyMerged, ...extra]
   }, [legacyMerged, flowJobs])
 
+  // Gap C fix (session_2026_05_16_t117_dod_partial.md): the openova-
+  // flow snapshot emits synthetic Apps / Handover / Cutover stages
+  // (and per-region variants) at depth=1 so the canvas surfaces the
+  // full five-phase lifecycle. When those groups have NO descendants
+  // — which is the common case for Apps (no operator-installed apps
+  // yet) and Handover (a once-per-Sovereign event with no per-region
+  // job rows) — the API leaves them at the placeholder "pending"
+  // status. The result on the JobsPage was 8 phantom "Pending" rows
+  // that contradicted the deployment record's status=ready +
+  // handoverFiredAt truth, breaking DoD gates D6 + D7.
+  //
+  // applyHandoverStageOverride re-derives those stages' status from
+  // the deployment snapshot: when handover has fired (status="ready"
+  // OR handoverFiredAt non-null), pending Apps/Handover/Cutover
+  // synthetic stages get coerced to "succeeded". Terminal statuses
+  // and non-lifecycle jobs are passed through untouched. See
+  // ./handoverStageOverride.ts for the full scope-of-effect rules.
+  const flatJobs: Job[] = useMemo(
+    () => applyHandoverStageOverride(mergedJobs, snapshot),
+    [mergedJobs, snapshot],
+  )
+
   const liveBackfillActive = liveJobs.length > 0
+
+  // Gap D fix — auto-redirect to the Sovereign Console after handover.
+  // The mothership Jobs view is where the operator typically lands
+  // while watching convergence; without an in-page redirect the
+  // operator gets stranded here even though the Sovereign is ready.
+  // Mirrors AppsPage's redirect surface but adds a visible 3-2-1
+  // countdown + Cancel button per the founder's brief.
+  //
+  // Suppressed in chroot Sovereign mode (`isSovereignMode` declared
+  // above for the live-backfill gate) — the operator is already at the
+  // destination; redirecting back to the same URL would loop.
+  const handoverURL = handoverReady?.handoverURL ?? ''
+  const handoverActive =
+    handoverReady !== null && handoverURL !== '' && !isSovereignMode
 
   return (
     <PortalShell
@@ -145,6 +192,15 @@ export function JobsPage({
         </Link>
       }
     >
+      <style>{HANDOVER_REDIRECT_BANNER_CSS}</style>
+
+      <HandoverRedirectBanner
+        handoverURL={handoverURL}
+        active={handoverActive}
+        sovereignFQDN={sovereignFQDN}
+        disableAutoRedirect={disableHandoverAutoRedirect}
+      />
+
       {liveBackfillActive ? (
         <div
           role="status"
