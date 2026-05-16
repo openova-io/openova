@@ -119,5 +119,17 @@ data:
   # Shape: a JSON array literal [{provider, cloudRegion, controlPlaneSize,
   # workerSize, workerCount}, ...]. Empty string → chroot uses
   # buildRegionFromLiveNodes (legacy single-region path).
-  regionsJson: {{ default "" .Values.sovereign.regionsJson | quote }}
+  #
+  # toJson is load-bearing — depending on how Flux Kustomize postBuild
+  # substitutes ${SOVEREIGN_REGIONS_JSON:-} into the HelmRelease values
+  # block, the resulting JSON-shaped string may be re-parsed as a YAML
+  # flow-sequence. In that case .Values.sovereign.regionsJson becomes
+  # a Go []interface{} of map[interface{}]interface{} and `| quote`
+  # alone prints Go syntax (`[map[cloudRegion:hel1 ...]]`) — then
+  # catalyst-api's json.Unmarshal of the env var fails and Request.Regions
+  # is empty → /cloud canvas falls back to single-region (D5 ❌).
+  # toJson normalises both "JSON string" and "YAML list" inputs to
+  # valid JSON. Caught on t132 chart 1.4.147 — env var rendered as
+  # `[map[cloudRegion:hel1 ...]]` despite PR #1551 single-quote fix.
+  regionsJson: {{ toJson (default (list) .Values.sovereign.regionsJson) | quote }}
 {{- end }}
