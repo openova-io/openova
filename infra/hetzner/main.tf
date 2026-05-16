@@ -482,7 +482,7 @@ locals {
   # b64) pushed rendered size past 36 KiB. The any-indent strip lands rendered
   # cloud-init at ~22 KB with ~10 KB of headroom for future additions.
   # Guardrail in this same module: see `validate_user_data_size` precondition
-  # below — any future bloat that pushes user_data ≥ 31.25 KiB fails at plan-time.
+  # below — any future bloat that pushes user_data ≥ 30 KiB fails at plan-time.
   control_plane_cloud_init = replace(templatefile("${path.module}/cloudinit-control-plane.tftpl", {
     # Primary CP's stable private IP — first allocatable host in the
     # primary subnet (10.0.1.2 in the canonical 10.0.1.0/24). Used by
@@ -702,23 +702,23 @@ resource "hcloud_server" "control_plane" {
 
   # Issue #966 — Hetzner Cloud HARD limit on user_data is 32768 bytes.
   # Fail at plan-time (not at apply-time after the network/LB/firewall are
-  # already created) if the rendered cloud-init exceeds 32000 bytes (31.25 KiB
+  # already created) if the rendered cloud-init exceeds 30720 bytes (30 KiB
   # = 32 KiB minus 10% future-additions buffer). Diagnosed live on otech114
   # deployment 5c3eea37d3aacda6 where #921's HCLOUD_CLOUD_INIT b64 + #827
   # multi-domain + earlier accumulation pushed rendered size to ~37 KB,
   # causing `tofu apply` to FATAL with `invalid input in field 'user_data'
   # [Length must be between 0 and 32768]` AFTER 30+ seconds of partial
   # provisioning. The any-indent comment-strip in `local.control_plane_cloud_init`
-  # lands rendered size at ~22 KB; the 31.25 KiB precondition guards against
+  # lands rendered size at ~22 KB; the 30 KiB precondition guards against
   # future bloat-creep silently re-eating that headroom.
   lifecycle {
     precondition {
-      condition     = length(local.control_plane_cloud_init) <= 32000
-      error_message = "Rendered control-plane cloud-init is ${length(local.control_plane_cloud_init)} bytes, exceeds 32000 (31.25 KiB) guardrail (Hetzner hard cap is 32768). Cull comments / move bloat out of cloudinit-control-plane.tftpl. See issue #966."
+      condition     = length(local.control_plane_cloud_init) <= 30720
+      error_message = "Rendered control-plane cloud-init is ${length(local.control_plane_cloud_init)} bytes, exceeds 30720 (30 KiB) guardrail (Hetzner hard cap is 32768). Cull comments / move bloat out of cloudinit-control-plane.tftpl. See issue #966."
     }
     precondition {
-      condition     = length(local.worker_cloud_init) <= 32000
-      error_message = "Rendered worker cloud-init is ${length(local.worker_cloud_init)} bytes, exceeds 32000 (31.25 KiB) guardrail (Hetzner hard cap is 32768). Cull comments / move bloat out of cloudinit-worker.tftpl. See issue #966."
+      condition     = length(local.worker_cloud_init) <= 30720
+      error_message = "Rendered worker cloud-init is ${length(local.worker_cloud_init)} bytes, exceeds 30720 (30 KiB) guardrail (Hetzner hard cap is 32768). Cull comments / move bloat out of cloudinit-worker.tftpl. See issue #966."
     }
   }
 
@@ -756,8 +756,8 @@ resource "hcloud_server" "worker" {
   # bypass the gate by editing only cloudinit-worker.tftpl.
   lifecycle {
     precondition {
-      condition     = length(local.worker_cloud_init) <= 32000
-      error_message = "Rendered worker cloud-init is ${length(local.worker_cloud_init)} bytes, exceeds 32000 (31.25 KiB) guardrail (Hetzner hard cap is 32768). Cull comments / move bloat out of cloudinit-worker.tftpl. See issue #966."
+      condition     = length(local.worker_cloud_init) <= 30720
+      error_message = "Rendered worker cloud-init is ${length(local.worker_cloud_init)} bytes, exceeds 30720 (30 KiB) guardrail (Hetzner hard cap is 32768). Cull comments / move bloat out of cloudinit-worker.tftpl. See issue #966."
     }
   }
 
@@ -1176,12 +1176,12 @@ resource "hcloud_server" "secondary_control_plane" {
   # mirror the precondition from the primary CP (issue #966).
   lifecycle {
     precondition {
-      condition     = length(local.secondary_region_cloud_init[each.key]) <= 32000
-      error_message = "Rendered control-plane cloud-init for secondary region ${each.key} is ${length(local.secondary_region_cloud_init[each.key])} bytes, exceeds 32000 (31.25 KiB) guardrail (Hetzner hard cap is 32768)."
+      condition     = length(local.secondary_region_cloud_init[each.key]) <= 30720
+      error_message = "Rendered control-plane cloud-init for secondary region ${each.key} is ${length(local.secondary_region_cloud_init[each.key])} bytes, exceeds 30720 (30 KiB) guardrail (Hetzner hard cap is 32768)."
     }
     precondition {
-      condition     = length(local.secondary_region_worker_cloud_init[each.key]) <= 32000
-      error_message = "Rendered worker cloud-init for secondary region ${each.key} is ${length(local.secondary_region_worker_cloud_init[each.key])} bytes, exceeds 32000 (31.25 KiB) guardrail."
+      condition     = length(local.secondary_region_worker_cloud_init[each.key]) <= 30720
+      error_message = "Rendered worker cloud-init for secondary region ${each.key} is ${length(local.secondary_region_worker_cloud_init[each.key])} bytes, exceeds 30720 (30 KiB) guardrail."
     }
   }
 
@@ -1238,8 +1238,8 @@ resource "hcloud_server" "secondary_worker" {
 
   lifecycle {
     precondition {
-      condition     = length(local.secondary_region_worker_cloud_init[each.value.region_key]) <= 32000
-      error_message = "Rendered worker cloud-init for secondary region ${each.value.region_key} is ${length(local.secondary_region_worker_cloud_init[each.value.region_key])} bytes, exceeds 32000 (31.25 KiB) guardrail."
+      condition     = length(local.secondary_region_worker_cloud_init[each.value.region_key]) <= 30720
+      error_message = "Rendered worker cloud-init for secondary region ${each.value.region_key} is ${length(local.secondary_region_worker_cloud_init[each.value.region_key])} bytes, exceeds 30720 (30 KiB) guardrail."
     }
   }
 
