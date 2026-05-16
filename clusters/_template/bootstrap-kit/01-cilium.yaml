@@ -197,11 +197,20 @@ spec:
             type: ${CLUSTERMESH_SERVICE_TYPE:=LoadBalancer}
             # Hetzner CCM requires location OR network-zone annotation
             # to allocate the LB. ${HCLOUD_LB_LOCATION} flows from the
-            # bootstrap-kit Kustomization substitute (provisioner.go
-            # emits the primary region by default; per-region overlays
-            # can override).
+            # bootstrap-kit Kustomization substitute, set by the
+            # cloud-init template for EVERY region (primary CP renders
+            # var.region; secondary CPs render each.value.cloudRegion).
+            # No default fallback: a missing substitute is a tofu
+            # rendering bug, not a runtime fallback opportunity. The
+            # previous `:=hel1` default silently masked the 2026-05-16
+            # multi-region rendering regression (t114-omani-works
+            # primary=hel1 — fallback APPEARED correct but every
+            # secondary also rendered hel1; an explicit empty render
+            # would have failed cilium chart admission and surfaced
+            # the bug at provision time instead of at clustermesh-
+            # apiserver LB allocation time).
             annotations:
-              load-balancer.hetzner.cloud/location: "${HCLOUD_LB_LOCATION:=hel1}"
+              load-balancer.hetzner.cloud/location: "${HCLOUD_LB_LOCATION}"
               load-balancer.hetzner.cloud/type: "lb11"
               load-balancer.hetzner.cloud/use-private-ip: "false"
               load-balancer.hetzner.cloud/name: "${SOVEREIGN_FQDN_SLUG:=catalyst}-clustermesh"

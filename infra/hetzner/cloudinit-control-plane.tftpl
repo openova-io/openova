@@ -989,6 +989,21 @@ write_files:
             CLUSTERMESH_SERVICE_TYPE: "LoadBalancer"
             HCLOUD_LB_LOCATION: "${region}"
             SOVEREIGN_FQDN_SLUG: "${sovereign_fqdn_slug}"
+            # QA_PRIMARY_REGION — Sovereign-wide canonical primary
+            # region label (e.g. `hz-fsn-rtz-prod`, `hz-hel-rtz-prod`).
+            # Threaded into clusters/_template/bootstrap-kit/
+            # 13-bp-catalyst-platform.yaml's
+            # `primaryRegion: $${QA_PRIMARY_REGION:-hz-fsn-rtz-prod}`
+            # so qa-fixtures Pods schedule on the actual primary region
+            # of THIS Sovereign — never the chart's hardcoded
+            # `hz-fsn-rtz-prod` fallback. Identical value on the
+            # primary's bootstrap-kit AND every secondary's because
+            # qaFixtures.primaryRegion is Sovereign-wide singular per
+            # the chart contract; the primary CP renders qaFixtures
+            # workload, secondaries render the same primaryRegion seam
+            # but their qaFixtures Pods stay Pending by design (no node
+            # carries the primary's label on a secondary cluster).
+            QA_PRIMARY_REGION: "${primary_region_canonical_label}"
             # QA fixtures auto-enable (Fix #73 — qa-loop bounded-cycle
             # iter-16). Default "false" so a customer-facing zero-touch
             # provision lands a Sovereign with NO qaFixtures stack
@@ -1265,18 +1280,40 @@ runcmd:
   # but bridge connection failed; 0 HRs observed). 169.254.169.254 is
   # the Hetzner metadata endpoint; same path used by the public-IP
   # rewrite step at line 1310.
-  # --node-label openova.io/region=hz-fsn-rtz-prod (NAMING-CONVENTION
-  # §2.1 canonical region tag): qa-fixtures Pods (CNPGPair primary/replica,
-  # status seeder Jobs, qa-wp Application) carry hard nodeAffinity for
-  # `openova.io/region in [hz-fsn-rtz-prod]`. Without the label k8s
-  # FailedScheduling rejects every fixture pod → bp-catalyst-platform
-  # post-install hook waits forever → entire bootstrap-kit chain hangs
-  # at 44/45 with bp-catalyst-platform Running. Caught on prov #64
-  # (qaTestEnabled=true). Pinned to the canonical fsn1 region tag — the
-  # qa-fixtures template (products/catalyst/chart/templates/qa-fixtures/
-  # *.yaml) hardcodes "hz-fsn-rtz-prod" as Values.qaFixtures.primaryRegion
-  # default. Secondary regions don't need the label; qa fixtures pin to
-  # primary by design (qaFixtures.primaryRegion is singular).
+  # --node-label openova.io/region=${region_canonical_label}
+  # (NAMING-CONVENTION §2.1 canonical region tag, e.g.
+  # `hz-fsn-rtz-prod` for a fsn1 primary, `hz-hel-rtz-prod` for a hel1
+  # primary, `hz-nbg-rtz-prod` for a nbg1 secondary). qa-fixtures Pods
+  # (CNPGPair primary/replica, status seeder Jobs, qa-wp Application)
+  # carry hard nodeAffinity for `openova.io/region in [<primary-label>]`.
+  # Without the label k8s FailedScheduling rejects every fixture pod →
+  # bp-catalyst-platform post-install hook waits forever → entire
+  # bootstrap-kit chain hangs at 44/45 with bp-catalyst-platform
+  # Running. Caught on prov #64 (qaTestEnabled=true).
+  #
+  # 2026-05-16 regression fix: the label used to be hardcoded
+  # `hz-fsn-rtz-prod` literal here, which silently broke every Sovereign
+  # whose primary region was NOT fsn1 (e.g. t114-omani-works /
+  # a1448e0b9e471f5d had primary=hel1 + secondaries nbg1, sin; all 3 CP
+  # nodes carried `hz-fsn-rtz-prod`, breaking the OpenovaFlow canvas's
+  # per-region grouping and any downstream selector targeting the real
+  # cluster name). The label now flows from main.tf's
+  # locals.region_canonical_label[primary|<secondary-key>], which the
+  # primary-CP templatefile() call seeds from var.region and the
+  # secondary-CP templatefile() call seeds from each.value.cloudRegion.
+  # DoD A6 demands provider-agnostic shape; the `hz` prefix is correct
+  # only inside infra/hetzner/ — future infra/aws/ + infra/huawei/
+  # modules derive `aw` / `hw` in their own per-module locals.
+  #
+  # qa-fixtures behaviour: the chart template
+  # (products/catalyst/chart/templates/qa-fixtures/*.yaml) reads
+  # Values.qaFixtures.primaryRegion which is wired via the bootstrap-kit
+  # Flux Kustomization's QA_PRIMARY_REGION substitute (see
+  # clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml). To
+  # keep the chart unchanged the substitute is threaded in from the same
+  # local — see the bootstrap-kit substitute block above. On secondary
+  # regions qa-fixtures Pending by design (qaFixtures.primaryRegion is
+  # singular; secondaries don't host the fixture workload).
 
   # ── Private NIC bring-up BEFORE k3s install (prov #71 root cause) ────────
   #
@@ -1361,7 +1398,7 @@ runcmd:
   # packet flow over Cilium WireGuard which requires non-overlapping
   # CIDRs end-to-end. Values are interpolated by OpenTofu from
   # local.region_cluster_cidr / local.region_service_cidr in main.tf.
-  - 'CP_PUBLIC_IPV4=$(curl -fsSL --retry 30 --retry-delay 2 http://169.254.169.254/hetzner/v1/metadata/public-ipv4) && curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=${k3s_version} K3S_TOKEN=${k3s_token} INSTALL_K3S_EXEC="server --cluster-init --flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --cluster-cidr=${cluster_cidr} --service-cidr=${service_cidr} --node-ip=${cp_private_ip} --advertise-address=${cp_private_ip} --kubelet-arg=max-pods=220 --tls-san=${sovereign_fqdn} --tls-san=${cp_private_ip} --tls-san=$${CP_PUBLIC_IPV4} --kube-apiserver-arg=oidc-issuer-url=https://auth.${sovereign_fqdn}/realms/sovereign --kube-apiserver-arg=oidc-client-id=kubectl --kube-apiserver-arg=oidc-username-claim=preferred_username --kube-apiserver-arg=oidc-username-prefix=oidc: --kube-apiserver-arg=oidc-groups-claim=groups --kube-apiserver-arg=oidc-groups-prefix=oidc: --node-label catalyst.openova.io/role=control-plane --node-label openova.io/region=hz-fsn-rtz-prod ${worker_count > 0 ? "--node-taint node-role.kubernetes.io/control-plane=true:NoSchedule " : ""}--write-kubeconfig-mode=0644" sh -'
+  - 'CP_PUBLIC_IPV4=$(curl -fsSL --retry 30 --retry-delay 2 http://169.254.169.254/hetzner/v1/metadata/public-ipv4) && curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=${k3s_version} K3S_TOKEN=${k3s_token} INSTALL_K3S_EXEC="server --cluster-init --flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --cluster-cidr=${cluster_cidr} --service-cidr=${service_cidr} --node-ip=${cp_private_ip} --advertise-address=${cp_private_ip} --kubelet-arg=max-pods=220 --tls-san=${sovereign_fqdn} --tls-san=${cp_private_ip} --tls-san=$${CP_PUBLIC_IPV4} --kube-apiserver-arg=oidc-issuer-url=https://auth.${sovereign_fqdn}/realms/sovereign --kube-apiserver-arg=oidc-client-id=kubectl --kube-apiserver-arg=oidc-username-claim=preferred_username --kube-apiserver-arg=oidc-username-prefix=oidc: --kube-apiserver-arg=oidc-groups-claim=groups --kube-apiserver-arg=oidc-groups-prefix=oidc: --node-label catalyst.openova.io/role=control-plane --node-label openova.io/region=${region_canonical_label} ${worker_count > 0 ? "--node-taint node-role.kubernetes.io/control-plane=true:NoSchedule " : ""}--write-kubeconfig-mode=0644" sh -'
 
   # Wait for the API server to be reachable. Cilium needs to come up before
   # nodes Ready, so we wait specifically for the API endpoint.

@@ -95,6 +95,40 @@ locals {
     for k, _ in local.region_index :
     k => format("10.%d.0.0/16", 96 + local.region_index[k])
   }
+
+  # Per-region canonical 4-segment region label per docs/NAMING-CONVENTION.md
+  # §2.1: `{prov}-{reg}-{bb}-{env_type}`. For the Hetzner module the prov
+  # prefix is `hz`; reg is the cloudRegion with trailing digits stripped
+  # (`fsn1` → `fsn`, `nbg1` → `nbg`, `sin` → `sin`); bb is the building-
+  # block tag `rtz` (regional-tier-zero) and env_type is `prod`. Each
+  # cluster's k3s nodes label themselves with this canonical tag via
+  # --node-label openova.io/region=<canonical>. The label is consumed by:
+  #   - qa-fixtures Pods (CNPGPair primary/replica, status seeder Jobs,
+  #     qa-wp Application) — their hard nodeAffinity targets
+  #     `openova.io/region in [<primary>]` so qa fixtures schedule on the
+  #     primary's nodes only.
+  #   - the Continuum DR controller's region awareness.
+  #   - the OpenovaFlow canvas's per-region grouping.
+  #
+  # Before this local existed, cloudinit-control-plane.tftpl hardcoded the
+  # literal `hz-fsn-rtz-prod` into the k3s --node-label flag. That broke
+  # every multi-region Sovereign whose primary was NOT fsn1 (e.g. omantel
+  # primary=fsn1 worked by luck; t114-omani-works primary=hel1 + nbg1
+  # secondary surfaced the bug — every CP node carried `hz-fsn-rtz-prod`
+  # regardless of its actual region, breaking canvas region grouping and
+  # any downstream selector targeting the real region). DoD A6 demands
+  # provider-agnostic shape — the `hz` prefix is correct ONLY because
+  # this file lives under infra/hetzner/; future infra/aws/ + infra/huawei/
+  # modules will derive `aw` / `hw` in their own per-module locals.
+  region_canonical_label = merge(
+    {
+      primary = format("hz-%s-rtz-prod", replace(var.region, "/[0-9]+/", ""))
+    },
+    {
+      for k, r in local.secondary_regions :
+      k => format("hz-%s-rtz-prod", replace(r.cloudRegion, "/[0-9]+/", ""))
+    }
+  )
 }
 
 resource "hcloud_network" "region" {
@@ -464,9 +498,9 @@ locals {
     # (= 10.42.0.0/16) and region_service_cidr["primary"] (= 10.96.0.0/16).
     # Threaded into the k3s install line as --cluster-cidr= / --service-cidr=
     # in cloudinit-control-plane.tftpl.
-    cluster_cidr        = local.region_cluster_cidr["primary"]
-    service_cidr        = local.region_service_cidr["primary"]
-    sovereign_fqdn      = var.sovereign_fqdn
+    cluster_cidr   = local.region_cluster_cidr["primary"]
+    service_cidr   = local.region_service_cidr["primary"]
+    sovereign_fqdn = var.sovereign_fqdn
     # Slug form of the FQDN (dots → dashes) used to name per-Sovereign
     # Hetzner LBs (e.g. clustermesh-apiserver LB). Hetzner LB names are
     # limited to 63 chars and exclude dots; the slug is safe.
@@ -499,20 +533,33 @@ locals {
       var.parent_domains_yaml,
       format("[{name: \"%s\", role: \"primary\"}]", var.sovereign_fqdn)
     )
-    org_name                   = var.org_name
-    org_email                  = var.org_email
-    region                     = var.region
-    ha_enabled                 = var.ha_enabled
-    worker_count               = var.worker_count
-    k3s_version                = var.k3s_version
-    k3s_token                  = local.k3s_token
-    gitops_repo_url            = var.gitops_repo_url
-    gitops_branch              = var.gitops_branch
-    enable_unattended_upgrades = var.enable_unattended_upgrades
-    enable_fail2ban            = var.enable_fail2ban
-    ghcr_pull_username         = local.ghcr_pull_username
-    ghcr_pull_token            = var.ghcr_pull_token
-    ghcr_pull_auth_b64         = local.ghcr_pull_auth_b64
+    org_name  = var.org_name
+    org_email = var.org_email
+    region    = var.region
+    # Canonical 4-segment region label for k3s --node-label
+    # openova.io/region=<region_canonical_label>. Replaces the previously
+    # hardcoded `hz-fsn-rtz-prod` literal that broke every non-fsn1
+    # primary Sovereign. See locals.region_canonical_label above.
+    region_canonical_label = local.region_canonical_label["primary"]
+    # Primary region canonical label — same as region_canonical_label on
+    # the primary CP, but kept as a separate template var so the
+    # secondary CP template knows the SOVEREIGN's primary region
+    # (different from its own). Threaded into the bootstrap-kit
+    # Kustomization's QA_PRIMARY_REGION substitute so qa-fixtures
+    # primaryRegion follows the actual Sovereign primary, never the
+    # chart's hardcoded `hz-fsn-rtz-prod` default.
+    primary_region_canonical_label = local.region_canonical_label["primary"]
+    ha_enabled                     = var.ha_enabled
+    worker_count                   = var.worker_count
+    k3s_version                    = var.k3s_version
+    k3s_token                      = local.k3s_token
+    gitops_repo_url                = var.gitops_repo_url
+    gitops_branch                  = var.gitops_branch
+    enable_unattended_upgrades     = var.enable_unattended_upgrades
+    enable_fail2ban                = var.enable_fail2ban
+    ghcr_pull_username             = local.ghcr_pull_username
+    ghcr_pull_token                = var.ghcr_pull_token
+    ghcr_pull_auth_b64             = local.ghcr_pull_auth_b64
 
     # Object Storage credentials — interpolated into the Sovereign's
     # `object-storage` K8s Secret at cloud-init time so Harbor (#383)
@@ -1013,39 +1060,50 @@ locals {
         var.parent_domains_yaml,
         format("[{name: \"%s\", role: \"primary\"}]", var.sovereign_fqdn)
       )
-      org_name                   = var.org_name
-      org_email                  = var.org_email
-      region                     = r.cloudRegion
-      ha_enabled                 = false # secondary regions land single-CP in slice G1; G3 introduces per-region HA
-      worker_count               = r.workerCount
-      k3s_version                = var.k3s_version
-      k3s_token                  = local.k3s_token
-      gitops_repo_url            = var.gitops_repo_url
-      gitops_branch              = var.gitops_branch
-      enable_unattended_upgrades = var.enable_unattended_upgrades
-      enable_fail2ban            = var.enable_fail2ban
-      ghcr_pull_username         = local.ghcr_pull_username
-      ghcr_pull_token            = var.ghcr_pull_token
-      ghcr_pull_auth_b64         = local.ghcr_pull_auth_b64
-      object_storage_endpoint    = local.object_storage_endpoint
-      object_storage_region      = var.object_storage_region
-      object_storage_bucket_name = var.object_storage_bucket_name
-      object_storage_access_key  = var.object_storage_access_key
-      object_storage_secret_key  = var.object_storage_secret_key
-      hcloud_token               = var.hcloud_token
-      dynadot_key                = var.dynadot_key
-      dynadot_secret             = var.dynadot_secret
-      dynadot_managed_domains    = coalesce(var.dynadot_managed_domains, join(".", slice(split(".", var.sovereign_fqdn), 1, length(split(".", var.sovereign_fqdn)))))
-      harbor_robot_token         = var.harbor_robot_token
-      powerdns_api_key           = var.powerdns_api_key
-      pdm_basic_auth_user        = var.pdm_basic_auth_user
-      pdm_basic_auth_pass        = var.pdm_basic_auth_pass
-      deployment_id              = var.deployment_id
-      kubeconfig_bearer_token    = var.kubeconfig_bearer_token
-      catalyst_api_url           = var.catalyst_api_url
-      handover_jwt_public_key    = var.handover_jwt_public_key
-      load_balancer_ipv4         = hcloud_load_balancer.secondary[k].ipv4
-      worker_cloud_init_b64      = base64encode(local.secondary_region_worker_cloud_init[k])
+      org_name  = var.org_name
+      org_email = var.org_email
+      region    = r.cloudRegion
+      # Per-region canonical 4-segment label — each secondary CP labels
+      # its k3s node with ITS OWN region tag (e.g. `hz-nbg-rtz-prod` for
+      # nbg1-1), not the primary's tag. See locals.region_canonical_label
+      # above.
+      region_canonical_label = local.region_canonical_label[k]
+      # Primary region's canonical label — threaded into THIS secondary's
+      # bootstrap-kit Kustomization substitute so the per-cluster
+      # qa-fixtures rendered on the secondary still targets the
+      # Sovereign-wide primary region (qaFixtures.primaryRegion is
+      # singular per the chart contract).
+      primary_region_canonical_label = local.region_canonical_label["primary"]
+      ha_enabled                     = false # secondary regions land single-CP in slice G1; G3 introduces per-region HA
+      worker_count                   = r.workerCount
+      k3s_version                    = var.k3s_version
+      k3s_token                      = local.k3s_token
+      gitops_repo_url                = var.gitops_repo_url
+      gitops_branch                  = var.gitops_branch
+      enable_unattended_upgrades     = var.enable_unattended_upgrades
+      enable_fail2ban                = var.enable_fail2ban
+      ghcr_pull_username             = local.ghcr_pull_username
+      ghcr_pull_token                = var.ghcr_pull_token
+      ghcr_pull_auth_b64             = local.ghcr_pull_auth_b64
+      object_storage_endpoint        = local.object_storage_endpoint
+      object_storage_region          = var.object_storage_region
+      object_storage_bucket_name     = var.object_storage_bucket_name
+      object_storage_access_key      = var.object_storage_access_key
+      object_storage_secret_key      = var.object_storage_secret_key
+      hcloud_token                   = var.hcloud_token
+      dynadot_key                    = var.dynadot_key
+      dynadot_secret                 = var.dynadot_secret
+      dynadot_managed_domains        = coalesce(var.dynadot_managed_domains, join(".", slice(split(".", var.sovereign_fqdn), 1, length(split(".", var.sovereign_fqdn)))))
+      harbor_robot_token             = var.harbor_robot_token
+      powerdns_api_key               = var.powerdns_api_key
+      pdm_basic_auth_user            = var.pdm_basic_auth_user
+      pdm_basic_auth_pass            = var.pdm_basic_auth_pass
+      deployment_id                  = var.deployment_id
+      kubeconfig_bearer_token        = var.kubeconfig_bearer_token
+      catalyst_api_url               = var.catalyst_api_url
+      handover_jwt_public_key        = var.handover_jwt_public_key
+      load_balancer_ipv4             = hcloud_load_balancer.secondary[k].ipv4
+      worker_cloud_init_b64          = base64encode(local.secondary_region_worker_cloud_init[k])
 
       # Issue #1778 (F7 multi-region completion) — same hcloud_*_name
       # threading as the primary CP templatefile call so the secondary
