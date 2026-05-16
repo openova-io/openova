@@ -1040,6 +1040,26 @@ write_files:
             # "1 cluster 1 region" because chroot fell back to
             # live-Nodes enumeration.
             SOVEREIGN_REGIONS_JSON: '${sovereign_regions_json}'
+            # D22 (settings empty values) — sovereign-side identity wired
+            # into the bp-catalyst-platform slot 13 sovereign.* values
+            # (clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml
+            # PR #1570 added the ${ORG_EMAIL:-}/${ORG_NAME:-}/...
+            # placeholders). Chart's sovereign-fqdn ConfigMap (PR #1569)
+            # exposes them as ConfigMap keys; catalyst-api reads via env
+            # (api-deployment.yaml); chrootEnsureDeployment populates the
+            # deployment record so Sovereign Console Settings page renders
+            # real ownerEmail/region/controlPlaneIP/gitopsRepoURL/consoleURL.
+            # control_plane_ip is NOT templated here — see
+            # main.tf:691 ("would create a dependency cycle" — the
+            # hcloud_server.cp resource doesn't exist yet at cloudinit
+            # render time). The chart's SOVEREIGN_CONTROL_PLANE_IP env
+            # stays empty until a future PR wires it via either (a)
+            # hcloud metadata-service lookup at runtime by catalyst-api,
+            # or (b) a cloud-init post-create step that writes it into
+            # the sovereign-fqdn ConfigMap.
+            ORG_EMAIL: "${org_email}"
+            ORG_NAME: "${org_name}"
+            GITOPS_REPO_URL: "${gitops_repo_url}"
             # QA fixtures auto-enable (Fix #73 — qa-loop bounded-cycle
             # iter-16). Default "false" so a customer-facing zero-touch
             # provision lands a Sovereign with NO qaFixtures stack
