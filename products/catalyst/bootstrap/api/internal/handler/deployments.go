@@ -26,6 +26,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -1235,7 +1236,49 @@ func (h *Handler) GetDeployment(w http.ResponseWriter, r *http.Request) {
 	if !h.checkOwnership(w, r, dep) {
 		return
 	}
+	// D0 (handover-redirect) — caught on t132 Playwright walkthrough
+	// 2026-05-17: the handoverURL persisted at handover-fire time
+	// carries a JWT that expires per DefaultTTL (5min). Operators who
+	// click /jobs hours later get the stale token → Sovereign-side
+	// /auth/handover rejects with raw JSON {"error":"invalid token"}.
+	// Re-mint the JWT on every GetDeployment when the deployment is
+	// ready+handover-fired so the URL the wizard reads is always
+	// freshly-signed. Best-effort: on mint failure, leave the existing
+	// URL in place so a transient signer error doesn't break polling.
+	h.remintHandoverURLForReadyDeployment(dep)
 	writeJSON(w, http.StatusOK, dep.State())
+}
+
+// remintHandoverURLForReadyDeployment re-signs the handover JWT on a
+// ready deployment whose original token has expired. Idempotent + best-
+// effort. See GetDeployment caller comment for D0 context.
+func (h *Handler) remintHandoverURLForReadyDeployment(dep *Deployment) {
+	if dep == nil || h.handoverSigner == nil {
+		return
+	}
+	dep.mu.Lock()
+	if dep.Result == nil || dep.Result.HandoverFiredAt == nil || dep.Status != "ready" {
+		dep.mu.Unlock()
+		return
+	}
+	fqdn := dep.Request.SovereignFQDN
+	depID := dep.ID
+	owner := dep.OwnerEmail
+	dep.mu.Unlock()
+	if fqdn == "" || depID == "" || owner == "" {
+		return
+	}
+	tokenStr, err := h.handoverSigner.MintToken(fqdn, depID, owner, owner)
+	if err != nil {
+		h.log.Warn("handover re-mint failed", "id", depID, "err", err)
+		return
+	}
+	freshURL := "https://console." + fqdn + "/auth/handover?token=" + url.QueryEscape(tokenStr)
+	dep.mu.Lock()
+	if dep.Result != nil {
+		dep.Result.HandoverURL = freshURL
+	}
+	dep.mu.Unlock()
 }
 
 func (h *Handler) StreamLogs(w http.ResponseWriter, r *http.Request) {
