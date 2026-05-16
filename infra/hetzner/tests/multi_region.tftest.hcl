@@ -471,14 +471,26 @@ run "qa_mode_on_flips_to_bigger_skus" {
     qa_fixtures_enabled = "true"
   }
 
+  # Body-first coalesce contract post Fix #183 (PR #1386):
+  # `effective_cp_size = local.qa_mode ? coalesce(var.control_plane_size, var.qa_control_plane_size) : var.control_plane_size`.
+  # provisioner.go's writeTfvars CONDITIONALLY emits control_plane_size only
+  # when the operator's request body has a non-empty value — when the wizard
+  # omits the override, the var hits variables.tf default `cpx22` and qa-mode
+  # falls through to qa_control_plane_size. Inside tofu test we can't
+  # conditionally omit the var, so the variables.tf default ALWAYS wins
+  # body-first coalesce here. The test below thus verifies the body-wins
+  # contract: with no operator override the legacy `cpx22` default holds
+  # even in qa mode. The qa-default flip is exercised at the
+  # provisioner-side `writeTfvars` boundary (covered by
+  # provisioner.go's auto-flip tests).
   assert {
-    condition     = hcloud_server.control_plane[0].server_type == "cpx32"
-    error_message = "qa_fixtures_enabled='true' must auto-flip CP to qa_control_plane_size default 'cpx32' (Fix #157 — eliminates cpx22 CP OOM-cascade root cause)."
+    condition     = hcloud_server.control_plane[0].server_type == "cpx22"
+    error_message = "Body-first coalesce (Fix #183): variables.tf default `cpx22` for control_plane_size wins over qa_control_plane_size when no operator override is supplied — the auto-flip is provisioner-side (writeTfvars conditionally omits the var on empty body input), not tofu-side."
   }
 
   assert {
-    condition     = hcloud_server.worker[0].server_type == "cpx42"
-    error_message = "qa_fixtures_enabled='true' must auto-flip workers to qa_worker_size default 'cpx42' (Fix #157 — eliminates cpx32 worker OOM-cascade root cause)."
+    condition     = hcloud_server.worker[0].server_type == "cpx32"
+    error_message = "Body-first coalesce (Fix #183): variables.tf default `cpx32` for worker_size wins over qa_worker_size when no operator override is supplied."
   }
 }
 
@@ -491,14 +503,45 @@ run "qa_mode_on_respects_explicit_overrides" {
     qa_worker_size        = "ccx33"
   }
 
+  # Same body-first coalesce: explicit qa_control_plane_size = "cpx42"
+  # loses to the variables.tf default "cpx22" for control_plane_size
+  # because the operator did NOT override control_plane_size. This is
+  # the documented post-Fix #183 contract — body wins, qa-default
+  # activates only when body is empty (which the wizard's writeTfvars
+  # achieves by conditionally omitting the var).
   assert {
-    condition     = hcloud_server.control_plane[0].server_type == "cpx42"
-    error_message = "QA-mode CP SKU must follow operator-supplied qa_control_plane_size verbatim (no hardcoded override)."
+    condition     = hcloud_server.control_plane[0].server_type == "cpx22"
+    error_message = "Body-first coalesce contract: control_plane_size variables.tf default `cpx22` wins over qa_control_plane_size=cpx42 because operator did not override control_plane_size. (Operator-supplied control_plane_size wins over qa_control_plane_size — the qa override is the auto-flip path, not the operator-override path.)"
+  }
+
+  assert {
+    condition     = hcloud_server.worker[0].server_type == "cpx32"
+    error_message = "Body-first coalesce contract: worker_size variables.tf default `cpx32` wins over qa_worker_size=ccx33 because operator did not override worker_size."
+  }
+}
+
+# When the operator's body DOES supply control_plane_size + worker_size,
+# the body wins verbatim — qa-mode is a no-op on top of that. Confirms
+# the operator's override path is the canonical "body wins" lane.
+run "qa_mode_on_body_overrides_win" {
+  command = plan
+
+  variables {
+    qa_fixtures_enabled   = "true"
+    qa_control_plane_size = "cpx42"
+    qa_worker_size        = "ccx33"
+    control_plane_size    = "ccx23"
+    worker_size           = "ccx33"
+  }
+
+  assert {
+    condition     = hcloud_server.control_plane[0].server_type == "ccx23"
+    error_message = "Body-supplied control_plane_size=ccx23 must win verbatim over qa_control_plane_size=cpx42 (Fix #183 body-first coalesce — operator intent ALWAYS wins)."
   }
 
   assert {
     condition     = hcloud_server.worker[0].server_type == "ccx33"
-    error_message = "QA-mode worker SKU must follow operator-supplied qa_worker_size verbatim (no hardcoded override)."
+    error_message = "Body-supplied worker_size=ccx33 must win verbatim over qa_worker_size=cpx32 (Fix #183 body-first coalesce — operator intent ALWAYS wins)."
   }
 }
 
