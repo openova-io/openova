@@ -50,6 +50,7 @@ import { deriveJobs } from './jobs'
 import { adaptDerivedJobsToFlat } from './jobsAdapter'
 import { findComponent } from '@/pages/wizard/steps/componentGroups'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
+import { API_BASE } from '@/shared/config/urls'
 import type { ApplicationStatus } from './eventReducer'
 import { getApplication, type ApplicationDetailResponse } from '@/lib/catalog.api'
 import { ComplianceTab } from './AppDetail/ComplianceTab'
@@ -420,6 +421,15 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
                   {appPrimaryRegion}
                 </span>
               ) : null}
+              {/*
+                PR K (2026-05-17 t140 founder bug #4): per-app catalog
+                publish/unpublish toggle. Operator clicks to flip the
+                Published flag on this app — controls whether tenants
+                see it in marketplace storefront. Backend at
+                PUT /api/catalog/admin/apps/{slug}/published; ownership
+                gated by Sovereign Console session.
+              */}
+              <PublishToggleChip slug={componentId} />
             </div>
           </div>
         </div>
@@ -568,6 +578,108 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
         )}
       </div>
     </PortalShell>
+  )
+}
+
+/* ─── Catalog publish toggle chip ───────────────────────────────── */
+
+/**
+ * PublishToggleChip — PR K (2026-05-17 t140 founder bug #4).
+ *
+ * Per-app toggle for the operator to flip the catalog `published` flag
+ * directly from the App Detail header. Founder caught on t140: "I am
+ * supposed to mark which applications are going to be available in the
+ * catalog … I am not able to see such option from the application page".
+ *
+ * Reads current state on mount from /api/catalog/apps/{slug} (public),
+ * writes via PUT /api/catalog/admin/apps/{slug}/published (auth-gated,
+ * Sovereign Console session). Optimistic flip on click; on backend
+ * error, reverts + surfaces a tooltip.
+ */
+interface PublishToggleChipProps {
+  slug: string
+}
+
+function PublishToggleChip({ slug }: PublishToggleChipProps) {
+  const [state, setState] = useState<'loading' | 'published' | 'unpublished' | 'error'>('loading')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    if (!slug) return
+    let cancelled = false
+    fetch(`${API_BASE}/catalog/apps/${encodeURIComponent(slug)}`, {
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (cancelled) return
+        if (d && typeof d.published === 'boolean') {
+          setState(d.published ? 'published' : 'unpublished')
+        } else {
+          setState('error')
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setState('error')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [slug])
+
+  async function toggle() {
+    if (busy || state === 'loading' || state === 'error') return
+    setBusy(true)
+    const next = state === 'published' ? false : true
+    const prev = state
+    setState(next ? 'published' : 'unpublished')
+    try {
+      const res = await fetch(
+        `${API_BASE}/catalog/admin/apps/${encodeURIComponent(slug)}/published`,
+        {
+          method: 'PUT',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ published: next }),
+        },
+      )
+      if (!res.ok) throw new Error(`status ${res.status}`)
+    } catch {
+      // Revert on failure.
+      setState(prev)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const label =
+    state === 'loading'
+      ? 'Loading…'
+      : state === 'error'
+        ? 'Catalog status unavailable'
+        : state === 'published'
+          ? 'Published'
+          : 'Unpublished'
+
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      disabled={state === 'loading' || state === 'error' || busy}
+      title={
+        state === 'published'
+          ? 'Click to unpublish — hides from marketplace storefront'
+          : state === 'unpublished'
+            ? 'Click to publish — shows in marketplace storefront'
+            : ''
+      }
+      className={`chip ${state === 'published' ? 'chip-installed' : 'chip-cat'}`}
+      data-testid="app-detail-publish-toggle"
+      data-state={state}
+    >
+      {busy ? '…' : label}
+    </button>
   )
 }
 
