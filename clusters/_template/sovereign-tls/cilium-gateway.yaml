@@ -41,7 +41,7 @@ spec:
         mode: Terminate
         certificateRefs:
           - kind: Secret
-            name: sovereign-wildcard-tls
+            name: sovereign-wildcard-tls-${SOVEREIGN_FQDN_DASHED}
       allowedRoutes:
         namespaces:
           from: All
