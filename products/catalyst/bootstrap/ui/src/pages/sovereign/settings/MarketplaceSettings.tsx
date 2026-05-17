@@ -89,10 +89,11 @@ export function MarketplaceSettings() {
   const { deploymentId: cookieDepId } = useResolvedDeploymentId()
   const deploymentId = cookieDepId ?? resolveDeploymentId()
 
-  // Initial state — defaulting to disabled. A future iteration will GET
-  // the current overlay state from catalyst-api so the toggle reflects
-  // the live values; for now the operator is the source of truth on
-  // entry to this page (the chart's default is also disabled).
+  // PR J (2026-05-17 t140 founder bug #5): initial state is fetched from
+  // GET /api/v1/sovereigns/{id}/marketplace on mount so the toggle
+  // reflects the deployment's actual `MarketplaceEnabled` value (set at
+  // prov time by the wizard). Founder caught on t140: page showed
+  // "disabled" while the marketplace was actually serving.
   const [enabled, setEnabled] = useState(false)
   const [brand, setBrand] = useState<MarketplaceBrand>({
     name: '',
@@ -100,6 +101,36 @@ export function MarketplaceSettings() {
     primaryColor: '#3B82F6',
   })
   const [saveState, setSaveState] = useState<SaveState>({ status: 'idle' })
+
+  // PR J (2026-05-17 t140 founder bug #5): fetch current enabled state
+  // on mount so the toggle reflects the actual deployment value.
+  useEffect(() => {
+    if (!deploymentId) return
+    let cancelled = false
+    fetch(`${API_BASE}/v1/sovereigns/${encodeURIComponent(deploymentId)}/marketplace`, {
+      method: 'GET',
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((d) => {
+        if (cancelled || !d) return
+        if (typeof d.enabled === 'boolean') setEnabled(d.enabled)
+        if (d.brand && typeof d.brand === 'object') {
+          setBrand((prev) => ({
+            name: d.brand.name || prev.name,
+            tagline: d.brand.tagline || prev.tagline,
+            primaryColor: d.brand.primaryColor || prev.primaryColor,
+          }))
+        }
+      })
+      .catch(() => {
+        // Best-effort — leave defaults on fetch failure.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [deploymentId])
 
   // Auto-clear the "Applied" surface after 8s so a follow-up edit
   // doesn't sit next to a stale success banner. The "Reconciling" state

@@ -88,6 +88,51 @@ type SetMarketplaceResponse struct {
 	AppliedAt     string `json:"appliedAt"`
 }
 
+// HandleGetMarketplace returns the current marketplace-enabled state for
+// the deployment so the Sovereign Console MarketplaceSettings page can
+// initialise its toggle to the actual value instead of always defaulting
+// to false. Backed by the in-memory deployment record's
+// Request.MarketplaceEnabled field (set at prov time, mutated by
+// HandleSetMarketplace's GitOps commit but NOT reflected back into the
+// record — so this read is best-effort and may lag a recent toggle by
+// one reconcile window; the UI shows "Reconciling" during that window).
+//
+// Founder caught on t140 (2026-05-17): "/settings/marketplace shows
+// disabled, the marketplace is still working" — the UI toggle hardcoded
+// false on mount instead of reflecting the chart's actual state.
+//
+// GET /api/v1/sovereigns/{id}/marketplace
+//
+// Response: 200 {"deploymentId","sovereignFQDN","enabled","brand"}
+//           404 deployment unknown
+//           403 ownership mismatch (returned as 404 per #689)
+func (h *Handler) HandleGetMarketplace(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	val, ok := h.deployments.Load(id)
+	if !ok {
+		http.Error(w, "deployment not found", http.StatusNotFound)
+		return
+	}
+	dep := val.(*Deployment)
+	if !h.checkOwnership(w, r, dep) {
+		return
+	}
+	dep.mu.Lock()
+	enabled := dep.Request.MarketplaceEnabled
+	sovereignFQDN := strings.TrimSpace(dep.Request.SovereignFQDN)
+	dep.mu.Unlock()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"deploymentId":  id,
+		"sovereignFQDN": sovereignFQDN,
+		"enabled":       enabled,
+		"brand": MarketplaceBrand{
+			Name:         "",
+			Tagline:      "",
+			PrimaryColor: "",
+		},
+	})
+}
+
 // HandleSetMarketplace is the chi handler for
 // POST /api/v1/sovereigns/{id}/marketplace.
 //
