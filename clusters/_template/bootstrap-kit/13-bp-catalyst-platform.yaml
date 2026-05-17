@@ -506,6 +506,24 @@ spec:
       # no longer drifts to /dashboard (kind-alias map in
       # router.tsx validateSearch). Caught on t10.omantel.biz
       # test agents E/C2 2026-05-17.
+      # 1.4.155 — Wave 5 UX polish (founder review 2026-05-17):
+      # - Sidebar reorder: Dashboard → Cloud → Apps → Jobs → Users →
+      #   BSS → Settings (operator mental model: overview → infra →
+      #   workloads → ops → access → commerce → config).
+      # - BSS icon swapped from bespoke receipt glyph to briefcase
+      #   line-glyph matching the rest of the icon family.
+      # - Marketplace toggle moved off Settings sub-nav + standalone
+      #   /settings/marketplace page INTO SettingsPage as a
+      #   <SectionCard id="marketplace"> anchor section (same pattern
+      #   as #dns, #sovereign, #notifications). MarketplaceSettings.tsx
+      #   page deleted; MarketplaceSection.tsx new inner component;
+      #   /settings/marketplace route + sidebar sub-nav child removed.
+      #   Old URL now 404s — operators click Settings then scroll to
+      #   the Marketplace anchor.
+      # - Save flow UNCHANGED: POST /api/v1/sovereigns/{id}/marketplace
+      #   still commits per-Sovereign overlay to GitOps repo, Flux
+      #   reconciles ~1 min.
+      #
       # 1.4.154 — Wave 2 collector PR. Bundles 6 Fix-Author PRs that
       # landed AFTER the 1.4.153 Wave-1 roll, all from the same t10
       # test sweep:
@@ -532,7 +550,7 @@ spec:
       #   Resources/Logs tab namespace+label fix (HR.spec.target-
       #   Namespace + chart-name label) + "Bootstrap blueprint"
       #   chip for bp-* (founder bug #4, C4-003/004/005/007/013).
-      version: 1.4.154
+      version: 1.4.155
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

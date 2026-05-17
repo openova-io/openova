@@ -96,7 +96,12 @@ import { NotificationsPage } from '@/pages/sovereign/NotificationsPage'
 // / ConsoleSettingsPage stubs have been DELETED (issue: pixel-byte-byte
 // identical UI between mothership-side /provision/$id/dashboard and
 // Sovereign-side post-handover console).
-import { MarketplaceSettings } from '@/pages/sovereign/settings/MarketplaceSettings'
+// Wave 5 (2026-05-17): MarketplaceSettings standalone page retired —
+// the toggle moved into SettingsPage as a `<SectionCard id="marketplace">`
+// anchor section. Founder UX-polish review removed the dedicated page +
+// sub-nav child. Old /settings/marketplace URL now 404s; bookmarks
+// resolve via the operator clicking Settings in the sidebar then
+// scrolling to the Marketplace anchor.
 import { DeploymentsList } from '@/pages/sovereign/DeploymentsList'
 import { UsersPage as SMEUsersPage } from '@/pages/sme/UsersPage'
 import { RolesPage as SMERolesPage } from '@/pages/sme/RolesPage'
@@ -1383,16 +1388,6 @@ const consoleInstallBlueprintRoute = createRoute({
   },
 })
 
-// /console/settings/marketplace — operator toggles marketplace mode on a
-// live Sovereign (issue #710 wave 3b). The page POSTs to
-// /api/v1/sovereigns/{id}/marketplace which commits the per-Sovereign
-// overlay change to the GitOps repo so Flux reconciles the chart.
-const consoleSettingsMarketplaceRoute = createRoute({
-  getParentRoute: () => consoleLayoutRoute,
-  path: '/settings/marketplace',
-  component: MarketplaceSettings,
-})
-
 /* ── SME-tier console routes (issue #802) ────────────────────────────
  *
  * Mounted under the same /console/* tree as the otech-tier routes —
@@ -2060,7 +2055,6 @@ const routeTree = rootRoute.addChildren([
     consoleBlueprintsPublishRoute,
     consoleBlueprintsCurateRoute,
     consoleSettingsRoute,
-    consoleSettingsMarketplaceRoute,
     consoleSMEUsersRoute,
     consoleSMERolesRoute,
     consoleParentDomainsRoute,

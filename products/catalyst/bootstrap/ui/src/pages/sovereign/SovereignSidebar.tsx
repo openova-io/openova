@@ -10,8 +10,9 @@
  *   - The footer card shows the authenticated user's name (from
  *     OIDC tokens), not the generic "Operator" placeholder.
  *
- * Nav items mirror Sidebar.tsx exactly — same icons, same order:
- *   Apps | Jobs | Dashboard | Cloud | Users | Settings
+ * Nav items follow the operator mental model: overview → infra →
+ * workloads → operations → access → commerce → config:
+ *   Dashboard | Cloud | Apps | Jobs | Users | BSS | Settings
  *
  * Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), all labels /
  * icons / route paths live in named constants, not in inline literals.
@@ -40,19 +41,12 @@ interface FlatNavItem {
   icon: string
 }
 
+// Wave 5 (2026-05-17, founder UX-polish review): order follows the
+// operator mental model — overview first, then descend through the
+// stack from infrastructure to operations to access to commerce.
+// Settings stays pinned at the bottom (defined separately, rendered
+// after the FLAT_NAV map below).
 const FLAT_NAV: FlatNavItem[] = [
-  {
-    id: 'apps',
-    label: 'Apps',
-    to: '/apps',
-    icon: 'M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z',
-  },
-  {
-    id: 'jobs',
-    label: 'Jobs',
-    to: '/jobs',
-    icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4',
-  },
   {
     id: 'dashboard',
     label: 'Dashboard',
@@ -66,31 +60,42 @@ const FLAT_NAV: FlatNavItem[] = [
     icon: CLOUD_ICON,
   },
   {
+    id: 'apps',
+    label: 'Apps',
+    to: '/apps',
+    icon: 'M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z',
+  },
+  {
+    id: 'jobs',
+    label: 'Jobs',
+    to: '/jobs',
+    icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4',
+  },
+  {
     id: 'users',
     label: 'Users',
     to: '/users',
     icon: 'M9 7a4 4 0 100 8 4 4 0 000-8zM3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2M16 3.13a4 4 0 010 7.75M21 21v-2a4 4 0 00-3-3.87',
   },
-  // BSS — Business Support (Family F, Wave 3, founder #1 / 2026-05-17).
-  // Replaces the external "Marketplace Admin ↗" link added by PR M
-  // which punted operators out of the Sovereign Console to
-  // marketplace.<sov-fqdn>/back-office/. Founder ruling: "the backed
-  // of the the mark place mutst be just aotnerh menu under console
-  // like https://console.<sov>/bss". The /bss entry redirects to
-  // /bss/billing (default landing); the BssLayout tab strip surfaces
-  // Billing / Orders / Revenue / Vouchers / Tenants.
+  // BSS — Business Support Systems (Family F, Wave 3, founder #1 /
+  // 2026-05-17). Surfaces Billing / Orders / Revenue / Vouchers /
+  // Tenants under the canonical /bss/* URL tree.
   //
-  // RBAC: this entry is always visible for v1 — the whoami payload
-  // doesn't expose tier yet, and the SME gateway's session-tier check
-  // server-side enforces /back-office/* access for the iframe. When
+  // Icon (Wave 5, 2026-05-17): briefcase line-glyph — fits the
+  // single-stroke icon family used by Apps/Jobs/Cloud/Users/Settings
+  // and reads as "business" at a glance. Replaces the bespoke
+  // receipt icon shipped by Family F that the founder flagged as
+  // off-style.
+  //
+  // RBAC: always visible for v1 — the whoami payload doesn't expose
+  // tier yet, and the SME gateway server-side enforces tier-bound
+  // access on every /api/v1/sme/* and /back-office/* call. When
   // whoami grows a `tier` field the sidebar can hide for tier=user.
   {
     id: 'bss',
     label: 'BSS',
     to: '/bss',
-    // Receipt / paper icon — distinct from cart (which connotes the
-    // public storefront customers see, not the BSS admin surface).
-    icon: 'M9 2h6a1 1 0 011 1v18l-2-1.5L13 21l-1.5-1.5L10 21l-1.5-1.5L7 21l-1-1-2 1.5V3a1 1 0 011-1h4zM9 7h6M9 11h6M9 15h4',
+    icon: 'M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2M3 13v6a2 2 0 002 2h14a2 2 0 002-2v-6M3 9h18a0 0 0 010 0v4H3V9z',
   },
 ]
 
@@ -103,12 +108,18 @@ const SETTINGS_ITEM: FlatNavItem = {
 
 // ── Settings sub-nav ──────────────────────────────────────────────────────────
 //
-// Settings expands into a small set of focused sub-pages (Marketplace mode
-// today, more to follow). The sub-nav renders only when the operator is
-// actively inside /console/settings/* so the sidebar stays tight by default.
+// Wave 5 (2026-05-17, founder UX-polish review): Marketplace moved off
+// the sub-nav and INTO SettingsPage as a `<SectionCard id="marketplace">`
+// anchor section (same pattern as #dns, #sovereign, #notifications).
+// Founder: *"if market place is just a toggle etting under setting it
+// dosnt need tohave a sdicated page and it doesnt need to have child
+// left pane menu item"*. The dedicated /settings/marketplace route was
+// retired in the same PR.
 //
-// Issue #710 wave 3b: Marketplace toggle ships first; subsequent settings
-// children (DNS, branding, billing) extend the same array.
+// Parent Domains remains a sub-nav child for now — it's a substantial
+// admin surface (registrar tokens, DNS propagation panels, "+ Add
+// another parent domain" modal), not a single toggle, so the sub-page
+// model still fits.
 interface SubNavItem {
   id: string
   label: string
@@ -116,7 +127,6 @@ interface SubNavItem {
 }
 
 const SETTINGS_SUB_NAV: SubNavItem[] = [
-  { id: 'marketplace', label: 'Marketplace', to: '/settings/marketplace' },
   // Parent Domains — admin "Add another parent domain" + DNS propagation
   // status panel (issue #829). Lives under Settings so the sidebar
   // surface stays compact for the typical SME tenant who never sees
