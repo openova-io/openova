@@ -10,14 +10,14 @@
  * router and the page component.
  */
 
-import { useParams } from '@tanstack/react-router'
+import { useParams, useNavigate } from '@tanstack/react-router'
 
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { useK8sCacheStream } from '@/widgets/architecture-graph/useK8sCacheStream'
 
 import { ResourceDetailPage } from './ResourceDetailPage'
-import { parseTabFromPath } from './resource.api'
+import { parseTabFromPath, resourceDetailHref, type ResourceDetailTab } from './resource.api'
 
 export function ResourceDetailRoute() {
   const params = useParams({ strict: false }) as {
@@ -53,6 +53,19 @@ export function ResourceDetailRoute() {
   // the server gate is the source of truth and remains in place.
   const isTierAdmin = true
 
+  // SPA in-place tab navigation — avoids the previous
+  // `window.location.assign` codepath that hard-reloaded the page on
+  // every tab click (which dropped in-flight resource fetches +
+  // WebSocket log streams, causing the operator-visible "tab unclickable
+  // before drift" pattern caught by founder #5 on t10).
+  const navigate = useNavigate()
+  const onTabChange = (next: ResourceDetailTab) => {
+    navigate({
+      to: resourceDetailHref(basePath, kind, ns || undefined, name, next) as never,
+      replace: false,
+    })
+  }
+
   return (
     <div className="mx-auto max-w-5xl px-4 py-6">
       <ResourceDetailPage
@@ -64,6 +77,7 @@ export function ResourceDetailRoute() {
         tab={tab}
         k8sSnapshot={snapshot}
         isTierAdmin={isTierAdmin}
+        onTabChange={onTabChange}
       />
     </div>
   )
