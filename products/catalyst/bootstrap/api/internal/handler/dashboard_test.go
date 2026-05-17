@@ -178,6 +178,13 @@ func dashFixtureClients(objs ...runtime.Object) (*dynamicfake.FakeDynamicClient,
 		{schema.GroupVersionKind{Version: "v1", Kind: "PersistentVolumeClaimList"}},
 		{schema.GroupVersionKind{Group: "metrics.k8s.io", Version: "v1beta1", Kind: "PodMetrics"}},
 		{schema.GroupVersionKind{Group: "metrics.k8s.io", Version: "v1beta1", Kind: "PodMetricsList"}},
+		// Wave 2 Family D: Namespaces + Nodes are joined onto Pods for
+		// family/vcluster/region enrichment. Register both so tests that
+		// seed them can exercise the join.
+		{schema.GroupVersionKind{Version: "v1", Kind: "Namespace"}},
+		{schema.GroupVersionKind{Version: "v1", Kind: "NamespaceList"}},
+		{schema.GroupVersionKind{Version: "v1", Kind: "Node"}},
+		{schema.GroupVersionKind{Version: "v1", Kind: "NodeList"}},
 	}
 	for _, g := range gvks {
 		if strings.HasSuffix(g.gvk.Kind, "List") {
@@ -190,6 +197,8 @@ func dashFixtureClients(objs ...runtime.Object) (*dynamicfake.FakeDynamicClient,
 		{Version: "v1", Resource: "pods"}:                               "PodList",
 		{Version: "v1", Resource: "persistentvolumeclaims"}:             "PersistentVolumeClaimList",
 		{Group: "metrics.k8s.io", Version: "v1beta1", Resource: "pods"}: "PodMetricsList",
+		{Version: "v1", Resource: "namespaces"}:                         "NamespaceList",
+		{Version: "v1", Resource: "nodes"}:                              "NodeList",
 	}
 	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToListKind, objs...)
 	core := kfake.NewSimpleClientset()
@@ -230,6 +239,20 @@ func newDashHandlerWithCache(t *testing.T, clusterID string, withMetrics bool, o
 		GVR:        schema.GroupVersionResource{Group: "metrics.k8s.io", Version: "v1beta1", Resource: "pods"},
 		Namespaced: true,
 	})
+	// Wave 2 Family D: namespace + node are joined onto pods for
+	// family/vcluster-role/region enrichment. Register both so the
+	// informer surface has them and the dashboard handler's per-cluster
+	// h.k8sCache.List("namespace"|"node") returns the seeded fixtures.
+	_ = r.Add(k8scache.Kind{
+		Name:       "namespace",
+		GVR:        schema.GroupVersionResource{Version: "v1", Resource: "namespaces"},
+		Namespaced: false,
+	})
+	_ = r.Add(k8scache.Kind{
+		Name:       "node",
+		GVR:        schema.GroupVersionResource{Version: "v1", Resource: "nodes"},
+		Namespaced: false,
+	})
 	cfg := k8scache.Config{
 		Logger:   quietHandlerLogger(),
 		Registry: r,
@@ -252,19 +275,28 @@ func newDashHandlerWithCache(t *testing.T, clusterID string, withMetrics bool, o
 	// expected pods/pvcs upfront and poll until the indexer matches.
 	wantPods := 0
 	wantPVCs := 0
+	wantNS := 0
+	wantNodes := 0
 	for _, o := range objs {
 		switch o.GetKind() {
 		case "Pod":
 			wantPods++
 		case "PersistentVolumeClaim":
 			wantPVCs++
+		case "Namespace":
+			wantNS++
+		case "Node":
+			wantNodes++
 		}
 	}
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		gotPods, _, _ := f.List(clusterID, "pod", labels.Everything())
 		gotPVCs, _, _ := f.List(clusterID, "persistentvolumeclaim", labels.Everything())
-		if len(gotPods) >= wantPods && len(gotPVCs) >= wantPVCs {
+		gotNS, _, _ := f.List(clusterID, "namespace", labels.Everything())
+		gotNodes, _, _ := f.List(clusterID, "node", labels.Everything())
+		if len(gotPods) >= wantPods && len(gotPVCs) >= wantPVCs &&
+			len(gotNS) >= wantNS && len(gotNodes) >= wantNodes {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -611,6 +643,181 @@ func TestDashboardTreemap_DefaultSizeByIsCPURequest(t *testing.T) {
 	}
 	if out.Items[0].SizeValue != 100 {
 		t.Errorf("default size_by must be cpu_request (100m); got %v", out.Items[0].SizeValue)
+	}
+}
+
+/* ── Wave 2 Family D — Namespace + Node enrichment ───────────────── */
+
+// mkDashNamespace produces an unstructured Namespace carrying the
+// canonical OpenOva labels the dashboard's family + vcluster grouping
+// reads. Pass empty strings to omit a particular label.
+func mkDashNamespace(name, vclusterRole, family string) *unstructured.Unstructured {
+	labels := map[string]any{}
+	if vclusterRole != "" {
+		labels["catalyst.openova.io/vcluster-role"] = vclusterRole
+	}
+	if family != "" {
+		labels["catalyst.openova.io/family"] = family
+	}
+	return &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "v1",
+		"kind":       "Namespace",
+		"metadata": map[string]any{
+			"name":            name,
+			"resourceVersion": "1",
+			"labels":          labels,
+		},
+	}}
+}
+
+// mkDashNode produces an unstructured Node carrying region/zone labels.
+// `topology.kubernetes.io/region` is the K8s-standard label hcloud-ccm
+// stamps; `openova.io/region` is the OpenOva-canonical label set by
+// per-region cloud-init.
+func mkDashNode(name, openovaRegion, topologyRegion string) *unstructured.Unstructured {
+	labels := map[string]any{}
+	if openovaRegion != "" {
+		labels["openova.io/region"] = openovaRegion
+	}
+	if topologyRegion != "" {
+		labels["topology.kubernetes.io/region"] = topologyRegion
+	}
+	return &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "v1",
+		"kind":       "Node",
+		"metadata": map[string]any{
+			"name":            name,
+			"resourceVersion": "1",
+			"labels":          labels,
+		},
+	}}
+}
+
+// mkDashPodOnNode is like mkDashPod but ALSO stamps spec.nodeName so
+// node-label enrichment can resolve. The pod's own labels are left
+// EMPTY for vcluster-role + family so we exercise the namespace-join
+// path — this matches reality where charts don't stamp these labels
+// on pods, only on the host Namespace.
+func mkDashPodOnNode(ns, name, app, nodeName string) *unstructured.Unstructured {
+	p := mkDashPod(dashFixturePod{
+		Namespace: ns, Name: name, Application: app, Family: "",
+		CPURequest: "100m", Ready: true,
+	})
+	_ = unstructured.SetNestedField(p.Object, nodeName, "spec", "nodeName")
+	// Drop the family label that mkDashPod always sets so the empty-
+	// string path exercises the namespace-join correctly.
+	delete(p.Object["metadata"].(map[string]any)["labels"].(map[string]any),
+		"catalyst.openova.io/family")
+	return p
+}
+
+// TestDashboardTreemap_FamilyFromNamespaceLabel — when the Pod has no
+// `catalyst.openova.io/family` label but its host Namespace does, the
+// family grouping bucketises by the Namespace label. Pre-fix every
+// pod collapsed into the single "Other" bucket.
+func TestDashboardTreemap_FamilyFromNamespaceLabel(t *testing.T) {
+	h := newDashHandlerWithCache(t, "alpha", false,
+		mkDashNamespace("ns-cilium", "", "spine"),
+		mkDashNamespace("ns-kc", "", "pilot"),
+		mkDashPodOnNode("ns-cilium", "p1", "bp-cilium", ""),
+		mkDashPodOnNode("ns-cilium", "p2", "bp-cilium", ""),
+		mkDashPodOnNode("ns-kc", "p3", "bp-keycloak", ""),
+	)
+	out := dashGet(t, h, "deployment_id=alpha&group_by=family&color_by=health&size_by=cpu_request")
+	if len(out.Items) != 2 {
+		t.Fatalf("expected 2 family buckets (spine,pilot); got %d (%+v)",
+			len(out.Items), out)
+	}
+	names := map[string]bool{}
+	for _, it := range out.Items {
+		names[it.Name] = true
+	}
+	if !names["Spine"] || !names["Pilot"] {
+		t.Errorf("expected family buckets Spine+Pilot from namespace labels; got %v", names)
+	}
+}
+
+// TestDashboardTreemap_VClusterFromNamespaceLabel — when the Pod has no
+// vcluster-role label but its host Namespace does (the canonical
+// bp-{mgmt,dmz,rtz}-vcluster shape), grouping by vcluster bucketises
+// by the Namespace label. Pre-fix every pod collapsed into the single
+// "host" bucket.
+func TestDashboardTreemap_VClusterFromNamespaceLabel(t *testing.T) {
+	h := newDashHandlerWithCache(t, "alpha", false,
+		mkDashNamespace("mgmt", "mgmt", ""),
+		mkDashNamespace("dmz", "dmz", ""),
+		mkDashNamespace("rtz", "rtz", ""),
+		mkDashPodOnNode("mgmt", "p1", "bp-vcluster", ""),
+		mkDashPodOnNode("dmz", "p2", "bp-vcluster", ""),
+		mkDashPodOnNode("rtz", "p3", "bp-vcluster", ""),
+	)
+	out := dashGet(t, h, "deployment_id=alpha&group_by=vcluster&color_by=health&size_by=cpu_request")
+	if len(out.Items) != 3 {
+		t.Fatalf("expected 3 vcluster buckets (mgmt,dmz,rtz); got %d (%+v)",
+			len(out.Items), out)
+	}
+	names := map[string]bool{}
+	for _, it := range out.Items {
+		names[it.Name] = true
+	}
+	for _, want := range []string{"mgmt", "dmz", "rtz"} {
+		if !names[want] {
+			t.Errorf("expected vcluster bucket %q; got %v", want, names)
+		}
+	}
+}
+
+// TestDashboardTreemap_RegionFromNodeLabel — when the Pod has no
+// openova.io/region label but its host Node does, region grouping
+// reads from the Node's label set. Both `openova.io/region` and the
+// K8s-standard `topology.kubernetes.io/region` are consulted.
+func TestDashboardTreemap_RegionFromNodeLabel(t *testing.T) {
+	h := newDashHandlerWithCache(t, "alpha", false,
+		// One node per region; openova.io label canonical, topology
+		// fallback for the second region.
+		mkDashNode("node-fsn-1", "fsn1", ""),
+		mkDashNode("node-hel-1", "", "hel1"),
+		// Pods bound to each node via spec.nodeName.
+		mkDashPodOnNode("ns1", "p1", "bp-cilium", "node-fsn-1"),
+		mkDashPodOnNode("ns1", "p2", "bp-cilium", "node-hel-1"),
+	)
+	out := dashGet(t, h, "deployment_id=alpha&group_by=region&color_by=health&size_by=cpu_request")
+	if len(out.Items) != 2 {
+		t.Fatalf("expected 2 region buckets (fsn1,hel1); got %d (%+v)",
+			len(out.Items), out)
+	}
+	names := map[string]bool{}
+	for _, it := range out.Items {
+		names[it.Name] = true
+	}
+	for _, want := range []string{"fsn1", "hel1"} {
+		if !names[want] {
+			t.Errorf("expected region bucket %q; got %v", want, names)
+		}
+	}
+}
+
+// TestDashboardTreemap_FamilyPodLabelOverridesNamespace — when BOTH
+// pod-level and namespace-level family labels are set, the pod-level
+// label wins. Mirrors mimir's _helpers.tpl which stamps family on the
+// pod template; the Namespace might also have a different (or absent)
+// label and we want pod-level granularity to take precedence.
+func TestDashboardTreemap_FamilyPodLabelOverridesNamespace(t *testing.T) {
+	h := newDashHandlerWithCache(t, "alpha", false,
+		mkDashNamespace("ns1", "", "observability"),
+		// Pod-level family=cortex overrides the namespace's observability.
+		mkDashPod(dashFixturePod{
+			Namespace: "ns1", Name: "p1", Application: "mimir",
+			Family: "cortex", CPURequest: "100m", Ready: true,
+		}),
+	)
+	out := dashGet(t, h, "deployment_id=alpha&group_by=family&color_by=health&size_by=cpu_request")
+	if len(out.Items) != 1 {
+		t.Fatalf("expected 1 bucket; got %d (%+v)", len(out.Items), out)
+	}
+	if out.Items[0].Name != "Cortex" {
+		t.Errorf("expected pod-level Cortex to win over namespace observability; got %q",
+			out.Items[0].Name)
 	}
 }
 
