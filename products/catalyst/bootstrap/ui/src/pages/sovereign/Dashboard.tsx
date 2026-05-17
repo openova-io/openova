@@ -46,6 +46,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useRouter, Link } from '@tanstack/react-router'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
+import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import { useQuery } from '@tanstack/react-query'
 
 import { PortalShell } from './PortalShell'
@@ -149,13 +150,22 @@ export function Dashboard({
   // founder opened /dashboard, saw family-grouped bubbles, concluded the
   // multi-cluster fix was broken.
   //
-  // Heuristic: snapshot reports the SovereignFQDN at adopt time. If we're
-  // on a Sovereign Console (sovereignFQDN present) default to cluster
-  // grouping; otherwise keep the historical family+application default
-  // for Catalyst-Zero (single-tenant mothership view).
-  const defaultLayers: readonly TreemapDimension[] = sovereignFQDN
-    ? ['cluster', 'application']
-    : ['family', 'application']
+  // Wave 2 Family D (t10 regression): the snapshot-driven `sovereignFQDN`
+  // is fetched asynchronously via SSE — on first paint it is null, so the
+  // default fell back to `['family', 'application']` even on a Sovereign
+  // Console. Test agent caught:
+  //
+  //     DOM testid `treemap-layer-0-select` value="family" on first paint
+  //
+  // Fix: read mode synchronously from `DETECTED_MODE` (window.location-
+  // derived at module load, stable for the lifetime of the page). This
+  // is the SAME source the SovereignSidebar + cloud-list routes use for
+  // their mode-gated rendering, so default Layer-1 stays consistent with
+  // the rest of the sidebar's Sovereign affordances.
+  const defaultLayers: readonly TreemapDimension[] =
+    DETECTED_MODE.mode === 'sovereign'
+      ? ['cluster', 'application']
+      : ['family', 'application']
   const [layers, setLayers] = useState<readonly TreemapDimension[]>(
     initialLayers ?? defaultLayers,
   )

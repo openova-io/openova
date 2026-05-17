@@ -222,7 +222,20 @@ func (h *Handler) GetDashboardTreemap(w http.ResponseWriter, r *http.Request) {
 		// PodMetrics is Optional — list may error when metrics-server is
 		// absent. Treat as nil and the utilization path emits null.
 		podMetrics, _, _ := h.k8sCache.List(cid, "podmetrics", labels.Everything())
-		rows = append(rows, buildPodRows(pods, pvcs, podMetrics, cid)...)
+		// Wave 2 Family D (treemap fan-out): the chart helpers stamp the
+		// canonical `catalyst.openova.io/{family,vcluster-role}` labels on
+		// the host Namespace, NOT on individual Pods. Likewise
+		// `openova.io/region` is a Node label, not a Pod label. Without
+		// enrichment, family/vcluster grouping collapses every Pod into
+		// the default bucket ("other" / "host") and region falls back to
+		// the cluster id. List both kinds from the same cluster's cache
+		// so buildPodRows can join them onto each Pod by ns/node name.
+		//
+		// Both lists are cheap (Namespace + Node informers run anyway for
+		// the cloud-list canvas) and the per-pod lookup is a map probe.
+		namespaces, _, _ := h.k8sCache.List(cid, "namespace", labels.Everything())
+		nodes, _, _ := h.k8sCache.List(cid, "node", labels.Everything())
+		rows = append(rows, buildPodRows(pods, pvcs, podMetrics, namespaces, nodes, cid)...)
 	}
 	resp := aggregateRows(rows, groupBy, colorBy, sizeBy)
 	writeJSON(w, http.StatusOK, resp)
@@ -253,7 +266,18 @@ type podRow struct {
 // without a Ready condition are still counted (they contribute 0 to
 // the health numerator). PVCs are matched by namespace + claim name
 // from each pod's spec.volumes[].
-func buildPodRows(pods, pvcs, podMetrics []*unstructured.Unstructured, clusterID string) []podRow {
+//
+// Wave 2 Family D enrichment: the canonical `catalyst.openova.io/{family,
+// vcluster-role}` labels live on the host Namespace (set by bp-{mgmt,
+// dmz,rtz}-vcluster + chart helpers in platform/_template) and
+// `openova.io/region` is a Node label (stamped by Hetzner cloud-init).
+// When the caller passes the cluster's Namespaces + Nodes we join them
+// onto each Pod so family/vcluster/region grouping fans out beyond the
+// single "other"/"host"/cluster-id default buckets. Callers that have
+// no namespace/node lists (older tests, the "cache absent" path) may
+// pass nil — every enrichment is a best-effort map probe with a
+// well-defined fallback.
+func buildPodRows(pods, pvcs, podMetrics, namespaces, nodes []*unstructured.Unstructured, clusterID string) []podRow {
 	pvcByKey := map[string]*unstructured.Unstructured{}
 	for _, p := range pvcs {
 		key := p.GetNamespace() + "/" + p.GetName()
@@ -264,24 +288,74 @@ func buildPodRows(pods, pvcs, podMetrics []*unstructured.Unstructured, clusterID
 		key := m.GetNamespace() + "/" + m.GetName()
 		metricsByKey[key] = m
 	}
+	// Namespace-label join keys: bp-{mgmt,dmz,rtz}-vcluster stamp
+	// `catalyst.openova.io/vcluster-role` and chart helpers stamp
+	// `catalyst.openova.io/family` on the host Namespace.
+	nsByName := map[string]*unstructured.Unstructured{}
+	for _, ns := range namespaces {
+		nsByName[ns.GetName()] = ns
+	}
+	// Node-label join keys: `openova.io/region` (canonical OpenOva) or
+	// `topology.kubernetes.io/region` (K8s standard, set by hcloud-ccm
+	// on every Hetzner node). Pods inherit via spec.nodeName.
+	nodeByName := map[string]*unstructured.Unstructured{}
+	for _, n := range nodes {
+		nodeByName[n.GetName()] = n
+	}
 
 	out := make([]podRow, 0, len(pods))
 	for _, p := range pods {
+		// Derive family + vcluster-role from the pod's Namespace, then
+		// fall back to pod-level labels (which a handful of charts like
+		// mimir _do_ set in their _helpers.tpl). When both are absent
+		// dimensionKey produces "other" / "host" buckets so the cell is
+		// still visible (never silently dropped).
+		nsLabels := map[string]string{}
+		if ns, ok := nsByName[p.GetNamespace()]; ok {
+			nsLabels = ns.GetLabels()
+		}
+		family := stringLabel(p, "catalyst.openova.io/family", "")
+		if family == "" {
+			family = nsLabels["catalyst.openova.io/family"]
+		}
+		if family == "" {
+			family = "other"
+		}
+		vcluster := stringLabel(p, "catalyst.openova.io/vcluster-role", "")
+		if vcluster == "" {
+			vcluster = nsLabels["catalyst.openova.io/vcluster-role"]
+		}
+		// Derive region: pod-level label wins, then Namespace label,
+		// then the pod's host Node's region labels. Empty falls back
+		// to cluster-id in dimensionKey so single-region/single-cluster
+		// renders correctly while multi-region pods (when nodes carry
+		// the label) bucket per region.
+		region := stringLabel(p, "openova.io/region", "")
+		if region == "" {
+			region = nsLabels["openova.io/region"]
+		}
+		if region == "" {
+			nodeName, _, _ := unstructured.NestedString(p.Object, "spec", "nodeName")
+			if nodeName != "" {
+				if n, ok := nodeByName[nodeName]; ok {
+					nl := n.GetLabels()
+					if v := nl["openova.io/region"]; v != "" {
+						region = v
+					} else if v := nl["topology.kubernetes.io/region"]; v != "" {
+						region = v
+					} else if v := nl["failure-domain.beta.kubernetes.io/region"]; v != "" {
+						region = v
+					}
+				}
+			}
+		}
 		row := podRow{
 			namespace:   p.GetNamespace(),
 			cluster:     clusterID,
 			application: applicationKey(p),
-			family:      stringLabel(p, "catalyst.openova.io/family", "other"),
-			// region from pod-level label (set by some controllers) or
-			// inherited from namespace; for multi-region the chroot's
-			// k8scache layer enriches the pod with this label at
-			// buildPodRows ingestion time. Empty falls back to cluster
-			// in dimensionKey so single-region renders fine.
-			region:      stringLabel(p, "openova.io/region", ""),
-			// vcluster from pod-host-namespace label catalyst.openova.io/vcluster-role
-			// (mgmt/dmz/rtz). Pods outside any vCluster namespace return
-			// "" which dimensionKey buckets as "host".
-			vcluster:    stringLabel(p, "catalyst.openova.io/vcluster-role", ""),
+			family:      family,
+			region:      region,
+			vcluster:    vcluster,
 			isReady:     podIsReady(p),
 			createdAt:   p.GetCreationTimestamp().Time,
 		}
