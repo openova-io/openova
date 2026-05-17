@@ -204,6 +204,38 @@ export interface ApplicationDetailResponse {
   conditions: Array<Record<string, unknown>>
   regionStatuses?: Array<Record<string, unknown>>
   installedBlueprint?: Record<string, unknown>
+  /**
+   * Family B (2026-05-17 t10 founder bugs C4-005/007): Actual K8s
+   * install location + label selector. Use these for ResourcesTab /
+   * LogsTab queries instead of guessing "default" + `instance=<name>`.
+   * Backend populates from HR `spec.targetNamespace` / `spec.releaseName`
+   * / chart name (bootstrap-kit) or Application CR `spec.targetNamespace`
+   * (wizard installs).
+   */
+  targetNamespace?: string
+  releaseName?: string
+  installLabelSelector?: string
+  /**
+   * Family B (C4-004): true when synthesised from a HelmRelease with
+   * no companion Application CR — i.e. bootstrap-kit installs that
+   * are NOT expected to exist in /catalog/apps/<slug>. The SPA uses
+   * this to render the publish chip as "Bootstrap blueprint (not in
+   * marketplace)" instead of "Catalog status unavailable".
+   */
+  bootstrap?: boolean
+  /**
+   * Family B (C4-003): HR-Ready overlay telemetry. When `hrReady=true`
+   * the backend promoted `phase` to "Ready" because the matching
+   * HelmRelease reported Ready=True even though the Application CR's
+   * own `status.phase` is stale (`phaseFromCR`). The SPA surfaces this
+   * in the source-of-truth D19 chip so the operator knows the CR is
+   * behind its HR — the canonical signal for a lagging
+   * application-controller. The chip also matches what /sovereign/apps
+   * shows (which queries HRs directly), eliminating the founder-flagged
+   * desync.
+   */
+  hrReady?: boolean
+  phaseFromCR?: string
 }
 
 /** PreviewManifest — one rendered file in the preview output. */

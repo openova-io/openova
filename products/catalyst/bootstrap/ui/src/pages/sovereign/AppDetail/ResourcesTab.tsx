@@ -101,10 +101,9 @@ async function fetchKindList(
   sovereignId: string,
   kind: string,
   namespace: string,
-  applicationName: string,
+  labelSelector: string,
   signal?: AbortSignal,
 ): Promise<K8sObject[]> {
-  const labelSelector = `app.kubernetes.io/instance=${applicationName}`
   const url = `${API_BASE}/v1/sovereigns/${encodeURIComponent(
     sovereignId,
   )}/k8s/${encodeURIComponent(kind)}?namespace=${encodeURIComponent(
@@ -122,8 +121,33 @@ export interface ResourcesTabProps {
   applicationName: string
   /** Sovereign id (the URL segment in /sovereigns/{id}/k8s/...). */
   sovereignId: string
-  /** Org namespace. */
+  /**
+   * Install namespace — the namespace the workload's pods/services
+   * actually live in. For Application CRs this is `spec.targetNamespace`;
+   * for bootstrap-kit HRs this is `spec.targetNamespace` (the HR may
+   * be in flux-system, the workload is in `alloy/`, `cert-manager/`,
+   * `kube-system/`, etc).
+   *
+   * Family B (2026-05-17 t10 C4-005): previously this prop was wired
+   * to the Application CR's *own* namespace, which on chroot
+   * Sovereigns defaulted to "default" — so every list query missed
+   * every install. Now wired from `apiApp.targetNamespace`.
+   */
   namespace: string
+  /**
+   * Family B (2026-05-17 t10 C4-005): pod/service identity label.
+   * - Wizard-installed Application CRs:
+   *   `app.kubernetes.io/instance=<applicationName>` (catalyst standard)
+   * - Bootstrap-kit HRs:
+   *   `app.kubernetes.io/name=<chartName>` (upstream Helm standard;
+   *   `instance` is set by Flux to the HR name but upstream pod
+   *   manifests use `name` for the canonical identity).
+   *
+   * The backend chooses the right one per source and hands it back
+   * verbatim. Defaults to `instance=<applicationName>` for callers
+   * that haven't been migrated yet (backwards-compatible).
+   */
+  labelSelector?: string
   /** Test seam — bypass network calls. */
   disableNetwork?: boolean
 }
@@ -132,6 +156,7 @@ export function ResourcesTab({
   applicationName,
   sovereignId,
   namespace,
+  labelSelector,
   disableNetwork = false,
 }: ResourcesTabProps) {
   const { deploymentId: chrootDepId } = useResolvedDeploymentId()
@@ -140,14 +165,16 @@ export function ResourcesTab({
     DETECTED_MODE.mode === 'sovereign' || !deploymentId
       ? '/cloud'
       : `/provision/${deploymentId}/cloud`
+  const effectiveLabelSelector =
+    labelSelector?.trim() || `app.kubernetes.io/instance=${applicationName}`
 
   return (
     <div className="resources-tab" data-testid="app-tab-resources-panel-content">
       <div className="resources-header">
-        <p className="resources-intro">
+        <p className="resources-intro" data-testid="app-resources-filter-banner">
           Live K8s objects backing{' '}
           <code className="font-mono text-[var(--color-text)]">{applicationName}</code>{' '}
-          (filtered by <code>app.kubernetes.io/instance={applicationName}</code> in namespace{' '}
+          (filtered by <code>{effectiveLabelSelector}</code> in namespace{' '}
           <code>{namespace}</code>).
         </p>
       </div>
@@ -158,7 +185,7 @@ export function ResourcesTab({
           kind={kind}
           sovereignId={sovereignId}
           namespace={namespace}
-          applicationName={applicationName}
+          labelSelector={effectiveLabelSelector}
           disableNetwork={disableNetwork}
           cloudPath={cloudPath}
         />
@@ -220,7 +247,7 @@ interface ResourceKindTableProps {
   kind: KindSpec
   sovereignId: string
   namespace: string
-  applicationName: string
+  labelSelector: string
   disableNetwork: boolean
   cloudPath: string
 }
@@ -229,15 +256,15 @@ function ResourceKindTable({
   kind,
   sovereignId,
   namespace,
-  applicationName,
+  labelSelector,
   disableNetwork,
   cloudPath,
 }: ResourceKindTableProps) {
   const q = useQuery({
-    queryKey: ['app-resources', sovereignId, namespace, applicationName, kind.singular],
+    queryKey: ['app-resources', sovereignId, namespace, labelSelector, kind.singular],
     queryFn: ({ signal }) =>
-      fetchKindList(sovereignId, kind.singular, namespace, applicationName, signal),
-    enabled: !disableNetwork && !!sovereignId && !!namespace && !!applicationName,
+      fetchKindList(sovereignId, kind.singular, namespace, labelSelector, signal),
+    enabled: !disableNetwork && !!sovereignId && !!namespace && !!labelSelector,
     refetchInterval: 30_000,
     staleTime: 15_000,
   })
