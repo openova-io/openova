@@ -58,6 +58,7 @@ import { PortalShell } from './PortalShell'
 import { useDeploymentEvents } from './useDeploymentEvents'
 import { useWizardStore } from '@/entities/deployment/store'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
+import { MarketplaceSection } from './settings/MarketplaceSection'
 
 /* ── Constants ──────────────────────────────────────────────────── */
 
@@ -90,6 +91,13 @@ const SECTIONS: readonly SectionDef[] = [
   { id: 'cloud-credentials', label: 'Cloud credentials', description: 'Hetzner provider token + S3 backup keys.' },
   { id: 'dns', label: 'DNS', description: 'Pool domain, subdomain, TLS issuer status.' },
   { id: 'domain-mode', label: 'Domain mode', description: 'Pool vs Bring-Your-Own — read-only after activation.' },
+  // Wave 5 (2026-05-17, founder UX-polish review): marketplace toggle
+  // moved off the Settings sub-nav + standalone /settings/marketplace
+  // page INTO this anchor section. Founder ruling: *"if market place
+  // is just a toggle etting under setting it dosnt need tohave a
+  // sdicated page ... it shoudl be somewher e here ... similar to
+  // other setting"*.
+  { id: 'marketplace', label: 'Marketplace', description: 'Public storefront, branding, tenant wildcard ingress. Changes are committed to your GitOps repo and reconciled by Flux within ~1 minute.' },
   { id: 'notifications', label: 'Notifications', description: 'Email + Slack hooks for provisioning events.' },
   { id: 'members', label: 'Members', description: 'Operators with admin / dev / viewer roles.' },
   { id: 'danger-zone', label: 'Danger zone', description: 'Wipe Sovereign, decommission, transfer ownership.' },
@@ -328,11 +336,18 @@ export function SettingsPage({ disableStream = false }: SettingsPageProps = {}) 
               </FieldGrid>
             </SectionCard>
 
-            {/* 7. Notifications */}
+            {/* 7. Marketplace — Wave 5 (2026-05-17): moved here from
+                the retired /settings/marketplace standalone page +
+                Settings sub-nav child. */}
+            <SectionCard id="marketplace" title="Marketplace" description={SECTIONS[6]!.description}>
+              <MarketplaceSection />
+            </SectionCard>
+
+            {/* 8. Notifications */}
             <SectionCard
               id="notifications"
               title="Notifications"
-              description={SECTIONS[6]!.description}
+              description={SECTIONS[7]!.description}
               pendingApi
             >
               <FieldGrid>
@@ -341,8 +356,8 @@ export function SettingsPage({ disableStream = false }: SettingsPageProps = {}) 
               </FieldGrid>
             </SectionCard>
 
-            {/* 8. Members — link to existing User Access page */}
-            <SectionCard id="members" title="Members" description={SECTIONS[7]!.description}>
+            {/* 9. Members — link to existing User Access page */}
+            <SectionCard id="members" title="Members" description={SECTIONS[8]!.description}>
               <p className="text-sm text-[var(--color-text-dim)]">
                 Operators are managed on the dedicated User Access page so role bindings, app
                 grants, and namespace scopes share one editor.
@@ -356,11 +371,11 @@ export function SettingsPage({ disableStream = false }: SettingsPageProps = {}) 
               </Link>
             </SectionCard>
 
-            {/* 9. Danger zone */}
+            {/* 10. Danger zone */}
             <SectionCard
               id="danger-zone"
               title="Danger zone"
-              description={SECTIONS[8]!.description}
+              description={SECTIONS[9]!.description}
               tone="danger"
             >
               <ul className="flex flex-col gap-3">
