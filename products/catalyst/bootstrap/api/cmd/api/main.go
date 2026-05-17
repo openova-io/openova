@@ -1188,6 +1188,13 @@ func main() {
 		rg.Post("/api/v1/sovereign/parent-domains", h.AddParentDomain)
 		rg.Delete("/api/v1/sovereign/parent-domains/{name}", h.DeleteParentDomain)
 		rg.Get("/api/v1/sovereign/parent-domains/{name}/propagation", h.GetPropagation)
+		// D16 fan-out (gate D16 multi-region dashboard cluster grouping):
+		// mothership POSTs each secondary region's kubeconfig at handover
+		// so the chroot's k8sCache.Factory can register all clusters +
+		// dashboard handler's per-cluster List() fan-out enumerates all
+		// 3 regions' pods (Layer-1=Cluster renders 3 bubbles, not 1).
+		// Handler at handler/sovereign_secondary_kubeconfig.go.
+		rg.Post("/api/v1/sovereign/secondary-kubeconfig", h.HandleSovereignSecondaryKubeconfig)
 	})
 
 	log.Info("catalyst api listening", "port", port)
