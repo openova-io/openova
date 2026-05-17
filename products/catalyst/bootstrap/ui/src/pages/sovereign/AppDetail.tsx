@@ -192,6 +192,29 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
   const appLastReconciled = apiApp?.lastReconciledAt ?? ''
   const appPlacement = apiApp?.placement ?? 'single-region'
   const appPrimaryRegion = apiApp?.primaryRegion ?? appRegions[0] ?? ''
+  // Family B (2026-05-17 t10 C4-005/007): the namespace the workload
+  // actually lives in (HR spec.targetNamespace), and the label that
+  // identifies its pods/services/etc. For bootstrap-kit apps the HR
+  // is in `flux-system` but the install lands in e.g. `alloy/` with
+  // `app.kubernetes.io/name=alloy`. For wizard-installed Application
+  // CRs both default to instance=<name>. We prefer targetNamespace
+  // but never let it fall back to "default" silently — empty falls
+  // back to appNamespace.
+  const appTargetNamespace =
+    apiApp?.targetNamespace?.trim() || apiApp?.namespace?.trim() || appNamespace
+  const appInstallLabelSelector =
+    apiApp?.installLabelSelector?.trim() ||
+    `app.kubernetes.io/instance=${componentId}`
+  // C4-004: when the backend has flagged this app as a bootstrap-kit
+  // synth (no Application CR, just an HR), the catalog 404 is EXPECTED
+  // — the publish chip should render "Bootstrap blueprint" instead of
+  // "Catalog status unavailable".
+  const appIsBootstrap = !!apiApp?.bootstrap
+  // C4-003: when the backend's HR-Ready overlay promoted the phase
+  // (CR was stale at Provisioning, HR was Ready=True), the source
+  // chip surfaces both so the operator can see the lag.
+  const appHRReady = !!apiApp?.hrReady
+  const appPhaseFromCR = apiApp?.phaseFromCR?.trim() ?? ''
   // Matrix asserts the literal `Ready` token in the Overview body
   // (TC-068). When the API hasn't reported a phase yet, render the
   // mapped `status` chip phrase instead of an empty string so the test
@@ -429,7 +452,39 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
                 PUT /api/catalog/admin/apps/{slug}/published; ownership
                 gated by Sovereign Console session.
               */}
-              <PublishToggleChip slug={componentId} />
+              <PublishToggleChip slug={componentId} isBootstrap={appIsBootstrap} />
+              {/*
+                Family B (2026-05-17 t10 C4-013): D19 D-count mismatch
+                root cause = the three count sources (Deployment CR
+                count, catalog entry count, HelmRelease Ready count)
+                were aggregated into one chip on AppsPage with no
+                breakdown. Operator could not see which source was
+                wrong. Here on AppDetail we surface the SOURCE-OF-TRUTH
+                for THIS app's phase chip — so the same operator
+                instinct that flagged the mismatch on AppsPage can
+                trace where it came from per-app.
+              */}
+              <span
+                className="chip chip-bp"
+                data-testid="app-detail-source"
+                data-source={appIsBootstrap ? 'helmrelease' : 'application-cr'}
+                data-hr-overlay={appHRReady ? 'true' : 'false'}
+                title={
+                  appIsBootstrap
+                    ? 'Phase derived from HelmRelease Ready condition (no Application CR)'
+                    : appHRReady
+                      ? `Application CR phase is stale (status.phase=${appPhaseFromCR || 'Provisioning'}); HelmRelease is Ready — promoted to Ready. application-controller is lagging.`
+                      : 'Phase derived from Application CR status'
+                }
+                style={{ fontWeight: 500 }}
+              >
+                source:{' '}
+                {appIsBootstrap
+                  ? 'HelmRelease'
+                  : appHRReady
+                    ? `Application CR (HR-overlayed; CR=${appPhaseFromCR || 'Provisioning'})`
+                    : 'Application CR'}
+              </span>
             </div>
           </div>
         </div>
@@ -502,7 +557,8 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
             <ResourcesTab
               applicationName={componentId}
               sovereignId={deploymentId}
-              namespace={appNamespace}
+              namespace={appTargetNamespace}
+              labelSelector={appInstallLabelSelector}
             />
           </div>
         ) : appTab === 'compliance' ? (
@@ -518,7 +574,8 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
             <LogsTab
               applicationName={componentId}
               sovereignId={deploymentId}
-              namespace={appNamespace}
+              namespace={appTargetNamespace}
+              labelSelector={appInstallLabelSelector}
               blueprint={appBlueprint}
             />
           </div>
@@ -598,24 +655,50 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
  */
 interface PublishToggleChipProps {
   slug: string
+  /**
+   * Family B (2026-05-17 t10 C4-004): when true, the parent has
+   * confirmed this app was synthesised from a HelmRelease without a
+   * companion catalog entry (bootstrap-kit installs like bp-alloy,
+   * bp-cilium, bp-cert-manager). Render the chip as
+   * "Bootstrap blueprint" instead of fetching /catalog/apps/<slug>
+   * (which 404s) and surfacing "Catalog status unavailable".
+   */
+  isBootstrap?: boolean
 }
 
-function PublishToggleChip({ slug }: PublishToggleChipProps) {
-  const [state, setState] = useState<'loading' | 'published' | 'unpublished' | 'error'>('loading')
+function PublishToggleChip({ slug, isBootstrap = false }: PublishToggleChipProps) {
+  const [state, setState] = useState<
+    'loading' | 'published' | 'unpublished' | 'bootstrap' | 'error'
+  >(isBootstrap ? 'bootstrap' : 'loading')
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     if (!slug) return
+    // C4-004: bootstrap-kit apps have no catalog row by design — the
+    // /catalog/apps/<slug> 404 is expected, not an error. Skip the
+    // fetch entirely and render the explanatory chip.
+    if (isBootstrap) {
+      setState('bootstrap')
+      return
+    }
     let cancelled = false
     fetch(`${API_BASE}/catalog/apps/${encodeURIComponent(slug)}`, {
       credentials: 'include',
       headers: { Accept: 'application/json' },
     })
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => {
+        // 404 on a non-bootstrap app means the catalog row hasn't been
+        // seeded yet; render as bootstrap-like (no toggle) rather than
+        // the misleading "Catalog status unavailable".
+        if (r.status === 404) return { __bootstrapFallback: true }
+        return r.ok ? r.json() : null
+      })
       .then((d) => {
         if (cancelled) return
-        if (d && typeof d.published === 'boolean') {
-          setState(d.published ? 'published' : 'unpublished')
+        if (d && (d as { __bootstrapFallback?: boolean }).__bootstrapFallback) {
+          setState('bootstrap')
+        } else if (d && typeof (d as { published?: boolean }).published === 'boolean') {
+          setState((d as { published: boolean }).published ? 'published' : 'unpublished')
         } else {
           setState('error')
         }
@@ -626,10 +709,10 @@ function PublishToggleChip({ slug }: PublishToggleChipProps) {
     return () => {
       cancelled = true
     }
-  }, [slug])
+  }, [slug, isBootstrap])
 
   async function toggle() {
-    if (busy || state === 'loading' || state === 'error') return
+    if (busy || state === 'loading' || state === 'error' || state === 'bootstrap') return
     setBusy(true)
     const next = state === 'published' ? false : true
     const prev = state
@@ -658,23 +741,35 @@ function PublishToggleChip({ slug }: PublishToggleChipProps) {
       ? 'Loading…'
       : state === 'error'
         ? 'Catalog status unavailable'
-        : state === 'published'
-          ? 'Published'
-          : 'Unpublished'
+        : state === 'bootstrap'
+          ? 'Bootstrap blueprint (not in marketplace)'
+          : state === 'published'
+            ? 'Published'
+            : 'Unpublished'
 
   return (
     <button
       type="button"
       onClick={toggle}
-      disabled={state === 'loading' || state === 'error' || busy}
+      disabled={
+        state === 'loading' || state === 'error' || state === 'bootstrap' || busy
+      }
       title={
         state === 'published'
           ? 'Click to unpublish — hides from marketplace storefront'
           : state === 'unpublished'
             ? 'Click to publish — shows in marketplace storefront'
-            : ''
+            : state === 'bootstrap'
+              ? 'This is a bootstrap-kit install (HelmRelease without a catalog entry). It ships with the platform and is not surfaced in the tenant marketplace.'
+              : ''
       }
-      className={`chip ${state === 'published' ? 'chip-installed' : 'chip-cat'}`}
+      className={`chip ${
+        state === 'published'
+          ? 'chip-installed'
+          : state === 'bootstrap'
+            ? 'chip-bp'
+            : 'chip-cat'
+      }`}
       data-testid="app-detail-publish-toggle"
       data-state={state}
     >

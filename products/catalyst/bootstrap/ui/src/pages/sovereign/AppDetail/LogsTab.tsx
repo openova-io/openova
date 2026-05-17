@@ -30,8 +30,26 @@ export interface LogsTabProps {
   applicationName: string
   /** Sovereign id (the URL segment in /sovereigns/{id}/k8s/...). */
   sovereignId: string
-  /** Org namespace. */
+  /**
+   * Install namespace — where the workload's pods actually live.
+   * For Application CRs this is `spec.targetNamespace`; for
+   * bootstrap-kit HRs this is the HR's `spec.targetNamespace`.
+   *
+   * Family B (2026-05-17 t10 C4-007): previously this was always
+   * "default" on chroot Sovereigns — so log queries returned zero
+   * pods even though the pods were Running in the real namespace.
+   */
   namespace: string
+  /**
+   * Family B (2026-05-17 t10 C4-007): pod identity label.
+   * - Wizard installs:    `app.kubernetes.io/instance=<applicationName>`
+   * - Bootstrap-kit HRs:  `app.kubernetes.io/name=<chartName>`
+   *
+   * Backend hands back the right one per source. Defaults to
+   * `instance=<applicationName>` when omitted (backwards-compatible
+   * with wizard-installed apps that already work).
+   */
+  labelSelector?: string
   /** Blueprint name (used in the human header — e.g. `bp-wordpress`). */
   blueprint?: string
   /** Test seam — bypass network calls (used in unit tests). */
@@ -52,10 +70,9 @@ interface PodOption {
 async function fetchAppPods(
   sovereignId: string,
   namespace: string,
-  applicationName: string,
+  labelSelector: string,
   signal?: AbortSignal,
 ): Promise<PodOption[]> {
-  const labelSelector = `app.kubernetes.io/instance=${applicationName}`
   const url = `${API_BASE}/v1/sovereigns/${encodeURIComponent(
     sovereignId,
   )}/k8s/pod?namespace=${encodeURIComponent(namespace)}&labelSelector=${encodeURIComponent(
@@ -82,13 +99,17 @@ export function LogsTab({
   applicationName,
   sovereignId,
   namespace,
+  labelSelector,
   blueprint,
   disableNetwork = false,
 }: LogsTabProps) {
+  const effectiveLabelSelector =
+    labelSelector?.trim() || `app.kubernetes.io/instance=${applicationName}`
   const podsQ = useQuery({
-    queryKey: ['app-logs-pods', sovereignId, namespace, applicationName],
-    queryFn: ({ signal }) => fetchAppPods(sovereignId, namespace, applicationName, signal),
-    enabled: !disableNetwork && !!sovereignId && !!namespace && !!applicationName,
+    queryKey: ['app-logs-pods', sovereignId, namespace, effectiveLabelSelector],
+    queryFn: ({ signal }) =>
+      fetchAppPods(sovereignId, namespace, effectiveLabelSelector, signal),
+    enabled: !disableNetwork && !!sovereignId && !!namespace && !!effectiveLabelSelector,
     refetchInterval: 30_000,
     staleTime: 15_000,
   })
@@ -273,7 +294,7 @@ export function LogsTab({
 
       {pods.length === 0 && !podsQ.isPending && !podsQ.isError ? (
         <p className="logs-empty" data-testid="app-logs-no-pods">
-          No Pods labelled <code>app.kubernetes.io/instance={applicationName}</code> in
+          No Pods labelled <code>{effectiveLabelSelector}</code> in
           namespace <code>{namespace}</code>.
         </p>
       ) : null}

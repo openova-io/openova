@@ -945,6 +945,43 @@ type applicationDetailResponse struct {
 	Conditions       []map[string]interface{} `json:"conditions"`
 	RegionStatuses   []map[string]interface{} `json:"regionStatuses,omitempty"`
 	InstalledBlueprint map[string]interface{} `json:"installedBlueprint,omitempty"`
+
+	// Family B (2026-05-17 t10 founder bugs C4-003/005/007/013):
+	// AppDetail Resources/Logs tabs were querying the wrong namespace
+	// (always "default") with the wrong label (always
+	// `app.kubernetes.io/instance=<name>`). For bootstrap-kit apps the
+	// HelmRelease lives in flux-system but installs into a different
+	// targetNamespace (alloy/, cert-manager/, kube-system/, ...) and
+	// uses `app.kubernetes.io/name=<chartName>` as the install label.
+	//
+	// These fields let the SPA query the correct ns + selector instead
+	// of guessing. They populate from:
+	//   - Application CR: spec.targetNamespace (when set) OR the CR's
+	//     own namespace; selector defaults to instance=<name>.
+	//   - HelmRelease fallback: spec.targetNamespace + spec.releaseName
+	//     + chart-name → selector `app.kubernetes.io/name=<chartName>`.
+	TargetNamespace      string `json:"targetNamespace,omitempty"`
+	ReleaseName          string `json:"releaseName,omitempty"`
+	InstallLabelSelector string `json:"installLabelSelector,omitempty"`
+
+	// Bootstrap=true when this Application was synthesised from a
+	// HelmRelease that has no Application CR (bootstrap-kit installs
+	// like bp-alloy, bp-cilium, bp-cert-manager). The SPA uses this to
+	// render the catalog-publish chip as "Bootstrap blueprint (not in
+	// marketplace)" instead of "Catalog status unavailable", and to
+	// know that GET /catalog/apps/<slug> 404 is expected.
+	Bootstrap bool `json:"bootstrap,omitempty"`
+
+	// Family B (2026-05-17 t10 founder bug C4-003): HR-Ready overlay
+	// telemetry. When the CR `status.phase` is stale ("Provisioning")
+	// but the matching HelmRelease reports Ready=True, the response
+	// `Phase` field is promoted to "Ready" so the AppDetail chip
+	// matches what /sovereign/apps already shows. `HRReady` flags the
+	// promotion happened, and `PhaseFromCR` preserves the original CR
+	// phase so the SPA's D19 source-counter chip can surface the
+	// disagreement without losing data.
+	HRReady     bool   `json:"hrReady,omitempty"`
+	PhaseFromCR string `json:"phaseFromCR,omitempty"`
 }
 
 // HandleApplicationGet — GET /api/v1/sovereigns/{id}/applications/{name}
@@ -1059,7 +1096,100 @@ func (h *Handler) HandleApplicationGet(w http.ResponseWriter, r *http.Request) {
 	if ib, ok, _ := unstructured.NestedMap(obj.Object, "status", "installedBlueprint"); ok {
 		resp.InstalledBlueprint = ib
 	}
+	// Family B (2026-05-17 t10 founder bugs C4-005/007): expose the
+	// install location + label selector so the SPA Resources/Logs tabs
+	// query the right namespace + label instead of guessing "default" +
+	// `instance=<name>`. For Application CRs the wizard records the
+	// org-scoped namespace in spec.targetNamespace; absent that we fall
+	// back to the CR's own namespace.
+	if tn, ok, _ := unstructured.NestedString(obj.Object, "spec", "targetNamespace"); ok && tn != "" {
+		resp.TargetNamespace = tn
+	} else {
+		resp.TargetNamespace = obj.GetNamespace()
+	}
+	if rn, ok, _ := unstructured.NestedString(obj.Object, "spec", "releaseName"); ok && rn != "" {
+		resp.ReleaseName = rn
+	} else {
+		resp.ReleaseName = obj.GetName()
+	}
+	// Application CRs install via bp-* charts whose pods are labelled
+	// `app.kubernetes.io/instance=<applicationName>` by the catalyst
+	// controller. This is the canonical wizard-install selector.
+	resp.InstallLabelSelector = fmt.Sprintf("app.kubernetes.io/instance=%s", resp.ReleaseName)
+
+	// Family B (2026-05-17 t10 founder bug C4-003): HR-Ready overlay.
+	//
+	// Root cause: the catalyst-controller writes status.phase on the
+	// Application CR by aggregating per-region HelmRelease readiness.
+	// On chroot Sovereigns the controller can lag (or be missing in
+	// some niches) — the CR sits at `phase=Provisioning` long after the
+	// HR has flipped Ready=True. The operator sees /apps render the
+	// card as "installed" (from /sovereign/apps which queries HRs
+	// directly), then clicks through to AppDetail and sees
+	// "Provisioning" — exactly the desync founder flagged.
+	//
+	// Fix: cross-check the same chroot k8sCache the bootstrap-synth
+	// path uses (PR L #1592). When ANY HR named `<resp.ReleaseName>`
+	// reports Ready=True, promote the response phase to Ready. This is
+	// safe because: (a) the catalyst controller already aggregates on
+	// HR-Ready, so we're only racing it forward, never against its
+	// final state; (b) HR-Ready is the source-of-truth wire for the
+	// /sovereign/apps card already shown as "installed"; (c) the
+	// `source` chip on AppDetail renders "Application CR" so the
+	// operator knows the underlying object type — only the phase chip
+	// is overlayed.
+	//
+	// Mirrors the C4-013 contract: surface the discrepancy when the
+	// CR phase disagrees with HR Ready, so the operator can see both.
+	if isHRReady := h.helmReleaseReadyByName(r.Context(), depID, resp.ReleaseName); isHRReady && resp.Phase != "Ready" {
+		resp.HRReady = true
+		resp.PhaseFromCR = resp.Phase
+		resp.Phase = "Ready"
+	}
+
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// helmReleaseReadyByName — Family B (2026-05-17 t10 C4-003).
+//
+// Returns true when at least one HelmRelease named `name` in the chroot
+// cluster's k8sCache reports Ready=True. Used by HandleApplicationGet
+// to overlay HR-Ready over a stale Application CR `status.phase`.
+//
+// Same lookup pattern as synthesiseAppFromHelmRelease (PR L #1592) so
+// both code paths share the same chroot cluster resolution and silently
+// no-op when k8sCache is unavailable / the chroot is single-cluster
+// pre-handover.
+func (h *Handler) helmReleaseReadyByName(ctx context.Context, depID, name string) bool {
+	if h.k8sCache == nil || name == "" {
+		return false
+	}
+	clusterID := h.resolveChrootClusterID(depID)
+	if !h.k8sCacheHasCluster(clusterID) {
+		return false
+	}
+	hrs, _, err := h.k8sCache.List(clusterID, "helmrelease", labels.Everything())
+	if err != nil {
+		return false
+	}
+	for _, hr := range hrs {
+		if hr.GetName() != name {
+			continue
+		}
+		conds, _, _ := unstructured.NestedSlice(hr.Object, "status", "conditions")
+		for _, c := range conds {
+			cm, ok := c.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			ctype, _ := cm["type"].(string)
+			cstatus, _ := cm["status"].(string)
+			if ctype == "Ready" && cstatus == "True" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // synthesiseAppFromHelmRelease — PR L (2026-05-17 t140 founder bug #2).
@@ -1091,9 +1221,12 @@ func (h *Handler) synthesiseAppFromHelmRelease(ctx context.Context, depID, name 
 			Name:       hr.GetName(),
 			Namespace:  hr.GetNamespace(),
 			Conditions: []map[string]interface{}{},
+			Bootstrap:  true,
 		}
+		chartName := ""
 		if v, ok, _ := unstructured.NestedString(hr.Object, "spec", "chart", "spec", "chart"); ok {
 			resp.Blueprint = v
+			chartName = v
 		}
 		if v, ok, _ := unstructured.NestedString(hr.Object, "spec", "chart", "spec", "version"); ok {
 			resp.Version = v
@@ -1103,6 +1236,35 @@ func (h *Handler) synthesiseAppFromHelmRelease(ctx context.Context, depID, name 
 		}
 		if lrAt, ok, _ := unstructured.NestedString(hr.Object, "status", "lastReleaseRevision"); ok {
 			resp.LastReconciled = lrAt
+		}
+		// Family B: surface targetNamespace + releaseName so the SPA
+		// Resources/Logs tabs query the actual install location.
+		if tn, ok, _ := unstructured.NestedString(hr.Object, "spec", "targetNamespace"); ok && tn != "" {
+			resp.TargetNamespace = tn
+		} else if tn, ok, _ := unstructured.NestedString(hr.Object, "spec", "storageNamespace"); ok && tn != "" {
+			resp.TargetNamespace = tn
+		} else {
+			// fallback to the HR's own namespace if no targetNamespace
+			// is declared (Helm default: install into the HR namespace).
+			resp.TargetNamespace = hr.GetNamespace()
+		}
+		if rn, ok, _ := unstructured.NestedString(hr.Object, "spec", "releaseName"); ok && rn != "" {
+			resp.ReleaseName = rn
+		} else {
+			// Flux v2 default: release name = HR name.
+			resp.ReleaseName = hr.GetName()
+		}
+		// Install label: bootstrap-kit charts label their pods with
+		// `app.kubernetes.io/name=<chartName>` (the Helm standard) and
+		// `app.kubernetes.io/instance=<releaseName>`. Either matches the
+		// install. We surface BOTH so the SPA can OR them — but for the
+		// single-selector query path we hand back name=<chart>, which is
+		// the most reliable identifier for upstream charts that don't
+		// always populate `instance` correctly.
+		if chartName != "" {
+			resp.InstallLabelSelector = fmt.Sprintf("app.kubernetes.io/name=%s", chartName)
+		} else {
+			resp.InstallLabelSelector = fmt.Sprintf("app.kubernetes.io/instance=%s", resp.ReleaseName)
 		}
 		// Map HR Ready condition → Application phase.
 		conds, _, _ := unstructured.NestedSlice(hr.Object, "status", "conditions")
