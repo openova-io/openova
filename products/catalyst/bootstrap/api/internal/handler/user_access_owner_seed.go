@@ -193,12 +193,23 @@ func buildOwnerUserAccessUnstructured(name, email, sovereignRef string) *unstruc
 			"keycloakSubject": email,
 		},
 		"sovereignRef": sovereignRef,
-		"applications": []any{
-			map[string]any{
-				"app":  "*",
-				"role": "admin", // owner → admin per userAccessTierToRole
-			},
-		},
+		// D21 fix on t135 2026-05-17: the prior seed used
+		// applications=[{app:"*", role:"admin"}] but the XRD schema
+		// rejects `app: "*"` (pattern `^[a-z0-9][a-z0-9-]{0,62}$`).
+		// `tierRoleRef` is the canonical owner-tier semantic per
+		// platform/crossplane-claims/chart/templates/xrds/useraccess.yaml
+		// — when set, the useraccess-controller binds the named
+		// ClusterRole on the target via RoleBinding/ClusterRoleBinding.
+		// `openova:tier-owner` is the canonical owner-tier ClusterRole
+		// shipped by EPIC-3 (#1098) slice T1's tier-clusterroles.yaml.
+		// Documented at user_access_owner_seed.go:103-104 as the right
+		// way to grant owner-tier without per-app entries.
+		"tierRoleRef": "openova:tier-owner",
+		// applications[] intentionally omitted — XRD pattern rejects
+		// `app: "*"`. tierRoleRef provides the owner-tier semantic
+		// directly; useraccess-controller binds openova:tier-owner
+		// ClusterRole + the operator's Keycloak subject via
+		// ClusterRoleBinding (since `scopes` is also empty/cluster-wide).
 	}
 	_ = unstructured.SetNestedMap(obj.Object, spec, "spec")
 	return obj
