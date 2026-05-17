@@ -901,6 +901,7 @@ func main() {
 		// Per the founder's 2026-05-04 GitOps rule, NO ConfigMap-shortcut
 		// path exists — every change is a git commit on the audit trail.
 		rg.Post("/api/v1/sovereigns/{id}/marketplace", h.HandleSetMarketplace)
+		rg.Get("/api/v1/sovereigns/{id}/marketplace", h.HandleGetMarketplace)
 
 		// Sovereign IAM — UserAccess CR editor (issue #323). The UI's
 		// /sovereign/users page calls these endpoints to list / create /
