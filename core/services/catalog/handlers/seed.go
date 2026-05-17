@@ -33,6 +33,20 @@ func (h *Handler) SeedIfEmpty(ctx context.Context) {
 
 	slog.Info("seed: catalog is empty, seeding default data")
 	h.seedAllData(ctx)
+
+	// D27 fix (2026-05-17 t138 bug fix): on FRESH seed the rows are inserted
+	// with zero-value Bool fields — Published=false, Deployable=false.
+	// Marketplace storefront filters with ?published=true so it sees [],
+	// and the UI renders a blank app grid. Founder caught on t136:
+	// "https://marketplace.t136.../apps/ — list of applications are blank".
+	//
+	// The migrations that flip these to the expected defaults were ONLY
+	// being called on the "already populated" path. Call them after
+	// seedAllData so a fresh Sovereign + marketplace.enabled=true renders
+	// 27 published+deployable apps out of the box.
+	h.seedSystemApps(ctx)
+	h.migrateAppDeployable(ctx)
+	h.migrateAppPublished(ctx)
 }
 
 // seedAllData inserts the complete catalog: apps, industries, plans, addons, bundles.
