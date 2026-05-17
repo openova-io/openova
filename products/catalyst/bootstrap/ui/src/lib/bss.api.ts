@@ -1,15 +1,18 @@
 /**
- * lib/bss.api.ts — typed REST client for the Sovereign-side BSS overview.
+ * lib/bss.api.ts — typed REST client for the Sovereign-side BSS surfaces.
  *
- * Wire path:
+ * Wire paths:
  *
  *   browser ──/api/v1/sme/bss/overview──▶ catalyst-api ──▶ per-tenant rollups
+ *   browser ──/api/v1/sme/billing/vouchers/{issue,list,revoke}──▶ catalyst-api
+ *           ──▶ billing service (#117 — core/services/billing/handlers/vouchers.go)
  *
- * The endpoint is the FE-facing rollup for the BSS landing KPI cards.
- * Until the BE handler (`handler/bss_overview.go`) lands, the client
- * tolerates 404 / 5xx by returning a zero-filled response with
- * `pendingApi: true` so the landing page still renders its full
- * target-state chrome on first paint (per INVIOLABLE-PRINCIPLES.md #1).
+ * The overview endpoint is the FE-facing rollup for the BSS landing KPI
+ * cards. The vouchers endpoints back Wave 6 PR 5's native vouchers
+ * surface. Both gracefully tolerate 404 / 5xx so the page still renders
+ * its target-state chrome on first paint (per INVIOLABLE-PRINCIPLES.md
+ * #1) — overview returns zero-filled with `pendingApi: true`; voucher
+ * list throws so the page can surface the API error inline.
  */
 
 import { API_BASE } from '@/shared/config/urls'
@@ -125,5 +128,139 @@ export async function getBssOverview(): Promise<BssOverview> {
     }
   } catch {
     return ZERO_OVERVIEW
+  }
+}
+
+/* ── Vouchers (Wave 6 PR 5) ──────────────────────────────────────────
+ *
+ * Wire shape mirrors core/services/billing/store.PromoCode (the BE
+ * "voucher" is the user-facing label for what the storage layer calls
+ * a "PromoCode" — same row in promo_codes). Snake_case keys match the
+ * Go json tags verbatim.
+ *
+ * Status is derived FE-side from the row fields rather than persisted
+ * server-side — `revoked` when DeletedAt is set, `inactive` when Active
+ * is false, `exhausted` when MaxRedemptions>0 && TimesRedeemed>=Max,
+ * `active` otherwise. This keeps the table semantics on a single source
+ * of truth (the row) without a server round-trip per filter.
+ */
+
+export interface Voucher {
+  /** Canonical uppercase voucher code (BE normalises on upsert). */
+  code: string
+  /** Credit amount in OMR (integer; BE stores OMR not cents). */
+  credit_omr: number
+  description: string
+  /** Operator-toggleable enable flag (separate from soft-delete). */
+  active: boolean
+  /** 0 = unlimited; otherwise hard cap on redemptions. */
+  max_redemptions: number
+  /** Lifetime redeemed count. */
+  times_redeemed: number
+  /** RFC3339 issue timestamp. */
+  created_at: string
+  /** Soft-delete timestamp (revoke); omitted while voucher is live. */
+  deleted_at?: string
+}
+
+/**
+ * Derived status pill for the table. Combines the four BE fields into
+ * a single bucket so the operator can scan + filter without translating
+ * `active=false + deleted_at=null` themselves.
+ */
+export type VoucherStatus = 'active' | 'inactive' | 'exhausted' | 'revoked'
+
+export function voucherStatus(v: Voucher): VoucherStatus {
+  if (v.deleted_at) return 'revoked'
+  if (!v.active) return 'inactive'
+  if (v.max_redemptions > 0 && v.times_redeemed >= v.max_redemptions) {
+    return 'exhausted'
+  }
+  return 'active'
+}
+
+export interface IssueVoucherRequest {
+  /** Voucher code (uppercased server-side on save). */
+  code: string
+  /** Credit amount in OMR (integer). */
+  credit_omr: number
+  description?: string
+  active?: boolean
+  /** 0 = unlimited (server default). */
+  max_redemptions?: number
+  /** Optional — fires a one-shot "voucher-issued" email via notification
+   *  service. Not persisted on the row. */
+  recipient_email?: string
+}
+
+const VOUCHERS_BASE = `${API_BASE}/v1/sme/billing/vouchers`
+
+/**
+ * listVouchers — GET /v1/sme/billing/vouchers/list. Returns live + soft-
+ * deleted rows (the BE filter omits soft-deleted; the table renders
+ * tombstones only when the BE chooses to include them in a future
+ * audit-view expansion). Throws on non-2xx so the page can render the
+ * error inline.
+ */
+export async function listVouchers(): Promise<Voucher[]> {
+  const res = await authedFetch(`${VOUCHERS_BASE}/list`, {
+    headers: { Accept: 'application/json' },
+  })
+  if (!res.ok) {
+    throw new Error(`list vouchers: HTTP ${res.status}`)
+  }
+  const body = (await res.json()) as Voucher[] | { items?: Voucher[] } | null
+  if (!body) return []
+  if (Array.isArray(body)) return body
+  return body.items ?? []
+}
+
+/**
+ * issueVoucher — POST /v1/sme/billing/vouchers/issue. Upserts (re-issue
+ * of the same code resurrects a soft-deleted row per #91). Returns the
+ * persisted Voucher row on success. Surfaces the BE's `detail` / `error`
+ * field on non-2xx so the modal shows the registrar's actual message.
+ */
+export async function issueVoucher(req: IssueVoucherRequest): Promise<Voucher> {
+  const res = await authedFetch(`${VOUCHERS_BASE}/issue`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(req),
+  })
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`
+    try {
+      const body = (await res.json()) as { detail?: string; error?: string }
+      detail = body.detail ?? body.error ?? detail
+    } catch {
+      // non-JSON body — keep the status-line message
+    }
+    throw new Error(`issue voucher: ${detail}`)
+  }
+  return (await res.json()) as Voucher
+}
+
+/**
+ * revokeVoucher — DELETE /v1/sme/billing/vouchers/revoke/{code}. Soft-
+ * deletes (preserves the audit trail for promo_redemptions FK). Past
+ * redemptions remain attributed; only NEW redemptions are blocked.
+ */
+export async function revokeVoucher(code: string): Promise<void> {
+  const res = await authedFetch(
+    `${VOUCHERS_BASE}/revoke/${encodeURIComponent(code)}`,
+    {
+      method: 'DELETE',
+      headers: { Accept: 'application/json' },
+    },
+  )
+  if (!res.ok && res.status !== 204) {
+    let detail = `HTTP ${res.status}`
+    try {
+      const body = (await res.json()) as { detail?: string; error?: string }
+      detail = body.detail ?? body.error ?? detail
+    } catch {
+      // ignore
+    }
+    throw new Error(`revoke voucher: ${detail}`)
   }
 }
