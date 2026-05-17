@@ -506,7 +506,33 @@ spec:
       # no longer drifts to /dashboard (kind-alias map in
       # router.tsx validateSearch). Caught on t10.omantel.biz
       # test agents E/C2 2026-05-17.
-      version: 1.4.153
+      # 1.4.154 — Wave 2 collector PR. Bundles 6 Fix-Author PRs that
+      # landed AFTER the 1.4.153 Wave-1 roll, all from the same t10
+      # test sweep:
+      # - #1598 Family F: BSS menu in Sovereign Console
+      #   (Billing/Orders/Revenue/Vouchers/Tenants iframe-embed of
+      #   marketplace.<fqdn>/back-office/*). Founder bug #1.
+      # - #1599 Family D: dashboard treemap fan-out for cluster /
+      #   region / vcluster / family + Layer-1 cluster default.
+      #   Founder bug #2.
+      # - #1600 Family C: ResourceDetailPage real-data rewrite —
+      #   per-kind summary, owner chain, navigate (not assign).
+      #   Founder bug #5.
+      # - #1601 Family G: 6 singletons — hcloud-volumes StorageClass
+      #   (C9-006), /fleet/applications aggregator (C10-002),
+      #   secondary install-* Job bridge backfill (C10-003), legacy
+      #   wildcard-tls cert cleanup (C7-007), D22 settings em-dash
+      #   placeholder lift (C8-001), /jobs region filter (C8-005).
+      # - #1602 Family E: Compliance UI — Falco runtime alerts +
+      #   SBOM/CVE tab + framework filter chip strip + policy
+      #   drilldown live-cluster fallback + PolicyReport /
+      #   ClusterPolicyReport list kinds (C11-003/005/006/007/008/
+      #   009/010).
+      # - #1603 Family B: AppDetail HR-overlay status sync +
+      #   Resources/Logs tab namespace+label fix (HR.spec.target-
+      #   Namespace + chart-name label) + "Bootstrap blueprint"
+      #   chip for bp-* (founder bug #4, C4-003/004/005/007/013).
+      version: 1.4.154
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
