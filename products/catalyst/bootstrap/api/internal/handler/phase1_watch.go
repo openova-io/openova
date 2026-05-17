@@ -1205,10 +1205,37 @@ func wildcardCertReady(ctx context.Context, dyn dynamic.Interface) (bool, string
 	u, err := dyn.Resource(certificateGVR).
 		Namespace(sovereignWildcardCertNamespace).
 		Get(ctx, sovereignWildcardCertName, metav1.GetOptions{})
-	if err != nil {
-		return false, "<not-found>", err
+	if err == nil {
+		return certificateReady(u)
 	}
-	return certificateReady(u)
+	// PR N (2026-05-17 t143 LE rate-limit incident): when the canonical
+	// `sovereign-wildcard-tls` cert is unavailable (404 / 429 LE rate
+	// limit on the parent domain / DNS01 propagation lag), fall back to
+	// ANY per-FQDN sibling cert matching `sovereign-wildcard-tls-*`
+	// that's already Ready=True. The chart renders both names in
+	// multi-zone configurations (sovereign-wildcard-tls per-zone +
+	// sovereign-wildcard-tls-<fqdn> per-FQDN); either reaching Ready
+	// proves the operator's console.<fqdn> TLS handshake will succeed.
+	// Without this fallback, handover waits the full 10-min budget
+	// before firing degraded — operator browser can't reach the new
+	// Sovereign for that whole window.
+	list, listErr := dyn.Resource(certificateGVR).
+		Namespace(sovereignWildcardCertNamespace).
+		List(ctx, metav1.ListOptions{})
+	if listErr == nil && list != nil {
+		for i := range list.Items {
+			item := &list.Items[i]
+			name := item.GetName()
+			if !strings.HasPrefix(name, sovereignWildcardCertName+"-") {
+				continue
+			}
+			ok, _, _ := certificateReady(item)
+			if ok {
+				return true, "True (via fallback " + name + ")", nil
+			}
+		}
+	}
+	return false, "<not-found>", err
 }
 
 // certificateReady — returns (ready, observedStatus, nil) for a
