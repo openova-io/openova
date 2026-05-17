@@ -1692,52 +1692,80 @@ const routeTree = rootRoute.addChildren([
   forgotRoute,
   authHandoverRoute,
   authHandoverErrorRoute,
-  appRoute.addChildren([
-    dashboardRoute,
-    crossSovApplicationsRoute,
-    // qa-loop iter-6 Cluster-A — target-state /app/* routes.
-    // STATIC paths first so TanStack resolves them before the dynamic
-    // $deploymentId catch-all.
-    appInstallRoute,
-    appInstallBlueprintRoute,
-    appSREComplianceRoute,
-    appSecComplianceRoute,
-    // /app/$deploymentId tree.
-    appDeploymentRoute,
-    appAppsRoute,
-    appAppDetailRoute,
-    appAppDetailTabRoute,
-    appDeploymentInstallRoute,
-    appDeploymentInstallBlueprintRoute,
-    appBlueprintsPublishRoute,
-    appBlueprintsCurateRoute,
-    appUsersListRoute,
-    appUsersNewRoute,
-    appUsersEditRoute,
-    appRBACMultiGrantRoute,
-    appRBACGroupsRoute,
-    appRBACRolesRoute,
-    appRBACMatrixRoute,
-    appRBACAuditRoute,
-    appOrgMembersRoute,
-    appSettingsRoute,
-    appShellsSessionsRoute,
-    appShellsSessionDetailRoute,
-    appNetworkingIndexRoute,
-    appNetworkingRoute,
-    appContinuumListRoute,
-    appContinuumOverviewRoute,
-    appContinuumAuditRoute,
-    appContinuumSettingsRoute,
-    // Resources — static sub-paths first.
-    appResourcesApplyRoute,
-    appResourcesSearchRoute,
-    appResourcesIndexRoute,
-    appResourcesKindRoute,
-    appResourcesKindNsRoute,
-    appPodLogsRoute,
-    appResourceDetailRoute,
-  ]),
+  appRoute.addChildren(
+    // D17 PR G (2026-05-17 t136 bug fix): on Sovereign Console
+    // (chroot, console.<sov-fqdn>), the `/app/$deploymentId` dynamic
+    // route under appRoute catches `/app/bp-alloy` BEFORE the chroot's
+    // `consoleAppDetailRoute` at `/app/$componentId` (under
+    // consoleLayoutRoute), because appRoute.addChildren registers
+    // earlier in the rootRoute children. TanStack matches by
+    // declaration order on equally-specific dynamic routes, so the
+    // Sovereign side rendered AppsPage (catalog grid) instead of
+    // AppDetail. Founder caught on t136: "/app/bp-alloy still shows
+    // catalog like view, individual pages are not opening".
+    //
+    // Fix: filter the children list to exclude the mother-only
+    // `/$deploymentId` catch-alls when running on Sovereign mode. The
+    // routes are defined at module load and DETECTED_MODE.mode never
+    // flips during a page lifetime, so this is safe to evaluate once
+    // at routeTree build time.
+    DETECTED_MODE.mode === 'sovereign'
+      ? [
+          // Sovereign-mode appRoute children — EXCLUDES every
+          // mother-only `/$deploymentId/*` route so the chroot's
+          // consoleAppDetailRoute at `/app/$componentId` can claim
+          // `/app/bp-alloy` etc. The few mother-only static paths
+          // still listed here are no-ops on Sovereign (the beforeLoad
+          // on each redirects to the per-Sovereign equivalent).
+          dashboardRoute,
+        ]
+      : [
+          dashboardRoute,
+          crossSovApplicationsRoute,
+          // qa-loop iter-6 Cluster-A — target-state /app/* routes.
+          // STATIC paths first so TanStack resolves them before the
+          // dynamic $deploymentId catch-all.
+          appInstallRoute,
+          appInstallBlueprintRoute,
+          appSREComplianceRoute,
+          appSecComplianceRoute,
+          // /app/$deploymentId tree.
+          appDeploymentRoute,
+          appAppsRoute,
+          appAppDetailRoute,
+          appAppDetailTabRoute,
+          appDeploymentInstallRoute,
+          appDeploymentInstallBlueprintRoute,
+          appBlueprintsPublishRoute,
+          appBlueprintsCurateRoute,
+          appUsersListRoute,
+          appUsersNewRoute,
+          appUsersEditRoute,
+          appRBACMultiGrantRoute,
+          appRBACGroupsRoute,
+          appRBACRolesRoute,
+          appRBACMatrixRoute,
+          appRBACAuditRoute,
+          appOrgMembersRoute,
+          appSettingsRoute,
+          appShellsSessionsRoute,
+          appShellsSessionDetailRoute,
+          appNetworkingIndexRoute,
+          appNetworkingRoute,
+          appContinuumListRoute,
+          appContinuumOverviewRoute,
+          appContinuumAuditRoute,
+          appContinuumSettingsRoute,
+          // Resources — static sub-paths first.
+          appResourcesApplyRoute,
+          appResourcesSearchRoute,
+          appResourcesIndexRoute,
+          appResourcesKindRoute,
+          appResourcesKindNsRoute,
+          appPodLogsRoute,
+          appResourceDetailRoute,
+        ],
+  ),
   wizardLayoutRoute.addChildren([wizardRoute]),
   successRoute,
   deploymentsListRoute,
