@@ -4,15 +4,21 @@
  * Wire paths:
  *
  *   browser ──/api/v1/sme/bss/overview──▶ catalyst-api ──▶ per-tenant rollups
+ *   browser ──/api/v1/sme/billing/revenue──▶ catalyst-api ──▶ rollup
  *   browser ──/api/v1/sme/billing/vouchers/{issue,list,revoke}──▶ catalyst-api
  *           ──▶ billing service (#117 — core/services/billing/handlers/vouchers.go)
+ *   browser ──/api/v1/sme/orders──▶ catalyst-api ──▶ sme orders rollup
+ *   browser ──/api/v1/sme/tenants──▶ catalyst-api ──▶ HandleListSMETenants
  *
- * The overview endpoint is the FE-facing rollup for the BSS landing KPI
- * cards. The vouchers endpoints back Wave 6 PR 5's native vouchers
- * surface. Both gracefully tolerate 404 / 5xx so the page still renders
- * its target-state chrome on first paint (per INVIOLABLE-PRINCIPLES.md
- * #1) — overview returns zero-filled with `pendingApi: true`; voucher
- * list throws so the page can surface the API error inline.
+ * The overview / revenue / orders endpoints are FE-facing rollups for
+ * the matching BSS sections. The vouchers endpoints back the Wave 6 PR 5
+ * vouchers surface. The tenants endpoint backs Wave 6 PR 6 and ships
+ * today via HandleListSMETenants in sme_tenant.go. All endpoints
+ * gracefully tolerate 404 / 5xx so the page still renders its target-
+ * state chrome on first paint (per INVIOLABLE-PRINCIPLES.md #1) —
+ * overview / revenue / orders / tenants return zero-filled / empty
+ * with the FE flagging "API pending" where the page wants that pill;
+ * voucher list throws so the page can surface the API error inline.
  */
 
 import { API_BASE } from '@/shared/config/urls'
@@ -575,4 +581,171 @@ function normalizeSubscriptionStatus(raw: unknown): SubscriptionStatus {
     return s
   }
   return 'paid'
+}
+
+/* ── Tenants — Wave 6 PR 6 ───────────────────────────────────────────
+ *
+ * Source-of-truth: GET /api/v1/sme/tenants (HandleListSMETenants in
+ * products/catalyst/bootstrap/api/internal/handler/sme_tenant.go).
+ * That handler returns `{items: [smeTenantResponse, ...]}` where each
+ * row mirrors store.SMETenantProvisionRecord — id, state, subdomain,
+ * domain mode, parent domain, admin email, company name, OTECH FQDN,
+ * vCluster name, console host, timestamps.
+ *
+ * Wave 6 maps that wire shape onto a flatter `Tenant` UI type that the
+ * native TenantsPage table consumes. Per ADR-0001 §2.7 (K8s-native
+ * tenancy) the same orchestrator also reconciles an Organization CR
+ * (orgs.openova.io/v1), but for the operator's BSS landing view the
+ * provisioning-pipeline record is the richer + already-listed source.
+ *
+ * `plan` and `region` are sourced from the response where the backend
+ * populates them; on the current pipeline they are not yet wired so the
+ * UI treats them as optional and renders "—" when empty. The list
+ * endpoint never 5xxs on an empty store (returns `{items: []}`), so the
+ * client returns `[]` on transport failure rather than a zero-filled
+ * row to avoid faking presence.
+ */
+
+/** Provisioning lifecycle state mirroring store.SMETenantProvisionState. */
+export type TenantStatus =
+  | 'active'
+  | 'trial'
+  | 'provisioning'
+  | 'suspended'
+  | 'failed'
+  | 'unknown'
+
+export interface Tenant {
+  /** Stable identifier (sme_tenant_id from the orchestrator). */
+  id: string
+  /** Display name, falling back to the slug when company name absent. */
+  orgName: string
+  /** Console FQDN (e.g. console.acme.omani.homes). */
+  consoleHost: string
+  /**
+   * Subdomain leaf (e.g. "acme" → acme.omani.homes). Empty for BYO
+   * tenants whose console FQDN doesn't decompose into the pool form.
+   */
+  subdomain: string
+  /** Parent zone (e.g. omani.homes) used to compose the subdomain. */
+  parentDomain: string
+  /** Plan tier (free|pro|enterprise|...) — null until BE wires it. */
+  plan: string | null
+  /** Lifecycle status normalized to the UI vocabulary. */
+  status: TenantStatus
+  /** Hetzner region key (fsn1 / hel1 / ...) — null until BE wires it. */
+  region: string | null
+  /** Owner email (admin_email from the create call). */
+  ownerEmail: string
+  /** Provisioned timestamp (ISO 8601). */
+  createdAt: string
+  /** Last reconcile / update timestamp (ISO 8601). */
+  updatedAt: string
+  /** Failure detail surfaced for the Status column tooltip. */
+  lastError: string
+}
+
+/**
+ * mapStateToStatus — collapse the pipeline's 9-state machine onto the
+ * operator-facing 5-state vocabulary the BSS table renders. The
+ * mapping mirrors what an operator wants to see at a glance:
+ *
+ *   pending|*_provisioned|*_installed|*_created|*_issued → provisioning
+ *   tenant_registered|done                                → active
+ *   failed                                                → failed
+ *   deleted                                               → suspended
+ *   anything else                                         → unknown
+ */
+export function mapStateToStatus(state: string): TenantStatus {
+  switch (state) {
+    case 'done':
+    case 'tenant_registered':
+      return 'active'
+    case 'failed':
+      return 'failed'
+    case 'deleted':
+      return 'suspended'
+    case 'pending':
+    case 'vcluster_created':
+    case 'bp_charts_installed':
+    case 'dns_provisioned':
+    case 'certs_issued':
+    case 'keycloak_clients_provisioned':
+      return 'provisioning'
+    default:
+      return 'unknown'
+  }
+}
+
+/** Wire-shape mirror of smeTenantResponse — Partial so future BE
+ *  additions don't break the FE parse. */
+interface RawTenant {
+  sme_tenant_id?: string
+  state?: string
+  subdomain?: string
+  domain_mode?: string
+  byo_domain?: string
+  parent_domain?: string
+  admin_email?: string
+  company_name?: string
+  otech_fqdn?: string
+  vcluster_name?: string
+  tenant_namespace?: string
+  console_host?: string
+  plan?: string
+  region?: string
+  last_error?: string
+  created_at?: string
+  updated_at?: string
+}
+
+function mapTenant(raw: RawTenant): Tenant {
+  const subdomain = String(raw.subdomain ?? '')
+  const parentDomain = String(raw.parent_domain ?? '')
+  const companyName = String(raw.company_name ?? '').trim()
+  const orgName = companyName !== '' ? companyName : subdomain || String(raw.sme_tenant_id ?? '')
+  return {
+    id: String(raw.sme_tenant_id ?? ''),
+    orgName,
+    consoleHost: String(raw.console_host ?? ''),
+    subdomain,
+    parentDomain,
+    plan: raw.plan && raw.plan !== '' ? String(raw.plan) : null,
+    status: mapStateToStatus(String(raw.state ?? '')),
+    region: raw.region && raw.region !== '' ? String(raw.region) : null,
+    ownerEmail: String(raw.admin_email ?? ''),
+    createdAt: String(raw.created_at ?? ''),
+    updatedAt: String(raw.updated_at ?? ''),
+    lastError: String(raw.last_error ?? ''),
+  }
+}
+
+/**
+ * listTenants — fetch the tenant roster for the BSS Tenants table.
+ *
+ * Returns `[]` on network failure or non-2xx so the table renders its
+ * empty state rather than crashing the surface (per
+ * INVIOLABLE-PRINCIPLES.md #1 — waterfall, target-state shape first
+ * time). The handler already returns `{items: []}` on an empty store,
+ * so the empty array is the natural happy-path signal too.
+ */
+export async function listTenants(): Promise<Tenant[]> {
+  let res: Response
+  try {
+    res = await authedFetch(`${API_BASE}/v1/sme/tenants`, {
+      headers: { Accept: 'application/json' },
+    })
+  } catch {
+    return []
+  }
+  if (!res.ok) {
+    return []
+  }
+  try {
+    const body = (await res.json()) as { items?: RawTenant[] } | null
+    if (!body || !Array.isArray(body.items)) return []
+    return body.items.map(mapTenant)
+  } catch {
+    return []
+  }
 }
