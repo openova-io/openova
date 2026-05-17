@@ -502,7 +502,7 @@ spec:
       # - PR #1585: D17 /app/$componentId route-collision fix (catalyst-ui 2ab8a0e)
       # Caught on t136/t138 fresh-prov runs that bootstrap-kit was
       # still pinned to 1.4.147 → none of the fixes reached the chroot.
-      version: 1.4.151
+      version: 1.4.152
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

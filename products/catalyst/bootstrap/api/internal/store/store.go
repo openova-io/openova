@@ -191,6 +191,15 @@ type RedactedRequest struct {
 	ObjectStorageBucket    string `json:"objectStorageBucket,omitempty"`
 	ObjectStorageAccessKey string `json:"objectStorageAccessKey,omitempty"`
 	ObjectStorageSecretKey string `json:"objectStorageSecretKey,omitempty"`
+
+	// MarketplaceEnabled — PR P (2026-05-17 t144 founder bug #5 deep fix):
+	// preserve the prov-body flag through persistence + export so the
+	// chroot's GET /api/v1/sovereigns/{id}/marketplace endpoint
+	// (PR J #1590) returns the actual value instead of false. Without
+	// this field on the RedactedRequest, every export-then-load cycle
+	// stripped the bit and /settings/marketplace toggle defaulted to
+	// disabled even on a marketplace-enabled Sovereign.
+	MarketplaceEnabled bool `json:"marketplaceEnabled,omitempty"`
 }
 
 // Redact returns a RedactedRequest derived from req with every
@@ -225,6 +234,8 @@ func Redact(req provisioner.Request) RedactedRequest {
 		// Secret stringData on every reconciliation. Persisted verbatim.
 		ObjectStorageRegion: req.ObjectStorageRegion,
 		ObjectStorageBucket: req.ObjectStorageBucket,
+		// PR P (2026-05-17): MarketplaceEnabled preserved through redact path.
+		MarketplaceEnabled: req.MarketplaceEnabled,
 	}
 	// Credentials: present-and-non-empty → redactedMarker; empty → empty.
 	// This is the test-load-bearing branch for TestRedact_OmitsAllSecrets.
@@ -289,6 +300,7 @@ func (r RedactedRequest) ToProvisionerRequest() provisioner.Request {
 		ObjectStorageBucket:    r.ObjectStorageBucket,
 		ObjectStorageAccessKey: r.ObjectStorageAccessKey,
 		ObjectStorageSecretKey: r.ObjectStorageSecretKey,
+		MarketplaceEnabled:     r.MarketplaceEnabled,
 	}
 }
 
