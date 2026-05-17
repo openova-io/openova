@@ -127,11 +127,15 @@ import { PodLogsPage } from '@/pages/sovereign/resources/PodLogsPage'
 // Family F (Wave 3, t10 C6-003/004/005) — BSS-in-console.
 // Founder #1 requirement: "the backed of the the mark place mutst be
 // just aotnerh menu under console like https://console.<sov>/bss".
-// BssLayout shells the 5 sub-sections (Billing/Orders/Revenue/Vouchers/
-// Tenants) and iframes the canonical back-office served by the admin
-// Pod in the sme namespace. See pages/sovereign/bss/BssLayout.tsx for
-// the architecture rationale (option B — iframe over re-port).
-import { BssLayout } from '@/pages/sovereign/bss/BssLayout'
+//
+// Wave 6 PR 1 (2026-05-17): /bss is a NATIVE React landing
+// (BssLandingPage) using the PortalShell chrome shared with Dashboard /
+// Apps / Jobs / Settings. The 5 sub-sections wrap themselves in
+// PortalShell via BssSectionShell — the prior BssLayout tab strip is
+// retired in favor of the sidebar's existing BSS group + the landing's
+// section-nav grid. Iframe content is preserved in the section pages
+// until Wave 6 PRs 2-6 native-port each one.
+import { BssLandingPage } from '@/pages/sovereign/bss/BssLandingPage'
 import { BillingPage as BssBillingPage } from '@/pages/sovereign/bss/BillingPage'
 import { OrdersPage as BssOrdersPage } from '@/pages/sovereign/bss/OrdersPage'
 import { RevenuePage as BssRevenuePage } from '@/pages/sovereign/bss/RevenuePage'
@@ -1499,75 +1503,61 @@ const consoleNotificationsRoute = createRoute({
   component: NotificationsPage,
 })
 
-/* ── Family F (Wave 3) — BSS-in-console routes ─────────────────────────
+/* ── Family F (Wave 3 → Wave 6) — BSS-in-console routes ─────────────────
  *
  * Founder #1 requirement (2026-05-17 family-F brief):
  *   "the backed of the the mark place mutst be just aotnerh menu under
  *    console like https://console.<sov>/bss"
- *   "it is just matter of roles based access ... where we give the
- *    billing access they see the billign etc."
  *
- * Replaces the external "Marketplace Admin ↗" sidebar link (PR M,
- * 2026-05-17 t142 follow-up #2) that punted operators out of the
- * Sovereign Console SPA to marketplace.<sov-fqdn>/back-office/. Founder
- * called that URL "rubbish" — the canonical surface is /console/bss/*.
+ * Wave 6 PR 1 (2026-05-17 UX follow-up) — founder rejected the iframe
+ * BssLayout's bespoke tab strip as visually clashing with the rest of
+ * the Sovereign Console. The new shape:
  *
- * Route shape:
+ *   /bss                → BssLandingPage (native KPI dashboard +
+ *                         section-nav grid, PortalShell chrome)
+ *   /bss/billing        → BillingPage (PortalShell + iframe via
+ *                         BssSectionShell; native port lands in Wave 6 PR 2)
+ *   /bss/orders         → OrdersPage  (PortalShell + iframe; Wave 6 PR 3)
+ *   /bss/revenue        → RevenuePage (PortalShell + iframe; Wave 6 PR 4)
+ *   /bss/vouchers       → VouchersPage(PortalShell + iframe; Wave 6 PR 5)
+ *   /bss/tenants        → TenantsPage (PortalShell + iframe; Wave 6 PR 6)
  *
- *   /bss                → redirect to /bss/billing (default landing)
- *   /bss/billing        → BillingPage (iframes back-office/billing/)
- *   /bss/orders         → OrdersPage  (iframes back-office/orders/)
- *   /bss/revenue        → RevenuePage (iframes back-office/revenue/)
- *   /bss/vouchers       → VouchersPage(iframes back-office/vouchers/)
- *   /bss/tenants        → TenantsPage (iframes back-office/tenants/)
+ * Each section page is a sibling of the landing, not a child of a
+ * shared layout — no more BssLayout wrapper. The sidebar's BSS group
+ * (SovereignSidebar.tsx) is the canonical navigation; the landing's
+ * inline section-nav grid is a secondary affordance.
  *
- * RBAC: gated at TWO layers — the SovereignSidebar groups BSS under an
- * admin-visible heading (unconditional for v1; future RBAC sprint adds
- * tier in whoami) and the SME gateway's session-tier check enforces
- * /back-office/* access server-side. The route registrations themselves
- * are always present so a deep-link from a billing-engineer welcome
- * email resolves cleanly to the SovereignConsoleLayout auth gate.
- *
- * Implementation note: BssLayout owns the tab-strip chrome + iframe
- * wrapper. The 5 section pages are 3-line wrappers that select the
- * back-office sub-path. Per docs/INVIOLABLE-PRINCIPLES.md #4 the
- * back-office host is derived at runtime from DETECTED_MODE.sovereignFQDN.
+ * RBAC: still gated at two layers — the SovereignSidebar's BSS group
+ * is admin-visible (unconditional for v1) and the SME gateway enforces
+ * /back-office/* tier checks server-side for the iframe content.
  */
-const consoleBssLayoutRoute = createRoute({
-  getParentRoute: () => consoleLayoutRoute,
-  id: '_bss_layout',
-  component: BssLayout,
-})
 const consoleBssIndexRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/bss',
-  component: NoopRedirectComponent,
-  beforeLoad: () => {
-    throw redirect({ to: '/bss/billing' as never, replace: true })
-  },
+  component: BssLandingPage,
 })
 const consoleBssBillingRoute = createRoute({
-  getParentRoute: () => consoleBssLayoutRoute,
+  getParentRoute: () => consoleLayoutRoute,
   path: '/bss/billing',
   component: BssBillingPage,
 })
 const consoleBssOrdersRoute = createRoute({
-  getParentRoute: () => consoleBssLayoutRoute,
+  getParentRoute: () => consoleLayoutRoute,
   path: '/bss/orders',
   component: BssOrdersPage,
 })
 const consoleBssRevenueRoute = createRoute({
-  getParentRoute: () => consoleBssLayoutRoute,
+  getParentRoute: () => consoleLayoutRoute,
   path: '/bss/revenue',
   component: BssRevenuePage,
 })
 const consoleBssVouchersRoute = createRoute({
-  getParentRoute: () => consoleBssLayoutRoute,
+  getParentRoute: () => consoleLayoutRoute,
   path: '/bss/vouchers',
   component: BssVouchersPage,
 })
 const consoleBssTenantsRoute = createRoute({
-  getParentRoute: () => consoleBssLayoutRoute,
+  getParentRoute: () => consoleLayoutRoute,
   path: '/bss/tenants',
   component: BssTenantsPage,
 })
@@ -2066,17 +2056,15 @@ const routeTree = rootRoute.addChildren([
     // Wave-2 Family-E (#1583, C11-008): chroot Falco runtime alerts.
     consoleComplianceRuntimeRoute,
     consoleNotificationsRoute,
-    // Family F (Wave 3, t10 C6-003/004/005) — BSS-in-console.
-    // /bss → redirect to /bss/billing; section pages live under
-    // a pathless BssLayout wrapper (provides tab strip + iframe shell).
+    // Family F (Wave 3 → Wave 6) — BSS-in-console.
+    // /bss is a native landing (BssLandingPage); each section is a
+    // sibling that wraps in PortalShell via BssSectionShell.
     consoleBssIndexRoute,
-    consoleBssLayoutRoute.addChildren([
-      consoleBssBillingRoute,
-      consoleBssOrdersRoute,
-      consoleBssRevenueRoute,
-      consoleBssVouchersRoute,
-      consoleBssTenantsRoute,
-    ]),
+    consoleBssBillingRoute,
+    consoleBssOrdersRoute,
+    consoleBssRevenueRoute,
+    consoleBssVouchersRoute,
+    consoleBssTenantsRoute,
   ]),
 ])
 
