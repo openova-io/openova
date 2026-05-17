@@ -247,9 +247,19 @@ func TestHandleFleetSovereigns_Pagination(t *testing.T) {
 	}
 }
 
-// ── /fleet/sovereigns: adopted excluded ──────────────────────────────
-
-func TestHandleFleetSovereigns_AdoptedExcluded(t *testing.T) {
+// ── /fleet/sovereigns: adopted INCLUDED ─────────────────────────────
+//
+// 2026-05-17 t143 (C10-002): adopted Sovereigns are INCLUDED in the
+// fleet view (formerly excluded). Rationale: the fleet view's whole
+// purpose is to enumerate every Sovereign mothership has ever
+// provisioned — adopted is the steady state, not a reason to hide.
+// On a real fleet where every Sovereign has completed cutover (as
+// happens after handover), the previous filter returned items=[]
+// despite the deployments map carrying dozens of live Sovereigns and
+// hundreds of succeeded jobs. The dashboard's empty-state spawned the
+// C10-002 ticket. ListDeployments still applies the adopted filter
+// (it backs the provisioner's "in-flight" tab, a different surface).
+func TestHandleFleetSovereigns_AdoptedIncluded(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
 	installFleetSovereign(t, h, "sov-live", "live.example.com", "ready")
 	adopted := installFleetSovereign(t, h, "sov-handed", "handed.example.com", "adopted")
@@ -259,8 +269,15 @@ func TestHandleFleetSovereigns_AdoptedExcluded(t *testing.T) {
 	rec := callUserAccess(t, h, http.MethodGet, "/api/v1/fleet/sovereigns", nil, registerFleetRoutes)
 	var resp fleetSovereignsResponse
 	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
-	if resp.Total != 1 || resp.Sovereigns[0].ID != "sov-live" {
-		t.Fatalf("expected only sov-live; got %+v", resp.Sovereigns)
+	if resp.Total != 2 {
+		t.Fatalf("expected 2 sovereigns (live + adopted); got total=%d body=%+v", resp.Total, resp.Sovereigns)
+	}
+	// Sort is by FQDN ascending; handed.example.com < live.example.com
+	if got := resp.Sovereigns[0].ID; got != "sov-handed" {
+		t.Fatalf("first sovereign id: got %q want sov-handed (FQDN sort)", got)
+	}
+	if got := resp.Sovereigns[1].ID; got != "sov-live" {
+		t.Fatalf("second sovereign id: got %q want sov-live", got)
 	}
 }
 

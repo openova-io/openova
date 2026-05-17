@@ -742,6 +742,103 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		// per-region LB IP wait loops (each up to 5 min).
 		// docs/SOVEREIGN-MULTI-REGION-DOD.md gates D9-D12.
 		go h.runAutoEstablishClusterMesh(dep)
+		// C10-003 (2026-05-17 t143): when Phase-1 reaches
+		// OutcomeReady, the PRIMARY's terminate path persists the
+		// final per-Job status from its own helmwatch state map.
+		// Secondary regions' install-* Jobs live on the per-region
+		// bridge but are wired via separate watcher event streams
+		// (spawnSecondaryRegionWatchers above), and stale events
+		// (e.g. a transient HelmStatePending observed during initial
+		// dep-not-ready cycles, then suppressed by lastState dedup
+		// before the Installed transition was ever observed) can
+		// leave their Job rows pinned to "pending" even though
+		// kubectl reports every HR Ready=True. Founder-flagged on
+		// t10 2026-05-17 (install-nbg1-1:*, install-sin-2:* stuck
+		// pending despite deployment status=ready).
+		//
+		// Re-seed every secondary watcher from its current
+		// informer cache so each install-<region>:<chart> Job row
+		// converges onto the cluster-current HelmState. The seed
+		// path is idempotent (mergeJob preserves monotonic
+		// timestamps + non-empty DependsOn; SeedJobsFromInformerList
+		// matches OnHelmReleaseEvent's Status mapping), so this is
+		// safe to call multiple times.
+		//
+		// CRITICAL: invoke INLINE, not on a goroutine — runPhase1Watch
+		// holds `defer stopSecondaries()` which clears
+		// dep.secondaryWatchers as soon as markPhase1Done returns.
+		// A go-spawned backfill would race the cleanup and observe
+		// an empty map ~50% of the time. The backfill itself is
+		// in-memory work (informer snapshot + bridge merge), no
+		// network I/O — running it on the terminate path's stack
+		// adds ≤100ms before markPhase1Done's caller resumes.
+		h.runSecondaryBridgeBackfill(dep)
+	}
+}
+
+// runSecondaryBridgeBackfill walks every secondary watcher attached to
+// the deployment, snapshots each one's informer cache, and reseeds the
+// shared jobs.Bridge with the cluster-current state. This is the
+// recovery path for C10-003 — secondary install Jobs stuck "pending"
+// after deployment status=ready, caused by a transient event lost to
+// the bridge's lastState dedup (the seed observed HelmStatePending at
+// initial-list, the Installed transition never produced a distinct
+// event because the watcher attached AFTER the HR had already settled
+// at Installed — same state, dedup suppresses, status stays pending).
+//
+// Run INLINE from markPhase1Done — runPhase1Watch's
+// `defer stopSecondaries()` clears dep.secondaryWatchers immediately
+// after markPhase1Done returns, so a goroutine-spawned backfill would
+// race the cleanup. The work is in-memory only (informer snapshot +
+// bridge merge); no network I/O justifies a goroutine.
+//
+// Errors are logged at warn; this is a best-effort convergence helper,
+// not a correctness gate.
+func (h *Handler) runSecondaryBridgeBackfill(dep *Deployment) {
+	defer func() {
+		if r := recover(); r != nil {
+			h.log.Error("secondary bridge backfill: panic recovered",
+				"id", dep.ID,
+				"panic", r,
+			)
+		}
+	}()
+	dep.mu.Lock()
+	watchers := make(map[string]*helmwatch.Watcher, len(dep.secondaryWatchers))
+	for region, w := range dep.secondaryWatchers {
+		watchers[region] = w
+	}
+	bridge := dep.jobsBridge
+	dep.mu.Unlock()
+	if bridge == nil || len(watchers) == 0 {
+		return
+	}
+	for region, watcher := range watchers {
+		if watcher == nil {
+			continue
+		}
+		snap := watcher.SnapshotComponents()
+		if len(snap) == 0 {
+			continue
+		}
+		seeds := snapshotsToSeedsForRegion(snap, region)
+		jobsCount, execsSeeded, err := bridge.SeedJobsFromInformerList(seeds)
+		if err != nil {
+			h.log.Warn("secondary bridge backfill: reseed failed",
+				"id", dep.ID,
+				"region", region,
+				"snapshotCount", len(snap),
+				"err", err,
+			)
+			continue
+		}
+		h.log.Info("secondary bridge backfill: reseeded from informer cache",
+			"id", dep.ID,
+			"region", region,
+			"snapshotCount", len(snap),
+			"jobsWritten", jobsCount,
+			"executionsSeeded", execsSeeded,
+		)
 	}
 }
 

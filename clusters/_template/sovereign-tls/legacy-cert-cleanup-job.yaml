@@ -1,0 +1,151 @@
+# C7-007 (2026-05-17 t143) — one-shot cleanup Job for the legacy
+# `sovereign-wildcard-tls` Certificate + Secret pair.
+#
+# Background
+# ----------
+# Pre-PR-O Sovereigns rendered a Certificate named `sovereign-wildcard-tls`
+# (with a Secret of the same name) AND, after PR O moved the Cilium
+# Gateway listener to the per-zone `sovereign-wildcard-tls-${SOVEREIGN_FQDN_DASHED}`
+# Secret, the legacy Certificate kept renewing on cert-manager's
+# default schedule. Result: every audit on a pre-PR-O Sovereign showed
+# an orphan TLS Secret in kube-system, cert-manager wasted LE budget
+# renewing a Secret nothing consumed, and operators had to remember to
+# `kubectl delete` it after every Flux reconciliation re-asserted the
+# legacy resource (which it no longer does — PR O's `cilium-gateway-cert.yaml`
+# now produces ONLY the dashed-suffix shape).
+#
+# What this Job does
+# ------------------
+# Idempotent delete of:
+#   1. `kube-system/sovereign-wildcard-tls` Certificate (cert-manager.io/v1)
+#   2. `kube-system/sovereign-wildcard-tls` Secret (kubernetes.io/tls)
+#
+# Each delete is `--ignore-not-found` so a fresh Sovereign that never
+# carried the legacy shape reports "no-op" and Succeeds. The Job runs
+# ONCE per Flux reconciliation generation (the helm.sh/hook
+# annotations on the bp-self-sovereign-cutover chart aren't applicable
+# here because this lives in the per-Sovereign overlay, not a Helm
+# chart — Flux's Kustomization re-applies idempotently).
+#
+# Image
+# -----
+# Uses the canonical OpenOva-mirrored alpine/k8s image (mothership
+# Harbor proxy-cache for Docker Hub, per CLAUDE.md mirror rule).
+# Bitnami/kubectl was deprecated 2025-08; alpine/k8s is the standard
+# replacement (see platform/self-sovereign-cutover/chart/values.yaml:252
+# for the canonical reasoning, captured live on otech103 2026-05-04).
+#
+# Why a Job and not a Helm hook
+# -----------------------------
+# This file lives in `clusters/_template/sovereign-tls/` — a per-Sovereign
+# Kustomize overlay reconciled by Flux, NOT a Helm chart. Helm hooks
+# require a HelmRelease container; this is a single one-shot K8s Job.
+# Flux's Kustomization reconciliation drives idempotent re-apply.
+#
+# Removal plan
+# ------------
+# Once every live Sovereign has reconciled past this Job (verified via
+# `kubectl get jobs -n kube-system | grep legacy-cert-cleanup` showing
+# Complete on every prov), this file may be deleted from
+# clusters/_template/sovereign-tls/kustomization.yaml.
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: legacy-cert-cleanup
+  namespace: kube-system
+  labels:
+    catalyst.openova.io/component: legacy-cert-cleanup
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: legacy-cert-cleanup
+  namespace: kube-system
+  labels:
+    catalyst.openova.io/component: legacy-cert-cleanup
+rules:
+  # Legacy Secret to delete. Only the specific name — RBAC stays
+  # least-privilege.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["sovereign-wildcard-tls"]
+    verbs: ["get", "delete"]
+  # cert-manager Certificate to delete. Only the specific name.
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificates"]
+    resourceNames: ["sovereign-wildcard-tls"]
+    verbs: ["get", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: legacy-cert-cleanup
+  namespace: kube-system
+  labels:
+    catalyst.openova.io/component: legacy-cert-cleanup
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: legacy-cert-cleanup
+subjects:
+  - kind: ServiceAccount
+    name: legacy-cert-cleanup
+    namespace: kube-system
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: legacy-cert-cleanup
+  namespace: kube-system
+  labels:
+    catalyst.openova.io/component: legacy-cert-cleanup
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+spec:
+  # Keep the Job around 5 minutes after completion so an operator can
+  # `kubectl logs job/legacy-cert-cleanup -n kube-system` to confirm
+  # what was (or wasn't) cleaned up. After TTL the GC reclaims.
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        catalyst.openova.io/component: legacy-cert-cleanup
+    spec:
+      serviceAccountName: legacy-cert-cleanup
+      restartPolicy: OnFailure
+      containers:
+        - name: cleanup
+          # Pinned via Harbor proxy-cache. See CLAUDE.md mirror-everything
+          # rule + values.yaml:252 in self-sovereign-cutover for the
+          # Bitnami→alpine/k8s decision history.
+          image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.1
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              echo "[legacy-cert-cleanup] starting on ${SOVEREIGN_FQDN}"
+              # The dashed-suffix Secret (the live one PR O introduced)
+              # MUST remain — only delete the bare-name legacy pair.
+              echo "[legacy-cert-cleanup] removing legacy Certificate sovereign-wildcard-tls"
+              kubectl -n kube-system delete certificate.cert-manager.io sovereign-wildcard-tls --ignore-not-found=true --wait=false
+              echo "[legacy-cert-cleanup] removing legacy Secret sovereign-wildcard-tls"
+              kubectl -n kube-system delete secret sovereign-wildcard-tls --ignore-not-found=true --wait=false
+              echo "[legacy-cert-cleanup] complete"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "32Mi"
+            limits:
+              cpu: "100m"
+              memory: "64Mi"

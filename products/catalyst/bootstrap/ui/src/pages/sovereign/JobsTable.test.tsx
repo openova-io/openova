@@ -33,6 +33,7 @@ import {
   compareJobs,
   formatDuration,
   matchJob,
+  regionFromJob,
 } from './JobsTable'
 import { FIXTURE_JOBS } from '@/test/fixtures/jobs.fixture'
 import type { Job } from '@/lib/jobs.types'
@@ -324,5 +325,81 @@ describe('JobsTable — render', () => {
     expect(screen.getByTestId('jobs-cell-status-bp-cilium').textContent?.toLowerCase()).toContain('succeeded')
     expect(screen.getByTestId('jobs-cell-status-bp-crossplane').textContent?.toLowerCase()).toContain('running')
     expect(screen.getByTestId('jobs-cell-status-bp-vault').textContent?.toLowerCase()).toContain('pending')
+  })
+})
+
+// ── C8-005 (2026-05-17 t143): region filter helpers + dropdown ───────
+describe('regionFromJob (C8-005)', () => {
+  it('returns empty for primary-region rows (no `:` in appId)', () => {
+    expect(regionFromJob({ jobName: 'Install cilium', appId: 'bp-cilium' })).toBe('')
+  })
+
+  it('extracts region from a `<region>:<chart>` appId', () => {
+    expect(regionFromJob({ jobName: 'Install cilium', appId: 'fsn1:bp-cilium' })).toBe('fsn1')
+  })
+
+  it('handles hyphenated region keys', () => {
+    expect(regionFromJob({ jobName: 'Install cilium', appId: 'hel1-2:bp-cilium' })).toBe('hel1-2')
+  })
+
+  it('falls back to parsing `install-<region>:<chart>` jobName when appId is empty', () => {
+    expect(regionFromJob({ jobName: 'install-nbg1-1:bp-flux', appId: '' })).toBe('nbg1-1')
+  })
+
+  it('returns empty for group/day-2 rows with no parseable region', () => {
+    expect(regionFromJob({ jobName: 'applications', appId: '' })).toBe('')
+  })
+})
+
+describe('JobsTable region filter (C8-005)', () => {
+  const baseLeaf = {
+    type: 'install' as const,
+    parentId: 'applications',
+    childIds: [],
+    dependsOn: [],
+    status: 'succeeded' as const,
+    startedAt: '2026-05-17T10:00:00Z',
+    finishedAt: '2026-05-17T10:01:00Z',
+    durationMs: 60_000,
+  }
+
+  it('hides the region dropdown on single-region deployments', async () => {
+    const singleRegion: Job[] = [
+      { ...baseLeaf, id: 'bp-cilium', jobName: 'Install Cilium', appId: 'bp-cilium' },
+      { ...baseLeaf, id: 'bp-flux', jobName: 'Install Flux', appId: 'bp-flux' },
+    ]
+    renderTable({ jobs: singleRegion })
+    await screen.findByTestId('jobs-table')
+    expect(screen.queryByTestId('jobs-filter-region')).toBeNull()
+  })
+
+  it('shows the region dropdown when 2+ regions appear', async () => {
+    const multiRegion: Job[] = [
+      { ...baseLeaf, id: 'bp-cilium', jobName: 'Install Cilium', appId: 'bp-cilium' },
+      { ...baseLeaf, id: 'fsn1:bp-cilium', jobName: 'install-fsn1:bp-cilium', appId: 'fsn1:bp-cilium' },
+      { ...baseLeaf, id: 'hel1-2:bp-cilium', jobName: 'install-hel1-2:bp-cilium', appId: 'hel1-2:bp-cilium' },
+    ]
+    renderTable({ jobs: multiRegion })
+    await screen.findByTestId('jobs-table')
+    const sel = screen.getByTestId('jobs-filter-region') as HTMLSelectElement
+    expect(sel).toBeTruthy()
+    // Options: All + 2 regions (sorted lexically: fsn1, hel1-2)
+    const opts = Array.from(sel.querySelectorAll('option')).map((o) => o.textContent)
+    expect(opts).toEqual(['All', 'fsn1', 'hel1-2'])
+  })
+
+  it('filters rows to the selected region', async () => {
+    const multiRegion: Job[] = [
+      { ...baseLeaf, id: 'bp-cilium', jobName: 'Install Cilium', appId: 'bp-cilium' },
+      { ...baseLeaf, id: 'fsn1:bp-cilium', jobName: 'install-fsn1:bp-cilium', appId: 'fsn1:bp-cilium' },
+      { ...baseLeaf, id: 'hel1-2:bp-cilium', jobName: 'install-hel1-2:bp-cilium', appId: 'hel1-2:bp-cilium' },
+    ]
+    renderTable({ jobs: multiRegion })
+    await screen.findByTestId('jobs-table')
+    fireEvent.change(screen.getByTestId('jobs-filter-region'), { target: { value: 'fsn1' } })
+    const rows = screen.getAllByTestId(/^jobs-table-row-/)
+    expect(rows.length).toBe(1)
+    expect(screen.queryByTestId('jobs-table-row-bp-cilium')).toBeNull()
+    expect(screen.queryByTestId('jobs-table-row-hel1-2:bp-cilium')).toBeNull()
   })
 })

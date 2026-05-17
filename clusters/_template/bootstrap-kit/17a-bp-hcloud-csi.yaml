@@ -1,0 +1,132 @@
+# bp-hcloud-csi — Catalyst bootstrap-kit Blueprint #17a
+# (Tier 3.5 — Storage and Data). Pairs with bp-hcloud-ccm (slot 55)
+# and bp-cluster-autoscaler-hcloud (slot 50) — the full Hetzner-cloud-
+# direct trio.
+#
+# Wires the Hetzner Cloud CSI driver into the cluster so the canonical
+# `hcloud-volumes` StorageClass exists (and is the default StorageClass).
+# Without this:
+#   - PVCs default to `local-path` (rancher.io/local-path), node-pinned
+#     emptyDir-style hostPath volumes that cannot survive a Pod
+#     rescheduled to a different node. Multi-node stateful workloads
+#     (CNPG primary/replica, Harbor blob backend on Hetzner-direct,
+#     Velero PVC backups) require a CSI-managed networked volume.
+#   - Operator-facing UI shows `provisioner=rancher.io/local-path` for
+#     every PVC, breaking the docs/SOVEREIGN-MULTI-REGION-DOD.md C9
+#     gate which expects `hcloud-volumes default=true`.
+#
+# 2026-05-17 t143 (C9-006): added to the bootstrap-kit Kustomization
+# (clusters/_template/bootstrap-kit/kustomization.yaml). Previously the
+# chart existed at platform/hcloud-csi but was not wired into any
+# bootstrap-kit slot, so fresh Sovereigns shipped without
+# hcloud-volumes despite the Hetzner CSI driver being available in
+# the catalog. The Blueprint Release pipeline auto-builds
+# bp-hcloud-csi:1.1.0 from the same push that ships this slot.
+#
+# Wrapper chart: platform/hcloud-csi/chart/ — umbrella over upstream
+# hetznercloud/csi-driver chart 2.13.0 (appVersion 2.13.0). Catalyst
+# overlay templates render: (a) the `hcloud-volumes` StorageClass with
+# the `storageclass.kubernetes.io/is-default-class=true` annotation
+# (when defaultStorageClass=true, default in this slot), and
+# (b) a chart-local `hcloud-csi-token` Secret rendered from
+# `.Values.hetznerToken` via the same valuesFrom seam bp-hcloud-ccm
+# uses.
+#
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+#
+# Hetzner-token wiring (mirrors bp-hcloud-ccm at slot 55 +
+# bp-cluster-autoscaler-hcloud at slot 50):
+#   - cloud-init writes `flux-system/cloud-credentials` Secret with the
+#     `hcloud-token` key (see infra/hetzner/cloudinit-control-plane.tftpl
+#     §"cloud-credentials-secret").
+#   - This HelmRelease lifts the `hcloud-token` value into the umbrella
+#     chart's `hetznerToken` value via Flux `valuesFrom`. The umbrella
+#     chart's templates/hcloud-token-secret.yaml synthesises the
+#     namespace-local `hcloud-csi/hcloud-csi-token` Secret the upstream
+#     subchart's `controller.hcloudToken.existingSecret` binding
+#     resolves at controller startup.
+#
+# dependsOn: (none) — hcloud-csi is independent of every other
+# bootstrap-kit blueprint at install time. The cloud-credentials Secret
+# is provisioned by cloud-init BEFORE Flux installs anything.
+#
+# Placement in the bootstrap-kit ordering (slot 17a):
+#   - AFTER 17-valkey (no dependency, just sequencing)
+#   - BEFORE 18-seaweedfs / 19-harbor — both will consume hcloud-volumes
+#     for their PVCs on Hetzner-direct Sovereigns once flipped via the
+#     per-Sovereign overlay (today they still default to local-path so
+#     this ordering is forward-looking, not strict). The 17a suffix
+#     mirrors the established 01a/05a/06a convention for inserting
+#     new slots without renumbering the whole bootstrap kit.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hcloud-csi
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-hcloud-csi
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-hcloud-csi
+  namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "17a"
+spec:
+  interval: 15m
+  releaseName: hcloud-csi
+  targetNamespace: hcloud-csi
+  chart:
+    spec:
+      chart: bp-hcloud-csi
+      version: 1.1.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-hcloud-csi
+        namespace: flux-system
+  # Event-driven install: hcloud-csi controller + node DaemonSet are
+  # standard CSI workloads — Helm install completes when manifests
+  # apply. The driver's Hetzner-API connectivity check is a runtime
+  # concern, not a Helm-wait concern. disableWait keeps Flux's Ready
+  # signal aligned with manifest apply (matches the bp-hcloud-ccm
+  # pattern at slot 55).
+  install:
+    timeout: 15m
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    timeout: 15m
+    disableWait: true
+    remediation:
+      retries: 3
+  # ── Hetzner-token wiring ─────────────────────────────────────────────
+  # Pulls the `hcloud-token` key from the canonical
+  # `flux-system/cloud-credentials` Secret cloud-init writes at Phase 0.
+  # Flux dereferences `valuesFrom` at HelmRelease apply time, so the
+  # plaintext payload never appears in this committed manifest.
+  valuesFrom:
+    - kind: Secret
+      name: cloud-credentials
+      valuesKey: hcloud-token
+      targetPath: hetznerToken
+  # Enable the chart + flip hcloud-volumes to the cluster default.
+  # On a fresh Sovereign there are no pre-existing PVCs bound to
+  # `local-path`, so flipping the default at install time is safe.
+  values:
+    enabled: true
+    defaultStorageClass: true

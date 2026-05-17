@@ -77,6 +77,43 @@ export function compareJobs(a: Job, b: Job): number {
 }
 
 /**
+ * regionFromJob — extract the Hetzner region key from a Job's
+ * `jobName` / `appId`. Multi-region deployments use a
+ * `<region>:<chart>` prefix in the AppID, and an `install-<region>:<chart>`
+ * jobName. The canonical region encoding is documented in
+ * products/catalyst/bootstrap/api/internal/jobs/helmwatch_bridge.go:503
+ * (three input shapes: bare chart, region-prefixed, install-region-prefixed).
+ *
+ * Returns the empty string for primary-region rows (no `:` separator)
+ * so the region filter dropdown's "All" option naturally matches them.
+ * Day-2 mutation rows and groups have empty appId and return ''.
+ *
+ * Exported so the unit test in JobsTable.test.tsx can lock in the
+ * contract.
+ */
+export function regionFromJob(job: Pick<Job, 'jobName' | 'appId'>): string {
+  // Prefer the AppID encoding because it's the canonical key the
+  // backend uses (helmwatch_bridge.go's `componentID` is
+  // `<region>:<chart>` for secondaries, bare for primary).
+  if (job.appId) {
+    const sep = job.appId.indexOf(':')
+    if (sep > 0) return job.appId.substring(0, sep)
+  }
+  // Fallback: parse the jobName when AppID is empty (group rows /
+  // pre-bridge legacy rows).
+  if (job.jobName) {
+    // Strip the canonical `install-` prefix, then check for the
+    // region separator. Anything before `:` is the region.
+    const stripped = job.jobName.startsWith('install-')
+      ? job.jobName.slice('install-'.length)
+      : job.jobName
+    const sep = stripped.indexOf(':')
+    if (sep > 0) return stripped.substring(0, sep)
+  }
+  return ''
+}
+
+/**
  * Search predicate — matches across jobName / appId / dependsOn /
  * status / parentId. Case-insensitive substring match. Exported so
  * unit tests cover edge cases (empty query, query in deps, etc.).
@@ -166,6 +203,10 @@ export function JobsTable({ jobs, appIdFilter, initialParentFilter }: JobsTableP
   const [statusFilter, setStatusFilter] = useState<'' | JobStatus>('')
   const [appFilter, setAppFilter] = useState<string>('')
   const [parentFilter, setParentFilter] = useState<string>('')
+  // D20 (2026-05-17 t143): region filter dropdown so operators on a
+  // multi-region Sovereign can scope the table to one region without
+  // typing the region key into the search box. Empty string = "All".
+  const [regionFilter, setRegionFilter] = useState<string>('')
 
   // Resolve parent display labels — used in the Parent column + filter.
   const parentLabelById = useMemo<Map<string, string>>(() => {
@@ -197,6 +238,19 @@ export function JobsTable({ jobs, appIdFilter, initialParentFilter }: JobsTableP
       .sort((a, b) => a.label.localeCompare(b.label))
   }, [jobs, parentLabelById])
 
+  // D20 (2026-05-17 t143): unique non-empty region keys present in the
+  // current job set. Sorted lexically so operators see a stable order
+  // (fsn1, hel1-2, nbg1-1, sin-2). Hidden when only one region (or
+  // zero) appears — the filter would be a one-option no-op.
+  const regionOptions = useMemo<string[]>(() => {
+    const set = new Set<string>()
+    for (const j of jobs) {
+      const r = regionFromJob(j)
+      if (r) set.add(r)
+    }
+    return [...set].sort((a, b) => a.localeCompare(b))
+  }, [jobs])
+
   const visibleJobs = useMemo<Job[]>(() => {
     const filtered = jobs.filter((j) => {
       // Hide group rows by default — they appear in the canvas as
@@ -209,11 +263,12 @@ export function JobsTable({ jobs, appIdFilter, initialParentFilter }: JobsTableP
       if (statusFilter && j.status !== statusFilter) return false
       if (appFilter && j.appId !== appFilter) return false
       if (parentFilter && j.parentId !== parentFilter) return false
+      if (regionFilter && regionFromJob(j) !== regionFilter) return false
       if (!matchJob(j, search)) return false
       return true
     })
     return [...filtered].sort(compareJobs)
-  }, [jobs, search, statusFilter, appFilter, parentFilter, appIdFilter, initialParentFilter])
+  }, [jobs, search, statusFilter, appFilter, parentFilter, regionFilter, appIdFilter, initialParentFilter])
 
   return (
     <div className="jobs-table-wrap" data-testid="jobs-table-wrap">
@@ -294,6 +349,34 @@ export function JobsTable({ jobs, appIdFilter, initialParentFilter }: JobsTableP
               </select>
             </label>
           )}
+
+          {/*
+            D20 region filter — visible only when 2+ regions appear in
+            the current job set. A single-region Sovereign sees no
+            dropdown (would be a one-option no-op + visual noise).
+            Operators on a multi-region cluster get a quick way to
+            scope the table to fsn1 / hel1-2 / nbg1-1 / sin-2 without
+            typing the region key into the free-text search.
+          */}
+          {regionOptions.length > 1 ? (
+            <label className="jobs-filter-label">
+              <span className="jobs-filter-caption">Region</span>
+              <select
+                value={regionFilter}
+                onChange={(e) => setRegionFilter(e.target.value)}
+                className="jobs-filter-select"
+                data-testid="jobs-filter-region"
+                aria-label="Filter by region"
+              >
+                <option value="">All</option>
+                {regionOptions.map((r) => (
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
 
           <span
             className="jobs-result-count"
