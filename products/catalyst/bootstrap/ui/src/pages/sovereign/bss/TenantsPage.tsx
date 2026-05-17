@@ -1,12 +1,11 @@
 /**
  * TenantsPage — /console/bss/tenants.
  *
- * Iframes the canonical back-office Tenants admin surface (SME tenant
- * roster, suspend / resume / impersonate, billing-account linkage).
- * See BssLayout.tsx for the architecture rationale (option B — iframe).
+ * Wave 6 PR 1 (Option B step 1): wraps in PortalShell via
+ * BssSectionShell. Iframe content preserved; Wave 6 PR 6 native-ports.
  */
-import { BssIframe } from './BssLayout'
+import { BssSectionShell } from './BssSectionShell'
 
 export function TenantsPage() {
-  return <BssIframe path="tenants" title="BSS — Tenants" />
+  return <BssSectionShell path="tenants" title="BSS — Tenants" />
 }

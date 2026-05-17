@@ -1,15 +1,15 @@
 /**
  * VouchersPage — /console/bss/vouchers.
  *
- * Iframes the canonical back-office Vouchers surface. See BssLayout.tsx
- * for the architecture rationale (option B — iframe).
+ * Wave 6 PR 1 (Option B step 1): wraps in PortalShell via
+ * BssSectionShell. Iframe content preserved; Wave 6 PR 5 native-ports.
  *
  * Backend already shipped (issue #828): /billing/vouchers/{issue,list,
  * revoke,redeem-preview}. The UI surface for issuing + revoking lives
- * in the back-office Pod.
+ * in the back-office Pod for this PR.
  */
-import { BssIframe } from './BssLayout'
+import { BssSectionShell } from './BssSectionShell'
 
 export function VouchersPage() {
-  return <BssIframe path="vouchers" title="BSS — Vouchers" />
+  return <BssSectionShell path="vouchers" title="BSS — Vouchers" />
 }

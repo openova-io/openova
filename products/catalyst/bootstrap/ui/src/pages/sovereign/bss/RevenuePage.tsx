@@ -1,11 +1,11 @@
 /**
  * RevenuePage — /console/bss/revenue.
  *
- * Iframes the canonical back-office Revenue surface. See BssLayout.tsx
- * for the architecture rationale (option B — iframe).
+ * Wave 6 PR 1 (Option B step 1): wraps in PortalShell via
+ * BssSectionShell. Iframe content preserved; Wave 6 PR 4 native-ports.
  */
-import { BssIframe } from './BssLayout'
+import { BssSectionShell } from './BssSectionShell'
 
 export function RevenuePage() {
-  return <BssIframe path="revenue" title="BSS — Revenue" />
+  return <BssSectionShell path="revenue" title="BSS — Revenue" />
 }
