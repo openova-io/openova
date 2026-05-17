@@ -926,6 +926,18 @@ write_files:
         postBuild:
           substitute:
             SOVEREIGN_FQDN: ${sovereign_fqdn}
+            # SOVEREIGN_FQDN_DASHED (2026-05-17 t143 incident): periods → dashes for K8s resource names.
+            # Used by sovereign-tls/cilium-gateway.yaml to reference the chart-rendered per-zone
+            # wildcard secret (sovereign-wildcard-tls-<dashed-fqdn>) instead of the legacy collision-prone name.
+            SOVEREIGN_FQDN_DASHED: ${replace(sovereign_fqdn, ".", "-")}
+            # SOVEREIGN_FQDN_DASHED — periods replaced with dashes for K8s resource
+            # name compliance. Used by sovereign-tls/cilium-gateway.yaml to
+            # reference the chart-rendered per-zone wildcard secret
+            # (sovereign-wildcard-tls-<dashed-fqdn>) instead of the legacy
+            # `sovereign-wildcard-tls` Secret name. Eliminates the LE rate-limit
+            # collision between legacy SAN cert + chart per-zone cert (2026-05-17
+            # t143 incident — both compete for omani.works quota).
+            SOVEREIGN_FQDN_DASHED: ${replace(sovereign_fqdn, ".", "-")}
             # SOVEREIGN_LB_IP — Hetzner load balancer's public IPv4 (issue
             # #900). Threaded into bp-catalyst-platform's
             # `global.sovereignLBIP` so catalyst-api can pre-register glue
@@ -1145,6 +1157,18 @@ write_files:
         postBuild:
           substitute:
             SOVEREIGN_FQDN: ${sovereign_fqdn}
+            # SOVEREIGN_FQDN_DASHED (2026-05-17 t143 incident): periods → dashes for K8s resource names.
+            # Used by sovereign-tls/cilium-gateway.yaml to reference the chart-rendered per-zone
+            # wildcard secret (sovereign-wildcard-tls-<dashed-fqdn>) instead of the legacy collision-prone name.
+            SOVEREIGN_FQDN_DASHED: ${replace(sovereign_fqdn, ".", "-")}
+            # SOVEREIGN_FQDN_DASHED — periods replaced with dashes for K8s resource
+            # name compliance. Used by sovereign-tls/cilium-gateway.yaml to
+            # reference the chart-rendered per-zone wildcard secret
+            # (sovereign-wildcard-tls-<dashed-fqdn>) instead of the legacy
+            # `sovereign-wildcard-tls` Secret name. Eliminates the LE rate-limit
+            # collision between legacy SAN cert + chart per-zone cert (2026-05-17
+            # t143 incident — both compete for omani.works quota).
+            SOVEREIGN_FQDN_DASHED: ${replace(sovereign_fqdn, ".", "-")}
             # SOVEREIGN_LB_IP — Hetzner load balancer's public IPv4 (issue
             # #900). Threaded into bp-catalyst-platform's
             # `global.sovereignLBIP` so catalyst-api can pre-register glue
@@ -1196,6 +1220,18 @@ write_files:
         postBuild:
           substitute:
             SOVEREIGN_FQDN: ${sovereign_fqdn}
+            # SOVEREIGN_FQDN_DASHED (2026-05-17 t143 incident): periods → dashes for K8s resource names.
+            # Used by sovereign-tls/cilium-gateway.yaml to reference the chart-rendered per-zone
+            # wildcard secret (sovereign-wildcard-tls-<dashed-fqdn>) instead of the legacy collision-prone name.
+            SOVEREIGN_FQDN_DASHED: ${replace(sovereign_fqdn, ".", "-")}
+            # SOVEREIGN_FQDN_DASHED — periods replaced with dashes for K8s resource
+            # name compliance. Used by sovereign-tls/cilium-gateway.yaml to
+            # reference the chart-rendered per-zone wildcard secret
+            # (sovereign-wildcard-tls-<dashed-fqdn>) instead of the legacy
+            # `sovereign-wildcard-tls` Secret name. Eliminates the LE rate-limit
+            # collision between legacy SAN cert + chart per-zone cert (2026-05-17
+            # t143 incident — both compete for omani.works quota).
+            SOVEREIGN_FQDN_DASHED: ${replace(sovereign_fqdn, ".", "-")}
             # SOVEREIGN_LB_IP — Hetzner load balancer's public IPv4 (issue
             # #900). Threaded into bp-catalyst-platform's
             # `global.sovereignLBIP` so catalyst-api can pre-register glue
