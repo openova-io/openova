@@ -24,15 +24,20 @@ resources:
   - 15a-external-secrets-stores.yaml
   - 16-cnpg.yaml
   - 17-valkey.yaml
-  # bp-hcloud-csi (slot 17a) — Hetzner Cloud CSI driver + the canonical
-  # `hcloud-volumes` StorageClass (annotated as default). Pairs with
-  # bp-hcloud-ccm (slot 55) + bp-cluster-autoscaler-hcloud (slot 50) as
-  # the Hetzner-cloud-direct trio. Without this slot, fresh Sovereigns
-  # default PVCs to `local-path` (rancher.io/local-path) which is
-  # node-pinned and cannot survive a Pod rescheduled to a different
-  # node — breaks docs/SOVEREIGN-MULTI-REGION-DOD.md C9 (operator
-  # expects `hcloud-volumes default=true`). Caught on t10 2026-05-17.
-  - 17a-bp-hcloud-csi.yaml
+  # bp-hcloud-csi (formerly slot 17a) REMOVED 2026-05-17 (Wave 7):
+  # the Flux source-controller chart pull went through harbor.t11.* OCI
+  # endpoint BEFORE harbor itself was reachable (chicken-and-egg —
+  # harbor depends on Gateway, Gateway lives in sovereign-tls which
+  # dependsOn bootstrap-kit Ready, which never went Ready because
+  # bp-hcloud-csi was stuck on harbor pull). Caught live on t11 fresh
+  # prov 2026-05-17: bootstrap-kit Reconciliation-in-progress for 30+
+  # min → sovereign-tls "not ready: dependency bootstrap-kit not ready"
+  # → no Gateway CR → console.t11.<sov> ERR_CONNECTION_CLOSED →
+  # entire UI test matrix BLOCKED. C9-006 (hcloud-volumes default SC)
+  # is a cosmetic operator-facing nice-to-have; Gateway availability
+  # is launch-critical. Removing this slot unblocks the chain. Follow-
+  # up PR will re-add at a later slot (e.g., 19a, AFTER bp-harbor 19)
+  # OR fix the pull path to bypass the registry pivot during bootstrap.
   - 18-seaweedfs.yaml
   - 19-harbor.yaml
   # 06a — Post-handover Self-Sovereignty Cutover (issue #791). Filename
