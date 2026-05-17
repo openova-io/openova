@@ -175,13 +175,44 @@ func (h *Handler) GetDashboardTreemap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pods, _, _ := h.k8sCache.List(clusterID, "pod", labels.Everything())
-	pvcs, _, _ := h.k8sCache.List(clusterID, "persistentvolumeclaim", labels.Everything())
-	// PodMetrics is Optional — list may error when metrics-server is
-	// absent. Treat as nil and the utilization path emits null.
-	podMetrics, _, _ := h.k8sCache.List(clusterID, "podmetrics", labels.Everything())
+	// D16 multi-cluster fan-out (caught on t132 2026-05-16): when
+	// group_by includes "cluster" or "region", enumerate ALL registered
+	// clusters (primary + each secondary's kubeconfig synced via PR
+	// #1579) so Layer-1=Cluster renders N bubbles on an N-region
+	// Sovereign instead of 1. For group_by that ONLY contains
+	// {namespace,family,application,vcluster,sovereign} the primary
+	// clusterID's pods are sufficient and faster.
+	wantFanOut := false
+	for _, g := range groupBy {
+		if g == "cluster" || g == "region" {
+			wantFanOut = true
+			break
+		}
+	}
+	clusterIDs := []string{clusterID}
+	if wantFanOut {
+		// h.k8sCache.Clusters() returns every registered ID. Primary
+		// is included; deduplicate via the local map. When PR B ships
+		// the mothership handover hook, secondaries land here.
+		seen := map[string]struct{}{clusterID: {}}
+		for _, cid := range h.k8sCache.Clusters() {
+			if _, ok := seen[cid]; ok {
+				continue
+			}
+			seen[cid] = struct{}{}
+			clusterIDs = append(clusterIDs, cid)
+		}
+	}
 
-	rows := buildPodRows(pods, pvcs, podMetrics, clusterID)
+	var rows []podRow
+	for _, cid := range clusterIDs {
+		pods, _, _ := h.k8sCache.List(cid, "pod", labels.Everything())
+		pvcs, _, _ := h.k8sCache.List(cid, "persistentvolumeclaim", labels.Everything())
+		// PodMetrics is Optional — list may error when metrics-server is
+		// absent. Treat as nil and the utilization path emits null.
+		podMetrics, _, _ := h.k8sCache.List(cid, "podmetrics", labels.Everything())
+		rows = append(rows, buildPodRows(pods, pvcs, podMetrics, cid)...)
+	}
 	resp := aggregateRows(rows, groupBy, colorBy, sizeBy)
 	writeJSON(w, http.StatusOK, resp)
 }
