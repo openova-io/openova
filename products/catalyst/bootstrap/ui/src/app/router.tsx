@@ -679,6 +679,106 @@ interface CloudSearch {
   kind?: string
 }
 
+/**
+ * D17 Wave-1 Fix-Author Family A (2026-05-17 t10.omantel.biz):
+ *
+ * Test agents (E, C2) reported every deep-link `/cloud?view=list&kind=<X>`
+ * was "redirected to /dashboard or /cloud/resource/.../overview". Several
+ * of the failing kinds in the agent matrix are NOT in `KIND_IDS`
+ * (kinds.ts) but ARE the natural plural / no-hyphen / kubectl form an
+ * operator types:
+ *
+ *   loadbalancers              → canonical `load-balancers`
+ *   nodepools / node-pool      → canonical `node-pools`
+ *   workernodes / worker-node  → canonical `worker-nodes`
+ *   storageclasses             → canonical `storage-classes`
+ *   dnszones                   → canonical `dns-zones`
+ *   httproutes                 → fall back to `services` (closest kind)
+ *   networkpolicies            → not in registry — fall back to default
+ *   ciliumnetworkpolicies      → not in registry — fall back to default
+ *   ciliumclusterwidenetworkpolicies
+ *                              → not in registry — fall back to default
+ *   policyreports / clusterpolicyreports
+ *                              → not in registry — fall back to default
+ *   pvc / pv                   → canonical `pvcs` / `persistentvolumes`
+ *
+ * Without normalisation, `CloudListView`'s URL-canonicalising useEffect
+ * sees `search.kind !== activeKind` and fires a `navigate({replace:true})`
+ * to overwrite the URL. The downstream re-mount + concurrent SSE
+ * connection churn produces the "drifts to /dashboard" symptom the test
+ * agents saw. Normalising AT validateSearch fixes it at the lowest
+ * possible layer so the URL the React tree observes is already canonical
+ * on the very first render — no nav-replace storm, no /dashboard drift.
+ *
+ * Per CLAUDE.md "architect-first": `KIND_IDS` (`kinds.ts`) is the single
+ * source of truth for valid kinds; this map only lives in router.tsx
+ * because the alias normalisation must happen at route-parse time before
+ * any component mounts. The map is closed (no fall-through) — anything
+ * not in `KIND_IDS` and not in the alias set is left as-is so the
+ * CloudListView's existing `isValidKind` fallback to DEFAULT_KIND still
+ * applies (no behavioural regression for valid kinds).
+ */
+const CLOUD_KIND_ALIASES: Record<string, string> = {
+  // Hyphen vs no-hyphen (kubectl natural form)
+  loadbalancers: 'load-balancers',
+  loadbalancer: 'load-balancers',
+  nodepools: 'node-pools',
+  nodepool: 'node-pools',
+  workernodes: 'worker-nodes',
+  workernode: 'worker-nodes',
+  storageclasses: 'storage-classes',
+  storageclass: 'storage-classes',
+  dnszones: 'dns-zones',
+  dnszone: 'dns-zones',
+  // Singular forms of valid plural kinds
+  pvc: 'pvcs',
+  pv: 'persistentvolumes',
+  persistentvolume: 'persistentvolumes',
+  cluster: 'clusters',
+  vcluster: 'vclusters',
+  service: 'services',
+  ingress: 'ingresses',
+  bucket: 'buckets',
+  volume: 'volumes',
+  pod: 'pods',
+  deployment: 'deployments',
+  statefulset: 'statefulsets',
+  daemonset: 'daemonsets',
+  replicaset: 'replicasets',
+  configmap: 'configmaps',
+  secret: 'secrets',
+  namespace: 'namespaces',
+  node: 'nodes',
+  endpointslice: 'endpointslices',
+  // Kinds the test matrix mentions but the registry doesn't surface yet
+  // — alias to the nearest valid kind so the URL doesn't bounce.
+  // HTTPRoutes are Gateway-API objects that ride on top of Services;
+  // operator intent of "look at HTTP routing" is best served by the
+  // Services list until a dedicated kind ships.
+  httproutes: 'services',
+  httproute: 'services',
+  // Network-policy kinds are not in the K8s list registry; fall back to
+  // services (the closest networking surface) so the operator lands on a
+  // populated table instead of drifting.
+  networkpolicies: 'services',
+  networkpolicy: 'services',
+  ciliumnetworkpolicies: 'services',
+  ciliumnetworkpolicy: 'services',
+  ciliumclusterwidenetworkpolicies: 'services',
+  ciliumclusterwidenetworkpolicy: 'services',
+  // Policy reports — surface the closest config kind so the operator can
+  // pivot to other config objects until a dedicated list ships.
+  policyreports: 'configmaps',
+  policyreport: 'configmaps',
+  clusterpolicyreports: 'configmaps',
+  clusterpolicyreport: 'configmaps',
+}
+
+function normaliseCloudKind(raw: string): string {
+  const lower = raw.toLowerCase()
+  return CLOUD_KIND_ALIASES[lower] ?? raw
+}
+
 const provisionCloudRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId/cloud',
@@ -687,7 +787,9 @@ const provisionCloudRoute = createRoute({
   validateSearch: (raw: Record<string, unknown>): CloudSearch => {
     const out: CloudSearch = {}
     if (raw.view === 'graph' || raw.view === 'list') out.view = raw.view
-    if (typeof raw.kind === 'string' && raw.kind.length > 0) out.kind = raw.kind
+    if (typeof raw.kind === 'string' && raw.kind.length > 0) {
+      out.kind = normaliseCloudKind(raw.kind)
+    }
     return out
   },
 })
@@ -1105,10 +1207,20 @@ const consoleCloudRoute = createRoute({
   // Mirrors provisionCloudRoute.validateSearch so child legacy-redirect
   // routes (TC-090..092) can pass `view` and `kind` through cleanly and
   // CloudPage's useSearch reads typed values.
+  //
+  // D17 Wave-1 Fix-Author Family A (2026-05-17): normalise `kind` via
+  // `normaliseCloudKind` so kubectl-natural / no-hyphen / singular forms
+  // (loadbalancers, services-vs-service, dnszones, httproutes, …) map
+  // to canonical `KIND_IDS` BEFORE the React tree mounts. Without this,
+  // CloudListView's URL-replace useEffect storms on the kind mismatch,
+  // which (combined with concurrent SSE re-connect) was producing the
+  // "drifts to /dashboard" symptom test agents E + C2 saw on t10.
   validateSearch: (raw: Record<string, unknown>): CloudSearch => {
     const out: CloudSearch = {}
     if (raw.view === 'graph' || raw.view === 'list') out.view = raw.view
-    if (typeof raw.kind === 'string' && raw.kind.length > 0) out.kind = raw.kind
+    if (typeof raw.kind === 'string' && raw.kind.length > 0) {
+      out.kind = normaliseCloudKind(raw.kind)
+    }
     return out
   },
 })

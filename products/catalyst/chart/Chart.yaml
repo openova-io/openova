@@ -1,5 +1,33 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.153 (D17 Wave-1 Family A — /cloud?view=list&kind=<X> no longer
+# drifts to /dashboard on Sovereign Console):
+#
+# Test agents on t10.omantel.biz reported every deep-link to
+# /cloud?view=list&kind=<X> rebounded to /dashboard or to a stray
+# /cloud/resource/.../overview within ~2s. Root cause: kubectl-natural
+# kind names operators routinely type (`loadbalancers` vs canonical
+# `load-balancers`, `httproutes`, `networkpolicies`, singular
+# `service`/`pod`/`pvc`, …) are NOT in cloud-list/kinds.ts `KIND_IDS`.
+# CloudListView.tsx falls back to DEFAULT_KIND and fires a
+# `navigate({replace:true})` to canonicalise the URL — the resulting
+# re-mount + SSE re-connect storm was producing the drift symptom.
+#
+# Fix: add `CLOUD_KIND_ALIASES` map in router.tsx; normalise `kind` in
+# `provisionCloudRoute.validateSearch` + `consoleCloudRoute.validateSearch`
+# so the React tree observes a canonical kind on the very first render —
+# no nav-replace storm, no /dashboard drift.
+#
+# Architectural shape: `KIND_IDS` (cloud-list/kinds.ts) stays the SINGLE
+# source of truth for valid kinds. The alias map only lives in
+# router.tsx because normalisation must happen at route-parse time
+# BEFORE CloudListView mounts. Kinds not in `KIND_IDS` and not in the
+# alias set pass through unchanged (CloudListView's existing isValidKind
+# fallback to DEFAULT_KIND still applies, no behavioural regression).
+#
+# Refs: feedback_test_theater_3rd_violation_2026_05_17.md, t10
+# test-agent results /tmp/t10-results-agent-{E,C2,B,C1}.jsonl.
+#
 # 1.4.138 (qa-loop iter-1 Fix #138, prov #20 wedge — circular-dep
 # post-install hook):
 #
@@ -1058,8 +1086,8 @@ name: bp-catalyst-platform
 # Fix #154 (HR-timeout audit). Those bumped the HelmRelease
 # install.timeout. This bumps the chart-INTERNAL wait loop budget
 # inside the pre-install hook Job, which is a different seam.
-version: 1.4.152
-appVersion: 1.4.152
+version: 1.4.153
+appVersion: 1.4.153
 # 1.4.141 (qa-loop Fix #185, prov #38/#39/#41 recurrence — pre-install
 # hook unscheduable on saturated worker):
 #
