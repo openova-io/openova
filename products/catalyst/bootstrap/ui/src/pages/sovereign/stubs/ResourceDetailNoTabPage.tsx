@@ -15,11 +15,11 @@
  * which tab is "default".
  */
 
-import { useParams } from '@tanstack/react-router'
+import { useNavigate, useParams } from '@tanstack/react-router'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { ResourceDetailPage } from '../cloud-list/ResourceDetailPage'
-import { parseTabFromPath } from '../cloud-list/resource.api'
+import { parseTabFromPath, resourceDetailHref, type ResourceDetailTab } from '../cloud-list/resource.api'
 import { useK8sCacheStream } from '@/widgets/architecture-graph/useK8sCacheStream'
 
 export function ResourceDetailNoTabPage() {
@@ -43,6 +43,15 @@ export function ResourceDetailNoTabPage() {
       ? '/cloud'
       : `/provision/${deploymentId}/cloud`
 
+  // Match ResourceDetailRoute — SPA tab nav via TanStack navigate.
+  const navigate = useNavigate()
+  const onTabChange = (next: ResourceDetailTab) => {
+    navigate({
+      to: resourceDetailHref(basePath, kind, ns || undefined, name, next) as never,
+      replace: false,
+    })
+  }
+
   return (
     <div className="mx-auto max-w-5xl px-4 py-6">
       <ResourceDetailPage
@@ -54,6 +63,7 @@ export function ResourceDetailNoTabPage() {
         tab={tab}
         k8sSnapshot={snapshot}
         isTierAdmin
+        onTabChange={onTabChange}
       />
     </div>
   )
