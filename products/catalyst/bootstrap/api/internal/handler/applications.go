@@ -66,6 +66,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 
@@ -975,6 +976,25 @@ func (h *Handler) HandleApplicationGet(w http.ResponseWriter, r *http.Request) {
 	obj, getErr := getApplicationCR(r.Context(), client, name, ns)
 	if getErr != nil {
 		if apierrors.IsNotFound(getErr) {
+			// PR L (2026-05-17 t140 founder bug #2): when no Application CR
+			// exists for `name`, fall back to a HelmRelease lookup so the
+			// AppDetail page renders the actual install state instead of
+			// "App not found" or perpetual "Provisioning".
+			//
+			// Bootstrap-kit installs (cilium, cert-manager, gateway-api,
+			// alloy, etc.) ship as HelmReleases directly — they have NO
+			// companion Application CR (no wizard step ran for them).
+			// Without this fallback the operator opens /app/bp-alloy and
+			// sees a pending/provisioning chip even though the HR is
+			// Ready=True and /apps lists it as installed.
+			//
+			// Founder caught on t140: "in the catalog and jobs it shows
+			// as installed, in the application page it shows as
+			// provisioning, there is a sync issue".
+			if resp, ok := h.synthesiseAppFromHelmRelease(r.Context(), depID, name); ok {
+				writeJSON(w, http.StatusOK, resp)
+				return
+			}
 			writeJSON(w, http.StatusNotFound, map[string]string{
 				"error":  "application-not-found",
 				"detail": fmt.Sprintf("Application %q not found", name),
@@ -1040,6 +1060,76 @@ func (h *Handler) HandleApplicationGet(w http.ResponseWriter, r *http.Request) {
 		resp.InstalledBlueprint = ib
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// synthesiseAppFromHelmRelease — PR L (2026-05-17 t140 founder bug #2).
+//
+// Look up a HelmRelease by `name` in the chroot's k8sCache and synthesise
+// an applicationDetailResponse so AppDetail renders Ready/Provisioning/
+// Failed based on the HR's Ready condition instead of "App not found".
+//
+// We use h.k8sCache (which has both the primary + secondary kubeconfigs
+// after PR #1583 D16 fan-out) so the lookup works on multi-region too.
+// Returns (resp, true) on success; (zero, false) when no matching HR.
+func (h *Handler) synthesiseAppFromHelmRelease(ctx context.Context, depID, name string) (applicationDetailResponse, bool) {
+	if h.k8sCache == nil {
+		return applicationDetailResponse{}, false
+	}
+	clusterID := h.resolveChrootClusterID(depID)
+	if !h.k8sCacheHasCluster(clusterID) {
+		return applicationDetailResponse{}, false
+	}
+	hrs, _, err := h.k8sCache.List(clusterID, "helmrelease", labels.Everything())
+	if err != nil {
+		return applicationDetailResponse{}, false
+	}
+	for _, hr := range hrs {
+		if hr.GetName() != name {
+			continue
+		}
+		resp := applicationDetailResponse{
+			Name:       hr.GetName(),
+			Namespace:  hr.GetNamespace(),
+			Conditions: []map[string]interface{}{},
+		}
+		if v, ok, _ := unstructured.NestedString(hr.Object, "spec", "chart", "spec", "chart"); ok {
+			resp.Blueprint = v
+		}
+		if v, ok, _ := unstructured.NestedString(hr.Object, "spec", "chart", "spec", "version"); ok {
+			resp.Version = v
+		}
+		if lr, ok, _ := unstructured.NestedString(hr.Object, "status", "lastAttemptedRevision"); ok && lr != "" {
+			resp.Version = lr
+		}
+		if lrAt, ok, _ := unstructured.NestedString(hr.Object, "status", "lastReleaseRevision"); ok {
+			resp.LastReconciled = lrAt
+		}
+		// Map HR Ready condition → Application phase.
+		conds, _, _ := unstructured.NestedSlice(hr.Object, "status", "conditions")
+		phase := "Pending"
+		for _, c := range conds {
+			cm, isMap := c.(map[string]interface{})
+			if !isMap {
+				continue
+			}
+			resp.Conditions = append(resp.Conditions, cm)
+			ctype, _ := cm["type"].(string)
+			cstatus, _ := cm["status"].(string)
+			if ctype == "Ready" {
+				switch cstatus {
+				case "True":
+					phase = "Ready"
+				case "False":
+					phase = "Failed"
+				default:
+					phase = "Provisioning"
+				}
+			}
+		}
+		resp.Phase = phase
+		return resp, true
+	}
+	return applicationDetailResponse{}, false
 }
 
 // ── HTTP handler — list (GET /sovereigns/{id}/applications) ──────────
