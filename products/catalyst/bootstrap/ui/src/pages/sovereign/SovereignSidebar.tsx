@@ -251,6 +251,25 @@ export function SovereignSidebar({ sovereignFQDN }: SovereignSidebarProps) {
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto py-3" data-testid="sov-console-nav">
+        {/* PR M (2026-05-17 t142 founder follow-up #2): Marketplace Admin
+            link to the BSS back-office (billing/orders/revenue/vouchers).
+            Lives at marketplace.<sov-fqdn>/back-office/ (Astro storefront
+            with admin sub-app). External nav so opens in new tab. Founder
+            asked: "where is the console for the marketplace admin related
+            actions such as billing etc". */}
+        {resolvedFQDN ? (
+          <a
+            href={`https://marketplace.${resolvedFQDN}/back-office/`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mx-2 flex items-center gap-3 rounded-lg px-3 py-2 text-sm no-underline transition-colors text-[var(--color-text-dim)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text)]"
+            data-testid="sov-console-nav-marketplace-admin"
+          >
+            <NavIcon d="M3 3h18l-2 14H5L3 3zM7 21a2 2 0 100-4 2 2 0 000 4zM17 21a2 2 0 100-4 2 2 0 000 4z" />
+            Marketplace Admin
+            <span className="ml-auto text-[var(--color-text-dimmer)]">↗</span>
+          </a>
+        ) : null}
         {FLAT_NAV.map((item) => {
           const isActive = activeSection === item.id
           const cls = isActive
