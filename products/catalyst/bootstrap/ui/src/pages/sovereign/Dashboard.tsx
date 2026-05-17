@@ -143,8 +143,21 @@ export function Dashboard({
   })
   const sovereignFQDN = snapshot?.sovereignFQDN ?? snapshot?.result?.sovereignFQDN ?? null
 
+  // PR M (2026-05-17 t142 founder follow-up #1): default Layer-1 = `cluster`
+  // on multi-region Sovereigns so the operator sees the 3-cluster grouping
+  // immediately. Previously default was `['family', 'application']` —
+  // founder opened /dashboard, saw family-grouped bubbles, concluded the
+  // multi-cluster fix was broken.
+  //
+  // Heuristic: snapshot reports the SovereignFQDN at adopt time. If we're
+  // on a Sovereign Console (sovereignFQDN present) default to cluster
+  // grouping; otherwise keep the historical family+application default
+  // for Catalyst-Zero (single-tenant mothership view).
+  const defaultLayers: readonly TreemapDimension[] = sovereignFQDN
+    ? ['cluster', 'application']
+    : ['family', 'application']
   const [layers, setLayers] = useState<readonly TreemapDimension[]>(
-    initialLayers ?? ['family', 'application'],
+    initialLayers ?? defaultLayers,
   )
   const [colorBy, setColorBy] = useState<TreemapColorBy>(initialColorBy ?? 'utilization')
   const [sizeBy, setSizeBy] = useState<TreemapSizeBy>(initialSizeBy ?? 'cpu_request')
