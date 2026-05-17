@@ -127,3 +127,104 @@ export async function getBssOverview(): Promise<BssOverview> {
     return ZERO_OVERVIEW
   }
 }
+
+/* ── Orders (Wave 6 PR 3) ────────────────────────────────────────── */
+
+export type OrderStatus = 'pending' | 'completed' | 'failed' | 'cancelled'
+
+export interface Order {
+  /** Stable per-order id (e.g. `ord_01HX...`); used as the row key
+   *  and as the drill-in URL slug. */
+  id: string
+  /** Tenant organisation that placed the order. Empty string when the
+   *  BE hasn't projected the tenant join yet (rare; renders an em-dash). */
+  tenantOrg: string
+  /** Marketplace catalogue item the order is for. */
+  product: string
+  status: OrderStatus
+  /** ISO-8601 creation timestamp. Empty string is tolerated and renders
+   *  as an em-dash so the table never blows up on malformed rows. */
+  createdAt: string
+  /** ISO-8601 last-status-change timestamp. Empty string tolerated. */
+  updatedAt: string
+  /** Order total in cents. */
+  totalCents: number
+  /** ISO-4217 currency code; defaults to USD when absent. */
+  currency: string
+}
+
+export interface OrdersResponse {
+  /** True when the BE returned a non-2xx — the table still renders but
+   *  surfaces the "API pending" pill (mirrors BssLandingPage). */
+  pendingApi: boolean
+  orders: Order[]
+}
+
+const EMPTY_ORDERS: OrdersResponse = { pendingApi: true, orders: [] }
+
+/**
+ * getOrders — fetch the BSS Orders list for the per-section page.
+ *
+ * Mirrors getBssOverview: tolerates 404 / 5xx / network error by
+ * returning `{ pendingApi: true, orders: [] }` so OrdersPage renders
+ * its full table chrome + empty state on first paint with the "API
+ * pending" pill in the toolbar (per INVIOLABLE-PRINCIPLES.md #1 —
+ * waterfall, first paint is the target-state shape).
+ *
+ * Backend wire path (when shipped):
+ *   browser ──/api/v1/sme/orders──▶ catalyst-api ──▶ sme orders rollup
+ */
+export async function getOrders(): Promise<OrdersResponse> {
+  let res: Response
+  try {
+    res = await authedFetch(`${API_BASE}/v1/sme/orders`, {
+      headers: { Accept: 'application/json' },
+    })
+  } catch {
+    return EMPTY_ORDERS
+  }
+  if (!res.ok) {
+    return EMPTY_ORDERS
+  }
+  try {
+    const body = (await res.json()) as { orders?: unknown } | null
+    if (!body || typeof body !== 'object' || !Array.isArray(body.orders)) {
+      return { pendingApi: false, orders: [] }
+    }
+    const orders: Order[] = body.orders
+      .map((raw): Order | null => {
+        if (!raw || typeof raw !== 'object') return null
+        const r = raw as Record<string, unknown>
+        const id = typeof r.id === 'string' ? r.id : ''
+        if (id === '') return null
+        const status = normalizeOrderStatus(r.status)
+        return {
+          id,
+          tenantOrg: typeof r.tenantOrg === 'string' ? r.tenantOrg : '',
+          product: typeof r.product === 'string' ? r.product : '',
+          status,
+          createdAt: typeof r.createdAt === 'string' ? r.createdAt : '',
+          updatedAt: typeof r.updatedAt === 'string' ? r.updatedAt : '',
+          totalCents:
+            typeof r.totalCents === 'number' && Number.isFinite(r.totalCents)
+              ? r.totalCents
+              : 0,
+          currency:
+            typeof r.currency === 'string' && r.currency !== '' ? r.currency : 'USD',
+        }
+      })
+      .filter((o): o is Order => o !== null)
+    return { pendingApi: false, orders }
+  } catch {
+    return EMPTY_ORDERS
+  }
+}
+
+function normalizeOrderStatus(raw: unknown): OrderStatus {
+  if (typeof raw !== 'string') return 'pending'
+  const s = raw.toLowerCase()
+  if (s === 'pending' || s === 'completed' || s === 'failed' || s === 'cancelled') {
+    return s
+  }
+  return 'pending'
+}
