@@ -169,7 +169,18 @@ func (h *Handler) GetDashboardTreemap(w http.ResponseWriter, r *http.Request) {
 	// Resolve cluster id from deployment_id. Empty deployment_id or
 	// unregistered cluster → well-shaped empty response (UI shows
 	// the empty state).
+	//
+	// D16 PR H (2026-05-17 t140 regression): the URL carries the mother's
+	// deployment_id (e.g. "29b7e14918178f7e") while the chroot's k8sCache
+	// self-registers the primary under a SOVEREIGN_FQDN-derived id
+	// (e.g. "sovereign-t140.omani.works"). Without resolveChrootClusterID
+	// the has-cluster check fails and the dashboard returns empty.
+	// Other handlers (k8s.go, networking.go, k8s_search.go, etc.) already
+	// call resolveChrootClusterID — dashboard was the missing caller.
 	clusterID := strings.TrimSpace(q.Get("deployment_id"))
+	if h.k8sCache != nil {
+		clusterID = h.resolveChrootClusterID(clusterID)
+	}
 	if clusterID == "" || h.k8sCache == nil || !h.k8sCacheHasCluster(clusterID) {
 		writeJSON(w, http.StatusOK, treemapResponse{Items: []treemapItem{}, TotalCount: 0})
 		return
