@@ -31,14 +31,18 @@ import { ComplianceTreemap } from '@/widgets/compliance/ComplianceTreemap'
 import { scorecardToTreemapNodes } from '@/widgets/compliance/scorecardToTreemapNodes'
 import type { ComplianceTreemapNode } from '@/widgets/compliance/ComplianceTreemapNode'
 import {
+  COMPLIANCE_FRAMEWORKS,
   getScorecard,
   normalizeScorecard,
   scoreColor,
   scoreLabel,
   type ColorPalette,
+  type ComplianceFrameworkId,
   type Score,
   type ScorecardResponse,
 } from './compliance.api'
+import { FrameworkFilter } from './FrameworkFilter'
+import { FalcoAlerts } from './FalcoAlerts'
 
 export interface SREDashboardPageProps {
   /** Test seam — disables SSE attach. */
@@ -85,6 +89,33 @@ export function SREDashboardPage({
   })()
   const [orgFilter, setOrgFilter] = useState<string | null>(initialOrgFilter)
   const [envFilter, setEnvFilter] = useState<string | null>(initialEnvFilter)
+
+  // C11-009: framework-filter chip set (PCI / ISO27001 / SOC2 / GDPR /
+  // HIPAA / DORA / NIS2 / FedRAMP). Multi-select; the URL accepts a
+  // comma-separated `framework=` deep-link so per-audit views can be
+  // bookmarked. Currently the filter is presentational at the dashboard
+  // level — per-policy framework tagging lands when the Kyverno
+  // policy chart annotates each rule with `compliance.framework=<id>`.
+  const initialFrameworks = (() => {
+    if (typeof window === 'undefined') return new Set<ComplianceFrameworkId>()
+    const raw = new URLSearchParams(window.location.search).get('framework')
+    if (!raw) return new Set<ComplianceFrameworkId>()
+    const validIds = new Set(COMPLIANCE_FRAMEWORKS.map((f) => f.id as string))
+    const out = new Set<ComplianceFrameworkId>()
+    for (const id of raw.split(',').map((s) => s.trim())) {
+      if (validIds.has(id)) out.add(id as ComplianceFrameworkId)
+    }
+    return out
+  })()
+  const [selectedFrameworks, setSelectedFrameworks] = useState<Set<ComplianceFrameworkId>>(initialFrameworks)
+  function toggleFramework(id: ComplianceFrameworkId) {
+    setSelectedFrameworks((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   const palette: ColorPalette = paletteOverride ?? 'resilience'
   const title = titleOverride ?? 'SRE Lead — Compliance Dashboard'
@@ -296,6 +327,19 @@ export function SREDashboardPage({
           </span>
         </div>
 
+        {/* Wave-2 Family-E (C11-009): regulatory-framework chip strip.
+            Multi-select PCI / ISO27001 / SOC2 / GDPR / HIPAA / DORA /
+            NIS2 / FedRAMP — scope the dashboard down to "what's in
+            scope for THIS audit". Renders on BOTH SRE-Lead and
+            Security-Lead surfaces (SecLead reuses this component). */}
+        <div className="mb-4">
+          <FrameworkFilter
+            selected={selectedFrameworks}
+            onToggle={toggleFramework}
+            onClear={() => setSelectedFrameworks(new Set())}
+          />
+        </div>
+
         {/* Treemap */}
         <div
           className="relative rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-2)] p-4"
@@ -354,6 +398,15 @@ export function SREDashboardPage({
 
         {/* Legend */}
         <ComplianceLegend palette={palette} />
+
+        {/* Wave-2 Family-E (C11-008): Falco runtime-security alerts
+            feed. Surfaces the most recent CRITICAL/ERROR/WARNING events
+            from the Falco DaemonSet (via Falcosidekick → k8s Events).
+            Renders an empty-state when Falco is not installed; never
+            blocks the dashboard render path. */}
+        <div className="mt-4">
+          <FalcoAlerts sovereignId={deploymentId} />
+        </div>
       </div>
     </PortalShell>
   )

@@ -281,3 +281,86 @@ export function DnsZonesListPage() {
     </div>
   )
 }
+
+// Wave-2 Family-E (#1583, C11-005/C11-006): Kyverno PolicyReport
+// (namespaced) + ClusterPolicyReport (cluster-scoped) surfaces.
+// Both kinds are already registered in the catalyst-api k8scache
+// (kinds.go: `policyreport` + `clusterpolicyreport`); these wrappers
+// render them as standard list pages with the canonical columns the
+// operator needs (resource being evaluated, pass/fail counts).
+export function PolicyReportsListPage() {
+  return (
+    <K8sListPage
+      kind="policyreport"
+      title="Policy Reports"
+      tagline="Per-namespace Kyverno PolicyReport evaluations — pass / fail counts per resource."
+      columns={[
+        COL_NAMESPACE,
+        COL_NAME,
+        {
+          header: 'Pass',
+          extract: (o) => {
+            const s = (o['summary'] as Record<string, unknown> | undefined) ?? {}
+            const v = s['pass']
+            return v == null ? '—' : String(v)
+          },
+        },
+        {
+          header: 'Fail',
+          extract: (o) => {
+            const s = (o['summary'] as Record<string, unknown> | undefined) ?? {}
+            const v = s['fail']
+            return v == null ? '—' : String(v)
+          },
+        },
+        {
+          header: 'Warn',
+          extract: (o) => {
+            const s = (o['summary'] as Record<string, unknown> | undefined) ?? {}
+            const v = s['warn']
+            return v == null ? '—' : String(v)
+          },
+        },
+        COL_AGE,
+      ]}
+    />
+  )
+}
+
+export function ClusterPolicyReportsListPage() {
+  return (
+    <K8sListPage
+      kind="clusterpolicyreport"
+      title="Cluster Policy Reports"
+      tagline="Cluster-scoped Kyverno ClusterPolicyReport evaluations — pass / fail counts."
+      columns={[
+        COL_NAME,
+        {
+          header: 'Pass',
+          extract: (o) => {
+            const s = (o['summary'] as Record<string, unknown> | undefined) ?? {}
+            const v = s['pass']
+            return v == null ? '—' : String(v)
+          },
+        },
+        {
+          header: 'Fail',
+          extract: (o) => {
+            const s = (o['summary'] as Record<string, unknown> | undefined) ?? {}
+            const v = s['fail']
+            return v == null ? '—' : String(v)
+          },
+        },
+        {
+          header: 'Warn',
+          extract: (o) => {
+            const s = (o['summary'] as Record<string, unknown> | undefined) ?? {}
+            const v = s['warn']
+            return v == null ? '—' : String(v)
+          },
+        },
+        COL_AGE,
+      ]}
+    />
+  )
+}

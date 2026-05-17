@@ -58,6 +58,8 @@ import { EventsPanel } from '@/widgets/cloud-list/EventsPanel'
 import { MetricsPanel } from '@/widgets/cloud-list/MetricsPanel'
 import { LogViewer } from '@/widgets/cloud-list/LogViewer'
 import { ExecPanel } from '@/widgets/cloud-list/ExecPanel'
+// Wave-2 Family-E (#1583, C11-010): per-Pod SBOM + CVE drill-down.
+import { SBOMTab } from './SBOMTab'
 import type { K8sObject } from '@/widgets/architecture-graph/useK8sCacheStream'
 import {
   RESOURCE_DETAIL_TABS,
@@ -317,6 +319,20 @@ export function ResourceDetailPage(props: ResourceDetailPageProps) {
           )}
           {tab === 'metrics' && (
             <MetricsPanel deploymentId={deploymentId} kind={apiKind} ns={ns || undefined} name={name} />
+          )}
+          {tab === 'sbom' && (
+            apiKind === 'pod' && ns && name ? (
+              <SBOMTab sovereignId={deploymentId} namespace={ns} podName={name} />
+            ) : (
+              <div
+                data-testid="resource-detail-sbom-only-pods"
+                className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-2)] p-6 text-sm text-[var(--color-text-dim)]"
+              >
+                SBOM &amp; CVE reports are produced per Pod by the Trivy operator. Open any
+                <code className="ml-1 font-mono">Pod</code> resource to view its
+                Software Bill of Materials and vulnerability summary.
+              </div>
+            )
           )}
           {tab === 'tree' && (
             <ResourceTree basePath={basePath} tree={tree} isError={!!treeErr} isLoading={!tree && !treeErr} />
@@ -877,6 +893,8 @@ function tabLabel(tab: ResourceDetailTab): string {
       return 'Events'
     case 'metrics':
       return 'Metrics'
+    case 'sbom':
+      return 'SBOM'
     case 'tree':
       return 'Tree'
     default:
