@@ -773,8 +773,29 @@ func (h *Handler) resolveChrootClusterID(clusterID string) string {
 		return clusterID
 	}
 	clusters := h.k8sCache.Clusters()
-	if len(clusters) != 1 {
+	if len(clusters) == 0 {
 		return clusterID
+	}
+	if len(clusters) == 1 {
+		return clusters[0]
+	}
+	// D16 PR H (2026-05-17 t140 regression): after secondary-kubeconfig
+	// fan-out (PR #1579 + #1581) the chroot's k8sCache registers
+	// 1 primary + N secondaries. The previous `len != 1` guard caused
+	// this helper to return the URL clusterID unchanged on every chroot
+	// after handover — so /api/v1/dashboard/treemap, /networking/*, and
+	// every /k8s/list endpoint stopped resolving on a multi-region
+	// Sovereign. Founder caught on t140: "the dashboard is empty",
+	// "none of the k8s resources are streaming now".
+	//
+	// Fix: when multiple clusters are registered, prefer the one
+	// self-registered by FactoryFromEnv (id pattern: "sovereign-<fqdn>")
+	// since that's the host cluster the operator is browsing from. Falls
+	// back to clusters[0] if no prefix match (degraded but non-empty).
+	for _, c := range clusters {
+		if strings.HasPrefix(c, "sovereign-") {
+			return c
+		}
 	}
 	return clusters[0]
 }
