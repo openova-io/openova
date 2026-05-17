@@ -11,3 +11,10 @@ resources:
   # the cert appearing. See file header for full root cause + design
   # rationale (qa-loop bounded-cycle Provision #7).
   - cilium-envoy-tls-restart-job.yaml
+  # C7-007 (2026-05-17 t143) — one-shot cleanup of the pre-PR-O legacy
+  # `sovereign-wildcard-tls` Certificate + Secret pair. Idempotent
+  # (`--ignore-not-found`), runs once per Flux reconciliation
+  # generation. Fresh Sovereigns succeed as a no-op; pre-PR-O
+  # Sovereigns delete the orphan resources. Removable from the list
+  # once every live prov has reconciled past it.
+  - legacy-cert-cleanup-job.yaml

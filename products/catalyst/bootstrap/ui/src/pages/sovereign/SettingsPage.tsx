@@ -131,14 +131,27 @@ export function SettingsPage({ disableStream = false }: SettingsPageProps = {}) 
   const startedAt = snapshot?.startedAt ?? null
   const status = snapshot?.status ?? null
 
-  // Pool domain / subdomain are wizard-store fields; they survive the
-  // wizard submit because the store is zustand+persist (localStorage).
-  const poolDomain = store.sovereignPoolDomain || null
-  const poolSubdomain = store.sovereignSubdomain || null
-  const domainMode = store.sovereignDomainMode || null
-  const byoDomain = store.sovereignByoDomain || null
-  const orgName = store.orgName || null
-  const orgEmail = store.orgEmail || null
+  // C8-001 (2026-05-17 t143): prefer the live snapshot for the
+  // Sovereign + DNS fields, fall back to the wizard store. The chroot
+  // Sovereign console has a fresh localStorage (the wizard runs on
+  // mothership, the chroot session never persists the store), so
+  // wizard-store-only fields rendered four em-dashes for Capacity /
+  // Pool subdomain / BYO domain / CP size. catalyst-api's
+  // Deployment.State() now surfaces these from the persisted
+  // RedactedRequest projection — they're the authoritative source on
+  // every Sovereign post-handover. The wizard-store fallback covers
+  // the mothership wizard-in-flight case where the snapshot may not
+  // yet carry the request fields (pre-CreateDeployment).
+  const poolDomain = snapshot?.sovereignPoolDomain ?? store.sovereignPoolDomain ?? null
+  const poolSubdomain = snapshot?.sovereignSubdomain ?? store.sovereignSubdomain ?? null
+  const domainMode = snapshot?.sovereignDomainMode ?? store.sovereignDomainMode ?? null
+  const byoDomain = snapshot?.sovereignByoDomain ?? store.sovereignByoDomain ?? null
+  const orgName = snapshot?.orgName ?? store.orgName ?? null
+  const orgEmail = snapshot?.orgEmail ?? store.orgEmail ?? null
+  // OrgIndustry / OrgHeadquarters are wizard-store-only fields today —
+  // not persisted on the deployment record. They render the em-dash
+  // placeholder on the chroot until a future PR plumbs them through
+  // the provisioner.Request payload.
   const orgIndustry = store.orgIndustry || null
   const orgHeadquarters = store.orgHeadquarters || null
 
@@ -146,11 +159,23 @@ export function SettingsPage({ disableStream = false }: SettingsPageProps = {}) 
   // since the founder spec is single-region happy path. The full per-
   // region table belongs on a future Compute settings sub-page.
   const controlPlaneSize = useMemo(() => {
-    const arr = store.regionControlPlaneSizes
-    if (Array.isArray(arr) && arr.length > 0 && arr[0]) return arr[0]
+    // Prefer snapshot (chroot Sovereign source-of-truth). Multi-region
+    // arrays surface from snapshot.regionControlPlaneSizes; single
+    // region from snapshot.controlPlaneSize. Falls back to wizard
+    // store for the mothership wizard-in-flight case.
+    const snapArr = snapshot?.regionControlPlaneSizes
+    if (Array.isArray(snapArr) && snapArr.length > 0 && snapArr[0]) return snapArr[0]
+    if (snapshot?.controlPlaneSize) return snapshot.controlPlaneSize
+    const storeArr = store.regionControlPlaneSizes
+    if (Array.isArray(storeArr) && storeArr.length > 0 && storeArr[0]) return storeArr[0]
     if (store.controlPlaneSize) return store.controlPlaneSize
     return null
-  }, [store.regionControlPlaneSizes, store.controlPlaneSize])
+  }, [
+    snapshot?.regionControlPlaneSizes,
+    snapshot?.controlPlaneSize,
+    store.regionControlPlaneSizes,
+    store.controlPlaneSize,
+  ])
 
   return (
     <PortalShell deploymentId={deploymentId} sovereignFQDN={sovereignFQDN} pageTitle="Settings">

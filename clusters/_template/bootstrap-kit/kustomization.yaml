@@ -24,6 +24,15 @@ resources:
   - 15a-external-secrets-stores.yaml
   - 16-cnpg.yaml
   - 17-valkey.yaml
+  # bp-hcloud-csi (slot 17a) — Hetzner Cloud CSI driver + the canonical
+  # `hcloud-volumes` StorageClass (annotated as default). Pairs with
+  # bp-hcloud-ccm (slot 55) + bp-cluster-autoscaler-hcloud (slot 50) as
+  # the Hetzner-cloud-direct trio. Without this slot, fresh Sovereigns
+  # default PVCs to `local-path` (rancher.io/local-path) which is
+  # node-pinned and cannot survive a Pod rescheduled to a different
+  # node — breaks docs/SOVEREIGN-MULTI-REGION-DOD.md C9 (operator
+  # expects `hcloud-volumes default=true`). Caught on t10 2026-05-17.
+  - 17a-bp-hcloud-csi.yaml
   - 18-seaweedfs.yaml
   - 19-harbor.yaml
   # 06a — Post-handover Self-Sovereignty Cutover (issue #791). Filename

@@ -19,6 +19,20 @@ hetznerTokenSecretRef:
   name: hcloud-csi-token
   key: token
 
+# 2026-05-17 t143 (C9-006): Hetzner API token plaintext. Default empty —
+# Flux `valuesFrom` populates this at HelmRelease apply time from the
+# canonical flux-system/cloud-credentials Secret (key `hcloud-token`)
+# cloud-init writes during Phase 0 (mirrors bp-hcloud-ccm wiring at
+# clusters/_template/bootstrap-kit/55-bp-hcloud-ccm.yaml). When
+# non-empty, templates/hcloud-token-secret.yaml renders the
+# `<hetznerTokenSecretRef.name>` Secret in the chart's targetNamespace
+# so the subchart's controller can authenticate to the Hetzner API.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #10 (credentials never on CR / Git),
+# this stays empty in committed YAML; the live value lands at apply
+# time from cloud-credentials and is never persisted to Git.
+hetznerToken: ""
+
 # Catalyst-managed StorageClass list. Each entry renders an independent
 # StorageClass — operators can add fast-ssd / archive variants per
 # Sovereign without editing this chart. Named `catalystStorageClasses`

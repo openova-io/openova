@@ -78,6 +78,25 @@ export interface DeploymentSnapshot {
   error?: string
   numEvents?: number
   /**
+   * C8-001 (2026-05-17 t143) — Sovereign-provisioning request fields
+   * lifted to the snapshot so the chroot's `/sovereign/settings` page
+   * works without a populated wizard store (chroot localStorage is
+   * fresh post-handover, so reading Capacity / Pool subdomain / BYO
+   * domain from `useWizardStore()` rendered four em-dashes). The
+   * catalyst-api's `Deployment.State()` surfaces these from the
+   * persisted RedactedRequest projection; the SettingsPage reads
+   * snapshot-first with the wizard store as fallback.
+   */
+  controlPlaneSize?: string
+  regionControlPlaneSizes?: string[]
+  sovereignPoolDomain?: string
+  sovereignSubdomain?: string
+  sovereignDomainMode?: string
+  /** Present only when domainMode === 'byo'. */
+  sovereignByoDomain?: string
+  orgName?: string
+  orgEmail?: string
+  /**
    * Phase-1 helmwatch ground-truth — populated by the catalyst-api when
    * its HelmRelease informer terminated. Lifted to the top level by
    * deployments.go so the UI can read it without unwrapping `result`.

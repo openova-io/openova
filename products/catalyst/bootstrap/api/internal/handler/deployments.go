@@ -750,6 +750,56 @@ func (d *Deployment) State() map[string]any {
 		// blank (legacy record).
 		"ownerEmail": d.OwnerEmail,
 	}
+	// C8-001 (2026-05-17 t143): lift the Sovereign-provisioning request
+	// fields that the chroot's /sovereign/settings page renders so the
+	// page works on a fresh chroot session (where the operator's
+	// browser-side wizard-store is empty). The fields are non-secret
+	// projections of the wizard submit (control-plane size, pool
+	// subdomain, BYO domain) — they live on the deployment record's
+	// RedactedRequest already, the gap was only that State() never
+	// surfaced them. Founder caught on t136 2026-05-17 — Settings page
+	// shows four em-dash placeholders for Capacity / CP size / Pool
+	// subdomain / BYO domain on the chroot Sovereign console because
+	// the chroot has no localStorage'd wizard store to read from.
+	if v := d.Request.ControlPlaneSize; v != "" {
+		out["controlPlaneSize"] = v
+	}
+	if v := d.Request.SovereignPoolDomain; v != "" {
+		out["sovereignPoolDomain"] = v
+	}
+	if v := d.Request.SovereignSubdomain; v != "" {
+		out["sovereignSubdomain"] = v
+	}
+	if v := d.Request.SovereignDomainMode; v != "" {
+		out["sovereignDomainMode"] = v
+	}
+	// BYO-domain is encoded on RedactedRequest only when domainMode
+	// is `byo`; we still emit when present so the chroot Settings page
+	// can render it. Pool-mode deployments leave this empty.
+	if v := d.Request.SovereignFQDN; v != "" && d.Request.SovereignDomainMode == "byo" {
+		out["sovereignByoDomain"] = v
+	}
+	// Per-region control-plane sizes (multi-region Sovereigns). The
+	// Settings page falls back to controlPlaneSize when the array is
+	// empty; surface both so future per-region renderings need no
+	// API extension.
+	if len(d.Request.Regions) > 0 {
+		sizes := make([]string, 0, len(d.Request.Regions))
+		for _, r := range d.Request.Regions {
+			sizes = append(sizes, r.ControlPlaneSize)
+		}
+		out["regionControlPlaneSizes"] = sizes
+	}
+	// Org-profile fields (non-secret). Same rationale as the sovereign
+	// fields above — the chroot Settings page would render four
+	// em-dashes for Name / Billing email / Industry / Headquarters
+	// otherwise.
+	if v := d.Request.OrgName; v != "" {
+		out["orgName"] = v
+	}
+	if v := d.Request.OrgEmail; v != "" {
+		out["orgEmail"] = v
+	}
 	if !d.FinishedAt.IsZero() {
 		out["finishedAt"] = d.FinishedAt.Format(time.RFC3339)
 	}

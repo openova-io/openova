@@ -91,7 +91,15 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: ["secrets"]
-    resourceNames: ["sovereign-wildcard-tls"]
+    # 2026-05-17 t143 dual-cert collision cleanup: the per-zone Secret
+    # the Cilium Gateway now references is named
+    # `sovereign-wildcard-tls-${SOVEREIGN_FQDN_DASHED}`
+    # (see clusters/_template/sovereign-tls/cilium-gateway.yaml:44 +
+    #  clusters/_template/sovereign-tls/cilium-gateway-cert.yaml). The
+    # legacy `sovereign-wildcard-tls` (no dashed suffix) is no longer
+    # produced anywhere — drop it from the resourceNames allowlist so
+    # this Role grants the minimum needed for the live Secret name.
+    resourceNames: ["sovereign-wildcard-tls-${SOVEREIGN_FQDN_DASHED}"]
     verbs: ["get", "watch", "list"]
   - apiGroups: ["apps"]
     resources: ["daemonsets"]
@@ -209,7 +217,14 @@ spec:
               set -eu
 
               SECRET_NS=kube-system
-              SECRET_NAME=sovereign-wildcard-tls
+              # 2026-05-17 t143 dual-cert collision cleanup: the canonical
+              # SDS Secret the Cilium Gateway now references is the
+              # per-zone `sovereign-wildcard-tls-${SOVEREIGN_FQDN_DASHED}`.
+              # Cloud-init substitutes SOVEREIGN_FQDN_DASHED via Flux
+              # postBuild.substitute, so the literal cluster value lands
+              # here at apply time (verified in
+              # infra/hetzner/cloudinit-control-plane.tftpl §SOVEREIGN_FQDN_DASHED).
+              SECRET_NAME=sovereign-wildcard-tls-${SOVEREIGN_FQDN_DASHED}
               DS_NS=kube-system
               DS_NAME=cilium-envoy
 

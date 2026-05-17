@@ -382,14 +382,25 @@ func (h *Handler) HandleFleetApplications(w http.ResponseWriter, r *http.Request
 
 // collectFleetSovereigns — every Sovereign known to this catalyst-api
 // process. Source: the in-memory deployments map (rehydrated from the
-// PVC at startup), filtered to drop adopted-but-still-tracked records
-// the same way ListDeployments does. Sorted by FQDN for deterministic
-// pagination.
+// PVC at startup). Sorted by FQDN for deterministic pagination.
 //
 // Per ADR-0001 §2.7 — no separate fleet database. The deployments map
 // IS the source of truth on this Pod; tenant_registry is the secondary
 // source for SME-tier Sovereigns the same map doesn't track (those are
 // collapsed into the same shape so the caller sees one fleet view).
+//
+// 2026-05-17 t143 (C10-002) — adopted Sovereigns INCLUDED.
+// Previously this helper filtered out every dep with AdoptedAt != nil
+// (mirroring ListDeployments). The result: on a steady-state fleet
+// where every Sovereign has completed cutover and been adopted by its
+// customer's console, the cross-Sovereign Applications dashboard
+// (/fleet/applications) returned `items=[]` despite the fleet
+// containing 21 live Sovereigns and 110 succeeded jobs (caught on t10
+// 2026-05-17). The fleet view's whole purpose is to enumerate every
+// Sovereign mothership has ever provisioned — adopted is the
+// steady-state, not a reason to hide. ListDeployments' boundary
+// (handover hides the row from the provisioner's "in-flight" tab)
+// does NOT apply to the fleet dashboard.
 func (h *Handler) collectFleetSovereigns(_ context.Context) []fleetSovereignSummary {
 	out := make([]fleetSovereignSummary, 0)
 	seen := make(map[string]bool)
@@ -400,14 +411,6 @@ func (h *Handler) collectFleetSovereigns(_ context.Context) []fleetSovereignSumm
 			return true
 		}
 		dep.mu.Lock()
-		if dep.AdoptedAt != nil {
-			// Adopted Sovereigns are owned by the customer's
-			// console.<sovereign-fqdn> — they no longer surface
-			// in the mothership fleet view (same boundary
-			// ListDeployments enforces).
-			dep.mu.Unlock()
-			return true
-		}
 		row := fleetSovereignSummary{
 			ID:           dep.ID,
 			FQDN:         dep.Request.SovereignFQDN,
@@ -417,6 +420,14 @@ func (h *Handler) collectFleetSovereigns(_ context.Context) []fleetSovereignSumm
 		}
 		if !dep.StartedAt.IsZero() {
 			row.CreatedAt = dep.StartedAt.UTC().Format(time.RFC3339)
+		}
+		// Adopted Sovereigns report Health=green because cutover
+		// drove the deployment status to "ready" before the
+		// AdoptedAt timestamp landed. We surface them with the same
+		// health vocabulary as in-flight rows so the dashboard's
+		// per-card badge keeps working.
+		if dep.AdoptedAt != nil && row.Health == healthUnknown {
+			row.Health = healthGreen
 		}
 		dep.mu.Unlock()
 

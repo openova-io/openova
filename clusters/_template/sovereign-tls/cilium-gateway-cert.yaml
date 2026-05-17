@@ -19,17 +19,21 @@
 #   - gitea.<fqdn>    → 5 reprovs/week
 #   ... × 12 hostnames = 60 effective reprov-slots/week
 #
-# Coexistence: the `sovereign-wildcard-tls` Secret name was the single
-# point of integration with the Cilium Gateway listener
-# (cilium-gateway.yaml). With per-name certs we still write ONE Secret
-# of that name BUT it's now a SAN-Certificate containing ALL N
-# hostnames as SubjectAltNames — cert-manager bundles them into one
-# Order with N identifiers. LE counts a SAN cert as ONE issuance
-# against EACH identifier's bucket, but only ONE issuance overall.
-# So our 168h budget becomes:
-#   min(5/168h per hostname bucket) — typically reprovs share the same
-#   bucket per name, but adding a NEW hostname creates a FRESH bucket
-#   and resets that hostname's count to 0.
+# 2026-05-17 t143 dual-cert collision cleanup
+# -------------------------------------------
+# Previously this Certificate was named `sovereign-wildcard-tls` and
+# wrote a Secret of the same name. After PR O (2026-05-17) moved the
+# Cilium Gateway listener's certificateRefs to the per-zone Secret
+# `sovereign-wildcard-tls-${SOVEREIGN_FQDN_DASHED}` (see
+# clusters/_template/sovereign-tls/cilium-gateway.yaml:44), the legacy
+# Secret stopped being referenced by anything — but the Certificate
+# kept renewing, burning LE budget for no production value and showing
+# up in audits as an orphan TLS Secret on every Sovereign.
+#
+# Single-source-of-truth fix: this Certificate now writes to the SAME
+# dashed-suffix Secret the Gateway already references. One Cert, one
+# Secret, one LE issuance per renewal. No more dual-cert collision
+# and no extra LE budget consumed.
 #
 # This pattern is the standard production approach (see Cloudflare,
 # Vercel, Render). Wildcards are reserved for the limited cases where
@@ -38,13 +42,17 @@
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: sovereign-wildcard-tls  # name kept for backwards-compat with Gateway listener ref
+  # Match the Secret name the Gateway listener references
+  # (clusters/_template/sovereign-tls/cilium-gateway.yaml:44). Cloud-init
+  # substitutes SOVEREIGN_FQDN_DASHED = SOVEREIGN_FQDN with `.` → `-`
+  # (infra/hetzner/cloudinit-control-plane.tftpl §SOVEREIGN_FQDN_DASHED).
+  name: sovereign-wildcard-tls-${SOVEREIGN_FQDN_DASHED}
   namespace: kube-system
   labels:
     catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
     catalyst.openova.io/component: cilium-gateway
 spec:
-  secretName: sovereign-wildcard-tls
+  secretName: sovereign-wildcard-tls-${SOVEREIGN_FQDN_DASHED}
   issuerRef:
     name: ${WILDCARD_CERT_ISSUER}
     kind: ClusterIssuer

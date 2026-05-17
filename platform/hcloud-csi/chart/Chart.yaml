@@ -1,6 +1,13 @@
 apiVersion: v2
 name: bp-hcloud-csi
-version: 1.0.0
+# 1.1.0 (2026-05-17 t143 C9-006): add templates/hcloud-token-secret.yaml
+# so the chart self-renders the `hcloud-csi-token` Secret from
+# `.Values.hetznerToken` (populated via Flux valuesFrom from
+# flux-system/cloud-credentials). Without this Secret the controller
+# pods cannot authenticate to the Hetzner API; the StorageClass exists
+# but every PVC fails to provision with a 401 from the CSI driver.
+# Mirrors bp-hcloud-ccm 1.0.0 wiring.
+version: 1.1.0
 description: |
   Catalyst-curated Blueprint umbrella chart for the Hetzner Cloud CSI
   driver. Provides the hcloud-volumes StorageClass for multi-node stateful
