@@ -30,6 +30,7 @@ import {
   scoreLabel,
   type PolicyView,
   type Score,
+  type Violation,
 } from '@/pages/admin/compliance/compliance.api'
 import { useComplianceStream } from '@/lib/useComplianceStream'
 
@@ -162,9 +163,26 @@ export function ComplianceTab({
       <div className="mb-4 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] p-3" data-testid="app-compliance-drift">
         <h3 className="mb-2 text-sm font-medium text-[var(--color-text-strong)]">Per-policy outcome</h3>
         {!score?.policyResults || Object.keys(score.policyResults).length === 0 ? (
-          <p className="text-xs text-[var(--color-text-dim)]" data-testid="app-compliance-drift-empty">
-            No per-policy results yet for this application.
-          </p>
+          /* C11-007 fix: when the scorecard rollup has no per-policy
+             results yet (cold-start app, scorecard not computed,
+             Kyverno aggregator silent), fall through to the LIVE
+             violations stream. Each violation IS a real Kyverno
+             PolicyReport entry — grouping by policy gives the operator
+             the same shape ("policy → fail rows") even before the
+             scorecard catches up. Eliminates the matrix-flagged
+             placeholder ("No policies evaluated yet"). */
+          (violationsQ.data?.items?.length ?? 0) === 0 ? (
+            <p className="text-xs text-[var(--color-text-dim)]" data-testid="app-compliance-drift-empty">
+              No per-policy results yet for this application. Kyverno PolicyReports for
+              <code className="ml-1 font-mono">{applicationName}</code> will appear here as
+              admission webhooks evaluate this application's resources.
+            </p>
+          ) : (
+            <PerPolicyViolationsList
+              violations={violationsQ.data?.items ?? []}
+              testId="app-compliance-drift-from-violations"
+            />
+          )
         ) : (
           <ul className="space-y-1.5" role="list">
             {Object.entries(score.policyResults).map(([policy, result]) => (
@@ -251,6 +269,57 @@ function ResultPill({ result }: { result: string }) {
     >
       {result}
     </span>
+  )
+}
+
+/**
+ * PerPolicyViolationsList — group live Kyverno PolicyReport entries by
+ * policy name and render a per-policy fail-count + sample resource.
+ *
+ * C11-007 (Wave-2 Family-E): the Compliance tab was showing a
+ * placeholder ("No policies evaluated yet") even when the live
+ * PolicyReport CRs had hundreds of failing rows for this Application.
+ * This list reads from the SAME violations endpoint
+ * (/api/v1/sovereigns/{id}/compliance/violations?app=<name>) that the
+ * dashboard's per-app drilldown uses — so the operator sees the real
+ * Kyverno data on the App detail page without needing the scorecard
+ * rollup to have caught up.
+ */
+function PerPolicyViolationsList({ violations, testId }: { violations: Violation[]; testId: string }) {
+  // Group by policy name; sort by failure count desc.
+  const byPolicy: Record<string, Violation[]> = {}
+  for (const v of violations) {
+    const key = v.policy || '(unknown)'
+    if (!byPolicy[key]) byPolicy[key] = []
+    byPolicy[key].push(v)
+  }
+  const sorted = Object.entries(byPolicy).sort((a, b) => b[1].length - a[1].length)
+  return (
+    <ul className="space-y-1.5" role="list" data-testid={testId}>
+      {sorted.map(([policyName, rows]) => {
+        const sample = rows[0]
+        const result = (sample.result ?? 'fail').toLowerCase()
+        return (
+          <li
+            key={policyName}
+            data-testid={`app-compliance-live-policy-${policyName}`}
+            className="grid grid-cols-[1fr_5rem_3rem] items-center gap-2 text-xs"
+          >
+            <span className="truncate">
+              <code className="font-mono text-[var(--color-text)]">{policyName}</code>
+              {sample.message ? (
+                <span className="ml-2 text-[var(--color-text-dim)]">
+                  — {sample.message.slice(0, 80)}
+                  {sample.message.length > 80 ? '…' : ''}
+                </span>
+              ) : null}
+            </span>
+            <ResultPill result={result} />
+            <span className="text-right font-mono text-[var(--color-text-dim)]">{rows.length}</span>
+          </li>
+        )
+      })}
+    </ul>
   )
 }
 

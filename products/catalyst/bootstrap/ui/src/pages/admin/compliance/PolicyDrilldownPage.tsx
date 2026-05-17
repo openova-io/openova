@@ -25,6 +25,7 @@ import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { PolicyModeToggle } from '@/widgets/compliance/PolicyModeToggle'
 import {
   getPolicies,
+  getPolicyByName,
   getViolations,
   scoreColor,
   type PolicyMode,
@@ -77,7 +78,28 @@ export function PolicyDrilldownPage({
   })
 
   const policies: PolicyView[] = initialPolicies ?? policiesQ.data?.items ?? []
-  const policy = policies.find((p) => p.name === policyName)
+  const policyFromBulk = policies.find((p) => p.name === policyName)
+
+  // C11-003 fix: if the bulk policies list misses the requested name,
+  // fall back to a per-name lookup that reads the live ClusterPolicy
+  // directly from the Sovereign cluster. Mirrors the
+  // `feedback_chroot_in_cluster_fallback.md` pattern: when the cached
+  // aggregator is silent (cold-start chroot, ClusterPolicy installed
+  // after page mount, non-baseline tier), the page still resolves the
+  // policy by going straight to the live registry.
+  const policyByNameQ = useQuery({
+    queryKey: ['compliance', deploymentId, 'policy-by-name', policyName],
+    queryFn: () => getPolicyByName(deploymentId, policyName),
+    enabled:
+      !initialPolicies &&
+      !!deploymentId &&
+      !!policyName &&
+      !policiesQ.isLoading &&
+      !policyFromBulk,
+    staleTime: 30_000,
+    retry: false,
+  })
+  const policy: PolicyView | undefined = policyFromBulk ?? policyByNameQ.data ?? undefined
 
   const violations: Violation[] = useMemo(() => {
     const all = initialViolations ?? violationsQ.data?.items ?? []
@@ -170,7 +192,7 @@ export function PolicyDrilldownPage({
           </p>
           {policy ? (
             <PolicyMetadata policy={policy} sovereignId={deploymentId} violations={violations.length} />
-          ) : !policiesQ.isLoading ? (
+          ) : !policiesQ.isLoading && !policyByNameQ.isLoading && !policyByNameQ.isFetching ? (
             <p className="mt-2 text-sm text-[var(--color-text-dim)]" data-testid="policy-drilldown-not-found">
               Policy "{policyName}" not found. Has it been disabled in this environment, or is it
               spelled differently? (HTTP 404 from the policy registry — no matching ClusterPolicy

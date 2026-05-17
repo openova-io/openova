@@ -70,7 +70,15 @@ export function normaliseKindForRegistry(kind: string): string {
   return KIND_PLURAL_TO_SINGULAR[lower] ?? lower
 }
 
-/** Resource detail tab ids — used by ResourceDetailPage routing. */
+/** Resource detail tab ids — used by ResourceDetailPage routing.
+ *
+ * Wave-2 Family-E (#1583, C11-010) added the `sbom` tab. It renders
+ * only for kinds where Trivy reports apply (Pods today; image-bearing
+ * kinds in future iterations). The tab bar always lists it so the
+ * matrix's accessibility-tree snapshot can assert the SBOM tab is
+ * discoverable from any kind's detail page — the panel itself
+ * surfaces an "only applicable to Pods" hint on non-applicable kinds.
+ */
 export const RESOURCE_DETAIL_TABS = [
   'overview',
   'yaml',
@@ -78,6 +86,7 @@ export const RESOURCE_DETAIL_TABS = [
   'exec',
   'events',
   'metrics',
+  'sbom',
   'tree',
 ] as const
 export type ResourceDetailTab = (typeof RESOURCE_DETAIL_TABS)[number]

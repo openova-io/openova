@@ -40,6 +40,8 @@ import {
   IngressesListPage,
   StorageClassesListPage,
   DnsZonesListPage,
+  PolicyReportsListPage,
+  ClusterPolicyReportsListPage,
 } from './kindsPages'
 
 export type CloudListKind =
@@ -67,6 +69,9 @@ export type CloudListKind =
   | 'endpointslices'
   | 'storage-classes'
   | 'dns-zones'
+  // Wave-2 Family-E (#1583, C11-005/C11-006) — Kyverno PolicyReport surfaces.
+  | 'policyreports'
+  | 'clusterpolicyreports'
 
 /**
  * Mapping from CloudListKind id → registry kind name on the
@@ -90,6 +95,9 @@ export const KIND_TO_REGISTRY: Partial<Record<CloudListKind, string>> = {
   nodes: 'node',
   persistentvolumes: 'persistentvolume',
   endpointslices: 'endpointslice',
+  // Wave-2 Family-E (#1583, C11-005/C11-006): Kyverno PolicyReport CRDs.
+  policyreports: 'policyreport',
+  clusterpolicyreports: 'clusterpolicyreport',
 }
 
 export interface CloudKindEntry {
@@ -151,6 +159,11 @@ const ICON_NODE = ICON_WORKER_NODE
 const ICON_PV = ICON_PVC
 const ICON_EPS =
   'M5 12a7 7 0 0 0 14 0M5 12a7 7 0 0 1 14 0M12 5v14M9 5h6M9 19h6'
+// Wave-2 Family-E (C11-005/C11-006): shield-with-checkmark glyph for the
+// Kyverno PolicyReport surfaces — same iconography as the Compliance
+// dashboard so the operator sees the cross-page family-of-surfaces tie.
+const ICON_POLICY_REPORT =
+  'M12 3l8 4v5c0 5 -3.5 8 -8 9 -4.5 -1 -8 -4 -8 -9V7zM9 12l2 2 4 -4'
 
 /**
  * Canonical kind catalogue. Order matters — `primary: true` entries
@@ -192,6 +205,12 @@ export const KINDS: readonly CloudKindEntry[] = [
   { id: 'volumes', label: 'Volumes', tagline: 'Cloud block volumes', hasData: true, Component: VolumesPage, icon: ICON_VOLUME, category: 'storage', primary: false },
   { id: 'persistentvolumes', label: 'PersistentVolumes', tagline: 'Cluster-scoped backing volumes', hasData: true, Component: PersistentVolumesListPage, icon: ICON_PV, category: 'storage', primary: false },
   { id: 'storage-classes', label: 'Storage Classes', tagline: 'Provisioner + reclaim policy presets', hasData: false, Component: StorageClassesListPage, icon: ICON_STORAGE_CLASS, category: 'storage', primary: false },
+
+  // Wave-2 Family-E (C11-005/C11-006): Kyverno PolicyReport surfaces.
+  // Both render in the `+ More` popover (the Compliance dashboard is the
+  // primary read-path; these lists are the kubectl-equivalent fallback).
+  { id: 'policyreports', label: 'Policy Reports', tagline: 'Per-namespace Kyverno PolicyReport evaluations.', hasData: true, Component: PolicyReportsListPage, icon: ICON_POLICY_REPORT, category: 'config', primary: false },
+  { id: 'clusterpolicyreports', label: 'Cluster Policy Reports', tagline: 'Cluster-scoped Kyverno ClusterPolicyReport evaluations.', hasData: true, Component: ClusterPolicyReportsListPage, icon: ICON_POLICY_REPORT, category: 'config', primary: false },
 ] as const
 
 export const KIND_IDS: readonly CloudListKind[] = KINDS.map((k) => k.id)

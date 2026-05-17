@@ -85,6 +85,8 @@ import { CuratePage as BlueprintCuratePage } from '@/pages/admin/blueprints/Cura
 import { SREDashboardPage } from '@/pages/admin/compliance/SREDashboardPage'
 import { SecLeadDashboardPage } from '@/pages/admin/compliance/SecLeadDashboardPage'
 import { PolicyDrilldownPage } from '@/pages/admin/compliance/PolicyDrilldownPage'
+// Wave-2 Family-E (#1583, C11-008): standalone Falco runtime-alerts page.
+import { RuntimeAlertsPage } from '@/pages/admin/compliance/RuntimeAlertsPage'
 import { SettingsPage } from '@/pages/sovereign/SettingsPage'
 import { NotificationsPage } from '@/pages/sovereign/NotificationsPage'
 // Sovereign-mode /console/* routes use the same canonical components as
@@ -779,12 +781,13 @@ const CLOUD_KIND_ALIASES: Record<string, string> = {
   ciliumnetworkpolicy: 'services',
   ciliumclusterwidenetworkpolicies: 'services',
   ciliumclusterwidenetworkpolicy: 'services',
-  // Policy reports — surface the closest config kind so the operator can
-  // pivot to other config objects until a dedicated list ships.
-  policyreports: 'configmaps',
-  policyreport: 'configmaps',
-  clusterpolicyreports: 'configmaps',
-  clusterpolicyreport: 'configmaps',
+  // Policy reports — Wave-2 Family-E (#1583/C11-005/C11-006): both
+  // kinds now have first-class CloudListKind registrations + pages; the
+  // alias collapses kubectl-natural singular/plural to the canonical
+  // plural form. The old `→ configmaps` rewrite was a silent fallback
+  // that hid an architecture gap (UI didn't surface Kyverno reports).
+  policyreport: 'policyreports',
+  clusterpolicyreport: 'clusterpolicyreports',
 }
 
 function normaliseCloudKind(raw: string): string {
@@ -1075,6 +1078,15 @@ const adminCompliancePolicyDrilldownRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/admin/compliance/policy/$policyName',
   component: PolicyDrilldownPage,
+  beforeLoad: provisionAuthGuard,
+})
+// Wave-2 Family-E (#1583, C11-008): /admin/compliance/runtime — Falco
+// runtime-security alerts feed. Chroot mirror lives below as
+// `consoleComplianceRuntimeRoute`.
+const adminComplianceRuntimeRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/admin/compliance/runtime',
+  component: RuntimeAlertsPage,
   beforeLoad: provisionAuthGuard,
 })
 
@@ -1465,6 +1477,14 @@ const consoleCompliancePolicyDrilldownRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/compliance/policy/$policyName',
   component: PolicyDrilldownPage,
+})
+// Wave-2 Family-E (#1583, C11-008): /compliance/runtime — chroot
+// mirror of /admin/compliance/runtime. Standalone Falco runtime-
+// security alerts page so the operator can deep-link directly.
+const consoleComplianceRuntimeRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/compliance/runtime',
+  component: RuntimeAlertsPage,
 })
 
 /**
@@ -2005,6 +2025,8 @@ const routeTree = rootRoute.addChildren([
   adminComplianceSREDashboardRoute,
   adminComplianceSecurityDashboardRoute,
   adminCompliancePolicyDrilldownRoute,
+  // Wave-2 Family-E (#1583, C11-008): standalone Falco runtime alerts.
+  adminComplianceRuntimeRoute,
   legacyProvisionRoute,
   designsRoute,
   designsJobsDepsVizRoute,
@@ -2047,6 +2069,8 @@ const routeTree = rootRoute.addChildren([
     consoleSREComplianceRoute,
     consoleSecComplianceRoute,
     consoleCompliancePolicyDrilldownRoute,
+    // Wave-2 Family-E (#1583, C11-008): chroot Falco runtime alerts.
+    consoleComplianceRuntimeRoute,
     consoleNotificationsRoute,
     // Family F (Wave 3, t10 C6-003/004/005) — BSS-in-console.
     // /bss → redirect to /bss/billing; section pages live under

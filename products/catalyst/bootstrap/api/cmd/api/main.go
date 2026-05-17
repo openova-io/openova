@@ -828,8 +828,15 @@ func main() {
 		// `policy-rollup` for replayable history.
 		rg.Get("/api/v1/sovereigns/{id}/compliance/scorecard", h.HandleComplianceScorecard)
 		rg.Get("/api/v1/sovereigns/{id}/compliance/policies", h.HandleCompliancePolicies)
+		rg.Get("/api/v1/sovereigns/{id}/compliance/policies/{name}", h.HandleCompliancePolicyByName)
 		rg.Get("/api/v1/sovereigns/{id}/compliance/violations", h.HandleComplianceViolations)
 		rg.Get("/api/v1/sovereigns/{id}/compliance/stream", h.HandleComplianceStream)
+		// Wave-2 Family-E (#1583/Family-E): runtime + supply-chain
+		// compliance aggregators. Falco runtime alerts (C11-008),
+		// Trivy SBOM + CVE reports (C11-010), per-Pod + cluster-wide.
+		rg.Get("/api/v1/sovereigns/{id}/compliance/falco", h.HandleComplianceFalco)
+		rg.Get("/api/v1/sovereigns/{id}/compliance/sbom", h.HandleComplianceSBOMPod)
+		rg.Get("/api/v1/sovereigns/{id}/compliance/sbom/summary", h.HandleComplianceSBOMSummary)
 		// QA-loop iter-11 Fix #48 — Networking page surface. Each
 		// endpoint joins live K8s objects from the in-process k8scache
 		// Indexer (Cilium NetworkPolicies, ClusterMesh ConfigMaps,
