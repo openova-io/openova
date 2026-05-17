@@ -493,7 +493,16 @@ spec:
       #   2026-05-16 with admin:b0ed216 stuck in ImagePullBackOff)
       # - PR #1556 adds the billing→notification wire so the voucher
       #   issuance flow emails the recipient (D28 zero-touch contract)
-      version: 1.4.147
+      #
+      # 1.4.148 (D16 + D17 + D27 founder-flagged bug fixes, t139 verify cycle):
+      # - PR #1583: D16 /cloud nodes multi-cluster fan-out + handover
+      #   export retry/reorder/auth-bypass (catalyst-api 2ab8a0e)
+      # - PR #1584: D27 catalog fresh-seed Published=true default
+      #   (sme services catalog 964dc15)
+      # - PR #1585: D17 /app/$componentId route-collision fix (catalyst-ui 2ab8a0e)
+      # Caught on t136/t138 fresh-prov runs that bootstrap-kit was
+      # still pinned to 1.4.147 → none of the fixes reached the chroot.
+      version: 1.4.148
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
