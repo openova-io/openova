@@ -131,6 +131,117 @@ export async function getBssOverview(): Promise<BssOverview> {
   }
 }
 
+/* ── Revenue (Wave 6 PR 4) ──────────────────────────────────────────
+ *
+ * Deeper cut of the BSS revenue rollup. The landing's overview surfaces
+ * a single MRR number + 30-day sparkline; the /bss/revenue page exposes
+ * per-day points for a richer chart and a per-plan breakdown table with
+ * tenant count + MRR + YoY delta. Wire shape mirrors getBssOverview:
+ * zero-filled fallback + pendingApi=true on 404 / 5xx / network error
+ * so the page renders the full target-state surface on first paint
+ * (per INVIOLABLE-PRINCIPLES.md #1 — waterfall).
+ */
+
+export interface PlanBreakdown {
+  /** Stable plan id used as the React key + sort tiebreaker. */
+  id: string
+  /** Operator-facing plan label (e.g. "Starter", "Growth", "Enterprise"). */
+  plan: string
+  /** Number of tenants currently subscribed to this plan. */
+  tenants: number
+  /** Monthly recurring revenue contribution from this plan, in cents. */
+  mrrCents: number
+  /** Year-over-year delta, signed percentage with 1-decimal precision.
+   *  Null when this plan has no prior-year baseline (new plan). */
+  yoyPct: number | null
+}
+
+export interface RevenueKpi {
+  /** Trailing 30-day revenue, in cents. */
+  last30dCents: number
+  /** Month-over-month delta, signed percentage. Null when no prior window. */
+  momPct: number | null
+  /** Highest-MRR tenant label; empty when no tenants. */
+  topTenant: string
+  /** Highest-MRR plan label; empty when no plans. */
+  topPlan: string
+}
+
+export interface BssRevenue {
+  /** Set when the BE returned a non-2xx — page still renders but the
+   *  "API pending" pill is shown, mirroring the overview pattern. */
+  pendingApi: boolean
+  kpi: RevenueKpi
+  /** Up to 30 daily revenue points (cents), oldest first. */
+  sparkline: number[]
+  breakdown: PlanBreakdown[]
+}
+
+const ZERO_REVENUE: BssRevenue = {
+  pendingApi: true,
+  kpi: { last30dCents: 0, momPct: null, topTenant: '', topPlan: '' },
+  sparkline: [],
+  breakdown: [],
+}
+
+/**
+ * getRevenue — fetch the /bss/revenue analytics payload.
+ *
+ * Tolerates 404 / 5xx / network error by returning ZERO_REVENUE so the
+ * page can render its full target-state shape + the "API pending" pill
+ * without crashing (mirrors getBssOverview).
+ *
+ * Backend wire path (when shipped):
+ *   browser ──/api/v1/sme/billing/revenue──▶ catalyst-api ──▶ rollup
+ */
+export async function getRevenue(): Promise<BssRevenue> {
+  let res: Response
+  try {
+    res = await authedFetch(`${API_BASE}/v1/sme/billing/revenue`, {
+      headers: { Accept: 'application/json' },
+    })
+  } catch {
+    return ZERO_REVENUE
+  }
+  if (!res.ok) {
+    return ZERO_REVENUE
+  }
+  try {
+    const body = (await res.json()) as Partial<BssRevenue> | null
+    if (!body || typeof body !== 'object') return ZERO_REVENUE
+    const breakdown = Array.isArray(body.breakdown)
+      ? body.breakdown.map((row, i) => ({
+          id: String(row?.id ?? `row-${i}`),
+          plan: String(row?.plan ?? ''),
+          tenants: Number(row?.tenants ?? 0),
+          mrrCents: Number(row?.mrrCents ?? 0),
+          yoyPct:
+            row?.yoyPct === null || row?.yoyPct === undefined
+              ? null
+              : Number(row.yoyPct),
+        }))
+      : []
+    return {
+      pendingApi: false,
+      kpi: {
+        last30dCents: Number(body.kpi?.last30dCents ?? 0),
+        momPct:
+          body.kpi?.momPct === null || body.kpi?.momPct === undefined
+            ? null
+            : Number(body.kpi.momPct),
+        topTenant: String(body.kpi?.topTenant ?? ''),
+        topPlan: String(body.kpi?.topPlan ?? ''),
+      },
+      sparkline: Array.isArray(body.sparkline)
+        ? body.sparkline.map((n) => Number(n))
+        : [],
+      breakdown,
+    }
+  } catch {
+    return ZERO_REVENUE
+  }
+}
+
 /* ── Vouchers (Wave 6 PR 5) ──────────────────────────────────────────
  *
  * Wire shape mirrors core/services/billing/store.PromoCode (the BE
@@ -365,3 +476,4 @@ function normalizeOrderStatus(raw: unknown): OrderStatus {
   }
   return 'pending'
 }
+

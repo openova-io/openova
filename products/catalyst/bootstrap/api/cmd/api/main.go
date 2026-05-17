@@ -1154,6 +1154,15 @@ func main() {
 		// projection lands with the marketplace/billing wire.
 		rg.Get("/api/v1/sme/orders", h.HandleListSMEOrders)
 
+		// BSS Revenue rollup (Wave 6 PR 4). Read-only feed for the
+		// /console/bss/revenue native React surface (KPI strip + line
+		// chart + per-plan breakdown table). Today the handler returns
+		// a zero-filled payload — the FE renders its full target-state
+		// chrome so the operator sees the surface from first paint
+		// (INVIOLABLE-PRINCIPLES.md #1). The non-zero projection lands
+		// with the marketplace/billing wire.
+		rg.Get("/api/v1/sme/billing/revenue", h.HandleGetSMEBillingRevenue)
+
 		// Sovereign Console populated views (issue #933). Read-only
 		// endpoints the Console pages on console.<sov-fqdn>/console/*
 		// hit to render LIVE local-cluster data (HelmReleases, Jobs,
