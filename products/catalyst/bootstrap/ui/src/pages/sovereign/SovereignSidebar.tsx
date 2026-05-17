@@ -34,7 +34,7 @@ const CLOUD_ICON =
   'M6.657 18c-2.572 0 -4.657 -2.007 -4.657 -4.483c0 -2.475 2.085 -4.482 4.657 -4.482c.393 -1.762 1.794 -3.2 3.675 -3.773c1.88 -.572 3.956 -.193 5.444 1c1.488 1.19 2.162 3.007 1.77 4.769h.99c1.913 0 3.464 1.56 3.464 3.486c0 1.927 -1.551 3.487 -3.465 3.487h-11.878'
 
 interface FlatNavItem {
-  id: 'apps' | 'jobs' | 'dashboard' | 'cloud' | 'users' | 'settings'
+  id: 'apps' | 'jobs' | 'dashboard' | 'cloud' | 'users' | 'bss' | 'settings'
   label: string
   to: string
   icon: string
@@ -71,6 +71,27 @@ const FLAT_NAV: FlatNavItem[] = [
     to: '/users',
     icon: 'M9 7a4 4 0 100 8 4 4 0 000-8zM3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2M16 3.13a4 4 0 010 7.75M21 21v-2a4 4 0 00-3-3.87',
   },
+  // BSS — Business Support (Family F, Wave 3, founder #1 / 2026-05-17).
+  // Replaces the external "Marketplace Admin ↗" link added by PR M
+  // which punted operators out of the Sovereign Console to
+  // marketplace.<sov-fqdn>/back-office/. Founder ruling: "the backed
+  // of the the mark place mutst be just aotnerh menu under console
+  // like https://console.<sov>/bss". The /bss entry redirects to
+  // /bss/billing (default landing); the BssLayout tab strip surfaces
+  // Billing / Orders / Revenue / Vouchers / Tenants.
+  //
+  // RBAC: this entry is always visible for v1 — the whoami payload
+  // doesn't expose tier yet, and the SME gateway's session-tier check
+  // server-side enforces /back-office/* access for the iframe. When
+  // whoami grows a `tier` field the sidebar can hide for tier=user.
+  {
+    id: 'bss',
+    label: 'BSS',
+    to: '/bss',
+    // Receipt / paper icon — distinct from cart (which connotes the
+    // public storefront customers see, not the BSS admin surface).
+    icon: 'M9 2h6a1 1 0 011 1v18l-2-1.5L13 21l-1.5-1.5L10 21l-1.5-1.5L7 21l-1-1-2 1.5V3a1 1 0 011-1h4zM9 7h6M9 11h6M9 15h4',
+  },
 ]
 
 const SETTINGS_ITEM: FlatNavItem = {
@@ -106,7 +127,7 @@ const SETTINGS_SUB_NAV: SubNavItem[] = [
 
 // ── Active-state derivation ───────────────────────────────────────────────────
 
-type ActiveSection = 'apps' | 'jobs' | 'dashboard' | 'cloud' | 'users' | 'settings'
+type ActiveSection = 'apps' | 'jobs' | 'dashboard' | 'cloud' | 'users' | 'bss' | 'settings'
 
 const CLOUD_PATH_RE = /^\/(cloud|infrastructure)(\/|$)/
 
@@ -115,6 +136,10 @@ function deriveActiveSection(pathname: string): ActiveSection {
   if (/^\/dashboard(\/|$)/.test(pathname)) return 'dashboard'
   if (/^\/jobs(\/|$)/.test(pathname)) return 'jobs'
   if (/^\/users(\/|$)/.test(pathname)) return 'users'
+  // /bss(/*) → 'bss' so the BSS nav item highlights for every BSS
+  // sub-tab (billing/orders/revenue/vouchers/tenants). Family F
+  // (Wave 3, 2026-05-17, founder #1).
+  if (/^\/bss(\/|$)/.test(pathname)) return 'bss'
   // /settings/* OR /parent-domains → 'settings' so the Settings nav
   // item highlights and the sub-nav (Marketplace + Parent Domains)
   // expands. Per inviolable principle #4, the path list is pulled
@@ -251,25 +276,12 @@ export function SovereignSidebar({ sovereignFQDN }: SovereignSidebarProps) {
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto py-3" data-testid="sov-console-nav">
-        {/* PR M (2026-05-17 t142 founder follow-up #2): Marketplace Admin
-            link to the BSS back-office (billing/orders/revenue/vouchers).
-            Lives at marketplace.<sov-fqdn>/back-office/ (Astro storefront
-            with admin sub-app). External nav so opens in new tab. Founder
-            asked: "where is the console for the marketplace admin related
-            actions such as billing etc". */}
-        {resolvedFQDN ? (
-          <a
-            href={`https://marketplace.${resolvedFQDN}/back-office/`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mx-2 flex items-center gap-3 rounded-lg px-3 py-2 text-sm no-underline transition-colors text-[var(--color-text-dim)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text)]"
-            data-testid="sov-console-nav-marketplace-admin"
-          >
-            <NavIcon d="M3 3h18l-2 14H5L3 3zM7 21a2 2 0 100-4 2 2 0 000 4zM17 21a2 2 0 100-4 2 2 0 000 4z" />
-            Marketplace Admin
-            <span className="ml-auto text-[var(--color-text-dimmer)]">↗</span>
-          </a>
-        ) : null}
+        {/* Family F (Wave 3, 2026-05-17): the external "Marketplace Admin ↗"
+            link added by PR M (t142 follow-up #2) was deleted here per
+            founder #1 ruling — "this url is rubbish, the backed of the
+            the mark place mutst be just aotnerh menu under console
+            like https://console.<sov>/bss". The BSS group below is the
+            new canonical surface (in-SPA, RBAC-gated, no external tab). */}
         {FLAT_NAV.map((item) => {
           const isActive = activeSection === item.id
           const cls = isActive

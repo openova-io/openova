@@ -117,6 +117,19 @@ import { ResourcesSearchPage } from '@/pages/sovereign/resources/ResourcesSearch
 import { ResourcesListPage } from '@/pages/sovereign/resources/ResourcesListPage'
 import { ResourceDetailNoTabPage } from '@/pages/sovereign/stubs/ResourceDetailNoTabPage'
 import { PodLogsPage } from '@/pages/sovereign/resources/PodLogsPage'
+// Family F (Wave 3, t10 C6-003/004/005) — BSS-in-console.
+// Founder #1 requirement: "the backed of the the mark place mutst be
+// just aotnerh menu under console like https://console.<sov>/bss".
+// BssLayout shells the 5 sub-sections (Billing/Orders/Revenue/Vouchers/
+// Tenants) and iframes the canonical back-office served by the admin
+// Pod in the sme namespace. See pages/sovereign/bss/BssLayout.tsx for
+// the architecture rationale (option B — iframe over re-port).
+import { BssLayout } from '@/pages/sovereign/bss/BssLayout'
+import { BillingPage as BssBillingPage } from '@/pages/sovereign/bss/BillingPage'
+import { OrdersPage as BssOrdersPage } from '@/pages/sovereign/bss/OrdersPage'
+import { RevenuePage as BssRevenuePage } from '@/pages/sovereign/bss/RevenuePage'
+import { VouchersPage as BssVouchersPage } from '@/pages/sovereign/bss/VouchersPage'
+import { TenantsPage as BssTenantsPage } from '@/pages/sovereign/bss/TenantsPage'
 import {
   canonicalisePath,
   hasCatalystSession,
@@ -1471,6 +1484,79 @@ const consoleNotificationsRoute = createRoute({
   component: NotificationsPage,
 })
 
+/* ── Family F (Wave 3) — BSS-in-console routes ─────────────────────────
+ *
+ * Founder #1 requirement (2026-05-17 family-F brief):
+ *   "the backed of the the mark place mutst be just aotnerh menu under
+ *    console like https://console.<sov>/bss"
+ *   "it is just matter of roles based access ... where we give the
+ *    billing access they see the billign etc."
+ *
+ * Replaces the external "Marketplace Admin ↗" sidebar link (PR M,
+ * 2026-05-17 t142 follow-up #2) that punted operators out of the
+ * Sovereign Console SPA to marketplace.<sov-fqdn>/back-office/. Founder
+ * called that URL "rubbish" — the canonical surface is /console/bss/*.
+ *
+ * Route shape:
+ *
+ *   /bss                → redirect to /bss/billing (default landing)
+ *   /bss/billing        → BillingPage (iframes back-office/billing/)
+ *   /bss/orders         → OrdersPage  (iframes back-office/orders/)
+ *   /bss/revenue        → RevenuePage (iframes back-office/revenue/)
+ *   /bss/vouchers       → VouchersPage(iframes back-office/vouchers/)
+ *   /bss/tenants        → TenantsPage (iframes back-office/tenants/)
+ *
+ * RBAC: gated at TWO layers — the SovereignSidebar groups BSS under an
+ * admin-visible heading (unconditional for v1; future RBAC sprint adds
+ * tier in whoami) and the SME gateway's session-tier check enforces
+ * /back-office/* access server-side. The route registrations themselves
+ * are always present so a deep-link from a billing-engineer welcome
+ * email resolves cleanly to the SovereignConsoleLayout auth gate.
+ *
+ * Implementation note: BssLayout owns the tab-strip chrome + iframe
+ * wrapper. The 5 section pages are 3-line wrappers that select the
+ * back-office sub-path. Per docs/INVIOLABLE-PRINCIPLES.md #4 the
+ * back-office host is derived at runtime from DETECTED_MODE.sovereignFQDN.
+ */
+const consoleBssLayoutRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  id: '_bss_layout',
+  component: BssLayout,
+})
+const consoleBssIndexRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/bss',
+  component: NoopRedirectComponent,
+  beforeLoad: () => {
+    throw redirect({ to: '/bss/billing' as never, replace: true })
+  },
+})
+const consoleBssBillingRoute = createRoute({
+  getParentRoute: () => consoleBssLayoutRoute,
+  path: '/bss/billing',
+  component: BssBillingPage,
+})
+const consoleBssOrdersRoute = createRoute({
+  getParentRoute: () => consoleBssLayoutRoute,
+  path: '/bss/orders',
+  component: BssOrdersPage,
+})
+const consoleBssRevenueRoute = createRoute({
+  getParentRoute: () => consoleBssLayoutRoute,
+  path: '/bss/revenue',
+  component: BssRevenuePage,
+})
+const consoleBssVouchersRoute = createRoute({
+  getParentRoute: () => consoleBssLayoutRoute,
+  path: '/bss/vouchers',
+  component: BssVouchersPage,
+})
+const consoleBssTenantsRoute = createRoute({
+  getParentRoute: () => consoleBssLayoutRoute,
+  path: '/bss/tenants',
+  component: BssTenantsPage,
+})
+
 /* ── Sovereign-mode cloud legacy redirects (TC-090..092 / 2026-05-07) ─
  *
  * Sister set to LEGACY_CLOUD_REDIRECTS (which is mounted under the
@@ -1962,6 +2048,17 @@ const routeTree = rootRoute.addChildren([
     consoleSecComplianceRoute,
     consoleCompliancePolicyDrilldownRoute,
     consoleNotificationsRoute,
+    // Family F (Wave 3, t10 C6-003/004/005) — BSS-in-console.
+    // /bss → redirect to /bss/billing; section pages live under
+    // a pathless BssLayout wrapper (provides tab strip + iframe shell).
+    consoleBssIndexRoute,
+    consoleBssLayoutRoute.addChildren([
+      consoleBssBillingRoute,
+      consoleBssOrdersRoute,
+      consoleBssRevenueRoute,
+      consoleBssVouchersRoute,
+      consoleBssTenantsRoute,
+    ]),
   ]),
 ])
 
