@@ -28,6 +28,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
 )
@@ -74,6 +75,24 @@ func (h *Handler) HandleDeploymentImport(w http.ResponseWriter, r *http.Request)
 			"detail": "deployment record carries no id",
 		})
 		return
+	}
+
+	// D30 PR I (2026-05-17 t140 parent-domains regression): mark the
+	// imported deployment as Adopted at import time. The chroot IS the
+	// owner of this Sovereign (verified above via FQDN-match) and the
+	// record arrives ONLY after handover-fire on the mothership, so the
+	// chroot's view of "this is my deployment" should not wait for a
+	// further wizard step.
+	//
+	// Without this, h.activeDeployment() returns nil → ListParentDomains
+	// returns only the synth'd primary entry → operator visits
+	// /parent-domains and sees a single row instead of the full pool
+	// (primary + sme-pool + any future operator-added domains).
+	// Founder caught on t140: "/parent-domains is not showing the
+	// domains I asked, the omani.homes, omani.rest etc where are they".
+	if rec.AdoptedAt == nil {
+		now := time.Now().UTC()
+		rec.AdoptedAt = &now
 	}
 
 	if err := h.store.Save(rec); err != nil {
