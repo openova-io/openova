@@ -25,6 +25,17 @@ import (
 // exportDeploymentToChild ships the deployment record to the child's
 // catalyst-api. Called as a goroutine from fireHandover so it never
 // blocks the SSE emit.
+//
+// D16 PR E (2026-05-17 t138 bug fix): the child's ingress + cert + gateway
+// are racing to become reachable from outside in the seconds after handover
+// fires. The initial POST routinely fails with EOF / connection refused
+// because Cilium Gateway hasn't programmed the HTTPRoute yet. Earlier
+// behaviour (no retry, early return) silently lost both the deployment
+// record AND the secondary-kubeconfig fan-out (the goroutine was guarded
+// behind the early return). The fix:
+//   - retry deployment-export with exponential backoff (up to ~5 min)
+//   - kick off secondary-kubeconfig export UNCONDITIONALLY at the top, so
+//     a deployment-export failure can't suppress the D16 fan-out
 func (h *Handler) exportDeploymentToChild(dep *Deployment, fqdn string) {
 	if h.store == nil {
 		h.log.Warn("deployment-export: no store; cannot export record",
@@ -37,6 +48,11 @@ func (h *Handler) exportDeploymentToChild(dep *Deployment, fqdn string) {
 	depID := dep.ID
 	dep.mu.Unlock()
 
+	// D16 PR E: kick off secondary-kubeconfig fan-out IMMEDIATELY in its
+	// own goroutine. It is independent of the deployment-record export
+	// — it must not be suppressed by an EOF on the deployment POST.
+	go h.exportSecondaryKubeconfigsToChild(dep, fqdn, depID)
+
 	body, err := json.Marshal(rec)
 	if err != nil {
 		h.log.Error("deployment-export: marshal failed",
@@ -47,56 +63,65 @@ func (h *Handler) exportDeploymentToChild(dep *Deployment, fqdn string) {
 	}
 
 	url := "https://api." + fqdn + "/api/v1/internal/deployments/import"
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		h.log.Error("deployment-export: NewRequest failed",
-			"id", depID,
-			"url", url,
-			"err", err,
-		)
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-
 	client := &http.Client{
 		Timeout: 30 * time.Second,
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // child's LE cert may be seconds behind handover; operator browsers always see the validated cert
 		},
 	}
-	resp, err := client.Do(req)
-	if err != nil {
-		h.log.Error("deployment-export: POST failed",
-			"id", depID,
-			"url", url,
-			"err", err,
-		)
-		return
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		h.log.Error("deployment-export: child rejected import",
-			"id", depID,
-			"url", url,
-			"status", resp.StatusCode,
-		)
-		return
-	}
-	h.log.Info("deployment-export: shipped to child",
-		"id", depID,
-		"url", url,
-		"events", len(rec.Events),
-	)
 
-	// D16 PR B (2026-05-17): after the deployment record is shipped,
-	// iterate the secondary regions and POST each region's kubeconfig
-	// to the chroot's POST /api/v1/sovereign/secondary-kubeconfig
-	// endpoint (PR #1579) so the chroot's k8sCache.Factory can register
-	// every cluster + the dashboard handler's per-cluster fan-out
-	// (PR #1580) enumerates pods from all N regions when
-	// group_by=cluster|region. Without this, Layer-1=Cluster renders
-	// 1 bubble instead of N on a multi-region Sovereign.
-	go h.exportSecondaryKubeconfigsToChild(dep, fqdn, depID)
+	// D16 PR E retry: backoff doubles from 5s up to 60s, total budget 5 min.
+	// Most handovers succeed on attempt 2-4 (15-45s after first try).
+	backoff := 5 * time.Second
+	deadline := time.Now().Add(5 * time.Minute)
+	attempt := 0
+	for time.Now().Before(deadline) {
+		attempt++
+		req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+		if err != nil {
+			h.log.Error("deployment-export: NewRequest failed",
+				"id", depID, "url", url, "err", err,
+			)
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			h.log.Warn("deployment-export: POST failed (will retry)",
+				"id", depID, "url", url, "attempt", attempt, "err", err,
+			)
+			time.Sleep(backoff)
+			if backoff < 60*time.Second {
+				backoff *= 2
+			}
+			continue
+		}
+		status := resp.StatusCode
+		resp.Body.Close()
+		if status >= 500 {
+			h.log.Warn("deployment-export: child 5xx (will retry)",
+				"id", depID, "url", url, "attempt", attempt, "status", status,
+			)
+			time.Sleep(backoff)
+			if backoff < 60*time.Second {
+				backoff *= 2
+			}
+			continue
+		}
+		if status >= 400 {
+			h.log.Error("deployment-export: child 4xx (giving up)",
+				"id", depID, "url", url, "attempt", attempt, "status", status,
+			)
+			return
+		}
+		h.log.Info("deployment-export: shipped to child",
+			"id", depID, "url", url, "attempt", attempt, "events", len(rec.Events),
+		)
+		return
+	}
+	h.log.Error("deployment-export: gave up after 5min retries",
+		"id", depID, "url", url, "attempts", attempt,
+	)
 }
 
 // exportSecondaryKubeconfigsToChild iterates the deployment's secondary
@@ -143,31 +168,64 @@ func (h *Handler) exportSecondaryKubeconfigsToChild(dep *Deployment, fqdn, depID
 			"kubeconfigYaml": string(raw),
 		}
 		body, _ := json.Marshal(payload)
-		req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
-		if err != nil {
-			h.log.Error("d16-export: NewRequest failed",
-				"id", depID, "region", regionKey, "err", err,
+		// D16 PR E (2026-05-17): retry with backoff for the same reason as
+		// the deployment-record export — the chroot's Cilium Gateway +
+		// catalyst-api may not be programmed yet at handover-fire+0.
+		// Budget: 5 min, doubling 5s→60s.
+		backoff := 5 * time.Second
+		deadline := time.Now().Add(5 * time.Minute)
+		attempt := 0
+		ok := false
+		for time.Now().Before(deadline) {
+			attempt++
+			req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+			if err != nil {
+				h.log.Error("d16-export: NewRequest failed",
+					"id", depID, "region", regionKey, "err", err,
+				)
+				break
+			}
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := client.Do(req)
+			if err != nil {
+				h.log.Warn("d16-export: POST failed (will retry)",
+					"id", depID, "region", regionKey, "url", url, "attempt", attempt, "err", err,
+				)
+				time.Sleep(backoff)
+				if backoff < 60*time.Second {
+					backoff *= 2
+				}
+				continue
+			}
+			status := resp.StatusCode
+			resp.Body.Close()
+			if status >= 500 {
+				h.log.Warn("d16-export: child 5xx (will retry)",
+					"id", depID, "region", regionKey, "attempt", attempt, "status", status,
+				)
+				time.Sleep(backoff)
+				if backoff < 60*time.Second {
+					backoff *= 2
+				}
+				continue
+			}
+			if status >= 400 {
+				h.log.Error("d16-export: child 4xx (giving up)",
+					"id", depID, "region", regionKey, "attempt", attempt, "status", status,
+				)
+				break
+			}
+			h.log.Info("d16-export: secondary kubeconfig shipped to child",
+				"id", depID, "region", regionKey, "attempt", attempt,
 			)
-			continue
+			ok = true
+			break
 		}
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := client.Do(req)
-		if err != nil {
-			h.log.Error("d16-export: POST failed",
-				"id", depID, "region", regionKey, "url", url, "err", err,
+		if !ok {
+			h.log.Error("d16-export: gave up on region",
+				"id", depID, "region", regionKey, "attempts", attempt,
 			)
-			continue
 		}
-		resp.Body.Close()
-		if resp.StatusCode >= 400 {
-			h.log.Error("d16-export: child rejected secondary kubeconfig",
-				"id", depID, "region", regionKey, "status", resp.StatusCode,
-			)
-			continue
-		}
-		h.log.Info("d16-export: secondary kubeconfig shipped to child",
-			"id", depID, "region", regionKey,
-		)
 	}
 }
 

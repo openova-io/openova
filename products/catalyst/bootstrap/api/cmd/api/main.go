@@ -426,6 +426,15 @@ func main() {
 	// record claiming a different FQDN is rejected.
 	r.Post("/api/v1/internal/deployments/import", h.HandleDeploymentImport)
 
+	// D16 PR F (2026-05-17 t138 bug fix): mothership POSTs each
+	// secondary-region kubeconfig here at handover. Same auth model as
+	// /api/v1/internal/deployments/import — no operator session exists
+	// on the child yet, validation is by depID+regionKey safe-id regex.
+	// Earlier registration inside the auth group (rg) caused mothership
+	// POSTs to 401, suppressing the D16 fan-out silently. Bytes never
+	// leave the chroot disk or enter logged structs (INVIOLABLE-PRINCIPLES #10).
+	r.Post("/api/v1/sovereign/secondary-kubeconfig", h.HandleSovereignSecondaryKubeconfig)
+
 	// Wire the tenant registry — flat-file store at
 	// CATALYST_DEPLOYMENTS_DIR/-tenant-registry.json. Per ADR-0001 §6
 	// the catalyst-api is the host process for the unified-rbac slice
@@ -1188,13 +1197,10 @@ func main() {
 		rg.Post("/api/v1/sovereign/parent-domains", h.AddParentDomain)
 		rg.Delete("/api/v1/sovereign/parent-domains/{name}", h.DeleteParentDomain)
 		rg.Get("/api/v1/sovereign/parent-domains/{name}/propagation", h.GetPropagation)
-		// D16 fan-out (gate D16 multi-region dashboard cluster grouping):
-		// mothership POSTs each secondary region's kubeconfig at handover
-		// so the chroot's k8sCache.Factory can register all clusters +
-		// dashboard handler's per-cluster List() fan-out enumerates all
-		// 3 regions' pods (Layer-1=Cluster renders 3 bubbles, not 1).
-		// Handler at handler/sovereign_secondary_kubeconfig.go.
-		rg.Post("/api/v1/sovereign/secondary-kubeconfig", h.HandleSovereignSecondaryKubeconfig)
+		// D16 secondary-kubeconfig moved OUT of auth group in PR F
+		// (2026-05-17). Now at top-level r.Post (alongside
+		// /api/v1/internal/deployments/import) so mothership handover
+		// POSTs aren't 401'd before any operator session exists.
 	})
 
 	log.Info("catalyst api listening", "port", port)

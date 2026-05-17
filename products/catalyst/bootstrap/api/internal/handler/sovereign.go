@@ -769,6 +769,15 @@ type sovereignCloudResponse struct {
 }
 
 type sovereignNode struct {
+	// Cluster — multi-region fan-out tag (D16 PR D, 2026-05-17). When the
+	// Sovereign Console has secondary kubeconfigs registered with the
+	// chroot's k8sCache (via /api/v1/sovereign/secondary-kubeconfig posted
+	// at handover), HandleSovereignCloud enumerates nodes / LBs / SCs /
+	// PVCs from every registered cluster and tags each row with its
+	// cluster id (e.g., "primary", "nbg1-1", "sin-2") so the operator
+	// can group/filter by region. omitempty for backward compat with
+	// single-cluster Sovereigns.
+	Cluster        string            `json:"cluster,omitempty"`
 	Name           string            `json:"name"`
 	Status         string            `json:"status"`
 	Roles          []string          `json:"roles"`
@@ -796,6 +805,7 @@ type sovereignIngress struct {
 }
 
 type sovereignLB struct {
+	Cluster    string   `json:"cluster,omitempty"`
 	Name       string   `json:"name"`
 	Namespace  string   `json:"namespace"`
 	Type       string   `json:"type"`
@@ -805,6 +815,7 @@ type sovereignLB struct {
 }
 
 type sovereignSC struct {
+	Cluster        string `json:"cluster,omitempty"`
 	Name           string `json:"name"`
 	Provisioner    string `json:"provisioner"`
 	IsDefault      bool   `json:"isDefault"`
@@ -812,6 +823,7 @@ type sovereignSC struct {
 }
 
 type sovereignPVC struct {
+	Cluster      string `json:"cluster,omitempty"`
 	Name         string `json:"name"`
 	Namespace    string `json:"namespace"`
 	StorageClass string `json:"storageClass"`
@@ -848,11 +860,117 @@ func (h *Handler) HandleSovereignCloud(w http.ResponseWriter, r *http.Request) {
 		PVCs:           []sovereignPVC{},
 	}
 
-	if nodes, err := deps.core.CoreV1().Nodes().List(ctx, metav1.ListOptions{}); err == nil {
-		for _, n := range nodes.Items {
-			resp.Nodes = append(resp.Nodes, mapNode(&n))
+	// D16 PR D (2026-05-17): multi-region fan-out. Founder caught on t136
+	// that /cloud?view=list&kind=nodes shows 1 node for a 3-region
+	// Sovereign because this handler was using only the in-cluster
+	// kube client (primary cluster). When secondary kubeconfigs are
+	// registered with h.k8sCache (via the chroot's POST
+	// /api/v1/sovereign/secondary-kubeconfig endpoint and the
+	// mothership handover-export hook), enumerate per-cluster + tag
+	// each row with its cluster id so the UI can group/filter by
+	// region. Single-cluster Sovereigns fall back to the deps client.
+	type clientPair struct {
+		id   string
+		core kubernetes.Interface
+		dyn  dynamic.Interface
+	}
+	pairs := []clientPair{}
+	if h.k8sCache != nil {
+		for _, cid := range h.k8sCache.Clusters() {
+			cc := h.k8sCache.CoreClient(cid)
+			if cc == nil {
+				continue
+			}
+			dc, _ := h.k8sCache.DynamicClientFor(cid)
+			pairs = append(pairs, clientPair{id: cid, core: cc, dyn: dc})
 		}
 	}
+	if len(pairs) == 0 {
+		// Single-cluster fallback — primary in-cluster client only.
+		pairs = []clientPair{{id: "", core: deps.core, dyn: deps.dyn}}
+	}
+
+	for _, p := range pairs {
+		if nodes, err := p.core.CoreV1().Nodes().List(ctx, metav1.ListOptions{}); err == nil {
+			for _, n := range nodes.Items {
+				row := mapNode(&n)
+				row.Cluster = p.id
+				resp.Nodes = append(resp.Nodes, row)
+			}
+		}
+		if svcs, err := p.core.CoreV1().Services("").List(ctx, metav1.ListOptions{}); err == nil {
+			for _, svc := range svcs.Items {
+				if svc.Spec.Type != corev1.ServiceTypeLoadBalancer {
+					continue
+				}
+				ports := []string{}
+				for _, port := range svc.Spec.Ports {
+					ports = append(ports, fmt.Sprintf("%d/%s", port.Port, port.Protocol))
+				}
+				extIP := ""
+				for _, ing := range svc.Status.LoadBalancer.Ingress {
+					if ing.IP != "" {
+						extIP = ing.IP
+						break
+					}
+					if ing.Hostname != "" {
+						extIP = ing.Hostname
+						break
+					}
+				}
+				resp.LoadBalancers = append(resp.LoadBalancers, sovereignLB{
+					Cluster:    p.id,
+					Name:       svc.Name,
+					Namespace:  svc.Namespace,
+					Type:       string(svc.Spec.Type),
+					ClusterIP:  svc.Spec.ClusterIP,
+					ExternalIP: extIP,
+					Ports:      ports,
+				})
+			}
+		}
+		if scs, err := p.core.StorageV1().StorageClasses().List(ctx, metav1.ListOptions{}); err == nil {
+			for _, sc := range scs.Items {
+				isDefault := sc.Annotations["storageclass.kubernetes.io/is-default-class"] == "true"
+				rp := ""
+				if sc.ReclaimPolicy != nil {
+					rp = string(*sc.ReclaimPolicy)
+				}
+				resp.StorageClasses = append(resp.StorageClasses, sovereignSC{
+					Cluster:       p.id,
+					Name:          sc.Name,
+					Provisioner:   sc.Provisioner,
+					IsDefault:     isDefault,
+					ReclaimPolicy: rp,
+				})
+			}
+		}
+		if pvcs, err := p.core.CoreV1().PersistentVolumeClaims("").List(ctx, metav1.ListOptions{}); err == nil {
+			for _, pv := range pvcs.Items {
+				cap := ""
+				if v, ok := pv.Spec.Resources.Requests[corev1.ResourceStorage]; ok {
+					cap = v.String()
+				}
+				sc := ""
+				if pv.Spec.StorageClassName != nil {
+					sc = *pv.Spec.StorageClassName
+				}
+				resp.PVCs = append(resp.PVCs, sovereignPVC{
+					Cluster:      p.id,
+					Name:         pv.Name,
+					Namespace:    pv.Namespace,
+					StorageClass: sc,
+					Capacity:     cap,
+					Status:       string(pv.Status.Phase),
+				})
+			}
+		}
+	}
+
+	// Namespaces / Ingresses / HTTPRoutes remain primary-only — they are
+	// the operator-facing front-door inventory, served by the primary
+	// (mothership-handed-over) cluster. Per-cluster fan-out would dup
+	// the same logical hostnames across regions.
 
 	if nss, err := deps.core.CoreV1().Namespaces().List(ctx, metav1.ListOptions{}); err == nil {
 		for _, ns := range nss.Items {
@@ -899,73 +1017,6 @@ func (h *Handler) HandleSovereignCloud(w http.ResponseWriter, r *http.Request) {
 				Namespace: h.GetNamespace(),
 				Hosts:     hosts,
 				URL:       url,
-			})
-		}
-	}
-
-	if svcs, err := deps.core.CoreV1().Services("").List(ctx, metav1.ListOptions{}); err == nil {
-		for _, svc := range svcs.Items {
-			if svc.Spec.Type != corev1.ServiceTypeLoadBalancer {
-				continue
-			}
-			ports := []string{}
-			for _, p := range svc.Spec.Ports {
-				ports = append(ports, fmt.Sprintf("%d/%s", p.Port, p.Protocol))
-			}
-			extIP := ""
-			for _, ing := range svc.Status.LoadBalancer.Ingress {
-				if ing.IP != "" {
-					extIP = ing.IP
-					break
-				}
-				if ing.Hostname != "" {
-					extIP = ing.Hostname
-					break
-				}
-			}
-			resp.LoadBalancers = append(resp.LoadBalancers, sovereignLB{
-				Name:       svc.Name,
-				Namespace:  svc.Namespace,
-				Type:       string(svc.Spec.Type),
-				ClusterIP:  svc.Spec.ClusterIP,
-				ExternalIP: extIP,
-				Ports:      ports,
-			})
-		}
-	}
-
-	if scs, err := deps.core.StorageV1().StorageClasses().List(ctx, metav1.ListOptions{}); err == nil {
-		for _, sc := range scs.Items {
-			isDefault := sc.Annotations["storageclass.kubernetes.io/is-default-class"] == "true"
-			rp := ""
-			if sc.ReclaimPolicy != nil {
-				rp = string(*sc.ReclaimPolicy)
-			}
-			resp.StorageClasses = append(resp.StorageClasses, sovereignSC{
-				Name:          sc.Name,
-				Provisioner:   sc.Provisioner,
-				IsDefault:     isDefault,
-				ReclaimPolicy: rp,
-			})
-		}
-	}
-
-	if pvcs, err := deps.core.CoreV1().PersistentVolumeClaims("").List(ctx, metav1.ListOptions{}); err == nil {
-		for _, p := range pvcs.Items {
-			cap := ""
-			if v, ok := p.Spec.Resources.Requests[corev1.ResourceStorage]; ok {
-				cap = v.String()
-			}
-			sc := ""
-			if p.Spec.StorageClassName != nil {
-				sc = *p.Spec.StorageClassName
-			}
-			resp.PVCs = append(resp.PVCs, sovereignPVC{
-				Name:         p.Name,
-				Namespace:    p.Namespace,
-				StorageClass: sc,
-				Capacity:     cap,
-				Status:       string(p.Status.Phase),
 			})
 		}
 	}
