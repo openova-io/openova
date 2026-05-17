@@ -189,14 +189,14 @@ func regionKeysForExport(dep *Deployment) []string {
 		if cr == "" {
 			continue
 		}
-		keys = append(keys, cr+"-"+itoa(i))
+		keys = append(keys, cr+"-"+regionSlotIndex(i))
 	}
 	return keys
 }
 
-// itoa — local int→string without pulling strconv into the import set.
+// regionSlotIndex — local int→string without pulling strconv into the import set.
 // Single-digit fast path (we never have >9 regions per Sovereign).
-func itoa(n int) string {
+func regionSlotIndex(n int) string {
 	if n >= 0 && n < 10 {
 		return string(rune('0' + n))
 	}
