@@ -1146,6 +1146,14 @@ func main() {
 		rg.Post("/api/v1/sme/tenants/{id}/reconcile", h.HandleReconcileSMETenant)
 		rg.Delete("/api/v1/sme/tenants/{id}", h.HandleDeleteSMETenant)
 
+		// BSS Orders rollup (Wave 6 PR 3). Read-only feed for the
+		// /console/bss/orders native React table. Today the handler
+		// returns an empty list — the FE renders its full empty-state
+		// chrome so the operator sees the target-state surface from
+		// first paint (INVIOLABLE-PRINCIPLES.md #1). The non-empty
+		// projection lands with the marketplace/billing wire.
+		rg.Get("/api/v1/sme/orders", h.HandleListSMEOrders)
+
 		// Sovereign Console populated views (issue #933). Read-only
 		// endpoints the Console pages on console.<sov-fqdn>/console/*
 		// hit to render LIVE local-cluster data (HelmReleases, Jobs,
