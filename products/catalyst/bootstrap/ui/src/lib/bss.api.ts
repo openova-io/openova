@@ -477,3 +477,102 @@ function normalizeOrderStatus(raw: unknown): OrderStatus {
   return 'pending'
 }
 
+/* ── Billing subscriptions (Wave 6 PR 2) ─────────────────────────── */
+
+export type SubscriptionStatus = 'paid' | 'trial' | 'overdue' | 'cancelled'
+
+export interface Subscription {
+  /** Stable per-subscription id; used as the row key. */
+  id: string
+  /** Tenant organisation that holds the subscription. Empty string when
+   *  the BE hasn't projected the org join yet (rare; renders an em-dash). */
+  tenantOrg: string
+  /** Plan label (Starter / Pro / Enterprise / etc.). */
+  plan: string
+  /** Monthly recurring amount in cents. */
+  mrrCents: number
+  /** ISO-4217 currency code; defaults to USD when absent. */
+  currency: string
+  /** ISO-8601 last-paid timestamp. Empty string is tolerated and renders
+   *  as an em-dash so the table never blows up on malformed rows. */
+  lastPaidAt: string
+  status: SubscriptionStatus
+}
+
+export interface SubscriptionsResponse {
+  /** True when the BE returned a non-2xx — the table still renders but
+   *  surfaces the "API pending" pill (mirrors BssLandingPage). */
+  pendingApi: boolean
+  subscriptions: Subscription[]
+}
+
+const EMPTY_SUBSCRIPTIONS: SubscriptionsResponse = {
+  pendingApi: true,
+  subscriptions: [],
+}
+
+/**
+ * getBillingSubscriptions — fetch the BSS Billing subscription list.
+ *
+ * Mirrors getBssOverview / getOrders: tolerates 404 / 5xx / network
+ * error by returning `{ pendingApi: true, subscriptions: [] }` so the
+ * BillingPage can render its full table chrome + empty state on first
+ * paint, surfacing the "API pending" pill in the toolbar (per
+ * INVIOLABLE-PRINCIPLES.md #1 — waterfall, first paint is the
+ * target-state shape).
+ *
+ * Backend wire path (when shipped):
+ *   browser ──/api/v1/sme/billing/subscriptions──▶ catalyst-api
+ */
+export async function getBillingSubscriptions(): Promise<SubscriptionsResponse> {
+  let res: Response
+  try {
+    res = await authedFetch(`${API_BASE}/v1/sme/billing/subscriptions`, {
+      headers: { Accept: 'application/json' },
+    })
+  } catch {
+    return EMPTY_SUBSCRIPTIONS
+  }
+  if (!res.ok) {
+    return EMPTY_SUBSCRIPTIONS
+  }
+  try {
+    const body = (await res.json()) as { subscriptions?: unknown } | null
+    if (!body || typeof body !== 'object' || !Array.isArray(body.subscriptions)) {
+      return { pendingApi: false, subscriptions: [] }
+    }
+    const subscriptions: Subscription[] = body.subscriptions
+      .map((raw): Subscription | null => {
+        if (!raw || typeof raw !== 'object') return null
+        const r = raw as Record<string, unknown>
+        const id = typeof r.id === 'string' ? r.id : ''
+        if (id === '') return null
+        return {
+          id,
+          tenantOrg: typeof r.tenantOrg === 'string' ? r.tenantOrg : '',
+          plan: typeof r.plan === 'string' ? r.plan : '',
+          mrrCents:
+            typeof r.mrrCents === 'number' && Number.isFinite(r.mrrCents)
+              ? r.mrrCents
+              : 0,
+          currency:
+            typeof r.currency === 'string' && r.currency !== '' ? r.currency : 'USD',
+          lastPaidAt: typeof r.lastPaidAt === 'string' ? r.lastPaidAt : '',
+          status: normalizeSubscriptionStatus(r.status),
+        }
+      })
+      .filter((s): s is Subscription => s !== null)
+    return { pendingApi: false, subscriptions }
+  } catch {
+    return EMPTY_SUBSCRIPTIONS
+  }
+}
+
+function normalizeSubscriptionStatus(raw: unknown): SubscriptionStatus {
+  if (typeof raw !== 'string') return 'paid'
+  const s = raw.toLowerCase()
+  if (s === 'paid' || s === 'trial' || s === 'overdue' || s === 'cancelled') {
+    return s
+  }
+  return 'paid'
+}
