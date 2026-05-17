@@ -1518,7 +1518,9 @@ const consoleNotificationsRoute = createRoute({
  *   /bss/billing        → BillingPage (PortalShell + iframe via
  *                         BssSectionShell; native port lands in Wave 6 PR 2)
  *   /bss/orders         → OrdersPage  (PortalShell + iframe; Wave 6 PR 3)
- *   /bss/revenue        → RevenuePage (PortalShell + iframe; Wave 6 PR 4)
+ *   /bss/revenue        → RevenuePage (native React, Wave 6 PR 4 —
+ *                         drops iframe; KPI strip + line chart +
+ *                         breakdown table)
  *   /bss/vouchers       → VouchersPage(PortalShell + iframe; Wave 6 PR 5)
  *   /bss/tenants        → TenantsPage (PortalShell + iframe; Wave 6 PR 6)
  *
