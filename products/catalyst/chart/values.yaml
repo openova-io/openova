@@ -230,9 +230,9 @@ images:
   organization: "openova-io/openova"
   # SHA tags — bump these via CI when building new images.
   catalystApi:
-    tag: "d92f734"
+    tag: "2ab8a0e"
   catalystUi:
-    tag: "d92f734"
+    tag: "2ab8a0e"
   marketplaceApi:
     tag: "3c2f7e4"
   console:
@@ -247,7 +247,7 @@ images:
   admin:
     tag: "3c2f7e4"
   # All 10 SME microservices share one SHA tag (built from the same mono-repo commit).
-  smeTag: "c04b2ec"
+  smeTag: "964dc15"
 
 # ─── Runtime service coordinates (qa-loop iter-1, cluster
 # `catalyst-runtime-config-missing`) ────────────────────────────────────
