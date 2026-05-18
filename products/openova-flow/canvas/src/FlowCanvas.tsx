@@ -1452,6 +1452,9 @@ function FlowNodeView({
       data-family={node.family}
       data-flow={node.flowId}
       data-kind={node.isGroup ? 'group' : 'leaf'}
+      data-meta-kind={
+        (node.node.meta && (node.node.meta as Record<string, unknown>)['kind']) as string | undefined ?? ''
+      }
       data-folded={node.isFolded ? 'true' : 'false'}
       data-open={isOpen ? 'true' : 'false'}
       data-host={isHost ? 'true' : 'false'}
@@ -1511,18 +1514,7 @@ function FlowNodeView({
           {node.childCount}
         </text>
       ) : (
-        <text
-          x={0}
-          y={6}
-          textAnchor="middle"
-          fontSize={node.isGroup ? 16 : 18}
-          fontWeight={700}
-          fill={tone.glyph}
-          fontFamily="ui-sans-serif, system-ui, sans-serif"
-          pointerEvents="none"
-        >
-          {node.isGroup ? '◇' : glyphFor(node.status)}
-        </text>
+        <NodeGlyph node={node} tone={tone} />
       )}
       <text
         x={0}
@@ -1615,6 +1607,97 @@ function glyphFor(status: string): string {
   if (status === 'failed') return '✗'
   if (status === 'running') return '◐'
   return '○'
+}
+
+/* ─── NodeGlyph — kind-aware bubble glyph ──────────────────────────────
+ *
+ * Per the FlowNode schema, `meta.kind` is the open discriminator the
+ * canvas consults to pick a kind-specific glyph. Adapters that ship
+ * new K8s object types add their kind here; everything else falls back
+ * to the legacy status glyph (◇ for groups, ✓/✗/◐/○ for leaves).
+ *
+ * Sandbox glyph: a single-stroke "terminal/monitor" SVG that matches
+ * the icon used in the Sovereign sidebar's Sandbox nav item
+ * (products/catalyst/bootstrap/ui/src/pages/sovereign/SovereignSidebar.tsx).
+ * Keeping the two glyphs identical means the operator's eye can map
+ * "the sandbox icon I clicked in the sidebar" → "this bubble on the
+ * flow canvas" instantly.
+ *
+ * SandboxPod glyph: a compact "›_" prompt-character shape — derived
+ * from the same icon family but trimmed to fit the smaller pod
+ * bubble alongside the parent Sandbox.
+ */
+interface NodeGlyphProps {
+  node: PositionedNode
+  tone: StatusTone
+}
+
+const SANDBOX_ICON_PATH =
+  'M3 4a1 1 0 011-1h16a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm5 5l3 3-3 3m5 0h4M8 21h8'
+
+function NodeGlyph({ node, tone }: NodeGlyphProps) {
+  const kind = (node.node.meta && (node.node.meta as Record<string, unknown>)['kind']) as
+    | string
+    | undefined
+
+  if (kind === 'Sandbox' && !node.isGroup) {
+    // Terminal-monitor SVG centred on (0,0). The tabler icon natively
+    // lives on a 24×24 canvas with stroke-only paths; we scale to
+    // 18×18 and translate to (-9,-9) so the glyph centres on the
+    // bubble origin.
+    return (
+      <g
+        data-testid={`flow-node-glyph-${node.id}`}
+        data-kind="Sandbox"
+        pointerEvents="none"
+        transform="translate(-9, -9) scale(0.75)"
+      >
+        <path
+          d={SANDBOX_ICON_PATH}
+          stroke={tone.glyph}
+          strokeWidth={1.75}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          fill="none"
+        />
+      </g>
+    )
+  }
+
+  if (kind === 'SandboxPod' && !node.isGroup) {
+    // Compact "›_" prompt — drawn as two strokes centred on (0,0).
+    return (
+      <g
+        data-testid={`flow-node-glyph-${node.id}`}
+        data-kind="SandboxPod"
+        pointerEvents="none"
+      >
+        <path
+          d="M-5,-4 L-1,0 L-5,4 M1,5 L6,5"
+          stroke={tone.glyph}
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          fill="none"
+        />
+      </g>
+    )
+  }
+
+  return (
+    <text
+      x={0}
+      y={6}
+      textAnchor="middle"
+      fontSize={node.isGroup ? 16 : 18}
+      fontWeight={700}
+      fill={tone.glyph}
+      fontFamily="ui-sans-serif, system-ui, sans-serif"
+      pointerEvents="none"
+    >
+      {node.isGroup ? '◇' : glyphFor(node.status)}
+    </text>
+  )
 }
 
 function hashSeed(id: string): { fx: number; fy: number } {

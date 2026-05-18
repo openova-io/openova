@@ -399,6 +399,62 @@ describe('FlowCanvas — triggeredBy banner + cross-flow nav (Agent #9)', () => 
     expect(screen.queryByTestId('flow-triggered-by-banner')).toBeNull()
   })
 
+  it('renders a Sandbox terminal-glyph SVG when meta.kind = Sandbox', () => {
+    // FlowNodes carry kind via `meta.kind` per the post-2026-05-18
+    // sandbox-node contract. The canvas swaps the bubble glyph from
+    // the legacy ○/◐/✓/✗ text-based status pip to a tabler
+    // terminal-monitor SVG so the operator can pick out sandbox
+    // bubbles at a glance — same icon as the Sovereign sidebar.
+    const sandbox: FlowNode = {
+      id: 'fsn1:sandbox:emrah-at-acme',
+      flowId: FLOW.id,
+      label: 'emrah@acme.io',
+      status: 'succeeded',
+      meta: { kind: 'Sandbox', ownerEmail: 'emrah@acme.io' },
+    }
+    render(
+      <FlowCanvas
+        flow={FLOW}
+        nodes={[sandbox]}
+        relationships={[]}
+        folded={new Set()}
+      />,
+    )
+    const glyph = screen.getByTestId(`flow-node-glyph-${sandbox.id}`)
+    expect(glyph).toBeTruthy()
+    expect(glyph.getAttribute('data-kind')).toBe('Sandbox')
+    // The bubble itself surfaces the kind via data-meta-kind for any
+    // downstream e2e selector.
+    const node = screen.getByTestId(`flow-node-${sandbox.id}`)
+    expect(node.getAttribute('data-meta-kind')).toBe('Sandbox')
+  })
+
+  it('renders a SandboxPod prompt-glyph when meta.kind = SandboxPod', () => {
+    const pod: FlowNode = {
+      id: 'fsn1:sandbox-pod:sb-emrah/pty-server-abc',
+      flowId: FLOW.id,
+      label: 'pty-server (abc)',
+      status: 'running',
+      meta: { kind: 'SandboxPod', component: 'pty-server' },
+    }
+    render(
+      <FlowCanvas flow={FLOW} nodes={[pod]} relationships={[]} folded={new Set()} />,
+    )
+    const glyph = screen.getByTestId(`flow-node-glyph-${pod.id}`)
+    expect(glyph.getAttribute('data-kind')).toBe('SandboxPod')
+  })
+
+  it('falls back to the legacy status glyph when meta.kind is absent', () => {
+    const plain: FlowNode = leaf('plain', 'succeeded')
+    render(
+      <FlowCanvas flow={FLOW} nodes={[plain]} relationships={[]} folded={new Set()} />,
+    )
+    // No glyph wrapper → the bubble renders the legacy ✓ text node.
+    expect(screen.queryByTestId(`flow-node-glyph-${plain.id}`)).toBeNull()
+    const node = screen.getByTestId(`flow-node-${plain.id}`)
+    expect(node.getAttribute('data-meta-kind')).toBe('')
+  })
+
   it('renders a cross-flow "→ flow" tag on a node whose Relationship targets another flow', () => {
     const onNavigateFlow = vi.fn()
     const nodes: FlowNode[] = [leaf('a')]
