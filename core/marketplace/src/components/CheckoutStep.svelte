@@ -226,6 +226,10 @@
           plan_id: cart.plan || '',
           apps: cart.apps,
           addons: cart.addons,
+          // Forward Sandbox agent picks (Wave 4). The tenant-service
+          // only acts on this when `apps` contains 'sandbox'; for all
+          // other carts it's persisted and ignored.
+          agents: cart.agents || [],
         });
         return { id: t.id, slug: t.slug || s };
       } catch (e: any) {

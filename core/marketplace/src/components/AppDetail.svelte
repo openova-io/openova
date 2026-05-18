@@ -1,6 +1,6 @@
 <script lang="ts">
   import { getApps, type App } from '../lib/api';
-  import { readCart, toggleApp } from '../lib/cart';
+  import { readCart, toggleApp, toggleAgent, SANDBOX_AGENTS } from '../lib/cart';
 
   interface Props {
     slug?: string;
@@ -16,6 +16,11 @@
   const inCart = $derived(app ? cart.apps.includes(app.id) : false);
   const isService = $derived(app ? (app.system === true || app.kind === 'service') : false);
   const comingSoon = $derived(app ? (app.deployable === false && !isService) : false);
+  // Sandbox product — render the 6-agent pre-select grid below the
+  // features section. Cards reuse the .related-card chrome verbatim
+  // (design-system inheritance rule from Wave 4 brief: no bespoke
+  // components). Picks land on cart.agents via toggleAgent().
+  const isSandbox = $derived(app?.slug === 'sandbox');
 
   $effect(() => {
     // Read slug from URL query param (static site can't use dynamic route params)
@@ -39,6 +44,14 @@
     if (!app) return;
     if (comingSoon) return;
     cart = toggleApp(app.id);
+  }
+
+  function pickAgent(slug: string) {
+    cart = toggleAgent(slug);
+  }
+
+  function agentPicked(slug: string): boolean {
+    return cart.agents.includes(slug);
   }
 </script>
 
@@ -99,6 +112,41 @@
             <li>{feat}</li>
           {/each}
         </ul>
+      </section>
+    {/if}
+
+    <!-- Sandbox: pre-select agents (Wave 4). Reuses .related-card chrome
+         so we don't add a bespoke component. The 6 entries match the
+         Sandbox CRD enum (products/catalyst/chart/crds/sandbox.yaml ::
+         spec.agentCatalogue). Picks land on cart.agents and travel
+         through checkout into the tenant create-org payload. -->
+    {#if isSandbox}
+      <section class="detail-section">
+        <h2>Pick your agents</h2>
+        <p class="detail-dependencies-hint">Choose the coding agents your Sandbox should spawn. You can change this any time from the Sandbox admin tab.</p>
+        <div class="related-grid">
+          {#each SANDBOX_AGENTS as ag}
+            {@const picked = agentPicked(ag.slug)}
+            <button
+              type="button"
+              class="related-card agent-card {picked ? 'picked' : ''}"
+              onclick={() => pickAgent(ag.slug)}
+              aria-pressed={picked}
+            >
+              <span class="related-icon" style="background: var(--color-accent)" aria-hidden="true">
+                {#if picked}
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><path d="M20 6L9 17l-5-5"/></svg>
+                {:else}
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><path d="M12 5v14M5 12h14"/></svg>
+                {/if}
+              </span>
+              <div>
+                <strong>{ag.name}</strong>
+                <p>{ag.tagline}</p>
+              </div>
+            </button>
+          {/each}
+        </div>
       </section>
     {/if}
 
@@ -352,6 +400,29 @@
     margin: 0.1rem 0 0;
     color: var(--color-text-dim);
     font-size: 0.72rem;
+  }
+
+  /* Agent picker — reuses .related-card chrome; the only delta is a
+     pressed state (mirror of .app-card.in-cart from AppsStep). No new
+     tokens — color-success is the existing "selected" channel. */
+  .agent-card {
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    cursor: pointer;
+    font: inherit;
+    text-align: left;
+    width: 100%;
+  }
+  .agent-card:hover {
+    border-color: var(--color-accent);
+  }
+  .agent-card.picked {
+    border-color: var(--color-success);
+    background: color-mix(in srgb, var(--color-success) 4%, var(--color-surface));
+  }
+  .agent-card.picked .related-icon {
+    background: var(--color-success) !important;
+    color: #fff;
   }
 
   /* Floating nav pill */

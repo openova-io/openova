@@ -165,6 +165,12 @@ func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 		PlanID   string   `json:"plan_id"`
 		Apps     []string `json:"apps"`
 		AddOns   []string `json:"addons"`
+		// Wave 4 Sandbox — coding-agent picks from the marketplace
+		// detail page. Only acted on when `Apps` contains "sandbox":
+		// CreateOrg publishes an extra `tenant.sandbox_requested`
+		// event the sandbox-controller consumes to mint a Sandbox CR
+		// with `spec.agentCatalogue` = these slugs. Tolerated empty.
+		Agents   []string `json:"agents"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		respond.Error(w, http.StatusBadRequest, "invalid JSON body")
@@ -238,7 +244,46 @@ func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Wave 4 — Sandbox: when the cart contains the sandbox product,
+	// emit a sibling `tenant.sandbox_requested` event so the
+	// sandbox-controller (or its upstream orchestrator) can mint a
+	// Sandbox CR with `spec.agentCatalogue` matching the picks. The
+	// event carries enough to materialize the CR without re-reading
+	// the tenant doc: org slug + owner email + agent list. Subscriber
+	// is responsible for de-dup (sandbox CR name = sanitized email).
+	if containsSlug(body.Apps, "sandbox") {
+		sandboxPayload := map[string]any{
+			"tenant_id":    tenant.ID,
+			"org_slug":     tenant.Slug,
+			"owner_id":     userID,
+			"agents":       body.Agents,
+			"sovereign":    "", // populated by the consumer from its env / cluster context
+			"requested_at": time.Now().UTC().Format(time.RFC3339),
+		}
+		sbEvt, sbErr := events.NewEvent("tenant.sandbox_requested", "tenant-service", tenant.ID, sandboxPayload)
+		if sbErr == nil {
+			pubCtx, pubCancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer pubCancel()
+			if pubErr := h.Producer.Publish(pubCtx, "sme.tenant.events", sbEvt); pubErr != nil {
+				slog.Error("failed to publish tenant.sandbox_requested event", "tenant_id", tenant.ID, "error", pubErr)
+			}
+		}
+	}
+
 	respond.JSON(w, http.StatusCreated, tenant)
+}
+
+// containsSlug returns true iff slug appears in slugs. Used to gate the
+// Sandbox-specific `tenant.sandbox_requested` event emission so the
+// CreateOrg hot path doesn't pay an event marshal for tenants that
+// never picked the Sandbox product.
+func containsSlug(slugs []string, slug string) bool {
+	for _, s := range slugs {
+		if s == slug {
+			return true
+		}
+	}
+	return false
 }
 
 // ListOrgs returns all organizations where the authenticated user is a member.
