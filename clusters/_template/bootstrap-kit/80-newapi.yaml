@@ -132,7 +132,7 @@ spec:
       # default so reflector mirrors into `catalyst-system` too.
       # 1.4.14 (current main, 2026-05-18): latest upstream-tracking
       # chart cut — includes 1.4.12's reflector fix.
-      version: 1.4.16
+      version: 1.4.17
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
@@ -178,6 +178,20 @@ spec:
       tls:
         enabled: true
         issuer: letsencrypt-prod
+      # Cilium Gateway HTTPRoute for `newapi.<fqdn>` (TBD-D35d, issue
+      # #1778). Sandbox runtimes hit the LLM gateway at the URL the
+      # sandbox controller mints into their environment
+      # (`NEWAPI_BASE_URL=https://newapi.${SOVEREIGN_FQDN}/v1`). Without
+      # this HTTPRoute the marketplace `tenant-wildcard` (hostnames=
+      # `*.${SOVEREIGN_FQDN}`) absorbs every newapi.${SOVEREIGN_FQDN}
+      # request and forwards to the storefront `console` Service —
+      # blocking the entire BYOS Claude Code journey at the LLM gate.
+      # An exact-hostname HTTPRoute outranks the wildcard per Gateway
+      # API spec, so enabling this on every Sovereign restores LLM
+      # reachability without touching the marketplace wildcard.
+      httpRoute:
+        enabled: true
+        host: newapi.${SOVEREIGN_FQDN}
     auth:
       adminUI:
         mode: keycloak
