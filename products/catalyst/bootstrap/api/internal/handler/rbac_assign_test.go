@@ -372,6 +372,65 @@ func TestHandleRBACAssign_404OnUnknownDeployment(t *testing.T) {
 	}
 }
 
+// TestHandleRBACAssign_503WhenCRDMissing — Closes #1739. When the chroot
+// Sovereign hasn't installed the UserAccess CRD (catalyst-controller /
+// useraccess slice not rolled out yet, bp-catalyst-platform pin predating
+// the CRD ship) the apiserver returns NotFound on every List + Create
+// against the missing GVR. Pre-fix the raw apierror leaked as a
+// 500 `{"error":"rbac-assign-failed","detail":"... the server could not
+// find the requested resource"}` — operator-visible noise with no
+// actionable hint. Post-fix the handler returns 503 with
+// `{"error":"useraccess-crd-not-installed",...}` carrying the GVR the
+// controller needs to install.
+func TestHandleRBACAssign_503WhenCRDMissing(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	factory, client := fakeUserAccessDynamicFactory()
+	h.dynamicFactory = factory
+	dep := installUserAccessDeployment(t, h, "dep-rbac-no-crd")
+
+	// Simulate "CRD not installed" by intercepting BOTH list AND create
+	// with apierrors.NewNotFound — the same shape the apiserver returns
+	// when the GroupVersionResource is unknown (e.g. bp-catalyst-platform
+	// not yet rolled out on this Sovereign).
+	gr := schema.GroupResource{Group: userAccessGroup, Resource: userAccessResource}
+	client.PrependReactor("list", "useraccesses", func(a clienttesting.Action) (bool, runtime.Object, error) {
+		return true, nil, apierrors.NewNotFound(gr, "")
+	})
+	client.PrependReactor("create", "useraccesses", func(a clienttesting.Action) (bool, runtime.Object, error) {
+		return true, nil, apierrors.NewNotFound(gr, "")
+	})
+
+	body := rbacAssignRequest{
+		User: rbacAssignUserBody{KeycloakSubject: "alice"},
+		Tier: "developer",
+		Scope: []rbacAssignScopeBody{
+			{Key: "openova.io/application", Value: "wordpress"},
+		},
+	}
+	rec := callUserAccess(t, h, http.MethodPost,
+		"/api/v1/sovereigns/"+dep.ID+"/rbac/assign", body, registerRBACAssignRoute)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status: got %d want 503; body=%s", rec.Code, rec.Body.String())
+	}
+	// writeJSON's enrichErrorBody injects `status: 503` (int) + `code: "503"`
+	// on 4xx/5xx bodies, so decode into map[string]any not map[string]string.
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v; body=%s", err, rec.Body.String())
+	}
+	if resp["error"] != "useraccess-crd-not-installed" {
+		t.Fatalf("error code: got %v want useraccess-crd-not-installed; body=%s",
+			resp["error"], rec.Body.String())
+	}
+	detail, _ := resp["detail"].(string)
+	if !strings.Contains(detail, "UserAccess CRD") {
+		t.Fatalf("detail should reference UserAccess CRD; got %q", detail)
+	}
+	if !strings.Contains(detail, "bp-catalyst-platform") {
+		t.Fatalf("detail should mention bp-catalyst-platform rollout; got %q", detail)
+	}
+}
+
 // ── A1: pure helpers ──────────────────────────────────────────────────
 
 func TestNormalizeScopeSlice_TrimsSortsDropsEmpty(t *testing.T) {

@@ -362,6 +362,29 @@ func (h *Handler) HandleRBACAssign(w http.ResponseWriter, r *http.Request) {
 	}
 	resp, status, prevTier, err := rbacAssignFindOrCreate(r.Context(), client, body, dep)
 	if err != nil {
+		// Closes #1739: when the chroot Sovereign hasn't installed the
+		// UserAccess CRD yet (catalyst-controller / useraccess slice not
+		// rolled out, qa-fixtures off + bootstrap-kit pin predating the
+		// CRD ship, etc.) the apiserver returns NotFound on every List
+		// AND Create against the missing GVR. Pre-fix the raw apierror
+		// surfaced as a 500 with body
+		// `{"error":"rbac-assign-failed","detail":"... the server could
+		// not find the requested resource"}` — operator-visible noise
+		// with no actionable hint. Surface a 503 with an explicit
+		// "useraccess-crd-not-installed" code + the GVR the controller
+		// would need to install, so the matrix runner + the operator
+		// see a stable token and a clear cause.
+		if apierrors.IsNotFound(err) {
+			h.log.Warn("rbac.assign: UserAccess CRD missing on Sovereign",
+				"depId", depID,
+				"gvr", UserAccessGVR().String(),
+			)
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+				"error":  "useraccess-crd-not-installed",
+				"detail": "UserAccess CRD (" + UserAccessGVR().String() + ") is not installed on this Sovereign; bp-catalyst-platform must roll out the catalyst-useraccess controller + CRD before /rbac/assign can author UserAccess CRs",
+			})
+			return
+		}
 		h.log.Warn("rbac.assign: find-or-create failed", "depId", depID, "err", err)
 		writeJSON(w, status, map[string]string{
 			"error":  "rbac-assign-failed",
