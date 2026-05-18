@@ -10,12 +10,15 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 )
 
 func TestFleetTreemapSizeValueAppsDefault(t *testing.T) {
@@ -147,3 +150,130 @@ func TestHandleFleetTreemapEmptyFleet(t *testing.T) {
 }
 
 func float64Ptr(v float64) *float64 { return &v }
+
+// TestFleetTreemapAuthorizedAllowsCatalystOwner — regression test for
+// TBD-E14b / #1766. Wave 30 mothership treemap watch caught a 401 for
+// callers whose JWT had `realm_access.roles=[catalyst-owner]` and an
+// empty `tier` claim — the previous handler had no role-based fallback
+// when the Tier claim was empty (PIN-flow JWTs don't populate it).
+// This test locks in the role-based path so the regression cannot
+// recur.
+func TestFleetTreemapAuthorizedAllowsCatalystOwner(t *testing.T) {
+	cases := []struct {
+		name   string
+		claims *auth.Claims
+		want   bool
+	}{
+		{
+			name:   "nil claims (sovereign-mode passthrough)",
+			claims: nil,
+			want:   true,
+		},
+		{
+			name:   "owner tier",
+			claims: &auth.Claims{Tier: "owner"},
+			want:   true,
+		},
+		{
+			name:   "admin tier",
+			claims: &auth.Claims{Tier: "admin"},
+			want:   true,
+		},
+		{
+			name: "catalyst-owner realm role only (PIN-flow JWT shape)",
+			claims: &auth.Claims{
+				RealmAccess: auth.RealmAccess{Roles: []string{"catalyst-owner"}},
+			},
+			want: true,
+		},
+		{
+			name: "catalyst-admin realm role only",
+			claims: &auth.Claims{
+				RealmAccess: auth.RealmAccess{Roles: []string{"catalyst-admin"}},
+			},
+			want: true,
+		},
+		{
+			name: "mothership-admin realm role only",
+			claims: &auth.Claims{
+				RealmAccess: auth.RealmAccess{Roles: []string{"mothership-admin"}},
+			},
+			want: true,
+		},
+		{
+			name: "viewer tier + no privileged role → denied",
+			claims: &auth.Claims{
+				Tier:        "viewer",
+				RealmAccess: auth.RealmAccess{Roles: []string{"openova-user"}},
+			},
+			want: false,
+		},
+		{
+			name: "developer tier + no privileged role → denied",
+			claims: &auth.Claims{
+				Tier:        "developer",
+				RealmAccess: auth.RealmAccess{Roles: []string{"openova-user"}},
+			},
+			want: false,
+		},
+		{
+			name:   "empty claims (no tier, no roles) → denied",
+			claims: &auth.Claims{},
+			want:   false,
+		},
+	}
+	for _, c := range cases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			if got := fleetTreemapAuthorized(c.claims); got != c.want {
+				t.Fatalf("fleetTreemapAuthorized(%+v) = %v, want %v", c.claims, got, c.want)
+			}
+		})
+	}
+}
+
+// TestHandleFleetTreemapCatalystOwnerReturns200 — end-to-end regression
+// for the Wave 30 401. With a `catalyst-owner` realm role on the
+// request claims, the handler MUST return 200 (well-shaped envelope),
+// NOT 401/403.
+func TestHandleFleetTreemapCatalystOwnerReturns200(t *testing.T) {
+	h := &Handler{}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/fleet/treemap", nil)
+	ctx := context.WithValue(req.Context(), auth.ClaimsKey, &auth.Claims{
+		Email:       "owner@openova.io",
+		Sub:         "test-owner-sub",
+		RealmAccess: auth.RealmAccess{Roles: []string{"catalyst-owner"}},
+	})
+	w := httptest.NewRecorder()
+	h.HandleFleetTreemap(w, req.WithContext(ctx))
+	if w.Code != http.StatusOK {
+		t.Fatalf("catalyst-owner status=%d want 200 (body=%s)", w.Code, w.Body.String())
+	}
+	var body fleetTreemapResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	// Empty fleet → well-shaped empty envelope (not nil items).
+	if body.Items == nil {
+		t.Fatalf("items must be non-nil even for empty fleet; got %+v", body)
+	}
+}
+
+// TestHandleFleetTreemapUnprivilegedReturns403 — locks in that
+// callers without Sovereign-owner / -admin tier OR an equivalent
+// realm role are denied with 403 (not 200).
+func TestHandleFleetTreemapUnprivilegedReturns403(t *testing.T) {
+	h := &Handler{}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/fleet/treemap", nil)
+	ctx := context.WithValue(req.Context(), auth.ClaimsKey, &auth.Claims{
+		Email:       "viewer@openova.io",
+		Sub:         "test-viewer-sub",
+		Tier:        "viewer",
+		RealmAccess: auth.RealmAccess{Roles: []string{"openova-user"}},
+	})
+	w := httptest.NewRecorder()
+	h.HandleFleetTreemap(w, req.WithContext(ctx))
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("viewer status=%d want 403 (body=%s)", w.Code, w.Body.String())
+	}
+}

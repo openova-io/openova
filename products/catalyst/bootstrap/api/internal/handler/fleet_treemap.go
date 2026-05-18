@@ -60,6 +60,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 )
 
 // fleetTreemapItem — wire shape mirroring the per-Sov treemapItem
@@ -111,6 +113,55 @@ var fleetTreemapColorBy = map[string]struct{}{
 	"age":    {},
 }
 
+// fleetTreemapAuthorized — explicit allow-list gate for the fleet
+// treemap surface. The fleet view shows EVERY Sovereign on the
+// mothership, so we tier-gate to Sovereign-owner / -admin claims
+// rather than letting any authenticated user see the full fleet
+// (TBD-E14b / #1766).
+//
+// Returns true when:
+//   - claims == nil (test path / Sovereign-mode catalyst-api where
+//     RequireSession is a transparent passthrough; the auth
+//     middleware is the single source of truth for whether auth was
+//     required at all);
+//   - Tier is `admin` or `owner` (canonical Sovereign-admin gate);
+//   - HasRealmRole holds any of fleetTreemapAllowedRoles — the PIN
+//     auth flow mints JWTs that carry `realm_access.roles=[catalyst-owner]`
+//     for Sovereign owners but does NOT populate the Tier claim
+//     (the realm's `tier` protocolMapper only fires on the federated
+//     IdP path, not the operator PIN flow). Wave 30 caught a 401 for
+//     legitimate `catalyst-owner` callers on `/api/v1/fleet/treemap`
+//     because the handler had no role-based fallback when the Tier
+//     claim was empty.
+func fleetTreemapAuthorized(claims *auth.Claims) bool {
+	if claims == nil {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(claims.Tier)) {
+	case "admin", "owner":
+		return true
+	}
+	for _, want := range fleetTreemapAllowedRoles {
+		if claims.HasRealmRole(want) {
+			return true
+		}
+	}
+	return false
+}
+
+// fleetTreemapAllowedRoles — realm roles that grant fleet-treemap
+// visibility on the mothership. Mirrors `rbacAssignPrivilegedRoles`
+// (rbac_assign.go) PLUS the legacy `mothership-admin` role some
+// older realms still mint. Kept package-local so a future tightening
+// of fleet visibility doesn't ripple through every privileged-role
+// callsite.
+var fleetTreemapAllowedRoles = []string{
+	"catalyst-owner",
+	"catalyst-admin",
+	"application-admin",
+	"mothership-admin",
+}
+
 // HandleFleetTreemap — GET /api/v1/fleet/treemap
 //
 // Validates query string, then collects the cheap per-Sovereign
@@ -123,7 +174,29 @@ var fleetTreemapColorBy = map[string]struct{}{
 // "Sovereigns" layer immediately; clicking a cell deep-links to that
 // Sovereign's chroot console (where the existing /dashboard treemap
 // already shows the full Region→Cluster→…→Application hierarchy).
+//
+// Authorisation (TBD-E14b / #1766):
+//
+//   - RequireSession middleware enforces 401 on missing/invalid
+//     session token; this handler only runs for authenticated callers.
+//   - fleetTreemapAuthorized() enforces 403 when the caller's claims
+//     do NOT include Sovereign-owner / -admin tier OR an equivalent
+//     realm role (catalyst-owner, catalyst-admin, application-admin,
+//     mothership-admin). Wave 30 caught the regression where the
+//     PIN-flow JWT carries `realm_access=[catalyst-owner]` but an
+//     empty `tier` claim — the previous wired-only-on-tier gate
+//     returned 401 to the front-end fetch, which the SPA then
+//     surfaced as "Unauthorised" on /dashboard/treemap.
 func (h *Handler) HandleFleetTreemap(w http.ResponseWriter, r *http.Request) {
+	claims := auth.ClaimsFromContext(r.Context())
+	if !fleetTreemapAuthorized(claims) {
+		writeJSON(w, http.StatusForbidden, map[string]string{
+			"error":  "forbidden",
+			"detail": "fleet treemap requires Sovereign-owner / -admin tier or catalyst-owner realm role",
+		})
+		return
+	}
+
 	q := r.URL.Query()
 
 	sizeBy := strings.TrimSpace(q.Get("size_by"))
