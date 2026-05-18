@@ -465,6 +465,47 @@ type smeTenantTemplateData struct {
 	IsBYO         bool
 	ChartVersions SMETenantChartVersions
 	GeneratedAt   string
+
+	// D31 active-hot-standby — opt-in cross-region CNPG ReplicaCluster
+	// for CNPG-backed tenant apps. The bp-wordpress-tenant chart
+	// (platform/wordpress-tenant/chart/templates/cnpg-cluster.yaml,
+	// PR #1562) already supports a `pg.activeHotStandby.{enabled,
+	// primaryRegion,replicaRegion}` block: when enabled it renders a
+	// primary + replica `Cluster.postgresql.cnpg.io` pair pinned to two
+	// distinct openova.io/region values, with WAL streaming over
+	// Cilium ClusterMesh via the `service.cilium.io/global` Service the
+	// CNPG operator provisions on the primary. Single-cluster
+	// (legacy) shape stays the default for every tenant that hasn't
+	// opted in.
+	//
+	// Source: the trio is sourced from the catalyst-api Pod env at
+	// render time (env keys: SOVEREIGN_ENABLE_HOT_STANDBY,
+	// SOVEREIGN_PRIMARY_REGION, SOVEREIGN_REPLICA_REGION). Bootstrap-
+	// kit slot 13 (clusters/_template/bootstrap-kit/13-bp-catalyst-
+	// platform.yaml) wires those envsubst placeholders from
+	// per-Sovereign overlays so an operator flips one knob and every
+	// future tenant install gets the HA shape.
+	//
+	// Default behaviour (EnableHotStandby=false): the rendered
+	// HelmRelease omits the `pg.activeHotStandby` block entirely so the
+	// chart falls back to its values.yaml default (enabled=false). Zero
+	// regression for any Sovereign that has not opted in.
+	//
+	// When EnableHotStandby=true at render time we additionally enforce:
+	//   - PrimaryRegion non-empty
+	//   - ReplicaRegion non-empty AND distinct from PrimaryRegion
+	// If any of those fail we fall back to single-cluster shape rather
+	// than emitting a HelmRelease the chart's
+	// `validateActiveHotStandbyRegions` helper would `fail` at template
+	// time — a failed template render blocks the entire tenant overlay
+	// reconcile, which is far worse than degrading silently to non-HA.
+	// Same shape applies to any future tenant product chart (gitlab-
+	// tenant, nextcloud-tenant) that adopts the same value contract;
+	// today those charts do not exist in this monorepo so this wiring
+	// is exercised only by bp-wordpress-tenant.
+	EnableHotStandby bool
+	PrimaryRegion    string
+	ReplicaRegion    string
 }
 
 // renderSMETenantOverlay turns a record into a map<filename, contents>
@@ -498,24 +539,49 @@ func renderSMETenantOverlay(rec store.SMETenantProvisionRecord, versions SMETena
 	owHost := strings.Replace(host, "console.", "openclaw.", 1)
 	mailHost := strings.Replace(host, "console.", "mail.", 1)
 
+	// D31 active-hot-standby — read the Sovereign-level toggle + region
+	// pair from the catalyst-api Pod env at render time. Wired by
+	// bootstrap-kit slot 13 (clusters/_template/bootstrap-kit/13-bp-
+	// catalyst-platform.yaml) from envsubst placeholders the operator
+	// sets at provision time. Default-off keeps every existing tenant
+	// rendering single-cluster CNPG (no regression).
+	enableHotStandby := false
+	switch strings.ToLower(strings.TrimSpace(envOr("SOVEREIGN_ENABLE_HOT_STANDBY", ""))) {
+	case "true", "1", "yes", "on":
+		enableHotStandby = true
+	}
+	primaryRegion := strings.TrimSpace(envOr("SOVEREIGN_PRIMARY_REGION", ""))
+	replicaRegion := strings.TrimSpace(envOr("SOVEREIGN_REPLICA_REGION", ""))
+	// Defence-in-depth: if the operator opted in to HA but didn't wire
+	// distinct regions, fall back to single-cluster mode rather than
+	// rendering a HelmRelease the WordPress chart's
+	// validateActiveHotStandbyRegions helper would reject at template
+	// time (which would block the entire tenant overlay reconcile).
+	if enableHotStandby && (primaryRegion == "" || replicaRegion == "" || primaryRegion == replicaRegion) {
+		enableHotStandby = false
+	}
+
 	data := smeTenantTemplateData{
-		TenantID:      rec.SMETenantID,
-		Subdomain:     rec.Subdomain,
-		Namespace:     rec.TenantNamespace,
-		VClusterName:  rec.VClusterName,
-		OTECHFQDN:     rec.OTECHFQDN,
-		ParentDomain:  parentZone,
-		ConsoleHost:   host,
-		WordPressHost: wpHost,
-		OpenClawHost:  owHost,
-		MailHost:      mailHost,
-		AdminEmail:    rec.AdminEmail,
-		CompanyName:   rec.CompanyName,
-		DomainMode:    string(rec.DomainMode),
-		BYODomain:     rec.BYODomain,
-		IsBYO:         rec.DomainMode == store.SMEDomainBYO,
-		ChartVersions: versions,
-		GeneratedAt:   time.Now().UTC().Format(time.RFC3339),
+		TenantID:         rec.SMETenantID,
+		Subdomain:        rec.Subdomain,
+		Namespace:        rec.TenantNamespace,
+		VClusterName:     rec.VClusterName,
+		OTECHFQDN:        rec.OTECHFQDN,
+		ParentDomain:     parentZone,
+		ConsoleHost:      host,
+		WordPressHost:    wpHost,
+		OpenClawHost:     owHost,
+		MailHost:         mailHost,
+		AdminEmail:       rec.AdminEmail,
+		CompanyName:      rec.CompanyName,
+		DomainMode:       string(rec.DomainMode),
+		BYODomain:        rec.BYODomain,
+		IsBYO:            rec.DomainMode == store.SMEDomainBYO,
+		ChartVersions:    versions,
+		GeneratedAt:      time.Now().UTC().Format(time.RFC3339),
+		EnableHotStandby: enableHotStandby,
+		PrimaryRegion:    primaryRegion,
+		ReplicaRegion:    replicaRegion,
 	}
 
 	out := map[string]string{}
@@ -1041,9 +1107,26 @@ spec:
       host: {{.WordPressHost}}
       tls:
         issuer: letsencrypt-prod
+{{- if .EnableHotStandby }}
+    # D31 active-hot-standby — primary + replica Cluster CR pair across
+    # the Sovereign's two declared regions, WAL streaming over Cilium
+    # ClusterMesh (DoD D11 — clustermesh apiserver via LoadBalancer +
+    # peer cert exchange). Toggled at the bootstrap-kit slot 13 layer
+    # via SOVEREIGN_ENABLE_HOT_STANDBY=true on the per-Sovereign
+    # overlay; the catalyst-api Pod reads SOVEREIGN_PRIMARY_REGION /
+    # SOVEREIGN_REPLICA_REGION env at render time and writes them
+    # through here. Chart contract: bp-wordpress-tenant chart 0.2.0+'s
+    # pg.activeHotStandby.* block (see platform/wordpress-tenant/chart/
+    # templates/cnpg-cluster.yaml).
+    pg:
+      activeHotStandby:
+        enabled: true
+        primaryRegion: {{ .PrimaryRegion }}
+        replicaRegion: {{ .ReplicaRegion }}
+{{- end }}
 `
 
-const smeTenantBPOpenClaw = `# bp-openclaw (#803, #915) — workspace controller pre-wired to the
+const smeTenantBPOpenClaw =`# bp-openclaw (#803, #915) — workspace controller pre-wired to the
 # per-tenant Keycloak realm (SSO) and the per-tenant NewAPI gateway
 # (OpenAI-compatible LLM endpoint, NOT direct OpenAI).
 #

@@ -82,6 +82,19 @@ func main() {
 	newapiAdmin := strings.TrimSpace(os.Getenv("NEWAPI_ADMIN_SECRET"))
 	defaultChannels := splitAndTrim(envOr("NEWAPI_DEFAULT_CHANNELS", ""), ",")
 
+	// D31 active-hot-standby — Sovereign-level toggle + region pair the
+	// controller threads into every per-Sandbox MCP Pod. The MCP
+	// server's sandbox.db.provision handler reads these at call time
+	// and, when valid, materialises a primary + replica Cluster.
+	// postgresql.cnpg.io pair instead of a single Cluster (DoD D31).
+	// Default-empty keeps every existing Sandbox on single-Cluster
+	// CNPG (zero regression). Bootstrap-kit slot 61 wires these from
+	// the per-Sovereign overlay's envsubst placeholders into the
+	// bp-sandbox HelmRelease values.
+	enableHotStandby := envOr("SOVEREIGN_ENABLE_HOT_STANDBY", "")
+	primaryRegion := envOr("SOVEREIGN_PRIMARY_REGION", "")
+	replicaRegion := envOr("SOVEREIGN_REPLICA_REGION", "")
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsserver.Options{BindAddress: metricsAddr},
@@ -134,6 +147,9 @@ func main() {
 		IdleTimeoutMinutes:    idleTimeoutMinutes,
 		NewAPIClient:          newapiClient,
 		DefaultChannels:       defaultChannels,
+		EnableHotStandby:      enableHotStandby,
+		PrimaryRegion:         primaryRegion,
+		ReplicaRegion:         replicaRegion,
 	}
 	if err := r.SetupWithManager(mgr); err != nil {
 		log.Error(err, "setup reconciler")

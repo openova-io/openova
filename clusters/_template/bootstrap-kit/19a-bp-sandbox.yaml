@@ -105,3 +105,20 @@ spec:
       ptyServerImage: ${SANDBOX_PTY_SERVER_IMAGE}
       mcpImage: ${SANDBOX_MCP_IMAGE}
       newapiURL: https://newapi.${SOVEREIGN_FQDN}/v1
+    # D31 active-hot-standby — when SOVEREIGN_ENABLE_HOT_STANDBY=true on
+    # the per-Sovereign overlay (and both regions are non-empty AND
+    # distinct), sandbox.db.provision materialises a primary + replica
+    # Cluster.postgresql.cnpg.io pair instead of a single Cluster
+    # (mirrors the bp-cnpg-pair pattern + bp-wordpress-tenant chart
+    # 0.2.0+). Same trio of envsubst placeholders bp-catalyst-platform
+    # slot 13 consumes for the marketplace tenant path — flipping one
+    # knob on the per-Sovereign overlay covers BOTH paths so HA stays
+    # consistent across the marketplace tenant install and the
+    # sandbox.db plane. Default empty = single-Cluster CNPG (zero
+    # regression). Region keys MUST match the canonical openova.io/
+    # region node label value (e.g. `hz-fsn-rtz-prod`).
+    cnpg:
+      activeHotStandby:
+        enabled: ${SOVEREIGN_ENABLE_HOT_STANDBY:-}
+        primaryRegion: ${SOVEREIGN_PRIMARY_REGION:-}
+        replicaRegion: ${SOVEREIGN_REPLICA_REGION:-}

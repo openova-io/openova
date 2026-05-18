@@ -71,6 +71,21 @@ type Inputs struct {
 	NewAPITokenSecretName string
 	NewAPITokenExpiresAt  string
 	NewAPITokenRotatedAt  string
+
+	// D31 active-hot-standby — Sovereign-level toggle + region pair the
+	// sandbox-controller propagates into every per-Sandbox MCP Pod via
+	// SOVEREIGN_ENABLE_HOT_STANDBY / SOVEREIGN_PRIMARY_REGION /
+	// SOVEREIGN_REPLICA_REGION env. The MCP server's sandbox.db.provision
+	// handler reads them at call time and, when valid, materialises a
+	// primary + replica Cluster.postgresql.cnpg.io pair instead of a
+	// single Cluster (mirrors the bp-cnpg-pair pattern). Default empty
+	// (zero regression): every Sandbox stays on single-Cluster CNPG.
+	// Sourced from the sandbox-controller's own env (chart values
+	// `cnpg.activeHotStandby.*` plumbed by bootstrap-kit slot 61 from
+	// the per-Sovereign overlay's envsubst placeholders).
+	EnableHotStandby string
+	PrimaryRegion    string
+	ReplicaRegion    string
 }
 
 const namespaceTemplate = `apiVersion: v1
@@ -395,6 +410,23 @@ spec:
                   name: {{ .LLMGatewayTokenSecret | quote }}
                   key: llm-gateway-token
                   optional: true
+            # ── D31 active-hot-standby — Sovereign-level toggle + region
+            # pair. When SOVEREIGN_ENABLE_HOT_STANDBY parses truthy AND
+            # both region values are non-empty AND distinct, sandbox.db.
+            # provision materialises a primary + replica Cluster.
+            # postgresql.cnpg.io pair instead of a single Cluster (DoD
+            # D31). Default-off keeps every existing Sandbox on single-
+            # Cluster CNPG (zero regression). The values flow:
+            #   bootstrap-kit slot 19a envsubst (per-Sovereign overlay)
+            #   -> bp-sandbox HelmRelease values
+            #   -> sandbox-controller env (host cluster)
+            #   -> here, into every per-Sandbox MCP Pod
+            - name: SOVEREIGN_ENABLE_HOT_STANDBY
+              value: {{ .EnableHotStandby | quote }}
+            - name: SOVEREIGN_PRIMARY_REGION
+              value: {{ .PrimaryRegion | quote }}
+            - name: SOVEREIGN_REPLICA_REGION
+              value: {{ .ReplicaRegion | quote }}
           resources:
             requests:
               cpu: "50m"

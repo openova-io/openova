@@ -142,4 +142,25 @@ data:
   orgName: {{ default "" .Values.sovereign.orgName | quote }}
   controlPlaneIP: {{ default "" .Values.sovereign.controlPlaneIP | quote }}
   gitopsRepoURL: {{ default "" .Values.sovereign.gitopsRepoURL | quote }}
+  # D31 active-hot-standby — Sovereign-level opt-in for the cross-
+  # region CNPG ReplicaCluster shape on CNPG-backed tenant apps. Read
+  # by the catalyst-api SME-tenant pipeline (sme_tenant_gitops.go
+  # renderSMETenantOverlay) at render time. When `enableHotStandby`
+  # parses truthy AND both region keys are non-empty AND distinct,
+  # every fresh tenant's bp-wordpress-tenant HelmRelease carries
+  # `pg.activeHotStandby.{enabled,primaryRegion,replicaRegion}`. The
+  # chart then renders a primary + replica Cluster.postgresql.cnpg.io
+  # pair across the two regions, WAL streaming over Cilium ClusterMesh
+  # (DoD D11 + D31). Same wiring will be picked up by future tenant
+  # product charts (gitlab-tenant, nextcloud-tenant) that adopt the
+  # same value contract — no further chart bump required.
+  #
+  # All three default to empty so a Sovereign that hasn't opted in
+  # stays on the single-Cluster shape. Bootstrap-kit slot 13 wires
+  # operator overrides from the envsubst placeholders
+  # SOVEREIGN_ENABLE_HOT_STANDBY / SOVEREIGN_PRIMARY_REGION /
+  # SOVEREIGN_REPLICA_REGION the per-Sovereign overlay carries.
+  enableHotStandby: {{ default "" .Values.sovereign.enableHotStandby | quote }}
+  primaryRegion: {{ default "" .Values.sovereign.primaryRegion | quote }}
+  replicaRegion: {{ default "" .Values.sovereign.replicaRegion | quote }}
 {{- end }}
