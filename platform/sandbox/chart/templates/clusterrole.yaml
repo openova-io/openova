@@ -1,0 +1,42 @@
+{{- /*
+ClusterRole for sandbox-controller (Wave 1).
+
+Least-privilege grants — modelled on
+products/catalyst/chart/templates/controllers/organization-controller-clusterrole.yaml.
+
+  - sandboxes / sandboxes/status / sandboxes/finalizers — primary watch +
+    status writes + finalizer add/remove (finalizer wired in Wave 2).
+  - leases — controller-runtime leader election.
+  - events — controller-runtime emits Events on the parent CR for
+    operator-visible reconcile errors.
+  - secrets get (Sovereign-wide, cache-scoped) — Wave 1 does NOT yet
+    read the Gitea PAT via this rule (we use a `secretKeyRef` env-var
+    mount in the Deployment, which the kubelet resolves without the
+    controller calling secrets:get). The rule is intentionally OMITTED
+    until Wave 2 needs it for the per-Sandbox token issuance flow —
+    matches Inviolable Principle #4's "minimal blast radius" rule.
+*/ -}}
+{{- if .Values.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "sandbox.fullname" . }}
+  labels:
+    {{- include "sandbox.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["sandbox.openova.io"]
+    resources: ["sandboxes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["sandbox.openova.io"]
+    resources: ["sandboxes/status"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: ["sandbox.openova.io"]
+    resources: ["sandboxes/finalizers"]
+    verbs: ["update"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+{{- end }}
