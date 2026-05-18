@@ -157,6 +157,13 @@ type sandboxListResponse struct {
 // sandboxItem — one Sandbox row as the FE consumes it. The FE
 // re-normalises every field defensively so the BE may omit unknown
 // fields without breaking older clients.
+//
+// The list/get responses reflect controller-managed `.status` fields
+// (Wave 14 follow-up to PR #1637 which shipped spec-only). Phase
+// mapping is documented on `mapSandboxStatus` — the canonical CRD
+// vocabulary (Pending|Provisioning|Ready|Failed) is preserved on
+// `Phase` while the FE-facing `Status` carries the projected
+// pending|running|stopped|failed|unknown.
 type sandboxItem struct {
 	// ID — the Sandbox CR name (DNS-1123 label, e.g. `sandbox-emrah`).
 	ID string `json:"id"`
@@ -170,11 +177,65 @@ type sandboxItem struct {
 	// the CRD vocabulary is {Pending, Provisioning, Ready, Failed}.
 	// mapSandboxStatus handles the projection.
 	Status string `json:"status"`
+	// Phase — raw controller phase (Pending|Provisioning|Ready|Failed).
+	// Surfaced alongside the projected `Status` so the FE can render
+	// finer-grained progress (e.g. "Provisioning" spinner vs. "Pending"
+	// queued state) without re-implementing the mapping.
+	Phase string `json:"phase,omitempty"`
 	// CreatedAt — RFC3339 metadata.creationTimestamp.
 	CreatedAt string `json:"createdAt"`
 	// Repo — first repo entry's giteaRepo (`<org>/<repo>`). Empty
 	// when no repos are configured.
 	Repo string `json:"repo"`
+	// Sessions — number of pty-server sessions live on the Sandbox.
+	// Mirrors `.status.sessions`. Zero when the controller hasn't
+	// reconciled yet OR when no sessions are open (the FE distinguishes
+	// via `Phase`).
+	Sessions int64 `json:"sessions"`
+	// StorageUsed — human-readable storage usage (e.g. "12Gi"). Mirrors
+	// `.status.storageUsed`. Empty when unknown.
+	StorageUsed string `json:"storageUsed,omitempty"`
+	// Spend30d — 30-day rolling spend in the operator's currency (e.g.
+	// "$4.21"). Mirrors `.status.spend30d`. Empty when unknown.
+	Spend30d string `json:"spend30d,omitempty"`
+	// Previews — list of preview URLs (one per PR/branch). Mirrors
+	// `.status.previews`. Empty slice when no previews are alive.
+	Previews []sandboxPreview `json:"previews"`
+	// Conditions — controller-managed K8s-style conditions. Surfaces
+	// the `Type|Status|Reason|Message` tuple verbatim so the FE can
+	// render actionable error states (e.g. `Ready=False` +
+	// `Reason=TokenMintFailed` + `Message=...`) without
+	// re-implementing the reconciler's failure taxonomy. Empty slice
+	// when the controller hasn't observed the CR yet.
+	Conditions []sandboxCondition `json:"conditions"`
+}
+
+// sandboxPreview mirrors sandboxapi.SandboxPreview (one preview URL
+// per PR/branch, see core/controllers/sandbox/internal/sandboxapi/
+// types.go). camelCase to match the FE wire convention.
+type sandboxPreview struct {
+	// PRNumber — the Gitea pull-request number that authored this
+	// preview. Zero for the trunk preview.
+	PRNumber int64 `json:"prNumber"`
+	// URL — the public HTTPS URL serving the preview.
+	URL string `json:"url"`
+	// SHA — short commit SHA the preview was built from.
+	SHA string `json:"sha,omitempty"`
+}
+
+// sandboxCondition mirrors sandboxapi.SandboxCondition. Reason +
+// Message are operator-facing strings (see fail() in
+// sandbox_controller.go for the canonical list:
+// OwnerOrgRefMissing|OwnerEmailMissing|OwnerEmailInvalid|
+// NoAllowedChannels|TokenMintFailed|ManifestRenderFailed|
+// GitopsWriteFailed). LastTransitionTime is RFC3339 to match the
+// rest of the catalyst-api wire format.
+type sandboxCondition struct {
+	Type               string `json:"type"`
+	Status             string `json:"status"`
+	Reason             string `json:"reason,omitempty"`
+	Message            string `json:"message,omitempty"`
+	LastTransitionTime string `json:"lastTransitionTime,omitempty"`
 }
 
 // sandboxCreateRequest — POST /sandbox/sessions body. Mirrors
@@ -622,15 +683,29 @@ func buildSandboxUnstructured(name, ns, displayName, agent, repo, ownerEmail, or
 // tolerates a nil / wrong-type intermediate so a partial CR (e.g. one
 // authored outside this handler by an operator's kubectl apply) still
 // renders.
+//
+// Wave 14 (PR sandbox-wave14-sessions-status-reflect): reads
+// controller-managed `.status` fields so list/get reflect the LIVE
+// runtime (Ready/Provisioning/Failed + sessions + storage + spend +
+// previews + conditions), not just the spec the handler authored.
+// Empty slices (`previews`, `conditions`) are always materialised so
+// the FE never has to `?? []` defensively.
 func unstructuredToSandboxItem(u *unstructured.Unstructured) sandboxItem {
 	if u == nil {
-		return sandboxItem{}
+		return sandboxItem{
+			Previews:   []sandboxPreview{},
+			Conditions: []sandboxCondition{},
+		}
 	}
+	rawPhase := readSandboxPhase(u)
 	item := sandboxItem{
-		ID:        u.GetName(),
-		Name:      u.GetName(),
-		Status:    mapSandboxStatus(u),
-		CreatedAt: u.GetCreationTimestamp().UTC().Format(time.RFC3339),
+		ID:         u.GetName(),
+		Name:       u.GetName(),
+		Status:     mapSandboxStatus(rawPhase),
+		Phase:      rawPhase,
+		CreatedAt:  u.GetCreationTimestamp().UTC().Format(time.RFC3339),
+		Previews:   []sandboxPreview{},
+		Conditions: []sandboxCondition{},
 	}
 
 	// Display name lives on metadata.annotations when the operator
@@ -659,21 +734,114 @@ func unstructuredToSandboxItem(u *unstructured.Unstructured) sandboxItem {
 		}
 	}
 
+	// ── .status reflection ──────────────────────────────────────
+	//
+	// All accessors tolerate type drift: the apiserver may serialise
+	// an int as float64 (JSON round-trip) so we route every numeric
+	// read through unstructured.NestedInt64 which handles the
+	// float→int coercion.
+
+	if sessions, found, _ := unstructured.NestedInt64(u.Object, "status", "sessions"); found {
+		item.Sessions = sessions
+	}
+	if storage, found, _ := unstructured.NestedString(u.Object, "status", "storageUsed"); found {
+		item.StorageUsed = strings.TrimSpace(storage)
+	}
+	if spend, found, _ := unstructured.NestedString(u.Object, "status", "spend30d"); found {
+		item.Spend30d = strings.TrimSpace(spend)
+	}
+
+	if previews, found, _ := unstructured.NestedSlice(u.Object, "status", "previews"); found {
+		for _, raw := range previews {
+			m, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			p := sandboxPreview{}
+			// prNumber may arrive as int64 (controller) OR float64
+			// (post-JSON round-trip through the apiserver). Try both.
+			switch v := m["prNumber"].(type) {
+			case int64:
+				p.PRNumber = v
+			case float64:
+				p.PRNumber = int64(v)
+			case int:
+				p.PRNumber = int64(v)
+			}
+			if u, ok := m["url"].(string); ok {
+				p.URL = strings.TrimSpace(u)
+			}
+			if s, ok := m["sha"].(string); ok {
+				p.SHA = strings.TrimSpace(s)
+			}
+			if p.URL == "" {
+				// Drop incomplete entries — the FE keys rows by URL
+				// for the preview list.
+				continue
+			}
+			item.Previews = append(item.Previews, p)
+		}
+	}
+
+	if conds, found, _ := unstructured.NestedSlice(u.Object, "status", "conditions"); found {
+		for _, raw := range conds {
+			m, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			c := sandboxCondition{}
+			if v, ok := m["type"].(string); ok {
+				c.Type = strings.TrimSpace(v)
+			}
+			if v, ok := m["status"].(string); ok {
+				c.Status = strings.TrimSpace(v)
+			}
+			if v, ok := m["reason"].(string); ok {
+				c.Reason = strings.TrimSpace(v)
+			}
+			if v, ok := m["message"].(string); ok {
+				c.Message = strings.TrimSpace(v)
+			}
+			if v, ok := m["lastTransitionTime"].(string); ok {
+				// Already RFC3339 from metav1.Time JSON marshal.
+				c.LastTransitionTime = strings.TrimSpace(v)
+			}
+			if c.Type == "" {
+				continue
+			}
+			item.Conditions = append(item.Conditions, c)
+		}
+	}
+
 	return item
 }
 
-// mapSandboxStatus projects status.phase (CRD vocabulary:
-// Pending|Provisioning|Ready|Failed) to the FE vocabulary
-// (pending|running|stopped|failed|unknown). Empty / unknown phases
-// surface as `pending` so the FE renders the spinner rather than the
-// red-text "unknown" pill — a fresh Sandbox typically transits
-// Pending → Provisioning → Ready in <10s.
-func mapSandboxStatus(u *unstructured.Unstructured) string {
+// readSandboxPhase reads `.status.phase` verbatim, trimming
+// whitespace. Returns "" when unset OR the controller hasn't observed
+// the CR yet.
+func readSandboxPhase(u *unstructured.Unstructured) string {
 	if u == nil {
-		return "unknown"
+		return ""
 	}
 	phase, _, _ := unstructured.NestedString(u.Object, "status", "phase")
-	switch strings.ToLower(strings.TrimSpace(phase)) {
+	return strings.TrimSpace(phase)
+}
+
+// mapSandboxStatus projects a raw `.status.phase` value (CRD
+// vocabulary: Pending|Provisioning|Ready|Failed) to the FE vocabulary
+// (pending|running|stopped|failed|unknown) per
+// products/catalyst/bootstrap/ui/src/lib/sandbox.api.ts:normalizeStatus.
+//
+// Empty / unknown phases surface as `pending` so the FE renders the
+// spinner rather than the red-text "unknown" pill — a fresh Sandbox
+// typically transits Pending → Provisioning → Ready in <10s.
+//
+// Wave 14: signature takes the raw phase string (was: *Unstructured).
+// The caller reads via readSandboxPhase exactly once and reuses the
+// value for both the projected Status AND the raw Phase field on the
+// wire payload.
+func mapSandboxStatus(rawPhase string) string {
+	switch strings.ToLower(rawPhase) {
 	case "pending", "provisioning":
 		return "pending"
 	case "ready":
