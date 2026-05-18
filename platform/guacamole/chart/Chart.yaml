@@ -40,7 +40,7 @@ name: bp-guacamole
 # 0.1.17 (Fix #163, 2026-05-11, MIRROR-EVERYTHING): migrationImage AND
 # oidc-secret-bootstrap-job both gain explicit
 # harbor.openova.io/proxy-dockerhub prefix per CLAUDE.md inviolable rule.
-version: 0.1.20
+version: 0.1.21
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless
