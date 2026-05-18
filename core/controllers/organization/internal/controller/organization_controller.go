@@ -38,9 +38,9 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/openova-io/openova/core/controllers/pkg/gitea"
 	"github.com/openova-io/openova/core/controllers/organization/internal/gitops"
 	orgapi "github.com/openova-io/openova/core/controllers/organization/internal/orgapi"
+	"github.com/openova-io/openova/core/controllers/pkg/gitea"
 )
 
 // userAccessGVR is the namespace-scoped UserAccess CR group/version/kind
@@ -241,6 +241,19 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	idpCond, mappersCond, fedErr := r.reconcileFederation(ctx, &org)
 	if fedErr != nil {
 		return r.fail(ctx, &org, idpCond.Reason, fedErr.Error())
+	}
+
+	// 5b. Per-tenant public-hostname HTTPRoute (issue #1629 follow-up).
+	// When `spec.tenantPublic.parentDomain` is set, render a Gateway-API
+	// HTTPRoute attaching `<subdomain>.<parentDomain>` to the supplied
+	// backend Service on the canonical cilium-gateway. No-op when the
+	// field is empty — Orgs that don't yet have a public hostname keep
+	// working via the Sovereign-wide `*.<sovFQDN>` tenant-wildcard
+	// route. Failure is non-fatal for the Org's other reconciliation
+	// outputs (Keycloak group + Gitea Org + vCluster manifests already
+	// landed) so we requeue instead of marking the whole Org Failed.
+	if _, err := r.reconcileTenantRoute(ctx, &org); err != nil {
+		return r.fail(ctx, &org, "TenantRouteFailed", err.Error())
 	}
 
 	// 6. Status update — Ready=True plus the per-step federation

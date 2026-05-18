@@ -773,6 +773,40 @@ smeTenants:
     # prevent tenant B from being created.
     wait: false
 
+# ─── Per-Organization public HTTPRoutes (issue #1629 follow-up) ───────
+# PowerDNS now resolves `<slug>.<parentDomain>` for every Org that maps
+# onto a Sovereign's role=sme-pool parent domain, but without a
+# corresponding HTTPRoute the Cilium Gateway terminates TLS on the
+# wildcard cert and falls through to the marketplace tenant-wildcard
+# route (which sends the request to the marketplace `console` Service).
+# End result: `acme.omani.homes` renders the storefront landing page
+# instead of the tenant's installed WordPress / Nextcloud / GitLab.
+#
+# Each entry in tenantRoutes[] is rendered by
+# templates/sme-services/tenant-public-routes.yaml as one HTTPRoute in
+# the Org's namespace, attached to cilium-gateway/kube-system. The
+# runtime organization-controller produces the same HTTPRoute shape
+# live for every Organization whose spec.tenantPublic.parentDomain is
+# set — operators may rely on the controller's reconcile loop OR
+# stamp static fixtures here (the two paths produce byte-identical
+# manifests so they don't conflict on `helm diff`).
+#
+# Default empty: Sovereigns without any public-hostname-bearing Orgs
+# render zero per-tenant HTTPRoutes. Entry shape:
+#
+#   - slug: "acme"
+#     subdomain: "acme"           # optional; defaults to slug
+#     parentDomain: "omani.homes" # required
+#     product: "wordpress"        # optional; operator tag
+#     namespace: "acme"           # optional; defaults to slug
+#     backend:
+#       service: "wordpress-x-acme-x-vcluster"   # required
+#       port: 80                                  # optional; defaults to 80
+#     gateway:
+#       name: cilium-gateway      # optional; defaults to cilium-gateway
+#       namespace: kube-system    # optional; defaults to kube-system
+tenantRoutes: []
+
 # Marketplace operator branding + payment + signup config (issue #710).
 # Operator-supplied at provision time; rendered into ConfigMaps consumed
 # by templates/sme-services/marketplace.yaml + admin.yaml. Defaults are

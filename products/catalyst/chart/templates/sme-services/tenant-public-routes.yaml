@@ -1,0 +1,92 @@
+{{- /*
+Per-Organization public HTTPRoutes (issue #1629 follow-up).
+
+PowerDNS now resolves `<slug>.<parentDomain>` for every Org that
+maps onto a Sovereign's role=sme-pool parent domain. Without an
+attached HTTPRoute the Cilium Gateway terminates TLS on the
+wildcard cert and falls through to the marketplace `tenant-wildcard`
+route — which sends the request to the marketplace `console` Service
+instead of the tenant's installed product. The end result is
+`acme.omani.homes` rendering the storefront landing page rather than
+the tenant's WordPress.
+
+This template renders ONE HTTPRoute per entry in `.Values.tenantRoutes`
+attached to the canonical Cilium Gateway (`cilium-gateway` in
+`kube-system`). It is the chart-side analogue of the runtime
+reconciler in core/controllers/organization/internal/controller/
+tenant_route.go: both produce byte-identical HTTPRoute shapes so an
+operator can ship a static fixture via Helm values OR rely on the
+controller's live reconcile loop.
+
+Default OFF: `tenantRoutes` is an empty list. Sovereigns that don't
+yet have any Orgs with a public hostname render nothing. Once the
+SME-tenant orchestrator stamps the Helm values (or the
+organization-controller writes the HTTPRoute live), traffic for
+`<slug>.<parentDomain>` lands on the tenant's product Service.
+
+Each entry shape (every field optional except `parentDomain` and
+`backend.service`):
+
+  - slug: string           # used as the HTTPRoute name + default subdomain
+                            #   + Org-namespace selector
+  - subdomain: string      # leftmost label of the hostname; defaults to slug
+  - parentDomain: string   # apex zone (REQUIRED); e.g. "omani.homes"
+  - product: string        # operator tag (wordpress | nextcloud | gitlab)
+  - namespace: string      # Org namespace; defaults to slug
+  - backend:
+      service: string      # backend Service name (REQUIRED)
+      port: int            # backend port; defaults to 80
+  - gateway:
+      name: string         # parent Gateway name; defaults to "cilium-gateway"
+      namespace: string    # parent Gateway namespace; defaults to "kube-system"
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 no value is hardcoded inside the
+template — every knob comes through values.yaml.
+*/}}
+{{- $routes := .Values.tenantRoutes | default list }}
+{{- range $i, $r := $routes }}
+{{- $slug := (default "" $r.slug) }}
+{{- $sub := default $slug (default "" $r.subdomain) }}
+{{- $parent := (default "" $r.parentDomain) }}
+{{- $ns := default $slug (default "" $r.namespace) }}
+{{- $backend := (default (dict) $r.backend) }}
+{{- $svc := (default "" $backend.service) }}
+{{- $port := (default 80 $backend.port) }}
+{{- $gw := (default (dict) $r.gateway) }}
+{{- $gwName := (default "cilium-gateway" $gw.name) }}
+{{- $gwNs := (default "kube-system" $gw.namespace) }}
+{{- if and $parent $svc $slug }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ $slug | quote }}
+  namespace: {{ $ns | quote }}
+  labels:
+    openova.io/organization: {{ $slug | quote }}
+    openova.io/managed-by: organization-controller
+    app.kubernetes.io/managed-by: catalyst
+    catalyst.openova.io/component: tenant-public-route
+    catalyst.openova.io/parent-zone: {{ $parent | quote }}
+    {{- if $r.product }}
+    catalyst.openova.io/tenant-product: {{ $r.product | quote }}
+    {{- end }}
+    {{- if $.Values.global.sovereignFQDN }}
+    openova.io/sovereign: {{ $.Values.global.sovereignFQDN | quote }}
+    {{- end }}
+spec:
+  parentRefs:
+    - name: {{ $gwName | quote }}
+      namespace: {{ $gwNs | quote }}
+  hostnames:
+    - {{ printf "%s.%s" $sub $parent | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: "/"
+      backendRefs:
+        - name: {{ $svc | quote }}
+          port: {{ $port }}
+{{- end }}
+{{- end }}
