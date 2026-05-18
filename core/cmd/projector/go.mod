@@ -1,11 +1,10 @@
 module github.com/openova-io/openova/core/cmd/projector
 
-go 1.23
+go 1.23.0
 
 require (
 	github.com/nats-io/nats.go v1.37.0
 	github.com/valkey-io/valkey-go v1.0.47
-	k8s.io/api v0.31.1
 	k8s.io/apimachinery v0.31.1
 	k8s.io/client-go v0.31.1
 )
@@ -34,7 +33,7 @@ require (
 	github.com/x448/float16 v0.8.4 // indirect
 	golang.org/x/crypto v0.25.0 // indirect
 	golang.org/x/net v0.27.0 // indirect
-	golang.org/x/oauth2 v0.21.0 // indirect
+	golang.org/x/oauth2 v0.27.0 // indirect
 	golang.org/x/sys v0.24.0 // indirect
 	golang.org/x/term v0.22.0 // indirect
 	golang.org/x/text v0.16.0 // indirect
