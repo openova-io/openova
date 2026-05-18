@@ -1,18 +1,5 @@
-// sandbox_controller_test.go — Wave 1 happy-path + drift + idempotency
-// coverage for the sandbox reconciler. Mirrors the shape of
-// organization_controller_test.go so future maintainers can move
-// helpers between the two without re-learning a different convention.
-//
-//   1. Happy-path reconcile: clean Sandbox → all Wave 1 manifests land
-//      in the per-Org Gitea repo at sandbox/<owner-uid>/, status
-//      surfaces Ready=True + Phase=Provisioning + GitopsPath.
-//   2. Idempotency: a second reconcile on the steady-state CR makes
-//      ZERO net writes (PutFile byte-equal short-circuits).
-//   3. Drift detection: empty spec.owner.orgRef.slug → Failed
-//      condition (OwnerOrgRefMissing) + no Gitea writes.
-//   4. Drift detection: empty spec.owner.email → Failed condition
-//      (OwnerEmailMissing) + no Gitea writes.
-//   5. Missing CR → no error + no requeue.
+// sandbox_controller_test.go — Wave 1 + Wave 8 happy-path + drift +
+// idempotency coverage for the sandbox reconciler.
 
 package controller
 
@@ -41,17 +28,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// giteaServer is a tiny in-process Gitea API stub that implements just
-// the endpoints sandbox-controller's PutFile path uses. Cloned from
-// organization-controller's test stub (organization_controller_test.go
-// :141-332) and trimmed — sandbox-controller does not create Orgs /
-// Repos, only writes files into an existing Org's repo.
 type giteaServer struct {
 	t *testing.T
 
 	mu sync.Mutex
 
-	files map[string]fileEntry // key: "{owner}/{repo}/{path}"
+	files map[string]fileEntry
 
 	createFiles int
 	updateFiles int
@@ -182,13 +164,19 @@ func makeReconciler(t *testing.T, objs ...client.Object) (*Reconciler, *giteaSer
 	gs := newGiteaServer(t)
 
 	r := &Reconciler{
-		Client:         cl,
-		Log:            logr.Discard(),
-		GiteaClient:    gitea.New(gs.URL(), "test-token"),
-		HostCluster:    "ct-eu-mgt-prod",
-		SovereignFQDN:  "omantel.omani.works",
-		Branch:         "main",
-		TenantRepoName: "catalyst-tenant",
+		Client:                cl,
+		Log:                   logr.Discard(),
+		GiteaClient:           gitea.New(gs.URL(), "test-token"),
+		HostCluster:           "ct-eu-mgt-prod",
+		SovereignFQDN:         "omantel.omani.works",
+		Branch:                "main",
+		TenantRepoName:        "catalyst-tenant",
+		PtyServerImage:        "ghcr.io/openova-io/openova/sandbox-pty-server:test-sha",
+		MCPImage:              "ghcr.io/openova-io/openova/sandbox-mcp:test-sha",
+		NewapiURL:             "https://newapi.omantel.omani.works/v1",
+		LLMGatewayTokenSecret: "sandbox-tokens",
+		BYOSSecretPrefix:      "sandbox-byos-claude-code",
+		IdleTimeoutMinutes:    30,
 	}
 	return r, gs
 }
@@ -241,9 +229,8 @@ func TestReconcile_HappyPath(t *testing.T) {
 		t.Errorf("happy path should not requeue: got %v", res)
 	}
 
-	// Wave 1 renders: namespace + resourcequota + serviceaccount + role
-	// + rolebinding + secret + kustomization + 2 PVCs (one per repo).
-	expectedFiles := 6 /* fixed */ + 1 /* kust */ + 2 /* repo PVCs */
+	// Wave 1 + Wave 8: 6 fixed + 1 kust + 2 repo PVCs + 4 wave-8 = 13.
+	expectedFiles := 6 + 1 + 2 + 4
 	if gs.createFiles != expectedFiles {
 		t.Errorf("expected %d file creates, got %d", expectedFiles, gs.createFiles)
 	}
@@ -251,8 +238,6 @@ func TestReconcile_HappyPath(t *testing.T) {
 		t.Errorf("expected 0 file updates on first reconcile, got %d", gs.updateFiles)
 	}
 
-	// Every rendered file must live under sandbox/<owner-uid>/ in the
-	// per-Org repo. The owner UID for ceo@acme.com is ceo-at-acme-com.
 	wantPrefix := "acme/catalyst-tenant/sandbox/ceo-at-acme-com/"
 	for key := range gs.files {
 		if !strings.HasPrefix(key, wantPrefix) {
@@ -260,7 +245,6 @@ func TestReconcile_HappyPath(t *testing.T) {
 		}
 	}
 
-	// Status: Phase=Provisioning, Ready=True, observedGeneration=1.
 	var got sandboxapi.Sandbox
 	if err := r.Get(context.Background(),
 		client.ObjectKey{Name: sb.Name, Namespace: sb.Namespace}, &got); err != nil {
@@ -296,8 +280,6 @@ func TestReconcile_Idempotent(t *testing.T) {
 	firstCreates := gs.createFiles
 	firstUpdates := gs.updateFiles
 
-	// Second reconcile should be a byte-equal no-op (PutFile's GET
-	// hits, SHA matches, no write).
 	if _, err := r.Reconcile(context.Background(), ctrl.Request{
 		NamespacedName: types.NamespacedName{Name: sb.Name, Namespace: sb.Namespace},
 	}); err != nil {
@@ -375,7 +357,7 @@ func TestReconcile_OwnerEmailMissing(t *testing.T) {
 
 func TestReconcile_Missing_NoError(t *testing.T) {
 	t.Parallel()
-	r, _ := makeReconciler(t /* no objects */)
+	r, _ := makeReconciler(t)
 	res, err := r.Reconcile(context.Background(), ctrl.Request{
 		NamespacedName: types.NamespacedName{Name: "ghost", Namespace: "acme"},
 	})
@@ -384,5 +366,143 @@ func TestReconcile_Missing_NoError(t *testing.T) {
 	}
 	if res.RequeueAfter != 0 {
 		t.Errorf("missing CR should not requeue, got %v", res)
+	}
+}
+
+// TestReconcile_Wave8RuntimeShape asserts the Wave 8 runtime manifests
+// (pty-server StatefulSet, MCP Deployment, Service, HTTPRoute) carry
+// the right identity + env wiring + BYOS branching + hostname derivation.
+func TestReconcile_Wave8RuntimeShape(t *testing.T) {
+	t.Parallel()
+	sb := sampleSandbox()
+	r, gs := makeReconciler(t, sb)
+
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: sb.Name, Namespace: sb.Namespace},
+	}); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	prefix := "acme/catalyst-tenant/sandbox/ceo-at-acme-com/"
+	get := func(name string) string {
+		gs.mu.Lock()
+		defer gs.mu.Unlock()
+		entry, ok := gs.files[prefix+name]
+		if !ok {
+			t.Fatalf("expected rendered file %q in gitea stub", prefix+name)
+		}
+		return string(entry.content)
+	}
+
+	ss := get("statefulset-pty-server.yaml")
+	for _, want := range []string{
+		"kind: StatefulSet",
+		"name: pty-server",
+		"namespace: sandbox-ceo-at-acme-com",
+		"replicas: 3",
+		`image: "ghcr.io/openova-io/openova/sandbox-pty-server:test-sha"`,
+		"PTY_SERVER_ADDR",
+		"SANDBOX_OWNER_UID",
+		`value: "ceo-at-acme-com"`,
+		"ORG_ID",
+		`value: "acme"`,
+		"NEWAPI_URL",
+		`value: "https://newapi.omantel.omani.works/v1"`,
+		"OPENAI_BASE_URL",
+		"LLM_GATEWAY_TOKEN",
+		"OPENAI_API_KEY",
+		"ANTHROPIC_API_KEY",
+		`name: "sandbox-byos-claude-code-ceo-at-acme-com"`,
+		"key: access_token",
+		"openova.io/sandbox-idle-timeout-minutes",
+		"name: repo-acme-eventforge",
+		"mountPath: /workspace/acme-eventforge",
+		"name: repo-acme-internal-tools",
+	} {
+		if !strings.Contains(ss, want) {
+			t.Errorf("statefulset-pty-server.yaml missing %q", want)
+		}
+	}
+
+	dep := get("deployment-mcp.yaml")
+	for _, want := range []string{
+		"kind: Deployment",
+		"name: openova-sandbox-mcp",
+		`image: "ghcr.io/openova-io/openova/sandbox-mcp:test-sha"`,
+		"PTY_SERVER_URL",
+		"pty-server.sandbox-ceo-at-acme-com.svc.cluster.local:7681",
+	} {
+		if !strings.Contains(dep, want) {
+			t.Errorf("deployment-mcp.yaml missing %q", want)
+		}
+	}
+
+	svc := get("service-pty-server.yaml")
+	for _, want := range []string{
+		"kind: Service",
+		"name: pty-server",
+		"port: 7681",
+		"targetPort: 7681",
+	} {
+		if !strings.Contains(svc, want) {
+			t.Errorf("service-pty-server.yaml missing %q", want)
+		}
+	}
+
+	rt := get("httproute-pty-server.yaml")
+	for _, want := range []string{
+		"kind: HTTPRoute",
+		`- "sandbox.omantel.omani.works"`,
+		"value: /sessions/ceo-at-acme-com/",
+		"name: catalyst-public",
+		"namespace: catalyst-system",
+		"name: pty-server",
+		"port: 7681",
+	} {
+		if !strings.Contains(rt, want) {
+			t.Errorf("httproute-pty-server.yaml missing %q", want)
+		}
+	}
+
+	kust := get("kustomization.yaml")
+	for _, want := range []string{
+		"statefulset-pty-server.yaml",
+		"service-pty-server.yaml",
+		"deployment-mcp.yaml",
+		"httproute-pty-server.yaml",
+	} {
+		if !strings.Contains(kust, want) {
+			t.Errorf("kustomization.yaml missing %q", want)
+		}
+	}
+}
+
+// TestReconcile_Wave8NoBYOSWhenAgentMissing asserts that a Sandbox
+// without claude-code in spec.agentCatalogue does NOT wire the
+// ANTHROPIC_API_KEY env into the rendered StatefulSet.
+func TestReconcile_Wave8NoBYOSWhenAgentMissing(t *testing.T) {
+	t.Parallel()
+	sb := sampleSandbox()
+	sb.Spec.AgentCatalogue = []string{"cursor-agent"}
+	r, gs := makeReconciler(t, sb)
+
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: sb.Name, Namespace: sb.Namespace},
+	}); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	gs.mu.Lock()
+	entry, ok := gs.files["acme/catalyst-tenant/sandbox/ceo-at-acme-com/statefulset-pty-server.yaml"]
+	gs.mu.Unlock()
+	if !ok {
+		t.Fatalf("expected statefulset-pty-server.yaml")
+	}
+	body := string(entry.content)
+	if strings.Contains(body, "ANTHROPIC_API_KEY") {
+		t.Errorf("expected NO ANTHROPIC_API_KEY env when claude-code not in agentCatalogue")
+	}
+	if strings.Contains(body, "sandbox-byos-claude-code-ceo-at-acme-com") {
+		t.Errorf("expected NO BYOS Secret reference when claude-code not in agentCatalogue")
 	}
 }

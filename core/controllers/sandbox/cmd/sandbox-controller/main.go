@@ -1,21 +1,16 @@
-// sandbox-controller — Wave 1 of the Sandbox product
+// sandbox-controller — Wave 1 + Wave 8 of the Sandbox product
 // (products/sandbox/docs/architecture.md §7).
 //
 // Production entry point. Reads configuration from environment vars,
 // constructs the controller-runtime manager, and starts the Sandbox
-// reconciler with leader election. SIGTERM / SIGINT are honored via
-// signals.SetupSignalHandler() so a Pod-eviction triggers a clean
-// shutdown.
-//
-// Per Inviolable Principle #4 every knob is an env var — no hardcoded
-// URLs / versions / regions in code. Shape mirrors
-// core/controllers/organization/cmd/main.go.
+// reconciler with leader election.
 package main
 
 import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -56,7 +51,6 @@ func main() {
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 	log := ctrl.Log.WithName("sandbox-controller")
 
-	// Required env.
 	giteaURL := mustEnv("CATALYST_GITEA_URL", log)
 	giteaToken := mustEnv("CATALYST_GITEA_TOKEN", log)
 	hostCluster := mustEnv("CATALYST_HOST_CLUSTER", log)
@@ -64,6 +58,14 @@ func main() {
 
 	branch := envOr("CATALYST_GITEA_BRANCH", "main")
 	tenantRepo := envOr("CATALYST_TENANT_REPO_NAME", "catalyst-tenant")
+
+	// Wave 8 runtime env — per-Sandbox pty-server / MCP / NEWAPI.
+	ptyServerImage := mustEnv("SANDBOX_PTY_SERVER_IMAGE", log)
+	mcpImage := mustEnv("SANDBOX_MCP_IMAGE", log)
+	newapiURL := mustEnv("SANDBOX_NEWAPI_URL", log)
+	llmGatewayTokenSecret := envOr("SANDBOX_LLM_GATEWAY_TOKEN_SECRET", "sandbox-tokens")
+	byosSecretPrefix := envOr("SANDBOX_BYOS_SECRET_PREFIX", "sandbox-byos-claude-code")
+	idleTimeoutMinutes := envOrInt("SANDBOX_IDLE_TIMEOUT_MINUTES", 30)
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
@@ -87,13 +89,19 @@ func main() {
 	}
 
 	r := &controller.Reconciler{
-		Client:         mgr.GetClient(),
-		Log:            log.WithName("reconciler"),
-		GiteaClient:    gitea.New(giteaURL, giteaToken),
-		HostCluster:    hostCluster,
-		SovereignFQDN:  sovereignFQDN,
-		Branch:         branch,
-		TenantRepoName: tenantRepo,
+		Client:                mgr.GetClient(),
+		Log:                   log.WithName("reconciler"),
+		GiteaClient:           gitea.New(giteaURL, giteaToken),
+		HostCluster:           hostCluster,
+		SovereignFQDN:         sovereignFQDN,
+		Branch:                branch,
+		TenantRepoName:        tenantRepo,
+		PtyServerImage:        ptyServerImage,
+		MCPImage:              mcpImage,
+		NewapiURL:             newapiURL,
+		LLMGatewayTokenSecret: llmGatewayTokenSecret,
+		BYOSSecretPrefix:      byosSecretPrefix,
+		IdleTimeoutMinutes:    idleTimeoutMinutes,
 	}
 	if err := r.SetupWithManager(mgr); err != nil {
 		log.Error(err, "setup reconciler")
@@ -105,6 +113,12 @@ func main() {
 		"sovereign_fqdn", sovereignFQDN,
 		"gitea_url", giteaURL,
 		"tenant_repo", tenantRepo,
+		"pty_server_image", ptyServerImage,
+		"mcp_image", mcpImage,
+		"newapi_url", newapiURL,
+		"llm_gateway_token_secret", llmGatewayTokenSecret,
+		"byos_secret_prefix", byosSecretPrefix,
+		"idle_timeout_minutes", idleTimeoutMinutes,
 	)
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		log.Error(err, "manager start")
@@ -130,4 +144,19 @@ func envOr(key, fallback string) string {
 		return fallback
 	}
 	return v
+}
+
+// envOrInt parses an integer env var; non-integer / empty returns the
+// fallback. Used for SANDBOX_IDLE_TIMEOUT_MINUTES — operator drift
+// (mistyped value) shouldn't crash the controller.
+func envOrInt(key string, fallback int) int {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return fallback
+	}
+	return n
 }
