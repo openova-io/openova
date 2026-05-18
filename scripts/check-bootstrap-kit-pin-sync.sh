@@ -35,6 +35,24 @@
 #   0  — every bootstrap-kit pin matches its source-tree Chart.yaml version.
 #   1  — at least one pin lags (or, less likely, leads) the source chart.
 #   2  — input/parse/usage error.
+#
+# TBD-A26 (issue #1872, 2026-05-19) — `--check-ghcr` extension.
+#
+# Even when every bootstrap-kit pin equals its source Chart.yaml version,
+# the published OCI artifact at ghcr.io/openova-io/<chart>:<pin-ver> may
+# still NOT EXIST. Concrete failure pattern from the 2026-05-18/19 wave:
+# the TBD-A20 YAML scanner break window (21:04Z → 22:07Z) caused
+# blueprint-release.yaml to fail with `startup_failure / jobs: []` while
+# the bootstrap-kit pin + Chart.yaml bumped normally. Versions 1.4.180 +
+# 1.4.181 of bp-catalyst-platform were "lost" until A58 manually re-fired
+# the workflow via dispatch — pin pointed at a GHCR tag that never landed.
+#
+# `--check-ghcr` adds a third phase: for every chart pinned in the kit,
+# call `gh api /orgs/openova-io/packages/container/<chart>/versions` and
+# assert the pin version appears in the published tags. Requires `gh`
+# authenticated with read:packages scope.
+#
+# Exit code 1 also covers a missing GHCR tag.
 
 set -euo pipefail
 
@@ -45,13 +63,17 @@ KIT_DIR="${REPO_ROOT}/clusters/_template/bootstrap-kit"
 
 CHANGED_ONLY=""
 BASE_REF=""
+CHECK_GHCR=""
+GHCR_ORG="openova-io"
 
-# Two modes:
+# Modes:
 #   - Full sweep (default): check every chart in the working tree.
 #   - --changed-only --base <ref>: only check charts whose Chart.yaml
 #     was modified between <ref> and HEAD. This is the CI-gate mode —
 #     it lets a PR ship without first fixing 13 pre-existing drifts
 #     (the auto-bump hook will heal those over time).
+#   - --check-ghcr: also verify each pin's GHCR artifact exists
+#     (TBD-A26, issue #1872). Composes with both modes above.
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --changed-only)
@@ -62,8 +84,16 @@ while [ "$#" -gt 0 ]; do
       BASE_REF="$2"
       shift 2
       ;;
+    --check-ghcr)
+      CHECK_GHCR=1
+      shift
+      ;;
+    --ghcr-org)
+      GHCR_ORG="$2"
+      shift 2
+      ;;
     -h|--help)
-      sed -n '2,40p' "$0"
+      sed -n '2,60p' "$0"
       exit 0
       ;;
     *)
@@ -174,6 +204,13 @@ fi
 drift=0
 checked=0
 skipped=0
+# TBD-A26: collect (chart-name, pinned-version, pin-file) tuples for the
+# optional --check-ghcr phase. We use three parallel arrays (bash 3.x
+# friendly — GitHub runners default to bash 5 but the script must also
+# work on macOS dev machines with bash 3.2).
+declare -a GHCR_NAMES=()
+declare -a GHCR_VERSIONS=()
+declare -a GHCR_PINS=()
 
 # Walk every Chart.yaml in platform/* and products/*. Reading from
 # Chart.yaml lets us follow a Chart.yaml `name:` rename without needing
@@ -228,6 +265,14 @@ for chart_yaml in "${CHART_YAMLS[@]}"; do
     echo "  DRIFT ${name}: chart=${version} pin=${pinned_version} (file: ${pin_file#${REPO_ROOT}/})"
     drift=$((drift + 1))
   fi
+
+  # Collect the pin tuple for the optional --check-ghcr phase. We
+  # check the PIN version (not the chart version) — the contract is
+  # that whatever the kit installs must exist on GHCR. If drift is
+  # also flagged, both errors are reported.
+  GHCR_NAMES+=("${name}")
+  GHCR_VERSIONS+=("${pinned_version}")
+  GHCR_PINS+=("${pin_file#${REPO_ROOT}/}")
 done
 
 echo
@@ -249,5 +294,88 @@ if [ "${drift}" -gt 0 ]; then
   exit 1
 fi
 
+# ──────────────────────────────────────────────────────────────────────
+# TBD-A26 (issue #1872) — GHCR artifact existence check
+# ──────────────────────────────────────────────────────────────────────
+# For every (chart, pinned_version) pair, assert the pin version exists
+# as a tag on ghcr.io/<org>/<chart>. Catches the failure mode where the
+# bootstrap-kit pin and Chart.yaml are in sync (drift=0) but the
+# blueprint-release workflow that should publish the OCI artifact never
+# actually ran (e.g. startup_failure from a YAML scanner break, race
+# with TBD-A20 lockstep) — Sovereigns then pin a tag GHCR never received.
+if [ -n "${CHECK_GHCR}" ]; then
+  echo
+  echo "── TBD-A26: GHCR artifact existence check (${GHCR_ORG}) ──"
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "error: --check-ghcr requires the 'gh' CLI on PATH" >&2
+    exit 2
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "error: --check-ghcr requires 'jq' on PATH" >&2
+    exit 2
+  fi
+  ghcr_missing=0
+  ghcr_checked=0
+  # Cache per-chart tag lists so we only paginate once even if a chart
+  # appears in multiple slots (defence-in-depth — the one-slot-per-chart
+  # invariant is enforced above, but the cache costs nothing).
+  declare -A TAG_CACHE=()
+  for idx in "${!GHCR_NAMES[@]}"; do
+    name="${GHCR_NAMES[$idx]}"
+    pin_ver="${GHCR_VERSIONS[$idx]}"
+    pin_path="${GHCR_PINS[$idx]}"
+    if [ -z "${TAG_CACHE[$name]+x}" ]; then
+      # `gh api --paginate` walks every page of the versions list.
+      # `2>/dev/null` suppresses progress noise; a real API error
+      # surfaces as an empty body and a non-zero exit which we treat
+      # as a fail (cannot prove existence ⇒ block).
+      if ! tags_json=$(gh api "/orgs/${GHCR_ORG}/packages/container/${name}/versions" --paginate 2>/dev/null); then
+        echo "::error title=GHCR API error::Failed to list versions for ghcr.io/${GHCR_ORG}/${name}. Check 'gh' auth has read:packages scope and the package exists." >&2
+        ghcr_missing=$((ghcr_missing + 1))
+        TAG_CACHE[$name]=""
+        continue
+      fi
+      # Extract human-readable tags only (exclude cosign .sig/.att
+      # synthetic tags shaped `sha256-…`). One tag per line.
+      tags=$(echo "$tags_json" | jq -r '.[].metadata.container.tags[]?' 2>/dev/null | grep -v '^sha256-' | sort -u || true)
+      TAG_CACHE[$name]="$tags"
+    fi
+    tags="${TAG_CACHE[$name]}"
+    ghcr_checked=$((ghcr_checked + 1))
+    if echo "$tags" | grep -qx "$pin_ver"; then
+      echo "  GHCR OK   ${name}:${pin_ver} (pin file: ${pin_path})"
+    else
+      echo "  GHCR MISS ${name}:${pin_ver} — tag NOT FOUND on ghcr.io/${GHCR_ORG}/${name} (pin file: ${pin_path})"
+      ghcr_missing=$((ghcr_missing + 1))
+    fi
+  done
+  echo
+  echo "GHCR-checked ${ghcr_checked} pin(s); ${ghcr_missing} missing artifact(s)."
+  if [ "${ghcr_missing}" -gt 0 ]; then
+    echo
+    echo "FAIL: ${ghcr_missing} bootstrap-kit pin(s) reference a chart version"
+    echo "that does NOT exist on GHCR. Every fresh Sovereign provision will"
+    echo "fail to install the affected Blueprints at the pinned version and"
+    echo "fall back to the last working release."
+    echo
+    echo "Root cause is usually one of:"
+    echo "  - blueprint-release.yaml failed during the publish run that"
+    echo "    should have produced the artifact (e.g. startup_failure from"
+    echo "    a YAML scanner break — TBD-A20)."
+    echo "  - The publish run was cancelled, OOM'd, or hit a transient"
+    echo "    GHCR push 5xx."
+    echo
+    echo "Fix: re-fire the publish workflow on the commit that bumped the"
+    echo "chart version, e.g.:"
+    echo "  gh workflow run blueprint-release.yaml \\"
+    echo "    --field blueprint=<chart-folder> --field tree=<platform|products>"
+    echo "Then re-run this audit to confirm the tag now exists."
+    exit 1
+  fi
+fi
+
 echo "PASS: all bootstrap-kit pins are in sync with their source charts."
+if [ -n "${CHECK_GHCR}" ]; then
+  echo "PASS: every pinned version exists as a GHCR tag."
+fi
 exit 0

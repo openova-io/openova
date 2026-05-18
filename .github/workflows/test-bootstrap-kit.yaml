@@ -85,8 +85,26 @@ jobs:
     # the drift within ~60s. Push-mode is therefore observational, not
     # blocking; we use `continue-on-error: true` so the workflow stays
     # green while the drift is still visible on the run summary.
+    #
+    # TBD-A26 (issue #1872, 2026-05-19): full-sweep mode ALSO runs the
+    # `--check-ghcr` phase, which verifies every pinned chart version
+    # exists as a tag on ghcr.io/openova-io/<chart>. Catches the
+    # "chart bumped but never published" failure mode that TBD-A6 +
+    # TBD-A20 cannot see (e.g. blueprint-release.yaml failed with
+    # startup_failure, race against TBD-A20 lockstep). Stays under the
+    # same continue-on-error umbrella — observational on push/dispatch,
+    # so a transient GHCR API blip doesn't red-flag every chart bump.
+    # The job summary surfaces the missing-tag list for any operator
+    # who notices the warning.
     runs-on: ubuntu-latest
     continue-on-error: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+    permissions:
+      # `gh api /orgs/<org>/packages/container/<chart>/versions` needs
+      # the read:packages scope for private package metadata. The
+      # workflow GITHUB_TOKEN inherits this from the `packages: read`
+      # block when explicitly requested.
+      contents: read
+      packages: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -94,7 +112,12 @@ jobs:
           # Need history back to the PR base for the --changed-only diff.
           fetch-depth: 0
 
-      - name: Run pin-sync audit (changed-only on PR, full sweep otherwise)
+      - name: Run pin-sync audit (changed-only on PR, full sweep + --check-ghcr otherwise)
+        env:
+          # `gh` defers to GH_TOKEN when running on a runner; pass the
+          # workflow token explicitly so the package-listing API call
+          # picks up the `packages: read` scope granted above.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" = "pull_request" ]; then
@@ -102,8 +125,8 @@ jobs:
             echo "Running --changed-only against base ${base}"
             bash scripts/check-bootstrap-kit-pin-sync.sh --changed-only --base "${base}"
           else
-            echo "Running full sweep (event=${{ github.event_name }})"
-            bash scripts/check-bootstrap-kit-pin-sync.sh
+            echo "Running full sweep + --check-ghcr (event=${{ github.event_name }})"
+            bash scripts/check-bootstrap-kit-pin-sync.sh --check-ghcr
           fi
 
   manifest-validation:
