@@ -254,6 +254,24 @@ var DefaultKinds = []Kind{
 	// the cutover-driver ClusterRole (`networking.k8s.io/networkpolicies`)
 	// but the kind was never registered for the generic /k8s/ surface.
 	{Name: "networkpolicy", GVR: schema.GroupVersionResource{Group: "networking.k8s.io", Version: "v1", Resource: "networkpolicies"}, Namespaced: true},
+
+	// Sandbox Wave 7 (PR sandbox-wave7-sessions-api) — sandbox.openova.io/v1
+	// Sandbox CRD backing the Sovereign Console's per-Org coding-agent
+	// surface (products/sandbox/docs/architecture.md §7). The
+	// /api/v1/sandbox/sessions CRUD handlers in
+	// products/catalyst/bootstrap/api/internal/handler/sandbox_sessions.go
+	// also read+write the kind directly via DynamicClientFor; registering
+	// it here lets the generic /k8s/{kind} surface enumerate Sandboxes
+	// the same way it does Applications + UserAccess.
+	//
+	// Per feedback_chroot_in_cluster_fallback.md: every new GVR added
+	// here MUST get a matching rule on catalyst-api-cutover-driver
+	// ClusterRole (clusterrole-cutover-driver.yaml). The Sandbox CR
+	// carries no secret material (the controller writes
+	// placeholder Secrets in the Sandbox namespace for newapi tokens —
+	// those are gated by the existing `secret` Sensitive=true entry),
+	// so Sensitive=false is correct.
+	{Name: "sandbox", GVR: schema.GroupVersionResource{Group: "sandbox.openova.io", Version: "v1", Resource: "sandboxes"}, Namespaced: true},
 }
 
 // Registry is a runtime-mutable lookup keyed by the short Name. It
