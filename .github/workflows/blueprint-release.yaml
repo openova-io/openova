@@ -633,13 +633,129 @@ jobs:
           echo "pin_file=${pin_file}" >> "$GITHUB_OUTPUT"
           echo "prev_version=${current}" >> "$GITHUB_OUTPUT"
 
-      - name: "Commit + push bootstrap-kit pin bump"
-        if: steps.chart.outputs.skip != 'true' && steps.bump_pin.outputs.bumped == 'true'
+      # ──────────────────────────────────────────────────────────────
+      # LOCKSTEP — platform/<bp>/blueprint.yaml `spec.version`
+      # ──────────────────────────────────────────────────────────────
+      # TBD-A20 (issue #1856, 2026-05-18): the auto-bump hook above only
+      # touched clusters/_template/bootstrap-kit/*.yaml. The upstream
+      # blueprint manifest (platform/<bp>/blueprint.yaml) ALSO carries
+      # a `spec.version` field that must equal the Chart.yaml `version`
+      # by convergence contract:
+      #
+      #   TestBootstrapKit_BlueprintCardsHaveRequiredFields
+      #     (tests/e2e/bootstrap-kit/main_test.go)
+      #
+      # asserts `Chart.yaml.version == blueprint.yaml.spec.version` for
+      # every kit blueprint. Six blueprints (cilium, cert-manager, flux,
+      # openbao, keycloak, gitea) silently drifted between Chart.yaml
+      # and blueprint.yaml until the test started failing — A17 (#1855)
+      # hot-patched the six drifts; this lockstep step removes the
+      # structural recurrence pattern.
+      #
+      # Location convention:
+      #   - Leaf platform blueprints live at  ${matrix.path}/blueprint.yaml
+      #     (e.g. platform/cilium/blueprint.yaml)
+      #   - Umbrella product blueprints live at ${matrix.path}/chart/blueprint.yaml
+      #     (e.g. products/continuum/chart/blueprint.yaml)
+      #
+      # Some charts have no blueprint.yaml at all (e.g. products/catalyst —
+      # the chart-only umbrella for bp-catalyst-platform). This is fine —
+      # the lockstep is a graceful no-op when no blueprint.yaml exists.
+      #
+      # The `spec.version` line is at exactly 2-space indent in every
+      # blueprint.yaml (audited 2026-05-18 across all 71 files in
+      # platform/ + products/). We key on `^  version:` with a defensive
+      # parse + post-write verify.
+      - name: "Lockstep-bump blueprint.yaml spec.version for ${{ steps.chart.outputs.name }}"
+        if: steps.chart.outputs.skip != 'true'
+        id: bump_blueprint
+        env:
+          CHART_NAME: ${{ steps.chart.outputs.name }}
+          CHART_VERSION: ${{ steps.chart.outputs.version }}
+          CHART_PATH: ${{ matrix.path }}
+        run: |
+          set -euo pipefail
+
+          # Try the two canonical blueprint.yaml locations in order.
+          # Each Blueprint folder uses exactly one shape; never both.
+          bp_file=""
+          for candidate in "${CHART_PATH}/blueprint.yaml" "${CHART_PATH}/chart/blueprint.yaml"; do
+            if [ -f "$candidate" ]; then
+              bp_file="$candidate"
+              break
+            fi
+          done
+
+          if [ -z "$bp_file" ]; then
+            echo "INFO: no blueprint.yaml at ${CHART_PATH}/blueprint.yaml or ${CHART_PATH}/chart/blueprint.yaml — graceful no-op (chart has no Blueprint manifest, e.g. the products/catalyst umbrella)."
+            echo "bumped=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Sanity: this file must actually be a Blueprint manifest (kind:
+          # Blueprint), not some other YAML co-located in the folder.
+          # Without this guard, a stray non-Blueprint blueprint.yaml (the
+          # CRD definition file we saw at products/catalyst/chart/crds/
+          # is an example of a generic name-collision) would be rewritten
+          # incorrectly.
+          bp_kind=$(awk '/^kind:/{print $2; exit}' "$bp_file" | tr -d '"')
+          if [ "$bp_kind" != "Blueprint" ]; then
+            echo "INFO: ${bp_file} kind='${bp_kind}' — not a Blueprint manifest, graceful no-op."
+            echo "bumped=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Read current spec.version. The blueprint.yaml convention is:
+          #
+          #   spec:
+          #     version: <semver>     ← 2 spaces, single `version:` line
+          #
+          # The 2-space indent is anchored start-of-line so any deeper-
+          # indented `version:` (inside spec.upgrades.from[], etc.) cannot
+          # accidentally match.
+          current=$(awk '/^  version:/{print $2; exit}' "$bp_file" | tr -d '"')
+          if [ -z "$current" ]; then
+            echo "::error title=Unparseable blueprint.yaml spec.version::No '  version:' line at 2-space indent in $bp_file. The Blueprint manifest shape changed under TBD-A20's lockstep hook; refusing to write."
+            exit 1
+          fi
+
+          if [ "$current" = "$CHART_VERSION" ]; then
+            echo "INFO: ${bp_file} already at spec.version=${CHART_VERSION} — no-op."
+            echo "bumped=false" >> "$GITHUB_OUTPUT"
+            # Still emit the path so downstream steps know about it.
+            echo "bp_file=${bp_file}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Lockstep-bumping ${bp_file}: spec.version ${current} → ${CHART_VERSION}"
+          sed -i -E "s|^  version: .*\$|  version: ${CHART_VERSION}|" "$bp_file"
+
+          # Verify the sed actually flipped the line.
+          new=$(awk '/^  version:/{print $2; exit}' "$bp_file" | tr -d '"')
+          if [ "$new" != "$CHART_VERSION" ]; then
+            echo "::error title=blueprint.yaml sed failed::After rewrite, ${bp_file} still has spec.version='${new}', expected '${CHART_VERSION}'."
+            exit 1
+          fi
+
+          echo "bumped=true" >> "$GITHUB_OUTPUT"
+          echo "bp_file=${bp_file}" >> "$GITHUB_OUTPUT"
+          echo "prev_version=${current}" >> "$GITHUB_OUTPUT"
+
+      - name: "Commit + push bootstrap-kit pin bump + blueprint.yaml lockstep"
+        # Run if either side has staged changes — usually they bump in
+        # tandem, but a kit-only chart (no blueprint.yaml) or a non-kit
+        # leaf (no pin file) might bump only one. Either is sufficient
+        # to commit.
+        if: steps.chart.outputs.skip != 'true' && (steps.bump_pin.outputs.bumped == 'true' || steps.bump_blueprint.outputs.bumped == 'true')
         env:
           CHART_NAME: ${{ steps.chart.outputs.name }}
           CHART_VERSION: ${{ steps.chart.outputs.version }}
           PIN_FILE: ${{ steps.bump_pin.outputs.pin_file }}
           PREV_VERSION: ${{ steps.bump_pin.outputs.prev_version }}
+          BP_FILE: ${{ steps.bump_blueprint.outputs.bp_file }}
+          BP_PREV_VERSION: ${{ steps.bump_blueprint.outputs.prev_version }}
+          PIN_BUMPED: ${{ steps.bump_pin.outputs.bumped }}
+          BP_BUMPED: ${{ steps.bump_blueprint.outputs.bumped }}
         run: |
           set -euo pipefail
           git config user.name "hatiyildiz"
@@ -648,49 +764,103 @@ jobs:
           # Idempotent reset-and-rewrite on push conflict — parallel
           # matrix jobs (multiple Blueprints bumped in one push) can race
           # on the same branch. On conflict we re-fetch, re-sed against
-          # whatever pin is currently on origin/main, and re-commit. The
-          # operation is convergent: every retry produces the same final
-          # pin value (CHART_VERSION), so the only failure mode is the
-          # remote already at that version → no-op skip.
+          # whatever state is currently on origin/main, and re-commit.
+          # The operation is convergent: every retry produces the same
+          # final state (pin=CHART_VERSION, blueprint=CHART_VERSION).
           rewrite_pin() {
             local pf="$1"
             local cur
             cur=$(awk '/^      version:/{print $2; exit}' "$pf" | tr -d '"')
             if [ "$cur" = "${CHART_VERSION}" ]; then
-              return 1  # already there — caller decides whether to skip
+              return 1  # already there
             fi
             sed -i -E "s|^      version: .*\$|      version: ${CHART_VERSION}|" "$pf"
             return 0
           }
+          rewrite_blueprint() {
+            local bp="$1"
+            local cur
+            cur=$(awk '/^  version:/{print $2; exit}' "$bp" | tr -d '"')
+            if [ "$cur" = "${CHART_VERSION}" ]; then
+              return 1
+            fi
+            sed -i -E "s|^  version: .*\$|  version: ${CHART_VERSION}|" "$bp"
+            return 0
+          }
 
-          git add "${PIN_FILE}"
+          # Stage whichever files were rewritten.
+          if [ "${PIN_BUMPED}" = "true" ] && [ -n "${PIN_FILE}" ]; then
+            git add "${PIN_FILE}"
+          fi
+          if [ "${BP_BUMPED}" = "true" ] && [ -n "${BP_FILE}" ]; then
+            git add "${BP_FILE}"
+          fi
+
           if git diff --staged --quiet; then
             echo "no staged changes — already in sync"
             exit 0
           fi
-          git commit -m "deploy(${CHART_NAME}): bump bootstrap-kit pin ${PREV_VERSION} -> ${CHART_VERSION} (auto, Refs TBD-A6)"
+
+          # Compose commit message. Pin bump remains the primary subject
+          # (preserves the existing `deploy(<chart>): bump bootstrap-kit
+          # pin X -> Y (auto, Refs TBD-A6)` shape used by every existing
+          # automation). The blueprint.yaml lockstep is mentioned as a
+          # secondary line so consumers parsing recent log subjects
+          # don't see a format change. When ONLY blueprint.yaml bumps
+          # (chart not in the kit), the subject acknowledges TBD-A20.
+          if [ "${PIN_BUMPED}" = "true" ] && [ "${BP_BUMPED}" = "true" ]; then
+            msg="deploy(${CHART_NAME}): bump bootstrap-kit pin ${PREV_VERSION} -> ${CHART_VERSION} (auto, Refs TBD-A6)
+
+Also locksteps platform blueprint.yaml spec.version ${BP_PREV_VERSION} -> ${CHART_VERSION} (Refs TBD-A20, #1856)."
+          elif [ "${PIN_BUMPED}" = "true" ]; then
+            msg="deploy(${CHART_NAME}): bump bootstrap-kit pin ${PREV_VERSION} -> ${CHART_VERSION} (auto, Refs TBD-A6)"
+          else
+            # Only blueprint.yaml moved — chart is not in the bootstrap kit
+            # (e.g. an opt-in Application Blueprint like bp-velero, bp-vllm).
+            msg="deploy(${CHART_NAME}): lockstep blueprint.yaml spec.version ${BP_PREV_VERSION} -> ${CHART_VERSION} (auto, Refs TBD-A20, #1856)"
+          fi
+          git commit -m "${msg}"
 
           for i in 1 2 3; do
             if git push origin HEAD:main; then
-              echo "Pushed bootstrap-kit pin bump for ${CHART_NAME}=${CHART_VERSION}"
+              echo "Pushed lockstep bump for ${CHART_NAME}=${CHART_VERSION} (pin=${PIN_BUMPED}, blueprint=${BP_BUMPED})"
               exit 0
             fi
-            echo "push attempt $i failed — re-fetching origin/main and re-applying pin bump"
+            echo "push attempt $i failed — re-fetching origin/main and re-applying lockstep"
             git fetch origin main
             git reset --hard origin/main
-            if rewrite_pin "${PIN_FILE}"; then
-              git add "${PIN_FILE}"
-              if git diff --staged --quiet; then
-                echo "no changes after re-fetch — pin already at ${CHART_VERSION} on origin/main"
-                exit 0
+
+            did_pin=0
+            did_bp=0
+            if [ "${PIN_BUMPED}" = "true" ] && [ -n "${PIN_FILE}" ]; then
+              if rewrite_pin "${PIN_FILE}"; then
+                git add "${PIN_FILE}"
+                did_pin=1
               fi
-              git commit -m "deploy(${CHART_NAME}): bump bootstrap-kit pin -> ${CHART_VERSION} (auto, Refs TBD-A6, retry $i)"
-            else
+            fi
+            if [ "${BP_BUMPED}" = "true" ] && [ -n "${BP_FILE}" ]; then
+              if rewrite_blueprint "${BP_FILE}"; then
+                git add "${BP_FILE}"
+                did_bp=1
+              fi
+            fi
+            if [ "$did_pin" -eq 0 ] && [ "$did_bp" -eq 0 ]; then
               echo "origin/main already at ${CHART_VERSION} — nothing to push"
               exit 0
             fi
+            if git diff --staged --quiet; then
+              echo "no changes after re-fetch — already at ${CHART_VERSION} on origin/main"
+              exit 0
+            fi
+            if [ "$did_pin" -eq 1 ] && [ "$did_bp" -eq 1 ]; then
+              git commit -m "deploy(${CHART_NAME}): bump bootstrap-kit pin -> ${CHART_VERSION} + blueprint.yaml lockstep (auto, Refs TBD-A6 + TBD-A20, retry $i)"
+            elif [ "$did_pin" -eq 1 ]; then
+              git commit -m "deploy(${CHART_NAME}): bump bootstrap-kit pin -> ${CHART_VERSION} (auto, Refs TBD-A6, retry $i)"
+            else
+              git commit -m "deploy(${CHART_NAME}): lockstep blueprint.yaml spec.version -> ${CHART_VERSION} (auto, Refs TBD-A20, retry $i)"
+            fi
           done
-          echo "::error title=Pin bump push failed::3 attempts exhausted for ${CHART_NAME}=${CHART_VERSION}."
+          echo "::error title=Lockstep push failed::3 attempts exhausted for ${CHART_NAME}=${CHART_VERSION}."
           exit 1
 
       - name: Summary
@@ -709,4 +879,11 @@ jobs:
             echo "- **Bootstrap-kit pin:** ✓ auto-bumped \`${{ steps.bump_pin.outputs.pin_file }}\` ${{ steps.bump_pin.outputs.prev_version }} → ${{ steps.chart.outputs.version }} (TBD-A6 meta-fix)" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "- **Bootstrap-kit pin:** (chart is not in the kit — opt-in Application Blueprint, no pin to bump)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "${{ steps.bump_blueprint.outputs.bumped }}" = "true" ]; then
+            echo "- **Blueprint.yaml lockstep:** ✓ auto-bumped \`${{ steps.bump_blueprint.outputs.bp_file }}\` spec.version ${{ steps.bump_blueprint.outputs.prev_version }} → ${{ steps.chart.outputs.version }} (TBD-A20, #1856)" >> "$GITHUB_STEP_SUMMARY"
+          elif [ -n "${{ steps.bump_blueprint.outputs.bp_file }}" ]; then
+            echo "- **Blueprint.yaml lockstep:** (already at ${{ steps.chart.outputs.version }}, no-op)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- **Blueprint.yaml lockstep:** (chart has no platform/<bp>/blueprint.yaml — e.g. products/catalyst umbrella)" >> "$GITHUB_STEP_SUMMARY"
           fi

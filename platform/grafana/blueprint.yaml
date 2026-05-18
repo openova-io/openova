@@ -5,7 +5,7 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-3-observability
 spec:
-  version: 1.0.0
+  version: 1.0.1
   card:
     title: Grafana
     family: insights

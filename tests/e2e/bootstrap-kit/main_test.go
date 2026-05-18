@@ -208,6 +208,142 @@ func TestBootstrapKit_BlueprintCardsHaveRequiredFields(t *testing.T) {
 	}
 }
 
+// TestBootstrapKit_BlueprintVersionLockstepSweep asserts the TBD-A20
+// convergence contract (issue #1856) for EVERY Blueprint manifest in the
+// repository — not just the canonical 10 in the bootstrap kit. The
+// convergence contract is:
+//
+//	For every platform/<bp>/blueprint.yaml (and products/<bp>/chart/blueprint.yaml)
+//	whose folder contains a sibling chart/Chart.yaml,
+//	the blueprint.yaml spec.version MUST equal the Chart.yaml version.
+//
+// Why broaden coverage beyond the 10 canonical blueprints?
+//
+// TestBootstrapKit_BlueprintCardsHaveRequiredFields only checks the 10
+// kit blueprints. The 2026-05-18 drift incident (6 blueprints out of sync
+// — cilium, cert-manager, flux, openbao, keycloak, gitea — patched by
+// PR #1855) showed the problem also exists for non-kit Application
+// Blueprints (e.g. bp-velero, bp-temporal, bp-wordpress-tenant). The
+// extended auto-bump hook in blueprint-release.yaml (this PR) handles
+// the lockstep for every chart bump; this test is the static regression
+// gate that catches a missed write before merge.
+//
+// Discovery rule:
+//   - Walk platform/* — every direct subdirectory whose blueprint.yaml is
+//     kind: Blueprint and whose sibling chart/Chart.yaml exists is in scope.
+//   - Walk products/* — every direct subdirectory whose chart/blueprint.yaml
+//     is kind: Blueprint and whose sibling chart/Chart.yaml exists is in
+//     scope. (products/catalyst is excluded because its blueprint.yaml is
+//     at chart/crds/blueprint.yaml — a CRD definition, not a Blueprint
+//     manifest; the kind: filter naturally rejects it.)
+//
+// Each in-scope folder gets a subtest; a failure names the file and the
+// drift direction so the fix is mechanical.
+func TestBootstrapKit_BlueprintVersionLockstepSweep(t *testing.T) {
+	root := repoRoot(t)
+
+	type pair struct {
+		name      string // subtest name (e.g. "platform/cilium")
+		bpFile    string // path to blueprint.yaml
+		chartFile string // path to sibling Chart.yaml
+	}
+	var pairs []pair
+
+	for _, tree := range []string{"platform", "products"} {
+		treeRoot := filepath.Join(root, tree)
+		entries, err := os.ReadDir(treeRoot)
+		if err != nil {
+			t.Fatalf("read %s: %v", treeRoot, err)
+		}
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			// Two canonical locations: platform/<x>/blueprint.yaml and
+			// products/<x>/chart/blueprint.yaml. The corresponding
+			// Chart.yaml is always at <folder>/chart/Chart.yaml.
+			for _, bpRel := range []string{
+				filepath.Join(tree, e.Name(), "blueprint.yaml"),
+				filepath.Join(tree, e.Name(), "chart", "blueprint.yaml"),
+			} {
+				bpAbs := filepath.Join(root, bpRel)
+				if _, err := os.Stat(bpAbs); err != nil {
+					continue
+				}
+				// Filter to kind: Blueprint. Co-located non-Blueprint YAML
+				// (e.g. CRD definitions) is silently skipped.
+				raw, err := os.ReadFile(bpAbs)
+				if err != nil {
+					continue
+				}
+				var head struct {
+					Kind string `yaml:"kind"`
+				}
+				if err := yaml.Unmarshal(raw, &head); err != nil || head.Kind != "Blueprint" {
+					continue
+				}
+				chartAbs := filepath.Join(root, tree, e.Name(), "chart", "Chart.yaml")
+				if _, err := os.Stat(chartAbs); err != nil {
+					// Blueprint without a co-located chart — out of scope
+					// (e.g. metadata-only references). Skip silently.
+					continue
+				}
+				pairs = append(pairs, pair{
+					name:      filepath.Join(tree, e.Name()),
+					bpFile:    bpAbs,
+					chartFile: chartAbs,
+				})
+			}
+		}
+	}
+
+	if len(pairs) == 0 {
+		t.Fatal("discovered zero Blueprint/Chart pairs — sweep is broken (expected dozens under platform/ and products/)")
+	}
+
+	for _, p := range pairs {
+		t.Run(p.name, func(t *testing.T) {
+			bpRaw, err := os.ReadFile(p.bpFile)
+			if err != nil {
+				t.Fatalf("read blueprint: %v", err)
+			}
+			var bp struct {
+				Spec struct {
+					Version string `yaml:"version"`
+				} `yaml:"spec"`
+			}
+			if err := yaml.Unmarshal(bpRaw, &bp); err != nil {
+				t.Fatalf("unmarshal blueprint: %v", err)
+			}
+			chartRaw, err := os.ReadFile(p.chartFile)
+			if err != nil {
+				t.Fatalf("read chart: %v", err)
+			}
+			var chart struct {
+				Version string `yaml:"version"`
+			}
+			if err := yaml.Unmarshal(chartRaw, &chart); err != nil {
+				t.Fatalf("unmarshal chart: %v", err)
+			}
+			if bp.Spec.Version == "" {
+				t.Errorf("blueprint.yaml at %s has empty spec.version", p.bpFile)
+				return
+			}
+			if chart.Version == "" {
+				t.Errorf("Chart.yaml at %s has empty version", p.chartFile)
+				return
+			}
+			if chart.Version != bp.Spec.Version {
+				t.Errorf("LOCKSTEP DRIFT (TBD-A20, #1856):\n  %s\n    spec.version = %q\n  %s\n    version      = %q\n  → the auto-bump hook in .github/workflows/blueprint-release.yaml should have kept these in sync. If you bumped Chart.yaml manually, run:\n    sed -i 's/^  version: .*/  version: %s/' %s",
+					p.bpFile, bp.Spec.Version,
+					p.chartFile, chart.Version,
+					chart.Version, p.bpFile,
+				)
+			}
+		})
+	}
+}
+
 // TestBootstrapKit_TemplateClusterParses verifies that the template
 // directory clusters/_template/ contains valid Flux manifests and that all
 // SOVEREIGN_FQDN_PLACEHOLDER substitutions can be made consistently.
