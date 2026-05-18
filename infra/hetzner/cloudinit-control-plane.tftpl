@@ -1388,6 +1388,27 @@ runcmd:
   # but bridge connection failed; 0 HRs observed). 169.254.169.254 is
   # the Hetzner metadata endpoint; same path used by the public-IP
   # rewrite step at line 1310.
+  #
+  # --node-external-ip=$${CP_PUBLIC_IPV4} — DoD A2 / TBD-A7 fix (2026-05-18)
+  # ──────────────────────────────────────────────────────────────────────
+  # Without this flag, k3s only publishes node.status.addresses[InternalIP=
+  # ${cp_private_ip}] and NO ExternalIP. After the 2026-05-15 per-region-
+  # network refactor every region's CP sits in its OWN isolated
+  # hcloud_network, so the InternalIP is 10.0.1.2 *uniformly* across every
+  # region — locally-scoped, NOT routable cross-region. Cilium picks the
+  # InternalIP as its tunnel-endpoint by default → cross-region VXLAN
+  # tunnels resolve to 10.0.1.2 on every peer → inter-region pod traffic
+  # blackholes. Caught live on t22-omantel-biz (2026-05-18 Wave 28-E):
+  # all 3 CPs (hel/fsn/sin) advertised InternalIP=10.0.1.2 with no
+  # ExternalIP, Cilium tunnel endpoints unroutable, pod-to-pod
+  # inter-region 0/6.
+  # docs/SOVEREIGN-MULTI-REGION-DOD.md A2 mandate: "inter-region link =
+  # DMZ WireGuard over PUBLIC IPs ALWAYS (never any provider's private
+  # network)". Publishing the public IPv4 as ExternalIP lets Cilium
+  # promote it to its tunnel endpoint when peer addresses include
+  # External + Internal, which restores cross-region pod reachability
+  # without breaking intra-cluster paths (InternalIP stays primary for
+  # kube-apiserver advertise + pod-to-CP dial).
   # --node-label openova.io/region=${region_canonical_label}
   # (NAMING-CONVENTION §2.1 canonical region tag, e.g.
   # `hz-fsn-rtz-prod` for a fsn1 primary, `hz-hel-rtz-prod` for a hel1
@@ -1506,7 +1527,7 @@ runcmd:
   # packet flow over Cilium WireGuard which requires non-overlapping
   # CIDRs end-to-end. Values are interpolated by OpenTofu from
   # local.region_cluster_cidr / local.region_service_cidr in main.tf.
-  - 'CP_PUBLIC_IPV4=$(curl -fsSL --retry 30 --retry-delay 2 http://169.254.169.254/hetzner/v1/metadata/public-ipv4) && curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=${k3s_version} K3S_TOKEN=${k3s_token} INSTALL_K3S_EXEC="server --cluster-init --flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --cluster-cidr=${cluster_cidr} --service-cidr=${service_cidr} --node-ip=${cp_private_ip} --advertise-address=${cp_private_ip} --kubelet-arg=max-pods=220 --tls-san=${sovereign_fqdn} --tls-san=${cp_private_ip} --tls-san=$${CP_PUBLIC_IPV4} --kube-apiserver-arg=oidc-issuer-url=https://auth.${sovereign_fqdn}/realms/sovereign --kube-apiserver-arg=oidc-client-id=kubectl --kube-apiserver-arg=oidc-username-claim=preferred_username --kube-apiserver-arg=oidc-username-prefix=oidc: --kube-apiserver-arg=oidc-groups-claim=groups --kube-apiserver-arg=oidc-groups-prefix=oidc: --node-label catalyst.openova.io/role=control-plane --node-label openova.io/region=${region_canonical_label} --disable-cloud-controller ${worker_count > 0 ? "--node-taint node-role.kubernetes.io/control-plane=true:NoSchedule " : ""}--write-kubeconfig-mode=0644" sh -'
+  - 'CP_PUBLIC_IPV4=$(curl -fsSL --retry 30 --retry-delay 2 http://169.254.169.254/hetzner/v1/metadata/public-ipv4) && curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=${k3s_version} K3S_TOKEN=${k3s_token} INSTALL_K3S_EXEC="server --cluster-init --flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --cluster-cidr=${cluster_cidr} --service-cidr=${service_cidr} --node-ip=${cp_private_ip} --node-external-ip=$${CP_PUBLIC_IPV4} --advertise-address=${cp_private_ip} --kubelet-arg=max-pods=220 --tls-san=${sovereign_fqdn} --tls-san=${cp_private_ip} --tls-san=$${CP_PUBLIC_IPV4} --kube-apiserver-arg=oidc-issuer-url=https://auth.${sovereign_fqdn}/realms/sovereign --kube-apiserver-arg=oidc-client-id=kubectl --kube-apiserver-arg=oidc-username-claim=preferred_username --kube-apiserver-arg=oidc-username-prefix=oidc: --kube-apiserver-arg=oidc-groups-claim=groups --kube-apiserver-arg=oidc-groups-prefix=oidc: --node-label catalyst.openova.io/role=control-plane --node-label openova.io/region=${region_canonical_label} --disable-cloud-controller ${worker_count > 0 ? "--node-taint node-role.kubernetes.io/control-plane=true:NoSchedule " : ""}--write-kubeconfig-mode=0644" sh -'
 
   # Wait for the API server to be reachable. Cilium needs to come up before
   # nodes Ready, so we wait specifically for the API endpoint.
