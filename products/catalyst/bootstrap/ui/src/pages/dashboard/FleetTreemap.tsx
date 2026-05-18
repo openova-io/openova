@@ -323,6 +323,14 @@ function FleetTreemapSurface({ items, colorBy, sovById }: FleetTreemapSurfacePro
           style={{ display: 'block' }}
         >
           {rects.map((r) => {
+            // SquarifiedRect exposes (x0,y0,x1,y1) — derive (x,y,w,h)
+            // for SVG `<rect>` + `<text>` consumption. Keeping the
+            // local aliases at the top of the cell avoids littering
+            // the JSX with `r.x1 - r.x0` arithmetic.
+            const rx = r.x0
+            const ry = r.y0
+            const rw = r.x1 - r.x0
+            const rh = r.y1 - r.y0
             const pct = r.item.percentage
             const fill = pct == null ? '#475569' /* slate-600 */ : colorFn(pct)
             return (
@@ -332,18 +340,18 @@ function FleetTreemapSurface({ items, colorBy, sovById }: FleetTreemapSurfacePro
                 onClick={() => onCellClick(r.item)}
               >
                 <rect
-                  x={r.x}
-                  y={r.y}
-                  width={r.width}
-                  height={r.height}
+                  x={rx}
+                  y={ry}
+                  width={rw}
+                  height={rh}
                   fill={fill}
                   stroke="#0f172a"
                   strokeWidth={1.5}
                 />
-                {r.width > 60 && r.height > 24 && (
+                {rw > 60 && rh > 24 && (
                   <text
-                    x={r.x + 8}
-                    y={r.y + 18}
+                    x={rx + 8}
+                    y={ry + 18}
                     fill="#0f172a"
                     fontSize={12}
                     fontWeight={600}
@@ -351,10 +359,10 @@ function FleetTreemapSurface({ items, colorBy, sovById }: FleetTreemapSurfacePro
                     {r.item.name}
                   </text>
                 )}
-                {r.width > 60 && r.height > 44 && (
+                {rw > 60 && rh > 44 && (
                   <text
-                    x={r.x + 8}
-                    y={r.y + 36}
+                    x={rx + 8}
+                    y={ry + 36}
                     fill="#0f172a"
                     fontSize={10}
                   >
