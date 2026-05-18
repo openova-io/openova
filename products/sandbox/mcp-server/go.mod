@@ -20,7 +20,7 @@ module github.com/openova-io/openova/products/sandbox/mcp-server
 go 1.23
 
 require (
-	github.com/golang-jwt/jwt/v5 v5.2.1
+	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/openova-io/openova/core/controllers v0.0.0
 	github.com/openova-io/openova/core/services/shared v0.0.0
 	k8s.io/api v0.31.1
