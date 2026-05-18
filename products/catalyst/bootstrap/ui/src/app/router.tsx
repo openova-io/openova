@@ -141,6 +141,14 @@ import { OrdersPage as BssOrdersPage } from '@/pages/sovereign/bss/OrdersPage'
 import { RevenuePage as BssRevenuePage } from '@/pages/sovereign/bss/RevenuePage'
 import { VouchersPage as BssVouchersPage } from '@/pages/sovereign/bss/VouchersPage'
 import { TenantsPage as BssTenantsPage } from '@/pages/sovereign/bss/TenantsPage'
+// Wave 3 — Sandbox UI scaffold (branch: sandbox-wave3-ui-scaffold).
+// Per-Org agent-coding workspace mounted under /sandbox/* in the chroot
+// Sovereign Console. SandboxLanding is the 6-agent picker;
+// SandboxSession hosts xterm.js for /sandbox/$id; SandboxSettings is
+// the BYOS Claude Max OAuth surface.
+import { SandboxLanding } from '@/pages/sovereign/sandbox/SandboxLanding'
+import { SandboxSession } from '@/pages/sovereign/sandbox/SandboxSession'
+import { SandboxSettings } from '@/pages/sovereign/sandbox/SandboxSettings'
 import {
   canonicalisePath,
   hasCatalystSession,
@@ -1564,6 +1572,43 @@ const consoleBssTenantsRoute = createRoute({
   component: BssTenantsPage,
 })
 
+/* ── Wave 3 — Sandbox UI scaffold (sandbox-wave3-ui-scaffold) ──────────
+ *
+ * Per-Org agent-coding workspace under the chroot Sovereign Console.
+ * See products/sandbox/docs/architecture.md §1 for the surface contract
+ * (xterm.js host in browser ↔ in-pod pty-server ↔ agent CLI).
+ *
+ *   /sandbox            → SandboxLanding (6-agent picker grid + recent
+ *                         sessions rail, PortalShell chrome)
+ *   /sandbox/$id        → SandboxSession (xterm.js terminal host; Wave 2
+ *                         wires the WebSocket attach to pty-server)
+ *   /sandbox/settings   → SandboxSettings (BYOS Claude Max OAuth
+ *                         Connect / Disconnect; wires to Wave 1b
+ *                         /api/v1/sandbox/byos/claude-code/* stubs)
+ *
+ * SandboxSession's path-param is `$id` — TanStack Router's $-syntax —
+ * matched against the Sandbox CR name (sandbox-<slug>). Static children
+ * (`/sandbox/settings`) MUST be declared BEFORE the dynamic `$id`
+ * sibling so the literal segment wins on /sandbox/settings — TanStack
+ * matches in registration order. The route array below preserves that
+ * ordering.
+ */
+const consoleSandboxIndexRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/sandbox',
+  component: SandboxLanding,
+})
+const consoleSandboxSettingsRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/sandbox/settings',
+  component: SandboxSettings,
+})
+const consoleSandboxSessionRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/sandbox/$id',
+  component: SandboxSession,
+})
+
 /* ── Sovereign-mode cloud legacy redirects (TC-090..092 / 2026-05-07) ─
  *
  * Sister set to LEGACY_CLOUD_REDIRECTS (which is mounted under the
@@ -2067,6 +2112,11 @@ const routeTree = rootRoute.addChildren([
     consoleBssRevenueRoute,
     consoleBssVouchersRoute,
     consoleBssTenantsRoute,
+    // Wave 3 — Sandbox UI scaffold. Static /sandbox/settings registered
+    // before /sandbox/$id so the literal segment wins on path match.
+    consoleSandboxIndexRoute,
+    consoleSandboxSettingsRoute,
+    consoleSandboxSessionRoute,
   ]),
 ])
 

@@ -35,7 +35,7 @@ const CLOUD_ICON =
   'M6.657 18c-2.572 0 -4.657 -2.007 -4.657 -4.483c0 -2.475 2.085 -4.482 4.657 -4.482c.393 -1.762 1.794 -3.2 3.675 -3.773c1.88 -.572 3.956 -.193 5.444 1c1.488 1.19 2.162 3.007 1.77 4.769h.99c1.913 0 3.464 1.56 3.464 3.486c0 1.927 -1.551 3.487 -3.465 3.487h-11.878'
 
 interface FlatNavItem {
-  id: 'apps' | 'jobs' | 'dashboard' | 'cloud' | 'users' | 'bss' | 'settings'
+  id: 'apps' | 'sandbox' | 'jobs' | 'dashboard' | 'cloud' | 'users' | 'bss' | 'settings'
   label: string
   to: string
   icon: string
@@ -64,6 +64,22 @@ const FLAT_NAV: FlatNavItem[] = [
     label: 'Apps',
     to: '/apps',
     icon: 'M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z',
+  },
+  // Sandbox (Wave 3, 2026-05-18 — issue: sandbox-wave3-ui-scaffold).
+  // Per-Org agent-coding workspace — each session runs a chosen agent
+  // CLI (claude/cursor-agent/aider/qwen/opencode/little-coder) in a pod
+  // inside the user's vcluster; the in-pod pty-server pipes ANSI to
+  // xterm.js in the browser. See products/sandbox/docs/architecture.md
+  // §1. Sits between Apps (workloads catalogue) and Jobs (operations)
+  // because it shares the "what's running" mental model.
+  //
+  // Icon: terminal/monitor single-stroke SVG matching the icon family
+  // used by Cloud (Tabler cloud) / Apps (grid) / Jobs (clipboard).
+  {
+    id: 'sandbox',
+    label: 'Sandbox',
+    to: '/sandbox',
+    icon: 'M3 4a1 1 0 011-1h16a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm5 5l3 3-3 3m5 0h4M8 21h8',
   },
   {
     id: 'jobs',
@@ -137,13 +153,16 @@ const SETTINGS_SUB_NAV: SubNavItem[] = [
 
 // ── Active-state derivation ───────────────────────────────────────────────────
 
-type ActiveSection = 'apps' | 'jobs' | 'dashboard' | 'cloud' | 'users' | 'bss' | 'settings'
+type ActiveSection = 'apps' | 'sandbox' | 'jobs' | 'dashboard' | 'cloud' | 'users' | 'bss' | 'settings'
 
 const CLOUD_PATH_RE = /^\/(cloud|infrastructure)(\/|$)/
 
 function deriveActiveSection(pathname: string): ActiveSection {
   if (CLOUD_PATH_RE.test(pathname)) return 'cloud'
   if (/^\/dashboard(\/|$)/.test(pathname)) return 'dashboard'
+  // /sandbox(/*) → 'sandbox' so the nav highlight covers the landing,
+  // /sandbox/$id, and /sandbox/settings (Wave 3).
+  if (/^\/sandbox(\/|$)/.test(pathname)) return 'sandbox'
   if (/^\/jobs(\/|$)/.test(pathname)) return 'jobs'
   if (/^\/users(\/|$)/.test(pathname)) return 'users'
   // /bss(/*) → 'bss' so the BSS nav item highlights for every BSS
