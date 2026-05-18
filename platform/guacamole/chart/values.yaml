@@ -137,12 +137,17 @@ guacamole:
   # ── HTTPRoute (Cilium Gateway) ─────────────────────────────────
   httproute:
     enabled: true
-    # Gateway reference. Defaults to the Sovereign's well-known
-    # `cilium-gateway` in namespace `gateway-system`; per-Sovereign
-    # overlay can rebind.
+    # Gateway reference. Defaults to the Sovereign's canonical
+    # `cilium-gateway` in namespace `kube-system` (installed by
+    # bootstrap-kit/01-cilium.yaml — every other Sovereign HTTPRoute
+    # in catalyst-system/gitea/keycloak/harbor/grafana/openbao/etc.
+    # parents to this gateway). Per-Sovereign overlay can rebind.
+    # Fix (TBD-G6 / C12-004): previously defaulted to namespace
+    # `gateway-system`, which has no Gateway on any Sovereign — the
+    # HTTPRoute went Accepted=False with "no matching parent" on t22.
     parentRef:
       name: cilium-gateway
-      namespace: gateway-system
+      namespace: kube-system
     # Hostname this Guacamole answers on. Empty value fails the
     # helm template render (see _helpers.tpl `bp-guacamole.host`).
     hostname: ""

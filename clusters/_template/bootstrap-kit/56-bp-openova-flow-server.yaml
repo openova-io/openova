@@ -101,6 +101,13 @@ spec:
         # overlay disables when only the in-cluster Service is needed.
         enabled: true
         hostname: openova-flow.${SOVEREIGN_FQDN}
+        # Canonical Sovereign Gateway — every other HTTPRoute
+        # (catalyst-api, catalyst-ui, marketplace, gitea, harbor,
+        # keycloak, …) parents to kube-system/cilium-gateway installed
+        # by bootstrap-kit/01-cilium.yaml. Fix (TBD-G6 / C12-004):
+        # the previous value `catalyst-gateway` does not exist on any
+        # Sovereign — the HTTPRoute went Accepted=False with "no
+        # matching parent" on t22.
         gatewayRef:
-          name: catalyst-gateway
+          name: cilium-gateway
           namespace: kube-system
