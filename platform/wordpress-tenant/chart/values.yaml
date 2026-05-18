@@ -122,6 +122,29 @@ wordpress:
 # platform/gitea/chart/templates/database-secret-sync-job.yaml for
 # the rationale on Reflector vs. post-install Job.
 database:
+  # ─── D31 / TBD-E8b — canonical DB topology selector ──────────────────
+  # Operator-facing enum: "singleton" (default) | "active-hot-standby".
+  # When set, this is the canonical interface and overrides the legacy
+  # boolean `pg.activeHotStandby.enabled` (kept as a back-compat alias
+  # for chart 0.3.x orchestrator overlays — removal slated for 0.4.0).
+  #
+  # The marketplace voucher → org wizard (D29) writes this field
+  # directly when the customer ticks the "cross-region HA database"
+  # checkbox; the catalog-seed Blueprint `bp-cnpg-pair` is the
+  # standalone equivalent customers can install side-by-side for any
+  # non-WordPress tenant-app.
+  #
+  # When mode=active-hot-standby:
+  #   - `pg.activeHotStandby.{primaryRegion,replicaRegion}` MUST be set
+  #     AND differ (templates/_helpers.tpl validateActiveHotStandbyRegions
+  #     fail-fasts at render time).
+  #   - bp-cnpg MUST be installed in BOTH regions (bootstrap-kit does
+  #     this in every region — verified on t132).
+  #   - DoD D11 (Cilium ClusterMesh via LoadBalancer) MUST be reconciled.
+  #
+  # Empty default → fall through to the legacy boolean for back-compat.
+  mode: ""
+
   # CNPG Cluster name & topology — operator-overridable via cluster
   # overlay. Defaults to a tenant-isolated cluster sized for SME usage.
   cnpgClusterName: "wordpress-db"

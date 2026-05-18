@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/category: tenant-app
     catalyst.openova.io/section: pts-7-sme-tenant
 spec:
-  version: 0.2.0
+  version: 0.3.1
   card:
     title: WordPress Tenant
     summary: |
@@ -99,6 +99,23 @@ spec:
       database:
         type: object
         properties:
+          mode:
+            type: string
+            enum: ["", "singleton", "active-hot-standby"]
+            default: ""
+            description: |
+              Canonical operator-facing DB topology selector (TBD-E8b).
+
+                - "singleton"          (DEFAULT) — single in-vcluster CNPG Cluster CR.
+                - "active-hot-standby" (D31)     — primary + replica CNPG Cluster CRs across
+                                                    two regions, WAL streaming over Cilium
+                                                    ClusterMesh (mirrors bp-cnpg-pair shape).
+
+              When set, this enum overrides the legacy
+              `pg.activeHotStandby.enabled` boolean. Empty string falls
+              through to the boolean for back-compat with chart 0.3.x
+              overlays. The marketplace voucher → org wizard (D29)
+              writes this field directly.
           cnpgClusterName:
             type: string
             default: wordpress-db

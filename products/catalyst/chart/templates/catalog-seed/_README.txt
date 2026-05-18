@@ -59,6 +59,7 @@ Files
   blueprint-bp-prometheus.yaml          — Tenant metrics scraping
   blueprint-bp-keycloak.yaml            — Per-tenant Identity Provider
   blueprint-bp-cnpg.yaml                — CloudNative-PG Postgres operator
+  blueprint-bp-cnpg-pair.yaml           — Active-hotstandby CNPG cluster-pair (D31 DR, Refs TBD-E8b)
   blueprint-bp-redis.yaml               — In-memory key/value store
   blueprint-bp-clickhouse.yaml          — Column-oriented analytics DB
   blueprint-bp-opensearch.yaml          — Search + log analytics

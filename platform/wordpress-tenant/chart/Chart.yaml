@@ -42,7 +42,19 @@ name: bp-wordpress-tenant
 #   - New tests/active-hot-standby-render.sh render-gate asserts default
 #     render emits 1 Cluster and enabled render emits 2 Cluster CRs with
 #     the right nodeSelectors + replica.source + externalCluster.host.
-version: 0.3.0
+# 0.3.1 (TBD-E8b, 2026-05-18): canonical `database.mode` enum.
+#   - New `database.mode` knob (singleton | active-hot-standby). When
+#     set, overrides the legacy `pg.activeHotStandby.enabled` boolean
+#     (kept as back-compat alias for chart 0.3.0 overlays). Resolution
+#     precedence centralised in _helpers.tpl `bp-wordpress-tenant.dbMode`.
+#   - templates/cnpg-cluster.yaml now reads the resolved enum via the
+#     helper; pre-existing renders bit-for-bit identical when overlays
+#     don't set the new knob (back-compat smoke).
+#   - blueprint.yaml configSchema exposes `database.mode` so the
+#     marketplace voucher → org wizard (D29) can present a
+#     "Postgres topology" picker instead of a boolean.
+#   - Companion to catalog-seed bp-cnpg-pair Blueprint CR (Refs TBD-E8b).
+version: 0.3.1
 appVersion: "6"
 description: |
   Catalyst Blueprint scratch chart for in-vcluster WordPress, one
