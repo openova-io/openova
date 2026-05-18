@@ -711,10 +711,24 @@ func resolveAppEnvironment(envBySlug map[string]string, slug string) string {
 // same data plane the deleted /catalog page used.
 //
 // 503 when the SME catalog is not deployed on this Sovereign
-// (marketplace.enabled=false in the chart values). 404 when the slug
+// (marketplace.enabled=false in the chart values), or when the
+// SME HS256 bridge secret is not wired (sme-secrets reflection
+// not yet reconciled). 401 when the operator's session has no
+// claims attached (auth middleware bypassed). 404 when the slug
 // isn't in the SME catalog. The upstream status is surfaced verbatim.
 //
 // Body shape: {"published": true|false}.
+//
+// Auth seam (Closes #1735): the upstream catalog runs JWTAuth on
+// every /catalog/admin/* path and requireAdmin on this specific
+// handler. Forwarding the operator's Keycloak RS256 session header
+// to the catalog 401s upstream (catalog only accepts HS256 signed
+// with sme-secrets/JWT_SECRET, just like the rest of the SME mesh).
+// Mint a fresh HS256 bridge token via the same h.mintSMEBridgeToken
+// helper sme_billing_vouchers.go uses for the BSS Vouchers surface
+// and forward THAT as the upstream Authorization header. Operators
+// with `catalyst-owner` realm-role (per SMERoleFor) get role=
+// "superadmin" claimed in the bridge token, satisfying requireAdmin.
 func (h *Handler) HandleSovereignAppPublish(w http.ResponseWriter, r *http.Request) {
 	slug := strings.TrimSpace(chi.URLParam(r, "slug"))
 	if slug == "" {
@@ -733,9 +747,19 @@ func (h *Handler) HandleSovereignAppPublish(w http.ResponseWriter, r *http.Reque
 		})
 		return
 	}
+	// Mint the HS256 bridge token BEFORE the upstream round-trip so
+	// an unwired bridge (Sovereign without marketplace, or stale
+	// chart predating the reflector annotation on sme-secrets)
+	// surfaces 503 with an actionable error rather than the silent
+	// 401 the pre-bridge state produced.
+	bearer, status, errResp := h.mintSMEBridgeToken(r)
+	if errResp != nil {
+		writeJSON(w, status, errResp)
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), smeCatalogProbeBudget)
 	defer cancel()
-	status, err := smeCatalog().SetPublished(ctx, slug, body.Published)
+	upstreamStatus, err := smeCatalog().SetPublished(ctx, slug, body.Published, bearer)
 	if err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
 			"error":  "sme-catalog-unreachable",
@@ -743,16 +767,16 @@ func (h *Handler) HandleSovereignAppPublish(w http.ResponseWriter, r *http.Reque
 		})
 		return
 	}
-	if status >= 200 && status < 300 {
+	if upstreamStatus >= 200 && upstreamStatus < 300 {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"slug":      slug,
 			"published": body.Published,
 		})
 		return
 	}
-	writeJSON(w, status, map[string]string{
+	writeJSON(w, upstreamStatus, map[string]string{
 		"error":  "sme-catalog-rejected",
-		"detail": fmt.Sprintf("upstream returned %d", status),
+		"detail": fmt.Sprintf("upstream returned %d", upstreamStatus),
 	})
 }
 
