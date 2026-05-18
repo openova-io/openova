@@ -360,7 +360,199 @@ func Purge(ctx context.Context, token, sovereignFQDN string, progress func(msg s
 		purgeByNamePrefix(ctx, token, fqdnSlugPrefix, &report, progress)
 	}
 
+	// Third pass — SSH-key public_key comment sweep (TBD-A16).
+	//
+	// The label-pass and name-prefix-pass above both rely on the Hetzner
+	// SSH key object's own metadata (label and name) matching the Tofu
+	// module's canonical emission. In production we observed (t24 orphan,
+	// 2026-05-18) SSH keys that survived every previous wipe pass because
+	// either:
+	//
+	//   - the operator renamed the key in the Hetzner Console (name drift)
+	//   - a partial `tofu apply` race-condition left the key in a state
+	//     where the label was never applied
+	//   - the SSH key was created OUTSIDE tofu by a manual `hcloud
+	//     ssh-key create` call during incident response and never
+	//     received the canonical name/label
+	//
+	// The one piece of metadata that resists every drift vector is the
+	// `public_key` field's RFC 4716 *comment*: the trailing whitespace-
+	// delimited token after the key data, e.g. `catalyst-t25-fresh@bastion`.
+	// The Catalyst bootstrap-cli stamps this comment at key generation
+	// time so even orphans created out-of-band carry the stem. This pass
+	// lists every SSH key, parses the comment, and deletes any whose
+	// comment begins with the canonical `catalyst-<fqdn-dashes>` prefix.
+	//
+	// Idempotent against earlier passes via the same `already` set.
+	purgeSSHKeysByPublicKeyComment(ctx, token, prefix, &report, progress)
+
 	return report, nil
+}
+
+// purgeSSHKeysByPublicKeyComment deletes SSH keys whose `public_key` comment
+// begins with the canonical per-Sovereign prefix (TBD-A16). This is the
+// third match vector — after label-selector and name-prefix — and catches
+// keys whose name AND label both drifted from the Tofu module's canonical
+// emission. Idempotent against the earlier passes.
+//
+// The "comment" of an OpenSSH-format public key is the trailing whitespace-
+// delimited token after the key data, e.g. given:
+//
+//	ssh-ed25519 AAAAC3NzaC1l... catalyst-t25-fresh@bastion-vmi3305700
+//
+// the comment is `catalyst-t25-fresh@bastion-vmi3305700`. Keys without a
+// comment field (or whose key data doesn't tokenise to 3 parts) are skipped
+// — there's no way to attribute them to a Sovereign without a label or name
+// match, and we don't want this fallback to delete random unrelated keys.
+//
+// Boundary safety: the prefix MUST match at the start of the comment AND
+// be followed by either end-of-string or a non-alphanumeric separator
+// (`-`, `.`, `@`, ` `, …). Without this guard, wiping `catalyst-t2` would
+// match `catalyst-t20-*` comments — the same P0 safety regression class
+// pinned by TestPurge_NamePrefixFallback_DoesNotTouchOtherCustomers.
+func purgeSSHKeysByPublicKeyComment(ctx context.Context, token, prefix string, report *PurgeReport, progress func(string)) {
+	if progress == nil {
+		progress = func(string) {}
+	}
+	if strings.TrimSpace(prefix) == "" {
+		return
+	}
+
+	already := sliceToSet(report.SSHKeys)
+
+	keys, err := listAllSSHKeysWithPublicKey(ctx, token)
+	if err != nil {
+		report.Errors = append(report.Errors, "public-key-comment list ssh_keys: "+err.Error())
+		return
+	}
+	for _, k := range keys {
+		comment := publicKeyComment(k.PublicKey)
+		if !commentMatchesPrefix(comment, prefix) {
+			continue
+		}
+		if _, seen := already[k.Name]; seen {
+			continue
+		}
+		if err := deleteResource(ctx, token, "/v1/ssh_keys/"+strconv.FormatInt(k.ID, 10)); err != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("delete ssh_key %s (public-key-comment): %s", k.Name, err.Error()))
+			continue
+		}
+		report.SSHKeys = append(report.SSHKeys, k.Name)
+		progress(fmt.Sprintf("deleted ssh-key %s (public-key-comment fallback)", k.Name))
+	}
+}
+
+// publicKeyComment extracts the RFC-4716 / OpenSSH-format comment field
+// from a public key string. The OpenSSH format is:
+//
+//	<type> <base64-data> <comment>
+//
+// where the comment may itself contain whitespace (e.g. `user@host with
+// spaces`). We split off the key type, then the key data, and return
+// everything after as the comment. Returns "" when the key has fewer than
+// 3 whitespace-separated fields.
+func publicKeyComment(publicKey string) string {
+	trimmed := strings.TrimSpace(publicKey)
+	if trimmed == "" {
+		return ""
+	}
+	// First whitespace split: drop the key type (`ssh-ed25519`, `ssh-rsa`, …).
+	typeAndRest := strings.SplitN(trimmed, " ", 2)
+	if len(typeAndRest) < 2 {
+		return ""
+	}
+	rest := strings.TrimSpace(typeAndRest[1])
+	// Second whitespace split: separate base64 key data from comment.
+	dataAndComment := strings.SplitN(rest, " ", 2)
+	if len(dataAndComment) < 2 {
+		return ""
+	}
+	return strings.TrimSpace(dataAndComment[1])
+}
+
+// commentMatchesPrefix returns true iff the comment starts with prefix AND
+// the next rune (if any) is a non-alphanumeric separator. This is the
+// boundary guard that prevents `catalyst-t2` from spuriously matching
+// `catalyst-t20-fresh@host`. Symmetric with the HasPrefix-with-suffix-dash
+// contract pinned by TestPurge_NamePrefixFallback_DoesNotTouchOtherCustomers.
+func commentMatchesPrefix(comment, prefix string) bool {
+	if comment == "" || prefix == "" {
+		return false
+	}
+	if !strings.HasPrefix(comment, prefix) {
+		return false
+	}
+	if len(comment) == len(prefix) {
+		return true
+	}
+	next := comment[len(prefix)]
+	// Allow `-`, `.`, `@`, ` `, `_` as boundary separators. A digit or
+	// letter after the prefix means we're matching a longer stem (e.g.
+	// `catalyst-t20-…` when prefix is `catalyst-t2`) and must be rejected.
+	switch next {
+	case '-', '.', '@', ' ', '_':
+		return true
+	}
+	return false
+}
+
+// hetznerSSHKey is the SSH-key shape extending hetznerResource with the
+// `public_key` field needed by the comment-match sweep. Hetzner returns
+// the full OpenSSH-format key string in this field.
+type hetznerSSHKey struct {
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	PublicKey string `json:"public_key"`
+}
+
+// listAllSSHKeysWithPublicKey enumerates every SSH key in the Hetzner
+// project with the `public_key` field populated. Used by the public-key
+// comment-match sweep — listAllResources / listResources drop `public_key`
+// because their shape is the minimal hetznerResource.
+func listAllSSHKeysWithPublicKey(ctx context.Context, token string) ([]hetznerSSHKey, error) {
+	var out []hetznerSSHKey
+	page := 1
+	for {
+		q := url.Values{}
+		q.Set("page", strconv.Itoa(page))
+		q.Set("per_page", "50")
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+			"https://api.hetzner.cloud/v1/ssh_keys?"+q.Encode(), nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+
+		resp, err := purgeHTTPClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		body := decodeBody(resp)
+		_ = resp.Body.Close()
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			return nil, fmt.Errorf("hetzner auth failed (status %d) — token may have been rotated or scope revoked", resp.StatusCode)
+		}
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("hetzner list-all ssh_keys: unexpected status %d: %s", resp.StatusCode, body.errMsg())
+		}
+
+		raw, ok := body.raw["ssh_keys"]
+		if ok {
+			var entries []hetznerSSHKey
+			if err := json.Unmarshal(raw, &entries); err == nil {
+				out = append(out, entries...)
+			}
+		}
+		if !body.hasNextPage() {
+			break
+		}
+		page++
+		if page > 50 {
+			break // sanity bound
+		}
+	}
+	return out, nil
 }
 
 // purgeByNamePrefix is the unlabeled fallback half of Purge. Lists every
