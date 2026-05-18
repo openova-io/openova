@@ -371,6 +371,131 @@ func TestHandleK8sList_NamespaceAliasFiltering(t *testing.T) {
 	}
 }
 
+// TestHandleK8sList_FanOutAcrossClusters — TBD-E6 / C3-010, 2026-05-18.
+//
+// Multi-region Sovereigns register N kubeconfigs in the k8sCache
+// (primary + N-1 secondaries via the handover hook, PRs #1579 + #1581).
+// /cloud?view=list&kind=nodes must enumerate items from every
+// registered cluster and stamp each row with its source cluster id.
+//
+// Pre-fix: HandleK8sList queried only the resolveChrootClusterID
+// result (primary), returning 1 row on a 3-region Sovereign while the
+// aggregate /dashboard chips correctly counted 3.
+func TestHandleK8sList_FanOutAcrossClusters(t *testing.T) {
+	podA := newPod("default", "primary-pod")
+	podB := newPod("default", "secondary-pod")
+
+	scheme := runtime.NewScheme()
+	scheme.AddKnownTypeWithName(schema.GroupVersionKind{Version: "v1", Kind: "PodList"}, &unstructured.UnstructuredList{})
+	scheme.AddKnownTypeWithName(schema.GroupVersionKind{Version: "v1", Kind: "Pod"}, &unstructured.Unstructured{})
+	gvrList := map[schema.GroupVersionResource]string{
+		{Version: "v1", Resource: "pods"}: "PodList",
+	}
+	dynA := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrList, podA)
+	dynB := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrList, podB)
+	cfg := k8scache.Config{
+		Logger:   quietLog(),
+		Registry: minimalRegistry(),
+		Clusters: []k8scache.ClusterRef{
+			{ID: "primary", DynamicClient: dynA, CoreClient: kfake.NewSimpleClientset()},
+			{ID: "sin-2", DynamicClient: dynB, CoreClient: kfake.NewSimpleClientset()},
+		},
+	}
+	f, err := k8scache.NewFactory(cfg)
+	if err != nil {
+		t.Fatalf("NewFactory: %v", err)
+	}
+	if err := f.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(f.Stop)
+	// Wait for both clusters' pod informers to sync.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		ia, _, _ := f.List("primary", "pod", nil)
+		ib, _, _ := f.List("sin-2", "pod", nil)
+		if len(ia) == 1 && len(ib) == 1 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	h := &Handler{log: quietLog()}
+	h.SetK8sCache(f, k8scache.NewSARCache(), "X-Forwarded-User")
+	r := newRouter(h)
+
+	req := httptest.NewRequest("GET", "/api/v1/sovereigns/primary/k8s/pod", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp K8sListResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Items) != 2 {
+		t.Fatalf("fan-out expected 2 items (primary+sin-2); got %d", len(resp.Items))
+	}
+	// Both source clusters MUST appear in the Clusters header.
+	gotClusters := map[string]bool{}
+	for _, c := range resp.Clusters {
+		gotClusters[c] = true
+	}
+	if !gotClusters["primary"] || !gotClusters["sin-2"] {
+		t.Fatalf("expected Clusters=[primary,sin-2]; got %v", resp.Clusters)
+	}
+	// Each row carries its source cluster stamp under top-level "cluster".
+	stamps := map[string]bool{}
+	for _, it := range resp.Items {
+		if cid, ok, _ := unstructured.NestedString(it.Object, "cluster"); ok && cid != "" {
+			stamps[cid] = true
+		}
+	}
+	if !stamps["primary"] || !stamps["sin-2"] {
+		t.Fatalf("expected each row to carry source cluster id; got %v", stamps)
+	}
+}
+
+// TestHandleK8sList_SingleClusterBackwardCompat — TBD-E6.
+//
+// Single-cluster Sovereigns MUST keep the pre-fan-out wire shape
+// byte-for-byte: top-level Cluster=<id>, no Clusters header, no
+// per-row cluster stamp. Guards against regressions in old UI clients
+// that key off the legacy shape.
+func TestHandleK8sList_SingleClusterBackwardCompat(t *testing.T) {
+	pod := newPod("default", "x")
+	f := newFactoryWithPod(t, pod)
+	h := &Handler{log: quietLog()}
+	h.SetK8sCache(f, k8scache.NewSARCache(), "X-Forwarded-User")
+	r := newRouter(h)
+
+	req := httptest.NewRequest("GET", "/api/v1/sovereigns/alpha/k8s/pod", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp K8sListResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Cluster != "alpha" {
+		t.Fatalf("expected Cluster=alpha, got %q", resp.Cluster)
+	}
+	if len(resp.Clusters) != 0 {
+		t.Fatalf("single-cluster path must omit Clusters header; got %v", resp.Clusters)
+	}
+	if len(resp.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(resp.Items))
+	}
+	// Backward compat: single-cluster path MUST NOT inject `cluster`
+	// on each row (legacy UI clients don't expect the key).
+	if _, ok, _ := unstructured.NestedString(resp.Items[0].Object, "cluster"); ok {
+		t.Fatalf("single-cluster path must not stamp per-row cluster; got cluster=%v", resp.Items[0].Object["cluster"])
+	}
+}
+
 // newFactoryWithMultiplePods builds an in-memory K8s cache pre-populated
 // with N pods across N namespaces — exercises the namespace-filter path
 // (single-ns cache wouldn't surface the bug).
