@@ -76,6 +76,12 @@ const (
 	// External observers (operators, dashboards) can read this without
 	// hitting the pty-server endpoint directly.
 	AnnLastActivityAt = "openova.io/sandbox-last-activity-at"
+	// AnnIdleScalingDisabled — set by the renderer when Sandbox CR
+	// carries `spec.idleScaling.enabled=false`. The IdleScaler skips
+	// the StatefulSet on every pass (TBD-D8b #1725 — long-running
+	// agent workloads that idle for hours but must stay Running).
+	// Truthy values: 1, t, true (case-insensitive).
+	AnnIdleScalingDisabled = "openova.io/sandbox-idle-scaling-disabled"
 
 	// NamespacePrefix limits the scaler to namespaces the renderer
 	// creates (`sandbox-<owner-uid>`). Any StatefulSet that somehow
@@ -245,6 +251,14 @@ func (s *Scaler) runOnce(ctx context.Context) error {
 func (s *Scaler) processOne(ctx context.Context, ss *appsv1.StatefulSet, now time.Time) (bool, error) {
 	log := s.log.WithValues("namespace", ss.Namespace, "name", ss.Name)
 
+	// TBD-D8b #1725 — per-Sandbox opt-out. The renderer stamps the
+	// disabled annotation when Sandbox.spec.idleScaling.enabled=false.
+	// Skip entirely: no probe, no annotation patch, no scale decision.
+	if isIdleScalingDisabled(ss) {
+		log.V(1).Info("idle-scaler: skipping (idle-scaling disabled per CR)")
+		return false, nil
+	}
+
 	timeout := s.timeoutFor(ss)
 
 	// Probe the in-cluster service for the in-memory activity counter.
@@ -325,6 +339,25 @@ func (s *Scaler) processOne(ctx context.Context, ss *appsv1.StatefulSet, now tim
 	// `sum by (namespace) (rate(...))` aggregation.
 	idleTimeoutEvents.WithLabelValues(ss.Namespace).Inc()
 	return true, nil
+}
+
+// isIdleScalingDisabled reports whether the StatefulSet carries the
+// `openova.io/sandbox-idle-scaling-disabled` annotation set to a truthy
+// value (TBD-D8b #1725). The annotation is renderer-stamped from
+// Sandbox.spec.idleScaling.enabled=false; absence (or any other value)
+// keeps the StatefulSet subject to the scaler. The check is
+// quote-tolerant for the same reason timeoutFor is.
+func isIdleScalingDisabled(ss *appsv1.StatefulSet) bool {
+	v, ok := ss.Annotations[AnnIdleScalingDisabled]
+	if !ok {
+		return false
+	}
+	v = strings.Trim(strings.TrimSpace(v), "\"'")
+	switch strings.ToLower(v) {
+	case "1", "t", "true", "yes", "y":
+		return true
+	}
+	return false
 }
 
 func (s *Scaler) timeoutFor(ss *appsv1.StatefulSet) time.Duration {

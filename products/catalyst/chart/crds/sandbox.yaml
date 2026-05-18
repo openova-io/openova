@@ -181,6 +181,27 @@ spec:
                     `tenant.sandbox_requested` event payload. Empty
                     plan slug leaves the sandbox on the operator
                     DefaultQuota (Wave 1 baseline = Sandbox Free shape).
+                idleScaling:
+                  type: object
+                  description: |
+                    Per-Sandbox idle-scaling opt-out (TBD-D8b #1725).
+                    Default behaviour (omitted OR enabled=true) keeps
+                    the Sandbox subject to the cluster-wide idle scaler
+                    (scale pty-server to 0 after the configured timeout).
+                    Set enabled=false for long-running agent workloads
+                    that idle for hours but must remain Running.
+
+                    Tier policy lives upstream — the orchestrator may
+                    reject enabled=false on Free plans before the CR is
+                    created. The controller honours the field verbatim.
+                  properties:
+                    enabled:
+                      type: boolean
+                      description: |
+                        true (or parent omitted) = scale-to-zero after
+                        timeout (default); false = pty-server StatefulSet
+                        stays at the renderer's Replicas value regardless
+                        of activity.
                 capabilities:
                   type: array
                   description: |

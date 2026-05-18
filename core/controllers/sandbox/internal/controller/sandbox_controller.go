@@ -256,6 +256,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		LLMGatewayTokenSecret: r.LLMGatewayTokenSecret,
 		BYOSSecretPrefix:      r.BYOSSecretPrefix,
 		IdleTimeoutMinutes:    r.IdleTimeoutMinutes,
+		IdleScalingDisabled:   sb.Spec.IdleScaling != nil && !sb.Spec.IdleScaling.Enabled,
 		NewAPIToken:           tokenValue,
 		NewAPITokenSecretName: fmt.Sprintf("sandbox-%s-newapi-token", ownerUID),
 		NewAPITokenExpiresAt:  tokenExpiresAt,

@@ -405,3 +405,84 @@ func testutilCounterValue(t *testing.T, namespace string) float64 {
 	t.Helper()
 	return prometheustestutil.ToFloat64(idleTimeoutEvents.WithLabelValues(namespace))
 }
+
+// (10) TBD-D8b #1725 — `openova.io/sandbox-idle-scaling-disabled=true`
+// annotation prevents scale-to-zero even when the StatefulSet has been
+// idle for far past its timeout window.
+func TestProcessOne_IdleScalingDisabled_NeverScales(t *testing.T) {
+	t.Parallel()
+	ss := ptyStatefulSet("sandbox-emrah", "pty-server", 2, map[string]string{
+		AnnIdleTimeoutMinutes:  "5",
+		AnnIdleScalingDisabled: "true",
+	})
+
+	c := newFakeClient(t, ss)
+	now := time.Now().UTC()
+	// Probe should never be called when scaling is disabled — return an
+	// implausibly-stale lastActivity to prove that even if it WERE called
+	// the scaler still wouldn't act.
+	_, probe := newProbeServer(t, func(_ string) (idleDTO, bool) {
+		return idleDTO{
+			LastActivityAt: now.Add(-24 * time.Hour),
+			ActiveSessions: 0,
+		}, true
+	})
+
+	s := New(c, logr.Discard(), Options{
+		DefaultIdleTimeoutMinutes: 5,
+		ProbeURL:                  probe,
+		Now:                       func() time.Time { return now },
+	})
+
+	if err := s.runOnce(context.Background()); err != nil {
+		t.Fatalf("runOnce: %v", err)
+	}
+
+	var got appsv1.StatefulSet
+	if err := c.Get(context.Background(),
+		client.ObjectKey{Namespace: "sandbox-emrah", Name: "pty-server"}, &got); err != nil {
+		t.Fatalf("get post-pass: %v", err)
+	}
+	if got.Spec.Replicas == nil || *got.Spec.Replicas != 2 {
+		t.Errorf("replicas: got %v want 2 (idle-scaling disabled)", got.Spec.Replicas)
+	}
+	// AnnLastActivityAt must NOT have been stamped — disabled path
+	// skips the entire process pipeline.
+	if _, stamped := got.Annotations[AnnLastActivityAt]; stamped {
+		t.Errorf("AnnLastActivityAt unexpectedly stamped on disabled Sandbox")
+	}
+}
+
+// (11) `false` / "0" / unset → scaler still active. Confirms the
+// truthy-only matcher (architecture.md §1 idle policy default-on).
+func TestIsIdleScalingDisabled_TruthyOnly(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		val  string
+		want bool
+	}{
+		{"true", true},
+		{"True", true},
+		{"TRUE", true},
+		{"1", true},
+		{"yes", true},
+		{"\"true\"", true},
+		{"false", false},
+		{"0", false},
+		{"", false},
+		{"maybe", false},
+	}
+	for _, tc := range cases {
+		ss := ptyStatefulSet("sandbox-x", "pty-server", 1,
+			map[string]string{AnnIdleScalingDisabled: tc.val})
+		got := isIdleScalingDisabled(ss)
+		if got != tc.want {
+			t.Errorf("isIdleScalingDisabled(%q) = %v, want %v", tc.val, got, tc.want)
+		}
+	}
+	// Annotation absent → never disabled.
+	bare := ptyStatefulSet("sandbox-x", "pty-server", 1, nil)
+	if isIdleScalingDisabled(bare) {
+		t.Errorf("isIdleScalingDisabled(no annotation) = true, want false")
+	}
+}

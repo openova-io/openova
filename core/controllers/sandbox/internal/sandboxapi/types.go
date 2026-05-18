@@ -77,6 +77,32 @@ type SandboxSpec struct {
 	// CapabilitiesForPlan. Wildcards (`sandbox.db.*`) are honoured
 	// by the matcher so the plan map can carry coarse grants.
 	Capabilities []string `json:"capabilities,omitempty"`
+
+	// IdleScaling lets a Sandbox opt out of the cluster-wide idle
+	// scaler (core/controllers/sandbox/internal/idlescaler). When
+	// IdleScaling.Enabled is false the renderer stamps the
+	// `openova.io/sandbox-idle-scaling-disabled=true` annotation on
+	// the pty-server StatefulSet and the idle scaler skips it on
+	// every pass (long-running agent tasks that idle for hours but
+	// must remain Running). Default behaviour (nil pointer OR
+	// Enabled=true) preserves the existing scale-to-zero policy so
+	// the tier-cap economics still hold for the free/pro paths.
+	//
+	// Tier policy lives upstream — the orchestrator may reject
+	// Enabled=false for Free plans before the CR is created. The
+	// controller itself does NOT police tier caps; it honours the
+	// field verbatim. See TBD-D8b #1725.
+	IdleScaling *SandboxIdleScaling `json:"idleScaling,omitempty"`
+}
+
+// SandboxIdleScaling is spec.idleScaling. A nil pointer is equivalent
+// to {Enabled: true} (the safe default — every Sandbox is subject to
+// idle scaling unless explicitly opted out).
+type SandboxIdleScaling struct {
+	// Enabled gates the idle scaler. true (or nil parent) = scale-to-zero
+	// after the timeout; false = pty-server StatefulSet stays at the
+	// renderer's Replicas value regardless of inactivity.
+	Enabled bool `json:"enabled"`
 }
 
 // SandboxOwner is spec.owner.
@@ -182,6 +208,9 @@ func (s *SandboxSpec) DeepCopyInto(out *SandboxSpec) {
 	if s.Capabilities != nil {
 		out.Capabilities = make([]string, len(s.Capabilities))
 		copy(out.Capabilities, s.Capabilities)
+	}
+	if s.IdleScaling != nil {
+		out.IdleScaling = &SandboxIdleScaling{Enabled: s.IdleScaling.Enabled}
 	}
 }
 

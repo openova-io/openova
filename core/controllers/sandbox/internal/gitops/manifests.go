@@ -59,6 +59,14 @@ type Inputs struct {
 	BYOSSecretPrefix      string
 	IdleTimeoutMinutes    int
 
+	// IdleScalingDisabled (TBD-D8b #1725) — when true the renderer
+	// stamps `openova.io/sandbox-idle-scaling-disabled=true` on the
+	// pty-server StatefulSet so the cluster-wide idle scaler skips it
+	// on every pass. Default false preserves the existing scale-to-zero
+	// policy. Sourced from Sandbox.spec.idleScaling.enabled (false →
+	// disabled true; nil OR true → disabled false).
+	IdleScalingDisabled bool
+
 	// Wave 9 — per-Sandbox NewAPI bearer rendered into a dedicated
 	// Secret manifest. When NewAPIToken is non-empty the renderer
 	// emits secret-newapi-token.yaml carrying stringData
@@ -246,6 +254,9 @@ metadata:
     app.kubernetes.io/component: pty-server
   annotations:
     openova.io/sandbox-idle-timeout-minutes: {{ .IdleTimeoutMinutes | quote }}
+{{- if .IdleScalingDisabled }}
+    openova.io/sandbox-idle-scaling-disabled: "true"
+{{- end }}
 spec:
   serviceName: pty-server
   replicas: {{ .Replicas }}
