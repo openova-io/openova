@@ -79,6 +79,35 @@ type Inputs struct {
 	// the Namespace so Wave 2's HTTPRoute renderer can find it without
 	// re-reading the CR.
 	PreviewDomain string
+
+	// NewAPIToken is the HS256 bearer minted by the catalyst-api bridge
+	// handler (POST /admin/tokens/sandbox, shipped by PR #1638). When
+	// non-empty, the renderer emits a dedicated
+	// `secret-newapi-token.yaml` manifest containing the token under
+	// the LLM_GATEWAY_TOKEN key. Empty disables the manifest — the
+	// reconciler renders Wave 1 RBAC/PVCs even when the bridge is
+	// unreachable so operators can debug a half-wired Sovereign
+	// without losing the namespace-create step.
+	NewAPIToken string
+
+	// NewAPITokenSecretName is the Secret name the Sandbox Pod (Wave 2)
+	// mounts as env LLM_GATEWAY_TOKEN. Conventionally
+	// `sandbox-<owner-uid>-newapi-token`.
+	NewAPITokenSecretName string
+
+	// NewAPITokenExpiresAt is the absolute expiry of NewAPIToken (RFC3339
+	// string ready for annotation use — caller pre-formats so the
+	// renderer does not depend on time pkg). Surfaced as an annotation
+	// on the rendered Secret so operators + Wave 2's restart-on-rotate
+	// path can both inspect it without parsing the JWT.
+	NewAPITokenExpiresAt string
+
+	// NewAPITokenRotatedAt is the controller's bump-on-rotate marker
+	// (RFC3339 instant). When non-empty, the renderer drops a
+	// `kubectl.kubernetes.io/restartedAt` annotation on the rendered
+	// Secret. Wave 2's pty-server StatefulSet will read the same value
+	// off the mounted Secret to trigger a rolling restart on rotation.
+	NewAPITokenRotatedAt string
 }
 
 const namespaceTemplate = `apiVersion: v1
@@ -206,6 +235,37 @@ stringData:
   placeholder: ""
 `
 
+// newapiTokenSecretTemplate renders the per-Sandbox NewAPI bearer
+// Secret. Materialized into the Org vcluster's sandbox-<owner-uid>
+// namespace by Flux; Wave 2's pty-server StatefulSet mounts the
+// LLM_GATEWAY_TOKEN key as an env var on every Sandbox-agent Pod.
+//
+// The Secret carries TWO operator-visible annotations:
+//   - openova.io/sandbox-token-expires-at — absolute expiry of the
+//     embedded JWT (operator + rotation observer).
+//   - kubectl.kubernetes.io/restartedAt   — rotation marker; Wave 2's
+//     pty-server StatefulSet propagates this onto its Pod template via
+//     a stringData → annotation reference so a fresh Secret triggers
+//     a rolling restart.
+const newapiTokenSecretTemplate = `apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .SecretName }}
+  namespace: {{ .NamespaceName }}
+  labels:
+    openova.io/sandbox: {{ .Name }}
+    openova.io/sandbox-owner: {{ .OwnerUID }}
+    openova.io/managed-by: catalyst
+  annotations:
+    openova.io/sandbox-token-expires-at: {{ .ExpiresAt | quote }}
+{{- if .RotatedAt }}
+    kubectl.kubernetes.io/restartedAt: {{ .RotatedAt | quote }}
+{{- end }}
+type: Opaque
+stringData:
+  LLM_GATEWAY_TOKEN: {{ .Token | quote }}
+`
+
 // kustomizationTemplate stitches every rendered manifest into one
 // Kustomization the host-cluster Flux Kustomization picks up.
 const kustomizationTemplate = `apiVersion: kustomize.config.k8s.io/v1beta1
@@ -217,6 +277,9 @@ resources:
   - role.yaml
   - rolebinding.yaml
   - secret.yaml
+{{- if .HasNewAPIToken }}
+  - secret-newapi-token.yaml
+{{- end }}
 {{- range .RepoPaths }}
   - {{ . }}
 {{- end }}
@@ -262,7 +325,7 @@ func Render(in Inputs) (map[string][]byte, error) {
 	}
 	base := baseCtx{Inputs: in, NamespaceName: ns}
 
-	out := make(map[string][]byte, 7+len(repos))
+	out := make(map[string][]byte, 8+len(repos))
 
 	// Non-repo templates.
 	for path, raw := range map[string]string{
@@ -310,17 +373,50 @@ func Render(in Inputs) (map[string][]byte, error) {
 		repoPaths = append(repoPaths, path)
 	}
 
+	// NewAPI per-Sandbox bearer Secret — opt-in (only when the caller
+	// supplied a non-empty token; reconciler skips this manifest when
+	// the bridge is unreachable so namespace + RBAC + PVCs still land
+	// without the token-mint side-effect).
+	if strings.TrimSpace(in.NewAPIToken) != "" {
+		secretName := strings.TrimSpace(in.NewAPITokenSecretName)
+		if secretName == "" {
+			secretName = fmt.Sprintf("sandbox-%s-newapi-token", in.OwnerUID)
+		}
+		type tokenCtx struct {
+			Inputs
+			NamespaceName string
+			SecretName    string
+			Token         string
+			ExpiresAt     string
+			RotatedAt     string
+		}
+		buf, err := renderTemplate("secret-newapi-token.yaml", newapiTokenSecretTemplate, tokenCtx{
+			Inputs:        in,
+			NamespaceName: ns,
+			SecretName:    secretName,
+			Token:         in.NewAPIToken,
+			ExpiresAt:     in.NewAPITokenExpiresAt,
+			RotatedAt:     in.NewAPITokenRotatedAt,
+		})
+		if err != nil {
+			return nil, err
+		}
+		out["secret-newapi-token.yaml"] = buf
+	}
+
 	// Kustomization stitching — sorted repoPaths keeps output stable.
 	sort.Strings(repoPaths)
 	type kustCtx struct {
 		Inputs
-		NamespaceName string
-		RepoPaths     []string
+		NamespaceName  string
+		RepoPaths      []string
+		HasNewAPIToken bool
 	}
 	kustBuf, err := renderTemplate("kustomization.yaml", kustomizationTemplate, kustCtx{
-		Inputs:        in,
-		NamespaceName: ns,
-		RepoPaths:     repoPaths,
+		Inputs:         in,
+		NamespaceName:  ns,
+		RepoPaths:      repoPaths,
+		HasNewAPIToken: strings.TrimSpace(in.NewAPIToken) != "",
 	})
 	if err != nil {
 		return nil, err

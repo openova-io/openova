@@ -28,6 +28,7 @@ import (
 
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
 	"github.com/openova-io/openova/core/controllers/sandbox/internal/controller"
+	"github.com/openova-io/openova/core/controllers/sandbox/internal/newapi"
 	sandboxapi "github.com/openova-io/openova/core/controllers/sandbox/internal/sandboxapi"
 )
 
@@ -65,6 +66,17 @@ func main() {
 	branch := envOr("CATALYST_GITEA_BRANCH", "main")
 	tenantRepo := envOr("CATALYST_TENANT_REPO_NAME", "catalyst-tenant")
 
+	// NewAPI bridge wiring. Two env vars carry the bridge URL + admin
+	// bearer (see platform/sandbox/chart/templates/deployment.yaml).
+	// Both are REQUIRED in production — a sandbox-controller without
+	// the bridge wired silently ships Sandboxes without an LLM
+	// connection. Permit unset for compatibility with smoke tests
+	// that exercise only the gitops path (env both unset ⇒ controller
+	// runs without the token-mint path; log line announces it).
+	newapiURL := strings.TrimSpace(os.Getenv("NEWAPI_BASE_URL"))
+	newapiAdmin := strings.TrimSpace(os.Getenv("NEWAPI_ADMIN_SECRET"))
+	defaultChannels := splitAndTrim(envOr("NEWAPI_DEFAULT_CHANNELS", ""), ",")
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsserver.Options{BindAddress: metricsAddr},
@@ -86,14 +98,31 @@ func main() {
 		os.Exit(1)
 	}
 
+	var newapiClient newapi.Client
+	if newapiURL != "" && newapiAdmin != "" {
+		c, err := newapi.New(newapiURL, newapiAdmin, nil)
+		if err != nil {
+			log.Error(err, "newapi client init")
+			os.Exit(1)
+		}
+		newapiClient = c
+	} else {
+		log.Info("newapi bridge not wired — sandbox-controller running in gitops-only mode",
+			"newapi_base_url_set", newapiURL != "",
+			"newapi_admin_secret_set", newapiAdmin != "",
+		)
+	}
+
 	r := &controller.Reconciler{
-		Client:         mgr.GetClient(),
-		Log:            log.WithName("reconciler"),
-		GiteaClient:    gitea.New(giteaURL, giteaToken),
-		HostCluster:    hostCluster,
-		SovereignFQDN:  sovereignFQDN,
-		Branch:         branch,
-		TenantRepoName: tenantRepo,
+		Client:          mgr.GetClient(),
+		Log:             log.WithName("reconciler"),
+		GiteaClient:     gitea.New(giteaURL, giteaToken),
+		HostCluster:     hostCluster,
+		SovereignFQDN:   sovereignFQDN,
+		Branch:          branch,
+		TenantRepoName:  tenantRepo,
+		NewAPIClient:    newapiClient,
+		DefaultChannels: defaultChannels,
 	}
 	if err := r.SetupWithManager(mgr); err != nil {
 		log.Error(err, "setup reconciler")
@@ -105,6 +134,8 @@ func main() {
 		"sovereign_fqdn", sovereignFQDN,
 		"gitea_url", giteaURL,
 		"tenant_repo", tenantRepo,
+		"newapi_wired", newapiClient != nil,
+		"default_channels", defaultChannels,
 	)
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		log.Error(err, "manager start")
@@ -130,4 +161,23 @@ func envOr(key, fallback string) string {
 		return fallback
 	}
 	return v
+}
+
+// splitAndTrim splits s on sep and returns the non-empty trimmed
+// pieces. "qwen,vllm , " → ["qwen","vllm"]. Empty s returns nil so
+// the caller's len()==0 check is unambiguous.
+func splitAndTrim(s, sep string) []string {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	parts := strings.Split(s, sep)
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
 }
