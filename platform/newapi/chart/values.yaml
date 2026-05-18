@@ -220,11 +220,27 @@ sandboxTokenSigningKey:
   # from release name (`<release>-token-signing-key`).
   autoSecretName: ""
   # Comma-separated list of namespaces emberstack/reflector should
-  # mirror this Secret into. Defaults to "sandbox" — the namespace the
-  # sandbox-controller chart installs into. Per-Sovereign overlays
-  # may extend (e.g. "sandbox,catalyst-system") when additional
-  # sister controllers need ADMIN_SECRET for their own bridge calls.
-  reflectorNamespaces: "sandbox"
+  # mirror this Secret into. Defaults to "catalyst-system,sandbox" —
+  # `catalyst-system` is the canonical install namespace of the bp-
+  # sandbox HelmRelease (clusters/_template/bootstrap-kit/19a-bp-
+  # sandbox.yaml `targetNamespace: catalyst-system`). `sandbox` is
+  # included for legacy overlays that still install into a dedicated
+  # `sandbox` namespace + for any sister tooling (catalyst-api PATs
+  # routed through the bridge) that wants the admin bearer locally.
+  #
+  # Per-Sovereign overlays may extend with additional commas (e.g.
+  # `catalyst-system,sandbox,catalyst-controlplane`) when other
+  # controllers need ADMIN_SECRET for their own bridge calls.
+  #
+  # IMPORTANT — this MUST contain the namespace the sandbox-controller
+  # Deployment runs in. The chart in platform/sandbox/chart/templates/
+  # deployment.yaml references Secret `newapi-bp-newapi-token-signing-
+  # key` via secretKeyRef (optional: true). Without a reflected copy
+  # in the controller's namespace, the env var lands empty + the
+  # controller starts in gitops-only mode and never mints tokens
+  # (silently degraded — operator-visible only via the controller's
+  # startup log line).
+  reflectorNamespaces: "catalyst-system,sandbox"
 # ─── Auth: ops-staff admin UI ────────────────────────────────────────────
 # The admin UI at admin.<host> is gated by the operator's IdP. Default
 # mode is `keycloak` (OIDC against bp-keycloak). `masterKey` is allowed
