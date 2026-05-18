@@ -550,7 +550,7 @@ spec:
       #   Resources/Logs tab namespace+label fix (HR.spec.target-
       #   Namespace + chart-name label) + "Bootstrap blueprint"
       #   chip for bp-* (founder bug #4, C4-003/004/005/007/013).
-      version: 1.4.156
+      version: 1.4.162
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
