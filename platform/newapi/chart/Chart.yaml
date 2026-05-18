@@ -245,7 +245,7 @@ name: bp-newapi
 # composes on the next reconcile. helm template renders cleanly with
 # BOTH the missing-attestation state (no channel) AND the
 # fully-populated state (channel composed normally).
-version: 1.4.19
+version: 1.4.20
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
