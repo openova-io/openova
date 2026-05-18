@@ -440,10 +440,20 @@ metadata:
     openova.io/sandbox: {{ .Name }}
     openova.io/managed-by: catalyst
 spec:
+  # Attach to the canonical Cilium Gateway on the host cluster. PR #1641
+  # originally targeted "catalyst-public/catalyst-system/https" — that
+  # Gateway does not exist on a Sovereign. The real public Gateway is
+  # cilium-gateway/kube-system (clusters/_template/sovereign-tls/
+  # cilium-gateway.yaml), matching the placement organization-controller's
+  # tenant_route.go and products/catalyst/chart/templates/httproute.yaml
+  # already use. sectionName is intentionally omitted so the HTTPRoute
+  # attaches to every listener whose hostname matches "sandbox.<sov-fqdn>"
+  # — currently the wildcard *.${SOVEREIGN_FQDN} HTTPS listener
+  # (https-<sov-fqdn-dashed>) per infra/hetzner/main.tf
+  # locals.parent_domains_listeners_yaml fallback path.
   parentRefs:
-    - name: catalyst-public
-      namespace: catalyst-system
-      sectionName: https
+    - name: cilium-gateway
+      namespace: kube-system
   hostnames:
     - "sandbox.{{ .SovereignFQDN }}"
   rules:
