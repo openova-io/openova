@@ -106,12 +106,58 @@ newapi:
     allowPrivilegeEscalation: false
     capabilities:
       drop: ["ALL"]
-  # Liveness / readiness — NewAPI exposes /api/status (verified via
-  # upstream code path controller/misc.go:GetStatus).
+  # Liveness / readiness / startup — NewAPI exposes /api/status (verified
+  # via upstream code path controller/misc.go:GetStatus).
+  #
+  # TBD-A12 (#1798, 2026-05-18): on a freshly franchised Sovereign the
+  # newapi DB is empty — GORM AutoMigrate runs CREATE TABLE for 26
+  # models (Channel, Token, User, PasskeyCredential, Option, Redemption,
+  # Ability, Log, Midjourney, TopUp, QuotaData, Task, Model, Vendor,
+  # PrefillGroup, Setup, TwoFA, TwoFABackupCode, Checkin,
+  # SubscriptionOrder, UserSubscription, SubscriptionPreConsumeRecord,
+  # CustomOAuthProvider, UserOAuthBinding, SubscriptionPlan) plus two
+  # column-type migrations (subscription_plans.price_amount → decimal,
+  # tokens.model_limits → text). On a small (cpx21/cpx31) CNPG
+  # primary with sslmode=require this first-boot migration takes 60-
+  # 120s before the binary registers its Gin routes and the
+  # `:3000/api/status` listener actually opens.
+  #
+  # Pre-A12 the liveness probe had `initialDelaySeconds: 30` +
+  # `periodSeconds: 10` + `failureThreshold: 3` ⇒ kubelet SIGKILLed
+  # newapi at the 50s mark, mid-migration. The empty newapi DB on t22
+  # (chart 1.4.18) had zero tables after 29 restarts because every
+  # restart killed the migration before it could create any. Symptom:
+  # logs print `[SYS] ... database migration started` and then the
+  # container terminates with exit code 2 (kubelet kill) ~50s later;
+  # pg_stat_activity on the CNPG side shows no `newapi` user
+  # connections (the kill races the GORM first-query DB.Migrator().
+  # HasTable call against the wire).
+  #
+  # Fix: add a startupProbe that gates BOTH liveness and readiness for
+  # up to 5 minutes (30 × 10s) before they activate. Liveness then
+  # only kicks in once the binary has actually bound :3000. Readiness
+  # initialDelaySeconds is unchanged because it short-circuits on the
+  # startupProbe per kubelet semantics. failureThreshold of 30 covers
+  # GORM AutoMigrate on PostgreSQL up to ~5 min — comfortably above
+  # the observed 60-120s ceiling and below operator-impatience limits.
   probes:
+    startup:
+      path: /api/status
+      port: 3000
+      # Wait 10s before first poll to skip the token-encoder init phase
+      # (~1s on cpx21) — the binary is single-threaded during this
+      # phase and probing too early adds no signal.
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 5
+      # 30 × 10s = 5 minutes total budget for migration + first listen.
+      failureThreshold: 30
     liveness:
       path: /api/status
       port: 3000
+      # initialDelaySeconds is ignored when startupProbe is configured
+      # (kubelet semantics: liveness starts after startup success).
+      # Kept here for operator overlays that disable startupProbe.
       initialDelaySeconds: 30
       periodSeconds: 10
       timeoutSeconds: 5
