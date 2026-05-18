@@ -293,8 +293,26 @@ spec:
             {{- end }}
             - name: GITHUB_REPO
               value: {{ .Values.smeServices.provisioning.git.repo | default "openova" | quote }}
+            # ── Tenant-write branch isolation (TBD-C18e, 2026-05-18) ─────
+            # Provisioning writes per-tenant overlays to a DEDICATED branch
+            # so the cutover-gitea-mirror Job (which force-pushes main from
+            # upstream every ≤10 min) cannot clobber tenant commits. The
+            # paired Flux GitRepository (openova-sme-tenants) + Kustomization
+            # both read from this branch. Default: `sme-tenants` on Sovereign,
+            # `main` on contabo (no in-cluster mirror exists there).
+            #
+            # Journey v5b root cause: provisioning commit 69d64e48 at
+            # 17:46:13Z (clusters/t22.omantel.biz/sme-tenants/...) was
+            # OVERWRITTEN by the mirror rerun at 17:54:55Z — Org CR never
+            # materialised, customer journey step 16 hung indefinitely.
             - name: GITHUB_BRANCH
-              value: {{ .Values.smeServices.provisioning.git.branch | default "main" | quote }}
+            {{- if .Values.smeServices.provisioning.git.branch }}
+              value: {{ .Values.smeServices.provisioning.git.branch | quote }}
+            {{- else if .Values.global.sovereignFQDN }}
+              value: "sme-tenants"
+            {{- else }}
+              value: "main"
+            {{- end }}
           resources:
             requests:
               cpu: 25m

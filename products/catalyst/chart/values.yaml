@@ -775,15 +775,16 @@ smeTenants:
     # (bootstrap-kit, sovereign-tls, infrastructure-config) so operator
     # tooling can discover it via the standard `-n flux-system` flag.
     namespace: flux-system
-    # The same GitRepository the cluster bootstraps from. Cutover
-    # Step 5 patches its .spec.url from github.com to the local
-    # in-cluster Gitea (http://gitea-http.gitea.svc.cluster.local:3000/
-    # openova/openova) — exactly the URL sme_tenant_gitops.go pushes
-    # via CATALYST_GITOPS_REPO_URL. Operator overlays MAY repoint at
-    # a different GitRepository name (e.g. an SME-tenants-only repo
-    # split out of the monorepo) without forking the chart.
+    # TBD-C18e (2026-05-18): default flipped from `openova` to the
+    # dedicated `openova-sme-tenants` GitRepository (rendered by sibling
+    # template sme-tenants-gitrepository.yaml), tracking the
+    # `sme-tenants` branch. The bootstrap GitRepository (`openova`)
+    # continues to read `main` so chart upgrades + infra fixes reconcile
+    # as before — only this Kustomization reads from the protected
+    # branch. Operator may flip back to `openova` for a single-branch
+    # debug session without losing the rest of the SME-tenant pipeline.
     sourceRef:
-      name: openova
+      name: openova-sme-tenants
       namespace: flux-system
     # Reconcile cadence. 1m matches the orchestrator's documented
     # "Flux on the OTECH cluster reconciles within ~1 min" SLA at the
@@ -809,6 +810,37 @@ smeTenants:
     # reconcile — a single CrashLooping bp-keycloak in tenant A would
     # prevent tenant B from being created.
     wait: false
+  # ─── Dedicated GitRepository for tenant overlays (TBD-C18e) ─────────
+  # Rendered by templates/sme-services/sme-tenants-gitrepository.yaml.
+  # Tracks a SEPARATE branch from the bootstrap GitRepository so the
+  # cutover-gitea-mirror Job (which `git push --mirror --force`s `main`
+  # from upstream every ≤10 min) cannot clobber per-tenant overlays
+  # committed by the provisioning service. The sme-tenants Kustomization
+  # above defaults to sourceRef.name = `openova-sme-tenants` to consume
+  # this CR; flip it back to `openova` for a single-branch debug session.
+  gitRepository:
+    name: openova-sme-tenants
+    namespace: flux-system
+    # Branch the provisioning service writes per-tenant overlays to and
+    # this GitRepository pulls from. MUST stay in sync with the
+    # provisioning Deployment's GITHUB_BRANCH env (see
+    # templates/sme-services/provisioning.yaml — defaults to
+    # `sme-tenants` on Sovereign install, `main` on Catalyst-Zero).
+    branch: sme-tenants
+    # In-cluster Gitea base URL. Matches what
+    # platform/self-sovereign-cutover/chart/templates/
+    # 05-flux-gitrepository-patch-job.yaml patches into the existing
+    # `openova` GitRepository at cutover time. Hardcoded here so the
+    # new CR is correct on first apply (no second cutover step
+    # required).
+    apiURL: "http://gitea-http.gitea.svc.cluster.local:3000"
+    org: openova
+    repo: openova
+    interval: 1m
+    # secretRef: name: gitea-credentials  # uncomment + populate if the
+    # in-cluster Gitea repo becomes private. For the public repo path
+    # source-controller does an unauthenticated clone, matching the
+    # bootstrap GitRepository's secret-less shape.
 
 # ─── Per-Organization public HTTPRoutes (issue #1629 follow-up) ───────
 # PowerDNS now resolves `<slug>.<parentDomain>` for every Org that maps
@@ -1143,7 +1175,16 @@ smeServices:
       apiURL: ""
       owner: ""
       repo: openova
-      branch: main
+      # branch: leave empty to inherit topology-aware default from the
+      # provisioning Deployment template (TBD-C18e, 2026-05-18):
+      #   - Sovereign install (global.sovereignFQDN non-empty) → "sme-tenants"
+      #   - Catalyst-Zero install (global.sovereignFQDN empty)  → "main"
+      # The dedicated `sme-tenants` branch on Sovereigns prevents the
+      # cutover-gitea-mirror Job's force-push of main from clobbering
+      # per-tenant overlays committed by this service. The paired
+      # Flux GitRepository (openova-sme-tenants) + Kustomization read
+      # the same branch.
+      branch: ""
 
 # ─── Catalog (qa-loop iter-16 Fix #65) ─────────────────────────────────
 # `openova-catalog` Flux HelmRepository — the named source ref every
