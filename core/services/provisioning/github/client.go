@@ -3,6 +3,7 @@ package github
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -135,8 +136,9 @@ func (c *Client) CommitFilesWithPruneAndRebuild(
 }
 
 // isFastForwardRejection returns true iff the wrapped error is GitHub's
-// "Update is not a fast forward" 422 from the update-a-reference endpoint.
-// Keeping the check on the textual payload is intentional — the REST API's
+// "Update is not a fast forward" 422 from the update-a-reference endpoint,
+// OR the Gitea-equivalent shape returned by commitOnceContents. Keeping
+// the check on the textual payload is intentional — the REST API's
 // response body is the canonical signal here, not a distinct HTTP status.
 func isFastForwardRejection(err error) bool {
 	if err == nil {
@@ -161,9 +163,40 @@ func indexOf(s, sub string) int {
 	return -1
 }
 
-// commitOnce runs a single getRef → tree → commit → updateRef cycle.
-// Separated from CommitFilesWithPrune so the retry loop above can drive it.
+// targetsGitea returns true iff this client is configured against a non-empty
+// custom APIURL (the Sovereign Git target = in-cluster Gitea). The empty case
+// targets upstream api.github.com (the contabo path).
+//
+// TBD-C18d (2026-05-18): Gitea 1.22 does NOT implement the GitHub Git Data
+// write API (`POST /git/blobs`, `POST /git/trees`, `POST /git/commits`,
+// `PATCH /git/refs/heads/<branch>`). All four return 404. Gitea DOES expose
+// a GitHub-compatible Repository Contents API (`POST/PUT/DELETE
+// /repos/{owner}/{repo}/contents/{filepath}`) plus a batch ChangeFiles
+// endpoint (`POST /repos/{owner}/{repo}/contents`, Gitea ≥ 1.21) that does
+// the same multi-file atomic commit semantics we need.
+//
+// Upstream api.github.com retains the Git Data write API (and does NOT
+// expose a batch ChangeFiles endpoint), so we keep the original
+// blob+tree+commit+updateRef dance for that path.
+func (c *Client) targetsGitea() bool {
+	return c.APIURL != ""
+}
+
+// commitOnce runs a single atomic multi-file commit on `branch`. On Gitea
+// targets (Sovereign clusters, TBD-C18d) it uses the batch ChangeFiles
+// contents API; on upstream GitHub it uses the Git Data API blob+tree+
+// commit+updateRef dance.
 func (c *Client) commitOnce(ctx context.Context, branch, message string, files map[string]string, prunePrefixes []string) error {
+	if c.targetsGitea() {
+		return c.commitOnceContents(ctx, branch, message, files, prunePrefixes)
+	}
+	return c.commitOnceGitData(ctx, branch, message, files, prunePrefixes)
+}
+
+// commitOnceGitData runs a single getRef → tree → commit → updateRef cycle
+// against the GitHub Git Data API. Kept for the contabo / upstream-GitHub
+// path; Gitea callers go through commitOnceContents instead.
+func (c *Client) commitOnceGitData(ctx context.Context, branch, message string, files map[string]string, prunePrefixes []string) error {
 	// 1. Get the current branch ref SHA.
 	refSHA, err := c.getRef(ctx, branch)
 	if err != nil {
@@ -237,6 +270,247 @@ func (c *Client) commitOnce(ctx context.Context, branch, message string, files m
 		"prune_prefixes", len(prunePrefixes),
 	)
 	return nil
+}
+
+// commitOnceContents runs a single atomic multi-file commit against the
+// Gitea-compatible Contents API (TBD-C18d, 2026-05-18). It mirrors the
+// public contract of commitOnceGitData (same retry semantics, same prune
+// behaviour, same ref-race detection via isFastForwardRejection) but talks
+// to endpoints Gitea 1.22 actually implements:
+//
+//   - POST /repos/{owner}/{repo}/contents  (batch ChangeFiles) — atomic
+//     multi-file create/update/delete in one commit.
+//
+// File SHAs needed for update/delete operations are sourced from the
+// recursive git-tree listing (GET /git/trees/{sha}?recursive=1), which IS
+// supported by Gitea (only the WRITE side of the Git Data API is missing).
+func (c *Client) commitOnceContents(ctx context.Context, branch, message string, files map[string]string, prunePrefixes []string) error {
+	// 1. Get current branch ref SHA — used for prune listing AND for an
+	// optional concurrency probe before the atomic batch commit.
+	refSHA, err := c.getRef(ctx, branch)
+	if err != nil {
+		return fmt.Errorf("get ref: %w", err)
+	}
+	slog.Debug("got branch ref", "branch", branch, "sha", refSHA)
+
+	// 2. List existing blobs (with their SHAs) under managed prefixes so
+	// we can compute update-vs-create AND prune deletions.
+	existing := map[string]string{} // path → blob SHA
+	if len(files) > 0 || len(prunePrefixes) > 0 {
+		// We always need existing SHAs for update operations on files that
+		// already exist. Use the same recursive tree listing path as the
+		// Git Data path. Collect ALL blobs whose path is either a managed
+		// prefix candidate OR an exact match in `files`.
+		needs := prunePrefixes
+		// For ANY files that are NOT under a prune prefix we still need
+		// existing-SHA lookup when the path exists; do an exact-path probe.
+		var perFileProbe []string
+		for path := range files {
+			covered := false
+			for _, pfx := range prunePrefixes {
+				if strings.HasPrefix(path, pfx) {
+					covered = true
+					break
+				}
+			}
+			if !covered {
+				perFileProbe = append(perFileProbe, path)
+			}
+		}
+		if len(needs) > 0 {
+			existing, err = c.listTreeBlobsWithSHA(ctx, refSHA, needs)
+			if err != nil {
+				return fmt.Errorf("list existing tree: %w", err)
+			}
+		}
+		// For files outside prune prefixes, fetch each one's SHA on-demand
+		// (HEAD-style GET /contents/{path}?ref=). 404 means "create".
+		for _, path := range perFileProbe {
+			sha, lookupErr := c.getContentSHA(ctx, branch, path)
+			if lookupErr != nil {
+				return fmt.Errorf("probe %s: %w", path, lookupErr)
+			}
+			if sha != "" {
+				existing[path] = sha
+			}
+		}
+	}
+
+	// 3. Build the batch ChangeFiles operations list.
+	type changeFile struct {
+		Operation string `json:"operation"`
+		Path      string `json:"path"`
+		Content   string `json:"content,omitempty"` // base64 for create/update
+		SHA       string `json:"sha,omitempty"`     // required for update/delete
+	}
+	var ops []changeFile
+	for path, content := range files {
+		op := changeFile{
+			Path:    path,
+			Content: base64.StdEncoding.EncodeToString([]byte(content)),
+		}
+		if sha, ok := existing[path]; ok {
+			op.Operation = "update"
+			op.SHA = sha
+		} else {
+			op.Operation = "create"
+		}
+		ops = append(ops, op)
+	}
+	// Prune: any blob under a managed prefix that is not in `files` gets
+	// a delete op. existing only contains paths under prunePrefixes (plus
+	// the per-file probes), so this loop is well-bounded.
+	for path, sha := range existing {
+		if _, keep := files[path]; keep {
+			continue
+		}
+		underPrune := false
+		for _, pfx := range prunePrefixes {
+			if strings.HasPrefix(path, pfx) {
+				underPrune = true
+				break
+			}
+		}
+		if !underPrune {
+			continue
+		}
+		ops = append(ops, changeFile{
+			Operation: "delete",
+			Path:      path,
+			SHA:       sha,
+		})
+	}
+
+	if len(ops) == 0 {
+		// Nothing to commit (no creates, no updates, no deletes).
+		slog.Info("commitOnceContents: no-op (nothing to write or prune)",
+			"branch", branch, "prune_prefixes", len(prunePrefixes))
+		return nil
+	}
+
+	// 4. POST the batch. Gitea ≥ 1.21 endpoint.
+	payload := map[string]any{
+		"branch":  branch,
+		"message": message,
+		"files":   ops,
+	}
+	_, err = c.doRequest(ctx, http.MethodPost, c.apiURL("/contents"), payload)
+	if err != nil {
+		// Surface a ref-race-style retry signal when the server complains
+		// the branch moved (Gitea's wording differs from GitHub's; map both
+		// shapes onto the existing isFastForwardRejection guard so the
+		// outer retry loop keeps working).
+		if isGiteaRefRaceError(err) {
+			return fmt.Errorf("update ref: %w: not a fast forward (gitea contents API)", err)
+		}
+		return fmt.Errorf("change files: %w", err)
+	}
+
+	slog.Info("committed files via Gitea contents API",
+		"branch", branch,
+		"files", len(files),
+		"ops", len(ops),
+		"prune_prefixes", len(prunePrefixes),
+	)
+	return nil
+}
+
+// isGiteaRefRaceError maps Gitea's branch-moved error wording onto the same
+// "not a fast forward" signal the GitHub Git Data path uses, so the outer
+// retry loop in CommitFilesWithPruneAndRebuild treats both equivalently.
+// Gitea returns 409 Conflict or 422 with a body containing phrases like
+// "branch has been changed" / "stale base" / "ref has been updated".
+func isGiteaRefRaceError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, " 409 ") ||
+		strings.Contains(s, "branch has been changed") ||
+		strings.Contains(s, "stale base") ||
+		strings.Contains(s, "ref has been updated") ||
+		strings.Contains(s, "not a fast forward")
+}
+
+// getContentSHA returns the blob SHA of `path` at `branch`, or "" if the
+// file does not exist (404). Used by commitOnceContents to decide
+// create-vs-update for paths outside any prune prefix.
+func (c *Client) getContentSHA(ctx context.Context, branch, path string) (string, error) {
+	url := c.apiURL(fmt.Sprintf("/contents/%s?ref=%s", path, branch))
+	reqCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Accept", "application/vnd.github+json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return "", nil
+	}
+	body, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		return "", readErr
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("getContentSHA: %d %s", resp.StatusCode, string(body))
+	}
+	var meta struct {
+		SHA string `json:"sha"`
+	}
+	if err := json.Unmarshal(body, &meta); err != nil {
+		return "", err
+	}
+	return meta.SHA, nil
+}
+
+// listTreeBlobsWithSHA is like listTreeBlobs but also returns each blob's
+// SHA, keyed by path. Used by commitOnceContents to populate update/delete
+// operations in the ChangeFiles batch.
+func (c *Client) listTreeBlobsWithSHA(ctx context.Context, commitSHA string, prefixes []string) (map[string]string, error) {
+	treeSHA, err := c.getCommitTree(ctx, commitSHA)
+	if err != nil {
+		return nil, err
+	}
+	body, err := c.doRequest(ctx, http.MethodGet,
+		c.apiURL("/git/trees/"+treeSHA+"?recursive=1"), nil)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		Tree []struct {
+			Path string `json:"path"`
+			Type string `json:"type"`
+			SHA  string `json:"sha"`
+		} `json:"tree"`
+		Truncated bool `json:"truncated"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, err
+	}
+	if resp.Truncated {
+		slog.Warn("git tree listing was truncated — some orphan files may survive",
+			"commit", commitSHA)
+	}
+	out := map[string]string{}
+	for _, entry := range resp.Tree {
+		if entry.Type != "blob" {
+			continue
+		}
+		for _, pfx := range prefixes {
+			if strings.HasPrefix(entry.Path, pfx) {
+				out[entry.Path] = entry.SHA
+				break
+			}
+		}
+	}
+	return out, nil
 }
 
 // listTreeBlobs returns all blob paths in commitSHA's tree that begin with any
