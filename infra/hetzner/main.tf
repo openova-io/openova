@@ -340,10 +340,25 @@ locals {
   #   - HTTP  listener on port 30080 hostnamed `*.<zone>` for /.well-known/
   #     and ACME HTTP-01 challenge paths.
   #
-  # Each listener has a unique `name` field (https-<sanitised-zone> /
-  # http-<sanitised-zone>) so the Gateway controller programs them all
-  # (duplicate listener names produce a Conflicting status condition and
-  # silently skip every duplicate but the first).
+  # Listener-NAMING contract (t20 critical fix #3):
+  #   - SINGLE parent zone (the common case)  → listener names are the
+  #     bare strings `https` / `http`. Every platform chart's HTTPRoute
+  #     (harbor, keycloak, grafana, gitea, openbao, powerdns, stalwart-
+  #     tenant) hardcodes `parentRefs[0].sectionName: https`. If the
+  #     listener is renamed to `https-<sanitised-zone>` for a single-zone
+  #     Sovereign, every HTTPRoute reports `Accepted=False
+  #     NoMatchingListener` and the Sovereign Console / Harbor / Keycloak
+  #     etc. are unreachable at the Gateway. Keeping the bare names for
+  #     the single-zone case is the safer rollback. (Was broken between
+  #     PR #1640 and this fix.)
+  #   - MULTIPLE parent zones (SME pool present) → unique names per zone
+  #     (`https-<sanitised-zone>` / `http-<sanitised-zone>`) so the
+  #     Gateway controller programs all of them (duplicate listener names
+  #     produce a Conflicting status condition and silently skip every
+  #     duplicate but the first). For multi-zone Sovereigns, charts whose
+  #     HTTPRoutes must attach under a non-primary zone need their
+  #     sectionName overridden via values.yaml — that is a per-tenant
+  #     concern and out of scope here.
   #
   # Why inline-flow not block-style:
   #   - clusters/_template/sovereign-tls/cilium-gateway.yaml uses the
@@ -361,10 +376,11 @@ locals {
   # substitute map. JSON-encoded scalars are valid YAML; this avoids
   # quoting hell when the listener data contains characters cloud-init
   # YAML would otherwise mis-parse.
+  parent_domains_single_zone = length(local.parent_domains_decoded) == 1
   parent_domains_listeners_yaml = jsonencode(flatten([
     for entry in local.parent_domains_decoded : [
       {
-        name     = format("https-%s", replace(entry.name, ".", "-"))
+        name     = local.parent_domains_single_zone ? "https" : format("https-%s", replace(entry.name, ".", "-"))
         port     = 30443
         protocol = "HTTPS"
         hostname = format("*.%s", entry.name)
@@ -384,7 +400,7 @@ locals {
         }
       },
       {
-        name     = format("http-%s", replace(entry.name, ".", "-"))
+        name     = local.parent_domains_single_zone ? "http" : format("http-%s", replace(entry.name, ".", "-"))
         port     = 30080
         protocol = "HTTP"
         hostname = format("*.%s", entry.name)
