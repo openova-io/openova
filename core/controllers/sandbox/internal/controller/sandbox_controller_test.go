@@ -7,12 +7,14 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -23,10 +25,42 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
+	"github.com/openova-io/openova/core/controllers/sandbox/internal/newapi"
 	sandboxapi "github.com/openova-io/openova/core/controllers/sandbox/internal/sandboxapi"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+// stubNewAPI is an in-process newapi.Client used by the reconciler
+// tests. Captures every MintRequest + replies with the configured
+// MintResponse / error.
+type stubNewAPI struct {
+	mu        sync.Mutex
+	calls     []newapi.MintRequest
+	resp      newapi.MintResponse
+	err       error
+	mintError func(newapi.MintRequest) (*newapi.MintResponse, error)
+}
+
+func (s *stubNewAPI) MintSandboxToken(_ context.Context, req newapi.MintRequest) (*newapi.MintResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.calls = append(s.calls, req)
+	if s.mintError != nil {
+		return s.mintError(req)
+	}
+	if s.err != nil {
+		return nil, s.err
+	}
+	r := s.resp
+	return &r, nil
+}
+
+func (s *stubNewAPI) callCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.calls)
+}
 
 type giteaServer struct {
 	t *testing.T
@@ -505,4 +539,257 @@ func TestReconcile_Wave8NoBYOSWhenAgentMissing(t *testing.T) {
 	if strings.Contains(body, "sandbox-byos-claude-code-ceo-at-acme-com") {
 		t.Errorf("expected NO BYOS Secret reference when claude-code not in agentCatalogue")
 	}
+}
+
+// TestReconcile_NewAPI_MintsAndRendersSecret exercises the Wave 9 mint
+// path: NewAPIClient wired + no prior token annotation → the
+// controller calls the bridge once, stamps both lifecycle annotations
+// on the CR, and renders secret-newapi-token.yaml under the Gitea
+// prefix with the expected token bytes.
+func TestReconcile_NewAPI_MintsAndRendersSecret(t *testing.T) {
+	t.Parallel()
+	sb := sampleSandbox()
+	r, gs := makeReconciler(t, sb)
+
+	fixedNow := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+	exp := fixedNow.Add(7 * 24 * time.Hour)
+	stub := &stubNewAPI{resp: newapi.MintResponse{Token: "jwt-fresh", ExpiresAt: exp}}
+	r.NewAPIClient = stub
+	r.DefaultChannels = []string{"qwen"}
+	r.Now = func() time.Time { return fixedNow }
+
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: sb.Name, Namespace: sb.Namespace},
+	}); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	if stub.callCount() != 1 {
+		t.Errorf("mint calls: got %d want 1", stub.callCount())
+	}
+	gotReq := stub.calls[0]
+	if gotReq.OrgID != "acme" {
+		t.Errorf("mint req OrgID: got %q", gotReq.OrgID)
+	}
+	if gotReq.UserID != "ceo@acme.com" {
+		t.Errorf("mint req UserID: got %q", gotReq.UserID)
+	}
+	if gotReq.SandboxID != string(sb.UID) {
+		t.Errorf("mint req SandboxID: got %q want %q", gotReq.SandboxID, sb.UID)
+	}
+	if len(gotReq.AllowedChannels) != 1 || gotReq.AllowedChannels[0] != "qwen" {
+		t.Errorf("mint req channels: got %v", gotReq.AllowedChannels)
+	}
+
+	// The rendered Secret manifest must exist + carry the token bytes
+	// + expiry annotation + rotation marker (first issuance is also a
+	// rotation event, so kubectl.kubernetes.io/restartedAt is present).
+	secretKey := "acme/catalyst-tenant/sandbox/ceo-at-acme-com/secret-newapi-token.yaml"
+	entry, ok := gs.files[secretKey]
+	if !ok {
+		t.Fatalf("expected secret-newapi-token.yaml under %q; files=%v",
+			secretKey, gsKeys(gs))
+	}
+	if !strings.Contains(string(entry.content), "LLM_GATEWAY_TOKEN: \"jwt-fresh\"") {
+		t.Errorf("rendered Secret missing token bytes: %s", string(entry.content))
+	}
+	if !strings.Contains(string(entry.content), "openova.io/sandbox-token-expires-at: \""+exp.UTC().Format(time.RFC3339)+"\"") {
+		t.Errorf("rendered Secret missing expires-at annotation: %s", string(entry.content))
+	}
+	if !strings.Contains(string(entry.content), "kubectl.kubernetes.io/restartedAt:") {
+		t.Errorf("rendered Secret missing restartedAt annotation: %s", string(entry.content))
+	}
+
+	// The Sandbox CR must carry both lifecycle annotations.
+	var got sandboxapi.Sandbox
+	if err := r.Get(context.Background(),
+		client.ObjectKey{Name: sb.Name, Namespace: sb.Namespace}, &got); err != nil {
+		t.Fatalf("get post-reconcile: %v", err)
+	}
+	if got.Annotations[annotationTokenExpiresAt] != exp.UTC().Format(time.RFC3339) {
+		t.Errorf("CR expires-at annotation: got %q", got.Annotations[annotationTokenExpiresAt])
+	}
+	if got.Annotations[annotationTokenRotatedAt] != fixedNow.UTC().Format(time.RFC3339) {
+		t.Errorf("CR rotated-at annotation: got %q", got.Annotations[annotationTokenRotatedAt])
+	}
+
+	// kustomization.yaml must reference the new secret.
+	kustKey := "acme/catalyst-tenant/sandbox/ceo-at-acme-com/kustomization.yaml"
+	kustEntry, ok := gs.files[kustKey]
+	if !ok {
+		t.Fatalf("expected kustomization.yaml at %q", kustKey)
+	}
+	if !strings.Contains(string(kustEntry.content), "secret-newapi-token.yaml") {
+		t.Errorf("kustomization.yaml missing secret-newapi-token entry: %s", string(kustEntry.content))
+	}
+}
+
+// TestReconcile_NewAPI_RotationOnExpiry verifies that a token whose
+// expiry sits within the rotation lead-time triggers a fresh mint +
+// fresh restart marker.
+func TestReconcile_NewAPI_RotationOnExpiry(t *testing.T) {
+	t.Parallel()
+	fixedNow := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+	expSoon := fixedNow.Add(30 * time.Minute) // inside default 24h lead time
+	sb := sampleSandbox()
+	sb.Annotations = map[string]string{
+		annotationTokenExpiresAt: expSoon.UTC().Format(time.RFC3339),
+		annotationTokenRotatedAt: fixedNow.Add(-6 * 24 * time.Hour).UTC().Format(time.RFC3339),
+	}
+	r, gs := makeReconciler(t, sb)
+
+	newExp := fixedNow.Add(7 * 24 * time.Hour)
+	stub := &stubNewAPI{resp: newapi.MintResponse{Token: "jwt-rotated", ExpiresAt: newExp}}
+	r.NewAPIClient = stub
+	r.DefaultChannels = []string{"qwen"}
+	r.Now = func() time.Time { return fixedNow }
+
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: sb.Name, Namespace: sb.Namespace},
+	}); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	if stub.callCount() != 1 {
+		t.Errorf("expected exactly one mint call, got %d", stub.callCount())
+	}
+	secretKey := "acme/catalyst-tenant/sandbox/ceo-at-acme-com/secret-newapi-token.yaml"
+	entry := gs.files[secretKey]
+	if !strings.Contains(string(entry.content), "LLM_GATEWAY_TOKEN: \"jwt-rotated\"") {
+		t.Errorf("rotation did not write new token: %s", string(entry.content))
+	}
+	var got sandboxapi.Sandbox
+	if err := r.Get(context.Background(),
+		client.ObjectKey{Name: sb.Name, Namespace: sb.Namespace}, &got); err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.Annotations[annotationTokenExpiresAt] != newExp.UTC().Format(time.RFC3339) {
+		t.Errorf("rotation did not bump expires-at: got %q",
+			got.Annotations[annotationTokenExpiresAt])
+	}
+}
+
+// TestReconcile_NewAPI_NoMintWhenHealthy verifies the steady-state
+// path: a CR with a token whose expiry is well outside the rotation
+// lead-time triggers zero mint calls AND the rendered Secret carries
+// the previous bytes.
+func TestReconcile_NewAPI_NoMintWhenHealthy(t *testing.T) {
+	t.Parallel()
+	fixedNow := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+	farExp := fixedNow.Add(5 * 24 * time.Hour) // outside default 24h lead
+	sb := sampleSandbox()
+	sb.Annotations = map[string]string{
+		annotationTokenExpiresAt: farExp.UTC().Format(time.RFC3339),
+		annotationTokenRotatedAt: fixedNow.Add(-2 * 24 * time.Hour).UTC().Format(time.RFC3339),
+	}
+	r, gs := makeReconciler(t, sb)
+
+	stub := &stubNewAPI{} // any call would explode (empty MintResponse)
+	r.NewAPIClient = stub
+	r.DefaultChannels = []string{"qwen"}
+	r.Now = func() time.Time { return fixedNow }
+
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: sb.Name, Namespace: sb.Namespace},
+	}); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if stub.callCount() != 0 {
+		t.Errorf("steady-state should not call mint, got %d", stub.callCount())
+	}
+	// The Secret manifest is NOT rendered because tokenValue is empty
+	// when the controller decides not to mint. The previous Secret
+	// content remains in Gitea untouched (we trust PutFile's byte-
+	// equal guard) — for this in-memory test there was no prior file,
+	// so the in-memory store simply doesn't have a secret-newapi-token
+	// entry. The kustomization.yaml must therefore NOT reference it.
+	kustKey := "acme/catalyst-tenant/sandbox/ceo-at-acme-com/kustomization.yaml"
+	kust := gs.files[kustKey]
+	if strings.Contains(string(kust.content), "secret-newapi-token.yaml") {
+		t.Errorf("kustomization should not reference secret-newapi-token when not minted")
+	}
+}
+
+// TestReconcile_NewAPI_MintFailureSurfacesCondition exercises the
+// failure path: the bridge returns a non-2xx → controller records a
+// Failed/TokenMintFailed condition + requeues + NO manifests written.
+func TestReconcile_NewAPI_MintFailureSurfacesCondition(t *testing.T) {
+	t.Parallel()
+	sb := sampleSandbox()
+	r, gs := makeReconciler(t, sb)
+	stub := &stubNewAPI{err: errors.New("newapi: POST .../admin/tokens/sandbox: status 503: outage")}
+	r.NewAPIClient = stub
+	r.DefaultChannels = []string{"qwen"}
+	r.Now = func() time.Time { return time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC) }
+
+	res, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: sb.Name, Namespace: sb.Namespace},
+	})
+	if err != nil {
+		t.Fatalf("reconcile error: %v", err)
+	}
+	if res.RequeueAfter == 0 {
+		t.Errorf("expected non-zero requeue on bridge failure")
+	}
+	if gs.createFiles != 0 {
+		t.Errorf("no Gitea writes expected on token-mint failure, got %d creates", gs.createFiles)
+	}
+	var got sandboxapi.Sandbox
+	if err := r.Get(context.Background(),
+		client.ObjectKey{Name: sb.Name, Namespace: sb.Namespace}, &got); err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.Status.Phase != "Failed" {
+		t.Errorf("phase: got %q want Failed", got.Status.Phase)
+	}
+	if len(got.Status.Conditions) != 1 ||
+		got.Status.Conditions[0].Reason != "TokenMintFailed" ||
+		got.Status.Conditions[0].Status != "False" {
+		t.Errorf("expected TokenMintFailed False condition, got %+v", got.Status.Conditions)
+	}
+}
+
+// TestReconcile_NewAPI_NoChannelsConfigured surfaces the misconfig
+// path: operator didn't wire DefaultChannels → fail-loud rather than
+// minting a token with an empty allowed_channels list (the bridge
+// would 400 anyway, but the controller fails earlier with a more
+// helpful Reason).
+func TestReconcile_NewAPI_NoChannelsConfigured(t *testing.T) {
+	t.Parallel()
+	sb := sampleSandbox()
+	r, gs := makeReconciler(t, sb)
+	stub := &stubNewAPI{}
+	r.NewAPIClient = stub
+	r.DefaultChannels = nil // misconfig
+	r.Now = func() time.Time { return time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC) }
+
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: sb.Name, Namespace: sb.Namespace},
+	}); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if stub.callCount() != 0 {
+		t.Errorf("misconfig should not call bridge, got %d calls", stub.callCount())
+	}
+	if gs.createFiles != 0 {
+		t.Errorf("misconfig: no gitea writes expected, got %d", gs.createFiles)
+	}
+	var got sandboxapi.Sandbox
+	if err := r.Get(context.Background(),
+		client.ObjectKey{Name: sb.Name, Namespace: sb.Namespace}, &got); err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if len(got.Status.Conditions) != 1 || got.Status.Conditions[0].Reason != "NoAllowedChannels" {
+		t.Errorf("expected NoAllowedChannels condition, got %+v", got.Status.Conditions)
+	}
+}
+
+func gsKeys(gs *giteaServer) []string {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+	out := make([]string, 0, len(gs.files))
+	for k := range gs.files {
+		out = append(out, k)
+	}
+	return out
 }

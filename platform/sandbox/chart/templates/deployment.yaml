@@ -78,6 +78,23 @@ spec:
               value: {{ .Values.runtime.byosSecretPrefix | default "sandbox-byos-claude-code" | quote }}
             - name: SANDBOX_IDLE_TIMEOUT_MINUTES
               value: {{ .Values.runtime.idleTimeoutMinutes | default 30 | quote }}
+            # Wave 9 — NewAPI bridge wiring. The controller calls
+            # POST /admin/tokens/sandbox to mint per-Sandbox HS256
+            # bearers; without these two env vars wired the controller
+            # logs a warning at startup and skips the token-mint path
+            # — namespace + RBAC + PVCs + pty-server StatefulSet still
+            # land so a fresh-prov Sovereign with bridge-handler
+            # rollout pending stays usable for the gitops scaffolding.
+            - name: NEWAPI_BASE_URL
+              value: {{ .Values.env.newapiBaseURL | default "http://newapi.newapi.svc.cluster.local:3000" | quote }}
+            - name: NEWAPI_ADMIN_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.newapiAdminSecret.name | default "newapi-bp-newapi-token-signing-key" | quote }}
+                  key: {{ .Values.newapiAdminSecret.key | default "ADMIN_SECRET" | quote }}
+                  optional: true
+            - name: NEWAPI_DEFAULT_CHANNELS
+              value: {{ .Values.env.newapiDefaultChannels | default "" | quote }}
             {{- range $k, $v := .Values.extraEnv }}
             - name: {{ $k | quote }}
               value: {{ $v | quote }}
