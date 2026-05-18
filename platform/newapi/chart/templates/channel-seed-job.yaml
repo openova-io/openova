@@ -56,7 +56,18 @@ Issue #915, 2026-05-05.
 */}}
 {{- $cs := .Values.channelSeed | default dict -}}
 {{- $qbd := (.Values.defaultChannels | default dict).qwenBankDhofar | default dict -}}
-{{- $hasDefaults := $qbd.enabled -}}
+{{- /* Mirror the attestation gate from _helpers.tpl effectiveChannels:
+       skip seeding when commercial-contract attestation is incomplete.
+       Otherwise the Job would POST a channel whose ConfigMap row was
+       omitted from /etc/newapi/channels.yaml. */}}
+{{- $qbdAtt := $qbd.attestation | default (dict "kind" "commercial-contract") -}}
+{{- $qbdAttReady := true -}}
+{{- if and $qbd.enabled (eq (default "" $qbdAtt.kind) "commercial-contract") -}}
+  {{- if or (not $qbdAtt.accountId) (not $qbdAtt.contractRef) -}}
+    {{- $qbdAttReady = false -}}
+  {{- end -}}
+{{- end -}}
+{{- $hasDefaults := and $qbd.enabled $qbdAttReady -}}
 {{- $masterKeySecret := .Values.auth.adminUI.masterKeySecret | default "" -}}
 {{- if and $cs.enabled $hasDefaults $masterKeySecret -}}
 {{- $jobName := include "bp-newapi.channelSeedJobName" . -}}

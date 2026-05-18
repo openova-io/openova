@@ -104,7 +104,19 @@ spec:
       # for service "external-secrets-webhook"` on every fresh provision,
       # blocking the chart from reaching Ready and the Catalyst signup
       # hook (ADR-0003 §3.2) from finding the admin-token Secret.
-      version: 1.4.6
+      # 1.4.10 (fix-convergence-wave11, 2026-05-18): gate the
+      # defaultChannels.qwenBankDhofar entry on attestation-complete
+      # rather than hard-failing the helm template. Pre-1.4.10 the
+      # chart raised `commercial-contract attestation requires accountId`
+      # on every Sovereign that opted in to marketplace
+      # (MARKETPLACE_ENABLED=true) without ALSO supplying a signed
+      # commercial contract's `LLM_BANK_DHOFAR_ACCOUNT_ID` /
+      # `LLM_BANK_DHOFAR_CONTRACT_REF` envsubst variables. Post-1.4.10
+      # the chart silently skips the qwenBankDhofar channel when
+      # attestation is incomplete; once the operator overlay supplies
+      # the attestation values the channel composes on the next
+      # reconcile.
+      version: 1.4.10
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
