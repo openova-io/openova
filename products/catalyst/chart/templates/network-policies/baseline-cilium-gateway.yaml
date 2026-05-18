@@ -1,0 +1,95 @@
+{{- /*
+CiliumNetworkPolicy — baseline allow-world for the cilium-gateway
+endpoint that lives in kube-system.
+
+WHY THIS EXISTS (issue #1746, WBS row TBD-Cov-12 / C12-009)
+─────────────────────────────────────────────────────────────────────
+The Cilium Gateway resource (gateway.networking.k8s.io/v1) named
+`cilium-gateway` lives in kube-system (see
+clusters/_template/sovereign-tls/cilium-gateway.yaml). With
+hostNetwork=true the gateway listener registers a special Cilium
+endpoint with identity `reserved:ingress` (8). By default that
+endpoint has policy-enabled=both, allowed-ingress-identities=[1
+(host)], and an empty L4 rule set — i.e. world traffic that arrives
+at the gateway is dropped by cilium.l7policy with a 403 "Access
+denied" before any HTTPRoute is evaluated.
+
+Without an explicit allow-world CNP scoped to `reserved.ingress: ""`,
+every public Sovereign host (console.<sov>, auth.<sov>, gitea.<sov>,
+harbor.<sov>, api.<sov>) returns:
+  HTTP/1.1 403 Forbidden
+  body: "Access denied"
+  server: envoy
+This was caught live on prov #80 (omantel.biz, 2026-05-14) — see
+feedback_cilium_gateway_world_ingress.md for full forensic trace.
+
+DESIGN
+─────────────────────────────────────────────────────────────────────
+A namespaced CiliumNetworkPolicy in kube-system, scoped to the
+`reserved.ingress: ""` endpoint, that:
+  - allows ingress from world (public HTTPS), cluster (in-cluster
+    HTTPRoute traffic), host (kubelet probes), remote-node (multi-
+    region CP-to-CP via Cilium ClusterMesh), kube-apiserver
+  - allows egress to all (envoy must forward to any backend Service
+    in any namespace per HTTPRoute spec)
+
+This MIRRORS the qa-fixtures `allow-gateway-world-ingress` CCNP
+(products/catalyst/chart/templates/qa-fixtures/cilium-network-
+policies.yaml line 95-116) — same selector, same allow scope — but
+ships as a NAMESPACED CiliumNetworkPolicy in kube-system rather than
+a cluster-wide CCNP. This matches the issue's "sovereign uses
+namespaced CNP only" architecture ruling and ships independent of
+qaFixtures.
+
+The chart-render is GATED on `.Values.security.baselineCnp.enabled`
+(default true). Operators who ship their own gateway policy bundle
+may disable this template.
+
+LIVE PROOF
+─────────────────────────────────────────────────────────────────────
+Before this CNP was wired (prov #80): every public host 403'd at
+envoy with the symptoms above; `cilium-dbg endpoint get 3282 -o
+json` showed `l4.ingress: []` and `allowed-ingress-identities: [1]`.
+After applying the equivalent CCNP via PR #1482 (catalyst 1.4.143):
+TLS handshake completed, HTTPRoute fan-out worked, every Sovereign
+host returned 200.
+
+This namespaced version of the same allow ships on every install
+and reduces matrix row C12-009's "0 CNPs in critical namespace"
+violation to "1 baseline CNP in kube-system targeting the gateway
+endpoint".
+*/}}
+{{- if .Values.security.baselineCnp.enabled }}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: baseline-cilium-gateway-allow
+  namespace: kube-system
+  labels:
+    openova.io/managed-by: catalyst-baseline
+    openova.io/policy-tier: baseline
+    catalyst.openova.io/component: baseline-cnp
+  annotations:
+    policies.openova.io/title: Cilium Gateway Baseline Allow-World
+    policies.openova.io/description: |
+      Allow world + cluster + host + remote-node + kube-apiserver
+      ingress to the cilium-gateway `reserved:ingress` endpoint in
+      kube-system; allow egress to all so envoy can forward requests
+      to any backend Service per HTTPRoute. Without this CNP every
+      public Sovereign host returns HTTP 403 "Access denied" at envoy.
+spec:
+  description: "Baseline allow-world for the cilium-gateway endpoint; namespaced equivalent of the qaFixtures allow-gateway-world-ingress CCNP."
+  endpointSelector:
+    matchLabels:
+      reserved.ingress: ""
+  ingress:
+    - fromEntities:
+        - world
+        - cluster
+        - host
+        - remote-node
+        - kube-apiserver
+  egress:
+    - toEntities:
+        - all
+{{- end }}

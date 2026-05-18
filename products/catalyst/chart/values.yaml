@@ -1431,3 +1431,40 @@ qaFixtures:
   # their own policy bundle.
   networkPolicies:
     enabled: true
+
+# ─── Security — baseline CNP bundle (issue #1746, WBS row C12-009) ────────
+# Two-CNP baseline shipped on EVERY Sovereign install, independent of
+# qaFixtures. Both CNPs are NAMESPACED (no CiliumClusterwideNetworkPolicy)
+# per the architecture ruling on issue #1746 — Sovereign uses namespaced
+# CNP only.
+#
+#   - templates/network-policies/baseline-catalyst-system.yaml renders a
+#     CiliumNetworkPolicy in catalyst-system with default-deny + explicit
+#     allow for cilium-gateway ingress + control-plane egress.
+#   - templates/network-policies/baseline-cilium-gateway.yaml renders a
+#     CiliumNetworkPolicy in kube-system scoped to the cilium-gateway
+#     reserved:ingress endpoint allowing world ingress + envoy egress.
+#
+# Operators may disable the bundle by flipping `enabled: false`, or tune
+# the platform-namespace allow list on the catalyst-system CNP via
+# `allowedPlatformNamespaces`.
+security:
+  baselineCnp:
+    enabled: true
+    # Platform namespaces catalyst-system Pods are allowed to egress to.
+    # Override to add tenant-specific or per-Sovereign namespaces.
+    allowedPlatformNamespaces:
+      - keycloak
+      - gitea
+      - powerdns
+      - cnpg-system
+      - openbao
+      - harbor
+      - nats-system
+      - loki
+      - mimir
+      - tempo
+      - alloy
+      - opentelemetry
+      - external-secrets-system
+      - cert-manager
