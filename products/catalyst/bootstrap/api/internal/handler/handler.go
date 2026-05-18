@@ -441,6 +441,23 @@ type Handler struct {
 	// executor; tests bind a fake duplex pipe.
 	execStreamMu      sync.RWMutex
 	execStreamFactory ExecStreamFactory
+
+	// ── Mimir-backed Pod sparkline (issue #1753, slice G3b) ────────
+	// mimirURL — base URL of the bp-mimir (slot 23) query-frontend
+	// HTTP API. The Pod metrics endpoint
+	// (`/api/v1/sovereigns/{id}/k8s/metrics/pod/{ns}/{name}`) issues
+	// a Prometheus `query_range` against this base to build a 5-min
+	// sparkline at 5s step (60 buckets). Empty ⇒ the handler falls
+	// back to the legacy metrics-server single-point path so the
+	// sparkline degrades gracefully on clusters where bp-mimir is
+	// disabled (e.g. a stripped-down Catalyst-Zero flavor). Wired
+	// from main.go via SetMimirURL from CATALYST_MIMIR_URL env var;
+	// tests inject a httptest.Server URL directly.
+	//
+	// mimirHTTPClient — HTTP client the mimir path uses. Empty ⇒ a
+	// shared 5s-timeout http.Client. Tests inject a stub.
+	mimirURL        string
+	mimirHTTPClient *http.Client
 }
 
 // powerdnsZoneClient is the narrow interface the parent-zone handler
@@ -688,6 +705,18 @@ func (h *Handler) SetSMEJWTSecret(secret []byte) { h.smeJWTSecret = secret }
 
 // AuditBus returns the wired Bus or nil. Test helper.
 func (h *Handler) AuditBus() *audit.Bus { return h.auditBus }
+
+// SetMimirURL wires the bp-mimir (slot 23) query-frontend base URL the
+// Pod metrics sparkline path uses. Called by main.go at startup from
+// CATALYST_MIMIR_URL; tests pass a httptest.Server URL directly.
+// Empty disables the mimir path — the handler falls back to the
+// metrics-server single-point shape so clusters without bp-mimir
+// continue rendering a (degraded) Pod metrics response.
+func (h *Handler) SetMimirURL(u string) { h.mimirURL = u }
+
+// SetMimirHTTPClient is a test seam — production leaves this empty and
+// the handler uses a shared 5s-timeout http.Client.
+func (h *Handler) SetMimirHTTPClient(c *http.Client) { h.mimirHTTPClient = c }
 
 // writeJSON serializes v as JSON with the given status code.
 //

@@ -9,11 +9,23 @@
 // for the focused resource. Roll-ups for Deployment / StatefulSet sum
 // metrics across owned Pods.
 //
+// For the `pod` kind we prefer Grafana Mimir (bp-mimir, bootstrap-kit
+// slot 23) as the upstream — a single `query_range` yields a 5-minute,
+// 5-second-step sparkline (60 buckets) instead of the single point
+// metrics-server returns. Mimir scrapes every Pod via Alloy, so the
+// PromQL `rate(container_cpu_usage_seconds_total[1m])` +
+// `container_memory_working_set_bytes` pair is sufficient to drive a
+// real time-series. When mimir isn't wired (CATALYST_MIMIR_URL empty)
+// or the upstream query fails, the handler degrades gracefully to the
+// metrics-server single-point shape so existing FE consumers keep
+// rendering. See k8s_resource_metrics_mimir.go for the client.
+//
 // The wire response bundles a "current" snapshot + a "series" sparkline
 // frame so the UI can render a sparkline without a second round-trip.
-// The series is populated from the in-process k8scache (PodMetrics is
-// already a registered watch target — see kinds.go) so no additional
-// scrape work happens here.
+// On the metrics-server fallback path the series collapses to a single
+// frame populated from the in-process k8scache (PodMetrics is already
+// a registered watch target — see kinds.go) so no additional scrape
+// work happens here.
 //
 // Architecture rules:
 //
@@ -42,11 +54,14 @@ type metricsResponse struct {
 	// Current — point-in-time CPU / memory totals (across owned Pods
 	// for workload kinds).
 	Current map[string]any `json:"current"`
-	// Series — sparkline samples. Single-frame today; future slices
-	// can layer Prometheus-backed history when bp-prometheus ships.
+	// Series — sparkline samples. 60-bucket 5-minute window on the
+	// mimir-backed Pod path; single-frame on the metrics-server
+	// fallback path (and on Deployment/StatefulSet roll-ups).
 	Series []map[string]any `json:"series"`
-	// Source — "metrics.k8s.io" or "unavailable" when the API isn't
-	// served on the target cluster (UI surfaces a friendly empty state).
+	// Source — "mimir" (bp-mimir query-frontend, preferred for Pod
+	// kind), "metrics.k8s.io" (metrics-server single-point fallback),
+	// or "unavailable" when neither upstream is reachable. The UI
+	// surfaces a friendly empty state on "unavailable".
 	Source string `json:"source"`
 }
 
@@ -107,6 +122,41 @@ func (h *Handler) HandleK8sResourceMetrics(w http.ResponseWriter, r *http.Reques
 		Source:    "metrics.k8s.io",
 		Current:   emptyCurrent,
 		Series:    []map[string]any{},
+	}
+
+	// For Pod kind, prefer mimir (5-min, 5s-step sparkline). Mimir
+	// is the bp-mimir (slot 23) Prometheus-compatible store fed by
+	// Alloy — it scrapes cAdvisor for every Pod, so a single
+	// query_range yields a real time-series instead of the single
+	// point metrics-server returns. Fall back to metrics-server
+	// when mimir isn't wired (CATALYST_MIMIR_URL empty / bp-mimir
+	// disabled) OR the upstream query fails. See
+	// k8s_resource_metrics_mimir.go for the client.
+	if strings.EqualFold(kindName, "pod") {
+		if series, ferr := h.fetchPodSparkline(r.Context(), ns, name); ferr == nil && len(series) > 0 {
+			resp.Source = "mimir"
+			last := series[len(series)-1]
+			resp.Current = map[string]any{
+				"cpu":       last.CPU,
+				"memory":    last.Memory,
+				"cpuMilli":  last.CPUMilli,
+				"memBytes":  last.MemBytes,
+				"timestamp": last.Timestamp,
+			}
+			resp.Series = make([]map[string]any, 0, len(series))
+			for _, b := range series {
+				resp.Series = append(resp.Series, map[string]any{
+					"cpu":       b.CPU,
+					"memory":    b.Memory,
+					"cpuMilli":  b.CPUMilli,
+					"memBytes":  b.MemBytes,
+					"timestamp": b.Timestamp,
+				})
+			}
+			writeJSON(w, http.StatusOK, resp)
+			return
+		}
+		// fall through — metrics-server fallback below.
 	}
 
 	// PodMetrics is registered as kind "podmetrics" (see kinds.go).

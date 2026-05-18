@@ -274,6 +274,17 @@ func main() {
 		"clusterFallback", homeDyn != nil,
 	)
 
+	// Issue #1753 (slice G3b) — bp-mimir (slot 23) query-frontend URL
+	// for the Pod metrics sparkline. Per docs/INVIOLABLE-PRINCIPLES.md
+	// #4 the URL is env-overridable; empty disables the mimir path and
+	// the Pod metrics handler falls back to the metrics-server single
+	// point so clusters without bp-mimir still render (degraded).
+	mimirURL := env("CATALYST_MIMIR_URL", "http://mimir-query-frontend.mimir.svc.cluster.local:8080")
+	h.SetMimirURL(mimirURL)
+	log.Info("mimir: query-frontend url wired",
+		"url", mimirURL,
+	)
+
 	// EPIC-2 #1097 slice T+O+P — Blueprint publishing + Curate.
 	// Per ADR-0001 §4.3 Gitea is the source-of-truth for Blueprints;
 	// the publish + curate handlers are thin wrappers over the unified
