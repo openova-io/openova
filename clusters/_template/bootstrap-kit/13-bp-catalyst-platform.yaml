@@ -563,7 +563,19 @@ spec:
       # values.yaml sovereign.{enableHotStandby,primaryRegion,
       # replicaRegion} defaults). See Chart.yaml header comment for
       # the full change list.
-      version: 1.4.165
+      # 1.4.166 (TBD-E8 / C4-015, 2026-05-18): seed 13 baseline Blueprint
+      # CRs unconditionally so `/api/v1/catalog` returns a non-empty
+      # items[] from handover-time. Pre-fix every fresh Sovereign had
+      # empty catalog because (a) self-sovereign-cutover step-01 only
+      # mirrors `openova-io/openova` into Gitea — not the `catalog` /
+      # `catalog-sovereign` Orgs that catalyst-catalog reads from — and
+      # (b) qa-fixtures (the only chart-shipped Blueprint CRs) defaults
+      # OFF on production. Adds templates/catalog-seed/blueprints.yaml
+      # (bp-wordpress-tenant, bp-cnpg, bp-keycloak, bp-grafana,
+      # bp-prometheus, bp-loki, bp-redis, bp-clickhouse, bp-opensearch,
+      # bp-temporal, bp-n8n, bp-langfuse, bp-llm-gateway) which the
+      # chained catalog client surfaces via in-cluster LIST fallback.
+      version: 1.4.166
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
