@@ -14,7 +14,8 @@
 #   3. Each step ConfigMap MUST carry data keys:
 #        stepName  (always)
 #        podSpec   (mode=job only)
-#   4. EXACTLY 8 step ConfigMaps must render (steps 1..8).
+#   4. EXACTLY 9 step ConfigMaps must render (steps 1..9; step 9
+#      gitea-token-mint added in chart 0.1.30, TBD-C18).
 #   5. Step 04 must be mode=daemonset-wait.
 #   6. The status ConfigMap (default name self-sovereign-cutover-status)
 #      MUST render with helm.sh/resource-policy: keep so a chart
@@ -38,9 +39,15 @@ echo "[cutover-contract] Case 1: chart renders with default values"
 helm template smoke . > "$TMP/render.yaml"
 echo "  PASS ($(wc -l < "$TMP/render.yaml") lines)"
 
-echo "[cutover-contract] Case 2 + 4: exactly 8 step ConfigMaps render with required labels"
+echo "[cutover-contract] Case 2 + 4: exactly 9 step ConfigMaps render with required labels"
 # Use yq if present (the CI runner installs it for the blueprint-release
 # guards); fall back to grep counting on workstations without yq.
+# Step 9 (gitea-token-mint) added in chart 0.1.30 (TBD-C18) to bootstrap
+# the Gitea API token the SME provisioning service uses; without it,
+# tenant voucher checkout fails at journey step 16 because the
+# catalyst-platform chart mirrors the Gitea admin PASSWORD verbatim
+# into sme/provisioning-github-token, which 401s when sent as a Bearer
+# token.
 if command -v yq >/dev/null 2>&1; then
   # yq emits `---` separators between matched docs; filter those out
   # before counting names. `grep -E '^cutover-step-'` matches only the
@@ -51,28 +58,28 @@ else
   # — count distinct order values, which equals step count.
   step_count=$(grep -c 'bp.openova.io/cutover-order:' "$TMP/render.yaml")
 fi
-if [ "${step_count}" -ne 8 ]; then
-  echo "FAIL: expected 8 step ConfigMaps, got ${step_count}" >&2
+if [ "${step_count}" -ne 9 ]; then
+  echo "FAIL: expected 9 step ConfigMaps, got ${step_count}" >&2
   exit 1
 fi
-echo "  PASS (8 step ConfigMaps)"
+echo "  PASS (9 step ConfigMaps)"
 
 echo "[cutover-contract] Case 3: required data keys present"
-# stepName key must exist on every step ConfigMap (8 total).
-# podSpec key must exist on every job-mode step (7 of 8 — step 04 is daemonset-wait).
+# stepName key must exist on every step ConfigMap (9 total).
+# podSpec key must exist on every job-mode step (8 of 9 — step 04 is daemonset-wait).
 mode_job_count=$(grep -c 'bp.openova.io/cutover-mode: "job"' "$TMP/render.yaml")
-if [ "${mode_job_count}" -ne 7 ]; then
-  echo "FAIL: expected 7 job-mode step ConfigMaps, got ${mode_job_count}" >&2
+if [ "${mode_job_count}" -ne 8 ]; then
+  echo "FAIL: expected 8 job-mode step ConfigMaps, got ${mode_job_count}" >&2
   exit 1
 fi
 podspec_keys=$(grep -c '^  podSpec: |' "$TMP/render.yaml")
-if [ "${podspec_keys}" -lt 7 ]; then
-  echo "FAIL: expected at least 7 podSpec keys (one per job-mode step), got ${podspec_keys}" >&2
+if [ "${podspec_keys}" -lt 8 ]; then
+  echo "FAIL: expected at least 8 podSpec keys (one per job-mode step), got ${podspec_keys}" >&2
   exit 1
 fi
 stepname_keys=$(grep -c '^  stepName:' "$TMP/render.yaml")
-if [ "${stepname_keys}" -lt 8 ]; then
-  echo "FAIL: expected at least 8 stepName keys, got ${stepname_keys}" >&2
+if [ "${stepname_keys}" -lt 9 ]; then
+  echo "FAIL: expected at least 9 stepName keys, got ${stepname_keys}" >&2
   exit 1
 fi
 echo "  PASS (data keys present on every step)"
@@ -358,5 +365,56 @@ if ! grep -q 'sleep 5' "$TMP/render.yaml"; then
   exit 1
 fi
 echo "  PASS (Phase-0 probe escape-free + wait-loop + fallback)"
+
+echo "[cutover-contract] Case 19: Step-09 gitea-token-mint mints a real API token (TBD-C18)"
+# Chart <0.1.30 had no Step-09; the catalyst-platform chart's
+# `provisioning-github-token.yaml` template mirrored the Gitea admin
+# PASSWORD verbatim into Secret sme/provisioning-github-token under key
+# GITHUB_TOKEN. The SME provisioning service then sent
+# `Authorization: token <PWD>` to Gitea, which 401'd because Gitea
+# resolves the Bearer credential as an API access token (sha1 lookup),
+# not a password. Result on t22 (2026-05-18): voucher checkout returned
+# 200 and redirected to /jobs, but NO Organization CR was ever created
+# (every Gitea API call from provisioning 401'd).
+#
+# Chart 0.1.30 adds Step-09 that:
+#   - DELETEs any stale catalyst-platform-bootstrap token (idempotent on
+#     re-run; 404 swallowed)
+#   - POSTs /api/v1/users/gitea_admin/tokens with scope "all"
+#   - Captures the returned .sha1
+#   - Validates by calling GET /api/v1/user with `Authorization: token <X>`
+#   - kubectl-patches Secret sme/provisioning-github-token.GITHUB_TOKEN
+#   - rollout-restarts the provisioning Deployment (best-effort)
+#
+# Guard against future regressions that drop the token-mint Job.
+if ! grep -q 'cutover-step-09-gitea-token-mint' "$TMP/render.yaml"; then
+  echo "FAIL: Step-09 gitea-token-mint ConfigMap missing (TBD-C18)" >&2
+  exit 1
+fi
+if ! grep -F '/users/${GITEA_USERNAME}/tokens' "$TMP/render.yaml" >/dev/null; then
+  echo "FAIL: Step-09 missing POST /api/v1/users/.../tokens (TBD-C18)" >&2
+  exit 1
+fi
+if ! grep -q '"sha1":"' "$TMP/render.yaml"; then
+  echo "FAIL: Step-09 missing sha1 capture from token-mint response (TBD-C18)" >&2
+  exit 1
+fi
+if ! grep -q 'Authorization: token ' "$TMP/render.yaml"; then
+  echo "FAIL: Step-09 missing token validation (Authorization: token header) (TBD-C18)" >&2
+  exit 1
+fi
+if ! grep -F 'patch secret "${DEST_SECRET_NAME}"' "$TMP/render.yaml" >/dev/null; then
+  echo "FAIL: Step-09 missing kubectl patch of dest Secret (TBD-C18)" >&2
+  exit 1
+fi
+# Step-09 must be order=9 so it lands LAST in the cutover sequence.
+# (Order doesn't actually matter for correctness — no other step reads
+# the token — but order 9 avoids renumbering 01..08 which would
+# invalidate operator history.)
+if ! grep -A15 'cutover-step-09-gitea-token-mint' "$TMP/render.yaml" | grep -q 'bp.openova.io/cutover-order: "9"'; then
+  echo "FAIL: Step-09 not labelled bp.openova.io/cutover-order=9 (TBD-C18)" >&2
+  exit 1
+fi
+echo "  PASS (Step-09 mints Gitea API token + patches provisioning-github-token)"
 
 echo "[cutover-contract] All gates green."
