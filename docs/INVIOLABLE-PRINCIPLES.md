@@ -204,6 +204,17 @@ If a future ticket, agent, or operator session tries to ship a Sovereign without
 - The cutover chart must publish a rollback Job — flipping HelmRepository URLs is destructive in the same sense `tofu destroy` is; treat it accordingly.
 - Never sequence "flip URLs" before "prove Gateway TLS works" inside the same blueprint. If they share a slot, the slot is wrong.
 
+**Critical sub-rule (empirical 2026-05-19 on t27 — PR #1875 incident)**:
+`HelmRelease.spec.dependsOn` references ONLY other HelmReleases. It CANNOT
+reference Flux Kustomizations or other resource kinds. If you need to gate
+a HelmRelease on a Kustomization, ship a "wait-HelmRelease" (tiny chart
+with a Job that runs `kubectl wait …`) and depend on THAT HR. Or move the
+gated workload into a Kustomization with cross-kind `dependsOn`.
+
+Empirical verbatim from helm-controller when this rule was violated:
+`unable to get 'flux-system/<name>' dependency: helmreleases.helm.toolkit.fluxcd.io "<name>" not found`
+→ retries every 30s forever, never resolves.
+
 ---
 
 ## Self-check before every commit
