@@ -1036,3 +1036,121 @@ func TestFactory_AddClusterReplacesPriorEntry(t *testing.T) {
 	f.RemoveCluster("rotate")
 }
 
+// TestFactory_RescanRegistersNewKubeconfigs asserts the periodic
+// rescan goroutine picks up a kubeconfig that lands in
+// CATALYST_K8SCACHE_KUBECONFIGS_DIR AFTER the Factory has started.
+//
+// Regression context (30-row matrix rows 9 + 27 on t22, 2026-05-18):
+// the catalyst-api Pod restarted after a chart upgrade, the chroot
+// kubeconfigs PVC came back EMPTY (the mothership's secondary-
+// kubeconfig POST hook only fires at handover and was never re-fired
+// after the restart), so /cloud /list?kind=nodes + /dashboard/treemap
+// silently dropped from 3 regions to 0. Without periodic rescan,
+// every late-arriving kubeconfig drop is invisible.
+func TestFactory_RescanRegistersNewKubeconfigs(t *testing.T) {
+	tmp := t.TempDir()
+
+	cfg := Config{
+		Logger:         quietLogger(),
+		Registry:       minimalRegistry(),
+		KubeconfigsDir: tmp,
+		RescanInterval: 50 * time.Millisecond, // fast tick for the test
+	}
+	f, err := NewFactory(cfg)
+	if err != nil {
+		t.Fatalf("NewFactory: %v", err)
+	}
+	defer f.Stop()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := f.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	if got := len(f.Clusters()); got != 0 {
+		t.Fatalf("pre-drop: expected 0 clusters, got %d (%v)", got, f.Clusters())
+	}
+
+	// Drop a valid kubeconfig into the directory AFTER Start. The
+	// rescan loop must register it on the next tick.
+	kubeconfig := `apiVersion: v1
+kind: Config
+clusters:
+- name: c
+  cluster:
+    server: https://127.0.0.1:6443
+    insecure-skip-tls-verify: true
+contexts:
+- name: c
+  context:
+    cluster: c
+    user: u
+current-context: c
+users:
+- name: u
+  user:
+    token: t
+`
+	path := tmp + "/late-arrival-region.yaml"
+	if err := os.WriteFile(path, []byte(kubeconfig), 0o600); err != nil {
+		t.Fatalf("write kubeconfig: %v", err)
+	}
+
+	// Wait up to 3s for the rescan goroutine to pick it up.
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		ids := f.Clusters()
+		if len(ids) == 1 && ids[0] == "late-arrival-region" {
+			return // success
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("rescan did not register late-arrival kubeconfig (clusters=%v)", f.Clusters())
+}
+
+// TestFactory_RescanOnce_IdempotentForKnownClusters asserts that
+// invoking rescanOnce on a directory whose entries are already
+// registered is a no-op — the Factory's cluster map stays the same
+// size and no warn-level "AddCluster failed" log is emitted.
+func TestFactory_RescanOnce_IdempotentForKnownClusters(t *testing.T) {
+	tmp := t.TempDir()
+	kubeconfig := `apiVersion: v1
+kind: Config
+clusters: [{name: c, cluster: {server: "https://127.0.0.1:6443", insecure-skip-tls-verify: true}}]
+contexts: [{name: c, context: {cluster: c, user: u}}]
+current-context: c
+users: [{name: u, user: {token: t}}]
+`
+	path := tmp + "/already-here.yaml"
+	if err := os.WriteFile(path, []byte(kubeconfig), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	cfg := Config{
+		Logger:         quietLogger(),
+		Registry:       minimalRegistry(),
+		KubeconfigsDir: tmp,
+	}
+	// Seed initial cluster via LoadClustersFromDir so it's registered
+	// at NewFactory time (mirrors the FactoryFromEnv path).
+	refs, err := LoadClustersFromDir(cfg.Logger, tmp)
+	if err != nil {
+		t.Fatalf("LoadClustersFromDir: %v", err)
+	}
+	cfg.Clusters = refs
+	f, err := NewFactory(cfg)
+	if err != nil {
+		t.Fatalf("NewFactory: %v", err)
+	}
+	defer f.Stop()
+	if got := len(f.Clusters()); got != 1 {
+		t.Fatalf("expected 1 cluster after NewFactory, got %d", got)
+	}
+
+	// Drive rescanOnce manually — it must NOT double-register.
+	f.rescanOnce(context.Background())
+	if got := len(f.Clusters()); got != 1 {
+		t.Fatalf("rescanOnce double-registered: expected 1, got %d", got)
+	}
+}
+

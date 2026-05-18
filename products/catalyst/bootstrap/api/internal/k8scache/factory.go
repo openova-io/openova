@@ -167,6 +167,49 @@ type Config struct {
 	// to 4096; on overrun the producer drops the oldest event and
 	// records `informer_event_drops_total`.
 	EventBufferSize int
+
+	// KubeconfigsDir — the on-disk directory FactoryFromEnv read at
+	// startup. Persisted on the Factory so the periodic rescan loop
+	// can re-walk it without re-reading env (and so tests can inject
+	// a tmp dir without touching the process env).
+	//
+	// Empty disables periodic rescan — the factory only watches the
+	// clusters passed in Config.Clusters.
+	KubeconfigsDir string
+
+	// RescanInterval — how often the rescan loop walks
+	// KubeconfigsDir for new kubeconfigs and re-evaluates chroot
+	// self-registration (when SOVEREIGN_FQDN was empty at startup).
+	// Defaults to 30s. Tests may override to a smaller value.
+	//
+	// The rescan is robust to the two regressions caught in the
+	// 30-row matrix run on t22 (2026-05-18):
+	//
+	//   (a) catalyst-api Pod restarts after the mothership has
+	//       finished POSTing secondary kubeconfigs but BEFORE the
+	//       Pod's startup LoadClustersFromDir finishes — without
+	//       rescan, every new Pod from then on starts with zero
+	//       clusters and the mothership never re-fires the fan-out
+	//       (idempotent re-POST only triggers at handover).
+	//
+	//   (b) the sovereign-fqdn ConfigMap is committed to etcd AFTER
+	//       the Pod starts (Helm install race on fresh prov, ~30s
+	//       gap observed on t22). The Pod's SOVEREIGN_FQDN env stays
+	//       empty for the life of the Pod (Reloader v1.4.16 does not
+	//       reload env vars per a longstanding upstream limitation),
+	//       so the chroot self-register branch in FactoryFromEnv
+	//       returns false and `sovereigns:0`. The rescan loop reads
+	//       the on-cluster ConfigMap each tick via the typed client
+	//       and self-registers when fqdn is non-empty.
+	RescanInterval time.Duration
+
+	// HomeCoreClient — typed kubernetes.Interface for the catalyst-api's
+	// own cluster. Required by the rescan loop's chroot self-register
+	// recovery path (reads ConfigMap `sovereign-fqdn` in the
+	// catalyst-api's own namespace). Optional — when nil the rescan
+	// loop only walks the kubeconfigs dir and skips the ConfigMap
+	// recovery branch.
+	HomeCoreClient kubernetes.Interface
 }
 
 // Factory owns the full data-plane: one dynamicinformer factory per
@@ -395,6 +438,9 @@ func NewFactory(cfg Config) (*Factory, error) {
 	}
 	if cfg.EventBufferSize <= 0 {
 		cfg.EventBufferSize = 4096
+	}
+	if cfg.RescanInterval <= 0 {
+		cfg.RescanInterval = 30 * time.Second
 	}
 
 	f := &Factory{
@@ -641,7 +687,140 @@ func (f *Factory) Start(ctx context.Context) error {
 		go f.runSnapshotLoop(ctx)
 	}
 
+	// Periodic kubeconfigs-dir rescan + chroot self-register recovery.
+	// Cheap (one os.ReadDir + at most one ConfigMap GET per tick) and
+	// only registers NEW clusters — already-registered IDs short-
+	// circuit at AddCluster's idempotent map check.
+	//
+	// Two regressions this loop fixes (caught on t22 2026-05-18,
+	// 30-row matrix rows 9 + 27 — /cloud /list?kind=nodes + dashboard
+	// treemap multi-region only showed 1 cluster). See Config.RescanInterval
+	// godoc for the full root-cause analysis.
+	if f.cfg.KubeconfigsDir != "" || f.cfg.HomeCoreClient != nil {
+		go f.runKubeconfigsRescanLoop(ctx)
+	}
+
 	return nil
+}
+
+// runKubeconfigsRescanLoop ticks every Config.RescanInterval and:
+//
+//  1. Walks Config.KubeconfigsDir for new *.kubeconfig/*.yaml/*.yml
+//     files and AddCluster for each one whose stem isn't already a
+//     registered cluster ID.
+//
+//  2. When SOVEREIGN_FQDN env was empty at process start (chroot
+//     self-register branch in FactoryFromEnv returned false), reads
+//     the on-cluster sovereign-fqdn ConfigMap via the typed home
+//     client and self-registers the chroot when fqdn is non-empty.
+//     Idempotent — re-running on a Pod where chroot is already
+//     registered is a no-op.
+//
+// Exits on ctx.Done or f.stop close.
+func (f *Factory) runKubeconfigsRescanLoop(ctx context.Context) {
+	interval := f.cfg.RescanInterval
+	if interval <= 0 {
+		interval = 30 * time.Second
+	}
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	f.log.Info("k8scache: kubeconfigs rescan loop started",
+		"interval", interval.String(),
+		"dir", f.cfg.KubeconfigsDir,
+		"chrootSelfRegisterRecovery", f.cfg.HomeCoreClient != nil,
+	)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-f.stop:
+			return
+		case <-t.C:
+			f.rescanOnce(ctx)
+		}
+	}
+}
+
+// rescanOnce executes one rescan pass. Split from runKubeconfigsRescanLoop
+// so tests can drive it deterministically.
+func (f *Factory) rescanOnce(ctx context.Context) {
+	if dir := f.cfg.KubeconfigsDir; dir != "" {
+		refs, err := LoadClustersFromDir(f.log, dir)
+		if err != nil {
+			f.log.Warn("k8scache: rescan — read kubeconfigs dir failed",
+				"dir", dir, "err", err)
+		}
+		for _, ref := range refs {
+			f.mu.RLock()
+			_, already := f.clusters[ref.ID]
+			f.mu.RUnlock()
+			if already {
+				continue
+			}
+			if err := f.AddCluster(ref); err != nil {
+				f.log.Warn("k8scache: rescan — AddCluster failed",
+					"id", ref.ID, "err", err)
+				continue
+			}
+			f.log.Info("k8scache: rescan — registered new cluster",
+				"id", ref.ID, "kubeconfig", ref.KubeconfigPath)
+		}
+	}
+
+	// Chroot self-register recovery: when the Pod started before the
+	// sovereign-fqdn ConfigMap was committed to etcd, SOVEREIGN_FQDN
+	// env stays empty for the Pod's lifetime. Read the ConfigMap
+	// directly here so a late-arriving fqdn can still self-register.
+	if f.cfg.HomeCoreClient == nil {
+		return
+	}
+	fqdn := f.readSovereignFQDNFromConfigMap(ctx)
+	if fqdn == "" {
+		return
+	}
+	// Build the chroot ClusterRef as FactoryFromEnv would have. Skip
+	// if already registered under the same id.
+	ref, ok := buildChrootClusterRef(f.log, fqdn)
+	if !ok {
+		return
+	}
+	f.mu.RLock()
+	_, already := f.clusters[ref.ID]
+	f.mu.RUnlock()
+	if already {
+		return
+	}
+	if err := f.AddCluster(ref); err != nil {
+		f.log.Warn("k8scache: rescan — chroot self-register AddCluster failed",
+			"id", ref.ID, "err", err)
+		return
+	}
+	f.log.Info("k8scache: rescan — chroot self-registered from ConfigMap",
+		"id", ref.ID, "sovereignFQDN", fqdn)
+}
+
+// readSovereignFQDNFromConfigMap returns the non-empty fqdn from the
+// sovereign-fqdn ConfigMap in the catalyst-api's own namespace, or "".
+// Namespace defaults to "catalyst-system" but is overridable via
+// CATALYST_NAMESPACE env (mirrors the chart's release namespace).
+//
+// Failures are warn-logged at most once per N ticks (silent on
+// not-found to keep the contabo mothership log clean — that branch
+// never has the ConfigMap and the env is empty by design).
+func (f *Factory) readSovereignFQDNFromConfigMap(ctx context.Context) string {
+	ns := strings.TrimSpace(os.Getenv("CATALYST_NAMESPACE"))
+	if ns == "" {
+		ns = "catalyst-system"
+	}
+	cm, err := f.cfg.HomeCoreClient.CoreV1().ConfigMaps(ns).Get(ctx, "sovereign-fqdn", metav1.GetOptions{})
+	if err != nil {
+		// not-found is expected on the contabo mothership; suppress.
+		return ""
+	}
+	if cm == nil || cm.Data == nil {
+		return ""
+	}
+	return strings.TrimSpace(cm.Data["fqdn"])
 }
 
 // Stop signals every informer + the snapshot loop to exit. Idempotent.
@@ -1026,10 +1205,12 @@ func FactoryFromEnv(ctx context.Context, log *slog.Logger, core kubernetes.Inter
 	}
 	registry := LoadRegistry(ctx, log, core)
 	cfg := Config{
-		Logger:      log,
-		Clusters:    clusters,
-		Registry:    registry,
-		SnapshotDir: snapDir,
+		Logger:         log,
+		Clusters:       clusters,
+		Registry:       registry,
+		SnapshotDir:    snapDir,
+		KubeconfigsDir: dir,
+		HomeCoreClient: core,
 	}
 	return NewFactory(cfg)
 }
