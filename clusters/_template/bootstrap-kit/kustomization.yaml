@@ -40,6 +40,26 @@ resources:
   # OR fix the pull path to bypass the registry pivot during bootstrap.
   - 18-seaweedfs.yaml
   - 19-harbor.yaml
+  # bp-sandbox (slot 19a) — sandbox-controller Wave 1 (PR #1622) + Wave 8
+  # pty-server / MCP / NEWAPI runtime wiring. Reconciles
+  # `sandbox.openova.io/v1.Sandbox` CRs into per-Sandbox manifests
+  # written into the per-Org `catalyst-tenant` Gitea repo.
+  #
+  # Wave 11 convergence fix (2026-05-18, caught on t16.omantel.biz):
+  # originally slot 61 — moved here after bp-harbor (slot 19) because the
+  # post-handover cutover (slot 06a, Step-06 phase-1) rewrites every
+  # HelmRepository URL `oci://ghcr.io/openova-io` →
+  # `oci://harbor.<sov-fqdn>/openova-io`, and the bp-sandbox chart pull
+  # then hits harbor.<sov-fqdn> BEFORE bp-harbor is Ready — chicken-and-
+  # egg. Same failure shape as Wave 7 #1610 with bp-hcloud-csi (REMOVED,
+  # see the slot-17a comment block above) but resolved here by
+  # sequencing rather than removal so the slot remains available for
+  # the Wave 11 Sandbox MVP without manual Day-2 add-app re-introduction.
+  # HR's dependsOn pins ordering to AFTER bp-harbor + bp-vcluster-
+  # helmrepo + bp-catalyst-platform. Gated default-OFF via
+  # ${SANDBOX_ENABLED:-false} on the bootstrap-kit Kustomization
+  # substitute — matches the chart's values.enabled default.
+  - 19a-bp-sandbox.yaml
   # 06a — Post-handover Self-Sovereignty Cutover (issue #791). Filename
   # carries the 06a prefix to colocate cohorts visually, but the slot's
   # dependsOn pins actual install order to AFTER bp-gitea (slot 10) and
@@ -124,16 +144,12 @@ resources:
   # this slot registers a live Flux source so per-TENANT vClusters can
   # be spawned by the Organization controller at runtime). Default-ON.
   - 60-bp-vcluster-helmrepo.yaml
-  # bp-sandbox (slot 61) — sandbox-controller Wave 1 (PR #1622). Reconciles
-  # `sandbox.openova.io/v1.Sandbox` CRs into per-Sandbox manifests written
-  # into the per-Org `catalyst-tenant` Gitea repo. Without this slot,
-  # Sandbox CRs sit unhandled — the controller never deploys. dependsOn
-  # bp-vcluster-helmrepo (slot 60, Wave 2 per-Sandbox vCluster source)
-  # and bp-catalyst-platform (slot 13, catalyst-system Namespace +
-  # catalyst-gitea-token Secret). Gated default-OFF via
-  # ${SANDBOX_ENABLED:-false} on the bootstrap-kit Kustomization
-  # substitute — matches the chart's values.enabled default.
-  - 61-bp-sandbox.yaml
+  # bp-sandbox MOVED 2026-05-18 (Wave 11 convergence fix) from slot 61
+  # to slot 19a (above, after bp-harbor) to break a chicken-and-egg
+  # cycle with harbor.<sov-fqdn> chart pulls during bootstrap. See the
+  # slot-19a comment block + 19a-bp-sandbox.yaml header for full
+  # diagnostic chain. No functional difference for operators — the
+  # SANDBOX_ENABLED knob still gates rendering identically.
   # bp-newapi (slot 80) — multi-tenant LLM marketplace gateway. Sequenced
   # after the W2.K1 dependency wave (cnpg/keycloak/openbao Ready) so
   # NewAPI's ExternalSecret + DSN dependencies resolve on first reconcile.
