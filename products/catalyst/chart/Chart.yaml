@@ -1169,6 +1169,29 @@ name: bp-catalyst-platform
 # overwritten by the mirror rerun at 17:54:55Z, Organization CR never
 # materialised, customer-journey step 16 hung indefinitely. (Closes
 # #1794 — 5th C18 layer, the last customer-journey blocker.)
+# 1.4.178 (TBD-CNP-Catalyst-NS-Ingress, 2026-05-18): SECOND regression from
+# #1785 (1.4.171 baseline CNPs). The catalyst-system baseline-default-deny
+# CNP allowed ingress only from {reserved.ingress (cilium-gateway),
+# same-namespace, host/remote-node/kube-apiserver}. The bp-self-sovereign-
+# cutover chart stamps Jobs into the `catalyst` namespace, including the
+# 10-auto-trigger Job whose Pod curls catalyst-api in `catalyst-system` to
+# fire /api/v1/internal/cutover/trigger. With #1785 in effect on a FRESH
+# prov, every auto-trigger Pod times out at WAIT_TIMEOUT_SECONDS=1500s →
+# handoverFiredAt stays null → D0 auto-redirect to Sovereign Console never
+# happens → operator is stuck on mothership /jobs forever. Caught by t24
+# zero-touch verification (2026-05-18). The companion symptom on t22 was
+# masked because t22's cutover Job had already completed before the CNP
+# rolled out, so the CNP did not gate ingress.
+#
+# Fix: add an explicit fromEndpoints rule allowing ingress from the
+# `catalyst` namespace (cutover Pods), `flux-system` (Helm/Kustomize/Source
+# controllers probing Service readiness for HelmRelease health rollups),
+# and `kube-system` Pods (Cilium operator + hcloud-ccm + CoreDNS that do
+# cluster introspection calls — the reserved.ingress gateway endpoint also
+# in kube-system is matched separately via reserved.ingress: ""). The list
+# is operator-tunable via `.Values.security.baselineCnp.allowedIngressNamespaces`,
+# mirroring the existing allowedPlatformNamespaces pattern on the egress
+# side. Refs PR #1785 (1.4.171), t24 zero-touch finding.
 # 1.4.177 (TBD-CNP-SMTP-Egress, 2026-05-18): fix regression introduced by
 # #1785 (1.4.171 baseline CNPs). The catalyst-system default-deny CNP
 # limited world egress to TCP/443 only, which silently broke SMTP
@@ -1186,8 +1209,8 @@ name: bp-catalyst-platform
 # 25/TCP (legacy SMTP fallback). All three are explicitly scoped to
 # `toEntities: world`, matching the existing 443/TCP allow. No other
 # rule semantics change. (Fixes PIN-issue 502 regression from #1785.)
-version: 1.4.177
-appVersion: 1.4.177
+version: 1.4.178
+appVersion: 1.4.178
 # 1.4.172 — feat(security): baseline CiliumNetworkPolicies for
 # catalyst-system + cilium-gateway (Closes #1746, Refs TBD-Cov-12 /
 # C12-009). Cov-bench audit on the live Sovereign cluster confirmed
