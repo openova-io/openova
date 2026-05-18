@@ -188,6 +188,19 @@ func (s *DLQSubscriber) Subscribe(ctx context.Context, handler func(*Event) erro
 	}
 }
 
+// Close releases the underlying Consumer (and, by implication, any
+// producer-side connections the DLQSubscriber shares). Implements
+// BrokerSubscriber so DLQSubscriber can substitute for a raw Consumer
+// at call sites that prefer the unified subscribe surface.
+func (s *DLQSubscriber) Close() {
+	if s == nil {
+		return
+	}
+	if s.Consumer != nil {
+		s.Consumer.Close()
+	}
+}
+
 // attemptKey produces a stable retry-counter key. Prefers Event.ID when
 // available (cross-partition rebalance safe) and falls back to the broker
 // coordinates when the payload never parsed.

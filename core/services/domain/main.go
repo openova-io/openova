@@ -22,7 +22,12 @@ func main() {
 	// Configuration from environment.
 	mongoURI := getEnv("MONGODB_URI", "mongodb://ferretdb:27017")
 	mongoDBName := getEnv("MONGODB_DB", "domains")
-	redpandaBrokers := strings.Split(getEnv("REDPANDA_BROKERS", "localhost:9092"), ",")
+	// REDPANDA_BROKERS — legacy Kafka-protocol bus. Empty on Sovereigns
+	// (no Redpanda exists in cluster); populated on Catalyst-Zero.
+	redpandaBrokersRaw := getEnv("REDPANDA_BROKERS", "")
+	// NATS_URL — canonical JetStream bus per ADR-0001 §6. On Sovereigns
+	// wired to nats-jetstream.nats-system.svc.cluster.local:4222.
+	natsURL := getEnv("NATS_URL", "")
 	jwtSecret := []byte(getEnv("JWT_SECRET", ""))
 	corsOrigin := getEnv("CORS_ORIGIN", "*")
 	port := getEnv("PORT", "8086")
@@ -49,45 +54,86 @@ func main() {
 	}()
 	slog.Info("connected to FerretDB", "uri", mongoURI, "db", mongoDBName)
 
-	// Create events producer.
-	producer, err := events.NewProducer(redpandaBrokers)
+	// Wire NATS + Kafka legs. At least one MUST be present or
+	// MultiPublisher / MultiSubscriber refuse to construct.
+	var (
+		natsConn  *events.NATSConn
+		kafkaProd *events.Producer
+	)
+	if natsURL != "" {
+		nc, err := events.ConnectNATS(natsURL)
+		if err != nil {
+			slog.Error("failed to connect to NATS", "url", natsURL, "error", err)
+			os.Exit(1)
+		}
+		natsConn = nc
+		slog.Info("connected to NATS JetStream", "url", natsURL)
+	}
+	if redpandaBrokersRaw != "" {
+		kp, err := events.NewProducer(strings.Split(redpandaBrokersRaw, ","))
+		if err != nil {
+			slog.Error("failed to create RedPanda producer", "error", err)
+			os.Exit(1)
+		}
+		kafkaProd = kp
+		slog.Info("connected to RedPanda (legacy)", "brokers", redpandaBrokersRaw)
+	}
+	publisher, err := events.NewMultiPublisher(natsConn, kafkaProd)
 	if err != nil {
-		slog.Error("failed to create events producer", "error", err)
+		slog.Error("event bus misconfigured — neither NATS_URL nor REDPANDA_BROKERS set", "error", err)
 		os.Exit(1)
 	}
-	defer producer.Close()
-	slog.Info("connected to RedPanda")
+	defer publisher.Close()
 
 	// Initialize store and handler.
 	domainStore := store.New(client, mongoDBName)
 	h := &handlers.Handler{
 		Store:       domainStore,
-		Producer:    producer,
+		Producer:    publisher,
 		CNAMETarget: cnameTarget,
 		TenantURL:   tenantURL,
 	}
 
 	// Start the tenant-events consumer so tenant.deleted cascades remove
-	// domain records (subdomains + BYOD). See issue #95. Broker outages
-	// log + retry — shared Consumer commits only after a nil handler return.
-	tenantEventsConsumer, err := events.NewConsumer(
-		redpandaBrokers,
-		"domain-tenant-events",
-		[]string{"sme.tenant.events"},
-	)
+	// domain records (subdomains + BYOD). See issue #95. Listens on
+	// `catalyst.tenant.deleted` (NATS, Sovereign default) AND legacy
+	// `sme.tenant.events` (Kafka, Catalyst-Zero default).
+	var kafkaConsumer *events.Consumer
+	if redpandaBrokersRaw != "" {
+		kc, err := events.NewConsumer(
+			strings.Split(redpandaBrokersRaw, ","),
+			"domain-tenant-events",
+			[]string{"sme.tenant.events"},
+		)
+		if err != nil {
+			slog.Error("failed to create kafka consumer", "error", err)
+			os.Exit(1)
+		}
+		kafkaConsumer = kc
+	}
+	tenantSubscriber, err := events.NewMultiSubscriber(events.MultiSubscriberConfig{
+		NATS:       natsConn,
+		Kafka:      kafkaConsumer,
+		Group:      "domain-tenant-events",
+		EventTypes: []string{"tenant.deleted"},
+	})
 	if err != nil {
-		slog.Error("failed to create tenant-events consumer", "error", err)
+		slog.Error("failed to create tenant-events subscriber", "error", err)
 		os.Exit(1)
 	}
-	defer tenantEventsConsumer.Close()
+	defer tenantSubscriber.Close()
 	domainTenantHandler := &handlers.TenantConsumer{Store: domainStore}
 	go func() {
-		if err := domainTenantHandler.Start(context.Background(), tenantEventsConsumer); err != nil {
+		if err := domainTenantHandler.Start(context.Background(), tenantSubscriber); err != nil {
 			slog.Error("domain tenant-events consumer stopped", "error", err)
 		}
 	}()
 	slog.Info("domain tenant-events consumer started",
-		"topic", "sme.tenant.events", "group", "domain-tenant-events")
+		"nats_subject", "catalyst.tenant.deleted",
+		"kafka_topic", "sme.tenant.events",
+		"kafka_enabled", kafkaConsumer != nil,
+		"nats_enabled", natsConn != nil,
+		"group", "domain-tenant-events")
 
 	// Build the main mux.
 	mux := http.NewServeMux()

@@ -20,8 +20,12 @@ import (
 
 // Handler holds dependencies for domain HTTP handlers.
 type Handler struct {
-	Store       *store.Store
-	Producer    *events.Producer
+	Store *store.Store
+	// Producer is the canonical event-bus surface. In production this is
+	// an events.MultiPublisher (NATS + optional Redpanda); a plain
+	// *events.Producer also satisfies the interface so legacy Catalyst-
+	// Zero wiring keeps working without a code change.
+	Producer    events.BrokerPublisher
 	CNAMETarget string // e.g., sme.openova.io
 	// TenantURL is the internal base URL for the tenant service
 	// (e.g., http://tenant.sme.svc.cluster.local:8083). Used for cross-service

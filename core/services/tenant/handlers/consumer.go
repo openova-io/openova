@@ -61,8 +61,12 @@ func payloadHead(raw []byte, n int) string {
 	return string(raw[:n]) + "…"
 }
 
-// Start subscribes to the given consumer and dispatches events.
-func (c *ConsumerHandler) Start(ctx context.Context, consumer *events.Consumer) error {
+// Start subscribes to the given subscriber and dispatches events. The
+// subscriber is whatever transport main wired with — events.MultiSubscriber
+// on Sovereigns (NATS subjects `catalyst.provision.*`), bare
+// *events.Consumer on Catalyst-Zero (Kafka topic `sme.provision.events`),
+// or both during the migration window.
+func (c *ConsumerHandler) Start(ctx context.Context, consumer events.BrokerSubscriber) error {
 	slog.Info("starting tenant event consumer")
 	return consumer.Subscribe(ctx, func(event *events.Event) error {
 		switch event.Type {

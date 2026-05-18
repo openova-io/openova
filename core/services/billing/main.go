@@ -125,33 +125,47 @@ func main() {
 		},
 	}
 
-	// Legacy Kafka tenant-events consumer — only when REDPANDA_BROKERS
-	// is set. On Sovereigns the canonical bus is NATS; the equivalent
-	// NATS-side subscriber ships in a follow-up per ADR-0001 §6
-	// migration plan. Skipping it on NATS-only deployments avoids the
-	// previous crashloop trying to dial "localhost:9092".
+	// Tenant-events consumer drives the billing-side cascade on
+	// tenant.deleted (Stripe sub-cancel + invoice void + ledger marker).
+	// Listens on canonical NATS subject `catalyst.tenant.deleted` on
+	// Sovereigns AND legacy Kafka topic `sme.tenant.events` on Catalyst-
+	// Zero. PR #1627 wired the consumer side after PR #1626 wired publish.
+	var billingKafkaConsumer *events.Consumer
 	if kafkaProd != nil {
-		tenantConsumer, err := events.NewConsumer(
+		kc, err := events.NewConsumer(
 			strings.Split(redpandaBrokersRaw, ","),
 			"billing-tenant-events",
 			[]string{"sme.tenant.events"},
 		)
 		if err != nil {
-			slog.Error("failed to create tenant-events consumer", "error", err)
+			slog.Error("failed to create tenant-events kafka consumer", "error", err)
 			os.Exit(1)
 		}
-		defer tenantConsumer.Close()
-		billingTenantHandler := &handlers.TenantConsumer{Store: billingStore}
-		go func() {
-			if err := billingTenantHandler.Start(context.Background(), tenantConsumer); err != nil {
-				slog.Error("billing tenant-events consumer stopped", "error", err)
-			}
-		}()
-		slog.Info("billing tenant-events consumer started",
-			"topic", "sme.tenant.events", "group", "billing-tenant-events")
-	} else {
-		slog.Info("REDPANDA_BROKERS empty — legacy Kafka tenant-events consumer disabled (NATS-only mode)")
+		billingKafkaConsumer = kc
 	}
+	billingTenantSub, err := events.NewMultiSubscriber(events.MultiSubscriberConfig{
+		NATS:       natsConn,
+		Kafka:      billingKafkaConsumer,
+		Group:      "billing-tenant-events",
+		EventTypes: []string{"tenant.deleted"},
+	})
+	if err != nil {
+		slog.Error("failed to create tenant-events subscriber", "error", err)
+		os.Exit(1)
+	}
+	defer billingTenantSub.Close()
+	billingTenantHandler := &handlers.TenantConsumer{Store: billingStore}
+	go func() {
+		if err := billingTenantHandler.Start(context.Background(), billingTenantSub); err != nil {
+			slog.Error("billing tenant-events consumer stopped", "error", err)
+		}
+	}()
+	slog.Info("billing tenant-events consumer started",
+		"nats_subject", "catalyst.tenant.deleted",
+		"kafka_topic", "sme.tenant.events",
+		"kafka_enabled", billingKafkaConsumer != nil,
+		"nats_enabled", natsConn != nil,
+		"group", "billing-tenant-events")
 
 	// NATS metering subscriber (#798 §B) — uses the same NATS connection
 	// opened for the publisher above so we have a single TCP socket per

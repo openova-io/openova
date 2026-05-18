@@ -106,53 +106,102 @@ func main() {
 	slog.Info("catalog client configured", "url", catalogURL)
 	slog.Info("provisioning URL configured", "url", provisioningURL)
 
-	// Legacy Kafka consumers (sme.provision.events + sme.tenant.events) are
-	// only started when REDPANDA_BROKERS is set. On Sovereigns the canonical
-	// path is NATS JetStream; the equivalent NATS-side subscribers are
-	// scheduled to ship in a follow-up (see ADR-0001 §6 migration plan).
-	// Keeping these legacy goroutines off when no Kafka broker is wired
-	// avoids the previous behaviour of crashlooping the pod trying to
-	// dial "localhost:9092".
+	// Provision-events consumer drives the tenant state machine when
+	// provisioning publishes provision.completed / .failed / .app_ready
+	// / .app_removed / .app_failed / .tenant_removed. Listens on the
+	// canonical NATS subjects `catalyst.provision.*` on Sovereigns AND
+	// the legacy Kafka topic `sme.provision.events` on Catalyst-Zero.
+	var provKafkaConsumer *events.Consumer
 	if redpandaBrokersRaw != "" {
-		redpandaBrokers := strings.Split(redpandaBrokersRaw, ",")
-		provConsumer, err := events.NewConsumer(redpandaBrokers, "tenant-service", []string{"sme.provision.events"})
+		kc, err := events.NewConsumer(
+			strings.Split(redpandaBrokersRaw, ","),
+			"tenant-service",
+			[]string{"sme.provision.events"},
+		)
 		if err != nil {
-			slog.Error("failed to create provision consumer", "error", err)
+			slog.Error("failed to create provision kafka consumer", "error", err)
 			os.Exit(1)
 		}
-		defer provConsumer.Close()
-		consumerHandler := &handlers.ConsumerHandler{Store: tenantStore}
-		go func() {
-			if err := consumerHandler.Start(context.Background(), provConsumer); err != nil {
-				slog.Error("provision consumer stopped", "error", err)
-			}
-		}()
+		provKafkaConsumer = kc
+	}
+	provSub, err := events.NewMultiSubscriber(events.MultiSubscriberConfig{
+		NATS:  natsConn,
+		Kafka: provKafkaConsumer,
+		Group: "tenant-service",
+		EventTypes: []string{
+			"provision.completed",
+			"provision.failed",
+			"provision.app_ready",
+			"provision.app_removed",
+			"provision.app_failed",
+			"provision.tenant_removed",
+		},
+	})
+	if err != nil {
+		slog.Error("failed to create provision subscriber", "error", err)
+		os.Exit(1)
+	}
+	defer provSub.Close()
+	consumerHandler := &handlers.ConsumerHandler{Store: tenantStore}
+	go func() {
+		if err := consumerHandler.Start(context.Background(), provSub); err != nil {
+			slog.Error("provision consumer stopped", "error", err)
+		}
+	}()
+	slog.Info("tenant provision-events consumer started",
+		"nats_subjects", []string{
+			"catalyst.provision.completed",
+			"catalyst.provision.failed",
+			"catalyst.provision.app_ready",
+			"catalyst.provision.app_removed",
+			"catalyst.provision.app_failed",
+			"catalyst.provision.tenant_removed",
+		},
+		"kafka_topic", "sme.provision.events",
+		"nats_enabled", natsConn != nil,
+		"kafka_enabled", provKafkaConsumer != nil,
+		"group", "tenant-service")
 
-		// Members-cleanup consumer — purges member rows as soon as a tenant is
-		// soft-deleted so authz checks during the teardown window don't see
-		// stale membership. Separate consumer group so offsets don't contend
-		// with the provision-events subscriber above. See issue #96.
-		membersConsumer, err := events.NewConsumer(
-			redpandaBrokers,
+	// Members-cleanup consumer — purges member rows as soon as a tenant is
+	// soft-deleted so authz checks during the teardown window don't see
+	// stale membership. Separate consumer group so offsets don't contend
+	// with the provision-events subscriber above. See issue #96.
+	var membersKafkaConsumer *events.Consumer
+	if redpandaBrokersRaw != "" {
+		kc, err := events.NewConsumer(
+			strings.Split(redpandaBrokersRaw, ","),
 			"tenant-members-cleanup",
 			[]string{"sme.tenant.events"},
 		)
 		if err != nil {
-			slog.Error("failed to create members-cleanup consumer", "error", err)
+			slog.Error("failed to create members-cleanup kafka consumer", "error", err)
 			os.Exit(1)
 		}
-		defer membersConsumer.Close()
-		membersCleanup := &handlers.MembersCleanupConsumer{Store: tenantStore}
-		go func() {
-			if err := membersCleanup.Start(context.Background(), membersConsumer); err != nil {
-				slog.Error("tenant members-cleanup consumer stopped", "error", err)
-			}
-		}()
-		slog.Info("tenant members-cleanup consumer started",
-			"topic", "sme.tenant.events", "group", "tenant-members-cleanup")
-	} else {
-		slog.Info("REDPANDA_BROKERS empty — legacy Kafka consumers disabled (NATS-only mode)")
+		membersKafkaConsumer = kc
 	}
+	membersSub, err := events.NewMultiSubscriber(events.MultiSubscriberConfig{
+		NATS:       natsConn,
+		Kafka:      membersKafkaConsumer,
+		Group:      "tenant-members-cleanup",
+		EventTypes: []string{"tenant.deleted"},
+	})
+	if err != nil {
+		slog.Error("failed to create members-cleanup subscriber", "error", err)
+		os.Exit(1)
+	}
+	defer membersSub.Close()
+	membersCleanup := &handlers.MembersCleanupConsumer{Store: tenantStore}
+	go func() {
+		if err := membersCleanup.Start(context.Background(), membersSub); err != nil {
+			slog.Error("tenant members-cleanup consumer stopped", "error", err)
+		}
+	}()
+	slog.Info("tenant members-cleanup consumer started",
+		"nats_subject", "catalyst.tenant.deleted",
+		"kafka_topic", "sme.tenant.events",
+		"nats_enabled", natsConn != nil,
+		"kafka_enabled", membersKafkaConsumer != nil,
+		"group", "tenant-members-cleanup")
 
 	// Build the main mux.
 	mux := http.NewServeMux()

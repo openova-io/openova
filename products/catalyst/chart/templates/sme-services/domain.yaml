@@ -37,6 +37,16 @@ spec:
                 configMapKeyRef:
                   name: sme-services-config
                   key: REDPANDA_BROKERS
+            # NATS JetStream URL — canonical event bus per ADR-0001 §6.
+            # PR #1627 wired domain's tenant.deleted subscriber to
+            # NATS subject `catalyst.tenant.deleted` so subdomain +
+            # BYOD records are reclaimed on Sovereigns (was Kafka-only
+            # and silently dropping every cascade).
+            - name: NATS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: NATS_URL
             - name: CORS_ORIGIN
               valueFrom:
                 configMapKeyRef:
