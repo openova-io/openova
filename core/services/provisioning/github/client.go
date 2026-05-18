@@ -356,19 +356,42 @@ func (c *Client) doRequest(ctx context.Context, method, url string, body any) ([
 }
 
 func (c *Client) getRef(ctx context.Context, branch string) (string, error) {
-	body, err := c.doRequest(ctx, http.MethodGet, c.apiURL("/git/ref/heads/"+branch), nil)
+	// TBD-C18c (2026-05-18): Use plural /git/refs/heads/<branch>.
+	//
+	// GitHub supports BOTH /git/ref/<ref> (singular, returns one object) and
+	// /git/refs/<ref> (plural, prefix-match — returns one object for an exact
+	// ref, array for a prefix). Gitea 1.22 ONLY implements the plural form
+	// and ALWAYS returns an array even for an exact `heads/<branch>` match
+	// (https://docs.gitea.com/api#tag/repository/operation/repoGetGitRefs).
+	//
+	// The previous singular path 404'd on Gitea, blocking customer journey
+	// step 14 ("Committing manifests to Git") and downstream Org CR creation
+	// during day-2 install onto a Sovereign cluster's in-cluster Gitea.
+	//
+	// We try the array shape first (Gitea + GitHub prefix-style) and fall
+	// back to a single-object decode (GitHub exact-ref shape — kept for
+	// forward compatibility against api.github.com behavior).
+	body, err := c.doRequest(ctx, http.MethodGet, c.apiURL("/git/refs/heads/"+branch), nil)
 	if err != nil {
 		return "", err
 	}
-	var resp struct {
+	type refResp struct {
 		Object struct {
 			SHA string `json:"sha"`
 		} `json:"object"`
 	}
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return "", err
+	var arr []refResp
+	if err := json.Unmarshal(body, &arr); err == nil {
+		if len(arr) == 0 {
+			return "", fmt.Errorf("getRef: empty refs array for heads/%s", branch)
+		}
+		return arr[0].Object.SHA, nil
 	}
-	return resp.Object.SHA, nil
+	var single refResp
+	if err := json.Unmarshal(body, &single); err != nil {
+		return "", fmt.Errorf("getRef: response neither array nor object: %w", err)
+	}
+	return single.Object.SHA, nil
 }
 
 func (c *Client) getCommitTree(ctx context.Context, commitSHA string) (string, error) {
