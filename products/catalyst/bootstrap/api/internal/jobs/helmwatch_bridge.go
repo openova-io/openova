@@ -365,9 +365,42 @@ func (b *Bridge) SeedJobsFromInformerList(seeds []InformerSeed) (jobsWritten, ex
 			// transition emitted earlier in the same Pod's life. For
 			// non-terminal states we keep the cursor live so subsequent
 			// raw-log forwards land on the same Execution; for terminal
-			// states we clear the cursor (the Execution has already
-			// been finished by the prior call).
+			// states we clear the cursor.
+			//
+			// Stale-state class bug (TBD-B6/B7, t131 sin-2 install Jobs
+			// stuck "running"): a Pod restart between OnHelmReleaseEvent
+			// allocating an Execution (non-terminal) and the HR reaching
+			// Ready=True wipes activeExecID + lastState but leaves the
+			// prior Execution in StatusRunning on disk. On resume, the
+			// seed observes the HR's terminal state and lands here. Prior
+			// to this fix the branch ONLY cleared the cursor — the
+			// orphan Execution was never FinishExecution'd, so its row
+			// stayed `running` forever (and Job.FinishedAt / DurationMs
+			// stayed nil/0 because the UpsertJob above does not stamp
+			// finishedAt). FinishExecution is the canonical terminal
+			// transition: it stamps Execution.Status + FinishedAt AND
+			// Job.Status + Job.FinishedAt + DurationMs in one call. We
+			// check the prior Execution's current status before calling
+			// so an already-finished Execution is left alone (idempotency
+			// for the seed-twice path covered by
+			// TestSeedJobsFromInformerList_idempotent).
 			if isTerminalHelmState(s.State) {
+				priorExec, findErr := b.store.FindExecution(b.deploymentID, job.LatestExecutionID)
+				if findErr == nil && !IsTerminal(priorExec.Status) {
+					final := StatusSucceeded
+					if s.State == HelmStateFailed {
+						final = StatusFailed
+					}
+					t := s.ObservedAt
+					if t.IsZero() {
+						t = time.Now().UTC()
+					} else {
+						t = t.UTC()
+					}
+					if finishErr := b.store.FinishExecution(b.deploymentID, job.LatestExecutionID, final, t); finishErr != nil {
+						return jobsWritten, executionsSeeded, finishErr
+					}
+				}
 				b.activeExecID[comp] = ""
 			} else {
 				b.activeExecID[comp] = job.LatestExecutionID
