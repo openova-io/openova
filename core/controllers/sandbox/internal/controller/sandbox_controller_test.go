@@ -488,8 +488,13 @@ func TestReconcile_Wave8RuntimeShape(t *testing.T) {
 		"kind: HTTPRoute",
 		`- "sandbox.omantel.omani.works"`,
 		"value: /sessions/ceo-at-acme-com/",
-		"name: catalyst-public",
-		"namespace: catalyst-system",
+		// Sandbox HTTPRoute now attaches to the canonical Cilium Gateway
+		// (cilium-gateway/kube-system) so the wildcard *.<sov-fqdn>
+		// listener serves traffic to sandbox.<sov-fqdn>. The previous
+		// "catalyst-public/catalyst-system/https" parentRefs pointed at a
+		// Gateway that doesn't exist on a Sovereign.
+		"name: cilium-gateway",
+		"namespace: kube-system",
 		"name: pty-server",
 		"port: 7681",
 	} {

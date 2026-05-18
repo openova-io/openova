@@ -104,6 +104,76 @@ func (c *Client) ListPullRequests(ctx context.Context, org, repo string, opts Li
 	return out, nil
 }
 
+// MergePROpts threads the MERGE payload fields the MCP tool exposes
+// without growing the positional signature.
+type MergePROpts struct {
+	// Style is one of "merge" | "rebase" | "rebase-merge" | "squash".
+	// Empty defaults to "merge" (the conservative, non-rewriting option
+	// — keeps the head SHA + parent chain stable so CI doesn't re-run
+	// on a synthetic merge commit).
+	Style string
+	// Title overrides the default merge-commit title (squash + merge
+	// styles only). Empty → Gitea picks the PR title.
+	Title string
+	// Message overrides the default merge-commit body. Empty → Gitea
+	// picks the PR body.
+	Message string
+}
+
+// mergePullRequestPayload — POST body for /pulls/{number}/merge.
+// Gitea's `MergePullRequestOption` uses CamelCase JSON field names
+// (`Do`, `MergeTitleField`, `MergeMessageField`) which is exactly the
+// shape this struct emits.
+type mergePullRequestPayload struct {
+	Do                string `json:"Do"`
+	MergeTitleField   string `json:"MergeTitleField,omitempty"`
+	MergeMessageField string `json:"MergeMessageField,omitempty"`
+}
+
+// MergePullRequest merges PR #number on (org, repo).
+//
+// Gitea returns 200 on a successful merge, 404 if the PR doesn't exist,
+// 405 if the PR isn't mergeable (work-in-progress, draft, conflicting),
+// 409 if the head changed between Get and Merge. We surface the typed
+// sentinel for 404 (both `repo gone` and `PR gone` end up here on
+// Gitea's wire) and a *HTTPError for 405/409 so callers can inspect
+// Status for retry/abort decisions.
+//
+// Added Wave 11 for openova-sandbox-mcp `gitea.pr.merge`.
+func (c *Client) MergePullRequest(ctx context.Context, org, repo string, number int64, opts MergePROpts) error {
+	if org == "" || repo == "" {
+		return errors.New("gitea: MergePullRequest requires non-empty org, repo")
+	}
+	if number <= 0 {
+		return errors.New("gitea: MergePullRequest requires positive PR number")
+	}
+	style := opts.Style
+	if style == "" {
+		style = "merge"
+	}
+	switch style {
+	case "merge", "rebase", "rebase-merge", "squash":
+		// ok
+	default:
+		return fmt.Errorf("gitea: MergePullRequest: invalid style %q (want merge|rebase|rebase-merge|squash)", style)
+	}
+	endpoint := fmt.Sprintf("/repos/%s/%s/pulls/%d/merge",
+		url.PathEscape(org), url.PathEscape(repo), number)
+	payload := mergePullRequestPayload{
+		Do:                style,
+		MergeTitleField:   opts.Title,
+		MergeMessageField: opts.Message,
+	}
+	status, _, err := c.do(ctx, http.MethodPost, endpoint, payload, nil)
+	if err != nil {
+		if status == http.StatusNotFound {
+			return ErrRepoNotFound
+		}
+		return err
+	}
+	return nil
+}
+
 // GetPullRequest fetches a single PR by number. Returns ErrRepoNotFound
 // on 404 with "repository" in the body (matching GetFile's heuristic),
 // otherwise a plain *HTTPError with Status==404 when the PR number itself
