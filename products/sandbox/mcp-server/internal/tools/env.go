@@ -18,6 +18,10 @@
 //	SANDBOX_GITEA_BASE_URL      = "http://gitea-http.gitea.svc.cluster.local:3000"
 //	SANDBOX_GITEA_TOKEN         = "<machine-account token>"
 //	SANDBOX_KUBECONFIG          = ""                   (empty → in-cluster)
+//	SANDBOX_OWNER_UID           = "emrah-baysal-at-openova-io"
+//	KEYCLOAK_ADMIN_URL          = "http://keycloak.keycloak.svc.cluster.local:8080"
+//	KEYCLOAK_ADMIN_TOKEN        = "<admin bearer>" (sandbox-controller-injected)
+//	KEYCLOAK_PARENT_REALM       = "master"  (default; controller may override)
 //
 // SANDBOX_JWT_SECRET empty AND SANDBOX_ORG_ID empty = test mode
 // (the registry skips its auth gate so unit tests don't need to mint a
@@ -38,14 +42,21 @@ import (
 // NewRegistry().
 func NewEnvFromOS() *Env {
 	env := &Env{
-		OrgID:            os.Getenv("SANDBOX_ORG_ID"),
-		SandboxID:        os.Getenv("SANDBOX_ID"),
-		SandboxNamespace: os.Getenv("SANDBOX_NAMESPACE"),
-		SovereignFQDN:    os.Getenv("SANDBOX_SOVEREIGN_FQDN"),
-		SandboxToken:     os.Getenv("SANDBOX_TOKEN"),
-		GiteaBaseURL:     os.Getenv("SANDBOX_GITEA_BASE_URL"),
-		GiteaToken:       os.Getenv("SANDBOX_GITEA_TOKEN"),
-		KubeconfigPath:   os.Getenv("SANDBOX_KUBECONFIG"),
+		OrgID:               os.Getenv("SANDBOX_ORG_ID"),
+		SandboxID:           os.Getenv("SANDBOX_ID"),
+		SandboxNamespace:    os.Getenv("SANDBOX_NAMESPACE"),
+		SovereignFQDN:       os.Getenv("SANDBOX_SOVEREIGN_FQDN"),
+		SandboxToken:        os.Getenv("SANDBOX_TOKEN"),
+		GiteaBaseURL:        os.Getenv("SANDBOX_GITEA_BASE_URL"),
+		GiteaToken:          os.Getenv("SANDBOX_GITEA_TOKEN"),
+		KubeconfigPath:      os.Getenv("SANDBOX_KUBECONFIG"),
+		OwnerUID:            os.Getenv("SANDBOX_OWNER_UID"),
+		KeycloakAdminURL:    os.Getenv("KEYCLOAK_ADMIN_URL"),
+		KeycloakAdminToken:  os.Getenv("KEYCLOAK_ADMIN_TOKEN"),
+		KeycloakParentRealm: os.Getenv("KEYCLOAK_PARENT_REALM"),
+	}
+	if env.KeycloakParentRealm == "" {
+		env.KeycloakParentRealm = "master"
 	}
 	if secret := os.Getenv("SANDBOX_JWT_SECRET"); secret != "" {
 		env.JWTSecret = []byte(secret)

@@ -12,12 +12,15 @@
 //   - k8s.read.get / k8s.read.list / k8s.read.watch
 //   - sandbox.db.provision / sandbox.db.list / sandbox.db.get /
 //     sandbox.db.drop / sandbox.db.dump
+//   - sandbox.auth.provisionRealm / sandbox.auth.listClients /
+//     sandbox.auth.registerClient
+//   - sandbox.secrets.read / sandbox.secrets.write
 //   - sandbox.session.whoami / sandbox.session.info
 //
-// All other namespaces (sandbox.auth.*, sandbox.stripe.*,
-// sandbox.preview.*, k8s.write.*, remaining gitea write surface)
-// remain stubbed and continue to return not_implemented until later
-// waves ship their backends.
+// All other namespaces (sandbox.stripe.*, sandbox.preview.*,
+// k8s.write.*, remaining gitea write surface) remain stubbed and
+// continue to return not_implemented until later waves ship their
+// backends.
 //
 // Wire model recap (architecture.md §3):
 //
@@ -124,6 +127,31 @@ type Env struct {
 	// KubeconfigPath — path to a kubeconfig pointing at the Org vcluster.
 	// Empty → use in-cluster config (the Sandbox pod's SA).
 	KubeconfigPath string
+
+	// OwnerUID — the Sandbox's owner UID (`emrah-baysal-at-openova-io`,
+	// post-sanitisation of the operator email). The sandbox-controller
+	// injects this as SANDBOX_OWNER_UID on the MCP Deployment env (see
+	// core/controllers/sandbox/internal/gitops/manifests.go). It is the
+	// suffix in the Sandbox namespace name (`sandbox-<owner-uid>`) AND
+	// the per-Sandbox Secret-store name (`sandbox-<owner-uid>-secrets`).
+	OwnerUID string
+
+	// KeycloakAdminURL — root of the Keycloak Admin REST API
+	// (e.g. `http://keycloak.keycloak.svc.cluster.local:8080`). Empty
+	// → sandbox.auth.* surfaces a clear "not configured" error.
+	KeycloakAdminURL string
+
+	// KeycloakAdminToken — pre-minted Keycloak admin bearer the
+	// sandbox-controller drops into the MCP pod env from a mounted
+	// Secret. sandbox.auth.* uses it verbatim as the Authorization
+	// header for the Admin REST API.
+	KeycloakAdminToken string
+
+	// KeycloakParentRealm — the tenant Org's parent realm under which
+	// per-Sandbox realms are created (default: `master`). Used as the
+	// PARENT (admin auth target) for realm CRUD; the per-Sandbox
+	// realm itself is a sibling under the same Keycloak instance.
+	KeycloakParentRealm string
 }
 
 // claimsCtxKey is the unexported context key under which the
@@ -385,10 +413,54 @@ func defaultCatalogue(env *Env) []Tool {
 			RequiredCapability: "sandbox.db",
 		},
 
-		// sandbox.auth.* — Wave 8+ (Keycloak management).
-		{Name: "sandbox.auth.provisionRealm", Description: "Provision a Keycloak realm for an Application under this Sandbox.", InputSchema: anyObj},
-		{Name: "sandbox.auth.listClients", Description: "List Keycloak clients in the Sandbox's realm.", InputSchema: anyObj},
-		{Name: "sandbox.auth.registerClient", Description: "Register a new Keycloak client (id, redirect URIs).", InputSchema: anyObj},
+		// sandbox.auth.* — Keycloak realm + OIDC client management
+		// (Wave 11 — sandbox_auth.go). Every call hits the
+		// sandbox-controller-injected admin bearer at
+		// KEYCLOAK_ADMIN_URL; the realm scope is derived
+		// deterministically from env.OrgID + env.SandboxID for
+		// list/register so the agent cannot redirect to another realm.
+		{
+			Name:               "sandbox.auth.provisionRealm",
+			Description:        "Provision a per-Sandbox Keycloak realm under the Sovereign Keycloak instance. Idempotent: returns AlreadyExists on re-call.",
+			InputSchema:        schemaSandboxAuthProvisionRealm(),
+			Handler:            sandboxAuthProvisionRealm,
+			RequiredCapability: "sandbox.auth",
+		},
+		{
+			Name:               "sandbox.auth.listClients",
+			Description:        "List OIDC clients in this Sandbox's realm (`sandbox-<org>-<id>`).",
+			InputSchema:        map[string]any{"type": "object", "additionalProperties": false},
+			Handler:            sandboxAuthListClients,
+			RequiredCapability: "sandbox.auth",
+		},
+		{
+			Name:               "sandbox.auth.registerClient",
+			Description:        "Register a new OIDC client in this Sandbox's realm (`sandbox-<org>-<id>`). Idempotent: returns AlreadyExists on re-call.",
+			InputSchema:        schemaSandboxAuthRegisterClient(),
+			Handler:            sandboxAuthRegisterClient,
+			RequiredCapability: "sandbox.auth",
+		},
+
+		// sandbox.secrets.* — per-Sandbox Secret store
+		// (Wave 11 — sandbox_secrets.go). Reads + writes go through
+		// a single canonical K8s Secret `sandbox-<owner-uid>-secrets`
+		// in env.SandboxNamespace, gated by the
+		// openova.io/managed-by=openova-sandbox-mcp label so we never
+		// mutate the controller's `sandbox-tokens` Secret.
+		{
+			Name:               "sandbox.secrets.read",
+			Description:        "Read a key from the Sandbox's Secret store (`sandbox-<owner-uid>-secrets`). Returns status=NotFound when the store hasn't been created yet.",
+			InputSchema:        schemaSandboxSecretsRead(),
+			Handler:            sandboxSecretsRead,
+			RequiredCapability: "sandbox.secrets",
+		},
+		{
+			Name:               "sandbox.secrets.write",
+			Description:        "Write a key/value into the Sandbox's Secret store (auto-creates the Secret on first write). Encrypted at rest via K8s Secret encryption-at-rest.",
+			InputSchema:        schemaSandboxSecretsWrite(),
+			Handler:            sandboxSecretsWrite,
+			RequiredCapability: "sandbox.secrets",
+		},
 
 		// sandbox.session.* — this MCP server's own metadata (Wave 8).
 		{
