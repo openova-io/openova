@@ -3,17 +3,21 @@
 // Each tool is registered with a fully-qualified name (matching the
 // namespaces enumerated in products/sandbox/docs/architecture.md §3)
 // plus a short description. Wave 2 shipped stubs only — every Call()
-// returned {"status":"not_implemented"}. Wave 8 (this file's current
-// shape) replaces the stubs for:
+// returned {"status":"not_implemented"}. Wave 8 replaced the stubs
+// for the read surface; Wave 11 (this file's current shape) extends
+// to per-Sandbox CNPG provisioning:
 //
 //   - gitea.repo.list / gitea.repo.get
 //   - gitea.pr.list / gitea.pr.get
 //   - k8s.read.get / k8s.read.list / k8s.read.watch
+//   - sandbox.db.provision / sandbox.db.list / sandbox.db.get /
+//     sandbox.db.drop / sandbox.db.dump
 //   - sandbox.session.whoami / sandbox.session.info
 //
-// All other namespaces (sandbox.db.*, sandbox.auth.*, sandbox.stripe.*,
-// sandbox.preview.*, k8s.write.*) remain stubbed and continue to return
-// not_implemented until Wave 8+ ships their backends.
+// All other namespaces (sandbox.auth.*, sandbox.stripe.*,
+// sandbox.preview.*, k8s.write.*, remaining gitea write surface)
+// remain stubbed and continue to return not_implemented until later
+// waves ship their backends.
 //
 // Wire model recap (architecture.md §3):
 //
@@ -341,11 +345,45 @@ func defaultCatalogue(env *Env) []Tool {
 		},
 		{Name: "k8s.read.logs", Description: "Fetch container logs for a pod (read-only).", InputSchema: anyObj},
 
-		// sandbox.db.* — Wave 8+ (CNPG provisioning).
-		{Name: "sandbox.db.provision", Description: "Provision a CNPG cluster (size + version). Returns Cluster CR ref.", InputSchema: anyObj},
-		{Name: "sandbox.db.list", Description: "List CNPG clusters owned by this Sandbox.", InputSchema: anyObj},
-		{Name: "sandbox.db.dump", Description: "Trigger a pg_dump-backed backup; returns object-store URL.", InputSchema: anyObj},
-		{Name: "sandbox.db.drop", Description: "Drop a CNPG cluster owned by this Sandbox.", InputSchema: anyObj},
+		// sandbox.db.* — CNPG provisioning (Wave 11 — sandbox_db.go).
+		// Every handler addresses env.SandboxNamespace; the agent
+		// cannot pass a namespace argument. RequiredCapability gates
+		// each call to bearers whose claims carry `sandbox.db`.
+		{
+			Name:               "sandbox.db.provision",
+			Description:        "Provision a CNPG Postgres Cluster CR in this Sandbox's namespace (default plan: 1 instance, 5Gi, postgres 16). Returns the connection envelope.",
+			InputSchema:        schemaSandboxDBProvision(),
+			Handler:            sandboxDBProvision,
+			RequiredCapability: "sandbox.db",
+		},
+		{
+			Name:               "sandbox.db.list",
+			Description:        "List CNPG Clusters provisioned by this Sandbox (filtered to openova.io/managed-by=openova-sandbox-mcp).",
+			InputSchema:        map[string]any{"type": "object", "additionalProperties": false},
+			Handler:            sandboxDBList,
+			RequiredCapability: "sandbox.db",
+		},
+		{
+			Name:               "sandbox.db.get",
+			Description:        "Get a single Sandbox-managed CNPG Cluster's status + connection envelope by name.",
+			InputSchema:        schemaSandboxDBNameOnly(),
+			Handler:            sandboxDBGet,
+			RequiredCapability: "sandbox.db",
+		},
+		{
+			Name:               "sandbox.db.drop",
+			Description:        "Delete a Sandbox-managed CNPG Cluster (CNPG operator cascades PVC/Service/Secret cleanup).",
+			InputSchema:        schemaSandboxDBNameOnly(),
+			Handler:            sandboxDBDrop,
+			RequiredCapability: "sandbox.db",
+		},
+		{
+			Name:               "sandbox.db.dump",
+			Description:        "Create a one-shot CNPG Backup CR (barman-cloud or volumeSnapshot per cluster config). Returns the Backup CR ref + configured S3 destinationPath.",
+			InputSchema:        schemaSandboxDBNameOnly(),
+			Handler:            sandboxDBDump,
+			RequiredCapability: "sandbox.db",
+		},
 
 		// sandbox.auth.* — Wave 8+ (Keycloak management).
 		{Name: "sandbox.auth.provisionRealm", Description: "Provision a Keycloak realm for an Application under this Sandbox.", InputSchema: anyObj},

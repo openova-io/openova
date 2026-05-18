@@ -50,6 +50,7 @@ func TestRegistry_ListContainsCatalogue(t *testing.T) {
 		"sandbox.auth.registerClient",
 		"sandbox.db.drop",
 		"sandbox.db.dump",
+		"sandbox.db.get",
 		"sandbox.db.list",
 		"sandbox.db.provision",
 		"sandbox.session.info",
@@ -73,15 +74,23 @@ func TestRegistry_ListContainsCatalogue(t *testing.T) {
 }
 
 // TestRegistry_StubsReturnNotImplemented covers every tool we explicitly
-// kept stubbed for Wave 8.
+// kept stubbed.
+//
+// sandbox.db.* dropped out of this list in Wave 11 when sandbox_db.go
+// wired real handlers; sandbox.auth.*, k8s.read.logs, and the
+// remaining gitea write surface stay stubbed until later waves.
 func TestRegistry_StubsReturnNotImplemented(t *testing.T) {
 	r := NewRegistry(&Env{})
 	stubs := []string{
-		"sandbox.db.provision",
-		"sandbox.db.list",
 		"sandbox.auth.provisionRealm",
+		"sandbox.auth.listClients",
+		"sandbox.auth.registerClient",
 		"k8s.read.logs",
 		"gitea.pr.merge",
+		"gitea.pr.create",
+		"gitea.issue.list",
+		"gitea.issue.create",
+		"gitea.release.list",
 	}
 	for _, name := range stubs {
 		res, err := r.Call(context.Background(), name, nil, CallOpts{})
