@@ -132,4 +132,29 @@ cnpg:
     enabled: ""
     primaryRegion: ""
     replicaRegion: ""
+# Wave 14 — Grafana dashboard for Sandbox runtime observability.
+#
+# Default-off (zero regression). When `grafanaDashboard.enabled=true` the
+# chart renders ONE ConfigMap (`<release>-dashboard`) labelled
+# `grafana_dashboard: "1"`. The upstream grafana/grafana sidecar
+# (`kiwigrid/k8s-sidecar`) auto-discovers ConfigMaps with that label
+# across all namespaces and loads the JSON into Grafana on the next
+# reconcile.
+#
+# Panels (products/sandbox/docs/architecture.md §7 +
+# newapi-proxy-contract.md):
+#   1. Active Sandboxes (count of Sandbox CRs)
+#   2. pty-server Pods Ready %
+#   3. MCP Pods Ready %
+#   4. WebSocket Connections (Gauge)
+#   5. PVC Usage % per Sandbox
+#   6. Idle-Timeout Scale-Down Events / hour
+#   7. newapi Token Mint Requests / hour (filter tool="sandbox-controller")
+#
+# Per Inviolable Principle #11 (no fabricated metrics) panels whose
+# metric emitter has not yet rolled out across the fleet render as
+# "No data" rather than a synthetic number; this is documented inline
+# on each panel's description field.
+grafanaDashboard:
+  enabled: false
 extraEnv: {}

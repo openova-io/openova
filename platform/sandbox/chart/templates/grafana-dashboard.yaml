@@ -1,0 +1,431 @@
+{{- /*
+Sandbox runtime observability dashboard (Wave 14).
+
+Default-off: only renders when `.Values.grafanaDashboard.enabled=true`.
+Pattern follows platform/seaweedfs/chart/.../seaweedfs-grafana-dashboard.yaml
+— a ConfigMap labelled `grafana_dashboard: "1"` so the upstream
+grafana/grafana sidecar (`kiwigrid/k8s-sidecar`) auto-discovers it and
+loads the dashboard JSON into Grafana on startup.
+
+The operator-facing panels (architecture.md §7 + newapi-proxy-contract.md):
+  1. Active Sandboxes (count of Sandbox CRs)
+  2. pty-server Pod count + Ready %
+  3. MCP Pod count + Ready %
+  4. PVC usage % per Sandbox
+  5. WebSocket connection count
+  6. Idle-timeout scale-down events / hour
+  7. newapi token mint requests / hour (filter `tool="sandbox-controller"`)
+
+Per Inviolable Principle #11 (no fabricated metrics) the queries are
+generic kube-state-metrics + kubelet + Prometheus client conventions —
+none of them hardcode a metric name that does not yet exist in the
+fleet. Panels that depend on a Sandbox-specific counter (WS conn count,
+idle-timeout events, newapi mint) reference the canonical metric names
+the sandbox-controller / pty-server / mcp-server EMIT today (or the
+contract under which a Wave-15 PR will add them); per
+INVIOLABLE-PRINCIPLES.md #4 the panel name carries the metric name so a
+fleet that has not yet rolled out the emitter renders the panel as
+"No data" instead of a fabricated number.
+*/ -}}
+{{- if .Values.grafanaDashboard.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "sandbox.fullname" . }}-dashboard
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sandbox.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+data:
+  sandbox-runtime.json: |-
+    {
+      "annotations": {
+        "list": [
+          {
+            "builtIn": 1,
+            "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+            "enable": true,
+            "hide": true,
+            "iconColor": "rgba(0, 211, 255, 1)",
+            "name": "Annotations & Alerts",
+            "type": "dashboard"
+          }
+        ]
+      },
+      "editable": true,
+      "graphTooltip": 0,
+      "liveNow": false,
+      "schemaVersion": 39,
+      "style": "dark",
+      "tags": ["openova", "sandbox", "catalyst"],
+      "templating": {
+        "list": [
+          {
+            "current": { "selected": false, "text": "Prometheus", "value": "Prometheus" },
+            "hide": 0,
+            "includeAll": false,
+            "label": "Datasource",
+            "multi": false,
+            "name": "DS_PROMETHEUS",
+            "options": [],
+            "query": "prometheus",
+            "refresh": 1,
+            "regex": "",
+            "skipUrlSync": false,
+            "type": "datasource"
+          },
+          {
+            "current": { "selected": false, "text": "All", "value": "$__all" },
+            "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+            "definition": "label_values(kube_namespace_created, namespace)",
+            "hide": 0,
+            "includeAll": true,
+            "label": "Namespace",
+            "multi": true,
+            "name": "namespace",
+            "options": [],
+            "query": { "query": "label_values(kube_namespace_created, namespace)", "refspec": "" },
+            "refresh": 2,
+            "regex": "",
+            "skipUrlSync": false,
+            "sort": 1,
+            "type": "query"
+          }
+        ]
+      },
+      "time": { "from": "now-6h", "to": "now" },
+      "timepicker": {},
+      "timezone": "",
+      "title": "OpenOva — Sandbox Runtime",
+      "uid": "openova-sandbox-runtime",
+      "version": 1,
+      "weekStart": "",
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Active Sandboxes",
+          "description": "Count of Sandbox.sandbox.openova.io CRs across all namespaces. Source: kube-state-metrics customresource metric (kube_customresource_sandbox_info) emitted once the CRD is registered with KSM via --custom-resource-state-config. Falls back to 'No data' on Sovereigns that have not yet wired the KSM customresource config.",
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 50 },
+                  { "color": "red", "value": 200 }
+                ]
+              },
+              "unit": "short"
+            }
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "horizontal",
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+              "expr": "sum(kube_customresource_sandbox_info{namespace=~\"$namespace\"})",
+              "legendFormat": "Active Sandboxes",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "pty-server Pods Ready %",
+          "description": "Ready / Total ratio for every pty-server StatefulSet Pod (label app.kubernetes.io/name=pty-server). 100% means every per-Sandbox pty-server is reachable.",
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "yellow", "value": 80 },
+                  { "color": "green", "value": 95 }
+                ]
+              },
+              "unit": "percent",
+              "min": 0,
+              "max": 100
+            }
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "horizontal",
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "textMode": "value_and_name"
+          },
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+              "expr": "100 * (sum(kube_pod_status_ready{condition=\"true\",namespace=~\"$namespace\"} and on(namespace,pod) kube_pod_labels{label_app_kubernetes_io_name=\"pty-server\"}) / clamp_min(sum(kube_pod_info{namespace=~\"$namespace\"} and on(namespace,pod) kube_pod_labels{label_app_kubernetes_io_name=\"pty-server\"}), 1))",
+              "legendFormat": "pty-server Ready %",
+              "refId": "A"
+            },
+            {
+              "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+              "expr": "sum(kube_pod_info{namespace=~\"$namespace\"} and on(namespace,pod) kube_pod_labels{label_app_kubernetes_io_name=\"pty-server\"})",
+              "legendFormat": "pty-server Pods",
+              "refId": "B"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "MCP Pods Ready %",
+          "description": "Ready / Total ratio for every openova-sandbox-mcp Deployment Pod (label app.kubernetes.io/name=openova-sandbox-mcp). Sister panel to pty-server.",
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "yellow", "value": 80 },
+                  { "color": "green", "value": 95 }
+                ]
+              },
+              "unit": "percent",
+              "min": 0,
+              "max": 100
+            }
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "horizontal",
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "textMode": "value_and_name"
+          },
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+              "expr": "100 * (sum(kube_pod_status_ready{condition=\"true\",namespace=~\"$namespace\"} and on(namespace,pod) kube_pod_labels{label_app_kubernetes_io_name=\"openova-sandbox-mcp\"}) / clamp_min(sum(kube_pod_info{namespace=~\"$namespace\"} and on(namespace,pod) kube_pod_labels{label_app_kubernetes_io_name=\"openova-sandbox-mcp\"}), 1))",
+              "legendFormat": "MCP Ready %",
+              "refId": "A"
+            },
+            {
+              "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+              "expr": "sum(kube_pod_info{namespace=~\"$namespace\"} and on(namespace,pod) kube_pod_labels{label_app_kubernetes_io_name=\"openova-sandbox-mcp\"})",
+              "legendFormat": "MCP Pods",
+              "refId": "B"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "WebSocket Connections",
+          "description": "Live attached pty-server WS connections across the fleet. Metric: pty_server_websocket_connections (Gauge, emitted by pty-server when SANDBOX_METRICS_ENABLED=true). Falls back to 'No data' on Sovereigns whose pty-server image predates the metrics emitter.",
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 100 },
+                  { "color": "red", "value": 500 }
+                ]
+              },
+              "unit": "short"
+            }
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "horizontal",
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+              "expr": "sum(pty_server_websocket_connections{namespace=~\"$namespace\"})",
+              "legendFormat": "WS connections",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "PVC Usage % per Sandbox",
+          "description": "Per-PVC used / capacity ratio for every PVC in a Sandbox namespace. Source: kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes (kubelet metrics endpoint, scraped by Prometheus). Legend = persistentvolumeclaim name; the per-Sandbox PVCs are named `<owner-uid>-<repo>` per gitops/manifests.go.",
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": {
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "pointSize": 5,
+                "scaleDistribution": { "type": "linear" },
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": { "group": "A", "mode": "none" },
+                "thresholdsStyle": { "mode": "off" }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 75 },
+                  { "color": "red", "value": 90 }
+                ]
+              },
+              "unit": "percent",
+              "min": 0,
+              "max": 100
+            }
+          },
+          "options": {
+            "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "right", "showLegend": true },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+              "expr": "100 * (kubelet_volume_stats_used_bytes{namespace=~\"$namespace\"} / clamp_min(kubelet_volume_stats_capacity_bytes{namespace=~\"$namespace\"}, 1))",
+              "legendFormat": "{{`{{namespace}}`}}/{{`{{persistentvolumeclaim}}`}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "Idle-Timeout Scale-Down Events / hour",
+          "description": "Rate of pty-server Pods scaled to zero by the sandbox-controller idle-timeout reconciler (SANDBOX_IDLE_TIMEOUT_MINUTES, default 30). Metric: sandbox_controller_idle_timeout_events_total (Counter, emitted by sandbox-controller). Multiplied by 3600 to render as events / hour. Falls back to 'No data' until the controller image carrying the emitter rolls out.",
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": {
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "events / hour",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "line",
+                "fillOpacity": 20,
+                "gradientMode": "opacity",
+                "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "pointSize": 5,
+                "scaleDistribution": { "type": "linear" },
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": { "group": "A", "mode": "none" },
+                "thresholdsStyle": { "mode": "off" }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null }
+                ]
+              },
+              "unit": "short"
+            }
+          },
+          "options": {
+            "legend": { "calcs": ["sum", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+              "expr": "3600 * sum by (namespace) (rate(sandbox_controller_idle_timeout_events_total{namespace=~\"$namespace\"}[5m]))",
+              "legendFormat": "{{`{{namespace}}`}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 7,
+          "type": "timeseries",
+          "title": "newapi Token Mint Requests / hour (tool=\"sandbox-controller\")",
+          "description": "Per-hour rate of POST /admin/tokens/sandbox calls landing on the newapi bridge handler, filtered to mints initiated by the sandbox-controller (HTTP request label tool=\"sandbox-controller\"). Source: newapi_admin_token_mint_requests_total (Counter, label set {tool, status}) emitted by the catalyst-api bridge handler per newapi-proxy-contract.md §4. Multiplied by 3600 for the per-hour view.",
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 12 },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": {
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "mints / hour",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "line",
+                "fillOpacity": 20,
+                "gradientMode": "opacity",
+                "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "pointSize": 5,
+                "scaleDistribution": { "type": "linear" },
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": { "group": "A", "mode": "none" },
+                "thresholdsStyle": { "mode": "off" }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null }
+                ]
+              },
+              "unit": "short"
+            }
+          },
+          "options": {
+            "legend": { "calcs": ["sum", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+              "expr": "3600 * sum by (status) (rate(newapi_admin_token_mint_requests_total{tool=\"sandbox-controller\"}[5m]))",
+              "legendFormat": "{{`{{status}}`}}",
+              "refId": "A"
+            }
+          ]
+        }
+      ]
+    }
+{{- end }}
