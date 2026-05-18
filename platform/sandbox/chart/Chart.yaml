@@ -1,0 +1,31 @@
+apiVersion: v2
+name: sandbox
+description: |
+  Wave 1 deployment chart for sandbox-controller — the Catalyst-built
+  reconciler for `sandbox.openova.io/v1.Sandbox` CRs.
+
+  Per products/sandbox/docs/architecture.md §7 the sandbox-controller
+  is the sister of organization-controller (one-CR-per-Sandbox-user,
+  per-Org-vcluster materialization). Wave 1 installs the Deployment +
+  ClusterRole + ClusterRoleBinding + ServiceAccount; Wave 2 adds the
+  pty-server + openova-sandbox-mcp Deployments inside each Sandbox
+  namespace.
+
+  The `Sandbox` CRD itself ships separately under
+  products/catalyst/chart/crds/sandbox.yaml (PR #1615).
+
+  This chart is opt-in via `.Values.enabled` (default false) so an
+  operator can keep Sandbox off-by-default on a Sovereign until the
+  Wave 2 pty-server + token issuance flow is also rolled in.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - catalyst
+  - sandbox
+  - controller
+  - reconciler
+  - openova
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
