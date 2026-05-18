@@ -42,12 +42,21 @@ env:
   # operator may override via per-Sovereign overlay.
   newapiBaseURL: "http://newapi.newapi.svc.cluster.local:3000"
   # Comma-separated list of NewAPI channel names every freshly-minted
-  # Sandbox token is allowed to target. Empty disables the token-mint
-  # path (controller logs + emits a NoAllowedChannels condition on
-  # affected Sandbox CRs). Operator MUST set this to the channels
-  # surfaced by the per-Sovereign NewAPI rollout (`qwen` today —
-  # products/sandbox/docs/newapi-proxy-contract.md §2).
-  newapiDefaultChannels: ""
+  # Sandbox token is allowed to target. The controller refuses to mint
+  # tokens with an empty channel set (NoAllowedChannels condition on
+  # the affected Sandbox CR — sandbox_controller.go:191), so Wave 32
+  # D35c verifier caught every Sandbox stuck on NoAllowedChannels
+  # because this defaulted to "".
+  #
+  # Default `qwen` per products/sandbox/docs/newapi-proxy-contract.md
+  # §2 — the only channel name surfaced today is the alias `qwen`
+  # backed by the `qwen3.6-bankdhofar` seed entry that bp-newapi's
+  # channel-seed-job.yaml writes on every Sovereign install. Operators
+  # MUST override on per-Sovereign overlays the moment they wire
+  # additional channels (e.g. `qwen,anthropic,openai`) — bootstrap-kit
+  # slot 19a substitutes `${SANDBOX_DEFAULT_CHANNELS:-qwen}` so the
+  # canonical knob lives on the Sovereign overlay's substitute map.
+  newapiDefaultChannels: "qwen"
 # runtime — Wave 8 per-Sandbox pty-server / MCP / NEWAPI wiring.
 # Surfaced as env on the controller; the controller renders these into
 # the per-Sandbox StatefulSet + Deployment + HTTPRoute.
