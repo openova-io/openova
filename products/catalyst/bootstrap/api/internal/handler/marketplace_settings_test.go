@@ -5,6 +5,88 @@ import (
 	"testing"
 )
 
+// TestResolveBootstrapKitDir locks in the fix for issue #1790 (Wave 34
+// cov-bench): on the Sovereign chroot the GitOps repo (chroot-local
+// Gitea) only carries clusters/_template/bootstrap-kit/, while the
+// mothership / Catalyst-Zero repo carries clusters/<fqdn>/bootstrap-kit/
+// per-Sovereign. The marketplace settings handler must pick the right
+// one or the toggle POST fails with 500 "no such file or directory".
+//
+// Detection rule:
+//   - SOVEREIGN_FQDN env set            -> chroot, use _template
+//   - SOVEREIGN_FQDN unset / whitespace -> mother,  use <fqdn>
+//   - CATALYST_BOOTSTRAP_KIT_PATH       -> runtime override, beats both
+func TestResolveBootstrapKitDir(t *testing.T) {
+	const fqdn = "omantel.omani.works"
+
+	cases := []struct {
+		name              string
+		sovereignFQDNEnv  string
+		setSovereignFQDN  bool
+		bootstrapKitPath  string
+		setBootstrapKit   bool
+		want              string
+	}{
+		{
+			name: "mother_no_envs",
+			want: "clusters/omantel.omani.works/bootstrap-kit",
+		},
+		{
+			name:             "mother_empty_sov_env_explicit",
+			sovereignFQDNEnv: "",
+			setSovereignFQDN: true,
+			want:             "clusters/omantel.omani.works/bootstrap-kit",
+		},
+		{
+			name:             "chroot_sov_set",
+			sovereignFQDNEnv: fqdn,
+			setSovereignFQDN: true,
+			want:             "clusters/_template/bootstrap-kit",
+		},
+		{
+			name:             "whitespace_sov_treated_as_unset",
+			sovereignFQDNEnv: "   ",
+			setSovereignFQDN: true,
+			want:             "clusters/omantel.omani.works/bootstrap-kit",
+		},
+		{
+			name:             "runtime_override_beats_chroot",
+			sovereignFQDNEnv: fqdn,
+			setSovereignFQDN: true,
+			bootstrapKitPath: "custom/path/bootstrap-kit",
+			setBootstrapKit:  true,
+			want:             "custom/path/bootstrap-kit",
+		},
+		{
+			name:             "runtime_override_beats_mother",
+			bootstrapKitPath: "alt/bootstrap-kit",
+			setBootstrapKit:  true,
+			want:             "alt/bootstrap-kit",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			// t.Setenv unsets the var on test end if it wasn't set
+			// before, so each subtest starts from the package-level
+			// state and gets a clean restore.
+			if c.setSovereignFQDN {
+				t.Setenv("SOVEREIGN_FQDN", c.sovereignFQDNEnv)
+			} else {
+				t.Setenv("SOVEREIGN_FQDN", "")
+			}
+			if c.setBootstrapKit {
+				t.Setenv("CATALYST_BOOTSTRAP_KIT_PATH", c.bootstrapKitPath)
+			} else {
+				t.Setenv("CATALYST_BOOTSTRAP_KIT_PATH", "")
+			}
+			if got := resolveBootstrapKitDir(fqdn); got != c.want {
+				t.Errorf("resolveBootstrapKitDir(%q)=%q, want %q", fqdn, got, c.want)
+			}
+		})
+	}
+}
+
 // TestPatchMarketplaceYAML_EnableSetsValues confirms the YAML patcher
 // flips ingress.marketplace.enabled to true and writes the brand fields
 // into the existing overlay structure used by every Sovereign.
