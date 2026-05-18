@@ -570,6 +570,18 @@ jobs:
             clusters/_template/bootstrap-kit/*.yaml 2>/dev/null || true)
 
           if [ -z "$pin_file" ]; then
+            # TBD-A6 hardening (2026-05-18): before declaring "not in the
+            # kit", check whether a slot pins this chart at a DIFFERENT
+            # indent than the canonical 6 spaces. If so, the auto-bump
+            # would silently no-op forever and the chart-pin pair would
+            # drift undetected. Fail loudly so the slot author re-indents
+            # to the canonical shape before publishing.
+            wrong_indent=$(grep -lE "^[[:space:]]+chart: ${CHART_NAME}\$" \
+              clusters/_template/bootstrap-kit/*.yaml 2>/dev/null || true)
+            if [ -n "$wrong_indent" ]; then
+              echo "::error title=Bootstrap-kit slot indent drift::Slot file(s) pin ${CHART_NAME} but at a non-6-space indent: $wrong_indent. The auto-bump hook keys on \`^      chart: <name>\$\` (exactly 6 spaces). Re-indent the slot's \`chart:\` and \`version:\` lines under HelmRelease.spec.chart.spec to 6 spaces, matching every other slot. The pin-sync audit (scripts/check-bootstrap-kit-pin-sync.sh) keys on the same regex and would also miss this slot — drift would be undetected."
+              exit 1
+            fi
             echo "INFO: no bootstrap-kit slot pins ${CHART_NAME} — graceful no-op (chart is an opt-in Application Blueprint, not part of the kit)."
             echo "bumped=false" >> "$GITHUB_OUTPUT"
             exit 0
