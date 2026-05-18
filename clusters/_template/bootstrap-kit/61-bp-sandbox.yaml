@@ -1,47 +1,10 @@
 # bp-sandbox — Catalyst bootstrap-kit Blueprint slot 61.
 #
-# Deploys the Wave 1 sandbox-controller on a Sovereign so that
-# `sandbox.openova.io/v1.Sandbox` CRs (shipped by the catalyst umbrella
-# at products/catalyst/chart/crds/sandbox.yaml, PR #1615) are actually
-# reconciled. Without this slot, every Sandbox CR a user creates sits
-# unhandled — sandbox-controller never deploys.
-#
-# Per products/sandbox/docs/architecture.md §7: the sandbox-controller
-# is the sister of organization-controller (one-CR-per-Sandbox-user,
-# per-Org-vcluster materialization). Wave 1 installs the Deployment +
-# ClusterRole + ClusterRoleBinding + ServiceAccount; Wave 2 adds the
-# pty-server + openova-sandbox-mcp Deployments inside each Sandbox
-# namespace.
-#
-# Wrapper chart: platform/sandbox/chart/ (PR #1622)
-#   Chart name `sandbox` (chart-published artifact lives at
-#   oci://ghcr.io/openova-io/sandbox — i.e. Chart.yaml `name: sandbox`,
-#   not `bp-sandbox`). The HR + HelmRepository here follow the
-#   bootstrap-kit naming convention (`bp-sandbox`) — the upstream chart
-#   reference (`chart: sandbox`) matches what the blueprint-release
-#   workflow publishes.
-#
-# Reconciled by: Flux on the Sovereign's k3s control plane.
-#
-# Slot 61 chosen as the first free slot after bp-vcluster-helmrepo
-# (slot 60). The sandbox-controller is sequenced AFTER:
-#   - bp-vcluster-helmrepo (slot 60) — Wave 2 will register
-#     per-Sandbox HelmReleases that reference the upstream vcluster
-#     chart through this Flux source; pinning the dep now means the
-#     Wave 2 follow-up does not need to revisit slot ordering.
-#   - bp-catalyst-platform (slot 13) — the controller authenticates
-#     to Gitea using the `catalyst-gitea-token` Secret materialised
-#     by the catalyst umbrella in `catalyst-system`. Without the
-#     umbrella Ready, the Secret is absent and the controller
-#     CrashLoopBackoffs on env wiring (mustEnv on CATALYST_GITEA_TOKEN
-#     valueFrom secretKeyRef).
-#
-# Gated default-OFF via ${SANDBOX_ENABLED:-false} on the bootstrap-kit
-# Kustomization substitute — matches the chart's `values.enabled`
-# default at platform/sandbox/chart/values.yaml. Operators flip
-# `SANDBOX_ENABLED=true` on the per-Sovereign overlay once Wave 1
-# image is SHA-stamped and Wave 2 pty-server / token issuance is
-# ready (per the chart README).
+# Deploys the sandbox-controller (Wave 1 + Wave 8) on a Sovereign so
+# that `sandbox.openova.io/v1.Sandbox` CRs are actually reconciled.
+# Wave 8 extends the controller to ALSO render per-Sandbox pty-server
+# StatefulSet + MCP Deployment + Service + HTTPRoute (architecture.md
+# §7) — without this slot enabled, every Sandbox CR sits unreconciled.
 
 ---
 apiVersion: source.toolkit.fluxcd.io/v1beta2
@@ -67,28 +30,12 @@ metadata:
 spec:
   interval: 15m
   releaseName: sandbox
-  # Controller lives in catalyst-system alongside organization-controller
-  # so the chart's hardcoded SA name (sandbox-controller) does not
-  # collide and the Gitea-token Secret (`catalyst-gitea-token`) the
-  # catalyst umbrella ships is co-located — `secretKeyRef` lookups
-  # resolve in-namespace.
   targetNamespace: catalyst-system
   dependsOn:
-    # bp-vcluster-helmrepo (slot 60) — Wave 2 wires per-Sandbox
-    # HelmReleases that resolve through this Flux source.
     - name: bp-vcluster-helmrepo
-    # bp-catalyst-platform (slot 13) — provides `catalyst-system`
-    # Namespace + the `catalyst-gitea-token` Secret the controller
-    # uses to PutFile manifests into the per-Org `catalyst-tenant`
-    # Gitea repo.
     - name: bp-catalyst-platform
   chart:
     spec:
-      # Chart name from platform/sandbox/chart/Chart.yaml — `name: sandbox`.
-      # The blueprint-release workflow publishes the artifact under that
-      # exact name (oci://ghcr.io/openova-io/sandbox:<semver>). Pinned
-      # to 0.1.0 (Wave 1 scaffold version). Bump only when chart
-      # Chart.yaml bumps.
       chart: sandbox
       version: 0.1.0
       sourceRef:
@@ -108,16 +55,22 @@ spec:
   # Per-Sovereign overlay surface.
   #
   # enabled — gated default-OFF via ${SANDBOX_ENABLED:-false} on the
-  # bootstrap-kit Kustomization substitute. Matches the chart's
-  # `values.enabled` default at platform/sandbox/chart/values.yaml.
-  # Wave 2 (pty-server + token issuance + HTTPRoutes) flips this on
-  # via per-Sovereign overlay.
+  # bootstrap-kit Kustomization substitute. Operators flip
+  # `SANDBOX_ENABLED=true` on the per-Sovereign overlay once Wave 8
+  # images are SHA-stamped.
   #
-  # env.hostCluster / env.sovereignFQDN — required at install time
-  # per the chart's `required` template guards. Fed from the
-  # canonical bootstrap-kit substitute variables.
+  # runtime.* — Wave 8 pty-server / MCP / NEWAPI wiring. The
+  # controller surfaces these to its per-Sandbox renderer (manifests
+  # rendered into the per-Org `catalyst-tenant` Gitea repo at
+  # sandbox/<owner-uid>/). Image refs are SHA-pinned via the standard
+  # bootstrap-kit substitute variables; newapi URL derives from
+  # ${SOVEREIGN_FQDN}.
   values:
     enabled: ${SANDBOX_ENABLED:-false}
     env:
       hostCluster: ${SOVEREIGN_REGION_CANONICAL_LABEL}
       sovereignFQDN: ${SOVEREIGN_FQDN}
+    runtime:
+      ptyServerImage: ${SANDBOX_PTY_SERVER_IMAGE}
+      mcpImage: ${SANDBOX_MCP_IMAGE}
+      newapiURL: https://newapi.${SOVEREIGN_FQDN}/v1
