@@ -36,8 +36,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/openova-io/openova/core/controllers/pkg/gitea"
 	orgapi "github.com/openova-io/openova/core/controllers/organization/internal/orgapi"
+	"github.com/openova-io/openova/core/controllers/pkg/gitea"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -53,10 +53,10 @@ type fakeKeycloak struct {
 	groupPath string
 
 	// Federation surface (F2).
-	idps           map[string]KCIdentityProvider
-	mappers        map[string][]KCIdentityProviderMapper // key = alias
-	idpEnsureCalls int
-	idpDeleteCalls int
+	idps              map[string]KCIdentityProvider
+	mappers           map[string][]KCIdentityProviderMapper // key = alias
+	idpEnsureCalls    int
+	idpDeleteCalls    int
 	mapperEnsureCalls int
 }
 
@@ -661,10 +661,10 @@ func TestReconcile_Missing_NoError(t *testing.T) {
 // no Pod was ever scheduled.
 //
 // This test asserts:
-//   1. Upsert writes the UserAccess CR into the configured
-//      r.UserAccessNamespace (default `catalyst-system`).
-//   2. The CR carries metadata.namespace == that namespace (NOT empty).
-//   3. The owner-per-CR mapping holds (1 owner = 1 CR).
+//  1. Upsert writes the UserAccess CR into the configured
+//     r.UserAccessNamespace (default `catalyst-system`).
+//  2. The CR carries metadata.namespace == that namespace (NOT empty).
+//  3. The owner-per-CR mapping holds (1 owner = 1 CR).
 func TestUpsertUserAccess_NamespaceScoped(t *testing.T) {
 	t.Parallel()
 	org := sampleOrg()
@@ -752,3 +752,114 @@ func TestUpsertUserAccess_DefaultsToCatalystSystem(t *testing.T) {
 	}
 }
 
+// TestReconcile_TenantPublic_RendersHTTPRoute covers the issue #1629
+// follow-up: when spec.tenantPublic.parentDomain is set, the reconciler
+// MUST render an HTTPRoute in the Org's namespace pointing at the
+// supplied backend Service. Without this, PowerDNS-resolved tenant
+// hostnames (e.g. `acme.omani.homes`) fall through to the marketplace
+// `tenant-wildcard` route and 404 instead of hitting the tenant's
+// installed WordPress.
+func TestReconcile_TenantPublic_RendersHTTPRoute(t *testing.T) {
+	t.Parallel()
+	org := sampleOrg()
+	org.Spec.TenantPublic = orgapi.OrganizationTenantPublic{
+		ParentDomain:   "omani.homes",
+		BackendService: "wordpress-x-acme-x-vcluster",
+		BackendPort:    80,
+		Product:        "wordpress",
+	}
+
+	// Register HTTPRoute (Gateway API) with the fake client's scheme so
+	// it can serialise the unstructured object the reconciler writes.
+	r, _, _ := makeReconciler(t, org)
+	scheme := r.Scheme()
+	scheme.AddKnownTypeWithName(schema.GroupVersionKind{
+		Group: "gateway.networking.k8s.io", Version: "v1", Kind: "HTTPRoute",
+	}, &unstructured.Unstructured{})
+	scheme.AddKnownTypeWithName(schema.GroupVersionKind{
+		Group: "gateway.networking.k8s.io", Version: "v1", Kind: "HTTPRouteList",
+	}, &unstructured.UnstructuredList{})
+
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "acme"},
+	}); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	hr := unstructured.Unstructured{}
+	hr.SetGroupVersionKind(schema.GroupVersionKind{
+		Group: "gateway.networking.k8s.io", Version: "v1", Kind: "HTTPRoute",
+	})
+	if err := r.Get(context.Background(), client.ObjectKey{Namespace: "acme", Name: "acme"}, &hr); err != nil {
+		t.Fatalf("get HTTPRoute acme/acme: %v", err)
+	}
+	hostnames, _, _ := unstructured.NestedSlice(hr.Object, "spec", "hostnames")
+	if len(hostnames) != 1 || hostnames[0] != "acme.omani.homes" {
+		t.Errorf("hostnames: got %v, want [acme.omani.homes]", hostnames)
+	}
+	parents, _, _ := unstructured.NestedSlice(hr.Object, "spec", "parentRefs")
+	if len(parents) != 1 {
+		t.Fatalf("parentRefs: got %d, want 1", len(parents))
+	}
+	pr := parents[0].(map[string]any)
+	if pr["name"] != "cilium-gateway" || pr["namespace"] != "kube-system" {
+		t.Errorf("parentRef: got %+v, want cilium-gateway/kube-system", pr)
+	}
+	rules, _, _ := unstructured.NestedSlice(hr.Object, "spec", "rules")
+	if len(rules) != 1 {
+		t.Fatalf("rules: got %d, want 1", len(rules))
+	}
+	brs, _, _ := unstructured.NestedSlice(rules[0].(map[string]any), "backendRefs")
+	if len(brs) != 1 {
+		t.Fatalf("backendRefs: got %d, want 1", len(brs))
+	}
+	br := brs[0].(map[string]any)
+	if br["name"] != "wordpress-x-acme-x-vcluster" {
+		t.Errorf("backendRef name: got %v, want wordpress-x-acme-x-vcluster", br["name"])
+	}
+	labels := hr.GetLabels()
+	if labels["catalyst.openova.io/tenant-product"] != "wordpress" {
+		t.Errorf("expected tenant-product=wordpress label, got %q",
+			labels["catalyst.openova.io/tenant-product"])
+	}
+	if labels["catalyst.openova.io/parent-zone"] != "omani.homes" {
+		t.Errorf("expected parent-zone=omani.homes label, got %q",
+			labels["catalyst.openova.io/parent-zone"])
+	}
+}
+
+// TestReconcile_TenantPublic_DisabledByDefault covers the no-op path:
+// when spec.tenantPublic.parentDomain is empty (the default for every
+// existing Org CR), NO HTTPRoute MUST be written. Without this guard
+// every legacy Org would suddenly try to render an HTTPRoute and the
+// reconciler would surface TenantRouteFailed because BackendService is
+// empty.
+func TestReconcile_TenantPublic_DisabledByDefault(t *testing.T) {
+	t.Parallel()
+	org := sampleOrg() // no TenantPublic set
+	r, _, _ := makeReconciler(t, org)
+	scheme := r.Scheme()
+	scheme.AddKnownTypeWithName(schema.GroupVersionKind{
+		Group: "gateway.networking.k8s.io", Version: "v1", Kind: "HTTPRoute",
+	}, &unstructured.Unstructured{})
+	scheme.AddKnownTypeWithName(schema.GroupVersionKind{
+		Group: "gateway.networking.k8s.io", Version: "v1", Kind: "HTTPRouteList",
+	}, &unstructured.UnstructuredList{})
+
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "acme"},
+	}); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	hrList := unstructured.UnstructuredList{}
+	hrList.SetGroupVersionKind(schema.GroupVersionKind{
+		Group: "gateway.networking.k8s.io", Version: "v1", Kind: "HTTPRouteList",
+	})
+	if err := r.List(context.Background(), &hrList); err != nil {
+		t.Fatalf("list HTTPRoute: %v", err)
+	}
+	if len(hrList.Items) != 0 {
+		t.Errorf("expected 0 HTTPRoutes when tenantPublic is unset, got %d", len(hrList.Items))
+	}
+}

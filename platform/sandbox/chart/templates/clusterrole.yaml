@@ -25,8 +25,13 @@ metadata:
     {{- include "sandbox.labels" . | nindent 4 }}
 rules:
   - apiGroups: ["sandbox.openova.io"]
+    # `update`/`patch` are needed by the Wave 9 token-rotation path —
+    # the reconciler stamps `openova.io/sandbox-token-{expires,rotated}-
+    # at` annotations on the CR after every successful bridge mint.
+    # Status writes go through the /status subresource below; CR
+    # metadata writes (annotations) go here.
     resources: ["sandboxes"]
-    verbs: ["get", "list", "watch"]
+    verbs: ["get", "list", "watch", "update", "patch"]
   - apiGroups: ["sandbox.openova.io"]
     resources: ["sandboxes/status"]
     verbs: ["get", "update", "patch"]

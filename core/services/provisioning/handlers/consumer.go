@@ -210,6 +210,13 @@ func (h *Handler) waitAndFinalizeInstall(ctx context.Context, data appChangeData
 		"deploy_ids": data.DeployIDs,
 		"action":     "install",
 	})
+	// PR #1644 follow-up — patch Organization.spec.tenantPublic with
+	// the freshly-installed product. Day-2 installs use the picked
+	// app_slug; the patch overwrites any prior product binding so the
+	// HTTPRoute always points at the most recently installed product.
+	// hostNS computed above ("tenant-<slug>"). Best-effort.
+	h.emitOrgTenantPublic(ctx, data.TenantSlug, data.AppSlug, hostNS)
+
 	slog.Info("day-2 install completed (async)", "tenant", data.TenantSlug, "app", data.AppSlug)
 }
 
@@ -1110,6 +1117,21 @@ func (h *Handler) runProvisioningWorkflow(provisionID, tenantID, subdomain, plan
 	h.publishEvent(ctx, "provision.completed", tenantID, map[string]string{
 		"provision_id": provisionID,
 	})
+
+	// PR #1644 follow-up — patch Organization.spec.tenantPublic so the
+	// per-tenant HTTPRoute reconciler renders `<slug>.<parentDomain>`
+	// against the just-deployed product. Uses the first app slug as the
+	// "primary product" since the HTTPRoute reconciler emits one route
+	// per Organization (last-write-wins on subsequent installs). The
+	// host namespace is "tenant-<slug>" — matches generateHostIngress's
+	// syncedName() in gitops/gitops.go. Best-effort: failures don't
+	// fail the provision (tenant stays reachable via the Sovereign-wide
+	// tenant-wildcard route).
+	primaryProduct := ""
+	if len(appSlugs) > 0 {
+		primaryProduct = appSlugs[0]
+	}
+	h.emitOrgTenantPublic(ctx, subdomain, primaryProduct, hostNS)
 
 	slog.Info("provisioning completed", "provision_id", provisionID, "tenant", subdomain)
 }

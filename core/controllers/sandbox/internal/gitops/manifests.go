@@ -58,6 +58,19 @@ type Inputs struct {
 	LLMGatewayTokenSecret string
 	BYOSSecretPrefix      string
 	IdleTimeoutMinutes    int
+
+	// Wave 9 — per-Sandbox NewAPI bearer rendered into a dedicated
+	// Secret manifest. When NewAPIToken is non-empty the renderer
+	// emits secret-newapi-token.yaml carrying stringData
+	// LLM_GATEWAY_TOKEN + openova.io/sandbox-token-expires-at
+	// annotation; when NewAPITokenRotatedAt is also non-empty the
+	// rendered Secret additionally carries
+	// kubectl.kubernetes.io/restartedAt so Wave 8's pty-server
+	// StatefulSet picks up rolling restarts on token rotation.
+	NewAPIToken           string
+	NewAPITokenSecretName string
+	NewAPITokenExpiresAt  string
+	NewAPITokenRotatedAt  string
 }
 
 const namespaceTemplate = `apiVersion: v1
@@ -171,6 +184,38 @@ metadata:
 type: Opaque
 stringData:
   placeholder: ""
+`
+
+// newapiTokenSecretTemplate renders the per-Sandbox NewAPI bearer
+// Secret (Wave 9). Materialized into the Org vcluster's
+// sandbox-<owner-uid> namespace by Flux; Wave 8's pty-server
+// StatefulSet mounts the LLM_GATEWAY_TOKEN key as an env var on
+// every Sandbox-agent Pod.
+//
+// The Secret carries TWO operator-visible annotations:
+//   - openova.io/sandbox-token-expires-at — absolute expiry of the
+//     embedded JWT (operator + rotation observer).
+//   - kubectl.kubernetes.io/restartedAt   — rotation marker; Wave 8's
+//     pty-server StatefulSet propagates this onto its Pod template via
+//     a stringData → annotation reference so a fresh Secret triggers
+//     a rolling restart.
+const newapiTokenSecretTemplate = `apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .SecretName }}
+  namespace: {{ .NamespaceName }}
+  labels:
+    openova.io/sandbox: {{ .Name }}
+    openova.io/sandbox-owner: {{ .OwnerUID }}
+    openova.io/managed-by: catalyst
+  annotations:
+    openova.io/sandbox-token-expires-at: {{ .ExpiresAt | quote }}
+{{- if .RotatedAt }}
+    kubectl.kubernetes.io/restartedAt: {{ .RotatedAt | quote }}
+{{- end }}
+type: Opaque
+stringData:
+  LLM_GATEWAY_TOKEN: {{ .Token | quote }}
 `
 
 const ptyServerStatefulSetTemplate = `apiVersion: apps/v1
@@ -426,6 +471,9 @@ resources:
   - role.yaml
   - rolebinding.yaml
   - secret.yaml
+{{- if .HasNewAPIToken }}
+  - secret-newapi-token.yaml
+{{- end }}
 {{- range .RepoPaths }}
   - {{ . }}
 {{- end }}
@@ -493,7 +541,7 @@ func Render(in Inputs) (map[string][]byte, error) {
 	}
 	base := baseCtx{Inputs: in, NamespaceName: ns}
 
-	out := make(map[string][]byte, 11+len(repos))
+	out := make(map[string][]byte, 12+len(repos))
 
 	for path, raw := range map[string]string{
 		"namespace.yaml":      namespaceTemplate,
@@ -537,16 +585,50 @@ func Render(in Inputs) (map[string][]byte, error) {
 		repoPaths = append(repoPaths, path)
 	}
 
+	// NewAPI per-Sandbox bearer Secret — opt-in (only when the caller
+	// supplied a non-empty token; reconciler skips this manifest when
+	// the bridge is unreachable so namespace + RBAC + PVCs still land
+	// without the token-mint side-effect).
+	if strings.TrimSpace(in.NewAPIToken) != "" {
+		secretName := strings.TrimSpace(in.NewAPITokenSecretName)
+		if secretName == "" {
+			secretName = fmt.Sprintf("sandbox-%s-newapi-token", in.OwnerUID)
+		}
+		type tokenCtx struct {
+			Inputs
+			NamespaceName string
+			SecretName    string
+			Token         string
+			ExpiresAt     string
+			RotatedAt     string
+		}
+		buf, err := renderTemplate("secret-newapi-token.yaml", newapiTokenSecretTemplate, tokenCtx{
+			Inputs:        in,
+			NamespaceName: ns,
+			SecretName:    secretName,
+			Token:         in.NewAPIToken,
+			ExpiresAt:     in.NewAPITokenExpiresAt,
+			RotatedAt:     in.NewAPITokenRotatedAt,
+		})
+		if err != nil {
+			return nil, err
+		}
+		out["secret-newapi-token.yaml"] = buf
+	}
+
+	// Kustomization stitching — sorted repoPaths keeps output stable.
 	sort.Strings(repoPaths)
 	type kustCtx struct {
 		Inputs
-		NamespaceName string
-		RepoPaths     []string
+		NamespaceName  string
+		RepoPaths      []string
+		HasNewAPIToken bool
 	}
 	kustBuf, err := renderTemplate("kustomization.yaml", kustomizationTemplate, kustCtx{
-		Inputs:        in,
-		NamespaceName: ns,
-		RepoPaths:     repoPaths,
+		Inputs:         in,
+		NamespaceName:  ns,
+		RepoPaths:      repoPaths,
+		HasNewAPIToken: strings.TrimSpace(in.NewAPIToken) != "",
 	})
 	if err != nil {
 		return nil, err

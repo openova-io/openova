@@ -46,6 +46,17 @@ type Handler struct {
 	// repo on Sovereigns). Operator-overridable via GITHUB_BRANCH env.
 	GitBranch string
 
+	// TenantParentDomain is the sme-pool parent zone the provisioning
+	// service stamps onto Organization.spec.tenantPublic when a tenant's
+	// product becomes Ready. Sourced from TENANT_PARENT_DOMAIN env on
+	// the Sovereign's provisioning Deployment (e.g. "omani.homes"). Empty
+	// disables the patch entirely — legacy tenants without an Organization
+	// CR keep working through the Sovereign-wide tenant-wildcard route.
+	// See handlers/tenant_public_patch.go for the patch path. Per
+	// docs/INVIOLABLE-PRINCIPLES.md #4 this knob flows through env, never
+	// hardcoded — every Sovereign picks its own pool zone.
+	TenantParentDomain string
+
 	// day2Cancels tracks in-flight day-2 job wait contexts so tenant.deleted
 	// can preempt them (issue #99). Zero value is ready to use.
 	day2Cancels day2CancelRegistry

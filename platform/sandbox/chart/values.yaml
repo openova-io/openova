@@ -12,7 +12,7 @@ fullnameOverride: ""
 replicas: 1
 image:
   repository: ghcr.io/openova-io/openova/sandbox-controller
-  tag: "1b0e86c"
+  tag: "3a3ee74"
   pullPolicy: IfNotPresent
   pullSecrets:
     - name: ghcr-pull
@@ -35,6 +35,19 @@ env:
   giteaURL: "http://gitea-http.gitea.svc.cluster.local:3000"
   giteaBranch: "main"
   tenantRepoName: "catalyst-tenant"
+  # NewAPI bridge base URL the controller POSTs to /admin/tokens/sandbox
+  # against. The catalyst-api mounts the bridge handler (PR #1638)
+  # alongside the rest of its REST surface, so this defaults to the
+  # in-cluster NewAPI service. Per Inviolable Principle #4 every
+  # operator may override via per-Sovereign overlay.
+  newapiBaseURL: "http://newapi.newapi.svc.cluster.local:3000"
+  # Comma-separated list of NewAPI channel names every freshly-minted
+  # Sandbox token is allowed to target. Empty disables the token-mint
+  # path (controller logs + emits a NoAllowedChannels condition on
+  # affected Sandbox CRs). Operator MUST set this to the channels
+  # surfaced by the per-Sovereign NewAPI rollout (`qwen` today —
+  # products/sandbox/docs/newapi-proxy-contract.md §2).
+  newapiDefaultChannels: ""
 # runtime — Wave 8 per-Sandbox pty-server / MCP / NEWAPI wiring.
 # Surfaced as env on the controller; the controller renders these into
 # the per-Sandbox StatefulSet + Deployment + HTTPRoute.
@@ -54,7 +67,36 @@ runtime:
   byosSecretPrefix: "sandbox-byos-claude-code"
   # Idle timeout (minutes) — architecture.md §7.
   idleTimeoutMinutes: 30
+# Secret holding the Gitea PAT the controller authenticates with.
+# Defaults to the same Secret organization-controller uses
+# (catalyst-gitea-token / key=token) — single source of truth per
+# #957/#1052.
 giteaTokenSecret:
   name: "catalyst-gitea-token"
   key: "token"
+# Secret holding the NewAPI bridge admin bearer the controller passes
+# as `Authorization: Bearer <ADMIN_SECRET>` on every call to POST
+# /admin/tokens/sandbox. Defaults to the chart-emitted name from
+# platform/newapi/chart/templates/sandbox-token-signing-key-secret.yaml.
+#
+# The newapi chart's `bp-newapi.fullname` helper renders as
+# `<release>-<chart>` (e.g. release `newapi` + chart `bp-newapi` =>
+# `newapi-bp-newapi`), and the signing-key Secret template appends
+# `-token-signing-key`, so the canonical name in a stock Sovereign is
+# `newapi-bp-newapi-token-signing-key`. Per-Sovereign overlays may
+# override via either side of the wire (newapi chart's
+# `sandboxTokenSigningKey.autoSecretName` or this value here).
+#
+# Cross-namespace mount: the canonical wiring is via emberstack/
+# reflector — the source Secret carries
+# `reflector.v1.k8s.emberstack.com/reflection-{allowed,auto}-namespaces`
+# annotations naming the sandbox-controller's namespace so a mirror
+# of the Secret materialises locally. The chart template uses an
+# `optional: true` secretKeyRef so a fresh-prov Sovereign with the
+# reflector mirror still in flight does NOT crash the controller —
+# it starts in gitops-only mode and picks up the token-mint path
+# once the env var lands on a Pod restart.
+newapiAdminSecret:
+  name: "newapi-bp-newapi-token-signing-key"
+  key: "ADMIN_SECRET"
 extraEnv: {}

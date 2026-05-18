@@ -1,4 +1,4 @@
-// sandbox-controller — Wave 1 + Wave 8 of the Sandbox product
+// sandbox-controller — Wave 1 + Wave 8 + Wave 9 of the Sandbox product
 // (products/sandbox/docs/architecture.md §7).
 //
 // Production entry point. Reads configuration from environment vars,
@@ -24,6 +24,7 @@ import (
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
 	"github.com/openova-io/openova/core/controllers/sandbox/internal/controller"
 	"github.com/openova-io/openova/core/controllers/sandbox/internal/idlescaler"
+	"github.com/openova-io/openova/core/controllers/sandbox/internal/newapi"
 	sandboxapi "github.com/openova-io/openova/core/controllers/sandbox/internal/sandboxapi"
 )
 
@@ -60,13 +61,26 @@ func main() {
 	branch := envOr("CATALYST_GITEA_BRANCH", "main")
 	tenantRepo := envOr("CATALYST_TENANT_REPO_NAME", "catalyst-tenant")
 
-	// Wave 8 runtime env — per-Sandbox pty-server / MCP / NEWAPI.
+	// Wave 8 runtime env — per-Sandbox pty-server / MCP / NEWAPI for
+	// the rendered Pod manifests.
 	ptyServerImage := mustEnv("SANDBOX_PTY_SERVER_IMAGE", log)
 	mcpImage := mustEnv("SANDBOX_MCP_IMAGE", log)
-	newapiURL := mustEnv("SANDBOX_NEWAPI_URL", log)
+	sandboxNewapiURL := mustEnv("SANDBOX_NEWAPI_URL", log)
 	llmGatewayTokenSecret := envOr("SANDBOX_LLM_GATEWAY_TOKEN_SECRET", "sandbox-tokens")
 	byosSecretPrefix := envOr("SANDBOX_BYOS_SECRET_PREFIX", "sandbox-byos-claude-code")
 	idleTimeoutMinutes := envOrInt("SANDBOX_IDLE_TIMEOUT_MINUTES", 30)
+
+	// Wave 9 — NewAPI bridge wiring. Two env vars carry the bridge URL +
+	// admin bearer used by the controller to call POST
+	// /admin/tokens/sandbox (catalyst-api bridge handler, PR #1638).
+	// Both are REQUIRED in production — a sandbox-controller without
+	// the bridge wired silently ships Sandboxes without an LLM
+	// connection. Permit unset for compatibility with smoke tests
+	// that exercise only the gitops path (env both unset ⇒ controller
+	// runs without the token-mint path; log line announces it).
+	newapiBaseURL := strings.TrimSpace(os.Getenv("NEWAPI_BASE_URL"))
+	newapiAdmin := strings.TrimSpace(os.Getenv("NEWAPI_ADMIN_SECRET"))
+	defaultChannels := splitAndTrim(envOr("NEWAPI_DEFAULT_CHANNELS", ""), ",")
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
@@ -89,6 +103,21 @@ func main() {
 		os.Exit(1)
 	}
 
+	var newapiClient newapi.Client
+	if newapiBaseURL != "" && newapiAdmin != "" {
+		c, err := newapi.New(newapiBaseURL, newapiAdmin, nil)
+		if err != nil {
+			log.Error(err, "newapi client init")
+			os.Exit(1)
+		}
+		newapiClient = c
+	} else {
+		log.Info("newapi bridge not wired — sandbox-controller running in gitops-only mode",
+			"newapi_base_url_set", newapiBaseURL != "",
+			"newapi_admin_secret_set", newapiAdmin != "",
+		)
+	}
+
 	r := &controller.Reconciler{
 		Client:                mgr.GetClient(),
 		Log:                   log.WithName("reconciler"),
@@ -99,10 +128,12 @@ func main() {
 		TenantRepoName:        tenantRepo,
 		PtyServerImage:        ptyServerImage,
 		MCPImage:              mcpImage,
-		NewapiURL:             newapiURL,
+		NewapiURL:             sandboxNewapiURL,
 		LLMGatewayTokenSecret: llmGatewayTokenSecret,
 		BYOSSecretPrefix:      byosSecretPrefix,
 		IdleTimeoutMinutes:    idleTimeoutMinutes,
+		NewAPIClient:          newapiClient,
+		DefaultChannels:       defaultChannels,
 	}
 	if err := r.SetupWithManager(mgr); err != nil {
 		log.Error(err, "setup reconciler")
@@ -132,10 +163,12 @@ func main() {
 		"tenant_repo", tenantRepo,
 		"pty_server_image", ptyServerImage,
 		"mcp_image", mcpImage,
-		"newapi_url", newapiURL,
+		"newapi_url", sandboxNewapiURL,
 		"llm_gateway_token_secret", llmGatewayTokenSecret,
 		"byos_secret_prefix", byosSecretPrefix,
 		"idle_timeout_minutes", idleTimeoutMinutes,
+		"newapi_wired", newapiClient != nil,
+		"default_channels", defaultChannels,
 	)
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		log.Error(err, "manager start")
@@ -176,4 +209,23 @@ func envOrInt(key string, fallback int) int {
 		return fallback
 	}
 	return n
+}
+
+// splitAndTrim splits s on sep and returns the non-empty trimmed
+// pieces. "qwen,vllm , " → ["qwen","vllm"]. Empty s returns nil so
+// the caller's len()==0 check is unambiguous.
+func splitAndTrim(s, sep string) []string {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	parts := strings.Split(s, sep)
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
 }
