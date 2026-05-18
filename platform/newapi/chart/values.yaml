@@ -184,6 +184,41 @@ credentials:
   # Override the auto-emitted credentials Secret name. Default empty
   # ⇒ derived from release name (`<release>-app-creds`).
   autoSecretName: ""
+# ─── Sandbox-token bridge signing key (PR #1638) ─────────────────────────
+# Backs the real /admin/tokens/sandbox bridge handler (replaces PR #1619
+# stub). The handler mints HS256 per-Sandbox tokens for use by Sandbox
+# agent Pods on every NewAPI /v1/* call. Two pieces of secret material:
+#
+#   - SIGNING_KEY  — raw HS256 bytes (signs minted tokens; read by the
+#                    bridge as env NEWAPI_TOKEN_SIGNING_KEY).
+#   - ADMIN_SECRET — shared bearer the sandbox-controller presents on
+#                    every POST /admin/tokens/sandbox (read by the
+#                    bridge as env NEWAPI_ADMIN_SECRET).
+#
+# Issue parity with `credentials` (#943): chart auto-provisions via
+# templates/sandbox-token-signing-key-secret.yaml when
+# autoProvision=true (DEFAULT) AND existingSecret is empty. Persistent
+# across reconciles via Helm `lookup`; helm.sh/resource-policy: keep so
+# a `helm uninstall` + reinstall recovers the same bytes (otherwise an
+# upgrade silently invalidates every per-Sandbox token across the
+# Sovereign AND breaks the sandbox-controller's auth path).
+#
+# Operator may bring their own bytes via per-Sovereign overlay setting
+# `existingSecret` — when non-empty THAT name takes precedence and the
+# chart-emitted Secret is NOT rendered. The Secret MUST carry both
+# `SIGNING_KEY` and `ADMIN_SECRET` keys; the deployment template gates
+# on this.
+sandboxTokenSigningKey:
+  # Operator override. When non-empty, the chart does NOT render the
+  # template/sandbox-token-signing-key-secret.yaml and reads from this
+  # Secret directly. Required keys: SIGNING_KEY, ADMIN_SECRET.
+  existingSecret: ""
+  # When true (DEFAULT) the chart auto-emits the Secret with 64-char
+  # alphanumeric values per field, lookup-persisted across reconciles.
+  autoProvision: true
+  # Override the auto-emitted Secret name. Default empty ⇒ derived
+  # from release name (`<release>-token-signing-key`).
+  autoSecretName: ""
 # ─── Auth: ops-staff admin UI ────────────────────────────────────────────
 # The admin UI at admin.<host> is gated by the operator's IdP. Default
 # mode is `keycloak` (OIDC against bp-keycloak). `masterKey` is allowed
