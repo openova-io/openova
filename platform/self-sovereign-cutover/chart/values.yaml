@@ -32,16 +32,20 @@ sovereign:
   fqdn: "example.local"
   # Local Harbor URL (in-cluster Service form). Used by step 02
   # (harbor-projects) and step 03 (harbor-prewarm). The PUBLIC
-  # harbor.<sovereign.fqdn> URL is what registries.yaml v2 + step 06
+  # `registry.<sovereign.fqdn>` URL is what registries.yaml v2 + step 06
   # (helmrepository-patches) rewrite to (since containerd + Flux
   # source-controller resolve through public DNS, not in-cluster
-  # CoreDNS).
+  # CoreDNS). NB: the HTTPRoute hostname is `registry.<sov>`, NOT
+  # `harbor.<sov>` — see `clusters/_template/bootstrap-kit/19-harbor.yaml`
+  # `gateway.host`. Pre-2026-05-18 this said `harbor.<sov>` which no
+  # HTTPRoute matched → bp-sandbox stuck forever (t20 debug matrix).
   # Service name on bp-harbor is `harbor-core` (NOT `harbor-harbor-core`)
   # — caught live on otech103 2026-05-04. Verified via
   # `kubectl get svc -n harbor` returns harbor-core ClusterIP.
   harborInternalURL: "http://harbor-core.harbor.svc.cluster.local"
   # ↓ overlay required for real cutover (uses ${SOVEREIGN_FQDN}).
-  harborPublicURL: "https://harbor.example.local"
+  #    MUST be `registry.<sov-fqdn>` to match the bp-harbor HTTPRoute.
+  harborPublicURL: "https://registry.example.local"
   giteaInternalURL: "http://gitea-http.gitea.svc.cluster.local:3000"
   # ↓ overlay supplies https://gitea.${SOVEREIGN_FQDN} (informational; jobs use internal URL).
   giteaPublicURL: "https://gitea.example.local"

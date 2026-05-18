@@ -52,7 +52,7 @@ See [`values.yaml`](./values.yaml). The required overlay-supplied keys are:
 | Key | Purpose |
 |---|---|
 | `sovereign.fqdn` | The Sovereign's base FQDN (e.g. `otech.omani.works`). Drives every public URL in this chart. |
-| `sovereign.harborPublicURL` | `https://harbor.<sovereign.fqdn>`. Routed to by registries.yaml v2 + step 06. |
+| `sovereign.harborPublicURL` | `https://registry.<sovereign.fqdn>`. The bp-harbor HTTPRoute publishes at `registry.<sov>`, NOT `harbor.<sov>` — see `clusters/_template/bootstrap-kit/19-harbor.yaml` `gateway.host`. Routed to by registries.yaml v2 + step 06. |
 | `sovereign.giteaPublicURL` | `https://gitea.<sovereign.fqdn>`. Informational; jobs reach Gitea via the in-cluster Service URL. |
 
 Per `docs/INVIOLABLE-PRINCIPLES.md` #4 (never hardcode), the chart ships
@@ -86,7 +86,7 @@ where appropriate.
 helm dependency build platform/self-sovereign-cutover/chart   # no-op (no upstream subchart)
 helm template smoke platform/self-sovereign-cutover/chart \
   --set sovereign.fqdn=otechN.omani.works \
-  --set sovereign.harborPublicURL=https://harbor.otechN.omani.works \
+  --set sovereign.harborPublicURL=https://registry.otechN.omani.works \
   --set sovereign.giteaPublicURL=https://gitea.otechN.omani.works
 ```
 
