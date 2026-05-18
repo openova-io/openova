@@ -844,3 +844,165 @@ func TestBridge_SeedThenRuntimeTransitions(t *testing.T) {
 		t.Errorf("install-cert-manager executions: %+v", cmExecs)
 	}
 }
+
+// TestSeedJobsFromInformerList_resumeFinishesOrphanedExecution covers the
+// TBD-B6/B7 stale-state class bug. Sequence (matches the t131 sin-2
+// "install Jobs stuck running" incident captured in MEMORY.md):
+//
+//  1. First seed observes the HR as "installing" — bridge writes a
+//     Status=running Job and allocates an open Execution.
+//  2. Pod restart (simulated by NewBridge against the same Store): the
+//     in-memory activeExecID + lastState are wiped, but the persisted
+//     Job + Execution stay on disk. The Execution is still
+//     Status=running, the Job still has a non-nil LatestExecutionID.
+//  3. Resume seed observes the HR as "installed" (Ready=True flipped on
+//     the cluster while the Pod was down).
+//
+// Pre-fix: the resume branch in SeedJobsFromInformerList only cleared
+// the cursor — Execution stayed Status=running forever, Job.FinishedAt
+// remained nil, DurationMs stayed 0. The JobsTable showed status=succeeded
+// (because UpsertJob wrote that field) but the per-job detail page
+// rendered an Execution row with a running spinner that never resolved.
+// Founder caught this on t131.
+//
+// Post-fix: the resume branch detects the orphan Execution + calls
+// FinishExecution which stamps both Execution.Status and Job.FinishedAt
+// + DurationMs from a single canonical transition.
+func TestSeedJobsFromInformerList_resumeFinishesOrphanedExecution(t *testing.T) {
+	st, br, depID := newBridgeFixture(t)
+	t0 := time.Date(2026, 5, 16, 12, 0, 0, 0, time.UTC)
+
+	// First seed: HR is mid-install. Bridge allocates a non-terminal
+	// Execution that stays open.
+	_, _, err := br.SeedJobsFromInformerList([]InformerSeed{
+		{Component: "cilium", State: HelmStateInstalling, Message: "reconciling", ObservedAt: t0},
+	})
+	if err != nil {
+		t.Fatalf("first seed: %v", err)
+	}
+	jobID := JobID(depID, JobNamePrefix+"cilium")
+	job, execs, err := st.GetJob(depID, jobID)
+	if err != nil {
+		t.Fatalf("GetJob after first seed: %v", err)
+	}
+	if job.Status != StatusRunning {
+		t.Fatalf("first-seed Job.Status: want %q, got %q", StatusRunning, job.Status)
+	}
+	if job.LatestExecutionID == "" {
+		t.Fatalf("first-seed: LatestExecutionID must be set")
+	}
+	if len(execs) != 1 || execs[0].Status != StatusRunning {
+		t.Fatalf("first-seed executions: %+v", execs)
+	}
+	orphanExecID := execs[0].ID
+
+	// Simulate Pod restart: fresh Bridge against the same persisted
+	// Store. activeExecID + lastState start empty.
+	br2 := NewBridge(st, depID)
+
+	// Resume seed: HR transitioned to installed while the Pod was down.
+	t1 := t0.Add(45 * time.Second)
+	_, _, err = br2.SeedJobsFromInformerList([]InformerSeed{
+		{Component: "cilium", State: HelmStateInstalled, Message: "Ready=True", ObservedAt: t1},
+	})
+	if err != nil {
+		t.Fatalf("resume seed: %v", err)
+	}
+
+	// Post-resume invariants — the bug fix makes ALL of these hold.
+	job, execs, err = st.GetJob(depID, jobID)
+	if err != nil {
+		t.Fatalf("GetJob after resume seed: %v", err)
+	}
+	if job.Status != StatusSucceeded {
+		t.Errorf("resume Job.Status: want %q, got %q", StatusSucceeded, job.Status)
+	}
+	if job.FinishedAt == nil {
+		t.Errorf("resume Job.FinishedAt: want non-nil after terminal seed, got nil")
+	} else if !job.FinishedAt.Equal(t1) {
+		t.Errorf("resume Job.FinishedAt: want %v, got %v", t1, *job.FinishedAt)
+	}
+	if job.DurationMs <= 0 {
+		t.Errorf("resume Job.DurationMs: want >0 after terminal seed, got %d", job.DurationMs)
+	}
+	// The original orphan Execution must now be finished — not a fresh
+	// one. This is the load-bearing assertion: the fix MUST close the
+	// orphan, not paper over by allocating a new Execution.
+	if job.LatestExecutionID != orphanExecID {
+		t.Errorf("resume Job.LatestExecutionID drifted: want %q (orphan), got %q",
+			orphanExecID, job.LatestExecutionID)
+	}
+	if len(execs) != 1 {
+		t.Errorf("resume executions: want 1 (the original, now finished), got %d", len(execs))
+	}
+	if execs[0].Status != StatusSucceeded {
+		t.Errorf("resume Execution.Status: want %q, got %q", StatusSucceeded, execs[0].Status)
+	}
+	if execs[0].FinishedAt == nil {
+		t.Errorf("resume Execution.FinishedAt: want non-nil, got nil")
+	}
+
+	// Re-running the resume seed with the same terminal state MUST be a
+	// no-op (idempotency — covers the secondary-watcher restart-twice
+	// path on a flaky chroot-side catalyst-api).
+	_, _, err = br2.SeedJobsFromInformerList([]InformerSeed{
+		{Component: "cilium", State: HelmStateInstalled, Message: "Ready=True", ObservedAt: t1.Add(time.Second)},
+	})
+	if err != nil {
+		t.Fatalf("second resume seed: %v", err)
+	}
+	_, execs, _ = st.GetJob(depID, jobID)
+	if len(execs) != 1 {
+		t.Errorf("after idempotent re-resume: want 1 execution, got %d", len(execs))
+	}
+	if execs[0].Status != StatusSucceeded {
+		t.Errorf("after idempotent re-resume Execution.Status: want %q, got %q",
+			StatusSucceeded, execs[0].Status)
+	}
+}
+
+// TestSeedJobsFromInformerList_resumeFailedTerminalFinishesOrphan covers
+// the failed-terminal variant of the stale-state bug — same Pod-restart
+// race, but the HR flipped to InstallFailed instead of Ready=True. The
+// orphan Execution must end up Status=failed (not running, not
+// succeeded).
+func TestSeedJobsFromInformerList_resumeFailedTerminalFinishesOrphan(t *testing.T) {
+	st, br, depID := newBridgeFixture(t)
+	t0 := time.Date(2026, 5, 16, 12, 0, 0, 0, time.UTC)
+
+	// First seed: installing.
+	if _, _, err := br.SeedJobsFromInformerList([]InformerSeed{
+		{Component: "crossplane", State: HelmStateInstalling, Message: "reconciling", ObservedAt: t0},
+	}); err != nil {
+		t.Fatalf("first seed: %v", err)
+	}
+	jobID := JobID(depID, JobNamePrefix+"crossplane")
+	_, execs, _ := st.GetJob(depID, jobID)
+	orphanExecID := execs[0].ID
+
+	// Pod restart + resume with failed terminal state.
+	br2 := NewBridge(st, depID)
+	t1 := t0.Add(30 * time.Second)
+	if _, _, err := br2.SeedJobsFromInformerList([]InformerSeed{
+		{Component: "crossplane", State: HelmStateFailed, Message: "InstallFailed: timeout", ObservedAt: t1},
+	}); err != nil {
+		t.Fatalf("resume seed: %v", err)
+	}
+
+	job, execs, err := st.GetJob(depID, jobID)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if job.Status != StatusFailed {
+		t.Errorf("Job.Status: want %q, got %q", StatusFailed, job.Status)
+	}
+	if job.FinishedAt == nil {
+		t.Errorf("Job.FinishedAt: want non-nil, got nil")
+	}
+	if job.LatestExecutionID != orphanExecID {
+		t.Errorf("LatestExecutionID drifted: want orphan %q, got %q", orphanExecID, job.LatestExecutionID)
+	}
+	if len(execs) != 1 || execs[0].Status != StatusFailed {
+		t.Errorf("Execution after resume: want 1×failed, got %+v", execs)
+	}
+}
