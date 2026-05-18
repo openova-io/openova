@@ -412,3 +412,30 @@ rules:
   - apiGroups: ["cluster.loft.sh"]
     resources: ["virtualclusters"]
     verbs: ["get", "list", "watch"]
+
+  # ───────────────────────────────────────────────────────────────
+  # SANDBOX CRD — Wave 7 (PR sandbox-wave7-sessions-api). Backs the
+  # Sovereign Console's `/sandbox` surface
+  # (products/catalyst/bootstrap/ui/src/lib/sandbox.api.ts + PR #1621
+  # FE; products/catalyst/bootstrap/api/internal/handler/
+  # sandbox_sessions.go BE). The FE calls /api/v1/sandbox/sessions
+  # (list / create / get / delete) which read+write Sandbox CRs in
+  # the operator's Org namespace via the catalyst-api-cutover-driver
+  # SA.
+  #
+  # Per feedback_chroot_in_cluster_fallback.md: every new GVR added
+  # to catalyst-api dynamic-client paths MUST get a matching rule
+  # here. `create` MUST be split into its own Rule WITHOUT
+  # resourceNames per feedback_rbac_create_no_resourcenames.md.
+  #
+  # Read-only on status (the controller owns status); the handler
+  # writes spec on POST and deletes the CR on DELETE — get/list/watch
+  # cover the read path used by the generic /k8s/{kind} surface +
+  # the sandbox_sessions.go list/get handlers.
+  # ───────────────────────────────────────────────────────────────
+  - apiGroups: ["sandbox.openova.io"]
+    resources: ["sandboxes"]
+    verbs: ["create"]
+  - apiGroups: ["sandbox.openova.io"]
+    resources: ["sandboxes"]
+    verbs: ["get", "list", "watch", "delete"]

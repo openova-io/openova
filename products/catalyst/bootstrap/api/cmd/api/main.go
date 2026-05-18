@@ -657,6 +657,20 @@ func main() {
 		rg.Delete("/api/v1/sandbox/byos/claude-code", h.HandleByosClaudeCodeDisconnect)
 		rg.Get("/api/v1/sandbox/byos/claude-code/status", h.HandleByosClaudeCodeStatus)
 
+		// Sandbox sessions — Wave 7 CRUD on the Sandbox CRD
+		// (sandbox.openova.io/v1). The FE in
+		// products/catalyst/bootstrap/ui/src/lib/sandbox.api.ts
+		// (PR #1621) calls getSandboxes() + createSandbox() + a
+		// per-row delete; the BE handler lives in
+		// products/catalyst/bootstrap/api/internal/handler/
+		// sandbox_sessions.go. All four endpoints sit inside
+		// RequireSession — Sandbox ops are scoped to the operator's
+		// org_id claim per PR #1619.
+		rg.Get("/api/v1/sandbox/sessions", h.HandleListSandboxSessions)
+		rg.Post("/api/v1/sandbox/sessions", h.HandleCreateSandboxSession)
+		rg.Get("/api/v1/sandbox/sessions/{id}", h.HandleGetSandboxSession)
+		rg.Delete("/api/v1/sandbox/sessions/{id}", h.HandleDeleteSandboxSession)
+
 		// K8s data-plane endpoints — list + SSE stream + sync map per
 		// Sovereign cluster (issue #321). Per ADR-0001 §5 the catalyst-api
 		// is the consolidator; reads flow off the in-process Indexer,
