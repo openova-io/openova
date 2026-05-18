@@ -1,31 +1,58 @@
 /**
  * SandboxSession — native /sandbox/$id session view.
  *
- * Wave 3 UI scaffold. Hosts the xterm.js terminal that pipes the
- * agent CLI's ANSI stdout from the in-pod pty-server (see
- * `products/sandbox/docs/architecture.md` §1).
+ * Hosts the xterm.js terminal that pipes the agent CLI's ANSI stdout
+ * from the in-pod pty-server (see `products/sandbox/docs/
+ * architecture.md` §1).
  *
- * Wire path (Wave 2):
- *   browser xterm.js ↔ WSS /api/v1/sandbox/sessions/{id}/attach
+ * Wire path (Wave 13 — this PR):
+ *
+ *   browser xterm.js ↔ WSS sandbox.<sov-fqdn>/sessions/{id}/attach
  *                              ↔ pty-server in the Sandbox pod
  *                              ↔ <agent> CLI in the same pod
  *
- * This PR ships the xterm.js HOST surface only — the WebSocket adapter
- * lands in Wave 2 when the pty-server endpoint is wired. The placeholder
- * banner makes the wave gap visible to the operator (per
- * INVIOLABLE-PRINCIPLES.md #1 — waterfall, first paint is the target-
- * state shape with the "API pending" pill where the backend isn't ready).
+ * PR #1621 shipped the xterm.js HOST surface with an "API pending"
+ * placeholder banner. PR #1641 + #1657 wired the BE — the
+ * sandbox-controller now renders the HTTPRoute on `sandbox.<sov-fqdn>`
+ * and the pty-server exposes `WS /sessions/{id}/attach` (see
+ * `products/sandbox/pty-server/internal/server/routes.go`). This PR
+ * (sandbox-wave13-ui-websocket) replaces the placeholder with a real
+ * WebSocket adapter:
  *
- * xterm + @xterm/addon-fit are declared in package.json (already present
- * for the FlowCanvas tracer); the import only fires when this route is
- * navigated to so the bundle stays out of the Landing / Settings path.
+ *   - stdin   : term.onData → ws.send (binary frame)
+ *   - stdout  : ws.onmessage → term.write (handles ArrayBuffer + string)
+ *   - resize  : window resize → fit.fit() → POST /sessions/{id}/resize
+ *               with {rows, cols}
+ *   - replay  : on connect, pty-server ships a single binary frame with
+ *               the ring-buffer contents; we just term.write it like
+ *               any other stdout chunk (no special-case)
+ *   - reconnect: on close / error, schedule a retry with exponential
+ *                backoff (1s, 2s, 4s, 8s, 30s ceiling). A small banner
+ *                in the card header surfaces the current state
+ *                (Connecting / Connected / Reconnecting …).
  *
- * Per the design-system inheritance ruling, the chrome is PortalShell
- * (same header band as JobsPage / SettingsPage) with a SectionCard-style
- * surface around the terminal — no bespoke layout, no hex colours.
+ * Auth: the pty-server has no in-pod auth — tenancy is enforced by the
+ * Cilium Gateway / HTTPRoute path prefix (which the sandbox-controller
+ * scopes to the owner's namespace). The Sovereign Console SPA is
+ * already authenticated against the same origin, so no extra token is
+ * attached to the WS URL today. If a token requirement lands later it
+ * goes on as `?access_token=<jwt>` — the same channel useK8sStream and
+ * LogsTab already use (`products/catalyst/bootstrap/ui/src/lib/
+ * useK8sStream.ts:148`).
+ *
+ * Per docs/INVIOLABLE-PRINCIPLES.md:
+ *   #1 (target-state) — first paint shows the terminal chrome plus a
+ *      "Connecting…" banner; the operator never sees an empty surface.
+ *   #4 (never hardcode) — colours come from CSS custom properties, the
+ *      backoff schedule lives in a single const, and the WS URL is
+ *      derived from the deployment's sovereignFQDN.
+ *
+ * Design-system inheritance: PortalShell wrapper (same chrome as
+ * JobsPage / SettingsPage), CSS-variable colours, amber for the
+ * pending-connect indicator (documented design-token usage).
  */
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from '@tanstack/react-router'
 import { Terminal } from 'xterm'
 import { FitAddon } from '@xterm/addon-fit'
@@ -35,17 +62,66 @@ import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { PortalShell } from '../PortalShell'
 import { useDeploymentEvents } from '../useDeploymentEvents'
 
+/** ConnectionPhase — state the small header banner reflects. */
+export type SandboxConnectionPhase =
+  | 'idle'
+  | 'connecting'
+  | 'connected'
+  | 'reconnecting'
+  | 'closed'
+
+/**
+ * Reconnect backoff schedule (ms). Doubling from 1s with a 30s ceiling
+ * — the same shape useComplianceStream uses (`useComplianceStream.ts`).
+ * Exposed as a constant so the tests can fast-forward without
+ * monkey-patching setTimeout.
+ */
+const RECONNECT_BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000]
+
 export interface SandboxSessionProps {
   /** Test seam — disables the live SSE attach. */
   disableStream?: boolean
-  /** Test seam — disables the xterm.js mount so jsdom tests don't crash
-   *  on canvas / measureText. Production call sites never set this. */
+  /**
+   * Test seam — disables the xterm.js mount so jsdom tests don't crash
+   * on canvas / measureText. Production call sites never set this.
+   *
+   * When true the WebSocket lifecycle still runs so the contract part
+   * the test cares about (open / message / close / resize POST) is
+   * exercised end-to-end without a real DOM terminal.
+   */
   disableTerminal?: boolean
+  /**
+   * Test seam — substitute the WebSocket constructor. Defaults to the
+   * native browser WebSocket. The test passes a FakeWebSocket that
+   * records frames and fires onopen / onmessage synchronously.
+   */
+  websocketFactory?: (url: string) => WebSocket
+  /**
+   * Test seam — substitute fetch for the resize POST. Defaults to
+   * window.fetch with credentials:'include'.
+   */
+  resizeFetcher?: typeof fetch
+  /**
+   * Test seam — override the reconnect schedule (ms). Production uses
+   * RECONNECT_BACKOFF_MS; tests pass [0,0,0] so the retry chain runs
+   * synchronously under fake timers.
+   */
+  reconnectBackoffMs?: readonly number[]
+  /**
+   * Test seam — disable the auto-reconnect loop. The page still wires
+   * the first connection and exposes the connection banner, but a
+   * close does not schedule a retry. Production never sets this.
+   */
+  disableReconnect?: boolean
 }
 
 export function SandboxSession({
   disableStream = false,
   disableTerminal = false,
+  websocketFactory,
+  resizeFetcher,
+  reconnectBackoffMs = RECONNECT_BACKOFF_MS,
+  disableReconnect = false,
 }: SandboxSessionProps = {}) {
   const params = useParams({ strict: false }) as { id?: string }
   const sessionId = params.id ?? ''
@@ -64,7 +140,14 @@ export function SandboxSession({
   const hostRef = useRef<HTMLDivElement | null>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
+  const wsRef = useRef<WebSocket | null>(null)
 
+  const [phase, setPhase] = useState<SandboxConnectionPhase>('idle')
+
+  // Mount the xterm.js terminal. The WebSocket lifecycle runs in a
+  // separate effect keyed on sessionId + sovereignFQDN so a snapshot
+  // arrival after first paint upgrades the connection without
+  // re-mounting the terminal.
   useEffect(() => {
     if (disableTerminal) return
     const host = hostRef.current
@@ -90,23 +173,11 @@ export function SandboxSession({
     try {
       fit.fit()
     } catch {
-      // jsdom / no-layout — ignore, the WebSocket attach in Wave 2 will
-      // SIGWINCH again on first resize event.
+      // jsdom / no-layout — ignore, the WS connect effect re-fits on
+      // first message arrival.
     }
     termRef.current = term
     fitRef.current = fit
-
-    // Placeholder banner — the operator sees the terminal chrome on
-    // first paint with a clear hint that the WebSocket pipe lands in
-    // Wave 2. The bytes are ANSI dim so they don't masquerade as agent
-    // output; pressing keys is a no-op until the socket attaches.
-    term.write(
-      '\x1b[2m# Sandbox session ' +
-        sessionId +
-        '\r\n# xterm.js host ready. WebSocket attach lands in Wave 2.\r\n# pty-server URL: /api/v1/sandbox/sessions/' +
-        sessionId +
-        '/attach\x1b[0m\r\n',
-    )
 
     function onResize() {
       try {
@@ -114,16 +185,200 @@ export function SandboxSession({
       } catch {
         // ignore
       }
+      // POST /sessions/{id}/resize with the new dimensions so the
+      // server-side PTY SIGWINCHs the agent. Best-effort — a transient
+      // network error is benign (next user keystroke triggers the same
+      // SIGWINCH via the running fit).
+      if (sovereignFQDN && sessionId && term.rows > 0 && term.cols > 0) {
+        const url = `https://sandbox.${sovereignFQDN}/sessions/${encodeURIComponent(
+          sessionId,
+        )}/resize`
+        const fetcher = resizeFetcher ?? globalThis.fetch.bind(globalThis)
+        void fetcher(url, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rows: term.rows, cols: term.cols }),
+        }).catch(() => {
+          /* swallow — resize is non-fatal */
+        })
+      }
     }
     window.addEventListener('resize', onResize)
 
     return () => {
       window.removeEventListener('resize', onResize)
-      term.dispose()
+      try {
+        term.dispose()
+      } catch {
+        /* noop */
+      }
       termRef.current = null
       fitRef.current = null
     }
-  }, [sessionId, disableTerminal])
+  }, [disableTerminal, sessionId, sovereignFQDN, resizeFetcher])
+
+  // WebSocket connect + auto-reconnect loop. Re-runs when sessionId or
+  // sovereignFQDN changes (the snapshot arrives async after first
+  // paint; once it lands the URL is stable for the rest of the
+  // session).
+  useEffect(() => {
+    if (!sessionId || !sovereignFQDN) {
+      setPhase('idle')
+      return
+    }
+
+    const url = `wss://sandbox.${sovereignFQDN}/sessions/${encodeURIComponent(
+      sessionId,
+    )}/attach`
+    const factory = websocketFactory ?? ((u: string) => new WebSocket(u))
+
+    let cancelled = false
+    let attempt = 0
+    let retryTimer: ReturnType<typeof setTimeout> | null = null
+    let currentWs: WebSocket | null = null
+
+    function scheduleRetry() {
+      if (cancelled || disableReconnect) return
+      const i = Math.min(attempt, reconnectBackoffMs.length - 1)
+      const wait = reconnectBackoffMs[i] ?? 30_000
+      attempt += 1
+      setPhase('reconnecting')
+      retryTimer = setTimeout(connect, wait)
+    }
+
+    function connect() {
+      if (cancelled) return
+      setPhase((p) => (p === 'reconnecting' ? 'reconnecting' : 'connecting'))
+      let ws: WebSocket
+      try {
+        ws = factory(url)
+      } catch {
+        scheduleRetry()
+        return
+      }
+      currentWs = ws
+      wsRef.current = ws
+      ws.binaryType = 'arraybuffer'
+
+      ws.onopen = () => {
+        if (cancelled) return
+        attempt = 0
+        setPhase('connected')
+        // Re-fit immediately so the server-side PTY matches the
+        // terminal we just attached. The replay frame the pty-server
+        // ships first will land in onmessage right after this.
+        const term = termRef.current
+        const fit = fitRef.current
+        if (term && fit && sovereignFQDN && sessionId) {
+          try {
+            fit.fit()
+          } catch {
+            /* noop */
+          }
+          if (term.rows > 0 && term.cols > 0) {
+            const u = `https://sandbox.${sovereignFQDN}/sessions/${encodeURIComponent(
+              sessionId,
+            )}/resize`
+            const fetcher = resizeFetcher ?? globalThis.fetch.bind(globalThis)
+            void fetcher(u, {
+              method: 'POST',
+              credentials: 'include',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ rows: term.rows, cols: term.cols }),
+            }).catch(() => {
+              /* noop */
+            })
+          }
+        }
+      }
+
+      ws.onmessage = (ev: MessageEvent<unknown>) => {
+        if (cancelled) return
+        const term = termRef.current
+        if (!term) return
+        const data = ev.data
+        if (typeof data === 'string') {
+          term.write(data)
+        } else if (data instanceof ArrayBuffer) {
+          term.write(new Uint8Array(data))
+        } else if (data instanceof Uint8Array) {
+          term.write(data)
+        } else if (
+          typeof Blob !== 'undefined' &&
+          data instanceof Blob
+        ) {
+          void data.arrayBuffer().then((buf) => {
+            if (!cancelled) term.write(new Uint8Array(buf))
+          })
+        }
+      }
+
+      ws.onerror = () => {
+        // onclose always follows; defer the retry decision there so the
+        // schedule isn't doubled.
+      }
+
+      ws.onclose = () => {
+        if (cancelled) return
+        currentWs = null
+        if (wsRef.current === ws) wsRef.current = null
+        if (disableReconnect) {
+          setPhase('closed')
+          return
+        }
+        scheduleRetry()
+      }
+    }
+
+    // Stdin: every keystroke / paste → ws.send. The disposable is
+    // installed once and stays attached for the lifetime of this
+    // effect, sending through whichever WebSocket is currently open.
+    const term = termRef.current
+    const stdinDisposable = term
+      ? term.onData((data: string) => {
+          const w = wsRef.current
+          if (!w || w.readyState !== WebSocket.OPEN) return
+          try {
+            w.send(new TextEncoder().encode(data))
+          } catch {
+            /* noop — onclose will trigger reconnect */
+          }
+        })
+      : null
+
+    connect()
+
+    return () => {
+      cancelled = true
+      if (retryTimer != null) {
+        clearTimeout(retryTimer)
+        retryTimer = null
+      }
+      try {
+        stdinDisposable?.dispose()
+      } catch {
+        /* noop */
+      }
+      const w = currentWs ?? wsRef.current
+      try {
+        w?.close(1000, 'unmount')
+      } catch {
+        /* noop */
+      }
+      wsRef.current = null
+    }
+  }, [
+    sessionId,
+    sovereignFQDN,
+    websocketFactory,
+    resizeFetcher,
+    reconnectBackoffMs,
+    disableReconnect,
+    // disableTerminal isn't in the dep array on purpose — the WS pump
+    // runs regardless so the connect / message contract is exercised
+    // in tests that disable the visual terminal.
+  ])
 
   return (
     <PortalShell
@@ -144,7 +399,7 @@ export function SandboxSession({
         <section
           aria-label="Sandbox terminal"
           data-testid="sandbox-session-card"
-          data-pending-api="true"
+          data-connection-phase={phase}
           className="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-2)] p-5"
         >
           <header className="mb-4 flex items-start justify-between gap-3">
@@ -158,13 +413,7 @@ export function SandboxSession({
                 <span className="font-mono">pty-server</span>.
               </p>
             </div>
-            <span
-              data-testid="sandbox-session-pending-api"
-              className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-300"
-              title="WebSocket attach lands in Wave 2"
-            >
-              API pending
-            </span>
+            <ConnectionBadge phase={phase} />
           </header>
 
           <div
@@ -175,5 +424,62 @@ export function SandboxSession({
         </section>
       </div>
     </PortalShell>
+  )
+}
+
+/**
+ * ConnectionBadge — pill that mirrors the WebSocket lifecycle phase.
+ *
+ * Colours stick to documented design tokens:
+ *   - connected     → emerald (steady-state)
+ *   - connecting    → amber (transient, before first onopen)
+ *   - reconnecting  → amber (backoff in progress)
+ *   - closed        → rose (terminal — reconnect disabled or unmounted)
+ *   - idle          → neutral border-only (no session id resolved yet)
+ *
+ * Per the design-system inheritance ruling the amber + rose ramps are
+ * the same shades the Sovereign-console already uses (matches
+ * sandbox-session-pending-api on PR #1621, ResourceDetailPage health
+ * pills, etc.) so the chrome stays consistent across surfaces.
+ */
+function ConnectionBadge({ phase }: { phase: SandboxConnectionPhase }) {
+  let label: string
+  let tone: string
+  switch (phase) {
+    case 'connected':
+      label = 'Connected'
+      tone =
+        'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+      break
+    case 'connecting':
+      label = 'Connecting…'
+      tone = 'border-amber-500/40 bg-amber-500/10 text-amber-300'
+      break
+    case 'reconnecting':
+      label = 'Reconnecting…'
+      tone = 'border-amber-500/40 bg-amber-500/10 text-amber-300'
+      break
+    case 'closed':
+      label = 'Disconnected'
+      tone = 'border-rose-500/40 bg-rose-500/10 text-rose-300'
+      break
+    case 'idle':
+    default:
+      label = 'Pending'
+      tone =
+        'border-[var(--color-border)] bg-transparent text-[var(--color-text-dim)]'
+      break
+  }
+  return (
+    <span
+      data-testid="sandbox-session-connection-badge"
+      data-connection-phase={phase}
+      className={
+        'rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ' +
+        tone
+      }
+    >
+      {label}
+    </span>
   )
 }
