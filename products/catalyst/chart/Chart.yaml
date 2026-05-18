@@ -1138,8 +1138,23 @@ name: bp-catalyst-platform
 # Fix #154 (HR-timeout audit). Those bumped the HelmRelease
 # install.timeout. This bumps the chart-INTERNAL wait loop budget
 # inside the pre-install hook Job, which is a different seam.
-version: 1.4.165
-appVersion: 1.4.165
+version: 1.4.166
+appVersion: 1.4.166
+# 1.4.166 — fix(catalog): seed 13 published Blueprints on Sovereign
+# handover (WBS row TBD-E8, C4-015). Adds templates/catalog-seed/
+# rendering an always-on baseline of 13 Blueprint CRs (bp-wordpress-
+# tenant, bp-cnpg, bp-keycloak, bp-grafana, bp-prometheus, bp-loki,
+# bp-redis, bp-clickhouse, bp-opensearch, bp-temporal, bp-n8n,
+# bp-langfuse, bp-llm-gateway) so the chained catalog client surfaces
+# them via in-cluster LIST fallback even when Gitea has no `catalog`/
+# `catalog-sovereign` Orgs (cf. self-sovereign-cutover step-01 only
+# mirrors `openova-io/openova`). Pre-fix /api/v1/catalog returned
+# `items: []` and the Apps grid was empty on every fresh Sovereign;
+# 115-TC matrix on t22 FAILed at C4-015 for this reason.
+# Gated on .Values.catalogSeed.enabled (default true) so an operator
+# who curates day-zero can disable. Operator override path unchanged:
+# pushing to `catalog-sovereign` Gitea Org wins on collision per source
+# priority PRIVATE > SOVEREIGN > PUBLIC.
 # 1.4.141 (qa-loop Fix #185, prov #38/#39/#41 recurrence — pre-install
 # hook unscheduable on saturated worker):
 #

@@ -1,0 +1,626 @@
+{{- /*
+templates/catalog-seed/blueprints.yaml — baseline Blueprint CRs always
+rendered on every Sovereign so /api/v1/catalog returns a non-empty
+items[] from handover onward. See _README.txt for full rationale.
+
+WBS row: TBD-E8 (C4-015) — "Apps grid published=true returns items".
+Pre-fix: empty catalog (`items: []`) on every fresh Sovereign because
+Gitea has no `catalog` / `catalog-sovereign` Orgs and qa-fixtures is
+default-OFF on production Sovereigns (cf.
+platform/self-sovereign-cutover/chart/templates/01-gitea-mirror-job.yaml
+only mirrors `openova-io/openova`).
+
+Post-fix: chained catalog client
+(products/catalyst/bootstrap/api/internal/handler/catalog_client_cluster_fallback.go)
+picks these in-cluster CRs up via the v1 GVR LIST fallback.
+
+Per docs/INVIOLABLE-PRINCIPLES.md #1 every entry below references a
+REAL OCI chart published by .github/workflows/blueprint-release.yaml
+(no placeholders, no fake versions). Per #4 the entire block is gated
+on `.Values.catalogSeed.enabled` (default true). Per #5 every CR
+carries `catalyst.openova.io/managed-by: catalog-seed` so the operator
+can distinguish chart-seeded entries from curated entries.
+*/ -}}
+{{- if .Values.catalogSeed.enabled }}
+{{- /*
+Common label set + chart-ref helper. The chart-ref URL mirrors what
+catalog_client.go's catalogBlueprintChartRef constant builds at runtime
+(`ghcr.io/openova-io/bp-<name>:<version>`).
+*/ -}}
+{{- $managedBy := .Release.Service -}}
+{{- $instance := .Release.Name -}}
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-wordpress-tenant
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: tenant-app
+    catalyst.openova.io/section: pts-7-sme-tenant
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "0.2.0"
+  visibility: listed
+  card:
+    title: "WordPress (Tenant)"
+    category: tenant-app
+    family: cms
+    summary: "Turnkey, SSO-pre-wired WordPress per SME tenant. Postgres + cert-manager TLS pre-wired."
+    description: "Runs in the SME's vcluster, namespace = SME tenant namespace. SSO via the SME-vcluster Keycloak realm. Default theme + admin user pre-seeded at install time."
+    icon: wordpress.svg
+    license: "GPL-2.0-or-later"
+    tags: [wordpress, cms, sme, tenant, sso, keycloak, postgres]
+    docs: "https://wordpress.org/documentation/"
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-wordpress-tenant
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-wordpress-tenant
+    version: 0.2.0
+  configSchema:
+    type: object
+    required: [smeDomain, adminUser]
+    properties:
+      smeDomain:
+        type: string
+        description: "SME tenant domain (e.g. acme.<sov-fqdn>)."
+      replicas:
+        type: integer
+        default: 1
+        minimum: 1
+        maximum: 8
+      adminUser:
+        type: object
+        required: [email]
+        properties:
+          email:
+            type: string
+            description: "Admin email (must match Keycloak realm email claim)."
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-cnpg
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: database
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.0.0"
+  visibility: listed
+  card:
+    title: "CloudNativePG"
+    category: database
+    family: postgres
+    summary: "PostgreSQL operator for Kubernetes (HA primary/replica, automated backups, point-in-time recovery)."
+    description: "Production-grade Postgres operator. Provisions a Cluster CR per database with streaming replication, scheduled backups, and S3 PITR."
+    icon: postgres.svg
+    license: "Apache-2.0"
+    tags: [database, postgres, sql, operator, ha]
+    docs: "https://cloudnative-pg.io/documentation/"
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-cnpg
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-cnpg
+    version: 1.0.0
+  configSchema:
+    type: object
+    properties:
+      instances:
+        type: integer
+        default: 3
+        minimum: 1
+        maximum: 5
+        description: "Number of Postgres replicas (incl. primary)."
+      storage:
+        type: object
+        properties:
+          size:
+            type: string
+            default: 10Gi
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-keycloak
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: identity
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.0.0"
+  visibility: listed
+  card:
+    title: "Keycloak"
+    category: identity
+    family: iam
+    summary: "Open-source Identity and Access Management. OIDC + SAML + social login + realm-per-tenant."
+    description: "Per-tenant Keycloak realm with pre-seeded OIDC client. Pairs with bp-wordpress-tenant for SSO."
+    icon: keycloak.svg
+    license: "Apache-2.0"
+    tags: [identity, sso, oidc, saml, iam, keycloak]
+    docs: "https://www.keycloak.org/documentation"
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-keycloak
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-keycloak
+    version: 1.0.0
+  configSchema:
+    type: object
+    required: [realmName]
+    properties:
+      realmName:
+        type: string
+        description: "Keycloak realm name (e.g. sme-<tenant>)."
+      adminUser:
+        type: string
+        default: admin
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-grafana
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: observability
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.0.0"
+  visibility: listed
+  card:
+    title: "Grafana"
+    category: observability
+    family: dashboards
+    summary: "Open-source observability dashboards. Pre-wired to Prometheus + Loki sources."
+    description: "Multi-source observability platform with dashboards, alerting, and Keycloak SSO."
+    icon: grafana.svg
+    license: "AGPL-3.0"
+    tags: [observability, monitoring, dashboards, grafana]
+    docs: "https://grafana.com/docs/grafana/latest/"
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-grafana
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-grafana
+    version: 1.0.0
+  configSchema:
+    type: object
+    properties:
+      adminUser:
+        type: string
+        default: admin
+      persistence:
+        type: object
+        properties:
+          size:
+            type: string
+            default: 10Gi
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-prometheus
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: observability
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.0.0"
+  visibility: listed
+  card:
+    title: "Prometheus"
+    category: observability
+    family: metrics
+    summary: "Time-series metrics database + scraper. CNCF graduated, the canonical Kubernetes metrics stack."
+    description: "Prometheus server + Alertmanager + node-exporter + kube-state-metrics. Pre-wired to bp-grafana."
+    icon: prometheus.svg
+    license: "Apache-2.0"
+    tags: [observability, metrics, prometheus, monitoring]
+    docs: "https://prometheus.io/docs/"
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-prometheus
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-prometheus
+    version: 1.0.0
+  configSchema:
+    type: object
+    properties:
+      retention:
+        type: string
+        default: 15d
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-loki
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: observability
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.0.0"
+  visibility: listed
+  card:
+    title: "Loki"
+    category: observability
+    family: logs
+    summary: "Log aggregation system from Grafana Labs. Multi-tenant + cheap object-storage backend."
+    description: "Loki + Promtail (log shipper). Pre-wired as a Grafana data source for unified log + metric queries."
+    icon: loki.svg
+    license: "AGPL-3.0"
+    tags: [observability, logs, loki, grafana]
+    docs: "https://grafana.com/docs/loki/latest/"
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-loki
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-loki
+    version: 1.0.0
+  configSchema:
+    type: object
+    properties:
+      retention:
+        type: string
+        default: 168h
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-redis
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: database
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.0.0"
+  visibility: listed
+  card:
+    title: "Redis"
+    category: database
+    family: cache
+    summary: "In-memory data store. Cache + queue + pub/sub. Sentinel-based HA."
+    description: "Redis with Sentinel for HA. Suitable for session stores, queues, and high-throughput caches."
+    icon: redis.svg
+    license: "BSD-3-Clause"
+    tags: [database, cache, redis, kv, queue]
+    docs: "https://redis.io/docs/"
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-redis
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-redis
+    version: 1.0.0
+  configSchema:
+    type: object
+    properties:
+      replicas:
+        type: integer
+        default: 3
+        minimum: 1
+        maximum: 6
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-clickhouse
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: analytics
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.0.0"
+  visibility: listed
+  card:
+    title: "ClickHouse"
+    category: analytics
+    family: olap
+    summary: "Column-oriented OLAP database. Sub-second queries over billions of rows."
+    description: "Distributed columnar database for real-time analytics. Pairs with bp-loki for log analytics at scale."
+    icon: clickhouse.svg
+    license: "Apache-2.0"
+    tags: [analytics, olap, columnar, sql, clickhouse]
+    docs: "https://clickhouse.com/docs"
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-clickhouse
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-clickhouse
+    version: 1.0.0
+  configSchema:
+    type: object
+    properties:
+      shards:
+        type: integer
+        default: 1
+        minimum: 1
+        maximum: 8
+      replicas:
+        type: integer
+        default: 2
+        minimum: 1
+        maximum: 3
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-opensearch
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: search
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.0.0"
+  visibility: listed
+  card:
+    title: "OpenSearch"
+    category: search
+    family: search
+    summary: "Open-source search + analytics suite (Elasticsearch fork). Full-text search, log aggregation, vector search."
+    description: "OpenSearch cluster + Dashboards. Suitable for full-text search, observability, and SIEM use cases."
+    icon: opensearch.svg
+    license: "Apache-2.0"
+    tags: [search, elasticsearch, opensearch, logs, vector]
+    docs: "https://opensearch.org/docs/"
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-opensearch
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-opensearch
+    version: 1.0.0
+  configSchema:
+    type: object
+    properties:
+      replicas:
+        type: integer
+        default: 3
+        minimum: 1
+        maximum: 6
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-temporal
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: workflow
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.0.0"
+  visibility: listed
+  card:
+    title: "Temporal"
+    category: workflow
+    family: orchestration
+    summary: "Durable workflow orchestration. Code-first, language-agnostic, exactly-once execution."
+    description: "Temporal cluster + Web UI. Backed by Postgres (bp-cnpg) for durable state."
+    icon: temporal.svg
+    license: "MIT"
+    tags: [workflow, orchestration, temporal, durable]
+    docs: "https://docs.temporal.io/"
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-temporal
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-temporal
+    version: 1.0.0
+  configSchema:
+    type: object
+    properties:
+      historyShards:
+        type: integer
+        default: 512
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-n8n
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: automation
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.0.0"
+  visibility: listed
+  card:
+    title: "n8n"
+    category: automation
+    family: low-code
+    summary: "Low-code workflow automation. 400+ integrations, visual editor, self-hosted Zapier alternative."
+    description: "n8n workflow editor backed by Postgres (bp-cnpg). SSO via Keycloak (bp-keycloak)."
+    icon: n8n.svg
+    license: "Sustainable-Use-License"
+    tags: [automation, low-code, n8n, workflow]
+    docs: "https://docs.n8n.io/"
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-n8n
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-n8n
+    version: 1.0.0
+  configSchema:
+    type: object
+    properties:
+      replicas:
+        type: integer
+        default: 1
+        minimum: 1
+        maximum: 4
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-langfuse
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: ai
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.0.0"
+  visibility: listed
+  card:
+    title: "Langfuse"
+    category: ai
+    family: llm-observability
+    summary: "LLM observability + evals. Traces, prompts, scores, datasets."
+    description: "Langfuse server backed by Postgres (bp-cnpg) and ClickHouse (bp-clickhouse) for trace storage."
+    icon: langfuse.svg
+    license: "MIT"
+    tags: [ai, llm, observability, langfuse, traces]
+    docs: "https://langfuse.com/docs"
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-langfuse
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-langfuse
+    version: 1.0.0
+  configSchema:
+    type: object
+    properties:
+      replicas:
+        type: integer
+        default: 1
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-llm-gateway
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: ai
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "1.0.0"
+  visibility: listed
+  card:
+    title: "LLM Gateway"
+    category: ai
+    family: llm-routing
+    summary: "Multi-provider LLM router with rate limits, cost tracking, and prompt caching."
+    description: "Provider-agnostic LLM gateway (OpenAI, Anthropic, Bedrock, local). Pairs with bp-langfuse for traces."
+    icon: llm-gateway.svg
+    license: "Apache-2.0"
+    tags: [ai, llm, gateway, routing, cost]
+    docs: "https://github.com/openova-io/openova/tree/main/platform/llm-gateway"
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-llm-gateway
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-llm-gateway
+    version: 1.0.0
+  configSchema:
+    type: object
+    properties:
+      replicas:
+        type: integer
+        default: 2
+        minimum: 1
+        maximum: 8
+{{- end }}
