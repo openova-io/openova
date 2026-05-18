@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	prometheustestutil "github.com/prometheus/client_golang/prometheus/testutil"
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -363,4 +364,44 @@ func TestNeedLeaderElection_True(t *testing.T) {
 	if !s.NeedLeaderElection() {
 		t.Errorf("NeedLeaderElection: got false, want true (must be singleton)")
 	}
+}
+
+// (10) Wave 15 — idle-timeout counter ticks once per scale-to-zero, with
+// the namespace label set. Asserts the `sandbox_controller_idle_timeout_events_total`
+// counter the Grafana panel "Idle-Timeout Scale-Down Events / hour" reads.
+func TestProcessOne_IdleTimeoutCounter_Increments(t *testing.T) {
+	// Not t.Parallel — counter is package-global and we read its value.
+	ns := "sandbox-metric-test"
+	ss := ptyStatefulSet(ns, "pty-server", 2,
+		map[string]string{AnnIdleTimeoutMinutes: "10"})
+
+	c := newFakeClient(t, ss)
+	now := time.Now().UTC()
+	stale := now.Add(-30 * time.Minute) // past 10-min timeout
+	_, probe := newProbeServer(t, func(_ string) (idleDTO, bool) {
+		return idleDTO{LastActivityAt: stale, ActiveSessions: 0}, true
+	})
+
+	s := New(c, logr.Discard(), Options{
+		DefaultIdleTimeoutMinutes: 10,
+		ProbeURL:                  probe,
+		Now:                       func() time.Time { return now },
+	})
+
+	before := testutilCounterValue(t, ns)
+	if err := s.runOnce(context.Background()); err != nil {
+		t.Fatalf("runOnce: %v", err)
+	}
+	after := testutilCounterValue(t, ns)
+	if got, want := after-before, 1.0; got != want {
+		t.Errorf("idle_timeout_events_total{namespace=%q} delta: got %v want %v", ns, got, want)
+	}
+}
+
+// testutilCounterValue reads the current counter value for the namespace
+// label using the prometheus testutil package — returns 0 if the label
+// tuple has not been touched yet.
+func testutilCounterValue(t *testing.T, namespace string) float64 {
+	t.Helper()
+	return prometheustestutil.ToFloat64(idleTimeoutEvents.WithLabelValues(namespace))
 }

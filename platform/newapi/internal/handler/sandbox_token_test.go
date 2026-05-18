@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	prometheustestutil "github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 // newTestHandler wires a Handler with deterministic clock + safe defaults.
@@ -259,4 +260,93 @@ func TestSandboxToken_DoesNotEchoSecrets(t *testing.T) {
 	if strings.Contains(string(raw), string(h.SigningKey)) {
 		t.Fatal("response leaked signing key in body")
 	}
+}
+
+// Wave 15 (PR #1674 follow-up) — the
+// `newapi_admin_token_mint_requests_total{tool,status}` counter ticks on
+// every response status, with the inbound X-Catalyst-Tool header surfaced
+// as the `tool` label and a finite classification of HTTP status as the
+// `status` label. The Grafana panel "newapi Token Mint Requests / hour"
+// reads this counter with the filter tool="sandbox-controller".
+func TestSandboxToken_MintCounter_LabelsAndStatuses(t *testing.T) {
+	cases := []struct {
+		name        string
+		method      string
+		bearer      string
+		toolHeader  string
+		body        string
+		wantStatus  string
+		wantToolVal string
+	}{
+		{
+			name:        "ok_with_tool_header",
+			method:      http.MethodPost,
+			bearer:      "test-admin-secret-bytes-do-not-reuse",
+			toolHeader:  "sandbox-controller",
+			body:        `{"org_id":"o","user_id":"u","sandbox_id":"s","allowed_channels":["a"]}`,
+			wantStatus:  "ok",
+			wantToolVal: "sandbox-controller",
+		},
+		{
+			name:        "ok_without_tool_header_falls_back_to_unknown",
+			method:      http.MethodPost,
+			bearer:      "test-admin-secret-bytes-do-not-reuse",
+			body:        `{"org_id":"o","user_id":"u","sandbox_id":"s","allowed_channels":["a"]}`,
+			wantStatus:  "ok",
+			wantToolVal: "unknown",
+		},
+		{
+			name:        "unauthorized_missing_bearer",
+			method:      http.MethodPost,
+			toolHeader:  "sandbox-controller",
+			body:        `{"org_id":"o","user_id":"u","sandbox_id":"s","allowed_channels":["a"]}`,
+			wantStatus:  "unauthorized",
+			wantToolVal: "sandbox-controller",
+		},
+		{
+			name:        "bad_request_empty_org",
+			method:      http.MethodPost,
+			bearer:      "test-admin-secret-bytes-do-not-reuse",
+			toolHeader:  "sandbox-controller",
+			body:        `{"org_id":"","user_id":"u","sandbox_id":"s","allowed_channels":["a"]}`,
+			wantStatus:  "bad_request",
+			wantToolVal: "sandbox-controller",
+		},
+		{
+			name:        "method_not_allowed",
+			method:      http.MethodGet,
+			toolHeader:  "sandbox-controller",
+			wantStatus:  "method_not_allowed",
+			wantToolVal: "sandbox-controller",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newTestHandler()
+			before := counterValue(t, tc.wantToolVal, tc.wantStatus)
+
+			req := httptest.NewRequest(tc.method, "/admin/tokens/sandbox", strings.NewReader(tc.body))
+			if tc.bearer != "" {
+				req.Header.Set("Authorization", "Bearer "+tc.bearer)
+			}
+			if tc.toolHeader != "" {
+				req.Header.Set(HeaderTool, tc.toolHeader)
+			}
+			rr := httptest.NewRecorder()
+			h.SandboxToken(rr, req)
+
+			after := counterValue(t, tc.wantToolVal, tc.wantStatus)
+			if got, want := after-before, 1.0; got != want {
+				t.Errorf("counter delta for {tool=%q,status=%q}: got %v want %v (rr.Code=%d)",
+					tc.wantToolVal, tc.wantStatus, got, want, rr.Code)
+			}
+		})
+	}
+}
+
+// counterValue returns the current scalar value of the mint counter for
+// the (tool, status) tuple via the standard prometheus testutil helper.
+func counterValue(t *testing.T, tool, status string) float64 {
+	t.Helper()
+	return prometheustestutil.ToFloat64(tokenMintRequests.WithLabelValues(tool, status))
 }

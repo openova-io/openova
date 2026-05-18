@@ -151,6 +151,11 @@ func (c *liveClient) MintSandboxToken(ctx context.Context, req MintRequest) (*Mi
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+c.adminSecret)
+	// Wave 15 (PR #1674 follow-up) — stamp the tool header so the
+	// bridge handler's `newapi_admin_token_mint_requests_total{tool,status}`
+	// counter attributes mints to this controller. Header value must
+	// match the dashboard's tool="sandbox-controller" panel filter.
+	httpReq.Header.Set("X-Catalyst-Tool", "sandbox-controller")
 
 	resp, err := c.http.Do(httpReq)
 	if err != nil {

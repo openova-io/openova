@@ -319,6 +319,11 @@ func (s *Scaler) processOne(ctx context.Context, ss *appsv1.StatefulSet, now tim
 	if err := s.scaleToZero(ctx, ss); err != nil {
 		return false, fmt.Errorf("scale to zero: %w", err)
 	}
+	// Wave 15 (PR #1674 follow-up) — emit the canonical idle-timeout
+	// counter so the Grafana "Idle-Timeout Scale-Down Events / hour"
+	// panel ticks. Labelled by namespace to match the dashboard's
+	// `sum by (namespace) (rate(...))` aggregation.
+	idleTimeoutEvents.WithLabelValues(ss.Namespace).Inc()
 	return true, nil
 }
 
