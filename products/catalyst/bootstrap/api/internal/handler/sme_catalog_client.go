@@ -130,7 +130,19 @@ func (c *smeCatalogClient) PublishedBySlug(ctx context.Context) (map[string]bool
 // SetPublished — proxy PATCH /catalog/admin/apps/{slug}/publish to the
 // SME catalog. Used by HandleSovereignAppPublish. Returns the upstream
 // HTTP status verbatim (so a 404 from SME catalog stays 404, etc.).
-func (c *smeCatalogClient) SetPublished(ctx context.Context, slug string, published bool) (int, error) {
+//
+// `bearer` is the compact HS256 token (no "Bearer " prefix) the caller
+// must have minted via authpkg.MintSMEAccessToken — without it the
+// upstream catalog's JWTAuth middleware (core/services/catalog/main.go:79)
+// rejects the request with 401 BEFORE the handler runs, and the
+// handler's `requireAdmin` (core/services/catalog/handlers/handlers.go:21)
+// rejects any caller without the `superadmin` role claim. The pre-bridge
+// state shipped no Authorization header at all → silent 401 surfaced to
+// the operator as "sme-catalog-rejected upstream returned 401" with no
+// actionable hint. See Closes #1735 for the original repro.
+//
+// Per docs/INVIOLABLE-PRINCIPLES.md #10 the token is NEVER logged.
+func (c *smeCatalogClient) SetPublished(ctx context.Context, slug string, published bool, bearer string) (int, error) {
 	if strings.TrimSpace(slug) == "" {
 		return 0, fmt.Errorf("sme-catalog: slug is required")
 	}
@@ -141,6 +153,9 @@ func (c *smeCatalogClient) SetPublished(ctx context.Context, slug string, publis
 		return 0, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if strings.TrimSpace(bearer) != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return 0, err
