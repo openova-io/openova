@@ -19,6 +19,7 @@ package handler
 
 import (
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 
@@ -80,6 +81,49 @@ func (h *Handler) HandleRBACAccessMatrix(w http.ResponseWriter, r *http.Request)
 		writeNotFound(w, depID)
 		return
 	}
+	h.serveRBACAccessMatrix(w, r, dep, depID)
+}
+
+// HandleSovereignRBACMatrix — GET /api/v1/sovereign/rbac/matrix
+//
+// Chroot-friendly Sovereign-prefix wrapper around HandleRBACAccessMatrix
+// (TBD-F4 / C6-007). Same response shape; resolves the active Sovereign
+// deployment from the in-cluster context (SOVEREIGN_FQDN +
+// CATALYST_SELF_DEPLOYMENT_ID, with the synthesised "sovereign-<fqdn>"
+// fallback that the rest of the /api/v1/sovereign/* family uses).
+//
+// Mirrors the canonical chroot-side seam established by
+// HandleSovereignStatus / HandleSovereignApps / HandleSovereignCloud —
+// no {id} path param, server-side resolution of the active deployment.
+// This is what an operator-side Playwright probe to the Sovereign
+// Console / users / rbac matrix view hits without first having to
+// resolve `/api/v1/sovereign/self`.
+func (h *Handler) HandleSovereignRBACMatrix(w http.ResponseWriter, r *http.Request) {
+	depID := resolveSovereignDeploymentID(r)
+	if depID == "" {
+		// Mothership (no SOVEREIGN_FQDN env, no handover cookie). The
+		// per-deployment surface at /api/v1/sovereigns/{id}/rbac/access-matrix
+		// is the right entry point on that side; emit a structured 404
+		// so the UI can fall back to the mothership form.
+		writeJSON(w, http.StatusNotFound, map[string]string{
+			"error":  "not-a-sovereign",
+			"detail": "this catalyst-api Pod is not running on a Sovereign cluster; use /api/v1/sovereigns/{id}/rbac/access-matrix instead",
+		})
+		return
+	}
+	dep, ok := h.lookupDeploymentForInfra(depID)
+	if !ok {
+		writeNotFound(w, depID)
+		return
+	}
+	h.serveRBACAccessMatrix(w, r, dep, depID)
+}
+
+// serveRBACAccessMatrix is the shared body of the per-deployment and the
+// Sovereign-prefix RBAC matrix handlers. Both surfaces use identical
+// query-param filters (?org, ?application) and identical response
+// shape (AccessMatrixResponse).
+func (h *Handler) serveRBACAccessMatrix(w http.ResponseWriter, r *http.Request, dep *Deployment, depID string) {
 	orgFilter := strings.TrimSpace(r.URL.Query().Get("org"))
 	appFilter := strings.TrimSpace(r.URL.Query().Get("application"))
 
@@ -114,6 +158,36 @@ func (h *Handler) HandleRBACAccessMatrix(w http.ResponseWriter, r *http.Request)
 	resp.OrgFilter = orgFilter
 	resp.ApplicationFilter = appFilter
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// resolveSovereignDeploymentID mirrors HandleSovereignSelf's resolution
+// chain so /api/v1/sovereign/* endpoints converge on the same active
+// deployment id without having to round-trip through /sovereign/self
+// first. Returns "" when no chroot context is detectable (= mothership
+// process). Order:
+//
+//  1. catalyst_session cookie claims (deployment_id) — authoritative
+//     post-handover.
+//  2. CATALYST_SELF_DEPLOYMENT_ID env (orchestrator chart-values
+//     overlay).
+//  3. Synthesised "sovereign-<fqdn>" from SOVEREIGN_FQDN /
+//     CATALYST_OTECH_FQDN — matches the rest of the /sovereign/*
+//     family and the k8scache.factory.go cluster-id convention.
+func resolveSovereignDeploymentID(r *http.Request) string {
+	if _, jwtDepID, ok := readSessionClaimsFromCookie(r); ok && jwtDepID != "" {
+		return jwtDepID
+	}
+	if v := strings.TrimSpace(os.Getenv("CATALYST_SELF_DEPLOYMENT_ID")); v != "" {
+		return v
+	}
+	fqdn := strings.TrimSpace(os.Getenv("SOVEREIGN_FQDN"))
+	if fqdn == "" {
+		fqdn = strings.TrimSpace(os.Getenv("CATALYST_OTECH_FQDN"))
+	}
+	if fqdn == "" {
+		return ""
+	}
+	return "sovereign-" + fqdn
 }
 
 // ── Pure aggregator (extracted for testability) ──────────────────────

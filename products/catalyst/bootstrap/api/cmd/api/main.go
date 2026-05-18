@@ -1278,6 +1278,16 @@ func main() {
 		// SME catalog service.
 		rg.Patch("/api/v1/sovereign/apps/{slug}/publish", h.HandleSovereignAppPublish)
 
+		// EPIC-3 (#1098) — Sovereign-prefix RBAC access-matrix surface
+		// (TBD-F4 / C6-007). Chroot-friendly mirror of
+		// /api/v1/sovereigns/{id}/rbac/access-matrix; the id is resolved
+		// server-side from SOVEREIGN_FQDN + the catalyst_session cookie
+		// (same chain as HandleSovereignSelf). Same query-param filters
+		// and response shape as the per-deployment endpoint, so the
+		// AccessMatrixPage in the chroot can call this path without
+		// first round-tripping to /sovereign/self.
+		rg.Get("/api/v1/sovereign/rbac/matrix", h.HandleSovereignRBACMatrix)
+
 		// Self-Sovereignty Cutover (issue #792 — parent epic #790). The
 		// post-handover step that severs a Sovereign's remaining
 		// tethers to the openova-io mothership: gitea-mirror,
