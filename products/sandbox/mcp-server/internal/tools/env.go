@@ -22,6 +22,9 @@
 //	KEYCLOAK_ADMIN_URL          = "http://keycloak.keycloak.svc.cluster.local:8080"
 //	KEYCLOAK_ADMIN_TOKEN        = "<admin bearer>" (sandbox-controller-injected)
 //	KEYCLOAK_PARENT_REALM       = "master"  (default; controller may override)
+//	SANDBOX_DOMAIN_API_URL      = "http://domain.sme.svc.cluster.local:8086"
+//	SANDBOX_MARKETPLACE_API_URL = "http://marketplace-api.marketplace.svc.cluster.local:8082"
+//	SANDBOX_TENANT_ID           = "<tenant-uuid>" (scopes domain/byod calls)
 //
 // SANDBOX_JWT_SECRET empty AND SANDBOX_ORG_ID empty = test mode
 // (the registry skips its auth gate so unit tests don't need to mint a
@@ -54,6 +57,9 @@ func NewEnvFromOS() *Env {
 		KeycloakAdminURL:    os.Getenv("KEYCLOAK_ADMIN_URL"),
 		KeycloakAdminToken:  os.Getenv("KEYCLOAK_ADMIN_TOKEN"),
 		KeycloakParentRealm: os.Getenv("KEYCLOAK_PARENT_REALM"),
+		DomainAPIURL:        os.Getenv("SANDBOX_DOMAIN_API_URL"),
+		MarketplaceAPIURL:   os.Getenv("SANDBOX_MARKETPLACE_API_URL"),
+		TenantID:            os.Getenv("SANDBOX_TENANT_ID"),
 	}
 	if env.KeycloakParentRealm == "" {
 		env.KeycloakParentRealm = "master"

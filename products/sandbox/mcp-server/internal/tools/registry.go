@@ -20,6 +20,11 @@
 //   - sandbox.secrets.read / sandbox.secrets.write
 //   - sandbox.session.whoami / sandbox.session.info
 //
+// Wave 12 extends to marketplace.domain.* + flux.*:
+//
+//   - marketplace.domain.byod / marketplace.domain.subdomain
+//   - flux.status / flux.reconcile / flux.suspend / flux.resume
+//
 // All other namespaces (sandbox.stripe.*, sandbox.preview.*,
 // k8s.write.*, gitea.release.list) remain stubbed and continue to
 // return not_implemented until later waves ship them.
@@ -154,6 +159,38 @@ type Env struct {
 	// PARENT (admin auth target) for realm CRUD; the per-Sandbox
 	// realm itself is a sibling under the same Keycloak instance.
 	KeycloakParentRealm string
+
+	// DomainAPIURL — root URL of the canonical domain service
+	// (`core/services/domain`), e.g.
+	// `http://domain.sme.svc.cluster.local:8086`. The marketplace.*
+	// tool family proxies POST /domain/byod + POST /domain/subdomains
+	// here. Empty → marketplace.* surfaces a clear "not configured"
+	// error rather than failing on a bad URL.
+	//
+	// Wired by sandbox-controller as SANDBOX_DOMAIN_API_URL on the
+	// MCP Deployment env. The same value flows into the per-Sovereign
+	// gateway service as DOMAIN_URL — kept separate here so the MCP
+	// server can target the domain service DIRECTLY rather than via
+	// the gateway (one fewer hop on a tool call).
+	DomainAPIURL string
+
+	// MarketplaceAPIURL — root URL of the marketplace-api service
+	// (`core/marketplace-api`), e.g.
+	// `http://marketplace-api.marketplace.svc.cluster.local:8082`.
+	// Reserved for future marketplace.* tools that drive provisioning
+	// (e.g. marketplace.app.deploy). Empty today on every Sandbox; the
+	// Wave 12 marketplace.domain.* tools target DomainAPIURL instead.
+	MarketplaceAPIURL string
+
+	// TenantID — the tenant identifier the canonical domain service
+	// uses to scope BYOD / subdomain registrations
+	// (`core/services/domain/handlers/handlers.go` checkTenantMembership).
+	// Distinct from OrgID because the SME tenant service identifies
+	// orgs by a separate `tenant_id` UUID — sandbox-controller injects
+	// it as SANDBOX_TENANT_ID once the chroot Organization controller
+	// has minted the tenant row. Empty → marketplace.domain.* surfaces
+	// a clear "not configured" error.
+	TenantID string
 }
 
 // claimsCtxKey is the unexported context key under which the
@@ -499,6 +536,62 @@ func defaultCatalogue(env *Env) []Tool {
 			InputSchema:        schemaSandboxSecretsWrite(),
 			Handler:            sandboxSecretsWrite,
 			RequiredCapability: "sandbox.secrets",
+		},
+
+		// marketplace.domain.* — Wave 12 thin proxy to
+		// core/services/domain (marketplace.go). Every call forwards the
+		// Sandbox PAT to the domain service which performs the canonical
+		// auth + WHOIS + uniqueness checks. RequiredCapability="marketplace"
+		// gates the bearer.
+		{
+			Name:               "marketplace.domain.byod",
+			Description:        "Register a Bring-Your-Own-Domain (BYOD) FQDN for the Sandbox's tenant. Returns the CNAME target the operator points at their registrar.",
+			InputSchema:        schemaMarketplaceDomainBYOD(),
+			Handler:            marketplaceDomainBYOD,
+			RequiredCapability: "marketplace",
+		},
+		{
+			Name:               "marketplace.domain.subdomain",
+			Description:        "Reserve a `<subdomain>.<parent_zone>` under the Sovereign-managed subdomain pool (parent_zone defaults to the configured pool TLD).",
+			InputSchema:        schemaMarketplaceDomainSubdomain(),
+			Handler:            marketplaceDomainSubdomain,
+			RequiredCapability: "marketplace",
+		},
+
+		// flux.* — Wave 12 Flux read/kick surface (flux.go). status is
+		// pure-read; reconcile/suspend/resume mutate exactly one
+		// well-known annotation or spec field on a tenant-scoped HR /
+		// Kustomization. The dynamic client's RBAC gates which
+		// namespaces the SA can patch — the MCP server itself does
+		// not maintain a separate allow-list. RequiredCapability="flux"
+		// gates every call regardless of read vs write.
+		{
+			Name:               "flux.status",
+			Description:        "List HelmReleases + Kustomizations in the Sandbox's tenant namespaces with their Ready condition + last applied revision.",
+			InputSchema:        schemaFluxStatus(),
+			Handler:            fluxStatus,
+			RequiredCapability: "flux",
+		},
+		{
+			Name:               "flux.reconcile",
+			Description:        "Force-run a Flux reconcile on a tenant-scoped HelmRelease or Kustomization by setting the `reconcile.fluxcd.io/requestedAt` annotation.",
+			InputSchema:        schemaFluxMutation(),
+			Handler:            fluxReconcile,
+			RequiredCapability: "flux",
+		},
+		{
+			Name:               "flux.suspend",
+			Description:        "Set spec.suspend=true on a tenant-scoped HelmRelease or Kustomization so Flux stops reconciling it.",
+			InputSchema:        schemaFluxMutation(),
+			Handler:            fluxSuspend,
+			RequiredCapability: "flux",
+		},
+		{
+			Name:               "flux.resume",
+			Description:        "Set spec.suspend=false on a tenant-scoped HelmRelease or Kustomization so Flux resumes reconciling.",
+			InputSchema:        schemaFluxMutation(),
+			Handler:            fluxResume,
+			RequiredCapability: "flux",
 		},
 
 		// rag.search — Wave 12 lean text-grep stub over /repo PVC
