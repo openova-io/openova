@@ -121,7 +121,14 @@ spec:
       # exist on any Sovereign — the canonical gateway is
       # kube-system/cilium-gateway installed by 01-cilium.yaml and
       # used by every other Sovereign HTTPRoute.
-      version: 0.1.22
+      # 0.1.23 (Refs TBD-G4 phase 2 / C12-005, 2026-05-18): pulls in
+      # PR #1699 (liveness + readiness probe paths flipped from `/`
+      # to `/guacamole/`). The Apache Guacamole webapp deploys under
+      # Tomcat's context path /guacamole/, not /, so probing `/`
+      # made kubelet restart the Pod every ~60s and the kube-system
+      # Cilium gateway returned 503 to the public hostname because
+      # the Endpoint was never Ready (observed on t22, 5 restarts).
+      version: 0.1.23
       sourceRef:
         kind: HelmRepository
         name: bp-guacamole
