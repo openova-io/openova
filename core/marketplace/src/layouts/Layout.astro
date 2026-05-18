@@ -102,7 +102,22 @@ const { title, step = 0 } = Astro.props;
       function redirect() {
         var token = localStorage.getItem('sme-token') || '';
         var refresh = localStorage.getItem('sme-refresh-token') || '';
-        var url = 'https://console.openova.io/nova/?token=' + encodeURIComponent(token);
+        // Derive console URL from the current host. Logic mirrors
+        // src/lib/config.ts::deriveConsoleURL — kept inline so the redirect
+        // fires before the Svelte bundle loads.
+        //   marketplace.openova.io      → console.openova.io/nova  (mothership)
+        //   marketplace.<sov-fqdn>      → console.<sov-fqdn>       (Sovereign, no /nova)
+        //   anything else (partner host)→ mothership fallback
+        // Bug 2026-05-18: this used to hardcode console.openova.io/nova so
+        // every Sovereign post-purchase redirect bounced users back to the
+        // mothership and re-prompted sign-in.
+        var host = (window.location.hostname || '').toLowerCase();
+        var base = 'https://console.openova.io/nova';
+        if (host && host !== 'marketplace.openova.io' && host.indexOf('marketplace.') === 0) {
+          var sovFqdn = host.substring('marketplace.'.length);
+          if (sovFqdn) base = 'https://console.' + sovFqdn;
+        }
+        var url = base + '/?token=' + encodeURIComponent(token);
         if (refresh) url += '&refresh_token=' + encodeURIComponent(refresh);
         window.location.replace(url);
       }
