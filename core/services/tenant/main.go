@@ -23,7 +23,16 @@ func main() {
 	// Configuration from environment.
 	mongoURI := getEnv("MONGODB_URI", "mongodb://ferretdb:27017")
 	mongoDBName := getEnv("MONGODB_DB", "tenants")
-	redpandaBrokers := strings.Split(getEnv("REDPANDA_BROKERS", "localhost:9092"), ",")
+	// NATS_URL — canonical event bus per ADR-0001 §6. On Sovereigns this
+	// is wired to nats-jetstream.nats-system.svc.cluster.local:4222 by
+	// the chart. Empty disables the NATS leg and the service falls back
+	// to the legacy Redpanda-only Producer (Catalyst-Zero / dev loops).
+	natsURL := getEnv("NATS_URL", "")
+	// REDPANDA_BROKERS — legacy Kafka-protocol bus retained for
+	// backward-compatibility with not-yet-migrated consumers. Empty
+	// disables the Redpanda leg entirely. On Sovereigns this is left
+	// empty (no Redpanda exists in cluster).
+	redpandaBrokersRaw := getEnv("REDPANDA_BROKERS", "")
 	jwtSecret := []byte(getEnv("JWT_SECRET", ""))
 	corsOrigin := getEnv("CORS_ORIGIN", "*")
 	catalogURL := getEnv("CATALOG_URL", "http://catalog.sme.svc.cluster.local:8082")
@@ -50,14 +59,39 @@ func main() {
 	}()
 	slog.Info("connected to FerretDB", "uri", mongoURI, "db", mongoDBName)
 
-	// Create events producer.
-	producer, err := events.NewProducer(redpandaBrokers)
+	// Wire the broker publisher. NATS is the canonical bus on Sovereigns
+	// (publish to `catalyst.tenant.<event>` per ADR-0001 §6); Redpanda
+	// is the legacy bus retained for backward-compatibility on
+	// Catalyst-Zero. At least one MUST be configured or NewMultiPublisher
+	// refuses to construct a silently-no-op publisher.
+	var (
+		natsConn  *events.NATSConn
+		kafkaProd *events.Producer
+	)
+	if natsURL != "" {
+		nc, err := events.ConnectNATS(natsURL)
+		if err != nil {
+			slog.Error("failed to connect to NATS", "url", natsURL, "error", err)
+			os.Exit(1)
+		}
+		natsConn = nc
+		slog.Info("connected to NATS JetStream", "url", natsURL)
+	}
+	if redpandaBrokersRaw != "" {
+		kp, err := events.NewProducer(strings.Split(redpandaBrokersRaw, ","))
+		if err != nil {
+			slog.Error("failed to create RedPanda producer", "error", err)
+			os.Exit(1)
+		}
+		kafkaProd = kp
+		slog.Info("connected to RedPanda (legacy)", "brokers", redpandaBrokersRaw)
+	}
+	producer, err := events.NewMultiPublisher(natsConn, kafkaProd)
 	if err != nil {
-		slog.Error("failed to create events producer", "error", err)
+		slog.Error("event bus misconfigured — neither NATS_URL nor REDPANDA_BROKERS set", "error", err)
 		os.Exit(1)
 	}
 	defer producer.Close()
-	slog.Info("connected to RedPanda")
 
 	// Initialize store and handler.
 	tenantStore := store.New(client, mongoDBName)
@@ -72,42 +106,53 @@ func main() {
 	slog.Info("catalog client configured", "url", catalogURL)
 	slog.Info("provisioning URL configured", "url", provisioningURL)
 
-	// Subscribe to provision events so tenant status reflects provisioning outcome.
-	provConsumer, err := events.NewConsumer(redpandaBrokers, "tenant-service", []string{"sme.provision.events"})
-	if err != nil {
-		slog.Error("failed to create provision consumer", "error", err)
-		os.Exit(1)
-	}
-	defer provConsumer.Close()
-	consumerHandler := &handlers.ConsumerHandler{Store: tenantStore}
-	go func() {
-		if err := consumerHandler.Start(context.Background(), provConsumer); err != nil {
-			slog.Error("provision consumer stopped", "error", err)
+	// Legacy Kafka consumers (sme.provision.events + sme.tenant.events) are
+	// only started when REDPANDA_BROKERS is set. On Sovereigns the canonical
+	// path is NATS JetStream; the equivalent NATS-side subscribers are
+	// scheduled to ship in a follow-up (see ADR-0001 §6 migration plan).
+	// Keeping these legacy goroutines off when no Kafka broker is wired
+	// avoids the previous behaviour of crashlooping the pod trying to
+	// dial "localhost:9092".
+	if redpandaBrokersRaw != "" {
+		redpandaBrokers := strings.Split(redpandaBrokersRaw, ",")
+		provConsumer, err := events.NewConsumer(redpandaBrokers, "tenant-service", []string{"sme.provision.events"})
+		if err != nil {
+			slog.Error("failed to create provision consumer", "error", err)
+			os.Exit(1)
 		}
-	}()
+		defer provConsumer.Close()
+		consumerHandler := &handlers.ConsumerHandler{Store: tenantStore}
+		go func() {
+			if err := consumerHandler.Start(context.Background(), provConsumer); err != nil {
+				slog.Error("provision consumer stopped", "error", err)
+			}
+		}()
 
-	// Members-cleanup consumer — purges member rows as soon as a tenant is
-	// soft-deleted so authz checks during the teardown window don't see
-	// stale membership. Separate consumer group so offsets don't contend
-	// with the provision-events subscriber above. See issue #96.
-	membersConsumer, err := events.NewConsumer(
-		redpandaBrokers,
-		"tenant-members-cleanup",
-		[]string{"sme.tenant.events"},
-	)
-	if err != nil {
-		slog.Error("failed to create members-cleanup consumer", "error", err)
-		os.Exit(1)
-	}
-	defer membersConsumer.Close()
-	membersCleanup := &handlers.MembersCleanupConsumer{Store: tenantStore}
-	go func() {
-		if err := membersCleanup.Start(context.Background(), membersConsumer); err != nil {
-			slog.Error("tenant members-cleanup consumer stopped", "error", err)
+		// Members-cleanup consumer — purges member rows as soon as a tenant is
+		// soft-deleted so authz checks during the teardown window don't see
+		// stale membership. Separate consumer group so offsets don't contend
+		// with the provision-events subscriber above. See issue #96.
+		membersConsumer, err := events.NewConsumer(
+			redpandaBrokers,
+			"tenant-members-cleanup",
+			[]string{"sme.tenant.events"},
+		)
+		if err != nil {
+			slog.Error("failed to create members-cleanup consumer", "error", err)
+			os.Exit(1)
 		}
-	}()
-	slog.Info("tenant members-cleanup consumer started",
-		"topic", "sme.tenant.events", "group", "tenant-members-cleanup")
+		defer membersConsumer.Close()
+		membersCleanup := &handlers.MembersCleanupConsumer{Store: tenantStore}
+		go func() {
+			if err := membersCleanup.Start(context.Background(), membersConsumer); err != nil {
+				slog.Error("tenant members-cleanup consumer stopped", "error", err)
+			}
+		}()
+		slog.Info("tenant members-cleanup consumer started",
+			"topic", "sme.tenant.events", "group", "tenant-members-cleanup")
+	} else {
+		slog.Info("REDPANDA_BROKERS empty — legacy Kafka consumers disabled (NATS-only mode)")
+	}
 
 	// Build the main mux.
 	mux := http.NewServeMux()

@@ -37,6 +37,16 @@ spec:
                 configMapKeyRef:
                   name: sme-services-config
                   key: REDPANDA_BROKERS
+            # NATS JetStream URL — canonical event bus per ADR-0001 §6.
+            # On Sovereigns the ConfigMap default resolves to
+            # nats://nats-jetstream.nats-system.svc.cluster.local:4222
+            # (see configmap.yaml header). Service publishes
+            # `catalyst.tenant.<event>` subjects via events.MultiPublisher.
+            - name: NATS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: NATS_URL
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
