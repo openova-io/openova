@@ -1,139 +1,194 @@
 // Package handler — Catalyst-side bridge handlers that sit between
 // catalyst-api PATs and the upstream NewAPI admin API.
 //
-// Wave 1b SCAFFOLD ONLY. The Sovereign deploys upstream Calcium-Ion/new-api
-// as a Pod (see platform/newapi/chart/templates/deployment.yaml) — we do
-// NOT modify upstream Go code. Instead, the catalyst-api process exposes
-// this bridge under /admin/tokens/sandbox; the sandbox-controller (Wave 4)
-// calls it whenever it needs to mint or rotate a per-Sandbox NewAPI key.
+// SandboxToken (POST /admin/tokens/sandbox)
+// =========================================
 //
-// What this file IS:
-//   - The HTTP handler shape (POST /admin/tokens/sandbox).
-//   - The PAT validation contract (audience=newapi, typ=pat).
-//   - Documented hooks for the upstream NewAPI admin-API calls
-//     (POST /api/user, POST /api/token) that Wave 4 wires.
+// Replaces the Wave 1b stub (PR #1619) with a real mint implementation
+// (PR #1638). The endpoint is invoked by the sandbox-controller when it
+// rolls out a fresh Sandbox Pod and needs an HS256 token the Pod can
+// present to the NewAPI gateway on every `/v1/*` call.
 //
-// What this file is NOT (deferred to Wave 4):
-//   - The actual outbound HTTP client to NewAPI's admin API. Today
-//     the handler returns the inbound PAT verbatim as a placeholder
-//     so the bridge contract can be exercised end-to-end in tests
-//     without standing up an upstream NewAPI instance.
-//   - The Sandbox CR binding (the controller writes the returned
-//     token into Secret/sandbox-<uid>-newapi-token; the binding
-//     lives in the controller, not here).
-//   - The /admin/tokens/sandbox/{uid} DELETE path (rotation +
-//     revocation — Wave 4 controller-side reconcile).
+// Caller authentication
+// ─────────────────────
+// The endpoint is admin-only. The sandbox-controller authenticates with
+// a shared bearer secret loaded from the chart-emitted Secret
+// `newapi-token-signing-key` key `ADMIN_SECRET` and passes it as
+// `Authorization: Bearer <secret>`. The secret is the SAME persistent
+// random bytes that sign the minted tokens — colocating the two keeps
+// chart wiring (and rotation) atomic: one Secret, one Helm-lookup
+// resource-policy:keep guard, one env-var read at process start.
+//
+// (Future hardening — Wave 5+: accept a per-controller ServiceAccount
+// projected token via TokenReview against the host cluster. For now the
+// shared admin secret matches the simplicity of the rest of the
+// platform/newapi chart and keeps the bridge self-contained.)
+//
+// Token contract
+// ──────────────
+// The minted JWT is HS256, signed with the bytes in
+// `NEWAPI_TOKEN_SIGNING_KEY`. Claim shape:
+//
+//	sub      — Sandbox CR's uid (or whatever opaque sandbox_id the
+//	           controller passes; the bridge does not interpret it).
+//	org      — Organization slug. NewAPI uses this for per-Org
+//	           credit/quota partitioning and audit-log attribution.
+//	user     — owner email or Keycloak sub of the Sandbox's owner.
+//	           Forwarded into NewAPI's per-request X-User-Id for the
+//	           billing ledger.
+//	channels — list of channel names the Sandbox Pod is allowed to
+//	           target (e.g. ["qwen3.6-bankdhofar"]). NewAPI's channel
+//	           router enforces this allowlist server-side; a token
+//	           with channels:["a","b"] cannot call channel "c".
+//	exp      — 7 days from issuance. Matches PAT.DefaultPATTTL.
+//	iat      — issued-at.
+//	typ      — "sandbox" — discriminator so NewAPI audit logs can
+//	           distinguish Sandbox-Pod tokens from human PATs.
+//
+// On rotation the caller simply re-POSTs with the same sandbox_id; the
+// returned token supersedes the previous one (NewAPI has no native
+// per-token revocation registry; the controller deletes the old Pod
+// before exposing the new token so the in-flight blast radius is
+// bounded by Pod restart cadence).
 //
 // Contract: products/sandbox/docs/newapi-proxy-contract.md §3.
 package handler
 
 import (
+	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-
-	sharedauth "github.com/openova-io/openova/core/services/shared/auth"
 )
 
-// BridgeAudience is the aud claim a PAT MUST carry to mint a NewAPI key
-// through this bridge. The sandbox-controller stamps this when it calls
-// POST /auth/pat — see core/services/auth/handlers/pat.go.
-const BridgeAudience = "newapi"
+// SandboxTokenTTL is the lifetime of a per-Sandbox HS256 token. 7 days
+// matches PAT.DefaultPATTTL in core/services/auth/handlers/pat.go — a
+// typical coding-week session.
+const SandboxTokenTTL = 7 * 24 * time.Hour
 
-// Handler is the bridge handler dependency container.
-//
-// Wave 1b leaves fields minimal; Wave 4 will add:
-//   - NewAPIAdminURL string   — the upstream admin API base URL
-//                               (e.g. http://newapi.newapi.svc.cluster.local:3000)
-//   - NewAPIAdminToken string — master token for the upstream admin API
-//   - HTTPClient *http.Client — outbound client with timeout + retry
+// SandboxTokenType is the `typ` claim discriminator on minted tokens.
+const SandboxTokenType = "sandbox"
+
+// Env var names. Centralised so deployment.yaml + test code reference
+// the same strings.
+const (
+	// EnvSigningKey holds the raw HS256 signing key bytes. Mounted from
+	// Secret `newapi-token-signing-key`, key `SIGNING_KEY`.
+	EnvSigningKey = "NEWAPI_TOKEN_SIGNING_KEY"
+
+	// EnvAdminSecret holds the admin-only shared secret the
+	// sandbox-controller presents on each call. Mounted from the same
+	// Secret, key `ADMIN_SECRET`.
+	EnvAdminSecret = "NEWAPI_ADMIN_SECRET"
+)
+
+// Handler is the bridge handler dependency container. Fields are
+// populated from env at process start; an unset signing key or admin
+// secret causes the handler to refuse with 503 (visible, NOT silent).
 type Handler struct {
-	// JWTSecret is the same secret core/services/auth uses to sign PATs.
-	// Read at process start from JWT_SECRET. Required for PAT validation.
-	JWTSecret []byte
+	// SigningKey is the raw HS256 secret used to sign minted tokens.
+	// Read at process start from NEWAPI_TOKEN_SIGNING_KEY. Required.
+	SigningKey []byte
+
+	// AdminSecret is the shared bearer the sandbox-controller presents
+	// on every call. Read at process start from NEWAPI_ADMIN_SECRET.
+	// Required. Compared with subtle.ConstantTimeCompare.
+	AdminSecret []byte
 
 	// Log is the slog instance for audit + diagnostic output. Required.
 	Log *slog.Logger
+
+	// Now is the wall-clock source. Defaults to time.Now when nil.
+	// Injected for deterministic tests.
+	Now func() time.Time
+}
+
+// NewHandlerFromEnv constructs a Handler with values pulled from the
+// environment. Returns an error when either required env var is empty
+// so the catalyst-api process can fail loudly at start instead of
+// shipping a forgeable-token endpoint silently.
+func NewHandlerFromEnv(log *slog.Logger) (*Handler, error) {
+	signing := os.Getenv(EnvSigningKey)
+	if strings.TrimSpace(signing) == "" {
+		return nil, fmt.Errorf("handler: %s is empty (chart not wired with newapi-token-signing-key Secret)", EnvSigningKey)
+	}
+	admin := os.Getenv(EnvAdminSecret)
+	if strings.TrimSpace(admin) == "" {
+		return nil, fmt.Errorf("handler: %s is empty (chart not wired with newapi-token-signing-key Secret)", EnvAdminSecret)
+	}
+	return &Handler{
+		SigningKey:  []byte(signing),
+		AdminSecret: []byte(admin),
+		Log:         log,
+	}, nil
 }
 
 // sandboxTokenRequest is the JSON body for POST /admin/tokens/sandbox.
+//
+// Wire field names match products/sandbox/docs/newapi-proxy-contract.md.
 type sandboxTokenRequest struct {
-	// SandboxUID is the Sandbox CR's metadata.uid. The bridge uses
-	// this to bind the NewAPI key to a specific Sandbox so rotation
-	// + revocation on CR deletion are unambiguous.
-	SandboxUID string `json:"sandbox_uid"`
-
-	// OrgID — the Organization slug. The bridge cross-checks this
-	// against the PAT's org_id claim to prevent a sandbox-controller
-	// in one Org minting a NewAPI key labelled as another Org's.
+	// OrgID — Organization slug (matches Claims.OrgID).
 	OrgID string `json:"org_id"`
 
-	// SandboxName — the human-readable Sandbox name
-	// (`Sandbox.metadata.name`). Surfaced in NewAPI's admin UI so ops
-	// staff can see which Sandbox holds which key.
-	SandboxName string `json:"sandbox_name"`
+	// UserID — owner email or Keycloak sub of the Sandbox owner.
+	UserID string `json:"user_id"`
 
-	// Rotate — when true, revoke any existing key for this SandboxUID
-	// before issuing a new one. Used by the controller on Sandbox spec
-	// quota changes. Wave 4 wires the actual revocation; Wave 1b
-	// returns the same response with `rotated: true` echo.
-	Rotate bool `json:"rotate,omitempty"`
+	// SandboxID — Sandbox CR's metadata.uid (or any opaque id the
+	// controller assigns; the bridge does not interpret it).
+	SandboxID string `json:"sandbox_id"`
+
+	// AllowedChannels — list of NewAPI channel names the Sandbox Pod
+	// may target. Empty list is rejected (a Sandbox with no channels
+	// cannot reach an LLM, almost always a misconfiguration).
+	AllowedChannels []string `json:"allowed_channels"`
 }
 
 // sandboxTokenResponse is what POST /admin/tokens/sandbox returns.
 type sandboxTokenResponse struct {
-	// Token is the NewAPI-native API key (a `sk-…` string). The
-	// caller (sandbox-controller) writes this to a Kubernetes Secret;
-	// the Sandbox-Pod mounts it as LLM_GATEWAY_TOKEN.
+	// Token is the HS256-signed JWT. The sandbox-controller writes it
+	// into Secret/sandbox-<uid>-newapi-token, mounted into the Sandbox
+	// Pod as LLM_GATEWAY_TOKEN.
 	Token string `json:"token"`
 
-	// NewAPIUserID is the upstream NewAPI user id the key is bound
-	// to. Stored alongside the token so rotation knows which
-	// upstream user to mutate.
-	NewAPIUserID string `json:"newapi_user_id"`
-
-	// ExpiresAt — RFC3339. Always matches the inbound PAT's exp.
-	// NewAPI keys are revocable but not natively expiring; the bridge
-	// owns scheduling revocation when this timestamp passes (Wave 4).
+	// ExpiresAt — absolute expiry timestamp (RFC3339).
 	ExpiresAt time.Time `json:"expires_at"`
-
-	// Rotated — true when the bridge actually replaced a prior key
-	// (vs first-time issuance). Echoed for the controller's audit log.
-	Rotated bool `json:"rotated"`
 }
 
 // SandboxToken handles POST /admin/tokens/sandbox.
 //
-// Wave 1b stub behavior:
+//  1. Validates the inbound Authorization: Bearer <admin-secret>.
+//  2. Decodes + validates the request body.
+//  3. Mints an HS256 JWT bound to {org_id, user_id, sandbox_id,
+//     allowed_channels} with a 7-day TTL.
+//  4. Returns {token, expires_at}.
 //
-//  1. Validates the inbound Authorization: Bearer <PAT> against JWTSecret.
-//  2. Asserts the PAT has typ=pat, audience contains "newapi", and a
-//     non-empty org_id claim.
-//  3. Cross-checks the request body's org_id matches the PAT claim
-//     (prevents Sandbox A's controller minting keys for Sandbox B's Org).
-//  4. Returns the PAT itself as the token + a synthesized
-//     newapi_user_id of the form `sandbox-<uid>` so the controller's
-//     happy-path test can exercise the contract end-to-end.
-//
-// Wave 4 will replace step 4 with the actual newapi admin-API call.
+// Failure modes:
+//   - 503 when SigningKey or AdminSecret is unset at process start
+//     (chart wiring gap — surfaced visibly).
+//   - 401 when Authorization header is missing/malformed or the bearer
+//     does not match AdminSecret.
+//   - 400 when request body is malformed or required fields are empty.
+//   - 405 on non-POST.
 func (h *Handler) SandboxToken(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if h.JWTSecret == nil || len(h.JWTSecret) == 0 {
+	if len(h.SigningKey) == 0 || len(h.AdminSecret) == 0 {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"error": "bridge misconfigured: JWT secret unset",
+			"error": "bridge misconfigured: signing key or admin secret unset",
 		})
 		return
 	}
 
-	// ── 1. Extract + parse Bearer PAT ───────────────────────────────────
+	// ── 1. Validate admin bearer ────────────────────────────────────────
 	authHdr := r.Header.Get("Authorization")
 	if !strings.HasPrefix(authHdr, "Bearer ") {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{
@@ -141,49 +196,14 @@ func (h *Handler) SandboxToken(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	raw := strings.TrimPrefix(authHdr, "Bearer ")
-
-	claims := &sharedauth.Claims{}
-	tok, err := jwt.ParseWithClaims(raw, claims, func(t *jwt.Token) (any, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
-		}
-		return h.JWTSecret, nil
-	}, jwt.WithValidMethods([]string{"HS256"}), jwt.WithExpirationRequired())
-	if err != nil || !tok.Valid {
-		h.Log.Warn("sandbox-token: PAT parse failed", "err", err)
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid token"})
+	presented := strings.TrimPrefix(authHdr, "Bearer ")
+	if subtle.ConstantTimeCompare([]byte(presented), h.AdminSecret) != 1 {
+		h.logSafe("sandbox-token: admin secret mismatch", "remote_addr", r.RemoteAddr)
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid admin credentials"})
 		return
 	}
 
-	// ── 2. Validate token type + audience ──────────────────────────────
-	if claims.Typ != "pat" {
-		writeJSON(w, http.StatusForbidden, map[string]string{
-			"error": "wrong token type: bridge requires typ=pat",
-		})
-		return
-	}
-	audOK := false
-	for _, a := range claims.Audience {
-		if a == BridgeAudience {
-			audOK = true
-			break
-		}
-	}
-	if !audOK {
-		writeJSON(w, http.StatusForbidden, map[string]string{
-			"error": fmt.Sprintf("wrong audience: bridge requires aud contains %q", BridgeAudience),
-		})
-		return
-	}
-	if claims.OrgID == "" {
-		writeJSON(w, http.StatusForbidden, map[string]string{
-			"error": "PAT missing org_id claim",
-		})
-		return
-	}
-
-	// ── 3. Decode + validate request body ──────────────────────────────
+	// ── 2. Decode + validate request body ───────────────────────────────
 	var req sandboxTokenRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
@@ -191,63 +211,130 @@ func (h *Handler) SandboxToken(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	if req.SandboxUID == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "sandbox_uid is required",
-		})
-		return
-	}
+	req.OrgID = strings.TrimSpace(req.OrgID)
+	req.UserID = strings.TrimSpace(req.UserID)
+	req.SandboxID = strings.TrimSpace(req.SandboxID)
 	if req.OrgID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "org_id is required"})
+		return
+	}
+	if req.UserID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "user_id is required"})
+		return
+	}
+	if req.SandboxID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "sandbox_id is required"})
+		return
+	}
+	if len(req.AllowedChannels) == 0 {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "org_id is required",
+			"error": "allowed_channels must contain at least one channel name",
 		})
 		return
 	}
-	if req.OrgID != claims.OrgID {
-		h.Log.Warn("sandbox-token: org_id mismatch",
-			"pat_org", claims.OrgID, "req_org", req.OrgID, "sandbox_uid", req.SandboxUID)
-		writeJSON(w, http.StatusForbidden, map[string]string{
-			"error": "org_id in request body does not match PAT claim",
+	// Strip empty + de-duplicate while preserving order. A sandbox-
+	// controller bug that sends [""] would otherwise yield a token
+	// that NewAPI silently accepts as "no channel restriction" — fail
+	// fast.
+	cleaned := make([]string, 0, len(req.AllowedChannels))
+	seen := make(map[string]struct{}, len(req.AllowedChannels))
+	for _, c := range req.AllowedChannels {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			continue
+		}
+		if _, ok := seen[c]; ok {
+			continue
+		}
+		seen[c] = struct{}{}
+		cleaned = append(cleaned, c)
+	}
+	if len(cleaned) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "allowed_channels must contain at least one non-empty channel name",
 		})
 		return
 	}
 
-	// ── 4. Mint (Wave 1b: stub — echo PAT) ──────────────────────────────
-	//
-	// Wave 4: replace this block with a call to upstream NewAPI's
-	// admin API:
-	//
-	//   POST {NewAPIAdminURL}/api/user                  # idempotent
-	//     body: {username: fmt.Sprintf("sandbox-%s", req.SandboxUID),
-	//            display_name: req.SandboxName,
-	//            external_id: req.OrgID}
-	//
-	//   POST {NewAPIAdminURL}/api/token
-	//     body: {user_id: <newapi_user_id_from_above>,
-	//            name: req.SandboxName,
-	//            unlimited_quota: false,
-	//            remain_quota: <per-Sandbox initial credit>}
-	//
-	// The response carries the NewAPI key string + numeric user_id.
-	// Return both to the caller. On `req.Rotate=true`, call
-	// /api/token/{old}/delete before issuing the new one.
-	var exp time.Time
-	if claims.ExpiresAt != nil {
-		exp = claims.ExpiresAt.Time
+	// ── 3. Mint HS256 token ─────────────────────────────────────────────
+	now := time.Now
+	if h.Now != nil {
+		now = h.Now
 	}
-	h.Log.Info("sandbox-token: issued (stub — Wave 4 wires upstream NewAPI)",
-		"sandbox_uid", req.SandboxUID,
+	issuedAt := now()
+	exp := issuedAt.Add(SandboxTokenTTL)
+	tok, err := mintSandboxToken(h.SigningKey, sandboxClaims{
+		Sub:      req.SandboxID,
+		Org:      req.OrgID,
+		User:     req.UserID,
+		Channels: cleaned,
+		IssuedAt: issuedAt,
+		ExpireAt: exp,
+	})
+	if err != nil {
+		h.logSafe("sandbox-token: mint failed", "err", err.Error())
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": "failed to mint token",
+		})
+		return
+	}
+
+	h.logSafe("sandbox-token: issued",
+		"sandbox_id", req.SandboxID,
 		"org_id", req.OrgID,
-		"rotate", req.Rotate,
-		"expires_at", exp,
+		"user_id", req.UserID,
+		"channels", strings.Join(cleaned, ","),
+		"expires_at", exp.Format(time.RFC3339),
 	)
 
 	writeJSON(w, http.StatusOK, sandboxTokenResponse{
-		Token:        raw,
-		NewAPIUserID: "sandbox-" + req.SandboxUID,
-		ExpiresAt:    exp,
-		Rotated:      req.Rotate,
+		Token:     tok,
+		ExpiresAt: exp,
 	})
+}
+
+// sandboxClaims is the in-process projection of the JWT body. Kept
+// separate from sandboxTokenRequest so the wire shape can evolve
+// without changing how we lay out the JWT.
+type sandboxClaims struct {
+	Sub      string
+	Org      string
+	User     string
+	Channels []string
+	IssuedAt time.Time
+	ExpireAt time.Time
+}
+
+// mintSandboxToken signs an HS256 JWT with the documented claim shape.
+// Exposed as a package-private function so the unit test can verify
+// the round-trip without invoking the HTTP handler.
+func mintSandboxToken(secret []byte, c sandboxClaims) (string, error) {
+	if len(secret) == 0 {
+		return "", errors.New("signing key empty")
+	}
+	claims := jwt.MapClaims{
+		"sub":      c.Sub,
+		"org":      c.Org,
+		"user":     c.User,
+		"channels": c.Channels,
+		"iat":      c.IssuedAt.Unix(),
+		"exp":      c.ExpireAt.Unix(),
+		"typ":      SandboxTokenType,
+	}
+	t := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	out, err := t.SignedString(secret)
+	if err != nil {
+		return "", fmt.Errorf("sign sandbox token: %w", err)
+	}
+	return out, nil
+}
+
+// logSafe wraps the slog call so a nil logger doesn't panic in tests.
+func (h *Handler) logSafe(msg string, args ...any) {
+	if h.Log == nil {
+		return
+	}
+	h.Log.Info(msg, args...)
 }
 
 // writeJSON writes JSON with the given status code.
