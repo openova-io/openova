@@ -1,0 +1,109 @@
+# bp-vcluster-helmrepo — Catalyst bootstrap-kit Blueprint slot 60.
+#
+# Pre-stages the upstream loft-sh vcluster Helm chart source on the
+# Sovereign cluster so the Organization controller
+# (core/controllers/organization) can render per-tenant
+# `helm.toolkit.fluxcd.io/v2 HelmRelease` CRs whose `sourceRef` points
+# at `name=loft, namespace=vcluster-system` (the controller's defaults
+# at core/controllers/organization/cmd/main.go).
+#
+# Without this slot, every per-tenant vcluster HelmRelease the
+# Organization controller writes into the per-Org Gitea repo fails
+# Source reconcile with:
+#
+#   HelmRepository.source.toolkit.fluxcd.io "loft" not found
+#
+# → no per-tenant vCluster is ever spawned → the Organization
+# controller's reconciliation loop blocks on tenant onboarding.
+# Convergence blocker #2 (vCluster source install on Sovereign).
+#
+# Wrapper chart: platform/bp-vcluster-helmrepo/chart/
+#   Pure source-registration chart — registers a HelmRepository CR +
+#   the vcluster-system namespace it lives in. Ships NO upstream
+#   subchart (same shape as bp-gateway-api). The upstream chart is
+#   pulled per-tenant by Flux at HelmRelease reconcile time, NOT
+#   bundled into this slot's OCI artifact.
+#
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+#
+# Slot 60 chosen as the first free slot after the existing vCluster
+# cohort (54/58/59 — DMZ/MGMT/RTZ Sovereign-tier vClusters). This
+# slot is the per-TENANT vCluster source registration (a different
+# layer): the Sovereign-tier slots embed loft-sh/vcluster 0.20.0 as
+# a Helm subchart so they ship a single OCI artifact; this slot
+# registers a live `source.toolkit.fluxcd.io/HelmRepository` CR so
+# the Organization controller's per-tenant rendered HelmReleases
+# can resolve `chart.spec.sourceRef name=loft namespace=vcluster-
+# system` at reconcile time. The two paths are independent — this
+# slot does NOT depend on slots 54/58/59 (and vice versa).
+#
+# dependsOn:
+#   - bp-flux  — Flux's source-controller must be Ready so the
+#                HelmRepository CR is actually reconciled (otherwise
+#                the CR sits without artifacts and downstream Flux
+#                HelmReleases that reference it can't resolve).
+
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-vcluster-helmrepo
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-vcluster-helmrepo
+  namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "60"
+    catalyst.openova.io/tenant-spawn: vcluster
+spec:
+  interval: 15m
+  releaseName: vcluster-helmrepo
+  # The release marker Secret lives next to every other bootstrap-kit
+  # release. The chart's templates/namespace.yaml creates the actual
+  # vcluster-system namespace (cluster-scoped Namespace resource).
+  targetNamespace: flux-system
+  dependsOn:
+    - name: bp-flux
+  chart:
+    spec:
+      chart: bp-vcluster-helmrepo
+      version: 0.1.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-vcluster-helmrepo
+        namespace: flux-system
+  install:
+    timeout: 5m
+    disableWait: false
+    remediation:
+      retries: 3
+  upgrade:
+    timeout: 5m
+    disableWait: false
+    remediation:
+      retries: 3
+  # Per-Sovereign overlay surface — operators MAY swap the upstream URL
+  # for a Harbor proxy cache (MIRROR-EVERYTHING per
+  # docs/INVIOLABLE-PRINCIPLES.md #4a) or rename the CR / namespace
+  # to align with a custom Organization-controller config.
+  #
+  # Defaults match the controller's hardcoded defaults at
+  # core/controllers/organization/cmd/main.go:
+  #   CATALYST_VCLUSTER_HELMREPO_NAME      = "loft"
+  #   CATALYST_VCLUSTER_HELMREPO_NAMESPACE = "vcluster-system"
+  values:
+    vclusterHelmRepo:
+      name: loft
+      namespace: vcluster-system
+      url: https://charts.loft.sh
+      interval: 15m
+      createNamespace: true

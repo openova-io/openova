@@ -1,0 +1,46 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-vcluster-helmrepo
+  labels:
+    catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
+    catalyst.openova.io/category: platform
+spec:
+  version: 0.1.0
+  card:
+    title: vCluster HelmRepository
+    summary: |
+      Pre-stages the upstream loft-sh vcluster Helm chart source on the
+      Sovereign cluster so the Organization controller
+      (core/controllers/organization) can render per-tenant vCluster
+      HelmReleases that reference `sourceRef name=loft namespace=
+      vcluster-system`. Convergence blocker #2 (vCluster source install
+      on Sovereign). Different layer from bp-mgmt/dmz/rtz-vcluster
+      (those bundle the upstream chart as a subchart for Sovereign-tier
+      vClusters; this slot registers a live Flux source so per-TENANT
+      vClusters can be spawned by the Organization controller at
+      runtime).
+    icon: vcluster.svg
+    category: platform
+  visibility: unlisted              # mandatory bootstrap topology
+  placementSchema:
+    modes: [primary-only]
+    minRegions: 1
+    maxRegions: 1
+  upgrades:
+    from: ["0.x"]
+  manifests:
+    chart: ./chart
+  depends:
+    - blueprint: bp-flux
+      version: ^2
+
+  # ── Outputs advertised to dependent Blueprints ───────────────────────────
+  # The Organization controller's per-tenant vCluster renderer
+  # (core/controllers/organization/internal/gitops/manifests.go)
+  # references these via env (CATALYST_VCLUSTER_HELMREPO_NAME +
+  # CATALYST_VCLUSTER_HELMREPO_NAMESPACE).
+  outputs:
+    helmRepoName: loft
+    helmRepoNamespace: vcluster-system
+    upstreamURL: https://charts.loft.sh

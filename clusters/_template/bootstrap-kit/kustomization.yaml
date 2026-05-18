@@ -113,6 +113,17 @@ resources:
   # comment for the migration plan.
   - 58-bp-mgmt-vcluster.yaml
   - 59-bp-rtz-vcluster.yaml
+  # bp-vcluster-helmrepo (slot 60) — pre-stages the upstream loft-sh
+  # vcluster Helm chart source so the Organization controller
+  # (core/controllers/organization) can render per-tenant
+  # `helm.toolkit.fluxcd.io/v2 HelmRelease` CRs whose `chart.spec.
+  # sourceRef` points at `name=loft, namespace=vcluster-system`.
+  # Convergence blocker #2 (vCluster source install on Sovereign).
+  # Different layer from slots 54/58/59 (those bundle loft-sh/vcluster
+  # 0.20.0 as a subchart for the Sovereign-tier DMZ/MGMT/RTZ vClusters;
+  # this slot registers a live Flux source so per-TENANT vClusters can
+  # be spawned by the Organization controller at runtime). Default-ON.
+  - 60-bp-vcluster-helmrepo.yaml
   # bp-newapi (slot 80) — multi-tenant LLM marketplace gateway. Sequenced
   # after the W2.K1 dependency wave (cnpg/keycloak/openbao Ready) so
   # NewAPI's ExternalSecret + DSN dependencies resolve on first reconcile.
