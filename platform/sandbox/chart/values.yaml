@@ -7,33 +7,28 @@
 
 # enabled gates EVERY templated resource. Default off.
 enabled: false
-
 # nameOverride / fullnameOverride mirror the upstream-chart convention —
 # left empty so the rendered names follow the chart's canonical
 # "sandbox-controller" without per-install drift.
 nameOverride: ""
 fullnameOverride: ""
-
 # replicas — 1 is fine for Wave 1 (leader-election on, so 2+ is safe
 # but unneeded).
 replicas: 1
-
 image:
   # Image repository for the Catalyst-built sandbox-controller binary.
   # The tag MUST be SHA-stamped by CI on every push to main per
   # docs/INVIOLABLE-PRINCIPLES.md #4a — empty tag fails-fast at render
   # rather than silently shipping :latest.
   repository: ghcr.io/openova-io/openova/sandbox-controller
-  tag: ""
+  tag: "1b0e86c"
   pullPolicy: IfNotPresent
   pullSecrets:
     - name: ghcr-pull
-
 # leaderElection — controller-runtime leases. Default on so HA replicas
 # don't double-write Gitea.
 leaderElection:
   enabled: true
-
 # Resource limits / requests — same envelope as organization-controller.
 # Sandbox reconciles are lighter (no Keycloak round-trips), but keeping
 # the shape parallel makes capacity-planning easier.
@@ -44,13 +39,11 @@ resources:
   limits:
     cpu: 500m
     memory: 512Mi
-
 # Pod placement. Empty by default — operator pins to a node pool per
 # Sovereign overlay.
 nodeSelector: {}
 tolerations: []
 affinity: {}
-
 # Env wiring — every knob is an env var per Inviolable Principle #4.
 # Values below feed the controller's main.go mustEnv() calls.
 env:
@@ -58,20 +51,17 @@ env:
   # global values. The Wave 1 deployment template surfaces these as
   # explicit env entries instead of a `range` so the operator can see
   # which inputs are wired without grepping values.yaml.
-  hostCluster: ""           # CATALYST_HOST_CLUSTER (e.g. hz-fsn-rtz-prod)
-  sovereignFQDN: ""         # CATALYST_SOVEREIGN_FQDN (e.g. omantel.omani.works)
-
+  hostCluster: "" # CATALYST_HOST_CLUSTER (e.g. hz-fsn-rtz-prod)
+  sovereignFQDN: "" # CATALYST_SOVEREIGN_FQDN (e.g. omantel.omani.works)
   # Gitea coords default to the in-cluster URL the catalyst-api /
   # organization-controller already use (single source of truth for
   # the Gitea URL per #957 / #1052).
   giteaURL: "http://gitea-http.gitea.svc.cluster.local:3000"
   giteaBranch: "main"
-
   # Per-Org `catalyst-tenant` repo (organization-controller's
   # EnsureRepo target) — Sandbox writes its manifests under
   # `sandbox/<owner-uid>/` inside this repo.
   tenantRepoName: "catalyst-tenant"
-
 # Secret holding the Gitea PAT the controller authenticates with.
 # Defaults to the same Secret organization-controller uses
 # (catalyst-gitea-token / key=token) — single source of truth per
@@ -79,6 +69,5 @@ env:
 giteaTokenSecret:
   name: "catalyst-gitea-token"
   key: "token"
-
 # extraEnv: arbitrary extra envs (rare — knobs above cover Wave 1).
 extraEnv: {}
