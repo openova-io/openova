@@ -83,6 +83,72 @@ if [ ! -d "${KIT_DIR}" ]; then
   exit 2
 fi
 
+# ──────────────────────────────────────────────────────────────────────
+# Indent-sanity scan (TBD-A6 hardening, 2026-05-18)
+# ──────────────────────────────────────────────────────────────────────
+# Both this audit script AND the blueprint-release.yaml auto-bump hook
+# locate a chart's slot file with the hard-coded regex
+#   `^      chart: <chart-name>$`   (exactly 6 leading spaces)
+# matching the canonical HelmRelease.spec.chart.spec.chart shape used by
+# every existing slot. If a future slot author writes the `chart:` /
+# `version:` lines at a DIFFERENT indent (e.g. 4 or 8 spaces), BOTH the
+# audit and the auto-bump silently skip that slot — the chart appears
+# "not in the bootstrap kit" — and the chart-pin pair drifts forever
+# undetected. This is exactly the failure-mode TBD-A6 was created to
+# prevent, so guard the assumption explicitly here: scan every slot
+# file for ANY `chart:` or `version:` line at a non-6-space indent that
+# is shallower than 16 (a values-tree `version:` is fine; the slot pin
+# lives inside spec.chart.spec at exactly 6 spaces) and FAIL on any
+# match.
+#
+# Note: we only inspect lines that look like HelmRelease chart/version
+# directives (immediately followed by a bp-* name or a semver). Comment
+# lines and indented values-block fields are skipped via the regex.
+indent_violations=0
+for slot in "${KIT_DIR}"/*.yaml; do
+  [ -f "$slot" ] || continue
+  # `chart: bp-<...>` or `chart: <slug>` lines NOT at exactly 6 leading
+  # spaces, restricted to shallow indents (≤14) so we don't false-flag a
+  # `chart:` field inside a deeply nested values block.
+  while IFS= read -r match; do
+    [ -z "$match" ] && continue
+    lineno=$(echo "$match" | cut -d: -f1)
+    content=$(echo "$match" | cut -d: -f2-)
+    indent=$(printf '%s' "$content" | sed -E 's/[^ ].*$//' | awk '{print length}')
+    if [ "$indent" -ne 6 ] && [ "$indent" -le 14 ]; then
+      echo "::error title=Bootstrap-kit slot indent drift::${slot}:${lineno} has \`chart:\` at ${indent}-space indent (expected 6). Both check-bootstrap-kit-pin-sync.sh and blueprint-release.yaml's auto-bump hook key on \`^      chart: <name>\$\` — at any other indent the slot silently drops out of the pin-sync contract." >&2
+      indent_violations=$((indent_violations + 1))
+    fi
+  done < <(grep -nE "^[[:space:]]*chart: [A-Za-z0-9_.-]+\$" "$slot" 2>/dev/null)
+  # Same check for `version:` lines that look like a semver-ish pin
+  # (NOT a `version: v1` apiVersion, NOT a deeply indented values
+  # field). We only care about pins inside HelmRelease.spec.chart.spec.
+  while IFS= read -r match; do
+    [ -z "$match" ] && continue
+    lineno=$(echo "$match" | cut -d: -f1)
+    content=$(echo "$match" | cut -d: -f2-)
+    indent=$(printf '%s' "$content" | sed -E 's/[^ ].*$//' | awk '{print length}')
+    if [ "$indent" -ne 6 ] && [ "$indent" -le 14 ]; then
+      # Skip the no-indent `apiVersion:` and root-level metadata.
+      [ "$indent" -eq 0 ] && continue
+      echo "::error title=Bootstrap-kit slot indent drift::${slot}:${lineno} has \`version:\` at ${indent}-space indent (expected 6). The auto-bump hook's sed targets \`^      version:\` exactly; a non-6-space pin will not be bumped on chart-version changes." >&2
+      indent_violations=$((indent_violations + 1))
+    fi
+  done < <(grep -nE "^[[:space:]]+version: [0-9]+\.[0-9]+\.[0-9]+" "$slot" 2>/dev/null)
+done
+if [ "${indent_violations}" -gt 0 ]; then
+  echo "" >&2
+  echo "FAIL: ${indent_violations} bootstrap-kit slot indent violation(s)." >&2
+  echo "" >&2
+  echo "Fix: re-indent the \`chart:\` and \`version:\` lines inside" >&2
+  echo "spec.chart.spec to exactly 6 spaces, matching every other slot." >&2
+  echo "If the schema must change, update the regex in BOTH" >&2
+  echo "  - scripts/check-bootstrap-kit-pin-sync.sh" >&2
+  echo "  - .github/workflows/blueprint-release.yaml (Auto-bump step)" >&2
+  echo "in lockstep so the auto-bump hook stays in sync." >&2
+  exit 1
+fi
+
 # Build the list of Chart.yaml paths to scan.
 declare -a CHART_YAMLS=()
 if [ -n "${CHANGED_ONLY}" ]; then
