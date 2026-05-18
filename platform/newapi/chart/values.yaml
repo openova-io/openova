@@ -638,6 +638,41 @@ ingress:
   middleware:
     enabled: false
   annotations: {}
+  # ─── Cilium Gateway HTTPRoute (TBD-D35d / issue #1778) ─────────────────
+  # Dedicated HTTPRoute for `newapi.<sovereign-fqdn>` (the LLM-gateway
+  # public hostname Sandbox runtimes hit via MintSandboxToken-emitted
+  # `NEWAPI_BASE_URL=https://newapi.<fqdn>/v1`).
+  #
+  # Why a chart-managed HTTPRoute on Sovereigns: Catalyst's marketplace
+  # chart ships a `tenant-wildcard` HTTPRoute with `hostnames=*.<fqdn>`
+  # that backendRefs to `console`. Gateway API hostname matching prefers
+  # the most specific listener — an exact `newapi.<fqdn>` HTTPRoute wins
+  # over the `*.<fqdn>` wildcard — so this template restores newapi's
+  # public reachability without modifying the marketplace wildcard.
+  #
+  # Backend lives in the SAME `newapi` namespace as this chart (Service
+  # `newapi.newapi.svc:3000`), so no cross-namespace ReferenceGrant is
+  # required. parentRef defaults to `kube-system/cilium-gateway` (the
+  # Sovereign canonical Gateway shipped by sovereign-tls/cilium-gateway.yaml).
+  #
+  # Default OFF (`enabled: false`) — contabo-style Traefik clusters
+  # remain on the Traefik Ingress above. The Catalyst bootstrap-kit
+  # overlay (`clusters/_template/bootstrap-kit/80-newapi.yaml`) flips
+  # this to true for Sovereign installs.
+  httpRoute:
+    enabled: false
+    # Hostname for the HTTPRoute. Defaults to "newapi.<sovereignFQDN>"
+    # when empty AND .Values.sovereignFQDN is set; otherwise template
+    # render skips.
+    host: ""
+    parentRef:
+      name: cilium-gateway
+      namespace: kube-system
+      # Listener sectionName — single-zone Sovereigns use bare "https"
+      # per the t20 listener-naming convention; multi-zone Sovereigns
+      # override to "https-<sanitised-zone>" via the bootstrap-kit
+      # overlay.
+      sectionName: https
 # ─── NetworkPolicy ───────────────────────────────────────────────────────
 # Default-allow ingress from the platform's gateway namespace; egress
 # to Postgres, Valkey, Keycloak, in-cluster vLLM, DNS, and the operator-

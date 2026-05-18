@@ -1,5 +1,17 @@
 apiVersion: v2
 name: bp-newapi
+# 1.4.17 (TBD-D35d #1778, 2026-05-18): add `httproute.yaml` template +
+# `ingress.httpRoute` values block so a Sovereign install can render a
+# Cilium Gateway HTTPRoute for `newapi.<sovereign-fqdn>` that outranks
+# the marketplace `tenant-wildcard` (`*.<sovereign-fqdn>`). Without this
+# the sandbox runtime's `NEWAPI_BASE_URL=https://newapi.<fqdn>/v1` hit
+# the wildcard, was forwarded to the storefront `console` Service, and
+# 502'd the entire BYOS Claude Code journey. The chart-managed HTTPRoute
+# lives in the `newapi` namespace (same as the Service backend), so no
+# cross-namespace ReferenceGrant is required. Default OFF (`ingress.
+# httpRoute.enabled: false`); the bootstrap-kit slot 80 overlay flips
+# it to true and supplies `host: newapi.${SOVEREIGN_FQDN}`.
+#
 # 1.4.15 (TBD-A11 #1765, 2026-05-18): fix `mkdir /data/logs: permission
 # denied` CrashLoopBackOff on every fresh Sovereign. The upstream
 # Calcium-Ion/new-api v0.13.2 binary writes ephemeral logs to
@@ -172,7 +184,7 @@ name: bp-newapi
 # composes on the next reconcile. helm template renders cleanly with
 # BOTH the missing-attestation state (no channel) AND the
 # fully-populated state (channel composed normally).
-version: 1.4.16
+version: 1.4.17
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
