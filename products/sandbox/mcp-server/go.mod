@@ -1,3 +1,60 @@
+// openova-sandbox-mcp is the per-Sandbox MCP server. Wave 8 swapped the
+// Wave-2 stub catalogue for real implementations of:
+//
+//   - gitea.repo.list / gitea.repo.get
+//   - gitea.pr.list / gitea.pr.get
+//   - k8s.read.get / k8s.read.list / k8s.read.watch
+//   - sandbox.session.whoami / sandbox.session.info
+//
+// To reuse the canonical Gitea client (`core/controllers/pkg/gitea`) and
+// the canonical token-claim shape (`core/services/shared/auth.Claims`)
+// without each package growing its own divergent fork, we depend on the
+// in-tree modules via the same `replace` pattern catalyst-bootstrap and
+// every sme-service already use.
+//
+// k8s.io/client-go is the only big new dep — needed for the dynamic
+// + in-cluster client backing k8s.read.*. We use the same v0.31.x line
+// as core/controllers (already the canonical line across the repo).
 module github.com/openova-io/openova/products/sandbox/mcp-server
 
-go 1.22
+go 1.23
+
+require (
+	github.com/golang-jwt/jwt/v5 v5.2.1
+	github.com/openova-io/openova/core/controllers v0.0.0
+	github.com/openova-io/openova/core/services/shared v0.0.0
+	k8s.io/apimachinery v0.31.1
+	k8s.io/client-go v0.31.1
+)
+
+require (
+	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
+	github.com/fxamacker/cbor/v2 v2.7.0 // indirect
+	github.com/go-logr/logr v1.4.2 // indirect
+	github.com/gogo/protobuf v1.3.2 // indirect
+	github.com/google/go-cmp v0.6.0 // indirect
+	github.com/google/gofuzz v1.2.0 // indirect
+	github.com/imdario/mergo v0.3.6 // indirect
+	github.com/json-iterator/go v1.1.12 // indirect
+	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
+	github.com/modern-go/reflect2 v1.0.2 // indirect
+	github.com/spf13/pflag v1.0.5 // indirect
+	github.com/x448/float16 v0.8.4 // indirect
+	golang.org/x/net v0.26.0 // indirect
+	golang.org/x/oauth2 v0.21.0 // indirect
+	golang.org/x/sys v0.27.0 // indirect
+	golang.org/x/term v0.21.0 // indirect
+	golang.org/x/text v0.20.0 // indirect
+	golang.org/x/time v0.3.0 // indirect
+	gopkg.in/inf.v0 v0.9.1 // indirect
+	gopkg.in/yaml.v2 v2.4.0 // indirect
+	k8s.io/klog/v2 v2.130.1 // indirect
+	k8s.io/utils v0.0.0-20240711033017-18e509b52bc8 // indirect
+	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
+	sigs.k8s.io/structured-merge-diff/v4 v4.4.1 // indirect
+	sigs.k8s.io/yaml v1.4.0 // indirect
+)
+
+replace github.com/openova-io/openova/core/controllers => ../../../core/controllers
+
+replace github.com/openova-io/openova/core/services/shared => ../../../core/services/shared

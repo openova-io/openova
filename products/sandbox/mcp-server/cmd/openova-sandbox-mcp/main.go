@@ -6,13 +6,24 @@
 // stdin/stdout. Logging goes to stderr only — anything written to
 // stdout outside an RPC frame breaks the protocol.
 //
-// Wave 2 ships the protocol skeleton + the tool catalogue stubs from
-// products/sandbox/docs/architecture.md §3. Wave 3+ swaps the
-// not_implemented handlers for real Sovereign API calls.
+// Wave 2 shipped the protocol skeleton + the tool catalogue stubs from
+// products/sandbox/docs/architecture.md §3. Wave 8 swapped the stubs
+// for real handlers on:
+//
+//   - gitea.repo.list / gitea.repo.get
+//   - gitea.pr.list / gitea.pr.get
+//   - k8s.read.get / k8s.read.list / k8s.read.watch
+//   - sandbox.session.whoami / sandbox.session.info
+//
+// Other namespaces (sandbox.db.*, sandbox.auth.*, sandbox.stripe.*,
+// sandbox.preview.*, k8s.write.*) remain not_implemented stubs until
+// their respective backends ship. Hard rule: k8s.write.* never lands in
+// the MCP surface — kubectl-apply is out of scope.
 package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,7 +41,7 @@ const (
 	// The number is informational; clients negotiate via `initialize`.
 	protocolVersion = "2024-11-05"
 	serverName      = "openova-sandbox-mcp"
-	serverVersion   = "0.1.0-wave2"
+	serverVersion   = "0.2.0-wave8"
 )
 
 // JSON-RPC 2.0 envelopes.
@@ -61,8 +72,11 @@ func main() {
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds | log.LUTC)
 	log.Printf("%s %s starting (protocol %s)", serverName, serverVersion, protocolVersion)
 
-	reg := tools.NewRegistry()
-	srv := &server{tools: reg, out: os.Stdout}
+	env := tools.NewEnvFromOS()
+	reg := tools.NewRegistry(env)
+	srv := &server{tools: reg, env: env, out: os.Stdout}
+	log.Printf("env: org_id=%q sandbox_id=%q namespace=%q sov=%q gitea_url=%q jwt_secret_set=%v",
+		env.OrgID, env.SandboxID, env.SandboxNamespace, env.SovereignFQDN, env.GiteaBaseURL, len(env.JWTSecret) > 0)
 
 	in := bufio.NewReader(os.Stdin)
 	for {
@@ -84,6 +98,7 @@ func main() {
 // server handles a single MCP peer over stdio.
 type server struct {
 	tools *tools.Registry
+	env   *tools.Env
 	out   io.Writer
 }
 
@@ -133,13 +148,25 @@ func (s *server) handleToolsCall(req rpcRequest) error {
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		return s.writeError(req.ID, -32602, "invalid params", err.Error())
 	}
-	result, err := s.tools.Call(params.Name, params.Arguments)
+
+	// Wave 8: validate the per-call bearer + install Claims on ctx.
+	// In test mode (no SANDBOX_JWT_SECRET), ValidateBearer returns
+	// (nil, nil) and the registry's auth gate is bypassed too.
+	bearer := tools.ExtractBearer(s.env, params.Arguments)
+	claims, err := tools.ValidateBearer(s.env, bearer)
+	if err != nil {
+		return s.writeError(req.ID, -32001, "unauthenticated", err.Error())
+	}
+	args := tools.StripAuthEnvelope(params.Arguments)
+
+	ctx := context.Background()
+	result, err := s.tools.Call(ctx, params.Name, args, tools.CallOpts{Claims: claims})
 	if err != nil {
 		return s.writeError(req.ID, -32000, "tool error", err.Error())
 	}
 	// MCP wraps tool results in {content:[{type:"text", text:"..."}]}
-	// but for Wave 2 stubs the JSON blob is sufficient — the agent's
-	// MCP client tolerates either.
+	// — the agent's MCP client expects that envelope. The raw JSON
+	// payload from the handler lives inside content[0].text.
 	body, _ := json.Marshal(result)
 	return s.writeResult(req.ID, map[string]any{
 		"content": []map[string]any{{"type": "text", "text": string(body)}},
