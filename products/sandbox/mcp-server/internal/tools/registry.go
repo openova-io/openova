@@ -501,6 +501,44 @@ func defaultCatalogue(env *Env) []Tool {
 			RequiredCapability: "sandbox.secrets",
 		},
 
+		// sandbox.deploy.* — per-app staging + production rollouts via
+		// Flux HRs written to the tenant Gitea repo (Wave 13 —
+		// sandbox_deploy.go). Every handler addresses
+		// `<env.OrgID>/catalyst-tenant` and patches
+		// `sandbox/<owner-uid>/deploy/<app>/<env>/helmrelease.yaml`.
+		// Production calls demand a SECOND capability
+		// (`sandbox.deploy.production`) on top of the base
+		// `sandbox.deploy` — Registry gates the first, the handler
+		// gates the second.
+		{
+			Name:               "sandbox.deploy.staging",
+			Description:        "Patch the staging HelmRelease (`<app>-staging`) image in the Org's tenant Gitea repo. Flux on the host reconciles into the Org vcluster.",
+			InputSchema:        schemaSandboxDeployImage(),
+			Handler:            sandboxDeployStaging,
+			RequiredCapability: "sandbox.deploy",
+		},
+		{
+			Name:               "sandbox.deploy.production",
+			Description:        "Patch the production HelmRelease (`<app>-production`) image. Demands an extra `sandbox.deploy.production` capability on top of `sandbox.deploy`.",
+			InputSchema:        schemaSandboxDeployImage(),
+			Handler:            sandboxDeployProduction,
+			RequiredCapability: "sandbox.deploy",
+		},
+		{
+			Name:               "sandbox.deploy.status",
+			Description:        "Read the HelmRelease status (`Ready` condition + observed_image vs requested_image) for the given env.",
+			InputSchema:        schemaSandboxDeployEnv(),
+			Handler:            sandboxDeployStatus,
+			RequiredCapability: "sandbox.deploy",
+		},
+		{
+			Name:               "sandbox.deploy.rollback",
+			Description:        "Revert the HR image to the previously-deployed value (read from `openova.io/last-deployed-image` annotation). Production rollbacks also require `sandbox.deploy.production`.",
+			InputSchema:        schemaSandboxDeployEnv(),
+			Handler:            sandboxDeployRollback,
+			RequiredCapability: "sandbox.deploy",
+		},
+
 		// sandbox.session.* — this MCP server's own metadata (Wave 8).
 		{
 			Name:        "sandbox.session.whoami",
