@@ -176,6 +176,25 @@ spec:
             - name: data
               mountPath: /data
 
+          # TBD-A12 (#1798, 2026-05-18): startupProbe gates liveness +
+          # readiness until the NewAPI binary has finished GORM
+          # AutoMigrate on the empty CNPG database (26 CREATE TABLE +
+          # 2 column-type migrations, 60-120s on cpx21 with
+          # sslmode=require). Pre-A12 liveness SIGKILLed the binary
+          # mid-migration at the 50s mark — the empty `newapi` DB on
+          # t22 chart 1.4.18 had zero tables after 29 restarts because
+          # every kill happened before AutoMigrate finished its first
+          # CREATE TABLE.
+          {{- if .Values.newapi.probes.startup }}
+          startupProbe:
+            httpGet:
+              path: {{ .Values.newapi.probes.startup.path }}
+              port: {{ .Values.newapi.probes.startup.port }}
+            initialDelaySeconds: {{ .Values.newapi.probes.startup.initialDelaySeconds }}
+            periodSeconds: {{ .Values.newapi.probes.startup.periodSeconds }}
+            timeoutSeconds: {{ .Values.newapi.probes.startup.timeoutSeconds }}
+            failureThreshold: {{ .Values.newapi.probes.startup.failureThreshold }}
+          {{- end }}
           livenessProbe:
             httpGet:
               path: {{ .Values.newapi.probes.liveness.path }}

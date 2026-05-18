@@ -1,5 +1,66 @@
 apiVersion: v2
 name: bp-newapi
+# 1.4.19 (TBD-A12 #1798, 2026-05-18): add `startupProbe` to the newapi
+# container to gate liveness + readiness until GORM AutoMigrate
+# finishes on first-boot.
+#
+# ROOT CAUSE (t22 chart 1.4.18 Wave 36 verify):
+#   On a freshly franchised Sovereign the auto-provisioned CNPG database
+#   `newapi` starts empty. The upstream NewAPI binary's bootstrap path
+#   (model/main.go:InitDB → migrateDB) logs "database migration started"
+#   then runs GORM AutoMigrate on 26 models (Channel, Token, User,
+#   PasskeyCredential, Option, Redemption, Ability, Log, Midjourney,
+#   TopUp, QuotaData, Task, Model, Vendor, PrefillGroup, Setup, TwoFA,
+#   TwoFABackupCode, Checkin, SubscriptionOrder, UserSubscription,
+#   SubscriptionPreConsumeRecord, CustomOAuthProvider, UserOAuthBinding,
+#   SubscriptionPlan) plus two column-type migrations
+#   (subscription_plans.price_amount → decimal, tokens.model_limits →
+#   text). The Gin route registration + the `:3000` listen only happen
+#   AFTER migration returns nil.
+#
+#   On a cpx21/cpx31 node with CNPG primary in the same namespace and
+#   sslmode=require this first-boot migration runs 60-120s. Pre-A12
+#   the chart's livenessProbe was `initialDelaySeconds: 30` +
+#   `periodSeconds: 10` + `failureThreshold: 3` ⇒ kubelet SIGKILLed
+#   the container at the 50s mark, EVERY restart, mid-migration. The
+#   empty `newapi` DB on t22 had ZERO public-schema tables after 29
+#   CrashLoopBackOff restarts because every kill races the first GORM
+#   query. pg_stat_activity on CNPG side showed no `newapi` user
+#   connections; the kill happens before the migration's TLS handshake
+#   completes.
+#
+#   Symptom: `[SYS] ... database migration started` is the LAST log
+#   line; container terminates with exit code 2 ~50s later; readiness
+#   probe shows `dial tcp <pod-ip>:3000: connect: connection refused`;
+#   endpoint /v1/models returns 503 "no healthy upstream".
+#
+# FIX (CANONICAL SEAM, Inviolable Principle #16):
+#   StartupProbe owns "is this binary ALIVE for the first time?". It
+#   short-circuits BOTH liveness and readiness until the binary
+#   reports healthy on `:3000/api/status` — at which point those two
+#   probes activate with their normal cadence. The startupProbe gives
+#   GORM AutoMigrate up to 5 minutes (30 × 10s) before it gives up;
+#   well above the observed 60-120s ceiling and below operator-
+#   impatience limits. Once migration completes the binary is no
+#   slower than steady-state, so the existing 10s liveness probe
+#   period and 3-failure threshold are unchanged.
+#
+#   This is the canonical k8s pattern for slow-start migrations — every
+#   chart that bakes a GORM/Alembic/Flyway AutoMigrate against an
+#   empty DB on first boot should own a startupProbe, NOT inflate its
+#   liveness initialDelaySeconds (which would also delay restart
+#   recovery on every subsequent reconcile).
+#
+# TEMPLATABILITY (Inviolable Principle #4):
+#   Every knob (path, port, initialDelaySeconds, periodSeconds,
+#   timeoutSeconds, failureThreshold, AND the gate to disable the
+#   probe entirely) is operator-tunable from per-Sovereign overlays
+#   via .Values.newapi.probes.startup.*. Setting
+#   `.Values.newapi.probes.startup: null` skip-renders the
+#   startupProbe block — operators who pre-seed their database can
+#   opt out and let the (pre-A12) liveness initialDelaySeconds gate
+#   take over.
+#
 # 1.4.17 (TBD-D35d #1778, 2026-05-18): add `httproute.yaml` template +
 # `ingress.httpRoute` values block so a Sovereign install can render a
 # Cilium Gateway HTTPRoute for `newapi.<sovereign-fqdn>` that outranks
@@ -184,7 +245,7 @@ name: bp-newapi
 # composes on the next reconcile. helm template renders cleanly with
 # BOTH the missing-attestation state (no channel) AND the
 # fully-populated state (channel composed normally).
-version: 1.4.18
+version: 1.4.19
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM

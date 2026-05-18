@@ -132,7 +132,18 @@ spec:
       # default so reflector mirrors into `catalyst-system` too.
       # 1.4.14 (current main, 2026-05-18): latest upstream-tracking
       # chart cut — includes 1.4.12's reflector fix.
-      version: 1.4.18
+      # 1.4.19 (TBD-A12 #1798, 2026-05-18): add startupProbe so kubelet
+      # does NOT SIGKILL the binary at the 50s mark while GORM
+      # AutoMigrate is still in-flight on the freshly-provisioned empty
+      # `newapi` CNPG database. Pre-1.4.19 the empty DB on t22 sat with
+      # ZERO tables after 29 CrashLoopBackOff restarts — every kill
+      # raced AutoMigrate's first CREATE TABLE call mid-TLS-handshake;
+      # pg_stat_activity on the CNPG primary showed no `newapi` user
+      # connections because the kill happened before the GORM
+      # connection pool's first wire write completed. Probe budget:
+      # 30 × 10s = 5 min, comfortably above the observed 60-120s
+      # ceiling on cpx21/cpx31 nodes with sslmode=require.
+      version: 1.4.19
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
