@@ -1509,3 +1509,19 @@ security:
       - opentelemetry
       - external-secrets-system
       - cert-manager
+    # Adjacent namespaces whose Pods are allowed to INGRESS into
+    # catalyst-system. Defaults cover:
+    #   - catalyst — bp-self-sovereign-cutover Jobs (incl. the
+    #     10-auto-trigger Pod that fires /api/v1/internal/cutover/
+    #     trigger; without this allow handover NEVER FIRES on a
+    #     fresh prov — regression caught by t24 zero-touch).
+    #   - flux-system — Helm/Kustomize/Source controllers probing
+    #     Service readiness for HelmRelease health rollups.
+    #   - kube-system — Cilium operator + hcloud-ccm + CoreDNS that
+    #     do cluster introspection calls into catalyst-system. The
+    #     reserved.ingress gateway endpoint also in kube-system is
+    #     matched by a separate rule via reserved.ingress: "" label.
+    allowedIngressNamespaces:
+      - catalyst
+      - flux-system
+      - kube-system

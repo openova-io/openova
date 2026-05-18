@@ -71,6 +71,7 @@ when qaFixtures is disabled.
 */}}
 {{- if .Values.security.baselineCnp.enabled }}
 {{- $allowedPlatform := .Values.security.baselineCnp.allowedPlatformNamespaces | default (list "keycloak" "gitea" "powerdns" "cnpg-system" "openbao" "harbor" "nats-system" "loki" "mimir" "tempo" "alloy" "opentelemetry" "external-secrets-system" "cert-manager") }}
+{{- $allowedIngressNs := .Values.security.baselineCnp.allowedIngressNamespaces | default (list "catalyst" "flux-system" "kube-system") }}
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -116,6 +117,46 @@ spec:
         - host
         - remote-node
         - kube-apiserver
+    # 4. Allow ingress from operator-tunable adjacent namespaces.
+    #    Defaults cover three load-bearing senders:
+    #
+    #      - `catalyst` (the cutover namespace) — the
+    #        bp-self-sovereign-cutover chart stamps Jobs into this
+    #        namespace, INCLUDING the 10-auto-trigger Job whose Pod
+    #        curls `catalyst-api.catalyst-system.svc.cluster.local:8080`
+    #        to fire /api/v1/internal/cutover/trigger. Without this
+    #        allow the auto-trigger Pod cannot reach the API service,
+    #        the trigger never fires, handoverFiredAt stays null, and
+    #        D0 auto-redirect to the Sovereign Console never happens —
+    #        the operator is stuck on mothership /jobs forever
+    #        (regression caught by t24 zero-touch verification, fresh
+    #        prov 2026-05-18).
+    #
+    #      - `flux-system` (the Flux controllers) — Helm Controller,
+    #        Kustomize Controller, and Source Controller probe the
+    #        backend Services they reconcile (e.g. catalyst-api
+    #        readinessProbes for HelmRelease health rollups). Pre-#1785
+    #        this worked implicitly because no CNP existed.
+    #
+    #      - `kube-system` (the Cilium operator + kube-proxy + CCM) —
+    #        beyond the kubelet-host probes already covered by
+    #        rule 3, kube-system Pods (cilium-operator, hcloud-ccm,
+    #        coredns recursive probes) need to be allowed for cluster
+    #        introspection. The reserved.ingress endpoint that handles
+    #        public traffic is also in kube-system but is matched by
+    #        rule 1's `reserved.ingress: ""` selector — this rule
+    #        covers the non-gateway kube-system Pods.
+    #
+    #    Operators may extend or shrink this list via
+    #    `.Values.security.baselineCnp.allowedIngressNamespaces`.
+    - fromEndpoints:
+        - matchExpressions:
+            - key: k8s:io.kubernetes.pod.namespace
+              operator: In
+              values:
+{{- range $allowedIngressNs }}
+                - {{ . | quote }}
+{{- end }}
   egress:
     # 1. kube-apiserver — every controller informer (organization,
     #    application, environment, useraccess, blueprint, tenant)
