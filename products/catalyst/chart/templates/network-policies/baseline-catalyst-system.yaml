@@ -152,13 +152,36 @@ spec:
 {{- range $allowedPlatform }}
                 - {{ . | quote }}
 {{- end }}
-    # 5. World egress on TCP/443 — catalyst-api MAY call out to public
-    #    APIs (Dynadot for parent-domain registration, S3 for backup
-    #    seed, GitHub for blueprint fetch). Scoped to TCP/443 only.
+    # 5. World egress — catalyst-api MAY call out to public APIs
+    #    (Dynadot for parent-domain registration, S3 for backup seed,
+    #    GitHub for blueprint fetch, ghcr/harbor pulls) on TCP/443
+    #    AND submit PIN-issue / notification emails to the operator
+    #    Stalwart SMTP relay (mail.openova.io) over TCP/587
+    #    (submission, the production path) with TCP/465 (SMTPS) and
+    #    TCP/25 (legacy SMTP) as fallbacks.
+    #
+    #    Regression context — DO NOT NARROW THIS BLOCK WITHOUT REVIEW
+    #    ────────────────────────────────────────────────────────────
+    #    The original CNP (chart 1.4.171, PR #1785) allowed only
+    #    443/TCP world. The catalyst-api PIN-issue handler reaches
+    #    mail.openova.io:587 to send the verification email at
+    #    customer-journey step 11/12 — that call timed out as soon
+    #    as this CNP rolled out, surfacing as a 502 at
+    #    /api/v1/auth/pin-request and blocking every fresh onboarding
+    #    flow. Diagnostic evidence: a catalyst-system Pod cannot
+    #    `nc 45.151.123.50 587` (timeout) while a default-namespace
+    #    Pod on the SAME node connects fine (220 Stalwart ESMTP banner).
+    #    See chart 1.4.177 changelog above and the fix PR body.
     - toEntities:
         - world
       toPorts:
         - ports:
             - port: "443"
+              protocol: TCP
+            - port: "587"
+              protocol: TCP
+            - port: "465"
+              protocol: TCP
+            - port: "25"
               protocol: TCP
 {{- end }}

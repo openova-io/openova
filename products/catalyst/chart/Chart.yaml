@@ -1169,8 +1169,25 @@ name: bp-catalyst-platform
 # overwritten by the mirror rerun at 17:54:55Z, Organization CR never
 # materialised, customer-journey step 16 hung indefinitely. (Closes
 # #1794 — 5th C18 layer, the last customer-journey blocker.)
-version: 1.4.176
-appVersion: 1.4.176
+# 1.4.177 (TBD-CNP-SMTP-Egress, 2026-05-18): fix regression introduced by
+# #1785 (1.4.171 baseline CNPs). The catalyst-system default-deny CNP
+# limited world egress to TCP/443 only, which silently broke SMTP
+# submission from catalyst-api to mail.openova.io. Diagnostic agent
+# confirmed on the live Sovereign: a catalyst-system Pod cannot
+# `nc 45.151.123.50 587` (timeout) while a default-namespace Pod on the
+# SAME node connects fine (220 Stalwart ESMTP banner). The catalyst-
+# system CNP `baseline-default-deny` was created at 18:13:09Z — the
+# exact moment chart 1.4.171 rolled out — and its egress block reads
+# `toEntities:[world] toPorts:[443/TCP]`. Customer journey step 11/12
+# (PIN-issue email delivery) consequently 502s at /api/v1/auth/pin-
+# request, gating every fresh onboarding flow. Fix: extend the world
+# egress block to additionally permit 587/TCP (SMTP submission, the
+# production path to mail.openova.io), 465/TCP (SMTPS fallback), and
+# 25/TCP (legacy SMTP fallback). All three are explicitly scoped to
+# `toEntities: world`, matching the existing 443/TCP allow. No other
+# rule semantics change. (Fixes PIN-issue 502 regression from #1785.)
+version: 1.4.177
+appVersion: 1.4.177
 # 1.4.172 — feat(security): baseline CiliumNetworkPolicies for
 # catalyst-system + cilium-gateway (Closes #1746, Refs TBD-Cov-12 /
 # C12-009). Cov-bench audit on the live Sovereign cluster confirmed
