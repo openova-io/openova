@@ -3,17 +3,20 @@
 // Each tool is registered with a fully-qualified name (matching the
 // namespaces enumerated in products/sandbox/docs/architecture.md §3)
 // plus a short description. Wave 2 shipped stubs only — every Call()
-// returned {"status":"not_implemented"}. Wave 8 (this file's current
-// shape) replaces the stubs for:
+// returned {"status":"not_implemented"}. Wave 8 replaced the stubs
+// for the read surface; Wave 11 (this file's current shape) extends
+// to the write surface so agents can open PRs / file issues / fetch
+// pod logs end-to-end inside the sandbox:
 //
 //   - gitea.repo.list / gitea.repo.get
-//   - gitea.pr.list / gitea.pr.get
-//   - k8s.read.get / k8s.read.list / k8s.read.watch
+//   - gitea.pr.list / gitea.pr.get / gitea.pr.create / gitea.pr.merge
+//   - gitea.issue.list / gitea.issue.get / gitea.issue.create / gitea.issue.comment
+//   - k8s.read.get / k8s.read.list / k8s.read.watch / k8s.read.logs
 //   - sandbox.session.whoami / sandbox.session.info
 //
 // All other namespaces (sandbox.db.*, sandbox.auth.*, sandbox.stripe.*,
-// sandbox.preview.*, k8s.write.*) remain stubbed and continue to return
-// not_implemented until Wave 8+ ships their backends.
+// sandbox.preview.*, k8s.write.*, gitea.release.list) remain stubbed
+// and continue to return not_implemented until later waves ship them.
 //
 // Wire model recap (architecture.md §3):
 //
@@ -313,11 +316,43 @@ func defaultCatalogue(env *Env) []Tool {
 			Handler:     giteaPRGet,
 		},
 
-		// gitea.* — write surface remains stubbed (Wave 8+).
-		{Name: "gitea.pr.create", Description: "Open a PR (branch -> base) with title and body.", InputSchema: anyObj},
-		{Name: "gitea.pr.merge", Description: "Merge a PR by number (admin or org-admin only).", InputSchema: anyObj},
-		{Name: "gitea.issue.list", Description: "List issues on a repo.", InputSchema: anyObj},
-		{Name: "gitea.issue.create", Description: "Create an issue with title and body.", InputSchema: anyObj},
+		// gitea.* — write surface (Wave 11 wired pr.create/merge + issue.*).
+		{
+			Name:        "gitea.pr.create",
+			Description: "Open a PR (branch -> base) with title and body.",
+			InputSchema: schemaGiteaPRCreate(),
+			Handler:     giteaPRCreate,
+		},
+		{
+			Name:        "gitea.pr.merge",
+			Description: "Merge a PR by number (style=merge|rebase|rebase-merge|squash; default merge).",
+			InputSchema: schemaGiteaPRMerge(),
+			Handler:     giteaPRMerge,
+		},
+		{
+			Name:        "gitea.issue.list",
+			Description: "List issues on a repo (state=open|closed|all, type=issues|pulls).",
+			InputSchema: schemaGiteaIssueList(),
+			Handler:     giteaIssueList,
+		},
+		{
+			Name:        "gitea.issue.get",
+			Description: "Get a single issue by repo + number.",
+			InputSchema: schemaGiteaIssueGet(),
+			Handler:     giteaIssueGet,
+		},
+		{
+			Name:        "gitea.issue.create",
+			Description: "Create an issue with title and body.",
+			InputSchema: schemaGiteaIssueCreate(),
+			Handler:     giteaIssueCreate,
+		},
+		{
+			Name:        "gitea.issue.comment",
+			Description: "Add a comment to an issue (or PR — Gitea conflates).",
+			InputSchema: schemaGiteaIssueComment(),
+			Handler:     giteaIssueComment,
+		},
 		{Name: "gitea.release.list", Description: "List releases on a repo.", InputSchema: anyObj},
 
 		// k8s.read.* — Org vcluster scope (NEVER host).
@@ -339,7 +374,12 @@ func defaultCatalogue(env *Env) []Tool {
 			InputSchema: schemaK8sReadWatch(),
 			Handler:     k8sReadWatch,
 		},
-		{Name: "k8s.read.logs", Description: "Fetch container logs for a pod (read-only).", InputSchema: anyObj},
+		{
+			Name:        "k8s.read.logs",
+			Description: "Fetch the recent N log lines for a pod container (bounded; read-only).",
+			InputSchema: schemaK8sReadLogs(),
+			Handler:     k8sReadLogs,
+		},
 
 		// sandbox.db.* — Wave 8+ (CNPG provisioning).
 		{Name: "sandbox.db.provision", Description: "Provision a CNPG cluster (size + version). Returns Cluster CR ref.", InputSchema: anyObj},
