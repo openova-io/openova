@@ -79,20 +79,31 @@ func main() {
 			slog.Error("failed to connect to NATS", "url", natsURL, "error", err)
 			os.Exit(1)
 		}
-		// EnsureUsageStream is idempotent — safe to call on every
-		// startup. sme-billing owns the Stream lifecycle because it is
-		// the canonical consumer; publishers (the NewAPI metering
-		// sidecar) rely on the Stream existing.
+		// Bootstrap the canonical CATALYST_SME Stream (subjects
+		// `catalyst.>`) at startup so the metering sidecar can publish
+		// immediately on a fresh Sovereign cold-start. We previously
+		// created a separate CATALYST_USAGE Stream here, but on t20
+		// (2026-05-18) that crashed billing with NATS error code 10065
+		// "subjects overlap with an existing stream" — by the time
+		// billing started, CATALYST_SME (subject filter `catalyst.>`)
+		// had already been created by the tenant / provisioning
+		// MultiSubscribers, and JetStream rejects overlapping subject
+		// filters across Streams. The fix is to share CATALYST_SME and
+		// scope billing's reads via a consumer-side FilterSubject
+		// below (SubscribeUsageRecordedOnSME).
+		//
+		// EnsureCatalystSMEStream is idempotent — first-writer-wins
+		// with whatever subscriber bootstraps the Stream first.
 		ensureCtx, ensureCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		if err := nc.EnsureUsageStream(ensureCtx); err != nil {
+		if err := nc.EnsureCatalystSMEStream(ensureCtx); err != nil {
 			ensureCancel()
-			slog.Error("failed to ensure JetStream catalyst.usage stream", "error", err)
+			slog.Error("failed to ensure JetStream CATALYST_SME stream", "error", err)
 			os.Exit(1)
 		}
 		ensureCancel()
 		natsConn = nc
 		slog.Info("connected to NATS JetStream", "url", natsURL,
-			"stream", events.StreamCatalystUsage,
+			"stream", events.StreamCatalystSME,
 			"subject", events.SubjectUsageRecorded)
 	}
 	if redpandaBrokersRaw != "" {
@@ -171,11 +182,16 @@ func main() {
 	// opened for the publisher above so we have a single TCP socket per
 	// process. When NATS_URL is unset the subscriber is skipped (HTTP
 	// path POST /billing/metering/record still works for dev loops).
+	//
+	// t20 fix (2026-05-18): consume off CATALYST_SME with a FilterSubject
+	// scoped to `catalyst.usage.recorded` instead of a separate
+	// CATALYST_USAGE Stream — JetStream rejects overlapping subject
+	// filters across Streams. See EnsureCatalystSMEStream above.
 	if natsConn != nil {
 		subCtx := context.Background()
-		usageSub, err := natsConn.SubscribeUsageRecorded(subCtx)
+		usageSub, err := natsConn.SubscribeUsageRecordedOnSME(subCtx)
 		if err != nil {
-			slog.Error("failed to subscribe to catalyst.usage.recorded", "error", err)
+			slog.Error("failed to subscribe to catalyst.usage.recorded on CATALYST_SME", "error", err)
 			os.Exit(1)
 		}
 		defer usageSub.Close()
