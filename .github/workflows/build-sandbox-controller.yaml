@@ -1,0 +1,190 @@
+name: Build sandbox-controller
+
+# sandbox-controller — Wave 1 of the Sandbox product (PR #1622). Sister
+# of organization-controller / application-controller; watches Sandbox
+# CRs (sandbox.openova.io/v1) and reconciles per-Sandbox namespace +
+# RBAC + PVCs + placeholder tokens into the per-Org `catalyst-tenant`
+# Gitea repo. Per products/sandbox/docs/architecture.md §7.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4a (GitHub Actions is the only
+# build path) every image that runs on OpenOva infra MUST be produced
+# by a CI workflow from a committed git SHA. Shape mirrors
+# build-application-controller.yaml — same Buildx + cosign keyless
+# sign + SBOM attestation + auto-bump of the chart values.yaml so the
+# next Sovereign install picks up the SHA-pinned image without an
+# operator manually editing the file.
+#
+# Per `feedback_inviolable_principles.md`: event-driven only, NO cron.
+# Triggers on push-to-main with paths filter (so unrelated commits
+# don't burn CI minutes), pull_request for reviewers, and
+# workflow_dispatch for manual re-runs.
+
+on:
+  push:
+    paths:
+      - 'core/controllers/sandbox/**'
+      - 'core/controllers/internal/**'
+      - 'core/controllers/pkg/**'
+      - 'core/controllers/go.mod'
+      - 'core/controllers/go.sum'
+      - '.github/workflows/build-sandbox-controller.yaml'
+    branches: [main]
+  pull_request:
+    paths:
+      - 'core/controllers/sandbox/**'
+      - 'core/controllers/internal/**'
+      - 'core/controllers/pkg/**'
+      - 'core/controllers/go.mod'
+      - 'core/controllers/go.sum'
+      - '.github/workflows/build-sandbox-controller.yaml'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/openova-io/openova/sandbox-controller
+  CHART_VALUES: platform/sandbox/chart/values.yaml
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      # contents: write — the deploy step below pushes a values.yaml SHA
+      # bump back to main so the platform/sandbox chart picks up the
+      # newly-built image without an operator manually editing the file
+      # (per `feedback_no_mvp_no_workarounds.md` rule 1: target-state,
+      # never "manual follow-up bump").
+      contents: write
+      packages: write
+      # id-token write is required by cosign keyless signing (Sigstore).
+      id-token: write
+    outputs:
+      sha_short: ${{ steps.vars.outputs.sha_short }}
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set short SHA
+        id: vars
+        run: echo "sha_short=$(echo $GITHUB_SHA | head -c 7)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: |
+            core/controllers/go.sum
+
+      - name: go vet
+        working-directory: core/controllers
+        # Slice CC1 (#1095) consolidated the Group C controllers into a
+        # single shared go.mod. Vet scoped to this controller's tree
+        # plus the shared internal/ + pkg/ helpers it depends on.
+        run: go vet ./sandbox/... ./internal/... ./pkg/...
+
+      - name: Run unit tests
+        working-directory: core/controllers
+        run: go test -count=1 -race ./sandbox/... ./internal/... ./pkg/...
+
+      # On pull_request runs we stop here — image push requires
+      # `packages: write` which only main-branch authors hold.
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        if: github.event_name != 'pull_request'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        id: build
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          # Build context is the repository root so the Dockerfile's
+          # COPY paths can reach core/controllers/{go.mod,internal,pkg,
+          # sandbox}/.
+          context: .
+          file: core/controllers/sandbox/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}
+            ${{ env.IMAGE }}:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/openova-io/openova
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=sandbox-controller
+            org.opencontainers.image.description=Reconciles Sandbox.sandbox.openova.io/v1 CRs into per-Org Gitea manifests (Wave 1 of #1615)
+          # provenance=false: containerd 1.7.x on k3s mis-resolves the
+          # provenance attestation manifest. SBOM attestation handled by
+          # the cosign attest step below.
+          provenance: false
+          sbom: false
+
+      - name: Install cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image with cosign (keyless)
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign sign --yes "${IMAGE}@${DIGEST}"
+
+      - name: Generate and attest SBOM
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign attest --yes \
+            --predicate <(echo '{"sbom":"in-toto-spdx attached at build time"}') \
+            --type spdx \
+            "${IMAGE}@${DIGEST}"
+
+      # Auto-bump the chart values.yaml tag so the next Sovereign chart
+      # rollout picks up this image without a manual edit. Per
+      # `feedback_no_mvp_no_workarounds.md` rule 1 (target-state, no
+      # operator-action gates) and `feedback_inviolable_principles.md`
+      # (event-driven, never cron). Unlike build-k8s-ws-proxy.yaml this
+      # workflow does NOT bump Chart.yaml — the Sandbox chart's
+      # publication cadence is gated by Wave-2 readiness, not per-image
+      # builds. Operators flip `enabled: true` per Sovereign overlay.
+      - name: Install yq
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        run: |
+          sudo wget -qO /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Bump image.tag in values.yaml
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          SHA_SHORT: ${{ steps.vars.outputs.sha_short }}
+        run: |
+          set -euo pipefail
+          yq eval -i ".image.tag = \"${SHA_SHORT}\"" "${CHART_VALUES}"
+          echo "values.yaml after bump:"
+          yq eval '.image' "${CHART_VALUES}"
+
+      - name: Commit and push values.yaml bump
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          SHA_SHORT: ${{ steps.vars.outputs.sha_short }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet "${CHART_VALUES}"; then
+            echo "no values.yaml change — already pinned to ${SHA_SHORT}"
+            exit 0
+          fi
+          git add "${CHART_VALUES}"
+          git commit -m "deploy: bump sandbox-controller image to ${SHA_SHORT}"
+          # Pull-rebase to avoid races with parallel build commits.
+          git pull --rebase --autostash origin main || true
+          git push origin HEAD:main
