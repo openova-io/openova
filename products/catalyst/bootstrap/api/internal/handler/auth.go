@@ -35,6 +35,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/smtp"
+	"net/textproto"
 	"net/url"
 	"os"
 	"strings"
@@ -303,6 +304,50 @@ func (h *Handler) HandlePinIssue(w http.ResponseWriter, r *http.Request) {
 		// Roll back so the cooldown doesn't punish the operator for an SMTP
 		// transient.
 		store.drop(email)
+
+		// Categorise the failure so the test bench + operator can tell
+		// "relay broken" apart from "recipient mailbox does not exist".
+		//
+		// Go's net/smtp surfaces the server's reply line as
+		// *textproto.Error{Code, Msg}. RFC 5321 §4.2.1: 5xx = permanent
+		// caller fault (bad recipient, mailbox not found, policy reject);
+		// 4xx = transient relay fault (greylisted, rate-limited); the
+		// non-textproto path covers TCP/TLS/auth failures upstream of any
+		// reply (relay unreachable, certificate invalid, AUTH refused).
+		//
+		// We distinguish these because the bench (WBS Cov-bench C6-010)
+		// runs synthetic addresses like wbs-cov-redeem-<ts>@openova.io
+		// which Stalwart rejects 550 "Mailbox does not exist" — that's a
+		// well-formed bench result for the test design, NOT a sign that
+		// the relay is broken for real customer addresses. The previous
+		// opaque 502 swallowed this distinction and made every relay
+		// transient look identical to a bad recipient.
+		var smtpErr *textproto.Error
+		if errors.As(err, &smtpErr) {
+			h.log.Error("pin/issue: SMTP rejected",
+				"email", email, "requestID", requestID,
+				"smtpCode", smtpErr.Code, "smtpMsg", smtpErr.Msg)
+			// 5xx from the server = permanent recipient/policy failure.
+			// Surface 422 so the caller knows retry won't help.
+			if smtpErr.Code >= 500 && smtpErr.Code < 600 {
+				writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+					"error":    "email-rejected",
+					"detail":   "mail server rejected this recipient",
+					"smtpCode": smtpErr.Code,
+				})
+				return
+			}
+			// 4xx (transient) → 502 so the operator can retry.
+			writeJSON(w, http.StatusBadGateway, map[string]any{
+				"error":    "email-send-failed",
+				"detail":   "mail server temporarily unavailable",
+				"smtpCode": smtpErr.Code,
+			})
+			return
+		}
+
+		// Non-protocol error (TCP/TLS/auth/DNS) — the relay itself is
+		// unreachable or misconfigured. 502 is correct.
 		h.log.Error("pin/issue: SMTP send failed", "email", email, "requestID", requestID, "err", err)
 		writeJSON(w, http.StatusBadGateway, map[string]string{
 			"error":  "email-send-failed",
