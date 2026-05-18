@@ -25,7 +25,7 @@
  */
 
 import { useState } from 'react'
-import { Link } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { PortalShell } from '../PortalShell'
@@ -260,15 +260,36 @@ interface StartSandboxModalProps {
 
 function StartSandboxModal({ agent, onClose }: StartSandboxModalProps) {
   const qc = useQueryClient()
+  const navigate = useNavigate()
   const [name, setName] = useState('')
   const [repo, setRepo] = useState('')
   const [error, setError] = useState<string | null>(null)
 
+  // Wave 15 (PR sandbox-wave15-provisioning-ui): on successful create
+  // we navigate the operator straight to /sandbox/$id. The session
+  // page polls GET /sessions/{id} every 2s via SandboxProvisioningPanel
+  // until phase===Ready, then auto-attaches the xterm.js panel. The
+  // landing's recent-sessions list still picks up the new row via the
+  // ['sandbox-sessions'] invalidation so a returning operator can re-
+  // attach later.
   const create = useMutation({
     mutationFn: createSandbox,
-    onSuccess: () => {
+    onSuccess: (sandbox) => {
       void qc.invalidateQueries({ queryKey: ['sandbox-sessions'] })
+      // Seed the per-session cache with the freshly-created row so the
+      // SandboxProvisioningPanel renders the canonical 6-stage
+      // waterfall on first paint without waiting for the first 2s
+      // poll tick to land.
+      qc.setQueryData(['sandbox-session', sandbox.id], sandbox)
       onClose()
+      // Navigate to /sandbox/$id. TanStack params are typed via the
+      // route's param shape; the `as never` mirrors the existing
+      // Link({ to: '/sandbox/$id', params: { id } }) pattern used by
+      // the Recent sessions rail above.
+      navigate({
+        to: '/sandbox/$id' as never,
+        params: { id: sandbox.id } as never,
+      })
     },
     onError: (err) => setError((err as Error).message),
   })
