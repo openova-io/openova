@@ -77,6 +77,43 @@ export const SANDBOX_AGENTS: readonly SandboxAgent[] = [
 
 export type SandboxStatus = 'pending' | 'running' | 'stopped' | 'failed' | 'unknown'
 
+/**
+ * Raw CRD phase vocabulary as the sandbox-controller emits it on
+ * `.status.phase`. Surfaced verbatim alongside the FE-projected
+ * `SandboxStatus` so the provisioning UI can render finer-grained
+ * progress (e.g. "Provisioning" spinner vs. "Pending" queued state)
+ * without re-implementing the controller's projection rules.
+ *
+ * The catalyst-api projection lives in
+ * `products/catalyst/bootstrap/api/internal/handler/sandbox_sessions.go`
+ * (PR #1673 — `mapSandboxStatus` + `readSandboxPhase`).
+ */
+export type SandboxPhase = 'Pending' | 'Provisioning' | 'Ready' | 'Failed' | ''
+
+/**
+ * K8s-style condition tuple — surfaced verbatim from
+ * `.status.conditions[]` so the FE can render actionable failure
+ * reasons (TokenMintFailed | ManifestRenderFailed | GitopsWriteFailed
+ * | OwnerEmailInvalid | NoAllowedChannels) inline. The full list of
+ * canonical reason strings lives on the controller's `fail()` helper —
+ * see `core/controllers/sandbox/internal/sandboxapi/types.go`.
+ *
+ * Mirrors the catalyst-api wire shape verbatim (`sandboxCondition` in
+ * sandbox_sessions.go).
+ */
+export interface SandboxCondition {
+  /** Condition type (e.g. `Ready`, `Provisioning`, `TokenMintFailed`). */
+  type: string
+  /** Condition status (`True` | `False` | `Unknown`). */
+  status: string
+  /** Operator-facing reason code (e.g. `TokenMintFailed`). */
+  reason?: string
+  /** Free-form operator-facing message. */
+  message?: string
+  /** RFC3339 transition timestamp. */
+  lastTransitionTime?: string
+}
+
 export interface Sandbox {
   /** Stable Sandbox CR name (sandbox-<slug>). */
   id: string
@@ -85,10 +122,24 @@ export interface Sandbox {
   /** Agent binary id chosen at create time. */
   agent: SandboxAgent['id']
   status: SandboxStatus
+  /**
+   * Raw controller phase (Pending|Provisioning|Ready|Failed). Empty
+   * when the controller hasn't observed the CR yet. Always available
+   * post-PR #1673; older catalyst-api builds omit this field, in which
+   * case the FE falls back to `status` for the phase badge.
+   */
+  phase: SandboxPhase
   /** ISO-8601 creation timestamp. */
   createdAt: string
   /** Repo path mounted at /repo (e.g. 'org/site'); empty when none. */
   repo: string
+  /**
+   * Controller-managed K8s-style conditions. Empty slice when the
+   * controller hasn't observed the CR yet OR when no conditions have
+   * been recorded. Always materialised as an array (never undefined)
+   * so the FE never has to defensively `?? []`.
+   */
+  conditions: SandboxCondition[]
 }
 
 export interface SandboxesResponse {
@@ -131,17 +182,7 @@ export async function getSandboxes(): Promise<SandboxesResponse> {
     const sandboxes: Sandbox[] = body.sandboxes
       .map((raw): Sandbox | null => {
         if (!raw || typeof raw !== 'object') return null
-        const r = raw as Record<string, unknown>
-        const id = typeof r.id === 'string' ? r.id : ''
-        if (id === '') return null
-        return {
-          id,
-          name: typeof r.name === 'string' && r.name !== '' ? r.name : id,
-          agent: normalizeAgent(r.agent),
-          status: normalizeStatus(r.status),
-          createdAt: typeof r.createdAt === 'string' ? r.createdAt : '',
-          repo: typeof r.repo === 'string' ? r.repo : '',
-        }
+        return normalizeSandbox(raw as Record<string, unknown>)
       })
       .filter((s): s is Sandbox => s !== null)
     return { pendingApi: false, sandboxes }
@@ -182,13 +223,94 @@ export async function createSandbox(req: CreateSandboxRequest): Promise<Sandbox>
     throw new Error(`create sandbox: ${detail}`)
   }
   const raw = (await res.json()) as Record<string, unknown>
+  const normalised = normalizeSandbox(raw)
+  if (!normalised) {
+    throw new Error('create sandbox: invalid response body')
+  }
+  return normalised
+}
+
+/**
+ * getSandbox — GET /v1/sandbox/sessions/{id}. Fetches a single Sandbox
+ * row by name; returns `null` on 404 (operator deleted the sandbox in
+ * another tab) so the SandboxSession provisioning panel can short-
+ * circuit its poll loop without surfacing a misleading "still
+ * provisioning" spinner.
+ *
+ * Other non-2xx responses throw with the server-side `detail` /
+ * `error` field so the FE can surface them in a retry banner.
+ *
+ * Used by the SandboxProvisioningPanel to poll Phase + Conditions
+ * until `phase==='Ready'` (terminal-success) or `phase==='Failed'`
+ * (terminal-failure → surface conditions[] + retry CTA).
+ */
+export async function getSandbox(id: string): Promise<Sandbox | null> {
+  const res = await authedFetch(
+    `${SANDBOX_BASE}/sessions/${encodeURIComponent(id)}`,
+    { headers: { Accept: 'application/json' } },
+  )
+  if (res.status === 404) return null
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`
+    try {
+      const body = (await res.json()) as { detail?: string; error?: string }
+      detail = body.detail ?? body.error ?? detail
+    } catch {
+      // non-JSON body — keep the status-line message
+    }
+    throw new Error(`get sandbox: ${detail}`)
+  }
+  const raw = (await res.json()) as Record<string, unknown>
+  const normalised = normalizeSandbox(raw)
+  if (!normalised) {
+    throw new Error('get sandbox: invalid response body')
+  }
+  return normalised
+}
+
+/**
+ * deleteSandbox — DELETE /v1/sandbox/sessions/{id}. The catalyst-api
+ * handler is idempotent (204 even when the CR is already gone) so the
+ * FE can retry safely. Used by the "Delete + retry" flow when a
+ * provisioning attempt lands in `Failed`.
+ */
+export async function deleteSandbox(id: string): Promise<void> {
+  const res = await authedFetch(
+    `${SANDBOX_BASE}/sessions/${encodeURIComponent(id)}`,
+    { method: 'DELETE', headers: { Accept: 'application/json' } },
+  )
+  if (!res.ok && res.status !== 204 && res.status !== 404) {
+    let detail = `HTTP ${res.status}`
+    try {
+      const body = (await res.json()) as { detail?: string; error?: string }
+      detail = body.detail ?? body.error ?? detail
+    } catch {
+      // non-JSON body — keep the status-line message
+    }
+    throw new Error(`delete sandbox: ${detail}`)
+  }
+}
+
+/**
+ * normalizeSandbox — single defensive projection from the catalyst-api
+ * wire shape to the FE `Sandbox` type. Shared by `getSandboxes`,
+ * `getSandbox`, and `createSandbox` so they cannot drift.
+ *
+ * Returns `null` when the row is missing the `id` field (the FE keys
+ * every list/lookup by id; an unkeyed row is unusable).
+ */
+function normalizeSandbox(raw: Record<string, unknown>): Sandbox | null {
+  const id = typeof raw.id === 'string' ? raw.id : ''
+  if (id === '') return null
   return {
-    id: typeof raw.id === 'string' ? raw.id : '',
-    name: typeof raw.name === 'string' ? raw.name : '',
+    id,
+    name: typeof raw.name === 'string' && raw.name !== '' ? raw.name : id,
     agent: normalizeAgent(raw.agent),
     status: normalizeStatus(raw.status),
+    phase: normalizePhase(raw.phase),
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : '',
     repo: typeof raw.repo === 'string' ? raw.repo : '',
+    conditions: normalizeConditions(raw.conditions),
   }
 }
 
@@ -375,6 +497,35 @@ function normalizeStatus(raw: unknown): SandboxStatus {
   const s = raw.toLowerCase()
   if (s === 'pending' || s === 'running' || s === 'stopped' || s === 'failed') return s
   return 'unknown'
+}
+
+function normalizePhase(raw: unknown): SandboxPhase {
+  if (typeof raw !== 'string') return ''
+  const s = raw.trim()
+  if (s === 'Pending' || s === 'Provisioning' || s === 'Ready' || s === 'Failed') return s
+  return ''
+}
+
+function normalizeConditions(raw: unknown): SandboxCondition[] {
+  if (!Array.isArray(raw)) return []
+  const out: SandboxCondition[] = []
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue
+    const r = entry as Record<string, unknown>
+    const type = typeof r.type === 'string' ? r.type.trim() : ''
+    if (type === '') continue
+    out.push({
+      type,
+      status: typeof r.status === 'string' ? r.status.trim() : '',
+      reason: typeof r.reason === 'string' ? r.reason.trim() : undefined,
+      message: typeof r.message === 'string' ? r.message.trim() : undefined,
+      lastTransitionTime:
+        typeof r.lastTransitionTime === 'string'
+          ? r.lastTransitionTime.trim()
+          : undefined,
+    })
+  }
+  return out
 }
 
 function normalizeByosStatus(raw: unknown): ByosStatus {

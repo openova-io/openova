@@ -53,7 +53,8 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { Link, useParams } from '@tanstack/react-router'
+import { Link, useNavigate, useParams } from '@tanstack/react-router'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Terminal } from 'xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import 'xterm/css/xterm.css'
@@ -61,6 +62,15 @@ import 'xterm/css/xterm.css'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { PortalShell } from '../PortalShell'
 import { useDeploymentEvents } from '../useDeploymentEvents'
+import {
+  deleteSandbox,
+  getSandbox,
+  type Sandbox,
+} from '@/lib/sandbox.api'
+import {
+  SandboxProvisioningPanel,
+  isSandboxReady,
+} from './SandboxProvisioningPanel'
 
 /** ConnectionPhase — state the small header banner reflects. */
 export type SandboxConnectionPhase =
@@ -77,6 +87,14 @@ export type SandboxConnectionPhase =
  * monkey-patching setTimeout.
  */
 const RECONNECT_BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000]
+
+/**
+ * SANDBOX_POLL_INTERVAL_MS — poll cadence for the provisioning panel
+ * while the Sandbox CR is still reconciling. 2s matches the
+ * sandbox-controller's reconcile resyncPeriod (so a status flip on the
+ * apiserver lands in the FE within one poll cycle in the typical case).
+ */
+const SANDBOX_POLL_INTERVAL_MS = 2_000
 
 export interface SandboxSessionProps {
   /** Test seam — disables the live SSE attach. */
@@ -113,6 +131,19 @@ export interface SandboxSessionProps {
    * close does not schedule a retry. Production never sets this.
    */
   disableReconnect?: boolean
+  /**
+   * Test seam — bypass the React Query fetcher for the
+   * provisioning-status poll with synthetic data. When set, the
+   * provisioning panel renders against this value and `getSandbox` is
+   * not called. Production never sets this.
+   */
+  initialSandboxOverride?: Sandbox | null
+  /**
+   * Test seam — disable the provisioning poll entirely. Used by the
+   * existing WebSocket-contract tests so they don't have to mock the
+   * `/sessions/{id}` endpoint. Defaults to false in production.
+   */
+  disableProvisioningPoll?: boolean
 }
 
 export function SandboxSession({
@@ -122,12 +153,17 @@ export function SandboxSession({
   resizeFetcher,
   reconnectBackoffMs = RECONNECT_BACKOFF_MS,
   disableReconnect = false,
+  initialSandboxOverride,
+  disableProvisioningPoll = false,
 }: SandboxSessionProps = {}) {
   const params = useParams({ strict: false }) as { id?: string }
   const sessionId = params.id ?? ''
 
   const { deploymentId: resolvedId } = useResolvedDeploymentId()
   const deploymentId = resolvedId ?? ''
+
+  const navigate = useNavigate()
+  const qc = useQueryClient()
 
   const { snapshot } = useDeploymentEvents({
     deploymentId,
@@ -136,6 +172,96 @@ export function SandboxSession({
   })
   const sovereignFQDN =
     snapshot?.sovereignFQDN ?? snapshot?.result?.sovereignFQDN ?? null
+
+  /* ── Provisioning poll ─────────────────────────────────────────
+   *
+   * Polls GET /api/v1/sandbox/sessions/{id} every 2s while the
+   * controller is still reconciling. Once `phase==='Ready'` the
+   * `refetchInterval` short-circuits (returns `false`) so we stop
+   * polling the apiserver — at that point the xterm.js panel renders
+   * the WebSocket-attached terminal and the row's status is updated
+   * lazily via the existing recent-sessions list refresh on the
+   * landing page.
+   *
+   * The query tolerates 404 by returning `null` from `getSandbox` —
+   * the provisioning panel surfaces a "session no longer exists" state
+   * with a back-to-landing CTA in that case.
+   */
+  const sandboxQuery = useQuery<Sandbox | null>({
+    queryKey: ['sandbox-session', sessionId],
+    queryFn: () => getSandbox(sessionId),
+    enabled:
+      !disableProvisioningPoll &&
+      initialSandboxOverride === undefined &&
+      sessionId !== '',
+    refetchInterval: (query) => {
+      const data = query.state.data
+      // Stop polling once we hit a terminal phase. The terminal
+      // surface re-mounts when phase flips to Ready; if it flips back
+      // to Failed (controller marks the sandbox dead), polling stays
+      // off — operator's "Delete + retry" mutation refetches.
+      if (data && (data.phase === 'Ready' || data.phase === 'Failed')) {
+        return false
+      }
+      return SANDBOX_POLL_INTERVAL_MS
+    },
+    refetchIntervalInBackground: false,
+    placeholderData: (prev) => prev,
+    // Retry-once on transient errors; the panel surfaces the message
+    // and the next poll tick re-tries automatically.
+    retry: 1,
+    staleTime: 0,
+  })
+
+  const sandbox: Sandbox | null =
+    initialSandboxOverride !== undefined
+      ? initialSandboxOverride
+      : sandboxQuery.data ?? null
+  const pollError = sandboxQuery.error
+    ? (sandboxQuery.error as Error).message
+    : null
+  // While the very first request is in flight we still want the panel
+  // to render the target-state chrome (per docs/INVIOLABLE-PRINCIPLES.md
+  // #1) — pass an empty Sandbox so the stage list shows the canonical
+  // 6-row waterfall with the first row as "in progress".
+  const placeholderSandbox: Sandbox = {
+    id: sessionId,
+    name: sessionId,
+    agent: 'claude-code',
+    status: 'pending',
+    phase: '',
+    createdAt: '',
+    repo: '',
+    conditions: [],
+  }
+  const isInitialLoad =
+    initialSandboxOverride === undefined &&
+    !disableProvisioningPoll &&
+    sandboxQuery.isLoading
+  const displaySandbox: Sandbox | null =
+    sandbox ?? (isInitialLoad ? placeholderSandbox : null)
+  const ready = isSandboxReady(displaySandbox)
+  // While provisioning we hide the xterm.js panel — but keep its host
+  // div mounted (display:none) so the WebSocket effect's element ref
+  // resolution doesn't crash if a snapshot arrives mid-provisioning.
+  const showTerminal = disableProvisioningPoll || ready
+
+  /* ── Retry mutation ────────────────────────────────────────────
+   *
+   * "Delete + retry" — fires DELETE /sessions/{id} then bounces the
+   * operator back to the landing page where they re-pick an agent.
+   * The mutation re-uses the existing deleteSandbox endpoint (the
+   * handler is idempotent; repeated DELETEs return 204 even when the
+   * CR is gone).
+   */
+  const retryMutation = useMutation({
+    mutationFn: () => deleteSandbox(sessionId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['sandbox-sessions'] })
+      void qc.invalidateQueries({ queryKey: ['sandbox-session', sessionId] })
+      navigate({ to: '/sandbox' as never })
+    },
+  })
 
   const hostRef = useRef<HTMLDivElement | null>(null)
   const termRef = useRef<Terminal | null>(null)
@@ -150,6 +276,12 @@ export function SandboxSession({
   // re-mounting the terminal.
   useEffect(() => {
     if (disableTerminal) return
+    // While the provisioning panel is up, the xterm host is hidden
+    // (display:none) — skip the heavy Terminal mount + WS connect
+    // until the controller flips phase to Ready. This avoids the
+    // ~6-retry reconnect storm against a non-existent ingress that
+    // the previous PR #1670 build exhibited on a fresh sandbox.
+    if (!showTerminal) return
     const host = hostRef.current
     if (!host) return
 
@@ -216,14 +348,24 @@ export function SandboxSession({
       termRef.current = null
       fitRef.current = null
     }
-  }, [disableTerminal, sessionId, sovereignFQDN, resizeFetcher])
+  }, [disableTerminal, sessionId, sovereignFQDN, resizeFetcher, showTerminal])
 
   // WebSocket connect + auto-reconnect loop. Re-runs when sessionId or
   // sovereignFQDN changes (the snapshot arrives async after first
   // paint; once it lands the URL is stable for the rest of the
-  // session).
+  // session). Gated on `showTerminal` so we don't reconnect-storm a
+  // sandbox.<fqdn> ingress that doesn't exist yet while the controller
+  // is still provisioning the Sandbox CR.
   useEffect(() => {
     if (!sessionId || !sovereignFQDN) {
+      setPhase('idle')
+      return
+    }
+    if (!showTerminal) {
+      // Still provisioning — keep the connection state idle so the
+      // banner stays clean. The effect re-runs when showTerminal flips
+      // true (via sandboxQuery's refetchInterval) and the WS dial
+      // happens then.
       setPhase('idle')
       return
     }
@@ -375,6 +517,7 @@ export function SandboxSession({
     resizeFetcher,
     reconnectBackoffMs,
     disableReconnect,
+    showTerminal,
     // disableTerminal isn't in the dep array on purpose — the WS pump
     // runs regardless so the connect / message contract is exercised
     // in tests that disable the visual terminal.
@@ -396,11 +539,39 @@ export function SandboxSession({
       }
     >
       <div className="mx-auto max-w-7xl" data-testid="sandbox-session-page">
+        {/*
+          Provisioning panel — shown while the sandbox-controller is
+          still reconciling the Sandbox CR. Polls /sessions/{id} every
+          2s, surfaces phase + per-stage progress, flips to a failure
+          card + retry CTA when phase===Failed. Hidden once
+          phase===Ready so the xterm.js panel takes over.
+
+          Skipped entirely when `disableProvisioningPoll` is set
+          (existing WebSocket-contract tests). The xterm host always
+          stays mounted (display:none while provisioning) so the
+          WebSocket effect's hostRef stays stable across the gate flip.
+        */}
+        {!disableProvisioningPoll && !showTerminal ? (
+          <SandboxProvisioningPanel
+            sandbox={displaySandbox}
+            isPolling={sandboxQuery.isFetching}
+            pollError={pollError}
+            onRetry={() => retryMutation.mutate()}
+            onBackToLanding={() => navigate({ to: '/sandbox' as never })}
+            isRetrying={retryMutation.isPending}
+          />
+        ) : null}
+
         <section
           aria-label="Sandbox terminal"
           data-testid="sandbox-session-card"
           data-connection-phase={phase}
+          data-show-terminal={showTerminal ? 'true' : 'false'}
           className="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-2)] p-5"
+          // Keep the section in the DOM so the xterm host's ref + the
+          // resize listener stay attached across provisioning → ready
+          // transitions; toggle visibility instead of unmounting.
+          style={showTerminal ? undefined : { display: 'none' }}
         >
           <header className="mb-4 flex items-start justify-between gap-3">
             <div>
