@@ -54,7 +54,7 @@ spec:
   chart:
     spec:
       chart: bp-kyverno
-      version: 1.0.0
+      version: 1.1.0
       sourceRef:
         kind: HelmRepository
         name: bp-kyverno
