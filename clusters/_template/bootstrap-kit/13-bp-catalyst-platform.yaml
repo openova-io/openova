@@ -550,7 +550,20 @@ spec:
       #   Resources/Logs tab namespace+label fix (HR.spec.target-
       #   Namespace + chart-name label) + "Bootstrap blueprint"
       #   chip for bp-* (founder bug #4, C4-003/004/005/007/013).
-      version: 1.4.162
+      # 1.4.163 (Wave 16 collector, 2026-05-18): republishes the chart
+      # OCI artifact so it actually contains every chart-template change
+      # merged after the 1.4.162 publish (commit 0ad78790). Without the
+      # republish, bootstrap-kit pin 1.4.162 pulls an artifact missing
+      # the new templates and Sovereigns boot with stale chart bytes.
+      # Baked: #1644 tenantPublic HTTPRoute reconciler + #1650
+      # tenantPublic setter on product-install + #1640 Cilium Gateway
+      # per-zone listener pairs + #1654 bp-newapi attestation gate +
+      # sandbox-controller post-handover refinements (D31 HS env vars,
+      # sovereign-fqdn ConfigMap keys, cutover-driver sandboxes RBAC,
+      # values.yaml sovereign.{enableHotStandby,primaryRegion,
+      # replicaRegion} defaults). See Chart.yaml header comment for
+      # the full change list.
+      version: 1.4.163
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
