@@ -22,10 +22,25 @@
 //	KEYCLOAK_ADMIN_URL          = "http://keycloak.keycloak.svc.cluster.local:8080"
 //	KEYCLOAK_ADMIN_TOKEN        = "<admin bearer>" (sandbox-controller-injected)
 //	KEYCLOAK_PARENT_REALM       = "master"  (default; controller may override)
+//	SANDBOX_DOMAIN_API_URL      = "http://domain.sme.svc.cluster.local:8086"
+//	SANDBOX_MARKETPLACE_API_URL = "http://marketplace-api.marketplace.svc.cluster.local:8082"
+//	SANDBOX_TENANT_ID           = "<tenant-uuid>" (scopes domain/byod calls)
 //
 // SANDBOX_JWT_SECRET empty AND SANDBOX_ORG_ID empty = test mode
 // (the registry skips its auth gate so unit tests don't need to mint a
 // JWT per call).
+//
+// D31 active-hot-standby — three additional env vars threaded by the
+// sandbox-controller from its chart values (platform/sandbox/chart/
+// values.yaml `cnpg.activeHotStandby.*`). When the Sovereign opts in,
+// sandbox.db.provision emits a primary + replica Cluster CR pair
+// instead of a single Cluster (matching the bp-cnpg-pair pattern under
+// platform/cnpg-pair/chart/templates/). Default-off keeps existing
+// Sandbox DBs on the single-Cluster shape (zero regression).
+//
+//	SOVEREIGN_ENABLE_HOT_STANDBY = "true"               (default empty/false)
+//	SOVEREIGN_PRIMARY_REGION     = "hz-fsn-rtz-prod"    (openova.io/region label)
+//	SOVEREIGN_REPLICA_REGION     = "hz-hel-rtz-prod"    (openova.io/region label)
 package tools
 
 import (
@@ -54,6 +69,9 @@ func NewEnvFromOS() *Env {
 		KeycloakAdminURL:    os.Getenv("KEYCLOAK_ADMIN_URL"),
 		KeycloakAdminToken:  os.Getenv("KEYCLOAK_ADMIN_TOKEN"),
 		KeycloakParentRealm: os.Getenv("KEYCLOAK_PARENT_REALM"),
+		DomainAPIURL:        os.Getenv("SANDBOX_DOMAIN_API_URL"),
+		MarketplaceAPIURL:   os.Getenv("SANDBOX_MARKETPLACE_API_URL"),
+		TenantID:            os.Getenv("SANDBOX_TENANT_ID"),
 	}
 	if env.KeycloakParentRealm == "" {
 		env.KeycloakParentRealm = "master"
@@ -70,5 +88,17 @@ func NewEnvFromOS() *Env {
 			}
 		}
 	}
+	// D31 active-hot-standby. Toggle parses truthy on {true, 1, yes, on}
+	// (case-insensitive); every other value (including empty) leaves the
+	// flag false. PrimaryRegion / ReplicaRegion are stored verbatim;
+	// sandbox.db.provision applies the same defence-in-depth rule the
+	// SME-tenant gitops writer does (block is rendered only when toggle
+	// is true AND both regions are non-empty AND distinct).
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("SOVEREIGN_ENABLE_HOT_STANDBY"))) {
+	case "true", "1", "yes", "on":
+		env.EnableHotStandby = true
+	}
+	env.PrimaryRegion = strings.TrimSpace(os.Getenv("SOVEREIGN_PRIMARY_REGION"))
+	env.ReplicaRegion = strings.TrimSpace(os.Getenv("SOVEREIGN_REPLICA_REGION"))
 	return env
 }

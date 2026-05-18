@@ -20,9 +20,17 @@
 //   - sandbox.secrets.read / sandbox.secrets.write
 //   - sandbox.session.whoami / sandbox.session.info
 //
-// All other namespaces (sandbox.stripe.*, sandbox.preview.*,
-// k8s.write.*, gitea.release.list) remain stubbed and continue to
-// return not_implemented until later waves ship them.
+// Wave 12 extends to sandbox.preview.* + marketplace.domain.* + flux.*:
+//
+//   - sandbox.preview.create / sandbox.preview.list /
+//     sandbox.preview.status / sandbox.preview.teardown /
+//     sandbox.preview.rebuild
+//   - marketplace.domain.byod / marketplace.domain.subdomain
+//   - flux.status / flux.reconcile / flux.suspend / flux.resume
+//
+// All other namespaces (sandbox.stripe.*, k8s.write.*,
+// gitea.release.list) remain stubbed and continue to return
+// not_implemented until later waves ship them.
 //
 // Wire model recap (architecture.md §3):
 //
@@ -154,6 +162,56 @@ type Env struct {
 	// PARENT (admin auth target) for realm CRUD; the per-Sandbox
 	// realm itself is a sibling under the same Keycloak instance.
 	KeycloakParentRealm string
+
+	// DomainAPIURL — root URL of the canonical domain service
+	// (`core/services/domain`), e.g.
+	// `http://domain.sme.svc.cluster.local:8086`. The marketplace.*
+	// tool family proxies POST /domain/byod + POST /domain/subdomains
+	// here. Empty → marketplace.* surfaces a clear "not configured"
+	// error rather than failing on a bad URL.
+	//
+	// Wired by sandbox-controller as SANDBOX_DOMAIN_API_URL on the
+	// MCP Deployment env. The same value flows into the per-Sovereign
+	// gateway service as DOMAIN_URL — kept separate here so the MCP
+	// server can target the domain service DIRECTLY rather than via
+	// the gateway (one fewer hop on a tool call).
+	DomainAPIURL string
+
+	// MarketplaceAPIURL — root URL of the marketplace-api service
+	// (`core/marketplace-api`), e.g.
+	// `http://marketplace-api.marketplace.svc.cluster.local:8082`.
+	// Reserved for future marketplace.* tools that drive provisioning
+	// (e.g. marketplace.app.deploy). Empty today on every Sandbox; the
+	// Wave 12 marketplace.domain.* tools target DomainAPIURL instead.
+	MarketplaceAPIURL string
+
+	// TenantID — the tenant identifier the canonical domain service
+	// uses to scope BYOD / subdomain registrations
+	// (`core/services/domain/handlers/handlers.go` checkTenantMembership).
+	// Distinct from OrgID because the SME tenant service identifies
+	// orgs by a separate `tenant_id` UUID — sandbox-controller injects
+	// it as SANDBOX_TENANT_ID once the chroot Organization controller
+	// has minted the tenant row. Empty → marketplace.domain.* surfaces
+	// a clear "not configured" error.
+	TenantID string
+
+	// D31 active-hot-standby — Sovereign-level toggle + region pair for
+	// the cross-region CNPG ReplicaCluster shape on every Sandbox-
+	// provisioned database. When EnableHotStandby is true AND both
+	// regions are non-empty AND distinct, sandbox.db.provision emits a
+	// primary + replica Cluster.postgresql.cnpg.io pair (the same
+	// shape platform/cnpg-pair/chart/templates/{primary,replica}-cluster.yaml
+	// renders for tenant marketplace apps under DoD D31). Default-off
+	// keeps every existing Sandbox on single-Cluster CNPG (zero
+	// regression). Wired from the sandbox-controller's chart values
+	// (platform/sandbox/chart/values.yaml `cnpg.activeHotStandby.*`)
+	// which in turn flows from bootstrap-kit slot 61 envsubst
+	// placeholders (SOVEREIGN_ENABLE_HOT_STANDBY, SOVEREIGN_PRIMARY_REGION,
+	// SOVEREIGN_REPLICA_REGION) — so one operator-flipped knob covers
+	// both the marketplace tenant path AND the sandbox.db plane.
+	EnableHotStandby bool
+	PrimaryRegion    string
+	ReplicaRegion    string
 }
 
 // claimsCtxKey is the unexported context key under which the
@@ -499,6 +557,139 @@ func defaultCatalogue(env *Env) []Tool {
 			InputSchema:        schemaSandboxSecretsWrite(),
 			Handler:            sandboxSecretsWrite,
 			RequiredCapability: "sandbox.secrets",
+		},
+
+		// marketplace.domain.* — Wave 12 thin proxy to
+		// core/services/domain (marketplace.go). Every call forwards the
+		// Sandbox PAT to the domain service which performs the canonical
+		// auth + WHOIS + uniqueness checks. RequiredCapability="marketplace"
+		// gates the bearer.
+		{
+			Name:               "marketplace.domain.byod",
+			Description:        "Register a Bring-Your-Own-Domain (BYOD) FQDN for the Sandbox's tenant. Returns the CNAME target the operator points at their registrar.",
+			InputSchema:        schemaMarketplaceDomainBYOD(),
+			Handler:            marketplaceDomainBYOD,
+			RequiredCapability: "marketplace",
+		},
+		{
+			Name:               "marketplace.domain.subdomain",
+			Description:        "Reserve a `<subdomain>.<parent_zone>` under the Sovereign-managed subdomain pool (parent_zone defaults to the configured pool TLD).",
+			InputSchema:        schemaMarketplaceDomainSubdomain(),
+			Handler:            marketplaceDomainSubdomain,
+			RequiredCapability: "marketplace",
+		},
+
+		// flux.* — Wave 12 Flux read/kick surface (flux.go). status is
+		// pure-read; reconcile/suspend/resume mutate exactly one
+		// well-known annotation or spec field on a tenant-scoped HR /
+		// Kustomization. The dynamic client's RBAC gates which
+		// namespaces the SA can patch — the MCP server itself does
+		// not maintain a separate allow-list. RequiredCapability="flux"
+		// gates every call regardless of read vs write.
+		{
+			Name:               "flux.status",
+			Description:        "List HelmReleases + Kustomizations in the Sandbox's tenant namespaces with their Ready condition + last applied revision.",
+			InputSchema:        schemaFluxStatus(),
+			Handler:            fluxStatus,
+			RequiredCapability: "flux",
+		},
+		{
+			Name:               "flux.reconcile",
+			Description:        "Force-run a Flux reconcile on a tenant-scoped HelmRelease or Kustomization by setting the `reconcile.fluxcd.io/requestedAt` annotation.",
+			InputSchema:        schemaFluxMutation(),
+			Handler:            fluxReconcile,
+			RequiredCapability: "flux",
+		},
+		{
+			Name:               "flux.suspend",
+			Description:        "Set spec.suspend=true on a tenant-scoped HelmRelease or Kustomization so Flux stops reconciling it.",
+			InputSchema:        schemaFluxMutation(),
+			Handler:            fluxSuspend,
+			RequiredCapability: "flux",
+		},
+		{
+			Name:               "flux.resume",
+			Description:        "Set spec.suspend=false on a tenant-scoped HelmRelease or Kustomization so Flux resumes reconciling.",
+			InputSchema:        schemaFluxMutation(),
+			Handler:            fluxResume,
+			RequiredCapability: "flux",
+		},
+
+		// rag.search — Wave 12 lean text-grep stub over /repo PVC
+		// (rag_skills.go). Returns matches[]{path,line,snippet}; flips
+		// pendingApi=true when the PVC isn't mounted yet so the agent
+		// can branch on "index not ready" vs "no hits".
+		{
+			Name:               "rag.search",
+			Description:        "Text-grep over the Sandbox's mounted /repo PVC. Wave 12 stub for the per-Org hybrid RAG (architecture.md §3).",
+			InputSchema:        schemaRagSearch(),
+			Handler:            ragSearch,
+			RequiredCapability: "rag",
+		},
+
+		// skills.* — Wave 12 hardcoded catalogue (rag_skills.go). Real
+		// OCI-backed catalogue ships in a later wave; the wire envelope
+		// is intentionally stable so the agent's parsing layer carries
+		// forward.
+		{
+			Name:               "skills.list",
+			Description:        "List available skill packs. Wave 12 returns a hardcoded catalogue (pendingOCI=true on every entry).",
+			InputSchema:        map[string]any{"type": "object", "additionalProperties": false},
+			Handler:            skillsList,
+			RequiredCapability: "skills",
+		},
+		{
+			Name:               "skills.get",
+			Description:        "Fetch a single skill pack's manifest by name. Wave 12 returns a stub manifest; switches to OCI fetch in a later wave.",
+			InputSchema:        schemaSkillsGet(),
+			Handler:            skillsGet,
+			RequiredCapability: "skills",
+		},
+
+		// sandbox.preview.* — per-PR preview Deployments
+		// (Wave 12 — sandbox_preview.go). Every handler is scoped to
+		// env.SandboxNamespace and gated by the
+		// openova.io/managed-by=openova-sandbox-mcp +
+		// openova.io/preview-pr labels so list/teardown can address the
+		// triple by PR number without colliding with operator-managed
+		// workloads (pty-server, openova-sandbox-mcp) in the same ns.
+		// Hostname pattern: `pr-<num>.<app>.sandbox.<sov-fqdn>` — attaches
+		// to the same Cilium Gateway the sandbox-controller already
+		// renders for pty-server.
+		{
+			Name:               "sandbox.preview.create",
+			Description:        "Create a per-PR preview triple (Deployment + Service + HTTPRoute) in this Sandbox's namespace. Hostname pattern: `pr-<num>.<app>.sandbox.<sov-fqdn>`.",
+			InputSchema:        schemaSandboxPreviewCreate(),
+			Handler:            sandboxPreviewCreate,
+			RequiredCapability: "sandbox.preview",
+		},
+		{
+			Name:               "sandbox.preview.list",
+			Description:        "List active per-PR previews in this Sandbox (filtered to openova.io/managed-by=openova-sandbox-mcp + openova.io/preview-pr label).",
+			InputSchema:        map[string]any{"type": "object", "additionalProperties": false},
+			Handler:            sandboxPreviewList,
+			RequiredCapability: "sandbox.preview",
+		},
+		{
+			Name:               "sandbox.preview.status",
+			Description:        "Fetch a per-PR preview's Deployment status + Pod readiness (containerStatuses with waiting reason, restartCount).",
+			InputSchema:        schemaSandboxPreviewPRNumber(),
+			Handler:            sandboxPreviewStatus,
+			RequiredCapability: "sandbox.preview",
+		},
+		{
+			Name:               "sandbox.preview.teardown",
+			Description:        "Delete a per-PR preview (Deployment + Service + HTTPRoute). Foreground propagation on the Deployment so Pods + ReplicaSets are fully reaped.",
+			InputSchema:        schemaSandboxPreviewPRNumber(),
+			Handler:            sandboxPreviewTeardown,
+			RequiredCapability: "sandbox.preview",
+		},
+		{
+			Name:               "sandbox.preview.rebuild",
+			Description:        "Update a per-PR preview's container image + bump kubectl.kubernetes.io/restartedAt to force a rollout (works even when the image tag is unchanged).",
+			InputSchema:        schemaSandboxPreviewRebuild(),
+			Handler:            sandboxPreviewRebuild,
+			RequiredCapability: "sandbox.preview",
 		},
 
 		// sandbox.deploy.* — per-app staging + production rollouts via

@@ -12,7 +12,7 @@ fullnameOverride: ""
 replicas: 1
 image:
   repository: ghcr.io/openova-io/openova/sandbox-controller
-  tag: "d5ea7d9"
+  tag: "e83d08e"
   pullPolicy: IfNotPresent
   pullSecrets:
     - name: ghcr-pull
@@ -99,4 +99,33 @@ giteaTokenSecret:
 newapiAdminSecret:
   name: "newapi-bp-newapi-token-signing-key"
   key: "ADMIN_SECRET"
+# D31 active-hot-standby — Sovereign-level opt-in for the cross-region
+# CNPG ReplicaCluster shape on every Sandbox-provisioned database. When
+# `cnpg.activeHotStandby.enabled` parses truthy (true/1/yes/on) AND
+# both region keys are non-empty AND distinct, the MCP server's
+# `sandbox.db.provision` handler materialises a primary + replica
+# Cluster.postgresql.cnpg.io pair (one each in the two regions) instead
+# of a single Cluster. Mirrors the bp-cnpg-pair pattern + the
+# bp-wordpress-tenant `pg.activeHotStandby.*` value contract (PR
+# #1562). Default-off keeps every existing Sandbox on single-Cluster
+# CNPG (zero regression).
+#
+# The chart surfaces this stanza to the sandbox-controller as three
+# env vars (SOVEREIGN_ENABLE_HOT_STANDBY, SOVEREIGN_PRIMARY_REGION,
+# SOVEREIGN_REPLICA_REGION) which the controller in turn propagates
+# into every per-Sandbox MCP Pod via gitops.Inputs. Bootstrap-kit slot
+# 61 (clusters/_template/bootstrap-kit/61-bp-sandbox.yaml) wires
+# operator overrides from the per-Sovereign overlay's envsubst
+# placeholders — flip one knob and BOTH the marketplace tenant path
+# (sme_tenant_gitops.go) AND the sandbox.db plane render the HA shape.
+#
+# Region keys MUST match the canonical openova.io/region node label
+# value (e.g. `hz-fsn-rtz-prod`, `hz-hel-rtz-prod`). The CNPG operator's
+# nodeAffinity matches on this label to pin the primary + replica
+# StatefulSet Pods to the right regions.
+cnpg:
+  activeHotStandby:
+    enabled: ""
+    primaryRegion: ""
+    replicaRegion: ""
 extraEnv: {}

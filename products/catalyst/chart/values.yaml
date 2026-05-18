@@ -96,6 +96,43 @@ sovereign:
   # passes without requiring a real bp-wordpress install.
   qaApplications: []
 
+  # ── D31 active-hot-standby (cross-region CNPG ReplicaCluster) ──────
+  # Sovereign-level opt-in for the active-hot-standby Postgres shape
+  # on every CNPG-backed tenant app the marketplace installs. When
+  # `enableHotStandby` is truthy AND both region keys are non-empty
+  # AND distinct, the SME-tenant gitops writer (sme_tenant_gitops.go
+  # renderSMETenantOverlay) injects a
+  # `pg.activeHotStandby.{enabled,primaryRegion,replicaRegion}` block
+  # into every freshly-rendered bp-wordpress-tenant HelmRelease. The
+  # chart then materialises a primary + replica Cluster.postgresql.
+  # cnpg.io pair across the two regions, WAL streaming over Cilium
+  # ClusterMesh (DoD D11 + D31). Same wiring extends to any future
+  # tenant chart (gitlab-tenant, nextcloud-tenant) that adopts the
+  # same value contract — no further chart bump required.
+  #
+  # The Sandbox plane reads the same Sovereign-level toggle to decide
+  # whether `sandbox.db.provision` materialises single-Cluster CNPG
+  # (today's default) or graduates to bp-cnpg-pair (D31 follow-up,
+  # tracked in products/sandbox/docs/architecture.md §7); the chart
+  # plumbing for that path lives in platform/sandbox/chart/values.yaml
+  # under `cnpg.activeHotStandby.*` and is consumed by the
+  # sandbox-controller's per-Sandbox renderer.
+  #
+  # Default empty: every Sovereign that has not opted in stays on the
+  # single-Cluster CNPG shape (zero regression). Bootstrap-kit slot 13
+  # (clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml)
+  # wires operator overrides from the envsubst placeholders
+  # SOVEREIGN_ENABLE_HOT_STANDBY, SOVEREIGN_PRIMARY_REGION,
+  # SOVEREIGN_REPLICA_REGION the per-Sovereign overlay carries.
+  #
+  # Region keys MUST match the canonical openova.io/region node label
+  # value (e.g. `hz-fsn-rtz-prod`, `hz-hel-rtz-prod`) — the chart's
+  # cnpg-cluster.yaml uses nodeAffinity on that label to pin the
+  # primary + replica StatefulSet Pods to the right regions.
+  enableHotStandby: ""
+  primaryRegion: ""
+  replicaRegion: ""
+
 # ─── Gitea-API wait budget (qa-loop Wave 27 Fix #184) ──────────────────
 # Knobs consumed by templates/catalyst-gitea-token-secret.yaml's pre-
 # install hook (catalyst-gitea-token-mint Job), which waits for the
