@@ -888,28 +888,60 @@ spec:
                   key: qaApplications
                   optional: true
             # CATALYST_GITOPS_USER + CATALYST_GITOPS_TOKEN — basic-auth
-            # credentials embedded in the GitOps clone URL (issue #878).
+            # credentials embedded in the GitOps clone URL (issue #878,
+            # TBD-C18 token-source chain, issue #1745).
+            #
             # Pre-cutover (Catalyst-Zero): User=x-access-token, Token=GitHub
             # PAT (already wired via separate CATALYST_GITOPS_TOKEN secret on
-            # contabo). Post-cutover (Sovereign): User=gitea_admin,
-            # Token=<gitea-admin-password> from the local Gitea admin secret.
-            # The same secret (`gitea-admin-secret`) is mirrored into
-            # catalyst-system via the bp-reflector annotation block on
-            # bp-gitea (issue #866), so this Sovereign-side wiring works
-            # post-Day-2-Independence without a manual mirror step.
-            # optional=true: Catalyst-Zero (contabo) does not run the SME
-            # tenant pipeline.
+            # contabo).
+            #
+            # Post-cutover (Sovereign): User=gitea_admin, Token=<minted
+            # Gitea API token from bp-self-sovereign-cutover Step 09>.
+            # The Step 09 Job (platform/self-sovereign-cutover/chart/
+            # templates/09-gitea-token-mint-job.yaml) calls Gitea's
+            # POST /api/v1/users/gitea_admin/tokens at handover and
+            # writes the raw sha1 into Secret
+            # `sme/provisioning-github-token`.`GITHUB_TOKEN` with the
+            # provenance annotation `catalyst.openova.io/token-source=
+            # self-sovereign-cutover-step-09`. The same chart's
+            # templates/sme-services/provisioning-github-token.yaml
+            # carries reflector annotations mirroring that Secret into
+            # `catalyst-system` so this secretKeyRef resolves on the
+            # catalyst-api Pod (which lives in catalyst-system, not
+            # `sme`). K8s secretKeyRef is same-namespace-only — the
+            # reflector mirror is the canonical cross-namespace seam.
+            #
+            # WHY NOT gitea-admin-secret.password (the previous wiring):
+            # Gitea treats `Authorization: token <X>` as an API access
+            # token lookup (sha1 against `users` table), not as a
+            # password — so the admin PASSWORD authenticates over Basic
+            # but always 401s as a Bearer/token. Pre-#1745 this caused
+            # both /api/v1/sovereigns/{id}/marketplace AND every SME
+            # tenant gitops commit to return 503 "gitops token
+            # unconfigured" because the gitea-admin-secret reflection
+            # target is `catalyst` (not `catalyst-system`) — the
+            # secretKeyRef silently resolved to empty and the catalyst-
+            # api `loadGitOpsConfig()` returned Token="".
+            #
+            # CATALYST_GITOPS_USER stays a hardcoded `gitea_admin`
+            # literal (the Gitea admin owns the minted token; clone URLs
+            # of the form https://gitea_admin:<token>@gitea.../repo.git
+            # authenticate cleanly). No secretKeyRef needed for the
+            # user — keeping it literal avoids a second cross-namespace
+            # mirror just to ship a static account name.
+            #
+            # optional=true: Catalyst-Zero (contabo) does not run a
+            # local Gitea / Step 09 cutover Job — the env stays empty
+            # on the mothership, marketplace_settings.go returns 503
+            # there (intended behaviour, only Sovereigns persist
+            # marketplace overlays back to git).
             - name: CATALYST_GITOPS_USER
-              valueFrom:
-                secretKeyRef:
-                  name: gitea-admin-secret
-                  key: username
-                  optional: true
+              value: "gitea_admin"
             - name: CATALYST_GITOPS_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: gitea-admin-secret
-                  key: password
+                  name: provisioning-github-token
+                  key: GITHUB_TOKEN
                   optional: true
             # POOL_DOMAIN_MANAGER_URL — base URL of the central Pool Domain
             # Manager (PDM) ingress on Catalyst-Zero (contabo). Sovereign-
