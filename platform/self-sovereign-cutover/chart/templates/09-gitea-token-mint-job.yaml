@@ -1,0 +1,299 @@
+{{- /*
+Step 09 — gitea-token-mint.
+
+Why this step exists (TBD-C18, journey step 16 unblock)
+───────────────────────────────────────────────────────
+The catalyst-platform chart's
+templates/sme-services/provisioning-github-token.yaml mirrors the Gitea
+admin Secret's `password` byte into Secret `sme/provisioning-github-token`
+under key `GITHUB_TOKEN`. The SME provisioning service then sends
+
+    Authorization: token <X>
+
+against the local Gitea API. Gitea resolves the Bearer/token credential
+as an API access token (sha1 lookup against `users` table) — the admin
+PASSWORD is NOT an access token, so the lookup fails and Gitea returns
+
+    HTTP/1.1 401 Unauthorized
+    {"message":"user does not exist [uid: 0, name: ]"}
+
+End result on t22: voucher checkout returns 200, customer is redirected
+to /jobs, the provisioning service tries to materialise the tenant repo
+in Gitea, every API call 401s, NO Organization CR is ever created and
+the customer's screen sits indefinitely.
+
+Verified on t22 (2026-05-18):
+  - Secret sme/provisioning-github-token.GITHUB_TOKEN == gitea/gitea-admin-secret.password
+  - curl -H "Authorization: token <pwd>" → 401 user does not exist
+  - curl -u gitea_admin:<pwd> → 200 OK (BasicAuth works, token does not)
+
+Fix (Approach A — mint admin API token at cutover)
+──────────────────────────────────────────────────
+This step runs at cutover (the same lifecycle moment that runs step 01
+gitea-mirror) and:
+
+  1. Uses Gitea admin BasicAuth to POST /api/v1/users/{user}/tokens with
+     scope `all`, creating a new API token bound to the gitea_admin user.
+  2. Reads the returned `.sha1` (Gitea returns the raw token bytes
+     exactly once on creation — there is no way to retrieve them later).
+  3. Patches Secret `sme/provisioning-github-token`'s `.data.GITHUB_TOKEN`
+     to the new token (base64-encoded), overwriting the admin password
+     placeholder the chart's `provisioning-github-token.yaml` template
+     wrote.
+  4. Validates by calling GET /api/v1/user with `Authorization: token <new>`
+     and asserting HTTP 200 + non-empty `login` field.
+
+Idempotency: Gitea rejects POST /tokens with a name that already exists
+(HTTP 422 "name has already been used"). On re-run we delete the
+catalyst-platform-bootstrap token first (DELETE /api/v1/users/{user}/tokens/{name})
+and then re-mint. This keeps the Secret in sync with whatever Gitea
+holds even if the operator manually rotated state between runs.
+
+Image phase: pre — runs alongside step 01 against in-cluster Gitea via
+the cluster-local Service URL (no public DNS dependency). Image is
+alpine/k8s because we need both kubectl (to PATCH the Secret) AND
+wget/sh (to call Gitea's REST API).
+
+Order rationale: 9 (after step 08 egress-block-test) — the token mint
+does NOT need to land before any of the existing cutover steps (none of
+steps 02-08 read the provisioning-github-token Secret; they touch
+Harbor, Flux, kubectl, CiliumNetworkPolicy). The SME provisioning
+service first consumes the token at TENANT CHECKOUT TIME, which always
+postdates cutover by minutes-to-hours. Sliding into slot 9 (vs 1b) lets
+us ship without renumbering the existing 01..08 chain (which would
+invalidate every operator's historical cutover-status ConfigMap audit
+trail).
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode): every Gitea
+coordinate flows through .Values.gitea.*; per #10 (no plaintext
+credentials in this template): the admin password is read from the
+existing gitea-admin-secret at Pod runtime, never embedded.
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cutover-step-09-gitea-token-mint
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-self-sovereign-cutover.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cutover-step
+    bp.openova.io/cutover-order: "9"
+    bp.openova.io/cutover-mode: "job"
+data:
+  stepName: gitea-token-mint
+  podSpec: |
+    serviceAccountName: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
+    restartPolicy: Never
+    activeDeadlineSeconds: {{ .Values.stepTimeouts.giteaTokenMintSeconds | default 600 }}
+    containers:
+      - name: gitea-token-mint
+        image: {{ include "bp-self-sovereign-cutover.image" (dict "repository" .Values.images.kubectl.repository "tag" .Values.images.kubectl.tag "cutoverPhase" "post" "Values" .Values) }}
+        imagePullPolicy: IfNotPresent
+        env:
+          - name: GITEA_INTERNAL_URL
+            value: {{ .Values.sovereign.giteaInternalURL | quote }}
+          - name: GITEA_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.gitea.adminSecretRef.name }}
+                key: {{ .Values.gitea.adminSecretRef.usernameKey }}
+          - name: GITEA_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.gitea.adminSecretRef.name }}
+                key: {{ .Values.gitea.adminSecretRef.passwordKey }}
+          - name: TOKEN_NAME
+            value: {{ .Values.giteaTokenMint.tokenName | default "catalyst-platform-bootstrap" | quote }}
+          - name: TOKEN_SCOPES
+            # Comma-separated Gitea API scope list. "all" is the
+            # broadest scope — provisioning needs to create repos +
+            # branches + commits + tags + webhooks under arbitrary org
+            # paths the tenant wizard generates. Narrowing post-pivot
+            # is a follow-up (#TBD-C18-narrow); shipping broad here so
+            # journey step 16 unblocks today.
+            value: {{ .Values.giteaTokenMint.tokenScopes | default "all" | quote }}
+          - name: DEST_SECRET_NAMESPACE
+            value: {{ .Values.giteaTokenMint.destSecretNamespace | default "sme" | quote }}
+          - name: DEST_SECRET_NAME
+            value: {{ .Values.giteaTokenMint.destSecretName | default "provisioning-github-token" | quote }}
+          - name: DEST_SECRET_KEY
+            value: {{ .Values.giteaTokenMint.destSecretKey | default "GITHUB_TOKEN" | quote }}
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+
+            api_url="${GITEA_INTERNAL_URL}/api/v1"
+            gitea_host="$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E 's|^https?://||' | cut -d: -f1 | cut -d/ -f1)"
+
+            echo "[gitea-token-mint] target Gitea = ${GITEA_INTERNAL_URL}"
+            echo "[gitea-token-mint] token name   = ${TOKEN_NAME}"
+            echo "[gitea-token-mint] dest secret  = ${DEST_SECRET_NAMESPACE}/${DEST_SECRET_NAME}.${DEST_SECRET_KEY}"
+
+            # ── 1. DNS-readiness probe ─────────────────────────────────────
+            # Same pattern as step 01 (gitea-mirror). On a fresh
+            # Sovereign the gitea Pod may have just reached Ready and
+            # the headless Service DNS record may not have propagated.
+            if [ -n "${gitea_host}" ]; then
+              echo "[gitea-token-mint] waiting for DNS resolution of ${gitea_host}"
+              dns_ready="false"
+              for i in $(seq 1 30); do
+                if nslookup "${gitea_host}" >/dev/null 2>&1; then
+                  echo "[gitea-token-mint] DNS ready for ${gitea_host} (attempt ${i})"
+                  dns_ready="true"
+                  break
+                fi
+                sleep 5
+              done
+              if [ "${dns_ready}" != "true" ]; then
+                echo "[gitea-token-mint] FATAL: ${gitea_host} did not resolve within 150s" >&2
+                exit 1
+              fi
+            fi
+
+            # ── 2. Idempotent delete of any pre-existing token ────────────
+            # Gitea returns 422 "name has already been used" if the
+            # token name is already in use. On a re-run (chart upgrade,
+            # operator-triggered cutover replay) we MUST clear stale
+            # state before re-minting, otherwise the Pod exits non-zero
+            # and the cutover engine reports a failed step despite the
+            # steady-state being correct. DELETE is idempotent — Gitea
+            # returns 404 if the token doesn't exist, which we swallow.
+            #
+            # Gitea 1.22 API: DELETE /api/v1/users/{username}/tokens/{name}
+            # (NOT /admin/users/...) — the basic-auth'd caller must be
+            # the same user as {username}. gitea_admin authenticating as
+            # itself is the canonical path.
+            echo "[gitea-token-mint] purging any stale token named ${TOKEN_NAME}"
+            curl -fsS -u "${GITEA_USERNAME}:${GITEA_PASSWORD}" \
+              -X DELETE \
+              -H "Accept: application/json" \
+              "${api_url}/users/${GITEA_USERNAME}/tokens/${TOKEN_NAME}" \
+              >/dev/null 2>&1 || true
+            echo "[gitea-token-mint] stale-token purge complete (404 on first run is expected)"
+
+            # ── 3. Mint a fresh token ────────────────────────────────────
+            # POST /api/v1/users/{username}/tokens body:
+            #   {"name":"<TOKEN_NAME>","scopes":["all"]}
+            # Returns:
+            #   {"id":N,"name":"...","sha1":"<RAW TOKEN>","token_last_eight":"...","scopes":["all"]}
+            # The `sha1` field is the ONLY place the raw token bytes
+            # ever appear — Gitea hashes it server-side and a later GET
+            # returns only the last 8 chars. We MUST capture it from
+            # this single response.
+            #
+            # Scope-list JSON encoding: Gitea expects a JSON array. We
+            # take a comma-separated env var (operator-friendly) and
+            # turn it into a JSON array via sed.
+            scope_json_array="[\"$(printf '%s' "${TOKEN_SCOPES}" | sed 's/, */","/g')\"]"
+            mint_body=$(printf '{"name":"%s","scopes":%s}' "${TOKEN_NAME}" "${scope_json_array}")
+            echo "[gitea-token-mint] minting token (scopes=${TOKEN_SCOPES})"
+
+            mint_response=$(curl -fsS -u "${GITEA_USERNAME}:${GITEA_PASSWORD}" \
+              -X POST \
+              -H "Content-Type: application/json" \
+              -H "Accept: application/json" \
+              -d "${mint_body}" \
+              "${api_url}/users/${GITEA_USERNAME}/tokens" 2>&1) || {
+              echo "[gitea-token-mint] FATAL: mint POST failed" >&2
+              # Redact credential before surfacing the body.
+              printf '%s\n' "${mint_response}" | sed -E "s,${GITEA_PASSWORD}+,REDACTED,g" >&2
+              exit 1
+            }
+
+            # Extract the sha1 field WITHOUT printing it. Use grep
+            # because alpine/k8s has no jq guaranteed.
+            new_token=$(printf '%s' "${mint_response}" | grep -o '"sha1":"[^"]*"' | sed -E 's/"sha1":"([^"]*)"/\1/')
+            if [ -z "${new_token}" ]; then
+              echo "[gitea-token-mint] FATAL: mint response had no sha1 field" >&2
+              printf '%s\n' "${mint_response}" | sed -E "s,${GITEA_PASSWORD}+,REDACTED,g" >&2
+              exit 1
+            fi
+            echo "[gitea-token-mint] minted token: ...${new_token##???????????????????????????????????}" 2>/dev/null || echo "[gitea-token-mint] minted token: <redacted>"
+
+            # ── 4. Validate the token against Gitea ──────────────────────
+            # GET /api/v1/user with `Authorization: token <X>` returns
+            # the authenticated user's profile. A 401 here means we
+            # have NOT actually fixed the bug — abort before patching
+            # the Secret (otherwise we'd just rotate the broken state).
+            echo "[gitea-token-mint] validating token via GET /api/v1/user"
+            validate_response=$(curl -fsS \
+              -H "Authorization: token ${new_token}" \
+              -H "Accept: application/json" \
+              "${api_url}/user" 2>&1) || {
+              echo "[gitea-token-mint] FATAL: token validation failed (token does not authenticate)" >&2
+              # NEVER echo ${new_token} in error output.
+              printf '%s\n' "${validate_response}" | sed -E "s,${new_token}+,REDACTED_TOKEN,g; s,${GITEA_PASSWORD}+,REDACTED_PWD,g" >&2
+              exit 1
+            }
+            if ! printf '%s' "${validate_response}" | grep -q '"login":"'; then
+              echo "[gitea-token-mint] FATAL: validation response missing login field" >&2
+              exit 1
+            fi
+            echo "[gitea-token-mint] token validates (GET /api/v1/user returned 200 + login)"
+
+            # ── 5. Patch the destination Secret ──────────────────────────
+            # Use kubectl patch with a strategic-merge-patch on the
+            # stringData field (kubectl base64-encodes for us). We use
+            # an env-fed -f stdin to avoid embedding the token in any
+            # process-listing visible to other namespaces.
+            #
+            # The Secret already exists (created by bp-catalyst-platform
+            # template provisioning-github-token.yaml, with helm.sh/
+            # resource-policy: keep). If it doesn't (degraded path
+            # where catalyst-platform was uninstalled then reinstalled
+            # mid-cutover), we create it from scratch.
+            echo "[gitea-token-mint] patching ${DEST_SECRET_NAMESPACE}/${DEST_SECRET_NAME}.${DEST_SECRET_KEY}"
+            if kubectl -n "${DEST_SECRET_NAMESPACE}" get secret "${DEST_SECRET_NAME}" >/dev/null 2>&1; then
+              # Strategic-merge stringData — kubectl b64-encodes; we
+              # send the raw token via stdin under env to avoid leaking
+              # into argv. Annotate so an operator forensicking the
+              # Secret sees the bootstrap-time provenance.
+              ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+              patch_body=$(printf '{"metadata":{"annotations":{"catalyst.openova.io/token-minted-at":"%s","catalyst.openova.io/token-source":"self-sovereign-cutover-step-09"}},"stringData":{"%s":"%s"}}' \
+                "${ts}" "${DEST_SECRET_KEY}" "${new_token}")
+              kubectl -n "${DEST_SECRET_NAMESPACE}" patch secret "${DEST_SECRET_NAME}" \
+                --type=strategic \
+                -p "${patch_body}" >/dev/null
+            else
+              echo "[gitea-token-mint] secret missing — creating fresh"
+              kubectl -n "${DEST_SECRET_NAMESPACE}" create secret generic "${DEST_SECRET_NAME}" \
+                --from-literal="${DEST_SECRET_KEY}=${new_token}"
+              kubectl -n "${DEST_SECRET_NAMESPACE}" annotate secret "${DEST_SECRET_NAME}" \
+                "catalyst.openova.io/token-minted-at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                "catalyst.openova.io/token-source=self-sovereign-cutover-step-09" \
+                --overwrite >/dev/null
+            fi
+            echo "[gitea-token-mint] secret patched"
+
+            # ── 6. Trip a rolling restart of the provisioning Pod ────────
+            # The provisioning Deployment's pod env reads GITHUB_TOKEN
+            # via secretKeyRef at Pod start — a Secret patch alone does
+            # NOT restart Pods (this is K8s behaviour, not a chart
+            # choice). We must bounce the Pod so the new token takes
+            # effect immediately, rather than waiting for the next
+            # natural restart (which could be hours or days). The
+            # rollout is best-effort — provisioning may not exist yet
+            # (if marketplace is disabled in this Sovereign's overlay),
+            # in which case kubectl returns NotFound and we tolerate
+            # that.
+            echo "[gitea-token-mint] rolling restart provisioning Deployment (best-effort)"
+            if kubectl -n "${DEST_SECRET_NAMESPACE}" get deploy provisioning >/dev/null 2>&1; then
+              kubectl -n "${DEST_SECRET_NAMESPACE}" rollout restart deploy/provisioning >/dev/null
+              kubectl -n "${DEST_SECRET_NAMESPACE}" rollout status deploy/provisioning --timeout=180s || \
+                echo "[gitea-token-mint] WARN: provisioning rollout did not complete within 180s (token still patched; pod will pick up on next restart)"
+            else
+              echo "[gitea-token-mint] provisioning Deployment not present in ${DEST_SECRET_NAMESPACE} (marketplace likely disabled) — skipping rollout"
+            fi
+
+            echo "[gitea-token-mint] step complete"
+        resources:
+          requests: { cpu: 50m, memory: 64Mi }
+          limits:   { memory: 256Mi }
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1001
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]

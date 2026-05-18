@@ -314,6 +314,51 @@ stepTimeouts:
   helmRepositoryPatchesSeconds: 600
   catalystAPIEnvPatchSeconds: 600
   egressBlockTestSeconds: 900   # 600 deny + buffer for assert sweep
+  # Step 09 (gitea-token-mint, TBD-C18) — short-lived: a single
+  # Gitea API mint + validate + Secret patch + best-effort rollout.
+  # 600s leaves generous headroom for the provisioning Deployment
+  # rollout (which can take a few minutes on a cold-start cluster).
+  giteaTokenMintSeconds: 600
+
+# Step 09 (gitea-token-mint, TBD-C18) — bootstrap the Gitea API token
+# that the SME provisioning service uses for tenant repo materialisation.
+#
+# Root cause this addresses: the catalyst-platform chart's
+# `provisioning-github-token.yaml` template mirrors gitea-admin-secret's
+# PASSWORD into sme/provisioning-github-token.GITHUB_TOKEN. The
+# provisioning service sends `Authorization: token <X>` to Gitea, which
+# resolves the credential as an API access token (sha1 lookup) — the
+# admin password is NOT a valid access token. Result: 401 "user does
+# not exist", tenant materialisation silently fails, customer voucher
+# checkout completes but no Organization CR is created.
+#
+# This step mints a real Gitea API token at cutover time and patches
+# the destination Secret. See 09-gitea-token-mint-job.yaml for the full
+# protocol.
+giteaTokenMint:
+  # Name of the Gitea API token created under gitea_admin. Surfaced in
+  # the Gitea UI under Settings → Applications so an operator can audit
+  # / revoke it. The step is idempotent on this name (DELETE-then-POST)
+  # so re-running the cutover (chart upgrade, manual replay) rotates
+  # the token cleanly.
+  tokenName: "catalyst-platform-bootstrap"
+  # Comma-separated Gitea API scope list. `all` is broadest — the SME
+  # provisioning service needs to create orgs/repos/branches/commits/
+  # webhooks under arbitrary tenant paths the marketplace wizard
+  # generates. Narrowing scopes (e.g. `write:repository,write:user`)
+  # is tracked as a follow-up and requires aligning every
+  # core/services/provisioning/* gitea call with a minimum-privilege
+  # mapping. Shipping broad here so the journey-step-16 unblock lands
+  # today; narrowing follows in TBD-C18-narrow.
+  tokenScopes: "all"
+  # Destination Secret coordinates — must match the catalyst-platform
+  # chart's smeServices.provisioning.gitToken.* defaults.
+  # NB: This Secret is created by the catalyst-platform chart with
+  # helm.sh/resource-policy: keep, so it survives chart uninstall and
+  # this Step's patch is non-destructive on re-run.
+  destSecretNamespace: "sme"
+  destSecretName: "provisioning-github-token"
+  destSecretKey: "GITHUB_TOKEN"
 
 # Trigger configuration — surface here so operators see it in
 # `helm get values`. When trigger.auto=true, the chart's Helm

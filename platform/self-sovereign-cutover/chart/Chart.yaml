@@ -14,7 +14,25 @@ name: bp-self-sovereign-cutover
 # pre-cutover Jobs can reach the explicit URL just fine. Operator
 # override via .Values.global.imageRegistry remains intact for true
 # air-gap or alternate mirror deployments.
-version: 0.1.29
+#
+# 0.1.30 (TBD-C18, 2026-05-18): NEW step 09 (gitea-token-mint) —
+# bootstraps a real Gitea API token at cutover and patches Secret
+# `sme/provisioning-github-token.GITHUB_TOKEN`. The catalyst-platform
+# chart's existing provisioning-github-token.yaml template mirrors the
+# Gitea admin PASSWORD into that Secret; the SME provisioning service
+# then sends `Authorization: token <PWD>` to Gitea, which 401s because
+# the password is not an API token. Result on t22: voucher checkout
+# completed, /jobs redirect fired, but NO Organization CR was ever
+# materialised (the provisioning service kept failing the Gitea token
+# auth). Step 09 fixes this end-to-end: idempotent DELETE-then-POST
+# /api/v1/users/gitea_admin/tokens, validate via GET /api/v1/user,
+# kubectl-patch the dest Secret with stringData, rollout-restart
+# provisioning Deployment (best-effort). Order 9 (last) is fine
+# functionally — none of steps 02-08 read the provisioning-github-token
+# Secret, and the SME provisioning service first consumes the token at
+# voucher checkout time (always postdates cutover). Order 9 avoids
+# renumbering 01..08 which would invalidate operator history.
+version: 0.1.30
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
@@ -52,6 +70,14 @@ description: |
     08  cutover-step-08-egress-block-test          mode=job
         Apply CiliumNetworkPolicy denying egress to github.com / ghcr.io
         / harbor.openova.io for 10 min, assert all reconciles stay Ready.
+    09  cutover-step-09-gitea-token-mint           mode=job
+        POST /api/v1/users/gitea_admin/tokens, capture .sha1, patch
+        Secret sme/provisioning-github-token.GITHUB_TOKEN with the real
+        API token (the chart previously mirrored the admin password
+        verbatim — Gitea then 401s on `Authorization: token <PWD>`,
+        blocking tenant voucher checkout at journey step 16). Rolls
+        the provisioning Deployment so the new token takes effect
+        immediately. (TBD-C18)
 
   Plus:
     self-sovereign-cutover-status                  ConfigMap
