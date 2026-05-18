@@ -539,6 +539,194 @@ func TestWriteTfvars_EmitsParentDomainsRoundTripsEntries(t *testing.T) {
 	}
 }
 
+// TestWriteTfvars_EmitsParentDomainsYAMLForSMEPool is the regression
+// guard for issue #1772 (TBD-D30b — Cilium Gateway missing
+// *.omani.homes listener on t22). Before this fix, catalyst-api wrote
+// the structural `parent_domains` JSON array but never set
+// `parent_domains_yaml` — the YAML-string variable the OpenTofu
+// module actually reads to derive the per-zone Cilium Gateway
+// listeners. The module's single-zone fallback then silently
+// dropped every sme-pool entry the operator added.
+//
+// This test asserts that a multi-domain Request renders
+// parent_domains_yaml as a JSON-flow array carrying BOTH the
+// primary AND every sme-pool entry, with name + role fields. The
+// downstream terraform local `yamldecode(parent_domains_yaml)`
+// produces a list with len == #zones, and the listener-rendering
+// local emits one HTTPS/HTTP pair per zone.
+func TestWriteTfvars_EmitsParentDomainsYAMLForSMEPool(t *testing.T) {
+	dir, err := os.MkdirTemp("", "writeTfvars-pdyaml-*")
+	if err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	defer os.RemoveAll(dir)
+
+	req := Request{
+		SovereignFQDN:    "t22.omantel.biz",
+		OrgName:          "Omantel",
+		OrgEmail:         "ops@omantel.biz",
+		HetznerToken:     "tok",
+		HetznerProjectID: "p1",
+		Region:           "fsn1",
+		WorkerCount:      2,
+		ParentDomains: []ParentDomain{
+			{Name: "omantel.biz", Role: ParentDomainRolePrimary, RegistrarKind: "dynadot"},
+			{Name: "omani.homes", Role: ParentDomainRoleSMEPool, RegistrarKind: "dynadot"},
+		},
+	}
+	if err := writeTfvars(dir, req); err != nil {
+		t.Fatalf("writeTfvars: %v", err)
+	}
+	raw, err := os.ReadFile(dir + "/tofu.auto.tfvars.json")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	got, ok := parsed["parent_domains_yaml"].(string)
+	if !ok {
+		t.Fatalf("parent_domains_yaml must be a string, got %T: %v",
+			parsed["parent_domains_yaml"], parsed["parent_domains_yaml"])
+	}
+	if got == "" {
+		t.Fatalf("parent_domains_yaml MUST be non-empty when ParentDomains is populated. Empty falls through to single-zone fallback and drops every sme-pool entry. Got: %q", got)
+	}
+	// The literal must be a JSON-flow array (yamldecode-compatible) so
+	// the OpenTofu module's `yamldecode(var.parent_domains_yaml)` parses
+	// it as a list of objects. Re-parse here as the module would.
+	var entries []map[string]any
+	if err := json.Unmarshal([]byte(got), &entries); err != nil {
+		t.Fatalf("parent_domains_yaml must be JSON-flow / YAML-decodable: %v\nRaw: %s", err, got)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("parent_domains_yaml should carry 2 entries (primary + sme-pool), got %d. Raw: %s", len(entries), got)
+	}
+	// The primary entry must be present and labelled.
+	wantNames := map[string]string{
+		"omantel.biz": ParentDomainRolePrimary,
+		"omani.homes": ParentDomainRoleSMEPool,
+	}
+	for _, e := range entries {
+		name, _ := e["name"].(string)
+		role, _ := e["role"].(string)
+		want, ok := wantNames[name]
+		if !ok {
+			t.Errorf("unexpected parent_domains_yaml entry name=%q", name)
+			continue
+		}
+		if role != want {
+			t.Errorf("entry name=%q role=%q want %q", name, role, want)
+		}
+		delete(wantNames, name)
+	}
+	if len(wantNames) != 0 {
+		t.Errorf("parent_domains_yaml missing entries: %v\nRaw: %s", wantNames, got)
+	}
+}
+
+// TestWriteTfvars_EmitsParentDomainsYAMLEmptyOnSingleZone verifies the
+// fall-through path: a Request with NO ParentDomains slice (the legacy
+// single-FQDN payload that hasn't been migrated yet) must emit
+// parent_domains_yaml == "" so the terraform module's
+// `coalesce(var.parent_domains_yaml, "<single-zone fallback>")` picks
+// the fallback derived from sovereign_fqdn. If we emitted "[]" here,
+// yamldecode would produce an empty list and the listener-rendering
+// local would emit ZERO listeners — even worse than the current bug.
+func TestWriteTfvars_EmitsParentDomainsYAMLEmptyOnSingleZone(t *testing.T) {
+	dir, err := os.MkdirTemp("", "writeTfvars-pdyaml-single-*")
+	if err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	defer os.RemoveAll(dir)
+
+	req := Request{
+		SovereignFQDN:    "solo.example.io",
+		OrgName:          "Solo",
+		OrgEmail:         "ops@example.io",
+		HetznerToken:     "tok",
+		HetznerProjectID: "p1",
+		Region:           "fsn1",
+		WorkerCount:      2,
+		// ParentDomains intentionally nil — legacy single-zone payload.
+	}
+	if err := writeTfvars(dir, req); err != nil {
+		t.Fatalf("writeTfvars: %v", err)
+	}
+	raw, err := os.ReadFile(dir + "/tofu.auto.tfvars.json")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	got, ok := parsed["parent_domains_yaml"].(string)
+	if !ok {
+		t.Fatalf("parent_domains_yaml must be a string, got %T", parsed["parent_domains_yaml"])
+	}
+	if got != "" {
+		t.Errorf("parent_domains_yaml should be empty on single-zone payload (lets terraform module fall through to sovereign_fqdn fallback). Got: %q", got)
+	}
+}
+
+// TestParentDomainsYAMLLiteral_RoundTripsCleanly is a focused unit test
+// for the helper independent of writeTfvars. Verifies (a) zone names
+// are lowercased + trimmed (consistent with the rest of the codebase),
+// (b) missing Role defaults to "primary", (c) empty input → empty
+// string (not "[]") to preserve the terraform single-zone fallback.
+func TestParentDomainsYAMLLiteral_RoundTripsCleanly(t *testing.T) {
+	tests := []struct {
+		name string
+		in   []ParentDomain
+		want string
+	}{
+		{
+			name: "empty slice → empty string",
+			in:   nil,
+			want: "",
+		},
+		{
+			name: "single primary",
+			in: []ParentDomain{
+				{Name: "omantel.biz", Role: ParentDomainRolePrimary},
+			},
+			want: `[{"name":"omantel.biz","role":"primary"}]`,
+		},
+		{
+			name: "primary + sme-pool (t22 scenario)",
+			in: []ParentDomain{
+				{Name: "omantel.biz", Role: ParentDomainRolePrimary},
+				{Name: "omani.homes", Role: ParentDomainRoleSMEPool},
+			},
+			want: `[{"name":"omantel.biz","role":"primary"},{"name":"omani.homes","role":"sme-pool"}]`,
+		},
+		{
+			name: "uppercase name is lowercased",
+			in: []ParentDomain{
+				{Name: "  OMANTEL.BIZ  ", Role: ParentDomainRolePrimary},
+			},
+			want: `[{"name":"omantel.biz","role":"primary"}]`,
+		},
+		{
+			name: "missing role defaults to primary",
+			in: []ParentDomain{
+				{Name: "lonely.zone"},
+			},
+			want: `[{"name":"lonely.zone","role":"primary"}]`,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := parentDomainsYAMLLiteral(tc.in)
+			if got != tc.want {
+				t.Errorf("parentDomainsYAMLLiteral mismatch:\n  got  %q\n  want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestDefaultRegistrarKindFromEnv proves Inviolable Principle #4 ──
 // the default registrar adapter id is overridable via env at runtime.
 // An operator running on a non-Dynadot registrar sets

@@ -138,16 +138,20 @@ func (c *smeCatalogClient) PublishedBySlug(ctx context.Context) (map[string]bool
 //
 // Auth: the SME catalog mounts JWTAuth on every /catalog/admin/* path
 // (core/services/catalog/main.go:79-85) and requireAdmin then enforces
-// role=superadmin. Without an Authorization header the upstream
-// returns 401 from JWTAuth ("missing or invalid authorization header")
-// — that's the C4-012 / #1735 symptom. The bearer is minted by the
-// caller (HandleSovereignAppPublish) via the canonical SME bridge
-// (sme_billing_vouchers.go's mintSMEBridgeToken — same HS256
+// role=superadmin OR sovereign-admin (the latter was added in the same
+// PR so franchisee operators can manage their own Sovereign's catalog
+// per docs/FRANCHISE-MODEL.md §3). Without an Authorization header the
+// upstream returns 401 from JWTAuth ("missing or invalid authorization
+// header") — that's the C4-012 / #1735 symptom. The bearer is minted
+// by the caller (HandleSovereignAppPublish) via the canonical SME
+// bridge (sme_billing_vouchers.go's mintSMEBridgeToken — same HS256
 // `sme-secrets/JWT_SECRET` the gateway + billing service use) and
 // passed in here as the `bearer` argument. Empty bearer signals the
 // caller has no session; the SME catalog will then return 401 and the
 // chroot surfaces it verbatim so the UI shows the auth gap rather
 // than a silent success.
+//
+// Per docs/INVIOLABLE-PRINCIPLES.md #10 the token is NEVER logged.
 func (c *smeCatalogClient) SetPublished(ctx context.Context, slug string, published bool, bearer string) (int, error) {
 	if strings.TrimSpace(slug) == "" {
 		return 0, fmt.Errorf("sme-catalog: slug is required")

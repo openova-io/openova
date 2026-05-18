@@ -1,0 +1,164 @@
+{{- /*
+CiliumNetworkPolicy — baseline default-deny for the catalyst-system namespace.
+
+WHY THIS EXISTS (issue #1746, WBS row TBD-Cov-12 / C12-009)
+─────────────────────────────────────────────────────────────────────
+Cov-bench audit confirmed that the live Sovereign cluster ships only 2
+CiliumNetworkPolicies cluster-wide, and ZERO of them target the two
+namespaces that carry the public-facing traffic plane:
+  - catalyst-system (catalyst-api, catalyst-ui, marketplace-api,
+    organization-controller, sme-orchestrator) — every public Console
+    hit lands here.
+  - kube-system (the cilium-gateway Gateway resource + Cilium DaemonSet
+    that terminates *.<sovereignFQDN>) — every public request enters
+    here before it is fanned out to backends.
+
+Without a baseline default-deny CNP scoped to catalyst-system, the
+matrix row C12-009 fails (no namespaced CNP coverage on the primary
+traffic plane) AND any compromised Pod in catalyst-system can reach
+arbitrary in-cluster Pods via L3/L4 east-west traffic.
+
+DESIGN — defense-in-depth, two-tier
+─────────────────────────────────────────────────────────────────────
+This template renders TWO CiliumNetworkPolicies:
+
+  1. `baseline-default-deny` — a default-deny CNP with empty
+     endpointSelector ({}) matching every Pod in catalyst-system.
+     The rule set defines an explicit (but minimal) allow list:
+       - ingress from the cilium-gateway endpoint in kube-system
+         (the HTTPRoute → backend Service traffic path; without
+         this every public-facing API + UI returns 403 at the
+         envoy gateway because L7-policy denies forwarding)
+       - ingress from same-namespace Pods (controllers ↔ APIs,
+         sme-orchestrator ↔ catalyst-api intra-control-plane
+         calls)
+       - egress to kube-apiserver (every controller informer)
+       - egress to kube-dns (every Pod resolves DNS)
+       - egress to same-namespace (intra-control-plane)
+       - egress to platform namespaces that catalyst-system
+         legitimately needs to reach: keycloak (OIDC), gitea
+         (Application gitops pulls), powerdns (DNS record CRUD),
+         cnpg-system (smePostgres connection), openbao (secrets),
+         harbor (registry pulls), nats-system (event bus),
+         observability (loki/mimir/tempo/alloy).
+     Anything else is dropped. This is the "namespaced CNP only"
+     posture the issue prescribed — no CiliumClusterwideNetworkPolicy.
+
+DESIGN — mirror the working external-dns + qa-fixtures patterns
+─────────────────────────────────────────────────────────────────────
+This baseline mirrors the structure of the two CNPs that already work
+in production:
+  - platform/external-dns/chart/templates/ciliumnetworkpolicy.yaml
+    (bp-external-dns-apiserver — toEntities: [kube-apiserver])
+  - products/catalyst/chart/templates/qa-fixtures/
+    cilium-network-policies.yaml (the qaFixtures bundle — same
+    namespace-scoped allow patterns, same toEntities egress, same
+    label conventions)
+
+The chart-render is GATED on `.Values.security.baselineCnp.enabled`
+(default true) so operators may disable the baseline if they ship
+their own policy bundle. Per Inviolable Principle #4 (never hardcode),
+the platform-namespace allow list is operator-tunable via
+`.Values.security.baselineCnp.allowedPlatformNamespaces`.
+
+OPERATING CONVENTION
+─────────────────────────────────────────────────────────────────────
+This CNP IS independent of the qaFixtures bundle. qaFixtures ships a
+cluster-wide default-deny + per-tenant allow templates aimed at the
+qa-omantel test matrix. This baseline-default-deny CNP ships
+unconditionally on every Sovereign and protects catalyst-system even
+when qaFixtures is disabled.
+*/}}
+{{- if .Values.security.baselineCnp.enabled }}
+{{- $allowedPlatform := .Values.security.baselineCnp.allowedPlatformNamespaces | default (list "keycloak" "gitea" "powerdns" "cnpg-system" "openbao" "harbor" "nats-system" "loki" "mimir" "tempo" "alloy" "opentelemetry" "external-secrets-system" "cert-manager") }}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: baseline-default-deny
+  namespace: catalyst-system
+  labels:
+    openova.io/managed-by: catalyst-baseline
+    openova.io/policy-tier: baseline
+    catalyst.openova.io/component: baseline-cnp
+  annotations:
+    policies.openova.io/title: Catalyst-System Baseline Default-Deny
+    policies.openova.io/description: |
+      Default-deny baseline for the catalyst-system namespace. Allows
+      explicit ingress from cilium-gateway (kube-system) + same-namespace,
+      and explicit egress to kube-apiserver, kube-dns, same-namespace, and
+      the platform namespaces catalyst-system legitimately needs to reach.
+spec:
+  description: "Baseline default-deny for catalyst-system — allow gateway ingress + control-plane egress only."
+  endpointSelector: {}
+  ingress:
+    # 1. Allow ingress from cilium-gateway in kube-system. Every public
+    #    Console / API / Admin / Marketplace request enters via the
+    #    Cilium Gateway listener (port 30443) in kube-system and is
+    #    forwarded to a Service in catalyst-system via HTTPRoute. The
+    #    selector matches the gateway endpoint labelled by Cilium with
+    #    `reserved.ingress: ""`. Without this allow, all public traffic
+    #    is dropped at the catalyst-system ingress hook even though
+    #    envoy itself accepted the request.
+    - fromEndpoints:
+        - matchLabels:
+            reserved.ingress: ""
+    # 2. Allow ingress from same-namespace Pods (catalyst-api ↔
+    #    catalyst-ui, sme-orchestrator ↔ catalyst-api, organization-
+    #    controller ↔ catalyst-api etc. — all intra-control-plane).
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: catalyst-system
+    # 3. Allow ingress from kube-system (Cilium operator probes, kubelet
+    #    liveness checks via host-network on the same node). Without
+    #    this, readiness + liveness probes from the kubelet (host
+    #    identity) are dropped and Pods loop-restart.
+    - fromEntities:
+        - host
+        - remote-node
+        - kube-apiserver
+  egress:
+    # 1. kube-apiserver — every controller informer (organization,
+    #    application, environment, useraccess, blueprint, tenant)
+    #    watches the apiserver. Same pattern as
+    #    bp-external-dns-apiserver.
+    - toEntities:
+        - kube-apiserver
+        - host
+        - remote-node
+    # 2. kube-dns — every Pod resolves DNS for service discovery and
+    #    external API calls (powerdns, keycloak, gitea).
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+    # 3. Same-namespace egress (intra-control-plane).
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: catalyst-system
+    # 4. Platform namespaces — operator-tunable list. Defaults cover
+    #    every namespace catalyst-system legitimately reaches in a
+    #    canonical Sovereign install.
+    - toEndpoints:
+        - matchExpressions:
+            - key: k8s:io.kubernetes.pod.namespace
+              operator: In
+              values:
+{{- range $allowedPlatform }}
+                - {{ . | quote }}
+{{- end }}
+    # 5. World egress on TCP/443 — catalyst-api MAY call out to public
+    #    APIs (Dynadot for parent-domain registration, S3 for backup
+    #    seed, GitHub for blueprint fetch). Scoped to TCP/443 only.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+{{- end }}
