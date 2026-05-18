@@ -1169,8 +1169,8 @@ name: bp-catalyst-platform
 # overwritten by the mirror rerun at 17:54:55Z, Organization CR never
 # materialised, customer-journey step 16 hung indefinitely. (Closes
 # #1794 — 5th C18 layer, the last customer-journey blocker.)
-version: 1.4.175
-appVersion: 1.4.175
+version: 1.4.176
+appVersion: 1.4.176
 # 1.4.172 — feat(security): baseline CiliumNetworkPolicies for
 # catalyst-system + cilium-gateway (Closes #1746, Refs TBD-Cov-12 /
 # C12-009). Cov-bench audit on the live Sovereign cluster confirmed
