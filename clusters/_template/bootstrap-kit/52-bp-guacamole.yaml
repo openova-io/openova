@@ -113,7 +113,15 @@ spec:
       # (observed on t22, 16 restarts). Mounting the parent dir
       # makes .guacamole a regular subdirectory the entrypoint can
       # freely rm and recreate.
-      version: 0.1.21
+      # 0.1.22 (Refs TBD-G6 / C12-004, 2026-05-18): pulls in PR #1692
+      # (values default guacamole.httproute.parentRef.namespace
+      # gateway-system -> kube-system). The
+      # catalyst-system/guacamole-server HTTPRoute on t22 went
+      # Accepted=False because gateway-system/cilium-gateway does not
+      # exist on any Sovereign — the canonical gateway is
+      # kube-system/cilium-gateway installed by 01-cilium.yaml and
+      # used by every other Sovereign HTTPRoute.
+      version: 0.1.22
       sourceRef:
         kind: HelmRepository
         name: bp-guacamole
