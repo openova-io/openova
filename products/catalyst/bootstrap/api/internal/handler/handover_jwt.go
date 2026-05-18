@@ -176,6 +176,14 @@ func (h *Handler) MintHandoverToken(w http.ResponseWriter, r *http.Request) {
 		"sub", sub,
 	)
 
+	// TBD-A10 / #1760 — fire the D16 secondary-kubeconfig export here as
+	// a recovery path for operators who hit a missed auto-fire (e.g.
+	// catalyst-api restarted before secondary CPs PUT their kubeconfigs).
+	// The chroot endpoint is idempotent (re-POSTing a {depID, region}
+	// pair overwrites the file + AddCluster on duplicate ID is a no-op),
+	// so unconditional re-fire is safe. Fire-and-forget like fireHandover.
+	go h.exportSecondaryKubeconfigsToChild(dep, fqdn, id)
+
 	writeJSON(w, http.StatusOK, map[string]string{
 		"token":       tokenStr,
 		"redirectURL": redirectURL,

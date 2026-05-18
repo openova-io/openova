@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
@@ -124,6 +125,23 @@ func (h *Handler) exportDeploymentToChild(dep *Deployment, fqdn string) {
 	)
 }
 
+// secondaryKubeconfigFileWaitBudget bounds how long
+// exportSecondaryKubeconfigsToChild will wait for a secondary region's
+// kubeconfig file to appear on the mothership PVC before giving up on
+// that region. Phase-1 fires handover when the PRIMARY CP's HRs go
+// Ready — secondary CPs PUT their kubeconfigs as their own cloud-init
+// completes, which is asynchronous and frequently 1-3min behind. The
+// pre-#1760 code did `os.ReadFile` once, found nothing, logged a
+// `skip — kubeconfig not on mothership` warning, and moved on, leaving
+// the chroot's `/var/lib/catalyst/kubeconfigs/` empty forever. Override
+// via CATALYST_D16_EXPORT_FILE_WAIT_SECONDS for tests + dev.
+var secondaryKubeconfigFileWaitBudget = 10 * time.Minute
+
+// secondaryKubeconfigFilePollInterval — how often we re-stat the
+// expected on-disk path while waiting for it to appear. Tight enough
+// that a kubeconfig PUT mid-wait shows up within seconds.
+var secondaryKubeconfigFilePollInterval = 3 * time.Second
+
 // exportSecondaryKubeconfigsToChild iterates the deployment's secondary
 // regions and POSTs each region's mothership-side kubeconfig to the
 // chroot's /api/v1/sovereign/secondary-kubeconfig endpoint. Best-effort
@@ -135,6 +153,17 @@ func (h *Handler) exportDeploymentToChild(dep *Deployment, fqdn string) {
 // chroot, and log loudly on failure. The chroot's handler is
 // idempotent (re-POSTing the same {depID, region} overwrites the file
 // + AddCluster on duplicate ID is a no-op).
+//
+// TBD-A10 / #1760 (2026-05-18): pre-fix this function read each
+// kubeconfig file ONCE and silently `continue`d on os.ReadFile error.
+// Secondary CPs PUT their kubeconfigs back asynchronously as their own
+// cloud-init completes, which is frequently 1-3min behind the primary
+// CP's Phase-1 ready event that triggers handover-fire. Result: on
+// every multi-region prov the chroot's `kubeconfigs/` stayed empty,
+// /cloud/list rendered 1 bubble instead of N, D16 silently regressed.
+// Fix: wait up to secondaryKubeconfigFileWaitBudget per region for the
+// file to land before declaring the region un-exportable. Per region
+// run as its own goroutine so a slow region N doesn't block N+1.
 func (h *Handler) exportSecondaryKubeconfigsToChild(dep *Deployment, fqdn, depID string) {
 	dep.mu.Lock()
 	regions := append([]string(nil), regionKeysForExport(dep)...)
@@ -147,86 +176,141 @@ func (h *Handler) exportSecondaryKubeconfigsToChild(dep *Deployment, fqdn, depID
 		dir = v
 	}
 	url := "https://api." + fqdn + "/api/v1/sovereign/secondary-kubeconfig"
+
+	// Honour CATALYST_D16_EXPORT_FILE_WAIT_SECONDS overrides for tests +
+	// air-gapped operators (INVIOLABLE-PRINCIPLES.md #4 — knobs are
+	// runtime-configurable).
+	fileWait := secondaryKubeconfigFileWaitBudget
+	if v := os.Getenv("CATALYST_D16_EXPORT_FILE_WAIT_SECONDS"); v != "" {
+		if d, perr := time.ParseDuration(v + "s"); perr == nil {
+			fileWait = d
+		}
+	}
+	pollInt := secondaryKubeconfigFilePollInterval
+	if v := os.Getenv("CATALYST_D16_EXPORT_FILE_POLL_SECONDS"); v != "" {
+		if d, perr := time.ParseDuration(v + "s"); perr == nil {
+			pollInt = d
+		}
+	}
+
 	client := &http.Client{
 		Timeout: 30 * time.Second,
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // child cert may be seconds behind handover, same rationale as exportDeploymentToChild
 		},
 	}
+	// Fan out one goroutine per secondary region. A slow region (whose
+	// CP cloud-init is still in flight) MUST NOT block another region
+	// that's already ready. The exec waits for all regions in a
+	// WaitGroup so test code can assert post-conditions deterministically.
+	var wg sync.WaitGroup
 	for _, regionKey := range regions {
-		path := filepath.Join(dir, depID+"-"+regionKey+".yaml")
+		wg.Add(1)
+		go func(regionKey string) {
+			defer wg.Done()
+			path := filepath.Join(dir, depID+"-"+regionKey+".yaml")
+			raw, ok := h.waitForSecondaryKubeconfig(path, fileWait, pollInt, depID, regionKey)
+			if !ok {
+				h.log.Error("d16-export: kubeconfig never landed on mothership; chroot will see 1 fewer cluster than expected",
+					"id", depID, "region", regionKey, "path", path, "budget", fileWait.String(),
+				)
+				return
+			}
+			payload := map[string]string{
+				"deploymentId":   depID,
+				"regionKey":      regionKey,
+				"kubeconfigYaml": string(raw),
+			}
+			body, _ := json.Marshal(payload)
+			h.postSecondaryKubeconfigWithRetry(client, url, body, depID, regionKey)
+		}(regionKey)
+	}
+	wg.Wait()
+}
+
+// waitForSecondaryKubeconfig polls for the kubeconfig file at path to
+// appear (and be non-empty) within budget. Returns (bytes, true) on
+// success, (nil, false) on timeout. Emits a single
+// `d16-export: waiting on secondary kubeconfig` log every 30s so the
+// catalyst-api journal shows progress instead of going silent.
+func (h *Handler) waitForSecondaryKubeconfig(path string, budget, poll time.Duration, depID, regionKey string) ([]byte, bool) {
+	deadline := time.Now().Add(budget)
+	logEvery := 30 * time.Second
+	nextLog := time.Now().Add(logEvery)
+	for {
 		raw, err := os.ReadFile(path)
-		if err != nil {
-			h.log.Warn("d16-export: skip — kubeconfig not on mothership",
-				"id", depID, "region", regionKey, "path", path, "err", err,
+		if err == nil && len(raw) > 0 {
+			return raw, true
+		}
+		if time.Now().After(deadline) {
+			return nil, false
+		}
+		if time.Now().After(nextLog) {
+			h.log.Info("d16-export: waiting on secondary kubeconfig PUT-back",
+				"id", depID, "region", regionKey, "path", path,
+				"remaining", time.Until(deadline).Truncate(time.Second).String(),
 			)
+			nextLog = time.Now().Add(logEvery)
+		}
+		time.Sleep(poll)
+	}
+}
+
+// postSecondaryKubeconfigWithRetry POSTs body to url and retries on
+// transient errors. Refactored out of exportSecondaryKubeconfigsToChild
+// so the per-region goroutine reads top-to-bottom and the retry shape
+// is unit-testable. Total budget 5 min, backoff 5s→60s.
+func (h *Handler) postSecondaryKubeconfigWithRetry(client *http.Client, url string, body []byte, depID, regionKey string) {
+	backoff := 5 * time.Second
+	deadline := time.Now().Add(5 * time.Minute)
+	attempt := 0
+	for time.Now().Before(deadline) {
+		attempt++
+		req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+		if err != nil {
+			h.log.Error("d16-export: NewRequest failed",
+				"id", depID, "region", regionKey, "err", err,
+			)
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			h.log.Warn("d16-export: POST failed (will retry)",
+				"id", depID, "region", regionKey, "url", url, "attempt", attempt, "err", err,
+			)
+			time.Sleep(backoff)
+			if backoff < 60*time.Second {
+				backoff *= 2
+			}
 			continue
 		}
-		payload := map[string]string{
-			"deploymentId":   depID,
-			"regionKey":      regionKey,
-			"kubeconfigYaml": string(raw),
-		}
-		body, _ := json.Marshal(payload)
-		// D16 PR E (2026-05-17): retry with backoff for the same reason as
-		// the deployment-record export — the chroot's Cilium Gateway +
-		// catalyst-api may not be programmed yet at handover-fire+0.
-		// Budget: 5 min, doubling 5s→60s.
-		backoff := 5 * time.Second
-		deadline := time.Now().Add(5 * time.Minute)
-		attempt := 0
-		ok := false
-		for time.Now().Before(deadline) {
-			attempt++
-			req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
-			if err != nil {
-				h.log.Error("d16-export: NewRequest failed",
-					"id", depID, "region", regionKey, "err", err,
-				)
-				break
-			}
-			req.Header.Set("Content-Type", "application/json")
-			resp, err := client.Do(req)
-			if err != nil {
-				h.log.Warn("d16-export: POST failed (will retry)",
-					"id", depID, "region", regionKey, "url", url, "attempt", attempt, "err", err,
-				)
-				time.Sleep(backoff)
-				if backoff < 60*time.Second {
-					backoff *= 2
-				}
-				continue
-			}
-			status := resp.StatusCode
-			resp.Body.Close()
-			if status >= 500 {
-				h.log.Warn("d16-export: child 5xx (will retry)",
-					"id", depID, "region", regionKey, "attempt", attempt, "status", status,
-				)
-				time.Sleep(backoff)
-				if backoff < 60*time.Second {
-					backoff *= 2
-				}
-				continue
-			}
-			if status >= 400 {
-				h.log.Error("d16-export: child 4xx (giving up)",
-					"id", depID, "region", regionKey, "attempt", attempt, "status", status,
-				)
-				break
-			}
-			h.log.Info("d16-export: secondary kubeconfig shipped to child",
-				"id", depID, "region", regionKey, "attempt", attempt,
+		status := resp.StatusCode
+		resp.Body.Close()
+		if status >= 500 {
+			h.log.Warn("d16-export: child 5xx (will retry)",
+				"id", depID, "region", regionKey, "attempt", attempt, "status", status,
 			)
-			ok = true
-			break
+			time.Sleep(backoff)
+			if backoff < 60*time.Second {
+				backoff *= 2
+			}
+			continue
 		}
-		if !ok {
-			h.log.Error("d16-export: gave up on region",
-				"id", depID, "region", regionKey, "attempts", attempt,
+		if status >= 400 {
+			h.log.Error("d16-export: child 4xx (giving up)",
+				"id", depID, "region", regionKey, "attempt", attempt, "status", status,
 			)
+			return
 		}
+		h.log.Info("d16-export: secondary kubeconfig shipped to child",
+			"id", depID, "region", regionKey, "attempt", attempt,
+		)
+		return
 	}
+	h.log.Error("d16-export: gave up on region after 5min retries",
+		"id", depID, "region", regionKey, "attempts", attempt,
+	)
 }
 
 // regionKeysForExport returns the deployment's secondary region keys
