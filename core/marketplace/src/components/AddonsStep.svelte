@@ -1,6 +1,6 @@
 <script lang="ts">
   import { getAddons, getApps, checkSlug, type AddOn, type App } from '../lib/api';
-  import { readCart, toggleAddon, setOrgDetails, writeCart } from '../lib/cart';
+  import { readCart, toggleAddon, setOrgDetails, setTLD, writeCart, DEFAULT_TLD } from '../lib/cart';
   import { formatOMR } from '../lib/currency';
 
   let addons = $state<AddOn[]>([]);
@@ -26,10 +26,18 @@
     return out;
   });
   let subdomain = $state(cart.subdomain);
-  let selectedTLD = $state('omani.rest');
+  // Hydrate TLD from cart so a user who picked .omani.homes, navigated
+  // forward, then came back, sees their choice — not the default. The
+  // change handler below persists every flip immediately (no blur required)
+  // so /review + /checkout always read the latest value.
+  let selectedTLD = $state(cart.tld || DEFAULT_TLD);
   let byodDomain = $state('');
 
   const tlds = ['omani.rest', 'omani.works', 'omani.trade', 'omani.homes'];
+
+  function persistTLD() {
+    cart = setTLD(selectedTLD);
+  }
 
   // Subdomain availability check (same logic as CheckoutStep so the state is
   // consistent — user doesn't re-learn at checkout that their subdomain is taken).
@@ -90,6 +98,10 @@
 
   function saveSubdomain() {
     cart = setOrgDetails(cart.orgName, subdomain, cart.email);
+    // Belt-and-braces: TLD is already persisted on <select> onchange, but
+    // also flush here so a leftover stale value in localStorage from a
+    // pre-fix session can't outlive a fresh subdomain save.
+    if (cart.tld !== selectedTLD) cart = setTLD(selectedTLD);
   }
 
   // #85 — shared helper renders "OMR 3.000". Previously we rounded to whole
@@ -132,7 +144,7 @@
               placeholder="my-company"
               class="domain-input"
             />
-            <select bind:value={selectedTLD} class="domain-tld">
+            <select bind:value={selectedTLD} onchange={persistTLD} class="domain-tld">
               {#each tlds as tld}
                 <option value={tld}>.{tld}</option>
               {/each}
