@@ -84,6 +84,66 @@ type OrganizationSpec struct {
 	// Identity holds optional federation config — empty means use the
 	// Sovereign's own Keycloak realm.
 	Identity OrganizationIdentity `json:"identity,omitempty"`
+
+	// TenantPublic optionally exposes the Org's installed product on a
+	// per-tenant public hostname. When set the organization-controller
+	// renders a Gateway-API HTTPRoute in the Org's namespace pointing at
+	// the supplied backend Service. When empty (the zero value) the
+	// controller skips the HTTPRoute step — Orgs that don't yet have a
+	// product installed (or that are accessed only via the per-Sovereign
+	// console wildcard `*.<sovFQDN>`) keep working unchanged.
+	//
+	// The motivating use case (issue #1629 follow-up) is the
+	// `<slug>.omani.homes` family of tenant hostnames: PowerDNS now
+	// resolves them via the sme-pool parent zone reconciler, but no
+	// HTTPRoute was attaching them to the tenant's WordPress install.
+	// Without this struct that traffic 404s at the Cilium Gateway.
+	TenantPublic OrganizationTenantPublic `json:"tenantPublic,omitempty"`
+}
+
+// OrganizationTenantPublic is the per-tenant public-hostname binding
+// the organization-controller renders into an HTTPRoute on Ready Orgs.
+//
+// All fields are optional at the CRD level — the controller treats an
+// empty ParentDomain as "do not render". Defaulting rules:
+//
+//   - Subdomain defaults to spec.slug.
+//   - BackendPort defaults to 80 (the conventional HTTP port WordPress,
+//     Nextcloud, GitLab, BookStack, and Ghost all listen on inside the
+//     vCluster).
+//
+// Per docs/INVIOLABLE-PRINCIPLES.md #4 no value is hardcoded inside the
+// renderer — every knob flows through the CR.
+type OrganizationTenantPublic struct {
+	// ParentDomain is the apex zone the per-tenant hostname lives
+	// under (e.g. "omani.homes"). Sovereign-wide parentZones lists the
+	// pool of valid candidates; this field picks one specific apex per
+	// Organization. Required to render the HTTPRoute — empty disables
+	// the whole TenantPublic feature for this Org.
+	ParentDomain string `json:"parentDomain,omitempty"`
+
+	// Subdomain is the leftmost label of the per-tenant hostname.
+	// Defaults to spec.slug when empty so the canonical
+	// `<slug>.<parentDomain>` hostname renders without extra config.
+	Subdomain string `json:"subdomain,omitempty"`
+
+	// BackendService is the Service name the HTTPRoute routes "/" to —
+	// e.g. `wordpress` for an in-cluster WordPress install, or the
+	// vCluster-synced `wordpress-x-<slug>-x-vcluster` name when the
+	// product lives inside a vCluster. The Service MUST resolve in the
+	// Org's host namespace (= spec.slug) so the HTTPRoute backendRefs
+	// don't need cross-namespace ReferenceGrants.
+	BackendService string `json:"backendService,omitempty"`
+
+	// BackendPort is the Service port number to route to. Defaults to
+	// 80 when zero.
+	BackendPort int32 `json:"backendPort,omitempty"`
+
+	// Product is an operator-meaningful tag carried on the rendered
+	// HTTPRoute's labels (e.g. "wordpress", "nextcloud", "gitlab").
+	// Surfaced on the access-matrix UI so operators can filter routes
+	// by installed product. Optional — empty just omits the label.
+	Product string `json:"product,omitempty"`
 }
 
 // OrganizationOwner is an entry in spec.owners.

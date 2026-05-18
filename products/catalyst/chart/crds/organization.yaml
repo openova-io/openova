@@ -251,6 +251,57 @@ spec:
                                   "openova.io/groups").
                       x-kubernetes-preserve-unknown-fields: true
                   x-kubernetes-preserve-unknown-fields: true
+                tenantPublic:
+                  type: object
+                  description: |
+                    Optional per-Org public-hostname binding. When set
+                    the organization-controller renders a Gateway-API
+                    HTTPRoute in the Org's namespace pointing at the
+                    supplied backend Service. Empty (zero value) means
+                    "no public hostname" — the Org is reachable only
+                    via the per-Sovereign console wildcard.
+
+                    Motivating fix: issue #1629 follow-up. PowerDNS
+                    now resolves `<slug>.<parentDomain>` for every
+                    Org mapped onto a Sovereign's role=sme-pool parent
+                    domain, but without an HTTPRoute attached the
+                    Cilium Gateway falls through to the marketplace
+                    tenant-wildcard route and serves the storefront
+                    landing page instead of the tenant's product.
+                  properties:
+                    parentDomain:
+                      type: string
+                      description: |
+                        Apex zone the per-tenant hostname lives under
+                        (e.g. "omani.homes"). MUST be one of the
+                        Sovereign's parent_domains entries — operators
+                        validate at admission via the bootstrap-api.
+                    subdomain:
+                      type: string
+                      description: |
+                        Leftmost label of the per-tenant hostname.
+                        Defaults to spec.slug when empty.
+                    backendService:
+                      type: string
+                      description: |
+                        Service name the HTTPRoute routes "/" to. MUST
+                        resolve in the Org's host namespace (= slug).
+                        Required when parentDomain is set; the
+                        controller surfaces TenantRouteFailed if absent.
+                    backendPort:
+                      type: integer
+                      format: int32
+                      description: |
+                        Service port number to route to. Defaults to
+                        80 when zero.
+                    product:
+                      type: string
+                      description: |
+                        Operator-meaningful tag carried on the rendered
+                        HTTPRoute labels (e.g. "wordpress", "nextcloud",
+                        "gitlab"). Surfaced on the access-matrix UI for
+                        per-product filtering. Optional.
+                  x-kubernetes-preserve-unknown-fields: true
               x-kubernetes-preserve-unknown-fields: true
             status:
               type: object
