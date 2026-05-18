@@ -28,6 +28,17 @@ FROM docker.io/library/golang:1.26-alpine AS build
 # /core/controllers when WORKDIR=/app, so we COPY the controllers tree
 # BEFORE `go mod download`.
 COPY core/controllers/ /core/controllers/
+# core/services/shared/ is required by the second replace directive in
+# products/catalyst/bootstrap/api/go.mod (PR #1658 follow-up to #1625 —
+# the /api/v1/sme/* proxies mint an HS256 bridge token via
+# core/services/shared/auth.MintSMEAccessToken before forwarding to the
+# SME gateway). The replace resolves `../../../../core/services/shared`
+# from /app to /core/services/shared, mirroring the controllers tree
+# above. Without this COPY, `go mod download` fails with `open
+# /core/services/shared/go.mod: no such file or directory` and every
+# catalyst-api build since #1658 errors out (deploy-bot stalled →
+# fresh provs ship stale images missing all post-#1658 fixes).
+COPY core/services/shared/ /core/services/shared/
 WORKDIR /app
 COPY products/catalyst/bootstrap/api/go.mod products/catalyst/bootstrap/api/go.sum ./
 RUN go mod download
