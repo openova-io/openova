@@ -10,7 +10,7 @@
 # tree alongside the unified Gitea client at core/controllers/pkg/gitea
 # referenced via a `replace` directive in catalyst-catalog/go.mod).
 
-FROM golang:1.23-alpine AS build
+FROM golang:1.26-alpine AS build
 WORKDIR /src
 
 # Pre-stage the controllers module (Gitea client + shared helpers).
