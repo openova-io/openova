@@ -124,6 +124,16 @@ resources:
   # this slot registers a live Flux source so per-TENANT vClusters can
   # be spawned by the Organization controller at runtime). Default-ON.
   - 60-bp-vcluster-helmrepo.yaml
+  # bp-sandbox (slot 61) — sandbox-controller Wave 1 (PR #1622). Reconciles
+  # `sandbox.openova.io/v1.Sandbox` CRs into per-Sandbox manifests written
+  # into the per-Org `catalyst-tenant` Gitea repo. Without this slot,
+  # Sandbox CRs sit unhandled — the controller never deploys. dependsOn
+  # bp-vcluster-helmrepo (slot 60, Wave 2 per-Sandbox vCluster source)
+  # and bp-catalyst-platform (slot 13, catalyst-system Namespace +
+  # catalyst-gitea-token Secret). Gated default-OFF via
+  # ${SANDBOX_ENABLED:-false} on the bootstrap-kit Kustomization
+  # substitute — matches the chart's values.enabled default.
+  - 61-bp-sandbox.yaml
   # bp-newapi (slot 80) — multi-tenant LLM marketplace gateway. Sequenced
   # after the W2.K1 dependency wave (cnpg/keycloak/openbao Ready) so
   # NewAPI's ExternalSecret + DSN dependencies resolve on first reconcile.
