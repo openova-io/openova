@@ -235,7 +235,22 @@ func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Publish tenant.created event (non-blocking — don't let broker outage delay the response).
-	evt, err := events.NewEvent("tenant.created", "tenant-service", tenant.ID, tenant)
+	//
+	// Per TBD-C16 (#1722) we enrich the wire payload with the JWT-derived
+	// owner_email so the provisioning consumer can mint an Organization CR
+	// without a second round trip to the user store. The wrapper struct
+	// embeds *store.Tenant so every existing decoder (which decodes a flat
+	// Tenant) keeps working — owner_email is a sibling field, not a
+	// shape-breaking nesting. Empty when the caller's JWT lacks the claim
+	// (the org-create consumer falls back to publishing an error event
+	// rather than minting a half-populated Organization CR).
+	claims, _ := middleware.ClaimsFromContext(r.Context())
+	ownerEmail, _ := claims["email"].(string)
+	tenantCreatedPayload := struct {
+		*store.Tenant
+		OwnerEmail string `json:"owner_email,omitempty"`
+	}{Tenant: tenant, OwnerEmail: ownerEmail}
+	evt, err := events.NewEvent("tenant.created", "tenant-service", tenant.ID, tenantCreatedPayload)
 	if err == nil {
 		pubCtx, pubCancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer pubCancel()

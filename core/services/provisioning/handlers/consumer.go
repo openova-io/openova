@@ -56,6 +56,13 @@ func (h *Handler) StartConsumer(ctx context.Context, consumer events.BrokerSubsc
 		switch event.Type {
 		case "order.placed":
 			return h.handleOrderPlaced(ctx, event)
+		case "tenant.created":
+			// TBD-C16 (#1722): voucher-accept → Organization CR.
+			// organization-controller fans out vCluster + Keycloak
+			// group + Gitea org + UserAccess from the CR. Closes the
+			// D29 zero-touch convergence gap that left orgs in a
+			// stuck "tenant row exists, no controller artefacts" state.
+			return h.handleTenantCreated(ctx, event)
 		case "tenant.app_install_requested":
 			return h.handleAppInstallRequested(ctx, event)
 		case "tenant.app_uninstall_requested":
