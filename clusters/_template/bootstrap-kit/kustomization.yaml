@@ -56,9 +56,15 @@ resources:
   # sequencing rather than removal so the slot remains available for
   # the Wave 11 Sandbox MVP without manual Day-2 add-app re-introduction.
   # HR's dependsOn pins ordering to AFTER bp-harbor + bp-vcluster-
-  # helmrepo + bp-catalyst-platform. Gated default-OFF via
-  # ${SANDBOX_ENABLED:-false} on the bootstrap-kit Kustomization
-  # substitute — matches the chart's values.enabled default.
+  # helmrepo + bp-catalyst-platform. Wave 11 convergence fix (TBD-D11,
+  # 2026-05-18): now gated default-ON via ${SANDBOX_ENABLED:-true} on
+  # the bootstrap-kit Kustomization substitute so the controller
+  # materialises on every fresh prov (Wave 8 pty-server + MCP images
+  # are SHA-stamped in chart values.yaml). Operators may opt-OUT via
+  # SANDBOX_ENABLED=false on the per-Sovereign overlay's substitute
+  # map. The chart's own values.enabled default remains false (defence
+  # in depth — a stale per-Sovereign overlay that hand-installs the
+  # HR without our envsubst layer still default-OFFs gracefully).
   - 19a-bp-sandbox.yaml
   # 06a — Post-handover Self-Sovereignty Cutover (issue #791). Filename
   # carries the 06a prefix to colocate cohorts visually, but the slot's

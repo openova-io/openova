@@ -85,25 +85,41 @@ spec:
       retries: 3
   # Per-Sovereign overlay surface.
   #
-  # enabled — gated default-OFF via ${SANDBOX_ENABLED:-false} on the
-  # bootstrap-kit Kustomization substitute. Operators flip
-  # `SANDBOX_ENABLED=true` on the per-Sovereign overlay once Wave 8
-  # images are SHA-stamped.
+  # enabled — default-ON via ${SANDBOX_ENABLED:-true} on the
+  # bootstrap-kit Kustomization substitute. Wave 11 convergence fix
+  # (TBD-D11, t22.omantel.biz 2026-05-18): every Sandbox CR sat
+  # unreconciled because the bootstrap-kit Kustomization's substitute
+  # map never wires SANDBOX_ENABLED, so the envsubst resolved to the
+  # `:-false` fallback and the chart skip-rendered the entire
+  # controller Deployment. With Wave 8 pty-server + MCP images now
+  # SHA-stamped in chart values.yaml (auto-bumped by .github/workflows/
+  # build-sandbox-{pty-server,mcp-server}.yaml), the gate's original
+  # purpose is satisfied — flip default-ON so the controller materialises
+  # on every fresh prov. Operators may still opt-OUT by setting
+  # `SANDBOX_ENABLED=false` on the per-Sovereign overlay's substitute
+  # map (mirrors how MARKETPLACE_ENABLED works in slot 13).
   #
   # runtime.* — Wave 8 pty-server / MCP / NEWAPI wiring. The
   # controller surfaces these to its per-Sandbox renderer (manifests
   # rendered into the per-Org `catalyst-tenant` Gitea repo at
-  # sandbox/<owner-uid>/). Image refs are SHA-pinned via the standard
-  # bootstrap-kit substitute variables; newapi URL derives from
-  # ${SOVEREIGN_FQDN}.
+  # sandbox/<owner-uid>/).
+  #
+  # Image overrides are OMITTED from this slot's HR values — the
+  # chart's values.yaml already SHA-pins both images (auto-bumped by
+  # CI) and exposing them as substitute vars without the corresponding
+  # entries in the bootstrap-kit Kustomization postBuild.substitute
+  # map causes Flux to substitute empty strings → null → the chart's
+  # `required` guard would fail render once enabled=true. Day-2 SHA
+  # overrides remain available via Sovereign-overlay HelmRelease
+  # patches under spec.values.runtime.{ptyServerImage,mcpImage} — but
+  # the canonical path is bumping chart values.yaml + bootstrap-kit
+  # pin (single source of truth, INVIOLABLE-PRINCIPLES.md #4a).
   values:
-    enabled: ${SANDBOX_ENABLED:-false}
+    enabled: ${SANDBOX_ENABLED:-true}
     env:
       hostCluster: ${SOVEREIGN_REGION_CANONICAL_LABEL}
       sovereignFQDN: ${SOVEREIGN_FQDN}
     runtime:
-      ptyServerImage: ${SANDBOX_PTY_SERVER_IMAGE}
-      mcpImage: ${SANDBOX_MCP_IMAGE}
       newapiURL: https://newapi.${SOVEREIGN_FQDN}/v1
     # D31 active-hot-standby — when SOVEREIGN_ENABLE_HOT_STANDBY=true on
     # the per-Sovereign overlay (and both regions are non-empty AND
