@@ -116,7 +116,23 @@ spec:
       # attestation is incomplete; once the operator overlay supplies
       # the attestation values the channel composes on the next
       # reconcile.
-      version: 1.4.10
+      # 1.4.12 (PR #1677, 2026-05-18): default
+      # `.Values.sandboxTokenSigningKey.reflectorNamespaces` flipped
+      # from `"sandbox"` → `"catalyst-system,sandbox"`. Pre-1.4.12 the
+      # chart-emitted `newapi-bp-newapi-token-signing-key` Secret was
+      # mirrored only into a `sandbox` namespace (which does NOT exist
+      # on a stock Sovereign — bp-sandbox installs into
+      # `catalyst-system` per slot 19a `targetNamespace`); the sandbox-
+      # controller's `NEWAPI_ADMIN_SECRET` env var (secretKeyRef
+      # `optional: true`) landed EMPTY, the controller silently dropped
+      # into gitops-only mode, and zero per-Sandbox LLM-gateway tokens
+      # were ever minted (operator-visible only via the controller's
+      # `newapi_admin_secret_set=false` startup log). Caught on t22
+      # 2026-05-18 (TBD-D14). Bumping the pin pulls the post-#1677
+      # default so reflector mirrors into `catalyst-system` too.
+      # 1.4.14 (current main, 2026-05-18): latest upstream-tracking
+      # chart cut — includes 1.4.12's reflector fix.
+      version: 1.4.14
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
