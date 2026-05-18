@@ -603,7 +603,12 @@ spec:
       #   - A10b issue #1845: GET kubeconfig?region=<cloudRegion>
       #     resolves the slot-suffixed on-disk shape
       #     `<id>-<region>-<i>.yaml` (handler-side glob fallback).
-      version: 1.4.179
+      # 1.4.181 (catch-up for Blueprint Release workflow outage,
+      # 2026-05-18 21:04Z → 22:07Z): chart published 1.4.180 → 1.4.181
+      # during the YAML scanner break introduced by PR #1858 and fixed
+      # by PR #1866. Auto-bump-pin step didn't fire during the outage,
+      # so this pin lagged by 2 versions. Refs #1864.
+      version: 1.4.181
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
