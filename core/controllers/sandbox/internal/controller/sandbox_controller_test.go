@@ -789,6 +789,89 @@ func TestReconcile_NewAPI_NoChannelsConfigured(t *testing.T) {
 	}
 }
 
+// TestReconcile_NewAPI_CapabilitiesFromPlan exercises the tier-bound
+// capability path (PR #1671): when the CR carries spec.planId without
+// an explicit spec.capabilities overlay, the controller resolves the
+// plan's capability allowlist and threads it into the MintRequest.
+func TestReconcile_NewAPI_CapabilitiesFromPlan(t *testing.T) {
+	t.Parallel()
+	sb := sampleSandbox()
+	sb.Spec.PlanID = sandboxapi.PlanSandboxPro
+
+	r, _ := makeReconciler(t, sb)
+	stub := &stubNewAPI{resp: newapi.MintResponse{
+		Token: "jwt-pro", ExpiresAt: time.Now().Add(7 * 24 * time.Hour),
+	}}
+	r.NewAPIClient = stub
+	r.DefaultChannels = []string{"qwen"}
+
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: sb.Name, Namespace: sb.Namespace},
+	}); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	if stub.callCount() != 1 {
+		t.Fatalf("mint calls: got %d want 1", stub.callCount())
+	}
+	gotCaps := stub.calls[0].Capabilities
+	wantSubset := []string{
+		"gitea.repo.list",     // Free baseline.
+		"sandbox.db.*",        // Pro extra.
+		"sandbox.storage.*",   // Pro extra.
+		"flux.status",         // Pro extra.
+	}
+	got := make(map[string]bool, len(gotCaps))
+	for _, c := range gotCaps {
+		got[c] = true
+	}
+	for _, w := range wantSubset {
+		if !got[w] {
+			t.Errorf("Pro plan capability %q missing from MintRequest: %v", w, gotCaps)
+		}
+	}
+	// Pro plan MUST NOT grant Ent-only capabilities.
+	for _, forbidden := range []string{
+		"sandbox.deploy.production", "sandbox.stripe.*", "flux.reconcile",
+	} {
+		if got[forbidden] {
+			t.Errorf("Pro plan unexpectedly granted Ent capability %q: %v", forbidden, gotCaps)
+		}
+	}
+}
+
+// TestReconcile_NewAPI_CapabilitiesSpecOverride asserts that an explicit
+// spec.capabilities overlay wins over the plan default — the operator
+// can tighten or widen the per-Sandbox grant by patching the CR.
+func TestReconcile_NewAPI_CapabilitiesSpecOverride(t *testing.T) {
+	t.Parallel()
+	sb := sampleSandbox()
+	sb.Spec.PlanID = sandboxapi.PlanSandboxEnt
+	// Override: drop every Ent grant down to read-only intersect.
+	sb.Spec.Capabilities = []string{"gitea.repo.list", "k8s.read.get"}
+
+	r, _ := makeReconciler(t, sb)
+	stub := &stubNewAPI{resp: newapi.MintResponse{
+		Token: "jwt-override", ExpiresAt: time.Now().Add(7 * 24 * time.Hour),
+	}}
+	r.NewAPIClient = stub
+	r.DefaultChannels = []string{"qwen"}
+
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: sb.Name, Namespace: sb.Namespace},
+	}); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	gotCaps := stub.calls[0].Capabilities
+	if len(gotCaps) != 2 {
+		t.Fatalf("override caps len: got %d (%v) want 2", len(gotCaps), gotCaps)
+	}
+	if gotCaps[0] != "gitea.repo.list" || gotCaps[1] != "k8s.read.get" {
+		t.Errorf("override caps: got %v want [gitea.repo.list k8s.read.get]", gotCaps)
+	}
+}
+
 func gsKeys(gs *giteaServer) []string {
 	gs.mu.Lock()
 	defer gs.mu.Unlock()

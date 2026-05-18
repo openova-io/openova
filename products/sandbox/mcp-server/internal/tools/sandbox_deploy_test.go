@@ -388,9 +388,15 @@ func TestSandboxDeployRollback_Production_RequiresCapability(t *testing.T) {
 	env := deployEnv(srv)
 	env.JWTSecret = []byte("sekret")
 	r := NewRegistry(env)
+	// Holds the rollback grant (Registry's first-gate is satisfied) but
+	// NOT the production grant (handler's second-gate must reject).
+	// PR #1671 — under tier-bound capabilities the rollback grant is
+	// granular `sandbox.deploy.rollback`; production rollbacks still
+	// require the extra `sandbox.deploy.production` capability the
+	// handler enforces in `sandbox_deploy.go`.
 	claims := &sharedauth.Claims{
 		OrgID:        "acme",
-		Capabilities: []string{"sandbox.deploy"},
+		Capabilities: []string{"sandbox.deploy.rollback"},
 	}
 	_, err := r.Call(context.Background(), "sandbox.deploy.rollback",
 		json.RawMessage(`{"env":"production"}`), CallOpts{Claims: claims})
@@ -494,15 +500,17 @@ func TestRequireSandboxDeployScope_MissingEnv(t *testing.T) {
 	}
 }
 
-// Smoke: ensure the 4 new tools appear in the registry catalogue with
-// their RequiredCapability set.
+// Smoke: ensure the 4 deploy tools appear in the registry catalogue with
+// their granular tier-bound RequiredCapability set (PR #1671 — Pro/Ent
+// plans grant `sandbox.deploy.*` and the wildcard matcher resolves to
+// these per-tool grants).
 func TestRegistry_AdvertisesDeployTools(t *testing.T) {
 	r := NewRegistry(&Env{})
 	want := map[string]string{
-		"sandbox.deploy.staging":    "sandbox.deploy",
-		"sandbox.deploy.production": "sandbox.deploy",
-		"sandbox.deploy.status":     "sandbox.deploy",
-		"sandbox.deploy.rollback":   "sandbox.deploy",
+		"sandbox.deploy.staging":    "sandbox.deploy.staging",
+		"sandbox.deploy.production": "sandbox.deploy.production",
+		"sandbox.deploy.status":     "sandbox.deploy.status",
+		"sandbox.deploy.rollback":   "sandbox.deploy.rollback",
 	}
 	got := map[string]string{}
 	for _, t := range r.List() {

@@ -204,15 +204,18 @@ func TestReadStripeKey_BareEncoding(t *testing.T) {
 }
 
 // TestSandboxStripeCatalogueWiredIn ensures all four tools are in the
-// catalogue with non-nil Handler + the right RequiredCapability.
+// catalogue with non-nil Handler + their granular tier-bound
+// RequiredCapability (PR #1671 — Ent plan grants `sandbox.stripe.*`
+// which the wildcard matcher resolves to these per-tool grants).
 func TestSandboxStripeCatalogueWiredIn(t *testing.T) {
 	r := NewRegistry(&Env{OrgID: "acme", OwnerUID: "u1"})
-	want := map[string]bool{
-		"sandbox.stripe.bindAccount":           false,
-		"sandbox.stripe.listProducts":          false,
-		"sandbox.stripe.listPrices":            false,
-		"sandbox.stripe.createCheckoutSession": false,
+	want := map[string]string{
+		"sandbox.stripe.bindAccount":           "sandbox.stripe.bindAccount",
+		"sandbox.stripe.listProducts":          "sandbox.stripe.listProducts",
+		"sandbox.stripe.listPrices":            "sandbox.stripe.listPrices",
+		"sandbox.stripe.createCheckoutSession": "sandbox.stripe.createCheckoutSession",
 	}
+	seen := map[string]bool{}
 	for _, tool := range r.List() {
 		if _, ok := want[tool.Name]; !ok {
 			continue
@@ -220,13 +223,13 @@ func TestSandboxStripeCatalogueWiredIn(t *testing.T) {
 		if tool.Handler == nil {
 			t.Errorf("%s: Handler is nil", tool.Name)
 		}
-		if tool.RequiredCapability != "sandbox.stripe" {
-			t.Errorf("%s: RequiredCapability=%q want sandbox.stripe", tool.Name, tool.RequiredCapability)
+		if tool.RequiredCapability != want[tool.Name] {
+			t.Errorf("%s: RequiredCapability=%q want %q", tool.Name, tool.RequiredCapability, want[tool.Name])
 		}
-		want[tool.Name] = true
+		seen[tool.Name] = true
 	}
-	for name, found := range want {
-		if !found {
+	for name := range want {
+		if !seen[name] {
 			t.Errorf("%s: missing from catalogue", name)
 		}
 	}

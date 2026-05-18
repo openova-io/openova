@@ -133,6 +133,10 @@ func TestRegistry_AuthGate_NoClaimsRejects(t *testing.T) {
 
 // TestRegistry_AuthGate_OrgMismatch — claim org_id != env.OrgID = 403,
 // EXCEPT for sandbox.session.* which is exempt.
+//
+// PR #1671 — capability gate runs BEFORE the org-scope gate, so the
+// test fixture must grant the granular `gitea.repo.list` and
+// `sandbox.session.*` capabilities to reach the org-scope branch.
 func TestRegistry_AuthGate_OrgMismatch(t *testing.T) {
 	r := NewRegistry(&Env{
 		OrgID:        "acme",
@@ -141,8 +145,9 @@ func TestRegistry_AuthGate_OrgMismatch(t *testing.T) {
 		GiteaToken:   "tok",
 	})
 	cl := &sharedauth.Claims{
-		Email: "u@x",
-		OrgID: "bankdhofar",
+		Email:        "u@x",
+		OrgID:        "bankdhofar",
+		Capabilities: []string{"gitea.repo.list", "sandbox.session.*"},
 	}
 	_, err := r.Call(context.Background(), "gitea.repo.list", nil, CallOpts{Claims: cl})
 	if err == nil || !strings.Contains(err.Error(), "org_id mismatch") {
@@ -190,7 +195,7 @@ func TestSessionWhoami_AuthenticatedShape(t *testing.T) {
 		Role:         "member",
 		OrgID:        "acme",
 		Groups:       []string{"/acme/admins"},
-		Capabilities: []string{"sandbox:db:list"},
+		Capabilities: []string{"sandbox:db:list", "sandbox.session.whoami"},
 		Typ:          "pat",
 	}
 	res, err := r.Call(context.Background(), "sandbox.session.whoami", nil, CallOpts{Claims: cl})

@@ -172,6 +172,37 @@ spec:
                     `<pr>.<app>.<previewDomain>`. Wired in Wave 3 (HTTPRoute
                     + Gateway). Wave 1 only records it on status.
                   pattern: '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'
+                planId:
+                  type: string
+                  description: |
+                    Catalog plan slug the customer selected at checkout
+                    (`sandbox-free` | `sandbox-pro` | `sandbox-ent`).
+                    Stamped by the tenant-service orchestrator from the
+                    `tenant.sandbox_requested` event payload. Empty
+                    plan slug leaves the sandbox on the operator
+                    DefaultQuota (Wave 1 baseline = Sandbox Free shape).
+                capabilities:
+                  type: array
+                  description: |
+                    MCP capability allowlist the sandbox-controller stamps
+                    onto every per-Sandbox NewAPI token. The MCP server
+                    gates every tool call against these strings via
+                    Claims.HasCapability (architecture.md §3 RBAC).
+
+                    Bound to spec.planId via the tenant orchestrator's
+                    plan→capabilities map (handlers/sandbox_consumer.go
+                    capabilitiesForPlan). Empty list defaults to the Free
+                    plan capabilities (read-only k8s + gitea read + the
+                    session/rag/skills surface). Operators may override
+                    on a per-Sandbox basis by patching this field; the
+                    controller propagates the list into newapi on the
+                    next reconcile.
+
+                    Wildcards (`sandbox.db.*`, `gitea.issue.*`) are
+                    honoured by the MCP server's HasCapability matcher
+                    so the plan map can carry coarse grants.
+                  items:
+                    type: string
               x-kubernetes-preserve-unknown-fields: true
             status:
               type: object

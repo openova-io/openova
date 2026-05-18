@@ -137,13 +137,48 @@ type Claims struct {
 //
 // Returns false on a nil receiver so unauthenticated request paths can
 // `if claims.HasCapability("...")` without a nil check.
+//
+// Match rules (PR #1671 — tier-bound MCP capabilities):
+//
+//  1. Exact match. `sandbox.db.provision` (held) satisfies
+//     `sandbox.db.provision` (want).
+//  2. Wildcard prefix. A held capability ending in `.*` matches the
+//     stem AND every dotted-prefix descendant. `sandbox.db.*` (held)
+//     satisfies `sandbox.db`, `sandbox.db.provision`,
+//     `sandbox.db.list`, … (want).
+//
+// Stem matches WITHOUT a trailing wildcard are intentionally NOT
+// honoured — a token carrying `sandbox.deploy` does NOT open
+// `sandbox.deploy.production`. This keeps the second-gate pattern in
+// sandbox_deploy.go (the Ent-tier production check) honest: callers
+// must hold the granular `sandbox.deploy.production` capability or a
+// wildcard that explicitly covers it.
 func (c *Claims) HasCapability(want string) bool {
-	if c == nil {
+	if c == nil || want == "" {
 		return false
 	}
 	for _, got := range c.Capabilities {
+		if got == "" {
+			continue
+		}
+		// Exact match — fast-path.
 		if got == want {
 			return true
+		}
+		// Wildcard prefix: `sandbox.db.*` matches `sandbox.db` AND
+		// `sandbox.db.<anything>`. Strip the trailing `.*` once for
+		// the dotted-prefix check.
+		if len(got) >= 2 && got[len(got)-2:] == ".*" {
+			stem := got[:len(got)-2]
+			if stem == "" {
+				continue
+			}
+			if want == stem {
+				return true
+			}
+			if len(want) > len(stem) && want[:len(stem)] == stem && want[len(stem)] == '.' {
+				return true
+			}
 		}
 	}
 	return false

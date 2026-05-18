@@ -246,6 +246,76 @@ func TestMintSandboxToken_RoundTrip(t *testing.T) {
 	}
 }
 
+// PR #1671 — tier-bound MCP capabilities. The bridge handler accepts a
+// `capabilities` field on the request body and encodes it as the JWT
+// `capabilities` claim the MCP server reads via Claims.HasCapability.
+// Empty / missing field is permitted (downgrades the token to the
+// introspection-only surface).
+func TestSandboxToken_CapabilitiesRoundTrip(t *testing.T) {
+	h := newTestHandler()
+	body := `{
+		"org_id": "acme",
+		"user_id": "ceo@acme.com",
+		"sandbox_id": "sb-uid-1",
+		"allowed_channels": ["qwen"],
+		"capabilities": ["sandbox.db.*", "gitea.repo.list", "  ", "sandbox.db.*", ""]
+	}`
+	rr := doRequest(t, h, http.MethodPost, body, string(h.AdminSecret))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200, body=%s", rr.Code, rr.Body.String())
+	}
+	var resp sandboxTokenResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	parsed, err := jwt.Parse(resp.Token, func(*jwt.Token) (any, error) { return h.SigningKey, nil })
+	if err != nil || !parsed.Valid {
+		t.Fatalf("parse: err=%v valid=%v", err, parsed != nil && parsed.Valid)
+	}
+	claims, _ := parsed.Claims.(jwt.MapClaims)
+	rawCaps, _ := claims["capabilities"].([]any)
+	got := make([]string, 0, len(rawCaps))
+	for _, v := range rawCaps {
+		if s, ok := v.(string); ok {
+			got = append(got, s)
+		}
+	}
+	// De-duplicated + whitespace-scrubbed list — order matches insertion.
+	want := []string{"sandbox.db.*", "gitea.repo.list"}
+	if len(got) != len(want) {
+		t.Fatalf("capabilities len: got %d (%v) want %d (%v)", len(got), got, len(want), want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("capabilities[%d]: got %q want %q", i, got[i], want[i])
+		}
+	}
+}
+
+// Empty / missing capabilities ⇒ the JWT carries NO `capabilities`
+// claim (the MCP server's HasCapability matcher returns false on every
+// check, downgrading the bearer to the introspection surface).
+func TestSandboxToken_NoCapabilitiesOmitsClaim(t *testing.T) {
+	h := newTestHandler()
+	body := `{
+		"org_id": "acme",
+		"user_id": "u@acme.com",
+		"sandbox_id": "sb-uid-2",
+		"allowed_channels": ["qwen"]
+	}`
+	rr := doRequest(t, h, http.MethodPost, body, string(h.AdminSecret))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200, body=%s", rr.Code, rr.Body.String())
+	}
+	var resp sandboxTokenResponse
+	_ = json.Unmarshal(rr.Body.Bytes(), &resp)
+	parsed, _ := jwt.Parse(resp.Token, func(*jwt.Token) (any, error) { return h.SigningKey, nil })
+	claims, _ := parsed.Claims.(jwt.MapClaims)
+	if _, present := claims["capabilities"]; present {
+		t.Fatalf("capabilities claim leaked on empty list: claims=%v", claims)
+	}
+}
+
 // Sanity check that we don't leak the admin secret in the response on a
 // successful mint — the response should ONLY carry the minted JWT, not
 // echo any inbound credential.

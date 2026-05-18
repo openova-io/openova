@@ -63,6 +63,17 @@ type MintRequest struct {
 	// AllowedChannels is the list of NewAPI channels the issued token
 	// is restricted to. Empty rejected with 400 by the handler.
 	AllowedChannels []string `json:"allowed_channels"`
+
+	// Capabilities is the MCP capability allowlist the issued token's
+	// `capabilities` claim carries. Sourced from the Sandbox CR's
+	// spec.capabilities (falling back to the plan→capabilities map via
+	// sandboxapi.ResolveCapabilities). Encoded by the bridge handler
+	// as the JWT `capabilities` claim which `Claims.HasCapability`
+	// reads on every MCP tool call. Wildcards (`sandbox.db.*`) are
+	// supported by the matcher so this list can carry coarse grants.
+	// Empty list is allowed (downgrades the token to the introspection
+	// surface only, matching a pre-PR-#1671 token).
+	Capabilities []string `json:"capabilities,omitempty"`
 }
 
 // MintResponse is the wire body for the 200 OK reply.

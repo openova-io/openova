@@ -148,6 +148,17 @@ type sandboxTokenRequest struct {
 	// may target. Empty list is rejected (a Sandbox with no channels
 	// cannot reach an LLM, almost always a misconfiguration).
 	AllowedChannels []string `json:"allowed_channels"`
+
+	// Capabilities — MCP capability allowlist that ends up as the JWT
+	// `capabilities` claim. The sandbox-controller derives this from the
+	// per-Sandbox CR's spec.capabilities (falling back to a plan→caps
+	// map via sandboxapi.ResolveCapabilities). The MCP server's
+	// `Claims.HasCapability` matcher reads it on every tool call.
+	// Wildcards (`sandbox.db.*`) are honoured by the matcher so a Pro
+	// plan's grants can stay coarse without enumerating every per-tool
+	// RequiredCapability. Empty list is allowed — produces a token with
+	// no MCP write surface (intentional fallback for pre-PR-#1671 callers).
+	Capabilities []string `json:"capabilities,omitempty"`
 }
 
 // sandboxTokenResponse is what POST /admin/tokens/sandbox returns.
@@ -266,6 +277,24 @@ func (h *Handler) SandboxToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Capabilities: empty list is permitted (downgrades the token to
+	// the introspection-only surface, matching pre-PR-#1671 callers).
+	// Trim + de-dup so a controller bug that double-stamps a wildcard
+	// doesn't bloat the JWT.
+	cleanedCaps := make([]string, 0, len(req.Capabilities))
+	seenCap := make(map[string]struct{}, len(req.Capabilities))
+	for _, c := range req.Capabilities {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			continue
+		}
+		if _, ok := seenCap[c]; ok {
+			continue
+		}
+		seenCap[c] = struct{}{}
+		cleanedCaps = append(cleanedCaps, c)
+	}
+
 	// ── 3. Mint HS256 token ─────────────────────────────────────────────
 	now := time.Now
 	if h.Now != nil {
@@ -274,12 +303,13 @@ func (h *Handler) SandboxToken(w http.ResponseWriter, r *http.Request) {
 	issuedAt := now()
 	exp := issuedAt.Add(SandboxTokenTTL)
 	tok, err := mintSandboxToken(h.SigningKey, sandboxClaims{
-		Sub:      req.SandboxID,
-		Org:      req.OrgID,
-		User:     req.UserID,
-		Channels: cleaned,
-		IssuedAt: issuedAt,
-		ExpireAt: exp,
+		Sub:          req.SandboxID,
+		Org:          req.OrgID,
+		User:         req.UserID,
+		Channels:     cleaned,
+		Capabilities: cleanedCaps,
+		IssuedAt:     issuedAt,
+		ExpireAt:     exp,
 	})
 	if err != nil {
 		h.logSafe("sandbox-token: mint failed", "err", err.Error())
@@ -295,6 +325,7 @@ func (h *Handler) SandboxToken(w http.ResponseWriter, r *http.Request) {
 		"org_id", req.OrgID,
 		"user_id", req.UserID,
 		"channels", strings.Join(cleaned, ","),
+		"capabilities_count", len(cleanedCaps),
 		"expires_at", exp.Format(time.RFC3339),
 	)
 
@@ -309,17 +340,25 @@ func (h *Handler) SandboxToken(w http.ResponseWriter, r *http.Request) {
 // separate from sandboxTokenRequest so the wire shape can evolve
 // without changing how we lay out the JWT.
 type sandboxClaims struct {
-	Sub      string
-	Org      string
-	User     string
-	Channels []string
-	IssuedAt time.Time
-	ExpireAt time.Time
+	Sub          string
+	Org          string
+	User         string
+	Channels     []string
+	Capabilities []string
+	IssuedAt     time.Time
+	ExpireAt     time.Time
 }
 
 // mintSandboxToken signs an HS256 JWT with the documented claim shape.
 // Exposed as a package-private function so the unit test can verify
 // the round-trip without invoking the HTTP handler.
+//
+// The `capabilities` claim is the tier-bound MCP allowlist the MCP
+// server reads on every tool call via Claims.HasCapability (PR #1671).
+// An empty list is encoded as an absent claim — the MCP server's
+// HasCapability matcher returns false on every check, which downgrades
+// the bearer to the introspection surface only (the registry's
+// RequiredCapability-empty tools).
 func mintSandboxToken(secret []byte, c sandboxClaims) (string, error) {
 	if len(secret) == 0 {
 		return "", errors.New("signing key empty")
@@ -332,6 +371,9 @@ func mintSandboxToken(secret []byte, c sandboxClaims) (string, error) {
 		"iat":      c.IssuedAt.Unix(),
 		"exp":      c.ExpireAt.Unix(),
 		"typ":      SandboxTokenType,
+	}
+	if len(c.Capabilities) > 0 {
+		claims["capabilities"] = c.Capabilities
 	}
 	t := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	out, err := t.SignedString(secret)
