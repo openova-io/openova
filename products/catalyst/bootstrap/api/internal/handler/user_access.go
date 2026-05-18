@@ -202,12 +202,13 @@ func (h *Handler) serveUserAccessList(w http.ResponseWriter, r *http.Request, de
 		writeUserAccessUnavailable(w, err)
 		return
 	}
-	// UserAccess Claims are cluster-scoped per the CRD definition
-	// (`spec.scope` is the default `Namespaced`-equivalent for
-	// Crossplane Claims, but the XRD declares it cluster-scoped via
-	// the absence of a `Namespaced` claim type — see the chart's
-	// xrds/useraccess.yaml). We list across the cluster and namespace
-	// is preserved in the metadata for any caller that wants it.
+	// UserAccess Claims are NAMESPACED per the XRD's claimNames block
+	// (Crossplane Claims are namespaced by construction — only the
+	// underlying XR xuseraccesses is cluster-scoped). Listing with
+	// Namespace("") asks the apiserver for all-namespaces and works
+	// against a namespaced CRD; metadata.namespace is preserved on
+	// every item for any caller that wants to filter. Refs t134 D21
+	// fix in user_access_owner_seed.go + TBD-C6-006-followup.
 	listIface, err := client.Resource(UserAccessGVR()).Namespace("").List(r.Context(), metav1.ListOptions{})
 	if err != nil {
 		// CRD not installed → return empty list, not 500. The
@@ -256,7 +257,16 @@ func (h *Handler) CreateUserAccess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	obj := userAccessToUnstructured(body)
-	created, err := client.Resource(UserAccessGVR()).Namespace("").Create(r.Context(), obj, metav1.CreateOptions{})
+	// Stamp the canonical namespace on the Claim — Crossplane Claims
+	// are namespaced; an empty namespace routes to the cluster-scoped
+	// REST path which the apiserver doesn't serve for a namespaced
+	// CRD (404 "the server could not find the requested resource").
+	// Mirrors rbacAssignNamespace + userAccessOwnerNamespace.
+	// Refs TBD-C6-006-followup.
+	if obj.GetNamespace() == "" {
+		obj.SetNamespace(rbacAssignNamespace)
+	}
+	created, err := client.Resource(UserAccessGVR()).Namespace(obj.GetNamespace()).Create(r.Context(), obj, metav1.CreateOptions{})
 	if err != nil {
 		if apierrors.IsAlreadyExists(err) {
 			writeJSON(w, http.StatusConflict, map[string]string{
@@ -307,9 +317,13 @@ func (h *Handler) UpdateUserAccess(w http.ResponseWriter, r *http.Request) {
 		writeUserAccessUnavailable(w, err)
 		return
 	}
-	current, err := client.Resource(UserAccessGVR()).Namespace("").Get(r.Context(), name, metav1.GetOptions{})
+	// Find the existing Claim across all namespaces. UserAccess Claims
+	// are namespaced; we walk the all-namespaces list to discover the
+	// canonical namespace before issuing the Update against that exact
+	// REST path. Refs TBD-C6-006-followup.
+	current, currentNs, err := findUserAccessByName(r.Context(), client, name)
 	if err != nil {
-		if apierrors.IsNotFound(err) {
+		if errors.Is(err, errUserAccessNotFound) {
 			writeJSON(w, http.StatusNotFound, map[string]string{
 				"error":  "user-access-not-found",
 				"detail": "no useraccess with name " + name,
@@ -325,7 +339,8 @@ func (h *Handler) UpdateUserAccess(w http.ResponseWriter, r *http.Request) {
 	desired := userAccessToUnstructured(body)
 	desired.SetResourceVersion(current.GetResourceVersion())
 	desired.SetUID(current.GetUID())
-	updated, err := client.Resource(UserAccessGVR()).Namespace("").Update(r.Context(), desired, metav1.UpdateOptions{})
+	desired.SetNamespace(currentNs)
+	updated, err := client.Resource(UserAccessGVR()).Namespace(currentNs).Update(r.Context(), desired, metav1.UpdateOptions{})
 	if err != nil {
 		if apierrors.IsConflict(err) {
 			writeJSON(w, http.StatusConflict, map[string]string{
@@ -383,14 +398,48 @@ func (h *Handler) DeleteUserAccess(w http.ResponseWriter, r *http.Request) {
 
 var errUserAccessNotFound = errors.New("user-access: not found")
 
-// tryDeleteUserAccess deletes the named cluster-scoped Claim.
-// Returns errUserAccessNotFound on miss so the caller can map onto
-// HTTP 404. We do not need to walk the list since the Claim is
-// cluster-scoped — the apiserver returns NotFound directly for an
-// unknown name.
+// findUserAccessByName walks the all-namespaces list and returns the
+// first UserAccess Claim whose metadata.name matches. Returns the
+// CR + its namespace, or errUserAccessNotFound on miss. Used by
+// UpdateUserAccess and tryDeleteUserAccess to discover the canonical
+// namespace before issuing a per-namespace REST call.
+//
+// UserAccess Claims are namespaced; an empty-namespace Get/Update/
+// Delete routes to the cluster-scoped REST path which the apiserver
+// returns 404 for ("the server could not find the requested
+// resource"). Walk the list once to discover the namespace, then
+// route the mutation to the canonical path. Refs TBD-C6-006-followup.
+func findUserAccessByName(ctx context.Context, client dynamic.Interface, name string) (*unstructured.Unstructured, string, error) {
+	listIface, err := client.Resource(UserAccessGVR()).Namespace("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, "", errUserAccessNotFound
+		}
+		return nil, "", err
+	}
+	for i := range listIface.Items {
+		it := &listIface.Items[i]
+		if it.GetName() == name {
+			return it, it.GetNamespace(), nil
+		}
+	}
+	return nil, "", errUserAccessNotFound
+}
+
+// tryDeleteUserAccess deletes the named namespaced Claim. Walks the
+// all-namespaces list to discover the canonical namespace before
+// issuing the Delete (UserAccess Claims are namespaced per the XRD
+// claimNames block — an empty-namespace Delete routes to the
+// cluster-scoped REST path which the apiserver doesn't serve for a
+// namespaced CRD). Returns errUserAccessNotFound on miss so the
+// caller can map onto HTTP 404. Refs TBD-C6-006-followup.
 func tryDeleteUserAccess(ctx context.Context, client dynamic.Interface, name string) error {
+	_, ns, err := findUserAccessByName(ctx, client, name)
+	if err != nil {
+		return err
+	}
 	policy := metav1.DeletePropagationForeground
-	err := client.Resource(UserAccessGVR()).Namespace("").Delete(ctx, name, metav1.DeleteOptions{
+	err = client.Resource(UserAccessGVR()).Namespace(ns).Delete(ctx, name, metav1.DeleteOptions{
 		PropagationPolicy: &policy,
 	})
 	if err != nil {

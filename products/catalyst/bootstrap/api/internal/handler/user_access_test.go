@@ -67,12 +67,15 @@ func installUserAccessDeployment(t *testing.T, h *Handler, id string) *Deploymen
 
 // newUserAccessUnstructured composes a sample UserAccess Claim
 // matching the canonical #322 shape — sovereignRef + applications
-// list with one app/role/namespaces grant.
+// list with one app/role/namespaces grant. Stamps rbacAssignNamespace
+// since UserAccess is a namespaced Crossplane Claim (XRD claimNames,
+// TBD-C6-006-followup).
 func newUserAccessUnstructured(name, sovereign, subject, app, role, ns string) *unstructured.Unstructured {
 	u := &unstructured.Unstructured{}
 	u.SetAPIVersion("access.openova.io/v1alpha1")
 	u.SetKind("UserAccess")
 	u.SetName(name)
+	u.SetNamespace(rbacAssignNamespace)
 	user := map[string]any{}
 	if subject != "" {
 		user["keycloakSubject"] = subject
@@ -290,7 +293,10 @@ func TestCreateUserAccess_Happy(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status: got %d want 201; body=%s", rec.Code, rec.Body.String())
 	}
-	got, err := client.Resource(UserAccessGVR()).Namespace("").Get(context.Background(), "alice-helmwatch", metav1.GetOptions{})
+	// UserAccess Claims are namespaced; CreateUserAccess stamps
+	// rbacAssignNamespace on the CR — read from the canonical
+	// namespace (TBD-C6-006-followup).
+	got, err := client.Resource(UserAccessGVR()).Namespace(rbacAssignNamespace).Get(context.Background(), "alice-helmwatch", metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("get after create: %v", err)
 	}
@@ -436,7 +442,9 @@ func TestUpdateUserAccess_Happy(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
 	}
-	got, err := client.Resource(UserAccessGVR()).Namespace("").Get(context.Background(), "alice-helmwatch", metav1.GetOptions{})
+	// Read from rbacAssignNamespace — UpdateUserAccess preserves the
+	// CR's namespace (TBD-C6-006-followup).
+	got, err := client.Resource(UserAccessGVR()).Namespace(rbacAssignNamespace).Get(context.Background(), "alice-helmwatch", metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("get after update: %v", err)
 	}
@@ -489,7 +497,9 @@ func TestDeleteUserAccess_Happy(t *testing.T) {
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status: got %d want 204; body=%s", rec.Code, rec.Body.String())
 	}
-	if _, err := client.Resource(UserAccessGVR()).Namespace("").Get(context.Background(), "alice-helmwatch", metav1.GetOptions{}); err == nil {
+	// Read from rbacAssignNamespace — DeleteUserAccess routes to the
+	// CR's canonical namespace (TBD-C6-006-followup).
+	if _, err := client.Resource(UserAccessGVR()).Namespace(rbacAssignNamespace).Get(context.Background(), "alice-helmwatch", metav1.GetOptions{}); err == nil {
 		t.Fatalf("expected error after delete; got nil")
 	}
 }

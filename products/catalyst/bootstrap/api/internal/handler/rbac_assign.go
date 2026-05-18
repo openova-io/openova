@@ -50,6 +50,30 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 )
 
+// isCRDNotInstalledErr — string-fallback detector for the
+// "CRD not installed on the Sovereign cluster" condition.
+//
+// Defense-in-depth complement to apierrors.IsNotFound: when the
+// apiserver returns 404 for a missing CRD/route (vs a missing
+// instance), the error chain can lose the StatusReasonNotFound tag
+// through wrapping, but the canonical apimachinery message survives
+// verbatim. catalog_client_cluster_fallback.go's isVersionNotServed
+// uses the same pattern; we mirror it here so PR #1789's
+// CRD-NotFound→503 envelope fires even when the typed assertion
+// misses. Refs TBD-C6-006-followup.
+func isCRDNotInstalledErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	if apierrors.IsNotFound(err) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "no matches for kind") ||
+		strings.Contains(msg, "the server could not find the requested resource") ||
+		strings.Contains(msg, "could not find requested resource")
+}
+
 // ── Canonical label keys + role names ────────────────────────────────
 
 const (
@@ -419,7 +443,7 @@ func (h *Handler) serveRBACAssign(w http.ResponseWriter, r *http.Request, dep *D
 		// envelope so the FE can render a "RBAC not provisioned yet —
 		// retry once useraccess CRD reconciles" hint, matching the
 		// shape every other UserAccess handler emits.
-		if apierrors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) || isCRDNotInstalledErr(err) {
 			writeUserAccessUnavailable(w, fmt.Errorf("useraccess CRD not installed on Sovereign cluster (yet); reconcile useraccess-controller and retry: %w", err))
 			return
 		}
@@ -642,11 +666,31 @@ func (h *Handler) publishRBACAssignAudit(
 // on a hot-path CR.
 const rbacAssignMaxRetries = 2
 
-// rbacAssignNamespace — namespace for UserAccess CRs. Empty string =
-// cluster-scoped (matches the platform/crossplane-claims xRD which is
-// cluster-scoped per the iam-composition family). Test seeders pass
-// this to client.Resource(...).Namespace(rbacAssignNamespace).
-const rbacAssignNamespace = ""
+// rbacAssignNamespace — namespace for UserAccess CRs.
+//
+// CRITICAL: useraccesses.access.openova.io is a Crossplane Claim
+// (claimNames in platform/crossplane-claims/chart/templates/xrds/
+// useraccess.yaml). Crossplane Claims are NAMESPACED by construction —
+// only the underlying XR (xuseraccesses) is cluster-scoped. The earlier
+// `const rbacAssignNamespace = ""` comment was wrong (mistook the
+// composition family for "cluster-scoped"). With an empty namespace,
+// the dynamic client routes Create to the apiserver's cluster-wide
+// path /apis/access.openova.io/v1alpha1/useraccesses, which is NOT
+// registered for a namespaced resource — the apiserver returns 404
+// with "the server could not find the requested resource". That's the
+// C6-006 / TBD-C6-006-followup symptom on t22 cov-bench: POST
+// /api/v1/sovereign/rbac/assign 500'd despite PR #1789's
+// CRD-NotFound→503 wrapper, because the IsNotFound branch never fired
+// (the 404 was for the route, not the resource — same wire shape, but
+// it's the namespace-stripping that fooled the apiserver into 404'ing).
+//
+// Fix: stamp catalyst-system on every Create + use it on the Resource
+// client, mirroring user_access_owner_seed.go's t134 D21 fix
+// (userAccessOwnerNamespace = "catalyst-system"). The List path keeps
+// Namespace("") for cross-namespace listing (that IS valid against a
+// namespaced CRD — the apiserver routes /apis/<g>/<v>/<r> as
+// list-all-namespaces and returns the union).
+const rbacAssignNamespace = "catalyst-system"
 
 // rbacAssignFindOrCreate runs the 3-path logic:
 //
@@ -780,6 +824,11 @@ func rbacAssignCreate(
 	obj.SetAPIVersion(userAccessGroup + "/" + userAccessVersion)
 	obj.SetKind("UserAccess")
 	obj.SetName(name)
+	// Pin the namespace on the object so the apiserver routes the
+	// Create to the namespaced REST path (see rbacAssignNamespace doc
+	// for the t22 cov-bench symptom this fixes). Mirrors the
+	// owner-seed pattern in user_access_owner_seed.go.
+	obj.SetNamespace(rbacAssignNamespace)
 	obj.SetLabels(map[string]string{
 		labelTier:                          wantTier,
 		"catalyst.openova.io/managed-by":   "rbac-assign",
@@ -806,7 +855,7 @@ func rbacAssignCreate(
 	}
 	_ = unstructured.SetNestedMap(obj.Object, spec, "spec")
 
-	created, err := client.Resource(UserAccessGVR()).Namespace("").Create(ctx, obj, metav1.CreateOptions{})
+	created, err := client.Resource(UserAccessGVR()).Namespace(rbacAssignNamespace).Create(ctx, obj, metav1.CreateOptions{})
 	if err != nil {
 		// Caller distinguishes IsAlreadyExists for the retry loop.
 		return rbacAssignResponse{}, http.StatusInternalServerError, err
@@ -843,7 +892,17 @@ func rbacAssignUpdateTier(
 		tierClusterRolePrefix+wantTier,
 		"spec", "tierRoleRef",
 	)
-	return client.Resource(UserAccessGVR()).Namespace("").Update(ctx, desired, metav1.UpdateOptions{})
+	// Update uses the CR's own namespace (rbacAssignNamespace for new
+	// CRs we created; the apiserver also returns the canonical ns on
+	// every List item). Empty namespace would route to the cluster-
+	// scoped REST path which the apiserver doesn't serve for a
+	// namespaced CRD (404 "the server could not find the requested
+	// resource") — see rbacAssignNamespace doc.
+	ns := desired.GetNamespace()
+	if ns == "" {
+		ns = rbacAssignNamespace
+	}
+	return client.Resource(UserAccessGVR()).Namespace(ns).Update(ctx, desired, metav1.UpdateOptions{})
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
