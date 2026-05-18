@@ -620,6 +620,20 @@ func main() {
 		// Whoami — UI auth guard polls this; 401 → redirect to /login.
 		rg.Get("/api/v1/whoami", h.HandleWhoami)
 
+		// Sandbox BYOS — Claude Code "Bring Your Own Subscription"
+		// (Wave 1b scaffold; design in
+		// products/sandbox/docs/claude-code-byos.md).
+		//
+		// Lets a user attach their personal Anthropic Max / Pro
+		// subscription so Sandbox-Pod Claude Code sessions bypass
+		// the Sovereign newapi gateway. All four endpoints sit
+		// inside RequireSession — every BYOS action is bound to
+		// the authenticated user's `sub` claim.
+		rg.Post("/api/v1/sandbox/byos/claude-code/start", h.HandleByosClaudeCodeStart)
+		rg.Get("/api/v1/sandbox/byos/claude-code/callback", h.HandleByosClaudeCodeCallback)
+		rg.Delete("/api/v1/sandbox/byos/claude-code", h.HandleByosClaudeCodeDisconnect)
+		rg.Get("/api/v1/sandbox/byos/claude-code/status", h.HandleByosClaudeCodeStatus)
+
 		// K8s data-plane endpoints — list + SSE stream + sync map per
 		// Sovereign cluster (issue #321). Per ADR-0001 §5 the catalyst-api
 		// is the consolidator; reads flow off the in-process Indexer,

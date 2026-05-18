@@ -23,6 +23,14 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("GET /auth/me", h.GetMe)
 	mux.HandleFunc("POST /auth/logout", h.Logout)
 	mux.HandleFunc("POST /auth/logout-all", h.LogoutAll)
+	// Personal Access Token issuance (Wave 1b — Sandbox prerequisite).
+	// Authenticated path: JWTAuth middleware required (see main.go's
+	// needsAuth predicate). Mints a longer-lived JWT with `typ=pat` so
+	// downstream consumers (sandbox-controller, newapi, MCP server)
+	// can distinguish PATs from interactive sessions.
+	//
+	// Contract: pat.go. Claim shape: core/services/shared/auth/claims.go.
+	mux.HandleFunc("POST /auth/pat", h.IssuePAT)
 	// Admin / service endpoints. Superadmin role required; used by
 	// notification to enrich event payloads with the owner's email.
 	mux.HandleFunc("GET /auth/admin/users/{id}", h.AdminGetUser)

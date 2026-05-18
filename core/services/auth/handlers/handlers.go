@@ -561,6 +561,17 @@ func (h *Handler) findOrCreateUser(ctx context.Context, email, name, avatarURL s
 }
 
 // issueTokens creates a JWT access token and a refresh token, persisting the refresh token in the DB.
+//
+// Claim shape mirrors core/services/shared/auth/claims.go so downstream
+// consumers (sandbox-controller, newapi bridge, MCP server) parse the
+// same fields regardless of which service minted the token.
+//
+// Wave 1b: org_id / groups / capabilities are emitted as omitempty
+// fields. Today this auth-service has no Keycloak federation path so
+// the fields stay empty on tokens it mints — Keycloak-issued access
+// tokens (catalyst-api session path) carry the populated claims via
+// the realm's `org` protocolMapper added in the same PR. Wave 4 wires
+// the per-user capability projection here.
 func (h *Handler) issueTokens(ctx context.Context, user *store.User) (*tokenResponse, error) {
 	now := time.Now()
 
@@ -571,6 +582,13 @@ func (h *Handler) issueTokens(ctx context.Context, user *store.User) (*tokenResp
 		"role":  user.Role,
 		"iat":   now.Unix(),
 		"exp":   now.Add(15 * time.Minute).Unix(),
+		"typ":   "session",
+		// Wave 1b cross-service claim shape (see
+		// core/services/shared/auth/claims.go). Fields are emitted only
+		// when populated so existing /auth/me consumers that don't
+		// expect them ignore the absence cleanly.
+		// org_id, groups, capabilities: populated once auth-service
+		// learns to federate against Keycloak (Wave 4).
 	}
 	accessToken := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims)
 	accessStr, err := accessToken.SignedString(h.JWTSecret)
