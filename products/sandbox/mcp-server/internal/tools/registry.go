@@ -594,6 +594,37 @@ func defaultCatalogue(env *Env) []Tool {
 			RequiredCapability: "flux",
 		},
 
+		// rag.search — Wave 12 lean text-grep stub over /repo PVC
+		// (rag_skills.go). Returns matches[]{path,line,snippet}; flips
+		// pendingApi=true when the PVC isn't mounted yet so the agent
+		// can branch on "index not ready" vs "no hits".
+		{
+			Name:               "rag.search",
+			Description:        "Text-grep over the Sandbox's mounted /repo PVC. Wave 12 stub for the per-Org hybrid RAG (architecture.md §3).",
+			InputSchema:        schemaRagSearch(),
+			Handler:            ragSearch,
+			RequiredCapability: "rag",
+		},
+
+		// skills.* — Wave 12 hardcoded catalogue (rag_skills.go). Real
+		// OCI-backed catalogue ships in a later wave; the wire envelope
+		// is intentionally stable so the agent's parsing layer carries
+		// forward.
+		{
+			Name:               "skills.list",
+			Description:        "List available skill packs. Wave 12 returns a hardcoded catalogue (pendingOCI=true on every entry).",
+			InputSchema:        map[string]any{"type": "object", "additionalProperties": false},
+			Handler:            skillsList,
+			RequiredCapability: "skills",
+		},
+		{
+			Name:               "skills.get",
+			Description:        "Fetch a single skill pack's manifest by name. Wave 12 returns a stub manifest; switches to OCI fetch in a later wave.",
+			InputSchema:        schemaSkillsGet(),
+			Handler:            skillsGet,
+			RequiredCapability: "skills",
+		},
+
 		// sandbox.session.* — this MCP server's own metadata (Wave 8).
 		{
 			Name:        "sandbox.session.whoami",
