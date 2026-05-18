@@ -24,7 +24,13 @@ description: |
   Sovereign requires only a sibling `infra/<provider>/` Tofu module —
   this chart Just Works.
 type: application
-version: 1.2.1
+# 1.2.2 (TBD-A13, #1799): force a republish. The 1.2.1 bump shipped only in
+# Chart.yaml's initial-fill commit and never triggered blueprint-release, so
+# `ghcr.io/openova-io/bp-velero:1.2.1` returns not-found and every fresh
+# Sovereign's HR stuck InProgress. Bumping to 1.2.2 forces the workflow to
+# fire and the auto-bump hook to keep clusters/_template/bootstrap-kit in
+# sync. No chart-payload changes.
+version: 1.2.2
 appVersion: "1.18.0"
 keywords: [catalyst, blueprint, velero, backup, disaster-recovery]
 maintainers:
