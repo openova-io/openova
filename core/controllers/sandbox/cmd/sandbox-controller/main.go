@@ -23,6 +23,7 @@ import (
 
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
 	"github.com/openova-io/openova/core/controllers/sandbox/internal/controller"
+	"github.com/openova-io/openova/core/controllers/sandbox/internal/idlescaler"
 	sandboxapi "github.com/openova-io/openova/core/controllers/sandbox/internal/sandboxapi"
 )
 
@@ -105,6 +106,22 @@ func main() {
 	}
 	if err := r.SetupWithManager(mgr); err != nil {
 		log.Error(err, "setup reconciler")
+		os.Exit(1)
+	}
+
+	// Wave 10 (PR #1641 follow-up) — IdleScaler reads the
+	// `openova.io/sandbox-idle-timeout-minutes` annotation the
+	// renderer writes on every pty-server StatefulSet, polls each
+	// pty-server Service for live activity, and scales replicas to 0
+	// once the idle window has elapsed. Leader-elected so HA
+	// controller replicas don't race.
+	scaler := idlescaler.New(mgr.GetClient(),
+		log.WithName("idle-scaler"),
+		idlescaler.Options{
+			DefaultIdleTimeoutMinutes: idleTimeoutMinutes,
+		})
+	if err := mgr.Add(scaler); err != nil {
+		log.Error(err, "add idle-scaler to manager")
 		os.Exit(1)
 	}
 

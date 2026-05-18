@@ -59,6 +59,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("ok"))
 		return
 
+	case r.URL.Path == "/idle" && r.Method == http.MethodGet:
+		h.idle(w, r)
+		return
+
 	case r.URL.Path == "/sessions" && r.Method == http.MethodPost:
 		h.create(w, r)
 		return
@@ -72,6 +76,23 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.NotFound(w, r)
+}
+
+// idleDTO is the wire shape returned by GET /idle. The sandbox-controller
+// IdleScaler polls this endpoint every 60s and stamps the StatefulSet
+// annotation `openova.io/sandbox-last-activity-at` so a subsequent
+// scaler tick can scale the StatefulSet to 0 once the configured idle
+// window has elapsed (architecture.md §1, PR #1641).
+type idleDTO struct {
+	LastActivityAt time.Time `json:"lastActivityAt"`
+	ActiveSessions int       `json:"activeSessions"`
+}
+
+func (h *Handler) idle(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, idleDTO{
+		LastActivityAt: h.mgr.LastActivity().UTC(),
+		ActiveSessions: h.mgr.Count(),
+	})
 }
 
 // dispatchSession routes /sessions/{id}/... by path suffix.
@@ -197,6 +218,7 @@ func (h *Handler) resize(w http.ResponseWriter, r *http.Request, id string) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	h.mgr.Touch()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -222,6 +244,7 @@ func (h *Handler) signal(w http.ResponseWriter, r *http.Request, id string) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	h.mgr.Touch()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -253,6 +276,8 @@ func (h *Handler) attach(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 	defer conn.Close()
+	// Attach itself is activity (Wave 10 idle-scaler — architecture.md §1).
+	h.mgr.Touch()
 
 	sub, replay, err := s.Subscribe(256)
 	if err != nil {
@@ -261,6 +286,8 @@ func (h *Handler) attach(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 	defer s.Unsubscribe(sub)
+	// Detach also counts: the IdleScaler should see the trailing edge.
+	defer h.mgr.Touch()
 
 	// Replay first.
 	if len(replay) > 0 {
@@ -292,6 +319,7 @@ func (h *Handler) attach(w http.ResponseWriter, r *http.Request, id string) {
 				if err := writeBytes(chunk); err != nil {
 					return
 				}
+				h.mgr.Touch()
 			}
 		}
 	}()
@@ -307,6 +335,7 @@ func (h *Handler) attach(w http.ResponseWriter, r *http.Request, id string) {
 			if _, err := s.Write(payload); err != nil {
 				break
 			}
+			h.mgr.Touch()
 		}
 	}
 	<-done
@@ -327,12 +356,14 @@ func (h *Handler) cards(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 	defer conn.Close()
+	h.mgr.Touch()
 
 	sub, replay, err := s.Subscribe(256)
 	if err != nil {
 		return
 	}
 	defer s.Unsubscribe(sub)
+	defer h.mgr.Touch()
 
 	if len(replay) > 0 {
 		_ = conn.WriteJSON(map[string]any{"type": "raw", "bytes": replay})
@@ -348,6 +379,7 @@ func (h *Handler) cards(w http.ResponseWriter, r *http.Request, id string) {
 			if err := conn.WriteJSON(map[string]any{"type": "raw", "bytes": chunk}); err != nil {
 				return
 			}
+			h.mgr.Touch()
 		}
 	}
 }

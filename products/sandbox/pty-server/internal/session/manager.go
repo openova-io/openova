@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"sync"
+	"time"
 )
 
 // ErrNotFound is returned by Manager.Get / Stop for unknown session IDs.
@@ -13,14 +14,46 @@ var ErrNotFound = errors.New("session: not found")
 // Manager tracks live Sessions by ID. One Manager per pty-server
 // process; the manager is concurrency-safe and is the single place
 // that allocates session IDs.
+//
+// Wave 10 (idle-scaler): Manager also tracks `lastActivity` — a
+// monotonically-updated timestamp of the most recent caller-driven
+// event (session create, WS attach, WS message in/out, session stop).
+// The IdleScaler in sandbox-controller polls this via the /idle
+// endpoint and scales the StatefulSet to 0 after the configured
+// idle window (products/sandbox/docs/architecture.md §1).
 type Manager struct {
 	mu       sync.RWMutex
 	sessions map[string]*Session
+
+	activityMu   sync.RWMutex
+	lastActivity time.Time
 }
 
 // NewManager returns an empty Manager.
 func NewManager() *Manager {
-	return &Manager{sessions: make(map[string]*Session)}
+	return &Manager{
+		sessions:     make(map[string]*Session),
+		lastActivity: time.Now().UTC(),
+	}
+}
+
+// Touch records a fresh activity timestamp. Callers (HTTP handlers,
+// WebSocket pumps) invoke Touch on every interaction with a Session
+// — the IdleScaler reads the result via LastActivity() / the /idle
+// endpoint.
+func (m *Manager) Touch() {
+	m.activityMu.Lock()
+	m.lastActivity = time.Now().UTC()
+	m.activityMu.Unlock()
+}
+
+// LastActivity returns the most recent activity timestamp. If no
+// caller has yet touched the manager (idle from process start),
+// LastActivity is the process boot time.
+func (m *Manager) LastActivity() time.Time {
+	m.activityMu.RLock()
+	defer m.activityMu.RUnlock()
+	return m.lastActivity
 }
 
 // Create spawns a Session and registers it under a freshly minted ID.
@@ -36,6 +69,7 @@ func (m *Manager) Create(spec Spec) (*Session, error) {
 	m.mu.Lock()
 	m.sessions[id] = s
 	m.mu.Unlock()
+	m.Touch()
 
 	// Auto-evict on exit so /sessions stays accurate.
 	go func() {
@@ -43,6 +77,7 @@ func (m *Manager) Create(spec Spec) (*Session, error) {
 		m.mu.Lock()
 		delete(m.sessions, id)
 		m.mu.Unlock()
+		m.Touch()
 	}()
 
 	return s, nil
@@ -71,7 +106,15 @@ func (m *Manager) Stop(id string) error {
 	if !ok {
 		return ErrNotFound
 	}
+	m.Touch()
 	return s.Close()
+}
+
+// Count returns the number of active sessions.
+func (m *Manager) Count() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.sessions)
 }
 
 // List returns a snapshot of currently active session IDs.
