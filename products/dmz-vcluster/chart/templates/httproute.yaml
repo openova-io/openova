@@ -12,10 +12,10 @@
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
-  name: {{ include "bp-dmz-vcluster.fullname" . }}
-  namespace: {{ include "bp-dmz-vcluster.hostNamespace" . }}
+  name: {{ include "bp-dmz-vcluster-tenant.fullname" . }}
+  namespace: {{ include "bp-dmz-vcluster-tenant.hostNamespace" . }}
   labels:
-    {{- include "bp-dmz-vcluster.labels" . | nindent 4 }}
+    {{- include "bp-dmz-vcluster-tenant.labels" . | nindent 4 }}
 spec:
   parentRefs:
     - name: {{ .Values.dmz.httproute.parentRef.name }}
@@ -31,6 +31,6 @@ spec:
         # The synced tenant apiserver Service. Operators ADD per-tenant
         # path matches by overlay — extend rules[] with workload-Service
         # backends as needed.
-        - name: {{ include "bp-dmz-vcluster.fullname" . }}-apiserver
+        - name: {{ include "bp-dmz-vcluster-tenant.fullname" . }}-apiserver
           port: {{ .Values.dmz.vcluster.apiPort }}
 {{- end }}

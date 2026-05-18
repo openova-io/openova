@@ -1,4 +1,12 @@
-# bp-dmz-vcluster
+# bp-dmz-vcluster-tenant
+
+> **Note (TBD-A6c rename, 2026-05-18):** This chart was previously named
+> `bp-dmz-vcluster` — same as `platform/bp-dmz-vcluster/chart/`, which
+> prevented `scripts/check-bootstrap-kit-pin-sync.sh` from
+> disambiguating the two charts. The per-tenant marketplace chart is
+> now named `bp-dmz-vcluster-tenant`; the platform/ bootstrap-topology
+> chart keeps its canonical `bp-dmz-vcluster` name (slot 54, DoD A4).
+> See issue #1719 for the rename rationale.
 
 Catalyst-authored Blueprint chart for a DMZ vCluster — an isolated
 customer-internet-facing virtual Kubernetes cluster running inside the
@@ -47,7 +55,7 @@ ClusterMesh + the egress gateway are ready.
 
 Per `docs/INVIOLABLE-PRINCIPLES.md` #4a, `dmz.vcluster.image.tag` is
 empty in `values.yaml` and the helm-template render fails-fast when an
-overlay leaves it empty (see `_helpers.tpl::bp-dmz-vcluster.image`). CI
+overlay leaves it empty (see `_helpers.tpl::bp-dmz-vcluster-tenant.image`). CI
 populates the SHA tag via `yq eval -i .image.tag = "<sha>"` when
 promoting a build into `clusters/<sovereign>/`.
 
@@ -73,7 +81,7 @@ Sovereign's bootstrap-kit.
 
 1. **Default-OFF**: zero K8s resources rendered (CC3 default-OFF gate).
 2. **Fail-fast on empty image tag**: render aborts with the exact
-   `bp-dmz-vcluster: ... image.tag is empty` message when
+   `bp-dmz-vcluster-tenant: ... image.tag is empty` message when
    `enabled: true` without a SHA stamp.
 3. **Full-ON canonical bundle**: HelmRelease + 2 NetworkPolicies +
    Service (+ HTTPRoute when hostname is set).

@@ -1,5 +1,9 @@
-# Catalyst Blueprint values for bp-dmz-vcluster (slice EPIC-5
-# leftovers DMZ #1100).
+# Catalyst Blueprint values for bp-dmz-vcluster-tenant (slice EPIC-5
+# leftovers DMZ #1100). Chart was renamed from bp-dmz-vcluster ->
+# bp-dmz-vcluster-tenant on 2026-05-18 (TBD-A6c, issue #1719) so
+# scripts/check-bootstrap-kit-pin-sync.sh can disambiguate this
+# per-tenant marketplace chart from platform/bp-dmz-vcluster
+# (the bootstrap-topology chart pinned at slot 54).
 #
 # Per docs/INVIOLABLE-PRINCIPLES.md:
 #   #1   waterfall — chart ships the full target shape (HelmRelease

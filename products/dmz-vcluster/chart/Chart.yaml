@@ -1,5 +1,15 @@
 apiVersion: v2
-name: bp-dmz-vcluster
+# RENAMED 2026-05-18 (TBD-A6c, issue #1719): was `bp-dmz-vcluster` — same
+# chart name as `platform/bp-dmz-vcluster/chart/Chart.yaml` made
+# scripts/check-bootstrap-kit-pin-sync.sh unable to disambiguate the two
+# charts when comparing source-tree version against the bootstrap-kit
+# pin (slot 54 pins the platform/ chart at 0.1.0; this products/ chart
+# at 0.1.1 always looked drifted). Renaming this per-tenant marketplace
+# variant lets the audit map each name -> exactly one Chart.yaml and
+# reach 0 reported drifts. The platform/bp-dmz-vcluster chart at slot 54
+# is unchanged — it remains the canonical bootstrap-topology chart per
+# docs/SOVEREIGN-MULTI-REGION-DOD.md A4.
+name: bp-dmz-vcluster-tenant
 version: 0.1.1
 appVersion: "0.20.0"
 description: |
@@ -25,7 +35,12 @@ description: |
   (resource limits, pod-security, auth) without forking the upstream
   chart. Per ADR-0001 §3.2.8 + the EPIC-5 leftovers brief, DMZ
   vCluster is a customer-facing capability under products/, NOT
-  platform/.
+  platform/. The chart name (`bp-dmz-vcluster-tenant`) is distinct
+  from `platform/bp-dmz-vcluster` (the per-region DMZ topology piece)
+  so the bootstrap-kit pin-sync audit can disambiguate the two —
+  this chart never appears in clusters/_template/bootstrap-kit/, only
+  in per-tenant marketplace overlays under
+  clusters/<sovereign>/products/dmz-vcluster/release.yaml.
 
   Default-OFF gate: `dmz.enabled: false`. Operators flip true on a
   per-Sovereign overlay once Cilium ClusterMesh (EPIC-6 C-DB-1) and
