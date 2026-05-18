@@ -375,6 +375,21 @@ func main() {
 	// endpoint. See handler/auth_test_session.go for the rationale.
 	r.Post("/api/v1/auth/test-session", h.HandleAuthTestSession)
 
+	// /api/v1/deployments/in-flight-count — public, read-only count of
+	// deployments in any Phase-0 in-flight status (pending /
+	// provisioning / tofu-applying / flux-bootstrapping). The CI
+	// deploy-bot (.github/workflows/catalyst-build.yaml) polls this
+	// before pushing a values.yaml image-SHA bump, to avoid rolling the
+	// catalyst-api Pod mid-tofu-apply (the OpenTofu workdir lives on a
+	// /tmp emptyDir that dies with the Pod, abandoning the prov and
+	// leaking Hetzner resources). MUST live outside RequireSession —
+	// the deploy-bot has no session cookie and runs from a GHA runner.
+	// Same posture as /healthz, /readyz, /api/v1/version. The response
+	// is count+IDs only; no FQDNs or owner emails. See handler/
+	// deployments_in_flight_count.go for the full rationale and the
+	// t13/t17/t21 incident history that motivated this gate.
+	r.Get("/api/v1/deployments/in-flight-count", h.InFlightCount)
+
 	// /api/v1/subdomains/check — public, read-only availability query.
 	// Same model as a username-availability check on a signup form: an
 	// anonymous visitor lands on the wizard's Domain step BEFORE they

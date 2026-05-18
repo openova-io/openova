@@ -308,6 +308,108 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # In-flight provisioning guard — t13/t17/t21 incident, 2026-05-17.
+      #
+      # The mothership catalyst-api Pod is single-replica and is rolled
+      # by Flux whenever this workflow bumps the image SHA. The OpenTofu
+      # workdir lives on a /tmp emptyDir that dies with the Pod, so any
+      # in-flight `tofu apply` is killed mid-resource. The on-disk
+      # deployment record is rewritten to status=failed on the new Pod's
+      # restoreFromStore (deployments.go:413), but the Hetzner resources
+      # tagged with the abandoned deployment-id remain orphans that
+      # require manual `hcloud` cleanup. Three consecutive provs
+      # (t13/t17/t21) died this way during 2026-05-17, each costing
+      # ~15 minutes of provisioning time plus cleanup overhead.
+      #
+      # This step polls the public, read-only in-flight-count endpoint
+      # on the mothership catalyst-api (added in this PR, served at
+      # console.openova.io/api/v1/deployments/in-flight-count). The
+      # endpoint counts ONLY Phase-0 in-flight statuses (pending /
+      # provisioning / tofu-applying / flux-bootstrapping) — Phase-1 is
+      # observational and resumes across Pod restarts, so it does not
+      # block. When count==0 we proceed with the values.yaml bump.
+      #
+      # Timeout policy: cap at MAX_WAIT_SECONDS (default 30 minutes —
+      # the upper bound on a healthy multi-region prov). If a prov is
+      # still in flight after the cap, we proceed anyway and log a
+      # WARNING. Blocking deploys indefinitely on a stuck prov would
+      # mean an operator can never ship a fix for whatever is causing
+      # the stuck prov (the worst possible failure mode for a CI gate).
+      #
+      # Endpoint outage policy: if the curl fails for any reason
+      # (network blip, mothership down, endpoint not yet deployed on
+      # the live SHA), we proceed with the bump after logging. Same
+      # rationale — a broken gate must not block all future deploys.
+      # First-time-rollout consideration: the endpoint does not exist
+      # on the LIVE mothership until THIS PR's image lands, so the
+      # first run after merge will fall through the "endpoint not
+      # found" branch and proceed normally. Subsequent runs benefit
+      # from the gate.
+      - name: Wait for in-flight provisioning to drain
+        env:
+          # Override-able via repo variables/secrets if a different
+          # mothership URL is in play (Sovereign chroot self-deploy,
+          # staging, etc.). Default targets the production mothership.
+          CATALYST_API_URL: ${{ vars.CATALYST_API_URL || 'https://console.openova.io' }}
+          MAX_WAIT_SECONDS: '1800'   # 30 min hard cap
+          POLL_INTERVAL_SECONDS: '20'
+        run: |
+          set -u
+          ENDPOINT="${CATALYST_API_URL%/}/api/v1/deployments/in-flight-count"
+          echo "Polling ${ENDPOINT} every ${POLL_INTERVAL_SECONDS}s (cap ${MAX_WAIT_SECONDS}s)"
+
+          START=$(date +%s)
+          ATTEMPT=0
+          while : ; do
+            ATTEMPT=$((ATTEMPT + 1))
+            HTTP_CODE=$(curl -fsSL --max-time 10 -o /tmp/inflight.json -w '%{http_code}' \
+              "${ENDPOINT}" 2>/dev/null || echo "000")
+
+            if [ "$HTTP_CODE" = "000" ]; then
+              # Network failure (DNS, connect refused, timeout). Do NOT
+              # block the deploy — fail-open per "broken gate must not
+              # halt all deploys" rule above. Log + proceed.
+              echo "WARN: ${ENDPOINT} unreachable on attempt ${ATTEMPT} (curl failed). Proceeding without gate."
+              break
+            fi
+
+            if [ "$HTTP_CODE" = "404" ]; then
+              # First-rollout case — the endpoint is not yet present on
+              # the LIVE catalyst-api. Once this PR merges, subsequent
+              # runs will see the endpoint and start gating properly.
+              echo "INFO: ${ENDPOINT} returned 404 — endpoint not yet deployed on live mothership. Proceeding (first-rollout fall-through)."
+              break
+            fi
+
+            if [ "$HTTP_CODE" != "200" ]; then
+              # Any other non-2xx: log + proceed (fail-open).
+              echo "WARN: ${ENDPOINT} returned HTTP ${HTTP_CODE} on attempt ${ATTEMPT}. Body:"
+              cat /tmp/inflight.json 2>/dev/null || true
+              echo
+              echo "Proceeding without gate (fail-open)."
+              break
+            fi
+
+            COUNT=$(jq -r '.count // 0' /tmp/inflight.json 2>/dev/null || echo "0")
+            IDS=$(jq -r '.ids // [] | join(",")' /tmp/inflight.json 2>/dev/null || echo "")
+
+            if [ "$COUNT" -eq 0 ] 2>/dev/null; then
+              echo "OK: 0 deployments in-flight. Safe to bump catalyst-api image."
+              break
+            fi
+
+            ELAPSED=$(($(date +%s) - START))
+            if [ "$ELAPSED" -ge "$MAX_WAIT_SECONDS" ]; then
+              echo "WARN: ${COUNT} deployment(s) still in-flight after ${ELAPSED}s (cap ${MAX_WAIT_SECONDS}s)."
+              echo "WARN: in-flight ids: ${IDS}"
+              echo "WARN: proceeding with image bump anyway — stuck provs must not block all future deploys."
+              break
+            fi
+
+            echo "WAIT: attempt ${ATTEMPT} — ${COUNT} deployment(s) in-flight (ids: ${IDS}); elapsed=${ELAPSED}s. Sleeping ${POLL_INTERVAL_SECONDS}s."
+            sleep "${POLL_INTERVAL_SECONDS}"
+          done
+
       - name: Update SHA tags in values.yaml and deployment manifests
         # The catalyst-ui and catalyst-api images are referenced in two places:
         #
