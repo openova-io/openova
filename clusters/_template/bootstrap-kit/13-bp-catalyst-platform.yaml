@@ -563,7 +563,17 @@ spec:
       # values.yaml sovereign.{enableHotStandby,primaryRegion,
       # replicaRegion} defaults). See Chart.yaml header comment for
       # the full change list.
-      version: 1.4.164
+      #
+      # 1.4.165 (#1691 follow-up): chart-version-only republish to
+      # bake sme-services image SHA 8878938 (the Containerfile
+      # golang 1.22 → 1.26 fix that unblocked services-build after
+      # tenant/go.mod required go 1.26.0). Without this pin bump,
+      # fresh provs would install 1.4.164 which still references the
+      # pre-PR #1683 billing image — billing Pod CrashLoopBackOff
+      # with NATS subject-overlap on catalyst.usage stream. PR #1683
+      # itself was on main since 2026-05-18 but the image never
+      # built until #1691 fixed the matrix.
+      version: 1.4.165
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
