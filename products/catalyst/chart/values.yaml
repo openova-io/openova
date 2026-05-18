@@ -1431,3 +1431,25 @@ qaFixtures:
   # their own policy bundle.
   networkPolicies:
     enabled: true
+
+# ─── Baseline CiliumNetworkPolicies (Closes #1746) ────────────────────
+# Namespaced CNP bundle shipping unconditionally (i.e. independent of
+# qaFixtures.enabled) for the two production namespaces 115-TC matrix
+# row C12-009 calls out:
+#
+#   - catalyst-system : platform Pods (catalyst-api, catalyst-ui,
+#     sme-services, cutover Jobs)
+#   - kube-system     : home of the cilium-gateway Gateway resource
+#
+# Rendered by templates/baseline-network-policies.yaml — see the
+# header comment of that file for the full rule list (6 policies:
+# allow-cluster-services + allow-intra-namespace + allow-platform-egress
+# + allow-gateway-ingress in catalyst-system,
+# allow-cilium-gateway-world-ingress + allow-gateway-to-catalyst-system
+# in kube-system).
+#
+# Default ON because the matrix asserts on these invariants for every
+# Sovereign. Operators with their own policy bundle override
+# baselineNetworkPolicies.enabled=false in a per-Sovereign overlay.
+baselineNetworkPolicies:
+  enabled: true

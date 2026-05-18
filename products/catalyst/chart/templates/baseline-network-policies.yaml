@@ -1,0 +1,230 @@
+{{- /*
+  baseline-network-policies.yaml — namespaced CiliumNetworkPolicy
+  bundle shipping unconditionally with the Catalyst chart (Closes #1746,
+  WBS row TBD-Cov-12 / 115-TC matrix C12-009).
+
+  ── Why this file exists ─────────────────────────────────────────────
+
+  The 115-TC matrix row C12-009 (assertion: "ClusterWide CiliumNetwork
+  Policies present") was authored when the Sovereign zero-trust design
+  was clusterwide-only. Per the WBS triage (docs/WBS.md row TBD-Cov-12)
+  the design landed on namespaced CNPs instead — the platform's actual
+  invariants are "every Sovereign platform namespace has a baseline
+  allow-policy that enforces the platform's own egress vocabulary".
+
+  Previously these CNPs only shipped under `qaFixtures.enabled=true`
+  (templates/qa-fixtures/cilium-network-policies.yaml) — which gates
+  them behind the matrix's qa-omantel bundle. On a production Sovereign
+  (qaFixtures.enabled=false) no namespaced CNPs were rendered, so the
+  matrix-asserted invariant was missing in production and the rest of
+  the platform relied on the implicit "no default-deny → everything
+  works" stance. This file ships the same invariants UNCONDITIONALLY
+  for the two production namespaces the matrix calls out:
+
+    - catalyst-system : where catalyst-api, catalyst-ui, the sme-services
+      tier, and the cutover Jobs live. Needs explicit allow templates
+      for kube-apiserver, kube-dns, harbor, gitea, keycloak, and intra-
+      namespace pod-to-pod so the platform stays reachable when a
+      default-deny CCNP is installed (qa-fixtures bundle, customer
+      overlay, etc.).
+
+    - kube-system : where the cilium-gateway Gateway resource lives
+      (clusters/_template/sovereign-tls/cilium-gateway.yaml:84 — there
+      is NO separate `cilium-gateway` namespace; the Gateway resource
+      itself is named cilium-gateway and lives in kube-system). The
+      gateway needs explicit world-ingress allow + egress-to-all so
+      external traffic can reach the listener and envoy can forward
+      to any backend Service.
+
+  ── Render gate ──────────────────────────────────────────────────────
+
+  `.Values.baselineNetworkPolicies.enabled` defaults true. Operators
+  who author their own policy bundle disable this with
+  baselineNetworkPolicies.enabled=false in the per-Sovereign overlay.
+
+  ── Idempotency with qa-fixtures ─────────────────────────────────────
+
+  templates/qa-fixtures/cilium-network-policies.yaml renders an
+  identically-named clusterwide gateway-world-ingress policy under
+  qaFixtures.enabled — different name + namespace + scope (CCNP vs
+  namespaced CNP), so neither shadows the other. Operators who run BOTH
+  bundles get the qa-fixtures CCNP plus the namespaced CNPs here; the
+  two coexist by design.
+
+  Per docs/INVIOLABLE-PRINCIPLES.md #1 (target-state) every rule has
+  a real production purpose — none is a placeholder.
+*/ -}}
+{{- if .Values.baselineNetworkPolicies.enabled }}
+---
+# 1/6 — catalyst-system: allow egress to kube-dns + kube-apiserver.
+#
+# Every Pod in catalyst-system (catalyst-api, catalyst-ui, sme-services,
+# cutover Jobs) needs DNS resolution + kube-apiserver access. Caught on
+# prov #72: cnpg initdb pods timed out 18m on `dial tcp 10.43.0.1:443:
+# i/o timeout` because the kube-proxy-replacement ClusterIP redirect
+# still requires explicit Cilium L3/L4 allow.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-cluster-services
+  namespace: catalyst-system
+  labels:
+    openova.io/managed-by: catalyst-baseline
+    openova.io/policy-tier: baseline-allow
+    catalyst.openova.io/component: network-policy-baseline
+spec:
+  description: "Baseline egress to kube-dns + kube-apiserver for every catalyst-system Pod."
+  endpointSelector: {}
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+    - toEntities:
+        - kube-apiserver
+---
+# 2/6 — catalyst-system: allow intra-namespace pod-to-pod (so
+# catalyst-ui can reach catalyst-api, the cutover Jobs can reach
+# catalyst-api, etc.).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-intra-namespace
+  namespace: catalyst-system
+  labels:
+    openova.io/managed-by: catalyst-baseline
+    openova.io/policy-tier: baseline-allow
+    catalyst.openova.io/component: network-policy-baseline
+spec:
+  description: "Allow pod-to-pod traffic within catalyst-system (catalyst-ui → catalyst-api, etc.)."
+  endpointSelector: {}
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: catalyst-system
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: catalyst-system
+---
+# 3/6 — catalyst-system: allow egress to platform-control namespaces
+# (harbor, gitea, keycloak, cnpg-system, sme, valkey, nats-system,
+# openbao). These are the namespaces catalyst-api and the cutover
+# Jobs legitimately reach during install + day-2 reconcile.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-platform-egress
+  namespace: catalyst-system
+  labels:
+    openova.io/managed-by: catalyst-baseline
+    openova.io/policy-tier: baseline-allow
+    catalyst.openova.io/component: network-policy-baseline
+spec:
+  description: "Egress to platform-control namespaces (harbor / gitea / keycloak / cnpg-system / sme / valkey / nats / openbao)."
+  endpointSelector: {}
+  egress:
+    - toEndpoints:
+        - matchExpressions:
+            - key: io.kubernetes.pod.namespace
+              operator: In
+              values:
+                - "harbor"
+                - "gitea"
+                - "keycloak"
+                - "cnpg-system"
+                - "sme"
+                - "valkey"
+                - "nats-system"
+                - "openbao"
+                - "powerdns"
+                - "external-dns"
+                - "external-secrets-system"
+                - "cert-manager"
+---
+# 4/6 — catalyst-system: ingress from cilium-gateway (Gateway in
+# kube-system) so HTTPRoutes attached to cilium-gateway/kube-system
+# can forward console/api/admin/marketplace traffic to catalyst-api +
+# catalyst-ui.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-gateway-ingress
+  namespace: catalyst-system
+  labels:
+    openova.io/managed-by: catalyst-baseline
+    openova.io/policy-tier: baseline-allow
+    catalyst.openova.io/component: network-policy-baseline
+spec:
+  description: "Ingress from the cilium-gateway (kube-system) listener — Cilium Gateway API hostNetwork mode forwards via reserved:ingress."
+  endpointSelector: {}
+  ingress:
+    - fromEntities:
+        - cluster
+        - host
+        - remote-node
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+---
+# 5/6 — kube-system: allow world ingress at the Cilium Gateway
+# endpoint (reserved:ingress). Mirrors the qa-fixtures CCNP but as a
+# namespaced CNP scoped to kube-system + the gateway's pod label.
+#
+# Without this rule a default-deny CCNP cuts every public request at
+# the gateway (`HTTP 403 Access denied server=envoy`). Caught live on
+# prov #80 (omantel.biz, 2026-05-14): every console/auth/gitea host
+# 403'd despite healthy TLS + Programmed HTTPRoutes.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-cilium-gateway-world-ingress
+  namespace: kube-system
+  labels:
+    openova.io/managed-by: catalyst-baseline
+    openova.io/policy-tier: baseline-allow
+    catalyst.openova.io/component: network-policy-baseline
+spec:
+  description: "Allow world ingress at the cilium-gateway listener; without this default-deny would 403 every public request."
+  endpointSelector:
+    matchLabels:
+      reserved.ingress: ""
+  ingress:
+    - fromEntities:
+        - world
+        - cluster
+        - host
+        - remote-node
+        - kube-apiserver
+  egress:
+    - toEntities:
+        - all
+---
+# 6/6 — kube-system: allow the Cilium Gateway envoy Pod to reach
+# every catalyst-system Pod so HTTPRoutes can forward to catalyst-api
+# + catalyst-ui backends. The companion of rule 4/6 above.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-gateway-to-catalyst-system
+  namespace: kube-system
+  labels:
+    openova.io/managed-by: catalyst-baseline
+    openova.io/policy-tier: baseline-allow
+    catalyst.openova.io/component: network-policy-baseline
+spec:
+  description: "Allow cilium-gateway envoy egress to catalyst-system Pods (HTTPRoute backendRefs to catalyst-api / catalyst-ui)."
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: cilium-gateway
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: catalyst-system
+{{- end }}
