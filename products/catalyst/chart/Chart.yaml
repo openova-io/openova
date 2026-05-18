@@ -1257,8 +1257,8 @@ name: bp-catalyst-platform
 # 25/TCP (legacy SMTP fallback). All three are explicitly scoped to
 # `toEntities: world`, matching the existing 443/TCP allow. No other
 # rule semantics change. (Fixes PIN-issue 502 regression from #1785.)
-version: 1.4.179
-appVersion: 1.4.179
+version: 1.4.180
+appVersion: 1.4.180
 # 1.4.172 — feat(security): baseline CiliumNetworkPolicies for
 # catalyst-system + cilium-gateway (Closes #1746, Refs TBD-Cov-12 /
 # C12-009). Cov-bench audit on the live Sovereign cluster confirmed
