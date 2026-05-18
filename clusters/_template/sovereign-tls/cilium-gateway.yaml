@@ -51,15 +51,32 @@
 # console unreachable" gap during every Helm upgrade. envsubst-driven
 # pre-rendered YAML is the canonical pattern for this slot.
 #
-# Listener naming convention:
-#   - https-<sanitised-zone> / http-<sanitised-zone>
-#   - sanitised-zone = zone name with '.' → '-' (e.g. omani-works,
-#     omani-homes). MUST match the cert resource naming in
-#     products/catalyst/chart/templates/sovereign-wildcard-certs.yaml
-#     so certificateRefs resolve. Each listener distinct so the Gateway
-#     controller programs them all (duplicate `name: https` would
-#     produce a Conflicting status condition and skip all but the
-#     first).
+# Listener naming convention (t20 critical fix #3):
+#   - SINGLE parent zone (the common case) → bare names `https` /
+#     `http`. Every platform chart's HTTPRoute (harbor, keycloak,
+#     grafana, gitea, openbao, powerdns, stalwart-tenant) hardcodes
+#     `parentRefs[0].sectionName: https`. If we rename the listener to
+#     `https-<sanitised-zone>` for a single-zone Sovereign, every
+#     HTTPRoute reports `Accepted=False NoMatchingListener` and the
+#     Sovereign Console / Harbor / Keycloak etc. are unreachable at
+#     the Gateway. Keeping bare names for the single-zone case is the
+#     safer rollback. (Was broken between PR #1640 and the t20 fix.)
+#   - MULTIPLE parent zones → unique names `https-<sanitised-zone>` /
+#     `http-<sanitised-zone>` where sanitised-zone = zone name with
+#     '.' → '-' (e.g. omani-works, omani-homes). Distinct names per
+#     listener so the Gateway controller programs them all (duplicate
+#     `name: https` produces a Conflicting status condition and skips
+#     all but the first). For multi-zone Sovereigns whose HTTPRoutes
+#     must attach under a non-primary zone, override `sectionName` via
+#     values.yaml at the chart level.
+#   - The certificateRefs.name is ALWAYS the per-zone
+#     `sovereign-wildcard-tls-<sanitised-zone>` (see
+#     products/catalyst/chart/templates/sovereign-wildcard-certs.yaml)
+#     — independent of the listener-name choice above.
+#
+# The listener block is rendered by infra/hetzner/main.tf locals.
+# parent_domains_listeners_yaml using local.parent_domains_single_zone
+# to switch between the two naming schemes.
 
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
