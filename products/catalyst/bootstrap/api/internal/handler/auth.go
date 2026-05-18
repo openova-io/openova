@@ -252,8 +252,16 @@ func (h *Handler) HandlePinIssue(w http.ResponseWriter, r *http.Request) {
 	// Rate-limit-first means losers in the race get 429 immediately,
 	// the winner reaches Keycloak alone, and the rate limiter is
 	// honoured even under concurrency.
+	//
+	// tryReserve (not canIssue) is used so check-and-reserve is atomic
+	// under a single mutex acquisition. The earlier canIssue+put split
+	// allowed three concurrent goroutines to all observe "no entry",
+	// pass the gate, and then race EnsureUser. tryReserve stamps a
+	// placeholder entry on success; put(...) below overwrites it with
+	// the actual PIN, and drop(...) rolls back the cooldown on a
+	// downstream failure.
 	store := h.pinStoreFor()
-	if ok, retry := store.canIssue(email); !ok {
+	if ok, retry := store.tryReserve(email); !ok {
 		retryAfterSec := int(retry.Seconds()) + 1
 		w.Header().Set("Retry-After", fmt.Sprintf("%d", retryAfterSec))
 		writeJSON(w, http.StatusTooManyRequests, map[string]any{
@@ -267,6 +275,10 @@ func (h *Handler) HandlePinIssue(w http.ResponseWriter, r *http.Request) {
 	// ── 2. EnsureUser in openova realm ──────────────────────────────────────
 	kc := h.openovaKCClient()
 	if kc == nil {
+		// Rollback the reservation: this gate's failure isn't the
+		// operator's fault and a follow-up retry must not be punished by
+		// the 60s cooldown.
+		store.drop(email)
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
 			"error":  "auth-unconfigured",
 			"detail": "CATALYST_OPENOVA_KC_SA_CLIENT_SECRET not set",
@@ -274,6 +286,9 @@ func (h *Handler) HandlePinIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := kc.EnsureUser(r.Context(), email, "openova-users"); err != nil {
+		// Rollback so a Keycloak transient (502 from KC, etc) doesn't
+		// punish the operator for the next 60 seconds.
+		store.drop(email)
 		h.log.Error("pin/issue: EnsureUser failed", "email", email, "err", err)
 		writeJSON(w, http.StatusBadGateway, map[string]string{
 			"error":  "user-provisioning-failed",
@@ -285,6 +300,9 @@ func (h *Handler) HandlePinIssue(w http.ResponseWriter, r *http.Request) {
 	// ── 3. Generate PIN + requestId ─────────────────────────────────────────
 	pin, err := generatePin()
 	if err != nil {
+		// Rollback: a crypto/rand failure is a server-side issue, not an
+		// operator-driven retry storm.
+		store.drop(email)
 		h.log.Error("pin/issue: generatePin failed", "err", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
 			"error":  "pin-generation-failed",
@@ -893,14 +911,21 @@ type whoamiRealmAccess struct {
 }
 
 type whoamiResponse struct {
-	Email         string            `json:"email"`
-	Sub           string            `json:"sub"`
-	Verified      bool              `json:"verified"`
-	DeploymentID  string            `json:"deploymentId,omitempty"`
-	SovereignFQDN string            `json:"sovereignFQDN,omitempty"`
-	Mode          string            `json:"mode,omitempty"`
-	Tier          string            `json:"tier,omitempty"`
-	RealmAccess   whoamiRealmAccess `json:"realm_access,omitempty"`
+	Email         string             `json:"email"`
+	Sub           string             `json:"sub"`
+	Verified      bool               `json:"verified"`
+	DeploymentID  string             `json:"deploymentId,omitempty"`
+	SovereignFQDN string             `json:"sovereignFQDN,omitempty"`
+	Mode          string             `json:"mode,omitempty"`
+	Tier          string             `json:"tier,omitempty"`
+	// RealmAccess is a pointer so `omitempty` actually drops the key when
+	// the operator's session carries no RBAC claims. A struct value would
+	// always serialize as `{}` regardless of omitempty (Go encoding/json
+	// honours omitempty for structs only via `omitzero` in Go 1.24+, and
+	// the catalyst-api still builds against earlier toolchains). Without
+	// the pointer, pre-RBAC clients that decode the response into a typed
+	// struct see `realm_access:{roles:null}` and break.
+	RealmAccess *whoamiRealmAccess `json:"realm_access,omitempty"`
 }
 
 // HandleWhoami handles GET /api/v1/whoami.
@@ -951,7 +976,9 @@ func (h *Handler) HandleWhoami(w http.ResponseWriter, r *http.Request) {
 		Tier:     strings.ToLower(strings.TrimSpace(claims.Tier)),
 	}
 	if len(claims.RealmAccess.Roles) > 0 {
-		resp.RealmAccess.Roles = append([]string(nil), claims.RealmAccess.Roles...)
+		resp.RealmAccess = &whoamiRealmAccess{
+			Roles: append([]string(nil), claims.RealmAccess.Roles...),
+		}
 	}
 	// EPIC-3 (#1184) tier→catalyst-* role projection: when the operator
 	// holds a `tier` claim but the realm-access role list lacks the
@@ -960,7 +987,21 @@ func (h *Handler) HandleWhoami(w http.ResponseWriter, r *http.Request) {
 	// through the protocol mapper), synthesize them so downstream UI
 	// authorization checks (which look at realm_access.roles) work
 	// regardless of how the session was minted.
-	whoamiInjectTierRoles(&resp.RealmAccess, resp.Tier)
+	//
+	// Pre-RBAC sessions (no tier, no realm_access roles) skip this entire
+	// step so the `omitempty` on resp.RealmAccess drops the field — old
+	// callers parsing the legacy {email,sub,verified} shape stay clean.
+	if resp.Tier != "" || resp.RealmAccess != nil {
+		if resp.RealmAccess == nil {
+			resp.RealmAccess = &whoamiRealmAccess{}
+		}
+		whoamiInjectTierRoles(resp.RealmAccess, resp.Tier)
+		// If the projection ended up empty (unknown tier, no upstream
+		// roles), drop the field so the omitempty contract holds.
+		if len(resp.RealmAccess.Roles) == 0 {
+			resp.RealmAccess = nil
+		}
+	}
 
 	// Sovereign-context enrichment — same precedence as HandleSovereignSelf
 	// so the two endpoints never disagree about which sovereign this is.
@@ -1036,6 +1077,19 @@ func whoamiInjectTierRoles(ra *whoamiRealmAccess, tier string) {
 	have := map[string]struct{}{}
 	for _, r := range ra.Roles {
 		have[strings.ToLower(strings.TrimSpace(r))] = struct{}{}
+	}
+	// If the operator's own tier role is already present, the upstream
+	// (Keycloak protocol mapper, PIN-minted JWT, etc) authoritatively
+	// shaped the role list — don't synthesize lower-tier inherited
+	// entries on top of it. This preserves the TC-R-089-style PIN flow
+	// where the JWT is minted with `[catalyst-owner]` only and the SPA
+	// route-guard reads exactly that list. The inheritance projection
+	// only fires when the caller passed a `tier` claim *without* the
+	// matching catalyst-<tier> role (typical of chroot-internal JWTs
+	// that set tier= but skip the role-list projection).
+	tierRole := "catalyst-" + tier
+	if _, ok := have[tierRole]; ok {
+		return
 	}
 	for i := 0; i <= tierIdx; i++ {
 		want := "catalyst-" + whoamiTierInheritance[i]
