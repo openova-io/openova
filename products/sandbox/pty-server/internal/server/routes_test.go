@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -107,5 +108,32 @@ func TestHealthz_StillWorks(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("GET /healthz: status=%d want 200", resp.StatusCode)
+	}
+}
+
+// Wave 15 (PR #1674 follow-up) — GET /metrics serves Prometheus text
+// format with the pty_server_websocket_connections gauge registered.
+// The gauge value is 0 at process start (no WS connections yet); the
+// Grafana panel "WebSocket Connections" sums it across the fleet.
+func TestMetricsEndpoint_ExposesWebSocketGauge(t *testing.T) {
+	t.Parallel()
+	mgr := session.NewManager()
+	h := New(mgr)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/metrics")
+	if err != nil {
+		t.Fatalf("GET /metrics: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /metrics: status=%d want 200", resp.StatusCode)
+	}
+	body := make([]byte, 64*1024)
+	n, _ := resp.Body.Read(body)
+	out := string(body[:n])
+	if !strings.Contains(out, "pty_server_websocket_connections") {
+		t.Errorf("GET /metrics body missing pty_server_websocket_connections gauge:\n%s", out)
 	}
 }

@@ -178,10 +178,12 @@ type sandboxTokenResponse struct {
 //   - 405 on non-POST.
 func (h *Handler) SandboxToken(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		recordMint(r, http.StatusMethodNotAllowed)
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	if len(h.SigningKey) == 0 || len(h.AdminSecret) == 0 {
+		recordMint(r, http.StatusServiceUnavailable)
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
 			"error": "bridge misconfigured: signing key or admin secret unset",
 		})
@@ -191,6 +193,7 @@ func (h *Handler) SandboxToken(w http.ResponseWriter, r *http.Request) {
 	// ── 1. Validate admin bearer ────────────────────────────────────────
 	authHdr := r.Header.Get("Authorization")
 	if !strings.HasPrefix(authHdr, "Bearer ") {
+		recordMint(r, http.StatusUnauthorized)
 		writeJSON(w, http.StatusUnauthorized, map[string]string{
 			"error": "missing or invalid authorization header",
 		})
@@ -199,6 +202,7 @@ func (h *Handler) SandboxToken(w http.ResponseWriter, r *http.Request) {
 	presented := strings.TrimPrefix(authHdr, "Bearer ")
 	if subtle.ConstantTimeCompare([]byte(presented), h.AdminSecret) != 1 {
 		h.logSafe("sandbox-token: admin secret mismatch", "remote_addr", r.RemoteAddr)
+		recordMint(r, http.StatusUnauthorized)
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid admin credentials"})
 		return
 	}
@@ -206,6 +210,7 @@ func (h *Handler) SandboxToken(w http.ResponseWriter, r *http.Request) {
 	// ── 2. Decode + validate request body ───────────────────────────────
 	var req sandboxTokenRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		recordMint(r, http.StatusBadRequest)
 		writeJSON(w, http.StatusBadRequest, map[string]string{
 			"error": "invalid request body",
 		})
@@ -215,18 +220,22 @@ func (h *Handler) SandboxToken(w http.ResponseWriter, r *http.Request) {
 	req.UserID = strings.TrimSpace(req.UserID)
 	req.SandboxID = strings.TrimSpace(req.SandboxID)
 	if req.OrgID == "" {
+		recordMint(r, http.StatusBadRequest)
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "org_id is required"})
 		return
 	}
 	if req.UserID == "" {
+		recordMint(r, http.StatusBadRequest)
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "user_id is required"})
 		return
 	}
 	if req.SandboxID == "" {
+		recordMint(r, http.StatusBadRequest)
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "sandbox_id is required"})
 		return
 	}
 	if len(req.AllowedChannels) == 0 {
+		recordMint(r, http.StatusBadRequest)
 		writeJSON(w, http.StatusBadRequest, map[string]string{
 			"error": "allowed_channels must contain at least one channel name",
 		})
@@ -250,6 +259,7 @@ func (h *Handler) SandboxToken(w http.ResponseWriter, r *http.Request) {
 		cleaned = append(cleaned, c)
 	}
 	if len(cleaned) == 0 {
+		recordMint(r, http.StatusBadRequest)
 		writeJSON(w, http.StatusBadRequest, map[string]string{
 			"error": "allowed_channels must contain at least one non-empty channel name",
 		})
@@ -273,6 +283,7 @@ func (h *Handler) SandboxToken(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		h.logSafe("sandbox-token: mint failed", "err", err.Error())
+		recordMint(r, http.StatusInternalServerError)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
 			"error": "failed to mint token",
 		})
@@ -287,6 +298,7 @@ func (h *Handler) SandboxToken(w http.ResponseWriter, r *http.Request) {
 		"expires_at", exp.Format(time.RFC3339),
 	)
 
+	recordMint(r, http.StatusOK)
 	writeJSON(w, http.StatusOK, sandboxTokenResponse{
 		Token:     tok,
 		ExpiresAt: exp,

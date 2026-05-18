@@ -12,6 +12,7 @@
 //	POST   /sessions/{id}/signal  named signal -> process group
 //	DELETE /sessions/{id}         graceful SIGTERM, then SIGKILL
 //	GET    /healthz               liveness
+//	GET    /metrics               Prometheus text-format scrape (Wave 15)
 //
 // The router is deliberately framework-free (net/http only) so the
 // resulting binary fits in a scratch container without extra surface.
@@ -57,6 +58,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == "/healthz":
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
+		return
+
+	case r.URL.Path == "/metrics" && r.Method == http.MethodGet:
+		// Wave 15 (PR #1674 follow-up) — Prometheus scrape endpoint.
+		// The Gauge `pty_server_websocket_connections` is updated on
+		// every WS upgrade / close in attach() + cards(). See metrics.go.
+		metricsHandler().ServeHTTP(w, r)
 		return
 
 	case r.URL.Path == "/idle" && r.Method == http.MethodGet:
@@ -276,6 +284,13 @@ func (h *Handler) attach(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 	defer conn.Close()
+	// Wave 15 (PR #1674 follow-up) — track active WS connections for the
+	// `pty_server_websocket_connections` Gauge (the WebSocket Connections
+	// panel on the Sandbox Runtime Grafana dashboard sums this across
+	// the fleet). Inc on successful upgrade, defer Dec so abnormal
+	// returns (read errors, close handshake, panic) still decrement.
+	websocketConnections.Inc()
+	defer websocketConnections.Dec()
 	// Attach itself is activity (Wave 10 idle-scaler — architecture.md §1).
 	h.mgr.Touch()
 
@@ -356,6 +371,10 @@ func (h *Handler) cards(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 	defer conn.Close()
+	// Wave 15 — track active WS connections (see attach() for rationale).
+	// cards is a parallel WS surface so it counts toward the same gauge.
+	websocketConnections.Inc()
+	defer websocketConnections.Dec()
 	h.mgr.Touch()
 
 	sub, replay, err := s.Subscribe(256)

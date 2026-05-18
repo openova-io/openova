@@ -157,4 +157,24 @@ cnpg:
 # on each panel's description field.
 grafanaDashboard:
   enabled: false
+# Wave 15 (PR #1674 follow-up) — ServiceMonitor for Prometheus scrape
+# of the controller's :8080 /metrics endpoint. Surfaces every controller-
+# runtime auto-instrumented metric plus the Wave 15 emitter
+# `sandbox_controller_idle_timeout_events_total` (labelled by namespace,
+# read by the Grafana panel "Idle-Timeout Scale-Down Events / hour").
+#
+# DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2 — kube-prometheus-
+# stack lands at slot 25; charts that ship a default-true ServiceMonitor
+# break Helm install on pre-slot-25 Sovereigns. The template also gates
+# on `monitoring.coreos.com/v1` capability so even a stale per-Sovereign
+# overlay that sets enabled=true on a cluster without the Operator CRD
+# skip-renders gracefully.
+serviceMonitor:
+  enabled: false
+  interval: "30s"
+  scrapeTimeout: "10s"
+  path: "/metrics"
+  labels: {}
+  # namespace override — defaults to .Release.Namespace.
+  namespace: ""
 extraEnv: {}
