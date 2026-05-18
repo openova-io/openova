@@ -71,7 +71,22 @@ jobs:
     # On `push` to main and `workflow_dispatch` we run the FULL sweep
     # so post-merge drift is observable on the run summary even if the
     # PR gate let it through.
+    #
+    # TBD-A17 mitigation (#1849, 2026-05-18): the full sweep on `push`
+    # to main races with the blueprint-release auto-bump hook. When a
+    # PR bumps a Chart.yaml version, the merge commit (which is what
+    # this push event sees) does NOT yet contain the matching
+    # bootstrap-kit pin bump — the auto-bump hook runs in a DIFFERENT
+    # workflow (blueprint-release.yaml) and pushes the pin bump as a
+    # follow-up bot commit, which (per GITHUB_TOKEN convention) does
+    # NOT retrigger this workflow. So the FIRST run on every chart-
+    # bumping merge sees `chart=N pin=N-1` drift and would block.
+    # The actual desired-state is that the follow-up bot commit heals
+    # the drift within ~60s. Push-mode is therefore observational, not
+    # blocking; we use `continue-on-error: true` so the workflow stays
+    # green while the drift is still visible on the run summary.
     runs-on: ubuntu-latest
+    continue-on-error: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
