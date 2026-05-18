@@ -348,6 +348,131 @@ func TestSandboxCRName_LongEmailTruncates(t *testing.T) {
 	}
 }
 
+// TestSandboxHandle_PlanIDStampsAnnotationAndQuota — when the event
+// carries a sandbox-{free,pro,ent} plan_id the orchestrator MUST:
+//   - stamp openova.io/plan-id annotation on the CR (so the controller
+//     can re-read the plan when the customer upgrades),
+//   - stamp spec.planId on the CR (mirrored field for controller cache),
+//   - derive spec.quota from the plan's hard-coded quota tier (not the
+//     orchestrator's DefaultQuota).
+//
+// Catches the PR #1633 regression where Sandbox apps were minted but
+// every CR got the Wave 1 baseline quota regardless of the customer's
+// paid tier — Pro/Ent customers silently got Free resources.
+func TestSandboxHandle_PlanIDStampsAnnotationAndQuota(t *testing.T) {
+	cases := []struct {
+		planID  string
+		wantCPU string
+		wantMem string
+		wantStr string
+		wantCS  int64
+	}{
+		{"sandbox-free", "500m", "1Gi", "5Gi", 1},
+		{"sandbox-pro", "2", "4Gi", "50Gi", 3},
+		{"sandbox-ent", "8", "16Gi", "500Gi", 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.planID, func(t *testing.T) {
+			client := &fakeSandboxClient{getErr: notFoundErr()}
+			o := &SandboxOrchestrator{Client: client}
+			evt := mkSandboxRequestedEvent(t, SandboxRequestedPayload{
+				TenantID:   "tenant-1",
+				OrgSlug:    "acme",
+				OwnerID:    "u-1",
+				OwnerEmail: "ops@acme.com",
+				PlanID:     tc.planID,
+			})
+			if err := o.handleSandboxRequested(context.Background(), evt); err != nil {
+				t.Fatalf("handleSandboxRequested: %v", err)
+			}
+			if len(client.createObjs) != 1 {
+				t.Fatalf("want 1 Create, got %d", len(client.createObjs))
+			}
+			got := client.createObjs[0]
+			if ann := got.GetAnnotations(); ann["openova.io/plan-id"] != tc.planID {
+				t.Errorf("annotation openova.io/plan-id = %q, want %q", ann["openova.io/plan-id"], tc.planID)
+			}
+			spec, _ := got.Object["spec"].(map[string]any)
+			if spec["planId"] != tc.planID {
+				t.Errorf("spec.planId = %v, want %q", spec["planId"], tc.planID)
+			}
+			quota, _ := spec["quota"].(map[string]any)
+			if quota["cpu"] != tc.wantCPU {
+				t.Errorf("quota.cpu = %v, want %q", quota["cpu"], tc.wantCPU)
+			}
+			if quota["memory"] != tc.wantMem {
+				t.Errorf("quota.memory = %v, want %q", quota["memory"], tc.wantMem)
+			}
+			if quota["storage"] != tc.wantStr {
+				t.Errorf("quota.storage = %v, want %q", quota["storage"], tc.wantStr)
+			}
+			if cs, _ := quota["concurrentSessions"].(int64); cs != tc.wantCS {
+				t.Errorf("quota.concurrentSessions = %v (%T), want %d", quota["concurrentSessions"], quota["concurrentSessions"], tc.wantCS)
+			}
+		})
+	}
+}
+
+// TestSandboxHandle_PlanIDEmptyKeepsDefaultQuota — when the event has
+// no plan_id (legacy publisher or pre-PR-#1633 emit) the CR MUST stick
+// to the orchestrator's DefaultQuota and MUST NOT carry the plan-id
+// annotation or spec.planId. Guards back-compat with already-deployed
+// publishers.
+func TestSandboxHandle_PlanIDEmptyKeepsDefaultQuota(t *testing.T) {
+	client := &fakeSandboxClient{getErr: notFoundErr()}
+	o := &SandboxOrchestrator{Client: client}
+	evt := mkSandboxRequestedEvent(t, SandboxRequestedPayload{
+		TenantID:   "tenant-1",
+		OrgSlug:    "acme",
+		OwnerID:    "u-1",
+		OwnerEmail: "ops@acme.com",
+	})
+	if err := o.handleSandboxRequested(context.Background(), evt); err != nil {
+		t.Fatalf("handleSandboxRequested: %v", err)
+	}
+	got := client.createObjs[0]
+	if ann := got.GetAnnotations(); ann["openova.io/plan-id"] != "" {
+		t.Errorf("openova.io/plan-id present without plan_id: %q", ann["openova.io/plan-id"])
+	}
+	spec, _ := got.Object["spec"].(map[string]any)
+	if _, ok := spec["planId"]; ok {
+		t.Errorf("spec.planId present without plan_id: %v", spec["planId"])
+	}
+	quota, _ := spec["quota"].(map[string]any)
+	if quota["cpu"] != "4" || quota["memory"] != "8Gi" {
+		t.Errorf("default quota changed: cpu=%v memory=%v", quota["cpu"], quota["memory"])
+	}
+}
+
+// TestSandboxHandle_PlanIDUnknownFallsBackToDefault — a bogus plan_id
+// (typo, removed plan, plan from a different product) must not crash
+// the orchestrator. It falls through to DefaultQuota but still stamps
+// the annotation so the controller can flag the mismatch in its
+// status.
+func TestSandboxHandle_PlanIDUnknownFallsBackToDefault(t *testing.T) {
+	client := &fakeSandboxClient{getErr: notFoundErr()}
+	o := &SandboxOrchestrator{Client: client}
+	evt := mkSandboxRequestedEvent(t, SandboxRequestedPayload{
+		TenantID:   "tenant-1",
+		OrgSlug:    "acme",
+		OwnerID:    "u-1",
+		OwnerEmail: "ops@acme.com",
+		PlanID:     "sandbox-mythical",
+	})
+	if err := o.handleSandboxRequested(context.Background(), evt); err != nil {
+		t.Fatalf("handleSandboxRequested: %v", err)
+	}
+	got := client.createObjs[0]
+	if ann := got.GetAnnotations(); ann["openova.io/plan-id"] != "sandbox-mythical" {
+		t.Errorf("annotation should still record requested plan: %q", ann["openova.io/plan-id"])
+	}
+	spec, _ := got.Object["spec"].(map[string]any)
+	quota, _ := spec["quota"].(map[string]any)
+	if quota["cpu"] != "4" || quota["memory"] != "8Gi" {
+		t.Errorf("unknown plan should fall back to default quota: cpu=%v memory=%v", quota["cpu"], quota["memory"])
+	}
+}
+
 // TestSandboxCRName_PathologicalEmptyEmail — empty email + empty owner_id
 // (caller's bug) collapses to the stable "sandbox-user" literal so the
 // dynamic-client Create does not panic on an empty name.
