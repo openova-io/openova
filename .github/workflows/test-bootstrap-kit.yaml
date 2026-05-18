@@ -12,8 +12,10 @@ on:
       - 'tests/e2e/bootstrap-kit/**'
       - 'platform/**/blueprint.yaml'
       - 'platform/**/chart/**'
+      - 'products/**/chart/**'
       - 'clusters/**'
       - 'scripts/check-bootstrap-deps.sh'
+      - 'scripts/check-bootstrap-kit-pin-sync.sh'
       - 'scripts/expected-bootstrap-deps.yaml'
       - '.github/workflows/test-bootstrap-kit.yaml'
     branches: [main]
@@ -22,8 +24,10 @@ on:
       - 'tests/e2e/bootstrap-kit/**'
       - 'platform/**/blueprint.yaml'
       - 'platform/**/chart/**'
+      - 'products/**/chart/**'
       - 'clusters/**'
       - 'scripts/check-bootstrap-deps.sh'
+      - 'scripts/check-bootstrap-kit-pin-sync.sh'
       - 'scripts/expected-bootstrap-deps.yaml'
       - '.github/workflows/test-bootstrap-kit.yaml'
   workflow_dispatch:
@@ -50,6 +54,42 @@ jobs:
 
       - name: Run bootstrap-kit dependency audit
         run: bash scripts/check-bootstrap-deps.sh
+
+  pin-sync-audit:
+    # TBD-A6 regression test. Asserts every Chart.yaml in platform/* or
+    # products/* whose chart is pinned in clusters/_template/bootstrap-
+    # kit/ has the SAME version on both sides.
+    #
+    # On `pull_request` we use --changed-only --base <base-ref> so a PR
+    # is only blocked on chart→pin pairs IT modified. This keeps the
+    # gate effective (every new chart bump must update the pin) without
+    # forcing pre-existing drifts (13 charts as of 2026-05-18) to be
+    # fixed before any unrelated PR can land. The auto-bump hook in
+    # blueprint-release.yaml will heal those drifts on the next bump
+    # of each lagging chart.
+    #
+    # On `push` to main and `workflow_dispatch` we run the FULL sweep
+    # so post-merge drift is observable on the run summary even if the
+    # PR gate let it through.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Need history back to the PR base for the --changed-only diff.
+          fetch-depth: 0
+
+      - name: Run pin-sync audit (changed-only on PR, full sweep otherwise)
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            echo "Running --changed-only against base ${base}"
+            bash scripts/check-bootstrap-kit-pin-sync.sh --changed-only --base "${base}"
+          else
+            echo "Running full sweep (event=${{ github.event_name }})"
+            bash scripts/check-bootstrap-kit-pin-sync.sh
+          fi
 
   manifest-validation:
     # Static-only validation: blueprint.yaml + chart Chart.yaml + clusters/_template
