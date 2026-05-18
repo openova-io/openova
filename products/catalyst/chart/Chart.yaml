@@ -1086,8 +1086,8 @@ name: bp-catalyst-platform
 # Fix #154 (HR-timeout audit). Those bumped the HelmRelease
 # install.timeout. This bumps the chart-INTERNAL wait loop budget
 # inside the pre-install hook Job, which is a different seam.
-version: 1.4.160
-appVersion: 1.4.160
+version: 1.4.161
+appVersion: 1.4.161
 # 1.4.141 (qa-loop Fix #185, prov #38/#39/#41 recurrence — pre-install
 # hook unscheduable on saturated worker):
 #

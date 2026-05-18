@@ -247,7 +247,7 @@ images:
   admin:
     tag: "3c2f7e4"
   # All 10 SME microservices share one SHA tag (built from the same mono-repo commit).
-  smeTag: "d681f64"
+  smeTag: "4bad2a3"
 
 # ─── Runtime service coordinates (qa-loop iter-1, cluster
 # `catalyst-runtime-config-missing`) ────────────────────────────────────
