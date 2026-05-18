@@ -217,6 +217,41 @@ describe('LogViewer', () => {
     expect(ws.closed).toBe(true)
   })
 
+  it('toggles `previous=true` on the WebSocket URL when the Previous button is clicked', () => {
+    const factory = (url: string) => new FakeWebSocket(url) as unknown as WebSocket
+    render(
+      <LogViewer
+        deploymentId="dep"
+        ns="default"
+        pod="wp-1"
+        obj={podSingle}
+        websocketFactory={factory}
+        disableTerminal
+      />,
+    )
+    // Initial WS has no previous flag and is in follow mode.
+    expect(FakeWebSocket.lastUrl).not.toContain('previous=true')
+    expect(FakeWebSocket.lastUrl).toContain('follow=true')
+    const toggle = screen.getByTestId('log-viewer-previous-toggle')
+    expect(toggle.getAttribute('aria-pressed')).toBe('false')
+    act(() => {
+      fireEvent.click(toggle)
+    })
+    // Re-connected with previous=true and follow=false (kubelet returns
+    // the crashed container's buffer once, then closes).
+    expect(toggle.getAttribute('aria-pressed')).toBe('true')
+    const reconnected = FakeWebSocket.instances[FakeWebSocket.instances.length - 1]
+    expect(reconnected.url).toContain('previous=true')
+    expect(reconnected.url).toContain('follow=false')
+    // Toggling off drops the previous flag again.
+    act(() => {
+      fireEvent.click(toggle)
+    })
+    const final = FakeWebSocket.instances[FakeWebSocket.instances.length - 1]
+    expect(final.url).not.toContain('previous=true')
+    expect(final.url).toContain('follow=true')
+  })
+
   it('does not reconnect on clean close (1000)', () => {
     const factory = (url: string) => new FakeWebSocket(url) as unknown as WebSocket
     render(

@@ -64,6 +64,7 @@ export function LogViewer(props: LogViewerProps) {
   const containers = useMemo<string[]>(() => discoverContainers(obj), [obj])
   const defaultContainer = initialContainer ?? containers[0] ?? ''
   const [container, setContainer] = useState(defaultContainer)
+  const [previous, setPrevious] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [status, setStatus] = useState<'connecting' | 'open' | 'closed' | 'error'>('connecting')
@@ -140,9 +141,14 @@ export function LogViewer(props: LogViewerProps) {
     function open() {
       const since = lastTimestampRef.current ?? undefined
       const url = logsWebSocketURL(deploymentId, ns, pod, container, {
-        follow: true,
+        // `previous=true` asks the kubelet for the prior container's
+        // log buffer (post-crash forensics). It implies `follow=false`
+        // server-side, so the WS will close cleanly once the buffer
+        // drains — that's the only correct shape.
+        follow: !previous,
         tailLines: 100,
         ...(since ? { since } : {}),
+        ...(previous ? { previous: true } : {}),
       })
       let ws: WebSocket
       try {
@@ -204,7 +210,7 @@ export function LogViewer(props: LogViewerProps) {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [container, deploymentId, ns, pod, websocketFactory])
+  }, [container, deploymentId, ns, pod, previous, websocketFactory])
 
   // Keyboard shortcut: ⌃F / ⌘F → toggle search box.
   useEffect(() => {
@@ -260,6 +266,26 @@ export function LogViewer(props: LogViewerProps) {
             </select>
           </label>
         )}
+        <button
+          type="button"
+          data-testid="log-viewer-previous-toggle"
+          onClick={() => {
+            setPrevious((p) => !p)
+            lastTimestampRef.current = null
+            setRetries(0)
+            termRef.current?.clear()
+          }}
+          className={
+            'rounded border px-2 py-1 text-xs ' +
+            (previous
+              ? 'border-amber-500 bg-amber-500/20 text-amber-200'
+              : 'border-[var(--color-border)] bg-[var(--color-bg-2)] text-[var(--color-text)]')
+          }
+          aria-pressed={previous}
+          title="Show logs from the previous (crashed) container instance"
+        >
+          {previous ? 'Previous: on' : 'Previous'}
+        </button>
         <button
           type="button"
           data-testid="log-viewer-search-toggle"
