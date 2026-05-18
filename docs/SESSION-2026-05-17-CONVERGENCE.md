@@ -278,3 +278,65 @@ This is gated on **D35** in the new DoD additions.
 4. **A new CRD/controller without a CI workflow that pushes its image is dead code.** Sandbox W1–W4 sat unusable for hours because no workflow built the three images the chart referenced. (PR #1632 had to backfill this.) When adding a new service, the **first** scaffold commit must include the `.github/workflows/build-<service>.yml`.
 
 5. **Sub-agents inherit the design system — Sandbox UI proved it.** Wave 3 Sandbox UI (#1621) shipped clean PortalShell-wrapped components the first time, because the prompt to the Fix-Author included the design-system inheritance block verbatim. Contrast with the Family F BSS pages earlier in the day that needed a re-roll. (`feedback_subagents_inherit_design_system.md`.)
+
+---
+
+## Wave 12-14 addendum (2026-05-18 06:30-09:30 UTC)
+
+After the Sandbox W1-W5 scaffold landed, three more waves were needed to actually get a fresh Sovereign prov to consume the new chart bundle. Each one exposed a silent-failure trap that had been swallowing earlier progress.
+
+### t-prov cycle log
+
+| Prov | Outcome | Reason |
+|---|---|---|
+| t13 | FAIL | catalyst-api restart loop |
+| t14 | FAIL | Hetzner `nbg1` availability zone returned `resource_unavailable` for cpx52 |
+| t15 | PASS | First prov to handover cleanly post-Sandbox W1-W5 — but chart `1.4.156` baked, Wave 5-12 features absent |
+| t16 | STUCK | Wave 11 sandbox-mcp auth/secrets bugs surfaced (#1656/#1658 follow-up) |
+| t17 | WIPED | Intentional teardown after Wave 11 fixes merged |
+| t18 | STUCK | Chart `1.4.156` baked — discovered the bootstrap-kit pin lag |
+| t19 | STUCK | Same — bootstrap-kit pin still `1.4.156`; confirmed root cause |
+| t20 | IN FLIGHT (`1.4.162`) | First prov to use the Wave 14 pin collector; expected to bake Wave 5-13 features end-to-end |
+
+### Critical discovery sequence
+
+Three silent failures, each invisible to the green-tick CI / deploy-bot pipeline, stacked across the session:
+
+1. **Wave 8 CloudPage TS error stalled UI builds for ~3 hours** (already captured above). A union-type regression in `CloudPage.tsx` failed only the UI Docker image build — chart values bumps continued referencing non-existent ghcr.io tags. Caught only when a verifier prov hit `ImagePullBackOff`. (PR #1616 fixed.)
+
+2. **Wave 13 mcp-server Dockerfile context broke all sandbox-mcp builds since #1658.** The mcp-server Docker build used the wrong context (per-service dir rather than repo root), so `go.work` resolution failed. CI was failing for **3 days** with no operator notice, because the deploy-bot only watches the catalyst image-build matrix, not the sandbox-mcp matrix. Wave 12 PRs (#1659/#1660/#1662/#1663/#1664) all merged GREEN but their image SHAs were never published. PR **#1667** fixed Dockerfile context AND wired pty-server + mcp-server SHA auto-bumps into the deploy-bot collector.
+
+3. **Wave 14 bootstrap-kit pin lag stalled all chart artifact propagation for ~6 hours of provs.** deploy-bot auto-bumps `Chart.yaml.version` and `values.yaml` image tags, but does NOT touch `clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml` `version:` pin. Fresh provs read that pin, not `Chart.yaml`. t13-t19 all baked chart `1.4.156` while `Chart.yaml` was already at `1.4.162`. PR **#1666** is the manual collector that closes the gap. See pinned feedback `feedback_bootstrap_kit_pin_lag.md`.
+
+### PR roster — Wave 12-14
+
+```
+#1656  feat(sandbox-mcp): sandbox.auth.* + sandbox.secrets.* real impls (preceded #1658 merge)
+#1658  feat(sandbox-mcp): sandbox.auth.* + sandbox.secrets.* real impls (squash-merge)
+#1659  feat(sandbox-mcp): rag.search + skills.list/get (lean stubs)
+#1660  feat(sandbox-mcp): marketplace.domain.* + flux.* real impls
+#1661  feat(sandbox+tenant): CNPG active-hot-standby (ReplicaCluster) marketplace default
+#1662  feat(sandbox-mcp): sandbox.preview.* real impls (per-PR preview Deployments)
+#1663  feat(sandbox-mcp): sandbox.deploy.staging/production/status/rollback
+#1664  feat(sandbox-mcp): sandbox.storage.* (SeaweedFS bucket + signed URLs)
+#1666  chore(release): bootstrap-kit pin 1.4.156→1.4.162 — Wave 14 collector
+#1667  fix(sandbox-ci): mcp-server Dockerfile repo-root context + pty/mcp auto-bump wiring
+```
+
+### Updated session PR total
+
+The session window now spans **51 PRs** (22 original + 10 Wave 11 / 11b / 12 / 13 / 14 PRs + #1657 Sandbox public URL + auto-deploy-bot commits in between). t20 is the first prov in the cycle that has the full bundle (chart `1.4.162` via PR #1666, mcp-server images via PR #1667, all Wave 12 MCP tool groups).
+
+### Lesson 6 — deploy-bot does NOT bump the bootstrap-kit pin
+
+Add to the pinned-lessons list above:
+
+> After every feature wave that needs to land on a fresh prov, ship a **manual collector PR** updating `clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml` `version:` to match `products/catalyst/chart/Chart.yaml` `version:`. The deploy-bot does NOT auto-bump that pin. Cheap detector:
+>
+> ```bash
+> diff <(grep version: products/catalyst/chart/Chart.yaml | head -1) \
+>      <(grep -E "version: 1\.4\.[0-9]+" \
+>        clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml | tail -1)
+> ```
+>
+> Empty diff = safe to provision. Non-empty diff = ship the pin collector first. (Wave 14 / PR #1666 / feedback `feedback_bootstrap_kit_pin_lag.md`.)
