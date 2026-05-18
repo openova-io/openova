@@ -100,15 +100,27 @@ spec:
             {{- toYaml .Values.guacamole.webapp.resources | nindent 12 }}
           securityContext:
             {{- toYaml .Values.guacamole.containerSecurityContext | nindent 12 }}
+          # The Apache Guacamole webapp deploys under Tomcat's context
+          # path `/guacamole/` (the WAR is `guacamole.war` so Tomcat
+          # exposes it at `/<warname>/`). The container root path `/`
+          # is NOT served by the webapp — it returns 404 from Tomcat's
+          # ROOT context. Probing `/` previously caused liveness +
+          # readiness probes to fail with HTTP 404, the kubelet to
+          # restart the Pod every ~60s, and the kube-system Cilium
+          # gateway to return 503 to the public hostname because no
+          # endpoint was ever Ready (observed on t22, 5 restarts).
+          # Probing `/guacamole/` matches the actual webapp root.
+          # Operator-visible /guacamole.html → /guacamole/ redirect is
+          # handled by the HTTPRoute (separate PR / TBD-G6 follow-up).
           livenessProbe:
             httpGet:
-              path: /
+              path: /guacamole/
               port: http
             initialDelaySeconds: 30
             periodSeconds: 30
           readinessProbe:
             httpGet:
-              path: /
+              path: /guacamole/
               port: http
             initialDelaySeconds: 10
             periodSeconds: 10
