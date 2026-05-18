@@ -588,7 +588,7 @@ spec:
       # to the admin password byte, so every subsequent SME provisioning
       # call to Gitea returned 401 "user does not exist" and journey
       # step 16 (tenant repo creation) silently stuck.
-      version: 1.4.170
+      version: 1.4.171
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

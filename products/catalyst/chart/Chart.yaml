@@ -1154,9 +1154,9 @@ name: bp-catalyst-platform
 # GITHUB_TOKEN bytes verbatim. Bootstrap branch (gitea-admin-secret
 # password mirror) is preserved for the first-install pre-cutover window
 # so the provisioning Pod still boots out of CreateContainerConfigError.
-version: 1.4.171
-appVersion: 1.4.171
-# 1.4.171 — feat(security): baseline CiliumNetworkPolicies for
+version: 1.4.172
+appVersion: 1.4.172
+# 1.4.172 — feat(security): baseline CiliumNetworkPolicies for
 # catalyst-system + cilium-gateway (Closes #1746, Refs TBD-Cov-12 /
 # C12-009). Cov-bench audit on the live Sovereign cluster confirmed
 # only 2 CNPs cluster-wide (bp-external-dns-apiserver + bp-catalyst-
@@ -1190,6 +1190,30 @@ appVersion: 1.4.171
 # baselineCnp.allowedPlatformNamespaces. Bundle is independent of
 # qaFixtures so the baseline ships on every Sovereign even when
 # qaFixtures is disabled.
+#
+# 1.4.171 — fix(tenant): TBD-D35a wire ServiceAccount token + narrow
+# RBAC for the SandboxOrchestrator. The tenant service's in-cluster
+# dynamic client built by main.go buildDynamicClient was silently
+# disabled on every Sovereign because the tenant SA carried
+# automountServiceAccountToken=false AND no Role granted verbs on
+# sandbox.openova.io. Result: every tenant.sandbox_requested event
+# ack-skipped and the Sandbox CR never materialised — Wave 32 D35a
+# verifier caught the WARN log
+# (`sandbox-orchestrator: kubernetes client unavailable —
+# orchestrator disabled`). Fix: flip
+# automountServiceAccountToken=true on both the SA + the pod spec,
+# plus a narrow Role+RoleBinding granting get+create on
+# sandboxes.sandbox.openova.io scoped to the `catalyst-system`
+# namespace (handlers.DefaultSandboxNamespace). Companion PR also
+# defaults the sandbox chart's NEWAPI_DEFAULT_CHANNELS env to `qwen`
+# (TBD-D35c) so the controller no longer fails per-Sandbox token mint
+# with NoAllowedChannels (sandbox_controller.go:191) — single channel
+# `qwen` is the alias for `qwen3.6-bankdhofar` per
+# products/sandbox/docs/newapi-proxy-contract.md §2, the only channel
+# bp-newapi's channel-seed-job.yaml writes on a fresh install.
+# Bootstrap-kit slot 19a substitutes ${SANDBOX_DEFAULT_CHANNELS:-qwen}
+# so per-Sovereign overlays may extend (e.g. `qwen,anthropic,openai`)
+# without forking the chart. Closes #1775, #1777.
 #
 # 1.4.170 — fix(catalyst-api): wire CATALYST_GITOPS_TOKEN env from the
 # cutover-minted Gitea API token (Closes #1745, Refs TBD-C18). The

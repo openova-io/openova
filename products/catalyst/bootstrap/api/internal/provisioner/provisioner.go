@@ -1342,6 +1342,34 @@ func writeTfvars(deployDir string, req Request) error {
 		// in a future module would fail on null.
 		"parent_domains": coalesceParentDomains(req.ParentDomains),
 
+		// Multi-domain YAML literal (issue #1772 — D30b SME-pool listener
+		// fix). infra/hetzner/variables.tf declares `variable
+		// "parent_domains_yaml"` (type=string, default="") and
+		// infra/hetzner/main.tf locals.parent_domains_decoded calls
+		// `yamldecode()` on its value to materialise the per-zone
+		// Cilium Gateway listeners (one HTTPS/HTTP pair per parent
+		// zone, hostnamed `*.<zone>`). When this tfvar is empty the
+		// module falls back to a single-entry list derived from
+		// sovereign_fqdn — which silently DROPS every sme-pool zone
+		// the operator added.
+		//
+		// Symptom on t22 (Wave 32 D27-D31 verifier): tfvars.parent_domains
+		// listed both `{omantel.biz, primary}` + `{omani.homes,
+		// sme-pool}` (this Go-side field) but the live Gateway
+		// advertised only `*.t22.omantel.biz` — the listener for
+		// `*.omani.homes` never rendered because the terraform local
+		// never saw the second zone. tenants on omani.homes hit the
+		// envoy default fallback cert and could not get TLS.
+		//
+		// Render parent_domains_yaml as a JSON-flow array literal
+		// (`[{name: "x", role: "y"}, ...]`). JSON-flow is a YAML
+		// superset — yamldecode() in the module accepts it natively,
+		// and json.Marshal produces output that's safe inside
+		// tofu.auto.tfvars.json without quoting hell. Empty
+		// ParentDomains → emit "" so the module's single-zone
+		// fallback (derived from sovereign_fqdn) kicks in cleanly.
+		"parent_domains_yaml": parentDomainsYAMLLiteral(req.ParentDomains),
+
 		// Contabo PowerDNS API key — interpolated by
 		// cloudinit-control-plane.tftpl into the Sovereign's
 		// `cert-manager/powerdns-api-credentials` Secret so
@@ -1786,6 +1814,67 @@ func coalesceParentDomains(pds []ParentDomain) []ParentDomain {
 		return []ParentDomain{}
 	}
 	return pds
+}
+
+// parentDomainsYAMLLiteral renders the parent-domain pool as a YAML
+// inline-array literal suitable for the OpenTofu module's
+// `var.parent_domains_yaml` (declared in infra/hetzner/variables.tf,
+// consumed by locals.parent_domains_decoded via yamldecode()).
+//
+// Issue #1772 (TBD-D30b — Cilium Gateway missing *.omani.homes listener
+// on t22): catalyst-api previously emitted only the structural
+// `parent_domains` JSON array — never the YAML-string variable the
+// terraform module actually reads. As a result the module's
+// listener-rendering local fell through to the single-zone fallback
+// `[{name: "<sovereign_fqdn>", role: "primary"}]` and every sme-pool
+// zone the operator added (e.g. omani.homes) was silently dropped
+// from the Cilium Gateway listeners. Tenant TLS on the missing zone
+// then failed with NET::ERR_CERT_COMMON_NAME_INVALID.
+//
+// Output shape — JSON-flow array, which is valid YAML (yamldecode()
+// accepts it natively). Each entry carries name + role; we
+// deliberately omit registrarKind/credsRef from the YAML so the
+// terraform module never sees per-domain secrets (those belong in
+// the catalyst-api persistent record only). Empty / nil slice → ""
+// so the module's single-zone fallback (derived from sovereign_fqdn)
+// kicks in cleanly.
+//
+// JSON-encoding via encoding/json guarantees correctly quoted strings
+// for any zone name + escapes any unexpected character; the resulting
+// scalar is embedded inside the tofu.auto.tfvars.json string value
+// without quoting hell.
+func parentDomainsYAMLLiteral(pds []ParentDomain) string {
+	if len(pds) == 0 {
+		return ""
+	}
+	type yamlEntry struct {
+		Name string `json:"name"`
+		Role string `json:"role"`
+	}
+	entries := make([]yamlEntry, 0, len(pds))
+	for _, pd := range pds {
+		name := strings.ToLower(strings.TrimSpace(pd.Name))
+		if name == "" {
+			continue
+		}
+		role := strings.TrimSpace(pd.Role)
+		if role == "" {
+			role = ParentDomainRolePrimary
+		}
+		entries = append(entries, yamlEntry{Name: name, Role: role})
+	}
+	if len(entries) == 0 {
+		return ""
+	}
+	out, err := json.Marshal(entries)
+	if err != nil {
+		// json.Marshal on []yamlEntry can only fail on cycles / unsupported
+		// types — none possible here. Defensive fallback to empty so the
+		// terraform single-zone path takes over rather than tripping
+		// yamldecode() on a malformed literal.
+		return ""
+	}
+	return string(out)
 }
 
 // mapDomainModeForTofu collapses the wizard's three-mode domain
