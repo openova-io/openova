@@ -102,7 +102,18 @@ spec:
       # Blueprint Release dispatched on the bump commit failed render.sh
       # → 0.1.13–0.1.18 were never published to GHCR → bootstrap-kit
       # HRs wedged at "ghcr.io/openova-io/bp-guacamole:0.1.17: not found".
-      version: 0.1.19
+      # 0.1.21 (Refs TBD-G4 / C5-009, 2026-05-18): pulls in PR #1684
+      # (guacamole-deployment.yaml mount /home/guacamole instead of
+      # /home/guacamole/.guacamole). The official Apache Guacamole
+      # image entrypoint runs `rm -rf $GUACAMOLE_HOME` before
+      # repopulating the directory on every start; when the emptyDir
+      # was mounted directly at /home/guacamole/.guacamole the path
+      # was a mount point and `rm` failed with `Read-only file
+      # system`, crash-looping the webapp before Tomcat ever booted
+      # (observed on t22, 16 restarts). Mounting the parent dir
+      # makes .guacamole a regular subdirectory the entrypoint can
+      # freely rm and recreate.
+      version: 0.1.21
       sourceRef:
         kind: HelmRepository
         name: bp-guacamole
