@@ -808,10 +808,20 @@ jobs:
           # secondary line so consumers parsing recent log subjects
           # don't see a format change. When ONLY blueprint.yaml bumps
           # (chart not in the kit), the subject acknowledges TBD-A20.
+          #
+          # IMPORTANT YAML/SHELL SEAM (TBD-A23 root cause, issue #1864):
+          # The bash multi-line string MUST NOT span literal newlines in
+          # this `run: |` block-scalar. The previous shape used a real
+          # newline inside `msg="..."` with the continuation line at
+          # column 1, which YAML interpreted as the END of the block
+          # scalar — every push since cf35b4a (PR #1858) failed with
+          # `startup_failure / jobs: []` until the workflow was reverted
+          # to a parseable shape. Use printf with `\n` escapes so the
+          # multi-line commit message body is built at shell time
+          # without disturbing the surrounding YAML indent.
           if [ "${PIN_BUMPED}" = "true" ] && [ "${BP_BUMPED}" = "true" ]; then
-            msg="deploy(${CHART_NAME}): bump bootstrap-kit pin ${PREV_VERSION} -> ${CHART_VERSION} (auto, Refs TBD-A6)
-
-Also locksteps platform blueprint.yaml spec.version ${BP_PREV_VERSION} -> ${CHART_VERSION} (Refs TBD-A20, #1856)."
+            msg=$(printf 'deploy(%s): bump bootstrap-kit pin %s -> %s (auto, Refs TBD-A6)\n\nAlso locksteps platform blueprint.yaml spec.version %s -> %s (Refs TBD-A20, #1856).' \
+              "${CHART_NAME}" "${PREV_VERSION}" "${CHART_VERSION}" "${BP_PREV_VERSION}" "${CHART_VERSION}")
           elif [ "${PIN_BUMPED}" = "true" ]; then
             msg="deploy(${CHART_NAME}): bump bootstrap-kit pin ${PREV_VERSION} -> ${CHART_VERSION} (auto, Refs TBD-A6)"
           else
