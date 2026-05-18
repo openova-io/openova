@@ -285,6 +285,15 @@ spec:
     sovereign:
       fqdn: ${SOVEREIGN_FQDN}
       harborInternalURL: http://harbor-core.harbor.svc.cluster.local
-      harborPublicURL: https://harbor.${SOVEREIGN_FQDN}
+      # NB: Harbor HTTPRoute publishes at `registry.<sov>` (see
+      # `clusters/_template/bootstrap-kit/19-harbor.yaml` gateway.host),
+      # NOT `harbor.<sov>`. Step-06 phase-1 rewrites every HelmRepository
+      # to `oci://${harbor_host}/openova-io`, so this MUST be the public
+      # hostname that actually answers — `registry.${SOVEREIGN_FQDN}`.
+      # Pre-2026-05-18 this said `harbor.${SOVEREIGN_FQDN}`, which no
+      # HTTPRoute matched → all post-pivot OCI pulls EOF → bp-sandbox HR
+      # never Ready → bootstrap-kit Ks stuck (chicken-and-egg). See
+      # t20 debug matrix.
+      harborPublicURL: https://registry.${SOVEREIGN_FQDN}
       giteaInternalURL: http://gitea-http.gitea.svc.cluster.local:3000
       giteaPublicURL: https://gitea.${SOVEREIGN_FQDN}
