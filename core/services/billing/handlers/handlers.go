@@ -175,11 +175,20 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 	addonsJSON, _ := json.Marshal(req.Addons)
 
 	// If credits cover the full order, settle in-place — no Stripe needed.
+	//
+	// This short-circuit MUST run BEFORE any Stripe-settings probe, since a
+	// fully-covered order is exactly the path that has to keep working when
+	// the operator has not yet pasted Stripe keys (early-stage Sovereigns
+	// commonly run voucher-only for the first weeks). Without the explicit
+	// "remaining ≤ 0" guard the handler would fall through to the "Stripe
+	// not configured" 503 even though no payment processor is needed.
+	//
 	// #92 — the order insert, credit spend, and subscription insert are
 	// wrapped in a single transaction via CreditOnlyCheckout so we cannot
 	// leave the customer with debited credit and no subscription (or
 	// vice-versa).
-	if creditBalance >= totalOMR {
+	remainingOMR := totalOMR - creditBalance
+	if remainingOMR <= 0 {
 		order := &store.Order{
 			CustomerID: cust.ID, TenantID: req.TenantID, PlanID: req.PlanID,
 			Apps: appsJSON, Addons: addonsJSON,
@@ -195,6 +204,11 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.dispatchOrderPlaced(req.TenantID, order)
+
+		slog.Info("checkout: settled from credit (no Stripe)",
+			"customer_id", cust.ID, "order_id", order.ID,
+			"total_omr", totalOMR, "credit_omr", creditBalance,
+			"promo_code", req.PromoCode)
 
 		respond.OK(w, checkoutResponse{
 			OrderID: order.ID, PaidByCredit: true, CreditBalance: creditBalance - totalOMR,
