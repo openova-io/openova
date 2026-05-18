@@ -1,8 +1,16 @@
 # Crossplane provider-hcloud — installed AFTER bp-crossplane lands core.
 # Adopts Phase-0 OpenTofu-created resources and manages day-2 changes.
+#
+# Registry: xpkg.crossplane.io (2025 contrib migration). The legacy
+# xpkg.upbound.io/crossplane-contrib/* namespace was retired when
+# Upbound spun the community-contrib registry out as the
+# crossplane.io-hosted xpkg gateway. Same image content + tags, new
+# domain. The Provider Pod's image-pull uses the Crossplane package
+# manager's resolver, which follows the same Bearer realm dance as
+# `oras pull`; in-cluster pulls succeed without a registry secret.
 apiVersion: pkg.crossplane.io/v1
 kind: Provider
 metadata:
   name: provider-hcloud
 spec:
-  package: xpkg.upbound.io/crossplane-contrib/provider-hcloud:v0.4.0
+  package: xpkg.crossplane.io/crossplane-contrib/provider-hcloud:v0.4.0
