@@ -463,7 +463,9 @@ slots:
       - bp-flux
     wave: present
 
-  # ---- Slot 61 — bp-sandbox sandbox-controller Wave 1 (PR #1622). Reconciles
+  # ---- Slot 19a — bp-sandbox sandbox-controller (PR #1622, originally slot 61).
+  # Renumbered 61 → 19a in Wave 11 convergence fix (PR #1652, 2026-05-18)
+  # to sequence AFTER bp-harbor (slot 19). Reconciles
   # `sandbox.openova.io/v1.Sandbox` CRs into per-Sandbox manifests written
   # to the per-Org `catalyst-tenant` Gitea repo (sister of organization-
   # controller). Without this slot, Sandbox CRs sit unhandled — the
@@ -475,11 +477,21 @@ slots:
   #   - bp-catalyst-platform (slot 13) — provides `catalyst-system`
   #     Namespace + the `catalyst-gitea-token` Secret the controller's
   #     CATALYST_GITEA_TOKEN env reads via secretKeyRef.
-  - slot: 61
+  #   - bp-harbor (slot 19) — Wave 11 convergence fix (PR #1652).
+  #     After bp-self-sovereign-cutover Step-06 phase-1 rewrites every
+  #     HelmRepository URL `oci://ghcr.io/openova-io` →
+  #     `oci://harbor.<sov-fqdn>/openova-io`, source-controller fetches
+  #     the sandbox chart through harbor.<sov-fqdn>. Without this edge,
+  #     bp-sandbox tries to resolve before bp-harbor is Ready and sits
+  #     Reconciling for the full bootstrap-kit timeout. Chicken-and-egg
+  #     same shape as Wave 7 #1610 (bp-hcloud-csi REMOVED), resolved by
+  #     sequencing rather than removal so the slot remains available.
+  - slot: "19a"
     name: bp-sandbox
     depends_on:
       - bp-vcluster-helmrepo
       - bp-catalyst-platform
+      - bp-harbor
     wave: present
 
   # ---- Slot 80 — bp-newapi multi-tenant LLM marketplace gateway. Issue #799.
