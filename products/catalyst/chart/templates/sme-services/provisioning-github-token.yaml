@@ -160,6 +160,23 @@ metadata:
     # the provisioning Pod stays Running across reinstalls without a
     # restart-storm.
     helm.sh/resource-policy: keep
+    # Reflector mirror into `catalyst-system` (TBD-C18, issue #1745):
+    # the catalyst-api Pod (in catalyst-system) reads GITHUB_TOKEN via
+    # secretKeyRef to source CATALYST_GITOPS_TOKEN — the real Gitea
+    # API token minted by bp-self-sovereign-cutover Step 09. Without
+    # this mirror, catalyst-api's POST /api/v1/sovereigns/{id}/
+    # marketplace and the SME tenant gitops writer both return 503
+    # "gitops token unconfigured — set CATALYST_GITOPS_TOKEN" because
+    # K8s secretKeyRef is same-namespace-only and Step 09's destination
+    # lives in `sme`.
+    #
+    # Pattern mirrors sme-secrets.yaml's reflector block (same chart,
+    # same destination namespace) — see that file for the field-by-
+    # field rationale.
+    reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+    reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "catalyst-system"
+    reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+    reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "catalyst-system"
     {{- if $cutoverOwned }}
     # bp-self-sovereign-cutover Step 09 has minted a real Gitea API
     # token and patched this Secret. Preserve the token-source +

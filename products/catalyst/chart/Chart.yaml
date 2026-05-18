@@ -1154,8 +1154,32 @@ name: bp-catalyst-platform
 # GITHUB_TOKEN bytes verbatim. Bootstrap branch (gitea-admin-secret
 # password mirror) is preserved for the first-install pre-cutover window
 # so the provisioning Pod still boots out of CreateContainerConfigError.
-version: 1.4.169
-appVersion: 1.4.169
+version: 1.4.170
+appVersion: 1.4.170
+# 1.4.170 — fix(catalyst-api): wire CATALYST_GITOPS_TOKEN env from the
+# cutover-minted Gitea API token (Closes #1745, Refs TBD-C18). The
+# api-deployment env previously sourced CATALYST_GITOPS_TOKEN from
+# `gitea-admin-secret.password`, but (a) the admin password is NOT a
+# valid Gitea Bearer/token credential (Gitea resolves `Authorization:
+# token <X>` as a sha1 access-token lookup), and (b) the source Secret
+# reflects into `catalyst`, NOT `catalyst-system`, so the catalyst-api
+# Pod's same-namespace secretKeyRef silently resolved to empty. Net
+# effect on t22: POST /api/v1/sovereigns/{id}/marketplace returned 503
+# "gitops token unconfigured — set CATALYST_GITOPS_TOKEN" and every
+# SME tenant gitops commit failed the same way (cov-bench C8-003).
+#
+# Fix: repoint the secretKeyRef to `provisioning-github-token`.GITHUB_TOKEN
+# — the destination Secret bp-self-sovereign-cutover Step 09 writes the
+# minted Gitea API token into (annotated `catalyst.openova.io/token-source:
+# self-sovereign-cutover-step-09`). Add reflector annotations on
+# templates/sme-services/provisioning-github-token.yaml mirroring
+# `sme/provisioning-github-token` into `catalyst-system` so the
+# catalyst-api Pod can secretKeyRef the minted token from its own
+# namespace. CATALYST_GITOPS_USER becomes a literal "gitea_admin" (the
+# minted token's owning account) — no separate cross-namespace mirror
+# needed for a static string. optional=true preserves Catalyst-Zero
+# behaviour (no Gitea, no cutover; env stays empty; handler returns 503
+# as intended).
 # 1.4.166 — fix(catalog): seed 13 published Blueprints on Sovereign
 # handover (WBS row TBD-E8, C4-015). Adds templates/catalog-seed/
 # rendering an always-on baseline of 13 Blueprint CRs (bp-wordpress-
