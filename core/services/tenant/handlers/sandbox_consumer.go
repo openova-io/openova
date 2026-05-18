@@ -100,6 +100,13 @@ type memberEmailLookup interface {
 // SandboxRequestedPayload mirrors the JSON the tenant service emits in
 // handlers.go (PR #1633). owner_email is best-effort; the orchestrator
 // falls back to a store lookup, then to owner_id, when it is empty.
+//
+// PlanID is the catalog Plan.Slug (sandbox-free | sandbox-pro |
+// sandbox-ent) the customer picked at checkout. Stamped onto the
+// Sandbox CR as openova.io/plan-id so the sandbox-controller can derive
+// spec.quota from the plan's IncludedQuotas. Empty PlanID leaves the
+// CR on the orchestrator's DefaultQuota (Wave 1 baseline = Sandbox
+// Free).
 type SandboxRequestedPayload struct {
 	TenantID    string   `json:"tenant_id"`
 	OrgSlug     string   `json:"org_slug"`
@@ -107,6 +114,7 @@ type SandboxRequestedPayload struct {
 	OwnerEmail  string   `json:"owner_email"`
 	Agents      []string `json:"agents"`
 	Sovereign   string   `json:"sovereign"`
+	PlanID      string   `json:"plan_id"`
 	RequestedAt string   `json:"requested_at"`
 }
 
@@ -264,9 +272,18 @@ func (o *SandboxOrchestrator) buildSandbox(name, ns, email string, p SandboxRequ
 		"openova.io/source-tenant-id":    p.TenantID,
 		"openova.io/source-requested-at": p.RequestedAt,
 	}
+	// PR #wave9 (catalog Sandbox plans): stamp the customer-picked plan
+	// onto the CR. The sandbox-controller reads this annotation to look
+	// up the plan's IncludedQuotas in the catalog, then re-stamps
+	// spec.quota when the customer upgrades from Free → Pro → Ent
+	// without re-creating the CR. Empty plan_id leaves the orchestrator's
+	// DefaultQuota in place — equivalent to sandbox-free.
+	if strings.TrimSpace(p.PlanID) != "" {
+		annotations["openova.io/plan-id"] = strings.TrimSpace(p.PlanID)
+	}
 	obj.SetAnnotations(annotations)
 
-	q := o.quota()
+	q := quotaForPlan(p.PlanID, o.quota())
 	spec := map[string]any{
 		"owner": map[string]any{
 			"email": email,
@@ -280,6 +297,9 @@ func (o *SandboxOrchestrator) buildSandbox(name, ns, email string, p SandboxRequ
 			"storage":            q.Storage,
 			"concurrentSessions": int64(q.ConcurrentSessions),
 		},
+	}
+	if strings.TrimSpace(p.PlanID) != "" {
+		spec["planId"] = strings.TrimSpace(p.PlanID)
 	}
 	if len(p.Agents) > 0 {
 		// Copy into []any so json.Marshal renders a plain JSON list
@@ -361,6 +381,32 @@ func sandboxCRName(email, ownerID string) string {
 	}
 	name = strings.TrimRight(name, "-")
 	return name
+}
+
+// quotaForPlan maps a catalog Sandbox plan slug to the SandboxQuota the
+// orchestrator stamps on the CR. Mirrors the IncludedQuotas in
+// core/services/catalog/handlers/seed.go's expectedSandboxPlans —
+// duplicated here so tenant-service has no compile-time dep on the
+// catalog package (catalog uses go.mongodb.org/mongo-driver/v2 which
+// pulls in a hefty BSON stack we don't otherwise need in this service).
+//
+// Empty or unknown plan slug falls through to `fallback`, which is the
+// orchestrator's DefaultQuota (Wave 1 baseline = Sandbox Free shape).
+// "0" concurrent_sessions in the catalog signals unlimited; we encode
+// that as ConcurrentSessions=0 on the CR and the controller treats
+// `<=0` as unbounded.
+func quotaForPlan(planID string, fallback SandboxQuota) SandboxQuota {
+	switch strings.TrimSpace(planID) {
+	case "sandbox-free":
+		return SandboxQuota{CPU: "500m", Memory: "1Gi", Storage: "5Gi", ConcurrentSessions: 1}
+	case "sandbox-pro":
+		return SandboxQuota{CPU: "2", Memory: "4Gi", Storage: "50Gi", ConcurrentSessions: 3}
+	case "sandbox-ent":
+		// 0 = unlimited per controller convention
+		return SandboxQuota{CPU: "8", Memory: "16Gi", Storage: "500Gi", ConcurrentSessions: 0}
+	default:
+		return fallback
+	}
 }
 
 // sanitizeSandboxLeaf is the same shape as

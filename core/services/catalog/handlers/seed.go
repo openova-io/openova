@@ -24,6 +24,7 @@ func (h *Handler) SeedIfEmpty(ctx context.Context) {
 		h.dedupBySlug(ctx)
 		h.seedMissingAddOns(ctx)
 		h.migratePlans(ctx)
+		h.seedMissingSandboxPlans(ctx)
 		h.seedSystemApps(ctx)
 		h.migrateAppDependencies(ctx)
 		h.migrateAppDeployable(ctx)
@@ -196,6 +197,16 @@ func (h *Handler) seedAllData(ctx context.Context) {
 			Features: []string{"Unlimited apps", "SSO included", "API access", "TLS certificates", "Pay per use", "Scale on demand"}},
 	}
 
+	// Sandbox product plans \u2014 PR #1633 added the Sandbox app to seedApps
+	// but never wired the matching plan rows, so the marketplace checkout
+	// hit "plan_id not found" the moment a customer picked Sandbox.
+	// Sandbox plans are product-scoped (ProductSlug="sandbox") and carry
+	// IncludedQuotas the sandbox-orchestrator (#1639) reads via the
+	// `openova.io/plan-id` annotation on the Sandbox CR to derive
+	// spec.quota (sessions, agents, storage). Sort orders start at 10 to
+	// stay clear of the generic compute-tier bucket above.
+	seedPlans = append(seedPlans, expectedSandboxPlans()...)
+
 	for i := range seedPlans {
 		if err := h.Store.CreatePlan(ctx, &seedPlans[i]); err != nil {
 			slog.Error("seed: failed to create plan", "slug", seedPlans[i].Slug, "error", err)
@@ -232,6 +243,98 @@ func (h *Handler) seedAllData(ctx context.Context) {
 	slog.Info("seed: created bundles", "count", len(seedBundles))
 
 	slog.Info("seed: catalog seeding complete")
+}
+
+// expectedSandboxPlans returns the canonical set of Sandbox product plans.
+// Shared by seedAllData (fresh catalog) and seedMissingSandboxPlans
+// (existing Sovereigns whose catalog was populated before PR #1633's
+// Sandbox seedApps addition). Three tiers, all ProductSlug="sandbox":
+//
+//   - sandbox-free (0 OMR) — 1 session, 1 agent, 5 GB, BYOS
+//   - sandbox-pro  (9 OMR) — 3 sessions, 6 agents, 50 GB, BYOS (Popular)
+//   - sandbox-ent (49 OMR) — unlimited sessions, all agents, 500 GB, BYOS
+//
+// IncludedQuotas is the contract between catalog and the
+// sandbox-orchestrator: the orchestrator stamps `openova.io/plan-id` on
+// the Sandbox CR and the controller derives quota.{cpu,memory,storage,
+// concurrentSessions} from these named knobs. "0" on concurrent_sessions
+// signals unlimited (controller: <=0 means unbounded).
+func expectedSandboxPlans() []store.Plan {
+	return []store.Plan{
+		{
+			Slug: "sandbox-free", Name: "Sandbox Free",
+			Description: "1 session, 1 agent — bring your own LLM key",
+			CPU:         "0.5 vCPU", Memory: "1 GB", Storage: "5 GB",
+			PriceOMR:    0,
+			SortOrder:   10,
+			ProductSlug: "sandbox",
+			Features: []string{
+				"1 concurrent session",
+				"1 coding agent",
+				"5 GB persistent storage",
+				"BYOS — bring your own LLM key",
+				"Browser TUI + mobile card-stream",
+			},
+			IncludedQuotas: map[string]string{
+				"concurrent_sessions": "1",
+				"agents":              "1",
+				"storage_gb":          "5",
+				"byos":                "true",
+				"cpu":                 "500m",
+				"memory":              "1Gi",
+			},
+		},
+		{
+			Slug: "sandbox-pro", Name: "Sandbox Pro",
+			Description: "3 sessions, all 6 agents, 50 GB — for working developers",
+			CPU:         "2 vCPU", Memory: "4 GB", Storage: "50 GB",
+			PriceOMR:    9,
+			Popular:     true,
+			SortOrder:   11,
+			ProductSlug: "sandbox",
+			Features: []string{
+				"3 concurrent sessions",
+				"All 6 agents (Claude Code, Cursor, Qwen, Aider, Opencode, Little-Coder)",
+				"50 GB persistent storage",
+				"BYOS — bring your own LLM key",
+				"openova-sandbox-mcp cluster primitives",
+				"Preview deploys at <pr>.<app>.<sb-owner>.<sov>",
+			},
+			IncludedQuotas: map[string]string{
+				"concurrent_sessions": "3",
+				"agents":              "6",
+				"storage_gb":          "50",
+				"byos":                "true",
+				"cpu":                 "2",
+				"memory":              "4Gi",
+			},
+		},
+		{
+			Slug: "sandbox-ent", Name: "Sandbox Ent",
+			Description: "Unlimited sessions, all agents, 500 GB — for teams",
+			CPU:         "8 vCPU", Memory: "16 GB", Storage: "500 GB",
+			PriceOMR:    49,
+			SortOrder:   12,
+			ProductSlug: "sandbox",
+			Features: []string{
+				"Unlimited concurrent sessions",
+				"All 6 agents + custom agent slots",
+				"500 GB persistent storage",
+				"BYOS — bring your own LLM key",
+				"Dedicated org-scoped namespace",
+				"Audit logs + SSO",
+				"Priority support",
+			},
+			IncludedQuotas: map[string]string{
+				"concurrent_sessions": "0",
+				"agents":              "6",
+				"storage_gb":          "500",
+				"byos":                "true",
+				"cpu":                 "8",
+				"memory":              "16Gi",
+			},
+		},
+	}
 }
 
 // expectedAddOns returns the canonical set of add-ons.
@@ -522,6 +625,68 @@ func (h *Handler) migratePlanFeatures(ctx context.Context) {
 	}
 	if updated > 0 {
 		slog.Info("seed: plan features migration complete", "updated", updated)
+	}
+}
+
+// seedMissingSandboxPlans backfills Sandbox product plans on Sovereigns
+// whose catalog was already populated when PR #1633 (Sandbox app) and
+// this PR (Sandbox plans) landed. Idempotent: each plan slug is GET'd
+// first and only inserted when absent. Also patches existing rows whose
+// ProductSlug or IncludedQuotas drifted from the canonical set, since
+// before this PR the Plan struct didn't even have those fields and any
+// hand-inserted sandbox-* row would be missing the quota knobs the
+// orchestrator reads.
+func (h *Handler) seedMissingSandboxPlans(ctx context.Context) {
+	want := expectedSandboxPlans()
+	existing, err := h.Store.ListPlans(ctx)
+	if err != nil {
+		slog.Error("seed: failed to list plans for sandbox plan migration", "error", err)
+		return
+	}
+	bySlug := make(map[string]*store.Plan, len(existing))
+	for i := range existing {
+		bySlug[existing[i].Slug] = &existing[i]
+	}
+	added, patched := 0, 0
+	for i := range want {
+		cur, ok := bySlug[want[i].Slug]
+		if !ok {
+			if err := h.Store.CreatePlan(ctx, &want[i]); err != nil {
+				slog.Error("seed: failed to create sandbox plan", "slug", want[i].Slug, "error", err)
+				continue
+			}
+			added++
+			slog.Info("seed: created missing sandbox plan", "slug", want[i].Slug)
+			continue
+		}
+		// Patch ProductSlug and IncludedQuotas when missing — the
+		// catalog ListPlans handler returns them straight into the
+		// marketplace plan picker and the sandbox-orchestrator's
+		// quota derivation, so absence breaks both paths.
+		needPatch := false
+		if cur.ProductSlug != "sandbox" {
+			cur.ProductSlug = "sandbox"
+			needPatch = true
+		}
+		if len(cur.IncludedQuotas) == 0 {
+			cur.IncludedQuotas = want[i].IncludedQuotas
+			needPatch = true
+		}
+		if len(cur.Features) == 0 {
+			cur.Features = want[i].Features
+			needPatch = true
+		}
+		if needPatch {
+			if err := h.Store.UpdatePlan(ctx, cur.ID, cur); err != nil {
+				slog.Error("seed: failed to patch sandbox plan", "slug", cur.Slug, "error", err)
+				continue
+			}
+			patched++
+			slog.Info("seed: patched sandbox plan", "slug", cur.Slug)
+		}
+	}
+	if added > 0 || patched > 0 {
+		slog.Info("seed: sandbox plan migration complete", "added", added, "patched", patched)
 	}
 }
 

@@ -124,19 +124,28 @@ type Bundle struct {
 }
 
 // Plan represents a hosting plan with resource limits and pricing.
+//
+// ProductSlug scopes the plan to a specific product/app. Empty = generic
+// compute tier (S/M/L/XL/Flexi) selectable for any tenant. Non-empty =
+// product-specific tier (e.g. ProductSlug="sandbox" for Sandbox
+// Free/Pro/Ent) that is only valid when the cart contains that app.
+// IncludedQuotas carries product-specific quota knobs (sessions, agents,
+// storage_gb, byos) the orchestrator stamps onto the per-tenant CR.
 type Plan struct {
-	ID            string   `bson:"_id" json:"id"`
-	Slug          string   `bson:"slug" json:"slug"`
-	Name          string   `bson:"name" json:"name"`
-	Description   string   `bson:"description" json:"description"`
-	CPU           string   `bson:"cpu" json:"cpu"`
-	Memory        string   `bson:"memory" json:"memory"`
-	Storage       string   `bson:"storage" json:"storage"`
-	PriceOMR      int      `bson:"price_omr" json:"price_omr"`
-	Popular       bool     `bson:"popular" json:"popular"`
-	SortOrder     int      `bson:"sort_order" json:"sort_order"`
-	Features      []string `bson:"features" json:"features"`
-	StripePriceID string   `bson:"stripe_price_id,omitempty" json:"stripe_price_id,omitempty"`
+	ID             string            `bson:"_id" json:"id"`
+	Slug           string            `bson:"slug" json:"slug"`
+	Name           string            `bson:"name" json:"name"`
+	Description    string            `bson:"description" json:"description"`
+	CPU            string            `bson:"cpu" json:"cpu"`
+	Memory         string            `bson:"memory" json:"memory"`
+	Storage        string            `bson:"storage" json:"storage"`
+	PriceOMR       int               `bson:"price_omr" json:"price_omr"`
+	Popular        bool              `bson:"popular" json:"popular"`
+	SortOrder      int               `bson:"sort_order" json:"sort_order"`
+	Features       []string          `bson:"features" json:"features"`
+	StripePriceID  string            `bson:"stripe_price_id,omitempty" json:"stripe_price_id,omitempty"`
+	ProductSlug    string            `bson:"product_slug,omitempty" json:"product_slug,omitempty"`
+	IncludedQuotas map[string]string `bson:"included_quotas,omitempty" json:"included_quotas,omitempty"`
 }
 
 // AddOn represents an optional add-on service.
@@ -603,6 +612,8 @@ func (s *Store) UpdatePlan(ctx context.Context, id string, p *Plan) error {
 		{Key: "sort_order", Value: p.SortOrder},
 		{Key: "features", Value: p.Features},
 		{Key: "stripe_price_id", Value: p.StripePriceID},
+		{Key: "product_slug", Value: p.ProductSlug},
+		{Key: "included_quotas", Value: p.IncludedQuotas},
 	}}}
 	res, err := s.plans().UpdateOne(ctx, bson.D{{Key: "_id", Value: id}}, update)
 	if err != nil {

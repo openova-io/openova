@@ -253,11 +253,20 @@ func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 	// is responsible for de-dup (sandbox CR name = sanitized email).
 	if containsSlug(body.Apps, "sandbox") {
 		sandboxPayload := map[string]any{
-			"tenant_id":    tenant.ID,
-			"org_slug":     tenant.Slug,
-			"owner_id":     userID,
-			"agents":       body.Agents,
-			"sovereign":    "", // populated by the consumer from its env / cluster context
+			"tenant_id": tenant.ID,
+			"org_slug":  tenant.Slug,
+			"owner_id":  userID,
+			"agents":    body.Agents,
+			"sovereign": "", // populated by the consumer from its env / cluster context
+			// plan_id carries the customer-picked Sandbox tier
+			// (sandbox-free | sandbox-pro | sandbox-ent). The
+			// sandbox-orchestrator stamps it onto the Sandbox CR's
+			// openova.io/plan-id annotation so the controller can
+			// derive spec.quota from the catalog plan's
+			// IncludedQuotas. Empty plan_id falls through to the
+			// orchestrator's default quota (Wave 1 baseline) which
+			// matches sandbox-free, the safe-by-default tier.
+			"plan_id":      body.PlanID,
 			"requested_at": time.Now().UTC().Format(time.RFC3339),
 		}
 		sbEvt, sbErr := events.NewEvent("tenant.sandbox_requested", "tenant-service", tenant.ID, sandboxPayload)
