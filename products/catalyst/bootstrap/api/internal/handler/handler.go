@@ -305,6 +305,25 @@ type Handler struct {
 	// inject stubs.
 	smeTenantDeps SMETenantDeps
 
+	// ── SME HS256 bridge secret (PR #1625 follow-up) ───────────────────────
+	// smeJWTSecret — raw bytes of `sme-secrets/JWT_SECRET` (mirrored
+	// from the `sme` namespace into catalyst-system by
+	// emberstack/reflector — see the annotation block on
+	// products/catalyst/chart/templates/sme-services/sme-secrets.yaml).
+	// Used by sme_billing_vouchers.go's proxySMEVoucher() (and any
+	// future /api/v1/sme/* proxy) to mint a short-lived HS256 token
+	// the SME gateway (core/services/gateway/proxy.go) and downstream
+	// services (billing / catalog / tenant) will accept — they reject
+	// the operator's RS256 Keycloak token outright.
+	//
+	// Wired from main.go at startup via SetSMEJWTSecret(). Nil-tolerant:
+	// when empty (Sovereign without marketplace, or stale chart that
+	// hasn't grown the reflector annotation yet), the bridged proxies
+	// surface a 503 with a clear `sme-jwt-bridge-unwired` error so the
+	// FE renders an actionable message rather than the silent 401 the
+	// pre-bridge state produced.
+	smeJWTSecret []byte
+
 	// ── Sovereign SMTP seed (issue #883) ────────────────────────────────────
 	// sovereignSMTPSeedClientFactory — test-only override for building a
 	// kubernetes.Interface from a kubeconfig YAML. Production wires
@@ -657,6 +676,15 @@ func (h *Handler) SetPowerDNSZoneClient(c powerdnsZoneClient) { h.powerdnsZoneCl
 // Nil is allowed and disables every audit endpoint (returning 503) and
 // makes the rbac_assign emit-side a no-op.
 func (h *Handler) SetAuditBus(bus *audit.Bus) { h.auditBus = bus }
+
+// SetSMEJWTSecret wires the raw bytes of `sme-secrets/JWT_SECRET` so
+// the /api/v1/sme/* proxies (sme_billing_vouchers.go + future siblings)
+// can mint a short-lived HS256 bridge token the SME gateway will
+// accept. Empty / nil secret disables the mint path; proxies surface
+// 503 `sme-jwt-bridge-unwired` rather than forging a 401 upstream.
+// Called by main.go at startup from CATALYST_SME_JWT_SECRET (Pod env
+// fed via secretKeyRef from the reflector-mirrored sme-secrets Secret).
+func (h *Handler) SetSMEJWTSecret(secret []byte) { h.smeJWTSecret = secret }
 
 // AuditBus returns the wired Bus or nil. Test helper.
 func (h *Handler) AuditBus() *audit.Bus { return h.auditBus }

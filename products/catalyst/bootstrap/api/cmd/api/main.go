@@ -308,6 +308,29 @@ func main() {
 	h.SetAuditBus(auditBus)
 	log.Info("audit: bus wired", "ringCapacity", auditRingCap)
 
+	// CATALYST_SME_JWT_SECRET — bridge secret for /api/v1/sme/* proxies
+	// (PR #1625 follow-up). The chart's api-deployment.yaml feeds this
+	// via secretKeyRef on `sme-secrets/JWT_SECRET`, mirrored from the
+	// `sme` namespace into `catalyst-system` by emberstack/reflector
+	// (annotation block on chart/templates/sme-services/sme-secrets.yaml).
+	// proxySMEVoucher uses these bytes to mint a short-lived HS256
+	// token the SME gateway will accept (the operator's RS256 session
+	// is rejected by the gateway's HMAC-only validator).
+	//
+	// Empty env on a Sovereign without marketplace
+	// (ingress.marketplace.enabled=false) — proxySMEVoucher surfaces
+	// 503 `sme-jwt-bridge-unwired` so the FE renders an actionable
+	// message rather than the silent 401 the pre-bridge state produced.
+	if smeSecret := os.Getenv("CATALYST_SME_JWT_SECRET"); smeSecret != "" {
+		h.SetSMEJWTSecret([]byte(smeSecret))
+		log.Info("sme: HS256 bridge secret wired",
+			// NEVER log the secret value (INVIOLABLE-PRINCIPLES.md #10).
+			"bytes", len(smeSecret),
+		)
+	} else {
+		log.Info("sme: HS256 bridge secret unset — /api/v1/sme/* proxies return 503 until sme-secrets is reflected into catalyst-system")
+	}
+
 	// /healthz is LIVENESS — always 200 if the process is up and the
 	// HTTP server is serving. /readyz is READINESS — 200 only when
 	// the primary Sovereign's informers are synced (or no Sovereigns
