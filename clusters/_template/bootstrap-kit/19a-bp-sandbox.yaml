@@ -1,10 +1,30 @@
-# bp-sandbox — Catalyst bootstrap-kit Blueprint slot 61.
+# bp-sandbox — Catalyst bootstrap-kit Blueprint slot 19a (post-harbor).
 #
 # Deploys the sandbox-controller (Wave 1 + Wave 8) on a Sovereign so
 # that `sandbox.openova.io/v1.Sandbox` CRs are actually reconciled.
 # Wave 8 extends the controller to ALSO render per-Sandbox pty-server
 # StatefulSet + MCP Deployment + Service + HTTPRoute (architecture.md
 # §7) — without this slot enabled, every Sandbox CR sits unreconciled.
+#
+# ─── Slot history: 61 → 19a (Wave 11 convergence fix, 2026-05-18) ────
+# Originally slot 61. Caught live on t16.omantel.biz: bp-sandbox HR
+# stuck Reconciling because its chart pull went through
+# harbor.<sov-fqdn> (bp-self-sovereign-cutover Step-06 phase-1 rewrites
+# every HelmRepository URL `oci://ghcr.io/openova-io` →
+# `oci://harbor.<sov-fqdn>/openova-io` after handover), but harbor.<sov
+# -fqdn> wasn't reachable yet because bp-harbor itself hadn't reached
+# Ready — chicken-and-egg. Same failure shape as Wave 7 #1610 with
+# bp-hcloud-csi (REMOVED — see kustomization.yaml comment block).
+#
+# Fix here is the cleaner long-term cousin of the Wave 7 hotfix:
+# instead of removing the slot, sequence it AFTER bp-harbor (slot 19)
+# by renumbering to 19a + adding `bp-harbor` to dependsOn. Once
+# bp-harbor is Ready (its chart pull goes through harbor.openova.io,
+# the mothership-warmed proxy-cache wired into k3s registries.yaml at
+# cloud-init time — NOT through harbor.<sov-fqdn>, so no cycle there),
+# this slot's chart pull can resolve against either ghcr.io
+# (pre-cutover) or harbor.<sov-fqdn> (post-cutover) and find the
+# artifact. The cutover Step-06 phase-1 URL rewrite is safe by then.
 
 ---
 apiVersion: source.toolkit.fluxcd.io/v1beta2
@@ -25,7 +45,7 @@ metadata:
   name: bp-sandbox
   namespace: flux-system
   labels:
-    catalyst.openova.io/slot: "61"
+    catalyst.openova.io/slot: "19a"
     catalyst.openova.io/component: sandbox-controller
 spec:
   interval: 15m
@@ -34,6 +54,17 @@ spec:
   dependsOn:
     - name: bp-vcluster-helmrepo
     - name: bp-catalyst-platform
+    # bp-harbor (slot 19, Wave 11 convergence fix 2026-05-18) — sandbox's
+    # chart pull goes through harbor.<sov-fqdn> after the post-handover
+    # cutover Step-06 phase-1 HelmRepository URL rewrite. Without this
+    # edge, source-controller hits harbor.<sov-fqdn> before bp-harbor
+    # is Ready, the OCI fetch 503s, and bp-sandbox sits Reconciling for
+    # the entire bootstrap-kit timeout window — preventing the umbrella
+    # Kustomization from ever reaching Ready. Same chicken-and-egg as
+    # Wave 7 #1610 (bp-hcloud-csi, REMOVED) but resolved by sequencing
+    # rather than removal so the slot remains available for Wave 11
+    # Sandbox MVP without manual Day-2 add-app re-introduction.
+    - name: bp-harbor
   chart:
     spec:
       chart: sandbox
