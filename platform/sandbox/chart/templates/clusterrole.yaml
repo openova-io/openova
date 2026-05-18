@@ -44,4 +44,15 @@ rules:
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["create", "patch"]
+  # Wave 10 (PR #1641 follow-up — IdleScaler).
+  # The sandbox-controller polls pty-server StatefulSets it OWNS
+  # (label-selected via app.kubernetes.io/component=pty-server +
+  # openova.io/managed-by=catalyst) and scales replicas to 0 after the
+  # configured idle window. This is the ONLY cluster-wide write the
+  # controller does on a resource other than its own CR — scoped by
+  # label-selector + a `sandbox-*` namespace prefix in code
+  # (core/controllers/sandbox/internal/idlescaler/idlescaler.go).
+  - apiGroups: ["apps"]
+    resources: ["statefulsets"]
+    verbs: ["get", "list", "watch", "patch"]
 {{- end }}
