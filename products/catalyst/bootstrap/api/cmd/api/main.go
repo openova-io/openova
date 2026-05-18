@@ -656,6 +656,12 @@ func main() {
 		rg.Get("/api/v1/sandbox/byos/claude-code/callback", h.HandleByosClaudeCodeCallback)
 		rg.Delete("/api/v1/sandbox/byos/claude-code", h.HandleByosClaudeCodeDisconnect)
 		rg.Get("/api/v1/sandbox/byos/claude-code/status", h.HandleByosClaudeCodeStatus)
+		// /config — FE pre-flight: reports whether the chart's OAuth
+		// client_id is the placeholder (PR #1619). The SandboxSettings
+		// card uses this to disable the Connect button + show an amber
+		// "pending operator setup" tooltip instead of letting the user
+		// click a button whose OAuth URL would 400 at Anthropic.
+		rg.Get("/api/v1/sandbox/byos/claude-code/config", h.HandleByosClaudeCodeConfig)
 
 		// Sandbox sessions — Wave 7 CRUD on the Sandbox CRD
 		// (sandbox.openova.io/v1). The FE in

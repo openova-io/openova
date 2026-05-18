@@ -1,7 +1,9 @@
 // byos_claude_code.go — POST /api/v1/sandbox/byos/claude-code/start,
-//                       GET  /api/v1/sandbox/byos/claude-code/callback,
-//                       DELETE /api/v1/sandbox/byos/claude-code,
-//                       GET  /api/v1/sandbox/byos/claude-code/status
+//
+//	GET  /api/v1/sandbox/byos/claude-code/callback,
+//	DELETE /api/v1/sandbox/byos/claude-code,
+//	GET  /api/v1/sandbox/byos/claude-code/status,
+//	GET  /api/v1/sandbox/byos/claude-code/config
 //
 // Wave 1b SCAFFOLD ONLY — design + handler shape. The actual outbound
 // OAuth client + Secret-store writes land in Wave 4 alongside the
@@ -367,6 +369,54 @@ func (h *Handler) HandleByosClaudeCodeStatus(w http.ResponseWriter, r *http.Requ
 	// Wave 4: read Secret/catalyst-system/sandbox-byos-claude-code-<sub>.
 	// When present + not RevokedAtProvider, set Connected=true and
 	// populate AnthropicAccountEmail + ConnectedAt.
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// byosConfigResponse is what GET /config returns. The SandboxSettings UI
+// reads it before showing the Connect button so the placeholder client_id
+// state surfaces as a disabled-with-tooltip control instead of letting the
+// user fire an OAuth URL that would 400 at Anthropic. See PR #1619 chart
+// wire + claude-code-byos.md §8.
+type byosConfigResponse struct {
+	// ClientIDConfigured is true when the chart's
+	// SANDBOX_BYOS_CLAUDE_CODE_CLIENT_ID env var is set to a non-empty,
+	// non-placeholder value. The Settings card MUST disable the
+	// "Connect Claude Max" button when this is false.
+	ClientIDConfigured bool `json:"clientIdConfigured"`
+
+	// OauthAuthorizeURL is the canonical Anthropic OAuth authorization
+	// URL the FE will hit via POST /start. Returned as an informational
+	// hint only when ClientIDConfigured=true; omitted from the JSON
+	// otherwise (`omitempty`) so the UI cannot accidentally fall back
+	// to it when the client_id is still the placeholder.
+	OauthAuthorizeURL string `json:"oauthAuthorizeURL,omitempty"`
+}
+
+// ── HandleByosClaudeCodeConfig — GET /api/v1/sandbox/byos/claude-code/config
+//
+// Returns the configuration-state the SandboxSettings card needs to
+// render its Connect button correctly:
+//
+//   - When the chart's client_id is still the placeholder
+//     (`PLACEHOLDER-AWAITING-FOUNDER-REGISTRATION` per PR #1619), the FE
+//     renders the button as DISABLED with the amber "API pending" pill +
+//     tooltip "Anthropic OAuth client_id not yet registered — contact
+//     your Sovereign operator". This avoids letting the user click a
+//     button whose OAuth URL would 400 at Anthropic.
+//   - When the operator has set the real client_id, the FE shows the
+//     button as enabled and POSTing /start returns the authorization URL
+//     the popup opens.
+//
+// This endpoint is intentionally read-only and unauthenticated by virtue
+// of sitting inside RequireSession — the response carries no secrets
+// (the client_id itself is a public OAuth identifier; we just gate
+// surface based on whether it's been registered yet).
+func (h *Handler) HandleByosClaudeCodeConfig(w http.ResponseWriter, r *http.Request) {
+	configured := byosClientID() != byosPlaceholderClientID
+	resp := byosConfigResponse{ClientIDConfigured: configured}
+	if configured {
+		resp.OauthAuthorizeURL = byosAuthorizationURL()
+	}
 	writeJSON(w, http.StatusOK, resp)
 }
 
