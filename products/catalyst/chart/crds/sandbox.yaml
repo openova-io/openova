@@ -1,0 +1,249 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: sandboxes.sandbox.openova.io
+  labels:
+    app.kubernetes.io/name: catalyst
+    app.kubernetes.io/component: sandbox
+spec:
+  group: sandbox.openova.io
+  scope: Namespaced
+  names:
+    kind: Sandbox
+    listKind: SandboxList
+    singular: sandbox
+    plural: sandboxes
+    shortNames:
+      - sb
+      - sbx
+    categories:
+      - catalyst
+      - openova
+      - sandbox
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      additionalPrinterColumns:
+        - name: Owner
+          type: string
+          jsonPath: .spec.owner.email
+        - name: Org
+          type: string
+          jsonPath: .spec.owner.orgRef.slug
+        - name: Sessions
+          type: integer
+          jsonPath: .status.sessions
+        - name: Storage
+          type: string
+          jsonPath: .status.storageUsed
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+          priority: 1
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      subresources:
+        status: {}
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: |
+            Sandbox is the per-user, per-Organization coding-agent plane
+            (see products/sandbox/docs/architecture.md §7). A Sandbox
+            lives in the Org's vcluster — namespace = the Org's namespace.
+            The sandbox-controller reconciles:
+              - a `sandbox-<owner-uid>` namespace inside the Org vcluster,
+              - RBAC for the Sandbox ServiceAccount,
+              - PVCs per repo entry (initContainer git-clones from Gitea),
+              - placeholder Secrets for newapi/BYOS tokens,
+              - (Wave 2+) pty-server + openova-sandbox-mcp Deployments,
+              - HTTPRoute/Gateway for `<pr>.<app>.<sb-<owner>>.<sov>`.
+
+            The CRD lives at sandbox.openova.io/v1 — a SIBLING group to
+            orgs.openova.io/v1 so RBAC + watch caches stay per-domain
+            isolated (ADR-0001 §6: `catalyst.<domain>.<event>` convention).
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [owner, quota]
+              properties:
+                owner:
+                  type: object
+                  required: [email, orgRef]
+                  description: |
+                    The natural-person owner of this Sandbox plus the Org
+                    it belongs to. The controller never reaches across Org
+                    boundaries — every artifact lands inside the Org's
+                    vcluster.
+                  properties:
+                    email:
+                      type: string
+                      format: email
+                      description: |
+                        The owner's email — used to derive the Sandbox
+                        namespace leaf (`sandbox-<sanitized-email>`) and
+                        to bind Keycloak RoleBindings via UserAccess.
+                    orgRef:
+                      type: object
+                      required: [slug]
+                      properties:
+                        slug:
+                          type: string
+                          pattern: '^[a-z][a-z0-9-]{2,31}$'
+                          description: |
+                            Slug of the parent Organization (matches
+                            `orgs.openova.io/v1.Organization.spec.slug`).
+                quota:
+                  type: object
+                  required: [cpu, memory, storage, concurrentSessions]
+                  description: |
+                    Resource ceiling for the Sandbox. Translated to a K8s
+                    ResourceQuota inside the Sandbox namespace.
+                  properties:
+                    cpu:
+                      type: string
+                      description: |
+                        Total CPU ceiling in K8s-quantity form (e.g.
+                        "4", "2000m").
+                      pattern: '^[0-9]+(\.[0-9]+)?m?$'
+                    memory:
+                      type: string
+                      description: |
+                        Total memory ceiling in K8s-quantity form (e.g.
+                        "8Gi").
+                      pattern: '^[0-9]+(\.[0-9]+)?(Ki|Mi|Gi|Ti)?$'
+                    storage:
+                      type: string
+                      description: |
+                        Total PVC storage ceiling across all repo PVCs +
+                        scratch (e.g. "50Gi"). The build-cache pod (shared
+                        per-Org, not per-Sandbox) is NOT counted here.
+                      pattern: '^[0-9]+(\.[0-9]+)?(Ki|Mi|Gi|Ti)?$'
+                    concurrentSessions:
+                      type: integer
+                      minimum: 1
+                      maximum: 10
+                      description: |
+                        Number of pty-server sessions the Sandbox may run
+                        concurrently. Defaults to 3 in Wave 1 chart values.
+                repos:
+                  type: array
+                  description: |
+                    Repos to auto-clone into PVCs at session start. Each
+                    repo materializes as one PVC + initContainer that
+                    git-clones from the Sovereign's Gitea using a
+                    Sandbox-scoped deploy key.
+                  items:
+                    type: object
+                    required: [giteaRepo]
+                    properties:
+                      giteaRepo:
+                        type: string
+                        description: |
+                          Gitea path in `<org>/<repo>` form (e.g.
+                          `acme/eventforge`). The Org must match
+                          spec.owner.orgRef.slug — the controller rejects
+                          cross-Org clones.
+                        pattern: '^[a-z0-9][a-z0-9_.-]*/[A-Za-z0-9._-]+$'
+                agentCatalogue:
+                  type: array
+                  description: |
+                    Subset of Sovereign-enabled agents this Sandbox may
+                    spawn. Per addendum 2026-05-17 there are 6 supported
+                    agents. Wave 1 does not yet spawn pty-server pods so
+                    this list is captured but inert until Wave 2.
+                  items:
+                    type: string
+                    enum:
+                      - aider
+                      - claude-code
+                      - cursor-agent
+                      - little-coder
+                      - opencode
+                      - qwen-code
+                previewDomain:
+                  type: string
+                  description: |
+                    Apex domain under which preview deploys land (e.g.
+                    `sb-emrah.rzk7.openova.io`). PR previews live at
+                    `<pr>.<app>.<previewDomain>`. Wired in Wave 3 (HTTPRoute
+                    + Gateway). Wave 1 only records it on status.
+                  pattern: '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'
+              x-kubernetes-preserve-unknown-fields: true
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum:
+                    - Pending
+                    - Provisioning
+                    - Ready
+                    - Failed
+                  description: |
+                    Reconciler-managed lifecycle phase. Pending = CR seen
+                    but no manifests written yet; Provisioning = manifests
+                    in Gitea waiting on Flux; Ready = namespace + RBAC +
+                    PVCs all materialized; Failed = a non-recoverable
+                    error surfaced on Conditions.
+                sessions:
+                  type: integer
+                  description: |
+                    Active pty-server session count. Wave 1 always reports
+                    0 — pty-server lands in Wave 2.
+                storageUsed:
+                  type: string
+                  description: |
+                    Sum of bound PVC sizes (K8s-quantity form, e.g. "8.2Gi").
+                spend30d:
+                  type: string
+                  description: |
+                    Rolling 30-day cost attributed to this Sandbox (e.g.
+                    "USD 42.10"). Wired by sandbox-billing aggregator
+                    (Wave 4) — Wave 1 leaves this unset.
+                previews:
+                  type: array
+                  description: |
+                    Live PR-preview URLs published by sandbox.preview.*.
+                    Wave 1 always reports an empty list.
+                  items:
+                    type: object
+                    required: [prNumber, url, sha]
+                    properties:
+                      prNumber:
+                        type: integer
+                      url:
+                        type: string
+                      sha:
+                        type: string
+                gitopsPath:
+                  type: string
+                  description: |
+                    Gitea path the controller writes manifests to (e.g.
+                    `sandbox/<sanitized-email>/`). Operator-debug aid —
+                    not consumed by other controllers.
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required: [type, status]
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                observedGeneration:
+                  type: integer
+                  format: int64
+              x-kubernetes-preserve-unknown-fields: true
