@@ -1084,3 +1084,105 @@ func TestGetKubeconfig_UsesSubdomainAsContextName(t *testing.T) {
 		t.Errorf("Content-Disposition = %q, want filename=otech94.yaml", cd)
 	}
 }
+
+// TBD-A10b — t24 zero-touch (issue #1845).
+//
+// GET /kubeconfig?region=<cloudRegion> must resolve to the on-disk
+// secondary kubeconfig even when the file uses the tofu
+// `<cloudRegion>-<slotIndex>` naming convention (e.g. `hel1-1`,
+// `nbg1-2`). Pre-fix the bare `cloudRegion` form 409'd because the
+// handler only looked at `<id>-<region>.yaml` exactly.
+//
+// Walks the two on-disk shapes we ship with today:
+//
+//	A) exact match  — operator-manual PUT at `?region=hel1`
+//	   → file `<dir>/<id>-hel1.yaml` → exact-name resolution wins.
+//	B) glob fallback — cloud-init / mothership fan-out at
+//	   `?region=hel1-1` → file `<dir>/<id>-hel1-1.yaml`. GET caller
+//	   passes the bare `?region=hel1` → exact match misses, glob
+//	   `<id>-hel1-*.yaml` resolves to `<id>-hel1-1.yaml`.
+func TestGetKubeconfig_PerRegion_SlotSuffixGlobFallback(t *testing.T) {
+	kubeconfigsDir := t.TempDir()
+	deploymentsDir := t.TempDir()
+	st, _ := store.New(deploymentsDir)
+	h := NewWithStoreAndKubeconfigsDir(silentLogger(), &fakePDM{}, st, kubeconfigsDir)
+
+	id := "a10b-region-fallback"
+	dep := &Deployment{
+		ID:        id,
+		Status:    "ready",
+		StartedAt: time.Now(),
+		eventsCh:  make(chan provisioner.Event, 256),
+		done:      make(chan struct{}),
+		Request: provisioner.Request{
+			SovereignFQDN: "test." + id + ".example",
+		},
+		Result: &provisioner.Result{
+			SovereignFQDN: "test." + id + ".example",
+		},
+	}
+	h.deployments.Store(id, dep)
+
+	// Path A — write the legacy exact-match file for region "fsn1".
+	exactRegion := "fsn1"
+	exactPath := filepath.Join(kubeconfigsDir, id+"-"+exactRegion+".yaml")
+	if err := os.WriteFile(exactPath, []byte(validKubeconfigYAML), 0o600); err != nil {
+		t.Fatalf("write exact-name file: %v", err)
+	}
+
+	// Path B — write the cloud-init slot-suffix file for cloudRegion
+	// "hel1" (slot index 1 in the tofu secondary_regions map).
+	cloudRegion := "hel1"
+	slotPath := filepath.Join(kubeconfigsDir, id+"-"+cloudRegion+"-1.yaml")
+	if err := os.WriteFile(slotPath, []byte(validKubeconfigYAML), 0o600); err != nil {
+		t.Fatalf("write slot-suffix file: %v", err)
+	}
+
+	cases := []struct {
+		name        string
+		regionQuery string
+		wantFile    string
+	}{
+		{"exact-match", exactRegion, exactPath},
+		{"slot-suffix-fallback", cloudRegion, slotPath},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet,
+				"/api/v1/deployments/"+id+"/kubeconfig?region="+c.regionQuery, nil)
+			rctx := chi.NewRouteContext()
+			rctx.URLParams.Add("id", id)
+			r = r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
+			h.GetKubeconfig(w, r)
+
+			if w.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+			}
+			// Sanity: the served payload retains the CA + token
+			// markers from the fixture (rewriter preserves them).
+			if !strings.Contains(w.Body.String(), "TEST-CA-MARKER") {
+				t.Errorf("served body missing TEST-CA-MARKER:\n%s", w.Body.String())
+			}
+		})
+	}
+
+	// Path C — missing region returns 409 (preserves the
+	// kubeconfig-file-missing contract for the operator's "wrong region
+	// name" path).
+	t.Run("unknown-region-still-409", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet,
+			"/api/v1/deployments/"+id+"/kubeconfig?region=does-not-exist", nil)
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("id", id)
+		r = r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
+		h.GetKubeconfig(w, r)
+		if w.Code != http.StatusConflict {
+			t.Fatalf("status = %d, want 409; body=%s", w.Code, w.Body.String())
+		}
+		if !strings.Contains(w.Body.String(), "kubeconfig-file-missing") {
+			t.Errorf("body should mention kubeconfig-file-missing; got %s", w.Body.String())
+		}
+	})
+}

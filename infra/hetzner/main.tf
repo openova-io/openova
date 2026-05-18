@@ -689,6 +689,19 @@ locals {
     # chroot Deployment so /infrastructure/topology returns the
     # full multi-region tree (DoD D5).
     sovereign_regions_json = jsonencode(var.regions)
+    # sovereign_configured_regions_yaml — YAML inline-list literal of the
+    # cloudRegions this Sovereign was provisioned with (e.g. `["fsn1","hel1"]`).
+    # Threaded into bootstrap-kit slot 13's
+    # `sovereign.configuredRegions: ${SOVEREIGN_CONFIGURED_REGIONS_YAML:-[]}`
+    # substitute (PR for issue #1844). The chart's sovereign-fqdn ConfigMap
+    # joins this list into a comma-separated `configuredRegions` key for the
+    # catalyst-ui Dashboard's SovereignCard + Networking → ClusterMesh tab.
+    # When var.regions is empty (back-compat singular-region path) the
+    # rendered YAML is `[]` so the chart's `default (list)` keeps the
+    # ConfigMap key empty (no regression).
+    sovereign_configured_regions_yaml = jsonencode([
+      for r in var.regions : r.cloudRegion
+    ])
     org_name  = var.org_name
     org_email = var.org_email
     region    = var.region
@@ -705,6 +718,16 @@ locals {
     # primaryRegion follows the actual Sovereign primary, never the
     # chart's hardcoded `hz-fsn-rtz-prod` default.
     primary_region_canonical_label = local.region_canonical_label["primary"]
+    # First non-primary canonical region label (used as the D31
+    # active-hot-standby `replicaRegion` default). Threaded into the
+    # bootstrap-kit Kustomization's SOVEREIGN_REPLICA_REGION substitute
+    # so the chart's `sovereign.replicaRegion` is populated on every
+    # multi-region Sovereign without a per-overlay write. Empty when
+    # the Sovereign is single-region (var.regions length <= 1). TBD-A15
+    # (issue #1844, 2026-05-18).
+    replica_region_canonical_label = length(local.secondary_regions) > 0 ? (
+      local.region_canonical_label[keys(local.secondary_regions)[0]]
+    ) : ""
     # Per-role vCluster enable flags (DoD A4 topology). Primary region
     # renders MGMT+DMZ vClusters → mgmt_vcluster_enabled=true. RTZ stays
     # off here — secondary regions flip RTZ on. The bp-dmz-vcluster slot
@@ -1233,6 +1256,11 @@ locals {
       # bp-catalyst-platform renders the same sovereign.regionsJson value
       # (the cluster topology is Sovereign-wide, not per-region).
       sovereign_regions_json = jsonencode(var.regions)
+      # Same SOVEREIGN_CONFIGURED_REGIONS_YAML as the primary — chart-wide
+      # configuredRegions list is Sovereign-wide invariant. TBD-A15.
+      sovereign_configured_regions_yaml = jsonencode([
+        for rr in var.regions : rr.cloudRegion
+      ])
       org_name  = var.org_name
       org_email = var.org_email
       region    = r.cloudRegion
@@ -1247,6 +1275,11 @@ locals {
       # Sovereign-wide primary region (qaFixtures.primaryRegion is
       # singular per the chart contract).
       primary_region_canonical_label = local.region_canonical_label["primary"]
+      # Same as primary CP — Sovereign-wide D31 active-hot-standby
+      # replicaRegion default (first non-primary region's canonical label).
+      replica_region_canonical_label = length(local.secondary_regions) > 0 ? (
+        local.region_canonical_label[keys(local.secondary_regions)[0]]
+      ) : ""
       # Per-role vCluster enable flags (DoD A4). Secondary region
       # renders DMZ+RTZ vCluster → rtz_vcluster_enabled=true. MGMT
       # stays off on secondaries (single MGMT vCluster on primary).

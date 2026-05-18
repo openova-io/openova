@@ -1192,6 +1192,54 @@ name: bp-catalyst-platform
 # is operator-tunable via `.Values.security.baselineCnp.allowedIngressNamespaces`,
 # mirroring the existing allowedPlatformNamespaces pattern on the egress
 # side. Refs PR #1785 (1.4.171), t24 zero-touch finding.
+# 1.4.179 (TBD-A14 / TBD-A15 / TBD-A10b, 2026-05-18): three t24 zero-touch
+# (Wave 36) P1 fresh-prov blockers ship together as one chart + bootstrap-
+# kit + cloud-init bump.
+#
+#  - TBD-A14 (issue #1843): clusterrole-cutover-driver gains
+#    networking.k8s.io/networkpolicies get/list/watch verbs. Pre-fix the
+#    chroot in-cluster fallback's k8sCache.Factory reflector emitted
+#    continuous `networkpolicies is forbidden` errors at the cluster
+#    scope because only update/patch/delete were granted (existing
+#    mutation block) — the read path was never wired. Mirrors the
+#    cilium.io/ciliumnetworkpolicies entry below; the two CRDs co-exist
+#    (k8s NetworkPolicy = baseline L3/L4, CiliumNetworkPolicy = tier-3 L7
+#    + DNS/HTTP).
+#
+#  - TBD-A15 (issue #1844): sovereign-fqdn ConfigMap fields configured
+#    Regions / controlPlaneIP / primaryRegion / replicaRegion /
+#    selfDeploymentId / enableHotStandby / qaApplications populated on
+#    every fresh prov. Pre-fix these envsubst placeholders resolved to
+#    empty because nothing wrote them into the bootstrap-kit
+#    Kustomization postBuild substitute map → the chart rendered empty
+#    strings → Dashboard SovereignCard configured-regions chips,
+#    Settings page operator-identity, /api/v1/sovereign/self, and the
+#    D31 active-hot-standby gating ALL silently fell through to default
+#    behaviour. Wired via three coordinated changes:
+#       (a) Chart values.yaml — new global.sovereignSelfDeploymentId
+#           default "" with full inline doc.
+#       (b) clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml
+#           — global.sovereignSelfDeploymentId, sovereign.configuredRegions,
+#           sovereign.qaApplications added with YAML inline-list shape
+#           (`${SOVEREIGN_CONFIGURED_REGIONS_YAML:-[]}`).
+#       (c) infra/hetzner/cloudinit-control-plane.tftpl — substitutes
+#           map gains SOVEREIGN_CONTROL_PLANE_IP / SOVEREIGN_PRIMARY_REGION /
+#           SOVEREIGN_REPLICA_REGION / SOVEREIGN_ENABLE_HOT_STANDBY /
+#           SOVEREIGN_CONFIGURED_REGIONS_YAML / QA_APPLICATIONS_YAML.
+#           SOVEREIGN_CONTROL_PLANE_IP uses load_balancer_ipv4 (the
+#           canonical operator-facing CP IP); replicaRegion derives
+#           from the first non-primary canonical label.
+#
+#  - TBD-A10b (issue #1845): GET /api/v1/deployments/{id}/kubeconfig?region=
+#    <cloudRegion> resolves the on-disk secondary kubeconfig even when
+#    callers pass the bare `cloudRegion` (`?region=hel1`) and the file
+#    is at the tofu slot-suffixed shape `<id>-hel1-1.yaml`. Pre-fix the
+#    handler 409'd because it only looked for `<id>-hel1.yaml` exactly.
+#    Resolution order: exact match first (legacy + manual PUT), then
+#    `<id>-<region>-*.yaml` glob fallback (deterministic via
+#    sort.Strings, first wins). Closes the regression introduced when
+#    PR #1763 (mothership→chroot kubeconfig handover hook) started
+#    using the cloud-init naming convention for fan-out exports.
 # 1.4.177 (TBD-CNP-SMTP-Egress, 2026-05-18): fix regression introduced by
 # #1785 (1.4.171 baseline CNPs). The catalyst-system default-deny CNP
 # limited world egress to TCP/443 only, which silently broke SMTP
@@ -1209,8 +1257,8 @@ name: bp-catalyst-platform
 # 25/TCP (legacy SMTP fallback). All three are explicitly scoped to
 # `toEntities: world`, matching the existing 443/TCP allow. No other
 # rule semantics change. (Fixes PIN-issue 502 regression from #1785.)
-version: 1.4.178
-appVersion: 1.4.178
+version: 1.4.179
+appVersion: 1.4.179
 # 1.4.172 — feat(security): baseline CiliumNetworkPolicies for
 # catalyst-system + cilium-gateway (Closes #1746, Refs TBD-Cov-12 /
 # C12-009). Cov-bench audit on the live Sovereign cluster confirmed

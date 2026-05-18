@@ -1072,6 +1072,51 @@ write_files:
             ORG_EMAIL: "${org_email}"
             ORG_NAME: "${org_name}"
             GITOPS_REPO_URL: "${gitops_repo_url}"
+            # TBD-A15 (t24 zero-touch, 2026-05-18, issue #1844) — wire the
+            # remaining sovereign-fqdn ConfigMap fields the chart's bootstrap-
+            # kit slot 13 expects via envsubst. Previously these placeholders
+            # resolved to empty on every fresh prov because nothing was
+            # writing them into the Kustomization substitute map → catalyst-
+            # api on the Sovereign read empty strings → Dashboard "configured
+            # regions" chips, settings page, D31 hot-standby gating, and
+            # /api/v1/sovereign/self all silently returned defaults.
+            #
+            # SOVEREIGN_CONTROL_PLANE_IP — Sovereign's CP public IPv4. We
+            # cannot reference hcloud_server.control_plane.ipv4_address here
+            # (dep cycle), but the load balancer IP IS the canonical control-
+            # plane address operators interact with (kubectl, console, API).
+            # Same value as SOVEREIGN_LB_IP — duplicating intentionally so a
+            # future split (separate CP-direct IP vs LB-IP) can rewire only
+            # this key without breaking the SOVEREIGN_LB_IP consumers.
+            SOVEREIGN_CONTROL_PLANE_IP: "${load_balancer_ipv4}"
+            # SOVEREIGN_PRIMARY_REGION / SOVEREIGN_REPLICA_REGION — canonical
+            # 4-segment region labels (e.g. `hz-fsn-rtz-prod`, `hz-hel-rtz-
+            # prod`). Threaded into bootstrap-kit slot 13's
+            # `sovereign.primaryRegion/replicaRegion` substitutes which feed
+            # the chart's sovereign-fqdn ConfigMap. replicaRegion is the
+            # first non-primary region's label; empty on single-region
+            # Sovereigns (the D31 ReplicaCluster shape is skipped when
+            # replicaRegion is empty per sme_tenant_gitops.go contract).
+            SOVEREIGN_PRIMARY_REGION: "${primary_region_canonical_label}"
+            SOVEREIGN_REPLICA_REGION: "${replica_region_canonical_label}"
+            # SOVEREIGN_ENABLE_HOT_STANDBY — D31 opt-in. Default empty
+            # (= disabled) on every fresh prov; operators / wizard flip via
+            # per-Sovereign overlay write. Reserved here so a future tofu
+            # variable can populate without a chart-side change.
+            SOVEREIGN_ENABLE_HOT_STANDBY: ""
+            # SOVEREIGN_CONFIGURED_REGIONS_YAML — YAML inline-list literal of
+            # the cloudRegions this Sovereign was provisioned with
+            # (e.g. `["fsn1","hel1"]`). Chart joins into the comma-separated
+            # `configuredRegions` ConfigMap key for the Dashboard
+            # SovereignCard + Networking → ClusterMesh tab chips. Single-
+            # quoted so YAML treats the JSON braces as literal — same
+            # pattern as PARENT_DOMAINS_YAML above.
+            SOVEREIGN_CONFIGURED_REGIONS_YAML: '${sovereign_configured_regions_yaml}'
+            # QA_APPLICATIONS_YAML — Reserved placeholder for the QA
+            # appRefs list. Default empty so production Sovereigns surface
+            # only PolicyReport-observed apps; QA Sovereigns will populate
+            # via a future tofu variable.
+            QA_APPLICATIONS_YAML: "[]"
             # QA fixtures auto-enable (Fix #73 — qa-loop bounded-cycle
             # iter-16). Default "false" so a customer-facing zero-touch
             # provision lands a Sovereign with NO qaFixtures stack
