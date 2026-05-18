@@ -416,6 +416,16 @@ export function CloudPage({
       'nodes': null,
       'persistentvolumes': null,
       'endpointslices': null,
+      // Wave 8 hotfix 2026-05-18: Family E PR #1602 added these two as
+      // first-class CloudListKinds (PolicyReports + ClusterPolicyReports)
+      // for EPIC-1 Compliance, but never updated this counts seed object.
+      // tsc failed for every subsequent UI build, the deploy-bot couldn't
+      // auto-bump values.yaml, and chart 1.4.155 published with stale UI
+      // image SHA 898305f (PR #1600 Family C era). Wave 5+6 UI changes
+      // never reached fresh provs t11/t12 — caught on the t12 5-agent
+      // test scorecard (W5-1/2/3/4 + W6-1 all FAIL).
+      'policyreports': null,
+      'clusterpolicyreports': null,
     }
     if (data) {
       let clusters = 0
