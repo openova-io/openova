@@ -131,28 +131,41 @@ func (c *smeCatalogClient) PublishedBySlug(ctx context.Context) (map[string]bool
 // SME catalog. Used by HandleSovereignAppPublish. Returns the upstream
 // HTTP status verbatim (so a 404 from SME catalog stays 404, etc.).
 //
-// `bearer` is the compact HS256 token (no "Bearer " prefix) the caller
-// must have minted via authpkg.MintSMEAccessToken — without it the
-// upstream catalog's JWTAuth middleware (core/services/catalog/main.go:79)
-// rejects the request with 401 BEFORE the handler runs, and the
-// handler's `requireAdmin` (core/services/catalog/handlers/handlers.go:21)
-// rejects any caller without the `superadmin` role claim. The pre-bridge
-// state shipped no Authorization header at all → silent 401 surfaced to
-// the operator as "sme-catalog-rejected upstream returned 401" with no
-// actionable hint. See Closes #1735 for the original repro.
+// Wire-shape: the SME catalog's SetAppPublished
+// (core/services/catalog/handlers/handlers.go:293) accepts the new
+// state via the `?value=true|false` query param — no JSON body. The
+// request body is therefore empty; passing one would be ignored.
+//
+// Auth: the SME catalog mounts JWTAuth on every /catalog/admin/* path
+// (core/services/catalog/main.go:79-85) and requireAdmin then enforces
+// role=superadmin OR sovereign-admin (the latter was added in the same
+// PR so franchisee operators can manage their own Sovereign's catalog
+// per docs/FRANCHISE-MODEL.md §3). Without an Authorization header the
+// upstream returns 401 from JWTAuth ("missing or invalid authorization
+// header") — that's the C4-012 / #1735 symptom. The bearer is minted
+// by the caller (HandleSovereignAppPublish) via the canonical SME
+// bridge (sme_billing_vouchers.go's mintSMEBridgeToken — same HS256
+// `sme-secrets/JWT_SECRET` the gateway + billing service use) and
+// passed in here as the `bearer` argument. Empty bearer signals the
+// caller has no session; the SME catalog will then return 401 and the
+// chroot surfaces it verbatim so the UI shows the auth gap rather
+// than a silent success.
 //
 // Per docs/INVIOLABLE-PRINCIPLES.md #10 the token is NEVER logged.
 func (c *smeCatalogClient) SetPublished(ctx context.Context, slug string, published bool, bearer string) (int, error) {
 	if strings.TrimSpace(slug) == "" {
 		return 0, fmt.Errorf("sme-catalog: slug is required")
 	}
-	url := fmt.Sprintf("%s/catalog/admin/apps/%s/publish", c.baseURL, slug)
-	body := strings.NewReader(fmt.Sprintf(`{"published":%v}`, published))
-	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, url, body)
+	value := "false"
+	if published {
+		value = "true"
+	}
+	url := fmt.Sprintf("%s/catalog/admin/apps/%s/publish?value=%s", c.baseURL, slug, value)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, url, nil)
 	if err != nil {
 		return 0, err
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
 	if strings.TrimSpace(bearer) != "" {
 		req.Header.Set("Authorization", "Bearer "+bearer)
 	}
