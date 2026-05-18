@@ -150,6 +150,20 @@ rules:
   - apiGroups: ["networking.k8s.io"]
     resources: ["ingresses"]
     verbs: ["get", "list", "watch"]
+  # NetworkPolicy (networking.k8s.io) — TBD-A14 (t24 zero-touch, 2026-05-18,
+  # issue #1843). Without these read verbs the chroot in-cluster fallback
+  # (k8sCache.Factory reflector + the /networking-policies aggregator) gets
+  # continuous `networkpolicies.networking.k8s.io is forbidden: User
+  # system:serviceaccount:catalyst-system:catalyst-api-cutover-driver cannot
+  # list resource networkpolicies in API group networking.k8s.io at the
+  # cluster scope` errors. Mirrors the cilium.io/ciliumnetworkpolicies block
+  # in the QA-loop iter-11 Fix #48 section below — the two CRDs co-exist
+  # (k8s NetworkPolicy = baseline L3/L4, CiliumNetworkPolicy = tier-3 L7).
+  # Read-only verbs only — NetworkPolicies are authored by the qa-fixtures
+  # chart + customer overlays, never by catalyst-api at runtime.
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "list", "watch"]
   - apiGroups: ["gateway.networking.k8s.io"]
     resources: ["httproutes", "gateways"]
     verbs: ["get", "list", "watch"]

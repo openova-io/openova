@@ -588,7 +588,22 @@ spec:
       # to the admin password byte, so every subsequent SME provisioning
       # call to Gitea returned 401 "user does not exist" and journey
       # step 16 (tenant repo creation) silently stuck.
-      version: 1.4.178
+      # 1.4.179 (TBD-A14/A15/A10b, 2026-05-18): three t24 zero-touch
+      # Wave 36 P1 fresh-prov blockers — see chart Chart.yaml header for
+      # the full diagnostic + fix description per gate.
+      #   - A14 issue #1843: networkpolicies (networking.k8s.io) RBAC
+      #     get/list/watch verbs added to clusterrole-cutover-driver.
+      #   - A15 issue #1844: sovereign-fqdn ConfigMap empty fields
+      #     populated end-to-end via the cloud-init → bootstrap-kit →
+      #     chart substitute chain (configuredRegions / controlPlaneIP /
+      #     primaryRegion / replicaRegion / selfDeploymentId /
+      #     enableHotStandby / qaApplications). This Kustomization gains
+      #     3 new value mappings: global.sovereignSelfDeploymentId,
+      #     sovereign.configuredRegions, sovereign.qaApplications.
+      #   - A10b issue #1845: GET kubeconfig?region=<cloudRegion>
+      #     resolves the slot-suffixed on-disk shape
+      #     `<id>-<region>-<i>.yaml` (handler-side glob fallback).
+      version: 1.4.179
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
@@ -674,6 +689,15 @@ spec:
       # then short-circuits the glue registration and falls back to plain
       # set_ns (legacy behaviour).
       sovereignLBIP: ${SOVEREIGN_LB_IP}
+      # sovereignSelfDeploymentId — the catalyst-api deployment-record id
+      # this Sovereign was provisioned under on the contabo mothership.
+      # Threaded from cloud-init's SOVEREIGN_DEPLOYMENT_ID Kustomization
+      # postBuild substitute. Consumed by the chart's sovereign-fqdn
+      # ConfigMap `selfDeploymentId` key so the chroot catalyst-api's
+      # GET /api/v1/sovereign/self answers with the correct id at
+      # handover-time (no wait for the orchestrator's chart-values
+      # overlay write). TBD-A15 (t24 zero-touch, 2026-05-18, issue #1844).
+      sovereignSelfDeploymentId: '${SOVEREIGN_DEPLOYMENT_ID:-}'
     ingress:
       hosts:
         console:
@@ -786,6 +810,23 @@ spec:
       enableHotStandby: '${SOVEREIGN_ENABLE_HOT_STANDBY:-}'
       primaryRegion: '${SOVEREIGN_PRIMARY_REGION:-}'
       replicaRegion: '${SOVEREIGN_REPLICA_REGION:-}'
+      # configuredRegions — YAML list of region keys this Sovereign was
+      # provisioned with (e.g. ["fsn1", "hel1"]). Threaded from cloud-init's
+      # SOVEREIGN_CONFIGURED_REGIONS_YAML Kustomization postBuild substitute
+      # which the tofu module renders as a YAML inline list literal from
+      # var.regions[*].cloudRegion. The chart's sovereign-fqdn ConfigMap
+      # joins this list into a comma-separated `configuredRegions` key for
+      # the catalyst-ui Dashboard SovereignCard + Networking → ClusterMesh
+      # tab to render configured-but-not-active chips. Defaults to empty
+      # list so non-multi-region Sovereigns surface only their live region.
+      # TBD-A15 (t24 zero-touch, 2026-05-18, issue #1844).
+      configuredRegions: ${SOVEREIGN_CONFIGURED_REGIONS_YAML:-[]}
+      # qaApplications — YAML list of qa-fixtures applicationRef literals
+      # the chroot Sovereign's /compliance/scorecard surface emits via
+      # appRefs[]. Default empty so production Sovereigns surface only
+      # PolicyReport-observed apps. QA Sovereigns set via QA_APPLICATIONS_YAML.
+      # TBD-A15 (t24 zero-touch, 2026-05-18, issue #1844).
+      qaApplications: ${QA_APPLICATIONS_YAML:-[]}
     # ─── QA fixtures (qa-loop iter-6 Cluster-F + EPIC-6 iter-6) ────────
     # Default-OFF on production; flipped to true via envsubst
     # QA_FIXTURES_ENABLED=true on the per-Sovereign overlay for any

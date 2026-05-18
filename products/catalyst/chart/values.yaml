@@ -27,6 +27,19 @@ global:
   # registrars never need it. Per docs/INVIOLABLE-PRINCIPLES.md #4 the
   # value is fully runtime-configurable.
   sovereignLBIP: ""
+  # sovereignSelfDeploymentId — the catalyst-api deployment-record id this
+  # Sovereign was provisioned under on the contabo mothership. Wired by
+  # bootstrap-kit slot 13 from the ${SOVEREIGN_DEPLOYMENT_ID} cloud-init
+  # postBuild substitute. Consumed by the chart's sovereign-fqdn ConfigMap
+  # `selfDeploymentId` key so the chroot catalyst-api's
+  # GET /api/v1/sovereign/self answers with the correct id at handover-
+  # time, without waiting for the orchestrator's chart-values overlay
+  # write. Empty when the chart was rendered outside the bootstrap-kit
+  # slot 13 flow (e.g. contabo Catalyst-Zero / local dev) — the chroot
+  # self handler returns 503 deployment-id-not-yet-stamped until the
+  # orchestrator writes the per-Sovereign overlay. TBD-A15 (t24 zero-
+  # touch, 2026-05-18, issue #1844).
+  sovereignSelfDeploymentId: ""
 
 # ─── Sovereign-side defaults (issue #901) ──────────────────────────────
 # Knobs that exclusively affect the franchised-Sovereign install path

@@ -90,6 +90,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -150,6 +151,22 @@ func (h *Handler) GetKubeconfig(w http.ResponseWriter, r *http.Request) {
 	// id-region.yaml. Empty region falls through to the primary path
 	// stamped on Result.KubeconfigPath (preserves backwards-compat for
 	// every caller that doesn't pass the query).
+	//
+	// TBD-A10b (t24 zero-touch, 2026-05-18, issue #1845): the cloud-init
+	// PUT-back uses the tofu secondary-region key shape
+	// `<cloudRegion>-<i>` (e.g. `hel1-1`, `nbg1-2`) — see
+	// infra/hetzner/main.tf:509-513 + local.secondary_region_cloud_init's
+	// kubeconfig_postback_region. The mothership-to-chroot D16 fan-out in
+	// deployment_handover_export.go's regionKeysForExport ALSO emits
+	// `<cloudRegion>-<i>` so the on-disk filename is
+	// `<id>-<cloudRegion>-<i>.yaml`. Operators + verifiers commonly call
+	// with just the bare `cloudRegion` (`?region=hel1`) because that's
+	// the matrix-doc-friendly form (`hetzner` provider's
+	// `regions.cloudRegion`). Pre-fix the bare form 409'd because the
+	// exact filename wasn't on disk. Fall-back resolution order:
+	//   1. <id>-<region>.yaml exact match (legacy + manual operator PUT)
+	//   2. <id>-<region>-<digit>.yaml first alphabetically (covers the
+	//      cloud-init/handover-fan-out naming convention)
 	if region != "" {
 		if h.kubeconfigsDir == "" {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
@@ -159,6 +176,21 @@ func (h *Handler) GetKubeconfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		path = filepath.Join(h.kubeconfigsDir, id+"-"+region+".yaml")
+		if _, statErr := os.Stat(path); errors.Is(statErr, os.ErrNotExist) {
+			// Fall back to the tofu/handover slot-suffixed shape:
+			// `<id>-<region>-<i>.yaml`. We accept the lexicographically
+			// first match — slot indices start at 1 and are stable per
+			// Sovereign so there's never more than one match in practice,
+			// but the sort ordering keeps the choice deterministic.
+			matches, _ := filepath.Glob(filepath.Join(h.kubeconfigsDir, id+"-"+region+"-*.yaml"))
+			if len(matches) > 0 {
+				sort.Strings(matches)
+				path = matches[0]
+				h.log.Info("kubeconfig per-region resolved via slot-suffix glob",
+					"id", id, "region", region, "matchedPath", path, "candidates", len(matches),
+				)
+			}
+		}
 	}
 
 	if path == "" {
