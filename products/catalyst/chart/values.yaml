@@ -1193,6 +1193,40 @@ catalog:
     # propagation post blueprint-release.yaml.
     interval: 15m
 
+# catalogSeed — baseline Blueprint CRs rendered at chart install/upgrade
+# so /api/v1/catalog returns a non-empty items[] from the moment
+# catalyst-api comes up at handover-time. (WBS row TBD-E8, C4-015,
+# fix(catalog): seed published Blueprints on Sovereign handover.)
+#
+# Pre-fix: a freshly-handed-over Sovereign has NO Blueprints anywhere —
+# Gitea has neither `catalog` nor `catalog-sovereign` Org (self-sovereign-
+# cutover step-01 only mirrors `openova-io/openova` → `openova/openova`),
+# AND qa-fixtures' Blueprint CRs are gated on qaFixtures.enabled which
+# defaults false on production. Result: the Apps grid in Sovereign
+# Console is empty until the operator manually publishes via
+# `POST /blueprints/publish`. Test C4-015 FAILed on t22 for this reason.
+#
+# Post-fix: 13 baseline Blueprint CRs render unconditionally so the
+# chained catalog client (catalog_client_cluster_fallback.go) surfaces
+# them via in-cluster LIST. Each CR references a REAL OCI chart
+# published by .github/workflows/blueprint-release.yaml. Operator can
+# override entries by pushing curated Blueprints to the
+# `catalog-sovereign` Gitea Org — source priority is PRIVATE > SOVEREIGN
+# > PUBLIC, so a curated entry wins on collision and the seeded CR is
+# shadowed (but kept in place as a fallback if the operator later
+# removes the curated entry).
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #1 (target-state) every Blueprint
+# carries a REAL chart reference + REAL configSchema mirroring the
+# upstream blueprint.yaml of each platform/<name>/chart. Per #4 the
+# whole seed set can be disabled by setting `enabled: false` in a
+# per-Sovereign overlay if the operator curates day-zero. Per #5 every
+# CR is labeled `catalyst.openova.io/managed-by: catalog-seed` so the
+# operator can distinguish chart-seeded entries from curated entries
+# in `kubectl get blueprints` output.
+catalogSeed:
+  enabled: true
+
 # qaFixtures — qa-loop iter-6 Cluster-F seeder for the test-matrix
 # fixtures (qa-omantel namespace, disposable-cm, qa-wp-creds, qa-user1
 # UserAccess + RoleBinding, bp-qa-custom Blueprint). DEFAULT-OFF;
