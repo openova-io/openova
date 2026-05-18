@@ -1,0 +1,23 @@
+# HelmRepository CR registering the upstream loft-sh chart repo as a
+# Flux source. Consumed by the Organization controller's per-tenant
+# HelmRelease render path (see
+# core/controllers/organization/internal/gitops/manifests.go:96-100).
+#
+# Apply order: Flux dependsOn (slot 45 has no chart-internal deps, but
+# the bootstrap-kit slot file's `dependsOn: bp-flux` keeps Flux's
+# source-controller up before this lands).
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: {{ .Values.vclusterHelmRepo.name | quote }}
+  namespace: {{ .Values.vclusterHelmRepo.namespace | quote }}
+  labels:
+    {{- include "bp-vcluster-helmrepo.labels" . | nindent 4 }}
+    catalyst.openova.io/tenant-spawn: vcluster
+spec:
+  # `type` omitted on purpose — defaults to the traditional
+  # index.yaml-style HelmRepository (loft.sh's chart server speaks
+  # this protocol). Don't set `type: oci` here — charts.loft.sh is NOT
+  # an OCI registry.
+  interval: {{ .Values.vclusterHelmRepo.interval | quote }}
+  url: {{ .Values.vclusterHelmRepo.url | quote }}

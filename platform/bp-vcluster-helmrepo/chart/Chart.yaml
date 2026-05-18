@@ -1,0 +1,64 @@
+apiVersion: v2
+name: bp-vcluster-helmrepo
+# 0.1.0 — initial implementation. Pre-stages the upstream loft-sh
+# vcluster Helm chart source on the Sovereign cluster so the
+# Organization controller (core/controllers/organization) can render
+# per-tenant `helm.toolkit.fluxcd.io/v2 HelmRelease` CRs whose
+# `chart.spec.sourceRef` points at `name=loft, namespace=vcluster-system`
+# (see core/controllers/organization/internal/gitops/manifests.go,
+# defaults at core/controllers/organization/cmd/main.go).
+#
+# Without this slot, every per-tenant vcluster HelmRelease that the
+# Organization controller writes into the per-Org Gitea repo fails
+# Source reconcile with "HelmRepository.source.toolkit.fluxcd.io
+# \"loft\" not found" — convergence blocker #2 (vCluster CRD-equivalent
+# install on Sovereign). Spawning any tenant org's vCluster gates on
+# this slot.
+version: 0.1.0
+appVersion: "0.33.0"
+description: |
+  Catalyst Blueprint that pre-stages the upstream loft-sh vcluster
+  Helm chart source on the Sovereign cluster.
+
+  Creates:
+    1. Namespace `vcluster-system` (configurable) — holds the
+       HelmRepository CR and any future loft-sh tooling.
+    2. HelmRepository `loft` in that namespace pointing at
+       https://charts.loft.sh — the canonical upstream chart repo.
+
+  Why a separate Blueprint instead of a subchart bundle:
+
+    Per-tenant vClusters spawned by the Organization controller
+    (core/controllers/organization) are rendered as
+    `helm.toolkit.fluxcd.io/v2 HelmRelease` CRs in per-Org Gitea
+    repos. Flux on the Sovereign reconciles them. Each HelmRelease
+    references `sourceRef.kind=HelmRepository name=loft
+    namespace=vcluster-system` to pull the upstream chart.
+
+    The Sovereign-tier wrapper charts (bp-mgmt-vcluster,
+    bp-dmz-vcluster, bp-rtz-vcluster) bundle loft-sh/vcluster
+    0.20.0 as a Helm subchart so they ship a single OCI artifact —
+    that path does NOT register a HelmRepository the controller can
+    use. Per-tenant vClusters need a live `source.toolkit.fluxcd.io/
+    HelmRepository` CR on the cluster, not an embedded subchart, so
+    Flux can resolve the per-Org HelmRelease independently of any
+    bundled subchart.
+
+    Same shape as bp-gateway-api: legitimately ships NO upstream
+    subchart — the deliverable IS the Flux source CR registration.
+
+  Reconciled by Flux as bootstrap-kit slot 45 (between
+  cluster-autoscaler and the per-region vCluster slots so the source
+  is ready before any HelmRelease that references it lands).
+type: application
+annotations:
+  # CI Blueprint Release smoke-render gate — this chart's templates
+  # render unconditionally (no top-level enable gate; the Sovereign
+  # always needs the loft HelmRepository to spawn tenant vClusters).
+  catalyst.openova.io/smoke-render-mode: "default-on"
+  catalyst.openova.io/no-upstream: "true"
+  catalyst.openova.io/upstream-loft-vcluster-chart-version: "0.33.x"
+keywords: [catalyst, blueprint, vcluster, loft, helmrepository, tenant-spawn]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io

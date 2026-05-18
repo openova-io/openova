@@ -444,6 +444,25 @@ slots:
       - bp-cert-manager
     wave: present
 
+  # ---- Slot 60 — bp-vcluster-helmrepo (convergence blocker #2 —
+  # per-tenant vCluster source install on Sovereign).
+  # Pre-stages the upstream loft-sh vcluster Helm chart source on the
+  # Sovereign cluster so the Organization controller
+  # (core/controllers/organization) can render per-tenant
+  # `helm.toolkit.fluxcd.io/v2 HelmRelease` CRs that reference
+  # `chart.spec.sourceRef name=loft namespace=vcluster-system`. Without
+  # this slot, every per-tenant vcluster HelmRelease fails Source
+  # reconcile with "HelmRepository.source.toolkit.fluxcd.io \"loft\"
+  # not found" → no tenant vCluster is ever spawned. Different layer
+  # from slots 54/58/59 which bundle the upstream chart as a subchart
+  # for the Sovereign-tier DMZ/MGMT/RTZ vClusters. Default-ON; ships
+  # NO upstream subchart (same shape as bp-gateway-api).
+  - slot: 60
+    name: bp-vcluster-helmrepo
+    depends_on:
+      - bp-flux
+    wave: present
+
   # ---- Slot 80 — bp-newapi multi-tenant LLM marketplace gateway. Issue #799.
   # Sequenced past the W2.K4 numbering plan (slots 36-48) so it never
   # collides with the AI-runtime / observability / livekit cohort. The

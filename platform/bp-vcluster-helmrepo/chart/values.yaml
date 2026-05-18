@@ -1,0 +1,36 @@
+# Catalyst Blueprint values for bp-vcluster-helmrepo.
+#
+# Pre-stages the upstream loft-sh vcluster Helm chart source on the
+# Sovereign cluster. Consumed by the Organization controller
+# (core/controllers/organization) when spawning per-tenant vClusters.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) every value
+# below is operator-overridable per-Sovereign.
+
+vclusterHelmRepo:
+  # The HelmRepository CR's namespace. Must match the value
+  # CATALYST_VCLUSTER_HELMREPO_NAMESPACE that the Organization
+  # controller is configured with (defaults to "vcluster-system" at
+  # core/controllers/organization/cmd/main.go).
+  namespace: "vcluster-system"
+
+  # The HelmRepository CR's name. Must match the value
+  # CATALYST_VCLUSTER_HELMREPO_NAME the Organization controller is
+  # configured with (defaults to "loft").
+  name: "loft"
+
+  # Upstream loft-sh chart repo URL. Per docs/INVIOLABLE-PRINCIPLES.md
+  # #4a (SHA-pinned / mirror-everything) operators MAY override this to
+  # point at their Harbor proxy cache
+  # (e.g. "https://harbor.openova.io/chartrepo/proxy-loft").
+  url: "https://charts.loft.sh"
+
+  # Source-controller reconcile interval. 15m matches every other
+  # bootstrap-kit HelmRepository (bp-cilium / bp-cert-manager /
+  # bp-gateway-api).
+  interval: "15m"
+
+  # Whether to create the namespace. Most Sovereigns will want this on;
+  # operator-MAY turn it off to manage the namespace via a separate
+  # Kustomization.
+  createNamespace: true

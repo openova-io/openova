@@ -1,0 +1,20 @@
+{{- if .Values.vclusterHelmRepo.createNamespace -}}
+# Namespace that hosts the upstream loft-sh vcluster Helm chart source
+# CR. The Organization controller's rendered per-tenant HelmReleases
+# reference this namespace via `chart.spec.sourceRef.namespace` (see
+# core/controllers/organization/internal/gitops/manifests.go default
+# `VClusterHelmRepoNamespace = "vcluster-system"`).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.vclusterHelmRepo.namespace | quote }}
+  labels:
+    {{- include "bp-vcluster-helmrepo.labels" . | nindent 4 }}
+    # pod-security: restricted — this namespace only ever hosts Flux
+    # source CRs and downstream Helm release marker Secrets; no
+    # workload Pods land here. The actual vCluster StatefulSet lives
+    # in the per-tenant Org namespace, not here.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+{{- end }}
