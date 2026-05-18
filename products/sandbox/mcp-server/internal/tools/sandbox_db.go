@@ -212,6 +212,304 @@ func buildClusterCR(env *Env, name string, plan cnpgPlan) *unstructured.Unstruct
 	return cr
 }
 
+// hotStandbyActive reports whether the Sovereign-level toggle + region
+// pair is in the valid happy-path shape (toggle on AND both regions
+// non-empty AND distinct). Mirrors the defence-in-depth rule the
+// SME-tenant gitops writer applies (renderSMETenantOverlay): if the
+// operator opted in but the region pair is degenerate we fall back to
+// single-Cluster shape rather than rendering a Cluster CR pair that
+// can't schedule (replica's nodeAffinity wouldn't match anywhere).
+func hotStandbyActive(env *Env) bool {
+	if env == nil || !env.EnableHotStandby {
+		return false
+	}
+	if env.PrimaryRegion == "" || env.ReplicaRegion == "" {
+		return false
+	}
+	if env.PrimaryRegion == env.ReplicaRegion {
+		return false
+	}
+	return true
+}
+
+// replicaClusterName is the canonical name suffix the replica Cluster
+// CR carries. Mirrors bp-wordpress-tenant.cnpgPairReplicaName + the
+// bp-cnpg-pair chart pattern. Truncated to the 53-char ceiling so the
+// CNPG operator's `<name>-replication-XX` Secret names stay inside the
+// 63-char RFC-1123 label limit.
+func replicaClusterName(primary string) string {
+	const ceiling = 53
+	out := primary + "-replica"
+	if len(out) > ceiling {
+		out = out[:ceiling]
+	}
+	return out
+}
+
+// replicationServiceName is the canonical ClusterMesh-global Service
+// alias the primary Cluster CR exposes (annotated
+// `service.cilium.io/global: "true"`). The replica's externalCluster
+// resolves the primary via this name — local-affinity routing falls
+// through to the remote region because the replica region has zero
+// local backends matching the selector. Mirrors
+// bp-wordpress-tenant.cnpgPairReplicationServiceName + bp-cnpg-pair.
+func replicationServiceName(primary string) string {
+	const ceiling = 53
+	out := primary + "-mesh"
+	if len(out) > ceiling {
+		out = out[:ceiling]
+	}
+	return out
+}
+
+// buildClusterCRPair renders the primary + replica Cluster.postgresql.
+// cnpg.io pair the D31 active-hot-standby shape requires. The primary
+// is pinned to env.PrimaryRegion (openova.io/region nodeAffinity) and
+// exposes its read-replica endpoint as a ClusterMesh-global Service
+// (`spec.managed.services.additional[].selectorType=r`, annotated
+// `service.cilium.io/global: "true"`). The replica is pinned to
+// env.ReplicaRegion, configured with `replica.enabled: true` +
+// `bootstrap.pg_basebackup` source pointing at the primary via the
+// mesh-global Service alias, with WAL streaming over the same
+// connection. Mirrors platform/wordpress-tenant/chart/templates/
+// cnpg-cluster.yaml (PR #1562) line-for-line so the operator-side
+// observability + failover behaviour stays consistent between the
+// marketplace tenant path and the sandbox.db plane.
+//
+// The shape only renders when hotStandbyActive(env) — sandbox.db.
+// provision falls back to buildClusterCR (single Cluster) for every
+// other configuration to keep the legacy/back-compat path exercised
+// on every Sovereign that hasn't opted in.
+func buildClusterCRPair(env *Env, name string, plan cnpgPlan) []*unstructured.Unstructured {
+	primaryLabels := map[string]any{
+		cnpgManagedByLabel:               cnpgManagedByValue,
+		"openova.io/cnpg-role":           "primary",
+		"openova.io/region":              env.PrimaryRegion,
+		"catalyst.openova.io/cnpg-pair":  name,
+	}
+	replicaLabels := map[string]any{
+		cnpgManagedByLabel:               cnpgManagedByValue,
+		"openova.io/cnpg-role":           "replica",
+		"openova.io/region":              env.ReplicaRegion,
+		"catalyst.openova.io/cnpg-pair":  name,
+	}
+	if env.SandboxID != "" {
+		primaryLabels[cnpgSandboxIDLabel] = env.SandboxID
+		replicaLabels[cnpgSandboxIDLabel] = env.SandboxID
+	}
+	storage := map[string]any{
+		"size": plan.StorageSize,
+	}
+	if plan.StorageClass != "" {
+		storage["storageClass"] = plan.StorageClass
+	}
+	replicaName := replicaClusterName(name)
+	meshSvc := replicationServiceName(name)
+
+	// PostgreSQL parameters identical between primary + replica per the
+	// bp-wordpress-tenant rationale: `hot_standby` is INTENTIONALLY
+	// omitted (Postgres 16 hard-pins it to `on` and CNPG rejects any
+	// explicit set with phase "Unable to create required cluster
+	// objects" — caught live on omantel-fsn 2026-05-09, Phase-2
+	// multi-region incident #3).
+	pgParams := map[string]any{
+		"max_wal_senders":      "10",
+		"max_replication_slots": "10",
+		"wal_level":            "logical",
+	}
+
+	primary := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "postgresql.cnpg.io/v1",
+			"kind":       "Cluster",
+			"metadata": map[string]any{
+				"name":      name,
+				"namespace": env.SandboxNamespace,
+				"labels":    primaryLabels,
+				"annotations": map[string]any{
+					"openova.io/created-by":                  "sandbox.db.provision",
+					"catalyst.openova.io/cnpg-pair-role":     "primary",
+					"catalyst.openova.io/cnpg-pair-name":     name,
+				},
+			},
+			"spec": map[string]any{
+				"instances":             int64(plan.Instances),
+				"imageName":             plan.Image,
+				"storage":               storage,
+				"primaryUpdateMethod":   "switchover",
+				"enableSuperuserAccess": false,
+				"bootstrap": map[string]any{
+					"initdb": map[string]any{
+						"database": plan.Database,
+						"owner":    plan.Database,
+					},
+				},
+				"postgresql": map[string]any{
+					"parameters": pgParams,
+				},
+				"affinity": map[string]any{
+					"nodeAffinity": map[string]any{
+						"requiredDuringSchedulingIgnoredDuringExecution": map[string]any{
+							"nodeSelectorTerms": []any{
+								map[string]any{
+									"matchExpressions": []any{
+										map[string]any{
+											"key":      "openova.io/region",
+											"operator": "In",
+											"values":   []any{env.PrimaryRegion},
+										},
+									},
+								},
+							},
+						},
+					},
+					"podAntiAffinityType": "required",
+				},
+				// Cilium ClusterMesh global replication Service — the
+				// replica's externalCluster resolves the primary via
+				// this alias. CNPG owns the Service (cannot hand-create
+				// or the operator rejects with "not owned by the
+				// cluster"); we declare it via spec.managed.services.
+				// additional[] (CNPG >= 1.22) so the operator
+				// reconciles it AND publishes the ClusterMesh-global
+				// annotation. Mirrors bp-cnpg-pair chart 0.1.1 +
+				// bp-wordpress-tenant cnpgPairReplicationServiceName.
+				"managed": map[string]any{
+					"services": map[string]any{
+						"additional": []any{
+							map[string]any{
+								"selectorType": "r",
+								"serviceTemplate": map[string]any{
+									"metadata": map[string]any{
+										"name": meshSvc,
+										"labels": map[string]any{
+											cnpgManagedByLabel:                   cnpgManagedByValue,
+											"catalyst.openova.io/cnpg-pair":      name,
+											"catalyst.openova.io/role":           "replication-source",
+										},
+										"annotations": map[string]any{
+											"service.cilium.io/global":           "true",
+											"service.cilium.io/affinity":         "local",
+											"catalyst.openova.io/blueprint":      "sandbox-db",
+										},
+									},
+									"spec": map[string]any{
+										"type": "ClusterIP",
+										"ports": []any{
+											map[string]any{
+												"name":       "postgres",
+												"port":       int64(5432),
+												"targetPort": int64(5432),
+												"protocol":   "TCP",
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+				// Mirror the bp-reflector annotation pattern so the
+				// CNPG-emitted `<cluster>-app` Secret is reachable
+				// across namespaces (no-op when reflector isn't
+				// installed; harmless metadata otherwise).
+				"inheritedMetadata": map[string]any{
+					"annotations": map[string]any{
+						"reflector.v1.k8s.emberstack.com/reflection-allowed":            "true",
+						"reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces": env.SandboxNamespace,
+					},
+				},
+			},
+		},
+	}
+
+	replica := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "postgresql.cnpg.io/v1",
+			"kind":       "Cluster",
+			"metadata": map[string]any{
+				"name":      replicaName,
+				"namespace": env.SandboxNamespace,
+				"labels":    replicaLabels,
+				"annotations": map[string]any{
+					"openova.io/created-by":                  "sandbox.db.provision",
+					"catalyst.openova.io/cnpg-pair-role":     "replica",
+					"catalyst.openova.io/cnpg-pair-name":     name,
+				},
+			},
+			"spec": map[string]any{
+				"instances":             int64(plan.Instances),
+				"imageName":             plan.Image,
+				"storage":               storage,
+				"enableSuperuserAccess": false,
+				"affinity": map[string]any{
+					"nodeAffinity": map[string]any{
+						"requiredDuringSchedulingIgnoredDuringExecution": map[string]any{
+							"nodeSelectorTerms": []any{
+								map[string]any{
+									"matchExpressions": []any{
+										map[string]any{
+											"key":      "openova.io/region",
+											"operator": "In",
+											"values":   []any{env.ReplicaRegion},
+										},
+									},
+								},
+							},
+						},
+					},
+					"podAntiAffinityType": "required",
+				},
+				// Replica-cluster mode — bootstraps via streaming
+				// replication from the named externalCluster. CNPG
+				// REQUIRES an explicit bootstrap stanza on a replica
+				// Cluster (replica.enabled: true alone leaves the
+				// Cluster phase stuck at "Setting up primary").
+				"replica": map[string]any{
+					"enabled": true,
+					"source":  name,
+				},
+				"bootstrap": map[string]any{
+					"pg_basebackup": map[string]any{
+						"source":   name,
+						"database": plan.Database,
+						"owner":    plan.Database,
+					},
+				},
+				"externalClusters": []any{
+					map[string]any{
+						"name": name,
+						"connectionParameters": map[string]any{
+							"host":    meshSvc,
+							"port":    "5432",
+							"user":    "streaming_replica",
+							"sslmode": "require",
+							"dbname":  plan.Database,
+						},
+						"sslKey": map[string]any{
+							"name": name + "-replication",
+							"key":  "tls.key",
+						},
+						"sslCert": map[string]any{
+							"name": name + "-replication",
+							"key":  "tls.crt",
+						},
+						"sslRootCert": map[string]any{
+							"name": name + "-ca",
+							"key":  "ca.crt",
+						},
+					},
+				},
+				"postgresql": map[string]any{
+					"parameters": pgParams,
+				},
+			},
+		},
+	}
+
+	return []*unstructured.Unstructured{primary, replica}
+}
+
 // buildBackupCR constructs the on-demand Backup CR sandbox.db.dump
 // submits. The CNPG operator picks it up, runs `barman-cloud-backup`
 // against the Cluster's `spec.backup.barmanObjectStore`, and writes the
@@ -304,6 +602,58 @@ func sandboxDBProvision(ctx context.Context, raw json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// D31 — render a primary + replica Cluster pair when the Sovereign
+	// has opted into active-hot-standby AND the region pair is valid.
+	// Falls back to single-Cluster shape for every other configuration
+	// (toggle off, missing region, identical regions) so legacy
+	// Sandboxes keep the same behaviour.
+	if hotStandbyActive(env) {
+		pair := buildClusterCRPair(env, args.Name, plan)
+		createdPrimary, err := client.Resource(cnpgClusterGVR).Namespace(ns).
+			Create(ctx, pair[0], metav1.CreateOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("sandbox.db.provision: create primary Cluster %s/%s: %w", ns, args.Name, err)
+		}
+		replicaName := replicaClusterName(args.Name)
+		createdReplica, err := client.Resource(cnpgClusterGVR).Namespace(ns).
+			Create(ctx, pair[1], metav1.CreateOptions{})
+		if err != nil {
+			// Best-effort rollback so we don't leave the operator
+			// staring at an orphan primary. Errors here are surfaced
+			// to the agent so they can retry idempotently.
+			_ = client.Resource(cnpgClusterGVR).Namespace(ns).
+				Delete(ctx, args.Name, metav1.DeleteOptions{})
+			return nil, fmt.Errorf("sandbox.db.provision: create replica Cluster %s/%s: %w (primary rolled back)", ns, replicaName, err)
+		}
+		conn := connectionFor(args.Name, ns, plan.Database)
+		return map[string]any{
+			"status":     "Provisioning",
+			"connection": conn,
+			"plan": map[string]any{
+				"name":          "default",
+				"instances":     plan.Instances,
+				"storage_size":  plan.StorageSize,
+				"image":         plan.Image,
+				"database":      plan.Database,
+				"storage_class": plan.StorageClass,
+			},
+			"activeHotStandby": map[string]any{
+				"enabled":                  true,
+				"primaryRegion":            env.PrimaryRegion,
+				"replicaRegion":            env.ReplicaRegion,
+				"primaryClusterName":       args.Name,
+				"replicaClusterName":       replicaName,
+				"replicationServiceName":   replicationServiceName(args.Name),
+				"primaryUID":               string(createdPrimary.GetUID()),
+				"replicaUID":               string(createdReplica.GetUID()),
+				"primaryResourceVersion":   createdPrimary.GetResourceVersion(),
+				"replicaResourceVersion":   createdReplica.GetResourceVersion(),
+			},
+			"note": "CNPG operator will reconcile both Cluster CRs; poll `sandbox.db.get name=<n>` until status.phase == \"Cluster in healthy state\". Replica streams WAL from primary over Cilium ClusterMesh.",
+		}, nil
+	}
+
 	cr := buildClusterCR(env, args.Name, plan)
 	created, err := client.Resource(cnpgClusterGVR).Namespace(ns).
 		Create(ctx, cr, metav1.CreateOptions{})

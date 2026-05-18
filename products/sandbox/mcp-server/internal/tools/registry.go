@@ -191,6 +191,24 @@ type Env struct {
 	// has minted the tenant row. Empty → marketplace.domain.* surfaces
 	// a clear "not configured" error.
 	TenantID string
+
+	// D31 active-hot-standby — Sovereign-level toggle + region pair for
+	// the cross-region CNPG ReplicaCluster shape on every Sandbox-
+	// provisioned database. When EnableHotStandby is true AND both
+	// regions are non-empty AND distinct, sandbox.db.provision emits a
+	// primary + replica Cluster.postgresql.cnpg.io pair (the same
+	// shape platform/cnpg-pair/chart/templates/{primary,replica}-cluster.yaml
+	// renders for tenant marketplace apps under DoD D31). Default-off
+	// keeps every existing Sandbox on single-Cluster CNPG (zero
+	// regression). Wired from the sandbox-controller's chart values
+	// (platform/sandbox/chart/values.yaml `cnpg.activeHotStandby.*`)
+	// which in turn flows from bootstrap-kit slot 61 envsubst
+	// placeholders (SOVEREIGN_ENABLE_HOT_STANDBY, SOVEREIGN_PRIMARY_REGION,
+	// SOVEREIGN_REPLICA_REGION) — so one operator-flipped knob covers
+	// both the marketplace tenant path AND the sandbox.db plane.
+	EnableHotStandby bool
+	PrimaryRegion    string
+	ReplicaRegion    string
 }
 
 // claimsCtxKey is the unexported context key under which the

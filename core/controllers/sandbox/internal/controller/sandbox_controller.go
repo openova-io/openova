@@ -77,6 +77,20 @@ type Reconciler struct {
 	BYOSSecretPrefix      string
 	IdleTimeoutMinutes    int
 
+	// D31 active-hot-standby — Sovereign-level toggle + region pair the
+	// controller threads from its chart env (SOVEREIGN_ENABLE_HOT_STANDBY,
+	// SOVEREIGN_PRIMARY_REGION, SOVEREIGN_REPLICA_REGION) into every
+	// per-Sandbox MCP Pod via gitops.Inputs. The MCP server's
+	// sandbox.db.provision handler reads them at call time and renders a
+	// primary + replica Cluster.postgresql.cnpg.io pair when valid.
+	// Default-empty keeps every existing Sandbox on single-Cluster CNPG
+	// (zero regression). Bootstrap-kit slot 61 wires the per-Sovereign
+	// overlay's envsubst placeholders into the bp-sandbox HelmRelease
+	// values; the chart surfaces them as the controller's env.
+	EnableHotStandby string
+	PrimaryRegion    string
+	ReplicaRegion    string
+
 	// Wave 9 — NewAPI bridge client used by Reconcile to mint
 	// per-Sandbox LLM-gateway tokens (POST /admin/tokens/sandbox,
 	// PR #1638). When nil the reconciler renders the Wave 1+8
@@ -237,6 +251,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		NewAPITokenSecretName: fmt.Sprintf("sandbox-%s-newapi-token", ownerUID),
 		NewAPITokenExpiresAt:  tokenExpiresAt,
 		NewAPITokenRotatedAt:  tokenRotatedAt,
+		EnableHotStandby:      r.EnableHotStandby,
+		PrimaryRegion:         r.PrimaryRegion,
+		ReplicaRegion:         r.ReplicaRegion,
 	}
 	manifests, err := gitops.Render(in)
 	if err != nil {

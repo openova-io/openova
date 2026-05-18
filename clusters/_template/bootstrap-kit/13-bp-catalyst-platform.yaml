@@ -726,6 +726,28 @@ spec:
       orgName: '${ORG_NAME:-}'
       controlPlaneIP: '${SOVEREIGN_CONTROL_PLANE_IP:-}'
       gitopsRepoURL: '${GITOPS_REPO_URL:-}'
+      # ─── D31 active-hot-standby (cross-region CNPG) ──────────────────
+      # Sovereign-level opt-in for the active-hot-standby Postgres shape
+      # on every CNPG-backed tenant app the marketplace installs.
+      # Default-OFF — every Sovereign that has not flipped
+      # SOVEREIGN_ENABLE_HOT_STANDBY=true on the per-Sovereign overlay
+      # keeps rendering single-Cluster CNPG (no regression). When ON
+      # AND both region keys are non-empty AND distinct, the SME-tenant
+      # gitops writer injects pg.activeHotStandby.* into every fresh
+      # bp-wordpress-tenant HelmRelease so the chart's
+      # cnpg-cluster.yaml template renders a primary + replica
+      # Cluster.postgresql.cnpg.io pair across the two regions, WAL
+      # streaming over Cilium ClusterMesh (DoD D11 + D31). Same wiring
+      # extends to any future tenant product chart (gitlab-tenant,
+      # nextcloud-tenant) that adopts the same value contract.
+      #
+      # Region keys MUST match the canonical openova.io/region node
+      # label value (e.g. `hz-fsn-rtz-prod`, `hz-hel-rtz-prod`) — the
+      # WordPress chart's cnpg-cluster.yaml uses nodeAffinity on that
+      # label to pin the primary + replica Pods to the right regions.
+      enableHotStandby: '${SOVEREIGN_ENABLE_HOT_STANDBY:-}'
+      primaryRegion: '${SOVEREIGN_PRIMARY_REGION:-}'
+      replicaRegion: '${SOVEREIGN_REPLICA_REGION:-}'
     # ─── QA fixtures (qa-loop iter-6 Cluster-F + EPIC-6 iter-6) ────────
     # Default-OFF on production; flipped to true via envsubst
     # QA_FIXTURES_ENABLED=true on the per-Sovereign overlay for any

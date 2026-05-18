@@ -95,6 +95,23 @@ spec:
                   optional: true
             - name: NEWAPI_DEFAULT_CHANNELS
               value: {{ .Values.env.newapiDefaultChannels | default "" | quote }}
+            # D31 active-hot-standby — Sovereign-level toggle + region
+            # pair the controller threads into every per-Sandbox MCP
+            # Pod. When the toggle parses truthy AND both regions are
+            # non-empty AND distinct, sandbox.db.provision materialises
+            # a primary + replica Cluster.postgresql.cnpg.io pair
+            # instead of a single Cluster (mirrors the bp-cnpg-pair
+            # pattern). Default empty (zero regression) — every
+            # Sandbox stays on single-Cluster CNPG until the operator
+            # flips SOVEREIGN_ENABLE_HOT_STANDBY=true on the per-
+            # Sovereign overlay. Bootstrap-kit slot 61 wires those
+            # envsubst placeholders into `.Values.cnpg.activeHotStandby.*`.
+            - name: SOVEREIGN_ENABLE_HOT_STANDBY
+              value: {{ (.Values.cnpg).activeHotStandby.enabled | default "" | quote }}
+            - name: SOVEREIGN_PRIMARY_REGION
+              value: {{ (.Values.cnpg).activeHotStandby.primaryRegion | default "" | quote }}
+            - name: SOVEREIGN_REPLICA_REGION
+              value: {{ (.Values.cnpg).activeHotStandby.replicaRegion | default "" | quote }}
             {{- range $k, $v := .Values.extraEnv }}
             - name: {{ $k | quote }}
               value: {{ $v | quote }}
