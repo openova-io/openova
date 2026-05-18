@@ -23,7 +23,7 @@ annotations:
   # Required so blueprint-release.yaml's umbrella-shape gate accepts this chart
   # (see issue #181 + docs/BLUEPRINT-AUTHORING.md §11.1).
   catalyst.openova.io/no-upstream: "true"
-  catalyst.openova.io/smoke-render-mode: "default-on"
+  catalyst.openova.io/smoke-render-mode: "default-off"
 version: 0.1.0
 appVersion: "0.1.0"
 keywords:
