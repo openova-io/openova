@@ -209,11 +209,27 @@ spec:
     # operators that run their own bp-vllm + open-weight model in-
     # cluster; it composes after `qwenBankDhofar` and any operator
     # `.Values.channels`.
+    # Sandbox Wave 4 (2026-05-18, retry of sandbox-wave4-newapi-sovereign-install):
+    # qwenBankDhofar is now gated on `${MARKETPLACE_ENABLED:-false}` — the
+    # same envsubst variable bp-catalyst-platform (slot 13) reads to flip
+    # marketplace.enabled on the Catalyst control plane. This lets a
+    # franchised Sovereign with `MARKETPLACE_ENABLED=true` auto-seed the
+    # default Bank Dhofar Qwen3.6 channel without the operator having to
+    # supply per-Sovereign overlay values. The endpoint defaults to the
+    # canonical first-otech relay; `LLM_BANK_DHOFAR_BASE_URL` overrides
+    # it (e.g. for staging at https://omtd.bankdhofar.com). The upstream
+    # API key MUST be present in the Secret `newapi-channel-qwen-bankdhofar`
+    # under key `API_KEY` — either pre-seeded by cloud-init or pulled from
+    # OpenBao via the operator's ExternalSecret at path
+    # `sovereign/<fqdn>/newapi/channel-qwen-bankdhofar`. Sandbox agents
+    # (sandbox-wave4) depend on this channel being live on every Sovereign
+    # that opted in to marketplace; without it the agents fall back to
+    # mothership newapi, defeating the per-Sovereign sandboxing.
     defaultChannels:
       qwenBankDhofar:
-        enabled: false
+        enabled: ${MARKETPLACE_ENABLED:-false}
         name: qwen3.6-bankdhofar
-        endpoint: ""
+        endpoint: ${LLM_BANK_DHOFAR_BASE_URL:-https://llm-api.omtd.bankdhofar.com}
         models:
           - qwen3.6
           - qwen3-coder
@@ -221,8 +237,8 @@ spec:
         existingSecretKey: API_KEY
         attestation:
           kind: commercial-contract
-          accountId: ""
-          contractRef: ""
+          accountId: ${LLM_BANK_DHOFAR_ACCOUNT_ID:-}
+          contractRef: ${LLM_BANK_DHOFAR_CONTRACT_REF:-}
       vllm:
         enabled: false
         name: qwen
