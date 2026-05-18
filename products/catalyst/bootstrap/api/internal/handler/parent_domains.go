@@ -569,6 +569,27 @@ func (h *Handler) AddParentDomain(w http.ResponseWriter, r *http.Request) {
 		"domain", req.Name,
 		"role", role,
 	)
+	// Day-2 idempotent re-trigger note (issue #1772 — TBD-D30b).
+	// Persisting the new entry to dep.Request.ParentDomains makes
+	// the next provisioner.Provision call (Retry/Repair) re-write
+	// tofu.auto.tfvars.json with the updated parent_domains_yaml,
+	// which renders the additional Cilium Gateway listener pair on
+	// next-prov. For an ALREADY-RUNNING Sovereign, the Hetzner
+	// hcloud_server resource has no `ignore_changes = [user_data]`
+	// so a `tofu apply` from changed cloud-init would request a
+	// destructive server recreate — the operator workaround is to
+	// `kubectl patch kustomization sovereign-tls -n flux-system`
+	// on the live Sovereign and append the new zone to the
+	// `.spec.postBuild.substitute.PARENT_DOMAINS_LISTENERS_YAML`
+	// value. Long-term: add a Day-2 listener-patch step here that
+	// reaches into the Sovereign apiserver via the persisted
+	// kubeconfig (out of scope for the #1772 ship).
+	h.log.Info("parent-domain post-add: operator must patch live Sovereign Kustomization to surface listener for the new zone",
+		"domain", req.Name,
+		"target", "Kustomization/sovereign-tls in flux-system on Sovereign",
+		"field", ".spec.postBuild.substitute.PARENT_DOMAINS_LISTENERS_YAML",
+		"reason", "hcloud_server user_data is not ignored — tofu apply would recreate the server. Fresh provs already render the listener.",
+	)
 	writeJSON(w, http.StatusCreated, ParentDomain{
 		Name:          name,
 		Role:          ParentDomainRole(role),
