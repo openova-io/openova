@@ -15,7 +15,17 @@ spec:
         app: sme-tenant
     spec:
       serviceAccountName: tenant
-      automountServiceAccountToken: false
+      # TBD-D35a — must be true so the SandboxOrchestrator
+      # (core/services/tenant/handlers/sandbox_consumer.go) can build an
+      # in-cluster dynamic client and materialise Sandbox CRs in
+      # `catalyst-system`. The companion narrow RBAC (Role +
+      # RoleBinding in serviceaccounts.yaml, verbs get/create on
+      # sandboxes.sandbox.openova.io scoped to catalyst-system) bounds
+      # the blast radius. Without this flip, main.go logs
+      # `sandbox-orchestrator: kubernetes client unavailable —
+      # orchestrator disabled` and silently skips the consumer, which
+      # Wave 32 D35a verifier caught on t26.
+      automountServiceAccountToken: true
       imagePullSecrets:
         - name: ghcr-pull
       containers:

@@ -119,6 +119,17 @@ spec:
     env:
       hostCluster: ${SOVEREIGN_REGION_CANONICAL_LABEL}
       sovereignFQDN: ${SOVEREIGN_FQDN}
+      # TBD-D35c (Wave 32 verifier fix) — comma-separated list of
+      # NewAPI channel names the controller stamps as `allowed_channels`
+      # on every per-Sandbox token mint. Default `qwen` matches the
+      # only channel bp-newapi's channel-seed-job.yaml writes on a
+      # fresh Sovereign install (alias for `qwen3.6-bankdhofar`,
+      # products/sandbox/docs/newapi-proxy-contract.md §2). Per-
+      # Sovereign overlays MUST extend this list to mirror their
+      # channel rollout (e.g. `qwen,anthropic,openai`) — the chart's
+      # NoAllowedChannels guard fails every mint if this resolves to
+      # empty.
+      newapiDefaultChannels: ${SANDBOX_DEFAULT_CHANNELS:-qwen}
     runtime:
       newapiURL: https://newapi.${SOVEREIGN_FQDN}/v1
     # D31 active-hot-standby — when SOVEREIGN_ENABLE_HOT_STANDBY=true on
