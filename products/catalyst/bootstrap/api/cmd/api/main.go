@@ -1303,6 +1303,18 @@ func main() {
 		// first round-tripping to /sovereign/self.
 		rg.Get("/api/v1/sovereign/rbac/matrix", h.HandleSovereignRBACMatrix)
 
+		// C6-006 / #1739 — Sovereign-prefix RBAC assign surface. Same
+		// wire contract as /api/v1/sovereigns/{id}/rbac/assign but the
+		// active deployment id is resolved server-side from
+		// SOVEREIGN_FQDN + the catalyst_session cookie (mirrors
+		// HandleSovereignRBACMatrix one line above). The Sovereign
+		// Console's Members UI hits this seam directly so it doesn't
+		// have to round-trip /sovereign/self → /sovereigns/{id}/rbac/assign
+		// per click; without it every chroot-side assign 404'd or
+		// stamped a generic 500 `rbac-assign-failed: resource not
+		// found` when the FE constructed the path with an empty id.
+		rg.Post("/api/v1/sovereign/rbac/assign", h.HandleSovereignRBACAssign)
+
 		// TBD-E16 — Sovereign-prefix UserAccess listing. Chroot-friendly
 		// mirror of /api/v1/deployments/{depId}/admin/user-access; the
 		// depId is resolved server-side from SOVEREIGN_FQDN +

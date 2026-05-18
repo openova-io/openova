@@ -326,7 +326,53 @@ func (h *Handler) HandleRBACAssign(w http.ResponseWriter, r *http.Request) {
 		writeNotFound(w, depID)
 		return
 	}
+	h.serveRBACAssign(w, r, dep, depID)
+}
 
+// HandleSovereignRBACAssign — POST /api/v1/sovereign/rbac/assign
+//
+// Chroot-friendly Sovereign-prefix wrapper around HandleRBACAssign
+// (C6-006 / #1739). Same request + response shape; resolves the active
+// Sovereign deployment from the in-cluster context via
+// resolveSovereignDeploymentID, mirroring the canonical seam established
+// by HandleSovereignRBACMatrix / HandleSovereignUsers / HandleSovereignSelf —
+// no {id} path param, server-side resolution of the active deployment.
+//
+// This is the seam the Sovereign Console's Members UI hits (the FE
+// previously round-tripped through /sovereign/self then constructed
+// /sovereigns/{id}/rbac/assign — one extra hop per click, and on a
+// chroot the path-with-{id} would have to use the synthesised
+// "sovereign-<fqdn>" id, which the wizard's persisted Deployment row
+// doesn't necessarily match). Without this wrapper every chroot-side
+// publish/assign click 404'd, or — when the wrapper was incorrectly
+// pointed at /sovereigns/{id}/rbac/assign with a missing id — 500'd
+// with `rbac-assign-failed: resource not found`.
+//
+// Mothership process (no SOVEREIGN_FQDN env, no handover cookie):
+// emit a structured 404 pointing at the per-deployment surface so
+// the UI can fall back gracefully.
+func (h *Handler) HandleSovereignRBACAssign(w http.ResponseWriter, r *http.Request) {
+	depID := resolveSovereignDeploymentID(r)
+	if depID == "" {
+		writeJSON(w, http.StatusNotFound, map[string]string{
+			"error":  "not-a-sovereign",
+			"detail": "this catalyst-api Pod is not running on a Sovereign cluster; use /api/v1/sovereigns/{id}/rbac/assign instead",
+		})
+		return
+	}
+	dep, ok := h.lookupDeploymentForInfra(depID)
+	if !ok {
+		writeNotFound(w, depID)
+		return
+	}
+	h.serveRBACAssign(w, r, dep, depID)
+}
+
+// serveRBACAssign is the shared body of the per-deployment and the
+// Sovereign-prefix RBAC assign handlers. Both surfaces consume the
+// identical request body (rbacAssignRequest) and emit the identical
+// response envelope (rbacAssignResponse).
+func (h *Handler) serveRBACAssign(w http.ResponseWriter, r *http.Request, dep *Deployment, depID string) {
 	// Authorization MUST happen before body decode so that callers with
 	// insufficient tier (viewer / developer) get a 403 even when they
 	// POST an empty body. Otherwise the body decoder rejects with 400
@@ -362,6 +408,21 @@ func (h *Handler) HandleRBACAssign(w http.ResponseWriter, r *http.Request) {
 	}
 	resp, status, prevTier, err := rbacAssignFindOrCreate(r.Context(), client, body, dep)
 	if err != nil {
+		// CRD-not-installed on the Sovereign side surfaces from the
+		// dynamic client as a NotFound with the literal "the server
+		// could not find the requested resource" — the
+		// useraccess-controller CRD ships separately from catalyst-api
+		// and may legitimately not be reconciled yet on a fresh
+		// Sovereign. C6-006 / #1739 hit this path: the handler used to
+		// stamp a generic 500 + `rbac-assign-failed`, hiding the real
+		// gap. Surface 503 + the canonical sovereign-cluster-unavailable
+		// envelope so the FE can render a "RBAC not provisioned yet —
+		// retry once useraccess CRD reconciles" hint, matching the
+		// shape every other UserAccess handler emits.
+		if apierrors.IsNotFound(err) {
+			writeUserAccessUnavailable(w, fmt.Errorf("useraccess CRD not installed on Sovereign cluster (yet); reconcile useraccess-controller and retry: %w", err))
+			return
+		}
 		h.log.Warn("rbac.assign: find-or-create failed", "depId", depID, "err", err)
 		writeJSON(w, status, map[string]string{
 			"error":  "rbac-assign-failed",

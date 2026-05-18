@@ -17,15 +17,37 @@ type Handler struct {
 	Producer *events.Producer
 }
 
-// requireAdmin checks that the request was made by a superadmin.
+// requireAdmin checks that the request was made by a superadmin or a
+// Sovereign-admin.
+//
+// Two roles are accepted:
+//
+//   - "superadmin"      — direct OpenOva operations (Catalyst-Zero
+//     operators). Mints a token with role=superadmin via
+//     sharedauth.SMERoleFor when the bearer holds the `catalyst-owner`
+//     realm role.
+//   - "sovereign-admin" — franchisee operations on a franchised
+//     Sovereign. The chroot's catalyst-api bridges an operator's
+//     RS256 session into the SME mesh's HS256 wire contract
+//     (sme_billing_vouchers.go::mintSMEBridgeToken) and stamps the
+//     SME-vocabulary role from the operator's realm roles (per
+//     docs/FRANCHISE-MODEL.md §3 — sovereign-admin owns the franchise's
+//     marketplace catalog). Without this widening the chroot's bridge
+//     token is rejected with 403 on every publish toggle (C4-012 /
+//     #1735), even though the operator is the rightful admin of that
+//     Sovereign's catalog.
+//
+// "member" still 403s — read-only operators cannot mutate the
+// catalog.
 func requireAdmin(r *http.Request) error {
-	if middleware.RoleFromContext(r.Context()) != "superadmin" {
-		return errForbidden
+	switch middleware.RoleFromContext(r.Context()) {
+	case "superadmin", "sovereign-admin":
+		return nil
 	}
-	return nil
+	return errForbidden
 }
 
-var errForbidden = &httpError{status: http.StatusForbidden, msg: "superadmin role required"}
+var errForbidden = &httpError{status: http.StatusForbidden, msg: "superadmin or sovereign-admin role required"}
 
 type httpError struct {
 	status int

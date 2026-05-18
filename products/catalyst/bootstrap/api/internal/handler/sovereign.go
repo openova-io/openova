@@ -733,9 +733,29 @@ func (h *Handler) HandleSovereignAppPublish(w http.ResponseWriter, r *http.Reque
 		})
 		return
 	}
+	// Mint the canonical SME bridge token so the upstream catalog's
+	// JWTAuth + requireAdmin admit this hop. Pre-bridge state (no
+	// Authorization header) ⇒ JWTAuth rejects with 401 "missing or
+	// invalid authorization header" — that's the C4-012 / #1735
+	// symptom. The bridge mirrors sme_billing_vouchers.go's
+	// mintSMEBridgeToken pattern: RS256 operator session → HS256
+	// token signed with sme-secrets/JWT_SECRET, role mapped via
+	// sharedauth.SMERoleFor. The upstream catalog's requireAdmin was
+	// widened in the same PR to accept "sovereign-admin" so a
+	// franchisee operator can manage their own Sovereign's
+	// marketplace catalog without a Catalyst-Zero ("superadmin")
+	// role. When the bridge is unwired (Sovereign without
+	// marketplace, or stale chart) the helper returns 503 which we
+	// surface verbatim so the FE renders an actionable
+	// "marketplace not enabled" message.
+	bearer, status, errResp := h.mintSMEBridgeToken(r)
+	if errResp != nil {
+		writeJSON(w, status, errResp)
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), smeCatalogProbeBudget)
 	defer cancel()
-	status, err := smeCatalog().SetPublished(ctx, slug, body.Published)
+	status, err := smeCatalog().SetPublished(ctx, slug, body.Published, bearer)
 	if err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
 			"error":  "sme-catalog-unreachable",
