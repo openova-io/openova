@@ -20,19 +20,23 @@
 package tools
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"sync"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -364,3 +368,182 @@ func schemaK8sReadWatch() map[string]any {
 
 // Compile-time check: keep watch import live for the type assertion above.
 var _ watch.Event
+
+// --- k8s.read.logs ----------------------------------------------------
+//
+// Bounded fetch of a pod container's tail. We deliberately do NOT
+// expose follow=true on this tool — the MCP JSON-RPC turn-around
+// expects a finite result; long-lived log streams go through the
+// catalyst-api WebSocket surface (`/k8s/logs/...`) instead. The agent
+// uses k8s.read.logs to grab the recent N lines, diagnose, and move on.
+//
+// Wire: GET /api/v1/namespaces/{ns}/pods/{name}/log?container=...&tailLines=N&previous=bool
+// via client-go's CoreV1().Pods(ns).GetLogs(name, opts).Stream(ctx).
+
+// typedCache memoises the kubernetes.Interface used by k8s.read.logs.
+// Built lazily so the binary keeps working on machines without an
+// in-cluster config / kubeconfig (k8s.read.logs surfaces the build
+// error when first invoked rather than aborting startup).
+var (
+	typedOnce sync.Once
+	typedVal  kubernetes.Interface
+	typedErr  error
+)
+
+// typedClient lazily builds a kubernetes.Interface. Only k8s.read.logs
+// needs the typed surface today (the dynamic client doesn't expose the
+// `Pods(ns).GetLogs(...)` subresource); other read-tools keep using
+// dynamicClient().
+func typedClient(ctx context.Context) (kubernetes.Interface, error) {
+	env := EnvFrom(ctx)
+	if env == nil {
+		return nil, errors.New("k8s.read: tool dispatch missing Env on context")
+	}
+	typedOnce.Do(func() {
+		var cfg *rest.Config
+		if env.KubeconfigPath != "" {
+			cfg, typedErr = clientcmd.BuildConfigFromFlags("", env.KubeconfigPath)
+		} else {
+			cfg, typedErr = rest.InClusterConfig()
+		}
+		if typedErr != nil {
+			typedErr = fmt.Errorf("k8s.read: build REST config: %w", typedErr)
+			return
+		}
+		// PodLogs is a streaming subresource. We leave rest.Config.Timeout
+		// unset and bound the call via the per-request context + TailLines
+		// so a long-tail doesn't get cut off mid-stream.
+		typedVal, typedErr = kubernetes.NewForConfig(cfg)
+		if typedErr != nil {
+			typedErr = fmt.Errorf("k8s.read: kubernetes.NewForConfig: %w", typedErr)
+		}
+	})
+	return typedVal, typedErr
+}
+
+// maxLogTailLines caps the per-call output so a misbehaving agent
+// can't accidentally pull a 10MB log into the MCP transcript.
+const maxLogTailLines = 5000
+
+// maxLogBytes is the hard byte cap on the returned payload — even if
+// `tail_lines` is small, individual lines may be huge (stack traces,
+// JSON blobs). 1MiB keeps each result inside JSON-RPC frame limits.
+const maxLogBytes = 1 << 20 // 1 MiB
+
+type k8sReadLogsArgs struct {
+	Namespace string `json:"namespace,omitempty"`
+	// Pod — required. The MCP tool doesn't do label-selector → pod
+	// resolution; callers should k8s.read.list pods first.
+	Pod string `json:"pod"`
+	// Container — optional. Empty → kubelet's default-container choice.
+	Container string `json:"container,omitempty"`
+	// TailLines — last N lines. Default 200, capped at maxLogTailLines.
+	TailLines int64 `json:"tail_lines,omitempty"`
+	// Previous — read logs from the previous (crashed) container.
+	Previous bool `json:"previous,omitempty"`
+	// SinceSeconds — only logs from the last N seconds. Composes with
+	// TailLines (kubelet returns the intersection).
+	SinceSeconds int64 `json:"since_seconds,omitempty"`
+	// Timestamps — prefix every line with an RFC3339 timestamp.
+	Timestamps bool `json:"timestamps,omitempty"`
+}
+
+func k8sReadLogs(ctx context.Context, raw json.RawMessage) (any, error) {
+	var args k8sReadLogsArgs
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &args); err != nil {
+			return nil, fmt.Errorf("k8s.read.logs: invalid arguments: %w", err)
+		}
+	}
+	if args.Pod == "" {
+		return nil, errors.New("k8s.read.logs: `pod` is required")
+	}
+	if args.TailLines <= 0 {
+		args.TailLines = 200
+	}
+	if args.TailLines > maxLogTailLines {
+		args.TailLines = maxLogTailLines
+	}
+
+	env := EnvFrom(ctx)
+	ns := scopeNamespace(env, args.Namespace)
+	if ns == "" {
+		return nil, errors.New("k8s.read.logs: namespace is required (no SANDBOX_NAMESPACE default)")
+	}
+
+	client, err := typedClient(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	tail := args.TailLines
+	opts := &corev1.PodLogOptions{
+		Container:  args.Container,
+		Follow:     false,
+		TailLines:  &tail,
+		Previous:   args.Previous,
+		Timestamps: args.Timestamps,
+	}
+	if args.SinceSeconds > 0 {
+		ss := args.SinceSeconds
+		opts.SinceSeconds = &ss
+	}
+
+	// 30s call deadline — pod-logs subresource can hang on a stuck
+	// kubelet; bound the worst-case so an agent isn't stuck waiting.
+	callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	req := client.CoreV1().Pods(ns).GetLogs(args.Pod, opts)
+	stream, err := req.Stream(callCtx)
+	if err != nil {
+		return nil, fmt.Errorf("k8s.read.logs %s/%s: %w", ns, args.Pod, err)
+	}
+	defer stream.Close()
+
+	// Bounded byte+line read: stop at the byte cap OR when we've
+	// consumed the kubelet stream cleanly. bufio.Scanner has a per-
+	// line 1 MiB cap so a pathologically-long line doesn't NUL the read.
+	limited := io.LimitReader(stream, maxLogBytes)
+	scanner := bufio.NewScanner(limited)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
+
+	lines := make([]string, 0, args.TailLines)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+	if err := scanner.Err(); err != nil && !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("k8s.read.logs %s/%s: scan: %w", ns, args.Pod, err)
+	}
+	// Truncation flag: if we hit the line cap, the kubelet stream
+	// almost certainly had more — caller can re-issue with a larger
+	// tail_lines or fall back to the WebSocket surface.
+	truncated := int64(len(lines)) >= args.TailLines
+
+	return map[string]any{
+		"namespace": ns,
+		"pod":       args.Pod,
+		"container": args.Container,
+		"previous":  args.Previous,
+		"count":     len(lines),
+		"lines":     lines,
+		"truncated": truncated,
+	}, nil
+}
+
+func schemaK8sReadLogs() map[string]any {
+	return map[string]any{
+		"type":     "object",
+		"required": []string{"pod"},
+		"properties": map[string]any{
+			"namespace":     map[string]any{"type": "string", "description": "Defaults to the Sandbox namespace."},
+			"pod":           map[string]any{"type": "string"},
+			"container":     map[string]any{"type": "string", "description": "Container name (default: kubelet picks)."},
+			"tail_lines":    map[string]any{"type": "integer", "minimum": 1, "maximum": maxLogTailLines, "default": 200},
+			"previous":      map[string]any{"type": "boolean", "default": false, "description": "Read logs from the previous (crashed) container instance."},
+			"since_seconds": map[string]any{"type": "integer", "minimum": 1},
+			"timestamps":    map[string]any{"type": "boolean", "default": false},
+		},
+		"additionalProperties": false,
+	}
+}
