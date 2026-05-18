@@ -1,14 +1,14 @@
 {{/*
 Expand the name of the chart.
 */}}
-{{- define "bp-dmz-vcluster.name" -}}
+{{- define "bp-dmz-vcluster-tenant.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Fully qualified app name. Used as the K8s resource name root.
 */}}
-{{- define "bp-dmz-vcluster.fullname" -}}
+{{- define "bp-dmz-vcluster-tenant.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
@@ -24,15 +24,15 @@ Fully qualified app name. Used as the K8s resource name root.
 {{/*
 Common labels — Catalyst convention.
 */}}
-{{- define "bp-dmz-vcluster.labels" -}}
+{{- define "bp-dmz-vcluster-tenant.labels" -}}
 helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
-app.kubernetes.io/name: {{ include "bp-dmz-vcluster.name" . }}
+app.kubernetes.io/name: {{ include "bp-dmz-vcluster-tenant.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
-catalyst.openova.io/blueprint: bp-dmz-vcluster
+catalyst.openova.io/blueprint: bp-dmz-vcluster-tenant
 openova.io/product: dmz-vcluster
 {{- end }}
 
@@ -41,7 +41,7 @@ Selector labels — used by the host-namespace NetworkPolicy to target
 all DMZ vCluster pods. The `vcluster.loft.sh/managed-by:
 <vclusterName>` label is the upstream vCluster's canonical pod label.
 */}}
-{{- define "bp-dmz-vcluster.podSelectorLabel" -}}
+{{- define "bp-dmz-vcluster-tenant.podSelectorLabel" -}}
 vcluster.loft.sh/managed-by: {{ .Values.dmz.vclusterName | quote }}
 {{- end }}
 
@@ -51,10 +51,10 @@ empty `:tag` MUST fail the helm template render — we never want
 floating `:latest` shipping into production. Honours
 `.Values.global.imageRegistry` rewrite when set.
 */}}
-{{- define "bp-dmz-vcluster.image" -}}
+{{- define "bp-dmz-vcluster-tenant.image" -}}
 {{- $tag := .Values.dmz.vcluster.image.tag -}}
 {{- if not $tag -}}
-{{- fail "bp-dmz-vcluster: .Values.dmz.vcluster.image.tag is empty — SHA-pinned image required (CI populates this) per docs/INVIOLABLE-PRINCIPLES.md #4a" -}}
+{{- fail "bp-dmz-vcluster-tenant: .Values.dmz.vcluster.image.tag is empty — SHA-pinned image required (CI populates this) per docs/INVIOLABLE-PRINCIPLES.md #4a" -}}
 {{- end -}}
 {{- $repo := .Values.dmz.vcluster.image.repository -}}
 {{- $globalRegistry := .Values.global.imageRegistry | default "" -}}
@@ -72,10 +72,10 @@ Host namespace fail-fast — every resource the chart renders is
 namespaced into this. Refusing to render at all when empty prevents
 the chart from accidentally landing in the `default` namespace.
 */}}
-{{- define "bp-dmz-vcluster.hostNamespace" -}}
+{{- define "bp-dmz-vcluster-tenant.hostNamespace" -}}
 {{- $ns := .Values.dmz.hostNamespace -}}
 {{- if not $ns -}}
-{{- fail "bp-dmz-vcluster: .Values.dmz.hostNamespace is empty — set per Sovereign overlay (canonical: 'dmz' for single-DMZ Sovereigns)" -}}
+{{- fail "bp-dmz-vcluster-tenant: .Values.dmz.hostNamespace is empty — set per Sovereign overlay (canonical: 'dmz' for single-DMZ Sovereigns)" -}}
 {{- end -}}
 {{- $ns -}}
 {{- end }}

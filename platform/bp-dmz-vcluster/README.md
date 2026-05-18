@@ -21,7 +21,7 @@ WG endpoint, ClusterMesh apiserver Service, and HTTPRoutes are
 installed AS WORKLOADS into this vCluster via subsequent slots /
 per-Sovereign overlay paths.
 
-## Relationship to `products/dmz-vcluster`
+## Relationship to `products/dmz-vcluster` (`bp-dmz-vcluster-tenant`)
 
 This `platform/bp-dmz-vcluster` is the **bootstrap topology** piece —
 it lands on every Sovereign region by design (slot 54).
@@ -31,6 +31,15 @@ customer-facing capability operators install via the Sovereign Console
 when a customer requests a DMZ for their workloads. The two charts
 serve different layers and may coexist; this Blueprint takes priority
 for the bootstrap topology.
+
+> **Chart-name disambiguation (TBD-A6c, 2026-05-18, issue #1719):** The
+> `products/dmz-vcluster` chart's `name:` field is `bp-dmz-vcluster-tenant`
+> (NOT `bp-dmz-vcluster`). They were the same name historically, which
+> made `scripts/check-bootstrap-kit-pin-sync.sh` unable to map each
+> bootstrap-kit pin to exactly one source chart. The per-tenant
+> marketplace variant was renamed to `bp-dmz-vcluster-tenant`; this
+> chart (the bootstrap topology piece pinned at slot 54) keeps the
+> canonical `bp-dmz-vcluster` name.
 
 ## Resources rendered (full-ON)
 

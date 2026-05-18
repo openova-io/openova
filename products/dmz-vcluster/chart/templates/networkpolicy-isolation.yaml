@@ -23,10 +23,10 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ include "bp-dmz-vcluster.fullname" . }}-default-deny
-  namespace: {{ include "bp-dmz-vcluster.hostNamespace" . }}
+  name: {{ include "bp-dmz-vcluster-tenant.fullname" . }}-default-deny
+  namespace: {{ include "bp-dmz-vcluster-tenant.hostNamespace" . }}
   labels:
-    {{- include "bp-dmz-vcluster.labels" . | nindent 4 }}
+    {{- include "bp-dmz-vcluster-tenant.labels" . | nindent 4 }}
 spec:
   podSelector: {}
   policyTypes:
@@ -42,10 +42,10 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ include "bp-dmz-vcluster.fullname" . }}-allow-essentials
-  namespace: {{ include "bp-dmz-vcluster.hostNamespace" . }}
+  name: {{ include "bp-dmz-vcluster-tenant.fullname" . }}-allow-essentials
+  namespace: {{ include "bp-dmz-vcluster-tenant.hostNamespace" . }}
   labels:
-    {{- include "bp-dmz-vcluster.labels" . | nindent 4 }}
+    {{- include "bp-dmz-vcluster-tenant.labels" . | nindent 4 }}
 spec:
   # Apply to every pod in the namespace (including upstream vCluster
   # syncer Pods that don't carry the vcluster.loft.sh label until they

@@ -16,7 +16,11 @@
 # scripts/expected-bootstrap-deps.yaml since qa-loop iter-12 Fix #53C
 # (the chart was authored at products/dmz-vcluster but never wired
 # into the bootstrap kit). The chart at products/dmz-vcluster
-# remains the per-tenant marketplace deliverable — different artifact.
+# remains the per-tenant marketplace deliverable — different artifact,
+# now also a different chart name: `bp-dmz-vcluster-tenant` (renamed
+# 2026-05-18 per TBD-A6c, issue #1719, so the pin-sync audit can
+# disambiguate the two). This slot pins THIS chart (platform/) at
+# the version declared in platform/bp-dmz-vcluster/chart/Chart.yaml.
 #
 # Wrapper chart: platform/bp-dmz-vcluster/chart/
 #   Bundles loft-sh/vcluster 0.20.0 as a Helm subchart.

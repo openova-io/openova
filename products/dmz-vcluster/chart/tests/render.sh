@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# bp-dmz-vcluster helm-render smoke test (EPIC-5 leftovers DMZ, #1100).
+# bp-dmz-vcluster-tenant helm-render smoke test (EPIC-5 leftovers DMZ,
+# #1100). Chart was renamed from bp-dmz-vcluster -> bp-dmz-vcluster-tenant
+# on 2026-05-18 (TBD-A6c, issue #1719) so the bootstrap-kit pin-sync
+# audit can disambiguate this per-tenant marketplace variant from the
+# platform/bp-dmz-vcluster bootstrap-topology chart.
 #
 # Verifies three INVIOLABLE-PRINCIPLES contracts at chart-render time:
 #
@@ -9,7 +13,7 @@
 #                      hostname is set).
 #
 #   #4a (SHA-pinned) — when enabled with empty .image.tag, render fails
-#                      fast with the exact `bp-dmz-vcluster: ...
+#                      fast with the exact `bp-dmz-vcluster-tenant: ...
 #                      image.tag is empty` message from _helpers.tpl.
 #
 #   CC3 default-OFF  — when default-OFF, render produces ZERO
@@ -37,7 +41,7 @@ fi
 # 1. Default-OFF: zero K8s resources rendered.
 # ─────────────────────────────────────────────────────────────────────
 render_off="$TMP/off.yaml"
-helm template bp-dmz-vcluster . > "$render_off"
+helm template bp-dmz-vcluster-tenant . > "$render_off"
 off_count="$(grep -cE '^kind:' "$render_off" || true)"
 if [[ "$off_count" != "0" ]]; then
   echo "FAIL: default-OFF rendered $off_count resources, want 0"
@@ -49,7 +53,7 @@ echo "PASS: default-OFF renders 0 resources"
 # ─────────────────────────────────────────────────────────────────────
 # 2. Fail-fast on empty image tag.
 # ─────────────────────────────────────────────────────────────────────
-if helm template bp-dmz-vcluster . \
+if helm template bp-dmz-vcluster-tenant . \
     --set dmz.enabled=true \
     >/dev/null 2>"$TMP/empty-tag.err"; then
   echo "FAIL: empty image.tag did not abort render"
@@ -66,7 +70,7 @@ echo "PASS: empty image.tag fails fast"
 # 3. Full-ON without HTTPRoute hostname.
 # ─────────────────────────────────────────────────────────────────────
 render_on="$TMP/on.yaml"
-helm template bp-dmz-vcluster . \
+helm template bp-dmz-vcluster-tenant . \
   --set dmz.enabled=true \
   --set dmz.vcluster.image.tag=0.20.0 \
   > "$render_on"
@@ -103,7 +107,7 @@ echo "PASS: HTTPRoute omitted when hostname empty (internal-mesh-only DMZ)"
 # 4. Full-ON WITH HTTPRoute hostname.
 # ─────────────────────────────────────────────────────────────────────
 render_on_host="$TMP/on-host.yaml"
-helm template bp-dmz-vcluster . \
+helm template bp-dmz-vcluster-tenant . \
   --set dmz.enabled=true \
   --set dmz.vcluster.image.tag=0.20.0 \
   --set dmz.httproute.hostname=tenant.test \
@@ -119,4 +123,4 @@ fi
 echo "PASS: HTTPRoute renders when hostname set"
 
 echo ""
-echo "All bp-dmz-vcluster render tests passed."
+echo "All bp-dmz-vcluster-tenant render tests passed."

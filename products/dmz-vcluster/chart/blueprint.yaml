@@ -1,7 +1,7 @@
 apiVersion: catalyst.openova.io/v1alpha1
 kind: Blueprint
 metadata:
-  name: bp-dmz-vcluster
+  name: bp-dmz-vcluster-tenant
   labels:
     catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
     openova.io/category: customer-facing-capability

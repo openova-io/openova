@@ -378,7 +378,11 @@ slots:
   # supersedes the inert entry that was declared at qa-loop iter-12 Fix
   # #53C but never landed as a real chart at platform/. The chart at
   # products/dmz-vcluster remains the per-tenant marketplace artifact —
-  # different layer.
+  # different layer. Per TBD-A6c (2026-05-18, issue #1719) the
+  # products/dmz-vcluster chart's `name:` is now `bp-dmz-vcluster-tenant`
+  # (was `bp-dmz-vcluster`) so scripts/check-bootstrap-kit-pin-sync.sh
+  # can disambiguate the two source-tree Chart.yaml files when comparing
+  # against this slot's pin.
   - slot: 54
     name: bp-dmz-vcluster
     depends_on:

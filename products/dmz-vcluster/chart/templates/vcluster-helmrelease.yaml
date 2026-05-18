@@ -12,10 +12,10 @@
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
-  name: {{ include "bp-dmz-vcluster.fullname" . }}
-  namespace: {{ include "bp-dmz-vcluster.hostNamespace" . }}
+  name: {{ include "bp-dmz-vcluster-tenant.fullname" . }}
+  namespace: {{ include "bp-dmz-vcluster-tenant.hostNamespace" . }}
   labels:
-    {{- include "bp-dmz-vcluster.labels" . | nindent 4 }}
+    {{- include "bp-dmz-vcluster-tenant.labels" . | nindent 4 }}
 spec:
   interval: 5m
   chart:
@@ -36,9 +36,9 @@ spec:
   # The upstream vcluster chart is SHA-pinned via `image.tag` here —
   # Catalyst's fail-fast helper aborts render if CI didn't stamp it.
   values:
-    image: {{ include "bp-dmz-vcluster.image" . | quote }}
+    image: {{ include "bp-dmz-vcluster-tenant.image" . | quote }}
     syncer:
-      image: {{ include "bp-dmz-vcluster.image" . | quote }}
+      image: {{ include "bp-dmz-vcluster-tenant.image" . | quote }}
       resources:
         {{- toYaml .Values.dmz.vcluster.resources | nindent 8 }}
     storage:
