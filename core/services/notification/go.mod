@@ -1,6 +1,6 @@
 module github.com/openova-io/openova/core/services/notification
 
-go 1.22
+go 1.24.0
 
 require (
 	github.com/golang-jwt/jwt/v5 v5.2.1
@@ -16,9 +16,9 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.21 // indirect
 	github.com/twmb/franz-go v1.18.0 // indirect
 	github.com/twmb/franz-go/pkg/kmsg v1.9.0 // indirect
-	golang.org/x/crypto v0.29.0 // indirect
-	golang.org/x/sys v0.27.0 // indirect
-	golang.org/x/text v0.20.0 // indirect
+	golang.org/x/crypto v0.45.0 // indirect
+	golang.org/x/sys v0.38.0 // indirect
+	golang.org/x/text v0.31.0 // indirect
 )
 
 replace github.com/openova-io/openova/core/services/shared => ../shared
