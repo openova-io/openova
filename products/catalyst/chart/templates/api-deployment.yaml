@@ -753,6 +753,31 @@ spec:
                   name: sovereign-fqdn
                   key: lbIP
                   optional: true
+            # CATALYST_OTECH_INGRESS_IPV4 — Sovereign's load-balancer public
+            # IPv4, consumed by the SME tenant pipeline's DNS provisioner
+            # (sme_tenant_dns.go DefaultSMETenantDNSProvisioner.ProvisionFreeSubdomain).
+            # main.go reads this into SMETenantDeps.OTECHIngressIPv4 and the
+            # per-tenant flow PATCHes `console|wordpress|openclaw|mail|keycloak.<slug>.<pool>`
+            # A records pointing here so a fresh tenant signup on Sovereign t<N>
+            # resolves to t<N>'s LB instead of falling back to the mothership IP
+            # (convergence blocker: without this env, ProvisionFreeSubdomain returns
+            # "otech ingress IPv4 unconfigured" and no per-tenant DNS records are
+            # ever written — the pool zone's apex record then routes tenants at
+            # whatever IP the apex was last delegated to, which on a multi-Sovereign
+            # setup is the mothership).
+            #
+            # Sourced from the same `sovereign-fqdn` ConfigMap key `lbIP` already
+            # used by SOVEREIGN_LB_IP above (chart renders from `global.sovereignLBIP`).
+            # optional=true: Catalyst-Zero (contabo) doesn't run the SME tenant
+            # pipeline; the env stays empty and the DNS step degrades to the
+            # "otech ingress IPv4 unconfigured" transient error that the
+            # orchestrator retries until handover stamps the value.
+            - name: CATALYST_OTECH_INGRESS_IPV4
+              valueFrom:
+                configMapKeyRef:
+                  name: sovereign-fqdn
+                  key: lbIP
+                  optional: true
             # CATALYST_CONFIGURED_REGIONS — comma-separated Hetzner regions
             # the operator declared at provision time (qa-loop iter-16
             # Fix #88, Path B). The fleet handler reads this when the
