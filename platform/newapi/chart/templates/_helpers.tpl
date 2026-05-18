@@ -79,19 +79,40 @@ channel-seed-job.yaml operate on the same materialised list.
 {{- define "bp-newapi.effectiveChannels" -}}
 {{- $channels := list -}}
 {{- $dc := .Values.defaultChannels | default dict -}}
-{{/* ── Channel #1: Qwen3.6 @ BankDhofar (#915) ───────────────── */}}
+{{/* ── Channel #1: Qwen3.6 @ BankDhofar (#915) ─────────────────
+     Attestation gate (PR #1631 follow-up, 2026-05-18): franchised
+     Sovereigns set `MARKETPLACE_ENABLED=true` to flip qbd.enabled true,
+     but cloud-init may not yet have `LLM_BANK_DHOFAR_ACCOUNT_ID` /
+     `LLM_BANK_DHOFAR_CONTRACT_REF` set (no commercial contract signed
+     yet for that Sovereign). The envsubst defaults leave accountId /
+     contractRef as empty strings, which makes `assertChannelAttestation`
+     fail the install with `commercial-contract attestation requires
+     accountId`.
+
+     Fix: SKIP composing the qwenBankDhofar channel when
+     attestation.kind=commercial-contract AND accountId/contractRef are
+     empty. The Sovereign installs newapi with zero default channels
+     (operator-supplied channels still compose). Once the commercial
+     contract lands, the operator overlays the attestation values and
+     the channel composes on the next reconcile. */}}
 {{- $qbd := $dc.qwenBankDhofar | default dict -}}
-{{- if $qbd.enabled -}}
+{{- $qbdAtt := $qbd.attestation | default (dict "kind" "commercial-contract") -}}
+{{- $qbdAttReady := true -}}
+{{- if and $qbd.enabled (eq (default "" $qbdAtt.kind) "commercial-contract") -}}
+  {{- if or (not $qbdAtt.accountId) (not $qbdAtt.contractRef) -}}
+    {{- $qbdAttReady = false -}}
+  {{- end -}}
+{{- end -}}
+{{- if and $qbd.enabled $qbdAttReady -}}
   {{- if not $qbd.endpoint -}}
     {{- fail "defaultChannels.qwenBankDhofar.enabled=true but defaultChannels.qwenBankDhofar.endpoint is empty — supply the upstream relay URL in the per-Sovereign bootstrap-kit overlay (canonical: https://llm-api.omtd.bankdhofar.com)" -}}
   {{- end -}}
-  {{- $att := $qbd.attestation | default (dict "kind" "commercial-contract") -}}
   {{- $composed := dict
         "name"      (default "qwen3.6-bankdhofar" $qbd.name)
         "type"      "openai-compatible"
         "endpoint"  $qbd.endpoint
         "models"    (default (list "qwen3.6" "qwen3-coder") $qbd.models)
-        "attestation" $att -}}
+        "attestation" $qbdAtt -}}
   {{- if $qbd.existingSecret -}}
     {{- $_ := set $composed "existingSecret" $qbd.existingSecret -}}
   {{- end -}}
