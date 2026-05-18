@@ -8,10 +8,17 @@ name: Build sandbox-mcp-server
 # Per docs/INVIOLABLE-PRINCIPLES.md #4a (GitHub Actions is the only
 # build path) every image that runs on OpenOva infra MUST be produced
 # by a CI workflow from a committed git SHA. Shape mirrors
-# build-sandbox-pty-server.yaml — same Buildx + cosign keyless sign +
-# SBOM attestation. No chart values.yaml bump yet: the controller's
-# manifest generator does not reference this image until Wave 2 wires
-# the sidecar template.
+# build-sandbox-controller.yaml — same Buildx + cosign keyless sign +
+# SBOM attestation + auto-bump of the chart values.yaml so the next
+# Sovereign install picks up the SHA-pinned image without an operator
+# manually editing the file.
+#
+# Wave 8 / PR #1658 wired this module's go.mod to depend on
+# core/controllers + core/services/shared via `replace` directives
+# (canonical Gitea client + auth.Claims). The Dockerfile therefore
+# requires the repository ROOT as the build context, mirroring
+# build-sandbox-controller.yaml. Paths-filter widens to the dep trees
+# so a change to those sources re-triggers the build.
 #
 # Per `feedback_inviolable_principles.md`: event-driven only, NO cron.
 
@@ -19,23 +26,33 @@ on:
   push:
     paths:
       - 'products/sandbox/mcp-server/**'
+      - 'core/controllers/**'
+      - 'core/services/shared/**'
       - '.github/workflows/build-sandbox-mcp-server.yaml'
     branches: [main]
   pull_request:
     paths:
       - 'products/sandbox/mcp-server/**'
+      - 'core/controllers/**'
+      - 'core/services/shared/**'
       - '.github/workflows/build-sandbox-mcp-server.yaml'
   workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
   IMAGE: ghcr.io/openova-io/openova/sandbox-mcp-server
+  CHART_VALUES: platform/sandbox/chart/values.yaml
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      # contents: write — the deploy step below pushes a values.yaml SHA
+      # bump back to main so the platform/sandbox chart picks up the
+      # newly-built image without an operator manually editing the file
+      # (per `feedback_no_mvp_no_workarounds.md` rule 1: target-state,
+      # never "manual follow-up bump").
+      contents: write
       packages: write
       # id-token write is required by cosign keyless signing (Sigstore).
       id-token: write
@@ -53,10 +70,11 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
-          # mcp-server is stdlib-only at Wave 2 → no go.sum file.
-          # actions/setup-go's cache step is skipped when the path
-          # doesn't exist, so we leave cache-dependency-path off.
+          go-version: '1.23'
+          cache-dependency-path: |
+            products/sandbox/mcp-server/go.sum
+            core/controllers/go.sum
+            core/services/shared/go.sum
 
       - name: go vet
         working-directory: products/sandbox/mcp-server
@@ -64,9 +82,6 @@ jobs:
 
       - name: Run unit tests
         working-directory: products/sandbox/mcp-server
-        # Empty `go test ./...` is harmless: prints "no test files" and
-        # exits 0. Wave-2 follow-ups will add unit tests under
-        # internal/tools/.
         run: go test -count=1 -race ./...
 
       # On pull_request runs we stop here — image push requires
@@ -88,11 +103,11 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: docker/build-push-action@v6
         with:
-          # mcp-server's Dockerfile uses `COPY . .` so the build context
-          # is the mcp-server directory itself (its own go.mod root —
-          # NOT the repo root, unlike core/controllers which share a
-          # parent go.mod).
-          context: products/sandbox/mcp-server
+          # Build context is the repository root so the Dockerfile's
+          # COPY paths can reach core/controllers + core/services/shared
+          # (PR #1658 `replace` targets) alongside products/sandbox/
+          # mcp-server. Mirrors build-sandbox-controller.yaml.
+          context: .
           file: products/sandbox/mcp-server/Dockerfile
           push: true
           tags: |
@@ -129,3 +144,50 @@ jobs:
             --predicate <(echo '{"sbom":"in-toto-spdx attached at build time"}') \
             --type spdx \
             "${IMAGE}@${DIGEST}"
+
+      # Auto-bump the chart values.yaml runtime.mcpImage so the next
+      # Sovereign chart rollout picks up this image without a manual
+      # edit. Per `feedback_no_mvp_no_workarounds.md` rule 1
+      # (target-state, no operator-action gates) and
+      # `feedback_inviolable_principles.md` (event-driven, never cron).
+      # The chart's deployment.yaml `required` guard fails-fast when
+      # runtime.mcpImage is empty (Inviolable Principle #4a), so an
+      # un-bumped values.yaml = un-deployable chart. Mirrors the
+      # build-sandbox-controller.yaml auto-bump shape, just targeting a
+      # different yq path and writing a fully-qualified `<repo>:<sha>`
+      # string (the consumer reads runtime.mcpImage as a single image
+      # reference, not a {repository,tag} pair).
+      - name: Install yq
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        run: |
+          sudo wget -qO /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Bump runtime.mcpImage in values.yaml
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          SHA_SHORT: ${{ steps.vars.outputs.sha_short }}
+        run: |
+          set -euo pipefail
+          yq eval -i ".runtime.mcpImage = \"${IMAGE}:${SHA_SHORT}\"" "${CHART_VALUES}"
+          echo "values.yaml after bump:"
+          yq eval '.runtime.mcpImage' "${CHART_VALUES}"
+
+      - name: Commit and push values.yaml bump
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          SHA_SHORT: ${{ steps.vars.outputs.sha_short }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet "${CHART_VALUES}"; then
+            echo "no values.yaml change — already pinned to ${SHA_SHORT}"
+            exit 0
+          fi
+          git add "${CHART_VALUES}"
+          git commit -m "deploy: bump sandbox-mcp-server image to ${SHA_SHORT}"
+          # Pull-rebase to avoid races with parallel build commits.
+          git pull --rebase --autostash origin main || true
+          git push origin HEAD:main

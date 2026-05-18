@@ -9,10 +9,9 @@ name: Build sandbox-pty-server
 # build path) every image that runs on OpenOva infra MUST be produced
 # by a CI workflow from a committed git SHA. Shape mirrors
 # build-sandbox-controller.yaml — same Buildx + cosign keyless sign +
-# SBOM attestation. No chart values.yaml bump yet: the controller's
-# manifest generator does not reference this image until Wave 2 wires
-# the StatefulSet template (#1618 is Wave-2 scaffold; Wave-5 will
-# parametrise the image reference once the StatefulSet ships).
+# SBOM attestation + auto-bump of the chart values.yaml so the next
+# Sovereign install picks up the SHA-pinned image without an operator
+# manually editing the file.
 #
 # Per `feedback_inviolable_principles.md`: event-driven only, NO cron.
 
@@ -31,12 +30,18 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE: ghcr.io/openova-io/openova/sandbox-pty-server
+  CHART_VALUES: platform/sandbox/chart/values.yaml
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      # contents: write — the deploy step below pushes a values.yaml SHA
+      # bump back to main so the platform/sandbox chart picks up the
+      # newly-built image without an operator manually editing the file
+      # (per `feedback_no_mvp_no_workarounds.md` rule 1: target-state,
+      # never "manual follow-up bump").
+      contents: write
       packages: write
       # id-token write is required by cosign keyless signing (Sigstore).
       id-token: write
@@ -91,7 +96,8 @@ jobs:
           # pty-server's Dockerfile uses `COPY . .` so the build context
           # is the pty-server directory itself (its own go.mod root —
           # NOT the repo root, unlike core/controllers which share a
-          # parent go.mod).
+          # parent go.mod). pty-server has no cross-tree `replace`
+          # directives so a narrow context still resolves cleanly.
           context: products/sandbox/pty-server
           file: products/sandbox/pty-server/Dockerfile
           push: true
@@ -129,3 +135,50 @@ jobs:
             --predicate <(echo '{"sbom":"in-toto-spdx attached at build time"}') \
             --type spdx \
             "${IMAGE}@${DIGEST}"
+
+      # Auto-bump the chart values.yaml runtime.ptyServerImage so the
+      # next Sovereign chart rollout picks up this image without a
+      # manual edit. Per `feedback_no_mvp_no_workarounds.md` rule 1
+      # (target-state, no operator-action gates) and
+      # `feedback_inviolable_principles.md` (event-driven, never cron).
+      # The chart's deployment.yaml `required` guard fails-fast when
+      # runtime.ptyServerImage is empty (Inviolable Principle #4a), so
+      # an un-bumped values.yaml = un-deployable chart. Mirrors the
+      # build-sandbox-controller.yaml auto-bump shape, just targeting a
+      # different yq path and writing a fully-qualified `<repo>:<sha>`
+      # string (the consumer reads runtime.ptyServerImage as a single
+      # image reference, not a {repository,tag} pair).
+      - name: Install yq
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        run: |
+          sudo wget -qO /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Bump runtime.ptyServerImage in values.yaml
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          SHA_SHORT: ${{ steps.vars.outputs.sha_short }}
+        run: |
+          set -euo pipefail
+          yq eval -i ".runtime.ptyServerImage = \"${IMAGE}:${SHA_SHORT}\"" "${CHART_VALUES}"
+          echo "values.yaml after bump:"
+          yq eval '.runtime.ptyServerImage' "${CHART_VALUES}"
+
+      - name: Commit and push values.yaml bump
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          SHA_SHORT: ${{ steps.vars.outputs.sha_short }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet "${CHART_VALUES}"; then
+            echo "no values.yaml change — already pinned to ${SHA_SHORT}"
+            exit 0
+          fi
+          git add "${CHART_VALUES}"
+          git commit -m "deploy: bump sandbox-pty-server image to ${SHA_SHORT}"
+          # Pull-rebase to avoid races with parallel build commits.
+          git pull --rebase --autostash origin main || true
+          git push origin HEAD:main
