@@ -26,10 +26,14 @@ import {
   listSovereigns,
   getSovereignSummary,
   listApplications,
+  getFleetTreemap,
   type SovereignsResponse,
   type SovereignDetail,
   type ApplicationsResponse,
   type FleetApplicationsFilters,
+  type FleetTreemapResponse,
+  type FleetTreemapSizeBy,
+  type FleetTreemapColorBy,
 } from './fleet.api'
 
 /** Stable query keys so TanStack devtools + invalidation are coherent. */
@@ -40,6 +44,8 @@ export const fleetQueryKeys = {
   sovereignSummary: (id: string) => ['fleet', 'sovereigns', 'summary', id] as const,
   applications: (filters: FleetApplicationsFilters) =>
     ['fleet', 'applications', filters.org ?? '', filters.topology ?? '', filters.drPosture ?? ''] as const,
+  treemap: (sizeBy: string, colorBy: string) =>
+    ['fleet', 'treemap', sizeBy, colorBy] as const,
 }
 
 /**
@@ -95,6 +101,33 @@ export function useFleetApplications(
     queryKey: fleetQueryKeys.applications(filters),
     queryFn: ({ signal }) => listApplications(filters, signal),
     enabled,
+    staleTime: FLEET_STALE_MS,
+  })
+}
+
+/* ── useFleetTreemap — single-layer fleet treemap (TBD-E14) ─────────
+ *
+ * One cell per Sovereign across the fleet. Backend skeleton at
+ * /api/v1/fleet/treemap; deeper layers (Sov → Cluster → Application)
+ * land in a follow-up slice that proxies each Sov's
+ * /dashboard/treemap and unions the children.
+ */
+
+export interface UseFleetTreemapOptions {
+  sizeBy?: FleetTreemapSizeBy
+  colorBy?: FleetTreemapColorBy
+  enabled?: boolean
+}
+
+export function useFleetTreemap(
+  opts: UseFleetTreemapOptions = {},
+): UseQueryResult<FleetTreemapResponse> {
+  const sizeBy = opts.sizeBy ?? 'apps'
+  const colorBy = opts.colorBy ?? 'health'
+  return useQuery<FleetTreemapResponse>({
+    queryKey: fleetQueryKeys.treemap(sizeBy, colorBy),
+    queryFn: ({ signal }) => getFleetTreemap({ sizeBy, colorBy }, signal),
+    enabled: opts.enabled !== false,
     staleTime: FLEET_STALE_MS,
   })
 }

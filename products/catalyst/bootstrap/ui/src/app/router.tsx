@@ -52,6 +52,7 @@ import { ForgotPage } from '@/pages/auth/ForgotPage'
 import { HandoverErrorPage } from '@/pages/auth/HandoverErrorPage'
 import { DashboardPage } from '@/pages/dashboard/DashboardPage'
 import { CrossSovereignView } from '@/pages/dashboard/CrossSovereignView'
+import { FleetTreemap } from '@/pages/dashboard/FleetTreemap'
 import { WizardPage } from '@/pages/wizard/WizardPage'
 import { SuccessPage } from '@/pages/success/SuccessPage'
 import { DesignShowcase } from '@/pages/designs/DesignShowcase'
@@ -479,6 +480,15 @@ const crossSovApplicationsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/dashboard/applications',
   component: CrossSovereignView,
+})
+
+// TBD-E14 — fleet-wide treemap surface (mothership only).
+// Single-layer Sovereigns map; each cell deep-links to that Sov's
+// chroot /dashboard treemap. See pages/dashboard/FleetTreemap.tsx.
+const fleetTreemapRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/dashboard/treemap',
+  component: FleetTreemap,
 })
 
 /**
@@ -1972,6 +1982,7 @@ const routeTree = rootRoute.addChildren([
       : [
           dashboardRoute,
           crossSovApplicationsRoute,
+          fleetTreemapRoute,
           // qa-loop iter-6 Cluster-A — target-state /app/* routes.
           // STATIC paths first so TanStack resolves them before the
           // dynamic $deploymentId catch-all.

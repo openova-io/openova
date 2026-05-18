@@ -207,6 +207,51 @@ export function listApplications(
   return fetchJSON<ApplicationsResponse>(fleetApplicationsURL(filters), signal)
 }
 
+/* ── Fleet treemap (TBD-E14) ───────────────────────────────────────
+ *
+ * Mothership-only single-layer treemap where each cell is one
+ * Sovereign. Wire shape is identical to the per-Sovereign
+ * `/api/v1/dashboard/treemap` response (TreemapItem in
+ * treemap.types.ts) so the existing recharts renderer consumes both
+ * with zero new component code. See backend handler
+ * `fleet_treemap.go` for the contract + why a separate endpoint.
+ */
+
+export type FleetTreemapSizeBy = 'apps' | 'age'
+export type FleetTreemapColorBy = 'health' | 'age'
+
+export interface FleetTreemapItem {
+  id: string | null
+  name: string
+  count: number
+  percentage: number | null
+  size_value?: number
+  children?: FleetTreemapItem[]
+}
+
+export interface FleetTreemapResponse {
+  items: FleetTreemapItem[]
+  total_count: number
+}
+
+function fleetTreemapURL(opts: {
+  sizeBy?: FleetTreemapSizeBy
+  colorBy?: FleetTreemapColorBy
+} = {}): string {
+  const sp = new URLSearchParams()
+  if (opts.sizeBy) sp.set('size_by', opts.sizeBy)
+  if (opts.colorBy) sp.set('color_by', opts.colorBy)
+  const qs = sp.toString()
+  return qs ? `${API_BASE}/v1/fleet/treemap?${qs}` : `${API_BASE}/v1/fleet/treemap`
+}
+
+export function getFleetTreemap(
+  opts: { sizeBy?: FleetTreemapSizeBy; colorBy?: FleetTreemapColorBy } = {},
+  signal?: AbortSignal,
+): Promise<FleetTreemapResponse> {
+  return fetchJSON<FleetTreemapResponse>(fleetTreemapURL(opts), signal)
+}
+
 /* ── Display helpers (single source of truth for UI palette) ─────── */
 
 /**

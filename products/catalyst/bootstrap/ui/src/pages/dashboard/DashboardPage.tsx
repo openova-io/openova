@@ -130,6 +130,12 @@ export function DashboardPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Link to={'/dashboard/treemap' as never} data-testid="dashboard-fleet-treemap-link">
+            <Button variant="secondary" size="md">
+              <Layers className="h-4 w-4" />
+              Fleet treemap
+            </Button>
+          </Link>
           <Link to={'/dashboard/applications' as never} data-testid="dashboard-cross-sov-link">
             <Button variant="secondary" size="md">
               <Layers className="h-4 w-4" />

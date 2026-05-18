@@ -1108,6 +1108,10 @@ func main() {
 		rg.Get("/api/v1/fleet/sovereigns", h.HandleFleetSovereigns)
 		rg.Get("/api/v1/fleet/sovereigns/{id}/summary", h.HandleFleetSovereignSummary)
 		rg.Get("/api/v1/fleet/applications", h.HandleFleetApplications)
+		// TBD-E14 — fleet-wide treemap surface (mothership only).
+		// One cell per Sovereign; layer 2+ deep-links to the per-Sov
+		// /dashboard treemap. See handler/fleet_treemap.go.
+		rg.Get("/api/v1/fleet/treemap", h.HandleFleetTreemap)
 
 		// EPIC-2 (#1097) slice T+O+P — Application page bundle.
 		// PUT/DELETE on the Application CR + topology / upgrade preview
