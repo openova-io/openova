@@ -463,6 +463,25 @@ slots:
       - bp-flux
     wave: present
 
+  # ---- Slot 61 — bp-sandbox sandbox-controller Wave 1 (PR #1622). Reconciles
+  # `sandbox.openova.io/v1.Sandbox` CRs into per-Sandbox manifests written
+  # to the per-Org `catalyst-tenant` Gitea repo (sister of organization-
+  # controller). Without this slot, Sandbox CRs sit unhandled — the
+  # controller never deploys on Sovereigns. Gated default-OFF via
+  # ${SANDBOX_ENABLED:-false} on the bootstrap-kit Kustomization substitute.
+  # dependsOn:
+  #   - bp-vcluster-helmrepo (slot 60) — Wave 2 wires per-Sandbox
+  #     HelmReleases that resolve through this Flux source.
+  #   - bp-catalyst-platform (slot 13) — provides `catalyst-system`
+  #     Namespace + the `catalyst-gitea-token` Secret the controller's
+  #     CATALYST_GITEA_TOKEN env reads via secretKeyRef.
+  - slot: 61
+    name: bp-sandbox
+    depends_on:
+      - bp-vcluster-helmrepo
+      - bp-catalyst-platform
+    wave: present
+
   # ---- Slot 80 — bp-newapi multi-tenant LLM marketplace gateway. Issue #799.
   # Sequenced past the W2.K4 numbering plan (slots 36-48) so it never
   # collides with the AI-runtime / observability / livekit cohort. The
