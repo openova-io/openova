@@ -608,6 +608,26 @@ func (h *Handler) HandlePinVerify(w http.ResponseWriter, r *http.Request) {
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 	cookieDomain := os.Getenv("CATALYST_SESSION_COOKIE_DOMAIN") // e.g. "console.openova.io"
 
+	// ── Session-replay defence (TBD-F7 / #1730, Wave 28-F discovery) ─────
+	//
+	// `http.SetCookie` APPENDS a `Set-Cookie` header rather than replacing
+	// any prior `Set-Cookie` on the same ResponseWriter. If an upstream
+	// middleware (chroot proxy session-refresh, TestSession injector,
+	// auth-gate fall-through) had pre-stamped a stale `catalyst_session`
+	// Set-Cookie before HandlePinVerify ran, the response would carry
+	// TWO `Set-Cookie: catalyst_session=...` headers. curl honours the
+	// LAST one (so curl-driven PIN cycles work). Playwright's cookie
+	// jar follows the WHATWG spec and stores both in arrival order, but
+	// some Chromium versions surface the FIRST one to scripts via
+	// `context.cookies()`, producing the observed "OLD JWT" symptom
+	// even though our freshly-minted JWT is on the wire.
+	//
+	// Defensive fix: drop any `Set-Cookie` header set by earlier code on
+	// this response before emitting the canonical pair below. The freshly
+	// minted JWT in `accessToken` (built from `SignCustomClaims` above)
+	// is the ONLY catalyst_session value the browser receives.
+	w.Header().Del("Set-Cookie")
+
 	http.SetCookie(w, &http.Cookie{
 		Name:     auth.SessionCookieName,
 		Value:    accessToken,

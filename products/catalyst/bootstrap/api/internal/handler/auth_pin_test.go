@@ -498,3 +498,162 @@ func TestPinStore_NoDiskPersistence(t *testing.T) {
 		t.Errorf("sweep on empty store: got %d want 0", removed)
 	}
 }
+
+// TestPinVerify_NoSessionReplay_FreshJWTRegardlessOfInboundCookie is the
+// regression guard for TBD-F7 / #1730 (Wave 28-F session-replay walk).
+//
+// Symptom observed in Playwright: after a PIN cycle, the Set-Cookie
+// header on /pin/verify carried a STALE catalyst_session JWT from a
+// previous cycle even though the freshly-minted JWT was on the wire
+// internally. curl-driven cycles worked because curl honours the LAST
+// Set-Cookie when duplicates appear, while Playwright's cookie jar
+// surfaced the FIRST one.
+//
+// Two contract assertions:
+//
+//  1. Two back-to-back PIN cycles produce two DIFFERENT catalyst_session
+//     cookie values (fresh jti / iat per call). A handler that
+//     pass-through-reused an inbound cookie would emit the same value
+//     on the second call.
+//
+//  2. The response carries EXACTLY ONE `Set-Cookie: catalyst_session=…`
+//     header — no duplicates. Even if a stale Set-Cookie had been
+//     stamped on the ResponseWriter by an upstream middleware before
+//     HandlePinVerify ran, the handler MUST emit a single canonical
+//     cookie carrying the freshly-minted JWT so the browser cookie jar
+//     can never select a stale value.
+//
+// Inbound `Cookie:` header carrying a stale catalyst_session is passed
+// on both calls to mirror the Playwright browser-context replay shape.
+func TestPinVerify_NoSessionReplay_FreshJWTRegardlessOfInboundCookie(t *testing.T) {
+	h := testPinSetup(t)
+
+	// ── Cycle 1: empty inbound cookie ────────────────────────────────────
+	h.pinStore.put("op@example.com", "111111", "req-1")
+	body1 := `{"email":"op@example.com","pin":"111111","requestId":"req-1"}`
+	req1 := httptest.NewRequest(http.MethodPost, "/api/v1/auth/pin/verify",
+		strings.NewReader(body1))
+	req1.Header.Set("Content-Type", "application/json")
+	w1 := httptest.NewRecorder()
+	h.HandlePinVerify(w1, req1)
+	resp1 := w1.Result()
+	if resp1.StatusCode != http.StatusOK {
+		t.Fatalf("cycle-1 status: got %d want 200 (body: %s)", resp1.StatusCode, w1.Body.String())
+	}
+	cookie1 := findCookie(resp1.Cookies(), "catalyst_session")
+	if cookie1 == nil || cookie1.Value == "" {
+		t.Fatal("cycle-1: catalyst_session cookie not set")
+	}
+
+	// Assert exactly one Set-Cookie: catalyst_session=… on the wire.
+	if got := countSessionSetCookieHeaders(resp1.Header.Values("Set-Cookie")); got != 1 {
+		t.Errorf("cycle-1: got %d Set-Cookie: catalyst_session=… headers want 1", got)
+	}
+
+	// ── Cycle 2: inbound cookie carries the STALE cycle-1 JWT ────────────
+	//
+	// Mirrors the Playwright browser-context replay: the cookie jar still
+	// holds the previous PIN cycle's catalyst_session and Playwright
+	// attaches it to the second /pin/verify request. The handler MUST
+	// mint a fresh JWT (different jti, ≥ same iat) and the Set-Cookie
+	// header MUST carry that fresh JWT, not the inbound stale one.
+	//
+	// Sleep one second so the JWT's `iat`/`exp` (Unix second precision)
+	// differs between cycles — the `jti` UUID would differ anyway, but
+	// the time-shift makes the wire-shape mismatch obvious even to a
+	// jwt-payload diff that ignores `jti`.
+	time.Sleep(1100 * time.Millisecond)
+	h.pinStore.put("op@example.com", "222222", "req-2")
+	body2 := `{"email":"op@example.com","pin":"222222","requestId":"req-2"}`
+	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/auth/pin/verify",
+		strings.NewReader(body2))
+	req2.Header.Set("Content-Type", "application/json")
+	req2.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: cookie1.Value})
+	w2 := httptest.NewRecorder()
+	h.HandlePinVerify(w2, req2)
+	resp2 := w2.Result()
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("cycle-2 status: got %d want 200 (body: %s)", resp2.StatusCode, w2.Body.String())
+	}
+	cookie2 := findCookie(resp2.Cookies(), "catalyst_session")
+	if cookie2 == nil || cookie2.Value == "" {
+		t.Fatal("cycle-2: catalyst_session cookie not set")
+	}
+
+	// (1) Cycle-2 cookie value MUST differ from cycle-1 — proves the
+	// handler does NOT pass through the inbound stale cookie.
+	if cookie2.Value == cookie1.Value {
+		t.Errorf("cycle-2 catalyst_session reuses cycle-1 JWT (session-replay regression):\n  cycle-1: %s\n  cycle-2: %s",
+			truncJWT(cookie1.Value), truncJWT(cookie2.Value))
+	}
+
+	// (2) Cycle-2 must also have exactly one Set-Cookie: catalyst_session.
+	if got := countSessionSetCookieHeaders(resp2.Header.Values("Set-Cookie")); got != 1 {
+		t.Errorf("cycle-2: got %d Set-Cookie: catalyst_session=… headers want 1 (duplicates would let Playwright pick the stale one)", got)
+	}
+
+	// (3) Cycle-2 cookie value must NOT equal the stale cookie value
+	// from the inbound Cookie header — belt-and-braces against any
+	// future regression where the handler echoes the inbound cookie.
+	if cookie2.Value == cookie1.Value {
+		t.Error("cycle-2 catalyst_session matches inbound stale cookie value (handler must mint fresh)")
+	}
+
+	// (4) Decode payloads — `jti` MUST differ (fresh mint per call) and
+	// `iat` MUST be ≥ cycle-1's `iat` (time can't go backwards).
+	jti1, iat1 := decodeJtiIat(t, cookie1.Value)
+	jti2, iat2 := decodeJtiIat(t, cookie2.Value)
+	if jti1 == "" || jti2 == "" {
+		t.Fatal("jti missing on one of the cycles")
+	}
+	if jti1 == jti2 {
+		t.Errorf("jti must differ between cycles (replay regression): both = %q", jti1)
+	}
+	if iat2 < iat1 {
+		t.Errorf("iat must not go backwards: cycle-1=%d cycle-2=%d", iat1, iat2)
+	}
+}
+
+// countSessionSetCookieHeaders returns the number of Set-Cookie header
+// values that set the catalyst_session cookie (i.e. start with
+// "catalyst_session="). A correctly behaving handler emits exactly one;
+// duplicates create the Playwright session-replay ambiguity.
+func countSessionSetCookieHeaders(headers []string) int {
+	n := 0
+	for _, h := range headers {
+		if strings.HasPrefix(h, auth.SessionCookieName+"=") {
+			n++
+		}
+	}
+	return n
+}
+
+// truncJWT shortens a JWT for log readability (head…tail).
+func truncJWT(j string) string {
+	if len(j) <= 24 {
+		return j
+	}
+	return j[:12] + "…" + j[len(j)-12:]
+}
+
+// decodeJtiIat extracts the `jti` and `iat` claims from a compact JWT
+// (raw, no signature verification) for regression assertions.
+func decodeJtiIat(t *testing.T, rawJWT string) (string, int64) {
+	t.Helper()
+	parts := strings.Split(rawJWT, ".")
+	if len(parts) != 3 {
+		t.Fatalf("decodeJtiIat: malformed JWT (%d parts)", len(parts))
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		t.Fatalf("decodeJtiIat: decode payload: %v", err)
+	}
+	var claims struct {
+		Jti string `json:"jti"`
+		Iat int64  `json:"iat"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		t.Fatalf("decodeJtiIat: unmarshal: %v", err)
+	}
+	return claims.Jti, claims.Iat
+}
