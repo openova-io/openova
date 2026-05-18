@@ -160,6 +160,21 @@ spec:
             - name: channels
               mountPath: /etc/newapi
               readOnly: true
+            # TBD-A11 (#1765, 2026-05-18): emptyDir at /data so the
+            # upstream Calcium-Ion/new-api binary can `mkdir /data/logs`
+            # on startup. Pre-A11 the binary crashed with
+            #   `mkdir /data/logs: permission denied`
+            # because the container ran as uid 1000 against a root-
+            # owned `/data` baked into the upstream image. fsGroup=1000
+            # on the Pod securityContext (values.yaml) chowns this
+            # emptyDir to gid 1000 on mount; the Pod's primary group
+            # (uid 1000 by default has supplementary gid 1000) can
+            # then write here. State is ephemeral (logs only —
+            # sessions, credits, channels, audit log all live in
+            # Postgres via SQL_DSN); restart loses logs and nothing
+            # else.
+            - name: data
+              mountPath: /data
 
           livenessProbe:
             httpGet:
@@ -250,6 +265,14 @@ spec:
             items:
               - key: channels.yaml
                 path: channels.yaml
+        # TBD-A11 (#1765): writable /data for upstream binary's
+        # log directory. Paired with fsGroup: 1000 on the Pod
+        # securityContext (values.yaml). emptyDir, not PVC — NewAPI's
+        # durable state (users, credits, channels, audit log) lives in
+        # Postgres via SQL_DSN; only ephemeral logs land on disk.
+        - name: data
+          emptyDir:
+            sizeLimit: 1Gi
         {{- if .Values.meteringSidecar.enabled }}
         # emptyDir is intentional: the sidecar's drain loop
         # republishes spooled envelopes once NATS recovers, so

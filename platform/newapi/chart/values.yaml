@@ -72,9 +72,36 @@ newapi:
       cpu: 2
       memory: 1Gi
   # SecurityContext — non-root.
+  #
+  # TBD-A11 (#1765, 2026-05-18): `fsGroup: 1000` added so kubelet chowns
+  # the `/data` volume mount (emptyDir, see deployment.yaml `volumes:`)
+  # to gid 1000 on mount. Pre-TBD-A11 the upstream NewAPI binary
+  # (Calcium-Ion/new-api v0.13.2) crashed on startup with
+  #   `mkdir /data/logs: permission denied`
+  # because:
+  #   1. The container ran as uid 1000 (`runAsUser` below).
+  #   2. The upstream image's `/data` directory is owned by uid 0
+  #      (its Dockerfile inherits from `node:alpine` + `golang:alpine`
+  #      without an explicit chown).
+  #   3. No volume was mounted at `/data`, so the binary's mkdir went
+  #      against the container rootfs `/data` (root-owned, not
+  #      writable by uid 1000 even with `readOnlyRootFilesystem:
+  #      false`).
+  # Caught on t22 2026-05-18 (Pod newapi-bp-newapi-* in
+  # CrashLoopBackOff). The fix has two halves wired together — both
+  # MUST stay in sync:
+  #   a) THIS file: `fsGroup: 1000` so kubelet chowns the mount.
+  #   b) deployment.yaml volumes: + volumeMounts: — emptyDir mounted at
+  #      `/data`, sized 1Gi (upstream NewAPI writes log files +
+  #      ephemeral runtime state here; sessions/credits/channels are
+  #      persisted in Postgres via SQL_DSN, NOT on local disk, so an
+  #      emptyDir is correct — restart loses logs only).
+  # readOnlyRootFilesystem stays `false` until the upstream binary's
+  # additional rootfs writes (e.g. /tmp temp files) are enumerated.
   securityContext:
     runAsNonRoot: true
     runAsUser: 1000
+    fsGroup: 1000
     readOnlyRootFilesystem: false
     allowPrivilegeEscalation: false
     capabilities:
