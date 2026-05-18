@@ -234,6 +234,23 @@ helmRepositories:
     - "bp-coraza"
     - "bp-cert-manager-powerdns-webhook"
     - "bp-cluster-autoscaler-hcloud"
+    # openova-catalog (TBD-C19, 2026-05-18) — the named Flux v1
+    # HelmRepository the application-controller renders every
+    # per-Application HelmRelease against (catalogSourceRef default).
+    # Unlike the bp-* HRs above which are rendered directly from
+    # clusters/_template/bootstrap-kit/*.yaml slot files, this HR is
+    # rendered by the bp-catalyst-platform Helm chart itself
+    # (products/catalyst/chart/templates/openova-catalog-helmrepository
+    # .yaml) from `.Values.catalog.helmRepository.url`. Step-06 phase-1
+    # patches the live HR; phase-1.6 patches the parent HelmRelease's
+    # spec.values override; phase-2 makes the override durable in
+    # local Gitea by sed-injecting it into
+    # clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml.
+    # Without this entry step-08 catches `openova-catalog` as the only
+    # remaining ghcr.io offender ~1 min after step-06 (the catalyst-
+    # platform chart's next reconcile re-renders the HR back to
+    # ghcr.io). Caught live on t22.omantel.biz 2026-05-18.
+    - "openova-catalog"
 
 # catalyst-api Deployment to patch in step 07 (catalyst-api-env-patch).
 # Sovereign-side namespace is `catalyst-system`, NOT `catalyst-platform`

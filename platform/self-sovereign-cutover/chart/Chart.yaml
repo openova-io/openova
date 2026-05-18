@@ -32,7 +32,21 @@ name: bp-self-sovereign-cutover
 # Secret, and the SME provisioning service first consumes the token at
 # voucher checkout time (always postdates cutover). Order 9 avoids
 # renumbering 01..08 which would invalidate operator history.
-version: 0.1.30
+#
+# 0.1.31 (TBD-C19, 2026-05-18): step-06 now also pivots the
+# `openova-catalog` HelmRepository. The HR is rendered by the bp-
+# catalyst-platform Helm chart (not directly from a bootstrap-kit slot
+# file) from `.Values.catalog.helmRepository.url`. Phase-1 patches the
+# live HR; new Phase-1.6 patches the parent HelmRelease's
+# spec.values.catalog.helmRepository.url so the next chart reconcile
+# preserves the local URL; new Phase-2.5 injects (or rewrites) the
+# same override into 13-bp-catalyst-platform.yaml in the local Gitea
+# repo so bootstrap-kit Kustomization reconcile doesn't revert it.
+# Without this fix step-08's egress-block-test catches
+# `openova-catalog` as the lone OFFENDER ~1 min after step-06
+# completes (chart re-render reverts phase-1). Caught live on
+# t22.omantel.biz 2026-05-18.
+version: 0.1.31
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
