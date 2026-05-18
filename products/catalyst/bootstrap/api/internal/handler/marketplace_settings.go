@@ -20,8 +20,14 @@
 //      docs/SECRET-ROTATION.md). The repo URL + branch reuse the same
 //      env vars as the provisioner cloud-init plumbing
 //      (CATALYST_GITOPS_REPO_URL, CATALYST_GITOPS_BRANCH).
-//   4. Open clusters/<sovereignFQDN>/bootstrap-kit/13-bp-catalyst-platform.yaml
-//      and patch:
+//   4. Open the bootstrap-kit overlay file 13-bp-catalyst-platform.yaml.
+//      Path resolution (resolveBootstrapKitDir, issue #1790):
+//        - Mothership / pre-cutover: clusters/<sovereignFQDN>/bootstrap-kit/
+//        - Sovereign chroot (SOVEREIGN_FQDN env set, post-cutover):
+//          clusters/_template/bootstrap-kit/ (the chroot Gitea only
+//          carries the canonical _template subtree)
+//        - CATALYST_BOOTSTRAP_KIT_PATH overrides both for tests.
+//      Patch:
 //        ingress.marketplace.enabled: bool
 //        marketplace.brand.name / tagline / primaryColor
 //      The yaml.v3 round-trip preserves comments + ordering — Flux on
@@ -253,6 +259,42 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
+// resolveBootstrapKitDir returns the GitOps-repo-relative path to the
+// bootstrap-kit directory for the marketplace overlay. The path depends
+// on which catalyst-api Pod is serving the request:
+//
+//   - Mothership / Catalyst-Zero (pre-cutover):
+//       clusters/<sovereignFQDN>/bootstrap-kit/
+//     Each Sovereign has its own per-FQDN subtree carved out of the
+//     openova-io/openova repo by the provisioner.
+//
+//   - Sovereign chroot (post-cutover):
+//       clusters/_template/bootstrap-kit/
+//     The chroot Gitea is seeded with the canonical _template subtree
+//     only (see clusters/_template/* and openova_flow_proxy.go's
+//     "clusters/_template/bootstrap-kit/56-bp-openova-flow-server.yaml"
+//     reference). The per-FQDN materialisation never happens on the
+//     chroot's Gitea — Flux on the chroot reads directly from
+//     _template/ with kustomize overlays. Issue #1790 (Wave 34): the
+//     handler hardcoded the mothership path and silently 500'd with
+//     "no such file or directory" when the marketplace toggle was
+//     pushed through the post-cutover Sovereign Console.
+//
+// Detection rule: SOVEREIGN_FQDN env is set on every chroot catalyst-api
+// Pod (cloud-init stamps it; see auth_handover.go:390 and rbac_matrix.go).
+// The mother never sets it. CATALYST_BOOTSTRAP_KIT_PATH is a runtime
+// override per INVIOLABLE-PRINCIPLES.md #4 so a future repository
+// re-layout doesn't require a code change.
+func resolveBootstrapKitDir(sovereignFQDN string) string {
+	if override := strings.TrimSpace(os.Getenv("CATALYST_BOOTSTRAP_KIT_PATH")); override != "" {
+		return override
+	}
+	if strings.TrimSpace(os.Getenv("SOVEREIGN_FQDN")) != "" {
+		return filepath.Join("clusters", "_template", "bootstrap-kit")
+	}
+	return filepath.Join("clusters", sovereignFQDN, "bootstrap-kit")
+}
+
 // writeMarketplaceOverlay clones the GitOps repo, edits the per-Sovereign
 // overlay file, commits, and pushes. Returns the new commit SHA on
 // success. The clone uses a t.TempDir-style scratch dir under
@@ -303,7 +345,8 @@ func writeMarketplaceOverlay(ctx context.Context, cfg gitOpsConfig, sovereignFQD
 		return "", fmt.Errorf("git config user.email: %w", err)
 	}
 
-	overlayPath := filepath.Join(repoDir, "clusters", sovereignFQDN, "bootstrap-kit", "13-bp-catalyst-platform.yaml")
+	relDir := resolveBootstrapKitDir(sovereignFQDN)
+	overlayPath := filepath.Join(repoDir, relDir, "13-bp-catalyst-platform.yaml")
 	raw, err := os.ReadFile(overlayPath)
 	if err != nil {
 		return "", fmt.Errorf("read overlay %s: %w", overlayPath, err)
@@ -328,7 +371,7 @@ func writeMarketplaceOverlay(ctx context.Context, cfg gitOpsConfig, sovereignFQD
 		return "", fmt.Errorf("write overlay: %w", err)
 	}
 
-	relPath := filepath.Join("clusters", sovereignFQDN, "bootstrap-kit", "13-bp-catalyst-platform.yaml")
+	relPath := filepath.Join(relDir, "13-bp-catalyst-platform.yaml")
 	if err := runGit(ctx, repoDir, "add", relPath); err != nil {
 		return "", fmt.Errorf("git add: %w", err)
 	}
