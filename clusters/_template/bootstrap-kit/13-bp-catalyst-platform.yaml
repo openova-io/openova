@@ -575,7 +575,7 @@ spec:
       # bp-prometheus, bp-loki, bp-redis, bp-clickhouse, bp-opensearch,
       # bp-temporal, bp-n8n, bp-langfuse, bp-llm-gateway) which the
       # chained catalog client surfaces via in-cluster LIST fallback.
-      version: 1.4.166
+      version: 1.4.167
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

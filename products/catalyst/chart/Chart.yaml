@@ -1138,7 +1138,7 @@ name: bp-catalyst-platform
 # Fix #154 (HR-timeout audit). Those bumped the HelmRelease
 # install.timeout. This bumps the chart-INTERNAL wait loop budget
 # inside the pre-install hook Job, which is a different seam.
-version: 1.4.166
+version: 1.4.167
 appVersion: 1.4.166
 # 1.4.166 — fix(catalog): seed 13 published Blueprints on Sovereign
 # handover (WBS row TBD-E8, C4-015). Adds templates/catalog-seed/
