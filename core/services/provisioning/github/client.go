@@ -287,9 +287,29 @@ func (c *Client) commitOnceGitData(ctx context.Context, branch, message string, 
 func (c *Client) commitOnceContents(ctx context.Context, branch, message string, files map[string]string, prunePrefixes []string) error {
 	// 1. Get current branch ref SHA — used for prune listing AND for an
 	// optional concurrency probe before the atomic batch commit.
+	//
+	// TBD-C18e (2026-05-18): when the target branch doesn't exist yet
+	// (first tenant commit after switching from `main` to a dedicated
+	// `sme-tenants` branch), Gitea returns 404 here. Auto-create the
+	// branch from the repo's default branch (typically `main`) and
+	// retry the ref lookup so the rest of the commit flow can proceed.
+	// This makes the customer-journey fix self-bootstrapping — no
+	// out-of-band branch seeding required.
 	refSHA, err := c.getRef(ctx, branch)
 	if err != nil {
-		return fmt.Errorf("get ref: %w", err)
+		if isBranchMissingError(err) {
+			if createErr := c.ensureBranchExists(ctx, branch); createErr != nil {
+				return fmt.Errorf("auto-create branch %q: %w", branch, createErr)
+			}
+			// Retry the ref lookup — the branch should now exist.
+			refSHA, err = c.getRef(ctx, branch)
+			if err != nil {
+				return fmt.Errorf("get ref after auto-create: %w", err)
+			}
+			slog.Info("auto-created branch for tenant commits", "branch", branch)
+		} else {
+			return fmt.Errorf("get ref: %w", err)
+		}
 	}
 	slog.Debug("got branch ref", "branch", branch, "sha", refSHA)
 
@@ -412,6 +432,66 @@ func (c *Client) commitOnceContents(ctx context.Context, branch, message string,
 		"ops", len(ops),
 		"prune_prefixes", len(prunePrefixes),
 	)
+	return nil
+}
+
+// isBranchMissingError returns true iff the wrapped error from c.getRef
+// indicates the target branch simply doesn't exist yet (a fresh
+// `sme-tenants` branch on a Sovereign that has only ever had a `main`).
+// Two shapes are accepted: the Gitea/GitHub 404 ("Not Found") and the
+// empty-array case getRef reports for an array response with zero
+// elements. TBD-C18e (2026-05-18).
+func isBranchMissingError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, " 404 ") ||
+		strings.Contains(s, "Not Found") ||
+		strings.Contains(s, "empty refs array")
+}
+
+// ensureBranchExists creates `branch` on the remote by branching from
+// the repository's default branch. Used by commitOnceContents when the
+// first tenant commit lands on a branch that hasn't been seeded yet.
+// The two-step (read default branch SHA → POST /branches) pattern is
+// supported by both Gitea (>= 1.13) and api.github.com.
+//
+// Gitea endpoint: POST /repos/{owner}/{repo}/branches with body
+// `{old_branch_name, new_branch_name}` OR `{old_ref_name, new_branch_name}`.
+// We use the second shape since it accepts an arbitrary commit-ish.
+//
+// Failure modes propagated as errors:
+//   - default branch lookup fails (repo is empty or token lacks read).
+//   - branch creation rejected (token lacks write or branch already
+//     exists — which is a benign race we treat as success).
+func (c *Client) ensureBranchExists(ctx context.Context, branch string) error {
+	// Identify the source branch to fork from. Default to `main` (the
+	// chart's bootstrap branch) — operators who run a different default
+	// can flip the source branch by pre-creating `sme-tenants` manually
+	// once, after which this auto-create path is a no-op.
+	const sourceBranch = "main"
+	sourceSHA, err := c.getRef(ctx, sourceBranch)
+	if err != nil {
+		return fmt.Errorf("read source branch %q: %w", sourceBranch, err)
+	}
+
+	// Gitea + GitHub both accept `{ref: "refs/heads/<branch>", sha: "<sha>"}`
+	// on POST /git/refs to create a new ref. Stick to that shape so this
+	// path stays portable across both targets.
+	_, err = c.doRequest(ctx, http.MethodPost, c.apiURL("/git/refs"), map[string]any{
+		"ref": "refs/heads/" + branch,
+		"sha": sourceSHA,
+	})
+	if err != nil {
+		// 422 with "already exists" body means we lost a race with a
+		// concurrent provisioner — treat as success.
+		if strings.Contains(err.Error(), "already exists") ||
+			strings.Contains(err.Error(), "Reference already exists") {
+			return nil
+		}
+		return err
+	}
 	return nil
 }
 

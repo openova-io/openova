@@ -109,9 +109,19 @@ spec:
   # tenant orchestrator. Blocking this Kustomization on every tenant's
   # full readiness would let one stuck tenant gate every other tenant.
   wait: {{ $kt.wait | default false }}
+  # TBD-C18e (2026-05-18): default sourceRef.name flipped from "openova"
+  # to "openova-sme-tenants". The new GitRepository (sibling template
+  # sme-tenants-gitrepository.yaml) tracks a dedicated `sme-tenants`
+  # branch that the cutover-gitea-mirror Job's force-push of main cannot
+  # clobber. Without this isolation, every per-tenant overlay written by
+  # provisioning was overwritten within ≤10 min by the next mirror tick,
+  # leaving the Org CR un-materialised and the customer journey hung at
+  # step 16. Operator may override back to the unified `openova`
+  # GitRepository (single-branch debug mode) via
+  # .Values.smeTenants.kustomization.sourceRef.name.
   sourceRef:
     kind: GitRepository
-    name: {{ $sourceRef.name | default "openova" | quote }}
+    name: {{ $sourceRef.name | default "openova-sme-tenants" | quote }}
     namespace: {{ $sourceRef.namespace | default "flux-system" | quote }}
 {{- end }}
 {{- end }}
