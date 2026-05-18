@@ -81,12 +81,21 @@ spec:
             # state (logback marker file, optional auth state) to
             # ~/.guacamole on first start. With readOnlyRootFilesystem
             # the container cannot mkdir under $HOME unless we mount
-            # a writable emptyDir there. Pre-Fix-#39 follow-up the
-            # chart hadn't included this mount; pods crash-looped
-            # with `mkdir: cannot create directory
-            # '/home/guacamole/.guacamole': Read-only file system`.
+            # a writable emptyDir there.
+            #
+            # IMPORTANT: we mount the PARENT directory (/home/guacamole)
+            # rather than /home/guacamole/.guacamole itself. The official
+            # guacamole image entrypoint runs
+            # `rm -rf $GUACAMOLE_HOME` (== `/home/guacamole/.guacamole`)
+            # before re-populating it on every start. If we mounted the
+            # emptyDir at $GUACAMOLE_HOME directly the entrypoint would
+            # fail with `rm: cannot remove '/home/guacamole/.guacamole':
+            # Read-only file system` because you cannot unlink a mount
+            # point from inside the container. Mounting the parent
+            # makes .guacamole a regular subdirectory of the emptyDir
+            # which the entrypoint can freely rm and recreate.
             - name: guacamole-home
-              mountPath: /home/guacamole/.guacamole
+              mountPath: /home/guacamole
           resources:
             {{- toYaml .Values.guacamole.webapp.resources | nindent 12 }}
           securityContext:
