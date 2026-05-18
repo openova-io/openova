@@ -20,14 +20,17 @@
 //   - sandbox.secrets.read / sandbox.secrets.write
 //   - sandbox.session.whoami / sandbox.session.info
 //
-// Wave 12 extends to marketplace.domain.* + flux.*:
+// Wave 12 extends to sandbox.preview.* + marketplace.domain.* + flux.*:
 //
+//   - sandbox.preview.create / sandbox.preview.list /
+//     sandbox.preview.status / sandbox.preview.teardown /
+//     sandbox.preview.rebuild
 //   - marketplace.domain.byod / marketplace.domain.subdomain
 //   - flux.status / flux.reconcile / flux.suspend / flux.resume
 //
-// All other namespaces (sandbox.stripe.*, sandbox.preview.*,
-// k8s.write.*, gitea.release.list) remain stubbed and continue to
-// return not_implemented until later waves ship them.
+// All other namespaces (sandbox.stripe.*, k8s.write.*,
+// gitea.release.list) remain stubbed and continue to return
+// not_implemented until later waves ship them.
 //
 // Wire model recap (architecture.md §3):
 //
@@ -641,6 +644,52 @@ func defaultCatalogue(env *Env) []Tool {
 			InputSchema:        schemaSkillsGet(),
 			Handler:            skillsGet,
 			RequiredCapability: "skills",
+		},
+
+		// sandbox.preview.* — per-PR preview Deployments
+		// (Wave 12 — sandbox_preview.go). Every handler is scoped to
+		// env.SandboxNamespace and gated by the
+		// openova.io/managed-by=openova-sandbox-mcp +
+		// openova.io/preview-pr labels so list/teardown can address the
+		// triple by PR number without colliding with operator-managed
+		// workloads (pty-server, openova-sandbox-mcp) in the same ns.
+		// Hostname pattern: `pr-<num>.<app>.sandbox.<sov-fqdn>` — attaches
+		// to the same Cilium Gateway the sandbox-controller already
+		// renders for pty-server.
+		{
+			Name:               "sandbox.preview.create",
+			Description:        "Create a per-PR preview triple (Deployment + Service + HTTPRoute) in this Sandbox's namespace. Hostname pattern: `pr-<num>.<app>.sandbox.<sov-fqdn>`.",
+			InputSchema:        schemaSandboxPreviewCreate(),
+			Handler:            sandboxPreviewCreate,
+			RequiredCapability: "sandbox.preview",
+		},
+		{
+			Name:               "sandbox.preview.list",
+			Description:        "List active per-PR previews in this Sandbox (filtered to openova.io/managed-by=openova-sandbox-mcp + openova.io/preview-pr label).",
+			InputSchema:        map[string]any{"type": "object", "additionalProperties": false},
+			Handler:            sandboxPreviewList,
+			RequiredCapability: "sandbox.preview",
+		},
+		{
+			Name:               "sandbox.preview.status",
+			Description:        "Fetch a per-PR preview's Deployment status + Pod readiness (containerStatuses with waiting reason, restartCount).",
+			InputSchema:        schemaSandboxPreviewPRNumber(),
+			Handler:            sandboxPreviewStatus,
+			RequiredCapability: "sandbox.preview",
+		},
+		{
+			Name:               "sandbox.preview.teardown",
+			Description:        "Delete a per-PR preview (Deployment + Service + HTTPRoute). Foreground propagation on the Deployment so Pods + ReplicaSets are fully reaped.",
+			InputSchema:        schemaSandboxPreviewPRNumber(),
+			Handler:            sandboxPreviewTeardown,
+			RequiredCapability: "sandbox.preview",
+		},
+		{
+			Name:               "sandbox.preview.rebuild",
+			Description:        "Update a per-PR preview's container image + bump kubectl.kubernetes.io/restartedAt to force a rollout (works even when the image tag is unchanged).",
+			InputSchema:        schemaSandboxPreviewRebuild(),
+			Handler:            sandboxPreviewRebuild,
+			RequiredCapability: "sandbox.preview",
 		},
 
 		// sandbox.session.* — this MCP server's own metadata (Wave 8).
