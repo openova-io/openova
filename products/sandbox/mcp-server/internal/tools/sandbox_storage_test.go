@@ -284,16 +284,19 @@ func TestSandboxStorageCapabilityGate(t *testing.T) {
 }
 
 // TestSandboxStorageCatalogueWiredIn ensures all five tools are in
-// the catalogue with non-nil Handler + the right RequiredCapability.
+// the catalogue with non-nil Handler + their granular tier-bound
+// RequiredCapability (PR #1671 — Pro plan grants `sandbox.storage.*`
+// which the wildcard matcher resolves to these per-tool grants).
 func TestSandboxStorageCatalogueWiredIn(t *testing.T) {
 	r := NewRegistry(&Env{OrgID: "acme", OwnerUID: "u1"})
-	want := map[string]bool{
-		"sandbox.storage.bindBucket":        false,
-		"sandbox.storage.signedUploadURL":   false,
-		"sandbox.storage.signedDownloadURL": false,
-		"sandbox.storage.listBuckets":       false,
-		"sandbox.storage.deleteBucket":      false,
+	want := map[string]string{
+		"sandbox.storage.bindBucket":        "sandbox.storage.bindBucket",
+		"sandbox.storage.signedUploadURL":   "sandbox.storage.signedUploadURL",
+		"sandbox.storage.signedDownloadURL": "sandbox.storage.signedDownloadURL",
+		"sandbox.storage.listBuckets":       "sandbox.storage.listBuckets",
+		"sandbox.storage.deleteBucket":      "sandbox.storage.deleteBucket",
 	}
+	seen := map[string]bool{}
 	for _, tool := range r.List() {
 		if _, ok := want[tool.Name]; !ok {
 			continue
@@ -301,13 +304,13 @@ func TestSandboxStorageCatalogueWiredIn(t *testing.T) {
 		if tool.Handler == nil {
 			t.Errorf("%s: Handler is nil", tool.Name)
 		}
-		if tool.RequiredCapability != "sandbox.storage" {
-			t.Errorf("%s: RequiredCapability=%q want sandbox.storage", tool.Name, tool.RequiredCapability)
+		if tool.RequiredCapability != want[tool.Name] {
+			t.Errorf("%s: RequiredCapability=%q want %q", tool.Name, tool.RequiredCapability, want[tool.Name])
 		}
-		want[tool.Name] = true
+		seen[tool.Name] = true
 	}
-	for name, found := range want {
-		if !found {
+	for name := range want {
+		if !seen[name] {
 			t.Errorf("%s: missing from catalogue", name)
 		}
 	}

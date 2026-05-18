@@ -481,3 +481,117 @@ func TestSandboxCRName_PathologicalEmpty(t *testing.T) {
 		t.Fatalf("want sandbox-user, got %q", got)
 	}
 }
+
+// TestCapabilitiesForPlan_Mirror locks the tenant orchestrator's mirror
+// of sandboxapi.CapabilitiesForPlan against the documented per-plan
+// shape (PR #1671). The controllers-module version
+// (core/controllers/sandbox/internal/sandboxapi/capabilities_test.go)
+// MUST stay in lockstep — both implementations are wired into the
+// Sandbox CR's spec.capabilities and the per-Sandbox NewAPI token.
+func TestCapabilitiesForPlan_Mirror(t *testing.T) {
+	free := capabilitiesForPlan("sandbox-free")
+	pro := capabilitiesForPlan("sandbox-pro")
+	ent := capabilitiesForPlan("sandbox-ent")
+
+	// Free baseline appears on every plan.
+	for _, plan := range [][]string{free, pro, ent} {
+		if !containsString(plan, "gitea.repo.list") || !containsString(plan, "sandbox.session.*") {
+			t.Errorf("plan missing free baseline: %v", plan)
+		}
+	}
+
+	// Free MUST NOT grant write or per-Sandbox provisioning.
+	for _, forbidden := range []string{
+		"sandbox.db.*", "sandbox.deploy.production", "sandbox.stripe.*", "marketplace.*",
+	} {
+		if containsString(free, forbidden) {
+			t.Errorf("Free plan unexpectedly grants %q", forbidden)
+		}
+	}
+
+	// Pro adds the per-Sandbox provisioning surface.
+	for _, want := range []string{"sandbox.db.*", "sandbox.storage.*", "marketplace.*", "flux.status"} {
+		if !containsString(pro, want) {
+			t.Errorf("Pro plan missing %q: %v", want, pro)
+		}
+	}
+	// Pro MUST NOT grant Ent-only deploy/stripe/flux-mutation.
+	for _, forbidden := range []string{
+		"sandbox.deploy.production", "sandbox.stripe.*", "flux.reconcile", "gitea.pr.create",
+	} {
+		if containsString(pro, forbidden) {
+			t.Errorf("Pro plan unexpectedly grants %q", forbidden)
+		}
+	}
+
+	// Ent adds the deploy/stripe/flux-mutation/gitea-write surface.
+	for _, want := range []string{
+		"sandbox.deploy.production", "sandbox.stripe.*", "flux.reconcile", "gitea.pr.create",
+		"gitea.issue.*",
+	} {
+		if !containsString(ent, want) {
+			t.Errorf("Ent plan missing %q: %v", want, ent)
+		}
+	}
+
+	// Unknown plan slug falls through to Free.
+	unknown := capabilitiesForPlan("sandbox-xxl")
+	if !containsString(unknown, "gitea.repo.list") || containsString(unknown, "sandbox.db.*") {
+		t.Errorf("unknown plan should fall back to Free: %v", unknown)
+	}
+}
+
+// TestSandboxHandle_StampsCapabilities asserts the orchestrator writes
+// the plan-derived MCP capability allowlist into spec.capabilities so
+// `kubectl get sandbox -o yaml` is self-documenting and the
+// sandbox-controller's ResolveCapabilities helper can read it directly
+// without re-deriving from spec.planId.
+func TestSandboxHandle_StampsCapabilities(t *testing.T) {
+	client := &fakeSandboxClient{getErr: notFoundErr()}
+	o := &SandboxOrchestrator{Client: client}
+	evt := mkSandboxRequestedEvent(t, SandboxRequestedPayload{
+		TenantID:   "tenant-1",
+		OrgSlug:    "acme",
+		OwnerID:    "u-1",
+		OwnerEmail: "ceo@acme.com",
+		PlanID:     "sandbox-pro",
+	})
+	if err := o.handleSandboxRequested(context.Background(), evt); err != nil {
+		t.Fatalf("handleSandboxRequested: %v", err)
+	}
+	got := client.createObjs[0]
+	spec, _ := got.Object["spec"].(map[string]any)
+	caps, ok := spec["capabilities"].([]any)
+	if !ok || len(caps) == 0 {
+		t.Fatalf("spec.capabilities missing or empty: %#v", spec["capabilities"])
+	}
+	gotSet := make(map[string]bool, len(caps))
+	for _, v := range caps {
+		if s, ok := v.(string); ok {
+			gotSet[s] = true
+		}
+	}
+	// Spot-check Pro grants.
+	for _, want := range []string{"gitea.repo.list", "sandbox.db.*", "marketplace.*"} {
+		if !gotSet[want] {
+			t.Errorf("spec.capabilities missing Pro grant %q: %v", want, caps)
+		}
+	}
+	// And confirm Ent-only grants are NOT stamped.
+	for _, forbidden := range []string{"sandbox.stripe.*", "sandbox.deploy.production"} {
+		if gotSet[forbidden] {
+			t.Errorf("Pro Sandbox unexpectedly has Ent grant %q", forbidden)
+		}
+	}
+}
+
+// containsString — local helper (kept in this file so the tenant test
+// file has no implicit dep on a shared helper package).
+func containsString(in []string, want string) bool {
+	for _, s := range in {
+		if s == want {
+			return true
+		}
+	}
+	return false
+}

@@ -301,6 +301,21 @@ func (o *SandboxOrchestrator) buildSandbox(name, ns, email string, p SandboxRequ
 	if strings.TrimSpace(p.PlanID) != "" {
 		spec["planId"] = strings.TrimSpace(p.PlanID)
 	}
+	// PR #1671 — tier-bound MCP capabilities. Stamp the plan-derived
+	// allowlist onto spec.capabilities so the sandbox-controller threads
+	// it into the per-Sandbox NewAPI token's `capabilities` claim. The
+	// controller falls back to its own ResolveCapabilities helper when
+	// this field is absent (e.g. CR created by hand), so this stamp is
+	// belt-and-suspenders — surfacing the resolved list on the CR makes
+	// the operator's `kubectl get sandbox -o yaml` self-documenting.
+	caps := capabilitiesForPlan(p.PlanID)
+	if len(caps) > 0 {
+		out := make([]any, 0, len(caps))
+		for _, c := range caps {
+			out = append(out, c)
+		}
+		spec["capabilities"] = out
+	}
 	if len(p.Agents) > 0 {
 		// Copy into []any so json.Marshal renders a plain JSON list
 		// rather than a typed []string (unstructured accepts both but
@@ -381,6 +396,73 @@ func sandboxCRName(email, ownerID string) string {
 	}
 	name = strings.TrimRight(name, "-")
 	return name
+}
+
+// capabilitiesForPlan maps a catalog Sandbox plan slug to the MCP
+// capability allowlist the orchestrator stamps on spec.capabilities.
+//
+// Mirror of sandboxapi.CapabilitiesForPlan in
+// core/controllers/sandbox/internal/sandboxapi/capabilities.go —
+// duplicated here for the SAME reason quotaForPlan is duplicated
+// (tenant-service has no compile-time dep on the controllers module
+// to keep the dep graph free of controller-runtime). If either side
+// changes, the other MUST change in the same PR.
+//
+// Plan ladder:
+//
+//   - sandbox-free: read-only k8s + gitea read + session/rag/skills
+//   - sandbox-pro:  Free + sandbox.db.* + sandbox.storage.* +
+//     sandbox.preview.* + sandbox.auth.* + sandbox.secrets.* +
+//     marketplace.* + flux.status
+//   - sandbox-ent:  Pro + sandbox.deploy.{staging,production,status,rollback}
+//     + sandbox.stripe.* + flux.{reconcile,suspend,resume} +
+//     gitea.pr.{create,merge} + gitea.issue.*
+//
+// Unknown / empty plan slug falls through to the Free shape so a
+// misconfigured event never silently inherits Pro/Ent grants.
+func capabilitiesForPlan(planID string) []string {
+	free := []string{
+		"gitea.repo.list",
+		"gitea.repo.get",
+		"gitea.pr.list",
+		"gitea.pr.get",
+		"k8s.read.get",
+		"k8s.read.list",
+		"sandbox.session.*",
+		"rag.search",
+		"skills.list",
+		"skills.get",
+	}
+	switch strings.TrimSpace(planID) {
+	case "sandbox-ent":
+		out := make([]string, 0, len(free)+24)
+		out = append(out, free...)
+		out = append(out,
+			// Pro tier additions:
+			"sandbox.db.*", "sandbox.storage.*", "sandbox.preview.*",
+			"sandbox.auth.*", "sandbox.secrets.*", "marketplace.*",
+			"flux.status",
+			// Ent tier additions:
+			"sandbox.deploy.staging", "sandbox.deploy.production",
+			"sandbox.deploy.status", "sandbox.deploy.rollback",
+			"sandbox.stripe.*",
+			"flux.reconcile", "flux.suspend", "flux.resume",
+			"gitea.pr.create", "gitea.pr.merge", "gitea.issue.*",
+		)
+		return out
+	case "sandbox-pro":
+		out := make([]string, 0, len(free)+8)
+		out = append(out, free...)
+		out = append(out,
+			"sandbox.db.*", "sandbox.storage.*", "sandbox.preview.*",
+			"sandbox.auth.*", "sandbox.secrets.*", "marketplace.*",
+			"flux.status",
+		)
+		return out
+	default:
+		// sandbox-free + unknown/empty fall through to Free shape.
+		return free
+	}
 }
 
 // quotaForPlan maps a catalog Sandbox plan slug to the SandboxQuota the

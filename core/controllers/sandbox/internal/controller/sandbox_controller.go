@@ -198,11 +198,20 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 				// stable namespace/name pair.
 				sandboxID = fmt.Sprintf("%s/%s", sb.Namespace, sb.Name)
 			}
+			// Tier-bound MCP capabilities (PR #1671) — derived from
+			// spec.capabilities (operator override) or spec.planId via
+			// sandboxapi.ResolveCapabilities. Empty list is permitted by
+			// the bridge handler and produces an introspection-only
+			// token; the controller never short-circuits on a missing
+			// capability list because the operator can grant on-demand
+			// by patching spec.capabilities.
+			caps := sandboxapi.ResolveCapabilities(&sb.Spec)
 			mint, mintErr := r.NewAPIClient.MintSandboxToken(ctx, newapi.MintRequest{
 				OrgID:           sb.Spec.Owner.OrgRef.Slug,
 				UserID:          sb.Spec.Owner.Email,
 				SandboxID:       sandboxID,
 				AllowedChannels: channels,
+				Capabilities:    caps,
 			})
 			if mintErr != nil {
 				r.Log.Error(mintErr, "newapi mint failed",

@@ -292,29 +292,31 @@ func TestSandboxPreviewCapabilityGate(t *testing.T) {
 }
 
 // TestSandboxPreviewRegistered makes sure every Wave-12 tool name is
-// registered AND carries the canonical RequiredCapability.
+// registered AND carries its granular tier-bound RequiredCapability
+// (PR #1671 — Pro plan grants `sandbox.preview.*` which the wildcard
+// matcher resolves to these per-tool grants).
 func TestSandboxPreviewRegistered(t *testing.T) {
 	r := NewRegistry(&Env{})
-	expected := []string{
-		"sandbox.preview.create",
-		"sandbox.preview.list",
-		"sandbox.preview.status",
-		"sandbox.preview.teardown",
-		"sandbox.preview.rebuild",
+	expected := map[string]string{
+		"sandbox.preview.create":   "sandbox.preview.create",
+		"sandbox.preview.list":     "sandbox.preview.list",
+		"sandbox.preview.status":   "sandbox.preview.status",
+		"sandbox.preview.teardown": "sandbox.preview.teardown",
+		"sandbox.preview.rebuild":  "sandbox.preview.rebuild",
 	}
 	seen := map[string]bool{}
 	for _, tool := range r.List() {
 		if strings.HasPrefix(tool.Name, "sandbox.preview.") {
 			seen[tool.Name] = true
-			if tool.RequiredCapability != "sandbox.preview" {
-				t.Errorf("%s RequiredCapability=%q want sandbox.preview", tool.Name, tool.RequiredCapability)
+			if want, ok := expected[tool.Name]; ok && tool.RequiredCapability != want {
+				t.Errorf("%s RequiredCapability=%q want %q", tool.Name, tool.RequiredCapability, want)
 			}
 			if tool.Handler == nil {
 				t.Errorf("%s has nil Handler — still a stub", tool.Name)
 			}
 		}
 	}
-	for _, want := range expected {
+	for want := range expected {
 		if !seen[want] {
 			t.Errorf("tool %q not registered", want)
 		}

@@ -219,7 +219,9 @@ func TestSandboxDBProvision_PlanRejection(t *testing.T) {
 		JWTSecret:        []byte("x"),
 		SandboxNamespace: "sandbox-uid-1",
 	})
-	cl := &sharedauth.Claims{OrgID: "acme", Capabilities: []string{"sandbox.db"}}
+	// PR #1671 — Pro plan grants `sandbox.db.*` which the wildcard
+	// matcher resolves to the per-tool `sandbox.db.provision` grant.
+	cl := &sharedauth.Claims{OrgID: "acme", Capabilities: []string{"sandbox.db.*"}}
 	args := json.RawMessage(`{"name":"mydb1","plan":"xxl"}`)
 	_, err := r.Call(context.Background(), "sandbox.db.provision", args, CallOpts{Claims: cl})
 	if err == nil || !strings.Contains(err.Error(), "unknown plan") {

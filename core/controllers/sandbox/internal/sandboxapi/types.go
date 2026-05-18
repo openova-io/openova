@@ -60,6 +60,23 @@ type SandboxSpec struct {
 	Repos          []SandboxRepo  `json:"repos,omitempty"`
 	AgentCatalogue []string       `json:"agentCatalogue,omitempty"`
 	PreviewDomain  string         `json:"previewDomain,omitempty"`
+
+	// PlanID is the catalog plan slug the customer selected
+	// (`sandbox-free` | `sandbox-pro` | `sandbox-ent`). Stamped by the
+	// tenant-service orchestrator from the `tenant.sandbox_requested`
+	// event. The sandbox-controller falls back to this when
+	// spec.capabilities is empty so the operator gets the plan's
+	// default capability allowlist without an explicit overlay.
+	PlanID string `json:"planId,omitempty"`
+
+	// Capabilities is the MCP capability allowlist the
+	// sandbox-controller stamps onto every minted NewAPI token. The
+	// MCP server gates every tool call against these strings via
+	// Claims.HasCapability (architecture.md §3 RBAC). Empty list →
+	// the controller derives the list from spec.planId via
+	// CapabilitiesForPlan. Wildcards (`sandbox.db.*`) are honoured
+	// by the matcher so the plan map can carry coarse grants.
+	Capabilities []string `json:"capabilities,omitempty"`
 }
 
 // SandboxOwner is spec.owner.
@@ -161,6 +178,10 @@ func (s *SandboxSpec) DeepCopyInto(out *SandboxSpec) {
 	if s.AgentCatalogue != nil {
 		out.AgentCatalogue = make([]string, len(s.AgentCatalogue))
 		copy(out.AgentCatalogue, s.AgentCatalogue)
+	}
+	if s.Capabilities != nil {
+		out.Capabilities = make([]string, len(s.Capabilities))
+		copy(out.Capabilities, s.Capabilities)
 	}
 }
 

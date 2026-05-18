@@ -426,134 +426,160 @@ func defaultCatalogue(env *Env) []Tool {
 
 	return []Tool{
 		// gitea.* — read surface backed by core/controllers/pkg/gitea.
+		// Tier-bound (PR #1671): every read tool requires the granular
+		// `gitea.repo.list` / `gitea.pr.list` capability so Free-tier
+		// tokens (which carry exactly those grants) can browse without
+		// inheriting the write surface gitea.pr.create / gitea.issue.*.
 		{
-			Name:        "gitea.repo.list",
-			Description: "List repos in the Org's Gitea Org.",
-			InputSchema: schemaGiteaRepoList(),
-			Handler:     giteaRepoList,
+			Name:               "gitea.repo.list",
+			Description:        "List repos in the Org's Gitea Org.",
+			InputSchema:        schemaGiteaRepoList(),
+			Handler:            giteaRepoList,
+			RequiredCapability: "gitea.repo.list",
 		},
 		{
-			Name:        "gitea.repo.get",
-			Description: "Get a single repo by owner/name.",
-			InputSchema: schemaGiteaRepoGet(),
-			Handler:     giteaRepoGet,
+			Name:               "gitea.repo.get",
+			Description:        "Get a single repo by owner/name.",
+			InputSchema:        schemaGiteaRepoGet(),
+			Handler:            giteaRepoGet,
+			RequiredCapability: "gitea.repo.get",
 		},
 		{
-			Name:        "gitea.pr.list",
-			Description: "List PRs on a repo (state=open|closed|all).",
-			InputSchema: schemaGiteaPRList(),
-			Handler:     giteaPRList,
+			Name:               "gitea.pr.list",
+			Description:        "List PRs on a repo (state=open|closed|all).",
+			InputSchema:        schemaGiteaPRList(),
+			Handler:            giteaPRList,
+			RequiredCapability: "gitea.pr.list",
 		},
 		{
-			Name:        "gitea.pr.get",
-			Description: "Get a single PR by repo + number.",
-			InputSchema: schemaGiteaPRGet(),
-			Handler:     giteaPRGet,
+			Name:               "gitea.pr.get",
+			Description:        "Get a single PR by repo + number.",
+			InputSchema:        schemaGiteaPRGet(),
+			Handler:            giteaPRGet,
+			RequiredCapability: "gitea.pr.get",
 		},
 
 		// gitea.* — write surface (Wave 11 wired pr.create/merge + issue.*).
+		// Tier-bound (PR #1671): gated to Ent-tier grants (`gitea.pr.create`,
+		// `gitea.pr.merge`, `gitea.issue.*`) so Free + Pro tokens cannot
+		// open PRs / file issues.
 		{
-			Name:        "gitea.pr.create",
-			Description: "Open a PR (branch -> base) with title and body.",
-			InputSchema: schemaGiteaPRCreate(),
-			Handler:     giteaPRCreate,
+			Name:               "gitea.pr.create",
+			Description:        "Open a PR (branch -> base) with title and body.",
+			InputSchema:        schemaGiteaPRCreate(),
+			Handler:            giteaPRCreate,
+			RequiredCapability: "gitea.pr.create",
 		},
 		{
-			Name:        "gitea.pr.merge",
-			Description: "Merge a PR by number (style=merge|rebase|rebase-merge|squash; default merge).",
-			InputSchema: schemaGiteaPRMerge(),
-			Handler:     giteaPRMerge,
+			Name:               "gitea.pr.merge",
+			Description:        "Merge a PR by number (style=merge|rebase|rebase-merge|squash; default merge).",
+			InputSchema:        schemaGiteaPRMerge(),
+			Handler:            giteaPRMerge,
+			RequiredCapability: "gitea.pr.merge",
 		},
 		{
-			Name:        "gitea.issue.list",
-			Description: "List issues on a repo (state=open|closed|all, type=issues|pulls).",
-			InputSchema: schemaGiteaIssueList(),
-			Handler:     giteaIssueList,
+			Name:               "gitea.issue.list",
+			Description:        "List issues on a repo (state=open|closed|all, type=issues|pulls).",
+			InputSchema:        schemaGiteaIssueList(),
+			Handler:            giteaIssueList,
+			RequiredCapability: "gitea.issue.list",
 		},
 		{
-			Name:        "gitea.issue.get",
-			Description: "Get a single issue by repo + number.",
-			InputSchema: schemaGiteaIssueGet(),
-			Handler:     giteaIssueGet,
+			Name:               "gitea.issue.get",
+			Description:        "Get a single issue by repo + number.",
+			InputSchema:        schemaGiteaIssueGet(),
+			Handler:            giteaIssueGet,
+			RequiredCapability: "gitea.issue.get",
 		},
 		{
-			Name:        "gitea.issue.create",
-			Description: "Create an issue with title and body.",
-			InputSchema: schemaGiteaIssueCreate(),
-			Handler:     giteaIssueCreate,
+			Name:               "gitea.issue.create",
+			Description:        "Create an issue with title and body.",
+			InputSchema:        schemaGiteaIssueCreate(),
+			Handler:            giteaIssueCreate,
+			RequiredCapability: "gitea.issue.create",
 		},
 		{
-			Name:        "gitea.issue.comment",
-			Description: "Add a comment to an issue (or PR — Gitea conflates).",
-			InputSchema: schemaGiteaIssueComment(),
-			Handler:     giteaIssueComment,
+			Name:               "gitea.issue.comment",
+			Description:        "Add a comment to an issue (or PR — Gitea conflates).",
+			InputSchema:        schemaGiteaIssueComment(),
+			Handler:            giteaIssueComment,
+			RequiredCapability: "gitea.issue.comment",
 		},
 		{Name: "gitea.release.list", Description: "List releases on a repo.", InputSchema: anyObj},
 
-		// k8s.read.* — Org vcluster scope (NEVER host).
+		// k8s.read.* — Org vcluster scope (NEVER host). Tier-bound
+		// (PR #1671): get/list are Free-tier grants, watch/logs are
+		// Pro-tier grants (heavier read surface — log streams + watch
+		// streams hold cluster resources).
 		{
-			Name:        "k8s.read.get",
-			Description: "GET a single object by GVK + namespace + name (Org vcluster).",
-			InputSchema: schemaK8sReadGet(),
-			Handler:     k8sReadGet,
+			Name:               "k8s.read.get",
+			Description:        "GET a single object by GVK + namespace + name (Org vcluster).",
+			InputSchema:        schemaK8sReadGet(),
+			Handler:            k8sReadGet,
+			RequiredCapability: "k8s.read.get",
 		},
 		{
-			Name:        "k8s.read.list",
-			Description: "LIST objects by GVK + namespace (Org vcluster; label selector optional).",
-			InputSchema: schemaK8sReadList(),
-			Handler:     k8sReadList,
+			Name:               "k8s.read.list",
+			Description:        "LIST objects by GVK + namespace (Org vcluster; label selector optional).",
+			InputSchema:        schemaK8sReadList(),
+			Handler:            k8sReadList,
+			RequiredCapability: "k8s.read.list",
 		},
 		{
-			Name:        "k8s.read.watch",
-			Description: "WATCH a kind for live updates (returns a window of events, then closes).",
-			InputSchema: schemaK8sReadWatch(),
-			Handler:     k8sReadWatch,
+			Name:               "k8s.read.watch",
+			Description:        "WATCH a kind for live updates (returns a window of events, then closes).",
+			InputSchema:        schemaK8sReadWatch(),
+			Handler:            k8sReadWatch,
+			RequiredCapability: "k8s.read.watch",
 		},
 		{
-			Name:        "k8s.read.logs",
-			Description: "Fetch the recent N log lines for a pod container (bounded; read-only).",
-			InputSchema: schemaK8sReadLogs(),
-			Handler:     k8sReadLogs,
+			Name:               "k8s.read.logs",
+			Description:        "Fetch the recent N log lines for a pod container (bounded; read-only).",
+			InputSchema:        schemaK8sReadLogs(),
+			Handler:            k8sReadLogs,
+			RequiredCapability: "k8s.read.logs",
 		},
 
 		// sandbox.db.* — CNPG provisioning (Wave 11 — sandbox_db.go).
 		// Every handler addresses env.SandboxNamespace; the agent
-		// cannot pass a namespace argument. RequiredCapability gates
-		// each call to bearers whose claims carry `sandbox.db`.
+		// cannot pass a namespace argument. Tier-bound (PR #1671):
+		// each tool's per-handler RequiredCapability is the granular
+		// dotted name; Pro-tier tokens carry `sandbox.db.*` which the
+		// HasCapability matcher resolves to the per-tool grants.
 		{
 			Name:               "sandbox.db.provision",
 			Description:        "Provision a CNPG Postgres Cluster CR in this Sandbox's namespace (default plan: 1 instance, 5Gi, postgres 16). Returns the connection envelope.",
 			InputSchema:        schemaSandboxDBProvision(),
 			Handler:            sandboxDBProvision,
-			RequiredCapability: "sandbox.db",
+			RequiredCapability: "sandbox.db.provision",
 		},
 		{
 			Name:               "sandbox.db.list",
 			Description:        "List CNPG Clusters provisioned by this Sandbox (filtered to openova.io/managed-by=openova-sandbox-mcp).",
 			InputSchema:        map[string]any{"type": "object", "additionalProperties": false},
 			Handler:            sandboxDBList,
-			RequiredCapability: "sandbox.db",
+			RequiredCapability: "sandbox.db.list",
 		},
 		{
 			Name:               "sandbox.db.get",
 			Description:        "Get a single Sandbox-managed CNPG Cluster's status + connection envelope by name.",
 			InputSchema:        schemaSandboxDBNameOnly(),
 			Handler:            sandboxDBGet,
-			RequiredCapability: "sandbox.db",
+			RequiredCapability: "sandbox.db.get",
 		},
 		{
 			Name:               "sandbox.db.drop",
 			Description:        "Delete a Sandbox-managed CNPG Cluster (CNPG operator cascades PVC/Service/Secret cleanup).",
 			InputSchema:        schemaSandboxDBNameOnly(),
 			Handler:            sandboxDBDrop,
-			RequiredCapability: "sandbox.db",
+			RequiredCapability: "sandbox.db.drop",
 		},
 		{
 			Name:               "sandbox.db.dump",
 			Description:        "Create a one-shot CNPG Backup CR (barman-cloud or volumeSnapshot per cluster config). Returns the Backup CR ref + configured S3 destinationPath.",
 			InputSchema:        schemaSandboxDBNameOnly(),
 			Handler:            sandboxDBDump,
-			RequiredCapability: "sandbox.db",
+			RequiredCapability: "sandbox.db.dump",
 		},
 
 		// sandbox.auth.* — Keycloak realm + OIDC client management
@@ -567,21 +593,21 @@ func defaultCatalogue(env *Env) []Tool {
 			Description:        "Provision a per-Sandbox Keycloak realm under the Sovereign Keycloak instance. Idempotent: returns AlreadyExists on re-call.",
 			InputSchema:        schemaSandboxAuthProvisionRealm(),
 			Handler:            sandboxAuthProvisionRealm,
-			RequiredCapability: "sandbox.auth",
+			RequiredCapability: "sandbox.auth.provisionRealm",
 		},
 		{
 			Name:               "sandbox.auth.listClients",
 			Description:        "List OIDC clients in this Sandbox's realm (`sandbox-<org>-<id>`).",
 			InputSchema:        map[string]any{"type": "object", "additionalProperties": false},
 			Handler:            sandboxAuthListClients,
-			RequiredCapability: "sandbox.auth",
+			RequiredCapability: "sandbox.auth.listClients",
 		},
 		{
 			Name:               "sandbox.auth.registerClient",
 			Description:        "Register a new OIDC client in this Sandbox's realm (`sandbox-<org>-<id>`). Idempotent: returns AlreadyExists on re-call.",
 			InputSchema:        schemaSandboxAuthRegisterClient(),
 			Handler:            sandboxAuthRegisterClient,
-			RequiredCapability: "sandbox.auth",
+			RequiredCapability: "sandbox.auth.registerClient",
 		},
 
 		// sandbox.secrets.* — per-Sandbox Secret store
@@ -595,14 +621,14 @@ func defaultCatalogue(env *Env) []Tool {
 			Description:        "Read a key from the Sandbox's Secret store (`sandbox-<owner-uid>-secrets`). Returns status=NotFound when the store hasn't been created yet.",
 			InputSchema:        schemaSandboxSecretsRead(),
 			Handler:            sandboxSecretsRead,
-			RequiredCapability: "sandbox.secrets",
+			RequiredCapability: "sandbox.secrets.read",
 		},
 		{
 			Name:               "sandbox.secrets.write",
 			Description:        "Write a key/value into the Sandbox's Secret store (auto-creates the Secret on first write). Encrypted at rest via K8s Secret encryption-at-rest.",
 			InputSchema:        schemaSandboxSecretsWrite(),
 			Handler:            sandboxSecretsWrite,
-			RequiredCapability: "sandbox.secrets",
+			RequiredCapability: "sandbox.secrets.write",
 		},
 
 		// marketplace.domain.* — Wave 12 thin proxy to
@@ -615,14 +641,14 @@ func defaultCatalogue(env *Env) []Tool {
 			Description:        "Register a Bring-Your-Own-Domain (BYOD) FQDN for the Sandbox's tenant. Returns the CNAME target the operator points at their registrar.",
 			InputSchema:        schemaMarketplaceDomainBYOD(),
 			Handler:            marketplaceDomainBYOD,
-			RequiredCapability: "marketplace",
+			RequiredCapability: "marketplace.domain.byod",
 		},
 		{
 			Name:               "marketplace.domain.subdomain",
 			Description:        "Reserve a `<subdomain>.<parent_zone>` under the Sovereign-managed subdomain pool (parent_zone defaults to the configured pool TLD).",
 			InputSchema:        schemaMarketplaceDomainSubdomain(),
 			Handler:            marketplaceDomainSubdomain,
-			RequiredCapability: "marketplace",
+			RequiredCapability: "marketplace.domain.subdomain",
 		},
 
 		// flux.* — Wave 12 Flux read/kick surface (flux.go). status is
@@ -637,28 +663,28 @@ func defaultCatalogue(env *Env) []Tool {
 			Description:        "List HelmReleases + Kustomizations in the Sandbox's tenant namespaces with their Ready condition + last applied revision.",
 			InputSchema:        schemaFluxStatus(),
 			Handler:            fluxStatus,
-			RequiredCapability: "flux",
+			RequiredCapability: "flux.status",
 		},
 		{
 			Name:               "flux.reconcile",
 			Description:        "Force-run a Flux reconcile on a tenant-scoped HelmRelease or Kustomization by setting the `reconcile.fluxcd.io/requestedAt` annotation.",
 			InputSchema:        schemaFluxMutation(),
 			Handler:            fluxReconcile,
-			RequiredCapability: "flux",
+			RequiredCapability: "flux.reconcile",
 		},
 		{
 			Name:               "flux.suspend",
 			Description:        "Set spec.suspend=true on a tenant-scoped HelmRelease or Kustomization so Flux stops reconciling it.",
 			InputSchema:        schemaFluxMutation(),
 			Handler:            fluxSuspend,
-			RequiredCapability: "flux",
+			RequiredCapability: "flux.suspend",
 		},
 		{
 			Name:               "flux.resume",
 			Description:        "Set spec.suspend=false on a tenant-scoped HelmRelease or Kustomization so Flux resumes reconciling.",
 			InputSchema:        schemaFluxMutation(),
 			Handler:            fluxResume,
-			RequiredCapability: "flux",
+			RequiredCapability: "flux.resume",
 		},
 
 		// rag.search — Wave 12 lean text-grep stub over /repo PVC
@@ -707,35 +733,35 @@ func defaultCatalogue(env *Env) []Tool {
 			Description:        "Create a per-PR preview triple (Deployment + Service + HTTPRoute) in this Sandbox's namespace. Hostname pattern: `pr-<num>.<app>.sandbox.<sov-fqdn>`.",
 			InputSchema:        schemaSandboxPreviewCreate(),
 			Handler:            sandboxPreviewCreate,
-			RequiredCapability: "sandbox.preview",
+			RequiredCapability: "sandbox.preview.create",
 		},
 		{
 			Name:               "sandbox.preview.list",
 			Description:        "List active per-PR previews in this Sandbox (filtered to openova.io/managed-by=openova-sandbox-mcp + openova.io/preview-pr label).",
 			InputSchema:        map[string]any{"type": "object", "additionalProperties": false},
 			Handler:            sandboxPreviewList,
-			RequiredCapability: "sandbox.preview",
+			RequiredCapability: "sandbox.preview.list",
 		},
 		{
 			Name:               "sandbox.preview.status",
 			Description:        "Fetch a per-PR preview's Deployment status + Pod readiness (containerStatuses with waiting reason, restartCount).",
 			InputSchema:        schemaSandboxPreviewPRNumber(),
 			Handler:            sandboxPreviewStatus,
-			RequiredCapability: "sandbox.preview",
+			RequiredCapability: "sandbox.preview.status",
 		},
 		{
 			Name:               "sandbox.preview.teardown",
 			Description:        "Delete a per-PR preview (Deployment + Service + HTTPRoute). Foreground propagation on the Deployment so Pods + ReplicaSets are fully reaped.",
 			InputSchema:        schemaSandboxPreviewPRNumber(),
 			Handler:            sandboxPreviewTeardown,
-			RequiredCapability: "sandbox.preview",
+			RequiredCapability: "sandbox.preview.teardown",
 		},
 		{
 			Name:               "sandbox.preview.rebuild",
 			Description:        "Update a per-PR preview's container image + bump kubectl.kubernetes.io/restartedAt to force a rollout (works even when the image tag is unchanged).",
 			InputSchema:        schemaSandboxPreviewRebuild(),
 			Handler:            sandboxPreviewRebuild,
-			RequiredCapability: "sandbox.preview",
+			RequiredCapability: "sandbox.preview.rebuild",
 		},
 
 		// sandbox.deploy.* — per-app staging + production rollouts via
@@ -752,28 +778,28 @@ func defaultCatalogue(env *Env) []Tool {
 			Description:        "Patch the staging HelmRelease (`<app>-staging`) image in the Org's tenant Gitea repo. Flux on the host reconciles into the Org vcluster.",
 			InputSchema:        schemaSandboxDeployImage(),
 			Handler:            sandboxDeployStaging,
-			RequiredCapability: "sandbox.deploy",
+			RequiredCapability: "sandbox.deploy.staging",
 		},
 		{
 			Name:               "sandbox.deploy.production",
 			Description:        "Patch the production HelmRelease (`<app>-production`) image. Demands an extra `sandbox.deploy.production` capability on top of `sandbox.deploy`.",
 			InputSchema:        schemaSandboxDeployImage(),
 			Handler:            sandboxDeployProduction,
-			RequiredCapability: "sandbox.deploy",
+			RequiredCapability: "sandbox.deploy.production",
 		},
 		{
 			Name:               "sandbox.deploy.status",
 			Description:        "Read the HelmRelease status (`Ready` condition + observed_image vs requested_image) for the given env.",
 			InputSchema:        schemaSandboxDeployEnv(),
 			Handler:            sandboxDeployStatus,
-			RequiredCapability: "sandbox.deploy",
+			RequiredCapability: "sandbox.deploy.status",
 		},
 		{
 			Name:               "sandbox.deploy.rollback",
 			Description:        "Revert the HR image to the previously-deployed value (read from `openova.io/last-deployed-image` annotation). Production rollbacks also require `sandbox.deploy.production`.",
 			InputSchema:        schemaSandboxDeployEnv(),
 			Handler:            sandboxDeployRollback,
-			RequiredCapability: "sandbox.deploy",
+			RequiredCapability: "sandbox.deploy.rollback",
 		},
 
 		// sandbox.storage.* — per-Sandbox SeaweedFS S3 buckets
@@ -789,35 +815,35 @@ func defaultCatalogue(env *Env) []Tool {
 			Description:        "Create (idempotent) a SeaweedFS S3 bucket owned by this Sandbox. Bucket name defaults to `sandbox-<owner-uid>-default`; explicit names are auto-prefixed with `sandbox-<owner-uid>-`.",
 			InputSchema:        schemaSandboxStorageBindBucket(),
 			Handler:            sandboxStorageBindBucket,
-			RequiredCapability: "sandbox.storage",
+			RequiredCapability: "sandbox.storage.bindBucket",
 		},
 		{
 			Name:               "sandbox.storage.signedUploadURL",
 			Description:        "Mint a presigned S3 PUT URL for {bucket, key}. Defaults to a 15-minute expiry; max 7 days. Bucket must be owned by this Sandbox.",
 			InputSchema:        schemaSandboxStorageSignedURL(),
 			Handler:            sandboxStorageSignedUploadURL,
-			RequiredCapability: "sandbox.storage",
+			RequiredCapability: "sandbox.storage.signedUploadURL",
 		},
 		{
 			Name:               "sandbox.storage.signedDownloadURL",
 			Description:        "Mint a presigned S3 GET URL for {bucket, key}. Defaults to a 15-minute expiry; max 7 days. Bucket must be owned by this Sandbox.",
 			InputSchema:        schemaSandboxStorageSignedURL(),
 			Handler:            sandboxStorageSignedDownloadURL,
-			RequiredCapability: "sandbox.storage",
+			RequiredCapability: "sandbox.storage.signedDownloadURL",
 		},
 		{
 			Name:               "sandbox.storage.listBuckets",
 			Description:        "List SeaweedFS buckets owned by this Sandbox (filtered to the `sandbox-<owner-uid>-` prefix).",
 			InputSchema:        map[string]any{"type": "object", "additionalProperties": false},
 			Handler:            sandboxStorageListBuckets,
-			RequiredCapability: "sandbox.storage",
+			RequiredCapability: "sandbox.storage.listBuckets",
 		},
 		{
 			Name:               "sandbox.storage.deleteBucket",
 			Description:        "Delete a SeaweedFS bucket owned by this Sandbox. The bucket must be empty; SeaweedFS rejects non-empty deletes (drain objects first).",
 			InputSchema:        schemaSandboxStorageDeleteBucket(),
 			Handler:            sandboxStorageDeleteBucket,
-			RequiredCapability: "sandbox.storage",
+			RequiredCapability: "sandbox.storage.deleteBucket",
 		},
 
 		// sandbox.stripe.* — per-Sandbox Stripe account binding + Product /
@@ -834,42 +860,46 @@ func defaultCatalogue(env *Env) []Tool {
 			Description:        "Bind a Stripe API key (`sk_live_…` / `sk_test_…` / `rk_live_…` / `rk_test_…`) to this Sandbox. Stored in the Sandbox Secret store; subsequent sandbox.stripe.* calls read it implicitly. Returns a MASKED confirmation.",
 			InputSchema:        schemaSandboxStripeBindAccount(),
 			Handler:            sandboxStripeBindAccount,
-			RequiredCapability: "sandbox.stripe",
+			RequiredCapability: "sandbox.stripe.bindAccount",
 		},
 		{
 			Name:               "sandbox.stripe.listProducts",
 			Description:        "List Stripe Products via the bound key. Supports `limit` (1-100, default 20), `active` (filter), `starting_after` (cursor).",
 			InputSchema:        schemaSandboxStripeListProducts(),
 			Handler:            sandboxStripeListProducts,
-			RequiredCapability: "sandbox.stripe",
+			RequiredCapability: "sandbox.stripe.listProducts",
 		},
 		{
 			Name:               "sandbox.stripe.listPrices",
 			Description:        "List Stripe Prices via the bound key. Optional `product_id` filters to one Product; same paging flags as listProducts.",
 			InputSchema:        schemaSandboxStripeListPrices(),
 			Handler:            sandboxStripeListPrices,
-			RequiredCapability: "sandbox.stripe",
+			RequiredCapability: "sandbox.stripe.listPrices",
 		},
 		{
 			Name:               "sandbox.stripe.createCheckoutSession",
 			Description:        "Create a Stripe Checkout Session for {price_id, success_url, cancel_url}. Default mode=payment, quantity=1. Returns the hosted Checkout URL.",
 			InputSchema:        schemaSandboxStripeCreateCheckoutSession(),
 			Handler:            sandboxStripeCreateCheckoutSession,
-			RequiredCapability: "sandbox.stripe",
+			RequiredCapability: "sandbox.stripe.createCheckoutSession",
 		},
 
 		// sandbox.session.* — this MCP server's own metadata (Wave 8).
+		// Tier-bound (PR #1671): Free tokens carry `sandbox.session.*`
+		// so the whoami/info introspection tools work on every plan.
 		{
-			Name:        "sandbox.session.whoami",
-			Description: "Return the claims (sub, org_id, sandbox_id, role) the server sees on the per-call bearer.",
-			InputSchema: anyObj,
-			Handler:     sessionWhoami,
+			Name:               "sandbox.session.whoami",
+			Description:        "Return the claims (sub, org_id, sandbox_id, role) the server sees on the per-call bearer.",
+			InputSchema:        anyObj,
+			Handler:            sessionWhoami,
+			RequiredCapability: "sandbox.session.whoami",
 		},
 		{
-			Name:        "sandbox.session.info",
-			Description: "Return the Sandbox's name, namespace, attached repos, Sovereign FQDN.",
-			InputSchema: anyObj,
-			Handler:     sessionInfo,
+			Name:               "sandbox.session.info",
+			Description:        "Return the Sandbox's name, namespace, attached repos, Sovereign FQDN.",
+			InputSchema:        anyObj,
+			Handler:            sessionInfo,
+			RequiredCapability: "sandbox.session.info",
 		},
 	}
 }
