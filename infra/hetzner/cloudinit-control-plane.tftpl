@@ -1188,6 +1188,22 @@ write_files:
             # bp-catalyst-platform into clusters/_template/sovereign-tls/
             # has access to the parent-zone list without a config copy.
             PARENT_DOMAINS_YAML: '${parent_domains_yaml}'
+            # PARENT_DOMAINS_LISTENERS_YAML (issue #831 follow-on to #827).
+            # JSON-flow array literal listing one Gateway listener pair
+            # (HTTPS:30443 + HTTP:30080) per parent zone. Consumed as a
+            # scalar value at `listeners: $${PARENT_DOMAINS_LISTENERS_YAML}`
+            # in clusters/_template/sovereign-tls/cilium-gateway.yaml.
+            # kustomize-build accepts the unsubstituted scalar; Flux's
+            # postBuild.substitute then swaps it for the materialised
+            # array, which YAML parses as the actual listener list.
+            # The double jsonencode is intentional — the inner one
+            # (locals.parent_domains_listeners_yaml) renders the array;
+            # the outer one wraps it as a JSON-encoded string so the
+            # value-in-YAML embedding works regardless of the array's
+            # internal characters. See infra/hetzner/main.tf
+            # locals.parent_domains_listeners_yaml for rationale +
+            # listener-naming convention.
+            PARENT_DOMAINS_LISTENERS_YAML: ${jsonencode(parent_domains_listeners_yaml)}
             # WILDCARD_CERT_ISSUER (Fix #176 — qa-loop iter-1 LE
             # rate-limit unblock). cilium-gateway-cert.yaml references
             # this via $${WILDCARD_CERT_ISSUER}. When

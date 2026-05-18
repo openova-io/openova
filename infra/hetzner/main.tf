@@ -307,6 +307,96 @@ locals {
   # rate limit pins the Gateway to a `Ready=False` Certificate.
   wildcard_cert_issuer = var.wildcard_cert_use_staging == "true" ? "letsencrypt-dns01-staging-powerdns" : "letsencrypt-dns01-prod-powerdns"
 
+  # ── Cilium Gateway listeners per parent zone (issue #831, parent #827) ───
+  # The Sovereign supports N parent zones (primary + 0..N sme-pool). For
+  # each zone the Cilium Gateway must declare a listener pair (HTTPS:30443
+  # + HTTP:30080) hostnamed `*.<zone>` so cilium-envoy programs the SDS
+  # subscription against the per-zone cert. Without these listeners,
+  # tenant URLs under non-primary parent zones (e.g. wp-foo.omani.homes)
+  # hit the envoy default fallback cert and TLS-mismatch.
+  #
+  # parent_domains_yaml is a YAML inline-array literal (see variables.tf).
+  # yamldecode() turns it into a list of objects we can iterate at plan
+  # time. The result is a JSON-flow array string injected verbatim into
+  # clusters/_template/sovereign-tls/cilium-gateway.yaml via Flux
+  # postBuild.substitute ${PARENT_DOMAINS_LISTENERS_YAML}. YAML accepts
+  # JSON-flow syntax (`[{...}, {...}]`) as a native inline-flow array,
+  # so the substituted value parses correctly under spec.listeners.
+  #
+  # The single-zone fallback (var.parent_domains_yaml empty) renders one
+  # pair derived from sovereign_fqdn — keeps legacy single-zone
+  # provisioning paths plan-clean (one zone → two listeners).
+  parent_domains_decoded = yamldecode(coalesce(
+    var.parent_domains_yaml,
+    format("[{name: \"%s\", role: \"primary\"}]", var.sovereign_fqdn)
+  ))
+
+  # Render the Gateway listeners block as a YAML inline-flow array (JSON-
+  # compatible syntax — `[{key: val, ...}, {...}]`). Each parent zone
+  # produces two entries:
+  #   - HTTPS listener on port 30443 hostnamed `*.<zone>` with certificateRefs
+  #     targeting `sovereign-wildcard-tls-<sanitised-zone>` (the chart's
+  #     sovereign-wildcard-certs.yaml writes a Secret of that exact name).
+  #   - HTTP  listener on port 30080 hostnamed `*.<zone>` for /.well-known/
+  #     and ACME HTTP-01 challenge paths.
+  #
+  # Each listener has a unique `name` field (https-<sanitised-zone> /
+  # http-<sanitised-zone>) so the Gateway controller programs them all
+  # (duplicate listener names produce a Conflicting status condition and
+  # silently skip every duplicate but the first).
+  #
+  # Why inline-flow not block-style:
+  #   - clusters/_template/sovereign-tls/cilium-gateway.yaml uses the
+  #     placeholder as a SCALAR value (`listeners: ${PARENT_DOMAINS_
+  #     LISTENERS_YAML}`). A block-style multi-line value would break
+  #     kustomize's pre-substitute YAML parse (the placeholder lands
+  #     mid-document and kustomize doesn't see the structure yet).
+  #   - Inline-flow is YAML-spec valid AND kustomize-build accepts the
+  #     scalar `${VAR}` until Flux's postBuild.substitute swaps it for
+  #     the materialised list. Same pattern PARENT_DOMAINS_YAML uses
+  #     (bp-powerdns slot 11 zones field).
+  #
+  # jsonencode() is used downstream (in cloudinit-control-plane.tftpl)
+  # to wrap this string for safe storage inside the Flux Kustomization's
+  # substitute map. JSON-encoded scalars are valid YAML; this avoids
+  # quoting hell when the listener data contains characters cloud-init
+  # YAML would otherwise mis-parse.
+  parent_domains_listeners_yaml = jsonencode(flatten([
+    for entry in local.parent_domains_decoded : [
+      {
+        name     = format("https-%s", replace(entry.name, ".", "-"))
+        port     = 30443
+        protocol = "HTTPS"
+        hostname = format("*.%s", entry.name)
+        tls = {
+          mode = "Terminate"
+          certificateRefs = [
+            {
+              kind = "Secret"
+              name = format("sovereign-wildcard-tls-%s", replace(entry.name, ".", "-"))
+            }
+          ]
+        }
+        allowedRoutes = {
+          namespaces = {
+            from = "All"
+          }
+        }
+      },
+      {
+        name     = format("http-%s", replace(entry.name, ".", "-"))
+        port     = 30080
+        protocol = "HTTP"
+        hostname = format("*.%s", entry.name)
+        allowedRoutes = {
+          namespaces = {
+            from = "All"
+          }
+        }
+      },
+    ]
+  ]))
+
   # ── Effective singular-path SKU selection (Fix #157) ─────────────────────
   # When qa_fixtures_enabled='true', the Sovereign is a QA-loop matrix
   # consumer carrying the full bp-* stack PLUS qaFixtures (Continuum +
@@ -568,6 +658,12 @@ locals {
       var.parent_domains_yaml,
       format("[{name: \"%s\", role: \"primary\"}]", var.sovereign_fqdn)
     )
+    # Cilium Gateway listeners per parent zone (issue #831). Multi-line
+    # YAML block iterating local.parent_domains_decoded. Threaded into
+    # clusters/_template/sovereign-tls/cilium-gateway.yaml via Flux
+    # postBuild.substitute as ${PARENT_DOMAINS_LISTENERS_YAML}. See
+    # locals.parent_domains_listeners_yaml above for shape + rationale.
+    parent_domains_listeners_yaml = local.parent_domains_listeners_yaml
     # sovereign_regions_json — canonical multi-region RegionSpec[]
     # JSON literal. Threaded into bp-catalyst-platform's
     # .Values.sovereign.regionsJson via the bootstrap-kit slot 13
@@ -1111,6 +1207,12 @@ locals {
         var.parent_domains_yaml,
         format("[{name: \"%s\", role: \"primary\"}]", var.sovereign_fqdn)
       )
+      # Cilium Gateway listeners per parent zone (issue #831). Same
+      # rendered multi-line YAML as the primary CP — secondary regions
+      # also reconcile sovereign-tls into THEIR own cluster, so the
+      # listeners block must be present there too. See
+      # locals.parent_domains_listeners_yaml in this file.
+      parent_domains_listeners_yaml = local.parent_domains_listeners_yaml
       # Same JSON-encoded RegionSpec[] as the primary CP — every region's
       # bp-catalyst-platform renders the same sovereign.regionsJson value
       # (the cluster topology is Sovereign-wide, not per-region).
