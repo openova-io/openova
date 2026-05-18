@@ -282,6 +282,65 @@ export async function connectByosClaudeCode(): Promise<{ authorizeUrl: string }>
 }
 
 /**
+ * BYOS config shape — the pre-flight the SandboxSettings card runs
+ * before showing the Connect button. When `clientIdConfigured` is false
+ * the chart's `SANDBOX_BYOS_CLAUDE_CODE_CLIENT_ID` is still the
+ * `PLACEHOLDER-AWAITING-FOUNDER-REGISTRATION` sentinel (PR #1619) and
+ * the FE MUST render the button as DISABLED with the amber pendingApi
+ * pill + a tooltip pointing the operator at the founder action.
+ */
+export interface ByosClaudeCodeConfig {
+  /** True when the FE was unable to reach `/config` — treated as
+   *  pending operator setup so the UI never offers a button that would
+   *  fail at Anthropic. */
+  pendingApi: boolean
+  clientIdConfigured: boolean
+  /** Optional informational hint; only populated when configured. */
+  oauthAuthorizeURL: string
+}
+
+const PENDING_BYOS_CONFIG: ByosClaudeCodeConfig = {
+  pendingApi: true,
+  clientIdConfigured: false,
+  oauthAuthorizeURL: '',
+}
+
+/**
+ * getByosClaudeCodeConfig — GET /v1/sandbox/byos/claude-code/config.
+ *
+ * The SandboxSettings card calls this before rendering the Connect
+ * button. On 404 / 5xx / network error returns
+ * `{pendingApi: true, clientIdConfigured: false, ...}` so the UI defaults
+ * to the safer "disabled with pending tooltip" state — never the
+ * "enabled but the OAuth URL will 400" state.
+ */
+export async function getByosClaudeCodeConfig(): Promise<ByosClaudeCodeConfig> {
+  let res: Response
+  try {
+    res = await authedFetch(`${SANDBOX_BASE}/byos/claude-code/config`, {
+      headers: { Accept: 'application/json' },
+    })
+  } catch {
+    return PENDING_BYOS_CONFIG
+  }
+  if (!res.ok) {
+    return PENDING_BYOS_CONFIG
+  }
+  try {
+    const body = (await res.json()) as Partial<ByosClaudeCodeConfig> | null
+    if (!body || typeof body !== 'object') return PENDING_BYOS_CONFIG
+    return {
+      pendingApi: false,
+      clientIdConfigured: body.clientIdConfigured === true,
+      oauthAuthorizeURL:
+        typeof body.oauthAuthorizeURL === 'string' ? body.oauthAuthorizeURL : '',
+    }
+  } catch {
+    return PENDING_BYOS_CONFIG
+  }
+}
+
+/**
  * disconnectByosClaudeCode — DELETE /v1/sandbox/byos/claude-code/
  * disconnect. Drops the stored OAuth tokens. Surfaces the BE's `detail` /
  * `error` field on non-2xx.

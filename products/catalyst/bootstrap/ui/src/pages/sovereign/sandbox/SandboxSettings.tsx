@@ -30,7 +30,9 @@ import { useDeploymentEvents } from '../useDeploymentEvents'
 import {
   connectByosClaudeCode,
   disconnectByosClaudeCode,
+  getByosClaudeCodeConfig,
   getByosStatus,
+  type ByosClaudeCodeConfig,
   type ByosClaudeCodeStatus,
 } from '@/lib/sandbox.api'
 
@@ -41,11 +43,16 @@ export interface SandboxSettingsProps {
   disableStream?: boolean
   /** Test seam — bypass the React Query fetcher with synthetic data. */
   initialByosOverride?: ByosClaudeCodeStatus
+  /** Test seam — bypass the React Query fetcher for the BYOS config
+   *  pre-flight (`/config` endpoint). Lets tests assert both the
+   *  placeholder-disabled and configured-enabled branches without HTTP. */
+  initialByosConfigOverride?: ByosClaudeCodeConfig
 }
 
 export function SandboxSettings({
   disableStream = false,
   initialByosOverride,
+  initialByosConfigOverride,
 }: SandboxSettingsProps = {}) {
   const { deploymentId: resolvedId } = useResolvedDeploymentId()
   const deploymentId = resolvedId ?? ''
@@ -74,7 +81,10 @@ export function SandboxSettings({
       }
     >
       <div className="mx-auto max-w-7xl" data-testid="sandbox-settings-page">
-        <ClaudeCodeByosCard initialByosOverride={initialByosOverride} />
+        <ClaudeCodeByosCard
+          initialByosOverride={initialByosOverride}
+          initialByosConfigOverride={initialByosConfigOverride}
+        />
       </div>
     </PortalShell>
   )
@@ -84,9 +94,13 @@ export function SandboxSettings({
 
 interface ClaudeCodeByosCardProps {
   initialByosOverride?: ByosClaudeCodeStatus
+  initialByosConfigOverride?: ByosClaudeCodeConfig
 }
 
-function ClaudeCodeByosCard({ initialByosOverride }: ClaudeCodeByosCardProps) {
+function ClaudeCodeByosCard({
+  initialByosOverride,
+  initialByosConfigOverride,
+}: ClaudeCodeByosCardProps) {
   const qc = useQueryClient()
   const [error, setError] = useState<string | null>(null)
 
@@ -98,8 +112,27 @@ function ClaudeCodeByosCard({ initialByosOverride }: ClaudeCodeByosCardProps) {
     placeholderData: (prev) => prev,
   })
 
+  // Pre-flight: /config tells us whether the chart's OAuth client_id is
+  // still the `PLACEHOLDER-AWAITING-FOUNDER-REGISTRATION` sentinel from
+  // PR #1619. When it is, the Connect button MUST be disabled — clicking
+  // it would fire an OAuth URL that 400s at Anthropic and confuse the
+  // operator about whether BYOS is genuinely broken vs awaiting setup.
+  const configQuery = useQuery<ByosClaudeCodeConfig>({
+    queryKey: ['sandbox-byos-claude-code-config'],
+    queryFn: getByosClaudeCodeConfig,
+    staleTime: QUERY_STALE_MS,
+    enabled: !initialByosConfigOverride,
+    placeholderData: (prev) => prev,
+  })
+
   const data = initialByosOverride ?? query.data ?? null
-  const pendingApi = data?.pendingApi ?? true
+  const config = initialByosConfigOverride ?? configQuery.data ?? null
+  // Default to "not configured" while the pre-flight is in-flight so we
+  // never momentarily render an enabled button against an un-registered
+  // client_id (would 400 at Anthropic on click).
+  const clientIdConfigured = config?.clientIdConfigured ?? false
+  const configPendingApi = config?.pendingApi ?? true
+  const pendingApi = (data?.pendingApi ?? true) || configPendingApi
   const status = data?.status ?? 'disconnected'
   const accountLabel = data?.accountLabel ?? ''
   const connectedAt = data?.connectedAt ?? ''
@@ -149,9 +182,15 @@ function ClaudeCodeByosCard({ initialByosOverride }: ClaudeCodeByosCardProps) {
           <span
             data-testid="sandbox-byos-claude-code-pending-api"
             className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-300"
-            title="Backend API not yet wired — display only"
+            title={
+              !clientIdConfigured && !configPendingApi
+                ? 'Anthropic OAuth client_id not yet registered — contact your Sovereign operator'
+                : 'Backend API not yet wired — display only'
+            }
           >
-            API pending
+            {!clientIdConfigured && !configPendingApi
+              ? 'Operator setup pending'
+              : 'API pending'}
           </span>
         ) : null}
       </header>
@@ -188,6 +227,14 @@ function ClaudeCodeByosCard({ initialByosOverride }: ClaudeCodeByosCardProps) {
                 </span>
               ) : null}
             </p>
+          ) : !clientIdConfigured && !configPendingApi ? (
+            <p
+              className="text-xs text-[var(--color-text-dim)]"
+              data-testid="sandbox-byos-claude-code-operator-pending"
+            >
+              Anthropic OAuth client_id not yet registered — contact your
+              Sovereign operator to enable BYOS.
+            </p>
           ) : (
             <p className="text-xs text-[var(--color-text-dim)]">
               No Anthropic account linked.
@@ -210,8 +257,19 @@ function ClaudeCodeByosCard({ initialByosOverride }: ClaudeCodeByosCardProps) {
             <button
               type="button"
               onClick={() => connect.mutate()}
-              disabled={connect.isPending}
+              disabled={connect.isPending || !clientIdConfigured}
               data-testid="sandbox-byos-claude-code-connect"
+              data-clientid-configured={clientIdConfigured ? 'true' : 'false'}
+              title={
+                !clientIdConfigured
+                  ? 'Anthropic OAuth client_id not yet registered — contact your Sovereign operator'
+                  : undefined
+              }
+              aria-label={
+                !clientIdConfigured
+                  ? 'Connect Claude Max — disabled, Anthropic OAuth client_id not yet registered'
+                  : undefined
+              }
               className="rounded-md bg-[var(--color-accent)] px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {connect.isPending ? 'Opening…' : 'Connect Claude Max'}
