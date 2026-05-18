@@ -33,8 +33,15 @@ func validTenantSlug(s string) bool {
 
 // Handler holds dependencies for tenant HTTP handlers.
 type Handler struct {
-	Store    *store.Store
-	Producer *events.Producer
+	Store *store.Store
+	// Producer is the broker publisher used to emit tenant lifecycle
+	// events (tenant.created, tenant.deleted, tenant.app_install_requested,
+	// tenant.app_uninstall_requested). Type is the BrokerPublisher
+	// interface so main.go can wire a MultiPublisher (NATS + Redpanda)
+	// per ADR-0001 §6 — see core/services/shared/events/bridge.go for
+	// why the legacy Redpanda-only Producer was insufficient on
+	// Sovereigns (no Redpanda exists there).
+	Producer events.BrokerPublisher
 	// Catalog is optional; when unset the day-2 app install/uninstall
 	// endpoints return 501. Provisioning-time creation does not need it
 	// because the marketplace already validated capacity at checkout.

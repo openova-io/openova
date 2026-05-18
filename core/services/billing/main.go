@@ -18,7 +18,10 @@ import (
 
 func main() {
 	databaseURL := getEnv("DATABASE_URL", "postgres://billing:billing@localhost:5432/billing?sslmode=disable")
-	redpandaBrokers := strings.Split(getEnv("REDPANDA_BROKERS", "localhost:9092"), ",")
+	// REDPANDA_BROKERS — legacy Kafka-protocol bus. Empty on Sovereigns
+	// (no Redpanda exists in cluster); populated on Catalyst-Zero for
+	// backward-compatibility with not-yet-migrated consumers.
+	redpandaBrokersRaw := getEnv("REDPANDA_BROKERS", "")
 	jwtSecret := []byte(getEnv("JWT_SECRET", ""))
 	corsOrigin := getEnv("CORS_ORIGIN", "*")
 	port := getEnv("PORT", "8085")
@@ -35,12 +38,15 @@ func main() {
 	// hardcoded; the chart pipes it from `billing.sovereignFQDN`. Empty is
 	// tolerated for dev loops — the template emits a relative-ish fallback.
 	sovereignFQDN := getEnv("SOVEREIGN_FQDN", "")
-	// NATS_URL — JetStream broker URL for the catalyst.usage.recorded
-	// metering stream (#798). Empty disables the metering subscriber so
-	// developer environments without NATS can still run the legacy
-	// RedPanda consumer + HTTP API. Per #795 [Q-mine-3] this is the
-	// canonical event spine going forward; per ADR-0001 §6 we never
-	// fall back to RedPanda for new metering subjects.
+	// NATS_URL — JetStream broker URL for BOTH:
+	//   (a) the catalyst.usage.recorded metering stream (#798), and
+	//   (b) the canonical billing event bus per ADR-0001 §6
+	//       (`catalyst.billing.order.placed` etc., wired via
+	//       events.MultiPublisher below).
+	// On Sovereigns this is wired to
+	// nats-jetstream.nats-system.svc.cluster.local:4222 by the chart.
+	// Empty disables the NATS leg and the service falls back to the
+	// legacy Redpanda-only Producer (Catalyst-Zero / dev loops).
 	natsURL := getEnv("NATS_URL", "")
 
 	pg := db.MustConnect(databaseURL)
@@ -57,13 +63,53 @@ func main() {
 	}
 	slog.Info("database migration complete")
 
-	producer, err := events.NewProducer(redpandaBrokers)
+	// Wire the broker publisher up front so both the metering subscriber
+	// (below) and the Handler share a single NATS connection. ADR-0001 §6
+	// requires NATS for the canonical `catalyst.billing.order.placed`
+	// subject; Redpanda stays in place as a legacy bridge so any
+	// not-yet-migrated consumers (e.g. on contabo) keep receiving
+	// sme.order.events. At least one transport MUST be wired.
+	var (
+		natsConn  *events.NATSConn
+		kafkaProd *events.Producer
+	)
+	if natsURL != "" {
+		nc, err := events.ConnectNATS(natsURL)
+		if err != nil {
+			slog.Error("failed to connect to NATS", "url", natsURL, "error", err)
+			os.Exit(1)
+		}
+		// EnsureUsageStream is idempotent — safe to call on every
+		// startup. sme-billing owns the Stream lifecycle because it is
+		// the canonical consumer; publishers (the NewAPI metering
+		// sidecar) rely on the Stream existing.
+		ensureCtx, ensureCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if err := nc.EnsureUsageStream(ensureCtx); err != nil {
+			ensureCancel()
+			slog.Error("failed to ensure JetStream catalyst.usage stream", "error", err)
+			os.Exit(1)
+		}
+		ensureCancel()
+		natsConn = nc
+		slog.Info("connected to NATS JetStream", "url", natsURL,
+			"stream", events.StreamCatalystUsage,
+			"subject", events.SubjectUsageRecorded)
+	}
+	if redpandaBrokersRaw != "" {
+		kp, err := events.NewProducer(strings.Split(redpandaBrokersRaw, ","))
+		if err != nil {
+			slog.Error("failed to create RedPanda producer", "error", err)
+			os.Exit(1)
+		}
+		kafkaProd = kp
+		slog.Info("connected to RedPanda (legacy)", "brokers", redpandaBrokersRaw)
+	}
+	producer, err := events.NewMultiPublisher(natsConn, kafkaProd)
 	if err != nil {
-		slog.Error("failed to create events producer", "error", err)
+		slog.Error("event bus misconfigured — neither NATS_URL nor REDPANDA_BROKERS set", "error", err)
 		os.Exit(1)
 	}
 	defer producer.Close()
-	slog.Info("connected to RedPanda")
 
 	h := &handlers.Handler{
 		Store:           billingStore,
@@ -79,57 +125,39 @@ func main() {
 		},
 	}
 
-	// Start the tenant-events consumer so tenant.deleted cascades clean up
-	// Stripe subs, draft/open invoices, and credit-ledger audit rows. See
-	// issue #94. Runs in a background goroutine; broker outages log + retry.
-	tenantConsumer, err := events.NewConsumer(
-		redpandaBrokers,
-		"billing-tenant-events",
-		[]string{"sme.tenant.events"},
-	)
-	if err != nil {
-		slog.Error("failed to create tenant-events consumer", "error", err)
-		os.Exit(1)
-	}
-	defer tenantConsumer.Close()
-	billingTenantHandler := &handlers.TenantConsumer{Store: billingStore}
-	go func() {
-		if err := billingTenantHandler.Start(context.Background(), tenantConsumer); err != nil {
-			slog.Error("billing tenant-events consumer stopped", "error", err)
-		}
-	}()
-	slog.Info("billing tenant-events consumer started",
-		"topic", "sme.tenant.events", "group", "billing-tenant-events")
-
-	// NATS metering consumer (#798 §B). Per #795 [Q-mine-3] +
-	// ADR-0001 §6, NATS JetStream is the canonical bus for new
-	// subjects; the RedPanda consumer above is legacy and intentionally
-	// left in place for sme.tenant.events. When NATS_URL is unset the
-	// subscriber is skipped — the synchronous HTTP path
-	// (POST /billing/metering/record) still works against the same
-	// store schema, so unit tests + dev loops keep functioning.
-	if natsURL != "" {
-		natsConn, err := events.ConnectNATS(natsURL)
+	// Legacy Kafka tenant-events consumer — only when REDPANDA_BROKERS
+	// is set. On Sovereigns the canonical bus is NATS; the equivalent
+	// NATS-side subscriber ships in a follow-up per ADR-0001 §6
+	// migration plan. Skipping it on NATS-only deployments avoids the
+	// previous crashloop trying to dial "localhost:9092".
+	if kafkaProd != nil {
+		tenantConsumer, err := events.NewConsumer(
+			strings.Split(redpandaBrokersRaw, ","),
+			"billing-tenant-events",
+			[]string{"sme.tenant.events"},
+		)
 		if err != nil {
-			slog.Error("failed to connect to NATS", "url", natsURL, "error", err)
+			slog.Error("failed to create tenant-events consumer", "error", err)
 			os.Exit(1)
 		}
-		// EnsureUsageStream is idempotent — safe to call on every
-		// startup. sme-billing owns the Stream lifecycle because it is
-		// the canonical consumer; publishers (the NewAPI metering
-		// sidecar) rely on the Stream existing.
-		ensureCtx, ensureCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		if err := natsConn.EnsureUsageStream(ensureCtx); err != nil {
-			ensureCancel()
-			slog.Error("failed to ensure JetStream catalyst.usage stream", "error", err)
-			os.Exit(1)
-		}
-		ensureCancel()
-		defer natsConn.Close()
-		slog.Info("connected to NATS JetStream", "url", natsURL,
-			"stream", events.StreamCatalystUsage,
-			"subject", events.SubjectUsageRecorded)
+		defer tenantConsumer.Close()
+		billingTenantHandler := &handlers.TenantConsumer{Store: billingStore}
+		go func() {
+			if err := billingTenantHandler.Start(context.Background(), tenantConsumer); err != nil {
+				slog.Error("billing tenant-events consumer stopped", "error", err)
+			}
+		}()
+		slog.Info("billing tenant-events consumer started",
+			"topic", "sme.tenant.events", "group", "billing-tenant-events")
+	} else {
+		slog.Info("REDPANDA_BROKERS empty — legacy Kafka tenant-events consumer disabled (NATS-only mode)")
+	}
 
+	// NATS metering subscriber (#798 §B) — uses the same NATS connection
+	// opened for the publisher above so we have a single TCP socket per
+	// process. When NATS_URL is unset the subscriber is skipped (HTTP
+	// path POST /billing/metering/record still works for dev loops).
+	if natsConn != nil {
 		subCtx := context.Background()
 		usageSub, err := natsConn.SubscribeUsageRecorded(subCtx)
 		if err != nil {

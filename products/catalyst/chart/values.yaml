@@ -600,8 +600,10 @@ services:
     # k8scache.Factory).
     clusterID: ""
     nats:
-      # In-cluster NATS JetStream Service URL.
-      url: "nats://nats-jetstream.nats-jetstream.svc.cluster.local:4222"
+      # In-cluster NATS JetStream Service URL. Namespace is `nats-system`
+      # (see clusters/_template/bootstrap-kit/07-nats-jetstream.yaml) —
+      # previous default of `.nats-jetstream.svc` was an NXDOMAIN bug.
+      url: "nats://nats-jetstream.nats-system.svc.cluster.local:4222"
       stream: "catalyst.events"
       subject: "catalyst.events.>"
     valkey:
@@ -921,8 +923,11 @@ smeServices:
   # services still target a Redpanda Service in the talentmesh namespace
   # (migration #68). The configmap.yaml template selects the default at
   # render time based on .Values.global.sovereignFQDN:
-  #   - non-empty (Sovereign)  → nats-jetstream.nats-jetstream.svc:4222
-  #   - empty (Catalyst-Zero) → redpanda.talentmesh.svc:9092
+  #   - non-empty (Sovereign)  → REDPANDA_BROKERS="" + NATS_URL=
+  #       nats://nats-jetstream.nats-system.svc.cluster.local:4222
+  #       (services run in NATS-only mode per ADR-0001 §6)
+  #   - empty (Catalyst-Zero) → REDPANDA_BROKERS=redpanda.talentmesh.svc:9092
+  #       (legacy Kafka transport remains the bus on contabo)
   # `brokers` overrides the default outright — operator MAY wire any
   # NATS-protocol or Kafka-protocol broker without forking the chart.
   # `protocol` is an explicit hint for SME services that want to switch
@@ -931,6 +936,13 @@ smeServices:
   eventBus:
     brokers: ""
     protocol: ""
+    # Canonical NATS JetStream URL per ADR-0001 §6. Empty = use the
+    # topology default from configmap.yaml (Sovereign:
+    # nats://nats-jetstream.nats-system.svc.cluster.local:4222 ;
+    # Catalyst-Zero: empty). Per-Sovereign overlays MAY override to
+    # wire a different NATS endpoint (e.g. a leaf-node connection) or
+    # set explicitly empty to force NATS-disabled mode.
+    natsURL: ""
   ferretdb:
     namespace: sme
     # FerretDB v1.24 — works against vanilla CNPG postgres:16. v2.x

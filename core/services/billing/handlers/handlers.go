@@ -26,8 +26,14 @@ import (
 
 // Handler holds dependencies for billing HTTP handlers.
 type Handler struct {
-	Store      *store.Store
-	Producer   *events.Producer
+	Store *store.Store
+	// Producer is the broker publisher used to emit billing lifecycle
+	// events (order.placed, payment events). Type is the BrokerPublisher
+	// interface so main.go can wire a MultiPublisher (NATS + Redpanda)
+	// per ADR-0001 §6 — see core/services/shared/events/bridge.go.
+	// On Sovereigns the NATS leg is the authoritative path; the
+	// Redpanda leg is intentionally nil because no Redpanda exists.
+	Producer   events.BrokerPublisher
 	SuccessURL string
 	CancelURL  string
 	CatalogURL string // internal URL to catalog service, e.g. http://catalog.sme.svc.cluster.local:8082

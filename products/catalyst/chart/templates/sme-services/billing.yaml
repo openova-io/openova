@@ -52,6 +52,18 @@ spec:
                 configMapKeyRef:
                   name: sme-services-config
                   key: REDPANDA_BROKERS
+            # NATS JetStream URL — canonical event bus per ADR-0001 §6.
+            # Used for BOTH (a) the existing catalyst.usage.recorded
+            # metering subscriber (#798) and (b) the new canonical
+            # `catalyst.billing.order.placed` publish path (see
+            # events.MultiPublisher). On Sovereigns the ConfigMap
+            # default resolves to
+            # nats://nats-jetstream.nats-system.svc.cluster.local:4222.
+            - name: NATS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: NATS_URL
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
