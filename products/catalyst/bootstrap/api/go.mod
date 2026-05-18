@@ -10,6 +10,7 @@ require (
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/minio/minio-go/v7 v7.0.91
 	github.com/openova-io/openova/core/controllers v0.0.0-00010101000000-000000000000
+	github.com/openova-io/openova/core/services/shared v0.0.0-00010101000000-000000000000
 	github.com/prometheus/client_golang v1.23.2
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/api v0.36.0
@@ -25,6 +26,13 @@ require (
 // application-controller's binary — preview-vs-controller drift is
 // impossible to ship.
 replace github.com/openova-io/openova/core/controllers => ../../../../core/controllers
+
+// PR #1625 follow-up: the /api/v1/sme/* proxies mint an HS256 bridge
+// token via core/services/shared/auth.MintSMEAccessToken before
+// forwarding to the SME gateway (which rejects RS256 Keycloak tokens
+// outright). Same in-tree replace pattern as core/controllers above —
+// no published version exists, the module is consumed directly.
+replace github.com/openova-io/openova/core/services/shared => ../../../../core/services/shared
 
 require (
 	github.com/beorn7/perks v1.0.1 // indirect

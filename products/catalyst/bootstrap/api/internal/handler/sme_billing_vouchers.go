@@ -43,18 +43,32 @@
 // catalyst-api's RequireSession middleware (the same gate every other
 // /api/v1/sme/* route uses — see main.go's sme/users + sme/tenants +
 // sme/orders + sme/billing/revenue registrations) ensures only a valid
-// console session reaches these handlers. The Authorization header from
-// the request is forwarded to the SME gateway so the gateway's
-// HS256-JWT validator (core/services/gateway/proxy.go:117) can apply its
-// own role check. When catalyst-api and the SME gateway don't share the
-// same JWT_SECRET (today's reality on a fresh Sovereign — the chart
-// doesn't wire SME's JWT_SECRET into catalyst-api), the gateway will
-// surface 401 verbatim and the FE renders that error inline (its
-// `listVouchers` THROWS on non-2xx by design — see
-// products/catalyst/bootstrap/ui/src/lib/bss.api.ts:323). Wiring a
-// shared secret or a mint-on-the-fly RS256→HS256 bridge is tracked as a
-// chart-level follow-up; this PR ships the proxy so the FE has a
-// reachable backend the moment that wire lands.
+// console session reaches these handlers. The session JWT is RS256
+// (Keycloak-issued); the SME gateway (core/services/gateway/proxy.go)
+// only accepts HS256 signed with `sme-secrets/JWT_SECRET`. Forwarding
+// the RS256 header verbatim therefore 401s upstream.
+//
+// Bridge (this file, follow-up to PR #1625):
+//   1. RequireSession installs *auth.Claims on the request context.
+//   2. proxySMEVoucher pulls the operator's identity (sub / email)
+//      + Keycloak realm-roles + tier from those claims.
+//   3. authpkg.SMERoleFor maps the Keycloak shape onto the SME
+//      role vocabulary (superadmin / sovereign-admin / member) the
+//      billing service's requireVoucherIssuer expects.
+//   4. authpkg.MintSMEAccessToken signs a fresh 5-minute HS256
+//      token with h.smeJWTSecret (mirrored from `sme-secrets`
+//      into catalyst-system by emberstack/reflector — see the
+//      annotation block on products/catalyst/chart/templates/
+//      sme-services/sme-secrets.yaml).
+//   5. The bridged token is forwarded as `Authorization: Bearer …`
+//      on the upstream hop. Per docs/INVIOLABLE-PRINCIPLES.md #10
+//      the token is NEVER logged.
+//
+// When the bridge is unwired (Sovereign without marketplace, or
+// stale chart that predates the reflector annotation), the proxy
+// returns 503 `sme-jwt-bridge-unwired` so the FE renders an
+// actionable message rather than the silent 401 the pre-bridge
+// state produced.
 package handler
 
 import (
@@ -67,6 +81,9 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+
+	sharedauth "github.com/openova-io/openova/core/services/shared/auth"
+	authpkg "github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 )
 
 const (
@@ -101,10 +118,11 @@ func smeGatewayURL() string {
 }
 
 // proxySMEVoucher is the shared core for every voucher hop. It rebuilds
-// the upstream URL, copies the inbound Authorization header, streams the
-// body in both directions, and surfaces the upstream status verbatim so
-// the FE sees the registrar's real status (mirrors smeCatalog.SetPublished
-// which preserves the upstream 404 / 5xx).
+// the upstream URL, mints a fresh HS256 bridge token from the operator's
+// already-validated RS256 session (see Auth seam in the package doc),
+// streams the body in both directions, and surfaces the upstream status
+// verbatim so the FE sees the registrar's real status (mirrors
+// smeCatalog.SetPublished which preserves the upstream 404 / 5xx).
 //
 // upstreamPath must include the leading `/api/billing/vouchers/...`
 // segment — the gateway strips the `/api` prefix and forwards to the
@@ -119,6 +137,15 @@ func (h *Handler) proxySMEVoucher(
 	method string,
 	upstreamPath string,
 ) {
+	// Mint the HS256 bridge token BEFORE building the upstream
+	// request so an unwired bridge surfaces 503 with no upstream
+	// round-trip (avoids the silent-401 pre-bridge state).
+	bearer, status, errResp := h.mintSMEBridgeToken(r)
+	if errResp != nil {
+		writeJSON(w, status, errResp)
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), smeVouchersBudget)
 	defer cancel()
 
@@ -131,13 +158,10 @@ func (h *Handler) proxySMEVoucher(
 		})
 		return
 	}
-	// Forward the caller's Authorization header (Bearer ...) verbatim.
-	// The SME gateway's JWT validator (proxy.go:118) will accept or
-	// reject based on its own HS256 secret. We do NOT log the value
-	// (INVIOLABLE-PRINCIPLES.md #10).
-	if a := r.Header.Get("Authorization"); a != "" {
-		req.Header.Set("Authorization", a)
-	}
+	// Forward the bridged HS256 token (NOT the operator's RS256
+	// session header — the SME gateway rejects RS256 outright). Per
+	// docs/INVIOLABLE-PRINCIPLES.md #10 the token is NEVER logged.
+	req.Header.Set("Authorization", "Bearer "+bearer)
 	if ct := r.Header.Get("Content-Type"); ct != "" {
 		req.Header.Set("Content-Type", ct)
 	}
@@ -217,4 +241,62 @@ func (h *Handler) HandleRevokeSMEBillingVoucher(w http.ResponseWriter, r *http.R
 	// operator typed.
 	h.proxySMEVoucher(w, r, http.MethodDelete,
 		"/api/billing/vouchers/revoke/"+url.PathEscape(code))
+}
+
+// mintSMEBridgeToken extracts the operator's Keycloak-derived
+// identity from the request context (installed by auth.RequireSession
+// middleware) and mints a fresh HS256 token the SME gateway will
+// accept. See the Auth seam comment at the top of this file for the
+// full bridge rationale.
+//
+// Returns the compact JWT (no "Bearer " prefix) on success, or a
+// (status, errResp) pair the caller writes verbatim:
+//
+//   - 401 `unauthenticated` — middleware bypassed (test harness) or
+//     stale request with no claims attached.
+//   - 503 `sme-jwt-bridge-unwired` — the chart hasn't seeded
+//     CATALYST_SME_JWT_SECRET on this Pod yet (Sovereign without
+//     marketplace, or stale chart predating the reflector annotation
+//     on sme-secrets). Surfacing 503 lets the FE render an actionable
+//     "marketplace not enabled" message rather than the silent 401
+//     the pre-bridge state produced.
+//   - 500 `sme-jwt-mint-failed` — should never happen in production
+//     (jwt-go HS256 sign has no fail paths beyond a malformed key);
+//     captured here so the cause surfaces in /api/v1/sme/* error logs
+//     rather than as a generic Go panic.
+//
+// Per docs/INVIOLABLE-PRINCIPLES.md #10 the minted token is NEVER
+// logged — only the operator's email and the mapped role are.
+func (h *Handler) mintSMEBridgeToken(r *http.Request) (string, int, map[string]string) {
+	if len(h.smeJWTSecret) == 0 {
+		return "", http.StatusServiceUnavailable, map[string]string{
+			"error":  "sme-jwt-bridge-unwired",
+			"detail": "CATALYST_SME_JWT_SECRET is not set on this catalyst-api Pod; the chart's sme-secrets Secret may not be reflected into catalyst-system yet",
+		}
+	}
+	claims := authpkg.ClaimsFromContext(r.Context())
+	if claims == nil {
+		return "", http.StatusUnauthorized, map[string]string{
+			"error": "unauthenticated",
+		}
+	}
+	role := sharedauth.SMERoleFor(claims.RealmAccess.Roles, claims.Tier)
+	tok, err := sharedauth.MintSMEAccessToken(
+		h.smeJWTSecret,
+		claims.Sub,
+		claims.Email,
+		role,
+	)
+	if err != nil {
+		h.log.Warn("sme bridge mint failed",
+			"email", claims.Email,
+			"role", role,
+			"err", err,
+		)
+		return "", http.StatusInternalServerError, map[string]string{
+			"error":  "sme-jwt-mint-failed",
+			"detail": err.Error(),
+		}
+	}
+	return tok, 0, nil
 }

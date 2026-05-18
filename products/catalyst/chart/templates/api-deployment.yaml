@@ -574,6 +574,35 @@ spec:
                   name: catalyst-gitea-token
                   key: token
                   optional: true
+            # CATALYST_SME_JWT_SECRET — bridge secret for /api/v1/sme/*
+            # proxies (PR #1625 follow-up). The SME microservice mesh
+            # (core/services/{gateway,billing,catalog,...}) validates HS256
+            # tokens signed with sme-secrets/JWT_SECRET; catalyst-api's
+            # operator session is RS256 Keycloak. proxySMEVoucher (and
+            # future siblings) mint a short-lived HS256 token from the
+            # operator's already-validated session via
+            # core/services/shared/auth.MintSMEAccessToken and forward
+            # the bridged token to the SME gateway.
+            #
+            # Source Secret is sme-secrets in the `sme` namespace; the
+            # reflector annotation block on
+            # products/catalyst/chart/templates/sme-services/sme-secrets.yaml
+            # mirrors it into catalyst-system at the SAME secret name so
+            # the secretKeyRef below resolves to the same JWT_SECRET
+            # bytes the SME gateway validates against.
+            #
+            # optional: true — Sovereigns without marketplace
+            # (ingress.marketplace.enabled=false) never materialise
+            # sme-secrets; proxySMEVoucher surfaces 503
+            # `sme-jwt-bridge-unwired` for those clusters so the FE
+            # renders an actionable "marketplace not enabled" message
+            # rather than the pre-bridge silent 401.
+            - name: CATALYST_SME_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: sme-secrets
+                  key: JWT_SECRET
+                  optional: true
             # KEYCLOAK_BOOTSTRAP_TIER_ROLES — EPIC-3 slice T2 (#1098/#1146).
             # When "true", a goroutine on catalyst-api startup calls
             # EnsureTierRealmRoles (internal/keycloak/realm_bootstrap.go)
