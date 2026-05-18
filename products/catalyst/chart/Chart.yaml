@@ -1154,8 +1154,8 @@ name: bp-catalyst-platform
 # GITHUB_TOKEN bytes verbatim. Bootstrap branch (gitea-admin-secret
 # password mirror) is preserved for the first-install pre-cutover window
 # so the provisioning Pod still boots out of CreateContainerConfigError.
-version: 1.4.168
-appVersion: 1.4.167
+version: 1.4.169
+appVersion: 1.4.169
 # 1.4.166 — fix(catalog): seed 13 published Blueprints on Sovereign
 # handover (WBS row TBD-E8, C4-015). Adds templates/catalog-seed/
 # rendering an always-on baseline of 13 Blueprint CRs (bp-wordpress-
