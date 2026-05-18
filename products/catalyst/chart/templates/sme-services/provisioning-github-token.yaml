@@ -76,6 +76,37 @@ manifests on disk.
 Per #4 (never hardcode): source/destination namespace + Secret names
 flow through .Values.smeServices.provisioning.gitToken.* with sensible
 defaults that match the upstream gitea + provisioning shapes.
+
+Cutover ownership handover (TBD-C18b, 2026-05-18):
+  bp-self-sovereign-cutover Step 09 (09-gitea-token-mint-job.yaml) mints
+  a REAL Gitea API token via POST /api/v1/users/{user}/tokens, then
+  PATCHes this Secret's GITHUB_TOKEN field with the new bytes and stamps
+  two annotations onto the Secret:
+    catalyst.openova.io/token-minted-at:  <RFC3339 timestamp>
+    catalyst.openova.io/token-source:     "self-sovereign-cutover-step-09"
+  The Gitea ADMIN PASSWORD is NOT a valid API token (Gitea treats Bearer
+  credentials as sha1-hashed access-token rows in the `users` table, not
+  as the admin password) — so the password placeholder this template
+  writes on first install is enough to boot the Pod past
+  CreateContainerConfigError but NOT enough to actually mint tenant repos
+  in Gitea. Step 09's minted token is the canonical credential.
+
+  Without the lookup-persistence guard added below, every chart reconcile
+  (every 15 min by default Flux interval) overwrites the minted token
+  back to the admin password, undoing Step 09 silently. Verified live
+  on t22 (2026-05-18): Step 09 ran 13:43:33Z setting GITHUB_TOKEN to a
+  real API token, then ~5 min later helm reconcile of catalyst-platform
+  rewrote GITHUB_TOKEN back to the admin password byte. C18 fix was
+  ephemeral until this guard landed.
+
+  Guard semantics: lookup the destination Secret first. If it exists
+  AND has the `catalyst.openova.io/token-source` annotation set to
+  "self-sovereign-cutover-step-09", preserve the existing GITHUB_TOKEN
+  bytes verbatim (re-emit the b64 byte string from the live Secret).
+  Otherwise fall through to the first-install bootstrap branch that
+  mirrors gitea-admin-secret.password (so a freshly-franchised Sovereign
+  still boots the provisioning Pod past CreateContainerConfigError
+  before Step 09 has had a chance to run).
 */}}
 {{- if and .Values.ingress .Values.ingress.marketplace .Values.ingress.marketplace.enabled -}}
 {{- $sourceNamespace := .Values.smeServices.provisioning.gitToken.sourceNamespace | default "gitea" -}}
@@ -84,8 +115,32 @@ defaults that match the upstream gitea + provisioning shapes.
 {{- $destNamespace := .Values.smeServices.provisioning.gitToken.destNamespace | default "sme" -}}
 {{- $destSecretName := .Values.smeServices.provisioning.gitToken.destSecretName | default "provisioning-github-token" -}}
 {{- $destKey := .Values.smeServices.provisioning.gitToken.destKey | default "GITHUB_TOKEN" -}}
+{{- /* Lookup the destination Secret first to detect whether Step 09 of
+       bp-self-sovereign-cutover has already taken ownership. If yes,
+       preserve the minted token bytes verbatim — the chart MUST NOT
+       clobber the cutover-issued credential. */ -}}
+{{- $destSecret := lookup "v1" "Secret" $destNamespace $destSecretName -}}
+{{- $cutoverOwned := false -}}
+{{- $existingTokenB64 := "" -}}
+{{- $preservedMintedAt := "" -}}
+{{- if and $destSecret $destSecret.metadata $destSecret.metadata.annotations -}}
+  {{- $tokenSource := index $destSecret.metadata.annotations "catalyst.openova.io/token-source" -}}
+  {{- if eq $tokenSource "self-sovereign-cutover-step-09" -}}
+    {{- if and $destSecret.data (index $destSecret.data $destKey) -}}
+      {{- $cutoverOwned = true -}}
+      {{- $existingTokenB64 = index $destSecret.data $destKey -}}
+      {{- $preservedMintedAt = index $destSecret.metadata.annotations "catalyst.openova.io/token-minted-at" -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
 {{- $sourceSecret := lookup "v1" "Secret" $sourceNamespace $sourceSecretName -}}
+{{- $haveBootstrap := false -}}
+{{- $bootstrapTokenB64 := "" -}}
 {{- if and $sourceSecret $sourceSecret.data (index $sourceSecret.data $sourcePasswordKey) -}}
+  {{- $haveBootstrap = true -}}
+  {{- $bootstrapTokenB64 = index $sourceSecret.data $sourcePasswordKey -}}
+{{- end -}}
+{{- if or $cutoverOwned $haveBootstrap -}}
 apiVersion: v1
 kind: Secret
 metadata:
@@ -105,12 +160,32 @@ metadata:
     # the provisioning Pod stays Running across reinstalls without a
     # restart-storm.
     helm.sh/resource-policy: keep
+    {{- if $cutoverOwned }}
+    # bp-self-sovereign-cutover Step 09 has minted a real Gitea API
+    # token and patched this Secret. Preserve the token-source +
+    # token-minted-at annotations so subsequent reconciles continue to
+    # honour the cutover ownership (the cutoverOwned branch below
+    # re-emits the existing token bytes verbatim).
+    catalyst.openova.io/token-source: "self-sovereign-cutover-step-09"
+    {{- if $preservedMintedAt }}
+    catalyst.openova.io/token-minted-at: {{ $preservedMintedAt | quote }}
+    {{- end }}
+    {{- end }}
 type: Opaque
 data:
-  # Re-emit the gitea admin password verbatim under the env-name the
-  # provisioning service reads. The provisioning service treats this
-  # as a bearer token for whichever Git host it's pointed at via
-  # GITHUB_OWNER + GITHUB_REPO + (future) GITHUB_API_BASE_URL.
-  {{ $destKey }}: {{ index $sourceSecret.data $sourcePasswordKey | quote }}
+  {{- if $cutoverOwned }}
+  # Preserve the cutover-minted token bytes verbatim. Do NOT overwrite
+  # with gitea-admin-secret.password — that placeholder is only useful
+  # for first-install bootstrap before Step 09 has had a chance to run.
+  # See TBD-C18b for the live regression this guard prevents.
+  {{ $destKey }}: {{ $existingTokenB64 | quote }}
+  {{- else }}
+  # First-install bootstrap: emit the gitea admin password verbatim under
+  # the env-name the provisioning service reads. This lets the
+  # provisioning Pod reach Running before bp-self-sovereign-cutover
+  # Step 09 mints the real API token. The bytes here are NOT a valid
+  # Gitea API token — they only unblock the Pod's CreateContainer phase.
+  {{ $destKey }}: {{ $bootstrapTokenB64 | quote }}
+  {{- end }}
 {{- end }}
 {{- end }}

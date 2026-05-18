@@ -575,7 +575,20 @@ spec:
       # bp-prometheus, bp-loki, bp-redis, bp-clickhouse, bp-opensearch,
       # bp-temporal, bp-n8n, bp-langfuse, bp-llm-gateway) which the
       # chained catalog client surfaces via in-cluster LIST fallback.
-      version: 1.4.167
+      # 1.4.168 (TBD-C18b, 2026-05-18): stop clobbering the cutover-minted
+      # Gitea API token. templates/sme-services/provisioning-github-
+      # token.yaml gains a lookup-persistence guard — if the destination
+      # Secret carries annotation `catalyst.openova.io/token-source:
+      # self-sovereign-cutover-step-09` (stamped by Step 09 of bp-self-
+      # sovereign-cutover when it mints the real Gitea API token), the
+      # template preserves the existing GITHUB_TOKEN bytes instead of
+      # mirroring gitea-admin-secret.password over them on every Flux
+      # reconcile. Pre-fix on t22: Step 09 minted a real token at
+      # 13:43:33Z; ~5 min later helm reconcile rewrote GITHUB_TOKEN back
+      # to the admin password byte, so every subsequent SME provisioning
+      # call to Gitea returned 401 "user does not exist" and journey
+      # step 16 (tenant repo creation) silently stuck.
+      version: 1.4.168
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
