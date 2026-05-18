@@ -64,6 +64,13 @@ var CanonicalSovereignSubdomains = []string{
 	"marketplace",
 	"api",
 	"guacamole",
+	// sandbox — public URL for the Sandbox product's per-Sandbox
+	// pty-server StatefulSet (PR #1641 rendered the per-Sandbox
+	// HTTPRoute at sandbox.<sov-fqdn>/sessions/<owner-uid>/*; without
+	// this entry the parent zone returns NXDOMAIN and browsers cannot
+	// reach the URL even though the Gateway listener + HTTPRoute exist).
+	// Matches the cilium-gateway-cert.yaml SAN list (sandbox.<sov-fqdn>).
+	"sandbox",
 }
 
 // upsertSovereignParentZoneRecords PATCHes the parent zone with A

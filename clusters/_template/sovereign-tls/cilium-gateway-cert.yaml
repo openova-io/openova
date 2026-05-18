@@ -74,3 +74,14 @@ spec:
     - "openova-flow.${SOVEREIGN_FQDN}"
     - "guacamole.${SOVEREIGN_FQDN}"
     - "marketplace.${SOVEREIGN_FQDN}"
+    # sandbox.<sov-fqdn> — public URL for the per-Sandbox pty-server (PR #1641).
+    # The sandbox-controller renders an HTTPRoute on sandbox.<sov-fqdn>/
+    # sessions/<owner-uid>/* attached to the cilium-gateway. The wildcard
+    # `*.<sov-fqdn>` Gateway listener already matches the hostname, but the
+    # per-name SAN cert here must include `sandbox.<sov-fqdn>` for
+    # cilium-envoy to serve the right cert (otherwise browsers see
+    # NET::ERR_CERT_COMMON_NAME_INVALID). Matches the entry in
+    # products/catalyst/bootstrap/api/internal/handler/sovereign_dns_records.go
+    # CanonicalSovereignSubdomains so the parent-zone A-record set + cert
+    # SAN list stay aligned.
+    - "sandbox.${SOVEREIGN_FQDN}"
