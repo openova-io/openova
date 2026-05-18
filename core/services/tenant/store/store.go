@@ -459,3 +459,28 @@ func (s *Store) GetMemberRole(ctx context.Context, tenantID, userID string) (str
 	}
 	return m.Role, nil
 }
+
+// GetMemberEmail returns the email recorded on the member row, or
+// empty string when the member does not exist. Used by the sandbox
+// orchestrator (handlers/sandbox_consumer.go) to enrich the
+// tenant.sandbox_requested event with the owner's email when the
+// publisher did not inline it. Members inserted via CreateOrg do not
+// currently set Email (only UserID), so this returns "" for the
+// owner-just-created path — the orchestrator then falls back to
+// owner_id. The method exists for the eventual InviteMember path where
+// Email is populated up-front.
+func (s *Store) GetMemberEmail(ctx context.Context, tenantID, userID string) (string, error) {
+	filter := bson.D{
+		{Key: "tenant_id", Value: tenantID},
+		{Key: "user_id", Value: userID},
+	}
+	var m Member
+	err := s.members().FindOne(ctx, filter).Decode(&m)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return "", nil
+		}
+		return "", fmt.Errorf("store: get member email: %w", err)
+	}
+	return m.Email, nil
+}

@@ -1,30 +1,13 @@
-// Package controller hosts the Sandbox reconciler — the Wave 1 slice
-// of the Sandbox product (#1615 brief + products/sandbox/docs/
+// Package controller hosts the Sandbox reconciler — the Wave 1 + Wave 8
+// slice of the Sandbox product (#1615 brief + products/sandbox/docs/
 // architecture.md §7).
 //
 // Per architecture.md §7 the sandbox-controller is the sister of
 // organization-controller. It reconciles a Sandbox CR into manifests
 // the per-Org Flux Kustomization (host cluster) materializes inside
-// the Org vcluster:
-//
-//   1. Namespace `sandbox-<owner-uid>` inside the Org vcluster.
-//   2. ResourceQuota mirroring spec.quota.
-//   3. ServiceAccount `sandbox` + namespace-scoped Role + RoleBinding
-//      so Wave 2's pty-server / openova-sandbox-mcp Deployments have
-//      JUST the verbs they need inside the Sandbox namespace.
-//   4. PVCs per spec.repos[] entry (repo clone target — initContainer
-//      lands in Wave 2 alongside the pty-server StatefulSet).
-//   5. Placeholder Secret `sandbox-tokens` — filled in Wave 2 by the
-//      long-lived org-scoped token issuance flow (architecture.md §6).
-//
-// The reconciler writes its desired-state manifests into the per-Org
-// `catalyst-tenant` Gitea repo at `sandbox/<owner-uid>/` — the EXACT
-// same idiom organization-controller already uses for vcluster
-// manifests (organization_controller.go:188-225). Flux on the host
-// picks it up.
-//
-// Wave 2 will add the pty-server StatefulSet + openova-sandbox-mcp
-// Deployment + HTTPRoutes. Wave 3 ships the UI scaffold.
+// the Org vcluster. Wave 8 adds the pty-server StatefulSet + MCP
+// Deployment + Service + HTTPRoute (in addition to the Wave-1
+// namespace + RBAC + PVCs + placeholder Secret).
 //
 // Idempotency: every "ensure" step is find-or-create + byte-equal
 // short-circuit. Re-reconciling on a steady-state CR writes nothing
@@ -75,51 +58,39 @@ const (
 // when the bridge's TTL is bumped).
 const DefaultTokenRotationLeadTime = 24 * time.Hour
 
-// Reconciler reconciles Sandbox CRs. Field shape mirrors
-// organization-controller's Reconciler — fewer knobs because Wave 1
-// only touches Gitea (no Keycloak, no vcluster chart version).
+// Reconciler reconciles Sandbox CRs.
 type Reconciler struct {
 	client.Client
 	Log logr.Logger
 
-	// GiteaClient is the Gitea Admin client used to PutFile manifests
-	// into the per-Org `catalyst-tenant` repo. Same client + token
-	// organization-controller uses (CATALYST_GITEA_* env).
-	GiteaClient *gitea.Client
-
-	// HostCluster is the canonical host-cluster name (e.g.
-	// hz-fsn-rtz-prod) — surfaced in logs + may go onto labels in
-	// future waves. Not yet written into any rendered manifest because
-	// Sandbox lives inside the Org vcluster, not on the host.
-	HostCluster string
-
-	// SovereignFQDN is the Sovereign domain (e.g. omantel.omani.works).
-	// Goes onto the openova.io/sovereign label of every rendered
-	// resource so fleet-wide queries work without label-graph lookup.
+	GiteaClient   *gitea.Client
+	HostCluster   string
 	SovereignFQDN string
-
-	// Branch is the Gitea branch the controller writes manifests to.
-	// Defaults to "main" — matches organization-controller.
-	Branch string
-
-	// TenantRepoName is the per-Org "shared blueprints" repo
-	// organization-controller already wrote vcluster manifests into.
-	// Defaults to "catalyst-tenant".
+	Branch        string
 	TenantRepoName string
 
-	// NewAPIClient mints per-Sandbox LLM-gateway tokens via the
-	// catalyst-api bridge handler (POST /admin/tokens/sandbox, PR
-	// #1638). When nil the reconciler renders the Wave 1 manifests
-	// (namespace + RBAC + PVCs) but skips the token Secret — the
-	// controller is operable on a Sovereign whose bridge handler is
-	// not yet rolled out (e.g. fresh prov mid-handover) without
-	// silently shipping a Sandbox without an LLM connection.
+	// Wave 8 per-Sandbox runtime knobs (plumbed from chart env).
+	PtyServerImage        string
+	MCPImage              string
+	NewapiURL             string
+	LLMGatewayTokenSecret string
+	BYOSSecretPrefix      string
+	IdleTimeoutMinutes    int
+
+	// Wave 9 — NewAPI bridge client used by Reconcile to mint
+	// per-Sandbox LLM-gateway tokens (POST /admin/tokens/sandbox,
+	// PR #1638). When nil the reconciler renders the Wave 1+8
+	// manifests but skips the token-mint path — the controller is
+	// operable on a Sovereign whose bridge handler is not yet rolled
+	// out (e.g. fresh prov mid-handover) without silently shipping a
+	// Sandbox without an LLM connection. main.go logs a warning in
+	// that case.
 	NewAPIClient newapi.Client
 
-	// DefaultChannels is the operator-configured list of NewAPI channel
-	// names every freshly-minted Sandbox token is allowed to call.
-	// Currently a single channel per Sovereign ("qwen" today, see
-	// products/sandbox/docs/newapi-proxy-contract.md §2); future
+	// DefaultChannels is the operator-configured list of NewAPI
+	// channel names every freshly-minted Sandbox token is allowed to
+	// call. Currently a single channel per Sovereign ("qwen" today,
+	// see products/sandbox/docs/newapi-proxy-contract.md §2); future
 	// per-tier work will allow per-Sandbox overrides via spec.
 	DefaultChannels []string
 
@@ -133,15 +104,12 @@ type Reconciler struct {
 	Now func() time.Time
 }
 
-// SetupWithManager registers the reconciler. The manager's scheme must
-// already have sandboxapi registered.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&sandboxapi.Sandbox{}).
 		Complete(r)
 }
 
-// Reconcile is the controller-runtime entry point.
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := r.Log.WithValues("sandbox", req.NamespacedName.String())
 	log.Info("reconcile")
@@ -149,21 +117,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	var sb sandboxapi.Sandbox
 	if err := r.Get(ctx, req.NamespacedName, &sb); err != nil {
 		if apierrors.IsNotFound(err) {
-			// CR deleted — delete-handling is out of scope for Wave 1.
-			// A future wave may add a finalizer that purges the
-			// per-Sandbox namespace + Gitea-repo path. For now we
-			// leave them in place (matches organization-controller's
-			// founder direction on "retain customer data unless
-			// explicit purge").
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("get sandbox: %w", err)
 	}
 
-	// Drift check: Wave 1 requires spec.owner.orgRef.slug present + a
-	// non-empty owner email. Mirrors organization-controller's
-	// SlugMetadataMismatch handling — surface as a Failed condition
-	// instead of silently producing broken downstream artifacts.
 	if strings.TrimSpace(sb.Spec.Owner.OrgRef.Slug) == "" {
 		return r.fail(ctx, &sb, "OwnerOrgRefMissing",
 			"spec.owner.orgRef.slug must be non-empty (the parent Organization slug)")
@@ -186,11 +144,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	//   - No prior token (annotation absent) → mint fresh.
 	//   - Token within tokenRotationLeadTime of expiry → re-mint, bump
 	//     the `kubectl.kubernetes.io/restartedAt` annotation on the
-	//     rendered Secret so Wave 2's pty-server StatefulSet picks up
+	//     rendered Secret so Wave 8's pty-server StatefulSet picks up
 	//     a rolling restart.
-	//   - Steady state (token healthy) → render the previously-issued
-	//     token at byte-equal output; PutFile short-circuits the Gitea
-	//     write.
+	//   - Steady state (token healthy) → leave the previously-rendered
+	//     Secret manifest in Gitea untouched (PutFile's byte-equal
+	//     guard short-circuits).
 	//
 	// When the bridge call fails the reconciler records a Failed
 	// condition (TokenMintFailed) and requeues 30s — namespace/RBAC/PVC
@@ -252,17 +210,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 				return ctrl.Result{}, fmt.Errorf("stamp annotations: %w", err)
 			}
 		} else {
-			// Token healthy → re-render the previously-issued bytes by
-			// reading them back from the cluster. Wave 9b will move
-			// this to a controller-side cache; Wave 9 keeps the
-			// scaffolding simple: when we don't need to mint, we read
-			// the previously-rendered Secret out of the Org vcluster
-			// via a (nil-tolerant) helper. For the Wave 9 PR we leave
-			// the previously-rendered manifest in Gitea untouched —
-			// the renderer skips the secret-newapi-token.yaml manifest
-			// when tokenValue is empty, and PutFile's GET/SHA-equal
-			// guard preserves the prior content (PutFile only writes
-			// on byte-mismatch).
 			tokenExpiresAt = prevExpiry.UTC().Format(time.RFC3339)
 			// tokenRotatedAt left empty — renderer drops the
 			// kubectl.kubernetes.io/restartedAt annotation only when
@@ -270,7 +217,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		}
 	}
 
-	// Render Wave 1 manifests.
 	in := gitops.Inputs{
 		Name:                  sb.Name,
 		OwnerUID:              ownerUID,
@@ -280,6 +226,13 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		Quota:                 sb.Spec.Quota,
 		Repos:                 sb.Spec.Repos,
 		PreviewDomain:         sb.Spec.PreviewDomain,
+		AgentCatalogue:        sb.Spec.AgentCatalogue,
+		PtyServerImage:        r.PtyServerImage,
+		MCPImage:              r.MCPImage,
+		NewapiURL:             r.NewapiURL,
+		LLMGatewayTokenSecret: r.LLMGatewayTokenSecret,
+		BYOSSecretPrefix:      r.BYOSSecretPrefix,
+		IdleTimeoutMinutes:    r.IdleTimeoutMinutes,
 		NewAPIToken:           tokenValue,
 		NewAPITokenSecretName: fmt.Sprintf("sandbox-%s-newapi-token", ownerUID),
 		NewAPITokenExpiresAt:  tokenExpiresAt,
@@ -299,13 +252,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		repo = "catalyst-tenant"
 	}
 
-	// Write under sandbox/<owner-uid>/ in the per-Org repo. The repo
-	// already exists — organization-controller's reconcile loop
-	// EnsureRepo's it. We never auto-create it (Sandbox depends on
-	// Organization having been reconciled first; if the operator
-	// applied a Sandbox before its Organization the PutFile errors
-	// surface as a Failed condition rather than silently bootstrapping
-	// a half-configured Org-level repo).
 	prefix := fmt.Sprintf("sandbox/%s", ownerUID)
 	for path, data := range manifests {
 		fullPath := fmt.Sprintf("%s/%s", prefix, path)
@@ -318,11 +264,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		}
 	}
 
-	// Status update — Ready=True + Provisioning phase. Flux on the host
-	// is what actually creates the namespace / RBAC / PVCs inside the
-	// Org vcluster; the controller only certifies that the desired
-	// state has landed in Git. Wave 2 will add the cluster-side
-	// readiness condition.
 	desired := sandboxapi.SandboxStatus{
 		Phase:      "Provisioning",
 		GitopsPath: prefix,
@@ -331,7 +272,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 				Type:               "Ready",
 				Status:             "True",
 				Reason:             "GitopsReconciled",
-				Message:            fmt.Sprintf("Wave 1 manifests reconciled to gitea %s/%s@%s:%s", sb.Spec.Owner.OrgRef.Slug, repo, branch, prefix),
+				Message:            fmt.Sprintf("Wave 1+8 manifests reconciled to gitea %s/%s@%s:%s", sb.Spec.Owner.OrgRef.Slug, repo, branch, prefix),
 				LastTransitionTime: metav1.NewTime(time.Now()),
 			},
 		},
@@ -350,11 +291,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	return ctrl.Result{}, nil
 }
 
-// fail records a Failed condition + the non-zero observedGeneration so
-// the operator console can surface the error. Drift errors (missing
-// orgRef / invalid email) DO NOT requeue — they require operator
-// action. Other errors requeue after 30s (matches
-// organization-controller's cadence).
 func (r *Reconciler) fail(ctx context.Context, sb *sandboxapi.Sandbox, reason, message string) (ctrl.Result, error) {
 	r.Log.Error(errors.New(reason), message,
 		"sandbox", sb.Namespace+"/"+sb.Name,
@@ -413,7 +349,7 @@ func (r *Reconciler) shouldMintToken(sb *sandboxapi.Sandbox, nowT time.Time, lea
 }
 
 // channelsForSandbox derives the AllowedChannels list for a freshly
-// minted token. Wave 1: the operator-supplied DefaultChannels are
+// minted token. Wave 9: the operator-supplied DefaultChannels are
 // the source of truth. Future waves (per architecture.md §3) will
 // add a spec.allowedChannels overlay for per-Sandbox restriction.
 func (r *Reconciler) channelsForSandbox(_ *sandboxapi.Sandbox) []string {
@@ -459,12 +395,7 @@ func (r *Reconciler) stampTokenAnnotations(ctx context.Context, sb *sandboxapi.S
 	return nil
 }
 
-// sanitizeEmail converts an email into a DNS-label-safe leaf:
-// "ceo@acme.com" → "ceo-at-acme-com". Identical convention to
-// organization-controller's sanitizeEmail
-// (organization_controller.go:424-438) — keeping the two
-// implementations in lockstep means the same owner email produces the
-// same UID across both controllers' rendered resources.
+// sanitizeEmail converts an email into a DNS-label-safe leaf.
 func sanitizeEmail(email string) string {
 	out := strings.ToLower(strings.TrimSpace(email))
 	out = strings.ReplaceAll(out, "@", "-at-")

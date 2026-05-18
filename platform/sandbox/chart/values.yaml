@@ -1,4 +1,4 @@
-# Wave 1 sandbox-controller values.
+# Wave 1 + Wave 8 sandbox-controller values.
 #
 # Default-off per the chart README — flip `enabled: true` in a
 # per-Sovereign overlay once the controller's image tag is SHA-stamped
@@ -7,31 +7,17 @@
 
 # enabled gates EVERY templated resource. Default off.
 enabled: false
-# nameOverride / fullnameOverride mirror the upstream-chart convention —
-# left empty so the rendered names follow the chart's canonical
-# "sandbox-controller" without per-install drift.
 nameOverride: ""
 fullnameOverride: ""
-# replicas — 1 is fine for Wave 1 (leader-election on, so 2+ is safe
-# but unneeded).
 replicas: 1
 image:
-  # Image repository for the Catalyst-built sandbox-controller binary.
-  # The tag MUST be SHA-stamped by CI on every push to main per
-  # docs/INVIOLABLE-PRINCIPLES.md #4a — empty tag fails-fast at render
-  # rather than silently shipping :latest.
   repository: ghcr.io/openova-io/openova/sandbox-controller
   tag: "1b0e86c"
   pullPolicy: IfNotPresent
   pullSecrets:
     - name: ghcr-pull
-# leaderElection — controller-runtime leases. Default on so HA replicas
-# don't double-write Gitea.
 leaderElection:
   enabled: true
-# Resource limits / requests — same envelope as organization-controller.
-# Sandbox reconciles are lighter (no Keycloak round-trips), but keeping
-# the shape parallel makes capacity-planning easier.
 resources:
   requests:
     cpu: 50m
@@ -39,28 +25,15 @@ resources:
   limits:
     cpu: 500m
     memory: 512Mi
-# Pod placement. Empty by default — operator pins to a node pool per
-# Sovereign overlay.
 nodeSelector: {}
 tolerations: []
 affinity: {}
 # Env wiring — every knob is an env var per Inviolable Principle #4.
-# Values below feed the controller's main.go mustEnv() calls.
 env:
-  # Required at install time — fed from the per-Sovereign overlay /
-  # global values. The Wave 1 deployment template surfaces these as
-  # explicit env entries instead of a `range` so the operator can see
-  # which inputs are wired without grepping values.yaml.
-  hostCluster: "" # CATALYST_HOST_CLUSTER (e.g. hz-fsn-rtz-prod)
-  sovereignFQDN: "" # CATALYST_SOVEREIGN_FQDN (e.g. omantel.omani.works)
-  # Gitea coords default to the in-cluster URL the catalyst-api /
-  # organization-controller already use (single source of truth for
-  # the Gitea URL per #957 / #1052).
+  hostCluster: ""
+  sovereignFQDN: ""
   giteaURL: "http://gitea-http.gitea.svc.cluster.local:3000"
   giteaBranch: "main"
-  # Per-Org `catalyst-tenant` repo (organization-controller's
-  # EnsureRepo target) — Sandbox writes its manifests under
-  # `sandbox/<owner-uid>/` inside this repo.
   tenantRepoName: "catalyst-tenant"
   # NewAPI bridge base URL the controller POSTs to /admin/tokens/sandbox
   # against. The catalyst-api mounts the bridge handler (PR #1638)
@@ -75,6 +48,25 @@ env:
   # surfaced by the per-Sovereign NewAPI rollout (`qwen` today —
   # products/sandbox/docs/newapi-proxy-contract.md §2).
   newapiDefaultChannels: ""
+# runtime — Wave 8 per-Sandbox pty-server / MCP / NEWAPI wiring.
+# Surfaced as env on the controller; the controller renders these into
+# the per-Sandbox StatefulSet + Deployment + HTTPRoute.
+runtime:
+  # SHA-pinned pty-server image. Empty default fails-fast via the
+  # deployment.yaml `required` guard (Inviolable Principle #4a).
+  ptyServerImage: ""
+  # SHA-pinned openova-sandbox-mcp image.
+  mcpImage: ""
+  # Sovereign LLM gateway endpoint (newapi-proxy-contract.md §1).
+  # Bootstrap-kit overlay sets `https://newapi.${SOVEREIGN_FQDN}/v1`.
+  newapiURL: ""
+  # In-namespace Secret the pty-server reads LLM_GATEWAY_TOKEN /
+  # OPENAI_API_KEY from (key `llm-gateway-token`).
+  llmGatewayTokenSecret: "sandbox-tokens"
+  # Prefix for the per-user BYOS Secret (`<prefix>-<owner-uid>`).
+  byosSecretPrefix: "sandbox-byos-claude-code"
+  # Idle timeout (minutes) — architecture.md §7.
+  idleTimeoutMinutes: 30
 # Secret holding the Gitea PAT the controller authenticates with.
 # Defaults to the same Secret organization-controller uses
 # (catalyst-gitea-token / key=token) — single source of truth per
@@ -107,5 +99,4 @@ giteaTokenSecret:
 newapiAdminSecret:
   name: "newapi-bp-newapi-token-signing-key"
   key: "ADMIN_SECRET"
-# extraEnv: arbitrary extra envs (rare — knobs above cover Wave 1).
 extraEnv: {}

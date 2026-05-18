@@ -1,19 +1,11 @@
 {{- /*
-sandbox-controller Deployment (Wave 1).
+sandbox-controller Deployment (Wave 1 + Wave 8).
 
 Reconciles Sandbox.sandbox.openova.io/v1 CRs into per-Sandbox manifests
-(namespace + RBAC + PVCs + placeholder Secret) written to the per-Org
+(namespace + RBAC + PVCs + Secret + pty-server StatefulSet + MCP
+Deployment + Service + HTTPRoute) written to the per-Org
 `catalyst-tenant` Gitea repo at `sandbox/<owner-uid>/`. Flux on the
 host cluster picks them up and reconciles into the Org vcluster.
-
-Modelled on
-products/catalyst/chart/templates/controllers/organization-controller-deployment.yaml.
-
-Configuration (no hardcoded values per docs/INVIOLABLE-PRINCIPLES.md #4):
-  - hostCluster / sovereignFQDN come from `.Values.env.*` in the
-    per-Sovereign overlay.
-  - Gitea coords default to the same in-cluster URL +
-    `catalyst-gitea-token` Secret organization-controller uses.
 */ -}}
 {{- if .Values.enabled }}
 apiVersion: apps/v1
@@ -59,10 +51,6 @@ spec:
             - name: CATALYST_SOVEREIGN_FQDN
               value: {{ required "values.env.sovereignFQDN MUST be set for sandbox-controller (e.g. omantel.omani.works)" .Values.env.sovereignFQDN | quote }}
             - name: CATALYST_GITEA_URL
-              # Gitea client (core/controllers/pkg/gitea/client.go) appends
-              # `/api/v1/<endpoint>` to BaseURL — the env value MUST NOT
-              # include `/api/v1` itself (matches the Fix #40 / qa-loop
-              # iter-8 invariant on organization-controller-deployment.yaml).
               value: {{ .Values.env.giteaURL | default "http://gitea-http.gitea.svc.cluster.local:3000" | quote }}
             - name: CATALYST_GITEA_BRANCH
               value: {{ .Values.env.giteaBranch | default "main" | quote }}
@@ -74,14 +62,29 @@ spec:
                   name: {{ .Values.giteaTokenSecret.name | default "catalyst-gitea-token" | quote }}
                   key: {{ .Values.giteaTokenSecret.key | default "token" | quote }}
                   optional: true
-            # NewAPI bridge wiring (PR shipping this manifest is the
-            # sister of the newapi-side PR #1638). The controller calls
+            # Wave 8 runtime — per-Sandbox pty-server / MCP / NEWAPI.
+            # `required` on the three image / URL inputs fails Helm
+            # render fast if the per-Sovereign overlay forgets to wire
+            # them (Inviolable Principle #4a — no silent :latest).
+            - name: SANDBOX_PTY_SERVER_IMAGE
+              value: {{ required "values.runtime.ptyServerImage MUST be set (SHA-pinned per docs/INVIOLABLE-PRINCIPLES.md #4a)" .Values.runtime.ptyServerImage | quote }}
+            - name: SANDBOX_MCP_IMAGE
+              value: {{ required "values.runtime.mcpImage MUST be set (SHA-pinned per docs/INVIOLABLE-PRINCIPLES.md #4a)" .Values.runtime.mcpImage | quote }}
+            - name: SANDBOX_NEWAPI_URL
+              value: {{ required "values.runtime.newapiURL MUST be set (e.g. https://newapi.<sov-fqdn>/v1 - newapi-proxy-contract.md)" .Values.runtime.newapiURL | quote }}
+            - name: SANDBOX_LLM_GATEWAY_TOKEN_SECRET
+              value: {{ .Values.runtime.llmGatewayTokenSecret | default "sandbox-tokens" | quote }}
+            - name: SANDBOX_BYOS_SECRET_PREFIX
+              value: {{ .Values.runtime.byosSecretPrefix | default "sandbox-byos-claude-code" | quote }}
+            - name: SANDBOX_IDLE_TIMEOUT_MINUTES
+              value: {{ .Values.runtime.idleTimeoutMinutes | default 30 | quote }}
+            # Wave 9 — NewAPI bridge wiring. The controller calls
             # POST /admin/tokens/sandbox to mint per-Sandbox HS256
             # bearers; without these two env vars wired the controller
             # logs a warning at startup and skips the token-mint path
-            # — namespace + RBAC + PVCs still land so a fresh-prov
-            # Sovereign with bridge-handler rollout pending stays
-            # usable for the gitops scaffolding.
+            # — namespace + RBAC + PVCs + pty-server StatefulSet still
+            # land so a fresh-prov Sovereign with bridge-handler
+            # rollout pending stays usable for the gitops scaffolding.
             - name: NEWAPI_BASE_URL
               value: {{ .Values.env.newapiBaseURL | default "http://newapi.newapi.svc.cluster.local:3000" | quote }}
             - name: NEWAPI_ADMIN_SECRET

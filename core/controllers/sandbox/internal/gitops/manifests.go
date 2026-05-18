@@ -11,21 +11,23 @@
 // (core/controllers/organization/internal/gitops/manifests.go) — Flux
 // on the host picks them up and reconciles into the Org vcluster.
 //
-// Wave 1 (this slice) materializes only:
-//   - Namespace `sandbox-<owner-uid>` (uniquely scoped per Sandbox owner)
-//   - ResourceQuota (mirrors spec.quota)
-//   - ServiceAccount `sandbox`
-//   - Role + RoleBinding scoping the SA to the sandbox namespace
-//   - One PVC per spec.repos[] entry (repo clone target)
-//   - Placeholder Secret `sandbox-tokens` (filled in Wave 2 by the
-//     long-lived org-scoped token issuance flow — architecture.md §6)
+// Wave 1 materialized only namespace + RBAC + PVCs + placeholder
+// Secret. Wave 8 (this slice — PR follow-up to #1622) extends the
+// renderer to ALSO spawn the per-Sandbox runtime:
 //
-// Wave 2 will add the pty-server StatefulSet + openova-sandbox-mcp
-// Deployment + HTTPRoutes for `<pr>.<app>.<sb-<owner>>.<sov>.openova.io`.
+//   - Namespace `sandbox-<owner-uid>`
+//   - ResourceQuota (mirrors spec.quota)
+//   - ServiceAccount `sandbox` + Role + RoleBinding
+//   - One PVC per spec.repos[] entry
+//   - Placeholder Secret `sandbox-tokens`
+//   - NEW: StatefulSet `pty-server` (replicas = spec.quota.concurrentSessions)
+//   - NEW: Deployment `openova-sandbox-mcp`
+//   - NEW: Service `pty-server` ClusterIP :7681
+//   - NEW: HTTPRoute exposing `sandbox.<sov-fqdn>/sessions/<owner-uid>/*`
 //
 // Per Inviolable Principle #4 (no hardcoded values) every knob comes
 // from Inputs — nothing in the template literals encodes a cluster /
-// region / version.
+// region / version / image / hostname.
 package gitops
 
 import (
@@ -39,75 +41,36 @@ import (
 )
 
 // Inputs is the subset of Sandbox spec + controller-level metadata the
-// renderer needs. The reconciler builds this from the CR + reconciler
-// configuration. Mirrors the shape of organization/internal/gitops.Inputs
-// so future maintainers can move helpers between the two without
-// re-learning a different convention.
+// renderer needs.
 type Inputs struct {
-	// Name is the Sandbox resource name (used as a stable suffix when
-	// the controller writes manifest filenames).
-	Name string
+	Name                  string
+	OwnerUID              string
+	OwnerEmail            string
+	OrgSlug               string
+	SovereignFQDN         string
+	Quota                 sandboxapi.SandboxQuota
+	Repos                 []sandboxapi.SandboxRepo
+	PreviewDomain         string
+	AgentCatalogue        []string
+	PtyServerImage        string
+	MCPImage              string
+	NewapiURL             string
+	LLMGatewayTokenSecret string
+	BYOSSecretPrefix      string
+	IdleTimeoutMinutes    int
 
-	// OwnerUID is the DNS-1123-safe label derived from
-	// spec.owner.email (e.g. "ceo-at-acme-com"). Drives the per-Sandbox
-	// namespace `sandbox-<OwnerUID>` so two Sandboxes in the same Org
-	// stay isolated.
-	OwnerUID string
-
-	// OwnerEmail is the authoritative owner email (stored verbatim on
-	// the Namespace as an annotation for operator-debug; not used in
-	// any DNS-bound name).
-	OwnerEmail string
-
-	// OrgSlug is the parent Organization slug. Drives the
-	// openova.io/organization label so the Sovereign UI can filter
-	// Sandbox resources per-Org without a label-graph lookup.
-	OrgSlug string
-
-	// SovereignFQDN is the Sovereign domain (e.g. omantel.omani.works).
-	// Goes onto the openova.io/sovereign label for fleet-wide queries.
-	SovereignFQDN string
-
-	// Quota mirrors spec.quota — surfaced as a ResourceQuota CR.
-	Quota sandboxapi.SandboxQuota
-
-	// Repos is the (deterministically-ordered) list of repo entries the
-	// reconciler renders PVCs for.
-	Repos []sandboxapi.SandboxRepo
-
-	// PreviewDomain is spec.previewDomain — written as an annotation on
-	// the Namespace so Wave 2's HTTPRoute renderer can find it without
-	// re-reading the CR.
-	PreviewDomain string
-
-	// NewAPIToken is the HS256 bearer minted by the catalyst-api bridge
-	// handler (POST /admin/tokens/sandbox, shipped by PR #1638). When
-	// non-empty, the renderer emits a dedicated
-	// `secret-newapi-token.yaml` manifest containing the token under
-	// the LLM_GATEWAY_TOKEN key. Empty disables the manifest — the
-	// reconciler renders Wave 1 RBAC/PVCs even when the bridge is
-	// unreachable so operators can debug a half-wired Sovereign
-	// without losing the namespace-create step.
-	NewAPIToken string
-
-	// NewAPITokenSecretName is the Secret name the Sandbox Pod (Wave 2)
-	// mounts as env LLM_GATEWAY_TOKEN. Conventionally
-	// `sandbox-<owner-uid>-newapi-token`.
+	// Wave 9 — per-Sandbox NewAPI bearer rendered into a dedicated
+	// Secret manifest. When NewAPIToken is non-empty the renderer
+	// emits secret-newapi-token.yaml carrying stringData
+	// LLM_GATEWAY_TOKEN + openova.io/sandbox-token-expires-at
+	// annotation; when NewAPITokenRotatedAt is also non-empty the
+	// rendered Secret additionally carries
+	// kubectl.kubernetes.io/restartedAt so Wave 8's pty-server
+	// StatefulSet picks up rolling restarts on token rotation.
+	NewAPIToken           string
 	NewAPITokenSecretName string
-
-	// NewAPITokenExpiresAt is the absolute expiry of NewAPIToken (RFC3339
-	// string ready for annotation use — caller pre-formats so the
-	// renderer does not depend on time pkg). Surfaced as an annotation
-	// on the rendered Secret so operators + Wave 2's restart-on-rotate
-	// path can both inspect it without parsing the JWT.
-	NewAPITokenExpiresAt string
-
-	// NewAPITokenRotatedAt is the controller's bump-on-rotate marker
-	// (RFC3339 instant). When non-empty, the renderer drops a
-	// `kubectl.kubernetes.io/restartedAt` annotation on the rendered
-	// Secret. Wave 2's pty-server StatefulSet will read the same value
-	// off the mounted Secret to trigger a rolling restart on rotation.
-	NewAPITokenRotatedAt string
+	NewAPITokenExpiresAt  string
+	NewAPITokenRotatedAt  string
 }
 
 const namespaceTemplate = `apiVersion: v1
@@ -164,11 +127,6 @@ metadata:
     openova.io/sandbox: {{ .Name }}
     openova.io/managed-by: catalyst
 rules:
-  # Wave 1 RBAC: the sandbox ServiceAccount can see + manage its own
-  # namespace's workloads. Pty-server + MCP Deployments + per-session
-  # Pods (Wave 2) live here. Per architecture.md §3 the MCP server's
-  # k8s.write.* tools are restricted to this namespace — RBAC enforces
-  # that boundary.
   - apiGroups: [""]
     resources: ["pods", "pods/log", "pods/exec", "services", "configmaps", "secrets", "persistentvolumeclaims", "events"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
@@ -198,9 +156,6 @@ subjects:
     namespace: {{ .NamespaceName }}
 `
 
-// pvcTemplate renders one PVC per repo. The repo clone (initContainer
-// driven by the pty-server pod spec) lands in Wave 2; Wave 1 only
-// reserves the storage.
 const pvcTemplate = `apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -218,10 +173,6 @@ spec:
       storage: {{ .RepoStorage | quote }}
 `
 
-// secretTemplate renders the placeholder Secret architecture.md §7
-// calls out as "Sandbox-scoped secrets (never echoes)". Wave 2 fills
-// it with the long-lived org-scoped token (architecture.md §6) and the
-// MCP server's bearer credentials.
 const secretTemplate = `apiVersion: v1
 kind: Secret
 metadata:
@@ -236,14 +187,15 @@ stringData:
 `
 
 // newapiTokenSecretTemplate renders the per-Sandbox NewAPI bearer
-// Secret. Materialized into the Org vcluster's sandbox-<owner-uid>
-// namespace by Flux; Wave 2's pty-server StatefulSet mounts the
-// LLM_GATEWAY_TOKEN key as an env var on every Sandbox-agent Pod.
+// Secret (Wave 9). Materialized into the Org vcluster's
+// sandbox-<owner-uid> namespace by Flux; Wave 8's pty-server
+// StatefulSet mounts the LLM_GATEWAY_TOKEN key as an env var on
+// every Sandbox-agent Pod.
 //
 // The Secret carries TWO operator-visible annotations:
 //   - openova.io/sandbox-token-expires-at — absolute expiry of the
 //     embedded JWT (operator + rotation observer).
-//   - kubectl.kubernetes.io/restartedAt   — rotation marker; Wave 2's
+//   - kubectl.kubernetes.io/restartedAt   — rotation marker; Wave 8's
 //     pty-server StatefulSet propagates this onto its Pod template via
 //     a stringData → annotation reference so a fresh Secret triggers
 //     a rolling restart.
@@ -266,8 +218,250 @@ stringData:
   LLM_GATEWAY_TOKEN: {{ .Token | quote }}
 `
 
-// kustomizationTemplate stitches every rendered manifest into one
-// Kustomization the host-cluster Flux Kustomization picks up.
+const ptyServerStatefulSetTemplate = `apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: pty-server
+  namespace: {{ .NamespaceName }}
+  labels:
+    openova.io/sandbox: {{ .Name }}
+    openova.io/sandbox-owner: {{ .OwnerUID }}
+    openova.io/managed-by: catalyst
+    app.kubernetes.io/name: pty-server
+    app.kubernetes.io/component: pty-server
+  annotations:
+    openova.io/sandbox-idle-timeout-minutes: {{ .IdleTimeoutMinutes | quote }}
+spec:
+  serviceName: pty-server
+  replicas: {{ .Replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pty-server
+      openova.io/sandbox: {{ .Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pty-server
+        app.kubernetes.io/component: pty-server
+        openova.io/sandbox: {{ .Name }}
+        openova.io/sandbox-owner: {{ .OwnerUID }}
+        openova.io/managed-by: catalyst
+    spec:
+      serviceAccountName: sandbox
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: pty-server
+          image: {{ .PtyServerImage | quote }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 7681
+          env:
+            - name: PTY_SERVER_ADDR
+              value: ":7681"
+            - name: SANDBOX_OWNER_UID
+              value: {{ .OwnerUID | quote }}
+            - name: SANDBOX_OWNER_EMAIL
+              value: {{ .OwnerEmail | quote }}
+            - name: ORG_ID
+              value: {{ .OrgSlug | quote }}
+            - name: SOVEREIGN_FQDN
+              value: {{ .SovereignFQDN | quote }}
+            - name: NEWAPI_URL
+              value: {{ .NewapiURL | quote }}
+            - name: OPENAI_BASE_URL
+              value: {{ .NewapiURL | quote }}
+            - name: LLM_GATEWAY_URL
+              value: {{ .NewapiURL | quote }}
+            - name: LLM_GATEWAY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .LLMGatewayTokenSecret | quote }}
+                  key: llm-gateway-token
+                  optional: true
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .LLMGatewayTokenSecret | quote }}
+                  key: llm-gateway-token
+                  optional: true
+{{- if .ClaudeCodeBYOSActive }}
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .BYOSSecretName | quote }}
+                  key: access_token
+                  optional: true
+            - name: ANTHROPIC_BASE_URL
+              value: ""
+{{- end }}
+          volumeMounts:
+{{- range .RuntimeRepos }}
+            - name: repo-{{ .Slug }}
+              mountPath: /workspace/{{ .Slug }}
+{{- end }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: {{ .Quota.CPU | quote }}
+              memory: {{ .Quota.Memory | quote }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false
+      volumes:
+{{- range .RuntimeRepos }}
+        - name: repo-{{ .Slug }}
+          persistentVolumeClaim:
+            claimName: repo-{{ .Slug }}
+{{- end }}
+      terminationGracePeriodSeconds: 30
+`
+
+const mcpDeploymentTemplate = `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openova-sandbox-mcp
+  namespace: {{ .NamespaceName }}
+  labels:
+    openova.io/sandbox: {{ .Name }}
+    openova.io/sandbox-owner: {{ .OwnerUID }}
+    openova.io/managed-by: catalyst
+    app.kubernetes.io/name: openova-sandbox-mcp
+    app.kubernetes.io/component: mcp-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: openova-sandbox-mcp
+      openova.io/sandbox: {{ .Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: openova-sandbox-mcp
+        app.kubernetes.io/component: mcp-server
+        openova.io/sandbox: {{ .Name }}
+        openova.io/sandbox-owner: {{ .OwnerUID }}
+        openova.io/managed-by: catalyst
+    spec:
+      serviceAccountName: sandbox
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mcp
+          image: {{ .MCPImage | quote }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: SANDBOX_OWNER_UID
+              value: {{ .OwnerUID | quote }}
+            - name: SANDBOX_OWNER_EMAIL
+              value: {{ .OwnerEmail | quote }}
+            - name: ORG_ID
+              value: {{ .OrgSlug | quote }}
+            - name: SOVEREIGN_FQDN
+              value: {{ .SovereignFQDN | quote }}
+            - name: PTY_SERVER_URL
+              value: "http://pty-server.{{ .NamespaceName }}.svc.cluster.local:7681"
+            - name: LLM_GATEWAY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .LLMGatewayTokenSecret | quote }}
+                  key: llm-gateway-token
+                  optional: true
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+      terminationGracePeriodSeconds: 10
+`
+
+const ptyServerServiceTemplate = `apiVersion: v1
+kind: Service
+metadata:
+  name: pty-server
+  namespace: {{ .NamespaceName }}
+  labels:
+    openova.io/sandbox: {{ .Name }}
+    openova.io/managed-by: catalyst
+    app.kubernetes.io/name: pty-server
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: pty-server
+    openova.io/sandbox: {{ .Name }}
+  ports:
+    - name: http
+      port: 7681
+      targetPort: 7681
+      protocol: TCP
+`
+
+const httpRouteTemplate = `apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: pty-server
+  namespace: {{ .NamespaceName }}
+  labels:
+    openova.io/sandbox: {{ .Name }}
+    openova.io/managed-by: catalyst
+spec:
+  parentRefs:
+    - name: catalyst-public
+      namespace: catalyst-system
+      sectionName: https
+  hostnames:
+    - "sandbox.{{ .SovereignFQDN }}"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /sessions/{{ .OwnerUID }}/
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /sessions/
+      backendRefs:
+        - name: pty-server
+          port: 7681
+`
+
 const kustomizationTemplate = `apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
@@ -283,22 +477,23 @@ resources:
 {{- range .RepoPaths }}
   - {{ . }}
 {{- end }}
+  - statefulset-pty-server.yaml
+  - service-pty-server.yaml
+  - deployment-mcp.yaml
+  - httproute-pty-server.yaml
 `
 
-// pvcRepoStorageDefault is the per-repo PVC size when SandboxQuota does
-// not budget per-repo storage explicitly. Wave 2's storage allocator
-// will split spec.quota.storage across repos; Wave 1 uses a sane
-// fixed default so the PVC schema is well-formed.
 const pvcRepoStorageDefault = "5Gi"
 
+const (
+	defaultLLMGatewayTokenSecret = "sandbox-tokens"
+	defaultBYOSSecretPrefix      = "sandbox-byos-claude-code"
+	defaultIdleTimeoutMinutes    = 30
+	defaultConcurrentSessions    = 1
+)
+
 // Render returns (path, bytes) tuples the reconciler writes into the
-// per-Org Gitea repo under `sandbox/<owner-uid>/`. The caller prepends
-// that prefix — the renderer returns repo-relative paths.
-//
-// Idempotency: the output is deterministic for a given Inputs (sorted
-// repo iteration, no time.Now() / rand). Re-rendering on a steady-state
-// CR produces byte-equal output, which the Gitea PutFile path
-// short-circuits without a write.
+// per-Org Gitea repo under `sandbox/<owner-uid>/`.
 func Render(in Inputs) (map[string][]byte, error) {
 	if strings.TrimSpace(in.Name) == "" {
 		return nil, fmt.Errorf("Inputs.Name is required")
@@ -309,10 +504,31 @@ func Render(in Inputs) (map[string][]byte, error) {
 	if strings.TrimSpace(in.OrgSlug) == "" {
 		return nil, fmt.Errorf("Inputs.OrgSlug is required")
 	}
+	if strings.TrimSpace(in.PtyServerImage) == "" {
+		return nil, fmt.Errorf("Inputs.PtyServerImage is required (Wave 8 pty-server StatefulSet has no default image)")
+	}
+	if strings.TrimSpace(in.MCPImage) == "" {
+		return nil, fmt.Errorf("Inputs.MCPImage is required (Wave 8 openova-sandbox-mcp Deployment has no default image)")
+	}
+	if strings.TrimSpace(in.NewapiURL) == "" {
+		return nil, fmt.Errorf("Inputs.NewapiURL is required (newapi-proxy-contract.md §1 — pty-server env LLM_GATEWAY_URL)")
+	}
+	if strings.TrimSpace(in.SovereignFQDN) == "" {
+		return nil, fmt.Errorf("Inputs.SovereignFQDN is required (HTTPRoute hostname binding)")
+	}
+
+	if strings.TrimSpace(in.LLMGatewayTokenSecret) == "" {
+		in.LLMGatewayTokenSecret = defaultLLMGatewayTokenSecret
+	}
+	if strings.TrimSpace(in.BYOSSecretPrefix) == "" {
+		in.BYOSSecretPrefix = defaultBYOSSecretPrefix
+	}
+	if in.IdleTimeoutMinutes <= 0 {
+		in.IdleTimeoutMinutes = defaultIdleTimeoutMinutes
+	}
+
 	ns := fmt.Sprintf("sandbox-%s", in.OwnerUID)
 
-	// Deterministic repo ordering by GiteaRepo string — guarantees the
-	// kustomization.yaml + PVC filenames don't churn between reconciles.
 	repos := make([]sandboxapi.SandboxRepo, len(in.Repos))
 	copy(repos, in.Repos)
 	sort.SliceStable(repos, func(i, j int) bool {
@@ -325,9 +541,8 @@ func Render(in Inputs) (map[string][]byte, error) {
 	}
 	base := baseCtx{Inputs: in, NamespaceName: ns}
 
-	out := make(map[string][]byte, 8+len(repos))
+	out := make(map[string][]byte, 12+len(repos))
 
-	// Non-repo templates.
 	for path, raw := range map[string]string{
 		"namespace.yaml":      namespaceTemplate,
 		"resourcequota.yaml":  resourceQuotaTemplate,
@@ -343,9 +558,6 @@ func Render(in Inputs) (map[string][]byte, error) {
 		out[path] = buf
 	}
 
-	// PVC per repo. RepoSlug is the gitea slug with "/" replaced by
-	// "-" — DNS-label safe and stable across renames (rename would
-	// produce a new CR anyway).
 	type pvcCtx struct {
 		Inputs
 		NamespaceName string
@@ -423,7 +635,63 @@ func Render(in Inputs) (map[string][]byte, error) {
 	}
 	out["kustomization.yaml"] = kustBuf
 
+	// Wave 8 runtime — pty-server StatefulSet, MCP Deployment,
+	// pty-server Service, HTTPRoute.
+	type runtimeRepo struct {
+		Slug string
+	}
+	runtimeRepos := make([]runtimeRepo, 0, len(repos))
+	for _, r := range repos {
+		runtimeRepos = append(runtimeRepos, runtimeRepo{Slug: sanitizeRepoSlug(r.GiteaRepo)})
+	}
+	replicas := in.Quota.ConcurrentSessions
+	if replicas <= 0 {
+		replicas = defaultConcurrentSessions
+	}
+	byosActive := agentInCatalogue(in.AgentCatalogue, "claude-code")
+	byosSecretName := fmt.Sprintf("%s-%s", in.BYOSSecretPrefix, in.OwnerUID)
+
+	type runtimeCtx struct {
+		Inputs
+		NamespaceName        string
+		Replicas             int
+		RuntimeRepos         []runtimeRepo
+		ClaudeCodeBYOSActive bool
+		BYOSSecretName       string
+	}
+	rctx := runtimeCtx{
+		Inputs:               in,
+		NamespaceName:        ns,
+		Replicas:             replicas,
+		RuntimeRepos:         runtimeRepos,
+		ClaudeCodeBYOSActive: byosActive,
+		BYOSSecretName:       byosSecretName,
+	}
+	for path, raw := range map[string]string{
+		"statefulset-pty-server.yaml": ptyServerStatefulSetTemplate,
+		"service-pty-server.yaml":     ptyServerServiceTemplate,
+		"deployment-mcp.yaml":         mcpDeploymentTemplate,
+		"httproute-pty-server.yaml":   httpRouteTemplate,
+	} {
+		buf, err := renderTemplate(path, raw, rctx)
+		if err != nil {
+			return nil, err
+		}
+		out[path] = buf
+	}
+	_ = base
+
 	return out, nil
+}
+
+func agentInCatalogue(catalogue []string, agent string) bool {
+	want := strings.ToLower(strings.TrimSpace(agent))
+	for _, a := range catalogue {
+		if strings.ToLower(strings.TrimSpace(a)) == want {
+			return true
+		}
+	}
+	return false
 }
 
 func renderTemplate(name, raw string, data any) ([]byte, error) {
@@ -440,18 +708,10 @@ func renderTemplate(name, raw string, data any) ([]byte, error) {
 
 func funcs() template.FuncMap {
 	return template.FuncMap{
-		// quote stringifies and double-quotes any value. Accepts `any`
-		// so int fields (e.g. SandboxQuota.ConcurrentSessions) work the
-		// same as strings — matching helm's `quote` pipe semantics.
 		"quote": func(v any) string { return fmt.Sprintf("%q", fmt.Sprintf("%v", v)) },
 	}
 }
 
-// sanitizeRepoSlug converts "acme/eventforge" → "acme-eventforge" and
-// trims any character that isn't [a-z0-9-]. The result is RFC 1123
-// DNS-label-safe so it can be embedded in resource names. Reversibility
-// is not required — the authoritative slug is on the PVC label
-// openova.io/sandbox-repo.
 func sanitizeRepoSlug(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	var b strings.Builder
@@ -466,7 +726,6 @@ func sanitizeRepoSlug(s string) string {
 		}
 	}
 	out := b.String()
-	// Collapse runs of dashes, trim leading/trailing.
 	for strings.Contains(out, "--") {
 		out = strings.ReplaceAll(out, "--", "-")
 	}
