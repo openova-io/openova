@@ -33,9 +33,21 @@ import (
 // FQDNs; primary role marker is `<fqdn>:primary`, default role is
 // sme-pool). When the env knob is unset and CATALYST_OTECH_FQDN is
 // set, returns the otech FQDN as the implicit primary entry plus the
-// canonical-but-stub `omani.works` and `omani.trade` sme-pool entries
-// — covering the #828 constraint "stub returning a 2-domain hardcoded
-// list with TODO" while MD-1 (#826) is in flight.
+// four canonical sme-pool entries (omani.homes, omani.rest,
+// omani.trade, omani.works) — the operator-curated free-subdomain
+// pool offered to SME tenants per DoD D30 (issue #1830).
+//
+// Pool composition note (2026-05-18):
+// The four .omani.X TLDs are the canonical OpenOva-managed
+// sme-pool — they are already delegated to the Sovereign's PowerDNS
+// (no Dynadot flip needed; nsAlreadyMatches short-circuit in
+// pdmFlipNS covers Day-2 re-adds) and the cert-manager DNS-01
+// solver is wired for *.X.<chosen>.<pool>. The marketplace UI
+// (core/marketplace/src/components/AddonsStep.svelte) hard-codes
+// the same four entries; this seed keeps the backend pool aligned
+// with what the customer-facing /addons subdomain picker shows.
+// core/services/domain/store.AllowedTLDs has the same authoritative
+// list and is the central registry.
 //
 // Forward-compat: when MD-1 lands the catalyst-api startup wiring
 // switches to read from the Sovereign's deployment record. The
@@ -52,9 +64,16 @@ func LoadSMETenantParentDomainsFromEnv() []SMETenantParentDomain {
 				Name: strings.ToLower(otech), Role: "primary", NSFlipReady: true,
 			})
 		}
+		// DoD D30 (issue #1830) — the four canonical .omani.X
+		// sme-pool entries. Match core/services/domain/store.AllowedTLDs
+		// and core/marketplace/src/components/AddonsStep.svelte's
+		// picker so backend validation accepts every TLD the customer
+		// UI offers.
 		out = append(out,
-			SMETenantParentDomain{Name: "omani.works", Role: "sme-pool", NSFlipReady: true},
+			SMETenantParentDomain{Name: "omani.homes", Role: "sme-pool", NSFlipReady: true},
+			SMETenantParentDomain{Name: "omani.rest", Role: "sme-pool", NSFlipReady: true},
 			SMETenantParentDomain{Name: "omani.trade", Role: "sme-pool", NSFlipReady: true},
+			SMETenantParentDomain{Name: "omani.works", Role: "sme-pool", NSFlipReady: true},
 		)
 		return out
 	}
