@@ -608,7 +608,7 @@ spec:
       # during the YAML scanner break introduced by PR #1858 and fixed
       # by PR #1866. Auto-bump-pin step didn't fire during the outage,
       # so this pin lagged by 2 versions. Refs #1864.
-      version: 1.4.181
+      version: 1.4.182
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
