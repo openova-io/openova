@@ -1,6 +1,6 @@
 # Inviolable Principles
 
-**Status:** Authoritative. Non-negotiable. **Updated:** 2026-05-04.
+**Status:** Authoritative. Non-negotiable. **Updated:** 2026-05-18.
 
 This document records the principles that **cannot be compromised** during Catalyst development, regardless of context budget, time pressure, perceived complexity, or session-internal judgment about feasibility. Each entry exists because it has been violated at least once and the violation cost real time, real tokens, or real architectural integrity.
 
@@ -163,6 +163,46 @@ A franchised Sovereign cannot be operationally tethered to the OpenOva mothershi
 The full architecture, alternatives considered, and consequences are in [ADR-0002](adr/0002-post-handover-sovereignty-cutover.md). The eight-tether map is in `ARCHITECTURE.md` §11.1 (the Phase-2 Self-Sovereignty Cutover subsection of Catalyst-on-Catalyst). Implementation is split across issues #790 (umbrella), #791 (chart), #792 (API), #793 (UI), #794 (this docs set).
 
 If a future ticket, agent, or operator session tries to ship a Sovereign without the cutover wired up, that ticket is wrong by definition until it is amended to comply. There is no "Sovereign-lite" tier where independence is optional.
+
+---
+
+## 12. Never validate against the local working tree (2026-05-18)
+
+**Rule**: When verifying that a change has landed, that a file exists, or that a principle is documented, read the artifact from `git show origin/main:<path>` or from a fresh clone — never from the local working tree.
+
+**Why**: Session 2026-05-18 23:46Z — agent A19 reported a false-positive "principle is already documented" because it grepped the local working copy, which was sitting on a feature branch with unstaged edits that included exactly the phrase being searched for. The principle was NOT on origin/main. Same class of error has cost cycles on chart-pin verification and CRD-applied verification, where uncommitted scaffolding masqueraded as shipped state.
+
+**How to apply**:
+- Validate file contents with `git show origin/main:path/to/file` or a worktree pinned to `origin/main` (e.g. `/tmp/clean-origin-main-check/openova` populated by `git worktree add ... origin/main`).
+- Never grep the developer's working copy to prove that something is "already on main". The working tree is a hypothesis; `origin/main` is the contract.
+- A verifier script that reads from `$PWD` is broken by construction — fix it to pipe through `git show origin/main:` before trusting its output.
+
+---
+
+## 13. Chart-pin bumps must match a GHCR tag that actually exists (2026-05-18)
+
+**Rule**: Whenever a bootstrap-kit slot or chart manifest bumps a pin (e.g. `bp-foo:0.1.25 -> 0.1.26`), the new tag MUST already be published to GHCR before the pin lands on main. Source-side version-equality is not proof of publication.
+
+**Why**: PR #1869 (TBD-A48 drift incident) landed a pin to `bp-self-sovereign-cutover:0.1.4` while the chart artifact at `oci://ghcr.io/openova-io/openova/bp-self-sovereign-cutover:0.1.4` had never been built. Flux retried `ImagePullBackOff` for hours; the cluster looked half-rolled-out because the manifest committed to main pointed at a tag that did not exist. Same class of bug has caused silent deploy failures whenever a chart-build CI job is skipped, fails, or races the deploy commit.
+
+**How to apply**:
+- Before committing a pin bump, run `crane manifest oci://ghcr.io/openova-io/openova/bp-<name>:<new-version>` (or `oras manifest fetch`) and confirm a non-empty response.
+- In CI, gate the deploy commit on a "tag exists on GHCR" check; the build job's success is necessary but not sufficient — the registry must serve it.
+- If you find a pin pointing at a missing tag on origin/main, treat it as a P0 incident: either publish the tag immediately or revert the pin. Do not paper over with "the build is queued."
+
+---
+
+## 14. Cutover-style HRs that rewrite HelmRepository URLs must `dependsOn` Gateway readiness (2026-05-18)
+
+**Rule**: Any HelmRelease that pivots a HelmRepository URL from the mothership/upstream to a local in-cluster registry (Harbor, Gitea, local OCI mirror) MUST declare a `spec.dependsOn` on the Gateway/IngressClass that fronts the local registry, AND a health-check on that Gateway's TLS endpoint. Cutover-style HRs that flip URLs without proving the destination is reachable will deadlock the cluster.
+
+**Why**: TBD-A24 / PR #1871, 2026-05-18 22:23Z — `bp-self-sovereign-cutover` flipped all eight HelmRepository URLs to point at the local registry **before Cilium Gateway was serving TLS**. Every Flux reconciler immediately started failing pulls; the cluster lost the ability to reconcile its own Gateway chart (catch-22); the entire control plane sat in a self-induced deadlock. Recovery required manual `kubectl edit` of HelmRepositories to revert URLs, which is exactly the kind of "by-hand fix" the cutover was supposed to eliminate.
+
+**How to apply**:
+- The HR that performs the URL flip must list `dependsOn` for the Cilium Gateway (or whatever ingress fronts the local registry) and its certificate Secret.
+- The flip job must include a readiness probe against the local registry's TLS endpoint (`https://harbor.<sovereign-fqdn>/v2/`) and refuse to flip until the probe is green.
+- The cutover chart must publish a rollback Job — flipping HelmRepository URLs is destructive in the same sense `tofu destroy` is; treat it accordingly.
+- Never sequence "flip URLs" before "prove Gateway TLS works" inside the same blueprint. If they share a slot, the slot is wrong.
 
 ---
 
