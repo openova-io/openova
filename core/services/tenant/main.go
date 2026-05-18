@@ -11,6 +11,12 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
+
 	"github.com/openova-io/openova/core/services/shared/events"
 	"github.com/openova-io/openova/core/services/shared/health"
 	"github.com/openova-io/openova/core/services/shared/middleware"
@@ -203,6 +209,65 @@ func main() {
 		"kafka_enabled", membersKafkaConsumer != nil,
 		"group", "tenant-members-cleanup")
 
+	// Sandbox orchestrator — consumes tenant.sandbox_requested (PR #1633)
+	// and materialises a Sandbox CR in catalyst-system that the
+	// sandbox-controller (PR #1622) reconciles into namespace + RBAC +
+	// PVCs + pty-server. The Kubernetes write surface is optional: when
+	// no in-cluster config OR KUBECONFIG is available (CI / dev loops)
+	// we skip starting the orchestrator with a Warn so the rest of the
+	// tenant service still boots. On Sovereigns the ServiceAccount-bound
+	// in-cluster config is always present so the consumer is always on.
+	sandboxNamespace := getEnv("SANDBOX_NAMESPACE", handlers.DefaultSandboxNamespace)
+	dyn := buildDynamicClient()
+	if dyn == nil {
+		slog.Warn("sandbox-orchestrator: kubernetes client unavailable — orchestrator disabled",
+			"namespace", sandboxNamespace,
+			"reason", "no in-cluster config and KUBECONFIG unset (or build failed)")
+	} else {
+		var sandboxKafkaConsumer *events.Consumer
+		if redpandaBrokersRaw != "" {
+			kc, err := events.NewConsumer(
+				strings.Split(redpandaBrokersRaw, ","),
+				"sandbox-orchestrator",
+				[]string{"sme.tenant.events"},
+			)
+			if err != nil {
+				slog.Error("failed to create sandbox-orchestrator kafka consumer", "error", err)
+				os.Exit(1)
+			}
+			sandboxKafkaConsumer = kc
+		}
+		sandboxSub, err := events.NewMultiSubscriber(events.MultiSubscriberConfig{
+			NATS:       natsConn,
+			Kafka:      sandboxKafkaConsumer,
+			Group:      "sandbox-orchestrator",
+			EventTypes: []string{"tenant.sandbox_requested"},
+		})
+		if err != nil {
+			slog.Error("failed to create sandbox-orchestrator subscriber", "error", err)
+			os.Exit(1)
+		}
+		defer sandboxSub.Close()
+		orchestrator := &handlers.SandboxOrchestrator{
+			Client:       newDynamicSandboxClient(dyn),
+			Namespace:    sandboxNamespace,
+			Members:      tenantStore,
+			DefaultQuota: handlers.DefaultSandboxQuota(),
+		}
+		go func() {
+			if err := orchestrator.Start(context.Background(), sandboxSub); err != nil {
+				slog.Error("sandbox-orchestrator consumer stopped", "error", err)
+			}
+		}()
+		slog.Info("sandbox-orchestrator consumer started",
+			"nats_subject", "catalyst.tenant.sandbox_requested",
+			"kafka_topic", "sme.tenant.events",
+			"namespace", sandboxNamespace,
+			"nats_enabled", natsConn != nil,
+			"kafka_enabled", sandboxKafkaConsumer != nil,
+			"group", "sandbox-orchestrator")
+	}
+
 	// Build the main mux.
 	mux := http.NewServeMux()
 
@@ -254,4 +319,61 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// buildDynamicClient returns an in-cluster dynamic.Interface (production
+// Sovereign path) or one built from $KUBECONFIG (dev), or nil when both
+// fail. Returning nil is the explicit "orchestrator disabled" signal —
+// see the caller's Warn log; the rest of the tenant service still boots.
+func buildDynamicClient() dynamic.Interface {
+	if cfg, err := rest.InClusterConfig(); err == nil {
+		c, err := dynamic.NewForConfig(cfg)
+		if err != nil {
+			slog.Warn("sandbox-orchestrator: in-cluster dynamic client build failed",
+				"error", err)
+			return nil
+		}
+		return c
+	}
+	kc := os.Getenv("KUBECONFIG")
+	if kc == "" {
+		return nil
+	}
+	cfg, err := clientcmd.BuildConfigFromFlags("", kc)
+	if err != nil {
+		slog.Warn("sandbox-orchestrator: kubeconfig load failed",
+			"kubeconfig", kc, "error", err)
+		return nil
+	}
+	c, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		slog.Warn("sandbox-orchestrator: kubeconfig dynamic client build failed",
+			"error", err)
+		return nil
+	}
+	return c
+}
+
+// dynamicSandboxClient is the production adapter implementing
+// handlers.SandboxClient on top of dynamic.Interface. Kept here (not
+// in handlers/) so handlers/ stays free of client-go transitive deps
+// and unit tests can run without a Kubernetes test rig.
+type dynamicSandboxClient struct {
+	dyn dynamic.Interface
+}
+
+func newDynamicSandboxClient(d dynamic.Interface) *dynamicSandboxClient {
+	return &dynamicSandboxClient{dyn: d}
+}
+
+// Get fetches the Sandbox CR in (namespace, name).
+func (c *dynamicSandboxClient) Get(ctx context.Context, namespace, name string) (*unstructured.Unstructured, error) {
+	return c.dyn.Resource(handlers.SandboxGVR).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
+}
+
+// Create writes the Sandbox CR. Returns the underlying api error so
+// callers can distinguish IsAlreadyExists.
+func (c *dynamicSandboxClient) Create(ctx context.Context, namespace string, obj *unstructured.Unstructured) error {
+	_, err := c.dyn.Resource(handlers.SandboxGVR).Namespace(namespace).Create(ctx, obj, metav1.CreateOptions{})
+	return err
 }
