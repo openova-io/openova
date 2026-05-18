@@ -128,7 +128,12 @@ spec:
       # made kubelet restart the Pod every ~60s and the kube-system
       # Cilium gateway returned 503 to the public hostname because
       # the Endpoint was never Ready (observed on t22, 5 restarts).
-      version: 0.1.24
+      # 0.1.25 (catch-up for Blueprint Release workflow outage,
+      # 2026-05-18 21:04Z → 22:07Z): chart published 0.1.24 → 0.1.25
+      # during the YAML scanner break introduced by PR #1858 and fixed
+      # by PR #1866. Auto-bump-pin step didn't fire during the outage.
+      # Refs #1864.
+      version: 0.1.25
       sourceRef:
         kind: HelmRepository
         name: bp-guacamole
