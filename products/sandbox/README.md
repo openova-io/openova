@@ -1,6 +1,8 @@
-# OpenOva Sandbox (design)
+# OpenOva Sandbox
 
-**Status:** Design. Not yet implemented. **Created:** 2026-05-15.
+**Status:** Wave 1-5 implementation in flight (PRs **#1615 / #1618 / #1619 / #1621 / #1622 / #1632** merged; runtime smoke pending fresh prov). **Created:** 2026-05-15. **Implementation started:** 2026-05-17.
+
+> **Founder TODO:** Register an Anthropic OAuth client_id for the BYOS Claude Code flow per [`docs/claude-code-byos.md`](docs/claude-code-byos.md), and paste it into the Sovereign Console BYOS settings (or set `SANDBOX_ANTHROPIC_OAUTH_CLIENT_ID` on the controller Deployment). The Sandbox controller looks up the value via env-var; everything else around it is already scaffolded.
 
 OpenOva Sandbox is the per-user, per-Organization coding-agent plane that runs **inside** every OpenOva Sovereign. It hosts long-lived sessions of the agents developers already use (Claude Code, Cursor, Qwen Code, Aider, Opencode) — server-side, cluster-aware, identity-scoped — and surfaces them through a native terminal in the browser plus a card-stream view on mobile, both backed by the same persistent process.
 
