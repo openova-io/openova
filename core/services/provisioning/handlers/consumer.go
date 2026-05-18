@@ -42,8 +42,15 @@ type orderPlacedData struct {
 
 const topicProvisionEvents = "sme.provision.events"
 
-// StartConsumer listens to the order events topic and processes order.placed events.
-func (h *Handler) StartConsumer(ctx context.Context, consumer *events.Consumer) error {
+// StartConsumer listens for tenant + order events and routes them to the
+// per-event handlers. The subscriber argument is whatever transport the
+// service was wired with — on Sovereigns this is a NATS-backed
+// MultiSubscriber (subjects `catalyst.tenant.created` /
+// `catalyst.tenant.deleted` / `catalyst.tenant.app_{install,uninstall}_requested`
+// / `catalyst.billing.order.placed`); on Catalyst-Zero it is the legacy
+// Kafka *events.Consumer. Both satisfy events.BrokerSubscriber so the
+// dispatch loop below is transport-agnostic.
+func (h *Handler) StartConsumer(ctx context.Context, consumer events.BrokerSubscriber) error {
 	slog.Info("starting provisioning event consumer")
 	return consumer.Subscribe(ctx, func(event *events.Event) error {
 		switch event.Type {

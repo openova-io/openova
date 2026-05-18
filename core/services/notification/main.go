@@ -29,76 +29,125 @@ func main() {
 	smtpPort := getEnv("SMTP_PORT", "25")
 	smtpFrom := getEnv("SMTP_FROM", "noreply@openova.io")
 	jwtSecret := getEnv("JWT_SECRET", "")
-	brokers := strings.Split(getEnv("REDPANDA_BROKERS", "redpanda.talentmesh.svc.cluster.local:9092"), ",")
+	// REDPANDA_BROKERS — legacy Kafka-protocol bus. Empty on Sovereigns
+	// (no Redpanda exists in cluster); populated on Catalyst-Zero.
+	redpandaBrokersRaw := getEnv("REDPANDA_BROKERS", "")
+	// NATS_URL — canonical JetStream bus per ADR-0001 §6. On Sovereigns
+	// wired to nats-jetstream.nats-system.svc.cluster.local:4222.
+	natsURL := getEnv("NATS_URL", "")
 	tenantURL := getEnv("TENANT_URL", "http://tenant.sme.svc.cluster.local:8083")
 	authURL := getEnv("AUTH_URL", "http://auth.sme.svc.cluster.local:8081")
 
 	mailer := handlers.NewMailer(smtpHost, smtpPort, smtpFrom)
 
-	producer, err := events.NewProducer(brokers)
-	if err != nil {
-		slog.Warn("failed to create events producer", "error", err)
+	// Wire NATS + Kafka legs. Kafka leg is optional — when
+	// REDPANDA_BROKERS is empty (Sovereign default) we skip it; same
+	// for NATS_URL on Catalyst-Zero. At least one MUST be present or
+	// MultiSubscriber refuses to construct.
+	var (
+		natsConn  *events.NATSConn
+		kafkaProd *events.Producer
+	)
+	if natsURL != "" {
+		nc, err := events.ConnectNATS(natsURL)
+		if err != nil {
+			slog.Error("failed to connect to NATS", "url", natsURL, "error", err)
+			os.Exit(1)
+		}
+		natsConn = nc
+		slog.Info("connected to NATS JetStream", "url", natsURL)
 	}
-
+	if redpandaBrokersRaw != "" {
+		kp, err := events.NewProducer(strings.Split(redpandaBrokersRaw, ","))
+		if err != nil {
+			slog.Warn("failed to create RedPanda producer", "error", err)
+		} else {
+			kafkaProd = kp
+			slog.Info("connected to RedPanda (legacy)", "brokers", redpandaBrokersRaw)
+		}
+	}
 	enricher := handlers.NewEnricher(tenantURL, authURL, []byte(jwtSecret))
 
 	h := &handlers.Handler{
 		Mailer:   mailer,
-		Producer: producer,
+		Producer: kafkaProd,
 		Enricher: enricher,
 	}
 
-	// Fan in every topic the service reacts to. Legacy topic names
-	// (auth.events, domain-events) are listed alongside the canonical
-	// sme.<producer>.events names so a publisher-side rename (issues
-	// #69, #70) does not require a consumer flag-day. See
-	// services/shared/events/topics.go for the canonical list.
-	topics := []string{
-		events.TopicUserEvents,
-		events.TopicOrderEvents,
-		events.TopicBillingEvents,
-		events.TopicProvisionEvents,
-		events.TopicTenantEvents,
-		events.TopicDomainEvents,
-		events.LegacyTopics.AuthEvents,
-		events.LegacyTopics.DomainEvents,
+	// Fan in every event type the service reacts to. The MultiSubscriber
+	// maps each to its canonical NATS subject (catalyst.<event.Type>)
+	// AND wraps the legacy Kafka topic list for Catalyst-Zero.
+	eventTypes := []string{
+		// user / auth
+		"user.login",
+		// billing / orders
+		"payment.received",
+		"order.placed",
+		// provisioning day-1 + day-2
+		"provision.started",
+		"provision.completed",
+		"provision.failed",
+		"provision.app_ready",
+		"provision.app_removed",
+		"provision.app_failed",
+		// domain
+		"domain.registered",
+		"domain.verified",
+		"domain.removed",
+		// member
+		"member.invited",
 	}
-	consumer, err := events.NewConsumer(brokers, "notification", topics)
+	var kafkaConsumer *events.Consumer
+	if kafkaProd != nil {
+		topics := []string{
+			events.TopicUserEvents,
+			events.TopicOrderEvents,
+			events.TopicBillingEvents,
+			events.TopicProvisionEvents,
+			events.TopicTenantEvents,
+			events.TopicDomainEvents,
+			events.LegacyTopics.AuthEvents,
+			events.LegacyTopics.DomainEvents,
+		}
+		kc, err := events.NewConsumer(strings.Split(redpandaBrokersRaw, ","), "notification", topics)
+		if err != nil {
+			slog.Warn("failed to create kafka consumer", "error", err)
+		} else {
+			kafkaConsumer = kc
+		}
+	}
+	subscriber, err := events.NewMultiSubscriber(events.MultiSubscriberConfig{
+		NATS:       natsConn,
+		Kafka:      kafkaConsumer,
+		Group:      "notification",
+		EventTypes: eventTypes,
+	})
 	if err != nil {
-		slog.Warn("failed to create events consumer", "error", err)
-	} else {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		// Wrap the consumer with the DLQ subscriber so poison records
-		// land in sme.dlq after 3 retries instead of blocking the
-		// partition (issue #72). The producer is reused for DLQ
-		// publishes; if it is nil the subscriber falls back to
-		// logging and committing (still better than a hung
-		// partition).
-		sub := events.NewDLQSubscriber(consumer, producer, "notification", events.DefaultMaxRetries, events.TopicDLQ)
-
-		go func() {
-			if err := h.StartConsumer(ctx, sub); err != nil {
-				slog.Error("consumer error", "error", err)
-			}
-		}()
-
-		// Graceful shutdown
-		go func() {
-			sigCh := make(chan os.Signal, 1)
-			signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-			<-sigCh
-			cancel()
-			if consumer != nil {
-				consumer.Close()
-			}
-			if producer != nil {
-				producer.Close()
-			}
-			os.Exit(0)
-		}()
+		slog.Error("event bus misconfigured — neither NATS_URL nor REDPANDA_BROKERS set", "error", err)
+		os.Exit(1)
 	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		if err := h.StartConsumer(ctx, subscriber); err != nil {
+			slog.Error("consumer error", "error", err)
+		}
+	}()
+
+	// Graceful shutdown
+	go func() {
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		<-sigCh
+		cancel()
+		subscriber.Close()
+		if kafkaProd != nil {
+			kafkaProd.Close()
+		}
+		os.Exit(0)
+	}()
 
 	// HTTP server
 	routes := h.Routes()

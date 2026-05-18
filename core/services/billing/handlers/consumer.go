@@ -69,10 +69,13 @@ type TenantConsumer struct {
 	StripeCanceller stripeCanceller
 }
 
-// Start subscribes to sme.tenant.events and dispatches tenant.deleted events.
-// Other event types on the same topic are ignored — this consumer is
-// scoped specifically to the billing-side cascade.
-func (c *TenantConsumer) Start(ctx context.Context, consumer *events.Consumer) error {
+// Start subscribes to tenant.deleted (on the canonical NATS subject
+// `catalyst.tenant.deleted` OR the legacy Kafka topic
+// `sme.tenant.events`, depending on which transport the service was
+// wired with) and dispatches the cascade. Other event types on the
+// same topic are ignored — this consumer is scoped specifically to
+// the billing-side cascade.
+func (c *TenantConsumer) Start(ctx context.Context, consumer events.BrokerSubscriber) error {
 	slog.Info("starting billing tenant-events consumer")
 	return consumer.Subscribe(ctx, func(event *events.Event) error {
 		if event.Type != "tenant.deleted" {

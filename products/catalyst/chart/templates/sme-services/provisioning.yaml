@@ -158,6 +158,19 @@ spec:
                 configMapKeyRef:
                   name: sme-services-config
                   key: REDPANDA_BROKERS
+            # NATS JetStream URL — canonical event bus per ADR-0001 §6.
+            # PR #1627 wired provisioning's tenant + order subscriber
+            # to NATS subjects `catalyst.tenant.created`,
+            # `catalyst.tenant.deleted`,
+            # `catalyst.tenant.app_{install,uninstall}_requested`, and
+            # `catalyst.billing.order.placed`. Empty on Catalyst-Zero
+            # disables the NATS leg; Sovereigns default to the in-
+            # cluster nats-jetstream Service.
+            - name: NATS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: NATS_URL
             - name: EVENT_BUS_PROTOCOL
               valueFrom:
                 configMapKeyRef:

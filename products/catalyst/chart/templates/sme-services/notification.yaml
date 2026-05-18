@@ -23,8 +23,27 @@ spec:
           ports:
             - containerPort: 8087
           env:
+            # REDPANDA_BROKERS — legacy Kafka-protocol bus. Sourced
+            # from the shared ConfigMap so the per-topology default
+            # (empty on Sovereigns, talentmesh redpanda on Catalyst-
+            # Zero) applies. Pre-#1627 this template hardcoded the
+            # talentmesh service which crashlooped notification on
+            # every Sovereign at NXDOMAIN.
             - name: REDPANDA_BROKERS
-              value: "redpanda.talentmesh.svc.cluster.local:9092"
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: REDPANDA_BROKERS
+            # NATS JetStream URL — canonical event bus per ADR-0001 §6.
+            # PR #1627 wired notification's full subscriber fan-in
+            # (user.login, order.placed, payment.received, provision.*,
+            # domain.*, member.invited) to NATS subjects so emails
+            # actually go out on Sovereigns.
+            - name: NATS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: NATS_URL
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:

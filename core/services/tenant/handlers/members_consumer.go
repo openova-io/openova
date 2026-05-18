@@ -52,8 +52,10 @@ func (c *MembersCleanupConsumer) membersDeleter() membersDeleter {
 	return c.Store
 }
 
-// Start subscribes to sme.tenant.events and dispatches tenant.deleted.
-func (c *MembersCleanupConsumer) Start(ctx context.Context, consumer *events.Consumer) error {
+// Start subscribes to tenant.deleted (on the canonical NATS subject
+// `catalyst.tenant.deleted` OR the legacy Kafka topic
+// `sme.tenant.events`) and dispatches the cleanup.
+func (c *MembersCleanupConsumer) Start(ctx context.Context, consumer events.BrokerSubscriber) error {
 	slog.Info("starting tenant members-cleanup consumer")
 	return consumer.Subscribe(ctx, func(event *events.Event) error {
 		if event.Type != "tenant.deleted" {

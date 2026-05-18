@@ -59,10 +59,13 @@ func (c *TenantConsumer) tenantDeleter() tenantDomainDeleter {
 	return c.Store
 }
 
-// Start subscribes to sme.tenant.events and dispatches tenant.deleted.
-// Any other event type is ignored so we don't contend with the provisioning
-// consumer group on unrelated workloads.
-func (c *TenantConsumer) Start(ctx context.Context, consumer *events.Consumer) error {
+// Start subscribes to tenant.deleted (on the canonical NATS subject
+// `catalyst.tenant.deleted` OR the legacy Kafka topic
+// `sme.tenant.events`, depending on which transport the service was
+// wired with) and dispatches the cascade. Any other event type is
+// ignored so we don't contend with the provisioning consumer group on
+// unrelated workloads.
+func (c *TenantConsumer) Start(ctx context.Context, consumer events.BrokerSubscriber) error {
 	slog.Info("starting domain tenant-events consumer")
 	return consumer.Subscribe(ctx, func(event *events.Event) error {
 		if event.Type != "tenant.deleted" {
