@@ -1220,8 +1220,14 @@ func TestCreateSMETenant_MultiDomain_RejectsNotReady(t *testing.T) {
 
 // TestLoadSMETenantParentDomainsFromEnv_StubFallback — when the env
 // knob is unset and OTECH_FQDN is set, the env loader returns the
-// hardcoded 2-domain stub (omani.works + omani.trade) per the #828
-// constraint while MD-1 (#826) is in flight.
+// hardcoded 4-domain stub (omani.homes + omani.rest + omani.trade +
+// omani.works) per DoD D30 (issue #1830). The pool entries mirror
+// core/services/domain/store.AllowedTLDs and the marketplace
+// /addons subdomain picker. The historical 2-entry stub (#828, MD-1
+// in flight) was widened on 2026-05-18 to surface every TLD the
+// customer-facing UI offers — keeping seed + UI + AllowedTLDs locked
+// together prevents 422s on signup when the picker lists a TLD the
+// catalyst-api validator doesn't recognise.
 func TestLoadSMETenantParentDomainsFromEnv_StubFallback(t *testing.T) {
 	t.Setenv("CATALYST_SME_POOL_DOMAINS", "")
 	t.Setenv("CATALYST_OTECH_FQDN", "otech.example")
@@ -1240,8 +1246,8 @@ func TestLoadSMETenantParentDomainsFromEnv_StubFallback(t *testing.T) {
 	if primary != 1 {
 		t.Errorf("primary: want 1 got %d (%v)", primary, got)
 	}
-	if pool != 2 {
-		t.Errorf("sme-pool: want 2 got %d (%v)", pool, got)
+	if pool != 4 {
+		t.Errorf("sme-pool: want 4 got %d (%v)", pool, got)
 	}
 }
 
