@@ -1177,6 +1177,22 @@ func main() {
 		// with the marketplace/billing wire.
 		rg.Get("/api/v1/sme/billing/revenue", h.HandleGetSMEBillingRevenue)
 
+		// BSS Vouchers proxy (Wave 6 PR 5 — follow-up to FE PR #1609).
+		// Forwards to the SME gateway (gateway.sme.svc.cluster.local:8080)
+		// which proxies to the billing service's
+		// `/billing/vouchers/{list,issue,revoke}` handlers
+		// (core/services/billing/handlers/vouchers.go, gated by
+		// requireVoucherIssuer — superadmin OR sovereign-admin per
+		// docs/FRANCHISE-MODEL.md §3). The FE bss.api.ts
+		// listVouchers/issueVoucher/revokeVoucher all hit these paths.
+		// Revoke is registered for BOTH POST (task spec) and DELETE (FE
+		// wire) — the handler always forwards as DELETE so the billing
+		// service's DELETE /billing/vouchers/revoke/{code} route matches.
+		rg.Get("/api/v1/sme/billing/vouchers/list", h.HandleListSMEBillingVouchers)
+		rg.Post("/api/v1/sme/billing/vouchers/issue", h.HandleIssueSMEBillingVoucher)
+		rg.Post("/api/v1/sme/billing/vouchers/revoke/{code}", h.HandleRevokeSMEBillingVoucher)
+		rg.Delete("/api/v1/sme/billing/vouchers/revoke/{code}", h.HandleRevokeSMEBillingVoucher)
+
 		// Sovereign Console populated views (issue #933). Read-only
 		// endpoints the Console pages on console.<sov-fqdn>/console/*
 		// hit to render LIVE local-cluster data (HelmReleases, Jobs,
