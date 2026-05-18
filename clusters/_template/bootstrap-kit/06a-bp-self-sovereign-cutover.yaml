@@ -263,7 +263,22 @@ spec:
       # platform-wide migration off bitnami/kubectl (deleted from
       # Docker Hub 2025-08). This Blueprint already uses alpine/k8s
       # + alpine since 0.1.10; no functional image change here.
-      version: 0.1.29
+      # 0.1.30 (TBD-C18, 2026-05-18): NEW step 09 (gitea-token-mint)
+      # mints a real Gitea API token at cutover + patches Secret
+      # sme/provisioning-github-token.GITHUB_TOKEN. The catalyst-
+      # platform chart's provisioning-github-token.yaml template
+      # previously mirrored the Gitea admin PASSWORD verbatim into
+      # that Secret; SME provisioning then sent `Authorization: token
+      # <PWD>` to Gitea which 401s ("user does not exist [uid: 0]").
+      # On t22 2026-05-18: voucher checkout completed 200 + /jobs
+      # redirect fired, but no Organization CR was ever created.
+      # Step 09 closes the loop: DELETE-then-POST /api/v1/users/
+      # gitea_admin/tokens, capture .sha1, GET /api/v1/user validate,
+      # kubectl patch dest Secret, rollout-restart provisioning
+      # Deployment. Order=9 (last) is fine — none of steps 02-08 read
+      # the Secret and the SME provisioning service first consumes
+      # the token at voucher checkout time (always postdates cutover).
+      version: 0.1.30
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
