@@ -97,6 +97,12 @@ func newPinStoreNoSweeper() *pinStore {
 func (s *pinStore) canIssue(email string) (bool, time.Duration) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.canIssueLocked(email)
+}
+
+// canIssueLocked is the lock-free variant of canIssue. Caller MUST hold
+// s.mu. Used by tryReserve to check-and-reserve atomically.
+func (s *pinStore) canIssueLocked(email string) (bool, time.Duration) {
 	key := normalizePinKey(email)
 	e, ok := s.entries[key]
 	if !ok {
@@ -107,6 +113,36 @@ func (s *pinStore) canIssue(email string) (bool, time.Duration) {
 		return true, 0
 	}
 	return false, pinIssueCooldown - elapsed
+}
+
+// tryReserve atomically check-and-reserves the per-email rate-limit slot.
+// Returns (true, 0) if the caller may proceed with PIN issuance and stamps
+// a placeholder entry (`issuedAt = now`) so concurrent callers see the
+// slot as taken. Returns (false, retryAfter) when the slot is already
+// reserved.
+//
+// The placeholder entry has empty pin/requestId; the caller MUST follow
+// up with put(...) once the actual PIN is generated, or drop(...) if the
+// downstream step (EnsureUser, sendPinEmail) fails and the cooldown
+// should not punish the operator. This is the canonical fix for TC-R-089
+// — without it, three concurrent /pin/issue goroutines all pass canIssue
+// before any of them stamps the cooldown, then all three race EnsureUser
+// against Keycloak.
+func (s *pinStore) tryReserve(email string) (bool, time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if ok, retry := s.canIssueLocked(email); !ok {
+		return false, retry
+	}
+	now := s.now()
+	s.entries[normalizePinKey(email)] = &pinEntry{
+		pin:       "",
+		expiresAt: now.Add(pinTTL),
+		issuedAt:  now,
+		attempts:  0,
+		requestID: "",
+	}
+	return true, 0
 }
 
 // put writes a fresh entry for the given email, replacing any existing

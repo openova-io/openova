@@ -40,7 +40,10 @@ func TestEnsureOwnerUserAccess_CreatesCanonicalCR(t *testing.T) {
 		t.Fatalf("EnsureOwnerUserAccess: unexpected err %v", err)
 	}
 
-	got, err := client.Resource(UserAccessGVR()).Namespace("").
+	// The owner CR is created in userAccessOwnerNamespace (catalyst-system)
+	// per the D21 fix on t134 2026-05-17 — useraccesses.access.openova.io
+	// is NAMESPACED (Claim semantics from the XRD claimNames block).
+	got, err := client.Resource(UserAccessGVR()).Namespace(userAccessOwnerNamespace).
 		Get(context.Background(), ownerUserAccessName(email), metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("get after seed: %v", err)
@@ -70,17 +73,17 @@ func TestEnsureOwnerUserAccess_CreatesCanonicalCR(t *testing.T) {
 		t.Errorf("spec.sovereignRef: got %q want %q", gotRef, "omantel")
 	}
 
-	// spec.applications: single wildcard "*" → admin.
-	apps, ok, _ := unstructured.NestedSlice(got.Object, "spec", "applications")
-	if !ok || len(apps) != 1 {
-		t.Fatalf("spec.applications: want 1 entry, got %v", apps)
+	// D21 fix on t135 2026-05-17: the owner CR uses spec.tierRoleRef
+	// (not per-application entries). The XRD's CRD rejects `app: "*"`
+	// (pattern `^[a-z0-9][a-z0-9-]{0,62}$`), so the owner-tier semantic
+	// is conveyed via the canonical `openova:tier-owner` ClusterRole
+	// reference per platform/crossplane-claims/.../xrds/useraccess.yaml.
+	gotTier, _, _ := unstructured.NestedString(got.Object, "spec", "tierRoleRef")
+	if gotTier != "openova:tier-owner" {
+		t.Errorf("spec.tierRoleRef: got %q want %q", gotTier, "openova:tier-owner")
 	}
-	first, _ := apps[0].(map[string]any)
-	if first["app"] != "*" {
-		t.Errorf("applications[0].app: got %v want \"*\"", first["app"])
-	}
-	if first["role"] != "admin" {
-		t.Errorf("applications[0].role: got %v want \"admin\"", first["role"])
+	if _, present, _ := unstructured.NestedSlice(got.Object, "spec", "applications"); present {
+		t.Errorf("spec.applications: must be absent (XRD pattern rejects `app: \"*\"`); use tierRoleRef instead")
 	}
 
 	// apiVersion + kind.

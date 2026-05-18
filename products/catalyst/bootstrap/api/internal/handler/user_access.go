@@ -623,8 +623,17 @@ func userAccessToUnstructured(req userAccessRequest) *unstructured.Unstructured 
 }
 
 func unstructuredToUserAccess(u *unstructured.Unstructured) userAccessItem {
+	// Initialize Applications to an empty slice (not nil) so the JSON
+	// encoder emits `"applications":[]` rather than `"applications":null`
+	// even when the CR has no spec.applications field. The React UI's
+	// `items.map(...)` throws `TypeError: Cannot read properties of null
+	// (reading 'map')` on null — qa-loop iter-4 cluster
+	// `users-page-null-map-and-open-redirect`.
 	out := userAccessItem{
 		Name: u.GetName(),
+		Spec: userAccessSpecBody{
+			Applications: []userAccessAppGrantBody{},
+		},
 	}
 	if ts := u.GetCreationTimestamp(); !ts.IsZero() {
 		out.CreationTimestamp = ts.UTC().Format("2006-01-02T15:04:05Z")

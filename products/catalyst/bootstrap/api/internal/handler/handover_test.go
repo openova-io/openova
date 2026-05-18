@@ -127,10 +127,13 @@ func TestFinaliseHandover_FullFlow(t *testing.T) {
 	// Pretend the OpenTofu workdir exists on disk with one file. The
 	// finalise handler builds the provisioner via provisioner.New() so
 	// it picks up the env-default workdir. We override via env var.
+	//
+	// Workdir is keyed by DeploymentID per PR #1487
+	// (provisioner.Request.workdirKey) — match what
+	// FinaliseHandover does with `filepath.Join(prov.WorkDir, id)`.
 	tmp := t.TempDir()
 	t.Setenv("CATALYST_TOFU_WORKDIR", tmp)
-	sovereignName := "tenant-y-omani-works"
-	workdir := filepath.Join(tmp, sovereignName)
+	workdir := filepath.Join(tmp, "dep-full")
 	if err := os.MkdirAll(workdir, 0o700); err != nil {
 		t.Fatalf("mkdir workdir: %v", err)
 	}
@@ -254,7 +257,8 @@ func TestFinaliseHandover_ReceiverFailureKeepsLocalState(t *testing.T) {
 
 	tmp := t.TempDir()
 	t.Setenv("CATALYST_TOFU_WORKDIR", tmp)
-	workdir := filepath.Join(tmp, "tenant-z-omani-works")
+	// Workdir keyed by DeploymentID per PR #1487.
+	workdir := filepath.Join(tmp, "dep-fail")
 	if err := os.MkdirAll(workdir, 0o700); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
