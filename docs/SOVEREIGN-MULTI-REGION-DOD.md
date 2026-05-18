@@ -19,7 +19,7 @@ Mirrored to auto-memory at `~/.claude/projects/-home-openova-repos-openova-priva
 
 ---
 
-## DoD gates (D0–D31)
+## DoD gates (D0–D35)
 
 Every gate must pass on a SINGLE fresh provision in one continuous run. No partial credit.
 
@@ -59,6 +59,10 @@ Every gate must pass on a SINGLE fresh provision in one continuous run. No parti
 | **D29** | **Voucher-based organization (tenant) provisioning is zero-touch.** Recipient opens the voucher email → clicks redeem link → PIN-login as `demo@openova.io` (or `support@openova.io`) → lands on an organization-creation wizard → completes the form → a new `Organization`/`Tenant` CR is created → tenant namespace + RBAC + bootstrap apps converge → recipient is auto-redirected to their tenant home page. NO operator intervention beyond the voucher email. Added 2026-05-16. | Playwright MCP |
 | **D30** | **Free-subdomain selection from operator-curated pool.** Organization wizard step MUST present a subdomain picker populated from the configured pool: `omani.homes`, `omani.rest`, `omani.trades` (and any others the operator has provisioned). Tenant chooses a free subdomain (e.g., `acme.omani.homes`) → cert provisions → tenant landing page resolves on the chosen FQDN with publicly-trusted TLS. The pool MUST come from a Sovereign-side CR/config (not hardcoded). Added 2026-05-16. | Playwright MCP + dig + curl |
 | **D31** | **Tenant application with CNPG active-hot-standby replication.** Inside the new tenant, user picks a CNPG-backed app from the marketplace (e.g., Ghost or WordPress) → selects "active hot-standby" → app installs with a CNPG Cluster that replicates across the Sovereign's regions (primary + at least one replica). `kubectl get cluster.postgresql.cnpg.io -A` in the tenant context shows `instances` distributed across regions (region label / topology spread). Failover test: cordoning the primary region brings the replica to primary, app remains reachable on its FQDN within the documented RTO. Added 2026-05-16. | Playwright MCP + kubectl + curl |
+| **D32** | **Sandbox CRD installable on the Sovereign.** `kubectl get crd sandboxes.sandbox.openova.io` returns the CRD shipped in PR #1615; the controller Pod (`sandbox-controller` in `catalyst-system`, image built by PR #1632 workflow) is Ready and processes a no-op `Sandbox` CR within 30s (status transitions `Pending → Reconciling → Ready`). `helm template` of the Sovereign chart with sandbox enabled emits the controller Deployment + RBAC + Service from PR #1622's templates. **The Sandbox plane is part of every Sovereign by default — operator does not opt in.** Added 2026-05-18. | kubectl + helm template |
+| **D33** | **Sandbox agent catalogue picker functional.** Sovereign Console `/console/sandbox` (UI shipped in PR #1621) lists at minimum the six agents specified in `products/sandbox/docs/architecture.md` — Claude Code, Cursor (cloud), Qwen Code, Aider, OpenCode, plus the Sovereign-native shell. Picking an agent opens a session host page; the BYOS settings page lets the operator paste an Anthropic OAuth client_id (per `products/sandbox/docs/claude-code-byos.md`). A picked session establishes a WebSocket to the pty-server (PR #1618) and renders xterm.js with a live PTY prompt. Added 2026-05-18. | Playwright MCP |
+| **D34** | **newapi Sovereign-side LLM gateway routes to a backend model.** `https://newapi.<fqdn>/v1/chat/completions` (newapi install shipped via PR #1631) accepts an HS256 org-scoped JWT (issued by `core/services/auth` per PR #1619), authenticates the request, and proxies to a configured backend. The reference backend for this gate is **Bank Dhofar Qwen** (wired in PR #1631). A round-trip `curl` with a valid JWT returns a non-empty `choices[0].message.content` within 30s. **No Anthropic / OpenAI cloud calls leave the Sovereign by default** — BYOS is opt-in per-user. Added 2026-05-18. | curl + kubectl |
+| **D35** | **NATS broker round-trips `catalyst.tenant.created` + `catalyst.order.placed` end-to-end.** SME tenant + billing dispatchers PUBLISH to NATS JetStream (publish leg shipped in PR #1626 — confirm subjects `catalyst.tenant.created`, `catalyst.tenant.updated`, `catalyst.order.placed`, `catalyst.invoice.paid` are observed via `nats sub 'catalyst.>'`). Organization controller + Sandbox controller CONSUME (consume leg pending; this gate stays RED until the matching subscribe-side PR lands). Round-trip test: issue a voucher → redeem it → measure latency from billing-service publish to Org controller reconcile-start ≤ 2s. **Convergence is NOT declared until both legs are wired** — polling-the-API workaround does not satisfy this gate. Added 2026-05-18. | NATS CLI + kubectl logs |
 
 > **DoD grows.** Every iteration of test-writer/test-executor finds more operator-visible bugs. Append the gate, ship the fix, re-validate. The list is the convergence contract; do not declare convergence until every appended gate passes on a single fresh prov.
 
@@ -82,5 +86,5 @@ If any of these appear in your reasoning → STOP, re-read this file, fix the ro
 Before any `tofu apply` or `POST /api/v1/deployments`:
 
 1. Read this file (or the memory mirror).
-2. Log the D1–D14 list to the loop output.
-3. Refuse to mark convergence until each D1–D14 has been individually checked.
+2. Log the D0–D35 list to the loop output.
+3. Refuse to mark convergence until each D0–D35 has been individually checked.
