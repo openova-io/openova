@@ -34,9 +34,15 @@
 //   - marketplace.domain.byod / marketplace.domain.subdomain
 //   - flux.status / flux.reconcile / flux.suspend / flux.resume
 //
-// All other namespaces (sandbox.stripe.*, k8s.write.*,
-// gitea.release.list) remain stubbed and continue to return
-// not_implemented until later waves ship them.
+// Wave 13 extends to sandbox.stripe.* — the last MCP namespace to be
+// wired with real handlers (per-Sandbox Stripe account binding + Product
+// / Price / Checkout-session ops):
+//
+//   - sandbox.stripe.bindAccount / sandbox.stripe.listProducts /
+//     sandbox.stripe.listPrices / sandbox.stripe.createCheckoutSession
+//
+// All other namespaces (k8s.write.*, gitea.release.list) remain stubbed
+// and continue to return not_implemented until later waves ship them.
 //
 // Wire model recap (architecture.md §3):
 //
@@ -812,6 +818,44 @@ func defaultCatalogue(env *Env) []Tool {
 			InputSchema:        schemaSandboxStorageDeleteBucket(),
 			Handler:            sandboxStorageDeleteBucket,
 			RequiredCapability: "sandbox.storage",
+		},
+
+		// sandbox.stripe.* — per-Sandbox Stripe account binding + Product /
+		// Price / Checkout-session ops (Wave 13 — sandbox_stripe.go). The
+		// Stripe API key is stored once via bindAccount in the same Secret
+		// store sandbox.secrets.* uses (`sandbox-<owner-uid>-secrets`, data
+		// key `stripe_api_key`); subsequent calls read it implicitly so
+		// the agent never round-trips the secret on the wire after the
+		// first bind. RequiredCapability="sandbox.stripe" gates every call
+		// regardless of read-vs-write — the Stripe API itself is the only
+		// outbound destination.
+		{
+			Name:               "sandbox.stripe.bindAccount",
+			Description:        "Bind a Stripe API key (`sk_live_…` / `sk_test_…` / `rk_live_…` / `rk_test_…`) to this Sandbox. Stored in the Sandbox Secret store; subsequent sandbox.stripe.* calls read it implicitly. Returns a MASKED confirmation.",
+			InputSchema:        schemaSandboxStripeBindAccount(),
+			Handler:            sandboxStripeBindAccount,
+			RequiredCapability: "sandbox.stripe",
+		},
+		{
+			Name:               "sandbox.stripe.listProducts",
+			Description:        "List Stripe Products via the bound key. Supports `limit` (1-100, default 20), `active` (filter), `starting_after` (cursor).",
+			InputSchema:        schemaSandboxStripeListProducts(),
+			Handler:            sandboxStripeListProducts,
+			RequiredCapability: "sandbox.stripe",
+		},
+		{
+			Name:               "sandbox.stripe.listPrices",
+			Description:        "List Stripe Prices via the bound key. Optional `product_id` filters to one Product; same paging flags as listProducts.",
+			InputSchema:        schemaSandboxStripeListPrices(),
+			Handler:            sandboxStripeListPrices,
+			RequiredCapability: "sandbox.stripe",
+		},
+		{
+			Name:               "sandbox.stripe.createCheckoutSession",
+			Description:        "Create a Stripe Checkout Session for {price_id, success_url, cancel_url}. Default mode=payment, quantity=1. Returns the hosted Checkout URL.",
+			InputSchema:        schemaSandboxStripeCreateCheckoutSession(),
+			Handler:            sandboxStripeCreateCheckoutSession,
+			RequiredCapability: "sandbox.stripe",
 		},
 
 		// sandbox.session.* — this MCP server's own metadata (Wave 8).
