@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"os"
 	"path/filepath"
 	"strings"
@@ -202,6 +203,83 @@ func TestPinIssue_SMTPFailureRollsBackEntry(t *testing.T) {
 	}
 	if got := h.pinStore.size(); got != 0 {
 		t.Errorf("store size after SMTP failure: got %d want 0 (rollback expected)", got)
+	}
+}
+
+// TestPinIssue_SMTP5xxReturns422 is the regression guard for the WBS
+// Cov-bench C6-010 / issue #1742 failure mode: the synthetic bench
+// recipient (wbs-cov-redeem-<ts>@openova.io) gets rejected by Stalwart
+// with `550 Mailbox does not exist` — a permanent caller fault that
+// must NOT be reported as a 502 because retry will never help.
+//
+// Pre-fix the handler swallowed every SMTP error into an opaque 502
+// "could not deliver code", making it impossible for the test bench or
+// the operator to tell "relay broken" apart from "bad recipient". This
+// test pins the new contract:
+//
+//   - 5xx server reply → 422 email-rejected + smtpCode echoed.
+//   - 4xx server reply → 502 email-send-failed + smtpCode echoed.
+//   - Non-protocol error (TCP/TLS/auth) → 502 email-send-failed (legacy).
+//
+// In every case the pin entry is rolled back so the operator isn't
+// trapped by the 60-second per-email cooldown.
+func TestPinIssue_SMTP5xxReturns422(t *testing.T) {
+	h := testPinSetup(t)
+	defer withSendPinEmail(func(_, _ string) error {
+		return &textproto.Error{Code: 550, Msg: "5.1.2 Mailbox does not exist."}
+	})()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/pin/issue",
+		strings.NewReader(`{"email":"nobody@openova.io"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.HandlePinIssue(w, req)
+
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Errorf("status: got %d want 422 (body: %s)", w.Code, w.Body.String())
+	}
+	var body map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body["error"] != "email-rejected" {
+		t.Errorf("error: got %v want email-rejected", body["error"])
+	}
+	if got, _ := body["smtpCode"].(float64); int(got) != 550 {
+		t.Errorf("smtpCode: got %v want 550", body["smtpCode"])
+	}
+	if got := h.pinStore.size(); got != 0 {
+		t.Errorf("store size after 5xx rejection: got %d want 0 (rollback expected)", got)
+	}
+}
+
+func TestPinIssue_SMTP4xxReturns502WithCode(t *testing.T) {
+	h := testPinSetup(t)
+	defer withSendPinEmail(func(_, _ string) error {
+		return &textproto.Error{Code: 451, Msg: "4.7.1 Temporary local problem."}
+	})()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/pin/issue",
+		strings.NewReader(`{"email":"op@example.com"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.HandlePinIssue(w, req)
+
+	if w.Code != http.StatusBadGateway {
+		t.Errorf("status: got %d want 502 (body: %s)", w.Code, w.Body.String())
+	}
+	var body map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body["error"] != "email-send-failed" {
+		t.Errorf("error: got %v want email-send-failed", body["error"])
+	}
+	if got, _ := body["smtpCode"].(float64); int(got) != 451 {
+		t.Errorf("smtpCode: got %v want 451", body["smtpCode"])
+	}
+	if got := h.pinStore.size(); got != 0 {
+		t.Errorf("store size after 4xx transient: got %d want 0 (rollback expected)", got)
 	}
 }
 
