@@ -18,6 +18,12 @@ description: |
   operator can keep Sandbox off-by-default on a Sovereign until the
   Wave 2 pty-server + token issuance flow is also rolled in.
 type: application
+annotations:
+  # Catalyst-authored umbrella; no upstream OCI dep (controller built in-house).
+  # Required so blueprint-release.yaml's umbrella-shape gate accepts this chart
+  # (see issue #181 + docs/BLUEPRINT-AUTHORING.md §11.1).
+  catalyst.openova.io/no-upstream: "true"
+  catalyst.openova.io/smoke-render-mode: "default-on"
 version: 0.1.0
 appVersion: "0.1.0"
 keywords:
