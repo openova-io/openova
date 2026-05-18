@@ -20,11 +20,17 @@
 //   - sandbox.secrets.read / sandbox.secrets.write
 //   - sandbox.session.whoami / sandbox.session.info
 //
-// Wave 12 extends to sandbox.preview.* + marketplace.domain.* + flux.*:
+// Wave 12 extends to sandbox.preview.* + sandbox.storage.* +
+// sandbox.deploy.* + marketplace.domain.* + flux.*:
 //
 //   - sandbox.preview.create / sandbox.preview.list /
 //     sandbox.preview.status / sandbox.preview.teardown /
 //     sandbox.preview.rebuild
+//   - sandbox.storage.bindBucket / sandbox.storage.signedUploadURL /
+//     sandbox.storage.signedDownloadURL / sandbox.storage.listBuckets /
+//     sandbox.storage.deleteBucket
+//   - sandbox.deploy.staging / sandbox.deploy.production /
+//     sandbox.deploy.status / sandbox.deploy.rollback
 //   - marketplace.domain.byod / marketplace.domain.subdomain
 //   - flux.status / flux.reconcile / flux.suspend / flux.resume
 //
@@ -212,6 +218,40 @@ type Env struct {
 	EnableHotStandby bool
 	PrimaryRegion    string
 	ReplicaRegion    string
+
+	// StorageS3Endpoint — host:port of the unified SeaweedFS S3 API
+	// (default `seaweedfs.storage.svc:8333` per
+	// platform/seaweedfs/README.md). Per host-cluster, NOT per region;
+	// the SeaweedFS S3 gateway transparently fans tier transitions to
+	// the configured cloud archive backend. The sandbox-controller
+	// injects this as SANDBOX_STORAGE_S3_ENDPOINT from the well-known
+	// platform Service. Empty → sandbox.storage.* surfaces a clear
+	// "not configured" error.
+	StorageS3Endpoint string
+
+	// StorageS3AccessKey / StorageS3SecretKey — credentials the MCP
+	// server presents to SeaweedFS S3. The sandbox-controller mints a
+	// per-Sandbox identity at first-bind and stores it in a K8s Secret
+	// mounted into the MCP Deployment via SANDBOX_STORAGE_S3_ACCESS_KEY
+	// / SANDBOX_STORAGE_S3_SECRET_KEY. Empty → sandbox.storage.*
+	// surfaces a clear "not configured" error.
+	StorageS3AccessKey string
+	StorageS3SecretKey string
+
+	// StorageS3UseTLS — whether the SeaweedFS S3 endpoint is HTTPS.
+	// SeaweedFS in-cluster defaults to plain HTTP on :8333 (no TLS
+	// inside the cluster fabric); production deployments behind an
+	// ingress flip to true. Default: false. Wired via
+	// SANDBOX_STORAGE_S3_USE_TLS=true|false.
+	StorageS3UseTLS bool
+
+	// StorageS3Region — region literal threaded into the S3 v4 signer.
+	// SeaweedFS accepts any region label and treats it as opaque; we
+	// default to `us-east-1` (the canonical S3-compatible no-op region)
+	// so the AWS Signature V4 wire format matches what the SeaweedFS
+	// S3 gateway expects to verify. Override via
+	// SANDBOX_STORAGE_S3_REGION.
+	StorageS3Region string
 }
 
 // claimsCtxKey is the unexported context key under which the
@@ -728,6 +768,50 @@ func defaultCatalogue(env *Env) []Tool {
 			InputSchema:        schemaSandboxDeployEnv(),
 			Handler:            sandboxDeployRollback,
 			RequiredCapability: "sandbox.deploy",
+		},
+
+		// sandbox.storage.* — per-Sandbox SeaweedFS S3 buckets
+		// (Wave 12 — sandbox_storage.go). Every handler is scoped to
+		// buckets prefixed `sandbox-<owner-uid>-` so the agent cannot
+		// touch any other consumer's bucket (loki-data / cnpg-wal / etc.
+		// per platform/seaweedfs/README.md §Buckets). Presigned URLs are
+		// minted with the MCP pod's own S3 credentials — they expire
+		// after the requested window without requiring a second
+		// round-trip to refresh.
+		{
+			Name:               "sandbox.storage.bindBucket",
+			Description:        "Create (idempotent) a SeaweedFS S3 bucket owned by this Sandbox. Bucket name defaults to `sandbox-<owner-uid>-default`; explicit names are auto-prefixed with `sandbox-<owner-uid>-`.",
+			InputSchema:        schemaSandboxStorageBindBucket(),
+			Handler:            sandboxStorageBindBucket,
+			RequiredCapability: "sandbox.storage",
+		},
+		{
+			Name:               "sandbox.storage.signedUploadURL",
+			Description:        "Mint a presigned S3 PUT URL for {bucket, key}. Defaults to a 15-minute expiry; max 7 days. Bucket must be owned by this Sandbox.",
+			InputSchema:        schemaSandboxStorageSignedURL(),
+			Handler:            sandboxStorageSignedUploadURL,
+			RequiredCapability: "sandbox.storage",
+		},
+		{
+			Name:               "sandbox.storage.signedDownloadURL",
+			Description:        "Mint a presigned S3 GET URL for {bucket, key}. Defaults to a 15-minute expiry; max 7 days. Bucket must be owned by this Sandbox.",
+			InputSchema:        schemaSandboxStorageSignedURL(),
+			Handler:            sandboxStorageSignedDownloadURL,
+			RequiredCapability: "sandbox.storage",
+		},
+		{
+			Name:               "sandbox.storage.listBuckets",
+			Description:        "List SeaweedFS buckets owned by this Sandbox (filtered to the `sandbox-<owner-uid>-` prefix).",
+			InputSchema:        map[string]any{"type": "object", "additionalProperties": false},
+			Handler:            sandboxStorageListBuckets,
+			RequiredCapability: "sandbox.storage",
+		},
+		{
+			Name:               "sandbox.storage.deleteBucket",
+			Description:        "Delete a SeaweedFS bucket owned by this Sandbox. The bucket must be empty; SeaweedFS rejects non-empty deletes (drain objects first).",
+			InputSchema:        schemaSandboxStorageDeleteBucket(),
+			Handler:            sandboxStorageDeleteBucket,
+			RequiredCapability: "sandbox.storage",
 		},
 
 		// sandbox.session.* — this MCP server's own metadata (Wave 8).

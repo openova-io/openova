@@ -41,6 +41,17 @@
 //	SOVEREIGN_ENABLE_HOT_STANDBY = "true"               (default empty/false)
 //	SOVEREIGN_PRIMARY_REGION     = "hz-fsn-rtz-prod"    (openova.io/region label)
 //	SOVEREIGN_REPLICA_REGION     = "hz-hel-rtz-prod"    (openova.io/region label)
+//
+// Wave-12 sandbox.storage.* — SeaweedFS S3 endpoint + per-Sandbox
+// credentials, all sourced from the host cluster's platform/seaweedfs
+// deployment and a per-Sandbox IAM identity the sandbox-controller mints
+// at first bind:
+//
+//	SANDBOX_STORAGE_S3_ENDPOINT   = "seaweedfs.storage.svc:8333" (unified S3 API)
+//	SANDBOX_STORAGE_S3_ACCESS_KEY = "<per-Sandbox IAM access key>"
+//	SANDBOX_STORAGE_S3_SECRET_KEY = "<per-Sandbox IAM secret>"
+//	SANDBOX_STORAGE_S3_USE_TLS    = "true|false" (default: false; in-cluster)
+//	SANDBOX_STORAGE_S3_REGION     = "us-east-1"  (default; SeaweedFS opaque)
 package tools
 
 import (
@@ -72,6 +83,11 @@ func NewEnvFromOS() *Env {
 		DomainAPIURL:        os.Getenv("SANDBOX_DOMAIN_API_URL"),
 		MarketplaceAPIURL:   os.Getenv("SANDBOX_MARKETPLACE_API_URL"),
 		TenantID:            os.Getenv("SANDBOX_TENANT_ID"),
+		StorageS3Endpoint:   os.Getenv("SANDBOX_STORAGE_S3_ENDPOINT"),
+		StorageS3AccessKey:  os.Getenv("SANDBOX_STORAGE_S3_ACCESS_KEY"),
+		StorageS3SecretKey:  os.Getenv("SANDBOX_STORAGE_S3_SECRET_KEY"),
+		StorageS3Region:     os.Getenv("SANDBOX_STORAGE_S3_REGION"),
+		StorageS3UseTLS:     strings.EqualFold(strings.TrimSpace(os.Getenv("SANDBOX_STORAGE_S3_USE_TLS")), "true"),
 	}
 	if env.KeycloakParentRealm == "" {
 		env.KeycloakParentRealm = "master"
