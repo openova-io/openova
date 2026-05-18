@@ -170,8 +170,29 @@ slots:
     # depends on bp-gitea + bp-harbor and therefore actually installs
     # AFTER both. Chart ships dormant — catalyst-api stamps Jobs from
     # the chart's PodSpec ConfigMaps only on operator-driven trigger.
-    depends_on: [bp-gitea, bp-harbor]
+    #
+    # sovereign-tls dep (issue #1871) — TBD-A24 cutover↔gateway circular
+    # deadlock fix. The cutover Step-06 rewrites every HelmRepository
+    # URL to the local Harbor; that rewrite MUST wait for the Cilium
+    # Gateway to be serving TLS, which lives in the sovereign-tls
+    # Kustomization. Without this dep the rewrite fires before Gateway
+    # has a Ready listener and source-controller hits TLS handshake
+    # EOF, deadlocking the whole bootstrap chain. See file header on
+    # 06a-bp-self-sovereign-cutover.yaml for full root-cause trace.
+    # NOTE: sovereign-tls is a Flux Kustomization, not a HelmRelease;
+    # it is declared here for the dep-graph audit only (audit treats
+    # it as `deferred` since no HR file exists for it).
+    depends_on: [bp-gitea, bp-harbor, sovereign-tls]
     wave: W2.K1
+  # sovereign-tls — Flux Kustomization (not a HelmRelease) declared in
+  # infra/hetzner/cloudinit-control-plane.tftpl. Listed here so the
+  # bp-self-sovereign-cutover -> sovereign-tls edge (issue #1871) passes
+  # check-bootstrap-deps.sh Phase 4 cycle-detection ("unknown HR" guard).
+  # No HR file on disk → Phase 3b reports it as DEFERRED (info, not error).
+  - slot: "0t"
+    name: sovereign-tls
+    depends_on: []
+    wave: present
 
   # ---- Tier 6: observability (W2.K2, slots 20-26) ---------------------------
   - slot: 20

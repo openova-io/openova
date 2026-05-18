@@ -77,6 +77,18 @@ spec:
     # ordering puts cutover after these two come up.
     - name: bp-gitea
     - name: bp-harbor
+    # sovereign-tls (issue #1871) — TBD-A24 cutover↔gateway circular
+    # deadlock fix. On t26 zero-touch (2026-05-18 99bb823cb0513f4b)
+    # the cutover Step-06 rewrote every HelmRepository URL
+    # `oci://ghcr.io/openova-io` → `oci://registry.<sov-fqdn>/...`
+    # BEFORE the Cilium Gateway had a Ready listener serving TLS on
+    # `registry.<sov-fqdn>`, so source-controller hit TLS handshake
+    # EOF and bp-catalyst-platform flipped Ready=False, blocking
+    # bootstrap-kit Ready=True, blocking sovereign-tls Ready=True,
+    # blocking Gateway — full deadlock. Adding `sovereign-tls` as a
+    # third dependsOn entry makes Flux wait for the Cilium Gateway
+    # to be serving TLS before the URL rewrite fires.
+    - name: sovereign-tls
   chart:
     spec:
       chart: bp-self-sovereign-cutover
