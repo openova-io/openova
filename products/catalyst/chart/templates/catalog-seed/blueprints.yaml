@@ -137,6 +137,142 @@ spec:
             type: string
             default: 10Gi
 ---
+# bp-cnpg-pair — D31 active-hot-standby CNPG cluster-pair (companion to
+# bp-cnpg). Catalyst-curated Blueprint chart published at
+# oci://ghcr.io/openova-io/bp-cnpg-pair (Chart.yaml: platform/cnpg-pair/
+# chart/Chart.yaml @ 0.1.1). Renders TWO postgresql.cnpg.io/v1.Cluster
+# CRs (primary + replica) pinned to two regions, WAL streaming over
+# Cilium ClusterMesh per ADR-0001 §9 (never public TLS). Per Wave 28-B
+# discovery this Blueprint was missing from the catalog-seed even
+# though the chart is published and the wordpress-tenant chart's
+# `pg.activeHotStandby.enabled` knob already renders the same shape
+# inline (DoD D31). Seeding here lets operators install the pair
+# standalone (companion DB for any tenant-app) AND lets the install
+# flow render a stable reference target when wordpress-tenant.db.mode
+# = active-hot-standby. Refs TBD-E8b, TBD-B31.
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-cnpg-pair
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: database
+    catalyst.openova.io/section: pts-9-disaster-recovery
+    catalyst.openova.io/companion: bp-cnpg
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: "0.1.1"
+  visibility: listed
+  card:
+    title: "CNPG Cluster-Pair (Active-Hotstandby DR)"
+    category: database
+    family: postgres
+    summary: "Active-hot-standby CNPG cluster-pair across two regions. WAL streams over Cilium ClusterMesh for cross-region DR."
+    description: "Catalyst-curated Blueprint that renders a primary postgresql.cnpg.io/v1.Cluster CR in region A + a replica Cluster CR in region B configured as a CNPG replica cluster (replica.enabled=true + externalCluster) streaming WAL over a Cilium ClusterMesh-shared Service. Failover-readiness probe Pod flips Ready when WAL lag < threshold so Continuum K-Cont-2 can promote on operator-triggered switchover."
+    icon: cnpg-pair.svg
+    license: "Apache-2.0"
+    tags: [database, postgres, ha, dr, disaster-recovery, multi-region, active-hotstandby, clustermesh, cnpg]
+    docs: "https://cloudnative-pg.io/documentation/"
+  placementSchema:
+    # The cluster-pair IS the placement — primary + replica are the
+    # two regions. CNPG's replication model is asynchronous-streaming
+    # primary + 1 replica region; multi-replica-region is out of scope.
+    modes: [active-hotstandby]
+    default: active-hotstandby
+    minRegions: 2
+    maxRegions: 2
+  manifests:
+    chart: bp-cnpg-pair
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-cnpg-pair
+    version: 0.1.1
+  configSchema:
+    type: object
+    required: [primary, replica, image]
+    properties:
+      primary:
+        type: object
+        required: [region]
+        properties:
+          region:
+            type: string
+            description: "Region key for the primary CNPG Cluster (e.g. hz-fsn-rtz-prod). Must differ from replica.region."
+          instances:
+            type: integer
+            default: 3
+            minimum: 3
+            maximum: 5
+          storage:
+            type: object
+            properties:
+              size:
+                type: string
+                default: "100Gi"
+              storageClass:
+                type: string
+                default: hcloud-volumes
+      replica:
+        type: object
+        required: [region]
+        properties:
+          region:
+            type: string
+            description: "Region key for the replica CNPG Cluster. Must differ from primary.region."
+          instances:
+            type: integer
+            default: 3
+            minimum: 3
+            maximum: 5
+          storage:
+            type: object
+            properties:
+              size:
+                type: string
+                default: "100Gi"
+              storageClass:
+                type: string
+                default: hcloud-volumes
+      walStreaming:
+        type: object
+        properties:
+          targetLagSeconds:
+            type: integer
+            default: 30
+            minimum: 1
+            maximum: 600
+          timeoutSeconds:
+            type: integer
+            default: 60
+            minimum: 5
+            maximum: 600
+      clusterMesh:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: true
+            description: "Cilium ClusterMesh transport for WAL. Disabling is FORENSIC ONLY — public-TLS replication is unsupported per ADR-0001 §9."
+          affinity:
+            type: string
+            default: local
+            description: "ClusterMesh affinity hint (local|remote|none)."
+      image:
+        type: object
+        required: [tag]
+        properties:
+          repository:
+            type: string
+            default: ghcr.io/cloudnative-pg/postgresql
+          tag:
+            type: string
+            description: "REQUIRED — empty triggers a template-time fail-fast. Example: '16.3-23' or 'sha256:<digest>'."
+---
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:

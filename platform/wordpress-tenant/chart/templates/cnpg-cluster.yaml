@@ -1,13 +1,17 @@
 {{- /*
 ─── CNPG Postgres for WordPress ─────────────────────────────────────────
 
-Two render modes, controlled by `pg.activeHotStandby.enabled`:
+Two render modes, selected by the canonical operator-facing enum
+`database.mode` (singleton | active-hot-standby). Legacy boolean
+`pg.activeHotStandby.enabled` is folded in by _helpers.tpl's
+`bp-wordpress-tenant.dbMode` for back-compat with chart 0.3.x
+orchestrator overlays (see TBD-E8b).
 
-  1. SINGLE-CLUSTER mode (default):
+  1. SINGLE-CLUSTER mode (database.mode=singleton, DEFAULT):
      Renders ONE Cluster.postgresql.cnpg.io named `<cnpgClusterName>` in
      the tenant namespace. Mirrors bp-gitea / bp-harbor patterns.
 
-  2. ACTIVE-HOT-STANDBY mode (Sovereign DoD D31):
+  2. ACTIVE-HOT-STANDBY mode (database.mode=active-hot-standby, DoD D31):
      Renders TWO Cluster CRs mirroring the bp-cnpg-pair pattern (see
      platform/cnpg-pair/chart/templates/{primary,replica}-cluster.yaml):
        - PRIMARY  `<cnpgClusterName>`         in `primaryRegion`
@@ -42,7 +46,13 @@ namespaces (issue #584; bp-gitea precedent).
 */ -}}
 {{- if and .Values.wordpress.enabled .Values.database.cluster.enabled }}
 {{- if .Capabilities.APIVersions.Has "postgresql.cnpg.io/v1" }}
-{{- $haEnabled := .Values.pg.activeHotStandby.enabled -}}
+{{- /* D31 / TBD-E8b: read the canonical `database.mode` enum (with
+   back-compat fold from the legacy `pg.activeHotStandby.enabled`
+   boolean). When mode resolves to "active-hot-standby" this template
+   renders TWO Cluster CRs (primary + replica) mirroring bp-cnpg-pair;
+   "singleton" (default) renders ONE Cluster CR. See _helpers.tpl
+   `bp-wordpress-tenant.dbMode` for the resolution precedence. */ -}}
+{{- $haEnabled := eq (include "bp-wordpress-tenant.dbMode" .) "active-hot-standby" -}}
 {{- if $haEnabled }}
 {{- include "bp-wordpress-tenant.validateActiveHotStandbyRegions" . }}
 {{- end }}

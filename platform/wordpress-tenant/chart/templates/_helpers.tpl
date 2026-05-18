@@ -126,6 +126,57 @@ platform/cnpg-pair/chart/templates/_helpers.tpl).
 */}}
 
 {{/*
+D31 / TBD-E8b: canonical operator-facing DB topology selector.
+
+Resolves the chart's DB topology to one of:
+  - "singleton"          (default — single in-vcluster CNPG Cluster CR)
+  - "active-hot-standby" (D31 — primary + replica CNPG Cluster CRs,
+                          WAL streaming over Cilium ClusterMesh; mirrors
+                          bp-cnpg-pair shape — see platform/cnpg-pair/)
+
+Precedence (operator-supplied `database.mode` wins; legacy
+`pg.activeHotStandby.enabled` boolean folds as alias for clusters whose
+orchestrator overlays haven't been re-rendered with the canonical
+enum):
+
+  1. `database.mode` is "active-hot-standby" → active-hot-standby
+  2. `database.mode` is "singleton"          → singleton
+  3. `database.mode` is empty/unset:
+     - `pg.activeHotStandby.enabled=true`    → active-hot-standby
+     - otherwise                              → singleton
+
+The enum form (`database.mode`) is the canonical interface customers
+see in the marketplace voucher → org wizard (D29). The boolean form
+(`pg.activeHotStandby.enabled`) remains a back-compat alias and will
+be removed in chart 0.4.0.
+*/}}
+{{- define "bp-wordpress-tenant.dbMode" -}}
+{{- $mode := .Values.database.mode | default "" -}}
+{{- if eq $mode "active-hot-standby" -}}
+active-hot-standby
+{{- else if eq $mode "singleton" -}}
+singleton
+{{- else if .Values.pg.activeHotStandby.enabled -}}
+active-hot-standby
+{{- else -}}
+singleton
+{{- end -}}
+{{- end -}}
+
+{{/*
+D31 / TBD-E8b: boolean convenience predicate — returns "true" when the
+resolved `dbMode` is "active-hot-standby". Used by cnpg-cluster.yaml
+in place of the legacy `.Values.pg.activeHotStandby.enabled` boolean
+so the canonical enum drives template rendering. Empty (falsy) when
+mode resolves to "singleton".
+*/}}
+{{- define "bp-wordpress-tenant.dbModeActiveHotStandby" -}}
+{{- if eq (include "bp-wordpress-tenant.dbMode" .) "active-hot-standby" -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{/*
 D31: replica Cluster CR name. Suffix `-replica` matches bp-cnpg-pair.
 Truncated to 63 chars per the K8s resource-name limit.
 */}}
