@@ -573,6 +573,17 @@ func dimensionKey(r podRow, dim string) (string, string) {
 		}
 		return r.cluster, r.cluster
 	case "cluster":
+		// TBD-E4b (#1756): operators see the bare deployment-id hex on the
+		// primary cluster cell (e.g. `30dbef8b238c2d84`) and cannot tell
+		// which region it represents. When the row carries a region label
+		// (populated by buildPodRows from the host node's
+		// `openova.io/region` label), postfix it onto the name so the
+		// label reads `30dbef8b238c2d84 (hz-hel-rtz-prod)`. The bucket id
+		// stays the cluster id so all rows for the same cluster still
+		// merge into one cell.
+		if r.region != "" {
+			return r.cluster, r.cluster + " (" + r.region + ")"
+		}
 		return r.cluster, r.cluster
 	case "vcluster":
 		// vCluster name derives from the pod's host-namespace

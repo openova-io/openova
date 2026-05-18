@@ -767,6 +767,45 @@ func TestDashboardTreemap_VClusterFromNamespaceLabel(t *testing.T) {
 	}
 }
 
+// TestDashboardTreemap_ClusterLabelPostfixesRegion — TBD-E4b (#1756).
+// Grouping by `cluster` should not surface the bare deployment-id hex
+// (e.g. `alpha` in tests / `30dbef8b238c2d84` in prod) on the cell
+// label; when the row carries a region, postfix `(<region>)` so the
+// label reads `alpha (hz-hel-rtz-prod)`. Bucket id stays the cluster
+// id so all rows still merge into one cell.
+func TestDashboardTreemap_ClusterLabelPostfixesRegion(t *testing.T) {
+	h := newDashHandlerWithCache(t, "alpha", false,
+		mkDashNode("node-hel-1", "hz-hel-rtz-prod", ""),
+		mkDashPodOnNode("ns1", "p1", "bp-cilium", "node-hel-1"),
+		mkDashPodOnNode("ns1", "p2", "bp-cilium", "node-hel-1"),
+	)
+	out := dashGet(t, h, "deployment_id=alpha&group_by=cluster&color_by=health&size_by=cpu_request")
+	if len(out.Items) != 1 {
+		t.Fatalf("expected 1 cluster bucket; got %d (%+v)", len(out.Items), out)
+	}
+	got := out.Items[0].Name
+	want := "alpha (hz-hel-rtz-prod)"
+	if got != want {
+		t.Errorf("cluster label = %q; want %q", got, want)
+	}
+}
+
+// TestDashboardTreemap_ClusterLabelNoRegion — when no row carries a
+// region label (single-region Sovereign with no node-label
+// enrichment), the cluster cell falls back to the bare cluster id.
+func TestDashboardTreemap_ClusterLabelNoRegion(t *testing.T) {
+	h := newDashHandlerWithCache(t, "alpha", false,
+		mkDashPodOnNode("ns1", "p1", "bp-cilium", ""),
+	)
+	out := dashGet(t, h, "deployment_id=alpha&group_by=cluster&color_by=health&size_by=cpu_request")
+	if len(out.Items) != 1 {
+		t.Fatalf("expected 1 cluster bucket; got %d (%+v)", len(out.Items), out)
+	}
+	if got, want := out.Items[0].Name, "alpha"; got != want {
+		t.Errorf("cluster label = %q; want %q", got, want)
+	}
+}
+
 // TestDashboardTreemap_RegionFromNodeLabel — when the Pod has no
 // openova.io/region label but its host Node does, region grouping
 // reads from the Node's label set. Both `openova.io/region` and the
