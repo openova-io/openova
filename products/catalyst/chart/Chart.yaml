@@ -1,5 +1,57 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.163 — Wave 16 collector. Bumps chart version so the next Blueprint
+# Release republishes the OCI artifact with every chart-template change
+# that landed since the 1.4.162 publish (commit 0ad78790). The 1.4.162
+# OCI bytes pre-date these template additions; without this republish,
+# Sovereigns sourcing bootstrap-kit 1.4.163 download an artifact missing
+# the new templates → tenant HTTPRoute / Cilium per-zone listeners /
+# bp-newapi attestation gate never reach the chroot.
+#
+# Baked in 1.4.163:
+# - #1644 organization-controller renders per-tenant HTTPRoute so
+#   <slug>.<parentDomain> serves the tenant's installed product
+#   (was falling through to the marketplace tenant-wildcard route).
+#   Adds crds/organization.yaml tenantPublic field +
+#   templates/sme-services/tenant-public-routes.yaml + values.yaml
+#   tenantRoutes[] static-fixture path.
+# - #1650 provisioning service patches Organization.spec.tenantPublic
+#   on product-install (both initial workflow and day-2 install path)
+#   so the #1644 HTTPRoute reconciler has parentDomain/subdomain/
+#   backend to render. Pre-#1650 every Org had zero-value
+#   TenantPublic → reconciler short-circuited at empty-ParentDomain
+#   guard.
+# - #1640 Cilium Gateway renders one listener pair (HTTPS:30443 +
+#   HTTP:30080) per parent zone (sovereign-tls Kustomization).
+#   Tenants under non-primary parent zones (e.g. wp-foo.omani.homes
+#   when omani.homes is the SME pool) no longer TLS-handshake-
+#   mismatch on the wildcard cert.
+# - #1654 bp-newapi attestation gate — chart now skips channel
+#   render when ATTESTATION_ACCOUNT_ID env is empty (was blocking
+#   install with bogus channel CR pointing at empty account).
+# - Sandbox-controller post-handover refinements:
+#   - api-deployment.yaml SOVEREIGN_ENABLE_HOT_STANDBY +
+#     SOVEREIGN_PRIMARY_REGION + SOVEREIGN_REPLICA_REGION env vars
+#     (D31 wiring; SME tenant gitops writer reads at render time so
+#     every freshly-rendered bp-wordpress-tenant HR carries
+#     pg.activeHotStandby block when toggle is true).
+#   - sovereign-fqdn-configmap.yaml exposes enableHotStandby /
+#     primaryRegion / replicaRegion keys (populated from
+#     .Values.sovereign.* via bootstrap-kit slot 13 envsubst).
+#   - clusterrole-cutover-driver.yaml grants sandbox.openova.io/
+#     sandboxes verbs (create split into its own Rule per
+#     feedback_rbac_create_no_resourcenames.md) so the Sovereign
+#     Console's /sandbox surface + /api/v1/sandbox/sessions handler
+#     read/write Sandbox CRs via the cutover-driver SA.
+#   - values.yaml sovereign.enableHotStandby / primaryRegion /
+#     replicaRegion defaults (all empty — zero regression on
+#     Sovereigns that have not opted into the active-hot-standby
+#     shape).
+#
+# Pairs with bootstrap-kit/13-bp-catalyst-platform.yaml pin
+# 1.4.162→1.4.163 in this same PR so the next fresh prov pulls
+# the republished artifact.
+#
 # 1.4.153 (D17 Wave-1 Family A — /cloud?view=list&kind=<X> no longer
 # drifts to /dashboard on Sovereign Console):
 #
@@ -1086,8 +1138,8 @@ name: bp-catalyst-platform
 # Fix #154 (HR-timeout audit). Those bumped the HelmRelease
 # install.timeout. This bumps the chart-INTERNAL wait loop budget
 # inside the pre-install hook Job, which is a different seam.
-version: 1.4.162
-appVersion: 1.4.162
+version: 1.4.163
+appVersion: 1.4.163
 # 1.4.141 (qa-loop Fix #185, prov #38/#39/#41 recurrence — pre-install
 # hook unscheduable on saturated worker):
 #
