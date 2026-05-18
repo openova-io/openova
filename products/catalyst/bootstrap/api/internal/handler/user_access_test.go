@@ -643,6 +643,100 @@ func TestCreateUserAccess_AcceptsErgonomicEmailTierBody(t *testing.T) {
 	}
 }
 
+// ── Sovereign-prefix wrapper (TBD-E16) ────────────────────────────────
+
+func registerSovereignUsersRoute(r chi.Router, h *Handler) {
+	r.Get("/api/v1/sovereign/users", h.HandleSovereignUsers)
+}
+
+// TestHandleSovereignUsers_Happy verifies the Sovereign-prefix chroot
+// wrapper resolves the deployment id from CATALYST_SELF_DEPLOYMENT_ID
+// (precedence 2 in resolveSovereignDeploymentID) and serves the same
+// userAccessListResponse shape as the per-deployment surface. Without
+// this endpoint a Sovereign-side smoke probe (or the QA matrix) gets a
+// stale 404 on /api/v1/users / /api/v1/sovereign/users — the original
+// TBD-E16 symptom.
+func TestHandleSovereignUsers_Happy(t *testing.T) {
+	t.Setenv("CATALYST_SELF_DEPLOYMENT_ID", "dep-sov-users")
+	t.Setenv("SOVEREIGN_FQDN", "")
+	t.Setenv("CATALYST_OTECH_FQDN", "")
+
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	seed := []runtime.Object{
+		newUserAccessUnstructured("alice-helmwatch", "omantel", "alice", "helmwatch", "editor", "tenant-foo"),
+	}
+	factory, _ := fakeUserAccessDynamicFactory(seed...)
+	h.dynamicFactory = factory
+	_ = installUserAccessDeployment(t, h, "dep-sov-users")
+
+	rec := callUserAccess(t, h, http.MethodGet,
+		"/api/v1/sovereign/users", nil, registerSovereignUsersRoute)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var out userAccessListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(out.Items) != 1 || out.Items[0].Name != "alice-helmwatch" {
+		t.Fatalf("expected [alice-helmwatch]; got %+v", out.Items)
+	}
+	// Must serialize empty slices, not null — same wire contract as
+	// the per-deployment endpoint (qa-loop iter-4 cluster
+	// users-page-null-map-and-open-redirect).
+	if strings.Contains(rec.Body.String(), `"items":null`) {
+		t.Fatalf("items must never be null; body=%s", rec.Body.String())
+	}
+}
+
+// TestHandleSovereignUsers_EmptyList verifies a fresh Sovereign with no
+// UserAccess CRs yet (D21 chain bootstrapping) serves an empty-list
+// shape with 200, so the operator-side probe sees `items:[]` rather
+// than a 404.
+func TestHandleSovereignUsers_EmptyList(t *testing.T) {
+	t.Setenv("CATALYST_SELF_DEPLOYMENT_ID", "dep-sov-users-empty")
+	t.Setenv("SOVEREIGN_FQDN", "")
+	t.Setenv("CATALYST_OTECH_FQDN", "")
+
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	factory, _ := fakeUserAccessDynamicFactory()
+	h.dynamicFactory = factory
+	_ = installUserAccessDeployment(t, h, "dep-sov-users-empty")
+
+	rec := callUserAccess(t, h, http.MethodGet,
+		"/api/v1/sovereign/users", nil, registerSovereignUsersRoute)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"items":[]`) {
+		t.Fatalf("expected items:[]; body=%s", rec.Body.String())
+	}
+}
+
+// TestHandleSovereignUsers_404OffMothership verifies the wrapper
+// returns a structured 404 on the mothership (no SOVEREIGN_FQDN /
+// CATALYST_OTECH_FQDN / handover cookie) instead of leaking a 500 or
+// silently dispatching to a synthetic deployment id with no underlying
+// cluster.
+func TestHandleSovereignUsers_404OffMothership(t *testing.T) {
+	t.Setenv("SOVEREIGN_FQDN", "")
+	t.Setenv("CATALYST_OTECH_FQDN", "")
+	t.Setenv("CATALYST_SELF_DEPLOYMENT_ID", "")
+
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	factory, _ := fakeUserAccessDynamicFactory()
+	h.dynamicFactory = factory
+
+	rec := callUserAccess(t, h, http.MethodGet,
+		"/api/v1/sovereign/users", nil, registerSovereignUsersRoute)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status: got %d want 404; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "not-a-sovereign") {
+		t.Fatalf("body should reference not-a-sovereign; got %s", rec.Body.String())
+	}
+}
+
 // TestNormalizeUserAccessErgonomicShape_TierMapping verifies the tier
 // → role mapping that lets the qa-loop matrix exercise /admin/user-access
 // with the 5-tier vocabulary while the CRD's per-app grant accepts only

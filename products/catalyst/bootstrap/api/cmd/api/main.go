@@ -1288,6 +1288,16 @@ func main() {
 		// first round-tripping to /sovereign/self.
 		rg.Get("/api/v1/sovereign/rbac/matrix", h.HandleSovereignRBACMatrix)
 
+		// TBD-E16 — Sovereign-prefix UserAccess listing. Chroot-friendly
+		// mirror of /api/v1/deployments/{depId}/admin/user-access; the
+		// depId is resolved server-side from SOVEREIGN_FQDN +
+		// catalyst_session cookie (same chain as HandleSovereignSelf).
+		// Operator-side smoke probes / external monitors can hit a
+		// single stable URL without first round-tripping
+		// /sovereign/self. Same response shape as the per-deployment
+		// endpoint (userAccessListResponse).
+		rg.Get("/api/v1/sovereign/users", h.HandleSovereignUsers)
+
 		// Self-Sovereignty Cutover (issue #792 — parent epic #790). The
 		// post-handover step that severs a Sovereign's remaining
 		// tethers to the openova-io mothership: gitea-mirror,

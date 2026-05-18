@@ -155,6 +155,48 @@ func (h *Handler) ListUserAccess(w http.ResponseWriter, r *http.Request) {
 		writeNotFound(w, depID)
 		return
 	}
+	h.serveUserAccessList(w, r, dep, depID)
+}
+
+// HandleSovereignUsers — GET /api/v1/sovereign/users
+//
+// Chroot-friendly Sovereign-prefix wrapper around ListUserAccess
+// (Refs TBD-E16). Same response shape; resolves the active Sovereign
+// deployment from the in-cluster context via resolveSovereignDeploymentID,
+// mirroring the canonical seam established by HandleSovereignRBACMatrix /
+// HandleSovereignSelf / HandleSovereignApps. Lets operator-side smoke
+// probes and external monitors hit a single stable URL without having
+// to first round-trip /sovereign/self.
+//
+// The operator-facing /users UI page itself continues to use the
+// canonical per-deployment endpoint
+// (/api/v1/deployments/{depId}/admin/user-access) via the
+// useResolvedDeploymentId() seam; this prefix endpoint exists for
+// callers that want a single-hop probe.
+func (h *Handler) HandleSovereignUsers(w http.ResponseWriter, r *http.Request) {
+	depID := resolveSovereignDeploymentID(r)
+	if depID == "" {
+		// Mothership (no SOVEREIGN_FQDN env, no handover cookie). The
+		// per-deployment surface is the right entry point on that side;
+		// emit a structured 404 so callers can fall back.
+		writeJSON(w, http.StatusNotFound, map[string]string{
+			"error":  "not-a-sovereign",
+			"detail": "this catalyst-api Pod is not running on a Sovereign cluster; use /api/v1/deployments/{depId}/admin/user-access instead",
+		})
+		return
+	}
+	dep, ok := h.lookupDeploymentForInfra(depID)
+	if !ok {
+		writeNotFound(w, depID)
+		return
+	}
+	h.serveUserAccessList(w, r, dep, depID)
+}
+
+// serveUserAccessList is the shared body of ListUserAccess (per-deployment
+// surface) and HandleSovereignUsers (chroot-prefix surface). Both return
+// userAccessListResponse byte-byte-identical.
+func (h *Handler) serveUserAccessList(w http.ResponseWriter, r *http.Request, dep *Deployment, depID string) {
 	client, err := h.sovereignDynamicClient(dep)
 	if err != nil {
 		writeUserAccessUnavailable(w, err)
