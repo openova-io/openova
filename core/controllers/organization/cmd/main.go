@@ -11,6 +11,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -22,11 +23,13 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	"github.com/openova-io/openova/core/controllers/organization/internal/controller"
 	orgapi "github.com/openova-io/openova/core/controllers/organization/internal/orgapi"
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
+	"github.com/openova-io/openova/core/controllers/pkg/natsbus"
 )
 
 var scheme = runtime.NewScheme()
@@ -115,6 +118,57 @@ func main() {
 	if err := r.SetupWithManager(mgr); err != nil {
 		log.Error(err, "setup reconciler")
 		os.Exit(1)
+	}
+
+	// D35 consume-leg — subscribe to the two canonical Catalyst NATS
+	// subjects so a `tenant.created` / `order.placed` envelope nudges
+	// the matching Organization CR into a fresh Reconcile within ~50ms
+	// of the publish. Best-effort wiring: when NATS_URL is unset (e.g.
+	// Catalyst-Zero contabo path where NATS is not deployed) we log
+	// "NATS not wired" and continue — the existing 30s informer
+	// requeue fallback inside r.Reconcile keeps the controller correct.
+	natsURL := strings.TrimSpace(os.Getenv("NATS_URL"))
+	if natsURL != "" {
+		if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+			sub, err := natsbus.Connect(natsURL)
+			if err != nil {
+				log.Error(err, "natsbus: connect failed — D35 consume-leg disabled",
+					"nats_url", natsURL)
+				return nil // non-fatal — informer requeue is the canonical fallback
+			}
+			bridge := &controller.NATSBridge{
+				Client: mgr.GetClient(),
+				Log:    log.WithName("natsbridge"),
+			}
+			if err := sub.Subscribe(ctx,
+				natsbus.SubjectTenantCreated,
+				"organization-controller-tenant-created",
+				bridge.HandleTenantCreated,
+				natsbus.SubscribeOptions{},
+			); err != nil {
+				log.Error(err, "natsbus: subscribe tenant.created failed")
+			}
+			if err := sub.Subscribe(ctx,
+				natsbus.SubjectOrderPlaced,
+				"organization-controller-order-placed",
+				bridge.HandleOrderPlaced,
+				natsbus.SubscribeOptions{},
+			); err != nil {
+				log.Error(err, "natsbus: subscribe order.placed failed")
+			}
+			<-ctx.Done()
+			sub.Close()
+			return nil
+		})); err != nil {
+			log.Error(err, "natsbus: add runnable failed")
+			os.Exit(1)
+		}
+		log.Info("natsbus: D35 consume-leg wired",
+			"nats_url", natsURL,
+			"subjects", []string{natsbus.SubjectTenantCreated, natsbus.SubjectOrderPlaced},
+		)
+	} else {
+		log.Info("natsbus: NATS_URL unset — D35 consume-leg disabled (informer-requeue fallback only)")
 	}
 
 	log.Info("starting manager",
