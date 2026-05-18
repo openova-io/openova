@@ -5,10 +5,20 @@ export interface CartState {
   addons: string[];
   orgName: string;
   subdomain: string;
+  // Parent domain (TLD) chosen on /addons. Persisted across wizard steps
+  // so /review and /checkout don't fall back to the default. Convergence
+  // bug: previously local to AddonsStep, so a user picking .omani.homes
+  // would see .omani.rest on Review + Checkout.
+  tld: string;
   email: string;
 }
 
 const STORAGE_KEY = 'sme-cart';
+
+// Default parent domain — kept in sync with the picker in AddonsStep.svelte
+// (`tlds` array). Single source of truth so a future change to the default
+// is a one-liner.
+export const DEFAULT_TLD = 'omani.rest';
 
 const defaultCart: CartState = {
   plan: null,
@@ -17,6 +27,7 @@ const defaultCart: CartState = {
   addons: [],
   orgName: '',
   subdomain: '',
+  tld: DEFAULT_TLD,
   email: '',
 };
 
@@ -74,6 +85,16 @@ export function setOrgDetails(orgName: string, subdomain: string, email: string)
   cart.orgName = orgName;
   cart.subdomain = subdomain;
   cart.email = email;
+  writeCart(cart);
+  return cart;
+}
+
+// Persist the parent domain (TLD) chosen on /addons. Separate setter from
+// setOrgDetails so the TLD picker can save immediately on change (no need
+// to wait for the subdomain input to blur).
+export function setTLD(tld: string): CartState {
+  const cart = readCart();
+  cart.tld = tld;
   writeCart(cart);
   return cart;
 }

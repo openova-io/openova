@@ -545,7 +545,7 @@
                 <a href="/addons" class="text-xs text-[var(--color-accent)] no-underline hover:underline">Change</a>
               </div>
               <div class="mt-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 font-mono text-sm text-[var(--color-text)]">
-                {cart.subdomain}.omani.rest
+                {cart.subdomain}.{cart.tld}
               </div>
               <p class="mt-1 text-[11px] text-[var(--color-text-dimmer)]">Already validated — you can change this during add-ons.</p>
             </div>
@@ -560,15 +560,15 @@
                   placeholder="my-company"
                   class="w-full rounded-l-lg border border-r-0 border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)] outline-none focus:border-[var(--color-accent)]"
                 />
-                <span class="rounded-r-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-dim)]">.omani.rest</span>
+                <span class="rounded-r-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-dim)]">.{cart.tld}</span>
               </div>
               <div class="mt-1 text-xs h-4">
                 {#if slugStatus === 'checking'}
                   <span class="text-[var(--color-text-dim)]">Checking availability…</span>
                 {:else if slugStatus === 'available'}
-                  <span class="text-[var(--color-success)]">✓ {slugChecked}.omani.rest is available</span>
+                  <span class="text-[var(--color-success)]">✓ {slugChecked}.{cart.tld} is available</span>
                 {:else if slugStatus === 'taken'}
-                  <span class="text-[var(--color-danger)]">✗ {slugChecked}.omani.rest is already taken</span>
+                  <span class="text-[var(--color-danger)]">✗ {slugChecked}.{cart.tld} is already taken</span>
                 {:else if slugStatus === 'invalid'}
                   <span class="text-[var(--color-danger)]">Subdomain must be at least 3 characters</span>
                 {:else}

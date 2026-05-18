@@ -300,7 +300,7 @@
                 <a href="/addons" class="rv-link">Edit</a>
               </div>
               <div class="ws-preview">
-                <div class="ws-row"><span>URL</span><strong class="font-mono">{cart.subdomain}.omani.rest</strong></div>
+                <div class="ws-row"><span>URL</span><strong class="font-mono">{cart.subdomain}.{cart.tld}</strong></div>
               </div>
             </section>
           {/if}
