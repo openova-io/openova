@@ -7,6 +7,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -19,9 +20,11 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
+	"github.com/openova-io/openova/core/controllers/pkg/natsbus"
 	"github.com/openova-io/openova/core/controllers/sandbox/internal/controller"
 	"github.com/openova-io/openova/core/controllers/sandbox/internal/idlescaler"
 	"github.com/openova-io/openova/core/controllers/sandbox/internal/newapi"
@@ -170,6 +173,50 @@ func main() {
 	if err := mgr.Add(scaler); err != nil {
 		log.Error(err, "add idle-scaler to manager")
 		os.Exit(1)
+	}
+
+	// D35 consume-leg — subscribe to `catalyst.tenant.sandbox_requested`
+	// so the publish from tenant-service nudges the matching Sandbox CR
+	// into a fresh Reconcile within ~50ms. Same wiring shape as the
+	// organization-controller's NATS bridge. Best-effort: NATS_URL
+	// unset → log + continue (informer requeue fallback intact).
+	natsURL := strings.TrimSpace(os.Getenv("NATS_URL"))
+	sandboxNs := envOr("SANDBOX_NAMESPACE", "catalyst-system")
+	if natsURL != "" {
+		if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+			sub, err := natsbus.Connect(natsURL)
+			if err != nil {
+				log.Error(err, "natsbus: connect failed — D35 consume-leg disabled",
+					"nats_url", natsURL)
+				return nil
+			}
+			bridge := &controller.NATSBridge{
+				Client:    mgr.GetClient(),
+				Log:       log.WithName("natsbridge"),
+				Namespace: sandboxNs,
+			}
+			if err := sub.Subscribe(ctx,
+				natsbus.SubjectTenantSandboxRequested,
+				"sandbox-controller-sandbox-requested",
+				bridge.HandleSandboxRequested,
+				natsbus.SubscribeOptions{},
+			); err != nil {
+				log.Error(err, "natsbus: subscribe tenant.sandbox_requested failed")
+			}
+			<-ctx.Done()
+			sub.Close()
+			return nil
+		})); err != nil {
+			log.Error(err, "natsbus: add runnable failed")
+			os.Exit(1)
+		}
+		log.Info("natsbus: D35 consume-leg wired",
+			"nats_url", natsURL,
+			"subjects", []string{natsbus.SubjectTenantSandboxRequested},
+			"sandbox_namespace", sandboxNs,
+		)
+	} else {
+		log.Info("natsbus: NATS_URL unset — D35 consume-leg disabled (informer-requeue fallback only)")
 	}
 
 	log.Info("starting manager",
