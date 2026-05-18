@@ -1154,8 +1154,43 @@ name: bp-catalyst-platform
 # GITHUB_TOKEN bytes verbatim. Bootstrap branch (gitea-admin-secret
 # password mirror) is preserved for the first-install pre-cutover window
 # so the provisioning Pod still boots out of CreateContainerConfigError.
-version: 1.4.171
-appVersion: 1.4.171
+version: 1.4.172
+appVersion: 1.4.172
+# 1.4.172 — feat(security): baseline CiliumNetworkPolicies for
+# catalyst-system + cilium-gateway (Closes #1746, Refs TBD-Cov-12 /
+# C12-009). Cov-bench audit on the live Sovereign cluster confirmed
+# only 2 CNPs cluster-wide (bp-external-dns-apiserver + bp-catalyst-
+# platform-sme-valkey-ingress) and ZERO CNPs in the two namespaces
+# that carry the public-facing traffic plane: catalyst-system
+# (catalyst-api / catalyst-ui / marketplace-api / organization-
+# controller / sme-orchestrator) and kube-system (the cilium-gateway
+# Gateway resource that terminates *.<sovereignFQDN>). Matrix row
+# C12-009 fails when neither namespace has baseline coverage.
+#
+# Ship two NAMESPACED CiliumNetworkPolicies (no CCNP — Sovereign
+# architecture uses namespaced CNP only per the issue's ruling)
+# under templates/network-policies/:
+#   1. baseline-default-deny in catalyst-system — default-deny with
+#      explicit allow for cilium-gateway ingress (reserved:ingress
+#      endpoint), same-namespace, kubelet host probes, and egress to
+#      kube-apiserver / kube-dns / same-namespace / 14 platform
+#      namespaces (keycloak gitea powerdns cnpg-system openbao harbor
+#      nats-system loki mimir tempo alloy opentelemetry external-
+#      secrets-system cert-manager) + world TCP/443 for Dynadot/S3/
+#      GitHub egress.
+#   2. baseline-cilium-gateway-allow in kube-system — scoped to the
+#      reserved.ingress endpoint, mirrors the qaFixtures
+#      allow-gateway-world-ingress CCNP but as a namespaced CNP.
+#      Without it every public Sovereign host returns HTTP 403
+#      "Access denied" at envoy (see feedback_cilium_gateway_world_
+#      ingress.md for the prov #80 forensic trace).
+#
+# Helm-gated on .Values.security.baselineCnp.enabled (default true).
+# Platform-namespace allow list operator-tunable via .Values.security.
+# baselineCnp.allowedPlatformNamespaces. Bundle is independent of
+# qaFixtures so the baseline ships on every Sovereign even when
+# qaFixtures is disabled.
+#
 # 1.4.171 — fix(tenant): TBD-D35a wire ServiceAccount token + narrow
 # RBAC for the SandboxOrchestrator. The tenant service's in-cluster
 # dynamic client built by main.go buildDynamicClient was silently
