@@ -1,5 +1,31 @@
 apiVersion: v2
 name: bp-newapi
+# 1.4.15 (TBD-A11 #1765, 2026-05-18): fix `mkdir /data/logs: permission
+# denied` CrashLoopBackOff on every fresh Sovereign. The upstream
+# Calcium-Ion/new-api v0.13.2 binary writes ephemeral logs to
+# `/data/logs` on startup; pre-1.4.15 the chart ran the Pod as uid
+# 1000 (`runAsNonRoot: true`, `runAsUser: 1000`) against a root-owned
+# `/data` baked into the upstream image AND mounted no volume at
+# `/data`, so the binary's `mkdir` went against the container rootfs
+# (root-owned, not writable by uid 1000 even with
+# `readOnlyRootFilesystem: false`).
+#
+# Fix (two halves, both required):
+#   - values.yaml: add `fsGroup: 1000` to `newapi.securityContext` so
+#     kubelet chowns the mount to gid 1000 on Pod start.
+#   - deployment.yaml: add `volumes: - name: data emptyDir: ...` and
+#     a matching `volumeMounts: - name: data mountPath: /data` on the
+#     newapi container. emptyDir (not PVC) is correct — NewAPI's
+#     durable state (users, credits, channels, audit log) lives in
+#     Postgres via SQL_DSN; only ephemeral logs land on disk so a
+#     restart-loses-logs semantic is acceptable.
+#
+# Caught on t22 2026-05-18 with `newapi-bp-newapi-*` in
+# CrashLoopBackOff and `kubectl logs --previous` showing
+# `mkdir /data/logs: permission denied`. Verified via `helm template`
+# that the Pod spec now carries both halves; on Sovereign reconcile
+# the Pod transitions from CrashLoopBackOff → Running.
+#
 # 1.4.4 (qa-loop bounded-cycle audit prov #20 Fix #138, 2026-05-11): add
 # pre-install/pre-upgrade hook (templates/000-external-secrets-webhook-
 # readiness-job.yaml) that polls the external-secrets validating-
@@ -146,7 +172,7 @@ name: bp-newapi
 # composes on the next reconcile. helm template renders cleanly with
 # BOTH the missing-attestation state (no channel) AND the
 # fully-populated state (channel composed normally).
-version: 1.4.14
+version: 1.4.15
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
