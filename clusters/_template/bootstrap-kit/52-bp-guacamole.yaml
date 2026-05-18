@@ -128,7 +128,7 @@ spec:
       # made kubelet restart the Pod every ~60s and the kube-system
       # Cilium gateway returned 503 to the public hostname because
       # the Endpoint was never Ready (observed on t22, 5 restarts).
-      version: 0.1.23
+      version: 0.1.24
       sourceRef:
         kind: HelmRepository
         name: bp-guacamole
