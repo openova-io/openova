@@ -95,7 +95,8 @@ github.*          present ONLY if iOS/macOS-runner work is detected;
                   scoped GH PAT for that pipeline only
 sandbox.db.*      provision / drop / dump  CNPG clusters in this Sandbox
 sandbox.auth.*    provisionRealm, listClients, registerClient (Keycloak)
-sandbox.stripe.*  bindAccount, listProducts (uses Sandbox secret store)
+sandbox.stripe.*  bindAccount, listProducts, listPrices, createCheckoutSession
+                  (key stored in Sandbox secret store; never re-passed)
 sandbox.secrets.* read/write Sandbox-scoped secrets (never echoes)
 sandbox.storage.* bindBucket / signedUploadURL (SeaweedFS-backed)
 sandbox.preview.* status, rebuild, teardown
