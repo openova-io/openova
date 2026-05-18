@@ -44,11 +44,15 @@ func registerRBACAccessMatrixRoute(r chi.Router, h *Handler) {
 
 // rbacUserAccessFromAssign composes a UserAccess CR shaped the way
 // HandleRBACAssign emits it — tier label, tierRoleRef, scopes[].
+// Stamps rbacAssignNamespace on the CR to match the on-cluster shape
+// (UserAccess is a namespaced Crossplane Claim per
+// platform/crossplane-claims/chart/templates/xrds/useraccess.yaml).
 func rbacUserAccessFromAssign(name, subject, tier string, scopes []rbacAssignScopeBody) *unstructured.Unstructured {
 	u := &unstructured.Unstructured{}
 	u.SetAPIVersion("access.openova.io/v1alpha1")
 	u.SetKind("UserAccess")
 	u.SetName(name)
+	u.SetNamespace(rbacAssignNamespace)
 	u.SetLabels(map[string]string{
 		labelTier:                        tier,
 		"catalyst.openova.io/managed-by": "rbac-assign",
@@ -108,7 +112,10 @@ func TestHandleRBACAssign_CreatesNewWhenNoMatch(t *testing.T) {
 		t.Fatalf("tierClusterRole: got %q", resp.TierClusterRole)
 	}
 	// Verify the CR was actually created with the right shape.
-	got, err := client.Resource(UserAccessGVR()).Namespace("").Get(
+	// Read via rbacAssignNamespace — the Create path now stamps
+	// catalyst-system on the CR (TBD-C6-006-followup fix). Reading
+	// with the wrong namespace returns NotFound on a real apiserver.
+	got, err := client.Resource(UserAccessGVR()).Namespace(rbacAssignNamespace).Get(
 		context.Background(), resp.UserAccess.Name, metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("get: %v", err)
@@ -193,8 +200,9 @@ func TestHandleRBACAssign_UpdatesTierOnSameScope(t *testing.T) {
 	if resp.TierClusterRole != "openova:tier-admin" {
 		t.Fatalf("tierClusterRole: got %q", resp.TierClusterRole)
 	}
-	// Verify the CR was actually mutated.
-	got, err := client.Resource(UserAccessGVR()).Namespace("").Get(
+	// Verify the CR was actually mutated. Read from the canonical
+	// namespace (TBD-C6-006-followup: UserAccess is namespaced).
+	got, err := client.Resource(UserAccessGVR()).Namespace(rbacAssignNamespace).Get(
 		context.Background(), existing.GetName(), metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("get after update: %v", err)
@@ -259,12 +267,16 @@ func TestHandleRBACAssign_RetriesOn409(t *testing.T) {
 			// On the second list (after the first Create returned 409),
 			// inject the racing CR via the tracker so the matcher finds
 			// it. We do this by side-effecting the tracker directly.
+			// Seed with the canonical namespace so the subsequent
+			// rbacAssignCreate sees AlreadyExists on its tracker.Create
+			// (Tracker.Create's last arg is the namespace it routes the
+			// stored object into). Refs TBD-C6-006-followup.
 			_ = client.Tracker().Create(
 				schema.GroupVersionResource{
 					Group: userAccessGroup, Version: userAccessVersion, Resource: userAccessResource,
 				},
 				rbacUserAccessFromAssign(existingName, "alice", "admin", scopes),
-				"",
+				rbacAssignNamespace,
 			)
 		}
 		return false, nil, nil
@@ -588,3 +600,85 @@ func TestHandleRBACAssign_RejectsUnknownTierWith400(t *testing.T) {
 		t.Fatalf("expected httpStatus:400 echo; got %s", rec.Body.String())
 	}
 }
+
+// TestHandleRBACAssign_CreateStampsNamespace pins the rbacAssignNamespace
+// fix for TBD-C6-006-followup. The UserAccess Claim is namespaced (XRD
+// claimNames per platform/crossplane-claims/chart/templates/xrds/
+// useraccess.yaml); creating with an empty namespace routes to the
+// cluster-scoped REST path which the apiserver doesn't serve, returning
+// 404 "the server could not find the requested resource". The fix
+// stamps catalyst-system on every Create — this test asserts the stamp
+// is on the wire.
+func TestHandleRBACAssign_CreateStampsNamespace(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	factory, client := fakeUserAccessDynamicFactory()
+	h.dynamicFactory = factory
+	dep := installUserAccessDeployment(t, h, "dep-rbac-ns-stamp")
+
+	var createdNs atomic.Value // string
+	var objNs atomic.Value     // string
+	client.PrependReactor("create", "useraccesses", func(a clienttesting.Action) (bool, runtime.Object, error) {
+		ca, ok := a.(clienttesting.CreateAction)
+		if !ok {
+			return false, nil, nil
+		}
+		createdNs.Store(ca.GetNamespace())
+		if u, ok := ca.GetObject().(*unstructured.Unstructured); ok {
+			objNs.Store(u.GetNamespace())
+		}
+		return false, nil, nil
+	})
+
+	body := rbacAssignRequest{
+		User: rbacAssignUserBody{KeycloakSubject: "alice-ns-stamp"},
+		Tier: "developer",
+		Scope: []rbacAssignScopeBody{
+			{Key: "openova.io/application", Value: "wordpress"},
+		},
+	}
+	rec := callUserAccess(t, h, http.MethodPost,
+		"/api/v1/sovereigns/"+dep.ID+"/rbac/assign", body, registerRBACAssignRoute)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status: got %d want 201; body=%s", rec.Code, rec.Body.String())
+	}
+	if got, want := createdNs.Load(), rbacAssignNamespace; got != want {
+		t.Errorf("Create action namespace: got %q want %q (regression: empty NS routes to cluster-scoped REST path, apiserver 404s — C6-006-followup symptom)", got, want)
+	}
+	if got, want := objNs.Load(), rbacAssignNamespace; got != want {
+		t.Errorf("object metadata.namespace: got %q want %q (must be stamped on the unstructured so kubectl get -n <ns> finds it)", got, want)
+	}
+	if rbacAssignNamespace == "" {
+		t.Fatal("rbacAssignNamespace must be non-empty — UserAccess is a namespaced Crossplane Claim")
+	}
+}
+
+// TestIsCRDNotInstalledErr_StringFallback pins the string-fallback
+// detector that PR for TBD-C6-006-followup added. apierrors.IsNotFound
+// can lose the StatusReasonNotFound tag through error-chain wrapping;
+// the canonical apimachinery message "the server could not find the
+// requested resource" still surfaces verbatim. Mirrors
+// catalog_client_cluster_fallback.isVersionNotServed.
+func TestIsCRDNotInstalledErr_StringFallback(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil-no", nil, false},
+		{"unrelated-no", errString("connection refused"), false},
+		{"server-could-not-find-yes", errString("the server could not find the requested resource"), true},
+		{"no-matches-for-kind-yes", errString("no matches for kind \"UserAccess\" in version \"access.openova.io/v1alpha1\""), true},
+		{"alt-could-not-find-yes", errString("operation failed: could not find requested resource"), true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := isCRDNotInstalledErr(c.err); got != c.want {
+				t.Errorf("isCRDNotInstalledErr(%v): got %v want %v", c.err, got, c.want)
+			}
+		})
+	}
+}
+
+type errString string
+
+func (e errString) Error() string { return string(e) }
