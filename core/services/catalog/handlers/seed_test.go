@@ -33,6 +33,8 @@ func TestDeployableAppSlugs_StableShape(t *testing.T) {
 		"gitea", "vaultwarden", "umami", "nocodb", "cal-com",
 		"invoiceshelf", "formbricks", "listmonk",
 		"postgres", "mysql", "redis",
+		// Wave 4 — Sandbox marketplace catalog entry.
+		"sandbox",
 	}
 	if got, want := len(d), len(expected); got != want {
 		t.Errorf("deployable map size = %d, want %d", got, want)

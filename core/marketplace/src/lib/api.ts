@@ -323,6 +323,11 @@ const appLogos: Record<string, string> = {
   nocodb: 'https://github.com/nocodb.png?size=64',
   'jitsi-meet': 'https://github.com/jitsi.png?size=64',
   immich: 'https://github.com/immich-app.png?size=64',
+  // Wave 4 — Sandbox marketplace catalog entry. Logo is the OpenOva
+  // org avatar to match how WordPress/Ghost/Nextcloud cards lean on
+  // upstream-org GitHub avatars; Sandbox is our own product so the
+  // OpenOva mark is the canonical brand.
+  sandbox: 'https://github.com/openova-io.png?size=64',
 };
 
 export interface Industry {
@@ -360,6 +365,12 @@ export interface CreateTenantRequest {
   plan_id: string;
   apps: string[];
   addons: string[];
+  // Wave 4 Sandbox — forwarded only when `apps` contains 'sandbox'.
+  // The tenant-service uses this to publish a `tenant.sandbox_requested`
+  // event the sandbox-controller consumes to mint a Sandbox CR with
+  // matching spec.agentCatalogue. Optional so legacy clients keep
+  // working unchanged.
+  agents?: string[];
 }
 
 export interface Tenant {

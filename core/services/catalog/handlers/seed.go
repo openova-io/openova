@@ -89,6 +89,65 @@ func (h *Handler) seedAllData(ctx context.Context) {
 		{Slug: "nocodb", Name: "NocoDB", Tagline: "Open-source Airtable alternative on any database", Description: "Turn any SQL database into a smart spreadsheet. Grid, Kanban, Gallery, and Form views. API generation, automations, and collaboration.", Category: "database", Tags: []string{"database", "spreadsheet", "nocode", "airtable"}, Icon: "\U0001F5C3", IconBg: "#1348FC", MinimumSize: "xs", RecommendedSize: "s", Website: "https://nocodb.com", License: "AGPLv3", Featured: true, Popular: true, Free: true, Features: []string{"Spreadsheet UI on any SQL database", "Grid, Kanban, Gallery, and Form views", "Automatic REST API generation", "Automations and webhooks", "Role-based access control", "Import from Airtable, CSV, Excel"}, RelatedApps: []string{"erpnext", "twenty", "formbricks"}, RamMB: 256, CpuMilli: 250, DiskGB: 5, HelmChart: "nocodb", HelmRepo: "", CreatedAt: now, UpdatedAt: now},
 		{Slug: "jitsi-meet", Name: "Jitsi Meet", Tagline: "Self-hosted video conferencing, no account required", Description: "Secure, fully-featured video conferencing that runs in your browser. No downloads, no accounts required for participants.", Category: "video-conferencing", Tags: []string{"video", "conferencing", "meetings", "webrtc"}, Icon: "\U0001F4F9", IconBg: "#17A0DB", MinimumSize: "s", RecommendedSize: "m", Website: "https://jitsi.org", License: "Apache-2.0", Featured: false, Popular: true, Free: true, Features: []string{"Browser-based, no download required", "No account needed for participants", "Screen sharing and recording", "Breakout rooms", "End-to-end encryption", "Calendar integration"}, RelatedApps: []string{"rocket-chat", "cal-com", "stalwart-mail"}, RamMB: 1024, CpuMilli: 1000, DiskGB: 5, HelmChart: "jitsi-meet", HelmRepo: "https://jitsi-contrib.github.io/jitsi-helm/", CreatedAt: now, UpdatedAt: now},
 		{Slug: "immich", Name: "Immich", Tagline: "Self-hosted Google Photos with ML-powered search", Description: "High-performance photo and video management. Automatic backup from mobile, ML-powered search and face recognition, shared albums, and a beautiful timeline view.", Category: "photo-management", Tags: []string{"photos", "videos", "backup", "gallery", "ml"}, Icon: "\U0001F4F7", IconBg: "#4250AF", MinimumSize: "s", RecommendedSize: "m", Website: "https://immich.app", License: "AGPL-3.0", Featured: false, Popular: true, Free: true, Features: []string{"Automatic backup from iOS and Android", "ML-powered search (CLIP)", "Face recognition and person grouping", "Shared albums and partner sharing", "Timeline and map views", "RAW photo support"}, RelatedApps: []string{"nextcloud", "vaultwarden"}, RamMB: 1024, CpuMilli: 1000, DiskGB: 50, HelmChart: "immich", HelmRepo: "", CreatedAt: now, UpdatedAt: now},
+		// Sandbox — the per-user, per-Organization coding-agent plane
+		// (products/sandbox/README.md). Wave 4: marketplace catalog
+		// entry so a customer can pick "Sandbox" alongside WordPress /
+		// GitLab / Nextcloud. The card surfaces on /apps; the detail
+		// page renders the 6 supported agents (aider, claude-code,
+		// cursor-agent, little-coder, opencode, qwen-code) as a
+		// pre-select grid. The cart.agents array carries the picks
+		// through checkout into the tenant create-org payload, which
+		// the tenant-service forwards to the sandbox-controller via a
+		// `tenant.sandbox_requested` event.
+		//
+		// Free at marketplace level — Sandbox consumes Org resource
+		// quota; metering belongs to the bp-newapi LLM gateway, not
+		// here. ConfigSchema declares `agents` as an enum-array so
+		// the operator-facing console can see the picked agents
+		// without parsing the cart blob.
+		{
+			Slug:            "sandbox",
+			Name:            "Sandbox",
+			Tagline:         "The cloud sandbox where your agents do real work",
+			Description:     "OpenOva Sandbox runs your coding agents — Claude Code, Cursor, Qwen Code, Aider, Opencode, Little-Coder — server-side inside your Sovereign, identity-scoped, cluster-aware. Open a session in the browser, hand off to your phone, ship to production. No tmux. No local install.",
+			Category:        "devtools",
+			Tags:            []string{"sandbox", "agents", "ai", "coding", "byos", "newapi"},
+			Icon:            "\U0001F9F0",
+			IconBg:          "#6366F1",
+			MinimumSize:     "s",
+			RecommendedSize: "m",
+			Website:         "https://openova.io",
+			License:         "AGPL-3.0",
+			Featured:        true,
+			Popular:         true,
+			Free:            true,
+			Features: []string{
+				"6 coding agents — Claude Code, Cursor, Qwen Code, Aider, Opencode, Little-Coder",
+				"Native TUI in the browser via xterm.js + WebSocket + PTY",
+				"Card-stream view on mobile, same persistent session",
+				"openova-sandbox-mcp tool surface — cluster-aware primitives",
+				"BYOS / newapi-gated LLM gateway — no agent keys leak",
+				"Preview deploys at <pr>.<app>.<sb-owner>.<sov>",
+			},
+			RelatedApps:  []string{"gitea", "librechat", "dify"},
+			ConfigSchema: []store.ConfigField{
+				{
+					Key:         "agents",
+					Label:       "Agents",
+					Type:        "enum",
+					Options:     []string{"aider", "claude-code", "cursor-agent", "little-coder", "opencode", "qwen-code"},
+					Description: "Subset of Sovereign-enabled agents this Sandbox may spawn. Maps to sandbox.openova.io/v1 Sandbox.spec.agentCatalogue.",
+					Advanced:    false,
+				},
+			},
+			RamMB:     512,
+			CpuMilli:  500,
+			DiskGB:    50,
+			HelmChart: "",
+			HelmRepo:  "",
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
 	}
 
 	for i := range seedApps {
@@ -644,6 +703,14 @@ func DeployableAppSlugs() map[string]bool {
 		"postgres": true,
 		"mysql":    true,
 		"redis":    true,
+		// Sandbox (#1615 product + Wave 4 marketplace) — the per-user
+		// coding-agent plane. Deployable=true means the marketplace
+		// storefront renders the card without a "Coming soon" overlay.
+		// Day-2 install is wired via the tenant.sandbox_requested
+		// event the tenant-service emits when `apps` contains
+		// `sandbox`; the sandbox-controller (already shipped) is the
+		// consumer of the resulting Sandbox CR.
+		"sandbox": true,
 	}
 }
 
