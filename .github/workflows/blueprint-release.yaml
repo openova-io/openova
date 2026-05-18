@@ -69,7 +69,16 @@ on:
           - products
 
 permissions:
-  contents: read
+  # contents: write — the auto-bump-pin step (added 2026-05-18, TBD-A6
+  # meta-fix) writes back the `version:` line in
+  # clusters/_template/bootstrap-kit/<NN>-<chart>.yaml so the bootstrap-
+  # kit pin moves in lockstep with the published OCI artifact. Before
+  # this, every chart bump required a SEPARATE manual collector PR to
+  # bump the pin (PRs #1666, #1687, #1695, #1698, #1707 in the
+  # 2026-05-17/18 wave alone). The bot-author commit does NOT re-trigger
+  # workflows (GITHUB_TOKEN convention), so we can safely push without
+  # looping the publish pipeline.
+  contents: write
   packages: write
   id-token: write              # for cosign keyless signing
 
@@ -497,6 +506,181 @@ jobs:
           cosign attest --yes --predicate /tmp/sbom/sbom.spdx.json --type spdxjson \
             "${{ steps.push.outputs.ref }}@${{ steps.push.outputs.digest }}"
 
+      # ──────────────────────────────────────────────────────────────
+      # AUTO-BUMP — clusters/_template/bootstrap-kit/<NN>-<chart>.yaml
+      # ──────────────────────────────────────────────────────────────
+      # TBD-A6 meta-fix (2026-05-18): every chart-publishing wave in this
+      # session required a SEPARATE manual collector PR to bump the
+      # bootstrap-kit pin so Sovereigns would actually install the new
+      # OCI artifact. Without the pin bump, the chart at e.g.
+      # bp-catalyst-platform:1.4.166 gets published to GHCR but
+      # clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml
+      # still pins `version: 1.4.165` and fresh Sovereigns silently
+      # install the OLD artifact.
+      #
+      # Manual collector PRs from this session ALONE (eliminated by
+      # this hook):
+      #   - #1676 chart 1.4.162→1.4.163 — Wave 16 collector
+      #   - #1687 chart 1.4.163→1.4.164 — Wave 17 collector
+      #   - #1694 bp-guacamole 0.1.21 → 0.1.22 (TBD-G6)
+      #   - #1695 chart 1.4.164→1.4.165 — Wave 18 collector
+      #   - #1698 chart 1.4.165→1.4.166 (TBD-E8)
+      #   - #1700 bp-guacamole 0.1.22 → 0.1.23 (TBD-G4 phase 2)
+      #   - #1706 self-sovereign-cutover 0.1.29→0.1.30 (TBD-C18)
+      #   - #1707 chart 1.4.166→1.4.167 — Wave 24 collector
+      #
+      # Mechanism: the canonical chart name comes from Chart.yaml `name:`
+      # (already read into ${{ steps.chart.outputs.name }} above). The
+      # corresponding bootstrap-kit pin file is identified by grepping
+      # for `^      chart: <name>$` (6-space indent matches the
+      # HelmRelease.spec.chart.spec.chart shape in every existing slot).
+      # If no pin file matches, the chart is NOT in the bootstrap kit
+      # (e.g. it's an optional Application Blueprint that Sovereigns
+      # opt into via overlay) — this is a graceful no-op, NOT a failure.
+      #
+      # The bot-author commit does NOT re-trigger blueprint-release per
+      # the GITHUB_TOKEN convention. So this hook converges in ONE pass:
+      # publish → bump pin → push. The next Sovereign provisioned will
+      # pick up the new pin via the standard Flux reconciliation.
+      #
+      # Idempotent reset-and-rewrite: parallel matrix jobs (multiple
+      # changed Blueprints in the same push) could race on the same
+      # branch. Retry up to 3 times with `git fetch + reset --hard
+      # origin/main + re-sed` so concurrent runs produce strictly
+      # ordered commits instead of clobbering each other.
+      - name: "Auto-bump bootstrap-kit pin for ${{ steps.chart.outputs.name }}"
+        if: steps.chart.outputs.skip != 'true'
+        id: bump_pin
+        env:
+          CHART_NAME: ${{ steps.chart.outputs.name }}
+          CHART_VERSION: ${{ steps.chart.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          # Locate the bootstrap-kit slot pinning this chart, if any.
+          # The 6-space indent matches every existing slot's chart
+          # directive:
+          #
+          #     spec:
+          #       chart:
+          #         spec:
+          #           chart: bp-<name>        ← 6 spaces
+          #           version: <semver>       ← 6 spaces, same scope
+          pin_file=$(grep -lE "^      chart: ${CHART_NAME}\$" \
+            clusters/_template/bootstrap-kit/*.yaml 2>/dev/null || true)
+
+          if [ -z "$pin_file" ]; then
+            echo "INFO: no bootstrap-kit slot pins ${CHART_NAME} — graceful no-op (chart is an opt-in Application Blueprint, not part of the kit)."
+            echo "bumped=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Defensive: refuse to operate if multiple slots reference the
+          # same chart name — bootstrap-kit invariant is one slot per
+          # chart, and a violation would mean the schema changed under
+          # us and the hook would write wrong things.
+          slot_count=$(echo "$pin_file" | wc -l)
+          if [ "$slot_count" -ne 1 ]; then
+            echo "::error title=Multiple bootstrap-kit slots for ${CHART_NAME}::Expected exactly one slot file pinning chart '${CHART_NAME}', found ${slot_count}: $pin_file"
+            exit 1
+          fi
+
+          # Read current pin. The HelmRelease.spec.chart.spec.version is
+          # at exactly 6 spaces of indent in every slot (audited 2026-
+          # 05-18 across all 51 files). If the shape ever changes we
+          # fail loudly rather than write the wrong line.
+          current=$(awk '/^      version:/{print $2; exit}' "$pin_file" | tr -d '"')
+          if [ -z "$current" ]; then
+            echo "::error title=Unparseable bootstrap-kit pin::No '      version:' line at 6-space indent in $pin_file. The HelmRelease.spec.chart.spec.version shape changed under TBD-A6's auto-bump hook; refusing to write."
+            exit 1
+          fi
+
+          if [ "$current" = "$CHART_VERSION" ]; then
+            echo "INFO: ${pin_file} already pins ${CHART_NAME}=${CHART_VERSION} — no-op."
+            echo "bumped=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Bumping ${pin_file}: ${CHART_NAME} ${current} → ${CHART_VERSION}"
+          # sed targets the single 6-space `      version:` line at the
+          # chart-pin scope. There is exactly one such line per slot
+          # (audited 2026-05-18); the regex is anchored to start-of-line
+          # so a deeper-indented `version:` (e.g. inside .values.xxx)
+          # cannot accidentally match.
+          sed -i -E "s|^      version: .*\$|      version: ${CHART_VERSION}|" "$pin_file"
+
+          # Verify the sed actually flipped the line — defence against
+          # a future indent change shipping silently.
+          new=$(awk '/^      version:/{print $2; exit}' "$pin_file" | tr -d '"')
+          if [ "$new" != "$CHART_VERSION" ]; then
+            echo "::error title=sed failed::After rewrite, ${pin_file} still pins '${new}', expected '${CHART_VERSION}'."
+            exit 1
+          fi
+
+          echo "bumped=true" >> "$GITHUB_OUTPUT"
+          echo "pin_file=${pin_file}" >> "$GITHUB_OUTPUT"
+          echo "prev_version=${current}" >> "$GITHUB_OUTPUT"
+
+      - name: "Commit + push bootstrap-kit pin bump"
+        if: steps.chart.outputs.skip != 'true' && steps.bump_pin.outputs.bumped == 'true'
+        env:
+          CHART_NAME: ${{ steps.chart.outputs.name }}
+          CHART_VERSION: ${{ steps.chart.outputs.version }}
+          PIN_FILE: ${{ steps.bump_pin.outputs.pin_file }}
+          PREV_VERSION: ${{ steps.bump_pin.outputs.prev_version }}
+        run: |
+          set -euo pipefail
+          git config user.name "hatiyildiz"
+          git config user.email "hatiyildiz@users.noreply.github.com"
+
+          # Idempotent reset-and-rewrite on push conflict — parallel
+          # matrix jobs (multiple Blueprints bumped in one push) can race
+          # on the same branch. On conflict we re-fetch, re-sed against
+          # whatever pin is currently on origin/main, and re-commit. The
+          # operation is convergent: every retry produces the same final
+          # pin value (CHART_VERSION), so the only failure mode is the
+          # remote already at that version → no-op skip.
+          rewrite_pin() {
+            local pf="$1"
+            local cur
+            cur=$(awk '/^      version:/{print $2; exit}' "$pf" | tr -d '"')
+            if [ "$cur" = "${CHART_VERSION}" ]; then
+              return 1  # already there — caller decides whether to skip
+            fi
+            sed -i -E "s|^      version: .*\$|      version: ${CHART_VERSION}|" "$pf"
+            return 0
+          }
+
+          git add "${PIN_FILE}"
+          if git diff --staged --quiet; then
+            echo "no staged changes — already in sync"
+            exit 0
+          fi
+          git commit -m "deploy(${CHART_NAME}): bump bootstrap-kit pin ${PREV_VERSION} -> ${CHART_VERSION} (auto, Refs TBD-A6)"
+
+          for i in 1 2 3; do
+            if git push origin HEAD:main; then
+              echo "Pushed bootstrap-kit pin bump for ${CHART_NAME}=${CHART_VERSION}"
+              exit 0
+            fi
+            echo "push attempt $i failed — re-fetching origin/main and re-applying pin bump"
+            git fetch origin main
+            git reset --hard origin/main
+            if rewrite_pin "${PIN_FILE}"; then
+              git add "${PIN_FILE}"
+              if git diff --staged --quiet; then
+                echo "no changes after re-fetch — pin already at ${CHART_VERSION} on origin/main"
+                exit 0
+              fi
+              git commit -m "deploy(${CHART_NAME}): bump bootstrap-kit pin -> ${CHART_VERSION} (auto, Refs TBD-A6, retry $i)"
+            else
+              echo "origin/main already at ${CHART_VERSION} — nothing to push"
+              exit 0
+            fi
+          done
+          echo "::error title=Pin bump push failed::3 attempts exhausted for ${CHART_NAME}=${CHART_VERSION}."
+          exit 1
+
       - name: Summary
         if: steps.chart.outputs.skip != 'true'
         run: |
@@ -509,3 +693,8 @@ jobs:
           echo "- **Cosigned:** ✓ (keyless via GitHub OIDC)" >> "$GITHUB_STEP_SUMMARY"
           echo "- **SBOM attested:** ✓ (SPDX-JSON)" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Subchart guards:** ✓ working tree, ✓ packaged tgz, ✓ pulled OCI artifact, ✓ helm template smoke" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ steps.bump_pin.outputs.bumped }}" = "true" ]; then
+            echo "- **Bootstrap-kit pin:** ✓ auto-bumped \`${{ steps.bump_pin.outputs.pin_file }}\` ${{ steps.bump_pin.outputs.prev_version }} → ${{ steps.chart.outputs.version }} (TBD-A6 meta-fix)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- **Bootstrap-kit pin:** (chart is not in the kit — opt-in Application Blueprint, no pin to bump)" >> "$GITHUB_STEP_SUMMARY"
+          fi
