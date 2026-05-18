@@ -85,10 +85,22 @@ type Claims struct {
 	// client (corporate Sovereign federation pattern).
 	ResourceAccess ResourceAccess `json:"resource_access,omitempty"`
 
-	// Org is a custom Keycloak claim populated by the realm's group-to-
-	// attribute mapper. Set to the Organization slug (e.g. "acme") so
+	// Org is a custom Keycloak claim populated by the realm's `org`
+	// protocolMapper. Set to the Organization slug (e.g. "acme") so
 	// catalyst-api handlers can scope queries without re-parsing groups.
-	Org string `json:"org,omitempty"`
+	//
+	// Two wire tags are accepted: `org_id` (Wave 1b — aligned with the
+	// cross-service contract in core/services/shared/auth/claims.go,
+	// emitted by the configmap-{tenant,sovereign}-realm.yaml `org`
+	// protocolMapper) and `org` (legacy — tokens minted before the
+	// Wave 1b realm bump). The UnmarshalJSON method on Claims below
+	// picks the first non-empty value so old + new tokens coexist
+	// during a chart rollout. The struct keeps a single exported `Org`
+	// field so caller code (claims.Org) is unchanged.
+	//
+	// The struct tag is `-` because the dual-tag pick happens in
+	// UnmarshalJSON; the default json tag would shadow that logic.
+	Org string `json:"-"`
 
 	// Tier is a custom Keycloak claim that flattens RealmAccess.Roles
 	// to the highest-precedence catalog tier (viewer < developer <
@@ -102,6 +114,33 @@ type Claims struct {
 	// "env-type=dev"). Populated by the Keycloak group-attribute
 	// mapper that flattens UserAccess CR scopes into the access token.
 	Scopes []string `json:"openova_scopes,omitempty"`
+}
+
+// UnmarshalJSON accepts both the legacy `org` claim (tokens minted
+// before the Wave 1b realm bump) and the new `org_id` claim emitted by
+// the configmap-{tenant,sovereign}-realm.yaml `org` protocolMapper that
+// landed in the same PR. First non-empty value wins so a rolling chart
+// upgrade (new mapper deployed; some operator sessions still hold the
+// older token) does not regress org-scoped queries. The struct keeps a
+// single exported `Org` field so caller code (claims.Org) is unchanged.
+func (c *Claims) UnmarshalJSON(data []byte) error {
+	type alias Claims
+	var raw struct {
+		*alias
+		OrgIDClaim string `json:"org_id"`
+		OrgClaim   string `json:"org"`
+	}
+	raw.alias = (*alias)(c)
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	switch {
+	case raw.OrgIDClaim != "":
+		c.Org = raw.OrgIDClaim
+	case raw.OrgClaim != "":
+		c.Org = raw.OrgClaim
+	}
+	return nil
 }
 
 // HasRealmRole returns true if the bearer holds the given Keycloak

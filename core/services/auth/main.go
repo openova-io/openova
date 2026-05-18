@@ -118,6 +118,12 @@ func main() {
 		if r.Method == http.MethodPost && r.URL.Path == "/auth/logout-all" {
 			return true
 		}
+		// PAT issuance (Wave 1b) requires a valid session token. The
+		// handler in handlers/pat.go reads the bearer's `sub` claim to
+		// scope the issued PAT to the right user.
+		if r.Method == http.MethodPost && r.URL.Path == "/auth/pat" {
+			return true
+		}
 		// Admin/service endpoints under /auth/admin/ read role from JWT
 		// claims and enforce superadmin — must be authenticated.
 		if strings.HasPrefix(r.URL.Path, "/auth/admin/") {

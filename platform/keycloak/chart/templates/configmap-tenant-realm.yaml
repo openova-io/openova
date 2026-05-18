@@ -247,6 +247,30 @@ data:
               }
             }
           ]
+        },
+        {
+          "name": "org",
+          "protocol": "openid-connect",
+          "attributes": {
+            "include.in.token.scope": "true",
+            "display.on.consent.screen": "false"
+          },
+          "protocolMappers": [
+            {
+              "name": "org",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-usermodel-attribute-mapper",
+              "consentRequired": false,
+              "config": {
+                "user.attribute": "org",
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "claim.name": "org_id",
+                "userinfo.token.claim": "true",
+                "jsonType.label": "String"
+              }
+            }
+          ]
         }
       ],
       "clients": [
@@ -276,7 +300,8 @@ data:
             "profile",
             "roles",
             "email",
-            "groups"
+            "groups",
+            "org"
           ],
           "optionalClientScopes": [
             "address",
@@ -315,7 +340,8 @@ data:
             "profile",
             "roles",
             "email",
-            "groups"
+            "groups",
+            "org"
           ],
           "optionalClientScopes": [
             "address",
@@ -356,7 +382,8 @@ data:
             "profile",
             "roles",
             "email",
-            "groups"
+            "groups",
+            "org"
           ],
           "optionalClientScopes": [
             "address",
