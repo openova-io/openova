@@ -17,7 +17,7 @@
 // as core/controllers (already the canonical line across the repo).
 module github.com/openova-io/openova/products/sandbox/mcp-server
 
-go 1.23
+go 1.23.0
 
 require (
 	github.com/golang-jwt/jwt/v5 v5.2.1
@@ -41,7 +41,7 @@ require (
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	golang.org/x/net v0.26.0 // indirect
-	golang.org/x/oauth2 v0.21.0 // indirect
+	golang.org/x/oauth2 v0.27.0 // indirect
 	golang.org/x/sys v0.27.0 // indirect
 	golang.org/x/term v0.21.0 // indirect
 	golang.org/x/text v0.20.0 // indirect
