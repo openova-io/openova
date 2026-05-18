@@ -278,7 +278,18 @@ spec:
       # Deployment. Order=9 (last) is fine — none of steps 02-08 read
       # the Secret and the SME provisioning service first consumes
       # the token at voucher checkout time (always postdates cutover).
-      version: 0.1.30
+      # 0.1.31 (TBD-C19, 2026-05-18): step-06 now also pivots
+      # openova-catalog HelmRepository (rendered by bp-catalyst-
+      # platform chart, not directly from bootstrap-kit). Adds
+      # `openova-catalog` to helmRepositories.names; new Phase-1.6
+      # patches the parent HelmRelease's spec.values.catalog.
+      # helmRepository.url; new Phase-2.5 injects same override
+      # into 13-bp-catalyst-platform.yaml in local Gitea so
+      # bootstrap-kit Kustomization reconcile preserves it. Without
+      # this pin bump, step-08 catches openova-catalog as the lone
+      # OFFENDER ~1m after step-06 (chart re-render reverts the
+      # live HR patch). Caught live on t22.omantel.biz 2026-05-18.
+      version: 0.1.31
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

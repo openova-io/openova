@@ -279,6 +279,46 @@ data:
             echo "[helmrepository-patches] live-K8s ok=${ok} skip=${skip} fail=${fail}"
             [ "${fail}" -eq 0 ] || exit 1
 
+            # ---- Phase 1.6: parent HelmRelease values override for openova-catalog (TBD-C19) ----
+            #
+            # `openova-catalog` is rendered by the bp-catalyst-platform Helm
+            # chart (products/catalyst/chart/templates/openova-catalog-
+            # helmrepository.yaml) from `.Values.catalog.helmRepository.url`.
+            # Phase-1's live HR patch above is reverted within ~1 min when
+            # helm-controller's next reconcile re-runs `helm upgrade` and
+            # re-emits the HR from the chart's default URL (oci://ghcr.io/
+            # openova-io). Step-08's egress-block-test then catches
+            # `openova-catalog` as the lone OFFENDER and FAILs cutover.
+            #
+            # Fix: patch the parent HelmRelease's `spec.values.catalog.
+            # helmRepository.url` so the NEXT chart reconcile re-renders
+            # the HR with the local Harbor URL — durable across the chart
+            # upgrade cycle. Merge-patch preserves any other
+            # spec.values.catalog.* siblings (e.g. catalog.helmRepository.
+            # interval, .name, .namespace).
+            #
+            # Caught live on t22.omantel.biz 2026-05-18.
+            cur_catalog_url=$(kubectl get helmrelease bp-catalyst-platform -n "${HELMREPO_NAMESPACE}" \
+              -o jsonpath='{.spec.values.catalog.helmRepository.url}' 2>/dev/null || echo "")
+            if [ "${cur_catalog_url}" = "${local_prefix}" ]; then
+              echo "[helmrepository-patches] Phase-1.6 skip: bp-catalyst-platform already has catalog.helmRepository.url=${local_prefix}"
+            else
+              merge_patch=$(printf '{"spec":{"values":{"catalog":{"helmRepository":{"url":"%s"}}}}}' "${local_prefix}")
+              if kubectl patch helmrelease bp-catalyst-platform \
+                  -n "${HELMREPO_NAMESPACE}" \
+                  --type=merge --patch "${merge_patch}" >/dev/null 2>&1; then
+                echo "[helmrepository-patches] Phase-1.6 OK: bp-catalyst-platform spec.values.catalog.helmRepository.url -> ${local_prefix}"
+                # Trigger immediate Flux reconcile so the chart re-
+                # renders openova-catalog HR with the new URL before
+                # step-08's window opens.
+                kubectl annotate --overwrite helmrelease bp-catalyst-platform \
+                  -n "${HELMREPO_NAMESPACE}" \
+                  "reconcile.fluxcd.io/requestedAt=$(date +%s)" >/dev/null 2>&1 || true
+              else
+                echo "[helmrepository-patches] Phase-1.6 FAIL: kubectl patch helmrelease bp-catalyst-platform failed (continuing — phase-2 git push is the durable fix)" >&2
+              fi
+            fi
+
             # ---- Phase 2: push YAML edit to local Gitea (#970) ----
             #
             # The kubectl patches above flip the live HelmRepository
@@ -357,6 +397,89 @@ data:
               echo "[helmrepository-patches] edited ${f}"
             done
             echo "[helmrepository-patches] sed edited ${edited} files"
+
+            # Phase-2.5 (TBD-C19, 2026-05-18): inject openova-catalog URL
+            # override into 13-bp-catalyst-platform.yaml's
+            # `spec.values.sovereign:` block. Why this seam: the
+            # openova-catalog HelmRepository is rendered by the catalyst-
+            # platform Helm chart (see Phase-1.6 above) so the durable URL
+            # lives in the parent HelmRelease's spec.values rather than as
+            # its own `url:` line in bootstrap-kit. Without this injection
+            # the bootstrap-kit Kustomization reconciles the HelmRelease
+            # YAML from Gitea every minute and reverts Phase-1.6's live
+            # patch — chart re-render then puts openova-catalog HR back
+            # at oci://ghcr.io/openova-io and Step-08 catches it.
+            #
+            # Idempotency: if the file already declares
+            # `catalog.helmRepository.url:` under spec.values, replace
+            # the URL value with the current local prefix (handles
+            # re-runs with a different harbor host). Otherwise inject the
+            # full 3-line block above the existing `sovereign:` key
+            # (every chart >= 1.4.117 ships that key under spec.values
+            # — the catalyst-platform values.yaml `sovereign:` block was
+            # added in PR #1569 for D22 settings identity fields).
+            catalyst_yaml="${target_dir}/13-bp-catalyst-platform.yaml"
+            if [ -f "${catalyst_yaml}" ]; then
+              # The catalyst-platform HelmRelease has:
+              #   spec:
+              #     values:
+              #       sovereign:   <-- 4 spaces
+              #         orgEmail:  <-- 6 spaces
+              # So a `catalog:` block under spec.values lives at 4
+              # spaces, `helmRepository:` at 6, `url:` at 8.
+              if grep -qE '^[[:space:]]{4}catalog:[[:space:]]*$' "${catalyst_yaml}" \
+                 && grep -A 3 -E '^[[:space:]]{4}catalog:[[:space:]]*$' "${catalyst_yaml}" \
+                    | grep -qE '^[[:space:]]{6}helmRepository:[[:space:]]*$'; then
+                # Existing block — rewrite the url: value at 8-space
+                # indent within the catalog: block boundary.
+                if sed -i -E "/^[[:space:]]{4}catalog:[[:space:]]*\$/,/^[[:space:]]{0,4}[a-zA-Z]/{s,^([[:space:]]{8}url:[[:space:]]*).*\$,\1${local_prefix}," "${catalyst_yaml}" 2>/dev/null; then
+                  echo "[helmrepository-patches] Phase-2.5 OK: rewrote existing catalog.helmRepository.url in ${catalyst_yaml} -> ${local_prefix}"
+                  edited=$((edited+1))
+                else
+                  echo "[helmrepository-patches] Phase-2.5 WARN: sed rewrite of existing block failed; Phase-1.6 K8s patch remains durable for one upgrade cycle"
+                fi
+              else
+                # No existing block — inject above the `sovereign:` key
+                # under spec.values. The catalyst-platform HR layout
+                # (PR #1569 +) has:
+                #   spec:
+                #     values:
+                #       global: {...}
+                #       ingress: {...}
+                #       parentZones: ...
+                #       wildcardCert: {...}
+                #       sovereign:        <-- inject before this line
+                # The `sovereign:` key sits at 4-space indent (under
+                # spec.values which is 2-space). Match the 4-space form
+                # specifically to avoid the unrelated
+                # `catalyst.openova.io/sovereign:` label at 4-space.
+                if grep -qE '^[[:space:]]{4}sovereign:[[:space:]]*$' "${catalyst_yaml}"; then
+                  awk -v prefix="${local_prefix}" '
+                    /^[[:space:]]{4}sovereign:[[:space:]]*$/ && !done {
+                      print "    # ─── openova-catalog HelmRepository URL (TBD-C19, 2026-05-18) ──"
+                      print "    # Pivoted by self-sovereign-cutover step-06 phase-2.5 from"
+                      print "    # oci://ghcr.io/openova-io → local Harbor mirror so the"
+                      print "    # catalyst-platform chart re-renders openova-catalog HR with"
+                      print "    # the post-cutover URL on every reconcile. Bootstrap-kit"
+                      print "    # Kustomization preserves this override across reconciles —"
+                      print "    # without it Step-08 catches `openova-catalog` regressing"
+                      print "    # back to ghcr.io ~1 min after Phase-1 patch."
+                      print "    catalog:"
+                      print "      helmRepository:"
+                      print "        url: " prefix
+                      done = 1
+                    }
+                    { print }
+                  ' "${catalyst_yaml}" > "${catalyst_yaml}.new" && mv "${catalyst_yaml}.new" "${catalyst_yaml}"
+                  echo "[helmrepository-patches] Phase-2.5 OK: injected catalog.helmRepository.url block into ${catalyst_yaml}"
+                  edited=$((edited+1))
+                else
+                  echo "[helmrepository-patches] Phase-2.5 WARN: ${catalyst_yaml} has no spec.values.sovereign anchor (chart older than 1.4.117?) — Phase-1.6 K8s patch remains durable for one upgrade cycle"
+                fi
+              fi
+            else
+              echo "[helmrepository-patches] Phase-2.5 SKIP: ${catalyst_yaml} not present in local mirror"
+            fi
 
             if [ "${edited}" -eq 0 ]; then
               echo "[helmrepository-patches] no edits — already pivoted in Gitea or upstream prefix not present"
