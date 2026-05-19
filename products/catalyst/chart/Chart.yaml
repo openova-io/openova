@@ -1,5 +1,21 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.184 — TBD-A29 (issue #1883) wildcard cert LE rate-limit fix.
+# templates/sovereign-wildcard-certs.yaml now skip-renders unconditionally
+# (the parent-zone wildcards it minted — e.g. *.omani.works — share LE's
+# 5-certs/168h identifier bucket across every Sovereign on the same
+# parent zone, locking the listener at Ready=False after ~5 reprovs).
+# The Cilium Gateway listener now references the PER-PROV cert
+# sovereign-wildcard-tls-${SOVEREIGN_FQDN_DASHED} from clusters/
+# _template/sovereign-tls/cilium-gateway-cert.yaml (per-prov SAN list,
+# per-Sovereign LE bucket). Terraform local
+# parent_domains_listeners_yaml in infra/hetzner/main.tf updated in
+# lockstep — listener.certificateRefs.name now derives from sovereign
+# _fqdn_dashed, not the parent-zone-sanitised label. Verified via
+# helm template: zero sovereign-wildcard-cert Certificates emitted
+# under parentZones=[omani.works,omani.homes] + sovereignFQDN=
+# t28.omani.works (was 2 under origin/main).
+#
 # 1.4.163 — Wave 16 collector. Bumps chart version so the next Blueprint
 # Release republishes the OCI artifact with every chart-template change
 # that landed since the 1.4.162 publish (commit 0ad78790). The 1.4.162
@@ -1257,8 +1273,8 @@ name: bp-catalyst-platform
 # 25/TCP (legacy SMTP fallback). All three are explicitly scoped to
 # `toEntities: world`, matching the existing 443/TCP allow. No other
 # rule semantics change. (Fixes PIN-issue 502 regression from #1785.)
-version: 1.4.183
-appVersion: 1.4.183
+version: 1.4.184
+appVersion: 1.4.184
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
 # TBD-A30). Pre-1.4.183 every catalyst-system HTTPRoute pinned

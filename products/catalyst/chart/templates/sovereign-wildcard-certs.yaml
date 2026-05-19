@@ -50,6 +50,39 @@ Resource naming:
     clusters/_template/sovereign-tls/cilium-gateway.yaml's
     `certificateRefs[0].name: sovereign-wildcard-tls`.
 */}}
+{{- /*
+TBD-A29 (issue #1883) — wildcard cert LE rate-limit on parent zone.
+
+This template historically minted ONE cert-manager Certificate per
+.Values.parentZones entry, each requesting `*.<parent>` + `<parent>`
+(e.g. `*.omani.works` + `omani.works`). That hit Let's Encrypt's
+"5 New Certificates per Exact Set of Identifiers per 168h" cap across
+every Sovereign sharing the same parent zone: after ~5 wipe+reprov
+cycles on omani.works the Gateway listener pinned to a
+`Ready=False` Certificate (cert-manager spun the order forever, LE
+returned `urn:ietf:params:acme:error:rateLimited`).
+
+A29 ruling (2026-05-19 t28 evidence): the Cilium Gateway listener
+now references the PER-PROV cert
+`sovereign-wildcard-tls-${SOVEREIGN_FQDN_DASHED}` minted by
+clusters/_template/sovereign-tls/cilium-gateway-cert.yaml with an
+explicit SAN list under `*.<sovereign-fqdn>` (per-prov identifier
+set → per-Sovereign 5/168h bucket, never shared across reprovs). The
+parent-zone wildcard the chart minted here is unused by the listener
+AND burns LE budget on every install → skip-render unconditionally
+until #831 (multi-listener per-zone tenant TLS) re-introduces an
+explicit, per-tenant-aware cert path.
+
+Keeping the template body intact under `false` guard so the
+historical render shape is preserved for `git blame` / future
+revival; remove entirely once #831 lands and the parent-zone cert
+need is re-established with a non-wildcard SAN-list approach.
+
+Skip-render takes precedence over `.Values.wildcardCert.enabled` —
+operators that opt OUT (enabled=false) still get zero output, and
+operators that opt IN (enabled=true) now get zero output too.
+*/}}
+{{- if false }}
 {{- if .Values.wildcardCert.enabled }}
 {{- $ns := .Values.wildcardCert.namespace | default "kube-system" }}
 {{/*
@@ -144,3 +177,4 @@ spec:
   {{- end }}
 {{- end }}
 {{- end }}
+{{- end }}{{/* end A29 skip-render guard */}}
