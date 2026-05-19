@@ -6,27 +6,46 @@ bp-catalyst-platform 1.3.0 ships the SME marketplace stack
 Sovereign as Pods + ClusterIPs. This template attaches public hostnames
 when the operator opts in via .Values.ingress.marketplace.enabled=true.
 
-Two HTTPRoutes:
+HTTPRoutes emitted:
 
 1. marketplace.<sov> → routes:
-   - /api/             → marketplace-api    (BSS REST)
-   - /back-office/     → admin              (Otech-staff BSS UI; "back-office"
-                                              not "admin" per founder rule
-                                              2026-05-03)
-   - /                 → marketplace        (storefront landing + signup)
+   - /api/             → sme/gateway     (BSS REST)
+   - /back-office/     → sme/admin       (Otech-staff BSS UI; "back-office"
+                                            not "admin" per founder rule
+                                            2026-05-03)
+   - /                 → sme/marketplace  (storefront landing + signup)
 
-2. *.<sov> wildcard → console (per-tenant SaaS dashboard, host-routed
-   inside the console pod by tenant slug).
+2. tenant-<slug> per entry in ingress.marketplace.tenantSlugs:
+     hostname = <slug>.<sov>   (EXACT, no wildcard)
+     backend  = sme/console
+   (per-tenant SaaS dashboard; the console Pod host-routes by slug
+   internally — one HTTPRoute per slug.)
 
-The wildcard route is a separate HTTPRoute (not a rule on the marketplace
-route) because Cilium Gateway hostname matching is per-route. Listener
-attachment uses the existing cilium-gateway https listener which already
-has hostname `*.${SOVEREIGN_FQDN}` from sovereign-tls/cilium-gateway.yaml,
-so the wildcard cert covers all three subdomains automatically.
+TBD-A42 (issue #1905, 2026-05-19) — HTTPRoute precedence fix.
+Previously this template emitted a single `tenant-wildcard` HTTPRoute
+claiming `*.<sov>`, which on Cilium Gateway shadowed exact-match
+platform HTTPRoutes (`auth.<sov>` → Keycloak, `console.<sov>` →
+catalyst-ui, `api.<sov>` → catalyst-api, `pdns.<sov>` → powerdns,
+`grafana.<sov>` → grafana, etc.) even though Gateway API spec §5.2.1
+says exact > wildcard. The admission-order-dependent precedence on
+Cilium meant `auth.t31.omani.works` returned the SME console Astro
+HTML instead of Keycloak's login page, breaking D4 SSO PIN-bounce.
 
-Service backends in the `sme` namespace (see sme-services/{marketplace,
-admin,console}.yaml). marketplace-api lives in {{ .Release.Namespace }}
-(catalyst-system) per its Helm chart.
+Fix: emit one explicit `tenant-<slug>` HTTPRoute per slug in
+`ingress.marketplace.tenantSlugs`. No wildcard catch-all, so platform
+subdomains cannot be shadowed by construction. Operators stamp the
+slug list at provision time; the runtime organization-controller
+writes per-tenant HTTPRoutes for Orgs created post-provision (see
+tenant-public-routes.yaml). `tenantSlugs` defaults to empty — no
+SaaS-tenant route is emitted until the operator opts a slug in.
+
+Listener attachment uses the existing cilium-gateway https listener
+which already has hostname `*.${SOVEREIGN_FQDN}` from
+sovereign-tls/cilium-gateway.yaml, so the wildcard cert covers every
+emitted `<slug>.<sov>` automatically.
+
+Service backends live in the `sme` namespace (see
+sme-services/{marketplace,admin,console}.yaml).
 
 Default OFF: ingress.marketplace.enabled=false in values.yaml so non-
 marketplace Sovereigns don't render these routes.
@@ -34,6 +53,9 @@ marketplace Sovereigns don't render these routes.
 {{- if and .Values.ingress .Values.ingress.marketplace .Values.ingress.marketplace.enabled -}}
 {{- $marketplaceHost := (((.Values.ingress.hosts).marketplace).host) }}
 {{- $sovFQDN := .Values.global.sovereignFQDN }}
+{{- $gwName := .Values.ingress.gateway.parentRef.name | default "cilium-gateway" }}
+{{- $gwNs := .Values.ingress.gateway.parentRef.namespace | default "kube-system" }}
+{{- $gwSection := .Values.ingress.gateway.parentRef.sectionName }}
 {{- if and $marketplaceHost $sovFQDN }}
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
@@ -45,9 +67,9 @@ metadata:
     catalyst.openova.io/component: marketplace
 spec:
   parentRefs:
-    - name: {{ .Values.ingress.gateway.parentRef.name | default "cilium-gateway" | quote }}
-      namespace: {{ .Values.ingress.gateway.parentRef.namespace | default "kube-system" | quote }}
-      {{- with .Values.ingress.gateway.parentRef.sectionName }}
+    - name: {{ $gwName | quote }}
+      namespace: {{ $gwNs | quote }}
+      {{- with $gwSection }}
       sectionName: {{ . | quote }}
       {{- end }}
   hostnames:
@@ -86,24 +108,37 @@ spec:
         - name: marketplace
           namespace: sme
           port: 8080
+{{- /*
+  Per-tenant SaaS-console HTTPRoutes. One HTTPRoute per slug in
+  ingress.marketplace.tenantSlugs (defaults to empty). Each route
+  claims `<slug>.<sovFQDN>` exactly — NO wildcard — so platform
+  subdomains (auth/api/console/grafana/...) can never be shadowed.
+
+  Naming: `tenant-<slug>` so the HTTPRoute name is stable, human-
+  legible, and collision-free against the platform routes (`marketplace`,
+  `catalyst-ui`, `keycloak`, ...).
+*/}}
+{{- range $i, $slug := (.Values.ingress.marketplace.tenantSlugs | default list) }}
+{{- if $slug }}
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
-  name: tenant-wildcard
-  namespace: {{ .Release.Namespace }}
+  name: {{ printf "tenant-%s" $slug | quote }}
+  namespace: {{ $.Release.Namespace }}
   labels:
     catalyst.openova.io/blueprint: bp-catalyst-platform
-    catalyst.openova.io/component: tenant-wildcard
+    catalyst.openova.io/component: tenant-route
+    catalyst.openova.io/tenant-slug: {{ $slug | quote }}
 spec:
   parentRefs:
-    - name: {{ .Values.ingress.gateway.parentRef.name | default "cilium-gateway" | quote }}
-      namespace: {{ .Values.ingress.gateway.parentRef.namespace | default "kube-system" | quote }}
-      {{- with .Values.ingress.gateway.parentRef.sectionName }}
+    - name: {{ $gwName | quote }}
+      namespace: {{ $gwNs | quote }}
+      {{- with $gwSection }}
       sectionName: {{ . | quote }}
       {{- end }}
   hostnames:
-    - "*.{{ $sovFQDN }}"
+    - {{ printf "%s.%s" $slug $sovFQDN | quote }}
   rules:
     - matches:
         - path:
@@ -113,5 +148,7 @@ spec:
         - name: console
           namespace: sme
           port: 8080
+{{- end }}
+{{- end }}
 {{- end }}
 {{- end }}

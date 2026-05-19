@@ -1,5 +1,31 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.191 — TBD-A42 (issue #1905) HTTPRoute precedence fix:
+# tenant-wildcard `*.<sov>` replaced with N exact-match
+# `tenant-<slug>.<sov>` HTTPRoutes.
+# Pre-fix: marketplace-routes.yaml emitted one `tenant-wildcard`
+# HTTPRoute claiming `*.<global.sovereignFQDN>` → sme/console:8080.
+# On Cilium Gateway, the wildcard route shadowed exact-match platform
+# HTTPRoutes (auth.<sov> → keycloak, console.<sov> → catalyst-ui,
+# api.<sov> → catalyst-api, pdns.<sov> → powerdns, grafana.<sov> →
+# grafana, etc.) even though Gateway API spec §5.2.1 says exact wins
+# over wildcard. Symptom on t31 2026-05-18: `auth.t31.omani.works`
+# returned 4836B Astro HTML (console SPA) instead of Keycloak's login
+# page, blocking D4 SSO PIN-bounce (#1807). Same precedence-collision
+# family as A30/A40/A32 listener regressions.
+# Fix: new `ingress.marketplace.tenantSlugs[]` operator-supplied list.
+# Template emits one HTTPRoute per slug named `tenant-<slug>` with
+# hostname `<slug>.<global.sovereignFQDN>` EXACT — no wildcard, no
+# shadowing possible by construction. Defaults to empty list, so non-
+# opted-in Sovereigns emit ZERO catch-all routes. Per-tenant routes
+# for Orgs created post-provision are written live by the
+# organization-controller (see templates/sme-services/tenant-public-
+# routes.yaml — byte-identical shape, so no helm-diff conflict).
+# marketplace-reference-grant.yaml still covers every emitted route
+# (catalyst-system → sme/console) — no grant changes needed.
+# Verified on t32 2026-05-19 via `helm template ... | kubectl apply
+# --dry-run=server`: marketplace route configured + tenant-<slug>
+# route created cleanly, no platform-subdomain shadowing.
 # 1.4.190 — TBD-A43 (issue #1920) baseline-default-deny CNP gains the
 # `newapi` namespace in its egress allow-list. Companion fix to TBD-A38
 # (PR #1919, chart 1.4.189) which added `sme`. PR #1912 was titled "fix
@@ -1347,7 +1373,7 @@ name: bp-catalyst-platform
 # 25/TCP (legacy SMTP fallback). All three are explicitly scoped to
 # `toEntities: world`, matching the existing 443/TCP allow. No other
 # rule semantics change. (Fixes PIN-issue 502 regression from #1785.)
-version: 1.4.190
+version: 1.4.191
 appVersion: 1.4.190
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,

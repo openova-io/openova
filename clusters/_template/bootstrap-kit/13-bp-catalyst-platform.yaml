@@ -615,7 +615,16 @@ spec:
       # to the same allow-list so catalyst-system → NewAPI v2 calls
       # (`newapi-*.newapi.svc`) no longer time out. Closes the
       # newapi half of the PR #1912 theater incident.
-      version: 1.4.190
+      # 1.4.191 — TBD-A42 (issue #1905) HTTPRoute precedence fix:
+      # tenant-wildcard `*.<sov>` replaced with explicit per-slug
+      # `tenant-<slug>` HTTPRoutes (hostname `<slug>.<sov>` EXACT).
+      # Eliminates wildcard shadowing of platform subdomains
+      # (auth/console/api/pdns/grafana/...). Operator opts slugs in
+      # via `ingress.marketplace.tenantSlugs[]`; default empty list
+      # emits zero catch-all routes, so `auth.<sov>` can no longer be
+      # hijacked by the SME console SPA — unblocks D4 SSO PIN-bounce
+      # (#1807).
+      version: 1.4.191
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
