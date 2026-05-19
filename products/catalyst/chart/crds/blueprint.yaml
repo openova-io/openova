@@ -132,10 +132,31 @@ spec:
                       minItems: 1
                       items:
                         type: string
-                        enum: [single-region, active-active, active-hotstandby]
+                        # Two tiers of placement modes coexist (see
+                        # core/controllers/blueprint/internal/validate/validate.go
+                        # canonicalPlacementModes):
+                        #   - Application-tier (marketplace 99%):
+                        #     single-region / active-active / active-hotstandby
+                        #   - Bootstrap-topology tier (bp-*-vcluster +
+                        #     bp-vcluster-helmrepo, per
+                        #     docs/SOVEREIGN-MULTI-REGION-DOD.md A4):
+                        #     primary-only / secondary-only / every-region
+                        enum:
+                          - single-region
+                          - active-active
+                          - active-hotstandby
+                          - primary-only
+                          - secondary-only
+                          - every-region
                     default:
                       type: string
-                      enum: [single-region, active-active, active-hotstandby]
+                      enum:
+                        - single-region
+                        - active-active
+                        - active-hotstandby
+                        - primary-only
+                        - secondary-only
+                        - every-region
                     minRegions:
                       type: integer
                       minimum: 1

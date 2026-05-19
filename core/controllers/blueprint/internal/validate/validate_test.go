@@ -70,6 +70,15 @@ func TestValidate_PlacementModes(t *testing.T) {
 	}{
 		{"valid single", []interface{}{"single-region"}, "", false},
 		{"valid multiple", []interface{}{"single-region", "active-active"}, "", false},
+		// Bootstrap-topology tier (docs/SOVEREIGN-MULTI-REGION-DOD.md A4)
+		// — used by bp-*-vcluster + bp-vcluster-helmrepo. NOT user-
+		// selectable; documents which regions the bootstrap layer
+		// auto-installs the chart into. See canonicalPlacementModes in
+		// validate.go for the full mode taxonomy.
+		{"valid primary-only", []interface{}{"primary-only"}, "", false},
+		{"valid secondary-only", []interface{}{"secondary-only"}, "", false},
+		{"valid every-region", []interface{}{"every-region"}, "", false},
+		{"valid default primary-only", []interface{}{"primary-only"}, "primary-only", false},
 		{"invalid mode", []interface{}{"round-robin"}, "", true},
 		{"empty array", []interface{}{}, "", true},
 		{"null array", nil, "", true},
