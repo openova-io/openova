@@ -1,0 +1,219 @@
+{{- /*
+Post-cutover continuous mirror re-sync (TBD-A37, issue #1899).
+
+Why this exists
+───────────────
+Step 01 (gitea-mirror) runs EXACTLY ONCE at cutover time. It does a
+bare-clone of the upstream openova-io/openova GitHub repo and a single
+force-push to local Gitea. The local repo is then a STANDALONE,
+non-mirror repo (PR #1029 — pull-mirror semantics block Step-06's
+HelmRepository URL rewrite push, so the cutover migrated off Gitea's
+built-in pull-mirror feature).
+
+But standalone means: after cutover, the local repo never re-fetches
+upstream. Any chart bump or controller-image bump that lands on
+upstream main AFTER cutover never reaches the Sovereign. Live failure
+on t31 2026-05-19 (A145 verifier): sandbox-controller still at image
+:8017700 from 2026-05-16 even though PR #1862 had merged 2 days
+earlier — the upstream values.yaml bump never crossed the mirror seam.
+
+This CronJob closes that loop by re-running the same idempotent bare-
+clone + force-push every 5 minutes. The script is INTENTIONALLY
+identical to 01-gitea-mirror-job.yaml in semantics (defensive HTTP
+probe → API auth → git clone --bare → git push --mirror --force) so
+operators can reason about both as one mechanism.
+
+Design notes
+────────────
+- Interval defaults to 5 minutes ("*\/5 * * * *"). Short enough that
+  chart-bump → upstream-merge → Sovereign-reconcile stays under ~10
+  minutes end-to-end (5 min for this CronJob to fire + ~5 min for the
+  bp-* HelmRepository's `interval: 15m` Flux refresh — see notes in
+  10-gitea.yaml). Long enough that GitHub anonymous-clone rate limits
+  aren't a concern even with hundreds of Sovereigns (300 req/hr per
+  IP for anonymous clone; one Sovereign clones once per 5 min = 12
+  clones/hr).
+
+- IDEMPOTENT-FIRST. The CronJob is created at chart-install time
+  (before Step-01 runs). On every fire pre-cutover, the script
+  detects the local repo is missing or empty and exits 0 (no-op).
+  This avoids fighting with the in-flight Step-01.
+
+- Force-push is SAFE in this architecture: the local Gitea
+  openova/openova repo is the SAME content as upstream openova-io/
+  openova by construction (Step 06 patches HelmRepository URLs but
+  not the repo contents). Any local divergence is a bug we WANT to
+  overwrite.
+
+- Suspend knob (`.Values.mirrorResync.suspended`) ships at default
+  `false` for canonical fresh-prov behaviour; an operator running a
+  sandboxed soak Sovereign that intentionally stays N days behind
+  upstream can suspend this CronJob via per-Sovereign overlay.
+
+- Image: same `images.git` as Step-01 (alpine/git). MUST use the
+  cutoverPhase: "pre" image because pre-cutover the local Harbor
+  proxy-cache isn't routable yet and the CronJob is created
+  alongside Step-01.
+
+- TTL on completed Pods: 1 hour. Operators get a small audit window
+  to read logs but completed Pods don't pile up.
+
+- SA: re-uses the cutover runner SA (`bp-self-sovereign-cutover-
+  runner`). Doesn't require any new RBAC — the CronJob only talks to
+  GitHub (anonymous) + local Gitea HTTP (BasicAuth from mounted
+  Secret). It needs ZERO Kubernetes API verbs at runtime.
+
+Acceptance contract (issue #1899)
+─────────────────────────────────
+On a fresh prov post-cutover:
+  - kubectl get cronjob -n catalyst gitea-mirror-resync → Active
+  - Wait 5 min, kubectl get jobs -n catalyst -l app.kubernetes.io/
+    component=mirror-resync → at least one Job with Succeeded=True
+  - kubectl logs <pod> → "pushed all refs successfully"
+  - Re-push a values.yaml bump to upstream openova-io/openova:main,
+    wait 10 min, observe sandbox-controller Deployment image SHA
+    matches the new upstream tag.
+
+Image phase: pre — uses upstream-public image like Step-01.
+*/ -}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: gitea-mirror-resync
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-self-sovereign-cutover.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mirror-resync
+    catalyst.openova.io/purpose: "post-cutover-gitea-resync"
+spec:
+  schedule: {{ .Values.mirrorResync.schedule | quote }}
+  suspend: {{ .Values.mirrorResync.suspended }}
+  # Concurrency = Forbid: a long-running clone (slow GitHub day) must
+  # NOT pile up parallel pushes against local Gitea. Skip-if-busy.
+  concurrencyPolicy: Forbid
+  # Keep a small audit trail: 3 completed + 1 failed.
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  # If a Sovereign was suspended for hours and the kube-controller-
+  # manager comes back up, do NOT replay every missed slot — fire at
+  # most one. The next scheduled fire will pick up any drift.
+  startingDeadlineSeconds: 60
+  jobTemplate:
+    metadata:
+      labels:
+        {{- include "bp-self-sovereign-cutover.labels" . | nindent 8 }}
+        app.kubernetes.io/component: mirror-resync
+    spec:
+      # TTL after finished — 1 hour audit window then GC.
+      ttlSecondsAfterFinished: 3600
+      backoffLimit: 1
+      activeDeadlineSeconds: {{ .Values.mirrorResync.jobTimeoutSeconds }}
+      template:
+        metadata:
+          labels:
+            {{- include "bp-self-sovereign-cutover.labels" . | nindent 12 }}
+            app.kubernetes.io/component: mirror-resync
+        spec:
+          serviceAccountName: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
+          restartPolicy: Never
+          containers:
+            - name: gitea-mirror-resync
+              image: {{ include "bp-self-sovereign-cutover.image" (dict "repository" .Values.images.git.repository "tag" .Values.images.git.tag "cutoverPhase" "pre" "Values" .Values) }}
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: UPSTREAM_REPO_URL
+                  value: {{ .Values.upstream.repoURL | quote }}
+                - name: UPSTREAM_BRANCH
+                  value: {{ .Values.upstream.branch | quote }}
+                - name: GITEA_INTERNAL_URL
+                  value: {{ .Values.sovereign.giteaInternalURL | quote }}
+                - name: GITEA_ORG
+                  value: {{ .Values.gitea.org | quote }}
+                - name: GITEA_REPO
+                  value: {{ .Values.gitea.repo | quote }}
+                - name: GITEA_USERNAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.gitea.adminSecretRef.name }}
+                      key: {{ .Values.gitea.adminSecretRef.usernameKey }}
+                - name: GITEA_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.gitea.adminSecretRef.name }}
+                      key: {{ .Values.gitea.adminSecretRef.passwordKey }}
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  # Credential hygiene mirrors 01-gitea-mirror-job.yaml:
+                  # never echo $GITEA_PASSWORD on stdout. The BasicAuth
+                  # header is base64-encoded into a single env-local
+                  # variable; git push uses URL embedding only.
+                  redacted_url="${GITEA_INTERNAL_URL}/${GITEA_ORG}/${GITEA_REPO}.git"
+                  echo "[mirror-resync] upstream=${UPSTREAM_REPO_URL} branch=${UPSTREAM_BRANCH}"
+                  echo "[mirror-resync] target=${redacted_url}"
+
+                  # Idempotent pre-flight: the CronJob is created at
+                  # chart-install time, BEFORE Step-01 (gitea-mirror)
+                  # has run. If the local repo doesn't exist yet, exit
+                  # 0 (no-op) so we don't conflict with the in-flight
+                  # cutover. The very next fire after Step-01 finishes
+                  # will pick up the work.
+                  gitea_host="$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E 's|^https?://||' | cut -d: -f1 | cut -d/ -f1)"
+                  if [ -n "${gitea_host}" ]; then
+                    if ! nslookup "${gitea_host}" >/dev/null 2>&1; then
+                      echo "[mirror-resync] ${gitea_host} not in DNS yet — Gitea not installed; skipping (no-op until cutover)"
+                      exit 0
+                    fi
+                  fi
+
+                  basic_auth=$(printf '%s' "${GITEA_USERNAME}:${GITEA_PASSWORD}" | base64 -w0 2>/dev/null || printf '%s' "${GITEA_USERNAME}:${GITEA_PASSWORD}" | base64 | tr -d '\n')
+                  api_url="${GITEA_INTERNAL_URL}/api/v1"
+
+                  # Confirm the local repo exists. If it doesn't, Step-
+                  # 01 hasn't run yet (or the operator hasn't triggered
+                  # cutover) — exit 0 (no-op).
+                  repo_check=$(wget -q -O - \
+                    --header="Authorization: Basic ${basic_auth}" \
+                    --header="Content-Type: application/json" \
+                    "${api_url}/repos/${GITEA_ORG}/${GITEA_REPO}" 2>/dev/null || echo "missing")
+                  if [ "${repo_check}" = "missing" ] || ! printf '%s' "${repo_check}" | grep -q '"full_name"'; then
+                    echo "[mirror-resync] local repo ${GITEA_ORG}/${GITEA_REPO} not present — Step-01 hasn't completed; skipping"
+                    exit 0
+                  fi
+
+                  # Bare-clone upstream and push --mirror --force to the
+                  # local Gitea. Same semantics as Step-01 step (3),
+                  # without the create-org + create-repo phases.
+                  export HOME=/tmp
+                  git config --global user.name "gitea-mirror-resync"
+                  git config --global user.email "mirror-resync@${gitea_host}"
+                  git config --global advice.detachedHead false
+
+                  local_url=$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E "s,^(https?://),\1${GITEA_USERNAME}:${GITEA_PASSWORD}@,")"/${GITEA_ORG}/${GITEA_REPO}.git"
+                  workdir=$(mktemp -d)
+                  cd "${workdir}"
+                  echo "[mirror-resync] cloning ${UPSTREAM_REPO_URL} (bare)"
+                  if ! git clone --bare "${UPSTREAM_REPO_URL}" upstream.git >/dev/null 2>&1; then
+                    echo "[mirror-resync] upstream clone failed — likely network blip or GitHub rate-limit; will retry next fire" >&2
+                    exit 0
+                  fi
+                  cd upstream.git
+                  echo "[mirror-resync] pushing all refs to ${redacted_url}"
+                  push_err=$(git push --mirror --force "${local_url}" 2>&1) || {
+                    echo "[mirror-resync] git push to local Gitea failed" >&2
+                    printf '%s\n' "${push_err}" | sed -E "s,${GITEA_PASSWORD}+,REDACTED,g" >&2
+                    exit 1
+                  }
+                  echo "[mirror-resync] pushed all refs successfully"
+                  echo "[mirror-resync] done"
+              resources:
+                requests: { cpu: 50m, memory: 128Mi }
+                limits:   { memory: 512Mi }
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 1000
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: false
+                capabilities:
+                  drop: ["ALL"]

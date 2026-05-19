@@ -325,7 +325,23 @@ spec:
       # Configurable via `.Values.gateway.{namespace,name,
       # waitTimeoutSeconds}`; default 30 min timeout safely covers
       # the slowest Hetzner cold-start observed (≈18 min).
-      version: 0.1.32
+      # 0.1.33 (TBD-A37, issue #1899, 2026-05-19): NEW post-cutover
+      # continuous mirror re-sync CronJob (template 11-mirror-
+      # resync-cronjob.yaml). Step-01 (gitea-mirror) only runs ONCE
+      # at cutover and produces a STANDALONE local Gitea repo (PR
+      # #1029); without an ongoing re-sync, upstream chart bumps
+      # merged AFTER cutover never reach the Sovereign. Live
+      # regression on t31 2026-05-19 (A145 verifier): sandbox-
+      # controller stuck at image :8017700 from 2026-05-16 even
+      # though PR #1862 had merged 2 days earlier. Chart now
+      # ships a CronJob (schedule */5 default, suspend-overridable)
+      # firing the same idempotent bare-clone + push --mirror
+      # --force as Step 01 step (3); pre-cutover fires are no-ops.
+      # No new RBAC (re-uses runner SA + reflector-mirrored gitea-
+      # admin-secret). Smoke render unaffected (CronJob lacks the
+      # cutover-step labels so the contract test's exactly-9-steps
+      # assertion still passes).
+      version: 0.1.33
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
