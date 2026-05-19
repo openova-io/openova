@@ -952,14 +952,17 @@ type applicationDetailResponse struct {
 	// `app.kubernetes.io/instance=<name>`). For bootstrap-kit apps the
 	// HelmRelease lives in flux-system but installs into a different
 	// targetNamespace (alloy/, cert-manager/, kube-system/, ...) and
-	// uses `app.kubernetes.io/name=<chartName>` as the install label.
+	// the install identity label needs to come off the releaseName the
+	// HR manifest declares, NOT off the bp-prefixed Catalyst chart name.
 	//
 	// These fields let the SPA query the correct ns + selector instead
 	// of guessing. They populate from:
 	//   - Application CR: spec.targetNamespace (when set) OR the CR's
 	//     own namespace; selector defaults to instance=<name>.
 	//   - HelmRelease fallback: spec.targetNamespace + spec.releaseName
-	//     + chart-name → selector `app.kubernetes.io/name=<chartName>`.
+	//     + selector `app.kubernetes.io/instance=<releaseName>` (Helm
+	//     chart-helpers standard, set by every upstream chart's
+	//     pod-template and resource labels). Issue #1928 (2026-05-19).
 	TargetNamespace      string `json:"targetNamespace,omitempty"`
 	ReleaseName          string `json:"releaseName,omitempty"`
 	InstallLabelSelector string `json:"installLabelSelector,omitempty"`
@@ -1192,6 +1195,42 @@ func (h *Handler) helmReleaseReadyByName(ctx context.Context, depID, name string
 	return false
 }
 
+// installLabelSelectorForHR returns the Kubernetes label selector the
+// SPA's Resources/Logs/Topology tabs should use to enumerate workload
+// objects installed by a HelmRelease whose Helm release name is
+// `releaseName`.
+//
+// Issue #1928 (t34 chart 1.4.197, 2026-05-19): the prior implementation
+// returned `app.kubernetes.io/name=<spec.chart.spec.chart>` for HR-synth
+// applications. For bootstrap-kit HRs the chart spec is bp-prefixed
+// (e.g. `bp-harbor`) but the upstream subchart strips the prefix and
+// labels rendered resources with `app.kubernetes.io/name=harbor`. The
+// SPA's XHRs therefore returned 174-byte empty `items: []` across every
+// resource kind even though the install namespace held the workload.
+//
+// The fix is to key off the Helm release name, which:
+//
+//  1. Every Helm chart-helpers `labels` template sets on every rendered
+//     resource as `app.kubernetes.io/instance=<releaseName>` — including
+//     Pods (via the Deployment's pod-template-spec), so a single
+//     selector hits every kind the Resources tab lists.
+//  2. Is set explicitly by the bootstrap-kit HR manifest
+//     (`spec.releaseName: harbor`) so it never collides with the
+//     bp-prefix mangling that breaks the `name` label.
+//  3. Falls back to the HR's own name when `spec.releaseName` is omitted
+//     (Flux v2 default, handled by the caller before invoking this
+//     helper).
+//
+// Returns the empty string when releaseName is empty; the caller leaves
+// the selector unset in that case so the SPA's `app.kubernetes.io/
+// instance=<applicationName>` UI-side default kicks in.
+func installLabelSelectorForHR(releaseName string) string {
+	if releaseName == "" {
+		return ""
+	}
+	return fmt.Sprintf("app.kubernetes.io/instance=%s", releaseName)
+}
+
 // synthesiseAppFromHelmRelease — PR L (2026-05-17 t140 founder bug #2).
 //
 // Look up a HelmRelease by `name` in the chroot's k8sCache and synthesise
@@ -1223,10 +1262,8 @@ func (h *Handler) synthesiseAppFromHelmRelease(ctx context.Context, depID, name 
 			Conditions: []map[string]interface{}{},
 			Bootstrap:  true,
 		}
-		chartName := ""
 		if v, ok, _ := unstructured.NestedString(hr.Object, "spec", "chart", "spec", "chart"); ok {
 			resp.Blueprint = v
-			chartName = v
 		}
 		if v, ok, _ := unstructured.NestedString(hr.Object, "spec", "chart", "spec", "version"); ok {
 			resp.Version = v
@@ -1254,18 +1291,7 @@ func (h *Handler) synthesiseAppFromHelmRelease(ctx context.Context, depID, name 
 			// Flux v2 default: release name = HR name.
 			resp.ReleaseName = hr.GetName()
 		}
-		// Install label: bootstrap-kit charts label their pods with
-		// `app.kubernetes.io/name=<chartName>` (the Helm standard) and
-		// `app.kubernetes.io/instance=<releaseName>`. Either matches the
-		// install. We surface BOTH so the SPA can OR them — but for the
-		// single-selector query path we hand back name=<chart>, which is
-		// the most reliable identifier for upstream charts that don't
-		// always populate `instance` correctly.
-		if chartName != "" {
-			resp.InstallLabelSelector = fmt.Sprintf("app.kubernetes.io/name=%s", chartName)
-		} else {
-			resp.InstallLabelSelector = fmt.Sprintf("app.kubernetes.io/instance=%s", resp.ReleaseName)
-		}
+		resp.InstallLabelSelector = installLabelSelectorForHR(resp.ReleaseName)
 		// Map HR Ready condition → Application phase.
 		conds, _, _ := unstructured.NestedSlice(hr.Object, "status", "conditions")
 		phase := "Pending"

@@ -1,5 +1,33 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.198 — issue #1928 residual (t34 chart 1.4.197 walk, 2026-05-19
+# 12:21Z agent aced939b): the Resources tab still rendered 0/0/0 across
+# every kind for the bootstrap-kit `bp-harbor` Application even after
+# PR #1932 plumbed targetNamespace correctly. Root cause: the HR-synth
+# path in catalyst-api (applications.go synthesiseAppFromHelmRelease)
+# returned `installLabelSelector: app.kubernetes.io/name=bp-harbor`
+# because it keyed off `spec.chart.spec.chart` (which is bp-prefixed for
+# every bootstrap-kit HR). The upstream harbor subchart strips the prefix
+# and labels its rendered resources with `app.kubernetes.io/name=harbor`,
+# so the bp-prefixed selector matched nothing — 174-byte empty
+# `items: []` responses across pod/service/deployment/configmap/secret/
+# pvc/ingress despite the real namespace holding 7 Pods, 9 Services, 5
+# Deployments. Fix: switch the synth-from-HR selector to key off the
+# Helm release name via `app.kubernetes.io/instance=<releaseName>` —
+# the standard Helm chart-helpers label, set by every upstream chart
+# (including Harbor's) on every rendered resource including Pods (via
+# the Deployment pod-template-spec). The bootstrap-kit manifests
+# (clusters/_template/bootstrap-kit/19-harbor.yaml et al.) explicitly
+# declare `spec.releaseName: harbor`, so the selector is always the
+# bare upstream identity rather than the bp-prefixed chart name. Live
+# evidence from mothership: `kubectl -n axon get pods -l
+# 'app.kubernetes.io/instance=axon'` returns all axon pods; same pattern
+# for cert-manager + every bootstrap-kit install. Extracted the
+# selector-decision into a pure helper `installLabelSelectorForHR` and
+# added unit-test coverage (applications_label_selector_test.go).
+# Refs #1928.
+# 1.4.197 — restore deleted apiVersion+name in Chart.yaml after PR #1932
+# merge race ate them. No behavioural change. Refs #1937.
 # 1.4.196 — TBD-V2 (issue #1928, 2026-05-19): plumb App targetNamespace
 # into Resources tab URL. AppDetail Resources tab rendered empty for
 # every operator because the SPA hardcoded `?namespace=default` in
@@ -1440,8 +1468,8 @@ name: bp-catalyst-platform
 # 25/TCP (legacy SMTP fallback). All three are explicitly scoped to
 # `toEntities: world`, matching the existing 443/TCP allow. No other
 # rule semantics change. (Fixes PIN-issue 502 regression from #1785.)
-version: 1.4.197
-appVersion: 1.4.197
+version: 1.4.198
+appVersion: 1.4.198
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
 # TBD-A30). Pre-1.4.183 every catalyst-system HTTPRoute pinned
