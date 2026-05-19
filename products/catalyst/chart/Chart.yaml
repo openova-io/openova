@@ -1,5 +1,35 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.209 — TBD-A64 PR γ (issue #1976, 2026-05-19): cosmetic regressions
+# caught by the cosmetic-guards e2e suite. THREE surgical fixes:
+#   1. wizard/steps/logoTone.ts — alloy tile background flipped from
+#      `#FFFFFF` → `#FD6F00` (canonical Grafana Alloy swirl colour). The
+#      vendored Badge already paints a white glyph; on a white tile the
+#      mark was invisible. cosmetic-guards `logo tiles use canonical
+#      brand surface` test now passes.
+#   2. wizard/steps/stepComponentsCopy.ts + StepComponents.tsx — retired
+#      the legacy "Choose Your Stack" / "Always Included" tab labels
+#      (renamed to "Components" / "Foundation") and dropped the
+#      role="tablist" / role="tab" attributes on the section toggle.
+#      Matches the canonical SME marketplace single-grid pattern in
+#      core/marketplace/src/components/AppsStep.svelte. The
+#      `tab === 'choose' | 'always'` state machine stays — only the
+#      operator-visible strings + ARIA semantics changed.
+#   3. sovereign/AppDetail.tsx — `data-testid="sov-app-tab-${id}"`
+#      alias exposed on every TabButton via an absolutely-positioned
+#      aria-hidden span overlay (single DOM node can't carry two
+#      data-testid values, the primary `app-tab-${id}` stays on the
+#      <button> for back-compat with the AppDetail.test.tsx matrix).
+#      Unblocks the 22+ existing `sov-app-tab-*` Playwright selectors
+#      in application-pages-t-o-p, continuum-dr-section,
+#      compliance-dashboards, and rbac-membership.
+# 8 of the original 11 cosmetic-guard failures remain (architectural —
+# AppDetail flat-section migration, JobsPage Show-as-Flow + /flow?scope
+# canvas, FloatingLogPane, StatusStrip mode toggle, JobDetail v3, batch
+# chip <a>, Sidebar Domains/Billing/Team nav stubs). Tracked as
+# TBD-A65..A71 separate issues.
+# Refs #1976 TBD-A64.
+#
 # 1.4.208 — TBD-A63 (issue #1972, 2026-05-19 t34): runtime regression
 # fix for the D20 secondary-jobs fan-out. PR #1942 (1.4.199) added
 # chrootSeedSecondaryRegions but gated the entire post-hasBootstrapKit
@@ -1735,8 +1765,8 @@ name: bp-catalyst-platform
 # was already shipped on 1.4.197 (PR #1820 lineage); this completes
 # the data-layer side so the dropdown finally appears on multi-region
 # Sovereigns. Refs #1821, DoD D20.
-version: 1.4.208
-appVersion: 1.4.207
+version: 1.4.209
+appVersion: 1.4.208
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
 # TBD-A30). Pre-1.4.183 every catalyst-system HTTPRoute pinned

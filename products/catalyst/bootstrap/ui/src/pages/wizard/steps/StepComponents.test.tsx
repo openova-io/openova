@@ -222,26 +222,32 @@ describe('tabs', () => {
     const always = screen.getByTestId('tab-always')
     expect(choose).toBeTruthy()
     expect(always).toBeTruthy()
-    expect(always.textContent).toMatch(new RegExp(`Always Included \\(${MANDATORY.length}\\)`))
+    // 2026-05-19 (#1976 / TBD-A64 / PR γ): the legacy "Always Included" /
+    // "Choose Your Stack" labels were retired in favour of "Foundation" /
+    // "Components" per the canonical SME marketplace pattern (single flat
+    // grid). The cosmetic-guard spec asserts neither phrase appears in
+    // the DOM; the section-toggle role attributes were also dropped
+    // (`role="tablist"` / `role="tab"` → `aria-pressed`).
+    expect(always.textContent).toMatch(new RegExp(`Foundation \\(${MANDATORY.length}\\)`))
   })
 
-  it('Choose Your Stack tab is active by default', () => {
+  it('Components section is active by default', () => {
     render(<StepComponents />)
-    expect(screen.getByTestId('tab-choose').getAttribute('aria-selected')).toBe('true')
-    expect(screen.getByTestId('tab-always').getAttribute('aria-selected')).toBe('false')
+    expect(screen.getByTestId('tab-choose').getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByTestId('tab-always').getAttribute('aria-pressed')).toBe('false')
   })
 
-  it('clicking the "Always Included" tab switches the body', () => {
+  it('clicking the "Foundation" toggle switches the body', () => {
     render(<StepComponents />)
     fireEvent.click(screen.getByTestId('tab-always'))
-    expect(screen.getByTestId('tab-always').getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByTestId('tab-always').getAttribute('aria-pressed')).toBe('true')
     expect(screen.getByTestId('always-included-tab')).toBeTruthy()
-    // Choose-tab grid + search not in the DOM in always tab
+    // Choose-tab grid + search not in the DOM in foundation view
     expect(screen.queryByTestId('component-grid')).toBeNull()
     expect(screen.queryByTestId('component-search')).toBeNull()
   })
 
-  it('switching back to Choose Your Stack restores the grid', () => {
+  it('switching back to Components restores the grid', () => {
     render(<StepComponents />)
     fireEvent.click(screen.getByTestId('tab-always'))
     fireEvent.click(screen.getByTestId('tab-choose'))
@@ -249,13 +255,13 @@ describe('tabs', () => {
     expect(screen.getByTestId('component-search')).toBeTruthy()
   })
 
-  it('Choose-tab counter reflects user-controllable selection (recommended + optional)', () => {
+  it('Components counter reflects user-controllable selection (recommended + optional)', () => {
     // Default state: every recommended is selected. Counter should equal
     // the recommended count (no optional selected).
     const recommendedCount = ALL_COMPONENTS.filter((c) => c.tier === 'recommended').length
     render(<StepComponents />)
     const choose = screen.getByTestId('tab-choose')
-    expect(choose.textContent).toMatch(new RegExp(`Choose Your Stack \\(${recommendedCount}\\)`))
+    expect(choose.textContent).toMatch(new RegExp(`Components \\(${recommendedCount}\\)`))
   })
 })
 
