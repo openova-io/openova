@@ -158,6 +158,33 @@ spec:
   # actual host-bound cilium-envoy HTTPS listener) ensures the CCM LB
   # marks targets healthy AS SOON AS envoy is listening — without this,
   # the LB stayed `unhealthy` indefinitely on prov #76 (2026-05-14).
+  #
+  # TBD-A36 (#1896) — Gateway-API CRD annotations cap = 8 entries
+  # -------------------------------------------------------------
+  # `gateways.gateway.networking.k8s.io` (CRD published by the Cilium
+  # Gateway-API support) declares `spec.infrastructure.annotations` as a
+  # map with `maxProperties: 8`. The 10-annotation list that landed in
+  # #1889 (TBD-A31) tripped the CRD validator at Flux SSA time:
+  #   spec.infrastructure.annotations: Too many: 10: must have at most 8 items
+  # → Gateway never reconciled → cilium-gateway-cilium-gateway Service
+  # never reached `type=LoadBalancer` → no Hetzner LB at the Service
+  # layer → public TLS at console.<fqdn>:443 reset at the handshake.
+  # Blocked t28/t29/t30 since 2026-05-19 00:50:35Z.
+  #
+  # Resolution (Option A per A130): drop the two health-check timing
+  # annotations (`health-check-interval`, `health-check-timeout`). hcloud-
+  # CCM defaults are reasonable (15s interval, 10s timeout) and identical
+  # to the values we were declaring, so the runtime behaviour of the
+  # health check is unchanged. The remaining 8 annotations (name,
+  # location, type, use-private-ip, disable-private-ingress,
+  # health-check-protocol, health-check-port, health-check-retries) are
+  # the minimum set required to materialise a public-IP TCP-health-checked
+  # Hetzner LB on the correct location/type with the correct backend port.
+  #
+  # Validated with `kubectl apply --dry-run=server` against a live cluster
+  # before merge (Principle #15 — IaC evaluator over text grep). DO NOT
+  # add a 9th annotation here without first checking the CRD limit and
+  # re-running the server-side dry-run.
   infrastructure:
     annotations:
       load-balancer.hetzner.cloud/name: "${SOVEREIGN_FQDN_SLUG:=catalyst}-${SOVEREIGN_REGION_KEY:=primary}-gateway"
@@ -167,8 +194,6 @@ spec:
       load-balancer.hetzner.cloud/disable-private-ingress: "true"
       load-balancer.hetzner.cloud/health-check-protocol: "tcp"
       load-balancer.hetzner.cloud/health-check-port: "30443"
-      load-balancer.hetzner.cloud/health-check-interval: "15s"
-      load-balancer.hetzner.cloud/health-check-timeout: "10s"
       load-balancer.hetzner.cloud/health-check-retries: "3"
   # NOTE: ports 30080/30443 (not 80/443) — even with hostNetwork=true,
   # cilium-envoy refuses to bind privileged ports because cilium-agent
