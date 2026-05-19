@@ -38,7 +38,7 @@ variable "sovereign_deployment_id" {
 
 variable "marketplace_enabled" {
   type        = string
-  description = "When 'true', bp-catalyst-platform 1.3.0+ renders the marketplace + tenant-wildcard HTTPRoutes exposing marketplace.<sov> + *.<sov>. Default 'true' as of TBD-V4 (issue #1968, 2026-05-19) — franchised Sovereigns provision marketplace-enabled out of the box; operator opts OUT via the wizard's StepMarketplace toggle. Paired with the chart-side `${MARKETPLACE_ENABLED:-true}` slot fallback shipped in PR #1967."
+  description = "When 'true', bp-catalyst-platform 1.3.0+ renders the marketplace + tenant-wildcard HTTPRoutes exposing marketplace.<sov> + *.<sov>. Default 'true' as of TBD-V4 (issue #1968, 2026-05-19) — franchised Sovereigns provision marketplace-enabled out of the box; operator opts OUT via the wizard's StepMarketplace toggle. Paired with the chart-side $${MARKETPLACE_ENABLED:-true} slot fallback shipped in PR #1967."
   default     = "true"
   validation {
     condition     = contains(["true", "false"], var.marketplace_enabled)
