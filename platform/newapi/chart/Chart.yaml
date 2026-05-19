@@ -310,7 +310,18 @@ name: bp-newapi
 # blueprint's NS); the prior rule could never reach them and the
 # newapi container looped 1/2 Ready with DB-connect timeouts on
 # fresh prov.
-version: 1.4.28
+# 1.4.29 (TBD-A52 #1944, 2026-05-19): point the default Valkey URL at
+# `valkey-primary.valkey.svc.cluster.local` instead of the non-existent
+# `valkey.valkey.svc.cluster.local`. The bp-valkey blueprint installs
+# the upstream bitnami chart with architecture=replication, which
+# renders Services named `<release>-primary` / `<release>-replicas` /
+# `<release>-headless` — there is NO plain `valkey` Service. The old
+# default resolved to NXDOMAIN and the NewAPI pod looped CrashLoopBackOff
+# on the Redis ping probe (t34: 31 restarts with
+# `lookup valkey.valkey.svc.cluster.local: no such host`). Same hostname
+# already documented as canonical in products/catalyst/chart/values.yaml
+# bp-cnpg-pair comments.
+version: 1.4.29
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
