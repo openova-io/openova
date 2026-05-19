@@ -726,7 +726,7 @@ spec:
       # `console.<slug>.<parent>` and the two drifted; tenant
       # onboarding emails on every non-openova.io Sovereign leaked the
       # platform marketing host. Refs #1990 TBD-A67.
-      version: 1.4.210
+      version: 1.4.211
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
