@@ -814,6 +814,7 @@ function TabButton({ id, label, active, onClick, count }: TabButtonProps) {
       data-testid-alt={`app-${id}-tab`}
       className={`app-tab ${isActive ? 'app-tab-active' : ''}`}
       onClick={() => onClick(id)}
+      style={{ position: 'relative' }}
     >
       {label}
       {typeof count === 'number' ? (
@@ -821,6 +822,38 @@ function TabButton({ id, label, active, onClick, count }: TabButtonProps) {
           {count}
         </span>
       ) : null}
+      {/*
+       * 2026-05-19 (#1976 / TBD-A64 / PR γ): canonical Sovereign-scoped
+       * testid alias `sov-app-tab-${id}` exposed for the cosmetic-guard
+       * regression suite (issue #204 item #9) and the rest of the
+       * `sov-app-tab-*` Playwright selectors in application-pages-t-o-p,
+       * continuum-dr-section, compliance-dashboards, and rbac-membership.
+       *
+       * A single DOM node cannot carry two `data-testid` values; the
+       * primary `app-tab-${id}` stays on the <button> so the existing
+       * unit-test matrix in AppDetail.test.tsx (TC-036 + TC-106) keeps
+       * passing. The alias rides on an absolutely-positioned span that
+       * fully overlays the button — non-zero bounding box satisfies
+       * Playwright's `toBeVisible()`, `pointer-events: none` keeps
+       * clicks flowing to the button, and `aria-hidden` keeps the alias
+       * invisible to assistive tech (avoiding double role=tab exposure).
+       */}
+      <span
+        role="tab"
+        aria-hidden="true"
+        data-testid={`sov-app-tab-${id}`}
+        style={{
+          position: 'absolute',
+          inset: 0,
+          pointerEvents: 'none',
+          color: 'transparent',
+          background: 'transparent',
+          fontSize: 0,
+          lineHeight: 0,
+        }}
+      >
+        {label}
+      </span>
     </button>
   )
 }

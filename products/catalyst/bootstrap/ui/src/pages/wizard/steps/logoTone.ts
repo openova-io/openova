@@ -122,8 +122,8 @@ export const LOGO_SURFACE: Record<string, LogoSurface> = {
   grafana:      { background: '#0B0F19', border: 'rgba(255,255,255,0.10)', text: '#F46800' },
   // OpenTelemetry — OTel deep purple on white ; opentelemetry.io hero uses `#425CC7` purple with `#F5A800` accent on white.
   opentelemetry:{ background: '#FFFFFF', border: 'rgba(15,23,42,0.10)', text: '#425CC7' },
-  // Alloy — Grafana Alloy on white ; grafana.com/oss/alloy uses the icon-only orange swirl mark on a white surface. The vendored SVG is the canonical 44x44 swirl-only mark (`#FD6F00` on transparent), matching how Grafana presents Alloy in their hero strip.
-  alloy:        { background: '#FFFFFF', border: 'rgba(15,23,42,0.10)', text: '#FD6F00' },
+  // Alloy — Grafana Alloy orange swirl ; the vendored SVG renders as a WHITE swirl mark on transparent (componentLogos.tsx `Badge('#F46800', '#fff', …)` already paints the Badge form orange + white), so the tile MUST use the canonical Alloy orange `#FD6F00` (grafana.com/oss/alloy hero strip + cosmetic-guards REJECT_WHITE_TILE) — a white tile under the white glyph renders the mark invisible.
+  alloy:        { background: '#FD6F00', border: 'rgba(255,255,255,0.18)', text: '#ffffff' },
   // Loki — Grafana Loki amber on dark ; grafana.com/oss/loki uses `#0B0F19` with `#FFC832` accent. Vendored PNG is amber wordmark on transparent.
   loki:         { background: '#0B0F19', border: 'rgba(255,255,255,0.10)', text: '#FFC832' },
   // Mimir — Grafana Mimir cyan on dark ; grafana.com/oss/mimir uses `#0B0F19` with `#34CDF9` accent. Vendored PNG is white wordmark on transparent.

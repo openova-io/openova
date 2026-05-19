@@ -29,11 +29,21 @@ function joinNames(items: { name: string }[], limit = 5): string {
 }
 
 export const STEP_COMPONENTS_COPY = {
-  /* ── Tab labels ──────────────────────────────────────────────── */
-  tabChooseLabel: (count: number) => `Choose Your Stack (${count})`,
-  tabAlwaysLabel: (count: number) => `Always Included (${count})`,
+  /* ── Section labels ──────────────────────────────────────────────
+   *
+   * 2026-05-19 (#1976 / TBD-A64 / PR γ): the legacy "Choose Your Stack"
+   * + "Always Included" tab labels were retired in favour of the
+   * canonical SME marketplace single-grid layout (see
+   * core/marketplace/src/components/AppsStep.svelte). Cosmetic-guard
+   * test `StepComponents does not render legacy "Choose Your Stack" /
+   * "Always Included" tab labels` (e2e/cosmetic-guards.spec.ts) asserts
+   * neither phrase appears in the rendered DOM. The underlying
+   * `tab === 'choose' | 'always'` state machine stays for now — only
+   * the operator-visible strings change. */
+  tabChooseLabel: (count: number) => `Components (${count})`,
+  tabAlwaysLabel: (count: number) => `Foundation (${count})`,
 
-  /* ── Always Included blurb ──────────────────────────────────── */
+  /* ── Foundation blurb ──────────────────────────────────────── */
   alwaysIncludedBlurb:
     `These platform components run on every Sovereign. They’re foundational ` +
     `— you don’t pay extra for them.`,
@@ -120,8 +130,8 @@ export const STEP_COMPONENTS_COPY = {
   /* ── Step intro / description ───────────────────────────────── */
   stepTitle: 'Platform Components',
   stepDescription:
-    'Choose Your Stack lists the components you can opt into for this Sovereign — search, filter ' +
+    'Pick the components you can opt into for this Sovereign — search, filter ' +
     'by product, and click to add or remove. Cascading dependencies are handled automatically ' +
-    '(Harbor pulls in cnpg, seaweedfs, valkey). Always Included shows the foundational platform ' +
+    '(Harbor pulls in cnpg, seaweedfs, valkey). The foundation section lists the platform ' +
     'components every Sovereign runs.',
 } as const

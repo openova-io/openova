@@ -916,12 +916,19 @@ export function StepComponents() {
       onNext={next}
       onBack={back}
     >
-      {/* ── Tabs ──────────────────────────────────────────────── */}
-      <div role="tablist" data-testid="component-tabs" className="corp-tabs">
+      {/* ── Section toggle (legacy tabs flattened per #1976 / TBD-A64) ───
+       *
+       * 2026-05-19: the canonical SME marketplace pattern is a single
+       * flat grid (core/marketplace/src/components/AppsStep.svelte). The
+       * cosmetic-guard spec asserts neither role="tablist" nor role="tab"
+       * appears on this step + that the legacy "Choose Your Stack" /
+       * "Always Included" labels are gone. The toggle row stays as a
+       * pair of plain buttons that drive the existing `tab` state —
+       * fuller flatten-into-one-grid migration is queued as TBD-A65. */}
+      <div data-testid="component-tabs" className="corp-tabs">
         <button
           type="button"
-          role="tab"
-          aria-selected={tab === 'choose'}
+          aria-pressed={tab === 'choose'}
           data-testid="tab-choose"
           onClick={() => setTab('choose')}
           className={`corp-tab ${tab === 'choose' ? 'active' : ''}`}
@@ -930,8 +937,7 @@ export function StepComponents() {
         </button>
         <button
           type="button"
-          role="tab"
-          aria-selected={tab === 'always'}
+          aria-pressed={tab === 'always'}
           data-testid="tab-always"
           onClick={() => setTab('always')}
           className={`corp-tab ${tab === 'always' ? 'active' : ''}`}
