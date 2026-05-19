@@ -1257,8 +1257,30 @@ name: bp-catalyst-platform
 # 25/TCP (legacy SMTP fallback). All three are explicitly scoped to
 # `toEntities: world`, matching the existing 443/TCP allow. No other
 # rule semantics change. (Fixes PIN-issue 502 regression from #1785.)
-version: 1.4.182
-appVersion: 1.4.182
+version: 1.4.183
+appVersion: 1.4.183
+# 1.4.183 — fix(httproute): omit default sectionName so multi-zone
+# Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
+# TBD-A30). Pre-1.4.183 every catalyst-system HTTPRoute pinned
+# `sectionName: https`, but the Cilium Gateway names HTTPS listeners
+# `https-<sanitised-zone>` whenever the Sovereign has multiple parent
+# zones (e.g. omani.works primary + omani.homes SME pool — t28 layout).
+# Result: every public route on t28 reported `Accepted=False
+# NoMatchingListener` and console.<sov> / api.<sov> / marketplace.<sov>
+# / *.<sov> returned 404 / connection-refused. Single-zone Sovereigns
+# were unaffected because Gateway used bare `https` listener name in
+# that case. Fix: default `ingress.gateway.parentRef.sectionName=""`
+# in values.yaml; the existing `{{- with .Values.ingress.gateway.
+# parentRef.sectionName }}` guard in templates/httproute.yaml,
+# templates/services/catalog/httproute.yaml, and templates/sme-services/
+# marketplace-routes.yaml skips the sectionName field entirely.
+# Cilium Gateway then matches routes to listeners by hostname filter
+# (`*.<zone>` on each per-zone listener), which is exactly the pattern
+# already used by tenant_route.go, sandbox manifests, and
+# tenant-public-routes.yaml. Preflight workflow that overrides
+# `--set ingress.gateway.parentRef.sectionName=http` is unaffected
+# (overrides still take precedence). See products/catalyst/chart/
+# values.yaml inline rationale for the full design note.
 # 1.4.172 — feat(security): baseline CiliumNetworkPolicies for
 # catalyst-system + cilium-gateway (Closes #1746, Refs TBD-Cov-12 /
 # C12-009). Cov-bench audit on the live Sovereign cluster confirmed

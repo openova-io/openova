@@ -734,7 +734,43 @@ ingress:
     parentRef:
       name: cilium-gateway
       namespace: kube-system
-      sectionName: https
+      # sectionName intentionally EMPTY (issue #1884, TBD-A30).
+      #
+      # The Cilium Gateway template
+      # (clusters/_template/sovereign-tls/cilium-gateway.yaml +
+      # infra/hetzner/main.tf locals.parent_domains_listeners_yaml)
+      # names HTTPS listeners as follows:
+      #   - SINGLE parent zone → bare `https` / `http`
+      #   - MULTIPLE parent zones (SME pool present) → unique
+      #     `https-<sanitised-zone>` / `http-<sanitised-zone>`
+      #     (e.g. `https-omani-works`, `https-omani-homes`)
+      # Pinning `sectionName: https` here broke every catalyst-system
+      # HTTPRoute on multi-zone Sovereigns because the listener name was
+      # `https-<sanitised-primary-zone>`, never bare `https` →
+      # `Accepted=False NoMatchingListener` → 404 / connection refused
+      # on console.<sov>, api.<sov>, marketplace.<sov>, *.<sov>
+      # (caught on t28 by A107 D29 walk, 2026-05-19).
+      #
+      # Leaving `sectionName` empty delegates listener attachment to the
+      # Cilium Gateway hostname matcher: each listener carries
+      # `hostname: *.<zone>` so a route hostname like `console.<sov-fqdn>`
+      # auto-attaches to exactly the listener(s) whose hostname filter
+      # matches. This is the canonical pattern already in use by
+      # core/controllers/sandbox/internal/gitops/manifests.go (sandbox),
+      # core/controllers/organization/internal/controller/tenant_route.go
+      # (per-tenant routes), and the chart's own
+      # templates/sme-services/tenant-public-routes.yaml — every other
+      # Cilium Gateway HTTPRoute on a Sovereign omits sectionName.
+      #
+      # Operators with an unusual topology (e.g. internal-only Gateway,
+      # preflight workflow with HTTP-only listener named `http`) may
+      # still override via per-Sovereign values:
+      #   --set ingress.gateway.parentRef.sectionName=http
+      # The httproute.yaml / services/catalog/httproute.yaml /
+      # sme-services/marketplace-routes.yaml templates all guard with
+      # `{{- with .Values.ingress.gateway.parentRef.sectionName }}`,
+      # so the field renders only when explicitly set.
+      sectionName: ""
   # Hosts populated by the bootstrap-kit slot
   # (clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml).
   # Empty here so `helm template` without a per-Sovereign overlay fails
