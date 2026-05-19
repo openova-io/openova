@@ -1,12 +1,15 @@
 {{- /*
 ReferenceGrant for cross-namespace HTTPRoute → Service backend refs.
 
-The marketplace and tenant-wildcard HTTPRoutes
+The marketplace and per-tenant (`tenant-<slug>`) HTTPRoutes
 (templates/sme-services/marketplace-routes.yaml) live in
 {{ .Release.Namespace }} (catalyst-system) and reference Services in the
-`sme` namespace (admin, marketplace, console). Gateway API requires an
-explicit ReferenceGrant in the TARGET namespace authorising that
-cross-namespace access.
+`sme` namespace (admin, marketplace, console, gateway). Gateway API
+requires an explicit ReferenceGrant in the TARGET namespace authorising
+that cross-namespace access. TBD-A42 (issue #1905, 2026-05-19): the
+former `tenant-wildcard` HTTPRoute was replaced with N exact-match
+`tenant-<slug>` HTTPRoutes — they all still backendRef sme/console, so
+the existing grant covers every emitted per-slug route without change.
 
 Same {{ if }} guard as the routes — only renders when marketplace mode
 is enabled, so non-marketplace Sovereigns don't need any sme-namespace

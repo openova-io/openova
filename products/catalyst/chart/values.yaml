@@ -786,11 +786,40 @@ ingress:
       host: ""
   # Marketplace mode toggle (issue #710). When enabled, the chart renders
   # templates/sme-services/marketplace-routes.yaml exposing
-  # marketplace.<sov>/{,api/,back-office/} and *.<sov> (tenant wildcard)
-  # via Cilium Gateway. Default OFF — non-marketplace Sovereigns get the
-  # SME workloads but no public ingress.
+  # marketplace.<sov>/{,api/,back-office/} (storefront + BSS) and one
+  # HTTPRoute per entry in `tenantSlugs` (each scoped to
+  # `<slug>.<sov>` exactly — NO wildcard) via Cilium Gateway. Default
+  # OFF — non-marketplace Sovereigns get the SME workloads but no
+  # public ingress.
+  #
+  # TBD-A42 (issue #1905, 2026-05-19): tenant-wildcard previously
+  # claimed `*.<sov>`, which on Cilium Gateway shadowed exact-match
+  # platform HTTPRoutes (auth.<sov> → Keycloak, console.<sov> →
+  # catalyst-ui, api.<sov> → catalyst-api, etc.) — even though Gateway
+  # API spec §5.2.1 says more-specific hostnames win, the wildcard's
+  # admission-order-dependent precedence on Cilium meant
+  # `auth.t31.omani.works` returned the SPA console HTML instead of
+  # Keycloak's login page, breaking D4 SSO. Fix: replace the single
+  # `*.<sov>` hostname with one exact `<slug>.<sov>` HTTPRoute per
+  # slug listed in `tenantSlugs`. Operator stamps the slug list at
+  # provision time (e.g. `["acme","beta","gamma"]`); the runtime
+  # organization-controller writes per-tenant HTTPRoutes for any new
+  # Org created post-provision (see tenant-public-routes.yaml below).
+  # `tenantSlugs` defaults to empty: no wildcard catch-all is emitted
+  # so platform subdomains can NEVER be shadowed.
   marketplace:
     enabled: false
+    # Explicit list of marketplace tenant slugs that should receive a
+    # public HTTPRoute pointing at the SME `console` Service (which
+    # host-routes per tenant by `<slug>.<sov>`). One HTTPRoute per
+    # entry, hostname=`<slug>.<global.sovereignFQDN>` exact. Examples:
+    #   tenantSlugs: ["acme", "beta", "gamma"]
+    # Each emitted HTTPRoute is name=`tenant-<slug>` in the chart
+    # release namespace, parent=cilium-gateway/kube-system. Defaults
+    # to empty so no SaaS-tenant route is emitted until an operator
+    # opts a slug in — protects platform-reserved subdomains by
+    # construction.
+    tenantSlugs: []
 
 # ─── SME tenant overlay reconciler (issue #882) ───────────────────────────
 # Flux Kustomization shipped by templates/sme-services/sme-tenants-
