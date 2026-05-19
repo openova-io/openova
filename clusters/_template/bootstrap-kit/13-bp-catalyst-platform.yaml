@@ -675,7 +675,11 @@ spec:
       # env corrected from `.catalyst.svc.cluster.local` to
       # `.catalyst-system.svc.cluster.local` (Service's actual namespace
       # per slot 56 targetNamespace). Refs #1948.
-      version: 1.4.200
+      # 1.4.201 (PR Refs #1953): fix projector valkey.addr —
+      # `valkey.valkey.svc.cluster.local` is NXDOMAIN (bp-valkey
+      # installs `valkey-primary` Service, not plain `valkey`). Same
+      # bug class as #1944 (catalog-svc, fixed in PR #1951).
+      version: 1.4.201
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

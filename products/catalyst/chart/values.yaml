@@ -657,7 +657,7 @@ services:
       stream: "catalyst.events"
       subject: "catalyst.events.>"
     valkey:
-      addr: "valkey.valkey.svc.cluster.local:6379"
+      addr: "valkey-primary.valkey.svc.cluster.local:6379"
       username: ""
       # Optional Secret reference for the Valkey password.
       passwordSecret: {}

@@ -1536,8 +1536,15 @@ name: bp-catalyst-platform
 # `.catalyst-system.svc.cluster.local:8080` and the
 # 57-bp-openova-flow-emitter overlay (`flowServerUrl: http://
 # openova-flow-server.catalyst-system.svc.cluster.local`).
-version: 1.4.200
-appVersion: 1.4.200
+# 1.4.201 (Refs #1953): fix projector valkey.addr NXDOMAIN. The
+# bp-valkey blueprint installs the Valkey Service as `valkey-primary`
+# (architecture: replication, no plain `valkey` service), so the
+# projector default `valkey.valkey.svc.cluster.local:6379` resolves
+# to `no such host` on every fresh Sovereign. Change the projector
+# values.yaml default to `valkey-primary.valkey.svc.cluster.local:6379`.
+# Same bug class fixed for catalog-svc in PR #1951 (Closes #1944).
+version: 1.4.201
+appVersion: 1.4.201
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
 # TBD-A30). Pre-1.4.183 every catalyst-system HTTPRoute pinned
