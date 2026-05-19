@@ -88,6 +88,61 @@ metadata:
     catalyst.openova.io/component: cilium-gateway
 spec:
   gatewayClassName: cilium
+  # ── TBD-A31 (#1885): Hetzner LB annotations for the gateway Service ──
+  #
+  # The Gateway-API spec (`spec.infrastructure.annotations`) is the canonical
+  # mechanism for declaring annotations that the controller MUST propagate
+  # to any infrastructure resources it creates in response to this Gateway —
+  # in Cilium's case, the auto-generated `cilium-gateway-cilium-gateway`
+  # Service in kube-system. Cilium 1.16+ honours this block and forwards
+  # the annotations onto the Service `metadata.annotations`, where
+  # hcloud-cloud-controller-manager (bp-hcloud-ccm slot 55) picks them up
+  # at Service reconcile time and provisions a Hetzner LB.
+  #
+  # Why this matters operationally:
+  #   - A98+A107 evidence on t28 (76fdffb42532e6cc): the gateway Service
+  #     showed `type=ClusterIP` with no Hetzner LB attached → public TLS
+  #     to console.t28.omani.works:443 reset at the handshake. Even with
+  #     the tofu-provisioned `hcloud_load_balancer.main` (infra/hetzner/
+  #     main.tf:955) carrying 443→30443 service-port, operators inspecting
+  #     `kubectl get svc -n kube-system cilium-gateway-cilium-gateway`
+  #     saw a non-LoadBalancer Service and concluded the LB chain was
+  #     broken. Without these annotations, hcloud-CCM has no signal to
+  #     materialise a parallel Service-level LB (the tofu LB at the
+  #     infra layer is invisible to the cluster-side CCM).
+  #   - For multi-region Sovereigns the per-region cilium-gateway in each
+  #     secondary cluster ALSO needs a public LB so external clients can
+  #     reach region-local listeners directly (the omani.homes / omani.rest
+  #     SME-pool subdomains attach to the secondary region's gateway).
+  #     `${SOVEREIGN_REGION_KEY:=primary}` segments the LB name per region
+  #     (mirrors the clustermesh-apiserver LB naming in
+  #     clusters/_template/bootstrap-kit/01-cilium.yaml:237).
+  #
+  # use-private-ip: "false" — per docs/SOVEREIGN-MULTI-REGION-DOD.md A2
+  # (inter-region link = PUBLIC IPs ALWAYS) AND the empirical lesson from
+  # PR #1538: the Hetzner per-region LB has no private-network attachment
+  # by default so CCM rejects `use private ip: missing network id`. The
+  # firewall already opens 30000-32767/tcp (infra/hetzner/main.tf:233) so
+  # the public-IP LB health checks pass against node:30443.
+  #
+  # health-check pinned to TCP:30443 — without this annotation, hcloud-CCM
+  # defaults the health check to the Service's nodePort (which Cilium
+  # allocates randomly when hostNetwork=true). Pinning to 30443 (the
+  # actual host-bound cilium-envoy HTTPS listener) ensures the CCM LB
+  # marks targets healthy AS SOON AS envoy is listening — without this,
+  # the LB stayed `unhealthy` indefinitely on prov #76 (2026-05-14).
+  infrastructure:
+    annotations:
+      load-balancer.hetzner.cloud/name: "${SOVEREIGN_FQDN_SLUG:=catalyst}-${SOVEREIGN_REGION_KEY:=primary}-gateway"
+      load-balancer.hetzner.cloud/location: "${HCLOUD_LB_LOCATION}"
+      load-balancer.hetzner.cloud/type: "lb11"
+      load-balancer.hetzner.cloud/use-private-ip: "false"
+      load-balancer.hetzner.cloud/disable-private-ingress: "true"
+      load-balancer.hetzner.cloud/health-check-protocol: "tcp"
+      load-balancer.hetzner.cloud/health-check-port: "30443"
+      load-balancer.hetzner.cloud/health-check-interval: "15s"
+      load-balancer.hetzner.cloud/health-check-timeout: "10s"
+      load-balancer.hetzner.cloud/health-check-retries: "3"
   # NOTE: ports 30080/30443 (not 80/443) — even with hostNetwork=true,
   # cilium-envoy refuses to bind privileged ports because cilium-agent
   # gates that bind through its `envoy-keep-cap-netbindservice` flag and
