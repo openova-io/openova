@@ -321,6 +321,42 @@ egressTest:
 status:
   configMapName: "self-sovereign-cutover-status"
 
+# Gateway readiness gate (issue #1871, chart 0.1.32).
+#
+# Step-06 (helmrepository-patches) rewrites every HelmRepository URL
+# `oci://ghcr.io/openova-io` → `oci://registry.<sov-fqdn>/openova-io`.
+# That rewrite MUST NOT fire until the Cilium Gateway in `kube-system`
+# is `Programmed=True` (= listener bound to `*.<sov-fqdn>:443` with a
+# valid TLS cert). Without the wait, source-controller's very next
+# pull hits TLS handshake EOF against `registry.<sov-fqdn>` and the
+# whole bootstrap-kit Kustomization deadlocks — see Chart.yaml 0.1.32
+# header for the full chicken-and-egg chain (t26 99bb823cb0513f4b
+# A55 diagnostic).
+#
+# The wait is implemented inside the Step-06 Job (Phase -1) rather
+# than as a Flux HelmRelease `dependsOn` because dependsOn can only
+# reference other HelmReleases — sovereign-tls is a Kustomization, so
+# the previous attempt (PR #1875) was an unresolvable cross-kind
+# reference and helm-controller logged
+# `helmreleases.helm.toolkit.fluxcd.io "sovereign-tls" not found`
+# forever (A84 empirical test on t27).
+gateway:
+  # The single per-Sovereign Gateway lives in `kube-system` — installed
+  # by `clusters/_template/sovereign-tls/cilium-gateway.yaml`. Every
+  # other bootstrap-kit HTTPRoute (gitea, auth, grafana, harbor, openbao,
+  # powerdns, console/catalyst-platform) attaches here; this is the same
+  # Gateway whose TLS listener Step-06 implicitly depends on.
+  namespace: "kube-system"
+  name: "cilium-gateway"
+  # 30 min covers the slowest observed cold-start (Hetzner ≈18 min:
+  # bootstrap-kit Ks reconcile → sovereign-tls Ks reconcile → cert-
+  # manager issues wildcard cert → cilium-agent wires listener) with
+  # comfortable headroom. Exceeding the timeout exits the Job with a
+  # clear failure (NOT exit-0-and-continue) — better to surface the
+  # Gateway block to operators than silently rewrite URLs that won't
+  # answer.
+  waitTimeoutSeconds: 1800
+
 # Per-step Job-stamp tuning. Each value lands inside the corresponding
 # PodSpec ConfigMap; catalyst-api copies it onto the stamped Job.
 stepTimeouts:
