@@ -685,7 +685,11 @@ spec:
       # strategy-flip-regression CI workflow on every PR that
       # touches `api-deployment.yaml`. Zero behavioural change at
       # runtime.
-      version: 1.4.202
+      # 1.4.203 (Refs #1949, TBD-A58, D-BSS): add
+      # /api/v1/sme/bss/overview handler so the BSS landing renders
+      # real zeros (full target-state surface) instead of the "API
+      # pending" pill caused by the pre-fix 404.
+      version: 1.4.203
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
