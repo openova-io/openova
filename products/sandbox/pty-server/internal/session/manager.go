@@ -62,6 +62,27 @@ func (m *Manager) Create(spec Spec) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
+	return m.createWithID(id, spec)
+}
+
+// CreateWithID spawns a Session and registers it under the supplied
+// id. Used by the lazy-spawn-on-attach path (TBD-P4 B3) where the
+// id is the Sandbox CRD name carried in the WS URL, NOT a pty-server-
+// minted hex string. Returns an error if the id is already in use.
+func (m *Manager) CreateWithID(id string, spec Spec) (*Session, error) {
+	if id == "" {
+		return nil, errors.New("session: empty id")
+	}
+	m.mu.RLock()
+	_, exists := m.sessions[id]
+	m.mu.RUnlock()
+	if exists {
+		return nil, errors.New("session: id already exists")
+	}
+	return m.createWithID(id, spec)
+}
+
+func (m *Manager) createWithID(id string, spec Spec) (*Session, error) {
 	s, err := New(id, spec)
 	if err != nil {
 		return nil, err
