@@ -1,7 +1,14 @@
-# ProviderConfig for provider-hcloud. Token source = the K8s secret
-# `hcloud-credentials` in `crossplane-system`, which the OpenTofu module's
-# cloud-init writes at Phase-0 time so Crossplane can adopt resources
-# immediately after install.
+# ProviderConfig for provider-hcloud (Refs #1947).
+#
+# Stays in lockstep with clusters/_template/infrastructure/provider-config-hcloud.yaml —
+# Flux's infrastructure-config Kustomization (planted by
+# infra/hetzner/cloudinit-control-plane.tftpl) points at `_template/`,
+# so this per-cluster overlay is legacy/inert. Kept correct so future
+# operators don't copy a broken reference forward.
+#
+# Secret seam (matches cloudinit-control-plane.tftpl line ~440 + ~527):
+#   - name `cloud-credentials` in `flux-system` namespace
+#   - key `hcloud-token`
 apiVersion: hcloud.crossplane.io/v1beta1
 kind: ProviderConfig
 metadata:
@@ -10,6 +17,6 @@ spec:
   credentials:
     source: Secret
     secretRef:
-      namespace: crossplane-system
-      name: hcloud-credentials
-      key: token
+      namespace: flux-system
+      name: cloud-credentials
+      key: hcloud-token
