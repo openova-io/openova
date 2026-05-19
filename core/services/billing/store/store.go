@@ -1019,6 +1019,96 @@ func (s *Store) RedeemPromoCode(ctx context.Context, customerID, code string) (i
 	return credit, nil
 }
 
+// RollbackPromoCodeRedemption is the compensating action for RedeemPromoCode.
+// TBD-V9 (#2000): Checkout commits the voucher redemption in its own
+// transaction up front (needed for the FOR UPDATE concurrency cap), then runs
+// downstream steps (Stripe-settings probe, order INSERT, Stripe session
+// creation). If any downstream step fails — most importantly the
+// "payment processor not configured" 503 — the voucher counter would
+// previously stay advanced even though no order was placed. The customer's
+// "one-per-customer" promo would be silently burned with nothing to show for
+// it; the admin's redemption cap accounting would diverge from reality.
+//
+// This rollback undoes all three side-effects of RedeemPromoCode in a single
+// transaction:
+//   - decrement promo_codes.times_redeemed (guarded against underflow)
+//   - delete the promo_redemptions row for this (customer, code) pair
+//   - delete the credit_ledger row written by the redeem (reason='promo:<code>',
+//     order_id IS NULL — the redeem ledger row never references an order)
+//
+// Idempotency (TBD-V9): callers safely invoke this on every Checkout failure
+// branch without first checking whether RedeemPromoCode actually ran. If
+// nothing was redeemed (or the rollback already executed), the SQL DELETE +
+// conditional UPDATE no-op and the function returns nil. Re-running a failed
+// order can never double-decrement.
+//
+// The compensating tx is best-effort from the caller's perspective: if it
+// fails the original Checkout error (503 etc.) is the one returned to the
+// client. We log the rollback failure with WARN-level — it's the only signal
+// an operator has that manual reconciliation may be needed for that voucher.
+func (s *Store) RollbackPromoCodeRedemption(ctx context.Context, customerID, code string) error {
+	if customerID == "" || code == "" {
+		return nil
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("store: begin rollback tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	// 1. Delete the redemption row first. If it doesn't exist (idempotent
+	//    re-entry), we have nothing to undo — short-circuit so a stray
+	//    rollback never decrements times_redeemed without a matching
+	//    redemption.
+	res, err := tx.ExecContext(ctx,
+		`DELETE FROM promo_redemptions WHERE customer_id = $1 AND code = $2`,
+		customerID, code,
+	)
+	if err != nil {
+		return fmt.Errorf("store: rollback delete redemption: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("store: rollback redemption rows-affected: %w", err)
+	}
+	if n == 0 {
+		// No redemption row → nothing to roll back. Idempotent no-op.
+		return tx.Commit()
+	}
+
+	// 2. Decrement times_redeemed. The GREATEST(...,0) guard ensures we never
+	//    drive the counter negative in the event of a race where a parallel
+	//    rollback already ran.
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE promo_codes
+		   SET times_redeemed = GREATEST(times_redeemed - 1, 0)
+		 WHERE code = $1`,
+		code,
+	); err != nil {
+		return fmt.Errorf("store: rollback decrement times_redeemed: %w", err)
+	}
+
+	// 3. Remove the credit ledger entry written by the redeem. The redeem
+	//    ledger row is the one with reason='promo:<code>' and a NULL
+	//    order_id; any spend rows tied to actual orders have order_id set
+	//    and are NOT touched by this DELETE.
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM credit_ledger
+		  WHERE customer_id = $1
+		    AND reason = $2
+		    AND order_id IS NULL`,
+		customerID, "promo:"+code,
+	); err != nil {
+		return fmt.Errorf("store: rollback delete credit: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("store: commit rollback: %w", err)
+	}
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // Credit Ledger
 // ---------------------------------------------------------------------------

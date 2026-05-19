@@ -169,6 +169,30 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 	// Redeem promo code → credit (if one was provided and valid). Runs only
 	// after the total has been computed successfully, so a catalog failure
 	// cannot burn a redemption slot (#93).
+	//
+	// TBD-V9 (#2000): voucher redemption MUST be transactionally tied to
+	// order placement. Track `voucherRedeemed` so any downstream failure
+	// (GetCreditBalance error, "payment processor not configured" 503,
+	// CreateOrder failure, Stripe customer / session creation failure)
+	// compensates by calling RollbackPromoCodeRedemption — undoing the
+	// times_redeemed bump, the promo_redemptions row, and the credit
+	// ledger grant. The voucher counter only stays advanced once the
+	// downstream order.placed event is actually dispatched (credit-only
+	// settlement) or once the Stripe Checkout Session has been created
+	// for the user to complete (Stripe path — webhook handles the rest).
+	var voucherRedeemed bool
+	rollbackVoucher := func(reason string) {
+		if !voucherRedeemed {
+			return
+		}
+		if err := h.Store.RollbackPromoCodeRedemption(ctx, cust.ID, req.PromoCode); err != nil {
+			slog.Warn("checkout: voucher rollback failed — manual reconciliation may be needed",
+				"customer_id", cust.ID, "code", req.PromoCode, "reason", reason, "error", err)
+			return
+		}
+		slog.Info("checkout: voucher redemption rolled back",
+			"customer_id", cust.ID, "code", req.PromoCode, "reason", reason)
+	}
 	if req.PromoCode != "" {
 		credit, redeemErr := h.Store.RedeemPromoCode(ctx, cust.ID, req.PromoCode)
 		if redeemErr != nil {
@@ -178,6 +202,7 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 			respond.Error(w, http.StatusBadRequest, "invalid promo code: "+redeemErr.Error())
 			return
 		}
+		voucherRedeemed = true
 		slog.Info("checkout: promo redeemed",
 			"customer_id", cust.ID, "code", req.PromoCode, "credit_omr", credit)
 	}
@@ -186,6 +211,7 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 	creditBalance, err := h.Store.GetCreditBalance(ctx, cust.ID)
 	if err != nil {
 		slog.Error("checkout: credit balance", "error", err)
+		rollbackVoucher("get-credit-balance-failed")
 		respond.Error(w, http.StatusInternalServerError, "failed to check credit balance")
 		return
 	}
@@ -219,9 +245,12 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := h.Store.CreditOnlyCheckout(ctx, order, sub); err != nil {
 			slog.Error("checkout: credit-only checkout", "error", err)
+			rollbackVoucher("credit-only-checkout-failed")
 			respond.Error(w, http.StatusInternalServerError, "failed to complete credit-only checkout")
 			return
 		}
+		// Voucher redemption is now "committed" — order is in the DB and
+		// the order.placed event is about to fire. No further rollback.
 		h.dispatchOrderPlaced(req.TenantID, order)
 
 		slog.Info("checkout: settled from credit (no Stripe)",
@@ -239,10 +268,17 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 	settings, err := h.Store.GetSettings(ctx)
 	if err != nil {
 		slog.Error("checkout: get settings", "error", err)
+		rollbackVoucher("get-settings-failed")
 		respond.Error(w, http.StatusInternalServerError, "failed to load billing settings")
 		return
 	}
 	if settings.StripeSecretKey == "" {
+		// TBD-V9 (#2000): this is the canonical t38 walk failure mode —
+		// voucher gets redeemed, total still exceeds credit, Stripe is
+		// unconfigured, 503 fires, customer sees no order placed. The
+		// rollback below is what makes the redemption transactional with
+		// the order rather than a side-effect that survives the failure.
+		rollbackVoucher("payment-processor-not-configured")
 		respond.Error(w, http.StatusServiceUnavailable,
 			"payment processor is not configured yet. Please contact support or use a promo code that covers the full amount.")
 		return
@@ -257,6 +293,7 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.Store.CreateOrder(ctx, order); err != nil {
 		slog.Error("checkout: create order", "error", err)
+		rollbackVoucher("create-order-failed")
 		respond.Error(w, http.StatusInternalServerError, "failed to create order")
 		return
 	}
@@ -270,6 +307,7 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 		sc, err := stripecustomer.New(cp)
 		if err != nil {
 			slog.Error("checkout: create stripe customer", "error", err)
+			rollbackVoucher("stripe-customer-rejected")
 			respond.Error(w, http.StatusBadGateway, "payment processor rejected the request: "+err.Error())
 			return
 		}
@@ -282,6 +320,7 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 	priceID, err := h.resolvePlanStripePriceID(ctx, req.PlanID)
 	if err != nil {
 		slog.Error("checkout: resolve stripe price", "error", err, "plan_id", req.PlanID)
+		rollbackVoucher("plan-price-unresolvable")
 		respond.Error(w, http.StatusBadRequest, "plan not configured for payment: "+err.Error())
 		return
 	}
@@ -303,9 +342,17 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 	sess, err := checkoutsession.New(params)
 	if err != nil {
 		slog.Error("checkout: create stripe session", "error", err)
+		rollbackVoucher("stripe-session-rejected")
 		respond.Error(w, http.StatusBadGateway, "payment processor rejected the request: "+err.Error())
 		return
 	}
+	// Voucher redemption is now "committed" in the Stripe sense — the
+	// Checkout Session URL is being handed back to the customer. From this
+	// point, the redemption persists; if the customer abandons the session
+	// or Stripe declines, the credit (already on the ledger from
+	// RedeemPromoCode) stays on the customer's account and can be applied
+	// to a subsequent order, mirroring how Stripe abandoned-cart credits
+	// are conventionally handled.
 	_ = h.Store.UpdateOrderStatus(ctx, order.ID, "pending", sess.ID)
 
 	respond.OK(w, checkoutResponse{SessionURL: sess.URL, OrderID: order.ID, CreditBalance: creditBalance})
