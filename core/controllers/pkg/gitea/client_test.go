@@ -1197,3 +1197,80 @@ func TestCreatePullRequest_409ReFetchesExisting(t *testing.T) {
 		t.Errorf("re-fetched PR head/base wrong: %+v", pr)
 	}
 }
+
+// TestCreateOrg_HitsOrgsEndpointWithAuth — explicit regression test for
+// issue #1997 (TBD-A68 followup of PR #1910 / issue #1906). On t38 the
+// organization-controller looped on
+//
+//	gitea.EnsureOrg: create: gitea: POST http://gitea.../api/v1/admin/orgs: HTTP 405
+//
+// even after PR #1910 fixed the gitea client source — because the
+// chart's controllers.organization.image.tag was frozen at 72e3f08
+// (no auto-bump step in build-organization-controller.yaml) so the
+// running Pod predated the fix. This test ASSERTS the canonical wire-
+// level invariants so the bug cannot silently regress regardless of
+// the deploy pipeline state:
+//
+//  1. CreateOrg POSTs `/api/v1/orgs` exactly once (never the legacy
+//     `/api/v1/admin/orgs` which returns 405 on Gitea 1.22+).
+//  2. The request carries `Authorization: token <hex>` — Gitea's
+//     canonical admin-token auth scheme. Without this header, even the
+//     correct endpoint returns 405 (Gitea's router treats the
+//     unauthenticated POST as "method not allowed for anonymous
+//     visitors").
+//
+// Coverage rationale: the existing TestEnsureOrg_CreatesWhenMissing
+// covers the happy path through fakeGitea which already rejects empty
+// auth via its 401 stub (client_test.go:66-69). This standalone test
+// additionally pins the exact endpoint string + the exact Authorization
+// header VALUE so a refactor cannot accidentally switch the URL or
+// drop the token prefix.
+func TestCreateOrg_HitsOrgsEndpointWithAuth(t *testing.T) {
+	t.Parallel()
+	var (
+		gotPath string
+		gotAuth string
+		hits    int
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Regression guard: any request to the legacy admin route is a
+		// hard test failure. Gitea 1.22+ returns 405 on this path which
+		// is exactly the symptom of #1997 in the wild.
+		if strings.HasPrefix(r.URL.Path, "/api/v1/admin/orgs") {
+			t.Errorf("client used legacy /api/v1/admin/orgs route — must POST /api/v1/orgs (Gitea 1.22+ returns 405 on admin/orgs)")
+			http.Error(w, "405 admin/orgs is the bug", http.StatusMethodNotAllowed)
+			return
+		}
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/orgs" {
+			http.Error(w, "unhandled "+r.Method+" "+r.URL.Path, http.StatusInternalServerError)
+			return
+		}
+		hits++
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+		_ = json.NewEncoder(w).Encode(Org{ID: 42, Username: "acme"})
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "deadbeefcafef00d")
+	c.HTTP = srv.Client()
+
+	out, err := c.CreateOrg(context.Background(), "acme", "ACME", "desc", "private")
+	if err != nil {
+		t.Fatalf("CreateOrg: %v", err)
+	}
+	if out.ID != 42 || out.Username != "acme" {
+		t.Errorf("CreateOrg returned unexpected Org: %+v", out)
+	}
+
+	// Wire-level assertions: exact endpoint, exact auth scheme.
+	if hits != 1 {
+		t.Errorf("expected 1 POST hit, got %d", hits)
+	}
+	if gotPath != "/api/v1/orgs" {
+		t.Errorf("endpoint: got %q, want %q", gotPath, "/api/v1/orgs")
+	}
+	if want := "token deadbeefcafef00d"; gotAuth != want {
+		t.Errorf("Authorization header: got %q, want %q", gotAuth, want)
+	}
+}
