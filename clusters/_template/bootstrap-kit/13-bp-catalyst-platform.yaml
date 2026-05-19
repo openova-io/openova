@@ -736,7 +736,17 @@ spec:
       # `marketplace.<global.sovereignFQDN>` so every tenant request
       # stays on its own Sovereign instead of bouncing to the
       # mothership marketplace. Catalyst-Zero render byte-identical.
-      version: 1.4.212
+      # 1.4.213 — TBD-A68 follow-up / #1997 (2026-05-20): bump the
+      # organization-controller image pin from the 2026-05-10
+      # `72e3f08` to `c9b58ea` so the chart ships PR #1910's
+      # gitea-client fix (POST /api/v1/orgs, not /api/v1/admin/orgs).
+      # Pre-fix on t38 the controller logged `POST /api/v1/admin/orgs
+      # HTTP 405` every 30s and tenant Organization CRs were stuck
+      # Ready=False/GiteaOrgFailed. Pure pin bump, no code in this
+      # PR; the code fix is upstream in #1910. The CI auto-bump-
+      # images job skipped controller images (TBD-A69 follow-up
+      # tracks closing that gap).
+      version: 1.4.213
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

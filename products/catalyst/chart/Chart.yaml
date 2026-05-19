@@ -1,5 +1,25 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.213 — TBD-A68 / #1997 (2026-05-20): bump organization-controller
+# image pin 72e3f08 → c9b58ea so the chart actually ships PR #1910's
+# gitea-client fix (POST /api/v1/orgs instead of the admin-only
+# /api/v1/admin/orgs route that returns HTTP 405 to the in-cluster SA).
+# Pre-fix on t38 (2026-05-19 21:41Z, chart 1.4.211): two Organization
+# CRs walkdemo38 + walk-t38-2138 stuck Ready=False/GiteaOrgFailed
+# with `POST .../api/v1/admin/orgs: HTTP 405` in the message, and
+# organization-controller logs spewing the same 405 every 30s.
+# Root cause was deployment-time, not code: PR #1910 merged to main
+# on 2026-05-19 03:59Z and the build-organization-controller workflow
+# produced fresh images (f442c28, then c9b58ea), but the chart's pin
+# at products/catalyst/chart/values.yaml:369 was never updated. The
+# CI auto-bump-images job covers SME images only; controller images
+# fall through the gap (TBD-A69 follow-up tracks closing that gap so
+# this class of stale-pin bug stops happening). This bump is a pure
+# pin update — no code change in this PR; the code fix is upstream in
+# #1910. Validation: `helm template products/catalyst/chart | grep
+# organization-controller` shows c9b58ea, not 72e3f08; post-deploy
+# controller logs show `POST /orgs 201`, the two stuck Organization
+# CRs on t38 auto-recover.
 # 1.4.212 — TBD-A68 (issue #1994, 2026-05-19): purge five `.openova.io`
 # leaks that sent tenant users to the mothership instead of THEIR
 # Sovereign. Five surgical fixes:
@@ -1831,8 +1851,8 @@ name: bp-catalyst-platform
 # was already shipped on 1.4.197 (PR #1820 lineage); this completes
 # the data-layer side so the dropdown finally appears on multi-region
 # Sovereigns. Refs #1821, DoD D20.
-version: 1.4.212
-appVersion: 1.4.212
+version: 1.4.213
+appVersion: 1.4.213
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
 # TBD-A30). Pre-1.4.183 every catalyst-system HTTPRoute pinned
