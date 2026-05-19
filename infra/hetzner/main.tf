@@ -377,6 +377,44 @@ locals {
   # quoting hell when the listener data contains characters cloud-init
   # YAML would otherwise mis-parse.
   parent_domains_single_zone = length(local.parent_domains_decoded) == 1
+
+  # Per-prov dashed FQDN, e.g. "t28.omani.works" → "t28-omani-works".
+  # This is the SAME suffix clusters/_template/sovereign-tls/cilium-gateway-
+  # cert.yaml uses for its per-prov Certificate (`sovereign-wildcard-tls-
+  # ${SOVEREIGN_FQDN_DASHED}`) and the same one cilium-envoy-tls-restart-
+  # job.yaml grants the cert-manager CSR-signing job RBAC for. Keeping a
+  # single named local here so every listener block stays in lockstep with
+  # the cert resource without re-deriving the dashed form inline.
+  sovereign_fqdn_dashed = replace(var.sovereign_fqdn, ".", "-")
+
+  # TBD-A29 (issue #1883) — wildcard cert LE rate-limit on parent zone.
+  # Each listener's certificateRefs now points at the PER-PROV cert
+  # (`sovereign-wildcard-tls-${SOVEREIGN_FQDN_DASHED}`) rendered by
+  # clusters/_template/sovereign-tls/cilium-gateway-cert.yaml, NOT the
+  # parent-zone wildcard `sovereign-wildcard-tls-<sanitised(parent)>`
+  # the chart's templates/sovereign-wildcard-certs.yaml used to mint.
+  #
+  # Why: Let's Encrypt's "5 New Certificates per Exact Set of Identifiers
+  # per 168h" caps the parent-zone identifier set `[*.omani.works,
+  # omani.works]` across EVERY prov on that parent. After ~5 wipe+reprov
+  # cycles on omani.works the Gateway listener pinned to a `Ready=False`
+  # Certificate (cert-manager spun the order forever, LE returned
+  # `urn:ietf:params:acme:error:rateLimited`). Per-prov identifier sets
+  # (`[console.t28.omani.works, auth.t28.omani.works, ...]`) get their
+  # OWN 5/168h bucket per Sovereign, so reprovs no longer share the LE
+  # ceiling with sibling Sovereigns under the same parent zone. This is
+  # the same per-name model the legacy cilium-gateway-cert.yaml already
+  # codified in 2026-05-15 — the listener was the last piece still
+  # tied to the parent-zone wildcard.
+  #
+  # Hostname semantics: the listener hostname stays `*.<parent>` so any
+  # FQDN under the parent matches the listener selector. cilium-envoy's
+  # SNI dispatch picks the per-prov cert whose SAN list includes the
+  # requested hostname (`console.<sovereign-fqdn>`, `auth.<sovereign-
+  # fqdn>`, etc., per the explicit SAN list in cilium-gateway-cert.yaml).
+  # Tenant URLs under non-primary parent zones (e.g. wp-foo.omani.homes)
+  # remain out of scope here — that path needs explicit per-tenant
+  # cert wiring under #831, not parent-zone wildcards.
   parent_domains_listeners_yaml = jsonencode(flatten([
     for entry in local.parent_domains_decoded : [
       {
@@ -389,7 +427,7 @@ locals {
           certificateRefs = [
             {
               kind = "Secret"
-              name = format("sovereign-wildcard-tls-%s", replace(entry.name, ".", "-"))
+              name = format("sovereign-wildcard-tls-%s", local.sovereign_fqdn_dashed)
             }
           ]
         }
