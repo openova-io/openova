@@ -224,6 +224,41 @@ func TestDefaultKinds_GraphAndDashboardSurface(t *testing.T) {
 	}
 }
 
+// TestDefaultKinds_OpenovaCRDsPinnedToStorageVersion guards against a
+// regression of TBD-A54 (#1946) where the dashboard k8scache watcher's
+// GVR (`apps.openova.io/v1alpha1`) drifted out of sync with the CRD
+// served version (`v1`). A mismatch returns zero events from the
+// apiserver — the watcher silently stalls and the `/apps`,
+// `/blueprints`, `/organizations`, `/environments` pages stay empty.
+//
+// The CRDs shipped at products/catalyst/chart/crds/{application,
+// blueprint, organization, environment}.yaml all expose v1 as the
+// storage version. If the chart ever flips one back to v1alpha1 the
+// kind registry MUST be updated in the same PR. This test fails fast
+// if a future edit re-introduces the drift.
+func TestDefaultKinds_OpenovaCRDsPinnedToStorageVersion(t *testing.T) {
+	r := NewRegistry()
+	for _, k := range DefaultKinds {
+		_ = r.Add(k)
+	}
+	want := map[string]schema.GroupVersionResource{
+		"application":  {Group: "apps.openova.io", Version: "v1", Resource: "applications"},
+		"blueprint":    {Group: "catalyst.openova.io", Version: "v1", Resource: "blueprints"},
+		"organization": {Group: "orgs.openova.io", Version: "v1", Resource: "organizations"},
+		"environment":  {Group: "catalyst.openova.io", Version: "v1", Resource: "environments"},
+	}
+	for name, wantGVR := range want {
+		got, ok := r.Get(name)
+		if !ok {
+			t.Errorf("DefaultKinds missing %q — required by EPIC-2 (#1097) read surface", name)
+			continue
+		}
+		if got.GVR != wantGVR {
+			t.Errorf("%s GVR drift (#1946): got %v, want %v — must match storage version of CRD at products/catalyst/chart/crds/%s.yaml", name, got.GVR, wantGVR, name)
+		}
+	}
+}
+
 func TestRegistry_AllAndNames(t *testing.T) {
 	r := NewRegistry()
 	for _, k := range DefaultKinds {
