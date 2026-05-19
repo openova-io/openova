@@ -24,7 +24,7 @@
  * CI-wiring contract in .github/workflows/cosmetic-guards.yaml.
  */
 
-import { test, expect, type Page, type Locator } from '@playwright/test'
+import { test, expect, type Page, type Locator, type Route } from '@playwright/test'
 
 /* ──────────────────────────────────────────────────────────────────
  * Canonical references (single source of truth in this file)
@@ -245,6 +245,302 @@ async function averageLuminance(locator: Locator): Promise<number> {
       URL.revokeObjectURL(url)
     }
   }, Array.from(buf))
+}
+
+/* ──────────────────────────────────────────────────────────────────
+ * Provision-page API mocks (issue #1956 PR β)
+ *
+ * The /provision/test-deployment-id/* tests below run against a
+ * literal, fictional deployment id — the catalyst-api never serves
+ * data for it, so without these route stubs the page chrome paints
+ * but every inner widget (admin sidebar, AppDetail sections, JobsPage,
+ * FlowPage, batch chip, JobDetail tabs) renders empty / loading /
+ * error and its canonical testids never appear.
+ *
+ * The mocks below cover the exact surface every cat-B test relies on:
+ *
+ *   • GET /api/v1/whoami                                — auth probe
+ *   • GET /api/v1/sovereign/self                        — chroot self-resolve
+ *   • GET /api/v1/tenant/discover                       — sovereign-mode boot
+ *   • GET /api/v1/deployments/test-deployment-id        — canonical record
+ *   • GET /api/v1/deployments/test-deployment-id/events — history slice
+ *   • GET /api/v1/deployments/test-deployment-id/logs   — SSE channel (empty)
+ *   • GET /api/v1/deployments/test-deployment-id/jobs   — backfill / jobs table
+ *   • GET /api/v1/flows/test-deployment-id/snapshot     — flow canvas seed
+ *   • GET /api/v1/flows/test-deployment-id/stream       — flow SSE (empty)
+ *
+ * The jobs payload includes one bp-cilium leaf so JobsTable surfaces
+ * the canonical row + batch chip + parent column the tests assert.
+ *
+ * Wire shapes mirror products/openova-flow/CONTRACT.md +
+ * src/pages/sovereign/useDeploymentEvents.ts DeploymentSnapshot +
+ * src/lib/jobs.types.ts Job verbatim — see those files for field
+ * semantics.
+ * ────────────────────────────────────────────────────────────────── */
+
+const PROVISION_FIXTURE_DEPLOYMENT_ID = 'test-deployment-id'
+const PROVISION_FIXTURE_FQDN = 'test.example.test'
+
+/** Canonical deployment record returned for the fixture id. */
+function provisionFixtureDeployment() {
+  return {
+    id: PROVISION_FIXTURE_DEPLOYMENT_ID,
+    deploymentId: PROVISION_FIXTURE_DEPLOYMENT_ID,
+    status: 'ready',
+    sovereignFQDN: PROVISION_FIXTURE_FQDN,
+    region: 'fsn1',
+    componentStates: {
+      cilium: 'installed',
+      'cert-manager': 'installed',
+      temporal: 'installed',
+    },
+    phase1Outcome: 'ready',
+    phase1FinishedAt: '2026-05-19T12:00:00Z',
+    // adoptedAt is intentionally OMITTED so maybeRedirectToCustomerConsole
+    // does NOT redirect — keeps the operator on the mothership page so
+    // the cosmetic-guard testids paint here.
+    result: {
+      sovereignFQDN: PROVISION_FIXTURE_FQDN,
+      controlPlaneIP: '203.0.113.10',
+      loadBalancerIP: '203.0.113.20',
+      consoleURL: `https://console.${PROVISION_FIXTURE_FQDN}/`,
+      gitopsRepoURL: 'https://gitops.example.test/test',
+      componentStates: {
+        cilium: 'installed',
+        'cert-manager': 'installed',
+        temporal: 'installed',
+      },
+      phase1Outcome: 'ready',
+      phase1FinishedAt: '2026-05-19T12:00:00Z',
+    },
+  }
+}
+
+/** Canonical jobs list — one bp-cilium leaf for JobsTable / chip / detail. */
+function provisionFixtureJobs() {
+  return {
+    jobs: [
+      {
+        id: `${PROVISION_FIXTURE_DEPLOYMENT_ID}:bootstrap-kit`,
+        jobName: 'bootstrap-kit',
+        displayName: 'Bootstrap',
+        type: 'group',
+        appId: '',
+        parentId: '',
+        dependsOn: [],
+        childIds: [`${PROVISION_FIXTURE_DEPLOYMENT_ID}:bp-cilium`],
+        status: 'succeeded',
+        startedAt: '2026-05-19T11:55:00Z',
+        finishedAt: '2026-05-19T11:58:00Z',
+        durationMs: 180_000,
+      },
+      {
+        id: `${PROVISION_FIXTURE_DEPLOYMENT_ID}:bp-cilium`,
+        jobName: 'bp-cilium',
+        displayName: 'Install Cilium',
+        type: 'install',
+        appId: 'cilium',
+        parentId: `${PROVISION_FIXTURE_DEPLOYMENT_ID}:bootstrap-kit`,
+        dependsOn: [],
+        childIds: [],
+        status: 'succeeded',
+        startedAt: '2026-05-19T11:55:00Z',
+        finishedAt: '2026-05-19T11:58:00Z',
+        durationMs: 180_000,
+      },
+      {
+        id: `${PROVISION_FIXTURE_DEPLOYMENT_ID}:bp-temporal`,
+        jobName: 'bp-temporal',
+        displayName: 'Install Temporal',
+        type: 'install',
+        appId: 'temporal',
+        parentId: `${PROVISION_FIXTURE_DEPLOYMENT_ID}:bootstrap-kit`,
+        dependsOn: [`${PROVISION_FIXTURE_DEPLOYMENT_ID}:bp-cilium`],
+        childIds: [],
+        status: 'succeeded',
+        startedAt: '2026-05-19T11:58:00Z',
+        finishedAt: '2026-05-19T11:59:30Z',
+        durationMs: 90_000,
+      },
+    ],
+  }
+}
+
+/**
+ * Install all catalyst-api / openova-flow route mocks needed by the
+ * /provision/test-deployment-id/* describe blocks below. Idempotent —
+ * calling it twice on the same page is harmless (Playwright dedupes).
+ */
+async function mockProvisionDeploymentAPI(page: Page): Promise<void> {
+  // Auth / identity probes.
+  await page.route('**/api/v1/whoami', async (route: Route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        email: 'operator@example.test',
+        sub: 'kc-operator-uid',
+        verified: true,
+      }),
+    })
+  })
+
+  await page.route('**/api/v1/sovereign/self', async (route: Route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        deploymentId: PROVISION_FIXTURE_DEPLOYMENT_ID,
+        sovereignFQDN: PROVISION_FIXTURE_FQDN,
+      }),
+    })
+  })
+
+  // Tenant discovery — sme-tier-rbac.spec uses the mother kind to boot
+  // the SPA past its tenant-detection gate.
+  await page.route(/.*\/api\/v1\/tenant\/discover.*/, async (route: Route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ kind: 'mother' }),
+    })
+  })
+
+  // /events MUST be more specific than /deployments/<id> below — order
+  // matters in Playwright's first-match routing. We register the longer
+  // sub-paths first.
+  await page.route(
+    `**/api/v1/deployments/${PROVISION_FIXTURE_DEPLOYMENT_ID}/events`,
+    async (route: Route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          events: [],
+          state: provisionFixtureDeployment(),
+          done: true,
+        }),
+      })
+    },
+  )
+
+  await page.route(
+    `**/api/v1/deployments/${PROVISION_FIXTURE_DEPLOYMENT_ID}/logs`,
+    async (route: Route) => {
+      // SSE EventSource — empty 200 text/event-stream. The page tolerates
+      // an empty stream because /events already returned `done: true`.
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: '',
+      })
+    },
+  )
+
+  await page.route(
+    `**/api/v1/deployments/${PROVISION_FIXTURE_DEPLOYMENT_ID}/jobs`,
+    async (route: Route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(provisionFixtureJobs()),
+      })
+    },
+  )
+
+  // Catch-all for any /deployments/<id>/<anything> subpath that isn't
+  // matched above (e.g. infrastructure / topology / users / settings)
+  // so widgets that probe those endpoints don't 404 → unhandled-rejection.
+  await page.route(
+    new RegExp(
+      `.*/api/v1/deployments/${PROVISION_FIXTURE_DEPLOYMENT_ID}/[^?]+`,
+    ),
+    async (route: Route) => {
+      // Reply with an empty object — every consumer treats missing fields
+      // as the pending state, so this never fakes a positive signal.
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({}),
+      })
+    },
+  )
+
+  // Bare /deployments/<id> — canonical record. Matches the redirect
+  // probe in router.tsx (maybeRedirectToCustomerConsole) and the
+  // useDeploymentEvents poll-after-SSE-drop path.
+  await page.route(
+    new RegExp(
+      `.*/api/v1/deployments/${PROVISION_FIXTURE_DEPLOYMENT_ID}$`,
+    ),
+    async (route: Route) => {
+      if (route.request().method() !== 'GET') {
+        await route.continue()
+        return
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(provisionFixtureDeployment()),
+      })
+    },
+  )
+
+  // OpenovaFlow snapshot + stream. The snapshot is what feeds the
+  // FlowCanvasOrganic's `layout.nodes` array — emit one bp-cilium node
+  // so the canvas renders <svg data-testid="flow-canvas-svg"> instead
+  // of the data-testid="flow-canvas-empty" placeholder.
+  await page.route(
+    `**/api/v1/flows/${PROVISION_FIXTURE_DEPLOYMENT_ID}/snapshot`,
+    async (route: Route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          type: 'snapshot',
+          flow: {
+            id: PROVISION_FIXTURE_DEPLOYMENT_ID,
+            definitionId: 'sovereign-bootstrap',
+            startedAt: '2026-05-19T11:55:00Z',
+            endedAt: '2026-05-19T11:59:30Z',
+            status: 'succeeded',
+          },
+          nodes: [
+            {
+              id: 'bootstrap-kit',
+              kind: 'batch',
+              label: 'Bootstrap',
+              status: 'succeeded',
+              startedAt: '2026-05-19T11:55:00Z',
+              endedAt: '2026-05-19T11:58:00Z',
+            },
+            {
+              id: 'bp-cilium',
+              kind: 'job',
+              label: 'Cilium',
+              status: 'succeeded',
+              startedAt: '2026-05-19T11:55:00Z',
+              endedAt: '2026-05-19T11:58:00Z',
+            },
+          ],
+          relationships: [
+            { fromId: 'bootstrap-kit', toId: 'bp-cilium', type: 'parent-of' },
+          ],
+        }),
+      })
+    },
+  )
+
+  await page.route(
+    `**/api/v1/flows/${PROVISION_FIXTURE_DEPLOYMENT_ID}/stream`,
+    async (route: Route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: '',
+      })
+    },
+  )
 }
 
 /* ──────────────────────────────────────────────────────────────────
@@ -657,6 +953,10 @@ test.describe('@cosmetic-guard wizard step flow', () => {
  * ────────────────────────────────────────────────────────────────── */
 
 test.describe('@cosmetic-guard provision page', () => {
+  test.beforeEach(async ({ page }) => {
+    await mockProvisionDeploymentAPI(page)
+  })
+
   test('Launch navigates to /provision/<id> as a SPA route (no .html)', async ({
     page,
   }) => {
@@ -703,6 +1003,10 @@ test.describe('@cosmetic-guard provision page', () => {
  * ────────────────────────────────────────────────────────────────── */
 
 test.describe('@cosmetic-guard admin sidebar parity', () => {
+  test.beforeEach(async ({ page }) => {
+    await mockProvisionDeploymentAPI(page)
+  })
+
   test('Sovereign admin sidebar is w-56 and mirrors core/console nav labels', async ({ page }) => {
     await page.goto('provision/test-deployment-id')
     await page.waitForLoadState('domcontentloaded')
@@ -740,6 +1044,10 @@ test.describe('@cosmetic-guard admin sidebar parity', () => {
  * ────────────────────────────────────────────────────────────────── */
 
 test.describe('@cosmetic-guard app-detail layout', () => {
+  test.beforeEach(async ({ page }) => {
+    await mockProvisionDeploymentAPI(page)
+  })
+
   test('AppDetail renders the canonical sections (Jobs is now also a tab — issue #204)', async ({ page }) => {
     await page.goto('provision/test-deployment-id/app/temporal')
     await page.waitForLoadState('domcontentloaded')
@@ -788,6 +1096,10 @@ test.describe('@cosmetic-guard app-detail layout', () => {
  * ────────────────────────────────────────────────────────────────── */
 
 test.describe('@cosmetic-guard jobs surface (issue #204 — table view)', () => {
+  test.beforeEach(async ({ page }) => {
+    await mockProvisionDeploymentAPI(page)
+  })
+
   test('1. jobs-table testid exists and no legacy accordion testids remain', async ({ page }) => {
     await page.goto('provision/test-deployment-id/jobs')
     await page.waitForLoadState('domcontentloaded')
@@ -1015,6 +1327,10 @@ test.describe('@cosmetic-guard jobs surface (issue #204 — table view)', () => 
 })
 
 test.describe('@cosmetic-guard JobDetail v3 (Flow + Exec Log only)', () => {
+  test.beforeEach(async ({ page }) => {
+    await mockProvisionDeploymentAPI(page)
+  })
+
   test('JobDetail tab strip has EXACTLY 2 tabs: Flow + Exec Log', async ({ page }) => {
     // Pick a known job id from the default catalog. bp-cilium is in
     // the bootstrap-kit batch; its detail page must mount with the
@@ -1052,6 +1368,10 @@ test.describe('@cosmetic-guard JobDetail v3 (Flow + Exec Log only)', () => {
 })
 
 test.describe('@cosmetic-guard JobsTable batch chip → /flow link', () => {
+  test.beforeEach(async ({ page }) => {
+    await mockProvisionDeploymentAPI(page)
+  })
+
   test('batch chip in a JobsTable row is an <a> linking to /flow?scope=batch:<id>', async ({ page }) => {
     await page.goto('provision/test-deployment-id/jobs')
     await page.waitForLoadState('domcontentloaded')
@@ -1083,6 +1403,10 @@ test.describe('@cosmetic-guard JobsTable batch chip → /flow link', () => {
  * ────────────────────────────────────────────────────────────────── */
 
 test.describe('@cosmetic-guard admin page banners', () => {
+  test.beforeEach(async ({ page }) => {
+    await mockProvisionDeploymentAPI(page)
+  })
+
   test('AdminPage does not render "Hetzner infra" + "Cluster bootstrap" Phase 0 banners', async ({
     page,
   }) => {
@@ -1126,6 +1450,10 @@ test.describe('@cosmetic-guard admin page banners', () => {
  * ────────────────────────────────────────────────────────────────── */
 
 test.describe('@cosmetic-guard PortalShell theme toggle', () => {
+  test.beforeEach(async ({ page }) => {
+    await mockProvisionDeploymentAPI(page)
+  })
+
   test('theme-toggle is present in PortalShell header', async ({ page }) => {
     await page.goto('provision/test-deployment-id')
     await page.waitForLoadState('domcontentloaded')
@@ -1315,6 +1643,10 @@ test.describe('@cosmetic-guard StepComponents card description', () => {
  * ────────────────────────────────────────────────────────────────── */
 
 test.describe('@cosmetic-guard cloud section', () => {
+  test.beforeEach(async ({ page }) => {
+    await mockProvisionDeploymentAPI(page)
+  })
+
   test('Legacy /cloud/<segment> paths redirect to /cloud?view=…&kind=… query shape', async ({ page }) => {
     // Each legacy segment must resolve to the canonical query shape and
     // its pathname must end exactly in /cloud (no /architecture, /compute,
