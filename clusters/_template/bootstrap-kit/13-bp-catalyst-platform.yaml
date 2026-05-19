@@ -654,7 +654,23 @@ spec:
       # `cert-manager`/...) reaches ResourcesTab + LogsTab +
       # TopologyTab. Backend already populated targetNamespace
       # correctly for both App-CR and HR-synth paths. Closes #1928.
-      version: 1.4.197
+      # 1.4.198 (issue #1928 residual, t34 walk 2026-05-19 12:21Z):
+      # Resources tab STILL empty for bootstrap-kit apps after #1932 ←
+      # the synth-from-HelmRelease path in catalyst-api returned
+      # `installLabelSelector: app.kubernetes.io/name=bp-harbor` (keyed
+      # off `spec.chart.spec.chart` which is bp-prefixed), whereas the
+      # upstream Harbor subchart strips the prefix and labels resources
+      # with `app.kubernetes.io/name=harbor`. Result: 174-byte empty
+      # `items: []` across all 7 resource kinds despite the namespace
+      # holding 7 Pods, 9 Services, 5 Deployments. Fix: switch the
+      # synth-from-HR selector to `app.kubernetes.io/instance=<release
+      # Name>` — the standard Helm chart-helpers label, set by every
+      # upstream chart on every rendered resource including Pods (via
+      # Deployment pod-template-spec). bootstrap-kit HRs explicitly
+      # set `spec.releaseName` to the bare upstream name (`harbor`,
+      # `alloy`, `cert-manager`, ...) so the selector is always
+      # release-name-bare, never bp-prefixed. Refs #1928.
+      version: 1.4.198
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
