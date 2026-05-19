@@ -867,19 +867,19 @@ locals {
     # off here — secondary regions flip RTZ on. The bp-dmz-vcluster slot
     # 54 chart-side default already enables DMZ everywhere, so no flag
     # for DMZ here. See clusters/_template/bootstrap-kit/54,58,59-*.yaml.
-    mgmt_vcluster_enabled          = "true"
-    rtz_vcluster_enabled           = "false"
-    ha_enabled                     = var.ha_enabled
-    worker_count                   = var.worker_count
-    k3s_version                    = var.k3s_version
-    k3s_token                      = local.k3s_token
-    gitops_repo_url                = var.gitops_repo_url
-    gitops_branch                  = var.gitops_branch
-    enable_unattended_upgrades     = var.enable_unattended_upgrades
-    enable_fail2ban                = var.enable_fail2ban
-    ghcr_pull_username             = local.ghcr_pull_username
-    ghcr_pull_token                = var.ghcr_pull_token
-    ghcr_pull_auth_b64             = local.ghcr_pull_auth_b64
+    mgmt_vcluster_enabled      = "true"
+    rtz_vcluster_enabled       = "false"
+    ha_enabled                 = var.ha_enabled
+    worker_count               = var.worker_count
+    k3s_version                = var.k3s_version
+    k3s_token                  = local.k3s_token
+    gitops_repo_url            = var.gitops_repo_url
+    gitops_branch              = var.gitops_branch
+    enable_unattended_upgrades = var.enable_unattended_upgrades
+    enable_fail2ban            = var.enable_fail2ban
+    ghcr_pull_username         = local.ghcr_pull_username
+    ghcr_pull_token            = var.ghcr_pull_token
+    ghcr_pull_auth_b64         = local.ghcr_pull_auth_b64
 
     # Object Storage credentials — interpolated into the Sovereign's
     # `object-storage` K8s Secret at cloud-init time so Harbor (#383)
@@ -1417,38 +1417,38 @@ locals {
       # Per-role vCluster enable flags (DoD A4). Secondary region
       # renders DMZ+RTZ vCluster → rtz_vcluster_enabled=true. MGMT
       # stays off on secondaries (single MGMT vCluster on primary).
-      mgmt_vcluster_enabled          = "false"
-      rtz_vcluster_enabled           = "true"
-      ha_enabled                     = false # secondary regions land single-CP in slice G1; G3 introduces per-region HA
-      worker_count                   = r.workerCount
-      k3s_version                    = var.k3s_version
-      k3s_token                      = local.k3s_token
-      gitops_repo_url                = var.gitops_repo_url
-      gitops_branch                  = var.gitops_branch
-      enable_unattended_upgrades     = var.enable_unattended_upgrades
-      enable_fail2ban                = var.enable_fail2ban
-      ghcr_pull_username             = local.ghcr_pull_username
-      ghcr_pull_token                = var.ghcr_pull_token
-      ghcr_pull_auth_b64             = local.ghcr_pull_auth_b64
-      object_storage_endpoint        = local.object_storage_endpoint
-      object_storage_region          = var.object_storage_region
-      object_storage_bucket_name     = var.object_storage_bucket_name
-      object_storage_access_key      = var.object_storage_access_key
-      object_storage_secret_key      = var.object_storage_secret_key
-      hcloud_token                   = var.hcloud_token
-      dynadot_key                    = var.dynadot_key
-      dynadot_secret                 = var.dynadot_secret
-      dynadot_managed_domains        = coalesce(var.dynadot_managed_domains, join(".", slice(split(".", var.sovereign_fqdn), 1, length(split(".", var.sovereign_fqdn)))))
-      harbor_robot_token             = var.harbor_robot_token
-      powerdns_api_key               = var.powerdns_api_key
-      pdm_basic_auth_user            = var.pdm_basic_auth_user
-      pdm_basic_auth_pass            = var.pdm_basic_auth_pass
-      deployment_id                  = var.deployment_id
-      kubeconfig_bearer_token        = var.kubeconfig_bearer_token
-      catalyst_api_url               = var.catalyst_api_url
-      handover_jwt_public_key        = var.handover_jwt_public_key
-      load_balancer_ipv4             = hcloud_load_balancer.secondary[k].ipv4
-      worker_cloud_init_b64          = base64encode(local.secondary_region_worker_cloud_init[k])
+      mgmt_vcluster_enabled      = "false"
+      rtz_vcluster_enabled       = "true"
+      ha_enabled                 = false # secondary regions land single-CP in slice G1; G3 introduces per-region HA
+      worker_count               = r.workerCount
+      k3s_version                = var.k3s_version
+      k3s_token                  = local.k3s_token
+      gitops_repo_url            = var.gitops_repo_url
+      gitops_branch              = var.gitops_branch
+      enable_unattended_upgrades = var.enable_unattended_upgrades
+      enable_fail2ban            = var.enable_fail2ban
+      ghcr_pull_username         = local.ghcr_pull_username
+      ghcr_pull_token            = var.ghcr_pull_token
+      ghcr_pull_auth_b64         = local.ghcr_pull_auth_b64
+      object_storage_endpoint    = local.object_storage_endpoint
+      object_storage_region      = var.object_storage_region
+      object_storage_bucket_name = var.object_storage_bucket_name
+      object_storage_access_key  = var.object_storage_access_key
+      object_storage_secret_key  = var.object_storage_secret_key
+      hcloud_token               = var.hcloud_token
+      dynadot_key                = var.dynadot_key
+      dynadot_secret             = var.dynadot_secret
+      dynadot_managed_domains    = coalesce(var.dynadot_managed_domains, join(".", slice(split(".", var.sovereign_fqdn), 1, length(split(".", var.sovereign_fqdn)))))
+      harbor_robot_token         = var.harbor_robot_token
+      powerdns_api_key           = var.powerdns_api_key
+      pdm_basic_auth_user        = var.pdm_basic_auth_user
+      pdm_basic_auth_pass        = var.pdm_basic_auth_pass
+      deployment_id              = var.deployment_id
+      kubeconfig_bearer_token    = var.kubeconfig_bearer_token
+      catalyst_api_url           = var.catalyst_api_url
+      handover_jwt_public_key    = var.handover_jwt_public_key
+      load_balancer_ipv4         = hcloud_load_balancer.secondary[k].ipv4
+      worker_cloud_init_b64      = base64encode(local.secondary_region_worker_cloud_init[k])
 
       # Issue #1778 (F7 multi-region completion) — same hcloud_*_name
       # threading as the primary CP templatefile call so the secondary
