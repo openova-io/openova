@@ -199,7 +199,9 @@ spec:
     #    AND submit PIN-issue / notification emails to the operator
     #    Stalwart SMTP relay (mail.openova.io) over TCP/587
     #    (submission, the production path) with TCP/465 (SMTPS) and
-    #    TCP/25 (legacy SMTP) as fallbacks.
+    #    TCP/25 (legacy SMTP) as fallbacks
+    #    AND reach SECONDARY-REGION kube-apiservers on TCP/6443 for
+    #    multi-region fan-out (D5/D16/D20 cloud-nodes treemap dashboard).
     #
     #    Regression context — DO NOT NARROW THIS BLOCK WITHOUT REVIEW
     #    ────────────────────────────────────────────────────────────
@@ -213,6 +215,40 @@ spec:
     #    `nc 45.151.123.50 587` (timeout) while a default-namespace
     #    Pod on the SAME node connects fine (220 Stalwart ESMTP banner).
     #    See chart 1.4.177 changelog above and the fix PR body.
+    #
+    #    TCP/6443 regression context — issue #1908 (TBD-A45)
+    #    ────────────────────────────────────────────────────────────
+    #    After PRs #1579/#1580/#1581/#1800 implemented multi-region
+    #    fan-out, `/api/v1/sovereign/cloud?kind=nodes` (D5),
+    #    `/api/v1/sovereign/dashboard` (D16), and per-region jobs
+    #    queries (D20) all returned PRIMARY-ONLY results on a fresh
+    #    multi-region prov (t31, 3 regions). A152 diagnostic isolated
+    #    the cause:
+    #
+    #      kubectl -n catalyst-system exec deploy/catalyst-api -- \
+    #        nc -zvw 3 49.12.210.78 6443
+    #      nc: connect to 49.12.210.78 port 6443 (tcp) timed out
+    #
+    #    while the SAME endpoint from the bastion connected fine.
+    #    The k8sCache.Factory registered the secondary-region API
+    #    servers from the kubeconfig PVC but the informer reflector
+    #    silently failed on the first apiserver List() because this
+    #    baseline CNP blocked egress to non-443 world. Fan-out
+    #    returned len(clusters)==1 (primary only) and the dashboard
+    #    silently grouped everything under the primary region.
+    #
+    #    The inter-region apiserver path matches the OpenOva
+    #    ClusterMesh model (memory: "inter-region link = DMZ
+    #    WireGuard over PUBLIC IPs ALWAYS") — every secondary
+    #    api-server is reachable only over its public LB IP (Hetzner
+    #    or AWS or Huawei). FQDN-scoping is impractical because the
+    #    LB FQDNs are per-prov (`api.<region>.<sovereign-fqdn>`) and
+    #    not predictable at chart-render time; world-on-6443 matches
+    #    the public-IP exposure surface the ClusterMesh already
+    #    requires. Attack surface is bounded — :6443 only accepts
+    #    TLS client-cert-authenticated requests, and only the
+    #    secondary-region kubeconfigs (mounted on the catalyst-api
+    #    Pod's PVC) hold valid client certs.
     - toEntities:
         - world
       toPorts:
@@ -224,5 +260,7 @@ spec:
             - port: "465"
               protocol: TCP
             - port: "25"
+              protocol: TCP
+            - port: "6443"
               protocol: TCP
 {{- end }}
