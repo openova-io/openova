@@ -624,7 +624,10 @@ spec:
       # emits zero catch-all routes, so `auth.<sov>` can no longer be
       # hijacked by the SME console SPA — unblocks D4 SSO PIN-bounce
       # (#1807).
-      version: 1.4.191
+      # 1.4.192: TBD-C15 (issue #1750) wires /billing/purchase route
+      # aliases on billing service + catalyst-api so the close-audit
+      # DoD validator on console.<sov-fqdn> stops 404'ing.
+      version: 1.4.192
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

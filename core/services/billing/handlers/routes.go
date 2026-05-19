@@ -9,6 +9,17 @@ func (h *Handler) Routes() http.Handler {
 	// Checkout — creates order, settles from credit or creates Stripe session.
 	mux.HandleFunc("POST /billing/checkout", h.Checkout)
 
+	// Purchase — semantic alias for /billing/checkout. The DoD validator
+	// + customer-journey "Purchase" button (CheckoutStep.svelte:722) speak
+	// the verb "purchase"; the in-cluster service has always named the
+	// handler "checkout" (Stripe Session lineage). Registering an alias
+	// here closes TBD-C15 (#1750) without renaming the canonical handler
+	// or migrating every existing caller. The handler is identical — same
+	// promo-code application, same Stripe-session creation, same
+	// `paid_by_credit` shortcut. See `Checkout` in handlers.go for the
+	// full wire contract.
+	mux.HandleFunc("POST /billing/purchase", h.Checkout)
+
 	// Webhook — Stripe callback (PUBLIC, no JWT; verified via signature).
 	mux.HandleFunc("POST /billing/webhook", h.Webhook)
 
