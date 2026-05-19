@@ -1,6 +1,10 @@
 apiVersion: v2
 name: bp-openbao
-version: 1.2.16
+# 1.2.17 (Fix #1902, TBD-A40, 2026-05-19): omit HTTPRoute parentRef
+# sectionName by default — multi-zone Sovereigns rename HTTPS listeners
+# to https-<sanitised-zone>, breaking NoMatchingListener with the prior
+# pinned sectionName: https. Matches the catalyst-system fix in PR #1888.
+version: 1.2.17
 description: |
   Catalyst-curated Blueprint umbrella chart for OpenBao. Depends on the
   upstream `openbao` chart as a Helm subchart so `helm dependency build`

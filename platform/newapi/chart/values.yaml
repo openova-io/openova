@@ -714,11 +714,15 @@ ingress:
     parentRef:
       name: cilium-gateway
       namespace: kube-system
-      # Listener sectionName — single-zone Sovereigns use bare "https"
-      # per the t20 listener-naming convention; multi-zone Sovereigns
-      # override to "https-<sanitised-zone>" via the bootstrap-kit
-      # overlay.
-      sectionName: https
+      # sectionName intentionally empty — multi-zone Sovereigns rename
+      # HTTPS listeners to https-<sanitised-zone> (e.g. https-omani-works,
+      # https-omani-homes), so pinning sectionName: https breaks every
+      # public HTTPRoute with NoMatchingListener. Cilium Gateway selects
+      # the listener by hostname filter when sectionName is omitted. See
+      # PR #1888 (catalyst-system) / TBD-A40 / issue #1902. Operators may
+      # still override via a bootstrap-kit overlay for non-Cilium
+      # gateways that REQUIRE an explicit sectionName.
+      sectionName: ""
 # ─── NetworkPolicy ───────────────────────────────────────────────────────
 # Default-allow ingress from the platform's gateway namespace; egress
 # to Postgres, Valkey, Keycloak, in-cluster vLLM, DNS, and the operator-
