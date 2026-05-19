@@ -177,19 +177,34 @@ var DefaultKinds = []Kind{
 	// access.openova.io/v1alpha1 UserAccess — RBAC binding CRD
 	// surfaced on the /users page.
 	{Name: "useraccess", GVR: schema.GroupVersionResource{Group: "access.openova.io", Version: "v1alpha1", Resource: "useraccesses"}, Namespaced: true},
-	// apps.openova.io/v1alpha1 Application — workload CRD owning the
+	// apps.openova.io/v1 Application — workload CRD owning the
 	// `/apps` and AppDetail pages (EPIC-2 slice T+O+P).
-	{Name: "application", GVR: schema.GroupVersionResource{Group: "apps.openova.io", Version: "v1alpha1", Resource: "applications"}, Namespaced: true},
-	// catalyst.openova.io/v1alpha1 Blueprint — published blueprint
-	// records the curate/publish handlers operate on.
-	{Name: "blueprint", GVR: schema.GroupVersionResource{Group: "catalyst.openova.io", Version: "v1alpha1", Resource: "blueprints"}, Namespaced: true},
-	// orgs.openova.io/v1alpha1 Organization — top-level tenancy CRD
-	// surfaced on the /organizations page.
-	{Name: "organization", GVR: schema.GroupVersionResource{Group: "orgs.openova.io", Version: "v1alpha1", Resource: "organizations"}, Namespaced: false},
-	// catalyst.openova.io/v1alpha1 Environment — logical environment
+	//
+	// TBD-A54 (#1946): the served CRD at
+	// products/catalyst/chart/crds/application.yaml exposes ONLY v1
+	// (storage:true). A previous v1alpha1 GVR here returned zero events
+	// from the apiserver because the version is not served, which broke
+	// every read of `/k8s/application` and silently stalled the
+	// application controller's UI consumers (#1097 EPIC reopened).
+	// Keep this pinned to the storage version of the CRD shipped with
+	// the catalyst chart — see also handler/applications.go
+	// (ApplicationGVR()) and controllers/application/internal/controller
+	// (ApplicationGVR) which both already use v1.
+	{Name: "application", GVR: schema.GroupVersionResource{Group: "apps.openova.io", Version: "v1", Resource: "applications"}, Namespaced: true},
+	// catalyst.openova.io/v1 Blueprint — published blueprint records
+	// the curate/publish handlers operate on. The CRD serves both
+	// v1alpha1 (deprecated, storage:false) and v1 (storage:true); pin
+	// the watcher to the storage version so events are not silently
+	// missed. Refs #1946.
+	{Name: "blueprint", GVR: schema.GroupVersionResource{Group: "catalyst.openova.io", Version: "v1", Resource: "blueprints"}, Namespaced: true},
+	// orgs.openova.io/v1 Organization — top-level tenancy CRD
+	// surfaced on the /organizations page. CRD ships v1 only. Refs #1946.
+	{Name: "organization", GVR: schema.GroupVersionResource{Group: "orgs.openova.io", Version: "v1", Resource: "organizations"}, Namespaced: false},
+	// catalyst.openova.io/v1 Environment — logical environment
 	// dimension (one Environment realised by N Clusters per
 	// docs/NAMING-CONVENTION.md). Surfaced on the /environments page.
-	{Name: "environment", GVR: schema.GroupVersionResource{Group: "catalyst.openova.io", Version: "v1alpha1", Resource: "environments"}, Namespaced: true},
+	// CRD ships v1 only. Refs #1946.
+	{Name: "environment", GVR: schema.GroupVersionResource{Group: "catalyst.openova.io", Version: "v1", Resource: "environments"}, Namespaced: true},
 
 	// QA-loop iter-3 Fix #18 — RBAC ClusterRole + ClusterRoleBinding
 	// surfaced through GET /api/v1/sovereigns/{id}/k8s/clusterroles and
