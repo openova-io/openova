@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -273,6 +274,43 @@ func main() {
 		"url", env("CATALYST_CATALOG_URL", "http://catalyst-catalog.openova-system.svc.cluster.local:8080"),
 		"clusterFallback", homeDyn != nil,
 	)
+
+	// TBD-A34 (#1891) — bake-time owner UserAccess seed (D21).
+	//
+	// auth_handover.go's seedOwnerUserAccess() was the ONLY caller of
+	// EnsureOwnerUserAccess before this slice; D21 therefore only
+	// converged after a PIN-login + handover. Zero-touch verification
+	// probes (the convergence verifier) cannot drive a live PIN-login
+	// from CI, so D21 was reported RED on every fresh prov until the
+	// operator manually logged in — even though all the inputs
+	// (SOVEREIGN_FQDN + OPERATOR_EMAIL + the UserAccess CRD) were
+	// stable on the chroot from bake-time onward.
+	//
+	// This goroutine closes that gap. When the catalyst-api boots on a
+	// chroot Sovereign (SOVEREIGN_FQDN env set per the chart's
+	// sovereign-fqdn ConfigMap) AND the operator email is wired
+	// (OPERATOR_EMAIL env set per the same ConfigMap's orgEmail key,
+	// stamped by the orchestrator's overlay writer at handover-prepare),
+	// we call EnsureOwnerUserAccess against the in-cluster dynamic
+	// client with capped backoff so the UserAccess CRD has time to
+	// roll behind us.
+	//
+	// Idempotency: EnsureOwnerUserAccess folds AlreadyExists to nil,
+	// so this is safe to run before, after, or alongside the existing
+	// handover-fired path. A subsequent /auth/handover for the same
+	// operator is also a no-op (re-handover for the same email).
+	//
+	// Skip conditions (each becomes a single Info log + return):
+	//   - homeDyn nil (out-of-cluster — CI / smoke / local dev)
+	//   - SOVEREIGN_FQDN unset (mother mode — contabo Catalyst-Zero)
+	//   - OPERATOR_EMAIL unset (chroot but orgEmail not yet stamped;
+	//     bp-catalyst-platform's sovereign-fqdn ConfigMap renders the
+	//     key empty until the operator's email is wired — next Pod
+	//     restart picks it up once the overlay writer commits).
+	//
+	// Per docs/INVIOLABLE-PRINCIPLES.md #10 the email is logged at
+	// Info; nothing else (no JWTs, no secrets) is logged.
+	go runBakeTimeOwnerSeed(context.Background(), log, homeDyn)
 
 	// Issue #1753 (slice G3b) — bp-mimir (slot 23) query-frontend URL
 	// for the Pod metrics sparkline. Per docs/INVIOLABLE-PRINCIPLES.md
@@ -1491,6 +1529,82 @@ func runTierRoleBootstrap(ctx context.Context, log *slog.Logger, kc *keycloak.Cl
 	}
 	log.Error("kc-bootstrap: tier-role bootstrap gave up after all retries",
 		"realm", realm,
+		"err", lastErr,
+	)
+}
+
+// runBakeTimeOwnerSeed converges D21 (owner UserAccess CR) at bake-time
+// when the catalyst-api boots on a chroot Sovereign. See the call site
+// in main() above (TBD-A34 / issue #1891) for the full rationale.
+//
+// Skip conditions:
+//   - dyn is nil (out-of-cluster catalyst-api; CI / smoke / local dev).
+//   - SOVEREIGN_FQDN env is empty (mother mode; contabo Catalyst-Zero).
+//   - OPERATOR_EMAIL env is empty (chroot but orgEmail not yet stamped
+//     into the sovereign-fqdn ConfigMap; the next Pod restart picks
+//     it up once the orchestrator overlay writer commits).
+//
+// Backoff: same shape as runTierRoleBootstrap — 0s, 5s, 10s, 20s, 40s.
+// The UserAccess CRD comes from bp-crossplane-claims (claim XRD) which
+// Flux reconciles in parallel with bp-catalyst-platform; the apiserver
+// may return NotFound for several seconds on a freshly-rolled chroot.
+// The capped backoff keeps us quiet behind the CRD roll while still
+// converging in under ~75 s on the typical case.
+//
+// Idempotency: EnsureOwnerUserAccess folds AlreadyExists to nil, so
+// this is safe to run before, after, or alongside the existing
+// auth_handover.go-fired path.
+func runBakeTimeOwnerSeed(ctx context.Context, log *slog.Logger, dyn dynamic.Interface) {
+	if dyn == nil {
+		log.Info("user-access: bake-time owner seed skipped — out-of-cluster (no dynamic client)")
+		return
+	}
+	fqdn := strings.TrimSpace(os.Getenv("SOVEREIGN_FQDN"))
+	if fqdn == "" {
+		log.Info("user-access: bake-time owner seed skipped — SOVEREIGN_FQDN unset (mother mode)")
+		return
+	}
+	email := strings.TrimSpace(os.Getenv("OPERATOR_EMAIL"))
+	if email == "" {
+		log.Info("user-access: bake-time owner seed skipped — OPERATOR_EMAIL unset (orgEmail not yet stamped on chroot)",
+			"sovereignFQDN", fqdn,
+		)
+		return
+	}
+
+	delays := []time.Duration{0, 5 * time.Second, 10 * time.Second, 20 * time.Second, 40 * time.Second}
+	var lastErr error
+	for i, d := range delays {
+		if d > 0 {
+			select {
+			case <-ctx.Done():
+				log.Warn("user-access: bake-time owner seed cancelled during backoff",
+					"attempt", i+1,
+				)
+				return
+			case <-time.After(d):
+			}
+		}
+		err := handler.EnsureOwnerUserAccess(ctx, dyn, email, fqdn)
+		if err == nil {
+			// Per docs/INVIOLABLE-PRINCIPLES.md #10 the email is the
+			// only operator-derived value logged here.
+			log.Info("user-access: owner auto-seeded at bake-time (TBD-A34)",
+				"attempt", i+1,
+				"email", email,
+				"sovereignFQDN", fqdn,
+			)
+			return
+		}
+		lastErr = err
+		log.Warn("user-access: bake-time owner seed failed; will retry",
+			"attempt", i+1,
+			"err", err,
+		)
+	}
+	log.Error("user-access: bake-time owner seed gave up after all retries",
+		"email", email,
+		"sovereignFQDN", fqdn,
 		"err", lastErr,
 	)
 }
