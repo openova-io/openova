@@ -21,8 +21,10 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"syscall"
@@ -30,6 +32,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"github.com/openova-io/openova/products/sandbox/pty-server/internal/agentcatalog"
 	"github.com/openova-io/openova/products/sandbox/pty-server/internal/session"
 )
 
@@ -138,12 +141,37 @@ func (h *Handler) dispatchSession(w http.ResponseWriter, r *http.Request) {
 
 // --- request / response shapes ----------------------------------------------
 
+// createRequest is the wire shape of POST /sessions. TBD-P4 #1986 B3
+// added `agent` + `extraArgs`; the raw `command` is retained as an
+// operator escape hatch (curl-from-pod / debug). Exactly ONE of
+// {agent, command} must be set — both empty AND both set return 400.
+//
+// Env was historically a []string; B3 adds a map<string,string>
+// alternative that merges cleanly with the agent's default env. We
+// keep both for backward-compat with any pinned operator scripts.
 type createRequest struct {
-	Command []string `json:"command"`
-	Env     []string `json:"env,omitempty"`
-	Cwd     string   `json:"cwd,omitempty"`
-	Rows    uint16   `json:"rows,omitempty"`
-	Cols    uint16   `json:"cols,omitempty"`
+	// Agent is the catalogue slug (claude-code, qwen-code, ...).
+	// Looked up in agentcatalog.Lookup; unknown slugs return 400 with
+	// the canonical list (NOT a bash fallback — bash fallback masks
+	// bundle misconfig, see TBD-P4 B3 design spec §2.3).
+	Agent string `json:"agent,omitempty"`
+	// ExtraArgs are appended verbatim after the agent's DefaultArgs.
+	// Empty for the FE default-paint path; useful for "claude --resume".
+	ExtraArgs []string `json:"extraArgs,omitempty"`
+	// EnvMap merges onto os.Environ() with later-wins semantics; used
+	// when Agent is set.
+	EnvMap map[string]string `json:"envMap,omitempty"`
+
+	// Command is the raw argv escape hatch. Setting Agent AND Command
+	// returns 400 (ambiguous intent).
+	Command []string `json:"command,omitempty"`
+	// Env is the historic []string env passthrough; only consulted on
+	// the Command path.
+	Env []string `json:"env,omitempty"`
+
+	Cwd  string `json:"cwd,omitempty"`
+	Rows uint16 `json:"rows,omitempty"`
+	Cols uint16 `json:"cols,omitempty"`
 }
 
 type sessionDTO struct {
@@ -168,22 +196,76 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	if len(req.Command) == 0 {
-		http.Error(w, "command required", http.StatusBadRequest)
+	spec, status, errBody := buildSpecFromCreateRequest(req)
+	if errBody != nil {
+		writeJSON(w, status, errBody)
 		return
 	}
-	s, err := h.mgr.Create(session.Spec{
-		Command: req.Command,
-		Env:     req.Env,
-		Cwd:     req.Cwd,
-		Rows:    req.Rows,
-		Cols:    req.Cols,
-	})
+	s, err := h.mgr.Create(spec)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, http.StatusCreated, sessionDTO{ID: s.ID, CreatedAt: s.CreatedAt})
+}
+
+// buildSpecFromCreateRequest is the shared validation + agent-resolution
+// path used by both POST /sessions and the lazy-spawn-on-attach branch
+// (see dispatchSession). On a validation failure it returns (zero spec,
+// http status, body map) so the caller can writeJSON. On success it
+// returns the populated spec.
+func buildSpecFromCreateRequest(req createRequest) (session.Spec, int, map[string]string) {
+	var argv []string
+	var envSlice []string
+	cwd := req.Cwd
+
+	switch {
+	case req.Agent != "" && len(req.Command) > 0:
+		return session.Spec{}, http.StatusBadRequest, map[string]string{
+			"error":  "ambiguous-request",
+			"detail": "specify agent OR command, not both",
+		}
+	case req.Agent != "":
+		ag, err := agentcatalog.Lookup(req.Agent)
+		if err != nil {
+			return session.Spec{}, http.StatusBadRequest, map[string]string{
+				"error":  "invalid-agent",
+				"detail": fmt.Sprintf("agent %q not in {%s}", req.Agent, strings.Join(agentcatalog.AllSlugs(), ", ")),
+			}
+		}
+		// RequiredEnv presence check — surfaces missing wiring at
+		// create time rather than as a black-screen exec failure.
+		for _, k := range ag.RequiredEnv {
+			if os.Getenv(k) == "" {
+				return session.Spec{}, http.StatusBadRequest, map[string]string{
+					"error":  "missing-env",
+					"detail": fmt.Sprintf("agent %s requires env %s", req.Agent, k),
+				}
+			}
+		}
+		argv, envSlice = ag.Resolve(req.ExtraArgs, req.EnvMap)
+		if cwd == "" {
+			cwd = ag.DefaultCwd
+		}
+	case len(req.Command) > 0:
+		argv = req.Command
+		// Historic []string env passthrough. nil = inherit os.Environ()
+		// in session.New (preserves prior behaviour).
+		envSlice = req.Env
+	default:
+		return session.Spec{}, http.StatusBadRequest, map[string]string{
+			"error":  "missing-spec",
+			"detail": "agent or command required",
+		}
+	}
+
+	return session.Spec{
+		Command: argv,
+		Env:     envSlice,
+		Cwd:     cwd,
+		Rows:    req.Rows,
+		Cols:    req.Cols,
+	}, 0, nil
 }
 
 func (h *Handler) list(w http.ResponseWriter, _ *http.Request) {
@@ -273,7 +355,20 @@ var allowedSignals = map[string]syscall.Signal{
 // resumes.
 func (h *Handler) attach(w http.ResponseWriter, r *http.Request, id string) {
 	s, err := h.mgr.Get(id)
-	if err != nil {
+	if errors.Is(err, session.ErrNotFound) {
+		// TBD-P4 #1986 B3 — lazy-spawn on attach. The FE WS path is
+		// wss://.../sessions/<sandbox-CRD-name>/attach with no prior
+		// POST /sessions; the controller renders SANDBOX_DEFAULT_AGENT
+		// (and optional ?agent= query override) onto the StatefulSet
+		// env so we know what to spawn. If neither is set we keep
+		// the historic 404 behaviour.
+		spawned, lazyErr := h.lazySpawn(r, id)
+		if lazyErr != nil {
+			http.Error(w, lazyErr.Error(), http.StatusNotFound)
+			return
+		}
+		s = spawned
+	} else if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
@@ -401,6 +496,36 @@ func (h *Handler) cards(w http.ResponseWriter, r *http.Request, id string) {
 			h.mgr.Touch()
 		}
 	}
+}
+
+// lazySpawn mints a session under the supplied id (the Sandbox CRD
+// name carried in the URL) using the agent slug from either:
+//
+//  1. ?agent=<slug> query param (explicit FE choice for multi-agent
+//     Sandboxes — see design spec §2.2 option (b)).
+//  2. SANDBOX_DEFAULT_AGENT env var rendered by the controller from
+//     spec.agentCatalogue[0].
+//
+// If neither is set, returns ErrNotFound so the caller can 404 as
+// before. Errors during catalogue lookup or spawn are surfaced
+// verbatim so they show up in the operator's "session 404" trace.
+func (h *Handler) lazySpawn(r *http.Request, id string) (*session.Session, error) {
+	slug := r.URL.Query().Get("agent")
+	if slug == "" {
+		slug = os.Getenv("SANDBOX_DEFAULT_AGENT")
+	}
+	if slug == "" {
+		return nil, session.ErrNotFound
+	}
+	spec, _, errBody := buildSpecFromCreateRequest(createRequest{Agent: slug})
+	if errBody != nil {
+		// Surface the same canonical error string the POST path returns
+		// (invalid-agent / missing-env) so the operator sees the same
+		// diagnostic via the WS upgrade reject path as they would via
+		// curl POST /sessions.
+		return nil, fmt.Errorf("%s: %s", errBody["error"], errBody["detail"])
+	}
+	return h.mgr.CreateWithID(id, spec)
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
