@@ -98,6 +98,28 @@ func main() {
 	primaryRegion := envOr("SOVEREIGN_PRIMARY_REGION", "")
 	replicaRegion := envOr("SOVEREIGN_REPLICA_REGION", "")
 
+	// TBD-P4 B4 — canonical SANDBOX_* env wiring for the MCP plugin
+	// (products/sandbox/mcp-server/internal/tools/env.go). All have
+	// in-cluster defaults; per-Sovereign overlays may override via
+	// bp-sandbox HR values. Empty leaves the MCP's per-tool guard to
+	// surface "not configured" at call time rather than crashing the
+	// controller at startup.
+	mcpGiteaBaseURL := envOr("SANDBOX_MCP_GITEA_BASE_URL", giteaURL)
+	mcpGiteaTokenSecretName := envOr("SANDBOX_MCP_GITEA_TOKEN_SECRET_NAME", "catalyst-gitea-token")
+	mcpGiteaTokenSecretKey := envOr("SANDBOX_MCP_GITEA_TOKEN_SECRET_KEY", "token")
+	mcpDomainAPIURL := envOr("SANDBOX_MCP_DOMAIN_API_URL", "http://domain.sme.svc.cluster.local:8086")
+	mcpMarketplaceAPIURL := envOr("SANDBOX_MCP_MARKETPLACE_API_URL", "http://marketplace-api.marketplace.svc.cluster.local:8082")
+	mcpStorageS3Endpoint := envOr("SANDBOX_MCP_STORAGE_S3_ENDPOINT", "http://seaweedfs.storage.svc.cluster.local:8333")
+	mcpStorageS3Region := envOr("SANDBOX_MCP_STORAGE_S3_REGION", "us-east-1")
+	mcpStorageS3UseTLS := envOr("SANDBOX_MCP_STORAGE_S3_USE_TLS", "false")
+	mcpStorageS3CredsSecret := envOr("SANDBOX_MCP_STORAGE_S3_CREDS_SECRET_NAME", "")
+	mcpStorageS3AccessKeyKey := envOr("SANDBOX_MCP_STORAGE_S3_ACCESS_KEY_KEY", "AWS_ACCESS_KEY_ID")
+	mcpStorageS3SecretKeyKey := envOr("SANDBOX_MCP_STORAGE_S3_SECRET_KEY_KEY", "AWS_SECRET_ACCESS_KEY")
+	mcpKeycloakAdminURL := envOr("SANDBOX_MCP_KEYCLOAK_ADMIN_URL", "http://keycloak.keycloak.svc.cluster.local:8080")
+	mcpKeycloakParentRealm := envOr("SANDBOX_MCP_KEYCLOAK_PARENT_REALM", "master")
+	mcpKeycloakAdminTokenSecret := envOr("SANDBOX_MCP_KEYCLOAK_ADMIN_TOKEN_SECRET_NAME", "")
+	mcpKeycloakAdminTokenSecretKey := envOr("SANDBOX_MCP_KEYCLOAK_ADMIN_TOKEN_SECRET_KEY", "token")
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsserver.Options{BindAddress: metricsAddr},
@@ -153,6 +175,22 @@ func main() {
 		EnableHotStandby:      enableHotStandby,
 		PrimaryRegion:         primaryRegion,
 		ReplicaRegion:         replicaRegion,
+		// TBD-P4 B4 — canonical SANDBOX_* env-var wiring for MCP plugin.
+		GiteaBaseURL:                mcpGiteaBaseURL,
+		GiteaTokenSecretName:        mcpGiteaTokenSecretName,
+		GiteaTokenSecretKey:         mcpGiteaTokenSecretKey,
+		DomainAPIURL:                mcpDomainAPIURL,
+		MarketplaceAPIURL:           mcpMarketplaceAPIURL,
+		StorageS3Endpoint:           mcpStorageS3Endpoint,
+		StorageS3Region:             mcpStorageS3Region,
+		StorageS3UseTLS:             mcpStorageS3UseTLS,
+		StorageS3CredsSecretName:    mcpStorageS3CredsSecret,
+		StorageS3AccessKeyKey:       mcpStorageS3AccessKeyKey,
+		StorageS3SecretKeyKey:       mcpStorageS3SecretKeyKey,
+		KeycloakAdminURL:            mcpKeycloakAdminURL,
+		KeycloakParentRealm:         mcpKeycloakParentRealm,
+		KeycloakAdminTokenSecret:    mcpKeycloakAdminTokenSecret,
+		KeycloakAdminTokenSecretKey: mcpKeycloakAdminTokenSecretKey,
 	}
 	if err := r.SetupWithManager(mgr); err != nil {
 		log.Error(err, "setup reconciler")

@@ -112,6 +112,52 @@ spec:
               value: {{ (.Values.cnpg).activeHotStandby.primaryRegion | default "" | quote }}
             - name: SOVEREIGN_REPLICA_REGION
               value: {{ (.Values.cnpg).activeHotStandby.replicaRegion | default "" | quote }}
+            # TBD-P4 B4 — canonical SANDBOX_* env-var wiring for the MCP
+            # plugin. The controller passes these straight through to
+            # every per-Sandbox MCP Deployment via gitops.Inputs so the
+            # plugin's per-tool guards (gitea / domain / storage /
+            # keycloak) see the canonical names defined in
+            # products/sandbox/mcp-server/internal/tools/env.go. Before
+            # this slice the renderer emitted `ORG_ID` / `SOVEREIGN_FQDN`
+            # while the MCP read `SANDBOX_ORG_ID` / `SANDBOX_SOVEREIGN_FQDN`
+            # → every tool family silently degraded to "not configured".
+            #
+            # Values are env vars on the CONTROLLER (this Deployment);
+            # the controller reads each and passes via gitops.Inputs into
+            # the rendered MCP Deployment template. Secrets are NEVER
+            # written from the controller — name + key references only,
+            # `optional: true` on the per-Sandbox secretKeyRef so missing
+            # secrets surface a clean "not configured" error from the MCP.
+            - name: SANDBOX_MCP_GITEA_BASE_URL
+              value: {{ .Values.mcp.giteaBaseURL | default "http://gitea-http.gitea.svc.cluster.local:3000" | quote }}
+            - name: SANDBOX_MCP_GITEA_TOKEN_SECRET_NAME
+              value: {{ .Values.mcp.giteaTokenSecret.name | default "catalyst-gitea-token" | quote }}
+            - name: SANDBOX_MCP_GITEA_TOKEN_SECRET_KEY
+              value: {{ .Values.mcp.giteaTokenSecret.key | default "token" | quote }}
+            - name: SANDBOX_MCP_DOMAIN_API_URL
+              value: {{ .Values.mcp.domainAPIURL | default "http://domain.sme.svc.cluster.local:8086" | quote }}
+            - name: SANDBOX_MCP_MARKETPLACE_API_URL
+              value: {{ .Values.mcp.marketplaceAPIURL | default "http://marketplace-api.marketplace.svc.cluster.local:8082" | quote }}
+            - name: SANDBOX_MCP_STORAGE_S3_ENDPOINT
+              value: {{ .Values.mcp.storage.s3Endpoint | default "http://seaweedfs.storage.svc.cluster.local:8333" | quote }}
+            - name: SANDBOX_MCP_STORAGE_S3_REGION
+              value: {{ .Values.mcp.storage.s3Region | default "us-east-1" | quote }}
+            - name: SANDBOX_MCP_STORAGE_S3_USE_TLS
+              value: {{ .Values.mcp.storage.s3UseTLS | default "false" | quote }}
+            - name: SANDBOX_MCP_STORAGE_S3_CREDS_SECRET_NAME
+              value: {{ .Values.mcp.storage.credsSecret.name | default "" | quote }}
+            - name: SANDBOX_MCP_STORAGE_S3_ACCESS_KEY_KEY
+              value: {{ .Values.mcp.storage.credsSecret.accessKeyKey | default "AWS_ACCESS_KEY_ID" | quote }}
+            - name: SANDBOX_MCP_STORAGE_S3_SECRET_KEY_KEY
+              value: {{ .Values.mcp.storage.credsSecret.secretKeyKey | default "AWS_SECRET_ACCESS_KEY" | quote }}
+            - name: SANDBOX_MCP_KEYCLOAK_ADMIN_URL
+              value: {{ .Values.mcp.keycloak.adminURL | default "http://keycloak.keycloak.svc.cluster.local:8080" | quote }}
+            - name: SANDBOX_MCP_KEYCLOAK_PARENT_REALM
+              value: {{ .Values.mcp.keycloak.parentRealm | default "master" | quote }}
+            - name: SANDBOX_MCP_KEYCLOAK_ADMIN_TOKEN_SECRET_NAME
+              value: {{ .Values.mcp.keycloak.adminTokenSecret.name | default "" | quote }}
+            - name: SANDBOX_MCP_KEYCLOAK_ADMIN_TOKEN_SECRET_KEY
+              value: {{ .Values.mcp.keycloak.adminTokenSecret.key | default "token" | quote }}
             {{- range $k, $v := .Values.extraEnv }}
             - name: {{ $k | quote }}
               value: {{ $v | quote }}

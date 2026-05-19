@@ -186,4 +186,45 @@ serviceMonitor:
   labels: {}
   # namespace override — defaults to .Release.Namespace.
   namespace: ""
+# TBD-P4 B4 — canonical SANDBOX_* env-var wiring for the MCP plugin
+# (products/sandbox/mcp-server/internal/tools/env.go). Surfaced by the
+# controller as env vars; the controller in turn passes each through to
+# every per-Sandbox MCP Deployment via gitops.Inputs so the MCP plugin's
+# per-tool guards (gitea / domain / storage / keycloak) see the canonical
+# names instead of the legacy `ORG_ID` / `SOVEREIGN_FQDN` shape.
+#
+# Defaults match the in-cluster Service DNS for a stock Sovereign install
+# (bp-gitea / bp-newapi / bp-seaweedfs / bp-keycloak / bp-marketplace).
+# Per-Sovereign overlays may override any value. Secrets are NEVER written
+# from this chart — name+key references only with `optional: true` so a
+# fresh-prov Sovereign with a credential source still in flight does NOT
+# crash the per-Sandbox MCP Pod; the affected tool family surfaces a clean
+# "not configured" error.
+mcp:
+  giteaBaseURL: "http://gitea-http.gitea.svc.cluster.local:3000"
+  giteaTokenSecret:
+    name: "catalyst-gitea-token"
+    key: "token"
+  domainAPIURL: "http://domain.sme.svc.cluster.local:8086"
+  marketplaceAPIURL: "http://marketplace-api.marketplace.svc.cluster.local:8082"
+  storage:
+    s3Endpoint: "http://seaweedfs.storage.svc.cluster.local:8333"
+    s3Region: "us-east-1"
+    s3UseTLS: "false"
+    credsSecret:
+      # Empty default — when set, the controller stamps SANDBOX_STORAGE_S3_
+      # ACCESS_KEY / SECRET_KEY secretKeyRefs on every per-Sandbox MCP Pod.
+      # Empty leaves the MCP storage tool family in "not configured" mode.
+      name: ""
+      accessKeyKey: "AWS_ACCESS_KEY_ID"
+      secretKeyKey: "AWS_SECRET_ACCESS_KEY"
+  keycloak:
+    adminURL: "http://keycloak.keycloak.svc.cluster.local:8080"
+    parentRealm: "master"
+    adminTokenSecret:
+      # Empty default — when set, the controller stamps a KEYCLOAK_ADMIN_TOKEN
+      # secretKeyRef on every per-Sandbox MCP Pod. Empty leaves the MCP
+      # keycloak tool family in "not configured" mode.
+      name: ""
+      key: "token"
 extraEnv: {}

@@ -94,6 +94,35 @@ type Inputs struct {
 	EnableHotStandby string
 	PrimaryRegion    string
 	ReplicaRegion    string
+
+	// TBD-P4 B4 — canonical SANDBOX_* env-var wiring for the MCP plugin
+	// (products/sandbox/mcp-server/internal/tools/env.go). Without these,
+	// every tool family (gitea / domain / storage / keycloak) silently
+	// degrades to "not configured" at call time because the controller
+	// previously emitted bare `ORG_ID` / `SOVEREIGN_FQDN` while the MCP
+	// binary reads `SANDBOX_ORG_ID` / `SANDBOX_SOVEREIGN_FQDN` etc.
+	//
+	// Each value is plumbed by the controller from its chart-level env
+	// (deployment.yaml `runtime.*` + new `*Secret` blocks). Empty leaves
+	// the canonical var as an empty string on the MCP Pod, which the
+	// MCP's per-tool requireX guard surfaces as a clear "not configured"
+	// error — same behaviour as before, just now reachable instead of
+	// silently misnamed.
+	GiteaBaseURL              string
+	GiteaTokenSecretName      string
+	GiteaTokenSecretKey       string
+	DomainAPIURL              string
+	MarketplaceAPIURL         string
+	StorageS3Endpoint         string
+	StorageS3Region           string
+	StorageS3UseTLS           string
+	StorageS3CredsSecretName  string
+	StorageS3AccessKeyKey     string
+	StorageS3SecretKeyKey     string
+	KeycloakAdminURL          string
+	KeycloakParentRealm       string
+	KeycloakAdminTokenSecret  string
+	KeycloakAdminTokenSecretKey string
 }
 
 const namespaceTemplate = `apiVersion: v1
@@ -409,10 +438,85 @@ spec:
               value: {{ .OwnerUID | quote }}
             - name: SANDBOX_OWNER_EMAIL
               value: {{ .OwnerEmail | quote }}
-            - name: ORG_ID
+            # ── TBD-P4 B4 — canonical SANDBOX_* names the MCP plugin
+            # reads (products/sandbox/mcp-server/internal/tools/env.go).
+            # ORG_ID + SOVEREIGN_FQDN were the original names and
+            # silently degraded every MCP tool family to "not configured".
+            - name: SANDBOX_ORG_ID
               value: {{ .OrgSlug | quote }}
-            - name: SOVEREIGN_FQDN
+            - name: SANDBOX_SOVEREIGN_FQDN
               value: {{ .SovereignFQDN | quote }}
+            - name: SANDBOX_ID
+              value: {{ .Name | quote }}
+            - name: SANDBOX_NAMESPACE
+              value: {{ .NamespaceName | quote }}
+            # SANDBOX_TENANT_ID scopes the MCP's domain/byod handler
+            # (marketplace.go:93). The per-Org slug is the tenant key in
+            # the chroot Organization controller's wiring; the MCP
+            # treats this opaquely.
+            - name: SANDBOX_TENANT_ID
+              value: {{ .OrgSlug | quote }}
+            # ── Gitea wiring — SANDBOX_GITEA_BASE_URL is unauthed in
+            # the in-cluster path; the matching token is mounted from
+            # the existing catalyst-gitea-token Secret (single source
+            # of truth shared with the controller itself; never written
+            # here per Inviolable Principle #4 — Secrets are owned by
+            # bp-catalyst-platform seed jobs).
+            - name: SANDBOX_GITEA_BASE_URL
+              value: {{ .GiteaBaseURL | quote }}
+            {{- if .GiteaTokenSecretName }}
+            - name: SANDBOX_GITEA_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .GiteaTokenSecretName | quote }}
+                  key: {{ .GiteaTokenSecretKey | quote }}
+                  optional: true
+            {{- end }}
+            # ── Domain + marketplace REST surfaces (services that
+            # already run in-cluster; per-Sovereign overlays may pin
+            # alternate ClusterIPs via the bp-sandbox HR values).
+            - name: SANDBOX_DOMAIN_API_URL
+              value: {{ .DomainAPIURL | quote }}
+            - name: SANDBOX_MARKETPLACE_API_URL
+              value: {{ .MarketplaceAPIURL | quote }}
+            # ── Storage (SeaweedFS S3). Endpoint + region are public;
+            # credentials are sourced from an existing per-Sandbox IAM
+            # Secret when present. Empty creds surface a clear "not
+            # configured" error from the MCP's storage tool family.
+            - name: SANDBOX_STORAGE_S3_ENDPOINT
+              value: {{ .StorageS3Endpoint | quote }}
+            - name: SANDBOX_STORAGE_S3_REGION
+              value: {{ .StorageS3Region | quote }}
+            - name: SANDBOX_STORAGE_S3_USE_TLS
+              value: {{ .StorageS3UseTLS | quote }}
+            {{- if .StorageS3CredsSecretName }}
+            - name: SANDBOX_STORAGE_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .StorageS3CredsSecretName | quote }}
+                  key: {{ .StorageS3AccessKeyKey | quote }}
+                  optional: true
+            - name: SANDBOX_STORAGE_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .StorageS3CredsSecretName | quote }}
+                  key: {{ .StorageS3SecretKeyKey | quote }}
+                  optional: true
+            {{- end }}
+            # ── Keycloak admin surface. URL + parent realm are public;
+            # the admin bearer is sourced from an existing Secret.
+            - name: KEYCLOAK_ADMIN_URL
+              value: {{ .KeycloakAdminURL | quote }}
+            - name: KEYCLOAK_PARENT_REALM
+              value: {{ .KeycloakParentRealm | quote }}
+            {{- if .KeycloakAdminTokenSecret }}
+            - name: KEYCLOAK_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .KeycloakAdminTokenSecret | quote }}
+                  key: {{ .KeycloakAdminTokenSecretKey | quote }}
+                  optional: true
+            {{- end }}
             - name: PTY_SERVER_URL
               value: "http://pty-server.{{ .NamespaceName }}.svc.cluster.local:7681"
             - name: LLM_GATEWAY_TOKEN

@@ -211,6 +211,22 @@ func makeReconciler(t *testing.T, objs ...client.Object) (*Reconciler, *giteaSer
 		LLMGatewayTokenSecret: "sandbox-tokens",
 		BYOSSecretPrefix:      "sandbox-byos-claude-code",
 		IdleTimeoutMinutes:    30,
+		// TBD-P4 B4 — canonical SANDBOX_* env-var wiring (chart defaults).
+		GiteaBaseURL:                "http://gitea-http.gitea.svc.cluster.local:3000",
+		GiteaTokenSecretName:        "catalyst-gitea-token",
+		GiteaTokenSecretKey:         "token",
+		DomainAPIURL:                "http://domain.sme.svc.cluster.local:8086",
+		MarketplaceAPIURL:           "http://marketplace-api.marketplace.svc.cluster.local:8082",
+		StorageS3Endpoint:           "http://seaweedfs.storage.svc.cluster.local:8333",
+		StorageS3Region:             "us-east-1",
+		StorageS3UseTLS:             "false",
+		StorageS3CredsSecretName:    "sandbox-storage-s3",
+		StorageS3AccessKeyKey:       "AWS_ACCESS_KEY_ID",
+		StorageS3SecretKeyKey:       "AWS_SECRET_ACCESS_KEY",
+		KeycloakAdminURL:            "http://keycloak.keycloak.svc.cluster.local:8080",
+		KeycloakParentRealm:         "master",
+		KeycloakAdminTokenSecret:    "keycloak-admin-token",
+		KeycloakAdminTokenSecretKey: "token",
 	}
 	return r, gs
 }
@@ -465,9 +481,58 @@ func TestReconcile_Wave8RuntimeShape(t *testing.T) {
 		`image: "ghcr.io/openova-io/openova/sandbox-mcp:test-sha"`,
 		"PTY_SERVER_URL",
 		"pty-server.sandbox-ceo-at-acme-com.svc.cluster.local:7681",
+		// TBD-P4 B4 regression — the MCP Deployment MUST emit the
+		// canonical SANDBOX_* env-var set the MCP plugin's
+		// products/sandbox/mcp-server/internal/tools/env.go reads.
+		// Before this slice the controller emitted bare `ORG_ID` and
+		// `SOVEREIGN_FQDN` on the MCP Pod → MCP read the wrong keys →
+		// every tool family silently degraded to "not configured" at
+		// runtime. Asserting on the canonical names here prevents the
+		// drift from reappearing.
+		"name: SANDBOX_ORG_ID",
+		"name: SANDBOX_SOVEREIGN_FQDN",
+		"name: SANDBOX_ID",
+		"name: SANDBOX_NAMESPACE",
+		"name: SANDBOX_TENANT_ID",
+		"name: SANDBOX_GITEA_BASE_URL",
+		"name: SANDBOX_GITEA_TOKEN",
+		"name: SANDBOX_DOMAIN_API_URL",
+		"name: SANDBOX_MARKETPLACE_API_URL",
+		"name: SANDBOX_STORAGE_S3_ENDPOINT",
+		"name: SANDBOX_STORAGE_S3_REGION",
+		"name: SANDBOX_STORAGE_S3_USE_TLS",
+		"name: SANDBOX_STORAGE_S3_ACCESS_KEY",
+		"name: SANDBOX_STORAGE_S3_SECRET_KEY",
+		"name: KEYCLOAK_ADMIN_URL",
+		"name: KEYCLOAK_PARENT_REALM",
+		"name: KEYCLOAK_ADMIN_TOKEN",
+		// Values plumbed from the controller's chart-level env.
+		"http://gitea-http.gitea.svc.cluster.local:3000",
+		"http://domain.sme.svc.cluster.local:8086",
+		"http://seaweedfs.storage.svc.cluster.local:8333",
+		"http://keycloak.keycloak.svc.cluster.local:8080",
+		`name: "catalyst-gitea-token"`,
+		`name: "sandbox-storage-s3"`,
+		`name: "keycloak-admin-token"`,
 	} {
 		if !strings.Contains(dep, want) {
 			t.Errorf("deployment-mcp.yaml missing %q", want)
+		}
+	}
+
+	// TBD-P4 B4 — the OLD bare names MUST NOT appear on the MCP
+	// Deployment. They remain on the pty-server StatefulSet (inherited
+	// by user shells, distinct contract). Any future renderer change
+	// that puts them back onto the MCP Deployment regresses the MCP
+	// plugin's tool gates, so the negative assertion is load-bearing.
+	for _, banned := range []string{
+		"- name: ORG_ID\n",
+		"- name: SOVEREIGN_FQDN\n",
+	} {
+		if strings.Contains(dep, banned) {
+			t.Errorf("deployment-mcp.yaml MUST NOT contain bare %q "+
+				"(MCP plugin reads canonical SANDBOX_ORG_ID / SANDBOX_SOVEREIGN_FQDN)",
+				strings.TrimSpace(banned))
 		}
 	}
 

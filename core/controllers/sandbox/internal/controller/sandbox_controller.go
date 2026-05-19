@@ -91,6 +91,31 @@ type Reconciler struct {
 	PrimaryRegion    string
 	ReplicaRegion    string
 
+	// TBD-P4 B4 — canonical SANDBOX_* env wiring the controller threads
+	// into every per-Sandbox MCP Pod. Without these, the MCP plugin's
+	// per-tool guards (gitea, domain, storage, keycloak) silently
+	// degrade to "not configured" because the controller used to emit
+	// `ORG_ID` / `SOVEREIGN_FQDN` while the MCP binary reads the
+	// `SANDBOX_*` namespaced variants. Sourced from chart-level env on
+	// the bp-sandbox HelmRelease (deployment.yaml `runtime.*` + new
+	// `*Secret` blocks). All fields permit empty — MCP surfaces a clean
+	// "not configured" error from the affected tool family.
+	GiteaBaseURL                string
+	GiteaTokenSecretName        string
+	GiteaTokenSecretKey         string
+	DomainAPIURL                string
+	MarketplaceAPIURL           string
+	StorageS3Endpoint           string
+	StorageS3Region             string
+	StorageS3UseTLS             string
+	StorageS3CredsSecretName    string
+	StorageS3AccessKeyKey       string
+	StorageS3SecretKeyKey       string
+	KeycloakAdminURL            string
+	KeycloakParentRealm         string
+	KeycloakAdminTokenSecret    string
+	KeycloakAdminTokenSecretKey string
+
 	// Wave 9 — NewAPI bridge client used by Reconcile to mint
 	// per-Sandbox LLM-gateway tokens (POST /admin/tokens/sandbox,
 	// PR #1638). When nil the reconciler renders the Wave 1+8
@@ -264,6 +289,22 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		EnableHotStandby:      r.EnableHotStandby,
 		PrimaryRegion:         r.PrimaryRegion,
 		ReplicaRegion:         r.ReplicaRegion,
+		// TBD-P4 B4 — canonical SANDBOX_* env-var wiring for MCP plugin.
+		GiteaBaseURL:                r.GiteaBaseURL,
+		GiteaTokenSecretName:        r.GiteaTokenSecretName,
+		GiteaTokenSecretKey:         r.GiteaTokenSecretKey,
+		DomainAPIURL:                r.DomainAPIURL,
+		MarketplaceAPIURL:           r.MarketplaceAPIURL,
+		StorageS3Endpoint:           r.StorageS3Endpoint,
+		StorageS3Region:             r.StorageS3Region,
+		StorageS3UseTLS:             r.StorageS3UseTLS,
+		StorageS3CredsSecretName:    r.StorageS3CredsSecretName,
+		StorageS3AccessKeyKey:       r.StorageS3AccessKeyKey,
+		StorageS3SecretKeyKey:       r.StorageS3SecretKeyKey,
+		KeycloakAdminURL:            r.KeycloakAdminURL,
+		KeycloakParentRealm:         r.KeycloakParentRealm,
+		KeycloakAdminTokenSecret:    r.KeycloakAdminTokenSecret,
+		KeycloakAdminTokenSecretKey: r.KeycloakAdminTokenSecretKey,
 	}
 	manifests, err := gitops.Render(in)
 	if err != nil {
