@@ -153,7 +153,7 @@ spec:
       # platform/gitea/chart/templates/database-secret-sync-job.yaml
       # (issue #830 Bug 2) + platform/wordpress-tenant/chart/templates/
       # database-secret-sync-job.yaml (issue #1786).
-      version: 1.4.27
+      version: 1.4.28
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
