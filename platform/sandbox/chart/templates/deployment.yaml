@@ -86,7 +86,11 @@ spec:
             # land so a fresh-prov Sovereign with bridge-handler
             # rollout pending stays usable for the gitops scaffolding.
             - name: NEWAPI_BASE_URL
-              value: {{ .Values.env.newapiBaseURL | default "http://newapi.newapi.svc.cluster.local:3000" | quote }}
+              # TBD-V14 (issue #2015): canonical bp-newapi Service is named
+              # via `bp-newapi.fullname` => `newapi-bp-newapi` (NOT bare
+              # `newapi`). The pre-fix default resolved to a DNS name no
+              # Service publishes, breaking every Sandbox TokenMint.
+              value: {{ .Values.env.newapiBaseURL | default "http://newapi-bp-newapi.newapi.svc.cluster.local:3000" | quote }}
             - name: NEWAPI_ADMIN_SECRET
               valueFrom:
                 secretKeyRef:

@@ -40,7 +40,20 @@ env:
   # alongside the rest of its REST surface, so this defaults to the
   # in-cluster NewAPI service. Per Inviolable Principle #4 every
   # operator may override via per-Sovereign overlay.
-  newapiBaseURL: "http://newapi.newapi.svc.cluster.local:3000"
+  #
+  # TBD-V14 (issue #2015, t38 walker 2026-05-19): the canonical bp-newapi
+  # ClusterIP Service is named via `bp-newapi.fullname` (release name
+  # `newapi` + chart name `bp-newapi` → `newapi-bp-newapi`) per
+  # platform/newapi/chart/templates/_helpers.tpl. The pre-fix default
+  # (`http://newapi.newapi.svc.cluster.local:3000`) resolves to a DNS
+  # name that no Service ever publishes, so every TokenMint POST from
+  # sandbox-controller returned `lookup newapi.newapi.svc.cluster.local
+  # ... no such host` and the canonical Pillar-4 customer journey
+  # (console.<orgslug>.omani.homes → Sandbox → qwen-code) stalled at
+  # Wave-9 token mint. Verified with `helm template newapi
+  # platform/newapi/chart/ -s templates/service.yaml` → renders
+  # `metadata.name: newapi-bp-newapi`.
+  newapiBaseURL: "http://newapi-bp-newapi.newapi.svc.cluster.local:3000"
   # Comma-separated list of NewAPI channel names every freshly-minted
   # Sandbox token is allowed to target. The controller refuses to mint
   # tokens with an empty channel set (NoAllowedChannels condition on
