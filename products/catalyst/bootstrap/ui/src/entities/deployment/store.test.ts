@@ -91,9 +91,15 @@ describe('wizard store — registrar credentials', () => {
 })
 
 describe('wizard store — marketplace mode (#710 wave 3a)', () => {
-  it('defaults marketplaceEnabled to false and brand to empty strings', () => {
+  // TBD-V4 (issue #1968, 2026-05-19): default flipped false → true at source
+  // so franchised Sovereigns provision marketplace-enabled out of the box.
+  // The wizard's StepMarketplace toggle is now an opt-OUT control. PR #1967
+  // already flipped the chart-side slot fallback to `${MARKETPLACE_ENABLED:-
+  // true}`; this test mirrors the matching source-side default flip on the
+  // wizard store + INITIAL_WIZARD_STATE (model.ts:496).
+  it('defaults marketplaceEnabled to true and brand to empty strings', () => {
     const s = useWizardStore.getState()
-    expect(s.marketplaceEnabled).toBe(false)
+    expect(s.marketplaceEnabled).toBe(true)
     expect(s.marketplaceBrand).toEqual({ name: '', tagline: '', primaryColor: '' })
   })
 

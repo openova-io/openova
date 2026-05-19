@@ -211,6 +211,79 @@ func TestCreateDeployment_DerivesObjectStorageBucketFromFQDN(t *testing.T) {
 	}
 }
 
+// TBD-V4 (issue #1968, 2026-05-19): a deployment POST that OMITS the
+// `marketplaceEnabled` field MUST land with Request.MarketplaceEnabled=true.
+// CreateDeployment pre-initialises the Request before json.Decode (the
+// canonical Go pattern for default-true bool fields without a struct shape
+// change), so the encoding/json package's "absent key leaves field
+// untouched" semantics fall through to the pre-init value. The matching
+// chart-side slot fallback `${MARKETPLACE_ENABLED:-true}` shipped in PR
+// #1967; this handler-side flip closes the trace-end-to-end gap so a
+// franchised Sovereign provisions marketplace-enabled out of the box.
+// Test asserts both the canonical "field omitted" case (defaults true)
+// AND the "wizard explicitly disables" case (false survives the decode).
+func TestCreateDeployment_MarketplaceEnabledDefaultsTrue(t *testing.T) {
+	t.Setenv("DYNADOT_MANAGED_DOMAINS", "omani.works")
+	t.Setenv("CATALYST_GHCR_PULL_TOKEN", "ghp_TEST_PLACEHOLDER_NOT_REAL")
+	t.Setenv("CATALYST_HARBOR_ROBOT_TOKEN", "harbor_TEST_PLACEHOLDER")
+
+	cases := []struct {
+		name           string
+		marketplaceKey bool // include the key in the body
+		marketplaceVal bool // value when included
+		want           bool // expected dep.Request.MarketplaceEnabled
+	}{
+		{name: "omitted-defaults-true", marketplaceKey: false, want: true},
+		{name: "explicit-true-passes-through", marketplaceKey: true, marketplaceVal: true, want: true},
+		{name: "explicit-false-wizard-opt-out-survives", marketplaceKey: true, marketplaceVal: false, want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pdm.ResetManagedDomains()
+			fake := &fakePDM{}
+			h := NewWithPDM(slog.Default(), fake)
+
+			body := map[string]any{
+				"sovereignFQDN":          "k8s.acme.io",
+				"sovereignDomainMode":    "byo",
+				"sovereignSubdomain":     "k8s",
+				"hetznerToken":           "tok",
+				"hetznerProjectID":       "proj",
+				"region":                 "fsn1",
+				"orgName":                "Acme",
+				"orgEmail":               "ops@acme.io",
+				"sshPublicKey":           "ssh-ed25519 AAAA test",
+				"objectStorageRegion":    "fsn1",
+				"objectStorageAccessKey": "TESTACCESSKEY1234567",
+				"objectStorageSecretKey": "TESTSECRETKEY1234567890123456789012345678",
+			}
+			if tc.marketplaceKey {
+				body["marketplaceEnabled"] = tc.marketplaceVal
+			}
+			raw, _ := json.Marshal(body)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodPost, "/api/v1/deployments", bytes.NewReader(raw))
+			h.CreateDeployment(w, r)
+			if w.Code != http.StatusCreated {
+				t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+			}
+			var resp struct {
+				ID string `json:"id"`
+			}
+			_ = json.Unmarshal(w.Body.Bytes(), &resp)
+			val, ok := h.deployments.Load(resp.ID)
+			if !ok {
+				t.Fatalf("deployment %s missing from sync.Map", resp.ID)
+			}
+			dep := val.(*Deployment)
+			if dep.Request.MarketplaceEnabled != tc.want {
+				t.Fatalf("MarketplaceEnabled = %v, want %v (TBD-V4 default-flip semantics)", dep.Request.MarketplaceEnabled, tc.want)
+			}
+		})
+	}
+}
+
 // Issue #748 — orgEmail must match the authenticated session. A signed-in
 // operator who tries to POST a deployment whose req.OrgEmail belongs to
 // some OTHER identity must receive 403, NEVER 201. The session header
