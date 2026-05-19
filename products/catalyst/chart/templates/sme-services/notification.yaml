@@ -64,6 +64,33 @@ spec:
                 secretKeyRef:
                   name: sme-secrets
                   key: SMTP_FROM
+            # SMTP_USER / SMTP_PASS — added per TBD-X1 (Refs #1793).
+            # Pre-fix the notification Pod read only HOST/PORT/FROM
+            # which meant the Go net/smtp client dialed Stalwart
+            # without authentication; Stalwart's submission listener
+            # then rejected every message with 503 5.5.1 "You must
+            # authenticate first". The tight retry storm tripped
+            # Stalwart's [5 requests, 1000ms] rate-limiter for every
+            # tenant on the same relay.
+            #
+            # The auth.yaml template has consumed these two keys
+            # from sme-secrets since chart 1.4.20 (issue #934); this
+            # template was an oversight from the same change-set.
+            # The sme-secrets template's source-wins lookup against
+            # catalyst-system/sovereign-smtp-credentials already
+            # populates SMTP_USER + SMTP_PASS with the canonical
+            # mothership-relay credentials (Phase-1) or the
+            # bp-stalwart-sovereign-minted credentials (Phase-2).
+            - name: SMTP_USER
+              valueFrom:
+                secretKeyRef:
+                  name: sme-secrets
+                  key: SMTP_USER
+            - name: SMTP_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: sme-secrets
+                  key: SMTP_PASS
             - name: CORS_ORIGIN
               value: "https://sme.openova.io"
           resources:
