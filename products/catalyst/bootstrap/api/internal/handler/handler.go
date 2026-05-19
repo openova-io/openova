@@ -589,9 +589,10 @@ func New(log *slog.Logger) *Handler {
 	// flowemit — POST events to openova-flow-server's CNPG-backed
 	// store. URL from OPENOVA_FLOW_SERVER_URL env (same var the
 	// snapshot/stream proxy uses). Empty → no-op client; production
-	// chart wires this to http://openova-flow-server.catalyst.svc
-	// .cluster.local on mothership, in-cluster service DNS on
-	// Sovereigns.
+	// chart wires this to http://openova-flow-server.catalyst-system
+	// .svc.cluster.local on mothership (Service lives in catalyst-system
+	// per bootstrap-kit slot 56 targetNamespace), in-cluster service
+	// DNS on Sovereigns.
 	h.flowEmit = flowemit.NewClient(os.Getenv("OPENOVA_FLOW_SERVER_URL"), log)
 
 	return h

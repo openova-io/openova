@@ -1522,8 +1522,22 @@ name: bp-catalyst-platform
 # 25/TCP (legacy SMTP fallback). All three are explicitly scoped to
 # `toEntities: world`, matching the existing 443/TCP allow. No other
 # rule semantics change. (Fixes PIN-issue 502 regression from #1785.)
-version: 1.4.199
-appVersion: 1.4.199
+#
+# 1.4.200 — TBD-A56 / #1948 (t34 T3 walk, 2026-05-19): catalyst-api
+# `OPENOVA_FLOW_SERVER_URL` env in api-deployment.yaml hardcoded the
+# upstream as `http://openova-flow-server.catalyst.svc.cluster.local`
+# but the Service is installed by bootstrap-kit slot 56 with
+# `spec.targetNamespace: catalyst-system`. In-cluster DNS resolution
+# failed on every Sovereign + mothership → /api/v1/flows/{id}/snapshot
+# returned 502 and the operator's Flow canvas stayed empty. Fix
+# updates the env to the correct namespace and aligns the comment in
+# bootstrap/api/internal/handler/handler.go. Also aligns with the Go
+# default constant `defaultFlowServerURL` already pointing at
+# `.catalyst-system.svc.cluster.local:8080` and the
+# 57-bp-openova-flow-emitter overlay (`flowServerUrl: http://
+# openova-flow-server.catalyst-system.svc.cluster.local`).
+version: 1.4.200
+appVersion: 1.4.200
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
 # TBD-A30). Pre-1.4.183 every catalyst-system HTTPRoute pinned
