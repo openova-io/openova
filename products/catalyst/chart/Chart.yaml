@@ -1,5 +1,19 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.187 — TBD-X1 (issue #1793) notification.yaml SMTP_USER / SMTP_PASS
+# env wiring. Pre-fix the notification Pod read only SMTP_HOST / PORT /
+# FROM from sme-secrets, so the Go net/smtp client dialed Stalwart
+# without authentication. After every sme stack redeploy the missing
+# auth path returned 503 5.5.1 "You must authenticate first"; the old
+# fixed-60s retry loop (now upgraded to exponential backoff + circuit
+# breaker in services-notification, Refs PR companion) slammed the
+# relay 3x per message x 5 tenants and tripped Stalwart's
+# [5 requests, 1000ms] rate-limiter for every tenant on the same relay.
+# Fix is one-symmetry-line with auth.yaml which has consumed SMTP_USER
+# + SMTP_PASS from sme-secrets since chart 1.4.20 (#934). The
+# sme-secrets template's source-wins lookup against catalyst-system/
+# sovereign-smtp-credentials already populates the values from the
+# mothership-relay (Phase-1) or bp-stalwart-sovereign (Phase-2).
 # 1.4.186 — TBD-A45 (issue #1908) catalyst-api egress to secondary CP
 # :6443 unblocked. baseline-default-deny CNP world-egress block
 # previously allowed only 443/587/465/25 — catalyst-api fan-out to
@@ -1294,7 +1308,7 @@ name: bp-catalyst-platform
 # 25/TCP (legacy SMTP fallback). All three are explicitly scoped to
 # `toEntities: world`, matching the existing 443/TCP allow. No other
 # rule semantics change. (Fixes PIN-issue 502 regression from #1785.)
-version: 1.4.186
+version: 1.4.187
 appVersion: 1.4.184
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
