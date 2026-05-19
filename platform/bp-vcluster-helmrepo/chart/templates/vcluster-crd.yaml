@@ -1,0 +1,137 @@
+{{- if .Values.vclusterCRD.enabled -}}
+# vclusters.vcluster.com — Catalyst-authored CustomResourceDefinition.
+#
+# Why this CRD ships from THIS chart (bp-vcluster-helmrepo) instead of
+# the upstream loft-sh/vcluster chart:
+#
+#   - The upstream `vcluster` chart (loft-sh) installs a vCluster as a
+#     plain StatefulSet + Service + Secret cohort. It does NOT register
+#     any CRD with apiGroup `vcluster.com`. See
+#     https://github.com/loft-sh/vcluster/tree/main/chart/templates —
+#     no `crds/` dir, no CustomResourceDefinition templates.
+#
+#   - Catalyst's networking + dashboard read paths
+#     (products/catalyst/bootstrap/api/internal/handler/networking.go
+#     `HandleNetworkingDMZ`, internal/k8scache/kinds.go registry entry
+#     `{Group:"vcluster.com", Version:"v1alpha1", Resource:"vclusters"}`)
+#     LIST `vcluster.com/v1alpha1 VClusters` to render the Sovereign
+#     console's DMZ tab + dashboard utilization overlay.
+#
+#   - Without this CRD on a fresh Sovereign, every `kubectl
+#     api-resources --api-group=vcluster.com` returns empty (issue
+#     #1945, t34 walk 2026-05-19) → the k8scache dynamicinformer logs
+#     soft NotFound on the LIST → the DMZ tab renders an empty
+#     "not installed" panel → D29 zero-touch tenant materialisation
+#     is permanently blocked.
+#
+# bp-vcluster-helmrepo is the canonical home: it already pre-stages
+# the vcluster-system namespace + the loft HelmRepository CR. Adding
+# the CRD here means the SAME bootstrap-kit slot delivers both halves
+# of "vcluster-related cluster-scoped registration", and the slot's
+# `dependsOn: bp-flux` keeps the Flux source-controller up before
+# either CR lands.
+#
+# Ordering — per docs/INVIOLABLE-PRINCIPLES.md #14 (cross-Kind
+# dependencies must use Kustomization.dependsOn, NEVER HelmRelease.
+# dependsOn, which is silently ignored for non-HelmRelease deps):
+# downstream HelmReleases that materialise VCluster CRs (e.g. a
+# future bp-sme-tenant slot) must be sequenced AFTER slot 60
+# (60-bp-vcluster-helmrepo.yaml) in the bootstrap-kit
+# kustomization.yaml — same way they're sequenced after slot 03
+# (bp-flux) today. No HR-level dependsOn needed.
+#
+# Schema shape — the read path consumes ONLY .status.phase (string)
+# and standard ObjectMeta. We expose those explicitly + keep the
+# spec block permissive (x-kubernetes-preserve-unknown-fields) so
+# any operator-attached fields survive a round-trip without the
+# CRD's schema rejecting them. helm.sh/resource-policy: keep makes
+# uninstall a no-op on the CRD (matches platform/gateway-api
+# convention — deleting CRDs would orphan every VCluster CR
+# simultaneously).
+#
+# Refs:
+#   - issue #1945 — TBD-A53: vcluster.com CRDs absent on fresh prov
+#   - issue #1829 — D29 voucher-based tenant provisioning
+#   - PR  #1289  — original removal of bp-dmz-vcluster from default
+#                   bootstrap kit (the UI's iter-16 Fix #68 comment
+#                   in NetworkingPage.tsx documents that this CRD has
+#                   been absent since)
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: vclusters.vcluster.com
+  labels:
+    {{- include "bp-vcluster-helmrepo.labels" . | nindent 4 }}
+    catalyst.openova.io/tenant-spawn: vcluster
+  annotations:
+    # Helm uninstall MUST NOT delete the CRD — see header comment.
+    helm.sh/resource-policy: keep
+spec:
+  group: vcluster.com
+  scope: Namespaced
+  names:
+    kind: VCluster
+    listKind: VClusterList
+    plural: vclusters
+    singular: vcluster
+    shortNames:
+      - vc
+    categories:
+      - catalyst
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      additionalPrinterColumns:
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: |
+            VCluster represents a virtual Kubernetes cluster running on
+            top of a host k3s/k8s cluster. The host-side artifacts (the
+            actual StatefulSet + Service + Secrets that materialise the
+            vCluster) are managed by the upstream loft-sh/vcluster Helm
+            chart referenced via the bp-vcluster-helmrepo HelmRepository
+            (see clusters/_template/bootstrap-kit/60-bp-vcluster-helmrepo.yaml).
+            This CR is the operator-visible projection of that cohort —
+            read-only for the Sovereign console's DMZ / dashboard tabs.
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              description: |
+                Spec fields are operator-defined and forwarded verbatim
+                to the host-side HelmRelease values block (no Catalyst
+                schema enforcement — operators MAY add upstream-shape
+                fields without re-vendoring this CRD).
+              x-kubernetes-preserve-unknown-fields: true
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  description: |
+                    Lifecycle phase — one of `Pending`, `Running`,
+                    `Failed`, `Deleting`. The networking handler's
+                    `dmzVCluster.Running` field is set true iff phase
+                    equals `Running` (case-insensitive).
+                message:
+                  type: string
+                  description: |
+                    Free-form status message (operator-readable, never
+                    parsed by Catalyst code paths).
+              x-kubernetes-preserve-unknown-fields: true
+      subresources:
+        status: {}
+{{- end }}

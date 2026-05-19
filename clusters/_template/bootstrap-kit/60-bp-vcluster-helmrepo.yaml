@@ -76,7 +76,12 @@ spec:
   chart:
     spec:
       chart: bp-vcluster-helmrepo
-      version: 0.1.0
+      # 0.2.0 — adds the `vclusters.vcluster.com` CRD so Catalyst's
+      # networking + dashboard read paths can LIST VClusters on a
+      # fresh Sovereign (issue #1945, TBD-A53). Pre-0.2.0 charts only
+      # registered the HelmRepository CR; the CRD itself was absent
+      # on every fresh prov.
+      version: 0.2.0
       sourceRef:
         kind: HelmRepository
         name: bp-vcluster-helmrepo

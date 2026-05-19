@@ -6,7 +6,9 @@ metadata:
     catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
     catalyst.openova.io/category: platform
 spec:
-  version: 0.1.0
+  # 0.2.0 — adds the `vclusters.vcluster.com` CRD alongside the existing
+  # HelmRepository + namespace pre-staging (issue #1945, TBD-A53).
+  version: 0.2.0
   card:
     title: vCluster HelmRepository
     summary: |

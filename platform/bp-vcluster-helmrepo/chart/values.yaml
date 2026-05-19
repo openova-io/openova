@@ -34,3 +34,25 @@ vclusterHelmRepo:
   # operator-MAY turn it off to manage the namespace via a separate
   # Kustomization.
   createNamespace: true
+
+# CRD installation gate (issue #1945, TBD-A53). When true, this chart
+# also installs the `vclusters.vcluster.com` CustomResourceDefinition.
+# That CRD is consumed by the Catalyst-API networking handler
+# (`HandleNetworkingDMZ` at
+# products/catalyst/bootstrap/api/internal/handler/networking.go) and
+# by the k8scache dynamicinformer registry
+# (products/catalyst/bootstrap/api/internal/k8scache/kinds.go) — both
+# LIST `vcluster.com/v1alpha1 VClusters` to feed the Sovereign console
+# DMZ tab + dashboard utilization overlay.
+#
+# Without the CRD on the cluster, `kubectl api-resources
+# --api-group=vcluster.com` returns empty (caught on t34 walk
+# 2026-05-19) and D29 zero-touch tenant materialisation cannot
+# complete. See templates/vcluster-crd.yaml for the full rationale.
+#
+# Default-ON because every Sovereign needs the read surface to render
+# its console panels. Operator MAY turn off in environments that
+# install the CRD via a separate operator (e.g. cluster-api-provider-
+# vcluster) to avoid duplicate-registration.
+vclusterCRD:
+  enabled: true
