@@ -1594,11 +1594,105 @@ runcmd:
   # packet flow over Cilium WireGuard which requires non-overlapping
   # CIDRs end-to-end. Values are interpolated by OpenTofu from
   # local.region_cluster_cidr / local.region_service_cidr in main.tf.
-  - 'CP_PUBLIC_IPV4=$(curl -fsSL --retry 30 --retry-delay 2 http://169.254.169.254/hetzner/v1/metadata/public-ipv4) && curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=${k3s_version} K3S_TOKEN=${k3s_token} INSTALL_K3S_EXEC="server --cluster-init --flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --cluster-cidr=${cluster_cidr} --service-cidr=${service_cidr} --node-ip=${cp_private_ip} --node-external-ip=$${CP_PUBLIC_IPV4} --advertise-address=${cp_private_ip} --kubelet-arg=max-pods=220 --tls-san=${sovereign_fqdn} --tls-san=${cp_private_ip} --tls-san=$${CP_PUBLIC_IPV4} --kube-apiserver-arg=oidc-issuer-url=https://auth.${sovereign_fqdn}/realms/sovereign --kube-apiserver-arg=oidc-client-id=kubectl --kube-apiserver-arg=oidc-username-claim=preferred_username --kube-apiserver-arg=oidc-username-prefix=oidc: --kube-apiserver-arg=oidc-groups-claim=groups --kube-apiserver-arg=oidc-groups-prefix=oidc: --node-label catalyst.openova.io/role=control-plane --node-label openova.io/region=${region_canonical_label} --disable-cloud-controller ${worker_count > 0 ? "--node-taint node-role.kubernetes.io/control-plane=true:NoSchedule " : ""}--write-kubeconfig-mode=0644" sh -'
+  # ── Layer 1 (TBD-A50 / #1941): fail-fast on empty Hetzner public IP ─────
+  #
+  # The previous one-liner combined the metadata curl AND the k3s install
+  # in a single `&&` chain, with two silent-failure modes:
+  #
+  #   (a) `curl` exits 0 even when the metadata endpoint returns an EMPTY
+  #       body (HTTP 200, zero bytes — observed on t34, 2026-05-19). The
+  #       chain then runs `--node-external-ip=` (empty value) and k3s
+  #       happily installs without any ExternalIP on the Node object →
+  #       Cilium tunnel endpoint stays at the locally-scoped 10.0.1.2 →
+  #       inter-region pod traffic blackholes (DoD A2 invariant VIOLATED).
+  #   (b) PR #1715 added `--node-external-ip` but did not guard against
+  #       this empty-body case, so the fix landed in template but never
+  #       took effect on t34 (chart 1.4.198) — Issue #1941.
+  #
+  # Fix: split metadata fetch into its own runcmd item, validate the
+  # response is non-empty, persist to /etc/openova/cp-public-ipv4 so the
+  # next runcmd item (install) can read it without re-curl'ing. Exit 87
+  # if empty so cloud-init.log surfaces the root cause instead of silent
+  # ClusterMesh blackhole hours later.
+  - |
+    mkdir -p /etc/openova
+    CP_PUBLIC_IPV4=$(curl -fsSL --retry 30 --retry-delay 2 http://169.254.169.254/hetzner/v1/metadata/public-ipv4 || true)
+    if [ -z "$${CP_PUBLIC_IPV4}" ]; then
+      echo "[k3s-install] FATAL: Hetzner metadata public-ipv4 returned EMPTY — refusing to install k3s without ExternalIP" >&2
+      echo "[k3s-install]   DoD A2 invariant: inter-region link MUST run over PUBLIC IPs. Without ExternalIP the node enrolls with InternalIP=${cp_private_ip} only, Cilium tunnel endpoint blackholes cross-region traffic (Issue #1941 / TBD-A50)." >&2
+      echo "[k3s-install]   Diagnostics:" >&2
+      curl -v --max-time 5 http://169.254.169.254/hetzner/v1/metadata/public-ipv4 >&2 2>&1 || true
+      exit 87
+    fi
+    printf '%s' "$${CP_PUBLIC_IPV4}" > /etc/openova/cp-public-ipv4
+    chmod 0644 /etc/openova/cp-public-ipv4
+    echo "[k3s-install] CP_PUBLIC_IPV4=$${CP_PUBLIC_IPV4} persisted to /etc/openova/cp-public-ipv4"
+
+  - 'CP_PUBLIC_IPV4=$(cat /etc/openova/cp-public-ipv4) && [ -n "$${CP_PUBLIC_IPV4}" ] && curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=${k3s_version} K3S_TOKEN=${k3s_token} INSTALL_K3S_EXEC="server --cluster-init --flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --cluster-cidr=${cluster_cidr} --service-cidr=${service_cidr} --node-ip=${cp_private_ip} --node-external-ip=$${CP_PUBLIC_IPV4} --advertise-address=${cp_private_ip} --kubelet-arg=max-pods=220 --tls-san=${sovereign_fqdn} --tls-san=${cp_private_ip} --tls-san=$${CP_PUBLIC_IPV4} --kube-apiserver-arg=oidc-issuer-url=https://auth.${sovereign_fqdn}/realms/sovereign --kube-apiserver-arg=oidc-client-id=kubectl --kube-apiserver-arg=oidc-username-claim=preferred_username --kube-apiserver-arg=oidc-username-prefix=oidc: --kube-apiserver-arg=oidc-groups-claim=groups --kube-apiserver-arg=oidc-groups-prefix=oidc: --node-label catalyst.openova.io/role=control-plane --node-label openova.io/region=${region_canonical_label} --disable-cloud-controller ${worker_count > 0 ? "--node-taint node-role.kubernetes.io/control-plane=true:NoSchedule " : ""}--write-kubeconfig-mode=0644" sh -'
 
   # Wait for the API server to be reachable. Cilium needs to come up before
   # nodes Ready, so we wait specifically for the API endpoint.
   - 'until kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get --raw /healthz; do sleep 5; done'
+
+  # ── Layer 2 (TBD-A50 / #1941): post-install ExternalIP assertion ────────
+  #
+  # Belt-and-braces verification that the Node object actually carries an
+  # ExternalIP after k3s install. Even with Layer 1's fail-fast, an edge
+  # case can leave the Node ExternalIP empty:
+  #   - k3s service crashed/restarted mid-install before the flag took
+  #     effect, OR
+  #   - the install ran with an older binary that ignored --node-external-ip
+  # Without ExternalIP on the Node object, Cilium picks the InternalIP
+  # (10.0.1.2) as its tunnel endpoint → cross-region pod traffic blackholes
+  # (DoD A2 invariant). Issue #1941 root-cause guard.
+  #
+  # Strategy: poll node.status.addresses[ExternalIP] up to 60s; if empty,
+  # restart k3s ONCE (with the same install args still on disk under
+  # /etc/systemd/system/k3s.service) and recheck for another 60s. If
+  # STILL empty after restart, exit 88 so cloud-init.log surfaces it.
+  # The Hetzner public IP we already validated in Layer 1 is on disk at
+  # /etc/openova/cp-public-ipv4 — we log it for cross-reference.
+  - |
+    NODE_NAME=$(hostname)
+    EXPECTED_PUBLIC_IP=$(cat /etc/openova/cp-public-ipv4 2>/dev/null || echo "")
+    KCFG=/etc/rancher/k3s/k3s.yaml
+    get_ext_ip() {
+      kubectl --kubeconfig=$${KCFG} get node "$${NODE_NAME}" \
+        -o jsonpath='{.status.addresses[?(@.type=="ExternalIP")].address}' 2>/dev/null || true
+    }
+    EXT_IP=""
+    for i in $(seq 1 30); do
+      EXT_IP=$(get_ext_ip)
+      if [ -n "$${EXT_IP}" ]; then
+        echo "[external-ip-assert] OK iter=$${i} node=$${NODE_NAME} ExternalIP=$${EXT_IP} (expected $${EXPECTED_PUBLIC_IP})"
+        break
+      fi
+      sleep 2
+    done
+    if [ -z "$${EXT_IP}" ]; then
+      echo "[external-ip-assert] WARN: node $${NODE_NAME} has empty ExternalIP after 60s; restarting k3s once and re-checking" >&2
+      kubectl --kubeconfig=$${KCFG} get node "$${NODE_NAME}" -o yaml >&2 2>&1 || true
+      systemctl restart k3s || true
+      for i in $(seq 1 60); do
+        if kubectl --kubeconfig=$${KCFG} get --raw /healthz >/dev/null 2>&1; then
+          break
+        fi
+        sleep 2
+      done
+      for i in $(seq 1 30); do
+        EXT_IP=$(get_ext_ip)
+        if [ -n "$${EXT_IP}" ]; then
+          echo "[external-ip-assert] RECOVERED iter=$${i} ExternalIP=$${EXT_IP} after k3s restart"
+          break
+        fi
+        sleep 2
+      done
+    fi
+    if [ -z "$${EXT_IP}" ]; then
+      echo "[external-ip-assert] FATAL: node $${NODE_NAME} still has empty ExternalIP after restart — DoD A2 invariant VIOLATED, cross-region ClusterMesh would blackhole. See Issue #1941 / TBD-A50." >&2
+      kubectl --kubeconfig=$${KCFG} get node "$${NODE_NAME}" -o yaml >&2 2>&1 || true
+      exit 88
+    fi
 
   # ── Patch node providerID — DoD A3/D10/D11/D12 unblocker (2026-05-16) ───
   #
