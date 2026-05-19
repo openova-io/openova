@@ -1,5 +1,20 @@
 apiVersion: v2
 name: bp-vcluster-helmrepo
+# 0.2.0 — adds the `vclusters.vcluster.com` CustomResourceDefinition
+# alongside the existing HelmRepository + namespace pre-staging.
+# Caught on t34 walk 2026-05-19 (issue #1945, TBD-A53): the upstream
+# loft-sh/vcluster chart does NOT register any CRD with apiGroup
+# `vcluster.com` (it just installs a StatefulSet cohort), so `kubectl
+# api-resources --api-group=vcluster.com` was returning empty on every
+# fresh Sovereign. Catalyst's networking + dashboard read paths LIST
+# `vcluster.com/v1alpha1 VClusters` to render the DMZ tab + dashboard
+# utilization overlay — without the CRD they fall back to "not
+# installed" panels and block D29 zero-touch tenant materialisation
+# (issue #1829). The CRD is namespaced, served at v1alpha1, with
+# `.status.phase` populated and the spec block preserve-unknown-fields
+# so operator-attached values round-trip cleanly. See
+# templates/vcluster-crd.yaml for the full rationale and shape.
+#
 # 0.1.0 — initial implementation. Pre-stages the upstream loft-sh
 # vcluster Helm chart source on the Sovereign cluster so the
 # Organization controller (core/controllers/organization) can render
@@ -14,7 +29,7 @@ name: bp-vcluster-helmrepo
 # \"loft\" not found" — convergence blocker #2 (vCluster CRD-equivalent
 # install on Sovereign). Spawning any tenant org's vCluster gates on
 # this slot.
-version: 0.1.0
+version: 0.2.0
 appVersion: "0.33.0"
 description: |
   Catalyst Blueprint that pre-stages the upstream loft-sh vcluster
