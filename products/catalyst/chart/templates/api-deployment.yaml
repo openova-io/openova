@@ -357,7 +357,7 @@ spec:
             # allowedPlatformNamespaces (see network-policies/
             # baseline-catalyst-system.yaml) so no extra CNP is needed.
             - name: CATALYST_NATS_URL
-              value: {{ .Values.catalystApi.natsURL | default "nats://nats-jetstream.nats-system.svc.cluster.local:4222" | quote }}
+              value: '{{ .Values.catalystApi.natsURL | default "nats://nats-jetstream.nats-system.svc.cluster.local:4222" }}'
             # CATALYST_K8SCACHE_KUBECONFIGS_DIR — issue #321. Directory
             # the k8scache.Factory reads kubeconfigs from at startup.
             # The data-plane SharedInformerFactory opens one informer

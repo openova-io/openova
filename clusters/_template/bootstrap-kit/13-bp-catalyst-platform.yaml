@@ -679,7 +679,13 @@ spec:
       # `valkey.valkey.svc.cluster.local` is NXDOMAIN (bp-valkey
       # installs `valkey-primary` Service, not plain `valkey`). Same
       # bug class as #1944 (catalog-svc, fixed in PR #1951).
-      version: 1.4.201
+      # 1.4.202 (Closes #1930, TBD-A46): wrap the Helm-templated
+      # `value: {{ ... }}` line in api-deployment.yaml so the raw
+      # chart manifest parses as YAML — unblocks the
+      # strategy-flip-regression CI workflow on every PR that
+      # touches `api-deployment.yaml`. Zero behavioural change at
+      # runtime.
+      version: 1.4.202
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
