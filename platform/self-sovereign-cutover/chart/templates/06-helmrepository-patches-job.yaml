@@ -99,6 +99,18 @@ data:
             value: {{ .Values.harbor.ghcrSecretRef.namespace | quote }}
           - name: GHCR_PULL_SECRET_KEY
             value: {{ .Values.harbor.ghcrSecretRef.dockerConfigKey | quote }}
+          # Phase -1 gateway-wait inputs (issue #1871, chart 0.1.32).
+          # The cutover URL rewrite (Phase 1 below) MUST NOT fire until
+          # the Cilium Gateway in kube-system is Programmed=True; that
+          # condition is the operator-facing proxy for "registry.<sov-
+          # fqdn> serves TLS, source-controller pulls won't EOF". See
+          # the Phase -1 block in args: below for the full wait loop.
+          - name: GATEWAY_NAMESPACE
+            value: {{ .Values.gateway.namespace | quote }}
+          - name: GATEWAY_NAME
+            value: {{ .Values.gateway.name | quote }}
+          - name: GATEWAY_WAIT_TIMEOUT_SECONDS
+            value: {{ .Values.gateway.waitTimeoutSeconds | quote }}
         volumeMounts:
           - name: helmrepository-list
             mountPath: /work
@@ -113,6 +125,76 @@ data:
             local_prefix="oci://${harbor_host}/openova-io"
 
             echo "[helmrepository-patches] upstream=${UPSTREAM_PREFIX} -> local=${local_prefix}"
+
+            # ---- Phase -1: wait for Cilium Gateway Programmed=True (issue #1871) ----
+            #
+            # The URL rewrite in Phase 1 below makes every HelmRepository
+            # OCI pull dependent on `registry.${SOVEREIGN_FQDN}` answering
+            # TLS. That hostname is served by bp-harbor's HTTPRoute
+            # attached to `gateway.networking.k8s.io/v1.Gateway
+            # cilium-gateway` in `kube-system` (installed by
+            # `clusters/_template/sovereign-tls/cilium-gateway.yaml`).
+            # If we rewrite URLs BEFORE the Gateway is Programmed=True
+            # (= listener bound, wildcard cert wired), source-controller
+            # hits TLS handshake EOF on every reconcile, bp-catalyst-
+            # platform flips Ready=False, bootstrap-kit Ks Reconciling,
+            # sovereign-tls Ks DependencyNotReady on bootstrap-kit,
+            # Gateway never installed → infinite deadlock.
+            #
+            # Discovered on t26 zero-touch 2026-05-18 (99bb823cb0513f4b,
+            # A55 diagnostic). The previous attempt (PR #1875) added
+            # `sovereign-tls` to the HR dependsOn but Flux HR.dependsOn
+            # cannot reference Kustomizations — helm-controller logged
+            # `helmreleases.helm.toolkit.fluxcd.io "sovereign-tls" not
+            # found` forever (A84 test on t27). This in-Job wait is the
+            # correct seam: cross-kind ordering enforced by polling, not
+            # by Flux's HR-only dependsOn graph.
+            #
+            # `kubectl wait` would suffice in principle but does not
+            # tolerate the resource being absent at start (only Not-Yet-
+            # Condition). The Gateway CR is itself installed by the
+            # sovereign-tls Kustomization that only fires AFTER
+            # bootstrap-kit reconciles Ready — and bootstrap-kit lists
+            # this chart, so the Gateway CR genuinely does NOT exist
+            # when catalyst-api stamps this Job in the trigger path. We
+            # therefore poll in a shell loop with a get-or-skip prelude
+            # before transitioning to `kubectl wait` once the resource
+            # is materialised.
+            echo "[helmrepository-patches] Phase -1: waiting for Gateway ${GATEWAY_NAMESPACE}/${GATEWAY_NAME} Programmed=True (timeout ${GATEWAY_WAIT_TIMEOUT_SECONDS}s)"
+            gw_deadline=$(( $(date +%s) + GATEWAY_WAIT_TIMEOUT_SECONDS ))
+            gw_ready="false"
+            while [ "$(date +%s)" -lt "${gw_deadline}" ]; do
+              # Check existence first — `kubectl wait` errors out on
+              # a missing resource rather than waiting for it.
+              if kubectl get gateway.gateway.networking.k8s.io "${GATEWAY_NAME}" \
+                   -n "${GATEWAY_NAMESPACE}" >/dev/null 2>&1; then
+                # Resource exists — read the Programmed condition status
+                # directly. Avoid `kubectl wait --for=condition=` because
+                # the gateway.networking.k8s.io API uses condition.type=
+                # `Programmed` (capital P, per Gateway API v1) and some
+                # kubectl builds compare case-insensitively, masking real
+                # status. jsonpath read is unambiguous.
+                programmed=$(kubectl get gateway.gateway.networking.k8s.io "${GATEWAY_NAME}" \
+                  -n "${GATEWAY_NAMESPACE}" \
+                  -o jsonpath='{.status.conditions[?(@.type=="Programmed")].status}' \
+                  2>/dev/null || echo "")
+                if [ "${programmed}" = "True" ]; then
+                  gw_ready="true"
+                  echo "[helmrepository-patches] Phase -1 OK: Gateway ${GATEWAY_NAMESPACE}/${GATEWAY_NAME} Programmed=True"
+                  break
+                fi
+                echo "[helmrepository-patches] Phase -1: Gateway exists but Programmed=${programmed:-<unset>}; retrying in 15s"
+              else
+                echo "[helmrepository-patches] Phase -1: Gateway ${GATEWAY_NAMESPACE}/${GATEWAY_NAME} not yet present; retrying in 15s"
+              fi
+              sleep 15
+            done
+            if [ "${gw_ready}" != "true" ]; then
+              echo "[helmrepository-patches] FATAL: Gateway ${GATEWAY_NAMESPACE}/${GATEWAY_NAME} did not reach Programmed=True within ${GATEWAY_WAIT_TIMEOUT_SECONDS}s — refusing to rewrite HelmRepository URLs into a Gateway that won't answer TLS" >&2
+              kubectl get gateway.gateway.networking.k8s.io -A 2>&1 >&2 || true
+              kubectl get kustomization -A 2>&1 >&2 || true
+              exit 1
+            fi
 
             # ---- Phase 0: merge harbor.<sov-fqdn> auth into ghcr-pull (#1184) ----
             #

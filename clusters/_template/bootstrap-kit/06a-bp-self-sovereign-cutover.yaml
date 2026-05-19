@@ -77,18 +77,23 @@ spec:
     # ordering puts cutover after these two come up.
     - name: bp-gitea
     - name: bp-harbor
-    # sovereign-tls (issue #1871) — TBD-A24 cutover↔gateway circular
-    # deadlock fix. On t26 zero-touch (2026-05-18 99bb823cb0513f4b)
-    # the cutover Step-06 rewrote every HelmRepository URL
-    # `oci://ghcr.io/openova-io` → `oci://registry.<sov-fqdn>/...`
-    # BEFORE the Cilium Gateway had a Ready listener serving TLS on
-    # `registry.<sov-fqdn>`, so source-controller hit TLS handshake
-    # EOF and bp-catalyst-platform flipped Ready=False, blocking
-    # bootstrap-kit Ready=True, blocking sovereign-tls Ready=True,
-    # blocking Gateway — full deadlock. Adding `sovereign-tls` as a
-    # third dependsOn entry makes Flux wait for the Cilium Gateway
-    # to be serving TLS before the URL rewrite fires.
-    - name: sovereign-tls
+    # NB on issue #1871 (TBD-A24 cutover↔gateway circular deadlock):
+    # PR #1875 initially added `- name: sovereign-tls` to this list.
+    # That fix was UNRESOLVABLE in Flux: HelmRelease.dependsOn can
+    # only reference other HelmReleases (helm.toolkit.fluxcd.io/v2),
+    # but `sovereign-tls` is a Flux Kustomization. helm-controller
+    # logged `helmreleases.helm.toolkit.fluxcd.io "sovereign-tls" not
+    # found` on t27 fresh-prov 2026-05-18, and bp-self-sovereign-
+    # cutover sat forever in dependency-wait — cutover never fired,
+    # handover never fired (A84 empirical test). The dependsOn entry
+    # was reverted in chart 0.1.32; the real fix moved INTO the
+    # chart's Step-06 helmrepository-patches Job, which now waits for
+    # `gateway.networking.k8s.io/cilium-gateway` in `kube-system` to
+    # report `Programmed=True` BEFORE rewriting any HelmRepository
+    # URL. That ordering breaks the deadlock without needing a cross-
+    # kind dependsOn. See platform/self-sovereign-cutover/chart/
+    # templates/06-helmrepository-patches-job.yaml (Phase -1 gateway-
+    # wait block) for the implementation.
   chart:
     spec:
       chart: bp-self-sovereign-cutover
@@ -301,7 +306,26 @@ spec:
       # this pin bump, step-08 catches openova-catalog as the lone
       # OFFENDER ~1m after step-06 (chart re-render reverts the
       # live HR patch). Caught live on t22.omantel.biz 2026-05-18.
-      version: 0.1.31
+      # 0.1.32 (issue #1871, 2026-05-19): Step-06 helmrepository-
+      # patches Job gains a NEW Phase -1 (gateway-wait) that runs
+      # BEFORE Phase-0's ghcr-pull merge and Phase-1's URL rewrite.
+      # The Job blocks until `gateway.networking.k8s.io/v1.Gateway
+      # cilium-gateway` in `kube-system` reports `Programmed=True`,
+      # which proves the Cilium Gateway has a listener serving TLS
+      # on `registry.<sov-fqdn>` (the listener bp-harbor's HTTPRoute
+      # attaches to). Closes the cutover↔gateway circular deadlock
+      # discovered on t26 99bb823cb0513f4b (A55 diagnostic) where
+      # the URL rewrite fired BEFORE the Gateway was Programmed
+      # and source-controller hit TLS handshake EOF against the
+      # not-yet-listening `registry.<sov-fqdn>`. Supersedes the bad
+      # PR #1875 fix (which added `sovereign-tls` to dependsOn —
+      # unresolvable cross-kind reference, see the dependsOn block
+      # comment above). RBAC: ClusterRole gains a Rule for
+      # gateway.networking.k8s.io.gateways {get,list,watch}.
+      # Configurable via `.Values.gateway.{namespace,name,
+      # waitTimeoutSeconds}`; default 30 min timeout safely covers
+      # the slowest Hetzner cold-start observed (≈18 min).
+      version: 0.1.32
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

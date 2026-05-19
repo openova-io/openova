@@ -24,6 +24,10 @@
 #      WITHOUT resourceNames (feedback_rbac_create_no_resourcenames.md
 #      auto-memory anchor — combining create + resourceNames produces
 #      403 every POST).
+#   20. Step-06 Phase -1 (#1871, chart 0.1.32) MUST wait for the
+#       Cilium Gateway in kube-system to report Programmed=True before
+#       rewriting any HelmRepository URL. RBAC MUST grant get/list/watch
+#       on gateway.networking.k8s.io/gateways so the poll resolves.
 #
 # Usage: bash tests/cutover-contract.sh [CHART_DIR]
 
@@ -416,5 +420,51 @@ if ! grep -A15 'cutover-step-09-gitea-token-mint' "$TMP/render.yaml" | grep -q '
   exit 1
 fi
 echo "  PASS (Step-09 mints Gitea API token + patches provisioning-github-token)"
+
+echo "[cutover-contract] Case 20: Step-06 Phase -1 waits for Cilium Gateway Programmed=True (#1871)"
+# Chart <0.1.32 fired the Step-06 URL rewrite the instant catalyst-api
+# stamped the Job. If the Cilium Gateway in kube-system had not yet
+# reached Programmed=True (= listener bound + wildcard cert wired),
+# every subsequent source-controller pull from `registry.<sov-fqdn>`
+# hit TLS handshake EOF, bp-catalyst-platform flipped Ready=False,
+# bootstrap-kit + sovereign-tls Kustomizations deadlocked, and the
+# Gateway was never installed → infinite chicken-and-egg loop. Hit
+# live on t26 zero-touch 2026-05-18 (99bb823cb0513f4b, A55 diag).
+#
+# Chart 0.1.32 inserts a Phase -1 gateway-wait at the top of the
+# Step-06 Job's args script. The Job polls
+# `gateway.networking.k8s.io/v1.Gateway cilium-gateway` in
+# `kube-system` until status.conditions[Programmed]=True, with a
+# 30 min default deadline. If the Gateway never programs, the Job
+# exits 1 (surfacing the block to the operator) rather than rewriting
+# URLs into a Gateway that won't answer.
+#
+# The previous fix attempt (PR #1875) added `sovereign-tls` to
+# bp-self-sovereign-cutover.dependsOn but Flux HR.dependsOn can ONLY
+# reference HelmReleases; sovereign-tls is a Kustomization, so
+# helm-controller logged `helmreleases.helm.toolkit.fluxcd.io
+# "sovereign-tls" not found` forever (A84 test on t27). Guard against
+# any future revival of the cross-kind dependsOn shape.
+if ! grep -q 'Phase -1: waiting for Gateway' "$TMP/render.yaml"; then
+  echo "FAIL: Step-06 Phase -1 gateway-wait block missing (#1871)" >&2
+  exit 1
+fi
+if ! grep -q 'gateway.gateway.networking.k8s.io' "$TMP/render.yaml"; then
+  echo "FAIL: Step-06 Phase -1 missing Gateway CR get/poll (#1871)" >&2
+  exit 1
+fi
+if ! grep -q 'GATEWAY_NAMESPACE' "$TMP/render.yaml" \
+   || ! grep -q 'GATEWAY_WAIT_TIMEOUT_SECONDS' "$TMP/render.yaml"; then
+  echo "FAIL: Step-06 Phase -1 missing configurable namespace/name/timeout env (#1871)" >&2
+  exit 1
+fi
+# RBAC: ClusterRole must allow get/list/watch on
+# gateway.networking.k8s.io/gateways so the in-Job poll resolves.
+if ! grep -B0 -A2 'apiGroups: \["gateway.networking.k8s.io"\]' "$TMP/render.yaml" \
+     | grep -q 'resources: \["gateways"\]'; then
+  echo "FAIL: ClusterRole missing gateway.networking.k8s.io.gateways read verbs (#1871)" >&2
+  exit 1
+fi
+echo "  PASS (Step-06 Phase -1 gateway-wait + RBAC wired)"
 
 echo "[cutover-contract] All gates green."

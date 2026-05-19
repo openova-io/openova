@@ -46,7 +46,36 @@ name: bp-self-sovereign-cutover
 # `openova-catalog` as the lone OFFENDER ~1 min after step-06
 # completes (chart re-render reverts phase-1). Caught live on
 # t22.omantel.biz 2026-05-18.
-version: 0.1.31
+#
+# 0.1.32 (issue #1871, 2026-05-19): Step-06 helmrepository-patches Job
+# gains a NEW Phase -1 (gateway-wait) that runs BEFORE Phase-0
+# (ghcr-pull auth merge) and Phase-1 (URL rewrite). The Job blocks
+# until `gateway.networking.k8s.io/v1.Gateway cilium-gateway` in
+# `kube-system` reports `Programmed=True`, which proves the Cilium
+# Gateway has a listener on *.<SOVEREIGN_FQDN>:443 serving TLS
+# against the wildcard cert — i.e. `registry.<SOVEREIGN_FQDN>` will
+# answer 200, not TLS-handshake EOF. Closes the cutover↔gateway
+# circular deadlock discovered on t26 zero-touch
+# (99bb823cb0513f4b, A55 diagnostic JSON):
+#   1) cutover Step-06 rewrote 50 HelmRepository URLs to
+#      oci://registry.t26.omani.works/openova-io
+#   2) source-controller pull → TLS handshake EOF
+#      (Gateway not yet Programmed)
+#   3) bp-catalyst-platform HR Ready=False
+#   4) bootstrap-kit Ks Reconciling
+#   5) sovereign-tls Ks DependencyNotReady on bootstrap-kit
+#   6) Gateway never installed → loop forever
+# Adding the Phase -1 wait inside the Job (rather than as a cross-
+# kind dependsOn) is the only viable seam: Flux HR dependsOn can only
+# reference HelmReleases, NOT Kustomizations, so the natural
+# `dependsOn: sovereign-tls` (PR #1875, superseded by this version)
+# never resolved — helm-controller logged "helmreleases.helm.toolkit.
+# fluxcd.io \"sovereign-tls\" not found" forever (t27 A84 empirical
+# test). RBAC: ClusterRole gains gateway.networking.k8s.io.gateways
+# {get,list,watch}. Configurable via `.Values.gateway.{namespace,
+# name,waitTimeoutSeconds}`; default 30 min timeout safely covers
+# the slowest Hetzner cold-start observed (≈18 min).
+version: 0.1.32
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
