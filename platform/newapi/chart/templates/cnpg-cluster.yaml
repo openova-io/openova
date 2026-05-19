@@ -1,32 +1,41 @@
 {{- /*
-CNPG Cluster + DSN Secret for bp-newapi (issue #943).
+CNPG Cluster + DSN-placeholder Secret for bp-newapi (issue #943, #1834).
 
 NewAPI persists users, credits, channels, tokens, and an audit log to
-PostgreSQL. Pre-#943 the chart REQUIRED an operator-supplied
-`database.existingSecret` to render the Deployment — the deployment
-template silently skipped Pod render if it was empty. On a freshly
-franchised Sovereign installing bp-newapi via Flux from the bootstrap-kit
-slot 80 overlay nothing populated this Secret, so the Deployment never
-materialised, NewAPI never came up, and alice signup gate 5 (LLM)
-timed out waiting for `api.<sov-fqdn>` to respond.
-
-Fix (issue #943, 2026-05-05): auto-provision the backing Postgres via
-CNPG when `cnpg.enabled=true` (DEFAULT). The chart renders:
+PostgreSQL. The chart auto-provisions the backing Postgres via CNPG
+when `cnpg.enabled=true` (DEFAULT). The chart renders:
 
   - postgresql.cnpg.io/v1.Cluster `<release>-newapi-pg` with the
     operator-configured size + storage from .Values.cnpg.cluster.*.
     CNPG auto-creates `<cluster>-app` Secret (basic-auth shape:
     username + password keys) and `<cluster>-rw` Service.
 
-  - Secret `<release>-newapi-db-dsn` with the SQL_DSN key the chart's
-    deployment.yaml reads. The DSN is materialised via Helm `lookup`
-    against the CNPG-emitted Secret so the bytes are stable across
-    reinstalls. Persistent across reconciles per the same lookup-and-
-    persist pattern as platform/gitea/chart/templates/admin-secret.yaml
-    (issue #830 Bug 2 + feedback_passwords.md). On first install the
-    lookup returns nil — the Cluster is still warming — and the DSN
-    Secret renders with an empty password. The 1-minute Flux reconcile
-    picks it up on the next tick once CNPG has materialised the bytes.
+  - Placeholder Secret `<release>-newapi-db-dsn` with EMPTY SQL_DSN
+    key, materialised at install time so the deployment.yaml
+    secretKeyRef references a Secret that already exists (kubelet
+    won't trip CreateContainerConfigError). The companion
+    `database-secret-sync-job.yaml` Helm post-install Job then
+    composes the full DSN string from CNPG's `<cluster>-app`
+    password (polled until ready) and PATCHes the SQL_DSN key
+    into this Secret in place.
+
+TBD-A39 / Issue #1834 (2026-05-19, root-cause): The previous
+implementation rendered the DSN via Helm `lookup` against
+`<cluster>-app` at template-render time. On every freshly-franchised
+Sovereign CNPG materialises that Secret only AFTER bp-newapi's
+HelmRelease applies, so the first render's lookup returns nil and
+the Secret committed an empty password — `postgres://newapi:@.../`.
+The chart annotated the rendered Secret `helm.sh/resource-policy: keep`,
+so Flux never overwrote the empty bytes on subsequent reconciles
+even after CNPG had populated the source. Result on t32: newapi Pod
+in 21x CrashLoopBackOff with `password authentication failed for
+user "newapi"`. Switched to the canonical sync-job pattern lifted
+from platform/gitea/chart/templates/database-secret-sync-job.yaml
+(issue #830 Bug 2) + platform/wordpress-tenant/chart/templates/
+database-secret-sync-job.yaml (issue #1786) — both proven on
+otech30/t26. The sync-job is event-deterministic (polls until source
+ready, PATCHes destination, exits 0) and idempotent across helm
+upgrade.
 
   - `database.existingSecret` and `database.existingSecretKey` default
     to the chart-emitted Secret name and key when cnpg.enabled=true,
@@ -40,14 +49,9 @@ where bp-cnpg has not yet registered the `postgresql.cnpg.io/v1` CRD.
 Without the gate, a cold install fails with "no matches for kind
 Cluster". Same pattern the bp-external-dns chart uses (issue #190) and
 the platform/powerdns/chart/templates/cnpg-cluster.yaml mirror.
-
-Lockstep with bp-newapi 1.4.0 — paired with deployment.yaml change to
-read the chart-emitted DSN by default + the existingSecret value
-defaulting in values.yaml.
 */}}
 {{- if .Values.cnpg.enabled -}}
 {{- $clusterName := printf "%s-newapi-pg" (include "bp-newapi.fullname" .) -}}
-{{- $cnpgSecretName := printf "%s-app" $clusterName -}}
 {{- $dsnSecretName := default (printf "%s-newapi-db-dsn" (include "bp-newapi.fullname" .)) .Values.cnpg.dsnSecretName -}}
 {{- $database := .Values.cnpg.database | default "newapi" -}}
 {{- if .Capabilities.APIVersions.Has "postgresql.cnpg.io/v1" -}}
@@ -82,36 +86,30 @@ spec:
 {{- end }}
 ---
 {{- /*
-DSN Secret — read CNPG's auto-emitted basic-auth Secret via Helm lookup
-and re-emit the canonical SQL_DSN string the deployment.yaml expects.
-On first install the lookup returns nil; the DSN renders with empty
-password and the Pod stays in CrashLoopBackOff until the next 1-minute
-Flux reconcile picks up the materialised bytes. Same first-install race
-as templates/sme-services/sme-secrets.yaml (issue #859) and
-templates/sme-services/valkey-cross-ns-secret.yaml (issue #863) — both
-proven to recover on the second reconcile in production.
+DSN placeholder Secret — populated by templates/database-secret-sync-
+job.yaml at runtime. Rendered as a regular chart-managed resource (NOT
+a Helm hook) so it remains owned by the bp-newapi HelmRelease and Flux
+re-applies it on every reconcile. The post-install/post-upgrade
+sync-job PATCHes the SQL_DSN bytes in place — Flux's strategic-merge
+re-apply preserves those patched bytes because the chart-managed
+template renders SQL_DSN: "" only as a placeholder; the sync-job's
+strategic-merge PATCH wins server-side until the next chart render,
+which then immediately fires the sync-job again. Idempotent.
+
+Empty data.SQL_DSN value prevents CreateContainerConfigError on first
+Pod schedule (kubelet only checks that the named key EXISTS, not that
+it has non-empty content). The Pod will fail Postgres authentication
+once and CrashLoop until the post-install sync-job completes — about
+30-90s on a cold install — then come up Ready on the next kubelet
+restart.
 */ -}}
-{{- $cnpgSecret := lookup "v1" "Secret" .Release.Namespace $cnpgSecretName -}}
-{{- $pgUser := .Values.cnpg.cluster.owner | default "newapi" -}}
-{{- $pgPass := "" -}}
-{{- $pgHost := printf "%s-rw.%s.svc.cluster.local" $clusterName .Release.Namespace -}}
-{{- if and $cnpgSecret $cnpgSecret.data $cnpgSecret.data.password -}}
-  {{- $pgPass = $cnpgSecret.data.password | b64dec -}}
-{{- end -}}
-{{- $sslMode := .Values.cnpg.sslMode | default "require" -}}
-{{- $dsn := printf "postgres://%s:%s@%s:5432/%s?sslmode=%s" $pgUser $pgPass $pgHost $database $sslMode -}}
 apiVersion: v1
 kind: Secret
 metadata:
   name: {{ $dsnSecretName }}
   labels:
     {{- include "bp-newapi.labels" . | nindent 4 }}
-  annotations:
-    # Keep the Secret across helm uninstall — re-install picks the
-    # bytes back up via lookup, so external consumers (debug Pods,
-    # backup scripts) keep a stable reference.
-    helm.sh/resource-policy: keep
 type: Opaque
 data:
-  SQL_DSN: {{ $dsn | b64enc | quote }}
+  SQL_DSN: ""
 {{- end }}
