@@ -104,6 +104,31 @@ if ! grep -E '^\s*-\s+port:\s+"443"' "$TMP/cnp.yaml" >/dev/null; then
 fi
 echo "  PASS (egress TCP/443 HTTPS allowed)"
 
+echo "[baseline-cnp] Case 5b: egress allow-list includes kube-apiserver (TCP/6443) to world — #1908 regression guard"
+# catalyst-api fans out to SECONDARY-REGION kube-apiservers on TCP/6443
+# (D5 nodes endpoint, D16 dashboard treemap, D20 per-region jobs queries).
+# A152 diagnostic on t31 isolated the symptom:
+#   kubectl -n catalyst-system exec deploy/catalyst-api -- \
+#     nc -zvw 3 49.12.210.78 6443
+#   nc: connect to 49.12.210.78 port 6443 (tcp) timed out
+# while the SAME endpoint from the bastion connected. The baseline
+# CNP world-egress block only allowed 443/587/465/25 — secondary CP
+# api-server List() calls timed out silently and fan-out returned
+# primary-only. Re-narrowing this block — even "for security
+# hardening" — must fail CI here.
+if ! grep -E '^\s*-\s+port:\s+"6443"' "$TMP/cnp.yaml" >/dev/null; then
+  echo "FAIL: egress port 6443/TCP missing — multi-region fan-out (D5/D16/D20) will silently return primary-only (#1908 regression)" >&2
+  exit 1
+fi
+# Confirm 6443 is on a toEntities:[world] rule (the secondary CPs are
+# reachable only via public LB IPs per ClusterMesh model), not on a
+# kube-dns or kube-apiserver-entity block.
+if ! awk '/egress:/,0' "$TMP/cnp.yaml" | grep -B30 'port: "6443"' | grep -q '\- world'; then
+  echo "FAIL: port 6443/TCP exists but not scoped to toEntities:[world] (#1908)" >&2
+  exit 1
+fi
+echo "  PASS (egress TCP/6443 to world allowed — secondary CP fan-out unblocked)"
+
 echo "[baseline-cnp] Case 6: egress allow-list includes DNS (53/UDP + 53/TCP) to kube-dns"
 # Without DNS, every name lookup in catalyst-system fails. The CNP
 # explicitly allows kube-dns endpoints in kube-system on 53/UDP +

@@ -1,5 +1,20 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.186 — TBD-A45 (issue #1908) catalyst-api egress to secondary CP
+# :6443 unblocked. baseline-default-deny CNP world-egress block
+# previously allowed only 443/587/465/25 — catalyst-api fan-out to
+# secondary-region kube-apiservers (D5/D16/D20) silently timed out on
+# the informer reflector List() call, returning primary-only results.
+# A152 diagnostic on t31 isolated the cause via `nc -zvw 3 49.12.210.78
+# 6443` from inside the catalyst-api Pod (timeout) vs. from the bastion
+# (open). Added TCP/6443 to the world-egress allow-list. World-scope is
+# correct per the OpenOva ClusterMesh model (inter-region link =
+# DMZ over PUBLIC IPs ALWAYS; secondary api-server LB FQDNs are
+# per-prov and not predictable at chart-render time). Attack surface is
+# bounded — :6443 requires TLS client-cert auth and only the
+# secondary-region kubeconfigs hold valid certs. chart-tests fixture
+# `tests/baseline-cnp-allowlist.sh` extended (Case 5b) so any future
+# narrowing of this block fails Blueprint Release publish.
 # 1.4.185 — TBD-A38 (issue #1900) provisioning SA grant create
 # organizations.orgs.openova.io. The tenant.created Kafka consumer (Go
 # code shipped in PR #1860) creates one Organization CR per voucher
@@ -1279,7 +1294,7 @@ name: bp-catalyst-platform
 # 25/TCP (legacy SMTP fallback). All three are explicitly scoped to
 # `toEntities: world`, matching the existing 443/TCP allow. No other
 # rule semantics change. (Fixes PIN-issue 502 regression from #1785.)
-version: 1.4.185
+version: 1.4.186
 appVersion: 1.4.184
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
