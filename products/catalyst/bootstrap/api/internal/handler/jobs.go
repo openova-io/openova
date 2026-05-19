@@ -224,36 +224,53 @@ func (h *Handler) chrootSeedJobsStoreIfEmpty(ctx context.Context, dep *Deploymen
 		}
 	}
 
-	// Bootstrap-kit children — only seed when the group is missing
-	// (a fresh cutover or never-before-seeded chroot).
-	if hasBootstrapKit {
-		return
+	// Bootstrap-kit children — only seed the PRIMARY when the group is
+	// missing (a fresh cutover or never-before-seeded chroot). The
+	// secondary fan-out below has its OWN idempotency contract
+	// (SeedJobsFromInformerList monotonic-merges per region-prefixed
+	// AppID) and MUST NOT be gated by hasBootstrapKit — otherwise the
+	// secondary regions' install-* rows never reach jobs.Store on a
+	// chroot whose primary group was already seeded by the phase-1
+	// helmwatch.Watcher's informer initial-list event (the common case
+	// on a fully-converged Sovereign: by the time /jobs hits, the
+	// watcher already ran SeedJobsFromInformerList for the primary,
+	// flipping hasBootstrapKit=true on every subsequent /jobs read
+	// and short-circuiting the original `return` before the fan-out
+	// fired).
+	//
+	// TBD-A63 / 2026-05-19 t34 runtime regression: 6 consecutive /jobs
+	// XHRs returned 57 primary-prefixed rows + 0 secondary rows because
+	// the early `return` here was reached on every call. Fix: split the
+	// primary seed into its own block (preserve the hasBootstrapKit
+	// short-circuit for the primary list-and-seed path) and ALWAYS
+	// invoke chrootSeedSecondaryRegions afterwards. The fan-out is
+	// itself a no-op when h.k8sCache has no secondary clusters
+	// registered (single-region Sovereign / CI), so the change is safe
+	// for the single-region case.
+	if !hasBootstrapKit {
+		dyn, err := h.sovereignDynamicClient(dep)
+		if err != nil {
+			h.log.Debug("chroot seed: sovereignDynamicClient unavailable", "depId", dep.ID, "err", err)
+		} else {
+			snap, err := helmwatch.ListAndSnapshotHelmReleases(ctx, dyn)
+			if err != nil {
+				h.log.Warn("chroot seed: list HelmReleases failed", "depId", dep.ID, "err", err)
+			} else if len(snap) > 0 {
+				seeds := snapshotsToSeeds(snap)
+				jobsCount, execsSeeded, err := bridge.SeedJobsFromInformerList(seeds)
+				if err != nil {
+					h.log.Warn("chroot seed: bridge seed failed", "depId", dep.ID, "err", err)
+				} else {
+					h.log.Info("chroot seed: per-deployment jobs.Store populated from live cluster",
+						"depId", dep.ID,
+						"helmReleases", len(snap),
+						"jobsWritten", jobsCount,
+						"executionsSeeded", execsSeeded,
+					)
+				}
+			}
+		}
 	}
-	dyn, err := h.sovereignDynamicClient(dep)
-	if err != nil {
-		h.log.Debug("chroot seed: sovereignDynamicClient unavailable", "depId", dep.ID, "err", err)
-		return
-	}
-	snap, err := helmwatch.ListAndSnapshotHelmReleases(ctx, dyn)
-	if err != nil {
-		h.log.Warn("chroot seed: list HelmReleases failed", "depId", dep.ID, "err", err)
-		return
-	}
-	if len(snap) == 0 {
-		return
-	}
-	seeds := snapshotsToSeeds(snap)
-	jobsCount, execsSeeded, err := bridge.SeedJobsFromInformerList(seeds)
-	if err != nil {
-		h.log.Warn("chroot seed: bridge seed failed", "depId", dep.ID, "err", err)
-		return
-	}
-	h.log.Info("chroot seed: per-deployment jobs.Store populated from live cluster",
-		"depId", dep.ID,
-		"helmReleases", len(snap),
-		"jobsWritten", jobsCount,
-		"executionsSeeded", execsSeeded,
-	)
 
 	// D20 (2026-05-19 t34): multi-region fan-out for chroot job seed.
 	// The primary seed above only enumerates HelmReleases visible to the
@@ -273,6 +290,12 @@ func (h *Handler) chrootSeedJobsStoreIfEmpty(ctx context.Context, dep *Deploymen
 	// fallback). Anything else is treated as not-our-cluster and skipped
 	// — defense in depth against cross-deployment leakage on a chroot
 	// that gets re-registered against a different deployment record.
+	//
+	// TBD-A63 fix: runs UNCONDITIONALLY relative to hasBootstrapKit —
+	// the fan-out's own SeedJobsFromInformerList monotonic-merge contract
+	// makes repeat invocations idempotent, and the runtime regression
+	// fixed here was caused exactly by this branch being unreachable on
+	// a hasBootstrapKit=true chroot.
 	h.chrootSeedSecondaryRegions(ctx, dep, bridge)
 }
 
