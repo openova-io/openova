@@ -27,7 +27,9 @@
 // Endpoints (Gitea Admin REST API, version 1.22):
 //
 //	GET    /api/v1/orgs/{org}
-//	POST   /api/v1/admin/orgs
+//	POST   /api/v1/orgs                          (org-create-as-self;
+//	                                             admin-owned token →
+//	                                             admin owns the new org)
 //	GET    /api/v1/repos/{owner}/{repo}
 //	POST   /api/v1/orgs/{org}/repos
 //	GET    /api/v1/repos/{owner}/{repo}/branches/{branch}
@@ -245,8 +247,12 @@ type Org struct {
 	Visibility  string `json:"visibility,omitempty"`
 }
 
-// adminOrgCreate is the payload for POST /admin/orgs.
-type adminOrgCreate struct {
+// orgCreate is the payload for POST /orgs. The authenticated user
+// (the bearer of the admin access-token) becomes the new Org's owner.
+// In Gitea 1.22+, the legacy POST /admin/orgs/{user} endpoint is no
+// longer routed (returns 405 with `Allow: GET`); /orgs is the only
+// supported create path for both admin- and user-owned tokens.
+type orgCreate struct {
 	Username    string `json:"username"`
 	FullName    string `json:"full_name,omitempty"`
 	Description string `json:"description,omitempty"`
@@ -288,21 +294,31 @@ func (c *Client) GetOrg(ctx context.Context, slug string) (Org, error) {
 	return out, nil
 }
 
-// CreateOrg creates a Gitea Org via the admin endpoint. Returns
-// errAlreadyExists (internal sentinel) on 422/409 so EnsureOrg can
-// re-find idempotently.
+// CreateOrg creates a Gitea Org via POST /orgs (the org-create-as-self
+// endpoint). The authenticated principal owns the new Org. Because the
+// controller authenticates with a Gitea admin token, the admin user
+// owns each created tenant Org — same semantic as the legacy
+// /admin/orgs path. Returns errAlreadyExists (internal sentinel) on
+// 422/409 so EnsureOrg can re-find idempotently.
+//
+// NOTE: Gitea 1.22+ no longer routes POST /api/v1/admin/orgs (returns
+// HTTP 405 `Allow: GET`); the admin-namespaced create path is
+// /api/v1/admin/users/{user}/orgs but is order-of-magnitude clunkier
+// (requires knowing the admin username). /orgs covers every realistic
+// production deployment because the controller's token is always
+// owned by a sufficiently-privileged user.
 func (c *Client) CreateOrg(ctx context.Context, slug, fullName, description, visibility string) (Org, error) {
 	if visibility == "" {
 		visibility = "private"
 	}
-	body := adminOrgCreate{
+	body := orgCreate{
 		Username:    slug,
 		FullName:    fullName,
 		Description: description,
 		Visibility:  visibility,
 	}
 	var out Org
-	status, _, err := c.do(ctx, http.MethodPost, "/admin/orgs", body, &out)
+	status, _, err := c.do(ctx, http.MethodPost, "/orgs", body, &out)
 	if err != nil {
 		if status == http.StatusUnprocessableEntity || status == http.StatusConflict {
 			return Org{}, errAlreadyExists

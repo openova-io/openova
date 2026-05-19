@@ -174,8 +174,8 @@ func (g *giteaServer) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// POST /api/v1/admin/orgs
-	if r.Method == http.MethodPost && p == "/api/v1/admin/orgs" {
+	// POST /api/v1/orgs
+	if r.Method == http.MethodPost && p == "/api/v1/orgs" {
 		var body struct {
 			Username    string `json:"username"`
 			FullName    string `json:"full_name"`
