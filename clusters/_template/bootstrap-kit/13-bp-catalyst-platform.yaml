@@ -706,7 +706,17 @@ spec:
       # to /app/$componentId lands on AppDetail's CR-keyed lookup
       # rather than 404'ing at "App not found". See Chart.yaml comment
       # block + Dashboard.test.tsx regression guards. Refs #1927.
-      version: 1.4.205
+      # 1.4.206 (TBD-A62 #1966, 2026-05-19): bootstrap-kit slot default
+      # flip — MARKETPLACE_ENABLED `false` → `true`. Same default-flip
+      # rationale as SANDBOX_ENABLED in slot 19a (TBD-D11): once the
+      # underlying chart gates workloads gracefully on missing operator
+      # creds, default-OFF only blocks the operator's first-run UX.
+      # Operator may still opt-OUT by overriding MARKETPLACE_ENABLED=false
+      # on the per-Sovereign bootstrap-kit overlay's postBuild.substitute
+      # map. Unblocks D29 customer-journey: marketplace.<sov> 404 →
+      # storefront; voucher endpoint 503 → 2xx; SME tenant pipeline
+      # reconciliation. Refs #1966 #1741 #1949 #1943.
+      version: 1.4.206
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
@@ -811,14 +821,25 @@ spec:
           host: marketplace.${SOVEREIGN_FQDN}
         api:
           host: api.${SOVEREIGN_FQDN}
-      # Marketplace mode (issue #710). Toggle to true via envsubst
-      # MARKETPLACE_ENABLED in the per-Sovereign overlay (catalyst-api
-      # writes this when the wizard's "Enable Marketplace" component is
-      # checked). When true, bp-catalyst-platform 1.3.0+ renders the
-      # marketplace + tenant-wildcard HTTPRoutes and the cross-namespace
+      # Marketplace mode (issue #710). Default-ON since TBD-A62 (issue
+      # #1966, 2026-05-19) — the customer-journey D29 chain (marketplace
+      # storefront, sme-secrets reflection for voucher endpoint,
+      # marketplace.<sov> HTTPRoute) was unreachable on every fresh
+      # franchised Sovereign because this defaulted to `false`. Same
+      # default-flip rationale as `SANDBOX_ENABLED` in slot 19a
+      # (TBD-D11): once the underlying chart gates the workloads
+      # gracefully on missing operator creds (newapi 1.4.10 silently
+      # skips qwenBankDhofar without LLM_BANK_DHOFAR_* attestation,
+      # marketplace-api self-generates its JWT via sprig randAlphaNum,
+      # smeSecrets auto-bootstraps via Helm lookup), defaulting OFF
+      # only blocks the operator's first-run UX. Operator may opt-OUT
+      # by overriding `MARKETPLACE_ENABLED=false` on the per-Sovereign
+      # bootstrap-kit overlay's postBuild.substitute map. When true,
+      # bp-catalyst-platform 1.3.0+ renders the marketplace +
+      # tenant-wildcard HTTPRoutes and the cross-namespace
       # ReferenceGrant.
       marketplace:
-        enabled: ${MARKETPLACE_ENABLED:-false}
+        enabled: ${MARKETPLACE_ENABLED:-true}
     # ─── Multi-zone parent domains (issue #827, parent epic #825) ──────
     # One wildcard Certificate per parent zone, rendered by chart 1.4.0+
     # into kube-system. Each cert renews independently; a stalled

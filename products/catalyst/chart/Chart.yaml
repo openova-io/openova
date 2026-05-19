@@ -1,5 +1,70 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.206 — TBD-A62 (issue #1966, 2026-05-19): default-flip
+# `MARKETPLACE_ENABLED` from `false` to `true` in
+# clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml so every
+# fresh franchised Sovereign renders the marketplace storefront +
+# SME microservice mesh out of the box. This is a bootstrap-kit slot
+# default-flip only — no chart template changes. Chart version bump
+# (1.4.205 → 1.4.206) is the canonical signal that the bootstrap-kit
+# pin moved, paired with the matching `version:` bump in the same
+# bp-catalyst-platform slot.
+#
+# Background — D29 customer-journey chain-breaker:
+# PR #1954 (TBD-A51) decoupled `sme-secrets` + `sme` namespace from
+# `ingress.marketplace.enabled` so catalyst-api could mint voucher
+# JWTs even on non-marketplace Sovereigns; the marketplace Deployment,
+# storefront HTTPRoute (marketplace.<sov>), and SME gateway Service
+# itself remained gated behind the flag. With the bootstrap-kit slot
+# defaulting `MARKETPLACE_ENABLED=false`, every fresh prov landed with:
+#   - marketplace Deployment NOT rendered → marketplace.<sov> 404
+#     (founder-reported as "missing /redeem page" on t34 — the page is
+#     served by the marketplace Pod, which was absent)
+#   - tenant.yaml + marketplace-routes.yaml NOT rendered → SME gateway
+#     unreachable → POST /api/v1/sme/billing/vouchers/issue still 503
+#     (post-#1954 error band: "sme gateway unreachable" instead of
+#     "CATALYST_SME_JWT_SECRET not set")
+#   - sme-tenants-kustomization.yaml NOT rendered → SME tenant
+#     pipeline silently skipped on every customer-journey start
+#
+# Net behavioural effect of the flip — 4 chain-broken behaviours
+# unblocked on every fresh franchised Sovereign:
+#   1. marketplace Deployment + Service render in `sme` ns
+#      (templates/sme-services/marketplace.yaml)
+#   2. marketplace.<sov> HTTPRoute attached to cilium-gateway
+#      (templates/sme-services/marketplace-routes.yaml)
+#   3. sme-secrets reflection to catalyst-system unblocks the JWT
+#      bridge (PR #1954 already merged) — paired with the gateway
+#      Service rendering now, the voucher endpoint can ACTUALLY reach
+#      the upstream SME microservice mesh
+#   4. SME microservice mesh (auth/billing/catalog/console/domain/
+#      gateway/provisioning/tenant/admin/notification + sme-tenants-
+#      kustomization + sme-tenants-gitrepository) renders so the
+#      orchestrator's POST /api/v1/sme/tenants reconciles for real
+#
+# Backward-compat: operators that explicitly OPT-OUT by setting
+# `MARKETPLACE_ENABLED=false` on the per-Sovereign overlay's
+# bootstrap-kit Kustomization postBuild.substitute map still get the
+# old "no SME mesh" behaviour. PR #1954's unconditional `sme-secrets`
+# + `sme` namespace render stays intact in either mode (the JWT
+# bridge byte source is preserved independently of the marketplace
+# storefront).
+#
+# Why this was off-by-default originally: chart 1.3.0 (issue #710)
+# introduced the marketplace HTTPRoutes + SME microservice mesh as
+# operator opt-in because (a) marketplace-api-secrets did not yet
+# auto-generate via sprig randAlphaNum (added in 1.4.15, issue #887),
+# (b) the qwenBankDhofar slot in newapi hard-failed without an
+# operator-supplied LLM_BANK_DHOFAR_ACCOUNT_ID + CONTRACT_REF (gracefully
+# skipped since newapi 1.4.10, this repo), and (c) marketplace branding
+# fields (logo, brand color, primary color, Stripe keys) were required
+# rather than having safe placeholder defaults (placeholders shipped in
+# values.yaml `marketplace.brand` block, line ~969). All three blockers
+# are resolved on `main`, so the original rationale for default-OFF no
+# longer holds. Same default-flip pattern as bp-sandbox slot 19a's
+# SANDBOX_ENABLED (TBD-D11 #1798, 2026-05-18 — once the chart gates the
+# workloads gracefully on missing config, the default flips ON).
+# Refs #1966 #1741 #1949 #1943.
 # 1.4.203 — feat(api): /api/v1/sme/bss/overview handler (Refs #1949,
 # TBD-A58, D-BSS). Pre-fix the BSS landing page hit a 404 and the FE
 # rendered the "API pending" pill on every tile; post-fix it renders
@@ -1640,8 +1705,8 @@ name: bp-catalyst-platform
 # was already shipped on 1.4.197 (PR #1820 lineage); this completes
 # the data-layer side so the dropdown finally appears on multi-region
 # Sovereigns. Refs #1821, DoD D20.
-version: 1.4.205
-appVersion: 1.4.205
+version: 1.4.206
+appVersion: 1.4.206
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
 # TBD-A30). Pre-1.4.183 every catalyst-system HTTPRoute pinned
