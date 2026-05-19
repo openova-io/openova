@@ -115,9 +115,18 @@ test.describe('@sme-demo SME end-to-end happy path (issue #805)', () => {
 
   test('step 3 — SME admin dashboard renders (1440×900)', async ({ page }, testInfo) => {
     // Tenant discovery resolves to tenant_kind=sme, whoami returns an
-    // already-authenticated session, so navigating to /console/dashboard
+    // already-authenticated session, so navigating to the dashboard
     // bypasses the OIDC redirect and renders directly.
-    await page.goto('/console/dashboard')
+    //
+    // Note: the Sovereign Console layout is mounted via a pathless route
+    // (`consoleLayoutRoute` has `id: '_sovereign_console'`, no `path`),
+    // so its child paths resolve at the root, NOT under `/console/*`.
+    // The narrative docstrings in router.tsx still mention
+    // `/console/dashboard`, but the registered TanStack path is
+    // `/dashboard`. Visiting `/console/dashboard` lands on the TanStack
+    // notFoundComponent ("Not Found"), which silently passed step 3
+    // (screenshot-only) but fails step 4 the moment a testId is asserted.
+    await page.goto('/dashboard')
     await page.waitForLoadState('networkidle')
 
     // The SovereignConsoleLayout renders a dashboard shell. Screenshot
@@ -128,7 +137,10 @@ test.describe('@sme-demo SME end-to-end happy path (issue #805)', () => {
   /* ── STEP 4 — Create user "alice" via unified-rbac console ──── */
 
   test('step 4 — create alice + 3-step progress (1440×900)', async ({ page }, testInfo) => {
-    await page.goto('/console/sme/users')
+    // SMEUsersPage is mounted under the pathless `consoleLayoutRoute`
+    // at `path: '/sme/users'` — see router.tsx `consoleSMEUsersRoute`.
+    // The route is at `/sme/users`, NOT `/console/sme/users`.
+    await page.goto('/sme/users')
     await page.waitForLoadState('networkidle')
 
     // Empty list (no users seeded yet).
@@ -214,7 +226,7 @@ test.describe('@sme-demo SME end-to-end happy path (issue #805)', () => {
       // post-#804. The fixme step activates once the pipeline
       // lands; it will drive an OpenClaw prompt and poll
       // /sme/billing/ledger for the negative spend entry.
-      await page.goto('/console/dashboard')
+      await page.goto('/dashboard')
       await snap(page, 5, 'usage-flows-to-billing', testInfo)
     },
   )
@@ -230,7 +242,7 @@ test.describe('@sme-demo SME end-to-end happy path (issue #805)', () => {
       // admin.<fqdn>/billing/vouchers/new for the cross-domain flow.
       // The fixme step activates once an in-SPA /console/sme/billing
       // route lands and asserts the ledger entry for alice.
-      await page.goto('/console/sme/billing' as never)
+      await page.goto('/sme/billing' as never)
       await snap(page, 6, 'sme-admin-billing-ledger', testInfo)
     },
   )
