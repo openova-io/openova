@@ -847,29 +847,67 @@ write_files:
     permissions: '0755'
     content: |
       #!/bin/bash
-      set -e
+      set -u
       mkdir -p /etc/openova
       K=/etc/rancher/k3s/k3s.yaml
       F=/etc/openova/cp-public-ipv4
+      L=/var/log/openova-externalip.log
+      lg(){ echo "$(date -u +%FT%TZ) $${*}" >>"$${L}"; }
+      hz(){ kubectl --kubeconfig=$${K} get --raw /healthz >/dev/null 2>&1; }
+      eip(){ kubectl --kubeconfig=$${K} get node "$${1}" -o jsonpath='{.status.addresses[?(@.type=="ExternalIP")].address}' 2>/dev/null || true; }
       case "$${1:-}" in
         l1)
+          set -e
           IP=$(curl -fsSL --retry 30 --retry-delay 2 http://169.254.169.254/hetzner/v1/metadata/public-ipv4 || true)
-          [ -n "$${IP}" ] || { echo "l1-fatal: empty Hetzner public-ipv4 (Issue #1941)" >&2; exit 87; }
+          [ -n "$${IP}" ] || { echo "l1-fatal #1941" >&2; exit 87; }
           printf '%s' "$${IP}" >"$${F}"; chmod 0644 "$${F}"
           ;;
         l2)
+          set -e
           N=$(hostname); E=""
-          g(){ kubectl --kubeconfig=$${K} get node "$${N}" -o jsonpath='{.status.addresses[?(@.type=="ExternalIP")].address}' 2>/dev/null || true; }
-          for i in $(seq 1 30); do E=$(g); [ -n "$${E}" ] && break; sleep 2; done
+          for i in $(seq 1 30); do E=$(eip "$${N}"); [ -n "$${E}" ] && break; sleep 2; done
           if [ -z "$${E}" ]; then
             systemctl restart k3s || true
-            for i in $(seq 1 60); do kubectl --kubeconfig=$${K} get --raw /healthz >/dev/null 2>&1 && break; sleep 2; done
-            for i in $(seq 1 30); do E=$(g); [ -n "$${E}" ] && break; sleep 2; done
+            for i in $(seq 1 60); do hz && break; sleep 2; done
+            for i in $(seq 1 30); do E=$(eip "$${N}"); [ -n "$${E}" ] && break; sleep 2; done
           fi
-          [ -n "$${E}" ] || { echo "l2-fatal: empty ExternalIP after restart (Issue #1941)" >&2; kubectl --kubeconfig=$${K} get node "$${N}" -o yaml >&2 || true; exit 88; }
+          [ -n "$${E}" ] || { echo "l2-fatal #1941" >&2; exit 88; }
           ;;
-        *) echo "usage: $0 {l1|l2}" >&2; exit 2 ;;
+        l3)
+          [ -s "$${F}" ] || { lg "FATAL nofile"; exit 2; }
+          X=$(cat "$${F}"); N=$(hostname); R=0
+          for _ in $(seq 1 30); do hz && { R=1; break; }; sleep 2; done
+          [ "$${R}" = 1 ] || { lg "FATAL apiserver exp=$${X}"; exit 3; }
+          A=$(eip "$${N}")
+          [ "$${A}" = "$${X}" ] && { lg "OK $${A}"; exit 0; }
+          lg "MISMATCH $${A}/$${X} restart"
+          systemctl restart k3s || true
+          for _ in $(seq 1 60); do hz && break; sleep 2; done
+          for _ in $(seq 1 30); do A=$(eip "$${N}"); [ "$${A}" = "$${X}" ] && { lg "RECOVERED $${A}"; exit 0; }; sleep 2; done
+          lg "FATAL unrec $${A}/$${X} #1941"
+          exit 4
+          ;;
+        *) echo "usage: $0 {l1|l2|l3}" >&2; exit 2 ;;
       esac
+
+  # ── Layer 3 systemd units (TBD-A50 / #1941, refactored to write_files #1981) ─
+  - path: /etc/systemd/system/openova-extip-reconcile.service
+    content: |
+      [Unit]
+      After=k3s.service network-online.target
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/openova-externalip-bootstrap.sh l3
+      SuccessExitStatus=0 2 3 4
+  - path: /etc/systemd/system/openova-extip-reconcile.timer
+    content: |
+      [Timer]
+      OnBootSec=2min
+      OnUnitActiveSec=5min
+      AccuracySec=30s
+      Unit=openova-extip-reconcile.service
+      [Install]
+      WantedBy=timers.target
 
   # Flux GitRepository + Kustomizations that take over after k3s is up.
   #
@@ -1658,81 +1696,10 @@ runcmd:
   - /usr/local/bin/openova-externalip-bootstrap.sh l2
 
   # ── Layer 3 (TBD-A50 / #1941): idempotent ExternalIP reconciler ─────────
-  #
-  # Belt-and-braces #3. Layers 1 + 2 land cloud-init-time guards, but a node
-  # can still lose its ExternalIP post-boot through:
-  #   - Operator-initiated `systemctl restart k3s` without the env var loaded
-  #   - kubelet flag drift after an in-place k3s upgrade
-  #   - Cloud-init partial-replay where Layer 2 never ran (broken instance
-  #     restore from a snapshot, custom rescue console actions, etc.)
-  #
-  # Drop a systemd timer + service + reconciler script that runs every 5 min:
-  #   1. Reads /etc/openova/cp-public-ipv4 (persisted by Layer 1).
-  #   2. Compares against `kubectl get node $hostname -o jsonpath=...ExternalIP`.
-  #   3. On mismatch or empty: restart k3s and re-verify.
-  #   4. Appends every run's outcome to /var/log/openova-externalip.log with
-  #      ISO-8601 UTC timestamp for forensics / dashboard ingestion.
-  #
-  # Recovery path is INDEPENDENT of cloud-init: even if cloud-init never ran
-  # this slot (replay edge case), an operator can manually `printf '%s' <ip>
-  # > /etc/openova/cp-public-ipv4` and the next timer fire reconciles. The
-  # timer itself is unit-only (no extra package), zero-dependency.
-  #
-  # Exit codes from the script (logged but never propagated — timer is best-
-  # effort, must not back off on failure):
-  #   0 — node ExternalIP matches expected
-  #   2 — expected public-IP file missing (Layer 1 never landed)
-  #   3 — apiserver unreachable for 60 s
-  #   4 — restart attempted but ExternalIP still empty/wrong
-  #
-  # The script is mock-tested against all 4 paths in the PR (see PR body).
-  - |
-    install -d -m 0755 /usr/local/bin /etc/systemd/system /var/log
-    cat > /usr/local/bin/openova-extip-reconcile.sh <<'OEXTIP_EOF'
-    #!/bin/bash
-    set -u
-    L=/var/log/openova-externalip.log
-    E=/etc/openova/cp-public-ipv4
-    K=/etc/rancher/k3s/k3s.yaml
-    lg(){ echo "$(date -u +%FT%TZ) $$*" >>"$$L"; }
-    [ -s "$$E" ] || { lg "FATAL expected_file_missing"; exit 2; }
-    X=$(cat "$$E"); N=$(hostname)
-    ip(){ kubectl --kubeconfig=$$K get node "$$N" -o jsonpath='{.status.addresses[?(@.type=="ExternalIP")].address}' 2>/dev/null || true; }
-    R=0
-    for _ in $(seq 1 30); do kubectl --kubeconfig=$$K get --raw /healthz >/dev/null 2>&1 && { R=1; break; }; sleep 2; done
-    [ $$R = 1 ] || { lg "FATAL apiserver_unreachable expected=$$X"; exit 3; }
-    A=$(ip)
-    [ "$$A" = "$$X" ] && { lg "OK noop ExternalIP=$$A"; exit 0; }
-    lg "MISMATCH actual=$$A expected=$$X — restart k3s"
-    systemctl restart k3s || true
-    for _ in $(seq 1 60); do kubectl --kubeconfig=$$K get --raw /healthz >/dev/null 2>&1 && break; sleep 2; done
-    for _ in $(seq 1 30); do A=$(ip); [ "$$A" = "$$X" ] && { lg "RECOVERED ExternalIP=$$A"; exit 0; }; sleep 2; done
-    lg "FATAL unrecovered actual=$$A expected=$$X — Issue #1941"
-    exit 4
-    OEXTIP_EOF
-    chmod 0755 /usr/local/bin/openova-extip-reconcile.sh
-    cat > /etc/systemd/system/openova-extip-reconcile.service <<'OSVC_EOF'
-    [Unit]
-    Description=OpenOva ExternalIP reconciler (TBD-A50 layer 3, #1941)
-    After=k3s.service network-online.target
-    [Service]
-    Type=oneshot
-    ExecStart=/usr/local/bin/openova-extip-reconcile.sh
-    SuccessExitStatus=0 2 3 4
-    OSVC_EOF
-    cat > /etc/systemd/system/openova-extip-reconcile.timer <<'OTMR_EOF'
-    [Unit]
-    Description=OpenOva ExternalIP reconciler — every 5 min
-    [Timer]
-    OnBootSec=2min
-    OnUnitActiveSec=5min
-    AccuracySec=30s
-    Unit=openova-extip-reconcile.service
-    [Install]
-    WantedBy=timers.target
-    OTMR_EOF
-    systemctl daemon-reload
-    systemctl enable --now openova-extip-reconcile.timer
+  # Body in /usr/local/bin/openova-externalip-bootstrap.sh (l3 subcommand)
+  # + .service + .timer units (write_files above). Issue #1981 moved this
+  # block out of inline runcmd heredocs to stay under the 32256 B guardrail.
+  - systemctl daemon-reload && systemctl enable --now openova-extip-reconcile.timer
 
   # ── Patch node providerID — DoD A3/D10/D11/D12 unblocker (2026-05-16) ───
   #

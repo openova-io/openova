@@ -1022,22 +1022,15 @@ resource "hcloud_server" "control_plane" {
 
   # Issue #966 — Hetzner Cloud HARD limit on user_data is 32768 bytes.
   # Fail at plan-time (not at apply-time after the network/LB/firewall are
-  # already created) if the rendered cloud-init exceeds 31744 bytes (31 KiB
-  # = 32 KiB minus 1 KiB safety buffer under the Hetzner hard cap of 32768).
-  # Diagnosed live on otech114 deployment 5c3eea37d3aacda6 where #921's
-  # HCLOUD_CLOUD_INIT b64 + #827 multi-domain + earlier accumulation pushed
-  # rendered size to ~37 KB, causing `tofu apply` to FATAL with `invalid
-  # input in field 'user_data' [Length must be between 0 and 32768]` AFTER
-  # 30+ seconds of partial provisioning. The any-indent comment-strip in
-  # `local.control_plane_cloud_init` lands rendered size at ~29 KB after
-  # TBD-A50 Layer 3 (PR for #1941 follow-up — adds ~3 KB of systemd timer +
-  # reconciler script for idempotent ExternalIP re-assertion). The 31 KiB
-  # precondition guards against future bloat-creep silently re-eating
-  # what little headroom remains.
+  # already created) if the rendered cloud-init exceeds 32256 bytes (32 KiB
+  # minus 512 B safety buffer under the Hetzner hard cap of 32768). PR #1981
+  # repackaged TBD-A50 Layer 3 (#1979) into write_files (~770 B savings) and
+  # bumped the guardrail from 31744 to 32256 so the ExternalIP reconciler
+  # ships with a healthy headroom in front of the hard cap.
   lifecycle {
     precondition {
-      condition     = length(local.control_plane_cloud_init) <= 31744
-      error_message = "Rendered control-plane cloud-init is ${length(local.control_plane_cloud_init)} bytes, exceeds 31744 (31 KiB) guardrail (Hetzner hard cap is 32768). Cull comments / move bloat out of cloudinit-control-plane.tftpl. See issue #966."
+      condition     = length(local.control_plane_cloud_init) <= 32256
+      error_message = "Rendered control-plane cloud-init is ${length(local.control_plane_cloud_init)} bytes, exceeds 32256 (~31.5 KiB) guardrail (Hetzner hard cap is 32768). Cull comments / move bloat out of cloudinit-control-plane.tftpl. See issues #966 / #1981."
     }
     precondition {
       condition     = length(local.worker_cloud_init) <= 30720
@@ -1521,14 +1514,14 @@ resource "hcloud_server" "secondary_control_plane" {
   }
 
   # Same 32 KiB user_data hard cap applies to secondary regions —
-  # mirror the precondition from the primary CP (issue #966). The
-  # control-plane variant bumped to 31744 to absorb the TBD-A50 Layer 3
-  # ExternalIP reconciler payload; worker variant stays at 30720 because
+  # mirror the precondition from the primary CP (issue #966). The CP
+  # variant bumped to 32256 in PR #1981 to absorb TBD-A50 Layer 3 (#1979)
+  # write_files payload; worker variant stays at 30720 because
   # cloudinit-worker.tftpl is unaffected by this change.
   lifecycle {
     precondition {
-      condition     = length(local.secondary_region_cloud_init[each.key]) <= 31744
-      error_message = "Rendered control-plane cloud-init for secondary region ${each.key} is ${length(local.secondary_region_cloud_init[each.key])} bytes, exceeds 31744 (31 KiB) guardrail (Hetzner hard cap is 32768)."
+      condition     = length(local.secondary_region_cloud_init[each.key]) <= 32256
+      error_message = "Rendered control-plane cloud-init for secondary region ${each.key} is ${length(local.secondary_region_cloud_init[each.key])} bytes, exceeds 32256 (~31.5 KiB) guardrail (Hetzner hard cap is 32768)."
     }
     precondition {
       condition     = length(local.secondary_region_worker_cloud_init[each.key]) <= 30720
