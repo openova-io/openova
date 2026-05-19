@@ -1543,6 +1543,17 @@ security:
     enabled: true
     # Platform namespaces catalyst-system Pods are allowed to egress to.
     # Override to add tenant-specific or per-Sovereign namespaces.
+    #
+    # `sme` — the bp-sme-platform chart deploys the SME control-plane
+    # (auth, billing, catalog, console, domain, gateway, marketplace,
+    # notification, provisioning, tenant) into namespace `sme`. Console
+    # in catalyst-system reaches `gateway.sme.svc.cluster.local:8080`
+    # for every voucher list/issue/redeem call (and admin reaches the
+    # same gateway for tenant onboarding). Without this allow, console
+    # requests time out at 5s and return 503 `context deadline exceeded`
+    # — surfaced on t32 (2026-05-19) as the masquerading root cause of
+    # issues #1748 (voucher list) and #1749 (voucher issue). See
+    # TBD-A38 / #1917 for the full reproduction.
     allowedPlatformNamespaces:
       - keycloak
       - gitea
@@ -1558,6 +1569,7 @@ security:
       - opentelemetry
       - external-secrets-system
       - cert-manager
+      - sme
     # Adjacent namespaces whose Pods are allowed to INGRESS into
     # catalyst-system. Defaults cover:
     #   - catalyst — bp-self-sovereign-cutover Jobs (incl. the

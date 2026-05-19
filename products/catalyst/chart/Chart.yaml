@@ -1,5 +1,27 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.189 — TBD-A38 (issue #1917) baseline-default-deny CNP egress
+# allow-list extended with `sme` namespace. The bp-sme-platform chart
+# deploys the SME control-plane (auth, billing, catalog, console,
+# domain, gateway, marketplace, notification, provisioning, tenant)
+# into namespace `sme`. Console in catalyst-system reaches
+# `gateway.sme.svc.cluster.local:8080` for every voucher list / issue /
+# redeem call (and admin reaches the same gateway for tenant onboarding).
+# Pre-fix the egress list contained {keycloak, gitea, powerdns,
+# cnpg-system, openbao, harbor, nats-system, loki, mimir, tempo, alloy,
+# opentelemetry, external-secrets-system, cert-manager} — `sme` was
+# omitted. Every console→sme-gateway call timed out at 5s and surfaced
+# at the operator as a 503 `context deadline exceeded` on the voucher
+# list / voucher issue panels. Reproduced on t32 2026-05-19 from inside
+# catalyst-api Pod:
+#   curl -m 5 http://gateway.sme.svc.cluster.local:8080/healthz
+#   curl: (28) Connection timed out after 5002 milliseconds
+# Originally masqueraded under #1748 (voucher list 503) and #1749
+# (voucher issue 503), which were thought to be services-build 502
+# regressions. Isolated as a distinct bug class — pure CNP misconfig.
+# Both the values.yaml default and the template `default (list ...)`
+# fallback were updated so a Helm install with NO values overrides still
+# renders the `sme` allow.
 # 1.4.187 — TBD-X1 (issue #1793) notification.yaml SMTP_USER / SMTP_PASS
 # env wiring. Pre-fix the notification Pod read only SMTP_HOST / PORT /
 # FROM from sme-secrets, so the Go net/smtp client dialed Stalwart
@@ -1308,7 +1330,7 @@ name: bp-catalyst-platform
 # 25/TCP (legacy SMTP fallback). All three are explicitly scoped to
 # `toEntities: world`, matching the existing 443/TCP allow. No other
 # rule semantics change. (Fixes PIN-issue 502 regression from #1785.)
-version: 1.4.188
+version: 1.4.189
 appVersion: 1.4.188
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
