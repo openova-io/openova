@@ -465,7 +465,16 @@ locals {
     [for e in local.parent_domains_decoded : e.name],
     var.sovereign_fqdn
   )
-  per_prov_listeners = local.parent_domains_includes_sovereign_fqdn ? [] : [
+  # NOTE (TBD-A35 hotfix, Closes #1886): the conditional that suppresses
+  # this pair when sovereign_fqdn collides with a declared parent zone now
+  # lives on the consumer line in `parent_domains_listeners_yaml` below
+  # (concat() at line ~503). Keeping the conditional here as
+  # `... ? [] : [<HTTPS_obj>, <HTTP_obj>]` triggers tofu/terraform
+  # "Inconsistent conditional result types" — the true arm is an empty
+  # tuple `tuple([])` while the false arm is `tuple([obj_with_tls,
+  # obj_without_tls])` and HCL cannot unify the two. Always emit the pair
+  # at this local; suppress at the consumer.
+  per_prov_listeners = [
     {
       name     = format("https-%s", local.sovereign_fqdn_dashed)
       port     = 30443
@@ -535,7 +544,7 @@ locals {
         },
       ]
     ]),
-    local.per_prov_listeners
+    [for l in local.per_prov_listeners : l if !local.parent_domains_includes_sovereign_fqdn]
   ))
 
   # ── Effective singular-path SKU selection (Fix #157) ─────────────────────
