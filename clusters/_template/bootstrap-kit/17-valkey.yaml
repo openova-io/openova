@@ -48,7 +48,15 @@ spec:
   chart:
     spec:
       chart: bp-valkey
-      version: 1.0.1
+      # 1.0.2 (TBD-V12 #2003, 2026-05-20): default
+      # `valkey.auth.enabled` flips to `false` so bp-newapi's
+      # passwordless REDIS_CONN_STRING default stops triggering
+      # `NOAUTH Authentication required` on every freshly
+      # franchised Sovereign (45× CrashLoopBackOff on t38 sandbox
+      # newapi, blocking Pillar 4 / qwen-code / MCP). See
+      # platform/valkey/chart/values.yaml `auth` block for the
+      # consumer-tolerance + follow-up plan.
+      version: 1.0.2
       sourceRef:
         kind: HelmRepository
         name: bp-valkey

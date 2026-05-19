@@ -62,12 +62,43 @@ valkey:
       enabled: true
       size: 1Gi
 
-  # Password auth ON by default — Catalyst convention. The bitnami chart
-  # auto-generates a random password and exposes it via the
-  # `<release-name>-valkey` Secret. Cluster overlays MAY override the
-  # password via `auth.existingSecret` to hand-roll secret rotation.
+  # Password auth OFF by default (TBD-V12 #2003, 2026-05-20).
+  #
+  # ROOT CAUSE (caught on t38 walk 2026-05-20):
+  #   The bp-newapi chart's REDIS_CONN_STRING default is the
+  #   passwordless URL `redis://valkey-primary.valkey.svc.cluster.local:
+  #   6379` (platform/newapi/chart/values.yaml `valkey.url`). On every
+  #   freshly franchised Sovereign the newapi Pod CrashLoopBackOff'd 45×
+  #   on the Redis ping probe with `NOAUTH Authentication required`,
+  #   blocking every Sandbox session (qwen-code + MCP) — the
+  #   Pillar-4 verifier-killing bug.
+  #
+  # CONTRACT MATCH:
+  #   The auth contract is set by the CONSUMER (bp-newapi). bp-newapi
+  #   ships a passwordless connection string by default; the only way
+  #   to make that work without churning every consumer chart is to
+  #   flip bp-valkey's default to allow empty password. Other consumers
+  #   that DO supply a password tolerate the change:
+  #     - products/catalyst sme-services (auth.yaml + gateway.yaml)
+  #       read VALKEY_PASSWORD via secretKeyRef `optional: true` and
+  #       fall back to the no-auth connect path in
+  #       core/services/shared/db/valkey.go when the value is empty.
+  #     - products/catalyst projector wraps the password Secret mount
+  #       in `{{- with .Values.services.projector.valkey.passwordSecret
+  #       }}` so an absent Secret just disables the password env var.
+  #
+  # FOLLOW-UP (deferred, scope of #1986 Pillar 4):
+  #   Make bp-newapi read the bp-valkey-generated password via Secret
+  #   reflection (mirror of the bp-valkey password Secret into the
+  #   newapi namespace, env-var REDIS_PASSWORD wired into the
+  #   conn-string template). At that point flip this back to
+  #   `auth.enabled: true`. Tracked under issue #2003.
+  #
+  # Cluster overlays MAY still re-enable auth by setting
+  # `valkey.auth.enabled: true` (and supplying matching consumer
+  # password wiring) on per-Sovereign installs.
   auth:
-    enabled: true
+    enabled: false
 
   # NetworkPolicy from upstream chart — already enabled by default;
   # restate to make the Catalyst posture explicit. (Default-deny is

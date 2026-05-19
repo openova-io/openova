@@ -1,6 +1,19 @@
 apiVersion: v2
 name: bp-valkey
-version: 1.0.1
+# 1.0.2 (TBD-V12 #2003, 2026-05-20): default valkey.auth.enabled flips
+# from true → false to match bp-newapi's passwordless
+# REDIS_CONN_STRING default. Pre-1.0.2 every freshly-franchised
+# Sovereign hit `NOAUTH Authentication required` on the newapi
+# Redis ping probe — 45× CrashLoopBackOff on t38 — blocking every
+# Sandbox session (Pillar 4 qwen-code + MCP) and acting as the
+# verifier-killing bug for the end-user DoD (#1986). Consumers that
+# DO supply a password (catalyst sme-services, projector) tolerate
+# the change via `secretKeyRef optional: true` and `{{- with }}`
+# gates that fall back to the no-auth connect path. See
+# values.yaml under `valkey.auth` for the full rationale +
+# follow-up to re-enable auth once bp-newapi mirrors the
+# bp-valkey-generated password.
+version: 1.0.2
 description: |
   Catalyst-curated Blueprint umbrella chart for Valkey (Redis-compatible
   cache, BSD-3). Depends on the upstream `valkey` chart (Bitnami) as a
