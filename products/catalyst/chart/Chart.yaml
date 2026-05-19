@@ -1,5 +1,32 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.218 — TBD-V9 / #2000 (2026-05-20): transactional voucher
+# redemption — only commit times_redeemed bump on successful order
+# placement. Pre-fix t38 walk: customer redeems WALK-T38-2138,
+# Stripe is unconfigured, Checkout returns 503 "payment processor
+# not configured", but promo_codes.times_redeemed had already
+# advanced 0→1 and the voucher was Exhausted 1/1 with no order
+# placed. The fix wires a saga-style compensating action
+# RollbackPromoCodeRedemption: every Checkout failure branch
+# downstream of RedeemPromoCode (settings load failure, Stripe
+# unconfigured 503, order INSERT failure, Stripe customer rejection,
+# Stripe session rejection, plan price unresolvable) runs the
+# rollback in one tx — DELETE promo_redemptions row + decrement
+# promo_codes.times_redeemed (GREATEST(...,0) underflow-guarded) +
+# DELETE the credit_ledger redeem grant (reason='promo:<code>',
+# order_id IS NULL). Idempotent: re-running a failed order never
+# double-decrements (DELETE 0-rows short-circuits the UPDATE +
+# second DELETE). The voucher counter only stays advanced once
+# (a) CreditOnlyCheckout commits the order + ledger spend + sub
+# transactionally and order.placed fires, OR (b) the Stripe Checkout
+# Session URL has been handed back to the customer — at which point
+# the credit persists on ledger for whichever order they complete
+# next (canonical abandoned-cart behavior). Tests cover all three
+# rollback paths (happy, idempotent no-op, empty-args no-op) at the
+# store layer plus the canonical t38 503-path regression at the
+# handler layer. See core/services/billing/{store,handlers}/*.go.
+# Bumped 1.4.217 → 1.4.218 on rebase to claim the next slot above
+# TBD-V10/#2001 marketplace JS fix on origin/main 1.4.217.
 # 1.4.217 — TBD-V10 / #2001 (2026-05-20): fix post-checkout redirect on
 # Sovereign sme-pool marketplaces. The marketplace JS in
 # `core/marketplace/src/lib/config.ts::deriveConsoleURL` was mapping
@@ -1967,8 +1994,8 @@ name: bp-catalyst-platform
 # was already shipped on 1.4.197 (PR #1820 lineage); this completes
 # the data-layer side so the dropdown finally appears on multi-region
 # Sovereigns. Refs #1821, DoD D20.
-version: 1.4.217
-appVersion: 1.4.217
+version: 1.4.218
+appVersion: 1.4.218
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
 # TBD-A30). Pre-1.4.183 every catalyst-system HTTPRoute pinned

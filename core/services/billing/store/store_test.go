@@ -499,3 +499,107 @@ func TestListPromoCodes_ExcludesSoftDeleted(t *testing.T) {
 		t.Fatalf("sqlmock expectations: %v", err)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// TBD-V9 (#2000) — RollbackPromoCodeRedemption
+// ---------------------------------------------------------------------------
+
+// TestRollbackPromoCodeRedemption_UndoesAllThreeSideEffects locks in the
+// compensating-action contract: a successful rollback deletes the
+// promo_redemptions row, decrements promo_codes.times_redeemed, and removes
+// the credit_ledger grant row tied to the redeem (reason='promo:<code>',
+// order_id IS NULL). All three writes must happen inside one transaction.
+func TestRollbackPromoCodeRedemption_UndoesAllThreeSideEffects(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock new: %v", err)
+	}
+	defer db.Close()
+	s := New(db)
+
+	mock.ExpectBegin()
+	// 1. DELETE promo_redemptions returns 1 row affected — there IS something to undo.
+	mock.ExpectExec(regexp.QuoteMeta(
+		`DELETE FROM promo_redemptions WHERE customer_id = $1 AND code = $2`)).
+		WithArgs("cust-1", "WALK-T38-2138").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	// 2. UPDATE promo_codes decrements times_redeemed.
+	mock.ExpectExec(regexp.QuoteMeta(
+		`UPDATE promo_codes
+		   SET times_redeemed = GREATEST(times_redeemed - 1, 0)
+		 WHERE code = $1`)).
+		WithArgs("WALK-T38-2138").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	// 3. DELETE credit_ledger removes the redeem grant (order_id IS NULL).
+	mock.ExpectExec(regexp.QuoteMeta(
+		`DELETE FROM credit_ledger
+		  WHERE customer_id = $1
+		    AND reason = $2
+		    AND order_id IS NULL`)).
+		WithArgs("cust-1", "promo:WALK-T38-2138").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	if err := s.RollbackPromoCodeRedemption(context.Background(), "cust-1", "WALK-T38-2138"); err != nil {
+		t.Fatalf("RollbackPromoCodeRedemption: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sqlmock expectations: %v", err)
+	}
+}
+
+// TestRollbackPromoCodeRedemption_IdempotentNoOpWhenNothingToUndo is the
+// idempotency guarantee that lets the Checkout handler call rollback from
+// every failure branch without first checking whether the voucher was
+// actually redeemed. If the promo_redemptions row is absent, the function
+// must NOT touch times_redeemed or credit_ledger — otherwise a stray
+// rollback could drive times_redeemed below zero (or zero out a legitimate
+// counter) and silently delete a credit ledger row that belongs to an
+// admin-issued promo grant unrelated to this customer's failed checkout.
+func TestRollbackPromoCodeRedemption_IdempotentNoOpWhenNothingToUndo(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock new: %v", err)
+	}
+	defer db.Close()
+	s := New(db)
+
+	mock.ExpectBegin()
+	// DELETE returns 0 rows affected — no redemption row existed.
+	mock.ExpectExec(regexp.QuoteMeta(
+		`DELETE FROM promo_redemptions WHERE customer_id = $1 AND code = $2`)).
+		WithArgs("cust-1", "NEVER-REDEEMED").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	// No UPDATE, no second DELETE — function short-circuits and commits.
+	mock.ExpectCommit()
+
+	if err := s.RollbackPromoCodeRedemption(context.Background(), "cust-1", "NEVER-REDEEMED"); err != nil {
+		t.Fatalf("RollbackPromoCodeRedemption no-op path: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sqlmock expectations (no-op path): %v", err)
+	}
+}
+
+// TestRollbackPromoCodeRedemption_EmptyArgsNoOp — the handler defensively
+// calls rollback without first validating the code; an empty code or
+// customer ID must be a silent no-op (no transaction, no DB hit at all).
+func TestRollbackPromoCodeRedemption_EmptyArgsNoOp(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock new: %v", err)
+	}
+	defer db.Close()
+	s := New(db)
+	// NO expectations set — function must not BEGIN any tx.
+
+	if err := s.RollbackPromoCodeRedemption(context.Background(), "", "FOO"); err != nil {
+		t.Errorf("empty customer: want nil, got %v", err)
+	}
+	if err := s.RollbackPromoCodeRedemption(context.Background(), "cust-1", ""); err != nil {
+		t.Errorf("empty code: want nil, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sqlmock expectations (must not hit DB): %v", err)
+	}
+}
