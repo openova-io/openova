@@ -1,3 +1,5 @@
+apiVersion: v2
+name: bp-catalyst-platform
 # 1.4.196 — TBD-V2 (issue #1928, 2026-05-19): plumb App targetNamespace
 # into Resources tab URL. AppDetail Resources tab rendered empty for
 # every operator because the SPA hardcoded `?namespace=default` in
@@ -1438,8 +1440,8 @@
 # 25/TCP (legacy SMTP fallback). All three are explicitly scoped to
 # `toEntities: world`, matching the existing 443/TCP allow. No other
 # rule semantics change. (Fixes PIN-issue 502 regression from #1785.)
-version: 1.4.196
-appVersion: 1.4.196
+version: 1.4.197
+appVersion: 1.4.197
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
 # TBD-A30). Pre-1.4.183 every catalyst-system HTTPRoute pinned
