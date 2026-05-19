@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/category: ai-runtime
     catalyst.openova.io/section: pts-4-6-llm-serving
 spec:
-  version: 1.4.28
+  version: 1.4.29
   card:
     title: NewAPI
     summary: |
@@ -65,7 +65,7 @@ spec:
         properties:
           url:
             type: string
-            default: redis://valkey.valkey.svc.cluster.local:6379
+            default: redis://valkey-primary.valkey.svc.cluster.local:6379
             description: Valkey URL for session and rate-limit cache.
       auth:
         type: object
