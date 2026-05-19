@@ -627,7 +627,7 @@ spec:
       # 1.4.192: TBD-C15 (issue #1750) wires /billing/purchase route
       # aliases on billing service + catalyst-api so the close-audit
       # DoD validator on console.<sov-fqdn> stops 404'ing.
-      version: 1.4.192
+      version: 1.4.193
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
