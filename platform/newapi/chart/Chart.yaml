@@ -252,7 +252,7 @@ name: bp-newapi
 # now uses `{{- with $parent.sectionName }}` to drop the field entirely
 # when blank, and values.yaml defaults sectionName to "". Matches the
 # catalyst-system fix in PR #1888.
-version: 1.4.23
+version: 1.4.24
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
