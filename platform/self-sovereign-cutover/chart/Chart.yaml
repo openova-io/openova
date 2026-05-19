@@ -75,7 +75,35 @@ name: bp-self-sovereign-cutover
 # {get,list,watch}. Configurable via `.Values.gateway.{namespace,
 # name,waitTimeoutSeconds}`; default 30 min timeout safely covers
 # the slowest Hetzner cold-start observed (≈18 min).
-version: 0.1.32
+#
+# 0.1.33 (TBD-A37, issue #1899, 2026-05-19): NEW post-cutover continuous
+# mirror re-sync CronJob (template 11-mirror-resync-cronjob.yaml). Step
+# 01 (gitea-mirror) only ever runs ONCE at cutover and produces a
+# STANDALONE local Gitea repo (PR #1029 — pull-mirror semantics block
+# Step-06's HelmRepository URL rewrite push, so cutover migrated off
+# Gitea's built-in pull-mirror). Without an ongoing re-sync, upstream
+# chart bumps merged AFTER cutover never reach the Sovereign. Live
+# regression on t31 2026-05-19 (A145 verifier): sandbox-controller
+# stuck at image :8017700 from 2026-05-16 even though PR #1862 had
+# merged 2 days earlier with the NATS consume-leg update — the
+# upstream values.yaml bump never crossed the mirror seam.
+#
+# This chart bump adds gitea-mirror-resync CronJob (schedule */5
+# default — 5 min cadence covers the chart-bump → upstream-merge →
+# Sovereign-reconcile loop in ~10 min end-to-end while staying well
+# under GitHub anonymous-clone rate limits). The CronJob fires the
+# same idempotent bare-clone + push --mirror --force as Step 01 step
+# (3); pre-cutover fires are no-ops (the script detects missing
+# local repo and exits 0), post-cutover fires close the loop.
+#
+# Per-Sovereign overlay knobs under `.Values.mirrorResync.{schedule,
+# suspended,jobTimeoutSeconds}`; defaults are canonical fresh-prov
+# behaviour (active, 5m, 15m timeout). No new RBAC needed — the
+# CronJob talks to GitHub anonymously + local Gitea via BasicAuth
+# from the same reflector-mirrored gitea-admin-secret Step-01 mounts.
+# Smoke render unaffected (CronJob lacks the cutover-step labels so
+# the contract test's exactly-9-steps assertion still passes).
+version: 0.1.33
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
@@ -129,6 +157,11 @@ description: |
         advances.
     registry-pivot                                 DaemonSet
         Always-on per-node reconcile loop; idempotent.
+    gitea-mirror-resync                            CronJob (post-cutover)
+        Re-runs Step 01's idempotent bare-clone + push --mirror every
+        5 min so upstream chart bumps merged AFTER cutover continue
+        crossing the seam into local Gitea. Pre-cutover fires are
+        no-ops. (TBD-A37, chart 0.1.33)
     bp-self-sovereign-cutover-runner               ServiceAccount + ClusterRole +
                                                    ClusterRoleBinding for the
                                                    stamped Jobs and the DaemonSet.

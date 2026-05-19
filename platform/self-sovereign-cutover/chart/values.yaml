@@ -321,6 +321,42 @@ egressTest:
 status:
   configMapName: "self-sovereign-cutover-status"
 
+# Post-cutover continuous mirror re-sync CronJob (TBD-A37, issue #1899,
+# chart 0.1.33).
+#
+# Step 01 (gitea-mirror) runs EXACTLY ONCE at cutover and produces a
+# STANDALONE local repo (PR #1029 — pull-mirror semantics block Step-
+# 06's HelmRepository URL rewrite push, so the cutover migrated off
+# Gitea's built-in pull-mirror). Without a re-sync mechanism, upstream
+# chart bumps that land AFTER cutover never reach the Sovereign.
+#
+# A45 t31 verifier 2026-05-19 caught the live regression: sandbox-
+# controller stuck at image :8017700 (PR #1690, 2026-05-16) even
+# though PR #1862 had merged 2 days earlier with the NATS consume-leg
+# update — the upstream values.yaml bump never crossed the seam.
+#
+# This block configures the gitea-mirror-resync CronJob (template
+# 11-mirror-resync-cronjob.yaml) which re-runs the same idempotent
+# bare-clone + push --mirror --force every 5 min. Pre-cutover fires
+# are no-ops (the script detects the local repo is missing and exits
+# 0). Post-cutover fires close the upstream → local Gitea loop.
+mirrorResync:
+  # Cron schedule. */5 = every 5 minutes. Short enough that chart-bump
+  # → upstream-merge → Sovereign-reconcile completes in ~10 min end-
+  # to-end (5 min for this CronJob to fire + the bp-* HelmRepository's
+  # 15m interval — but Flux source-controller picks up new commits on
+  # the GitRepository within seconds of the push). Long enough that
+  # GitHub anonymous-clone rate limits aren't a concern even with
+  # hundreds of Sovereigns (300 req/hr per IP for anonymous clone;
+  # one Sovereign clones at 12/hr).
+  schedule: "*/5 * * * *"
+  # Suspended? Default false (active). Operator overlay may flip true
+  # for a sandboxed soak Sovereign that intentionally lags upstream.
+  suspended: false
+  # Per-Job activeDeadlineSeconds. 900s = 15 min covers slow GitHub
+  # days; well under typical 5 min cycle so jobs don't pile up.
+  jobTimeoutSeconds: 900
+
 # Gateway readiness gate (issue #1871, chart 0.1.32).
 #
 # Step-06 (helmrepository-patches) rewrites every HelmRepository URL
