@@ -24,6 +24,25 @@ export function setActiveOrg(orgId: string): void {
   notifyAuthChanged();
 }
 
+/**
+ * Persist the active tenant's slug. The slug is the leftmost label of the
+ * per-tenant console hostname (`console.<slug>.<sov-fqdn>` — TBD-V10
+ * #2001 / TBD-A67 PR #1993). The marketplace runs ONE process for ALL
+ * tenants on a Sovereign, so the slug can only be threaded into the
+ * console redirect by stamping it client-side at the moment the tenant
+ * becomes active (post-createTenant, post-Stripe return).
+ *
+ * `src/lib/config.ts::ACTIVE_ORG_SLUG_KEY` is the canonical key; we
+ * duplicate the literal string here ONLY to keep this module free of a
+ * circular import (config.ts already imports from elsewhere via Layout/
+ * components and we want api.ts to remain dependency-free).
+ */
+export function setActiveOrgSlug(slug: string): void {
+  if (!slug) return;
+  localStorage.setItem('sme-active-org-slug', slug);
+  notifyAuthChanged();
+}
+
 async function request<T>(path: string, opts?: RequestInit): Promise<T> {
   const token = localStorage.getItem('sme-token');
   const headers: Record<string, string> = {
@@ -185,8 +204,10 @@ export async function logout(): Promise<void> {
   localStorage.removeItem('sme-token');
   localStorage.removeItem('sme-refresh-token');
   localStorage.removeItem('sme-active-org');
+  localStorage.removeItem('sme-active-org-slug');
   localStorage.removeItem('sme-cart');
   localStorage.removeItem('sme-checkout-tenant');
+  localStorage.removeItem('sme-checkout-tenant-slug');
   for (let i = localStorage.length - 1; i >= 0; i--) {
     const k = localStorage.key(i);
     if (k && k.startsWith('sme-tenant:')) localStorage.removeItem(k);

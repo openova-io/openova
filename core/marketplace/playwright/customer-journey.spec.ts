@@ -510,45 +510,104 @@ test.describe('marketplace customer-journey (17-step regression gate)', () => {
     ).toBeLessThan(hits.indexOf('startProvisioning'))
   })
 
-  test('16 console redirect URL is Sovereign-local (per PR #1627)', async ({ page }) => {
-    // The Sovereign post-purchase redirect bug (fixed in PR #1627) was that
-    // marketplace.<sov-fqdn> was sending users to console.openova.io/nova
-    // (mothership) instead of console.<sov-fqdn>. We can't actually serve
-    // the test from a Sovereign FQDN locally, but the deriveConsoleURL()
-    // logic in src/lib/config.ts is host-driven — we evaluate it directly
-    // in the page context after overriding hostname to a Sovereign FQDN.
+  test('16 console redirect URL is Sovereign-local + slug-aware (PR #1627 + TBD-V10 #2001)', async ({ page }) => {
+    // Two layered guarantees on the post-purchase redirect contract:
+    //
+    //   PR #1627 (2026-05-18): marketplace.<sov-fqdn> must go to
+    //                          `console.<sov-fqdn>` (Sovereign-local), not
+    //                          `console.openova.io/nova` (mothership).
+    //   TBD-V10 #2001 (2026-05-20): marketplace.<sov-fqdn> with a KNOWN
+    //                               tenant slug must go to
+    //                               `console.<slug>.<sov-fqdn>` (per-
+    //                               tenant), not the operator console at
+    //                               `console.<sov-fqdn>`. The chart-side
+    //                               HTTPRoute (tenant-public-routes.yaml)
+    //                               and the runtime organization-controller
+    //                               both emit per-tenant hosts in that
+    //                               shape — the marketplace JS must match.
+    //
+    // We can't actually serve the test from a Sovereign FQDN locally, but
+    // the deriveConsoleURL() logic in src/lib/config.ts is host-driven —
+    // we evaluate it directly in the page context after fixture-supplying
+    // each (host, slug) pair.
     await page.goto('/')
     const result = await page.evaluate(() => {
-      // Mirror src/lib/config.ts::deriveConsoleURL exactly. We can't import
-      // it directly (module is private to the marketplace bundle), so we
-      // walk the same decision tree against fixture hostnames.
-      function derive(host: string): string {
+      // Mirror src/lib/config.ts::{deriveConsoleURL,composeTenantConsoleURL}
+      // exactly. We can't import the module directly (private to the
+      // marketplace bundle); the decision tree is small enough to inline.
+      function derive(host: string, slug?: string | null): string {
         const MOTHERSHIP = 'https://console.openova.io/nova'
         if (!host) return MOTHERSHIP
         if (host === 'marketplace.openova.io') return MOTHERSHIP
         if (host.startsWith('marketplace.')) {
           const sovFqdn = host.slice('marketplace.'.length)
-          if (sovFqdn) return `https://console.${sovFqdn}`
+          if (sovFqdn) {
+            const s = (slug || '').toLowerCase().trim()
+            if (s) return `https://console.${s}.${sovFqdn}`
+            return `https://console.${sovFqdn}`
+          }
         }
         return MOTHERSHIP
       }
       return {
+        // Existing PR #1627 cases — no slug.
         mothership: derive('marketplace.openova.io'),
         sovereign: derive('marketplace.t142.omani.works'),
         partner: derive('omantel.openova.io'),
         empty: derive(''),
+        // TBD-V10 #2001 — slug-aware Sovereign cases.
+        sovWithSlugHomes: derive('marketplace.omani.homes', 'demo'),
+        sovWithSlugWorks: derive('marketplace.t38.omani.works', 'acme'),
+        sovWithSlugMixedCase: derive('marketplace.omani.homes', 'Demo'),
+        sovEmptySlugFallback: derive('marketplace.omani.homes', ''),
+        sovNullSlugFallback: derive('marketplace.omani.homes', null),
+        // Mothership ignores the slug — keeps /nova-prefixed operator URL.
+        mothershipWithSlug: derive('marketplace.openova.io', 'demo'),
       }
     })
 
+    // ── PR #1627 (unchanged) ──────────────────────────────────────────
     // Mothership stays on /nova (regression guard for the inverse direction).
     expect(result.mothership).toBe('https://console.openova.io/nova')
-    // Sovereign FQDN gets console.<rest>, NO /nova (the PR #1627 fix).
+    // Sovereign FQDN without slug gets console.<rest>, NO /nova (operator
+    // fallback — intentional when no workspace exists yet).
     expect(result.sovereign).toBe('https://console.t142.omani.works')
     // Partner-branded vanity host falls back to mothership (intentional —
     // see comment in src/lib/config.ts::deriveConsoleURL).
     expect(result.partner).toBe('https://console.openova.io/nova')
     // No host (SSR) falls back to mothership.
     expect(result.empty).toBe('https://console.openova.io/nova')
+
+    // ── TBD-V10 #2001 (new) ───────────────────────────────────────────
+    // Sovereign sme-pool host + known slug → per-tenant console host.
+    // Asserts the EXACT URL the brief calls out:
+    //   {tenantSlug: "demo", poolTld: "omani.homes"}
+    //     → https://console.demo.omani.homes
+    expect(result.sovWithSlugHomes).toBe('https://console.demo.omani.homes')
+    // Multi-label sov-fqdn (e.g. t38.omani.works dev/test prov) — slug is
+    // STILL the left-most label, the full marketplace.<sov-fqdn> tail
+    // becomes the parent.
+    expect(result.sovWithSlugWorks).toBe('https://console.acme.t38.omani.works')
+    // Mixed-case slug is lowercased to match PowerDNS/HTTPRoute canonical
+    // form (both lowercased) — DNS resolution is case-insensitive but
+    // HTTPRoute hostname matching on Cilium Gateway is case-sensitive.
+    expect(result.sovWithSlugMixedCase).toBe('https://console.demo.omani.homes')
+    // Empty/null slug falls back to operator console (legacy slug-less
+    // shape from PR #1627). Visitor never had a workspace; sending them
+    // to a bogus `console..<sov>` would NXDOMAIN.
+    expect(result.sovEmptySlugFallback).toBe('https://console.omani.homes')
+    expect(result.sovNullSlugFallback).toBe('https://console.omani.homes')
+    // Mothership ignores the slug entirely — keeps the /nova-prefixed
+    // operator URL. (Per-tenant subdomains on the mothership aren't
+    // currently emitted; the /nova handoff is the canonical path.)
+    expect(result.mothershipWithSlug).toBe('https://console.openova.io/nova')
+
+    // Regression guard against re-introducing hardcoded openova.io in
+    // Sovereign-host fixtures. Founder rule: NEVER use openova.io in
+    // test fixtures or asserted URL strings (use t<NN>.omani.works /
+    // omani.homes / etc.).
+    expect(result.sovWithSlugHomes).not.toContain('openova.io')
+    expect(result.sovWithSlugWorks).not.toContain('openova.io')
   })
 
   test('17 final dashboard reachable (post-purchase redirect lands on console host with /jobs + token)', async ({ page }) => {

@@ -95,27 +95,50 @@ const { title, step = 0 } = Astro.props;
             try {
               sessionStorage.setItem(CACHE_KEY, JSON.stringify({ has: live.length > 0, ts: Date.now() }));
             } catch (e) {}
-            if (live.length > 0) redirect();
+            if (live.length > 0) {
+              // TBD-V10 #2001: stamp the active-org-slug so the redirect
+              // composes `console.<slug>.<sov-fqdn>` (per-tenant) rather
+              // than `console.<sov-fqdn>` (operator). Prefer the slug
+              // matching the active-org id when present, fall back to
+              // the first live org.
+              var activeId = '';
+              try { activeId = localStorage.getItem('sme-active-org') || ''; } catch (_) {}
+              var pick = (activeId && live.find(function (o) { return o.id === activeId; })) || live[0];
+              if (pick && pick.slug) {
+                try { localStorage.setItem('sme-active-org-slug', pick.slug); } catch (_) {}
+              }
+              redirect(pick && pick.slug ? String(pick.slug) : '');
+            }
           })
           .catch(function () {});
       } catch (e) {}
-      function redirect() {
+      function redirect(slug) {
         var token = localStorage.getItem('sme-token') || '';
         var refresh = localStorage.getItem('sme-refresh-token') || '';
         // Derive console URL from the current host. Logic mirrors
         // src/lib/config.ts::deriveConsoleURL — kept inline so the redirect
         // fires before the Svelte bundle loads.
-        //   marketplace.openova.io      → console.openova.io/nova  (mothership)
-        //   marketplace.<sov-fqdn>      → console.<sov-fqdn>       (Sovereign, no /nova)
-        //   anything else (partner host)→ mothership fallback
-        // Bug 2026-05-18: this used to hardcode console.openova.io/nova so
-        // every Sovereign post-purchase redirect bounced users back to the
-        // mothership and re-prompted sign-in.
+        //   marketplace.openova.io       → console.openova.io/nova           (mothership)
+        //   marketplace.<sov> + slug     → console.<slug>.<sov>              (Sovereign per-tenant)
+        //   marketplace.<sov> + no slug  → console.<sov>                     (Sovereign operator fallback)
+        //   anything else (partner host) → mothership fallback
+        // Bug fix history:
+        //   - 2026-05-18 PR #1627: stopped hardcoding console.openova.io/nova.
+        //   - 2026-05-20 TBD-V10 #2001: prepend tenant slug so per-tenant
+        //     workspace (e.g. console.demo.omani.homes) is the destination
+        //     instead of the operator console.
         var host = (window.location.hostname || '').toLowerCase();
         var base = 'https://console.openova.io/nova';
         if (host && host !== 'marketplace.openova.io' && host.indexOf('marketplace.') === 0) {
           var sovFqdn = host.substring('marketplace.'.length);
-          if (sovFqdn) base = 'https://console.' + sovFqdn;
+          if (sovFqdn) {
+            var s = (slug || '').toLowerCase().trim();
+            if (s) {
+              base = 'https://console.' + s + '.' + sovFqdn;
+            } else {
+              base = 'https://console.' + sovFqdn;
+            }
+          }
         }
         var url = base + '/?token=' + encodeURIComponent(token);
         if (refresh) url += '&refresh_token=' + encodeURIComponent(refresh);
