@@ -670,7 +670,12 @@ spec:
       # set `spec.releaseName` to the bare upstream name (`harbor`,
       # `alloy`, `cert-manager`, ...) so the selector is always
       # release-name-bare, never bp-prefixed. Refs #1928.
-      version: 1.4.199
+      #
+      # 1.4.200 — TBD-A56 / #1948 fix: catalyst-api OPENOVA_FLOW_SERVER_URL
+      # env corrected from `.catalyst.svc.cluster.local` to
+      # `.catalyst-system.svc.cluster.local` (Service's actual namespace
+      # per slot 56 targetNamespace). Refs #1948.
+      version: 1.4.200
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
