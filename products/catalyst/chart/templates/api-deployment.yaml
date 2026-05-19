@@ -334,24 +334,35 @@ spec:
             # without code change.
             - name: CATALYST_API_PUBLIC_URL
               value: https://console.openova.io/sovereign
-            # CATALYST_NATS_URL — TBD-D35c (issue #1776). When set, the
-            # catalyst-api dials this NATS endpoint and publishes the
+            # CATALYST_NATS_URL — TBD-D35c (issue #1776). The catalyst-api
+            # dials this NATS endpoint at startup and publishes the
             # `catalyst.tenant.sandbox_requested` envelope on every
             # successful Sandbox CR Create. sandbox-controller's
-            # NATSBridge (consume leg) is already wired against the
-            # same subject; setting this env closes the D35 round-trip.
-            # The default in-cluster URL matches every other NATS-aware
-            # workload on the Sovereign (sme-billing, projector, etc.):
-            # nats://nats-jetstream.nats-system.svc.cluster.local:4222.
-            # When unset OR the dial fails, the handler runs in
-            # publish-disabled mode — the CR Create still succeeds + the
-            # FE still observes the new sandbox, but no audit envelope
-            # is emitted (matching the pre-PR-#1918 behaviour).
-            # Egress allow: `nats-system` is in baselineCnp's
-            # allowedPlatformNamespaces (see network-policies/
-            # baseline-catalyst-system.yaml) so no extra CNP is needed.
+            # NATSBridge (consume leg) is already wired against the same
+            # subject; this env closes the D35 round-trip end-to-end.
+            # Hard-coded to the canonical in-cluster URL matching every
+            # other NATS-aware workload on the Sovereign (sme-billing,
+            # projector, etc.). Hard-coding (rather than templating
+            # through .Values) is INTENTIONAL: this file is also fed to
+            # tests/integration/strategy-flip.sh which runs `kubectl
+            # apply --dry-run=server` on the raw pre-helm-render YAML,
+            # and any Helm `{` `{` `}` `}` directive would fail YAML
+            # parsing there (caught when an earlier draft of this PR
+            # shipped a `.Values.catalystApi.natsURL | default ... |
+            # quote` value — strategy-flip-regression went red).
+            # Per-Sovereign
+            # override remains available via a Kustomize env-patch at
+            # the bootstrap-kit overlay layer if ever needed.
+            # When the dial fails (broker cold-start lag, transient
+            # outage), the handler runs in publish-disabled mode — the
+            # CR Create still succeeds + the FE still observes the new
+            # sandbox, but no audit envelope is emitted (matching the
+            # pre-PR-#1918 behaviour). Egress allow: `nats-system` is in
+            # baselineCnp.allowedPlatformNamespaces (see
+            # network-policies/baseline-catalyst-system.yaml) so no
+            # extra CNP rule is needed.
             - name: CATALYST_NATS_URL
-              value: {{ .Values.catalystApi.natsURL | default "nats://nats-jetstream.nats-system.svc.cluster.local:4222" | quote }}
+              value: "nats://nats-jetstream.nats-system.svc.cluster.local:4222"
             # CATALYST_K8SCACHE_KUBECONFIGS_DIR — issue #321. Directory
             # the k8scache.Factory reads kubeconfigs from at startup.
             # The data-plane SharedInformerFactory opens one informer

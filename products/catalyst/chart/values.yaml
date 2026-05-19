@@ -720,14 +720,15 @@ catalystApi:
   powerdnsURL: ""
   # PowerDNS server identifier per the REST API contract. Empty = "localhost".
   powerdnsServerID: ""
-  # NATS endpoint catalyst-api dials at startup to publish
-  # `catalyst.tenant.sandbox_requested` (TBD-D35c, issue #1776). Empty
-  # = the canonical in-cluster default
-  # `nats://nats-jetstream.nats-system.svc.cluster.local:4222`. Override
-  # at Sovereign level only when running an out-of-cluster NATS
-  # (uncommon; the bp-nats-jetstream Blueprint deploys an in-cluster
-  # broker by default).
-  natsURL: ""
+  # CATALYST_NATS_URL is hard-coded in templates/api-deployment.yaml to
+  # the canonical in-cluster URL
+  # `nats://nats-jetstream.nats-system.svc.cluster.local:4222` (TBD-D35c,
+  # issue #1776). Hard-coded — NOT a .Values entry — because
+  # tests/integration/strategy-flip.sh feeds the raw template YAML to
+  # `kubectl apply --dry-run=server` without helm-rendering, and any
+  # `{{ }}` directive in the env block fails YAML parsing pre-render.
+  # Per-Sovereign override (rare) goes via a Kustomize env-patch at the
+  # bootstrap-kit overlay layer.
 
 # ─── Sovereign HTTPRoute (Cilium Gateway API, issue #387) ─────────────────
 # Renders templates/httproute.yaml when `ingress.gateway.enabled=true`
