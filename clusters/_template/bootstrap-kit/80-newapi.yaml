@@ -143,7 +143,7 @@ spec:
       # connection pool's first wire write completed. Probe budget:
       # 30 × 10s = 5 min, comfortably above the observed 60-120s
       # ceiling on cpx21/cpx31 nodes with sslmode=require.
-      version: 1.4.24
+      version: 1.4.25
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
