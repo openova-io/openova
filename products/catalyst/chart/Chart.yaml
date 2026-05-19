@@ -1,5 +1,59 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.199 — TBD-A51 (issue #1943, t34 T3 walk 2026-05-19 13:52Z agent
+# a9e0547e): decouple `sme-secrets` Secret + `sme` Namespace rendering
+# from `ingress.marketplace.enabled`. Background: catalyst-api consumes
+# CATALYST_SME_JWT_SECRET via secretKeyRef on the emberstack/reflector
+# mirror of `sme-secrets` (source in `sme` namespace → mirror in
+# `catalyst-system`) to mint short-lived HS256 bridge tokens on every
+# /api/v1/sme/billing/vouchers/* proxy call (PR #1625 + #1630). Pre-fix
+# the source Secret + its namespace were gated behind
+# ingress.marketplace.enabled, so every Sovereign provisioned with
+# the default marketplace_enabled=false (every customer-journey start)
+# had:
+#   - `kubectl get ns sme` → NotFound
+#   - `kubectl get secret -A sme-secrets` → NotFound
+#   - catalyst-api Pod env CATALYST_SME_JWT_SECRET unset
+#   - POST /api/v1/sme/billing/vouchers/issue → 503 with response body
+#     `CATALYST_SME_JWT_SECRET is not set on this catalyst-api Pod;
+#     the chart's sme-secrets Secret may not be reflected into
+#     catalyst-system yet`
+# Caught live on t34 (3-region cpx52 fsn1/hel1/nbg1, chart 1.4.198),
+# blocking the entire D28 voucher → D29 customer-journey →
+# D34 WordPress install chain (Refs #1842 #1829 #1723 #1741).
+# Fix: drop the `if .Values.ingress.marketplace.enabled` wrapper from
+# both `templates/sme-services/sme-namespace.yaml` and
+# `templates/sme-services/sme-secrets.yaml`. The SME *microservice
+# mesh* (billing.yaml, auth.yaml, gateway.yaml, catalog.yaml,
+# console.yaml, marketplace.yaml, notification.yaml, provisioning.yaml,
+# domain.yaml, admin.yaml, ferretdb.yaml, cnpg-cluster.yaml +
+# routes/grants/policies) remains gated on the same flag — only the
+# namespace + reflector-source Secret materialise unconditionally.
+# Net effect on a fresh prov with marketplace_enabled=false:
+#   - `kubectl get ns sme` → Active
+#   - `kubectl -n sme get secret sme-secrets` → 11 keys (with empty
+#     SMTP/OAuth/admin defaults that come from .Values.smeSecrets.*)
+#   - reflector copies the Secret to `catalyst-system` on first
+#     reconcile (sole namespace listed in the
+#     reflection-allowed-namespaces / reflection-auto-namespaces
+#     allow-list)
+#   - catalyst-api Pod env CATALYST_SME_JWT_SECRET populated on next
+#     restart (kubelet re-reads optional secretKeyRef when the Secret
+#     transitions from NotFound to present)
+# What this does NOT fix (intentional scope, per issue #1943 hard rule
+# "ship the smaller fix alone"): the SME microservice mesh still needs
+# `marketplace_enabled=true` on a prov body to render its Deployments
+# and Gateway routes — without those upstream Pods, voucher issuance
+# still surfaces as 503 from the catalyst-api proxy, just with the
+# next error band (`sme gateway unreachable`) rather than the JWT-
+# bridge-unwired error band. The broader "default marketplace ON for
+# customer-journey Sovereigns" is a separate operator-policy decision
+# tracked in a follow-up issue.
+# Kustomize-mode contabo build unchanged: both templates remain
+# excluded from `templates/sme-services/kustomization.yaml`'s
+# `resources:` list, so contabo continues to source the `sme`
+# namespace + secrets from clusters/contabo-mkt/apps/sme/.
+# Refs #1943.
 # 1.4.198 — issue #1928 residual (t34 chart 1.4.197 walk, 2026-05-19
 # 12:21Z agent aced939b): the Resources tab still rendered 0/0/0 across
 # every kind for the bootstrap-kit `bp-harbor` Application even after
@@ -1468,8 +1522,8 @@ name: bp-catalyst-platform
 # 25/TCP (legacy SMTP fallback). All three are explicitly scoped to
 # `toEntities: world`, matching the existing 443/TCP allow. No other
 # rule semantics change. (Fixes PIN-issue 502 regression from #1785.)
-version: 1.4.198
-appVersion: 1.4.198
+version: 1.4.199
+appVersion: 1.4.199
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
 # TBD-A30). Pre-1.4.183 every catalyst-system HTTPRoute pinned
