@@ -1,5 +1,51 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.214 — TBD-V11 / #2002 (2026-05-20): add init container
+# `wait-for-cutover-token` to the SME provisioning Deployment so the
+# Pod does NOT accept tenant requests until bp-self-sovereign-cutover
+# Step 09 (gitea-token-mint) has minted a real Gitea API token and
+# patched Secret `sme/provisioning-github-token` with the annotation
+# `catalyst.openova.io/token-source: self-sovereign-cutover-step-09`.
+# Pre-fix on t38 (2026-05-19): provisioning Pod started with the
+# first-install placeholder (gitea-admin-secret.password) under
+# GITHUB_TOKEN, tenant Org CR creation fired BEFORE Step 09 had
+# patched, gitea returned `HTTP 401 user does not exist [uid: 0,
+# name: ""]`, Org CR stuck at Ready=False/GiteaOrgFailed. Step 09's
+# `rollout restart deploy/provisioning` eventually recovers — but
+# the FIRST tenant journey after install always 401'd.
+#
+# Fix design rationale: HelmRelease.dependsOn between bp-catalyst-
+# platform and bp-self-sovereign-cutover would NOT solve this — the
+# cutover HR is dormant (`disableWait: true`) and goes Ready=True at
+# install time, BEFORE Step 09's Job actually runs. Per Inviolable
+# Principle #14 we also can't depend on Kustomizations from HRs.
+# Pod-level init gating is the only correct waitpoint: the init
+# container kubectl-polls the Secret in `sme` ns for the cutover
+# annotation, exits 0 once present, and the main provisioning
+# container starts with a guaranteed-valid token.
+#
+# Configurable knobs in values.yaml under
+# `smeServices.provisioning.waitForCutoverToken`:
+#   enabled (true default; set false on Catalyst-Zero/contabo where
+#     the SealedSecret-provisioned token carries no cutover annotation
+#     and Step 09 never runs)
+#   image (alpine/k8s:1.31.4 — tracks platform/self-sovereign-cutover
+#     values.yaml so platform-wide bumps land in one place)
+#   intervalSeconds (10s default)
+#   timeoutSeconds (1800s = 30m default; covers the slowest cutover
+#     observed on Hetzner cold-start ~18 min with 12 min safety margin)
+#
+# RBAC: re-uses the existing `provisioning` ServiceAccount in `sme`,
+# which already carries `secrets: [get, list, watch]` via the
+# `sme-provisioning` ClusterRole. No new RBAC.
+#
+# Validation: `helm template` shows the initContainers block on
+# Sovereign installs; smoke render unaffected on contabo (where
+# `waitForCutoverToken.enabled: false` is the canonical overlay).
+# On t38 (or fresh prov) the sme/provisioning Pod stays in
+# `Init:0/1` until Step 09 stamps the annotation, then starts the
+# main container with the minted token; first tenant Org CR
+# materialises Ready=True/Materialized without retry.
 # 1.4.213 — TBD-A68 / #1997 (2026-05-20): bump organization-controller
 # image pin 72e3f08 → c9b58ea so the chart actually ships PR #1910's
 # gitea-client fix (POST /api/v1/orgs instead of the admin-only
@@ -1851,8 +1897,8 @@ name: bp-catalyst-platform
 # was already shipped on 1.4.197 (PR #1820 lineage); this completes
 # the data-layer side so the dropdown finally appears on multi-region
 # Sovereigns. Refs #1821, DoD D20.
-version: 1.4.213
-appVersion: 1.4.213
+version: 1.4.214
+appVersion: 1.4.214
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
 # TBD-A30). Pre-1.4.183 every catalyst-system HTTPRoute pinned
