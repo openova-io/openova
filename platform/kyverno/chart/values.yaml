@@ -218,8 +218,25 @@ kyvernoOverlay:
 # Per docs/INVIOLABLE-PRINCIPLES.md #4 — every value is overridable.
 compliancePolicies:
   # K1 baseline policies
+  #
+  # Default = enabled: true with action: Audit (permissive). Per #1929 the
+  # Compliance scorecard was empty on fresh Sovereigns because every policy
+  # gate defaulted to false — only `useraccess-boundary` was installed.
+  # Audit mode is non-blocking (admission still passes) so flipping defaults
+  # to true is safe: every Sovereign immediately has 18 baseline policies
+  # emitting PolicyReport rows, and operators can flip individual policies
+  # to enabled: false or action: Enforce per Sovereign overlay.
+  #
+  # The 2 exceptions:
+  #   - hubbleFlowsSeen — comment-only stub (W2 evaluator does the real
+  #     check). Setting enabled=true renders nothing. Left false for
+  #     symmetry with its DEFERRED status; future W2 cutover flips it.
+  #   - cosignVerified  — verifyImages rule requires an operator-supplied
+  #     publicKey. Empty default would render an INVALID policy that fails
+  #     to install. Left false; operator opts in per Sovereign once cosign
+  #     key bundle is supplied.
   multiReplica:
-    enabled: false
+    enabled: true
     action: Audit
     excludeNamespaces: &complianceDefaultExcludes
       - kube-system
@@ -234,52 +251,52 @@ compliancePolicies:
       - ingress
 
   pdb:
-    enabled: false
+    enabled: true
     action: Audit
     excludeNamespaces: *complianceDefaultExcludes
 
   topologySpread:
-    enabled: false
+    enabled: true
     action: Audit
     excludeNamespaces: *complianceDefaultExcludes
 
   probesPresent:
-    enabled: false
+    enabled: true
     action: Audit
     excludeNamespaces: *complianceDefaultExcludes
 
   resourceRequests:
-    enabled: false
+    enabled: true
     action: Audit
     excludeNamespaces: *complianceDefaultExcludes
 
   resourceLimits:
-    enabled: false
+    enabled: true
     action: Audit
     excludeNamespaces: *complianceDefaultExcludes
 
   pvcExpansion:
-    enabled: false
+    enabled: true
     action: Audit
     excludeNamespaces: *complianceDefaultExcludes
 
   hpaEffective:
-    enabled: false
+    enabled: true
     action: Audit
     excludeNamespaces: *complianceDefaultExcludes
 
   ciliumL7Mtls:
-    enabled: false
+    enabled: true
     action: Audit
     excludeNamespaces: *complianceDefaultExcludes
 
   fluxManaged:
-    enabled: false
+    enabled: true
     action: Audit
     excludeNamespaces: *complianceDefaultExcludes
 
   harborProxyPull:
-    enabled: false
+    enabled: true
     action: Audit
     excludeNamespaces: *complianceDefaultExcludes
     # Operator overrides per-Sovereign (e.g.
@@ -291,18 +308,18 @@ compliancePolicies:
     allowedRegistryRegex: "^harbor\\..+/proxy-(ghcr|dockerhub|quay|registry-1\\.docker\\.io)/.*"
 
   imageTagPinned:
-    enabled: false
+    enabled: true
     action: Audit
     excludeNamespaces: *complianceDefaultExcludes
 
   prometheusScrape:
-    enabled: false
+    enabled: true
     action: Audit
     excludeNamespaces: *complianceDefaultExcludes
 
   # K2 added policies
   networkpolicyPresent:
-    enabled: false
+    enabled: true
     action: Audit
     # Match on Namespace kind — `excludeNamespaces` here is consumed via
     # `resources.names` (the namespace IS the resource). Same default
@@ -310,7 +327,7 @@ compliancePolicies:
     excludeNamespaces: *complianceDefaultExcludes
 
   otelInjected:
-    enabled: false
+    enabled: true
     action: Audit
     excludeNamespaces: *complianceDefaultExcludes
 
@@ -324,11 +341,16 @@ compliancePolicies:
     excludeNamespaces: *complianceDefaultExcludes
 
   runAsNonRootReadonlyRootFs:
-    enabled: false
+    enabled: true
     action: Audit
     excludeNamespaces: *complianceDefaultExcludes
 
   cosignVerified:
+    # OFF by default — verifyImages rule requires an operator-supplied
+    # cosign publicKey (PEM). Empty publicKey renders an INVALID policy
+    # that fails to install. Per docs/INVIOLABLE-PRINCIPLES.md #4 we
+    # surface the config gap rather than silently passing. Operator
+    # opts in per Sovereign once the cosign key bundle is supplied.
     enabled: false
     action: Audit
     excludeNamespaces: *complianceDefaultExcludes
@@ -345,11 +367,11 @@ compliancePolicies:
     rekorURL: "https://rekor.sigstore.dev"
 
   secretNotInEnv:
-    enabled: false
+    enabled: true
     action: Audit
     excludeNamespaces: *complianceDefaultExcludes
 
   backupConfigured:
-    enabled: false
+    enabled: true
     action: Audit
     excludeNamespaces: *complianceDefaultExcludes
