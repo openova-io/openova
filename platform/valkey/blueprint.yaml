@@ -5,7 +5,7 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-4-1-data-services
 spec:
-  version: 1.0.1
+  version: 1.0.2
   card:
     title: Valkey
     summary: |
@@ -35,8 +35,14 @@ spec:
         properties:
           enabled:
             type: boolean
-            default: true
-            description: Enforce password auth on the Valkey wire protocol.
+            default: false
+            description: |
+              Enforce password auth on the Valkey wire protocol.
+              Default false (TBD-V12 #2003) — matches bp-newapi's
+              passwordless REDIS_CONN_STRING contract; flipping true
+              requires every consumer chart (bp-newapi, catalyst
+              sme-services, projector) to wire the bp-valkey-
+              generated password into their connection strings.
       metrics:
         type: object
         properties:
