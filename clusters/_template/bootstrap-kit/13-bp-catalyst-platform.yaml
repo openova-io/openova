@@ -654,7 +654,7 @@ spec:
       # `cert-manager`/...) reaches ResourcesTab + LogsTab +
       # TopologyTab. Backend already populated targetNamespace
       # correctly for both App-CR and HR-synth paths. Closes #1928.
-      version: 1.4.196
+      version: 1.4.197
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
