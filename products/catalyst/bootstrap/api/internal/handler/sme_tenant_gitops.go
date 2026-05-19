@@ -801,9 +801,10 @@ spec:
         namespace: kube-system
         # sectionName omitted — multi-zone Sovereigns rename HTTPS listeners
         # to https-<sanitised-zone> (e.g. https-omani-works). The bp-keycloak
-        # chart template guards `{{- with .Values.gateway.parentRef.sectionName }}`
-        # so a blank value drops the field entirely; Cilium Gateway then
-        # matches by hostname filter. See PR #1888 / TBD-A40 / issue #1902.
+        # chart template guards the sectionName output with a 'with'
+        # conditional on .Values.gateway.parentRef.sectionName, so a blank
+        # value drops the field entirely; Cilium Gateway then matches by
+        # hostname filter. See PR #1888 / TBD-A40 / issue #1902.
         sectionName: ""
     # Outbound realm email — Phase-1 mothership relay. Operator overlay
     # (or future tenant-Stalwart sub-issue) overrides host/port once
