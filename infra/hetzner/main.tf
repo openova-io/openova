@@ -407,49 +407,136 @@ locals {
   # codified in 2026-05-15 — the listener was the last piece still
   # tied to the parent-zone wildcard.
   #
-  # Hostname semantics: the listener hostname stays `*.<parent>` so any
-  # FQDN under the parent matches the listener selector. cilium-envoy's
+  # Hostname semantics for the PARENT-ZONE listener: `hostname: *.<parent>`
+  # matches exactly one label depth (`foo.omani.works`), so SME-tenant
+  # 1-label subdomains on the parent zone still hit it. cilium-envoy's
   # SNI dispatch picks the per-prov cert whose SAN list includes the
-  # requested hostname (`console.<sovereign-fqdn>`, `auth.<sovereign-
-  # fqdn>`, etc., per the explicit SAN list in cilium-gateway-cert.yaml).
+  # requested hostname. For PER-PROV 2-label-deep operator FQDNs
+  # (`console.t28.omani.works` under shared parent `omani.works`), see
+  # TBD-A32 (#1886) below — the parent-zone listener does NOT catch
+  # those; a per-prov `*.<sovereign_fqdn>` listener is added.
   # Tenant URLs under non-primary parent zones (e.g. wp-foo.omani.homes)
   # remain out of scope here — that path needs explicit per-tenant
   # cert wiring under #831, not parent-zone wildcards.
-  parent_domains_listeners_yaml = jsonencode(flatten([
-    for entry in local.parent_domains_decoded : [
-      {
-        name     = local.parent_domains_single_zone ? "https" : format("https-%s", replace(entry.name, ".", "-"))
-        port     = 30443
-        protocol = "HTTPS"
-        hostname = format("*.%s", entry.name)
-        tls = {
-          mode = "Terminate"
-          certificateRefs = [
-            {
-              kind = "Secret"
-              name = format("sovereign-wildcard-tls-%s", local.sovereign_fqdn_dashed)
+
+  # ── TBD-A32 (#1886) — per-prov 2-label wildcard listener ─────────────────
+  #
+  # The parent-zone listeners above declare `hostname: *.<zone>` (e.g.
+  # `*.omani.works`). Per Gateway-API spec wildcard semantics, that pattern
+  # matches EXACTLY ONE label depth — `foo.omani.works` ✅ — but NOT
+  # `console.t28.omani.works` (2-label depth from the apex). On a
+  # multi-prov shared parent zone like `omani.works`, every per-prov
+  # operator endpoint (console.<fqdn>, api.<fqdn>, marketplace.<fqdn>, …)
+  # is 2-label-deep, so the parent-zone wildcard listener never catches
+  # them and cilium-envoy returns TLS handshake reset / NoMatchingListener.
+  #
+  # Note: TBD-A29 (#1883) already pointed the parent-zone listener's
+  # certificateRefs at the per-prov cert `sovereign-wildcard-tls-
+  # <fqdn-dashed>`. That fixed the LE-budget burn but NOT the hostname-
+  # match gap — listener selection happens BEFORE SNI cert dispatch, so
+  # cilium-envoy never reaches the per-prov cert for a 2-label-deep
+  # request that the parent-zone listener rejects on hostname.
+  #
+  # Fix: emit an ADDITIONAL listener pair hostnamed `*.<sovereign_fqdn>`
+  # (e.g. `*.t28.omani.works`) bound to the SAME per-prov cert
+  # `sovereign-wildcard-tls-<fqdn-dashed>` rendered by
+  # clusters/_template/sovereign-tls/cilium-gateway-cert.yaml. That
+  # cert already enumerates 13 per-prov SANs (console / auth / gitea /
+  # harbor / registry / api / bao / grafana / hubble / pdns /
+  # openova-flow / guacamole / marketplace / sandbox) so every per-prov
+  # subdomain has both a listener match AND a matching cert SAN.
+  #
+  # Collision guard: when sovereign_fqdn is identical to one of the
+  # declared parent-zone names (legacy single-zone case where the
+  # operator brings the apex itself, e.g. parent_domains_yaml=
+  # `[{name: "omani.works"}]` and sovereign_fqdn=`omani.works`), the
+  # parent-zone listener already covers everything 1-label-deep and
+  # adding a duplicate `*.<fqdn>` pair would produce a Gateway
+  # Conflicted condition on duplicate listener names. Skip the per-prov
+  # pair in that case — `local.parent_domains_includes_sovereign_fqdn`.
+  #
+  # Naming: the per-prov listener pair always uses unique names
+  # `https-<fqdn-dashed>` / `http-<fqdn-dashed>` (e.g. `https-t28-omani-
+  # works`). This is safe because every catalyst-system HTTPRoute now
+  # OMITS sectionName (PR #1888 closing #1884) — Cilium attaches each
+  # route to the listener whose hostname matches via the hostname
+  # filter, not by sectionName equality.
+  parent_domains_includes_sovereign_fqdn = contains(
+    [for e in local.parent_domains_decoded : e.name],
+    var.sovereign_fqdn
+  )
+  per_prov_listeners = local.parent_domains_includes_sovereign_fqdn ? [] : [
+    {
+      name     = format("https-%s", local.sovereign_fqdn_dashed)
+      port     = 30443
+      protocol = "HTTPS"
+      hostname = format("*.%s", var.sovereign_fqdn)
+      tls = {
+        mode = "Terminate"
+        certificateRefs = [
+          {
+            kind = "Secret"
+            name = format("sovereign-wildcard-tls-%s", local.sovereign_fqdn_dashed)
+          }
+        ]
+      }
+      allowedRoutes = {
+        namespaces = {
+          from = "All"
+        }
+      }
+    },
+    {
+      name     = format("http-%s", local.sovereign_fqdn_dashed)
+      port     = 30080
+      protocol = "HTTP"
+      hostname = format("*.%s", var.sovereign_fqdn)
+      allowedRoutes = {
+        namespaces = {
+          from = "All"
+        }
+      }
+    },
+  ]
+
+  parent_domains_listeners_yaml = jsonencode(concat(
+    flatten([
+      for entry in local.parent_domains_decoded : [
+        {
+          name     = local.parent_domains_single_zone ? "https" : format("https-%s", replace(entry.name, ".", "-"))
+          port     = 30443
+          protocol = "HTTPS"
+          hostname = format("*.%s", entry.name)
+          tls = {
+            mode = "Terminate"
+            certificateRefs = [
+              {
+                kind = "Secret"
+                name = format("sovereign-wildcard-tls-%s", local.sovereign_fqdn_dashed)
+              }
+            ]
+          }
+          allowedRoutes = {
+            namespaces = {
+              from = "All"
             }
-          ]
-        }
-        allowedRoutes = {
-          namespaces = {
-            from = "All"
           }
-        }
-      },
-      {
-        name     = local.parent_domains_single_zone ? "http" : format("http-%s", replace(entry.name, ".", "-"))
-        port     = 30080
-        protocol = "HTTP"
-        hostname = format("*.%s", entry.name)
-        allowedRoutes = {
-          namespaces = {
-            from = "All"
+        },
+        {
+          name     = local.parent_domains_single_zone ? "http" : format("http-%s", replace(entry.name, ".", "-"))
+          port     = 30080
+          protocol = "HTTP"
+          hostname = format("*.%s", entry.name)
+          allowedRoutes = {
+            namespaces = {
+              from = "All"
+            }
           }
-        }
-      },
-    ]
-  ]))
+        },
+      ]
+    ]),
+    local.per_prov_listeners
+  ))
 
   # ── Effective singular-path SKU selection (Fix #157) ─────────────────────
   # When qa_fixtures_enabled='true', the Sovereign is a QA-loop matrix

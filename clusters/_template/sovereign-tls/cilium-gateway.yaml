@@ -74,9 +74,36 @@
 #     products/catalyst/chart/templates/sovereign-wildcard-certs.yaml)
 #     — independent of the listener-name choice above.
 #
+# TBD-A32 (#1886) — Per-prov 2-label wildcard listener
+# ----------------------------------------------------
+# The parent-zone listener above declares `hostname: *.<zone>` (e.g.
+# `*.omani.works`). Per Gateway-API spec wildcard semantics, that
+# pattern matches EXACTLY one label depth: `foo.omani.works` ✅, but
+# NOT `console.t28.omani.works` (2-label depth). On every shared
+# parent-zone topology, the operator-facing FQDN is per-prov
+# (`t28.omani.works`) and every operator endpoint (console.<fqdn>,
+# api.<fqdn>, marketplace.<fqdn>, …) is 2-label-deep — UNREACHABLE
+# through the parent-zone listener. Caught on t28 (A110 scorecard,
+# 2026-05-19): `curl -skI https://console.t28.omani.works/` reset at
+# TLS handshake even though `sovereign-wildcard-tls-t28-omani-works`
+# already contained all 13 per-prov SANs.
+#
+# Fix: locals.per_prov_listeners (infra/hetzner/main.tf) emits an
+# ADDITIONAL listener pair hostnamed `*.<sovereign_fqdn>` (e.g.
+# `*.t28.omani.works`) bound to the per-prov cert
+# `sovereign-wildcard-tls-<fqdn-dashed>` rendered by
+# cilium-gateway-cert.yaml in this same Kustomization. The pair
+# uses unique names `https-<fqdn-dashed>` / `http-<fqdn-dashed>`.
+# Skipped when sovereign_fqdn == one of the parent-zone names (legacy
+# single-zone-on-apex case) so no duplicate listener-name condition
+# is raised. Safe because every catalyst-system HTTPRoute now OMITS
+# sectionName (PR #1888 closing #1884) — Cilium attaches by hostname
+# match.
+#
 # The listener block is rendered by infra/hetzner/main.tf locals.
 # parent_domains_listeners_yaml using local.parent_domains_single_zone
-# to switch between the two naming schemes.
+# to switch between the two naming schemes (and appending per-prov
+# listeners via local.per_prov_listeners).
 
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
