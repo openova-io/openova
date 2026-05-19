@@ -746,7 +746,24 @@ spec:
       # PR; the code fix is upstream in #1910. The CI auto-bump-
       # images job skipped controller images (TBD-A69 follow-up
       # tracks closing that gap).
-      version: 1.4.213
+      # 1.4.214 (TBD-V11 / #2002): add init container
+      # `wait-for-cutover-token` to the SME provisioning Deployment.
+      # The Pod now blocks on Secret sme/provisioning-github-token
+      # carrying `catalyst.openova.io/token-source:
+      # self-sovereign-cutover-step-09` (set by Step 09 of bp-self-
+      # sovereign-cutover when the real Gitea API token is minted
+      # + patched). Pre-fix on t38 the Pod started with the
+      # first-install placeholder (gitea admin password) and the
+      # FIRST tenant Org CR creation hit 401 `user does not exist
+      # [uid: 0, name: ""]` from Gitea. Pod-level init gating is
+      # the correct waitpoint — Principle #14: HelmRelease.dependsOn
+      # → Kustomization is silently ignored, and the cutover HR is
+      # dormant + disableWait:true so HR-level dependsOn would
+      # resolve Ready=True before Step 09 ever runs. Configurable
+      # via .Values.smeServices.provisioning.waitForCutoverToken.*
+      # (default enabled on Sovereigns; contabo overlay flips
+      # enabled=false because Step 09 never runs on Catalyst-Zero).
+      version: 1.4.214
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

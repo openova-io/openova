@@ -147,6 +147,97 @@ spec:
       serviceAccountName: provisioning
       imagePullSecrets:
         - name: ghcr-pull
+      # ── Init container: wait-for-cutover-token (TBD-V11, issue #2002) ──
+      # The provisioning-github-token Secret has TWO lifecycle states:
+      #   1. First-install bootstrap (this chart's
+      #      provisioning-github-token.yaml writes the Gitea admin PASSWORD
+      #      under GITHUB_TOKEN — enough to boot the Pod past
+      #      CreateContainerConfigError but NOT a valid Gitea API token).
+      #   2. Cutover-owned (bp-self-sovereign-cutover Step 09 mints a real
+      #      Gitea API token via POST /api/v1/users/{user}/tokens and
+      #      patches this Secret + stamps the annotation
+      #      `catalyst.openova.io/token-source: self-sovereign-cutover-step-09`).
+      #
+      # Pre-fix on t38 (2026-05-19): provisioning Pod started at state (1),
+      # tenant Org CR creation fired BEFORE Step 09 had patched the Secret,
+      # gitea API call sent `Authorization: token <admin_password>`, Gitea
+      # 401'd with `user does not exist [uid: 0, name: ""]`, Org CR stuck
+      # at Ready=False/GiteaOrgFailed. Step 09's `rollout restart deploy/
+      # provisioning` recovers eventually, but the Pod accepting traffic
+      # in state (1) means the FIRST tenant request after install always
+      # fails until the rollout completes.
+      #
+      # Fix: gate the provisioning Pod on the Secret carrying the cutover
+      # annotation. Until Step 09 has minted + patched, the init container
+      # polls every {{ .Values.smeServices.provisioning.waitForCutoverToken.intervalSeconds | default 10 }}s
+      # (up to {{ .Values.smeServices.provisioning.waitForCutoverToken.timeoutSeconds | default 1800 }}s)
+      # and only exits 0 once `catalyst.openova.io/token-source` equals
+      # `self-sovereign-cutover-step-09` on Secret
+      # `{{ .Values.smeServices.provisioning.githubToken.secretName | default "provisioning-github-token" }}`
+      # in this namespace. On Catalyst-Zero (contabo) the SealedSecret-
+      # provisioned token carries no cutover annotation — operators set
+      # `.Values.smeServices.provisioning.waitForCutoverToken.enabled: false`
+      # via clusters/contabo-mkt/ overlay so the init container is a no-op
+      # there (defaults to true; Sovereigns inherit the gate).
+      #
+      # Per Inviolable Principle #14: this is Pod-level gating via init
+      # container, NOT HelmRelease.dependsOn → Kustomization (which Flux
+      # silently ignores). The cutover HR is dormant + disableWait:true so
+      # an HR-level dependsOn would resolve Ready=True at install time,
+      # BEFORE Step 09 actually runs — that approach buys nothing.
+      # Pod-level init gating waits on the actual condition (Secret
+      # annotation), not on a proxy.
+      {{- if .Values.smeServices.provisioning.waitForCutoverToken.enabled }}
+      initContainers:
+        - name: wait-for-cutover-token
+          image: {{ .Values.smeServices.provisioning.waitForCutoverToken.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" | quote }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: TARGET_NAMESPACE
+              value: {{ .Values.smeServices.provisioning.gitToken.destNamespace | default "sme" | quote }}
+            - name: SECRET_NAME
+              value: {{ .Values.smeServices.provisioning.githubToken.secretName | default "provisioning-github-token" | quote }}
+            - name: TOKEN_SOURCE_ANNOTATION_VALUE
+              value: "self-sovereign-cutover-step-09"
+            - name: INTERVAL_SECONDS
+              value: {{ .Values.smeServices.provisioning.waitForCutoverToken.intervalSeconds | default 10 | quote }}
+            - name: TIMEOUT_SECONDS
+              value: {{ .Values.smeServices.provisioning.waitForCutoverToken.timeoutSeconds | default 1800 | quote }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              echo "[wait-for-cutover-token] gating on Secret ${TARGET_NAMESPACE}/${SECRET_NAME} carrying annotation catalyst.openova.io/token-source=${TOKEN_SOURCE_ANNOTATION_VALUE}"
+              deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
+              while [ "$(date +%s)" -lt "${deadline}" ]; do
+                # `kubectl get ... -o jsonpath` returns the empty string
+                # (not an error) if the annotation is missing — exactly
+                # the placeholder state we want to wait through.
+                token_source=$(kubectl -n "${TARGET_NAMESPACE}" get secret "${SECRET_NAME}" \
+                  -o "jsonpath={.metadata.annotations.catalyst\.openova\.io/token-source}" 2>/dev/null || true)
+                if [ "${token_source}" = "${TOKEN_SOURCE_ANNOTATION_VALUE}" ]; then
+                  echo "[wait-for-cutover-token] cutover annotation present — Step 09 has minted the real Gitea API token; proceeding"
+                  exit 0
+                fi
+                echo "[wait-for-cutover-token] annotation not yet set (current: '${token_source}'); retrying in ${INTERVAL_SECONDS}s"
+                sleep "${INTERVAL_SECONDS}"
+              done
+              # Timeout is a HARD FAIL — provisioning with the placeholder
+              # admin password as GITHUB_TOKEN cannot satisfy ANY tenant
+              # request. Better to keep the Pod in Init: than to serve 401s.
+              echo "[wait-for-cutover-token] FATAL: timed out after ${TIMEOUT_SECONDS}s waiting for cutover Step 09 to patch ${TARGET_NAMESPACE}/${SECRET_NAME}" >&2
+              exit 1
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits:   { memory: 128Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 65534
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      {{- end }}
       containers:
         - name: provisioning
           image: "{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}{{ else }}{{ .Values.images.registry }}{{ end }}/{{ .Values.images.organization }}/services-provisioning:{{ .Values.images.smeTag }}"
