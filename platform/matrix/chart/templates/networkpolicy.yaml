@@ -67,11 +67,20 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: {{ .Release.Namespace }}
-    # bp-cnpg — Postgres backend.
+    # bp-cnpg — Postgres backend. The actual Postgres workload Pods
+    # (the ones Synapse must reach on 5432) reconcile into the same
+    # namespace as the CNPG `Cluster` CR — by default this chart
+    # points at `matrix-postgres-rw.matrix.svc.cluster.local` so the
+    # Cluster CR lives in `.Release.Namespace`, NOT in the cnpg-system
+    # operator namespace. Select by the operator-emitted
+    # `cnpg.io/cluster=<clusterName>` Pod label so the rule survives
+    # the operator namespace being different from the data-plane
+    # namespace (issue #1901). The cluster name is operator-tunable
+    # via `networkPolicy.cnpgClusterName`.
     - to:
-        - namespaceSelector:
+        - podSelector:
             matchLabels:
-              kubernetes.io/metadata.name: {{ .Values.networkPolicy.cnpgNamespace | default "cnpg" }}
+              cnpg.io/cluster: {{ .Values.networkPolicy.cnpgClusterName | default "matrix-postgres" }}
       ports:
         - protocol: TCP
           port: {{ .Values.networkPolicy.cnpgPort | default 5432 }}

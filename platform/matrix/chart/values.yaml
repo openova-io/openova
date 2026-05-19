@@ -189,7 +189,13 @@ elementWeb:
 # namespace label / port is operator-tunable.
 networkPolicy:
   enabled: false
-  cnpgNamespace: "cnpg"
+  # cnpgClusterName: the CNPG `Cluster` CR name whose Pods Synapse must
+  # reach on 5432. The egress rule pod-selects by this label
+  # (`cnpg.io/cluster=<name>`) so the rule works regardless of which
+  # namespace the operator schedules the Cluster into (issue #1901).
+  # Default matches the `matrix-postgres-rw` Service host defaulted in
+  # `synapse.postgresql.host` above.
+  cnpgClusterName: "matrix-postgres"
   cnpgPort: 5432
   keycloakNamespace: "keycloak"
   keycloakPort: 8443

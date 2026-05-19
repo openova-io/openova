@@ -136,7 +136,13 @@ openmeter:
 # via per-Sovereign overlay once consumer namespaces are known.
 networkPolicy:
   enabled: false
-  cnpgNamespace: "cnpg"
+  # cnpgClusterName: the CNPG `Cluster` CR name whose Pods OpenMeter
+  # must reach on 5432. The egress rule pod-selects by this label
+  # (`cnpg.io/cluster=<name>`) so the rule works regardless of which
+  # namespace the operator schedules the Cluster into (issue #1901).
+  # Operator supplies the actual cluster name via per-Sovereign overlay
+  # alongside `openmeter.config.postgres.url`.
+  cnpgClusterName: "openmeter-pg"
   jetstreamNamespace: "nats-jetstream"
   jetstreamPort: 4222
   cnpgPort: 5432
