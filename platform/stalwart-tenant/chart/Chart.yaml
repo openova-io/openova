@@ -51,7 +51,11 @@ name: bp-stalwart-tenant
 #      `stalwart-cli` + `curl` — no new image needed.
 #
 # Per #817 Chart.yaml version MUST equal blueprint.yaml spec.version.
-version: 0.1.2
+# 0.1.3 (Fix #1902, TBD-A40, 2026-05-19): omit HTTPRoute parentRef
+# sectionName by default — multi-zone Sovereigns rename HTTPS listeners
+# to https-<sanitised-zone>, breaking NoMatchingListener with the prior
+# pinned sectionName: https. Matches the catalyst-system fix in PR #1888.
+version: 0.1.3
 appVersion: "0.16.3"
 description: |
   Catalyst Blueprint scratch chart for a per-SME (per-vcluster) dedicated

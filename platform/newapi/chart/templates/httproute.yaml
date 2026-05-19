@@ -38,7 +38,12 @@ operator-overridable via values.yaml.
 {{- $parent := .Values.ingress.httpRoute.parentRef | default dict -}}
 {{- $parentName := default "cilium-gateway" $parent.name -}}
 {{- $parentNs := default "kube-system" $parent.namespace -}}
-{{- $sectionName := default "https" $parent.sectionName -}}
+{{- /*
+sectionName intentionally omitted when empty/unset — pinning to "https"
+broke multi-zone Sovereigns whose Cilium Gateway renames HTTPS listeners
+to https-<sanitised-zone> (PR #1888 / TBD-A40 / issue #1902). Gateway API
+hostname-matching attaches the route to the right listener anyway.
+*/ -}}
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -50,7 +55,9 @@ spec:
   parentRefs:
     - name: {{ $parentName | quote }}
       namespace: {{ $parentNs | quote }}
-      sectionName: {{ $sectionName | quote }}
+      {{- with $parent.sectionName }}
+      sectionName: {{ . | quote }}
+      {{- end }}
   hostnames:
     - {{ $host | quote }}
   rules:

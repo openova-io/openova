@@ -165,4 +165,8 @@ gateway:
   parentRef:
     name: cilium-gateway
     namespace: kube-system
-    sectionName: https
+    # sectionName intentionally empty — multi-zone Sovereigns rename HTTPS
+    # listeners to https-<sanitised-zone> (e.g. https-omani-works), so
+    # pinning sectionName: https breaks NoMatchingListener. Cilium Gateway
+    # matches by hostname filter. See PR #1888 / TBD-A40 / issue #1902.
+    sectionName: ""

@@ -5,7 +5,7 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-3-5-storage-and-data
 spec:
-  version: 1.2.17
+  version: 1.2.18
   card:
     title: Harbor
     family: foundation

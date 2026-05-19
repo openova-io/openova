@@ -245,7 +245,14 @@ name: bp-newapi
 # composes on the next reconcile. helm template renders cleanly with
 # BOTH the missing-attestation state (no channel) AND the
 # fully-populated state (channel composed normally).
-version: 1.4.22
+# 1.4.23 (Fix #1902, TBD-A40, 2026-05-19): omit HTTPRoute parentRef
+# sectionName by default — multi-zone Sovereigns rename HTTPS listeners
+# to https-<sanitised-zone>, breaking NoMatchingListener with the prior
+# `default "https"` fallback in templates/httproute.yaml. The template
+# now uses `{{- with $parent.sectionName }}` to drop the field entirely
+# when blank, and values.yaml defaults sectionName to "". Matches the
+# catalyst-system fix in PR #1888.
+version: 1.4.23
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM

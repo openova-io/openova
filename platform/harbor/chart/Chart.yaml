@@ -42,7 +42,11 @@ type: application
 # hook image switched from curlimages/curl:8.10.1 to
 # harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1 per CLAUDE.md
 # inviolable rule.
-version: 1.2.17
+# 1.2.18 (Fix #1902, TBD-A40, 2026-05-19): omit HTTPRoute parentRef
+# sectionName by default — multi-zone Sovereigns rename HTTPS listeners
+# to https-<sanitised-zone>, breaking NoMatchingListener with the prior
+# pinned sectionName: https. Matches the catalyst-system fix in PR #1888.
+version: 1.2.18
 appVersion: "2.14.3"
 keywords: [catalyst, blueprint, harbor, oci, registry, container]
 maintainers:
