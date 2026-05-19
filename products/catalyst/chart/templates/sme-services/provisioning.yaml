@@ -71,6 +71,14 @@ rules:
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get", "list", "watch"]
+  # Organizations (orgs.openova.io): the tenant.created Kafka consumer
+  # creates one Organization CR per voucher checkout (D29 step 5). Without
+  # this rule the consumer 403s in a 5s NAK-retry loop forever and the
+  # rest of the customer journey (steps 6/7/8) is blocked. Issue #1900,
+  # consumer code shipped in PR #1860.
+  - apiGroups: ["orgs.openova.io"]
+    resources: ["organizations"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

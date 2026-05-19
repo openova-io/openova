@@ -1,5 +1,11 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.185 — TBD-A38 (issue #1900) provisioning SA grant create
+# organizations.orgs.openova.io. The tenant.created Kafka consumer (Go
+# code shipped in PR #1860) creates one Organization CR per voucher
+# checkout (D29 step 5); without this RBAC entry it 403s in a 5s
+# NAK-retry loop forever and steps 6/7/8 of the customer journey are
+# blocked. Validated via `kubectl auth can-i` post-apply (see PR body).
 # 1.4.184 — TBD-A29 (issue #1883) wildcard cert LE rate-limit fix.
 # templates/sovereign-wildcard-certs.yaml now skip-renders unconditionally
 # (the parent-zone wildcards it minted — e.g. *.omani.works — share LE's
@@ -1273,7 +1279,7 @@ name: bp-catalyst-platform
 # 25/TCP (legacy SMTP fallback). All three are explicitly scoped to
 # `toEntities: world`, matching the existing 443/TCP allow. No other
 # rule semantics change. (Fixes PIN-issue 502 regression from #1785.)
-version: 1.4.184
+version: 1.4.185
 appVersion: 1.4.184
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
