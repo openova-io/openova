@@ -1536,6 +1536,23 @@ name: bp-catalyst-platform
 # `.catalyst-system.svc.cluster.local:8080` and the
 # 57-bp-openova-flow-emitter overlay (`flowServerUrl: http://
 # openova-flow-server.catalyst-system.svc.cluster.local`).
+# 1.4.202 (Closes #1930, TBD-A46): wrap the bare `value: {{ ... }}`
+# Helm-templated field in single quotes so the raw chart manifest
+# parses as YAML before Helm renders it. The
+# `strategy-flip-regression` CI workflow shells out to
+# `kubectl apply --dry-run=server -f
+# products/catalyst/chart/templates/api-deployment.yaml`, which
+# means kubectl is the YAML parser — not Helm. With the line
+# unquoted, YAML 1.1 sees `{{` as the start of a flow-mapping and
+# fails the file at `did not find expected key`, blocking the test
+# step on every PR that touches `api-deployment.yaml`. Switching to
+# single-quoted scalar form `'{{ .Values.catalystApi.natsURL |
+# default "..." }}'` (and dropping the `| quote` filter so we don't
+# end up with double-quoting after render) keeps Helm output
+# identical (single-quoted string scalar carrying the rendered URL)
+# while letting the raw chart manifest parse cleanly. Net effect: 0
+# behavioural change at runtime, unblocks every chart-touching PR's
+# strategy-flip-regression check.
 # 1.4.201 (Refs #1953): fix projector valkey.addr NXDOMAIN. The
 # bp-valkey blueprint installs the Valkey Service as `valkey-primary`
 # (architecture: replication, no plain `valkey` service), so the
@@ -1543,8 +1560,8 @@ name: bp-catalyst-platform
 # to `no such host` on every fresh Sovereign. Change the projector
 # values.yaml default to `valkey-primary.valkey.svc.cluster.local:6379`.
 # Same bug class fixed for catalog-svc in PR #1951 (Closes #1944).
-version: 1.4.201
-appVersion: 1.4.201
+version: 1.4.202
+appVersion: 1.4.202
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
 # TBD-A30). Pre-1.4.183 every catalyst-system HTTPRoute pinned
