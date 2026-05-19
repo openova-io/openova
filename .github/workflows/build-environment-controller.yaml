@@ -15,6 +15,15 @@ on:
     paths:
       - 'core/controllers/environment/**'
       - 'core/controllers/internal/**'
+      # core/controllers/pkg/** is the shared HTTP-client tree (gitea,
+      # keycloak, kc-mappers, …) consumed by every Group C controller's
+      # Containerfile via `COPY core/controllers/pkg`. Without this path
+      # entry a change to the shared pkg/ tree rebuilds the image only
+      # if the same PR also happens to touch files under environment/ —
+      # which silently held the t38 #1997 gitea-405 fix in main for
+      # ~12h. Uniform pattern across every build-*-controller.yaml
+      # (TBD-A69 #2006).
+      - 'core/controllers/pkg/**'
       - 'core/controllers/go.mod'
       - 'core/controllers/go.sum'
       - '.github/workflows/build-environment-controller.yaml'
@@ -23,6 +32,7 @@ on:
     paths:
       - 'core/controllers/environment/**'
       - 'core/controllers/internal/**'
+      - 'core/controllers/pkg/**'
       - 'core/controllers/go.mod'
       - 'core/controllers/go.sum'
       - '.github/workflows/build-environment-controller.yaml'
@@ -36,10 +46,19 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      # contents: write — the deploy step below pushes a values.yaml SHA
+      # bump back to main so the bp-catalyst-platform chart picks up the
+      # newly-built image without an operator manually editing the file
+      # (per `feedback_no_mvp_no_workarounds.md` rule 1: target-state,
+      # never "manual follow-up bump"). Pre-#2006 this workflow shipped
+      # without auto-bump — same deploy-gap class as #1997.
+      contents: write
       packages: write
       # id-token write is required by cosign keyless signing (Sigstore).
       id-token: write
+      # actions: write — required for `gh workflow run` to dispatch the
+      # downstream blueprint-release chart re-publish workflow.
+      actions: write
     outputs:
       sha_short: ${{ steps.vars.outputs.sha_short }}
       digest: ${{ steps.build.outputs.digest }}
@@ -127,3 +146,67 @@ jobs:
             --predicate <(echo '{"sbom":"in-toto-spdx attached at build time"}') \
             --type spdx \
             "${IMAGE}@${DIGEST}"
+
+      # Auto-bump the chart values.yaml tag so the next Sovereign chart
+      # rollout picks up this image without a manual edit. Per
+      # `feedback_no_mvp_no_workarounds.md` rule 1 (target-state, no
+      # operator-action gates) and `feedback_inviolable_principles.md`
+      # (event-driven, never cron). Mirrors the pattern in
+      # build-application-controller.yaml + build-organization-controller.yaml.
+      # Added as part of TBD-A69 (#2006) — pre-#2006 this workflow shipped
+      # without auto-bump, so the same deploy-gap class as #1997 was live
+      # for every environment-controller code fix.
+      - name: Bump controllers.environment.image.tag in values.yaml
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          SHA_SHORT: ${{ steps.vars.outputs.sha_short }}
+        run: |
+          VALUES="products/catalyst/chart/values.yaml"
+          # awk: find `  environment:` under `controllers:`, then update
+          # the next `tag: "..."` line. Stops at the next top-level key
+          # so we don't accidentally bump a sibling controller's tag.
+          awk -v sha="${SHA_SHORT}" '
+            /^controllers:/ { in_ctrls=1 }
+            in_ctrls && /^  environment:/ { print; in_env=1; next }
+            in_ctrls && /^  [a-z]/ && !/^  environment:/ { in_env=0 }
+            in_env && /^      tag:/ { sub(/"[^"]*"/, "\"" sha "\""); in_env=0 }
+            { print }
+          ' "${VALUES}" > "${VALUES}.tmp" && mv "${VALUES}.tmp" "${VALUES}"
+          echo "values.yaml after bump:"
+          grep -A4 "^  environment:" "${VALUES}" | head -10
+
+      - name: Commit and push values.yaml bump
+        id: deploy_commit
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          SHA_SHORT: ${{ steps.vars.outputs.sha_short }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet products/catalyst/chart/values.yaml; then
+            echo "no values.yaml change — already pinned to ${SHA_SHORT}"
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git add products/catalyst/chart/values.yaml
+          git commit -m "deploy: bump environment-controller image to ${SHA_SHORT}"
+          # Pull-rebase to avoid races with parallel build commits.
+          git pull --rebase --autostash origin main || true
+          git push origin HEAD:main
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+
+      # GitHub Actions does NOT trigger workflows from bot pushes by
+      # default (anti-recursion safeguard). Without this dispatch the
+      # rebuilt image is NEVER baked into a new chart version, so
+      # Sovereigns keep installing the previous chart with the previous
+      # image tag (`feedback_no_mvp_no_workarounds.md` rule 1 violation).
+      - name: Dispatch blueprint-release for chart re-publish
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && steps.deploy_commit.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run blueprint-release.yaml \
+            --repo "${GITHUB_REPOSITORY}" \
+            --ref main \
+            -f blueprint=catalyst \
+            -f tree=products
