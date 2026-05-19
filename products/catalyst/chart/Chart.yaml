@@ -1,5 +1,10 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.203 — feat(api): /api/v1/sme/bss/overview handler (Refs #1949,
+# TBD-A58, D-BSS). Pre-fix the BSS landing page hit a 404 and the FE
+# rendered the "API pending" pill on every tile; post-fix it renders
+# real zeros from first paint. See full changelog entry below for
+# architectural detail.
 # 1.4.199 — TBD-A51 (issue #1943, t34 T3 walk 2026-05-19 13:52Z agent
 # a9e0547e): decouple `sme-secrets` Secret + `sme` Namespace rendering
 # from `ingress.marketplace.enabled`. Background: catalyst-api consumes
@@ -1560,8 +1565,23 @@ name: bp-catalyst-platform
 # to `no such host` on every fresh Sovereign. Change the projector
 # values.yaml default to `valkey-primary.valkey.svc.cluster.local:6379`.
 # Same bug class fixed for catalog-svc in PR #1951 (Closes #1944).
-version: 1.4.202
-appVersion: 1.4.202
+# 1.4.203 — feat(api): /api/v1/sme/bss/overview handler (Refs #1949,
+# TBD-A58, D-BSS). Pre-fix the BSS landing page (BssLandingPage.tsx →
+# getBssOverview() in ui/src/lib/bss.api.ts) called a route that
+# returned 404 (no handler registered in catalyst-api), so the FE
+# try/catch flipped `pendingApi=true` and every tile rendered the
+# "API pending" pill instead of real zeros. Post-fix the handler
+# (products/catalyst/bootstrap/api/internal/handler/sme_bss_overview.go,
+# wired in cmd/api/main.go) returns 200 with a zero-filled payload
+# matching the FE BssOverview shape — the operator sees the full
+# target-state surface (0 revenue / 0 customers — truthful on a fresh
+# Sovereign with no marketplace orders yet) from first paint
+# (INVIOLABLE-PRINCIPLES.md #1). Sibling of /api/v1/sme/billing/revenue
+# (Wave 6 PR 4), /api/v1/sme/orders (Wave 6 PR 3), and
+# /api/v1/sme/billing/vouchers/list (Wave 6 PR 5). The non-zero
+# projection lands with the marketplace / billing wires.
+version: 1.4.203
+appVersion: 1.4.203
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
 # TBD-A30). Pre-1.4.183 every catalyst-system HTTPRoute pinned

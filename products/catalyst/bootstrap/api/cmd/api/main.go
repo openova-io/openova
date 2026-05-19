@@ -1282,6 +1282,20 @@ func main() {
 		rg.Post("/api/v1/sme/tenants/{id}/reconcile", h.HandleReconcileSMETenant)
 		rg.Delete("/api/v1/sme/tenants/{id}", h.HandleDeleteSMETenant)
 
+		// BSS landing KPI rollup (Refs #1949, TBD-A58). Read-only feed
+		// for the /console/bss landing surface (BssLandingPage.tsx →
+		// getBssOverview() in ui/src/lib/bss.api.ts). Pre-fix the path
+		// returned 404 and the FE flipped `pendingApi=true`, so every
+		// tile rendered the "API pending" pill instead of real zeros.
+		// Today the handler returns a zero-filled payload — the FE
+		// renders the full target-state surface (0 revenue / 0
+		// customers — truthful on a fresh Sovereign) from first paint
+		// (INVIOLABLE-PRINCIPLES.md #1). The non-zero projection lands
+		// with the marketplace/billing wire (siblings:
+		// /api/v1/sme/billing/revenue, /api/v1/sme/orders,
+		// /api/v1/sme/billing/vouchers/list, /api/v1/sme/tenants).
+		rg.Get("/api/v1/sme/bss/overview", h.HandleGetSMEBssOverview)
+
 		// BSS Orders rollup (Wave 6 PR 3). Read-only feed for the
 		// /console/bss/orders native React table. Today the handler
 		// returns an empty list — the FE renders its full empty-state
