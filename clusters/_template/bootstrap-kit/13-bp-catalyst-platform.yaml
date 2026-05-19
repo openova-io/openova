@@ -716,7 +716,17 @@ spec:
       # map. Unblocks D29 customer-journey: marketplace.<sov> 404 →
       # storefront; voucher endpoint 503 → 2xx; SME tenant pipeline
       # reconciliation. Refs #1966 #1741 #1949 #1943.
-      version: 1.4.209
+      # 1.4.210 — TBD-A67 (issue #1990): restore canonical `console.`
+      # infix on per-tenant HTTPRoute hostname + drop `.openova.io`
+      # hardcode from notification WorkspaceURL. Three surgical fixes
+      # in tenant_route.go:113, tenant-public-routes.yaml:82, and
+      # enrich.go (now reads TENANT_PARENT_DOMAIN env for per-Sovereign
+      # parent zone). Without this, runtime reconciler emitted
+      # `<slug>.<parent>` while the chart-side overlay emitted
+      # `console.<slug>.<parent>` and the two drifted; tenant
+      # onboarding emails on every non-openova.io Sovereign leaked the
+      # platform marketing host. Refs #1990 TBD-A67.
+      version: 1.4.210
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

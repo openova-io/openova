@@ -1,5 +1,38 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.210 — TBD-A67 (issue #1990, 2026-05-19): restore canonical
+# `console.<slug>.<parent>` infix on per-tenant HTTPRoute hostnames +
+# drop the hardcoded `.openova.io` suffix on notification-service
+# WorkspaceURL rendering. THREE surgical fixes for the tenant org URL
+# drift (founder's CLAUDE.md §0 spec vs runtime emit):
+#   1. core/controllers/organization/internal/controller/
+#      tenant_route.go:113 — runtime reconciler now emits
+#      `console.<subdomain>.<parentDomain>` (e.g.
+#      `console.acme.omani.homes`), matching the chart-side template
+#      AND sme_tenant_gitops.go:536 host derivation. Pre-fix the
+#      controller emitted `<slug>.<parent>` while the bp-wordpress-
+#      tenant overlay emitted `console.<slug>.<parent>` — the two
+#      drifted and the founder caught it on the t34 walkthrough.
+#   2. products/catalyst/chart/templates/sme-services/
+#      tenant-public-routes.yaml:82 — chart-side static-fixture
+#      template mirrors the runtime reconciler so byte-identical
+#      HTTPRoute shapes are produced via either path.
+#   3. core/services/notification/handlers/enrich.go — WorkspaceURL
+#      no longer hardcodes `https://<subdomain>.openova.io`. Instead
+#      reads the per-Sovereign parent zone from a new TENANT_PARENT_
+#      DOMAIN env (matches the provisioning service's
+#      Handler.TenantParentDomain wiring) and renders
+#      `https://console.<subdomain>.<parentZone>` — empty parent
+#      zone yields empty URL (template skips). Restores compliance
+#      with the "never touch openova.io" rule on every non-openova.io
+#      Sovereign (omani.homes, talents.scope, …).
+# Tests: enrich_test.go covers 5 truth-table cases on the pure helper
+# + 2 end-to-end Lookup cases (parent-zone present and empty); the
+# existing organization_controller_test.go TenantPublic_RendersHTTPRoute
+# assertion bumped from "acme.omani.homes" to "console.acme.omani.homes"
+# + a HasPrefix("console.") regression guard.
+# Refs #1990 TBD-A67.
+#
 # 1.4.209 — TBD-A64 PR γ (issue #1976, 2026-05-19): cosmetic regressions
 # caught by the cosmetic-guards e2e suite. THREE surgical fixes:
 #   1. wizard/steps/logoTone.ts — alloy tile background flipped from
@@ -1765,7 +1798,7 @@ name: bp-catalyst-platform
 # was already shipped on 1.4.197 (PR #1820 lineage); this completes
 # the data-layer side so the dropdown finally appears on multi-region
 # Sovereigns. Refs #1821, DoD D20.
-version: 1.4.209
+version: 1.4.210
 appVersion: 1.4.208
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,

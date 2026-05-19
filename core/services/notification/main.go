@@ -37,6 +37,15 @@ func main() {
 	natsURL := getEnv("NATS_URL", "")
 	tenantURL := getEnv("TENANT_URL", "http://tenant.sme.svc.cluster.local:8083")
 	authURL := getEnv("AUTH_URL", "http://auth.sme.svc.cluster.local:8081")
+	// TBD-A67 issue #1990: the per-Sovereign parent zone (e.g.
+	// "omani.homes") drives WorkspaceURL rendering. Same env name the
+	// provisioning service uses for Handler.TenantParentDomain so the
+	// Sovereign operator wires it once via bootstrap-kit slot 13 and
+	// every back-end service reads the same value. Empty disables the
+	// URL field rather than fall back to a hardcoded domain — the old
+	// `.openova.io` fallback leaked the platform marketing host into
+	// tenant onboarding emails on every non-openova.io Sovereign.
+	parentZone := getEnv("TENANT_PARENT_DOMAIN", "")
 
 	mailer := handlers.NewMailer(smtpHost, smtpPort, smtpFrom)
 
@@ -66,7 +75,7 @@ func main() {
 			slog.Info("connected to RedPanda (legacy)", "brokers", redpandaBrokersRaw)
 		}
 	}
-	enricher := handlers.NewEnricher(tenantURL, authURL, []byte(jwtSecret))
+	enricher := handlers.NewEnricher(tenantURL, authURL, parentZone, []byte(jwtSecret))
 
 	h := &handlers.Handler{
 		Mailer:   mailer,

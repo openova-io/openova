@@ -1,14 +1,16 @@
 {{- /*
 Per-Organization public HTTPRoutes (issue #1629 follow-up).
 
-PowerDNS now resolves `<slug>.<parentDomain>` for every Org that
-maps onto a Sovereign's role=sme-pool parent domain. Without an
+PowerDNS now resolves `console.<slug>.<parentDomain>` for every Org
+that maps onto a Sovereign's role=sme-pool parent domain. Without an
 attached HTTPRoute the Cilium Gateway terminates TLS on the
 wildcard cert and falls through to the marketplace `tenant-wildcard`
 route — which sends the request to the marketplace `console` Service
 instead of the tenant's installed product. The end result is
-`acme.omani.homes` rendering the storefront landing page rather than
-the tenant's WordPress.
+`console.acme.omani.homes` rendering the storefront landing page
+rather than the tenant's WordPress. TBD-A67 issue #1990 restored the
+`console.` infix; without it the runtime reconciler and the chart-
+side overlay drifted (controller emitted bare `<slug>.<parent>`).
 
 This template renders ONE HTTPRoute per entry in `.Values.tenantRoutes`
 attached to the canonical Cilium Gateway (`cilium-gateway` in
@@ -79,7 +81,14 @@ spec:
     - name: {{ $gwName | quote }}
       namespace: {{ $gwNs | quote }}
   hostnames:
-    - {{ printf "%s.%s" $sub $parent | quote }}
+    # TBD-A67 issue #1990: emit `console.<subdomain>.<parentDomain>`.
+    # The `console.` infix is the canonical per-tenant console hostname
+    # (CLAUDE.md §0 + products/catalyst/bootstrap/api/internal/handler/
+    # sme_tenant_gitops.go:536). Mirrors the runtime reconciler in
+    # core/controllers/organization/internal/controller/tenant_route.go
+    # so static-fixture Helm values and the live controller produce
+    # byte-identical HTTPRoute shapes.
+    - {{ printf "console.%s.%s" $sub $parent | quote }}
   rules:
     - matches:
         - path:

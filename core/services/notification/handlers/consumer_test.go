@@ -87,7 +87,7 @@ func handlerWithMocks(t *testing.T) (*Handler, *captureMailer, *httptest.Server,
 		})
 	}))
 
-	enricher := NewEnricher(tenantSvc.URL, authSvc.URL, []byte("test-secret"))
+	enricher := NewEnricher(tenantSvc.URL, authSvc.URL, "omani.homes", []byte("test-secret"))
 
 	h := &Handler{
 		Mailer:   cap,

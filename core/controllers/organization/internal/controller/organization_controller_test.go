@@ -753,12 +753,14 @@ func TestUpsertUserAccess_DefaultsToCatalystSystem(t *testing.T) {
 }
 
 // TestReconcile_TenantPublic_RendersHTTPRoute covers the issue #1629
-// follow-up: when spec.tenantPublic.parentDomain is set, the reconciler
-// MUST render an HTTPRoute in the Org's namespace pointing at the
-// supplied backend Service. Without this, PowerDNS-resolved tenant
-// hostnames (e.g. `acme.omani.homes`) fall through to the marketplace
-// `tenant-wildcard` route and 404 instead of hitting the tenant's
-// installed WordPress.
+// follow-up + TBD-A67 issue #1990: when spec.tenantPublic.parentDomain
+// is set, the reconciler MUST render an HTTPRoute in the Org's
+// namespace pointing at the supplied backend Service AND the
+// HTTPRoute hostname MUST carry the canonical `console.` infix
+// (`console.<slug>.<parentDomain>`, e.g. `console.acme.omani.homes`).
+// Without this, PowerDNS-resolved tenant hostnames fall through to
+// the marketplace `tenant-wildcard` route and 404 instead of hitting
+// the tenant's installed WordPress.
 func TestReconcile_TenantPublic_RendersHTTPRoute(t *testing.T) {
 	t.Parallel()
 	org := sampleOrg()
@@ -794,8 +796,17 @@ func TestReconcile_TenantPublic_RendersHTTPRoute(t *testing.T) {
 		t.Fatalf("get HTTPRoute acme/acme: %v", err)
 	}
 	hostnames, _, _ := unstructured.NestedSlice(hr.Object, "spec", "hostnames")
-	if len(hostnames) != 1 || hostnames[0] != "acme.omani.homes" {
-		t.Errorf("hostnames: got %v, want [acme.omani.homes]", hostnames)
+	if len(hostnames) != 1 || hostnames[0] != "console.acme.omani.homes" {
+		t.Errorf("hostnames: got %v, want [console.acme.omani.homes]", hostnames)
+	}
+	// TBD-A67 issue #1990 regression guard: the `console.` infix is
+	// non-negotiable. Asserting it directly (in addition to the full-
+	// hostname check above) makes the future-debug-trail obvious when
+	// any refactor of tenant_route.go drops the prefix.
+	if got := hostnames[0]; got != nil {
+		if s, ok := got.(string); !ok || !strings.HasPrefix(s, "console.") {
+			t.Errorf("hostname must carry canonical console. prefix per CLAUDE.md §0, got %v", got)
+		}
 	}
 	parents, _, _ := unstructured.NestedSlice(hr.Object, "spec", "parentRefs")
 	if len(parents) != 1 {
