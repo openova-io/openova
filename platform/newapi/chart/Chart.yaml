@@ -261,7 +261,7 @@ name: bp-newapi
 # blueprint's NS); the prior rule could never reach them and the
 # newapi container looped 1/2 Ready with DB-connect timeouts on
 # fresh prov.
-version: 1.4.25
+version: 1.4.26
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
