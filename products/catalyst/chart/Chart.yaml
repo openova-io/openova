@@ -1,5 +1,16 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.195 — TBD-V1 (issue #1927) treemap inner-tile drill. Fixes the
+# trust-recovery regression where the depth-1 application tiles on the
+# Sovereign dashboard rendered with `cursor: default` and silently
+# dropped clicks — 84/85 cells in the canonical Cluster→Application
+# layer pair were dead. Inner leaf cells that carry an `id` now
+# advertise pointer cursor and deep-link to /app/$componentId via the
+# same router.navigate path the hover-tooltip "Open" link already used.
+# Parent (with-children) cells keep their existing drill-down semantics
+# so this change is purely additive — no regressions on the depth-0
+# cluster header click that founder verified GREEN on 2026-05-19.
+# Refs #1927.
 # 1.4.194 — TBD-D35c (issue #1776) catalyst-api concrete NATS publisher
 # binding. Templates/api-deployment.yaml now exports CATALYST_NATS_URL
 # (default `nats://nats-jetstream.nats-system.svc.cluster.local:4222`,
@@ -1413,7 +1424,7 @@ name: bp-catalyst-platform
 # 25/TCP (legacy SMTP fallback). All three are explicitly scoped to
 # `toEntities: world`, matching the existing 443/TCP allow. No other
 # rule semantics change. (Fixes PIN-issue 502 regression from #1785.)
-version: 1.4.194
+version: 1.4.195
 appVersion: 1.4.194
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
