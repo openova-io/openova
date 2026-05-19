@@ -1,5 +1,35 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.217 — TBD-V10 / #2001 (2026-05-20): fix post-checkout redirect on
+# Sovereign sme-pool marketplaces. The marketplace JS in
+# `core/marketplace/src/lib/config.ts::deriveConsoleURL` was mapping
+# `marketplace.<sov-fqdn>` → `console.<sov-fqdn>` (operator console)
+# instead of `console.<tenant-slug>.<sov-fqdn>` (per-tenant console).
+# t38 walk reproduced the bug: customer completes /redeem + /checkout,
+# gets bounced to the operator console URL — wrong workspace surface.
+# PR #1993 (TBD-A67) added the `console.` prefix in the chart-side
+# HTTPRoute (tenant-public-routes.yaml) and the runtime organization-
+# controller's tenant_route.go, but the marketplace JS that does the
+# post-checkout redirect never picked up the slug-prefixed shape.
+# Fix in this chart slice: rebuild of the `marketplace` Service image
+# only — the chart-side bits already emit `console.<slug>.<parent>`
+# correctly (see tenant-public-routes.yaml:91). Once the marketplace
+# Pod rolls to the new SHA, post-purchase customers land on
+# `console.<their-slug>.<sov-fqdn>` (per the founder-flagged TBD-V10
+# walk: e.g. `console.demo.omani.homes`). The change also makes the
+# Layout.astro returning-user redirect slug-aware so re-visits go to
+# the same per-tenant host as the freshly-created workspace.
+# Validation: marketplace/playwright/customer-journey.spec.ts step
+# `16 console redirect URL is Sovereign-local + slug-aware` asserts
+# the EXACT brief shape: `marketplace.omani.homes` + slug `demo`
+# composes `https://console.demo.omani.homes`. Pure JS / chart-bump
+# only; no controller code change. 1.4.216 was the deploy-bot bump
+# carrying the TBD-V8 #1999 sme image SHA b190566 — pure image-pin
+# republish, no new template change.
+# 1.4.216 — deploy-bot bump 1.4.215 → 1.4.216 to carry the sme
+# service images at SHA b190566 (TBD-V8 #1999 — billing→notification
+# voucher-email Authorization-header fix). Pure image-SHA republish;
+# no template change.
 # 1.4.215 — TBD-V8 / #1999 (2026-05-20): fix sme/notification 401 on
 # billing→notification voucher-email dispatch. The notification service's
 # HTTP surface is gated by the shared HS256 JWTAuth middleware
@@ -1937,8 +1967,8 @@ name: bp-catalyst-platform
 # was already shipped on 1.4.197 (PR #1820 lineage); this completes
 # the data-layer side so the dropdown finally appears on multi-region
 # Sovereigns. Refs #1821, DoD D20.
-version: 1.4.216
-appVersion: 1.4.216
+version: 1.4.217
+appVersion: 1.4.217
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
 # TBD-A30). Pre-1.4.183 every catalyst-system HTTPRoute pinned

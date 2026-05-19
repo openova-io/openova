@@ -773,7 +773,19 @@ spec:
       # via .Values.smeServices.provisioning.waitForCutoverToken.*
       # (default enabled on Sovereigns; contabo overlay flips
       # enabled=false because Step 09 never runs on Catalyst-Zero).
-      version: 1.4.216
+      # 1.4.217 — TBD-V10 / #2001 (2026-05-20): post-checkout redirect
+      # on Sovereign sme-pool marketplaces now composes the per-tenant
+      # console host `console.<slug>.<sov-fqdn>` instead of the
+      # operator console `console.<sov-fqdn>`. Pure marketplace-JS
+      # fix (core/marketplace/src/lib/config.ts +
+      # src/components/CheckoutStep.svelte + src/layouts/Layout.astro).
+      # Validated by the playwright assertion `16 console redirect URL
+      # is Sovereign-local + slug-aware`. Triggers a rebuild of the
+      # `marketplace` Service image only — controller and other
+      # service image pins are unchanged from 1.4.216 (TBD-A6 deploy-
+      # bot bump in commit d4b995c carrying TBD-V8 #1999 sme image
+      # SHA b190566).
+      version: 1.4.217
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

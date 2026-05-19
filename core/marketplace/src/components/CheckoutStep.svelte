@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { sendMagicLink, verifyMagicLink, getMe, createTenant, getMyOrgs, createCheckout, startProvisioning, getProvisionByTenant, checkSlug, getPlans, getAddons, getCreditBalance, setAuthTokens, setActiveOrg, type User, type Provision, type Plan, type AddOn } from '../lib/api';
+  import { sendMagicLink, verifyMagicLink, getMe, createTenant, getMyOrgs, createCheckout, startProvisioning, getProvisionByTenant, checkSlug, getPlans, getAddons, getCreditBalance, setAuthTokens, setActiveOrg, setActiveOrgSlug, type User, type Provision, type Plan, type AddOn } from '../lib/api';
   import { readCart, clearCart } from '../lib/cart';
   import { formatOMR } from '../lib/currency';
   import { consoleHref } from '../lib/config';
@@ -167,19 +167,36 @@
     const orderId = params.get('order_id');
     if (orderId) {
       const savedTenantId = localStorage.getItem('sme-checkout-tenant');
+      // TBD-V10 #2001: re-stamp the active-org-slug on Stripe return so
+      // the cross-origin round-trip doesn't strand us with a stale slug
+      // from a previous workspace. The slug was persisted alongside the
+      // id before the Stripe hop in handleCheckout() below.
+      const savedTenantSlug = localStorage.getItem('sme-checkout-tenant-slug');
       if (savedTenantId) {
         setActiveOrg(savedTenantId);
+        if (savedTenantSlug) setActiveOrgSlug(savedTenantSlug);
         localStorage.removeItem('sme-checkout-tenant');
+        localStorage.removeItem('sme-checkout-tenant-slug');
         clearCart();
-        redirectToConsole();
+        redirectToConsole(savedTenantSlug || undefined);
       }
     }
   });
 
-  function redirectToConsole() {
+  function redirectToConsole(slug?: string) {
     const tok = encodeURIComponent(localStorage.getItem('sme-token') || '');
     const refresh = encodeURIComponent(localStorage.getItem('sme-refresh-token') || '');
-    window.location.href = consoleHref('/jobs', { token: decodeURIComponent(tok), refresh_token: decodeURIComponent(refresh) });
+    // TBD-V10 #2001: pass the tenant slug so `deriveConsoleURL` composes
+    // `console.<slug>.<sov-fqdn>` (per-tenant) instead of
+    // `console.<sov-fqdn>` (operator). If `slug` is undefined the helper
+    // falls back to the slug persisted in localStorage by
+    // `setActiveOrgSlug` (see api.ts) — covers the Stripe-return path
+    // when the function is called without an explicit argument.
+    window.location.href = consoleHref(
+      '/jobs',
+      { token: decodeURIComponent(tok), refresh_token: decodeURIComponent(refresh) },
+      { slug },
+    );
   }
 
   async function handleSendCode() {
@@ -298,7 +315,13 @@
 
       if (billing.session_url) {
         // Stripe is configured + credit did not cover total — redirect to Stripe.
+        // TBD-V10 #2001: persist BOTH id + slug so the cross-origin return
+        // can re-stamp the active-org-slug and compose the per-tenant
+        // console host. Without the slug, the return path would degrade
+        // to `console.<sov-fqdn>` (operator console) and bounce the user
+        // to the wrong workspace surface.
         localStorage.setItem('sme-checkout-tenant', tenant.id);
+        localStorage.setItem('sme-checkout-tenant-slug', tenant.slug);
         window.location.href = billing.session_url;
         return;
       }
@@ -318,8 +341,12 @@
 
       // Step 3: Redirect to console — user watches progress there on the Jobs page.
       setActiveOrg(tenant.id);
+      // TBD-V10 #2001: persist the slug so `deriveConsoleURL` can compose
+      // `console.<slug>.<sov-fqdn>` instead of bouncing to the operator
+      // console at `console.<sov-fqdn>`.
+      setActiveOrgSlug(tenant.slug);
       clearCart();
-      redirectToConsole();
+      redirectToConsole(tenant.slug);
     } catch (e: any) {
       provisionError = e.message || 'Failed to create tenant';
       checkoutLoading = false;
@@ -432,7 +459,11 @@
         </div>
         {#if provision.status === 'completed'}
           <a
-            href={consoleHref('/jobs', { token: localStorage.getItem('sme-token') || '', refresh_token: localStorage.getItem('sme-refresh-token') || '' })}
+            href={consoleHref(
+              '/jobs',
+              { token: localStorage.getItem('sme-token') || '', refresh_token: localStorage.getItem('sme-refresh-token') || '' },
+              { slug: (typeof localStorage !== 'undefined' ? localStorage.getItem('sme-active-org-slug') : null) || undefined },
+            )}
             class="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-success)] px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-success)]/90 no-underline"
           >
             Go to Console
