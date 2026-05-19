@@ -263,7 +263,14 @@ data:
           echo "GUARDRAIL: more than 10 stuck HRs detected — refusing to mass-recover. Investigate cluster-wide outage."
           exit 1
         fi
-        echo "RECOVER $NS/$NAME (Ready=Unknown for ${AGE}s, history[0].status=deployed) — patching status.conditions.Ready=True (TBD-A66 branch)"
+        # TBD-A66-followup (issue #1995): structured [A66] log lines so
+        # operators / agents can grep CronJob output to confirm the
+        # branch fired and whether the patch landed. Previously the
+        # whole branch was a single human-readable line and the patch
+        # outcome swallowed stderr (`2>&1`), so silent failures looked
+        # identical to silent successes — t38 / agent ae9d7638 lost
+        # ~10min diagnosing exactly this.
+        echo "[A66] HR $NS/$NAME Ready=Unknown for ${AGE}s, history[0]=deployed → attempting patch"
         # Step 1: stamp audit annotation on the object's metadata so
         # idempotency works regardless of whether the status patch
         # below races against a helm-controller reconcile.
@@ -274,15 +281,32 @@ data:
         # rest of status from the HR spec + history without loss.
         # `--subresource=status` requires kubectl ≥ v1.24 (we ship
         # 1.31.4 in this CronJob image, so safe).
+        #
+        # Stderr capture (TBD-A66-followup, issue #1995): keep stderr
+        # separate from stdout — we LOG it on failure rather than
+        # discard it. Stdout is redirected to /dev/null because a
+        # successful kubectl patch echoes "helmrelease.helm.toolkit.fluxcd.io/<name> patched"
+        # which would interleave with our structured log lines. Stderr
+        # is captured to a temp file (mktemp under /tmp, the writable
+        # emptyDir mount) so multi-line apiserver errors survive intact.
         PATCH_BODY='{"status":{"conditions":[{"type":"Ready","status":"True","reason":"ReconciliationSucceeded","message":"auto-corrected from deployed-but-unknown-Ready by stuck-hr-recovery (TBD-A66)","lastTransitionTime":"'"$NOW_ISO"'"}]}}'
-        if kubectl patch hr -n "$NS" "$NAME" --subresource=status --type=merge -p "$PATCH_BODY" >/dev/null 2>&1; then
-          echo "RECOVERED $NS/$NAME (TBD-A66 branch)"
+        PATCH_ERR_FILE="$(mktemp /tmp/a66-patch-err.XXXXXX)"
+        if kubectl patch hr -n "$NS" "$NAME" --subresource=status --type=merge -p "$PATCH_BODY" >/dev/null 2>"$PATCH_ERR_FILE"; then
+          echo "[A66] HR $NS/$NAME patched to Ready=True"
         else
-          echo "WARN $NS/$NAME: status-subresource patch failed; will retry next run"
+          PATCH_ERR="$(tr '\n' ' ' <"$PATCH_ERR_FILE")"
+          echo "[A66] HR $NS/$NAME patch FAILED: ${PATCH_ERR:-<no stderr captured>}"
           # Roll back the annotation so the next run isn't blocked by
-          # idempotency guard on a half-applied recovery.
-          kubectl annotate hr -n "$NS" "$NAME" "stuck-hr-recovery.openova.io/auto-corrected-at-" >/dev/null 2>&1 || true
+          # idempotency guard on a half-applied recovery. Capture stderr
+          # here too — if annotation rollback fails the operator needs
+          # to know (a stuck idempotency annotation would mask repeat
+          # patch attempts in the next CronJob run).
+          if ! kubectl annotate hr -n "$NS" "$NAME" "stuck-hr-recovery.openova.io/auto-corrected-at-" >/dev/null 2>>"$PATCH_ERR_FILE"; then
+            ROLLBACK_ERR="$(tail -1 "$PATCH_ERR_FILE" 2>/dev/null || true)"
+            echo "[A66] HR $NS/$NAME annotation rollback also failed: ${ROLLBACK_ERR:-<no stderr captured>}"
+          fi
         fi
+        rm -f "$PATCH_ERR_FILE"
         continue
       fi
 

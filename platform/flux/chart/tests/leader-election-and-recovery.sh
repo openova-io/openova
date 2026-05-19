@@ -194,4 +194,52 @@ if ! grep -q 'auto-corrected from deployed-but-unknown-Ready' "$TMP/render.yaml"
 fi
 echo "  PASS: Ready=True message carries TBD-A66 audit string"
 
-echo "[leader-election-925] All issue #925 + TBD-A66 mitigation gates green."
+# ── Case 8 — TBD-A66-followup (#1995) observability: structured [A66] logs ──
+# The 1.2.3 implementation swallowed `kubectl patch --subresource=status`
+# stderr via `2>&1` to /dev/null, so silent failures looked identical to
+# silent successes. 1.2.4 captures stderr to a temp file and emits three
+# structured log lines that operators / agents can grep:
+#   detection: `[A66] HR <ns>/<name> Ready=Unknown for <age>s, history[0]=deployed → attempting patch`
+#   success:   `[A66] HR <ns>/<name> patched to Ready=True`
+#   failure:   `[A66] HR <ns>/<name> patch FAILED: <stderr captured>`
+# Asserting on the static literal fragments here is enough — the ${var}
+# expansions are runtime-substituted by the script at execution time.
+echo "[leader-election-925] Case 8: TBD-A66-followup #1995 structured [A66] log lines + stderr capture"
+# 8a — detection log line is emitted before the patch.
+if ! grep -q '\[A66\] HR .* Ready=Unknown for .* history\[0\]=deployed → attempting patch' "$TMP/render.yaml"; then
+  echo "FAIL: detection log line '[A66] HR ... Ready=Unknown ... history[0]=deployed → attempting patch' missing (followup #1995 regressed)." >&2
+  exit 1
+fi
+echo "  PASS: detection log line present"
+# 8b — success log line follows a successful patch.
+if ! grep -q '\[A66\] HR .* patched to Ready=True' "$TMP/render.yaml"; then
+  echo "FAIL: success log line '[A66] HR ... patched to Ready=True' missing (followup #1995 regressed)." >&2
+  exit 1
+fi
+echo "  PASS: success log line present"
+# 8c — failure log line carries captured stderr (the literal stem
+# 'patch FAILED:' is the operator/agent grep target; the appended
+# stderr is runtime-bound).
+if ! grep -q '\[A66\] HR .* patch FAILED:' "$TMP/render.yaml"; then
+  echo "FAIL: failure log line '[A66] HR ... patch FAILED: <stderr>' missing — stderr is silently swallowed again (followup #1995 regressed)." >&2
+  exit 1
+fi
+echo "  PASS: failure log line present"
+# 8d — the `2>&1` stderr-to-stdout-then-discard pattern on the critical
+# kubectl patch is gone. We allow `2>` (redirect to file) and `>&1` in
+# unrelated contexts, but the specific `2>&1` IMMEDIATELY following
+# `kubectl patch ... --subresource=status` would re-introduce the bug.
+if grep -E 'kubectl patch hr [^|]*--subresource=status[^|]*>/dev/null 2>&1' "$TMP/render.yaml"; then
+  echo "FAIL: kubectl patch --subresource=status still pipes stderr to /dev/null via 2>&1 — followup #1995 regressed." >&2
+  exit 1
+fi
+echo "  PASS: status-subresource patch no longer discards stderr via 2>&1"
+# 8e — stderr is captured to a tempfile so multi-line apiserver errors
+# survive intact (the followup explicitly mktemps under /tmp).
+if ! grep -q 'mktemp /tmp/a66-patch-err' "$TMP/render.yaml"; then
+  echo "FAIL: stderr capture tempfile 'mktemp /tmp/a66-patch-err.XXXXXX' missing — failure stderr will not be logged." >&2
+  exit 1
+fi
+echo "  PASS: stderr is captured via mktemp under /tmp"
+
+echo "[leader-election-925] All issue #925 + TBD-A66 + TBD-A66-followup #1995 mitigation gates green."

@@ -71,7 +71,13 @@ spec:
       # status.history[0].status=deployed` (apiserver-flap on slow
       # secondary CPs). Direct status-subresource patch with audit
       # annotation, RBAC extended for helmreleases/status patch verb.
-      version: 1.2.3
+      # 1.2.4 (TBD-A66-followup, #1995): observability fix — the
+      # status-subresource patch in 1.2.3 swallowed stderr via `2>&1`
+      # so silent failures looked identical to silent successes.
+      # 1.2.4 captures stderr to a temp file and emits structured
+      # `[A66]` log lines (detection / success / failure-with-stderr).
+      # RBAC was already correct in 1.2.3.
+      version: 1.2.4
       sourceRef:
         kind: HelmRepository
         name: bp-flux
