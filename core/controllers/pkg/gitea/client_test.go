@@ -84,9 +84,9 @@ func (f *fakeGitea) handler() http.Handler {
 			return
 		}
 
-		// POST /api/v1/admin/orgs
-		if r.Method == http.MethodPost && p == "/api/v1/admin/orgs" {
-			var body adminOrgCreate
+		// POST /api/v1/orgs
+		if r.Method == http.MethodPost && p == "/api/v1/orgs" {
+			var body orgCreate
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			f.mu.Lock()
 			defer f.mu.Unlock()
@@ -472,7 +472,7 @@ func TestEnsureOrg_FindHits(t *testing.T) {
 	if got := fake.callCount(http.MethodGet, "/api/v1/orgs/acme"); got != 1 {
 		t.Errorf("expected 1 GET, got %d", got)
 	}
-	if got := fake.callCount(http.MethodPost, "/api/v1/admin/orgs"); got != 0 {
+	if got := fake.callCount(http.MethodPost, "/api/v1/orgs"); got != 0 {
 		t.Errorf("expected 0 POST when org pre-exists, got %d", got)
 	}
 }
@@ -489,7 +489,7 @@ func TestEnsureOrg_CreatesWhenMissing(t *testing.T) {
 	if o.Username != "newone" || o.ID == 0 {
 		t.Errorf("expected created org, got %+v", o)
 	}
-	if got := fake.callCount(http.MethodPost, "/api/v1/admin/orgs"); got != 1 {
+	if got := fake.callCount(http.MethodPost, "/api/v1/orgs"); got != 1 {
 		t.Errorf("expected 1 POST, got %d", got)
 	}
 }
@@ -506,7 +506,7 @@ func TestEnsureOrg_422Race(t *testing.T) {
 				return
 			}
 			_ = json.NewEncoder(w).Encode(Org{ID: 99, Username: "raced"})
-		case "POST /api/v1/admin/orgs":
+		case "POST /api/v1/orgs":
 			http.Error(w, "duplicate", http.StatusUnprocessableEntity)
 		default:
 			http.Error(w, "unhandled", http.StatusInternalServerError)
