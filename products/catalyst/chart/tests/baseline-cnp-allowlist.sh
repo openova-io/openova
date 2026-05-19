@@ -129,6 +129,31 @@ if ! awk '/egress:/,0' "$TMP/cnp.yaml" | grep -B30 'port: "6443"' | grep -q '\- 
 fi
 echo "  PASS (egress TCP/6443 to world allowed — secondary CP fan-out unblocked)"
 
+echo "[baseline-cnp] Case 5c: egress allow-list includes 'sme' namespace — #1917/#1920 regression guard (TBD-A38/A43)"
+# catalyst-ui (catalyst-system) → gateway.sme.svc:8080 carries every
+# tenant-facing SME action (admin, auth, billing, catalog, console,
+# domain, marketplace). Without `sme` in the egress allow-list, the
+# baseline-default-deny CNP drops the traffic and the Console returns
+# 503 `context deadline exceeded`. Caught LIVE on t32 fresh-prov walk
+# 2026-05-19 — PR #1912 was theater (only added world TCP/6443) and
+# never extended the namespace allow-list. Re-narrowing must fail here.
+if ! awk '/egress:/,0' "$TMP/cnp.yaml" | grep -q '"sme"'; then
+  echo "FAIL: egress allow-list missing 'sme' namespace — Console → gateway.sme.svc will 503 (#1920 regression)" >&2
+  exit 1
+fi
+echo "  PASS (egress to 'sme' namespace allowed — Console → gateway.sme.svc unblocked)"
+
+echo "[baseline-cnp] Case 5d: egress allow-list includes 'newapi' namespace — #1920 regression guard (TBD-A43)"
+# catalyst-system controllers reach the NewAPI v2 service plane in the
+# `newapi` namespace for the customer-journey D29 flows. Without
+# `newapi` in the egress allow-list, every catalyst-system → NewAPI v2
+# call times out.
+if ! awk '/egress:/,0' "$TMP/cnp.yaml" | grep -q '"newapi"'; then
+  echo "FAIL: egress allow-list missing 'newapi' namespace — catalyst-system → NewAPI v2 will time out (#1920 regression)" >&2
+  exit 1
+fi
+echo "  PASS (egress to 'newapi' namespace allowed — NewAPI v2 plane reachable)"
+
 echo "[baseline-cnp] Case 6: egress allow-list includes DNS (53/UDP + 53/TCP) to kube-dns"
 # Without DNS, every name lookup in catalyst-system fails. The CNP
 # explicitly allows kube-dns endpoints in kube-system on 53/UDP +

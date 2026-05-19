@@ -70,7 +70,7 @@ unconditionally on every Sovereign and protects catalyst-system even
 when qaFixtures is disabled.
 */}}
 {{- if .Values.security.baselineCnp.enabled }}
-{{- $allowedPlatform := .Values.security.baselineCnp.allowedPlatformNamespaces | default (list "keycloak" "gitea" "powerdns" "cnpg-system" "openbao" "harbor" "nats-system" "loki" "mimir" "tempo" "alloy" "opentelemetry" "external-secrets-system" "cert-manager" "sme") }}
+{{- $allowedPlatform := .Values.security.baselineCnp.allowedPlatformNamespaces | default (list "keycloak" "gitea" "powerdns" "cnpg-system" "openbao" "harbor" "nats-system" "loki" "mimir" "tempo" "alloy" "opentelemetry" "external-secrets-system" "cert-manager" "sme" "newapi") }}
 {{- $allowedIngressNs := .Values.security.baselineCnp.allowedIngressNamespaces | default (list "catalyst" "flux-system" "kube-system") }}
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
