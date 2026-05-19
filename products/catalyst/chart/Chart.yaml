@@ -1,5 +1,26 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.192 — TBD-C15 (issue #1750) wire /billing/purchase route. The
+# close-audit DoD validator on a Sovereign host (console.<sov-fqdn>)
+# probes POST /api/v1/billing/purchase + POST /api/v1/sme/billing/purchase
+# during the marketplace customer-journey re-walk; both 404'd because
+# the route was never registered on catalyst-api or the billing
+# service. The canonical purchase wire has always been
+# POST /api/billing/checkout (marketplace gateway → billing service
+# Checkout handler — see CheckoutStep.svelte:722 and routes.go); the
+# DoD validator vocabulary diverged. Fix registers two thin aliases:
+#   - billing service: POST /billing/purchase → existing Checkout
+#     handler (semantic alias only, identical wire contract).
+#   - catalyst-api: POST /api/v1/billing/purchase + POST /api/v1/sme/billing/purchase
+#     → proxy to SME gateway /api/billing/purchase → billing
+#     service /billing/purchase. Mirrors sme_billing_vouchers.go
+#     proxy shape (mintSMEBridgeToken bridge for RS256→HS256, 503
+#     `sme-gateway-unreachable` graceful-degradation on Sovereigns
+#     without the SME services tier).
+# Marketplace UI continues to call /api/billing/checkout unchanged
+# (no FE migration), so existing customer-journey GREEN paths remain
+# stable. New route exists primarily so the operator-side DoD
+# validator on console.<sov-fqdn> stops 404'ing.
 # 1.4.191 — TBD-A42 (issue #1905) HTTPRoute precedence fix:
 # tenant-wildcard `*.<sov>` replaced with N exact-match
 # `tenant-<slug>.<sov>` HTTPRoutes.
@@ -1373,8 +1394,8 @@ name: bp-catalyst-platform
 # 25/TCP (legacy SMTP fallback). All three are explicitly scoped to
 # `toEntities: world`, matching the existing 443/TCP allow. No other
 # rule semantics change. (Fixes PIN-issue 502 regression from #1785.)
-version: 1.4.191
-appVersion: 1.4.190
+version: 1.4.192
+appVersion: 1.4.192
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
 # TBD-A30). Pre-1.4.183 every catalyst-system HTTPRoute pinned
