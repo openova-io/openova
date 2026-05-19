@@ -720,6 +720,14 @@ catalystApi:
   powerdnsURL: ""
   # PowerDNS server identifier per the REST API contract. Empty = "localhost".
   powerdnsServerID: ""
+  # NATS endpoint catalyst-api dials at startup to publish
+  # `catalyst.tenant.sandbox_requested` (TBD-D35c, issue #1776). Empty
+  # = the canonical in-cluster default
+  # `nats://nats-jetstream.nats-system.svc.cluster.local:4222`. Override
+  # at Sovereign level only when running an out-of-cluster NATS
+  # (uncommon; the bp-nats-jetstream Blueprint deploys an in-cluster
+  # broker by default).
+  natsURL: ""
 
 # ─── Sovereign HTTPRoute (Cilium Gateway API, issue #387) ─────────────────
 # Renders templates/httproute.yaml when `ingress.gateway.enabled=true`

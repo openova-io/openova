@@ -334,6 +334,24 @@ spec:
             # without code change.
             - name: CATALYST_API_PUBLIC_URL
               value: https://console.openova.io/sovereign
+            # CATALYST_NATS_URL — TBD-D35c (issue #1776). When set, the
+            # catalyst-api dials this NATS endpoint and publishes the
+            # `catalyst.tenant.sandbox_requested` envelope on every
+            # successful Sandbox CR Create. sandbox-controller's
+            # NATSBridge (consume leg) is already wired against the
+            # same subject; setting this env closes the D35 round-trip.
+            # The default in-cluster URL matches every other NATS-aware
+            # workload on the Sovereign (sme-billing, projector, etc.):
+            # nats://nats-jetstream.nats-system.svc.cluster.local:4222.
+            # When unset OR the dial fails, the handler runs in
+            # publish-disabled mode — the CR Create still succeeds + the
+            # FE still observes the new sandbox, but no audit envelope
+            # is emitted (matching the pre-PR-#1918 behaviour).
+            # Egress allow: `nats-system` is in baselineCnp's
+            # allowedPlatformNamespaces (see network-policies/
+            # baseline-catalyst-system.yaml) so no extra CNP is needed.
+            - name: CATALYST_NATS_URL
+              value: {{ .Values.catalystApi.natsURL | default "nats://nats-jetstream.nats-system.svc.cluster.local:4222" | quote }}
             # CATALYST_K8SCACHE_KUBECONFIGS_DIR — issue #321. Directory
             # the k8scache.Factory reads kubeconfigs from at startup.
             # The data-plane SharedInformerFactory opens one informer

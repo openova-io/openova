@@ -23,6 +23,7 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handoverjwt"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/keycloak"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/natspub"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/newapi"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/openbao"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/powerdns"
@@ -1498,30 +1499,40 @@ func newRBACAuditPublisherFromEnv(log *slog.Logger) audit.Publisher {
 
 // newTenantEventPublisherFromEnv constructs the cross-process forwarder
 // for the `catalyst.tenant.*` event taxonomy used by the
-// sandbox_sessions handler (TBD-D35b / #1776). Currently returns nil
-// (no publisher) because catalyst-api ships without the `nats.go` SDK
-// in its go.mod — mirrors the `newRBACAuditPublisherFromEnv` placeholder
-// pattern. Production adoption of NATS forwarding lands in a follow-up
-// slice that imports `nats.go` directly. Until then, the handler runs
-// in publish-disabled mode: the Sandbox CR Create still succeeds + the
-// FE still observes the new sandbox, but the `catalyst.tenant.sandbox_
-// requested` event is not emitted (matching the pre-fix behaviour).
+// sandbox_sessions handler (TBD-D35b / #1776). When CATALYST_NATS_URL
+// is set, dials NATS and returns the concrete natspub.Publisher; the
+// handler's tenantEvents field then publishes
+// `catalyst.tenant.sandbox_requested` on every successful Sandbox CR
+// Create. When CATALYST_NATS_URL is unset OR the dial fails, returns
+// nil so the handler runs in publish-disabled mode — the Sandbox CR
+// Create still succeeds + the FE still observes the new sandbox, but
+// no audit envelope is emitted. Dial failure is logged + non-fatal so
+// a Pod cold-start doesn't crash-loop on a transiently unreachable
+// broker (the chroot-Sovereign cold-start sequence brings nats-system
+// up after catalyst-system).
 //
 // Per ADR-0001 §6 the subject taxonomy is `catalyst.tenant.<event>`.
 // Per docs/INVIOLABLE-PRINCIPLES.md #4 the URL is env-driven.
+//
+// TBD-D35c — wired concrete nats.go binding (this PR). The previous
+// scaffold returned nil unconditionally because catalyst-api shipped
+// without the `nats.go` SDK in its go.mod (see PR #1918 placeholder).
 func newTenantEventPublisherFromEnv(log *slog.Logger) handler.TenantEventPublisher {
 	url := os.Getenv("CATALYST_NATS_URL")
 	if url == "" {
+		log.Info("tenant-events: CATALYST_NATS_URL unset — running in publish-disabled mode")
 		return nil
 	}
-	subjectPrefix := env("CATALYST_TENANT_NATS_SUBJECT_PREFIX", "catalyst.tenant")
-	log.Info("tenant-events: NATS publisher placeholder wired (forwarding will land in follow-up slice)",
-		"url", url, "subjectPrefix", subjectPrefix,
-	)
-	// Returning nil keeps the handler in publish-disabled mode until
-	// the nats.go-importing follow-up slice replaces this stub. The
-	// wiring contract (env var + Handler.tenantEvents field) is intact.
-	return nil
+	pub, err := natspub.Dial(url, log)
+	if err != nil {
+		// Non-fatal: log + return nil. The handler's nil-tolerant
+		// publish guard keeps the Sandbox-create hot path working.
+		log.Warn("tenant-events: NATS dial failed — running in publish-disabled mode",
+			"url", url, "err", err,
+		)
+		return nil
+	}
+	return pub
 }
 
 // envBool returns the parsed boolean value of an env var, or fallback

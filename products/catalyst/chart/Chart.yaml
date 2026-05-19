@@ -1,5 +1,24 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.194 — TBD-D35c (issue #1776) catalyst-api concrete NATS publisher
+# binding. Templates/api-deployment.yaml now exports CATALYST_NATS_URL
+# (default `nats://nats-jetstream.nats-system.svc.cluster.local:4222`,
+# overridable via `catalystApi.natsURL`) so the producer scaffold landed
+# in PR #1918 starts emitting real `catalyst.tenant.sandbox_requested`
+# envelopes — every successful Sandbox CR Create publishes the audit
+# envelope sandbox-controller's NATSBridge already consumes. Closes the
+# D35 round-trip ("NATS round-trip `catalyst.tenant.sandbox_requested`
+# end-to-end") that t32 walks left red. Pre-fix the constructor returned
+# nil unconditionally because catalyst-api shipped without nats.go in
+# go.mod (PR #1918 placeholder); the binding now lives in
+# products/catalyst/bootstrap/api/internal/natspub/sandbox_publisher.go,
+# wrapping `*nats.Conn` with the same option set
+# core/services/shared/events.ConnectNATS uses (MaxReconnects=-1,
+# ReconnectWait=2s, PingInterval=20s, Timeout=5s). Egress is already
+# permitted: `nats-system` lives in baselineCnp.allowedPlatformNamespaces.
+# Dial failure is non-fatal — the handler's nil-tolerant publish guard
+# keeps the Sandbox-create hot path working when the broker is briefly
+# unreachable on cold-start. Refs #1918.
 # 1.4.192 — TBD-C15 (issue #1750) wire /billing/purchase route. The
 # close-audit DoD validator on a Sovereign host (console.<sov-fqdn>)
 # probes POST /api/v1/billing/purchase + POST /api/v1/sme/billing/purchase
@@ -1394,8 +1413,8 @@ name: bp-catalyst-platform
 # 25/TCP (legacy SMTP fallback). All three are explicitly scoped to
 # `toEntities: world`, matching the existing 443/TCP allow. No other
 # rule semantics change. (Fixes PIN-issue 502 regression from #1785.)
-version: 1.4.193
-appVersion: 1.4.193
+version: 1.4.194
+appVersion: 1.4.194
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
 # TBD-A30). Pre-1.4.183 every catalyst-system HTTPRoute pinned
