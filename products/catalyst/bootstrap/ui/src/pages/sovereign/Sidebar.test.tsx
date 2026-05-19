@@ -5,8 +5,11 @@
  *   • Renders the OpenOva mark inside the 56px logo header
  *   • Surfaces the deployment id (or sovereignFQDN when supplied) as
  *     the "tenant" label in place of the canonical Tenant switcher
- *   • Renders Apps + Jobs + Dashboard + Cloud + Settings nav items
- *     (the explicit subset for the Sovereign-provision surface)
+ *   • Renders Apps + Jobs + Dashboard + Cloud + Users + Domains +
+ *     Billing + Team + Settings nav items. Domains / Billing / Team
+ *     were added in A65 (Refs #1976) so the cosmetic-guards
+ *     CANONICAL_SIDEBAR_LABELS spec resolves; the corresponding pages
+ *     are stubs that render an honest "API pending" empty state.
  *   • Active item carries `aria-current="page"`
  *   • Cloud is a SINGLE flat <Link> (no accordion, no chevron, no
  *     sub-items) that navigates to /provision/$id/cloud
@@ -79,6 +82,22 @@ function renderSidebarAt(initialPath: string, sovereignFQDN?: string | null) {
     path: '/provision/$deploymentId/settings',
     component: SidebarHost,
   })
+  // A65 (Refs #1976) — Domains / Billing / Team admin nav stubs.
+  const domainsRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/provision/$deploymentId/domains',
+    component: SidebarHost,
+  })
+  const billingRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/provision/$deploymentId/billing',
+    component: SidebarHost,
+  })
+  const teamRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/provision/$deploymentId/team',
+    component: SidebarHost,
+  })
   const tree = rootRoute.addChildren([
     provisionRoute,
     jobsRoute,
@@ -86,6 +105,9 @@ function renderSidebarAt(initialPath: string, sovereignFQDN?: string | null) {
     cloudRoute.addChildren([cloudArchitectureRoute, cloudComputeClustersRoute]),
     wizardRoute,
     settingsRoute,
+    domainsRoute,
+    billingRoute,
+    teamRoute,
   ])
   const router = createRouter({
     routeTree: tree,
@@ -130,19 +152,57 @@ describe('Sidebar — chrome', () => {
 })
 
 describe('Sidebar — top-level navigation', () => {
-  it('renders Apps + Jobs + Dashboard + Cloud + Settings nav items', async () => {
+  it('renders Apps + Jobs + Dashboard + Cloud + Users + Domains + Billing + Team + Settings nav items', async () => {
     renderSidebarAt('/provision/d-test-1234')
     expect(await screen.findByTestId('sov-nav-apps')).toBeTruthy()
     expect(await screen.findByTestId('sov-nav-jobs')).toBeTruthy()
     expect(await screen.findByTestId('sov-nav-dashboard')).toBeTruthy()
     expect(await screen.findByTestId('sov-nav-cloud')).toBeTruthy()
+    expect(await screen.findByTestId('sov-nav-users')).toBeTruthy()
     expect(await screen.findByTestId('sov-nav-settings')).toBeTruthy()
-    // Canonical-but-omitted items must NOT render.
-    expect(screen.queryByTestId('sov-nav-domains')).toBeNull()
-    expect(screen.queryByTestId('sov-nav-billing')).toBeNull()
-    expect(screen.queryByTestId('sov-nav-team')).toBeNull()
+    // A65 (Refs #1976) — canonical core/console nav labels now mirrored
+    // here so cosmetic-guards CANONICAL_SIDEBAR_LABELS resolves.
+    expect(await screen.findByTestId('sov-nav-domains')).toBeTruthy()
+    expect(await screen.findByTestId('sov-nav-billing')).toBeTruthy()
+    expect(await screen.findByTestId('sov-nav-team')).toBeTruthy()
     // Legacy flat Infrastructure entry remains gone.
     expect(screen.queryByTestId('sov-nav-infrastructure')).toBeNull()
+  })
+
+  it('Domains / Billing / Team links target /provision/$id/{domains,billing,team}', async () => {
+    renderSidebarAt('/provision/d-test-1234')
+    const domains = (await screen.findByTestId('sov-nav-domains')) as HTMLAnchorElement
+    expect(domains.getAttribute('href') ?? '').toMatch(
+      /\/provision\/d-test-1234\/domains$/,
+    )
+    const billing = (await screen.findByTestId('sov-nav-billing')) as HTMLAnchorElement
+    expect(billing.getAttribute('href') ?? '').toMatch(
+      /\/provision\/d-test-1234\/billing$/,
+    )
+    const team = (await screen.findByTestId('sov-nav-team')) as HTMLAnchorElement
+    expect(team.getAttribute('href') ?? '').toMatch(
+      /\/provision\/d-test-1234\/team$/,
+    )
+  })
+
+  it('marks Domains active on /provision/.../domains', async () => {
+    renderSidebarAt('/provision/d-test-1234/domains')
+    const domains = await screen.findByTestId('sov-nav-domains')
+    expect(domains.getAttribute('aria-current')).toBe('page')
+    const apps = screen.getByTestId('sov-nav-apps')
+    expect(apps.getAttribute('aria-current')).toBeNull()
+  })
+
+  it('marks Billing active on /provision/.../billing', async () => {
+    renderSidebarAt('/provision/d-test-1234/billing')
+    const billing = await screen.findByTestId('sov-nav-billing')
+    expect(billing.getAttribute('aria-current')).toBe('page')
+  })
+
+  it('marks Team active on /provision/.../team', async () => {
+    renderSidebarAt('/provision/d-test-1234/team')
+    const team = await screen.findByTestId('sov-nav-team')
+    expect(team.getAttribute('aria-current')).toBe('page')
   })
 
   it('marks Apps active when on the provision root', async () => {

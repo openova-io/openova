@@ -89,6 +89,12 @@ import { PolicyDrilldownPage } from '@/pages/admin/compliance/PolicyDrilldownPag
 // Wave-2 Family-E (#1583, C11-008): standalone Falco runtime-alerts page.
 import { RuntimeAlertsPage } from '@/pages/admin/compliance/RuntimeAlertsPage'
 import { SettingsPage } from '@/pages/sovereign/SettingsPage'
+// A65 (Refs #1976) — admin sidebar nav stubs for Domains / Billing /
+// Team. The pages render an honest "API pending" empty state; the
+// canonical sidebar entries mirror core/console/src/components/Sidebar.svelte.
+import { DomainsPage } from '@/pages/sovereign/DomainsPage'
+import { BillingPage } from '@/pages/sovereign/BillingPage'
+import { TeamPage } from '@/pages/sovereign/TeamPage'
 import { NotificationsPage } from '@/pages/sovereign/NotificationsPage'
 // Sovereign-mode /console/* routes use the same canonical components as
 // /provision/$deploymentId/* — see the SovereignConsoleRedirect helper
@@ -1062,6 +1068,37 @@ const provisionSettingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId/settings',
   component: SettingsPage,
+  beforeLoad: provisionAuthGuard,
+})
+
+/* ── A65 admin sidebar nav stubs (Refs #1976) ────────────────────
+ *
+ * cosmetic-guards CANONICAL_SIDEBAR_LABELS asserts the admin sidebar
+ * exposes Domains / Billing / Team nav items mirrored from
+ * core/console/src/components/Sidebar.svelte. These three routes are
+ * the destinations for those nav items; each component renders an
+ * honest "API pending" empty state until the real surface ships.
+ *
+ *   /provision/$deploymentId/domains  → ParentDomain pool (Refs #1830)
+ *   /provision/$deploymentId/billing  → Deployment billing oversight
+ *   /provision/$deploymentId/team     → Operator team roster
+ */
+const provisionDomainsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/provision/$deploymentId/domains',
+  component: DomainsPage,
+  beforeLoad: provisionAuthGuard,
+})
+const provisionBillingRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/provision/$deploymentId/billing',
+  component: BillingPage,
+  beforeLoad: provisionAuthGuard,
+})
+const provisionTeamRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/provision/$deploymentId/team',
+  component: TeamPage,
   beforeLoad: provisionAuthGuard,
 })
 
@@ -2063,6 +2100,10 @@ const routeTree = rootRoute.addChildren([
   provisionBlueprintsPublishRoute,
   provisionBlueprintsCurateRoute,
   provisionSettingsRoute,
+  // A65 (Refs #1976) — admin sidebar nav stubs.
+  provisionDomainsRoute,
+  provisionBillingRoute,
+  provisionTeamRoute,
   provisionNotificationsRoute,
   // Compliance — slice U (#1096). Mother-side admin routes.
   adminComplianceSREDashboardRoute,

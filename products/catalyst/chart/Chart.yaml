@@ -1,5 +1,19 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.210 — TBD-A65 (Refs #1976, 2026-05-19): admin sidebar nav parity
+# with canonical core/console/src/components/Sidebar.svelte. Adds
+# Domains / Billing / Team entries to the Sovereign-provision Sidebar
+# (FLAT_NAV) so e2e/cosmetic-guards.spec.ts CANONICAL_SIDEBAR_LABELS
+# resolves. Each entry routes to an honest "API pending" stub
+# (DomainsPage / BillingPage / TeamPage) under
+# /provision/$deploymentId/{domains,billing,team}; real surfaces
+# tracked as follow-up issues (Domains → Refs #1830 ParentDomain CRD;
+# Billing → BSS chroot /bss/billing; Team → org-level operator
+# roster). Vitest Sidebar.test.tsx updated to assert the three new
+# entries; Chart.yaml bump pairs the matching version bump in
+# clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml.
+# Refs #1976.
+#
 # 1.4.209 — TBD-A64 PR γ (issue #1976, 2026-05-19): cosmetic regressions
 # caught by the cosmetic-guards e2e suite. THREE surgical fixes:
 #   1. wizard/steps/logoTone.ts — alloy tile background flipped from
@@ -1765,7 +1779,7 @@ name: bp-catalyst-platform
 # was already shipped on 1.4.197 (PR #1820 lineage); this completes
 # the data-layer side so the dropdown finally appears on multi-region
 # Sovereigns. Refs #1821, DoD D20.
-version: 1.4.209
+version: 1.4.210
 appVersion: 1.4.208
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,

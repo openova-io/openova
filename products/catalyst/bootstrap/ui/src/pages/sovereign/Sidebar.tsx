@@ -14,7 +14,18 @@
  *       — dashboard               → /sovereign/provision/$deploymentId/dashboard
  *       — cloud                   → /sovereign/provision/$deploymentId/cloud
  *       — users                   → /sovereign/provision/$deploymentId/users
+ *       — domains                 → /sovereign/provision/$deploymentId/domains
+ *       — billing                 → /sovereign/provision/$deploymentId/billing
+ *       — team                    → /sovereign/provision/$deploymentId/team
  *       — settings                → /sovereign/provision/$deploymentId/settings
+ *
+ *     Domains / Billing / Team (Refs #1976, A65 — cosmetic-guards
+ *     CANONICAL_SIDEBAR_LABELS parity): admin surfaces mirrored from
+ *     core/console/src/components/Sidebar.svelte. The corresponding
+ *     page components today render an honest "API pending" empty
+ *     state — full backend wiring is tracked in follow-up issues
+ *     (Domains → Refs #1830 ParentDomain CRD; Billing → BSS chroot;
+ *     Team → operator roster surface).
  *
  *     The Cloud entry is a single flat <Link> (no accordion, no
  *     chevron, no sub-items). The parent CloudPage owns the in-page
@@ -48,7 +59,16 @@ interface SidebarProps {
 /* ── Top-level (flat) nav items ─────────────────────────────────── */
 
 interface FlatNavItem {
-  id: 'apps' | 'jobs' | 'dashboard' | 'cloud' | 'users' | 'settings'
+  id:
+    | 'apps'
+    | 'jobs'
+    | 'dashboard'
+    | 'cloud'
+    | 'users'
+    | 'domains'
+    | 'billing'
+    | 'team'
+    | 'settings'
   label: string
   to:
     | '/provision/$deploymentId'
@@ -56,6 +76,9 @@ interface FlatNavItem {
     | '/provision/$deploymentId/dashboard'
     | '/provision/$deploymentId/cloud'
     | '/provision/$deploymentId/users'
+    | '/provision/$deploymentId/domains'
+    | '/provision/$deploymentId/billing'
+    | '/provision/$deploymentId/team'
     | '/provision/$deploymentId/settings'
   /** SVG path data — same `d` strings as core/console for visual parity. */
   icon: string
@@ -103,6 +126,42 @@ const FLAT_NAV: FlatNavItem[] = [
     // Tabler IconUsers — verbatim path data, viewBox 24x24.
     icon: 'M9 7a4 4 0 100 8 4 4 0 000-8zM3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2M16 3.13a4 4 0 010 7.75M21 21v-2a4 4 0 00-3-3.87',
   },
+  // Domains — admin surface for parent-domain pool management. Mirrors
+  // the canonical core/console Sidebar.svelte nav array
+  // (Refs #1976 cosmetic-guards CANONICAL_SIDEBAR_LABELS; A65). Backed
+  // by /provision/$deploymentId/domains; the page is a stub for now
+  // and surfaces an honest "API pending" empty state — the real
+  // ParentDomain CRD wiring is tracked separately (Refs #1830).
+  {
+    id: 'domains',
+    label: 'Domains',
+    to: '/provision/$deploymentId/domains',
+    // Tabler IconWorld — verbatim path data, viewBox 24x24.
+    icon: 'M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0M3.6 9h16.8M3.6 15h16.8M11.5 3a17 17 0 0 0 0 18M12.5 3a17 17 0 0 1 0 18',
+  },
+  // Billing — admin billing oversight surface. Mirrors canonical
+  // core/console Sidebar.svelte nav array (Refs #1976; A65). Stub page
+  // for now — real BSS billing surfaces live under /bss/billing on the
+  // SovereignConsoleLayout chroot. Tracked separately as a follow-up.
+  {
+    id: 'billing',
+    label: 'Billing',
+    to: '/provision/$deploymentId/billing',
+    // Tabler IconReceipt — verbatim path data, viewBox 24x24.
+    icon: 'M5 21V5a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v16l-3 -2l-2 2l-2 -2l-2 2l-2 -2l-3 2M9 7h6M9 11h6M9 15h4',
+  },
+  // Team — operator team management surface. Mirrors canonical
+  // core/console Sidebar.svelte nav array (Refs #1976; A65). Distinct
+  // from /users (deployment-scoped user-access list); Team is the
+  // organisation-level operator roster. Stub for now — real Team
+  // surface tracked separately.
+  {
+    id: 'team',
+    label: 'Team',
+    to: '/provision/$deploymentId/team',
+    // Tabler IconUsersGroup — verbatim path data, viewBox 24x24.
+    icon: 'M10 13a2 2 0 1 0 -4 0a2 2 0 0 0 4 0M8 21v-1a2 2 0 0 1 2 -2M16 13a2 2 0 1 0 -4 0a2 2 0 0 0 4 0M12 21v-1a2 2 0 0 0 -2 -2h-4a2 2 0 0 0 -2 2v1M22 13a2 2 0 1 0 -4 0a2 2 0 0 0 4 0M20 21v-1a2 2 0 0 0 -2 -2h-4a2 2 0 0 0 -2 2v1',
+  },
 ]
 
 const SETTINGS_ITEM: FlatNavItem = {
@@ -114,7 +173,16 @@ const SETTINGS_ITEM: FlatNavItem = {
 
 /* ── Active-state derivation ────────────────────────────────────── */
 
-type ActiveSection = 'apps' | 'jobs' | 'dashboard' | 'cloud' | 'users' | 'settings'
+type ActiveSection =
+  | 'apps'
+  | 'jobs'
+  | 'dashboard'
+  | 'cloud'
+  | 'users'
+  | 'domains'
+  | 'billing'
+  | 'team'
+  | 'settings'
 
 // Cloud section is active when the path matches any of the
 // `/cloud[/...]` or legacy `/infrastructure[/...]` segments. We use a
@@ -129,6 +197,11 @@ function deriveActiveSection(pathname: string): ActiveSection {
   if (pathname.endsWith('/jobs')) return 'jobs'
   // Users surface — list, /new, and /<name> all count.
   if (/\/users(\/|$)/.test(pathname)) return 'users'
+  // Domains / Billing / Team — admin surfaces added in A65 (Refs #1976).
+  // Stub pages today; full surfaces tracked as follow-up issues.
+  if (/\/domains(\/|$)/.test(pathname)) return 'domains'
+  if (/\/billing(\/|$)/.test(pathname)) return 'billing'
+  if (/\/team(\/|$)/.test(pathname)) return 'team'
   // Settings — deployment-scoped settings page (issue #516). The
   // legacy `/wizard` divert was the bug being fixed.
   if (/\/settings(\/|$)/.test(pathname)) return 'settings'
