@@ -1,9 +1,13 @@
 {{- /*
 Catalyst overlay: detect-and-recover CronJob for HelmReleases stuck in
-Ready=Unknown after a helm-controller leader-election loss.
+Ready=Unknown after a helm-controller leader-election loss OR after an
+apiserver flap on a slow secondary CP dropped the Ready=True write.
 
-WHY THIS EXISTS (issue #925)
-----------------------------
+WHY THIS EXISTS — TWO FAILURE MODES
+------------------------------------
+
+(A) ISSUE #925 — leader-election loss recovery
+    -------------------------------------------
 helm-controller's reconcile loop has a known soft bug: when leadership
 is lost mid-install (transient kube-apiserver pressure / pod restart /
 OOMKill), the new leader takes over an in-flight Helm install whose
@@ -19,13 +23,29 @@ Ready=Unknown for 10+ minutes → blocked bootstrap-kit Kustomization →
 blocked sovereign-tls Kustomization → cilium-gateway never deployed →
 every HTTPRoute returned TLS handshake failure.
 
-The primary mitigation (extended leader-election lease durations + memory
-headroom in values.yaml) reduces the frequency of the trigger. This
-CronJob is the recovery safety net: every 2 minutes it scans every
-HelmRelease in the cluster, finds those stuck in Ready=Unknown for >5
-min where the underlying Helm release secret already shows Status=deployed,
-and force-toggles spec.suspend to make helm-controller re-evaluate the
-HR's Ready status on next reconcile (the only known workaround per #925).
+Recovery: suspend-toggle. Detects via `helm release secret label
+status=deployed` + Ready=Unknown for >threshold.
+
+(B) TBD-A66 / ISSUE #1989 — slow secondary CP apiserver-flap recovery
+    -----------------------------------------------------------------
+On embedded-etcd k3s secondary CPs (nbg1-2 / hel1-1 in the t37
+canonical walk) apiserver flaps during the bootstrap cascade. helm-
+controller completes the install — the HR's OWN
+`.status.history[0].status` transitions to "deployed" — but the
+apiserver write that flips `.status.conditions[type=Ready]` from
+Unknown → True is lost. suspend-toggling (branch A) does NOT recover
+this state because helm-controller's "is the release in storage?"
+short-circuit returns yes on the next reconcile, so it never re-
+evaluates Ready.
+
+Recovery: direct status-subresource patch flipping Ready=True, stamped
+with `stuck-hr-recovery.openova.io/auto-corrected-at=<RFC3339>` for
+audit + idempotency.
+
+The primary mitigation (extended leader-election lease durations +
+memory headroom in values.yaml) reduces the frequency of the trigger.
+This CronJob is the recovery safety net: every 2 minutes it scans every
+HelmRelease in the cluster and applies whichever branch matches.
 
 WHY A CRONJOB AND NOT A WEBHOOK / OPERATOR
 ------------------------------------------
@@ -69,6 +89,7 @@ metadata:
     catalyst.openova.io/blueprint: bp-flux
   annotations:
     catalyst.openova.io/issue: "https://github.com/openova-io/openova/issues/925"
+    catalyst.openova.io/issue-tbd-a66: "https://github.com/openova-io/openova/issues/1989"
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -86,14 +107,26 @@ rules:
   - apiGroups: ["helm.toolkit.fluxcd.io"]
     resources: ["helmreleases"]
     verbs: ["get", "list", "watch"]
-  # Patch spec.suspend on stuck HRs to force re-evaluation. We need this
-  # cluster-wide because tenant HRs live in tenant namespaces, not flux-system.
+  # Patch spec.suspend on stuck HRs to force re-evaluation (issue #925
+  # branch). Cluster-wide because tenant HRs live in tenant namespaces.
+  # Also `patch` here covers metadata-only patches like our audit
+  # annotation `stuck-hr-recovery.openova.io/auto-corrected-at`.
   - apiGroups: ["helm.toolkit.fluxcd.io"]
     resources: ["helmreleases"]
     verbs: ["patch"]
+  # TBD-A66 branch: patch .status.conditions.Ready directly when the
+  # HR's own .status.history[0].status proves the install completed but
+  # apiserver flap on a slow secondary CP dropped the Ready=True write.
+  # The status subresource is a separate RBAC target from the main
+  # resource — without this rule `kubectl patch --subresource=status`
+  # returns 403.
+  - apiGroups: ["helm.toolkit.fluxcd.io"]
+    resources: ["helmreleases/status"]
+    verbs: ["patch", "update"]
   # Read Helm release secrets to confirm Status=deployed (the precondition
-  # that distinguishes "stuck Ready=Unknown after leader-election loss"
-  # from "actually still installing").
+  # for the issue #925 fallback branch). The TBD-A66 branch uses the HR's
+  # own .status.history[0].status instead, so secret reads aren't needed
+  # for it — but the fallback path still uses them.
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get", "list"]
@@ -134,22 +167,46 @@ data:
   stuck-threshold: {{ $stuckThreshold | quote }}
   recover.sh: |
     #!/bin/sh
-    # Detect HelmReleases stuck in Ready=Unknown after a helm-controller
-    # leader-election loss (issue #925) and force-toggle spec.suspend to
-    # make the controller re-evaluate Ready on next reconcile.
+    # Detect HelmReleases stuck in Ready=Unknown and recover them.
+    #
+    # Two distinct stuck-state failure modes are handled:
+    #
+    # (A) Leader-election loss recovery (issue #925)
+    #     ─────────────────────────────────────────
+    #     helm-controller lost leadership mid-install. The Helm release
+    #     SECRET shows Status=deployed (storage write committed by the
+    #     previous leader) but the Ready condition was never flipped.
+    #     Fix: toggle spec.suspend=true → false to force re-evaluation.
+    #
+    # (B) Slow-secondary-CP apiserver-flap recovery (TBD-A66, issue #1989)
+    #     ─────────────────────────────────────────────────────────
+    #     On embedded-etcd k3s secondary CPs (nbg1-2/hel1-1 in t37 walk)
+    #     apiserver flaps during the bootstrap cascade. helm-controller
+    #     completes the install — the HR's OWN .status.history[0].Status
+    #     transitions to "deployed" — but the apiserver write that flips
+    #     .status.conditions[Ready] from Unknown → True is lost. suspend-
+    #     toggling (branch A) does NOT recover this state because
+    #     helm-controller's "is the release in storage?" short-circuit
+    #     returns yes on the next reconcile, so it never re-evaluates
+    #     Ready. The only safe recovery is a direct status-subresource
+    #     patch that flips Ready=True and stamps an audit annotation.
     #
     # Algorithm:
     #   1. List every HelmRelease cluster-wide.
-    #   2. For each: read .status.conditions[type=Ready].
-    #      - If status != "Unknown" → skip.
-    #      - If lastTransitionTime is within the stuck threshold → skip
+    #   2. For each: read .status.conditions[type=Ready] + history[0].
+    #      - If Ready.status != "Unknown" → skip.
+    #      - If Ready.lastTransitionTime within threshold → skip
     #        (still might be a real in-flight install).
-    #   3. Read the corresponding Helm release secret in the HR's
-    #      storageNamespace (defaults to HR's namespace).
-    #      - If secret missing or label `status` != "deployed" → skip
-    #        (HR really IS still installing; not stuck).
-    #   4. Patch spec.suspend=true, sleep 5s, patch spec.suspend=false.
-    #      This is the only known workaround for the upstream bug.
+    #      - If already annotated stuck-hr-recovery.openova.io/
+    #        auto-corrected-at → skip (idempotent re-runs).
+    #   3. Decision tree:
+    #      (B) If .status.history[0].status == "deployed" → status-patch
+    #          Ready=True with audit annotation. PREFERRED branch — the
+    #          HR itself confirms install succeeded.
+    #      (A) Else fall back: read the Helm release secret in the HR's
+    #          storageNamespace. If secret label status=deployed →
+    #          suspend-toggle (legacy issue #925 recovery).
+    #      Else skip (HR really IS still installing; not stuck).
     #
     # Guardrail: if more than 10 HRs would be acted on in a single run,
     # log and exit non-zero — that signals a cluster-wide problem (real
@@ -164,25 +221,72 @@ data:
       *)  THRESHOLD_SEC="$THRESHOLD_HUMAN" ;;
     esac
     NOW="$(date -u +%s)"
+    NOW_ISO="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     ACTED=0
     SCANNED=0
 
-    # Build a list of "ns/name|storageNs|releaseName|readyStatus|readyTransition"
+    # Build a list of
+    # "ns|name|storageNs|releaseName|readyStatus|readyTransition|historyStatus|autoCorrectedAt"
     # in a single kubectl call (cheap — JSONPath does the work server-side).
-    HRS="$(kubectl get hr -A -o jsonpath='{range .items[*]}{.metadata.namespace}|{.metadata.name}|{.spec.storageNamespace}|{.spec.releaseName}|{range .status.conditions[?(@.type=="Ready")]}{.status}|{.lastTransitionTime}{end}{"\n"}{end}')" || HRS=""
+    # NOTE: jsonpath dot-escape on the annotation key — `\.` segments are
+    # required because the annotation contains literal dots (RFC1123 host
+    # name segment style). kubectl jsonpath supports `\.` as a literal
+    # dot since v1.16.
+    HRS="$(kubectl get hr -A -o jsonpath='{range .items[*]}{.metadata.namespace}|{.metadata.name}|{.spec.storageNamespace}|{.spec.releaseName}|{range .status.conditions[?(@.type=="Ready")]}{.status}|{.lastTransitionTime}{end}|{.status.history[0].status}|{.metadata.annotations.stuck-hr-recovery\.openova\.io/auto-corrected-at}{"\n"}{end}')" || HRS=""
 
-    echo "$HRS" | while IFS='|' read -r NS NAME STORAGE_NS RELEASE_NAME READY_STATUS READY_TRANSITION; do
+    echo "$HRS" | while IFS='|' read -r NS NAME STORAGE_NS RELEASE_NAME READY_STATUS READY_TRANSITION HISTORY_STATUS AUTO_CORRECTED_AT; do
       [ -z "$NAME" ] && continue
       SCANNED=$((SCANNED+1))
       # Only act on Ready=Unknown.
       [ "$READY_STATUS" = "Unknown" ] || continue
       [ -n "$READY_TRANSITION" ] || continue
+      # Idempotency: if we've already auto-corrected this HR (annotation
+      # present), skip — either the correction stuck and Ready won't be
+      # Unknown anymore (so we wouldn't be here), or helm-controller
+      # re-flipped it back to Unknown which means there's a genuine
+      # ongoing problem and operator should investigate.
+      [ -z "$AUTO_CORRECTED_AT" ] || { echo "skip $NS/$NAME: already auto-corrected at $AUTO_CORRECTED_AT"; continue; }
       # Has the Unknown state persisted past the threshold?
       TRANSITION_SEC="$(date -u -d "$READY_TRANSITION" +%s 2>/dev/null || echo 0)"
       [ "$TRANSITION_SEC" -gt 0 ] || continue
       AGE=$((NOW - TRANSITION_SEC))
       [ "$AGE" -ge "$THRESHOLD_SEC" ] || continue
 
+      # ── Branch B (TBD-A66): HR's own history says deployed ─────────
+      # The HR controller already wrote history[0].status=deployed,
+      # which proves the install completed. Ready=Unknown is therefore
+      # a lost-write on the conditions subresource (apiserver flap on
+      # slow secondary CP). Direct status patch is the safe recovery.
+      if [ "$HISTORY_STATUS" = "deployed" ]; then
+        ACTED=$((ACTED+1))
+        if [ "$ACTED" -gt 10 ]; then
+          echo "GUARDRAIL: more than 10 stuck HRs detected — refusing to mass-recover. Investigate cluster-wide outage."
+          exit 1
+        fi
+        echo "RECOVER $NS/$NAME (Ready=Unknown for ${AGE}s, history[0].status=deployed) — patching status.conditions.Ready=True (TBD-A66 branch)"
+        # Step 1: stamp audit annotation on the object's metadata so
+        # idempotency works regardless of whether the status patch
+        # below races against a helm-controller reconcile.
+        kubectl annotate hr -n "$NS" "$NAME" --overwrite "stuck-hr-recovery.openova.io/auto-corrected-at=${NOW_ISO}" >/dev/null
+        # Step 2: patch the status subresource. We use a JSON-merge
+        # patch on the entire status object replacing only conditions
+        # — the helm-controller's next reconcile will re-render the
+        # rest of status from the HR spec + history without loss.
+        # `--subresource=status` requires kubectl ≥ v1.24 (we ship
+        # 1.31.4 in this CronJob image, so safe).
+        PATCH_BODY='{"status":{"conditions":[{"type":"Ready","status":"True","reason":"ReconciliationSucceeded","message":"auto-corrected from deployed-but-unknown-Ready by stuck-hr-recovery (TBD-A66)","lastTransitionTime":"'"$NOW_ISO"'"}]}}'
+        if kubectl patch hr -n "$NS" "$NAME" --subresource=status --type=merge -p "$PATCH_BODY" >/dev/null 2>&1; then
+          echo "RECOVERED $NS/$NAME (TBD-A66 branch)"
+        else
+          echo "WARN $NS/$NAME: status-subresource patch failed; will retry next run"
+          # Roll back the annotation so the next run isn't blocked by
+          # idempotency guard on a half-applied recovery.
+          kubectl annotate hr -n "$NS" "$NAME" "stuck-hr-recovery.openova.io/auto-corrected-at-" >/dev/null 2>&1 || true
+        fi
+        continue
+      fi
+
+      # ── Branch A (issue #925): fall back to helm-secret + suspend toggle ──
       # Resolve storage ns + release name (defaults match upstream HR semantics).
       EFFECTIVE_STORAGE_NS="${STORAGE_NS:-$NS}"
       EFFECTIVE_RELEASE="${RELEASE_NAME:-$NAME}"
@@ -195,7 +299,7 @@ data:
       SECRET_STATUS="$(kubectl get secret -n "$EFFECTIVE_STORAGE_NS" "$LATEST_SECRET" -o jsonpath='{.metadata.labels.status}' 2>/dev/null || echo "")"
       # Only act if Helm itself thinks the release is deployed; if it's
       # pending-install / failed / etc the HR really IS still in flight.
-      [ "$SECRET_STATUS" = "deployed" ] || { echo "skip $NS/$NAME: helm secret status=$SECRET_STATUS"; continue; }
+      [ "$SECRET_STATUS" = "deployed" ] || { echo "skip $NS/$NAME: helm secret status=$SECRET_STATUS history=$HISTORY_STATUS"; continue; }
 
       ACTED=$((ACTED+1))
       if [ "$ACTED" -gt 10 ]; then
@@ -203,11 +307,11 @@ data:
         exit 1
       fi
 
-      echo "RECOVER $NS/$NAME (Ready=Unknown for ${AGE}s, helm secret $LATEST_SECRET status=deployed) — toggling spec.suspend"
+      echo "RECOVER $NS/$NAME (Ready=Unknown for ${AGE}s, helm secret $LATEST_SECRET status=deployed) — toggling spec.suspend (issue #925 branch)"
       kubectl patch hr -n "$NS" "$NAME" --type=merge -p '{"spec":{"suspend":true}}' >/dev/null
       sleep 5
       kubectl patch hr -n "$NS" "$NAME" --type=merge -p '{"spec":{"suspend":false}}' >/dev/null
-      echo "RECOVERED $NS/$NAME"
+      echo "RECOVERED $NS/$NAME (issue #925 branch)"
     done
 
     echo "scan complete: scanned=$SCANNED acted=$ACTED threshold=${THRESHOLD_SEC}s"
@@ -226,6 +330,7 @@ metadata:
     catalyst.openova.io/blueprint: bp-flux
   annotations:
     catalyst.openova.io/issue: "https://github.com/openova-io/openova/issues/925"
+    catalyst.openova.io/issue-tbd-a66: "https://github.com/openova-io/openova/issues/1989"
 spec:
   schedule: {{ $schedule | quote }}
   concurrencyPolicy: Forbid
