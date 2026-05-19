@@ -1,5 +1,14 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.210 — TBD-A70 (issue #1976, 2026-05-19): restore JobsTable batch
+# chip. JobsTable.tsx JobRow now renders a sibling `<Link>` next to the
+# parent chip with `data-testid=jobs-cell-batch-<jobName>` pointing at
+# the chroot-correct `/provision/<depId>/flow?scope=batch:<jobName>`
+# (mother) / `/flow?scope=batch:<jobName>` (Sovereign). The chip stays
+# inline in the existing parent column so the [name, app, deps, parent,
+# status, started, duration] header set is preserved (issue #204).
+# FlowPage `?scope=batch:` handling itself remains deferred (TBD-A66) —
+# this PR only restores the cosmetic-guard test 33 testid + href shape.
 # 1.4.209 — TBD-A64 PR γ (issue #1976, 2026-05-19): cosmetic regressions
 # caught by the cosmetic-guards e2e suite. THREE surgical fixes:
 #   1. wizard/steps/logoTone.ts — alloy tile background flipped from
@@ -1765,7 +1774,7 @@ name: bp-catalyst-platform
 # was already shipped on 1.4.197 (PR #1820 lineage); this completes
 # the data-layer side so the dropdown finally appears on multi-region
 # Sovereigns. Refs #1821, DoD D20.
-version: 1.4.209
+version: 1.4.210
 appVersion: 1.4.208
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,

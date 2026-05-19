@@ -477,9 +477,27 @@ function useJobLinkBuilder(): (jobId: string) => string {
   }
 }
 
+/**
+ * useFlowLinkBuilder — chroot-correct Link `to` for the per-batch flow
+ * canvas. Mirrors useJobLinkBuilder routing (mother vs Sovereign). The
+ * `?scope=batch:<id>` query filters the canvas to a single batch
+ * swimlane (issue #1976 cosmetic-guard test 33; FlowPage scope handling
+ * is TBD-A66).
+ */
+function useFlowLinkBuilder(): (batchId: string) => string {
+  const params = useParams({ strict: false }) as { deploymentId?: string }
+  const isSovereign = DETECTED_MODE.mode === 'sovereign'
+  const depId = params.deploymentId ?? ''
+  return (batchId: string) => {
+    const qs = `?scope=batch:${encodeURIComponent(batchId)}`
+    return isSovereign || !depId ? `/flow${qs}` : `/provision/${depId}/flow${qs}`
+  }
+}
+
 function JobRow({ job, parentLabel }: JobRowProps) {
   const started = formatRelative(job.startedAt)
   const jobLink = useJobLinkBuilder()
+  const flowLink = useFlowLinkBuilder()
   return (
     <tr
       className="jobs-row"
@@ -514,18 +532,29 @@ function JobRow({ job, parentLabel }: JobRowProps) {
         )}
       </td>
       <td className="jobs-cell jobs-cell-parent">
-        {/* Parent chip — links to that parent group's home page,
-            which renders the same canvas + log pane scoped to the
-            group as its host job (issue #351). */}
+        {/* Parent chip → parent group's home page (issue #351).
+            Sibling batch chip → per-batch flow canvas (issue #1976
+            test 33). Both share this cell to preserve the [name, app,
+            deps, parent, status, started, duration] header set. */}
         {job.parentId ? (
-          <Link
-            to={jobLink(job.parentId) as never}
-            className="jobs-chip jobs-chip-parent jobs-chip-link"
-            data-testid={`jobs-cell-parent-${job.id}`}
-            title={parentLabel}
-          >
-            {parentLabel}
-          </Link>
+          <div className="jobs-chip-row">
+            <Link
+              to={jobLink(job.parentId) as never}
+              className="jobs-chip jobs-chip-parent jobs-chip-link"
+              data-testid={`jobs-cell-parent-${job.id}`}
+              title={parentLabel}
+            >
+              {parentLabel}
+            </Link>
+            <Link
+              to={flowLink(job.jobName) as never}
+              className="jobs-chip jobs-chip-batch jobs-chip-link"
+              data-testid={`jobs-cell-batch-${job.jobName}`}
+              title={`Open batch ${job.jobName} on the flow canvas`}
+            >
+              batch
+            </Link>
+          </div>
         ) : (
           <span className="jobs-empty-cell">—</span>
         )}
@@ -753,6 +782,7 @@ const JOBS_TABLE_CSS = `
 }
 .jobs-chip-app    { color: #38BDF8; border-color: rgba(56,189,248,0.25); }
 .jobs-chip-parent { color: #C084FC; border-color: rgba(192,132,252,0.25); }
+.jobs-chip-batch  { color: #FD6F00; border-color: rgba(253,111,0,0.25); }
 .jobs-chip-dep    { color: var(--color-text-dim); }
 .jobs-chip-link {
   text-decoration: none;
