@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -24,19 +25,33 @@ import (
 type Enricher struct {
 	TenantURL string // e.g. http://tenant.sme.svc.cluster.local:8083
 	AuthURL   string // e.g. http://auth.sme.svc.cluster.local:8081
-	JWTSecret []byte
-	HTTP      *http.Client
+	// ParentZone is the Sovereign's sme-pool parent domain (e.g.
+	// "omani.homes" / "talents.scope") used to render WorkspaceURL.
+	// TBD-A67 issue #1990 removed the hardcoded `.openova.io` suffix —
+	// the parent zone is per-Sovereign and the notification service
+	// reads it from the TENANT_PARENT_DOMAIN env (same env name the
+	// provisioning service uses via Handler.TenantParentDomain). Empty
+	// disables the WorkspaceURL field so the email template can fall
+	// back to a bare-org-name body rather than emit a wrong URL.
+	ParentZone string
+	JWTSecret  []byte
+	HTTP       *http.Client
 }
 
 // NewEnricher constructs an Enricher. Leave URLs empty to disable — in
 // that case Lookup returns zero values without error and the caller
-// will skip the email.
-func NewEnricher(tenantURL, authURL string, jwtSecret []byte) *Enricher {
+// will skip the email. parentZone is the Sovereign's sme-pool parent
+// domain used to build per-tenant WorkspaceURL strings; empty parent
+// zone results in an empty WorkspaceURL (template-side guard).
+// TBD-A67 issue #1990: NEVER hardcode `.openova.io` here — every
+// Sovereign owns its own parent zone.
+func NewEnricher(tenantURL, authURL, parentZone string, jwtSecret []byte) *Enricher {
 	return &Enricher{
-		TenantURL: tenantURL,
-		AuthURL:   authURL,
-		JWTSecret: jwtSecret,
-		HTTP:      &http.Client{Timeout: 5 * time.Second},
+		TenantURL:  tenantURL,
+		AuthURL:    authURL,
+		ParentZone: parentZone,
+		JWTSecret:  jwtSecret,
+		HTTP:       &http.Client{Timeout: 5 * time.Second},
 	}
 }
 
@@ -78,10 +93,32 @@ func (e *Enricher) Lookup(ctx context.Context, tenantID string) (*TenantInfo, er
 		TenantID:     tenant.ID,
 		OrgName:      tenant.Name,
 		Subdomain:    tenant.Subdomain,
-		WorkspaceURL: "https://" + tenant.Subdomain + ".openova.io",
+		WorkspaceURL: workspaceURL(tenant.Subdomain, e.ParentZone),
 		OwnerEmail:   owner.Email,
 		OwnerName:    owner.Name,
 	}, nil
+}
+
+// workspaceURL renders the canonical per-tenant console URL using the
+// Sovereign's parent zone — `https://console.<subdomain>.<parentZone>`.
+// Mirrors sme_tenant_gitops.go:536 (chart-side host derivation) and
+// tenant_route.go:113 (controller-side HTTPRoute hostname) so the
+// notification email's clickable link lands on the exact host the
+// Cilium Gateway routes to the tenant's console Service.
+//
+// TBD-A67 issue #1990: empty parent zone returns "" (caller / template
+// is expected to omit the URL line). NEVER falls back to `.openova.io`
+// — that hostname is the platform marketing domain, not a tenant
+// console host, and hardcoding it leaked into email bodies on every
+// non-openova.io Sovereign (omani.homes, talents.scope, …) violating
+// the "never touch openova.io" rule.
+func workspaceURL(subdomain, parentZone string) string {
+	subdomain = strings.TrimSpace(subdomain)
+	parentZone = strings.TrimSpace(parentZone)
+	if subdomain == "" || parentZone == "" {
+		return ""
+	}
+	return "https://console." + subdomain + "." + parentZone
 }
 
 // serviceToken mints a short-lived superadmin JWT that the tenant and

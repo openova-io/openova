@@ -1,14 +1,14 @@
 // tenant_route.go — per-Organization HTTPRoute reconciler.
 //
-// Issue #1629 follow-up. PowerDNS now resolves `<slug>.<parentDomain>`
-// (e.g. `acme.omani.homes`) for every Org whose Sovereign has a
-// parent_domains entry with role=sme-pool, but no HTTPRoute attaches
-// that hostname to the Org's installed product Service. Result: the
-// Cilium Gateway happily terminates TLS on the wildcard cert, then
-// returns the storefront landing page (the only HTTPRoute attached
-// to `*.<sovFQDN>` is the `tenant-wildcard` route → marketplace
-// console Service) instead of the tenant's WordPress / Nextcloud /
-// GitLab install.
+// Issue #1629 follow-up. PowerDNS now resolves
+// `console.<slug>.<parentDomain>` (e.g. `console.acme.omani.homes`) for
+// every Org whose Sovereign has a parent_domains entry with role=sme-
+// pool, but no HTTPRoute attaches that hostname to the Org's installed
+// product Service. Result: the Cilium Gateway happily terminates TLS
+// on the wildcard cert, then returns the storefront landing page (the
+// only HTTPRoute attached to `*.<sovFQDN>` is the `tenant-wildcard`
+// route → marketplace console Service) instead of the tenant's
+// WordPress / Nextcloud / GitLab install.
 //
 // The fix is reconciler-side: when `spec.tenantPublic.parentDomain`
 // is set on an Organization, the controller renders a per-tenant
@@ -16,9 +16,14 @@
 // supplied BackendService. The route attaches to the canonical
 // `cilium-gateway/kube-system` parent — the same parent the
 // marketplace, back-office, and tenant-wildcard routes already attach
-// to — and surfaces `<subdomain>.<parentDomain>` as its hostname so
-// the Cilium Gateway hostname matcher picks the per-tenant route
-// over the wildcard for any request matching the exact host.
+// to — and surfaces `console.<subdomain>.<parentDomain>` as its
+// hostname so the Cilium Gateway hostname matcher picks the per-
+// tenant route over the wildcard for any request matching the exact
+// host. The `console.` prefix is the canonical per-tenant console
+// hostname per CLAUDE.md §0 and matches sme_tenant_gitops.go:536
+// (chart-side host derivation for bp-wordpress-tenant et al.) so the
+// runtime reconciler and the GitOps overlay agree byte-for-byte.
+// TBD-A67 issue #1990.
 //
 // Design notes:
 //
@@ -110,7 +115,12 @@ func (r *Reconciler) reconcileTenantRoute(ctx context.Context, org *orgapi.Organ
 		port = tenantRouteDefaultBackendPort
 	}
 
-	hostname := fmt.Sprintf("%s.%s", subdomain, parentDomain)
+	// TBD-A67 issue #1990: hostname is `console.<subdomain>.<parentDomain>`
+	// — the `console.` infix is the canonical per-tenant console host
+	// per CLAUDE.md §0 + sme_tenant_gitops.go:536. Without it, the
+	// runtime reconciler emitted `<slug>.<parent>` while the chart-side
+	// overlay emitted `console.<slug>.<parent>` and the two drifted.
+	hostname := fmt.Sprintf("console.%s.%s", subdomain, parentDomain)
 	ns := org.Spec.Slug
 	name := org.Spec.Slug
 
