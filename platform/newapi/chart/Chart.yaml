@@ -1,5 +1,54 @@
 apiVersion: v2
 name: bp-newapi
+# 1.4.27 (TBD-A39 #1834, 2026-05-19): replace the Helm-`lookup`-based
+# DSN Secret render with a post-install/post-upgrade Job that polls
+# CNPG's `<cluster>-app` Secret until populated, composes the SQL_DSN
+# string, and PATCHes it into the chart-managed
+# `<release>-newapi-db-dsn` Secret in place.
+#
+# ROOT CAUSE (#1834 D34 close-audit on t32 2026-05-19):
+#   The pre-1.4.27 cnpg-cluster.yaml rendered the DSN Secret via Helm
+#   `lookup "v1" "Secret" .Release.Namespace <cluster>-app` at template
+#   time. On every freshly-franchised Sovereign CNPG materialises the
+#   `<cluster>-app` source Secret only AFTER bp-newapi's HelmRelease
+#   applies, so the first render's lookup returns nil and the Secret
+#   was committed with an empty password — literally
+#   `postgres://newapi:@newapi-bp-newapi-newapi-pg-rw.newapi.svc.cluster.local:5432/newapi?sslmode=require`.
+#   The chart annotated the rendered Secret `helm.sh/resource-policy:
+#   keep`, so Flux never overwrote the empty bytes on subsequent
+#   reconciles even after CNPG had populated the source. Result on
+#   t32: newapi Pod in 21x CrashLoopBackOff with `password
+#   authentication failed for user "newapi"`. Public probe to
+#   `newapi.t32.omani.works` returned envoy 503 "no healthy upstream".
+#   The chart's own header comment claimed "the 1-minute Flux
+#   reconcile picks it up on the next tick" — verified false in
+#   production; the `resource-policy: keep` annotation pinned the
+#   empty bytes across every subsequent reconcile.
+#
+# FIX (canonical seam — issue #830 Bug 2 + ADR-0001 §11.3
+# anti-duplication):
+#   - cnpg-cluster.yaml: drop the Helm `lookup` / DSN composition. The
+#     DSN Secret now renders as an empty-value placeholder so kubelet
+#     can satisfy the Deployment's secretKeyRef on first schedule.
+#   - NEW templates/database-secret-sync-job.yaml: Helm
+#     post-install/post-upgrade Job that polls `<cluster>-app` (up to
+#     10 min), reads the `password` bytes, composes the canonical
+#     `postgres://<user>:<password>@<host>:5432/<db>?sslmode=<mode>`
+#     string, and strategic-merge PATCHes it into the placeholder
+#     Secret. Hook-weight 5 (after the SA/Role/RoleBinding at 0).
+#     ServiceAccount + Role (get/create/update/patch/apply on
+#     secrets) + RoleBinding bound to the same hook lifecycle.
+#   - Pattern mirrors platform/gitea/chart/templates/database-secret-
+#     sync-job.yaml (proven on otech30, issue #830 Bug 2) and
+#     platform/wordpress-tenant/chart/templates/database-secret-sync-
+#     job.yaml (proven on t26).
+#
+# TEMPLATABILITY (Inviolable Principle #4):
+#   Every knob (cnpg.cluster.owner, cnpg.database, cnpg.sslMode,
+#   cnpg.dsnSecretName) flows through to the Job's env vars, so an
+#   operator override on any of those updates the composed DSN on the
+#   next helm upgrade without forking the chart.
+#
 # 1.4.19 (TBD-A12 #1798, 2026-05-18): add `startupProbe` to the newapi
 # container to gate liveness + readiness until GORM AutoMigrate
 # finishes on first-boot.
@@ -261,7 +310,7 @@ name: bp-newapi
 # blueprint's NS); the prior rule could never reach them and the
 # newapi container looped 1/2 Ready with DB-connect timeouts on
 # fresh prov.
-version: 1.4.26
+version: 1.4.27
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
