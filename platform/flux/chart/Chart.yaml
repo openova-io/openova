@@ -11,7 +11,20 @@ name: bp-flux
 # harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.31.4.
 # Per CLAUDE.md inviolable rule, ALL chart-hook references MUST be
 # explicit Harbor proxy-cache form.
-version: 1.2.2
+#
+# 1.2.3 (TBD-A66, issue #1989, 2026-05-19): stuckHelmReleaseRecovery
+# script gains a SECOND detection branch for HRs stuck in
+# Ready=Unknown despite `.status.history[0].status=deployed`. This is
+# the slow-secondary-CP apiserver-flap failure mode (nbg1-2 / hel1-1 in
+# the t37 canonical walk) where the existing suspend-toggle branch
+# does NOT help because helm-controller's "release in storage" short-
+# circuit never re-evaluates Ready. The new branch patches the status
+# subresource directly to flip Ready=True with audit annotation
+# `stuck-hr-recovery.openova.io/auto-corrected-at=<RFC3339>`. RBAC
+# extended with `helmreleases/status` patch+update verbs (status
+# subresource is a separate RBAC target). Idempotent: annotation
+# guards re-runs.
+version: 1.2.3
 description: |
   Catalyst-curated Blueprint umbrella chart for Flux. Depends on the
   upstream `flux2` chart (fluxcd-community) as a Helm subchart so
