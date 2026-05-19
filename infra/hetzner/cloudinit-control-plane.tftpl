@@ -1256,6 +1256,28 @@ write_files:
             # (no 5/168h limit); default → PROD. Locals in main.tf
             # render the final string so this template stays declarative.
             WILDCARD_CERT_ISSUER: "${wildcard_cert_issuer}"
+            # TBD-A31 (#1885) — Hetzner LB annotations on cilium-gateway
+            # Gateway resource (spec.infrastructure.annotations). These
+            # substitute vars name and locate the LB hcloud-CCM provisions
+            # for the auto-generated `cilium-gateway-cilium-gateway`
+            # Service in kube-system. Mirrors the same 3 vars threaded
+            # into the bootstrap-kit Kustomization for the clustermesh-
+            # apiserver LB (see 01-cilium.yaml apiserver.service.annotations).
+            #   - SOVEREIGN_FQDN_SLUG: short, DNS-safe Sovereign identifier
+            #     used as the LB name prefix so operators can spot the
+            #     gateway LB in the Hetzner Console.
+            #   - SOVEREIGN_REGION_KEY: per-region suffix so each
+            #     multi-region peer's cilium-gateway gets its own LB
+            #     (Hetzner LBs are unique by name — duplicates collapse to
+            #     the first-created instance, hiding the LB for every
+            #     subsequent region).
+            #   - HCLOUD_LB_LOCATION: Hetzner datacenter location for the
+            #     LB. Per-region rendered (primary CP renders var.region,
+            #     secondary CPs render each.value.cloudRegion) so the LB
+            #     and its backend node are co-located.
+            SOVEREIGN_FQDN_SLUG: "${sovereign_fqdn_slug}"
+            SOVEREIGN_REGION_KEY: ${sovereign_region_key}
+            HCLOUD_LB_LOCATION: "${region}"
       ---
       apiVersion: kustomize.toolkit.fluxcd.io/v1
       kind: Kustomization
