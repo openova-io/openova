@@ -217,6 +217,23 @@ Empirical verbatim from helm-controller when this rule was violated:
 
 ---
 
+## 15. Validate IaC changes with the IaC evaluator, NOT a JSON/jq/Python simulation (2026-05-19)
+
+**Rule**: For `.tf` / `.tftpl` changes, validate with REAL `tofu validate` (or `tofu plan`). For Helm chart changes, validate with REAL `helm template` (or `helm install --dry-run`). For Kubernetes manifests, validate via `kubectl apply --dry-run=server`. Python `jsonencode()` simulations, `jq` grep, and hand-rolled "I rendered the template in my head" checks are insufficient — they accept structurally-different shapes that the IaC evaluator's stricter type system rejects at plan-time.
+
+**Why**: PR #1892 (TBD-A32 listener wildcard depth, 2026-05-19) was admin-merged with "verified via Python `jsonencode()` simulation" — but tofu HCL's type-unification rule rejected the ternary expression at plan-time. Every new prov failed at 23s into `tofu apply`. A127 t29 attempt was blocked, and all provs stayed broken until A128 hotfix (#1894) shipped — this time with REAL `tofu validate` evidence attached to the PR description. A Python `json.dumps` of a dict-shaped value will happily emit any structure; HCL's evaluator unifies types across ternary branches and refuses heterogeneous shapes that Python never noticed.
+
+**How to apply**:
+- Edit `.tf`? Run `tofu init && tofu validate` (or `tofu plan` if vars are available) in the same workdir before opening the PR. Paste the `Success! The configuration is valid.` line into the PR description.
+- Edit a `.tftpl`? Render it through tofu's `templatefile()` in a throwaway `.tf` (or via `tofu console`), THEN run `tofu validate` against the consuming module. Don't simulate templatefile in Python.
+- Edit a Helm template? Run `helm template <chart> --values <prod-values>` AND pipe the output through `kubectl apply --dry-run=server -f -` against a real kube-apiserver. Don't eyeball the rendered YAML.
+- Edit a CRD-conformant manifest? Let the kube-apiserver validate via `--dry-run=server` (NOT `--dry-run=client`, which skips schema checks).
+- The PR description must show the validator's actual stdout, not a sentence describing what you expected it to say.
+
+**Anti-pattern**: "I ran `python3 -c "import json; print(json.dumps({...}))"` and it parsed, so the tftpl is correct." This is theater — the JSON parser is not the HCL evaluator.
+
+---
+
 ## Self-check before every commit
 
 Read this checklist before `git push`:
