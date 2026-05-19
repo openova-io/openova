@@ -1,7 +1,42 @@
-# ProviderConfig for provider-hcloud. Token source = the K8s secret
-# `hcloud-credentials` in `crossplane-system`, which the OpenTofu module's
-# cloud-init writes at Phase-0 time so Crossplane can adopt resources
-# immediately after install.
+# ProviderConfig for provider-hcloud (Refs #1947).
+#
+# CRITICAL — the secret reference here MUST stay in lockstep with what
+# `infra/hetzner/cloudinit-control-plane.tftpl` plants on the Sovereign
+# control plane at cloud-init time. Drift between this file and the
+# cloud-init Secret payload silently breaks Crossplane's Hetzner adoption
+# of Phase-0 resources because the Provider rolls out fine (CRDs land),
+# but every ProviderConfig consumer (Server/LoadBalancer/Network …
+# managed resources) reports `ProviderConfigReference` errors at the
+# next reconcile.
+#
+# Canonical seam (matches cloudinit-control-plane.tftpl line ~440 +
+# ~527):
+#   - Secret name:      `cloud-credentials`   (vendor-agnostic name; the
+#                       same Secret can carry e.g. AWS keys on a future
+#                       AWS Sovereign; the cloud-specific shape is
+#                       encoded in the KEY name, not the Secret name)
+#   - Secret namespace: `flux-system`         (same place flux-system
+#                       Reflectors / mothership patterns plant cloud
+#                       credentials; see also ghcr-pull pattern PR #543)
+#   - Key name:         `hcloud-token`        (explicit Hetzner-shape
+#                       key — disambiguates from `aws-access-key-id` on
+#                       a hypothetical AWS Sovereign in the same plane)
+#
+# Before #1947 fix: this file referenced
+#   {namespace: crossplane-system, name: hcloud-credentials, key: token}
+# which is a Secret nothing in the OpenTofu cloud-init plants. Flux's
+# infrastructure-config Kustomization then over-wrote the
+# `cloud-init`-applied ProviderConfig (which DID reference the correct
+# secret) with this broken one — silently — once bootstrap-kit reached
+# Ready. The Provider package itself still came up Healthy (the
+# package install path does not consume ProviderConfig), but
+# `kubectl get providerconfig.hcloud.crossplane.io default` reported
+# a stale secretRef that no managed resource could authenticate against.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #3 (Crossplane = Day-2 mutation seam):
+# adopting Phase-0 resources requires this ProviderConfig point at the
+# Secret the cloud-init Tofu module actually writes. Anything else
+# silently de-credentials the entire Day-2 cloud plane.
 apiVersion: hcloud.crossplane.io/v1beta1
 kind: ProviderConfig
 metadata:
@@ -10,6 +45,6 @@ spec:
   credentials:
     source: Secret
     secretRef:
-      namespace: crossplane-system
-      name: hcloud-credentials
-      key: token
+      namespace: flux-system
+      name: cloud-credentials
+      key: hcloud-token
