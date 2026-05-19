@@ -160,7 +160,7 @@ spec:
       # plain `valkey` Service. Caused 31× CrashLoopBackOff on t34.
       # bp-newapi 1.4.29 ships the corrected
       # `valkey-primary.valkey.svc.cluster.local` default.
-      version: 1.4.29
+      version: 1.4.30
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
