@@ -716,7 +716,7 @@ spec:
       # map. Unblocks D29 customer-journey: marketplace.<sov> 404 →
       # storefront; voucher endpoint 503 → 2xx; SME tenant pipeline
       # reconciliation. Refs #1966 #1741 #1949 #1943.
-      version: 1.4.206
+      version: 1.4.207
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

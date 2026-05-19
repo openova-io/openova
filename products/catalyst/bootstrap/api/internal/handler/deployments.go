@@ -881,7 +881,17 @@ func (d *Deployment) State() map[string]any {
 }
 
 func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
-	var req provisioner.Request
+	// TBD-V4 (issue #1968, 2026-05-19) — pre-initialise Request defaults
+	// BEFORE json.Decode so a body that OMITS `marketplaceEnabled`
+	// (legacy API caller, hand-crafted curl, future automation that
+	// doesn't know about the field) lands with MarketplaceEnabled=true.
+	// The encoding/json package only assigns fields present in the body,
+	// so an explicit `"marketplaceEnabled": false` from the wizard still
+	// wins (canonical pointer-bool-emulation pattern for default-true
+	// bool fields without changing the struct shape). Paired with the
+	// chart-side `${MARKETPLACE_ENABLED:-true}` slot fallback (PR #1967)
+	// and the matching variables.tf default flip.
+	req := provisioner.Request{MarketplaceEnabled: true}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request body: "+err.Error(), http.StatusBadRequest)
 		return

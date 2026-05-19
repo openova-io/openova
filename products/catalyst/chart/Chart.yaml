@@ -1,5 +1,21 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.207 — TBD-V4 (issue #1968, 2026-05-19): source-side default flip
+# for `marketplaceEnabled` (handler pre-init Request{MarketplaceEnabled:
+# true} before json.Decode + variables.tf default "true" + wizard store
+# test). PR #1967 changed only the chart slot fallback to
+# `${MARKETPLACE_ENABLED:-true}`; provisioner.go:1213 was still writing
+# `MARKETPLACE_ENABLED: "false"` literal substituting through, so
+# franchised Sovereigns came up marketplace-disabled. This bump pairs
+# the source-side defaults flip so omitting `marketplaceEnabled` from
+# the deployment POST (legacy API caller, hand-crafted curl) defaults
+# the bool to true via Go's canonical "pre-init before Decode" pattern.
+# Wizard's explicit `false` still wins (StepMarketplace opt-OUT toggle).
+# Chart version bump (1.4.206 → 1.4.207) is the canonical signal that
+# the bootstrap-kit pin moved, paired with the matching version: bump
+# in clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml.
+# Refs #1968 #1966 #1741.
+#
 # 1.4.206 — TBD-A62 (issue #1966, 2026-05-19): default-flip
 # `MARKETPLACE_ENABLED` from `false` to `true` in
 # clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml so every
@@ -1705,8 +1721,8 @@ name: bp-catalyst-platform
 # was already shipped on 1.4.197 (PR #1820 lineage); this completes
 # the data-layer side so the dropdown finally appears on multi-region
 # Sovereigns. Refs #1821, DoD D20.
-version: 1.4.206
-appVersion: 1.4.206
+version: 1.4.207
+appVersion: 1.4.207
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
 # TBD-A30). Pre-1.4.183 every catalyst-system HTTPRoute pinned
