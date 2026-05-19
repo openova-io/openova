@@ -1,5 +1,19 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.208 — TBD-A63 (issue #1972, 2026-05-19 t34): runtime regression
+# fix for the D20 secondary-jobs fan-out. PR #1942 (1.4.199) added
+# chrootSeedSecondaryRegions but gated the entire post-hasBootstrapKit
+# block — including the secondary fan-out call — behind the same
+# `if hasBootstrapKit { return }` short-circuit. By the time /jobs hits
+# the chroot on a fully-converged Sovereign, the phase-1 watcher has
+# already async-seeded the primary bootstrap-kit group, so the
+# secondary fan-out NEVER ran and t34 returned 57 primary-prefixed
+# rows + ZERO hel1-1: / nbg1-2: rows for 6 consecutive XHRs. This
+# bump pairs the seam split in handler/jobs.go (primary seed gated
+# by !hasBootstrapKit, secondary fan-out runs unconditionally with
+# its own SeedJobsFromInformerList monotonic-merge idempotency).
+# Refs #1972 #1942 #1821 D20.
+#
 # 1.4.207 — TBD-V4 (issue #1968, 2026-05-19): source-side default flip
 # for `marketplaceEnabled` (handler pre-init Request{MarketplaceEnabled:
 # true} before json.Decode + variables.tf default "true" + wizard store
@@ -1721,7 +1735,7 @@ name: bp-catalyst-platform
 # was already shipped on 1.4.197 (PR #1820 lineage); this completes
 # the data-layer side so the dropdown finally appears on multi-region
 # Sovereigns. Refs #1821, DoD D20.
-version: 1.4.207
+version: 1.4.208
 appVersion: 1.4.207
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
