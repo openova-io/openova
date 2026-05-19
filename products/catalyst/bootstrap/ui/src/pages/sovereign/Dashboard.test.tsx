@@ -202,3 +202,62 @@ describe('Dashboard — drill-down breadcrumb', () => {
     expect(screen.queryByTestId('dashboard-breadcrumb-0')).toBeNull()
   })
 })
+
+describe('Dashboard — inner-tile drill (issue #1927)', () => {
+  /**
+   * Trust-recovery regression test for issue #1927.
+   *
+   * Before the fix the depth-1 application tiles rendered with
+   * `cursor: default` and silently dropped clicks — 84/85 cells in the
+   * canonical Cluster→Application layer pair were dead. The fix wires
+   * leaf cells with an `id` to navigate to /app/$componentId and flips
+   * their cursor to `pointer`.
+   *
+   * JSDOM does NOT lay out SVG (width is 0, the gated branch in
+   * SquarifiedSurface never renders cells) so this test mocks the
+   * container width via clientWidth + a ResizeObserver that fires its
+   * callback synchronously, then asserts that the rendered cells carry
+   * the new `cursor: pointer` style.
+   */
+  beforeEach(() => {
+    // Force every <div> we measure to report a non-zero width so the
+    // SquarifiedSurface clears its `width > 0` gate and mounts cells.
+    Object.defineProperty(HTMLDivElement.prototype, 'clientWidth', {
+      configurable: true,
+      get() {
+        return 800
+      },
+    })
+    // ResizeObserver that fires once on observe so setWidth(800) lands.
+    class SyncResizeObserver {
+      private cb: ResizeObserverCallback
+      constructor(cb: ResizeObserverCallback) {
+        this.cb = cb
+      }
+      observe() {
+        // Invoke synchronously — no real DOMRect needed; setWidth reads
+        // from clientWidth, not from the entries.
+        this.cb([], this as unknown as ResizeObserver)
+      }
+      unobserve() {}
+      disconnect() {}
+    }
+    ;(globalThis as unknown as { ResizeObserver: typeof SyncResizeObserver }).ResizeObserver =
+      SyncResizeObserver
+  })
+
+  it('renders leaf cells with cursor:pointer when application id is set', async () => {
+    const { container } = renderDashboard('d-1', TWELVE_CELL_FIXTURE)
+    await screen.findByTestId('dashboard-treemap-frame')
+    await waitFor(() => {
+      const svg = container.querySelector('[data-testid="dashboard-treemap-surface"] svg')
+      expect(svg).toBeTruthy()
+    })
+    // Every cell <g> that wraps an item.id MUST advertise pointer cursor
+    // so the operator gets the affordance back. (Pre-fix the inline
+    // style read `cursor: default` for every leaf.)
+    const surface = container.querySelector('[data-testid="dashboard-treemap-surface"] svg')
+    const pointerGroups = surface?.querySelectorAll('g[style*="pointer"]') ?? []
+    expect(pointerGroups.length).toBeGreaterThan(0)
+  })
+})

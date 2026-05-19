@@ -250,14 +250,38 @@ export function Dashboard({
 
   useEffect(() => {
     _onCellClick = (item) => {
-      if (!item.children || item.children.length === 0) return
+      // Inner-tile drill-down (issue #1927):
+      //   • Parent cell (children.length > 0)  → push onto breadcrumb
+      //     stack so the operator drills one layer deeper without a
+      //     refetch.
+      //   • Leaf cell whose CURRENT dimension is `application` and that
+      //     carries a real `id` → deep-link to /app/$componentId so the
+      //     operator can inspect the underlying Helm release. Before
+      //     this fix the inner tiles rendered with `cursor: default`
+      //     and dropped the click silently, leaving 84/85 cells dead
+      //     on the canonical Cluster→Application layer pair.
+      //   • Leaf cell on any other dimension (cluster header, namespace,
+      //     family, sovereign, region, vcluster) without children stays
+      //     a no-op — those rows don't have a stable detail target yet.
       const dimension = layers[drillPath.length] ?? layers[layers.length - 1]
-      setDrillPath((prev) => [
-        ...prev,
-        { dimension, id: item.id, name: item.name },
-      ])
+      if (item.children && item.children.length > 0) {
+        setDrillPath((prev) => [
+          ...prev,
+          { dimension, id: item.id, name: item.name },
+        ])
+        return
+      }
+      if (dimension === 'application' && item.id) {
+        // Inline the navigation so this effect's deps don't have to
+        // carry the outer `navigateToApp` closure (whose identity
+        // changes on every render via the `router` reference).
+        router.navigate({
+          to: '/app/$componentId' as never,
+          params: { componentId: item.id } as never,
+        })
+      }
     }
-  }, [layers, drillPath.length])
+  }, [layers, drillPath.length, router])
 
   useEffect(() => {
     return () => {
@@ -718,7 +742,11 @@ function SquarifiedCell({ rect, colorFn, onHover, onClick }: SquarifiedCellProps
       : colorFn(pct)
 
   const showLabel = w >= LABEL_MIN_WIDTH_PX && h >= LABEL_MIN_HEIGHT_PX
-  const cursor = item.children?.length ? 'pointer' : 'default'
+  // Issue #1927: leaf cells with an `id` are clickable too (handler in
+  // Dashboard decides whether to drill or deep-link to /app/$id). Only
+  // truly inert tiles (synthetic rollups with no id and no children)
+  // stay on the default cursor.
+  const cursor = item.children?.length || item.id ? 'pointer' : 'default'
 
   function handleEnter(e: React.MouseEvent) {
     onHover({ item, x: e.clientX, y: e.clientY })
@@ -727,7 +755,11 @@ function SquarifiedCell({ rect, colorFn, onHover, onClick }: SquarifiedCellProps
     onHover(null)
   }
   function handleClick() {
-    if (item.children?.length) onClick(item)
+    // Issue #1927: forward every click on a cell that carries either
+    // children (drill) or an id (deep-link). The decision of WHAT to do
+    // lives in the page-level _onCellClick mailbox, which knows the
+    // current layer dimension.
+    if (item.children?.length || item.id) onClick(item)
   }
 
   if (isParent) {

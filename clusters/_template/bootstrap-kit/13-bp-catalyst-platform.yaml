@@ -635,7 +635,16 @@ spec:
       # every successful Sandbox CR Create emits
       # `catalyst.tenant.sandbox_requested` — closing the D35 round-trip
       # sandbox-controller's NATSBridge already consumes against.
-      version: 1.4.194
+      # 1.4.195 (TBD-V1, issue #1927, 2026-05-19): treemap inner-tile
+      # drill — fixes the trust-recovery regression where the depth-1
+      # application tiles on the Sovereign dashboard rendered with
+      # `cursor: default` and silently dropped clicks. Inner leaf cells
+      # that carry an `id` now advertise pointer cursor and deep-link to
+      # /app/$componentId via the same router.navigate path the hover
+      # tooltip's "Open" link already used. Parent (with-children)
+      # cells keep their existing drill-down semantics so this change
+      # is purely additive.
+      version: 1.4.195
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
