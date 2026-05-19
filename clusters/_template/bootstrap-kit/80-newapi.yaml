@@ -153,7 +153,14 @@ spec:
       # platform/gitea/chart/templates/database-secret-sync-job.yaml
       # (issue #830 Bug 2) + platform/wordpress-tenant/chart/templates/
       # database-secret-sync-job.yaml (issue #1786).
-      version: 1.4.28
+      # 1.4.29 (TBD-A52 #1944): default Valkey URL was
+      # `valkey.valkey.svc.cluster.local` which is NXDOMAIN — the
+      # bp-valkey bitnami chart with architecture=replication exposes
+      # `valkey-primary` / `valkey-replicas` / `valkey-headless`, not a
+      # plain `valkey` Service. Caused 31× CrashLoopBackOff on t34.
+      # bp-newapi 1.4.29 ships the corrected
+      # `valkey-primary.valkey.svc.cluster.local` default.
+      version: 1.4.30
       sourceRef:
         kind: HelmRepository
         name: bp-newapi

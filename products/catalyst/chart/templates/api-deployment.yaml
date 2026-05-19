@@ -185,7 +185,13 @@ spec:
             # exists on a Sovereign that has installed bootstrap-kit
             # slot 56 with httproute.enabled=true.
             - name: OPENOVA_FLOW_SERVER_URL
-              value: "http://openova-flow-server.catalyst.svc.cluster.local"
+              # Service lives in catalyst-system namespace (see
+              # clusters/_template/bootstrap-kit/56-bp-openova-flow-server.yaml
+              # `spec.targetNamespace: catalyst-system`). The previous
+              # value `.catalyst.svc.cluster.local` failed DNS resolution
+              # (TBD-A56 / #1948, t34 T3 walk 2026-05-19) because that
+              # Service does not exist in the `catalyst` namespace.
+              value: "http://openova-flow-server.catalyst-system.svc.cluster.local"
             # CATALYST_BUILD_SHA / CATALYST_CHART_VERSION — qa-loop iter-3
             # Fix #18 (TC-261). The /api/v1/version handler resolves these
             # env vars first (envOrTrim) before falling back to the ldflag
