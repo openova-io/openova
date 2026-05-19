@@ -24,7 +24,24 @@ name: bp-flux
 # extended with `helmreleases/status` patch+update verbs (status
 # subresource is a separate RBAC target). Idempotent: annotation
 # guards re-runs.
-version: 1.2.3
+#
+# 1.2.4 (TBD-A66-followup, issue #1995, 2026-05-19): observability fix
+# on the TBD-A66 branch. The 1.2.3 implementation redirected the
+# critical `kubectl patch --subresource=status` stderr to /dev/null
+# (`2>&1` to a discarded pipe), so silent failures looked identical to
+# silent successes when the CronJob output was inspected. Agent
+# ae9d7638 on t38 spent ~10 min discovering this the hard way (the
+# patch was failing but the human-readable "RECOVER ... — patching" log
+# line was indistinguishable from a real recovery). 1.2.4 captures
+# stderr to a temp file and emits structured `[A66]` log lines:
+#   - detection: `[A66] HR <ns>/<name> Ready=Unknown for <age>s, history[0]=deployed → attempting patch`
+#   - success:   `[A66] HR <ns>/<name> patched to Ready=True`
+#   - failure:   `[A66] HR <ns>/<name> patch FAILED: <stderr captured>`
+# RBAC was already correct in 1.2.3 (helmreleases/status patch+update
+# verbs grant exists); the silent failure was diagnostic-blind, not
+# RBAC-blind. The Chart.yaml bump here exists so the bootstrap-kit
+# pin auto-sync hook propagates the new image into fresh provs.
+version: 1.2.4
 description: |
   Catalyst-curated Blueprint umbrella chart for Flux. Depends on the
   upstream `flux2` chart (fluxcd-community) as a Helm subchart so
