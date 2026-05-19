@@ -69,11 +69,14 @@ package handler
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -86,6 +89,76 @@ import (
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 )
+
+// ── NATS tenant-event publish (TBD-D35b / #1776) ────────────────────
+//
+// Per ADR-0001 §6 + core/services/shared/events/bridge.go's
+// CanonicalSubject() rule, tenant lifecycle events publish to subjects
+// under `catalyst.tenant.*`. Sandbox-controller already consumes this
+// taxonomy (see core/controllers/sandbox/internal/controller/nats_bridge.go),
+// so adding the publish on the catalyst-api side closes the audit-trail
+// loop: every Sandbox CR materialised on the Sovereign apiserver leaves
+// a corresponding NATS event the operator's audit log can replay.
+//
+// The Publisher interface is nil-tolerant by design: production main.go
+// wires a real publisher when CATALYST_NATS_URL is set (mirroring the
+// `newRBACAuditPublisherFromEnv` pattern); tests bind a recorder; CI
+// without NATS wiring leaves it nil and the publish-side is a no-op so
+// the Sandbox-create hot path never fails because audit isn't wired.
+
+// SandboxRequestedSubject is the canonical NATS subject the catalyst-api
+// emits to after a successful Sandbox CR Create. Sandbox-controller's
+// consumer list MUST contain this subject so the controller can correlate
+// FE-requested sandboxes with reconciler-observed CRs without scraping
+// the apiserver.
+const SandboxRequestedSubject = "catalyst.tenant.sandbox_requested"
+
+// TenantEvent is the on-the-wire payload published to the canonical
+// `catalyst.tenant.*` subjects. Field names mirror the shape downstream
+// consumers (sandbox-controller, audit-trail UI, billing rollup) already
+// parse from the audit.Event struct — but the subject is per-event so
+// consumers can subscribe at the `catalyst.tenant.sandbox_requested`
+// granularity without prefix matching.
+type TenantEvent struct {
+	// TenantID — the operator's Org slug (= namespace the CR lands in).
+	// Empty on a single-tenant chroot when claims.Org is not set; the
+	// payload falls back to the resolved namespace.
+	TenantID string `json:"tenant_id"`
+
+	// SandboxID — the Sandbox CR name (DNS-1123 label). Stable across
+	// the CR's lifetime; consumers key by this.
+	SandboxID string `json:"sandbox_id"`
+
+	// RequestedBy — the operator identity that authored the create.
+	// Email is preferred (operator-readable); falls back to the Keycloak
+	// subject UUID when email is not in the claims set.
+	RequestedBy string `json:"requested_by"`
+
+	// Timestamp — RFC3339 UTC at the moment the catalyst-api wrote the
+	// CR (NOT the apiserver creationTimestamp, which can lag by ms and
+	// is read back from the unstructured response).
+	Timestamp time.Time `json:"timestamp"`
+
+	// SpecHash — SHA-256 of the canonical JSON-serialised spec, hex-
+	// encoded. Lets consumers detect spec drift between the requested
+	// event and a later updated event without re-fetching the CR.
+	SpecHash string `json:"spec_hash"`
+}
+
+// TenantEventPublisher publishes tenant lifecycle events to NATS. The
+// subject is passed explicitly per-call (vs the audit.Publisher pattern
+// where the subject is fixed in the impl) so this one interface covers
+// every `catalyst.tenant.*` event without needing a method per subject.
+//
+// Production main.go binds this to a real NATS-JetStream client when
+// CATALYST_NATS_URL is set; tests bind a recorder. Nil-tolerant on the
+// caller side — see HandleCreateSandboxSession's publish guard.
+type TenantEventPublisher interface {
+	// PublishTenantEvent writes ev to the given NATS subject. MUST NOT
+	// panic on error; production callers log and continue so a
+	// transient NATS outage never wedges the Sandbox-create hot path.
+	PublishTenantEvent(ctx context.Context, subject string, ev TenantEvent) error
+}
 
 // ── Sandbox CRD GVR ─────────────────────────────────────────────────
 //
@@ -447,7 +520,152 @@ func (h *Handler) HandleCreateSandboxSession(w http.ResponseWriter, r *http.Requ
 		"owner_sub", claims.Sub,
 		"org", orgSlug,
 	)
+
+	// Publish catalyst.tenant.sandbox_requested for the audit trail +
+	// cross-component consumers (TBD-D35b / #1776). Best-effort: a NATS
+	// outage MUST NOT fail the HTTP response — the CR has already been
+	// written, so the operator's UI already shows the new sandbox. The
+	// publish-side log captures publish failures for the
+	// audit-completeness alert in the SRE runbook.
+	h.publishSandboxRequested(r.Context(), obj, ns, claims, orgSlug)
+
 	writeJSON(w, http.StatusCreated, unstructuredToSandboxItem(created))
+}
+
+// publishSandboxRequested emits a NATS event on
+// `catalyst.tenant.sandbox_requested` after a successful Sandbox CR
+// Create. Nil-tolerant: when the publisher isn't wired (CI / chroot
+// without CATALYST_NATS_URL) this is a no-op. Errors are logged but
+// never propagated — the CR write has already succeeded by the time
+// this runs.
+//
+// `obj` is the unstructured the handler authored (NOT the apiserver
+// response) so the spec_hash is deterministic across the read-back
+// jitter the apiserver injects (defaults / managedFields / RV).
+func (h *Handler) publishSandboxRequested(
+	ctx context.Context,
+	obj *unstructured.Unstructured,
+	namespace string,
+	claims *auth.Claims,
+	orgSlug string,
+) {
+	if h == nil || h.tenantEvents == nil {
+		return
+	}
+	if obj == nil {
+		return
+	}
+
+	// Tenant identity resolution: claims.Org wins (multi-tenant
+	// Sovereign), then the resolved namespace (single-tenant chroot
+	// fallback — the namespace IS the tenant boundary). orgSlug is
+	// the CRD-pattern-valid label stamped on `spec.owner.orgRef.slug`
+	// and may collapse to "default" when the operator's Org doesn't
+	// satisfy `^[a-z][a-z0-9-]{2,31}$`; using it as the tenant id
+	// would conflate every non-pattern-matching Org under a single
+	// downstream key, so we deliberately prefer the namespace.
+	tenantID := ""
+	if claims != nil {
+		tenantID = strings.TrimSpace(claims.Org)
+	}
+	if tenantID == "" {
+		tenantID = strings.TrimSpace(namespace)
+	}
+	if tenantID == "" {
+		// Last-resort: the orgSlug (which itself falls back to
+		// "default"). Keeps the field non-empty so consumers can index
+		// by it without nil checks.
+		tenantID = strings.TrimSpace(orgSlug)
+	}
+
+	requestedBy := ""
+	if claims != nil {
+		if e := strings.TrimSpace(claims.Email); e != "" {
+			requestedBy = e
+		} else {
+			requestedBy = strings.TrimSpace(claims.Sub)
+		}
+	}
+
+	ev := TenantEvent{
+		TenantID:    tenantID,
+		SandboxID:   obj.GetName(),
+		RequestedBy: requestedBy,
+		Timestamp:   time.Now().UTC(),
+		SpecHash:    sandboxSpecHash(obj),
+	}
+
+	if err := h.tenantEvents.PublishTenantEvent(ctx, SandboxRequestedSubject, ev); err != nil {
+		// Log at Warn — the CR is already created so this is non-fatal,
+		// but operators need to know the audit-trail message was lost
+		// (see #1776: zero `sandbox_requested` events in the stream
+		// despite Sandbox CRs materialising was the original symptom).
+		h.log.Warn("sandbox: tenant-event publish failed",
+			"subject", SandboxRequestedSubject,
+			"sandbox", obj.GetName(),
+			"namespace", namespace,
+			"err", err,
+		)
+		return
+	}
+	h.log.Debug("sandbox: tenant-event published",
+		"subject", SandboxRequestedSubject,
+		"sandbox", obj.GetName(),
+		"tenant", tenantID,
+	)
+}
+
+// sandboxSpecHash computes a stable SHA-256 over the Sandbox CR's
+// `.spec` block. Stable across map-iteration order via the
+// canonicaliseForHash sort. Returns "" when the spec is missing or
+// not a map (defensive — the handler builds the spec as a map[string]any
+// so this should always succeed in production, but a wrong-type spec
+// MUST NOT panic).
+func sandboxSpecHash(obj *unstructured.Unstructured) string {
+	if obj == nil {
+		return ""
+	}
+	spec, found, err := unstructured.NestedFieldNoCopy(obj.Object, "spec")
+	if err != nil || !found || spec == nil {
+		return ""
+	}
+	buf, err := json.Marshal(canonicaliseForHash(spec))
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(buf)
+	return hex.EncodeToString(sum[:])
+}
+
+// canonicaliseForHash recursively walks a map/slice tree and returns a
+// representation where map keys are sorted. Lets json.Marshal produce a
+// byte-stable output so the spec_hash is deterministic across runs.
+// Pure helper — testable in isolation.
+func canonicaliseForHash(in any) any {
+	switch v := in.(type) {
+	case map[string]any:
+		keys := make([]string, 0, len(v))
+		for k := range v {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		// Use a slice of [key, value] pairs so the order is preserved
+		// through json.Marshal (which sorts map keys but doesn't
+		// distinguish nested map identity).
+		pairs := make([][2]any, 0, len(keys))
+		for _, k := range keys {
+			pairs = append(pairs, [2]any{k, canonicaliseForHash(v[k])})
+		}
+		return pairs
+	case []any:
+		out := make([]any, len(v))
+		for i, item := range v {
+			out[i] = canonicaliseForHash(item)
+		}
+		return out
+	default:
+		return v
+	}
 }
 
 // HandleDeleteSandboxSession — DELETE /api/v1/sandbox/sessions/{id}.

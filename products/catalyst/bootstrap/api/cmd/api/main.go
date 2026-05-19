@@ -357,6 +357,16 @@ func main() {
 	h.SetAuditBus(auditBus)
 	log.Info("audit: bus wired", "ringCapacity", auditRingCap)
 
+	// TBD-D35b / #1776 — Sandbox-create NATS publish. Wires a
+	// `catalyst.tenant.*` publisher when CATALYST_NATS_URL is set so
+	// every Sandbox CR Create leaves a corresponding
+	// `catalyst.tenant.sandbox_requested` event on the audit stream.
+	// Returns nil today (placeholder mirroring newRBACAuditPublisher
+	// FromEnv); the real nats.go-importing publisher lands in the
+	// same follow-up slice that swaps the RBAC stub. Nil is safe:
+	// the sandbox_sessions handler treats a nil publisher as a no-op.
+	h.SetTenantEventPublisher(newTenantEventPublisherFromEnv(log))
+
 	// CATALYST_SME_JWT_SECRET — bridge secret for /api/v1/sme/* proxies
 	// (PR #1625 follow-up). The chart's api-deployment.yaml feeds this
 	// via secretKeyRef on `sme-secrets/JWT_SECRET`, mirrored from the
@@ -1462,6 +1472,34 @@ func newRBACAuditPublisherFromEnv(log *slog.Logger) audit.Publisher {
 	// nats.go-importing follow-up slice replaces this stub with a
 	// real publisher. The wiring contract (env vars + Bus.Publisher
 	// field) is intact.
+	return nil
+}
+
+// newTenantEventPublisherFromEnv constructs the cross-process forwarder
+// for the `catalyst.tenant.*` event taxonomy used by the
+// sandbox_sessions handler (TBD-D35b / #1776). Currently returns nil
+// (no publisher) because catalyst-api ships without the `nats.go` SDK
+// in its go.mod — mirrors the `newRBACAuditPublisherFromEnv` placeholder
+// pattern. Production adoption of NATS forwarding lands in a follow-up
+// slice that imports `nats.go` directly. Until then, the handler runs
+// in publish-disabled mode: the Sandbox CR Create still succeeds + the
+// FE still observes the new sandbox, but the `catalyst.tenant.sandbox_
+// requested` event is not emitted (matching the pre-fix behaviour).
+//
+// Per ADR-0001 §6 the subject taxonomy is `catalyst.tenant.<event>`.
+// Per docs/INVIOLABLE-PRINCIPLES.md #4 the URL is env-driven.
+func newTenantEventPublisherFromEnv(log *slog.Logger) handler.TenantEventPublisher {
+	url := os.Getenv("CATALYST_NATS_URL")
+	if url == "" {
+		return nil
+	}
+	subjectPrefix := env("CATALYST_TENANT_NATS_SUBJECT_PREFIX", "catalyst.tenant")
+	log.Info("tenant-events: NATS publisher placeholder wired (forwarding will land in follow-up slice)",
+		"url", url, "subjectPrefix", subjectPrefix,
+	)
+	// Returning nil keeps the handler in publish-disabled mode until
+	// the nats.go-importing follow-up slice replaces this stub. The
+	// wiring contract (env var + Handler.tenantEvents field) is intact.
 	return nil
 }
 
