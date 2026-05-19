@@ -627,7 +627,8 @@ spec:
       # 1.4.192: TBD-C15 (issue #1750) wires /billing/purchase route
       # aliases on billing service + catalyst-api so the close-audit
       # DoD validator on console.<sov-fqdn> stops 404'ing.
-      # 1.4.193 (TBD-D35c, issue #1776, 2026-05-19): catalyst-api now
+      # 1.4.193: (auto-deploy commit 1aea4c3) deploy bump.
+      # 1.4.194 (TBD-D35c, issue #1776, 2026-05-19): catalyst-api now
       # ships the concrete NATS publisher binding the PR #1918 scaffold
       # left as a nil placeholder. Templates/api-deployment.yaml exports
       # CATALYST_NATS_URL hard-coded to
@@ -635,7 +636,7 @@ spec:
       # every successful Sandbox CR Create emits
       # `catalyst.tenant.sandbox_requested` — closing the D35 round-trip
       # sandbox-controller's NATSBridge already consumes against.
-      version: 1.4.193
+      version: 1.4.194
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

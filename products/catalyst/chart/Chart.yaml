@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-catalyst-platform
-# 1.4.193 — TBD-D35c (issue #1776) catalyst-api concrete NATS publisher
+# 1.4.194 — TBD-D35c (issue #1776) catalyst-api concrete NATS publisher
 # binding. Templates/api-deployment.yaml now exports CATALYST_NATS_URL
 # hard-coded to `nats://nats-jetstream.nats-system.svc.cluster.local:4222`
 # so the producer scaffold landed in PR #1918 starts emitting real
@@ -1417,8 +1417,8 @@ name: bp-catalyst-platform
 # 25/TCP (legacy SMTP fallback). All three are explicitly scoped to
 # `toEntities: world`, matching the existing 443/TCP allow. No other
 # rule semantics change. (Fixes PIN-issue 502 regression from #1785.)
-version: 1.4.193
-appVersion: 1.4.193
+version: 1.4.194
+appVersion: 1.4.194
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
 # TBD-A30). Pre-1.4.183 every catalyst-system HTTPRoute pinned
