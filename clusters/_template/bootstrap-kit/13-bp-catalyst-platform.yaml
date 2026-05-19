@@ -689,7 +689,15 @@ spec:
       # /api/v1/sme/bss/overview handler so the BSS landing renders
       # real zeros (full target-state surface) instead of the "API
       # pending" pill caused by the pre-fix 404.
-      version: 1.4.203
+      # 1.4.204 (DoD D20, issue #1821, t34 walk 2026-05-19 ~13:22Z):
+      # the /jobs page Region filter dropdown stayed hidden on a 3-region
+      # Sovereign because chrootSeedJobsStoreIfEmpty only enumerated
+      # primary-cluster HelmReleases. Fix: extend the chroot lazy-seed to
+      # fan out across every k8sCache-registered cluster and emit
+      # region-prefixed install-* Job rows, so JobsTable's
+      # `regionOptions.length > 1` gate trips and the dropdown renders.
+      # Refs #1821.
+      version: 1.4.204
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

@@ -1580,8 +1580,27 @@ name: bp-catalyst-platform
 # (Wave 6 PR 4), /api/v1/sme/orders (Wave 6 PR 3), and
 # /api/v1/sme/billing/vouchers/list (Wave 6 PR 5). The non-zero
 # projection lands with the marketplace / billing wires.
-version: 1.4.203
-appVersion: 1.4.203
+# 1.4.204 — DoD D20 (issue #1821, t34 walk 2026-05-19 ~13:22Z agent
+# a49a48dd): the /jobs page rendered 62 rows on a 3-region Sovereign
+# but the Region filter dropdown was hidden (only STATUS / APP /
+# PARENT visible). Root cause: chrootSeedJobsStoreIfEmpty only
+# enumerated HelmReleases via the in-cluster sovereignDynamicClient
+# (primary region only). Secondary regions' install-* rows never made
+# it to the per-deployment jobs.Store, so JobsTable's regionOptions
+# Set stayed size-1 and the UI's `regionOptions.length > 1` gate
+# correctly hid the dropdown. Fix: after the primary seed, fan out
+# across every cluster registered with h.k8sCache (the chroot picks
+# up secondary kubeconfigs via POST /api/v1/sovereign/secondary-
+# kubeconfig at handover — see sovereign_secondary_kubeconfig.go) and
+# feed region-prefixed seeds (snapshotsToSeedsForRegion) into the
+# same jobs Bridge. Region key derives from the cluster ID via the
+# new pure helper regionFromSecondaryClusterID, which is locked in by
+# jobs_d20_secondary_test.go's 8-case contract. The UI region filter
+# was already shipped on 1.4.197 (PR #1820 lineage); this completes
+# the data-layer side so the dropdown finally appears on multi-region
+# Sovereigns. Refs #1821, DoD D20.
+version: 1.4.204
+appVersion: 1.4.204
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
 # TBD-A30). Pre-1.4.183 every catalyst-system HTTPRoute pinned

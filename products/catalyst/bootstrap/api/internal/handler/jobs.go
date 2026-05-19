@@ -254,6 +254,115 @@ func (h *Handler) chrootSeedJobsStoreIfEmpty(ctx context.Context, dep *Deploymen
 		"jobsWritten", jobsCount,
 		"executionsSeeded", execsSeeded,
 	)
+
+	// D20 (2026-05-19 t34): multi-region fan-out for chroot job seed.
+	// The primary seed above only enumerates HelmReleases visible to the
+	// chroot's in-cluster apiserver — i.e. the primary region. On a
+	// 3-region Sovereign the operator's /jobs view rendered only the
+	// primary region's ~62 install-* rows and the Region filter dropdown
+	// stayed hidden (JobsTable hides it on single-region sets per
+	// regionOptions.length > 1 gate). When secondary kubeconfigs are
+	// registered with h.k8sCache (via POST /api/v1/sovereign/secondary-
+	// kubeconfig at handover, see sovereign_secondary_kubeconfig.go),
+	// enumerate per-secondary-cluster and seed region-prefixed Job rows
+	// so the UI surfaces all-region jobs + auto-shows the Region filter.
+	//
+	// Secondary cluster IDs follow the `<depID>-<regionKey>` convention
+	// (sovereign_secondary_kubeconfig.go:127). The primary cluster ID is
+	// just the bare depID (or `sovereign-<fqdn>` per buildChrootClusterRef
+	// fallback). Anything else is treated as not-our-cluster and skipped
+	// — defense in depth against cross-deployment leakage on a chroot
+	// that gets re-registered against a different deployment record.
+	h.chrootSeedSecondaryRegions(ctx, dep, bridge)
+}
+
+// regionFromSecondaryClusterID — pure helper: given a k8sCache cluster ID
+// and the two possible primary-cluster IDs the chroot uses (the deployment
+// ID and the SOVEREIGN_FQDN-derived fallback), return the region key for a
+// secondary cluster registration, or "" when the cluster is either the
+// primary itself, alien (not "<primaryID>-..."), or has an empty suffix.
+//
+// Secondary cluster IDs follow the `<primaryID>-<regionKey>` convention
+// established by HandleSovereignSecondaryKubeconfig (see
+// sovereign_secondary_kubeconfig.go:127). Region keys like "hel1-1",
+// "nbg1-2" contain hyphens themselves, so the helper uses HasPrefix with
+// the trailing dash to split on the boundary correctly.
+//
+// Exposed package-private so jobs_d20_secondary_test.go can lock in the
+// contract independently of a real k8sCache.Factory.
+func regionFromSecondaryClusterID(clusterID, depID, chrootFallbackID string) string {
+	if clusterID == "" || clusterID == depID || clusterID == chrootFallbackID {
+		return ""
+	}
+	if depID != "" && strings.HasPrefix(clusterID, depID+"-") {
+		return strings.TrimPrefix(clusterID, depID+"-")
+	}
+	// The fallback id is "sovereign-<fqdn>" — only match when the suffix
+	// looks like a real fqdn-derived cluster (i.e. chrootFallbackID is
+	// not the bare "sovereign-" empty-fqdn marker).
+	if chrootFallbackID != "" && chrootFallbackID != "sovereign-" &&
+		strings.HasPrefix(clusterID, chrootFallbackID+"-") {
+		return strings.TrimPrefix(clusterID, chrootFallbackID+"-")
+	}
+	return ""
+}
+
+// chrootSeedSecondaryRegions — D20 fan-out: enumerate HelmReleases from
+// every secondary cluster the chroot has registered in h.k8sCache and
+// feed region-prefixed seeds into the SAME jobs Bridge used by the
+// primary seed above. Region key is derived from the cluster ID by
+// stripping the depID prefix (cluster id "<depID>-<region>" → region).
+//
+// No-op when:
+//   - h.k8sCache is nil (single-cluster Sovereign / CI),
+//   - no secondary clusters registered (single-region Sovereign), or
+//   - DynamicClientFor returns an error (cluster registered but client
+//     not yet built — best-effort, the next /jobs read retries).
+//
+// Idempotent — bridge.SeedJobsFromInformerList monotonic-merges so a
+// re-read after a re-attached watch doesn't dup Job rows.
+func (h *Handler) chrootSeedSecondaryRegions(ctx context.Context, dep *Deployment, bridge *jobs.Bridge) {
+	if h.k8sCache == nil || bridge == nil {
+		return
+	}
+	primaryID := dep.ID
+	chrootPrimaryID := "sovereign-" + strings.TrimSpace(os.Getenv("SOVEREIGN_FQDN"))
+	for _, cid := range h.k8sCache.Clusters() {
+		region := regionFromSecondaryClusterID(cid, primaryID, chrootPrimaryID)
+		if region == "" {
+			continue
+		}
+		dyn, err := h.k8sCache.DynamicClientFor(cid)
+		if err != nil || dyn == nil {
+			h.log.Debug("chroot seed: secondary DynamicClientFor unavailable",
+				"depId", dep.ID, "clusterID", cid, "err", err)
+			continue
+		}
+		snap, err := helmwatch.ListAndSnapshotHelmReleases(ctx, dyn)
+		if err != nil {
+			h.log.Warn("chroot seed: secondary list HelmReleases failed",
+				"depId", dep.ID, "region", region, "err", err)
+			continue
+		}
+		if len(snap) == 0 {
+			continue
+		}
+		seeds := snapshotsToSeedsForRegion(snap, region)
+		jobsCount, execsSeeded, err := bridge.SeedJobsFromInformerList(seeds)
+		if err != nil {
+			h.log.Warn("chroot seed: secondary bridge seed failed",
+				"depId", dep.ID, "region", region, "err", err)
+			continue
+		}
+		h.log.Info("chroot seed: secondary region jobs.Store populated",
+			"depId", dep.ID,
+			"region", region,
+			"clusterID", cid,
+			"helmReleases", len(snap),
+			"jobsWritten", jobsCount,
+			"executionsSeeded", execsSeeded,
+		)
+	}
 }
 
 // jobsStore returns the Handler's jobs.Store. Returns nil when
