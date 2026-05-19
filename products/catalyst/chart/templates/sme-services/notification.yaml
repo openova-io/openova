@@ -91,8 +91,17 @@ spec:
                 secretKeyRef:
                   name: sme-secrets
                   key: SMTP_PASS
+            # CORS_ORIGIN — sourced from the shared configmap so per-Sovereign
+            # FQDN substitution (TBD-A68 / #1994, 2026-05-19) flows through
+            # automatically. Pre-fix this value hardcoded `https://sme.openova.io`
+            # which on every franchised Sovereign made the notification SSE /
+            # webhook surface advertise the mothership origin and reject real
+            # tenant requests at the CORS preflight.
             - name: CORS_ORIGIN
-              value: "https://sme.openova.io"
+              valueFrom:
+                configMapKeyRef:
+                  name: sme-services-config
+                  key: CORS_ORIGIN_PUBLIC
           resources:
             requests:
               cpu: 25m

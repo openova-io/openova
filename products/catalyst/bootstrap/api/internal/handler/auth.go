@@ -411,8 +411,9 @@ func sendPinEmailDefault(to, pin string) error {
 	}
 
 	subject := fmt.Sprintf("Your OpenOva sign-in code: %s", pin)
-	plain := pinEmailPlainText(pin)
-	html := pinEmailHTML(pin)
+	loginURL := pinEmailLoginURL()
+	plain := pinEmailPlainText(pin, loginURL)
+	html := pinEmailHTML(pin, loginURL)
 
 	// RFC 2046 multipart/alternative — clients render HTML when they
 	// support it, fall back to plain otherwise. Boundary is a UUID so it
@@ -454,12 +455,32 @@ func sendPinEmailDefault(to, pin string) error {
 	return smtp.SendMail(addr, authMethod, from, []string{to}, []byte(msg))
 }
 
+// pinEmailLoginURL returns the console login URL the PIN email body
+// should direct the operator to. Chroot mode (SOVEREIGN_FQDN env set)
+// sends tenant users to THEIR Sovereign — `https://console.<fqdn>/login`
+// — so the PIN they're about to copy actually unlocks the tenant
+// workspace they signed up for. Mothership mode (SOVEREIGN_FQDN unset)
+// keeps the historical `https://console.openova.io/sovereign/login`
+// target because that's where operator sign-in lands on Catalyst-Zero.
+//
+// TBD-A68 (#1994, 2026-05-19): pre-fix the URL was hardcoded to
+// `console.openova.io/sovereign/login` regardless of which deployment
+// mode the catalyst-api ran in, which sent every Sovereign tenant
+// straight back to the mothership login form and made PIN sign-in a
+// dead end on franchised Sovereigns.
+func pinEmailLoginURL() string {
+	if fqdn := strings.TrimSpace(os.Getenv("SOVEREIGN_FQDN")); fqdn != "" {
+		return "https://console." + fqdn + "/login"
+	}
+	return "https://console.openova.io/sovereign/login"
+}
+
 // pinEmailPlainText is the text/plain alternative — terse, copy-friendly,
 // single-shot copy of the 6-digit code.
-func pinEmailPlainText(pin string) string {
+func pinEmailPlainText(pin, loginURL string) string {
 	return "Your OpenOva sign-in code is:\r\n\r\n" +
 		"  " + pin + "\r\n\r\n" +
-		"Enter it at https://console.openova.io/sovereign/login\r\n" +
+		"Enter it at " + loginURL + "\r\n" +
 		"This code expires in 10 minutes.\r\n\r\n" +
 		"If you didn't request this, you can ignore this email."
 }
@@ -476,7 +497,7 @@ func pinEmailPlainText(pin string) string {
 //   - Big monospaced 6-digit code in a tinted box (one-tap copy on iOS)
 //   - Expiration line + ignore-if-not-you safety line below
 //   - Footer credit line
-func pinEmailHTML(pin string) string {
+func pinEmailHTML(pin, loginURL string) string {
 	const (
 		bg      = "#f5f6f8"
 		card    = "#ffffff"
@@ -487,6 +508,15 @@ func pinEmailHTML(pin string) string {
 		codeBg  = "#f0f3ff"
 		codeFg  = "#0b0d12"
 	)
+	// Display host = the URL stripped of scheme + path so the visible
+	// hyperlink text reads `console.<fqdn>` (or `console.openova.io` on
+	// the mothership) rather than the full URL.
+	loginHost := loginURL
+	loginHost = strings.TrimPrefix(loginHost, "https://")
+	loginHost = strings.TrimPrefix(loginHost, "http://")
+	if i := strings.Index(loginHost, "/"); i >= 0 {
+		loginHost = loginHost[:i]
+	}
 	return `<!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Your OpenOva sign-in code</title></head>
@@ -500,7 +530,7 @@ func pinEmailHTML(pin string) string {
     </td></tr>
     <tr><td style="background:` + card + `;border:1px solid ` + border + `;border-radius:14px;padding:32px 32px 28px 32px;">
       <h1 style="margin:0 0 6px 0;font-size:20px;font-weight:600;letter-spacing:-0.01em;color:` + textPri + `;">Your sign-in code</h1>
-      <p style="margin:0 0 24px 0;font-size:14px;line-height:1.55;color:` + textSec + `;">Enter this 6-digit code at <a href="https://console.openova.io/sovereign/login" style="color:` + brand + `;text-decoration:none;font-weight:500;">console.openova.io</a> to finish signing in.</p>
+      <p style="margin:0 0 24px 0;font-size:14px;line-height:1.55;color:` + textSec + `;">Enter this 6-digit code at <a href="` + loginURL + `" style="color:` + brand + `;text-decoration:none;font-weight:500;">` + loginHost + `</a> to finish signing in.</p>
       <div style="background:` + codeBg + `;border:1px solid ` + border + `;border-radius:12px;padding:18px 0;text-align:center;font-family:'SF Mono',Menlo,Consolas,monospace;font-size:34px;font-weight:600;letter-spacing:10px;color:` + codeFg + `;">` + pin + `</div>
       <p style="margin:18px 0 0 0;font-size:13px;line-height:1.5;color:` + textSec + `;">This code expires in 10 minutes. If you didn't request this, you can safely ignore this email — your account stays secure.</p>
     </td></tr>

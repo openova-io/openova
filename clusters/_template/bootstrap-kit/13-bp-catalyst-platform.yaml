@@ -726,7 +726,17 @@ spec:
       # `console.<slug>.<parent>` and the two drifted; tenant
       # onboarding emails on every non-openova.io Sovereign leaked the
       # platform marketing host. Refs #1990 TBD-A67.
-      version: 1.4.211
+      # 1.4.212 — TBD-A68 (issue #1994, 2026-05-19): purge five
+      # remaining `.openova.io` leaks in PIN email body, console
+      # MARKETPLACE_URL, and sme-services configmap / notification
+      # Deployment CORS keys. PIN email now reads SOVEREIGN_FQDN env
+      # and emits `console.<fqdn>/login` on chroot, console
+      # MARKETPLACE_URL derives from window.location at runtime,
+      # and the configmap/notification templates wire CORS off
+      # `marketplace.<global.sovereignFQDN>` so every tenant request
+      # stays on its own Sovereign instead of bouncing to the
+      # mothership marketplace. Catalyst-Zero render byte-identical.
+      version: 1.4.212
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

@@ -1,5 +1,38 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.212 — TBD-A68 (issue #1994, 2026-05-19): purge five `.openova.io`
+# leaks that sent tenant users to the mothership instead of THEIR
+# Sovereign. Five surgical fixes:
+#   1. products/catalyst/bootstrap/api/internal/handler/auth.go —
+#      PIN email plaintext + HTML bodies now read SOVEREIGN_FQDN env
+#      and emit `https://console.<fqdn>/login` (chroot mode) or
+#      keep the historical `https://console.openova.io/sovereign/login`
+#      (mothership). Helper `pinEmailLoginURL()` plus regression test
+#      `TestPinEmail_SovereignFQDNRoutesLoginURL` (covers both modes
+#      and asserts the HTML body never routes tenant traffic through
+#      openova.io).
+#   2. core/console/src/lib/config.ts — MARKETPLACE_URL /
+#      CHECKOUT_URL / MARKETPLACE_HOME_URL now derive from
+#      window.location at runtime (build-time env
+#      PUBLIC_MARKETPLACE_ORIGIN override). On a Sovereign tenant
+#      console (e.g. console.acme.omani.homes) the marketplace
+#      resolves to `marketplace.omani.homes`, not `marketplace.openova.io`.
+#   3. products/catalyst/chart/templates/sme-services/configmap.yaml —
+#      CORS_ORIGIN_* / PUBLIC_BASE_URL / PUBLIC_API_BASE_URL /
+#      CNAME_TARGET / CHECKOUT_*_URL templated against
+#      `marketplace.<global.sovereignFQDN>` + sibling platform zone.
+#      Catalyst-Zero render (no sovereignFQDN) keeps the legacy
+#      `sme.openova.io` byte-identical so contabo doesn't drift.
+#   4. products/catalyst/chart/templates/sme-services/notification.yaml —
+#      Notification Deployment's CORS_ORIGIN env now sources from the
+#      shared `sme-services-config.CORS_ORIGIN_PUBLIC` key instead of
+#      hardcoding `https://sme.openova.io`. Per-Sovereign substitution
+#      flows through automatically.
+# Validation: `helm template ... --set global.sovereignFQDN=t38.omani.works`
+# renders ZERO openova.io strings in CORS / PUBLIC_BASE_URL / CHECKOUT
+# keys. `go test ./internal/handler/ -run TestPinEmail` passes both the
+# new regression test (PIN email respects SOVEREIGN_FQDN) and the
+# existing TestSendPinEmail_NoMagicLinkURL guard.
 # 1.4.210 — TBD-A67 (issue #1990, 2026-05-19): restore canonical
 # `console.<slug>.<parent>` infix on per-tenant HTTPRoute hostnames +
 # drop the hardcoded `.openova.io` suffix on notification-service
@@ -1798,8 +1831,8 @@ name: bp-catalyst-platform
 # was already shipped on 1.4.197 (PR #1820 lineage); this completes
 # the data-layer side so the dropdown finally appears on multi-region
 # Sovereigns. Refs #1821, DoD D20.
-version: 1.4.211
-appVersion: 1.4.211
+version: 1.4.212
+appVersion: 1.4.212
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
 # TBD-A30). Pre-1.4.183 every catalyst-system HTTPRoute pinned

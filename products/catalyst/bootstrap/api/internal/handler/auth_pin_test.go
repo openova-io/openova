@@ -564,6 +564,65 @@ func TestSendPinEmail_NoMagicLinkURL(t *testing.T) {
 	}
 }
 
+// TestPinEmail_SovereignFQDNRoutesLoginURL is the regression guard for
+// TBD-A68 / #1994 — the PIN email login URL must follow whichever
+// deployment mode the catalyst-api is running in:
+//
+//   - Chroot mode (SOVEREIGN_FQDN env set) → tenant users get a link
+//     to THEIR Sovereign console (`https://console.<fqdn>/login`).
+//     Pre-fix every Sovereign tenant got
+//     `https://console.openova.io/sovereign/login` and bounced into
+//     Catalyst-Zero instead.
+//   - Mothership mode (SOVEREIGN_FQDN unset) → keep the historical
+//     `https://console.openova.io/sovereign/login` target.
+//
+// Both the plaintext alternative and the HTML body must agree, since
+// some Gmail / Outlook clients still strip <a> and render the visible
+// text only.
+func TestPinEmail_SovereignFQDNRoutesLoginURL(t *testing.T) {
+	t.Run("chroot mode routes to sovereign console", func(t *testing.T) {
+		t.Setenv("SOVEREIGN_FQDN", "t38.omani.works")
+		got := pinEmailLoginURL()
+		want := "https://console.t38.omani.works/login"
+		if got != want {
+			t.Errorf("pinEmailLoginURL: got %q want %q", got, want)
+		}
+
+		plain := pinEmailPlainText("123456", got)
+		if !strings.Contains(plain, want) {
+			t.Errorf("plain body missing %q: %s", want, plain)
+		}
+		if strings.Contains(plain, "openova.io") {
+			t.Errorf("plain body must NOT contain openova.io on a Sovereign: %s", plain)
+		}
+
+		html := pinEmailHTML("123456", got)
+		if !strings.Contains(html, want) {
+			t.Errorf("html body missing %q href", want)
+		}
+		// Visible display host text must be `console.<fqdn>` — never
+		// `console.openova.io` on a Sovereign.
+		if !strings.Contains(html, ">console.t38.omani.works<") {
+			t.Errorf("html body must render visible host `console.t38.omani.works` text")
+		}
+		// Allow the canonical mothership footer link (`<a href="https://openova.io">openova.io</a>`)
+		// — strip it before asserting the body contains no other `openova.io` references.
+		footerStripped := strings.ReplaceAll(html, `<a href="https://openova.io" style="color:#8e94a3;text-decoration:underline;">openova.io</a>`, "")
+		if strings.Contains(footerStripped, "openova.io") {
+			t.Errorf("html body must NOT route tenant traffic through openova.io: %s", footerStripped)
+		}
+	})
+
+	t.Run("mothership mode keeps openova.io target", func(t *testing.T) {
+		t.Setenv("SOVEREIGN_FQDN", "")
+		got := pinEmailLoginURL()
+		want := "https://console.openova.io/sovereign/login"
+		if got != want {
+			t.Errorf("pinEmailLoginURL: got %q want %q", got, want)
+		}
+	})
+}
+
 // TestPinStore_NoDiskPersistence enforces the credential-hygiene rule
 // that PINs are in-memory only.
 func TestPinStore_NoDiskPersistence(t *testing.T) {
