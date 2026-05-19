@@ -412,6 +412,18 @@ type Handler struct {
 	// (in-process by default; tests inject a deterministic instance).
 	auditBus *audit.Bus
 
+	// ── Tenant-event publisher (TBD-D35b / #1776) ──────────────────
+	// tenantEvents — NATS publisher for the `catalyst.tenant.*` event
+	// taxonomy (per ADR-0001 §6 + core/services/shared/events/bridge.go
+	// CanonicalSubject). The sandbox_sessions.go handler publishes to
+	// `catalyst.tenant.sandbox_requested` after every successful
+	// Sandbox CR Create. Nil-tolerant: when nil the publish-side is a
+	// no-op so the Sandbox-create hot path never fails because NATS
+	// isn't wired. Wired from main.go at startup when
+	// CATALYST_NATS_URL is set; tests inject a recorder via
+	// SetTenantEventPublisher.
+	tenantEvents TenantEventPublisher
+
 	// ── Continuum DR clock (EPIC-6 #1101 slice U-DR-1) ─────────────
 	// continuumClock — test seam for the Continuum switchover/failback
 	// handlers. nil ⇒ time.Now. Tests inject a deterministic clock so
@@ -705,6 +717,18 @@ func (h *Handler) SetSMEJWTSecret(secret []byte) { h.smeJWTSecret = secret }
 
 // AuditBus returns the wired Bus or nil. Test helper.
 func (h *Handler) AuditBus() *audit.Bus { return h.auditBus }
+
+// SetTenantEventPublisher wires the NATS publisher used by the
+// sandbox_sessions.go handler (TBD-D35b / #1776). Called by main.go at
+// startup; tests inject a recorder directly. Nil is allowed and turns
+// the publish-side into a no-op so the Sandbox-create hot path stays
+// resilient when NATS isn't wired (CI, chroot without CATALYST_NATS_URL).
+func (h *Handler) SetTenantEventPublisher(p TenantEventPublisher) { h.tenantEvents = p }
+
+// TenantEventPublisherForTest returns the currently wired publisher
+// (nil when unset). Exported for tests so the assertion helper can
+// recover the recorder without re-importing the handler internals.
+func (h *Handler) TenantEventPublisherForTest() TenantEventPublisher { return h.tenantEvents }
 
 // SetMimirURL wires the bp-mimir (slot 23) query-frontend base URL the
 // Pod metrics sparkline path uses. Called by main.go at startup from
