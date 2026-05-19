@@ -53,6 +53,31 @@ docker build -t ghcr.io/openova-io/openova/sandbox-pty-server:dev .
 docker run --rm -p 7681:7681 ghcr.io/openova-io/openova/sandbox-pty-server:dev
 ```
 
+### Bundled agent CLIs
+
+The image is the **agent-runner** — it ships the four publicly
+fetchable agent CLIs the Sandbox catalog promises
+(`products/sandbox/docs/architecture.md` §1 + §7):
+
+| Slug          | Binary on PATH                          | Source                                  |
+|---------------|-----------------------------------------|-----------------------------------------|
+| `qwen-code`   | `qwen-code` (alias of `qwen`)           | npm `@qwen-code/qwen-code`              |
+| `claude-code` | `claude-code` (alias of `claude`)       | npm `@anthropic-ai/claude-code`         |
+| `opencode`    | `opencode`                              | npm `opencode-ai`                       |
+| `aider`       | `aider`                                 | pip `aider-chat` (venv at `/opt/aider-venv`) |
+
+`cursor-agent` is intentionally not bundled — it's a Cursor-hosted
+cloud companion, not a self-hosted CLI; the corresponding bring-your-
+own bridge lives in `claude-code-byos.md`.
+
+Verify after build:
+
+```bash
+for bin in qwen-code claude-code opencode aider; do
+  docker run --rm --entrypoint=which ghcr.io/openova-io/openova/sandbox-pty-server:dev "$bin"
+done
+```
+
 ## Not yet wired
 
 - Auth: today the surface is open; the production deploy is fronted by
