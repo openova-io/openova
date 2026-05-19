@@ -1,5 +1,19 @@
-apiVersion: v2
-name: bp-catalyst-platform
+# 1.4.196 — TBD-V2 (issue #1928, 2026-05-19): plumb App targetNamespace
+# into Resources tab URL. AppDetail Resources tab rendered empty for
+# every operator because the SPA hardcoded `?namespace=default` in
+# every K8s list URL regardless of where the workload actually
+# installed. Root cause: `apiAppQuery` was gated on `!wizardApp`, so
+# when the operator landed on the page with a wizardApp populated, the
+# `apiApp` object stayed undefined → `apiApp?.targetNamespace`
+# resolved to undefined → `appTargetNamespace` fell through to
+# `appNamespace` which defaults to `"default"`. Founder proof:
+# `?namespace=default` → 163 bytes empty; `?namespace=harbor` → 66kB
+# of real K8s objects. Fix: drop the gate so the API detail fetch
+# always runs and `apiApp.targetNamespace` is populated regardless of
+# wizard state. ResourcesTab + LogsTab + TopologyTab now all see the
+# authoritative install namespace. Backend already populates the
+# field correctly (applications.go:1105-1109 for App CR,
+# applications.go:1242-1249 for HR-synth path). Closes #1928.
 # 1.4.195 — TBD-V1 (issue #1927) treemap inner-tile drill. Fixes the
 # trust-recovery regression where the depth-1 application tiles on the
 # Sovereign dashboard rendered with `cursor: default` and silently
@@ -1424,8 +1438,8 @@ name: bp-catalyst-platform
 # 25/TCP (legacy SMTP fallback). All three are explicitly scoped to
 # `toEntities: world`, matching the existing 443/TCP allow. No other
 # rule semantics change. (Fixes PIN-issue 502 regression from #1785.)
-version: 1.4.195
-appVersion: 1.4.194
+version: 1.4.196
+appVersion: 1.4.196
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
 # TBD-A30). Pre-1.4.183 every catalyst-system HTTPRoute pinned

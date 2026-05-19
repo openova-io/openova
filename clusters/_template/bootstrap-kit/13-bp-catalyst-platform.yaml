@@ -644,7 +644,17 @@ spec:
       # tooltip's "Open" link already used. Parent (with-children)
       # cells keep their existing drill-down semantics so this change
       # is purely additive.
-      version: 1.4.195
+      # 1.4.196 (TBD-V2, issue #1928, 2026-05-19): AppDetail Resources
+      # tab rendered empty because the SPA hardcoded `?namespace=default`
+      # in every K8s list URL. `apiAppQuery` was gated on `!wizardApp`
+      # so `apiApp.targetNamespace` stayed undefined whenever a
+      # wizardApp was populated → namespace fell through to "default".
+      # Fix drops the gate so the API detail fetch always runs and the
+      # authoritative install namespace (`harbor`/`alloy`/
+      # `cert-manager`/...) reaches ResourcesTab + LogsTab +
+      # TopologyTab. Backend already populated targetNamespace
+      # correctly for both App-CR and HR-synth paths. Closes #1928.
+      version: 1.4.196
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

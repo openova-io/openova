@@ -129,11 +129,26 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
   // the fly. Prior to this fallback every chroot-installed Application
   // surfaced the misleading "App not found" page even though the
   // Application CR + HelmRelease were both Ready=True.
+  //
+  // TBD-V2 (issue #1928, 2026-05-19): the query was previously gated on
+  // `!wizardApp` — but the wizardApp descriptor carries blueprint
+  // identity ONLY, NOT the runtime install location. When the operator
+  // lands on AppDetail with a wizardApp populated (e.g. they kicked off
+  // the install minutes earlier and the wizard store still holds the
+  // selection), the apiApp stayed undefined → `apiApp?.targetNamespace`
+  // resolved to undefined → `appTargetNamespace` fell through to
+  // `appNamespace` which defaults to `"default"` → ResourcesTab queried
+  // `?namespace=default` and got 0 items (the workload lives in
+  // `harbor`/`alloy`/`cert-manager`/…). Founder proof:
+  // `?namespace=default` → 163 bytes empty; `?namespace=harbor` → 66kB
+  // of real K8s objects. Fix: always fetch the API detail so
+  // `apiApp.targetNamespace` is populated regardless of wizard state.
+  // The synthesisedApp path remains gated on `!wizardApp` below.
   const needsApiFallback = !wizardApp && !!deploymentId && !!componentId
   const apiAppQuery = useQuery({
     queryKey: ['sov-application', deploymentId, componentId],
     queryFn: async () => getApplication(deploymentId, componentId),
-    enabled: needsApiFallback,
+    enabled: !!deploymentId && !!componentId,
     staleTime: 30_000,
     refetchInterval: 30_000,
     retry: 1,
