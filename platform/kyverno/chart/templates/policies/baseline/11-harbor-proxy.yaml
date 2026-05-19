@@ -68,7 +68,7 @@ spec:
             deny:
               conditions:
                 all:
-                  - key: '{{ `{{ element.image }}` }}'
-                    operator: NotMatch
-                    value: {{ .Values.compliancePolicies.harborProxyPull.allowedRegistryRegex | quote }}
+                  - key: '{{ printf `{{ regex_match(%q, element.image) }}` .Values.compliancePolicies.harborProxyPull.allowedRegistryRegex }}'
+                    operator: Equals
+                    value: false
 {{- end -}}

@@ -61,10 +61,12 @@ spec:
             deny:
               conditions:
                 any:
-                  - key: '{{ `{{ element.image }}` }}'
-                    operator: Match
-                    value: "*:latest"
-                  - key: '{{ `{{ element.image }}` }}'
-                    operator: NotMatch
-                    value: "*:*"
+                  # Reject `:latest` tag (any registry/path).
+                  - key: '{{ `{{ regex_match(''(:latest$|^[^@]*latest$)'', element.image) }}` }}'
+                    operator: Equals
+                    value: true
+                  # Reject images with no tag and no @sha256: digest.
+                  - key: '{{ `{{ regex_match(''^[^:@]+$'', element.image) }}` }}'
+                    operator: Equals
+                    value: true
 {{- end -}}
