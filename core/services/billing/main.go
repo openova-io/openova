@@ -134,6 +134,14 @@ func main() {
 		NotificationClient: &http.Client{
 			Timeout: 5 * time.Second,
 		},
+		// JWTSecret — same bytes the inbound JWTAuth middleware below
+		// validates against (sme-secrets/JWT_SECRET). Used by
+		// sendVoucherIssuedEmail to mint a short-lived service token for
+		// the billing→notification hop so notification's matching
+		// JWTAuth middleware accepts the dispatch. Pre-#1999 this hop
+		// carried no Authorization header → silent 401 → voucher email
+		// never delivered despite voucher row persisting.
+		JWTSecret: jwtSecret,
 	}
 
 	// Tenant-events consumer drives the billing-side cascade on

@@ -1,5 +1,45 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.215 — TBD-V8 / #1999 (2026-05-20): fix sme/notification 401 on
+# billing→notification voucher-email dispatch. The notification service's
+# HTTP surface is gated by the shared HS256 JWTAuth middleware
+# (core/services/shared/middleware/jwt.go), but billing's
+# sendVoucherIssuedEmail (core/services/billing/handlers/vouchers.go)
+# carried only Content-Type — no Authorization header. notification
+# 401'd silently; the voucher row persisted and the operator saw HTTP
+# 200, but no email ever landed. Symptom on t38 canonical walk
+# (agent a550281a, 2026-05-19 21:37:33Z): voucher issued OK, recipient
+# IMAP empty, catalyst-api logs showed sme/notification 401 on the
+# downstream dispatch.
+#
+# Investigation showed both Pods already read the SAME sme-secrets/
+# JWT_SECRET (see chart templates/sme-services/billing.yaml line 67-71
+# and notification.yaml line 47-51) — the TBD's hypothesis of a
+# secret-name mismatch was incorrect. The real gap was that
+# billing never used those bytes to mint an outbound service token.
+#
+# Fix: thread the JWT_SECRET bytes through the billing Handler struct
+# (already in scope on main.go for the inbound JWTAuth middleware) and
+# use sharedauth.MintSMEAccessToken — the SAME mint helper catalyst-api
+# uses for its RS256→HS256 bridge — to sign a short-lived service token
+# on the billing→notification hop. sub="sme-billing",
+# role="superadmin", 5-minute TTL. Empty JWTSecret falls back to the
+# legacy no-header path so a stale chart that doesn't wire JWT_SECRET
+# into billing doesn't crash the voucher upsert (mirrors the optional:
+# true contract on catalyst-api's CATALYST_SME_JWT_SECRET secretKeyRef).
+#
+# Validation: TestIssueVoucher_SendsAuthorizationHeader exercises the
+# round-trip — billing mints with the test bytes, then we re-parse the
+# captured token with the SAME bytes (the exact path notification's
+# JWTAuth middleware takes) and assert claim shape. Pre-#1999 the
+# captured request had no Authorization header so the assertion would
+# have failed the moment notification's middleware ran. Companion test
+# TestIssueVoucher_NoAuthHeader_WhenJWTSecretUnset guards the back-
+# compat fallback path. No chart-template change — the symmetric
+# JWT_SECRET wiring was already in place; this PR is a Go-side fix.
+# Bumped on rebase 1.4.214 → 1.4.215 to claim the next version slot
+# above TBD-V11/#2002 (also 1.4.214 on main). Refs #1999, #1842 D28,
+# #1829 D29.
 # 1.4.214 — TBD-V11 / #2002 (2026-05-20): add init container
 # `wait-for-cutover-token` to the SME provisioning Deployment so the
 # Pod does NOT accept tenant requests until bp-self-sovereign-cutover
@@ -1897,8 +1937,8 @@ name: bp-catalyst-platform
 # was already shipped on 1.4.197 (PR #1820 lineage); this completes
 # the data-layer side so the dropdown finally appears on multi-region
 # Sovereigns. Refs #1821, DoD D20.
-version: 1.4.214
-appVersion: 1.4.214
+version: 1.4.215
+appVersion: 1.4.215
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
 # TBD-A30). Pre-1.4.183 every catalyst-system HTTPRoute pinned

@@ -64,6 +64,25 @@ type Handler struct {
 	// substitute a fake; production leaves it nil so RecordMetering
 	// falls back to DefaultCustomerResolver wired against h.Store.
 	MeteringCustomerResolver CustomerResolver
+
+	// JWTSecret is the raw bytes of `sme-secrets/JWT_SECRET` — the SAME
+	// Secret value the notification service reads via secretKeyRef on
+	// `sme-secrets/JWT_SECRET` (see chart templates/sme-services/{billing,
+	// notification}.yaml). Used to mint a short-lived HS256 service token
+	// on the billing→notification hop so notification's JWTAuth middleware
+	// (core/services/shared/middleware/jwt.go) accepts the request.
+	//
+	// Pre-#1999 the billing→notification POST carried only Content-Type
+	// and the JSON body, so notification's HS256 gate 401'd every voucher
+	// email dispatch. Symptom on t38 (TBD-V8): voucher row persisted,
+	// HTTP 200 to operator, no email delivery.
+	//
+	// Optional — empty bytes mean billing falls back to the legacy
+	// no-Authorization-header dispatch. Production wires the real bytes
+	// in main.go via the same JWT_SECRET env the inbound JWTAuth
+	// middleware already consumes; tests may leave it nil to assert the
+	// fallback path or supply test bytes to exercise the mint path.
+	JWTSecret []byte
 }
 
 // ---------------------------------------------------------------------------

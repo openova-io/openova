@@ -36,6 +36,7 @@ import (
 	"time"
 
 	"github.com/openova-io/openova/core/services/billing/store"
+	sharedauth "github.com/openova-io/openova/core/services/shared/auth"
 	"github.com/openova-io/openova/core/services/shared/respond"
 )
 
@@ -127,6 +128,33 @@ type notificationSendRequest struct {
 //
 // Uses h.NotificationClient if set so tests can inject a round-tripper;
 // production wires a 5s-timeout default in main.go.
+//
+// Auth (#1999 / TBD-V8 fix): notification's HTTP surface
+// (`/notification/`) is gated by the same shared HS256 JWTAuth
+// middleware that every other SME microservice uses
+// (core/services/shared/middleware/jwt.go). Pre-#1999 this dispatch
+// carried no Authorization header → notification 401'd silently →
+// voucher row persisted, HTTP 200 to operator, no email ever sent.
+//
+// Fix: when h.JWTSecret is populated, mint a fresh short-lived HS256
+// service-to-service token signed with the SAME `sme-secrets/JWT_SECRET`
+// bytes notification verifies against, and forward it as
+// `Authorization: Bearer …`. The mint helper is the same one
+// catalyst-api's RS256→HS256 bridge uses (sharedauth.MintSMEAccessToken),
+// so the wire contract on the receive side is symmetric — claims carry
+// sub="sme-billing", role="superadmin" so any future per-role gating in
+// notification recognises this as a privileged service caller (today
+// notification's middleware only checks signature validity; the role is
+// future-proofing, not gating).
+//
+// Empty h.JWTSecret falls back to the legacy no-header path so a stale
+// chart that doesn't wire JWT_SECRET into the billing Pod keeps the
+// best-effort fire-and-forget semantics rather than crashing the upsert
+// (mirrors the optional:true contract on catalyst-api's
+// CATALYST_SME_JWT_SECRET secretKeyRef — see chart api-deployment.yaml).
+//
+// Per docs/INVIOLABLE-PRINCIPLES.md #10 the minted token is NEVER
+// logged — only the recipient email + template name are.
 func (h *Handler) sendVoucherIssuedEmail(ctx context.Context, recipient string, p store.PromoCode) error {
 	if h.NotificationURL == "" {
 		// Notification not configured — log via caller, exit clean.
@@ -156,6 +184,24 @@ func (h *Handler) sendVoucherIssuedEmail(ctx context.Context, recipient string, 
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	// Service-to-service auth (#1999 / TBD-V8). Mint a fresh HS256
+	// token with the SAME sme-secrets/JWT_SECRET bytes notification
+	// verifies against. Empty h.JWTSecret → legacy unauth path; the
+	// dispatch will 401 but the voucher row already persisted so the
+	// failure is logged-not-fatal (matches existing best-effort
+	// semantics documented on IssueVoucher).
+	if len(h.JWTSecret) > 0 {
+		tok, mintErr := sharedauth.MintSMEAccessToken(
+			h.JWTSecret,
+			"sme-billing",
+			"sme-billing@openova.internal",
+			"superadmin",
+		)
+		if mintErr != nil {
+			return mintErr
+		}
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
 	client := h.NotificationClient
 	if client == nil {
 		client = &http.Client{Timeout: 5 * time.Second}

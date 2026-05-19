@@ -19,11 +19,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/openova-io/openova/core/services/billing/store"
 )
@@ -195,6 +197,7 @@ type capturedRequest struct {
 	Method string
 	URL    string
 	Body   []byte
+	Header http.Header
 }
 
 func (c *captureRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -206,7 +209,7 @@ func (c *captureRoundTripper) RoundTrip(req *http.Request) (*http.Response, erro
 	}
 	c.mu.Lock()
 	c.requests = append(c.requests, capturedRequest{
-		Method: req.Method, URL: req.URL.String(), Body: body,
+		Method: req.Method, URL: req.URL.String(), Body: body, Header: req.Header.Clone(),
 	})
 	c.mu.Unlock()
 	if c.respondErr != nil {
@@ -438,5 +441,191 @@ func TestIssueVoucher_403WithoutVoucherIssuerRole(t *testing.T) {
 	h.IssueVoucher(w, r)
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d", w.Code)
+	}
+}
+
+// TestIssueVoucher_SendsAuthorizationHeader — #1999 / TBD-V8 regression
+// guard. When h.JWTSecret is populated (production wiring), the
+// notification dispatch MUST carry an `Authorization: Bearer …` header
+// signed HS256 with the SAME secret bytes. Pre-#1999 this hop was
+// header-less, notification's matching JWTAuth middleware
+// (core/services/shared/middleware/jwt.go) 401'd, and the voucher email
+// silently never landed. Test asserts:
+//
+//  1. The outbound request includes an Authorization header with the
+//     "Bearer " prefix and a non-empty token.
+//  2. The token verifies against the SAME secret bytes the test placed
+//     on h.JWTSecret — i.e. the wire contract is symmetric. If the
+//     billing-side ever drifts to a different secret source the
+//     notification side cannot accept the token and this test fails.
+//  3. The minted claims carry sub/role/typ/exp shape the notification
+//     middleware (and any future role-gating it grows) can read via the
+//     same jwt.MapClaims path catalyst-api's RS256→HS256 bridge uses.
+func TestIssueVoucher_SendsAuthorizationHeader(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectExec(regexp.QuoteMeta(
+		`INSERT INTO promo_codes (code, credit_omr, description, active, max_redemptions)
+			 VALUES ($1, $2, $3, $4, $5)
+			 ON CONFLICT (code) DO UPDATE
+			 SET credit_omr = EXCLUDED.credit_omr,
+			     description = EXCLUDED.description,
+			     active = EXCLUDED.active,
+			     max_redemptions = EXCLUDED.max_redemptions,
+			     deleted_at = NULL`,
+	)).WithArgs("AUTH-1", 10, "auth header guard", true, 0).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// Choose explicit test bytes — production reads
+	// sme-secrets/JWT_SECRET in BOTH billing.yaml and notification.yaml
+	// (see chart templates) so the values are guaranteed identical at
+	// runtime. The test exercises the symmetric-bytes property: same
+	// bytes on the mint side as the verify side.
+	secret := []byte("test-sme-jwt-secret-aligned-bytes-32x")
+
+	rt := &captureRoundTripper{}
+	h := &Handler{
+		Store:              store.New(db),
+		NotificationURL:    "http://notification.sme.svc.cluster.local:8087/notification/send",
+		SovereignFQDN:      "omani.works",
+		NotificationClient: &http.Client{Transport: rt},
+		JWTSecret:          secret,
+	}
+
+	body, _ := json.Marshal(map[string]any{
+		"code":            "AUTH-1",
+		"credit_omr":      10,
+		"description":     "auth header guard",
+		"active":          true,
+		"recipient_email": "bob@example.test",
+	})
+	r := httptest.NewRequest("POST", "/billing/vouchers/issue", bytes.NewReader(body))
+	r = withSuperadmin(r)
+	w := httptest.NewRecorder()
+	h.IssueVoucher(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("issue voucher: expected 200, got %d (body=%s)", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sqlmock unmet: %v", err)
+	}
+	if len(rt.requests) != 1 {
+		t.Fatalf("expected 1 notification POST, got %d", len(rt.requests))
+	}
+	got := rt.requests[0]
+
+	// (1) Authorization header present + Bearer prefix.
+	authz := got.Header.Get("Authorization")
+	if authz == "" {
+		t.Fatal("notification dispatch missing Authorization header (regresses #1999 / TBD-V8)")
+	}
+	if !strings.HasPrefix(authz, "Bearer ") {
+		t.Fatalf("Authorization header not Bearer-prefixed: %q", authz)
+	}
+	tokenStr := strings.TrimPrefix(authz, "Bearer ")
+	if tokenStr == "" {
+		t.Fatal("Bearer token is empty string")
+	}
+
+	// (2) Token verifies against the SAME secret bytes. This is the
+	// load-bearing assertion — it's what notification's JWTAuth
+	// middleware does on every inbound /notification/send call. If the
+	// billing-side ever drifts to a different secret source the
+	// notification side cannot accept the token and this fails.
+	parsed, err := jwt.Parse(tokenStr, func(t *jwt.Token) (any, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, jwt.ErrSignatureInvalid
+		}
+		return secret, nil
+	})
+	if err != nil {
+		t.Fatalf("notification side cannot verify token with the SAME secret bytes: %v", err)
+	}
+	if !parsed.Valid {
+		t.Fatal("parsed token reports !Valid")
+	}
+
+	// (3) Claim shape — sub / role / typ / exp.
+	claims, ok := parsed.Claims.(jwt.MapClaims)
+	if !ok {
+		t.Fatalf("claims not jwt.MapClaims: %T", parsed.Claims)
+	}
+	if sub, _ := claims["sub"].(string); sub != "sme-billing" {
+		t.Errorf("sub claim: got %q, want sme-billing", sub)
+	}
+	if role, _ := claims["role"].(string); role != "superadmin" {
+		t.Errorf("role claim: got %q, want superadmin", role)
+	}
+	if typ, _ := claims["typ"].(string); typ != "session" {
+		t.Errorf("typ claim: got %q, want session", typ)
+	}
+	// Token must expire — defends against an accidental no-exp mint
+	// (which would let a stolen token live forever).
+	exp, _ := claims["exp"].(float64)
+	if exp == 0 {
+		t.Error("token missing exp claim — service token must be short-lived")
+	}
+	if int64(exp) <= time.Now().Unix() {
+		t.Errorf("token already expired: exp=%v, now=%v", int64(exp), time.Now().Unix())
+	}
+}
+
+// TestIssueVoucher_NoAuthHeader_WhenJWTSecretUnset — back-compat guard.
+// Empty h.JWTSecret (legacy chart that doesn't wire JWT_SECRET into
+// billing) MUST fall back to the no-header path rather than crash the
+// voucher upsert. The dispatch will still 401 on a JWT-gated
+// notification, but the voucher row already persisted so the failure
+// remains best-effort.
+func TestIssueVoucher_NoAuthHeader_WhenJWTSecretUnset(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectExec(regexp.QuoteMeta(
+		`INSERT INTO promo_codes (code, credit_omr, description, active, max_redemptions)
+			 VALUES ($1, $2, $3, $4, $5)
+			 ON CONFLICT (code) DO UPDATE
+			 SET credit_omr = EXCLUDED.credit_omr,
+			     description = EXCLUDED.description,
+			     active = EXCLUDED.active,
+			     max_redemptions = EXCLUDED.max_redemptions,
+			     deleted_at = NULL`,
+	)).WithArgs("BACKCOMPAT", 5, "", true, 0).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	rt := &captureRoundTripper{}
+	h := &Handler{
+		Store:              store.New(db),
+		NotificationURL:    "http://notification.sme.svc.cluster.local:8087/notification/send",
+		NotificationClient: &http.Client{Transport: rt},
+		// JWTSecret: nil — legacy chart path.
+	}
+
+	body, _ := json.Marshal(map[string]any{
+		"code":            "BACKCOMPAT",
+		"credit_omr":      5,
+		"active":          true,
+		"recipient_email": "legacy@example.test",
+	})
+	r := httptest.NewRequest("POST", "/billing/vouchers/issue", bytes.NewReader(body))
+	r = withSuperadmin(r)
+	w := httptest.NewRecorder()
+	h.IssueVoucher(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("issue voucher: expected 200 even on legacy unauth path, got %d", w.Code)
+	}
+	if len(rt.requests) != 1 {
+		t.Fatalf("expected 1 notification POST, got %d", len(rt.requests))
+	}
+	if authz := rt.requests[0].Header.Get("Authorization"); authz != "" {
+		t.Errorf("expected no Authorization header on legacy path, got %q", authz)
 	}
 }
