@@ -1569,7 +1569,18 @@ security:
       - opentelemetry
       - external-secrets-system
       - cert-manager
+      # TBD-A38 (issue #1917, PR #1919): catalyst-system → sme east-west
+      # for voucher list / issue / redeem + tenant onboarding. The
+      # bp-sme-platform stack lives in `sme`; Console hits
+      # `gateway.sme.svc:8080`. Without the entry the CNP dropped the
+      # traffic and the Console 503'd with `context deadline exceeded`.
       - sme
+      # TBD-A43 (issue #1920): catalyst-system → newapi east-west for
+      # the customer-journey D29 NewAPI v2 calls (`newapi-*.newapi.svc`).
+      # Companion fix to #1919 — PR #1912 was titled "fix catalyst-system
+      # → sme/newapi egress" but only touched the world-egress TCP/6443
+      # block; this PR closes the `newapi` half of that theater.
+      - newapi
     # Adjacent namespaces whose Pods are allowed to INGRESS into
     # catalyst-system. Defaults cover:
     #   - catalyst — bp-self-sovereign-cutover Jobs (incl. the

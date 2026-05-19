@@ -1,5 +1,22 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.190 — TBD-A43 (issue #1920) baseline-default-deny CNP gains the
+# `newapi` namespace in its egress allow-list. Companion fix to TBD-A38
+# (PR #1919, chart 1.4.189) which added `sme`. PR #1912 was titled "fix
+# catalyst-system → sme/newapi egress" but only touched the world-egress
+# TCP/6443 block — `sme` was retroactively covered by #1919 and this PR
+# closes the `newapi` half of the theater. catalyst-system controllers
+# reach the NewAPI v2 service plane (`newapi-*.newapi.svc`) for the
+# customer-journey D29 flows; without `newapi` in the egress allow-list
+# every catalyst-system → NewAPI v2 call times out at the CNP. Fix:
+# append `newapi` to the values default + the template fallback list,
+# and add Case 5c + Case 5d to tests/baseline-cnp-allowlist.sh so any
+# future narrowing of the sme/newapi allow fails Blueprint Release CI
+# before the OCI artifact ships. Attack surface bounded — sme/newapi
+# NS gateways are the canonical traffic destinations for the customer
+# journey. Per Inviolable Principle #4, the list is values-driven so
+# operators can still narrow per-Sovereign.
+#
 # 1.4.189 — TBD-A38 (issue #1917) baseline-default-deny CNP egress
 # allow-list extended with `sme` namespace. The bp-sme-platform chart
 # deploys the SME control-plane (auth, billing, catalog, console,
@@ -1330,8 +1347,8 @@ name: bp-catalyst-platform
 # 25/TCP (legacy SMTP fallback). All three are explicitly scoped to
 # `toEntities: world`, matching the existing 443/TCP allow. No other
 # rule semantics change. (Fixes PIN-issue 502 regression from #1785.)
-version: 1.4.189
-appVersion: 1.4.188
+version: 1.4.190
+appVersion: 1.4.190
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
 # TBD-A30). Pre-1.4.183 every catalyst-system HTTPRoute pinned

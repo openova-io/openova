@@ -608,7 +608,14 @@ spec:
       # during the YAML scanner break introduced by PR #1858 and fixed
       # by PR #1866. Auto-bump-pin step didn't fire during the outage,
       # so this pin lagged by 2 versions. Refs #1864.
-      version: 1.4.189
+      # 1.4.189: TBD-A38 (issue #1917, PR #1919) baseline-default-deny
+      # CNP egress allow-list extended with `sme` (voucher list / issue /
+      # redeem unblocked).
+      # 1.4.190: TBD-A43 (issue #1920) companion fix — adds `newapi`
+      # to the same allow-list so catalyst-system → NewAPI v2 calls
+      # (`newapi-*.newapi.svc`) no longer time out. Closes the
+      # newapi half of the PR #1912 theater incident.
+      version: 1.4.190
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
