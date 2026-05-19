@@ -24,8 +24,21 @@ annotations:
   # (see issue #181 + docs/BLUEPRINT-AUTHORING.md §11.1).
   catalyst.openova.io/no-upstream: "true"
   catalyst.openova.io/smoke-render-mode: "default-off"
-version: 0.3.0
-appVersion: "0.3.0"
+# 0.3.1 (TBD-V14, issue #2015, 2026-05-20): default
+# `env.newapiBaseURL` was `http://newapi.newapi.svc.cluster.local:3000`,
+# but the canonical bp-newapi ClusterIP Service is named via
+# `bp-newapi.fullname` (release `newapi` + chart `bp-newapi`
+# => `newapi-bp-newapi`) per platform/newapi/chart/templates/_helpers.tpl.
+# The bootstrap-kit overlay does NOT override `env.newapiBaseURL`, so
+# every Sovereign sandbox-controller resolved a DNS name no Service
+# publishes — `POST /admin/tokens/sandbox` returned `no such host`
+# and the canonical Pillar-4 customer journey (qwen-code Sandbox
+# session → TokenMint) stalled. Verified via
+# `helm template newapi platform/newapi/chart/ -s templates/service.yaml`
+# → metadata.name: newapi-bp-newapi. Walker on t38 (chart 1.4.216,
+# substrate be4f78bc872e2c56) caught the live regression.
+version: 0.3.1
+appVersion: "0.3.1"
 keywords:
   - catalyst
   - sandbox
