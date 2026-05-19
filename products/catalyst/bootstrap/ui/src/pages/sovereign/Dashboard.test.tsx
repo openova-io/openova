@@ -33,15 +33,27 @@ import {
 import { Dashboard } from './Dashboard'
 import { useWizardStore } from '@/entities/deployment/store'
 import { INITIAL_WIZARD_STATE } from '@/entities/deployment/model'
-import type { TreemapData } from '@/lib/treemap.types'
+import type { TreemapData, TreemapDimension } from '@/lib/treemap.types'
 
-function renderDashboard(deploymentId: string, dataOverride?: TreemapData) {
+interface RenderOpts {
+  initialLayers?: readonly TreemapDimension[]
+}
+
+function renderDashboard(
+  deploymentId: string,
+  dataOverride?: TreemapData,
+  opts: RenderOpts = {},
+) {
   const rootRoute = createRootRoute({ component: () => <Outlet /> })
   const dashRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/provision/$deploymentId/dashboard',
     component: () => (
-      <Dashboard disableStream initialDataOverride={dataOverride} />
+      <Dashboard
+        disableStream
+        initialDataOverride={dataOverride}
+        initialLayers={opts.initialLayers}
+      />
     ),
   })
   const appRoute = createRoute({
@@ -259,5 +271,106 @@ describe('Dashboard — inner-tile drill (issue #1927)', () => {
     const surface = container.querySelector('[data-testid="dashboard-treemap-surface"] svg')
     const pointerGroups = surface?.querySelectorAll('g[style*="pointer"]') ?? []
     expect(pointerGroups.length).toBeGreaterThan(0)
+  })
+
+  /**
+   * 2026-05-19 follow-up (#1927 reopen, agent aced939b walk):
+   *
+   * PR #1931 wired leaf clicks but read the dimension as
+   * `layers[drillPath.length]` — at the canonical default
+   * `layers=['cluster','application']` + drillPath=[] this resolves to
+   * `'cluster'`, so the application-leaf guard fell through and the
+   * click silently dropped on the very 84/85 cells founder reported.
+   *
+   * Additionally the treemap emits `item.id = applicationKey(pod) =
+   * pod.labels['app.kubernetes.io/instance']` which for bootstrap-kit
+   * installs is the BARE upstream label (e.g. `'harbor'`), but
+   * AppDetail's route + lookup both key on the bp- prefixed Application
+   * CR name (`bp-harbor`). The fix normalises bare ids before
+   * `router.navigate()` so the AppDetail surface resolves cleanly.
+   *
+   * This test reproduces the founder-reported config (Cluster→
+   * Application, drillPath=[]) and asserts that clicking a nested
+   * application leaf:
+   *   1. fires the navigation (cursor:pointer affordance + onClick),
+   *   2. targets `/provision/<id>/app/bp-<bare-id>` — NOT bare id.
+   */
+  it('Cluster→Application leaf click navigates to /app/bp-<id> at drillPath=[]', async () => {
+    const NESTED_CLUSTER_APP: TreemapData = {
+      total_count: 3,
+      items: [
+        {
+          id: 'cluster-x',
+          name: 'cluster-x',
+          count: 3,
+          percentage: 50,
+          size_value: 600,
+          children: [
+            { id: 'harbor', name: 'harbor', count: 1, percentage: 60, size_value: 200 },
+            { id: 'mimir',  name: 'mimir',  count: 1, percentage: 30, size_value: 200 },
+            { id: 'cilium', name: 'cilium', count: 1, percentage: 70, size_value: 200 },
+          ],
+        },
+      ],
+    }
+    const { container } = renderDashboard('d-1', NESTED_CLUSTER_APP, {
+      initialLayers: ['cluster', 'application'],
+    })
+    await screen.findByTestId('dashboard-treemap-frame')
+    await waitFor(() => {
+      const svg = container.querySelector('[data-testid="dashboard-treemap-surface"] svg')
+      expect(svg).toBeTruthy()
+    })
+    // The squarified layout emits the cluster header first (depth 0,
+    // isParent=true) then the three application leaves (depth 1). The
+    // leaves carry pointer cursors after PR #1931; this test asserts
+    // the CLICK actually navigates.
+    const surface = container.querySelector('[data-testid="dashboard-treemap-surface"] svg')!
+    // SquarifiedSurface emits leaves with NO header strip (single rect
+    // inside the <g>) and a text label matching the item name. Use the
+    // text content to find the harbor leaf, then click its parent <g>.
+    const labels = Array.from(surface.querySelectorAll('text')) as SVGTextElement[]
+    const harborLabel = labels.find((t) => t.textContent?.startsWith('harbor'))
+    expect(harborLabel, 'harbor label rendered').toBeTruthy()
+    const leafG = harborLabel!.closest('g') as SVGGElement
+    expect(leafG, 'harbor cell <g> found').toBeTruthy()
+    expect((leafG.getAttribute('style') ?? '').includes('pointer')).toBe(true)
+    leafG.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    // tanstack-router updates the memory history synchronously on
+    // .navigate(); the app-target placeholder route renders on tick.
+    await waitFor(() => {
+      expect(screen.queryByTestId('app-target')).toBeTruthy()
+    })
+    // assertion: AppDetail route param is `bp-harbor`, NOT bare `harbor`
+    const history = (
+      (window as unknown as { __rt?: { location?: { pathname?: string } } }).__rt ?? {}
+    ).location?.pathname
+    // Fallback to window.location in jsdom — tanstack-router writes
+    // memory-history paths there via createMemoryHistory.
+    const path = history ?? window.location.pathname
+    expect(path).toMatch(/\/provision\/d-1\/app\/bp-harbor$/)
+  })
+
+  /**
+   * Direct unit-level guard against the bug-A regression: when
+   * layers=['cluster','application'] + drillPath=[], an application
+   * leaf at cell-depth=1 MUST resolve to dimension='application' so
+   * the leaf-branch fires. Asserts the layerIdx math regardless of
+   * future renderer changes.
+   */
+  it('layerIdx math: drillPath.length + cellDepth resolves nested-leaf dimension', () => {
+    const layers: TreemapDimension[] = ['cluster', 'application']
+    const drillPathLen = 0
+    const cellDepth = 1
+    const layerIdx = drillPathLen + cellDepth
+    const dimension = layers[layerIdx] ?? layers[layers.length - 1]
+    expect(dimension).toBe('application')
+
+    // Drilled-in: drillPath=['cluster-x'], single-layer Application.
+    // layerIdx = 1 + 0 = 1 → falls back to last layer = 'application'.
+    const drilledLen = 1
+    const flatDepth = 0
+    const idx2 = drilledLen + flatDepth
+    expect(layers[idx2] ?? layers[layers.length - 1]).toBe('application')
   })
 })

@@ -101,10 +101,16 @@ interface CellHoverInfo {
   item: TreemapItem
   x: number
   y: number
+  /** Layout depth of the cell within the squarified tree. 0 = top-level
+   *  cell at the current drill depth, 1 = first nested layer, etc.
+   *  Used (along with `drillPath.length`) to resolve which dimension
+   *  the hovered/clicked cell actually represents — see the bug-B
+   *  comment in `_onCellClick`. */
+  depth: number
 }
 
 let _onCellHover: ((info: CellHoverInfo | null) => void) | null = null
-let _onCellClick: ((item: TreemapItem) => void) | null = null
+let _onCellClick: ((item: TreemapItem, cellDepth: number) => void) | null = null
 
 /** Neutral fill used when a cell's percentage is null (e.g. utilization
  *  requested but metrics-server is not installed on the Sovereign).
@@ -249,12 +255,13 @@ export function Dashboard({
   }, [])
 
   useEffect(() => {
-    _onCellClick = (item) => {
+    _onCellClick = (item, cellDepth) => {
       // Inner-tile drill-down (issue #1927):
       //   • Parent cell (children.length > 0)  → push onto breadcrumb
       //     stack so the operator drills one layer deeper without a
-      //     refetch.
-      //   • Leaf cell whose CURRENT dimension is `application` and that
+      //     refetch. The breadcrumb step records the dimension of the
+      //     parent — `layers[drillPath.length + cellDepth]`.
+      //   • Leaf cell whose RENDERED dimension is `application` and that
       //     carries a real `id` → deep-link to /app/$componentId so the
       //     operator can inspect the underlying Helm release. Before
       //     this fix the inner tiles rendered with `cursor: default`
@@ -263,7 +270,19 @@ export function Dashboard({
       //   • Leaf cell on any other dimension (cluster header, namespace,
       //     family, sovereign, region, vcluster) without children stays
       //     a no-op — those rows don't have a stable detail target yet.
-      const dimension = layers[drillPath.length] ?? layers[layers.length - 1]
+      //
+      // 2026-05-19 follow-up (issue #1927 reopen, agent aced939b walk):
+      //   PR #1931 read the dimension as `layers[drillPath.length]`
+      //   which always returned the OUTER layer (`cluster` at the
+      //   canonical default `['cluster','application']` + drillPath=[]).
+      //   Even though SquarifiedSurface rendered the inner application
+      //   tiles, the leaf-branch guard `dimension === 'application'`
+      //   was FALSE and the click silently dropped. Fix: include the
+      //   cell's actual layout depth so an application leaf at
+      //   cellDepth=1 under `['cluster','application']` resolves to
+      //   dimension=`application` and triggers the deep-link.
+      const layerIdx = drillPath.length + cellDepth
+      const dimension = layers[layerIdx] ?? layers[layers.length - 1]
       if (item.children && item.children.length > 0) {
         setDrillPath((prev) => [
           ...prev,
@@ -272,12 +291,34 @@ export function Dashboard({
         return
       }
       if (dimension === 'application' && item.id) {
+        // 2026-05-19 follow-up (issue #1927 reopen, bug B):
+        //   the backend's treemap handler emits `id = applicationKey(pod)
+        //   = pod.labels["app.kubernetes.io/instance"]` (dashboard.go
+        //   line 427). For bootstrap-kit installs the upstream subchart
+        //   strips the bp- prefix on its Pod labels (Harbor's helm
+        //   templates the instance label as `harbor`, not `bp-harbor`),
+        //   so `item.id` arrives bare. But the consoleAppDetailRoute
+        //   `/app/$componentId` keys on the Application CR name which
+        //   IS bp-prefixed for every bootstrap-kit install (see
+        //   clusters/_template/bootstrap-kit/*.yaml releaseName/CR
+        //   metadata.name). AppDetail's findApplication() also matches
+        //   on `a.id === 'bp-<slug>'` (applicationCatalog.ts line 179).
+        //   Without normalisation the bare id 404s at AppDetail's
+        //   "App not found" fallback.
+        //
+        //   Apply the same bp- prefix convention AppsPage already uses
+        //   (AppsPage.tsx line 719: `/app/${app.id}` where app.id is
+        //   always bp-prefixed). For ids that already carry the prefix
+        //   we leave them alone — defensive against any treemap source
+        //   that emits the canonical id (e.g. a future dimension that
+        //   buckets on Application CR name directly).
+        const componentId = item.id.startsWith('bp-') ? item.id : `bp-${item.id}`
         // Inline the navigation so this effect's deps don't have to
         // carry the outer `navigateToApp` closure (whose identity
         // changes on every render via the `router` reference).
         router.navigate({
           to: '/app/$componentId' as never,
-          params: { componentId: item.id } as never,
+          params: { componentId } as never,
         })
       }
     }
@@ -299,9 +340,14 @@ export function Dashboard({
   }
 
   function navigateToApp(componentId: string) {
+    // Same bp- prefix normalisation as `_onCellClick` (bug B): the
+    // treemap emits `id` from the Pod's `app.kubernetes.io/instance`
+    // label which is bare (`harbor`), but AppDetail's route + lookup
+    // both key on the bp- prefixed Application CR name (`bp-harbor`).
+    const id = componentId.startsWith('bp-') ? componentId : `bp-${componentId}`
     router.navigate({
       to: '/app/$componentId' as never,
-      params: { componentId } as never,
+      params: { componentId: id } as never,
     })
   }
 
@@ -434,19 +480,27 @@ export function Dashboard({
               isNested={isNested}
               colorFn={colorFn}
               onCellHover={(info) => _onCellHover?.(info)}
-              onCellClick={(item) => _onCellClick?.(item)}
+              onCellClick={(item, depth) => _onCellClick?.(item, depth)}
             />
           )}
 
           {/* Hover tooltip — absolute-positioned Paper. Viewport-clamped
-           *  by the inline style logic. */}
+           *  by the inline style logic. The hovered cell's dimension is
+           *  resolved from `drillPath.length + cell.depth` so a nested
+           *  application leaf under a cluster header tooltips with
+           *  `Open application` even at drillPath=[] (the canonical
+           *  Cluster→Application landing view). See the bug-A comment
+           *  in `_onCellClick`. */}
           {hoverInfo && (
             <HoverTooltip
               info={hoverInfo}
               colorBy={colorBy}
               sizeBy={sizeBy}
               onAppClick={navigateToApp}
-              currentDimension={layers[drillPath.length] ?? layers[layers.length - 1]}
+              currentDimension={
+                layers[drillPath.length + hoverInfo.depth] ??
+                layers[layers.length - 1]
+              }
             />
           )}
         </div>
@@ -647,7 +701,7 @@ interface SquarifiedSurfaceProps {
   isNested: boolean
   colorFn: (pct: number) => string
   onCellHover: (info: CellHoverInfo | null) => void
-  onCellClick: (item: TreemapItem) => void
+  onCellClick: (item: TreemapItem, depth: number) => void
 }
 
 const SURFACE_HEIGHT_PX = 600
@@ -722,7 +776,7 @@ interface SquarifiedCellProps {
   rect: SquarifiedRect
   colorFn: (pct: number) => string
   onHover: (info: CellHoverInfo | null) => void
-  onClick: (item: TreemapItem) => void
+  onClick: (item: TreemapItem, depth: number) => void
 }
 
 function SquarifiedCell({ rect, colorFn, onHover, onClick }: SquarifiedCellProps) {
@@ -749,7 +803,7 @@ function SquarifiedCell({ rect, colorFn, onHover, onClick }: SquarifiedCellProps
   const cursor = item.children?.length || item.id ? 'pointer' : 'default'
 
   function handleEnter(e: React.MouseEvent) {
-    onHover({ item, x: e.clientX, y: e.clientY })
+    onHover({ item, x: e.clientX, y: e.clientY, depth })
   }
   function handleLeave() {
     onHover(null)
@@ -758,8 +812,8 @@ function SquarifiedCell({ rect, colorFn, onHover, onClick }: SquarifiedCellProps
     // Issue #1927: forward every click on a cell that carries either
     // children (drill) or an id (deep-link). The decision of WHAT to do
     // lives in the page-level _onCellClick mailbox, which knows the
-    // current layer dimension.
-    if (item.children?.length || item.id) onClick(item)
+    // current layer dimension (computed from `drillPath.length + depth`).
+    if (item.children?.length || item.id) onClick(item, depth)
   }
 
   if (isParent) {
