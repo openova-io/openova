@@ -53,10 +53,41 @@ import (
 
 // canonicalPlacementModes — must mirror the enum in
 // products/catalyst/chart/crds/blueprint.yaml `placementSchema.modes`.
+//
+// Two tiers of placement modes coexist:
+//
+//  1. Application-tier modes — operator/tenant-facing modes for normal
+//     application Blueprints (the marketplace 99%):
+//     - single-region     (one region, no replication)
+//     - active-active     (multi-region, all primary)
+//     - active-hotstandby (multi-region, primary + warm standby)
+//
+//  2. Bootstrap-topology modes — used by `bp-*-vcluster` and other
+//     bootstrap-kit Blueprints whose placement is dictated by the
+//     Sovereign multi-region topology (docs/SOVEREIGN-MULTI-REGION-
+//     DOD.md A4). These are NOT user-selectable; they document which
+//     regions the bootstrap layer auto-installs the chart into:
+//     - primary-only      (installed only in the primary region; e.g.
+//                          bp-mgmt-vcluster, bp-vcluster-helmrepo)
+//     - secondary-only    (installed only in secondary regions; e.g.
+//                          bp-rtz-vcluster)
+//     - every-region      (installed in every region — primary +
+//                          all secondaries; e.g. bp-dmz-vcluster)
+//
+// Both tiers are validated here so the controller accepts the full
+// 71-blueprint corpus. The CRD's openAPIV3Schema enum
+// (products/catalyst/chart/crds/blueprint.yaml) is the structural mirror
+// and must be kept in sync — see that file's `placementSchema.modes`
+// items.enum.
 var canonicalPlacementModes = map[string]struct{}{
-	"single-region":      {},
-	"active-active":      {},
-	"active-hotstandby":  {},
+	// Application-tier
+	"single-region":     {},
+	"active-active":     {},
+	"active-hotstandby": {},
+	// Bootstrap-topology tier (docs/SOVEREIGN-MULTI-REGION-DOD.md A4)
+	"primary-only":   {},
+	"secondary-only": {},
+	"every-region":   {},
 }
 
 // canonicalManifestKinds — must mirror the enum in
@@ -207,7 +238,7 @@ func Validate(bp *unstructured.Unstructured, catalog map[string]struct{}) Result
 			for _, m := range modes {
 				if _, ok := canonicalPlacementModes[m]; !ok {
 					res.Errors = append(res.Errors, fmt.Sprintf(
-						"spec.placementSchema.modes contains %q; legal values: single-region, active-active, active-hotstandby",
+						"spec.placementSchema.modes contains %q; legal values: single-region, active-active, active-hotstandby, primary-only, secondary-only, every-region",
 						m,
 					))
 				}
@@ -217,7 +248,7 @@ func Validate(bp *unstructured.Unstructured, catalog map[string]struct{}) Result
 		if defaultMode, _, _ := unstructured.NestedString(pSchema, "default"); defaultMode != "" {
 			if _, ok := canonicalPlacementModes[defaultMode]; !ok {
 				res.Errors = append(res.Errors, fmt.Sprintf(
-					"spec.placementSchema.default = %q; legal values: single-region, active-active, active-hotstandby",
+					"spec.placementSchema.default = %q; legal values: single-region, active-active, active-hotstandby, primary-only, secondary-only, every-region",
 					defaultMode,
 				))
 			}
