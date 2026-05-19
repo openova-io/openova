@@ -48,7 +48,9 @@ import { test, expect, type Page, type Locator } from '@playwright/test'
 const LOGO_SURFACE_CANON: Record<string, string> = {
   temporal: '#127ED1',
   ferretdb: '#042B41',
-  alloy: '#FF671D',
+  // Alloy — synced 2026-05-19 to the canonical Grafana Alloy swirl hex
+  // (`#FD6F00` per logoTone.ts); the previous `#FF671D` was stale.
+  alloy: '#FD6F00',
   cilium: '#1A2236',
   grafana: '#0B0F19',
   'cert-manager': '#FFFFFF', // cert-manager genuinely IS on white — see logoTone.ts
@@ -80,14 +82,28 @@ const REJECT_WHITE_TILE = new Set([
  * src/app/layouts/WizardLayout.tsx WIZARD_STEPS. Reordering is a
  * regression: the user has called out Domain-before-Components as the
  * specific bad shape twice.
+ *
+ * Updated 2026-05-19 for D27 (#1555): the wizard expanded from 7 to 8
+ * steps with StepMarketplace inserted between Components and Domain,
+ * and StepCredentials moved to step 7 (just before Review). Per
+ * WIZARD_STEPS in WizardLayout.tsx (id → label):
+ *   1 Organisation
+ *   2 Topology
+ *   3 Provider
+ *   4 Components
+ *   5 Marketplace
+ *   6 Domain
+ *   7 Credentials
+ *   8 Review
  */
 const CANONICAL_STEP_LABELS = [
   'Organisation',
   'Topology',
   'Provider',
-  'Credentials',
   'Components',
+  'Marketplace',
   'Domain',
+  'Credentials',
   'Review',
 ] as const
 
@@ -240,8 +256,9 @@ async function averageLuminance(locator: Locator): Promise<number> {
 
 test.describe('@cosmetic-guard StepComponents card geometry', () => {
   test.beforeEach(async ({ page }) => {
+    // D27 (#1555) — StepComponents is now id=4 (was 5 pre-Marketplace).
     await seedWizardStore(page, {
-      currentStep: 5,
+      currentStep: 4,
       orgName: 'Acme',
       orgIndustry: 'finance',
       orgSize: '50-200',
@@ -460,8 +477,9 @@ test.describe('@cosmetic-guard wizard step flow', () => {
   test('StepComponents does not render legacy "Choose Your Stack" / "Always Included" tab labels', async ({
     page,
   }) => {
+    // D27 (#1555) — StepComponents is now id=4 (was 5 pre-Marketplace).
     await seedWizardStore(page, {
-      currentStep: 5,
+      currentStep: 4,
       orgHeadquarters: 'Frankfurt, Germany',
       topology: 'three-region-ha',
       airgap: false,
@@ -491,8 +509,11 @@ test.describe('@cosmetic-guard wizard step flow', () => {
     await seedWizardStore(page, { currentStep: 1 })
     await page.goto('wizard')
 
+    // D27 (#1555) — WIZARD_STEPS expanded to 8 with Marketplace inserted
+    // between Components and Domain, so the new ids are:
+    //   step-4 = Components, step-5 = Marketplace, step-6 = Domain.
     const domainStepBtn = page.locator('[data-testid="wizard-step-6"]')
-    const componentsStepBtn = page.locator('[data-testid="wizard-step-5"]')
+    const componentsStepBtn = page.locator('[data-testid="wizard-step-4"]')
 
     await expect(
       domainStepBtn,
@@ -500,7 +521,7 @@ test.describe('@cosmetic-guard wizard step flow', () => {
     ).toBeVisible({ timeout: 10_000 })
     await expect(
       componentsStepBtn,
-      'WizardLayout renders a step-5 (Components) button',
+      'WizardLayout renders a step-4 (Components) button',
     ).toBeVisible()
 
     const dLabel = (await domainStepBtn.textContent())?.trim() ?? ''
@@ -511,7 +532,7 @@ test.describe('@cosmetic-guard wizard step flow', () => {
     ).toBe(true)
     expect(
       cLabel.endsWith('Components'),
-      `step 5 reads "${cLabel}" — must end with "Components".`,
+      `step 4 reads "${cLabel}" — must end with "Components".`,
     ).toBe(true)
 
     const isDisabled = await domainStepBtn.evaluate(
@@ -793,7 +814,7 @@ test.describe('@cosmetic-guard jobs surface (issue #204 — table view)', () => 
     ).toBe(0)
   })
 
-  test('2. table headers are name / app / deps / batch / status / started / duration', async ({ page }) => {
+  test('2. table headers are name / app / deps / parent / status / started / duration', async ({ page }) => {
     await page.goto('provision/test-deployment-id/jobs')
     await page.waitForLoadState('domcontentloaded')
 
@@ -801,10 +822,14 @@ test.describe('@cosmetic-guard jobs surface (issue #204 — table view)', () => 
     await expect(table).toBeVisible({ timeout: 10_000 })
     const headerLocators = table.locator('thead th')
     const headers = (await headerLocators.allTextContents()).map((s) => s.trim().toLowerCase())
+    // Issue #204 polish renamed the "batch" column to "parent" so the
+    // header reflects the JobsTable parent-grouping semantics (JobsTable.tsx
+    // thead — <th data-col="parent">Parent</th>). The remaining columns
+    // are unchanged.
     expect(
       headers,
-      `JobsTable column header set = [${headers.join(', ')}]; founder spec issue #204 items #6/#7 require [name, app, deps, batch, status, started, duration] in this order.`,
-    ).toEqual(['name', 'app', 'deps', 'batch', 'status', 'started', 'duration'])
+      `JobsTable column header set = [${headers.join(', ')}]; founder spec issue #204 items #6/#7 require [name, app, deps, parent, status, started, duration] in this order.`,
+    ).toEqual(['name', 'app', 'deps', 'parent', 'status', 'started', 'duration'])
   })
 
   test('3. typing in jobs-search filters the row count', async ({ page }) => {
@@ -1168,8 +1193,9 @@ test.describe('@cosmetic-guard PortalShell theme toggle', () => {
 
 test.describe('@cosmetic-guard StepComponents card description', () => {
   test.beforeEach(async ({ page }) => {
+    // D27 (#1555) — StepComponents is now id=4 (was 5 pre-Marketplace).
     await seedWizardStore(page, {
-      currentStep: 5,
+      currentStep: 4,
       orgName: 'Acme',
       orgIndustry: 'finance',
       orgSize: '50-200',
@@ -1271,57 +1297,81 @@ test.describe('@cosmetic-guard StepComponents card description', () => {
 /* ──────────────────────────────────────────────────────────────────
  * Cloud section (issue #309 supersedes #227/#228)
  *
- * Founder spec lock-in:
+ * Founder spec lock-in (updated 2026-05-19):
  *   • Section is "Cloud" in the sidebar (not "Infrastructure"); the
- *     left rail surfaces a Cloud accordion with sub-items
- *     Architecture / Compute / Network / Storage.
- *   • Bare /cloud URL redirects to /cloud/architecture.
- *   • Legacy /infrastructure/* URLs redirect to /cloud/* equivalents
- *     so deep links + bookmarks survive the rename.
+ *     left rail surfaces a flat Cloud entry (no accordion — issue #350).
+ *   • Legacy /cloud/<segment> URLs redirect to /cloud?view=…&kind=…
+ *     query-string form (router.tsx ~825). Path segments collapsed:
+ *       /cloud/architecture → /cloud?view=graph
+ *       /cloud/compute      → /cloud?view=list&kind=clusters
+ *       /cloud/network      → /cloud?view=list&kind=load-balancers
+ *       /cloud/storage      → /cloud?view=list&kind=pvcs
+ *   • Legacy /infrastructure/* URLs redirect to the same query shape
+ *     so deep links + bookmarks survive the rename (router.tsx ~913).
  *
- * The deeper Cloud-specific behaviour (accordion expand state,
- * sub-item routing, legacy redirects) is asserted in the dedicated
- * cloud-nav.spec.ts so this guard stays focused on the structural
- * surface contract.
+ * The deeper Cloud-specific behaviour (sub-item routing, redirects)
+ * is asserted in the dedicated cloud-nav.spec.ts so this guard stays
+ * focused on the structural surface contract.
  * ────────────────────────────────────────────────────────────────── */
 
 test.describe('@cosmetic-guard cloud section', () => {
-  test('Bare /cloud redirects to /cloud/architecture', async ({ page }) => {
-    await page.goto('provision/test-deployment-id/cloud')
-    await page.waitForLoadState('domcontentloaded')
-
-    await page.waitForFunction(
-      () => window.location.pathname.endsWith('/cloud/architecture'),
-      { timeout: 5000 },
-    )
-
-    const url = new URL(page.url())
-    expect(
-      url.pathname.endsWith('/cloud/architecture'),
-      `Expected /cloud to redirect to /cloud/architecture; got pathname=${url.pathname}. The redirect lives in src/app/router.tsx (provisionCloudIndexRoute beforeLoad). Founder spec (issue #309): "/cloud opens with Architecture view as default".`,
-    ).toBe(true)
-  })
-
-  test('Legacy /infrastructure/* paths redirect to /cloud/* equivalents', async ({ page }) => {
-    const cases: Array<{ from: string; to: string }> = [
-      { from: 'provision/test-deployment-id/infrastructure', to: '/cloud/architecture' },
-      { from: 'provision/test-deployment-id/infrastructure/topology', to: '/cloud/architecture' },
-      { from: 'provision/test-deployment-id/infrastructure/compute', to: '/cloud/compute' },
-      { from: 'provision/test-deployment-id/infrastructure/network', to: '/cloud/network' },
-      { from: 'provision/test-deployment-id/infrastructure/storage', to: '/cloud/storage' },
+  test('Legacy /cloud/<segment> paths redirect to /cloud?view=…&kind=… query shape', async ({ page }) => {
+    // Each legacy segment must resolve to the canonical query shape and
+    // its pathname must end exactly in /cloud (no /architecture, /compute,
+    // /network, /storage suffix). See LEGACY_CLOUD_REDIRECTS in router.tsx.
+    const cases: Array<{ from: string; search: RegExp }> = [
+      { from: 'provision/test-deployment-id/cloud/architecture', search: /\?view=graph(?:&|$)/ },
+      { from: 'provision/test-deployment-id/cloud/compute', search: /\?view=list&kind=clusters(?:&|$)/ },
+      { from: 'provision/test-deployment-id/cloud/network', search: /\?view=list&kind=load-balancers(?:&|$)/ },
+      { from: 'provision/test-deployment-id/cloud/storage', search: /\?view=list&kind=pvcs(?:&|$)/ },
     ]
     for (const c of cases) {
       await page.goto(c.from)
       await page.waitForLoadState('domcontentloaded')
       await page.waitForFunction(
-        (suffix) => window.location.pathname.endsWith(suffix),
-        c.to,
+        ([searchPattern]) => new RegExp(searchPattern).test(window.location.search),
+        [c.search.source] as const,
         { timeout: 5000 },
       )
-      const pathname = new URL(page.url()).pathname
+      const url = new URL(page.url())
       expect(
-        pathname.endsWith(c.to),
-        `Expected ${c.from} to redirect to a path ending in ${c.to}; got ${pathname}. Redirects live in src/app/router.tsx (provisionInfrastructure*Route beforeLoad).`,
+        c.search.test(url.search),
+        `Expected ${c.from} to redirect to a search matching ${c.search}; got ${url.pathname}${url.search}. See LEGACY_CLOUD_REDIRECTS in src/app/router.tsx.`,
+      ).toBe(true)
+      expect(
+        url.pathname.endsWith('/cloud'),
+        `Expected pathname to end in /cloud (path segments collapsed into query shape); got ${url.pathname}.`,
+      ).toBe(true)
+    }
+  })
+
+  test('Legacy /infrastructure/* paths redirect to /cloud?view=…&kind=… query shape', async ({ page }) => {
+    // INFRA_LEGACY_REDIRECTS + provisionInfrastructureIndexRoute in
+    // router.tsx collapse the entire /infrastructure subtree into the
+    // unified /cloud query shape.
+    const cases: Array<{ from: string; search: RegExp }> = [
+      { from: 'provision/test-deployment-id/infrastructure', search: /\?view=graph(?:&|$)/ },
+      { from: 'provision/test-deployment-id/infrastructure/topology', search: /\?view=graph(?:&|$)/ },
+      { from: 'provision/test-deployment-id/infrastructure/compute', search: /\?view=list&kind=clusters(?:&|$)/ },
+      { from: 'provision/test-deployment-id/infrastructure/network', search: /\?view=list&kind=load-balancers(?:&|$)/ },
+      { from: 'provision/test-deployment-id/infrastructure/storage', search: /\?view=list&kind=pvcs(?:&|$)/ },
+    ]
+    for (const c of cases) {
+      await page.goto(c.from)
+      await page.waitForLoadState('domcontentloaded')
+      await page.waitForFunction(
+        ([searchPattern]) => new RegExp(searchPattern).test(window.location.search),
+        [c.search.source] as const,
+        { timeout: 5000 },
+      )
+      const url = new URL(page.url())
+      expect(
+        c.search.test(url.search),
+        `Expected ${c.from} to redirect to a search matching ${c.search}; got ${url.pathname}${url.search}. See INFRA_LEGACY_REDIRECTS in src/app/router.tsx.`,
+      ).toBe(true)
+      expect(
+        url.pathname.endsWith('/cloud'),
+        `Expected pathname to end in /cloud (no /architecture, /compute, /storage, /network suffix); got ${url.pathname}.`,
       ).toBe(true)
     }
   })
