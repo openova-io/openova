@@ -59,6 +59,47 @@ name: bp-catalyst-platform
 # `resources:` list, so contabo continues to source the `sme`
 # namespace + secrets from clusters/contabo-mkt/apps/sme/.
 # Refs #1943.
+# 1.4.205 — TBD-V1 #1927 reopen (t34 chart 1.4.197 walk, agent aced939b
+# 2026-05-19 12:21Z). PR #1931 wired inner leaf clicks but the fix was
+# partial at the canonical default `layers=['cluster','application']` +
+# `drillPath=[]` config — the SAME layout the founder reported as
+# broken on 07:14Z. Two stacked bugs (both in
+# products/catalyst/bootstrap/ui/src/pages/sovereign/Dashboard.tsx):
+#
+#   (A) `_onCellClick` resolved `dimension = layers[drillPath.length]`,
+#       which at root depth returns `'cluster'`. The leaf-branch
+#       guard `dimension === 'application'` was FALSE for every nested
+#       application leaf even though those leaves were rendered as
+#       leaf cells (children.length=0, id='harbor'). Fix: include the
+#       cell's own layout depth — `layerIdx = drillPath.length + cellDepth`.
+#       For an Application leaf at cellDepth=1 under the Cluster→
+#       Application layer pair, layerIdx=1 → dimension='application'.
+#       Surface plumbed cellDepth through the mailbox onClick + onHover
+#       signatures. Same fix applied to the HoverTooltip's
+#       `currentDimension` so the Open-application button surfaces
+#       on the canonical landing view.
+#
+#   (B) The backend emits `item.id = applicationKey(pod) =
+#       pod.labels['app.kubernetes.io/instance']` (dashboard.go:427).
+#       For bootstrap-kit installs, the upstream subchart strips the
+#       bp- prefix on its Pod labels (Harbor templates the instance
+#       label as `harbor`, not `bp-harbor`). But the consoleAppDetailRoute
+#       `/app/$componentId` (router.tsx:1362) keys on the Application
+#       CR `metadata.name` which IS bp- prefixed for every bootstrap-
+#       kit install (clusters/_template/bootstrap-kit/*.yaml). Without
+#       normalisation the bare id reached AppDetail's "App not found"
+#       fallback. Fix: prefix-normalise in `_onCellClick` and
+#       `navigateToApp` — `item.id.startsWith('bp-') ? item.id : 'bp-'+item.id`.
+#       This matches the existing AppsPage convention (AppsPage.tsx:719
+#       passes `app.id` which is always bp- prefixed) so the deep-link
+#       lands on the same surface AppsPage uses.
+#
+# Test: Dashboard.test.tsx — added two regression guards for #1927
+# reopen. (1) full-stack jsdom assert that clicking a nested
+# Application leaf under Cluster→Application + drillPath=[] navigates
+# to /provision/<id>/app/bp-harbor (NOT bare /app/harbor). (2) unit
+# guard on the layerIdx math.
+# Refs #1927.
 # 1.4.198 — issue #1928 residual (t34 chart 1.4.197 walk, 2026-05-19
 # 12:21Z agent aced939b): the Resources tab still rendered 0/0/0 across
 # every kind for the bootstrap-kit `bp-harbor` Application even after
@@ -1599,8 +1640,8 @@ name: bp-catalyst-platform
 # was already shipped on 1.4.197 (PR #1820 lineage); this completes
 # the data-layer side so the dropdown finally appears on multi-region
 # Sovereigns. Refs #1821, DoD D20.
-version: 1.4.204
-appVersion: 1.4.204
+version: 1.4.205
+appVersion: 1.4.205
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
 # TBD-A30). Pre-1.4.183 every catalyst-system HTTPRoute pinned

@@ -697,7 +697,16 @@ spec:
       # region-prefixed install-* Job rows, so JobsTable's
       # `regionOptions.length > 1` gate trips and the dropdown renders.
       # Refs #1821.
-      version: 1.4.204
+      # 1.4.205 (issue #1927 reopen, t34 walk 2026-05-19 12:21Z agent
+      # aced939b): Dashboard treemap inner-tile click was still dead at
+      # the canonical default Cluster→Application + drillPath=[] config
+      # after PR #1931. Fixed _onCellClick dimension resolution to use
+      # cellDepth (drillPath.length + cellDepth) + bp- prefix-normalise
+      # the BE-emitted bare id ('harbor' → 'bp-harbor') so the deep-link
+      # to /app/$componentId lands on AppDetail's CR-keyed lookup
+      # rather than 404'ing at "App not found". See Chart.yaml comment
+      # block + Dashboard.test.tsx regression guards. Refs #1927.
+      version: 1.4.205
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
