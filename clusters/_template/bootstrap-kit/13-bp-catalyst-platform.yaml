@@ -746,6 +746,16 @@ spec:
       # PR; the code fix is upstream in #1910. The CI auto-bump-
       # images job skipped controller images (TBD-A69 follow-up
       # tracks closing that gap).
+      # 1.4.215 — TBD-V8 / #1999 (2026-05-20): fix sme/notification 401
+      # on the billing→notification voucher-email dispatch. billing's
+      # outbound POST /notification/send carried no Authorization
+      # header so notification's HS256 JWTAuth middleware 401'd every
+      # voucher-email dispatch — voucher row persisted, HTTP 200 to
+      # operator, no email landed. Fix mints a short-lived HS256
+      # service token signed with the SAME sme-secrets/JWT_SECRET
+      # bytes notification already verifies against. See Chart.yaml
+      # changelog for full trace. Bumped on rebase 1.4.214 → 1.4.215
+      # to claim next slot above TBD-V11/#2002 (also 1.4.214 on main).
       # 1.4.214 (TBD-V11 / #2002): add init container
       # `wait-for-cutover-token` to the SME provisioning Deployment.
       # The Pod now blocks on Secret sme/provisioning-github-token
@@ -763,7 +773,7 @@ spec:
       # via .Values.smeServices.provisioning.waitForCutoverToken.*
       # (default enabled on Sovereigns; contabo overlay flips
       # enabled=false because Step 09 never runs on Catalyst-Zero).
-      version: 1.4.214
+      version: 1.4.215
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
