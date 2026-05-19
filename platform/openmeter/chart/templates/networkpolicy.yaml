@@ -60,11 +60,18 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: {{ .Release.Namespace }}
-    # CNPG aggregation backend (ClickHouse-less profile).
+    # CNPG aggregation backend (ClickHouse-less profile). The actual
+    # Postgres workload Pods (the ones OpenMeter must reach on 5432)
+    # reconcile into the same namespace as the CNPG `Cluster` CR, NOT
+    # into the cnpg-system operator namespace. Select by the operator-
+    # emitted `cnpg.io/cluster=<clusterName>` Pod label so the rule
+    # survives the operator namespace being different from the data-
+    # plane namespace (issue #1901). Cluster name is operator-tunable
+    # via `networkPolicy.cnpgClusterName`.
     - to:
-        - namespaceSelector:
+        - podSelector:
             matchLabels:
-              kubernetes.io/metadata.name: {{ .Values.networkPolicy.cnpgNamespace | default "cnpg" }}
+              cnpg.io/cluster: {{ .Values.networkPolicy.cnpgClusterName | default "openmeter-pg" }}
       ports:
         - protocol: TCP
           port: {{ .Values.networkPolicy.cnpgPort | default 5432 }}

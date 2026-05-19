@@ -86,11 +86,18 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: {{ .Release.Namespace }}
-    # CNPG metadata DB — reachable in the cnpg namespace via service ref.
+    # CNPG metadata DB — the actual Postgres workload Pods (the ones
+    # Harbor must reach on 5432) live in the same namespace as the
+    # CNPG `Cluster` CR (default `.Release.Namespace`, overridable via
+    # `postgres.cluster.namespace`), NOT in the cnpg-system operator
+    # namespace. Select by the operator-emitted
+    # `cnpg.io/cluster=<clusterName>` Pod label so the rule survives
+    # the operator namespace being different from the data-plane
+    # namespace (issue #1901).
     - to:
-        - namespaceSelector:
+        - podSelector:
             matchLabels:
-              kubernetes.io/metadata.name: {{ .Values.harborOverlay.networkPolicy.cnpgNamespace | default "cnpg" }}
+              cnpg.io/cluster: {{ .Values.postgres.cluster.name | default "harbor-pg" }}
       ports:
         - protocol: TCP
           port: 5432

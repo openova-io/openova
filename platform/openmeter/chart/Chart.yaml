@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-openmeter
-version: 1.0.0
+version: 1.0.1
 appVersion: "1.0.0-beta.213"
 description: |
   Catalyst Blueprint umbrella chart for OpenMeter — real-time CloudEvents

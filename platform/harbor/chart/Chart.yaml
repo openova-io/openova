@@ -46,7 +46,13 @@ type: application
 # sectionName by default — multi-zone Sovereigns rename HTTPS listeners
 # to https-<sanitised-zone>, breaking NoMatchingListener with the prior
 # pinned sectionName: https. Matches the catalyst-system fix in PR #1888.
-version: 1.2.18
+# 1.2.19 (Fix #1901, TBD-A39, 2026-05-19): change CNPG egress
+# NetworkPolicy from namespaceSelector=cnpg (the operator NS) to
+# podSelector matchLabels cnpg.io/cluster=<postgres.cluster.name>.
+# The Postgres workload Pods reconcile into the same NS as the
+# CNPG Cluster CR, NOT into cnpg-system; the prior rule could
+# never match the actual DB Pods.
+version: 1.2.19
 appVersion: "2.14.3"
 keywords: [catalyst, blueprint, harbor, oci, registry, container]
 maintainers:

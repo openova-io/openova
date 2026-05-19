@@ -734,9 +734,13 @@ networkPolicy:
     fromNamespaceLabels:
       kubernetes.io/metadata.name: traefik
   egress:
-    # bp-cnpg
-    - namespaceLabel: cnpg-system
-      port: 5432
+    # NOTE: bp-cnpg egress is NOT listed here — it is rendered
+    # directly in templates/networkpolicy.yaml when `.Values.cnpg.enabled`
+    # so the rule can pod-select by `cnpg.io/cluster=<clusterName>`
+    # (issue #1901). The CNPG operator runs in `cnpg-system` but the
+    # actual Postgres Pods reconcile into `.Release.Namespace` (this
+    # blueprint's namespace), which `cnpg-system` namespaceSelector
+    # could never reach.
     # bp-valkey
     - namespaceLabel: valkey
       port: 6379

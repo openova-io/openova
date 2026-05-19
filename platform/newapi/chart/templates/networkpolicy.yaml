@@ -40,7 +40,25 @@ spec:
         - port: 4222
           protocol: TCP
     {{- end }}
-    # In-cluster service egress.
+    {{- if .Values.cnpg.enabled }}
+    # bp-cnpg Postgres — the CNPG Cluster CR is rendered into
+    # `.Release.Namespace` by templates/cnpg-cluster.yaml. The
+    # operator pods live in cnpg-system; the actual Postgres
+    # workload Pods (the ones bp-newapi must reach on 5432)
+    # live in the same namespace as this NetworkPolicy. Select
+    # by the operator-emitted `cnpg.io/cluster=<clusterName>`
+    # Pod label so the rule survives the operator namespace
+    # being different from the data-plane namespace (issue #1901).
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: {{ printf "%s-newapi-pg" (include "bp-newapi.fullname" .) }}
+      ports:
+        - port: 5432
+          protocol: TCP
+    {{- end }}
+    # In-cluster service egress (peer blueprints in their own
+    # namespaces, e.g. bp-valkey, bp-keycloak, bp-vllm).
     {{- range .Values.networkPolicy.egress }}
     - to:
         - namespaceSelector:

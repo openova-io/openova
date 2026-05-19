@@ -252,7 +252,16 @@ name: bp-newapi
 # now uses `{{- with $parent.sectionName }}` to drop the field entirely
 # when blank, and values.yaml defaults sectionName to "". Matches the
 # catalyst-system fix in PR #1888.
-version: 1.4.24
+# 1.4.25 (Fix #1901, TBD-A39, 2026-05-19): replace bp-cnpg
+# NetworkPolicy egress (namespaceLabel: cnpg-system) with a
+# podSelector matching cnpg.io/cluster=<release>-bp-newapi-newapi-pg
+# in templates/networkpolicy.yaml gated on `.Values.cnpg.enabled`.
+# The CNPG operator runs in cnpg-system but the actual Postgres
+# workload Pods reconcile into `.Release.Namespace` (this
+# blueprint's NS); the prior rule could never reach them and the
+# newapi container looped 1/2 Ready with DB-connect timeouts on
+# fresh prov.
+version: 1.4.25
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
