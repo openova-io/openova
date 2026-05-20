@@ -18,12 +18,12 @@ The same applies to Cursor, Qwen Code, Aider, Opencode — their native UX rende
 
 ## Developer journey — building EventForge in a Sandbox
 
-The developer is an experienced Claude Code user. They are signed into their Org inside Sovereign `rzk7` and have just been invited to a Sandbox.
+The developer is an experienced Claude Code user. They are signed into their Org inside Sovereign `t39` and have just been invited to a Sandbox.
 
 ### Scene 1 — Enter the Sandbox
 
 ```
-┌─ Sovereign Console — console.rzk7.openova.io ─────────────┐
+┌─ Sovereign Console — console.t39.omani.works ─────────────┐
 │  Overview   Canvas   Sandbox   Workloads   Settings        │
 └────────────────────────────────────────────────────────────┘
 ```
@@ -98,7 +98,7 @@ ExitPlanMode returns the familiar plan card:
 │  6. Public pages:         /e/[slug]                          │
 │  7. Stripe Connect onboarding (sandbox.stripe.bindAccount)  │
 │  8. Email: Resend (sandbox.secrets.resend)                   │
-│  9. PR -> preview at eventforge.sb-rzk7.openova.io           │
+│  9. PR -> preview at eventforge.sb-t39.omani.homes           │
 │                                                              │
 │  [ Approve & build ]   [ Edit plan ]   [ Cancel ]            │
 └──────────────────────────────────────────────────────────────┘
@@ -117,8 +117,8 @@ ExitPlanMode returns the familiar plan card:
 > v sandbox.auth.provisionRealm   { app: eventforge }
       realm     eventforge-orgs
       client    eventforge-web   (confidential, PKCE)
-      issuer    https://auth.rzk7.openova.io/realms/...
-      redirect  https://eventforge.sb-rzk7.openova.io/...
+      issuer    https://auth.t39.omani.works/realms/...
+      redirect  https://eventforge.sb-t39.omani.homes/...
                 http://localhost:3000/...
       secret    bound to  eventforge-auth                      OK
 
@@ -136,7 +136,7 @@ After the first push, JetStream pushes a `sandbox.preview.ready` event into the 
 
 ```
   v sandbox.preview.ready
-      eventforge.sb-rzk7.openova.io        open ->
+      eventforge.sb-t39.omani.homes        open ->
       build sha     a8f3c12
       cold start    1.4 s
       health        /api/health  200
@@ -174,7 +174,7 @@ The agent calls `marketplace.domain.byod` (which is `POST /domain/byod` — `cor
   v Live
       eventforge.io                served by  sha a8f3c12
       staging.eventforge.io        served by  sha a8f3c12
-      sandbox preview              eventforge.sb-rzk7.openova.io
+      sandbox preview              eventforge.sb-t39.omani.homes
 ```
 
 The user closes the laptop. The agent stays alive in the Sandbox.
@@ -186,7 +186,7 @@ The user closes the laptop. The agent stays alive in the Sandbox.
 The admin sees an extra tab in the Sandbox surface — the **Admin** view — gated by their `org` and `role` claims in the token. Their own personal Sandbox sessions live in the **Sessions** tab exactly the same as a developer.
 
 ```
-┌─ Sandbox · Admin · console.rzk7.openova.io ─────────────────┐
+┌─ Sandbox · Admin · console.t39.omani.works ─────────────────┐
 │                                                              │
 │  [ Sandboxes ]  [ Quotas ]  [ Agents ]  [ Skills ]           │
 │  [ Secrets ]    [ Domains ] [ Audit ]   [ Costs ]            │
@@ -226,4 +226,4 @@ The pty-server (described in [`architecture.md`](architecture.md)) is the only p
 
 ## Conversational provisioning (pre-Sandbox)
 
-A prospective customer who does not have a Sovereign yet lands on `console.openova.io/start` and meets the same Sandbox-style shell — text-only or text+voice — scoped to a much smaller MCP toolbox (catalyst-api provisioning surface). See [`provisioning-chat.md`](provisioning-chat.md) for the full journey.
+A prospective customer who does not have a Sovereign yet lands on `console.t39.omani.works/start` and meets the same Sandbox-style shell — text-only or text+voice — scoped to a much smaller MCP toolbox (catalyst-api provisioning surface). See [`provisioning-chat.md`](provisioning-chat.md) for the full journey.

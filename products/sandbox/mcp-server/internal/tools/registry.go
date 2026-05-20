@@ -120,7 +120,7 @@ type Env struct {
 	// + its resources inside the Org vcluster (sandbox-<owner-uid>).
 	SandboxNamespace string
 
-	// SovereignFQDN — the Sovereign's primary FQDN (`acme.openova.io`).
+	// SovereignFQDN — the Sovereign's primary FQDN (`t39.omani.works`).
 	SovereignFQDN string
 
 	// SandboxRepos — comma-separated list of `<org>/<repo>` entries

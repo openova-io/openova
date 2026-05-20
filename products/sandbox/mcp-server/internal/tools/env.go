@@ -11,7 +11,7 @@
 //	SANDBOX_ORG_ID              = "acme"
 //	SANDBOX_ID                  = "emrah"
 //	SANDBOX_NAMESPACE           = "sandbox-<owner-uid>"
-//	SANDBOX_SOVEREIGN_FQDN      = "acme.openova.io"
+//	SANDBOX_SOVEREIGN_FQDN      = "t39.omani.works"
 //	SANDBOX_REPOS               = "acme/eventforge,acme/internal-tools"
 //	SANDBOX_TOKEN               = "<long-lived PAT>"   (fallback bearer)
 //	SANDBOX_JWT_SECRET          = "<HS256 secret>"     (validates bearers)

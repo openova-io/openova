@@ -5,7 +5,7 @@
 // inside a Sandbox routinely needs to bind a public hostname to the
 // per-Org workload — either a custom domain the operator already owns
 // (BYOD) or a free subdomain under one of the Sovereign-managed pools
-// (sme.openova.io / openova.cloud / etc.). The canonical implementation
+// (omani.homes / omani.rest / omani.trade / omani.works). The canonical implementation
 // lives in `core/services/domain/handlers/handlers.go`:
 //
 //   - POST /domain/byod        registerBYODRequest{tenant_id, domain}
@@ -32,7 +32,7 @@
 //     POST <DomainAPIURL>/domain/subdomains with body
 //     {tenant_id: env.TenantID, subdomain, tld: parent_zone}. The
 //     parent_zone defaults to the Sovereign's primary pool (typically
-//     `openova.cloud` or `sme.openova.io`); the canonical allow-list
+//     `omani.homes` / `omani.rest` / `omani.trade` / `omani.works`); the canonical allow-list
 //     lives in core/services/domain/store.AllowedTLDs).
 //
 // Auth: same shape as sandbox.db.* — claims.OrgID must match env.OrgID,
@@ -73,7 +73,7 @@ var mpFQDNRE = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]
 var mpSubdomainRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$`)
 
 // mpParentZoneRE constrains the `parent_zone` arg — must look like a
-// public DNS suffix (`openova.cloud`, `sme.openova.io`). Same shape as
+// public DNS suffix (`omani.homes`, `omani.rest`, `omani.trade`, `omani.works`). Same shape as
 // mpFQDNRE.
 var mpParentZoneRE = mpFQDNRE
 
@@ -240,7 +240,7 @@ type marketplaceDomainSubdomainArgs struct {
 	Subdomain string `json:"subdomain"`
 
 	// ParentZone — optional override for the parent pool zone
-	// (`openova.cloud`, `sme.openova.io`). When empty we leave the
+	// (`omani.homes`, `omani.rest`, `omani.trade`, `omani.works`). When empty we leave the
 	// `tld` field off the proxied request and let the domain service
 	// apply its own AllowedTLDs default.
 	ParentZone string `json:"parent_zone,omitempty"`
@@ -350,7 +350,7 @@ func schemaMarketplaceDomainSubdomain() map[string]any {
 			},
 			"parent_zone": map[string]any{
 				"type":        "string",
-				"description": "Optional parent pool zone (`openova.cloud`, `sme.openova.io`). When omitted the domain service uses its configured AllowedTLDs default.",
+				"description": "Optional parent pool zone (`omani.homes`, `omani.rest`, `omani.trade`, `omani.works`). When omitted the domain service uses its configured AllowedTLDs default.",
 				"pattern":     mpParentZoneRE.String(),
 			},
 		},
