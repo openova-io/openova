@@ -1,5 +1,27 @@
 apiVersion: v2
 name: bp-newapi
+# 1.4.39 — F1a (TBD-V45 follow-up #2115, 2026-05-20): rename the
+# qwenBankDhofar channel row's default `name` from `qwen3.6-bankdhofar`
+# to `qwen` — the short customer-canonical name. NewAPI's channel-
+# router matches a token's `allowed_channels` set against rows by their
+# `name` field; the sandbox-controller mints per-Sandbox tokens with
+# `allowed_channels = SANDBOX_DEFAULT_CHANNELS` (bootstrap-kit slot 19a
+# defaults to `qwen`), so the pre-fix row name `qwen3.6-bankdhofar`
+# meant the row never matched → /v1/chat/completions returned 404
+# `channel not found` for every per-Sandbox call.
+#
+# Lockstep changes in same PR:
+#   - platform/newapi/chart/values.yaml defaultChannels.qwenBankDhofar.name
+#   - platform/newapi/chart/templates/_helpers.tpl (default in composed dict)
+#   - platform/newapi/chart/templates/channel-seed-job.yaml (audit-pointer
+#     ConfigMap dict default + `seed_channel` shell invocation default)
+#   - clusters/_template/bootstrap-kit/80-newapi.yaml (overlay row name)
+#   - products/catalyst/bootstrap/api/internal/handler/sme_tenant_gitops.go
+#     (generated tenant HelmRelease values)
+#   - products/catalyst/bootstrap/api/internal/handler/sme_tenant_test.go
+#     (test expectation lockstep)
+#   - platform/newapi/blueprint.yaml spec.version + bootstrap-kit pin
+#
 # 1.4.37 — TBD-V45 / #2115 (2026-05-20): channel-seed Job now also
 # seeds the in-cluster vLLM channel when
 # `defaultChannels.vllm.enabled=true`. Paired with bootstrap-kit slot
@@ -373,7 +395,7 @@ name: bp-newapi
 # `lookup valkey.valkey.svc.cluster.local: no such host`). Same hostname
 # already documented as canonical in products/catalyst/chart/values.yaml
 # bp-cnpg-pair comments.
-version: 1.4.38
+version: 1.4.39
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM

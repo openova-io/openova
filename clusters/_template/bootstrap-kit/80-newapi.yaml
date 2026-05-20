@@ -179,6 +179,13 @@ spec:
       # Companion to bp-catalyst-platform 1.4.225 which adds the
       # secretKeyRef itself + the corrected CATALYST_NEWAPI_ADDR
       # literal (`http://newapi-bp-newapi.newapi.svc.cluster.local:3000`).
+      # 1.4.39 — F1a (TBD-V45 follow-up #2115, 2026-05-20): renamed the
+      # qwenBankDhofar default channel row from `qwen3.6-bankdhofar` to
+      # `qwen` so the row matches the sandbox-controller default
+      # AllowedChannels=["qwen"] (envsubst SANDBOX_DEFAULT_CHANNELS:-qwen
+      # at slot 19a:197). Pre-fix the per-Sandbox token mint succeeded
+      # but /v1/chat/completions returned 404 `channel not found`.
+      #
       # 1.4.37 — TBD-V45 (#2115, 2026-05-20): channel-seed Job now
       # also seeds the in-cluster vLLM channel when
       # `defaultChannels.vllm.enabled=true`. The seed gate is now
@@ -186,7 +193,7 @@ spec:
       # so a fresh Sovereign with vllm-only enabled (no Bank Dhofar
       # commercial contract) still seeds a working Qwen channel.
       # Lockstep with the platform/newapi/chart bump in the same PR.
-      version: 1.4.38
+      version: 1.4.39
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
@@ -324,7 +331,15 @@ spec:
     defaultChannels:
       qwenBankDhofar:
         enabled: ${MARKETPLACE_ENABLED:-false}
-        name: qwen3.6-bankdhofar
+        # F1a fix (2026-05-20, TBD-V45 follow-up #2115): row name MUST be
+        # `qwen` so it matches the sandbox-controller default
+        # AllowedChannels=["qwen"] (envsubst SANDBOX_DEFAULT_CHANNELS:-qwen
+        # at clusters/_template/bootstrap-kit/19a-bp-sandbox.yaml:197).
+        # Pre-fix: row name `qwen3.6-bankdhofar` → per-Sandbox token mint
+        # succeeded but /v1/chat/completions returned 404 `channel not
+        # found` because the channel-router only matches rows whose `name`
+        # is in the token's allowed_channels set.
+        name: qwen
         endpoint: ${LLM_BANK_DHOFAR_BASE_URL:-https://llm-api.omtd.bankdhofar.com}
         models:
           - qwen3.6

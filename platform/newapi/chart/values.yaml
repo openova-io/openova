@@ -455,7 +455,16 @@ defaultChannels:
     # Customer-visible channel name. Channel name is the human-readable
     # row label in NewAPI's admin UI AND is the idempotency key for
     # the seed Job's existence-probe (GET /api/channel/?keyword=<name>).
-    name: "qwen3.6-bankdhofar"
+    #
+    # F1a (2026-05-20, TBD-V45 follow-up #2115): default is `qwen` — the
+    # short customer-canonical name — so the row matches the sandbox-
+    # controller default AllowedChannels=["qwen"] (envsubst
+    # SANDBOX_DEFAULT_CHANNELS:-qwen at bootstrap-kit slot 19a:197). Pre-
+    # fix the default was `qwen3.6-bankdhofar`, which caused per-Sandbox
+    # /v1/chat/completions to return 404 `channel not found` (NewAPI's
+    # channel-router matches a token's allowed_channels against rows by
+    # `name`).
+    name: "qwen"
     # Upstream OpenAI-compatible endpoint URL. The chart leaves this
     # empty so an unconfigured deploy never silently dials a third-
     # party host. Per-Sovereign overlay sets it to
