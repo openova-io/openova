@@ -1,3 +1,11 @@
+# UI Regression Guards — Catalyst Bootstrap UI (ARCHIVED 2026-05-20)
+
+> **ARCHIVED.** This is a per-test catalog of 15 Playwright cosmetic + step-flow regression guards in `products/catalyst/bootstrap/ui/e2e/cosmetic-guards.spec.ts`. It is reference material for UI engineers + the CI workflow at `.github/workflows/cosmetic-guards.yaml`, not a load-bearing architecture doc — hence the move to `archive/`. The source-of-truth for the guards themselves remains the spec file and the wizard UI source under `products/catalyst/bootstrap/ui/`.
+>
+> For broader operator runbook context see [`../RUNBOOKS.md`](../RUNBOOKS.md); for architectural context see [`../ARCHITECTURE.md`](../ARCHITECTURE.md).
+
+---
+
 # UI Regression Guards — Catalyst Bootstrap UI
 
 Mapping each Playwright cosmetic + step-flow regression guard to the

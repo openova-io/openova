@@ -90,7 +90,7 @@ These run on **every host cluster** (mgt, rtz, dmz).
 |---|---|---|
 | Cilium | 🚧 | Chart + blueprint.yaml shipped at `platform/cilium/`. WireGuard east-west mesh enabled by default per PR #665. |
 | External-DNS | 🚧 | README only. |
-| PowerDNS | ✅ | bp-powerdns:1.0.6 deployed (#167; gpgsql-dnssec=yes) — authoritative DNS for every Sovereign zone (pool + BYO), CNPG-backed Postgres at `pdns-pg`, dnsdist front-end. See [`PLATFORM-POWERDNS.md`](PLATFORM-POWERDNS.md) and [`MULTI-REGION-DNS.md`](MULTI-REGION-DNS.md). |
+| PowerDNS | ✅ | bp-powerdns:1.0.6 deployed (#167; gpgsql-dnssec=yes) — authoritative DNS for every Sovereign zone (pool + BYO), CNPG-backed Postgres at `pdns-pg`, dnsdist front-end. See [`ARCHITECTURE.md`](ARCHITECTURE.md) §13 (PowerDNS deployment) and §14 (Multi-region DNS topology). |
 | pool-domain-manager (PDM) | ✅ | Deployed at `pool-domain-manager` in `openova-system` (#163, #168, #170). CNPG-backed `pdm-pg`. Allocates pool subdomains under `omani.works`/`omani.homes`/`omani.rest`/`omani.trade`/`omantel.biz`, owns the per-Sovereign PowerDNS zone lifecycle, and exposes registrar adapters (Cloudflare / Namecheap / GoDaddy / OVH / Dynadot) for BYO Flow B (registrar-API NS-flip). REST API: `/v1/reserve`, `/v1/commit`, `/v1/validate`, `/v1/registrars`. Source: [`core/pool-domain-manager/`](../core/pool-domain-manager/). |
 | Coraza | 🚧 | README only. |
 | Flux | 🚧 | Chart + blueprint.yaml shipped. Per-vcluster Flux convention is Catalyst-managed; not yet implemented. |
@@ -235,3 +235,9 @@ This file is updated whenever a status changes:
 Per [`DOD.md`](DOD.md): 🟦 means "all controllers + CRDs + tests landed". It is the **maximum** state achievable from code review alone. ✅ requires the operator walk.
 
 Keeping this honest is the only way to prevent the kind of doc/code drift that makes the architecture text unreliable.
+
+---
+
+## 12. Historical: Catalyst-Zero Provisioning Plan
+
+The date-stamped Catalyst-Zero consolidation + cutover plan (8-phase waterfall: openova-private → openova migration, public-repo build cutover, Sovereign-provisioning wizard, provisioner backend, bootstrap-kit Helm charts, PowerDNS+PDM+registrar adapters, franchise model docs, end-to-end DoD) has been moved to [`archive/provisioning-plan-2026-04.md`](archive/provisioning-plan-2026-04.md). Most of that plan has landed (Groups A, B, C, F, G done; D, E, H, J in flight). The archive preserves the original waterfall + acceptance criteria for traceability.

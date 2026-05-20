@@ -19,7 +19,7 @@ This handbook covers running a Sovereign in production: multi-region topology, p
 
 Multi-region is **strongly recommended** for production-tier Sovereigns. Two or more independent host clusters across regions provide geographic redundancy with automatic failover.
 
-Clusters are named by **building block** (functional security zone), not by failover role — there is **no "primary" or "DR" designation**. Both clusters run the same building blocks symmetrically; PowerDNS lua-records (`ifurlup`, `pickclosest`) handle traffic distribution authoritatively at the DNS layer. After a failover event, the surviving cluster serves all traffic — its name does not change. See [`MULTI-REGION-DNS.md`](MULTI-REGION-DNS.md) for the lua-record patterns.
+Clusters are named by **building block** (functional security zone), not by failover role — there is **no "primary" or "DR" designation**. Both clusters run the same building blocks symmetrically; PowerDNS lua-records (`ifurlup`, `pickclosest`) handle traffic distribution authoritatively at the DNS layer. After a failover event, the surviving cluster serves all traffic — its name does not change. See [`ARCHITECTURE.md`](ARCHITECTURE.md) §14 (Multi-region DNS topology) for the lua-record patterns.
 
 See [`ARCHITECTURE.md`](ARCHITECTURE.md) §1.3.
 
@@ -52,7 +52,7 @@ flowchart TB
 - **No stretched clusters** (avoids split-brain). This applies to OpenBao, JetStream, etcd, and any other quorum-based component.
 - Both clusters are peers — neither is designated primary or DR.
 - Async data replication (eventual consistency).
-- PowerDNS as authoritative DNS for the GSLB zone — `ifurlup` / `ifportup` lua-records remove unhealthy endpoints from the response set automatically. See [`MULTI-REGION-DNS.md`](MULTI-REGION-DNS.md).
+- PowerDNS as authoritative DNS for the GSLB zone — `ifurlup` / `ifportup` lua-records remove unhealthy endpoints from the response set automatically. See [`ARCHITECTURE.md`](ARCHITECTURE.md) §14 (Multi-region DNS topology).
 - Cloud witness (lease) for split-brain protection — see §2.4.
 
 ### 2.3 Cross-region networking

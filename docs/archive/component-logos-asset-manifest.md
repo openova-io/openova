@@ -1,3 +1,11 @@
+# Component Logos — Asset License Manifest (ARCHIVED 2026-05-20)
+
+> **ARCHIVED.** This is a license-traceability manifest for the 58 component brand-marks shipped under `products/catalyst/bootstrap/ui/public/component-logos/`. It is reference material for re-vendoring or audit, not a load-bearing architecture doc — hence the move to `archive/`. The source-of-truth for which logo each component renders remains `componentGroups.ts` in the wizard.
+>
+> For broader architectural context see [`../ARCHITECTURE.md`](../ARCHITECTURE.md); for the wizard's component picker logic see [`../BUSINESS-STRATEGY.md`](../BUSINESS-STRATEGY.md) §18 (Product families map).
+
+---
+
 # Component Logos
 
 The OpenOva Catalyst wizard's component picker (Step 5: Components,

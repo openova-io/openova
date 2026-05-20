@@ -1,4 +1,10 @@
-# Catalyst-Zero Provisioning Plan
+# Catalyst-Zero Provisioning Plan (ARCHIVED 2026-05-20)
+
+> **ARCHIVED.** This is the original date-stamped Catalyst-Zero consolidation + cutover plan from 2026-04-29. Moved to `archive/` as part of the docs consolidation that folded 12 orphan docs into 8 canonical top-level docs. Current implementation status of the items below lives in [`../STATUS.md`](../STATUS.md); current operator runbook for bringing up a Sovereign lives in [`../RUNBOOKS.md`](../RUNBOOKS.md) §8.
+>
+> The waterfall + acceptance criteria below are preserved verbatim for traceability of how Catalyst-Zero shipped.
+
+---
 
 **Status:** Authoritative working plan — **execution underway**. **Updated:** 2026-04-29.
 **Owner:** OpenOva engineering. **Parent issue:** [#43](https://github.com/openova-io/openova/issues/43). **Sub-tickets:** A–M groups, [#45–#175](https://github.com/openova-io/openova/issues?q=is%3Aopen+%5B+). Post-Group-M continuation tickets (#161, #162, #163, #167, #168, #169, #170, #171, #173, #174, #175) extend the plan with the per-Sovereign PowerDNS zone model, pool-domain-manager + registrar adapters, three-mode StepDomain (pool/byo-manual/byo-api), the wizard StepComponents redesign, and k8gb retirement.

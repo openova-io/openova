@@ -830,7 +830,7 @@ The per-vCPU subscription is the primary OpenOva revenue surface and applies to 
 - The same `core/services/billing` Postgres schema runs on every Sovereign. There is no separate "franchise database."
 - The same Stripe integration handles checkout. Vouchers do not bypass Stripe — they reduce the line total before Stripe is invoked.
 
-See [`FRANCHISE-MODEL.md`](FRANCHISE-MODEL.md) for the redemption flow end-to-end.
+See §17 (Franchise model) below for the redemption flow end-to-end.
 
 ---
 
@@ -1239,6 +1239,208 @@ ADVOCACY
 | Key technical person leaves | Medium | High | Document everything, distribute knowledge, expert network reduces dependency |
 | Open-source components change license | Low | High | Monitor licenses, maintain fork-ready posture, Valkey precedent |
 | Customer churns after first year | Medium | Medium | Specter creates operational dependency, expert network creates relationship stickiness |
+
+---
+
+## 17. Franchise model
+
+> Source: previously `docs/FRANCHISE-MODEL.md` (merged here on 2026-05-20).
+
+The franchise model describes how a Sovereign owner (the franchisee) acquires customers via voucher codes, redeems them into Catalyst Organizations, and earns revenue alongside OpenOva. The voucher mechanism is **already implemented** in the existing admin app — this section documents what's there, not what's planned.
+
+### 17.1 Chain of responsibility
+
+```
+OpenOva (publisher) ── publishes ──▶ Catalyst (the platform)
+                                     │
+                                     ├── deployed as ──▶ Catalyst-Zero (Contabo)
+                                     │                     │
+                                     │                     ├── provisions ──▶ omantel.omani.works (a franchised Sovereign on Hetzner)
+                                     │                     │                    │
+                                     │                     │                    ├── omantel-admin issues a voucher (PromoCode)
+                                     │                     │                    │
+                                     │                     │                    ▼
+                                     │                     │              kestrel-rx (a tenant Organization)
+                                     │                     │                redeems voucher → BHD 100 credit applied
+                                     │                     │                creates Organization, installs Apps
+                                     │
+                                     └── deployed as ──▶ acme-bank Sovereign (corporate self-host on AWS)
+                                                           │
+                                                           ├── bank's IT issues vouchers to internal teams
+                                                           ▼
+                                                       core-banking, digital-channels, fraud-scoring (Catalyst Organizations)
+                                                       redeem vouchers → internal credit applied
+```
+
+**Every franchised Sovereign runs the same admin app** as Catalyst-Zero. The same `PromoCode` CRUD endpoints exist on every Sovereign. There is no shape difference between OpenOva-run and franchisee-run — only the entity issuing the vouchers differs.
+
+### 17.2 Voucher = `PromoCode`
+
+The canonical voucher record (already implemented at `core/admin/src/lib/api.ts` plus `core/services/billing/store/store.go`) has these fields. The `voucher` term is the user-facing label; the implementation type is named `PromoCode` for historical reasons.
+
+| Field | Type | Purpose |
+|---|---|---|
+| `code` | string | User-facing redemption code (e.g. `OMANTEL-LAUNCH-100`). Primary key. |
+| `credit_omr` | int | Credit applied to the redeemer's billing account in OMR. Localizable per Sovereign currency. |
+| `description` | string | Free-text reason / campaign name. |
+| `active` | bool | Issuer can deactivate without deletion. |
+| `max_redemptions` | int | 0 = unlimited; otherwise hard cap. |
+| `times_redeemed` | int | Read-only counter, incremented inside the redemption transaction. |
+| `created_at` | timestamptz | Set on first insert. |
+| `deleted_at` | timestamptz | Soft-delete tombstone. Soft-deleted rows are hidden from listings and rejected by redemption but stay for FK integrity with `promo_redemptions` + `orders.promo_code`. |
+
+There is **no new CRD**. Vouchers live as rows in the per-Sovereign billing service's Postgres database, not as `kubectl get vouchers`. Lifting them to a first-class CRD is a deferred follow-up.
+
+API endpoints (current implementation, served by `core/services/billing`):
+
+| Endpoint | Auth | Purpose |
+|---|---|---|
+| `POST /billing/vouchers/issue` | `superadmin` or `sovereign-admin` | Issue / upsert a voucher (resurrects a soft-deleted code on conflict). |
+| `GET /billing/vouchers/list` | `superadmin` or `sovereign-admin` | List live vouchers (soft-deleted excluded). |
+| `DELETE /billing/vouchers/revoke/{code}` | `superadmin` or `sovereign-admin` | Soft-delete a voucher. |
+| `POST /billing/vouchers/redeem-preview` | unauthenticated (rate-limit at ingress) | Public landing validation. 404 = not valid; 410 = exists but inactive or capped. |
+| `POST /billing/checkout` (with `promo_code` field) | authenticated user | Customer-side redemption inside the checkout flow. |
+| `GET /billing/admin/promos`, `POST /billing/admin/promos`, `DELETE /billing/admin/promos/{code}` | `superadmin` (legacy) | Older URL surface kept for the current admin UI. |
+
+### 17.3 Redemption flow (end-to-end)
+
+1. **Voucher issuance.** A `sovereign-admin` for `omantel.omani.works` opens `admin.omantel.omani.works` → Billing → Promo Codes → New. Picks code, credit, max redemptions. Saves.
+2. **Voucher distribution.** Omantel markets the code to SME owners via mobile-bill inserts, partner channels, conferences. Redemption URL: `https://marketplace.omantel.omani.works/redeem?code=OMANTEL-MUSCAT-200`.
+3. **Customer signs up.** Pharmacy owner visits the redemption URL. The landing page validates the code via `POST /billing/vouchers/redeem-preview` and prompts for signup. After authentication, Catalyst's `provisioning` service auto-creates a Catalyst Organization, voucher is applied at first checkout via `POST /billing/checkout` `promo_code` field.
+4. **App installs draw down credit.** Each App install consumes a billable amount per the App's tier. When credit is exhausted, Stripe is invoked for additional charges. Zero-total orders skip Stripe via `CreditOnlyCheckout`.
+5. **Revenue split.** OpenOva and the franchisee share revenue per their license agreement. Every charge on a franchised Sovereign carries a metadata field `sovereign=<fqdn>`; OpenOva's billing rollup queries Stripe, computes the franchisee's share, and pays out monthly. The split percentage is NOT a per-Sovereign config field — it lives in OpenOva's accounting system.
+
+### 17.4 What franchisees CAN do
+
+- Issue their own vouchers (any code, any credit amount, any cap)
+- Curate `catalog-sovereign` Gitea Org with their own private Blueprints (e.g. omantel adds `bp-wordpress`, `bp-jitsi`, `bp-cal-com` for their SME tenants — neither in the public catalog nor accessible to other Sovereigns)
+- Set their own marketplace branding (logo, colors, hostname, Keycloak themes)
+- Choose their billing tier for their tenants
+
+### 17.5 What franchisees CANNOT do
+
+- Install non-cosigned Blueprints (Kyverno admission policy enforced on every Sovereign denies unsigned manifests)
+- Modify Catalyst's own CRDs (the bp-catalyst-platform umbrella locks the Catalyst CRD group at install time)
+- Bypass the Sovereign-wide `EnvironmentPolicy` (defined by sovereign-admin in the Sovereign's `system` Gitea Org)
+- See data inside their tenants' Organizations (vcluster + Keycloak realm + OpenBao path isolation prevent cross-tenant access)
+
+### 17.6 Cross-Sovereign tenancy
+
+A customer can have Organizations on **multiple Sovereigns**. Each Organization is independent (separate Gitea Org, separate vcluster, separate billing balance). The customer's Keycloak identity may federate across, but Apps and Environments do not.
+
+### 17.7 Voucher shape propagates automatically
+
+"How do I make sure the voucher schema, role gating, and redemption flow are identical on a franchised Sovereign vs Catalyst-Zero?" Answer: **you don't have to** — they are guaranteed identical by construction.
+
+| Component | Where it lives | How it reaches a franchised Sovereign |
+|---|---|---|
+| Voucher schema (`promo_codes` + `promo_redemptions` + `credit_ledger`) | `core/services/billing/store/store.go` `Migrate()` | Same migration code on every Sovereign → identical schema. |
+| Voucher CRUD endpoints (`/billing/vouchers/*`, `/billing/admin/promos`) | `core/services/billing/handlers/routes.go` | Same SHA-pinned `core/services/billing` image from GHCR. |
+| Voucher issuer role gating (`requireVoucherIssuer`) | `core/services/billing/handlers/handlers.go` | Same image, same compiled-in policy. |
+| Voucher admin UI (Billing → Vouchers section, role-gated nav) | `core/admin/src/components/{AdminShell,BillingPage}.svelte` | Same admin image. |
+| Public redemption landing (`/redeem?code=...`) | `core/marketplace/src/pages/redeem.astro` | Same marketplace image. |
+| Atomic redemption transaction (`RedeemPromoCode`) | `core/services/billing/store/store.go` | Same image. Same FOR UPDATE lock + tx-scoped INSERT/UPDATE/INSERT sequence. |
+
+**There is no Voucher CRD.** Vouchers are rows in the per-Sovereign billing service's Postgres database. Voucher *behaviour* is propagated by virtue of every Sovereign running the same Catalyst Blueprint suite (the bp-catalyst-platform umbrella), which pulls the same SHA-pinned core service images.
+
+**Smoke test for the invariant:**
+
+```bash
+# On any Sovereign (replace SOV with the per-Sovereign API host):
+SOV=https://api.<sovereign-domain>
+
+# 1. Schema check — list vouchers.
+curl -s -H "Authorization: Bearer $TOKEN" "$SOV/billing/vouchers/list" | jq .
+
+# 2. Endpoint shape check — issue a voucher.
+curl -s -X POST -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"code":"SMOKE-TEST","credit_omr":10,"description":"smoke","active":true,"max_redemptions":1}' \
+  "$SOV/billing/vouchers/issue" | jq .
+
+# 3. Public preview — no auth required.
+curl -s -X POST -H "Content-Type: application/json" \
+  -d '{"code":"SMOKE-TEST"}' \
+  "$SOV/billing/vouchers/redeem-preview" | jq .
+
+# 4. Cleanup — revoke (soft-delete).
+curl -s -X DELETE -H "Authorization: Bearer $TOKEN" \
+  "$SOV/billing/vouchers/revoke/SMOKE-TEST" | jq .
+```
+
+Run on Catalyst-Zero AND on any new franchised Sovereign immediately after first provisioning. If any returns 404 or unexpected shape, the SHA-pinned image deployed on that Sovereign has drifted from main.
+
+### 17.8 Deferred to follow-up
+
+- Voucher CRD lifting from billing-DB row to first-class Catalyst CRD (so vouchers appear in `kubectl get vouchers`).
+- Cross-Sovereign voucher (an OpenOva-issued voucher redeemable on any franchised Sovereign). Today vouchers are scoped to the issuing Sovereign.
+- Discount-tier vouchers (e.g. "20% off all installs for 3 months") — current implementation supports flat credit only.
+
+---
+
+## 18. Product families map
+
+> Source: previously `docs/PRODUCT-FAMILIES.md` (merged here on 2026-05-20).
+
+This section describes the **two-layer dependency model** that governs how the Sovereign Wizard (`StepComponents`) presents and selects platform components. The hard rule, per [`PRINCIPLES.md`](PRINCIPLES.md) #4 (never hardcode): the only place these relationships are encoded is `componentGroups.ts` in the wizard source. This narrative is derived from the same source — if they disagree, the code wins.
+
+### 18.1 Two graphs
+
+**Component graph** — `ComponentDef.dependencies[]` — "component X needs component Y at runtime." Cascading add/remove walks this graph: selecting Harbor pulls in cnpg + seaweedfs + valkey; removing cnpg removes anything that declared it as a dependency.
+
+**Product graph** — `Product.familyDependencies[]` — "product P implies product Q." Used when the components of P only make sense in the presence of Q's full runtime. Today no product declares a family-level dependency (every entry in PRODUCTS carries `familyDependencies: []`). The early shape (CORTEX → FABRIC) was audited and removed: CORTEX's only true cross-family needs are cnpg (LangFuse backend) and ferretdb (LibreChat backend), both encoded at the component level.
+
+A second product-level flag, `Product.cascadeOnMemberSelection: boolean`, controls whether selecting a single member of the product implies selecting the entire family. CORTEX is the only product with this flag set today, per operator's "Cortex-as-product" requirement: selecting BGE selects the rest of CORTEX.
+
+### 18.2 Tier classification
+
+| Tier | Semantics | Where it surfaces |
+|------|-----------|-------------------|
+| `mandatory` | Ships on every Sovereign. Operator cannot opt out. | Tab 2 ("Always Included") |
+| `recommended` | Default-on at first wizard run. Operator can opt out. | Tab 1 ("Choose Your Stack") |
+| `optional` | Default-off. Operator opts in. | Tab 1 ("Choose Your Stack") |
+
+**Transitive-mandatory promotion.** The catalog applies a closure walk at module load time: every component reachable (via `dependencies[]`) from a `tier: mandatory` seed is itself promoted to mandatory. This means **cnpg** (recommended in source) becomes **mandatory** because Harbor / Gitea / PowerDNS / Keycloak (mandatory or transitively reached from mandatory) all depend on it. Same for **valkey** (because Harbor depends on it). Currently promoted: `['cnpg', 'valkey']`. The list is exposed as `TRANSITIVE_MANDATORY_PROMOTIONS` for tests and telemetry.
+
+### 18.3 Product registry
+
+| Product | Tier | Cascade on member? | Family deps | Components |
+|---------|------|-------------------|-------------|------------|
+| **PILOT** | mandatory | no | — | flux, crossplane, gitea, opentofu, vcluster |
+| **SPINE** | mandatory | no | — | cilium, coraza, powerdns, external-dns, envoy, frpc, netbird, strongswan |
+| **SURGE** | mandatory | no | — | vpa, keda, reloader, continuum |
+| **SILO** | mandatory | no | — | seaweedfs, velero, harbor |
+| **GUARDIAN** | mandatory | no | — | falco, kyverno, trivy, syft-grype, sigstore, keycloak, openbao, external-secrets, cert-manager |
+| **INSIGHTS** | recommended | no | — | grafana, opentelemetry, alloy, loki, mimir, tempo, opensearch, litmus, openmeter, specter |
+| **FABRIC** | recommended | no | — | cnpg, valkey, strimzi, debezium, flink, temporal, clickhouse, ferretdb, iceberg, superset |
+| **CORTEX** | optional | **yes** | — | kserve, knative, axon, neo4j, vllm, milvus, bge, langfuse, librechat |
+| **RELAY** | optional | no | — | stalwart, livekit, stunner, matrix, ntfy |
+
+Only **CORTEX** has cascade-on-member today: "BGE alone doesn't have much meaning unless we have Cortex. [...] when chosen the entire family needs to be selected."
+
+### 18.4 Cross-product cascade examples
+
+**Selecting Specter (in INSIGHTS).** Specter's component-level deps are `[bge, milvus, langfuse, vllm, kserve]` — all CORTEX members. The cascade resolves as: `addComponent('specter')` selects Specter → component-deps cascade adds bge/milvus/langfuse/vllm/kserve → the store's product-cascade walk sees bge belongs to CORTEX (cascadeOnMemberSelection=true) → every other CORTEX member added (knative, axon, neo4j, librechat) → component-level deps of new CORTEX members cascade — only `langfuse → cnpg` and `librechat → ferretdb → cnpg` fire; cnpg is already mandatory after promotion. **No FABRIC family pull** because the audit explicitly removed CORTEX's prior `familyDependencies: ['fabric']`.
+
+**Selecting BGE (in CORTEX).** BGE has no component-level deps. Product-cascade walk: BGE's product is CORTEX (cascade=true) → every CORTEX member added → component-level deps cascade adds cnpg + ferretdb only.
+
+**Selecting Harbor (in SILO).** Component-deps: cnpg, seaweedfs, valkey added (all mandatory after promotion, so already selected). Mandatory products skip the cascade.
+
+**Selecting ClickHouse (FABRIC, à-la-carte).** ClickHouse has no component-level deps. ClickHouse's product is FABRIC (cascade=false). No family cascade. À-la-carte products don't drag the rest of the family along.
+
+### 18.5 Cascade-remove semantics
+
+Removing a component cascades the **other** way: every component that listed the removed id as a dependency is also removed (recursive closure). Mandatory components are protected — `removeComponent('cnpg')` is a no-op because cnpg is mandatory after promotion.
+
+`removeProduct(productId)` drops every non-mandatory member of the product, plus every cascading dependent. Mandatory members are preserved.
+
+### 18.6 UX surface
+
+**Tab 1: "Choose Your Stack"** — lists every non-mandatory component in a single flat marketplace card grid (no per-family section headers — those were removed because they fragmented the page; the family relationship is now surfaced via a clickable family chip on each card that links to the dedicated family portfolio page). Search field + category chips filter to one product family at a time. Each card has three click affordances kept distinct: the family chip routes to the family portfolio page; the card body routes to the product detail page; only the explicit Select / Selected button toggles the wizard store.
+
+**Tab 2: "Always Included"** — lists every mandatory component (post-promotion). Grouped by owning product. Read-only. "INFRASTRUCTURE" pill instead of "MANDATORY" so the page reads as platform infra rather than a wizard option.
+
+**Toasts** — cascade-add ("Selected BGE / Also added CORTEX family: Milvus, vLLM, KServe, …"), cascade-remove ("Strimzi removed / Also removed: Debezium"), mandatory-click ("KServe is mandatory / Core platform components are always installed."). All toast text comes from `STEP_COMPONENTS_COPY` in `stepComponentsCopy.ts` — never inline literal.
 
 ---
 

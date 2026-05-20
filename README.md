@@ -8,21 +8,32 @@ Catalyst is the open-source platform built by [OpenOva](https://openova.io). It 
 
 ## Documentation
 
+The canonical doc set is 10 top-level files plus subdirectories for ADRs, archive, ledger, lessons-learned, proposals, sub-runbooks, and session artifacts. Each top-level file has a single topic; no orphan satellite docs.
+
 | Document | What it covers |
 |---|---|
-| [`docs/GLOSSARY.md`](docs/GLOSSARY.md) | Canonical terminology — read first |
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Catalyst architecture overview |
-| [`docs/STATUS.md`](docs/STATUS.md) | **What's built today vs what's design-only** — read second |
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Naming patterns for every resource type |
-| [`docs/DOD.md`](docs/DOD.md) | Personas × journeys matrix; surfaces |
-| [`docs/SECURITY.md`](docs/SECURITY.md) | Identity (SPIFFE + Keycloak), secrets (OpenBao + ESO), rotation, multi-region semantics |
-| [`docs/SOVEREIGN-PROVISIONING.md`](docs/SOVEREIGN-PROVISIONING.md) | How to bring a Sovereign online |
-| [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md) | Writing Blueprints (incl. Crossplane Compositions) |
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Every component's role in Catalyst |
-| [`docs/SRE.md`](docs/SRE.md) | Operating a Sovereign |
-| [`docs/BUSINESS-STRATEGY.md`](docs/BUSINESS-STRATEGY.md) | Product strategy and GTM |
+| [`docs/GLOSSARY.md`](docs/GLOSSARY.md) | Canonical terminology + banned terms — read first |
+| [`docs/STATUS.md`](docs/STATUS.md) | What's built today vs design-only — read second |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Catalyst architecture, naming, component inventory, PowerDNS deployment, multi-region DNS (lua-records), ClusterMesh ID registry |
+| [`docs/PRINCIPLES.md`](docs/PRINCIPLES.md) | The 15 inviolable engineering principles + anti-pattern receipts |
+| [`docs/DOD.md`](docs/DOD.md) | Definition of Done — 5 pillars + Phase 0/1/2 deterministic test + canonical FQDN patterns |
+| [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md) | Operator how-tos: Sovereign provisioning, Blueprint authoring, chart conventions, demo walks, failover recovery, troubleshooting matrix, doc-integrity audit cadence |
+| [`docs/SECURITY.md`](docs/SECURITY.md) | Identity (SPIFFE + Keycloak), secrets (OpenBao + ESO), secret-rotation procedures, multi-region OpenBao posture, threat model |
+| [`docs/SRE.md`](docs/SRE.md) | Operating a Sovereign — SLOs, incident response, progressive delivery, observability, alertmanager |
+| [`docs/BUSINESS-STRATEGY.md`](docs/BUSINESS-STRATEGY.md) | Product strategy + GTM + franchise model + voucher mechanism + product families map |
 | [`docs/TECHNOLOGY-FORECAST-2027-2030.md`](docs/TECHNOLOGY-FORECAST-2027-2030.md) | Component forecast 2027–2030 |
-| [`docs/archive/validation-log.md`](docs/archive/validation-log.md) | Trail of doc-integrity validation passes (audit log) |
+
+**Subdirectories:**
+
+| Directory | What it contains |
+|---|---|
+| [`docs/adr/`](docs/adr/) | Architecture Decision Records (immutable; one file per decision) |
+| [`docs/archive/`](docs/archive/) | Superseded / historical / one-off docs (incl. validation-log, Catalyst-Zero provisioning plan, component-logos asset manifest, UI-regression-guards catalog) |
+| [`docs/ledger/`](docs/ledger/) | Live verification ledger — TRUST.md + TRACKER.md, cron-refreshed |
+| [`docs/lessons-learned/`](docs/lessons-learned/) | Per-incident retrospectives |
+| [`docs/proposals/`](docs/proposals/) | Active doc proposals not yet ratified into an ADR |
+| [`docs/runbooks/`](docs/runbooks/) | Sub-runbooks (incident playbooks split out by surface) |
+| [`docs/sessions/`](docs/sessions/) | Date-stamped session artifacts (walks, retros, audit reports) |
 
 > **Heads-up before reading further**: the architecture docs in this repo describe Catalyst's **target** state. Significant portions are not yet implemented — see [`docs/STATUS.md`](docs/STATUS.md) for what exists today vs what is design.
 
@@ -101,7 +112,7 @@ Each folder under `platform/` and `products/` is the source of one **Blueprint**
 | **Runtime security** | Falco (eBPF) |
 | **Observability** | OpenTelemetry → Grafana stack (Alloy + Loki + Mimir + Tempo) |
 | **WAF** | Coraza (OWASP CRS) |
-| **DNS** | PowerDNS authoritative per Sovereign zone + DNSSEC + lua-records (`ifurlup`, `pickclosest`); pool-domain-manager allocates pool subdomains and flips parent-zone NS via registrar adapters (Cloudflare / Namecheap / GoDaddy / OVH / Dynadot) — see [`docs/MULTI-REGION-DNS.md`](docs/MULTI-REGION-DNS.md), [`docs/PLATFORM-POWERDNS.md`](docs/PLATFORM-POWERDNS.md) |
+| **DNS** | PowerDNS authoritative per Sovereign zone + DNSSEC + lua-records (`ifurlup`, `pickclosest`); pool-domain-manager allocates pool subdomains and flips parent-zone NS via registrar adapters (Cloudflare / Namecheap / GoDaddy / OVH / Dynadot) — see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §13 (PowerDNS deployment) + §14 (multi-region DNS) |
 | **Backup** | Velero (to SeaweedFS, which routes the cold tier to cloud archival S3) |
 | **Container registry** | Harbor |
 
@@ -118,7 +129,7 @@ For the full component list and trends see [`docs/ARCHITECTURE.md`](docs/ARCHITE
 | Oracle Cloud (OCI) | Crossplane provider available; full path coming |
 | Huawei Cloud | Crossplane provider available; full path coming |
 
-All providers reach Catalyst via the same Crossplane abstraction; Sovereign provisioning details per provider are in [`docs/SOVEREIGN-PROVISIONING.md`](docs/SOVEREIGN-PROVISIONING.md).
+All providers reach Catalyst via the same Crossplane abstraction; Sovereign provisioning details per provider are in [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md) §8 (Bring up a Sovereign).
 
 ---
 
@@ -134,7 +145,7 @@ Visit `marketplace.openova.io` to install Applications on the openova Sovereign 
 1. Provision via catalyst-provisioner.openova.io (managed bootstrap), OR
 2. Self-host bp-catalyst-provisioner in your own infrastructure (air-gap path).
 
-Then follow the procedure in docs/SOVEREIGN-PROVISIONING.md.
+Then follow the procedure in docs/RUNBOOKS.md §8 (Bring up a Sovereign).
 ```
 
 ### Build a Blueprint
