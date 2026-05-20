@@ -93,6 +93,20 @@ runtime:
   byosSecretPrefix: "sandbox-byos-claude-code"
   # Idle timeout (minutes) — architecture.md §7.
   idleTimeoutMinutes: 30
+  # TBD-V22 #1986 F1 (2026-05-20) — per-PTY replay ring buffer size in
+  # BYTES. The pty-server retains the trailing tail of PTY stdout so a
+  # newly-attaching client (the canonical "close laptop, open phone"
+  # multi-device handoff path in user-journey.md Scene 6) replays a
+  # meaningful slice of the recent terminal context before joining the
+  # live stream. Pre-fix the size was a hardcoded 256 KiB literal in
+  # pty-server (no upstream knob), which on a real coding-agent session
+  # rolled in well under a minute — the multi-device replay claim was
+  # unbacked. New default is 1 MiB; pty-server clamps operator-set
+  # values above 16 MiB (MaxRingBytes) and logs the clamp. Zero / unset
+  # leaves the pty-server's own session.DefaultRingBytes intact (also
+  # 1 MiB) — both layers default to the same value so there is no
+  # silent skew between operator-not-set and operator-set-to-default.
+  ringBufferBytes: 1048576
 # Secret holding the Gitea PAT the controller authenticates with.
 # Defaults to the same Secret organization-controller uses
 # (catalyst-gitea-token / key=token) — single source of truth per

@@ -26,6 +26,18 @@ func main() {
 		addr = ":7681"
 	}
 
+	// TBD-V22 (#1986 F1, 2026-05-20) — apply SANDBOX_RING_BUFFER_BYTES
+	// override before any Session.New runs. Empty / non-integer leaves
+	// the package default (1 MiB) intact. Values above session.MaxRingBytes
+	// are clamped and the clamp is logged so an operator-misconfigured
+	// excessive value surfaces visibly instead of silently consuming Pod
+	// memory.
+	ringBytes, clamped := session.LoadDefaultRingBytesFromEnv()
+	if clamped {
+		log.Printf("pty-server: SANDBOX_RING_BUFFER_BYTES clamped to MaxRingBytes (%d) — operator-set value above the ceiling", session.MaxRingBytes)
+	}
+	log.Printf("pty-server: replay ring buffer default = %d bytes (~%d KiB)", ringBytes, ringBytes/1024)
+
 	mgr := session.NewManager()
 	h := server.New(mgr)
 

@@ -172,6 +172,12 @@ type createRequest struct {
 	Cwd  string `json:"cwd,omitempty"`
 	Rows uint16 `json:"rows,omitempty"`
 	Cols uint16 `json:"cols,omitempty"`
+
+	// RingBytes overrides the per-session replay-buffer size (bytes).
+	// Zero ⇒ pty-server process default (session.DefaultRingBytes, set
+	// at startup from SANDBOX_RING_BUFFER_BYTES). Operator escape hatch;
+	// the FE default-paint path never sets this. TBD-V22 #1986 F1.
+	RingBytes int `json:"ringBytes,omitempty"`
 }
 
 type sessionDTO struct {
@@ -260,11 +266,12 @@ func buildSpecFromCreateRequest(req createRequest) (session.Spec, int, map[strin
 	}
 
 	return session.Spec{
-		Command: argv,
-		Env:     envSlice,
-		Cwd:     cwd,
-		Rows:    req.Rows,
-		Cols:    req.Cols,
+		Command:   argv,
+		Env:       envSlice,
+		Cwd:       cwd,
+		Rows:      req.Rows,
+		Cols:      req.Cols,
+		RingBytes: req.RingBytes,
 	}, 0, nil
 }
 

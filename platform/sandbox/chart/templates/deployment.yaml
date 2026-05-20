@@ -89,6 +89,14 @@ spec:
               value: {{ .Values.runtime.byosSecretPrefix | default "sandbox-byos-claude-code" | quote }}
             - name: SANDBOX_IDLE_TIMEOUT_MINUTES
               value: {{ .Values.runtime.idleTimeoutMinutes | default 30 | quote }}
+            # TBD-V22 #1986 F1 (2026-05-20) — per-PTY replay ring buffer
+            # size. Default 1 MiB (1048576). The controller reads this
+            # env var and stamps it into the per-Sandbox pty-server
+            # StatefulSet via gitops.Inputs.RingBufferBytes →
+            # SANDBOX_RING_BUFFER_BYTES on the pty-server Pod. See
+            # session.LoadDefaultRingBytesFromEnv in pty-server.
+            - name: SANDBOX_RING_BUFFER_BYTES
+              value: {{ .Values.runtime.ringBufferBytes | default 1048576 | int | quote }}
             # Wave 9 — NewAPI bridge wiring. The controller calls
             # POST /admin/tokens/sandbox to mint per-Sandbox HS256
             # bearers; without these two env vars wired the controller

@@ -24,6 +24,27 @@ annotations:
   # (see issue #181 + docs/BLUEPRINT-AUTHORING.md §11.1).
   catalyst.openova.io/no-upstream: "true"
   catalyst.openova.io/smoke-render-mode: "default-off"
+# 0.3.6 (TBD-V22 #1986 F1, 2026-05-20): expose a configurable PTY-stdout
+# replay ring buffer (default 1 MiB, up from a hardcoded 256 KiB
+# literal). Adds two new env vars: on the sandbox-controller Deployment
+# (SANDBOX_RING_BUFFER_BYTES, sourced from values
+# `runtime.ringBufferBytes`) and on every per-Sandbox pty-server
+# StatefulSet (same name, threaded by the controller via
+# gitops.Inputs.RingBufferBytes). The pty-server's session package now
+# exposes DefaultRingBytes + LoadDefaultRingBytesFromEnv + a 16 MiB
+# MaxRingBytes ceiling (operator-misconfiguration safety; clamped +
+# logged). Closes Pillar-4 audit finding F1: the documented multi-
+# device "close laptop, open phone" replay claim
+# (products/sandbox/docs/user-journey.md Scene 6) was unbacked at
+# 256 KiB because a real Plan-mode / file-listing / multi-turn agent
+# session rolls the buffer in well under a minute. Memory-budget
+# reasoning: 16 MiB × 10 concurrent PTY sessions = 160 MiB worst-case,
+# well under typical Sandbox Pod memory limits. No CRD changes;
+# additive only, no breaking changes to existing operator overlays.
+# Bootstrap-kit pin lockstep at
+# clusters/_template/bootstrap-kit/19a-bp-sandbox.yaml 0.3.5 → 0.3.6.
+# Rebased on top of PR #2052 (0.3.5 A4 dispatch).
+#
 # 0.3.5 (TBD-P4 A4 #1986, 2026-05-20): controller now dispatches per
 # Sandbox.spec.agentCatalogue[0]. The pty-server StatefulSet renders
 # SANDBOX_DEFAULT_AGENT into the container env so pty-server's
@@ -98,8 +119,8 @@ annotations:
 # `helm template newapi platform/newapi/chart/ -s templates/service.yaml`
 # → metadata.name: newapi-bp-newapi. Walker on t38 (chart 1.4.216,
 # substrate be4f78bc872e2c56) caught the live regression.
-version: 0.3.5
-appVersion: "0.3.5"
+version: 0.3.6
+appVersion: "0.3.6"
 keywords:
   - catalyst
   - sandbox

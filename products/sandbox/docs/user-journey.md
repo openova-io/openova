@@ -216,7 +216,7 @@ Per-Org admins see the same UI, scoped to one Org. The RBAC is the same model al
 | Action | Surface |
 |---|---|
 | Same session open in two tabs | Both tabs receive the same PTY byte stream; either tab can type; that is by design. |
-| Close laptop, open phone | New WebSocket to the same `session_id`; the pty-server replays its ring buffer (~256 KB) on connect, then streams live. |
+| Close laptop, open phone | New WebSocket to the same `session_id`; the pty-server replays its ring buffer (default 1 MiB, operator-configurable via `SANDBOX_RING_BUFFER_BYTES` up to a 16 MiB ceiling — TBD-V22 #1986 F1) on connect, then streams live. |
 | Pod restart (rare) | PTY dies. Agent restarts via `<agent> --continue` (each agent has an equivalent flag). Conversation history in `~/.claude/projects/...` or equivalent is preserved; in-flight tool call may be lost. |
 | Same session on watch-style device | Card protocol view only — no terminal. Read-only by default, opt-in to a single-line input. |
 

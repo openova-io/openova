@@ -73,6 +73,16 @@ func main() {
 	byosSecretPrefix := envOr("SANDBOX_BYOS_SECRET_PREFIX", "sandbox-byos-claude-code")
 	idleTimeoutMinutes := envOrInt("SANDBOX_IDLE_TIMEOUT_MINUTES", 30)
 
+	// TBD-V22 #1986 F1 (2026-05-20) — replay ring buffer size in bytes.
+	// 0 (the default when SANDBOX_RING_BUFFER_BYTES is unset / empty /
+	// non-integer / non-positive) leaves the per-Sandbox pty-server
+	// StatefulSet without the env var, so pty-server falls back to its
+	// own session.DefaultRingBytes (1 MiB). Chart default in
+	// platform/sandbox/chart/values.yaml::runtime.ringBufferBytes also
+	// emits 1048576 explicitly so the operator-visible env var is set
+	// out of the box.
+	ringBufferBytes := envOrInt("SANDBOX_RING_BUFFER_BYTES", 0)
+
 	// Wave 9 — NewAPI bridge wiring. Two env vars carry the bridge URL +
 	// admin bearer used by the controller to call POST
 	// /admin/tokens/sandbox (catalyst-api bridge handler, PR #1638).
@@ -170,6 +180,7 @@ func main() {
 		LLMGatewayTokenSecret: llmGatewayTokenSecret,
 		BYOSSecretPrefix:      byosSecretPrefix,
 		IdleTimeoutMinutes:    idleTimeoutMinutes,
+		RingBufferBytes:       ringBufferBytes,
 		NewAPIClient:          newapiClient,
 		DefaultChannels:       defaultChannels,
 		EnableHotStandby:      enableHotStandby,
@@ -268,6 +279,7 @@ func main() {
 		"llm_gateway_token_secret", llmGatewayTokenSecret,
 		"byos_secret_prefix", byosSecretPrefix,
 		"idle_timeout_minutes", idleTimeoutMinutes,
+		"ring_buffer_bytes", ringBufferBytes,
 		"newapi_wired", newapiClient != nil,
 		"default_channels", defaultChannels,
 	)

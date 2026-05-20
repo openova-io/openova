@@ -5,12 +5,73 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/creack/pty"
 )
+
+// DefaultRingBytes is the per-session replay-buffer capacity used when a
+// caller leaves [Spec.RingBytes] zero. The default is sized so a freshly-
+// attaching client (the canonical "close laptop, open phone" multi-device
+// handoff path documented in products/sandbox/docs/user-journey.md
+// Scene 6) replays a meaningful slice of the recent terminal context
+// rather than just the last screen.
+//
+// History: pre-TBD-V22 (#1986 F1, 2026-05-20) this was a hardcoded
+// 256 KiB literal, which on a real Plan-mode / file-listing / multi-turn
+// agent session rolls in well under a minute — the multi-device replay
+// claim in user-journey.md was unbacked. The default is now 1 MiB
+// (1_048_576) — enough for several minutes of typical agent output, and
+// trivially small against the per-Sandbox pty-server Pod memory budget
+// (one ring per live PTY; ten concurrent sessions consume 10 MiB).
+//
+// Operators may override via the SANDBOX_RING_BUFFER_BYTES env var read
+// in [LoadDefaultRingBytesFromEnv] at pty-server startup. The package
+// also exposes the package-level variable directly so tests can set it
+// without going through env. The HARD upper bound (16 MiB) exists to
+// stop a misconfigured operator from making a single ring dominate the
+// pty-server Pod's memory; values above the bound are clamped + logged
+// (see [LoadDefaultRingBytesFromEnv]).
+var DefaultRingBytes = 1 << 20 // 1 MiB
+
+// MaxRingBytes is the hard ceiling enforced by [LoadDefaultRingBytesFromEnv].
+// Per-Pod memory budget rationale: at 16 MiB × 10 concurrent sessions = 160
+// MiB worst-case, still well under typical Sandbox Pod memory limits
+// (architecture.md §1 sizing). Operators wanting larger replay windows
+// should instead persist conversation history via the agent's own
+// `--continue` flag (user-journey.md Scene 6 "Pod restart" row), not
+// inflate the in-memory ring.
+const MaxRingBytes = 16 << 20 // 16 MiB
+
+// LoadDefaultRingBytesFromEnv reads SANDBOX_RING_BUFFER_BYTES and, when
+// set to a positive integer, updates [DefaultRingBytes]. Empty / non-
+// integer / non-positive values leave the default unchanged. Values
+// above [MaxRingBytes] are clamped (and the clamp is announced to the
+// caller via the returned (effective, clamped) tuple so the pty-server
+// can log the decision at startup).
+//
+// Called once from cmd/pty-server/main.go on process start; safe to
+// call again from tests via t.Setenv + this function.
+func LoadDefaultRingBytesFromEnv() (effective int, clamped bool) {
+	raw := strings.TrimSpace(os.Getenv("SANDBOX_RING_BUFFER_BYTES"))
+	if raw == "" {
+		return DefaultRingBytes, false
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return DefaultRingBytes, false
+	}
+	if n > MaxRingBytes {
+		DefaultRingBytes = MaxRingBytes
+		return MaxRingBytes, true
+	}
+	DefaultRingBytes = n
+	return n, false
+}
 
 // ErrClosed indicates the Session has already exited (graceful or
 // forced) and no further writes / signals / resizes will succeed.
@@ -64,7 +125,12 @@ type Spec struct {
 	// SIGWINCH-triggering Resize() calls once it knows its viewport.
 	Rows uint16
 	Cols uint16
-	// RingBytes is the replay buffer size; defaults to 256 KiB.
+	// RingBytes is the replay buffer size in bytes. Zero ⇒
+	// [DefaultRingBytes] (1 MiB, overridable via
+	// SANDBOX_RING_BUFFER_BYTES at pty-server startup). The buffer
+	// holds the trailing tail of PTY stdout for replay on new client
+	// attach — see products/sandbox/docs/user-journey.md Scene 6
+	// "Mobile handoff".
 	RingBytes int
 }
 
@@ -82,7 +148,7 @@ func New(id string, spec Spec) (*Session, error) {
 		spec.Cols = 80
 	}
 	if spec.RingBytes == 0 {
-		spec.RingBytes = 256 * 1024
+		spec.RingBytes = DefaultRingBytes
 	}
 
 	cmd := exec.Command(spec.Command[0], spec.Command[1:]...)

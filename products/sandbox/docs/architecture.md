@@ -26,7 +26,7 @@ The `claude` (or `cursor-agent`, `qwen-code`, `aider`, `opencode`) **binary itse
 │   ├─ ANSI renderer (canvas/DOM)  │  WS   │   ├─ opens a PTY                         │
 │   ├─ keyboard -> bytes ──────────┼──────►│   ├─ writes WS frames to PTY stdin       │
 │   ├─ scrollback buffer           │◄──────┤   ├─ reads PTY stdout, fans out to WS    │
-│   └─ resize events               │       │   ├─ ring buffer (256 KB) for replay     │
+│   └─ resize events               │       │   ├─ ring buffer (1 MiB default) for replay│
 │                                  │       │   └─ SIGWINCH on browser resize          │
 └──────────────────────────────────┘       │              │                           │
                                            │              ▼ spawns once per session   │

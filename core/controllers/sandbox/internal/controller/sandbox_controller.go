@@ -77,6 +77,14 @@ type Reconciler struct {
 	BYOSSecretPrefix      string
 	IdleTimeoutMinutes    int
 
+	// RingBufferBytes — pty-server PTY-stdout replay buffer size, in
+	// bytes. Sourced from SANDBOX_RING_BUFFER_BYTES (controller env via
+	// bp-sandbox values `runtime.ringBufferBytes`). Zero ⇒ controller
+	// omits SANDBOX_RING_BUFFER_BYTES on the per-Sandbox pty-server
+	// StatefulSet, leaving the pty-server's process default
+	// (session.DefaultRingBytes = 1 MiB). TBD-V22 #1986 F1 (2026-05-20).
+	RingBufferBytes int
+
 	// D31 active-hot-standby — Sovereign-level toggle + region pair the
 	// controller threads from its chart env (SOVEREIGN_ENABLE_HOT_STANDBY,
 	// SOVEREIGN_PRIMARY_REGION, SOVEREIGN_REPLICA_REGION) into every
@@ -294,6 +302,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		LLMGatewayTokenSecret: r.LLMGatewayTokenSecret,
 		BYOSSecretPrefix:      r.BYOSSecretPrefix,
 		IdleTimeoutMinutes:    r.IdleTimeoutMinutes,
+		RingBufferBytes:       r.RingBufferBytes,
 		IdleScalingDisabled:   sb.Spec.IdleScaling != nil && !sb.Spec.IdleScaling.Enabled,
 		NewAPIToken:           tokenValue,
 		NewAPITokenSecretName: fmt.Sprintf("sandbox-%s-newapi-token", ownerUID),
