@@ -48,7 +48,7 @@ Walk these top to bottom. The wizard fails fast on missing prerequisites, but mo
 | Hetzner Cloud project | Yes — separate project per Sovereign | https://console.hetzner.cloud → Projects |
 | API token | Read **and** Write | Project → Security → API Tokens → New Token |
 | Token storage | 1Password vault `OpenOva — Production`, item `Catalyst — Hetzner Cloud token (<sovereign-fqdn>)` | Tag `rotation:per-sovereign` |
-| Rotation policy | Rotate on leak, on decommission, or every 12 months | See [`SECRET-ROTATION.md`](SECRET-ROTATION.md) |
+| Rotation policy | Rotate on leak, on decommission, or every 12 months | See [`SECURITY.md` §11](SECURITY.md#11-rotation-cadence-and-operator-procedures) |
 
 The token is sent once through the wizard, used by `catalyst-api` for the OpenTofu run, then redacted from the persisted deployment record. It is **not** copied to the Sovereign cluster.
 
@@ -84,7 +84,7 @@ Cloud-init creates `flux-system/ghcr-pull` Secret on the Sovereign cluster from 
 |---|---|---|
 | Token type | Fine-grained personal access token, scope `packages:read` on org `openova-io` | https://github.com/settings/tokens?type=beta |
 | K8s Secret | `catalyst/catalyst-ghcr-pull-token`, key `token` | `kubectl -n catalyst get secret catalyst-ghcr-pull-token` |
-| Rotation policy | Yearly | See [`SECRET-ROTATION.md`](SECRET-ROTATION.md) |
+| Rotation policy | Yearly | See [`SECURITY.md` §11.1](SECURITY.md#111-ghcr-pull-token-catalyst-ghcr-pull-token) |
 
 **F. PowerDNS pool zones bootstrapped**
 
@@ -856,7 +856,7 @@ Common failure modes + first-look diagnostics, condensed from 18 documented inci
 | Flux event: `existing namespace "kube-system" is conflicting with another resource that has the same name` | Bootstrap-kit kustomize merge had `kube-system` Namespace declared twice (pre-fix `2022e1af`) | Fix is in `main`; Flux picks up on next reconcile interval. If pinned to old SHA, edit GitRepository `spec.ref.branch` |
 | Flux event: `no matches for kind "ProviderConfig" in version "hetzner.crossplane.io/v1beta1"` | Single Kustomization tried to apply both Crossplane (CRDs) AND Hetzner Compositions (CRs). Fix `34c8de84` split into two Kustomizations | Confirm cloud-init template post-`34c8de84`; re-provision |
 | HelmRelease: `failed to get authentication secret 'flux-system/ghcr-pull': secrets "ghcr-pull" not found` | Pre-fix `dddbab4b` cloud-init didn't create durably | Re-provision against current `main`. On a still-up Sovereign: `kubectl -n flux-system create secret generic ghcr-pull --from-literal=token=...` |
-| HelmRelease: `failed to authorize: 401 Unauthorized | ghcr.io/openova-io/bp-cilium` | GHCR token expired or wrong scope | Rotate per [`SECRET-ROTATION.md`](SECRET-ROTATION.md); rotate `flux-system/ghcr-pull` Secret on existing Sovereigns + `flux reconcile source helmrepository` |
+| HelmRelease: `failed to authorize: 401 Unauthorized | ghcr.io/openova-io/bp-cilium` | GHCR token expired or wrong scope | Rotate per [`SECURITY.md` §11.1](SECURITY.md#111-ghcr-pull-token-catalyst-ghcr-pull-token); rotate `flux-system/ghcr-pull` Secret on existing Sovereigns + `flux reconcile source helmrepository` |
 | HelmRelease: `error validating ... no matches for kind "ServiceMonitor" in version "monitoring.coreos.com/v1"` | bp-* chart ships `ServiceMonitor` ON by default; CRD not yet registered. See §3.9 | Edit bp-* HelmRelease values: `observability.enabled: false`; `flux reconcile helmrelease`. Long-term: bp-* chart bumps with default-off (already shipped in current bp-*:1.1.1+) |
 | HelmRelease `Ready=True` but no upstream pods — namespace empty except Helm release secret | Hollow umbrella chart — `dependencies` declared but upstream subchart not packaged into `charts/`. Pre-fix `43aff202` | Re-run `blueprint-release` workflow on the chart's tag — 4 guards (build/package/push/pull) will fail loudly. Fix the upstream pin + re-tag. See §3.8 |
 | Wizard goes blank or "Deployment not found" after catalyst-api Pod restart | Pre-fix `418cead0` catalyst-api wrote deployments to emptyDir — Pod restart wiped them | Confirm catalyst-api image at or after `418cead0`; PVC mount in HelmRelease values. Orphans may exist — purge per §2.2 |
@@ -914,7 +914,7 @@ flowchart TD
 - [`PRINCIPLES.md`](PRINCIPLES.md) — theater receipts to watch for in PR review
 - [`SECURITY.md`](SECURITY.md) — identity, secrets, rotation
 - [`PLATFORM-POWERDNS.md`](PLATFORM-POWERDNS.md) — per-Sovereign authoritative zone model
-- [`SECRET-ROTATION.md`](SECRET-ROTATION.md) — GHCR pull token, Dynadot credentials, Hetzner tokens
+- [`SECURITY.md` §11](SECURITY.md#11-rotation-cadence-and-operator-procedures) — GHCR pull token, Dynadot credentials, Hetzner tokens (rotation runbook merged from former `SECRET-ROTATION.md` on 2026-05-20)
 - [`MULTI-REGION-DNS.md`](MULTI-REGION-DNS.md) — PowerDNS lua-records for GSLB
 - [`FRANCHISE-MODEL.md`](FRANCHISE-MODEL.md) — voucher mechanism
 - [`TRUST.md`](TRUST.md) — verification ledger
