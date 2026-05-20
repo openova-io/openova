@@ -2235,8 +2235,29 @@ name: bp-catalyst-platform
 #
 # Refs #1099 (NOT Closes — operator walk + screenshot is the DoD per
 # CLAUDE.md §0).
-version: 1.4.231
-appVersion: 1.4.231
+version: 1.4.232
+appVersion: 1.4.232
+# 1.4.232 — fix(sovereign-tls): render Cilium Gateway listener YAML in
+# the chart (templates/sovereign-tls-vars-cm.yaml) and feed it into the
+# sovereign-tls Kustomization via Flux postBuild.substituteFrom on
+# ConfigMap/sovereign-tls-vars. Removes the O(N)-per-parent-zone listener
+# block from cloud-init (infra/hetzner/cloudinit-control-plane.tftpl)
+# so 4-zone SME-pool Sovereigns (e.g. omantel.biz + .omani.{homes,rest,
+# trade}) render under Hetzner's 32 KiB user_data cap with safety margin.
+# Closes #2118 (TBD-V48). Synthetic render evidence: t39 4-zone cloud-init
+# stripped 30,748 → 28,619 bytes (saves 2,129 bytes; threshold 32,256).
+# Helm template covers all three historical paths preserved by the old
+# locals.parent_domains_listeners_yaml in infra/hetzner/main.tf:
+#   - Single-zone fallback (parentZones empty → list with sovereign FQDN)
+#     emits bare `https`/`http` listener names (every catalyst-system
+#     HTTPRoute hardcodes sectionName: https on single-zone Sovereigns).
+#   - Multi-zone (SME pool) emits unique `https-<sanitised>` /
+#     `http-<sanitised>` names per parent zone.
+#   - TBD-A32 #1886 per-prov 2-label wildcard listener pair appended when
+#     sovereignFQDN ∉ parentZones (skipped otherwise to avoid Conflict).
+# Cross-region: every region runs the same bp-catalyst-platform chart,
+# each peer renders its own ConfigMap into its own flux-system, so
+# sovereign-tls Kustomizations in secondary regions read locally.
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
 # TBD-A30). Pre-1.4.183 every catalyst-system HTTPRoute pinned

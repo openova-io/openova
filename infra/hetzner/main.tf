@@ -420,132 +420,32 @@ locals {
   # cert wiring under #831, not parent-zone wildcards.
 
   # ── TBD-A32 (#1886) — per-prov 2-label wildcard listener ─────────────────
+  # Closes #2118 (2026-05-20): the listener YAML was historically
+  # materialised here (locals.parent_domains_listeners_yaml,
+  # locals.per_prov_listeners, locals.parent_domains_includes_sovereign_fqdn)
+  # and threaded into cloud-init as an inline postBuild.substitute value.
+  # That scaled O(N) with parent-zone count and pushed cloud-init over
+  # Hetzner's 32 KiB user_data cap on 4-zone SME-pool Sovereigns (t39
+  # audit, 2026-05-20: 33,656 bytes for omantel.biz + 3-zone .omani.X).
   #
-  # The parent-zone listeners above declare `hostname: *.<zone>` (e.g.
-  # `*.omani.works`). Per Gateway-API spec wildcard semantics, that pattern
-  # matches EXACTLY ONE label depth — `foo.omani.works` ✅ — but NOT
-  # `console.t28.omani.works` (2-label depth from the apex). On a
-  # multi-prov shared parent zone like `omani.works`, every per-prov
-  # operator endpoint (console.<fqdn>, api.<fqdn>, marketplace.<fqdn>, …)
-  # is 2-label-deep, so the parent-zone wildcard listener never catches
-  # them and cilium-envoy returns TLS handshake reset / NoMatchingListener.
+  # The listener block is now rendered inside bp-catalyst-platform's
+  # templates/sovereign-tls-vars-cm.yaml from .Values.parentZones +
+  # .Values.global.sovereignFQDN — same Helm template that already owns
+  # the per-zone Certificate render shape. The chart writes a ConfigMap
+  # `flux-system/sovereign-tls-vars` whose `PARENT_DOMAINS_LISTENERS_YAML`
+  # key is read by the sovereign-tls Kustomization via
+  # `postBuild.substituteFrom` (cloud-init writes that Kustomization).
   #
-  # Note: TBD-A29 (#1883) already pointed the parent-zone listener's
-  # certificateRefs at the per-prov cert `sovereign-wildcard-tls-
-  # <fqdn-dashed>`. That fixed the LE-budget burn but NOT the hostname-
-  # match gap — listener selection happens BEFORE SNI cert dispatch, so
-  # cilium-envoy never reaches the per-prov cert for a 2-label-deep
-  # request that the parent-zone listener rejects on hostname.
+  # The TBD-A32 collision guard (sovereign_fqdn ∈ parent_zone_names →
+  # skip per-prov pair to avoid duplicate listener-name Conflict) is
+  # preserved in the Helm template as a `range` over parentZones that
+  # sets a `$fqdnInZones` boolean.
   #
-  # Fix: emit an ADDITIONAL listener pair hostnamed `*.<sovereign_fqdn>`
-  # (e.g. `*.t28.omani.works`) bound to the SAME per-prov cert
-  # `sovereign-wildcard-tls-<fqdn-dashed>` rendered by
-  # clusters/_template/sovereign-tls/cilium-gateway-cert.yaml. That
-  # cert already enumerates 13 per-prov SANs (console / auth / gitea /
-  # harbor / registry / api / bao / grafana / hubble / pdns /
-  # openova-flow / guacamole / marketplace / sandbox) so every per-prov
-  # subdomain has both a listener match AND a matching cert SAN.
-  #
-  # Collision guard: when sovereign_fqdn is identical to one of the
-  # declared parent-zone names (legacy single-zone case where the
-  # operator brings the apex itself, e.g. parent_domains_yaml=
-  # `[{name: "omani.works"}]` and sovereign_fqdn=`omani.works`), the
-  # parent-zone listener already covers everything 1-label-deep and
-  # adding a duplicate `*.<fqdn>` pair would produce a Gateway
-  # Conflicted condition on duplicate listener names. Skip the per-prov
-  # pair in that case — `local.parent_domains_includes_sovereign_fqdn`.
-  #
-  # Naming: the per-prov listener pair always uses unique names
-  # `https-<fqdn-dashed>` / `http-<fqdn-dashed>` (e.g. `https-t28-omani-
-  # works`). This is safe because every catalyst-system HTTPRoute now
-  # OMITS sectionName (PR #1888 closing #1884) — Cilium attaches each
-  # route to the listener whose hostname matches via the hostname
-  # filter, not by sectionName equality.
-  parent_domains_includes_sovereign_fqdn = contains(
-    [for e in local.parent_domains_decoded : e.name],
-    var.sovereign_fqdn
-  )
-  # NOTE (TBD-A35 hotfix, Closes #1886): the conditional that suppresses
-  # this pair when sovereign_fqdn collides with a declared parent zone now
-  # lives on the consumer line in `parent_domains_listeners_yaml` below
-  # (concat() at line ~503). Keeping the conditional here as
-  # `... ? [] : [<HTTPS_obj>, <HTTP_obj>]` triggers tofu/terraform
-  # "Inconsistent conditional result types" — the true arm is an empty
-  # tuple `tuple([])` while the false arm is `tuple([obj_with_tls,
-  # obj_without_tls])` and HCL cannot unify the two. Always emit the pair
-  # at this local; suppress at the consumer.
-  per_prov_listeners = [
-    {
-      name     = format("https-%s", local.sovereign_fqdn_dashed)
-      port     = 30443
-      protocol = "HTTPS"
-      hostname = format("*.%s", var.sovereign_fqdn)
-      tls = {
-        mode = "Terminate"
-        certificateRefs = [
-          {
-            kind = "Secret"
-            name = format("sovereign-wildcard-tls-%s", local.sovereign_fqdn_dashed)
-          }
-        ]
-      }
-      allowedRoutes = {
-        namespaces = {
-          from = "All"
-        }
-      }
-    },
-    {
-      name     = format("http-%s", local.sovereign_fqdn_dashed)
-      port     = 30080
-      protocol = "HTTP"
-      hostname = format("*.%s", var.sovereign_fqdn)
-      allowedRoutes = {
-        namespaces = {
-          from = "All"
-        }
-      }
-    },
-  ]
-
-  parent_domains_listeners_yaml = jsonencode(concat(
-    flatten([
-      for entry in local.parent_domains_decoded : [
-        {
-          name     = local.parent_domains_single_zone ? "https" : format("https-%s", replace(entry.name, ".", "-"))
-          port     = 30443
-          protocol = "HTTPS"
-          hostname = format("*.%s", entry.name)
-          tls = {
-            mode = "Terminate"
-            certificateRefs = [
-              {
-                kind = "Secret"
-                name = format("sovereign-wildcard-tls-%s", local.sovereign_fqdn_dashed)
-              }
-            ]
-          }
-          allowedRoutes = {
-            namespaces = {
-              from = "All"
-            }
-          }
-        },
-        {
-          name     = local.parent_domains_single_zone ? "http" : format("http-%s", replace(entry.name, ".", "-"))
-          port     = 30080
-          protocol = "HTTP"
-          hostname = format("*.%s", entry.name)
-          allowedRoutes = {
-            namespaces = {
-              from = "All"
-            }
-          }
-        },
-      ]
-    ]),
-    [for l in local.per_prov_listeners : l if !local.parent_domains_includes_sovereign_fqdn]
-  ))
+  # Single-zone fallback (legacy Sovereigns shipping parentZones empty)
+  # is preserved in the Helm template as a `if eq (len $zones) 0 →
+  # list (dict "name" $fqdn "role" "primary")` substitution — matches
+  # the historical `coalesce(var.parent_domains_yaml, format("[{name:
+  # \"%s\", role: \"primary\"}]", var.sovereign_fqdn))` shape.
 
   # ── Effective singular-path SKU selection (Fix #157) ─────────────────────
   # When qa_fixtures_enabled='true', the Sovereign is a QA-loop matrix
@@ -808,12 +708,13 @@ locals {
       var.parent_domains_yaml,
       format("[{name: \"%s\", role: \"primary\"}]", var.sovereign_fqdn)
     )
-    # Cilium Gateway listeners per parent zone (issue #831). Multi-line
-    # YAML block iterating local.parent_domains_decoded. Threaded into
-    # clusters/_template/sovereign-tls/cilium-gateway.yaml via Flux
-    # postBuild.substitute as ${PARENT_DOMAINS_LISTENERS_YAML}. See
-    # locals.parent_domains_listeners_yaml above for shape + rationale.
-    parent_domains_listeners_yaml = local.parent_domains_listeners_yaml
+    # Cilium Gateway listener YAML is no longer threaded into cloud-init
+    # (Closes #2118). The bp-catalyst-platform chart's
+    # templates/sovereign-tls-vars-cm.yaml renders the listener block
+    # from .Values.parentZones into a flux-system/sovereign-tls-vars
+    # ConfigMap; the sovereign-tls Kustomization's
+    # postBuild.substituteFrom picks it up. Keeps cloud-init under
+    # Hetzner's 32 KiB user_data cap on multi-zone SME-pool Sovereigns.
     # sovereign_regions_json — canonical multi-region RegionSpec[]
     # JSON literal. Threaded into bp-catalyst-platform's
     # .Values.sovereign.regionsJson via the bootstrap-kit slot 13
@@ -1376,12 +1277,12 @@ locals {
         var.parent_domains_yaml,
         format("[{name: \"%s\", role: \"primary\"}]", var.sovereign_fqdn)
       )
-      # Cilium Gateway listeners per parent zone (issue #831). Same
-      # rendered multi-line YAML as the primary CP — secondary regions
-      # also reconcile sovereign-tls into THEIR own cluster, so the
-      # listeners block must be present there too. See
-      # locals.parent_domains_listeners_yaml in this file.
-      parent_domains_listeners_yaml = local.parent_domains_listeners_yaml
+      # Cilium Gateway listener YAML is no longer threaded into cloud-init
+      # (Closes #2118). Same bp-catalyst-platform chart runs in every
+      # region — each peer's chart renders its own
+      # flux-system/sovereign-tls-vars ConfigMap and sovereign-tls reads
+      # it locally via postBuild.substituteFrom. See main.tf locals
+      # comment (~line 422) for full rationale.
       # Same JSON-encoded RegionSpec[] as the primary CP — every region's
       # bp-catalyst-platform renders the same sovereign.regionsJson value
       # (the cluster topology is Sovereign-wide, not per-region).

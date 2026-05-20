@@ -23,15 +23,24 @@
 # NET::ERR_CERT_COMMON_NAME_INVALID, marketplace WordPress tenants on
 # omani.homes are unreachable.
 #
-# Fix: render one listener pair per parent zone. The listener block is
-# materialised at Terraform plan time (infra/hetzner/main.tf
-# locals.parent_domains_listeners_yaml — jsonencode of the listener
-# objects), threaded through Flux postBuild.substitute as
-# ${PARENT_DOMAINS_LISTENERS_YAML}, and consumed BELOW as a YAML inline-
-# flow array value on `spec.listeners`. Each pair's certificateRefs
-# target the per-zone Secret rendered by products/catalyst/chart/
-# templates/sovereign-wildcard-certs.yaml (PR #827) so the Gateway
-# listener and the cert resource are always in lockstep.
+# Fix: render one listener pair per parent zone. As of #2118 (TBD-V48,
+# 2026-05-20) the listener block is rendered inside bp-catalyst-platform's
+# templates/sovereign-tls-vars-cm.yaml from .Values.parentZones (the
+# chart's single source of truth on parent-zone shape). The chart emits
+# a ConfigMap flux-system/sovereign-tls-vars whose key
+# PARENT_DOMAINS_LISTENERS_YAML carries the JSON-flow listener array.
+# Cloud-init's sovereign-tls Kustomization reads it via
+# `postBuild.substituteFrom: [{kind: ConfigMap, name: sovereign-tls-vars}]`
+# and Flux inlines the value at `${PARENT_DOMAINS_LISTENERS_YAML}` below.
+# Each pair's certificateRefs target the per-prov Secret rendered by
+# clusters/_template/sovereign-tls/cilium-gateway-cert.yaml (TBD-A29
+# #1883) — the listener and the cert resource stay in lockstep.
+#
+# Why moved out of cloud-init: the inline value scaled O(N) with parent-
+# zone count and pushed 4-zone SME-pool Sovereigns over Hetzner's 32 KiB
+# user_data cap (t39 audit, 2026-05-20: 33,656 bytes overshot the post-
+# #1985 guardrail of 32,256). Render-in-chart drops ~2.1 KiB out of
+# cloud-init with safety margin.
 #
 # Why a scalar placeholder, not a multi-line block:
 #   - kustomize-build PARSES the YAML before Flux runs envsubst. A
@@ -100,10 +109,13 @@
 # sectionName (PR #1888 closing #1884) — Cilium attaches by hostname
 # match.
 #
-# The listener block is rendered by infra/hetzner/main.tf locals.
-# parent_domains_listeners_yaml using local.parent_domains_single_zone
-# to switch between the two naming schemes (and appending per-prov
-# listeners via local.per_prov_listeners).
+# The listener block is rendered by bp-catalyst-platform's
+# templates/sovereign-tls-vars-cm.yaml (Closes #2118 / TBD-V48), which
+# encodes the single-zone vs multi-zone naming switch AND the per-prov
+# pair-emission logic directly in Helm template (range over parentZones
+# + ternary `single ? "https" : "https-<sanitised>"` + a $fqdnInZones
+# collision check that skips the per-prov pair when sovereignFQDN
+# already equals a declared parent-zone name).
 
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway

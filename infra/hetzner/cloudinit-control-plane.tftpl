@@ -1314,22 +1314,19 @@ write_files:
             # bp-catalyst-platform into clusters/_template/sovereign-tls/
             # has access to the parent-zone list without a config copy.
             PARENT_DOMAINS_YAML: '${parent_domains_yaml}'
-            # PARENT_DOMAINS_LISTENERS_YAML (issue #831 follow-on to #827).
-            # JSON-flow array literal listing one Gateway listener pair
-            # (HTTPS:30443 + HTTP:30080) per parent zone. Consumed as a
-            # scalar value at `listeners: $${PARENT_DOMAINS_LISTENERS_YAML}`
-            # in clusters/_template/sovereign-tls/cilium-gateway.yaml.
-            # kustomize-build accepts the unsubstituted scalar; Flux's
-            # postBuild.substitute then swaps it for the materialised
-            # array, which YAML parses as the actual listener list.
-            # The double jsonencode is intentional — the inner one
-            # (locals.parent_domains_listeners_yaml) renders the array;
-            # the outer one wraps it as a JSON-encoded string so the
-            # value-in-YAML embedding works regardless of the array's
-            # internal characters. See infra/hetzner/main.tf
-            # locals.parent_domains_listeners_yaml for rationale +
-            # listener-naming convention.
-            PARENT_DOMAINS_LISTENERS_YAML: ${jsonencode(parent_domains_listeners_yaml)}
+            # PARENT_DOMAINS_LISTENERS_YAML — historically materialised here
+            # by infra/hetzner/main.tf locals.parent_domains_listeners_yaml
+            # and inlined as a substitute value, but that scaled O(N) with
+            # parent-zone count and overflowed Hetzner's 32 KiB user_data
+            # cap on 4-zone SME-pool Sovereigns (Closes #2118 — t39 audit,
+            # 2026-05-20). Now rendered inside bp-catalyst-platform's
+            # templates/sovereign-tls-vars-cm.yaml from .Values.parentZones
+            # (single source of truth — same input the chart's per-zone
+            # Certificate render already consumes). Picked up below via
+            # `substituteFrom: ConfigMap/sovereign-tls-vars`. Ordering is
+            # safe: this Kustomization `dependsOn: bootstrap-kit Ready`, and
+            # bootstrap-kit is Ready only when bp-catalyst-platform's HR
+            # (which renders the ConfigMap) is Ready.
             # WILDCARD_CERT_ISSUER (Fix #176 — qa-loop iter-1 LE
             # rate-limit unblock). cilium-gateway-cert.yaml references
             # this via $${WILDCARD_CERT_ISSUER}. When
@@ -1359,6 +1356,24 @@ write_files:
             SOVEREIGN_FQDN_SLUG: "${sovereign_fqdn_slug}"
             SOVEREIGN_REGION_KEY: ${sovereign_region_key}
             HCLOUD_LB_LOCATION: "${region}"
+          # substituteFrom: ConfigMap/sovereign-tls-vars (Closes #2118).
+          # The bp-catalyst-platform chart's templates/sovereign-tls-vars-cm.yaml
+          # renders this ConfigMap from .Values.parentZones into flux-system.
+          # Keys it carries:
+          #   - PARENT_DOMAINS_LISTENERS_YAML: JSON-flow listener array
+          #     consumed by clusters/_template/sovereign-tls/cilium-gateway.yaml
+          #     at `spec.listeners: $${PARENT_DOMAINS_LISTENERS_YAML}`.
+          # Moved out of the inline `substitute` map above to keep cloud-init
+          # under Hetzner's 32 KiB user_data cap on multi-zone SME-pool
+          # Sovereigns (the listener block scales O(N) with parent-zone
+          # count; 4 zones → ~2.2 KiB → cloud-init at 33.6 KiB before this fix).
+          # optional: false is correct — bp-catalyst-platform is INSIDE
+          # bootstrap-kit, and this Kustomization dependsOn bootstrap-kit
+          # Ready, so the ConfigMap is guaranteed to exist before reconcile.
+          substituteFrom:
+            - kind: ConfigMap
+              name: sovereign-tls-vars
+              optional: false
       ---
       apiVersion: kustomize.toolkit.fluxcd.io/v1
       kind: Kustomization
