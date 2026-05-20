@@ -31,7 +31,7 @@ PLAYWRIGHT_HOST=http://localhost:5174 npx playwright test e2e/cosmetic-guards.sp
 
 The config reads `PLAYWRIGHT_HOST` (default `http://localhost:5173`) and
 `PLAYWRIGHT_BASEPATH` (default `/sovereign`) from the environment, per
-INVIOLABLE-PRINCIPLES.md #4 (never hardcode).
+PRINCIPLES.md #4 (never hardcode).
 
 ## Pass / fail semantics — what "green" means
 
@@ -90,7 +90,7 @@ reference, and the file that must NOT regress.
 
 ## Tests that need a `data-testid` PR first
 
-Per INVIOLABLE-PRINCIPLES.md #2 (never compromise quality), no test is
+Per PRINCIPLES.md #2 (never compromise quality), no test is
 tagged `.skip()` even when its target component is mid-refactor. Each
 test fails LOUD with an explicit error message naming the missing
 `data-testid` so the implementing agent has a precise target.

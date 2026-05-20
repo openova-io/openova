@@ -62,7 +62,7 @@ false` here ensures installing the chart is reversible.
 
 ## References
 
-- docs/EPICS-1-6-unified-design.md §3.9 row 6
+- docs/ARCHITECTURE.md §3.9 row 6
 - docs/SRE.md §2.5 (CNPG storage requirements)
 - platform/cnpg/README.md §38-58
 - Upstream: https://github.com/hetznercloud/csi-driver

@@ -58,13 +58,13 @@ The K-Cont-2 reconciler will:
 3. Watch CNPG `cnpg.io/cluster.replicationLag` per replica.
 4. On switchover (operator-initiated or auto-failover when health
    check + witness quorum agree primary is unreachable), execute the
-   sequence in `docs/EPICS-1-6-unified-design.md` §9.3.
+   sequence in `docs/ARCHITECTURE.md` §9.3.
 5. Patch status (phase, primaryRegion, leaseHolder, leaseExpiresAt,
    replicationLag map, conditions, lastSwitchover).
 
 ## Reading order for K-Cont-2 implementer
 
-1. `docs/EPICS-1-6-unified-design.md` §9 (full Continuum DR spec)
+1. `docs/ARCHITECTURE.md` §9 (full Continuum DR spec)
 2. `docs/SRE.md` §2 (DR runbook + lease witness pattern)
 3. `docs/MULTI-REGION-DNS.md` (lua-record DNS pattern)
 4. `products/catalyst/chart/crds/continuum.yaml` (CRD shape)

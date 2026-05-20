@@ -48,16 +48,16 @@ grep -rnE 'acme-staging|acme-production|acme-development' docs/ platform/*/READM
   | grep -v VALIDATION-LOG
 
 # 3. JetStream subject prefix (must show only NAMING §11.2 occurrence)
-grep -rnE 'ws\.\{?(env|org)' docs/ARCHITECTURE.md docs/NAMING-CONVENTION.md docs/GLOSSARY.md docs/SECURITY.md docs/PLATFORM-TECH-STACK.md
+grep -rnE 'ws\.\{?(env|org)' docs/ARCHITECTURE.md docs/ARCHITECTURE.md docs/GLOSSARY.md docs/SECURITY.md docs/ARCHITECTURE.md
 
 # 4. API group split (count must be ≥7 across Catalyst CRDs + Crossplane XRDs)
 grep -rnE 'compose\.openova\.io/v1alpha1|catalyst\.openova\.io/v1alpha1' \
-  docs/ARCHITECTURE.md docs/NAMING-CONVENTION.md docs/SECURITY.md docs/BLUEPRINT-AUTHORING.md \
+  docs/ARCHITECTURE.md docs/ARCHITECTURE.md docs/SECURITY.md docs/RUNBOOKS.md \
   core/README.md platform/crossplane/README.md | wc -l
 
 # 5. Subsection ordering monotonicity
-grep -nE '^### 7\.[0-9]' docs/PLATFORM-TECH-STACK.md
-grep -nE '^### 2\.[0-9]|^### 11\.[0-9]' docs/NAMING-CONVENTION.md
+grep -nE '^### 7\.[0-9]' docs/ARCHITECTURE.md
+grep -nE '^### 2\.[0-9]|^### 11\.[0-9]' docs/ARCHITECTURE.md
 grep -nE '^### 5\.[0-9]' docs/SECURITY.md
 grep -nE '^### 9\.[0-9]' docs/SRE.md
 # Manual check: numbers must be strictly increasing.
@@ -68,11 +68,11 @@ grep -rnE 'Environment Gitea repo|/{org}/{org}-{env_type}|<org>/<org>-<env_type|
 
 # 7. Branches-map-to-envs anchor present in 4+ docs
 grep -lE 'develop`/`staging`/`main|develop/staging/main|branches.*map.*env' \
-  docs/GLOSSARY.md docs/NAMING-CONVENTION.md docs/ARCHITECTURE.md docs/PERSONAS-AND-JOURNEYS.md
+  docs/GLOSSARY.md docs/ARCHITECTURE.md docs/ARCHITECTURE.md docs/DOD.md
 
 # 8. 5 Gitea Orgs convention (must be in GLOSSARY + ARCHITECTURE + PTS + BLUEPRINT-AUTHORING)
 grep -lE 'catalog-sovereign|`system` Gitea Org|five conventional Gitea Orgs|5 conventional Gitea Orgs' \
-  docs/GLOSSARY.md docs/ARCHITECTURE.md docs/PLATFORM-TECH-STACK.md docs/BLUEPRINT-AUTHORING.md
+  docs/GLOSSARY.md docs/ARCHITECTURE.md docs/ARCHITECTURE.md docs/RUNBOOKS.md
 
 # 9. Component count = 56 across all anchors (must produce no "53 components" except VALIDATION-LOG)
 grep -rnE '\b53 components\b|\b53 curated\b|\b53-component\b|\ball 53\b|\b53 platform\b|\b53 folders\b' \
@@ -85,7 +85,7 @@ grep -rinE '\bminio\b' docs/*.md README.md CLAUDE.md core/README.md products/*/R
 
 # 11. OpenBao independent-Raft (must appear in 5+ representational levels)
 grep -lE 'INDEPENDENT, NOT STRETCHED|independent Raft cluster|no stretched cluster|Independent OpenBao Raft' \
-  docs/SECURITY.md docs/ARCHITECTURE.md docs/GLOSSARY.md docs/PLATFORM-TECH-STACK.md docs/BUSINESS-STRATEGY.md
+  docs/SECURITY.md docs/ARCHITECTURE.md docs/GLOSSARY.md docs/ARCHITECTURE.md docs/BUSINESS-STRATEGY.md
 
 # 12. Catalyst-as-platform anchor (must appear in GLOSSARY + README + BUSINESS-STRATEGY)
 grep -lE 'Company vs.*Platform|Catalyst is the open|OpenOva.*the company|Catalyst.*the platform itself' \
@@ -93,9 +93,9 @@ grep -lE 'Company vs.*Platform|Catalyst is the open|OpenOva.*the company|Catalys
 
 # 13. DNS pattern split (NAMING + multiple consumers)
 grep -nE '\{component\}\.\{location-code\}\.\{sovereign-domain\}|\{app\}\.\{environment\}\.\{sovereign-domain\}' \
-  docs/NAMING-CONVENTION.md
+  docs/ARCHITECTURE.md
 grep -lE '<location-code>\.<sovereign-domain>|<env>\.<sovereign-domain>' \
-  docs/SOVEREIGN-PROVISIONING.md docs/BLUEPRINT-AUTHORING.md docs/SRE.md \
+  docs/SOVEREIGN-PROVISIONING.md docs/RUNBOOKS.md docs/SRE.md \
   platform/llm-gateway/README.md platform/valkey/README.md
 ```
 
@@ -116,7 +116,7 @@ The deep-read confirms the doc's known anchors are present and consistent with t
 
 ## Output
 
-Append a numbered Pass entry to `docs/VALIDATION-LOG.md` describing:
+Append a numbered Pass entry to `docs/archive/validation-log.md` describing:
 
 - Date, pass number, target doc + target component
 - Acceptance grep results (clean / drift)
@@ -133,7 +133,7 @@ Commit message format: `docs(pass-N): <target-doc> <ordinal>-cycle + <component>
 ## What this audit does NOT do
 
 - **Architectural review.** Text-shape consistency does not validate that the architecture is right. Architectural review is a separate, complementary discipline. See Pass 103 and Lesson #21.
-- **Code review.** Most code is design-stage per `IMPLEMENTATION-STATUS.md`. Code review is a separate concern.
+- **Code review.** Most code is design-stage per `STATUS.md`. Code review is a separate concern.
 - **Compliance review.** Mappings to PSD2/DORA/NIS2/SOX live in `bp-specter`'s Compliance Agent's runtime evaluation, not in doc audit.
 - **Security review.** Security review is `/security-review` skill's domain.
 

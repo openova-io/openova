@@ -1,6 +1,6 @@
 # Debezium
 
-Change Data Capture (CDC) for streaming database row-level changes into Strimzi/Kafka. **Application Blueprint** (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.2 — CDC). Used by `bp-fabric` to feed downstream consumers (Flink, OpenSearch SIEM, ClickHouse cold storage) from CNPG/FerretDB sources.
+Change Data Capture (CDC) for streaming database row-level changes into Strimzi/Kafka. **Application Blueprint** (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §4.2 — CDC). Used by `bp-fabric` to feed downstream consumers (Flink, OpenSearch SIEM, ClickHouse cold storage) from CNPG/FerretDB sources.
 
 **Status:** Accepted | **Updated:** 2026-04-27
 

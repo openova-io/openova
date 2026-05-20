@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # check-vendor-coupling.sh — CI guardrail enforcing the founder's
 # 2026-05-01 vendor-agnostic rule (canonical-seam map at
-# docs/omantel-handover-wbs.md §3a, principle in
-# docs/INVIOLABLE-PRINCIPLES.md #4).
+# docs/archive/omantel-handover-wbs.md §3a, principle in
+# docs/PRINCIPLES.md #4).
 #
 # What this does:
 #   Scans platform/, clusters/, and products/catalyst/bootstrap/{api,ui}/
@@ -76,8 +76,8 @@ Usage: $(basename "$0") [--root DIR] [--force-hard-fail]
                       (used by self-tests; CI never sets this)
   -h, --help          Show this message
 
-See docs/omantel-handover-wbs.md §3a (canonical-seam map) and
-docs/INVIOLABLE-PRINCIPLES.md #4 (no hardcoding) for the rule rationale.
+See docs/archive/omantel-handover-wbs.md §3a (canonical-seam map) and
+docs/PRINCIPLES.md #4 (no hardcoding) for the rule rationale.
 EOF
 }
 
@@ -288,8 +288,8 @@ if [[ "${HARD_FAIL}" -eq 1 ]]; then
   echo "${FILTERED_HITS}" >&2
   echo "" >&2
   echo "Vendor names must not appear in capability-named slots. The canonical-seam map" >&2
-  echo "is documented at docs/omantel-handover-wbs.md §3a; principle #4 in" >&2
-  echo "docs/INVIOLABLE-PRINCIPLES.md (\"never hardcode\") covers the rationale." >&2
+  echo "is documented at docs/archive/omantel-handover-wbs.md §3a; principle #4 in" >&2
+  echo "docs/PRINCIPLES.md (\"never hardcode\") covers the rationale." >&2
   echo "" >&2
   echo "Common fixes:" >&2
   echo "  - rename '<vendor>-object-storage' Secret/Overlay to 'object-storage-credentials'" >&2
@@ -304,5 +304,5 @@ echo "" >&2
 echo "${FILTERED_HITS}" >&2
 echo "" >&2
 echo "These will become hard-fails once internal/objectstorage/ lands (PR #425)." >&2
-echo "See docs/omantel-handover-wbs.md §3a + docs/INVIOLABLE-PRINCIPLES.md #4." >&2
+echo "See docs/archive/omantel-handover-wbs.md §3a + docs/PRINCIPLES.md #4." >&2
 exit 0

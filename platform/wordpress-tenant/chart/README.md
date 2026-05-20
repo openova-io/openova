@@ -27,7 +27,7 @@ pattern.
 | `NetworkPolicy` | Restricts egress to: bp-cnpg :5432, Keycloak :8443/:8080, kube-dns, and HTTPS to public IPs (for plugin/theme fetches at first install). Ingress allowed only from the configured ingress namespace (default `traefik`). |
 | `ServiceAccount` | Default SA for the WordPress Pod. The post-install Jobs use a dedicated SA + Role + RoleBinding scoped to the tenant namespace. |
 
-## Boot sequence (per docs/INVIOLABLE-PRINCIPLES.md #2)
+## Boot sequence (per docs/PRINCIPLES.md #2)
 
 ```
 helm install

@@ -1,7 +1,7 @@
 name: Test — Strategy flip regression (RollingUpdate -> Recreate)
 
 # Defends the Catalyst chart against the contabo-mkt outage of
-# 2026-04-29. See docs/CHART-AUTHORING.md §"Strategy flips on
+# 2026-04-29. See docs/RUNBOOKS.md §"Strategy flips on
 # existing Deployments" for the full failure-mode analysis. The
 # integration test runner at tests/integration/strategy-flip.sh
 # encodes the contract; this workflow gives it a kind cluster and
@@ -22,7 +22,7 @@ on:
       - 'products/catalyst/chart/templates/api-deployment.yaml'
       - 'tests/integration/strategy-flip.yaml'
       - 'tests/integration/strategy-flip.sh'
-      - 'docs/CHART-AUTHORING.md'
+      - 'docs/RUNBOOKS.md'
       - '.github/workflows/test-strategy-flip.yaml'
     branches: [main]
   pull_request:
@@ -30,7 +30,7 @@ on:
       - 'products/catalyst/chart/templates/api-deployment.yaml'
       - 'tests/integration/strategy-flip.yaml'
       - 'tests/integration/strategy-flip.sh'
-      - 'docs/CHART-AUTHORING.md'
+      - 'docs/RUNBOOKS.md'
       - '.github/workflows/test-strategy-flip.yaml'
   workflow_dispatch:
 

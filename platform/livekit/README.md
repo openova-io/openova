@@ -4,7 +4,7 @@ WebRTC SFU. Catalyst Application Blueprint. Real-time video, audio, and
 data routing — powers the Huawei iFlytek voice demo and any Application
 that needs sub-second media. Pairs with `bp-stunner` for K8s-native
 TURN/STUN. See
-[`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.5
+[`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §4.5
 (Communication).
 
 **Status:** Accepted | **Updated:** 2026-04-30
@@ -61,7 +61,7 @@ platform/livekit/
 
 ## Observability toggles (all default OFF)
 
-Per [`docs/BLUEPRINT-AUTHORING.md`](../../docs/BLUEPRINT-AUTHORING.md)
+Per [`docs/RUNBOOKS.md`](../../docs/RUNBOOKS.md)
 §11.2.
 
 | Toggle | Default | Why |

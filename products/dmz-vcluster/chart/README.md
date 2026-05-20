@@ -10,7 +10,7 @@
 
 Catalyst-authored Blueprint chart for a DMZ vCluster — an isolated
 customer-internet-facing virtual Kubernetes cluster running inside the
-management cluster. Per `docs/EPICS-1-6-unified-design.md` §8.5 the
+management cluster. Per `docs/ARCHITECTURE.md` §8.5 the
 DMZ vCluster gives customer workloads that need direct internet
 exposure (public APIs, webhooks, customer-facing dashboards) a hard
 isolation boundary from the management plane.
@@ -53,7 +53,7 @@ ClusterMesh + the egress gateway are ready.
 
 ## SHA-pinned vcluster image
 
-Per `docs/INVIOLABLE-PRINCIPLES.md` #4a, `dmz.vcluster.image.tag` is
+Per `docs/PRINCIPLES.md` #4a, `dmz.vcluster.image.tag` is
 empty in `values.yaml` and the helm-template render fails-fast when an
 overlay leaves it empty (see `_helpers.tpl::bp-dmz-vcluster-tenant.image`). CI
 populates the SHA tag via `yq eval -i .image.tag = "<sha>"` when

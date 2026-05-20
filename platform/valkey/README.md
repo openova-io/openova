@@ -1,6 +1,6 @@
 # Valkey
 
-Redis-compatible in-memory cache. **Application Blueprint** (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.1 — Data services).
+Redis-compatible in-memory cache. **Application Blueprint** (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §4.1 — Data services).
 
 > **Important: Valkey is NOT a Catalyst control-plane component.** The Catalyst control plane uses NATS JetStream KV for its own pub/sub + KV needs (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §5 and [`docs/GLOSSARY.md`](../../docs/GLOSSARY.md) — `event-spine`). Valkey is purely an Application-tier cache for Apps that want Redis-compatible caching. The same upstream technology can serve in multiple categories (per PLATFORM-TECH-STACK §1) — Valkey is on the Application side of that split.
 

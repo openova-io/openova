@@ -7,7 +7,7 @@
 | **Date** | 2026-05-01 (Proposed); 2026-05-08 (Accepted with §2.3 amendment) |
 | **Supersedes** | — |
 | **Superseded by** | — |
-| **Related** | #309, #320, #321, #322, #324, #325, #326, #347, #68; ratified under #1094 / #1095 (Phase-0 Foundation) — see [`docs/EPICS-1-6-unified-design.md`](../EPICS-1-6-unified-design.md). |
+| **Related** | #309, #320, #321, #322, #324, #325, #326, #347, #68; ratified under #1094 / #1095 (Phase-0 Foundation) — see [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md). |
 
 > **2026-05-08 amendment (rule 3 clarification)**: Reconciling RoleBindings, Kustomizations, ConfigMaps, and other K8s-to-K8s objects is the responsibility of Flux Kustomizations or thin in-cluster controllers — not Crossplane Compositions. The `useraccess-controller` is the canonical example: it watches `UserAccess` CRs and reconciles RoleBindings/ClusterRoleBindings via the kubernetes Go clientset. The earlier `XUserAccess` Composition that used `provider-kubernetes` is retired in EPIC-0 (#1095).
 
@@ -21,7 +21,7 @@ This ADR captures the unified architecture every Catalyst component must follow 
 
 ## 2. Foundational principles (the inviolable rules)
 
-These extend `docs/INVIOLABLE-PRINCIPLES.md` — they are not in conflict with it; they make its abstract rules concrete for Catalyst.
+These extend `docs/PRINCIPLES.md` — they are not in conflict with it; they make its abstract rules concrete for Catalyst.
 
 1. **GitOps is the only deployment path.** Flux is the only reconciler on every Sovereign cluster. No `kubectl apply`, no `helm install`, no bespoke Go cloud-API calls, no Catalyst component runs `exec.Command("helm", …)` or equivalent.
 2. **Crossplane is the only Day-2 cloud provisioning seam.** Cloud resources (Hetzner Servers, Volumes, LoadBalancers, Networks, etc.) are created and mutated by writing/patching Crossplane Composite Resource Claims (XRCs). Catalyst-api never calls a cloud-provider API directly.

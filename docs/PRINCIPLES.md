@@ -5,10 +5,10 @@
 > **Authority:** Permanent canon. Reviewed PRs only. Generic cross-project engineering principles live in user-global `~/.claude/CLAUDE.md` §3-§4 — this file holds only what is OpenOva-platform specific or refines a generic rule for this codebase.
 >
 > **Pointers:**
-> - [`docs/5-PILLAR-DOD.md`](5-PILLAR-DOD.md) — the end-user Definition of Done (the 5 pillars + Phase 0/1/2 deterministic test).
+> - [`docs/DOD.md`](DOD.md) — the end-user Definition of Done (the 5 pillars + Phase 0/1/2 deterministic test).
 > - [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) — the system shape this work has to compose into.
 > - [`docs/GLOSSARY.md`](GLOSSARY.md) — terminology source of truth.
-> - [`docs/TRUST.md`](TRUST.md) — verification ledger for claimed-done surfaces.
+> - [`docs/ledger/TRUST.md`](TRUST.md) — verification ledger for claimed-done surfaces.
 
 The hard rule: **never do the same violation twice.** If a future task tempts you to violate any principle here, the answer is *stop and re-read this file*, not "I'll just do it this once."
 
@@ -50,7 +50,7 @@ Quality compromises that have happened and must never happen again:
 
 ### 3. Follow the documented architecture, exactly
 
-The architectural docs (`ARCHITECTURE.md`, `SOVEREIGN-PROVISIONING.md`, `BLUEPRINT-AUTHORING.md`, `PLATFORM-TECH-STACK.md`, `SECURITY.md`, `NAMING-CONVENTION.md`, `GLOSSARY.md`) are the design contract, not aspirational suggestions.
+The architectural docs (`ARCHITECTURE.md`, `SOVEREIGN-PROVISIONING.md`, `RUNBOOKS.md`, `ARCHITECTURE.md`, `SECURITY.md`, `ARCHITECTURE.md`, `GLOSSARY.md`) are the design contract, not aspirational suggestions.
 
 Specifically for provisioning:
 
@@ -285,7 +285,7 @@ These are OpenOva-platform-specific anti-patterns — concrete PR / issue receip
 | **Receipt** | PR #1599 (treemap fan-out) |
 | **Shape** | PR claims "renders multi-region correctly." The prov used to validate has a single region. The single-region path masquerades as multi-region success because the fan-out is a no-op when N=1. |
 | **Why this is wrong** | Multi-region BCP is a 5-Pillar DoD pillar. Tests on a single-region prov cannot prove it works. Validate on the topology the PR claims to support. |
-| **Right fix shape** | Multi-region claims must be validated on a multi-region prov (N≥2 regions, ideally N=3 per [`SOVEREIGN-MULTI-REGION-DOD.md`](SOVEREIGN-MULTI-REGION-DOD.md) A1). The PR body must cite the prov ID + region count + per-region pass/fail. |
+| **Right fix shape** | Multi-region claims must be validated on a multi-region prov (N≥2 regions, ideally N=3 per [`DOD.md`](DOD.md) A1). The PR body must cite the prov ID + region count + per-region pass/fail. |
 
 ### A8 — `must_contain` token-passing test churn
 
@@ -373,7 +373,7 @@ Any of the following in a diff is *not* approval — it is a clue to hunt the up
 - `must_contain` token-passing tests (see A8).
 - "Pre-existing red" CI bypasses (see A9).
 - `Closes #N` on a PR that does not produce operator-visible behavior change (see A5).
-- Test data containing `openova.io`, `Nova Cloud`, `eventforge.io` (see [`DOMAINS-CANON.md`](DOMAINS-CANON.md)).
+- Test data containing `openova.io`, `Nova Cloud`, `eventforge.io` (see [`DOD.md`](DOD.md)).
 
 ---
 

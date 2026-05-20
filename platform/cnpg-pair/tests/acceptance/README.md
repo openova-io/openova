@@ -122,7 +122,7 @@ GOTOOLCHAIN=go1.23.0 go run ./cmd/d31-acceptance \
 
 ## What "shipped" means
 
-This PR ships the **code**. D31 itself flips to `🟢 VERIFIED-PASS` in `docs/TRUST.md` (openova-private) **only after**:
+This PR ships the **code**. D31 itself flips to `🟢 VERIFIED-PASS` in `docs/ledger/TRUST.md` (openova-private) **only after**:
 
 1. The operator runs this harness on a fresh 2-region Sovereign;
 2. Exit code `0` is observed;

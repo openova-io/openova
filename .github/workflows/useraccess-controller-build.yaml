@@ -2,9 +2,9 @@ name: Build useraccess-controller
 
 # useraccess-controller — UserAccess CR reconciler that REPLACES the
 # silently-broken Crossplane Composition path described in
-# docs/EPICS-1-6-unified-design.md §3.5. Slice C5 of EPIC-0 (#1095, P0).
+# docs/ARCHITECTURE.md §3.5. Slice C5 of EPIC-0 (#1095, P0).
 #
-# Per docs/INVIOLABLE-PRINCIPLES.md #4a "GitHub Actions is the only build
+# Per docs/PRINCIPLES.md #4a "GitHub Actions is the only build
 # path" — this workflow is the canonical (and only) way to produce a
 # `ghcr.io/openova-io/openova/useraccess-controller:<sha>` image.
 #

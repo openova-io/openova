@@ -1,6 +1,6 @@
 # Apache Iceberg
 
-Open table format for huge analytic datasets. **Application Blueprint** (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.4 — Data lakehouse). Used by `bp-fabric` to organize lakehouse tables on top of SeaweedFS / cloud archival S3 with ACID transactions, time travel, and schema evolution.
+Open table format for huge analytic datasets. **Application Blueprint** (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §4.4 — Data lakehouse). Used by `bp-fabric` to organize lakehouse tables on top of SeaweedFS / cloud archival S3 with ACID transactions, time travel, and schema evolution.
 
 **Status:** Accepted | **Updated:** 2026-04-27
 

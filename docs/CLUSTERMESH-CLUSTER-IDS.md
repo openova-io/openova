@@ -6,7 +6,7 @@ Every Cilium ClusterMesh peer needs a unique `cluster.name` + `cluster.id`
 pair. The ID is a uint8 (1–255 range; 0 is reserved) and identity collisions
 are silent — peer A and peer B both thinking they are id=1 produces a
 peering failure with no helpful log line. Per
-`docs/INVIOLABLE-PRINCIPLES.md` rule #4 (never hardcode), the chart cannot
+`docs/PRINCIPLES.md` rule #4 (never hardcode), the chart cannot
 ship a default cluster.id, and per the same rule the IDs MUST be tracked
 somewhere durable so future Sovereigns don't accidentally re-use them.
 

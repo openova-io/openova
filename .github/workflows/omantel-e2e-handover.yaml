@@ -2,7 +2,7 @@ name: omantel handover E2E (Phase 8 DoD)
 
 # Issue #429 — on-demand E2E that runs the Phase 8 Definition-of-Done suite
 # against a live omantel.omani.works Sovereign. Per the master WBS
-# (`docs/omantel-handover-wbs.md` §5 Phase 8) this is the final gate proving
+# (`docs/archive/omantel-handover-wbs.md` §5 Phase 8) this is the final gate proving
 # omantel is fully self-sufficient and zero-contabo-dependent.
 #
 # Trigger model — workflow_dispatch ONLY:

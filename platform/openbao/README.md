@@ -4,7 +4,7 @@ Secrets management backend for Catalyst. Apache 2.0 / MPL 2.0 fork of HashiCorp 
 
 **Status:** Accepted | **Updated:** 2026-04-27
 
-> **Catalyst role:** Per-Sovereign supporting service in the Catalyst control plane (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §2.3). For multi-region semantics and rotation policy, [`docs/SECURITY.md`](../../docs/SECURITY.md) is canonical.
+> **Catalyst role:** Per-Sovereign supporting service in the Catalyst control plane (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §2.3). For multi-region semantics and rotation policy, [`docs/SECURITY.md`](../../docs/SECURITY.md) is canonical.
 
 ---
 

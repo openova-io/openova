@@ -6,12 +6,12 @@
 >
 > **Pointers**:
 > - User-global engineering principles → `~/.claude/CLAUDE.md`
-> - Inviolable engineering rules → [`docs/INVIOLABLE-PRINCIPLES.md`](INVIOLABLE-PRINCIPLES.md)
-> - 5-pillar Definition of Done → [`docs/5-PILLAR-DOD.md`](5-PILLAR-DOD.md)
-> - What exists in code today vs design → [`docs/IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md)
+> - Inviolable engineering rules → [`docs/PRINCIPLES.md`](PRINCIPLES.md)
+> - 5-pillar Definition of Done → [`docs/DOD.md`](DOD.md)
+> - What exists in code today vs design → [`docs/STATUS.md`](STATUS.md)
 > - Terminology (wins over every other doc) → [`docs/GLOSSARY.md`](GLOSSARY.md)
-> - Domain canon for tests → [`docs/DOMAINS-CANON.md`](DOMAINS-CANON.md)
-> - Anti-theater receipts → [`docs/ANTI-PATTERN-CATALOG.md`](ANTI-PATTERN-CATALOG.md)
+> - Domain canon for tests → [`docs/DOD.md`](DOD.md)
+> - Anti-theater receipts → [`docs/PRINCIPLES.md`](PRINCIPLES.md)
 
 ---
 
@@ -264,7 +264,7 @@ Every Catalyst control-plane component carries an open-source license that allow
 
 Every name is a **composition of typed dimensions** — never free-text, never descriptive prose. Names are deterministic: given the dimensions, the name is computable. **Don't repeat the parent**: when an object lives inside a container that already encodes location, do not repeat that information. **Building blocks, not failover roles**: clusters are named by their functional security zone, not "primary" or "dr".
 
-Full table in [`docs/NAMING-CONVENTION.md`](NAMING-CONVENTION.md) (legacy — content folded into this section).
+Full table in [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) (legacy — content folded into this section).
 
 ### §4.1 Dimensions
 
@@ -295,7 +295,7 @@ Full table in [`docs/NAMING-CONVENTION.md`](NAMING-CONVENTION.md) (legacy — co
 | Application DNS | `{app}.{environment}.{sovereign-or-org-domain}` | `marketing-site.acme-prod.<sovereign>.<tld>`, `blog.acme-prod.acme.com` (white-label) |
 | Application Gitea repo | `gitea.{location-code}.{sovereign-domain}/{org}/{app}` | `gitea.hfmp.<sovereign>.<tld>/acme-pharmacy/store-frontend` |
 
-Test Sovereigns and tenant Organizations follow [`docs/DOMAINS-CANON.md`](DOMAINS-CANON.md):
+Test Sovereigns and tenant Organizations follow [`docs/DOD.md`](DOD.md):
 
 - Test Sovereign: `t<NN>.omani.works` (or `t<NN>.omantel.biz` if LE-rate-limited)
 - Tenant Organization: `<orgslug>.omani.homes` (default), `omani.rest`, or `omani.trade`
@@ -341,7 +341,7 @@ It owns its own Git repo (a tag couldn't). It owns Placement metadata. It is the
 
 ### §5.1 Architectural rules (non-negotiable)
 
-These extend [`INVIOLABLE-PRINCIPLES.md`](INVIOLABLE-PRINCIPLES.md) and ADR-0001.
+These extend [`PRINCIPLES.md`](PRINCIPLES.md) and ADR-0001.
 
 1. **GitOps is the only deployment path.** Flux-only. No `kubectl apply` in production. No `helm install` in production. No `exec.Command("helm", …)`. Catalyst components observe via watch streams or write to Gitea repos that Flux reconciles.
 2. **Crossplane is cloud-only.** Crossplane manages cloud-provider APIs (Hetzner Servers, OCI compute, S3 buckets, etc.). It does **not** do K8s-to-K8s composition. RoleBindings, Kustomizations, ConfigMaps from a higher-level intent CR are reconciled by Flux Kustomizations or thin in-cluster controllers — never a Crossplane Composition.
@@ -507,7 +507,7 @@ flowchart LR
   P2 --> D2[Day-2<br/>local Gitea<br/>local Harbor<br/>Crossplane]
 ```
 
-After Phase 2, the Sovereign survives `github.com`, `ghcr.io`, and `harbor.openova.io` being unreachable — and that survival is the DoD proof of franchise independence. The full architectural reasoning lives in [ADR-0002](adr/0002-post-handover-sovereignty-cutover.md). The non-negotiable rule is Principle #11 in [`INVIOLABLE-PRINCIPLES.md`](INVIOLABLE-PRINCIPLES.md).
+After Phase 2, the Sovereign survives `github.com`, `ghcr.io`, and `harbor.openova.io` being unreachable — and that survival is the DoD proof of franchise independence. The full architectural reasoning lives in [ADR-0002](adr/0002-post-handover-sovereignty-cutover.md). The non-negotiable rule is Principle #11 in [`PRINCIPLES.md`](PRINCIPLES.md).
 
 ### §5.7 Identity and secrets
 
@@ -1002,7 +1002,7 @@ Resource browser extends to a full k9s-on-web: drill-down detail page with tabs;
 
 Logs WebSocket: `catalyst-api /api/v1/sovereigns/{id}/k8s/logs/{ns}/{pod}/{container}?follow=true&tailLines=100`. Streams kubelet logs directly. xterm.js client with color, search, copy, scrollback.
 
-Guacamole: new `platform/guacamole/chart/` per [`BLUEPRINT-AUTHORING.md`](BLUEPRINT-AUTHORING.md) §2. Helm templates: guacd Deployment, Guacamole webapp, k8s-ws-proxy DaemonSet, SeaweedFS PVC for recordings, Service, Ingress via Cilium Gateway, Keycloak OIDC client. Realm + client provisioned via `keycloak-config-cli`. **One Guacamole per Sovereign.**
+Guacamole: new `platform/guacamole/chart/` per [`RUNBOOKS.md`](RUNBOOKS.md) §2. Helm templates: guacd Deployment, Guacamole webapp, k8s-ws-proxy DaemonSet, SeaweedFS PVC for recordings, Service, Ingress via Cilium Gateway, Keycloak OIDC client. Realm + client provisioned via `keycloak-config-cli`. **One Guacamole per Sovereign.**
 
 k8s-ws-proxy: new Go binary `core/cmd/k8s-ws-proxy/`. HMAC-signed WebSocket proxy. Forwards to local kube-apiserver `/api/v1/.../pods/exec`. Echoes `Sec-WebSocket-Protocol: v4.channel.k8s.io`. Tmux-connect cascade for bastion shells.
 
@@ -1072,7 +1072,7 @@ Each major Blueprint folder ships a `DESIGN.md` capturing the architectural deci
 | bp-fabric | [`products/fabric/DESIGN.md`](../products/fabric/DESIGN.md) — Strimzi + Flink + Temporal + Debezium + Iceberg + ClickHouse |
 | bp-relay | [`products/relay/DESIGN.md`](../products/relay/DESIGN.md) — Stalwart + LiveKit + Stunner + Matrix + Guacamole |
 
-Where a chart does not yet ship a DESIGN.md, the canonical authoring rule is in [`docs/BLUEPRINT-AUTHORING.md`](BLUEPRINT-AUTHORING.md). When a chart's DESIGN.md contradicts this document, this document wins; raise a PR to reconcile.
+Where a chart does not yet ship a DESIGN.md, the canonical authoring rule is in [`docs/RUNBOOKS.md`](RUNBOOKS.md). When a chart's DESIGN.md contradicts this document, this document wins; raise a PR to reconcile.
 
 ---
 
@@ -1094,17 +1094,17 @@ Catalyst is not a strict OAM implementation. The layered composition idea is bor
 ## §13 — Read further
 
 - [`GLOSSARY.md`](GLOSSARY.md) — every term defined.
-- [`5-PILLAR-DOD.md`](5-PILLAR-DOD.md) — end-user Definition of Done; Phase 0 / 1 / 2 deterministic test.
-- [`DOMAINS-CANON.md`](DOMAINS-CANON.md) — Sovereign + tenant-Org FQDN patterns and forbidden test strings.
-- [`INVIOLABLE-PRINCIPLES.md`](INVIOLABLE-PRINCIPLES.md) — the engineering principles, including Principle #11 (sovereignty post-cutover).
-- [`ANTI-PATTERN-CATALOG.md`](ANTI-PATTERN-CATALOG.md) — receipts of theater patterns to refuse at review.
-- [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md) — what's actually built today.
-- [`PERSONAS-AND-JOURNEYS.md`](PERSONAS-AND-JOURNEYS.md) — who uses each surface and how.
+- [`DOD.md`](DOD.md) — end-user Definition of Done; Phase 0 / 1 / 2 deterministic test.
+- [`DOD.md`](DOD.md) — Sovereign + tenant-Org FQDN patterns and forbidden test strings.
+- [`PRINCIPLES.md`](PRINCIPLES.md) — the engineering principles, including Principle #11 (sovereignty post-cutover).
+- [`PRINCIPLES.md`](PRINCIPLES.md) — receipts of theater patterns to refuse at review.
+- [`STATUS.md`](STATUS.md) — what's actually built today.
+- [`DOD.md`](DOD.md) — who uses each surface and how.
 - [`SECURITY.md`](SECURITY.md) — identity, secrets, rotation, SPIRE deferral re-enable triggers.
 - [`SOVEREIGN-PROVISIONING.md`](SOVEREIGN-PROVISIONING.md) — bringing a Sovereign online.
-- [`SOVEREIGN-MULTI-REGION-DOD.md`](SOVEREIGN-MULTI-REGION-DOD.md) — the multi-region DoD gates.
+- [`DOD.md`](DOD.md) — the multi-region DoD gates.
 - [`MULTI-REGION-DNS.md`](MULTI-REGION-DNS.md) — PowerDNS lua-record patterns.
-- [`BLUEPRINT-AUTHORING.md`](BLUEPRINT-AUTHORING.md) — writing Blueprints (including Crossplane Compositions for advanced authors).
+- [`RUNBOOKS.md`](RUNBOOKS.md) — writing Blueprints (including Crossplane Compositions for advanced authors).
 - [`SRE.md`](SRE.md) — operating a Sovereign.
 - [`adr/0001-catalyst-control-plane-architecture.md`](adr/0001-catalyst-control-plane-architecture.md) — ratified Catalyst control-plane ADR.
 - [`adr/0002-post-handover-sovereignty-cutover.md`](adr/0002-post-handover-sovereignty-cutover.md) — 30/70 cutover rationale.

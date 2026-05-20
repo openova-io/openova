@@ -1,6 +1,6 @@
 # Velero
 
-Kubernetes backup/restore for disaster recovery. Per-host-cluster infrastructure (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §3.5) — runs on every host cluster Catalyst manages. Backups land in the `velero-backups` bucket on **SeaweedFS**, which is Catalyst's unified S3 encapsulation layer; SeaweedFS's cold-tier policy automatically transitions backup objects to the configured cloud archival backend (Cloudflare R2 / AWS S3 / Hetzner Object Storage / etc.) so backups survive cluster failure without any direct cloud-S3 call from Velero itself.
+Kubernetes backup/restore for disaster recovery. Per-host-cluster infrastructure (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §3.5) — runs on every host cluster Catalyst manages. Backups land in the `velero-backups` bucket on **SeaweedFS**, which is Catalyst's unified S3 encapsulation layer; SeaweedFS's cold-tier policy automatically transitions backup objects to the configured cloud archival backend (Cloudflare R2 / AWS S3 / Hetzner Object Storage / etc.) so backups survive cluster failure without any direct cloud-S3 call from Velero itself.
 
 **Status:** Accepted | **Updated:** 2026-04-28
 

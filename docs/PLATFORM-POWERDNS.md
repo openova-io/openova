@@ -49,7 +49,7 @@ The three public NS endpoints (`ns1`, `ns2`, `ns3`) are anycast Floating IPs acr
 
 For pool-domain-based Sovereigns (`<sub>.openova.io`, `<sub>.omani.works`) the parent zone `openova.io` / `omani.works` is delegated to the OpenOva PowerDNS NS set via the registrar (Dynadot). Each child Sovereign zone (`<sub>.openova.io`) publishes its own DS in the parent zone for DNSSEC chaining.
 
-For BYO Sovereigns (`<sub>.acme.com`) the operator's existing registrar publishes the NS delegation pointing at OpenOva's NS endpoints. The operator follows the runbook in `docs/RUNBOOK-PROVISIONING.md` to add the DS record to their parent zone.
+For BYO Sovereigns (`<sub>.acme.com`) the operator's existing registrar publishes the NS delegation pointing at OpenOva's NS endpoints. The operator follows the runbook in `docs/RUNBOOKS.md` to add the DS record to their parent zone.
 
 ---
 
@@ -120,7 +120,7 @@ This record returns `1.2.3.4` while the FRA backend's `/healthz` returns 200; fa
 
 ## REST API
 
-Exposed at `https://pdns.openova.io/api`, behind a Traefik basicAuth Middleware. The plaintext password is generated per-cluster (random 32 chars per `INVIOLABLE-PRINCIPLES.md` #10), bcrypt-hashed in-cluster only, and stored in K8s Secret `powerdns-api-basicauth` in the `openova-system` namespace.
+Exposed at `https://pdns.openova.io/api`, behind a Traefik basicAuth Middleware. The plaintext password is generated per-cluster (random 32 chars per `PRINCIPLES.md` #10), bcrypt-hashed in-cluster only, and stored in K8s Secret `powerdns-api-basicauth` in the `openova-system` namespace.
 
 ### Endpoints
 
@@ -253,7 +253,7 @@ curl -u "operator:$op_pw" -H "X-API-Key: $api_key" https://pdns.openova.io/api/v
 - [Lua records](https://doc.powerdns.com/authoritative/lua-records/index.html)
 - [dnsdist documentation](https://dnsdist.org/)
 - Issue [#167](https://github.com/openova-io/openova/issues/167)
-- Inviolable Principles — `docs/INVIOLABLE-PRINCIPLES.md`
-- Naming convention — `docs/NAMING-CONVENTION.md`
+- Inviolable Principles — `docs/PRINCIPLES.md`
+- Naming convention — `docs/ARCHITECTURE.md`
 
-*Part of [OpenOva Catalyst](https://openova.io). Read [Inviolable Principles](INVIOLABLE-PRINCIPLES.md) before any changes.*
+*Part of [OpenOva Catalyst](https://openova.io). Read [Inviolable Principles](PRINCIPLES.md) before any changes.*

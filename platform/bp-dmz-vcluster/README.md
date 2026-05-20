@@ -6,7 +6,7 @@ and the **inter-region WireGuard hop** per DoD A2.
 
 ## Why this exists — DoD A4 + A2
 
-`docs/SOVEREIGN-MULTI-REGION-DOD.md` invariants:
+`docs/DOD.md` invariants:
 
 - **A4 (vCluster topology)**: primary = MGMT+DMZ, secondary = DMZ+RTZ.
   The DMZ vCluster is the only vCluster that appears on every region.
@@ -56,7 +56,7 @@ for the bootstrap topology.
 
 ## See also
 
-- `docs/SOVEREIGN-MULTI-REGION-DOD.md` — A4 + A2 contract
+- `docs/DOD.md` — A4 + A2 contract
 - `infra/hetzner/README.md` lines 50-100 — topology diagram
 - `platform/bp-mgmt-vcluster/` — companion (primary-only)
 - `platform/bp-rtz-vcluster/` — companion (secondary-only)

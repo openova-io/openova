@@ -1,6 +1,6 @@
 # Expected dependency DAG for clusters/_template/bootstrap-kit/*.yaml
 #
-# Authoritative spec: docs/BOOTSTRAP-KIT-EXPANSION-PLAN.md §2.
+# Authoritative spec: docs/ARCHITECTURE.md §2.
 # Consumed by:        scripts/check-bootstrap-deps.sh
 # Updated by:         W2.K0 (slots 01-14 baseline + slots 15-48 forward declarations)
 #                     W2.K1, K2, K3, K4 PRs add the corresponding HR files; this
@@ -379,7 +379,7 @@ slots:
     wave: present
 
   # ---- Slot 54 — bp-dmz-vcluster (DoD A4 — public-fronted vCluster).
-  # Implements docs/SOVEREIGN-MULTI-REGION-DOD.md A4 ("each region runs a
+  # Implements docs/DOD.md A4 ("each region runs a
   # DMZ vCluster") + A2 ("inter-region link = DMZ WireGuard"). Installed
   # on every region (primary AND every secondary). Hosts the Cilium
   # Gateway, the inter-region WireGuard endpoint, and the clustermesh-
@@ -434,7 +434,7 @@ slots:
     wave: present
 
   # ---- Slot 58 — bp-mgmt-vcluster (DoD A4 — primary-only MGMT vCluster).
-  # Implements docs/SOVEREIGN-MULTI-REGION-DOD.md A4 ("primary region
+  # Implements docs/DOD.md A4 ("primary region
   # runs MGMT + DMZ vCluster"). Hosts catalyst-api, catalyst-ui,
   # openova-flow-server, mgmt control-plane workloads. Wraps loft-sh/
   # vcluster 0.20.0 as a Helm subchart. Default-OFF until the per-CP
@@ -448,7 +448,7 @@ slots:
     wave: present
 
   # ---- Slot 59 — bp-rtz-vcluster (DoD A4 — secondary-only RTZ vCluster).
-  # Implements docs/SOVEREIGN-MULTI-REGION-DOD.md A4 ("each secondary
+  # Implements docs/DOD.md A4 ("each secondary
   # region runs DMZ + RTZ vCluster"). Hosts regional tenant workloads
   # and caches. Wraps loft-sh/vcluster 0.20.0 as a Helm subchart.
   # Default-OFF until the per-CP postBuild substitute follow-up PR adds

@@ -10,15 +10,13 @@
 > user-global `~/.claude/CLAUDE.md` §2. This file is the OpenOva-specific
 > elaboration.
 >
-> **Pointers**: see [`PRINCIPLES.md`](PRINCIPLES.md) /
-> [`INVIOLABLE-PRINCIPLES.md`](INVIOLABLE-PRINCIPLES.md) for engineering rules,
+> **Pointers**: see [`PRINCIPLES.md`](PRINCIPLES.md) for engineering rules,
 > [`ARCHITECTURE.md`](ARCHITECTURE.md) for system shape,
-> [`RUNBOOK-OPERATIONS.md`](RUNBOOK-OPERATIONS.md) /
-> [`RUNBOOK-PROVISIONING.md`](RUNBOOK-PROVISIONING.md) for operator how-tos.
+> [`RUNBOOKS.md`](RUNBOOKS.md) for operator how-tos.
 >
 > **Status**: Authoritative. **Updated**: 2026-05-20.
-> Supersedes `docs/5-PILLAR-DOD.md`, `docs/DOMAINS-CANON.md`,
-> `docs/SOVEREIGN-MULTI-REGION-DOD.md`, `docs/PERSONAS-AND-JOURNEYS.md` —
+> Supersedes the legacy split 5-PILLAR-DOD + DOMAINS-CANON +
+> SOVEREIGN-MULTI-REGION-DOD + PERSONAS-AND-JOURNEYS —
 > consolidated here per the lean-doc strategy (PR #2076 / PR #2084).
 > SPIRE-issued SVIDs for Sandbox MCP auth are deferred per PR #2056; the
 > Phase 2 mechanism therefore currently relies on the interim sandbox-pty-server
@@ -356,7 +354,7 @@ Principle #11 violation.
 `docs/trust-audit-*.md` and PR review hunt for:
 
 1. **`openova.io` leaks in test data** — any `*_test.go` / `*.spec.ts` / `*.feature` literal containing `openova.io` is a leak.
-2. **Hardcoded operator FQDNs** — any code path that pins the operator domain to a literal instead of reading it from a runtime parameter (`SOVEREIGN_FQDN`, `--sovereign-fqdn`, etc.). See [`INVIOLABLE-PRINCIPLES.md`](INVIOLABLE-PRINCIPLES.md) §4 (never hardcode).
+2. **Hardcoded operator FQDNs** — any code path that pins the operator domain to a literal instead of reading it from a runtime parameter (`SOVEREIGN_FQDN`, `--sovereign-fqdn`, etc.). See [`PRINCIPLES.md`](PRINCIPLES.md) §4 (never hardcode).
 3. **Tenant-Org URL pattern drift** — any path that emits `<orgslug>.openova.io` or `<orgslug>.<sovereign-fqdn>` instead of `<orgslug>.<pool-tld>`. The pool TLD is the source of truth.
 4. **`admin.<sovereign-fqdn>` references** — voucher and billing operations live in the BSS menu inside the operator console; an `admin.*` subdomain means a stale reference.
 5. **Plural `omani.trades`** — must be singular `omani.trade`. Any new occurrence is a regression.
@@ -371,7 +369,7 @@ named above.
 How different people use Catalyst. Defer to [`GLOSSARY.md`](GLOSSARY.md) for
 terminology. The journeys described below use Catalyst surfaces (console / Git
 / API) that are partially design-stage — see
-[`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md).
+[`STATUS.md`](STATUS.md).
 
 ### 5.1 Personas
 
@@ -678,7 +676,7 @@ region kill. Any gap, replay, or skipped value = failed gate.
 
 - The kill MUST be a real region kill, not a Pod restart or a Deployment
   scale-to-zero. A single-region prov cannot satisfy D31 — see PR #1599 shape
-  in [`ANTI-PATTERN-CATALOG.md`](ANTI-PATTERN-CATALOG.md) ("multi-region claim
+  in [`PRINCIPLES.md`](PRINCIPLES.md) ("multi-region claim
   on single-region prov").
 - The failover must be triggered by `failover-controller` reading the
   Continuum CR — never by a human flipping DNS by hand.

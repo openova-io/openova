@@ -5,7 +5,7 @@ name: Build blueprint-controller
 # blueprint definitions (bp-<name>:<semver> OCI artefacts) against
 # the per-Sovereign Gitea catalog mirror.
 #
-# Per docs/INVIOLABLE-PRINCIPLES.md #4a (GitHub Actions is the only
+# Per docs/PRINCIPLES.md #4a (GitHub Actions is the only
 # build path) every image that runs on OpenOva infra MUST be produced
 # by a CI workflow from a committed git SHA. Mirrors the existing
 # build-application-controller.yaml shape — same auth flow, same

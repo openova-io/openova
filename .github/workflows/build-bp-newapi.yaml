@@ -4,7 +4,7 @@ name: Build bp-newapi
 # LLM gateway (github.com/Calcium-Ion/new-api, MIT). Per
 # platform/newapi/chart/Chart.yaml the upstream ships a docker-compose
 # image only at `docker.io/calciumion/new-api:<UPSTREAM_VER>`. Per
-# docs/INVIOLABLE-PRINCIPLES.md #4a we never let production Sovereigns
+# docs/PRINCIPLES.md #4a we never let production Sovereigns
 # pull from Docker Hub at runtime — every image must live in
 # ghcr.io/openova-io/* under a registry we own (no Docker Hub rate
 # limits, no upstream availability risk).

@@ -1,6 +1,6 @@
 # Temporal
 
-Durable workflow orchestration with saga + compensation. **Application Blueprint** (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.3 — Workflow & processing). Used by `bp-fabric` (composite Data & Integration Blueprint) for long-running, compensable workflows that span multiple Application services.
+Durable workflow orchestration with saga + compensation. **Application Blueprint** (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §4.3 — Workflow & processing). Used by `bp-fabric` (composite Data & Integration Blueprint) for long-running, compensable workflows that span multiple Application services.
 
 **Status:** Accepted | **Updated:** 2026-04-27
 

@@ -1,6 +1,6 @@
 # Trivy
 
-Image and IaC vulnerability scanning. Per-host-cluster infrastructure (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §3.3) — runs in CI for Blueprint scans, in Harbor for registry scans, and at runtime via Trivy Operator on every host cluster.
+Image and IaC vulnerability scanning. Per-host-cluster infrastructure (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §3.3) — runs in CI for Blueprint scans, in Harbor for registry scans, and at runtime via Trivy Operator on every host cluster.
 
 **Status:** Accepted | **Updated:** 2026-04-27
 

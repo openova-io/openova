@@ -12,19 +12,19 @@ Catalyst is the open-source platform built by [OpenOva](https://openova.io). It 
 |---|---|
 | [`docs/GLOSSARY.md`](docs/GLOSSARY.md) | Canonical terminology — read first |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Catalyst architecture overview |
-| [`docs/IMPLEMENTATION-STATUS.md`](docs/IMPLEMENTATION-STATUS.md) | **What's built today vs what's design-only** — read second |
-| [`docs/NAMING-CONVENTION.md`](docs/NAMING-CONVENTION.md) | Naming patterns for every resource type |
-| [`docs/PERSONAS-AND-JOURNEYS.md`](docs/PERSONAS-AND-JOURNEYS.md) | Personas × journeys matrix; surfaces |
+| [`docs/STATUS.md`](docs/STATUS.md) | **What's built today vs what's design-only** — read second |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Naming patterns for every resource type |
+| [`docs/DOD.md`](docs/DOD.md) | Personas × journeys matrix; surfaces |
 | [`docs/SECURITY.md`](docs/SECURITY.md) | Identity (SPIFFE + Keycloak), secrets (OpenBao + ESO), rotation, multi-region semantics |
 | [`docs/SOVEREIGN-PROVISIONING.md`](docs/SOVEREIGN-PROVISIONING.md) | How to bring a Sovereign online |
-| [`docs/BLUEPRINT-AUTHORING.md`](docs/BLUEPRINT-AUTHORING.md) | Writing Blueprints (incl. Crossplane Compositions) |
-| [`docs/PLATFORM-TECH-STACK.md`](docs/PLATFORM-TECH-STACK.md) | Every component's role in Catalyst |
+| [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md) | Writing Blueprints (incl. Crossplane Compositions) |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Every component's role in Catalyst |
 | [`docs/SRE.md`](docs/SRE.md) | Operating a Sovereign |
 | [`docs/BUSINESS-STRATEGY.md`](docs/BUSINESS-STRATEGY.md) | Product strategy and GTM |
 | [`docs/TECHNOLOGY-FORECAST-2027-2030.md`](docs/TECHNOLOGY-FORECAST-2027-2030.md) | Component forecast 2027–2030 |
-| [`docs/VALIDATION-LOG.md`](docs/VALIDATION-LOG.md) | Trail of doc-integrity validation passes (audit log) |
+| [`docs/archive/validation-log.md`](docs/archive/validation-log.md) | Trail of doc-integrity validation passes (audit log) |
 
-> **Heads-up before reading further**: the architecture docs in this repo describe Catalyst's **target** state. Significant portions are not yet implemented — see [`docs/IMPLEMENTATION-STATUS.md`](docs/IMPLEMENTATION-STATUS.md) for what exists today vs what is design.
+> **Heads-up before reading further**: the architecture docs in this repo describe Catalyst's **target** state. Significant portions are not yet implemented — see [`docs/STATUS.md`](docs/STATUS.md) for what exists today vs what is design.
 
 ---
 
@@ -74,9 +74,9 @@ openova/
 └── docs/              # Platform documentation
 ```
 
-Each folder under `platform/` and `products/` is the source of one **Blueprint**, published from CI as a signed OCI artifact at `ghcr.io/openova-io/bp-<name>:<semver>` (the `bp-` prefix is added to the OCI artifact name; folder names stay short). Per-folder isolation is provided at the OCI artifact layer, not the Git repo layer — this is a **monorepo with per-Blueprint fan-out**, not a meta-repo of separate Git repositories. See [`docs/BLUEPRINT-AUTHORING.md`](docs/BLUEPRINT-AUTHORING.md) §2 for the folder layout contract.
+Each folder under `platform/` and `products/` is the source of one **Blueprint**, published from CI as a signed OCI artifact at `ghcr.io/openova-io/bp-<name>:<semver>` (the `bp-` prefix is added to the OCI artifact name; folder names stay short). Per-folder isolation is provided at the OCI artifact layer, not the Git repo layer — this is a **monorepo with per-Blueprint fan-out**, not a meta-repo of separate Git repositories. See [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md) §2 for the folder layout contract.
 
-> **Today**, the 12-component bootstrap kit (cilium, cert-manager, flux, crossplane, sealed-secrets, spire, nats-jetstream, openbao, keycloak, gitea, powerdns + the bp-catalyst-platform umbrella under `products/catalyst/`) ships with full `chart/` + `blueprint.yaml` per [`docs/IMPLEMENTATION-STATUS.md`](docs/IMPLEMENTATION-STATUS.md) §7, plus `products/axon/` and the `external-dns` leaf chart. The remaining 45 platform components and the `cortex / fabric / fingate / relay` product folders are **design-stage** — README only — until each lands its Blueprint manifest, chart, Compositions, and CI fan-out.
+> **Today**, the 12-component bootstrap kit (cilium, cert-manager, flux, crossplane, sealed-secrets, spire, nats-jetstream, openbao, keycloak, gitea, powerdns + the bp-catalyst-platform umbrella under `products/catalyst/`) ships with full `chart/` + `blueprint.yaml` per [`docs/STATUS.md`](docs/STATUS.md) §7, plus `products/axon/` and the `external-dns` leaf chart. The remaining 45 platform components and the `cortex / fabric / fingate / relay` product folders are **design-stage** — README only — until each lands its Blueprint manifest, chart, Compositions, and CI fan-out.
 
 ---
 
@@ -105,7 +105,7 @@ Each folder under `platform/` and `products/` is the source of one **Blueprint**
 | **Backup** | Velero (to SeaweedFS, which routes the cold tier to cloud archival S3) |
 | **Container registry** | Harbor |
 
-For the full component list and trends see [`docs/PLATFORM-TECH-STACK.md`](docs/PLATFORM-TECH-STACK.md) and [`docs/TECHNOLOGY-FORECAST-2027-2030.md`](docs/TECHNOLOGY-FORECAST-2027-2030.md).
+For the full component list and trends see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`docs/TECHNOLOGY-FORECAST-2027-2030.md`](docs/TECHNOLOGY-FORECAST-2027-2030.md).
 
 ---
 
@@ -139,7 +139,7 @@ Then follow the procedure in docs/SOVEREIGN-PROVISIONING.md.
 
 ### Build a Blueprint
 
-See [`docs/BLUEPRINT-AUTHORING.md`](docs/BLUEPRINT-AUTHORING.md). A Blueprint is a folder under `platform/<name>/` (or `products/<name>/`) in this monorepo containing `blueprint.yaml` + manifests (Helm chart or Kustomize base) + (optional) Crossplane Compositions. CI signs each folder's contents and publishes to OCI as `ghcr.io/openova-io/bp-<name>:<semver>`. Catalyst's `blueprint-controller` picks it up automatically. Org-private Blueprints follow the same shape inside per-Sovereign Gitea repos.
+See [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md). A Blueprint is a folder under `platform/<name>/` (or `products/<name>/`) in this monorepo containing `blueprint.yaml` + manifests (Helm chart or Kustomize base) + (optional) Crossplane Compositions. CI signs each folder's contents and publishes to OCI as `ghcr.io/openova-io/bp-<name>:<semver>`. Catalyst's `blueprint-controller` picks it up automatically. Org-private Blueprints follow the same shape inside per-Sovereign Gitea repos.
 
 ---
 
@@ -153,7 +153,7 @@ OpenOva charges for support, managed operations, and expert services — never f
 
 ## Contributing
 
-PRs welcome. The contribution path for Blueprints (including Crossplane Compositions) is documented in [`docs/BLUEPRINT-AUTHORING.md`](docs/BLUEPRINT-AUTHORING.md) §13. Issues and discussions on GitHub.
+PRs welcome. The contribution path for Blueprints (including Crossplane Compositions) is documented in [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md) §13. Issues and discussions on GitHub.
 
 ---
 

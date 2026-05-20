@@ -17,7 +17,7 @@ name: SME demo end-to-end (issue #805)
 # matrix entry that opts out of the mocks and dials the real
 # console.acme.<otech-fqdn>.
 #
-# Per docs/INVIOLABLE-PRINCIPLES.md #4a (GitHub Actions is the only
+# Per docs/PRINCIPLES.md #4a (GitHub Actions is the only
 # build path), this workflow does NOT build any container images —
 # it only runs the Playwright suite against a freshly-installed dev
 # tree.

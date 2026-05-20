@@ -1,8 +1,8 @@
 # Crossplane
 
-Day-2 cloud resource provisioning for Catalyst. Per-Sovereign on the management cluster (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §3.2) — manages all non-Kubernetes resources for the entire Sovereign (host clusters, VPCs, DNS records, S3 buckets, third-party SaaS).
+Day-2 cloud resource provisioning for Catalyst. Per-Sovereign on the management cluster (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §3.2) — manages all non-Kubernetes resources for the entire Sovereign (host clusters, VPCs, DNS records, S3 buckets, third-party SaaS).
 
-> **Crossplane is platform plumbing, never a user-facing surface.** Users see "needs a database, pick existing or new" in the Catalyst console; Blueprint authors write Compositions; advanced users (sovereign-admins, OpenOva engineers) contribute Compositions upstream as Blueprints. End users do NOT write Crossplane Compositions in their Application configs. See [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §4 / §7 (the "no fourth surface" rule) and [`docs/BLUEPRINT-AUTHORING.md`](../../docs/BLUEPRINT-AUTHORING.md) §8.
+> **Crossplane is platform plumbing, never a user-facing surface.** Users see "needs a database, pick existing or new" in the Catalyst console; Blueprint authors write Compositions; advanced users (sovereign-admins, OpenOva engineers) contribute Compositions upstream as Blueprints. End users do NOT write Crossplane Compositions in their Application configs. See [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §4 / §7 (the "no fourth surface" rule) and [`docs/RUNBOOKS.md`](../../docs/RUNBOOKS.md) §8.
 
 **Status:** Accepted | **Updated:** 2026-04-27
 
@@ -42,7 +42,7 @@ flowchart TB
 
 ## OpenTofu vs Crossplane
 
-Catalyst uses **OpenTofu** (the open-source Terraform fork) for bootstrap IaC, not Terraform. See [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §3.2 and [`platform/opentofu/`](../opentofu/).
+Catalyst uses **OpenTofu** (the open-source Terraform fork) for bootstrap IaC, not Terraform. See [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §3.2 and [`platform/opentofu/`](../opentofu/).
 
 | Aspect | OpenTofu | Crossplane |
 |--------|----------|------------|
@@ -169,7 +169,7 @@ spec:
 
 ## Catalyst Integration
 
-Crossplane Compositions are referenced by Blueprints when an Application requires non-Kubernetes resources (cloud DBs, DNS records, S3 buckets, etc.). End users never see Crossplane directly — they see "needs a database" in the Blueprint's configSchema, rendered as a form in the Catalyst console. Advanced users author Crossplane Compositions and contribute them upstream as Blueprints. See [`docs/BLUEPRINT-AUTHORING.md`](../../docs/BLUEPRINT-AUTHORING.md) §8.
+Crossplane Compositions are referenced by Blueprints when an Application requires non-Kubernetes resources (cloud DBs, DNS records, S3 buckets, etc.). End users never see Crossplane directly — they see "needs a database" in the Blueprint's configSchema, rendered as a form in the Catalyst console. Advanced users author Crossplane Compositions and contribute them upstream as Blueprints. See [`docs/RUNBOOKS.md`](../../docs/RUNBOOKS.md) §8.
 
 ---
 

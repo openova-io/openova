@@ -20,7 +20,7 @@ The other architecture docs describe the **target**: where Catalyst is going. Th
 | 📐 **Design** | Documented in canonical docs; no code yet. The doc is the contract for the future implementation. |
 | ⏸ **Deferred** | Mentioned in docs but explicitly out of scope until later. |
 
-Per [`5-PILLAR-DOD.md`](5-PILLAR-DOD.md), 🟦 CODE-COMPLETE does NOT mean shipped. A pillar is **shipped** when an operator walks a **fresh prov** through the pillar-relevant steps and produces a screenshot + non-empty wire-capture + working downstream artifact. PR merge ≠ pillar shipped.
+Per [`DOD.md`](DOD.md), 🟦 CODE-COMPLETE does NOT mean shipped. A pillar is **shipped** when an operator walks a **fresh prov** through the pillar-relevant steps and produces a screenshot + non-empty wire-capture + working downstream artifact. PR merge ≠ pillar shipped.
 
 ---
 
@@ -40,7 +40,7 @@ Per [`5-PILLAR-DOD.md`](5-PILLAR-DOD.md), 🟦 CODE-COMPLETE does NOT mean shipp
 
 ---
 
-## 2. Catalyst control plane components (per [`PLATFORM-TECH-STACK.md`](PLATFORM-TECH-STACK.md) §2)
+## 2. Catalyst control plane components (per [`ARCHITECTURE.md`](ARCHITECTURE.md) §2)
 
 *(Section dated 2026-05-20.)*
 
@@ -80,7 +80,7 @@ These run **per-Sovereign** on the management cluster.
 
 ---
 
-## 3. Per-host-cluster infrastructure (per [`PLATFORM-TECH-STACK.md`](PLATFORM-TECH-STACK.md) §3)
+## 3. Per-host-cluster infrastructure (per [`ARCHITECTURE.md`](ARCHITECTURE.md) §3)
 
 *(Section dated 2026-05-20.)*
 
@@ -154,7 +154,7 @@ Per [`CLAUDE.md`](../CLAUDE.md) §"What's user-facing": **UI / Git / API only**.
 
 *(Section dated 2026-05-20.)*
 
-Every guard listed here is a pre-merge check that fails the PR if violated. This is the structural defence against the anti-patterns in [`ANTI-PATTERN-CATALOG.md`](ANTI-PATTERN-CATALOG.md).
+Every guard listed here is a pre-merge check that fails the PR if violated. This is the structural defence against the anti-patterns in [`PRINCIPLES.md`](PRINCIPLES.md).
 
 | Guard | Status | PR | Rule | Catches |
 |---|---|---|---|---|
@@ -194,7 +194,7 @@ Every guard listed here is a pre-merge check that fails the PR if violated. This
 
 ---
 
-## 9. Pillar status (5-pillar DoD — per [`5-PILLAR-DOD.md`](5-PILLAR-DOD.md))
+## 9. Pillar status (5-pillar DoD — per [`DOD.md`](DOD.md))
 
 *(Section dated 2026-05-20.)*
 
@@ -216,7 +216,7 @@ If you're reading the Catalyst architecture for the first time:
 
 - The **architectural model** in [`ARCHITECTURE.md`](ARCHITECTURE.md) is the agreed direction. The model is settled.
 - The **code in this repo** is mostly scaffold + 4 CODE-COMPLETE pillars. Significant ✅-flipping (operator walks on fresh prov) lies ahead.
-- The **canonical docs** ([`GLOSSARY.md`](GLOSSARY.md), [`NAMING-CONVENTION.md`](NAMING-CONVENTION.md), [`SECURITY.md`](SECURITY.md), [`RUNBOOKS.md`](RUNBOOKS.md), [`PERSONAS-AND-JOURNEYS.md`](PERSONAS-AND-JOURNEYS.md), [`PLATFORM-TECH-STACK.md`](PLATFORM-TECH-STACK.md), [`SRE.md`](SRE.md)) describe the **target**.
+- The **canonical docs** ([`GLOSSARY.md`](GLOSSARY.md), [`ARCHITECTURE.md`](ARCHITECTURE.md), [`SECURITY.md`](SECURITY.md), [`RUNBOOKS.md`](RUNBOOKS.md), [`DOD.md`](DOD.md), [`ARCHITECTURE.md`](ARCHITECTURE.md), [`SRE.md`](SRE.md)) describe the **target**.
 - Component-level READMEs under `platform/<name>/` describe the upstream technology and Catalyst's intended use of it.
 
 If a doc says "Catalyst does X" without a 📐 / 🚧 / 🟦 marker, treat it as a target. Use this `STATUS.md` to confirm whether X is built today.
@@ -232,6 +232,6 @@ This file is updated whenever a status changes:
 - A component is partially shipped → 🚧 with notes on what's missing
 - A target is deferred → ⏸ with a forward-pointing reference
 
-Per [`5-PILLAR-DOD.md`](5-PILLAR-DOD.md): 🟦 means "all controllers + CRDs + tests landed". It is the **maximum** state achievable from code review alone. ✅ requires the operator walk.
+Per [`DOD.md`](DOD.md): 🟦 means "all controllers + CRDs + tests landed". It is the **maximum** state achievable from code review alone. ✅ requires the operator walk.
 
 Keeping this honest is the only way to prevent the kind of doc/code drift that makes the architecture text unreliable.

@@ -1,6 +1,6 @@
 # Coraza
 
-Web Application Firewall with OWASP Core Rule Set. Per-host-cluster infrastructure (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §3.1) — runs at the DMZ edge of every host cluster Catalyst manages.
+Web Application Firewall with OWASP Core Rule Set. Per-host-cluster infrastructure (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §3.1) — runs at the DMZ edge of every host cluster Catalyst manages.
 
 **Category:** WAF | **Type:** Mandatory per host cluster (DMZ block)
 

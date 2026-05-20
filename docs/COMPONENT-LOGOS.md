@@ -27,7 +27,7 @@ entry. To change a logo:
 - **Use a vendored upstream SVG/PNG**: replace the file at
   `public/component-logos/<id>.<ext>`. No code change required —
   the URL is data, not source (per
-  [INVIOLABLE-PRINCIPLES.md](INVIOLABLE-PRINCIPLES.md) #4 "never
+  [PRINCIPLES.md](PRINCIPLES.md) #4 "never
   hardcode").
 - **Suppress the logo entirely**: set `logoUrl: null` in the component
   definition (PowerDNS uses this — no single-glyph upstream brand mark

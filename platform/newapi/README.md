@@ -1,6 +1,6 @@
 # NewAPI
 
-Multi-tenant LLM marketplace gateway. **Application Blueprint** — see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.6 (LLM Serving). Catalyst Sovereigns deploy `bp-newapi` when the operator's business model is **reselling LLM access to their own end customers** (with credits, per-key budgets, multi-channel routing, and BYOK), as opposed to the per-developer subscription pattern served by `bp-llm-gateway`.
+Multi-tenant LLM marketplace gateway. **Application Blueprint** — see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §4.6 (LLM Serving). Catalyst Sovereigns deploy `bp-newapi` when the operator's business model is **reselling LLM access to their own end customers** (with credits, per-key budgets, multi-channel routing, and BYOK), as opposed to the per-developer subscription pattern served by `bp-llm-gateway`.
 
 **Status:** Accepted | **Updated:** 2026-05-01
 
@@ -167,7 +167,7 @@ This checklist is the canonical install path. Anyone picking up this blueprint w
 
 ### Install steps
 
-1. **Create the Sovereign overlay** at `clusters/<sovereign>/bootstrap-kit/52-newapi.yaml` using the values template in [`docs/BLUEPRINT-AUTHORING.md`](../../docs/BLUEPRINT-AUTHORING.md). Required values:
+1. **Create the Sovereign overlay** at `clusters/<sovereign>/bootstrap-kit/52-newapi.yaml` using the values template in [`docs/RUNBOOKS.md`](../../docs/RUNBOOKS.md). Required values:
    - `ingress.host` — `api.<sovereign-domain>` (customer-facing API)
    - `ingress.adminHost` — `admin.<sovereign-domain>` (ops-only admin UI)
    - `keycloak.issuer` — IdP realm URL for ops-staff auth on admin UI
@@ -218,7 +218,7 @@ This checklist is the canonical install path. Anyone picking up this blueprint w
 - **Cross-customer BYOK key reuse.** A customer's BYOK key is bound to their requests only, never used to "fall back" for another customer.
 - **Free tier backed by upstream providers' free tiers.** Free tier is operator-funded via in-cluster open-weight inference only.
 
-These are not omissions. They are deliberate exclusions based on the compliance posture in [`docs/INVIOLABLE-PRINCIPLES.md`](../../docs/INVIOLABLE-PRINCIPLES.md) and the gateway-compliance analysis recorded in the design session 2026-05-01.
+These are not omissions. They are deliberate exclusions based on the compliance posture in [`docs/PRINCIPLES.md`](../../docs/PRINCIPLES.md) and the gateway-compliance analysis recorded in the design session 2026-05-01.
 
 ---
 
@@ -251,9 +251,9 @@ A Sovereign may install **both** when it has internal LLM consumption (via `bp-l
 
 ## See also
 
-- [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.6 — LLM Serving section
+- [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §4.6 — LLM Serving section
 - [`docs/COMPLIANCE-CHANNELS.md`](../../docs/COMPLIANCE-CHANNELS.md) — channel attestation, AUP enforcement, reseller-disclosure boilerplate
 - [`docs/CATALYST-CLI-AGENT.md`](../../docs/CATALYST-CLI-AGENT.md) — preconfigured CLI agent packaging
-- [`docs/INVIOLABLE-PRINCIPLES.md`](../../docs/INVIOLABLE-PRINCIPLES.md) — non-negotiable platform rules
+- [`docs/PRINCIPLES.md`](../../docs/PRINCIPLES.md) — non-negotiable platform rules
 - [`platform/llm-gateway/README.md`](../llm-gateway/README.md) — sibling blueprint for self-consumption use cases
 - [`platform/vllm/README.md`](../vllm/README.md) — required dependency for the cheap-tier channel

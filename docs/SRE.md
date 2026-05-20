@@ -1,7 +1,7 @@
 # SRE Handbook
 
 **Status:** Authoritative target playbook. **Updated:** 2026-04-27.
-**Implementation:** Most automation described (alert webhooks, Runbook CRDs, failover-controller actions) is design-stage. See [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md). Existing Sovereign deployments may rely on simpler manual procedures until the automation lands.
+**Implementation:** Most automation described (alert webhooks, Runbook CRDs, failover-controller actions) is design-stage. See [`STATUS.md`](STATUS.md). Existing Sovereign deployments may rely on simpler manual procedures until the automation lands.
 
 Site Reliability Engineering practices for Catalyst Sovereigns. Defer to [`GLOSSARY.md`](GLOSSARY.md) for terminology, [`ARCHITECTURE.md`](ARCHITECTURE.md) for the model, [`SECURITY.md`](SECURITY.md) for credentials and identity.
 
@@ -21,7 +21,7 @@ Multi-region is **strongly recommended** for production-tier Sovereigns. Two or 
 
 Clusters are named by **building block** (functional security zone), not by failover role — there is **no "primary" or "DR" designation**. Both clusters run the same building blocks symmetrically; PowerDNS lua-records (`ifurlup`, `pickclosest`) handle traffic distribution authoritatively at the DNS layer. After a failover event, the surviving cluster serves all traffic — its name does not change. See [`MULTI-REGION-DNS.md`](MULTI-REGION-DNS.md) for the lua-record patterns.
 
-See [`NAMING-CONVENTION.md`](NAMING-CONVENTION.md) §1.3.
+See [`ARCHITECTURE.md`](ARCHITECTURE.md) §1.3.
 
 ```mermaid
 flowchart TB
@@ -534,4 +534,4 @@ spec:
 
 ---
 
-*Cross-reference [`ARCHITECTURE.md`](ARCHITECTURE.md), [`SECURITY.md`](SECURITY.md), [`PERSONAS-AND-JOURNEYS.md`](PERSONAS-AND-JOURNEYS.md).*
+*Cross-reference [`ARCHITECTURE.md`](ARCHITECTURE.md), [`SECURITY.md`](SECURITY.md), [`DOD.md`](DOD.md).*

@@ -53,11 +53,11 @@ F. **Stale terminology / banned terms (1):**
 **Files updated (10, plus this VALIDATION-LOG entry):**
 
 - `README.md` — repo-structure note: 12-component bootstrap kit + axon + external-dns leaf chart are built, remaining 45 platform / 4 product folders design-stage.
-- `docs/RUNBOOK-PROVISIONING.md` — pre-flight table (Organisation profile, Topology SKU note, Sovereign-domain Step-6 capture); §2 wizard table rewritten to the new 7-step canonical ordering with per-step descriptions; §"What can go wrong" workdir paragraph rewritten for `/tmp/catalyst/tofu/<fqdn>/` + `CATALYST_TOFU_WORKDIR` env var + the UID-65534 rationale; §4 first-login note now points the user to the Step 6 (Domain) email capture.
+- `docs/RUNBOOKS.md` — pre-flight table (Organisation profile, Topology SKU note, Sovereign-domain Step-6 capture); §2 wizard table rewritten to the new 7-step canonical ordering with per-step descriptions; §"What can go wrong" workdir paragraph rewritten for `/tmp/catalyst/tofu/<fqdn>/` + `CATALYST_TOFU_WORKDIR` env var + the UID-65534 rationale; §4 first-login note now points the user to the Step 6 (Domain) email capture.
 - `docs/SOVEREIGN-PROVISIONING.md` — §3 footer "OpenTofu state" paragraph rewritten for `/tmp/catalyst/tofu/<fqdn>/` + the env-var override + the air-gap remote-backend warning.
-- `docs/DEMO-RUNBOOK.md` — Step 2 wizard table rewritten to the new 7-step canonical ordering with `cx32`/`cx42` Hetzner defaults sourced from `PROVIDER_NODE_SIZES.hetzner`; sovereign-admin email moved to Step 6 (Domain); decommission `kubectl exec` updated to `cd /tmp/catalyst/tofu/...` and namespace `-n catalyst` (was `catalyst-system`).
-- `docs/IMPLEMENTATION-STATUS.md` — §2.1 catalyst-ui wizard step list updated to the canonical 7-step order with cross-refs to #176 (PROVIDER_NODE_SIZES) and #d3346441/#b0ec0c43 (flat grid + family chips + product/family routes).
-- `docs/ORCHESTRATOR-STATE.md` — `Latest commit on main` advanced from `dd578d1c` to `0b432dd7` with a one-line post-Pass-1 batch summary.
+- `docs/RUNBOOKS.md` — Step 2 wizard table rewritten to the new 7-step canonical ordering with `cx32`/`cx42` Hetzner defaults sourced from `PROVIDER_NODE_SIZES.hetzner`; sovereign-admin email moved to Step 6 (Domain); decommission `kubectl exec` updated to `cd /tmp/catalyst/tofu/...` and namespace `-n catalyst` (was `catalyst-system`).
+- `docs/STATUS.md` — §2.1 catalyst-ui wizard step list updated to the canonical 7-step order with cross-refs to #176 (PROVIDER_NODE_SIZES) and #d3346441/#b0ec0c43 (flat grid + family chips + product/family routes).
+- `docs/archive/orchestrator-state.md` — `Latest commit on main` advanced from `dd578d1c` to `0b432dd7` with a one-line post-Pass-1 batch summary.
 - `docs/COMPONENT-LOGOS.md` — opening prose, "How it works", "Current asset status", "License note" all rewritten to describe the 58-logo canonical-upstream set (44 SVG + 14 PNG) sourced from CNCF artwork + project repos, with PowerDNS letter-mark fallback called out and CI smoke-test at `6a7d2dd8` cross-referenced. StepComponents description updated to "single flat marketplace card grid (no per-family section headers)".
 - `docs/PRODUCT-FAMILIES.md` — §"Product graph" rewritten to reflect `familyDependencies: []` for every product (CORTEX → FABRIC removed at `0b6bb3ea`); product-registry CORTEX row updated to `family deps = —`; Specter and BGE cascade narratives rewritten to reflect component-level-only resolution (langfuse → cnpg, librechat → ferretdb → cnpg) without dragging in the rest of FABRIC; Tab 1 description updated to "single flat marketplace card grid (no per-family section headers)".
 - `docs/PROVISIONING-PLAN.md` — Group F row updated to "All 12 G2 wrapper charts (original 11 + bp-powerdns #167) + blueprint-release CI live" with `0190c605` added to the commit list.
@@ -125,13 +125,13 @@ F. **Stale terminology / banned terms (1):**
 - `docs/ARCHITECTURE.md` — date stamp; §10 bootstrap-kit step 1+2 (DNS posture); new step 3 for PDM `/v1/commit`; §11 dependency tree footer (PowerDNS as per-host-cluster, PDM as bootstrap-surface).
 - `docs/SOVEREIGN-PROVISIONING.md` — date stamp; §1 inputs row for sovereign domain (three modes); §3 step 2 (DNS plane), step 4 (12-component bootstrap kit including bp-powerdns), step 5 (external-dns against PowerDNS), DNS-records code block, "Implementation status" footer.
 - `docs/PROVISIONING-PLAN.md` — date stamp + sub-tickets range; Group C ✅, Group G ✅, Group K row updated; agreement #10 reframed (Dynadot is registrar-of-record, not authoritative DNS); Phase 4 outputs rewritten to canonical paths; Phase 6 retitled and rewritten.
-- `docs/IMPLEMENTATION-STATUS.md` — date stamp; PowerDNS row 1.0.5→1.0.6; new pool-domain-manager row; bootstrap-kit row 11→12 with bp-powerdns added.
-- `docs/PLATFORM-TECH-STACK.md` — date stamp; §2.2 backend services adds pool-domain-manager.
+- `docs/STATUS.md` — date stamp; PowerDNS row 1.0.5→1.0.6; new pool-domain-manager row; bootstrap-kit row 11→12 with bp-powerdns added.
+- `docs/ARCHITECTURE.md` — date stamp; §2.2 backend services adds pool-domain-manager.
 - `docs/MULTI-REGION-DNS.md` — Updated header date to clarify Reconcile Pass 1; example-records note updated to credit PDM `/v1/commit` for the canonical-set write; §3.1 updated to a three-line ASCII showing PDM / external-dns / catalyst-dns separation.
 - `docs/PLATFORM-POWERDNS.md` — Acceptance checklist refreshed (1.0.6 chart, deploy/clusters healthy today); helmrelease + commit-message version bumps to 1.0.6; In-cluster consumers list reordered (PDM first, replacing the prior "catalyst-dns" line).
-- `docs/RUNBOOK-PROVISIONING.md` — date stamp; sovereign-domain prerequisite (three-mode); §2 wizard-step table to canonical ordering; §3 SSE phases note 12-component kit; troubleshooting row 9 (DNS) reframed for PowerDNS; decommission step 2 reframed for PDM release.
-- `docs/DEMO-RUNBOOK.md` — date stamp; Pre-flight pool-subdomain note (PDM commit flow); Step 2 wizard fields updated to 7-step canonical ordering; Step 4 rewritten for PDM /v1/commit + registrar-adapter NS-flip; Step 5 cert-manager DNS-01 webhook updated to cert-manager-webhook-pdns; Final-step VALIDATION-LOG entry note updated.
-- `docs/ORCHESTRATOR-STATE.md` — date stamp + commit ref `dd578d1c`; Group G row ✅; architectural compliance section refreshed (5 XRDs not 4, 12 OCI artifacts not 11, DNS architecture row added); DoD step 6 reframed.
+- `docs/RUNBOOKS.md` — date stamp; sovereign-domain prerequisite (three-mode); §2 wizard-step table to canonical ordering; §3 SSE phases note 12-component kit; troubleshooting row 9 (DNS) reframed for PowerDNS; decommission step 2 reframed for PDM release.
+- `docs/RUNBOOKS.md` — date stamp; Pre-flight pool-subdomain note (PDM commit flow); Step 2 wizard fields updated to 7-step canonical ordering; Step 4 rewritten for PDM /v1/commit + registrar-adapter NS-flip; Step 5 cert-manager DNS-01 webhook updated to cert-manager-webhook-pdns; Final-step VALIDATION-LOG entry note updated.
+- `docs/archive/orchestrator-state.md` — date stamp + commit ref `dd578d1c`; Group G row ✅; architectural compliance section refreshed (5 XRDs not 4, 12 OCI artifacts not 11, DNS architecture row added); DoD step 6 reframed.
 - `docs/COMPONENT-LOGOS.md` — 63 → 62 with the powerdns-missing-svg callout.
 - `docs/GLOSSARY.md` — date stamp; new entries for pool-domain-manager (PDM) and Registrar Adapter.
 
@@ -227,9 +227,9 @@ catalystBlueprint:
 
 **Lesson #26 closure — verified on disk:**
 
-`docs/INVIOLABLE-PRINCIPLES.md` exists at `d94bb3d` with the 10 non-negotiable rules + the four lessons (#23-#26) that were learned at session-cost. The principles are anchored in three locations per the global `~/.claude/CLAUDE.md` "INVIOLABLE PRINCIPLES" preamble:
+`docs/PRINCIPLES.md` exists at `d94bb3d` with the 10 non-negotiable rules + the four lessons (#23-#26) that were learned at session-cost. The principles are anchored in three locations per the global `~/.claude/CLAUDE.md` "INVIOLABLE PRINCIPLES" preamble:
 
-1. `docs/INVIOLABLE-PRINCIPLES.md` (canonical, public).
+1. `docs/PRINCIPLES.md` (canonical, public).
 2. `~/.claude/projects/-home-openova-repos-openova-private/memory/feedback_inviolable_principles.md` (session-recovery pointer).
 3. The "🛑 ABSOLUTE FIRST" preamble of `~/.claude/CLAUDE.md`.
 
@@ -244,7 +244,7 @@ $ grep -rnE '\b53 components\b|\b53 curated\b|\b53-component\b|\ball 53\b|\b53 p
 (no output)
 ```
 
-Anchors verified at `CLAUDE.md` L46 ("56 folders total"), `docs/TECHNOLOGY-FORECAST-2027-2030.md` L11 ("all 56 platform components"), `docs/BUSINESS-STRATEGY.md` (10+ "56 components" / "56 curated" / "56-component" anchors), `docs/AUDIT-PROCEDURE.md` Grep #9, and `docs/PLATFORM-TECH-STACK.md` §1 categorization table. The wizard-selectable subset — `products/catalyst/bootstrap/ui/src/shared/constants/components.ts` — lists 22 entries; this is intentional (the bootstrap-kit components are pre-selected by the architecture, not user-pickable, so they are not part of the wizard's selection UI). The 22 vs 56 split is by design: 22 = a-la-carte Application Blueprint candidates exposed in the wizard; 56 = the full platform/ catalog.
+Anchors verified at `CLAUDE.md` L46 ("56 folders total"), `docs/TECHNOLOGY-FORECAST-2027-2030.md` L11 ("all 56 platform components"), `docs/BUSINESS-STRATEGY.md` (10+ "56 components" / "56 curated" / "56-component" anchors), `docs/AUDIT-PROCEDURE.md` Grep #9, and `docs/ARCHITECTURE.md` §1 categorization table. The wizard-selectable subset — `products/catalyst/bootstrap/ui/src/shared/constants/components.ts` — lists 22 entries; this is intentional (the bootstrap-kit components are pre-selected by the architecture, not user-pickable, so they are not part of the wizard's selection UI). The 22 vs 56 split is by design: 22 = a-la-carte Application Blueprint candidates exposed in the wizard; 56 = the full platform/ catalog.
 
 **The 13 acceptance greps — live results on `14ff252`:**
 
@@ -252,11 +252,11 @@ Anchors verified at `CLAUDE.md` L46 ("56 folders total"), `docs/TECHNOLOGY-FOREC
 |---|---|---|---|
 | 1 | Banned terms (`tenant`, `Workspace`, `Lifecycle Manager`, `bootstrap wizard`, `Backstage`, `Synapse`, `Fuse`, `Module`, `Template`, `Operator`, `Client`, `Instance`) | ✅ clean with the §"Acceptance criteria" filters | Raw-grep non-zero on `Operator` (78), `Client` (63), `Template` (27), `Module` (16), `tenant` (19), `Synapse` (11) etc. — every hit reviewed: legitimate exempt contexts (K8s Operator pattern, External Secrets Operator, Trivy Operator, "multi-tenant" in PSD2 sense, AUDIT-PROCEDURE.md self-reference, historical-rename evidence inside this log). The §"Acceptance criteria" filters at the tail of this log return zero. |
 | 2 | env_type long-form (`acme-{staging,production,development}`) | ✅ clean | 1 hit, in `docs/AUDIT-PROCEDURE.md` itself (the grep specification). |
-| 3 | JetStream subject prefix `ws.{env|org}` | ✅ clean | 1 hit, in `docs/NAMING-CONVENTION.md` L485 (the canonical NAMING §11.2 occurrence — exactly as the procedure expects). |
+| 3 | JetStream subject prefix `ws.{env|org}` | ✅ clean | 1 hit, in `docs/ARCHITECTURE.md` L485 (the canonical NAMING §11.2 occurrence — exactly as the procedure expects). |
 | 4 | API group split count (`compose.openova.io/v1alpha1` + `catalyst.openova.io/v1alpha1`) | ⚠ 6 hits (procedure says ≥7) | SECURITY (1) + ARCHITECTURE (2) + BLUEPRINT-AUTHORING (2) + crossplane README (1) = 6. Border-line off-by-one: NAMING-CONVENTION uses the API group at `compose.openova.io` / `catalyst.openova.io` form (at L485 "JetStream Account at the Organization level") but not the `/v1alpha1` suffix. **Not a regression** — Pass 106 left the count at 6; treating as a non-blocking shape note rather than drift. |
 | 5 | Subsection ordering monotonicity | ✅ clean | PTS §7.1→§7.4, NAMING §2.1→§2.5 + §11.1→§11.4, SECURITY §5.1→§5.3, SRE §9.1→§9.5 — all strictly increasing. |
 | 6 | Old App-as-folder model | ✅ clean | 0 hits outside VALIDATION-LOG. |
-| 7 | Branches-map-to-envs anchor (4 docs) | ✅ clean (4/4 case-insensitive) | Case-sensitive regex returns 3/4 because `docs/NAMING-CONVENTION.md` L482 phrases it as "Branches `develop`, `staging`, and `main` map to the `dev`, `stg`, and `prod` Environments" (capital "Branches"). Semantically identical to the regex's intended pattern. **Not a regression** — same shape that passed in Pass 106. |
+| 7 | Branches-map-to-envs anchor (4 docs) | ✅ clean (4/4 case-insensitive) | Case-sensitive regex returns 3/4 because `docs/ARCHITECTURE.md` L482 phrases it as "Branches `develop`, `staging`, and `main` map to the `dev`, `stg`, and `prod` Environments" (capital "Branches"). Semantically identical to the regex's intended pattern. **Not a regression** — same shape that passed in Pass 106. |
 | 8 | 5 Gitea Orgs convention (4 docs) | ✅ clean | GLOSSARY + ARCHITECTURE + PLATFORM-TECH-STACK + BLUEPRINT-AUTHORING all carry the anchor. |
 | 9 | Component count = 56 | ✅ clean | `ls -d platform/*/ | wc -l` = 56; zero "53 components" anchors outside VALIDATION-LOG. |
 | 10 | SeaweedFS encapsulation (no MinIO) | ✅ clean | 1 hit, in `docs/AUDIT-PROCEDURE.md` itself (the grep specification). |
@@ -321,10 +321,10 @@ This pass closes Group K (Documentation) of the Catalyst-Zero waterfall (#43 par
 | `docs/BUSINESS-STRATEGY.md` | 224d81e | 26 word-boundary occurrences of '53' → '56' (executive summary, principles, comparison tables, expert network, GTM) |
 | `docs/PROVISIONING-PLAN.md` | 224d81e | Group K execution-status row: anchor refreshed 53 → 56 (was 53→55 pending). §5 invariants clarified Pass 104→105 transition |
 | `docs/TECHNOLOGY-FORECAST-2027-2030.md` | 224d81e | L11 anchor 53 → 56. Mandatory header (26) → (29). +3 rows: spire (88/90/92 Rising), nats-jetstream (90/92/92 Rising), sealed-secrets (75/70/60 Declining — transient bootstrap) |
-| `docs/PLATFORM-TECH-STACK.md` | 7b24f96 | §1 categorization table: per-host-cluster row +sealed-secrets (bootstrap-only); Application Blueprints row +guacamole (was missing despite §4.5+§5 documenting it). §2.3: spire, nats-jetstream now hyperlink into platform/. §3.2: new sealed-secrets row with Phase-0/Phase-1 semantics |
-| `docs/IMPLEMENTATION-STATUS.md` | ab456d4 | §7 'Catalyst provisioner' flipped 📐 → 🚧 for all three rows. Notes now cross-link the actual code: products/catalyst/bootstrap/api/internal/provisioner/provisioner.go (374 lines, OpenTofu wrapper), infra/hetzner/main.tf (250-line module), and the 11 G2 charts published via blueprint-release.yaml |
+| `docs/ARCHITECTURE.md` | 7b24f96 | §1 categorization table: per-host-cluster row +sealed-secrets (bootstrap-only); Application Blueprints row +guacamole (was missing despite §4.5+§5 documenting it). §2.3: spire, nats-jetstream now hyperlink into platform/. §3.2: new sealed-secrets row with Phase-0/Phase-1 semantics |
+| `docs/STATUS.md` | ab456d4 | §7 'Catalyst provisioner' flipped 📐 → 🚧 for all three rows. Notes now cross-link the actual code: products/catalyst/bootstrap/api/internal/provisioner/provisioner.go (374 lines, OpenTofu wrapper), infra/hetzner/main.tf (250-line module), and the 11 G2 charts published via blueprint-release.yaml |
 | `docs/SOVEREIGN-PROVISIONING.md` | 3a7ec9e | Status header: 'design-stage' → 'deployed shape exists; DoD pending'. §3 replaced ASCII target diagram with a 5-row table mapping each step to its concrete monorepo artifact. DNS records, OpenTofu state location, implementation-status banner all preserved |
-| `docs/RUNBOOK-PROVISIONING.md` | e8c3f6f | **New file.** Operator-level companion to SOVEREIGN-PROVISIONING.md (architectural contract) and PROVISIONING-PLAN.md (Catalyst-Zero waterfall). Audience: a Sovereign cloud team (e.g. omantel-cloud) onboarding via console.openova.io/sovereign. Pre-flight checklist + 7-step wizard walk + SSE phase explanation + Day-1 setup + troubleshooting matrix + idempotency notes + decommission flow |
+| `docs/RUNBOOKS.md` | e8c3f6f | **New file.** Operator-level companion to SOVEREIGN-PROVISIONING.md (architectural contract) and PROVISIONING-PLAN.md (Catalyst-Zero waterfall). Audience: a Sovereign cloud team (e.g. omantel-cloud) onboarding via console.openova.io/sovereign. Pre-flight checklist + 7-step wizard walk + SSE phase explanation + Day-1 setup + troubleshooting matrix + idempotency notes + decommission flow |
 
 **Acceptance greps (post-update, run from repo root):**
 
@@ -408,14 +408,14 @@ Component additions/removals:
 - **CREATED**: `platform/guacamole/README.md` (clientless remote-desktop gateway; GuacamoleConnection CRD; compliance integration via session recordings to SeaweedFS)
 
 Doc updates:
-- `docs/PLATFORM-TECH-STACK.md` — §1 component categorization (minio → seaweedfs); §3.5 row replaced; §4.5 added guacamole; §5 bp-fabric composition (minio → seaweedfs); §5 bp-relay composition (added guacamole); §7.4 RAM estimate updated.
+- `docs/ARCHITECTURE.md` — §1 component categorization (minio → seaweedfs); §3.5 row replaced; §4.5 added guacamole; §5 bp-fabric composition (minio → seaweedfs); §5 bp-relay composition (added guacamole); §7.4 RAM estimate updated.
 - `docs/TECHNOLOGY-FORECAST-2027-2030.md` — L11 "all 52 → all 53 platform components"; minio row replaced with seaweedfs; A La Carte header (27 → 28); guacamole row added.
 - `docs/ARCHITECTURE.md` — §3 topology box per-host-cluster infra list (minio → seaweedfs).
 - `docs/SECURITY.md` — §4 Database engines list (MinIO/S3 → SeaweedFS/S3).
 - `docs/SOVEREIGN-PROVISIONING.md` — §1 Inputs Object-storage row (now describes SeaweedFS as encapsulation + cold-tier passthrough to cloud-provider native).
 - `docs/SRE.md` — §2.5 stateful components list (MinIO → SeaweedFS); §2.5 replication-pattern row; §7.1 air-gap component list; §7.2 + §7.3 model weights destination.
-- `docs/IMPLEMENTATION-STATUS.md` — §3 grouped per-host-cluster row (MinIO → SeaweedFS).
-- `docs/BLUEPRINT-AUTHORING.md` — Stateful blueprint replication examples (MinIO bucket replication → SeaweedFS bucket replication).
+- `docs/STATUS.md` — §3 grouped per-host-cluster row (MinIO → SeaweedFS).
+- `docs/RUNBOOKS.md` — Stateful blueprint replication examples (MinIO bucket replication → SeaweedFS bucket replication).
 - `docs/BUSINESS-STRATEGY.md` — 13 occurrences of "52 components" / "52 curated" / "52-component ecosystem" → 53; OpenOva Relay product line updated to include Guacamole.
 - `README.md` — Backup row: "Velero (to SeaweedFS, which routes cold tier to cloud archival)".
 - `CLAUDE.md` — folder count "52 → 53".
@@ -500,14 +500,14 @@ The previous model — across 100+ audit passes anchored on it — asserted: "An
 
 **Files updated (line-by-line propagation):**
 - `docs/GLOSSARY.md` — Application + Environment definitions rewritten; new §"Gitea Orgs" section added (5 conventional Gitea Orgs); 6 component-row updates (console, marketplace, catalog-svc, projector, provisioning, environment-controller, gitea, Git surface).
-- `docs/NAMING-CONVENTION.md` §11.2 — Realization 6-bullet list rewritten; added new bullet 7 (EnvironmentPolicy CR location). §10 multi-region narrative updated.
+- `docs/ARCHITECTURE.md` §11.2 — Realization 6-bullet list rewritten; added new bullet 7 (EnvironmentPolicy CR location). §10 multi-region narrative updated.
 - `docs/ARCHITECTURE.md` — §1 paragraph rewritten; §3 topology box updated (5 Gitea Orgs explicit); §4 write-side ASCII rewritten (App repo shape, branches map to envs, 7 line height grew); §7.1 IaC editor description updated; §7.2 Git surface updated; §7.3 API description updated; §8 Promotion fundamentally rewritten (PR `staging`→`main` in same App repo); §9 Multi-App linkage updated (one Gitea repo per App, cross-repo Kustomization.dependsOn); EnvironmentPolicy CR example updated with system/ Org location + minApprovals field.
-- `docs/PERSONAS-AND-JOURNEYS.md` — §2 Surfaces (Git definition); §4.1 Ahmed's flow (provisioning creates one repo per App, not one Env-monorepo); §4.2 Layla's full narrative rewritten (App repo + branches + cross-repo PR promotion).
-- `docs/BLUEPRINT-AUTHORING.md` §1 — added third source-location category for Sovereign-curated private Blueprints (`catalog-sovereign` Gitea Org).
-- `docs/PLATFORM-TECH-STACK.md` §2.2 + §2.3 — provisioning, environment-controller, blueprint-controller, gitea descriptions all updated.
+- `docs/DOD.md` — §2 Surfaces (Git definition); §4.1 Ahmed's flow (provisioning creates one repo per App, not one Env-monorepo); §4.2 Layla's full narrative rewritten (App repo + branches + cross-repo PR promotion).
+- `docs/RUNBOOKS.md` §1 — added third source-location category for Sovereign-curated private Blueprints (`catalog-sovereign` Gitea Org).
+- `docs/ARCHITECTURE.md` §2.2 + §2.3 — provisioning, environment-controller, blueprint-controller, gitea descriptions all updated.
 - `docs/SECURITY.md` §3 — ExternalSecret CR location ("in the Application Gitea repo" not "in the Environment Gitea repo").
 - `docs/SOVEREIGN-PROVISIONING.md` §5 Phase 2 + §8 + §10 — Application-repo language replaces Environment-monorepo language.
-- `docs/IMPLEMENTATION-STATUS.md` §5 — Git surface description.
+- `docs/STATUS.md` §5 — Git surface description.
 - `docs/SRE.md` §14 — runbooks split (Sovereign-wide in `system/runbooks`, Org-specific in `<org>/runbooks`).
 
 **Files deliberately not touched:**
@@ -544,7 +544,7 @@ Going forward: any future audit pass should use the unified rule from this Pass 
 
 Acceptance greps clean for all 13 carry-forward categories.
 
-**docs/BLUEPRINT-AUTHORING.md** sixth-cycle deep-read:
+**docs/RUNBOOKS.md** sixth-cycle deep-read:
 - **14 sections all monotonic** (§1-§14) — verified by direct grep ✓
 - §1 What a Blueprint is (L10-25):
   - L16 Org-private Blueprints: `gitea.<location-code>.<sovereign-domain>/<org>/shared-blueprints/bp-<name>/` with cross-ref to NAMING §5.1 — **Pass 29 + Pass 42 fix preserved** ✓
@@ -687,7 +687,7 @@ Total: 49 clean passes overall, 39 consecutive (Pass 63-101). **Pass 102 = poten
 
 Acceptance greps clean for all 13 carry-forward categories.
 
-**docs/PERSONAS-AND-JOURNEYS.md** seventh-cycle deep-read:
+**docs/DOD.md** seventh-cycle deep-read:
 - §1 Personas — 5 personas (Ahmed/SME, Layla/corporate SRE, Yousef/sovereign-admin, Maryam/security officer, Hatem/CFO)
 - §2 Surfaces — UI / Git / API / kubectl
 - §3 Personas × Journeys matrix
@@ -1006,7 +1006,7 @@ Convergence trajectory:
 
 Acceptance greps clean for all 13 carry-forward categories.
 
-**docs/IMPLEMENTATION-STATUS.md** seventh-cycle deep-read:
+**docs/STATUS.md** seventh-cycle deep-read:
 - L1-9 framing: bridge between target architecture and current code state; "If you find a claim elsewhere in this repo that contradicts this file, this file wins" escalation rule preserved ✓
 - L13-20 4-status legend: ✅ Implemented / 🚧 Partial / 📐 Design / ⏸ Deferred ✓
 - §1 Repository structure (L24-34): products/axon=✅; core/, products/catalyst/ umbrella, products/{cortex,fabric,fingate,relay} = 📐 ✓
@@ -1157,7 +1157,7 @@ Total: 43 clean passes overall, 33 consecutive (Pass 63-95). Loop continues per 
 
 Acceptance greps clean for all 13 carry-forward categories.
 
-**docs/NAMING-CONVENTION.md** seventh-cycle deep-read:
+**docs/ARCHITECTURE.md** seventh-cycle deep-read:
 - §2 subsection ordering §2.1 → §2.2 → §2.3 → §2.4 → §2.5 monotonic ✓
 - §2.4 (L115-125) Env Type 3-char canonical (prod|stg|uat|dev|poc) ✓
 - §5 (L261-) DNS patterns (Pass 37/42 anchors):
@@ -1239,7 +1239,7 @@ Total: 42 clean passes overall, 32 consecutive (Pass 63-94). Loop continues per 
 
 Acceptance greps clean for all 13 carry-forward categories.
 
-**docs/PLATFORM-TECH-STACK.md** seventh-cycle deep-read:
+**docs/ARCHITECTURE.md** seventh-cycle deep-read:
 - §1 (L10-22) component categorization — Pass 40 union-equality stable across 7 cycles:
   - Catalyst control plane (15 components): console, marketplace, admin, projector, catalog-svc, provisioning, environment-controller, blueprint-controller, billing, gitea, nats-jetstream, openbao, keycloak, spire-server, observability ✓
   - Per-host-cluster infrastructure (21 components): cilium, external-dns, k8gb, coraza, flux, crossplane, opentofu, cert-manager, external-secrets, kyverno, trivy, falco, sigstore, syft-grype, vpa, keda, reloader, minio, velero, harbor, failover-controller ✓
@@ -1302,7 +1302,7 @@ Total: 41 clean passes overall, 31 consecutive (Pass 63-93). Loop continues per 
 
 Acceptance greps clean for all 13 carry-forward categories.
 
-**docs/BLUEPRINT-AUTHORING.md** fifth-cycle deep-read:
+**docs/RUNBOOKS.md** fifth-cycle deep-read:
 - §1 What a Blueprint is (L10-25):
   - L15 Public Blueprints: "directory under `platform/<name>/` or `products/<name>/` in the [github.com/openova-io/openova] monorepo (this repository). Per-Blueprint isolation is provided by CI fan-out — each folder publishes its own signed OCI artifact." ✓ — concrete monorepo path
   - L16 Org-private Blueprints: "directory inside `gitea.<location-code>.<sovereign-domain>/<org>/shared-blueprints/bp-<name>/`...canonical Catalyst control-plane DNS form per NAMING-CONVENTION.md §5.1" — **Pass 29 + Pass 42 vague-placeholder fix preserved** ✓
@@ -1448,7 +1448,7 @@ Total: 39 clean passes overall, 29 consecutive (Pass 63-91). **Pass 92 = potenti
 
 Acceptance greps clean for all 13 carry-forward categories.
 
-**docs/PERSONAS-AND-JOURNEYS.md** sixth-cycle deep-read:
+**docs/DOD.md** sixth-cycle deep-read:
 - §1 Personas (L10-26) — 5 personas (Ahmed/SME owner, Layla/corporate SRE, Yousef/sovereign-admin, Maryam/security officer, Hatem/CFO)
 - §2 Surfaces (L27-) — UI / Git / API / kubectl
 - §3 Personas × Journeys matrix (L43-)
@@ -1729,7 +1729,7 @@ Convergence trajectory:
 
 Acceptance greps clean for all 13 carry-forward categories.
 
-**docs/IMPLEMENTATION-STATUS.md** sixth-cycle deep-read:
+**docs/STATUS.md** sixth-cycle deep-read:
 - L1-3 status: "Authoritative. Living document. Updated: 2026-04-27" ✓
 - L5-7: bridge-document framing — design (target) vs current (built) state ✓
 - L9: "If you find a claim elsewhere in this repo that contradicts this file, this file wins until either (a) the code catches up to the claim or (b) the claim is corrected." — escalation rule preserved ✓
@@ -1857,7 +1857,7 @@ Total: 33 clean passes overall, 23 consecutive (Pass 63-85). Loop continues per 
 
 Acceptance greps clean for all 13 carry-forward categories.
 
-**docs/NAMING-CONVENTION.md** sixth-cycle deep-read:
+**docs/ARCHITECTURE.md** sixth-cycle deep-read:
 - §2 subsection ordering §2.1 → §2.2 → §2.3 → §2.4 → §2.5 monotonic ✓
 - §2.4 (L115-125) Env Type canonical 3-char + 1-char tables: `prod|stg|uat|dev|poc` (full names: Production, Staging, UAT, Development, POC) — Pass 22/39 canonical anchor preserved ✓
 - §3 (L138-) Core Patterns: `{provider}-{region}-{bb}-{env_type}` global pattern ✓
@@ -1906,7 +1906,7 @@ Total: 32 clean passes overall, 22 consecutive (Pass 63-84). Loop continues per 
 
 Acceptance greps clean for all 13 carry-forward categories (note: `${TENANT_ID}` in librechat is Azure AD API terminology, not Catalyst platform terminology — permitted reference).
 
-**docs/PLATFORM-TECH-STACK.md** sixth-cycle deep-read:
+**docs/ARCHITECTURE.md** sixth-cycle deep-read:
 - L3 status banner: "Authoritative target stack. **Updated:** 2026-04-27" ✓
 - §1 (L10-22) union-equality: Catalyst control plane (15) + Per-host-cluster infrastructure (21) + Application Blueprints (27) = 63 components — Pass 40 anchor preserved ✓
   - Catalyst control plane (15): console, marketplace, admin, projector, catalog-svc, provisioning, environment-controller, blueprint-controller, billing, gitea, nats-jetstream, openbao, keycloak, spire-server, observability ✓
@@ -2193,7 +2193,7 @@ Convergence trajectory:
 
 Acceptance greps clean for all 13 carry-forward categories.
 
-**docs/PERSONAS-AND-JOURNEYS.md** fifth-cycle deep-read (Pass 22, 33, 39, 48, 67, 70 prior cycles):
+**docs/DOD.md** fifth-cycle deep-read (Pass 22, 33, 39, 48, 67, 70 prior cycles):
 - §1 Personas (P1-P10 with Ahmed/Layla/Omar/Khalid characters): clean
 - §2 Surfaces (UI / Git / API + kubectl debug + no fourth surface): clean
 - §3 Personas × Journeys 14×10 matrix: clean
@@ -2246,7 +2246,7 @@ The validation loop has reached a state of architectural integrity that is susta
 
 Acceptance greps clean for all 13 carry-forward categories.
 
-**docs/BLUEPRINT-AUTHORING.md** fourth-cycle deep-read (Pass 21, 29, 42, 65 prior cycle-fixes):
+**docs/RUNBOOKS.md** fourth-cycle deep-read (Pass 21, 29, 42, 65 prior cycle-fixes):
 - §1 What a Blueprint is: L16 Pass 42 vague-placeholder fix held — `gitea.<location-code>.<sovereign-domain>/<org>/shared-blueprints/bp-<name>/` canonical (with NAMING §5.1 inline pointer) ✓
 - §2 Folder layout + monorepo path-matrix CI (Pass 21) intact ✓
 - §3 Blueprint CRD: L83 `apiVersion: catalyst.openova.io/v1alpha1` canonical ✓
@@ -2318,7 +2318,7 @@ Convergence trajectory:
 
 Acceptance greps clean for all 13 carry-forward categories. NAMING subsection-order check: clean.
 
-**docs/NAMING-CONVENTION.md** fifth-cycle deep-read (Pass 31, 37, 42, 50, 60, 64 prior cycle-fixes/scans):
+**docs/ARCHITECTURE.md** fifth-cycle deep-read (Pass 31, 37, 42, 50, 60, 64 prior cycle-fixes/scans):
 - §1 Principles: dimension-based naming + don't-repeat-the-parent + building-blocks-not-failover-roles + Tags-carry-what-Names-cannot + Org-identity-in-vcluster — all 5 principles intact
 - §2 Dimension Taxonomy (provider, region, building block, env_type, organization): clean. §2.4 env_type canonical 5-value list (prod/stg/uat/dev/poc)
 - §3 Core Patterns: clean
@@ -2360,7 +2360,7 @@ Convergence trajectory:
 
 Acceptance greps clean for all 13 carry-forward categories. PTS subsection-order check: clean (Pass 62 fix held).
 
-**docs/PLATFORM-TECH-STACK.md** fifth-cycle deep re-read (Pass 23, 40, 55, 62 prior cycle-fixes):
+**docs/ARCHITECTURE.md** fifth-cycle deep re-read (Pass 23, 40, 55, 62 prior cycle-fixes):
 - §1 component categorization rows (Pass 40 union-equality):
   - Catalyst control plane: 15 components (3+6+6) ✓
   - Per-host-cluster infrastructure: 21 components ✓ (opentofu marked bootstrap-only)
@@ -2632,7 +2632,7 @@ Per the user's standing instruction ("when you believe you're done, restart from
 
 Acceptance greps clean for all 13 carry-forward categories.
 
-**docs/PERSONAS-AND-JOURNEYS.md** fourth-cycle deep re-read (Pass 22, 33, 39, 48 prior fixes/scans):
+**docs/DOD.md** fourth-cycle deep re-read (Pass 22, 33, 39, 48 prior fixes/scans):
 - §1 Personas: P1-P10 with example characters (Ahmed, Layla, Omar, Khalid) — stable across 4 cycles.
 - §2 Surfaces: UI / Git / API + kubectl debug + "no fourth surface" — matches GLOSSARY exactly.
 - §3 Personas × Journeys matrix (J1-J14 × P1-P10): 140-cell matrix cohesive, no contradictions.
@@ -2718,7 +2718,7 @@ Both targets verified clean. **THIRTEENTH clean pass overall** (28, 44, 49, 50, 
 
 Acceptance greps clean for all 13 carry-forward categories. Subsection-order check across all docs/*.md: clean (no out-of-order subsections — Pass 62 PTS §7 fix held, all other docs structurally consistent).
 
-**docs/BLUEPRINT-AUTHORING.md** third-cycle deep re-read (Pass 21 + Pass 29 + Pass 42 fixes):
+**docs/RUNBOOKS.md** third-cycle deep re-read (Pass 21 + Pass 29 + Pass 42 fixes):
 - §1 What a Blueprint is: Pass 42 vague-placeholder fix intact (`gitea.<location-code>.<sovereign-domain>/<org>/shared-blueprints/bp-<name>/` canonical).
 - §2 Folder layout: Pass 21 monorepo path-matrix CI workflow shape clean (single `.github/workflows/` at monorepo root, `tags: ['platform/*/v*', 'products/*/v*']`).
 - §3 Blueprint CRD example: `apiVersion: catalyst.openova.io/v1alpha1` ✓
@@ -2835,7 +2835,7 @@ One ordering fix on PLATFORM-TECH-STACK; temporal third-cycle clean.
 
 Acceptance greps clean for all 13 carry-forward categories. (The `\bTENANT\b` grep surfaced ARCHITECTURE.md:196 "multi-tenant Accounts" — this is the documented exempt usage from NATS Accounts feature description, line shifted from L195 to L196 due to Pass 61's §4 box-fix added a line; my exclusion regex was stale, content unchanged.)
 
-**docs/PLATFORM-TECH-STACK.md §7 subsection ordering** — Pass 23 carry-over. Pass 23 split §7.1 (Catalyst control plane resource estimates) and added a new §7.4 (Per-host-cluster infrastructure overhead). However, Pass 23 placed the new §7.4 between the existing §7.1 and §7.2, producing the broken numerical order: §7.1 → §7.4 → §7.2 → §7.3.
+**docs/ARCHITECTURE.md §7 subsection ordering** — Pass 23 carry-over. Pass 23 split §7.1 (Catalyst control plane resource estimates) and added a new §7.4 (Per-host-cluster infrastructure overhead). However, Pass 23 placed the new §7.4 between the existing §7.1 and §7.2, producing the broken numerical order: §7.1 → §7.4 → §7.2 → §7.3.
 
 Reordered to canonical: §7.1 → §7.2 → §7.3 → §7.4. The "Total mgt cluster RAM" computation at the end of the moved-§7.4 block correctly sums Catalyst (§7.1) + per-host-cluster (§7.4), and the cross-reference text in §7.1 ("its budget is in §7.4 below") still reads accurately since §7.4 follows §7.1 in document order (just with §7.2 and §7.3 between them).
 
@@ -2915,7 +2915,7 @@ One fix on platform/valkey/README.md (Pass 35 incomplete in-file fix surfaced); 
 
 Acceptance greps clean for all 12 carry-forward categories (the surfaced drift wasn't a `<domain>` placeholder; it was a fully-qualified non-canonical hostname `primary-valkey.region1.svc.cluster.local` which doesn't match any of the carry-forward grep patterns).
 
-**docs/NAMING-CONVENTION.md** fourth-cycle deep re-read:
+**docs/ARCHITECTURE.md** fourth-cycle deep re-read:
 - §1 Principles: clean. 1.1 Dimension-based naming, 1.2 Don't-repeat-the-parent, 1.3 Building-blocks-not-failover-roles, 1.4 Tags-carry-what-names-cannot, 1.5 Organization-identity-in-vcluster — all consistent with downstream usage.
 - §2 Dimension Taxonomy (2.1 Provider, 2.2 Region, 2.3 Building Block, 2.4 Env Type, 2.5 Organization): clean. 2.4 env_type table matches GLOSSARY L19.
 - §3 Core Patterns: clean.
@@ -3147,7 +3147,7 @@ Both targets verified clean. **Sixth clean pass overall** (28, 44, 49, 50, 54, 5
 
 Acceptance greps clean for all 7 carry-forward categories.
 
-**docs/PLATFORM-TECH-STACK.md §2-§5 third-cycle deep re-scan** with Pass 40-41 union-equality lens:
+**docs/ARCHITECTURE.md §2-§5 third-cycle deep re-scan** with Pass 40-41 union-equality lens:
 
 §2 Catalyst control-plane components (per-Sovereign on mgt cluster):
 - §2.1 user-facing surfaces: 3 (console, marketplace, admin) ✓
@@ -3326,7 +3326,7 @@ Both targets verified clean. No edits needed. Fourth clean pass overall (28, 44,
 
 Acceptance greps (all 8 carry-forward) clean.
 
-**docs/NAMING-CONVENTION.md** §11 third-cycle careful re-read (per Pass 42 lesson — NAMING §11.2 had had 2 prior drift instances and warranted one more):
+**docs/ARCHITECTURE.md** §11 third-cycle careful re-read (per Pass 42 lesson — NAMING §11.2 had had 2 prior drift instances and warranted one more):
 
 §11 (Catalyst Environment / User-Facing Object) is the most consequential passage in the authoritative naming doc — it defines how Environments materialize from logical names to concrete Git repos + vclusters + JetStream Accounts + OpenBao paths. Drift here ripples through every other doc that references Environment realization.
 
@@ -3354,7 +3354,7 @@ Both targets verified clean. No edits needed.
 
 Acceptance greps clean for all 8 carry-forward categories including the new Pass 48 lessons (#14 bare openova.io API group, #15 Terraform-as-bootstrap).
 
-**docs/IMPLEMENTATION-STATUS.md** deep re-scan with Pass 40-41 union-equality lens (current PTS structure post-Pass 40 fix):
+**docs/STATUS.md** deep re-scan with Pass 40-41 union-equality lens (current PTS structure post-Pass 40 fix):
 
 PTS §2 control-plane components (15 total): §2.1 (3 user-facing surfaces) + §2.2 (6 backend services) + §2.3 (6 supporting services). IMPLEMENTATION-STATUS rolls §2.1+§2.2 of PTS into one table "User-facing surfaces and backend services" (9 components) and uses §2.2 for "Per-Sovereign supporting services" (6 components) → total 15. Structural difference, but underlying components match exactly. Not drift.
 
@@ -3387,7 +3387,7 @@ Three fixes on platform/crossplane/README.md; PERSONAS-AND-JOURNEYS clean.
 
 Acceptance greps clean for all carry-forward categories.
 
-**docs/PERSONAS-AND-JOURNEYS.md** §1-§7 deep re-scan with all carry-forward lessons applied:
+**docs/DOD.md** §1-§7 deep re-scan with all carry-forward lessons applied:
 - §1-§3 (Personas, Surfaces, Journeys matrix): clean. Three first-class surfaces (UI, Git, API) + kubectl debug-only matches ARCHITECTURE §7.
 - §4.1 Ahmed Omantel narrative: Pass 33 DNS fix intact (`gitea.<location-code>.omantel.openova.io/...`). Customer-app domain `muscatpharmacy.shop.omantel.com` is customer-managed routing, distinct from Catalyst control plane DNS — acceptable.
 - §4.2 Layla Bank Dhofar narrative: Pass 33 fixes intact across all 5 sites (gitea URLs L109/L116, kubectl context L129, NAMING §1.5 inline pointer, api URL L150). Pass 39 fixes intact (`digital-channels-stg`, `acme-stg`).
@@ -3547,12 +3547,12 @@ Two related fixes on canonical docs; falco clean.
 
 The recurring drift: vague composite placeholders like `<sovereign-domain-gitea>` and `<sovereign-gitea>` standing in for the canonical Catalyst control-plane DNS form `gitea.{location-code}.{sovereign-domain}`. These survived Pass 29's DNS sweep because they don't match any of Pass 29's grep patterns (`<sovereign>.<domain>`, `<sovereign>.<sovereign-domain>`, etc.) — they're a different shape entirely (single hyphenated placeholder vs. multi-segment).
 
-- **docs/BLUEPRINT-AUTHORING.md §1** had `<sovereign-domain-gitea>/<org>/shared-blueprints/bp-<name>/` describing where Org-private Blueprints live. Replaced with the canonical `gitea.<location-code>.<sovereign-domain>/<org>/shared-blueprints/bp-<name>/` form, plus an inline pointer to NAMING §5.1 so the form stays anchored.
-- **docs/NAMING-CONVENTION.md §11.2 step 1** had `<sovereign-gitea>/{org}/{org}-{env_type}` as the abstract pattern with a canonical example following. The abstract pattern itself was using a vague placeholder while the example showed the canonical form — internal inconsistency where the *authoritative naming doc* taught a non-canonical shorthand pattern. Replaced the abstract pattern with the canonical structural form `gitea.{location-code}.{sovereign-domain}/{org}/{org}-{env_type}` and updated the example to use a concrete location-code (`hfmp` = Hetzner Falkenstein mgt prod) instead of the placeholder.
+- **docs/RUNBOOKS.md §1** had `<sovereign-domain-gitea>/<org>/shared-blueprints/bp-<name>/` describing where Org-private Blueprints live. Replaced with the canonical `gitea.<location-code>.<sovereign-domain>/<org>/shared-blueprints/bp-<name>/` form, plus an inline pointer to NAMING §5.1 so the form stays anchored.
+- **docs/ARCHITECTURE.md §11.2 step 1** had `<sovereign-gitea>/{org}/{org}-{env_type}` as the abstract pattern with a canonical example following. The abstract pattern itself was using a vague placeholder while the example showed the canonical form — internal inconsistency where the *authoritative naming doc* taught a non-canonical shorthand pattern. Replaced the abstract pattern with the canonical structural form `gitea.{location-code}.{sovereign-domain}/{org}/{org}-{env_type}` and updated the example to use a concrete location-code (`hfmp` = Hetzner Falkenstein mgt prod) instead of the placeholder.
 
 This is the second drift instance found in NAMING §11.2 (Pass 37 fixed the example URL, Pass 42 fixes the abstract pattern). The §11.2 passage is consequential — it defines Environment realization, which downstream docs derive from. Worth flagging for one more careful re-read in a future pass.
 
-**docs/BLUEPRINT-AUTHORING.md** deep re-scan §1-§14:
+**docs/RUNBOOKS.md** deep re-scan §1-§14:
 - §1 Blueprint definition: had the placeholder fix above.
 - §2 Folder layout: clean — Pass 21 already aligned with monorepo path-matrix model.
 - §3 Blueprint CRD: clean — uses `apiVersion: catalyst.openova.io/v1alpha1`, dependency declarations consistent with ARCHITECTURE §9.
@@ -3624,7 +3624,7 @@ Six fixes across two canonical docs; clickhouse README clean.
 Acceptance greps clean for all carry-forward categories. Drift surfaced via case-sensitive sweep for non-canonical Environment env_type spellings — NAMING §2.4 establishes the 3-char form (`prod | stg | uat | dev | poc`), but multiple Environment-name examples used the long form `staging`.
 
 - **docs/ARCHITECTURE.md §8 (Promotion across Environments)** had 3 instances of `acme-staging` (in the Blueprint detail page mockup at line 287, in the prose at line 295 explaining the promotion flow, and in the EnvironmentPolicy YAML `sourceEnvironment` field at line 310). All renamed to `acme-stg` per NAMING §11.1 (Environment naming = `{org}-{env_type}` using 3-char env_type).
-- **docs/PERSONAS-AND-JOURNEYS.md** had 3 instances of `digital-channels-staging` (Layla narrative L126, L135) and `acme-staging` (Blueprint detail mockup L230). Renamed to `digital-channels-stg` and `acme-stg`.
+- **docs/DOD.md** had 3 instances of `digital-channels-staging` (Layla narrative L126, L135) and `acme-staging` (Blueprint detail mockup L230). Renamed to `digital-channels-stg` and `acme-stg`.
 
 These were all real Environment names per Catalyst's canonical naming, just spelled with the long form. The `staging` spelling probably came from pre-Catalyst conventions where teams used full English words for env_types — but post-Catalyst, NAMING §2.4 fixes the canonical 3-char form to keep names short and grep-friendly.
 
@@ -3818,7 +3818,7 @@ Fixes:
 - **CLAUDE.md** "Customer Sync" section — `gitea.<sovereign>/catalog/bp-cilium/` and `gitea.<sovereign>/catalog/bp-cortex/` → `gitea.<location-code>.<sovereign-domain>/catalog/...`. Added parenthetical pointer to NAMING §5.1 so the form stays anchored.
 - **docs/SOVEREIGN-PROVISIONING.md** §3 (Phase 0 procedure) had `gitea.<sovereign>.<domain>`, `console.<sovereign>.<domain>`, `admin.<sovereign>.<domain>` in the DNS-records bullet, and §5 had `console.<sovereign>.<domain>` in the Day-1 login line — all four collapsed location-code into the malformed `<sovereign>.<domain>` two-segment form. Rewritten.
 - **docs/ARCHITECTURE.md** §4 write-path diagram had `Gitea: gitea.<sovereign-domain>/{org}/{org}-{env_type}` — missing location-code. Rewritten.
-- **docs/BLUEPRINT-AUTHORING.md** §6.4 (private-Blueprint authoring journey) step 3 had `gitea.<sovereign-domain>/<org>/shared-blueprints/bp-<name>` — same omission. Rewritten.
+- **docs/RUNBOOKS.md** §6.4 (private-Blueprint authoring journey) step 3 had `gitea.<sovereign-domain>/<org>/shared-blueprints/bp-<name>` — same omission. Rewritten.
 - **platform/librechat/README.md** Keycloak issuer line had `https://keycloak.<domain>/realms/ai-hub` — same drift Pass 25 fixed in llm-gateway, and the `ai-hub` realm is an Application namespace not a Keycloak realm (per SECURITY §7 realms are per-Org or per-Sovereign). Rewritten to `https://keycloak.<location-code>.<sovereign-domain>/realms/<org>`. **Note: Pass 22 marked librechat clean and missed this exact line — a banner-style scan can miss config-block drift inside YAML examples.** Treating Pass 22 as partially incorrect; this is now corrected.
 - **platform/nemo-guardrails/README.md**: clean. Short README, banner correct (Application Blueprint §4.7, used by bp-cortex), integration table consistent.
 
@@ -3863,7 +3863,7 @@ Three placeholder fixes on platform/llm-gateway README; IMPLEMENTATION-STATUS co
   - `KEYCLOAK_URL = https://keycloak.<domain>/realms/ai-hub` — `<domain>` collapses location-code+sovereign-domain (same NAMING §5.1 violation Pass 24 fixed in SRE.md), and realm `ai-hub` (an Application namespace) is the wrong scope: per NAMING §7 highlights and SECURITY §7, Keycloak realms are per-Org in SME-style and per-Sovereign in corporate-style — never per-Application-namespace. Fixed to `https://keycloak.<location-code>.<sovereign-domain>/realms/<org>`.
   - `claude config set api_base "https://llm-gateway.ai-hub.<domain>/v1"` — Application-Blueprint endpoint pattern per NAMING §5.2 is `{app}.{environment}.{sovereign-domain}`, not `{app}.{namespace}.<domain>`. The `ai-hub` segment was an Application namespace standing in for the Environment slot. Fixed to `https://llm-gateway.<env>.<sovereign-domain>/v1`.
   - `ANTHROPIC_BASE_URL = https://llm-gateway.ai-hub.<domain>/v1` — same shape problem. Fixed to `https://llm-gateway.<env>.<sovereign-domain>/v1`.
-- **docs/IMPLEMENTATION-STATUS.md**: clean. CRD list (§4) matches BLUEPRINT-AUTHORING and ARCHITECTURE; surfaces (§5) match the agreed UI/Git/API + debug-only kubectl model; control-plane component list (§2.1, §2.2) matches PLATFORM-TECH-STACK §2; Sovereigns running today (§6) accurately marks `openova` as 🚧 (legacy SME marketplace, not yet a Catalyst Sovereign).
+- **docs/STATUS.md**: clean. CRD list (§4) matches BLUEPRINT-AUTHORING and ARCHITECTURE; surfaces (§5) match the agreed UI/Git/API + debug-only kubectl model; control-plane component list (§2.1, §2.2) matches PLATFORM-TECH-STACK §2; Sovereigns running today (§6) accurately marks `openova` as 🚧 (legacy SME marketplace, not yet a Catalyst Sovereign).
 
 Note on llm-gateway image refs (`harbor.<domain>/ai-hub/llm-gateway:latest`): same `<domain>` placeholder shape and `:latest` hygiene appear in many platform/*/README.md examples (anthropic-adapter, debezium, bge, knative, strimzi, temporal, etc.). Treating those as illustrative documentation snippets, not deployable manifests, so leaving them for a dedicated sweep pass — fixing only llm-gateway in isolation would create asymmetric drift.
 

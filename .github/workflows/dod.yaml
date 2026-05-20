@@ -7,7 +7,7 @@ name: DoD — End-to-end Sovereign demo (operator-gated)
 # so the ordinary build-and-test pipeline already covers the structural
 # pass. Real provisioning is the operator's call, run from this workflow.
 #
-# Per docs/INVIOLABLE-PRINCIPLES.md #2 ("never compromise from quality"):
+# Per docs/PRINCIPLES.md #2 ("never compromise from quality"):
 # this workflow runs the test against the real Hetzner test project. It
 # does NOT build images — image builds are the catalyst-build workflow's
 # job, per CLAUDE.md Rule 4a ("GitHub Actions is the only build path").
@@ -16,7 +16,7 @@ name: DoD — End-to-end Sovereign demo (operator-gated)
 # The reported SBOM + cosign signature reference the catalyst-api image
 # SHA captured by tests/dod/dod_test.go from the deployment response, so
 # the operator can prove "this DoD run hit the same SHA the rest of the
-# stack is running on" — closing the loop on docs/INVIOLABLE-PRINCIPLES.md
+# stack is running on" — closing the loop on docs/PRINCIPLES.md
 # #7 ("DoD E2E 2-pass GREEN on the current deployed SHA is the ONLY
 # valid proof of done").
 
@@ -59,7 +59,7 @@ jobs:
     env:
       # Operator populates these in repo secrets BEFORE running the workflow.
       # The test SKIPS when HETZNER_TEST_TOKEN is empty — never falls back
-      # to mocking. Per docs/INVIOLABLE-PRINCIPLES.md #2.
+      # to mocking. Per docs/PRINCIPLES.md #2.
       HETZNER_TEST_TOKEN: ${{ secrets.HETZNER_TEST_TOKEN }}
       HETZNER_PROJECT_ID: ${{ secrets.HETZNER_PROJECT_ID }}
       DOD_DOMAIN: ${{ inputs.domain }}
@@ -122,7 +122,7 @@ jobs:
           go test -v -count=1 -timeout 40m ./...
 
       - name: Verify cosign signature on catalyst-api image SHA used in this run
-        # Per docs/INVIOLABLE-PRINCIPLES.md #7 + CLAUDE.md Rule 4a: a green
+        # Per docs/PRINCIPLES.md #7 + CLAUDE.md Rule 4a: a green
         # DoD pass must trace back to a CI-built, signed image SHA. This
         # step reads the SHA the test wrote into a known artifact path and
         # invokes `cosign verify` against the catalyst-api OCI digest.

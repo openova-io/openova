@@ -1,6 +1,6 @@
 # BGE
 
-BAAI General Embedding models for text embeddings and reranking. **Application Blueprint** (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.6). Used by `bp-cortex` for embedding generation (Milvus vector search) and reranking (improving retrieval precision).
+BAAI General Embedding models for text embeddings and reranking. **Application Blueprint** (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §4.6). Used by `bp-cortex` for embedding generation (Milvus vector search) and reranking (improving retrieval precision).
 
 **Status:** Accepted | **Updated:** 2026-04-27
 

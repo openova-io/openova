@@ -1,7 +1,7 @@
 name: Phase-8a preflight B — Crossplane provider-hcloud Healthy
 
 # Issue #460 — Phase-8a preflight B (Risk register R2).
-# Surfaces R2 from docs/omantel-handover-wbs.md §9a:
+# Surfaces R2 from docs/archive/omantel-handover-wbs.md §9a:
 # "Crossplane provider-hcloud Healthy=True never observed". Phase 8a
 # fails at the Crossplane step if the Provider doesn't install cleanly,
 # so this preflight bakes the install + Healthy probe into CI.

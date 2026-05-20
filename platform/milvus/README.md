@@ -1,6 +1,6 @@
 # Milvus
 
-Vector database for similarity search. **Application Blueprint** (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.6). Backbone of RAG pipelines in `bp-cortex` (paired with BGE embeddings).
+Vector database for similarity search. **Application Blueprint** (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §4.6). Backbone of RAG pipelines in `bp-cortex` (paired with BGE embeddings).
 
 **Status:** Accepted | **Updated:** 2026-04-27
 

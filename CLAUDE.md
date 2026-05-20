@@ -1,14 +1,15 @@
-> **Scope of this file**: repository structure, Catalyst terminology, banned-terms, OpenOva-platform-specific rules, and per-component dev workflow specific to this monorepo.
+> **Scope of this file**: repository structure, Catalyst terminology, OpenOva-platform-specific rules, and per-component dev workflow specific to this monorepo.
 >
 > **Generic engineering principles** for active developer sessions — anti-theater discipline, sub-agent dispatch rules, GitHub disciplines, TBD-V## ticketing, microservice patterns — live in user-global `~/.claude/CLAUDE.md` (auto-loaded by Claude Code in every session).
 >
-> **OpenOva-platform specifics** — the 5-pillar Definition of Done, the Phase 0 / 1 / 2 deterministic test, domain canon, the anti-pattern catalog, `bp-self-sovereign-cutover`, and `openova-sandbox-mcp` auto-mount — live in `docs/` of this repo. External readers without the user-global file can rely on:
-> - [`docs/5-PILLAR-DOD.md`](docs/5-PILLAR-DOD.md) for the end-user Definition of Done + Phase 0/1/2 deterministic test
-> - [`docs/DOMAINS-CANON.md`](docs/DOMAINS-CANON.md) for Sovereign and tenant-Org FQDN patterns and forbidden test strings
-> - [`docs/ANTI-PATTERN-CATALOG.md`](docs/ANTI-PATTERN-CATALOG.md) for the OpenOva-specific theater receipts surfaced during PR review
-> - [`docs/INVIOLABLE-PRINCIPLES.md`](docs/INVIOLABLE-PRINCIPLES.md) for the engineering principles
-> - [`docs/IMPLEMENTATION-STATUS.md`](docs/IMPLEMENTATION-STATUS.md) for "what's actually built today"
-> - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the design model
+> **OpenOva-platform specifics** — the 5-pillar Definition of Done, the Phase 0 / 1 / 2 deterministic test, domain canon, the anti-pattern catalog, `bp-self-sovereign-cutover`, and `openova-sandbox-mcp` auto-mount — live in `docs/` of this repo, consolidated under the lean doc strategy into 7 canonical documents + 3 subdirs (per user-global `~/.claude/CLAUDE.md` §11). External readers without the user-global file can rely on:
+> - [`docs/GLOSSARY.md`](docs/GLOSSARY.md) — terms + banned-terms (single source of truth)
+> - [`docs/STATUS.md`](docs/STATUS.md) — what's actually built today vs design
+> - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Catalyst architecture + stack + naming + EPICs + bootstrap-kit slots
+> - [`docs/DOD.md`](docs/DOD.md) — 5-pillar + Multi-Region DoD + domains canon + personas/journeys
+> - [`docs/PRINCIPLES.md`](docs/PRINCIPLES.md) — 15 Inviolable Principles + anti-pattern catalog
+> - [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md) — Blueprint authoring + chart authoring + demo/operations/provisioning runbooks
+> - [`docs/SECURITY.md`](docs/SECURITY.md) — security posture + threat model
 
 ---
 
@@ -20,18 +21,35 @@ Proprietary content (website source, deployment configs, infra secrets, the runn
 
 ---
 
+## Lean documentation strategy
+
+Per founder direction 2026-05-20 + user-global `~/.claude/CLAUDE.md` §11, this repo's docs are consolidated into **7 canonical files + 3 subdirs**:
+
+- **7 canonical docs** (the only source of truth): `GLOSSARY.md`, `STATUS.md`, `ARCHITECTURE.md`, `DOD.md`, `PRINCIPLES.md`, `RUNBOOKS.md`, `SECURITY.md`.
+- **`docs/adr/`** — immutable Architecture Decision Records (numbered, additive-only).
+- **`docs/ledger/`** — cron-refreshed live state (`TRUST.md`, `TRACKER.md`).
+- **`docs/sessions/`** — date-stamped transient session reports + walk runbooks.
+- **`docs/archive/`** — historical / superseded / one-off documents.
+
+Per-chart `DESIGN.md` files inside `platform/<x>/` and `products/<x>/charts/<chart>/` stay co-located with their Blueprint code — they are not platform-level docs.
+
 ## Read these before doing anything
 
 In order:
 
-1. [`docs/GLOSSARY.md`](docs/GLOSSARY.md) — terminology source of truth. Wins over any other doc.
-2. [`docs/IMPLEMENTATION-STATUS.md`](docs/IMPLEMENTATION-STATUS.md) — what's built today vs what's design. Read before claiming any feature exists.
-3. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Catalyst target architecture.
-4. [`docs/NAMING-CONVENTION.md`](docs/NAMING-CONVENTION.md) — naming patterns.
-5. [`docs/5-PILLAR-DOD.md`](docs/5-PILLAR-DOD.md) — the end-user Definition of Done. Every dispatch must move at least one pillar.
-6. [`docs/DOMAINS-CANON.md`](docs/DOMAINS-CANON.md) — Sovereign / tenant-Org FQDN patterns and forbidden test strings.
-7. [`docs/ANTI-PATTERN-CATALOG.md`](docs/ANTI-PATTERN-CATALOG.md) — OpenOva-specific theater receipts. Scan diffs for these shapes during PR review.
-8. [`docs/INVIOLABLE-PRINCIPLES.md`](docs/INVIOLABLE-PRINCIPLES.md) — the 15 inviolable engineering principles.
+1. [`docs/GLOSSARY.md`](docs/GLOSSARY.md) — terminology + banned terms. Wins over any other doc.
+2. [`docs/STATUS.md`](docs/STATUS.md) — what's built today vs what's design. Read before claiming any feature exists.
+3. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Catalyst target architecture (incl. naming, stack, EPICs, bootstrap-kit slots).
+4. [`docs/DOD.md`](docs/DOD.md) — the 5-pillar + Multi-Region Definition of Done, domains canon, personas/journeys. Every dispatch must move at least one pillar.
+5. [`docs/PRINCIPLES.md`](docs/PRINCIPLES.md) — the 15 inviolable engineering principles + anti-pattern catalog.
+6. [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md) — Blueprint authoring, chart authoring, demo / operations / provisioning runbooks.
+7. [`docs/SECURITY.md`](docs/SECURITY.md) — security posture + threat model.
+
+Plus subdirs:
+- [`docs/adr/`](docs/adr/) — Architecture Decision Records (start at `README.md` index).
+- [`docs/ledger/`](docs/ledger/) — `TRUST.md` (per-surface verification ledger) + `TRACKER.md` (open work).
+- [`docs/sessions/`](docs/sessions/) — date-stamped walk runbooks and session reports.
+- [`docs/archive/`](docs/archive/) — historical / superseded.
 
 These define the model + implementation reality + the rules of engagement. Any contradiction in older docs is to be treated as outdated and updated to match these.
 
@@ -45,7 +63,7 @@ These rules are specific to the OpenOva platform and supplement the
 ### Definition of Done — 5-pillar end-user contract
 
 Every dispatch must advance at least one of the 5 inseparable pillars or one
-deterministic step in Phase 0 / 1 / 2 of [`docs/5-PILLAR-DOD.md`](docs/5-PILLAR-DOD.md):
+deterministic step in Phase 0 / 1 / 2 of [`docs/DOD.md`](docs/DOD.md):
 
 1. Marketplace + voucher onboarding (Phase 0 + Phase 1 a–c)
 2. Multi-region BCP topology choice at signup (Phase 1 b)
@@ -64,7 +82,7 @@ working downstream artifact. PR merge ≠ pillar shipped.
 ### Domains canon — never `openova.io` in tests
 
 Test provs and tenant Organizations use the domains listed in
-[`docs/DOMAINS-CANON.md`](docs/DOMAINS-CANON.md):
+[`docs/DOD.md`](docs/DOD.md) §Domains-canon:
 
 - Test Sovereign: `t<NN>.omani.works` (or `t<NN>.omantel.biz` if LE-rate-limited)
 - Tenant Organization: `<orgslug>.omani.homes` (default), `omani.rest`, or `omani.trade`
@@ -76,7 +94,7 @@ voucher and billing operations live in the operator console's **BSS menu**.
 
 ### Anti-theater discipline during PR review
 
-Per [`docs/ANTI-PATTERN-CATALOG.md`](docs/ANTI-PATTERN-CATALOG.md), defensive-coding
+Per [`docs/PRINCIPLES.md`](docs/PRINCIPLES.md) §Anti-pattern-catalog, defensive-coding
 patterns are **not** approval — they are clues to investigate. Red flags to hunt:
 
 - Null-guards on empty data (PR #1185 shape)
@@ -95,7 +113,7 @@ lands as a comment on the issue itself.
 ### Sovereignty cutover — `bp-self-sovereign-cutover`
 
 A franchised Sovereign is tethered to the OpenOva mothership in 8 places (full
-list in [`docs/5-PILLAR-DOD.md`](docs/5-PILLAR-DOD.md) §Pillar 5 and
+list in [`docs/DOD.md`](docs/DOD.md) §Pillar 5 and
 [`docs/adr/0002-post-handover-sovereignty-cutover.md`](docs/adr/0002-post-handover-sovereignty-cutover.md)).
 `bp-self-sovereign-cutover` installs dormant at bootstrap-kit slot 06a during
 Phase 1 and runs eight sequential Jobs post-handover that pivot all 8 tethers.
@@ -111,13 +129,15 @@ operator's chosen schedule (default daily; air-gapped Sovereigns mirror via
 offline media). See §Customer Sync below for the mapping. After cutover, every
 Flux reconcile pulls **exclusively** from the local Gitea + Harbor.
 
-### Verification ledger — `docs/TRUST.md`
+### Verification ledger — `docs/ledger/TRUST.md`
 
-Every claimed-done surface lives in [`docs/TRUST.md`](docs/TRUST.md) in one of
-four states: 🔴 UNVERIFIED (default) · 🟢 VERIFIED-PASS · ⛔ VERIFIED-FAIL · 🟡
-VERIFIED-PARTIAL. Every PR against a surface flips it back to UNVERIFIED
-until re-walked. Verification agents are READ-ONLY — they may not ship PRs to
-make their own walks pass.
+Every claimed-done surface lives in [`docs/ledger/TRUST.md`](docs/ledger/TRUST.md) in one of
+four states: UNVERIFIED (default), VERIFIED-PASS, VERIFIED-FAIL, VERIFIED-PARTIAL.
+Every PR against a surface flips it back to UNVERIFIED until re-walked.
+Verification agents are READ-ONLY — they may not ship PRs to make their own walks pass.
+
+The companion live ledger of open work is [`docs/ledger/TRACKER.md`](docs/ledger/TRACKER.md).
+Both files are cron-refreshed.
 
 ---
 
@@ -134,27 +154,35 @@ OpenOva (the company) builds **Catalyst** (the platform). A deployed Catalyst is
 ```
 openova/
 ├── core/                   # Catalyst control-plane application (Go)
-│   ├── apps/               # target: console/, projector/, environment-controller/, etc.
-│   │                       # current: empty .gitkeep + legacy bootstrap/ manager/ placeholders
-│   │                       # See core/README.md for the target tree.
-│   ├── internal/           # domain, application, adapters, events (placeholder)
-│   ├── pkg/apis/           # CRD types: Sovereign, Organization, Environment,
-│   │                       # Application, Blueprint, EnvironmentPolicy, SecretPolicy,
-│   │                       # Runbook (placeholder; design contract in BLUEPRINT-AUTHORING)
-│   ├── ui/                 # frontend (Astro + Svelte) — placeholder
-│   └── deploy/             # K8s manifests per control-plane component (placeholder)
+│   ├── cmd/                # entry points (main.go per binary)
+│   ├── admin/              # admin tooling
+│   ├── console/            # operator console (Astro + Svelte) — UI
+│   ├── controllers/        # CRD reconcilers: application, blueprint, continuum,
+│   │                       # environment, organization, sandbox, useraccess
+│   ├── marketplace/        # marketplace projector
+│   ├── marketplace-api/    # marketplace REST API
+│   ├── pool-domain-manager/# subdomain-pool reconciler (.omani.* etc.)
+│   ├── pkg/                # shared Go packages (e.g. dynadot-client)
+│   └── services/           # per-microservice scaffolding
 ├── platform/               # Component Blueprint folders — one folder per upstream OSS project
 │   ├── cilium/  cnpg/  flux/  gitea/  keycloak/  openbao/  ...
-│   └── ...                 # 56 folders total, each currently README-only
+│   └── ...                 # ~56 folders; some chart-bearing, others README-only
 ├── products/               # Composite Blueprint folders OpenOva ships
-│   ├── catalyst/           # Target: bp-catalyst-platform umbrella (currently only bootstrap/ui scaffold)
-│   ├── cortex/             # AI Hub                          (README only)
+│   ├── catalyst/           # bp-catalyst-platform umbrella + bp-* sub-charts
+│   ├── cortex/             # AI Hub                          (scaffold)
 │   ├── axon/               # SaaS LLM Gateway                (real code: chart/ src/ scripts/)
-│   ├── fingate/            # Open Banking                    (README only)
-│   ├── fabric/             # Data & Integration              (README only)
-│   └── relay/              # Communication                   (README only)
-└── docs/                   # Canonical platform documentation
+│   ├── fingate/            # Open Banking                    (scaffold)
+│   ├── fabric/             # Data & Integration              (scaffold)
+│   └── relay/              # Communication                   (scaffold)
+└── docs/                   # Canonical platform documentation (lean strategy — see above)
+    ├── adr/                # Architecture Decision Records (immutable, numbered)
+    ├── ledger/             # TRUST.md + TRACKER.md (cron-refreshed)
+    ├── sessions/           # date-stamped walk runbooks + session reports
+    ├── archive/            # historical / superseded
+    └── proposals/  runbooks/  lessons-learned/   # legacy subdirs; migrating into the 7 canonical docs
 ```
+
+For the up-to-date "what's actually built today" inventory (controllers green/yellow/red, microservices status, CRD set) see [`docs/STATUS.md`](docs/STATUS.md).
 
 Each subfolder of `platform/` and `products/` is the **source of one Blueprint** in this monorepo (canonical layout). CI fans out to per-Blueprint OCI artifacts at `ghcr.io/openova-io/bp-<name>:<semver>` — that's where per-Blueprint isolation lives. There are no separate per-Blueprint Git repositories.
 
@@ -168,23 +196,15 @@ Each subfolder of `platform/` and `products/` is the **source of one Blueprint**
 - Blueprint: `bp-<name>` — e.g. `bp-wordpress`
 - Application: `<purpose>` (within an Environment) — e.g. `marketing-site`
 
-Full table in [`docs/NAMING-CONVENTION.md`](docs/NAMING-CONVENTION.md).
+Full table in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §4 (Naming).
 
 ---
 
 ## Banned terms
 
-Do not use in any new doc, code, comment, commit message, or UI string:
+The single canonical list of banned terms (with corrections + rationale) lives in [`docs/GLOSSARY.md`](docs/GLOSSARY.md) §Banned-terms. Do not duplicate it here.
 
-- "tenant" (as platform terminology) → `Organization`
-- "operator" (as a person/entity) → `sovereign-admin` (the role). K8s Operators (controller pattern) are still called Operators.
-- "client" (in product UX sense) → `User`. OIDC client and K8s client are fine.
-- "module" / "template" (in Catalyst sense) → `Blueprint`. Go modules, Terraform modules, K8s templates, prompt templates etc. are external technologies and are fine.
-- "Backstage" → `Catalyst console`. Backstage was decided removed.
-- "Synapse" (as the OpenOva product) → `Axon`. Matrix's Synapse server is fine when context is the chat server.
-- "Lifecycle Manager" / "Bootstrap wizard" (as separate products) → `Catalyst`.
-- "Workspace" (as Catalyst scope OR component name) → `Environment` / `environment-controller`. The controller previously named `workspace-controller` is now `environment-controller`.
-- "Instance" (as user-facing object) → `Application`. CRD remains an internal name.
+Highlights: "tenant" → `Organization`; "operator" (as a person) → `sovereign-admin`; "client" (product UX) → `User`; "module"/"template" (in Catalyst sense) → `Blueprint`; "Backstage" → `Catalyst console`; "Synapse" (the OpenOva product) → `Axon`; "Workspace" → `Environment`; "Instance" (user-facing) → `Application`.
 
 When in doubt: defer to [`docs/GLOSSARY.md`](docs/GLOSSARY.md).
 

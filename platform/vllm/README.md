@@ -1,6 +1,6 @@
 # vLLM
 
-High-performance LLM inference engine with PagedAttention. **Application Blueprint** (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.6). Default LLM serving runtime in `bp-cortex` (the composite AI Hub Blueprint).
+High-performance LLM inference engine with PagedAttention. **Application Blueprint** (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §4.6). Default LLM serving runtime in `bp-cortex` (the composite AI Hub Blueprint).
 
 **Status:** Accepted | **Updated:** 2026-04-27
 

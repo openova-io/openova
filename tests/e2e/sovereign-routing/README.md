@@ -11,7 +11,7 @@ wires together end-to-end:
 3. `POST /sovereign/api/v1/subdomains/check` round-trips through Traefik's
    `strip-sovereign` middleware → catalyst-ui nginx `/api/` reverse-proxy →
    catalyst-api Service (DNS sourced from `values.routing.catalystApi.serviceDNS`,
-   never hardcoded — see `docs/INVIOLABLE-PRINCIPLES.md` §4).
+   never hardcoded — see `docs/PRINCIPLES.md` §4).
 
 ## Run modes
 

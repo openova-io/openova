@@ -1,6 +1,6 @@
 # NATS JetStream
 
-Catalyst's control-plane event spine. **Catalyst control plane component** (per [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §2.3 — Per-Sovereign supporting services). 3-node JetStream cluster with per-Organization Account isolation.
+Catalyst's control-plane event spine. **Catalyst control plane component** (per [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §2.3 — Per-Sovereign supporting services). 3-node JetStream cluster with per-Organization Account isolation.
 
 **Status:** Accepted. Chart wrapper at `chart/`. **Updated:** 2026-04-28.
 
@@ -16,7 +16,7 @@ Per [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §5: every state change
 
 ## Subject namespace
 
-Per `NAMING-CONVENTION.md` §11.2 bullet 4:
+Per `ARCHITECTURE.md` §11.2 bullet 4:
 
 - One NATS Account per Catalyst Organization (multi-tenant isolation).
 - Subjects within the Account use the prefix `ws.{org}-{env_type}.>` for per-Environment partitioning.

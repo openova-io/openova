@@ -111,8 +111,8 @@ CI runs the script via the blueprint-release workflow's
 - `DESIGN.md` (sibling) — replication topology, lag-threshold
   rationale, ClusterMesh assumption, single-region → pair
   migration sketch, deferred C-DB-3 acceptance test plan.
-- `docs/EPICS-1-6-unified-design.md` §9.4 — CNPG cluster-pair spec.
+- `docs/ARCHITECTURE.md` §9.4 — CNPG cluster-pair spec.
 - `docs/MULTI-REGION-DNS.md` — lua-record context for failover.
-- `docs/BLUEPRINT-AUTHORING.md` — Blueprint manifest contract.
+- `docs/RUNBOOKS.md` — Blueprint manifest contract.
 - `docs/adr/0001-catalyst-control-plane-architecture.md` §9 — multi-
   region inviolable rules (ClusterMesh-only).

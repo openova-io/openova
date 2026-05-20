@@ -4,7 +4,7 @@ Per-Sovereign Git server for Catalyst. Hosts the public Blueprint catalog mirror
 
 **Status:** Accepted | **Updated:** 2026-04-27
 
-> **Catalyst role:** Per-Sovereign supporting service in the Catalyst control plane (one Gitea per Sovereign on the management cluster). See [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §2.3 and [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §3.
+> **Catalyst role:** Per-Sovereign supporting service in the Catalyst control plane (one Gitea per Sovereign on the management cluster). See [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §2.3 and [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §3.
 
 ---
 

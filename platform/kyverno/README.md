@@ -1,6 +1,6 @@
 # Kyverno
 
-Policy engine for admission control, mutation, and policy generation. Per-host-cluster infrastructure (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §3.3) — runs on every host cluster Catalyst manages. Enforces Catalyst's policy contracts (cosign-required-on-Blueprints, default-deny NetworkPolicies on Organization namespaces, priority-class injection, etc.).
+Policy engine for admission control, mutation, and policy generation. Per-host-cluster infrastructure (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §3.3) — runs on every host cluster Catalyst manages. Enforces Catalyst's policy contracts (cosign-required-on-Blueprints, default-deny NetworkPolicies on Organization namespaces, priority-class injection, etc.).
 
 **Status:** Accepted | **Updated:** 2026-04-27
 

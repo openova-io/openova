@@ -1,7 +1,7 @@
 name: Phase-8a preflight E — Keycloak realm-import + kubectl OIDC client
 
 # Issue #462 — Phase-8a preflight E (Risk register R6 from
-# docs/omantel-handover-wbs.md §9a).
+# docs/archive/omantel-handover-wbs.md §9a).
 #
 # bp-keycloak 1.2.0 ships a `sovereign` realm + a public `kubectl` OIDC
 # client via the upstream bitnami/keycloak chart's keycloakConfigCli

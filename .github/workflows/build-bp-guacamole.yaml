@@ -4,7 +4,7 @@ name: Build bp-guacamole
 # platform/guacamole/chart/Chart.yaml comment-block, this is a SCRATCH
 # chart whose binary surface is fully owned by Apache (`guacamole/guacd`
 # + `guacamole/guacamole` upstream Docker Hub images). Per
-# docs/INVIOLABLE-PRINCIPLES.md #4a we never deploy `:latest` — every
+# docs/PRINCIPLES.md #4a we never deploy `:latest` — every
 # image must be SHA-pinned and traceable to a known-good upstream
 # digest.
 #

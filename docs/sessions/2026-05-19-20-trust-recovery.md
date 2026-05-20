@@ -1,6 +1,6 @@
 # Session Retrospective + Next-Session Handoff — 2026-05-19/20 Trust Recovery
 
-> **Audience:** the next Claude session (or the founder, cold). This is the **whole-day** artifact. CLAUDE.md §4 catalogue and `docs/TRUST.md` cover specific surfaces — this doc covers the cycle.
+> **Audience:** the next Claude session (or the founder, cold). This is the **whole-day** artifact. CLAUDE.md §4 catalogue and `docs/ledger/TRUST.md` cover specific surfaces — this doc covers the cycle.
 
 ---
 
@@ -8,7 +8,7 @@
 
 **Date range:** 2026-05-19 07:14Z (founder accountability collapse) → 2026-05-20 ~03:00Z (natural session end / mothership wedged).
 
-**One-sentence summary:** Trust collapsed at 07:14Z when founder spot-checked three surfaces (treemap, App Resources tab, Compliance tab) and found **all three broken** despite weeks of "shipped" claims; ~44 PRs landed across the next ~20 hours, ~14 TBD-V issues were filed, 7 audit + 2 design docs were produced, `docs/TRUST.md` was refreshed twice, and the CLAUDE.md §4 anti-pattern catalogue was extended — every blocker is now either fixed at source-level or filed with a concrete next-step + ownership.
+**One-sentence summary:** Trust collapsed at 07:14Z when founder spot-checked three surfaces (treemap, App Resources tab, Compliance tab) and found **all three broken** despite weeks of "shipped" claims; ~44 PRs landed across the next ~20 hours, ~14 TBD-V issues were filed, 7 audit + 2 design docs were produced, `docs/ledger/TRUST.md` was refreshed twice, and the CLAUDE.md §4 anti-pattern catalogue was extended — every blocker is now either fixed at source-level or filed with a concrete next-step + ownership.
 
 **Final state:** 5/5 pillars remain 🔴 **UNVERIFIED**, but each is **substantively de-risked**. The verification denominator is **frozen** on TBD-V15 (#2020) — mothership substrate is CPU-requests-saturated, blocking all fresh-prov walks until founder authorizes a remediation path. The retrospective discipline holds: PR merge ≠ pillar shipped; only an operator walk + screenshot on a fresh prov flips a pillar 🟢. None today.
 
@@ -133,7 +133,7 @@ Each item has an analysis doc ready in `/tmp` (bastion `vmi3305700`). Recommenda
 
 ### 4.2 — TBD-V19 #2027 phone-OTP vs email-magic-link
 
-**Symptom:** CLAUDE.md §0 Pillar 1 step 4 says *"Phone-OTP signup (federated mobile-bill identity)"*. Shipped code uses **email + 6-digit PIN magic-link** end-to-end. Zero SMS/phone-OTP plumbing exists anywhere in the repo. The repo even contradicts itself: `docs/FRANCHISE-MODEL.md:79` canonicalises email-magic-link; only `docs/PERSONAS-AND-JOURNEYS.md:78-79` (aspirational personas doc) mentions phone-OTP. Analysis: `/tmp/analyze-tbd-v19-auth-2026-05-20.md`.
+**Symptom:** CLAUDE.md §0 Pillar 1 step 4 says *"Phone-OTP signup (federated mobile-bill identity)"*. Shipped code uses **email + 6-digit PIN magic-link** end-to-end. Zero SMS/phone-OTP plumbing exists anywhere in the repo. The repo even contradicts itself: `docs/FRANCHISE-MODEL.md:79` canonicalises email-magic-link; only `docs/DOD.md:78-79` (aspirational personas doc) mentions phone-OTP. Analysis: `/tmp/analyze-tbd-v19-auth-2026-05-20.md`.
 
 **Two options:**
 
@@ -253,8 +253,8 @@ Items 1-4 are all founder-decision-gated; item 5 is the verification cadence tha
 
 - CLAUDE.md §0 — 5-pillar DoD definition
 - CLAUDE.md §4 — anti-pattern catalogue (extended this session via `7b6964f2`)
-- `docs/TRUST.md` — per-surface 4-state ledger (this session: `886a2b36`, `5cf9d4ba`)
-- `docs/TRACKER.md` — 15-min auto-refresh operator dashboard
+- `docs/ledger/TRUST.md` — per-surface 4-state ledger (this session: `886a2b36`, `5cf9d4ba`)
+- `docs/ledger/TRACKER.md` — 15-min auto-refresh operator dashboard
 - Per-PR fix summaries: `/tmp/fix-tbd-v*-summary.md`
 - Per-audit deep-dives: `/tmp/audit-pillar{1,4,5}-2026-05-20.md`
 - Founder-decision design docs: `/tmp/design-tbd-v23-deny-egress-proposal.md`, `/tmp/analyze-tbd-v19-auth-2026-05-20.md`, `/tmp/tbd-v15-proposal.md`

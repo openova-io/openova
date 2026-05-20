@@ -25,7 +25,7 @@ This subsumes the role previously assigned to k8gb. The k8gb component has been 
 | Operational surface | k8gb pods + CoreDNS pods + custom CRDs | Existing PowerDNS deployment + dnsdist rate-limit shield |
 | Cluster-coordination | Required (gslb endpoints sync between clusters) | Not required — authoritative DNS is the source of truth |
 
-The architectural cost difference is large enough that the deletion is the right move per [INVIOLABLE-PRINCIPLES.md](INVIOLABLE-PRINCIPLES.md) #2 ("never compromise from quality — pick the unified primitive, not the dual-shape design") and #4 ("never hardcode — health probes, weights, geo policy are configuration in the lua-record body, not code in a controller").
+The architectural cost difference is large enough that the deletion is the right move per [PRINCIPLES.md](PRINCIPLES.md) #2 ("never compromise from quality — pick the unified primitive, not the dual-shape design") and #4 ("never hardcode — health probes, weights, geo policy are configuration in the lua-record body, not code in a controller").
 
 ---
 
@@ -141,7 +141,7 @@ Lua-records are necessary but not sufficient for split-brain protection during a
 
 ## 4. When to add a second Sovereign region (the HA upgrade path)
 
-A single-region Sovereign is the SME default ([`PLATFORM-TECH-STACK.md`](PLATFORM-TECH-STACK.md) §9.2). For corporate / regulated tier (and for any Sovereign that signs an SLA strict enough that single-region downtime would breach it), the upgrade path is:
+A single-region Sovereign is the SME default ([`ARCHITECTURE.md`](ARCHITECTURE.md) §9.2). For corporate / regulated tier (and for any Sovereign that signs an SLA strict enough that single-region downtime would breach it), the upgrade path is:
 
 1. **Sovereign provisioned in Region A** (e.g. `hz-fsn-rtz-prod`) — single LB IP, plain A records.
 2. **Operator decides to add Region B** via the Catalyst admin UI: Admin → Infrastructure → Add Region (see [`SOVEREIGN-PROVISIONING.md`](SOVEREIGN-PROVISIONING.md) §8).
@@ -150,7 +150,7 @@ A single-region Sovereign is the SME default ([`PLATFORM-TECH-STACK.md`](PLATFOR
 5. **catalyst-dns rewrites every Application's lua-record from `single-region` → `active-active`** (or whichever Placement the Application opts into). Old plain A records are replaced with `ifurlup(...)` lua-records pointing at both regional LBs.
 6. The cloud witness (failover-controller) starts arbitrating leases across the two clusters.
 
-The cluster name **never changes** during this upgrade — Region A's cluster is still `hz-fsn-rtz-prod`, Region B is now `hz-hel-rtz-prod`, and neither is "primary" or "DR". This is the explicit design from [`NAMING-CONVENTION.md`](NAMING-CONVENTION.md) §1.3 — failover is a routing event, not a renaming event.
+The cluster name **never changes** during this upgrade — Region A's cluster is still `hz-fsn-rtz-prod`, Region B is now `hz-hel-rtz-prod`, and neither is "primary" or "DR". This is the explicit design from [`ARCHITECTURE.md`](ARCHITECTURE.md) §1.3 — failover is a routing event, not a renaming event.
 
 ### 4.1 Triggers for adding a second region
 
@@ -205,11 +205,11 @@ PowerDNS exposes the current probe status (last probe timestamp, last result, cu
 - [PowerDNS Lua Records — upstream documentation](https://doc.powerdns.com/authoritative/lua-records/index.html) — every selector, every option.
 - [`PLATFORM-POWERDNS.md`](PLATFORM-POWERDNS.md) — the bp-powerdns deployment, DNSSEC posture, REST API contract.
 - [`SOVEREIGN-PROVISIONING.md`](SOVEREIGN-PROVISIONING.md) §7-§8 — multi-region topology + add-region workflow.
-- [`NAMING-CONVENTION.md`](NAMING-CONVENTION.md) §1.3 + §7 — building-block naming, no "primary"/"DR" labels.
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) §1.3 + §7 — building-block naming, no "primary"/"DR" labels.
 - [`SRE.md`](SRE.md) §2 — multi-region strategy, split-brain protection, data-replication patterns.
 - [`SECURITY.md`](SECURITY.md) §5 — OpenBao independent-Raft-per-region (DNS failover doesn't touch secret authority).
 - Issue [#171](https://github.com/openova-io/openova/issues/171) — the change that retired k8gb in favour of PowerDNS lua-records.
 
 ---
 
-*Part of [OpenOva Catalyst](https://openova.io). Read [Inviolable Principles](INVIOLABLE-PRINCIPLES.md) before any changes.*
+*Part of [OpenOva Catalyst](https://openova.io). Read [Inviolable Principles](PRINCIPLES.md) before any changes.*

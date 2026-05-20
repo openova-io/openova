@@ -12,13 +12,13 @@ This file is now an **index** and **decision log**. The full architecture lives 
 In strict order:
 
 1. [`docs/GLOSSARY.md`](../docs/GLOSSARY.md) — terminology source of truth
-2. [`docs/IMPLEMENTATION-STATUS.md`](../docs/IMPLEMENTATION-STATUS.md) — what's built vs designed
+2. [`docs/STATUS.md`](../docs/STATUS.md) — what's built vs designed
 3. [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) — Catalyst target architecture
-4. [`docs/NAMING-CONVENTION.md`](../docs/NAMING-CONVENTION.md) — naming patterns
-5. [`docs/PERSONAS-AND-JOURNEYS.md`](../docs/PERSONAS-AND-JOURNEYS.md) — who uses what
+4. [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) — naming patterns
+5. [`docs/DOD.md`](../docs/DOD.md) — who uses what
 6. [`docs/SECURITY.md`](../docs/SECURITY.md) — identity, secrets, rotation
 7. [`docs/SOVEREIGN-PROVISIONING.md`](../docs/SOVEREIGN-PROVISIONING.md) — bringing a Sovereign online
-8. [`docs/BLUEPRINT-AUTHORING.md`](../docs/BLUEPRINT-AUTHORING.md) — writing Blueprints
+8. [`docs/RUNBOOKS.md`](../docs/RUNBOOKS.md) — writing Blueprints
 
 If any older notes in this file contradict those docs, those docs win.
 
@@ -124,7 +124,7 @@ The Blueprint detail page in the console is the cross-Environment view: it shows
 
 ## 8. Multi-region semantics
 
-- Clusters named by **building block, not failover role.** Same building blocks deployed in multiple regions; k8gb routes traffic. Section 1.3 of `docs/NAMING-CONVENTION.md`.
+- Clusters named by **building block, not failover role.** Same building blocks deployed in multiple regions; k8gb routes traffic. Section 1.3 of `docs/ARCHITECTURE.md`.
 - Each region's OpenBao is an **independent** Raft cluster with async perf replication. No stretched clusters. See `docs/SECURITY.md` §5.
 - Catalyst Environment is a **logical** scope realized by N vclusters across regions — Placement metadata on each Application controls fan-out.
 
@@ -149,7 +149,7 @@ The Blueprint detail page in the console is the cross-Environment view: it shows
 
 ## 10. Component count
 
-The historical "52 components" framing is retained at the marketing level for continuity, but the platform's identity is now **Catalyst**, not "the 52 components." Components are Blueprints. The list is in [`docs/PLATFORM-TECH-STACK.md`](../docs/PLATFORM-TECH-STACK.md). Adding or removing components is a Blueprint addition or removal — does not require any platform-level rebrand.
+The historical "52 components" framing is retained at the marketing level for continuity, but the platform's identity is now **Catalyst**, not "the 52 components." Components are Blueprints. The list is in [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md). Adding or removing components is a Blueprint addition or removal — does not require any platform-level rebrand.
 
 ---
 

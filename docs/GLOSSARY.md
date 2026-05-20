@@ -16,9 +16,9 @@ Every other document defers to this file. When a term in another doc looks conte
 | **Catalyst** | The OpenOva platform itself. A self-sufficient Kubernetes-native control plane. Composed of: console, marketplace, admin, catalog-svc, projector, provisioning, environment-controller, blueprint-controller, billing, identity, secret, event-spine, gitea, observability. See "Catalyst components" below. Published from this repository as signed OCI Blueprints. |
 | **Sovereign** | One **deployed** instance of Catalyst on Kubernetes infrastructure chosen by its owner. Self-contained; never depends at runtime on any other Sovereign. Examples: `openova` (run by us, hosts our SaaS Organizations — formerly "Nova"), `omantel` (run by Omantel, hosts SME Organizations across Oman), `bankdhofar` (run by the bank, hosts internal Organizations). |
 | **Organization** | The multi-tenancy unit inside a Sovereign. Has billing, Users, Environments, private Blueprints. Ahmed's pharmacy is one Organization on the `omantel` Sovereign; `digital-channels` is one Organization on the `bankdhofar` Sovereign. |
-| **Environment** | An env-typed scope where Applications run. Named `{org}-{env_type}` where `env_type` is one of `prod | stg | uat | dev | poc` (per [`NAMING-CONVENTION.md`](NAMING-CONVENTION.md) §2.4). **Logical** concept; can span multiple regions and building blocks via Placement. Realized as a **branch** (`develop`/`staging`/`main`) inside each Application's Gitea repo, plus one or more vclusters per Placement spec. Examples: `acme-prod`, `acme-dev`, `bankdhofar-uat`. |
+| **Environment** | An env-typed scope where Applications run. Named `{org}-{env_type}` where `env_type` is one of `prod | stg | uat | dev | poc` (per [`ARCHITECTURE.md`](ARCHITECTURE.md) §2.4). **Logical** concept; can span multiple regions and building blocks via Placement. Realized as a **branch** (`develop`/`staging`/`main`) inside each Application's Gitea repo, plus one or more vclusters per Placement spec. Examples: `acme-prod`, `acme-dev`, `bankdhofar-uat`. |
 | **Application** | What a User installs into an Environment from a Blueprint. The user-facing object: an App Store-style card representing a running deployment (e.g. WordPress, Postgres, an internal microservice). **Each Application is realized as one Gitea repo** at `gitea.<location-code>.<sovereign-domain>/<org>/<app>` under its owning Organization. Branches `develop`/`staging`/`main` map to the `dev`/`stg`/`prod` Environments. The repo is the unit of CODEOWNERS, branch protection, webhook, and CI — giving every team self-sufficient ownership of their Apps. |
-| **Blueprint** | The reusable, OCI-published, signed unit of installable software. Unifies what previously was split between "module" (primitive) and "template" (composition). A Blueprint can declare dependencies on other Blueprints, with arbitrary depth. Visibility: `listed` (catalog card) / `unlisted` / `private` (Org-scoped). Source layout: see [`BLUEPRINT-AUTHORING.md`](BLUEPRINT-AUTHORING.md) §2. |
+| **Blueprint** | The reusable, OCI-published, signed unit of installable software. Unifies what previously was split between "module" (primitive) and "template" (composition). A Blueprint can declare dependencies on other Blueprints, with arbitrary depth. Visibility: `listed` (catalog card) / `unlisted` / `private` (Org-scoped). Source layout: see [`RUNBOOKS.md`](RUNBOOKS.md) §2. |
 | **User** | A person. Authenticates via Keycloak. Belongs to one Organization (or has cross-Org admin scope as `sovereign-admin`). |
 | **Voucher** | A redeemable code that grants billing credit when applied at checkout. Issued by `sovereign-admin` (per-Sovereign campaigns) or `org-admin` (rare; intra-Org credit grants). The user-facing label for what the code calls `PromoCode` (see `core/services/billing/store/store.go`). Vouchers are the user-acquisition surface for franchised Sovereigns: a Franchisee mints codes, distributes them through their marketing channels, and a redeemer's first checkout converts the code into Organization credit. Lives as a row in the per-Sovereign billing Postgres database; soft-delete (`deleted_at`) preserves the audit trail of past redemptions. See [`FRANCHISE-MODEL.md`](FRANCHISE-MODEL.md). |
 
@@ -43,9 +43,9 @@ Every other document defers to this file. When a term in another doc looks conte
 
 | Term | Definition |
 |---|---|
-| **Cluster** | A physical Kubernetes cluster. Named per [`docs/NAMING-CONVENTION.md`](NAMING-CONVENTION.md): `{provider}-{region}-{building-block}-{env_type}` — e.g. `hz-fsn-rtz-prod`. Owned by `sovereign-admin`. Never user-facing. |
+| **Cluster** | A physical Kubernetes cluster. Named per [`docs/ARCHITECTURE.md`](ARCHITECTURE.md): `{provider}-{region}-{building-block}-{env_type}` — e.g. `hz-fsn-rtz-prod`. Owned by `sovereign-admin`. Never user-facing. |
 | **vcluster** | A virtual Kubernetes cluster (loft.sh's vcluster) running inside a parent Cluster. One vcluster per Organization per parent Cluster. Named `{org}` within the parent (qualified globally as `{provider}-{region}-{bb}-{env_type}-{org}`). Implementation detail of an Environment; not user-facing. |
-| **Building Block** | A functional security zone — `rtz` (restricted trust), `dmz` (edge), `mgt` (management). Stable across failovers. See `NAMING-CONVENTION.md` §1.3. |
+| **Building Block** | A functional security zone — `rtz` (restricted trust), `dmz` (edge), `mgt` (management). Stable across failovers. See `ARCHITECTURE.md` §1.3. |
 | **Region** | Geographic location, provider-scoped 3-char code (`fsn`, `nbg`, `hel`). |
 | **Env Type** | Environment dimension value: `prod | stg | uat | dev | poc`. Was `{env}` in older naming; renamed to disambiguate from the Catalyst Environment object. |
 | **Placement** | Per-Application metadata declaring which regions and building blocks realize that Application. Modes: `single-region`, `active-active`, `active-hotstandby`. |
@@ -102,7 +102,7 @@ A Sovereign's Gitea instance hosts five conventional Gitea Orgs. The unified rul
 
 ## Banned terms (do not use in any docs / UI / API / code / commit messages)
 
-This section is the **single source of truth** for forbidden terminology. Cross-referenced by [`CLAUDE.md`](../CLAUDE.md), [`RUNBOOKS.md`](RUNBOOKS.md), [`5-PILLAR-DOD.md`](5-PILLAR-DOD.md), [`DOMAINS-CANON.md`](DOMAINS-CANON.md), and the user-global `~/.claude/CLAUDE.md`. There is no separate `docs/BANNED-TERMS.md`.
+This section is the **single source of truth** for forbidden terminology. Cross-referenced by [`CLAUDE.md`](../CLAUDE.md), [`RUNBOOKS.md`](RUNBOOKS.md), [`DOD.md`](DOD.md), [`DOD.md`](DOD.md), and the user-global `~/.claude/CLAUDE.md`. There is no separate `docs/BANNED-TERMS.md`.
 
 ### Banned platform terminology
 
@@ -122,7 +122,7 @@ This section is the **single source of truth** for forbidden terminology. Cross-
 
 ### Forbidden test domains
 
-Test provs and tenant Organizations use the canonical pool zones defined in [`DOMAINS-CANON.md`](DOMAINS-CANON.md): `t<NN>.omani.works` (or `t<NN>.omantel.biz` if LE-rate-limited) for the Sovereign, and `<orgslug>.omani.homes` / `omani.rest` / `omani.trade` for tenant Organizations. The strings below are **forbidden** in any test command, screenshot, walk-script, code path, or doc that describes a test run:
+Test provs and tenant Organizations use the canonical pool zones defined in [`DOD.md`](DOD.md): `t<NN>.omani.works` (or `t<NN>.omantel.biz` if LE-rate-limited) for the Sovereign, and `<orgslug>.omani.homes` / `omani.rest` / `omani.trade` for tenant Organizations. The strings below are **forbidden** in any test command, screenshot, walk-script, code path, or doc that describes a test run:
 
 | Forbidden | Why | Use instead |
 |---|---|---|
@@ -151,9 +151,9 @@ Test provs and tenant Organizations use the canonical pool zones defined in [`DO
 ## See also
 
 - [`STATUS.md`](STATUS.md) — what's built today vs what's design-only.
-- [`NAMING-CONVENTION.md`](NAMING-CONVENTION.md) — concrete naming patterns for every object type.
-- [`DOMAINS-CANON.md`](DOMAINS-CANON.md) — Sovereign / tenant-Org FQDN patterns + forbidden test strings (cross-references the Banned terms section above).
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — concrete naming patterns for every object type.
+- [`DOD.md`](DOD.md) — Sovereign / tenant-Org FQDN patterns + forbidden test strings (cross-references the Banned terms section above).
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — how the components fit together.
-- [`PERSONAS-AND-JOURNEYS.md`](PERSONAS-AND-JOURNEYS.md) — who uses each surface and what for.
+- [`DOD.md`](DOD.md) — who uses each surface and what for.
 - [`SECURITY.md`](SECURITY.md) — identity, secrets, rotation.
 - [`RUNBOOKS.md`](RUNBOOKS.md) — provisioning, day-2 ops, Blueprint authoring (§3), chart conventions (§4), demo walk (§5), failover recovery (§6), troubleshooting (§7).

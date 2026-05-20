@@ -1,6 +1,6 @@
 # Sealed Secrets
 
-Transient bootstrap-only secret transport. **Catalyst control plane** (per [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §3.3 — Security and policy). Used during Phase 0 of Sovereign provisioning to ship initial bootstrap secrets through GitOps; archived/disabled after OpenBao + ESO replace it.
+Transient bootstrap-only secret transport. **Catalyst control plane** (per [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §3.3 — Security and policy). Used during Phase 0 of Sovereign provisioning to ship initial bootstrap secrets through GitOps; archived/disabled after OpenBao + ESO replace it.
 
 **Status:** Accepted. Chart wrapper at `chart/`. **Updated:** 2026-04-28.
 

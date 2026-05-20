@@ -5,7 +5,7 @@ name: Build openova-flow-adapter-flux
 # Source at products/openova-flow/adapter-flux/, chart at
 # platform/openova-flow-emitter/chart/.
 #
-# Per docs/INVIOLABLE-PRINCIPLES.md #4a (GitHub Actions is the ONLY
+# Per docs/PRINCIPLES.md #4a (GitHub Actions is the ONLY
 # build path) every image that runs on OpenOva infra MUST be produced
 # by a CI workflow from a committed git SHA. This workflow mirrors the
 # shape of build-application-controller.yaml — same Buildx push, same

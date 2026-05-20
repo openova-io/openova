@@ -17,7 +17,7 @@ name: Phase-8a preflight A — bootstrap-kit reconcile dry-run
 # this workflow is push-on-self-edit + workflow_dispatch only. There is
 # no `schedule:` trigger.
 #
-# Per the canonical-seam rule (docs/omantel-handover-wbs.md §3a), this
+# Per the canonical-seam rule (docs/archive/omantel-handover-wbs.md §3a), this
 # workflow REUSES existing seams:
 #   - kind setup pattern from .github/workflows/test-bootstrap-kit.yaml
 #   - Flux install via fluxcd/flux2/action@main (same as test-bootstrap-kit)

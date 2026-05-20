@@ -1,6 +1,6 @@
 # ExternalDNS
 
-DNS synchronization (registers/deletes records via the PowerDNS REST API and external cloud DNS APIs where applicable). Per-host-cluster infrastructure (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §3.1) — runs on every host cluster, primarily on the DMZ block. PowerDNS (see [`docs/PLATFORM-POWERDNS.md`](../../docs/PLATFORM-POWERDNS.md)) is the authoritative server for every Sovereign zone; ExternalDNS uses the `webhook` provider (`external-dns-pdns`) to write A/AAAA/CNAME records into PowerDNS. Health-checked geo-failover lives in PowerDNS lua-records — see [`docs/MULTI-REGION-DNS.md`](../../docs/MULTI-REGION-DNS.md).
+DNS synchronization (registers/deletes records via the PowerDNS REST API and external cloud DNS APIs where applicable). Per-host-cluster infrastructure (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §3.1) — runs on every host cluster, primarily on the DMZ block. PowerDNS (see [`docs/PLATFORM-POWERDNS.md`](../../docs/PLATFORM-POWERDNS.md)) is the authoritative server for every Sovereign zone; ExternalDNS uses the `webhook` provider (`external-dns-pdns`) to write A/AAAA/CNAME records into PowerDNS. Health-checked geo-failover lives in PowerDNS lua-records — see [`docs/MULTI-REGION-DNS.md`](../../docs/MULTI-REGION-DNS.md).
 
 **Status:** Accepted | **Updated:** 2026-04-27
 

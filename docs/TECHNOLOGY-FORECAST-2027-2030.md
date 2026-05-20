@@ -25,7 +25,7 @@ Factors considered: AI replacement risk, regulatory demand, ecosystem maturity, 
 
 ## Mandatory Components (29)
 
-> **Classification basis:** "Mandatory" = installed on every Sovereign — comprises the Catalyst control plane (per [`PLATFORM-TECH-STACK.md`](PLATFORM-TECH-STACK.md) §2) plus per-host-cluster infrastructure (§3) plus the transient Phase-0 bootstrap component (sealed-secrets, used by the bootstrap kit until External Secrets Operator + OpenBao take over). "A La Carte" below = Application Blueprints (§4) that customers opt into per Environment.
+> **Classification basis:** "Mandatory" = installed on every Sovereign — comprises the Catalyst control plane (per [`ARCHITECTURE.md`](ARCHITECTURE.md) §2) plus per-host-cluster infrastructure (§3) plus the transient Phase-0 bootstrap component (sealed-secrets, used by the bootstrap kit until External Secrets Operator + OpenBao take over). "A La Carte" below = Application Blueprints (§4) that customers opt into per Environment.
 
 | Component | 2026 | 2027 | 2030 | Trend | Notes |
 |-----------|------|------|------|-------|-------|

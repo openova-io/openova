@@ -1,7 +1,7 @@
 # Catalyst Security Model
 
 **Status:** Authoritative target architecture. **Updated:** 2026-05-20.
-**Implementation:** Per-component status tracked in [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md). OpenBao, ESO, Keycloak component READMEs exist; Catalyst's integration glue is design-stage. SPIRE/SPIFFE was dropped from the bootstrap-kit by founder PR #665 (2026-05-03, "drop bp-spire — Cilium WireGuard is canonical east-west mesh") — the `platform/spire/` chart is retained as opt-in for future re-introduction (see §2 below for re-enable triggers).
+**Implementation:** Per-component status tracked in [`STATUS.md`](STATUS.md). OpenBao, ESO, Keycloak component READMEs exist; Catalyst's integration glue is design-stage. SPIRE/SPIFFE was dropped from the bootstrap-kit by founder PR #665 (2026-05-03, "drop bp-spire — Cilium WireGuard is canonical east-west mesh") — the `platform/spire/` chart is retained as opt-in for future re-introduction (see §2 below for re-enable triggers).
 
 Identity, secrets, rotation, and multi-region credential semantics for Catalyst Sovereigns. Defer to [`GLOSSARY.md`](GLOSSARY.md) for terminology.
 

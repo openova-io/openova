@@ -3,9 +3,9 @@
 > **What this is:** operator how-tos for OpenOva. Provisioning, chart bumps, Blueprint authoring, failover recovery, troubleshooting.
 > **Authority:** PERMANENT canon. Reviewed PRs only.
 > **Updated:** 2026-05-20.
-> **Pointers:** see [`5-PILLAR-DOD.md`](5-PILLAR-DOD.md) for fresh-prov verification, [`ARCHITECTURE.md`](ARCHITECTURE.md) for system shape, [`INVIOLABLE-PRINCIPLES.md`](INVIOLABLE-PRINCIPLES.md) for what NOT to do.
+> **Pointers:** see [`DOD.md`](DOD.md) for fresh-prov verification, [`ARCHITECTURE.md`](ARCHITECTURE.md) for system shape, [`PRINCIPLES.md`](PRINCIPLES.md) for what NOT to do.
 
-This file consolidates five prior runbook documents (`RUNBOOK-PROVISIONING.md`, `RUNBOOK-OPERATIONS.md`, `BLUEPRINT-AUTHORING.md`, `CHART-AUTHORING.md`, `DEMO-RUNBOOK.md`) per the lean-doc strategy. Section anchors are stable; older docs are deleted by the orchestrator after this lands.
+This file consolidates five prior runbook documents (`BLUEPRINT-AUTHORING.md`, `CHART-AUTHORING.md`, `DEMO-RUNBOOK.md`, `RUNBOOK-OPERATIONS.md`, `RUNBOOK-PROVISIONING.md`) per the lean-doc strategy. Section anchors are stable; older docs are deleted by the orchestrator after this lands.
 
 ---
 
@@ -66,7 +66,7 @@ Paste the **PUBLIC** half (`*.pub`) — a single unbroken line starting `ssh-ed2
 
 The OpenOva pool zones are `omani.works`, `omani.homes`, `omani.rest`, `omani.trade`, `omantel.biz`. Pick one and pick a subdomain (e.g. `t42`). PDM `/v1/reserve` checks availability; on commit it (a) creates the per-Sovereign PowerDNS zone, (b) writes the canonical 6-record set, (c) updates the parent-zone NS delegation via the Dynadot registrar adapter.
 
-**Forbidden test domains** (per [`DOMAINS-CANON.md`](DOMAINS-CANON.md)): `openova.io`, `omantel.openova.io`, `Nova Cloud`, `eventforge.io`.
+**Forbidden test domains** (per [`DOD.md`](DOD.md)): `openova.io`, `omantel.openova.io`, `Nova Cloud`, `eventforge.io`.
 
 **D. DNS pool registered + Dynadot credentials**
 
@@ -348,14 +348,14 @@ Cilium's `reserved:ingress` endpoint is not covered by default-deny NotIn-namesp
 
 ### 2.11 Per-instance verification ledger
 
-Every Sovereign instance carries a `docs/TRUST.md` ledger of claimed-done items in 4 states:
+Every Sovereign instance carries a `docs/ledger/TRUST.md` ledger of claimed-done items in 4 states:
 
 - UNVERIFIED (default)
 - VERIFIED-PASS (screenshot evidence)
 - VERIFIED-FAIL
 - VERIFIED-PARTIAL
 
-Every new PR against a surface flips it back to UNVERIFIED. Cron-refreshed alongside `docs/TRACKER.md`.
+Every new PR against a surface flips it back to UNVERIFIED. Cron-refreshed alongside `docs/ledger/TRACKER.md`.
 
 ---
 
@@ -679,7 +679,7 @@ When default URL is `http://svc.ns.svc...` but the real Service is `svc-bp-svc.n
 
 ## §5 — Demo / operator walks
 
-The canonical deterministic 2-phase walk operator follows. Driven by [`5-PILLAR-DOD.md`](5-PILLAR-DOD.md). The operator-facing companion to `tests/dod/dod_test.go` (the Go test that drives the same flow non-interactively when `HETZNER_TEST_TOKEN` is populated).
+The canonical deterministic 2-phase walk operator follows. Driven by [`DOD.md`](DOD.md). The operator-facing companion to `tests/dod/dod_test.go` (the Go test that drives the same flow non-interactively when `HETZNER_TEST_TOKEN` is populated).
 
 ### 5.1 Pre-flight
 
@@ -693,7 +693,7 @@ The canonical deterministic 2-phase walk operator follows. Driven by [`5-PILLAR-
 
 ### 5.2 The walk — Phase 0 + Phase 1 deterministic test
 
-Per [`5-PILLAR-DOD.md`](5-PILLAR-DOD.md), every walk must move at least one of the 5 inseparable pillars:
+Per [`DOD.md`](DOD.md), every walk must move at least one of the 5 inseparable pillars:
 
 1. Marketplace + voucher onboarding (Phase 0 + Phase 1 a–c)
 2. Multi-region BCP topology choice at signup (Phase 1 b)
@@ -720,7 +720,7 @@ Per [`5-PILLAR-DOD.md`](5-PILLAR-DOD.md), every walk must move at least one of t
 **Phase 1 — tenant signup + Org creation + first App (tenant-facing):**
 
 1. Tenant signs up via email/magic-link or Google OAuth
-2. Catalyst auto-creates an Organization (default slug `<orgslug>.omani.homes` per [`DOMAINS-CANON.md`](DOMAINS-CANON.md))
+2. Catalyst auto-creates an Organization (default slug `<orgslug>.omani.homes` per [`DOD.md`](DOD.md))
 3. Voucher applied at first checkout via `POST /billing/checkout` with `promo_code` — atomic insert into `promo_redemptions`, increment of `times_redeemed`, positive entry in `credit_ledger`
 4. Tenant lands in marketplace — credit balance shown in top-right wallet
 5. Tenant creates an Environment (e.g. `production`)
@@ -756,7 +756,7 @@ curl -sI "https://<orgslug>-production-wordpress.omani.homes"
 cd /home/openova/repos/openova
 git checkout main && git pull origin main
 
-cat >> docs/VALIDATION-LOG.md <<'EOF'
+cat >> docs/archive/validation-log.md <<'EOF'
 
 ## Pass NNN (YYYY-MM-DD) — DoD MET — t<NN>.omani.works
 
@@ -777,7 +777,7 @@ DoD Met:
 - [x] Tenant created Org + Env, installed first App, App URL reached HTTP/2 200
 EOF
 
-git add docs/VALIDATION-LOG.md
+git add docs/archive/validation-log.md
 git -c user.name="hatiyildiz" -c user.email="269457768+hatiyildiz@users.noreply.github.com" \
   commit -m "docs(validation-log): DoD MET — t<NN>.omani.works"
 git push origin main
@@ -905,13 +905,13 @@ flowchart TD
 
 ## See also
 
-- [`5-PILLAR-DOD.md`](5-PILLAR-DOD.md) — end-user Definition of Done (5 pillars + Phase 0/1/2 deterministic test)
+- [`DOD.md`](DOD.md) — end-user Definition of Done (5 pillars + Phase 0/1/2 deterministic test)
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — Catalyst target architecture
-- [`DOMAINS-CANON.md`](DOMAINS-CANON.md) — Sovereign / tenant-Org FQDN patterns + forbidden test strings
+- [`DOD.md`](DOD.md) — Sovereign / tenant-Org FQDN patterns + forbidden test strings
 - [`GLOSSARY.md`](GLOSSARY.md) — terminology source of truth (incl. banned terms)
 - [`STATUS.md`](STATUS.md) — what's built today vs design
-- [`INVIOLABLE-PRINCIPLES.md`](INVIOLABLE-PRINCIPLES.md) — the 15 inviolable engineering principles
-- [`ANTI-PATTERN-CATALOG.md`](ANTI-PATTERN-CATALOG.md) — theater receipts to watch for in PR review
+- [`PRINCIPLES.md`](PRINCIPLES.md) — the 15 inviolable engineering principles
+- [`PRINCIPLES.md`](PRINCIPLES.md) — theater receipts to watch for in PR review
 - [`SECURITY.md`](SECURITY.md) — identity, secrets, rotation
 - [`PLATFORM-POWERDNS.md`](PLATFORM-POWERDNS.md) — per-Sovereign authoritative zone model
 - [`SECRET-ROTATION.md`](SECRET-ROTATION.md) — GHCR pull token, Dynadot credentials, Hetzner tokens
