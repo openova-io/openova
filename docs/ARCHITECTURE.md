@@ -9,7 +9,7 @@ This document describes the architecture of **Catalyst** — the OpenOva platfor
 
 ## 1. The platform in one paragraph
 
-Catalyst is a self-sufficient Kubernetes-native control plane published as signed OCI Blueprints. A single deployed Catalyst is called a **Sovereign**. Inside a Sovereign, **Organizations** are the multi-tenancy unit. An Organization has **Environments** (`{org}-prod`, `{org}-dev`, etc.) where users install **Applications** from **Blueprints**. **Each Application is its own Gitea repo** (one App = one repo, uniformly across SME and corporate scale); branches `develop`/`staging`/`main` map to dev/stg/prod environments. One or more vclusters per Environment run lightweight Flux watching the appropriate branch across the Org's Application repos. Every state change flows through NATS JetStream, projects into per-Environment KV via the **projector** service, and reaches the console via SSE — so every UI surface sees the same picture, derived from Git (write side) and Kubernetes (runtime side) without fragmenting. Crossplane handles all non-Kubernetes resources. OpenBao + ESO + SPIRE handles secrets and workload identity. Keycloak handles user identity. **Same code runs in every Sovereign — whether it's run by us, by Omantel, or by Bank Dhofar.**
+Catalyst is a self-sufficient Kubernetes-native control plane published as signed OCI Blueprints. A single deployed Catalyst is called a **Sovereign**. Inside a Sovereign, **Organizations** are the multi-tenancy unit. An Organization has **Environments** (`{org}-prod`, `{org}-dev`, etc.) where users install **Applications** from **Blueprints**. **Each Application is its own Gitea repo** (one App = one repo, uniformly across SME and corporate scale); branches `develop`/`staging`/`main` map to dev/stg/prod environments. One or more vclusters per Environment run lightweight Flux watching the appropriate branch across the Org's Application repos. Every state change flows through NATS JetStream, projects into per-Environment KV via the **projector** service, and reaches the console via SSE — so every UI surface sees the same picture, derived from Git (write side) and Kubernetes (runtime side) without fragmenting. Crossplane handles all non-Kubernetes resources. OpenBao + ESO handles secrets; workload identity is provided by Cilium WireGuard (east-west encryption) + K8s ServiceAccount TokenReview (workload auth) — SPIRE was dropped from the bootstrap-kit by founder PR #665 (2026-05-03) and is retained as opt-in only (see [`SECURITY.md`](SECURITY.md) §2 for the re-enable triggers). Keycloak handles user identity. **Same code runs in every Sovereign — whether it's run by us, by Omantel, or by Bank Dhofar.**
 
 ---
 
@@ -62,7 +62,7 @@ Everything else is identical in code.
 │  │   console   marketplace   admin   catalog-svc   projector           │ │
 │  │   provisioning   environment-controller   blueprint-controller      │ │
 │  │   billing                                                            │ │
-│  │   gitea   nats-jetstream   openbao   keycloak   spire-server        │ │
+│  │   gitea   nats-jetstream   openbao   keycloak                       │ │
 │  │   observability (Grafana stack)                                      │ │
 │  └────────────────────────────────────────────────────────────────────┘ │
 │  Plus per-host-cluster infrastructure (Cilium, Flux, Crossplane,         │
@@ -222,15 +222,19 @@ Two separate identity systems for two separate purposes:
 
 | Subject | System | Lifetime | Purpose |
 |---|---|---|---|
-| **Workloads** (every Pod) | SPIFFE/SPIRE → SVID (mTLS cert) | 5 min, auto-rotated | Pod-to-Pod auth, Pod-to-OpenBao auth, Pod-to-NATS auth |
+| **Workloads** (every Pod) | Cilium WireGuard mesh (kernel-layer transport encryption) + K8s ServiceAccount TokenReview (workload auth) | WG keys: per Cilium-agent restart. SA bound-tokens: 1 h, auto-rotated by kubelet | Pod-to-Pod transport (WG); Pod-to-OpenBao / Pod-to-NATS / Pod-to-Catalyst-API auth (SA token + TokenReview) |
 | **Users** (every human) | Keycloak → JWT | 15 min access / 30 day refresh | UI auth, API auth |
+
+SPIFFE/SPIRE was dropped from the bootstrap-kit by founder PR #665 (2026-05-03, "drop bp-spire — Cilium WireGuard is canonical east-west mesh"). The `platform/spire/` chart is retained as opt-in for cross-Sovereign federation, sub-hour cryptographic workload attestation (compliance triggers), or per-workload-fingerprint authorization — see [`SECURITY.md`](SECURITY.md) §2 for the full re-enable trigger list.
 
 **Secrets** flow:
 
 ```
             OpenBao (per-region, independent Raft cluster)
                   │
-                  │ (workload requests via SPIFFE SVID)
+                  │ (workload requests authenticated via the OpenBao
+                  │  `kubernetes` auth method = projected SA bound-token
+                  │  → K8s TokenReview; transport encrypted by Cilium WG)
                   ▼
             ESO ExternalSecret CR (in Git, references OpenBao path)
                   │
@@ -387,14 +391,26 @@ Phase 0  Bootstrap (one-shot, runs from catalyst-provisioner.openova.io)
    written here — it flows through the PowerDNS / pool-domain-manager
    plane (see step 3 below + docs/PLATFORM-POWERDNS.md).
 2. Bootstrap kit installs in order:
-   a. Cilium (CNI + Gateway API)              ← network must come first
-   b. cert-manager                            ← TLS for everything below
+   a. Cilium (CNI + Gateway API + WireGuard   ← network must come first;
+      east-west mesh encryption, 100%             WireGuard provides
+      mesh coverage, kernel layer)              kernel-level transport
+                                                encryption for every
+                                                pod-to-pod packet — the
+                                                canonical east-west
+                                                mTLS layer since PR #665
+                                                (2026-05-03)
+   b. cert-manager                            ← TLS for north-south /
+                                                Gateway API ingress
    c. Flux (host-level)                       ← GitOps engine
    d. Crossplane + provider config            ← cloud resource control plane
    e. Sealed Secrets (transient, only for bootstrap secrets)
-   f. SPIRE server + agent                    ← workload identity
+   f. (slot reserved — bp-spire was dropped per PR #665; Cilium WireGuard
+      + K8s SA TokenReview replace SPIRE/SVID workload identity. The
+      platform/spire/ chart is retained as opt-in; see SECURITY.md §2
+      re-enable triggers)
    g. NATS JetStream cluster (3 nodes)
-   h. OpenBao cluster (3 nodes, region-local Raft)
+   h. OpenBao cluster (3 nodes, region-local Raft) — auth backend =
+      `kubernetes` (TokenReview), not `cert` (SVID)
    i. Keycloak (per `keycloakTopology` choice)
    j. Gitea (with public Blueprint mirror seeded)
    k. PowerDNS (bp-powerdns) + dnsdist        ← per-Sovereign authoritative
@@ -450,8 +466,13 @@ bp-catalyst-platform                 ← umbrella
 ├── depends: bp-catalyst-nats-jetstream   ← event spine + KV
 ├── depends: bp-catalyst-openbao          ← secret backend
 ├── depends: bp-catalyst-keycloak         ← user identity
-├── depends: bp-catalyst-spire            ← workload identity
 └── depends: bp-catalyst-observability    ← OTel + Grafana stack
+                                            (workload identity = Cilium
+                                             WireGuard + K8s SA TokenReview;
+                                             bp-spire was dropped per
+                                             PR #665, retained opt-in in
+                                             platform/spire/ — see
+                                             SECURITY.md §2)
 ```
 
 (Cilium, Flux, Crossplane, Cert-manager, Kyverno, Harbor, External-Secrets, Reloader, Falco, Sigstore, Syft+Grype, **PowerDNS** are **per-host-cluster infrastructure**, not Catalyst control-plane components — see [`PLATFORM-TECH-STACK.md`](PLATFORM-TECH-STACK.md) §1. They get installed once per host cluster, before Catalyst itself. The pool-domain-manager (PDM) is deployed on the OpenOva-run Catalyst-Zero only — it is part of the bootstrap surface, not the per-Sovereign control plane.)
@@ -527,7 +548,7 @@ After Phase 2, the Sovereign survives `github.com`, `ghcr.io`, and `harbor.openo
 | **Supply chain security** | cosign signing, SLSA-3 build provenance, Syft+Grype SBOM, Trivy scans, Falco runtime. |
 | **JSON Schema for config** | Console form is generated from Blueprint configSchema. No hand-written forms. |
 | **Pull-based updates** | Each Sovereign mirrors the public Blueprint catalog on its own schedule. Air-gap-ready by construction. |
-| **Workload identity** | SPIFFE/SPIRE SVIDs replace static service-account credentials end-to-end. |
+| **Workload identity** | Cilium WireGuard mesh (kernel-level east-west encryption, 100% coverage) + K8s ServiceAccount TokenReview (audience-scoped 1h projected bound-tokens) replace static long-lived ServiceAccount secret-tokens. SPIRE/SVID is opt-in in `platform/spire/` for future re-introduction — see [`SECURITY.md`](SECURITY.md) §2. |
 | **Independent failure domains** | OpenBao Raft per region. vcluster per Org. Keycloak per Org (SME) or per Sovereign (corporate). |
 
 ---

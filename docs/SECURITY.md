@@ -1,7 +1,7 @@
 # Catalyst Security Model
 
-**Status:** Authoritative target architecture. **Updated:** 2026-04-27.
-**Implementation:** Per-component status tracked in [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md). OpenBao, ESO, SPIRE, Keycloak component READMEs exist; Catalyst's integration glue is design-stage.
+**Status:** Authoritative target architecture. **Updated:** 2026-05-20.
+**Implementation:** Per-component status tracked in [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md). OpenBao, ESO, Keycloak component READMEs exist; Catalyst's integration glue is design-stage. SPIRE/SPIFFE was dropped from the bootstrap-kit by founder PR #665 (2026-05-03, "drop bp-spire — Cilium WireGuard is canonical east-west mesh") — the `platform/spire/` chart is retained as opt-in for future re-introduction (see §2 below for re-enable triggers).
 
 Identity, secrets, rotation, and multi-region credential semantics for Catalyst Sovereigns. Defer to [`GLOSSARY.md`](GLOSSARY.md) for terminology.
 
@@ -11,48 +11,81 @@ Identity, secrets, rotation, and multi-region credential semantics for Catalyst 
 
 | Subject | System | Token | Lifetime | What it auths |
 |---|---|---|---|---|
-| **Workloads** (every Pod, every controller) | SPIFFE/SPIRE | SVID (X.509 mTLS cert) | 5 minutes, auto-rotated | Pod ↔ Pod; Pod ↔ OpenBao; Pod ↔ NATS; Pod ↔ Catalyst APIs |
+| **Workloads** (every Pod, every controller) | Cilium WireGuard mesh + K8s ServiceAccount TokenReview | Cilium-managed node-level WireGuard session keys (kernel) + projected SA bound-tokens (1h, kubelet-rotated) | WG session-keys rotate on every Cilium agent restart; bound tokens auto-rotate hourly | Pod ↔ Pod transport encryption (kernel WG); Pod ↔ OpenBao auth (via the `kubernetes` auth method = TokenReview); Pod ↔ NATS / Catalyst APIs (SA token in `Authorization` header, validated server-side) |
 | **Users** (every human) | Keycloak | OIDC JWT | 15 min access / 30 day refresh | UI auth, REST/GraphQL API, Gitea, console SSE |
 
-Two systems, never conflated. Workload identity is bound to a Kubernetes ServiceAccount. User identity is bound to a Keycloak realm subject. The two meet only at boundaries where a service acts on behalf of a user (and even then, the workload presents both: its own SVID for transport mTLS, and the user's JWT in the request body).
+Two systems, never conflated. Workload identity is bound to a Kubernetes ServiceAccount (`spiffe://<sov>/ns/<ns>/sa/<sa>` shape preserved at the namespace+SA granularity, just verified via TokenReview against the K8s API server rather than via SPIRE-issued SVIDs). User identity is bound to a Keycloak realm subject. The two meet only at boundaries where a service acts on behalf of a user (and even then, the workload presents both: its SA token for in-band auth, the WireGuard mesh for transport encryption, and the user's JWT in the request body).
 
 ---
 
-## 2. SPIFFE/SPIRE — workload identity
+## 2. Workload identity — Cilium WireGuard + K8s ServiceAccount TokenReview
+
+**Status:** Canonical since founder PR #665 (2026-05-03, "drop bp-spire — Cilium WireGuard is canonical east-west mesh"). The `bp-spire` slot was removed from `clusters/_template/bootstrap-kit/` (Slot 06 deleted). The `platform/spire/` chart remains in the repo as opt-in for future re-introduction; see "Re-enable triggers" below.
+
+**What protects east-west pod-to-pod traffic today:**
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│ Each Sovereign runs a SPIRE server (in catalyst-spire namespace)     │
-│  - one HA SPIRE server per host cluster                              │
-│  - upstream-bundle to a root SPIRE server in the management cluster  │
-│  - issues SVIDs to a SPIRE agent on every node                       │
+│ Cilium agent (DaemonSet) on every node                                │
+│  - encryption.type = wireguard                                        │
+│  - encryption.wireguard.userspaceFallback = false                     │
+│  - every pod-to-pod packet that leaves a node is wrapped in a         │
+│    WireGuard tunnel keyed per node-pair, at the kernel layer          │
+│  - 100% mesh coverage (no exemptions), zero sidecars                  │
+│  - L7 policy + identity-aware enforcement via Cilium NetworkPolicy    │
+│    and CiliumNetworkPolicy CRs                                        │
 └──────────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
+```
+
+**What proves workload identity today** (Pod → service-of-record):
+
+```
 ┌──────────────────────────────────────────────────────────────────────┐
-│ SPIRE agent on each node                                             │
-│  - exposes Workload API (Unix socket) to Pods on that node           │
-│  - mints SVIDs scoped by SPIFFE ID:                                  │
-│      spiffe://<sovereign>/ns/<namespace>/sa/<service-account>        │
-│  - rotates every 5 minutes; Pods refresh in-memory                   │
+│ Every Pod has a projected ServiceAccount token                        │
+│  - kubelet rotates the bound token hourly                             │
+│  - audience-scoped per consumer (e.g. `https://openbao.catalyst.svc`) │
+│  - Pod presents the SA token in Authorization: Bearer                 │
+│  - Server (OpenBao, NATS, Catalyst API) validates via the K8s         │
+│    TokenReview API → returns the (namespace, ServiceAccount) tuple    │
+│  - Authorization decisions are made on that tuple                     │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-**SPIFFE ID examples** in Catalyst:
+**Identity tuple examples** in Catalyst (note the shape parallels SPIFFE ID `spiffe://<sov>/ns/<ns>/sa/<sa>` — preserved at namespace+SA granularity):
 
 ```
-spiffe://omantel/ns/catalyst-projector/sa/projector
-spiffe://omantel/ns/catalyst-gitea/sa/gitea
-spiffe://omantel/ns/muscatpharmacy/sa/wordpress     ← Application workload
-spiffe://omantel/ns/catalyst-openbao/sa/openbao     ← OpenBao itself
+ns=catalyst-projector  sa=projector                ← control-plane microservice
+ns=catalyst-gitea      sa=gitea                    ← per-Sovereign Git server
+ns=muscatpharmacy      sa=wordpress                ← Application workload
+ns=catalyst-openbao    sa=openbao                  ← OpenBao itself
 ```
 
-OpenBao authenticates clients by their SVID. JetStream authenticates clients by their SVID. The Catalyst REST API authenticates workloads by their SVID and users by their JWT.
+**OpenBao auth method:** `kubernetes` (TokenReview-backed). Roles are bound to `(namespace, ServiceAccount)` tuples. Not the `cert` auth method, not JWT-SVID. See `platform/cilium/chart/values.yaml:107-118` for the canonical comment locking this decision.
 
-**Why SPIFFE over static service-account tokens:**
-- Static tokens leak. SVIDs auto-rotate at 5-minute boundaries.
-- SPIFFE IDs are portable across clusters (cross-region service-to-service auth works without cross-cluster ServiceAccount sync).
-- mTLS by default — every connection is authenticated and encrypted.
+**NATS JetStream auth:** the `bp-spire` `dependsOn` was removed from `clusters/_template/bootstrap-kit/07-nats-jetstream.yaml` in PR #665. NATS no longer needs SVID-based auth; the kernel-level WireGuard encryption between every pod covers in-flight traffic, and JetStream Account-level isolation handles per-Org boundaries.
+
+**Catalyst REST API auth:** workload calls are authenticated by SA bound-token (TokenReview); user calls by Keycloak-issued JWT.
+
+### Why this configuration is sufficient today
+
+| Concern | How it's met today |
+|---|---|
+| In-flight encryption | Cilium WireGuard, kernel-level, 100% mesh, no opt-out |
+| Workload-to-workload authentication | K8s SA tokens validated server-side via TokenReview |
+| Token rotation | Projected SA bound-tokens auto-rotate hourly (kubelet) |
+| Defense against stolen long-lived tokens | Bound tokens are scoped to a single Pod + audience + 1h TTL; the legacy unbound SA secret-tokens are not used |
+| Cross-Org isolation | vcluster boundary + NATS Account boundary + Keycloak realm boundary; SA tokens don't cross vcluster boundaries |
+| Node-level identity | Cilium gives every node a WireGuard public key; CiliumNetworkPolicy + identity labels enforce L3/L7 policy at the eBPF datapath |
+
+### Re-enable triggers (when to re-introduce SPIRE)
+
+The `platform/spire/` chart is retained for the following scenarios. None apply today; re-enable requires founder ruling that overrides PR #665.
+
+1. **Cross-Sovereign workload federation.** When workloads in Sovereign A need to authenticate to services in Sovereign B without round-tripping through a shared K8s API server, SPIFFE federation (`SPIFFE/SPIRE` upstream-bundle exchange) is the canonical path. K8s SA TokenReview is local to one cluster.
+2. **Compliance audit requiring sub-hour cryptographic workload attestation.** SOC2 Type II, PCI-DSS, or FedRAMP audits demanding (a) cryptographically attested workload identity (not bearer-token), (b) sub-hour rotation, (c) per-Pod fingerprint distinct from `(namespace, SA)`. The SA-bound-token model proves `(namespace, SA, audience)` but not Pod-fingerprint; SPIRE workload attestation (k8s_psat + parent selectors) proves the fingerprint.
+3. **Per-workload-fingerprint authorization.** When the policy decision requires distinguishing two Pods running the same SA in the same namespace (e.g. canary vs stable, two replicas with different secrets), SA token alone cannot distinguish them. SPIRE workload attestation can.
+
+If any of (1)/(2)/(3) becomes a hard requirement, the re-introduction roadmap lives in TBD-V29 (#2055) — the 8-PR sketch covers: split `platform/spire/` into `platform/spire-crds/` + `platform/spire/`, add `bp-spire-crds` + `bp-spire` to `clusters/_template/bootstrap-kit/`, author `ClusterSPIFFEID` CRs for the ~6 first-wave services, add `go-spiffe/v2` deps + `tlsconfig.MTLSClientConfig` to outbound HTTP clients, pair server-side `tlsconfig.MTLSServerConfig` + SPIFFE-ID ACLs, switch OpenBao auth from `kubernetes` to `cert`, re-enable oidc-discovery-provider, migrate remaining workloads in waves. Estimate 2000-3500 LOC, 2-4 weeks.
 
 ---
 
@@ -71,7 +104,9 @@ Static secrets (API tokens, passwords, signing keys, OAuth client secrets) live 
               │                          ▼
               │  ┌──────────────────────────────────────────────┐
               │  │  ESO (in vcluster) reads ExternalSecret CR   │
-              │  │  Authenticates to OpenBao via SVID           │
+              │  │  Authenticates to OpenBao via the `kubernetes`│
+              │  │  auth method (projected SA bound-token →     │
+              │  │  TokenReview); transport secured by Cilium WG│
               │  └──────────────────────────────────────────────┘
               │                          │
               │                          ▼
@@ -106,7 +141,7 @@ For databases, S3, and other systems supporting short-lived credentials, OpenBao
 ```
 Pod                   catalyst-secret-sidecar          OpenBao (DB engine)
  │                          │                                  │
- │ "give me Postgres"      │ authenticates via SVID            │
+ │ "give me Postgres"      │ authenticates via SA bound-token  │
  │─────────────────────────►│                                   │
  │                          │ mints Postgres user             │
  │                          │ TTL=1h                          │
@@ -270,7 +305,7 @@ spec:
 
 | Class | Default | Notes |
 |---|---|---|
-| Workload identity (SPIRE SVID) | 5 min, auto | Not configurable. |
+| Workload identity (K8s SA bound-token) | 1 h, auto-rotated by kubelet | Not configurable. Audience-scoped per consumer. SPIRE SVID (5-min, X.509-cert) is the future-state target if a §2 re-enable trigger fires. |
 | Dynamic DB creds | 1 h, auto | Per-Blueprint TTL configurable. |
 | API tokens, OAuth client secrets | 90 d, auto | rotateBefore: 7d gives apps a refresh window. |
 | Signing keys, root CAs | 365 d, manual approval | Auto-rotation possible but disabled by default for high-impact keys. |
@@ -289,7 +324,7 @@ A `security-officer` sees a **RotationDashboard** view: every credential class, 
 
 2. Referenced:  ExternalSecret CR in Git names the OpenBao path. No value in Git.
 
-3. Materialized: ESO reads OpenBao path (auth via SVID), renders K8s Secret.
+3. Materialized: ESO reads OpenBao path (auth via projected SA bound-token + TokenReview; transport encrypted by Cilium WireGuard), renders K8s Secret.
                 The K8s Secret is base64-encoded; never logged.
 
 4. Consumed:    Pod mounts as env or file. Reloader watches hash; rolls deploy
@@ -332,8 +367,8 @@ Every Sovereign exports its audit log to a customer-specified SIEM. Default: Ope
 
 | Threat | Mitigation |
 |---|---|
-| Stolen ServiceAccount token | SVID is 5-min TTL; revoked by SPIRE on rotation. |
-| Stolen K8s Secret | Encrypted at rest in etcd. Pulled only via ESO with SVID. |
+| Stolen ServiceAccount token | Projected SA bound-tokens are 1h TTL, audience-scoped, Pod-bound (deleted when the Pod terminates) — legacy long-lived Secret-tokens are not used. (Future hardening: SPIRE SVID 5-min mTLS-cert if a §2 re-enable trigger fires.) |
+| Stolen K8s Secret | Encrypted at rest in etcd. Pulled only via ESO with a projected SA bound-token (TokenReview-validated); transport encrypted by Cilium WireGuard. |
 | Compromised Pod | NetworkPolicy (Cilium) + L7 policies limit blast radius. Falco detects anomalous syscalls. |
 | Malicious commit to Environment Gitea | EnvironmentPolicy requires PR approvals. Kyverno admission control denies non-policy-compliant manifests. |
 | Compromised Blueprint upstream | All Blueprints are cosigned. Kyverno verify-signatures policy denies unsigned/wrong-issuer artifacts. |
