@@ -103,13 +103,17 @@ spec:
   chart:
     spec:
       chart: bp-continuum
-      # 0.1.1 — first published version. 0.1.0 was never pushed to GHCR
-      # despite Chart.yaml claiming so; the chart sat in-tree without a
-      # bootstrap-kit slot to pin it, so blueprint-release.yaml never
-      # bumped past the initial commit's no-op detect step. Bumping to
-      # 0.1.1 in the same PR as this slot forces a fresh publish and
-      # the auto-bump-pin hook (TBD-A6) lands the matching pin write.
-      version: 0.1.1
+      # 0.1.2 — TBD-V34 republish. 0.1.1 (PR #2072) was tagged in-tree
+      # but never landed in GHCR; Blueprint Release run 26144858280
+      # failed the hollow-chart guard at the "Verify upstream subcharts
+      # present in working tree" step (Chart.yaml had NO dependencies
+      # and lacked the catalyst.openova.io/no-upstream annotation).
+      # 0.1.2 adds the no-upstream opt-out + a fresh version bump to
+      # force a re-publish. Pin moves in lockstep per Inviolable
+      # Principle #13 (chart-pin bumps must match a GHCR tag that
+      # exists — verified post-merge via crane manifest before any
+      # fresh-prov walk).
+      version: 0.1.2
       sourceRef:
         kind: HelmRepository
         name: bp-continuum
