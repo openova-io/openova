@@ -1,0 +1,49 @@
+name: Controller-workflow uniformity guardrail
+
+# Regression test for TBD-A69 (#2006). Asserts every
+# build-*-controller.yaml + *-controller-build.yaml workflow contains
+# the canonical CI shape:
+#
+#   1. `core/controllers/pkg/**` in BOTH push.paths and pull_request.paths.
+#   2. `contents: write` + auto-bump step that stamps short SHA into
+#      the chart values.yaml.
+#   3. blueprint-release.yaml dispatch after the bot push (catalyst
+#      bundle workflows only; sandbox is exempt — its own chart).
+#
+# Pre-#2006: only build-organization-controller.yaml carried the full
+# shape (added in PR #2005); the other six controllers had partial /
+# missing pieces and shipped the #1997 18h deploy gap.
+#
+# Per CLAUDE.md "every workflow MUST be event-driven, NEVER scheduled":
+# this workflow is push-on-merge + pull-request-on-touch. No cron.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-*-controller.yaml'
+      - '.github/workflows/*-controller-build.yaml'
+      - '.github/workflows/check-controller-workflow-uniformity.yaml'
+      - 'scripts/check-controller-workflow-uniformity.sh'
+  pull_request:
+    paths:
+      - '.github/workflows/build-*-controller.yaml'
+      - '.github/workflows/*-controller-build.yaml'
+      - '.github/workflows/check-controller-workflow-uniformity.yaml'
+      - 'scripts/check-controller-workflow-uniformity.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Controller-workflow uniformity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run controller-workflow uniformity check
+        run: bash scripts/check-controller-workflow-uniformity.sh

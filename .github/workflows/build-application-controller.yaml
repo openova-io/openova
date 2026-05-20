@@ -20,6 +20,15 @@ on:
     paths:
       - 'core/controllers/application/**'
       - 'core/controllers/internal/**'
+      # core/controllers/pkg/** is the shared HTTP-client tree (gitea,
+      # keycloak, kc-mappers, …) consumed by every Group C controller's
+      # Containerfile via `COPY core/controllers/pkg`. Without this path
+      # entry a change to the shared pkg/ tree rebuilds the image only
+      # if the same PR also happens to touch files under application/ —
+      # which silently held the t38 #1997 gitea-405 fix in main for
+      # ~12h. Uniform pattern across every build-*-controller.yaml
+      # (TBD-A69 #2006).
+      - 'core/controllers/pkg/**'
       - 'core/controllers/go.mod'
       - 'core/controllers/go.sum'
       - '.github/workflows/build-application-controller.yaml'
@@ -28,6 +37,7 @@ on:
     paths:
       - 'core/controllers/application/**'
       - 'core/controllers/internal/**'
+      - 'core/controllers/pkg/**'
       - 'core/controllers/go.mod'
       - 'core/controllers/go.sum'
       - '.github/workflows/build-application-controller.yaml'
