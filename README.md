@@ -20,12 +20,10 @@ The `docs/` tree, in reading order. Every file under `docs/` appears exactly onc
 
 ### Build and operate
 
-- [`docs/SOVEREIGN-PROVISIONING.md`](docs/SOVEREIGN-PROVISIONING.md) — how to bring a Sovereign online end-to-end
-- [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md) — provisioning, chart bumps, Blueprint authoring, failover recovery
+- [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md) — provisioning, chart bumps, Blueprint authoring, failover recovery, doc-integrity audit cadence, Sovereign bring-up, UI regression catalog, Catalyst-Zero waterfall
 - [`docs/SRE.md`](docs/SRE.md) — operate a Sovereign in production (SLOs, incident response, GPU ops)
 - [`docs/SECURITY.md`](docs/SECURITY.md) — identity (Cilium WG + Keycloak), secrets (OpenBao + ESO), threat model
 - [`docs/SECRET-ROTATION.md`](docs/SECRET-ROTATION.md) — credential inventory, rotation schedule, rollback path
-- [`docs/AUDIT-PROCEDURE.md`](docs/AUDIT-PROCEDURE.md) — on-demand documentation-integrity validation procedure
 
 ### Strategy
 
@@ -36,8 +34,7 @@ The `docs/` tree, in reading order. Every file under `docs/` appears exactly onc
 
 ### Deep-dive (component / surface level)
 
-- [`docs/PROVISIONING-PLAN.md`](docs/PROVISIONING-PLAN.md) — Catalyst-Zero phase-by-phase execution plan (Groups A-M)
-- [`docs/UI-REGRESSION-GUARDS.md`](docs/UI-REGRESSION-GUARDS.md) — Playwright cosmetic + step-flow regression catalog
+- The Catalyst-Zero phase-by-phase execution plan, UI regression catalog, Sovereign provisioning walkthrough, and doc-integrity audit cadence now live in [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md) §8–§11.
 - Multi-region DNS (PowerDNS lua-records), PowerDNS deployment shape, ClusterMesh cluster.id registry, and the component-logo manifest now live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §8.7–§8.9 and §6.7.
 
 ### Decision records ([`docs/adr/`](docs/adr/))
@@ -177,7 +174,7 @@ For the full component list and trends see [`docs/ARCHITECTURE.md`](docs/ARCHITE
 | Oracle Cloud (OCI) | Crossplane provider available; full path coming |
 | Huawei Cloud | Crossplane provider available; full path coming |
 
-All providers reach Catalyst via the same Crossplane abstraction; Sovereign provisioning details per provider are in [`docs/SOVEREIGN-PROVISIONING.md`](docs/SOVEREIGN-PROVISIONING.md).
+All providers reach Catalyst via the same Crossplane abstraction; Sovereign provisioning details per provider are in [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md) §9 (Bring up a Sovereign).
 
 ---
 
@@ -193,7 +190,7 @@ Visit `marketplace.openova.io` to install Applications on the openova Sovereign 
 1. Provision via catalyst-provisioner.openova.io (managed bootstrap), OR
 2. Self-host bp-catalyst-provisioner in your own infrastructure (air-gap path).
 
-Then follow the procedure in docs/SOVEREIGN-PROVISIONING.md.
+Then follow the procedure in docs/RUNBOOKS.md §9 (Bring up a Sovereign).
 ```
 
 ### Build a Blueprint

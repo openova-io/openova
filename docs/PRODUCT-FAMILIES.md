@@ -268,4 +268,4 @@ All toast text comes from `STEP_COMPONENTS_COPY` in
 
 *Part of [OpenOva](https://openova.io). Read this alongside
 [`ARCHITECTURE.md`](ARCHITECTURE.md) and
-[`SOVEREIGN-PROVISIONING.md`](SOVEREIGN-PROVISIONING.md).*
+[`RUNBOOKS.md`](RUNBOOKS.md) §9 (Bring up a Sovereign).*

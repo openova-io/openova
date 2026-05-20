@@ -18,6 +18,10 @@ This file consolidates five prior runbook documents (`BLUEPRINT-AUTHORING.md`, `
 - [§5 — Demo / operator walks](#5--demo--operator-walks)
 - [§6 — Failover recovery](#6--failover-recovery)
 - [§7 — Troubleshooting matrix](#7--troubleshooting-matrix)
+- [§8 — Doc-integrity audit cadence](#8--doc-integrity-audit-cadence)
+- [§9 — Bring up a Sovereign (canonical phase walkthrough)](#9--bring-up-a-sovereign-canonical-phase-walkthrough)
+- [§10 — UI regression test catalog](#10--ui-regression-test-catalog)
+- [§11 — Phase-by-phase provisioning plan (Catalyst-Zero waterfall)](#11--phase-by-phase-provisioning-plan-catalyst-zero-waterfall)
 
 ---
 
@@ -903,6 +907,732 @@ flowchart TD
 
 ---
 
+## §8 — Doc-integrity audit cadence
+
+> Source: previously `docs/AUDIT-PROCEDURE.md` (merged here on 2026-05-20).
+
+This section is the procedure for performing a documentation-integrity validation pass on the canonical Catalyst docs and component READMEs. It is **on-demand only** — there is no scheduled audit loop.
+
+For invocation via Claude Code, see the `audit-catalyst-docs` skill.
+
+### 8.1 When to run
+
+- After any architectural change that touches multiple docs (component additions/removals, terminology shifts, structural model changes).
+- Before tagging a public release of the canonical docs.
+- Before adding a new Sovereign-curated catalog (`catalog-sovereign` Gitea Org) — to confirm the upstream canon is consistent.
+- On request, ad-hoc, when a contributor questions whether a doc claim is current.
+
+**Never run as a scheduled background loop.** Past loops over-anchored on incorrect models (see `docs/archive/validation-log.md` Pass 103); text-shape consistency is not the same as architectural soundness.
+
+### 8.2 What the audit verifies
+
+The audit cross-checks the canonical docs and component READMEs against five categories of anchors:
+
+1. **Banned-term hygiene** — banned terms in [`GLOSSARY.md`](GLOSSARY.md) §"Banned terms" must not appear (in non-exempt contexts) anywhere in the canon.
+2. **Naming canonicality** — `env_type` 3-char form, DNS pattern split (control-plane vs Application), API group split (`catalyst.openova.io` vs `compose.openova.io`), JetStream subject prefix.
+3. **Structural invariants** — `App = Gitea Repo` (the unified rule from Pass 103), branches `develop`/`staging`/`main` map to envs, 5 Gitea Orgs convention (`catalog`, `catalog-sovereign`, per-Catalyst-Organization, `system`).
+4. **Component-count consistency** — number of `platform/<x>/` folders matches the count anchored across `CLAUDE.md`, the technology forecast / roadmap, [`BUSINESS-STRATEGY.md`](BUSINESS-STRATEGY.md), and the implicit table sums.
+5. **Defense-in-depth architectural anchors** — load-bearing decisions (OpenBao independent-Raft per region, SeaweedFS as unified S3 encapsulation, Catalyst-as-platform / OpenOva-as-company, Valkey-NOT-control-plane, no-bidirectional-Gitea-mirror) must each appear consistently across at least 4 representational levels.
+
+### 8.3 The 13 acceptance greps
+
+Run from the repo root (`/home/openova/repos/openova`). All should produce zero output unless an exemption explanation is included.
+
+```bash
+# 1. Banned terms (excluding contextual exemptions noted in GLOSSARY)
+for term in 'tenant' 'Workspace' 'Lifecycle Manager' 'bootstrap wizard' 'Backstage' \
+            'Synapse' 'Fuse' 'Module' 'Template' 'Operator' 'Client' 'Instance'; do
+  grep -rni "\\b$term\\b" docs/ platform/*/README.md products/*/README.md core/README.md README.md CLAUDE.md \
+    | grep -v 'GLOSSARY.md' | grep -v 'validation-log.md'
+done
+
+# 2. env_type long-form (must be 0)
+grep -rnE 'acme-staging|acme-production|acme-development' docs/ platform/*/README.md products/*/README.md README.md CLAUDE.md \
+  | grep -v validation-log
+
+# 3. JetStream subject prefix (must show only NAMING §11.2 occurrence)
+grep -rnE 'ws\.\{?(env|org)' docs/ARCHITECTURE.md docs/GLOSSARY.md docs/SECURITY.md
+
+# 4. API group split (count must be >=7 across Catalyst CRDs + Crossplane XRDs)
+grep -rnE 'compose\.openova\.io/v1alpha1|catalyst\.openova\.io/v1alpha1' \
+  docs/ARCHITECTURE.md docs/SECURITY.md docs/RUNBOOKS.md \
+  core/README.md platform/crossplane/README.md | wc -l
+
+# 5. Subsection ordering monotonicity
+grep -nE '^### 7\.[0-9]' docs/ARCHITECTURE.md
+grep -nE '^### 2\.[0-9]|^### 11\.[0-9]' docs/ARCHITECTURE.md
+grep -nE '^### 5\.[0-9]' docs/SECURITY.md
+# Manual check: numbers must be strictly increasing.
+
+# 6. Old App-as-folder model (must be 0 outside validation-log)
+grep -rnE 'Environment Gitea repo|/{org}/{org}-{env_type}|<org>/<org>-<env_type|per-Environment Gitea repos' \
+  docs/*.md README.md CLAUDE.md | grep -v validation-log
+
+# 7. Branches-map-to-envs anchor present in 4+ docs
+grep -lE 'develop`/`staging`/`main|develop/staging/main|branches.*map.*env' \
+  docs/GLOSSARY.md docs/ARCHITECTURE.md docs/DOD.md
+
+# 8. 5 Gitea Orgs convention (must be in GLOSSARY + ARCHITECTURE + RUNBOOKS)
+grep -lE 'catalog-sovereign|`system` Gitea Org|five conventional Gitea Orgs|5 conventional Gitea Orgs' \
+  docs/GLOSSARY.md docs/ARCHITECTURE.md docs/RUNBOOKS.md
+
+# 9. Component count consistency across all anchors (no stale "53 components" except validation-log)
+grep -rnE '\b53 components\b|\b53 curated\b|\b53-component\b|\ball 53\b|\b53 platform\b|\b53 folders\b' \
+  docs/*.md README.md CLAUDE.md | grep -v validation-log
+ls -d platform/*/ | wc -l    # must match the anchor
+
+# 10. SeaweedFS encapsulation (no MinIO except intentional explanation in roadmap/forecast doc)
+grep -rinE '\bminio\b' docs/*.md README.md CLAUDE.md core/README.md products/*/README.md platform/*/README.md \
+  | grep -v validation-log | grep -v 'platform/seaweedfs/'
+
+# 11. OpenBao independent-Raft (must appear in 5+ representational levels)
+grep -lE 'INDEPENDENT, NOT STRETCHED|independent Raft cluster|no stretched cluster|Independent OpenBao Raft' \
+  docs/SECURITY.md docs/ARCHITECTURE.md docs/GLOSSARY.md docs/BUSINESS-STRATEGY.md
+
+# 12. Catalyst-as-platform anchor (must appear in GLOSSARY + README + BUSINESS-STRATEGY)
+grep -lE 'Company vs.*Platform|Catalyst is the open|OpenOva.*the company|Catalyst.*the platform itself' \
+  docs/GLOSSARY.md README.md docs/BUSINESS-STRATEGY.md
+
+# 13. DNS pattern split (NAMING + multiple consumers)
+grep -nE '\{component\}\.\{location-code\}\.\{sovereign-domain\}|\{app\}\.\{environment\}\.\{sovereign-domain\}' \
+  docs/ARCHITECTURE.md
+grep -lE '<location-code>\.<sovereign-domain>|<env>\.<sovereign-domain>' \
+  docs/RUNBOOKS.md platform/llm-gateway/README.md platform/valkey/README.md
+```
+
+### 8.4 Deep-read rotation
+
+After greps, deep-read **one canonical doc + one component README** per pass. Rotate through the canon and the 56 platform components + 7 products (catalyst, cortex, axon, fingate, fabric, relay, specter) over time. The next-most-stale entry should be the target.
+
+The deep-read confirms the doc's known anchors are present and consistent with the rest of the canon. For each:
+
+1. Read the doc end-to-end.
+2. Check known fix-trajectory anchors (see `docs/archive/validation-log.md` for what was previously fixed in that file).
+3. Cross-check at least 2 other docs the deep-read target references, looking for bidirectional consistency.
+4. Verify the **5 invariants** (§8.2) hold.
+
+### 8.5 Output
+
+Append a numbered Pass entry to `docs/archive/validation-log.md` describing:
+
+- Date, pass number, target doc + target component
+- Acceptance grep results (clean / drift)
+- Deep-read findings
+- Any architectural anchors verified or flagged
+- If drift: what was fixed and the new anchor
+
+If clean: short entry confirming clean. If drift: longer entry documenting the fix and a Lesson if the drift represents a recurring pattern.
+
+Commit message format: `docs(pass-N): <target-doc> <ordinal>-cycle + <component> <ordinal>-cycle <clean|fixed>`. Commit as `hatiyildiz` per the repo's git-identity convention.
+
+### 8.6 What this audit does NOT do
+
+- **Architectural review.** Text-shape consistency does not validate that the architecture is right. Architectural review is a separate, complementary discipline. See Pass 103 and Lesson #21.
+- **Code review.** Most code is design-stage per [`STATUS.md`](STATUS.md). Code review is a separate concern.
+- **Compliance review.** Mappings to PSD2/DORA/NIS2/SOX live in `bp-specter`'s Compliance Agent's runtime evaluation, not in doc audit.
+- **Security review.** Security review is `/security-review` skill's domain.
+
+---
+
+## §9 — Bring up a Sovereign (canonical phase walkthrough)
+
+> Source: previously `docs/SOVEREIGN-PROVISIONING.md` (merged here on 2026-05-20).
+
+How to provision a new **Sovereign** — a self-sufficient deployed instance of Catalyst — from inputs to Day-2 steady state. Defer to [`GLOSSARY.md`](GLOSSARY.md) for terminology and [`ARCHITECTURE.md`](ARCHITECTURE.md) for the model. The operator wizard procedure for the most-tested (Hetzner) path is in §1 above; this section is the **complete provider-agnostic phase narrative** with multi-region, air-gap, migration, and decommission.
+
+The implementation reflects the deployed shape — the Go provisioner, OpenTofu module, 12 G2 wrapper Helm charts (the original 11 plus bp-powerdns at [#167](https://github.com/openova-io/openova/issues/167)), the per-Sovereign PowerDNS zone model ([#167](https://github.com/openova-io/openova/issues/167)/[#168](https://github.com/openova-io/openova/issues/168)), and the pool-domain-manager (PDM) with registrar adapters ([#163](https://github.com/openova-io/openova/issues/163)/[#170](https://github.com/openova-io/openova/issues/170)) all exist in this monorepo today (per [`STATUS.md`](STATUS.md) §7). End-to-end DoD against a real Hetzner project tracks Group M of §11 below. Catalyst-Zero (Contabo k3s, namespace `catalyst`) is the running catalyst-provisioner today.
+
+### 9.1 Inputs
+
+| Input | Required | Notes |
+|---|---|---|
+| Cloud provider | Hetzner / AWS / GCP / Azure / OCI / Huawei | Hetzner is the most-tested path. |
+| Cloud credentials | Provider API token | Used by OpenTofu (one-shot bootstrap) and Crossplane (ongoing). |
+| Sovereign name | e.g. `omantel`, `bankdhofar` | Slug, lowercase, 3–32 chars. |
+| Sovereign domain | e.g. `omantel.omani.works`, `acme.bank.com` | Three modes ([#169](https://github.com/openova-io/openova/issues/169)): **pool** (subdomain under `omani.works` / `openova.io`, allocated by pool-domain-manager); **byo-manual** (customer pastes OpenOva NS records into their own registrar UI); **byo-api** (customer pastes a registrar API token, OpenOva flips NS via the registrar adapter). Supported registrars for byo-api: Cloudflare, Namecheap, GoDaddy, OVH, Dynadot ([#170](https://github.com/openova-io/openova/issues/170)). |
+| Region(s) | 1+ | Single-region simplest for SME; 2+ for regulated/HA. |
+| Building blocks per region | typically `mgt` + `rtz` (+ `dmz`) | At minimum `mgt` + `rtz`. |
+| Keycloak topology | `per-organization` (SME) / `shared-sovereign` (corporate) | Determines Keycloak deployment shape. |
+| Federation IdP (optional) | Azure AD / Okta / Google / etc. | For corporate; SME tier defers to per-Org Org-IdP federation. |
+| TLS strategy | Let's Encrypt / cert-manager / corporate CA | cert-manager-managed, Let's Encrypt by default. |
+| Object storage | Cloud-provider native | Used as the cold-tier backend behind SeaweedFS (which is the in-cluster S3 encapsulation layer that all consumers — Velero, Harbor, CNPG WAL, OpenSearch snapshots, Loki/Mimir/Tempo, Iceberg — talk to). |
+
+### 9.2 Provisioning runs from `catalyst-provisioner`
+
+The bootstrap is performed by `catalyst-provisioner.openova.io`, an always-on provisioning service operated by OpenOva. It is **not** part of any Sovereign at runtime — once a Sovereign is up, it is fully self-sufficient.
+
+Why a permanent provisioner instead of "boot from your laptop":
+
+- OpenTofu state must be durably stored — keeping it on a single person's laptop is fragile and a security risk.
+- Provider credentials are scoped, stored in OpenBao on the provisioner, and never leave it.
+- New Sovereigns can be created without a manual installer dance — the same machinery serves the next Sovereign provisioning request, regardless of who initiates it.
+
+A self-host route exists for organizations that want zero OpenOva involvement: `catalyst-provisioner` is itself a Blueprint (`bp-catalyst-provisioner`) and can be deployed in a customer's own infrastructure. From there it bootstraps further Sovereigns. This is the air-gap path.
+
+### 9.3 Phase 0 — Bootstrap
+
+The implementation maps cleanly onto two artifacts in this monorepo:
+
+| Step | Lives in | What runs |
+|---|---|---|
+| 1. Wizard input → tofu vars | [`products/catalyst/bootstrap/api/internal/provisioner/`](../products/catalyst/bootstrap/api/internal/provisioner/) | Go service writes `tofu.auto.tfvars.json` from validated wizard input, runs `tofu init && tofu plan && tofu apply -auto-approve` against the canonical OpenTofu module, streams stdout/stderr lines to the wizard via SSE. No cloud APIs called from Go (per [`PRINCIPLES.md`](PRINCIPLES.md) #3). |
+| 2. Cloud resources | [`infra/hetzner/main.tf`](../infra/hetzner/main.tf) | OpenTofu provisions: hcloud_network (10.0.0.0/16) + subnet (10.0.1.0/24), hcloud_firewall (80/443/6443/ICMP open; 22 closed by default — sovereign-admin adds source-CIDR rule via Crossplane post-bootstrap), hcloud_ssh_key from wizard input, 1 control-plane server (or 3 if `ha_enabled`) on Ubuntu 24.04 with cloud-init, `worker_count` worker servers, hcloud_load_balancer (lb11) targeting NodePorts 31080/31443. **DNS is authoritative on PowerDNS ([#167](https://github.com/openova-io/openova/issues/167)/[#168](https://github.com/openova-io/openova/issues/168))** — the per-Sovereign PowerDNS zone is created by pool-domain-manager (PDM) `/v1/commit` once the LB IP is known; for pool sovereigns PDM also writes the parent-zone delegation, and for `byo-api` Sovereigns the matching registrar adapter (Cloudflare / Namecheap / GoDaddy / OVH / Dynadot, [#170](https://github.com/openova-io/openova/issues/170)) flips the NS records at the customer's registrar. `byo-manual` Sovereigns instead show the OpenOva NS list in the wizard and poll until the customer's own registrar propagates the delegation. |
+| 3. k3s + Flux bootstrap | [`infra/hetzner/cloudinit-control-plane.tftpl`](../infra/hetzner/cloudinit-control-plane.tftpl) | cloud-init on the control-plane node installs k3s v1.31.4+k3s1 with `--flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --disable=local-storage --tls-san=<sovereign-fqdn>`, then installs Flux v2.4.0 core, then applies the Flux GitRepository + Kustomization pointing at `clusters/<sovereign-fqdn>/` in the public OpenOva monorepo. From this point Flux owns the cluster. Workers join via [`cloudinit-worker.tftpl`](../infra/hetzner/cloudinit-worker.tftpl) using the project-derived k3s_token. |
+| 4. Bootstrap-kit install | `clusters/<sovereign-fqdn>/` (Flux-reconciled) | Flux installs the 12 G2 wrapper Helm charts (each a `bp-<name>:<semver>` OCI artifact published by [`.github/workflows/blueprint-release.yaml`](../.github/workflows/blueprint-release.yaml)) in dependency order: cilium → cert-manager → flux (host-level reconciler for the cluster's own Kustomizations) → crossplane → sealed-secrets (transient) → spire (server + agent; opt-in post PR #665) → nats-jetstream → openbao (3-node Raft) → keycloak (per topology choice) → gitea (with public Blueprint mirror) → bp-powerdns (per-Sovereign authoritative zone, [#167](https://github.com/openova-io/openova/issues/167)) → bp-catalyst-platform (umbrella). |
+| 5. Crossplane adoption | Crossplane Compositions in `clusters/<sovereign-fqdn>/` | Crossplane adopts management of all infrastructure created by OpenTofu in step 2; sealed-secrets is decommissioned in favour of ESO + OpenBao for day-2 secret distribution; further DNS records (gitea/admin/api/harbor) are written by `external-dns` against the per-Sovereign PowerDNS zone via the PowerDNS REST API (NOT against the registrar). Phase 1 begins (see §9.4). |
+
+The wizard's progress page polls Flux Kustomizations on the new cluster and renders steady-state to the user when every Kustomization is `Ready=True`.
+
+**DNS records written in Phase 0** — into the per-Sovereign PowerDNS zone (`<sovereign-fqdn>.`), see [`PLATFORM-POWERDNS.md`](PLATFORM-POWERDNS.md) §"Per-Sovereign zone model":
+
+```
+@                A → load balancer IP
+*                A → load balancer IP
+console          A → load balancer IP
+api              A → load balancer IP
+gitea            A → load balancer IP
+harbor           A → load balancer IP
+```
+
+The PDM `/v1/commit` endpoint writes the canonical 6-record set into the freshly-created Sovereign zone via the PowerDNS REST API. The wildcard A record covers every additional subdomain a Sovereign might add at runtime (`axon`, `umami`, `langfuse`, etc.) without re-issuing certificates. Per NAMING §5.1 the canonical control-plane DNS pattern is `{component}.{location-code}.{sovereign-domain}` — the wildcard handles per-Application records under per-Environment subdomains.
+
+**OpenTofu state:** kept in the catalyst-api Pod under `/tmp/catalyst/tofu/<sovereign-fqdn>/` — pinned via the `CATALYST_TOFU_WORKDIR` env var on the catalyst-api Deployment (commit `27527e4c`) and backed by the Pod's writable `/tmp` emptyDir (2 Gi sizeLimit; the in-code default `/var/lib/catalyst/...` is unwritable for UID 65534, hence the override). Re-running with the same FQDN is idempotent (`tofu apply` on existing state). For air-gap installs the sovereign-admin MUST configure a remote backend with encryption-at-rest so the Hetzner token isn't carried only on Pod ephemeral storage.
+
+**Implementation status:** the Go wrapper, OpenTofu module, and 12 G2 wrapper charts (the original 11 + bp-powerdns added at [#167](https://github.com/openova-io/openova/issues/167)) all exist today (verified at [`STATUS.md`](STATUS.md) §7). The pool-domain-manager (`core/pool-domain-manager/`) and its 5 registrar adapters are deployed and running in `openova-system`. End-to-end DoD against a real Hetzner project is pending Group M of §11.
+
+Total Phase 0 time: 30–60 minutes for a single-region Hetzner Sovereign once DoD lands.
+
+### 9.4 Phase 1 — Hand-off
+
+After Phase 0 completes:
+
+1. Crossplane in the new Sovereign **adopts** management of all infrastructure created by OpenTofu. From this point forward, all infrastructure changes go through Crossplane.
+2. The bootstrap k3s nodes are not "thrown away" — they are claimed by Crossplane via the cloud provider's adoption mechanism.
+3. OpenTofu state is archived and read-only. It is never touched again.
+4. `catalyst-provisioner` no longer has any active connection to the new Sovereign.
+
+The Sovereign is now self-sufficient. It has the full Catalyst control-plane set per [`ARCHITECTURE.md`](ARCHITECTURE.md) §2.3:
+
+- Its own Crossplane managing further infrastructure.
+- Its own OpenBao for secrets.
+- Its own JetStream as event spine.
+- Its own Keycloak for users.
+- Its own workload identity (Cilium WireGuard + K8s SA TokenReview; SPIFFE/SPIRE opt-in per [`SECURITY.md`](SECURITY.md) §2).
+- Its own Gitea (with mirror of the public Blueprint catalog).
+- Its own observability stack (Grafana + Alloy + Loki + Mimir + Tempo) for self-monitoring.
+- Its own Catalyst control plane (console, marketplace, admin, projector, catalog-svc, provisioning, environment-controller, blueprint-controller, billing).
+
+### 9.5 Phase 2 — Day-1 setup
+
+The first `sovereign-admin` logs into `console.<location-code>.<sovereign-domain>`:
+
+```
+Day-1 actions
+──────────────────────────────────────────────────────────────────
+1. Configure cert-manager issuers (Let's Encrypt / corporate CA).
+2. Configure backup destination (cloud object storage for Velero).
+3. Configure Harbor with image-scanning policies.
+4. (Optional) Federate Keycloak's catalyst-admin realm to corporate IdP.
+5. (Optional) Configure observability exports (SIEM, datadog, etc.).
+6. Onboard the first Organization:
+     Catalyst console → Admin → Organizations → New
+     Provide: name, contact, plan.
+   Environment-controller does NOT create vclusters yet.
+   They are created when the first Environment is provisioned.
+7. Create the first Environment in that Organization:
+     Console → switch to Org context → Environments → New
+     Environment-controller spins up a vcluster on the chosen host cluster
+     and bootstraps Flux inside (watching the env-appropriate branch on
+     every Application repo within this Org's Gitea Org). Apps not yet
+     installed have no repos yet; repos are created on demand by the
+     provisioning-service when each App is installed.
+     Ready in ~60 seconds.
+```
+
+### 9.6 Phase 3 — Steady-state operation
+
+From here on, the Sovereign runs autonomously. Sovereign-admins use the Catalyst admin UI for:
+
+- Onboarding more Organizations
+- Adding host clusters in new regions (Crossplane provisions them, environment-controller adopts them)
+- Updating Catalyst itself (umbrella Blueprint version bumps, applied via Flux PR)
+- Configuring SecretPolicies and EnvironmentPolicies
+- Monitoring the Sovereign's own observability stack
+- Reviewing audit logs
+
+Everyday Application installs and configurations are done by `org-admins` and `org-developers` within their Organizations — see [`DOD.md`](DOD.md).
+
+### 9.7 Multi-region topology
+
+#### 9.7.1 Single-region (SME default)
+
+```
+Region A
+└── Host cluster: hz-fsn-mgt-prod    ← Catalyst control plane + per-Org vclusters
+    └── all building blocks collapse onto one cluster (mgt + rtz + dmz workloads
+        in separate namespaces, with Cilium NetworkPolicies enforcing isolation)
+```
+
+Cheapest topology. Single-region failure = Sovereign down. Acceptable for SME tier where customers also accept SME-tier SLAs.
+
+#### 9.7.2 Multi-region (corporate default)
+
+```
+Region A (primary mgt)              Region B                       Region C (DR)
+─────────────────                  ─────────────                  ─────────────
+hz-nbg-mgt-prod                    hz-fsn-rtz-prod                hz-hel-rtz-prod
+  Catalyst control plane             per-Org vclusters              per-Org vclusters
+  Gitea, JetStream, OpenBao,         (sibling realizations          (sibling realizations
+  Keycloak, projector,               of each Org's Environment)     of each Org's Environment)
+  catalog-svc, marketplace,
+  console, admin, billing
+hz-nbg-dmz-prod                    hz-fsn-dmz-prod                hz-hel-dmz-prod
+  ingress, WAF, PowerDNS            ingress, WAF, PowerDNS          ingress, WAF, PowerDNS
+```
+
+The `mgt` building block is typically NOT replicated (one Catalyst control plane per Sovereign). The `rtz` and `dmz` blocks ARE replicated for workload HA.
+
+OpenBao runs in BOTH the mgt cluster (primary) and each rtz region (replica) — see [`SECURITY.md`](SECURITY.md) §5 for replication semantics.
+
+### 9.8 Adding a region post-provisioning
+
+```
+sovereign-admin in Catalyst admin UI:
+  Admin → Infrastructure → Add Region
+    Provider: Hetzner
+    Region: hel
+    Building blocks: rtz, dmz
+    Apply
+```
+
+Catalyst:
+
+1. Crossplane provisions the new VPC, hosts, k3s cluster, etc.
+2. Cluster registered in Catalyst's cluster registry.
+3. cert-manager + Cilium + Flux + Crossplane + ESO + OpenBao replica deployed via the cluster's Flux Kustomization (SPIRE opt-in only).
+4. New region available as a Placement target for new and existing Environments.
+
+Existing Applications with `placement.mode: single-region` do not migrate automatically. To extend an existing Application to the new region, the user explicitly switches Placement to `active-active` (or `active-hotstandby`) and adds the new region to `placement.regions` — that's a one-line edit in the Application's Gitea repo on the appropriate branch (or a click in the Topology tab).
+
+### 9.9 Air-gap deployment
+
+```
+Connected zone (one-time)             Air-gapped Sovereign
+──────────────────────────            ───────────────────────────────
+1. Mirror public Blueprint OCI       Harbor receives blobs via physical
+   artifacts to portable media.      transfer / data diode.
+2. Mirror Catalyst control-plane     Sovereign's Gitea adopts blobs as
+   container images.                 OCI manifests in local registry.
+3. Mirror cert-manager root +        cert-manager configured with
+   organization CA bundle.           internal CA only.
+4. Configure Keycloak to local LDAP  Keycloak federates to internal AD/LDAP.
+   (no external IdPs).
+```
+
+Catalyst is air-gap-ready by construction: every artifact (Blueprints, Catalyst code, base images) is OCI-signed. Mirror once, run forever.
+
+### 9.10 Migration and decommission
+
+#### 9.10.1 Migrating an Organization between Sovereigns
+
+Rare but supported. Example: a Bank Dhofar Organization started life on the openova Sovereign (paid SaaS), now wants to move to its own bankdhofar Sovereign (self-host).
+
+```
+1. Provision bankdhofar Sovereign (Phases 0–2).
+2. On openova Sovereign: Admin → Organization → Export
+     Catalyst produces an export bundle:
+       - Org metadata
+       - All Application Gitea repos under this Org (cloned + bundled, including all branches)
+       - The Org's `shared-blueprints` repo
+       - Keycloak realm export (users, federated identities)
+       - OpenBao export (sealed secrets only)
+3. On bankdhofar Sovereign: Admin → Organization → Import
+     Environment-controller recreates Environments → vclusters.
+     Flux pulls manifests, reconciles.
+     Apps come up.
+4. Final cutover: DNS swap.
+5. Verify, then decommission on openova side.
+```
+
+Time depends on data volume; typically minutes to hours per Org.
+
+#### 9.10.2 Decommissioning a Sovereign
+
+Reverse of provisioning:
+
+```
+1. Migrate all Organizations off (§9.10.1).
+2. Catalyst admin → Sovereign → Decommission
+3. Crossplane begins teardown of host clusters.
+4. OpenBao final state exported and stored encrypted.
+5. DNS records removed.
+6. Cloud resources reclaimed.
+```
+
+The customer keeps the OpenBao export and Gitea bundles for whatever retention period their compliance demands.
+
+For Hetzner-specific decommissioning (POST `/wipe` endpoint and orphan-cleanup discipline), see §1.7 + §2.2 + §2.3.
+
+---
+
+## §10 — UI regression test catalog
+
+> Source: previously `docs/UI-REGRESSION-GUARDS.md` (merged here on 2026-05-20).
+
+Mapping each Playwright cosmetic + step-flow regression guard to the user's original complaint and the source-of-truth file the guard protects.
+
+- **Test file**: `products/catalyst/bootstrap/ui/e2e/cosmetic-guards.spec.ts`
+- **Playwright config**: `products/catalyst/bootstrap/ui/playwright.config.ts`
+- **CI workflow**: `.github/workflows/cosmetic-guards.yaml`
+- **Annotation**: every test is tagged `@cosmetic-guard` so the CI step can filter via `--grep "@cosmetic-guard"`.
+- **Companion suite**: `tests/e2e/playwright/` (issues [#142](https://github.com/openova-io/openova/issues/142)/[#143](https://github.com/openova-io/openova/issues/143)/[#144](https://github.com/openova-io/openova/issues/144) and the broader E2E agent [#184](https://github.com/openova-io/openova/issues/184)). The cosmetic-guards suite is intentionally narrower — only the regressions the user has called out repeatedly.
+
+### 10.1 Running locally
+
+```bash
+cd products/catalyst/bootstrap/ui
+npm install               # installs @playwright/test
+npx playwright install    # one-time browser download
+npm run dev               # starts vite on http://localhost:5173/sovereign/
+# (in a second terminal)
+npx playwright test e2e/cosmetic-guards.spec.ts
+```
+
+If something else has already claimed port 5173 (e.g. another vite instance), Vite will auto-bump to 5174/5175/etc. Override the test host accordingly:
+
+```bash
+PLAYWRIGHT_HOST=http://localhost:5174 npx playwright test e2e/cosmetic-guards.spec.ts
+```
+
+The config reads `PLAYWRIGHT_HOST` (default `http://localhost:5173`) and `PLAYWRIGHT_BASEPATH` (default `/sovereign`) from the environment, per [`PRINCIPLES.md`](PRINCIPLES.md) #4 (never hardcode).
+
+### 10.2 Pass / fail semantics — what "green" means
+
+Regression guards are by design RED while the regression they describe is in the codebase. A test in this suite turns green only when the canonical shape it asserts is the actual shape rendered by the wizard or admin page.
+
+- **Tests 1, 2, 4 (StepComponents card geometry / luminance)**: green on main today — the canonical 108px height + per-brand logoTone + visible-glyph contract is currently honoured. Any future regression in these flips them red.
+- **Tests 3, 5, 7, 8, 9 (logo brand surfaces, step order, step gating, recommended SKU, per-provider catalog)**: green on main today.
+- **Tests 10, 11 (provision SPA route, no DAG)**: green on main today.
+- **Test 6 (no "Choose Your Stack" / "Always Included" tab labels)**: RED on main today and intentionally so — the legacy tab strip is still in `StepComponents.tsx`. Flips green when stepComponentsCopy.ts drops `tabChooseLabel` / `tabAlwaysLabel` and StepComponents.tsx drops the top-level `role="tablist"` div.
+- **Tests 12, 13, 14 (sidebar / AppDetail / JobsPage)**: RED on main today — the canonical Sovereign-side `Sidebar.tsx` / `AppDetail.tsx` / `JobsPage.tsx` are in flight on a separate branch (companion agent scope). Flip green when those files land + the data-testids in the table below are present.
+- **Test 15 (no Phase 0 banners)**: RED on main today — `PhaseBanners.tsx` is still imported by `AdminPage.tsx`. Flips green when the import + file are removed and per-job cards take over.
+
+A passing local run with all 15 green means every regression class the user has shouted about is currently absent. A failing test names the exact source-of-truth file the implementing agent needs to edit.
+
+### 10.3 The 15 guards
+
+Every row names: the user's complaint (paraphrased), the canonical reference, and the file that must NOT regress.
+
+| # | User complaint | Canonical reference | Source-of-truth file | Restored by commit |
+|---|----------------|---------------------|----------------------|--------------------|
+| 1 | "Card height grew again — should be 108, not 130" | SME marketplace `.app-card` height | `src/pages/wizard/steps/StepComponents.tsx` `.corp-comp-card { height: 108px }` | `691467b4` |
+| 2 | "Description text is squished — there's a 70px column wasted on the right" | SME contract minus the `.app-body { padding-right: 72px }` waste | `src/pages/wizard/steps/StepComponents.tsx` `.corp-comp-body` | (cosmetic refactor #175) |
+| 3 | "Logo tiles are all white — Temporal/FerretDB/Alloy disappeared" | Each project's homepage / press kit surface | `src/pages/wizard/steps/logoTone.ts` `LOGO_SURFACE` | (logoTone introduction) |
+| 4 | "Temporal logo isn't visible — looks like a blank blue square" | `LOGO_SURFACE` brand surface MUST contrast against the glyph | `src/pages/wizard/steps/StepComponents.tsx` `<ComponentLogo>` | (logoTone introduction) |
+| 5 | "Wizard steps were in the wrong order somehow" | `WIZARD_STEPS` array | `src/app/layouts/WizardLayout.tsx` | (wizard step refactor #174) |
+| 6 | "Don't show the old Choose-Your-Stack / Always-Included tab labels" | SME marketplace single-grid layout | `src/pages/wizard/steps/stepComponentsCopy.ts` (`tabChooseLabel` / `tabAlwaysLabel` retire) + StepComponents.tsx top-level `role="tablist"` retire | (in flight — companion agent) |
+| 7 | "Domain step came before Components — that's backwards" | Step order: Components precedes Domain | `src/app/layouts/WizardLayout.tsx` (`WIZARD_STEPS`, `clickable = done`) | (#174) |
+| 8 | "Hetzner CPX32 is what we sell — make it the recommended SKU" | `PROVIDER_NODE_SIZES.hetzner` `recommended:true` exactly on `cpx32` | `src/shared/constants/providerSizes.ts` | (provider catalog refactor) |
+| 9 | "Huawei SKUs leaked into the Hetzner dropdown" | Per-provider SKU vocabularies are disjoint | `src/pages/wizard/steps/StepProvider.tsx` `skuOptions(provider)` reads `PROVIDER_NODE_SIZES[provider]` only | (provider refactor) |
+| 10 | "Provision page has `.html` in the URL — looks like a static page" | tanstack-router SPA route `/provision/$deploymentId` | `src/app/router.tsx` `provisionRoute` + `vite.config.ts` `base: '/sovereign/'` | (DAG retirement) |
+| 11 | "The bubble/edge graph is back — get rid of it" | AdminPage card grid replaces the legacy DAG | `src/pages/provision/ProvisionPage.tsx` re-exports `AdminPage` | (DAG retirement) |
+| 12 | "Admin sidebar should look exactly like core/console" | `core/console/src/components/Sidebar.svelte` (`<aside class="...w-56...">` + 7-item nav) | `src/pages/sovereign/Sidebar.tsx` | (in flight — companion agent) |
+| 13 | "Per-app page should be sectioned, not tabbed" | `core/console/src/components/AppDetail.svelte` sections (hero / About / Connection / Bundled / Tenant / Configuration / Jobs) | `src/pages/sovereign/AppDetail.tsx` | (in flight — companion agent) |
+| 14 | "Jobs are expand-in-place cards, not a separate route" | `core/console/src/components/JobsPage.svelte` (button rows + inline expansion) | `src/pages/sovereign/JobsPage.tsx` + `JobCard.tsx` | (in flight — companion agent) |
+| 15 | "Get rid of the Hetzner infra + Cluster bootstrap banners" | Per-job cards on AdminPage replace the Phase 0 banners | `src/pages/sovereign/AdminPage.tsx` (drop `<PhaseBanners>` import + delete `PhaseBanners.tsx`) | (in flight — companion agent) |
+
+### 10.4 Tests that need a `data-testid` PR first
+
+Per [`PRINCIPLES.md`](PRINCIPLES.md) #2 (never compromise quality), no test is tagged `.skip()` even when its target component is mid-refactor. Each test fails LOUD with an explicit error message naming the missing `data-testid` so the implementing agent has a precise target.
+
+The list below is the authoritative set of `data-testid` attributes the companion-agent's UI work MUST add for the guards to flip green:
+
+| `data-testid` | Goes on | Required by test |
+|---------------|---------|-------------------|
+| `admin-sidebar` | `<aside>` root of `src/pages/sovereign/Sidebar.tsx` | #12 |
+| `job-row-<id>` | The `<button>` row in `src/pages/sovereign/JobsPage.tsx` | #14 |
+| `job-expansion-<id>` | The inline expansion node sibling to `job-row-<id>` | #14 |
+
+The `data-testid="component-card-<id>"` and `data-testid="logo-<id>"` attributes used by tests #1–#4 already exist in the current `StepComponents.tsx`.
+
+### 10.5 Why this lives in `products/catalyst/bootstrap/ui/e2e/`, not `tests/e2e/playwright/`
+
+The repo-level `tests/e2e/playwright/` is owned by the broader E2E suite (issues [#142](https://github.com/openova-io/openova/issues/142)/[#143](https://github.com/openova-io/openova/issues/143)/[#144](https://github.com/openova-io/openova/issues/144) + [#184](https://github.com/openova-io/openova/issues/184)) and pulls together the wizard, admin voucher UI, and unified Blueprint card grid. Co-locating the narrower cosmetic guards next to the UI source they protect:
+
+- keeps the import path to canonical references (e.g. `LOGO_SURFACE`) trivially short,
+- lets a UI engineer run the guards via `npm run dev` + `npx playwright test` from a single working directory,
+- and makes the GitHub Actions path filter (`products/catalyst/bootstrap/ui/**`) trigger the exact suite that reasons about that tree.
+
+The companion E2E suite agent ([#184](https://github.com/openova-io/openova/issues/184)) and this suite share the `/sovereign` basepath contract; nothing in either file depends on the other.
+
+---
+
+## §11 — Phase-by-phase provisioning plan (Catalyst-Zero waterfall)
+
+> Source: previously `docs/PROVISIONING-PLAN.md` (merged here on 2026-05-20).
+
+The agreed plan for consolidating the existing nova/console/admin/marketplace code into the public OpenOva Catalyst monorepo, deploying it as **Catalyst-Zero** (the first Catalyst Sovereign — running on Contabo, the chicken in the chicken-and-egg problem), and then provisioning the first **franchised Sovereign** on Hetzner via the wizard at `console.openova.io/sovereign`.
+
+**Parent issue:** [#43](https://github.com/openova-io/openova/issues/43). **Sub-tickets:** A–M groups, [#45–#175](https://github.com/openova-io/openova/issues?q=is%3Aopen+%5B+). Post-Group-M continuation tickets ([#161](https://github.com/openova-io/openova/issues/161), [#162](https://github.com/openova-io/openova/issues/162), [#163](https://github.com/openova-io/openova/issues/163), [#167](https://github.com/openova-io/openova/issues/167), [#168](https://github.com/openova-io/openova/issues/168), [#169](https://github.com/openova-io/openova/issues/169), [#170](https://github.com/openova-io/openova/issues/170), [#171](https://github.com/openova-io/openova/issues/171), [#173](https://github.com/openova-io/openova/issues/173), [#174](https://github.com/openova-io/openova/issues/174), [#175](https://github.com/openova-io/openova/issues/175)) extend the plan with the per-Sovereign PowerDNS zone model, pool-domain-manager + registrar adapters, three-mode StepDomain (pool/byo-manual/byo-api), the wizard StepComponents redesign, and k8gb retirement.
+
+### 11.1 Execution status (live)
+
+| Group | Tickets | Status | Commits |
+|---|---|---|---|
+| A — Code consolidation | 9 | Done | 3c2f7e4 |
+| B — SME backend services | 10 | Source migrated; CI workflow live | 7646840 |
+| C — Cutover Catalyst-Zero | 8 | Flux is now reconciling Catalyst-Zero from `github.com/openova-io/openova` (public repo) — confirmed via `kubectl get gitrepository -A` returning `openova-public` source serving the catalyst-platform Kustomization | 9d93912, dc56854, bd967a7, 61de3da, 9fdfe07, 8c40984 (Group C cutover merge) |
+| D — Wizard | 10 | In progress — Domain capture + Hetzner project ID added; AppsStep replacement pending | 854a063 |
+| E — Provisioner backend | 13 | In progress — Real Hetzner client + bootstrap installer + Dynadot DNS landed; SSH kubeconfig fetch is stub | 915c467, db4f21a, 07b4bcf |
+| F — Bootstrap-kit Helm charts | 14 | Done — All 12 G2 wrapper charts (original 11 + bp-powerdns [#167](https://github.com/openova-io/openova/issues/167)) + blueprint-release CI live | 8c0f766, 0190c605 |
+| G — DNS multi-domain | 6 | Superseded by PowerDNS authoritative ([#167](https://github.com/openova-io/openova/issues/167)) + pool-domain-manager ([#163](https://github.com/openova-io/openova/issues/163)) + registrar adapters ([#170](https://github.com/openova-io/openova/issues/170)) — Dynadot is now one of five registrar adapters inside PDM, not the authoritative DNS surface | db4f21a, 0190c605 ([#167](https://github.com/openova-io/openova/issues/167)), 2854d652 ([#163](https://github.com/openova-io/openova/issues/163)), 567d7e1f ([#170](https://github.com/openova-io/openova/issues/170)) |
+| H — Franchise model | 7 | In progress — `docs/FRANCHISE-MODEL.md` authored from existing admin impl; cross-Sovereign voucher deferred | this commit |
+| I — Wizard UX | 6 | Design — SSE event log pane + step indicator pending |  |
+| J — Hetzner infra | 6 | In progress — cloud-init in repo; firewall + k3s flags wired into provisioner | 07b4bcf |
+| K — Documentation | 8 | In progress — STATUS.md + core/README + products/catalyst/README updated; component-count anchor refreshed 53 → 56 (spire + nats-jetstream + sealed-secrets factored in); reconcile-pass-1 (2026-04-29) refreshed canonical docs against PowerDNS/PDM/registrar-adapter ground truth | 3c2f7e4, 8c0f766, group-k-docs, reconcile-pass-1 |
+| L — Testing | 8 | Design — Playwright + integration tests pending |  |
+| M — End-to-end DoD | 9 | Design — Awaiting Hetzner credentials from sovereign-admin + first OCI-artifact CI runs to complete |  |
+
+### 11.2 The chicken-and-egg problem and its resolution
+
+Catalyst is a Kubernetes-native control plane that provisions other Sovereigns. Provisioning a Sovereign requires a **provisioner service** (`catalyst-provisioner.openova.io` per §9.2). That provisioner has to **run somewhere**. It cannot run inside the Sovereign it is provisioning (chicken-and-egg).
+
+**Resolution:** the legacy nova/console/admin/marketplace stack currently running on **Contabo k3s** (in namespaces `catalyst`, `sme`, `marketplace`, `website`) is **Catalyst-Zero** — the first Sovereign. It exists today, has running pods today, and is the chicken from which the egg (the first Hetzner-hosted franchised Sovereign) gets provisioned.
+
+The work in this plan **consolidates** that existing code into the public repo, **redeploys** it as a public-repo build (CI from `github.com/openova-io/openova`), and then **uses it** to provision the first franchised Sovereign. There is no greenfield "build Catalyst from scratch" — the Sovereign already exists; we are aligning it to the canonical Catalyst contract.
+
+### 11.3 Current state inventory (verified against live cluster + repos, 2026-04-28)
+
+#### 11.3.1 Code locations (today)
+
+| What | Where today | Where it must end up |
+|---|---|---|
+| Catalyst console UI (Astro+Svelte) | `openova-private/apps/console/` | `openova/core/console/` |
+| Catalyst admin UI (Astro+Svelte) | `openova-private/apps/admin/` | `openova/core/admin/` |
+| Catalyst marketplace UI (Astro+Svelte) | `openova-private/apps/marketplace/` | `openova/core/marketplace/` |
+| marketplace-api (Go backend) | `openova-private/website/marketplace-api/` | `openova/core/marketplace-api/` |
+| Catalyst-zero deployment chart | `openova-private/clusters/contabo-mkt/apps/catalyst/` | `openova/products/catalyst/chart/templates/` |
+| Vite scaffold for sovereign-wizard | `openova/products/catalyst/bootstrap/ui/` | merges into `openova/core/console/src/pages/sovereign/` |
+| CI workflows (6 of them) | `openova-private/.github/workflows/{catalyst-build,marketplace-api-build,sme-{admin,console,marketplace,services}-build}.yaml` | `openova/.github/workflows/` |
+| Voucher / billing / tenants admin surface | `openova-private/apps/admin/src/{components/BillingPage.svelte, lib/api.ts, pages/{billing,catalog,orders,tenants}.astro}` | `openova/core/admin/...` (carry forward unchanged) |
+
+#### 11.3.2 Live deployment on Contabo (verified via `kubectl get all -A`)
+
+| Namespace | Pods running | Notes |
+|---|---|---|
+| `catalyst` | catalyst-api + catalyst-ui | 39 days uptime |
+| `sme` | console + admin + marketplace | 5–6 days uptime |
+| `marketplace` | marketplace-api | 13 days uptime |
+| `website` | openova-website | live |
+
+These pods are Catalyst-Zero. They stay running through Phases 1–2; Phase 2 is a rolling-update cutover to public-repo image builds.
+
+#### 11.3.3 Existing 5-step wizard (the "Components (5)" page reference)
+
+The "Components (5)" the user referenced is the 5-step marketplace flow at `openova-private/apps/marketplace/src/components/`:
+
+```
+PlanStep → AppsStep → AddonsStep → CheckoutStep → ReviewStep
+```
+
+`AppsStep` is what gets replaced with the unified marketplace card grid (driven by the same `bp-<x>` Blueprint surface every Catalyst Sovereign uses).
+
+#### 11.3.4 Voucher mechanism (already implemented)
+
+Lives in `openova-private/apps/admin/`:
+
+- `src/components/BillingPage.svelte` — voucher / billing UI
+- `src/lib/api.ts` — voucher API client
+- `src/pages/{billing,catalog,orders,tenants}.astro` — admin pages
+
+This is the **canonical** voucher implementation. Do not redesign. Read what's there, propagate to franchised Sovereigns, document in [`FRANCHISE-MODEL.md`](FRANCHISE-MODEL.md).
+
+### 11.4 Architectural agreements (from the design conversation, durable)
+
+These agreements survive any context compaction and apply to every phase of the work below.
+
+1. **Catalyst-Zero is the existing Contabo deployment.** Not greenfield. The work is consolidate + cutover + extend, not rebuild.
+2. **omani.works is the first Sovereign-provided subdomain pool** (registered to the OpenOva Dynadot account). User dynamically picks `omantel.omani.works` during provisioning. The wizard offers BYO domain (customer's own) or a Sovereign-pool subdomain (default). Multi-region setups are out of scope for the first run.
+3. **Existing admin voucher implementation is the source of truth.** Do not propose new CRDs. Read the existing implementation, propagate it to franchised Sovereigns, document it.
+4. **G2 quality only.** Catalyst-curated wrapper Helm charts at `platform/<x>/chart/` for every component in the bootstrap kit. No upstream-as-is shortcuts. No corner-cutting. The unified Blueprint contract from §3 is the standard.
+5. **No mocks. No iterations. No partial deliveries.** Waterfall — every phase produces real, deployed, working artifacts.
+6. **All product code is public.** Per the build-minutes constraint, code moves to `openova/` (the public monorepo) before any further development. CI runs in the public repo from this point onward.
+7. **The Vite scaffold at `products/catalyst/bootstrap/ui/`** merges into `core/console/src/pages/sovereign/`. It does not become its own deployable.
+8. **Sovereign-provisioning wizard target URL: `console.openova.io/sovereign`.** Captured fields include domain (BYO or pool), Hetzner Cloud API token, Hetzner project ID, Hetzner region (runtime parameter, never hardcoded), plus the marketplace-style App selection.
+9. **The Hetzner region is a runtime parameter chosen by the wizard user.** Never hardcoded anywhere in code.
+10. **Dynadot is OpenOva's registrar of record for the pool domains.** The `dynadot-api-credentials` K8s secret in `openova-system` is account-scoped and covers `openova.io` plus `omani.works` (and any other domain in the same Dynadot account). Post-[#167](https://github.com/openova-io/openova/issues/167)/[#170](https://github.com/openova-io/openova/issues/170) Dynadot is **not** authoritative DNS for any Sovereign zone — bp-powerdns is. Dynadot is one of five registrar adapters PDM uses to (a) keep the OpenOva pool domains' parent-zone NS records pointing at OpenOva PowerDNS and (b) honour `byo-api` Sovereigns whose customer happens to use Dynadot.
+
+### 11.5 The 8-phase waterfall
+
+Each phase produces one or more commits to `openova/`. Each commit is real working code, not scaffold. No phase is skipped, abbreviated, or deferred.
+
+#### 11.5.1 Phase 1 — Code consolidation (openova-private → openova)
+
+**What:** `git mv` the 4 apps (`console`, `admin`, `marketplace`, `marketplace-api`) from openova-private to `openova/core/`. Move 6 CI workflows to `openova/.github/workflows/`. Move Catalyst-Zero deployment manifests from `openova-private/clusters/contabo-mkt/apps/catalyst/` to `openova/products/catalyst/chart/templates/`.
+
+**Outputs:**
+
+- `openova/core/{console,admin,marketplace,marketplace-api}/` populated
+- `openova/.github/workflows/{catalyst-build,marketplace-api-build,sme-*-build}.yaml`
+- `openova/products/catalyst/chart/templates/{api-deployment,api-service,ui-deployment,ui-service,ingress}.yaml`
+- `openova/products/catalyst/chart/Chart.yaml` (new)
+- All import paths, image refs (`ghcr.io/openova-io/openova/{console,admin,marketplace,marketplace-api,catalyst-api,catalyst-ui}:<sha>`) updated
+- validation-log entry: Pass 105
+
+**Commit message:** `feat(consolidation): move Catalyst-Zero apps + CI from openova-private to public monorepo`
+
+#### 11.5.2 Phase 2 — Cutover Catalyst-Zero to public-repo build
+
+**What:** Trigger first public-repo CI run, get `:<sha>` images into GHCR, roll the existing Contabo deployment to the new images. Catalyst-Zero is now built from the public repo. Delete legacy paths from `openova-private` (preserved in git history).
+
+**Outputs:**
+
+- GHCR images at `ghcr.io/openova-io/openova/{console,admin,marketplace,marketplace-api,catalyst-api,catalyst-ui}:<sha>`
+- Contabo k3s pods rolled to new image SHAs
+- `openova-private` cleaned of legacy paths
+- validation-log entry: Pass 106
+
+**Commit message:** `infra(cutover): Catalyst-Zero now built from public repo`
+
+**Acceptance:** `kubectl describe pod` on each rolled pod shows `image: ghcr.io/openova-io/openova/...`. Console at `console.openova.io` still loads. Brief rolling-update window (<60s).
+
+#### 11.5.3 Phase 3 — Sovereign-provisioning wizard
+
+**What:** Build the wizard at `core/console/src/pages/sovereign/` using the Vite scaffold. Replace the legacy 5-step marketplace flow's `AppsStep` with a unified marketplace card grid (driven by `bp-<x>` Blueprint surface). Add Sovereign-provisioning-specific fields:
+
+- Domain: BYO (customer's own domain) **or** pool selection (default `omani.works` → user picks subdomain like `omantel`, `acme-bank`, etc.)
+- Hetzner Cloud API token (capture, store via ESO into OpenBao, never log)
+- Hetzner project ID
+- Hetzner region (dropdown of valid Hetzner regions; runtime parameter)
+- Sovereign owner email (becomes initial sovereign-admin)
+- Initial App selection (the unified marketplace grid)
+
+**Outputs:**
+
+- `openova/core/console/src/pages/sovereign/index.astro` + sub-pages for each wizard step
+- `openova/core/console/src/components/sovereign/{DomainStep,HetznerStep,AppsStep-unified,ReviewStep}.svelte`
+- The legacy bootstrap Vite scaffold at `openova/products/catalyst/bootstrap/ui/` is merged in and the directory deleted (its content is now part of `core/console/`)
+- validation-log entry: Pass 107
+
+**Commit message:** `feat(console): sovereign-provisioning wizard at /sovereign with domain + Hetzner inputs + unified marketplace App selection`
+
+#### 11.5.4 Phase 4 — Provisioner backend
+
+**What:** Build the wizard's backend at [`products/catalyst/bootstrap/api/`](../products/catalyst/bootstrap/api/) (the Go service deployed as `catalyst-api` in the `catalyst` namespace on Catalyst-Zero). Real backend that takes wizard input → calls OpenTofu → returns Sovereign provisioning state via SSE. Per [`PRINCIPLES.md`](PRINCIPLES.md) #3, **no cloud APIs are called from Go directly** — OpenTofu owns Phase 0, Crossplane owns day-2, and Hetzner client code is reserved for read-only credential validation.
+
+**Outputs:**
+
+- [`products/catalyst/bootstrap/api/internal/provisioner/`](../products/catalyst/bootstrap/api/internal/provisioner/) — thin wrapper around `tofu` that writes `tofu.auto.tfvars.json` from validated wizard input, runs `tofu init && tofu plan && tofu apply -auto-approve`, streams stdout/stderr lines to the wizard via SSE
+- [`products/catalyst/bootstrap/api/internal/hetzner/`](../products/catalyst/bootstrap/api/internal/hetzner/) — read-only Hetzner client for credential validation (`POST /api/v1/credentials/validate`); never used to mutate cloud state
+- [`products/catalyst/bootstrap/api/internal/pdm/`](../products/catalyst/bootstrap/api/internal/pdm/) — PDM client (`/v1/reserve`, `/v1/commit`, `/v1/validate`) for pool-subdomain allocation and registrar-token validation
+- [`products/catalyst/bootstrap/api/internal/dynadot/`](../products/catalyst/bootstrap/api/internal/dynadot/) — Dynadot client (used as one registrar adapter inside PDM's adapter set, not for direct DNS writes from this service)
+- [`products/catalyst/bootstrap/api/internal/handler/`](../products/catalyst/bootstrap/api/internal/handler/) — REST handlers including `POST /api/v1/deployments`, `GET /api/v1/deployments/{id}/logs` (SSE), `POST /api/v1/deployments/{id}/phases/{phase}/retry`, `POST /api/v1/credentials/validate`, `POST /api/v1/subdomains/check`, `GET /api/v1/registrars`
+- [`infra/hetzner/main.tf`](../infra/hetzner/main.tf) — OpenTofu module (network, firewall, ssh-key, control-plane + worker servers, load balancer)
+- validation-log entry: Pass 108
+
+**Commit message:** `feat(provisioner): real Hetzner Sovereign provisioning end-to-end`
+
+#### 11.5.5 Phase 5 — Bootstrap kit Helm charts (G2 quality)
+
+**What:** Real Catalyst-curated wrapper Helm charts at `platform/<x>/chart/` for every bootstrap-kit component. Each chart wraps upstream OSS with Catalyst-specific values, includes a `blueprint.yaml` per the unified Blueprint contract from §3, publishes a `bp-<name>:<semver>` OCI artifact via CI fan-out.
+
+**Components (in dependency order):**
+
+1. `platform/cilium/chart/` (CNI must come first)
+2. `platform/cert-manager/chart/`
+3. `platform/flux/chart/` (host-level)
+4. `platform/crossplane/chart/`
+5. `platform/sealed-secrets/chart/` (transient bootstrap-only)
+6. `platform/spire/chart/` (opt-in — SPIRE deferred from bootstrap-kit by PR #665; the `platform/spire/` folder is retained)
+7. `platform/nats-jetstream/chart/`
+8. `platform/openbao/chart/`
+9. `platform/keycloak/chart/`
+10. `platform/gitea/chart/`
+11. `products/catalyst/chart/` — the umbrella `bp-catalyst-platform`
+
+**Outputs:**
+
+- 11 directories with `Chart.yaml`, `values.yaml`, `templates/`, `blueprint.yaml`, optional `compositions/`, `policies/`, `overlays/`
+- 11 entries in `openova/.github/workflows/blueprint-release.yaml` (path-matrix CI fan-out)
+- 11 OCI artifacts published at `ghcr.io/openova-io/bp-<name>:<semver>` after first CI run
+- One commit per chart (11 commits) — incremental review possible
+- validation-log entries: Pass 109 through Pass 119
+
+**Commit messages:** `feat(bp-<name>): G2 Catalyst-curated chart for <name> per BLUEPRINT-AUTHORING contract`
+
+#### 11.5.6 Phase 6 — DNS architecture: PowerDNS authoritative + PDM + registrar adapters
+
+**What:** The DNS architecture has two layers. **Authoritative DNS** lives on bp-powerdns ([#167](https://github.com/openova-io/openova/issues/167)) — every Sovereign zone (pool: `omantel.omani.works`, BYO: `acme.bank.com`) gets its own PowerDNS zone with DNSSEC + lua-records. **Allocation + registrar control** lives on the pool-domain-manager service ([#163](https://github.com/openova-io/openova/issues/163)), which exposes registrar adapters ([#170](https://github.com/openova-io/openova/issues/170)) for byo-api flow:
+
+- **Pool subdomains** (e.g. `<sub>.omani.works`, `<sub>.openova.io`): PDM `/v1/reserve` checks availability, `/v1/commit` creates the per-Sovereign PowerDNS zone, writes the canonical 6-record set, and updates the parent zone's NS delegation via the OpenOva Dynadot registrar adapter.
+- **BYO with manual NS-flip** (`byo-manual`): wizard surfaces the OpenOva NS list; customer pastes them into their own registrar UI; catalyst-api polls until propagation; PDM `/v1/commit` then writes the canonical record set into the new PowerDNS zone (no parent-zone change from OpenOva).
+- **BYO with API NS-flip** (`byo-api`): customer picks their registrar from the supported list (Cloudflare, Namecheap, GoDaddy, OVH, Dynadot — [#170](https://github.com/openova-io/openova/issues/170)), pastes a token; PDM `/v1/validate` confirms scope read-only; on commit, the matching registrar adapter flips the NS records to OpenOva's NS set.
+
+**Outputs:**
+
+- [`core/pool-domain-manager/`](../core/pool-domain-manager/) — Go service deployed at `pool-domain-manager` in `openova-system`, CNPG-backed `pdm-pg`. Modules: `internal/allocator`, `internal/pdns`, `internal/registrar`, `internal/dynadot`, `internal/reserved`, `internal/store`. CI: [`.github/workflows/pool-domain-manager-build.yaml`](../.github/workflows/pool-domain-manager-build.yaml).
+- [`platform/crossplane/compositions/composition-pool-allocation.yaml`](../platform/crossplane/compositions/composition-pool-allocation.yaml) + matching XRD — declarative Crossplane wrapper around PDM `/v1/reserve` so Sovereign provisioning runs through the canonical IaC path.
+- [`platform/powerdns/`](../platform/powerdns/) — bp-powerdns wrapper chart (Chart.yaml, values.yaml, blueprint.yaml, templates) with DNSSEC + lua-records on by default, dnsdist companion for rate-limiting.
+- validation-log entry: Pass 120 (component-count refresh + PDM landing).
+
+**Commit message:** `feat(dns): bp-powerdns + pool-domain-manager + registrar adapters for pool/byo flows`
+
+#### 11.5.7 Phase 7 — Franchise model docs + voucher propagation
+
+**What:** Read existing voucher implementation in admin app. Write [`FRANCHISE-MODEL.md`](FRANCHISE-MODEL.md) documenting it as canonical. Ensure the new Sovereign at `omantel.omani.works` has its own admin surface (the same admin app, deployed inside the Sovereign) where omantel-admin can issue vouchers to omantel's tenants. Update [`GLOSSARY.md`](GLOSSARY.md) with `Voucher` and `Franchisee` definitions if not already present.
+
+**Outputs:**
+
+- `openova/docs/FRANCHISE-MODEL.md` — canonical doc
+- Updates to [`GLOSSARY.md`](GLOSSARY.md) if needed
+- Updates to [`BUSINESS-STRATEGY.md`](BUSINESS-STRATEGY.md) revenue model if needed
+- validation-log entry: Pass 121
+
+**Commit message:** `docs(franchise): canonical franchise model + voucher propagation, sourced from existing admin impl`
+
+#### 11.5.8 Phase 8 — End-to-end provisioning (live demo / DoD)
+
+**What:** From browser at `console.openova.io/sovereign`:
+
+1. User logs in (Keycloak SSO)
+2. Picks "New Sovereign"
+3. Pastes Hetzner Cloud API token + project ID, picks region (any — runtime parameter)
+4. Picks domain: pool → `omani.works` → user types `omantel` (creates `omantel.omani.works`)
+5. Picks initial Apps (unified marketplace selection)
+6. Click Provision
+7. Watches SSE-driven progress for ~10 minutes
+8. Provisioning completes; new Sovereign at `omantel.omani.works` is reachable
+9. omantel-admin (initial sovereign-admin) logs into `console.omantel.omani.works`
+10. omantel-admin issues 1 voucher
+11. A fictional customer redeems the voucher at `omantel.omani.works/redeem?code=...`
+12. Customer's Organization + Environment + first App is created on omantel.omani.works
+13. Customer reaches their App's URL
+
+**Acceptance:** every step above works without intervention. No mocks, no manual steps beyond the browser clicks.
+
+**Outputs:**
+
+- validation-log entry: Pass 122 — DoD documented with screenshots / kubectl evidence
+- Optional: this section in [`RUNBOOKS.md`](RUNBOOKS.md) for repeatability
+
+### 11.6 What this plan does NOT change
+
+- The unified Application = Gitea Repo model (Pass 103) is preserved everywhere. The franchised Sovereign at omantel.omani.works will use the same model — one Gitea Org per Catalyst Organization, one Gitea Repo per Application.
+- The 5 conventional Gitea Orgs convention (`catalog`, `catalog-sovereign`, `<org>` per Catalyst Organization, `system`) applies to the new Sovereign exactly as it does to Catalyst-Zero.
+- The component-count anchor (Pass 104 set 53; Pass 105 raised it to 56 with spire + nats-jetstream + sealed-secrets) holds. SeaweedFS unified S3 encapsulation, Guacamole in bp-relay, OpenBao independent-Raft per region — all preserved.
+- The audit procedure stays on-demand (no scheduled loops). The `audit-catalyst-docs` skill is the only validation entry point.
+
+### 11.7 References
+
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — target architecture (the design Catalyst-Zero is being aligned to)
+- §9.3 above — bootstrap kit dependency order (canonical reference for Phase 5 of this plan)
+- §3 above — unified Blueprint shape (the contract Phase 5 charts must satisfy)
+- [`STATUS.md`](STATUS.md) — gets updated incrementally as each phase lands
+- §8 above — how to validate after each phase
+- `docs/archive/validation-log.md` Pass 1–104 — historical record; Pass 105+ tracks this plan's execution
+
+---
+
 ## See also
 
 - [`DOD.md`](DOD.md) — end-user Definition of Done (5 pillars + Phase 0/1/2 deterministic test)
@@ -915,7 +1645,7 @@ flowchart TD
 - [`SECURITY.md`](SECURITY.md) — identity, secrets, rotation
 - [`PLATFORM-POWERDNS.md`](PLATFORM-POWERDNS.md) — per-Sovereign authoritative zone model
 - [`SECURITY.md` §11](SECURITY.md#11-rotation-cadence-and-operator-procedures) — GHCR pull token, Dynadot credentials, Hetzner tokens (rotation runbook merged from former `SECRET-ROTATION.md` on 2026-05-20)
-- [`MULTI-REGION-DNS.md`](MULTI-REGION-DNS.md) — PowerDNS lua-records for GSLB
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) §8.8 — PowerDNS lua-records for GSLB (folded from former `MULTI-REGION-DNS.md` on 2026-05-20)
 - [`FRANCHISE-MODEL.md`](FRANCHISE-MODEL.md) — voucher mechanism
 - [`TRUST.md`](TRUST.md) — verification ledger
 - `tests/dod/dod_test.go` — Go test that drives the §5 walk non-interactively

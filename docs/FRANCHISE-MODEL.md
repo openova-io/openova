@@ -4,7 +4,7 @@
 
 This document describes the **franchise model** — how a Sovereign owner (the franchisee) acquires customers via voucher codes, redeems them into Catalyst Organizations, and earns revenue alongside OpenOva.
 
-The voucher mechanism is **already implemented** in the existing admin app (per `docs/PROVISIONING-PLAN.md` agreement: "Existing admin voucher implementation is the source of truth"). This document documents what's there, not what's planned.
+The voucher mechanism is **already implemented** in the existing admin app (per [`RUNBOOKS.md`](RUNBOOKS.md) §11.4 architectural agreement: "Existing admin voucher implementation is the source of truth"). This document documents what's there, not what's planned.
 
 ---
 
@@ -117,7 +117,7 @@ Each Organization is independent (separate Gitea Org, separate vcluster, separat
 
 ## Migration between Sovereigns
 
-Per `SOVEREIGN-PROVISIONING.md` §10, an Organization can be exported from one Sovereign and imported into another. The voucher trail and redemption history is part of the export bundle (since both are stored in the same per-Sovereign billing database).
+Per [`RUNBOOKS.md`](RUNBOOKS.md) §9.10, an Organization can be exported from one Sovereign and imported into another. The voucher trail and redemption history is part of the export bundle (since both are stored in the same per-Sovereign billing database).
 
 When a franchisee winds down (rare but supported), all their tenants can migrate to OpenOva-run Sovereigns or another franchisee with no loss of state. The franchise contract specifies the SLA for assisted migration.
 
