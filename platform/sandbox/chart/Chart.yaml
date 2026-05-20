@@ -24,6 +24,19 @@ annotations:
   # (see issue #181 + docs/BLUEPRINT-AUTHORING.md §11.1).
   catalyst.openova.io/no-upstream: "true"
   catalyst.openova.io/smoke-render-mode: "default-off"
+# 0.3.5 (TBD-P4 A4 #1986, 2026-05-20): controller now dispatches per
+# Sandbox.spec.agentCatalogue[0]. The pty-server StatefulSet renders
+# SANDBOX_DEFAULT_AGENT into the container env so pty-server's
+# lazy-spawn-on-attach branch (products/sandbox/pty-server/internal/
+# server/routes.go: lazySpawn) execs the right agent binary on the first
+# WS attach. Before this bump only the claude-code BYOS branch had any
+# controller-side effect — the 6-row FE agent dropdown was cosmetic
+# for every other slug (aider/cursor-agent/little-coder/opencode/
+# qwen-code/sovereign-shell) because the env was unrendered and
+# lazySpawn returned 404 on every fresh attach (blank xterm panel).
+# An empty catalogue keeps the env unrendered to preserve the 404
+# behaviour for hand-rolled CRs without a chosen agent.
+#
 # 0.3.4 (TBD-P4 B2 #1986, 2026-05-20): close the EOF-crash hole left
 # by 0.3.3 (B3 mcp.json injection). The `command: /usr/local/bin/
 # openova-sandbox-mcp` referenced by 0.3.3's mcp.json was ENOENT
@@ -85,8 +98,8 @@ annotations:
 # `helm template newapi platform/newapi/chart/ -s templates/service.yaml`
 # → metadata.name: newapi-bp-newapi. Walker on t38 (chart 1.4.216,
 # substrate be4f78bc872e2c56) caught the live regression.
-version: 0.3.4
-appVersion: "0.3.4"
+version: 0.3.5
+appVersion: "0.3.5"
 keywords:
   - catalyst
   - sandbox
