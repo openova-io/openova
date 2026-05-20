@@ -3,7 +3,7 @@
 //
 // Scope (architecture.md §3 + §7): when an agent opens a PR from inside
 // a Sandbox, the operator usually wants a live URL pointing at the PR's
-// build of the app — `pr-1483.eventforge.sb-emrah.acme.openova.io` —
+// build of the app — `pr-1483.eventforge.sb-emrah.acme.omani.homes` —
 // without provoking the marketplace BYOD pipeline or pushing through
 // the production Helm chart. The Sandbox provides ON-DEMAND
 // Deployment + Service + HTTPRoute triples in the Sandbox's OWN

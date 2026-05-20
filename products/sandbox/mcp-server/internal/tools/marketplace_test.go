@@ -128,7 +128,7 @@ func TestMarketplaceDomainBYOD_Proxy(t *testing.T) {
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte(`{
 			"domain": {"id": 42, "domain": "acme.com", "type": "byod"},
-			"cname_target": "sme.openova.io",
+			"cname_target": "cname.t39.omani.works",
 			"registrar": "godaddy",
 			"instructions": "Set CNAME at GoDaddy..."
 		}`))
@@ -157,7 +157,7 @@ func TestMarketplaceDomainBYOD_Proxy(t *testing.T) {
 	if !ok {
 		t.Fatalf("out type=%T want marketplaceDomainBYODResponse", out)
 	}
-	if resp.Status != "Registered" || resp.CNAMETarget != "sme.openova.io" || resp.Registrar != "godaddy" {
+	if resp.Status != "Registered" || resp.CNAMETarget != "cname.t39.omani.works" || resp.Registrar != "godaddy" {
 		t.Errorf("resp=%+v", resp)
 	}
 }
@@ -195,9 +195,9 @@ func TestMarketplaceDomainSubdomain_Proxy(t *testing.T) {
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte(`{
 			"id": 7,
-			"domain": "dashboard.openova.cloud",
+			"domain": "dashboard.omani.homes",
 			"type": "subdomain",
-			"tld": "openova.cloud",
+			"tld": "omani.homes",
 			"subdomain": "dashboard"
 		}`))
 	}))
@@ -207,18 +207,18 @@ func TestMarketplaceDomainSubdomain_Proxy(t *testing.T) {
 		TenantID:     "tenant-1",
 		SandboxToken: "tok-abc",
 	})
-	out, err := marketplaceDomainSubdomain(ctx, json.RawMessage(`{"subdomain":"dashboard","parent_zone":"openova.cloud"}`))
+	out, err := marketplaceDomainSubdomain(ctx, json.RawMessage(`{"subdomain":"dashboard","parent_zone":"omani.homes"}`))
 	if err != nil {
 		t.Fatalf("err=%v", err)
 	}
-	if gotBody["tenant_id"] != "tenant-1" || gotBody["subdomain"] != "dashboard" || gotBody["tld"] != "openova.cloud" {
+	if gotBody["tenant_id"] != "tenant-1" || gotBody["subdomain"] != "dashboard" || gotBody["tld"] != "omani.homes" {
 		t.Errorf("body=%v", gotBody)
 	}
 	resp, ok := out.(marketplaceDomainSubdomainResponse)
 	if !ok {
 		t.Fatalf("type=%T", out)
 	}
-	if resp.Status != "Registered" || resp.FQDN != "dashboard.openova.cloud" || resp.ParentZone != "openova.cloud" {
+	if resp.Status != "Registered" || resp.FQDN != "dashboard.omani.homes" || resp.ParentZone != "omani.homes" {
 		t.Errorf("resp=%+v", resp)
 	}
 }

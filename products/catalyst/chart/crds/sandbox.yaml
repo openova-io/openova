@@ -168,7 +168,7 @@ spec:
                   type: string
                   description: |
                     Apex domain under which preview deploys land (e.g.
-                    `sb-emrah.rzk7.openova.io`). PR previews live at
+                    `sb-emrah.t39.omani.works`). PR previews live at
                     `<pr>.<app>.<previewDomain>`. Wired in Wave 3 (HTTPRoute
                     + Gateway). Wave 1 only records it on status.
                   pattern: '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'

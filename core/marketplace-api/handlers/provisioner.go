@@ -53,7 +53,7 @@ func (h *Handler) runProvisioning(p *store.Provision) {
 		Apps:           make([]store.App, 0, len(p.Apps)),
 		Domains: []store.Domain{
 			{
-				Domain:    p.Subdomain + ".openova.cloud",
+				Domain:    p.Subdomain + ".omani.homes",
 				Type:      "subdomain",
 				TLSReady:  true,
 				CreatedAt: time.Now().Format(time.RFC3339),
@@ -67,7 +67,7 @@ func (h *Handler) runProvisioning(p *store.Provision) {
 			Slug:       appSlug,
 			Name:       appSlug, // In production, resolve from catalog
 			Status:     "running",
-			URL:        "https://" + appSlug + "." + p.Subdomain + ".openova.cloud",
+			URL:        "https://" + appSlug + "." + p.Subdomain + ".omani.homes",
 			Version:    "latest",
 			DeployedAt: time.Now().Format(time.RFC3339),
 			Healthy:    true,

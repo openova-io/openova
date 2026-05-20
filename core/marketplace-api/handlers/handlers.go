@@ -459,7 +459,7 @@ func (h *Handler) AddDomain(w http.ResponseWriter, r *http.Request, tenantID str
 	h.writeJSON(w, http.StatusAccepted, map[string]string{
 		"status": "configuring",
 		"domain": req.Domain,
-		"cname":  tenant.Subdomain + ".openova.cloud",
+		"cname":  tenant.Subdomain + ".omani.homes",
 	})
 }
 
