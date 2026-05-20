@@ -117,7 +117,32 @@ name: bp-self-sovereign-cutover
 # denominator. Single-literal swap; contract test (asserts step_count
 # -eq 9) already gates against future drift. No code change required
 # in cutover.go — its post-start patch path was always correct.
-version: 0.1.34
+#
+# 0.1.35 (TBD-V24 MISS-2, issue #2034, 2026-05-20): step-06 Phase-0
+# now STRIPS mothership-side auth entries from the `ghcr-pull` Secret
+# AFTER merging the local Harbor entry — closing the credential-
+# hygiene gap flagged by TBD-V24 (Pillar-5 Sovereign-independence
+# claim). The strip list is driven by
+# `.Values.harbor.mothershipAuthsToStrip` (defaults: ghcr.io,
+# harbor.openova.io) and runs in the SAME jq pipeline as the add so
+# the Secret takes a single resourceVersion bump per Phase-0
+# invocation. Idempotency check extended: re-runs skip when BOTH the
+# local Harbor entry is in place AND every strip target is already
+# absent. The strip pipeline never touches the local harbor host
+# (defence-in-depth guard) even if an operator overlay erroneously
+# lists it. ORDERING: this fix lives in Phase-0 which executes
+# BEFORE Phase-1 URL rewrites, but AFTER step-04 (registries.yaml
+# v2) and AFTER any future TBD-V24 MISS-1 step that may pivot
+# vCluster image refs — there is no dependency on MISS-1 because
+# the strip operates on the Secret data plane, not on chart values.
+# Per CLAUDE.md §3 Principle #11 the post-cutover cluster MUST NOT
+# carry standing auth for any openova-io-rooted registry. Operator
+# walk on a fresh prov verifies `kubectl get secret ghcr-pull -n
+# flux-system -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d
+# | jq '.auths | keys'` returns ONLY `[harbor.<sov-fqdn>]`. Refs
+# #2034 (closes after operator-walk-with-screenshot per anti-theater
+# discipline).
+version: 0.1.35
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
