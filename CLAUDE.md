@@ -1,3 +1,12 @@
+> **Scope of this file**: repository structure, Catalyst terminology, banned-terms, and per-component dev workflow specific to this monorepo.
+>
+> **Platform-wide working principles** for active developer sessions — anti-theater discipline, 5-pillar Definition of Done, inviolable architectural principles, GitHub disciplines, TBD-V## ticketing, sub-agent dispatch rules, microservice patterns — live in user-global `~/.claude/CLAUDE.md` (auto-loaded by Claude Code in every session). External readers without that file can rely on:
+> - [`docs/INVIOLABLE-PRINCIPLES.md`](docs/INVIOLABLE-PRINCIPLES.md) for the engineering principles
+> - [`docs/IMPLEMENTATION-STATUS.md`](docs/IMPLEMENTATION-STATUS.md) for "what's actually built today"
+> - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the design model
+
+---
+
 # OpenOva (Public Repo) — Codebase Guide for Claude
 
 This is the **public, open-source** OpenOva repository. It hosts the Catalyst platform code and Blueprint catalog.
