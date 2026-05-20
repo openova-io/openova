@@ -68,6 +68,19 @@ spec:
   chart:
     spec:
       chart: sandbox
+      # 0.3.3 (TBD-P4 B3 #1986, 2026-05-20): inject mcp.json config so
+      # agent CLIs (claude-code, qwen-code, cursor-agent) auto-discover
+      # the openova-sandbox-mcp server on session start. The renderer
+      # now emits `configmap-mcp-config.yaml` and the pty-server
+      # StatefulSet mounts it at every canonical per-agent config path
+      # via subPath projections (~/.claude.json, ~/.qwen/settings.json,
+      # ./.mcp.json, .cursor/mcp.json). FOUNDATION wire — pairs with
+      # TBD-P4 audit finding B2 (the MCP binary must also be installed
+      # INTO the pty-server agent-runner image). Until B2 lands, this
+      # config references a path that ENOENTs at spawn; agents surface a
+      # clean "mcp server not found" error instead of the current silent
+      # no-discovery state.
+      #
       # 0.3.2 (TBD-V21 #2032, 2026-05-20): ship 4 residual MCP env vars
       # not covered by PR #1987 — SANDBOX_TOKEN (P1; unblocks marketplace.*
       # tools), SANDBOX_JWT_SECRET (P1; auth gate exits test-mode),
@@ -85,7 +98,7 @@ spec:
       # helper), not bare `newapi`. Pre-fix every Sovereign's
       # sandbox-controller TokenMint POST returned `no such host`,
       # blocking the canonical Pillar-4 qwen-code customer journey.
-      version: 0.3.2
+      version: 0.3.3
       sourceRef:
         kind: HelmRepository
         name: bp-sandbox
