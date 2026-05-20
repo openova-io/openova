@@ -48,8 +48,8 @@ import (
 )
 
 // repoRoot returns the absolute path to the repository root by walking up
-// from the test file's directory until a sentinel file (go.mod marker or
-// the docs/INVIOLABLE-PRINCIPLES.md file) is found.
+// from the test file's directory until a sentinel file (docs/PRINCIPLES.md)
+// is found.
 func repoRoot(t *testing.T) string {
 	t.Helper()
 	wd, err := os.Getwd()
@@ -58,7 +58,7 @@ func repoRoot(t *testing.T) string {
 	}
 	dir := wd
 	for i := 0; i < 10; i++ {
-		if _, err := os.Stat(filepath.Join(dir, "docs", "INVIOLABLE-PRINCIPLES.md")); err == nil {
+		if _, err := os.Stat(filepath.Join(dir, "docs", "PRINCIPLES.md")); err == nil {
 			return dir
 		}
 		parent := filepath.Dir(dir)
