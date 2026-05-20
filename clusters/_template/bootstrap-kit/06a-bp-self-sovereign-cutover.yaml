@@ -358,7 +358,27 @@ spec:
       # Strip list lives in .Values.harbor.mothershipAuthsToStrip;
       # operates in the same jq pipeline as the add (single Secret
       # resourceVersion bump per Phase-0 invocation). Idempotent.
-      version: 0.1.35
+      #
+      # 0.1.36 (TBD-V24 MISS-1, issue #2034, 2026-05-20): NEW step 10
+      # (vcluster-registry-pivot) — pivots the three bp-*-vcluster
+      # HelmReleases' `image.repository` from
+      # `harbor.openova.io/proxy-ghcr/loft-sh/vcluster` to
+      # `harbor.<SOVEREIGN_FQDN>/proxy-ghcr/loft-sh/vcluster` so
+      # MGMT/RTZ/DMZ vCluster control-plane Pods pull from the
+      # Sovereign-local Harbor mirror post-cutover. Without this step
+      # the chart's own comment promise at
+      # `platform/bp-mgmt-vcluster/chart/values.yaml:77-79` was unmet
+      # — vCluster Pods kept pulling from `harbor.openova.io`, a direct
+      # violation of Principle #11 (no tether to harbor.openova.io
+      # after handover). Step 04 (containerd registries.yaml pivot)
+      # does NOT catch it because `harbor.openova.io` is a literal
+      # endpoint, not an upstream — registries.yaml.v2 only mirrors
+      # the 7 canonical upstreams. RBAC also gains
+      # helm.toolkit.fluxcd.io.helmreleases [update,patch] (closes a
+      # latent gap step-06 Phase-1.6 was silently relying on since
+      # chart 0.1.31). totalSteps bumped 9 → 10; contract test asserts
+      # the shift via new Case 21. (Refs #2034)
+      version: 0.1.36
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
