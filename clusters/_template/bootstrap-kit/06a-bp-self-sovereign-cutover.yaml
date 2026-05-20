@@ -349,7 +349,16 @@ spec:
       # overwrites with live count on /start) but UIs reading
       # `<currentIndex>/<totalSteps>` in the pre-trigger window
       # showed the wrong denominator. Single-literal swap.
-      version: 0.1.34
+      #
+      # 0.1.35 (TBD-V24 MISS-2, issue #2034, 2026-05-20): step-06
+      # Phase-0 now STRIPS mothership-side auth entries (ghcr.io,
+      # harbor.openova.io) from the `ghcr-pull` Secret AFTER merging
+      # the local Harbor entry — credential-hygiene close on the
+      # Pillar-5 Sovereign-independence claim per CLAUDE.md §3 #11.
+      # Strip list lives in .Values.harbor.mothershipAuthsToStrip;
+      # operates in the same jq pipeline as the add (single Secret
+      # resourceVersion bump per Phase-0 invocation). Idempotent.
+      version: 0.1.35
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

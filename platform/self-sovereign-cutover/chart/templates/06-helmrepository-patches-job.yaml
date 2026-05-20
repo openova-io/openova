@@ -99,6 +99,13 @@ data:
             value: {{ .Values.harbor.ghcrSecretRef.namespace | quote }}
           - name: GHCR_PULL_SECRET_KEY
             value: {{ .Values.harbor.ghcrSecretRef.dockerConfigKey | quote }}
+          # Phase-0 strip targets (TBD-V24 MISS-2, chart 0.1.35). Comma-
+          # separated list of mothership-side auth keys to REMOVE from
+          # `.dockerconfigjson` once the local Harbor entry is in place.
+          # See .Values.harbor.mothershipAuthsToStrip for the canonical
+          # source and rationale.
+          - name: MOTHERSHIP_AUTHS_TO_STRIP
+            value: {{ join "," .Values.harbor.mothershipAuthsToStrip | quote }}
           # Phase -1 gateway-wait inputs (issue #1871, chart 0.1.32).
           # The cutover URL rewrite (Phase 1 below) MUST NOT fire until
           # the Cilium Gateway in kube-system is Programmed=True; that
@@ -276,19 +283,113 @@ data:
 
             existing_json=$(printf '%s' "${existing_b64}" | base64 -d)
 
-            # Idempotency guard: if harbor.<sov-fqdn> already maps to an
-            # auth entry, no-op. Re-runs of step-06 (catalyst-api may
-            # retry) MUST NOT churn the Secret resourceVersion every
-            # time — that triggers a noisy reflector cascade.
+            # Idempotency guard: a re-run is a no-op when BOTH conditions
+            # hold simultaneously —
+            #   (a) harbor.<sov-fqdn> already maps to the expected auth
+            #   (b) every entry listed in MOTHERSHIP_AUTHS_TO_STRIP is
+            #       already absent from .auths
+            # Re-runs of step-06 (catalyst-api may retry) MUST NOT churn
+            # the Secret resourceVersion when there's nothing to do —
+            # that triggers a noisy reflector cascade.
             already=$(printf '%s' "${existing_json}" | jq -r --arg h "${harbor_host}" \
               '.auths[$h].auth // empty')
             harbor_auth=$(printf '%s:%s' "${HARBOR_USERNAME}" "${HARBOR_PASSWORD}" | base64 -w0)
-            if [ -n "${already}" ] && [ "${already}" = "${harbor_auth}" ]; then
-              echo "[helmrepository-patches] Phase-0 skip: ghcr-pull already carries auth for ${harbor_host}"
+
+            # Check whether any of the strip targets is still present.
+            # `MOTHERSHIP_AUTHS_TO_STRIP` is a comma-separated list rendered
+            # from .Values.harbor.mothershipAuthsToStrip — see the chart's
+            # values.yaml for the canonical hosts and rationale (TBD-V24
+            # MISS-2). Empty list → strip_remaining is empty → behaviour is
+            # identical to chart < 0.1.35.
+            strip_remaining=""
+            if [ -n "${MOTHERSHIP_AUTHS_TO_STRIP:-}" ]; then
+              # IFS-split on comma; iterate; collect hosts that still
+              # have an auth entry in existing_json.
+              old_ifs="$IFS"
+              IFS=','
+              for strip_host in ${MOTHERSHIP_AUTHS_TO_STRIP}; do
+                # Strip whitespace defensively (operator-edited overlays
+                # sometimes carry trailing spaces around commas).
+                strip_host=$(printf '%s' "${strip_host}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+                [ -z "${strip_host}" ] && continue
+                # Skip the local harbor host even if an operator
+                # accidentally listed it — stripping the entry we just
+                # merged in would deadlock Phase 1.
+                if [ "${strip_host}" = "${harbor_host}" ]; then
+                  echo "[helmrepository-patches] Phase-0 WARN: refusing to strip ${strip_host} (matches local harbor host); check .Values.harbor.mothershipAuthsToStrip overlay"
+                  continue
+                fi
+                present=$(printf '%s' "${existing_json}" | jq -r --arg h "${strip_host}" \
+                  '.auths | has($h)')
+                if [ "${present}" = "true" ]; then
+                  strip_remaining="${strip_remaining}${strip_host} "
+                fi
+              done
+              IFS="$old_ifs"
+            fi
+
+            if [ -n "${already}" ] && [ "${already}" = "${harbor_auth}" ] && [ -z "${strip_remaining}" ]; then
+              echo "[helmrepository-patches] Phase-0 skip: ghcr-pull already carries auth for ${harbor_host} and mothership entries already stripped"
             else
-              new_json=$(printf '%s' "${existing_json}" | jq --arg h "${harbor_host}" \
-                --arg user "${HARBOR_USERNAME}" --arg auth "${harbor_auth}" \
-                '.auths[$h] = {"username":$user,"auth":$auth}')
+              # Single jq pipeline: ADD harbor.<sov-fqdn> auth AND
+              # DELETE every host in MOTHERSHIP_AUTHS_TO_STRIP. Both
+              # mutations happen in one pass so the Secret takes a
+              # single resourceVersion bump regardless of which side
+              # was stale. Per CLAUDE.md §3 Principle #11 the post-
+              # cutover cluster MUST NOT carry standing auth for any
+              # `openova-io`-rooted registry — leaving the ghcr.io or
+              # harbor.openova.io entries in place would let a
+              # regression silently re-authenticate against upstream
+              # (the credential-hygiene gap flagged by TBD-V24 MISS-2).
+              #
+              # `del(.auths[$h])` is idempotent — deleting a missing
+              # key is a no-op in jq, so re-runs after the initial
+              # strip just no-op the strip arms.
+              # Build the jq invocation as a single argv-shell-quoted
+              # string so we can use POSIX-sh `set --` semantics without
+              # bash-only arrays. Each entry in MOTHERSHIP_AUTHS_TO_STRIP
+              # contributes one `--arg s<N> <host>` pair + one
+              # ` | del(.auths[$s<N>])` filter stage.
+              #
+              # `--arg` ALWAYS treats its value as a string (no shell
+              # interpolation), so even a maliciously crafted host like
+              # `"; rm -rf /` would land verbatim as a JSON-string
+              # operand to `del()` — never executed.
+              jq_filter='.auths[$h] = {"username":$user,"auth":$auth}'
+              strip_idx=0
+              # Reset positional params so `set --` below builds a clean
+              # `--arg s<N> <host>` list. The Job's args[] passes only the
+              # script body to `sh -c`, so $@ is normally empty — this is
+              # belt-and-braces against future operator overlays adding
+              # extra args.
+              set --
+              if [ -n "${MOTHERSHIP_AUTHS_TO_STRIP:-}" ]; then
+                # POSIX-safe comma-iteration via parameter expansion.
+                rem="${MOTHERSHIP_AUTHS_TO_STRIP},"
+                while [ -n "${rem}" ] && [ "${rem}" != "," ]; do
+                  strip_host="${rem%%,*}"
+                  rem="${rem#*,}"
+                  strip_host=$(printf '%s' "${strip_host}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+                  [ -z "${strip_host}" ] && continue
+                  # Defence-in-depth: never delete the local harbor
+                  # entry even if listed (matches the earlier idempotency
+                  # check that also skips it).
+                  if [ "${strip_host}" = "${harbor_host}" ]; then
+                    continue
+                  fi
+                  jq_filter="${jq_filter} | del(.auths[\$s${strip_idx}])"
+                  # Append `--arg s<N> <host>` to the positional params
+                  # so we can invoke jq with "$@" below.
+                  set -- "$@" --arg "s${strip_idx}" "${strip_host}"
+                  strip_idx=$((strip_idx+1))
+                done
+              fi
+              new_json=$(printf '%s' "${existing_json}" | jq \
+                --arg h "${harbor_host}" \
+                --arg user "${HARBOR_USERNAME}" \
+                --arg auth "${harbor_auth}" \
+                "$@" \
+                "${jq_filter}")
               new_b64=$(printf '%s' "${new_json}" | base64 -w0)
               # Merge-patch the data field. Quoting note: ${GHCR_PULL_SECRET_KEY}
               # is `.dockerconfigjson` which is a literal key (the leading

@@ -116,6 +116,23 @@ harbor:
     # Secrets of dockerconfigjson type carry their value under
     # `.dockerconfigjson`; step 02 parses it for username/password.
     dockerConfigKey: ".dockerconfigjson"
+  # Mothership-side auth entries to STRIP from `ghcr-pull` Secret's
+  # `.dockerconfigjson` during step-06 Phase-0 (TBD-V24 MISS-2, chart
+  # 0.1.35). Once cutover lands and harbor.<sov-fqdn> auth is merged
+  # in, the original ghcr.io + harbor.openova.io auth entries are no
+  # longer needed — Catalyst-authored images pull through the local
+  # Harbor proxy-cache via containerd registries.yaml v2 (step 04),
+  # not through Flux source-controller against upstream GHCR.
+  # Stripping enforces credential hygiene: post-cutover the cluster
+  # CANNOT silently fall back to mothership-side registries even
+  # under a regression. CLAUDE.md §3 Principle #11 ("Sovereigns must
+  # be independent of openova-io after handover") is the canonical
+  # source for the list — keep this list in lockstep with the 4
+  # tether URL families enumerated there. Idempotent: re-runs with
+  # entries already gone are no-ops. (Refs #2034)
+  mothershipAuthsToStrip:
+    - "ghcr.io"
+    - "harbor.openova.io"
   # Seven proxy-cache projects + their upstream registry endpoints.
   # Names are stable because step 06 (helmrepository-patches) +
   # registries.yaml v2 (registry-pivot) rewrite paths against these
