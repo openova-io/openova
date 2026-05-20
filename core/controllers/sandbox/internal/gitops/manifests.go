@@ -256,6 +256,84 @@ stringData:
   placeholder: ""
 `
 
+// mcpConfigMapTemplate renders the canonical `mcp.json` config that
+// agent CLIs (claude-code, qwen-code, cursor-agent, …) read on session
+// start to auto-discover the `openova-sandbox-mcp` server.
+//
+// TBD-P4 B3 (#1986) — Pillar-4 audit Surface B / finding B1 caught that
+// NO MCP config file is injected anywhere. Even after PR #1988 bundled
+// the agent binaries (B1) and PR #1992 wired slug→binary spawn (the
+// other B3), the agents had zero discovery for the MCP server. This
+// ConfigMap closes that gap.
+//
+// Schema is the canonical "claude-code / standard MCP" shape:
+//
+//	{
+//	  "mcpServers": {
+//	    "openova-sandbox-mcp": {
+//	      "command": "/usr/local/bin/openova-sandbox-mcp",
+//	      "args": [],
+//	      "env": {}
+//	    }
+//	  }
+//	}
+//
+// The MCP binary path matches the canonical install location the MCP
+// Dockerfile uses (products/sandbox/mcp-server/Dockerfile:46). NOTE:
+// for the stdio child shape to work end-to-end, the MCP binary must
+// also be installed INTO the pty-server agent-runner image — that is
+// follow-up work (TBD-P4 audit B2, separate PR). This ConfigMap is the
+// FOUNDATION wire: when B2 lands, the journey works without further
+// controller changes.
+//
+// The agents pick their config up from multiple paths:
+//   - claude-code: project-level `./.mcp.json` (CWD) + user-level
+//     `~/.claude.json` with a `mcpServers` key
+//   - qwen-code:  `~/.qwen/settings.json` with `mcpServers` (qwen-code
+//     is a fork of gemini-cli; same shape)
+//   - cursor-agent: project-level `.cursor/mcp.json`
+//
+// We mount the SAME ConfigMap key at all canonical paths via multiple
+// volumeMount entries. Empty `env: {}` lets the MCP binary inherit the
+// per-Sandbox env vars the controller already plumbs (SANDBOX_*,
+// LLM_GATEWAY_*, etc.) so credentials do NOT live in the ConfigMap.
+const mcpConfigMapTemplate = `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sandbox-mcp-config
+  namespace: {{ .NamespaceName }}
+  labels:
+    openova.io/sandbox: {{ .Name }}
+    openova.io/sandbox-owner: {{ .OwnerUID }}
+    openova.io/managed-by: catalyst
+    app.kubernetes.io/name: sandbox-mcp-config
+    app.kubernetes.io/component: mcp-config
+  annotations:
+    openova.io/sandbox-mcp-config-version: "v1"
+data:
+  # Canonical MCP config per the standard "mcpServers" schema documented
+  # at https://modelcontextprotocol.io/. Claude Code, qwen-code, and
+  # cursor-agent all read this shape; aider does not natively support
+  # MCP (no-op for that agent, by design).
+  #
+  # TBD-P4 B3 (#1986) — foundation wire. Pairs with TBD-P4 audit B2:
+  # the MCP binary must be installed INTO the pty-server agent-runner
+  # image at /usr/local/bin/openova-sandbox-mcp. Until B2 ships the
+  # binary into the image, this config will reference a path that
+  # ENOENTs at spawn — the agent surfaces a clean "mcp server not found"
+  # error rather than the current silent-no-discovery state.
+  mcp.json: |
+    {
+      "mcpServers": {
+        "openova-sandbox-mcp": {
+          "command": "/usr/local/bin/openova-sandbox-mcp",
+          "args": [],
+          "env": {}
+        }
+      }
+    }
+`
+
 // newapiTokenSecretTemplate renders the per-Sandbox NewAPI bearer
 // Secret (Wave 9). Materialized into the Org vcluster's
 // sandbox-<owner-uid> namespace by Flux; Wave 8's pty-server
@@ -388,6 +466,35 @@ spec:
             - name: repo-{{ .Slug }}
               mountPath: /workspace/{{ .Slug }}
 {{- end }}
+            # TBD-P4 B3 (#1986) MCP config mounts. ConfigMap
+            # sandbox-mcp-config carries a single mcp.json key in the
+            # canonical "mcpServers" schema. We project it at every
+            # canonical agent-config path so claude-code (user-level
+            # ~/.claude.json + project ./.mcp.json), qwen-code
+            # (~/.qwen/settings.json), and cursor-agent (.cursor/mcp.json)
+            # all auto-discover the openova-sandbox-mcp server without
+            # any user-typed config. Aider does not natively support MCP
+            # so the mounts are inert there (by design).
+            #
+            # subPath is used so each mount stays a single file (not a
+            # whole directory) and does NOT shadow other entries the
+            # agent might write into the same parent dir at runtime.
+            - name: mcp-config
+              mountPath: /workspace/.mcp.json
+              subPath: mcp.json
+              readOnly: true
+            - name: mcp-config
+              mountPath: /home/node/.claude.json
+              subPath: mcp.json
+              readOnly: true
+            - name: mcp-config
+              mountPath: /home/node/.qwen/settings.json
+              subPath: mcp.json
+              readOnly: true
+            - name: mcp-config
+              mountPath: /workspace/.cursor/mcp.json
+              subPath: mcp.json
+              readOnly: true
           readinessProbe:
             httpGet:
               path: /healthz
@@ -418,6 +525,14 @@ spec:
           persistentVolumeClaim:
             claimName: repo-{{ .Slug }}
 {{- end }}
+        # TBD-P4 B3 (#1986) — MCP config ConfigMap source. Projected at
+        # multiple agent-canonical paths via the volumeMounts above.
+        - name: mcp-config
+          configMap:
+            name: sandbox-mcp-config
+            items:
+              - key: mcp.json
+                path: mcp.json
       terminationGracePeriodSeconds: 30
 `
 
@@ -707,6 +822,7 @@ resources:
 {{- range .RepoPaths }}
   - {{ . }}
 {{- end }}
+  - configmap-mcp-config.yaml
   - statefulset-pty-server.yaml
   - service-pty-server.yaml
   - deployment-mcp.yaml
@@ -933,6 +1049,14 @@ func Render(in Inputs) (map[string][]byte, error) {
 		"service-pty-server.yaml":     ptyServerServiceTemplate,
 		"deployment-mcp.yaml":         mcpDeploymentTemplate,
 		"httproute-pty-server.yaml":   httpRouteTemplate,
+		// TBD-P4 B3 (#1986) — `configmap-mcp-config.yaml` carries the
+		// canonical `mcp.json` that agent CLIs read on session start to
+		// auto-discover openova-sandbox-mcp. The pty-server StatefulSet
+		// mounts this ConfigMap at every canonical per-agent path
+		// (~/.claude.json, ~/.qwen/settings.json, ./.mcp.json,
+		// .cursor/mcp.json). See mcpConfigMapTemplate for the full
+		// design discussion.
+		"configmap-mcp-config.yaml": mcpConfigMapTemplate,
 	} {
 		buf, err := renderTemplate(path, raw, rctx)
 		if err != nil {

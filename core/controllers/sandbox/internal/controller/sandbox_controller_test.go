@@ -279,8 +279,9 @@ func TestReconcile_HappyPath(t *testing.T) {
 		t.Errorf("happy path should not requeue: got %v", res)
 	}
 
-	// Wave 1 + Wave 8: 6 fixed + 1 kust + 2 repo PVCs + 4 wave-8 = 13.
-	expectedFiles := 6 + 1 + 2 + 4
+	// Wave 1 + Wave 8 + TBD-P4 B3: 6 fixed + 1 kust + 2 repo PVCs +
+	// 4 wave-8 runtime + 1 MCP-config ConfigMap (TBD-P4 B3 #1986) = 14.
+	expectedFiles := 6 + 1 + 2 + 4 + 1
 	if gs.createFiles != expectedFiles {
 		t.Errorf("expected %d file creates, got %d", expectedFiles, gs.createFiles)
 	}
@@ -468,9 +469,45 @@ func TestReconcile_Wave8RuntimeShape(t *testing.T) {
 		"name: repo-acme-eventforge",
 		"mountPath: /workspace/acme-eventforge",
 		"name: repo-acme-internal-tools",
+		// TBD-P4 B3 (#1986) — MCP config ConfigMap volume + mounts at
+		// every canonical agent-config path so claude-code, qwen-code,
+		// and cursor-agent all auto-discover openova-sandbox-mcp without
+		// any user-typed config. ASSERTING ALL four mount paths so any
+		// future renderer change that drops one is caught at test time.
+		"name: mcp-config",
+		"mountPath: /workspace/.mcp.json",
+		"mountPath: /home/node/.claude.json",
+		"mountPath: /home/node/.qwen/settings.json",
+		"mountPath: /workspace/.cursor/mcp.json",
+		"subPath: mcp.json",
+		"name: sandbox-mcp-config",
 	} {
 		if !strings.Contains(ss, want) {
 			t.Errorf("statefulset-pty-server.yaml missing %q", want)
+		}
+	}
+
+	// TBD-P4 B3 (#1986) — the MCP config ConfigMap MUST be rendered as
+	// a sibling file under the Gitea prefix. The pty-server StatefulSet
+	// references it by name (`sandbox-mcp-config`) via a configMap
+	// volume source; missing this ConfigMap = pty-server Pod stays in
+	// ContainerCreating with FailedMount.
+	cm := get("configmap-mcp-config.yaml")
+	for _, want := range []string{
+		"kind: ConfigMap",
+		"name: sandbox-mcp-config",
+		"namespace: sandbox-ceo-at-acme-com",
+		"openova.io/sandbox: emrah",
+		`openova.io/sandbox-mcp-config-version: "v1"`,
+		"mcp.json: |",
+		`"mcpServers"`,
+		`"openova-sandbox-mcp"`,
+		`"command": "/usr/local/bin/openova-sandbox-mcp"`,
+		`"args": []`,
+		`"env": {}`,
+	} {
+		if !strings.Contains(cm, want) {
+			t.Errorf("configmap-mcp-config.yaml missing %q", want)
 		}
 	}
 
@@ -604,6 +641,11 @@ func TestReconcile_Wave8RuntimeShape(t *testing.T) {
 		"service-pty-server.yaml",
 		"deployment-mcp.yaml",
 		"httproute-pty-server.yaml",
+		// TBD-P4 B3 (#1986) — the MCP config ConfigMap MUST be listed
+		// in the kustomization so Flux applies it. Without this entry
+		// the ConfigMap never lands in the cluster and the pty-server
+		// Pod sits in ContainerCreating with FailedMount.
+		"configmap-mcp-config.yaml",
 	} {
 		if !strings.Contains(kust, want) {
 			t.Errorf("kustomization.yaml missing %q", want)

@@ -24,6 +24,20 @@ annotations:
   # (see issue #181 + docs/BLUEPRINT-AUTHORING.md §11.1).
   catalyst.openova.io/no-upstream: "true"
   catalyst.openova.io/smoke-render-mode: "default-off"
+# 0.3.3 (TBD-P4 B3 #1986, 2026-05-20): inject mcp.json config so agent
+# CLIs (claude-code, qwen-code, cursor-agent) auto-discover the
+# openova-sandbox-mcp server on session start. New `configmap-mcp-config.yaml`
+# carries the canonical "mcpServers" schema; the pty-server StatefulSet
+# mounts it at every canonical agent-config path (~/.claude.json,
+# ~/.qwen/settings.json, ./.mcp.json, .cursor/mcp.json) via subPath
+# projections. FOUNDATION work: pairs with TBD-P4 audit finding B2 —
+# the MCP binary itself must also be installed INTO the pty-server
+# agent-runner image at /usr/local/bin/openova-sandbox-mcp for the
+# stdio child shape to resolve end-to-end. Until B2 lands, this config
+# references a path that ENOENTs at spawn; the agent surfaces a clean
+# "mcp server not found" error instead of the current silent
+# no-discovery state.
+#
 # 0.3.2 (TBD-V21 #2032, 2026-05-20): ship the 4 remaining MCP env-var
 # residuals not covered by PR #1987 — manifests.go now emits
 # `SANDBOX_TOKEN` (mounted from the per-Sandbox Secret's
@@ -58,8 +72,8 @@ annotations:
 # `helm template newapi platform/newapi/chart/ -s templates/service.yaml`
 # → metadata.name: newapi-bp-newapi. Walker on t38 (chart 1.4.216,
 # substrate be4f78bc872e2c56) caught the live regression.
-version: 0.3.2
-appVersion: "0.3.2"
+version: 0.3.3
+appVersion: "0.3.3"
 keywords:
   - catalyst
   - sandbox
