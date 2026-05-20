@@ -1,0 +1,274 @@
+# bp-vllm — Catalyst bootstrap-kit Blueprint slot 39 (AI runtime cohort).
+#
+# In-cluster vLLM inference server. OpenAI-compatible REST API on port
+# 8000. CPU-mode by default — pairs with the bp-newapi `defaultChannels.
+# vllm` channel (slot 80) to give every Sovereign a zero-cost, no-third-
+# party-contract Qwen LLM channel out of the box.
+#
+# ─── Why this slot exists (TBD-V45 / issue #2115) ─────────────────────
+#
+# Before TBD-V45 a fresh Sovereign provisioned WITHOUT a Bank Dhofar
+# commercial contract had NO working LLM channel for the canonical
+# qwen-code agent (memory `feedback_canonical_end_user_dod.md`: "qwen-
+# code routes via newapi → Sovereign-hosted Qwen, zero Anthropic
+# cost-leak"). The only seedable bp-newapi channel was
+# `qwen3.6-bankdhofar` — triple-gated on `LLM_BANK_DHOFAR_ACCOUNT_ID`
+# / `LLM_BANK_DHOFAR_CONTRACT_REF` / per-Sovereign API-key Secret. With
+# none of those present, bp-newapi's channel-seed Helm hook Job
+# suppressed entirely and the customer-facing /v1/chat/completions
+# returned 404 "channel not found" on the first qwen-code request.
+#
+# This slot closes that gap by:
+#   1. Installing vLLM in-cluster, serving Qwen2.5-Coder-1.5B-Instruct
+#      (sized to fit on a single cpx52 worker — ~3 GB CPU inference,
+#      ~5-min cold load, no GPU required).
+#   2. Pairing with slot 80's flipped `defaultChannels.vllm.enabled:
+#      ${SOVEREIGN_VLLM_ENABLED:-true}` so bp-newapi's channel-seed Job
+#      composes + POSTs a `vllm`-typed channel pointing at
+#      `http://vllm-bp-vllm.vllm.svc.cluster.local:8000/v1` on every
+#      fresh Sovereign install.
+#
+# Attestation is `in-cluster` (operator owns the model weights AND the
+# inference hardware — the Sovereign cluster). No commercial-contract
+# attestation required.
+#
+# ─── Model choice (Qwen2.5-Coder-1.5B-Instruct) ───────────────────────
+#
+# Picked for fresh-Sovereign-feasibility on the canonical cpx52 worker
+# (16 GB RAM / 6 vCPU / no GPU). The 1.5B-Instruct variant:
+#   - Fits comfortably in CPU inference (~3 GB resident + KV cache);
+#     leaves headroom for the rest of the Sovereign workload.
+#   - Cold-load time ~5 min on cpx52 — within the chart's 600s liveness
+#     initialDelaySeconds budget.
+#   - Apache-2.0-licensed open-weights from Qwen (model card:
+#     https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct) — no
+#     HuggingFace token required (public, ungated).
+#   - Coder-tuned — matches qwen-code's task profile.
+#
+# Production Sovereigns with GPU nodes overlay this slot with
+# `vllm.gpu.enabled: true` + `vllm.model: Qwen/Qwen2.5-Coder-7B-
+# Instruct` (or larger) per their accelerator capacity. The chart
+# defaults are kept dev-friendly so a fresh prov boots without
+# operator overlay tuning.
+#
+# ─── Slot 39 dependsOn rationale ──────────────────────────────────────
+#
+# The bp-vllm chart is a plain Deployment+Service — no InferenceService
+# CR, no KServe runtime, no upstream Helm subchart with hard
+# prerequisites. The pairing with bp-kserve mentioned in
+# blueprint.yaml's `depends:` block is a logical "pairs with" hint for
+# Day-2 work (running vLLM as a KServe InferenceService), NOT a hard
+# install-time requirement.
+#
+# Per the convergence-blockers playbook, declaring a non-existent
+# bootstrap-kit slot as a dependsOn target wedges the HR indefinitely
+# (Flux dependsOn waits for the dependency to reach Ready=True;
+# missing HRs never report Ready). Slot 38 (bp-kserve) is reserved in
+# scripts/expected-bootstrap-deps.yaml but has no slot file on disk
+# today, so this slot deliberately declares NO bp-kserve dep.
+#
+# bp-flux (slot 3) and bp-cilium (slot 1) are implicit cluster-bootstrap
+# deps satisfied for every slot in this kit. The chart only needs CNI
+# (Cilium) + Flux to land its Deployment + Service. No explicit
+# dependsOn entries are required for that — same pattern as bp-valkey
+# (slot 17) and bp-cnpg (slot 16) which both declare just [bp-flux].
+#
+# ─── Per-Sovereign overlay surface ────────────────────────────────────
+#
+# enabled — default-ON via ${SOVEREIGN_VLLM_ENABLED:-true} on the
+# bootstrap-kit Kustomization substitute. Operators on resource-
+# constrained Sovereigns (or those bringing their own commercial Qwen
+# contract) opt-OUT via `SOVEREIGN_VLLM_ENABLED=false`. Lockstep with
+# slot 80's `defaultChannels.vllm.enabled` so the newapi channel is
+# composed iff the vLLM Deployment is rendered.
+#
+# vllm.model — overlay to a larger Coder variant on GPU Sovereigns
+# (e.g. `Qwen/Qwen2.5-Coder-7B-Instruct` on an a100-equipped node);
+# overlay to `Qwen/Qwen2.5-Coder-32B-Instruct-AWQ` on multi-GPU
+# clusters with int4 quantization (also flip `vllm.args.quantization:
+# awq`).
+#
+# vllm.gpu.* — flip `enabled: true` on GPU Sovereigns AFTER ensuring
+# the cluster's GPU operator (nvidia-device-plugin / driver-toolkit)
+# is Ready. CPU-mode is functional but extremely slow at >1.5B
+# parameters; do NOT serve production traffic from CPU mode.
+#
+# vllm.modelCache.* — overlay to `type: pvc` + a SeaweedFS-backed
+# claim once bp-seaweedfs (slot 18) is stable on the Sovereign, so
+# model weights survive Pod restarts and rolling upgrades. The
+# default emptyDir is fine for smoke-test and dev Sovereigns where
+# a re-pull on Pod restart is acceptable; production Sovereigns
+# MUST switch to a PVC to amortize the cold-load over upgrades.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vllm
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+    catalyst.openova.io/component: ai-runtime
+    # Kyverno PSS gate: vllm container runs as uid 1000 (non-root) so
+    # the chart values match `restricted` profile defaults. No
+    # exceptions required.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-vllm
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-vllm
+  namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "39"
+    catalyst.openova.io/component: ai-runtime
+spec:
+  interval: 15m
+  releaseName: vllm
+  targetNamespace: vllm
+  # No explicit dependsOn — see the slot-39 dependsOn rationale comment
+  # block above. The chart only needs CNI + Flux (implicit cluster-
+  # bootstrap deps).
+  chart:
+    spec:
+      chart: bp-vllm
+      # Lockstep with platform/vllm/chart/Chart.yaml `version:` and
+      # platform/vllm/blueprint.yaml `spec.version:`. The TBD-A6
+      # auto-bump hook in .github/workflows/blueprint-release.yaml
+      # keeps this in sync with chart bumps; the
+      # scripts/check-bootstrap-kit-pin-sync.sh CI gate fails the build
+      # if drift is introduced.
+      version: 1.0.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-vllm
+        namespace: flux-system
+  install:
+    timeout: 15m
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    timeout: 15m
+    disableWait: true
+    remediation:
+      retries: 3
+  values:
+    # Default-ON via the bootstrap-kit Kustomization substitute. Flip
+    # to false on per-Sovereign overlays where (a) resources are too
+    # constrained for in-cluster inference OR (b) the operator is
+    # bringing a commercial Qwen contract and prefers to route 100%
+    # of traffic to the BankDhofar relay. Keep lockstep with slot 80's
+    # `defaultChannels.vllm.enabled` so the newapi channel is composed
+    # iff this Deployment is rendered.
+    vllm:
+      enabled: ${SOVEREIGN_VLLM_ENABLED:-true}
+      replicas: 1
+      # Qwen2.5-Coder-1.5B-Instruct — public Apache-2.0 Coder-tuned
+      # model, ~3 GB CPU footprint, ~5 min cold-load on cpx52. Sized
+      # for the canonical cpx52 worker with no GPU. GPU Sovereigns
+      # overlay with a larger variant per accelerator capacity.
+      model: "Qwen/Qwen2.5-Coder-1.5B-Instruct"
+      args:
+        # Context length — 8192 is well within the 1.5B model's max
+        # (32K) and keeps KV-cache memory under 1 GB for CPU
+        # inference.
+        maxModelLen: 8192
+        # CPU mode does not honor --gpu-memory-utilization; harmless
+        # default.
+        gpuMemoryUtilization: 0.9
+        dtype: "auto"
+        # No quantization for 1.5B (fits FP16 in ~3 GB); GPU
+        # Sovereigns running 7B+ on a single GPU overlay
+        # `quantization: awq` for int4 fit.
+        quantization: ""
+        tensorParallelSize: 1
+        enablePrefixCaching: false
+        extraArgs: []
+      gpu:
+        enabled: false
+        count: 1
+        nodeSelector: {}
+        tolerations: []
+      # CPU-mode resources — fits in the cpx52 envelope. GPU
+      # Sovereigns overlay vllm.gpu.enabled=true and the chart picks
+      # the bp-vllm.resources helper's GPU branch automatically.
+      resources:
+        cpu:
+          requests:
+            cpu: "2"
+            memory: "6Gi"
+          limits:
+            cpu: "4"
+            memory: "10Gi"
+        gpu:
+          requests:
+            cpu: "4"
+            memory: "16Gi"
+          limits:
+            cpu: "16"
+            memory: "64Gi"
+      # No HF token required — Qwen2.5-Coder-1.5B-Instruct is public.
+      # GPU Sovereigns running gated Llama-family models overlay
+      # huggingfaceToken.enabled=true + supply an ExternalSecret.
+      huggingfaceToken:
+        enabled: false
+      # Default emptyDir for the model cache — fresh-prov-friendly.
+      # Production Sovereigns overlay `type: pvc` + a SeaweedFS-
+      # backed claim once bp-seaweedfs (slot 18) is stable, so model
+      # weights survive Pod restarts and rolling upgrades.
+      modelCache:
+        type: emptyDir
+      # Generous liveness budget — 1.5B Qwen cold-load takes ~5 min on
+      # CPU. The chart default of 600s initialDelaySeconds matches.
+      probes:
+        liveness:
+          path: /health
+          initialDelaySeconds: 600
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readiness:
+          path: /health
+          initialDelaySeconds: 60
+          periodSeconds: 15
+          timeoutSeconds: 10
+    # ClusterIP Service exposed at `vllm-bp-vllm.vllm.svc.cluster.local
+    # :8000`. Slot 80 (bp-newapi) wires its `defaultChannels.vllm.
+    # endpoint` to `http://vllm-bp-vllm.vllm.svc.cluster.local:8000/v1`
+    # which matches this exact host + port.
+    service:
+      type: ClusterIP
+      port: 8000
+      targetPort: 8000
+    # ServiceMonitor default-OFF (matches the chart default per
+    # docs/BLUEPRINT-AUTHORING.md §11.2 — observability toggles MUST
+    # default OFF on a fresh Sovereign because the
+    # monitoring.coreos.com CRD ships with kube-prometheus-stack which
+    # is an opt-in downstream chart).
+    serviceMonitor:
+      enabled: false
+    # NetworkPolicy default-OFF for now — bp-newapi's egress rule
+    # already allows traffic to the `vllm` namespace on port 8000
+    # (see platform/newapi/chart/values.yaml `networkPolicy.egress`),
+    # and Cilium's default-allow CiliumNetworkPolicy posture in
+    # the `vllm` namespace gives ingress from `newapi`. Operators
+    # tightening to default-deny overlay this on AND set
+    # `llmGatewayNamespace: newapi` so the chart's policy admits
+    # newapi → vllm traffic.
+    networkPolicy:
+      enabled: false
+      llmGatewayNamespace: "newapi"
+    hpa:
+      enabled: false

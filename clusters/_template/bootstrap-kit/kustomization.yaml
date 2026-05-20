@@ -88,6 +88,18 @@ resources:
   - 33-syft-grype.yaml
   - 34-velero.yaml
   - 35-coraza.yaml
+  # bp-vllm (slot 39) — in-cluster vLLM inference server (Qwen2.5-Coder-
+  # 1.5B-Instruct on CPU by default). Paired with bp-newapi (slot 80)
+  # `defaultChannels.vllm` to give every fresh Sovereign a zero-cost,
+  # no-third-party-contract Qwen channel out of the box.
+  #
+  # TBD-V45 (#2115, 2026-05-20): closes the canonical-DoD gap that the
+  # only seedable bp-newapi channel was triple-gated on a Bank Dhofar
+  # commercial contract. Default-ON via ${SOVEREIGN_VLLM_ENABLED:-true}
+  # on the bootstrap-kit Kustomization substitute; lockstep with slot
+  # 80's `defaultChannels.vllm.enabled` so the newapi channel is
+  # composed iff this Deployment is rendered.
+  - 39-bp-vllm.yaml
   - 49-bp-cert-manager-powerdns-webhook.yaml
   - 50-cluster-autoscaler.yaml
   # qa-loop iter-7 Fix #39 — exec fan-out (Apache Guacamole + per-node

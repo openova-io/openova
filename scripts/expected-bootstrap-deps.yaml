@@ -270,7 +270,17 @@ slots:
     wave: W2.K4
   - slot: 39
     name: bp-vllm
-    depends_on: [bp-kserve]
+    # TBD-V45 (#2115, 2026-05-20): bp-vllm landed as a standalone
+    # Deployment+Service vLLM runtime (NOT a KServe InferenceService).
+    # The chart needs only CNI + Flux (implicit cluster-bootstrap deps);
+    # the bp-kserve dep was a forward-declaration from the original
+    # W2.K4 paper plan that anticipated KServe-routed inference.
+    # bp-kserve (slot 38) has no bootstrap-kit slot file on disk today,
+    # so declaring it as a dependsOn would wedge bp-vllm's HR indefinitely
+    # (Flux dependsOn waits for Ready=True; missing HRs never report).
+    # When bp-kserve later lands as a real slot, this dep can be
+    # re-introduced + bp-vllm can be re-wrapped as a KServe ServingRuntime.
+    depends_on: []
     wave: W2.K4
   - slot: 40
     name: bp-llm-gateway

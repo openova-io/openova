@@ -179,7 +179,14 @@ spec:
       # Companion to bp-catalyst-platform 1.4.225 which adds the
       # secretKeyRef itself + the corrected CATALYST_NEWAPI_ADDR
       # literal (`http://newapi-bp-newapi.newapi.svc.cluster.local:3000`).
-      version: 1.4.36
+      # 1.4.37 — TBD-V45 (#2115, 2026-05-20): channel-seed Job now
+      # also seeds the in-cluster vLLM channel when
+      # `defaultChannels.vllm.enabled=true`. The seed gate is now
+      # `or qbdReady vllmReady` (was `and qbd.enabled qbdAttReady`),
+      # so a fresh Sovereign with vllm-only enabled (no Bank Dhofar
+      # commercial contract) still seeds a working Qwen channel.
+      # Lockstep with the platform/newapi/chart bump in the same PR.
+      version: 1.4.37
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
@@ -328,12 +335,49 @@ spec:
           kind: commercial-contract
           accountId: ${LLM_BANK_DHOFAR_ACCOUNT_ID:-}
           contractRef: ${LLM_BANK_DHOFAR_CONTRACT_REF:-}
+      # TBD-V45 (#2115, 2026-05-20): wired the in-cluster vLLM channel
+      # default-ON. Paired with bootstrap-kit slot 39 (bp-vllm) which
+      # installs vLLM in-cluster as `vllm-bp-vllm.vllm.svc.cluster.local
+      # :8000` serving Qwen2.5-Coder-1.5B-Instruct on CPU by default.
+      # This pair gives every fresh Sovereign a zero-cost, no-third-
+      # party-contract Qwen channel out of the box — closes the
+      # canonical-DoD gap that the only seedable channel was triple-
+      # gated on a Bank Dhofar commercial contract.
+      #
+      # Lockstep with slot 39's `enabled: ${SOVEREIGN_VLLM_ENABLED:-true}`:
+      # if the operator opts-OUT of the in-cluster vLLM Deployment
+      # (resource-constrained Sovereigns / those bringing a commercial
+      # Qwen contract), this channel also opts-OUT — the chart's
+      # channel-seed Job suppresses the vLLM POST and the customer-
+      # facing channel-router never tries to dial a dead Service.
+      #
+      # Attestation kind: `in-cluster` — operator owns BOTH the model
+      # weights (Apache-2.0 Qwen2.5-Coder, public) and the inference
+      # hardware (the Sovereign cluster). No commercial-contract
+      # attestation required (no accountId / contractRef).
       vllm:
-        enabled: false
+        enabled: ${SOVEREIGN_VLLM_ENABLED:-true}
+        # Customer-visible channel name. `qwen` matches the canonical
+        # sandbox-controller default (`SANDBOX_DEFAULT_CHANNELS=qwen`
+        # in slot 19a-bp-sandbox.yaml) so per-Sandbox token mints land
+        # on this channel by default — closing the qwen-code → vLLM
+        # path end-to-end on a fresh Sovereign with no overlay.
         name: qwen
-        endpoint: ""
+        # In-cluster Service FQDN of the bp-vllm chart. The chart's
+        # Service name resolves to `<release>-<chart>` = `vllm-bp-vllm`
+        # (release "vllm" + chart "bp-vllm" per the chart's
+        # _helpers.tpl fullname template), and slot 39's HR sets
+        # targetNamespace=vllm + releaseName=vllm. Port 8000 matches
+        # the chart's service.port.
+        endpoint: "http://vllm-bp-vllm.vllm.svc.cluster.local:8000/v1"
         models:
           - qwen3-coder
+          # Underlying upstream model id served by the bp-vllm chart's
+          # default `vllm.model` (Qwen/Qwen2.5-Coder-1.5B-Instruct).
+          # vLLM exposes the model under its bare HF id; the customer-
+          # facing `qwen3-coder` alias maps via the channel-router so
+          # callers can use either string interchangeably.
+          - Qwen/Qwen2.5-Coder-1.5B-Instruct
         attestation:
           kind: in-cluster
           owner: ${SOVEREIGN_FQDN}

@@ -67,7 +67,17 @@ Issue #915, 2026-05-05.
     {{- $qbdAttReady = false -}}
   {{- end -}}
 {{- end -}}
-{{- $hasDefaults := and $qbd.enabled $qbdAttReady -}}
+{{- $qbdReady := and $qbd.enabled $qbdAttReady -}}
+{{- /* TBD-V45 (#2115, 2026-05-20): also seed the in-cluster vLLM
+       channel when defaultChannels.vllm.enabled=true. The vLLM
+       channel is in-cluster (attestation.kind=in-cluster) so it
+       needs no upstream API key — the seed Job POSTs an empty
+       string in the channel's `key` field. The seed gate fires
+       when EITHER qwenBankDhofar OR vllm is enabled (both compose
+       into effectiveChannels via _helpers.tpl). */}}
+{{- $vllm := (.Values.defaultChannels | default dict).vllm | default dict -}}
+{{- $vllmReady := and $vllm.enabled (ne (default "" $vllm.endpoint) "") -}}
+{{- $hasDefaults := or $qbdReady $vllmReady -}}
 {{- $masterKeySecret := .Values.auth.adminUI.masterKeySecret | default "" -}}
 {{- if and $cs.enabled $hasDefaults $masterKeySecret -}}
 {{- $jobName := include "bp-newapi.channelSeedJobName" . -}}
@@ -111,9 +121,13 @@ rules:
     resources: ["secrets"]
     resourceNames:
       - {{ $masterKeySecret | quote }}
-{{- if and $qbd.enabled $qbd.existingSecret }}
+{{- if and $qbdReady $qbd.existingSecret }}
       - {{ $qbd.existingSecret | quote }}
 {{- end }}
+{{- /* TBD-V45 (#2115): vLLM channel uses no upstream API key
+       (in-cluster Service auth is not required for the bp-vllm
+       chart's plain Deployment + Service). No Secret to grant
+       read access on for the vLLM seed. */}}
     verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -166,12 +180,20 @@ metadata:
 data:
   channels.json: |
     {{- $list := list }}
-    {{- if $qbd.enabled }}
+    {{- if $qbdReady }}
       {{- $list = append $list (dict
             "name"     (default "qwen3.6-bankdhofar" $qbd.name)
             "type"     "openai-compatible"
             "endpoint" $qbd.endpoint
             "models"   (default (list "qwen3.6" "qwen3-coder") $qbd.models)) }}
+    {{- end }}
+    {{- /* TBD-V45 (#2115): in-cluster vLLM audit row. */}}
+    {{- if $vllmReady }}
+      {{- $list = append $list (dict
+            "name"     (default "qwen" $vllm.name)
+            "type"     "vllm"
+            "endpoint" $vllm.endpoint
+            "models"   (default (list "qwen3-coder") $vllm.models)) }}
     {{- end }}
     {{ $list | toJson }}
 ---
@@ -255,7 +277,7 @@ spec:
                 secretKeyRef:
                   name: {{ $masterKeySecret | quote }}
                   key: MASTER_KEY
-{{- if and $qbd.enabled $qbd.existingSecret }}
+{{- if and $qbdReady $qbd.existingSecret }}
             - name: QWEN_BANKDHOFAR_KEY
               valueFrom:
                 secretKeyRef:
@@ -398,7 +420,7 @@ spec:
               }
 
               echo "Channel-seed: seeding default channels"
-{{- if $qbd.enabled }}
+{{- if $qbdReady }}
               # ── Channel #1: Qwen3.6 @ BankDhofar (#915) ────────────
               # NewAPI's `type` field for OpenAI-compatible upstreams is
               # "openai" (constants/channel_type.go ChannelTypeOpenAI).
@@ -412,6 +434,26 @@ spec:
                 {{ $qbd.endpoint | quote }} \
                 {{ join "," (default (list "qwen3.6" "qwen3-coder") $qbd.models) | quote }} \
                 "${QWEN_BANKDHOFAR_KEY}"
+{{- end }}
+{{- if $vllmReady }}
+              # ── Channel: In-cluster vLLM (TBD-V45 / #2115) ─────────
+              # Sovereign-hosted Qwen via the bp-vllm Deployment (bootstrap
+              # -kit slot 39). The bp-vllm chart's plain Deployment +
+              # Service exposes an OpenAI-compatible REST API on port
+              # 8000; from NewAPI's channel-router perspective this looks
+              # identical to any other OpenAI-compatible upstream, so we
+              # POST it as type=openai (same registry value as the
+              # commercial Qwen channels above). Empty `key` field —
+              # the vLLM Service requires no upstream auth (CNI-level
+              # NetworkPolicy admits newapi → vllm:8000; in-cluster
+              # Service auth is a Day-2 hardening exercise tracked
+              # separately, not blocking the default-on Qwen channel).
+              seed_channel \
+                {{ (default "qwen" $vllm.name) | quote }} \
+                "openai" \
+                {{ $vllm.endpoint | quote }} \
+                {{ join "," (default (list "qwen3-coder") $vllm.models) | quote }} \
+                ""
 {{- end }}
 
               echo "Channel-seed: complete."
