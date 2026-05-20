@@ -96,7 +96,7 @@ jobs:
         # GUARD 2 needs `helm template` (and `helm dependency build` for
         # charts with declared dependencies). Pin matches the post-merge
         # Blueprint Release workflow.
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@v5
         with:
           version: v3.18.4
 
