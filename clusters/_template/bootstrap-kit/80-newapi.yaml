@@ -186,7 +186,7 @@ spec:
       # so a fresh Sovereign with vllm-only enabled (no Bank Dhofar
       # commercial contract) still seeds a working Qwen channel.
       # Lockstep with the platform/newapi/chart bump in the same PR.
-      version: 1.4.37
+      version: 1.4.38
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
