@@ -7,15 +7,22 @@ description: |
   switchover sequence). Slice K-Cont-1 of EPIC-6 (#1101) ships the
   product skeleton; K-Cont-2 fills the reconcile loop.
 type: application
-# 0.1.1 (Pillar-3 unblock #2065, 2026-05-20): first PUBLISHED version.
+# 0.1.2 (TBD-V34, 2026-05-20): re-publish after PR #2072's Blueprint
+# Release run (#26144858280) failed the hollow-chart guard. 0.1.1 was
+# tagged in-tree but never landed in GHCR because this chart declares
+# NO `dependencies:` (controller-only chart, no upstream helm subchart
+# to bundle). Same shape as bp-kyverno-policies (PR #2023) and bp-
+# crossplane-claims — opt out via `catalyst.openova.io/no-upstream:
+# "true"` (added to annotations below in this same edit). Bumping
+# 0.1.1 → 0.1.2 forces a fresh publish; bootstrap-kit slot 62 pin
+# moves to 0.1.2 in lockstep (Inviolable Principle #13).
+#
+# 0.1.1 (Pillar-3 unblock #2065, 2026-05-20): first attempt at a
+# PUBLISHED version — never reached GHCR; see above.
 # 0.1.0 sat in-tree without a bootstrap-kit slot to pin it, so the
 # blueprint-release workflow's `detect changed paths` step never had
-# reason to re-run and the chart was never pushed to GHCR. Bumping the
-# pin in lockstep with the new slot file (clusters/_template/bootstrap-
-# kit/62-bp-continuum.yaml) makes blueprint-release publish the chart
-# on this PR's merge; the auto-bump-pin hook (TBD-A6) then converges
-# the slot pin via a no-op (already matches).
-version: 0.1.1
+# reason to re-run and the chart was never pushed to GHCR.
+version: 0.1.2
 appVersion: "0.1.0"
 home: https://openova.io
 sources:
@@ -36,6 +43,18 @@ annotations:
   openova.io/category: customer-facing-capability
   openova.io/epic: "6"
   openova.io/depends-on: bp-cnpg-pair,bp-powerdns,pdm
+  # no-upstream: this chart legitimately ships only Catalyst-authored
+  # resources (controller Deployment + RBAC + Service + NetworkPolicy
+  # — see templates/). The Continuum CRD lives in products/catalyst/
+  # chart/crds/continuum.yaml and is installed by bp-catalyst-platform
+  # (slot 13) to avoid the helm-controller / kustomize-controller
+  # ownership flap on duplicated CRDs (see crds/README.md). There is
+  # no upstream Helm subchart to bundle. Same shape as bp-kyverno-
+  # policies (PR #2023) and bp-crossplane-claims. Without this
+  # annotation the Blueprint-Release hollow-chart guard (issue #181)
+  # rejects publish — proven by failed workflow run 26144858280
+  # (commit 53f510b9, PR #2072 merge, 2026-05-20T06:11:02Z).
+  catalyst.openova.io/no-upstream: "true"
   # smoke-render-mode: default-off — bp-continuum's chart ships
   # `continuum.enabled: false` as its default; helm template with
   # default values legitimately renders zero resources (per chart
