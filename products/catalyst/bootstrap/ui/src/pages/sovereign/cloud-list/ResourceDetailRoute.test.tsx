@@ -25,7 +25,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, cleanup } from '@testing-library/react'
+import { render, cleanup, waitFor } from '@testing-library/react'
 
 interface CapturedES {
   url: string
@@ -115,19 +115,31 @@ afterEach(() => {
 })
 
 describe('ResourceDetailRoute SSE subscription', () => {
-  it('subscribes to event kind so EventsPanel sees Events', async () => {
-    const { ResourceDetailRoute } = await import('./ResourceDetailRoute')
-    render(<ResourceDetailRoute />)
-    expect(activeES).not.toBeNull()
-    const url = activeES!.url
-    // The catalyst-api SSE accepts `?kinds=` as a comma-separated
-    // list. Assert `event` is present so the EventsPanel feed lights
-    // up; without this the panel renders perpetual empty-state.
-    expect(url).toMatch(/kinds=[^&]*event/)
-    // Sanity: the canvas kinds (pod, deployment, service) must still
-    // be subscribed — we extend, never replace.
-    expect(url).toMatch(/kinds=[^&]*pod/)
-    expect(url).toMatch(/kinds=[^&]*deployment/)
-    expect(url).toMatch(/kinds=[^&]*service/)
-  })
+  it(
+    'subscribes to event kind so EventsPanel sees Events',
+    async () => {
+      const { ResourceDetailRoute } = await import('./ResourceDetailRoute')
+      render(<ResourceDetailRoute />)
+      // useK8sCacheStream opens its EventSource inside a useEffect, so
+      // the FakeEventSource constructor (which captures `activeES`) may
+      // fire on a microtask after `render()` returns. waitFor handles
+      // the React-18 flush timing without race-prone setTimeout(0)
+      // tricks.
+      await waitFor(() => expect(activeES).not.toBeNull(), {
+        timeout: 4000,
+        interval: 25,
+      })
+      const url = activeES!.url
+      // The catalyst-api SSE accepts `?kinds=` as a comma-separated
+      // list. Assert `event` is present so the EventsPanel feed lights
+      // up; without this the panel renders perpetual empty-state.
+      expect(url).toMatch(/kinds=[^&]*event/)
+      // Sanity: the canvas kinds (pod, deployment, service) must still
+      // be subscribed — we extend, never replace.
+      expect(url).toMatch(/kinds=[^&]*pod/)
+      expect(url).toMatch(/kinds=[^&]*deployment/)
+      expect(url).toMatch(/kinds=[^&]*service/)
+    },
+    10_000,
+  )
 })
