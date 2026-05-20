@@ -23,6 +23,18 @@ RUN go mod download
 # Copy the controller package tree + shared internal/ helpers.
 WORKDIR /src
 COPY core/controllers/internal/ core/controllers/internal/
+# core/controllers/pkg/ holds the shared HTTP-client tree (gitea,
+# keycloak, kc-mappers, …) used by every Group C controller.
+# blueprint-controller imports core/controllers/pkg/gitea from
+# cmd/main.go + internal/controller/blueprint_controller.go.
+# Without this COPY the `go build` step fails with `no required module
+# provides package github.com/openova-io/openova/core/controllers/pkg/gitea`
+# — the build for every push-to-main has failed silently since slice
+# CC1 (#1095) promoted pkg/ to the shared tree, so the
+# blueprint-controller image has NEVER been published to GHCR
+# (Refs TBD-V28 #2047). Mirrors the COPY layout used by application,
+# environment, and organization Containerfiles.
+COPY core/controllers/pkg/ core/controllers/pkg/
 COPY core/controllers/blueprint/ core/controllers/blueprint/
 
 WORKDIR /src/core/controllers/blueprint
