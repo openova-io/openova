@@ -216,14 +216,25 @@ func (c *CFKVClient) Renew(ctx context.Context, holder string, ttl time.Duration
 	if err != nil {
 		return witness.State{}, err
 	}
-	// If we don't currently hold the lease (or it's expired), Renew
-	// MUST surface ErrLeaseLost regardless of what the Worker says.
-	// This matches the K-Cont-2 contract: Renew is for the holder
-	// only.
+	// If we don't currently hold the lease, Renew MUST surface
+	// ErrLeaseLost regardless of what the Worker says. This matches
+	// the K-Cont-2 contract: Renew is for the holder only. A
+	// non-holder client should not even attempt the PUT.
+	//
+	// NOTE: we deliberately do NOT compare cur.ExpiresAt against
+	// time.Now() here. The Worker is the timestamping authority:
+	// ExpiresAt is stamped in the Worker's clock frame and may
+	// legitimately differ from the client's wall-clock (NTP skew,
+	// fake-clock tests). Expiry is enforced server-side — an expired
+	// renew returns 412, which write() maps to
+	// ErrLeaseHeldByAnother, which we then re-map to ErrLeaseLost
+	// below. This keeps a single source of truth for "is the lease
+	// alive" (the Worker), avoiding the client-side wall-clock-vs-
+	// server-clock disagreement that previously failed
+	// TestCFKV_ContractSuite/RenewExtendsTTLAndBumpsGeneration
+	// whenever the fake worker's clock and the test's real clock
+	// diverged.
 	if cur.Holder != holder {
-		return cur, witness.ErrLeaseLost
-	}
-	if !time.Now().Before(cur.ExpiresAt) {
 		return cur, witness.ErrLeaseLost
 	}
 	st, err := c.write(ctx, holder, ttl, "renew", cur.Generation)
