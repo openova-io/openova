@@ -43,7 +43,7 @@ data:
   cutoverFinishedAt: ""
   currentStep: ""
   currentStepIndex: "0"
-  totalSteps: "8"
+  totalSteps: "9"
   progressPercent: "0"
   failedStep: ""
   lastError: ""

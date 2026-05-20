@@ -341,7 +341,15 @@ spec:
       # admin-secret). Smoke render unaffected (CronJob lacks the
       # cutover-step labels so the contract test's exactly-9-steps
       # assertion still passes).
-      version: 0.1.33
+      #
+      # 0.1.34 (TBD-V25, issue #2035, 2026-05-20): fix stale
+      # `totalSteps: "8"` literal in 09-cutover-status-configmap.yaml
+      # — chart shipped 9 steps since 0.1.30 but the initial-state
+      # status CM still claimed 8. Cosmetic post-trigger (catalyst-api
+      # overwrites with live count on /start) but UIs reading
+      # `<currentIndex>/<totalSteps>` in the pre-trigger window
+      # showed the wrong denominator. Single-literal swap.
+      version: 0.1.34
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
