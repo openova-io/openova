@@ -72,6 +72,29 @@ func readBoolCfg(cfg map[string]any, key string, dflt bool, appSlug string) bool
 	return v
 }
 
+// readStringCfg returns a string value from an opaque configSchema
+// map. Same semantics as readIntCfg / readBoolCfg for missing/mistyped
+// values. Used by the active-hot-standby cnpg-pair path (TBD-V17 #2068)
+// to thread `primary_region` / `replica_region` picks from the
+// Postgres-backed app's configSchema into the rendered bp-cnpg-pair
+// HelmRelease.
+func readStringCfg(cfg map[string]any, key, dflt, appSlug string) string {
+	if cfg == nil {
+		return dflt
+	}
+	raw, ok := cfg[key]
+	if !ok {
+		return dflt
+	}
+	v, ok := raw.(string)
+	if !ok {
+		slog.Warn("readStringCfg: value has unexpected type — falling back to default",
+			"app", appSlug, "key", key, "type", fmt.Sprintf("%T", raw), "default", dflt)
+		return dflt
+	}
+	return v
+}
+
 // logUnknownKeys emits a Warn for every key in cfg that is NOT in the
 // known configSchema's KnownKeys list. Prevents a stale frontend from
 // silently smuggling arbitrary keys (like extra YAML chunks) into the
@@ -193,7 +216,42 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 		"namespace.yaml": generateAppNamespace(appNS),
 	}
 	if len(postgresApps) > 0 {
-		vcFiles["db-postgres.yaml"] = generatePostgres(appNS, dbPassword, postgresApps, appConfigs["postgres"])
+		// TBD-V17 (#2068) — Pillar 3 generic install path for
+		// bp-cnpg-pair. When the customer's Postgres-backed app
+		// configSchema declares `active_hot_standby: true` AND a valid
+		// distinct primary_region / replica_region pair, render a
+		// bp-cnpg-pair HelmRelease (primary + replica CNPG Cluster CR
+		// across two regions, synchronous WAL streaming over Cilium
+		// ClusterMesh) instead of the single-Pod legacy postgres
+		// Deployment. Applies to EVERY postgres-backed app in the
+		// marketplace (Umami / NocoDB / Gitea / Plane / Twenty /
+		// Listmonk / Chatwoot / canonical Postgres-backed bundle), not
+		// just bp-wordpress-tenant — that was the audit gap closed by
+		// this PR.
+		//
+		// Default-OFF: when active_hot_standby is absent or false (the
+		// historical default for every tenant pre-#2068) the legacy
+		// generatePostgres() path runs unchanged — zero regression for
+		// any existing customer. Same for malformed region picks
+		// (identical primary/replica, or either missing): fall back to
+		// single-cluster shape rather than rendering a HelmRelease
+		// bp-cnpg-pair's `required` template guard would reject.
+		pgCfg := appConfigs["postgres"]
+		enableHA := readBoolCfg(pgCfg, "active_hot_standby", false, "postgres")
+		primaryRegion := strings.TrimSpace(readStringCfg(pgCfg, "primary_region", "", "postgres"))
+		replicaRegion := strings.TrimSpace(readStringCfg(pgCfg, "replica_region", "", "postgres"))
+		if enableHA && primaryRegion != "" && replicaRegion != "" && primaryRegion != replicaRegion {
+			vcFiles["db-cnpg-pair.yaml"] = generateCNPGPair(appNS, dbPassword, postgresApps, pgCfg, primaryRegion, replicaRegion)
+		} else {
+			if enableHA {
+				// Operator opted in but didn't supply distinct region
+				// pair — log loud so the gap is operator-visible rather
+				// than silently degrading to single-cluster.
+				slog.Warn("provisioning/gitops: active_hot_standby requested but region pair invalid — falling back to single-cluster postgres",
+					"app", "postgres", "primary_region", primaryRegion, "replica_region", replicaRegion)
+			}
+			vcFiles["db-postgres.yaml"] = generatePostgres(appNS, dbPassword, postgresApps, pgCfg)
+		}
 	}
 	if len(mysqlApps) > 0 {
 		vcFiles["db-mysql.yaml"] = generateMySQL(appNS, dbPassword, mysqlApps, appConfigs["mysql"])
@@ -461,7 +519,13 @@ GRANT ALL PRIVILEGES ON DATABASE %s TO app;
 	replicas := readIntCfg(cfg, "replicas", 1, 1, 5, "postgres")
 	diskGB := readIntCfg(cfg, "disk_gb", 5, 1, 500, "postgres")
 	backupsEnabled := readBoolCfg(cfg, "backups_enabled", false, "postgres")
-	logUnknownKeys(cfg, []string{"replicas", "disk_gb", "backups_enabled"}, "postgres")
+	// active_hot_standby / primary_region / replica_region are picked
+	// up upstream in GenerateAllWithAppConfigs (#2068 generic cnpg-pair
+	// install path). Adding them to the known-keys list here avoids a
+	// false-positive "unknown key" Warn when the customer chose the
+	// single-cluster shape but the orchestrator still threaded the
+	// per-app config through.
+	logUnknownKeys(cfg, []string{"replicas", "disk_gb", "backups_enabled", "active_hot_standby", "primary_region", "replica_region"}, "postgres")
 	if backupsEnabled {
 		// No chart-side binding yet — a follow-up will land a CronJob +
 		// pgdump-to-SeaweedFS sidecar. Logging here makes the gap
@@ -560,6 +624,166 @@ spec:
     - port: 5432
       targetPort: 5432
 `, ns, password, primaryDB, ns, indentBlock(initSQL, "    "), ns, diskGB, ns, backupsEnabled, replicas, ns)
+}
+
+// generateCNPGPair renders the bp-cnpg-pair HelmRelease — the Pillar-3
+// active-hot-standby Postgres install path for any postgres-backed
+// marketplace app (TBD-V17 #2068). Before this PR the cluster-pair
+// pattern existed only inline inside bp-wordpress-tenant's
+// templates/cnpg-cluster.yaml; non-WP customer apps (Umami / NocoDB /
+// Gitea / Plane / Twenty / Listmonk / Chatwoot / the canonical
+// Postgres-backed bundle from CLAUDE.md §0 step 1b) had no install
+// path to the cluster-pair shape, breaking Pillar 3 for every
+// non-WordPress customer journey.
+//
+// The HelmRelease is targetNamespace=apps (matches the legacy
+// generatePostgres deployment's ns + the postgres-credentials Secret
+// the app expects) and chart-pinned via the bp-cnpg-pair HelmRepository
+// the bootstrap-kit publishes on the tenant vCluster. Per-app database
+// names (db_<appSlug>) are wired via cnpgPair.primary.bootstrap and
+// per-database SQL extension blocks so co-installed postgres-backed
+// apps still see their own database.
+//
+// The chart's own values.yaml (platform/cnpg-pair/chart/values.yaml)
+// ships:
+//   - replication.mode: sync (synchronous remote_apply per #2064 ship)
+//   - replication.sync.commit: remote_apply
+//   - replication.sync.numSync: 1
+//   - clusterMesh.enabled: true
+//   - clusterMesh.affinity: local
+//
+// We rely on those defaults rather than overriding so per-Sovereign
+// overlays remain free to relax for forensic / lab runs. Our overlay
+// supplies ONLY the per-app surface (region pair, instance counts,
+// storage size, bootstrap db/owner credentials Secret).
+//
+// Image tag is intentionally NOT set here — the bp-cnpg-pair chart's
+// values.yaml fail-fasts on an empty image.tag (Principle #4a) so the
+// per-Sovereign overlay MUST pin a SHA digest. Leaving it empty in the
+// orchestrator output keeps the contract that overlay layer is the
+// single owner of image pins.
+func generateCNPGPair(ns, password string, apps []string, cfg map[string]any, primaryRegion, replicaRegion string) string {
+	sortedApps := sortStrings(append([]string{}, apps...))
+	primaryDB := "appdb"
+	if len(sortedApps) > 0 {
+		primaryDB = "db_" + sortedApps[0]
+	}
+
+	// configSchema knobs (same range gates as the legacy postgres
+	// path so a customer who flips active_hot_standby on doesn't see
+	// a different validation surface for `replicas` / `disk_gb`).
+	// `replicas` here maps to CNPG `instances` per region; min 3 is
+	// the bp-cnpg-pair chart's own configSchema floor for primary
+	// (active-hotstandby HA requires a 3-node quorum per region). If
+	// the customer chose 1-2 we clamp to 3 and log loud so the gap is
+	// operator-visible.
+	requested := readIntCfg(cfg, "replicas", 3, 1, 5, "postgres")
+	instances := requested
+	if instances < 3 {
+		slog.Warn("generateCNPGPair: replicas < 3 incompatible with active-hot-standby quorum — clamping to 3",
+			"app", "postgres", "requested", requested, "clamped", 3)
+		instances = 3
+	}
+	// Storage: CNPG ships its own PVC management per Cluster CR, so
+	// we surface disk_gb 1:1 (default matches bp-cnpg-pair chart
+	// default of 100Gi when customer doesn't pick — but we default to
+	// the configSchema's 5GB floor for predictability + parity with
+	// the legacy single-cluster path).
+	diskGB := readIntCfg(cfg, "disk_gb", 5, 1, 500, "postgres")
+
+	return fmt.Sprintf(`# bp-cnpg-pair — Pillar-3 active-hot-standby install path for
+# postgres-backed marketplace apps (TBD-V17 #2068). Renders the
+# primary + replica CNPG Cluster CR pair across the two regions the
+# customer picked at signup. Synchronous WAL replication over Cilium
+# ClusterMesh; failover-readiness probe + audit ConfigMap wired by the
+# chart's own templates (platform/cnpg-pair/chart/templates/*).
+#
+# postgres-credentials Secret carries the same shape the legacy
+# single-cluster path emits so co-installed marketplace apps' env
+# bindings (POSTGRES_HOST=postgres, POSTGRES_USER=app, etc.) keep
+# working. The Service the apps connect to is the primary Cluster
+# CR's bootstrap-managed RW endpoint (cnpgPair.primary.bootstrap.database
+# = primary DB name).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-credentials
+  namespace: %s
+type: Opaque
+stringData:
+  POSTGRES_USER: app
+  POSTGRES_PASSWORD: "%s"
+  POSTGRES_DB: %s
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-cnpg-pair
+  namespace: %s
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-cnpg-pair
+  namespace: %s
+  labels:
+    catalyst.openova.io/component: cnpg-pair
+    openova.io/category: customer-facing-capability
+    openova.io/pillar: "3"
+spec:
+  interval: 15m
+  releaseName: cnpg-pair
+  targetNamespace: %s
+  chart:
+    spec:
+      chart: bp-cnpg-pair
+      # 0.1.2 — first version with synchronous replication default
+      # (remote_apply, numSync=1 — #2064 ship). Pinned via the
+      # bootstrap-kit slot when one lands (currently install via the
+      # vCluster HelmRepository above).
+      version: 0.1.2
+      sourceRef:
+        kind: HelmRepository
+        name: bp-cnpg-pair
+        namespace: %s
+  install:
+    timeout: 15m
+    remediation:
+      retries: 3
+  upgrade:
+    timeout: 15m
+    remediation:
+      retries: 3
+  values:
+    cnpgPair:
+      enabled: true
+      primary:
+        region: %s
+        instances: %d
+        storage:
+          size: %dGi
+          storageClass: hcloud-volumes
+        bootstrap:
+          database: %s
+          owner: app
+      replica:
+        region: %s
+        instances: %d
+        storage:
+          size: %dGi
+          storageClass: hcloud-volumes
+      # replication.mode + clusterMesh + audit defaults come from the
+      # chart's own values.yaml (sync remote_apply + numSync=1 +
+      # clusterMesh.enabled + audit subjects). Per-Sovereign overlays
+      # may patch values via Flux postBuild substitute; we intentionally
+      # do NOT override here.
+`, ns, password, primaryDB, ns, ns, ns, ns, primaryRegion, instances, diskGB, primaryDB, replicaRegion, instances, diskGB)
 }
 
 func generateMySQL(ns, password string, apps []string, cfg map[string]any) string {

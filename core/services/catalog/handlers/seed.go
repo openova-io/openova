@@ -699,10 +699,21 @@ func (h *Handler) seedSystemApps(ctx context.Context) {
 	replicasField := store.ConfigField{Key: "replicas", Label: "Replicas", Type: "int", Default: 1, Min: intPtr(1), Max: intPtr(5), Description: "Number of database instances in the cluster.", Advanced: false}
 	diskField := store.ConfigField{Key: "disk_gb", Label: "Storage (GB)", Type: "int", Default: 5, Min: intPtr(1), Max: intPtr(500), Description: "Persistent volume size per replica.", Advanced: false}
 	backupField := store.ConfigField{Key: "backups_enabled", Label: "Daily backups", Type: "bool", Default: false, Description: "Enable daily backups to object storage.", Advanced: true}
+	// Pillar-3 active-hot-standby (TBD-V17 #2068). When the customer
+	// flips active_hot_standby on AND picks distinct primary/replica
+	// regions, the provisioning gitops emit the bp-cnpg-pair
+	// HelmRelease shape instead of the single-Pod legacy postgres
+	// Deployment — primary + replica CNPG Cluster CRs across two
+	// regions with synchronous WAL streaming over Cilium ClusterMesh.
+	// Default-OFF so every existing customer keeps the historical
+	// single-cluster shape with zero regression.
+	activeHotStandbyField := store.ConfigField{Key: "active_hot_standby", Label: "Active-hot-standby (multi-region DR)", Type: "bool", Default: false, Description: "Primary + replica Postgres across two regions with synchronous replication. Requires distinct primary_region and replica_region.", Advanced: true}
+	primaryRegionField := store.ConfigField{Key: "primary_region", Label: "Primary region", Type: "string", Description: "Region key for the primary Cluster (e.g. hz-fsn-rtz-prod). Required when active_hot_standby=true.", Advanced: true}
+	replicaRegionField := store.ConfigField{Key: "replica_region", Label: "Replica region", Type: "string", Description: "Region key for the replica Cluster — MUST differ from primary_region.", Advanced: true}
 
 	systemApps := []store.App{
 		{Slug: "mysql", Name: "MySQL", Tagline: "Relational database engine", Description: "Managed MySQL backing store. Provisioned automatically when required by an app dependency.", Category: "database", Icon: "\U0001F5C4", IconBg: "#00758F", System: true, Kind: "service", Shareable: true, Free: true, RamMB: 256, CpuMilli: 200, DiskGB: 5, HelmChart: "mysql", HelmRepo: "https://charts.bitnami.com/bitnami", ConfigSchema: []store.ConfigField{replicasField, diskField, backupField}, CreatedAt: now, UpdatedAt: now},
-		{Slug: "postgres", Name: "PostgreSQL", Tagline: "Advanced open-source relational database", Description: "Managed PostgreSQL backing store. Provisioned automatically when required by an app dependency.", Category: "database", Icon: "\U0001F418", IconBg: "#336791", System: true, Kind: "service", Shareable: true, Free: true, RamMB: 256, CpuMilli: 200, DiskGB: 5, HelmChart: "postgresql", HelmRepo: "https://charts.bitnami.com/bitnami", ConfigSchema: []store.ConfigField{replicasField, diskField, backupField}, CreatedAt: now, UpdatedAt: now},
+		{Slug: "postgres", Name: "PostgreSQL", Tagline: "Advanced open-source relational database", Description: "Managed PostgreSQL backing store. Provisioned automatically when required by an app dependency.", Category: "database", Icon: "\U0001F418", IconBg: "#336791", System: true, Kind: "service", Shareable: true, Free: true, RamMB: 256, CpuMilli: 200, DiskGB: 5, HelmChart: "postgresql", HelmRepo: "https://charts.bitnami.com/bitnami", ConfigSchema: []store.ConfigField{replicasField, diskField, backupField, activeHotStandbyField, primaryRegionField, replicaRegionField}, CreatedAt: now, UpdatedAt: now},
 		{Slug: "redis", Name: "Redis", Tagline: "In-memory key-value cache", Description: "Managed Redis backing cache. Provisioned automatically when required by an app dependency.", Category: "database", Icon: "R", IconBg: "#DC382D", System: true, Kind: "service", Shareable: true, Free: true, RamMB: 128, CpuMilli: 100, DiskGB: 1, HelmChart: "redis", HelmRepo: "https://charts.bitnami.com/bitnami", ConfigSchema: []store.ConfigField{{Key: "replicas", Label: "Replicas", Type: "int", Default: 1, Min: intPtr(1), Max: intPtr(3), Description: "Number of Redis instances.", Advanced: false}, {Key: "persistence", Label: "Persistence", Type: "bool", Default: true, Description: "Persist data to disk (disable for pure cache).", Advanced: true}}, CreatedAt: now, UpdatedAt: now},
 	}
 
