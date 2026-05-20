@@ -1,6 +1,6 @@
 # Phase-8a preflight C — Cilium Gateway HTTPRoute admission for bp-catalyst-platform on kind.
 #
-# Surfaces Risk-register R3 (`docs/omantel-handover-wbs.md` §9a — Cilium
+# Surfaces Risk-register R3 (`docs/archive/omantel-handover-wbs.md` §9a — Cilium
 # Gateway HTTPRoute admission untested). bp-catalyst-platform smoke skipped
 # HTTPRoute on contabo because contabo runs Traefik (no `cilium-gateway`
 # Gateway present per ADR-0001 §9.4). Phase 8a will hit this gate when

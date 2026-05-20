@@ -259,6 +259,6 @@ Caught "fix shipped but actually broken" events + the validation principle that 
 
 ## 5. Resources
 
-- [INVIOLABLE-PRINCIPLES](https://github.com/openova-io/openova/blob/main/docs/INVIOLABLE-PRINCIPLES.md) — 15 principles
+- [INVIOLABLE-PRINCIPLES](https://github.com/openova-io/openova/blob/main/docs/PRINCIPLES.md) — 15 principles
 - Manual refresh: `bash /home/openova/bin/refresh-dod-dashboard.sh`
 - Cron: every 15 minutes

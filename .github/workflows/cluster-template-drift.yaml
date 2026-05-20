@@ -12,9 +12,9 @@ name: Cluster bootstrap-kit drift guardrail
 # values overlay) and (b) the right place to enforce the boundary is
 # Catalyst's organization-controller (slice C1 of #1095), not CI.
 #
-# Per docs/EPICS-1-6-unified-design.md §3.9 row 2 + §11 row 6.
+# Per docs/ARCHITECTURE.md §3.9 row 2 + §11 row 6.
 #
-# Per docs/INVIOLABLE-PRINCIPLES.md #4a, this workflow only inspects YAML
+# Per docs/PRINCIPLES.md #4a, this workflow only inspects YAML
 # — it does not build images, deploy anything, or call cloud APIs.
 
 on:

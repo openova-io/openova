@@ -40,7 +40,7 @@ This file is the durable hand-off record for the multi-agent orchestration of th
 - **Flux** is the GitOps reconciler — `clusters/_template/` + `clusters/omantel.omani.works/` with HelmReleases in dependency order via `dependsOn`. The bootstrap-kit ships with bp-powerdns (#167) installed in `openova-system` on the mgt cluster.
 - **Blueprints** are the install unit — 12 cosigned `bp-<name>:<semver>` OCI artifacts at `ghcr.io/openova-io/` (the original 11 G2 charts plus bp-powerdns at 1.0.6). CI fan-out via `.github/workflows/blueprint-release.yaml`.
 - **DNS architecture** — bp-powerdns is authoritative for every Sovereign zone (per-Sovereign zone model, #168). pool-domain-manager (`core/pool-domain-manager/`) allocates pool subdomains and exposes registrar adapters for byo-api flow (#163, #170). k8gb is retired (#171).
-- **Inviolable principles** anchored in `docs/INVIOLABLE-PRINCIPLES.md` + `~/.claude/.../memory/feedback_inviolable_principles.md` + global CLAUDE.md.
+- **Inviolable principles** anchored in `docs/PRINCIPLES.md` + `~/.claude/.../memory/feedback_inviolable_principles.md` + global CLAUDE.md.
 
 ## What still needs to happen for DoD
 
@@ -69,8 +69,8 @@ This file is the durable hand-off record for the multi-agent orchestration of th
 
 ## References
 
-- `docs/INVIOLABLE-PRINCIPLES.md` — non-negotiable rules
+- `docs/PRINCIPLES.md` — non-negotiable rules
 - `docs/PROVISIONING-PLAN.md` — canonical 8-phase plan
 - `docs/AUDIT-PROCEDURE.md` — on-demand validation
-- `docs/RUNBOOK-PROVISIONING.md` — operator-level guide
+- `docs/RUNBOOKS.md` — operator-level guide
 - `docs/FRANCHISE-MODEL.md` — voucher mechanism

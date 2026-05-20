@@ -1,6 +1,6 @@
 # Flux
 
-GitOps delivery engine. Per-host-cluster infrastructure (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §3.2). Catalyst runs **one Flux instance per vcluster** (lightweight: source + kustomize + helm controllers) plus a host-level Flux on each host cluster for the Catalyst control plane itself. Each per-vcluster Flux pulls from the single per-Sovereign Gitea instance (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §4).
+GitOps delivery engine. Per-host-cluster infrastructure (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §3.2). Catalyst runs **one Flux instance per vcluster** (lightweight: source + kustomize + helm controllers) plus a host-level Flux on each host cluster for the Catalyst control plane itself. Each per-vcluster Flux pulls from the single per-Sovereign Gitea instance (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §4).
 
 **Status:** Accepted | **Updated:** 2026-04-27
 
@@ -166,7 +166,7 @@ spec:
 
 ## Multi-Region GitOps
 
-Catalyst runs **one Gitea per Sovereign** on the management cluster (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §2.3). Each workload region's Flux pulls from that single Gitea over the cross-region network. Per-region HA comes from Gitea's intra-cluster replicas + CNPG-backed metadata, not cross-region bidirectional mirror.
+Catalyst runs **one Gitea per Sovereign** on the management cluster (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §2.3). Each workload region's Flux pulls from that single Gitea over the cross-region network. Per-region HA comes from Gitea's intra-cluster replicas + CNPG-backed metadata, not cross-region bidirectional mirror.
 
 ```mermaid
 flowchart TB

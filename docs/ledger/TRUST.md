@@ -178,7 +178,7 @@ Tier-3 (customer journey end-to-end) walk 2026-05-19 13:52-13:58Z on the same t3
 
 | Date | Sample size | PASS | PARTIAL | FAIL-reopened | Theater rate | Audit doc |
 |---|---|---|---|---|---|---|
-| 2026-05-20 | 15 | 11 | 1 | 3 (#1741, #1819, #1882) | 20% | [`docs/trust-audit-2026-05-20.md`](trust-audit-2026-05-20.md) |
+| 2026-05-20 | 15 | 11 | 1 | 3 (#1741, #1819, #1882) | 20% | [`docs/sessions/2026-05-20-trust-audit.md`](trust-audit-2026-05-20.md) |
 
 **Three theater closures reopened**: all three used the bulk-template "not-on-pillar-path" comment to close issues that either had documented still-failing evidence on the SAME thread minutes earlier (#1741, #1882) or claimed a stable-state observation against the issue's own explicit zero-touch-fresh-prov requirement (#1819). Pattern: canned-template closure overriding live evidence. Plus 1 admin-merge-through-red-CI concern flagged on #1745 (PR #1779) without reopen because the diff logic is sound.
 

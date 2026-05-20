@@ -1,6 +1,6 @@
 # FerretDB
 
-MongoDB wire protocol on PostgreSQL. **Application Blueprint** (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.1) — installed by Organizations that want MongoDB API compatibility. Replication piggybacks on the underlying CNPG cluster (WAL streaming) — no separate replication mechanism needed.
+MongoDB wire protocol on PostgreSQL. **Application Blueprint** (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §4.1) — installed by Organizations that want MongoDB API compatibility. Replication piggybacks on the underlying CNPG cluster (WAL streaming) — no separate replication mechanism needed.
 
 **Category:** Database | **Type:** A La Carte (Application Blueprint)
 

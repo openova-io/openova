@@ -1,6 +1,6 @@
 # Keycloak
 
-User identity for Catalyst Sovereigns. Per-Sovereign supporting service in the Catalyst control plane (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §2.3). Also serves as the FAPI Authorization Server for the Fingate (Open Banking) Blueprint.
+User identity for Catalyst Sovereigns. Per-Sovereign supporting service in the Catalyst control plane (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §2.3). Also serves as the FAPI Authorization Server for the Fingate (Open Banking) Blueprint.
 
 **Status:** Accepted | **Updated:** 2026-04-27
 

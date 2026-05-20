@@ -3,7 +3,7 @@
 The canonical list of credentials Catalyst-Zero handles, where each one
 lives, and how to rotate it.
 
-Per [INVIOLABLE-PRINCIPLES.md](./INVIOLABLE-PRINCIPLES.md) #10 (credential
+Per [PRINCIPLES.md](./PRINCIPLES.md) #10 (credential
 hygiene): **passwords, tokens, API keys, client secrets, kubeconfig
 contents, TLS private keys, and `.env` values are all credentials and
 treated identically.** No credential is committed to git, ever. The
@@ -202,7 +202,7 @@ kubectl -n openova-system   rollout restart deployment/pool-domain-manager
 The `domains` value is the comma-separated allowlist of pool domains
 this account manages. Adding a third pool domain (e.g. `acme.io`) is a
 secret update, not a code change — see
-[INVIOLABLE-PRINCIPLES.md](./INVIOLABLE-PRINCIPLES.md) #4.
+[PRINCIPLES.md](./PRINCIPLES.md) #4.
 
 ---
 

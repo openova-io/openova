@@ -1,6 +1,6 @@
 # LLM Gateway
 
-Subscription-based proxy for LLM access via Claude Code. **Application Blueprint** (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.6). Catalyst's outbound LLM access point — routes between Claude API, GPT-4 API, self-hosted vLLM, and Axon (the SaaS gateway). Used by `bp-cortex`.
+Subscription-based proxy for LLM access via Claude Code. **Application Blueprint** (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §4.6). Catalyst's outbound LLM access point — routes between Claude API, GPT-4 API, self-hosted vLLM, and Axon (the SaaS gateway). Used by `bp-cortex`.
 
 **Status:** Accepted | **Updated:** 2026-04-27
 

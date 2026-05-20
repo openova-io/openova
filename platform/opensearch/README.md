@@ -1,6 +1,6 @@
 # OpenSearch
 
-Search engine, analytics, and hot SIEM backend. **Application Blueprint** (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.1) — installed by Organizations that want SIEM, full-text search, or log analytics. Not a Catalyst control-plane component.
+Search engine, analytics, and hot SIEM backend. **Application Blueprint** (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §4.1) — installed by Organizations that want SIEM, full-text search, or log analytics. Not a Catalyst control-plane component.
 
 **Status:** Accepted | **Updated:** 2026-04-27
 

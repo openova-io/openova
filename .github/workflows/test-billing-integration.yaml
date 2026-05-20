@@ -3,7 +3,7 @@ name: Test — Billing Integration (real Postgres)
 # Runs the integration tests in core/services/billing/store/ that require a
 # real PostgreSQL instance (e.g. voucher_integration_test.go for #147).
 #
-# Per docs/INVIOLABLE-PRINCIPLES.md principle #2 ("no mocks where the test
+# Per docs/PRINCIPLES.md principle #2 ("no mocks where the test
 # would otherwise verify real behavior"), the voucher transactional path —
 # SELECT FOR UPDATE on promo_codes, the redemption-cap concurrency guard,
 # the soft-delete rejection — must be verified against a real database.

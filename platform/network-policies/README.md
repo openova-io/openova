@@ -78,6 +78,6 @@ bp-network-policies is operator-on after the allowlist is sized.
 
 ## References
 
-- docs/EPICS-1-6-unified-design.md §3.9 row 8 + §8 (EPIC-5 Networking)
+- docs/ARCHITECTURE.md §3.9 row 8 + §8 (EPIC-5 Networking)
 - ADR-0001 §2 (zero-trust)
 - platform/cilium/README.md

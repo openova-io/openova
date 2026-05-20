@@ -5,7 +5,7 @@ Bootstrap-kit Blueprint #59. Provisions the **RTZ vCluster** on every
 
 ## Why this exists — DoD A4
 
-`docs/SOVEREIGN-MULTI-REGION-DOD.md` invariant A4:
+`docs/DOD.md` invariant A4:
 
 > primary region = MGMT + DMZ vCluster; each secondary region = DMZ +
 > RTZ vCluster. Cross-vCluster intra-region traffic stays inside host
@@ -46,7 +46,7 @@ bp-rtz-vcluster       — THIS chart (slot 59, secondary-only)
 
 ## See also
 
-- `docs/SOVEREIGN-MULTI-REGION-DOD.md` — A4 contract
+- `docs/DOD.md` — A4 contract
 - `platform/bp-mgmt-vcluster/` — primary-region companion
 - `platform/bp-dmz-vcluster/` — every-region companion
 - `scripts/expected-bootstrap-deps.yaml` slot 59

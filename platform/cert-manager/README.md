@@ -1,6 +1,6 @@
 # cert-manager
 
-TLS certificate automation. Per-host-cluster infrastructure (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §3.3) — runs on every host cluster a Sovereign owns.
+TLS certificate automation. Per-host-cluster infrastructure (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §3.3) — runs on every host cluster a Sovereign owns.
 
 **Status:** Accepted | **Updated:** 2026-04-27
 

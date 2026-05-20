@@ -7,7 +7,7 @@ name: Build organization-controller
 # controller deployment (forthcoming slice F1) which mounts the
 # Keycloak SA + Gitea token Secrets via env-from-secret-ref.
 #
-# Per docs/INVIOLABLE-PRINCIPLES.md #4a (GitHub Actions is the only
+# Per docs/PRINCIPLES.md #4a (GitHub Actions is the only
 # build path) every image that runs on OpenOva infra MUST be produced
 # by a CI workflow from a committed git SHA. Mirrors the shape of
 # build-cert-manager-dynadot-webhook.yaml and pool-domain-manager-build.yaml.

@@ -7,7 +7,7 @@ name: Build cert-manager-dynadot-webhook
 # (platform/cert-manager-dynadot-webhook/chart/) which is auto-installed
 # by the bootstrap-kit on every Sovereign that needs wildcard TLS.
 #
-# Per docs/INVIOLABLE-PRINCIPLES.md #4a (GitHub Actions is the only
+# Per docs/PRINCIPLES.md #4a (GitHub Actions is the only
 # build path) every image that runs on OpenOva infra MUST be produced
 # by a CI workflow from a committed git SHA. This workflow mirrors
 # pool-domain-manager-build.yaml — same auth flow, same cosign signing,
@@ -43,7 +43,7 @@ jobs:
       contents: read
       packages: write
       # id-token write is required by cosign keyless signing (Sigstore).
-      # Per docs/INVIOLABLE-PRINCIPLES.md #3 every Catalyst image is
+      # Per docs/PRINCIPLES.md #3 every Catalyst image is
       # cosign-signed + SBOM-attested.
       id-token: write
     outputs:

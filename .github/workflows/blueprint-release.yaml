@@ -23,7 +23,7 @@
 # cycle, bp-cert-manager:1.0.0 shipped as a "hollow chart" — only an
 # overlay (ClusterIssuer template) with no upstream cert-manager subchart
 # bytes — and Phase 1 broke on every Sovereign because cert-manager
-# itself was never installed. See docs/BLUEPRINT-AUTHORING.md
+# itself was never installed. See docs/RUNBOOKS.md
 # §"Umbrella shape".
 #
 # This workflow now structurally verifies the upstream payload is present
@@ -226,7 +226,7 @@ jobs:
               echo "Chart marked catalyst.openova.io/no-upstream=true — skipping upstream-subchart presence check."
               exit 0
             fi
-            echo "::error title=Hollow chart::Chart $chart_yaml declares NO dependencies. Every Blueprint umbrella chart at platform/<name>/chart/ MUST declare its upstream chart under \`dependencies:\` per docs/BLUEPRINT-AUTHORING.md §11.1 Umbrella shape. See issue #181. (To opt out for charts that legitimately ship only Catalyst-authored CRs, set annotations.catalyst.openova.io/no-upstream: \"true\".)"
+            echo "::error title=Hollow chart::Chart $chart_yaml declares NO dependencies. Every Blueprint umbrella chart at platform/<name>/chart/ MUST declare its upstream chart under \`dependencies:\` per docs/RUNBOOKS.md §11.1 Umbrella shape. See issue #181. (To opt out for charts that legitimately ship only Catalyst-authored CRs, set annotations.catalyst.openova.io/no-upstream: \"true\".)"
             exit 1
           fi
           missing=0
@@ -376,7 +376,7 @@ jobs:
       # don't gate publish on.
       #
       # Canonical example: tests/observability-toggle.sh — verifies the
-      # docs/BLUEPRINT-AUTHORING.md §11.2 rule (observability toggles
+      # docs/RUNBOOKS.md §11.2 rule (observability toggles
       # default false). A chart authoring regression that re-introduces
       # a hardcoded `serviceMonitor.enabled: true` fails this gate and
       # the publish job dies BEFORE the OCI artifact is pushed (issue

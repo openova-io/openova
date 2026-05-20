@@ -1,6 +1,6 @@
 # Syft + Grype
 
-SBOM generation and vulnerability matching for supply chain security. Per-host-cluster infrastructure (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §3.3). Catalyst's CI runs Syft on every Blueprint to publish an SBOM alongside the OCI artifact; Grype scans for known CVEs in the published SBOM and at runtime.
+SBOM generation and vulnerability matching for supply chain security. Per-host-cluster infrastructure (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §3.3). Catalyst's CI runs Syft on every Blueprint to publish an SBOM alongside the OCI artifact; Grype scans for known CVEs in the published SBOM and at runtime.
 
 **Category:** Supply Chain Security | **Type:** Mandatory per host cluster
 

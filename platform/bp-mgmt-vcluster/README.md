@@ -7,7 +7,7 @@ Sovereign.
 
 ## Why this exists — DoD A4
 
-`docs/SOVEREIGN-MULTI-REGION-DOD.md` ratified 2026-05-15 declares
+`docs/DOD.md` ratified 2026-05-15 declares
 invariant **A4**:
 
 > **vCluster topology**: primary region = MGMT + DMZ vCluster; each
@@ -65,7 +65,7 @@ bp-rtz-vcluster       — slot 59 (secondary-only)
 
 ## See also
 
-- `docs/SOVEREIGN-MULTI-REGION-DOD.md` — A4 contract
+- `docs/DOD.md` — A4 contract
 - `infra/hetzner/README.md` lines 50-100 — topology diagram
 - `platform/bp-dmz-vcluster/` — companion (every region)
 - `platform/bp-rtz-vcluster/` — companion (secondary regions)

@@ -4,7 +4,7 @@ name: Build catalyst-catalog
 # (EPIC-2 Slice L of #1097). REPLACES the per-Org SME catalog per
 # ADR-0001 §4.3.
 #
-# Per docs/INVIOLABLE-PRINCIPLES.md #4a "GitHub Actions is the only
+# Per docs/PRINCIPLES.md #4a "GitHub Actions is the only
 # build path" — this workflow is the canonical (and only) way to
 # produce a `ghcr.io/openova-io/openova/catalyst-catalog:<sha>` image.
 #

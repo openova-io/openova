@@ -1,6 +1,6 @@
 # External Secrets Operator
 
-ESO bridges OpenBao (the Catalyst secret backend) and per-Pod K8s Secrets. Per-host-cluster infrastructure (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §3.3).
+ESO bridges OpenBao (the Catalyst secret backend) and per-Pod K8s Secrets. Per-host-cluster infrastructure (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §3.3).
 
 **Status:** Accepted | **Updated:** 2026-04-27
 

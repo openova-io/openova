@@ -53,7 +53,7 @@ Flux's `HelmRelease.status.conditions[type=Ready]` folds into the
 | `POST_TIMEOUT`      | `10s`          | no       | Per-POST wall clock cap. |
 | `HEALTH_LISTEN_ADDR`| `:8081`        | no       | Liveness/readiness listener. |
 
-Per `docs/INVIOLABLE-PRINCIPLES.md` #4 every operational knob is
+Per `docs/PRINCIPLES.md` #4 every operational knob is
 env-driven; per #4a the container image is built by GitHub Actions
 and pulled through harbor.
 

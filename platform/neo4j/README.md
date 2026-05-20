@@ -1,6 +1,6 @@
 # Neo4j
 
-Graph database for knowledge graphs and relationship-based queries. **Application Blueprint** (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.6). Used by `bp-cortex` for knowledge-graph-augmented retrieval alongside Milvus vector search.
+Graph database for knowledge graphs and relationship-based queries. **Application Blueprint** (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §4.6). Used by `bp-cortex` for knowledge-graph-augmented retrieval alongside Milvus vector search.
 
 **Status:** Accepted | **Updated:** 2026-04-27
 

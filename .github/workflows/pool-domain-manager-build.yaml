@@ -25,7 +25,7 @@ jobs:
       contents: read
       packages: write
       # id-token write is required by cosign keyless signing (Sigstore).
-      # Per docs/INVIOLABLE-PRINCIPLES.md #3 every Catalyst image is signed
+      # Per docs/PRINCIPLES.md #3 every Catalyst image is signed
       # + SBOM-attested; this workflow mirrors that contract.
       id-token: write
     outputs:
@@ -96,7 +96,7 @@ jobs:
           DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           cosign sign --yes "${IMAGE}@${DIGEST}"
-        # Per docs/INVIOLABLE-PRINCIPLES.md #3: every Catalyst image must be
+        # Per docs/PRINCIPLES.md #3: every Catalyst image must be
         # cosign-signed via Sigstore keyless flow. The id-token: write
         # permission above is what enables OIDC for cosign.
 

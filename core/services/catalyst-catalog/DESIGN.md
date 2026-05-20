@@ -58,7 +58,7 @@ catalog-private helpers):
 
 **Resolution order**: PRIVATE > SOVEREIGN > PUBLIC. An Org's private
 copy of a Blueprint name overrides the sovereign-curated and public
-versions. This matches `docs/EPICS-1-6-unified-design.md` §5.4.
+versions. This matches `docs/ARCHITECTURE.md` §5.4.
 
 ## Auth model
 

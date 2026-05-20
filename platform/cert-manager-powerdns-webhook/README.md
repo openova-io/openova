@@ -89,7 +89,7 @@ Secret from cert-manager's cluster-resource-namespace). The Secret's
 PowerDNS — provisioned by cloud-init at control-plane boot time
 (infra/hetzner/cloudinit-control-plane.tftpl).
 
-Per `docs/INVIOLABLE-PRINCIPLES.md` #4 every URL/zone is operator-
+Per `docs/PRINCIPLES.md` #4 every URL/zone is operator-
 overridable. No hardcoded `omantel.omani.works` lives in this chart.
 
 ## Smoke test

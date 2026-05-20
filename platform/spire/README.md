@@ -1,6 +1,6 @@
 # SPIRE
 
-SPIFFE/SPIRE workload identity. **Catalyst control plane component** (per [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §2.3 — Per-Sovereign supporting services). Issues short-lived (5-min auto-rotated) X.509 SVIDs to every Pod across every host cluster a Sovereign owns.
+SPIFFE/SPIRE workload identity. **Catalyst control plane component** (per [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §2.3 — Per-Sovereign supporting services). Issues short-lived (5-min auto-rotated) X.509 SVIDs to every Pod across every host cluster a Sovereign owns.
 
 **Status:** Accepted. Chart wrapper at `chart/`. **Updated:** 2026-04-28.
 

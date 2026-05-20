@@ -4,8 +4,8 @@ name: Vendor-coupling guardrail
 # vendor names (hetzner|aws|gcp|azure|oci) must not appear in places
 # where a capability name belongs (chart values, sealed-secret names,
 # wizard payload fields). The canonical-seam map is at
-# docs/omantel-handover-wbs.md §3a; the rule rationale lives in
-# docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode).
+# docs/archive/omantel-handover-wbs.md §3a; the rule rationale lives in
+# docs/PRINCIPLES.md #4 (never hardcode).
 #
 # Per CLAUDE.md "every workflow MUST be event-driven, NEVER scheduled":
 # this workflow is push-on-merge + pull-request-on-touch. There is no

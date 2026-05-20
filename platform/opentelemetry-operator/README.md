@@ -63,6 +63,6 @@ this chart is a no-op until the operator opts in.
 
 ## References
 
-- docs/EPICS-1-6-unified-design.md §3.9 row 5 + §8.4 (EPIC-5)
+- docs/ARCHITECTURE.md §3.9 row 5 + §8.4 (EPIC-5)
 - platform/opentelemetry/README.md — the collector
 - Upstream: https://github.com/open-telemetry/opentelemetry-operator

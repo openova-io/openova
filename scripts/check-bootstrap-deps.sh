@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # check-bootstrap-deps.sh — bootstrap-kit dependency-graph audit (W2.K0).
 #
-# Authoritative spec: docs/BOOTSTRAP-KIT-EXPANSION-PLAN.md §2 + §3.
+# Authoritative spec: docs/ARCHITECTURE.md §2 + §3.
 #
 # What this does:
 #   1. Parses every clusters/_template/bootstrap-kit/*.yaml and extracts
@@ -54,7 +54,7 @@ Usage: $(basename "$0") [--kit-dir DIR] [--expected FILE]
                    (default: ${EXPECTED_FILE})
   -h, --help       Show this message
 
-See docs/BOOTSTRAP-KIT-EXPANSION-PLAN.md §2 + §3 for the design contract.
+See docs/ARCHITECTURE.md §2 + §3 for the design contract.
 EOF
 }
 
@@ -362,7 +362,7 @@ _banner "Phase 5: rendered DAG"
 
 cat <<EOF
 Bootstrap-kit dependency graph
-(authoritative spec: docs/BOOTSTRAP-KIT-EXPANSION-PLAN.md §2)
+(authoritative spec: docs/ARCHITECTURE.md §2)
 
 Legend:
   [P]  present on disk and validated

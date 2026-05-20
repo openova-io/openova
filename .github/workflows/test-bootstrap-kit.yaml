@@ -37,7 +37,7 @@ jobs:
     # Audit the bootstrap-kit dependency graph against the expected DAG declared
     # in scripts/expected-bootstrap-deps.yaml. Mechanically verifies every HR's
     # spec.dependsOn matches the design contract in
-    # docs/BOOTSTRAP-KIT-EXPANSION-PLAN.md §2 + §3, and detects cycles. Runs on
+    # docs/ARCHITECTURE.md §2 + §3, and detects cycles. Runs on
     # every PR that touches a bootstrap-kit HR or the audit data files. Owned by
     # W2.K0; consumed by W2.K1-K4 PRs to validate slot 15-48 additions.
     runs-on: ubuntu-latest

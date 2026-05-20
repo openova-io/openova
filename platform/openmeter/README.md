@@ -2,7 +2,7 @@
 
 Real-time CloudEvents usage metering. Catalyst Application Blueprint —
 slot 45 of the omantel-1 bootstrap-kit. See
-[`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.8
+[`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §4.8
 (Identity & metering).
 
 **Status:** Accepted | **Updated:** 2026-04-30
@@ -19,7 +19,7 @@ usage tracking.
 
 ## Catalyst profile (omantel-1) — ClickHouse-less
 
-Per [`docs/BOOTSTRAP-KIT-EXPANSION-PLAN.md`](../../docs/BOOTSTRAP-KIT-EXPANSION-PLAN.md)
+Per [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md)
 §6.4, omantel-1 ships OpenMeter without the bundled ClickHouse cluster:
 
 - **Aggregation backend:** `bp-cnpg` (PostgreSQL materialized views)
@@ -60,7 +60,7 @@ platform/openmeter/
 
 ## Observability toggles (all default OFF)
 
-Per [`docs/BLUEPRINT-AUTHORING.md`](../../docs/BLUEPRINT-AUTHORING.md)
+Per [`docs/RUNBOOKS.md`](../../docs/RUNBOOKS.md)
 §11.2, every observability surface defaults `false`. Operator opts in
 via per-cluster overlay once `bp-kube-prometheus-stack` reconciles.
 

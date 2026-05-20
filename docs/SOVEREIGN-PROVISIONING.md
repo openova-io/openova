@@ -1,7 +1,7 @@
 # Sovereign Provisioning
 
 **Status:** Authoritative procedure. **Updated:** 2026-04-29.
-**Implementation:** §3 below now reflects the deployed shape — the Go provisioner, OpenTofu module, 12 G2 wrapper Helm charts (the original 11 plus bp-powerdns at #167), the per-Sovereign PowerDNS zone model (#167/#168), and the pool-domain-manager (PDM) with registrar adapters (#163/#170) all exist in this monorepo today (per [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md) §7). End-to-end DoD against a real Hetzner project is pending Group M of [`PROVISIONING-PLAN.md`](PROVISIONING-PLAN.md). Catalyst-Zero (Contabo k3s, namespace `catalyst`) is the running catalyst-provisioner today.
+**Implementation:** §3 below now reflects the deployed shape — the Go provisioner, OpenTofu module, 12 G2 wrapper Helm charts (the original 11 plus bp-powerdns at #167), the per-Sovereign PowerDNS zone model (#167/#168), and the pool-domain-manager (PDM) with registrar adapters (#163/#170) all exist in this monorepo today (per [`STATUS.md`](STATUS.md) §7). End-to-end DoD against a real Hetzner project is pending Group M of [`PROVISIONING-PLAN.md`](PROVISIONING-PLAN.md). Catalyst-Zero (Contabo k3s, namespace `catalyst`) is the running catalyst-provisioner today.
 
 How to provision a new **Sovereign** — a self-sufficient deployed instance of Catalyst. Defer to [`GLOSSARY.md`](GLOSSARY.md) for terminology and [`ARCHITECTURE.md`](ARCHITECTURE.md) for the model.
 
@@ -43,7 +43,7 @@ The implementation maps cleanly onto two artifacts in this monorepo:
 
 | Step | Lives in | What runs |
 |---|---|---|
-| 1. Wizard input → tofu vars | [`products/catalyst/bootstrap/api/internal/provisioner/`](../products/catalyst/bootstrap/api/internal/provisioner/) | Go service writes `tofu.auto.tfvars.json` from validated wizard input, runs `tofu init && tofu plan && tofu apply -auto-approve` against the canonical OpenTofu module, streams stdout/stderr lines to the wizard via SSE. No cloud APIs called from Go (per [`INVIOLABLE-PRINCIPLES.md`](INVIOLABLE-PRINCIPLES.md) #3). |
+| 1. Wizard input → tofu vars | [`products/catalyst/bootstrap/api/internal/provisioner/`](../products/catalyst/bootstrap/api/internal/provisioner/) | Go service writes `tofu.auto.tfvars.json` from validated wizard input, runs `tofu init && tofu plan && tofu apply -auto-approve` against the canonical OpenTofu module, streams stdout/stderr lines to the wizard via SSE. No cloud APIs called from Go (per [`PRINCIPLES.md`](PRINCIPLES.md) #3). |
 | 2. Cloud resources | [`infra/hetzner/main.tf`](../infra/hetzner/main.tf) | OpenTofu provisions: hcloud_network (10.0.0.0/16) + subnet (10.0.1.0/24), hcloud_firewall (80/443/6443/ICMP open; 22 closed by default — operator adds source-CIDR rule via Crossplane post-bootstrap), hcloud_ssh_key from wizard input, 1 control-plane server (or 3 if `ha_enabled`) on Ubuntu 24.04 with cloud-init, `worker_count` worker servers, hcloud_load_balancer (lb11) targeting NodePorts 31080/31443. **DNS is authoritative on PowerDNS (#167/#168)** — the per-Sovereign PowerDNS zone is created by pool-domain-manager (PDM) `/v1/commit` once the LB IP is known; for pool sovereigns PDM also writes the parent-zone delegation, and for `byo-api` Sovereigns the matching registrar adapter (Cloudflare / Namecheap / GoDaddy / OVH / Dynadot, #170) flips the NS records at the customer's registrar. `byo-manual` Sovereigns instead show the OpenOva NS list in the wizard and poll until the customer's own registrar propagates the delegation. |
 | 3. k3s + Flux bootstrap | [`infra/hetzner/cloudinit-control-plane.tftpl`](../infra/hetzner/cloudinit-control-plane.tftpl) | cloud-init on the control-plane node installs k3s v1.31.4+k3s1 with `--flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --disable=local-storage --tls-san=<sovereign-fqdn>`, then installs Flux v2.4.0 core, then applies the Flux GitRepository + Kustomization pointing at `clusters/<sovereign-fqdn>/` in the public OpenOva monorepo. From this point Flux owns the cluster. Workers join via [`cloudinit-worker.tftpl`](../infra/hetzner/cloudinit-worker.tftpl) using the project-derived k3s_token. |
 | 4. Bootstrap-kit install | `clusters/<sovereign-fqdn>/` (Flux-reconciled) | Flux installs the 12 G2 wrapper Helm charts (each a `bp-<name>:<semver>` OCI artifact published by [`.github/workflows/blueprint-release.yaml`](../.github/workflows/blueprint-release.yaml)) in dependency order: cilium → cert-manager → flux (host-level reconciler for the cluster's own Kustomizations) → crossplane → sealed-secrets (transient) → spire (server + agent) → nats-jetstream → openbao (3-node Raft) → keycloak (per topology choice) → gitea (with public Blueprint mirror) → bp-powerdns (per-Sovereign authoritative zone, #167) → bp-catalyst-platform (umbrella). |
@@ -66,7 +66,7 @@ The PDM `/v1/commit` endpoint writes the canonical 6-record set into the freshly
 
 **OpenTofu state:** kept in the catalyst-api Pod under `/tmp/catalyst/tofu/<sovereign-fqdn>/` — pinned via the `CATALYST_TOFU_WORKDIR` env var on the catalyst-api Deployment (commit `27527e4c`) and backed by the Pod's writable `/tmp` emptyDir (2 Gi sizeLimit; the in-code default `/var/lib/catalyst/...` is unwritable for UID 65534, hence the override). Re-running with the same FQDN is idempotent (`tofu apply` on existing state). For air-gap installs the operator MUST configure a remote backend with encryption-at-rest so the Hetzner token isn't carried only on Pod ephemeral storage.
 
-**Implementation status:** the Go wrapper, OpenTofu module, and 12 G2 wrapper charts (the original 11 + bp-powerdns added at #167) all exist today (verified at [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md) §7). The pool-domain-manager (`core/pool-domain-manager/`) and its 5 registrar adapters are deployed and running in `openova-system`. End-to-end DoD against a real Hetzner project is pending Group M of the [Catalyst-Zero Provisioning Plan](PROVISIONING-PLAN.md).
+**Implementation status:** the Go wrapper, OpenTofu module, and 12 G2 wrapper charts (the original 11 + bp-powerdns added at #167) all exist today (verified at [`STATUS.md`](STATUS.md) §7). The pool-domain-manager (`core/pool-domain-manager/`) and its 5 registrar adapters are deployed and running in `openova-system`. End-to-end DoD against a real Hetzner project is pending Group M of the [Catalyst-Zero Provisioning Plan](PROVISIONING-PLAN.md).
 
 Total Phase 0 time: 30–60 minutes for a single-region Hetzner Sovereign once DoD lands.
 
@@ -81,7 +81,7 @@ After Phase 0 completes:
 3. OpenTofu state is archived and read-only. It is never touched again.
 4. `catalyst-provisioner` no longer has any active connection to the new Sovereign.
 
-The Sovereign is now self-sufficient. It has the full Catalyst control-plane set per [`PLATFORM-TECH-STACK.md`](PLATFORM-TECH-STACK.md) §2.3:
+The Sovereign is now self-sufficient. It has the full Catalyst control-plane set per [`ARCHITECTURE.md`](ARCHITECTURE.md) §2.3:
 
 - Its own Crossplane managing further infrastructure.
 - Its own OpenBao for secrets.
@@ -134,7 +134,7 @@ From here on, the Sovereign runs autonomously. Sovereign-admins use the Catalyst
 - Monitoring the Sovereign's own observability stack
 - Reviewing audit logs
 
-Everyday Application installs and configurations are done by `org-admins` and `org-developers` within their Organizations — see [`PERSONAS-AND-JOURNEYS.md`](PERSONAS-AND-JOURNEYS.md).
+Everyday Application installs and configurations are done by `org-admins` and `org-developers` within their Organizations — see [`DOD.md`](DOD.md).
 
 ---
 

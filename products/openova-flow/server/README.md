@@ -65,7 +65,7 @@ LastEventID+1 on reconnect — see backlog item).
 | `FLOW_SERVER_LISTEN_ADDR`    | `:8080`     | Listen address. |
 | `FLOW_SERVER_RING_CAPACITY`  | `4096`      | Per-flow ring buffer size. |
 
-Per `docs/INVIOLABLE-PRINCIPLES.md` #4 every parameter is env-driven.
+Per `docs/PRINCIPLES.md` #4 every parameter is env-driven.
 
 ## Build
 

@@ -33,6 +33,6 @@ in the SME realm, seals the client secret into
 ## See also
 
 - `chart/README.md` — full value reference + boot sequence
-- `docs/BLUEPRINT-AUTHORING.md` §11 (umbrella shape, hollow-chart guard, observability toggles)
-- `docs/INVIOLABLE-PRINCIPLES.md` (no hardcoding, SHA-pinned images, target-state shape)
+- `docs/RUNBOOKS.md` §11 (umbrella shape, hollow-chart guard, observability toggles)
+- `docs/PRINCIPLES.md` (no hardcoding, SHA-pinned images, target-state shape)
 - Issue #795 (epic), #800 (this Blueprint)

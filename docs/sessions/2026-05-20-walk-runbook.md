@@ -581,8 +581,8 @@ No comment without ALL THREE.
 | Refs | #2055 (TBD-V29) |
 | Pillar/step | **Docs alignment** (PR #665 SPIRE removal is reflected in canonical docs) |
 | Pre-condition | None |
-| Walk steps | 1. `grep -nE "SPIFFE\|SPIRE\|SVID" docs/SECURITY.md docs/ARCHITECTURE.md` — references frame SPIRE as deferred / re-enable-triggers section (NOT current state)<br>2. `grep -E "WireGuard" docs/SECURITY.md` — Cilium WireGuard documented as canonical east-west mesh<br>3. `docs/IMPLEMENTATION-STATUS.md` SPIRE row → `⏸ Deferred` (NOT `📐 Design`) |
-| Code refs | `docs/SECURITY.md`, `docs/ARCHITECTURE.md`, `docs/IMPLEMENTATION-STATUS.md` |
+| Walk steps | 1. `grep -nE "SPIFFE\|SPIRE\|SVID" docs/SECURITY.md docs/ARCHITECTURE.md` — references frame SPIRE as deferred / re-enable-triggers section (NOT current state)<br>2. `grep -E "WireGuard" docs/SECURITY.md` — Cilium WireGuard documented as canonical east-west mesh<br>3. `docs/STATUS.md` SPIRE row → `⏸ Deferred` (NOT `📐 Design`) |
+| Code refs | `docs/SECURITY.md`, `docs/ARCHITECTURE.md`, `docs/STATUS.md` |
 | Screenshot | `.playwright-mcp/t39-docs-spire-deferred.png` (rendered docs) |
 
 #### Row 41 — PR #2061 — docs(sweep): align 6 docs with PR #665 SPIRE deferral + PR #2056
@@ -592,7 +592,7 @@ No comment without ALL THREE.
 | Refs | #2055 |
 | Pillar/step | **Docs alignment sweep** (sister to #2056) |
 | Pre-condition | PR #2056 merged |
-| Walk steps | 1. `grep -nE "bp-spire" docs/omantel-handover-wbs.md docs/BOOTSTRAP-KIT-EXPANSION-PLAN.md docs/DEMO-RUNBOOK.md` — references framed as historical / deferred, with PR #665 + TBD-V29 citation<br>2. `grep -c "WireGuard\|deferred" docs/BOOTSTRAP-KIT-EXPANSION-PLAN.md` — top-level callout present<br>3. Other 3 docs from PR diff: same pattern |
+| Walk steps | 1. `grep -nE "bp-spire" docs/archive/omantel-handover-wbs.md docs/ARCHITECTURE.md docs/RUNBOOKS.md` — references framed as historical / deferred, with PR #665 + TBD-V29 citation<br>2. `grep -c "WireGuard\|deferred" docs/ARCHITECTURE.md` — top-level callout present<br>3. Other 3 docs from PR diff: same pattern |
 | Code refs | 6 files per PR body table |
 | Screenshot | `.playwright-mcp/t39-docs-spire-sweep.png` |
 

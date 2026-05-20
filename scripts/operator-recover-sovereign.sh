@@ -20,7 +20,7 @@
 # Anchored to the canonical purge logic in:
 #   /home/openova/.claude/projects/-home-openova-repos-openova-private/memory/feedback_idempotent_iac_purge.md
 # and the runbook at:
-#   docs/RUNBOOK-OPERATIONS.md §"Recovery procedure"
+#   docs/RUNBOOKS.md §"Recovery procedure"
 #
 # Usage:
 #   ./scripts/operator-recover-sovereign.sh <sovereign-fqdn>          # dry-run

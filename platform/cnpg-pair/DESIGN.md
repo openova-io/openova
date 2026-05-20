@@ -60,7 +60,7 @@ Why 30s default:
 - Hetzner inter-region (FSN ↔ HEL) RTT is ~10ms; sustained 30s lag
   means either the replica is partitioned, the primary is under
   WAL-flush pressure, or replication is broken altogether.
-- Bank-tier RPO target per `docs/EPICS-1-6-unified-design.md` §9.6
+- Bank-tier RPO target per `docs/ARCHITECTURE.md` §9.6
   is "<5s write disruption" on operator-initiated switchover.
   Pre-checking lag <30s before switchover gives a 25s safety margin.
 - For zero-RPO (synchronous_commit=remote_apply) — chart 0.1.2 SHIPS

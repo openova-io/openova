@@ -1,6 +1,6 @@
 # Stalwart
 
-Self-hosted email server (JMAP/IMAP/SMTP). **Application Blueprint** (see [`docs/PLATFORM-TECH-STACK.md`](../../docs/PLATFORM-TECH-STACK.md) §4.5 — Communication). Used by `bp-relay` (composite Communication Blueprint) as the email service for Organizations that need self-hosted mail.
+Self-hosted email server (JMAP/IMAP/SMTP). **Application Blueprint** (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §4.5 — Communication). Used by `bp-relay` (composite Communication Blueprint) as the email service for Organizations that need self-hosted mail.
 
 **Status:** Accepted | **Updated:** 2026-04-27
 

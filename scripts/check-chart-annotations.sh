@@ -183,7 +183,7 @@ Every Blueprint umbrella chart at platform/<name>/chart/ or
 products/<name>/chart/ MUST EITHER:
 
   (a) declare its upstream chart under \`dependencies:\` per
-      docs/BLUEPRINT-AUTHORING.md §11.1 (Umbrella shape), OR
+      docs/RUNBOOKS.md §11.1 (Umbrella shape), OR
 
   (b) opt out for charts that legitimately ship only Catalyst-authored
       resources (CRs / Deployment / RBAC / Service / NetworkPolicy) by

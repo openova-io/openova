@@ -34,7 +34,7 @@ All three container images are upstream:
 - `netbirdio/signal`
 - `coturn/coturn`
 
-Per `docs/INVIOLABLE-PRINCIPLES.md` #4a, `image.tag` is empty in
+Per `docs/PRINCIPLES.md` #4a, `image.tag` is empty in
 `values.yaml` and the helm-template render fails-fast when a Sovereign
 overlay leaves them empty (see `_helpers.tpl::bp-netbird.imageRef`). CI
 populates the SHA tags via `yq eval -i .image.tag = "<sha>"` when

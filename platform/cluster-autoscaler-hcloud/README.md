@@ -67,6 +67,6 @@ the bootstrap-kit consumed the full 16 GB. The fix is two-pronged:
 | App | `cluster-autoscaler` | `1.32.0` (matches k3s 1.31.x — within +/-1 minor of the Sovereign apiserver) |
 | Cloud provider | `hetzner` | Built into upstream image |
 
-Per `docs/INVIOLABLE-PRINCIPLES.md` #4 (never hardcode), every value is
+Per `docs/PRINCIPLES.md` #4 (never hardcode), every value is
 runtime-configurable; cluster overlays in `clusters/<sovereign>/` MAY
 override any of them without rebuilding the OCI artifact.

@@ -5,7 +5,7 @@ name: Build sandbox-mcp-server
 # to the agent (claude / cursor-agent / qwen-code / aider / opencode)
 # over stdin/stdout. See products/sandbox/docs/architecture.md §3.
 #
-# Per docs/INVIOLABLE-PRINCIPLES.md #4a (GitHub Actions is the only
+# Per docs/PRINCIPLES.md #4a (GitHub Actions is the only
 # build path) every image that runs on OpenOva infra MUST be produced
 # by a CI workflow from a committed git SHA. Shape mirrors
 # build-sandbox-controller.yaml — same Buildx + cosign keyless sign +

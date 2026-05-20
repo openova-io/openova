@@ -9,7 +9,7 @@ how the Sovereign Wizard (`StepComponents`) presents and selects
 platform components. It records the operator-driven rationale for each
 relationship so future changes don't quietly drop the constraints.
 
-The hard rule, per [`INVIOLABLE-PRINCIPLES.md`](INVIOLABLE-PRINCIPLES.md)
+The hard rule, per [`PRINCIPLES.md`](PRINCIPLES.md)
 #4 (never hardcode): **the only place these relationships are encoded is
 `componentGroups.ts`.** This document is human-readable narrative —
 derived from the same source. If they disagree, the code wins; update
@@ -267,5 +267,5 @@ All toast text comes from `STEP_COMPONENTS_COPY` in
 ---
 
 *Part of [OpenOva](https://openova.io). Read this alongside
-[`PLATFORM-TECH-STACK.md`](PLATFORM-TECH-STACK.md) and
+[`ARCHITECTURE.md`](ARCHITECTURE.md) and
 [`SOVEREIGN-PROVISIONING.md`](SOVEREIGN-PROVISIONING.md).*

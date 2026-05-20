@@ -55,7 +55,7 @@ See [`values.yaml`](./values.yaml). The required overlay-supplied keys are:
 | `sovereign.harborPublicURL` | `https://registry.<sovereign.fqdn>`. The bp-harbor HTTPRoute publishes at `registry.<sov>`, NOT `harbor.<sov>` — see `clusters/_template/bootstrap-kit/19-harbor.yaml` `gateway.host`. Routed to by registries.yaml v2 + step 06. |
 | `sovereign.giteaPublicURL` | `https://gitea.<sovereign.fqdn>`. Informational; jobs reach Gitea via the in-cluster Service URL. |
 
-Per `docs/INVIOLABLE-PRINCIPLES.md` #4 (never hardcode), the chart ships
+Per `docs/PRINCIPLES.md` #4 (never hardcode), the chart ships
 no real defaults for the Sovereign coordinates — `helm template` smoke
 renders against `example.local` placeholders, and runtime use without an
 overlay is non-functional by design.
@@ -97,5 +97,5 @@ values and uploads the rendered output as a workflow artifact.
 
 - Issue: [#791](https://github.com/openova-io/openova/issues/791) — chart implementation
 - Parent epic: [#790](https://github.com/openova-io/openova/issues/790) — Sovereign sovereignty cutover
-- Inviolable Principles: `docs/INVIOLABLE-PRINCIPLES.md` (#3 IaC-first, #4 never hardcode, §10 credential hygiene)
+- Inviolable Principles: `docs/PRINCIPLES.md` (#3 IaC-first, #4 never hardcode, §10 credential hygiene)
 - RBAC anchor: auto-memory `feedback_rbac_create_no_resourcenames.md`

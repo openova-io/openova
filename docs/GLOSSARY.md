@@ -1,10 +1,10 @@
 # Glossary
 
-> **Status:** Canonical. Single source of truth for OpenOva terminology.
-> **Updated:** 2026-04-29.
-> **Note:** Terms here describe the agreed model. For which terms map to currently-implemented code vs design-stage, see [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md).
+> **Status:** Canonical. Single source of truth for OpenOva terminology AND for banned terms forbidden in code/docs/UI.
+> **Updated:** 2026-05-20.
+> **Note:** Terms here describe the agreed model. For which terms map to currently-implemented code vs design-stage, see [`STATUS.md`](STATUS.md).
 
-Every other document defers to this file. When a term in another doc looks contested, this file wins. New terminology is proposed here first, then propagated.
+Every other document defers to this file. When a term in another doc looks contested, this file wins. New terminology is proposed here first, then propagated. The Banned-terms section (§Banned terms below) is also authoritative: there is no separate `docs/BANNED-TERMS.md`.
 
 ---
 
@@ -16,9 +16,9 @@ Every other document defers to this file. When a term in another doc looks conte
 | **Catalyst** | The OpenOva platform itself. A self-sufficient Kubernetes-native control plane. Composed of: console, marketplace, admin, catalog-svc, projector, provisioning, environment-controller, blueprint-controller, billing, identity, secret, event-spine, gitea, observability. See "Catalyst components" below. Published from this repository as signed OCI Blueprints. |
 | **Sovereign** | One **deployed** instance of Catalyst on Kubernetes infrastructure chosen by its owner. Self-contained; never depends at runtime on any other Sovereign. Examples: `openova` (run by us, hosts our SaaS Organizations — formerly "Nova"), `omantel` (run by Omantel, hosts SME Organizations across Oman), `bankdhofar` (run by the bank, hosts internal Organizations). |
 | **Organization** | The multi-tenancy unit inside a Sovereign. Has billing, Users, Environments, private Blueprints. Ahmed's pharmacy is one Organization on the `omantel` Sovereign; `digital-channels` is one Organization on the `bankdhofar` Sovereign. |
-| **Environment** | An env-typed scope where Applications run. Named `{org}-{env_type}` where `env_type` is one of `prod | stg | uat | dev | poc` (per [`NAMING-CONVENTION.md`](NAMING-CONVENTION.md) §2.4). **Logical** concept; can span multiple regions and building blocks via Placement. Realized as a **branch** (`develop`/`staging`/`main`) inside each Application's Gitea repo, plus one or more vclusters per Placement spec. Examples: `acme-prod`, `acme-dev`, `bankdhofar-uat`. |
+| **Environment** | An env-typed scope where Applications run. Named `{org}-{env_type}` where `env_type` is one of `prod | stg | uat | dev | poc` (per [`ARCHITECTURE.md`](ARCHITECTURE.md) §2.4). **Logical** concept; can span multiple regions and building blocks via Placement. Realized as a **branch** (`develop`/`staging`/`main`) inside each Application's Gitea repo, plus one or more vclusters per Placement spec. Examples: `acme-prod`, `acme-dev`, `bankdhofar-uat`. |
 | **Application** | What a User installs into an Environment from a Blueprint. The user-facing object: an App Store-style card representing a running deployment (e.g. WordPress, Postgres, an internal microservice). **Each Application is realized as one Gitea repo** at `gitea.<location-code>.<sovereign-domain>/<org>/<app>` under its owning Organization. Branches `develop`/`staging`/`main` map to the `dev`/`stg`/`prod` Environments. The repo is the unit of CODEOWNERS, branch protection, webhook, and CI — giving every team self-sufficient ownership of their Apps. |
-| **Blueprint** | The reusable, OCI-published, signed unit of installable software. Unifies what previously was split between "module" (primitive) and "template" (composition). A Blueprint can declare dependencies on other Blueprints, with arbitrary depth. Visibility: `listed` (catalog card) / `unlisted` / `private` (Org-scoped). Source layout: see [`BLUEPRINT-AUTHORING.md`](BLUEPRINT-AUTHORING.md) §2. |
+| **Blueprint** | The reusable, OCI-published, signed unit of installable software. Unifies what previously was split between "module" (primitive) and "template" (composition). A Blueprint can declare dependencies on other Blueprints, with arbitrary depth. Visibility: `listed` (catalog card) / `unlisted` / `private` (Org-scoped). Source layout: see [`RUNBOOKS.md`](RUNBOOKS.md) §2. |
 | **User** | A person. Authenticates via Keycloak. Belongs to one Organization (or has cross-Org admin scope as `sovereign-admin`). |
 | **Voucher** | A redeemable code that grants billing credit when applied at checkout. Issued by `sovereign-admin` (per-Sovereign campaigns) or `org-admin` (rare; intra-Org credit grants). The user-facing label for what the code calls `PromoCode` (see `core/services/billing/store/store.go`). Vouchers are the user-acquisition surface for franchised Sovereigns: a Franchisee mints codes, distributes them through their marketing channels, and a redeemer's first checkout converts the code into Organization credit. Lives as a row in the per-Sovereign billing Postgres database; soft-delete (`deleted_at`) preserves the audit trail of past redemptions. See [`FRANCHISE-MODEL.md`](FRANCHISE-MODEL.md). |
 
@@ -43,9 +43,9 @@ Every other document defers to this file. When a term in another doc looks conte
 
 | Term | Definition |
 |---|---|
-| **Cluster** | A physical Kubernetes cluster. Named per [`docs/NAMING-CONVENTION.md`](NAMING-CONVENTION.md): `{provider}-{region}-{building-block}-{env_type}` — e.g. `hz-fsn-rtz-prod`. Owned by `sovereign-admin`. Never user-facing. |
+| **Cluster** | A physical Kubernetes cluster. Named per [`docs/ARCHITECTURE.md`](ARCHITECTURE.md): `{provider}-{region}-{building-block}-{env_type}` — e.g. `hz-fsn-rtz-prod`. Owned by `sovereign-admin`. Never user-facing. |
 | **vcluster** | A virtual Kubernetes cluster (loft.sh's vcluster) running inside a parent Cluster. One vcluster per Organization per parent Cluster. Named `{org}` within the parent (qualified globally as `{provider}-{region}-{bb}-{env_type}-{org}`). Implementation detail of an Environment; not user-facing. |
-| **Building Block** | A functional security zone — `rtz` (restricted trust), `dmz` (edge), `mgt` (management). Stable across failovers. See `NAMING-CONVENTION.md` §1.3. |
+| **Building Block** | A functional security zone — `rtz` (restricted trust), `dmz` (edge), `mgt` (management). Stable across failovers. See `ARCHITECTURE.md` §1.3. |
 | **Region** | Geographic location, provider-scoped 3-char code (`fsn`, `nbg`, `hel`). |
 | **Env Type** | Environment dimension value: `prod | stg | uat | dev | poc`. Was `{env}` in older naming; renamed to disambiguate from the Catalyst Environment object. |
 | **Placement** | Per-Application metadata declaring which regions and building blocks realize that Application. Modes: `single-region`, `active-active`, `active-hotstandby`. |
@@ -67,7 +67,7 @@ Every other document defers to this file. When a term in another doc looks conte
 | **billing** | Per-Org metering, invoicing. |
 | **pool-domain-manager (PDM)** | Bootstrap-surface service that allocates pool subdomains under OpenOva-owned domains (`omani.works`, `openova.io`), creates the per-Sovereign PowerDNS zone, writes its canonical 6-record set, and updates the parent-zone NS delegation via a registrar adapter. Lives on the OpenOva-run Catalyst-Zero only, not on every Sovereign. CNPG-backed. Source: `core/pool-domain-manager/`. |
 | **Registrar Adapter** | One of five PDM-internal clients (Cloudflare, Namecheap, GoDaddy, OVH, Dynadot) that flips parent-zone NS records via the registrar's API. Used by PDM for (a) pool sovereigns at the OpenOva Dynadot account and (b) BYO sovereigns in `byo-api` mode where the customer pastes a registrar token. |
-| **identity** | Keycloak (per-Organization realm in SME-style Sovereigns; per-Sovereign realm in corporate-style) + SPIFFE/SPIRE for workload identity. |
+| **identity** | Keycloak (per-Organization realm in SME-style Sovereigns; per-Sovereign realm in corporate-style) for human identity. Workload identity is Cilium WireGuard (kernel-layer east-west encryption) + K8s ServiceAccount TokenReview (audience-scoped 1h projected bound-tokens). SPIFFE/SPIRE was **deferred** from the canonical bootstrap-kit by founder PR [#665](https://github.com/openova-io/openova/pull/665) (2026-05-03); the `platform/spire/` chart is retained as opt-in. Re-introduction roadmap: TBD-V29 [#2055](https://github.com/openova-io/openova/issues/2055). See [`SECURITY.md`](SECURITY.md) §2 + [`STATUS.md`](STATUS.md). |
 | **secret** | OpenBao + External Secrets Operator (ESO). Independent Raft cluster per region (no stretched cluster); cross-region perf replication is async. |
 | **event-spine** | NATS JetStream — pub/sub + Streams + KV bucket. Workload-identity-scoped Accounts per Organization. Replaces what was previously specified as "Redpanda + Valkey" for the control plane. |
 | **gitea** | Per-Sovereign Git server. Hosts five top-level Gitea Orgs by convention: `catalog` (read-only mirror of the public Blueprint catalog), `catalog-sovereign` (optional — Sovereign-owner-curated private Blueprints visible to every Org on this Sovereign), one Gitea Org per Catalyst **Organization** (each holding the Org's `shared-blueprints` repo + one repo per **Application**), and `system` (sovereign-admin scope: CRs, policy bundles, runbooks). |
@@ -100,21 +100,37 @@ A Sovereign's Gitea instance hosts five conventional Gitea Orgs. The unified rul
 
 ---
 
-## Banned terms (do not use in any docs / UI / API)
+## Banned terms (do not use in any docs / UI / API / code / commit messages)
+
+This section is the **single source of truth** for forbidden terminology. Cross-referenced by [`CLAUDE.md`](../CLAUDE.md), [`RUNBOOKS.md`](RUNBOOKS.md), [`DOD.md`](DOD.md), [`DOD.md`](DOD.md), and the user-global `~/.claude/CLAUDE.md`. There is no separate `docs/BANNED-TERMS.md`.
+
+### Banned platform terminology
 
 | Banned | Use instead | Reason |
 |---|---|---|
-| Tenant | Organization | Cloud-overloaded, ambiguous between Sovereign tenancy and Organization tenancy. |
-| Operator (as entity / person) | `sovereign-admin` (the role) | Confused with the K8s Operator pattern. (K8s Operators in the controller-pattern sense are still called Operators.) |
-| Client (in product UX sense) | User | Collides with Keycloak OIDC client. (OIDC clients in technical contexts remain "clients".) |
-| Module | Blueprint | Catalyst unifies modules + templates. (Go module, Terraform module, Helm module are exempt — they're external technologies.) |
-| Template | Blueprint | Same reason. (K8s template, prompt template, scaffold template are exempt — external technologies.) |
+| Tenant *(as platform terminology)* | Organization | Cloud-overloaded, ambiguous between Sovereign tenancy and Organization tenancy. |
+| Operator *(as entity / person)* | `sovereign-admin` (the role) | Confused with the K8s Operator pattern. K8s Operators in the controller-pattern sense are still called Operators. |
+| Client *(in product UX sense)* | User | Collides with Keycloak OIDC client. OIDC clients in technical contexts remain "clients", and K8s clients (`client-go`, etc.) are fine. |
+| Module *(in Catalyst sense)* | Blueprint | Catalyst unifies modules + templates. Go modules, Terraform modules, Helm modules are exempt — they're external technologies. |
+| Template *(in Catalyst sense)* | Blueprint | Same reason. K8s templates, prompt templates, scaffold templates are exempt — external technologies. |
 | Backstage | Catalyst console | Backstage was decided removed from the platform. |
-| Synapse (as a product) | Axon (the OpenOva product) or Matrix/Synapse (the chat server) | Matrix's Synapse server is fine when context is the chat server. |
-| Lifecycle Manager (separate product) | Catalyst | Lifecycle management is one of Catalyst's responsibilities, not a separate product. |
-| Bootstrap wizard (separate product) | Catalyst bootstrap | Bootstrap is one phase of Catalyst provisioning. |
-| "Workspace" (as Catalyst scope or component name) | Environment / environment-controller | Renamed for industry alignment and to escape collision with VS Code / Slack / Backstage / Terraform workspaces. The controller previously named `workspace-controller` is now `environment-controller`. |
-| "Instance" (as user-facing object) | Application | App Store metaphor. CRD remains internal. |
+| Synapse *(as the OpenOva product)* | Axon | Matrix's Synapse server is fine when context is the chat server. |
+| Lifecycle Manager *(as a separate product)* | Catalyst | Lifecycle management is one of Catalyst's responsibilities, not a separate product. |
+| Bootstrap wizard *(as a separate product)* | Catalyst (or "Catalyst bootstrap" when referring to a phase) | Bootstrap is one phase of Catalyst provisioning, not a separate product. |
+| Workspace *(as Catalyst scope OR component name)* | Environment / environment-controller | Renamed for industry alignment and to escape collision with VS Code / Slack / Backstage / Terraform workspaces. The controller previously named `workspace-controller` is now `environment-controller`. |
+| Instance *(as user-facing object)* | Application | App Store metaphor. The CRD name remains internal. |
+
+### Forbidden test domains
+
+Test provs and tenant Organizations use the canonical pool zones defined in [`DOD.md`](DOD.md): `t<NN>.omani.works` (or `t<NN>.omantel.biz` if LE-rate-limited) for the Sovereign, and `<orgslug>.omani.homes` / `omani.rest` / `omani.trade` for tenant Organizations. The strings below are **forbidden** in any test command, screenshot, walk-script, code path, or doc that describes a test run:
+
+| Forbidden | Why | Use instead |
+|---|---|---|
+| `openova.io` *(in test commands)* | `openova.io` is reserved for the mothership Catalyst-Zero. Tests must NEVER provision into `openova.io`. | `t<NN>.omani.works` |
+| `omantel.openova.io` | Hallucinated subdomain — does not exist. | `omantel.omani.works` (real franchised Sovereign FQDN) |
+| `Nova Cloud` *(as a product name)* | "Nova" was the predecessor brand to OpenOva. Never reintroduce as a current product. | `openova` (the Sovereign run by OpenOva) |
+| `eventforge.io` | Hallucinated test app domain — does not exist. | The canonical demo app is **EventForge** installed under a real tenant Org slug, e.g. `eventforge.<orgslug>.omani.homes`. |
+| `admin.<sovereign-fqdn>` *(as the voucher / billing surface)* | The legacy `admin.<fqdn>` URL is dead — BSS (voucher, billing, catalog, orders, tenants) lives inside the operator console at `console.<sovereign-fqdn>/bss`. | `console.<sovereign-fqdn>/bss` |
 
 ---
 
@@ -126,7 +142,7 @@ A Sovereign's Gitea instance hosts five conventional Gitea Orgs. The unified rul
 | **CRD** | Custom Resource Definition — Kubernetes typed extension object. |
 | **CQRS** | Command-Query Responsibility Segregation — write side (Git → Flux → K8s) vs read side (projector → JetStream KV → console). |
 | **ESO** | External Secrets Operator. |
-| **SPIFFE / SPIRE** | Workload identity standards. SVIDs are short-lived mTLS certs bound to K8s ServiceAccounts. |
+| **SPIFFE / SPIRE** | Workload identity standards. SVIDs are short-lived mTLS certs bound to K8s ServiceAccounts. **Deferred — opt-in only** per founder PR [#665](https://github.com/openova-io/openova/pull/665) (2026-05-03); canonical workload identity is now Cilium WireGuard + K8s SA TokenReview. Re-introduction roadmap: TBD-V29 [#2055](https://github.com/openova-io/openova/issues/2055). |
 | **GSLB** | Global Server Load Balancing — handled at the authoritative DNS layer by PowerDNS lua-records (`ifurlup`, `pickclosest`, `ifportup`). See [`MULTI-REGION-DNS.md`](MULTI-REGION-DNS.md). |
 | **PromotionPolicy** | Removed concept. Replaced by **EnvironmentPolicy** attached to a destination Environment, enforcing PR/approval/soak/change-window rules. |
 
@@ -134,10 +150,10 @@ A Sovereign's Gitea instance hosts five conventional Gitea Orgs. The unified rul
 
 ## See also
 
-- [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md) — what's built today vs what's design-only.
-- [`NAMING-CONVENTION.md`](NAMING-CONVENTION.md) — concrete naming patterns for every object type.
+- [`STATUS.md`](STATUS.md) — what's built today vs what's design-only.
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — concrete naming patterns for every object type.
+- [`DOD.md`](DOD.md) — Sovereign / tenant-Org FQDN patterns + forbidden test strings (cross-references the Banned terms section above).
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — how the components fit together.
-- [`PERSONAS-AND-JOURNEYS.md`](PERSONAS-AND-JOURNEYS.md) — who uses each surface and what for.
+- [`DOD.md`](DOD.md) — who uses each surface and what for.
 - [`SECURITY.md`](SECURITY.md) — identity, secrets, rotation.
-- [`SOVEREIGN-PROVISIONING.md`](SOVEREIGN-PROVISIONING.md) — how a Sovereign is brought online.
-- [`BLUEPRINT-AUTHORING.md`](BLUEPRINT-AUTHORING.md) — how to write a Blueprint.
+- [`RUNBOOKS.md`](RUNBOOKS.md) — provisioning, day-2 ops, Blueprint authoring (§3), chart conventions (§4), demo walk (§5), failover recovery (§6), troubleshooting (§7).

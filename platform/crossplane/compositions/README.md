@@ -1,11 +1,11 @@
 # Catalyst Crossplane Compositions — canonical Hetzner XRDs
 
 **XRD API group:** `compose.openova.io/v1alpha1`
-(per `docs/BLUEPRINT-AUTHORING.md` §8 + `VALIDATION-LOG.md` Pass 42/48; **never** `catalyst.openova.io` — that is the Catalyst CRD group, not the Crossplane composite group.)
+(per `docs/RUNBOOKS.md` §8 + `VALIDATION-LOG.md` Pass 42/48; **never** `catalyst.openova.io` — that is the Catalyst CRD group, not the Crossplane composite group.)
 
 This directory contains the four canonical Hetzner-backed XRDs + their default Compositions that Catalyst uses to manage day-2 cloud infrastructure on a franchised Sovereign. After Phase 0 (`infra/hetzner/main.tf`) hands off to Phase 1, **all** further Hetzner resources — additional regions, attached volumes, additional firewalls, additional load balancers — go through these XRDs and are reconciled by Crossplane.
 
-Per `docs/INVIOLABLE-PRINCIPLES.md` principle #3:
+Per `docs/PRINCIPLES.md` principle #3:
 
 > Crossplane is the ONLY IaC after Phase 1 hand-off. Not direct provider SDKs. Not Terraform. Not the catalyst-api Go service calling cloud APIs.
 

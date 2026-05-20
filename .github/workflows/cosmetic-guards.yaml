@@ -7,7 +7,7 @@ name: Cosmetic + step-flow regression guards
 # suites are independently triggered, both run on PRs that touch UI
 # files. See docs/UI-REGRESSION-GUARDS.md for the test-to-complaint map.
 #
-# Per docs/INVIOLABLE-PRINCIPLES.md #4a (GitHub Actions is the only
+# Per docs/PRINCIPLES.md #4a (GitHub Actions is the only
 # build path), this workflow does NOT build any container images — it
 # only runs UI regression guards against a freshly-installed dev tree.
 #

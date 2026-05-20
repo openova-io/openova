@@ -97,7 +97,7 @@ These agreements survive any context compaction and apply to every phase of the 
 1. **Catalyst-Zero is the existing Contabo deployment.** Not greenfield. The work is consolidate + cutover + extend, not rebuild.
 2. **omani.works is the first Sovereign-provided subdomain pool** (registered to the OpenOva Dynadot account). User dynamically picks `omantel.omani.works` during provisioning. The wizard offers BYO domain (customer's own) or a Sovereign-pool subdomain (default). Multi-region setups are out of scope for the first run.
 3. **Existing admin voucher implementation is the source of truth.** Do not propose new CRDs. Read the existing implementation, propagate it to franchised Sovereigns, document it.
-4. **G2 quality only.** Catalyst-curated wrapper Helm charts at `platform/<x>/chart/` for every component in the bootstrap kit. No upstream-as-is shortcuts. No corner-cutting. The unified Blueprint contract from `BLUEPRINT-AUTHORING.md` §1 is the standard.
+4. **G2 quality only.** Catalyst-curated wrapper Helm charts at `platform/<x>/chart/` for every component in the bootstrap kit. No upstream-as-is shortcuts. No corner-cutting. The unified Blueprint contract from `RUNBOOKS.md` §1 is the standard.
 5. **No mocks. No iterations. No partial deliveries.** Waterfall — every phase produces real, deployed, working artifacts.
 6. **All product code is public.** Per the build-minutes constraint, code moves to `openova/` (the public monorepo) before any further development. CI runs in the public repo from this point onward.
 7. **The Vite scaffold at `products/catalyst/bootstrap/ui/`** merges into `core/console/src/pages/sovereign/`. It does not become its own deployable.
@@ -160,7 +160,7 @@ Each phase produces one or more commits to `openova/`. Each commit is real worki
 
 ### Phase 4 — Provisioner backend
 
-**What:** Build the wizard's backend at [`products/catalyst/bootstrap/api/`](../products/catalyst/bootstrap/api/) (the Go service deployed as `catalyst-api` in the `catalyst` namespace on Catalyst-Zero). Real backend that takes wizard input → calls OpenTofu → returns Sovereign provisioning state via SSE. Per [`INVIOLABLE-PRINCIPLES.md`](INVIOLABLE-PRINCIPLES.md) #3, **no cloud APIs are called from Go directly** — OpenTofu owns Phase 0, Crossplane owns day-2, and Hetzner client code is reserved for read-only credential validation.
+**What:** Build the wizard's backend at [`products/catalyst/bootstrap/api/`](../products/catalyst/bootstrap/api/) (the Go service deployed as `catalyst-api` in the `catalyst` namespace on Catalyst-Zero). Real backend that takes wizard input → calls OpenTofu → returns Sovereign provisioning state via SSE. Per [`PRINCIPLES.md`](PRINCIPLES.md) #3, **no cloud APIs are called from Go directly** — OpenTofu owns Phase 0, Crossplane owns day-2, and Hetzner client code is reserved for read-only credential validation.
 
 **Outputs:**
 - [`products/catalyst/bootstrap/api/internal/provisioner/`](../products/catalyst/bootstrap/api/internal/provisioner/) — thin wrapper around `tofu` that writes `tofu.auto.tfvars.json` from validated wizard input, runs `tofu init && tofu plan && tofu apply -auto-approve`, streams stdout/stderr lines to the wizard via SSE
@@ -175,7 +175,7 @@ Each phase produces one or more commits to `openova/`. Each commit is real worki
 
 ### Phase 5 — Bootstrap kit Helm charts (G2 quality)
 
-**What:** Real Catalyst-curated wrapper Helm charts at `platform/<x>/chart/` for every bootstrap-kit component. Each chart wraps upstream OSS with Catalyst-specific values, includes a `blueprint.yaml` per the unified Blueprint contract from `BLUEPRINT-AUTHORING.md` §1, publishes a `bp-<name>:<semver>` OCI artifact via CI fan-out.
+**What:** Real Catalyst-curated wrapper Helm charts at `platform/<x>/chart/` for every bootstrap-kit component. Each chart wraps upstream OSS with Catalyst-specific values, includes a `blueprint.yaml` per the unified Blueprint contract from `RUNBOOKS.md` §1, publishes a `bp-<name>:<semver>` OCI artifact via CI fan-out.
 
 **Components (in dependency order):**
 1. `platform/cilium/chart/` (CNI must come first)
@@ -248,7 +248,7 @@ Each phase produces one or more commits to `openova/`. Each commit is real worki
 
 **Outputs:**
 - VALIDATION-LOG entry: Pass 122 — DoD documented with screenshots / kubectl evidence
-- Optional: `docs/DEMO-RUNBOOK.md` for repeatability
+- Optional: `docs/RUNBOOKS.md` for repeatability
 
 ---
 
@@ -265,10 +265,10 @@ Each phase produces one or more commits to `openova/`. Each commit is real worki
 
 - `docs/ARCHITECTURE.md` — target architecture (the design Catalyst-Zero is being aligned to)
 - `docs/SOVEREIGN-PROVISIONING.md` §3 Phase 0 — bootstrap kit dependency order (canonical reference for Phase 5 of this plan)
-- `docs/BLUEPRINT-AUTHORING.md` §1 — unified Blueprint shape (the contract Phase 5 charts must satisfy)
-- `docs/IMPLEMENTATION-STATUS.md` — gets updated incrementally as each phase lands (📐 → 🚧 → ✅)
+- `docs/RUNBOOKS.md` §1 — unified Blueprint shape (the contract Phase 5 charts must satisfy)
+- `docs/STATUS.md` — gets updated incrementally as each phase lands (📐 → 🚧 → ✅)
 - `docs/AUDIT-PROCEDURE.md` — how to validate after each phase
-- `docs/VALIDATION-LOG.md` Pass 1–104 — historical record; Pass 105+ tracks this plan's execution
+- `docs/archive/validation-log.md` Pass 1–104 — historical record; Pass 105+ tracks this plan's execution
 
 ---
 

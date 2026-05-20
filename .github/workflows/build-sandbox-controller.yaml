@@ -6,7 +6,7 @@ name: Build sandbox-controller
 # RBAC + PVCs + placeholder tokens into the per-Org `catalyst-tenant`
 # Gitea repo. Per products/sandbox/docs/architecture.md §7.
 #
-# Per docs/INVIOLABLE-PRINCIPLES.md #4a (GitHub Actions is the only
+# Per docs/PRINCIPLES.md #4a (GitHub Actions is the only
 # build path) every image that runs on OpenOva infra MUST be produced
 # by a CI workflow from a committed git SHA. Shape mirrors
 # build-application-controller.yaml — same Buildx + cosign keyless
