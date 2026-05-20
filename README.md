@@ -8,23 +8,85 @@ Catalyst is the open-source platform built by [OpenOva](https://openova.io). It 
 
 ## Documentation
 
-| Document | What it covers |
-|---|---|
-| [`docs/GLOSSARY.md`](docs/GLOSSARY.md) | Canonical terminology — read first |
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Catalyst architecture overview |
-| [`docs/STATUS.md`](docs/STATUS.md) | **What's built today vs what's design-only** — read second |
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Naming patterns for every resource type |
-| [`docs/DOD.md`](docs/DOD.md) | Personas × journeys matrix; surfaces |
-| [`docs/SECURITY.md`](docs/SECURITY.md) | Identity (SPIFFE + Keycloak), secrets (OpenBao + ESO), rotation, multi-region semantics |
-| [`docs/SOVEREIGN-PROVISIONING.md`](docs/SOVEREIGN-PROVISIONING.md) | How to bring a Sovereign online |
-| [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md) | Writing Blueprints (incl. Crossplane Compositions) |
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Every component's role in Catalyst |
-| [`docs/SRE.md`](docs/SRE.md) | Operating a Sovereign |
-| [`docs/BUSINESS-STRATEGY.md`](docs/BUSINESS-STRATEGY.md) | Product strategy and GTM |
-| [`docs/TECHNOLOGY-FORECAST-2027-2030.md`](docs/TECHNOLOGY-FORECAST-2027-2030.md) | Component forecast 2027–2030 |
-| [`docs/archive/validation-log.md`](docs/archive/validation-log.md) | Trail of doc-integrity validation passes (audit log) |
+The `docs/` tree, in reading order. Every file under `docs/` appears exactly once below.
 
-> **Heads-up before reading further**: the architecture docs in this repo describe Catalyst's **target** state. Significant portions are not yet implemented — see [`docs/STATUS.md`](docs/STATUS.md) for what exists today vs what is design.
+### Core (read in this order)
+
+- [`docs/GLOSSARY.md`](docs/GLOSSARY.md) — canonical terminology + banned terms; wins over every other doc
+- [`docs/STATUS.md`](docs/STATUS.md) — what's built today vs what's design-only
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — target architecture, tech stack, naming, repo layout
+- [`docs/PRINCIPLES.md`](docs/PRINCIPLES.md) — inviolable engineering rules + anti-pattern catalog
+- [`docs/DOD.md`](docs/DOD.md) — 5-pillar Definition of Done + D0-D35 gates + domains canon
+
+### Build and operate
+
+- [`docs/SOVEREIGN-PROVISIONING.md`](docs/SOVEREIGN-PROVISIONING.md) — how to bring a Sovereign online end-to-end
+- [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md) — provisioning, chart bumps, Blueprint authoring, failover recovery
+- [`docs/SRE.md`](docs/SRE.md) — operate a Sovereign in production (SLOs, incident response, GPU ops)
+- [`docs/SECURITY.md`](docs/SECURITY.md) — identity (Cilium WG + Keycloak), secrets (OpenBao + ESO), threat model
+- [`docs/SECRET-ROTATION.md`](docs/SECRET-ROTATION.md) — credential inventory, rotation schedule, rollback path
+- [`docs/AUDIT-PROCEDURE.md`](docs/AUDIT-PROCEDURE.md) — on-demand documentation-integrity validation procedure
+
+### Strategy
+
+- [`docs/BUSINESS-STRATEGY.md`](docs/BUSINESS-STRATEGY.md) — positioning, revenue model, competitive landscape, GTM
+- [`docs/PRODUCT-FAMILIES.md`](docs/PRODUCT-FAMILIES.md) — two-layer dependency model behind the Sovereign Wizard
+- [`docs/FRANCHISE-MODEL.md`](docs/FRANCHISE-MODEL.md) — voucher-driven Sovereign franchisee model
+- [`docs/TECHNOLOGY-FORECAST-2027-2030.md`](docs/TECHNOLOGY-FORECAST-2027-2030.md) — 56-component relevance forecast through 2030
+
+### Deep-dive (component / surface level)
+
+- [`docs/PROVISIONING-PLAN.md`](docs/PROVISIONING-PLAN.md) — Catalyst-Zero phase-by-phase execution plan (Groups A-M)
+- [`docs/MULTI-REGION-DNS.md`](docs/MULTI-REGION-DNS.md) — geo + health-checked failover via PowerDNS lua-records
+- [`docs/PLATFORM-POWERDNS.md`](docs/PLATFORM-POWERDNS.md) — per-Sovereign PowerDNS zone model + DNSSEC + REST API
+- [`docs/CLUSTERMESH-CLUSTER-IDS.md`](docs/CLUSTERMESH-CLUSTER-IDS.md) — Cilium ClusterMesh cluster.name / cluster.id ledger
+- [`docs/COMPONENT-LOGOS.md`](docs/COMPONENT-LOGOS.md) — wizard component-picker logo manifest + licences
+- [`docs/UI-REGRESSION-GUARDS.md`](docs/UI-REGRESSION-GUARDS.md) — Playwright cosmetic + step-flow regression catalog
+
+### Decision records ([`docs/adr/`](docs/adr/))
+
+- [`docs/adr/README.md`](docs/adr/README.md) — ADR index + Accepted / Superseded states
+- [`docs/adr/0001-catalyst-control-plane-architecture.md`](docs/adr/0001-catalyst-control-plane-architecture.md) — Catalyst control-plane architecture (Accepted)
+- [`docs/adr/0002-post-handover-sovereignty-cutover.md`](docs/adr/0002-post-handover-sovereignty-cutover.md) — post-handover Sovereign cutover (Accepted)
+- [`docs/adr/0003-rbac-newapi-user-create-hook.md`](docs/adr/0003-rbac-newapi-user-create-hook.md) — RBAC ↔ NewAPI user-create hook contract (Accepted)
+- [`docs/adr/0004-cnpg-sync-replication.md`](docs/adr/0004-cnpg-sync-replication.md) — CNPG Pillar-3 synchronous replication (Accepted)
+
+### Live state ([`docs/ledger/`](docs/ledger/) — cron-refreshed)
+
+- [`docs/ledger/TRACKER.md`](docs/ledger/TRACKER.md) — open-issue + DoD-gate progress board (15-min refresh)
+- [`docs/ledger/TRUST.md`](docs/ledger/TRUST.md) — verification ledger (UNVERIFIED / VERIFIED-PASS / FAIL / PARTIAL)
+
+### Lessons learned ([`docs/lessons-learned/`](docs/lessons-learned/))
+
+- [`docs/lessons-learned/README.md`](docs/lessons-learned/README.md) — index + contribution rules
+- [`docs/lessons-learned/catalyst-bootstrap-api.md`](docs/lessons-learned/catalyst-bootstrap-api.md) — Phase-0 `tofu destroy` + token-hygiene behavior
+- [`docs/lessons-learned/chi-router-quirks.md`](docs/lessons-learned/chi-router-quirks.md) — go-chi percent-encoding + route-match traps
+- [`docs/lessons-learned/helm-controller-logs.md`](docs/lessons-learned/helm-controller-logs.md) — Flux v2.4 nested-JSON log shape for HelmRelease
+- [`docs/lessons-learned/helm-controller-rbac.md`](docs/lessons-learned/helm-controller-rbac.md) — helm-controller SA needs cluster-admin in `flux-system`
+- [`docs/lessons-learned/helm-hooks-and-crd-ordering.md`](docs/lessons-learned/helm-hooks-and-crd-ordering.md) — `before-hook-creation` deadlocks on subchart-registered CRDs
+
+### Operational runbooks ([`docs/runbooks/`](docs/runbooks/))
+
+- [`docs/runbooks/openova-flow-multi-region-verify.md`](docs/runbooks/openova-flow-multi-region-verify.md) — OpenovaFlow multi-region rendering verification
+
+### Proposals ([`docs/proposals/`](docs/proposals/) — in-flight)
+
+- [`docs/proposals/jobs-dependencies-viz.md`](docs/proposals/jobs-dependencies-viz.md) — Jobs Dependencies tab SVG-DAG visualization
+
+### Session archives ([`docs/sessions/`](docs/sessions/))
+
+- [`docs/sessions/2026-05-17-convergence.md`](docs/sessions/2026-05-17-convergence.md) — convergence wave + Sandbox scaffold session report
+- [`docs/sessions/2026-05-19-20-trust-recovery.md`](docs/sessions/2026-05-19-20-trust-recovery.md) — trust-recovery cycle whole-day retrospective
+- [`docs/sessions/2026-05-20-trust-audit.md`](docs/sessions/2026-05-20-trust-audit.md) — random-sample evidence audit of closed issues
+- [`docs/sessions/2026-05-20-walk-runbook.md`](docs/sessions/2026-05-20-walk-runbook.md) — fresh-prov walk runbook for 42 unverified PRs
+
+### Archive ([`docs/archive/`](docs/archive/) — superseded, kept for audit trail)
+
+- [`docs/archive/omantel-handover-wbs.md`](docs/archive/omantel-handover-wbs.md) — Omantel handover work-breakdown structure
+- [`docs/archive/orchestrator-state.md`](docs/archive/orchestrator-state.md) — Catalyst-Zero multi-agent orchestrator hand-off state
+- [`docs/archive/validation-log.md`](docs/archive/validation-log.md) — trail of past documentation-integrity validation passes
+
+> **Heads-up before reading further**: the architecture docs in this repo describe Catalyst's **target** state. Significant portions are not yet implemented — `docs/STATUS.md` (listed above) records what exists today vs what is design.
 
 ---
 
