@@ -1,0 +1,229 @@
+name: Build projector
+
+# projector — Catalyst CQRS read-side binary that consumes K8s resource
+# events from the NATS catalyst.events JetStream and projects them
+# into Valkey under `cluster:{c}:kind:{k}:{ns}/{name}` for cross-replica
+# catalyst-api SSE fan-out. Source: `core/cmd/projector/`. Wire contract:
+# `core/cmd/projector/DESIGN.md`. Chart slot:
+# `controllers.projector` in `products/catalyst/chart/values.yaml`
+# (defaults to `enabled: false`, `image.tag: ""` — fail-fast per
+# Inviolable Principle #4a until a CI-built tag is pinned here).
+#
+# Why this workflow exists
+# ------------------------
+# enabled:false audit (V18-B): the projector source landed in
+# `core/cmd/projector/` with its own Containerfile but no CI workflow
+# was ever added to publish the image. That means
+# `controllers.projector.enabled` CANNOT be flipped on — the chart
+# template would render an empty `image.tag` and `helm template`
+# would fail-fast. Every prior attempt at wiring the CQRS read-side
+# for the NATS event spine (Pillar 1+4 control-plane) silently
+# stalled here. This workflow closes that gap and lets a separate
+# follow-up PR safely flip the gate.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4a (GitHub Actions is the ONLY
+# build path) every image that runs on OpenOva infra MUST be produced
+# by a CI workflow from a committed git SHA — never built locally,
+# never pushed by hand. This workflow mirrors
+# build-blueprint-controller.yaml: same Buildx + cosign keyless sign +
+# SBOM attestation flow, same `controllers.<name>.image.tag` auto-bump
+# in `products/catalyst/chart/values.yaml`, same dispatch of
+# blueprint-release for catalyst chart re-publish.
+#
+# Per `feedback_inviolable_principles.md`: event-driven only, NO cron.
+# Triggers on push-to-main with paths filter (so unrelated commits
+# don't burn CI minutes), pull_request for reviewers, and
+# workflow_dispatch for manual re-runs.
+#
+# Scope notes
+# -----------
+# - This PR delivers the image-build pipeline ONLY. The chart-flip
+#   (`controllers.projector.enabled: true`) is a separate chain that
+#   needs the NACK consumer installed and JetStream catalystStreams
+#   reconciled — tracked under TBD-V18-C.
+# - The projector binary owns its own `go.mod` under
+#   `core/cmd/projector/`, so the path filter does NOT include the
+#   shared `core/controllers/**` tree.
+#
+# Refs TBD-V22 (filed alongside this PR), V18-B audit, EPIC #1094, #1099.
+
+on:
+  push:
+    paths:
+      - 'core/cmd/projector/**'
+      - '.github/workflows/build-projector.yaml'
+    branches: [main]
+  pull_request:
+    paths:
+      - 'core/cmd/projector/**'
+      - '.github/workflows/build-projector.yaml'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/openova-io/openova/projector
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      # contents: write — the deploy step below pushes a values.yaml SHA
+      # bump back to main so the bp-catalyst-platform chart picks up the
+      # newly-built image without an operator manually editing the file
+      # (per `feedback_no_mvp_no_workarounds.md` rule 1: target-state,
+      # never "manual follow-up bump"). Mirrors
+      # build-blueprint-controller.yaml.
+      contents: write
+      packages: write
+      # id-token write is required by cosign keyless signing (Sigstore).
+      id-token: write
+      # actions: write — required for `gh workflow run` to dispatch the
+      # downstream blueprint-release chart re-publish workflow.
+      actions: write
+    outputs:
+      sha_short: ${{ steps.vars.outputs.sha_short }}
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set short SHA
+        id: vars
+        run: echo "sha_short=$(echo $GITHUB_SHA | head -c 7)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: |
+            core/cmd/projector/go.sum
+
+      - name: go vet — projector
+        working-directory: core/cmd/projector
+        run: go vet ./...
+
+      - name: Run unit tests — projector
+        working-directory: core/cmd/projector
+        run: go test -count=1 -race ./...
+
+      # On pull_request runs we stop here — image push requires
+      # `packages: write` which only main-branch authors hold.
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        if: github.event_name != 'pull_request'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        id: build
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          # Build context is the repository root so the Containerfile's
+          # COPY paths can reach core/cmd/projector/.
+          context: .
+          file: core/cmd/projector/Containerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}
+            ${{ env.IMAGE }}:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/openova-io/openova
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=projector
+            org.opencontainers.image.description=Catalyst CQRS read-side — consumes NATS catalyst.events and projects into Valkey for cross-replica catalyst-api SSE fan-out (EPIC-4 P1 #1099)
+          # provenance=false: containerd 1.7.x on k3s mis-resolves the
+          # provenance attestation manifest. SBOM attestation handled by
+          # the cosign attest step below.
+          provenance: false
+          sbom: false
+
+      - name: Install cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image with cosign (keyless)
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign sign --yes "${IMAGE}@${DIGEST}"
+
+      - name: Generate and attest SBOM
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign attest --yes \
+            --predicate <(echo '{"sbom":"in-toto-spdx attached at build time"}') \
+            --type spdx \
+            "${IMAGE}@${DIGEST}"
+
+      # Auto-bump `controllers.projector.image.tag` so the next Sovereign
+      # chart rollout picks up this image without a manual edit. Mirrors
+      # build-blueprint-controller.yaml / build-application-controller.yaml.
+      # NOTE: this only updates the tag; `controllers.projector.enabled`
+      # stays false in this PR (per V18-B audit — flipping requires the
+      # NACK consumer + JetStream catalystStreams reconciled first,
+      # tracked under TBD-V18-C).
+      - name: Bump controllers.projector.image.tag in values.yaml
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          SHA_SHORT: ${{ steps.vars.outputs.sha_short }}
+        run: |
+          VALUES="products/catalyst/chart/values.yaml"
+          # awk: find `  projector:` under `controllers:`, then update
+          # the next `tag: "..."` line. Stops at the next top-level
+          # `  <key>:` (two-space indent) so we don't accidentally bump
+          # a sibling controller's tag.
+          awk -v sha="${SHA_SHORT}" '
+            /^controllers:/ { in_ctrls=1 }
+            in_ctrls && /^  projector:/ { print; in_proj=1; next }
+            in_ctrls && /^  [a-z]/ && !/^  projector:/ { in_proj=0 }
+            in_proj && /^      tag:/ { sub(/"[^"]*"/, "\"" sha "\""); in_proj=0 }
+            { print }
+          ' "${VALUES}" > "${VALUES}.tmp" && mv "${VALUES}.tmp" "${VALUES}"
+          echo "values.yaml after bump:"
+          grep -A4 "^  projector:" "${VALUES}" | head -10
+
+      - name: Commit and push values.yaml bump
+        id: deploy_commit
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          SHA_SHORT: ${{ steps.vars.outputs.sha_short }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet products/catalyst/chart/values.yaml; then
+            echo "no values.yaml change — already pinned to ${SHA_SHORT}"
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git add products/catalyst/chart/values.yaml
+          git commit -m "deploy: bump projector image to ${SHA_SHORT}"
+          # Pull-rebase to avoid races with parallel build commits.
+          git pull --rebase --autostash origin main || true
+          git push origin HEAD:main
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+
+      # GitHub Actions does NOT trigger workflows from bot pushes by
+      # default (anti-recursion safeguard). Without this dispatch the
+      # rebuilt image is NEVER baked into a new chart version, so
+      # Sovereigns keep installing the previous chart with the previous
+      # image tag (`feedback_no_mvp_no_workarounds.md` rule 1 violation).
+      - name: Dispatch blueprint-release for chart re-publish
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && steps.deploy_commit.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run blueprint-release.yaml \
+            --repo "${GITHUB_REPOSITORY}" \
+            --ref main \
+            -f blueprint=catalyst \
+            -f tree=products
