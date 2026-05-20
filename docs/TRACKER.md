@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-20T06:30:02Z` |
+| Last refreshed | `2026-05-20T06:44:47Z` |
 | Open issues | 34 |
 | Open DoD gates | 6 / 41 |
 | Open TBD-* regressions | 27 |
@@ -231,8 +231,8 @@ flowchart LR
 | [#2058](https://github.com/openova-io/openova/issues/2058) | TBD-V31: align user-journey.md + architecture.md with TBD-V30 card-protocol defe | TBD regression |
 | [#2065](https://github.com/openova-io/openova/issues/2065) | TBD-V14: Pillar 3 — bp-continuum controller is not deployed by the bootstrap-k | TBD regression |
 | [#2066](https://github.com/openova-io/openova/issues/2066) | TBD-V15: Pillar 3 — Continuum CR is not auto-created when an active-hot-standb | TBD regression |
-| [#2067](https://github.com/openova-io/openova/issues/2067) | TBD-V16: Pillar 3 — D31 acceptance test (1M-row write + region-kill + zero-tx- | TBD regression |
 | [#2068](https://github.com/openova-io/openova/issues/2068) | TBD-V17: Pillar 3 — bp-cnpg-pair Blueprint has no standalone install path (onl | TBD regression |
+| [#2077](https://github.com/openova-io/openova/issues/2077) | TBD-V33: migrate platform governance ledger (TRUST/TRACKER/WALK-RUNBOOK) from op | TBD regression |
 
 ---
 
