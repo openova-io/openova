@@ -22,14 +22,11 @@ The `docs/` tree, in reading order. Every file under `docs/` appears exactly onc
 
 - [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md) — provisioning, chart bumps, Blueprint authoring, failover recovery, doc-integrity audit cadence, Sovereign bring-up, UI regression catalog, Catalyst-Zero waterfall
 - [`docs/SRE.md`](docs/SRE.md) — operate a Sovereign in production (SLOs, incident response, GPU ops)
-- [`docs/SECURITY.md`](docs/SECURITY.md) — identity (Cilium WG + Keycloak), secrets (OpenBao + ESO), threat model
-- [`docs/SECRET-ROTATION.md`](docs/SECRET-ROTATION.md) — credential inventory, rotation schedule, rollback path
+- [`docs/SECURITY.md`](docs/SECURITY.md) — identity (Cilium WG + Keycloak), secrets (OpenBao + ESO), threat model, secret-rotation procedures (§11 — credential inventory, rotation schedule, rollback path)
 
 ### Strategy
 
-- [`docs/BUSINESS-STRATEGY.md`](docs/BUSINESS-STRATEGY.md) — positioning, revenue model, competitive landscape, GTM
-- [`docs/PRODUCT-FAMILIES.md`](docs/PRODUCT-FAMILIES.md) — two-layer dependency model behind the Sovereign Wizard
-- [`docs/FRANCHISE-MODEL.md`](docs/FRANCHISE-MODEL.md) — voucher-driven Sovereign franchisee model
+- [`docs/BUSINESS-STRATEGY.md`](docs/BUSINESS-STRATEGY.md) — positioning, revenue model, competitive landscape, GTM, franchise model (§17), product families map (§18)
 - [`docs/TECHNOLOGY-FORECAST-2027-2030.md`](docs/TECHNOLOGY-FORECAST-2027-2030.md) — 56-component relevance forecast through 2030
 
 ### Deep-dive (component / surface level)

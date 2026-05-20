@@ -1386,7 +1386,7 @@ The agreed plan for consolidating the existing nova/console/admin/marketplace co
 | E — Provisioner backend | 13 | In progress — Real Hetzner client + bootstrap installer + Dynadot DNS landed; SSH kubeconfig fetch is stub | 915c467, db4f21a, 07b4bcf |
 | F — Bootstrap-kit Helm charts | 14 | Done — All 12 G2 wrapper charts (original 11 + bp-powerdns [#167](https://github.com/openova-io/openova/issues/167)) + blueprint-release CI live | 8c0f766, 0190c605 |
 | G — DNS multi-domain | 6 | Superseded by PowerDNS authoritative ([#167](https://github.com/openova-io/openova/issues/167)) + pool-domain-manager ([#163](https://github.com/openova-io/openova/issues/163)) + registrar adapters ([#170](https://github.com/openova-io/openova/issues/170)) — Dynadot is now one of five registrar adapters inside PDM, not the authoritative DNS surface | db4f21a, 0190c605 ([#167](https://github.com/openova-io/openova/issues/167)), 2854d652 ([#163](https://github.com/openova-io/openova/issues/163)), 567d7e1f ([#170](https://github.com/openova-io/openova/issues/170)) |
-| H — Franchise model | 7 | In progress — `docs/FRANCHISE-MODEL.md` authored from existing admin impl; cross-Sovereign voucher deferred | this commit |
+| H — Franchise model | 7 | In progress — franchise model documented from existing admin impl (now `BUSINESS-STRATEGY.md` §17); cross-Sovereign voucher deferred | this commit |
 | I — Wizard UX | 6 | Design — SSE event log pane + step indicator pending |  |
 | J — Hetzner infra | 6 | In progress — cloud-init in repo; firewall + k3s flags wired into provisioner | 07b4bcf |
 | K — Documentation | 8 | In progress — STATUS.md + core/README + products/catalyst/README updated; component-count anchor refreshed 53 → 56 (spire + nats-jetstream + sealed-secrets factored in); reconcile-pass-1 (2026-04-29) refreshed canonical docs against PowerDNS/PDM/registrar-adapter ground truth | 3c2f7e4, 8c0f766, group-k-docs, reconcile-pass-1 |
@@ -1445,7 +1445,7 @@ Lives in `openova-private/apps/admin/`:
 - `src/lib/api.ts` — voucher API client
 - `src/pages/{billing,catalog,orders,tenants}.astro` — admin pages
 
-This is the **canonical** voucher implementation. Do not redesign. Read what's there, propagate to franchised Sovereigns, document in [`FRANCHISE-MODEL.md`](FRANCHISE-MODEL.md).
+This is the **canonical** voucher implementation. Do not redesign. Read what's there, propagate to franchised Sovereigns, document in [`BUSINESS-STRATEGY.md`](BUSINESS-STRATEGY.md) §17 (Franchise model).
 
 ### 11.4 Architectural agreements (from the design conversation, durable)
 
@@ -1579,11 +1579,11 @@ Each phase produces one or more commits to `openova/`. Each commit is real worki
 
 #### 11.5.7 Phase 7 — Franchise model docs + voucher propagation
 
-**What:** Read existing voucher implementation in admin app. Write [`FRANCHISE-MODEL.md`](FRANCHISE-MODEL.md) documenting it as canonical. Ensure the new Sovereign at `omantel.omani.works` has its own admin surface (the same admin app, deployed inside the Sovereign) where omantel-admin can issue vouchers to omantel's tenants. Update [`GLOSSARY.md`](GLOSSARY.md) with `Voucher` and `Franchisee` definitions if not already present.
+**What:** Read existing voucher implementation in admin app. Document it as canonical in [`BUSINESS-STRATEGY.md`](BUSINESS-STRATEGY.md) §17 (Franchise model). Ensure the new Sovereign at `omantel.omani.works` has its own admin surface (the same admin app, deployed inside the Sovereign) where omantel-admin can issue vouchers to omantel's tenants. Update [`GLOSSARY.md`](GLOSSARY.md) with `Voucher` and `Franchisee` definitions if not already present.
 
 **Outputs:**
 
-- `openova/docs/FRANCHISE-MODEL.md` — canonical doc
+- [`BUSINESS-STRATEGY.md`](BUSINESS-STRATEGY.md) §17 — canonical franchise model section
 - Updates to [`GLOSSARY.md`](GLOSSARY.md) if needed
 - Updates to [`BUSINESS-STRATEGY.md`](BUSINESS-STRATEGY.md) revenue model if needed
 - validation-log entry: Pass 121
@@ -1642,11 +1642,11 @@ Each phase produces one or more commits to `openova/`. Each commit is real worki
 - [`STATUS.md`](STATUS.md) — what's built today vs design
 - [`PRINCIPLES.md`](PRINCIPLES.md) — the 15 inviolable engineering principles
 - [`PRINCIPLES.md`](PRINCIPLES.md) — theater receipts to watch for in PR review
-- [`SECURITY.md`](SECURITY.md) — identity, secrets, rotation
-- [`PLATFORM-POWERDNS.md`](PLATFORM-POWERDNS.md) — per-Sovereign authoritative zone model
-- [`SECURITY.md` §11](SECURITY.md#11-rotation-cadence-and-operator-procedures) — GHCR pull token, Dynadot credentials, Hetzner tokens (rotation runbook merged from former `SECRET-ROTATION.md` on 2026-05-20)
+- [`SECURITY.md`](SECURITY.md) — identity, secrets, rotation (incl. §11 GHCR pull token, Dynadot credentials, Hetzner tokens — folded from former `SECRET-ROTATION.md` on 2026-05-20)
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) §8.9 — PowerDNS deployment shape (folded from former `PLATFORM-POWERDNS.md` on 2026-05-20)
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) §8.8 — PowerDNS lua-records for GSLB (folded from former `MULTI-REGION-DNS.md` on 2026-05-20)
-- [`FRANCHISE-MODEL.md`](FRANCHISE-MODEL.md) — voucher mechanism
-- [`TRUST.md`](TRUST.md) — verification ledger
+- [`BUSINESS-STRATEGY.md`](BUSINESS-STRATEGY.md) §17 — franchise model + voucher mechanism (folded from former `FRANCHISE-MODEL.md` on 2026-05-20)
+- [`BUSINESS-STRATEGY.md`](BUSINESS-STRATEGY.md) §18 — product families map (folded from former `PRODUCT-FAMILIES.md` on 2026-05-20)
+- [`ledger/TRUST.md`](ledger/TRUST.md) — verification ledger
 - `tests/dod/dod_test.go` — Go test that drives the §5 walk non-interactively
 - `scripts/operator-recover-sovereign.sh` — §2.2 idempotent recovery
