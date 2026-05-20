@@ -478,7 +478,7 @@ controllers:
       # cross-namespace ownerRef on the host-side Flux CRs (was being
       # silently GC'd by the K8s collector because Application lives
       # in a different namespace from flux-system).
-      tag: "a405572"
+      tag: "e72efb8"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
