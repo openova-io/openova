@@ -84,7 +84,18 @@ async function installMocks(page: Page): Promise<MockState> {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify([
-        { id: '1', name: 'WordPress', slug: 'wordpress', tagline: 'Website & blog platform', description: 'Create blogs, websites, and online stores.', category: 'cms', icon: 'W', color: '#21759b', free: true, popular: true, features: [], website: 'https://wordpress.org', license: 'GPL-2.0', system: false, kind: 'business', deployable: true, dependencies: [] },
+        { id: '1', name: 'WordPress', slug: 'wordpress', tagline: 'Website & blog platform', description: 'Create blogs, websites, and online stores.', category: 'cms', icon: 'W', color: '#21759b', free: true, popular: true, features: [], website: 'https://wordpress.org', license: 'GPL-2.0', system: false, kind: 'business', deployable: true, dependencies: [],
+          // TBD-V18 (#2026) — mirror the catalog's wire-shape so the
+          // marketplace can render per-instance tunables on the
+          // canonical Postgres-backed bundle. Field set matches the
+          // `replicasField` / `diskField` / `backupField` ConfigField
+          // triplet from core/services/catalog/handlers/seed.go.
+          config_schema: [
+            { key: 'replicas', label: 'Replicas', type: 'int', default: 1, min: 1, max: 5, description: 'Number of database instances in the cluster.', advanced: false },
+            { key: 'disk_gb', label: 'Storage (GB)', type: 'int', default: 5, min: 1, max: 500, description: 'Persistent volume size per replica.', advanced: false },
+            { key: 'backups_enabled', label: 'Daily backups', type: 'bool', default: false, description: 'Enable daily backups to object storage.', advanced: true },
+          ],
+        },
         { id: '2', name: 'Ghost', slug: 'ghost', tagline: 'Professional publishing', description: 'Modern publishing platform for blogs and newsletters.', category: 'cms', icon: 'G', color: '#15171A', free: true, features: [], website: 'https://ghost.org', license: 'MIT', system: false, kind: 'business', deployable: true, dependencies: [] },
         { id: '3', name: 'Nextcloud', slug: 'nextcloud', tagline: 'File sync & share', description: 'Store, share, and collaborate on files.', category: 'productivity', icon: 'N', color: '#0082c9', free: true, popular: true, features: [], website: 'https://nextcloud.com', license: 'AGPL-3.0', system: false, kind: 'business', deployable: true, dependencies: [] },
         { id: '4', name: 'Twenty CRM', slug: 'twenty', tagline: 'Open-source CRM', description: 'Customer relationship management.', category: 'crm', icon: 'T', color: '#000000', free: true, features: [], website: 'https://twenty.com', license: 'AGPL-3.0', system: false, kind: 'business', deployable: true, dependencies: [] },
@@ -314,6 +325,25 @@ test.describe('marketplace customer-journey (17-step regression gate)', () => {
     await page.goto('/app?slug=wordpress')
     // AppDetail hero renders the app name as <h1>.
     await expect(page.getByRole('heading', { name: /WordPress/i })).toBeVisible({ timeout: 10_000 })
+  })
+
+  // TBD-V18 (#2026) — Pillar 1 step 2 of the CLAUDE.md §0 deterministic
+  // walk: clicking the canonical Postgres-backed bundle must render
+  // its configSchema (replicas / disk / backup). Surface regressions
+  // here before they reach a fresh prov.
+  test('03b product detail renders configSchema (replicas/disk/backup)', async ({ page }) => {
+    await page.goto('/app?slug=wordpress')
+    const section = page.locator('[data-testid="config-schema-section"]')
+    await expect(section).toBeVisible({ timeout: 10_000 })
+    // Each of the 3 catalog-declared fields must render one input.
+    await expect(section.locator('[data-config-key="replicas"]')).toBeVisible()
+    await expect(section.locator('[data-config-key="disk_gb"]')).toBeVisible()
+    await expect(section.locator('[data-config-key="backups_enabled"]')).toBeVisible()
+    // Defaults arrive seeded from the catalog wire shape.
+    await expect(section.locator('#cfg-replicas')).toHaveValue('1')
+    await expect(section.locator('#cfg-disk_gb')).toHaveValue('5')
+    // 'advanced' field carries the badge.
+    await expect(section.locator('[data-config-key="backups_enabled"] .config-badge')).toHaveText(/advanced/i)
   })
 
   test('04 voucher input visible', async ({ page }) => {

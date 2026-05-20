@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getApps, type App } from '../lib/api';
+  import { getApps, type App, type ConfigField } from '../lib/api';
   import { readCart, toggleApp, toggleAgent, SANDBOX_AGENTS } from '../lib/cart';
 
   interface Props {
@@ -12,10 +12,24 @@
   let dependencyApps = $state<App[]>([]);
   let loading = $state(true);
   let cart = $state(readCart());
+  // TBD-V18 (#2026) — local form state for the per-instance tunables
+  // declared on app.configSchema. Initialised from each field's
+  // `default` so the rendered form is always populated for the
+  // canonical Postgres-backed bundle (replicas=1, disk_gb=5,
+  // backups_enabled=false). Threading these into the install POST is
+  // a follow-up — for now this proves the schema renders end-to-end.
+  let configValues = $state<Record<string, number | string | boolean>>({});
 
   const inCart = $derived(app ? cart.apps.includes(app.id) : false);
   const isService = $derived(app ? (app.system === true || app.kind === 'service') : false);
   const comingSoon = $derived(app ? (app.deployable === false && !isService) : false);
+  // Schema fields render below the Description / Features sections so
+  // operators get the configuration surface immediately after the
+  // marketing context. Empty/missing schema = section is skipped (Postgres
+  // is a System app that ships ConfigSchema; per-Pillar-1-step-2 the
+  // bundle UI surfaces these tunables to the customer).
+  const configSchemaFields = $derived<ConfigField[]>(app?.configSchema ?? []);
+  const hasConfigSchema = $derived(configSchemaFields.length > 0);
   // Sandbox product — render the 6-agent pre-select grid below the
   // features section. Cards reuse the .related-card chrome verbatim
   // (design-system inheritance rule from Wave 4 brief: no bespoke
@@ -36,9 +50,40 @@
       dependencyApps = depSlugs
         .map(slug => apps.find(a => a.slug === slug))
         .filter((a): a is App => !!a);
+      // Seed configValues from per-field defaults. Falls back to a
+      // type-appropriate zero when `default` is missing so the form
+      // always has a coherent initial state.
+      const fields = app?.configSchema ?? [];
+      const seeded: Record<string, number | string | boolean> = {};
+      for (const f of fields) {
+        if (f.default !== undefined && f.default !== null) {
+          seeded[f.key] = f.default;
+        } else {
+          seeded[f.key] = f.type === 'int' ? 0 : f.type === 'bool' ? false : '';
+        }
+      }
+      configValues = seeded;
       loading = false;
     }).catch(() => { loading = false; });
   });
+
+  // Cast helpers — Svelte 5 + TS doesn't narrow $state<Record<string,...>>
+  // values to a single primitive when bound to <input>, so these helpers
+  // keep the binding strictly typed.
+  function numValue(key: string): number {
+    const v = configValues[key];
+    return typeof v === 'number' ? v : Number(v) || 0;
+  }
+  function strValue(key: string): string {
+    const v = configValues[key];
+    return typeof v === 'string' ? v : v == null ? '' : String(v);
+  }
+  function boolValue(key: string): boolean {
+    return configValues[key] === true;
+  }
+  function setValue(key: string, v: number | string | boolean): void {
+    configValues = { ...configValues, [key]: v };
+  }
 
   function toggle() {
     if (!app) return;
@@ -112,6 +157,77 @@
             <li>{feat}</li>
           {/each}
         </ul>
+      </section>
+    {/if}
+
+    <!-- Configuration schema — TBD-V18 (#2026). Renders per-instance
+         tunables declared by the catalog (replicas/disk/backup for a
+         Postgres-backed bundle, replicas/persistence for Redis, etc.).
+         Unblocks Pillar 1 step 2 of the deterministic CLAUDE.md §0
+         walk ("Click the canonical Postgres-backed bundle → app card
+         opens; configSchema renders"). One input widget per
+         ConfigField.type — matches the Go store.ConfigField contract
+         exactly. Threading these into the install POST is a follow-up
+         (TBD-V18-D). -->
+    {#if hasConfigSchema}
+      <section class="detail-section" data-testid="config-schema-section">
+        <h2>Configuration</h2>
+        <p class="detail-dependencies-hint">Tune the per-instance defaults. You can change these any time from the app's admin tab after install.</p>
+        <div class="config-grid" role="group" aria-label="App configuration">
+          {#each configSchemaFields as field}
+            <div class="config-field" data-config-key={field.key} data-config-type={field.type}>
+              <label for={`cfg-${field.key}`}>
+                <span class="config-label">{field.label}</span>
+                {#if field.advanced}
+                  <span class="config-badge">advanced</span>
+                {/if}
+              </label>
+              {#if field.type === 'int'}
+                <input
+                  id={`cfg-${field.key}`}
+                  class="config-input"
+                  type="number"
+                  min={field.min ?? undefined}
+                  max={field.max ?? undefined}
+                  value={numValue(field.key)}
+                  oninput={(e) => setValue(field.key, Number((e.currentTarget as HTMLInputElement).value))}
+                />
+              {:else if field.type === 'bool'}
+                <label class="config-toggle">
+                  <input
+                    id={`cfg-${field.key}`}
+                    type="checkbox"
+                    checked={boolValue(field.key)}
+                    oninput={(e) => setValue(field.key, (e.currentTarget as HTMLInputElement).checked)}
+                  />
+                  <span class="config-toggle-text">{boolValue(field.key) ? 'Enabled' : 'Disabled'}</span>
+                </label>
+              {:else if field.type === 'enum' && field.options}
+                <select
+                  id={`cfg-${field.key}`}
+                  class="config-input"
+                  value={strValue(field.key)}
+                  onchange={(e) => setValue(field.key, (e.currentTarget as HTMLSelectElement).value)}
+                >
+                  {#each field.options as opt}
+                    <option value={opt}>{opt}</option>
+                  {/each}
+                </select>
+              {:else}
+                <input
+                  id={`cfg-${field.key}`}
+                  class="config-input"
+                  type="text"
+                  value={strValue(field.key)}
+                  oninput={(e) => setValue(field.key, (e.currentTarget as HTMLInputElement).value)}
+                />
+              {/if}
+              {#if field.description}
+                <p class="config-desc">{field.description}</p>
+              {/if}
+            </div>
+          {/each}
+        </div>
       </section>
     {/if}
 
@@ -354,6 +470,74 @@
     border-radius: 50%;
     background: var(--color-success);
     flex-shrink: 0;
+  }
+
+  /* Configuration schema — TBD-V18 (#2026). Reuses existing tokens
+     (--color-surface, --color-border, --color-accent, --color-text*).
+     Two-column responsive grid mirrors .detail-features so this
+     surface inherits the marketplace's existing card aesthetic. */
+  .config-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 0.85rem;
+  }
+  .config-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+  .config-field label {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    color: var(--color-text-strong);
+    font-size: 0.82rem;
+    font-weight: 600;
+  }
+  .config-label { color: var(--color-text-strong); }
+  .config-badge {
+    background: color-mix(in srgb, var(--color-text-dim) 12%, transparent);
+    color: var(--color-text-dim);
+    border-radius: 4px;
+    padding: 0.1rem 0.4rem;
+    font-size: 0.66rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .config-input {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    color: var(--color-text);
+    font-size: 0.85rem;
+    font-family: inherit;
+    padding: 0.4rem 0.55rem;
+    width: 100%;
+  }
+  .config-input:focus {
+    outline: none;
+    border-color: var(--color-accent);
+  }
+  .config-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 500;
+    color: var(--color-text);
+    font-size: 0.85rem;
+  }
+  .config-toggle input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--color-accent);
+  }
+  .config-toggle-text { color: var(--color-text); }
+  .config-desc {
+    margin: 0;
+    color: var(--color-text-dim);
+    font-size: 0.74rem;
+    line-height: 1.45;
   }
 
   /* Related */
