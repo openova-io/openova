@@ -137,6 +137,15 @@ export const getApps = async (): Promise<App[]> => {
     kind: (a.kind as 'business' | 'service') || (a.system ? 'service' : 'business'),
     shareable: a.shareable ?? false,
     deployable: a.deployable ?? false, // #102 — must carry through to template
+    // TBD-V18 (#2026) — surface ConfigSchema so AppDetail renders
+    // per-instance tunables (replicas/disk/backup for Postgres-backed
+    // bundles, etc.). Go store carries this as `config_schema` (per
+    // store.App.ConfigSchema bson tag); wire shape matches
+    // store.ConfigField exactly. Empty list when the catalog has no
+    // tunables for the app (omitempty on the Go side).
+    configSchema: Array.isArray(a.config_schema)
+      ? (a.config_schema as ConfigField[])
+      : [],
   }));
 };
 export const getIndustries = async (): Promise<Industry[]> => {
@@ -289,6 +298,32 @@ export interface Plan {
   popular?: boolean;
 }
 
+// ConfigField mirrors the Go `core/services/catalog/store/store.go`
+// `ConfigField` struct (line 91) one-for-one. The wire JSON tag for
+// each Go field is the lowercase form used here, e.g. Go's
+// `Default any` ⇄ TS `default?: number | string | boolean`. The
+// console renders one input widget per `type` —
+//   - "int"    → <input type="number">  (min/max bound)
+//   - "string" → <input type="text">
+//   - "bool"   → <input type="checkbox">
+//   - "enum"   → <select> populated from `options`
+//   - "size"   → <input type="text">    (e.g. "10Gi", parsed downstream)
+//
+// `advanced` fields collapse behind an "Advanced" toggle (UI iteration
+// follow-up; for now they render inline with an `advanced` badge so
+// nothing is hidden from the operator). See TBD-V18 (#2026).
+export interface ConfigField {
+  key: string;
+  label: string;
+  type: 'int' | 'string' | 'bool' | 'enum' | 'size';
+  default?: number | string | boolean;
+  min?: number;
+  max?: number;
+  options?: string[];
+  description?: string;
+  advanced?: boolean;
+}
+
 export interface App {
   id: string;
   name: string;
@@ -313,6 +348,12 @@ export interface App {
   // wired yet. Cards show a 'Coming soon' overlay, toggle is disabled.
   // See issue #102.
   deployable?: boolean;
+  // TBD-V18 (#2026) — per-instance tunables (replicas / disk / backup
+  // for Postgres-backed bundles, replicas / persistence for Redis,
+  // etc.). Empty array when the catalog has no tunables for this app.
+  // Threading the customer's chosen values into the install payload is
+  // a follow-up — see CartState extension TODO in cart.ts.
+  configSchema?: ConfigField[];
 }
 
 // GitHub org/user avatar URLs — reliable, CDN-backed, consistent sizing

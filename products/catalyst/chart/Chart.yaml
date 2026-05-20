@@ -1,5 +1,41 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.222 — TBD-V18 / #2026 (2026-05-20): marketplace AppDetail now
+# renders the per-instance configSchema (replicas / disk / backup
+# for Postgres-backed bundles, replicas / persistence for Redis, etc.)
+# directly under Description / Features. Pre-fix Pillar 1 step 2 of
+# the CLAUDE.md §0 deterministic walk ("Click the canonical
+# Postgres-backed bundle → app card opens; configSchema renders")
+# failed: catalog Go store carries `ConfigSchema []ConfigField`
+# (store.go:55) and serialises it as `config_schema` over the wire,
+# but core/marketplace/src/lib/api.ts::getApps's mapper dropped the
+# field entirely → AppDetail.svelte had no per-instance tunables
+# section.
+#
+# Fix:
+#   - Add `configSchema` to the marketplace `App` interface +
+#     `ConfigField` shape mirroring `core/services/catalog/store/
+#     store.go::ConfigField` one-for-one (key/label/type/default/
+#     min/max/options/description/advanced).
+#   - getApps mapper reads `a.config_schema` (Go bson/json tag).
+#   - AppDetail.svelte renders one widget per ConfigField.type
+#     (int → numeric input with min/max bounds, bool → checkbox,
+#     enum → select, string/size → text input). 'advanced' fields
+#     carry a muted badge. Local form state is seeded from
+#     per-field defaults so the rendered surface is always
+#     populated for the canonical Postgres-backed bundle
+#     (replicas=1, disk_gb=5, backups_enabled=false).
+#   - Playwright customer-journey gets a new `03b` test asserting
+#     replicas/disk/backup render with seeded defaults so the
+#     regression surfaces locally before reaching a fresh prov.
+#
+# Threading customer-chosen values into the install POST is a
+# follow-up (TBD-V18-D) — this PR's scope is "configSchema
+# renders" only, per the issue body.
+#
+# Surfaces only — no API / wire / chart-template changes; only the
+# catalyst-ui image SHA carries the change (bp-catalyst-platform
+# embeds the built marketplace assets via the catalyst-ui image).
 # 1.4.221 — TBD-V20 / #2028 (2026-05-20): wizard StepSuccess "Issue
 # first voucher" CTA was pointing at the anti-canon
 # `https://admin.<fqdn>/billing/vouchers/new` URL. Per CLAUDE.md §0
@@ -2034,7 +2070,7 @@ name: bp-catalyst-platform
 # was already shipped on 1.4.197 (PR #1820 lineage); this completes
 # the data-layer side so the dropdown finally appears on multi-region
 # Sovereigns. Refs #1821, DoD D20.
-version: 1.4.221
+version: 1.4.222
 appVersion: 1.4.219
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,

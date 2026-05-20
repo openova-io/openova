@@ -794,7 +794,22 @@ spec:
       # (StepSuccess.tsx + StepSuccess.test.tsx 3 assertions); no
       # API / wire / chart-template changes; image SHAs unchanged
       # from 1.4.220.
-      version: 1.4.221
+      # 1.4.222 — TBD-V18 / #2026 (2026-05-20): marketplace AppDetail
+      # now renders the per-instance configSchema (replicas / disk /
+      # backup for Postgres-backed bundles, replicas / persistence for
+      # Redis, etc.). Pre-fix Pillar 1 step 2 of the CLAUDE.md §0
+      # deterministic walk failed: the catalog Go store carries
+      # `ConfigSchema []ConfigField` and serialises it as
+      # `config_schema` over the wire, but the marketplace TS App
+      # interface in `core/marketplace/src/lib/api.ts` dropped the
+      # field, so AppDetail.svelte had no tunables section. Fix adds
+      # the `configSchema` interface field + the rendering section
+      # (one widget per ConfigField.type) + a new playwright `03b`
+      # regression. Surfaces-only fix — only the catalyst-ui image
+      # SHA changes (bp-catalyst-platform embeds the built marketplace
+      # assets via that image). Threading customer-chosen values into
+      # the install POST is a follow-up (TBD-V18-D).
+      version: 1.4.222
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
