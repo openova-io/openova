@@ -10,14 +10,39 @@
  * router and the page component.
  */
 
+import { useMemo } from 'react'
 import { useParams, useNavigate } from '@tanstack/react-router'
 
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
-import { useK8sCacheStream } from '@/widgets/architecture-graph/useK8sCacheStream'
+import { GRAPH_K8S_KINDS, useK8sCacheStream } from '@/widgets/architecture-graph/useK8sCacheStream'
 
 import { ResourceDetailPage } from './ResourceDetailPage'
 import { parseTabFromPath, resourceDetailHref, type ResourceDetailTab } from './resource.api'
+
+/**
+ * Kinds the resource-detail SSE subscribes to. The default
+ * `GRAPH_K8S_KINDS` (used by CloudPage's canvas) intentionally omits
+ * `event` because the canvas does not render Events as nodes — adding
+ * the high-cardinality Event stream there would blow up the snapshot
+ * for every operator browsing the cloud-list page.
+ *
+ * The resource-detail view IS the page that surfaces Events (the
+ * EventsPanel tab #1099 Slice R4), so the focused detail subscription
+ * adds `event` on top of the graph kinds. The server-side k8scache
+ * Factory already registers `event` (events.k8s.io/v1) per
+ * `products/catalyst/bootstrap/api/internal/k8scache/kinds.go:155`.
+ *
+ * Without this addition, EventsPanel never sees any event-keyed
+ * snapshot entry and always renders its empty-state — the upstream
+ * was dark even though the panel itself, the SSE encoder, and the
+ * server-side registry all supported the wire. Closing that gap is
+ * the smallest fix that flips Events from theater to operator-visible.
+ */
+const RESOURCE_DETAIL_KINDS: readonly string[] = Object.freeze([
+  ...GRAPH_K8S_KINDS,
+  'event',
+])
 
 export function ResourceDetailRoute() {
   const params = useParams({ strict: false }) as {
@@ -45,7 +70,16 @@ export function ResourceDetailRoute() {
   // EventSource per page is the contract — adding the resource detail
   // page never adds a second connection because the user navigated AWAY
   // from CloudPage to reach this view.
-  const { snapshot } = useK8sCacheStream(deploymentId, { enabled: !!deploymentId })
+  //
+  // The kinds list MUST include `event` — see RESOURCE_DETAIL_KINDS
+  // doc above for why we extend GRAPH_K8S_KINDS instead of taking
+  // the default. The array reference is memoised so the SSE effect
+  // doesn't tear down + reconnect on every render.
+  const kinds = useMemo(() => RESOURCE_DETAIL_KINDS, [])
+  const { snapshot } = useK8sCacheStream(deploymentId, {
+    enabled: !!deploymentId,
+    kinds,
+  })
   // Render-then-enforce: the buttons mount unconditionally and the
   // server-side tier-admin gate is the authoritative check. The
   // useWhoami → claims.tier client-side mirror is a UX-only nicety

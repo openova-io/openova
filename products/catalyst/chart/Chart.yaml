@@ -1,5 +1,30 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.228 — #1099 EPIC-4 Slice R4 follow-up (2026-05-20): wire the
+# resource-detail page's k8s SSE subscription to include the `event`
+# kind so the EventsPanel widget (already shipped in 1.4.166) actually
+# receives data. Pre-fix the cloud-list ResourceDetailRoute relied on
+# the default `GRAPH_K8S_KINDS` list which intentionally omits
+# events.k8s.io/v1 Events (to keep the CloudPage canvas snapshot
+# bounded). The detail page inherited that omission → the snapshot
+# never contained any `event:` key → `allEvents` always [] →
+# EventsPanel always rendered `events-panel-empty`. Anti-pattern
+# catalogue item from CLAUDE.md §4: defensive-coding empty-state hid
+# a dark upstream.
+#
+# Fix is UI-only: ResourceDetailRoute.tsx now passes
+# `kinds: [...GRAPH_K8S_KINDS, 'event']` to useK8sCacheStream. The
+# server-side k8scache Factory already registers `event` per
+# bootstrap/api/internal/k8scache/kinds.go:155 — no backend change
+# required. Test ResourceDetailRoute.test.tsx asserts the SSE URL
+# query string contains `kinds=...,event,...`.
+#
+# Refs #1099. Pin-bump-only chart change; no values.yaml schema
+# change, no Deployment env change.
+#
+# 1.4.227 — auto-deploy bump on top of 1.4.226 (deploy: TBD-A6 pin
+# sync, commit cd9d700 on main).
+#
 # 1.4.226 — TBD-V27 / #2042 (2026-05-20): thread customer-chosen
 # configSchema values through to the manifest renderer. Tenant.AppConfigs
 # (persisted by PR #2043) now reaches the rendered postgres / mysql
@@ -2144,8 +2169,8 @@ name: bp-catalyst-platform
 # was already shipped on 1.4.197 (PR #1820 lineage); this completes
 # the data-layer side so the dropdown finally appears on multi-region
 # Sovereigns. Refs #1821, DoD D20.
-version: 1.4.227
-appVersion: 1.4.227
+version: 1.4.228
+appVersion: 1.4.228
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
 # TBD-A30). Pre-1.4.183 every catalyst-system HTTPRoute pinned
