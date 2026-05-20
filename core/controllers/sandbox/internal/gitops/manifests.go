@@ -123,6 +123,24 @@ type Inputs struct {
 	KeycloakParentRealm       string
 	KeycloakAdminTokenSecret  string
 	KeycloakAdminTokenSecretKey string
+
+	// TBD-V21 — SANDBOX_JWT_SECRET wiring. Defaults below pick the
+	// canonical bp-newapi-emitted Secret + key (Render fills the defaults
+	// when caller passes empty). Mounted with `optional: true` on the MCP
+	// Pod so a Sovereign mid-reflector-rollout doesn't crash-loop the
+	// MCP. SIGNING_KEY material is reflected into every per-Sandbox
+	// namespace via the bp-newapi chart's
+	// `sandboxTokenSigningKey.reflectorNamespaces` default
+	// (`catalyst-system,sandbox,sandbox-.*` regex).
+	JWTSigningKeySecretName string
+	JWTSigningKeySecretKey  string
+
+	// TBD-V21 — SANDBOX_REPOS rendered into the MCP env as a comma-joined
+	// list of `<org>/<repo>` slugs from sb.Spec.Repos. Empty list emits
+	// an empty value (the MCP's CSV-parse contract treats empty as "no
+	// repo filter"). Populated by Render() from in.Repos so callers do
+	// not need to compute this themselves.
+	SandboxRepos string
 }
 
 const namespaceTemplate = `apiVersion: v1
@@ -335,17 +353,25 @@ spec:
               value: {{ .NewapiURL | quote }}
             - name: LLM_GATEWAY_URL
               value: {{ .NewapiURL | quote }}
+            # TBD-V21 — key case alignment with newapiTokenSecretTemplate
+            # (line 270 stringData: LLM_GATEWAY_TOKEN). Pre-fix the key
+            # ref was lowercase 'llm-gateway-token' while the Secret writes
+            # uppercase 'LLM_GATEWAY_TOKEN'. With 'optional: true' the
+            # mismatch silently no-opped to an empty value -- every agent
+            # CLI spawned in the pty-server shell ran without an LLM
+            # bearer (LLM_GATEWAY_TOKEN inherited via os.Environ lands
+            # empty), defeating the newapi-proxy gating contract.
             - name: LLM_GATEWAY_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: {{ .LLMGatewayTokenSecret | quote }}
-                  key: llm-gateway-token
+                  key: LLM_GATEWAY_TOKEN
                   optional: true
             - name: OPENAI_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ .LLMGatewayTokenSecret | quote }}
-                  key: llm-gateway-token
+                  key: LLM_GATEWAY_TOKEN
                   optional: true
 {{- if .ClaudeCodeBYOSActive }}
             - name: ANTHROPIC_API_KEY
@@ -523,8 +549,55 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: {{ .LLMGatewayTokenSecret | quote }}
-                  key: llm-gateway-token
+                  key: LLM_GATEWAY_TOKEN
                   optional: true
+            # TBD-V21 P1 — SANDBOX_TOKEN is the bearer the MCP plugin's
+            # marketplace.* tool family expects (products/sandbox/mcp-
+            # server/internal/tools/marketplace.go:95 requireMarketplaceProxy).
+            # The same per-Sandbox JWT lives in the per-Sandbox Secret under
+            # key LLM_GATEWAY_TOKEN (newapiTokenSecretTemplate, line 270).
+            # Mounting it under a SECOND env name is the cheapest single-
+            # source-of-truth wiring (Principle #4 — no Secret writes from
+            # the controller). optional: true so the per-Sandbox Secret can
+            # be absent on a Sovereign mid-bridge-rollout without crash-
+            # looping the MCP Pod (the MCP surfaces a clean "not configured"
+            # error from the affected tool family).
+            - name: SANDBOX_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .LLMGatewayTokenSecret | quote }}
+                  key: LLM_GATEWAY_TOKEN
+                  optional: true
+            # TBD-V21 P1 — SANDBOX_JWT_SECRET is the HS256 signing key the
+            # MCP plugin's registry uses to validate every bearer claim
+            # (registry.go:71 -- empty AND SANDBOX_ORG_ID also empty triggers
+            # test-dev mode, but since #1987 SANDBOX_ORG_ID is now always
+            # set; without SANDBOX_JWT_SECRET the auth gate degrades to
+            # silently passing every call through unvalidated). Key material
+            # lives in 'newapi-bp-newapi-token-signing-key' Secret (auto-
+            # provisioned by platform/newapi/chart/templates/sandbox-token-
+            # signing-key-secret.yaml) and is mirrored into per-Sandbox
+            # namespaces via emberstack/reflector -- the chart's
+            # 'sandboxTokenSigningKey.reflectorNamespaces' default was
+            # extended to 'catalyst-system,sandbox,sandbox-.*' so every
+            # per-Sandbox namespace receives a reflected copy. optional:
+            # true preserves the MCP's behaviour on Sovereigns mid-reflector-
+            # rollout (the MCP detects empty + nonempty SANDBOX_ORG_ID and
+            # surfaces a clear "not configured" error rather than test-
+            # mode).
+            - name: SANDBOX_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .JWTSigningKeySecretName | quote }}
+                  key: {{ .JWTSigningKeySecretKey | quote }}
+                  optional: true
+            # TBD-V21 P3 — SANDBOX_REPOS scopes the MCP plugin's gitea.repos.
+            # list handler (env.go:98-106). Without it the handler returns
+            # the un-filtered org repo list -- functional but over-discloses.
+            # Comma-joined sb.Spec.Repos[].giteaRepo matches the env.go
+            # CSV-parse contract.
+            - name: SANDBOX_REPOS
+              value: {{ .SandboxRepos | quote }}
             # ── D31 active-hot-standby — Sovereign-level toggle + region
             # pair. When SOVEREIGN_ENABLE_HOT_STANDBY parses truthy AND
             # both region values are non-empty AND distinct, sandbox.db.
@@ -647,6 +720,15 @@ const (
 	defaultBYOSSecretPrefix      = "sandbox-byos-claude-code"
 	defaultIdleTimeoutMinutes    = 30
 	defaultConcurrentSessions    = 1
+
+	// TBD-V21 — defaults for SANDBOX_JWT_SECRET wiring. The bp-newapi
+	// chart auto-provisions the `newapi-bp-newapi-token-signing-key`
+	// Secret carrying SIGNING_KEY and reflects it into every per-Sandbox
+	// namespace (sandbox-.* regex pattern in reflectorNamespaces, default
+	// since this PR). Operator override flows through chart values to the
+	// controller env then into Inputs.
+	defaultJWTSigningKeySecretName = "newapi-bp-newapi-token-signing-key"
+	defaultJWTSigningKeySecretKey  = "SIGNING_KEY"
 )
 
 // Render returns (path, bytes) tuples the reconciler writes into the
@@ -683,6 +765,16 @@ func Render(in Inputs) (map[string][]byte, error) {
 	if in.IdleTimeoutMinutes <= 0 {
 		in.IdleTimeoutMinutes = defaultIdleTimeoutMinutes
 	}
+	// TBD-V21 — JWTSigningKey defaults pick the canonical bp-newapi
+	// Secret + key when caller passes empty. The chart-level override
+	// flows through the controller env into Inputs; explicit empty falls
+	// back here.
+	if strings.TrimSpace(in.JWTSigningKeySecretName) == "" {
+		in.JWTSigningKeySecretName = defaultJWTSigningKeySecretName
+	}
+	if strings.TrimSpace(in.JWTSigningKeySecretKey) == "" {
+		in.JWTSigningKeySecretKey = defaultJWTSigningKeySecretKey
+	}
 
 	ns := fmt.Sprintf("sandbox-%s", in.OwnerUID)
 
@@ -691,6 +783,18 @@ func Render(in Inputs) (map[string][]byte, error) {
 	sort.SliceStable(repos, func(i, j int) bool {
 		return repos[i].GiteaRepo < repos[j].GiteaRepo
 	})
+
+	// TBD-V21 — SANDBOX_REPOS env value: comma-joined list of giteaRepo
+	// slugs from sb.Spec.Repos (stable sort order via `repos`). MCP's
+	// env.go:98-106 splits on comma + trims whitespace, so we emit a
+	// canonical CSV that round-trips through the consumer parse.
+	repoSlugs := make([]string, 0, len(repos))
+	for _, r := range repos {
+		if s := strings.TrimSpace(r.GiteaRepo); s != "" {
+			repoSlugs = append(repoSlugs, s)
+		}
+	}
+	in.SandboxRepos = strings.Join(repoSlugs, ",")
 
 	type baseCtx struct {
 		Inputs

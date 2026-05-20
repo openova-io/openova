@@ -301,17 +301,28 @@ sandboxTokenSigningKey:
   # from release name (`<release>-token-signing-key`).
   autoSecretName: ""
   # Comma-separated list of namespaces emberstack/reflector should
-  # mirror this Secret into. Defaults to "catalyst-system,sandbox" —
+  # mirror this Secret into. Defaults to
+  # `catalyst-system,sandbox,sandbox-.*` —
   # `catalyst-system` is the canonical install namespace of the bp-
   # sandbox HelmRelease (clusters/_template/bootstrap-kit/19a-bp-
   # sandbox.yaml `targetNamespace: catalyst-system`). `sandbox` is
   # included for legacy overlays that still install into a dedicated
   # `sandbox` namespace + for any sister tooling (catalyst-api PATs
   # routed through the bridge) that wants the admin bearer locally.
+  # `sandbox-.*` is an emberstack/reflector regex pattern (issue
+  # emberstack/kubernetes-reflector#162 — comma-separated values are
+  # interpreted as regexes) so the SIGNING_KEY is mirrored into every
+  # per-Sandbox namespace `sandbox-<owner-uid>`. The per-Sandbox MCP
+  # Deployment template (core/controllers/sandbox/internal/gitops/
+  # manifests.go) mounts `SIGNING_KEY` as env `SANDBOX_JWT_SECRET` with
+  # `optional: true`; without the regex pattern that mount silently
+  # no-ops to empty and the MCP plugin's auth gate degrades to test-
+  # mode (registry.go:71) — every bearer claim passes unvalidated.
+  # TBD-V21 issue #2032.
   #
   # Per-Sovereign overlays may extend with additional commas (e.g.
-  # `catalyst-system,sandbox,catalyst-controlplane`) when other
-  # controllers need ADMIN_SECRET for their own bridge calls.
+  # `catalyst-system,sandbox,sandbox-.*,catalyst-controlplane`) when
+  # other controllers need ADMIN_SECRET / SIGNING_KEY locally.
   #
   # IMPORTANT — this MUST contain the namespace the sandbox-controller
   # Deployment runs in. The chart in platform/sandbox/chart/templates/
@@ -321,7 +332,7 @@ sandboxTokenSigningKey:
   # controller starts in gitops-only mode and never mints tokens
   # (silently degraded — operator-visible only via the controller's
   # startup log line).
-  reflectorNamespaces: "catalyst-system,sandbox"
+  reflectorNamespaces: "catalyst-system,sandbox,sandbox-.*"
 # ─── Auth: ops-staff admin UI ────────────────────────────────────────────
 # The admin UI at admin.<host> is gated by the operator's IdP. Default
 # mode is `keycloak` (OIDC against bp-keycloak). `masterKey` is allowed
