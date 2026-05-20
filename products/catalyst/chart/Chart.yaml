@@ -1,5 +1,35 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.230 — TBD-V15 / #2066 (2026-05-20) Pillar 3: emit a per-tenant
+# Continuum.dr.openova.io/v1 CR alongside the bp-wordpress-tenant
+# HelmRelease whenever SOVEREIGN_ENABLE_HOT_STANDBY=true and two
+# distinct regions are wired. Without this CR the bp-continuum
+# controller (wired by #2065 / PR #2072) has nothing to reconcile
+# against and region-kill leaves the tenant un-failed-over — exactly
+# the audit gap the 2026-05-20 Pillar 3 audit (audit-pillar3-cnpg-
+# 2026-05-20.md) flagged as MISSING for surface #12.
+#
+# Files: products/catalyst/bootstrap/api/internal/handler/
+# sme_tenant_gitops.go now ships a `smeTenantContinuum` template +
+# kustomization.yaml conditional reference; the overlay writer
+# skips empty contents so single-cluster tenants are unaffected.
+# Unit tests:
+# sme_tenant_active_hot_standby_test.go TestRenderSMETenantOverlay_
+# HotStandby_{On_EmitsContinuumCR,Off_NoContinuumCR}.
+#
+# Continuum CR shape: applicationRef=bp-wordpress-tenant,
+# rto=30s/rpo=5s (matches CLAUDE.md §0 + #2071 sync-replication),
+# leaseClient.kind=dns-quorum (Sovereign-internal default), luaRecord
+# health-check URL points at the tenant's WordPress public host.
+# autoFailover=false on first prov so operator drives the first walk.
+#
+# Refs #2066. Chains with #2064 (sync replication, PR #2071) and
+# #2065 (bp-continuum bootstrap-kit slot, PR #2072) to complete the
+# Pillar 3 control-plane wiring; D31 acceptance test (#2067) lands
+# separately.
+#
+# 1.4.229 — auto-deploy bump (no source change).
+#
 # 1.4.228 — #1099 EPIC-4 Slice R4 follow-up (2026-05-20): wire the
 # resource-detail page's k8s SSE subscription to include the `event`
 # kind so the EventsPanel widget (already shipped in 1.4.166) actually
@@ -2205,8 +2235,8 @@ name: bp-catalyst-platform
 #
 # Refs #1099 (NOT Closes — operator walk + screenshot is the DoD per
 # CLAUDE.md §0).
-version: 1.4.229
-appVersion: 1.4.229
+version: 1.4.230
+appVersion: 1.4.230
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
 # TBD-A30). Pre-1.4.183 every catalyst-system HTTPRoute pinned

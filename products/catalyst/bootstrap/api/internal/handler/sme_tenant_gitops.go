@@ -131,6 +131,14 @@ func (w DefaultSMETenantGitOpsWriter) WriteTenantOverlay(ctx context.Context, re
 		return "", fmt.Errorf("render overlay: %w", err)
 	}
 	for name, contents := range files {
+		// #2066 — templates that fully evaluate to whitespace (e.g.
+		// continuum.yaml when EnableHotStandby=false) are skipped so
+		// the overlay directory only contains live resources. Avoids
+		// committing empty-stub files that confuse kustomize and
+		// reviewers alike.
+		if strings.TrimSpace(contents) == "" {
+			continue
+		}
 		path := filepath.Join(overlayDir, name)
 		if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
 			return "", fmt.Errorf("write %s: %w", name, err)
@@ -631,6 +639,11 @@ var smeTenantTemplates = map[string]string{
 	"bp-openclaw.yaml":         smeTenantBPOpenClaw,
 	"bp-stalwart-tenant.yaml":  smeTenantBPStalwart,
 	"certificate.yaml":         smeTenantCertificate,
+	// #2066 — per-Application Continuum CR. The template evaluates to
+	// the empty string when EnableHotStandby=false; the writer in
+	// WriteTenantOverlay skips empty contents so the file never lands
+	// in the overlay directory for single-cluster tenants.
+	"continuum.yaml": smeTenantContinuum,
 }
 
 const smeTenantKustomization = `# Generated at {{.GeneratedAt}} by catalyst-api/sme-tenant pipeline (#804).
@@ -647,6 +660,13 @@ resources:
   - bp-openclaw.yaml
   - bp-stalwart-tenant.yaml
   - certificate.yaml
+{{- if .EnableHotStandby }}
+  # D31 / Pillar 3 — per-Application Continuum CR (Refs #2066) that
+  # bp-continuum (Refs #2065) reconciles against. Only included when
+  # active-hot-standby is on AND both regions are distinct (validated
+  # in renderSMETenantOverlay before this template fires).
+  - continuum.yaml
+{{- end }}
 commonLabels:
   catalyst.openova.io/sme-tenant: {{.TenantID}}
   catalyst.openova.io/sme-subdomain: {{.Subdomain}}
@@ -1129,6 +1149,79 @@ spec:
         enabled: true
         primaryRegion: {{ .PrimaryRegion }}
         replicaRegion: {{ .ReplicaRegion }}
+{{- end }}
+`
+
+// smeTenantContinuum — D31 / Pillar 3 (Refs #2066). Per-Application
+// Continuum CR that bp-continuum (Refs #2065) reconciles against to
+// orchestrate primary/replica switchover + lua-record flip on region
+// kill. Only rendered when EnableHotStandby=true; otherwise the
+// template evaluates to whitespace and the overlay writer skips the
+// file. The applicationRef points at the bp-wordpress-tenant
+// HelmRelease (the per-Application unit in the SME tenant model).
+// CRD shape per products/catalyst/chart/crds/continuum.yaml.
+//
+// Lease backend defaults to dns-quorum because the Sovereign-internal
+// PowerDNS already runs 3 resolver Pods and we don't want to pin
+// tenants to Cloudflare KV; operators that want cloudflare-kv can
+// follow up post-handover via a Continuum CR edit (the controller
+// supports both kinds — see core/controllers/continuum/internal/
+// witness/{cloudflarekv,dnsquorum}). Health-check URL points at the
+// tenant's WordPress public host.
+//
+// RTO 30s / RPO 5s match CLAUDE.md §0 deterministic step 10's
+// "≤30s failover" claim. autoFailover defaults to false so the first
+// fresh-prov walk is operator-driven; Sovereigns that have proven
+// the path can flip the CR field after the fact.
+const smeTenantContinuum = `{{- if .EnableHotStandby }}
+# Continuum.dr.openova.io/v1 — per-Application DR contract (#2066).
+# Reconciled by bp-continuum (#2065). One CR per active-hot-standby
+# tenant Application. The controller watches replication lag from the
+# primary/replica Cluster CR pair (rendered by bp-wordpress-tenant's
+# pg.activeHotStandby.* block above), drives the 7-step switchover
+# sequencer on region-kill (validate-lease → cordon-old → drain
+# HTTPRoute → flip-dns lua-record → swap-lease → uncordon-new →
+# audit), and surfaces phase to the operator console.
+apiVersion: dr.openova.io/v1
+kind: Continuum
+metadata:
+  name: bp-wordpress-tenant
+  namespace: {{.Namespace}}
+  labels:
+    catalyst.openova.io/sme-tenant: {{.TenantID}}
+    catalyst.openova.io/sme-subdomain: {{.Subdomain}}
+    openova.io/application: bp-wordpress-tenant
+spec:
+  applicationRef: bp-wordpress-tenant
+  primaryRegion: {{ .PrimaryRegion }}
+  hotStandbyRegions:
+    - {{ .ReplicaRegion }}
+  # CLAUDE.md §0 — failover must complete ≤30s. RPO 5s matches the
+  # synchronous_commit=remote_apply replication shape PR #2071 wired
+  # into bp-cnpg-pair / bp-wordpress-tenant.
+  rto: 30s
+  rpo: 5s
+  # Operator-driven for the first fresh-prov walk; flip to true on
+  # the CR post-handover once the path is proven.
+  autoFailover: false
+  # dns-quorum is the canonical Sovereign-internal lease backend
+  # (3 in-cluster PowerDNS resolvers). cloudflare-kv is the
+  # alternative when a public CF KV namespace is available.
+  leaseClient:
+    kind: dns-quorum
+    config:
+      ttlSeconds: 30
+      renewSeconds: 10
+      resolvers:
+        - "10.43.0.10"
+        - "10.43.0.11"
+        - "10.43.0.12"
+  luaRecord:
+    selector: ifurlup
+    healthCheck:
+      url: https://{{.WordPressHost}}/healthz
+      intervalSeconds: 5
+      timeoutSeconds: 2
 {{- end }}
 `
 

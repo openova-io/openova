@@ -818,6 +818,15 @@ spec:
       # dropped. New endpoint GET /tenant/internal/tenants/{id}/app-configs
       # on tenant service for the billing lookup.
       #
+      # 1.4.230 — TBD-V15 / #2066 (2026-05-20) Pillar 3 audit fix:
+      # emit a per-tenant Continuum.dr.openova.io/v1 CR alongside the
+      # bp-wordpress-tenant HelmRelease whenever active-hot-standby is
+      # enabled. Closes the audit gap (audit-pillar3-cnpg-2026-05-20.md
+      # surface #12 MISSING) where bp-continuum had nothing to
+      # reconcile against. Chains with PR #2071 (sync replication) +
+      # PR #2072 (bp-continuum bootstrap-kit slot).
+      # Refs #2066 (NOT Closes — operator walk on fresh prov required).
+      #
       # 1.4.229 — #1099 EPIC-4 Group A trust-recovery audit lockdown
       # (2026-05-20, follow-up to PR #2059's Events fix). Audit
       # verdict: YamlEditor + MetricsPanel + ResourceActions are
@@ -831,7 +840,7 @@ spec:
       # resource-detail page's k8s SSE subscription to include the
       # `event` kind so the EventsPanel surfaces live K8s Events
       # instead of perpetually rendering empty-state.
-      version: 1.4.229
+      version: 1.4.230
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
