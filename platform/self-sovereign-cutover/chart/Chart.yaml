@@ -103,7 +103,21 @@ name: bp-self-sovereign-cutover
 # from the same reflector-mirrored gitea-admin-secret Step-01 mounts.
 # Smoke render unaffected (CronJob lacks the cutover-step labels so
 # the contract test's exactly-9-steps assertion still passes).
-version: 0.1.33
+#
+# 0.1.34 (TBD-V25, issue #2035, 2026-05-20): fix the stale
+# `totalSteps: "8"` literal in 09-cutover-status-configmap.yaml — the
+# chart shipped 9 step ConfigMaps since 0.1.30 (TBD-C18 added step 09
+# gitea-token-mint) but the initial-state status ConfigMap still
+# claimed 8. Post-trigger this is overwritten by catalyst-api on
+# /start (cutover.go:763 patches with `strconv.Itoa(len(steps))`), so
+# the bug only surfaces in the pre-trigger window between chart
+# install and the auto-trigger Job firing — typically seconds, but up
+# to ~25 min on a slow cold-start cluster. UIs rendering progress as
+# `<currentIndex>/<totalSteps>` during that window showed the wrong
+# denominator. Single-literal swap; contract test (asserts step_count
+# -eq 9) already gates against future drift. No code change required
+# in cutover.go — its post-start patch path was always correct.
+version: 0.1.34
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
