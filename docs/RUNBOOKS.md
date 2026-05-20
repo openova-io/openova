@@ -1646,7 +1646,7 @@ Each phase produces one or more commits to `openova/`. Each commit is real worki
 - [`PLATFORM-POWERDNS.md`](PLATFORM-POWERDNS.md) — per-Sovereign authoritative zone model
 - [`SECURITY.md` §11](SECURITY.md#11-rotation-cadence-and-operator-procedures) — GHCR pull token, Dynadot credentials, Hetzner tokens (rotation runbook merged from former `SECRET-ROTATION.md` on 2026-05-20)
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) §8.8 — PowerDNS lua-records for GSLB (folded from former `MULTI-REGION-DNS.md` on 2026-05-20)
-- [`FRANCHISE-MODEL.md`](FRANCHISE-MODEL.md) — voucher mechanism
+- [`BUSINESS-STRATEGY.md` §10.8](BUSINESS-STRATEGY.md#108-franchise-model--end-to-end-mechanics) — franchise model + voucher mechanism (folded from `FRANCHISE-MODEL.md` 2026-05-20)
 - [`TRUST.md`](TRUST.md) — verification ledger
 - `tests/dod/dod_test.go` — Go test that drives the §5 walk non-interactively
 - `scripts/operator-recover-sovereign.sh` — §2.2 idempotent recovery

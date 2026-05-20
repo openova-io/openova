@@ -111,7 +111,7 @@ These apply to stateful components — Application Blueprints (data services) **
 
 ### 3.1 Canary deployments
 
-[Flagger](https://flagger.app) is the planned canary controller (currently a "components to watch" addition, see [`TECHNOLOGY-FORECAST-2027-2030.md`](TECHNOLOGY-FORECAST-2027-2030.md)):
+[Flagger](https://flagger.app) is the planned canary controller (currently a "components to watch" addition, see [`ROADMAP.md`](ROADMAP.md)):
 
 - Flux-native integration
 - Automatic rollback on metric degradation (latency, error rate)

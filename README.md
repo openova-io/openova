@@ -27,10 +27,8 @@ The `docs/` tree, in reading order. Every file under `docs/` appears exactly onc
 
 ### Strategy
 
-- [`docs/BUSINESS-STRATEGY.md`](docs/BUSINESS-STRATEGY.md) — positioning, revenue model, competitive landscape, GTM
-- [`docs/PRODUCT-FAMILIES.md`](docs/PRODUCT-FAMILIES.md) — two-layer dependency model behind the Sovereign Wizard
-- [`docs/FRANCHISE-MODEL.md`](docs/FRANCHISE-MODEL.md) — voucher-driven Sovereign franchisee model
-- [`docs/TECHNOLOGY-FORECAST-2027-2030.md`](docs/TECHNOLOGY-FORECAST-2027-2030.md) — 56-component relevance forecast through 2030
+- [`docs/BUSINESS-STRATEGY.md`](docs/BUSINESS-STRATEGY.md) — positioning, revenue model, competitive landscape, GTM (incl. §5.5 product families map and §10.8 franchise model)
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — technology roadmap 2027–2030: 56-component relevance forecast, components to watch, risks
 
 ### Deep-dive (component / surface level)
 
@@ -161,7 +159,7 @@ Each folder under `platform/` and `products/` is the source of one **Blueprint**
 | **Backup** | Velero (to SeaweedFS, which routes the cold tier to cloud archival S3) |
 | **Container registry** | Harbor |
 
-For the full component list and trends see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`docs/TECHNOLOGY-FORECAST-2027-2030.md`](docs/TECHNOLOGY-FORECAST-2027-2030.md).
+For the full component list and trends see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ---
 
