@@ -1,8 +1,10 @@
-# Technology Forecast 2027-2030
+# OpenOva Technology Roadmap (2027–2030)
+
+> **Renamed from `TECHNOLOGY-FORECAST-2027-2030.md` on 2026-05-20.** Content unchanged; the file now serves as the canonical top-level `docs/ROADMAP.md` companion to `BUSINESS-STRATEGY.md`. A forecast at the 2027–2030 horizon is structurally a roadmap, not a strategy section.
 
 Component technology assessment and strategic forecast for the OpenOva platform.
 
-**Status:** Accepted | **Updated:** 2026-04-28
+**Status:** Accepted | **Updated:** 2026-04-28 (renamed 2026-05-20)
 
 ---
 
