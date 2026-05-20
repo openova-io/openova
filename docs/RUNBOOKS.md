@@ -18,6 +18,8 @@ This file consolidates five prior runbook documents (`BLUEPRINT-AUTHORING.md`, `
 - [§5 — Demo / operator walks](#5--demo--operator-walks)
 - [§6 — Failover recovery](#6--failover-recovery)
 - [§7 — Troubleshooting matrix](#7--troubleshooting-matrix)
+- [§8 — Bring up a Sovereign (full provisioning procedure)](#8--bring-up-a-sovereign-full-provisioning-procedure)
+- [§9 — Doc-integrity audit cadence](#9--doc-integrity-audit-cadence)
 
 ---
 
@@ -48,8 +50,7 @@ Walk these top to bottom. The wizard fails fast on missing prerequisites, but mo
 | Hetzner Cloud project | Yes — separate project per Sovereign | https://console.hetzner.cloud → Projects |
 | API token | Read **and** Write | Project → Security → API Tokens → New Token |
 | Token storage | 1Password vault `OpenOva — Production`, item `Catalyst — Hetzner Cloud token (<sovereign-fqdn>)` | Tag `rotation:per-sovereign` |
-| Rotation policy | Rotate on leak, on decommission, or every 12 months | See [`SECURITY.md` §11](SECURITY.md#11-rotation-cadence-and-operator-procedures) |
-
+| Rotation policy | Rotate on leak, on decommission, or every 12 months | See [`SECURITY.md`](SECURITY.md) §11 (Secret rotation) |
 The token is sent once through the wizard, used by `catalyst-api` for the OpenTofu run, then redacted from the persisted deployment record. It is **not** copied to the Sovereign cluster.
 
 **B. SSH public key**
@@ -84,8 +85,7 @@ Cloud-init creates `flux-system/ghcr-pull` Secret on the Sovereign cluster from 
 |---|---|---|
 | Token type | Fine-grained personal access token, scope `packages:read` on org `openova-io` | https://github.com/settings/tokens?type=beta |
 | K8s Secret | `catalyst/catalyst-ghcr-pull-token`, key `token` | `kubectl -n catalyst get secret catalyst-ghcr-pull-token` |
-| Rotation policy | Yearly | See [`SECURITY.md` §11.1](SECURITY.md#111-ghcr-pull-token-catalyst-ghcr-pull-token) |
-
+| Rotation policy | Yearly | See [`SECURITY.md`](SECURITY.md) §11 (Secret rotation) |
 **F. PowerDNS pool zones bootstrapped**
 
 ```bash
@@ -856,8 +856,7 @@ Common failure modes + first-look diagnostics, condensed from 18 documented inci
 | Flux event: `existing namespace "kube-system" is conflicting with another resource that has the same name` | Bootstrap-kit kustomize merge had `kube-system` Namespace declared twice (pre-fix `2022e1af`) | Fix is in `main`; Flux picks up on next reconcile interval. If pinned to old SHA, edit GitRepository `spec.ref.branch` |
 | Flux event: `no matches for kind "ProviderConfig" in version "hetzner.crossplane.io/v1beta1"` | Single Kustomization tried to apply both Crossplane (CRDs) AND Hetzner Compositions (CRs). Fix `34c8de84` split into two Kustomizations | Confirm cloud-init template post-`34c8de84`; re-provision |
 | HelmRelease: `failed to get authentication secret 'flux-system/ghcr-pull': secrets "ghcr-pull" not found` | Pre-fix `dddbab4b` cloud-init didn't create durably | Re-provision against current `main`. On a still-up Sovereign: `kubectl -n flux-system create secret generic ghcr-pull --from-literal=token=...` |
-| HelmRelease: `failed to authorize: 401 Unauthorized | ghcr.io/openova-io/bp-cilium` | GHCR token expired or wrong scope | Rotate per [`SECURITY.md` §11.1](SECURITY.md#111-ghcr-pull-token-catalyst-ghcr-pull-token); rotate `flux-system/ghcr-pull` Secret on existing Sovereigns + `flux reconcile source helmrepository` |
-| HelmRelease: `error validating ... no matches for kind "ServiceMonitor" in version "monitoring.coreos.com/v1"` | bp-* chart ships `ServiceMonitor` ON by default; CRD not yet registered. See §3.9 | Edit bp-* HelmRelease values: `observability.enabled: false`; `flux reconcile helmrelease`. Long-term: bp-* chart bumps with default-off (already shipped in current bp-*:1.1.1+) |
+| HelmRelease: `failed to authorize: 401 Unauthorized | ghcr.io/openova-io/bp-cilium` | GHCR token expired or wrong scope | Rotate per [`SECURITY.md`](SECURITY.md) §11 (Secret rotation); rotate `flux-system/ghcr-pull` Secret on existing Sovereigns + `flux reconcile source helmrepository` || HelmRelease: `error validating ... no matches for kind "ServiceMonitor" in version "monitoring.coreos.com/v1"` | bp-* chart ships `ServiceMonitor` ON by default; CRD not yet registered. See §3.9 | Edit bp-* HelmRelease values: `observability.enabled: false`; `flux reconcile helmrelease`. Long-term: bp-* chart bumps with default-off (already shipped in current bp-*:1.1.1+) |
 | HelmRelease `Ready=True` but no upstream pods — namespace empty except Helm release secret | Hollow umbrella chart — `dependencies` declared but upstream subchart not packaged into `charts/`. Pre-fix `43aff202` | Re-run `blueprint-release` workflow on the chart's tag — 4 guards (build/package/push/pull) will fail loudly. Fix the upstream pin + re-tag. See §3.8 |
 | Wizard goes blank or "Deployment not found" after catalyst-api Pod restart | Pre-fix `418cead0` catalyst-api wrote deployments to emptyDir — Pod restart wiped them | Confirm catalyst-api image at or after `418cead0`; PVC mount in HelmRelease values. Orphans may exist — purge per §2.2 |
 | SSE stream closes within seconds — admin UI shows zero components | catalyst-api helmwatch loop terminated at 0 HelmReleases (first-seen-gate bug) | Refresh page after Phase 1 30+s in; wizard falls back to REST poll. Long-term: deploy catalyst-api with the gate fix |
@@ -905,18 +904,288 @@ flowchart TD
 
 ## See also
 
+## §8 — Bring up a Sovereign (full provisioning procedure)
+
+> Source: previously `docs/SOVEREIGN-PROVISIONING.md` (merged here on 2026-05-20).
+
+How to provision a new **Sovereign** — a self-sufficient deployed instance of Catalyst. Defer to [`GLOSSARY.md`](GLOSSARY.md) for terminology and [`ARCHITECTURE.md`](ARCHITECTURE.md) for the model. §1 above covers the operator walk; this section is the design reference for the procedure.
+
+### 8.1 Inputs
+
+| Input | Required | Notes |
+|---|---|---|
+| Cloud provider | Hetzner / AWS / GCP / Azure / OCI / Huawei | Hetzner is the most-tested path. |
+| Cloud credentials | Provider API token | Used by OpenTofu (one-shot bootstrap) and Crossplane (ongoing). |
+| Sovereign name | e.g. `omantel`, `bankdhofar` | Slug, lowercase, 3–32 chars. |
+| Sovereign domain | e.g. `omantel.omani.works`, `acme.bank.com` | Three modes: **pool** (subdomain under `omani.works` / `openova.io`, allocated by pool-domain-manager); **byo-manual** (customer pastes OpenOva NS records into their own registrar UI); **byo-api** (customer pastes a registrar API token, OpenOva flips NS via the registrar adapter). Supported registrars for byo-api: Cloudflare, Namecheap, GoDaddy, OVH, Dynadot. |
+| Region(s) | 1+ | Single-region simplest for SME; 2+ for regulated/HA. |
+| Building blocks per region | typically `mgt` + `rtz` (+ `dmz`) | At minimum `mgt` + `rtz`. |
+| Keycloak topology | `per-organization` (SME) / `shared-sovereign` (corporate) | Determines Keycloak deployment shape. |
+| Federation IdP (optional) | Azure AD / Okta / Google / etc. | For corporate; SME tier defers to per-Org Org-IdP federation. |
+| TLS strategy | Let's Encrypt / cert-manager / corporate CA | cert-manager-managed, Let's Encrypt by default. |
+| Object storage | Cloud-provider native | Used as the cold-tier backend behind SeaweedFS. |
+
+### 8.2 Provisioning runs from `catalyst-provisioner`
+
+The bootstrap is performed by `catalyst-provisioner.openova.io`, an always-on provisioning service operated by OpenOva. It is **not** part of any Sovereign at runtime — once a Sovereign is up, it is fully self-sufficient.
+
+Why a permanent provisioner instead of "boot from your laptop":
+- OpenTofu state must be durably stored — keeping it on a single person's laptop is fragile and a security risk.
+- Provider credentials are scoped, stored in OpenBao on the provisioner, and never leave it.
+- New Sovereigns can be created without a manual installer dance.
+
+A self-host route exists for organizations that want zero OpenOva involvement: `catalyst-provisioner` is itself a Blueprint (`bp-catalyst-provisioner`) and can be deployed in a customer's own infrastructure. From there it bootstraps further Sovereigns. This is the air-gap path.
+
+### 8.3 Phase 0 — Bootstrap
+
+| Step | Lives in | What runs |
+|---|---|---|
+| 1. Wizard input → tofu vars | [`products/catalyst/bootstrap/api/internal/provisioner/`](../products/catalyst/bootstrap/api/internal/provisioner/) | Go service writes `tofu.auto.tfvars.json` from validated wizard input, runs `tofu init && tofu plan && tofu apply -auto-approve`, streams stdout/stderr to wizard via SSE. No cloud APIs called from Go (per [`PRINCIPLES.md`](PRINCIPLES.md) #3). |
+| 2. Cloud resources | [`infra/hetzner/main.tf`](../infra/hetzner/main.tf) | OpenTofu provisions: hcloud_network (10.0.0.0/16) + subnet, hcloud_firewall (80/443/6443/ICMP open; 22 closed by default), hcloud_ssh_key from wizard input, 1 control-plane server (or 3 if `ha_enabled`) on Ubuntu 24.04 with cloud-init, `worker_count` worker servers, hcloud_load_balancer (lb11) targeting NodePorts 31080/31443. **DNS is authoritative on PowerDNS** — the per-Sovereign PowerDNS zone is created by PDM `/v1/commit` once the LB IP is known; for pool sovereigns PDM also writes the parent-zone delegation, and for `byo-api` Sovereigns the matching registrar adapter flips the NS records. |
+| 3. k3s + Flux bootstrap | [`infra/hetzner/cloudinit-control-plane.tftpl`](../infra/hetzner/cloudinit-control-plane.tftpl) | cloud-init on the control-plane node installs k3s v1.31.4+k3s1 with `--flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --disable=local-storage --tls-san=<sovereign-fqdn>`, then installs Flux v2.4.0 core, then applies the Flux GitRepository + Kustomization pointing at `clusters/<sovereign-fqdn>/` in the public OpenOva monorepo. Workers join via [`cloudinit-worker.tftpl`](../infra/hetzner/cloudinit-worker.tftpl). |
+| 4. Bootstrap-kit install | `clusters/<sovereign-fqdn>/` (Flux-reconciled) | Flux installs the 12 G2 wrapper Helm charts in dependency order: cilium → cert-manager → flux (host-level) → crossplane → sealed-secrets (transient) → spire (server + agent) → nats-jetstream → openbao (3-node Raft) → keycloak → gitea → bp-powerdns → bp-catalyst-platform (umbrella). |
+| 5. Crossplane adoption | Crossplane Compositions in `clusters/<sovereign-fqdn>/` | Crossplane adopts management of all infrastructure created by OpenTofu in step 2; sealed-secrets is decommissioned in favour of ESO + OpenBao for day-2 secret distribution; further DNS records (gitea/admin/api/harbor) are written by `external-dns` against the per-Sovereign PowerDNS zone. |
+
+**DNS records written in Phase 0** — into the per-Sovereign PowerDNS zone (`<sovereign-fqdn>.`):
+
+```
+@                A → load balancer IP
+*                A → load balancer IP
+console          A → load balancer IP
+api              A → load balancer IP
+gitea            A → load balancer IP
+harbor           A → load balancer IP
+```
+
+The PDM `/v1/commit` endpoint writes the canonical 6-record set into the freshly-created Sovereign zone via the PowerDNS REST API. The wildcard A record covers every additional subdomain a Sovereign might add at runtime without re-issuing certificates.
+
+**OpenTofu state:** kept in the catalyst-api Pod under `/tmp/catalyst/tofu/<sovereign-fqdn>/` — pinned via the `CATALYST_TOFU_WORKDIR` env var and backed by the Pod's writable `/tmp` emptyDir. Re-running with the same FQDN is idempotent. For air-gap installs the operator MUST configure a remote backend with encryption-at-rest.
+
+Total Phase 0 time: 30–60 minutes for a single-region Hetzner Sovereign once DoD lands.
+
+### 8.4 Phase 1 — Hand-off
+
+After Phase 0 completes:
+
+1. Crossplane in the new Sovereign **adopts** management of all infrastructure created by OpenTofu. From this point forward, all infrastructure changes go through Crossplane.
+2. The bootstrap k3s nodes are claimed by Crossplane via the cloud provider's adoption mechanism.
+3. OpenTofu state is archived and read-only. It is never touched again.
+4. `catalyst-provisioner` no longer has any active connection to the new Sovereign.
+
+The Sovereign now has the full Catalyst control-plane set: its own Crossplane, OpenBao, JetStream, Keycloak, SPIFFE/SPIRE, Gitea (with mirror of the public Blueprint catalog), observability stack, and Catalyst control plane (console, marketplace, admin, projector, catalog-svc, provisioning, environment-controller, blueprint-controller, billing).
+
+### 8.5 Phase 2 — Day-1 setup
+
+The first `sovereign-admin` logs into `console.<location-code>.<sovereign-domain>` and runs Day-1 actions:
+
+1. Configure cert-manager issuers (Let's Encrypt / corporate CA).
+2. Configure backup destination (cloud object storage for Velero).
+3. Configure Harbor with image-scanning policies.
+4. (Optional) Federate Keycloak's catalyst-admin realm to corporate IdP.
+5. (Optional) Configure observability exports (SIEM, datadog, etc.).
+6. Onboard the first Organization (Catalyst console → Admin → Organizations → New). Environment-controller does NOT create vclusters yet — they are created when the first Environment is provisioned.
+7. Create the first Environment (Console → switch to Org context → Environments → New). Environment-controller spins up a vcluster on the chosen host cluster and bootstraps Flux inside. Ready in ~60 seconds.
+
+### 8.6 Phase 3 — Steady-state operation
+
+Sovereign-admins use the Catalyst admin UI for onboarding more Organizations, adding host clusters in new regions (Crossplane provisions them, environment-controller adopts them), updating Catalyst itself (umbrella Blueprint version bumps applied via Flux PR), configuring SecretPolicies and EnvironmentPolicies, monitoring the Sovereign's own observability stack, and reviewing audit logs.
+
+### 8.7 Multi-region topology
+
+**Single-region (SME default):**
+
+```
+Region A
+└── Host cluster: hz-fsn-mgt-prod    ← Catalyst control plane + per-Org vclusters
+    └── all building blocks collapse onto one cluster (mgt + rtz + dmz workloads
+        in separate namespaces, with Cilium NetworkPolicies enforcing isolation)
+```
+
+Cheapest topology. Single-region failure = Sovereign down. Acceptable for SME tier.
+
+**Multi-region (corporate default):**
+
+```
+Region A (primary mgt)              Region B                       Region C (DR)
+─────────────────                  ─────────────                  ─────────────
+hz-nbg-mgt-prod                    hz-fsn-rtz-prod                hz-hel-rtz-prod
+  Catalyst control plane             per-Org vclusters              per-Org vclusters
+hz-nbg-dmz-prod                    hz-fsn-dmz-prod                hz-hel-dmz-prod
+  ingress, WAF, PowerDNS            ingress, WAF, PowerDNS          ingress, WAF, PowerDNS
+```
+
+The `mgt` building block is typically NOT replicated (one Catalyst control plane per Sovereign). The `rtz` and `dmz` blocks ARE replicated for workload HA. OpenBao runs in BOTH the mgt cluster (primary) and each rtz region (replica) — see [`SECURITY.md`](SECURITY.md) §5.
+
+### 8.8 Adding a region post-provisioning
+
+```
+sovereign-admin in Catalyst admin UI:
+  Admin → Infrastructure → Add Region
+    Provider: Hetzner
+    Region: hel
+    Building blocks: rtz, dmz
+    Apply
+```
+
+Catalyst then: (1) Crossplane provisions the new VPC, hosts, k3s cluster; (2) Cluster registered in Catalyst's cluster registry; (3) cert-manager + Cilium + Flux + Crossplane + SPIRE + ESO + OpenBao replica deployed via the cluster's Flux Kustomization; (4) New region available as a Placement target for new and existing Environments.
+
+Existing Applications with `placement.mode: single-region` do not migrate automatically. To extend an existing Application to the new region, the user explicitly switches Placement to `active-active` (or `active-hotstandby`) — a one-line edit in the Application's Gitea repo on the appropriate branch (or a click in the Topology tab).
+
+### 8.9 Air-gap deployment
+
+```
+Connected zone (one-time)             Air-gapped Sovereign
+──────────────────────────            ───────────────────────────────
+1. Mirror public Blueprint OCI       Harbor receives blobs via physical
+   artifacts to portable media.      transfer / data diode.
+2. Mirror Catalyst control-plane     Sovereign's Gitea adopts blobs as
+   container images.                 OCI manifests in local registry.
+3. Mirror cert-manager root +        cert-manager configured with
+   organization CA bundle.           internal CA only.
+4. Configure Keycloak to local LDAP  Keycloak federates to internal AD/LDAP.
+   (no external IdPs).
+```
+
+Catalyst is air-gap-ready by construction: every artifact (Blueprints, Catalyst code, base images) is OCI-signed. Mirror once, run forever.
+
+### 8.10 Migration and decommission
+
+**Migrating an Organization between Sovereigns.** Example: a Bank Dhofar Organization started life on the openova Sovereign (paid SaaS), now wants to move to its own bankdhofar Sovereign (self-host).
+
+1. Provision bankdhofar Sovereign (Phases 0–2).
+2. On openova Sovereign: Admin → Organization → Export — Catalyst produces an export bundle (Org metadata, all Application Gitea repos under this Org, the Org's `shared-blueprints` repo, Keycloak realm export, OpenBao export).
+3. On bankdhofar Sovereign: Admin → Organization → Import — Environment-controller recreates Environments → vclusters; Flux pulls manifests, reconciles; Apps come up.
+4. Final cutover: DNS swap.
+5. Verify, then decommission on openova side.
+
+Time depends on data volume; typically minutes to hours per Org.
+
+**Decommissioning a Sovereign** is the reverse of provisioning: migrate all Organizations off, then admin → Sovereign → Decommission (Crossplane begins teardown of host clusters; OpenBao final state exported and stored encrypted; DNS records removed; cloud resources reclaimed). The customer keeps the OpenBao export and Gitea bundles for whatever retention period their compliance demands.
+
+---
+
+## §9 — Doc-integrity audit cadence
+
+> Source: previously `docs/AUDIT-PROCEDURE.md` (merged here on 2026-05-20).
+
+This section is the procedure for performing a documentation-integrity validation pass on the canonical Catalyst docs and component READMEs. It is **on-demand only** — there is no scheduled audit loop.
+
+For invocation via Claude Code, see the `audit-catalyst-docs` skill.
+
+### 9.1 When to run
+
+- After any architectural change that touches multiple docs (component additions/removals, terminology shifts, structural model changes).
+- Before tagging a public release of the canonical docs.
+- Before adding a new Sovereign-curated catalog (`catalog-sovereign` Gitea Org) — to confirm the upstream canon is consistent.
+- On request, ad-hoc, when a contributor questions whether a doc claim is current.
+
+**Never run as a scheduled background loop.** Past loops over-anchored on incorrect models; text-shape consistency is not the same as architectural soundness.
+
+### 9.2 What the audit verifies
+
+The audit cross-checks the canonical docs and component READMEs against five categories of anchors:
+
+1. **Banned-term hygiene** — 11 terms in `GLOSSARY.md` §"Banned terms" must not appear (in non-exempt contexts) anywhere in the canon.
+2. **Naming canonicality** — `env_type` 3-char form, DNS pattern split (control-plane vs Application), API group split (`catalyst.openova.io` vs `compose.openova.io`), JetStream subject prefix.
+3. **Structural invariants** — `App = Gitea Repo`, branches `develop`/`staging`/`main` map to envs, 5 Gitea Orgs convention.
+4. **Component-count consistency** — number of `platform/<x>/` folders matches the count anchored across `CLAUDE.md`, `BUSINESS-STRATEGY.md`, etc.
+5. **Defense-in-depth architectural anchors** — load-bearing decisions (OpenBao independent-Raft per region, SeaweedFS as unified S3 encapsulation, Catalyst-as-platform / OpenOva-as-company, Valkey-NOT-control-plane, no-bidirectional-Gitea-mirror) must each appear consistently across at least 4 representational levels.
+
+### 9.3 The 13 acceptance greps
+
+Run from the repo root (`/home/openova/repos/openova`). All should produce zero output unless an exemption explanation is included.
+
+```bash
+# 1. Banned terms (excluding contextual exemptions noted in GLOSSARY)
+for term in 'tenant' 'Workspace' 'Lifecycle Manager' 'bootstrap wizard' 'Backstage' \
+            'Synapse' 'Fuse' 'Module' 'Template' 'Operator' 'Client' 'Instance'; do
+  grep -rni "\\b$term\\b" docs/ platform/*/README.md products/*/README.md core/README.md README.md CLAUDE.md \
+    | grep -v 'GLOSSARY.md' | grep -v 'VALIDATION-LOG.md'
+done
+
+# 2. env_type long-form (must be 0)
+grep -rnE 'acme-staging|acme-production|acme-development' docs/ platform/*/README.md products/*/README.md README.md CLAUDE.md \
+  | grep -v VALIDATION-LOG
+
+# 3. JetStream subject prefix
+grep -rnE 'ws\.\{?(env|org)' docs/ARCHITECTURE.md docs/GLOSSARY.md docs/SECURITY.md
+
+# 4. API group split (count must be >= 7 across Catalyst CRDs + Crossplane XRDs)
+grep -rnE 'compose\.openova\.io/v1alpha1|catalyst\.openova\.io/v1alpha1' \
+  docs/ARCHITECTURE.md docs/SECURITY.md docs/RUNBOOKS.md \
+  core/README.md platform/crossplane/README.md | wc -l
+
+# 5. Subsection ordering monotonicity — manual check: numbers must be strictly increasing.
+
+# 6. Old App-as-folder model (must be 0 outside VALIDATION-LOG)
+grep -rnE 'Environment Gitea repo|/{org}/{org}-{env_type}|<org>/<org>-<env_type|per-Environment Gitea repos' \
+  docs/*.md README.md CLAUDE.md | grep -v VALIDATION-LOG
+
+# 7. Branches-map-to-envs anchor present in 4+ docs
+grep -lE 'develop`/`staging`/`main|develop/staging/main|branches.*map.*env' \
+  docs/GLOSSARY.md docs/ARCHITECTURE.md docs/DOD.md
+
+# 8. 5 Gitea Orgs convention
+grep -lE 'catalog-sovereign|`system` Gitea Org|five conventional Gitea Orgs|5 conventional Gitea Orgs' \
+  docs/GLOSSARY.md docs/ARCHITECTURE.md docs/RUNBOOKS.md
+
+# 9. Component count = 56 across all anchors
+grep -rnE '\b53 components\b|\b53 curated\b|\b53-component\b|\ball 53\b|\b53 platform\b|\b53 folders\b' \
+  docs/*.md README.md CLAUDE.md | grep -v VALIDATION-LOG
+ls -d platform/*/ | wc -l    # must equal 56
+
+# 10. SeaweedFS encapsulation (no MinIO except intentional explanations)
+grep -rinE '\bminio\b' docs/*.md README.md CLAUDE.md core/README.md products/*/README.md platform/*/README.md \
+  | grep -v VALIDATION-LOG | grep -v 'platform/seaweedfs/'
+
+# 11. OpenBao independent-Raft (must appear in 5+ representational levels)
+grep -lE 'INDEPENDENT, NOT STRETCHED|independent Raft cluster|no stretched cluster|Independent OpenBao Raft' \
+  docs/SECURITY.md docs/ARCHITECTURE.md docs/GLOSSARY.md docs/BUSINESS-STRATEGY.md
+
+# 12. Catalyst-as-platform anchor
+grep -lE 'Company vs.*Platform|Catalyst is the open|OpenOva.*the company|Catalyst.*the platform itself' \
+  docs/GLOSSARY.md README.md docs/BUSINESS-STRATEGY.md
+
+# 13. DNS pattern split (NAMING + multiple consumers)
+grep -nE '\{component\}\.\{location-code\}\.\{sovereign-domain\}|\{app\}\.\{environment\}\.\{sovereign-domain\}' \
+  docs/ARCHITECTURE.md
+grep -lE '<location-code>\.<sovereign-domain>|<env>\.<sovereign-domain>' \
+  docs/RUNBOOKS.md docs/SRE.md \
+  platform/llm-gateway/README.md platform/valkey/README.md
+```
+
+### 9.4 Deep-read rotation
+
+After greps, deep-read **one canonical doc + one component README** per pass. Rotate through the canon and the 56 platform components + 7 products. The next-most-stale entry should be the target.
+
+For each: read the doc end-to-end; check known fix-trajectory anchors; cross-check at least 2 other docs the deep-read target references, looking for bidirectional consistency; verify the 5 invariants above hold.
+
+### 9.5 Output
+
+Append a numbered Pass entry to `docs/archive/validation-log.md` describing: date, pass number, target doc + target component; acceptance grep results (clean / drift); deep-read findings; any architectural anchors verified or flagged; if drift, what was fixed and the new anchor.
+
+If clean: short entry confirming clean. If drift: longer entry documenting the fix and a Lesson if the drift represents a recurring pattern.
+
+Commit message format: `docs(pass-N): <target-doc> <ordinal>-cycle + <component> <ordinal>-cycle <clean|fixed>`. Commit as `hatiyildiz` per the repo's git-identity convention.
+
+### 9.6 What this audit does NOT do
+
+- **Architectural review.** Text-shape consistency does not validate that the architecture is right.
+- **Code review.** Most code is design-stage per `STATUS.md`. Code review is a separate concern.
+- **Compliance review.** Mappings to PSD2/DORA/NIS2/SOX live in `bp-specter`'s Compliance Agent's runtime evaluation, not in doc audit.
+- **Security review.** Security review is `/security-review` skill's domain.
+
+---
+
+## See also
+
 - [`DOD.md`](DOD.md) — end-user Definition of Done (5 pillars + Phase 0/1/2 deterministic test)
-- [`ARCHITECTURE.md`](ARCHITECTURE.md) — Catalyst target architecture
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — Catalyst target architecture (incl. PowerDNS deployment, multi-region DNS, ClusterMesh ID registry, component-logo asset manifest)
 - [`DOD.md`](DOD.md) — Sovereign / tenant-Org FQDN patterns + forbidden test strings
 - [`GLOSSARY.md`](GLOSSARY.md) — terminology source of truth (incl. banned terms)
 - [`STATUS.md`](STATUS.md) — what's built today vs design
-- [`PRINCIPLES.md`](PRINCIPLES.md) — the 15 inviolable engineering principles
-- [`PRINCIPLES.md`](PRINCIPLES.md) — theater receipts to watch for in PR review
-- [`SECURITY.md`](SECURITY.md) — identity, secrets, rotation
-- [`PLATFORM-POWERDNS.md`](PLATFORM-POWERDNS.md) — per-Sovereign authoritative zone model
-- [`SECURITY.md` §11](SECURITY.md#11-rotation-cadence-and-operator-procedures) — GHCR pull token, Dynadot credentials, Hetzner tokens (rotation runbook merged from former `SECRET-ROTATION.md` on 2026-05-20)
-- [`MULTI-REGION-DNS.md`](MULTI-REGION-DNS.md) — PowerDNS lua-records for GSLB
-- [`FRANCHISE-MODEL.md`](FRANCHISE-MODEL.md) — voucher mechanism
-- [`TRUST.md`](TRUST.md) — verification ledger
-- `tests/dod/dod_test.go` — Go test that drives the §5 walk non-interactively
+- [`PRINCIPLES.md`](PRINCIPLES.md) — the 15 inviolable engineering principles + theater receipts
+- [`SECURITY.md`](SECURITY.md) — identity, secrets, rotation (incl. §11 GHCR pull token, Dynadot credentials, Hetzner tokens)
+- [`BUSINESS-STRATEGY.md`](BUSINESS-STRATEGY.md) — franchise model + voucher mechanism (§17) + product families map (§18)
+- [`ledger/TRUST.md`](ledger/TRUST.md) — verification ledger- `tests/dod/dod_test.go` — Go test that drives the §5 walk non-interactively
 - `scripts/operator-recover-sovereign.sh` — §2.2 idempotent recovery

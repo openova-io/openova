@@ -20,25 +20,20 @@ The `docs/` tree, in reading order. Every file under `docs/` appears exactly onc
 
 ### Build and operate
 
-- [`docs/SOVEREIGN-PROVISIONING.md`](docs/SOVEREIGN-PROVISIONING.md) — how to bring a Sovereign online end-to-end
-- [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md) — provisioning, chart bumps, Blueprint authoring, failover recovery
+- [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md) — provisioning (incl. §8 bring up a Sovereign), chart bumps, Blueprint authoring, failover recovery, doc-integrity audit cadence (§9)
 - [`docs/SRE.md`](docs/SRE.md) — operate a Sovereign in production (SLOs, incident response, GPU ops)
-- [`docs/SECURITY.md`](docs/SECURITY.md) — identity (Cilium WG + Keycloak), secrets (OpenBao + ESO), threat model
-- [`docs/SECRET-ROTATION.md`](docs/SECRET-ROTATION.md) — credential inventory, rotation schedule, rollback path
-- [`docs/AUDIT-PROCEDURE.md`](docs/AUDIT-PROCEDURE.md) — on-demand documentation-integrity validation procedure
+- [`docs/SECURITY.md`](docs/SECURITY.md) — identity (Cilium WG + Keycloak), secrets (OpenBao + ESO), threat model, secret-rotation procedures (§11)
 
 ### Strategy
 
-- [`docs/BUSINESS-STRATEGY.md`](docs/BUSINESS-STRATEGY.md) — positioning, revenue model, competitive landscape, GTM
-- [`docs/PRODUCT-FAMILIES.md`](docs/PRODUCT-FAMILIES.md) — two-layer dependency model behind the Sovereign Wizard
-- [`docs/FRANCHISE-MODEL.md`](docs/FRANCHISE-MODEL.md) — voucher-driven Sovereign franchisee model
+- [`docs/BUSINESS-STRATEGY.md`](docs/BUSINESS-STRATEGY.md) — positioning, revenue model, competitive landscape, GTM, franchise model (§17), product families map (§18)
 - [`docs/TECHNOLOGY-FORECAST-2027-2030.md`](docs/TECHNOLOGY-FORECAST-2027-2030.md) — 56-component relevance forecast through 2030
 
-### Deep-dive (component / surface level)
+### Deep-dive
 
-- [`docs/PROVISIONING-PLAN.md`](docs/PROVISIONING-PLAN.md) — Catalyst-Zero phase-by-phase execution plan (Groups A-M)
-- [`docs/UI-REGRESSION-GUARDS.md`](docs/UI-REGRESSION-GUARDS.md) — Playwright cosmetic + step-flow regression catalog
-- Multi-region DNS (PowerDNS lua-records), PowerDNS deployment shape, ClusterMesh cluster.id registry, and the component-logo manifest now live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §8.7–§8.9 and §6.7.
+- Multi-region DNS (PowerDNS lua-records), PowerDNS deployment shape, ClusterMesh cluster.id registry, and the component-logo asset manifest live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §6.7 and §8.7–§8.9.
+- The Catalyst-Zero phase-by-phase execution plan (Groups A–M) lives in [`docs/archive/provisioning-plan-2026-04.md`](docs/archive/provisioning-plan-2026-04.md); current status of those groups is tracked in [`docs/STATUS.md`](docs/STATUS.md) §12.
+- The Playwright cosmetic + step-flow regression catalog lives in [`docs/archive/ui-regression-guards-catalog.md`](docs/archive/ui-regression-guards-catalog.md).
 
 ### Decision records ([`docs/adr/`](docs/adr/))
 
@@ -82,6 +77,8 @@ The `docs/` tree, in reading order. Every file under `docs/` appears exactly onc
 - [`docs/archive/omantel-handover-wbs.md`](docs/archive/omantel-handover-wbs.md) — Omantel handover work-breakdown structure
 - [`docs/archive/orchestrator-state.md`](docs/archive/orchestrator-state.md) — Catalyst-Zero multi-agent orchestrator hand-off state
 - [`docs/archive/validation-log.md`](docs/archive/validation-log.md) — trail of past documentation-integrity validation passes
+- [`docs/archive/provisioning-plan-2026-04.md`](docs/archive/provisioning-plan-2026-04.md) — Catalyst-Zero phase-by-phase execution plan (Groups A–M)
+- [`docs/archive/ui-regression-guards-catalog.md`](docs/archive/ui-regression-guards-catalog.md) — Playwright cosmetic + step-flow regression guard catalog
 
 > **Heads-up before reading further**: the architecture docs in this repo describe Catalyst's **target** state. Significant portions are not yet implemented — `docs/STATUS.md` (listed above) records what exists today vs what is design.
 
@@ -177,7 +174,7 @@ For the full component list and trends see [`docs/ARCHITECTURE.md`](docs/ARCHITE
 | Oracle Cloud (OCI) | Crossplane provider available; full path coming |
 | Huawei Cloud | Crossplane provider available; full path coming |
 
-All providers reach Catalyst via the same Crossplane abstraction; Sovereign provisioning details per provider are in [`docs/SOVEREIGN-PROVISIONING.md`](docs/SOVEREIGN-PROVISIONING.md).
+All providers reach Catalyst via the same Crossplane abstraction; Sovereign provisioning details per provider are in [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md) §8 (Bring up a Sovereign).
 
 ---
 
@@ -193,7 +190,7 @@ Visit `marketplace.openova.io` to install Applications on the openova Sovereign 
 1. Provision via catalyst-provisioner.openova.io (managed bootstrap), OR
 2. Self-host bp-catalyst-provisioner in your own infrastructure (air-gap path).
 
-Then follow the procedure in docs/SOVEREIGN-PROVISIONING.md.
+Then follow the procedure in docs/RUNBOOKS.md §8 (Bring up a Sovereign).
 ```
 
 ### Build a Blueprint

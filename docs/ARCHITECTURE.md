@@ -1675,7 +1675,7 @@ Catalyst is not a strict OAM implementation. The layered composition idea is bor
 - [`STATUS.md`](STATUS.md) — what's actually built today.
 - [`DOD.md`](DOD.md) — who uses each surface and how.
 - [`SECURITY.md`](SECURITY.md) — identity, secrets, rotation, SPIRE deferral re-enable triggers.
-- [`SOVEREIGN-PROVISIONING.md`](SOVEREIGN-PROVISIONING.md) — bringing a Sovereign online.
+- [`RUNBOOKS.md`](RUNBOOKS.md) §8 — bringing a Sovereign online.
 - [`DOD.md`](DOD.md) — the multi-region DoD gates.
 - §8.8 above — PowerDNS lua-record patterns (folded from former `MULTI-REGION-DNS.md`).
 - §8.9 above — PowerDNS deployment shape (folded from former `PLATFORM-POWERDNS.md`).

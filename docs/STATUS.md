@@ -235,3 +235,9 @@ This file is updated whenever a status changes:
 Per [`DOD.md`](DOD.md): 🟦 means "all controllers + CRDs + tests landed". It is the **maximum** state achievable from code review alone. ✅ requires the operator walk.
 
 Keeping this honest is the only way to prevent the kind of doc/code drift that makes the architecture text unreliable.
+
+---
+
+## 12. Historical: Catalyst-Zero Provisioning Plan
+
+The date-stamped Catalyst-Zero consolidation + cutover plan (8-phase waterfall: openova-private → openova migration, public-repo build cutover, Sovereign-provisioning wizard, provisioner backend, bootstrap-kit Helm charts, PowerDNS+PDM+registrar adapters, franchise model docs, end-to-end DoD) has been moved to [`archive/provisioning-plan-2026-04.md`](archive/provisioning-plan-2026-04.md). Most of that plan has landed (Groups A, B, C, F, G done; D, E, H, J in flight). The archive preserves the original waterfall + acceptance criteria for traceability.

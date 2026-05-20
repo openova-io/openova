@@ -50,7 +50,7 @@ Quality compromises that have happened and must never happen again:
 
 ### 3. Follow the documented architecture, exactly
 
-The architectural docs (`ARCHITECTURE.md`, `SOVEREIGN-PROVISIONING.md`, `RUNBOOKS.md`, `ARCHITECTURE.md`, `SECURITY.md`, `ARCHITECTURE.md`, `GLOSSARY.md`) are the design contract, not aspirational suggestions.
+The architectural docs (`ARCHITECTURE.md`, `RUNBOOKS.md`, `SECURITY.md`, `GLOSSARY.md`, `DOD.md`, `STATUS.md`) are the design contract, not aspirational suggestions.
 
 Specifically for provisioning:
 
