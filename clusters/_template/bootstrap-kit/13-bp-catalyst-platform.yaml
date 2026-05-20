@@ -809,7 +809,7 @@ spec:
       # SHA changes (bp-catalyst-platform embeds the built marketplace
       # assets via that image). Threading customer-chosen values into
       # the install POST is a follow-up (TBD-V18-D).
-      version: 1.4.224
+      version: 1.4.225
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
