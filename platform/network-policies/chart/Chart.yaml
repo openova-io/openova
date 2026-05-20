@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-network-policies
-version: 1.0.1
+version: 1.0.2
 description: |
   Catalyst zero-trust default-deny CiliumClusterwideNetworkPolicy +
   allow-templates for control-plane namespaces, intra-namespace traffic,
@@ -12,11 +12,24 @@ maintainers:
   - name: OpenOva Catalyst
     email: catalyst@openova.io
 
-# Opt out of the hollow-chart guard (Blueprint-Release workflow / issue #181):
-# this chart legitimately ships only Catalyst-authored CRs (default-deny
-# CiliumClusterwideNetworkPolicy + allow-templates that target the
-# cilium.io CRDs installed by bp-cilium). It has NO upstream Helm
-# subchart to bundle. Same shape as bp-kyverno-policies (PR #2023) and
-# bp-continuum (PR #2081).
+# Annotations:
+#
+# - catalyst.openova.io/no-upstream: "true"
+#   Opt out of the hollow-chart guard (Blueprint-Release workflow / issue
+#   #181): this chart legitimately ships only Catalyst-authored CRs
+#   (default-deny CiliumClusterwideNetworkPolicy + allow-templates that
+#   target the cilium.io CRDs installed by bp-cilium). It has NO upstream
+#   Helm subchart to bundle. Same shape as bp-kyverno-policies (PR #2023)
+#   and bp-continuum (PR #2081).
+#
+# - catalyst.openova.io/smoke-render-mode: default-off
+#   The chart's `enabled` master gate defaults to false (see blueprint.yaml
+#   configSchema.enabled.default: false — installing this Blueprint is a
+#   no-op until the operator opts in). The Blueprint-Release smoke-render
+#   step does `helm template` with default values; without this annotation
+#   it errors with "Rendered output is suspiciously short (1 lines)" and
+#   dead-reserves the version. Same pattern as bp-continuum (PR #2081)
+#   which has the identical default-off shape.
 annotations:
   catalyst.openova.io/no-upstream: "true"
+  catalyst.openova.io/smoke-render-mode: default-off
