@@ -171,6 +171,16 @@ func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 		// event the sandbox-controller consumes to mint a Sandbox CR
 		// with `spec.agentCatalogue` = these slugs. Tolerated empty.
 		Agents   []string `json:"agents"`
+		// TBD-V18-D follow-up to PR #2038 — per-app configSchema
+		// values, keyed by app SLUG. Each inner map is `ConfigField.Key`
+		// → field-typed primitive (int / string / bool). Persisted on
+		// `store.Tenant.AppConfigs`; round-trips on the `tenant.created`
+		// event payload via the *store.Tenant embed (no separate
+		// wrapper field needed). The downstream HelmRelease-values
+		// binding is gated on TBD-V26 (#2040) Path A/B; this field
+		// threads the SHAPE end-to-end so flipping the binding switch
+		// works without a second upstream change. Tolerated empty.
+		AppConfigs map[string]map[string]any `json:"app_configs"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		respond.Error(w, http.StatusBadRequest, "invalid JSON body")
@@ -205,16 +215,17 @@ func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tenant := &store.Tenant{
-		Slug:      body.Slug,
-		Name:      body.Name,
-		OrgType:   body.OrgType,
-		Industry:  body.Industry,
-		OwnerID:   userID,
-		PlanID:    body.PlanID,
-		Apps:      body.Apps,
-		AddOns:    body.AddOns,
-		Subdomain: body.Slug,
-		Status:    "provisioning",
+		Slug:       body.Slug,
+		Name:       body.Name,
+		OrgType:    body.OrgType,
+		Industry:   body.Industry,
+		OwnerID:    userID,
+		PlanID:     body.PlanID,
+		Apps:       body.Apps,
+		AddOns:     body.AddOns,
+		AppConfigs: body.AppConfigs,
+		Subdomain:  body.Slug,
+		Status:     "provisioning",
 	}
 
 	if err := h.Store.CreateTenant(r.Context(), tenant); err != nil {

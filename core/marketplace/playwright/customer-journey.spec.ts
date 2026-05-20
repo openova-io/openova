@@ -540,6 +540,90 @@ test.describe('marketplace customer-journey (17-step regression gate)', () => {
     ).toBeLessThan(hits.indexOf('startProvisioning'))
   })
 
+  // TBD-V18-D follow-up to PR #2038 — assert the install POST body
+  // carries the customer-chosen configSchema values (from the
+  // AppDetail form) into the createTenant call. We cannot walk the
+  // entire AppDetail surface here without /app?slug=postgres in the
+  // mock catalog; the canonical seed-cart path already simulates the
+  // customer's choices via cart.appConfigs. This proves the
+  // CheckoutStep → createTenant wire honours the cart contract; the
+  // AppDetail → cart half is exercised at unit level in cart.ts's
+  // setAppConfig and indirectly via the 03b configSchema render test
+  // (which already asserts the form is reactive).
+  test('12b createTenant POST body carries app_configs from cart (TBD-V18-D)', async ({ page }) => {
+    let capturedBody: Record<string, unknown> | null = null
+    await page.route('**/api/tenant/orgs', (route) => {
+      if (route.request().method() === 'POST') {
+        const raw = route.request().postData()
+        try {
+          capturedBody = raw ? JSON.parse(raw) : null
+        } catch {
+          capturedBody = null
+        }
+        route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({ id: 'tenant-1', slug: 'demo-co', name: 'Demo Co', status: 'active' }),
+        })
+      } else {
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) })
+      }
+    })
+    await page.route('**/api/billing/checkout', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ order_id: 'order-1', paid_by_credit: true, session_url: null }),
+      })
+    )
+    await page.route('**/api/provisioning/start', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ id: 'prov-1', tenant_id: 'tenant-1', status: 'running', steps: [] }),
+      })
+    )
+
+    await page.addInitScript(() => {
+      try {
+        localStorage.setItem('sme-token', 'mock-jwt-token')
+        localStorage.setItem('sme-refresh-token', 'mock-refresh-token')
+      } catch (_) {}
+    })
+    // Seed cart with appConfigs as if the customer mutated the
+    // AppDetail form for the canonical Postgres-backed bundle. Values
+    // match the seed catalog defaults' shape (replicas + disk_gb +
+    // backups_enabled), but the customer overrode the defaults.
+    await seedCart(page, {
+      appConfigs: {
+        wordpress: {
+          replicas: 3,
+          disk_gb: 50,
+          backups_enabled: true,
+        },
+      },
+    })
+    await page.goto('/checkout')
+
+    const launch = page.getByRole('button', { name: /Launch my tenant|Purchase/i }).first()
+    await expect(launch).toBeVisible({ timeout: 10_000 })
+    await Promise.all([
+      page.waitForURL(/console\.openova\.io|console\..*\.(works|homes|rest|trade)/, { timeout: 15_000 }).catch(() => null),
+      launch.click(),
+    ])
+
+    expect(capturedBody, 'POST /api/tenant/orgs body parsed').not.toBeNull()
+    const body = capturedBody as { app_configs?: Record<string, Record<string, unknown>> }
+    expect(body.app_configs, 'app_configs sibling present in body').toBeDefined()
+    expect(body.app_configs!.wordpress, 'wordpress bucket present').toBeDefined()
+    // Each customer-set value round-trips byte-for-byte from cart to
+    // the wire. A regression that drops the field or coerces the
+    // type (e.g. JSON-stringifies the inner map) would fail here.
+    expect(body.app_configs!.wordpress.replicas, 'replicas threaded').toBe(3)
+    expect(body.app_configs!.wordpress.disk_gb, 'disk_gb threaded').toBe(50)
+    expect(body.app_configs!.wordpress.backups_enabled, 'backups_enabled threaded').toBe(true)
+  })
+
   test('16 console redirect URL is Sovereign-local + slug-aware (PR #1627 + TBD-V10 #2001)', async ({ page }) => {
     // Two layered guarantees on the post-purchase redirect contract:
     //

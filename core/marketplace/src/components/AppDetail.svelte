@@ -1,6 +1,6 @@
 <script lang="ts">
   import { getApps, type App, type ConfigField } from '../lib/api';
-  import { readCart, toggleApp, toggleAgent, SANDBOX_AGENTS } from '../lib/cart';
+  import { readCart, toggleApp, toggleAgent, setAppConfig, SANDBOX_AGENTS } from '../lib/cart';
 
   interface Props {
     slug?: string;
@@ -16,8 +16,10 @@
   // declared on app.configSchema. Initialised from each field's
   // `default` so the rendered form is always populated for the
   // canonical Postgres-backed bundle (replicas=1, disk_gb=5,
-  // backups_enabled=false). Threading these into the install POST is
-  // a follow-up — for now this proves the schema renders end-to-end.
+  // backups_enabled=false). TBD-V18-D follow-up to PR #2038: every
+  // mutation now also persists to cart.appConfigs[app.slug] via
+  // setAppConfig(), so CheckoutStep can thread the values into the
+  // install POST body (createTenant /api/tenant/orgs `app_configs`).
   let configValues = $state<Record<string, number | string | boolean>>({});
 
   const inCart = $derived(app ? cart.apps.includes(app.id) : false);
@@ -52,17 +54,31 @@
         .filter((a): a is App => !!a);
       // Seed configValues from per-field defaults. Falls back to a
       // type-appropriate zero when `default` is missing so the form
-      // always has a coherent initial state.
+      // always has a coherent initial state. TBD-V18-D: when the
+      // operator already visited this AppDetail in the current cart
+      // session (e.g. navigated forward to /addons then back), prefer
+      // their previously-saved values from cart.appConfigs[slug] so
+      // we don't blow away their edits on every mount.
       const fields = app?.configSchema ?? [];
       const seeded: Record<string, number | string | boolean> = {};
+      const previouslySaved = (cart.appConfigs ?? {})[app?.slug ?? ''] ?? {};
       for (const f of fields) {
-        if (f.default !== undefined && f.default !== null) {
+        if (Object.prototype.hasOwnProperty.call(previouslySaved, f.key)) {
+          seeded[f.key] = previouslySaved[f.key];
+        } else if (f.default !== undefined && f.default !== null) {
           seeded[f.key] = f.default;
         } else {
           seeded[f.key] = f.type === 'int' ? 0 : f.type === 'bool' ? false : '';
         }
       }
       configValues = seeded;
+      // Persist the freshly-seeded values back so the cart has a
+      // coherent snapshot from the moment the AppDetail mounts, even
+      // when the customer never mutates a field (silent acceptance of
+      // defaults still needs to thread through the install POST).
+      if (app?.slug && fields.length > 0) {
+        cart = setAppConfig(app.slug, seeded);
+      }
       loading = false;
     }).catch(() => { loading = false; });
   });
@@ -83,6 +99,14 @@
   }
   function setValue(key: string, v: number | string | boolean): void {
     configValues = { ...configValues, [key]: v };
+    // TBD-V18-D — persist on every change so the cart matches the
+    // on-screen form when the customer leaves AppDetail (no submit
+    // button on this surface: the cart IS the buffer). Guarded on
+    // `app?.slug` so we never write a stub `undefined` key when the
+    // detail page is still loading.
+    if (app?.slug) {
+      cart = setAppConfig(app.slug, configValues);
+    }
   }
 
   function toggle() {
@@ -167,8 +191,12 @@
          walk ("Click the canonical Postgres-backed bundle → app card
          opens; configSchema renders"). One input widget per
          ConfigField.type — matches the Go store.ConfigField contract
-         exactly. Threading these into the install POST is a follow-up
-         (TBD-V18-D). -->
+         exactly. TBD-V18-D follow-up to PR #2038: every mutation is
+         persisted to cart.appConfigs[slug] so CheckoutStep can
+         thread the values into the install POST (createTenant
+         /api/tenant/orgs `app_configs`). The downstream HelmRelease-
+         values binding is gated on TBD-V26 (#2040) Path A/B; this
+         file ships the SHAPE end-to-end. -->
     {#if hasConfigSchema}
       <section class="detail-section" data-testid="config-schema-section">
         <h2>Configuration</h2>

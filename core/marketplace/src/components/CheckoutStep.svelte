@@ -247,6 +247,17 @@
           // only acts on this when `apps` contains 'sandbox'; for all
           // other carts it's persisted and ignored.
           agents: cart.agents || [],
+          // TBD-V18-D (follow-up to PR #2038) — thread the
+          // customer-chosen configSchema values into the install POST
+          // body, keyed by app slug. Tenant-service persists this on
+          // store.Tenant.AppConfigs and re-emits it on the
+          // tenant.created event so any downstream consumer (Path A
+          // SME-controller-via-Org-CR, Path B
+          // gitops-commit-to-tenant-repo, per TBD-V26 #2040) can read
+          // the values when materialising the HelmRelease values.
+          // Empty record when no app in the cart exposes a
+          // configSchema (Ghost / Nextcloud / Sandbox today).
+          app_configs: cart.appConfigs || {},
         });
         return { id: t.id, slug: t.slug || s };
       } catch (e: any) {

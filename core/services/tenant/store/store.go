@@ -26,6 +26,20 @@ type Tenant struct {
 	// "installing" | "uninstalling" | "failed". Absent means the app is in
 	// its steady state (installed when the ID is in Apps; gone otherwise).
 	AppStates     map[string]string `bson:"app_states,omitempty" json:"app_states,omitempty"`
+	// AppConfigs carries per-instance configSchema values chosen by
+	// the customer on the marketplace AppDetail surface, keyed by app
+	// SLUG (e.g. "postgres" or "wordpress"). The inner map keys are
+	// `ConfigField.Key` names (e.g. "replicas", "disk_gb",
+	// "backups_enabled") and values are the field-typed primitives
+	// (int / string / bool). Empty when no app in the cart shipped a
+	// configSchema (Ghost / Nextcloud today) or when the cart predates
+	// TBD-V18-D (#2026 follow-up to PR #2038). Down-stream consumers
+	// (provisioning, blueprint-controller) read this when rendering
+	// HelmRelease values — the actual binding lands behind the
+	// TBD-V26 (#2040) Path A/B decision; this field threads the
+	// SHAPE end-to-end so the binding lights up without a second
+	// upstream change.
+	AppConfigs    map[string]map[string]any `bson:"app_configs,omitempty" json:"app_configs,omitempty"`
 	AddOns        []string  `bson:"addons" json:"addons"`
 	Subdomain     string    `bson:"subdomain" json:"subdomain"`
 	CustomDomains []string  `bson:"custom_domains" json:"custom_domains"`
