@@ -75,6 +75,55 @@ cnpgPair:
     # NotReady, surfacing the lag in the UI's status panel.
     timeoutSeconds: 60
 
+  # ── Replication MODE — sync (DEFAULT) vs async ────────────────────
+  # CANONICAL PILLAR-3 CLAIM (CLAUDE.md §0): "zero transactions lost".
+  # Asynchronous-streaming replication CANNOT meet this claim — any
+  # in-flight transaction at primary-kill time is lost. Synchronous
+  # replication (PostgreSQL `synchronous_commit = remote_apply` +
+  # `synchronous_standby_names = "FIRST 1 (<replica>)"`) blocks the
+  # primary's COMMIT until the replica has REPLAYED the WAL, which is
+  # the bar required for zero-tx-loss on region-kill failover.
+  #
+  # Trade-off (must be disclosed to operators):
+  #   - Every commit waits one round-trip to the replica region. On
+  #     Hetzner FSN <-> HEL the RTT is ~10ms; on geographically
+  #     distant pairs (e.g. EU <-> US) the RTT may reach ~100ms and
+  #     EVERY transaction sees that latency.
+  #   - If the replica is unreachable, the primary BLOCKS WRITES
+  #     until the replica recovers (or the operator runs a documented
+  #     `ALTER SYSTEM SET synchronous_standby_names = ''` break-glass
+  #     to downgrade to async, with explicit RPO loss acceptance).
+  #     This is by design — losing availability is the price of
+  #     zero-tx-loss durability.
+  #
+  # Mode "async" exists for forensic / lab use only; production
+  # deployments MUST run "sync" to honour the pillar.
+  replication:
+    mode: sync
+
+    # Synchronous knobs — applied to the primary CNPG Cluster CR's
+    # postgresql.parameters block when mode=sync.
+    sync:
+      # PostgreSQL synchronous_commit level. Options (least to most
+      # durable):
+      #   - "on"          (default for PG): WAL flushed to disk on
+      #                    primary AND replica before COMMIT returns.
+      #   - "remote_write": replica has received but not necessarily
+      #                    flushed WAL to disk. Allows replica-side
+      #                    OS crash to lose tx. NOT canonical.
+      #   - "remote_apply": replica has REPLAYED the WAL (visible to
+      #                    SELECTs on the replica) before COMMIT
+      #                    returns. STRONGEST DURABILITY — canonical
+      #                    for Pillar 3 zero-tx-loss.
+      # Stick with remote_apply unless an overlay has a specific RPO
+      # reason to relax.
+      commit: remote_apply
+      # Number of synchronous standbys required to acknowledge before
+      # COMMIT returns. For a 2-region pair (primary + 1 replica),
+      # 1 is canonical. Increase only when the topology has multiple
+      # replicas in distinct fault domains.
+      numSync: 1
+
   # ── Cilium ClusterMesh ────────────────────────────────────────────
   # Multi-region transport. Per ADR-0001 §9 ClusterMesh is the ONLY
   # canonical inter-region transport for replication traffic. Setting

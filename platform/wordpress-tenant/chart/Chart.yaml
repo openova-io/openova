@@ -54,7 +54,21 @@ name: bp-wordpress-tenant
 #     marketplace voucher → org wizard (D29) can present a
 #     "Postgres topology" picker instead of a boolean.
 #   - Companion to catalog-seed bp-cnpg-pair Blueprint CR (Refs TBD-E8b).
-version: 0.3.1
+# 0.3.2 (Pillar 3 zero-tx-loss, 2026-05-20, Refs #2064):
+#   - When `database.mode=active-hot-standby`, the rendered primary
+#     CNPG Cluster CR now carries `synchronous_commit: "remote_apply"`
+#     + `synchronous_standby_names: "FIRST 1 (<replica>)"` in its
+#     postgresql.parameters block by DEFAULT. Mirrors bp-cnpg-pair
+#     chart 0.1.2. The previous asynchronous-streaming default could
+#     NOT honour the canonical Pillar 3 claim of "zero transactions
+#     lost" on region-kill failover — chart 0.3.2 closes that gap.
+#   - New `pg.activeHotStandby.replication.{mode,sync.commit,
+#     sync.numSync}` block in values.yaml. Mode `async` exists for
+#     forensic / lab use only; production deployments MUST use `sync`.
+#   - Operator-facing trade-off (documented in values.yaml + DESIGN
+#     of bp-cnpg-pair §7): primary BLOCKS new writes when replica is
+#     unreachable; every COMMIT pays the inter-region RTT.
+version: 0.3.2
 appVersion: "6"
 description: |
   Catalyst Blueprint scratch chart for in-vcluster WordPress, one

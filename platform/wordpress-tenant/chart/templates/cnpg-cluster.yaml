@@ -120,6 +120,30 @@ spec:
       max_wal_senders: "10"
       max_replication_slots: "10"
       wal_level: "logical"
+      {{- /*
+      Synchronous replication (Pillar 3 zero-tx-loss).
+
+      Mirrors bp-cnpg-pair chart 0.1.2. The canonical claim of "zero
+      transactions lost" on region-kill failover REQUIRES synchronous
+      replication; asynchronous-streaming loses any in-flight tx at
+      primary-kill time.
+
+      `synchronous_commit = remote_apply` blocks the primary's COMMIT
+      until the replica has REPLAYED the WAL (strongest durability).
+      `synchronous_standby_names = FIRST 1 (<replica>)` requires an
+      ACK from one standby whose application_name matches the replica
+      Cluster CR's name; CNPG's externalCluster streaming connection
+      uses the replica Cluster CR name as application_name by default,
+      so this Just Works for the bp-wordpress-tenant pair shape.
+
+      Mode "async" exists for forensic / lab use only; the rendered
+      manifest then omits both parameters and falls back to PG defaults.
+      */ -}}
+      {{- $replMode := default "sync" .Values.pg.activeHotStandby.replication.mode }}
+      {{- if eq $replMode "sync" }}
+      synchronous_commit: {{ default "remote_apply" .Values.pg.activeHotStandby.replication.sync.commit | quote }}
+      synchronous_standby_names: {{ printf "FIRST %d (%s)" (int (default 1 .Values.pg.activeHotStandby.replication.sync.numSync)) (include "bp-wordpress-tenant.cnpgPairReplicaName" .) | quote }}
+      {{- end }}
       {{- end }}
 
   resources:

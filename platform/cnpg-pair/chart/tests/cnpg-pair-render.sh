@@ -147,6 +147,19 @@ grep -qE 'host: .*-mesh$' "$TMP/enabled.yaml" || {
   grep -nE 'host:' "$TMP/enabled.yaml" >&2
   exit 1
 }
+# Pillar 3 (chart 0.1.2): synchronous replication MUST be the default.
+# The primary's postgresql.parameters block carries:
+#   synchronous_commit: "remote_apply"
+#   synchronous_standby_names: "FIRST 1 (<replica-name>)"
+grep -q 'synchronous_commit: "remote_apply"' "$TMP/enabled.yaml" || {
+  echo "FAIL: primary Cluster CR missing synchronous_commit=remote_apply (Pillar 3 zero-tx-loss default)." >&2
+  exit 1
+}
+grep -qE 'synchronous_standby_names: "FIRST 1 \(.+-replica\)"' "$TMP/enabled.yaml" || {
+  echo "FAIL: primary Cluster CR missing synchronous_standby_names referencing the replica Cluster name." >&2
+  grep -nE 'synchronous_standby_names' "$TMP/enabled.yaml" >&2
+  exit 1
+}
 echo "  PASS ($GOT resources)"
 
 # ── Case 3: missing image.tag fails fast ─────────────────────────
@@ -218,6 +231,30 @@ print(yaml.safe_dump_all(nontest))
 PYEOF
 if sed 's/#.*//' "$TMP/nomesh-nontest.yaml" | grep -q 'service\.cilium\.io/global'; then
   echo "FAIL: clusterMesh disabled but service.cilium.io/global annotation still rendered." >&2
+  exit 1
+fi
+echo "  PASS"
+
+# ── Case 6: replication.mode=async omits synchronous_* parameters ─
+# Chart 0.1.2: the synchronous block exists ONLY when mode=sync.
+# Forensic / lab overlays opting into async MUST get a primary
+# Cluster CR with no synchronous_commit / synchronous_standby_names
+# entries (PG falls back to defaults).
+echo "[render] Case 6: replication.mode=async omits synchronous_* parameters"
+helm template smoke-cnpg-pair . \
+  --set cnpgPair.enabled=true \
+  --set cnpgPair.primary.region=hz-fsn-rtz-prod \
+  --set cnpgPair.replica.region=hz-hel-rtz-prod \
+  --set cnpgPair.image.tag=16.3-23 \
+  --set cnpgPair.replication.mode=async \
+  > "$TMP/async.yaml" 2> "$TMP/async.err" || {
+  echo "FAIL: async-mode render errored:" >&2
+  cat "$TMP/async.err" >&2
+  exit 1
+}
+if grep -q "synchronous_commit\|synchronous_standby_names" "$TMP/async.yaml"; then
+  echo "FAIL: replication.mode=async leaked synchronous_* parameters into the manifest." >&2
+  grep -nE "synchronous_(commit|standby_names)" "$TMP/async.yaml" >&2
   exit 1
 fi
 echo "  PASS"

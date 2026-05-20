@@ -223,6 +223,26 @@ pg:
       # (replica region has zero `cnpg-role=primary` backends so its
       # WAL traffic ALWAYS crosses the mesh to the primary region).
       affinity: local
+    # Replication MODE — sync (DEFAULT) vs async. Mirrors bp-cnpg-pair
+    # 0.1.2 + DESIGN.md §7. The canonical Pillar 3 claim of "zero
+    # transactions lost" on region-kill failover REQUIRES synchronous
+    # replication; the previous async-streaming default could not
+    # honour it. `replication.mode: sync` renders
+    # `synchronous_commit: remote_apply` + `synchronous_standby_names:
+    # FIRST 1 (<replica-cluster-name>)` into the primary CNPG Cluster
+    # CR's `postgresql.parameters`. `async` exists for forensic / lab
+    # use only; production deployments MUST stay on `sync`.
+    #
+    # Trade-off (operator-disclosure): every COMMIT on the primary
+    # waits for the replica to REPLAY the WAL — bounded by the
+    # inter-region RTT (Hetzner FSN<->HEL ~10 ms). If the replica is
+    # unreachable, the primary BLOCKS new writes until recovery or
+    # an explicit break-glass downgrade.
+    replication:
+      mode: sync
+      sync:
+        commit: remote_apply
+        numSync: 1
     # NOTE: instances/storage/resources are NOT re-declared here. The
     # primary + replica BOTH inherit from `database.cluster.{instances,
     # storageSize,storageClass,resources}` above so the operator wizard

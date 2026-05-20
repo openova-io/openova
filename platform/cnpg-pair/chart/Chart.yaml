@@ -1,7 +1,7 @@
 apiVersion: v2
 name: bp-cnpg-pair
-version: 0.1.1
-appVersion: "0.1.1"
+version: 0.1.2
+appVersion: "0.1.2"
 description: |
   Catalyst-curated Blueprint for an active-hotstandby CNPG cluster-pair
   across two Hetzner regions. Companions the existing `bp-cnpg`
@@ -32,6 +32,23 @@ description: |
 
   Changelog
   ─────────
+  0.1.2 (2026-05-20, Pillar 3 zero-tx-loss fix, Refs #2064)
+    - Default replication MODE is now SYNCHRONOUS
+      (`replication.mode: sync` + `synchronous_commit: remote_apply`
+      + `synchronous_standby_names: FIRST 1 (<replica>)`). The
+      asynchronous-streaming default in chart 0.1.1 could not honour
+      the canonical Pillar 3 claim of "zero transactions lost" on
+      region-kill failover; chart 0.1.2 closes that gap.
+    - New configSchema knob `replication.mode` (sync|async,
+      default sync) + `replication.sync.commit` + `.sync.numSync`.
+    - `async` mode kept for forensic / lab use only; production
+      deployments MUST stay on `sync`. See DESIGN.md §7 for the
+      failure-mode disclosure (replica-unreachable → primary blocks
+      writes, replica RTT → per-commit latency tax).
+    - Render-gate test extended: assert `synchronous_commit` +
+      `synchronous_standby_names` present on primary by default;
+      assert both ABSENT when `replication.mode=async`.
+
   0.1.1 (2026-05-09, qa-loop iter-6 fix-33, #1101)
     - Fix: drop hand-rendered service-replication.yaml; the replication
       Service is now declared via primary CNPG Cluster's

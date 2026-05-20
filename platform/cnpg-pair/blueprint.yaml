@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-9-disaster-recovery
     catalyst.openova.io/companion: bp-cnpg
 spec:
-  version: 0.1.1
+  version: 0.1.2
   card:
     title: CNPG Cluster-Pair (Active-Hotstandby DR)
     summary: |
@@ -139,6 +139,48 @@ spec:
               the primary region's reads inside the region and
               falls through to the replica region only when no
               local primary backend exists.
+      replication:
+        type: object
+        properties:
+          mode:
+            type: string
+            enum: [sync, async]
+            default: sync
+            description: |
+              Replication MODE.
+
+              `sync` (DEFAULT, canonical for Pillar 3 zero-tx-loss):
+              configures the primary CNPG Cluster CR with
+              `synchronous_commit = remote_apply` and
+              `synchronous_standby_names = FIRST 1 (<replica>)`.
+              COMMIT on the primary blocks until the replica has
+              replayed the WAL. This is the bar required for
+              region-kill failover with zero transactions lost.
+
+              `async` (forensic/lab only): leaves the primary at
+              PostgreSQL's default async streaming. In-flight
+              transactions at primary-kill time are LOST.
+              Production deployments MUST use `sync`.
+          sync:
+            type: object
+            properties:
+              commit:
+                type: string
+                enum: [on, remote_write, remote_apply]
+                default: remote_apply
+                description: |
+                  PostgreSQL `synchronous_commit` level (strongest
+                  durability = `remote_apply`: replica must have
+                  REPLAYED the WAL before COMMIT returns).
+              numSync:
+                type: integer
+                minimum: 1
+                maximum: 3
+                default: 1
+                description: |
+                  Number of synchronous standbys required to ACK
+                  COMMIT. For a 2-region pair (primary + 1 replica)
+                  the canonical value is 1.
       image:
         type: object
         required: [tag]
@@ -158,8 +200,12 @@ spec:
 
   placementSchema:
     # The cluster-pair IS the placement — primary + replica are the
-    # two regions. CNPG's replication model is asynchronous-streaming
-    # primary + 1 replica region; multi-replica-region (active-
+    # two regions. Replication is SYNCHRONOUS by default
+    # (`synchronous_commit = remote_apply` + `synchronous_standby_names
+    # = FIRST 1 (<replica>)`) to honour the Pillar 3 zero-transactions-
+    # lost claim. Operators may opt down to asynchronous streaming via
+    # `replication.mode: async` for forensic / lab use; production
+    # deployments MUST stay on `sync`. Multi-replica-region (active-
     # active for Postgres) is out of scope per master-brief §9.6.
     modes: [active-hotstandby]
     minRegions: 2
