@@ -35,15 +35,51 @@
 # ---------------------------------------------------------------------
 # Stage 1 — build pty-server (Go).
 # ---------------------------------------------------------------------
+# BUILD CONTEXT: repo root (changed 2026-05-20 by TBD-P4 B2 / #1986).
+# Was products/sandbox/pty-server. Repo root is required because Stage
+# 1b below builds the openova-sandbox-mcp binary which uses `replace`
+# directives into core/controllers + core/services/shared per its own
+# go.mod. The MCP binary is bundled into the final pty-server image at
+# /usr/local/bin/openova-sandbox-mcp so the agent (claude-code /
+# qwen-code / aider / opencode) can launch it as a subprocess via the
+# canonical mcp.json pattern. The binary MUST NOT run as a Pod — it is
+# a stdio JSON-RPC server, and Pods have no stdin pipe → EOF crash.
 FROM golang:1.23-alpine AS build
 WORKDIR /src
 RUN apk add --no-cache git
-COPY go.mod go.sum* ./
+COPY products/sandbox/pty-server/go.mod products/sandbox/pty-server/go.sum* ./
 RUN go mod download || true
-COPY . .
+COPY products/sandbox/pty-server/ ./
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -trimpath -ldflags="-s -w" \
     -o /out/pty-server ./cmd/pty-server
+
+# ---------------------------------------------------------------------
+# Stage 1b — build openova-sandbox-mcp (Go). TBD-P4 B2 (#1986).
+#
+# Mirrors products/sandbox/mcp-server/Dockerfile's two-stage layout
+# (pre-stage replace targets' go.mods so `go mod download` resolves,
+# then copy source). The compiled binary is copied into the final
+# pty-server image so the agent can spawn it from
+# /usr/local/bin/openova-sandbox-mcp. Without this stage the MCP
+# plugin is unreachable: the prior Pod-mode Deployment EOF-crashed,
+# and even after deleting that Deployment the agent had no binary to
+# launch.
+# ---------------------------------------------------------------------
+FROM golang:1.23-alpine AS build-mcp
+WORKDIR /repo
+RUN apk add --no-cache git
+COPY core/controllers/go.mod core/controllers/go.sum /repo/core/controllers/
+COPY core/services/shared/go.mod core/services/shared/go.sum /repo/core/services/shared/
+COPY products/sandbox/mcp-server/go.mod products/sandbox/mcp-server/go.sum /repo/products/sandbox/mcp-server/
+COPY core/controllers /repo/core/controllers
+COPY core/services/shared /repo/core/services/shared
+COPY products/sandbox/mcp-server /repo/products/sandbox/mcp-server
+WORKDIR /repo/products/sandbox/mcp-server
+RUN go mod download
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build -trimpath -ldflags="-s -w" \
+    -o /out/openova-sandbox-mcp ./cmd/openova-sandbox-mcp
 
 # ---------------------------------------------------------------------
 # Stage 2 — final runtime image with pty-server + agent CLIs.
@@ -120,6 +156,17 @@ RUN set -eux; \
 
 # Copy the pty-server binary from the build stage.
 COPY --from=build /out/pty-server /usr/local/bin/pty-server
+
+# TBD-P4 B2 (2026-05-20, #1986) — bundle the openova-sandbox-mcp binary
+# so the agent can launch it as a stdio subprocess (canonical MCP
+# pattern: mcp.json declares command=/usr/local/bin/openova-sandbox-mcp,
+# the agent fork+execs it and wires stdin/stdout for JSON-RPC). The
+# binary previously lived behind a per-Sandbox MCP Deployment which
+# EOF-crashed because a Pod has no stdin pipe. The MCP env vars the
+# binary reads (SANDBOX_*, SOVEREIGN_*, KEYCLOAK_*) are rendered onto
+# the pty-server StatefulSet by sandbox-controller (manifests.go) and
+# inherited by the agent + MCP child via os.Environ().
+COPY --from=build-mcp /out/openova-sandbox-mcp /usr/local/bin/openova-sandbox-mcp
 
 # Run as the pre-baked `node` user (uid 1000) — non-root posture
 # preserved from the distroless image (which ran as nonroot:nonroot).

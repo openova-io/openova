@@ -21,9 +21,17 @@
 //   - One PVC per spec.repos[] entry
 //   - Placeholder Secret `sandbox-tokens`
 //   - NEW: StatefulSet `pty-server` (replicas = spec.quota.concurrentSessions)
-//   - NEW: Deployment `openova-sandbox-mcp`
 //   - NEW: Service `pty-server` ClusterIP :7681
 //   - NEW: HTTPRoute exposing `sandbox.<sov-fqdn>/sessions/<owner-uid>/*`
+//
+// TBD-P4 B2 (2026-05-20): the per-Sandbox `openova-sandbox-mcp`
+// Deployment was deleted. The MCP binary is a stdio JSON-RPC server
+// (reads os.Stdin) — a Pod has no stdin pipe → EOF crash-loop. The
+// canonical pattern: the agent launches `/usr/local/bin/
+// openova-sandbox-mcp` as a subprocess. The pty-server bundles the
+// binary (Dockerfile multi-stage copy) and the canonical SANDBOX_*
+// env block now lives on the pty-server StatefulSet (the agent
+// inherits via os.Environ(), the MCP child inherits from the agent).
 //
 // Per Inviolable Principle #4 (no hardcoded values) every knob comes
 // from Inputs — nothing in the template literals encodes a cluster /
@@ -53,6 +61,13 @@ type Inputs struct {
 	PreviewDomain         string
 	AgentCatalogue        []string
 	PtyServerImage        string
+	// MCPImage — DEPRECATED post TBD-P4 B2 (2026-05-20). The
+	// per-Sandbox MCP Deployment was removed; the openova-sandbox-mcp
+	// binary now ships inside the pty-server image and is launched
+	// as a subprocess by the agent. The field is preserved for
+	// backwards-compat with existing callers/tests; the value is
+	// ignored at render time. Safe to remove once all callers stop
+	// setting it.
 	MCPImage              string
 	NewapiURL             string
 	LLMGatewayTokenSecret string
@@ -461,6 +476,109 @@ spec:
             - name: ANTHROPIC_BASE_URL
               value: ""
 {{- end }}
+            # ── TBD-P4 B2 (2026-05-20) — canonical SANDBOX_* env vars for
+            # the openova-sandbox-mcp binary. The MCP binary is a stdio
+            # JSON-RPC server (cmd/openova-sandbox-mcp/main.go reads
+            # os.Stdin); it CANNOT run as a Deployment (no stdin pipe →
+            # EOF crash-loop). The canonical pattern is: agent launches
+            # /usr/local/bin/openova-sandbox-mcp as a subprocess. The
+            # pty-server passes os.Environ() to the agent
+            # (session/session.go:92), the agent forks the MCP binary
+            # which also inherits env — so every var on this StatefulSet
+            # reaches the MCP binary. Previously these lived on a
+            # separate MCP Deployment (manifests.go pre-B2); that
+            # Deployment EOF-crashed and the env wiring never reached
+            # the binary the agent actually launched. Removing the
+            # Deployment + relocating the env block fixes both
+            # problems in one PR.
+            - name: SANDBOX_ORG_ID
+              value: {{ .OrgSlug | quote }}
+            - name: SANDBOX_SOVEREIGN_FQDN
+              value: {{ .SovereignFQDN | quote }}
+            - name: SANDBOX_ID
+              value: {{ .Name | quote }}
+            - name: SANDBOX_NAMESPACE
+              value: {{ .NamespaceName | quote }}
+            - name: SANDBOX_TENANT_ID
+              value: {{ .OrgSlug | quote }}
+            - name: SANDBOX_GITEA_BASE_URL
+              value: {{ .GiteaBaseURL | quote }}
+            {{- if .GiteaTokenSecretName }}
+            - name: SANDBOX_GITEA_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .GiteaTokenSecretName | quote }}
+                  key: {{ .GiteaTokenSecretKey | quote }}
+                  optional: true
+            {{- end }}
+            - name: SANDBOX_DOMAIN_API_URL
+              value: {{ .DomainAPIURL | quote }}
+            - name: SANDBOX_MARKETPLACE_API_URL
+              value: {{ .MarketplaceAPIURL | quote }}
+            - name: SANDBOX_STORAGE_S3_ENDPOINT
+              value: {{ .StorageS3Endpoint | quote }}
+            - name: SANDBOX_STORAGE_S3_REGION
+              value: {{ .StorageS3Region | quote }}
+            - name: SANDBOX_STORAGE_S3_USE_TLS
+              value: {{ .StorageS3UseTLS | quote }}
+            {{- if .StorageS3CredsSecretName }}
+            - name: SANDBOX_STORAGE_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .StorageS3CredsSecretName | quote }}
+                  key: {{ .StorageS3AccessKeyKey | quote }}
+                  optional: true
+            - name: SANDBOX_STORAGE_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .StorageS3CredsSecretName | quote }}
+                  key: {{ .StorageS3SecretKeyKey | quote }}
+                  optional: true
+            {{- end }}
+            - name: KEYCLOAK_ADMIN_URL
+              value: {{ .KeycloakAdminURL | quote }}
+            - name: KEYCLOAK_PARENT_REALM
+              value: {{ .KeycloakParentRealm | quote }}
+            {{- if .KeycloakAdminTokenSecret }}
+            - name: KEYCLOAK_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .KeycloakAdminTokenSecret | quote }}
+                  key: {{ .KeycloakAdminTokenSecretKey | quote }}
+                  optional: true
+            {{- end }}
+            # TBD-V21 P1 — SANDBOX_TOKEN is the bearer the MCP plugin's
+            # marketplace.* tool family expects. Same source as the
+            # LLM_GATEWAY_TOKEN mount above (single source of truth).
+            - name: SANDBOX_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .LLMGatewayTokenSecret | quote }}
+                  key: LLM_GATEWAY_TOKEN
+                  optional: true
+            # TBD-V21 P1 — SANDBOX_JWT_SECRET is the HS256 signing key
+            # the MCP plugin's registry uses to validate bearer claims.
+            - name: SANDBOX_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .JWTSigningKeySecretName | quote }}
+                  key: {{ .JWTSigningKeySecretKey | quote }}
+                  optional: true
+            # TBD-V21 P3 — SANDBOX_REPOS scopes the MCP plugin's
+            # gitea.repos.list handler to the per-Sandbox subset.
+            - name: SANDBOX_REPOS
+              value: {{ .SandboxRepos | quote }}
+            # ── D31 active-hot-standby — Sovereign-level toggle + region
+            # pair. When SOVEREIGN_ENABLE_HOT_STANDBY parses truthy AND
+            # both region values are non-empty AND distinct, the MCP's
+            # sandbox.db.provision materialises a primary + replica
+            # Cluster.postgresql.cnpg.io pair.
+            - name: SOVEREIGN_ENABLE_HOT_STANDBY
+              value: {{ .EnableHotStandby | quote }}
+            - name: SOVEREIGN_PRIMARY_REGION
+              value: {{ .PrimaryRegion | quote }}
+            - name: SOVEREIGN_REPLICA_REGION
+              value: {{ .ReplicaRegion | quote }}
           volumeMounts:
 {{- range .RuntimeRepos }}
             - name: repo-{{ .Slug }}
@@ -536,214 +654,26 @@ spec:
       terminationGracePeriodSeconds: 30
 `
 
-const mcpDeploymentTemplate = `apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: openova-sandbox-mcp
-  namespace: {{ .NamespaceName }}
-  labels:
-    openova.io/sandbox: {{ .Name }}
-    openova.io/sandbox-owner: {{ .OwnerUID }}
-    openova.io/managed-by: catalyst
-    app.kubernetes.io/name: openova-sandbox-mcp
-    app.kubernetes.io/component: mcp-server
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: openova-sandbox-mcp
-      openova.io/sandbox: {{ .Name }}
-  template:
-    metadata:
-      labels:
-        app.kubernetes.io/name: openova-sandbox-mcp
-        app.kubernetes.io/component: mcp-server
-        openova.io/sandbox: {{ .Name }}
-        openova.io/sandbox-owner: {{ .OwnerUID }}
-        openova.io/managed-by: catalyst
-    spec:
-      serviceAccountName: sandbox
-      automountServiceAccountToken: true
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 65532
-        runAsGroup: 65532
-        seccompProfile:
-          type: RuntimeDefault
-      containers:
-        - name: mcp
-          image: {{ .MCPImage | quote }}
-          imagePullPolicy: IfNotPresent
-          env:
-            - name: SANDBOX_OWNER_UID
-              value: {{ .OwnerUID | quote }}
-            - name: SANDBOX_OWNER_EMAIL
-              value: {{ .OwnerEmail | quote }}
-            # ── TBD-P4 B4 — canonical SANDBOX_* names the MCP plugin
-            # reads (products/sandbox/mcp-server/internal/tools/env.go).
-            # ORG_ID + SOVEREIGN_FQDN were the original names and
-            # silently degraded every MCP tool family to "not configured".
-            - name: SANDBOX_ORG_ID
-              value: {{ .OrgSlug | quote }}
-            - name: SANDBOX_SOVEREIGN_FQDN
-              value: {{ .SovereignFQDN | quote }}
-            - name: SANDBOX_ID
-              value: {{ .Name | quote }}
-            - name: SANDBOX_NAMESPACE
-              value: {{ .NamespaceName | quote }}
-            # SANDBOX_TENANT_ID scopes the MCP's domain/byod handler
-            # (marketplace.go:93). The per-Org slug is the tenant key in
-            # the chroot Organization controller's wiring; the MCP
-            # treats this opaquely.
-            - name: SANDBOX_TENANT_ID
-              value: {{ .OrgSlug | quote }}
-            # ── Gitea wiring — SANDBOX_GITEA_BASE_URL is unauthed in
-            # the in-cluster path; the matching token is mounted from
-            # the existing catalyst-gitea-token Secret (single source
-            # of truth shared with the controller itself; never written
-            # here per Inviolable Principle #4 — Secrets are owned by
-            # bp-catalyst-platform seed jobs).
-            - name: SANDBOX_GITEA_BASE_URL
-              value: {{ .GiteaBaseURL | quote }}
-            {{- if .GiteaTokenSecretName }}
-            - name: SANDBOX_GITEA_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .GiteaTokenSecretName | quote }}
-                  key: {{ .GiteaTokenSecretKey | quote }}
-                  optional: true
-            {{- end }}
-            # ── Domain + marketplace REST surfaces (services that
-            # already run in-cluster; per-Sovereign overlays may pin
-            # alternate ClusterIPs via the bp-sandbox HR values).
-            - name: SANDBOX_DOMAIN_API_URL
-              value: {{ .DomainAPIURL | quote }}
-            - name: SANDBOX_MARKETPLACE_API_URL
-              value: {{ .MarketplaceAPIURL | quote }}
-            # ── Storage (SeaweedFS S3). Endpoint + region are public;
-            # credentials are sourced from an existing per-Sandbox IAM
-            # Secret when present. Empty creds surface a clear "not
-            # configured" error from the MCP's storage tool family.
-            - name: SANDBOX_STORAGE_S3_ENDPOINT
-              value: {{ .StorageS3Endpoint | quote }}
-            - name: SANDBOX_STORAGE_S3_REGION
-              value: {{ .StorageS3Region | quote }}
-            - name: SANDBOX_STORAGE_S3_USE_TLS
-              value: {{ .StorageS3UseTLS | quote }}
-            {{- if .StorageS3CredsSecretName }}
-            - name: SANDBOX_STORAGE_S3_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .StorageS3CredsSecretName | quote }}
-                  key: {{ .StorageS3AccessKeyKey | quote }}
-                  optional: true
-            - name: SANDBOX_STORAGE_S3_SECRET_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .StorageS3CredsSecretName | quote }}
-                  key: {{ .StorageS3SecretKeyKey | quote }}
-                  optional: true
-            {{- end }}
-            # ── Keycloak admin surface. URL + parent realm are public;
-            # the admin bearer is sourced from an existing Secret.
-            - name: KEYCLOAK_ADMIN_URL
-              value: {{ .KeycloakAdminURL | quote }}
-            - name: KEYCLOAK_PARENT_REALM
-              value: {{ .KeycloakParentRealm | quote }}
-            {{- if .KeycloakAdminTokenSecret }}
-            - name: KEYCLOAK_ADMIN_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .KeycloakAdminTokenSecret | quote }}
-                  key: {{ .KeycloakAdminTokenSecretKey | quote }}
-                  optional: true
-            {{- end }}
-            - name: PTY_SERVER_URL
-              value: "http://pty-server.{{ .NamespaceName }}.svc.cluster.local:7681"
-            - name: LLM_GATEWAY_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .LLMGatewayTokenSecret | quote }}
-                  key: LLM_GATEWAY_TOKEN
-                  optional: true
-            # TBD-V21 P1 — SANDBOX_TOKEN is the bearer the MCP plugin's
-            # marketplace.* tool family expects (products/sandbox/mcp-
-            # server/internal/tools/marketplace.go:95 requireMarketplaceProxy).
-            # The same per-Sandbox JWT lives in the per-Sandbox Secret under
-            # key LLM_GATEWAY_TOKEN (newapiTokenSecretTemplate, line 270).
-            # Mounting it under a SECOND env name is the cheapest single-
-            # source-of-truth wiring (Principle #4 — no Secret writes from
-            # the controller). optional: true so the per-Sandbox Secret can
-            # be absent on a Sovereign mid-bridge-rollout without crash-
-            # looping the MCP Pod (the MCP surfaces a clean "not configured"
-            # error from the affected tool family).
-            - name: SANDBOX_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .LLMGatewayTokenSecret | quote }}
-                  key: LLM_GATEWAY_TOKEN
-                  optional: true
-            # TBD-V21 P1 — SANDBOX_JWT_SECRET is the HS256 signing key the
-            # MCP plugin's registry uses to validate every bearer claim
-            # (registry.go:71 -- empty AND SANDBOX_ORG_ID also empty triggers
-            # test-dev mode, but since #1987 SANDBOX_ORG_ID is now always
-            # set; without SANDBOX_JWT_SECRET the auth gate degrades to
-            # silently passing every call through unvalidated). Key material
-            # lives in 'newapi-bp-newapi-token-signing-key' Secret (auto-
-            # provisioned by platform/newapi/chart/templates/sandbox-token-
-            # signing-key-secret.yaml) and is mirrored into per-Sandbox
-            # namespaces via emberstack/reflector -- the chart's
-            # 'sandboxTokenSigningKey.reflectorNamespaces' default was
-            # extended to 'catalyst-system,sandbox,sandbox-.*' so every
-            # per-Sandbox namespace receives a reflected copy. optional:
-            # true preserves the MCP's behaviour on Sovereigns mid-reflector-
-            # rollout (the MCP detects empty + nonempty SANDBOX_ORG_ID and
-            # surfaces a clear "not configured" error rather than test-
-            # mode).
-            - name: SANDBOX_JWT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .JWTSigningKeySecretName | quote }}
-                  key: {{ .JWTSigningKeySecretKey | quote }}
-                  optional: true
-            # TBD-V21 P3 — SANDBOX_REPOS scopes the MCP plugin's gitea.repos.
-            # list handler (env.go:98-106). Without it the handler returns
-            # the un-filtered org repo list -- functional but over-discloses.
-            # Comma-joined sb.Spec.Repos[].giteaRepo matches the env.go
-            # CSV-parse contract.
-            - name: SANDBOX_REPOS
-              value: {{ .SandboxRepos | quote }}
-            # ── D31 active-hot-standby — Sovereign-level toggle + region
-            # pair. When SOVEREIGN_ENABLE_HOT_STANDBY parses truthy AND
-            # both region values are non-empty AND distinct, sandbox.db.
-            # provision materialises a primary + replica Cluster.
-            # postgresql.cnpg.io pair instead of a single Cluster (DoD
-            # D31). Default-off keeps every existing Sandbox on single-
-            # Cluster CNPG (zero regression). The values flow:
-            #   bootstrap-kit slot 19a envsubst (per-Sovereign overlay)
-            #   -> bp-sandbox HelmRelease values
-            #   -> sandbox-controller env (host cluster)
-            #   -> here, into every per-Sandbox MCP Pod
-            - name: SOVEREIGN_ENABLE_HOT_STANDBY
-              value: {{ .EnableHotStandby | quote }}
-            - name: SOVEREIGN_PRIMARY_REGION
-              value: {{ .PrimaryRegion | quote }}
-            - name: SOVEREIGN_REPLICA_REGION
-              value: {{ .ReplicaRegion | quote }}
-          resources:
-            requests:
-              cpu: "50m"
-              memory: "128Mi"
-            limits:
-              cpu: "500m"
-              memory: "512Mi"
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
-            readOnlyRootFilesystem: true
-      terminationGracePeriodSeconds: 10
-`
+// TBD-P4 B2 (2026-05-20) — the per-Sandbox MCP Deployment template
+// was deleted. The openova-sandbox-mcp binary is a stdio JSON-RPC
+// server (reads os.Stdin in products/sandbox/mcp-server/cmd/
+// openova-sandbox-mcp/main.go). A Pod has no stdin pipe — running
+// it as a Deployment produced an EOF-crash-loop with zero
+// operator-visible signal.
+//
+// The canonical MCP pattern (per the Anthropic MCP spec / Claude
+// Code / Qwen Code / all MCP clients): the AGENT process launches
+// the MCP binary as a subprocess and wires bidirectional stdio.
+// The pty-server already bundles agent CLIs (PR #1988) AND now
+// bundles the openova-sandbox-mcp binary at
+// /usr/local/bin/openova-sandbox-mcp (products/sandbox/pty-server/
+// Dockerfile, B2 multi-stage copy from the mcp-server module). The
+// canonical SANDBOX_* env block formerly on the MCP Deployment has
+// been relocated onto the pty-server StatefulSet above so the env
+// reaches the MCP subprocess via the agent's os.Environ()
+// inheritance chain (session/session.go:92 → agent → MCP child).
+//
+// Refs #1986 (TBD-P4 B2).
 
 const ptyServerServiceTemplate = `apiVersion: v1
 kind: Service
@@ -825,7 +755,6 @@ resources:
   - configmap-mcp-config.yaml
   - statefulset-pty-server.yaml
   - service-pty-server.yaml
-  - deployment-mcp.yaml
   - httproute-pty-server.yaml
 `
 
@@ -862,9 +791,15 @@ func Render(in Inputs) (map[string][]byte, error) {
 	if strings.TrimSpace(in.PtyServerImage) == "" {
 		return nil, fmt.Errorf("Inputs.PtyServerImage is required (Wave 8 pty-server StatefulSet has no default image)")
 	}
-	if strings.TrimSpace(in.MCPImage) == "" {
-		return nil, fmt.Errorf("Inputs.MCPImage is required (Wave 8 openova-sandbox-mcp Deployment has no default image)")
-	}
+	// TBD-P4 B2 (2026-05-20) — MCPImage was a required field for the
+	// per-Sandbox MCP Deployment. The Deployment was removed (stdio
+	// binary cannot run as a Pod — EOF crash-loop). The field is
+	// preserved on Inputs for backwards-compat with existing callers /
+	// tests; the value is ignored at render time. The MCP binary now
+	// lives inside the pty-server image at
+	// /usr/local/bin/openova-sandbox-mcp and is launched as a
+	// subprocess by the agent (mcp.json + agentcatalog).
+	_ = in.MCPImage
 	if strings.TrimSpace(in.NewapiURL) == "" {
 		return nil, fmt.Errorf("Inputs.NewapiURL is required (newapi-proxy-contract.md §1 — pty-server env LLM_GATEWAY_URL)")
 	}
@@ -1047,7 +982,6 @@ func Render(in Inputs) (map[string][]byte, error) {
 	for path, raw := range map[string]string{
 		"statefulset-pty-server.yaml": ptyServerStatefulSetTemplate,
 		"service-pty-server.yaml":     ptyServerServiceTemplate,
-		"deployment-mcp.yaml":         mcpDeploymentTemplate,
 		"httproute-pty-server.yaml":   httpRouteTemplate,
 		// TBD-P4 B3 (#1986) — `configmap-mcp-config.yaml` carries the
 		// canonical `mcp.json` that agent CLIs read on session start to

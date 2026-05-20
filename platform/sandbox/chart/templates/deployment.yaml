@@ -68,8 +68,19 @@ spec:
             # them (Inviolable Principle #4a — no silent :latest).
             - name: SANDBOX_PTY_SERVER_IMAGE
               value: {{ required "values.runtime.ptyServerImage MUST be set (SHA-pinned per docs/INVIOLABLE-PRINCIPLES.md #4a)" .Values.runtime.ptyServerImage | quote }}
+            # TBD-P4 B2 (#1986, 2026-05-20): SANDBOX_MCP_IMAGE is no
+            # longer used by sandbox-controller — the per-Sandbox MCP
+            # Deployment was removed (stdio binary cannot run as a Pod).
+            # The openova-sandbox-mcp binary is now bundled inside the
+            # pty-server image at /usr/local/bin/openova-sandbox-mcp
+            # and launched as a subprocess by the agent (mcp.json). The
+            # env var is preserved (no longer `required`) for backwards
+            # compat with overlays that still set it; the controller
+            # reads it but ignores the value at render time. Safe to
+            # remove from values.yaml + bootstrap-kit overlays in a
+            # later follow-up once all overlays drop the setting.
             - name: SANDBOX_MCP_IMAGE
-              value: {{ required "values.runtime.mcpImage MUST be set (SHA-pinned per docs/INVIOLABLE-PRINCIPLES.md #4a)" .Values.runtime.mcpImage | quote }}
+              value: {{ .Values.runtime.mcpImage | default "" | quote }}
             - name: SANDBOX_NEWAPI_URL
               value: {{ required "values.runtime.newapiURL MUST be set (e.g. https://newapi.<sov-fqdn>/v1 - newapi-proxy-contract.md)" .Values.runtime.newapiURL | quote }}
             - name: SANDBOX_LLM_GATEWAY_TOKEN_SECRET
