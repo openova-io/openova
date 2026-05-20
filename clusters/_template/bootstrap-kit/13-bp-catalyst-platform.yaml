@@ -785,7 +785,16 @@ spec:
       # service image pins are unchanged from 1.4.216 (TBD-A6 deploy-
       # bot bump in commit d4b995c carrying TBD-V8 #1999 sme image
       # SHA b190566).
-      version: 1.4.220
+      # 1.4.221 — TBD-V20 / #2028 (2026-05-20): wizard StepSuccess
+      # "Issue first voucher" CTA URL fix — replaced the anti-canon
+      # `admin.<fqdn>/billing/vouchers/new` link with the BSS canonical
+      # `console.<fqdn>/bss/vouchers`. Per CLAUDE.md §0 there is no
+      # `admin.*` subdomain; voucher operations live under the BSS
+      # menu inside the operator console. Surfaces-only fix
+      # (StepSuccess.tsx + StepSuccess.test.tsx 3 assertions); no
+      # API / wire / chart-template changes; image SHAs unchanged
+      # from 1.4.220.
+      version: 1.4.221
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
