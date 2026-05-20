@@ -179,7 +179,7 @@ spec:
       # Companion to bp-catalyst-platform 1.4.225 which adds the
       # secretKeyRef itself + the corrected CATALYST_NEWAPI_ADDR
       # literal (`http://newapi-bp-newapi.newapi.svc.cluster.local:3000`).
-      version: 1.4.33
+      version: 1.4.34
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
