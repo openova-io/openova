@@ -212,6 +212,10 @@ slots:
     name: bp-kyverno
     depends_on: [bp-cilium]
     wave: W2.K3
+  - slot: 27a
+    name: bp-kyverno-policies
+    depends_on: [bp-kyverno]
+    wave: W2.K3
   - slot: 28
     name: bp-reloader
     depends_on: []
