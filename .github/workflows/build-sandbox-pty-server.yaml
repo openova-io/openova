@@ -19,11 +19,25 @@ on:
   push:
     paths:
       - 'products/sandbox/pty-server/**'
+      # TBD-P4 B2 (2026-05-20, #1986) — the pty-server image now bundles
+      # the openova-sandbox-mcp binary as a stdio subprocess the agent
+      # launches via mcp.json. Without re-building on mcp-server source
+      # changes, an MCP fix would not propagate to the image agents
+      # actually launch. The replace targets the MCP binary actually
+      # imports are core/controllers/pkg/gitea and
+      # core/services/shared/auth — scope the trigger to those subtrees
+      # so unrelated core/controllers churn doesn't rebuild this image.
+      - 'products/sandbox/mcp-server/**'
+      - 'core/controllers/pkg/gitea/**'
+      - 'core/services/shared/auth/**'
       - '.github/workflows/build-sandbox-pty-server.yaml'
     branches: [main]
   pull_request:
     paths:
       - 'products/sandbox/pty-server/**'
+      - 'products/sandbox/mcp-server/**'
+      - 'core/controllers/pkg/gitea/**'
+      - 'core/services/shared/auth/**'
       - '.github/workflows/build-sandbox-pty-server.yaml'
   workflow_dispatch:
 
@@ -93,12 +107,19 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: docker/build-push-action@v6
         with:
-          # pty-server's Dockerfile uses `COPY . .` so the build context
-          # is the pty-server directory itself (its own go.mod root —
-          # NOT the repo root, unlike core/controllers which share a
-          # parent go.mod). pty-server has no cross-tree `replace`
-          # directives so a narrow context still resolves cleanly.
-          context: products/sandbox/pty-server
+          # TBD-P4 B2 (2026-05-20, #1986) — build context is REPO ROOT
+          # because the Dockerfile now compiles BOTH pty-server AND the
+          # openova-sandbox-mcp binary (the MCP binary uses `replace`
+          # directives into core/controllers + core/services/shared per
+          # its own go.mod, so its build needs the broader tree). The
+          # MCP binary is bundled into the pty-server image at
+          # /usr/local/bin/openova-sandbox-mcp and launched as a stdio
+          # subprocess by the agent — the canonical MCP pattern. The
+          # prior Pod-mode MCP Deployment EOF-crashed because Pods have
+          # no stdin pipe (TBD-P4 B2 root cause). See
+          # products/sandbox/mcp-server/Dockerfile for the same
+          # repo-root-context shape we now mirror.
+          context: .
           file: products/sandbox/pty-server/Dockerfile
           push: true
           tags: |

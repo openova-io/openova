@@ -279,9 +279,17 @@ func TestReconcile_HappyPath(t *testing.T) {
 		t.Errorf("happy path should not requeue: got %v", res)
 	}
 
-	// Wave 1 + Wave 8 + TBD-P4 B3: 6 fixed + 1 kust + 2 repo PVCs +
-	// 4 wave-8 runtime + 1 MCP-config ConfigMap (TBD-P4 B3 #1986) = 14.
-	expectedFiles := 6 + 1 + 2 + 4 + 1
+	// Wave 1 + Wave 8 + TBD-P4 B2/B3: 6 fixed + 1 kust + 2 repo PVCs
+	// + 3 wave-8 runtime + 1 MCP-config ConfigMap = 13.
+	// (TBD-P4 B2 #1986 removed deployment-mcp.yaml — the stdio
+	// openova-sandbox-mcp binary EOF-crashed inside a Pod, so the
+	// per-Sandbox MCP Deployment was deleted. The binary now lives in
+	// the pty-server image at /usr/local/bin/openova-sandbox-mcp and
+	// is launched as a subprocess by the agent via the mcp.json
+	// ConfigMap PR #2049 added. The 3 wave-8 files left are
+	// pty-server StatefulSet + Service + HTTPRoute; the +1 is
+	// configmap-mcp-config.yaml.)
+	expectedFiles := 6 + 1 + 2 + 3 + 1
 	if gs.createFiles != expectedFiles {
 		t.Errorf("expected %d file creates, got %d", expectedFiles, gs.createFiles)
 	}
@@ -421,8 +429,12 @@ func TestReconcile_Missing_NoError(t *testing.T) {
 }
 
 // TestReconcile_Wave8RuntimeShape asserts the Wave 8 runtime manifests
-// (pty-server StatefulSet, MCP Deployment, Service, HTTPRoute) carry
-// the right identity + env wiring + BYOS branching + hostname derivation.
+// (pty-server StatefulSet, Service, HTTPRoute) carry the right
+// identity + env wiring + BYOS branching + hostname derivation. Post
+// TBD-P4 B2 (2026-05-20) the MCP Deployment was removed and the
+// canonical SANDBOX_* env block was relocated onto the pty-server
+// StatefulSet (the MCP binary now runs as a subprocess of the agent
+// and inherits env via os.Environ()).
 func TestReconcile_Wave8RuntimeShape(t *testing.T) {
 	t.Parallel()
 	sb := sampleSandbox()
@@ -481,6 +493,51 @@ func TestReconcile_Wave8RuntimeShape(t *testing.T) {
 		"mountPath: /workspace/.cursor/mcp.json",
 		"subPath: mcp.json",
 		"name: sandbox-mcp-config",
+		// TBD-P4 B2 (2026-05-20) — canonical SANDBOX_* env block was
+		// relocated FROM the deleted per-Sandbox MCP Deployment ONTO
+		// the pty-server StatefulSet. The openova-sandbox-mcp binary
+		// (a stdio JSON-RPC server) now runs as a subprocess of the
+		// agent (PR #2049 wired the mcp.json ConfigMap pointing at
+		// /usr/local/bin/openova-sandbox-mcp; PR #1988 bundled the
+		// agent CLIs; THIS PR bundles the MCP binary in the pty-server
+		// image). The agent inherits env via os.Environ()
+		// (session/session.go:92) and the MCP child inherits from the
+		// agent — so every var on the pty-server reaches the MCP
+		// subprocess unchanged.
+		"name: SANDBOX_ORG_ID",
+		"name: SANDBOX_SOVEREIGN_FQDN",
+		"name: SANDBOX_ID",
+		"name: SANDBOX_NAMESPACE",
+		"name: SANDBOX_TENANT_ID",
+		"name: SANDBOX_GITEA_BASE_URL",
+		"name: SANDBOX_GITEA_TOKEN",
+		"name: SANDBOX_DOMAIN_API_URL",
+		"name: SANDBOX_MARKETPLACE_API_URL",
+		"name: SANDBOX_STORAGE_S3_ENDPOINT",
+		"name: SANDBOX_STORAGE_S3_REGION",
+		"name: SANDBOX_STORAGE_S3_USE_TLS",
+		"name: SANDBOX_STORAGE_S3_ACCESS_KEY",
+		"name: SANDBOX_STORAGE_S3_SECRET_KEY",
+		"name: KEYCLOAK_ADMIN_URL",
+		"name: KEYCLOAK_PARENT_REALM",
+		"name: KEYCLOAK_ADMIN_TOKEN",
+		"name: SANDBOX_TOKEN",
+		"name: SANDBOX_JWT_SECRET",
+		"name: SANDBOX_REPOS",
+		`name: "newapi-bp-newapi-token-signing-key"`,
+		`key: "SIGNING_KEY"`,
+		// SANDBOX_REPOS MUST be the comma-joined sb.Spec.Repos[].
+		// giteaRepo list (sampleSandbox has acme/eventforge +
+		// acme/internal-tools; renderer sorts stable).
+		`value: "acme/eventforge,acme/internal-tools"`,
+		// Values plumbed from the controller's chart-level env.
+		"http://gitea-http.gitea.svc.cluster.local:3000",
+		"http://domain.sme.svc.cluster.local:8086",
+		"http://seaweedfs.storage.svc.cluster.local:8333",
+		"http://keycloak.keycloak.svc.cluster.local:8080",
+		`name: "catalyst-gitea-token"`,
+		`name: "sandbox-storage-s3"`,
+		`name: "keycloak-admin-token"`,
 	} {
 		if !strings.Contains(ss, want) {
 			t.Errorf("statefulset-pty-server.yaml missing %q", want)
@@ -511,97 +568,22 @@ func TestReconcile_Wave8RuntimeShape(t *testing.T) {
 		}
 	}
 
-	dep := get("deployment-mcp.yaml")
-	for _, want := range []string{
-		"kind: Deployment",
-		"name: openova-sandbox-mcp",
-		`image: "ghcr.io/openova-io/openova/sandbox-mcp:test-sha"`,
-		"PTY_SERVER_URL",
-		"pty-server.sandbox-ceo-at-acme-com.svc.cluster.local:7681",
-		// TBD-P4 B4 regression — the MCP Deployment MUST emit the
-		// canonical SANDBOX_* env-var set the MCP plugin's
-		// products/sandbox/mcp-server/internal/tools/env.go reads.
-		// Before this slice the controller emitted bare `ORG_ID` and
-		// `SOVEREIGN_FQDN` on the MCP Pod → MCP read the wrong keys →
-		// every tool family silently degraded to "not configured" at
-		// runtime. Asserting on the canonical names here prevents the
-		// drift from reappearing.
-		"name: SANDBOX_ORG_ID",
-		"name: SANDBOX_SOVEREIGN_FQDN",
-		"name: SANDBOX_ID",
-		"name: SANDBOX_NAMESPACE",
-		"name: SANDBOX_TENANT_ID",
-		"name: SANDBOX_GITEA_BASE_URL",
-		"name: SANDBOX_GITEA_TOKEN",
-		"name: SANDBOX_DOMAIN_API_URL",
-		"name: SANDBOX_MARKETPLACE_API_URL",
-		"name: SANDBOX_STORAGE_S3_ENDPOINT",
-		"name: SANDBOX_STORAGE_S3_REGION",
-		"name: SANDBOX_STORAGE_S3_USE_TLS",
-		"name: SANDBOX_STORAGE_S3_ACCESS_KEY",
-		"name: SANDBOX_STORAGE_S3_SECRET_KEY",
-		"name: KEYCLOAK_ADMIN_URL",
-		"name: KEYCLOAK_PARENT_REALM",
-		"name: KEYCLOAK_ADMIN_TOKEN",
-		// TBD-V21 #2032 regression — the 4 residual env vars PR #1987
-		// did not ship. SANDBOX_TOKEN unblocks the MCP's marketplace.*
-		// tool family (bearer for every proxy call). SANDBOX_JWT_SECRET
-		// exits the MCP's auth gate test-mode so bearer claims are
-		// actually validated. SANDBOX_REPOS scopes gitea.repos.list to
-		// the per-Sandbox subset instead of the un-filtered org repo
-		// list. (SANDBOX_KUBECONFIG stays unemitted — empty is the
-		// canonical in-cluster value, per MCP env.go:78.)
-		"name: SANDBOX_TOKEN",
-		"name: SANDBOX_JWT_SECRET",
-		"name: SANDBOX_REPOS",
-		// SANDBOX_TOKEN MUST source from the per-Sandbox Secret's
-		// LLM_GATEWAY_TOKEN key — same source as the existing
-		// LLM_GATEWAY_TOKEN env mount (single source of truth, zero
-		// Secret-write changes per Principle #4). Note: the renderer
-		// emits the key as a bare YAML scalar (no quotes); the same
-		// shape as the pre-existing LLM_GATEWAY_TOKEN mount.
-		"key: LLM_GATEWAY_TOKEN",
-		// SANDBOX_JWT_SECRET MUST source from
-		// `newapi-bp-newapi-token-signing-key` Secret's SIGNING_KEY key
-		// (chart default; reflected into per-Sandbox namespaces via
-		// bp-newapi 1.4.31 reflectorNamespaces extension to include
-		// `sandbox-.*`).
-		`name: "newapi-bp-newapi-token-signing-key"`,
-		`key: "SIGNING_KEY"`,
-		// SANDBOX_REPOS MUST be the comma-joined sb.Spec.Repos[].
-		// giteaRepo list (sampleSandbox has acme/eventforge +
-		// acme/internal-tools; renderer sorts stable, so the CSV is
-		// the sorted concatenation).
-		`value: "acme/eventforge,acme/internal-tools"`,
-		// Values plumbed from the controller's chart-level env.
-		"http://gitea-http.gitea.svc.cluster.local:3000",
-		"http://domain.sme.svc.cluster.local:8086",
-		"http://seaweedfs.storage.svc.cluster.local:8333",
-		"http://keycloak.keycloak.svc.cluster.local:8080",
-		`name: "catalyst-gitea-token"`,
-		`name: "sandbox-storage-s3"`,
-		`name: "keycloak-admin-token"`,
-	} {
-		if !strings.Contains(dep, want) {
-			t.Errorf("deployment-mcp.yaml missing %q", want)
+	// TBD-P4 B2 (2026-05-20) — assert the per-Sandbox MCP Deployment
+	// MUST NOT render. Running the stdio binary as a Pod EOF-crashed
+	// the openova-sandbox-mcp binary with zero operator-visible signal
+	// for >2 weeks. The canonical pattern is subprocess-launched via
+	// the agent + mcp.json (the binary lives in the pty-server image
+	// at /usr/local/bin/openova-sandbox-mcp per the pty-server
+	// Dockerfile's multi-stage copy).
+	gs.mu.Lock()
+	for path := range gs.files {
+		if strings.HasSuffix(path, "/deployment-mcp.yaml") {
+			t.Errorf("MCP Deployment MUST NOT render — path %q present "+
+				"(TBD-P4 B2: stdio binary cannot run as a Pod, must be "+
+				"launched as a subprocess by the agent)", path)
 		}
 	}
-
-	// TBD-P4 B4 — the OLD bare names MUST NOT appear on the MCP
-	// Deployment. They remain on the pty-server StatefulSet (inherited
-	// by user shells, distinct contract). Any future renderer change
-	// that puts them back onto the MCP Deployment regresses the MCP
-	// plugin's tool gates, so the negative assertion is load-bearing.
-	for _, banned := range []string{
-		"- name: ORG_ID\n",
-		"- name: SOVEREIGN_FQDN\n",
-	} {
-		if strings.Contains(dep, banned) {
-			t.Errorf("deployment-mcp.yaml MUST NOT contain bare %q "+
-				"(MCP plugin reads canonical SANDBOX_ORG_ID / SANDBOX_SOVEREIGN_FQDN)",
-				strings.TrimSpace(banned))
-		}
-	}
+	gs.mu.Unlock()
 
 	svc := get("service-pty-server.yaml")
 	for _, want := range []string{
@@ -639,7 +621,6 @@ func TestReconcile_Wave8RuntimeShape(t *testing.T) {
 	for _, want := range []string{
 		"statefulset-pty-server.yaml",
 		"service-pty-server.yaml",
-		"deployment-mcp.yaml",
 		"httproute-pty-server.yaml",
 		// TBD-P4 B3 (#1986) — the MCP config ConfigMap MUST be listed
 		// in the kustomization so Flux applies it. Without this entry
@@ -650,6 +631,12 @@ func TestReconcile_Wave8RuntimeShape(t *testing.T) {
 		if !strings.Contains(kust, want) {
 			t.Errorf("kustomization.yaml missing %q", want)
 		}
+	}
+	// TBD-P4 B2 (2026-05-20) — kustomization MUST NOT reference the
+	// deleted deployment-mcp.yaml manifest.
+	if strings.Contains(kust, "deployment-mcp.yaml") {
+		t.Errorf("kustomization.yaml MUST NOT reference deployment-mcp.yaml "+
+			"(TBD-P4 B2 removed the per-Sandbox MCP Deployment)")
 	}
 }
 

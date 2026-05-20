@@ -68,18 +68,26 @@ spec:
   chart:
     spec:
       chart: sandbox
+      # 0.3.4 (TBD-P4 B2 #1986, 2026-05-20): close the EOF-crash hole
+      # left by 0.3.3 (B3 mcp.json injection). The
+      # `command: /usr/local/bin/openova-sandbox-mcp` referenced by
+      # 0.3.3's mcp.json ENOENT'd at spawn because the binary lived
+      # only behind a separate per-Sandbox MCP Deployment — and that
+      # Deployment was crash-looping with EOF on startup (the binary
+      # reads os.Stdin and a Pod has no stdin pipe). This slice (1)
+      # bundles the openova-sandbox-mcp binary INSIDE the pty-server
+      # image at /usr/local/bin/openova-sandbox-mcp via a multi-stage
+      # Dockerfile build, (2) deletes the EOF-crashing
+      # `deployment-mcp.yaml` from the rendered manifests, and (3)
+      # relocates the canonical SANDBOX_* env block onto the pty-server
+      # StatefulSet so the env reaches the MCP subprocess via
+      # os.Environ() inheritance (session/session.go:92 → agent → MCP
+      # child). Combined with PR #2049 (0.3.3) the agent now spawns
+      # a real MCP subprocess on session start.
+      #
       # 0.3.3 (TBD-P4 B3 #1986, 2026-05-20): inject mcp.json config so
       # agent CLIs (claude-code, qwen-code, cursor-agent) auto-discover
-      # the openova-sandbox-mcp server on session start. The renderer
-      # now emits `configmap-mcp-config.yaml` and the pty-server
-      # StatefulSet mounts it at every canonical per-agent config path
-      # via subPath projections (~/.claude.json, ~/.qwen/settings.json,
-      # ./.mcp.json, .cursor/mcp.json). FOUNDATION wire — pairs with
-      # TBD-P4 audit finding B2 (the MCP binary must also be installed
-      # INTO the pty-server agent-runner image). Until B2 lands, this
-      # config references a path that ENOENTs at spawn; agents surface a
-      # clean "mcp server not found" error instead of the current silent
-      # no-discovery state.
+      # the openova-sandbox-mcp server on session start.
       #
       # 0.3.2 (TBD-V21 #2032, 2026-05-20): ship 4 residual MCP env vars
       # not covered by PR #1987 — SANDBOX_TOKEN (P1; unblocks marketplace.*
@@ -98,7 +106,7 @@ spec:
       # helper), not bare `newapi`. Pre-fix every Sovereign's
       # sandbox-controller TokenMint POST returned `no such host`,
       # blocking the canonical Pillar-4 qwen-code customer journey.
-      version: 0.3.3
+      version: 0.3.4
       sourceRef:
         kind: HelmRepository
         name: bp-sandbox
