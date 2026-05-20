@@ -142,7 +142,54 @@ name: bp-self-sovereign-cutover
 # | jq '.auths | keys'` returns ONLY `[harbor.<sov-fqdn>]`. Refs
 # #2034 (closes after operator-walk-with-screenshot per anti-theater
 # discipline).
-version: 0.1.35
+#
+# 0.1.36 (TBD-V24 MISS-1, issue #2034, 2026-05-20): NEW step 10
+# (vcluster-registry-pivot) — pivots the THREE bp-*-vcluster
+# HelmReleases' `image.repository` from `harbor.openova.io/proxy-ghcr/
+# loft-sh/vcluster` to `harbor.<SOVEREIGN_FQDN>/proxy-ghcr/loft-sh/
+# vcluster` so the MGMT/RTZ/DMZ vCluster control-plane Pods pull from
+# the Sovereign-local Harbor mirror post-cutover.
+#
+# Root cause this addresses: the chart's own comment at
+# `platform/bp-mgmt-vcluster/chart/values.yaml:77-79` promised
+# "post-handover, the per-Sovereign overlay rewrites to
+# `harbor.<sovereign-fqdn>/proxy-ghcr/...`" but the rewrite step was
+# never implemented anywhere in the cutover sequence. As a result,
+# every Sovereign post-handover keeps pulling vCluster control-plane
+# images from `harbor.openova.io` indefinitely — a direct violation
+# of Principle #11 (no tether to harbor.openova.io after handover).
+# Caught by the TBD-V24 tether audit (2026-05-20).
+#
+# Step 04 (containerd registries.yaml pivot) does NOT catch this
+# because registries.yaml.v2 only mirrors the 7 canonical UPSTREAMS
+# (ghcr.io, docker.io, registry.k8s.io, etc.). The host
+# `harbor.openova.io` is treated as a literal endpoint, NOT an
+# upstream, so containerd routes those pulls direct.
+#
+# This step adds a Phase-1 live `kubectl patch helmrelease` against
+# each of {bp-mgmt-vcluster, bp-rtz-vcluster, bp-dmz-vcluster} in
+# flux-system, patching BOTH:
+#   - spec.values.<role>Vcluster.image.repository  (umbrella chart)
+#   - spec.values.vcluster.controlPlane.statefulSet.image.{registry,repository}  (subchart)
+# A Phase-2 git push to local Gitea injects the same override blocks
+# into clusters/_template/bootstrap-kit/{54,58,59}-bp-*-vcluster.yaml
+# so the bootstrap-kit Kustomization reconcile doesn't revert the
+# live patch. Idempotent on re-run (skip-if-already-pivoted on
+# Phase-1, sentinel-comment guard on Phase-2). Topology-aware:
+# secondaries skip the MGMT HR (not present on secondary), primary
+# skips the RTZ HR (not present on primary).
+#
+# RBAC: ClusterRole gains helm.toolkit.fluxcd.io.helmreleases
+# {update,patch}. Step-06 Phase-1.6 was already silently relying on
+# this verb (it patches bp-catalyst-platform HR for the openova-catalog
+# URL override) — chart 0.1.31's RBAC change was missed, so this bump
+# ALSO closes a latent permission gap.
+#
+# totalSteps bumped from "9" → "10" in 09-cutover-status-configmap.yaml.
+# Contract test (tests/cutover-contract.sh) asserts shift from 9 → 10
+# step ConfigMaps and from 8 → 9 job-mode ConfigMaps. New Case 21
+# verifies Step 10's wrapper + subchart patches are wired.
+version: 0.1.36
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
@@ -188,6 +235,14 @@ description: |
         blocking tenant voucher checkout at journey step 16). Rolls
         the provisioning Deployment so the new token takes effect
         immediately. (TBD-C18)
+    10  cutover-step-10-vcluster-registry-pivot    mode=job
+        Patch the bp-mgmt-vcluster / bp-rtz-vcluster / bp-dmz-vcluster
+        HelmReleases' image.repository from harbor.openova.io →
+        harbor.<SOVEREIGN_FQDN> so vCluster control-plane Pods pull
+        from the Sovereign-local Harbor mirror post-cutover. Phase-1
+        kubectl patch; Phase-2 git push to local Gitea so the
+        bootstrap-kit Kustomization doesn't revert the override.
+        (TBD-V24 MISS-1)
 
   Plus:
     self-sovereign-cutover-status                  ConfigMap

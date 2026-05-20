@@ -14,8 +14,9 @@
 #   3. Each step ConfigMap MUST carry data keys:
 #        stepName  (always)
 #        podSpec   (mode=job only)
-#   4. EXACTLY 9 step ConfigMaps must render (steps 1..9; step 9
-#      gitea-token-mint added in chart 0.1.30, TBD-C18).
+#   4. EXACTLY 10 step ConfigMaps must render (steps 1..10; step 9
+#      gitea-token-mint added in chart 0.1.30, TBD-C18; step 10
+#      vcluster-registry-pivot added in chart 0.1.35, TBD-V24 MISS-1).
 #   5. Step 04 must be mode=daemonset-wait.
 #   6. The status ConfigMap (default name self-sovereign-cutover-status)
 #      MUST render with helm.sh/resource-policy: keep so a chart
@@ -43,15 +44,14 @@ echo "[cutover-contract] Case 1: chart renders with default values"
 helm template smoke . > "$TMP/render.yaml"
 echo "  PASS ($(wc -l < "$TMP/render.yaml") lines)"
 
-echo "[cutover-contract] Case 2 + 4: exactly 9 step ConfigMaps render with required labels"
+echo "[cutover-contract] Case 2 + 4: exactly 10 step ConfigMaps render with required labels"
 # Use yq if present (the CI runner installs it for the blueprint-release
 # guards); fall back to grep counting on workstations without yq.
-# Step 9 (gitea-token-mint) added in chart 0.1.30 (TBD-C18) to bootstrap
-# the Gitea API token the SME provisioning service uses; without it,
-# tenant voucher checkout fails at journey step 16 because the
-# catalyst-platform chart mirrors the Gitea admin PASSWORD verbatim
-# into sme/provisioning-github-token, which 401s when sent as a Bearer
-# token.
+# Step 9 (gitea-token-mint) added in chart 0.1.30 (TBD-C18); step 10
+# (vcluster-registry-pivot) added in chart 0.1.35 (TBD-V24 MISS-1,
+# issue #2034) to pivot the bp-*-vcluster HelmReleases' image.repository
+# from harbor.openova.io → harbor.<SOVEREIGN_FQDN> so vCluster Pods
+# pull from the Sovereign-local Harbor mirror post-cutover.
 if command -v yq >/dev/null 2>&1; then
   # yq emits `---` separators between matched docs; filter those out
   # before counting names. `grep -E '^cutover-step-'` matches only the
@@ -62,28 +62,28 @@ else
   # — count distinct order values, which equals step count.
   step_count=$(grep -c 'bp.openova.io/cutover-order:' "$TMP/render.yaml")
 fi
-if [ "${step_count}" -ne 9 ]; then
-  echo "FAIL: expected 9 step ConfigMaps, got ${step_count}" >&2
+if [ "${step_count}" -ne 10 ]; then
+  echo "FAIL: expected 10 step ConfigMaps, got ${step_count}" >&2
   exit 1
 fi
-echo "  PASS (9 step ConfigMaps)"
+echo "  PASS (10 step ConfigMaps)"
 
 echo "[cutover-contract] Case 3: required data keys present"
-# stepName key must exist on every step ConfigMap (9 total).
-# podSpec key must exist on every job-mode step (8 of 9 — step 04 is daemonset-wait).
+# stepName key must exist on every step ConfigMap (10 total).
+# podSpec key must exist on every job-mode step (9 of 10 — step 04 is daemonset-wait).
 mode_job_count=$(grep -c 'bp.openova.io/cutover-mode: "job"' "$TMP/render.yaml")
-if [ "${mode_job_count}" -ne 8 ]; then
-  echo "FAIL: expected 8 job-mode step ConfigMaps, got ${mode_job_count}" >&2
+if [ "${mode_job_count}" -ne 9 ]; then
+  echo "FAIL: expected 9 job-mode step ConfigMaps, got ${mode_job_count}" >&2
   exit 1
 fi
 podspec_keys=$(grep -c '^  podSpec: |' "$TMP/render.yaml")
-if [ "${podspec_keys}" -lt 8 ]; then
-  echo "FAIL: expected at least 8 podSpec keys (one per job-mode step), got ${podspec_keys}" >&2
+if [ "${podspec_keys}" -lt 9 ]; then
+  echo "FAIL: expected at least 9 podSpec keys (one per job-mode step), got ${podspec_keys}" >&2
   exit 1
 fi
 stepname_keys=$(grep -c '^  stepName:' "$TMP/render.yaml")
-if [ "${stepname_keys}" -lt 9 ]; then
-  echo "FAIL: expected at least 9 stepName keys, got ${stepname_keys}" >&2
+if [ "${stepname_keys}" -lt 10 ]; then
+  echo "FAIL: expected at least 10 stepName keys, got ${stepname_keys}" >&2
   exit 1
 fi
 echo "  PASS (data keys present on every step)"
@@ -466,5 +466,69 @@ if ! grep -B0 -A2 'apiGroups: \["gateway.networking.k8s.io"\]' "$TMP/render.yaml
   exit 1
 fi
 echo "  PASS (Step-06 Phase -1 gateway-wait + RBAC wired)"
+
+echo "[cutover-contract] Case 21: Step-10 vcluster-registry-pivot patches bp-*-vcluster HelmReleases (TBD-V24 MISS-1)"
+# Chart <0.1.35 shipped NO vCluster image-registry pivot. The chart's
+# own comment at platform/bp-mgmt-vcluster/chart/values.yaml:77-79
+# promised "post-handover, the per-Sovereign overlay rewrites to
+# `harbor.<sovereign-fqdn>/proxy-ghcr/...`" but the rewrite step
+# never existed. Result: MGMT/RTZ/DMZ vCluster control-plane Pods
+# kept pulling from harbor.openova.io indefinitely post-handover,
+# violating Principle #11 (no tether to harbor.openova.io after
+# handover). Caught by the TBD-V24 tether audit 2026-05-20.
+#
+# Chart 0.1.35 adds Step-10 that:
+#   - kubectl patches each of {bp-mgmt-vcluster, bp-rtz-vcluster,
+#     bp-dmz-vcluster} HelmReleases with image.repository pointing at
+#     harbor.${SOVEREIGN_FQDN}/proxy-ghcr/loft-sh/vcluster
+#   - ALSO patches the upstream subchart's
+#     vcluster.controlPlane.statefulSet.image.{registry,repository}
+#   - git push edits clusters/_template/bootstrap-kit/{54,58,59}-bp-*-
+#     vcluster.yaml to local Gitea so the override survives reconciles
+#   - Idempotent on re-run (skip-if-already-pivoted + sentinel-comment
+#     guard on YAML injection)
+#
+# Guard against future regressions that drop the step.
+if ! grep -q 'cutover-step-10-vcluster-registry-pivot' "$TMP/render.yaml"; then
+  echo "FAIL: Step-10 vcluster-registry-pivot ConfigMap missing (TBD-V24 MISS-1)" >&2
+  exit 1
+fi
+if ! grep -A20 'cutover-step-10-vcluster-registry-pivot' "$TMP/render.yaml" | grep -q 'bp.openova.io/cutover-order: "10"'; then
+  echo "FAIL: Step-10 not labelled bp.openova.io/cutover-order=10 (TBD-V24 MISS-1)" >&2
+  exit 1
+fi
+# All 3 vCluster HelmRelease names must be referenced in the patch script.
+for hr in bp-mgmt-vcluster bp-rtz-vcluster bp-dmz-vcluster; do
+  if ! grep -q "patch_hr \"${hr}\"" "$TMP/render.yaml"; then
+    echo "FAIL: Step-10 missing patch invocation for ${hr} (TBD-V24 MISS-1)" >&2
+    exit 1
+  fi
+done
+# All 3 role keys must be wired (umbrella chart values key).
+for role in mgmtVcluster rtzVcluster dmzVcluster; do
+  if ! grep -q "\"${role}\"" "$TMP/render.yaml"; then
+    echo "FAIL: Step-10 missing role-key wiring for ${role} (TBD-V24 MISS-1)" >&2
+    exit 1
+  fi
+done
+# Subchart pivot — must patch vcluster.controlPlane.statefulSet.image too.
+if ! grep -q 'controlPlane.statefulSet.image' "$TMP/render.yaml"; then
+  echo "FAIL: Step-10 missing subchart image pivot (TBD-V24 MISS-1)" >&2
+  exit 1
+fi
+# Phase-2 git push to local Gitea — without this, Phase-1 patches get
+# reverted by bootstrap-kit Kustomization reconcile within ~1 min.
+if ! grep -B2 -A8 'cutover-step-10-vcluster-registry-pivot' "$TMP/render.yaml" >/dev/null; then
+  echo "FAIL: Step-10 ConfigMap region not located for Phase-2 git push check" >&2
+  exit 1
+fi
+# RBAC: ClusterRole must permit patch on helmreleases (needed by Step-10
+# AND by Step-06 Phase-1.6, which was silently relying on this verb).
+if ! awk '/^kind: ClusterRole$/,/^---$/' "$TMP/render.yaml" \
+     | grep -B1 -A2 '"helmreleases"' | grep -E 'verbs:.*"patch"|verbs:.*"update"' >/dev/null; then
+  echo "FAIL: ClusterRole missing helm.toolkit.fluxcd.io.helmreleases [update|patch] verb (TBD-V24 MISS-1)" >&2
+  exit 1
+fi
+echo "  PASS (Step-10 wired to pivot vCluster HRs to local Harbor)"
 
 echo "[cutover-contract] All gates green."
