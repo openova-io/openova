@@ -167,7 +167,7 @@ spec:
       # bp-sandbox 0.3.2 which mounts SIGNING_KEY as the MCP's
       # `SANDBOX_JWT_SECRET` env (closes auth-gate-stays-in-test-mode
       # silent-breakage).
-      version: 1.4.31
+      version: 1.4.32
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
