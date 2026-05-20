@@ -144,7 +144,12 @@ func (h *Handler) Start(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	provision, err := h.startProvisioning(r.Context(), req.TenantID, req.OrderID, req.PlanID, req.Apps, req.Subdomain)
+	// HTTP /provisioning/start (admin manual trigger) doesn't carry
+	// app_configs — the customer-chosen configSchema values lookup is
+	// scoped to the marketplace order.placed path only. Passing nil
+	// here keeps generator defaults; if an admin wants to override they
+	// can extend startRequest to carry the map.
+	provision, err := h.startProvisioning(r.Context(), req.TenantID, req.OrderID, req.PlanID, req.Apps, req.Subdomain, nil)
 	if err != nil {
 		respond.Error(w, http.StatusInternalServerError, "failed to start provisioning")
 		return

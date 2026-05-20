@@ -39,6 +39,12 @@ func (h *Handler) Routes() http.Handler {
 	// Only returns the safe public subset; used by billing to enrich
 	// order.placed events with the tenant's subdomain (issue #105).
 	mux.HandleFunc("GET /tenant/internal/tenants/{id}/subdomain", h.InternalGetSubdomain)
+	// TBD-V27 (#2042) — provisioning consumer reads per-app configSchema
+	// values (Tenant.AppConfigs) here so dispatchOrderPlaced can attach
+	// them to order.placed events; without this the customer-picked
+	// replicas/disk_gb/backups_enabled values were dropped between the
+	// store (PR #2043) and the rendered manifest.
+	mux.HandleFunc("GET /tenant/internal/tenants/{id}/app-configs", h.InternalGetAppConfigs)
 
 	// Admin — tenant management (superadmin only).
 	mux.HandleFunc("GET /tenant/admin/tenants", h.AdminListTenants)

@@ -5,8 +5,99 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
+	"sort"
 	"strings"
 )
+
+// readIntCfg returns an int value from an opaque configSchema map, with
+// validation against (min, max) range and fallback to dflt on any
+// mismatch (missing key, wrong type, out-of-range). Logs Warn at the
+// drop site so a frontend that ships a stale schema can't tunnel
+// arbitrary values past the constraints. appSlug is used purely for
+// log context. Used by generatePostgres / generateMySQL to bind the
+// canonical replicas / disk_gb / backups_enabled configSchema fields
+// from seed.go:699-701 into the rendered manifest (TBD-V27 #2042).
+//
+// JSON unmarshal of `map[string]any` decodes integers as float64 (Go
+// json semantics) — the float64 → int branch handles that without
+// requiring the caller to know the in-memory shape.
+func readIntCfg(cfg map[string]any, key string, dflt, min, max int, appSlug string) int {
+	if cfg == nil {
+		return dflt
+	}
+	raw, ok := cfg[key]
+	if !ok {
+		return dflt
+	}
+	var v int
+	switch t := raw.(type) {
+	case int:
+		v = t
+	case int32:
+		v = int(t)
+	case int64:
+		v = int(t)
+	case float64: // JSON numbers decode here under map[string]any
+		v = int(t)
+	default:
+		slog.Warn("readIntCfg: value has unexpected type — falling back to default",
+			"app", appSlug, "key", key, "type", fmt.Sprintf("%T", raw), "default", dflt)
+		return dflt
+	}
+	if v < min || v > max {
+		slog.Warn("readIntCfg: value out of configSchema range — falling back to default",
+			"app", appSlug, "key", key, "value", v, "min", min, "max", max, "default", dflt)
+		return dflt
+	}
+	return v
+}
+
+// readBoolCfg returns a bool value from an opaque configSchema map.
+// Same semantics as readIntCfg for missing/mistyped values.
+func readBoolCfg(cfg map[string]any, key string, dflt bool, appSlug string) bool {
+	if cfg == nil {
+		return dflt
+	}
+	raw, ok := cfg[key]
+	if !ok {
+		return dflt
+	}
+	v, ok := raw.(bool)
+	if !ok {
+		slog.Warn("readBoolCfg: value has unexpected type — falling back to default",
+			"app", appSlug, "key", key, "type", fmt.Sprintf("%T", raw), "default", dflt)
+		return dflt
+	}
+	return v
+}
+
+// logUnknownKeys emits a Warn for every key in cfg that is NOT in the
+// known configSchema's KnownKeys list. Prevents a stale frontend from
+// silently smuggling arbitrary keys (like extra YAML chunks) into the
+// rendered manifest while still letting the generator render the
+// known-good subset. Keys are sorted for deterministic logging.
+func logUnknownKeys(cfg map[string]any, knownKeys []string, appSlug string) {
+	if len(cfg) == 0 {
+		return
+	}
+	known := make(map[string]struct{}, len(knownKeys))
+	for _, k := range knownKeys {
+		known[k] = struct{}{}
+	}
+	var unknown []string
+	for k := range cfg {
+		if _, ok := known[k]; !ok {
+			unknown = append(unknown, k)
+		}
+	}
+	if len(unknown) == 0 {
+		return
+	}
+	sort.Strings(unknown)
+	slog.Warn("logUnknownKeys: dropped configSchema keys not in canonical schema",
+		"app", appSlug, "unknown_keys", unknown, "known_keys", knownKeys)
+}
 
 // ManifestGenerator generates Kubernetes manifests for tenant environments.
 // Each tenant gets a real vCluster (not just a namespace).
@@ -36,7 +127,7 @@ func (g *ManifestGenerator) TenantDir(slug string) string {
 //	    db-*.yaml                 # databases
 //	    app-*.yaml                # app deployments + services
 func (g *ManifestGenerator) GenerateAll(slug, planSlug string, appSlugs []string) map[string]string {
-	return g.GenerateAllWithPassword(slug, planSlug, appSlugs, "")
+	return g.GenerateAllWithAppConfigs(slug, planSlug, appSlugs, "", nil)
 }
 
 // GenerateAllWithPassword is like GenerateAll but reuses an existing DB
@@ -44,6 +135,26 @@ func (g *ManifestGenerator) GenerateAll(slug, planSlug string, appSlugs []string
 // initial provision so app deployments keep connecting to the same DB.
 // Passing "" generates a fresh password (initial provision path).
 func (g *ManifestGenerator) GenerateAllWithPassword(slug, planSlug string, appSlugs []string, dbPassword string) map[string]string {
+	return g.GenerateAllWithAppConfigs(slug, planSlug, appSlugs, dbPassword, nil)
+}
+
+// GenerateAllWithAppConfigs is the canonical entry point (TBD-V27 #2042).
+// `appConfigs` carries the customer-chosen configSchema values keyed by
+// app SLUG (e.g. {"postgres": {"replicas": 3, "disk_gb": 20,
+// "backups_enabled": true}}). The backing-service renderers consume the
+// matching map and thread the values into the rendered manifest:
+//
+//   - "replicas" (int) → Deployment.spec.replicas
+//   - "disk_gb"  (int) → PersistentVolumeClaim.spec.resources.requests.storage
+//   - "backups_enabled" (bool) → reserved for future CronJob (logged
+//     today; no chart-side binding yet)
+//
+// Unknown keys are dropped with a Warn log so a stale frontend can't
+// tunnel arbitrary YAML into the rendered manifest. Empty/nil
+// appConfigs preserves the historical default behavior (replicas:1,
+// 2Gi PVC) — every call site that doesn't ship customer values keeps
+// working unchanged.
+func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, appSlugs []string, dbPassword string, appConfigs map[string]map[string]any) map[string]string {
 	hostNS := "tenant-" + slug
 	appNS := "apps"
 
@@ -82,10 +193,10 @@ func (g *ManifestGenerator) GenerateAllWithPassword(slug, planSlug string, appSl
 		"namespace.yaml": generateAppNamespace(appNS),
 	}
 	if len(postgresApps) > 0 {
-		vcFiles["db-postgres.yaml"] = generatePostgres(appNS, dbPassword, postgresApps)
+		vcFiles["db-postgres.yaml"] = generatePostgres(appNS, dbPassword, postgresApps, appConfigs["postgres"])
 	}
 	if len(mysqlApps) > 0 {
-		vcFiles["db-mysql.yaml"] = generateMySQL(appNS, dbPassword, mysqlApps)
+		vcFiles["db-mysql.yaml"] = generateMySQL(appNS, dbPassword, mysqlApps, appConfigs["mysql"])
 	}
 	if needsRedis {
 		vcFiles["db-redis.yaml"] = generateRedis(appNS)
@@ -313,7 +424,7 @@ metadata:
 `, ns)
 }
 
-func generatePostgres(ns, password string, apps []string) string {
+func generatePostgres(ns, password string, apps []string, cfg map[string]any) string {
 	// Per-app database isolation: create db_<appSlug> for each postgres-backed
 	// app so co-installed apps (e.g. gitea + nextcloud on the same tenant)
 	// don't collide on a shared schema. The first database is also created by
@@ -335,6 +446,28 @@ func generatePostgres(ns, password string, apps []string) string {
 		initSQL += fmt.Sprintf(`CREATE DATABASE %s;
 GRANT ALL PRIVILEGES ON DATABASE %s TO app;
 `, db, db)
+	}
+
+	// TBD-V27 (#2042) — bind customer-chosen configSchema values.
+	// Postgres' canonical configSchema (seed.go:699-701):
+	//   replicas:        int, min 1, max 5, default 1
+	//   disk_gb:         int, min 1, max 500, default 5
+	//   backups_enabled: bool, default false (no chart-side binding yet —
+	//                    logged for visibility, future CronJob slot)
+	//
+	// Unknown / mistyped values fall back to defaults with a Warn so a
+	// stale frontend can't tunnel arbitrary integers past the configSchema
+	// constraints. Per-field clamping mirrors the seed schema's Min/Max.
+	replicas := readIntCfg(cfg, "replicas", 1, 1, 5, "postgres")
+	diskGB := readIntCfg(cfg, "disk_gb", 5, 1, 500, "postgres")
+	backupsEnabled := readBoolCfg(cfg, "backups_enabled", false, "postgres")
+	logUnknownKeys(cfg, []string{"replicas", "disk_gb", "backups_enabled"}, "postgres")
+	if backupsEnabled {
+		// No chart-side binding yet — a follow-up will land a CronJob +
+		// pgdump-to-SeaweedFS sidecar. Logging here makes the gap
+		// operator-visible rather than silent.
+		slog.Warn("generatePostgres: backups_enabled requested but no chart-side binding yet — value parsed but not rendered",
+			"namespace", ns)
 	}
 
 	return fmt.Sprintf(`apiVersion: v1
@@ -366,15 +499,17 @@ spec:
   accessModes: ["ReadWriteOnce"]
   resources:
     requests:
-      storage: 2Gi
+      storage: %dGi
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: postgres
   namespace: %s
+  annotations:
+    openova.io/backups-enabled: "%t"
 spec:
-  replicas: 1
+  replicas: %d
   strategy:
     type: Recreate
   selector:
@@ -424,10 +559,10 @@ spec:
   ports:
     - port: 5432
       targetPort: 5432
-`, ns, password, primaryDB, ns, indentBlock(initSQL, "    "), ns, ns, ns)
+`, ns, password, primaryDB, ns, indentBlock(initSQL, "    "), ns, diskGB, ns, backupsEnabled, replicas, ns)
 }
 
-func generateMySQL(ns, password string, apps []string) string {
+func generateMySQL(ns, password string, apps []string, cfg map[string]any) string {
 	// Per-app database isolation: create db_<appSlug> for each mysql-backed
 	// app so co-installed apps (e.g. wordpress + ghost) don't collide on a
 	// shared schema. MYSQL_DATABASE bootstraps the first one; an init script
@@ -447,6 +582,22 @@ func generateMySQL(ns, password string, apps []string) string {
 		initSQL += fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`;\nGRANT ALL PRIVILEGES ON `%s`.* TO 'app'@'%%';\n", db, db)
 	}
 	initSQL += "FLUSH PRIVILEGES;\n"
+
+	// TBD-V27 (#2042) — bind customer-chosen configSchema values.
+	// MySQL shares the postgres seed schema (replicasField+diskField+
+	// backupField from seed.go:699-701). MySQL primary-replica replication
+	// is not configured in this manifest so replicas>1 currently runs
+	// independent stateful pods sharing one PVC, which is wrong — clamp to
+	// 1 for safety and log loud. disk_gb threads to the PVC unchanged.
+	replicas := readIntCfg(cfg, "replicas", 1, 1, 5, "mysql")
+	if replicas != 1 {
+		slog.Warn("generateMySQL: customer requested replicas>1 but MySQL primary-replica is not yet wired — clamping to 1",
+			"requested", replicas, "namespace", ns)
+		replicas = 1
+	}
+	diskGB := readIntCfg(cfg, "disk_gb", 5, 1, 500, "mysql")
+	backupsEnabled := readBoolCfg(cfg, "backups_enabled", false, "mysql")
+	logUnknownKeys(cfg, []string{"replicas", "disk_gb", "backups_enabled"}, "mysql")
 
 	return fmt.Sprintf(`apiVersion: v1
 kind: Secret
@@ -478,15 +629,17 @@ spec:
   accessModes: ["ReadWriteOnce"]
   resources:
     requests:
-      storage: 2Gi
+      storage: %dGi
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: mysql
   namespace: %s
+  annotations:
+    openova.io/backups-enabled: "%t"
 spec:
-  replicas: 1
+  replicas: %d
   strategy:
     type: Recreate
   selector:
@@ -536,7 +689,7 @@ spec:
   ports:
     - port: 3306
       targetPort: 3306
-`, ns, password, password, primaryDB, ns, indentBlock(initSQL, "    "), ns, ns, ns)
+`, ns, password, password, primaryDB, ns, indentBlock(initSQL, "    "), ns, diskGB, ns, backupsEnabled, replicas, ns)
 }
 
 // indentBlock prefixes every non-empty line of s with indent. Used to embed a

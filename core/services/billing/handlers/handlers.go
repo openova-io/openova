@@ -1059,6 +1059,14 @@ func (h *Handler) dispatchOrderPlaced(tenantID string, order *store.Order) {
 		return
 	}
 	subdomain := h.lookupTenantSubdomain(tenantID)
+	// TBD-V27 (#2042): pull the tenant's per-app configSchema values
+	// (Tenant.AppConfigs, persisted by PR #2043) and attach to the
+	// order.placed event so provisioning can thread them into the
+	// rendered manifests (replicas / disk_gb / backups_enabled for the
+	// canonical Postgres-backed backing service). Empty map when the
+	// cart predates V18-D or no in-cart app shipped a configSchema —
+	// the consumer treats absence as "use defaults" without erroring.
+	appConfigs := h.lookupTenantAppConfigs(tenantID)
 	payload := map[string]any{
 		"id":               order.ID,
 		"customer_id":      order.CustomerID,
@@ -1070,6 +1078,7 @@ func (h *Handler) dispatchOrderPlaced(tenantID string, order *store.Order) {
 		"amount_baisa":     order.AmountBaisa,
 		"status":           order.Status,
 		"subdomain":        subdomain,
+		"app_configs":      appConfigs,
 	}
 	evt, err := events.NewEvent("order.placed", "billing", tenantID, payload)
 	if err != nil {
@@ -1080,6 +1089,44 @@ func (h *Handler) dispatchOrderPlaced(tenantID string, order *store.Order) {
 	if err := h.Producer.Publish(ctx, "sme.order.events", evt); err != nil {
 		slog.Warn("dispatch order.placed", "error", err)
 	}
+}
+
+// lookupTenantAppConfigs fetches the tenant's per-app configSchema values
+// from the tenant service (TBD-V27 #2042). Returns nil when the lookup
+// fails or the tenant has no AppConfigs — the provisioning consumer
+// treats nil/empty as "use defaults" so a transient tenant-service blip
+// doesn't fail-fast the whole checkout.
+//
+// Short timeout (2s) so we don't block the checkout HTTP response on
+// this best-effort enrichment.
+func (h *Handler) lookupTenantAppConfigs(tenantID string) map[string]map[string]any {
+	if h.TenantURL == "" || tenantID == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		h.TenantURL+"/tenant/internal/tenants/"+tenantID+"/app-configs", nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		slog.Warn("lookupTenantAppConfigs: tenant fetch", "tenant_id", tenantID, "error", err)
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		slog.Warn("lookupTenantAppConfigs: non-200", "tenant_id", tenantID, "status", resp.StatusCode)
+		return nil
+	}
+	var t struct {
+		AppConfigs map[string]map[string]any `json:"app_configs"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&t); err != nil {
+		return nil
+	}
+	return t.AppConfigs
 }
 
 // lookupTenantSubdomain fetches the tenant's subdomain from the tenant
