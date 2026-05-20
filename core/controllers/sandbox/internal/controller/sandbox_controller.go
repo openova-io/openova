@@ -265,6 +265,18 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		}
 	}
 
+	// TBD-P4 A4 (#1986) — canonical projection of the agent picker.
+	// The FE picks exactly one agent at Sandbox create time and the
+	// catalyst-api handler writes it as a single-element catalogue
+	// (sandbox_sessions.go:863 `"agentCatalogue": []any{agent}`). The
+	// pty-server's lazy-spawn-on-attach branch reads this slug from
+	// SANDBOX_DEFAULT_AGENT to dispatch the right agent binary. An
+	// empty catalogue leaves DefaultAgent empty and the StatefulSet
+	// omits the env var entirely (no regression for legacy CRs).
+	var defaultAgent string
+	if len(sb.Spec.AgentCatalogue) > 0 {
+		defaultAgent = sb.Spec.AgentCatalogue[0]
+	}
 	in := gitops.Inputs{
 		Name:                  sb.Name,
 		OwnerUID:              ownerUID,
@@ -275,6 +287,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		Repos:                 sb.Spec.Repos,
 		PreviewDomain:         sb.Spec.PreviewDomain,
 		AgentCatalogue:        sb.Spec.AgentCatalogue,
+		DefaultAgent:          defaultAgent,
 		PtyServerImage:        r.PtyServerImage,
 		MCPImage:              r.MCPImage,
 		NewapiURL:             r.NewapiURL,

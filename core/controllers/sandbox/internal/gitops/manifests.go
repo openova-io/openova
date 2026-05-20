@@ -156,6 +156,24 @@ type Inputs struct {
 	// repo filter"). Populated by Render() from in.Repos so callers do
 	// not need to compute this themselves.
 	SandboxRepos string
+
+	// TBD-P4 A4 (#1986) — SANDBOX_DEFAULT_AGENT is the agent slug the
+	// pty-server's lazy-spawn-on-attach branch (products/sandbox/pty-server/
+	// internal/server/routes.go: lazySpawn) reads when a WS attach lands
+	// on a session id that has not yet been POSTed. Without this env var
+	// pty-server returns 404 on every fresh attach and the xterm panel
+	// stays blank — the FE's agent dropdown becomes cosmetic (only the
+	// claude-code BYOS branch had any controller-side effect before this
+	// PR).
+	//
+	// Populated by the controller from sb.Spec.AgentCatalogue[0] — the
+	// canonical projection per products/catalyst/bootstrap/api/internal/
+	// handler/sandbox_sessions.go:940 (the FE picks exactly one agent at
+	// create time; the CR's catalogue is a single-element list). Empty
+	// leaves the env var unrendered (no `value: ""` stanza), preserving
+	// the historic 404 behaviour for any caller that hand-rolls a CR
+	// with an empty catalogue.
+	DefaultAgent string
 }
 
 const namespaceTemplate = `apiVersion: v1
@@ -446,6 +464,17 @@ spec:
               value: {{ .NewapiURL | quote }}
             - name: LLM_GATEWAY_URL
               value: {{ .NewapiURL | quote }}
+{{- if .DefaultAgent }}
+            # TBD-P4 A4 (#1986) — pty-server lazy-spawn-on-attach
+            # (routes.go: lazySpawn) reads SANDBOX_DEFAULT_AGENT to know
+            # which catalogue slug to execve on the first WS attach. The
+            # value mirrors spec.agentCatalogue[0] which the FE picker
+            # writes when the customer selects an agent from the 6-row
+            # dropdown. Absent stanza preserves the historic 404 behaviour
+            # for hand-rolled CRs with an empty catalogue.
+            - name: SANDBOX_DEFAULT_AGENT
+              value: {{ .DefaultAgent | quote }}
+{{- end }}
             # TBD-V21 — key case alignment with newapiTokenSecretTemplate
             # (line 270 stringData: LLM_GATEWAY_TOKEN). Pre-fix the key
             # ref was lowercase 'llm-gateway-token' while the Secret writes

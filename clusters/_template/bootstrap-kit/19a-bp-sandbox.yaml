@@ -68,6 +68,18 @@ spec:
   chart:
     spec:
       chart: sandbox
+      # 0.3.5 (TBD-P4 A4 #1986, 2026-05-20): controller now dispatches
+      # per Sandbox.spec.agentCatalogue[0]. The pty-server StatefulSet
+      # renders SANDBOX_DEFAULT_AGENT into container env so the
+      # lazy-spawn-on-attach branch (pty-server routes.go: lazySpawn)
+      # execs the right agent binary on first WS attach. Before this
+      # bump only the claude-code BYOS branch had any controller-side
+      # effect — the 6-row FE agent dropdown was cosmetic for every
+      # other slug (qwen-code/aider/cursor-agent/little-coder/opencode/
+      # sovereign-shell) because the env was unrendered and lazySpawn
+      # returned 404 on every fresh attach. The canonical-journey
+      # `agent: qwen-code` path is now wired end-to-end.
+      #
       # 0.3.4 (TBD-P4 B2 #1986, 2026-05-20): close the EOF-crash hole
       # left by 0.3.3 (B3 mcp.json injection). The
       # `command: /usr/local/bin/openova-sandbox-mcp` referenced by
@@ -106,7 +118,7 @@ spec:
       # helper), not bare `newapi`. Pre-fix every Sovereign's
       # sandbox-controller TokenMint POST returned `no such host`,
       # blocking the canonical Pillar-4 qwen-code customer journey.
-      version: 0.3.4
+      version: 0.3.5
       sourceRef:
         kind: HelmRepository
         name: bp-sandbox

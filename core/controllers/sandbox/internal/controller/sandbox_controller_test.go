@@ -640,6 +640,71 @@ func TestReconcile_Wave8RuntimeShape(t *testing.T) {
 	}
 }
 
+// TestReconcile_DefaultAgentFromCatalogue asserts the TBD-P4 A4 wire:
+// the controller projects sb.Spec.AgentCatalogue[0] into the pty-server
+// StatefulSet's SANDBOX_DEFAULT_AGENT env var so lazy-spawn-on-attach
+// (products/sandbox/pty-server/internal/server/routes.go: lazySpawn)
+// dispatches the correct agent binary on the first WS attach.
+//
+// We pin qwen-code here because the CLAUDE.md §0 canonical journey
+// requires qwen-code (zero Anthropic cost-leak path); a regression
+// that drops the env var would silently take the canonical journey
+// back to "blank xterm + 404".
+func TestReconcile_DefaultAgentFromCatalogue(t *testing.T) {
+	t.Parallel()
+	sb := sampleSandbox()
+	sb.Spec.AgentCatalogue = []string{"qwen-code"}
+	r, gs := makeReconciler(t, sb)
+
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: sb.Name, Namespace: sb.Namespace},
+	}); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	gs.mu.Lock()
+	entry, ok := gs.files["acme/catalyst-tenant/sandbox/ceo-at-acme-com/statefulset-pty-server.yaml"]
+	gs.mu.Unlock()
+	if !ok {
+		t.Fatalf("expected statefulset-pty-server.yaml")
+	}
+	body := string(entry.content)
+	if !strings.Contains(body, "name: SANDBOX_DEFAULT_AGENT") {
+		t.Errorf("statefulset missing SANDBOX_DEFAULT_AGENT env var\n--- rendered ---\n%s", body)
+	}
+	if !strings.Contains(body, `value: "qwen-code"`) {
+		t.Errorf("statefulset SANDBOX_DEFAULT_AGENT value is not %q\n--- rendered ---\n%s", "qwen-code", body)
+	}
+}
+
+// TestReconcile_DefaultAgentEmptyWhenCatalogueEmpty guards the no-regression
+// path: a Sandbox CR with an empty agentCatalogue must NOT emit the env
+// var (preserves the historic 404-on-attach behaviour for hand-rolled
+// CRs without a chosen agent).
+func TestReconcile_DefaultAgentEmptyWhenCatalogueEmpty(t *testing.T) {
+	t.Parallel()
+	sb := sampleSandbox()
+	sb.Spec.AgentCatalogue = nil
+	r, gs := makeReconciler(t, sb)
+
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: sb.Name, Namespace: sb.Namespace},
+	}); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	gs.mu.Lock()
+	entry, ok := gs.files["acme/catalyst-tenant/sandbox/ceo-at-acme-com/statefulset-pty-server.yaml"]
+	gs.mu.Unlock()
+	if !ok {
+		t.Fatalf("expected statefulset-pty-server.yaml")
+	}
+	body := string(entry.content)
+	if strings.Contains(body, "SANDBOX_DEFAULT_AGENT") {
+		t.Errorf("statefulset must NOT emit SANDBOX_DEFAULT_AGENT when catalogue is empty\n--- rendered ---\n%s", body)
+	}
+}
+
 // TestReconcile_Wave8NoBYOSWhenAgentMissing asserts that a Sandbox
 // without claude-code in spec.agentCatalogue does NOT wire the
 // ANTHROPIC_API_KEY env into the rendered StatefulSet.
