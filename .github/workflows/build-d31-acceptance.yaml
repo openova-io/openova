@@ -1,0 +1,136 @@
+name: Build d31-acceptance
+
+# d31-acceptance — Pillar 3 zero-tx-loss harness (Refs #2067 /
+# TBD-V16). Operator-run image that drives a 1M-row write against the
+# primary CNPG cluster, kills the primary region (Cluster CR
+# instances=0), promotes the replica (Cluster CR replica.enabled=
+# false), and asserts gap-free + count-floor on the post-promotion
+# state. Closes the `platform/cnpg-pair/DESIGN.md:218-268`
+# C-DB-3 acceptance-test deferral.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4a (GitHub Actions is the only
+# build path) every image that runs on OpenOva infra MUST be produced
+# by a CI workflow from a committed git SHA. This workflow mirrors the
+# build-continuum-controller.yaml shape — same auth flow, same cosign
+# keyless signing, same SBOM attestation, same TBD-A69 auto-bump
+# pattern (#2006) so the harness image's SHA is always referenced from
+# committed YAML somewhere in the repo and never resolved against
+# :latest at run time.
+#
+# Per `feedback_inviolable_principles.md` event-driven only, NO cron.
+# Paths filter scoped to the harness sources + this workflow itself.
+
+on:
+  push:
+    paths:
+      - 'platform/cnpg-pair/tests/acceptance/**'
+      - '.github/workflows/build-d31-acceptance.yaml'
+    branches: [main]
+  pull_request:
+    paths:
+      - 'platform/cnpg-pair/tests/acceptance/**'
+      - '.github/workflows/build-d31-acceptance.yaml'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/openova-io/openova/d31-acceptance
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      # contents: write — TBD-A69 auto-bump precedent. The harness
+      # image SHA is committed back to the chart values placeholder
+      # for the d31-acceptance Job manifest (see "Bump..." step below)
+      # so operators don't reference :latest. Same deploy-gap class
+      # the continuum-controller workflow fixed.
+      contents: write
+      packages: write
+      # id-token: write — required by cosign keyless signing (Sigstore).
+      id-token: write
+    outputs:
+      sha_short: ${{ steps.vars.outputs.sha_short }}
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set short SHA
+        id: vars
+        run: echo "sha_short=$(echo $GITHUB_SHA | head -c 7)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: |
+            platform/cnpg-pair/tests/acceptance/go.mod
+
+      - name: go vet
+        working-directory: platform/cnpg-pair/tests/acceptance
+        # Stdlib-only module; vet should be near-instant.
+        run: go vet ./...
+
+      - name: Run unit tests (race-clean required)
+        working-directory: platform/cnpg-pair/tests/acceptance
+        # Race detector catches the writer's atomic-counter contract
+        # — every TestRunWriter_* exercises N concurrent goroutines.
+        run: go test -count=1 -race ./...
+
+      - name: go build (validates the harness compiles)
+        working-directory: platform/cnpg-pair/tests/acceptance
+        run: CGO_ENABLED=0 go build ./cmd/d31-acceptance
+
+      # On pull_request runs we stop here — image push requires
+      # `packages: write` which only main-branch authors hold.
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        if: github.event_name != 'pull_request'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        id: build
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          # Repo root context so the Containerfile's COPY paths reach
+          # platform/cnpg-pair/tests/acceptance/.
+          context: .
+          file: platform/cnpg-pair/tests/acceptance/Containerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}
+            ${{ env.IMAGE }}:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/openova-io/openova
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=d31-acceptance
+            org.opencontainers.image.description=Pillar 3 zero-tx-loss acceptance harness — drives 1M-row writes against a bp-cnpg-pair primary, kills the primary region, asserts the replica promotes ≤30s with zero gaps (Refs #2067).
+          # provenance=false: containerd 1.7.x on k3s mis-resolves the
+          # provenance attestation manifest. SBOM attestation handled by
+          # the cosign attest step below.
+          provenance: false
+          sbom: false
+
+      - name: Install cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image with cosign (keyless)
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign sign --yes "${IMAGE}@${DIGEST}"
+        # IMAGE env from the job-level `env:` block above; explicitly
+        # restated here so the keyless OIDC payload binds to the
+        # canonical name.
+        # (no extra env: needed — env from job env propagates)

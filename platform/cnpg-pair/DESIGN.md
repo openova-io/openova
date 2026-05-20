@@ -215,10 +215,16 @@ the strongest mode.
 
 ---
 
-## Deferred — C-DB-3 acceptance test plan
+## C-DB-3 acceptance test — implementer brief (HARNESS SHIPPED, awaits operator walk)
 
-C-DB-3 is the 1M-row write + replica-promote acceptance test, NOT
-shipped here. The future implementer's brief:
+> **2026-05-20 — Refs #2067 / TBD-V16:** the harness CODE now lives at
+> `platform/cnpg-pair/tests/acceptance/`. It is a self-contained Go
+> binary (stdlib-only, drives `psql` + `kubectl`) packaged as
+> `ghcr.io/openova-io/openova/d31-acceptance:<sha>`. Per CLAUDE.md §0
+> the Pillar 3 issue closes **after** the operator runs the harness on
+> a fresh 2-region Sovereign with exit-code 0 + screenshots attached
+> to #2067 — NOT on merge. The implementer brief below is preserved
+> as the canonical test spec the harness's code mirrors.
 
 ### Test fixture
 
@@ -263,6 +269,14 @@ shipped here. The future implementer's brief:
 - Write disruption <5s.
 - 2× consecutive GREEN qa-loop run on the test (founder rule).
 
-The fixture lives under `platform/cnpg-pair/tests/acceptance/`
-when authored; `chart/tests/cnpg-pair-render.sh` (this slice) is
-the LIGHT chart-render gate that runs in CI on every push.
+The fixture **lives** under `platform/cnpg-pair/tests/acceptance/`
+(harness shipped 2026-05-20); the binary's per-flag operator brief
+is `platform/cnpg-pair/tests/acceptance/README.md`. Phases 1-5 of the
+plan above are encoded in the harness's `cmd/d31-acceptance/main.go`
+(see "Exit codes" in the README for the PASS/FAIL contract). Phase 6
+(failback) is a future slice — the harness verifies the forward path
+only; the failback path lives in Continuum K-Cont-2's manual-approval
+sequencer and gets its own acceptance run when wired.
+`chart/tests/cnpg-pair-render.sh` remains the LIGHT chart-render gate
+that runs in CI on every push; the heavy region-kill harness above is
+operator-invoked on a fresh prov, not in unit CI.

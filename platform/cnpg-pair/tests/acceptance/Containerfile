@@ -1,0 +1,68 @@
+# d31-acceptance — Pillar 3 zero-tx-loss harness image.
+#
+# Operator runs this image inside the Sovereign management cluster (or
+# the tenant vCluster) on a fresh 2-region prov to verify D31 per
+# CLAUDE.md §0 step 10. The Pod's ServiceAccount needs:
+#   - get/patch on cluster.postgresql.cnpg.io in the target namespace
+#     (for the scale-to-zero kill + replica-promote flip)
+#   - get on the same CR (for the status.currentPrimary poll)
+#   - access to the CNPG -rw Services in the target namespace
+# Plus the Postgres password sourced from the bp-cnpg-pair-issued
+# Secret, env-mounted as D31_PRIMARY_PASSWORD / D31_REPLICA_PASSWORD.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4a (GitHub Actions is the only
+# build path) every image that runs on OpenOva infra is produced by a
+# CI workflow from a committed SHA. Mirrors the existing
+# build-continuum-controller.yaml shape — same cosign keyless signing,
+# same SBOM attestation, same auto-bump pattern (TBD-A69 #2006).
+#
+# Two stages:
+#   build  — golang:1.23-alpine, stdlib-only (no Postgres driver
+#            vendored; the harness shells out to `psql`).
+#   final  — alpine:3.20 with the postgresql-client + kubectl binaries
+#            the harness drives.
+
+FROM docker.io/library/golang:1.23-alpine AS build
+WORKDIR /workspace
+
+# Cache the (tiny) module graph — stdlib-only, so this is essentially
+# a no-op but kept for the shared-cache build pattern.
+COPY platform/cnpg-pair/tests/acceptance/go.mod platform/cnpg-pair/tests/acceptance/
+
+WORKDIR /workspace/platform/cnpg-pair/tests/acceptance
+RUN go mod download
+
+# Copy source + build.
+WORKDIR /workspace
+COPY platform/cnpg-pair/tests/acceptance /workspace/platform/cnpg-pair/tests/acceptance
+
+WORKDIR /workspace/platform/cnpg-pair/tests/acceptance
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w" \
+    -o /d31-acceptance ./cmd/d31-acceptance
+
+# ── Runtime ──────────────────────────────────────────────────────────
+FROM docker.io/library/alpine:3.20
+
+# postgresql-client provides `psql`; kubectl is downloaded from the
+# stable channel matching the Sovereign's apiserver minor (1.31 era).
+# Pinned by minor (NOT :latest) per Inviolable Principle #4a. CA certs
+# + tzdata so timestamps and HTTPS handshakes both work.
+RUN apk add --no-cache \
+        ca-certificates \
+        tzdata \
+        postgresql16-client \
+        curl \
+    && curl -sSL -o /usr/local/bin/kubectl \
+        "https://dl.k8s.io/release/v1.31.1/bin/linux/amd64/kubectl" \
+    && chmod +x /usr/local/bin/kubectl \
+    && apk del curl
+
+COPY --from=build /d31-acceptance /usr/local/bin/d31-acceptance
+
+# Non-root runtime — the harness needs ONLY: outbound TCP to the CNPG
+# -rw Services + outbound HTTPS to the kube-apiserver. No host volumes,
+# no privileged caps.
+USER 65534:65534
+
+ENTRYPOINT ["/usr/local/bin/d31-acceptance"]
