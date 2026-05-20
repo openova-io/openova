@@ -1,0 +1,13 @@
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: kyverno-policies
+  labels:
+    catalyst.openova.io/section: pts-3-3-security-and-policy
+spec:
+  version: 1.0.0
+  card:
+    title: Kyverno Policy Library
+    family: guardian
+    description: EPIC-1 (#1096) compliance ClusterPolicy library. 18 baseline policies in Audit mode (resilience, security, governance, observability). Installed AFTER bp-kyverno so CRDs are registered before policy CRs apply.
+    docs: https://kyverno.io/docs/

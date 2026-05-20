@@ -1,0 +1,64 @@
+# bp-kyverno-policies — Catalyst bootstrap-kit Blueprint #27a
+# (W2.K3, Tier 7 — Security/Policy library).
+#
+# Compliance policy library: 18-of-20 ClusterPolicy templates default-ON
+# in `Audit` mode (permissive — admission still passes, PolicyReport rows
+# populate). 2 templates default-OFF: `hubble-flows-seen` (W2 Go evaluator
+# does the real check, Kyverno gate is a stub) and `cosign-verified`
+# (requires operator-supplied PEM bundle).
+#
+# Split from bp-kyverno (slot 27) per Issue #2019 to break the CRD
+# install-ordering race: when policies and Kyverno CRDs land in the same
+# Helm pass, the apiserver RESTMapper has not yet learned
+# `kyverno.io/v1.ClusterPolicy` when Helm tries to apply the policy CRs.
+# Separating into TWO Blueprints lets the engine (slot 27) install + CRDs
+# register first, then this slot reconciles the ClusterPolicy CRs cleanly.
+#
+# Ordering: this Kustomization slot `dependsOn` the bp-kyverno
+# Kustomization slot. Cross-kind `HelmRelease.dependsOn → Kustomization`
+# is SILENTLY IGNORED by Flux per docs/INVIOLABLE-PRINCIPLES.md #14, so
+# the dependsOn lives on the Kustomization, NOT on the HR. The HR also
+# carries `dependsOn: bp-kyverno` (same-kind HR→HR — honored) as a
+# belt-and-suspenders signal.
+#
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+# Wrapper chart: platform/kyverno-policies/chart/ (pure overlay; no
+# upstream subchart — CRDs come from bp-kyverno's Kyverno subchart).
+
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-kyverno-policies
+  namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "27a"
+spec:
+  interval: 15m
+  releaseName: kyverno-policies
+  targetNamespace: kyverno
+  dependsOn:
+    - name: bp-kyverno
+  chart:
+    spec:
+      chart: bp-kyverno-policies
+      version: 1.0.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-kyverno
+        namespace: flux-system
+  # Event-driven install: 18-of-20 ClusterPolicy CRs apply against the
+  # Kyverno CRDs that the engine chart's upstream subchart has already
+  # registered (via slot 27's Helm install). disableWait keeps Ready
+  # immediate after apply so downstream HRs don't stall waiting on
+  # ClusterPolicy-level health which Kyverno reports asynchronously.
+  install:
+    timeout: 10m
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    timeout: 10m
+    disableWait: true
+    remediation:
+      retries: 3

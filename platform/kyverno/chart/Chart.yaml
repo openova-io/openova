@@ -12,7 +12,7 @@ description: |
   HA mode runs four controllers (admission, background, cleanup, reports);
   solo-Sovereign default is replicas=1 each.
 type: application
-version: 1.2.0
+version: 1.2.1
 appVersion: "v1.18.0"
 keywords: [catalyst, blueprint, kyverno, policy, admission, security]
 maintainers:

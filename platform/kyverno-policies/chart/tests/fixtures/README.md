@@ -13,7 +13,7 @@ PolicyReport row the aggregator joins on.
 
 ```bash
 # Render the chart with a single policy enabled, then run kyverno apply.
-cd platform/kyverno/chart
+cd platform/kyverno-policies/chart
 helm template . --set compliancePolicies.multiReplica.enabled=true \
   > /tmp/multi-replica.yaml
 
