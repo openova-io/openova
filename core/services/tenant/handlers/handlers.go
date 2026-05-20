@@ -753,3 +753,42 @@ func (h *Handler) InternalGetSubdomain(w http.ResponseWriter, r *http.Request) {
 		"subdomain": t.Subdomain,
 	})
 }
+
+// InternalGetAppConfigs returns the tenant's per-app configSchema values
+// (Tenant.AppConfigs) keyed by app slug. No auth — same security model as
+// InternalGetSubdomain: cluster-internal only. Billing calls this when
+// dispatching order.placed so the provisioning consumer can thread the
+// customer-chosen values (replicas, disk_gb, backups_enabled) into the
+// rendered manifests for postgres/mysql/redis backing services.
+//
+// TBD-V27 (#2042) — closes the 10-step deterministic walk step that was
+// dropping customer-picked configSchema values between the Tenant store
+// (PR #2043 persisted them) and the materialised app manifest.
+//
+// Response shape: {"id": "<tid>", "app_configs": {"<slug>": {<key>: <val>}}}.
+// Empty map (not null) when the tenant has no AppConfigs — keeps the
+// caller's null-vs-{} branch simple.
+func (h *Handler) InternalGetAppConfigs(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		respond.Error(w, http.StatusBadRequest, "tenant id is required")
+		return
+	}
+	t, err := h.Store.GetTenant(r.Context(), id)
+	if err != nil {
+		respond.Error(w, http.StatusInternalServerError, "failed to fetch tenant")
+		return
+	}
+	if t == nil {
+		respond.Error(w, http.StatusNotFound, "tenant not found")
+		return
+	}
+	cfg := t.AppConfigs
+	if cfg == nil {
+		cfg = map[string]map[string]any{}
+	}
+	respond.JSON(w, http.StatusOK, map[string]any{
+		"id":          t.ID,
+		"app_configs": cfg,
+	})
+}

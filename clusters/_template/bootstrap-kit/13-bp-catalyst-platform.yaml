@@ -809,7 +809,15 @@ spec:
       # SHA changes (bp-catalyst-platform embeds the built marketplace
       # assets via that image). Threading customer-chosen values into
       # the install POST is a follow-up (TBD-V18-D).
-      version: 1.4.225
+      #
+      # 1.4.226 — TBD-V27 / #2042: thread Tenant.AppConfigs through
+      # the order.placed event into the manifest renderer
+      # (provisioning/gitops/gitops.go). Customer-chosen
+      # replicas / disk_gb / backups_enabled now reach
+      # db-postgres.yaml + db-mysql.yaml instead of being silently
+      # dropped. New endpoint GET /tenant/internal/tenants/{id}/app-configs
+      # on tenant service for the billing lookup.
+      version: 1.4.226
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

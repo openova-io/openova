@@ -1,5 +1,37 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.226 — TBD-V27 / #2042 (2026-05-20): thread customer-chosen
+# configSchema values through to the manifest renderer. Tenant.AppConfigs
+# (persisted by PR #2043) now reaches the rendered postgres / mysql
+# manifests via the order.placed event path:
+#
+#   billing dispatchOrderPlaced
+#     → GET /tenant/internal/tenants/{id}/app-configs  (NEW endpoint)
+#     → enriches order.placed payload with `app_configs`
+#   provisioning handleOrderPlaced
+#     → startProvisioning(..., appConfigs)
+#     → GenerateAllWithAppConfigs(..., appConfigs)
+#     → generatePostgres(..., appConfigs["postgres"])
+#     → generateMySQL(..., appConfigs["mysql"])
+#
+# Backend values consumed from the canonical configSchema
+# (seed.go:699-701): `replicas` (int 1-5) → Deployment.spec.replicas;
+# `disk_gb` (int 1-500) → PVC storage; `backups_enabled` (bool) →
+# Deployment annotation (full CronJob binding tracked separately).
+# Unknown keys / out-of-range values / mistyped fields drop with a
+# Warn log and fall back to defaults — no smuggle path past
+# configSchema constraints. MySQL replicas>1 currently clamps to 1
+# (primary-replica not yet wired) with a Warn so operators see the
+# gap.
+#
+# Closes the EPIC-reconciliation Key Finding #2 gap: "customer-selected
+# app_configs reaches Tenant store + NATS event but does NOT reach the
+# materialised HelmRelease.values of the installed app." The
+# regression-lock lives in gitops/appconfigs_test.go.
+#
+# Refs #2042. Operator-walk pending on fresh prov (DoD remains
+# UNVERIFIED until `replicas: 3` materialises in the running Pod spec).
+#
 # 1.4.225 — TBD-V15 / #2021 (2026-05-20, sister of TBD-V14 / PR #2017):
 # catalyst-api Deployment now wires CATALYST_NEWAPI_ADDR + the
 # CATALYST_NEWAPI_ADMIN_TOKEN secretKeyRef so the ADR-0003 §3.2
@@ -2112,8 +2144,8 @@ name: bp-catalyst-platform
 # was already shipped on 1.4.197 (PR #1820 lineage); this completes
 # the data-layer side so the dropdown finally appears on multi-region
 # Sovereigns. Refs #1821, DoD D20.
-version: 1.4.225
-appVersion: 1.4.225
+version: 1.4.226
+appVersion: 1.4.226
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
 # TBD-A30). Pre-1.4.183 every catalyst-system HTTPRoute pinned

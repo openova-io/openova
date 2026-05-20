@@ -38,6 +38,20 @@ type orderPlacedData struct {
 	PlanID    string   `json:"plan_id"`
 	Apps      []string `json:"apps"`
 	Subdomain string   `json:"subdomain"`
+	// AppConfigs carries per-app configSchema values the customer
+	// chose on the marketplace AppDetail surface (TBD-V18-D / PR #2038
+	// — persisted on Tenant.AppConfigs by PR #2043). The billing
+	// dispatcher enriches the order.placed payload by reading
+	// Tenant.AppConfigs from the tenant service before publish
+	// (TBD-V27 #2042). Keys are app SLUGs (e.g. "postgres"), values
+	// are field-typed primitives keyed by ConfigField.Key
+	// (e.g. {"replicas": 3, "disk_gb": 20, "backups_enabled": true}).
+	// Nil/empty when the cart shipped no configSchema-bearing app or
+	// the lookup failed — provisioning treats absence as "use
+	// generator defaults" without erroring. Unknown keys (not in the
+	// app's configSchema) are dropped with a warn log so a stale
+	// frontend can't tunnel arbitrary YAML into the rendered manifest.
+	AppConfigs map[string]map[string]any `json:"app_configs,omitempty"`
 }
 
 const topicProvisionEvents = "sme.provision.events"
@@ -825,14 +839,36 @@ func (h *Handler) handleOrderPlaced(ctx context.Context, event *events.Event) er
 		"order_id", data.OrderID,
 		"plan_id", data.PlanID,
 		"apps", data.Apps,
+		"app_configs_keys", appConfigsKeys(data.AppConfigs),
 	)
-	_, err := h.startProvisioning(ctx, data.TenantID, data.OrderID, data.PlanID, data.Apps, data.Subdomain)
+	_, err := h.startProvisioning(ctx, data.TenantID, data.OrderID, data.PlanID, data.Apps, data.Subdomain, data.AppConfigs)
 	return err
+}
+
+// appConfigsKeys returns the sorted list of app slugs present in the
+// AppConfigs map. Used solely for structured logging on the order.placed
+// path so operators can see which apps shipped customer-chosen values
+// without dumping the full (potentially large) map at INFO level.
+func appConfigsKeys(m map[string]map[string]any) []string {
+	if len(m) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // startProvisioning creates the provision record and kicks off the workflow
 // goroutine. Steps are laid out up front so the UI knows what to render.
-func (h *Handler) startProvisioning(ctx context.Context, tenantID, orderID, planID string, apps []string, subdomain string) (*store.Provision, error) {
+//
+// appConfigs carries the customer-chosen configSchema values keyed by app
+// SLUG (TBD-V27 #2042). Empty/nil means use generator defaults — the
+// backing-service renderers (generatePostgres etc.) treat absence as a
+// no-op so legacy paths keep working unchanged.
+func (h *Handler) startProvisioning(ctx context.Context, tenantID, orderID, planID string, apps []string, subdomain string, appConfigs map[string]map[string]any) (*store.Provision, error) {
 	appNames := h.resolveAppNames(ctx)
 	planSlug := h.resolvePlanSlug(ctx, planID)
 	appSlugs := h.resolveAppSlugs(ctx, apps)
@@ -895,7 +931,7 @@ func (h *Handler) startProvisioning(ctx context.Context, tenantID, orderID, plan
 		"plan_id":      planID,
 	})
 
-	go h.runProvisioningWorkflow(provision.ID, tenantID, subdomain, planSlug, depSlugs, appSlugs, len(steps))
+	go h.runProvisioningWorkflow(provision.ID, tenantID, subdomain, planSlug, depSlugs, appSlugs, len(steps), appConfigs)
 
 	return provision, nil
 }
@@ -903,7 +939,11 @@ func (h *Handler) startProvisioning(ctx context.Context, tenantID, orderID, plan
 // runProvisioningWorkflow performs real K8s provisioning via GitOps and
 // verifies each step against the host cluster (vCluster pods are visible
 // in the host tenant-<slug> namespace thanks to vCluster's pod sync).
-func (h *Handler) runProvisioningWorkflow(provisionID, tenantID, subdomain, planSlug string, depSlugs, appSlugs []string, totalSteps int) {
+//
+// appConfigs threads customer-chosen configSchema values through to the
+// manifest generator (TBD-V27 #2042). Nil/empty preserves the legacy
+// "use defaults" behavior.
+func (h *Handler) runProvisioningWorkflow(provisionID, tenantID, subdomain, planSlug string, depSlugs, appSlugs []string, totalSteps int, appConfigs map[string]map[string]any) {
 	ctx := context.Background()
 
 	prov, err := h.Store.GetProvision(ctx, provisionID)
@@ -917,7 +957,7 @@ func (h *Handler) runProvisioningWorkflow(provisionID, tenantID, subdomain, plan
 
 	// --- Step: Generate manifests ---
 	h.markStep(ctx, provisionID, stepIdx, prov.Steps[stepIdx].Name, "running")
-	manifests := h.Generator.GenerateAll(subdomain, planSlug, appSlugs)
+	manifests := h.Generator.GenerateAllWithAppConfigs(subdomain, planSlug, appSlugs, "", appConfigs)
 	if len(manifests) == 0 {
 		h.failProvision(ctx, provisionID, tenantID, stepIdx, "failed to generate manifests")
 		return
