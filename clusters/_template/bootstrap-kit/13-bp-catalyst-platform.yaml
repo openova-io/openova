@@ -817,7 +817,12 @@ spec:
       # db-postgres.yaml + db-mysql.yaml instead of being silently
       # dropped. New endpoint GET /tenant/internal/tenants/{id}/app-configs
       # on tenant service for the billing lookup.
-      version: 1.4.227
+      #
+      # 1.4.228 — #1099 EPIC-4 Slice R4 follow-up: extend the
+      # resource-detail page's k8s SSE subscription to include the
+      # `event` kind so the EventsPanel surfaces live K8s Events
+      # instead of perpetually rendering empty-state.
+      version: 1.4.228
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
