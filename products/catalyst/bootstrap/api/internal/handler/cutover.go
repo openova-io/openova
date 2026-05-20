@@ -620,10 +620,27 @@ func createCutoverJob(ctx context.Context, deps *cutoverDeps, step cutoverStep, 
 		},
 	}
 	created, err := deps.core.BatchV1().Jobs(deps.ns).Create(ctx, job, metav1.CreateOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("create Job %s/%s: %w", deps.ns, name, err)
+	if err == nil {
+		return created, nil
 	}
-	return created, nil
+	// TBD-V13: catalyst-api can restart mid-cutover. When the engine
+	// resumes (see ResumeInterruptedCutover) it re-enters runCutover with
+	// the same runEpoch only if the goroutine truly survived (it didn't),
+	// but a NEW runEpoch from a re-trigger collides with a leftover Job
+	// from the previous attempt only when names overlap — they don't,
+	// because runEpoch is time-based. AlreadyExists therefore implies a
+	// rare double-fire from two concurrent triggers (operator CTA +
+	// auto-trigger Job hitting catalyst-api simultaneously). Treat the
+	// existing Job as the same logical step and proceed — watchJobToCompletion
+	// will pick it up.
+	if apierrors.IsAlreadyExists(err) {
+		existing, getErr := deps.core.BatchV1().Jobs(deps.ns).Get(ctx, name, metav1.GetOptions{})
+		if getErr == nil {
+			return existing, nil
+		}
+		return nil, fmt.Errorf("create Job %s/%s: AlreadyExists + Get failed: %w", deps.ns, name, getErr)
+	}
+	return nil, fmt.Errorf("create Job %s/%s: %w", deps.ns, name, err)
 }
 
 // watchJobToCompletion blocks until the Job reports a terminal
@@ -900,6 +917,176 @@ func (h *Handler) publishCutoverEvent(bus *cutoverBroadcaster, ev cutoverEvent) 
 		ev.Time = time.Now().UTC().Format(time.RFC3339)
 	}
 	bus.Publish(ev)
+}
+
+// ── On-startup resume (TBD-V13) ─────────────────────────────────────────────
+//
+// ResumeInterruptedCutover is the on-startup auto-resume entrypoint. It is
+// called once from cmd/api/main.go after the Handler is wired but BEFORE
+// the HTTP server starts accepting requests.
+//
+// Background — why this exists
+// ────────────────────────────
+// The cutover engine runs as an in-process goroutine spawned by
+// HandleCutoverStart / HandleCutoverInternalTrigger. If the catalyst-api
+// Pod restarts mid-cutover (Pod evict, node drain, OOM, image bump), the
+// goroutine dies. The status ConfigMap captures the durable record (which
+// steps succeeded, which failed, which was running when the Pod died) but
+// NOTHING auto-fires runCutover on the fresh Pod. The auto-trigger Helm Job
+// only runs on `helm post-install,post-upgrade` — after the chart has
+// already installed, a catalyst-api restart leaves the cutover stranded.
+//
+// TBD-V13 (t38 2026-05-19): exactly this happened — step 5 was mid-flight
+// when catalyst-api restarted; on the fresh Pod nothing re-fired the
+// engine; step 9 (gitea-token-mint) Job was never created; PR #2008's
+// provisioning init-container waited forever for the cutover-step-09
+// token annotation; tenant onboarding blocked permanently.
+//
+// Semantics
+// ─────────
+// Returns immediately if:
+//   - The cutover deps factory is not wired (e.g. no in-cluster config —
+//     local dev / tests without a fake factory).
+//   - The status ConfigMap is missing (chart never installed; nothing to
+//     resume).
+//   - `cutoverComplete == "true"` (already done; nothing to do).
+//   - `cutoverStartedAt == ""` (never started; the chart's auto-trigger
+//     Job is responsible for the first fire — we MUST NOT pre-empt it
+//     because the in-cluster trigger has different auth semantics).
+//
+// Otherwise — durable state shows a cutover was in progress when this
+// process started — we:
+//   1. Reset every step whose `.result == "running"` back to `""` so the
+//      engine re-runs that step from scratch (the corresponding Job from
+//      the previous attempt may have completed, failed, or still be
+//      running; we don't trust the orphan and create a fresh Job — the
+//      step's PodSpec must be idempotent, which it is by chart design —
+//      every step's PodSpec is "ensure target state X").
+//   2. List the cutover step ConfigMaps. If any are missing (chart
+//      uninstalled mid-flight) we log and bail.
+//   3. Claim the in-process running flag (always succeeds on a fresh Pod
+//      since the broadcaster is freshly constructed).
+//   4. Spawn runCutover with a background context so an init signal or
+//      brief HTTP server hiccup doesn't cancel a multi-step resume.
+//
+// Idempotency vs the auto-trigger Job
+// ───────────────────────────────────
+// The Helm auto-trigger Job (post-install) fires once per chart install.
+// On a fresh Pod after an in-flight cutover, BOTH this resume hook AND a
+// stale auto-trigger Job retry could race to call runCutover. The
+// in-process `tryStartRun()` flag prevents a duplicate goroutine — the
+// loser receives `cutover-in-progress`/409 from the HTTP edge or is a
+// no-op here.
+//
+// Concurrency safety
+// ──────────────────
+// This function is called once on startup with no parallel callers. We
+// hold the in-process running flag for the duration of the spawned
+// goroutine; HandleCutoverStart called against this Pod while resume is
+// in flight returns 409 — the durable state will catch up via SSE.
+func (h *Handler) ResumeInterruptedCutover(ctx context.Context) {
+	deps, err := h.cutoverDepsFor()
+	if err != nil {
+		h.log.Info("cutover-resume: deps factory unavailable; skipping startup resume",
+			"err", err,
+		)
+		return
+	}
+
+	status, err := readCutoverStatus(ctx, deps)
+	if err != nil {
+		h.log.Warn("cutover-resume: status read failed; skipping startup resume",
+			"err", err,
+		)
+		return
+	}
+
+	if status["cutoverComplete"] == "true" {
+		// Already done — nothing to resume.
+		return
+	}
+	if status["cutoverStartedAt"] == "" {
+		// Never started — defer to the chart's auto-trigger Job to
+		// fire the first attempt. Resuming here would race the trigger
+		// path AND mint a runEpoch with no operator audit trail.
+		return
+	}
+
+	// In-flight detected: cutoverStartedAt != "" AND cutoverComplete != "true".
+	// If a previous attempt failed terminally (failedStep != ""), we still
+	// resume — the operator/auto-trigger will eventually re-POST anyway,
+	// and resuming after a terminal failure surfaces the same final state
+	// (the failed step re-runs; if it fails again the run terminates again
+	// with the same error; if it passes this time, the cutover proceeds).
+	// This matches the existing engine semantics where /start retries a
+	// failed cutover by re-running from the next not-success step.
+	h.log.Info("cutover-resume: in-flight cutover detected on startup",
+		"currentStep", status["currentStep"],
+		"currentStepIndex", status["currentStepIndex"],
+		"failedStep", status["failedStep"],
+	)
+
+	// Reset every step whose .result == "running" back to "" so the
+	// engine treats it as not-yet-attempted on this attempt. Without this,
+	// the engine's skip-success-only check leaves the in-flight step in
+	// a permanently-running state in the durable record.
+	resetUpdates := map[string]string{}
+	for k, v := range status {
+		const pfx = "step."
+		const sfx = ".result"
+		if !strings.HasPrefix(k, pfx) || !strings.HasSuffix(k, sfx) {
+			continue
+		}
+		if v == "running" {
+			resetUpdates[k] = ""
+			// Also clear startedAt so the audit trail shows the resume
+			// attempt restarted this step cleanly. finishedAt was never
+			// written (the step was in flight), so no clear needed.
+			stepName := strings.TrimSuffix(strings.TrimPrefix(k, pfx), sfx)
+			resetUpdates[pfx+stepName+".startedAt"] = ""
+			resetUpdates[pfx+stepName+".jobName"] = ""
+		}
+	}
+	if len(resetUpdates) > 0 {
+		if err := patchCutoverStatus(ctx, deps, resetUpdates); err != nil {
+			h.log.Warn("cutover-resume: failed to reset in-flight step rows; resume aborted",
+				"err", err,
+				"updates", len(resetUpdates),
+			)
+			return
+		}
+		h.log.Info("cutover-resume: reset in-flight step rows",
+			"count", len(resetUpdates)/3, // 3 keys per step (result+startedAt+jobName)
+		)
+	}
+
+	steps, err := listCutoverSteps(ctx, deps)
+	if err != nil {
+		h.log.Warn("cutover-resume: step ConfigMap discovery failed; resume aborted",
+			"err", err,
+		)
+		return
+	}
+	if len(steps) == 0 {
+		h.log.Warn("cutover-resume: no cutover-step ConfigMaps found; chart not installed?",
+			"namespace", deps.ns,
+		)
+		return
+	}
+
+	bus := h.cutoverBusFor()
+	if !bus.tryStartRun() {
+		// Another goroutine on this same fresh Pod beat us to it (e.g.
+		// auto-trigger Job hit the HTTP edge before main.go finished
+		// wiring). Benign no-op.
+		h.log.Info("cutover-resume: another run is already in flight on this Pod; skipping resume spawn")
+		return
+	}
+
+	h.log.Info("cutover-resume: spawning runCutover to resume interrupted cutover",
+		"totalSteps", len(steps),
+	)
+	go h.runCutover(context.Background(), deps, steps)
 }
 
 // ── HTTP handlers ───────────────────────────────────────────────────────────
