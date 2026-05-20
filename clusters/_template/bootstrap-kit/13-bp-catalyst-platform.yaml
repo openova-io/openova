@@ -785,7 +785,7 @@ spec:
       # service image pins are unchanged from 1.4.216 (TBD-A6 deploy-
       # bot bump in commit d4b995c carrying TBD-V8 #1999 sme image
       # SHA b190566).
-      version: 1.4.219
+      version: 1.4.220
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

@@ -1447,6 +1447,27 @@ func main() {
 		// POSTs aren't 401'd before any operator session exists.
 	})
 
+	// TBD-V13 (issue #2016) — on-startup cutover resume.
+	//
+	// The Self-Sovereignty Cutover engine runs as an in-process goroutine
+	// spawned by HandleCutoverStart / HandleCutoverInternalTrigger. If
+	// catalyst-api restarts mid-cutover (Pod evict, OOM, image bump), the
+	// goroutine dies; the durable status ConfigMap records the in-flight
+	// state but nothing auto-fires the engine on the fresh Pod. The
+	// chart's Helm auto-trigger Job only runs on post-install/post-upgrade
+	// hooks — it does NOT re-fire on a catalyst-api restart after the
+	// chart is already installed.
+	//
+	// ResumeInterruptedCutover reads the status ConfigMap and, if a
+	// cutover is in-flight, resets the in-flight step row and spawns
+	// runCutover again. It is a no-op when the cutover is complete,
+	// never started, or the chart is not installed.
+	//
+	// Wired BEFORE ListenAndServe so a startup-resume race against a
+	// stale auto-trigger Job retry hitting the HTTP edge is serialised
+	// through the in-process running flag (tryStartRun).
+	h.ResumeInterruptedCutover(ctx)
+
 	log.Info("catalyst api listening", "port", port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {
 		log.Error("server error", "err", err)

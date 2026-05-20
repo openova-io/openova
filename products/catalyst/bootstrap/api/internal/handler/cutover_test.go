@@ -35,6 +35,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -763,3 +764,184 @@ func scanForSSEEvent(body []byte, eventName string) []string {
 
 // Suppress unused warnings on test-only helpers.
 var _ = scanForSSEEvent
+
+// ── TBD-V13 startup resume ──────────────────────────────────────────────────
+
+// TestResumeInterruptedCutover_ResumesAndCompletes simulates the t38
+// (2026-05-19) failure mode: catalyst-api Pod restarts mid-cutover with
+// step 1 already succeeded and step 2 stuck in "running". The fresh Pod
+// calls ResumeInterruptedCutover at startup; the engine must re-run
+// step 2 (NOT skip it — running != success), then step 3, and finish
+// with cutoverComplete=true.
+func TestResumeInterruptedCutover_ResumesAndCompletes(t *testing.T) {
+	preStatus := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cutoverStatusConfigMapName(),
+			Namespace: cutoverTestNS,
+		},
+		Data: map[string]string{
+			"cutoverComplete":  "false",
+			"cutoverStartedAt": "2026-05-19T07:14:00Z", // in-flight: started but not finished
+			"totalSteps":       "3",
+			"currentStep":      "step-two",
+			"currentStepIndex": "1",
+			"progressPercent":  "33",
+			// Step 1 already succeeded.
+			"step.step-one.result":     "success",
+			"step.step-one.startedAt":  "2026-05-19T07:14:00Z",
+			"step.step-one.finishedAt": "2026-05-19T07:14:30Z",
+			// Step 2 was in flight when the Pod died.
+			"step.step-two.result":    "running",
+			"step.step-two.startedAt": "2026-05-19T07:14:30Z",
+			"step.step-two.jobName":   "cutover-step-two-1747630470",
+		},
+	}
+	objs := []k8sruntime.Object{
+		makeCutoverStepCM("cutover-step-01-step-one", "step-one", 1, cutoverModeJob, minimalPodSpecYAML, ""),
+		makeCutoverStepCM("cutover-step-02-step-two", "step-two", 2, cutoverModeJob, minimalPodSpecYAML, ""),
+		makeCutoverStepCM("cutover-step-03-step-three", "step-three", 3, cutoverModeJob, minimalPodSpecYAML, ""),
+		preStatus,
+	}
+	h, client := fakeHandlerWithCutover(t, objs...)
+	installJobReactor(t, client, batchv1.JobComplete)
+
+	// Track which steps actually got Job creates — step-one MUST NOT
+	// be re-run (already success); step-two MUST be re-run; step-three
+	// MUST be run.
+	jobsCreated := map[string]int{}
+	var mu_jobs sync.Mutex
+	client.PrependReactor("create", "jobs", func(action clienttesting.Action) (bool, k8sruntime.Object, error) {
+		ca, ok := action.(clienttesting.CreateAction)
+		if !ok {
+			return false, nil, nil
+		}
+		job, ok := ca.GetObject().(*batchv1.Job)
+		if !ok {
+			return false, nil, nil
+		}
+		mu_jobs.Lock()
+		stepLabel := job.Labels["cutover.openova.io/step"]
+		jobsCreated[stepLabel]++
+		mu_jobs.Unlock()
+		return false, nil, nil
+	})
+
+	// Fire the on-startup resume — this is what cmd/api/main.go calls
+	// after the Handler is wired.
+	h.ResumeInterruptedCutover(context.Background())
+
+	// Wait for engine to terminate.
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		bus := h.cutoverBusFor()
+		bus.mu.Lock()
+		running := bus.running
+		bus.mu.Unlock()
+		if !running {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// Inspect the durable status ConfigMap.
+	cm, err := client.CoreV1().ConfigMaps(cutoverTestNS).Get(context.Background(),
+		cutoverStatusConfigMapName(), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get status ConfigMap: %v", err)
+	}
+	if cm.Data["cutoverComplete"] != "true" {
+		t.Errorf("cutoverComplete = %q, want true; data=%+v", cm.Data["cutoverComplete"], cm.Data)
+	}
+	for _, name := range []string{"step-one", "step-two", "step-three"} {
+		key := "step." + name + ".result"
+		if cm.Data[key] != "success" {
+			t.Errorf("%s = %q, want success", key, cm.Data[key])
+		}
+	}
+
+	// Verify Job-create count: step-one MUST NOT have been re-created.
+	mu_jobs.Lock()
+	defer mu_jobs.Unlock()
+	if jobsCreated["step-one"] != 0 {
+		t.Errorf("step-one Job creates = %d, want 0 (was already success — must be skipped on resume)", jobsCreated["step-one"])
+	}
+	if jobsCreated["step-two"] != 1 {
+		t.Errorf("step-two Job creates = %d, want 1 (was running — must be re-run on resume)", jobsCreated["step-two"])
+	}
+	if jobsCreated["step-three"] != 1 {
+		t.Errorf("step-three Job creates = %d, want 1 (never started — must run on resume)", jobsCreated["step-three"])
+	}
+}
+
+// TestResumeInterruptedCutover_NoOpWhenComplete proves the resume hook
+// short-circuits cleanly when the cutover is already done — no Jobs
+// created, no engine spawned.
+func TestResumeInterruptedCutover_NoOpWhenComplete(t *testing.T) {
+	preStatus := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cutoverStatusConfigMapName(),
+			Namespace: cutoverTestNS,
+		},
+		Data: map[string]string{
+			"cutoverComplete":   "true",
+			"cutoverStartedAt":  "2026-05-19T07:14:00Z",
+			"cutoverFinishedAt": "2026-05-19T07:25:00Z",
+		},
+	}
+	objs := []k8sruntime.Object{
+		makeCutoverStepCM("cutover-step-01-x", "x", 1, cutoverModeJob, minimalPodSpecYAML, ""),
+		preStatus,
+	}
+	h, client := fakeHandlerWithCutover(t, objs...)
+
+	jobCreates := 0
+	client.PrependReactor("create", "jobs", func(action clienttesting.Action) (bool, k8sruntime.Object, error) {
+		jobCreates++
+		return false, nil, nil
+	})
+
+	h.ResumeInterruptedCutover(context.Background())
+
+	// Quick wait — if the resume erroneously spawned the engine, give
+	// it time to react before asserting.
+	time.Sleep(100 * time.Millisecond)
+
+	if jobCreates != 0 {
+		t.Errorf("resume hook created %d Jobs on already-complete cutover, want 0", jobCreates)
+	}
+}
+
+// TestResumeInterruptedCutover_NoOpWhenNeverStarted proves the resume
+// hook does NOT pre-empt the chart's auto-trigger Job — when the
+// cutover has never started (cutoverStartedAt empty), the hook is a
+// no-op and the engine waits for the legitimate /start trigger.
+func TestResumeInterruptedCutover_NoOpWhenNeverStarted(t *testing.T) {
+	preStatus := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cutoverStatusConfigMapName(),
+			Namespace: cutoverTestNS,
+		},
+		Data: map[string]string{
+			"cutoverComplete": "false",
+			// cutoverStartedAt intentionally empty
+		},
+	}
+	objs := []k8sruntime.Object{
+		makeCutoverStepCM("cutover-step-01-x", "x", 1, cutoverModeJob, minimalPodSpecYAML, ""),
+		preStatus,
+	}
+	h, client := fakeHandlerWithCutover(t, objs...)
+
+	jobCreates := 0
+	client.PrependReactor("create", "jobs", func(action clienttesting.Action) (bool, k8sruntime.Object, error) {
+		jobCreates++
+		return false, nil, nil
+	})
+
+	h.ResumeInterruptedCutover(context.Background())
+	time.Sleep(100 * time.Millisecond)
+
+	if jobCreates != 0 {
+		t.Errorf("resume hook created %d Jobs on never-started cutover, want 0", jobCreates)
+	}
+}

@@ -1,5 +1,33 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.220 — TBD-V13 / #2016 (2026-05-20): bp-self-sovereign-cutover
+# orchestrator state-resume now idempotent across catalyst-api restart.
+# Pre-fix t38 walk: catalyst-api restarted mid-cutover (between
+# steps 5 and 9); the in-process runCutover goroutine died; the
+# durable status ConfigMap captured the in-flight state
+# (cutoverComplete=false, step.<N>.result=running) but NOTHING
+# auto-fired the engine on the fresh Pod. The chart's auto-trigger
+# Helm Job only runs on post-install/post-upgrade hooks — a
+# catalyst-api restart after the chart is already installed leaves
+# the cutover stranded. Step 09 (gitea-token-mint) was never
+# created → PR #2008's provisioning init-container blocked
+# forever waiting for the cutover-step-09 token annotation →
+# tenant onboarding blocked (Pillar 1 + 4 + 5).
+#
+# Fix wires `Handler.ResumeInterruptedCutover(ctx)` into
+# cmd/api/main.go just before ListenAndServe. On startup,
+# catalyst-api reads the cutover status ConfigMap; if a cutover
+# is in-flight (cutoverComplete=false AND cutoverStartedAt!=""
+# AND cutoverFinishedAt=="") it resets every step row whose
+# .result==running back to "" (engine treats as not-yet-run) and
+# spawns runCutover again with a background context. Idempotent
+# Job-Create on AlreadyExists. Three new unit tests cover:
+# resume-from-step-2-running (must re-run step 2, NOT step 1
+# which is success, MUST run step 3), no-op-when-complete, and
+# no-op-when-never-started (must not pre-empt the chart's
+# auto-trigger). See products/catalyst/bootstrap/api/internal/
+# handler/cutover.go (ResumeInterruptedCutover) +
+# cutover_test.go (TestResumeInterruptedCutover_*).
 # 1.4.218 — TBD-V9 / #2000 (2026-05-20): transactional voucher
 # redemption — only commit times_redeemed bump on successful order
 # placement. Pre-fix t38 walk: customer redeems WALK-T38-2138,
@@ -1994,7 +2022,7 @@ name: bp-catalyst-platform
 # was already shipped on 1.4.197 (PR #1820 lineage); this completes
 # the data-layer side so the dropdown finally appears on multi-region
 # Sovereigns. Refs #1821, DoD D20.
-version: 1.4.219
+version: 1.4.220
 appVersion: 1.4.219
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
