@@ -12,7 +12,7 @@ fullnameOverride: ""
 replicas: 1
 image:
   repository: ghcr.io/openova-io/openova/sandbox-controller
-  tag: "4ac1db1"
+  tag: "1d75aa4"
   pullPolicy: IfNotPresent
   pullSecrets:
     - name: ghcr-pull
