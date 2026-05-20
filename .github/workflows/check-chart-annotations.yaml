@@ -1,0 +1,146 @@
+name: Chart-annotations guard (pre-merge hollow-chart check)
+
+# PRE-MERGE replica of GUARD 1 in .github/workflows/blueprint-release.yaml.
+#
+# Catches hollow-chart violations (a chart with NO `dependencies:` entry
+# AND no `catalyst.openova.io/no-upstream: "true"` opt-out annotation)
+# BEFORE the PR merges. Without this gate, the violation only surfaces
+# at the post-merge Blueprint Release workflow — by which point the
+# version in Chart.yaml is "dead-reserved" (the merge SHA owns it but
+# no GHCR tag ever publishes) and recovery requires a follow-up
+# version-bump-and-annotate PR.
+#
+# Recurrence history that motivated promoting this guard to pre-merge:
+#   - bp-cert-manager:1.0.0   (issue #181 — guard origin)
+#   - bp-crossplane-claims    (historical)
+#   - bp-kyverno-policies     (PR #2023)
+#   - bp-continuum:0.1.1      (PR #2072 dead-pinned, fix PR #2081, TBD-V34 / #2080)
+#
+# Per CLAUDE.md anti-pattern catalogue + Inviolable Principle #13
+# (chart-pin bumps must match a published GHCR tag): every dead-reserved
+# version is a chart-pin lockstep break.
+#
+# Per CLAUDE.md "every workflow MUST be event-driven, NEVER scheduled":
+# this workflow is push-on-merge (belt-and-braces) + pull_request-on-touch.
+# There is no `schedule:` trigger; ad-hoc reruns go through
+# workflow_dispatch.
+#
+# Scoping note — only CHANGED charts are checked in PRs. Pre-existing
+# hollow charts (bp-network-policies, axon as of 2026-05-20) are NOT
+# blocked by this guard until a PR actually touches them; the post-
+# merge Blueprint Release workflow continues to fail-loudly on their
+# next publish attempt regardless. This keeps the guard zero-noise for
+# unrelated PRs while still catching every new chart introduction or
+# version-bump that would dead-reserve a tag.
+
+on:
+  pull_request:
+    paths:
+      - 'platform/*/chart/Chart.yaml'
+      - 'products/*/chart/Chart.yaml'
+      - 'scripts/check-chart-annotations.sh'
+      - '.github/workflows/check-chart-annotations.yaml'
+  push:
+    branches: [main]
+    paths:
+      - 'platform/*/chart/Chart.yaml'
+      - 'products/*/chart/Chart.yaml'
+      - 'scripts/check-chart-annotations.sh'
+      - '.github/workflows/check-chart-annotations.yaml'
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: 'Scope: changed (PR diff) or all (every chart in the tree)'
+        required: false
+        type: choice
+        default: changed
+        options:
+          - changed
+          - all
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Chart-annotations guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Need both sides of the PR diff to enumerate changed charts.
+          # PR runs already get `refs/pull/N/merge` with 2 commits; push
+          # runs need a depth >= 2 so HEAD~1 resolves.
+          fetch-depth: 2
+
+      - name: Install yq (declared-deps parser)
+        run: |
+          # Same yq pin as the post-merge Blueprint Release workflow —
+          # awk/grep on YAML is fragile and would let a subtly malformed
+          # Chart.yaml slip past the guard. Keep the version in sync with
+          # .github/workflows/blueprint-release.yaml.
+          sudo wget -qO /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+          yq --version
+
+      - name: Detect changed chart manifests
+        id: changed
+        run: |
+          set -euo pipefail
+          # workflow_dispatch with scope=all → run over every chart.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] \
+              && [ "${{ inputs.scope }}" = "all" ]; then
+            echo "scope=all" >> "$GITHUB_OUTPUT"
+            echo "charts=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # PR runs: compare against the merge base.
+          # push-to-main runs: compare against the previous commit.
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base_sha="${{ github.event.pull_request.base.sha }}"
+            head_sha="${{ github.event.pull_request.head.sha }}"
+            # actions/checkout@v4 doesn't fetch the base by default for
+            # shallow clones; fetch just enough to diff.
+            git fetch --no-tags --depth=1 origin "$base_sha" 2>/dev/null || true
+            range="${base_sha}...${head_sha}"
+          else
+            range="HEAD~1...HEAD"
+          fi
+
+          echo "Diffing range: $range"
+          changed=$(git diff --name-only "$range" 2>/dev/null \
+                    | grep -E '^(platform|products)/[^/]+/chart/Chart\.yaml$' \
+                    | sort -u || true)
+          echo "Changed Chart.yaml files:"
+          echo "$changed"
+
+          # Multi-line outputs need the EOF-heredoc form.
+          {
+            echo "scope=changed"
+            echo "charts<<EOF"
+            echo "$changed"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Run hollow-chart guard
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.changed.outputs.scope }}" = "all" ]; then
+            echo "Scope: all (workflow_dispatch override)"
+            bash scripts/check-chart-annotations.sh
+            exit $?
+          fi
+
+          # Scope: changed. Empty list = no chart manifests touched → skip.
+          charts="${{ steps.changed.outputs.charts }}"
+          if [ -z "$charts" ]; then
+            echo "No Chart.yaml files changed in this PR — guard skipped."
+            exit 0
+          fi
+
+          # shellcheck disable=SC2086
+          echo "$charts" | xargs -r bash scripts/check-chart-annotations.sh

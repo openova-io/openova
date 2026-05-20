@@ -417,14 +417,15 @@ The fix is structural: the published OCI artifact's `<chart_name>/charts/` direc
 
 ### What CI enforces
 
-`.github/workflows/blueprint-release.yaml` runs four hollow-chart guards on every publish:
+Two guards run on every chart change. The pre-merge guard is the **primary** line of defence; the post-merge guards are belt-and-braces structural verification at publish time.
 
-| Stage | Guard | Failure mode caught |
-|---|---|---|
-| After `helm dependency build` | Working-tree `chart/charts/<dep>-<ver>.tgz` (or unpacked `chart/charts/<dep>/Chart.yaml`) exists for every `dependencies:` entry. | Missing/wrong repo URL, dependency-build silently skipped a dep. |
-| After `helm package` | `tar -tzf` listing of the produced `.tgz` contains `<chart_name>/charts/<dep>-<ver>.tgz` (or unpacked) for every `dependencies:` entry. | `.helmignore` mishap, packaging-time stripping. |
-| After `helm push` | `helm pull` round-trips the artifact from GHCR; the pulled `.tgz` listing again contains every declared subchart. | Registry-side path mangling, OCI manifest rewriting. |
-| Always | `helm template` smoke render with default values produces non-trivial output; rendered manifests uploaded as workflow artifact for forensics. | Render-broken templates, schema violations, missing required values. |
+| When | Workflow | Guard | Failure mode caught |
+|---|---|---|---|
+| **Pre-merge (PR)** | `.github/workflows/check-chart-annotations.yaml` → `scripts/check-chart-annotations.sh` | For every changed `platform/*/chart/Chart.yaml` or `products/*/chart/Chart.yaml`: chart MUST EITHER declare a non-empty `dependencies:` block OR carry the annotation `catalyst.openova.io/no-upstream: "true"`. | The hollow shape itself, **before the chart version is dead-reserved by a failed publish.** Three real recurrences pre-2026-05-20 each needed a follow-up version-bump PR; pre-merge catches the violation while the version in `Chart.yaml` can still be edited in place. |
+| After `helm dependency build` | `.github/workflows/blueprint-release.yaml` GUARD 1 | Working-tree `chart/charts/<dep>-<ver>.tgz` (or unpacked `chart/charts/<dep>/Chart.yaml`) exists for every `dependencies:` entry. | Missing/wrong repo URL, dependency-build silently skipped a dep. |
+| After `helm package` | `.github/workflows/blueprint-release.yaml` GUARD 2 | `tar -tzf` listing of the produced `.tgz` contains `<chart_name>/charts/<dep>-<ver>.tgz` (or unpacked) for every `dependencies:` entry. | `.helmignore` mishap, packaging-time stripping. |
+| After `helm push` | `.github/workflows/blueprint-release.yaml` GUARD 3 | `helm pull` round-trips the artifact from GHCR; the pulled `.tgz` listing again contains every declared subchart. | Registry-side path mangling, OCI manifest rewriting. |
+| Always | `.github/workflows/blueprint-release.yaml` smoke | `helm template` smoke render with default values produces non-trivial output; rendered manifests uploaded as workflow artifact for forensics. | Render-broken templates, schema violations, missing required values. |
 
 **Any single guard failing fails the whole publish job.** A hollow Blueprint can never reach a Sovereign through the sanctioned CI path.
 
