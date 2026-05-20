@@ -19,6 +19,22 @@ export interface CartState {
   // controller consumes to materialize a Sandbox CR with the matching
   // spec.agentCatalogue. Empty when Sandbox isn't in the cart.
   agents: string[];
+  // TBD-V18-D follow-up to PR #2038 — per-app config values keyed by
+  // the marketplace app SLUG (NOT id, so the persisted cart survives a
+  // catalog id reshuffle). Shape per slug is the dict of
+  // `ConfigField.key` → user-chosen value, matching the ConfigField
+  // schema declared by the catalog. Threaded into the install POST
+  // body (createTenant → /tenant/orgs) under the `app_configs`
+  // sibling field. Empty record when no app exposes a configSchema
+  // (e.g. cart is Sandbox-only, or all picks are Ghost/Nextcloud which
+  // ship empty schemas today).
+  //
+  // Independent of TBD-V26 (#2040): this wires the SHAPE end-to-end;
+  // the backend HelmRelease consumption is gated on Path A/B of
+  // TBD-V26 and lives in its own track. The shape is correct today so
+  // that flipping the Path A/B switch lights up the form values
+  // without a second frontend round-trip.
+  appConfigs: Record<string, Record<string, number | string | boolean>>;
 }
 
 const STORAGE_KEY = 'sme-cart';
@@ -38,6 +54,7 @@ const defaultCart: CartState = {
   tld: DEFAULT_TLD,
   email: '',
   agents: [],
+  appConfigs: {},
 };
 
 // The 6 agents the Sandbox CRD (sandbox.openova.io/v1) accepts in
@@ -117,6 +134,24 @@ export function setOrgDetails(orgName: string, subdomain: string, email: string)
 export function setTLD(tld: string): CartState {
   const cart = readCart();
   cart.tld = tld;
+  writeCart(cart);
+  return cart;
+}
+
+// setAppConfig stores the customer-chosen configSchema field values
+// for a single app, keyed by the app's marketplace SLUG. Called by
+// AppDetail.svelte whenever the user mutates any field in the rendered
+// ConfigField form — Svelte's reactive update fires this so the cart
+// always reflects the on-screen state. Empty `values` is a legitimate
+// signal that the operator wiped the form; we keep the slot present
+// rather than deleting it so the install-POST shape stays stable. See
+// TBD-V18-D follow-up to PR #2038.
+export function setAppConfig(
+  appSlug: string,
+  values: Record<string, number | string | boolean>,
+): CartState {
+  const cart = readCart();
+  cart.appConfigs = { ...(cart.appConfigs || {}), [appSlug]: { ...values } };
   writeCart(cart);
   return cart;
 }

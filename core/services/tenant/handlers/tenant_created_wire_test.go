@@ -47,6 +47,11 @@ type consumerPayloadMirror struct {
 	Tier         string `json:"tier,omitempty"`
 	BillingMode  string `json:"billing_mode,omitempty"`
 	ParentDomain string `json:"parent_domain,omitempty"`
+	// TBD-V18-D follow-up to PR #2038 — the per-instance configSchema
+	// values bubble through the publisher wrapper via the embedded
+	// *store.Tenant. A consumer that wants to honour them adds this
+	// field with a matching tag — see TBD-V26 #2040 Path A/B.
+	AppConfigs map[string]map[string]any `json:"app_configs,omitempty"`
 }
 
 func TestTenantCreatedWire_PublisherToConsumer_RoundTrip(t *testing.T) {
@@ -146,5 +151,105 @@ func TestTenantCreatedWire_EmptyEmailOmitted_StillDecodes(t *testing.T) {
 	// failure with the tenant id/slug in scope.
 	if got.ID != "tenant-abc" || got.Slug != "acme" {
 		t.Errorf("non-email fields lost on empty-email wire: id=%q slug=%q", got.ID, got.Slug)
+	}
+}
+
+// TestTenantCreatedWire_AppConfigs_RoundTrip — TBD-V18-D follow-up to
+// PR #2038. The publisher wrapper embeds *store.Tenant; the AppConfigs
+// field (json tag `app_configs`) MUST round-trip into the consumer's
+// flat decode shape so a downstream HelmRelease-values binding can
+// read replicas / disk_gb / backups_enabled without a second hop.
+// A regression that drops the bson/json tag, renames the field, or
+// wraps the Tenant in a nested key would fail here before reaching
+// staging.
+func TestTenantCreatedWire_AppConfigs_RoundTrip(t *testing.T) {
+	tenant := &store.Tenant{
+		ID:        "tenant-abc",
+		Slug:      "acme",
+		Name:      "ACME Corp",
+		OwnerID:   "user-xyz",
+		PlanID:    "sme-pool-basic",
+		Apps:      []string{"wordpress", "postgres"},
+		Status:    "provisioning",
+		Subdomain: "acme",
+		AppConfigs: map[string]map[string]any{
+			"postgres": {
+				"replicas":        float64(3),
+				"disk_gb":         float64(50),
+				"backups_enabled": true,
+			},
+			"wordpress": {
+				"replicas": float64(2),
+			},
+		},
+	}
+	tenantCreatedPayload := struct {
+		*store.Tenant
+		OwnerEmail string `json:"owner_email,omitempty"`
+	}{Tenant: tenant, OwnerEmail: "owner@example.com"}
+
+	wire, err := json.Marshal(tenantCreatedPayload)
+	if err != nil {
+		t.Fatalf("publisher marshal failed: %v", err)
+	}
+
+	if !strings.Contains(string(wire), `"app_configs"`) {
+		t.Errorf("wire bytes missing app_configs sibling: %s", string(wire))
+	}
+
+	var got consumerPayloadMirror
+	if err := json.Unmarshal(wire, &got); err != nil {
+		t.Fatalf("consumer decode failed: %v\nwire=%s", err, string(wire))
+	}
+	if got.AppConfigs == nil {
+		t.Fatalf("app_configs nil on consumer side; wire=%s", string(wire))
+	}
+	pg := got.AppConfigs["postgres"]
+	if pg == nil {
+		t.Fatalf("postgres bucket missing from app_configs; got=%+v", got.AppConfigs)
+	}
+	// JSON numbers decode as float64 into `any`; equality compares the
+	// canonical decoded shape, not the publisher's int literal.
+	if pg["replicas"] != float64(3) {
+		t.Errorf("postgres.replicas: got %v (%T) want 3 (float64)", pg["replicas"], pg["replicas"])
+	}
+	if pg["disk_gb"] != float64(50) {
+		t.Errorf("postgres.disk_gb: got %v want 50", pg["disk_gb"])
+	}
+	if pg["backups_enabled"] != true {
+		t.Errorf("postgres.backups_enabled: got %v want true", pg["backups_enabled"])
+	}
+	wp := got.AppConfigs["wordpress"]
+	if wp == nil || wp["replicas"] != float64(2) {
+		t.Errorf("wordpress.replicas lost; got=%+v", wp)
+	}
+}
+
+// TestTenantCreatedWire_EmptyAppConfigs_Omitted — omitempty tag drops
+// an empty `app_configs` field so legacy clients keep observing the
+// pre-TBD-V18-D wire shape. The consumer's flat decode tolerates the
+// absence: app_configs == nil is a legitimate signal that the
+// customer never opened an AppDetail surface with a non-empty
+// configSchema.
+func TestTenantCreatedWire_EmptyAppConfigs_Omitted(t *testing.T) {
+	tenant := &store.Tenant{
+		ID:      "tenant-abc",
+		Slug:    "acme",
+		Name:    "ACME Corp",
+		OwnerID: "user-xyz",
+		PlanID:  "sme-pool-basic",
+		// AppConfigs deliberately nil.
+	}
+	tenantCreatedPayload := struct {
+		*store.Tenant
+		OwnerEmail string `json:"owner_email,omitempty"`
+	}{Tenant: tenant, OwnerEmail: "owner@example.com"}
+
+	wire, err := json.Marshal(tenantCreatedPayload)
+	if err != nil {
+		t.Fatalf("publisher marshal failed: %v", err)
+	}
+	if strings.Contains(string(wire), `"app_configs"`) {
+		t.Errorf("expected omitempty to drop nil app_configs, but field present: %s", string(wire))
 	}
 }

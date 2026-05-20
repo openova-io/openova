@@ -351,8 +351,10 @@ export interface App {
   // TBD-V18 (#2026) — per-instance tunables (replicas / disk / backup
   // for Postgres-backed bundles, replicas / persistence for Redis,
   // etc.). Empty array when the catalog has no tunables for this app.
-  // Threading the customer's chosen values into the install payload is
-  // a follow-up — see CartState extension TODO in cart.ts.
+  // The customer's chosen values are persisted to
+  // `CartState.appConfigs[slug]` (see cart.ts::setAppConfig) and
+  // threaded into the install POST as `CreateTenantRequest.app_configs`
+  // (TBD-V18-D follow-up to PR #2038).
   configSchema?: ConfigField[];
 }
 
@@ -433,6 +435,14 @@ export interface CreateTenantRequest {
   // matching spec.agentCatalogue. Optional so legacy clients keep
   // working unchanged.
   agents?: string[];
+  // TBD-V18-D follow-up to PR #2038 — per-instance configSchema
+  // values, keyed by app slug. Optional so legacy clients (older cart
+  // shape, machine-to-machine callers) keep working unchanged. Wire
+  // mirror of `store.Tenant.AppConfigs` (bson:"app_configs"). The
+  // backend tenant-service decodes via the same JSON tag and
+  // round-trips on the `tenant.created` event payload — see
+  // `tenant_created_wire_test.go`.
+  app_configs?: Record<string, Record<string, number | string | boolean>>;
 }
 
 export interface Tenant {
