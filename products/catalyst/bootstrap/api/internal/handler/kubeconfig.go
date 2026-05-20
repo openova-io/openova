@@ -189,6 +189,27 @@ func (h *Handler) GetKubeconfig(w http.ResponseWriter, r *http.Request) {
 				h.log.Info("kubeconfig per-region resolved via slot-suffix glob",
 					"id", id, "region", region, "matchedPath", path, "candidates", len(matches),
 				)
+			} else if region == dep.Request.Region {
+				// Issue #1882: PutKubeconfig stores the primary at
+				// bare `<id>.yaml` (no region suffix) while secondaries
+				// land at `<id>-<region>.yaml` (or the slot-suffixed
+				// `<id>-<region>-<i>.yaml` from cloud-init/handover).
+				// When the operator queries `?region=<X>` where X is
+				// the primary's cloudRegion (mirrored from
+				// Regions[0].CloudRegion into Request.Region by
+				// Validate() at provisioner.go:511), neither the exact
+				// match nor the glob hits — but the primary kubeconfig
+				// DOES exist at bare `<id>.yaml`. Resolve to the
+				// primary path stamped on Result.KubeconfigPath rather
+				// than 409'ing on what is structurally a valid query.
+				dep.mu.Lock()
+				if dep.Result != nil && dep.Result.KubeconfigPath != "" {
+					path = dep.Result.KubeconfigPath
+				}
+				dep.mu.Unlock()
+				h.log.Info("kubeconfig per-region resolved via primary-region fallback to bare path",
+					"id", id, "region", region, "matchedPath", path,
+				)
 			}
 		}
 	}

@@ -1186,3 +1186,94 @@ func TestGetKubeconfig_PerRegion_SlotSuffixGlobFallback(t *testing.T) {
 		}
 	})
 }
+
+// Issue #1882 — GET /kubeconfig?region=<primary-cloudRegion> must
+// resolve to the primary kubeconfig stored at bare `<id>.yaml`.
+//
+// Before the fix the resolver only looked at:
+//
+//	1. <id>-<region>.yaml exact match
+//	2. <id>-<region>-*.yaml glob (cloud-init slot-suffix shape)
+//
+// Both miss the primary file, which PutKubeconfig writes at the bare
+// `<id>.yaml` path (kubeconfig.go:583-587). When the operator queried
+// the primary's cloudRegion (e.g. `?region=hel1` where the primary's
+// Regions[0].CloudRegion is "hel1") the handler 409'd even though the
+// primary kubeconfig DID exist on disk. The fix adds a third
+// resolution step: when `region == dep.Request.Region` AND neither
+// exact nor glob matched, fall through to the bare `<id>.yaml` path
+// stamped on Result.KubeconfigPath.
+//
+// This test asserts the new fallback resolves a primary-region query
+// to 200 with the bare-path file's body, exercising the exact
+// scenario the issue reported.
+func TestGetKubeconfig_PerRegion_PrimaryRegionResolvesViaBarePath(t *testing.T) {
+	kubeconfigsDir := t.TempDir()
+	deploymentsDir := t.TempDir()
+	st, _ := store.New(deploymentsDir)
+	h := NewWithStoreAndKubeconfigsDir(silentLogger(), &fakePDM{}, st, kubeconfigsDir)
+
+	id := "i1882-primary-region-fallback"
+	primaryRegion := "hel1"
+
+	// PutKubeconfig writes the primary at bare `<id>.yaml`. Replicate
+	// that here so the test exercises the exact on-disk shape the PUT
+	// path produces (kubeconfig.go:583 → filename = id + ".yaml").
+	primaryPath := filepath.Join(kubeconfigsDir, id+".yaml")
+	if err := os.WriteFile(primaryPath, []byte(validKubeconfigYAML), 0o600); err != nil {
+		t.Fatalf("write primary file: %v", err)
+	}
+
+	dep := &Deployment{
+		ID:        id,
+		Status:    "ready",
+		StartedAt: time.Now(),
+		eventsCh:  make(chan provisioner.Event, 256),
+		done:      make(chan struct{}),
+		Request: provisioner.Request{
+			SovereignFQDN: "test." + id + ".example",
+			// Request.Region mirrors Regions[0].CloudRegion per
+			// provisioner.Validate() (provisioner.go:511). The fix
+			// keys the bare-path fallback on this field.
+			Region: primaryRegion,
+		},
+		Result: &provisioner.Result{
+			SovereignFQDN:  "test." + id + ".example",
+			KubeconfigPath: primaryPath,
+		},
+	}
+	h.deployments.Store(id, dep)
+
+	// GET with `?region=<primary-region>` must succeed via the bare-
+	// path fallback. Pre-fix this returned 409 kubeconfig-file-missing.
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet,
+		"/api/v1/deployments/"+id+"/kubeconfig?region="+primaryRegion, nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", id)
+	r = r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
+	h.GetKubeconfig(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "TEST-CA-MARKER") {
+		t.Errorf("served body missing TEST-CA-MARKER:\n%s", w.Body.String())
+	}
+
+	// Regression guard: a region that does NOT match the primary AND
+	// has no exact/glob match still 409s. The new fallback only fires
+	// when `region == dep.Request.Region`; an unknown region must NOT
+	// silently resolve to the primary's bare path (that would be a
+	// classic "wrong region returns primary by accident" bug).
+	w2 := httptest.NewRecorder()
+	r2 := httptest.NewRequest(http.MethodGet,
+		"/api/v1/deployments/"+id+"/kubeconfig?region=does-not-exist", nil)
+	rctx2 := chi.NewRouteContext()
+	rctx2.URLParams.Add("id", id)
+	r2 = r2.WithContext(context.WithValue(r2.Context(), chi.RouteCtxKey, rctx2))
+	h.GetKubeconfig(w2, r2)
+	if w2.Code != http.StatusConflict {
+		t.Fatalf("unknown-region status = %d, want 409; body=%s", w2.Code, w2.Body.String())
+	}
+}
