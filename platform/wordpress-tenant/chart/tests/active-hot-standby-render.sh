@@ -151,6 +151,8 @@ for c in clusters:
         mesh_anno = anno.get("service.cilium.io/global", "")
     pg_params = ((spec.get("postgresql") or {}).get("parameters") or {})
     has_hot_standby = "hot_standby" in pg_params
+    sync_commit = pg_params.get("synchronous_commit", "")
+    sync_standby = pg_params.get("synchronous_standby_names", "")
     affinity_regions = []
     aff = (spec.get("affinity") or {}).get("nodeAffinity") or {}
     rdsi = (aff.get("requiredDuringSchedulingIgnoredDuringExecution") or {})
@@ -171,6 +173,8 @@ for c in clusters:
     print(f"EXT_HOST={ext_host}")
     print(f"MESH_ANNO={mesh_anno}")
     print(f"HAS_HOT_STANDBY={has_hot_standby}")
+    print(f"SYNC_COMMIT={sync_commit}")
+    print(f"SYNC_STANDBY={sync_standby}")
 PYEOF
 then
   echo "FAIL: enabled render output failed to parse as YAML" >&2
@@ -229,6 +233,21 @@ grep -q '^MESH_ANNO=true$' "$TMP/primary-facts" || {
 }
 grep -q '^HAS_INITDB=True$' "$TMP/primary-facts" || {
   echo "FAIL: primary Cluster missing bootstrap.initdb." >&2
+  cat "$TMP/primary-facts" >&2
+  exit 1
+}
+# Pillar 3 (chart 0.3.2): synchronous replication MUST be the default
+# on the primary when database.mode=active-hot-standby. The primary's
+# postgresql.parameters block carries:
+#   synchronous_commit: "remote_apply"
+#   synchronous_standby_names: "FIRST 1 (wordpress-db-replica)"
+grep -q '^SYNC_COMMIT=remote_apply$' "$TMP/primary-facts" || {
+  echo "FAIL: primary Cluster missing synchronous_commit=remote_apply (Pillar 3 zero-tx-loss default)." >&2
+  cat "$TMP/primary-facts" >&2
+  exit 1
+}
+grep -q '^SYNC_STANDBY=FIRST 1 (wordpress-db-replica)$' "$TMP/primary-facts" || {
+  echo "FAIL: primary Cluster missing synchronous_standby_names=FIRST 1 (wordpress-db-replica)." >&2
   cat "$TMP/primary-facts" >&2
   exit 1
 }
@@ -350,6 +369,29 @@ fi
 if ! grep -q '^MESH_ANNOS=0$' "$TMP/nomesh-summary"; then
   echo "FAIL: clusterMesh disabled but service.cilium.io/global annotation still rendered." >&2
   cat "$TMP/nomesh-summary" >&2
+  exit 1
+fi
+echo "  PASS"
+
+# ── Case 6: replication.mode=async omits synchronous_* parameters ─
+# Chart 0.3.2: the synchronous block exists ONLY when mode=sync.
+# Forensic / lab overlays opting into async MUST get a primary
+# Cluster CR with no synchronous_commit / synchronous_standby_names
+# entries (PG falls back to defaults).
+echo "[d31-render] Case 6: replication.mode=async omits synchronous_* parameters"
+helm template smoke-wp . "${COMMON_SET[@]}" "${API_VERSIONS[@]}" \
+  --set "pg.activeHotStandby.enabled=true" \
+  --set "pg.activeHotStandby.primaryRegion=hz-fsn-rtz-prod" \
+  --set "pg.activeHotStandby.replicaRegion=hz-hel-rtz-prod" \
+  --set "pg.activeHotStandby.replication.mode=async" \
+  > "$TMP/async.yaml" 2> "$TMP/async.err" || {
+  echo "FAIL: async-mode render errored:" >&2
+  cat "$TMP/async.err" >&2
+  exit 1
+}
+if grep -q "synchronous_commit\|synchronous_standby_names" "$TMP/async.yaml"; then
+  echo "FAIL: replication.mode=async leaked synchronous_* parameters into the manifest." >&2
+  grep -nE "synchronous_(commit|standby_names)" "$TMP/async.yaml" >&2
   exit 1
 fi
 echo "  PASS"

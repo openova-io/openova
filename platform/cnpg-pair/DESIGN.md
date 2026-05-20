@@ -63,8 +63,13 @@ Why 30s default:
 - Bank-tier RPO target per `docs/EPICS-1-6-unified-design.md` §9.6
   is "<5s write disruption" on operator-initiated switchover.
   Pre-checking lag <30s before switchover gives a 25s safety margin.
-- For sub-second-RPO scenarios (synchronous_commit), a future
-  Blueprint will lower this default — out of scope here.
+- For zero-RPO (synchronous_commit=remote_apply) — chart 0.1.2 SHIPS
+  this as the default replication mode (`replication.mode: sync`,
+  see §7 below). With sync mode the primary's COMMIT blocks until
+  the replica has REPLAYED the WAL, so the replica's lag is bounded
+  by the round-trip time, not the streaming buffer — the 30s
+  threshold then guards against the replica being partitioned (sync
+  ACK never returns, primary blocks) or genuinely degraded.
 
 **Per-Application override** is exposed via configSchema; cluster
 overlays may bump or lower it.
@@ -132,6 +137,82 @@ exposed via a Catalyst MigrationJob CRD) will:
 This is OUT OF SCOPE for C-DB-1; documented here so the migration-
 slice author has the design context.
 
+### 7. Synchronous replication (Pillar 3 zero-transactions-lost)
+
+Canonical claim per `CLAUDE.md §0` (Pillar 3): two independent CNPG
+clusters with ReplicaCluster sync over Cilium ClusterMesh + region-
+kill failover with **zero transactions lost**. Asynchronous-streaming
+replication CANNOT meet this claim — any in-flight transaction at
+primary-kill time is lost.
+
+Chart 0.1.2 ships synchronous replication as the **default** mode:
+
+| Knob | Default | Rendered into primary's `postgresql.parameters` |
+|---|---|---|
+| `replication.mode` | `sync` | (gates the block below) |
+| `replication.sync.commit` | `remote_apply` | `synchronous_commit: "remote_apply"` |
+| `replication.sync.numSync` | `1` | `synchronous_standby_names: "FIRST 1 (<replica-cluster-name>)"` |
+
+How the replica is identified to the primary: the replica's
+`externalClusters[].connectionParameters` opens a streaming
+replication connection whose `application_name` defaults to the
+replica Cluster CR's name (`<fullname>-replica`). PostgreSQL's
+`synchronous_standby_names` matcher then resolves the entry to the
+live walreceiver attached to that connection.
+
+#### Failure modes (documented for operators)
+
+1. **Replica unreachable / partitioned:** primary BLOCKS new
+   transactions on COMMIT until the replica's walreceiver returns
+   or the operator runs a break-glass downgrade
+   (`ALTER SYSTEM SET synchronous_standby_names = ''; SELECT
+   pg_reload_conf();`). This is by design — losing availability is
+   the price of zero-tx-loss durability. Continuum K-Cont-2's
+   switchover path treats a replica-down event as a "freeze writes
+   on primary" signal, not a "promote replica" signal (the replica
+   may be behind by more than `targetLagSeconds`).
+2. **Replica slow / WAL lag spike:** every COMMIT on the primary
+   waits for the replica's replay. On Hetzner FSN ↔ HEL (~10 ms
+   RTT) the per-commit latency is bounded by the round-trip plus
+   the replica's WAL replay time (typically <5 ms for small txs).
+   On geographically distant pairs (~100 ms RTT) every commit sees
+   that latency. Operators selecting such pairs MUST be aware of
+   the latency tax.
+3. **Async opt-out:** `replication.mode: async` exists for forensic
+   / lab use only; the rendered primary then omits both
+   `synchronous_commit` and `synchronous_standby_names` and falls
+   back to PostgreSQL's defaults (`synchronous_commit = on`, no
+   forced standbys). Production deployments MUST run `sync`.
+
+#### Why `remote_apply` (not `remote_write` or `on`)
+
+`remote_apply` requires the replica to have *replayed* the WAL
+before COMMIT returns — meaning a SELECT on the replica
+immediately after COMMIT will see the row. This is the bar required
+for Pillar 3: if the primary region dies one tick after a
+successful COMMIT, the replica already has the data visible and
+queryable. `remote_write` (replica received but didn't fsync) allows
+a replica-OS crash to lose the tx; `on` is local-fsync-only with no
+remote ordering guarantee. Operators MAY relax to `remote_write`
+via `replication.sync.commit: remote_write` if their fault model
+excludes simultaneous replica-OS crash, but the chart default is
+the strongest mode.
+
+#### Bookkeeping
+
+- Companion fix: bp-wordpress-tenant chart (which renders the same
+  pair pattern inline for tenant Postgres) carries the identical
+  synchronous block, guarded by the same `replication.mode` value
+  passed through from the Application spec.
+- Continuum K-Cont-2's switchover sequencer does NOT need to know
+  about the sync mode — it operates on the Cluster CR
+  `replica.enabled` flip; the WAL durability bar is held by the
+  primary's postgresql.conf alone.
+- Acceptance test (C-DB-3, deferred): the 1M-row + region-kill
+  assertion now becomes "count == 1_000_000 EXACTLY on the
+  promoted replica" (zero-tx-loss), no longer "within the
+  configured async-lag tolerance."
+
 ---
 
 ## Deferred — C-DB-3 acceptance test plan
@@ -162,9 +243,14 @@ shipped here. The future implementer's brief:
    auto-promote because the replica is in a different Cluster CR).
 4. **Continuum K-Cont-2 promotes** the replica via the
    replica.enabled flip.
-5. **Assert no data loss** within RPO: query the new primary,
-   assert count == 1_000_000 (no async-replication tail loss
-   beyond the configured `targetLagSeconds`).
+5. **Assert no data loss** (zero-tx-loss bar, chart 0.1.2+):
+   query the new primary, assert count == 1_000_000 EXACTLY.
+   Synchronous replication (`replication.mode: sync`,
+   `synchronous_commit: remote_apply`) guarantees every committed
+   tx is replayed on the replica before COMMIT returns; the
+   replica-promote path therefore loses zero transactions on
+   region-kill. (Async-mode runs of the same fixture document a
+   bounded tail loss; sync-mode runs do not.)
 6. **Restore the original region**, run the failback path
    (Continuum K-Cont-2 manual-approval gate), assert the original
    primary becomes the new replica.

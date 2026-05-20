@@ -76,6 +76,28 @@ spec:
       max_wal_senders: "10"
       max_replication_slots: "10"
       wal_level: "logical"
+      {{- /*
+      Synchronous replication (Pillar 3 zero-tx-loss).
+
+      `synchronous_commit = remote_apply` blocks the primary's COMMIT
+      until the replica has REPLAYED the WAL (strongest durability;
+      replica-side SELECTs see the row before COMMIT returns).
+
+      `synchronous_standby_names = FIRST 1 (<replica-cluster-name>)`
+      tells PostgreSQL to require an ACK from one standby connection
+      whose application_name matches the replica Cluster CR's name.
+      CNPG's externalCluster streaming connection from the replica
+      defaults application_name to the replica Cluster CR's name, so
+      this Just Works for the bp-cnpg-pair shape.
+
+      Mode "async" exists for forensic / lab use only; the rendered
+      manifest then omits both parameters and falls back to the
+      PostgreSQL default (synchronous_commit=on, no standbys forced).
+      */ -}}
+      {{- if eq (default "sync" .Values.cnpgPair.replication.mode) "sync" }}
+      synchronous_commit: {{ default "remote_apply" .Values.cnpgPair.replication.sync.commit | quote }}
+      synchronous_standby_names: {{ printf "FIRST %d (%s)" (int (default 1 .Values.cnpgPair.replication.sync.numSync)) (include "cnpg-pair.replicaName" .) | quote }}
+      {{- end }}
 
   # ── Replication-source Service (managed by CNPG, annotated for ──────
   #   Cilium ClusterMesh global routing) ──────────────────────────────
