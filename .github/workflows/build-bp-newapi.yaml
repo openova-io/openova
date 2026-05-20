@@ -150,26 +150,16 @@ jobs:
           echo "Chart.yaml: version ${current} -> ${next}, appVersion -> ${app_ver}"
           echo "CHART_NEW_VERSION=${next}" >> "$GITHUB_ENV"
 
+      # TBD-V32 / openova-io/openova#2062 — race-safe push via the shared
+      # composite action.
       - name: Commit and push chart bump
         id: deploy_commit
-        env:
-          UPSTREAM_VER: ${{ steps.vars.outputs.upstream_version }}
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add "${CHART_VALUES}" "${CHART_YAML}"
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-            echo "pushed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          git commit -m "deploy: bump bp-newapi upstream ${UPSTREAM_VER} chart ${CHART_NEW_VERSION}"
-          for i in 1 2 3; do
-            git push && break
-            git pull --rebase
-          done
-          echo "pushed=true" >> "$GITHUB_OUTPUT"
+        uses: ./.github/actions/deploy-bump
+        with:
+          paths: |
+            ${{ env.CHART_VALUES }}
+            ${{ env.CHART_YAML }}
+          commit-message: "deploy: bump bp-newapi upstream ${{ steps.vars.outputs.upstream_version }} chart ${{ env.CHART_NEW_VERSION }}"
 
       - name: Trigger blueprint-release for the chart bump
         if: steps.deploy_commit.outputs.pushed == 'true'

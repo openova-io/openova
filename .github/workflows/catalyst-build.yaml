@@ -476,31 +476,31 @@ jobs:
           # old image while the Sovereign provisioning churned through
           # the same SHA being fixed downstream).
 
+      # values.yaml + the two literal-image templates (api-deployment,
+      # ui-deployment) are bumped together so:
+      #   - Sovereigns get the new SHA via the next OCI chart publish
+      #     (blueprint-release fires below).
+      #   - contabo's Kustomize-path Flux reconciles the bumped literal
+      #     within 10 min.
+      # Both surfaces converge on the same SHA on every push.
+      #
+      # TBD-V32 / openova-io/openova#2062: the previous bare `git push`
+      # silently lost the deploy commit when a parallel build workflow
+      # raced this push. PR #2050 (V16 admin-token wiring) shipped the
+      # catalyst-api image to GHCR at 829474a but the values.yaml /
+      # template pins never landed because of this race. The
+      # `./.github/actions/deploy-bump` composite action centralises a
+      # 5-attempt `pull --rebase` retry loop so every deploy job
+      # converges instead of dropping the bump on the floor.
       - name: Commit and push manifest updates
         id: deploy_commit
-        env:
-          SHA_SHORT: ${{ needs.build-ui.outputs.sha_short }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          # values.yaml + the two literal-image templates (api-deployment,
-          # ui-deployment) are bumped together so:
-          #   - Sovereigns get the new SHA via the next OCI chart publish
-          #     (blueprint-release fires below).
-          #   - contabo's Kustomize-path Flux reconciles the bumped literal
-          #     within 10 min.
-          # Both surfaces converge on the same SHA on every push.
-          git add products/catalyst/chart/values.yaml \
-                  products/catalyst/chart/templates/api-deployment.yaml \
-                  products/catalyst/chart/templates/ui-deployment.yaml
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-            echo "pushed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          git commit -m "deploy: update catalyst images to ${SHA_SHORT}"
-          git push
-          echo "pushed=true" >> "$GITHUB_OUTPUT"
+        uses: ./.github/actions/deploy-bump
+        with:
+          paths: |
+            products/catalyst/chart/values.yaml
+            products/catalyst/chart/templates/api-deployment.yaml
+            products/catalyst/chart/templates/ui-deployment.yaml
+          commit-message: "deploy: update catalyst images to ${{ needs.build-ui.outputs.sha_short }}"
 
       # Closes #712. The push above is made by GITHUB_TOKEN; per GitHub
       # Actions design, commits authored by GITHUB_TOKEN do NOT re-trigger

@@ -176,25 +176,17 @@ jobs:
           echo "values.yaml after bump:"
           grep -A4 "^  application:" "${VALUES}" | head -10
 
+      # TBD-V32 / openova-io/openova#2062 — race-safe push via the shared
+      # composite action. The previous single `git pull --rebase
+      # --autostash` before the push only covered ONE race window;
+      # back-to-back commits between rebase and push still lost the bump.
       - name: Commit and push values.yaml bump
         id: deploy_commit
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-        env:
-          SHA_SHORT: ${{ steps.vars.outputs.sha_short }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet products/catalyst/chart/values.yaml; then
-            echo "no values.yaml change — already pinned to ${SHA_SHORT}"
-            echo "pushed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          git add products/catalyst/chart/values.yaml
-          git commit -m "deploy: bump application-controller image to ${SHA_SHORT}"
-          # Pull-rebase to avoid races with parallel build commits.
-          git pull --rebase --autostash origin main || true
-          git push origin HEAD:main
-          echo "pushed=true" >> "$GITHUB_OUTPUT"
+        uses: ./.github/actions/deploy-bump
+        with:
+          paths: products/catalyst/chart/values.yaml
+          commit-message: "deploy: bump application-controller image to ${{ steps.vars.outputs.sha_short }}"
 
       # GitHub Actions does NOT trigger workflows from bot pushes by
       # default (anti-recursion safeguard). The bot commit above changes

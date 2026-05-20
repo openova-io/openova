@@ -227,7 +227,18 @@ jobs:
           NEXT="${{ steps.rewrite.outputs.next_version }}"
           git commit -m "deploy: update sme service images to ${SHA} + bump chart to ${NEXT}"
 
-          for i in 1 2 3; do
+          # TBD-V32 / openova-io/openova#2062 — race-safe push loop.
+          # NOTE: this workflow deliberately does NOT use the shared
+          # `./.github/actions/deploy-bump` composite action. The rewrite
+          # closure above bumps the chart semver `patch` segment on every
+          # iteration so a rebased push lands at chart `vN.M.P+2` instead
+          # of `+1` — that re-bump only happens correctly inside this
+          # inline loop because the composite action treats files as
+          # opaque and would replay the SAME staged diff on every retry,
+          # which would lose to the parallel run that bumped the same
+          # patch number first. Bumping the max-attempts ceiling from 3
+          # to 5 matches the composite action default.
+          for i in 1 2 3 4 5; do
             if git push; then
               echo "pushed=true" >> "$GITHUB_OUTPUT"
               echo "next_version=${NEXT}" >> "$GITHUB_OUTPUT"
@@ -244,8 +255,9 @@ jobs:
               exit 0
             fi
             git commit -m "deploy: update sme service images to ${SHA} + bump chart to ${NEXT}"
+            sleep $((i * 2))
           done
-          echo "push failed after 3 attempts"
+          echo "push failed after 5 attempts"
           exit 1
 
       # GITHUB_TOKEN-authored pushes do NOT re-trigger workflows by

@@ -62,13 +62,11 @@ jobs:
           echo "Updated manifest to SHA ${SHA_SHORT}:"
           grep "image:" "${DEPLOY_DIR}/deployment.yaml"
 
+      # TBD-V32 / openova-io/openova#2062 — race-safe push via the shared
+      # composite action so concurrent build workflows do not lose the
+      # auto-bump commit to `[rejected] main -> main (fetch first)`.
       - name: Commit and push manifest updates
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add products/
-          git diff --staged --quiet && echo "No changes to commit" && exit 0
-          git commit -m "deploy: update Catalyst marketplace-api image to ${SHA_SHORT}"
-          git push
-        env:
-          SHA_SHORT: ${{ needs.build.outputs.sha_short }}
+        uses: ./.github/actions/deploy-bump
+        with:
+          paths: products/catalyst/chart/templates/marketplace-api/deployment.yaml
+          commit-message: "deploy: update Catalyst marketplace-api image to ${{ needs.build.outputs.sha_short }}"

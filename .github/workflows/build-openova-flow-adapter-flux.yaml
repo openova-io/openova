@@ -144,24 +144,15 @@ jobs:
           echo "values.yaml after bump:"
           grep -A1 "^  image:" "${VALUES}" | head -6
 
+      # TBD-V32 / openova-io/openova#2062 — race-safe push via the shared
+      # composite action.
       - name: Commit and push values.yaml bump
         id: deploy_commit
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-        env:
-          SHA_SHORT: ${{ steps.vars.outputs.sha_short }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet platform/openova-flow-emitter/chart/values.yaml; then
-            echo "no values.yaml change — already pinned to ${SHA_SHORT}"
-            echo "pushed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          git add platform/openova-flow-emitter/chart/values.yaml
-          git commit -m "chore(deploy): bump openova-flow-adapter-flux image to ${SHA_SHORT} [skip ci]"
-          git pull --rebase --autostash origin main || true
-          git push origin HEAD:main
-          echo "pushed=true" >> "$GITHUB_OUTPUT"
+        uses: ./.github/actions/deploy-bump
+        with:
+          paths: platform/openova-flow-emitter/chart/values.yaml
+          commit-message: "chore(deploy): bump openova-flow-adapter-flux image to ${{ steps.vars.outputs.sha_short }} [skip ci]"
 
       - name: Dispatch blueprint-release for chart re-publish
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && steps.deploy_commit.outputs.pushed == 'true'

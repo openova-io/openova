@@ -61,15 +61,10 @@ jobs:
             echo "Updated marketplace to SHA ${SHA}"
           fi
 
+      # TBD-V32 / openova-io/openova#2062 — race-safe push via the shared
+      # composite action.
       - name: Commit and push
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          SHA=$(echo $GITHUB_SHA | head -c 7)
-          git add products/
-          git diff --staged --quiet && echo "No changes" && exit 0
-          git commit -m "deploy: update Catalyst marketplace image to ${SHA}"
-          for i in 1 2 3; do
-            git push && break
-            git pull --rebase
-          done
+        uses: ./.github/actions/deploy-bump
+        with:
+          paths: products/catalyst/chart/templates/sme-services/marketplace.yaml
+          commit-message: "deploy: update Catalyst marketplace image to ${{ needs.build.outputs.sha_short }}"
