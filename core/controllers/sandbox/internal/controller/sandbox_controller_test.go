@@ -1061,6 +1061,71 @@ func TestReconcile_NewAPI_CapabilitiesSpecOverride(t *testing.T) {
 	}
 }
 
+// TBD-V22 #1986 F1 (2026-05-20) — verify the SANDBOX_RING_BUFFER_BYTES
+// env var is emitted on the per-Sandbox pty-server StatefulSet ONLY when
+// the controller has a non-zero RingBufferBytes (sourced from
+// SANDBOX_RING_BUFFER_BYTES on the controller's own env, see
+// cmd/sandbox-controller/main.go). Zero ⇒ omit (pty-server falls back
+// to its own session.DefaultRingBytes). Non-zero ⇒ stamp the value as
+// the env var so the pty-server's LoadDefaultRingBytesFromEnv consumes
+// it at startup.
+func TestReconcile_RingBufferBytes_OmittedWhenZero(t *testing.T) {
+	t.Parallel()
+	sb := sampleSandbox()
+	r, gs := makeReconciler(t, sb)
+	// r.RingBufferBytes defaults to 0 in makeReconciler.
+
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: sb.Name, Namespace: sb.Namespace},
+	}); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	prefix := "acme/catalyst-tenant/sandbox/ceo-at-acme-com/"
+	gs.mu.Lock()
+	entry, ok := gs.files[prefix+"statefulset-pty-server.yaml"]
+	gs.mu.Unlock()
+	if !ok {
+		t.Fatalf("expected rendered statefulset-pty-server.yaml")
+	}
+	ss := string(entry.content)
+	if strings.Contains(ss, "SANDBOX_RING_BUFFER_BYTES") {
+		t.Errorf("expected NO SANDBOX_RING_BUFFER_BYTES env var when RingBufferBytes=0; got rendered output:\n%s", ss)
+	}
+}
+
+func TestReconcile_RingBufferBytes_EmittedWhenNonZero(t *testing.T) {
+	t.Parallel()
+	sb := sampleSandbox()
+	r, gs := makeReconciler(t, sb)
+	// 2 MiB — distinct from the pty-server's default (1 MiB) so the
+	// emitted value is unambiguously the controller's, not a noop default.
+	r.RingBufferBytes = 2 << 20 // 2097152
+
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: sb.Name, Namespace: sb.Namespace},
+	}); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	prefix := "acme/catalyst-tenant/sandbox/ceo-at-acme-com/"
+	gs.mu.Lock()
+	entry, ok := gs.files[prefix+"statefulset-pty-server.yaml"]
+	gs.mu.Unlock()
+	if !ok {
+		t.Fatalf("expected rendered statefulset-pty-server.yaml")
+	}
+	ss := string(entry.content)
+	for _, want := range []string{
+		"- name: SANDBOX_RING_BUFFER_BYTES",
+		`value: "2097152"`,
+	} {
+		if !strings.Contains(ss, want) {
+			t.Errorf("statefulset-pty-server.yaml missing %q", want)
+		}
+	}
+}
+
 func gsKeys(gs *giteaServer) []string {
 	gs.mu.Lock()
 	defer gs.mu.Unlock()

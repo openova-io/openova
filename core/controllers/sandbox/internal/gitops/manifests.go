@@ -61,6 +61,17 @@ type Inputs struct {
 	PreviewDomain         string
 	AgentCatalogue        []string
 	PtyServerImage        string
+	// RingBufferBytes is the replay-buffer size in bytes the controller
+	// stamps into the pty-server StatefulSet via the
+	// SANDBOX_RING_BUFFER_BYTES env var. The pty-server reads it on
+	// process start and applies to every newly-spawned PTY session.
+	// Zero ⇒ omit the env var (pty-server falls back to its
+	// session.DefaultRingBytes — currently 1 MiB). TBD-V22 #1986 F1
+	// (2026-05-20) — pre-fix the buffer was a hardcoded 256 KiB literal
+	// in pty-server with no upstream knob, defeating the multi-device
+	// "close laptop, open phone" replay claim in user-journey.md
+	// Scene 6 for any real coding-agent session.
+	RingBufferBytes       int
 	// MCPImage — DEPRECATED post TBD-P4 B2 (2026-05-20). The
 	// per-Sandbox MCP Deployment was removed; the openova-sandbox-mcp
 	// binary now ships inside the pty-server image and is launched
@@ -450,6 +461,17 @@ spec:
           env:
             - name: PTY_SERVER_ADDR
               value: ":7681"
+            # TBD-V22 #1986 F1 (2026-05-20) — replay ring buffer size
+            # consumed by pty-server's session.LoadDefaultRingBytesFromEnv.
+            # Zero/empty leaves the pty-server default intact (1 MiB).
+            # Operator overrides flow chart values → controller env →
+            # gitops.Inputs.RingBufferBytes → this var. Sized for the
+            # multi-device handoff path documented in
+            # products/sandbox/docs/user-journey.md Scene 6.
+            {{- if gt .RingBufferBytes 0 }}
+            - name: SANDBOX_RING_BUFFER_BYTES
+              value: {{ .RingBufferBytes | quote }}
+            {{- end }}
             - name: SANDBOX_OWNER_UID
               value: {{ .OwnerUID | quote }}
             - name: SANDBOX_OWNER_EMAIL
