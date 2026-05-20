@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-network-policies
-version: 1.0.0
+version: 1.0.1
 description: |
   Catalyst zero-trust default-deny CiliumClusterwideNetworkPolicy +
   allow-templates for control-plane namespaces, intra-namespace traffic,
@@ -11,3 +11,12 @@ keywords: [catalyst, blueprint, network-policy, cilium, zero-trust]
 maintainers:
   - name: OpenOva Catalyst
     email: catalyst@openova.io
+
+# Opt out of the hollow-chart guard (Blueprint-Release workflow / issue #181):
+# this chart legitimately ships only Catalyst-authored CRs (default-deny
+# CiliumClusterwideNetworkPolicy + allow-templates that target the
+# cilium.io CRDs installed by bp-cilium). It has NO upstream Helm
+# subchart to bundle. Same shape as bp-kyverno-policies (PR #2023) and
+# bp-continuum (PR #2081).
+annotations:
+  catalyst.openova.io/no-upstream: "true"
