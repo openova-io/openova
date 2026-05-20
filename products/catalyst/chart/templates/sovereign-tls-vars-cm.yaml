@@ -1,0 +1,154 @@
+{{- /*
+sovereign-tls-vars ConfigMap — Flux postBuild.substituteFrom source for
+the sovereign-tls Kustomization (clusters/_template/sovereign-tls/).
+
+Why this lives in the chart (Closes #2118)
+─────────────────────────────────────────
+The Cilium Gateway listeners block (cilium-gateway.yaml `spec.listeners:
+${PARENT_DOMAINS_LISTENERS_YAML}`) was previously materialised in
+infra/hetzner/main.tf (locals.parent_domains_listeners_yaml) and threaded
+into cloud-init as an inline `postBuild.substitute` value on the
+sovereign-tls Kustomization manifest.
+
+That value scales O(N) with the parent_domains count: ~440 bytes per
+parent zone (HTTPS+HTTP listener objects with cert refs + allowedRoutes)
+plus the per-prov 2-label wildcard pair (TBD-A32 #1886) when the
+sovereign FQDN is not itself one of the parent zones. For a 4-zone
+SME-pool Sovereign (primary + 3 sme-pool, e.g. omantel.biz + omani.{homes,
+rest,trade}) the value renders to ~2,210 bytes inside cloud-init — and
+Hetzner caps user_data at HARD 32 KiB. Cloud-init for t39's exact body
+overshot the post-#1985 guardrail (32,256) at 33,656 bytes (audit
+agent-a2c1647c, 2026-05-20).
+
+Fix: render the listener YAML inside the chart from .Values.parentZones
+(single source of truth — already populated by bootstrap-kit slot 13's
+`${PARENT_DOMAINS_YAML}` substitute). Emit it into a ConfigMap in
+flux-system/. The sovereign-tls Kustomization adds
+`postBuild.substituteFrom: [{kind: ConfigMap, name: sovereign-tls-vars,
+namespace: flux-system}]` and reads the value from there instead of an
+inline substitute key. The chart is INSIDE bootstrap-kit (slot 13);
+bootstrap-kit reaches Ready iff every HR (including this chart) is
+Ready; the sovereign-tls Kustomization `dependsOn: bootstrap-kit Ready`,
+so by the time sovereign-tls reconciles, this ConfigMap exists in etcd.
+
+Ordering is the same as the legacy cloud-init substitute path — Cilium
+Gateway always lands AFTER the chart's per-zone resources are committed.
+
+Catalyst-Zero (contabo, no global.sovereignFQDN, no sovereign-tls
+Kustomization) skips this template via the guard below so the contabo
+Kustomize build remains untouched.
+
+Listener-shape contract (must match locals.parent_domains_listeners_yaml
+in infra/hetzner/main.tf historically):
+  - SINGLE parent zone  → listener names are the bare strings
+                          `https` / `http` (every platform HTTPRoute
+                          hardcodes `parentRefs[0].sectionName: https`
+                          on single-zone Sovereigns).
+  - MULTIPLE parent zones (SME pool present) → unique names per zone:
+                          `https-<sanitised>` / `http-<sanitised>`
+                          where sanitised = zone.replace(".", "-").
+  - certificateRefs ALWAYS targets the per-prov per-name TLS Secret
+    `sovereign-wildcard-tls-<sovereignFQDN-dashed>` (TBD-A29 #1883 —
+    LE rate-limit bypass via per-prov identifier set).
+  - PER-PROV 2-label wildcard listener pair (TBD-A32 #1886) appended
+    when global.sovereignFQDN is NOT identical to any parent-zone name
+    (i.e. the operator did not bring the apex itself). Pair is hostnamed
+    `*.<sovereignFQDN>` so 2-label-deep operator endpoints
+    (`console.t39.omantel.biz`) match. Named `https-<fqdn-dashed>` /
+    `http-<fqdn-dashed>` so the parent-zone listener doesn't collide.
+
+The output value is a JSON-flow array string (YAML-compatible) consumed
+as a YAML scalar at `listeners: ${PARENT_DOMAINS_LISTENERS_YAML}` in
+clusters/_template/sovereign-tls/cilium-gateway.yaml. Flux's
+postBuild.substituteFrom inlines the value verbatim and the apiserver
+parses it as the materialised listener list.
+*/}}
+{{- if .Values.global.sovereignFQDN }}
+{{- $fqdn := .Values.global.sovereignFQDN }}
+{{- $fqdnDashed := replace "." "-" $fqdn }}
+{{- $secretName := printf "sovereign-wildcard-tls-%s" $fqdnDashed }}
+{{- $zones := default (list) .Values.parentZones }}
+{{- /* Single-zone fallback so legacy Sovereigns that ship parentZones
+       empty still produce a valid listener pair. Mirrors the same
+       fallback infra/hetzner/main.tf locals.parent_domains_decoded used
+       (single zone derived from sovereign FQDN, role=primary). */}}
+{{- if eq (len $zones) 0 }}
+{{-   $zones = list (dict "name" $fqdn "role" "primary") }}
+{{- end }}
+{{- $single := eq (len $zones) 1 }}
+{{- /* Build the listener array. We assemble a list of dicts then
+       toJson it; Go-template flow is verbose but unambiguous. */}}
+{{- $listeners := list }}
+{{- range $z := $zones }}
+{{-   $sanitised := replace "." "-" $z.name }}
+{{-   $httpsName := ternary "https" (printf "https-%s" $sanitised) $single }}
+{{-   $httpName := ternary "http" (printf "http-%s" $sanitised) $single }}
+{{-   $httpsListener := dict
+        "name" $httpsName
+        "port" 30443
+        "protocol" "HTTPS"
+        "hostname" (printf "*.%s" $z.name)
+        "tls" (dict
+          "mode" "Terminate"
+          "certificateRefs" (list (dict "kind" "Secret" "name" $secretName))
+        )
+        "allowedRoutes" (dict "namespaces" (dict "from" "All"))
+      }}
+{{-   $httpListener := dict
+        "name" $httpName
+        "port" 30080
+        "protocol" "HTTP"
+        "hostname" (printf "*.%s" $z.name)
+        "allowedRoutes" (dict "namespaces" (dict "from" "All"))
+      }}
+{{-   $listeners = append $listeners $httpsListener }}
+{{-   $listeners = append $listeners $httpListener }}
+{{- end }}
+{{- /* Per-prov 2-label wildcard pair (TBD-A32 #1886). Skipped when
+       sovereignFQDN is identical to a declared parent-zone name
+       (legacy single-zone-on-apex case — duplicate listener-name
+       guard). */}}
+{{- $fqdnInZones := false }}
+{{- range $z := $zones }}
+{{-   if eq $z.name $fqdn }}
+{{-     $fqdnInZones = true }}
+{{-   end }}
+{{- end }}
+{{- if not $fqdnInZones }}
+{{-   $listeners = append $listeners (dict
+        "name" (printf "https-%s" $fqdnDashed)
+        "port" 30443
+        "protocol" "HTTPS"
+        "hostname" (printf "*.%s" $fqdn)
+        "tls" (dict
+          "mode" "Terminate"
+          "certificateRefs" (list (dict "kind" "Secret" "name" $secretName))
+        )
+        "allowedRoutes" (dict "namespaces" (dict "from" "All"))
+      ) }}
+{{-   $listeners = append $listeners (dict
+        "name" (printf "http-%s" $fqdnDashed)
+        "port" 30080
+        "protocol" "HTTP"
+        "hostname" (printf "*.%s" $fqdn)
+        "allowedRoutes" (dict "namespaces" (dict "from" "All"))
+      ) }}
+{{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sovereign-tls-vars
+  namespace: flux-system
+  labels:
+    app.kubernetes.io/managed-by: helm
+    app.kubernetes.io/component: sovereign-tls-vars
+    catalyst.openova.io/sovereign: {{ $fqdn | quote }}
+data:
+  # PARENT_DOMAINS_LISTENERS_YAML — JSON-flow array literal of the
+  # Cilium Gateway listener block. Consumed by Flux postBuild.
+  # substituteFrom on the sovereign-tls Kustomization (cloud-init
+  # writes that Kustomization). See cilium-gateway.yaml `listeners:
+  # ${PARENT_DOMAINS_LISTENERS_YAML}` for the consumer.
+  PARENT_DOMAINS_LISTENERS_YAML: {{ toJson $listeners | quote }}
+{{- end }}

@@ -840,7 +840,13 @@ spec:
       # resource-detail page's k8s SSE subscription to include the
       # `event` kind so the EventsPanel surfaces live K8s Events
       # instead of perpetually rendering empty-state.
-      version: 1.4.231
+      # 1.4.232 — #2118 (TBD-V48): render Cilium Gateway listener YAML
+      # in the chart (templates/sovereign-tls-vars-cm.yaml) so cloud-init
+      # no longer carries the O(N)-per-parent-zone listener block.
+      # Removes ~2.1 KiB from cloud-init on 4-zone SME-pool Sovereigns
+      # (omantel.biz + .omani.{homes,rest,trade}); brings t39-class
+      # provisions back under Hetzner's 32 KiB user_data cap.
+      version: 1.4.232
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

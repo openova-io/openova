@@ -765,8 +765,9 @@ spec:
   # already use. sectionName is intentionally omitted so the HTTPRoute
   # attaches to every listener whose hostname matches "sandbox.<sov-fqdn>"
   # — currently the wildcard *.${SOVEREIGN_FQDN} HTTPS listener
-  # (https-<sov-fqdn-dashed>) per infra/hetzner/main.tf
-  # locals.parent_domains_listeners_yaml fallback path.
+  # (https-<sov-fqdn-dashed>) emitted by bp-catalyst-platform's
+  # templates/sovereign-tls-vars-cm.yaml per-prov listener pair (Closes
+  # #2118 / TBD-V48; formerly infra/hetzner/main.tf locals.per_prov_listeners).
   parentRefs:
     - name: cilium-gateway
       namespace: kube-system

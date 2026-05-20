@@ -577,18 +577,25 @@ func (h *Handler) AddParentDomain(w http.ResponseWriter, r *http.Request) {
 	// next-prov. For an ALREADY-RUNNING Sovereign, the Hetzner
 	// hcloud_server resource has no `ignore_changes = [user_data]`
 	// so a `tofu apply` from changed cloud-init would request a
-	// destructive server recreate — the operator workaround is to
-	// `kubectl patch kustomization sovereign-tls -n flux-system`
-	// on the live Sovereign and append the new zone to the
-	// `.spec.postBuild.substitute.PARENT_DOMAINS_LISTENERS_YAML`
-	// value. Long-term: add a Day-2 listener-patch step here that
-	// reaches into the Sovereign apiserver via the persisted
-	// kubeconfig (out of scope for the #1772 ship).
-	h.log.Info("parent-domain post-add: operator must patch live Sovereign Kustomization to surface listener for the new zone",
+	// destructive server recreate.
+	//
+	// Closes #2118 (TBD-V48) changed the Day-2 patch target. The
+	// listener YAML was historically inlined into cloud-init's
+	// .spec.postBuild.substitute.PARENT_DOMAINS_LISTENERS_YAML on
+	// the sovereign-tls Kustomization, so operators patched that
+	// field on the live Sovereign. The chart now renders the
+	// listener YAML into ConfigMap/sovereign-tls-vars in flux-system
+	// and the Kustomization reads via postBuild.substituteFrom; the
+	// live-Sovereign Day-2 patch target is therefore the ConfigMap's
+	// data.PARENT_DOMAINS_LISTENERS_YAML key, NOT the Kustomization's
+	// inline substitute map. Long-term: add a Day-2 ConfigMap-patch
+	// step here that reaches into the Sovereign apiserver via the
+	// persisted kubeconfig (out of scope for the #1772 ship).
+	h.log.Info("parent-domain post-add: operator must patch live Sovereign ConfigMap to surface listener for the new zone",
 		"domain", req.Name,
-		"target", "Kustomization/sovereign-tls in flux-system on Sovereign",
-		"field", ".spec.postBuild.substitute.PARENT_DOMAINS_LISTENERS_YAML",
-		"reason", "hcloud_server user_data is not ignored — tofu apply would recreate the server. Fresh provs already render the listener.",
+		"target", "ConfigMap/sovereign-tls-vars in flux-system on Sovereign",
+		"field", ".data.PARENT_DOMAINS_LISTENERS_YAML",
+		"reason", "hcloud_server user_data is not ignored — tofu apply would recreate the server. Fresh provs already render the listener via the chart.",
 	)
 	writeJSON(w, http.StatusCreated, ParentDomain{
 		Name:          name,

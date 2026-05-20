@@ -761,7 +761,9 @@ ingress:
       #
       # The Cilium Gateway template
       # (clusters/_template/sovereign-tls/cilium-gateway.yaml +
-      # infra/hetzner/main.tf locals.parent_domains_listeners_yaml)
+      # bp-catalyst-platform's templates/sovereign-tls-vars-cm.yaml
+      # — formerly infra/hetzner/main.tf locals.parent_domains_listeners_yaml
+      # before #2118 / TBD-V48 hoisted the render into the chart)
       # names HTTPS listeners as follows:
       #   - SINGLE parent zone → bare `https` / `http`
       #   - MULTIPLE parent zones (SME pool present) → unique
