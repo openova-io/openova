@@ -818,11 +818,20 @@ spec:
       # dropped. New endpoint GET /tenant/internal/tenants/{id}/app-configs
       # on tenant service for the billing lookup.
       #
+      # 1.4.229 — #1099 EPIC-4 Group A trust-recovery audit lockdown
+      # (2026-05-20, follow-up to PR #2059's Events fix). Audit
+      # verdict: YamlEditor + MetricsPanel + ResourceActions are
+      # ALREADY-LIT (each has its own REST data path + the backend
+      # handlers are wired in cmd/api/main.go). Ships UI integration
+      # tests that lock the mount points so a future refactor of
+      # ResourceDetailPage cannot silently re-introduce dark widgets.
+      # Refs #1099 (NOT Closes — operator walk required).
+      #
       # 1.4.228 — #1099 EPIC-4 Slice R4 follow-up: extend the
       # resource-detail page's k8s SSE subscription to include the
       # `event` kind so the EventsPanel surfaces live K8s Events
       # instead of perpetually rendering empty-state.
-      version: 1.4.228
+      version: 1.4.229
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

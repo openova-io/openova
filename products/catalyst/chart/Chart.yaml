@@ -2169,8 +2169,44 @@ name: bp-catalyst-platform
 # was already shipped on 1.4.197 (PR #1820 lineage); this completes
 # the data-layer side so the dropdown finally appears on multi-region
 # Sovereigns. Refs #1821, DoD D20.
-version: 1.4.228
-appVersion: 1.4.228
+# 1.4.229 — #1099 EPIC-4 Group A trust-recovery audit lockdown
+# (2026-05-20, follow-up to PR #2059's Events fix). Per the brief: after
+# PR #2059 lit EventsPanel by extending GRAPH_K8S_KINDS with `event`,
+# audit the 3 remaining Group A widgets (YamlEditor, MetricsPanel,
+# ResourceActions) for the same "dark widget" anti-pattern.
+#
+# Audit verdict: ALREADY-LIT for all 3.
+#   - YamlEditor receives `obj` from getResource REST (not from the
+#     useK8sCacheStream snapshot), backend wired at cmd/api/main.go:818,
+#     826, 833, 834; full validate/apply with flux→PR routing for
+#     managed-by=flux + direct apply for managed-by=manual.
+#   - MetricsPanel direct-REST via getResourceMetrics, backend wired at
+#     cmd/api/main.go:817; metrics-server + mimir clients with an
+#     operator-readable "Metrics unavailable" fallback when neither
+#     source is wired.
+#   - ResourceActions direct-REST via scale/restart/delete, backends
+#     wired at cmd/api/main.go:820/827/835; type-the-name confirmation
+#     modal already in place (no one-click delete).
+#
+# This bump ships UI integration tests that LOCK the mount points so a
+# future refactor of ResourceDetailPage cannot silently re-introduce
+# theater. Specifically:
+#   - Overview tab mounts ResourceActions (assert presence + scale/
+#     restart/delete buttons for a Deployment).
+#   - isTierAdmin=false produces resource-actions-disabled banner with
+#     all action buttons hidden — server gate remains authoritative.
+#   - Delete button opens the type-the-name confirmation modal with
+#     the commit button disabled until the name is typed exactly.
+#   - Metrics tab mounts MetricsPanel + fires the REST fetch (the dark
+#     anti-pattern would be no fetch firing on tab activation).
+#   - YAML tab mounts YamlEditor with a non-empty seeded textarea
+#     (the dark anti-pattern would be an empty textarea on a populated
+#     resource).
+#
+# Refs #1099 (NOT Closes — operator walk + screenshot is the DoD per
+# CLAUDE.md §0).
+version: 1.4.229
+appVersion: 1.4.229
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
 # TBD-A30). Pre-1.4.183 every catalyst-system HTTPRoute pinned
