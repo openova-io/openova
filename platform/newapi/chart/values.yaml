@@ -589,6 +589,17 @@ catalystIntegration:
   # the operator on a schedule documented in
   # docs/CATALYST-CLI-AGENT.md.
   existingSecret: "catalyst-newapi-admin-token"
+  # Comma-separated list of namespaces emberstack/reflector mirrors the
+  # rendered Secret into (TBD-V15 / #2021). Default `catalyst-system`
+  # is the canonical install namespace of bp-catalyst-platform's
+  # catalyst-api Deployment, which consumes ADMIN_API_TOKEN via
+  # secretKeyRef as CATALYST_NEWAPI_ADMIN_TOKEN to drive the ADR-0003
+  # §3.2 user-create hook. The Kubernetes secretKeyRef is same-
+  # namespace-only, so the reflector mirror is the canonical cross-
+  # namespace seam (same pattern as sme-secrets in the bp-catalyst-
+  # platform chart). Operator overlays MAY widen this list when other
+  # controllers in other namespaces need the same bearer locally.
+  reflectorNamespaces: "catalyst-system"
   # ExternalSecret render — gated, default true. Sources the admin token
   # from the operator's OpenBao via a ClusterSecretStore (default
   # `vault-region1`, the bp-external-secrets-stores default). The remote

@@ -627,6 +627,66 @@ spec:
                   name: sme-secrets
                   key: JWT_SECRET
                   optional: true
+            # ── NewAPI admin client (ADR-0003 §3.2, TBD-V15 / #2021) ─────
+            # CATALYST_NEWAPI_ADDR + CATALYST_NEWAPI_ADMIN_TOKEN feed the
+            # NewAPI admin-API client in
+            # products/catalyst/bootstrap/api/cmd/api/main.go around the
+            # `if addr != "" && token != ""` guard. Both env vars must
+            # land non-empty for the SME-user create hook (step 2:
+            # POST /api/v1/admin/users) to actually fire — when token
+            # is empty catalyst-api logs `CATALYST_NEWAPI_ADMIN_TOKEN
+            # unset; NewAPI hook step 2 will fail-closed` at startup
+            # and `POST /api/v1/sme/users` returns terminal
+            # `newapi client not wired`. Pre-fix BOTH envs were unset
+            # by default → the operator UsersPage `Add User` flow on
+            # `/console/sme/users` never actually provisioned an
+            # upstream NewAPI user, even though the surface returned
+            # 200 (with a sentinel error in LastError).
+            #
+            # CATALYST_NEWAPI_ADDR — canonical in-cluster Service URL.
+            # `newapi-bp-newapi` (NOT `newapi`) because the bp-newapi
+            # chart helper renders `<Release.Name>-<Chart.Name>` and
+            # bootstrap-kit slot 80 sets `releaseName: newapi` against
+            # chart `bp-newapi`. Same root cause as TBD-V14 / PR #2017
+            # which fixed the identical mistake in bp-sandbox's
+            # NEWAPI_BASE_URL default.
+            #
+            # LITERAL value (not Helm template directive) — dual-mode
+            # contract: this file is consumed by BOTH Helm AND Kustomize
+            # (contabo-mkt's clusters/contabo-mkt/apps/catalyst-platform).
+            # Helm directives in `value:` fields break the Kustomize
+            # build (`yaml: invalid map key`). Operator override path
+            # is the `catalystApi.env` additional-env patch on the
+            # per-Sovereign HelmRelease overlay (Helm-only codepath,
+            # takes precedence at template-render time).
+            - name: CATALYST_NEWAPI_ADDR
+              value: "http://newapi-bp-newapi.newapi.svc.cluster.local:3000"
+            # CATALYST_NEWAPI_ADMIN_TOKEN — admin bearer from the
+            # `catalyst-newapi-admin-token` Secret rendered by the
+            # bp-newapi chart's ExternalSecret (key ADMIN_API_TOKEN,
+            # source ClusterSecretStore `vault-region1`, OpenBao path
+            # `sovereign/<sovereign-fqdn>/newapi/admin-token`).
+            #
+            # Same cross-namespace pattern as `sme-secrets` above: the
+            # ExternalSecret lands the Secret in the `newapi` namespace
+            # (bp-newapi targetNamespace), and emberstack/reflector
+            # mirrors it into catalyst-system. The mirror annotations
+            # live on the bp-newapi-side ExternalSecret.target.template
+            # so the catalyst-system copy resolves the secretKeyRef
+            # below at Pod-start.
+            #
+            # optional: true — Sovereigns that haven't yet seeded the
+            # OpenBao path won't have the admin token materialised; in
+            # that case the env var lands empty, the main.go guard
+            # short-circuits, and `POST /api/v1/sme/users` surfaces
+            # `newapi client not wired` to the operator UI (intended
+            # fail-closed behaviour per ADR-0003 §3.2).
+            - name: CATALYST_NEWAPI_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: catalyst-newapi-admin-token
+                  key: ADMIN_API_TOKEN
+                  optional: true
             # KEYCLOAK_BOOTSTRAP_TIER_ROLES — EPIC-3 slice T2 (#1098/#1146).
             # When "true", a goroutine on catalyst-api startup calls
             # EnsureTierRealmRoles (internal/keycloak/realm_bootstrap.go)

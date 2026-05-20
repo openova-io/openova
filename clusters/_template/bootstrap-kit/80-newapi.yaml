@@ -9,7 +9,12 @@
 # Catalyst signup hook (delivered by unified-rbac in #802 against the
 # contract recorded in ADR-0003) reads the `catalyst-newapi-admin-token`
 # Secret rendered by this chart's ExternalSecret to issue per-user API
-# keys against NewAPI's admin API at `http://newapi.newapi.svc`.
+# keys against NewAPI's admin API at
+# `http://newapi-bp-newapi.newapi.svc.cluster.local:3000` (canonical
+# in-cluster Service URL — the bp-newapi `<Release.Name>-<Chart.Name>`
+# helper renders `newapi-bp-newapi` for `releaseName: newapi` against
+# chart `bp-newapi`; pre-TBD-V15 / #2021 this comment cited the
+# wrong bare-`newapi` Service name).
 #
 # Wrapper chart: platform/newapi/chart/
 # Catalyst-curated values: platform/newapi/chart/values.yaml
@@ -167,7 +172,14 @@ spec:
       # bp-sandbox 0.3.2 which mounts SIGNING_KEY as the MCP's
       # `SANDBOX_JWT_SECRET` env (closes auth-gate-stays-in-test-mode
       # silent-breakage).
-      version: 1.4.32
+      # 1.4.33 (TBD-V15 #2021, 2026-05-20): catalyst-newapi-admin-token
+      # ExternalSecret target now carries reflector mirror annotations
+      # (default to `catalyst-system`) so the rendered Secret is
+      # available in the catalyst-api Pod's namespace via secretKeyRef.
+      # Companion to bp-catalyst-platform 1.4.225 which adds the
+      # secretKeyRef itself + the corrected CATALYST_NEWAPI_ADDR
+      # literal (`http://newapi-bp-newapi.newapi.svc.cluster.local:3000`).
+      version: 1.4.33
       sourceRef:
         kind: HelmRepository
         name: bp-newapi

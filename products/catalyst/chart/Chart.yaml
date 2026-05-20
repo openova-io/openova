@@ -1,5 +1,47 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.225 — TBD-V15 / #2021 (2026-05-20, sister of TBD-V14 / PR #2017):
+# catalyst-api Deployment now wires CATALYST_NEWAPI_ADDR + the
+# CATALYST_NEWAPI_ADMIN_TOKEN secretKeyRef so the ADR-0003 §3.2
+# user-create hook (POST /api/v1/sme/users → applyHook step 2 →
+# POST /api/v1/admin/users on bp-newapi) actually fires. Pre-fix
+# BOTH env vars were unset → main.go startup logged
+# `CATALYST_NEWAPI_ADMIN_TOKEN unset; NewAPI hook step 2 will
+# fail-closed` and the operator UsersPage `Add User` flow returned
+# the sentinel `newapi client not wired` on every install.
+#
+# Fix:
+#   - api-deployment.yaml: literal `CATALYST_NEWAPI_ADDR=
+#     http://newapi-bp-newapi.newapi.svc.cluster.local:3000`
+#     (matches the bp-newapi Service name rendered by the
+#     `<Release.Name>-<Chart.Name>` helper per bootstrap-kit slot 80
+#     `releaseName: newapi` against chart `bp-newapi` — identical
+#     root cause as TBD-V14 / PR #2017 which fixed bp-sandbox's
+#     NEWAPI_BASE_URL default).
+#   - api-deployment.yaml: `CATALYST_NEWAPI_ADMIN_TOKEN` secretKeyRef
+#     on `catalyst-newapi-admin-token` (key ADMIN_API_TOKEN,
+#     `optional: true` so Sovereigns without an OpenBao seed fail
+#     closed rather than InvalidContainerConfig).
+#   - main.go: default URL in the `env("CATALYST_NEWAPI_ADDR", ...)`
+#     fallback updated to the canonical Service URL (belt-and-
+#     braces if the chart env var is ever dropped from a per-
+#     Sovereign overlay).
+#   - newapi/client.go godoc + main.go comment updated to the
+#     correct Service URL.
+#
+# Companion bump: bp-newapi 1.4.32 → 1.4.33 adds the reflector
+# mirror annotations on the ExternalSecret target so the rendered
+# Secret lands in `catalyst-system` (the same-namespace seam used
+# by every other Catalyst cross-namespace secret — see
+# templates/sme-services/sme-secrets.yaml for the canonical
+# pattern). Bootstrap-kit pins both charts in lockstep
+# (Inviolable Principle #14).
+#
+# DoD: PR closes #2021 only after a fresh-prov operator walks
+# `/console/sme/users` -> Add User and the catalyst-api log shows
+# `sme-users: NewAPI admin client wired` at startup + the row
+# materialises with `state=newapi_created` (no `newapi client not
+# wired` sentinel + no NXDOMAIN for `newapi.newapi.svc`).
 # 1.4.222 — TBD-V18 / #2026 (2026-05-20): marketplace AppDetail now
 # renders the per-instance configSchema (replicas / disk / backup
 # for Postgres-backed bundles, replicas / persistence for Redis, etc.)
@@ -2070,8 +2112,8 @@ name: bp-catalyst-platform
 # was already shipped on 1.4.197 (PR #1820 lineage); this completes
 # the data-layer side so the dropdown finally appears on multi-region
 # Sovereigns. Refs #1821, DoD D20.
-version: 1.4.224
-appVersion: 1.4.224
+version: 1.4.225
+appVersion: 1.4.225
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,
 # TBD-A30). Pre-1.4.183 every catalyst-system HTTPRoute pinned

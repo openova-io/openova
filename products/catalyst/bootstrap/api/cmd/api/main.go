@@ -572,7 +572,18 @@ func main() {
 			// NewAPI admin client — wired only when both env vars are
 			// present (the bp-newapi blueprint provisions the
 			// catalyst-newapi-admin-token ExternalSecret per #799).
-			if addr := env("CATALYST_NEWAPI_ADDR", "http://newapi.newapi.svc"); addr != "" {
+			//
+			// Default URL fixed in TBD-V15 / #2021 (2026-05-20): pre-fix
+			// default `http://newapi.newapi.svc` was NXDOMAIN — same
+			// root cause as TBD-V14 / #2017 (bp-newapi.fullname helper
+			// renders `<Release.Name>-<Chart.Name>` = `newapi-bp-newapi`
+			// when releaseName=newapi against chart=bp-newapi per
+			// bootstrap-kit slot 80). Canonical in-cluster URL is
+			// `http://newapi-bp-newapi.newapi.svc.cluster.local:3000`.
+			// The bp-catalyst-platform chart now also exports
+			// CATALYST_NEWAPI_ADDR explicitly so the literal lives in
+			// values rather than this code default (belt-and-braces).
+			if addr := env("CATALYST_NEWAPI_ADDR", "http://newapi-bp-newapi.newapi.svc.cluster.local:3000"); addr != "" {
 				if token := os.Getenv("CATALYST_NEWAPI_ADMIN_TOKEN"); token != "" {
 					deps.NewAPIClient = newapi.New(addr, token)
 					log.Info("sme-users: NewAPI admin client wired", "addr", addr)

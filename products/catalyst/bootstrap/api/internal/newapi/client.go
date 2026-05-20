@@ -1,10 +1,14 @@
 // Package newapi is a minimal admin-API client for the in-cluster
 // NewAPI service consumed by the ADR-0003 user-create hook (step 2).
 //
-// Per ADR-0003 §3.2 the client targets `http://newapi.newapi.svc` —
-// the in-cluster Service DNS, never an Ingress hostname — with a
-// bearer token sourced from the `catalyst-newapi-admin-token`
+// Per ADR-0003 §3.2 the client targets the in-cluster Service DNS
+// `http://newapi-bp-newapi.newapi.svc.cluster.local:3000` (NOT the
+// Ingress hostname). The Service name is `<Release.Name>-<Chart.Name>`
+// per bp-newapi.fullname helper (releaseName=newapi against chart
+// bp-newapi per bootstrap-kit slot 80 → `newapi-bp-newapi`). Auth is
+// a bearer token sourced from the `catalyst-newapi-admin-token`
 // ExternalSecret rendered by the bp-newapi blueprint (issue #799).
+// Default URL corrected in TBD-V15 / #2021 (sister of TBD-V14 / #2017).
 //
 // Idempotency:
 //
@@ -35,7 +39,8 @@ type Client struct {
 }
 
 // New returns a Client. addr is the in-cluster Service URL
-// (e.g. http://newapi.newapi.svc); token is the admin bearer.
+// (e.g. http://newapi-bp-newapi.newapi.svc.cluster.local:3000);
+// token is the admin bearer.
 func New(addr, token string) *Client {
 	return NewWithHTTP(addr, token, &http.Client{Timeout: 30 * time.Second})
 }

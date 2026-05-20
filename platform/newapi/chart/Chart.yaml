@@ -1,5 +1,23 @@
 apiVersion: v2
 name: bp-newapi
+# 1.4.33 — TBD-V15 / #2021 (2026-05-20, sister of TBD-V14 / PR #2017):
+# the `catalyst-newapi-admin-token` ExternalSecret now reflector-
+# mirrors the rendered Secret from `newapi` into `catalyst-system`
+# so the bp-catalyst-platform catalyst-api Pod can resolve
+# CATALYST_NEWAPI_ADMIN_TOKEN via secretKeyRef. Pre-fix the Secret
+# only existed in the `newapi` namespace, so the same-namespace-only
+# Kubernetes secretKeyRef on catalyst-api landed empty → main.go
+# guard short-circuited → POST /api/v1/sme/users returned
+# `newapi client not wired` (`sme_users.go:413`), blocking the
+# ADR-0003 §3.2 user-create hook. The companion fix in
+# bp-catalyst-platform 1.4.225 (TBD-V15) adds the secretKeyRef +
+# the corrected CATALYST_NEWAPI_ADDR literal
+# (`http://newapi-bp-newapi.newapi.svc.cluster.local:3000`).
+#
+# `catalystIntegration.reflectorNamespaces` knob (default
+# `catalyst-system`) lets operator overlays widen the mirror to
+# additional namespaces without rebuilding the OCI artifact
+# (docs/INVIOLABLE-PRINCIPLES.md #4).
 # 1.4.27 (TBD-A39 #1834, 2026-05-19): replace the Helm-`lookup`-based
 # DSN Secret render with a post-install/post-upgrade Job that polls
 # CNPG's `<cluster>-app` Secret until populated, composes the SQL_DSN
@@ -335,7 +353,7 @@ name: bp-newapi
 # `lookup valkey.valkey.svc.cluster.local: no such host`). Same hostname
 # already documented as canonical in products/catalyst/chart/values.yaml
 # bp-cnpg-pair comments.
-version: 1.4.32
+version: 1.4.33
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
