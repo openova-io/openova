@@ -60,15 +60,12 @@ jobs:
             sed -i "s|image: ${IMAGE}:.*|image: ${IMAGE}:${SHA}|" "$FILE"
           fi
 
+      # TBD-V32 / openova-io/openova#2062 — race-safe push via the shared
+      # composite action. The previous 3-attempt inline loop omitted
+      # `git fetch` before `git pull --rebase`, so back-to-back races
+      # against the same stale local tip could still fail.
       - name: Commit and push
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          SHA=$(echo $GITHUB_SHA | head -c 7)
-          git add products/
-          git diff --staged --quiet && echo "No changes" && exit 0
-          git commit -m "deploy: update Catalyst admin image to ${SHA}"
-          for i in 1 2 3; do
-            git push && break
-            git pull --rebase
-          done
+        uses: ./.github/actions/deploy-bump
+        with:
+          paths: products/catalyst/chart/templates/sme-services/admin.yaml
+          commit-message: "deploy: update Catalyst admin image to ${{ needs.build.outputs.sha_short }}"

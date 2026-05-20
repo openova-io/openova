@@ -1,0 +1,162 @@
+# Composite action: deploy-bump
+#
+# Stages a set of file paths, commits them on `main` with a supplied
+# commit message, and pushes to `origin/main` through a pull --rebase
+# retry loop so concurrent build-workflow deploy jobs do not silently
+# lose the push race.
+#
+# Background (TBD-V32 / openova-io/openova#2062):
+# Build workflows that ended their deploy step with a bare `git push`
+# (catalyst-build, marketplace-api-build, marketplace-build, ...) or
+# with a single pre-push `git pull --rebase --autostash` (the
+# *-controller family) lost the deploy commit silently whenever two
+# build workflows committed within ~2 min of each other. The remote
+# rejected the second push with:
+#
+#   ! [rejected]  main -> main (fetch first)
+#
+# and the workflow exited red with the auto-bump commit never landing.
+# Concrete damage: PR #2050 (V16 admin-token wiring) shipped image
+# `829474a` to GHCR but the chart values.yaml stayed pinned at
+# `5ed4995` — operators installed an old image while the source on
+# `main` already had the new wiring.
+#
+# This composite action concentrates the race-recovery logic in ONE
+# place so every workflow uses the same battle-tested loop and any
+# future improvement only needs to ship here.
+#
+# Loop shape (5 attempts, capped sleeps):
+#
+#   for i in 1 2 3 4 5; do
+#     git push origin HEAD:main && break
+#     git fetch origin main
+#     git pull --rebase --autostash origin main
+#     sleep $((i * 2))
+#   done
+#
+# `fetch` before `pull --rebase` ensures we always see the latest
+# remote tip even if the previous attempt's `pull --rebase` left the
+# local main pointer stale. `--autostash` survives modified working
+# tree between push attempts (rare, but harmless). The capped sleep
+# (2/4/6/8/10s) keeps the loop bounded at ~30s of backoff total.
+#
+# Inputs are deliberately minimal — every caller passes a comma- or
+# whitespace-separated list of paths to stage and a commit message.
+# Outputs let callers gate the follow-up steps (blueprint-release
+# workflow_dispatch, ledger update, etc.) on whether the push
+# actually shipped.
+
+name: deploy-bump
+description: |
+  Stage, commit, and race-safe push a chart-pin / image-tag bump to
+  origin/main with a pull --rebase retry loop.
+
+inputs:
+  paths:
+    description: |
+      Whitespace- (or newline-) separated list of file paths to
+      `git add` before committing. Required.
+    required: true
+  commit-message:
+    description: |
+      Commit message to use when there are staged changes.
+      Required.
+    required: true
+  max-attempts:
+    description: |
+      Number of push attempts before giving up. Default 5.
+    required: false
+    default: "5"
+  user-name:
+    description: |
+      Git author name for the deploy commit. Default
+      `github-actions[bot]`.
+    required: false
+    default: "github-actions[bot]"
+  user-email:
+    description: |
+      Git author email for the deploy commit. Default
+      `github-actions[bot]@users.noreply.github.com`.
+    required: false
+    default: "github-actions[bot]@users.noreply.github.com"
+
+outputs:
+  pushed:
+    description: |
+      `true` if a commit was created AND pushed successfully,
+      `false` if there were no staged changes (no-op) OR every push
+      attempt failed.
+    value: ${{ steps.run.outputs.pushed }}
+  commit-sha:
+    description: |
+      Full SHA of the deploy commit (empty when `pushed=false`).
+    value: ${{ steps.run.outputs.commit_sha }}
+
+runs:
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        DEPLOY_BUMP_PATHS: ${{ inputs.paths }}
+        DEPLOY_BUMP_MESSAGE: ${{ inputs.commit-message }}
+        DEPLOY_BUMP_MAX_ATTEMPTS: ${{ inputs.max-attempts }}
+        DEPLOY_BUMP_USER_NAME: ${{ inputs.user-name }}
+        DEPLOY_BUMP_USER_EMAIL: ${{ inputs.user-email }}
+      run: |
+        set -euo pipefail
+
+        git config user.name  "${DEPLOY_BUMP_USER_NAME}"
+        git config user.email "${DEPLOY_BUMP_USER_EMAIL}"
+
+        # Stage every requested path. xargs handles whitespace- and
+        # newline-separated input identically and re-raises non-zero
+        # exit codes from `git add` so a typo'd path fails loudly.
+        # shellcheck disable=SC2086
+        echo "${DEPLOY_BUMP_PATHS}" | xargs git add --
+
+        if git diff --staged --quiet; then
+          echo "deploy-bump: no staged changes — skipping commit/push."
+          echo "pushed=false"   >> "$GITHUB_OUTPUT"
+          echo "commit_sha="   >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        git commit -m "${DEPLOY_BUMP_MESSAGE}"
+        COMMIT_SHA="$(git rev-parse HEAD)"
+        echo "deploy-bump: committed ${COMMIT_SHA}"
+
+        # Pull --rebase retry loop. Without this, two parallel build
+        # workflows committing within ~2 min of each other will see
+        # the second `git push` rejected with
+        # `[rejected] main -> main (fetch first)` and the auto-bump
+        # commit is lost (TBD-V32 / openova-io/openova#2062).
+        MAX="${DEPLOY_BUMP_MAX_ATTEMPTS:-5}"
+        pushed=false
+        for i in $(seq 1 "${MAX}"); do
+          if git push origin HEAD:main; then
+            pushed=true
+            break
+          fi
+          echo "deploy-bump: push attempt ${i}/${MAX} failed — rebasing and retrying."
+          git fetch origin main
+          # `|| true` keeps the loop alive when the rebase has nothing
+          # to replay (e.g. our commit is still ahead of origin but
+          # the push raced on a transient network hiccup).
+          git pull --rebase --autostash origin main || true
+          sleep "$((i * 2))"
+        done
+
+        if [ "${pushed}" != "true" ]; then
+          echo "deploy-bump: all ${MAX} push attempts failed." >&2
+          echo "pushed=false" >> "$GITHUB_OUTPUT"
+          echo "commit_sha=${COMMIT_SHA}" >> "$GITHUB_OUTPUT"
+          exit 1
+        fi
+
+        # Re-resolve HEAD: a successful rebase between attempts may
+        # have changed the commit SHA we landed.
+        FINAL_SHA="$(git rev-parse HEAD)"
+        echo "deploy-bump: pushed ${FINAL_SHA} to origin/main."
+        echo "pushed=true" >> "$GITHUB_OUTPUT"
+        echo "commit_sha=${FINAL_SHA}" >> "$GITHUB_OUTPUT"

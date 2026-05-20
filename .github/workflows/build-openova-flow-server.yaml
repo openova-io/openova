@@ -171,24 +171,13 @@ jobs:
       - name: Commit and push values.yaml bump
         id: deploy_commit
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-        env:
-          SHA_SHORT: ${{ steps.vars.outputs.sha_short }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet platform/openova-flow-server/chart/values.yaml; then
-            echo "no values.yaml change — already pinned to ${SHA_SHORT}"
-            echo "pushed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          git add platform/openova-flow-server/chart/values.yaml
-          # `[skip ci]` keeps blueprint-release from re-firing twice
-          # (we explicitly dispatch it below — see the next step).
-          git commit -m "chore(deploy): bump openova-flow-server image to ${SHA_SHORT} [skip ci]"
-          # Pull-rebase to avoid races with parallel build commits.
-          git pull --rebase --autostash origin main || true
-          git push origin HEAD:main
-          echo "pushed=true" >> "$GITHUB_OUTPUT"
+        # TBD-V32 / openova-io/openova#2062 — race-safe push via the
+        # shared composite action. `[skip ci]` keeps blueprint-release
+        # from re-firing twice (it is explicitly dispatched below).
+        uses: ./.github/actions/deploy-bump
+        with:
+          paths: platform/openova-flow-server/chart/values.yaml
+          commit-message: "chore(deploy): bump openova-flow-server image to ${{ steps.vars.outputs.sha_short }} [skip ci]"
 
       # GitHub Actions does NOT trigger workflows from GITHUB_TOKEN bot
       # pushes by default (anti-recursion safeguard). The bot commit
