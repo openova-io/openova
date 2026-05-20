@@ -271,3 +271,220 @@ func TestReadIntCfg_MistypeFallsBack(t *testing.T) {
 		t.Errorf("got %d want 1 (default) on string mistype", got)
 	}
 }
+
+// TestPostgres_AppConfigs_ActiveHotStandby_GenericApp — TBD-V17
+// (#2068). The Pillar-3 cluster-pair install path MUST trigger for a
+// NON-WordPress postgres-backed marketplace app (this test uses
+// `umami`, which is one of the canonical non-WP postgres-backed apps
+// in seed.go:60-92). Before #2068 the bp-cnpg-pair Cluster CRs were
+// emitted ONLY by bp-wordpress-tenant's inline cnpg-cluster.yaml
+// template — every non-WP customer journey through Pillar 3 was
+// silently broken, and the audit at /tmp/audit-pillar3-cnpg-2026-05-
+// 20.md flagged this gap.
+//
+// With active_hot_standby=true + distinct primary_region/replica_region,
+// the rendered output MUST:
+//
+//	1. Emit `db-cnpg-pair.yaml` (the bp-cnpg-pair HelmRelease + its
+//	   companion HelmRepository + postgres-credentials Secret).
+//	2. NOT emit `db-postgres.yaml` (the legacy single-Pod Deployment
+//	   would collide on `postgres` Service name and credentials Secret).
+//	3. Carry the customer-chosen region pair into the HelmRelease values.
+func TestPostgres_AppConfigs_ActiveHotStandby_GenericApp(t *testing.T) {
+	g := &ManifestGenerator{BasePath: "clusters/contabo-mkt/tenants"}
+	files := g.GenerateAllWithAppConfigs("acme", "flexi",
+		[]string{"umami"}, // umami → postgres-backed, non-WordPress
+		"deadbeef",
+		map[string]map[string]any{
+			"postgres": {
+				"active_hot_standby": true,
+				"primary_region":     "hz-fsn-rtz-prod",
+				"replica_region":     "hz-hel-rtz-prod",
+				"replicas":           float64(3),
+				"disk_gb":            float64(50),
+			},
+		},
+	)
+
+	var pairManifest, legacyManifest string
+	for path, content := range files {
+		if strings.HasSuffix(path, "db-cnpg-pair.yaml") {
+			pairManifest = content
+		}
+		if strings.HasSuffix(path, "db-postgres.yaml") {
+			legacyManifest = content
+		}
+	}
+	if pairManifest == "" {
+		t.Fatal("db-cnpg-pair.yaml NOT generated when active_hot_standby=true — Pillar 3 install path broken")
+	}
+	if legacyManifest != "" {
+		t.Errorf("legacy db-postgres.yaml ALSO generated alongside cluster-pair — would collide on `postgres` Service")
+	}
+	must := []string{
+		"chart: bp-cnpg-pair",
+		"region: hz-fsn-rtz-prod", // primary
+		"region: hz-hel-rtz-prod", // replica
+		"instances: 3",
+		"size: 50Gi",
+		"database: db_umami", // per-app database name
+	}
+	for _, want := range must {
+		if !strings.Contains(pairManifest, want) {
+			t.Errorf("db-cnpg-pair.yaml missing %q — full manifest:\n%s", want, pairManifest)
+		}
+	}
+}
+
+// TestPostgres_AppConfigs_ActiveHotStandby_OFF — when the customer
+// hasn't opted in (default behavior, every pre-#2068 tenant) the
+// generic install path MUST NOT trigger. The legacy single-cluster
+// generatePostgres() rendering applies unchanged.
+func TestPostgres_AppConfigs_ActiveHotStandby_OFF(t *testing.T) {
+	g := &ManifestGenerator{BasePath: "clusters/contabo-mkt/tenants"}
+	files := g.GenerateAllWithAppConfigs("acme", "flexi",
+		[]string{"umami"},
+		"deadbeef",
+		map[string]map[string]any{
+			"postgres": {
+				"replicas": float64(2),
+				"disk_gb":  float64(10),
+				// active_hot_standby absent → defaults to false
+			},
+		},
+	)
+	for path := range files {
+		if strings.HasSuffix(path, "db-cnpg-pair.yaml") {
+			t.Errorf("db-cnpg-pair.yaml emitted with active_hot_standby unset — should default-OFF")
+		}
+	}
+	var legacy string
+	for path, content := range files {
+		if strings.HasSuffix(path, "db-postgres.yaml") {
+			legacy = content
+		}
+	}
+	if legacy == "" {
+		t.Fatal("legacy db-postgres.yaml missing — default-OFF path broken")
+	}
+}
+
+// TestPostgres_AppConfigs_ActiveHotStandby_InvalidRegionPair — when
+// the operator opts in but doesn't supply distinct primary/replica
+// regions (either empty or identical), the renderer MUST fall back to
+// the single-cluster shape rather than emit a bp-cnpg-pair HelmRelease
+// the chart's `required` template guard would reject at install time.
+// Symmetric with the WP-tenant path (sme_tenant_gitops.go:560).
+func TestPostgres_AppConfigs_ActiveHotStandby_InvalidRegionPair(t *testing.T) {
+	cases := []struct {
+		name           string
+		primary        string
+		replica        string
+		wantClusterPair bool
+	}{
+		{"identical regions", "hz-fsn-rtz-prod", "hz-fsn-rtz-prod", false},
+		{"empty primary", "", "hz-hel-rtz-prod", false},
+		{"empty replica", "hz-fsn-rtz-prod", "", false},
+		{"both empty", "", "", false},
+		{"valid pair", "hz-fsn-rtz-prod", "hz-hel-rtz-prod", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := &ManifestGenerator{BasePath: "clusters/contabo-mkt/tenants"}
+			files := g.GenerateAllWithAppConfigs("acme", "flexi",
+				[]string{"umami"},
+				"deadbeef",
+				map[string]map[string]any{
+					"postgres": {
+						"active_hot_standby": true,
+						"primary_region":     tc.primary,
+						"replica_region":     tc.replica,
+					},
+				},
+			)
+			gotPair := false
+			gotLegacy := false
+			for path := range files {
+				if strings.HasSuffix(path, "db-cnpg-pair.yaml") {
+					gotPair = true
+				}
+				if strings.HasSuffix(path, "db-postgres.yaml") {
+					gotLegacy = true
+				}
+			}
+			if gotPair != tc.wantClusterPair {
+				t.Errorf("cluster-pair emitted=%v want=%v", gotPair, tc.wantClusterPair)
+			}
+			if tc.wantClusterPair && gotLegacy {
+				t.Errorf("legacy single-cluster ALSO emitted alongside cluster-pair — would collide")
+			}
+			if !tc.wantClusterPair && !gotLegacy {
+				t.Errorf("legacy single-cluster missing on fallback path — graceful degradation broken")
+			}
+		})
+	}
+}
+
+// TestPostgres_AppConfigs_ActiveHotStandby_ReplicasClamped — the
+// bp-cnpg-pair chart's configSchema floor for instances is 3 (per
+// platform/cnpg-pair/blueprint.yaml — active-hotstandby HA needs a
+// 3-node quorum per region to survive a Pod loss without read-only
+// degradation). When the customer picks replicas=1 or 2 we clamp to 3
+// and log loud rather than render a HelmRelease the chart's `minimum`
+// guard would reject.
+func TestPostgres_AppConfigs_ActiveHotStandby_ReplicasClamped(t *testing.T) {
+	g := &ManifestGenerator{BasePath: "clusters/contabo-mkt/tenants"}
+	files := g.GenerateAllWithAppConfigs("acme", "flexi",
+		[]string{"umami"},
+		"deadbeef",
+		map[string]map[string]any{
+			"postgres": {
+				"active_hot_standby": true,
+				"primary_region":     "hz-fsn-rtz-prod",
+				"replica_region":     "hz-hel-rtz-prod",
+				"replicas":           float64(1), // below the bp-cnpg-pair floor of 3
+			},
+		},
+	)
+	var pairManifest string
+	for path, content := range files {
+		if strings.HasSuffix(path, "db-cnpg-pair.yaml") {
+			pairManifest = content
+		}
+	}
+	if pairManifest == "" {
+		t.Fatal("db-cnpg-pair.yaml not generated")
+	}
+	if !strings.Contains(pairManifest, "instances: 3") {
+		t.Errorf("replicas=1 not clamped to instances:3 — full manifest:\n%s", pairManifest)
+	}
+	if strings.Contains(pairManifest, "instances: 1") {
+		t.Errorf("instances:1 leaked into rendered HelmRelease — chart's minimum:3 guard would reject install")
+	}
+}
+
+// TestReadStringCfg_HandlesNilAndMistype documents the contract of the
+// new readStringCfg helper (added by #2068 for the cnpg-pair region
+// pair pickups). Mirrors the readIntCfg / readBoolCfg coverage.
+func TestReadStringCfg_HandlesNilAndMistype(t *testing.T) {
+	if got := readStringCfg(nil, "primary_region", "default", "test"); got != "default" {
+		t.Errorf("nil cfg: got %q want default", got)
+	}
+	cfg := map[string]any{
+		"primary_region": float64(42), // wrong type
+		"replica_region": "hz-hel-rtz-prod",
+		"empty_string":   "",
+	}
+	if got := readStringCfg(cfg, "primary_region", "fallback", "test"); got != "fallback" {
+		t.Errorf("mistype: got %q want fallback", got)
+	}
+	if got := readStringCfg(cfg, "replica_region", "fallback", "test"); got != "hz-hel-rtz-prod" {
+		t.Errorf("valid: got %q want hz-hel-rtz-prod", got)
+	}
+	if got := readStringCfg(cfg, "missing_key", "dflt", "test"); got != "dflt" {
+		t.Errorf("missing: got %q want dflt", got)
+	}
+	if got := readStringCfg(cfg, "empty_string", "dflt", "test"); got != "" {
+		t.Errorf("empty string is a valid value: got %q want empty", got)
+	}
+}
