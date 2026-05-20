@@ -1,5 +1,17 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.221 — TBD-V20 / #2028 (2026-05-20): wizard StepSuccess "Issue
+# first voucher" CTA was pointing at the anti-canon
+# `https://admin.<fqdn>/billing/vouchers/new` URL. Per CLAUDE.md §0
+# canon there is no `admin.*` subdomain — voucher + billing
+# operations live under the BSS menu inside the operator console at
+# `https://console.<fqdn>/bss/vouchers`. The fix replaces the
+# computed `voucherURL` in StepSuccess.tsx (uses the existing
+# `consoleURL` + `/bss/vouchers` route, which is already correctly
+# mounted at router.tsx:1576). Test fixtures in StepSuccess.test.tsx
+# (3 assertions) bumped to the new BSS canonical URL. Surfaces
+# only — no API / wire / chart-template changes; image SHAs
+# unchanged from 1.4.220.
 # 1.4.220 — TBD-V13 / #2016 (2026-05-20): bp-self-sovereign-cutover
 # orchestrator state-resume now idempotent across catalyst-api restart.
 # Pre-fix t38 walk: catalyst-api restarted mid-cutover (between
@@ -2022,7 +2034,7 @@ name: bp-catalyst-platform
 # was already shipped on 1.4.197 (PR #1820 lineage); this completes
 # the data-layer side so the dropdown finally appears on multi-region
 # Sovereigns. Refs #1821, DoD D20.
-version: 1.4.220
+version: 1.4.221
 appVersion: 1.4.219
 # 1.4.183 — fix(httproute): omit default sectionName so multi-zone
 # Sovereigns attach via Cilium Gateway hostname matcher (Closes #1884,

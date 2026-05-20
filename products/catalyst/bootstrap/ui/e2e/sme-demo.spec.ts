@@ -239,7 +239,9 @@ test.describe('@sme-demo SME end-to-end happy path (issue #805)', () => {
       // Pending the SME-billing/credits surface (#802 follow-up).
       // The unified-rbac SME-tier console covers /console/sme/users
       // + /console/sme/roles today; StepSuccess.tsx links at
-      // admin.<fqdn>/billing/vouchers/new for the cross-domain flow.
+      // console.<fqdn>/bss/vouchers (the BSS menu inside the operator
+      // console — voucher operations live there per CLAUDE.md §0;
+      // see TBD-V20).
       // The fixme step activates once an in-SPA /console/sme/billing
       // route lands and asserts the ledger entry for alice.
       await page.goto('/sme/billing' as never)

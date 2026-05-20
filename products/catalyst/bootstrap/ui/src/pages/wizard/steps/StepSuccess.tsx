@@ -25,7 +25,10 @@
  *      "Coming soon — fetch via SSH" copy with a runbook link.
  *
  *   4. Voucher-issuance shortcut — secondary CTA pointing at
- *        https://admin.<sovereign-fqdn>/billing/vouchers/new
+ *        https://console.<sovereign-fqdn>/bss/vouchers
+ *      (BSS menu inside the operator console — voucher operations
+ *      live under the BSS sidebar, NOT under any `admin.*`
+ *      subdomain; see CLAUDE.md §0 canon + TBD-V20).
  *
  *   5. SSE final-state log tail (last 20 lines) collapsed/expandable.
  *
@@ -297,9 +300,13 @@ export function StepSuccess({
 
   // Computed URLs — every one of them goes through sovereignSubURL().
   const consoleURL = result?.consoleURL || sovereignSubURL(fqdn, 'console')
-  const adminURL   = sovereignSubURL(fqdn, 'admin')
   const docsURL    = sovereignSubURL(fqdn, 'docs')
-  const voucherURL = adminURL ? `${adminURL}/billing/vouchers/new` : ''
+  // Voucher CTA points at the BSS menu inside the operator console.
+  // Per CLAUDE.md §0 canon: voucher + billing operations live at
+  // `console.<fqdn>/bss/vouchers` — NOT under any `admin.*` subdomain
+  // (the legacy `admin.<sov>/billing/vouchers/new` URL is anti-canon).
+  // See TBD-V20.
+  const voucherURL = consoleURL ? `${consoleURL.replace(/\/$/, '')}/bss/vouchers` : ''
 
   const adminUsername = fqdn ? `admin@${fqdn}` : ''
 
