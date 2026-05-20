@@ -1,0 +1,154 @@
+# bp-continuum — Catalyst bootstrap-kit Blueprint slot 62
+# (Customer-facing capability / DR orchestration).
+#
+# OpenOva Continuum — Disaster-Recovery orchestrator for active-hot-
+# standby Applications (EPIC-6, slice K-Cont-1 #1101 onward). Reconciles
+# Continuum.dr.openova.io/v1 CRs; per-Continuum-CR goroutine maintains a
+# lease (10s renew, 30s TTL), watches CNPG replication metrics, and
+# executes the switchover sequence on lease loss + replication health
+# drop (drain HTTPRoute → flip lua-record on pool-domain-manager →
+# flip CNPG primary via bp-cnpg-pair → audit on NATS).
+#
+# ─── Pillar-3 unblock (#2065, TBD-V14) ─────────────────────────────────
+# Pillar-3 of the canonical end-user DoD ("multi-region BCP — region kill
+# zero-data-loss failover") requires THREE pieces:
+#   1. bp-cnpg-pair (C-DB-1) — primary + replica CNPG with ReplicaCluster
+#      sync over Cilium ClusterMesh on the WG-public-IP DMZ data plane.
+#   2. Continuum CR + the per-app HTTPRoute drain hook.
+#   3. THIS controller — without bp-continuum deployed, every Continuum
+#      CR sits unhandled and the lua-record flip never fires, so a
+#      region-kill produces TXN-loss on every transaction in-flight.
+#
+# Before this slot, the chart existed at products/continuum/chart/ and
+# the controller image was built by .github/workflows/build-continuum-
+# controller.yaml + SHA-pinned in values.yaml — but no bootstrap-kit
+# slot deployed it on a fresh Sovereign. catalyst-platform's QA fixtures
+# (slot 13, `qa-continuum-status-seed-job`) reference a Continuum CR
+# named `cont-omantel` that no controller is ever spinning up to
+# reconcile. This slot closes the loop.
+#
+# ─── Default-OFF gate ──────────────────────────────────────────────────
+# The chart's own values.yaml ships `continuum.enabled: false` (chart
+# fail-fasts on empty `image.tag` when enabled=true — Inviolable
+# Principle #4a no-`:latest` guard). We surface a CONTINUUM_ENABLED
+# envsubst placeholder so per-Sovereign overlays may flip the gate on
+# once bp-cnpg-pair + bp-powerdns + lease witness are ready. Default
+# `false` so a zero-touch provision lands a non-Continuum Sovereign
+# (matches the MARKETPLACE_ENABLED / SANDBOX_ENABLED knob shape).
+#
+# ─── Placement ─────────────────────────────────────────────────────────
+# Continuum is itself a single-region controller — it lives on the
+# MANAGEMENT cluster (per docs/EPICS-1-6-unified-design.md §9 + the
+# chart's blueprint.yaml placementSchema: modes=[single-region]) and
+# observes data-plane regions over Cilium ClusterMesh + the witness.
+# The Application CRs it reconciles are active-hot-standby; the
+# controller itself is single-region.
+#
+# ─── dependsOn ─────────────────────────────────────────────────────────
+#   - bp-catalyst-platform (slot 13) — owns the
+#     `dr.openova.io/v1.Continuum` CRD that the controller watches.
+#     Without this edge, Helm render-time Capabilities gate fails the
+#     install (no matches for kind "Continuum"). NB: CRD lives at
+#     products/catalyst/chart/crds/continuum.yaml.
+#   - bp-nats-jetstream (slot 7) — catalyst.audit publish target the
+#     controller emits switchover audit events to.
+#   - bp-powerdns (slot 11) — the pool-domain-manager Service that
+#     fronts PowerDNS is what the controller POSTs lua-record commits
+#     to during the flip step of the switchover sequence.
+#
+# bp-cnpg-pair is intentionally NOT in dependsOn because the chart ships
+# default-OFF — the controller installs and waits idle until a per-
+# Sovereign overlay flips `continuum.enabled=true`. Operators must
+# install bp-cnpg-pair (Pillar 3 audit follow-up #2068) AND configure
+# the lease witness BEFORE flipping the gate.
+#
+# Wrapper chart: products/continuum/chart/
+# Catalyst-curated values: products/continuum/chart/values.yaml
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-continuum
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-continuum
+  namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "62"
+    catalyst.openova.io/component: continuum-controller
+    openova.io/category: customer-facing-capability
+    openova.io/epic: "6"
+spec:
+  interval: 15m
+  releaseName: continuum
+  # targetNamespace = catalyst-system to colocate with the other
+  # catalyst-platform controllers (per slot 13 convention). The chart
+  # uses .Release.Namespace for every templated resource.
+  targetNamespace: catalyst-system
+  dependsOn:
+    - name: bp-catalyst-platform
+    - name: bp-nats-jetstream
+    - name: bp-powerdns
+  chart:
+    spec:
+      chart: bp-continuum
+      # 0.1.1 — first published version. 0.1.0 was never pushed to GHCR
+      # despite Chart.yaml claiming so; the chart sat in-tree without a
+      # bootstrap-kit slot to pin it, so blueprint-release.yaml never
+      # bumped past the initial commit's no-op detect step. Bumping to
+      # 0.1.1 in the same PR as this slot forces a fresh publish and
+      # the auto-bump-pin hook (TBD-A6) lands the matching pin write.
+      version: 0.1.1
+      sourceRef:
+        kind: HelmRepository
+        name: bp-continuum
+        namespace: flux-system
+  install:
+    timeout: 10m
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    timeout: 10m
+    disableWait: true
+    remediation:
+      retries: 3
+  # Per-Sovereign overlay surface.
+  #
+  # enabled — default-OFF via ${CONTINUUM_ENABLED:-false} on the
+  # bootstrap-kit Kustomization substitute. Flip true on a per-
+  # Sovereign overlay's substitute map ONCE the operator has:
+  #   - bp-cnpg-pair installed (Pillar-3 follow-up #2068 — primary +
+  #     replica CNPG cluster with ReplicaCluster sync over ClusterMesh)
+  #   - bp-powerdns + pool-domain-manager reachable (lua-record commits)
+  #   - lease witness configured (Cloudflare KV per K-Cont-3, or DNS
+  #     quorum fallback)
+  # The chart's own `continuum.enabled: false` default is the
+  # defence-in-depth backstop — a stale per-Sovereign overlay that
+  # hand-installs the HR without our envsubst layer still default-OFFs
+  # gracefully.
+  #
+  # Image tag — NOT overridden here. The chart's values.yaml carries
+  # the canonical SHA-pinned `continuum.image.tag` (auto-bumped on every
+  # push to main by .github/workflows/build-continuum-controller.yaml).
+  # Day-2 SHA pivots remain available via per-Sovereign overlay patches
+  # at spec.values.continuum.image.tag.
+  #
+  # pdmURL / natsURL — empty defaults route through the in-cluster
+  # Service DNS (pool-domain-manager.catalyst-system.svc.cluster.local
+  # + nats.openova-system.svc.cluster.local respectively). Per-
+  # Sovereign overlays may repoint at Sovereign-local instances.
+  values:
+    continuum:
+      enabled: ${CONTINUUM_ENABLED:-false}

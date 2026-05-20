@@ -7,7 +7,15 @@ description: |
   switchover sequence). Slice K-Cont-1 of EPIC-6 (#1101) ships the
   product skeleton; K-Cont-2 fills the reconcile loop.
 type: application
-version: 0.1.0
+# 0.1.1 (Pillar-3 unblock #2065, 2026-05-20): first PUBLISHED version.
+# 0.1.0 sat in-tree without a bootstrap-kit slot to pin it, so the
+# blueprint-release workflow's `detect changed paths` step never had
+# reason to re-run and the chart was never pushed to GHCR. Bumping the
+# pin in lockstep with the new slot file (clusters/_template/bootstrap-
+# kit/62-bp-continuum.yaml) makes blueprint-release publish the chart
+# on this PR's merge; the auto-bump-pin hook (TBD-A6) then converges
+# the slot pin via a no-op (already matches).
+version: 0.1.1
 appVersion: "0.1.0"
 home: https://openova.io
 sources:
@@ -28,3 +36,16 @@ annotations:
   openova.io/category: customer-facing-capability
   openova.io/epic: "6"
   openova.io/depends-on: bp-cnpg-pair,bp-powerdns,pdm
+  # smoke-render-mode: default-off — bp-continuum's chart ships
+  # `continuum.enabled: false` as its default; helm template with
+  # default values legitimately renders zero resources (per chart
+  # README "the gate keeps the controller stopped until the operator
+  # installs bp-cnpg-pair + bp-powerdns and configures the witness").
+  # Without this annotation the blueprint-release.yaml smoke gate
+  # (`<5 lines = empty render`) fails publish. The enabled-render path
+  # is exercised at install time by the bootstrap-kit slot's per-
+  # Sovereign CONTINUUM_ENABLED flip and by the chart's own
+  # templates/* unit tests (default-off backstop covered by
+  # blueprint-release's auto-template step at lines 326-358 of the
+  # workflow).
+  catalyst.openova.io/smoke-render-mode: default-off

@@ -510,6 +510,31 @@ slots:
       - bp-harbor
     wave: present
 
+  # ---- Slot 62 — bp-continuum DR orchestrator (Pillar-3 unblock).
+  # Issue #2065 (TBD-V14, 2026-05-20). Reconciles Continuum.dr.openova.io/v1
+  # CRs and executes the switchover sequence on lease loss + replication
+  # health drop (drain HTTPRoute → flip lua-record → flip CNPG primary →
+  # audit on NATS). Default-OFF gate via ${CONTINUUM_ENABLED:-false} on
+  # the bootstrap-kit Kustomization substitute; operators flip on once
+  # bp-cnpg-pair + lease witness are configured.
+  #
+  # dependsOn:
+  #   - bp-catalyst-platform (slot 13) — owns the `dr.openova.io/v1.Continuum`
+  #     CRD that the controller watches. Without this edge, Helm render-time
+  #     Capabilities gate fails the install (no matches for kind "Continuum").
+  #   - bp-nats-jetstream (slot 7) — catalyst.audit publish target the
+  #     controller emits switchover audit events to.
+  #   - bp-powerdns (slot 11) — pool-domain-manager fronts PowerDNS; the
+  #     controller POSTs lua-record commits during the flip step.
+  #
+  # bp-cnpg-pair (Pillar-3 follow-up #2068) is intentionally NOT in
+  # dependsOn — chart ships default-OFF so the controller installs and
+  # waits idle until operators flip the gate after wiring bp-cnpg-pair.
+  - slot: 62
+    name: bp-continuum
+    depends_on: [bp-catalyst-platform, bp-nats-jetstream, bp-powerdns]
+    wave: present
+
   # ---- Slot 80 — bp-newapi multi-tenant LLM marketplace gateway. Issue #799.
   # Sequenced past the W2.K4 numbering plan (slots 36-48) so it never
   # collides with the AI-runtime / observability / livekit cohort. The

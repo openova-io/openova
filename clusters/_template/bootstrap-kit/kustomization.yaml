@@ -157,6 +157,16 @@ resources:
   # slot-19a comment block + 19a-bp-sandbox.yaml header for full
   # diagnostic chain. No functional difference for operators — the
   # SANDBOX_ENABLED knob still gates rendering identically.
+  # bp-continuum (slot 62) — Pillar-3 unblock (#2065, TBD-V14). DR
+  # orchestrator for active-hot-standby Applications. Reconciles
+  # Continuum.dr.openova.io/v1 CRs; executes switchover sequence
+  # (drain HTTPRoute → flip lua-record → flip CNPG primary → audit on
+  # NATS). Default-OFF via ${CONTINUUM_ENABLED:-false}; operators flip
+  # on once bp-cnpg-pair + lease witness are configured. See slot-62
+  # header comment for full Pillar-3 dependency analysis. Sequenced past
+  # the vCluster cohort (slots 54/58/59/60) so its `bp-catalyst-platform`
+  # dep + Continuum CRD ordering converge before the controller starts.
+  - 62-bp-continuum.yaml
   # bp-newapi (slot 80) — multi-tenant LLM marketplace gateway. Sequenced
   # after the W2.K1 dependency wave (cnpg/keycloak/openbao Ready) so
   # NewAPI's ExternalSecret + DSN dependencies resolve on first reconcile.
