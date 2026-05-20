@@ -551,8 +551,8 @@ Every bootstrap-kit Blueprint at v1.1.1+ ships every observability surface defau
 | bp-flux | `flux2.prometheus.podMonitor.create` | `false` | monitoring.coreos.com/v1 PodMonitor |
 | bp-crossplane | `crossplane.metrics.enabled` | `false` | Upstream emits prometheus.io/scrape annotation only — kept off for uniformity |
 | bp-sealed-secrets | `sealed-secrets.metrics.serviceMonitor.enabled` | `false` | monitoring.coreos.com/v1 ServiceMonitor |
-| bp-spire | `spire.global.spire.recommendations.enabled` | `false` | Cascades prometheus exporters into spire-server / spire-agent |
-| bp-spire | `spire.global.spire.recommendations.prometheus` | `false` | Belt-and-braces inside the recommendations bundle |
+| bp-spire (opt-in, deferred — see [#665](https://github.com/openova-io/openova/pull/665)) | `spire.global.spire.recommendations.enabled` | `false` | Cascades prometheus exporters into spire-server / spire-agent. bp-spire was removed from the canonical bootstrap-kit by PR #665; chart retained as opt-in for cross-Sovereign federation + per-Pod-fingerprint authz. Re-introduction roadmap: TBD-V29 ([#2055](https://github.com/openova-io/openova/issues/2055)). |
+| bp-spire (opt-in) | `spire.global.spire.recommendations.prometheus` | `false` | Belt-and-braces inside the recommendations bundle |
 | bp-nats-jetstream | `nats.promExporter.enabled` | `false` | Sidecar exporter container |
 | bp-nats-jetstream | `nats.promExporter.podMonitor.enabled` | `false` | monitoring.coreos.com/v1 PodMonitor |
 | bp-openbao | `openbao.injector.metrics.enabled` | `false` | injector metrics endpoint |
@@ -618,7 +618,7 @@ The contribution path applies equally to Crossplane Compositions, Helm charts, a
 | All container images cosigned | Supply-chain security; Kyverno admission policy denies unsigned. |
 | All artifacts SBOMed | Compliance (EU CRA, NIS2). |
 | No plaintext secrets in chart values; use ExternalSecret references | See [`SECURITY.md`](SECURITY.md). |
-| Workload identity via SPIFFE; no static service-account tokens | See [`SECURITY.md`](SECURITY.md) §2. |
+| Workload identity via K8s ServiceAccount TokenReview (projected bound-tokens, audience-scoped, kubelet-rotated hourly) on top of Cilium WireGuard transport encryption; no unbound long-lived service-account secret tokens. SPIFFE/SPIRE was dropped from the bootstrap-kit by founder PR [#665](https://github.com/openova-io/openova/pull/665) (chart retained as opt-in; re-introduction roadmap in TBD-V29 [#2055](https://github.com/openova-io/openova/issues/2055)) | See [`SECURITY.md`](SECURITY.md) §2. |
 | Health endpoints standardized: `/healthz` (liveness) + `/readyz` (readiness) | Catalyst observability assumes them. |
 | Metrics on `/metrics` (Prometheus exposition) | Catalyst Grafana stack scrapes them. |
 | Logs to stdout, structured JSON | Loki ingests them. |

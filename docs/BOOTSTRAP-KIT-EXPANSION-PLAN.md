@@ -3,6 +3,8 @@
 **Status:** Design (no implementation in this PR). **Author:** W1.D. **Updated:** 2026-04-30.
 **Authoritative anchors:** [`PLATFORM-TECH-STACK.md`](PLATFORM-TECH-STACK.md), [`PROVISIONING-PLAN.md`](PROVISIONING-PLAN.md), [`ARCHITECTURE.md`](ARCHITECTURE.md) §11, [`BLUEPRINT-AUTHORING.md`](BLUEPRINT-AUTHORING.md).
 
+> **SPIRE deferral (2026-05-03).** This document was drafted with `bp-spire` at slot 06. Founder PR [#665](https://github.com/openova-io/openova/pull/665) ("drop bp-spire — Cilium WireGuard is canonical east-west mesh") subsequently removed slot 06 from `clusters/_template/bootstrap-kit/`; the `platform/spire/` chart is retained as opt-in for future re-introduction. Today's canonical workload identity = Cilium WireGuard (kernel transport encryption) + K8s ServiceAccount TokenReview (workload-to-workload auth via OpenBao `kubernetes` auth method). The tables and DAG diagrams below preserve the pre-deferral slot numbering as a historical record of the Wave-2 dispatch plan; re-enable triggers + re-introduction roadmap live in TBD-V29 ([#2055](https://github.com/openova-io/openova/issues/2055)). The "Max chain length = 7" calculation in §2.8 was bounded by the cilium → cert-manager → spire → openbao chain — with bp-spire removed, the post-PR-665 max chain is one shorter (6 hops).
+
 ---
 
 ## 0. Purpose & non-goals
@@ -32,7 +34,7 @@ The `clusters/_template/bootstrap-kit/` directory currently contains **14 HelmRe
 | 03 | `03-flux.yaml` | bp-flux | 0 — Foundation | Host-Flux. (Bootstrap Flux that loaded this kit is replaced.) |
 | 04 | `04-crossplane.yaml` | bp-crossplane | 0 — Foundation | Day-2 IaC. Adopts Phase-0 OpenTofu artefacts. |
 | 05 | `05-sealed-secrets.yaml` | bp-sealed-secrets | 0 — Foundation | Bootstrap-only; transient until ESO+OpenBao take over. |
-| 06 | `06-spire.yaml` | bp-spire | 1 — Identity | SPIFFE root + agent. Workload SVIDs. |
+| 06 | `06-spire.yaml` | bp-spire | 1 — Identity | ⏸ **deferred** — slot 06 removed by founder PR [#665](https://github.com/openova-io/openova/pull/665) (2026-05-03). Originally: SPIFFE root + agent, Workload SVIDs. Today's canonical workload identity = Cilium WireGuard + K8s SA TokenReview; chart retained as opt-in. Re-introduction roadmap: TBD-V29 ([#2055](https://github.com/openova-io/openova/issues/2055)). |
 | 07 | `07-nats-jetstream.yaml` | bp-nats-jetstream | 2 — Eventbus | Control-plane event spine. |
 | 08 | `08-openbao.yaml` | bp-openbao | 1 — Identity/secret | Per-Sovereign secret backend. Raft. |
 | 09 | `09-keycloak.yaml` | bp-keycloak | 1 — Identity | OIDC/OAuth, per-Sovereign or per-Org realms. |
@@ -60,7 +62,7 @@ Legend:
 | 3 | bp-flux | 0 | host | present (slot 03) | GitOps. |
 | 4 | bp-crossplane | 0 | mgt | present (slot 04) | Day-2 IaC. |
 | 5 | bp-sealed-secrets | 0 | host (transient) | present (slot 05) | Decommissioned after Phase 1. |
-| 6 | bp-spire | 1 | host | present (slot 06) | SVIDs. |
+| 6 | bp-spire | 1 | host | ⏸ **deferred** (was slot 06) | Removed from bootstrap-kit by founder PR [#665](https://github.com/openova-io/openova/pull/665); chart retained as opt-in. Canonical workload identity = Cilium WireGuard + K8s SA TokenReview. Re-introduction roadmap: TBD-V29 ([#2055](https://github.com/openova-io/openova/issues/2055)). |
 | 7 | bp-nats-jetstream | 2 | mgt | present (slot 07) | Event spine. |
 | 8 | bp-openbao | 1 | mgt | present (slot 08) | Secret backend. |
 | 9 | bp-keycloak | 1 | mgt | present (slot 09) | OIDC. |

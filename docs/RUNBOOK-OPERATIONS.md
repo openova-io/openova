@@ -135,7 +135,7 @@ Expected: `{"status":"ok"}`. If unhealthy, the wizard's domain step (Step 6) can
 
 ### A.6 bp-* charts published at the current target version
 
-The bootstrap-kit Kustomization references 12 charts. Today's target versions are:
+The bootstrap-kit Kustomization references 11 charts (post founder PR [#665](https://github.com/openova-io/openova/pull/665), 2026-05-03 — slot 06 / `bp-spire` was removed; canonical workload identity is now Cilium WireGuard + K8s SA TokenReview; the `platform/spire/` chart is retained as opt-in only — re-introduction roadmap in TBD-V29 [#2055](https://github.com/openova-io/openova/issues/2055)). Today's target versions are:
 
 | Chart | Target version |
 |---|---|
@@ -144,7 +144,6 @@ The bootstrap-kit Kustomization references 12 charts. Today's target versions ar
 | `bp-flux` | `1.1.0` |
 | `bp-crossplane` | `1.1.0` |
 | `bp-sealed-secrets` | `1.1.0` |
-| `bp-spire` | `1.1.0` |
 | `bp-nats-jetstream` | `1.1.0` |
 | `bp-openbao` | `1.1.0` |
 | `bp-keycloak` | `1.1.0` |
@@ -152,12 +151,12 @@ The bootstrap-kit Kustomization references 12 charts. Today's target versions ar
 | `bp-powerdns` | `1.1.0` |
 | `bp-catalyst-platform` | `1.1.0` |
 
-When the observability-toggle agent lands, all 12 charts move to `1.1.1`. The bump is the operator's signal that observability defaults flip from on to off (per the IMPLEMENTATION-STATUS hardening) — the underlying charts are functionally compatible.
+When the observability-toggle agent lands, all 11 charts move to `1.1.1`. The bump is the operator's signal that observability defaults flip from on to off (per the IMPLEMENTATION-STATUS hardening) — the underlying charts are functionally compatible.
 
-**Before provisioning, confirm the 12 OCI artifacts exist** at the target version:
+**Before provisioning, confirm the 11 OCI artifacts exist** at the target version:
 
 ```bash
-for chart in cilium cert-manager flux crossplane sealed-secrets spire nats-jetstream openbao keycloak gitea powerdns catalyst-platform; do
+for chart in cilium cert-manager flux crossplane sealed-secrets nats-jetstream openbao keycloak gitea powerdns catalyst-platform; do
   printf '%-24s ' "bp-$chart"
   curl -sS -H "Authorization: Bearer $(echo -n "$GHCR_PULL_TOKEN" | base64)" \
     "https://ghcr.io/v2/openova-io/bp-$chart/tags/list" 2>/dev/null | \
@@ -225,20 +224,22 @@ Cloud-init on the control-plane node, in this exact order:
 5. `kubectl create secret generic ghcr-pull -n flux-system --from-literal=token="$CATALYST_GHCR_PULL_TOKEN"` — durable so private bp-* charts pull cleanly (commit `dddbab4b`, #9 below).
 6. Apply the GitRepository pointing at `clusters/<sovereign-fqdn>/` in the public OpenOva monorepo.
 7. Apply two Kustomizations split for CRD ordering (commit `34c8de84`, #8 below):
-   - `bootstrap-kit` — installs the 11 platform charts.
+   - `bootstrap-kit` — installs the 10 platform charts (down from 11 pre-PR-665 — bp-spire deferred; see note below).
    - `infrastructure-config` — applies Crossplane Compositions and ProviderConfigs after Crossplane CRDs exist.
 
 ### B.4 Phase 1 — bootstrap-kit (10–15 min)
 
-Flux pulls 11 `bp-*` HelmReleases in dependency order via `dependsOn`:
+Flux pulls 10 `bp-*` HelmReleases in dependency order via `dependsOn`:
 
 ```
 cilium  →  cert-manager  →  flux  →  crossplane  →  sealed-secrets
                                 ↓
-spire  →  nats-jetstream  →  openbao  →  keycloak  →  gitea  →  powerdns
+nats-jetstream  →  openbao  →  keycloak  →  gitea  →  powerdns
 ```
 
-Then `bp-catalyst-platform` (umbrella) reconciles. The 11 + umbrella = 12 G2 wrapper charts (per [`SOVEREIGN-PROVISIONING.md`](SOVEREIGN-PROVISIONING.md) §3 and [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md) §7).
+(Pre-2026-05-03 the chain included `spire → nats-jetstream`; founder PR [#665](https://github.com/openova-io/openova/pull/665) removed bp-spire from the bootstrap-kit — chart retained as opt-in. Re-introduction roadmap: TBD-V29 [#2055](https://github.com/openova-io/openova/issues/2055).)
+
+Then `bp-catalyst-platform` (umbrella) reconciles. The 10 + umbrella = 11 G2 wrapper charts post founder PR [#665](https://github.com/openova-io/openova/pull/665) (per [`SOVEREIGN-PROVISIONING.md`](SOVEREIGN-PROVISIONING.md) §3 and [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md) §7).
 
 ### B.5 cert-manager + Cilium Gateway + console URL (1–2 min)
 
