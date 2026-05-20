@@ -1,0 +1,436 @@
+{{- /*
+Step 10 — vcluster-registry-pivot (TBD-V24 MISS-1, issue #2034).
+
+Pivots the THREE bp-*-vcluster HelmReleases' `image.repository` values
+from the chart-default `harbor.openova.io/proxy-ghcr/loft-sh/vcluster`
+to the Sovereign-local `harbor.<SOVEREIGN_FQDN>/proxy-ghcr/loft-sh/
+vcluster`. Without this step the MGMT/RTZ/DMZ vCluster control-plane
+Pods keep pulling from mothership Harbor indefinitely — blocking
+Pillar 5 (Sovereign independence). The chart's own comment at
+`platform/bp-mgmt-vcluster/chart/values.yaml:77-79` already promises
+"post-handover, the per-Sovereign overlay rewrites to
+`harbor.<sovereign-fqdn>/proxy-ghcr/...`" but until this step shipped
+no such rewrite existed anywhere in the cutover sequence.
+
+Why step 04 (containerd registries.yaml pivot) does NOT catch it
+─────────────────────────────────────────────────────────────────
+`registries.yaml.v2` (written by Step 04's DaemonSet) only registers
+mirrors for the 7 canonical UPSTREAMS (ghcr.io, docker.io,
+registry.k8s.io, gcr.io, quay.io, xpkg.upbound.io, public.ecr.aws). The
+host `harbor.openova.io` is treated as a literal endpoint, NOT an
+upstream — Step 04 does NOT add a mirror for it. So a Pod whose
+imageRef starts with `harbor.openova.io/...` ALWAYS hits the literal
+mothership Harbor regardless of containerd mirror config.
+
+Why not just `helm template` the bp-*-vcluster charts with an overlay
+─────────────────────────────────────────────────────────────────────
+The bp-*-vcluster charts default to mothership-friendly values so
+non-Sovereign installs (the openova-io mothership itself, dev clusters)
+work without threading a Sovereign FQDN through values. Coupling the
+chart to a per-Sovereign FQDN at template time would pollute every
+non-Sovereign deployment. The cutover-step pattern keeps chart
+defaults untouched and only rewrites POST-handover, when the
+per-Sovereign FQDN is well-defined.
+
+Patches applied (TWO knobs per HelmRelease)
+───────────────────────────────────────────
+The bp-mgmt-vcluster / bp-rtz-vcluster / bp-dmz-vcluster charts expose
+the vCluster image at TWO levels:
+
+  1. `<role>Vcluster.image.repository` — the umbrella chart's image
+     reference (see `platform/bp-mgmt-vcluster/chart/values.yaml:81`,
+     bp-rtz-vcluster/...values.yaml:33, bp-dmz-vcluster/...:43)
+  2. `vcluster.controlPlane.statefulSet.image.{registry,repository}`
+     — the loft-sh upstream subchart's image reference (see
+     platform/bp-mgmt-vcluster/chart/values.yaml:129-130 et al.)
+
+This Job patches BOTH on each of the 3 HelmReleases. Idempotent: a
+re-run reads the current value and skips when already pivoted.
+
+Phase inventory
+───────────────
+  Phase 1  Live K8s patch — `kubectl patch helmrelease` against each
+           of {bp-mgmt-vcluster, bp-rtz-vcluster, bp-dmz-vcluster} in
+           flux-system, setting both image knobs to the Sovereign-local
+           Harbor host. Triggers an immediate Flux reconcile annotation
+           so helm-controller re-renders within seconds rather than
+           waiting for the 15m HR interval.
+  Phase 2  Push YAML edit to local Gitea (same pattern as Step 06
+           Phase 2): clone the bootstrap-kit repo, inject `image:`
+           overrides into clusters/_template/bootstrap-kit/{54,58,59}-
+           bp-*-vcluster.yaml under spec.values, commit + push. Without
+           this phase the bootstrap-kit Kustomization reconcile (every
+           ~1 min from local Gitea) would silently revert the Phase 1
+           live patch back to the chart default within minutes.
+
+Pod restart-safety / image-pull semantics
+──────────────────────────────────────────
+The actively-running vCluster Pods do NOT churn on a `helm upgrade` of
+the wrapper chart unless the StatefulSet PodSpec changes. Changing
+ONLY `image.repository` to a different host of the SAME image tag
+DOES trigger a rolling update because the StatefulSet's
+`spec.template.spec.containers[].image` field changes. Local Harbor's
+proxy-ghcr project (created by Step 02) will serve the same upstream
+image bytes via Harbor's proxy-cache semantics, so the new image-pull
+either hits Harbor's existing cache (Step 03 prewarm covered this) or
+falls through to ghcr.io once and then caches locally.
+
+Order rationale: 10 (after Step 09)
+────────────────────────────────────
+Placed at order 10 so it runs LAST in the cutover sequence. This
+follows the precedent set by Step 09 (gitea-token-mint, chart 0.1.30):
+"avoid renumbering 01..09 which would invalidate operator history".
+Functionally the step is order-independent for everything except:
+  - MUST run AFTER Step 02 (harbor-projects) so the local Harbor
+    proxy-ghcr project exists for the new image pulls.
+  - MUST run AFTER Step 06 (helmrepository-patches Phase-0) so the
+    ghcr-pull Secret carries auth for harbor.<sov-fqdn> — that auth is
+    what the vCluster Pods need to pull from the local Harbor mirror.
+
+Image phase: post.
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cutover-step-10-vcluster-registry-pivot
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-self-sovereign-cutover.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cutover-step
+    bp.openova.io/cutover-order: "10"
+    bp.openova.io/cutover-mode: "job"
+data:
+  stepName: vcluster-registry-pivot
+  podSpec: |
+    serviceAccountName: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
+    restartPolicy: Never
+    activeDeadlineSeconds: {{ .Values.stepTimeouts.vclusterRegistryPivotSeconds }}
+    containers:
+      - name: vcluster-registry-pivot
+        # alpine/k8s ships both kubectl AND git so we can patch live
+        # HelmReleases AND push the YAML edit to local Gitea (same image
+        # Step 06 uses for the same reason).
+        # Fix #163 (2026-05-11, MIRROR-EVERYTHING): explicit
+        # harbor.openova.io/proxy-dockerhub prefix per CLAUDE.md
+        # inviolable rule — pre-cutover containerd already routes this
+        # via the proxy, so the Job can pull its own image during the
+        # cutover sequence.
+        image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4
+        imagePullPolicy: IfNotPresent
+        env:
+          - name: HELMRELEASE_NAMESPACE
+            value: {{ .Values.vclusterRegistryPivot.helmReleaseNamespace | quote }}
+          - name: SOVEREIGN_FQDN
+            value: {{ .Values.sovereign.fqdn | quote }}
+          - name: GITEA_INTERNAL_URL
+            value: {{ .Values.sovereign.giteaInternalURL | quote }}
+          - name: GITEA_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.gitea.adminSecretRef.name }}
+                key: {{ .Values.gitea.adminSecretRef.usernameKey }}
+          - name: GITEA_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.gitea.adminSecretRef.name }}
+                key: {{ .Values.gitea.adminSecretRef.passwordKey }}
+          - name: GITEA_ORG
+            value: {{ .Values.gitea.org | quote }}
+          - name: GITEA_REPO
+            value: {{ .Values.gitea.repo | quote }}
+          - name: IMAGE_TAG
+            value: {{ .Values.vclusterRegistryPivot.imageTag | quote }}
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+
+            # The Sovereign-local Harbor host. bp-*-vcluster charts'
+            # `image.repository` is HOST + PATH ("harbor.openova.io/
+            # proxy-ghcr/loft-sh/vcluster"), but the upstream loft-sh
+            # subchart splits it into `.image.registry` (HOST only) +
+            # `.image.repository` (PATH only). So we compute both.
+            target_host="harbor.${SOVEREIGN_FQDN}"
+            wrapper_repo="${target_host}/proxy-ghcr/loft-sh/vcluster"
+            sub_registry="${target_host}"
+            sub_repo_path="proxy-ghcr/loft-sh/vcluster"
+
+            echo "[vcluster-registry-pivot] target host: ${target_host}"
+            echo "[vcluster-registry-pivot] wrapper image.repository: ${wrapper_repo}"
+            echo "[vcluster-registry-pivot] subchart image.registry: ${sub_registry} repository: ${sub_repo_path}"
+
+            # ---- Phase 1: live K8s patch on each of the 3 bp-*-vcluster HelmReleases ----
+            #
+            # The bp-*-vcluster wrapper charts each expose:
+            #   spec.values.<role>Vcluster.image.repository   (umbrella)
+            #   spec.values.vcluster.controlPlane.statefulSet.image.{registry,repository}   (subchart)
+            # where <role> is one of {mgmt, rtz, dmz}. We merge-patch
+            # both knobs in a single kubectl invocation per HR so a
+            # partial-patch race can't leave one knob pivoted and the
+            # other not.
+            #
+            # Idempotency: kubectl patch --type=merge is a no-op when
+            # the requested value equals the current value, so re-runs
+            # don't churn the HR resourceVersion. We additionally read
+            # the current wrapper image.repository before patching and
+            # log a SKIP when it's already correct.
+            ok=0
+            skip=0
+            fail=0
+
+            patch_hr() {
+              # $1 = HR name (bp-mgmt-vcluster | bp-rtz-vcluster | bp-dmz-vcluster)
+              # $2 = role key (mgmtVcluster | rtzVcluster | dmzVcluster)
+              hr_name="$1"
+              role_key="$2"
+
+              # Skip-if-absent guard. On a primary region the MGMT and
+              # DMZ HRs exist; secondaries only have DMZ + RTZ. We
+              # don't want a missing HR to fail the cutover step on
+              # the wrong topology.
+              if ! kubectl get helmrelease "${hr_name}" -n "${HELMRELEASE_NAMESPACE}" >/dev/null 2>&1; then
+                echo "[vcluster-registry-pivot] SKIP ${hr_name} (not present in this region — topology-dependent, expected)"
+                skip=$((skip+1))
+                return 0
+              fi
+
+              cur_wrapper=$(kubectl get helmrelease "${hr_name}" -n "${HELMRELEASE_NAMESPACE}" \
+                -o jsonpath='{.spec.values.'"${role_key}"'.image.repository}' 2>/dev/null || echo "")
+              cur_sub_reg=$(kubectl get helmrelease "${hr_name}" -n "${HELMRELEASE_NAMESPACE}" \
+                -o jsonpath='{.spec.values.vcluster.controlPlane.statefulSet.image.registry}' 2>/dev/null || echo "")
+
+              if [ "${cur_wrapper}" = "${wrapper_repo}" ] && [ "${cur_sub_reg}" = "${sub_registry}" ]; then
+                echo "[vcluster-registry-pivot] SKIP ${hr_name} (already pivoted: wrapper=${cur_wrapper} sub-registry=${cur_sub_reg})"
+                skip=$((skip+1))
+                return 0
+              fi
+
+              # Build a single merge-patch that updates BOTH knobs.
+              # Using a heredoc + printf to keep the JSON readable.
+              patch_json=$(printf '{
+                "spec": {
+                  "values": {
+                    "%s": {
+                      "image": {
+                        "repository": "%s"
+                      }
+                    },
+                    "vcluster": {
+                      "controlPlane": {
+                        "statefulSet": {
+                          "image": {
+                            "registry": "%s",
+                            "repository": "%s"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }' "${role_key}" "${wrapper_repo}" "${sub_registry}" "${sub_repo_path}")
+
+              if kubectl patch helmrelease "${hr_name}" \
+                  -n "${HELMRELEASE_NAMESPACE}" \
+                  --type=merge --patch "${patch_json}" >/dev/null 2>&1; then
+                echo "[vcluster-registry-pivot] OK ${hr_name} -> wrapper=${wrapper_repo} sub-registry=${sub_registry}"
+                # Trigger immediate Flux reconcile so helm-controller
+                # re-renders the chart within seconds rather than
+                # waiting for the 15m HR interval.
+                kubectl annotate --overwrite helmrelease "${hr_name}" \
+                  -n "${HELMRELEASE_NAMESPACE}" \
+                  "reconcile.fluxcd.io/requestedAt=$(date +%s)" >/dev/null 2>&1 || true
+                ok=$((ok+1))
+              else
+                echo "[vcluster-registry-pivot] FAIL ${hr_name}" >&2
+                fail=$((fail+1))
+              fi
+            }
+
+            patch_hr "bp-mgmt-vcluster" "mgmtVcluster"
+            patch_hr "bp-rtz-vcluster"  "rtzVcluster"
+            patch_hr "bp-dmz-vcluster"  "dmzVcluster"
+
+            echo "[vcluster-registry-pivot] live-K8s ok=${ok} skip=${skip} fail=${fail}"
+            [ "${fail}" -eq 0 ] || exit 1
+
+            # ---- Phase 2: push YAML edit to local Gitea ----
+            #
+            # bootstrap-kit Kustomization reconciles HelmRelease YAML
+            # from local Gitea every ~1 min. Without this phase, Phase
+            # 1's live patch is silently reverted on the next reconcile
+            # because the YAML in Gitea still lacks the image.repository
+            # override under spec.values. We inject the override block
+            # (same shape used by other Sovereign-overlay knobs in
+            # those files like `nodeSelector` and the existing
+            # `${SOVEREIGN_REGION_CANONICAL_LABEL}` substitutions).
+            export HOME=/tmp
+            git config --global user.name "self-sovereign-cutover"
+            git config --global user.email "cutover@${SOVEREIGN_FQDN}"
+            git config --global advice.detachedHead false
+
+            gitea_host="$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E 's|^https?://||' | cut -d: -f1 | cut -d/ -f1)"
+            for i in $(seq 1 30); do
+              if nslookup "${gitea_host}" >/dev/null 2>&1; then break; fi
+              sleep 5
+            done
+
+            push_url=$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E "s,^(https?://),\1${GITEA_USERNAME}:${GITEA_PASSWORD}@,")"/${GITEA_ORG}/${GITEA_REPO}.git"
+            redacted=$(printf '%s' "${GITEA_INTERNAL_URL}/${GITEA_ORG}/${GITEA_REPO}.git")
+
+            echo "[vcluster-registry-pivot] cloning ${redacted}"
+            cd /tmp
+            rm -rf repo
+            git clone --depth 1 --branch main "${push_url}" repo >/dev/null 2>&1
+            cd repo
+
+            target_dir="clusters/_template/bootstrap-kit"
+            if [ ! -d "${target_dir}" ]; then
+              echo "[vcluster-registry-pivot] FATAL: ${target_dir} not present in local mirror" >&2
+              exit 1
+            fi
+
+            # The three vCluster HR YAMLs and their role keys.
+            # Format: filename:role_key
+            edited=0
+            for entry in \
+              "54-bp-dmz-vcluster.yaml:dmzVcluster" \
+              "58-bp-mgmt-vcluster.yaml:mgmtVcluster" \
+              "59-bp-rtz-vcluster.yaml:rtzVcluster" \
+            ; do
+              file="${entry%%:*}"
+              role_key="${entry##*:}"
+              path="${target_dir}/${file}"
+
+              if [ ! -f "${path}" ]; then
+                echo "[vcluster-registry-pivot] SKIP ${path} (not present)"
+                continue
+              fi
+
+              # Has the override block already been injected (re-run)?
+              # We look for our sentinel comment + the wrapper-repo URL
+              # under the role_key block.
+              if grep -q "# ─── vCluster image registry pivot (TBD-V24 MISS-1) ──" "${path}"; then
+                # Idempotency: rewrite the URL value in case the
+                # SOVEREIGN_FQDN changed between runs (rare but
+                # possible when the operator renames the Sovereign).
+                # We replace the line beginning with `        repository:`
+                # under the role_key block.
+                if sed -i -E "/^[[:space:]]{4}${role_key}:[[:space:]]*$/,/^[[:space:]]{0,4}[a-zA-Z]/{s,^([[:space:]]{8}repository:[[:space:]]*).*$,\1${wrapper_repo}," "${path}" 2>/dev/null; then
+                  edited=$((edited+1))
+                  echo "[vcluster-registry-pivot] rewrote existing image override in ${path}"
+                else
+                  echo "[vcluster-registry-pivot] WARN: sed rewrite failed for ${path}; Phase-1 K8s patch remains durable for one upgrade cycle"
+                fi
+                continue
+              fi
+
+              # No existing override — inject the block under the
+              # `values:` key. The role-key block exists at 4-space
+              # indent under spec.values (every chart >= 0.1.0 ships
+              # this shape; the role keys are `mgmtVcluster`,
+              # `rtzVcluster`, `dmzVcluster`).
+              if grep -qE "^[[:space:]]{4}${role_key}:[[:space:]]*$" "${path}"; then
+                awk -v role="${role_key}" -v repo="${wrapper_repo}" -v reg="${sub_registry}" -v rpath="${sub_repo_path}" -v tag="${IMAGE_TAG}" '
+                  $0 ~ "^[[:space:]]{4}"role":[[:space:]]*$" && !done {
+                    print
+                    print "      # ─── vCluster image registry pivot (TBD-V24 MISS-1) ──"
+                    print "      # Injected by self-sovereign-cutover step-10 from"
+                    print "      # harbor.openova.io → harbor.<SOVEREIGN_FQDN> so the"
+                    print "      # vCluster control-plane Pods pull from the Sovereign-local"
+                    print "      # Harbor mirror, NOT mothership Harbor. Required by"
+                    print "      # Principle #11 (no tether to harbor.openova.io after"
+                    print "      # handover). Without this override the chart default at"
+                    print "      # platform/bp-*-vcluster/chart/values.yaml resolves back"
+                    print "      # to harbor.openova.io and the bootstrap-kit Kustomization"
+                    print "      # reconcile reverts step-10s live K8s patch."
+                    print "      image:"
+                    print "        repository: " repo
+                    done = 1
+                    next
+                  }
+                  { print }
+                ' "${path}" > "${path}.new" && mv "${path}.new" "${path}"
+                edited=$((edited+1))
+                echo "[vcluster-registry-pivot] injected wrapper image override into ${path}"
+              else
+                echo "[vcluster-registry-pivot] WARN: ${path} has no ${role_key}: anchor — Phase-1 K8s patch remains durable for one upgrade cycle"
+                continue
+              fi
+
+              # ALSO inject (or replace) the subchart image block —
+              # the loft-sh upstream image. The file already has a
+              # `vcluster:` block at 4-space indent (every HR YAML
+              # has it for nodeSelector pinning). We append the
+              # subchart image under controlPlane.statefulSet, OR if
+              # the block already exists, replace the registry value.
+              if grep -qE "^[[:space:]]{8}statefulSet:[[:space:]]*$" "${path}"; then
+                if grep -qE "^[[:space:]]{10}image:[[:space:]]*$" "${path}"; then
+                  # Existing image block under statefulSet — replace
+                  # registry + repository lines at 12-space indent
+                  # using a bounded sed range so we don't touch other
+                  # image: blocks in the same file.
+                  sed -i -E "/^[[:space:]]{10}image:[[:space:]]*$/,/^[[:space:]]{0,10}[a-zA-Z]/{s,^([[:space:]]{12}registry:[[:space:]]*).*$,\1${sub_registry},; s,^([[:space:]]{12}repository:[[:space:]]*).*$,\1${sub_repo_path},}" "${path}" 2>/dev/null || true
+                  echo "[vcluster-registry-pivot] rewrote subchart image registry/repository in ${path}"
+                else
+                  # Inject a new image block under statefulSet at
+                  # 10-space indent. statefulSet appears once; we add
+                  # `image:` as a sibling of `scheduling:`.
+                  awk -v reg="${sub_registry}" -v rpath="${sub_repo_path}" -v tag="${IMAGE_TAG}" '
+                    /^[[:space:]]{8}statefulSet:[[:space:]]*$/ && !done {
+                      print
+                      print "          image:"
+                      print "            registry: " reg
+                      print "            repository: " rpath
+                      done = 1
+                      next
+                    }
+                    { print }
+                  ' "${path}" > "${path}.new" && mv "${path}.new" "${path}"
+                  echo "[vcluster-registry-pivot] injected subchart image block into ${path}"
+                fi
+              fi
+            done
+
+            echo "[vcluster-registry-pivot] sed edited ${edited} files"
+            if [ "${edited}" -eq 0 ]; then
+              echo "[vcluster-registry-pivot] no edits required — already pivoted in Gitea or files absent"
+              # Phase 1 already succeeded; nothing to push.
+              exit 0
+            fi
+
+            git add "${target_dir}"
+            if git diff --staged --quiet; then
+              echo "[vcluster-registry-pivot] git diff empty after sed — nothing to commit"
+              exit 0
+            fi
+            git commit -m "cutover: pivot vCluster image.repository to harbor.${SOVEREIGN_FQDN}" >/dev/null
+            push_err=$(git push origin main 2>&1) || {
+              echo "[vcluster-registry-pivot] FATAL: git push failed" >&2
+              printf '%s\n' "$push_err" >&2
+              exit 1
+            }
+            echo "[vcluster-registry-pivot] pushed to ${redacted}"
+
+            # Trigger an immediate Flux reconciliation so the new YAML
+            # lands without waiting for the polling interval.
+            kubectl annotate --overwrite gitrepository openova \
+              -n flux-system \
+              "reconcile.fluxcd.io/requestedAt=$(date +%s)" >/dev/null || true
+
+            echo "[vcluster-registry-pivot] step complete"
+        resources:
+          requests: { cpu: 50m, memory: 128Mi }
+          limits:   { memory: 384Mi }
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1001
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+    volumes:
+      - name: tmp
+        emptyDir: {}

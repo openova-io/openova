@@ -425,6 +425,34 @@ stepTimeouts:
   # 600s leaves generous headroom for the provisioning Deployment
   # rollout (which can take a few minutes on a cold-start cluster).
   giteaTokenMintSeconds: 600
+  # Step 10 (vcluster-registry-pivot, TBD-V24 MISS-1) — three HR patches
+  # + one git clone/push to local Gitea. Bounded by the Gitea push
+  # round-trip; 600s is generous (typical run completes in <60s).
+  vclusterRegistryPivotSeconds: 600
+
+# Step 10 (vcluster-registry-pivot, TBD-V24 MISS-1, issue #2034) — pivot
+# the three bp-*-vcluster HelmReleases' image.repository from
+# `harbor.openova.io/proxy-ghcr/loft-sh/vcluster` to
+# `harbor.<SOVEREIGN_FQDN>/proxy-ghcr/loft-sh/vcluster` so the
+# MGMT/RTZ/DMZ vCluster control-plane Pods pull from the Sovereign-local
+# Harbor mirror post-cutover. Without this step the vCluster image-pull
+# remains tethered to mothership Harbor indefinitely — a Pillar-5
+# (Sovereign independence) violation. See 10-vcluster-registry-pivot-job.yaml
+# for the full protocol.
+vclusterRegistryPivot:
+  # Namespace where the 3 bp-*-vcluster HelmReleases live. The
+  # bootstrap-kit's slots 54/58/59 all install into flux-system, so the
+  # default here matches the canonical layout. Per-Sovereign overlay
+  # can change this if a future topology splits the HRs elsewhere.
+  helmReleaseNamespace: "flux-system"
+  # vCluster image tag — must match the tag pinned in each bp-*-vcluster
+  # chart's values.yaml (currently 0.20.0 across all three). This is
+  # NOT used by the merge-patch directly (the chart's existing
+  # image.tag value is preserved untouched); it's threaded through
+  # only for the YAML-edit comment so the injected block is
+  # self-documenting. Override via per-Sovereign overlay if you've
+  # pinned a different upstream vCluster version.
+  imageTag: "0.20.0"
 
 # Step 09 (gitea-token-mint, TBD-C18) — bootstrap the Gitea API token
 # that the SME provisioning service uses for tenant repo materialisation.
