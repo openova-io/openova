@@ -1,0 +1,27 @@
+apiVersion: v2
+name: bp-kyverno-policies
+description: |
+  Catalyst Blueprint chart that ships the EPIC-1 (#1096) compliance policy
+  library — 20 ClusterPolicy templates rendered against Kyverno CRDs that
+  the engine chart (bp-kyverno) installs.
+
+  Split from bp-kyverno (predecessor: chart 1.2.0 with policies in-tree)
+  because installing the engine + policies in a SINGLE Helm pass creates a
+  CRD-ordering race: the Kyverno upstream subchart installs
+  ClusterPolicy/Policy CRDs via its `charts/crds/templates/`, but the
+  apiserver's RESTMapper has not yet learned `kyverno.io/v1.ClusterPolicy`
+  when Helm tries to apply the ClusterPolicy CRs in the same release.
+  Separating into TWO Blueprints + ordering via `Kustomization.dependsOn`
+  on the engine slot lets the engine reconcile + register its CRDs first,
+  THEN the policy chart applies cleanly. See Issue #2019.
+
+  This chart has NO upstream subchart — it is a pure overlay that emits
+  ClusterPolicy CRs. CRDs are provided by the engine chart's upstream
+  Kyverno subchart at slot 27.
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords: [catalyst, blueprint, kyverno, policy, compliance, audit]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io

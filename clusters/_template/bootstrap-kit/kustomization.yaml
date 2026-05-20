@@ -79,6 +79,7 @@ resources:
   - 24-tempo.yaml
   - 25-grafana.yaml
   - 27-kyverno.yaml
+  - 27a-kyverno-policies.yaml
   - 28-reloader.yaml
   - 29-vpa.yaml
   - 30-trivy.yaml

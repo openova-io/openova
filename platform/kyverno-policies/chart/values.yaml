@@ -1,0 +1,189 @@
+# bp-kyverno-policies values — EPIC-1 (#1096) compliance policy library.
+#
+# Split from bp-kyverno (engine chart) per Issue #2019 to break a CRD
+# install-ordering race: when policies + Kyverno CRDs land in the same
+# Helm pass, the apiserver RESTMapper has not learned `ClusterPolicy`
+# before Helm tries to apply policy CRs.
+#
+# This chart's HelmRelease is ordered AFTER the engine via the
+# bootstrap-kit Kustomization.dependsOn chain (cross-kind dependsOn at
+# the HR level is silently ignored per docs/INVIOLABLE-PRINCIPLES.md
+# #14 — use Kustomization.dependsOn for cross-kind ordering).
+#
+# Schema per policy:
+#   <name>:
+#     enabled: bool                      # required — gate
+#     action: "Audit" | "Enforce"        # default Audit; flipped per-Environment
+#                                        # by EnvironmentPolicy.spec.compliance.modes
+#                                        # (slice C2 controller, future)
+#     excludeNamespaces: [string]        # control-plane ns exemption list
+#     <policy-specific knobs>            # e.g. allowedRegistryRegex
+#
+# Default action is `Audit` for every policy (permissive mode). Per
+# docs/EPICS-1-6-unified-design.md §4.3 some policies have an
+# "enforcing" default mode — those defaults are applied by the future
+# environment-controller when it materializes a default
+# EnvironmentPolicy on every Environment, NOT here. This values file is
+# the per-Sovereign baseline; the Environment-level defaults are the
+# next layer up.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 — every value is overridable.
+compliancePolicies:
+  # K1 baseline policies
+  #
+  # Default = enabled: true with action: Audit (permissive). Per #1929 the
+  # Compliance scorecard was empty on fresh Sovereigns because every policy
+  # gate defaulted to false — only `useraccess-boundary` was installed.
+  # Audit mode is non-blocking (admission still passes) so flipping defaults
+  # to true is safe: every Sovereign immediately has 18 baseline policies
+  # emitting PolicyReport rows, and operators can flip individual policies
+  # to enabled: false or action: Enforce per Sovereign overlay.
+  #
+  # The 2 exceptions:
+  #   - hubbleFlowsSeen — comment-only stub (W2 evaluator does the real
+  #     check). Setting enabled=true renders nothing. Left false for
+  #     symmetry with its DEFERRED status; future W2 cutover flips it.
+  #   - cosignVerified  — verifyImages rule requires an operator-supplied
+  #     publicKey. Empty default would render an INVALID policy that fails
+  #     to install. Left false; operator opts in per Sovereign once cosign
+  #     key bundle is supplied.
+  multiReplica:
+    enabled: true
+    action: Audit
+    excludeNamespaces: &complianceDefaultExcludes
+      - kube-system
+      - flux-system
+      - cilium
+      - cilium-gateway
+      - cert-manager
+      - openova-system
+      - catalyst
+      - kyverno
+      - monitoring
+      - ingress
+
+  pdb:
+    enabled: true
+    action: Audit
+    excludeNamespaces: *complianceDefaultExcludes
+
+  topologySpread:
+    enabled: true
+    action: Audit
+    excludeNamespaces: *complianceDefaultExcludes
+
+  probesPresent:
+    enabled: true
+    action: Audit
+    excludeNamespaces: *complianceDefaultExcludes
+
+  resourceRequests:
+    enabled: true
+    action: Audit
+    excludeNamespaces: *complianceDefaultExcludes
+
+  resourceLimits:
+    enabled: true
+    action: Audit
+    excludeNamespaces: *complianceDefaultExcludes
+
+  pvcExpansion:
+    enabled: true
+    action: Audit
+    excludeNamespaces: *complianceDefaultExcludes
+
+  hpaEffective:
+    enabled: true
+    action: Audit
+    excludeNamespaces: *complianceDefaultExcludes
+
+  ciliumL7Mtls:
+    enabled: true
+    action: Audit
+    excludeNamespaces: *complianceDefaultExcludes
+
+  fluxManaged:
+    enabled: true
+    action: Audit
+    excludeNamespaces: *complianceDefaultExcludes
+
+  harborProxyPull:
+    enabled: true
+    action: Audit
+    excludeNamespaces: *complianceDefaultExcludes
+    # Operator overrides per-Sovereign (e.g.
+    # "^harbor\\.omantel\\.openova\\.io/proxy-(ghcr|dockerhub|quay)/.*").
+    # The default below allows any host of the form
+    # `harbor.<sovereign-domain>/proxy-<upstream>/*`. Operator narrows
+    # this per Sovereign overlay. Empty pattern would match everything,
+    # which would silently disable the rule.
+    allowedRegistryRegex: "^harbor\\..+/proxy-(ghcr|dockerhub|quay|registry-1\\.docker\\.io)/.*"
+
+  imageTagPinned:
+    enabled: true
+    action: Audit
+    excludeNamespaces: *complianceDefaultExcludes
+
+  prometheusScrape:
+    enabled: true
+    action: Audit
+    excludeNamespaces: *complianceDefaultExcludes
+
+  # K2 added policies
+  networkpolicyPresent:
+    enabled: true
+    action: Audit
+    # Match on Namespace kind — `excludeNamespaces` here is consumed via
+    # `resources.names` (the namespace IS the resource). Same default
+    # exemption set as the workload policies.
+    excludeNamespaces: *complianceDefaultExcludes
+
+  otelInjected:
+    enabled: true
+    action: Audit
+    excludeNamespaces: *complianceDefaultExcludes
+
+  hubbleFlowsSeen:
+    # DEFERRED — see template stub for K2 #16. The Kyverno gate is a
+    # no-op; W2 evaluator does the actual check. Setting enabled=true
+    # today is harmless (renders nothing) but reserved as the cutover
+    # knob once W2 lands so operators can toggle a single flag.
+    enabled: false
+    action: Audit
+    excludeNamespaces: *complianceDefaultExcludes
+
+  runAsNonRootReadonlyRootFs:
+    enabled: true
+    action: Audit
+    excludeNamespaces: *complianceDefaultExcludes
+
+  cosignVerified:
+    # OFF by default — verifyImages rule requires an operator-supplied
+    # cosign publicKey (PEM). Empty publicKey renders an INVALID policy
+    # that fails to install. Per docs/INVIOLABLE-PRINCIPLES.md #4 we
+    # surface the config gap rather than silently passing. Operator
+    # opts in per Sovereign once the cosign key bundle is supplied.
+    enabled: false
+    action: Audit
+    excludeNamespaces: *complianceDefaultExcludes
+    # Cosign verifyImages rule fields. Defaults reference openova-io
+    # images only; operator extends per Sovereign.
+    imageReferences:
+      - "ghcr.io/openova-io/*"
+    # Cosign public key (PEM). Empty default means the rule emits an
+    # invalid policy until operator supplies a real key — surfaces the
+    # config gap rather than silently passing. Per
+    # docs/INVIOLABLE-PRINCIPLES.md #4 this is operator-configurable,
+    # NOT hardcoded.
+    publicKey: ""
+    rekorURL: "https://rekor.sigstore.dev"
+
+  secretNotInEnv:
+    enabled: true
+    action: Audit
+    excludeNamespaces: *complianceDefaultExcludes
+
+  backupConfigured:
+    enabled: true
+    action: Audit
+    excludeNamespaces: *complianceDefaultExcludes
