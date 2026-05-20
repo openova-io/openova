@@ -281,3 +281,145 @@ go build ./apps/...
 ```
 
 CRD types live in `core/pkg/apis/`. Add new types here, regenerate clients, then update the controller in `core/internal/`.
+
+---
+
+## Session lessons (2026-05-20) — amnesia anti-patterns to NEVER repeat
+
+The 2026-05-20 session repeatedly tripped over patterns that were already documented in user-global CLAUDE.md, memory files, or canonical docs. Each item below records: **what happened**, **what was already documented**, the **correct path**, and a **pre-flight check** that prevents recurrence. Read before any session that touches mothership / Hetzner / Sovereigns.
+
+### L1 — "I don't have hcloud creds" when the token is in the cluster
+
+**What happened**: When asked about live Hetzner state, claimed `hcloud` CLI not installed + no token available. Suggested founder install creds or do it themselves.
+
+**What was already documented**: Memory `feedback_credentials_already_in_cluster.md` (re-read it). Every Sovereign's `tofu.auto.tfvars.json` contains the active `hcloud_token` + `dynadot_key` + `object_storage_*` + `harbor_robot_token` + `ghcr_pull_token` + `pdm_basic_auth_*` + `powerdns_api_key` + `handover_jwt_public_key` + the full deployment context. These live on the **`catalyst-api-deployments` PVC** at `/deps/tofu/<deployment-id>/tofu.auto.tfvars.json`.
+
+**Correct path**:
+```bash
+# Spin up debug Pod that mounts catalyst-api-deployments PVC, then read:
+kubectl --kubeconfig ~/.kube/config -n catalyst exec <debug-pod> -- cat /deps/tofu/<dep-id>/tofu.auto.tfvars.json | jq .hcloud_token
+# Then call Hetzner API directly with curl — no CLI install needed:
+curl -s -H "Authorization: Bearer ${HCLOUD_TOKEN}" 'https://api.hetzner.cloud/v1/servers'
+```
+
+**Pre-flight check**: BEFORE claiming any cred is missing, enumerate every `/deps/tofu/*/tofu.auto.tfvars.json` on the catalyst-api-deployments PVC. Wipes of that PVC are catastrophic precisely because they nuke the only persistent credential cache.
+
+### L2 — Suggested raw `hcloud` CLI for destructive ops
+
+**What happened**: Proposed "wipe t38 entirely via `hcloud server delete`" as a valid option.
+
+**What was already documented**: Memory `feedback_canonical_wipe_endpoints.md` + user-global CLAUDE.md §9 explicitly: *"Use canonical wipe endpoints for cluster lifecycle (e.g., per-platform `POST /…/deployments/{id}/wipe`). Never call cloud-provider CLIs directly to clean up shared infra."*
+
+**Correct path**: Canonical destructive wipe is `POST https://console.openova.io/sovereign/api/v1/deployments/{id}/wipe` — runs `tofu destroy` against the workdir + cleans Hetzner servers + LBs + S3 bucket + DNS records atomically. Canonical create is `POST https://console.openova.io/sovereign/api/v1/deployments` (with parent-domains pool body for LE-rotation).
+
+**Pre-flight check**: For ANY destructive op involving Sovereigns, the answer is one of `POST /deployments` (create) / `POST /deployments/{id}/wipe` (destroy) / `DELETE /deployments/{id}` (record-only, non-destructive — `feedback_canonical_wipe_endpoints.md`). Raw `hcloud server delete` is allowed READ-ONLY only; for shared-infra writes it is **forbidden**.
+
+### L3 — Forgot LE rate-limit canonical mitigation is TLD rotation
+
+**What happened**: When tenant URL `console.<orgslug>.omani.homes` connection-refused, did not recall the canonical playbook of swapping parent-domain TLD when LE rate-limited.
+
+**What was already documented**: Memory `feedback_canonical_end_user_dod.md` + `docs/RUNBOOK-OPERATIONS.md` §C.17. Two TLD pairs are reserved for this purpose:
+- **Sovereign FQDN**: `omani.works` ↔ `omantel.biz` (swap weekly when LE exhausts 5-certs/week/registered-domain)
+- **Tenant-Org pool**: `omani.homes` / `omani.rest` / `omani.trade` (per-Sovereign-pool assignment)
+
+Secondary fallback: switch `ClusterIssuer/wildcard-issuer.acme.server` to `letsencrypt-staging` (untrusted cert but no rate limit) for demo-only.
+
+**Pre-flight check**: When provisioning a fresh Sovereign and the operator has already provisioned ≥4 times on the same TLD this week, FLIP `parent_domains_yaml` to the alternate TLD in the POST body BEFORE submitting. The body is in `tofu.auto.tfvars.json` of a prior prov for reference.
+
+### L4 — Treated "the most recent Sovereign" as rubbish + wiped it
+
+**What happened**: Founder said "only 1 Sovereign is real, others are rubbish". Wiped 9 dep-IDs from mothership cache+registry. Founder corrected: "keep only 2 most-recent". Wiped 7 more. Then user said the real Sovereign was **t38** (the one we had at risk of wiping all along). Did not ask WHICH was real before wiping. Each dispatched agent reported "kept the safest-looking one" using heuristics (most-recent file mtime, status=ready) but never confirmed against IaC or Hetzner.
+
+**What was already documented**: User-global CLAUDE.md §3 anti-theater rule + per-CLAUDE.md "NEVER SPECULATE — verify before assuming". The truth-source for which Sovereign is canonical was sitting in the IaC + Hetzner — `hcloud server list` (now possible via L1) + the `parent_domains_yaml` / `org_name` fields in tofu.auto.tfvars.json show real vs throwaway.
+
+**Correct path** when asked to wipe "rubbish" Sovereigns:
+1. Query `https://api.hetzner.cloud/v1/servers` (token via L1) — every Sovereign with live Hetzner infra is REAL until proven otherwise.
+2. Read `tofu.auto.tfvars.json` of each candidate — check `org_name`, `org_email`, `parent_domains_yaml`, `created` timestamp.
+3. Ask the founder to confirm which dep-ID is real BEFORE deletion. The wipe is irreversible.
+4. Only after explicit founder confirmation, call the canonical wipe endpoint (per L2).
+
+**Pre-flight check**: BEFORE any Sovereign wipe (cache, registry, or full tofu-destroy), produce a per-dep-ID table: (id | live Hetzner servers count | org_name | created | parent_domain). Get founder confirmation on which rows are wipeable. Default = keep everything until told otherwise.
+
+### L5 — Substituted "test locally on bastion" when the production path exists
+
+**What happened**: When `console.<orgslug>.omani.homes` was unreachable, proposed "stand up Sandbox + qwen-code locally on bastion against a Kind cluster" as an option. The actual production canonical-path (an alive 3-region Hetzner Sovereign with the BSS-menu + Sandbox UI) was already in front of me but degraded.
+
+**What was already documented**: User-global CLAUDE.md §0 + Inviolable Principle #11. The WHOLE POINT of `bp-self-sovereign-cutover` is that production Sovereigns ARE the canonical test environment. Local-on-bastion isn't an end-to-end DoD walk — it's an isolated unit-test surface.
+
+**Correct path**: First, REPAIR the canonical environment (t38 catalyst-api OOM here matches the mothership OOM root cause — apply the same in-cluster cache-wipe procedure to t38). If unrepairable, canonical wipe + fresh prov via L2's endpoint. Local-on-bastion is for unit-test isolation, NOT pillar verification.
+
+**Pre-flight check**: For ANY "I can't reach X" claim — first check if X is degraded vs missing. If degraded, ask: "is this the same bug I just fixed elsewhere?" Pattern-match against tonight's already-resolved cases before proposing a different path.
+
+### L6 — Dispatched parallel agents for cleanup work while end-user DoD = 0/5
+
+**What happened**: Tonight dispatched ~25 sub-agents. Zero of them advanced a 5-pillar DoD step. All were docs / CI / right-sizing / cleanup. Each was justifiable individually. Collectively = avoidance.
+
+**What was already documented**: User-global CLAUDE.md §0 dispatch grounding test: *"Before launching any agent: answer 'Which of the 5 pillars does this work move forward, and how?' + 'Which deterministic step does this advance?' If you can't answer either — the work is wrong, pick differently."*
+
+**Correct path**: Hard gate every dispatch on the grounding test. Cleanup work is allowed ONLY when (a) it's a SHORT precondition for a pillar walk (e.g., right-sizing requests to unblock catalyst-api scheduling), AND (b) is followed immediately by the walk itself. Substrate work that doesn't lead to a walk within 1 cycle is theater.
+
+**Pre-flight check**: Before each dispatch, write the pillar+step in the briefing. If both lines say "n/a — cleanup", STOP. Re-evaluate whether cleanup is genuinely blocking the walk.
+
+### L7 — Trusted agent summaries over live state re-check
+
+**What happened**: Multiple agents (acf9ca0f, a95bbda4, a1309f36) reported "wipe complete, sovereigns=N". I propagated those claims to the user. Reality was different (OOM kept happening because the bug was inside the remaining Sovereigns too). The agent's report was honest about what it did — but I treated it as ground-truth on what's WORKING.
+
+**What was already documented**: User-global CLAUDE.md §3 anti-theater rule 6: *"Verification agents are READ-ONLY. Output = evidence (screenshot + log line + commit SHA) only."* And rule 7: *"The metric is 'PRs verified on a fresh prov', not 'PRs merged'."*
+
+**Correct path**: After every "done" claim by a sub-agent, re-query live state DIRECTLY (kubectl, curl healthz, gh issue view). Only then propagate the result. The agent's report is a CLAIM, not a verification.
+
+**Pre-flight check**: BEFORE telling the founder anything is "fixed", run the verification myself. Sub-agent reports go into a buffer; only re-queried live state propagates.
+
+### L8 — Filed N TBDs instead of finishing the one DoD-relevant fix
+
+**What happened**: Audit work surfaced N gaps → I filed N TBDs (TBD-V36 / V37 / V38 / V40 / V44 etc.). Open issue count went UP, not down. Founder: "I start losing my hope this is going to be completed."
+
+**What was already documented**: User-global CLAUDE.md §0 + §3 rule 8: *"PRs verified on a fresh prov"* is the metric. Filing a TBD = "this is broken too" — it does NOT count as progress against the canonical DoD.
+
+**Correct path**: Each audit / sweep that surfaces gaps should produce AT MOST ONE shippable PR + one tracking TBD per shippable PR. Audits that surface multiple gaps consolidate into a single follow-up issue with a checklist, NOT N separate issues. Verify the actual end-user surface FIRST.
+
+**Pre-flight check**: Before filing a TBD, ask: "Does this gap block the next pillar walk?" If no — note it in the audit doc, don't open a fresh issue. Filing without intent-to-ship within 2 turns is open-count inflation.
+
+### L9 — Forgot the openova-private PVC truth-source location
+
+**What happened**: When asked "what runs on mothership", initially queried `/var/lib/catalyst/` on bastion (not present). Then queried the mothership host root via debug Pod (still not present). Eventually realized the path lives on the **PVCs mounted inside the catalyst-api pod**, not on the host.
+
+**What was already documented**: Implicit in `feedback_canonical_wipe_endpoints.md` + the architecture docs. Catalyst-api is the only thing that knows about the tofu workdirs; they live on PVC `catalyst-api-deployments` (1Gi) + cache on `catalyst-api-cache` (5Gi). NEVER on host root.
+
+**Correct path**: For any file under `/var/lib/catalyst/` (kubeconfigs, tofu, deployments, executions, magic-jti, handover-jwt-*) — those are on the PVC, accessed via a debug Pod with that PVC mounted. Pattern:
+```yaml
+kind: Pod
+spec:
+  containers: [{name: x, image: busybox:1.36, command: ["sh","-c","sleep 300"],
+    volumeMounts: [{name: deps, mountPath: /deps, readOnly: true}]}]
+  volumes: [{name: deps, persistentVolumeClaim: {claimName: catalyst-api-deployments}}]
+```
+
+**Pre-flight check**: When the file path is `/var/lib/catalyst/...`, default to PVC-via-debug-Pod, not host-via-`find`.
+
+### L10 — Forgot context-migration to openova didn't actually load the new memory in-session
+
+**What happened**: Earlier in the session "migrated" auto-memory from openova-private context to openova context (rsync'd 170 files). Then continued operating as if running in openova-private context (no re-read of MEMORY.md after migration). Result: same amnesia, even though the answers were in the freshly-copied files.
+
+**What was already documented**: Implicit in the auto-memory section of user-global CLAUDE.md. Memory loads at session start; mid-session file additions don't reload automatically.
+
+**Correct path**: After any auto-memory file write/copy, re-read the new `MEMORY.md` + the specific feedback files BEFORE continuing the session. If the rule changed, the in-context behavior must reflect the new rule explicitly.
+
+**Pre-flight check**: After saving a new memory file or rsync'ing memory across project contexts, re-read MEMORY.md index AND the specific entries that were just added.
+
+---
+
+## Pre-flight checklist for high-risk operations
+
+Before any of these operations, run the matching checklist explicitly in the chat:
+
+| Operation | Checklist |
+|---|---|
+| **Wipe / scale / destroy any Sovereign or namespace** | (1) Read `tofu.auto.tfvars.json` of every candidate via PVC debug Pod. (2) Query Hetzner servers with the token from step 1. (3) Produce per-target table with org_name + live infra. (4) **Ask founder which rows are wipeable**. (5) Only on confirmation, use canonical wipe endpoint per L2. |
+| **Claim a credential is missing** | (1) Enumerate `/deps/tofu/*/tofu.auto.tfvars.json` (PVC `catalyst-api-deployments`). (2) Enumerate `/deps/kubeconfigs/`. (3) Check Stalwart admin creds in user-global CLAUDE.md §13. (4) Only after all 3 return empty → claim missing. |
+| **Provision fresh Sovereign** | (1) `gh api /repos/openova-io/openova/packages/container/<bp-*>/versions` for active chart pins. (2) Pick `parent_domains_yaml` TLD per L3 rotation. (3) POST `/sovereign/api/v1/deployments` with auth (handover JWT from `/deps/handover-jwt-private.pem`). |
+| **Dispatch a sub-agent** | (1) Pre-dispatch briefing per user-global §5 (🤖 Dispatching / Problem / Remediation / Expected). (2) Pillar+step grounding test per user-global §0. (3) `isolation: worktree` if parallel + touching same files. (4) After return, re-query live state — agent report is a CLAIM. |
+| **Believe something is "fixed"** | (1) Re-query live state directly (kubectl / curl / gh). (2) Cite specific evidence (log line / HTTP code / file:line). (3) Founder closes issues — do NOT close yourself. |
+| **File a new TBD** | (1) Answer: "Does this block the next pillar walk?" If no — note in audit doc, don't file. (2) Cite canonical doc reference (does the gap-target exist in `docs/`?). (3) Use `Refs #N` not `Closes #N` unless docs-only with `ci-gate-exception` label. |
+
+When in doubt, the answer is in user-global `~/.claude/CLAUDE.md` or in `~/.claude/projects/-home-openova-repos-openova/memory/` — **read it first, ask second, act third**.
