@@ -840,7 +840,7 @@ spec:
       # resource-detail page's k8s SSE subscription to include the
       # `event` kind so the EventsPanel surfaces live K8s Events
       # instead of perpetually rendering empty-state.
-      version: 1.4.230
+      version: 1.4.231
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
