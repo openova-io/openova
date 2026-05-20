@@ -1,20 +1,34 @@
 name: Chart-annotations guard (pre-merge hollow-chart check)
 
-# PRE-MERGE replica of GUARD 1 in .github/workflows/blueprint-release.yaml.
+# PRE-MERGE replica of GUARD 1 + GUARD 2 in
+# .github/workflows/blueprint-release.yaml.
 #
-# Catches hollow-chart violations (a chart with NO `dependencies:` entry
-# AND no `catalyst.openova.io/no-upstream: "true"` opt-out annotation)
-# BEFORE the PR merges. Without this gate, the violation only surfaces
-# at the post-merge Blueprint Release workflow — by which point the
-# version in Chart.yaml is "dead-reserved" (the merge SHA owns it but
-# no GHCR tag ever publishes) and recovery requires a follow-up
-# version-bump-and-annotate PR.
+# Catches hollow-chart violations BEFORE the PR merges:
 #
-# Recurrence history that motivated promoting this guard to pre-merge:
-#   - bp-cert-manager:1.0.0   (issue #181 — guard origin)
-#   - bp-crossplane-claims    (historical)
-#   - bp-kyverno-policies     (PR #2023)
-#   - bp-continuum:0.1.1      (PR #2072 dead-pinned, fix PR #2081, TBD-V34 / #2080)
+#   GUARD 1 — Chart.yaml has NO `dependencies:` entry AND no
+#             `catalyst.openova.io/no-upstream: "true"` opt-out annotation.
+#             (Elevated to pre-merge in PR #2087 / TBD-V35.)
+#
+#   GUARD 2 — Default-values `helm template` of the chart produces <5 lines
+#             AND the chart lacks the
+#             `catalyst.openova.io/smoke-render-mode: default-off` annotation.
+#             (Elevated to pre-merge in this PR / TBD-V38.)
+#
+# Without these gates, violations only surface at the post-merge Blueprint
+# Release workflow — by which point the version in Chart.yaml is
+# "dead-reserved" (the merge SHA owns it but no GHCR tag ever publishes)
+# and recovery requires a follow-up version-bump-and-annotate PR.
+#
+# Recurrence history that motivated promoting these guards to pre-merge:
+#   GUARD 1:
+#     - bp-cert-manager:1.0.0   (issue #181 — guard origin)
+#     - bp-crossplane-claims    (historical)
+#     - bp-kyverno-policies     (PR #2023)
+#     - bp-continuum:0.1.1      (PR #2072 dead-pinned, fix PR #2081, TBD-V34 / #2080)
+#   GUARD 2:
+#     - bp-network-policies:1.0.1  (had no-upstream:true but missing
+#       smoke-render-mode; dead-reserved 2026-05-20 — required BOTH
+#       annotations. The dual-annotation gap motivated this elevation.)
 #
 # Per CLAUDE.md anti-pattern catalogue + Inviolable Principle #13
 # (chart-pin bumps must match a published GHCR tag): every dead-reserved
@@ -26,11 +40,10 @@ name: Chart-annotations guard (pre-merge hollow-chart check)
 # workflow_dispatch.
 #
 # Scoping note — only CHANGED charts are checked in PRs. Pre-existing
-# hollow charts (bp-network-policies, axon as of 2026-05-20) are NOT
-# blocked by this guard until a PR actually touches them; the post-
-# merge Blueprint Release workflow continues to fail-loudly on their
-# next publish attempt regardless. This keeps the guard zero-noise for
-# unrelated PRs while still catching every new chart introduction or
+# violations are NOT blocked by this guard until a PR actually touches the
+# chart; the post-merge Blueprint Release workflow continues to fail-loudly
+# on their next publish attempt regardless. This keeps the guard zero-noise
+# for unrelated PRs while still catching every new chart introduction or
 # version-bump that would dead-reserve a tag.
 
 on:
@@ -60,12 +73,16 @@ on:
 
 permissions:
   contents: read
+  # GUARD 2 needs to `helm dependency build` against
+  # oci://ghcr.io/openova-io/bp-* subcharts. Read-only GHCR pull
+  # token is sufficient; the post-merge workflow uses the same scope.
+  packages: read
 
 jobs:
   check:
     name: Chart-annotations guard
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -74,6 +91,14 @@ jobs:
           # PR runs already get `refs/pull/N/merge` with 2 commits; push
           # runs need a depth >= 2 so HEAD~1 resolves.
           fetch-depth: 2
+
+      - name: Set up Helm
+        # GUARD 2 needs `helm template` (and `helm dependency build` for
+        # charts with declared dependencies). Pin matches the post-merge
+        # Blueprint Release workflow.
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.18.4
 
       - name: Install yq (declared-deps parser)
         run: |
@@ -85,6 +110,14 @@ jobs:
             https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
           sudo chmod +x /usr/local/bin/yq
           yq --version
+
+      - name: Helm registry login (for OCI subchart resolution)
+        # `helm dependency build` resolves `oci://ghcr.io/openova-io/bp-*`
+        # subcharts; needs an authenticated helm registry login. Read-only
+        # GITHUB_TOKEN with `packages: read` (above) is sufficient.
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io \
+            --username "${{ github.actor }}" --password-stdin
 
       - name: Detect changed chart manifests
         id: changed
@@ -126,7 +159,7 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Run hollow-chart guard
+      - name: Run hollow-chart guards (GUARD 1 + GUARD 2)
         run: |
           set -euo pipefail
           if [ "${{ steps.changed.outputs.scope }}" = "all" ]; then
