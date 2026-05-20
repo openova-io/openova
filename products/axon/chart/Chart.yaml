@@ -2,5 +2,14 @@ apiVersion: v2
 name: axon
 description: OpenAI-compatible API gateway backed by Claude Agent SDK
 type: application
-version: 0.1.0
+version: 0.1.1
 appVersion: "0.1.0"
+
+# Opt out of the hollow-chart guard (Blueprint-Release workflow / issue #181):
+# this chart legitimately ships only Catalyst-authored resources
+# (Deployment + Service + Ingress + Valkey sidecar + token-refresh
+# CronJob). It is a product chart with NO upstream Helm subchart to
+# bundle. Same shape as bp-kyverno-policies (PR #2023) and bp-continuum
+# (PR #2081).
+annotations:
+  catalyst.openova.io/no-upstream: "true"
