@@ -24,6 +24,33 @@ annotations:
   # (see issue #181 + docs/BLUEPRINT-AUTHORING.md §11.1).
   catalyst.openova.io/no-upstream: "true"
   catalyst.openova.io/smoke-render-mode: "default-off"
+# 0.3.2 (Service-name-mismatch audit 2026-05-20, sibling of TBD-V14
+# #2017 + TBD-V16 #2021): correct three additional in-cluster MCP env
+# defaults that pointed at Services no chart renders, all reachable on
+# the canonical Pillar-4 Sandbox journey:
+#   * `mcp.marketplaceAPIURL` —
+#     `marketplace-api.marketplace.svc.cluster.local:8082`
+#     → actual `marketplace-api.catalyst-system.svc.cluster.local:80`
+#     (Service defined in
+#     products/catalyst/chart/templates/marketplace-api/service.yaml,
+#     bp-catalyst-platform releaseName=catalyst-platform ns=catalyst-system,
+#     Service.ports[0].port=80 targetPort 8080).
+#   * `mcp.storage.s3Endpoint` —
+#     `seaweedfs.storage.svc.cluster.local:8333`
+#     → actual `seaweedfs-s3.seaweedfs.svc.cluster.local:8333`
+#     (bp-seaweedfs releaseName=seaweedfs ns=seaweedfs renders the S3
+#     Service via the vendored seaweedfs subchart's
+#     `seaweedfs.componentName "s3"` helper).
+#   * `mcp.keycloak.adminURL` —
+#     `keycloak.keycloak.svc.cluster.local:8080`
+#     → actual `keycloak.keycloak.svc.cluster.local:80` (bitnami
+#     keycloak chart 25.2.0 service.ports.http defaults to 80, verified
+#     against the upstream values.yaml).
+# Mirrors the bp-sandbox chart default + the sandbox-controller env
+# default (core/controllers/sandbox/cmd/sandbox-controller/main.go) +
+# the MCP server's documented env contract
+# (products/sandbox/mcp-server/internal/tools/env.go).
+#
 # 0.3.1 (TBD-V14, issue #2015, 2026-05-20): default
 # `env.newapiBaseURL` was `http://newapi.newapi.svc.cluster.local:3000`,
 # but the canonical bp-newapi ClusterIP Service is named via
@@ -37,8 +64,8 @@ annotations:
 # `helm template newapi platform/newapi/chart/ -s templates/service.yaml`
 # → metadata.name: newapi-bp-newapi. Walker on t38 (chart 1.4.216,
 # substrate be4f78bc872e2c56) caught the live regression.
-version: 0.3.1
-appVersion: "0.3.1"
+version: 0.3.2
+appVersion: "0.3.2"
 keywords:
   - catalyst
   - sandbox

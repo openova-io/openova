@@ -141,9 +141,16 @@ spec:
             - name: SANDBOX_MCP_DOMAIN_API_URL
               value: {{ .Values.mcp.domainAPIURL | default "http://domain.sme.svc.cluster.local:8086" | quote }}
             - name: SANDBOX_MCP_MARKETPLACE_API_URL
-              value: {{ .Values.mcp.marketplaceAPIURL | default "http://marketplace-api.marketplace.svc.cluster.local:8082" | quote }}
+              # Service-name-mismatch audit 2026-05-20 (sibling of TBD-V14
+              # #2017, TBD-V16 #2021): marketplace-api Service is rendered by
+              # bp-catalyst-platform (slot 13, ns catalyst-system) on port 80
+              # — NOT marketplace.svc:8082.
+              value: {{ .Values.mcp.marketplaceAPIURL | default "http://marketplace-api.catalyst-system.svc.cluster.local:80" | quote }}
             - name: SANDBOX_MCP_STORAGE_S3_ENDPOINT
-              value: {{ .Values.mcp.storage.s3Endpoint | default "http://seaweedfs.storage.svc.cluster.local:8333" | quote }}
+              # seaweedfs S3 Service is `seaweedfs-s3` (per the vendored
+              # subchart's `seaweedfs.componentName "s3"` helper) in ns
+              # `seaweedfs` (bootstrap-kit slot 18) — NOT storage.svc.
+              value: {{ .Values.mcp.storage.s3Endpoint | default "http://seaweedfs-s3.seaweedfs.svc.cluster.local:8333" | quote }}
             - name: SANDBOX_MCP_STORAGE_S3_REGION
               value: {{ .Values.mcp.storage.s3Region | default "us-east-1" | quote }}
             - name: SANDBOX_MCP_STORAGE_S3_USE_TLS
@@ -155,7 +162,10 @@ spec:
             - name: SANDBOX_MCP_STORAGE_S3_SECRET_KEY_KEY
               value: {{ .Values.mcp.storage.credsSecret.secretKeyKey | default "AWS_SECRET_ACCESS_KEY" | quote }}
             - name: SANDBOX_MCP_KEYCLOAK_ADMIN_URL
-              value: {{ .Values.mcp.keycloak.adminURL | default "http://keycloak.keycloak.svc.cluster.local:8080" | quote }}
+              # bitnami keycloak chart 25.2.0 service.ports.http = 80
+              # (verified against the upstream values.yaml). The legacy
+              # `:8080` default produced ECONNREFUSED on every fresh prov.
+              value: {{ .Values.mcp.keycloak.adminURL | default "http://keycloak.keycloak.svc.cluster.local:80" | quote }}
             - name: SANDBOX_MCP_KEYCLOAK_PARENT_REALM
               value: {{ .Values.mcp.keycloak.parentRealm | default "master" | quote }}
             - name: SANDBOX_MCP_KEYCLOAK_ADMIN_TOKEN_SECRET_NAME

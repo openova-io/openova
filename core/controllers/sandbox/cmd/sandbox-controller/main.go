@@ -108,14 +108,29 @@ func main() {
 	mcpGiteaTokenSecretName := envOr("SANDBOX_MCP_GITEA_TOKEN_SECRET_NAME", "catalyst-gitea-token")
 	mcpGiteaTokenSecretKey := envOr("SANDBOX_MCP_GITEA_TOKEN_SECRET_KEY", "token")
 	mcpDomainAPIURL := envOr("SANDBOX_MCP_DOMAIN_API_URL", "http://domain.sme.svc.cluster.local:8086")
-	mcpMarketplaceAPIURL := envOr("SANDBOX_MCP_MARKETPLACE_API_URL", "http://marketplace-api.marketplace.svc.cluster.local:8082")
-	mcpStorageS3Endpoint := envOr("SANDBOX_MCP_STORAGE_S3_ENDPOINT", "http://seaweedfs.storage.svc.cluster.local:8333")
+	// Service-name-mismatch audit 2026-05-20 (sibling of TBD-V14 #2017,
+	// TBD-V16 #2021): the env defaults below MUST match the Service
+	// actually rendered by the chart that owns each one.
+	//   - marketplace-api: rendered by bp-catalyst-platform (slot 13,
+	//     releaseName=catalyst-platform, targetNamespace=catalyst-system)
+	//     at products/catalyst/chart/templates/marketplace-api/service.yaml
+	//     → Service `marketplace-api.catalyst-system.svc.cluster.local:80`
+	//   - seaweedfs S3: bp-seaweedfs (slot 18, releaseName=seaweedfs, ns=
+	//     seaweedfs) renders the S3 Service via the vendored seaweedfs
+	//     subchart `seaweedfs.componentName "s3"` helper →
+	//     `seaweedfs-s3.seaweedfs.svc.cluster.local:8333`
+	//   - keycloak: bp-keycloak (slot 09, releaseName=keycloak, ns=
+	//     keycloak) uses the bitnami subchart whose Service.ports.http
+	//     defaults to **80** (not 8080). Confirmed against bitnami/keycloak
+	//     chart 25.2.0 values.yaml.
+	mcpMarketplaceAPIURL := envOr("SANDBOX_MCP_MARKETPLACE_API_URL", "http://marketplace-api.catalyst-system.svc.cluster.local:80")
+	mcpStorageS3Endpoint := envOr("SANDBOX_MCP_STORAGE_S3_ENDPOINT", "http://seaweedfs-s3.seaweedfs.svc.cluster.local:8333")
 	mcpStorageS3Region := envOr("SANDBOX_MCP_STORAGE_S3_REGION", "us-east-1")
 	mcpStorageS3UseTLS := envOr("SANDBOX_MCP_STORAGE_S3_USE_TLS", "false")
 	mcpStorageS3CredsSecret := envOr("SANDBOX_MCP_STORAGE_S3_CREDS_SECRET_NAME", "")
 	mcpStorageS3AccessKeyKey := envOr("SANDBOX_MCP_STORAGE_S3_ACCESS_KEY_KEY", "AWS_ACCESS_KEY_ID")
 	mcpStorageS3SecretKeyKey := envOr("SANDBOX_MCP_STORAGE_S3_SECRET_KEY_KEY", "AWS_SECRET_ACCESS_KEY")
-	mcpKeycloakAdminURL := envOr("SANDBOX_MCP_KEYCLOAK_ADMIN_URL", "http://keycloak.keycloak.svc.cluster.local:8080")
+	mcpKeycloakAdminURL := envOr("SANDBOX_MCP_KEYCLOAK_ADMIN_URL", "http://keycloak.keycloak.svc.cluster.local:80")
 	mcpKeycloakParentRealm := envOr("SANDBOX_MCP_KEYCLOAK_PARENT_REALM", "master")
 	mcpKeycloakAdminTokenSecret := envOr("SANDBOX_MCP_KEYCLOAK_ADMIN_TOKEN_SECRET_NAME", "")
 	mcpKeycloakAdminTokenSecretKey := envOr("SANDBOX_MCP_KEYCLOAK_ADMIN_TOKEN_SECRET_KEY", "token")

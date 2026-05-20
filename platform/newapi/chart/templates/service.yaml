@@ -20,9 +20,12 @@ spec:
       targetPort: {{ .Values.meteringSidecar.port }}
       protocol: TCP
     # Direct port to NewAPI for the bp-catalyst-platform admin API
-    # (`http://newapi.newapi.svc:3000/api/v1/admin/users` per
-    # ADR-0003 §3.2). Keeps the admin trust boundary off the
-    # observed proxy path.
+    # (`http://newapi-bp-newapi.newapi.svc:3001/api/v1/admin/users` per
+    # ADR-0003 §3.2 — Service name is `newapi-bp-newapi` because the
+    # chart `bp-newapi.fullname` template emits `<release>-<chartname>`
+    # when chart name is not contained in release name; service port is
+    # `service.port + 1` when the metering sidecar is enabled). Keeps
+    # the admin trust boundary off the observed proxy path.
     - name: http-newapi-direct
       port: {{ add .Values.service.port 1 }}
       targetPort: {{ .Values.service.targetPort }}

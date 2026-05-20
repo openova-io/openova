@@ -219,9 +219,19 @@ mcp:
     name: "catalyst-gitea-token"
     key: "token"
   domainAPIURL: "http://domain.sme.svc.cluster.local:8086"
-  marketplaceAPIURL: "http://marketplace-api.marketplace.svc.cluster.local:8082"
+  # Service-name-mismatch audit 2026-05-20 (sibling of TBD-V14 #2017,
+  # TBD-V16 #2021): marketplace-api Service is rendered by
+  # bp-catalyst-platform (slot 13, releaseName=catalyst-platform,
+  # targetNamespace=catalyst-system) at
+  # products/catalyst/chart/templates/marketplace-api/service.yaml on port
+  # 80 — NOT in ns `marketplace` on port 8082.
+  marketplaceAPIURL: "http://marketplace-api.catalyst-system.svc.cluster.local:80"
   storage:
-    s3Endpoint: "http://seaweedfs.storage.svc.cluster.local:8333"
+    # bp-seaweedfs (slot 18, releaseName=seaweedfs, ns=seaweedfs) renders
+    # the S3 Service via the vendored seaweedfs subchart's
+    # `seaweedfs.componentName "s3"` helper → `seaweedfs-s3`, NOT plain
+    # `seaweedfs` in ns `storage`.
+    s3Endpoint: "http://seaweedfs-s3.seaweedfs.svc.cluster.local:8333"
     s3Region: "us-east-1"
     s3UseTLS: "false"
     credsSecret:
@@ -232,7 +242,11 @@ mcp:
       accessKeyKey: "AWS_ACCESS_KEY_ID"
       secretKeyKey: "AWS_SECRET_ACCESS_KEY"
   keycloak:
-    adminURL: "http://keycloak.keycloak.svc.cluster.local:8080"
+    # bitnami keycloak chart 25.2.0 service.ports.http defaults to 80
+    # (verified against the upstream values.yaml). The legacy `:8080`
+    # default produced ECONNREFUSED on every fresh prov when the MCP
+    # plugin's `sandbox.auth.*` tools tried to call the Admin REST API.
+    adminURL: "http://keycloak.keycloak.svc.cluster.local:80"
     parentRealm: "master"
     adminTokenSecret:
       # Empty default — when set, the controller stamps a KEYCLOAK_ADMIN_TOKEN

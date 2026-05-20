@@ -19,11 +19,11 @@
 //	SANDBOX_GITEA_TOKEN         = "<machine-account token>"
 //	SANDBOX_KUBECONFIG          = ""                   (empty → in-cluster)
 //	SANDBOX_OWNER_UID           = "emrah-baysal-at-openova-io"
-//	KEYCLOAK_ADMIN_URL          = "http://keycloak.keycloak.svc.cluster.local:8080"
+//	KEYCLOAK_ADMIN_URL          = "http://keycloak.keycloak.svc.cluster.local:80"
 //	KEYCLOAK_ADMIN_TOKEN        = "<admin bearer>" (sandbox-controller-injected)
 //	KEYCLOAK_PARENT_REALM       = "master"  (default; controller may override)
 //	SANDBOX_DOMAIN_API_URL      = "http://domain.sme.svc.cluster.local:8086"
-//	SANDBOX_MARKETPLACE_API_URL = "http://marketplace-api.marketplace.svc.cluster.local:8082"
+//	SANDBOX_MARKETPLACE_API_URL = "http://marketplace-api.catalyst-system.svc.cluster.local:80"
 //	SANDBOX_TENANT_ID           = "<tenant-uuid>" (scopes domain/byod calls)
 //
 // SANDBOX_JWT_SECRET empty AND SANDBOX_ORG_ID empty = test mode

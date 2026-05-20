@@ -159,7 +159,8 @@ type Env struct {
 	OwnerUID string
 
 	// KeycloakAdminURL — root of the Keycloak Admin REST API
-	// (e.g. `http://keycloak.keycloak.svc.cluster.local:8080`). Empty
+	// (e.g. `http://keycloak.keycloak.svc.cluster.local:80`; bitnami
+	// keycloak chart 25.2.0 service.ports.http defaults to 80). Empty
 	// → sandbox.auth.* surfaces a clear "not configured" error.
 	KeycloakAdminURL string
 
@@ -190,8 +191,11 @@ type Env struct {
 	DomainAPIURL string
 
 	// MarketplaceAPIURL — root URL of the marketplace-api service
-	// (`core/marketplace-api`), e.g.
-	// `http://marketplace-api.marketplace.svc.cluster.local:8082`.
+	// (`core/marketplace-api`). Rendered by bp-catalyst-platform
+	// (bootstrap-kit slot 13, releaseName=catalyst-platform,
+	// targetNamespace=catalyst-system) at
+	// products/catalyst/chart/templates/marketplace-api/service.yaml,
+	// → `http://marketplace-api.catalyst-system.svc.cluster.local:80`.
 	// Reserved for future marketplace.* tools that drive provisioning
 	// (e.g. marketplace.app.deploy). Empty today on every Sandbox; the
 	// Wave 12 marketplace.domain.* tools target DomainAPIURL instead.
