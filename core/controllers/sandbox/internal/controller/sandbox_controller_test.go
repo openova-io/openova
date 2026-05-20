@@ -506,6 +506,36 @@ func TestReconcile_Wave8RuntimeShape(t *testing.T) {
 		"name: KEYCLOAK_ADMIN_URL",
 		"name: KEYCLOAK_PARENT_REALM",
 		"name: KEYCLOAK_ADMIN_TOKEN",
+		// TBD-V21 #2032 regression — the 4 residual env vars PR #1987
+		// did not ship. SANDBOX_TOKEN unblocks the MCP's marketplace.*
+		// tool family (bearer for every proxy call). SANDBOX_JWT_SECRET
+		// exits the MCP's auth gate test-mode so bearer claims are
+		// actually validated. SANDBOX_REPOS scopes gitea.repos.list to
+		// the per-Sandbox subset instead of the un-filtered org repo
+		// list. (SANDBOX_KUBECONFIG stays unemitted — empty is the
+		// canonical in-cluster value, per MCP env.go:78.)
+		"name: SANDBOX_TOKEN",
+		"name: SANDBOX_JWT_SECRET",
+		"name: SANDBOX_REPOS",
+		// SANDBOX_TOKEN MUST source from the per-Sandbox Secret's
+		// LLM_GATEWAY_TOKEN key — same source as the existing
+		// LLM_GATEWAY_TOKEN env mount (single source of truth, zero
+		// Secret-write changes per Principle #4). Note: the renderer
+		// emits the key as a bare YAML scalar (no quotes); the same
+		// shape as the pre-existing LLM_GATEWAY_TOKEN mount.
+		"key: LLM_GATEWAY_TOKEN",
+		// SANDBOX_JWT_SECRET MUST source from
+		// `newapi-bp-newapi-token-signing-key` Secret's SIGNING_KEY key
+		// (chart default; reflected into per-Sandbox namespaces via
+		// bp-newapi 1.4.31 reflectorNamespaces extension to include
+		// `sandbox-.*`).
+		`name: "newapi-bp-newapi-token-signing-key"`,
+		`key: "SIGNING_KEY"`,
+		// SANDBOX_REPOS MUST be the comma-joined sb.Spec.Repos[].
+		// giteaRepo list (sampleSandbox has acme/eventforge +
+		// acme/internal-tools; renderer sorts stable, so the CSV is
+		// the sorted concatenation).
+		`value: "acme/eventforge,acme/internal-tools"`,
 		// Values plumbed from the controller's chart-level env.
 		"http://gitea-http.gitea.svc.cluster.local:3000",
 		"http://domain.sme.svc.cluster.local:8086",

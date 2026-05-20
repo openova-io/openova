@@ -24,6 +24,27 @@ annotations:
   # (see issue #181 + docs/BLUEPRINT-AUTHORING.md §11.1).
   catalyst.openova.io/no-upstream: "true"
   catalyst.openova.io/smoke-render-mode: "default-off"
+# 0.3.2 (TBD-V21 #2032, 2026-05-20): ship the 4 remaining MCP env-var
+# residuals not covered by PR #1987 — manifests.go now emits
+# `SANDBOX_TOKEN` (mounted from the per-Sandbox Secret's
+# `LLM_GATEWAY_TOKEN` key; same source as the existing `LLM_GATEWAY_TOKEN`
+# mount), `SANDBOX_JWT_SECRET` (mounted from the reflected
+# `newapi-bp-newapi-token-signing-key` Secret's `SIGNING_KEY` key; paired
+# with bp-newapi 1.4.31 extending `reflectorNamespaces` to include the
+# `sandbox-.*` regex pattern), and `SANDBOX_REPOS` (CSV of
+# `sb.Spec.Repos[].giteaRepo` slugs). Also fixes a pre-existing
+# case-mismatch bug at the MCP + pty-server `LLM_GATEWAY_TOKEN`/
+# `OPENAI_API_KEY` secretKeyRef — the key ref was lowercase
+# `llm-gateway-token` while the Secret writes uppercase
+# `LLM_GATEWAY_TOKEN`. `optional: true` on the mount silently no-opped
+# the mismatch to an empty value → every agent CLI spawned in the pty-
+# server shell ran without an LLM bearer, and every `marketplace.*`
+# tool call on the MCP returned "SANDBOX_TOKEN not set". `Inputs`
+# struct gains `JWTSigningKeySecretName` / `JWTSigningKeySecretKey` /
+# `SandboxRepos` fields; `Render()` populates `SandboxRepos` from
+# `in.Repos` and defaults the JWT Secret coordinates to
+# `newapi-bp-newapi-token-signing-key` + `SIGNING_KEY`.
+#
 # 0.3.1 (TBD-V14, issue #2015, 2026-05-20): default
 # `env.newapiBaseURL` was `http://newapi.newapi.svc.cluster.local:3000`,
 # but the canonical bp-newapi ClusterIP Service is named via
@@ -37,8 +58,8 @@ annotations:
 # `helm template newapi platform/newapi/chart/ -s templates/service.yaml`
 # → metadata.name: newapi-bp-newapi. Walker on t38 (chart 1.4.216,
 # substrate be4f78bc872e2c56) caught the live regression.
-version: 0.3.1
-appVersion: "0.3.1"
+version: 0.3.2
+appVersion: "0.3.2"
 keywords:
   - catalyst
   - sandbox
