@@ -2,7 +2,7 @@
 
 This is the technical contract. It documents:
 
-1. The two surfaces (native TUI in the browser; card protocol on mobile) and how they share one persistent process.
+1. The shipped surface (native agent TUI in xterm.js, same on desktop and mobile) and the persistent process it attaches to. A second card-protocol surface for phones is **deferred — see TBD-V30 [#2057](https://github.com/openova-io/openova/issues/2057)**.
 2. The `pty-server` shim — what it does, what tmux would have done wrong.
 3. The MCP server tool catalogue (`openova-sandbox-mcp`).
 4. The four knowledge layers (static / procedural / live / corpus).
@@ -42,11 +42,15 @@ The `claude` (or `cursor-agent`, `qwen-code`, `aider`, `opencode`) **binary itse
 
 We do **not** re-implement Claude Code. We do **not** translate its output. xterm.js renders ANSI; the agent writes ANSI; they meet by accident.
 
-### Mobile — card protocol on the same session
+### Mobile — same xterm surface today; card-protocol deferred
 
-xterm on a 5" screen is unreadable. The mobile PWA opens a second WebSocket to the same `session_id` with a `mode=cards` query parameter. The pty-server then runs an in-pod card-translator that parses agent output into structured cards (`text`, `tool-call`, `diff`, `bash`, `preview-link`) and ships them as a separate JSON stream over a parallel WebSocket frame channel. The same session, two surfaces.
+Today the mobile surface is the same xterm.js attach as desktop. The phone opens a WebSocket to `WS /sessions/{id}/attach`; the pty-server replays the ring buffer on connect and streams live thereafter. Multi-device coherence is real: closing a laptop tab and reopening the same `session_id` on a phone resumes the conversation with scrollback intact.
 
-Both surfaces observe the same persistent process. Closing a tab does not stop the agent.
+A card-protocol surface for small screens (the mobile PWA opens a parallel WS with `mode=cards`; the pty-server runs an in-pod card-translator that parses agent ANSI/Ink output into structured cards — `text`, `tool-call`, `diff`, `bash`, `preview-link`) was the architectural intent but is **deferred — see TBD-V30 [#2057](https://github.com/openova-io/openova/issues/2057)**. The blocker is real: agents emit Ink/TUI-rendered ANSI frames, not structured events, so the translator would have to reverse-engineer rendered frames per-agent and re-validate against every upstream agent release. Investigation memo `/tmp/investigate-f2-card-protocol-2026-05-20.md` (audit 2026-05-20) covers the scope (1500–2500 LOC, 3–5 PR chain) and the un-park criteria.
+
+The shipped route `WS /sessions/{id}/cards` is a stub today: it wraps the same raw byte stream as `/attach` in `{"type":"raw","bytes":...}` JSON frames, with no parsing (see `pty-server/internal/server/routes.go:461-506` and the in-source comment "A future card-translator replaces the body with parsed cards"). The endpoint is preserved as a future-extension hook; no client consumes it today.
+
+Both surfaces — the shipped xterm attach and the deferred card-protocol — observe the same persistent process. Closing a tab does not stop the agent.
 
 ---
 
@@ -58,7 +62,9 @@ pty-server  (per Sandbox pod, listens on :7681)
 │                                   return session_id, write to JetStream
 ├── WS   /sessions/{id}/attach      bidi: WS bytes ↔ PTY fd
 │                                   on connect, replay ring buffer
-├── WS   /sessions/{id}/cards       JSON cards (alt surface, mobile)
+├── WS   /sessions/{id}/cards       STUB — JSON-framed raw bytes today
+│                                   (full card-translator deferred,
+│                                    TBD-V30 #2057)
 ├── POST /sessions/{id}/resize      cols/rows -> SIGWINCH
 ├── POST /sessions/{id}/signal      INT / QUIT for user-driven aborts
 └── DELETE /sessions/{id}           graceful stop, then SIGKILL

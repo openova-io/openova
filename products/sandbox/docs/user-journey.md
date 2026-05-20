@@ -146,7 +146,7 @@ The URL works on phone, tablet, laptop — anywhere the user has a browser point
 
 ### Scene 6 — Mobile handoff
 
-The developer leaves the office, opens the Sandbox PWA on their phone, taps the same session. The session is in card-protocol mode on mobile (xterm on a 5" screen is unreadable; the card-stream view is a second client into the same persistent process). They type:
+The developer leaves the office, opens `console.<orgslug>.omani.homes/sandbox/<session-id>` on their phone, and re-attaches to the same session. Today this opens the same xterm surface as desktop — the pty-server replays its ring buffer (`SANDBOX_RING_BUFFER_BYTES`, 1 MiB default, 16 MiB ceiling — TBD-V22 #1986 F1) so the scrollback is intact, then streams live. Multi-device handoff via the persistent PTY is real and shipped; a phone-friendly card-stream render of the same session is **deferred — see TBD-V30 [#2057](https://github.com/openova-io/openova/issues/2057)**. They type (cramped on a 5" screen, but functional):
 
 ```
 > the buy page is missing tier selection. tiers should render as cards
@@ -218,7 +218,7 @@ Per-Org admins see the same UI, scoped to one Org. The RBAC is the same model al
 | Same session open in two tabs | Both tabs receive the same PTY byte stream; either tab can type; that is by design. |
 | Close laptop, open phone | New WebSocket to the same `session_id`; the pty-server replays its ring buffer (default 1 MiB, operator-configurable via `SANDBOX_RING_BUFFER_BYTES` up to a 16 MiB ceiling — TBD-V22 #1986 F1) on connect, then streams live. |
 | Pod restart (rare) | PTY dies. Agent restarts via `<agent> --continue` (each agent has an equivalent flag). Conversation history in `~/.claude/projects/...` or equivalent is preserved; in-flight tool call may be lost. |
-| Same session on watch-style device | Card protocol view only — no terminal. Read-only by default, opt-in to a single-line input. |
+| Same session on watch-style device | **Deferred — TBD-V30 [#2057](https://github.com/openova-io/openova/issues/2057).** The pty-server has a stub `WS /sessions/{id}/cards` route that currently returns the same raw byte stream framed as `{"type":"raw","bytes":...}` (no parsing); a card-translator that emits typed cards (`text` / `tool-call` / `diff` / `bash` / `preview-link`) and a watch-form-factor render are post-MVP. Today the only mobile surface is the same xterm via `/attach`. |
 
 The pty-server (described in [`architecture.md`](architecture.md)) is the only piece that makes this work. **No tmux.**
 
