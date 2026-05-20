@@ -1,0 +1,105 @@
+name: PR body validate
+
+# Pre-merge guard: REJECTS PR bodies using GitHub's auto-close keywords
+# (Closes / Fixes / Resolves / Close / Fix / Resolve + #NNN) unless the
+# PR has the `ci-gate-exception` label.
+#
+# WHY THIS GUARD EXISTS
+# ---------------------
+# GitHub auto-closes the referenced issue when a PR with a closing
+# keyword merges, REGARDLESS of operator-walk evidence. Per
+# CLAUDE.md §3 rule 1:
+#
+#   "Refs #N is the default in PR bodies, not Closes #N. Auto-close on
+#    PR merge is the enemy. Issue closes only after the operator-walk-
+#    with-screenshot lands as a comment on the issue itself."
+#
+# Trust-audit agent ae6f937a (2026-05-20) found 13 of 45 PRs in one
+# trading day used `Closes`/`Fixes` and auto-closed walk-blocked issues
+# prematurely — 51% theater rate. This guard makes the violation a
+# pre-merge red check rather than a post-merge cleanup chore.
+#
+# EXCEPTION PATH
+# --------------
+# Pure CI-gate or docs-only PRs with NO operator-visible surface MAY
+# legitimately use closing keywords (the issue's definition-of-done is
+# "this PR merges", not "operator walks a surface"). To opt in, add the
+# `ci-gate-exception` label to the PR — the `labeled` / `unlabeled`
+# triggers re-run this check whenever the label set changes, so an
+# operator can add the label after the first FAIL and the check flips
+# green without forcing an empty re-push.
+#
+# REGEX RATIONALE
+# ---------------
+# Matches: ^ or whitespace, then one of the keywords, then whitespace,
+# then `#`, then digits. Mirrors GitHub's own auto-close grammar so we
+# catch exactly what GH itself would auto-close. Quoted occurrences
+# (e.g. `"Closes #N"` inside markdown code fences or quotes) bypass the
+# guard the same way GH itself ignores them — desired parity.
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  no-auto-close-keywords:
+    name: Reject Closes/Fixes/Resolves in PR body (unless ci-gate-exception)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Inspect PR body for auto-close keywords
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -u
+
+          echo "PR #${PR_NUMBER}"
+          echo "Labels: ${PR_LABELS}"
+          echo "----- PR body begin -----"
+          printf '%s\n' "${PR_BODY:-(empty)}"
+          echo "----- PR body end -----"
+
+          # Detect GitHub auto-close keywords with a whitespace/start
+          # boundary, followed by whitespace and a #NNN reference.
+          # Mirrors GH's documented closing-keyword grammar.
+          PATTERN='(^|[[:space:]])(Closes|Fixes|Resolves|Close|Fix|Resolve)[[:space:]]+#[0-9]+'
+
+          if printf '%s' "${PR_BODY:-}" | grep -iqE "${PATTERN}"; then
+            echo ""
+            echo "Detected auto-close keyword (Closes/Fixes/Resolves) referencing an issue."
+            echo ""
+            if printf '%s' "${PR_LABELS}" | tr ',' '\n' | grep -qx "ci-gate-exception"; then
+              echo "Label 'ci-gate-exception' is present — guard ALLOWS this PR."
+              echo "Reminder: this exception is reserved for pure CI-gate / docs-only"
+              echo "PRs with no operator-visible surface. Anything user-facing must"
+              echo "use 'Refs #N' and stay open until the walk-with-screenshot lands."
+              exit 0
+            fi
+
+            echo "::error::PR body uses an auto-close keyword (Closes/Fixes/Resolves) but lacks the 'ci-gate-exception' label."
+            echo ""
+            echo "Per CLAUDE.md §3 rule 1 (and the OpenOva anti-theater discipline):"
+            echo "  * Default keyword in PR bodies is 'Refs #N', NOT 'Closes #N'."
+            echo "  * GitHub auto-close on merge bypasses operator-walk DoD."
+            echo "  * Issues close only after the walk-with-screenshot lands on the issue."
+            echo ""
+            echo "How to fix:"
+            echo "  1. EITHER edit the PR body — replace 'Closes #N' / 'Fixes #N' /"
+            echo "     'Resolves #N' with 'Refs #N'. The 'edited' trigger will re-run"
+            echo "     this check automatically."
+            echo "  2. OR (only if this PR has NO operator-visible surface — e.g. a"
+            echo "     pure CI-gate fix, docs-only edit, lockstep version bump) add"
+            echo "     the 'ci-gate-exception' label. The 'labeled' trigger will"
+            echo "     re-run this check and flip it green."
+            echo ""
+            echo "If unsure which path applies, default to (1) — Refs is always safe."
+            exit 1
+          fi
+
+          echo "OK — PR body does not use Closes/Fixes/Resolves keywords."
