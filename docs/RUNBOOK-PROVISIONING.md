@@ -11,7 +11,7 @@ A new **Sovereign** — a self-sufficient deployed Catalyst — provisioned end-
 
 - A k3s cluster running on Hetzner Cloud servers in your chosen region
 - Cilium CNI + Gateway API as ingress, Flux as GitOps reconciler, Crossplane as day-2 IaC
-- The 12-component bootstrap kit installed and reconciling cleanly: cilium → cert-manager → flux → crossplane → sealed-secrets → spire → nats-jetstream → openbao → keycloak → gitea → powerdns → bp-catalyst-platform
+- The 11-component bootstrap kit installed and reconciling cleanly: cilium → cert-manager → flux → crossplane → sealed-secrets → nats-jetstream → openbao → keycloak → gitea → powerdns → bp-catalyst-platform (pre-2026-05-03 the chain included `spire` between sealed-secrets and nats-jetstream — founder PR [#665](https://github.com/openova-io/openova/pull/665) dropped bp-spire; canonical workload identity is now Cilium WireGuard + K8s SA TokenReview, and the `platform/spire/` chart is retained as opt-in. Re-introduction roadmap: TBD-V29 [#2055](https://github.com/openova-io/openova/issues/2055))
 - Reachable URLs: `console.<your-fqdn>`, `gitea.<your-fqdn>`, `admin.<your-fqdn>` (TLS via cert-manager + Let's Encrypt)
 - Initial sovereign-admin user in Keycloak's `catalyst-admin` realm
 - The Sovereign is now self-sufficient — the catalyst-provisioner has zero ongoing connection to it (Phase 1 hand-off complete)
@@ -123,7 +123,7 @@ The catalyst-api retains the OpenTofu state per-Sovereign in `/tmp/catalyst/tofu
 | `bp-cert-manager` reconciles but cert issuance fails | Let's Encrypt rate-limit (50 certs / week / domain) or DNS records not propagated | Check `cert-manager` events: `kubectl -n cert-manager describe challenge`; for rate-limit, wait. For DNS, dig the records: `dig console.<your-fqdn> +short` should return the LB IP |
 | `console.<sovereign-fqdn>` returns 404 / connection-refused | Per-Sovereign PowerDNS zone records not yet visible to public resolvers (parent-zone NS-delegation TTL ~15 min for pool, customer-registrar TTL for BYO byo-manual / byo-api) | `dig <sovereign-fqdn> NS` should return OpenOva NS; `dig console.<sovereign-fqdn>` should return the LB IP. Allow up to 30 min for DNS propagation |
 | Keycloak reset-password email never arrives | SMTP not configured in Keycloak realm yet | Reset via the catalyst-admin realm-admin flow inside the cluster: `kubectl -n catalyst-system exec -it keycloak-0 -- /opt/keycloak/bin/kcadm.sh ...` (the catalyst-admin path is documented in `clusters/<sovereign-fqdn>/keycloak/README.md`) |
-| Bootstrap-kit Kustomization stuck `Ready=False`; PVCs (bp-spire, bp-keycloak postgres, bp-openbao, bp-nats-jetstream, bp-gitea, bp-catalyst-platform postgres) all `Pending` indefinitely | StorageClass missing — k3s started without `local-path-provisioner` and the cluster has no default class for HelmReleases that don't pin `storageClassName` | See **StorageClass missing** below |
+| Bootstrap-kit Kustomization stuck `Ready=False`; PVCs (bp-keycloak postgres, bp-openbao, bp-nats-jetstream, bp-gitea, bp-catalyst-platform postgres) all `Pending` indefinitely (and `bp-spire` server PVC too if you have opted bp-spire back in — bp-spire was removed from the canonical bootstrap-kit by founder PR [#665](https://github.com/openova-io/openova/pull/665); chart retained as opt-in. Re-introduction roadmap: TBD-V29 [#2055](https://github.com/openova-io/openova/issues/2055)) | StorageClass missing — k3s started without `local-path-provisioner` and the cluster has no default class for HelmReleases that don't pin `storageClassName` | See **StorageClass missing** below |
 
 **Escalation:** if the runbook doesn't unblock you, file an issue against `github.com/openova-io/openova` with the `area/platform` and `kind/provisioning` labels, including: Sovereign FQDN, region, last 50 SSE events, last 100 lines of `kubectl -n flux-system get events`, and the OpenTofu workdir contents (excluding `tofu.auto.tfvars.json` which contains the Hetzner token).
 
@@ -135,9 +135,11 @@ The catalyst-api retains the OpenTofu state per-Sovereign in `/tmp/catalyst/tofu
 $ kubectl get pvc -A
 NAMESPACE      NAME                         STATUS    VOLUME   CAPACITY   ...
 keycloak       data-keycloak-postgresql-0   Pending   ...
-spire-system   spire-data-spire-server-0    Pending   ...
 openbao        data-openbao-0               Pending   ...
+nats           data-nats-jetstream-0        Pending   ...
 ```
+
+(The pre-2026-05-03 example output also showed a `spire-system/spire-data-spire-server-0` row. Founder PR [#665](https://github.com/openova-io/openova/pull/665) dropped bp-spire from the bootstrap-kit; the `spire-system` namespace is only present on Sovereigns that have opted bp-spire back in. Re-introduction roadmap: TBD-V29 [#2055](https://github.com/openova-io/openova/issues/2055).)
 
 `kubectl describe pvc <name>` reports `no persistent volumes available for this claim and no storage class is set`. `kubectl get sc` returns `No resources found`.
 

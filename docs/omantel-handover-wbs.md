@@ -60,7 +60,7 @@ A handed-over Sovereign must own its own GitOps loop, its own DNS, its own cert 
 | 12 | `bp-powerdns` | Authoritative DNS + PDM + dnsdist | 🟢 chart-released | ❓ unknown — never observed serving a delegated subdomain on a Sovereign |
 | 13 | `bp-gitea` | Sovereign-owned Git server | 🟢 chart-verified — `bp-gitea:1.1.2` smoke OK ([#376](https://github.com/openova-io/openova/issues/376)) | ❓ unknown |
 | 14 | `bp-keycloak` | OIDC IDP — per-Sovereign realm | 🟢 chart-verified — admin login OK + #326 kubectl OIDC client ([#377](https://github.com/openova-io/openova/issues/377), [#326](https://github.com/openova-io/openova/issues/326)) | ❓ unknown — kubectl OIDC flow never exercised live |
-| 15 | `bp-spire` | Workload identity — service-to-service mTLS | 🟢 chart-verified — k8s_psat attestation OK ([#382](https://github.com/openova-io/openova/issues/382)) | ❓ unknown |
+| 15 | `bp-spire` | Workload identity — service-to-service mTLS | ⏸ **deferred** — chart was verified ([#382](https://github.com/openova-io/openova/issues/382)) but slot 06 removed from `clusters/_template/bootstrap-kit/` by founder PR [#665](https://github.com/openova-io/openova/pull/665) (2026-05-03, "drop bp-spire — Cilium WireGuard is canonical east-west mesh"). The `platform/spire/` chart is retained as opt-in for future re-introduction; re-enable triggers + roadmap in TBD-V29 ([#2055](https://github.com/openova-io/openova/issues/2055)). Today's canonical: Cilium WireGuard for east-west transport encryption + K8s ServiceAccount TokenReview for workload-to-workload auth | n/a (deferred) |
 | 16 | `bp-crossplane` | Day-2 cloud-resource provisioning | 🟢 chart-verified ([#378](https://github.com/openova-io/openova/issues/378)) | ❓ unknown — `provider-hcloud` Healthy=True never observed on a real Sovereign |
 | 17 | `bp-crossplane-claims` | XRDs + Compositions | 🟢 chart-released — event-driven HR fix ([#327](https://github.com/openova-io/openova/issues/327)) + UserAccess XRD ([#322](https://github.com/openova-io/openova/issues/322)) | ❓ unknown |
 | 18 | `bp-harbor` | Container registry — avoids Docker Hub rate limits | 🟢 chart-released — vendor-agnostic Object Storage ([#383](https://github.com/openova-io/openova/issues/383)) | ❓ unknown — Hetzner-S3 backend signin never exercised live |
@@ -455,7 +455,7 @@ flowchart TB
 | [#379](https://github.com/openova-io/openova/issues/379) | bp-kyverno install | #338 |
 | [#380](https://github.com/openova-io/openova/issues/380) | bp-trivy install | #338 |
 | [#381](https://github.com/openova-io/openova/issues/381) | bp-grafana stack install | #338 |
-| [#382](https://github.com/openova-io/openova/issues/382) | bp-spire install | #338, bp-cert-manager |
+| [#382](https://github.com/openova-io/openova/issues/382) | bp-spire install (⏸ **deferred** post PR [#665](https://github.com/openova-io/openova/pull/665) — chart retained as opt-in; canonical workload identity now Cilium WireGuard + K8s SA TokenReview; re-introduction roadmap in TBD-V29 [#2055](https://github.com/openova-io/openova/issues/2055)) | #338, bp-cert-manager |
 
 ### Phase 6 — Catalyst control plane (depends on Phases 2 + 4 + 5)
 

@@ -92,7 +92,7 @@ Click **New Sovereign**. Walk the 7-step wizard (canonical order from `STEPS` in
 | 4. Credentials | Hetzner project ID | The numeric project ID from Pre-flight |
 | 4. Credentials | SSH public key | Paste the `*.pub` content from Pre-flight |
 | 5. Components | Choose Your Stack tab | Single flat marketplace card grid (#162, #b0ec0c43) with family chips + search + product-family chip filter. Recommended families ship default-on; toggle optional ones to taste. Per #175, dependency-aware cascades pull transitive deps automatically (Specter → BGE/Milvus/LangFuse/vLLM/KServe; Harbor → cnpg/seaweedfs/valkey via mandatory closure). |
-| 5. Components | Always Included tab | Read-only — bp-cilium, bp-flux, bp-crossplane, bp-cert-manager, bp-spire, bp-nats-jetstream, bp-openbao, bp-keycloak, bp-gitea, bp-sealed-secrets, bp-powerdns, plus the post-promotion mandatory closure (cnpg, valkey). Always installed. |
+| 5. Components | Always Included tab | Read-only — bp-cilium, bp-flux, bp-crossplane, bp-cert-manager, bp-nats-jetstream, bp-openbao, bp-keycloak, bp-gitea, bp-sealed-secrets, bp-powerdns, plus the post-promotion mandatory closure (cnpg, valkey). Always installed. (bp-spire was removed from the Always-Included list by founder PR [#665](https://github.com/openova-io/openova/pull/665) — Cilium WireGuard + K8s SA TokenReview are canonical workload identity; chart retained as opt-in. Re-introduction roadmap: TBD-V29 [#2055](https://github.com/openova-io/openova/issues/2055).) |
 | 6. Domain | Domain mode | **Pool** (per #169 the other modes are `byo-manual` and `byo-api`) |
 | 6. Domain | Pool domain | `omani.works` |
 | 6. Domain | Subdomain | `omantel` (validated via `POST /api/v1/subdomains/check` → PDM `/v1/reserve`) |
@@ -127,7 +127,6 @@ The wizard's progress page connects to `GET /api/v1/deployments/{id}/logs` (Serv
 | `flux`             | Flux on new Sovereign (self) | <30s |
 | `crossplane`       | Flux on new Sovereign | 1–2 min |
 | `sealed-secrets`   | Flux on new Sovereign | ~30s |
-| `spire`            | Flux on new Sovereign | ~1 min |
 | `jetstream`        | Flux on new Sovereign | ~1 min |
 | `openbao`          | Flux on new Sovereign | 1–2 min |
 | `keycloak`         | Flux on new Sovereign | 2–3 min |
