@@ -25,3 +25,11 @@ keywords: [catalyst, blueprint, kyverno, policy, compliance, audit]
 maintainers:
   - name: OpenOva Catalyst
     email: catalyst@openova.io
+
+# Opt out of the hollow-chart guard (Blueprint-Release workflow / issue #181):
+# this chart legitimately ships only Catalyst-authored CRs (ClusterPolicy
+# CRs that target the kyverno.io CRDs installed by bp-kyverno at slot 27).
+# It has NO upstream Helm subchart to bundle. Same shape as
+# bp-crossplane-claims (XRDs + Compositions, no upstream Crossplane subchart).
+annotations:
+  catalyst.openova.io/no-upstream: "true"
