@@ -189,7 +189,68 @@ name: bp-self-sovereign-cutover
 # Contract test (tests/cutover-contract.sh) asserts shift from 9 → 10
 # step ConfigMaps and from 8 → 9 job-mode ConfigMaps. New Case 21
 # verifies Step 10's wrapper + subchart patches are wired.
-version: 0.1.36
+#
+# 0.1.37 (TBD-V24 MISS-3, issue #2034, 2026-05-20): NEW step 11
+# (crossplane-provider-pivot) — pivots every `pkg.crossplane.io/v1.
+# Provider` CR's `spec.package` host literal from `xpkg.upbound.io/...`
+# to `harbor.<SOVEREIGN_FQDN>/proxy-xpkg/...` so the Crossplane package
+# manager fetches Provider packages from the Sovereign-local Harbor
+# `proxy-xpkg` project, NOT from xpkg.upbound.io.
+#
+# Root cause this addresses: Crossplane's package manager uses
+# `github.com/google/go-containerregistry`'s `remote.Image()` DIRECTLY
+# from the `crossplane-system` controller Pod (source:
+# `internal/xpkg/fetch.go`). It does NOT route fetches through the
+# kubelet's CRI containerd client, so `/etc/containerd/certs.d/` and
+# `/etc/rancher/k3s/registries.yaml` mirror config (rewritten by Step
+# 04's DaemonSet) is irrelevant to it. The bootstrap-kit ships THREE
+# Provider CRs all carrying `spec.package =
+# xpkg.upbound.io/crossplane-contrib/provider-hcloud:v0.4.0`
+# (clusters/_template + clusters/omantel.omani.works +
+# clusters/otech.omani.works) — none were patched by any prior cutover
+# step. Result: every Provider package fetch (initial install,
+# version bump, ProviderRevision reconcile of an inactive revision,
+# Pod-restart-with-evicted-cache, any new operator-installed Provider)
+# hit xpkg.upbound.io directly post-handover — a direct violation of
+# Principle #11 (no tether to external upstreams after handover).
+# Caught by the TBD-V24 empirical investigation 2026-05-20.
+#
+# Step 04 (containerd registries.yaml.v2) does NOT catch this even
+# though it DOES register `xpkg.upbound.io → harbor.<sov>/proxy-xpkg`
+# — that mirror is consumed only by containerd (kubelet image pulls),
+# which Crossplane bypasses. The ONLY way to redirect Provider package
+# fetches is to rewrite each Provider's `spec.package` host literal.
+#
+# Step 11 adds a Phase-1 live `kubectl patch provider.pkg.crossplane.io`
+# loop over every Provider CR (cluster-scoped). Skip-if-absent guards
+# for: the CRD not yet installed (very-early-handover window) and an
+# already-pivoted package literal (re-run idempotency). Phase-2 git
+# pushes sed edits of every `clusters/*/infrastructure/provider-*.yaml`
+# to local Gitea so the bootstrap-kit Kustomization reconcile doesn't
+# revert the Phase-1 live patch within ~1 min.
+#
+# Lockstep changes:
+#   - `harbor.mothershipAuthsToStrip` gains `xpkg.upbound.io` (Step 06
+#     Phase-0 credential hygiene now covers the xpkg upstream too).
+#   - `egressTest.blockedDomains` gains `xpkg.upbound.io` (TBD-V23's
+#     deny-egress hold proof must block xpkg.upbound.io alongside the
+#     other 3 mothership families).
+#   - `stepTimeouts.crossplaneProviderPivotSeconds` (600s default).
+#   - `crossplaneProviderPivot.{upstreamHost,registryPath}` overlay
+#     knobs (defaults: xpkg.upbound.io, proxy-xpkg).
+#   - RBAC ClusterRole gains `pkg.crossplane.io.providers
+#     {get,list,watch,update,patch}` + `apiextensions.k8s.io.
+#     customresourcedefinitions {get,list,watch}` (the latter for the
+#     CRD-presence probe).
+#
+# totalSteps bumped from "10" → "11" in 09-cutover-status-configmap.yaml.
+# Contract test (tests/cutover-contract.sh) asserts shift from 10 → 11
+# step ConfigMaps and from 9 → 10 job-mode ConfigMaps. New Case 22
+# verifies Step 11 patches Provider CRs and rewrites Gitea YAML.
+# (Refs #2034 — closes after operator-walk-with-screenshot on a fresh
+# multi-region prov verifies Provider CRs reconcile from
+# harbor.<sov-fqdn>/proxy-xpkg.)
+version: 0.1.37
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
@@ -243,6 +304,17 @@ description: |
         kubectl patch; Phase-2 git push to local Gitea so the
         bootstrap-kit Kustomization doesn't revert the override.
         (TBD-V24 MISS-1)
+    11  cutover-step-11-crossplane-provider-pivot  mode=job
+        Patch every `pkg.crossplane.io/v1.Provider` CR's spec.package
+        from `xpkg.upbound.io/...` → `harbor.<SOVEREIGN_FQDN>/
+        proxy-xpkg/...` so the Crossplane package manager fetches
+        Provider packages from Sovereign-local Harbor, NOT from
+        xpkg.upbound.io. Phase-1 kubectl patch (skip if CRD absent or
+        already-pivoted); Phase-2 git push to local Gitea so the
+        bootstrap-kit Kustomization doesn't revert the override.
+        Crossplane bypasses containerd (uses go-containerregistry
+        directly), so Step 04's registries.yaml mirror does NOT catch
+        Provider package fetches. (TBD-V24 MISS-3)
 
   Plus:
     self-sovereign-cutover-status                  ConfigMap

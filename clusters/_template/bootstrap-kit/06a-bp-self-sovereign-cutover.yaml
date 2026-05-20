@@ -378,7 +378,32 @@ spec:
       # latent gap step-06 Phase-1.6 was silently relying on since
       # chart 0.1.31). totalSteps bumped 9 → 10; contract test asserts
       # the shift via new Case 21. (Refs #2034)
-      version: 0.1.36
+      #
+      # 0.1.37 (TBD-V24 MISS-3, issue #2034, 2026-05-20): NEW step 11
+      # (crossplane-provider-pivot) — pivots every Crossplane Provider
+      # CR's `spec.package` from `xpkg.upbound.io/...` to
+      # `harbor.<SOVEREIGN_FQDN>/proxy-xpkg/...` so the Crossplane
+      # package manager (which uses go-containerregistry DIRECTLY,
+      # bypassing containerd) fetches Provider packages from the
+      # Sovereign-local Harbor mirror. Step 04's registries.yaml.v2
+      # mirror DOES register xpkg.upbound.io → proxy-xpkg, but
+      # Crossplane's fetcher Pod bypasses the kubelet/containerd CRI
+      # client entirely so the mirror is irrelevant — the ONLY way to
+      # redirect Provider package fetches is to rewrite each
+      # Provider's `spec.package` host literal. The bootstrap-kit ships
+      # 3 Provider CRs all carrying the upstream xpkg literal
+      # (clusters/_template + clusters/omantel.omani.works +
+      # clusters/otech.omani.works); none were patched by any prior
+      # cutover step. Closes the TBD-V24 audit gap for the Crossplane
+      # tether family (4th tether: xpkg.upbound.io). Phase-1 kubectl
+      # patch + Phase-2 git push to local Gitea (same shape as Step
+      # 10). RBAC gains pkg.crossplane.io.providers [update,patch] +
+      # apiextensions.k8s.io.customresourcedefinitions read for the
+      # CRD-presence probe. `harbor.mothershipAuthsToStrip` +
+      # `egressTest.blockedDomains` both gain `xpkg.upbound.io` for
+      # lockstep. totalSteps bumped 10 → 11; contract test asserts
+      # the shift via new Case 22. (Refs #2034)
+      version: 0.1.37
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

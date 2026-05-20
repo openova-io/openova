@@ -14,9 +14,11 @@
 #   3. Each step ConfigMap MUST carry data keys:
 #        stepName  (always)
 #        podSpec   (mode=job only)
-#   4. EXACTLY 10 step ConfigMaps must render (steps 1..10; step 9
+#   4. EXACTLY 11 step ConfigMaps must render (steps 1..11; step 9
 #      gitea-token-mint added in chart 0.1.30, TBD-C18; step 10
-#      vcluster-registry-pivot added in chart 0.1.35, TBD-V24 MISS-1).
+#      vcluster-registry-pivot added in chart 0.1.36, TBD-V24 MISS-1;
+#      step 11 crossplane-provider-pivot added in chart 0.1.37,
+#      TBD-V24 MISS-3).
 #   5. Step 04 must be mode=daemonset-wait.
 #   6. The status ConfigMap (default name self-sovereign-cutover-status)
 #      MUST render with helm.sh/resource-policy: keep so a chart
@@ -44,14 +46,13 @@ echo "[cutover-contract] Case 1: chart renders with default values"
 helm template smoke . > "$TMP/render.yaml"
 echo "  PASS ($(wc -l < "$TMP/render.yaml") lines)"
 
-echo "[cutover-contract] Case 2 + 4: exactly 10 step ConfigMaps render with required labels"
+echo "[cutover-contract] Case 2 + 4: exactly 11 step ConfigMaps render with required labels"
 # Use yq if present (the CI runner installs it for the blueprint-release
 # guards); fall back to grep counting on workstations without yq.
 # Step 9 (gitea-token-mint) added in chart 0.1.30 (TBD-C18); step 10
-# (vcluster-registry-pivot) added in chart 0.1.35 (TBD-V24 MISS-1,
-# issue #2034) to pivot the bp-*-vcluster HelmReleases' image.repository
-# from harbor.openova.io → harbor.<SOVEREIGN_FQDN> so vCluster Pods
-# pull from the Sovereign-local Harbor mirror post-cutover.
+# (vcluster-registry-pivot) added in chart 0.1.36 (TBD-V24 MISS-1);
+# step 11 (crossplane-provider-pivot) added in chart 0.1.37 (TBD-V24
+# MISS-3, issue #2034) to pivot Provider.spec.package off xpkg.upbound.io.
 if command -v yq >/dev/null 2>&1; then
   # yq emits `---` separators between matched docs; filter those out
   # before counting names. `grep -E '^cutover-step-'` matches only the
@@ -62,28 +63,28 @@ else
   # — count distinct order values, which equals step count.
   step_count=$(grep -c 'bp.openova.io/cutover-order:' "$TMP/render.yaml")
 fi
-if [ "${step_count}" -ne 10 ]; then
-  echo "FAIL: expected 10 step ConfigMaps, got ${step_count}" >&2
+if [ "${step_count}" -ne 11 ]; then
+  echo "FAIL: expected 11 step ConfigMaps, got ${step_count}" >&2
   exit 1
 fi
-echo "  PASS (10 step ConfigMaps)"
+echo "  PASS (11 step ConfigMaps)"
 
 echo "[cutover-contract] Case 3: required data keys present"
-# stepName key must exist on every step ConfigMap (10 total).
-# podSpec key must exist on every job-mode step (9 of 10 — step 04 is daemonset-wait).
+# stepName key must exist on every step ConfigMap (11 total).
+# podSpec key must exist on every job-mode step (10 of 11 — step 04 is daemonset-wait).
 mode_job_count=$(grep -c 'bp.openova.io/cutover-mode: "job"' "$TMP/render.yaml")
-if [ "${mode_job_count}" -ne 9 ]; then
-  echo "FAIL: expected 9 job-mode step ConfigMaps, got ${mode_job_count}" >&2
+if [ "${mode_job_count}" -ne 10 ]; then
+  echo "FAIL: expected 10 job-mode step ConfigMaps, got ${mode_job_count}" >&2
   exit 1
 fi
 podspec_keys=$(grep -c '^  podSpec: |' "$TMP/render.yaml")
-if [ "${podspec_keys}" -lt 9 ]; then
-  echo "FAIL: expected at least 9 podSpec keys (one per job-mode step), got ${podspec_keys}" >&2
+if [ "${podspec_keys}" -lt 10 ]; then
+  echo "FAIL: expected at least 10 podSpec keys (one per job-mode step), got ${podspec_keys}" >&2
   exit 1
 fi
 stepname_keys=$(grep -c '^  stepName:' "$TMP/render.yaml")
-if [ "${stepname_keys}" -lt 10 ]; then
-  echo "FAIL: expected at least 10 stepName keys, got ${stepname_keys}" >&2
+if [ "${stepname_keys}" -lt 11 ]; then
+  echo "FAIL: expected at least 11 stepName keys, got ${stepname_keys}" >&2
   exit 1
 fi
 echo "  PASS (data keys present on every step)"
@@ -530,5 +531,82 @@ if ! awk '/^kind: ClusterRole$/,/^---$/' "$TMP/render.yaml" \
   exit 1
 fi
 echo "  PASS (Step-10 wired to pivot vCluster HRs to local Harbor)"
+
+echo "[cutover-contract] Case 22: Step-11 crossplane-provider-pivot patches Provider CRs (TBD-V24 MISS-3)"
+# Chart <0.1.37 shipped NO Crossplane Provider package pivot. Result:
+# every Provider package fetch (initial install, version bump, inactive
+# ProviderRevision reconcile, Pod-restart-with-evicted-cache) hit
+# xpkg.upbound.io directly post-handover — a direct violation of
+# Principle #11. Step 04's registries.yaml.v2 mirror is irrelevant to
+# Crossplane because Crossplane's fetcher uses go-containerregistry's
+# remote.Image() directly, bypassing the kubelet/containerd CRI client.
+# Caught by TBD-V24 empirical investigation 2026-05-20.
+#
+# Chart 0.1.37 adds Step-11 that:
+#   - kubectl patches every pkg.crossplane.io/v1.Provider CR's
+#     spec.package, swapping `xpkg.upbound.io/...` →
+#     `harbor.${SOVEREIGN_FQDN}/proxy-xpkg/...` while preserving the
+#     full upstream path + tag.
+#   - git push edits clusters/*/infrastructure/provider-*.yaml to
+#     local Gitea so the bootstrap-kit Kustomization reconcile
+#     doesn't revert Phase-1 within ~1 min.
+#   - Idempotent on re-run (skip-if-already-pivoted on Phase-1,
+#     no-op grep guard on Phase-2).
+#   - Skip-if-absent for the CRD (very-early-handover window where
+#     bp-crossplane hasn't installed yet — Phase-2 still rewrites
+#     Gitea so the eventual install pulls from local Harbor).
+#
+# Guard against future regressions that drop the step.
+if ! grep -q 'cutover-step-11-crossplane-provider-pivot' "$TMP/render.yaml"; then
+  echo "FAIL: Step-11 crossplane-provider-pivot ConfigMap missing (TBD-V24 MISS-3)" >&2
+  exit 1
+fi
+if ! grep -A20 'cutover-step-11-crossplane-provider-pivot' "$TMP/render.yaml" | grep -q 'bp.openova.io/cutover-order: "11"'; then
+  echo "FAIL: Step-11 not labelled bp.openova.io/cutover-order=11 (TBD-V24 MISS-3)" >&2
+  exit 1
+fi
+# Default upstream host must be xpkg.upbound.io (the Crossplane Provider
+# package upstream the cutover pivots OFF of).
+if ! grep -A60 'cutover-step-11-crossplane-provider-pivot' "$TMP/render.yaml" | grep -q 'value: "xpkg.upbound.io"'; then
+  echo "FAIL: Step-11 missing UPSTREAM_HOST=xpkg.upbound.io env (TBD-V24 MISS-3)" >&2
+  exit 1
+fi
+# Default registry path must be proxy-xpkg (the Harbor proxy-cache
+# project that mirrors xpkg.upbound.io — created by Step 02).
+if ! grep -A60 'cutover-step-11-crossplane-provider-pivot' "$TMP/render.yaml" | grep -q 'value: "proxy-xpkg"'; then
+  echo "FAIL: Step-11 missing REGISTRY_PATH=proxy-xpkg env (TBD-V24 MISS-3)" >&2
+  exit 1
+fi
+# The script body must call kubectl patch on provider.pkg.crossplane.io.
+if ! grep -q 'kubectl patch provider.pkg.crossplane.io' "$TMP/render.yaml"; then
+  echo "FAIL: Step-11 missing kubectl patch provider.pkg.crossplane.io invocation (TBD-V24 MISS-3)" >&2
+  exit 1
+fi
+# Phase-2 must sed the package literal in clusters/*/infrastructure/
+# provider-*.yaml — guard the find path is wired.
+if ! grep -q "path '\*/infrastructure/provider-\*.yaml'" "$TMP/render.yaml"; then
+  echo "FAIL: Step-11 Phase-2 missing provider-*.yaml find pattern (TBD-V24 MISS-3)" >&2
+  exit 1
+fi
+# RBAC: ClusterRole must permit update/patch on
+# pkg.crossplane.io.providers (Phase-1 kubectl patch).
+if ! awk '/^kind: ClusterRole$/,/^---$/' "$TMP/render.yaml" \
+     | grep -B1 -A3 '"providers"' | grep -E 'verbs:.*"patch"|verbs:.*"update"' >/dev/null; then
+  echo "FAIL: ClusterRole missing pkg.crossplane.io.providers [update|patch] verb (TBD-V24 MISS-3)" >&2
+  exit 1
+fi
+# RBAC: ClusterRole must permit get/list/watch on
+# apiextensions.k8s.io.customresourcedefinitions (CRD-presence probe).
+if ! awk '/^kind: ClusterRole$/,/^---$/' "$TMP/render.yaml" \
+     | grep -B1 -A3 '"customresourcedefinitions"' | grep -q 'verbs:.*"get"'; then
+  echo "FAIL: ClusterRole missing apiextensions.k8s.io.customresourcedefinitions read verbs (TBD-V24 MISS-3)" >&2
+  exit 1
+fi
+# xpkg.upbound.io must be added to mothershipAuthsToStrip + blockedDomains.
+if ! grep -q '"xpkg.upbound.io"' "$TMP/render.yaml"; then
+  echo "FAIL: xpkg.upbound.io not present in chart values (mothershipAuthsToStrip / blockedDomains) (TBD-V24 MISS-3)" >&2
+  exit 1
+fi
+echo "  PASS (Step-11 wired to pivot Provider CRs to local Harbor proxy-xpkg)"
 
 echo "[cutover-contract] All gates green."

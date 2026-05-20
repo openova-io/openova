@@ -1,0 +1,319 @@
+{{- /*
+Step 11 — crossplane-provider-pivot (TBD-V24 MISS-3, issue #2034).
+
+Pivots every `pkg.crossplane.io/v1.Provider` CR's `spec.package` host
+literal from `xpkg.upbound.io/...` to `harbor.<SOVEREIGN_FQDN>/
+proxy-xpkg/...` so the Crossplane package manager fetches Provider
+packages from the Sovereign-local Harbor `proxy-xpkg` project, NOT
+from `xpkg.upbound.io`. Without this step, every Provider package
+fetch (initial install, version bump, ProviderRevision reconcile of
+an inactive revision, Pod-restart-with-evicted-cache, any new
+operator-installed Provider) hits `xpkg.upbound.io` directly — a
+direct violation of Principle #11 (no tether to external upstreams
+after handover).
+
+Why Step 04 (containerd registries.yaml.v2 pivot) does NOT catch it
+───────────────────────────────────────────────────────────────────
+Crossplane's package manager uses `github.com/google/go-container
+registry`'s `remote.Image()` DIRECTLY from inside the
+`crossplane-system` controller Pod (see crossplane source
+`internal/xpkg/fetch.go`). It does NOT route fetches through the
+kubelet's CRI containerd client, so the `/etc/containerd/certs.d/`
+and `/etc/rancher/k3s/registries.yaml` mirror config (rewritten by
+Step 04's DaemonSet) is irrelevant to it. The package pull is a
+plain HTTPS dial-out from the Crossplane controller Pod to the
+literal hostname in `spec.package`.
+
+There is no first-class registry-mirror knob on Crossplane v1
+`Provider`/`ProviderRevision`/`Lock`/`Configuration` CRDs and the
+chart's `global.imageRegistry` controls only the controller image,
+not the package URL. The ONLY way to redirect Provider package
+fetches is to rewrite each Provider's `spec.package` host literal.
+
+Patches applied (idempotent merge-patch + Gitea YAML edit)
+──────────────────────────────────────────────────────────
+The bootstrap-kit ships THREE Provider CRs that all carry
+`spec.package = xpkg.upbound.io/crossplane-contrib/provider-hcloud:v0.4.0`:
+
+  - clusters/_template/infrastructure/provider-hcloud.yaml
+  - clusters/omantel.omani.works/infrastructure/provider-hcloud.yaml
+  - clusters/otech.omani.works/infrastructure/provider-hcloud.yaml
+
+Each per-Sovereign overlay copy ships only into ITS Sovereign cluster.
+The live K8s patch is therefore scoped per-cluster (only the local
+Sovereign's Provider CR is present at cutover time). The Gitea YAML
+edit fixes ALL infrastructure provider-*.yaml files under
+`clusters/<sov>/infrastructure/` defensively so a fresh prov pulls the
+already-pivoted spec from local Gitea.
+
+Phase inventory
+───────────────
+  Phase 1  Live K8s patch — `kubectl patch provider.pkg.crossplane.io`
+           for every Provider CR (cluster-scoped). Computes the new
+           package literal by replacing the `xpkg.upbound.io` prefix
+           with `harbor.<SOVEREIGN_FQDN>/proxy-xpkg` while preserving
+           the path + tag. Triggers an immediate Crossplane revision
+           reconcile so the new package is fetched within seconds.
+  Phase 2  Push YAML edit to local Gitea — sed-in-place every
+           `clusters/<sov>/infrastructure/provider-<name>.yaml` carrying the
+           literal `xpkg.upbound.io/...`. Without this phase, the
+           bootstrap-kit Kustomization reconcile (every ~1 min from
+           local Gitea) would silently revert Phase 1 back to the
+           upstream URL within minutes.
+
+Idempotency
+───────────
+- Phase 1: a merge-patch with the SAME spec.package literal is a
+  no-op (kubectl emits "no change", resourceVersion unchanged). The
+  step reads the current literal first and SKIPs the patch if
+  already pivoted.
+- Phase 2: the sed pattern targets `xpkg.upbound.io/` so a re-run
+  against a YAML where the literal has been replaced finds no match
+  and exits cleanly. We also guard with a sentinel grep so the git
+  commit is skipped when the diff is empty.
+
+Order rationale: 11 (after Step 10)
+────────────────────────────────────
+Placed at order 11 to run LAST. Functionally it depends on:
+  - Step 02 (harbor-projects) so the `proxy-xpkg` Harbor project
+    exists for the new pulls (chart values.yaml ships proxy-xpkg in
+    the canonical list since chart 0.1.x).
+  - Step 06 Phase-0 (helmrepository-patches) so the ghcr-pull Secret
+    carries auth for `harbor.<sov-fqdn>` (Crossplane fetch uses the
+    same pull-secret machinery via K8sFetcher's pullSecretFromConfig).
+  - Step 04 / containerd is NOT a hard dep (Crossplane bypasses it)
+    but running after Step 04 ensures the rest of the cluster is on
+    the Sovereign-local mirror plane before the Provider re-fetches.
+
+Image phase: post (uses the same alpine/k8s image as Step 10).
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cutover-step-11-crossplane-provider-pivot
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-self-sovereign-cutover.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cutover-step
+    bp.openova.io/cutover-order: "11"
+    bp.openova.io/cutover-mode: "job"
+data:
+  stepName: crossplane-provider-pivot
+  podSpec: |
+    serviceAccountName: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
+    restartPolicy: Never
+    activeDeadlineSeconds: {{ .Values.stepTimeouts.crossplaneProviderPivotSeconds }}
+    containers:
+      - name: crossplane-provider-pivot
+        # alpine/k8s carries both kubectl AND git so we can patch live
+        # Provider CRs AND push the YAML edit to local Gitea (same
+        # image Steps 06/10 use for the same reason).
+        image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4
+        imagePullPolicy: IfNotPresent
+        env:
+          - name: SOVEREIGN_FQDN
+            value: {{ .Values.sovereign.fqdn | quote }}
+          - name: GITEA_INTERNAL_URL
+            value: {{ .Values.sovereign.giteaInternalURL | quote }}
+          - name: GITEA_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.gitea.adminSecretRef.name }}
+                key: {{ .Values.gitea.adminSecretRef.usernameKey }}
+          - name: GITEA_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.gitea.adminSecretRef.name }}
+                key: {{ .Values.gitea.adminSecretRef.passwordKey }}
+          - name: GITEA_ORG
+            value: {{ .Values.gitea.org | quote }}
+          - name: GITEA_REPO
+            value: {{ .Values.gitea.repo | quote }}
+          - name: UPSTREAM_HOST
+            value: {{ .Values.crossplaneProviderPivot.upstreamHost | quote }}
+          - name: REGISTRY_PATH
+            value: {{ .Values.crossplaneProviderPivot.registryPath | quote }}
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -eu
+
+            # Compute the Sovereign-local target prefix. The Crossplane
+            # Provider's `spec.package` is HOST + PATH + ":" + TAG
+            # (e.g. xpkg.upbound.io/crossplane-contrib/provider-hcloud:
+            # v0.4.0). We rewrite ONLY the HOST + PATH-prefix segment
+            # so the upstream path + tag are preserved untouched.
+            target_host="harbor.${SOVEREIGN_FQDN}"
+            target_prefix="${target_host}/${REGISTRY_PATH}"
+            upstream_prefix="${UPSTREAM_HOST}"
+
+            echo "[crossplane-provider-pivot] target host:   ${target_host}"
+            echo "[crossplane-provider-pivot] upstream:      ${upstream_prefix}"
+            echo "[crossplane-provider-pivot] target prefix: ${target_prefix}"
+
+            # ---- Phase 1: live K8s patch on every Provider CR ----
+            #
+            # `kubectl get providers.pkg.crossplane.io` is cluster-scoped
+            # (Provider is a non-namespaced CR). We iterate the list and
+            # patch any Provider whose .spec.package host == UPSTREAM_HOST.
+            # Skip-if-absent guard: if the CRD itself isn't installed
+            # (very early on a freshly-handed-over Sovereign before
+            # bp-crossplane lands), exit 0 cleanly — the bootstrap-kit
+            # will eventually install Crossplane + the Provider CR, and
+            # Phase-2 has already rewritten the YAML so the on-install
+            # spec.package will be the pivoted one.
+            if ! kubectl get crd providers.pkg.crossplane.io >/dev/null 2>&1; then
+              echo "[crossplane-provider-pivot] SKIP Phase 1 — providers.pkg.crossplane.io CRD not installed yet"
+              echo "[crossplane-provider-pivot] Phase 2 will still rewrite YAML in Gitea so the eventual install pulls from ${target_host}"
+              phase1_skip=1
+            else
+              phase1_skip=0
+            fi
+
+            ok=0
+            skip=0
+            fail=0
+
+            if [ "${phase1_skip}" -eq 0 ]; then
+              # List Provider CRs. JSONPath emits one line per Provider
+              # with `<name> <spec.package>` separated by tab so a
+              # while-read loop can parse without word-splitting on the
+              # package string (which can contain colons and slashes).
+              providers_tsv=$(kubectl get providers.pkg.crossplane.io \
+                -o 'jsonpath={range .items[*]}{.metadata.name}{"\t"}{.spec.package}{"\n"}{end}' 2>/dev/null || echo "")
+
+              if [ -z "${providers_tsv}" ]; then
+                echo "[crossplane-provider-pivot] no Provider CRs found in cluster (skip Phase 1)"
+              else
+                # Use a heredoc + IFS=$'\t' to safely parse the TSV.
+                printf '%s\n' "${providers_tsv}" | while IFS="$(printf '\t')" read -r name pkg; do
+                  if [ -z "${name}" ]; then continue; fi
+
+                  case "${pkg}" in
+                    "${upstream_prefix}/"*)
+                      # Compute new spec.package by replacing host prefix.
+                      pkg_suffix="${pkg#${upstream_prefix}/}"
+                      new_pkg="${target_prefix}/${pkg_suffix}"
+                      echo "[crossplane-provider-pivot] PATCH ${name} ${pkg} -> ${new_pkg}"
+                      # Merge-patch only spec.package — preserves every
+                      # other spec field (revisionActivationPolicy,
+                      # packagePullPolicy, controllerConfigRef, etc.).
+                      patch_json=$(printf '{"spec":{"package":"%s"}}' "${new_pkg}")
+                      if kubectl patch provider.pkg.crossplane.io "${name}" \
+                          --type=merge --patch "${patch_json}" >/dev/null 2>&1; then
+                        echo "[crossplane-provider-pivot]   OK ${name}"
+                      else
+                        echo "[crossplane-provider-pivot]   FAIL ${name}" >&2
+                      fi
+                      ;;
+                    "${target_prefix}/"*)
+                      echo "[crossplane-provider-pivot] SKIP ${name} (already pivoted: ${pkg})"
+                      ;;
+                    *)
+                      echo "[crossplane-provider-pivot] SKIP ${name} (package host not ${upstream_prefix} or ${target_host}: ${pkg})"
+                      ;;
+                  esac
+                done
+              fi
+            fi
+
+            # ---- Phase 2: push YAML edit to local Gitea ----
+            #
+            # bootstrap-kit Kustomization reconciles provider-*.yaml from
+            # local Gitea every ~1 min. Without this phase, Phase 1's
+            # live patch is reverted on the next reconcile because the
+            # YAML in Gitea still carries the xpkg.upbound.io literal.
+            # We sed-in-place every clusters/*/infrastructure/provider-
+            # *.yaml that carries the upstream host literal in its
+            # `spec.package` line.
+            export HOME=/tmp
+            git config --global user.name "self-sovereign-cutover"
+            git config --global user.email "cutover@${SOVEREIGN_FQDN}"
+            git config --global advice.detachedHead false
+
+            gitea_host="$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E 's|^https?://||' | cut -d: -f1 | cut -d/ -f1)"
+            for i in $(seq 1 30); do
+              if nslookup "${gitea_host}" >/dev/null 2>&1; then break; fi
+              sleep 5
+            done
+
+            push_url=$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E "s,^(https?://),\1${GITEA_USERNAME}:${GITEA_PASSWORD}@,")"/${GITEA_ORG}/${GITEA_REPO}.git"
+            redacted=$(printf '%s' "${GITEA_INTERNAL_URL}/${GITEA_ORG}/${GITEA_REPO}.git")
+
+            echo "[crossplane-provider-pivot] cloning ${redacted}"
+            cd /tmp
+            rm -rf repo
+            git clone --depth 1 --branch main "${push_url}" repo >/dev/null 2>&1
+            cd repo
+
+            # Find every clusters/*/infrastructure/provider-*.yaml that
+            # references the upstream host literal in its package spec.
+            # `grep -l` returns only filenames; `find` ensures we don't
+            # pick up unrelated provider-* files elsewhere in the tree.
+            edited=0
+            matches=$(find clusters -type f -path '*/infrastructure/provider-*.yaml' 2>/dev/null || true)
+            if [ -z "${matches}" ]; then
+              echo "[crossplane-provider-pivot] no clusters/*/infrastructure/provider-*.yaml present in mirror"
+            else
+              # Iterate, sed each file in-place. We escape `/` in the
+              # upstream/target prefixes so they don't terminate sed's
+              # delimiter; using `,` as delimiter is the simpler workaround
+              # (the prefixes never contain commas).
+              for file in ${matches}; do
+                if grep -q "package: ${upstream_prefix}/" "${file}" 2>/dev/null; then
+                  if sed -i -E "s,(package:[[:space:]]+)${upstream_prefix}/,\1${target_prefix}/," "${file}"; then
+                    echo "[crossplane-provider-pivot] rewrote ${file}"
+                    edited=$((edited+1))
+                  else
+                    echo "[crossplane-provider-pivot] WARN sed failed on ${file}" >&2
+                  fi
+                elif grep -q "package: ${target_prefix}/" "${file}" 2>/dev/null; then
+                  echo "[crossplane-provider-pivot] SKIP ${file} (already pivoted)"
+                else
+                  echo "[crossplane-provider-pivot] SKIP ${file} (no upstream package literal found)"
+                fi
+              done
+            fi
+
+            echo "[crossplane-provider-pivot] sed edited ${edited} files"
+            if [ "${edited}" -eq 0 ]; then
+              echo "[crossplane-provider-pivot] no edits required — already pivoted in Gitea or files absent"
+              exit 0
+            fi
+
+            git add clusters
+            if git diff --staged --quiet; then
+              echo "[crossplane-provider-pivot] git diff empty after sed — nothing to commit"
+              exit 0
+            fi
+            git commit -m "cutover: pivot Crossplane Provider spec.package to harbor.${SOVEREIGN_FQDN}/${REGISTRY_PATH}" >/dev/null
+            push_err=$(git push origin main 2>&1) || {
+              echo "[crossplane-provider-pivot] FATAL: git push failed" >&2
+              printf '%s\n' "$push_err" >&2
+              exit 1
+            }
+            echo "[crossplane-provider-pivot] pushed to ${redacted}"
+
+            # Trigger an immediate Flux reconciliation so the new YAML
+            # lands without waiting for the polling interval.
+            kubectl annotate --overwrite gitrepository openova \
+              -n flux-system \
+              "reconcile.fluxcd.io/requestedAt=$(date +%s)" >/dev/null || true
+
+            echo "[crossplane-provider-pivot] step complete"
+        resources:
+          requests: { cpu: 50m, memory: 128Mi }
+          limits:   { memory: 384Mi }
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1001
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+    volumes:
+      - name: tmp
+        emptyDir: {}

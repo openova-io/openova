@@ -133,6 +133,17 @@ harbor:
   mothershipAuthsToStrip:
     - "ghcr.io"
     - "harbor.openova.io"
+    # TBD-V24 MISS-3 (chart 0.1.37, 2026-05-20): xpkg.upbound.io is the
+    # Crossplane Provider package upstream — Step 11 pivots every
+    # `Provider.spec.package` literal from xpkg.upbound.io to
+    # `harbor.<sov-fqdn>/proxy-xpkg`, so any standing auth for the
+    # upstream xpkg host on the ghcr-pull Secret is no longer needed.
+    # Strip it for the same credential-hygiene rationale as the other
+    # mothership entries above (CLAUDE.md §3 Principle #11). Defence-
+    # in-depth: even though ghcr-pull rarely carries xpkg auth today
+    # (Provider packages typically pull anonymously), an operator
+    # overlay that adds xpkg credentials gets the same clean-up here.
+    - "xpkg.upbound.io"
   # Seven proxy-cache projects + their upstream registry endpoints.
   # Names are stable because step 06 (helmrepository-patches) +
   # registries.yaml v2 (registry-pivot) rewrite paths against these
@@ -332,6 +343,15 @@ egressTest:
     - "github.com"
     - "ghcr.io"
     - "harbor.openova.io"
+    # TBD-V24 MISS-3 (chart 0.1.37): xpkg.upbound.io is the Crossplane
+    # Provider package upstream. Step 11 pivots every Provider's
+    # spec.package literal off this host, so the deny-egress hold proof
+    # MUST also block xpkg.upbound.io — otherwise a Provider revision
+    # reconcile during the hold window could silently fall through to
+    # the upstream xpkg host and break the proof. The deny implementation
+    # is TBD-V23's responsibility; this entry is the contract this list
+    # must carry once TBD-V23's CiliumNetworkPolicy applies.
+    - "xpkg.upbound.io"
 
 # Status sentinel ConfigMap — initial state machine state. catalyst-api
 # updates the per-step fields as each Job completes.
@@ -429,6 +449,12 @@ stepTimeouts:
   # + one git clone/push to local Gitea. Bounded by the Gitea push
   # round-trip; 600s is generous (typical run completes in <60s).
   vclusterRegistryPivotSeconds: 600
+  # Step 11 (crossplane-provider-pivot, TBD-V24 MISS-3) — Provider CR
+  # patch loop + one git clone/push to local Gitea. Bounded by the
+  # Gitea push round-trip + the Provider revision reconcile triggered
+  # by the patch (Crossplane is typically <30s to re-fetch from local
+  # Harbor); 600s is generous (typical run completes in <60s).
+  crossplaneProviderPivotSeconds: 600
 
 # Step 10 (vcluster-registry-pivot, TBD-V24 MISS-1, issue #2034) — pivot
 # the three bp-*-vcluster HelmReleases' image.repository from
@@ -453,6 +479,32 @@ vclusterRegistryPivot:
   # self-documenting. Override via per-Sovereign overlay if you've
   # pinned a different upstream vCluster version.
   imageTag: "0.20.0"
+
+# Step 11 (crossplane-provider-pivot, TBD-V24 MISS-3, issue #2034) —
+# pivot every `pkg.crossplane.io/v1.Provider` CR's `spec.package` host
+# literal from `xpkg.upbound.io/...` to
+# `harbor.<SOVEREIGN_FQDN>/proxy-xpkg/...` so the Crossplane package
+# manager fetches Provider packages from the Sovereign-local Harbor
+# `proxy-xpkg` project. Without this step the Provider package fetch
+# remains tethered to xpkg.upbound.io indefinitely post-handover —
+# Step 04 (containerd registries.yaml.v2 mirror for xpkg.upbound.io)
+# does NOT catch it because Crossplane's `internal/xpkg/fetch.go` uses
+# go-containerregistry's `remote.Image()` DIRECTLY, NOT through the
+# kubelet/containerd CRI client. See 11-crossplane-provider-pivot-job.yaml
+# for the full protocol.
+crossplaneProviderPivot:
+  # Upstream package host literal to match in `spec.package`. The
+  # cutover-step script swaps this prefix for `harbor.<sov-fqdn>/
+  # ${registryPath}` while preserving the rest of the package path
+  # and tag. Per-Sovereign overlay can override if a future Crossplane
+  # release ships from a different upstream OCI host.
+  upstreamHost: "xpkg.upbound.io"
+  # Sovereign-local Harbor proxy-cache project path that proxies
+  # `xpkg.upbound.io`. Step 02 (harbor-projects) creates this project
+  # from `.Values.harbor.proxyProjects[name=proxy-xpkg]`. Do NOT
+  # diverge from that project name unless the proxyProjects list is
+  # updated in lockstep.
+  registryPath: "proxy-xpkg"
 
 # Step 09 (gitea-token-mint, TBD-C18) — bootstrap the Gitea API token
 # that the SME provisioning service uses for tenant repo materialisation.
