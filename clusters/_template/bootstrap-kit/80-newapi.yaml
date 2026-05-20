@@ -356,7 +356,10 @@ spec:
       # hardware (the Sovereign cluster). No commercial-contract
       # attestation required (no accountId / contractRef).
       vllm:
-        enabled: ${SOVEREIGN_VLLM_ENABLED:-true}
+        # DEFAULT OFF (2026-05-20): canonical Qwen channel is qwenBankDhofar
+        # (https://llm-api.omtd.bankdhofar.com). In-cluster vLLM channel is
+        # an opt-in fallback. Lockstep with slot 39's enabled default.
+        enabled: ${SOVEREIGN_VLLM_ENABLED:-false}
         # Customer-visible channel name. `qwen` matches the canonical
         # sandbox-controller default (`SANDBOX_DEFAULT_CHANNELS=qwen`
         # in slot 19a-bp-sandbox.yaml) so per-Sandbox token mints land

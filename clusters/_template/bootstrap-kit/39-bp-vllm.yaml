@@ -174,7 +174,11 @@ spec:
     # `defaultChannels.vllm.enabled` so the newapi channel is composed
     # iff this Deployment is rendered.
     vllm:
-      enabled: ${SOVEREIGN_VLLM_ENABLED:-true}
+      # DEFAULT OFF (2026-05-20): canonical LLM backend is omtd.bankdhofar.com
+      # via bp-newapi's qwenBankDhofar channel. In-cluster vLLM is an opt-in
+      # fallback for Sovereigns that cannot/should-not depend on the OMTD
+      # commercial relay. Operator overlays opt-IN with SOVEREIGN_VLLM_ENABLED=true.
+      enabled: ${SOVEREIGN_VLLM_ENABLED:-false}
       replicas: 1
       # Qwen2.5-Coder-1.5B-Instruct — public Apache-2.0 Coder-tuned
       # model, ~3 GB CPU footprint, ~5 min cold-load on cpx52. Sized
