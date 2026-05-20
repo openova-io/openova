@@ -83,6 +83,85 @@ func TestRenderSMETenantOverlay_HotStandby_On_EmitsBlock(t *testing.T) {
 	}
 }
 
+// #2066 — when active-hot-standby is on AND both regions are distinct,
+// renderSMETenantOverlay MUST emit a per-Application Continuum CR
+// alongside the bp-wordpress-tenant HelmRelease. Without it the
+// bp-continuum controller (Refs #2065) has nothing to reconcile and
+// region-kill leaves the tenant unfailed-over. CRD shape per
+// products/catalyst/chart/crds/continuum.yaml.
+func TestRenderSMETenantOverlay_HotStandby_On_EmitsContinuumCR(t *testing.T) {
+	t.Setenv("SOVEREIGN_ENABLE_HOT_STANDBY", "true")
+	t.Setenv("SOVEREIGN_PRIMARY_REGION", "hz-fsn-rtz-prod")
+	t.Setenv("SOVEREIGN_REPLICA_REGION", "hz-hel-rtz-prod")
+	files, err := renderSMETenantOverlay(d31TestRec(), SMETenantChartVersions{})
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	cr, ok := files["continuum.yaml"]
+	if !ok || strings.TrimSpace(cr) == "" {
+		t.Fatalf("expected continuum.yaml in HA overlay, got files=%v\ncontents=%q",
+			fileNames(files), cr)
+	}
+	for _, want := range []string{
+		"apiVersion: dr.openova.io/v1",
+		"kind: Continuum",
+		"name: bp-wordpress-tenant",
+		"namespace: sme-t-acme",
+		"applicationRef: bp-wordpress-tenant",
+		"primaryRegion: hz-fsn-rtz-prod",
+		"- hz-hel-rtz-prod",
+		"rto: 30s",
+		"rpo: 5s",
+		"kind: dns-quorum",
+		"selector: ifurlup",
+		"url: https://wordpress.acme.otech.example/healthz",
+	} {
+		if !strings.Contains(cr, want) {
+			t.Errorf("continuum.yaml missing %q\n%s", want, cr)
+		}
+	}
+	// kustomization.yaml MUST also list it under resources so Flux
+	// actually applies the CR. Without this, the CR file exists in
+	// git but never reconciles into the cluster.
+	kust := files["kustomization.yaml"]
+	if !strings.Contains(kust, "- continuum.yaml") {
+		t.Errorf("kustomization.yaml missing 'continuum.yaml' entry:\n%s", kust)
+	}
+}
+
+// #2066 — when active-hot-standby is OFF the writer MUST NOT emit a
+// Continuum CR file AND MUST NOT reference continuum.yaml in the
+// kustomization. Either side of the asymmetry would cause a kustomize
+// "missing resource" or stray "cluster doesn't know dr.openova.io"
+// reconcile error on single-cluster tenants.
+func TestRenderSMETenantOverlay_HotStandby_Off_NoContinuumCR(t *testing.T) {
+	t.Setenv("SOVEREIGN_ENABLE_HOT_STANDBY", "")
+	t.Setenv("SOVEREIGN_PRIMARY_REGION", "")
+	t.Setenv("SOVEREIGN_REPLICA_REGION", "")
+	files, err := renderSMETenantOverlay(d31TestRec(), SMETenantChartVersions{})
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	cr := files["continuum.yaml"]
+	if strings.TrimSpace(cr) != "" {
+		t.Errorf("continuum.yaml MUST be empty when HA is off, got:\n%s", cr)
+	}
+	kust := files["kustomization.yaml"]
+	if strings.Contains(kust, "continuum.yaml") {
+		t.Errorf("kustomization.yaml MUST NOT reference continuum.yaml when HA is off:\n%s", kust)
+	}
+}
+
+// fileNames is a tiny test helper to keep diagnostic Fatalf payloads
+// from dumping every overlay file when continuum.yaml is missing.
+func fileNames(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
 // Defence-in-depth: the writer falls back to single-cluster shape when
 // the operator opts in but the region pair is degenerate (empty primary,
 // empty replica, primary==replica). The alternative — emitting the
