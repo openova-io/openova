@@ -128,10 +128,24 @@ jobs:
 
       - name: helm template — fail-fast on empty image.tag
         run: |
+          # Per Inviolable Principle #4a the chart MUST fail-fast at
+          # render time when `continuum.enabled=true` and `image.tag`
+          # is empty (no `:latest` ever). This guard exercises that
+          # contract with an EXPLICIT `--set continuum.image.tag=""`
+          # override so it remains valid regardless of whatever SHA
+          # the auto-bump step (further down this workflow) has
+          # committed into products/continuum/chart/values.yaml on
+          # main. Pre-fix the guard relied on the committed default
+          # being empty — once the first auto-bump landed (PR #2012)
+          # the committed tag became non-empty, helm template stopped
+          # failing, and this step started tripping the "should-have-
+          # failed" assertion in every subsequent PR (TBD-V32 #2062
+          # blocker on PR #2063).
           set +e
           helm template bp-continuum products/continuum/chart/ \
             --namespace openova-system \
-            --set continuum.enabled=true 2>&1 | tee /tmp/render.out
+            --set continuum.enabled=true \
+            --set continuum.image.tag="" 2>&1 | tee /tmp/render.out
           rc=${PIPESTATUS[0]}
           set -e
           if [ "$rc" -eq 0 ]; then
