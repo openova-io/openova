@@ -37,11 +37,8 @@ The `docs/` tree, in reading order. Every file under `docs/` appears exactly onc
 ### Deep-dive (component / surface level)
 
 - [`docs/PROVISIONING-PLAN.md`](docs/PROVISIONING-PLAN.md) — Catalyst-Zero phase-by-phase execution plan (Groups A-M)
-- [`docs/MULTI-REGION-DNS.md`](docs/MULTI-REGION-DNS.md) — geo + health-checked failover via PowerDNS lua-records
-- [`docs/PLATFORM-POWERDNS.md`](docs/PLATFORM-POWERDNS.md) — per-Sovereign PowerDNS zone model + DNSSEC + REST API
-- [`docs/CLUSTERMESH-CLUSTER-IDS.md`](docs/CLUSTERMESH-CLUSTER-IDS.md) — Cilium ClusterMesh cluster.name / cluster.id ledger
-- [`docs/COMPONENT-LOGOS.md`](docs/COMPONENT-LOGOS.md) — wizard component-picker logo manifest + licences
 - [`docs/UI-REGRESSION-GUARDS.md`](docs/UI-REGRESSION-GUARDS.md) — Playwright cosmetic + step-flow regression catalog
+- Multi-region DNS (PowerDNS lua-records), PowerDNS deployment shape, ClusterMesh cluster.id registry, and the component-logo manifest now live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §8.7–§8.9 and §6.7.
 
 ### Decision records ([`docs/adr/`](docs/adr/))
 
@@ -163,7 +160,7 @@ Each folder under `platform/` and `products/` is the source of one **Blueprint**
 | **Runtime security** | Falco (eBPF) |
 | **Observability** | OpenTelemetry → Grafana stack (Alloy + Loki + Mimir + Tempo) |
 | **WAF** | Coraza (OWASP CRS) |
-| **DNS** | PowerDNS authoritative per Sovereign zone + DNSSEC + lua-records (`ifurlup`, `pickclosest`); pool-domain-manager allocates pool subdomains and flips parent-zone NS via registrar adapters (Cloudflare / Namecheap / GoDaddy / OVH / Dynadot) — see [`docs/MULTI-REGION-DNS.md`](docs/MULTI-REGION-DNS.md), [`docs/PLATFORM-POWERDNS.md`](docs/PLATFORM-POWERDNS.md) |
+| **DNS** | PowerDNS authoritative per Sovereign zone + DNSSEC + lua-records (`ifurlup`, `pickclosest`); pool-domain-manager allocates pool subdomains and flips parent-zone NS via registrar adapters (Cloudflare / Namecheap / GoDaddy / OVH / Dynadot) — see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §8.8 (lua-records) + §8.9 (PowerDNS deployment shape) |
 | **Backup** | Velero (to SeaweedFS, which routes the cold tier to cloud archival S3) |
 | **Container registry** | Harbor |
 
