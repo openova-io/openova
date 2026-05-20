@@ -108,7 +108,7 @@ channel-seed-job.yaml operate on the same materialised list.
     {{- fail "defaultChannels.qwenBankDhofar.enabled=true but defaultChannels.qwenBankDhofar.endpoint is empty — supply the upstream relay URL in the per-Sovereign bootstrap-kit overlay (canonical: https://llm-api.omtd.bankdhofar.com)" -}}
   {{- end -}}
   {{- $composed := dict
-        "name"      (default "qwen3.6-bankdhofar" $qbd.name)
+        "name"      (default "qwen" $qbd.name)
         "type"      "openai-compatible"
         "endpoint"  $qbd.endpoint
         "models"    (default (list "qwen3.6" "qwen3-coder") $qbd.models)

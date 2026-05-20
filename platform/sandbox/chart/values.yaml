@@ -62,13 +62,14 @@ env:
   # because this defaulted to "".
   #
   # Default `qwen` per products/sandbox/docs/newapi-proxy-contract.md
-  # §2 — the only channel name surfaced today is the alias `qwen`
-  # backed by the `qwen3.6-bankdhofar` seed entry that bp-newapi's
-  # channel-seed-job.yaml writes on every Sovereign install. Operators
-  # MUST override on per-Sovereign overlays the moment they wire
-  # additional channels (e.g. `qwen,anthropic,openai`) — bootstrap-kit
-  # slot 19a substitutes `${SANDBOX_DEFAULT_CHANNELS:-qwen}` so the
-  # canonical knob lives on the Sovereign overlay's substitute map.
+  # §2 — the only channel name surfaced today is `qwen`, the customer-
+  # canonical row name bp-newapi's qwenBankDhofar default channel
+  # writes on every Sovereign install (F1a 2026-05-20 renamed the row
+  # from `qwen3.6-bankdhofar` to `qwen` so the row matches this
+  # default). Operators MUST override on per-Sovereign overlays the
+  # moment they wire additional channels (e.g. `qwen,anthropic,openai`)
+  # — bootstrap-kit slot 19a substitutes `${SANDBOX_DEFAULT_CHANNELS:-qwen}`
+  # so the canonical knob lives on the Sovereign overlay's substitute map.
   newapiDefaultChannels: "qwen"
 # runtime — Wave 8 per-Sandbox pty-server / MCP / NEWAPI wiring.
 # Surfaced as env on the controller; the controller renders these into

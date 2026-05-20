@@ -1048,7 +1048,12 @@ spec:
     defaultChannels:
       qwenBankDhofar:
         enabled: true
-        name: qwen3.6-bankdhofar
+        # F1a (TBD-V45 follow-up #2115): row name MUST be 'qwen' so the
+        # row matches sandbox-controller default AllowedChannels=["qwen"]
+        # (bootstrap-kit slot 19a's SANDBOX_DEFAULT_CHANNELS:-qwen).
+        # Pre-fix the row name was 'qwen3.6-bankdhofar', which produced
+        # 404 channel-not-found on /v1/chat/completions.
+        name: qwen
         endpoint: https://llm-api.omtd.bankdhofar.com
         models:
           - qwen3.6

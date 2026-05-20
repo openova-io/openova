@@ -708,7 +708,7 @@ func TestRenderSMETenantOverlay_NewAPIEmitted(t *testing.T) {
 	wantChannel := []string{
 		"      qwenBankDhofar:",
 		"        enabled: true",
-		"        name: qwen3.6-bankdhofar",
+		"        name: qwen",
 		"        endpoint: https://llm-api.omtd.bankdhofar.com",
 		"          - qwen3.6",
 		"          - qwen3-coder",

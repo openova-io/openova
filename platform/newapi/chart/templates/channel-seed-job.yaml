@@ -182,7 +182,7 @@ data:
     {{- $list := list }}
     {{- if $qbdReady }}
       {{- $list = append $list (dict
-            "name"     (default "qwen3.6-bankdhofar" $qbd.name)
+            "name"     (default "qwen" $qbd.name)
             "type"     "openai-compatible"
             "endpoint" $qbd.endpoint
             "models"   (default (list "qwen3.6" "qwen3-coder") $qbd.models)) }}
@@ -429,7 +429,7 @@ spec:
               # pointer; the seed Job translates that to NewAPI's
               # registry value here.
               seed_channel \
-                {{ (default "qwen3.6-bankdhofar" $qbd.name) | quote }} \
+                {{ (default "qwen" $qbd.name) | quote }} \
                 "openai" \
                 {{ $qbd.endpoint | quote }} \
                 {{ join "," (default (list "qwen3.6" "qwen3-coder") $qbd.models) | quote }} \
