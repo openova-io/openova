@@ -1048,7 +1048,7 @@ spec:
     #
     # Per Inviolable Principle #4 (never hardcode) the endpoint + key are
     # operator-supplied via the Kubernetes Secret
-    # `newapi-channel-qwen-partner` carrying keys API_KEY (upstream API
+    # 'newapi-channel-qwen-partner' carrying keys API_KEY (upstream API
     # bearer) and BASE_URL (upstream OpenAI-compatible endpoint URL),
     # plus per-Sovereign ExternalSecret + attestation values that the
     # operator overlays at tenant-create time. See docs/RUNBOOKS.md
@@ -1065,7 +1065,7 @@ spec:
         # Endpoint defaults empty — operator overlay supplies the
         # upstream URL at tenant-create time (or via ExternalSecret
         # mirror of newapi-channel-qwen-partner key BASE_URL). The
-        # chart's `assertChannelAttestation` gate refuses to render the
+        # chart's 'assertChannelAttestation' gate refuses to render the
         # channel until the operator overlay populates this value.
         endpoint: ""
         models:
