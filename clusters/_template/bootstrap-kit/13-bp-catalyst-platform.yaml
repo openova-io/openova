@@ -867,7 +867,21 @@ spec:
       # step.<name>.result=success directly; no rerun. Unblocks Step 09
       # (gitea-token-mint), unblocks customer-journey Phase 2 (Sandbox).
       # Refs #2132 (NOT Closes — operator walk on fresh prov required).
-      version: 1.4.234
+      # 1.4.235 — TBD-V55 / #2131 (2026-05-21): catalyst-api one-shot
+      # ConfigMap reads in the cutover handlers (readCutoverStatus +
+      # listCutoverSteps) now retry with bounded backoff (~5 s budget)
+      # on transient `apiserver not ready` (HTTP 503) responses from
+      # k3s during admission-webhook warm-up. Pre-fix t40
+      # (2026-05-21 06:38Z): POST /api/v1/sovereign/cutover/start
+      # returned HTTP 502 while bastion `kubectl get cm` succeeded —
+      # apiserver was up externally but briefly returned 503 to
+      # in-cluster discovery during cold-start. Direct typed client
+      # path retained (Inviolable Principle #14); retry wraps the
+      # existing Get/List, no new abstraction. Unblocks Pillar 5
+      # cutover-trigger CTA + Pillar 1 voucher→onboarding chain on
+      # the fresh-prov walk. Refs #2131 (NOT Closes — operator walk
+      # on fresh prov required).
+      version: 1.4.235
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

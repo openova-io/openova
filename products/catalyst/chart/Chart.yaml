@@ -2258,8 +2258,58 @@ name: bp-catalyst-platform
 #
 # Refs #1099 (NOT Closes — operator walk + screenshot is the DoD per
 # CLAUDE.md §0).
-version: 1.4.234
-appVersion: 1.4.234
+version: 1.4.235
+appVersion: 1.4.235
+# 1.4.235 — TBD-V55 / #2131 (2026-05-21): catalyst-api one-shot
+# ConfigMap reads in the bp-self-sovereign-cutover handlers now retry
+# with bounded backoff on transient `apiserver not ready` (HTTP 503)
+# responses from k3s during admission-webhook warm-up. Pre-fix on t40
+# (2026-05-21 06:38Z): POST /api/v1/sovereign/cutover/start returned
+# HTTP 502 with detail `get status ConfigMap catalyst/self-sovereign-
+# cutover-status: apiserver not ready` while bastion-via-public-LB
+# `kubectl get cm` succeeded — apiserver was up externally but
+# briefly returned 503 to in-cluster discovery + aggregated-API probes
+# during cold-start. The 502 surfaced as a Pillar 1+5 blocker (the
+# wizard's `Start cutover` CTA failed every retry until the operator
+# manually re-clicked ~30 s later, breaking the canonical
+# fresh-prov walk).
+#
+# Fix shape (Inviolable Principle #14, target-state-only): keep the
+# existing direct typed client `deps.core.CoreV1().ConfigMaps().Get`
+# — that is already NOT an informer-cache read; it is the standard
+# client-go REST path built from `rest.InClusterConfig()` —  and wrap
+# the one-shot Get + label-List in `wait.ExponentialBackoffWithContext`
+# with a ~5 s total budget (5 steps × 150 ms × 2.0 factor, cap 2 s).
+# `isApiserverNotReadyTransient` classifies HTTP 503, HTTP 429, the
+# literal `apiserver not ready` body and `the server is currently
+# unable to handle the request` as transient. NotFound, Forbidden,
+# Unauthorized, connection-refused fall through immediately. No new
+# abstraction, no informer-cache fall-back, no defensive null-guard.
+#
+# Surface area: `readCutoverStatus` (used by HandleCutoverStart /
+# HandleCutoverStatus / HandleCutoverEvents) + `listCutoverSteps`
+# (used by HandleCutoverStart) are now both resilient to the warmup
+# window. Tests: `TestHandleCutoverStatus_WorksDuringCacheWarmup`
+# (reactor injects 2× transient 503 then succeeds; handler must
+# return 200 with the seeded ConfigMap data, NOT 502) and
+# `TestIsApiserverNotReadyTransient_ClassifiesK3sWarmupCorrectly`
+# (10-case truth-table — 503 / 429 / literal-warmup-string variants
+# are transient; NotFound / Forbidden / connection-refused are not).
+# All 27 pre-existing `-run Cutover` tests still pass (`ok` from
+# `go test ./internal/handler/ -run Cutover -count=1`).
+#
+# Pure Go-side fix in
+# `products/catalyst/bootstrap/api/internal/handler/cutover.go` —
+# no chart template change. Chart version bump (1.4.234 → 1.4.235)
+# is the canonical signal that the bootstrap-kit pin needs to move;
+# clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml
+# `version:` field bumps in lockstep.
+#
+# Refs #2131. Closes the Pillar 5 + Pillar 1 cutover-blocker family
+# observed on t40; the next fresh prov verifies the fix when
+# `POST /cutover/start` returns 200 within the warmup window without
+# the operator manually retrying.
+#
 # 1.4.234 — TBD-V56 / #2132 (2026-05-21): fix bp-self-sovereign-cutover
 # state-machine to checkpoint Job-status into the durable ConfigMap on
 # every reconcile tick — survives catalyst-api Pod restarts mid-cutover.
