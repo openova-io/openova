@@ -2258,8 +2258,8 @@ name: bp-catalyst-platform
 #
 # Refs #1099 (NOT Closes — operator walk + screenshot is the DoD per
 # CLAUDE.md §0).
-version: 1.4.235
-appVersion: 1.4.235
+version: 1.4.236
+appVersion: 1.4.236
 # 1.4.235 — TBD-V55 / #2131 (2026-05-21): catalyst-api one-shot
 # ConfigMap reads in the bp-self-sovereign-cutover handlers now retry
 # with bounded backoff on transient `apiserver not ready` (HTTP 503)
