@@ -13,10 +13,17 @@
 #     mesh substrate to receive AdmissionReview requests from the apiserver.
 #     Cilium is the root of the Catalyst-Zero DAG; until it is Ready the
 #     apiserver→webhook path is not reachable and Kyverno install is racy.
-#
-# No further dependsOn: Kyverno installs its own CRDs and does not require
-# cert-manager (it auto-generates admission webhook TLS via its built-in
-# certificate controller).
+#   - bp-cert-manager — TBD-V53 #2128 root-cause fix. Kyverno 1.3.0+ uses
+#     cert-manager to provision its admission-webhook TLS Secret BEFORE the
+#     kyverno main container starts (see platform/kyverno/chart/values.yaml
+#     comment on certManager.enabled). Without this dependsOn the Helm
+#     release can apply while cert-manager's controller / cainjector /
+#     webhook are still rolling out — the Certificate CR is created but
+#     stays Issuing, the wait-for-tls-secret initContainer pins the kyverno
+#     Pod in Init forever, and the bootstrap-kit Kustomization wedges on
+#     the cert-manager → kyverno chain. bp-cert-manager is slot 02 (well
+#     above slot 27) and exposes Ready=True only after its webhook serves
+#     correctly, so the dependsOn is sequential not just topological.
 
 ---
 apiVersion: v1
@@ -51,10 +58,14 @@ spec:
   targetNamespace: kyverno
   dependsOn:
     - name: bp-cilium
+    - name: bp-cert-manager
   chart:
     spec:
       chart: bp-kyverno
-      version: 1.2.1
+      # 1.3.0 (TBD-V53 #2128): cold-start race fix — cert-manager-issued
+      # TLS + wait-for-tls-secret initContainer. See chart Chart.yaml for
+      # the full root-cause analysis.
+      version: 1.3.0
       sourceRef:
         kind: HelmRepository
         name: bp-kyverno

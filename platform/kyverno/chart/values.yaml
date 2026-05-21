@@ -48,6 +48,104 @@ kyverno:
     serviceMonitor:
       enabled: false
 
+    # TBD-V53 #2128 — Cold-start race fix.
+    #
+    # PROBLEM: With the upstream default (admissionController.certManager.enabled=
+    # false, admissionController.createSelfSignedCert=false), Kyverno generates
+    # its own admission-webhook TLS cert AT RUNTIME inside the main container.
+    # During the boot window the kube-apiserver sees a registered ValidatingWebhook
+    # Configuration but the kyverno-svc TCP endpoint can't yet complete a TLS
+    # handshake — `TLS handshake error from <apiserver>:<port>: EOF`. The kyverno
+    # binary exits cleanly (code 0) to retry; kubelet restarts; each restart
+    # races again. Concurrently the Flux bootstrap-kit Kustomization's dry-run
+    # apply (e.g. Namespace/alloy) calls the same webhook → 502 → the entire
+    # bootstrap-kit wedges on a fresh-prov Sovereign. Verified live on t40 today
+    # (6 restarts in 67 min, bootstrap-kit still "Reconciliation in progress").
+    #
+    # FIX: Provision the TLS cert via cert-manager BEFORE Kyverno starts.
+    # bp-cert-manager is bootstrap-kit slot 02 and bp-kyverno is slot 27 with
+    # an explicit dependsOn (see clusters/_template/bootstrap-kit/27-kyverno.yaml),
+    # so cert-manager is guaranteed Ready by the time this chart installs.
+    # certManager.createSelfSignedIssuer=true (the upstream default when
+    # certManager.enabled=true) makes the chart self-contained — it creates its
+    # own ClusterIssuer + Issuer chain so no external Issuer is required.
+    certManager:
+      enabled: true
+      # Self-signed ClusterIssuer + CA chain shipped by the upstream chart.
+      # The whole TLS lineage is internal to kyverno; the webhook caBundle is
+      # cainjector-mutated from the Certificate's CA into the
+      # ValidatingWebhookConfiguration at runtime.
+      createSelfSignedIssuer: true
+
+    # GUARD against the kyverno main container racing apiserver webhook calls
+    # before the cert-manager-issued Secret has actually been populated. Even
+    # with certManager.enabled=true the Certificate CR may be Issuing for ~10-30s
+    # on a cold cluster (selfsigned-issuer → CA cert → Issuer → leaf cert chain).
+    # The init container polls the Secret; once `data.tls.crt` is non-empty the
+    # main container proceeds. Bounded by k8s pod startup timeout (no infinite
+    # block — fails into CrashLoop if cert-manager is broken, which is louder
+    # than a silent webhook-EOF cycle).
+    extraInitContainers:
+      - name: wait-for-tls-secret
+        # curlimages/curl is the canonical small image used across the
+        # Catalyst Blueprint catalog for in-cluster polling init containers
+        # (matches platform/k8s-ws-proxy + platform/wordpress-tenant). Per the
+        # MIRROR-EVERYTHING inviolable rule (PR #163), the image is pulled
+        # through harbor.openova.io's proxy-dockerhub library so air-gapped
+        # Sovereigns work without DockerHub egress. Per Sovereign overlays
+        # may rewrite via global.imageRegistry once Sovereign-local Harbor
+        # takes over the proxy_cache role post-cutover.
+        image: harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1
+        imagePullPolicy: IfNotPresent
+        # The secret name follows the upstream chart's naming convention:
+        #   <kyverno.admission-controller.serviceName>.<kyverno.namespace>.svc.kyverno-tls-pair
+        # With the Catalyst release name `kyverno` in namespace `kyverno`, that
+        # resolves to `kyverno-svc.kyverno.svc.kyverno-tls-pair`. The kube-apiserver
+        # path is the in-cluster Kubernetes API, reachable from any Pod's
+        # service-account token at https://kubernetes.default.svc.
+        command:
+          - sh
+          - -c
+          - |
+            set -eu
+            TOKEN="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)"
+            CACERT=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+            NS="${KYVERNO_NAMESPACE:-kyverno}"
+            SECRET="kyverno-svc.${NS}.svc.kyverno-tls-pair"
+            URL="https://kubernetes.default.svc/api/v1/namespaces/${NS}/secrets/${SECRET}"
+            echo "wait-for-tls-secret: polling ${URL} for non-empty data.tls.crt"
+            i=0
+            until crt="$(curl -sS --cacert "${CACERT}" -H "Authorization: Bearer ${TOKEN}" "${URL}" 2>/dev/null \
+                          | sed -n 's/.*"tls\.crt":[[:space:]]*"\([^"]*\)".*/\1/p')" \
+                  && [ -n "${crt}" ] && [ "${crt}" != "null" ]; do
+              i=$((i+1))
+              if [ "${i}" -gt 120 ]; then
+                echo "wait-for-tls-secret: TIMEOUT after ~10min — cert-manager has not issued ${SECRET}"
+                exit 1
+              fi
+              sleep 5
+            done
+            echo "wait-for-tls-secret: secret ${SECRET} has tls.crt — proceeding."
+        env:
+          - name: KYVERNO_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 65532
+
   backgroundController:
     replicas: 1
     image:
