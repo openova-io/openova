@@ -337,3 +337,51 @@ Caught "fix shipped but actually broken" events + the validation principle that 
 - [INVIOLABLE-PRINCIPLES](https://github.com/openova-io/openova/blob/main/docs/INVIOLABLE-PRINCIPLES.md) — 15 principles
 - Manual refresh: `bash /home/openova/bin/refresh-dod-dashboard.sh`
 - Cron: every 15 minutes
+
+---
+
+## 5. Tonight's deliveries (2026-05-21 session)
+
+### PRs merged
+
+| PR | SHA | Title | Closes |
+|---|---|---|---|
+| [#2122](https://github.com/openova-io/openova/pull/2122) | — | bp-continuum 0.1.2 publish (Refs #2081) | TBD-V34 reproducer #2081 |
+| [#2124](https://github.com/openova-io/openova/pull/2124) | — | catalyst-api event-cache bounded informer (TBD-V49) | TBD-V49 #2123 |
+| [#2129](https://github.com/openova-io/openova/pull/2129) | — | kyverno cert-manager-issued + initContainer wait (TBD-V53) | Refs #2128 |
+| [#2134](https://github.com/openova-io/openova/pull/2134) | `4ea83e5d` | Pillar 2 BCP wizard step (Refs #2133) | Refs #2133 |
+| [#2135](https://github.com/openova-io/openova/pull/2135) | `6cd2c786` | cutover state-machine idempotent + Job-status checkpoint (Refs #2132) | Refs #2132 |
+
+### TBDs filed (architectural gaps surfaced)
+
+| # | TBD | Status | Note |
+|---|---|---|---|
+| [#2123](https://github.com/openova-io/openova/issues/2123) | V49 catalyst-api OOM event-cache | ✅ shipped via #2124 | Layer 4 containment landed |
+| [#2125](https://github.com/openova-io/openova/issues/2125) | V50 Layer-1 event-flood triggers | 🟡 parked (no reproducer) | mothership clean post-right-sizing |
+| [#2126](https://github.com/openova-io/openova/issues/2126) | V51 Layer-2 incident-mgmt amplification | open | needs reproducer |
+| [#2127](https://github.com/openova-io/openova/issues/2127) | V52 Layer-3 defense | open | needs reproducer |
+| [#2128](https://github.com/openova-io/openova/issues/2128) | V53 kyverno cert-race | ✅ shipped via #2129 | cold-start race fixed; 5-min ongoing restart cadence remains (V54) |
+| [#2130](https://github.com/openova-io/openova/issues/2130) | V54 upstream kyverno graceful-exit | open | needs upstream PR |
+| [#2131](https://github.com/openova-io/openova/issues/2131) | V55 catalyst-api apiserver-not-ready cache-sync | 🔄 fix in flight | direct-client one-shot reads |
+| [#2132](https://github.com/openova-io/openova/issues/2132) | V56 cutover state-machine idempotency | ✅ shipped via #2135 | restart-safe |
+| [#2133](https://github.com/openova-io/openova/issues/2133) | V57 Pillar 2 BCP wizard surface | ✅ shipped via #2134 | /bcp.astro live |
+
+### Walk evidence (status/uat)
+
+| # | Surface | Status |
+|---|---|---|
+| #1808 | DoD D5 — /cloud 3 regions | status/uat (t40 evidence) |
+| #1820 | DoD D19 — Apps + Cloud counter consistency | status/uat (t40 evidence) |
+| #2026 | TBD-V18 — marketplace configSchema render | status/uat (t40 evidence) |
+| #2028 | TBD-V20 — BSS-menu voucher canonical | status/uat (t40 evidence) |
+| #2033 | TBD-V23 — deny-egress 600s hold PASSED | status/uat (t40 evidence) |
+| #2034 | TBD-V24 — Pillar 5 tether-pivot 5/8 | status/uat (t40 evidence) |
+| #2042 | TBD-V27 — configSchema thread to HelmRelease | status/uat (t40 evidence) |
+
+### Infrastructure / discipline fixes
+
+- TRACKER refresh script bug fix — dedicated workdir + git identity + correct canonical path (`docs/ledger/TRACKER.md`)
+- CLAUDE.md "Ledger refresh discipline" mandate added (manual update on cron fail; pre-end-of-turn staleness check)
+- Stranded worktree pollution cleanup — 143 dirs nuked + git registry pruned (246 → 96)
+- Playwright MCP output dir relocated to `~/.claude/playwright-mcp/` (no more repo pollution)
+- Chart bumps lockstep: 1.4.230 → 1.4.234 (5 minor bumps across the PRs above)
