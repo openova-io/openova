@@ -66,55 +66,55 @@ ConfigMap name (channel + policy config).
 Effective channel list — composed default channels plus
 `.Values.channels`. Composition order matters because NewAPI's
 channel-router resolves `model` lookups in row-insertion order:
-  1. defaultChannels.qwenBankDhofar     (issue #915 — channel #1)
+  1. defaultChannels.qwenPartner        (issue #915 — channel #1)
   2. .Values.channels                    (operator-supplied)
   3. defaultChannels.vllm                (in-cluster vLLM fallback)
 A fresh customer landing on a fresh Sovereign with no
-`.Values.channels` set hits qwenBankDhofar first; this is the
-documented "channel #1 = Qwen3.6@BankDhofar" contract from epic #915
-(per-tenant SME alice → NewAPI → Qwen3.6@BankDhofar end-to-end DoD).
+`.Values.channels` set hits qwenPartner first; this is the
+documented "channel #1 = Qwen partner-hosted" contract from epic #915
+(per-tenant SME alice → NewAPI → partner-hosted Qwen end-to-end DoD).
 Centralised so configmap.yaml + assertChannelAttestation +
 channel-seed-job.yaml operate on the same materialised list.
 */}}
 {{- define "bp-newapi.effectiveChannels" -}}
 {{- $channels := list -}}
 {{- $dc := .Values.defaultChannels | default dict -}}
-{{/* ── Channel #1: Qwen3.6 @ BankDhofar (#915) ─────────────────
+{{/* ── Channel #1: Qwen partner-hosted (#915) ──────────────────
      Attestation gate (PR #1631 follow-up, 2026-05-18): franchised
-     Sovereigns set `MARKETPLACE_ENABLED=true` to flip qbd.enabled true,
-     but cloud-init may not yet have `LLM_BANK_DHOFAR_ACCOUNT_ID` /
-     `LLM_BANK_DHOFAR_CONTRACT_REF` set (no commercial contract signed
+     Sovereigns set `MARKETPLACE_ENABLED=true` to flip qp.enabled true,
+     but cloud-init may not yet have `LLM_PARTNER_ACCOUNT_ID` /
+     `LLM_PARTNER_CONTRACT_REF` set (no commercial contract signed
      yet for that Sovereign). The envsubst defaults leave accountId /
      contractRef as empty strings, which makes `assertChannelAttestation`
      fail the install with `commercial-contract attestation requires
      accountId`.
 
-     Fix: SKIP composing the qwenBankDhofar channel when
+     Fix: SKIP composing the qwenPartner channel when
      attestation.kind=commercial-contract AND accountId/contractRef are
      empty. The Sovereign installs newapi with zero default channels
      (operator-supplied channels still compose). Once the commercial
      contract lands, the operator overlays the attestation values and
      the channel composes on the next reconcile. */}}
-{{- $qbd := $dc.qwenBankDhofar | default dict -}}
-{{- $qbdAtt := $qbd.attestation | default (dict "kind" "commercial-contract") -}}
-{{- $qbdAttReady := true -}}
-{{- if and $qbd.enabled (eq (default "" $qbdAtt.kind) "commercial-contract") -}}
-  {{- if or (not $qbdAtt.accountId) (not $qbdAtt.contractRef) -}}
-    {{- $qbdAttReady = false -}}
+{{- $qp := $dc.qwenPartner | default dict -}}
+{{- $qpAtt := $qp.attestation | default (dict "kind" "commercial-contract") -}}
+{{- $qpAttReady := true -}}
+{{- if and $qp.enabled (eq (default "" $qpAtt.kind) "commercial-contract") -}}
+  {{- if or (not $qpAtt.accountId) (not $qpAtt.contractRef) -}}
+    {{- $qpAttReady = false -}}
   {{- end -}}
 {{- end -}}
-{{- if and $qbd.enabled $qbdAttReady -}}
-  {{- if not $qbd.endpoint -}}
-    {{- fail "defaultChannels.qwenBankDhofar.enabled=true but defaultChannels.qwenBankDhofar.endpoint is empty — supply the upstream relay URL in the per-Sovereign bootstrap-kit overlay (canonical: https://llm-api.omtd.bankdhofar.com)" -}}
+{{- if and $qp.enabled $qpAttReady -}}
+  {{- if not $qp.endpoint -}}
+    {{- fail "defaultChannels.qwenPartner.enabled=true but defaultChannels.qwenPartner.endpoint is empty — supply the upstream relay URL in the per-Sovereign bootstrap-kit overlay (operator-supplied customer-managed LLM partner endpoint)" -}}
   {{- end -}}
   {{- $composed := dict
-        "name"      (default "qwen" $qbd.name)
+        "name"      (default "qwen" $qp.name)
         "type"      "openai-compatible"
-        "endpoint"  $qbd.endpoint
-        "models"    (default (list "qwen3.6" "qwen3-coder") $qbd.models)
-        "attestation" $qbdAtt -}}
-  {{- if $qbd.existingSecret -}}
-    {{- $_ := set $composed "existingSecret" $qbd.existingSecret -}}
+        "endpoint"  $qp.endpoint
+        "models"    (default (list "qwen3.6" "qwen3-coder") $qp.models)
+        "attestation" $qpAtt -}}
+  {{- if $qp.existingSecret -}}
+    {{- $_ := set $composed "existingSecret" $qp.existingSecret -}}
   {{- end -}}
   {{- $channels = append $channels $composed -}}
 {{- end -}}
@@ -126,7 +126,7 @@ channel-seed-job.yaml operate on the same materialised list.
 {{- $vllm := $dc.vllm | default dict -}}
 {{- if $vllm.enabled -}}
   {{- if not $vllm.endpoint -}}
-    {{- fail "defaultChannels.vllm.enabled=true but defaultChannels.vllm.endpoint is empty — supply the upstream vLLM relay URL in the per-Sovereign bootstrap-kit overlay (e.g. https://llm-api.omtd.bankdhofar.com)" -}}
+    {{- fail "defaultChannels.vllm.enabled=true but defaultChannels.vllm.endpoint is empty — supply the upstream vLLM relay URL in the per-Sovereign bootstrap-kit overlay (operator-supplied)" -}}
   {{- end -}}
   {{- $composed := dict
         "name"      (default "qwen" $vllm.name)

@@ -26,7 +26,7 @@
 
 One or more vClusters per Environment run lightweight Flux watching the appropriate branch across the Org's Application repos. Every state change flows through NATS JetStream, projects into per-Environment KV via the **projector** service, and reaches the console via SSE — so every UI surface sees the same picture, derived from Git (write side) and Kubernetes (runtime side) without fragmenting. Crossplane handles all non-Kubernetes resources. OpenBao + ESO handles secrets; workload identity is Cilium WireGuard (kernel transport encryption) + K8s ServiceAccount TokenReview (workload-to-workload auth) — SPIRE was dropped from the bootstrap-kit by founder PR [#665](https://github.com/openova-io/openova/pull/665) (2026-05-03) and is retained as **DEFERRED / opt-in only**; re-enable triggers in [`SECURITY.md`](SECURITY.md) §2. Keycloak handles user identity.
 
-**Same code runs in every Sovereign** — whether it's run by OpenOva (`openova`), Omantel for SMEs (`omantel.biz`), or Bank Dhofar for itself (`bankdhofar`).
+**Same code runs in every Sovereign** — whether it's run by OpenOva (`openova`), Omantel for SMEs (`omantel.biz`), or a corporate customer self-hosting under their own private agreement. Customer-hosted Sovereign deployments are intentionally not named in this public catalog.
 
 ### §1.1 Two scales, one architecture
 
@@ -43,7 +43,7 @@ The model serves two distinct customer shapes through the **same code**:
         └──────────────────────────────────────────────────────────────┘
 
         ┌──────────────────────────────────────────────────────────────┐
-        │ Corporate-style Sovereign (e.g. bankdhofar)                  │
+        │ Corporate-style Sovereign (customer self-host)               │
         │                                                              │
         │ Few internal Organizations (core-banking, digital-channels…) │
         │ One Sovereign-wide Keycloak (federates to corporate Azure AD)│
@@ -286,9 +286,9 @@ Full table in [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) (legacy — content fold
 | Server / VM | `{prov}{reg}{bb}-{app}-{#}{env_type}` | `hzfsnr-k8s-1p` |
 | DNS location code | `{p}{r}{b}{e}` (4 chars) | `hfrp` |
 | VPC / Network | `{bb}-{env_type}` | `rtz-prod`, `dmz-prod` |
-| vCluster (within host cluster) | `{org}` | `acme`, `bankdhofar` |
+| vCluster (within host cluster) | `{org}` | `acme`, `acmebank` |
 | vCluster (cross-cluster qualified) | `{prov}-{reg}-{bb}-{env_type}-{org}` | `hz-fsn-rtz-prod-acme` |
-| Catalyst Environment | `{org}-{env_type}` | `acme-prod`, `bankdhofar-uat` |
+| Catalyst Environment | `{org}-{env_type}` | `acme-prod`, `acmebank-uat` |
 | Blueprint | `bp-<name>` | `bp-wordpress`, `bp-cnpg-pair` |
 | Application (within Environment) | `<purpose>` | `marketing-site`, `blog` |
 | Catalyst control-plane DNS | `{component}.{location-code}.{sovereign-domain}` | `gitea.hfmp.openova.io`, `console.hnmp.openova.io` |

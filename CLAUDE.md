@@ -145,7 +145,7 @@ Both files are cron-refreshed.
 
 OpenOva (the company) builds **Catalyst** (the platform). A deployed Catalyst is called a **Sovereign**. A Sovereign hosts **Organizations**, which contain **Environments**, which run **Applications**, which are installed from **Blueprints**.
 
-`openova` is a Sovereign run by us (formerly Nova). `omantel` is a Sovereign run by Omantel for SMEs. `bankdhofar` is a Sovereign run by the bank for itself. **Same code in every Sovereign.**
+`openova` is a Sovereign run by us (formerly Nova). `omantel` is a Sovereign run by Omantel for SMEs. Other operators run their own customer-hosted Sovereigns under their own private agreements (the partner identity is intentionally not surfaced in this public catalog). **Same code in every Sovereign.**
 
 ---
 

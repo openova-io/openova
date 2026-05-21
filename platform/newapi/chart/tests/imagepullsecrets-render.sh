@@ -75,7 +75,7 @@ auth:
 database:
   existingSecret: test-dsn
 defaultChannels:
-  qwenBankDhofar:
+  qwenPartner:
     enabled: true
     endpoint: https://llm-api.example.test
     attestation:

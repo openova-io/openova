@@ -533,7 +533,7 @@ func TestRenderSMETenantOverlay_NoVersionsDefaultsToStar(t *testing.T) {
 //   - per-tenant Keycloak (alice's users log in via alice's Keycloak)
 //   - per-tenant NewAPI as the OpenAI-compatible LLM gateway
 //     (alice's OpenClaw chats route through alice's NewAPI which
-//     proxies to the configured channel — Qwen3.6@BankDhofar wired
+//     proxies to the configured channel — partner-hosted Qwen wired
 //     by C4 of #915).
 func TestRenderSMETenantOverlay_OpenClawOIDCAndLLMBlocks(t *testing.T) {
 	rec := store.SMETenantProvisionRecord{
@@ -571,7 +571,7 @@ func TestRenderSMETenantOverlay_OpenClawOIDCAndLLMBlocks(t *testing.T) {
 	}
 	// LLM block (canonical) — per-tenant NewAPI endpoint, NOT direct
 	// OpenAI; defaultModel is the placeholder NewAPI maps to the
-	// Qwen3.6@BankDhofar channel C4 wires at tenant-create time.
+	// partner-hosted Qwen channel C4 wires at tenant-create time.
 	wantLLM := []string{
 		"    llm:",
 		"      baseURL: https://api.alice.omantel.omani.works/v1",
@@ -606,8 +606,8 @@ func TestRenderSMETenantOverlay_OpenClawOIDCAndLLMBlocks(t *testing.T) {
 //     admin.<sub>.<parent> so OpenClaw's llm.baseURL resolves.
 //   - Wire auth.adminUI to the per-tenant Keycloak realm
 //     (alice's tenant Keycloak), NOT a shared otech-level IdP.
-//   - Enable defaultChannels.qwenBankDhofar so the chart's channel-seed
-//     post-install Job auto-seeds Qwen3.6@BankDhofar at install time
+//   - Enable defaultChannels.qwenPartner so the chart's channel-seed
+//     post-install Job auto-seeds the partner-hosted Qwen at install time
 //     (canonical first-otech default per #915 C4 PR #919).
 //   - Reference newapi-pg-app for the database (bp-cnpg renders the
 //     app secret in tenant ns) + newapi-credentials for app secrets.
@@ -703,22 +703,26 @@ func TestRenderSMETenantOverlay_NewAPIEmitted(t *testing.T) {
 		}
 	}
 
-	// defaultChannels.qwenBankDhofar — channel #1 auto-seeded by the
+	// defaultChannels.qwenPartner — channel #1 auto-seeded by the
 	// chart's post-install Helm hook Job (per #915 C4 PR #919).
 	wantChannel := []string{
-		"      qwenBankDhofar:",
+		"      qwenPartner:",
 		"        enabled: true",
 		"        name: qwen",
-		"        endpoint: https://llm-api.omtd.bankdhofar.com",
+		// endpoint defaults to empty in the generated template; the
+		// per-Sovereign overlay populates it via the operator-supplied
+		// `newapi-channel-qwen-partner` Secret. See
+		// docs/RUNBOOKS.md §Operator-setup.
+		`        endpoint: ""`,
 		"          - qwen3.6",
 		"          - qwen3-coder",
-		"        existingSecret: newapi-channel-qwen-bankdhofar",
+		"        existingSecret: newapi-channel-qwen-partner",
 		"        existingSecretKey: API_KEY",
 		"          kind: commercial-contract",
 	}
 	for _, line := range wantChannel {
 		if !strings.Contains(body, line) {
-			t.Errorf("bp-newapi.yaml defaultChannels.qwenBankDhofar missing line %q\n--- rendered ---\n%s", line, body)
+			t.Errorf("bp-newapi.yaml defaultChannels.qwenPartner missing line %q\n--- rendered ---\n%s", line, body)
 		}
 	}
 

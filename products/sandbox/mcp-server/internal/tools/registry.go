@@ -108,7 +108,7 @@ type Registry struct {
 // Env carries the per-process configuration every tool handler reads.
 // Populated from the pod's environment in main.go via NewEnvFromOS().
 type Env struct {
-	// OrgID — the operator's Organization slug (`acme`, `bankdhofar`).
+	// OrgID — the operator's Organization slug (`acme`, `acmebank`).
 	// Matched against Claims.OrgID on every tool call; mismatch → 403.
 	OrgID string
 

@@ -296,12 +296,12 @@ func TestReconcile_OrgMissingSurfacesCondition(t *testing.T) {
 // T4: multi-region reconcile fans out one gitrepository.yaml per region.
 func TestReconcile_MultiRegionFanOut(t *testing.T) {
 	fg := newFakeGitea()
-	fg.orgs["bankdhofar"] = &gitea.Org{Username: "bankdhofar"}
+	fg.orgs["acmebank"] = &gitea.Org{Username: "acmebank"}
 
 	env := &envv1.Environment{
-		ObjectMeta: metav1.ObjectMeta{Name: "bankdhofar-prod", UID: "bd-uid", Generation: 2},
+		ObjectMeta: metav1.ObjectMeta{Name: "acmebank-prod", UID: "bd-uid", Generation: 2},
 		Spec: envv1.EnvironmentSpec{
-			OrganizationRef: "bankdhofar",
+			OrganizationRef: "acmebank",
 			EnvType:         "prod",
 			Placement:       "multi-region",
 			Regions: []envv1.EnvironmentRegion{
@@ -313,10 +313,10 @@ func TestReconcile_MultiRegionFanOut(t *testing.T) {
 	}
 	r, c := newReconciler(t, fg, env)
 
-	_, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: "bankdhofar-prod"}})
+	_, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: "acmebank-prod"}})
 	require.NoError(t, err)
 
-	got := mustGet(t, c, "bankdhofar-prod")
+	got := mustGet(t, c, "acmebank-prod")
 	assert.Equal(t, envv1.PhaseReady, got.Status.Phase)
 	assert.Equal(t, int32(3), got.Status.RegionCount)
 	require.Len(t, got.Status.VClusters, 3)
@@ -327,12 +327,12 @@ func TestReconcile_MultiRegionFanOut(t *testing.T) {
 	for _, c := range fg.upsertCalls {
 		paths = append(paths, c.Path)
 		assert.Equal(t, "main", c.Branch, "all regions share the same branch")
-		assert.Equal(t, "bankdhofar", c.Org)
-		assert.Equal(t, "bankdhofar-environment", c.Repo)
+		assert.Equal(t, "acmebank", c.Org)
+		assert.Equal(t, "acmebank-environment", c.Repo)
 	}
-	assert.Contains(t, paths, "clusters/hetzner-fsn-rtz-prod/environments/bankdhofar-prod/gitrepository.yaml")
-	assert.Contains(t, paths, "clusters/hetzner-hel-rtz-prod/environments/bankdhofar-prod/gitrepository.yaml")
-	assert.Contains(t, paths, "clusters/hw-muc-rtz-custom/environments/bankdhofar-prod/gitrepository.yaml",
+	assert.Contains(t, paths, "clusters/hetzner-fsn-rtz-prod/environments/acmebank-prod/gitrepository.yaml")
+	assert.Contains(t, paths, "clusters/hetzner-hel-rtz-prod/environments/acmebank-prod/gitrepository.yaml")
+	assert.Contains(t, paths, "clusters/hw-muc-rtz-custom/environments/acmebank-prod/gitrepository.yaml",
 		"explicit hostCluster override must win over the derived name")
 }
 

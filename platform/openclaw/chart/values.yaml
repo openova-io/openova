@@ -118,7 +118,7 @@ oidc:
 # OpenClaw uses the per-tenant NewAPI as its OpenAI-compatible LLM
 # gateway (NOT direct OpenAI). The orchestrator points this at
 # https://api.<tenant-domain>/v1; NewAPI then routes to the configured
-# channel (e.g. Qwen3.6@BankDhofar — wired by C4 of #915).
+# channel (e.g. a partner-hosted Qwen — wired by C4 of #915).
 #
 # Per ADR-0003 §3.3 each end-user has a per-user Secret rendered by
 # the unified-rbac hook carrying `base-url` + `api-key`; per-user pods
@@ -144,7 +144,7 @@ llm:
   # The default OpenAI-compatible model identifier sent on /v1/chat/
   # completions when the client doesn't override. NewAPI uses the
   # `model` field to select a channel; for the umbrella #915 DoD this
-  # is "qwen3.6" — C4 wires the BankDhofar channel routing at
+  # is "qwen3.6" — C4 wires the partner-hosted channel routing at
   # tenant-create time.
   defaultModel: "qwen3.6"
 

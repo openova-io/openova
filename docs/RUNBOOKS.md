@@ -361,6 +361,44 @@ Every Sovereign instance carries a `docs/ledger/TRUST.md` ledger of claimed-done
 
 Every new PR against a surface flips it back to UNVERIFIED. Cron-refreshed alongside `docs/ledger/TRACKER.md`.
 
+### 2.12 Operator setup — customer-managed LLM partner endpoint
+
+The default channel `qwenPartner` exposed by `bp-newapi` (issue [#915](https://github.com/openova-io/openova/issues/915)) proxies to a **customer-managed LLM partner endpoint** that the operator wires per Sovereign. Per Inviolable Principle #4 (never hardcode), neither the endpoint URL nor the API key live in this repo; both are supplied via a Kubernetes Secret at install time.
+
+**Secret schema.** Create a Secret in the namespace where `bp-newapi` is installed (per-tenant SME deployments install in the tenant Organization namespace; non-tenant operator installs are in the `newapi` namespace):
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: newapi-channel-qwen-partner
+  namespace: <newapi-install-namespace>
+type: Opaque
+stringData:
+  # Upstream API key (Bearer token for the partner relay).
+  API_KEY: "<operator-supplied — never commit>"
+  # Optional: BASE_URL — also surface via `defaultChannels.qwenPartner.endpoint`
+  # in the per-Sovereign overlay (clusters/<sovereign>/bootstrap-kit/80-newapi.yaml).
+  BASE_URL: "https://<partner-supplied-host>/v1"
+```
+
+Operators that run OpenBao + external-secrets-operator should keep this Secret as an `ExternalSecret` referencing OpenBao path `sovereign/<sovereign-fqdn>/newapi/channel-qwen-partner` — that lets the secret rotate without redeploying the chart.
+
+**Chart wiring.** The chart references the Secret via `defaultChannels.qwenPartner.existingSecret` + `existingSecretKey` (canonical `API_KEY`). The bootstrap-kit slot `80-newapi.yaml` defaults these correctly; do not override unless you have a custom Secret name.
+
+**Endpoint.** Per Sovereign, set the operator-supplied endpoint via envsubst on the bootstrap-kit overlay's substitute map:
+
+```bash
+# clusters/<sovereign>/bootstrap-kit/80-newapi.yaml — postBuild.substitute
+LLM_PARTNER_BASE_URL: "https://<partner-supplied-host>"
+LLM_PARTNER_ACCOUNT_ID: "<operator-supplied account ID>"
+LLM_PARTNER_CONTRACT_REF: "<operator-supplied legal contract reference>"
+```
+
+**Attestation gate.** When `attestation.kind=commercial-contract` (default for `qwenPartner`), the chart silently skips composing the channel until **both** `accountId` and `contractRef` are non-empty. Operators that have not yet signed a commercial contract see a `bp-newapi` install with zero default channels; once the overlay supplies those fields, the next Flux reconcile composes the channel.
+
+**Privacy posture.** The partner identity is intentionally NOT stored in any tracked file in this public repo. All references to the partner (endpoint URL, account ID, contract ref) live in operator-supplied Secrets + per-Sovereign overlays that are not part of the public catalog. A CI guard (`.github/workflows/redact-guard.yml`) fails any PR that reintroduces partner-identifying names into tracked files.
+
 ---
 
 ## §3 — Blueprint authoring
@@ -1048,7 +1086,7 @@ The implementation reflects the deployed shape — the Go provisioner, OpenTofu 
 |---|---|---|
 | Cloud provider | Hetzner / AWS / GCP / Azure / OCI / Huawei | Hetzner is the most-tested path. |
 | Cloud credentials | Provider API token | Used by OpenTofu (one-shot bootstrap) and Crossplane (ongoing). |
-| Sovereign name | e.g. `omantel`, `bankdhofar` | Slug, lowercase, 3–32 chars. |
+| Sovereign name | e.g. `omantel`, `acmebank` | Slug, lowercase, 3–32 chars. |
 | Sovereign domain | e.g. `omantel.omani.works`, `acme.bank.com` | Three modes ([#169](https://github.com/openova-io/openova/issues/169)): **pool** (subdomain under `omani.works` / `openova.io`, allocated by pool-domain-manager); **byo-manual** (customer pastes OpenOva NS records into their own registrar UI); **byo-api** (customer pastes a registrar API token, OpenOva flips NS via the registrar adapter). Supported registrars for byo-api: Cloudflare, Namecheap, GoDaddy, OVH, Dynadot ([#170](https://github.com/openova-io/openova/issues/170)). |
 | Region(s) | 1+ | Single-region simplest for SME; 2+ for regulated/HA. |
 | Building blocks per region | typically `mgt` + `rtz` (+ `dmz`) | At minimum `mgt` + `rtz`. |
@@ -1235,10 +1273,10 @@ Catalyst is air-gap-ready by construction: every artifact (Blueprints, Catalyst 
 
 #### 9.10.1 Migrating an Organization between Sovereigns
 
-Rare but supported. Example: a Bank Dhofar Organization started life on the openova Sovereign (paid SaaS), now wants to move to its own bankdhofar Sovereign (self-host).
+Rare but supported. Example: a corporate Organization started life on the openova Sovereign (paid SaaS), now wants to move to its own customer-hosted Sovereign (self-host).
 
 ```
-1. Provision bankdhofar Sovereign (Phases 0–2).
+1. Provision the customer-hosted Sovereign (Phases 0–2).
 2. On openova Sovereign: Admin → Organization → Export
      Catalyst produces an export bundle:
        - Org metadata
@@ -1246,7 +1284,7 @@ Rare but supported. Example: a Bank Dhofar Organization started life on the open
        - The Org's `shared-blueprints` repo
        - Keycloak realm export (users, federated identities)
        - OpenBao export (sealed secrets only)
-3. On bankdhofar Sovereign: Admin → Organization → Import
+3. On the customer-hosted Sovereign: Admin → Organization → Import
      Environment-controller recreates Environments → vclusters.
      Flux pulls manifests, reconciles.
      Apps come up.

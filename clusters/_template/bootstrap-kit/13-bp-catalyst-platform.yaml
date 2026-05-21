@@ -994,7 +994,7 @@ spec:
       # default-flip rationale as `SANDBOX_ENABLED` in slot 19a
       # (TBD-D11): once the underlying chart gates the workloads
       # gracefully on missing operator creds (newapi 1.4.10 silently
-      # skips qwenBankDhofar without LLM_BANK_DHOFAR_* attestation,
+      # skips qwenPartner without LLM_PARTNER_* attestation,
       # marketplace-api self-generates its JWT via sprig randAlphaNum,
       # smeSecrets auto-bootstraps via Helm lookup), defaulting OFF
       # only blocks the operator's first-run UX. Operator may opt-OUT

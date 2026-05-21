@@ -1,17 +1,24 @@
 apiVersion: v2
 name: bp-newapi
+# 1.4.41 — chore(privacy): rename the partner-named channel slot to
+# `qwenPartner` and strip partner identifiers from all comments /
+# fixtures / Secret names.
+# Behavior unchanged: same chart shape, same effective channel composition,
+# same Secret-wiring contract; just renamed to a generic name so the
+# private commercial agreement is not exposed in the public catalog.
+#
 # 1.4.39 — F1a (TBD-V45 follow-up #2115, 2026-05-20): rename the
-# qwenBankDhofar channel row's default `name` from `qwen3.6-bankdhofar`
-# to `qwen` — the short customer-canonical name. NewAPI's channel-
-# router matches a token's `allowed_channels` set against rows by their
-# `name` field; the sandbox-controller mints per-Sandbox tokens with
-# `allowed_channels = SANDBOX_DEFAULT_CHANNELS` (bootstrap-kit slot 19a
-# defaults to `qwen`), so the pre-fix row name `qwen3.6-bankdhofar`
-# meant the row never matched → /v1/chat/completions returned 404
-# `channel not found` for every per-Sandbox call.
+# qwenPartner channel row's default `name` to `qwen` — the short
+# customer-canonical name. NewAPI's channel-router matches a token's
+# `allowed_channels` set against rows by their `name` field; the
+# sandbox-controller mints per-Sandbox tokens with `allowed_channels =
+# SANDBOX_DEFAULT_CHANNELS` (bootstrap-kit slot 19a defaults to `qwen`),
+# so a partner-suffixed row name meant the row never matched →
+# /v1/chat/completions returned 404 `channel not found` for every per-
+# Sandbox call.
 #
 # Lockstep changes in same PR:
-#   - platform/newapi/chart/values.yaml defaultChannels.qwenBankDhofar.name
+#   - platform/newapi/chart/values.yaml defaultChannels.qwenPartner.name
 #   - platform/newapi/chart/templates/_helpers.tpl (default in composed dict)
 #   - platform/newapi/chart/templates/channel-seed-job.yaml (audit-pointer
 #     ConfigMap dict default + `seed_channel` shell invocation default)
@@ -30,8 +37,8 @@ name: bp-newapi
 # zero-cost, no-third-party-contract Qwen channel out of the box.
 #
 # Gate change: the seed Job's `$hasDefaults` check is now
-# `or $qbdReady $vllmReady` (was `and $qbd.enabled $qbdAttReady`), so
-# a Sovereign with vllm-only seeding (no Bank Dhofar commercial
+# `or $qpReady $vllmReady` (was `and $qp.enabled $qpAttReady`), so
+# a Sovereign with vllm-only seeding (no partner commercial
 # contract) still renders the Job. The vLLM channel needs no upstream
 # API key (in-cluster Service) so the chart POSTs an empty `key`
 # field — NewAPI accepts this for plain OpenAI-compatible upstreams
@@ -321,14 +328,14 @@ name: bp-newapi
 #     {autoProvision,autoSecretName} blocks; every knob is operator-
 #     overridable per Inviolable Principle #4.
 #
-# 1.3.0: defaultChannels.qwenBankDhofar (channel #1 = Qwen3.6 @
-# https://llm-api.omtd.bankdhofar.com) + post-install/post-upgrade
-# `channel-seed` Helm hook Job that idempotently POSTs default
-# channels into NewAPI's admin API at /api/channel/. Bridges the
-# previous documentation-only channels.yaml ConfigMap → the actual
+# 1.3.0: defaultChannels.qwenPartner (channel #1 = a partner-hosted
+# Qwen3-family model at an operator-supplied endpoint) + post-install/
+# post-upgrade `channel-seed` Helm hook Job that idempotently POSTs
+# default channels into NewAPI's admin API at /api/channel/. Bridges
+# the previous documentation-only channels.yaml ConfigMap → the actual
 # Postgres-backed channel rows the upstream binary reads at runtime.
 # Issue #915 (epic SME tenant integration DoD: alice → OpenClaw →
-# NewAPI → Qwen3.6@BankDhofar end-to-end).
+# NewAPI → partner-hosted Qwen end-to-end).
 # 1.2.0: Traefik Middleware gated behind ingress.middleware.enabled.
 # 1.4.6 (Fix #163, 2026-05-11, MIRROR-EVERYTHING): 000-external-secrets-
 # webhook-readiness-job hook image switched from curlimages/curl:8.10.1
@@ -336,10 +343,10 @@ name: bp-newapi
 # CLAUDE.md inviolable rule.
 #
 # 1.4.10 (fix-convergence-wave11, 2026-05-18): gate the
-# defaultChannels.qwenBankDhofar entry on attestation-complete instead
+# defaultChannels.qwenPartner entry on attestation-complete instead
 # of hard-failing the helm template when commercial-contract attestation
 # fields are empty. PR #1631 added envsubst placeholders
-# `${LLM_BANK_DHOFAR_ACCOUNT_ID:-}` / `${LLM_BANK_DHOFAR_CONTRACT_REF:-}`
+# `${LLM_PARTNER_ACCOUNT_ID:-}` / `${LLM_PARTNER_CONTRACT_REF:-}`
 # in the bootstrap-kit overlay so franchised Sovereigns can opt in to
 # marketplace without supplying real attestation; but the chart's
 # `assertChannelAttestation` helper still raised `commercial-contract
@@ -347,7 +354,7 @@ name: bp-newapi
 # Sovereign that flipped `MARKETPLACE_ENABLED=true` without a signed
 # commercial contract. Fix: in `bp-newapi.effectiveChannels` (and the
 # matching `channel-seed-job.yaml` gate), SKIP composing the
-# qwenBankDhofar channel when attestation.kind=commercial-contract AND
+# qwenPartner channel when attestation.kind=commercial-contract AND
 # either accountId or contractRef is empty. NewAPI installs with zero
 # default channels; operator-supplied channels still compose. Once
 # the operator overlay supplies the attestation values the channel
@@ -395,7 +402,7 @@ name: bp-newapi
 # `lookup valkey.valkey.svc.cluster.local: no such host`). Same hostname
 # already documented as canonical in products/catalyst/chart/values.yaml
 # bp-cnpg-pair comments.
-version: 1.4.40
+version: 1.4.41
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM

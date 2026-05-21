@@ -242,9 +242,9 @@ Sovereign: omantel
 ### 6.2 Corporate (`shared-sovereign`)
 
 ```
-Sovereign: bankdhofar
+Sovereign: customer-self-hosted
 └── ONE Keycloak (HA, 3 replicas, Postgres backend)
-    Federates to Bank Dhofar's corporate Azure AD
+    Federates to the customer's corporate Azure AD
     │
     ├── Realm: catalyst-admin (sovereign-admin team)
     ├── Realm: core-banking (Org)
@@ -253,7 +253,7 @@ Sovereign: bankdhofar
     └── Realm: corporate-it (Org)
 ```
 
-**Why shared for corporate**: the bank's security perimeter is the entire Sovereign. Every Organization within is a business unit of the same legal entity. Federation to Azure AD is the single auth choke-point anyway. Per-Org Keycloak would mean N times the Azure AD federation config — operational overhead with no security benefit.
+**Why shared for corporate**: the customer's security perimeter is the entire Sovereign. Every Organization within is a business unit of the same legal entity. Federation to Azure AD is the single auth choke-point anyway. Per-Org Keycloak would mean N times the Azure AD federation config — operational overhead with no security benefit.
 
 ### 6.3 App-level SSO
 

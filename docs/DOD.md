@@ -233,7 +233,7 @@ OPERATOR experience, not just backend convergence.
 | **D31** | **Tenant application with CNPG active-hot-standby replication.** Inside the new tenant, user picks a CNPG-backed app from the marketplace (e.g. Ghost or WordPress) → selects "active hot-standby" → app installs with a CNPG `Cluster` that replicates across the Sovereign's regions (primary + at least one replica). `kubectl get cluster.postgresql.cnpg.io -A` in the tenant context shows `instances` distributed across regions (region label / topology spread). Failover test: cordoning the primary region brings the replica to primary, app remains reachable on its FQDN within the documented RTO (≤ 30 s). Full counter-test continuity procedure in §6. | Playwright MCP + kubectl + curl |
 | **D32** | **Sandbox CRD installable on the Sovereign.** `kubectl get crd sandboxes.sandbox.openova.io` returns the CRD; the controller Pod (`sandbox-controller` in `catalyst-system`) is Ready and processes a no-op `Sandbox` CR within 30 s (status transitions `Pending → Reconciling → Ready`). `helm template` of the Sovereign chart with sandbox enabled emits the controller Deployment + RBAC + Service. **The Sandbox plane is part of every Sovereign by default — operator does not opt in.** | kubectl + helm template |
 | **D33** | **Sandbox agent catalogue picker functional.** Sovereign Console `/console/sandbox` lists at minimum the six agents specified in `products/sandbox/docs/architecture.md` — Claude Code, Cursor (cloud), Qwen Code, Aider, OpenCode, plus the Sovereign-native shell. Picking an agent opens a session host page; the BYOS settings page lets the operator paste an Anthropic OAuth client_id (per `products/sandbox/docs/claude-code-byos.md`). A picked session establishes a WebSocket to the pty-server and renders xterm.js with a live PTY prompt. | Playwright MCP |
-| **D34** | **newapi Sovereign-side LLM gateway routes to a backend model.** `https://newapi.<fqdn>/v1/chat/completions` accepts an HS256 org-scoped JWT (issued by `core/services/auth`), authenticates the request, and proxies to a configured backend. The reference backend for this gate is **Bank Dhofar Qwen**. A round-trip `curl` with a valid JWT returns a non-empty `choices[0].message.content` within 30 s. **No Anthropic / OpenAI cloud calls leave the Sovereign by default** — BYOS is opt-in per-user. | curl + kubectl |
+| **D34** | **newapi Sovereign-side LLM gateway routes to a backend model.** `https://newapi.<fqdn>/v1/chat/completions` accepts an HS256 org-scoped JWT (issued by `core/services/auth`), authenticates the request, and proxies to a configured backend. The reference backend for this gate is a **partner-hosted Qwen** wired via the operator-supplied `newapi-channel-qwen-partner` Secret (see `docs/RUNBOOKS.md` §Operator-setup). A round-trip `curl` with a valid JWT returns a non-empty `choices[0].message.content` within 30 s. **No Anthropic / OpenAI cloud calls leave the Sovereign by default** — BYOS is opt-in per-user. | curl + kubectl |
 | **D35** | **NATS broker round-trips `catalyst.tenant.created` + `catalyst.order.placed` end-to-end.** SME tenant + billing dispatchers PUBLISH to NATS JetStream (subjects `catalyst.tenant.created`, `catalyst.tenant.updated`, `catalyst.order.placed`, `catalyst.invoice.paid` observed via `nats sub 'catalyst.>'`). Organization controller + Sandbox controller CONSUME (consume legs ship per #1862; round-trip wire test per the contract added in `56e04ac8a`). Round-trip test: issue a voucher → redeem it → measure latency from billing-service publish to Org controller reconcile-start ≤ 2 s. **Convergence is NOT declared until both legs are wired** — polling-the-API workaround does not satisfy this gate. | NATS CLI + kubectl logs |
 
 > **DoD grows.** Every iteration of test-writer / test-executor finds more
@@ -381,8 +381,8 @@ terminology. The journeys described below use Catalyst surfaces (console / Git
 | **P4** | **`org-admin`** | Org-scoped Catalyst console | Browser UI, occasional Git |
 | **P5** | **SME End User** (e.g. Ahmed, pharmacy owner on Omantel) | Marketplace + the App they installed | Browser only |
 | **P6** | **SME Power User** (e.g. Ahmed's tech-savvy nephew) | Console with Developer mode toggled on | Browser, occasionally Git |
-| **P7** | **Corporate DevOps / SRE** (e.g. Layla at Bank Dhofar) | Git + console in advanced view | Browser, Git, kubectl-on-own-vcluster, IDE |
-| **P8** | **Corporate App Developer** (e.g. Omar at Bank Dhofar) | Console + Git for own service repos | Browser, Git, IDE |
+| **P7** | **Corporate DevOps / SRE** (e.g. Layla at a customer-hosted Sovereign) | Git + console in advanced view | Browser, Git, kubectl-on-own-vcluster, IDE |
+| **P8** | **Corporate App Developer** (e.g. Omar at a customer-hosted Sovereign) | Console + Git for own service repos | Browser, Git, IDE |
 | **P9** | **Security / Compliance Officer** (e.g. Khalid, CISO) | Audit dashboards + EnvironmentPolicy editor | Browser |
 | **P10** | **Billing Admin** | Billing console | Browser |
 
@@ -499,10 +499,10 @@ created in §5.5).
 The tenant **never** typed a kubeconfig, never opened Git, never copied a DB
 connection string. Pillar 4 shipped end-to-end.
 
-### 5.7 Corporate journey — Layla at Bank Dhofar (running its own Sovereign)
+### 5.7 Corporate journey — Layla at a customer-hosted Sovereign
 
-**Cast.** Layla is an SRE on Bank Dhofar's 12-person Cloud Platform team.
-They run their own Sovereign on Hetzner. Their internal Organizations are
+**Cast.** Layla is an SRE on a 12-person Cloud Platform team at a customer
+that runs its own Sovereign on Hetzner. Their internal Organizations are
 `core-banking`, `digital-channels`, `analytics`, `corporate-it`. Their default
 tooling is Git + IDE.
 
@@ -512,14 +512,14 @@ tooling is Git + IDE.
        She's authoring a private Blueprint for a payment-rail microservice
        with Postgres + Redis dependencies.
 
-09:15  Pushes to gitea.<location-code>.bankdhofar.local/digital-channels/shared-blueprints/
-       bp-bd-payment-rail. CI in Bank Dhofar's GitHub Actions runner pool
+09:15  Pushes to gitea.<location-code>.<customer-sovereign>.local/digital-channels/shared-blueprints/
+       bp-bd-payment-rail. CI in the customer's GitHub Actions runner pool
        (running inside the Sovereign) builds the image, signs the Blueprint
        with cosign, publishes to the local OCI registry. blueprint-controller
        picks it up — visible as a private card in the digital-channels Org.
 
 10:00  Switches to her Application repo:
-       gitea.<location-code>.bankdhofar.local/digital-channels/payment-rail
+       gitea.<location-code>.<customer-sovereign>.local/digital-channels/payment-rail
        Checks out branch `develop` (the dev environment branch).
        Edits values.yaml (config tweak).
        Catalyst console (Plan view) shows the diff: what will change,
@@ -538,7 +538,7 @@ tooling is Git + IDE.
          $ kubectl --context=hz-fsn-rtz-prod-digital-channels logs -n payment-rail
        Direct kubectl, scoped strictly to her Org's vcluster (vcluster name
        per NAMING §1.5 is the Org name, not the Sovereign name — Layla's Org
-       is `digital-channels`). Bank Dhofar's sovereign-admin grants this via
+       is `digital-channels`). The customer's sovereign-admin grants this via
        a JIT elevation flow.
 
 14:00  Promotion stg → uat. From the payment-rail Application card,
@@ -559,9 +559,9 @@ tooling is Git + IDE.
        are created (Application repos exist already, indexed by branch).
        Ready in 60s. Layla now has a new sandbox.
 
-16:00  Business asks for the bank's existing Backstage portal to show
+16:00  Business asks for the customer's existing Backstage portal to show
        Catalyst-managed services. Layla integrates: Backstage queries
-       Catalyst REST API at https://api.<location-code>.bankdhofar.local/v1/applications,
+       Catalyst REST API at https://api.<location-code>.<customer-sovereign>.local/v1/applications,
        authenticated via workload identity (Backstage runs inside the
        Sovereign). Backstage's service catalog now includes Catalyst
        Applications alongside other systems. No code change in Catalyst —
@@ -629,7 +629,7 @@ backing services (Postgres, Redis, etc.) in their own section.
 
 ### 5.10 Default UI mode by Sovereign type
 
-| Setting | SME-style default | Corporate default (Bank Dhofar) |
+| Setting | SME-style default | Corporate default (customer self-host) |
 |---|---|---|
 | Console default depth | Form view | Advanced view + IaC editor toggle on |
 | Developer mode (Blueprint Studio) | Hidden, off | Visible by role |

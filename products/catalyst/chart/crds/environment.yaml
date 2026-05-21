@@ -55,7 +55,7 @@ spec:
 
             Naming: spec.organizationRef + spec.envType compose the
             Environment name `{org}-{envType}` per NAMING-CONVENTION.md
-            §11. Examples: acme-prod, bankdhofar-uat.
+            §11. Examples: acme-prod, acmebank-uat.
 
             DR is a Placement on the *Application*, not an Env Type — there
             is no `*-dr` Environment. Multi-region disaster-recovery

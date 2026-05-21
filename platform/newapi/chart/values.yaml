@@ -392,14 +392,12 @@ channels: []
 # `enabled: true` AND `endpoint != ""`, the chart composes a `vllm`-typed
 # channel into the rendered channels list.
 #
-# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), the endpoint and
-# model identifiers are operator-supplied at install time. The Catalyst
-# repo references the OpenOva marketing site's wired upstream
-# (`https://llm-api.omtd.bankdhofar.com`, model `qwen3-coder`, used by
-# Axon at `openova-private/clusters/contabo-mkt/apps/axon/helmrelease.yaml`)
-# as the canonical first-otech default ONLY for documentation; the
-# chart's defaults here are empty so an unconfigured deploy does not
-# silently wire customers to a third-party endpoint.
+# Per docs/PRINCIPLES.md #4 (never hardcode), the endpoint and model
+# identifiers are operator-supplied at install time. The chart's defaults
+# here are empty so an unconfigured deploy does not silently wire
+# customers to a third-party endpoint. Operators of each Sovereign supply
+# their own upstream relay URL + API-key Secret via the per-Sovereign
+# bootstrap-kit overlay.
 defaultChannels:
   vllm:
     # Set true in the per-Sovereign bootstrap-kit overlay. When false,
@@ -425,10 +423,10 @@ defaultChannels:
     attestation:
       kind: "in-cluster"
       owner: ""
-  # ─── Qwen3.6 @ BankDhofar (canonical first channel — issue #915) ─────
-  # First-class default channel: Qwen3.6 hosted at BankDhofar
-  # (`https://llm-api.omtd.bankdhofar.com`, model `qwen3-coder` / alias
-  # `qwen3.6`). When `qwenBankDhofar.enabled: true`, the chart:
+  # ─── Qwen (partner-hosted first channel — issue #915) ────────────────
+  # First-class default channel: a Qwen3-family model hosted at a
+  # customer-managed LLM partner endpoint (model `qwen3-coder` / alias
+  # `qwen3.6`). When `qwenPartner.enabled: true`, the chart:
   #   1. Composes this entry into the EFFECTIVE channels list as
   #      channel #1 (BEFORE any operator-supplied `.Values.channels`
   #      and BEFORE the generic `defaultChannels.vllm` block) — so a
@@ -439,45 +437,41 @@ defaultChannels:
   #      name and POSTs it if missing (idempotent — re-runs after an
   #      upgrade are no-ops).
   #
-  # Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every knob
-  # below is configurable via the per-Sovereign bootstrap-kit overlay.
-  # The endpoint default is empty so a `helm template` with default
-  # values does not silently wire customers to a third-party host;
-  # operators set `endpoint: https://llm-api.omtd.bankdhofar.com` in
-  # their per-Sovereign overlay (matches the canonical wiring in
-  # openova-private/clusters/contabo-mkt/apps/axon/helmrelease.yaml,
-  # the SAME relay the OpenOva marketing site uses).
-  qwenBankDhofar:
+  # Per docs/PRINCIPLES.md #4 (never hardcode), every knob below is
+  # configurable via the per-Sovereign bootstrap-kit overlay. The
+  # endpoint default is empty so a `helm template` with default values
+  # does not silently wire customers to a third-party host; operators
+  # supply the upstream relay URL via a Kubernetes Secret
+  # (`newapi-channel-qwen-partner`) and per-Sovereign overlay. See
+  # docs/RUNBOOKS.md §Operator-setup for the Secret schema.
+  qwenPartner:
     # Toggle the channel composition + seed-Job render. Default false
     # so a CI smoke render produces no Job; per-Sovereign overlay flips
-    # this true with the canonical endpoint + a wired ExternalSecret.
+    # this true with the operator-supplied endpoint + ExternalSecret.
     enabled: false
     # Customer-visible channel name. Channel name is the human-readable
     # row label in NewAPI's admin UI AND is the idempotency key for
     # the seed Job's existence-probe (GET /api/channel/?keyword=<name>).
     #
-    # F1a (2026-05-20, TBD-V45 follow-up #2115): default is `qwen` — the
-    # short customer-canonical name — so the row matches the sandbox-
-    # controller default AllowedChannels=["qwen"] (envsubst
+    # F1a (2026-05-20, follow-up #2115): default is `qwen` — the short
+    # customer-canonical name — so the row matches the sandbox-controller
+    # default AllowedChannels=["qwen"] (envsubst
     # SANDBOX_DEFAULT_CHANNELS:-qwen at bootstrap-kit slot 19a:197). Pre-
-    # fix the default was `qwen3.6-bankdhofar`, which caused per-Sandbox
-    # /v1/chat/completions to return 404 `channel not found` (NewAPI's
-    # channel-router matches a token's allowed_channels against rows by
-    # `name`).
+    # fix the default included a partner-name suffix, which caused per-
+    # Sandbox /v1/chat/completions to return 404 `channel not found`
+    # (NewAPI's channel-router matches a token's allowed_channels against
+    # rows by `name`).
     name: "qwen"
     # Upstream OpenAI-compatible endpoint URL. The chart leaves this
     # empty so an unconfigured deploy never silently dials a third-
-    # party host. Per-Sovereign overlay sets it to
-    # `https://llm-api.omtd.bankdhofar.com` (canonical first-otech
-    # default; matches the existing Axon helmrelease).
+    # party host. Per-Sovereign overlay sets it to the operator's
+    # customer-managed LLM partner endpoint.
     endpoint: ""
     # Customer-facing model identifiers exposed via this channel. NewAPI
     # routes incoming requests whose `model` field matches any string
     # here to this channel. The default list contains both the
     # human-friendly `qwen3.6` alias (used in product docs) and the
-    # upstream-canonical `qwen3-coder` (matches the Axon helmrelease at
-    # https://llm-api.omtd.bankdhofar.com — DO NOT delete this alias
-    # or existing OpenClaw/Axon deployments stop routing).
+    # upstream-canonical `qwen3-coder`.
     models:
       - "qwen3.6"
       - "qwen3-coder"
@@ -487,23 +481,23 @@ defaultChannels:
     # enabling the channel; the seed Job mounts it and POSTs the
     # value as the channel's `key` field to NewAPI's admin API. The
     # canonical OpenBao path is
-    # `sovereign/<sovereign-fqdn>/newapi/channel-qwen-bankdhofar` with
+    # `sovereign/<sovereign-fqdn>/newapi/channel-qwen-partner` with
     # property `API_KEY` (operator overlay supplies the ExternalSecret).
-    existingSecret: "newapi-channel-qwen-bankdhofar"
+    existingSecret: "newapi-channel-qwen-partner"
     # Secret key name holding the upstream API key.
     existingSecretKey: "API_KEY"
-    # Channel attestation. The Qwen3.6@BankDhofar relay is operated by
-    # Bank Dhofar (a commercial counterparty); the attestation kind is
-    # `commercial-contract` per platform/newapi/README.md compliance
-    # posture. Operator overlay supplies `accountId` + `contractRef`
-    # (legal-team-owned doc link) before flipping `enabled: true`.
+    # Channel attestation. When the relay terminates at a third-party
+    # commercial provider, the attestation kind is `commercial-contract`
+    # per platform/newapi/README.md compliance posture. Operator overlay
+    # supplies `accountId` + `contractRef` (legal-team-owned doc link)
+    # before flipping `enabled: true`.
     attestation:
       kind: "commercial-contract"
       accountId: ""
       contractRef: ""
 # ─── Channel-seed Job (issue #915) ───────────────────────────────────────
 # Post-install / post-upgrade Helm hook Job that POSTs default channels
-# (currently `defaultChannels.qwenBankDhofar`) into NewAPI's admin API
+# (currently `defaultChannels.qwenPartner`) into NewAPI's admin API
 # so the FIRST customer request lands on a fully-wired channel, not a
 # 404 / 400. The Job is idempotent: it probes existence via
 # GET `/api/channel/?keyword=<name>` and skips channels that already
@@ -517,7 +511,7 @@ defaultChannels:
 # operator may rotate the master key out — channels persist in
 # Postgres independent of the master key.
 #
-# Defaults to enabled=true so a Sovereign with `qwenBankDhofar.enabled`
+# Defaults to enabled=true so a Sovereign with `qwenPartner.enabled`
 # also seeds the channel. Operators that load channels via an
 # out-of-band controller flip this off to suppress the Job entirely.
 channelSeed:

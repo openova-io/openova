@@ -6,7 +6,7 @@ User identity for Catalyst Sovereigns. Per-Sovereign supporting service in the C
 
 > **Catalyst topology** (set at Sovereign provisioning time, see [`docs/SECURITY.md`](../../docs/SECURITY.md) §6):
 > - **`per-organization`** (SME-style Sovereigns, e.g. omantel): one minimal Keycloak per Organization (single replica, embedded H2/sqlite, ~150 MB RAM, no HA). Blast radius limited to one Org.
-> - **`shared-sovereign`** (corporate self-host, e.g. bankdhofar): one HA Keycloak for the entire Sovereign with multiple realms (one per Organization), federating to the corporation's identity provider (Azure AD, Okta).
+> - **`shared-sovereign`** (corporate self-host): one HA Keycloak for the entire Sovereign with multiple realms (one per Organization), federating to the corporation's identity provider (Azure AD, Okta).
 
 ---
 

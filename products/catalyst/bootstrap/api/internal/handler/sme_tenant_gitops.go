@@ -943,7 +943,7 @@ spec:
 //   - credentials.existingSecret → newapi-credentials — pulled from
 //                              OpenBao via ExternalSecret carrying the
 //                              SESSION_SECRET + CRYPTO_SECRET keys.
-//   - defaultChannels.qwenBankDhofar → channel #1 = Qwen3.6@BankDhofar
+//   - defaultChannels.qwenPartner → channel #1 = partner-hosted Qwen
 //                              auto-seeded at install time (canonical
 //                              first-otech default per #915 C4 PR #919).
 //
@@ -957,7 +957,7 @@ const smeTenantBPNewAPI = `# bp-newapi per-tenant (#915, #945) — alice's own N
 # tenant runs its own NewAPI Pod with its own channels list + admin UI.
 # OpenClaw's llm.baseURL points here (api.<sub>.<parent>/v1) so each
 # tenant's chats route through their own NewAPI which proxies to the
-# configured channel — Qwen3.6@BankDhofar wired by C4 (PR #919).
+# configured channel — partner-hosted Qwen wired by C4 (PR #919).
 #
 # A shared otech-wide newapi.<otech-fqdn> would defeat per-tenant
 # channel routing, audit isolation, and commercial-contract attestation
@@ -1037,7 +1037,7 @@ spec:
         issuer: letsencrypt-prod
         apiSecretName: newapi-api-tls
         adminSecretName: newapi-admin-tls
-    # ── Default channels: Qwen3.6 @ BankDhofar (canonical #915 C4) ────
+    # ── Default channels: partner-hosted Qwen (canonical #915 C4) ────
     # Channel #1 — auto-seeded at install time by the chart's
     # post-install/post-upgrade channel-seed Helm hook Job. The seed
     # Job probes NewAPI's admin API via GET /api/channel/?keyword=NAME
@@ -1045,25 +1045,41 @@ spec:
     # contractRef carry the commercial-contract attestation per
     # platform/newapi/README.md compliance posture (operator overlay
     # supplies the legal-team-owned contract reference).
+    #
+    # Per Inviolable Principle #4 (never hardcode) the endpoint + key are
+    # operator-supplied via the Kubernetes Secret
+    # `newapi-channel-qwen-partner` carrying keys API_KEY (upstream API
+    # bearer) and BASE_URL (upstream OpenAI-compatible endpoint URL),
+    # plus per-Sovereign ExternalSecret + attestation values that the
+    # operator overlays at tenant-create time. See docs/RUNBOOKS.md
+    # §Operator-setup for the Secret schema.
     defaultChannels:
-      qwenBankDhofar:
+      qwenPartner:
         enabled: true
         # F1a (TBD-V45 follow-up #2115): row name MUST be 'qwen' so the
         # row matches sandbox-controller default AllowedChannels=["qwen"]
         # (bootstrap-kit slot 19a's SANDBOX_DEFAULT_CHANNELS:-qwen).
-        # Pre-fix the row name was 'qwen3.6-bankdhofar', which produced
+        # Pre-fix the row name carried a partner suffix, which produced
         # 404 channel-not-found on /v1/chat/completions.
         name: qwen
-        endpoint: https://llm-api.omtd.bankdhofar.com
+        # Endpoint defaults empty — operator overlay supplies the
+        # upstream URL at tenant-create time (or via ExternalSecret
+        # mirror of newapi-channel-qwen-partner key BASE_URL). The
+        # chart's `assertChannelAttestation` gate refuses to render the
+        # channel until the operator overlay populates this value.
+        endpoint: ""
         models:
           - qwen3.6
           - qwen3-coder
-        existingSecret: newapi-channel-qwen-bankdhofar
+        existingSecret: newapi-channel-qwen-partner
         existingSecretKey: API_KEY
         attestation:
           kind: commercial-contract
-          accountId: bankdhofar-omtd
-          contractRef: sovereign/{{.OTECHFQDN}}/newapi/qwen-bankdhofar/contract
+          # accountId + contractRef populated by per-Sovereign overlay
+          # at tenant-create time (legal-team-owned values; chart gates
+          # render until both are non-empty).
+          accountId: ""
+          contractRef: ""
     # ── Catalyst integration — admin token for per-user key minting ──
     # ADR-0003 §3.2: Catalyst's signup hook reads this Secret and POSTs
     # against NewAPI's admin API with Authorization: Bearer header to
@@ -1239,7 +1255,7 @@ const smeTenantBPOpenClaw =`# bp-openclaw (#803, #915) — workspace controller 
 #     to OpenClaw via alice's own Keycloak).
 #   - llm.baseURL    → per-tenant NewAPI /v1 (alice's OpenClaw chats
 #     route through alice's NewAPI which proxies to the configured
-#     channel — Qwen3.6@BankDhofar wired by C4).
+#     channel — partner-hosted Qwen wired by C4).
 #   - llm.defaultModel → "qwen3.6" placeholder; NewAPI maps the model
 #     name to a channel.
 apiVersion: helm.toolkit.fluxcd.io/v2
@@ -1281,7 +1297,7 @@ spec:
         name: openclaw-newapi-controller-token
         key: NEWAPI_KEY
       # NewAPI uses the model name to select a backing channel. C4
-      # provisions channel #1 = Qwen3.6@BankDhofar at tenant-create
+      # provisions channel #1 = partner-hosted Qwen at tenant-create
       # time so this default routes to the correct upstream.
       defaultModel: qwen3.6
     # ── Legacy aliases (back-compat with chart < 0.2.0) ────────────────

@@ -79,12 +79,12 @@ spec:
       # never came up and alice signup gate 5 (LLM) timed out. Both
       # auto-provisions are capability-gated on bp-cnpg's CRD and
       # operator-overridable per Inviolable Principle #4.
-      # 1.3.0: defaultChannels.qwenBankDhofar (channel #1 = Qwen3.6 @
-      # https://llm-api.omtd.bankdhofar.com) + post-install/post-upgrade
-      # `channel-seed` Helm hook Job that idempotently POSTs default
-      # channels into NewAPI's admin API. Issue #915 (epic SME tenant
-      # integration DoD: alice → OpenClaw → NewAPI → Qwen3.6@BankDhofar
-      # end-to-end).
+      # 1.3.0: defaultChannels.qwenPartner (channel #1 = a partner-hosted
+      # Qwen3-family model at an operator-supplied endpoint) + post-install
+      # /post-upgrade `channel-seed` Helm hook Job that idempotently POSTs
+      # default channels into NewAPI's admin API. Issue #915 (epic SME
+      # tenant integration DoD: alice → OpenClaw → NewAPI → partner-hosted
+      # Qwen end-to-end).
       # 1.2.0: Traefik Middleware gated behind ingress.middleware.enabled.
       # 1.4.1 (issue #952, 2026-05-05): Pod imagePullSecrets templated +
       # default to `[{name: ghcr-pull}]` so kubelet authenticates pulls
@@ -110,14 +110,14 @@ spec:
       # blocking the chart from reaching Ready and the Catalyst signup
       # hook (ADR-0003 §3.2) from finding the admin-token Secret.
       # 1.4.10 (fix-convergence-wave11, 2026-05-18): gate the
-      # defaultChannels.qwenBankDhofar entry on attestation-complete
+      # defaultChannels.qwenPartner entry on attestation-complete
       # rather than hard-failing the helm template. Pre-1.4.10 the
       # chart raised `commercial-contract attestation requires accountId`
       # on every Sovereign that opted in to marketplace
       # (MARKETPLACE_ENABLED=true) without ALSO supplying a signed
-      # commercial contract's `LLM_BANK_DHOFAR_ACCOUNT_ID` /
-      # `LLM_BANK_DHOFAR_CONTRACT_REF` envsubst variables. Post-1.4.10
-      # the chart silently skips the qwenBankDhofar channel when
+      # commercial contract's `LLM_PARTNER_ACCOUNT_ID` /
+      # `LLM_PARTNER_CONTRACT_REF` envsubst variables. Post-1.4.10
+      # the chart silently skips the qwenPartner channel when
       # attestation is incomplete; once the operator overlay supplies
       # the attestation values the channel composes on the next
       # reconcile.
@@ -180,20 +180,24 @@ spec:
       # secretKeyRef itself + the corrected CATALYST_NEWAPI_ADDR
       # literal (`http://newapi-bp-newapi.newapi.svc.cluster.local:3000`).
       # 1.4.39 — F1a (TBD-V45 follow-up #2115, 2026-05-20): renamed the
-      # qwenBankDhofar default channel row from `qwen3.6-bankdhofar` to
-      # `qwen` so the row matches the sandbox-controller default
-      # AllowedChannels=["qwen"] (envsubst SANDBOX_DEFAULT_CHANNELS:-qwen
-      # at slot 19a:197). Pre-fix the per-Sandbox token mint succeeded
-      # but /v1/chat/completions returned 404 `channel not found`.
+      # qwenPartner default channel row's `name` to `qwen` so the row
+      # matches the sandbox-controller default AllowedChannels=["qwen"]
+      # (envsubst SANDBOX_DEFAULT_CHANNELS:-qwen at slot 19a:197). Pre-
+      # fix the per-Sandbox token mint succeeded but /v1/chat/completions
+      # returned 404 `channel not found`.
       #
       # 1.4.37 — TBD-V45 (#2115, 2026-05-20): channel-seed Job now
       # also seeds the in-cluster vLLM channel when
       # `defaultChannels.vllm.enabled=true`. The seed gate is now
-      # `or qbdReady vllmReady` (was `and qbd.enabled qbdAttReady`),
-      # so a fresh Sovereign with vllm-only enabled (no Bank Dhofar
+      # `or qpReady vllmReady` (was `and qp.enabled qpAttReady`),
+      # so a fresh Sovereign with vllm-only enabled (no partner
       # commercial contract) still seeds a working Qwen channel.
       # Lockstep with the platform/newapi/chart bump in the same PR.
-      version: 1.4.40
+      #
+      # 1.4.41 — chore(privacy): rename the partner-named channel slot
+      # to `qwenPartner` and strip partner identifiers from comments /
+      # fixtures / Secret names.
+      version: 1.4.41
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
@@ -226,11 +230,10 @@ spec:
   #   - defaultChannels.vllm.endpoint
   #     + defaultChannels.vllm.attestation.owner
   #
-  # Defaults below wire the first-otech provider channel to the same
-  # upstream the OpenOva marketing site uses (Qwen via Axon →
-  # `llm-api.omtd.bankdhofar.com`, model `qwen3-coder`); the operator
-  # overlay overrides any of these by setting them in this HelmRelease's
-  # spec.values.
+  # Defaults below wire the first-otech provider channel to the
+  # operator-supplied customer-managed LLM partner endpoint (Qwen3-
+  # family model, `qwen3-coder`); the operator overlay overrides any of
+  # these by setting them in this HelmRelease's spec.values.
   values:
     sovereignFQDN: ${SOVEREIGN_FQDN}
     ingress:
@@ -279,30 +282,28 @@ spec:
           property: ADMIN_API_TOKEN
     # Default channels — chart-side composition (channel #1 first).
     #
-    # `qwenBankDhofar` (issue #915) is the canonical first channel:
-    # Qwen3.6 hosted at BankDhofar (https://llm-api.omtd.bankdhofar.com,
-    # model `qwen3-coder` / alias `qwen3.6`) — the SAME relay the
-    # OpenOva marketing site's Axon helmrelease consumes
-    # (openova-private/clusters/contabo-mkt/apps/axon/helmrelease.yaml).
-    # Disabled in the template so a fresh Sovereign does not silently
-    # wire customers to a third-party endpoint; per-Sovereign overlays
+    # `qwenPartner` (issue #915) is the canonical first channel: a Qwen3-
+    # family model (`qwen3-coder` / alias `qwen3.6`) hosted at an operator-
+    # supplied customer-managed LLM partner endpoint. Disabled in the
+    # template so a fresh Sovereign does not silently wire customers to a
+    # third-party endpoint; per-Sovereign overlays
     # (clusters/<sovereign>/bootstrap-kit/80-newapi.yaml) enable this
     # block and supply:
-    #   - defaultChannels.qwenBankDhofar.enabled = true
-    #   - defaultChannels.qwenBankDhofar.endpoint = https://llm-api.omtd.bankdhofar.com
-    #   - defaultChannels.qwenBankDhofar.attestation.accountId   (legal-team-owned)
-    #   - defaultChannels.qwenBankDhofar.attestation.contractRef (legal-team-owned)
-    #   - the Secret `newapi-channel-qwen-bankdhofar` containing the
+    #   - defaultChannels.qwenPartner.enabled = true
+    #   - defaultChannels.qwenPartner.endpoint = <partner-supplied URL>
+    #   - defaultChannels.qwenPartner.attestation.accountId   (legal-team-owned)
+    #   - defaultChannels.qwenPartner.attestation.contractRef (legal-team-owned)
+    #   - the Secret `newapi-channel-qwen-partner` containing the
     #     upstream API key under key `API_KEY` (or an ExternalSecret
     #     pulling from OpenBao at
-    #     `sovereign/<sovereign-fqdn>/newapi/channel-qwen-bankdhofar`)
+    #     `sovereign/<sovereign-fqdn>/newapi/channel-qwen-partner`)
     #   - auth.adminUI.masterKeySecret = name of a Secret carrying
     #     `MASTER_KEY` (NewAPI bootstrap admin auth) — required for
     #     the channel-seed Helm hook Job to POST against the admin API
     #     ONCE at install time. Operator may rotate the master key out
     #     post-bootstrap; channels persist in Postgres.
     #
-    # When the operator flips `qwenBankDhofar.enabled: true`, the
+    # When the operator flips `qwenPartner.enabled: true`, the
     # chart's post-install/post-upgrade `channel-seed` Job probes
     # NewAPI's admin API (`/api/channel/?keyword=<name>`) and POSTs
     # the channel definition idempotently. Re-runs after upgrades
@@ -310,46 +311,52 @@ spec:
     #
     # The legacy `vllm` slot (in-cluster vLLM fallback) remains for
     # operators that run their own bp-vllm + open-weight model in-
-    # cluster; it composes after `qwenBankDhofar` and any operator
+    # cluster; it composes after `qwenPartner` and any operator
     # `.Values.channels`.
     # Sandbox Wave 4 (2026-05-18, retry of sandbox-wave4-newapi-sovereign-install):
-    # qwenBankDhofar is now gated on `${MARKETPLACE_ENABLED:-false}` — the
+    # qwenPartner is now gated on `${MARKETPLACE_ENABLED:-false}` — the
     # same envsubst variable bp-catalyst-platform (slot 13) reads to flip
     # marketplace.enabled on the Catalyst control plane. This lets a
     # franchised Sovereign with `MARKETPLACE_ENABLED=true` auto-seed the
-    # default Bank Dhofar Qwen3.6 channel without the operator having to
-    # supply per-Sovereign overlay values. The endpoint defaults to the
-    # canonical first-otech relay; `LLM_BANK_DHOFAR_BASE_URL` overrides
-    # it (e.g. for staging at https://omtd.bankdhofar.com). The upstream
-    # API key MUST be present in the Secret `newapi-channel-qwen-bankdhofar`
-    # under key `API_KEY` — either pre-seeded by cloud-init or pulled from
-    # OpenBao via the operator's ExternalSecret at path
-    # `sovereign/<fqdn>/newapi/channel-qwen-bankdhofar`. Sandbox agents
+    # default partner-hosted Qwen channel without the operator having to
+    # supply per-Sovereign overlay values. The endpoint is supplied by
+    # `LLM_PARTNER_BASE_URL` (operator-supplied, defaults empty —
+    # commercial-contract attestation gate prevents render until set).
+    # The upstream API key MUST be present in the Secret
+    # `newapi-channel-qwen-partner` under key `API_KEY` — either pre-
+    # seeded by cloud-init or pulled from OpenBao via the operator's
+    # ExternalSecret at path
+    # `sovereign/<fqdn>/newapi/channel-qwen-partner`. Sandbox agents
     # (sandbox-wave4) depend on this channel being live on every Sovereign
     # that opted in to marketplace; without it the agents fall back to
     # mothership newapi, defeating the per-Sovereign sandboxing.
     defaultChannels:
-      qwenBankDhofar:
+      qwenPartner:
         enabled: ${MARKETPLACE_ENABLED:-false}
         # F1a fix (2026-05-20, TBD-V45 follow-up #2115): row name MUST be
         # `qwen` so it matches the sandbox-controller default
         # AllowedChannels=["qwen"] (envsubst SANDBOX_DEFAULT_CHANNELS:-qwen
         # at clusters/_template/bootstrap-kit/19a-bp-sandbox.yaml:197).
-        # Pre-fix: row name `qwen3.6-bankdhofar` → per-Sandbox token mint
+        # Pre-fix: a partner-suffixed row name → per-Sandbox token mint
         # succeeded but /v1/chat/completions returned 404 `channel not
         # found` because the channel-router only matches rows whose `name`
         # is in the token's allowed_channels set.
         name: qwen
-        endpoint: ${LLM_BANK_DHOFAR_BASE_URL:-https://llm-api.omtd.bankdhofar.com}
+        # Operator-supplied — see docs/RUNBOOKS.md §Operator-setup for
+        # the canonical Kubernetes Secret schema. Default empty; the
+        # chart's `assertChannelAttestation` gate refuses to render the
+        # channel until the operator supplies an endpoint + commercial-
+        # contract attestation in the per-Sovereign overlay.
+        endpoint: ${LLM_PARTNER_BASE_URL:-}
         models:
           - qwen3.6
           - qwen3-coder
-        existingSecret: newapi-channel-qwen-bankdhofar
+        existingSecret: newapi-channel-qwen-partner
         existingSecretKey: API_KEY
         attestation:
           kind: commercial-contract
-          accountId: ${LLM_BANK_DHOFAR_ACCOUNT_ID:-}
-          contractRef: ${LLM_BANK_DHOFAR_CONTRACT_REF:-}
+          accountId: ${LLM_PARTNER_ACCOUNT_ID:-}
+          contractRef: ${LLM_PARTNER_CONTRACT_REF:-}
       # TBD-V45 (#2115, 2026-05-20): wired the in-cluster vLLM channel
       # default-ON. Paired with bootstrap-kit slot 39 (bp-vllm) which
       # installs vLLM in-cluster as `vllm-bp-vllm.vllm.svc.cluster.local
@@ -357,7 +364,7 @@ spec:
       # This pair gives every fresh Sovereign a zero-cost, no-third-
       # party-contract Qwen channel out of the box — closes the
       # canonical-DoD gap that the only seedable channel was triple-
-      # gated on a Bank Dhofar commercial contract.
+      # gated on a partner commercial contract.
       #
       # Lockstep with slot 39's `enabled: ${SOVEREIGN_VLLM_ENABLED:-true}`:
       # if the operator opts-OUT of the in-cluster vLLM Deployment
@@ -371,9 +378,10 @@ spec:
       # hardware (the Sovereign cluster). No commercial-contract
       # attestation required (no accountId / contractRef).
       vllm:
-        # DEFAULT OFF (2026-05-20): canonical Qwen channel is qwenBankDhofar
-        # (https://llm-api.omtd.bankdhofar.com). In-cluster vLLM channel is
-        # an opt-in fallback. Lockstep with slot 39's enabled default.
+        # DEFAULT OFF (2026-05-20): canonical Qwen channel is qwenPartner
+        # (operator-supplied partner-hosted endpoint). In-cluster vLLM
+        # channel is an opt-in fallback. Lockstep with slot 39's enabled
+        # default.
         enabled: ${SOVEREIGN_VLLM_ENABLED:-false}
         # Customer-visible channel name. `qwen` matches the canonical
         # sandbox-controller default (`SANDBOX_DEFAULT_CHANNELS=qwen`

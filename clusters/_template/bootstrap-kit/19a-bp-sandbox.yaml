@@ -188,9 +188,9 @@ spec:
       # NewAPI channel names the controller stamps as `allowed_channels`
       # on every per-Sandbox token mint. Default `qwen` matches the
       # only channel bp-newapi's channel-seed-job.yaml writes on a
-      # fresh Sovereign install (the qwenBankDhofar row's customer-
-      # canonical name; F1a 2026-05-20 renamed the row from
-      # `qwen3.6-bankdhofar` to `qwen` so it matches this default).
+      # fresh Sovereign install (the qwenPartner row's customer-
+      # canonical name; F1a 2026-05-20 renamed the row's `name` to
+      # `qwen` so it matches this default).
       # Per-Sovereign overlays MUST extend this list to mirror their
       # channel rollout (e.g. `qwen,anthropic,openai`) — the chart's
       # NoAllowedChannels guard fails every mint if this resolves to

@@ -264,7 +264,7 @@ spec:
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `ORGANIZATION` | Catalyst Organization identifier (per [`docs/GLOSSARY.md`](../../docs/GLOSSARY.md); previously labelled "tenant" — banned term) | Required |
-| `SOVEREIGN_DOMAIN` | Sovereign's base domain (e.g. `omantel.openova.io`, `bankdhofar.local`) | Required |
+| `SOVEREIGN_DOMAIN` | Sovereign's base domain (e.g. `omantel.openova.io`, `<customer-sovereign>.local`) | Required |
 | `OB_STANDARD` | Open Banking standard | `uk-ob-3.1` |
 | `SANDBOX_ENABLED` | Enable sandbox mode | `true` |
 | `KEYCLOAK_REPLICAS` | Keycloak replicas | `2` |

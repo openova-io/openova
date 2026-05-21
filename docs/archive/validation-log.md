@@ -694,15 +694,15 @@ Acceptance greps clean for all 13 carry-forward categories.
 - §4 Two journey narratives:
   - §4.1 SME journey (Ahmed at Muscat Pharmacy on Omantel):
     - L88: `gitea.<location-code>.omantel.openova.io/muscatpharmacy/muscatpharmacy-prod` — canonical Gitea repo path ✓
-  - §4.2 Corporate journey (Layla at Bank Dhofar) — **Pass 33 anchor preserved**:
+  - §4.2 Corporate journey (Layla at the customer-hosted Sovereign) — **Pass 33 anchor preserved**:
     - L101 Organizations: `core-banking`, `digital-channels`, `analytics`, `corporate-it`
-    - L109: `gitea.<location-code>.bankdhofar.local/digital-channels/shared-blueprints/bp-bd-payment-rail` — control-plane DNS ✓
-    - L116: `gitea.<location-code>.bankdhofar.local/digital-channels/digital-channels-uat` — env_type 3-char `uat` ✓
+    - L109: `gitea.<location-code>.<customer-sovereign>.local/digital-channels/shared-blueprints/bp-bd-payment-rail` — control-plane DNS ✓
+    - L116: `gitea.<location-code>.<customer-sovereign>.local/digital-channels/digital-channels-uat` — env_type 3-char `uat` ✓
     - L126: `digital-channels-stg` — env_type 3-char ✓
     - L129: `kubectl --context=hz-fsn-rtz-prod-digital-channels` — vcluster context per NAMING §1.5 ✓
     - L131: explicit "vcluster name per NAMING §1.5 is the Org name" ✓
     - L143: `fraud-lab-dev` — env_type 3-char ✓
-    - L150: `https://api.<location-code>.bankdhofar.local/v1/applications` — control-plane DNS ✓
+    - L150: `https://api.<location-code>.<customer-sovereign>.local/v1/applications` — control-plane DNS ✓
 - §5 Application card (the user's primary handle)
 - §6 Catalog vs Applications-in-use view:
   - §6.2 Blueprint detail page: L229-232 `acme-dev`, `acme-stg`, `acme-prod` — Pass 39 env_type 3-char anchor preserved ✓
@@ -714,7 +714,7 @@ PERSONAS-AND-JOURNEYS.md stable across **7 review cycles** (Pass 22, 33, 39, 65,
 
 **Defense-in-depth verification: env_type 3-char canonical** (8 cross-document representational levels):
 1. NAMING §2.4 table: `prod | stg | uat | dev | poc` ✓
-2. NAMING §11.1 examples: `acme-prod`, `acme-dev`, `bankdhofar-prod`, `bankdhofar-uat` ✓
+2. NAMING §11.1 examples: `acme-prod`, `acme-dev`, `acmebank-prod`, `acmebank-uat` ✓
 3. NAMING §11.1 explicit narrative: "the canonical values are `prod | stg | uat | dev | poc`" ✓
 4. GLOSSARY L19/L48: env_type values listed ✓
 5. ARCHITECTURE §8: promotion table `acme-dev`, `acme-stg`, `acme-prod` ✓
@@ -1021,7 +1021,7 @@ Acceptance greps clean for all 13 carry-forward categories.
   - **8 CRDs** (Sovereign, Organization, Environment, Application, Blueprint, EnvironmentPolicy, SecretPolicy, Runbook) ✓ verified by direct count
   - All 📐 status; matches GLOSSARY §Catalyst components implicit + ARCHITECTURE §12 ✓
 - §5 Surfaces (L112-119): 4 entries — UI/Git/API/kubectl(debug-only) — consistent with ARCHITECTURE §7 + GLOSSARY ✓
-- §6 Sovereigns running today (L123-129): openova=🚧 (legacy Contabo SME marketplace), omantel=📐, bankdhofar=📐 ✓
+- §6 Sovereigns running today (L123-129): openova=🚧 (legacy Contabo SME marketplace), omantel=📐, acmebank=📐 ✓
 - §7 Catalyst provisioner (L133-139): catalyst-provisioner.openova.io target service ✓
 - §8 What this means for newcomers (L143-152): scaffold-vs-target framing ✓
 - §9 How to update this file (L156-) ✓
@@ -1170,7 +1170,7 @@ Acceptance greps clean for all 13 carry-forward categories.
   - §5.3 Coexistence During Migration
 - §11 subsection ordering §11.1 → §11.2 → §11.3 → §11.4 monotonic ✓
 - §11.1 (L466-472) Environment naming:
-  - Format `{org}-{env_type}`; examples `acme-prod`, `acme-dev`, `bankdhofar-prod`, `bankdhofar-uat`, `muscatpharmacy-prod` ✓
+  - Format `{org}-{env_type}`; examples `acme-prod`, `acme-dev`, `acmebank-prod`, `acmebank-uat`, `muscatpharmacy-prod` ✓
   - L472 "DR is a Placement, not an Env Type" anchor: "the canonical values are `prod | stg | uat | dev | poc`" + DR via Placement spec inside `*-prod` Environment ✓
 - §11.2 (L474-483) 6-bullet realization:
   - 1: Gitea `gitea.{location-code}.{sovereign-domain}/{org}/{org}-{env_type}` with example `gitea.hfmp.omantel.openova.io/acme/acme-prod` — **Pass 37 example fix + Pass 42 abstract pattern fix preserved** ✓
@@ -1456,15 +1456,15 @@ Acceptance greps clean for all 13 carry-forward categories.
   - §4.1 SME journey — Ahmed at Muscat Pharmacy on Omantel:
     - L75: omantel.openova.io marketplace
     - L88: `gitea.<location-code>.omantel.openova.io/muscatpharmacy/muscatpharmacy-prod` ✓ — canonical Gitea repo path matches NAMING §11.2
-  - §4.2 Corporate journey — Layla at Bank Dhofar (Pass 33 anchor):
+  - §4.2 Corporate journey — Layla at the customer-hosted Sovereign (Pass 33 anchor):
     - L101: Organizations `core-banking`, `digital-channels`, `analytics`, `corporate-it`
-    - L109: `gitea.<location-code>.bankdhofar.local/digital-channels/shared-blueprints/bp-bd-payment-rail` — canonical control-plane DNS pattern ✓
-    - L116: `gitea.<location-code>.bankdhofar.local/digital-channels/digital-channels-uat` — env_type 3-char `uat` ✓
+    - L109: `gitea.<location-code>.<customer-sovereign>.local/digital-channels/shared-blueprints/bp-bd-payment-rail` — canonical control-plane DNS pattern ✓
+    - L116: `gitea.<location-code>.<customer-sovereign>.local/digital-channels/digital-channels-uat` — env_type 3-char `uat` ✓
     - L126: `digital-channels-stg` — env_type 3-char ✓
     - L129: `kubectl --context=hz-fsn-rtz-prod-digital-channels` — vcluster context per NAMING §1.5 (`{provider}-{region}-{bb}-{env_type}-{org}`) ✓
     - L131: explicit "vcluster name per NAMING §1.5 is the Org name" — Pass 33 anchor ✓
     - L143: `fraud-lab-dev` env name — env_type 3-char ✓
-    - L150: `https://api.<location-code>.bankdhofar.local/v1/applications` — canonical control-plane DNS ✓
+    - L150: `https://api.<location-code>.<customer-sovereign>.local/v1/applications` — canonical control-plane DNS ✓
 - §5 Application card (L163-200)
 - §6 Catalog vs Applications-in-use view (L201-260):
   - §6.1 Marketplace (catalog)
@@ -1478,7 +1478,7 @@ PERSONAS-AND-JOURNEYS.md stable across **6 review cycles** (Pass 22, 33, 39, 65,
 
 **Defense-in-depth verification: env_type 3-char canonical** (across 5+ representational levels):
 1. NAMING §2.4 table: explicit 3-char `prod | stg | uat | dev | poc` ✓
-2. NAMING §11.1: examples `acme-prod`, `acme-dev`, `bankdhofar-prod`, `bankdhofar-uat` ✓
+2. NAMING §11.1: examples `acme-prod`, `acme-dev`, `acmebank-prod`, `acmebank-uat` ✓
 3. GLOSSARY L19/L48: env_type values `prod | stg | uat | dev | poc` ✓
 4. ARCHITECTURE §8: promotion table `acme-dev`, `acme-stg`, `acme-prod` ✓
 5. PERSONAS §6.2: `acme-dev`, `acme-stg`, `acme-prod` ✓
@@ -1742,7 +1742,7 @@ Acceptance greps clean for all 13 carry-forward categories.
 - §3 Per-host-cluster infrastructure (L67-89) — cross-ref to PTS §3: 21 components (with some grouping in single rows like "VPA, KEDA, Reloader" + "MinIO, Velero, Harbor"); all 🚧 README-only — **matches PTS §1 per-host-cluster (21)** ✓
 - §4 CRDs (L93-108): 8 CRDs (Sovereign, Organization, Environment, Application, Blueprint, EnvironmentPolicy, SecretPolicy, Runbook) — all 📐; consistent with ARCHITECTURE §12 + GLOSSARY ✓
 - §5 Surfaces (L112-119): 4 entries (UI, Git, API, kubectl); kubectl explicitly "debug-only inside own vcluster" — consistent with ARCHITECTURE §7 (3 first-class + kubectl debug) and GLOSSARY ✓
-- §6 Sovereigns running today (L123-129): openova=🚧 (legacy Contabo SME marketplace at console.openova.io/nova, NOT yet Catalyst control plane), omantel=📐, bankdhofar=📐 ✓
+- §6 Sovereigns running today (L123-129): openova=🚧 (legacy Contabo SME marketplace at console.openova.io/nova, NOT yet Catalyst control plane), omantel=📐, acmebank=📐 ✓
 - §7 Catalyst provisioner (L133-139): catalyst-provisioner.openova.io target service, OpenTofu modules, Bootstrap kit (issue #37 follow-ups) ✓
 - §8 What this means for newcomers (L143-152): clear contextual framing pointing to canonical-doc target vs scaffold-current state ✓
 - §9 How to update this file (L156-164): status-flip protocol ✓
@@ -1794,7 +1794,7 @@ Acceptance greps clean for all 13 carry-forward categories.
 - §Core nouns (L11-22) — 8 entries:
   - L15: **OpenOva** = "The company. Authors and maintains Catalyst..." — explicit "when referring to the platform itself, prefer Catalyst" — Pass 26 OpenOva-as-company / Catalyst-as-platform anchor preserved ✓
   - L16: **Catalyst** = "The OpenOva platform itself" with full component enumeration (console, marketplace, admin, catalog-svc, projector, provisioning, environment-controller, blueprint-controller, billing, identity, secret, event-spine, gitea, observability) ✓
-  - L17: **Sovereign** = "One deployed instance of Catalyst" with examples (openova/omantel/bankdhofar) ✓
+  - L17: **Sovereign** = "One deployed instance of Catalyst" with examples (openova/omantel/acmebank) ✓
   - L18: **Organization** = "multi-tenancy unit inside a Sovereign" ✓
   - L19: **Environment** = `{org}-{env_type}` where env_type is `prod | stg | uat | dev | poc` (cross-ref to NAMING §2.4) ✓
   - L20: **Application** = "What a User installs into an Environment from a Blueprint" (App Store metaphor) ✓
@@ -1874,7 +1874,7 @@ NAMING-CONVENTION.md stable across **6 review cycles** (Pass 9, 22, 37, 42, 65, 
 
 **Defense-in-depth verification for env_type 3-char canonical** (Pass 39 anchor, across 5+ representational levels):
 1. NAMING §2.4 table: explicit 3-char column `prod|stg|uat|dev|poc` ✓
-2. NAMING §11.1: example `acme-prod`, `acme-dev`, `bankdhofar-prod`, `bankdhofar-uat` ✓
+2. NAMING §11.1: example `acme-prod`, `acme-dev`, `acmebank-prod`, `acmebank-uat` ✓
 3. NAMING §11.1 narrative: "the canonical values are `prod | stg | uat | dev | poc`" ✓
 4. ARCHITECTURE §8 (L283-291): `acme-stg`, `acme-prod`, `acme-dev` in promotion table ✓
 5. PERSONAS §6.3: `core-banking-prod` (Pass 22 fix) ✓
@@ -2198,7 +2198,7 @@ Acceptance greps clean for all 13 carry-forward categories.
 - §2 Surfaces (UI / Git / API + kubectl debug + no fourth surface): clean
 - §3 Personas × Journeys 14×10 matrix: clean
 - §4.1 Ahmed Omantel narrative: L88 `gitea.<location-code>.omantel.openova.io/...` — Pass 33 DNS canonical ✓
-- §4.2 Layla Bank Dhofar narrative: L109+L116 gitea DNS canonical, L126+L135 `digital-channels-stg` (Pass 39), L129 `kubectl --context=hz-fsn-rtz-prod-digital-channels` (Pass 33 vcluster=Org), L150 `api.<location-code>.bankdhofar.local` (Pass 33) — ALL Pass 33 + Pass 39 fixes intact ✓
+- §4.2 Layla customer narrative: L109+L116 gitea DNS canonical, L126+L135 `digital-channels-stg` (Pass 39), L129 `kubectl --context=hz-fsn-rtz-prod-digital-channels` (Pass 33 vcluster=Org), L150 `api.<location-code>.<customer-sovereign>.local` (Pass 33) — ALL Pass 33 + Pass 39 fixes intact ✓
 - §5 Application card mockup: clean
 - §6.2 Blueprint detail page: L230 `acme-stg` (Pass 39) ✓
 - §6.3 Environment view: L242 `core-banking-prod` (Pass 22 Environment-name fix) ✓
@@ -2637,7 +2637,7 @@ Acceptance greps clean for all 13 carry-forward categories.
 - §2 Surfaces: UI / Git / API + kubectl debug + "no fourth surface" — matches GLOSSARY exactly.
 - §3 Personas × Journeys matrix (J1-J14 × P1-P10): 140-cell matrix cohesive, no contradictions.
 - §4.1 Ahmed Omantel narrative: Pass 33 DNS fix intact (`gitea.<location-code>.omantel.openova.io/...`).
-- §4.2 Layla Bank Dhofar narrative: Pass 33 fixes (gitea URLs L109/L116, kubectl context L129, NAMING §1.5 inline pointer, api URL L150) all intact. Pass 39 fixes (`digital-channels-stg`, `acme-stg`) all intact.
+- §4.2 Layla customer narrative: Pass 33 fixes (gitea URLs L109/L116, kubectl context L129, NAMING §1.5 inline pointer, api URL L150) all intact. Pass 39 fixes (`digital-channels-stg`, `acme-stg`) all intact.
 - §5 Application card mockup: clean.
 - §6 Catalog vs Applications-in-use view: §6.1 marketplace, §6.2 Blueprint detail (Pass 39 `acme-stg`), §6.3 Environment view (Pass 22 `core-banking-prod`) — all intact.
 - §7 Default UI mode by Sovereign type: SME-style vs Corporate matrix consistent with SECURITY §6 Keycloak topology + GLOSSARY.
@@ -3330,7 +3330,7 @@ Acceptance greps (all 8 carry-forward) clean.
 
 §11 (Catalyst Environment / User-Facing Object) is the most consequential passage in the authoritative naming doc — it defines how Environments materialize from logical names to concrete Git repos + vclusters + JetStream Accounts + OpenBao paths. Drift here ripples through every other doc that references Environment realization.
 
-- **§11.1 Naming** (`{org}-{env_type}` pattern + examples): all examples use canonical 3-char env_type per §2.4 (`acme-prod`, `acme-dev`, `bankdhofar-prod`, `bankdhofar-uat`, `muscatpharmacy-prod`). DR-not-an-env_type clarification at line 472 anchored to §2.4. ✓
+- **§11.1 Naming** (`{org}-{env_type}` pattern + examples): all examples use canonical 3-char env_type per §2.4 (`acme-prod`, `acme-dev`, `acmebank-prod`, `acmebank-uat`, `muscatpharmacy-prod`). DR-not-an-env_type clarification at line 472 anchored to §2.4. ✓
 - **§11.2 Realization** (Pass 37 fixed example URL, Pass 42 fixed abstract pattern, Pass 50 confirms): Step 1 has canonical `gitea.{location-code}.{sovereign-domain}/{org}/{org}-{env_type}` with concrete example `gitea.hfmp.omantel.openova.io/acme/acme-prod` ✓. Step 4 uses correct JetStream subject prefix `ws.{org}-{env_type}.>` matching ARCHITECTURE §5. Step 6 OpenBao path `org/{org}/env/{env_type}/` consistent with SECURITY §3. All 6 realization items concrete and accurate. **§11.2 now stable.**
 - **§11.3 Single-region vs multi-region**: clean.
 - **§11.4 Why a separate object instead of a tag**: clean.
@@ -3364,7 +3364,7 @@ PTS §3 per-host-cluster (21 components): cilium, external-dns, k8gb, coraza, fl
 
 §5 Surfaces: UI, Git, API, kubectl(debug-only). Matches GLOSSARY/PERSONAS-AND-JOURNEYS/ARCHITECTURE §7. ✓
 
-§6 Sovereigns: openova (🚧, legacy SME marketplace at console.openova.io/nova), omantel (📐), bankdhofar (📐). Status markers honest about current state. ✓
+§6 Sovereigns: openova (🚧, legacy SME marketplace at console.openova.io/nova), omantel (📐), acmebank (📐). Status markers honest about current state. ✓
 
 §7 Catalyst provisioner: references `catalyst-provisioner.openova.io` and `bp-catalyst-provisioner` correctly per SOVEREIGN-PROVISIONING §2. ✓
 
@@ -3390,7 +3390,7 @@ Acceptance greps clean for all carry-forward categories.
 **docs/DOD.md** §1-§7 deep re-scan with all carry-forward lessons applied:
 - §1-§3 (Personas, Surfaces, Journeys matrix): clean. Three first-class surfaces (UI, Git, API) + kubectl debug-only matches ARCHITECTURE §7.
 - §4.1 Ahmed Omantel narrative: Pass 33 DNS fix intact (`gitea.<location-code>.omantel.openova.io/...`). Customer-app domain `muscatpharmacy.shop.omantel.com` is customer-managed routing, distinct from Catalyst control plane DNS — acceptable.
-- §4.2 Layla Bank Dhofar narrative: Pass 33 fixes intact across all 5 sites (gitea URLs L109/L116, kubectl context L129, NAMING §1.5 inline pointer, api URL L150). Pass 39 fixes intact (`digital-channels-stg`, `acme-stg`).
+- §4.2 Layla customer narrative: Pass 33 fixes intact across all 5 sites (gitea URLs L109/L116, kubectl context L129, NAMING §1.5 inline pointer, api URL L150). Pass 39 fixes intact (`digital-channels-stg`, `acme-stg`).
 - §5 Application card: clean.
 - §6 Catalog vs Applications-in-use: §6.2 uses `acme-stg` (Pass 39 fix), §6.3 uses `core-banking-prod` (Pass 22 fix). Marketplace mockup §6.1 includes Rocket.Chat which isn't in PLATFORM-TECH-STACK Application Blueprints — illustrative/aspirational marketplace example (community-contributed Blueprints). Acceptable.
 - §7 default UI mode by Sovereign type: clean.
@@ -3669,7 +3669,7 @@ Applying the Pass 23 lesson ("long canonical docs need careful read of LATER sec
 
 - **platform/cilium/README.md**: clean. Banner correct (per-host-cluster infrastructure §3.1 — installed on every host cluster before any other workload). All examples (CiliumNetworkPolicy, Gateway API, CiliumEnvoyConfig circuit breakers, OTel auto-instrumentation) use generic upstream K8s/Cilium patterns (`app.example.com`, `default` namespace, `frontend`/`api-service` selectors) — not Catalyst-specific, no DNS-shape concerns.
 
-Pattern note: the surviving NAMING drift instance was a **literal-domain** form (no placeholder), which is the hardest variant to grep for. Future drift sweeps that look for "{component}.{Sovereign-domain}" patterns should also grep for the literal domains used by canonical-example Sovereigns (`omantel.openova.io`, `bankdhofar.local`, `openova.io`) to catch this variant.
+Pattern note: the surviving NAMING drift instance was a **literal-domain** form (no placeholder), which is the hardest variant to grep for. Future drift sweeps that look for "{component}.{Sovereign-domain}" patterns should also grep for the literal domains used by canonical-example Sovereigns (`omantel.openova.io`, `<customer-sovereign>.local`, `openova.io`) to catch this variant.
 
 ### Pass 36 — flux deep-scrutiny + sweep gap-fill (5 fixes flux + 1 kyverno)
 
@@ -3754,17 +3754,17 @@ This is the first deep scrutiny of products/cortex and platform/keycloak — bot
 
 Five drift fixes on PERSONAS-AND-JOURNEYS that Pass 22's banner-style scan missed; vllm clean.
 
-The corporate-narrative section (§4.2 Layla at Bank Dhofar) read fluently but had multiple Catalyst-naming-rule violations stacked through the timeline:
+The corporate-narrative section (§4.2 Layla at the customer-hosted Sovereign) read fluently but had multiple Catalyst-naming-rule violations stacked through the timeline:
 
 - **§4.1 Ahmed (Omantel) Day 1 step 6**: `gitea.omantel.openova.io/muscatpharmacy/muscatpharmacy-prod` — Catalyst control-plane Gitea URL collapsed location-code per NAMING §5.1. Fixed to `gitea.<location-code>.omantel.openova.io/...`.
-- **§4.2 Layla 09:15**: `gitea.bankdhofar.local/digital-channels/shared-blueprints/...` — same collapse on Bank Dhofar's internal Sovereign domain. Fixed.
-- **§4.2 Layla 10:00**: `gitea.bankdhofar.local/digital-channels/digital-channels-uat` — same. Fixed.
-- **§4.2 Layla 11:00**: `kubectl --context=hz-fsn-rtz-prod-bankdhofar logs ...` — wrong vcluster identity. Per NAMING §1.5 ("Organization Identity Lives in the vcluster Layer"), the vcluster is named after the **Organization**, not the Sovereign. Layla works on payment-rail in `digital-channels` Org (per §4.2 cast intro), so the vcluster context is `hz-fsn-rtz-prod-digital-channels` not `...-bankdhofar`. Fixed and added a short inline pointer to NAMING §1.5 so the reason is visible to the reader.
-- **§4.2 Layla 16:00**: `https://api.bankdhofar.local/v1/applications` — Catalyst control-plane API endpoint missing location-code. Fixed to `https://api.<location-code>.bankdhofar.local/...`. Also tightened the SPIFFE narrative ("Backstage runs inside the Sovereign and gets a SPIRE-issued SVID") since SPIFFE/SPIRE is workload-internal and external Backstage instances would need OIDC/JWT, not SPIFFE — the original narrative implied external Backstage was using SPIFFE which is unusual.
+- **§4.2 Layla 09:15**: `gitea.<customer-sovereign>.local/digital-channels/shared-blueprints/...` — same collapse on a customer-hosted Sovereign's internal Sovereign domain. Fixed.
+- **§4.2 Layla 10:00**: `gitea.<customer-sovereign>.local/digital-channels/digital-channels-uat` — same. Fixed.
+- **§4.2 Layla 11:00**: `kubectl --context=hz-fsn-rtz-prod-acmebank logs ...` — wrong vcluster identity. Per NAMING §1.5 ("Organization Identity Lives in the vcluster Layer"), the vcluster is named after the **Organization**, not the Sovereign. Layla works on payment-rail in `digital-channels` Org (per §4.2 cast intro), so the vcluster context is `hz-fsn-rtz-prod-digital-channels` not `...-acmebank`. Fixed and added a short inline pointer to NAMING §1.5 so the reason is visible to the reader.
+- **§4.2 Layla 16:00**: `https://api.<customer-sovereign>.local/v1/applications` — Catalyst control-plane API endpoint missing location-code. Fixed to `https://api.<location-code>.<customer-sovereign>.local/...`. Also tightened the SPIFFE narrative ("Backstage runs inside the Sovereign and gets a SPIRE-issued SVID") since SPIFFE/SPIRE is workload-internal and external Backstage instances would need OIDC/JWT, not SPIFFE — the original narrative implied external Backstage was using SPIFFE which is unusual.
 
 - **platform/vllm/README.md**: clean. Banner correct (Application Blueprint §4.6, default LLM serving in bp-cortex). All examples use K8s in-cluster service DNS (`vllm.ai-hub.svc:8000`) — K8s-native form, not subject to NAMING §5.1. Image `vllm/vllm-openai:latest` is upstream Docker Hub illustrative ref.
 
-This is the second time PERSONAS-AND-JOURNEYS has been touched: Pass 22 fixed the §6.3 Environment name format (`bankdhofar-corp-banking-prod` → `core-banking-prod`) but missed all five DNS/vcluster issues in §4.1 and §4.2. The narrative form (timeline-style prose) is particularly susceptible to "reads fluently → looks fine" inspection bias — the rule violation is buried inside a sentence that scans naturally. Future passes touching narrative-style docs should grep for the placeholder shapes regardless of how well the prose reads.
+This is the second time PERSONAS-AND-JOURNEYS has been touched: Pass 22 fixed the §6.3 Environment name format (`acmebank-corp-banking-prod` → `core-banking-prod`) but missed all five DNS/vcluster issues in §4.1 and §4.2. The narrative form (timeline-style prose) is particularly susceptible to "reads fluently → looks fine" inspection bias — the rule violation is buried inside a sentence that scans naturally. Future passes touching narrative-style docs should grep for the placeholder shapes regardless of how well the prose reads.
 
 ### Pass 32 — `harbor.<domain>` / `registry.<domain>` registry-DNS sweep (9 files, 11 instances)
 
@@ -3888,7 +3888,7 @@ platform/litmus/README.md: clean. Banner correct, integration table consistent.
 
 ### Pass 22 — PERSONAS-AND-JOURNEYS Environment name format + librechat clean
 
-- **PERSONAS-AND-JOURNEYS.md §6.3** Environment view example said `Environment: bankdhofar-corp-banking-prod` — implies a Sovereign-Org-EnvType three-segment form. But NAMING §11.1 establishes `{org}-{env_type}`: the Sovereign name is NOT in the Environment name. And §4.2 of this same doc says "Their internal Organizations are `core-banking`, `digital-channels`, `analytics`, `corporate-it`" — so the Org is `core-banking`, and the Environment is `core-banking-prod`. Fixed.
+- **PERSONAS-AND-JOURNEYS.md §6.3** Environment view example said `Environment: acmebank-corp-banking-prod` — implies a Sovereign-Org-EnvType three-segment form. But NAMING §11.1 establishes `{org}-{env_type}`: the Sovereign name is NOT in the Environment name. And §4.2 of this same doc says "Their internal Organizations are `core-banking`, `digital-channels`, `analytics`, `corporate-it`" — so the Org is `core-banking`, and the Environment is `core-banking-prod`. Fixed.
 - **platform/librechat/README.md**: clean. The example `namespace: ai-hub` is a customer-chosen Application namespace (illustrative, not strict drift).
 
 ### Pass 21 — BLUEPRINT-AUTHORING CI pipeline contradicting §2 + langfuse clean
@@ -3920,7 +3920,7 @@ Read SECURITY.md and platform/kserve/README.md end-to-end line-by-line.
 
 Two real findings on the rotation to NAMING-CONVENTION + platform/keycloak.
 
-- **NAMING-CONVENTION §11.1** line 470 listed `bankdhofar-dr` as an Environment example — but `dr` is NOT a valid env_type (canonical values per §2.4 are `prod | stg | uat | dev | poc`). DR is a Placement mode (`active-active` / `active-hotstandby` across regions inside the `*-prod` Environment), not a separate Environment. Replaced the example with `bankdhofar-uat` and added an explanatory note.
+- **NAMING-CONVENTION §11.1** line 470 listed `acmebank-dr` as an Environment example — but `dr` is NOT a valid env_type (canonical values per §2.4 are `prod | stg | uat | dev | poc`). DR is a Placement mode (`active-active` / `active-hotstandby` across regions inside the `*-prod` Environment), not a separate Environment. Replaced the example with `acmebank-uat` and added an explanatory note.
 - **platform/keycloak/README.md** Keycloak Deployment example used `namespace: open-banking` and 2 replicas — Fingate-specific narrative that contradicts the per-Org / per-Sovereign topology stated in the banner. Rewrote with two side-by-side examples: `shared-sovereign` (3 HA replicas, `catalyst-keycloak` namespace) and `per-organization` (1 replica in `<org>` namespace, embedded DB option). HA section similarly split — was a single set of HA claims; now branches on topology.
 
 ### Pass 17 — ARCHITECTURE OAM table fix + Harbor README de-drift

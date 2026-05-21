@@ -79,7 +79,7 @@ type Claims struct {
 	// instead.
 	Role string `json:"role,omitempty"`
 
-	// OrgID — Organization slug (`acme`, `bankdhofar`, etc.). Wave 1b
+	// OrgID — Organization slug (`acme`, `acmebank`, etc.). Wave 1b
 	// gap: today this field is empty on every catalyst-api-issued JWT
 	// because the Keycloak tenant-realm has no `org` mapper. The
 	// configmap-tenant-realm.yaml + configmap-sovereign-realm.yaml
