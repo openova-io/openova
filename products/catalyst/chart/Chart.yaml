@@ -2235,7 +2235,7 @@ name: bp-catalyst-platform
 #
 # Refs #1099 (NOT Closes — operator walk + screenshot is the DoD per
 # CLAUDE.md §0).
-version: 1.4.232
+version: 1.4.233
 appVersion: 1.4.232
 # 1.4.232 — fix(sovereign-tls): render Cilium Gateway listener YAML in
 # the chart (templates/sovereign-tls-vars-cm.yaml) and feed it into the

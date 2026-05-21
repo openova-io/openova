@@ -846,7 +846,7 @@ spec:
       # Removes ~2.1 KiB from cloud-init on 4-zone SME-pool Sovereigns
       # (omantel.biz + .omani.{homes,rest,trade}); brings t39-class
       # provisions back under Hetzner's 32 KiB user_data cap.
-      version: 1.4.232
+      version: 1.4.233
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
