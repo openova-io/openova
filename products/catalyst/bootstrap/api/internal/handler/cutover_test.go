@@ -945,3 +945,368 @@ func TestResumeInterruptedCutover_NoOpWhenNeverStarted(t *testing.T) {
 		t.Errorf("resume hook created %d Jobs on never-started cutover, want 0", jobCreates)
 	}
 }
+
+// ── TBD-V56 / #2132 — Job-status checkpoint idempotency ─────────────────────
+//
+// The t40 (2026-05-21) failure mode that motivated TBD-V56:
+//
+//   1. Pod 1 (catalyst-api) creates `cutover-egress-block-test-1779345819`.
+//      The Job runs the 10-minute deny-egress hold and reaches Complete=True
+//      at 06:54:24Z.
+//   2. Pod 1 restarts mid-cutover at 07:07Z (operationally, to fix a
+//      separate cache-sync issue). The success-patch to the status
+//      ConfigMap never lands.
+//   3. Pod 2 boots. ResumeInterruptedCutover reads the ConfigMap; status
+//      shows step.egress-block-test.result=running. Resume resets it
+//      to "", spawns runCutover from scratch.
+//   4. PRE-FIX: runCutoverStep mints a NEW Job
+//      `cutover-egress-block-test-1779347242` and runs the 10-min hold
+//      a SECOND time. Wall-clock waste: 10 minutes per step.
+//      POST-FIX: runCutoverStep consults findExistingTerminalJobForStep
+//      BEFORE minting a new Job. Job 1's Complete=True condition is
+//      observed; the engine writes step.<name>.result=success directly
+//      and advances to the next step without re-running.
+
+// makeCompletedJobForStep builds a Job in the cutover namespace already
+// stamped with a JobComplete=True condition + CompletionTime, labeled
+// for step lookup. Simulates a Job that completed during a prior
+// catalyst-api process lifetime — the canonical Pod-restart scenario.
+func makeCompletedJobForStep(stepName string, completionOffset time.Duration) *batchv1.Job {
+	completedAt := metav1.NewTime(time.Now().UTC().Add(-completionOffset))
+	return &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("cutover-%s-%d", stepName, time.Now().Unix()-int64(completionOffset.Seconds())),
+			Namespace: cutoverTestNS,
+			Labels: map[string]string{
+				cutoverStepPartOfLabel:    cutoverStepPartOfValue,
+				cutoverStepComponentLabel: "cutover-job",
+				cutoverStepLabelKey:       stepName,
+			},
+			CreationTimestamp: metav1.NewTime(completedAt.Time.Add(-5 * time.Minute)),
+		},
+		Status: batchv1.JobStatus{
+			Succeeded:      1,
+			CompletionTime: &completedAt,
+			Conditions: []batchv1.JobCondition{{
+				Type:               batchv1.JobComplete,
+				Status:             corev1.ConditionTrue,
+				LastTransitionTime: completedAt,
+				Reason:             "Test",
+			}},
+		},
+	}
+}
+
+// makeFailedJobForStep mirrors makeCompletedJobForStep but stamps a
+// terminal Failed condition.
+func makeFailedJobForStep(stepName string) *batchv1.Job {
+	completedAt := metav1.NewTime(time.Now().UTC().Add(-30 * time.Second))
+	return &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("cutover-%s-failed-%d", stepName, time.Now().Unix()),
+			Namespace: cutoverTestNS,
+			Labels: map[string]string{
+				cutoverStepPartOfLabel:    cutoverStepPartOfValue,
+				cutoverStepComponentLabel: "cutover-job",
+				cutoverStepLabelKey:       stepName,
+			},
+			CreationTimestamp: metav1.NewTime(completedAt.Time.Add(-5 * time.Minute)),
+		},
+		Status: batchv1.JobStatus{
+			Failed: 4,
+			Conditions: []batchv1.JobCondition{{
+				Type:               batchv1.JobFailed,
+				Status:             corev1.ConditionTrue,
+				LastTransitionTime: completedAt,
+				Reason:             "BackoffLimitExceeded",
+			}},
+		},
+	}
+}
+
+// TestFindExistingTerminalJobForStep_PrefersCompleteOverFailed covers
+// the read-side seam in isolation. A Complete Job MUST win over a
+// Failed Job when both exist for the same step — a retried step is
+// allowed to succeed eventually.
+func TestFindExistingTerminalJobForStep_PrefersCompleteOverFailed(t *testing.T) {
+	objs := []k8sruntime.Object{
+		makeFailedJobForStep("egress-block-test"),
+		makeCompletedJobForStep("egress-block-test", 1*time.Minute),
+	}
+	_, client := fakeHandlerWithCutover(t, objs...)
+
+	job, cond, terminal := findExistingTerminalJobForStep(context.Background(),
+		&cutoverDeps{core: client, ns: cutoverTestNS}, "egress-block-test")
+	if !terminal {
+		t.Fatalf("findExistingTerminalJobForStep returned terminal=false; want true")
+	}
+	if cond != batchv1.JobComplete {
+		t.Errorf("cond = %q, want %q (Complete must win over Failed when both exist)", cond, batchv1.JobComplete)
+	}
+	if job == nil {
+		t.Fatalf("job == nil; want the Complete=True Job")
+	}
+}
+
+// TestRunCutoverStep_SkipsRerunWhenPriorJobComplete is the canonical
+// Pod-restart regression test for TBD-V56 / #2132. Status ConfigMap
+// shows step result=running; a Complete=True Job for that step
+// already exists in the cluster (from the prior process lifetime).
+// The engine MUST NOT mint a new Job — the t40 10-minute-hold-ran-twice
+// bug. It must flip result=success directly off the prior Job and
+// advance.
+func TestRunCutoverStep_SkipsRerunWhenPriorJobComplete(t *testing.T) {
+	preStatus := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cutoverStatusConfigMapName(),
+			Namespace: cutoverTestNS,
+		},
+		Data: map[string]string{
+			"cutoverComplete":  "false",
+			"cutoverStartedAt": "2026-05-21T04:58:25Z",
+			"totalSteps":       "3",
+			// Step 1 (gitea-mirror) succeeded cleanly in Pod 1.
+			"step.gitea-mirror.result":     "success",
+			"step.gitea-mirror.startedAt":  "2026-05-21T04:58:30Z",
+			"step.gitea-mirror.finishedAt": "2026-05-21T04:59:00Z",
+			// Step 2 (egress-block-test) — Pod 1 crashed AFTER the Job
+			// reached Complete=True but BEFORE the success-patch landed.
+			"step.egress-block-test.result":    "running",
+			"step.egress-block-test.startedAt": "2026-05-21T06:44:24Z",
+			"step.egress-block-test.jobName":   "cutover-egress-block-test-1779345819",
+		},
+	}
+	// The completed Job from Pod 1 is still in the cluster (24h TTL).
+	priorJob := makeCompletedJobForStep("egress-block-test", 13*time.Minute)
+	objs := []k8sruntime.Object{
+		makeCutoverStepCM("cutover-step-01-gitea-mirror", "gitea-mirror", 1, cutoverModeJob, minimalPodSpecYAML, ""),
+		makeCutoverStepCM("cutover-step-02-egress-block-test", "egress-block-test", 2, cutoverModeJob, minimalPodSpecYAML, ""),
+		makeCutoverStepCM("cutover-step-03-mirror-resync", "mirror-resync", 3, cutoverModeJob, minimalPodSpecYAML, ""),
+		preStatus,
+		priorJob,
+	}
+	h, client := fakeHandlerWithCutover(t, objs...)
+	// Auto-complete any Job that DOES get created so the engine can
+	// finish — but we ASSERT that egress-block-test is NOT re-created.
+	installJobReactor(t, client, batchv1.JobComplete)
+
+	// Count Job creates per step.
+	jobCreates := map[string]int{}
+	var muJobs sync.Mutex
+	client.PrependReactor("create", "jobs", func(action clienttesting.Action) (bool, k8sruntime.Object, error) {
+		ca, ok := action.(clienttesting.CreateAction)
+		if !ok {
+			return false, nil, nil
+		}
+		job, ok := ca.GetObject().(*batchv1.Job)
+		if !ok {
+			return false, nil, nil
+		}
+		muJobs.Lock()
+		jobCreates[job.Labels[cutoverStepLabelKey]]++
+		muJobs.Unlock()
+		return false, nil, nil
+	})
+
+	// Fire the on-startup resume path — what cmd/api/main.go calls.
+	h.ResumeInterruptedCutover(context.Background())
+
+	// Wait for engine to terminate.
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		bus := h.cutoverBusFor()
+		bus.mu.Lock()
+		running := bus.running
+		bus.mu.Unlock()
+		if !running {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	cm, err := client.CoreV1().ConfigMaps(cutoverTestNS).Get(context.Background(),
+		cutoverStatusConfigMapName(), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get status ConfigMap: %v", err)
+	}
+	if cm.Data["cutoverComplete"] != "true" {
+		t.Errorf("cutoverComplete = %q, want true; data=%+v", cm.Data["cutoverComplete"], cm.Data)
+	}
+	if cm.Data["step.egress-block-test.result"] != "success" {
+		t.Errorf("step.egress-block-test.result = %q, want success", cm.Data["step.egress-block-test.result"])
+	}
+	if cm.Data["step.egress-block-test.jobName"] != priorJob.Name {
+		t.Errorf("step.egress-block-test.jobName = %q, want %q (must carry the prior Job's name)",
+			cm.Data["step.egress-block-test.jobName"], priorJob.Name)
+	}
+
+	muJobs.Lock()
+	defer muJobs.Unlock()
+	if jobCreates["gitea-mirror"] != 0 {
+		t.Errorf("gitea-mirror Job creates = %d, want 0 (success in prior run)", jobCreates["gitea-mirror"])
+	}
+	// THE CORE ASSERTION — the t40 regression guard.
+	if jobCreates["egress-block-test"] != 0 {
+		t.Errorf("egress-block-test Job creates = %d, want 0 — TBD-V56 idempotency violated: a new Job was minted even though the prior Job is Complete=True", jobCreates["egress-block-test"])
+	}
+	if jobCreates["mirror-resync"] != 1 {
+		t.Errorf("mirror-resync Job creates = %d, want 1 (never ran before)", jobCreates["mirror-resync"])
+	}
+}
+
+// TestRunCutoverStep_SurfacesPriorFailedJob — when the only existing
+// Job for a step is Failed, the engine MUST NOT re-create it. The
+// cutover halts at that step with failedStep + lastError set. Mirrors
+// the existing FailsHaltAtFailedStep semantics but exercises the
+// Pod-restart code path (the failure happened in a prior process).
+func TestRunCutoverStep_SurfacesPriorFailedJob(t *testing.T) {
+	preStatus := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cutoverStatusConfigMapName(),
+			Namespace: cutoverTestNS,
+		},
+		Data: map[string]string{
+			"cutoverComplete":             "false",
+			"cutoverStartedAt":            "2026-05-21T04:58:25Z",
+			"totalSteps":                  "2",
+			"step.gitea-mirror.result":    "running",
+			"step.gitea-mirror.startedAt": "2026-05-21T04:58:30Z",
+		},
+	}
+	priorJob := makeFailedJobForStep("gitea-mirror")
+	objs := []k8sruntime.Object{
+		makeCutoverStepCM("cutover-step-01-gitea-mirror", "gitea-mirror", 1, cutoverModeJob, minimalPodSpecYAML, ""),
+		makeCutoverStepCM("cutover-step-02-egress-block-test", "egress-block-test", 2, cutoverModeJob, minimalPodSpecYAML, ""),
+		preStatus,
+		priorJob,
+	}
+	h, client := fakeHandlerWithCutover(t, objs...)
+
+	jobCreates := map[string]int{}
+	var muJobs sync.Mutex
+	client.PrependReactor("create", "jobs", func(action clienttesting.Action) (bool, k8sruntime.Object, error) {
+		ca, ok := action.(clienttesting.CreateAction)
+		if !ok {
+			return false, nil, nil
+		}
+		job, ok := ca.GetObject().(*batchv1.Job)
+		if !ok {
+			return false, nil, nil
+		}
+		muJobs.Lock()
+		jobCreates[job.Labels[cutoverStepLabelKey]]++
+		muJobs.Unlock()
+		return false, nil, nil
+	})
+
+	h.ResumeInterruptedCutover(context.Background())
+
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		bus := h.cutoverBusFor()
+		bus.mu.Lock()
+		running := bus.running
+		bus.mu.Unlock()
+		if !running {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	cm, err := client.CoreV1().ConfigMaps(cutoverTestNS).Get(context.Background(),
+		cutoverStatusConfigMapName(), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get status ConfigMap: %v", err)
+	}
+	if cm.Data["cutoverComplete"] == "true" {
+		t.Errorf("cutoverComplete = true, want false (prior Failed Job halts the cutover)")
+	}
+	if cm.Data["failedStep"] != "gitea-mirror" {
+		t.Errorf("failedStep = %q, want gitea-mirror", cm.Data["failedStep"])
+	}
+	if cm.Data["step.gitea-mirror.result"] != "failed" {
+		t.Errorf("step.gitea-mirror.result = %q, want failed", cm.Data["step.gitea-mirror.result"])
+	}
+	muJobs.Lock()
+	defer muJobs.Unlock()
+	if jobCreates["gitea-mirror"] != 0 {
+		t.Errorf("gitea-mirror Job creates = %d, want 0 (prior Failed Job must NOT be re-created)", jobCreates["gitea-mirror"])
+	}
+	if jobCreates["egress-block-test"] != 0 {
+		t.Errorf("egress-block-test Job creates = %d, want 0 (engine must halt at the failed step)", jobCreates["egress-block-test"])
+	}
+}
+
+// TestHandleCutoverStart_IdempotentReusesPriorCompleteJob — the same
+// guarantee through the HTTP /start path. Operator/auto-trigger hits
+// /start on a Pod that hasn't yet picked up the prior-process state;
+// the engine must observe the prior Complete=True Job and NOT re-run.
+func TestHandleCutoverStart_IdempotentReusesPriorCompleteJob(t *testing.T) {
+	preStatus := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cutoverStatusConfigMapName(),
+			Namespace: cutoverTestNS,
+		},
+		Data: map[string]string{
+			"cutoverComplete":  "false",
+			"cutoverStartedAt": "2026-05-21T04:58:25Z",
+			"totalSteps":       "1",
+			// Empty per-step rows — the orchestrator's perspective on
+			// boot; the Jobs in the cluster are the source of truth.
+		},
+	}
+	priorJob := makeCompletedJobForStep("only-step", 1*time.Minute)
+	objs := []k8sruntime.Object{
+		makeCutoverStepCM("cutover-step-01-only-step", "only-step", 1, cutoverModeJob, minimalPodSpecYAML, ""),
+		preStatus,
+		priorJob,
+	}
+	h, client := fakeHandlerWithCutover(t, objs...)
+	installJobReactor(t, client, batchv1.JobComplete)
+
+	jobCreates := 0
+	var muJobs sync.Mutex
+	client.PrependReactor("create", "jobs", func(action clienttesting.Action) (bool, k8sruntime.Object, error) {
+		muJobs.Lock()
+		jobCreates++
+		muJobs.Unlock()
+		return false, nil, nil
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sovereign/cutover/start", nil)
+	h.HandleCutoverStart(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		bus := h.cutoverBusFor()
+		bus.mu.Lock()
+		running := bus.running
+		bus.mu.Unlock()
+		if !running {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	muJobs.Lock()
+	defer muJobs.Unlock()
+	if jobCreates != 0 {
+		t.Errorf("Job creates = %d, want 0 (prior Complete Job must be reused, not re-minted)", jobCreates)
+	}
+
+	cm, err := client.CoreV1().ConfigMaps(cutoverTestNS).Get(context.Background(),
+		cutoverStatusConfigMapName(), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get status ConfigMap: %v", err)
+	}
+	if cm.Data["cutoverComplete"] != "true" {
+		t.Errorf("cutoverComplete = %q, want true", cm.Data["cutoverComplete"])
+	}
+	if cm.Data["step.only-step.result"] != "success" {
+		t.Errorf("step.only-step.result = %q, want success", cm.Data["step.only-step.result"])
+	}
+}
