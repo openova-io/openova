@@ -4,11 +4,11 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-21T15:45:04Z` |
+| Last refreshed | `2026-05-21T16:00:20Z` |
 | Open issues | 79 |
-| Open DoD gates | 0 / 41 |
+| Open DoD gates | 7 / 41 |
 | Open TBD-* regressions | 68 |
-| DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
+| DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 34 / 41 = 82% |
 
 **Legend:** <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> done · <img alt="WAITING_PROV" src="https://img.shields.io/badge/-WAITING__PROV-bf8700?style=flat-square" /> fix shipped, awaits prov · <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> open · <img alt="DEFERRED" src="https://img.shields.io/badge/-DEFERRED-6e7781?style=flat-square" /> deferred
 
@@ -285,6 +285,36 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-05-21T13:16 | [#2137](https://github.com/openova-io/openova/pull/2137) | #14 | chore(privacy): redact private partner identity from public  |
+| 2026-05-21T12:19 | [#2136](https://github.com/openova-io/openova/pull/2136) | #2131 | fix(catalyst-api): one-shot reads bypass informer cache (Ref |
+| 2026-05-21T08:51 | [#2135](https://github.com/openova-io/openova/pull/2135) | #2132 | fix(catalyst-api): cutover state-machine idempotent + Job-st |
+| 2026-05-21T07:59 | [#2134](https://github.com/openova-io/openova/pull/2134) | #2133 | feat(marketplace): Pillar 2 BCP wizard step writes to cart.a |
+| 2026-05-21T06:47 | [#2129](https://github.com/openova-io/openova/pull/2129) | #14 | fix(kyverno): cert-manager-issued TLS + wait-for-secret init |
+| 2026-05-21T04:19 | [#2124](https://github.com/openova-io/openova/pull/2124) | #1099 | fix(k8scache): bound event-informer LIST to stop catalyst-ap |
+| 2026-05-20T20:30 | [#2122](https://github.com/openova-io/openova/pull/2122) | #2081 | fix(bootstrap-kit): publish bp-continuum:0.1.2 + lockstep pi |
+| 2026-05-20T20:24 | [#2120](https://github.com/openova-io/openova/pull/2120) | #2115 | fix(newapi): rename qwenBankDhofar channel row name -> qwen  |
+| 2026-05-20T19:50 | [#2119](https://github.com/openova-io/openova/pull/2119) | #1985 | fix(catalyst-platform): hoist parent_domains_listeners YAML  |
+| 2026-05-20T19:02 | [#2117](https://github.com/openova-io/openova/pull/2117) | #2116 | fix(newapi+vllm): flip vllm defaults OFF — OMTD Bank Dhofar  |
+| 2026-05-20T18:33 | [#2116](https://github.com/openova-io/openova/pull/2116) | #14 | feat(newapi+vllm): wire bp-vllm slot 39 + default in-cluster |
+| 2026-05-20T17:59 | [#2114](https://github.com/openova-io/openova/pull/2114) | #11 | docs(claude): 2026-05-20 session lessons — 10 amnesia anti-p |
+| 2026-05-20T13:05 | [#2110](https://github.com/openova-io/openova/pull/2110) | #665 | docs(consolidate): fold 4 ops/runbook orphans into RUNBOOKS. |
+| 2026-05-20T12:54 | [#2109](https://github.com/openova-io/openova/pull/2109) | #2104 | docs(consolidate): fold SECRET-ROTATION into SECURITY + STAT |
+| 2026-05-20T13:12 | [#2107](https://github.com/openova-io/openova/pull/2107) | #2100 | docs(consolidate): fold 3 strategy orphans into BUSINESS-STR |
+| 2026-05-20T12:50 | [#2106](https://github.com/openova-io/openova/pull/2106) | #2102 | docs(consolidate): fold 4 architecture orphans into ARCHITEC |
+| 2026-05-20T12:37 | [#2099](https://github.com/openova-io/openova/pull/2099) | #2097 | docs(readme): tree-view documentation index + archive orphan |
+| 2026-05-20T10:36 | [#2096](https://github.com/openova-io/openova/pull/2096) | #2095 | test(dynadot-webhook): skip 3 flaky solver tests pending TBD |
+| 2026-05-20T10:40 | [#2094](https://github.com/openova-io/openova/pull/2094) | #2071 | feat(docs): lean documentation strategy — consolidate 16 doc |
+| 2026-05-20T08:24 | [#2093](https://github.com/openova-io/openova/pull/2093) | #2087 | ci: elevate smoke-render guard to pre-merge (prevents dual-a |
+| 2026-05-20T08:05 | [#2091](https://github.com/openova-io/openova/pull/2091) | #2090 | fix(bp-network-policies): add smoke-render-mode=default-off  |
+| 2026-05-20T07:54 | [#2090](https://github.com/openova-io/openova/pull/2090) | #2087 | fix(charts): add no-upstream annotation to bp-network-polici |
+| 2026-05-20T07:51 | [#2087](https://github.com/openova-io/openova/pull/2087) | #181 | ci: elevate hollow-chart guard to pre-merge check (Refs #208 |
+| 2026-05-20T07:32 | [#2084](https://github.com/openova-io/openova/pull/2084) | #1085 | docs: move OpenOva-platform specifics into canonical docs (5 |
+| 2026-05-20T07:35 | [#2082](https://github.com/openova-io/openova/pull/2082) | #1094 | ci: pre-merge guard - reject Closes/Fixes/Resolves keywords  |
+| 2026-05-20T06:50 | [#2079](https://github.com/openova-io/openova/pull/2079) | #2064 | docs(trust): flip Pillar 3 to CODE-COMPLETE — 5/5 audit find |
+| 2026-05-20T06:42 | [#2078](https://github.com/openova-io/openova/pull/2078) | docs(claude): add user-global pointer + scope-clarification  |  |
+| 2026-05-20T06:41 | [#2076](https://github.com/openova-io/openova/pull/2076) | docs: migrate platform governance ledger from openova-privat |  |
+| 2026-05-20T06:41 | [#2075](https://github.com/openova-io/openova/pull/2075) | #2067 | feat(continuum/d31-acceptance): ship CNPG region-kill zero-t |
+| 2026-05-20T06:35 | [#2074](https://github.com/openova-io/openova/pull/2074) | #12 | feat(tenant-gitops): emit Continuum CR for each multi-region |
 
 ---
 
