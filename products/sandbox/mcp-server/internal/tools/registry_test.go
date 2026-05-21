@@ -146,7 +146,7 @@ func TestRegistry_AuthGate_OrgMismatch(t *testing.T) {
 	})
 	cl := &sharedauth.Claims{
 		Email:        "u@x",
-		OrgID:        "bankdhofar",
+		OrgID:        "acmebank",
 		Capabilities: []string{"gitea.repo.list", "sandbox.session.*"},
 	}
 	_, err := r.Call(context.Background(), "gitea.repo.list", nil, CallOpts{Claims: cl})

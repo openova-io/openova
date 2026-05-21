@@ -103,7 +103,6 @@ Every UI surface reads from a single CQRS projection.
 Same code runs in every Sovereign:
   - openova         (run by us; SaaS Organizations)
   - omantel         (run by Omantel; SME Organizations across Oman)
-  - bankdhofar      (run by the bank; internal Organizations)
   - your-company    (run by you, on infrastructure you choose)
 ```
 

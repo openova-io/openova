@@ -29,7 +29,7 @@ OPENAI_API_KEY=<per-sandbox-token>             # alias for off-the-shelf agents
 
 The `OPENAI_*` aliases mean a stock `opencode`, `aider`, `claude --model gpt-4o`, or any LangChain/Vercel-AI-SDK app works out of the box without a Sandbox-specific config flag — the moat lives in *which* gateway URL these env vars point at, not in a custom protocol.
 
-`<sov-fqdn>` is the Sovereign's primary FQDN (e.g. `acme.openova.io`, `bankdhofar.com`). `<per-sandbox-token>` is the PAT minted by the bridge described in §3 below.
+`<sov-fqdn>` is the Sovereign's primary FQDN (e.g. `acme.openova.io`, `<customer-sovereign-fqdn>`). `<per-sandbox-token>` is the PAT minted by the bridge described in §3 below.
 
 ---
 
@@ -43,11 +43,11 @@ newapi exposes a single OpenAI-compatible endpoint per *channel*. Each channel i
 | **Explicit provider hint** | The agent wants a specific channel (cheap vLLM / premium Anthropic / BYOK / sandbox-cheap). It sends `?provider=<channel-name>` on the request URL. newapi treats unknown channels as 404. | query param |
 | **Per-session pin** | The user toggled "use my Max subscription" in the Sandbox settings (see `claude-code-byos.md`). The agent skips newapi entirely and talks to `api.anthropic.com` with the user's refresh-token-derived access token. | bypass |
 
-Currently wired in production (verified against `platform/newapi/README.md` + the Bank Dhofar tenancy):
+Currently wired in production (verified against `platform/newapi/README.md` + the partner-hosted Qwen tenancy):
 
 | Channel | Upstream | Notes |
 |---|---|---|
-| `qwen` (default) | Bank Dhofar enterprise Qwen at `omtd.bankdhofar.com` | The single channel wired today; default for every Sandbox until §4 lands |
+| `qwen` (default) | Partner-hosted enterprise Qwen at an operator-supplied endpoint | The single channel wired today; default for every Sandbox until §4 lands |
 
 Planned (no PR yet — Wave 4):
 

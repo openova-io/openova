@@ -571,8 +571,8 @@ name: bp-catalyst-platform
 # introduced the marketplace HTTPRoutes + SME microservice mesh as
 # operator opt-in because (a) marketplace-api-secrets did not yet
 # auto-generate via sprig randAlphaNum (added in 1.4.15, issue #887),
-# (b) the qwenBankDhofar slot in newapi hard-failed without an
-# operator-supplied LLM_BANK_DHOFAR_ACCOUNT_ID + CONTRACT_REF (gracefully
+# (b) the qwenPartner slot in newapi hard-failed without an
+# operator-supplied LLM_PARTNER_ACCOUNT_ID + CONTRACT_REF (gracefully
 # skipped since newapi 1.4.10, this repo), and (c) marketplace branding
 # fields (logo, brand color, primary color, Stripe keys) were required
 # rather than having safe placeholder defaults (placeholders shipped in
@@ -2491,7 +2491,7 @@ appVersion: 1.4.235
 # defaults the sandbox chart's NEWAPI_DEFAULT_CHANNELS env to `qwen`
 # (TBD-D35c) so the controller no longer fails per-Sandbox token mint
 # with NoAllowedChannels (sandbox_controller.go:191) — single channel
-# `qwen` is the alias for `qwen3.6-bankdhofar` per
+# `qwen` is the partner-hosted channel row name per
 # products/sandbox/docs/newapi-proxy-contract.md §2, the only channel
 # bp-newapi's channel-seed-job.yaml writes on a fresh install.
 # Bootstrap-kit slot 19a substitutes ${SANDBOX_DEFAULT_CHANNELS:-qwen}

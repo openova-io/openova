@@ -173,7 +173,7 @@ Each Sovereign's Gitea mirrors the public Blueprint catalog from this repo. Pull
 - "Catalyst — the OpenOva platform."
 - "A Sovereign is a self-sufficient deployment of Catalyst."
 - "Nova was just a Sovereign run by us. Now we say 'the openova Sovereign'."
-- "Same code in every Sovereign — whether run by us, by Omantel, or by Bank Dhofar."
+- "Same code in every Sovereign — whether run by us, by Omantel, or by a customer self-hosting under a private agreement."
 
 ---
 

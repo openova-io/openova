@@ -15,7 +15,7 @@
 //  3. Scopes the request to claims.OrgID — for `gitea.repo.list` this
 //     pins the listed Org to the bearer's Org; for repo/pr operations
 //     it rejects any owner that doesn't match (so a bearer with
-//     OrgID=acme cannot enumerate repos under `bankdhofar/...`).
+//     OrgID=acme cannot enumerate repos under `acmebank/...`).
 //  4. Calls the pkg/gitea method, wraps the typed errors into a
 //     short JSON-friendly shape ({"error":"...","status":404}).
 //

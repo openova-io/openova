@@ -1,0 +1,17 @@
+name: privacy-redact-guard
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject private partner names
+        run: |
+          if git grep -ni -E 'bankdhofar|omtd\.bankdhofar|bank\.dhofar' --untracked -- ':!.github/workflows/redact-guard.yml'; then
+            echo "::error::Private partner name detected — remove before merge (privacy P0 policy)"
+            exit 1
+          fi

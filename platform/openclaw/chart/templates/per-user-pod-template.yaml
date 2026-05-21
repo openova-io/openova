@@ -74,7 +74,7 @@ data:
             # Default model identifier sent by the runtime when the
             # client doesn't override. NewAPI uses the model name to
             # select a channel; for #915 DoD this is "qwen3.6" and C4
-            # wires the BankDhofar channel routing.
+            # wires the partner-hosted channel routing.
             - name: LLM_DEFAULT_MODEL
               value: {{ include "bp-openclaw.llm.defaultModel" . | quote }}
             {{- range .Values.perUserPod.extraEnv }}

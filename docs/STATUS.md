@@ -176,7 +176,7 @@ Every guard listed here is a pre-merge check that fails the PR if violated. This
 | `openova` Catalyst-Zero (mothership) | 🚧 | Running on Contabo k3s today in namespaces `catalyst`, `sme`, `marketplace`, `website`. Pods include catalyst-{ui,api}, console, admin, marketplace, marketplace-api. The mothership IS the catalyst-provisioner that provisions every other Sovereign. |
 | Per-PR test Sovereigns | 🚧 | Convention: `t<NN>.omani.works` (or `t<NN>.omantel.biz` if LE-rate-limited). Provisioned fresh per session for the deterministic 2-phase walk. Forbidden test domains: `openova.io`, `omantel.openova.io`, `Nova Cloud`, `eventforge.io`. |
 | `omantel` (first franchised Sovereign, target: `omantel.omani.works` on Hetzner) | 📐 | To be provisioned via the canonical wizard from mothership. |
-| `bankdhofar` | 📐 | Planned. Customer-hosted. Not yet provisioned. |
+| Customer-hosted Sovereigns | 📐 | Customers run their own Sovereigns under their own private agreements. Partner identities are intentionally not surfaced in this public catalog. |
 
 ---
 

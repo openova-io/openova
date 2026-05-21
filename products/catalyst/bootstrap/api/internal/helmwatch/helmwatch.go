@@ -194,8 +194,8 @@ const DefaultLatePollInterval = 30 * time.Second
 // SSE stream.
 //
 // 10 seconds is sized well above the healthy handshake observed in
-// production (sub-second on otech10x and on contabo's BankDhofar
-// Qwen probe — same network position), with headroom for slow
+// production (sub-second on otech10x and on the partner-hosted Qwen
+// probe over a similar network position), with headroom for slow
 // Hetzner regions.
 const DefaultReachabilityProbeTimeout = 10 * time.Second
 

@@ -1,10 +1,10 @@
 {{- /*
 Channel-seed Job (issue #915, parent epic #915).
 
-Per-Sovereign NewAPI MUST come up with channel #1 = Qwen3.6 hosted at
-BankDhofar already wired, so the FIRST customer request from an SME's
-OpenClaw → NewAPI hits a real upstream LLM rather than a 404 / "no
-channel found" error. The chart's existing ConfigMap (channels.yaml
+Per-Sovereign NewAPI MUST come up with channel #1 (the partner-hosted
+Qwen channel) already wired, so the FIRST customer request from an
+SME's OpenClaw → NewAPI hits a real upstream LLM rather than a 404 /
+"no channel found" error. The chart's existing ConfigMap (channels.yaml
 mounted at /etc/newapi/channels.yaml) is a documentation surface only —
 the upstream NewAPI binary persists channel state to its Postgres
 `channels` table via its admin API. This Job bridges that gap.
@@ -41,43 +41,43 @@ Authorization:
 Skip-render:
   - When `channelSeed.enabled: false` the Job + RBAC bundle is
     suppressed entirely.
-  - When NO default channel is enabled (`qwenBankDhofar.enabled:
+  - When NO default channel is enabled (`qwenPartner.enabled:
     false` AND no other future defaultChannels.* slot is on), the
     Job has nothing to seed and is also suppressed (no-op render).
   - When the operator has not supplied `auth.adminUI.masterKeySecret`,
     the Job has no auth and is suppressed; the operator's own
     out-of-band channel-creation flow takes over.
 
-Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) every
-operationally-meaningful value flows from values.yaml — image,
-resources, backoff, deadline, channel list itself.
+Per docs/PRINCIPLES.md #4 (never hardcode) every operationally-
+meaningful value flows from values.yaml — image, resources, backoff,
+deadline, channel list itself.
 
 Issue #915, 2026-05-05.
 */}}
 {{- $cs := .Values.channelSeed | default dict -}}
-{{- $qbd := (.Values.defaultChannels | default dict).qwenBankDhofar | default dict -}}
+{{- $qp := (.Values.defaultChannels | default dict).qwenPartner | default dict -}}
 {{- /* Mirror the attestation gate from _helpers.tpl effectiveChannels:
        skip seeding when commercial-contract attestation is incomplete.
        Otherwise the Job would POST a channel whose ConfigMap row was
        omitted from /etc/newapi/channels.yaml. */}}
-{{- $qbdAtt := $qbd.attestation | default (dict "kind" "commercial-contract") -}}
-{{- $qbdAttReady := true -}}
-{{- if and $qbd.enabled (eq (default "" $qbdAtt.kind) "commercial-contract") -}}
-  {{- if or (not $qbdAtt.accountId) (not $qbdAtt.contractRef) -}}
-    {{- $qbdAttReady = false -}}
+{{- $qpAtt := $qp.attestation | default (dict "kind" "commercial-contract") -}}
+{{- $qpAttReady := true -}}
+{{- if and $qp.enabled (eq (default "" $qpAtt.kind) "commercial-contract") -}}
+  {{- if or (not $qpAtt.accountId) (not $qpAtt.contractRef) -}}
+    {{- $qpAttReady = false -}}
   {{- end -}}
 {{- end -}}
-{{- $qbdReady := and $qbd.enabled $qbdAttReady -}}
+{{- $qpReady := and $qp.enabled $qpAttReady -}}
 {{- /* TBD-V45 (#2115, 2026-05-20): also seed the in-cluster vLLM
        channel when defaultChannels.vllm.enabled=true. The vLLM
        channel is in-cluster (attestation.kind=in-cluster) so it
        needs no upstream API key — the seed Job POSTs an empty
        string in the channel's `key` field. The seed gate fires
-       when EITHER qwenBankDhofar OR vllm is enabled (both compose
+       when EITHER qwenPartner OR vllm is enabled (both compose
        into effectiveChannels via _helpers.tpl). */}}
 {{- $vllm := (.Values.defaultChannels | default dict).vllm | default dict -}}
 {{- $vllmReady := and $vllm.enabled (ne (default "" $vllm.endpoint) "") -}}
-{{- $hasDefaults := or $qbdReady $vllmReady -}}
+{{- $hasDefaults := or $qpReady $vllmReady -}}
 {{- $masterKeySecret := .Values.auth.adminUI.masterKeySecret | default "" -}}
 {{- if and $cs.enabled $hasDefaults $masterKeySecret -}}
 {{- $jobName := include "bp-newapi.channelSeedJobName" . -}}
@@ -121,8 +121,8 @@ rules:
     resources: ["secrets"]
     resourceNames:
       - {{ $masterKeySecret | quote }}
-{{- if and $qbdReady $qbd.existingSecret }}
-      - {{ $qbd.existingSecret | quote }}
+{{- if and $qpReady $qp.existingSecret }}
+      - {{ $qp.existingSecret | quote }}
 {{- end }}
 {{- /* TBD-V45 (#2115): vLLM channel uses no upstream API key
        (in-cluster Service auth is not required for the bp-vllm
@@ -180,12 +180,12 @@ metadata:
 data:
   channels.json: |
     {{- $list := list }}
-    {{- if $qbdReady }}
+    {{- if $qpReady }}
       {{- $list = append $list (dict
-            "name"     (default "qwen" $qbd.name)
+            "name"     (default "qwen" $qp.name)
             "type"     "openai-compatible"
-            "endpoint" $qbd.endpoint
-            "models"   (default (list "qwen3.6" "qwen3-coder") $qbd.models)) }}
+            "endpoint" $qp.endpoint
+            "models"   (default (list "qwen3.6" "qwen3-coder") $qp.models)) }}
     {{- end }}
     {{- /* TBD-V45 (#2115): in-cluster vLLM audit row. */}}
     {{- if $vllmReady }}
@@ -277,12 +277,12 @@ spec:
                 secretKeyRef:
                   name: {{ $masterKeySecret | quote }}
                   key: MASTER_KEY
-{{- if and $qbdReady $qbd.existingSecret }}
-            - name: QWEN_BANKDHOFAR_KEY
+{{- if and $qpReady $qp.existingSecret }}
+            - name: QWEN_PARTNER_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ $qbd.existingSecret | quote }}
-                  key: {{ $qbd.existingSecretKey | default "API_KEY" | quote }}
+                  name: {{ $qp.existingSecret | quote }}
+                  key: {{ $qp.existingSecretKey | default "API_KEY" | quote }}
 {{- end }}
           command:
             - /bin/sh
@@ -363,7 +363,7 @@ spec:
                   # `{"success":true,"data":[{"id":...,"name":"...",...}]}`.
                   # We grep for the literal `"name":"<name>"` substring
                   # using `-F` (fixed-string) so channel names with `.` /
-                  # other regex metacharacters (e.g. `qwen3.6-bankdhofar`)
+                  # other regex metacharacters (e.g. `qwen3.6-partner`)
                   # do not become wildcards.
                   if grep -qF "\"name\":\"${name}\"" /tmp/probe-resp; then
                     echo "  [SKIP] channel ${name} already exists"
@@ -420,8 +420,8 @@ spec:
               }
 
               echo "Channel-seed: seeding default channels"
-{{- if $qbdReady }}
-              # ── Channel #1: Qwen3.6 @ BankDhofar (#915) ────────────
+{{- if $qpReady }}
+              # ── Channel #1: Qwen (partner-hosted, #915) ────────────
               # NewAPI's `type` field for OpenAI-compatible upstreams is
               # "openai" (constants/channel_type.go ChannelTypeOpenAI).
               # The chart's effectiveChannels helper marks the type as
@@ -429,11 +429,11 @@ spec:
               # pointer; the seed Job translates that to NewAPI's
               # registry value here.
               seed_channel \
-                {{ (default "qwen" $qbd.name) | quote }} \
+                {{ (default "qwen" $qp.name) | quote }} \
                 "openai" \
-                {{ $qbd.endpoint | quote }} \
-                {{ join "," (default (list "qwen3.6" "qwen3-coder") $qbd.models) | quote }} \
-                "${QWEN_BANKDHOFAR_KEY}"
+                {{ $qp.endpoint | quote }} \
+                {{ join "," (default (list "qwen3.6" "qwen3-coder") $qp.models) | quote }} \
+                "${QWEN_PARTNER_KEY}"
 {{- end }}
 {{- if $vllmReady }}
               # ── Channel: In-cluster vLLM (TBD-V45 / #2115) ─────────

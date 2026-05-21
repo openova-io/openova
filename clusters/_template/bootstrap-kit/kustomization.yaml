@@ -94,7 +94,7 @@ resources:
   # no-third-party-contract Qwen channel out of the box.
   #
   # TBD-V45 (#2115, 2026-05-20): closes the canonical-DoD gap that the
-  # only seedable bp-newapi channel was triple-gated on a Bank Dhofar
+  # only seedable bp-newapi channel was triple-gated on a partner
   # commercial contract. Default-ON via ${SOVEREIGN_VLLM_ENABLED:-true}
   # on the bootstrap-kit Kustomization substitute; lockstep with slot
   # 80's `defaultChannels.vllm.enabled` so the newapi channel is

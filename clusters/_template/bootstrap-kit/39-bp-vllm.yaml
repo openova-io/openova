@@ -7,13 +7,13 @@
 #
 # ─── Why this slot exists (TBD-V45 / issue #2115) ─────────────────────
 #
-# Before TBD-V45 a fresh Sovereign provisioned WITHOUT a Bank Dhofar
+# Before TBD-V45 a fresh Sovereign provisioned WITHOUT a partner
 # commercial contract had NO working LLM channel for the canonical
 # qwen-code agent (memory `feedback_canonical_end_user_dod.md`: "qwen-
 # code routes via newapi → Sovereign-hosted Qwen, zero Anthropic
-# cost-leak"). The only seedable bp-newapi channel was
-# `qwen3.6-bankdhofar` — triple-gated on `LLM_BANK_DHOFAR_ACCOUNT_ID`
-# / `LLM_BANK_DHOFAR_CONTRACT_REF` / per-Sovereign API-key Secret. With
+# cost-leak"). The only seedable bp-newapi channel was the
+# `qwenPartner` row — triple-gated on `LLM_PARTNER_ACCOUNT_ID`
+# / `LLM_PARTNER_CONTRACT_REF` / per-Sovereign API-key Secret. With
 # none of those present, bp-newapi's channel-seed Helm hook Job
 # suppressed entirely and the customer-facing /v1/chat/completions
 # returned 404 "channel not found" on the first qwen-code request.
@@ -170,13 +170,14 @@ spec:
     # to false on per-Sovereign overlays where (a) resources are too
     # constrained for in-cluster inference OR (b) the operator is
     # bringing a commercial Qwen contract and prefers to route 100%
-    # of traffic to the BankDhofar relay. Keep lockstep with slot 80's
-    # `defaultChannels.vllm.enabled` so the newapi channel is composed
-    # iff this Deployment is rendered.
+    # of traffic to the partner-hosted relay. Keep lockstep with slot
+    # 80's `defaultChannels.vllm.enabled` so the newapi channel is
+    # composed iff this Deployment is rendered.
     vllm:
-      # DEFAULT OFF (2026-05-20): canonical LLM backend is omtd.bankdhofar.com
-      # via bp-newapi's qwenBankDhofar channel. In-cluster vLLM is an opt-in
-      # fallback for Sovereigns that cannot/should-not depend on the OMTD
+      # DEFAULT OFF (2026-05-20): canonical LLM backend is the operator-
+      # supplied customer-managed LLM partner endpoint via bp-newapi's
+      # qwenPartner channel. In-cluster vLLM is an opt-in fallback for
+      # Sovereigns that cannot/should-not depend on the partner
       # commercial relay. Operator overlays opt-IN with SOVEREIGN_VLLM_ENABLED=true.
       enabled: ${SOVEREIGN_VLLM_ENABLED:-false}
       replicas: 1

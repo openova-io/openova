@@ -128,7 +128,7 @@ func TestGiteaRepoList_CrossTenantBlocked(t *testing.T) {
 	env := &Env{OrgID: "acme", GiteaBaseURL: srv.URL, GiteaToken: "tok"}
 	r := NewRegistry(env)
 
-	args := json.RawMessage(`{"owner":"bankdhofar"}`)
+	args := json.RawMessage(`{"owner":"acmebank"}`)
 	_, err := r.Call(context.Background(), "gitea.repo.list", args, CallOpts{})
 	if err == nil || !strings.Contains(err.Error(), "cross-tenant") {
 		t.Errorf("err = %v, want cross-tenant", err)

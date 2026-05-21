@@ -37,7 +37,7 @@
 //	           Forwarded into NewAPI's per-request X-User-Id for the
 //	           billing ledger.
 //	channels — list of channel names the Sandbox Pod is allowed to
-//	           target (e.g. ["qwen3.6-bankdhofar"]). NewAPI's channel
+//	           target (e.g. ["qwen3.6"]). NewAPI's channel
 //	           router enforces this allowlist server-side; a token
 //	           with channels:["a","b"] cannot call channel "c".
 //	exp      — 7 days from issuance. Matches PAT.DefaultPATTTL.

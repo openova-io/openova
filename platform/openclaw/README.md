@@ -78,7 +78,7 @@ The chart fails to render if any of these are unset (see
 | `oidc.clientSecret.name` | `openclaw-oidc-client-secret` (Secret with key `OIDC_CLIENT_SECRET`) |
 | `llm.baseURL` | `https://api.acme.<parent-domain>/v1` (per-tenant NewAPI OpenAI-compatible endpoint) |
 | `llm.apiKey.name` | `openclaw-newapi-controller-token` (Secret with key `NEWAPI_KEY`) |
-| `llm.defaultModel` | `qwen3.6` (NewAPI maps this to a backing channel — e.g. Qwen3.6@BankDhofar) |
+| `llm.defaultModel` | `qwen3.6` (NewAPI maps this to a backing channel — e.g. a partner-hosted Qwen) |
 | `tenant.namespace` | `sme-acme` |
 | `controller.image.tag` | SHA-pinned tag (Inviolable Principle 4) |
 | `perUserPod.image.tag` | SHA-pinned tag (Inviolable Principle 4) |

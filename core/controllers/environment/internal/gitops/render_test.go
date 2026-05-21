@@ -28,7 +28,7 @@ func TestBranchForEnvType(t *testing.T) {
 // Verify the JetStream subject-prefix derivation per NAMING §11.2 item 4.
 func TestJetStreamSubjectPrefix(t *testing.T) {
 	assert.Equal(t, "ws.acme-prod.>", JetStreamSubjectPrefix("acme", "prod"))
-	assert.Equal(t, "ws.bankdhofar-uat.>", JetStreamSubjectPrefix("bankdhofar", "uat"))
+	assert.Equal(t, "ws.acmebank-uat.>", JetStreamSubjectPrefix("acmebank", "uat"))
 }
 
 // Verify the host-cluster name derivation per NAMING §4.1 with explicit
@@ -144,5 +144,5 @@ func TestRenderGitRepository_RequiredFields(t *testing.T) {
 // Verify EnvironmentName composition.
 func TestEnvironmentName(t *testing.T) {
 	assert.Equal(t, "acme-prod", EnvironmentName("acme", "prod"))
-	assert.Equal(t, "bankdhofar-uat", EnvironmentName("bankdhofar", "uat"))
+	assert.Equal(t, "acmebank-uat", EnvironmentName("acmebank", "uat"))
 }

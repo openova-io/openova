@@ -58,10 +58,10 @@ func doRequest(t *testing.T, h *Handler, method, body, bearer string) *httptest.
 func TestSandboxToken_HappyPath(t *testing.T) {
 	h := newTestHandler()
 	body := `{
-		"org_id": "bankdhofar",
-		"user_id": "alice@bankdhofar.com",
+		"org_id": "acmebank",
+		"user_id": "alice@acmebank.example.test",
 		"sandbox_id": "sb-uid-12345",
-		"allowed_channels": ["qwen3.6-bankdhofar"]
+		"allowed_channels": ["qwen3.6"]
 	}`
 	rr := doRequest(t, h, http.MethodPost, body, string(h.AdminSecret))
 	if rr.Code != http.StatusOK {
@@ -96,18 +96,18 @@ func TestSandboxToken_HappyPath(t *testing.T) {
 	if got, _ := claims["sub"].(string); got != "sb-uid-12345" {
 		t.Errorf("sub: got %q want sb-uid-12345", got)
 	}
-	if got, _ := claims["org"].(string); got != "bankdhofar" {
-		t.Errorf("org: got %q want bankdhofar", got)
+	if got, _ := claims["org"].(string); got != "acmebank" {
+		t.Errorf("org: got %q want acmebank", got)
 	}
-	if got, _ := claims["user"].(string); got != "alice@bankdhofar.com" {
-		t.Errorf("user: got %q want alice@bankdhofar.com", got)
+	if got, _ := claims["user"].(string); got != "alice@acmebank.example.test" {
+		t.Errorf("user: got %q want alice@acmebank.example.test", got)
 	}
 	if got, _ := claims["typ"].(string); got != SandboxTokenType {
 		t.Errorf("typ: got %q want %q", got, SandboxTokenType)
 	}
 	chs, _ := claims["channels"].([]any)
-	if len(chs) != 1 || chs[0] != "qwen3.6-bankdhofar" {
-		t.Errorf("channels: got %v want [qwen3.6-bankdhofar]", chs)
+	if len(chs) != 1 || chs[0] != "qwen3.6" {
+		t.Errorf("channels: got %v want [qwen3.6]", chs)
 	}
 }
 
@@ -224,7 +224,7 @@ func TestMintSandboxToken_RoundTrip(t *testing.T) {
 		Sub:      "sb-uid-xyz",
 		Org:      "acme",
 		User:     "ceo@acme.com",
-		Channels: []string{"qwen3.6-bankdhofar", "vllm-cheap"},
+		Channels: []string{"qwen3.6", "vllm-cheap"},
 		IssuedAt: now,
 		ExpireAt: exp,
 	})
