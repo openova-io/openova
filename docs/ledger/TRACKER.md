@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-21T12:15:02Z` |
+| Last refreshed | `2026-05-21T12:30:13Z` |
 | Open issues | 79 |
 | Open DoD gates | 7 / 41 |
 | Open TBD-* regressions | 68 |
@@ -285,6 +285,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-05-21T12:19 | [#2136](https://github.com/openova-io/openova/pull/2136) | #2131 | fix(catalyst-api): one-shot reads bypass informer cache (Ref |
 | 2026-05-21T08:51 | [#2135](https://github.com/openova-io/openova/pull/2135) | #2132 | fix(catalyst-api): cutover state-machine idempotent + Job-st |
 | 2026-05-21T07:59 | [#2134](https://github.com/openova-io/openova/pull/2134) | #2133 | feat(marketplace): Pillar 2 BCP wizard step writes to cart.a |
 | 2026-05-21T06:47 | [#2129](https://github.com/openova-io/openova/pull/2129) | #14 | fix(kyverno): cert-manager-issued TLS + wait-for-secret init |
@@ -314,7 +315,6 @@ flowchart LR
 | 2026-05-20T06:41 | [#2075](https://github.com/openova-io/openova/pull/2075) | #2067 | feat(continuum/d31-acceptance): ship CNPG region-kill zero-t |
 | 2026-05-20T06:35 | [#2074](https://github.com/openova-io/openova/pull/2074) | #12 | feat(tenant-gitops): emit Continuum CR for each multi-region |
 | 2026-05-20T06:27 | [#2073](https://github.com/openova-io/openova/pull/2073) | #2064 | feat(provisioning): generalize bp-cnpg-pair install path bey |
-| 2026-05-20T06:10 | [#2072](https://github.com/openova-io/openova/pull/2072) | #2064 | feat(bootstrap-kit): wire bp-continuum (failover orchestrato |
 
 ---
 
