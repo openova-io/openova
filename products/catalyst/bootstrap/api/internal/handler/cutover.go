@@ -573,6 +573,129 @@ func cutoverJobName(stepName string, runEpoch int64) string {
 	return fmt.Sprintf("cutover-%s-%d", stepName, runEpoch)
 }
 
+// cutoverStepLabelKey is the label every cutover Job (created by
+// createCutoverJob) carries with value == stepName. The reconcile
+// loop in runCutoverStep queries by this label to detect Jobs that
+// completed during a prior process lifetime — that's how the
+// state-machine becomes idempotent across catalyst-api Pod restarts
+// (TBD-V56 / #2132).
+const cutoverStepLabelKey = "cutover.openova.io/step"
+
+// findExistingJobsForStep returns every Job in the cutover namespace
+// whose `cutover.openova.io/step` label matches stepName, with the
+// most-recently-created Job first.
+//
+// This is the read-side seam that makes the state-machine idempotent
+// across catalyst-api restarts. Pre-fix the engine only ever consulted
+// the in-memory runEpoch when checking what Job to attach to — a Pod
+// restart lost the epoch and a NEW Job got minted even when the
+// previous Job had already reached Complete=True. That's how t40
+// (2026-05-21) ran the 10-minute `egress-block-test` hold TWICE on
+// the same Sovereign: Job 1 completed at 06:54:24Z, catalyst-api
+// restarted at 07:07Z, the resume path created Job 2 from scratch at
+// 07:07:23Z instead of attaching to the already-Complete Job 1.
+//
+// Post-fix the engine asks "is there already a Job for this step?"
+// via this helper BEFORE creating a fresh one. Any Job stamped by
+// createCutoverJob carries `cutover.openova.io/step=<stepName>`, so
+// the lookup is exact.
+func findExistingJobsForStep(ctx context.Context, deps *cutoverDeps, stepName string) ([]batchv1.Job, error) {
+	selector := fmt.Sprintf("%s=%s", cutoverStepLabelKey, stepName)
+	jobs, err := deps.core.BatchV1().Jobs(deps.ns).List(ctx, metav1.ListOptions{
+		LabelSelector: selector,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list existing Jobs for step %q in %q: %w", stepName, deps.ns, err)
+	}
+	// Newest first. The fake clientset rarely populates CreationTimestamp
+	// but every real Job has one stamped by the apiserver, so the sort
+	// is meaningful in production. Stable so equal timestamps preserve
+	// input order.
+	sort.SliceStable(jobs.Items, func(i, j int) bool {
+		return jobs.Items[i].CreationTimestamp.After(jobs.Items[j].CreationTimestamp.Time)
+	})
+	return jobs.Items, nil
+}
+
+// findExistingTerminalJobForStep scans existing Jobs for a step and
+// returns the first one that reached a terminal condition (Complete
+// or Failed). Returns (nil, "", false) if no Job has terminated yet
+// — the caller is then free to either attach to a still-running Job
+// or create a fresh one.
+//
+// Prefers Complete over Failed when both exist for the same step,
+// because a re-fired step (chart's auto-trigger Job retries after a
+// transient failure) is a valid "success eventually" path. If only
+// Failed exists, the caller surfaces that as the cutover failure
+// — exactly the engine's existing semantics.
+func findExistingTerminalJobForStep(ctx context.Context, deps *cutoverDeps, stepName string) (*batchv1.Job, batchv1.JobConditionType, bool) {
+	jobs, err := findExistingJobsForStep(ctx, deps, stepName)
+	if err != nil {
+		return nil, "", false
+	}
+	var failedJob *batchv1.Job
+	for i := range jobs {
+		j := &jobs[i]
+		cond, ok := terminalJobCondition(j)
+		if !ok {
+			continue
+		}
+		if cond == batchv1.JobComplete {
+			return j, batchv1.JobComplete, true
+		}
+		// Hold the first Failed in case no Complete exists.
+		if failedJob == nil {
+			failedJob = j
+		}
+	}
+	if failedJob != nil {
+		return failedJob, batchv1.JobFailed, true
+	}
+	return nil, "", false
+}
+
+// findExistingRunningJobForStep returns the first non-terminal Job
+// (still in flight) for a step, or nil. The engine attaches its watch
+// to a running Job instead of minting a fresh one when this returns
+// non-nil — covers the case where a previous process kicked off the
+// Job and the apiserver / kubelet are still progressing it after the
+// catalyst-api Pod restarted.
+func findExistingRunningJobForStep(ctx context.Context, deps *cutoverDeps, stepName string) *batchv1.Job {
+	jobs, err := findExistingJobsForStep(ctx, deps, stepName)
+	if err != nil {
+		return nil
+	}
+	for i := range jobs {
+		j := &jobs[i]
+		if _, terminal := terminalJobCondition(j); terminal {
+			continue
+		}
+		return j
+	}
+	return nil
+}
+
+// jobCompletionTime returns the Job's completion timestamp in RFC3339,
+// falling back to the latest condition's LastTransitionTime, then to
+// time.Now() if the Job is malformed. The fallbacks are defensive — a
+// terminal condition without timing data is a chart bug, but we'd
+// rather emit a slightly-imprecise audit row than drop the success
+// signal entirely.
+func jobCompletionTime(job *batchv1.Job) time.Time {
+	if job == nil {
+		return time.Now().UTC()
+	}
+	if job.Status.CompletionTime != nil {
+		return job.Status.CompletionTime.Time.UTC()
+	}
+	for _, c := range job.Status.Conditions {
+		if c.Type == batchv1.JobComplete && c.Status == corev1.ConditionTrue && !c.LastTransitionTime.IsZero() {
+			return c.LastTransitionTime.Time.UTC()
+		}
+	}
+	return time.Now().UTC()
+}
+
 // createCutoverJob creates a fresh Job from the step's PodSpec.
 //
 // Per docs/INVIOLABLE-PRINCIPLES.md #3 (Crossplane is the ONLY day-2
@@ -845,12 +968,90 @@ func (h *Handler) runCutover(ctx context.Context, deps *cutoverDeps, steps []cut
 
 func (h *Handler) runCutoverStep(ctx context.Context, deps *cutoverDeps, step cutoverStep, runEpoch int64) error {
 	bus := h.cutoverBusFor()
+
+	// ── Idempotency check (TBD-V56 / #2132) ─────────────────────────────
+	//
+	// BEFORE writing `step.<name>.result=running` and minting a new Job,
+	// look for a Job from a prior process lifetime that already settled
+	// the step. This is the seam that survives catalyst-api Pod restarts:
+	//
+	//   1. If a Complete=True Job exists with the cutover.openova.io/step
+	//      label, write success to the durable ConfigMap and return
+	//      WITHOUT creating a new Job (no re-running 10-min holds).
+	//   2. If only a Failed Job exists, surface the failure — the
+	//      engine's halt semantics are unchanged from the pre-fix path.
+	//   3. If a non-terminal Job exists, attach the watch to that Job
+	//      name instead of minting a new one.
+	//   4. If no Job exists, mint a fresh Job under the current runEpoch.
+	//
+	// For DaemonSet-wait steps this is a no-op (the chart owns the
+	// DaemonSet lifecycle; we only wait for ready).
+	if step.mode == cutoverModeJob {
+		if job, cond, terminal := findExistingTerminalJobForStep(ctx, deps, step.stepName); terminal {
+			finishedAt := jobCompletionTime(job)
+			if cond == batchv1.JobComplete {
+				// Recover the step's startedAt from the durable ConfigMap
+				// if present, otherwise stamp it with the Job's CreationTimestamp
+				// as a fallback so audit rows remain populated.
+				priorStatus, _ := readCutoverStatus(ctx, deps)
+				startedAt := priorStatus["step."+step.stepName+".startedAt"]
+				if startedAt == "" {
+					if !job.CreationTimestamp.IsZero() {
+						startedAt = job.CreationTimestamp.UTC().Format(time.RFC3339)
+					} else {
+						startedAt = finishedAt.Format(time.RFC3339)
+					}
+				}
+				if err := patchCutoverStatus(ctx, deps, map[string]string{
+					"step." + step.stepName + ".startedAt":  startedAt,
+					"step." + step.stepName + ".finishedAt": finishedAt.Format(time.RFC3339),
+					"step." + step.stepName + ".result":     "success",
+					"step." + step.stepName + ".jobName":    job.Name,
+				}); err != nil {
+					return fmt.Errorf("status patch (resume-success): %w", err)
+				}
+				h.publishCutoverEvent(bus, cutoverEvent{
+					Time:    finishedAt.Format(time.RFC3339),
+					Phase:   cutoverPhaseStepFinished,
+					Level:   "info",
+					Step:    step.stepName,
+					JobName: job.Name,
+					Message: fmt.Sprintf("step %s already completed by prior Job %s; advancing without re-running", step.stepName, job.Name),
+				})
+				return nil
+			}
+			// cond == batchv1.JobFailed: surface as the step's terminal
+			// failure — the engine halts at this step, identical to a
+			// freshly-failed Job. We DO NOT re-create on Failed because
+			// the chart's PodSpec is idempotent state-ensure logic and
+			// a second attempt usually fails the same way; operator
+			// intervention is required.
+			if err := patchCutoverStatus(ctx, deps, map[string]string{
+				"step." + step.stepName + ".finishedAt": finishedAt.Format(time.RFC3339),
+				"step." + step.stepName + ".result":     "failed",
+				"step." + step.stepName + ".jobName":    job.Name,
+			}); err != nil {
+				return fmt.Errorf("status patch (resume-failed): %w", err)
+			}
+			return fmt.Errorf("Job %s/%s reported Failed condition (carried over from prior cutover attempt)", deps.ns, job.Name)
+		}
+	}
+
 	startedAt := time.Now().UTC()
 	jobOrDS := ""
+	var attachToExisting *batchv1.Job
 
 	switch step.mode {
 	case cutoverModeJob:
-		jobOrDS = cutoverJobName(step.stepName, runEpoch)
+		// Prefer attaching to a still-running Job from a prior process
+		// lifetime over minting a new one. This avoids the t40 failure
+		// mode where two Jobs ran the SAME 10-min hold back-to-back.
+		attachToExisting = findExistingRunningJobForStep(ctx, deps, step.stepName)
+		if attachToExisting != nil {
+			jobOrDS = attachToExisting.Name
+		} else {
+			jobOrDS = cutoverJobName(step.stepName, runEpoch)
+		}
 	case cutoverModeDaemonSetWait:
 		jobOrDS = step.daemonsetRef
 	}
@@ -863,19 +1064,25 @@ func (h *Handler) runCutoverStep(ctx context.Context, deps *cutoverDeps, step cu
 		return fmt.Errorf("status patch (start): %w", err)
 	}
 
+	startMsg := fmt.Sprintf("step %s started (%s)", step.stepName, step.mode)
+	if attachToExisting != nil {
+		startMsg = fmt.Sprintf("step %s resumed by attaching to in-flight Job %s", step.stepName, attachToExisting.Name)
+	}
 	h.publishCutoverEvent(bus, cutoverEvent{
 		Time:    startedAt.Format(time.RFC3339),
 		Phase:   cutoverPhaseStepStarted,
 		Level:   "info",
 		Step:    step.stepName,
 		JobName: jobOrDS,
-		Message: fmt.Sprintf("step %s started (%s)", step.stepName, step.mode),
+		Message: startMsg,
 	})
 
 	switch step.mode {
 	case cutoverModeJob:
-		if _, err := createCutoverJob(ctx, deps, step, runEpoch); err != nil {
-			return err
+		if attachToExisting == nil {
+			if _, err := createCutoverJob(ctx, deps, step, runEpoch); err != nil {
+				return err
+			}
 		}
 		cond, err := watchJobToCompletion(ctx, deps, jobOrDS)
 		if err != nil {

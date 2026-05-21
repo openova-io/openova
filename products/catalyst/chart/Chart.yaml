@@ -2258,8 +2258,94 @@ name: bp-catalyst-platform
 #
 # Refs #1099 (NOT Closes — operator walk + screenshot is the DoD per
 # CLAUDE.md §0).
-version: 1.4.233
-appVersion: 1.4.232
+version: 1.4.234
+appVersion: 1.4.234
+# 1.4.234 — TBD-V56 / #2132 (2026-05-21): fix bp-self-sovereign-cutover
+# state-machine to checkpoint Job-status into the durable ConfigMap on
+# every reconcile tick — survives catalyst-api Pod restarts mid-cutover.
+#
+# Pre-fix t40 (2026-05-21, Sovereign be5b43a8f5033a77): cutover started
+# 04:58:25Z. `egress-block-test` Job 1 (`cutover-egress-block-test-
+# 1779345819`) reached Complete=True at 06:54:24Z, but catalyst-api
+# restarted at 07:07Z (operationally, to fix a separate cache-sync
+# issue) BEFORE the success-patch to the status ConfigMap landed. On
+# Pod 2, `ResumeInterruptedCutover` reset `step.egress-block-test.result`
+# from "running" to "" and spawned `runCutover` from scratch. The
+# engine then minted a fresh Job (`cutover-egress-block-test-
+# 1779347242`) and ran the 10-minute deny-egress hold A SECOND TIME.
+# Wall-clock waste: 10 minutes per step. Worse: cutover stuck at 63%
+# for ~3 hours because the success-write never landed — Step 09
+# (gitea-token-mint) never fired → `sme/provisioning` init container
+# `wait-for-cutover-token` blocked forever → tenant onboarding
+# blocked → Phase 2 (qwen-code Sandbox) unreachable.
+#
+# Root cause (CLAUDE.md §4.16 multi-layer RCA): `runCutoverStep`
+# only ever consulted the in-memory runEpoch when checking what Job
+# to attach to. A Pod restart lost the epoch + the engine never
+# looked for Jobs from prior process lifetimes via their durable
+# `cutover.openova.io/step=<stepName>` label.
+#
+# Fix lives in `products/catalyst/bootstrap/api/internal/handler/
+# cutover.go`:
+#
+#   1. New helper `findExistingTerminalJobForStep` lists every Job
+#      in the cutover namespace labeled `cutover.openova.io/step=
+#      <stepName>` and returns the first Complete=True (preferring
+#      Complete over Failed when both exist for a retried step).
+#   2. New helper `findExistingRunningJobForStep` returns the first
+#      non-terminal Job for a step so the engine attaches its watch
+#      to it instead of minting a fresh Job.
+#   3. `runCutoverStep` now does (in order): (a) if a prior Complete
+#      Job exists, write `step.<name>.result=success` + finishedAt
+#      from the Job's CompletionTime + jobName=<prior-Job's name>
+#      directly and return — NO new Job created; (b) if a prior
+#      Failed Job exists, write failed and halt — NO re-create; (c)
+#      if a non-terminal Job exists, attach watch to it; (d)
+#      otherwise mint a fresh Job under the current runEpoch.
+#   4. `jobCompletionTime` helper extracts the canonical timestamp
+#      from a Job's `status.completionTime` (with defensive fallbacks
+#      to condition.LastTransitionTime / time.Now).
+#
+# Idempotency surface (the founder's TBD-V56 acceptance criteria):
+#   - Pod-restart mid-cutover (step result=running, Complete Job in
+#     cluster) → engine flips result=success, no rerun.
+#   - Pod-restart mid-cutover (step result=running, Failed Job in
+#     cluster) → engine flips result=failed, no rerun. Halts.
+#   - POST /cutover/start while another cutover is running → 409
+#     (unchanged).
+#   - POST /cutover/start when cutoverComplete=true → 200 with
+#     existing state, no engine spawn (unchanged).
+#   - POST /cutover/start when in-flight on cluster but in-memory
+#     state empty (HTTP path) → engine consults existing Jobs, skips
+#     completed steps, attaches to running ones.
+#
+# Validation:
+#   - 4 new unit tests in `cutover_test.go`:
+#     - TestFindExistingTerminalJobForStep_PrefersCompleteOverFailed
+#     - TestRunCutoverStep_SkipsRerunWhenPriorJobComplete (the t40
+#       regression guard — asserts Job creates = 0 for the
+#       egress-block-test step when a prior Complete Job exists)
+#     - TestRunCutoverStep_SurfacesPriorFailedJob (Failed Job from
+#       prior process is surfaced, no rerun)
+#     - TestHandleCutoverStart_IdempotentReusesPriorCompleteJob
+#       (HTTP /start path consumes prior Complete Job)
+#   - All 27 pre-existing cutover tests still pass.
+#
+# Walk impact: once this PR merges + Flux auto-rolls the new
+# catalyst-api image to t40, the next reconcile tick will find Job
+# `cutover-egress-block-test-1779347242` Complete=True, write
+# step.egress-block-test.result=success to the ConfigMap, and
+# advance to step 09 (gitea-token-mint). The `sme/provisioning`
+# init container `wait-for-cutover-token` unblocks once Step 09
+# patches the `provisioning-github-token` Secret with the
+# `catalyst.openova.io/token-source: self-sovereign-cutover-step-09`
+# annotation. Customer journey on `walkdemo40.omani.homes`
+# unblocks. ALL future Sovereign provs benefit from restart-safe
+# cutover semantics.
+#
+# Refs #2132 TBD-V56. Per CLAUDE.md §0, this is NOT `Closes` — the
+# founder closes after operator-walk-with-screenshot verification.
+#
 # 1.4.232 — fix(sovereign-tls): render Cilium Gateway listener YAML in
 # the chart (templates/sovereign-tls-vars-cm.yaml) and feed it into the
 # sovereign-tls Kustomization via Flux postBuild.substituteFrom on

@@ -855,7 +855,19 @@ spec:
       # tenant_created_wire_test.go (commit 56e04ac8a) keeps guarding
       # the wire shape. Refs #2133 (NOT Closes — operator walk on
       # fresh prov required).
-      version: 1.4.233
+      # 1.4.234 — TBD-V56 / #2132 (2026-05-21): bp-self-sovereign-cutover
+      # state-machine idempotent across catalyst-api Pod restarts. t40
+      # (2026-05-21) reproduced the failure mode: mid-cutover Pod
+      # restart caused the 10-min `egress-block-test` Job to run TWICE
+      # because the engine never consulted the durable
+      # `cutover.openova.io/step=<name>` label on existing Jobs from
+      # the prior process lifetime — it minted a fresh Job under a
+      # new in-memory runEpoch. Fix in cutover.go consults existing
+      # Jobs before minting; Complete=True flips
+      # step.<name>.result=success directly; no rerun. Unblocks Step 09
+      # (gitea-token-mint), unblocks customer-journey Phase 2 (Sandbox).
+      # Refs #2132 (NOT Closes — operator walk on fresh prov required).
+      version: 1.4.234
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
