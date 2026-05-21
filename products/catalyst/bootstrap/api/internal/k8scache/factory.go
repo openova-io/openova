@@ -242,10 +242,24 @@ type Factory struct {
 }
 
 type clusterState struct {
-	id            string
-	factory       dynamicinformer.DynamicSharedInformerFactory
-	dyn           dynamic.Interface
-	core          kubernetes.Interface
+	id string
+	// factory — default dynamicinformer factory; watches every Kind
+	// with no LIST bound. Suitable for low/medium-cardinality kinds
+	// (Pod, Service, Deployment, vCluster, Crossplane managed-resources)
+	// where the per-cluster object count is bounded.
+	factory dynamicinformer.DynamicSharedInformerFactory
+	// boundedFactory — used ONLY for Kinds flagged HighCardinality=true
+	// in the registry (today: event). The filtered factory applies a
+	// `tweakListOptions` that sets `Limit: 5000` on the initial LIST so
+	// the in-process cache cannot exceed ~50 MB heap per cluster for
+	// these kinds. WATCH then streams new events on top of that
+	// bounded baseline, also bounded by the K8s server-side event TTL
+	// (~1h). Prevents the catalyst-api OOM-cycle on multi-region
+	// Sovereigns caused by ~55K events × N regions × ~30KB Go-struct
+	// overhead (~5GB heap vs 4GB Pod limit).
+	boundedFactory dynamicinformer.DynamicSharedInformerFactory
+	dyn            dynamic.Interface
+	core           kubernetes.Interface
 	informers     map[string]cache.SharedIndexInformer // keyed by Kind.Name
 	indexers      map[string]cache.Indexer             // keyed by Kind.Name
 	synced        map[string]bool                      // keyed by Kind.Name
@@ -511,16 +525,25 @@ func (f *Factory) AddCluster(c ClusterRef) error {
 		}
 	}
 
+	// tweakListOptions applied to HighCardinality kinds (event).
+	// Limit=5000 caps the initial LIST at ~50 MB heap regardless of
+	// how many events accumulate on the apiserver between catalyst-api
+	// restarts. The WATCH that follows is naturally bounded by the
+	// apiserver's event TTL (~1h default).
+	boundedTweak := func(opts *metav1.ListOptions) {
+		opts.Limit = 5000
+	}
 	cs := &clusterState{
-		id:          c.ID,
-		dyn:         dyn,
-		core:        core,
-		factory:     dynamicinformer.NewDynamicSharedInformerFactory(dyn, f.cfg.Resync),
-		informers:   map[string]cache.SharedIndexInformer{},
-		indexers:    map[string]cache.Indexer{},
-		synced:      map[string]bool{},
-		lastEventAt: map[string]time.Time{},
-		stop:        make(chan struct{}),
+		id:             c.ID,
+		dyn:            dyn,
+		core:           core,
+		factory:        dynamicinformer.NewDynamicSharedInformerFactory(dyn, f.cfg.Resync),
+		boundedFactory: dynamicinformer.NewFilteredDynamicSharedInformerFactory(dyn, f.cfg.Resync, metav1.NamespaceAll, boundedTweak),
+		informers:      map[string]cache.SharedIndexInformer{},
+		indexers:       map[string]cache.Indexer{},
+		synced:         map[string]bool{},
+		lastEventAt:    map[string]time.Time{},
+		stop:           make(chan struct{}),
 	}
 
 	// Spawn one informer per registered kind. AddCluster MUST stay
@@ -540,7 +563,14 @@ func (f *Factory) AddCluster(c ClusterRef) error {
 	// path — so the contabo mothership boot blocked while iterating
 	// dead clusters. Removed.
 	for _, k := range f.registry.All() {
-		inf := cs.factory.ForResource(k.GVR).Informer()
+		// HighCardinality kinds (event) route through boundedFactory
+		// so the in-process cache cannot OOM the catalyst-api Pod.
+		// All other kinds use the default unbounded factory.
+		informerFactory := cs.factory
+		if k.HighCardinality {
+			informerFactory = cs.boundedFactory
+		}
+		inf := informerFactory.ForResource(k.GVR).Informer()
 		k := k // capture per-iteration
 		_, err := inf.AddEventHandler(cache.ResourceEventHandlerFuncs{
 			AddFunc: func(obj any) {
@@ -666,6 +696,7 @@ func (f *Factory) Start(ctx context.Context) error {
 		// fan-out goroutine below: when f.stop closes (Factory.Stop),
 		// every per-cluster stop channel closes too.
 		cs.factory.Start(cs.stop)
+		cs.boundedFactory.Start(cs.stop)
 		cs := cs
 		go func() {
 			select {

@@ -60,6 +60,20 @@ type Kind struct {
 	// Secret. ConfigMap data is treated as PII-adjacent and also
 	// stripped (see redactObject).
 	Sensitive bool
+
+	// HighCardinality — true for kinds whose object count grows
+	// unboundedly on a busy cluster (Kubernetes `event` accumulates
+	// ~tens of thousands per hour). The informer for these kinds is
+	// created from a SEPARATE filtered factory that bounds the initial
+	// LIST with `Limit: 5000`, so the in-process cache cannot blow the
+	// catalyst-api memory budget on a multi-region Sovereign.
+	//
+	// Without this bound, a 3-region Sovereign accumulates ~5GB Go heap
+	// for the event-cache alone (~55K events × 3 regions × ~30KB per
+	// parsed struct), exceeding the 4Gi Pod memory limit → OOMKill
+	// loop → apiserver-not-ready downstream → marketplace/console
+	// 5xx — the symptom that wedged tonight's t39 walk.
+	HighCardinality bool
 }
 
 // DefaultKinds is the built-in registry — every Sovereign starts with
@@ -152,7 +166,7 @@ var DefaultKinds = []Kind{
 	// focused resource — client-side filter happens in the EventsPanel
 	// widget; the server-side stream surface (existing ?fieldSelector=
 	// grammar) supports metadata-level filtering today.
-	{Name: "event", GVR: schema.GroupVersionResource{Group: "events.k8s.io", Version: "v1", Resource: "events"}, Namespaced: true},
+	{Name: "event", GVR: schema.GroupVersionResource{Group: "events.k8s.io", Version: "v1", Resource: "events"}, Namespaced: true, HighCardinality: true},
 
 	// QA-loop iter-2 Fix #17 — CRDs surfaced through /k8s/{kind} need
 	// matching registry entries; otherwise the handler returns
