@@ -364,13 +364,28 @@ type cutoverStep struct {
 // structs. An invalid ConfigMap (missing required keys, malformed
 // PodSpec YAML) is surfaced as an error so the operator can fix the
 // chart values rather than silently skipping the step.
+//
+// TBD-V55: wraps the List in the same bounded-retry helper used by
+// readCutoverStatus so a transient `apiserver not ready` during k3s
+// warmup does not surface as a 502 from /cutover/start.
 func listCutoverSteps(ctx context.Context, deps *cutoverDeps) ([]cutoverStep, error) {
 	selector := fmt.Sprintf("%s=%s,%s=%s",
 		cutoverStepPartOfLabel, cutoverStepPartOfValue,
 		cutoverStepComponentLabel, cutoverStepComponentValue,
 	)
-	cms, err := deps.core.CoreV1().ConfigMaps(deps.ns).List(ctx, metav1.ListOptions{
-		LabelSelector: selector,
+	var cms *corev1.ConfigMapList
+	err := wait.ExponentialBackoffWithContext(ctx, cutoverApiserverReadyBackoff, func(c context.Context) (bool, error) {
+		got, lerr := deps.core.CoreV1().ConfigMaps(deps.ns).List(c, metav1.ListOptions{
+			LabelSelector: selector,
+		})
+		if lerr == nil {
+			cms = got
+			return true, nil
+		}
+		if isApiserverNotReadyTransient(lerr) {
+			return false, nil
+		}
+		return false, lerr
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list cutover step ConfigMaps in %q: %w", deps.ns, err)
@@ -477,13 +492,130 @@ func stripCutoverStepPrefix(name string) string {
 
 // ── Status ConfigMap ────────────────────────────────────────────────────────
 
+// One-shot read contract (TBD-V55 / #2131)
+// ────────────────────────────────────────
+//
+// Every read in this section talks to the apiserver via the direct typed
+// client (deps.core, built in cutoverDepsFromEnv via
+// `kubernetes.NewForConfig(rest.InClusterConfig())`). These calls
+// deliberately do NOT route through k8scache's in-process informer
+// SharedInformerFactory — that factory is for streaming/list endpoints
+// (SSE, dashboard) where cache-coherency matters more than first-byte
+// latency. One-shot reads here (handful per HTTP request) belong on the
+// direct path so a freshly-booted catalyst-api Pod can answer
+// /cutover/start, /cutover/status, and /cutover/events before the
+// informer factories have finished their initial LIST + WaitForCacheSync.
+//
+// The wrinkle that motivated TBD-V55 (t40, 2026-05-21 06:38Z):
+//   POST /api/v1/sovereign/cutover/start
+//     → HTTP 502 {"error":"status-read-failed",
+//        "detail":"get status ConfigMap catalyst/self-sovereign-cutover-status:
+//                  apiserver not ready"}
+// while at the same instant `kubectl get cm` against the public LB
+// kubeconfig from the bastion succeeded. The apiserver itself was up,
+// but k3s on the Sovereign briefly returned `apiserver not ready` (HTTP
+// 503 with that exact body) to in-cluster discovery + aggregated-API
+// probes while admission webhooks finished warming. Returning 502 on a
+// transient 503 is wrong: by the time the operator's wizard re-fetches
+// 30 s later the apiserver is healthy. So one-shot reads here retry
+// with a short bounded backoff (cutoverApiserverReadyBackoff) on
+// recognised "transient apiserver-not-ready" errors and surface a
+// terminal error only after the budget elapses.
+//
+// Direct client + bounded retry is the target-state per
+// docs/PRINCIPLES.md #14 — no new abstraction, no informer-cache fall-
+// back, no defensive null-guard ladder. Just the small retry the
+// k3s-warm-up window requires.
+
+// cutoverApiserverReadyBackoff is the per-call retry schedule applied
+// to one-shot reads when the apiserver returns a transient
+// `apiserver not ready` (HTTP 503) response. The total budget is
+// ~5 s — long enough to cover the k3s admission-webhook warmup
+// observed on t40 (typically <1 s, occasionally up to 3 s), short
+// enough that a genuinely-broken apiserver still surfaces a clean
+// 502 to the operator's UI within one wizard tick.
+var cutoverApiserverReadyBackoff = wait.Backoff{
+	Steps:    5,
+	Duration: 150 * time.Millisecond,
+	Factor:   2.0,
+	Jitter:   0.1,
+	Cap:      2 * time.Second,
+}
+
+// isApiserverNotReadyTransient reports whether the err is a transient
+// "apiserver not ready" response that should be retried by a one-shot
+// read. It recognises:
+//
+//   - apierrors.IsServiceUnavailable(err) — typed 503 from client-go.
+//   - apierrors.IsTooManyRequests(err)     — typed 429 (admission rate-
+//     limit during warm-up); same backoff is appropriate.
+//   - err.Error() containing "apiserver not ready" — the literal k3s
+//     warmup body that surfaced on t40. Substring match because some
+//     client-go versions wrap the 503 as a generic StatusError with the
+//     body in .Message rather than a typed sentinel.
+//
+// NotFound, Forbidden, Unauthorized, malformed-request etc. are NOT
+// transient and must surface immediately. The retry budget caps how
+// long the handler waits in any case.
+func isApiserverNotReadyTransient(err error) bool {
+	if err == nil {
+		return false
+	}
+	if apierrors.IsServiceUnavailable(err) || apierrors.IsTooManyRequests(err) {
+		return true
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "apiserver not ready") {
+		return true
+	}
+	// k3s sometimes returns the warmup error with this prefix when the
+	// aggregated-API layer is still loading SAs; bucket it the same way.
+	if strings.Contains(msg, "the server is currently unable to handle the request") {
+		return true
+	}
+	return false
+}
+
+// getCutoverStatusConfigMap is the direct-client one-shot Get with
+// bounded retry-on-transient-503. Returns the ConfigMap, a typed
+// NotFound (caller treats as benign empty state), or a terminal error
+// after the backoff budget elapses.
+func getCutoverStatusConfigMap(ctx context.Context, deps *cutoverDeps) (*corev1.ConfigMap, error) {
+	name := cutoverStatusConfigMapName()
+	var cm *corev1.ConfigMap
+	err := wait.ExponentialBackoffWithContext(ctx, cutoverApiserverReadyBackoff, func(c context.Context) (bool, error) {
+		got, err := deps.core.CoreV1().ConfigMaps(deps.ns).Get(c, name, metav1.GetOptions{})
+		if err == nil {
+			cm = got
+			return true, nil
+		}
+		if apierrors.IsNotFound(err) {
+			// NotFound is the terminal benign case — return it so the
+			// caller's IsNotFound branch fires without burning the
+			// retry budget.
+			return false, err
+		}
+		if isApiserverNotReadyTransient(err) {
+			// Retry — apiserver still warming up.
+			return false, nil
+		}
+		// Any other error is terminal.
+		return false, err
+	})
+	return cm, err
+}
+
 // readCutoverStatus returns the status ConfigMap or a zero map if it
 // does not exist yet. NotFound is benign: the chart pre-creates it,
 // but a misordered Helm install + first-time POST /start race would
 // otherwise 503.
+//
+// TBD-V55: uses getCutoverStatusConfigMap so a transient
+// `apiserver not ready` during k3s warmup retries within a short
+// budget instead of bubbling up as a 502 to the operator's wizard.
 func readCutoverStatus(ctx context.Context, deps *cutoverDeps) (map[string]string, error) {
 	name := cutoverStatusConfigMapName()
-	cm, err := deps.core.CoreV1().ConfigMaps(deps.ns).Get(ctx, name, metav1.GetOptions{})
+	cm, err := getCutoverStatusConfigMap(ctx, deps)
 	if apierrors.IsNotFound(err) {
 		return map[string]string{}, nil
 	}

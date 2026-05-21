@@ -36,12 +36,14 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	fakek8s "k8s.io/client-go/kubernetes/fake"
@@ -1310,3 +1312,105 @@ func TestHandleCutoverStart_IdempotentReusesPriorCompleteJob(t *testing.T) {
 		t.Errorf("step.only-step.result = %q, want success", cm.Data["step.only-step.result"])
 	}
 }
+
+// TestHandleCutoverStatus_WorksDuringCacheWarmup proves the one-shot
+// direct-client read in /cutover/status survives a transient
+// `apiserver not ready` response during k3s warm-up — the failure mode
+// that wedged the t40 walk on 2026-05-21 06:38Z (TBD-V55 / #2131).
+//
+// The fake clientset's reactor returns an `apierrors.NewServiceUnavailable`
+// (HTTP 503) with body "apiserver not ready" on the first N Get calls,
+// then succeeds. The handler must reach inside cutoverApiserverReadyBackoff
+// and return 200 with the pre-seeded ConfigMap data, NOT a 502.
+func TestHandleCutoverStatus_WorksDuringCacheWarmup(t *testing.T) {
+	preStatus := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cutoverStatusConfigMapName(),
+			Namespace: cutoverTestNS,
+		},
+		Data: map[string]string{
+			"cutoverComplete":          "false",
+			"currentStep":              "gitea-mirror",
+			"currentStepIndex":         "0",
+			"totalSteps":               "8",
+			"progressPercent":          "0",
+			"step.gitea-mirror.result": "running",
+		},
+	}
+	h, client := fakeHandlerWithCutover(t, preStatus)
+
+	// Counter for how many times the reactor has fired so far.
+	var calls int32
+	transientFails := int32(2)
+	client.PrependReactor("get", "configmaps", func(action clienttesting.Action) (bool, k8sruntime.Object, error) {
+		ga, ok := action.(clienttesting.GetAction)
+		if !ok || ga.GetName() != cutoverStatusConfigMapName() {
+			return false, nil, nil
+		}
+		n := atomicInc(&calls)
+		if n <= transientFails {
+			// Return the exact failure mode the t40 walk hit: a 503
+			// with body "apiserver not ready". client-go surfaces this
+			// via apierrors.NewServiceUnavailable.
+			return true, nil, apierrors.NewServiceUnavailable("apiserver not ready")
+		}
+		// Fall through to the tracker so it returns the seeded ConfigMap.
+		return false, nil, nil
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sovereign/cutover/status", nil)
+	h.HandleCutoverStatus(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var resp cutoverStatusResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v; body=%s", err, rec.Body.String())
+	}
+	if resp.CurrentStep != "gitea-mirror" {
+		t.Errorf("currentStep = %q, want gitea-mirror (handler must have recovered from transient 503)", resp.CurrentStep)
+	}
+	if resp.TotalSteps != 8 {
+		t.Errorf("totalSteps = %d, want 8", resp.TotalSteps)
+	}
+	if got := atomicLoad(&calls); got <= transientFails {
+		t.Errorf("ConfigMap Get calls = %d, want > %d (handler must retry past the transient 503s)", got, transientFails)
+	}
+}
+
+// TestIsApiserverNotReadyTransient_ClassifiesK3sWarmupCorrectly proves the
+// transient-error detector recognises the exact failure modes that
+// trigger TBD-V55 (k3s apiserver returning `apiserver not ready` during
+// warm-up) and does NOT misclassify terminal errors as transient.
+func TestIsApiserverNotReadyTransient_ClassifiesK3sWarmupCorrectly(t *testing.T) {
+	cases := []struct {
+		name      string
+		err       error
+		transient bool
+	}{
+		{"nil-not-transient", nil, false},
+		{"503-service-unavailable", apierrors.NewServiceUnavailable("apiserver not ready"), true},
+		{"503-bare-message", apierrors.NewServiceUnavailable(""), true},
+		{"429-too-many-requests", apierrors.NewTooManyRequests("rate limited", 1), true},
+		{"k3s-warmup-error-literal", fmt.Errorf("apiserver not ready"), true},
+		{"k3s-warmup-error-wrapped", fmt.Errorf("get status ConfigMap: %w", fmt.Errorf("apiserver not ready")), true},
+		{"general-server-unable", fmt.Errorf("the server is currently unable to handle the request"), true},
+		{"notfound-not-transient", apierrors.NewNotFound(corev1.Resource("configmaps"), "x"), false},
+		{"forbidden-not-transient", apierrors.NewForbidden(corev1.Resource("configmaps"), "x", fmt.Errorf("no")), false},
+		{"connection-refused-not-transient", fmt.Errorf("connection refused"), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := isApiserverNotReadyTransient(tc.err)
+			if got != tc.transient {
+				t.Errorf("isApiserverNotReadyTransient(%v) = %v, want %v", tc.err, got, tc.transient)
+			}
+		})
+	}
+}
+
+// atomicInc / atomicLoad — local thin wrappers so the warmup test
+// reads naturally without sprinkling sync/atomic across the file.
+func atomicInc(p *int32) int32  { return atomic.AddInt32(p, 1) }
+func atomicLoad(p *int32) int32 { return atomic.LoadInt32(p) }
