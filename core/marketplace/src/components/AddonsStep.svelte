@@ -247,7 +247,7 @@
 
 <div class="float-nav">
   <a href="/apps" class="float-back">&larr; Apps</a>
-  <a href="/review" class="float-cta">Review Order &rarr;</a>
+  <a href="/bcp" class="float-cta">Continue &rarr;</a>
 </div>
 
 <style>

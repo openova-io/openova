@@ -1,5 +1,28 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.233 — TBD-V57 / #2133 (2026-05-21) Pillar 2: ship the
+# marketplace BCP wizard step so the customer can actually signal
+# active-hot-standby + region pair at signup. Single source of truth
+# is the existing snake_case `cart.appConfigs.postgres.{active_hot_
+# standby, primary_region, replica_region}` — every backend layer
+# (catalog seed @ seed.go:710-712, tenant.created wire publisher,
+# provisioning gitops generator @ gitops.go:240-251, bp-cnpg-pair
+# chart) was already consuming these exact keys; the only missing
+# piece was a UX surface so the customer could populate them. New
+# files: core/marketplace/src/pages/bcp.astro + components/
+# BCPStep.svelte. Updated: Header.svelte 5→6 wizard steps, AddonsStep
+# Continue→/bcp, ReviewStep Back→/bcp, review.astro step=5,
+# checkout.astro step=6. NO backend touches — the round-trip test
+# tenant_created_wire_test.go (commit 56e04ac8a) + the 4
+# appconfigs_test.go cases keep guarding the contract.
+#
+# 1.4.232 — #2118 (TBD-V48): render Cilium Gateway listener YAML
+# in the chart (templates/sovereign-tls-vars-cm.yaml) so cloud-init
+# no longer carries the O(N)-per-parent-zone listener block.
+# Removes ~2.1 KiB from cloud-init on 4-zone SME-pool Sovereigns
+# (omantel.biz + .omani.{homes,rest,trade}); brings t39-class
+# provisions back under Hetzner's 32 KiB user_data cap.
+#
 # 1.4.230 — TBD-V15 / #2066 (2026-05-20) Pillar 3: emit a per-tenant
 # Continuum.dr.openova.io/v1 CR alongside the bp-wordpress-tenant
 # HelmRelease whenever SOVEREIGN_ENABLE_HOT_STANDBY=true and two

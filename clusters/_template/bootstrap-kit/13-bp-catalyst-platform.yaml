@@ -846,6 +846,15 @@ spec:
       # Removes ~2.1 KiB from cloud-init on 4-zone SME-pool Sovereigns
       # (omantel.biz + .omani.{homes,rest,trade}); brings t39-class
       # provisions back under Hetzner's 32 KiB user_data cap.
+      # 1.4.233 — TBD-V57 / #2133 (2026-05-21) Pillar 2: marketplace
+      # BCP wizard step lands so the customer can signal
+      # active-hot-standby + region pair at signup. Single source of
+      # truth = existing snake_case cart.appConfigs.postgres.* keys
+      # the gitops generator @ gitops.go:240-251 already consumes;
+      # zero backend touches, the round-trip test
+      # tenant_created_wire_test.go (commit 56e04ac8a) keeps guarding
+      # the wire shape. Refs #2133 (NOT Closes — operator walk on
+      # fresh prov required).
       version: 1.4.233
       sourceRef:
         kind: HelmRepository
