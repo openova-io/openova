@@ -370,7 +370,7 @@
     </div>
 
     <div class="float-nav">
-      <a href="/addons" class="float-back">&larr; Setup</a>
+      <a href="/bcp" class="float-back">&larr; Topology</a>
     </div>
   {/if}
 </div>

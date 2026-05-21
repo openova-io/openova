@@ -38,12 +38,17 @@
     try { localStorage.setItem('sme-theme', next); } catch {}
   }
 
+  // TBD-V57 (#2133) — Pillar 2 BCP topology picker landed as step 4
+  // between Add-ons and Review. Customer signals active-hot-standby +
+  // region pair via cart.appConfigs.postgres.* (snake_case, single
+  // source of truth — matches gitops consumer + tenant.created wire).
   const steps = [
     { num: 1, label: 'Plan', href: '/plans' },
     { num: 2, label: 'Stack', href: '/apps' },
     { num: 3, label: 'Add-ons', href: '/addons' },
-    { num: 4, label: 'Review', href: '/review' },
-    { num: 5, label: 'Checkout', href: '/checkout' },
+    { num: 4, label: 'Topology', href: '/bcp' },
+    { num: 5, label: 'Review', href: '/review' },
+    { num: 6, label: 'Checkout', href: '/checkout' },
   ];
 
   $effect(() => {
