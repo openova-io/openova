@@ -210,7 +210,11 @@ slots:
   # ---- Tier 7: security + policy (W2.K3, slots 27-34) -----------------------
   - slot: 27
     name: bp-kyverno
-    depends_on: [bp-cilium]
+    # bp-cert-manager dep (TBD-V53 #2128, PR #2129, kyverno 1.3.0): the
+    # admission-controller's TLS cert is now cert-manager-issued before the
+    # kyverno binary starts, eliminating the cold-start TLS handshake EOF
+    # race. cert-manager Ready is sequential, not just topological.
+    depends_on: [bp-cilium, bp-cert-manager]
     wave: W2.K3
   - slot: 27a
     name: bp-kyverno-policies
