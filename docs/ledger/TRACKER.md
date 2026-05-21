@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-21T13:15:07Z` |
+| Last refreshed | `2026-05-21T13:30:14Z` |
 | Open issues | 79 |
 | Open DoD gates | 7 / 41 |
 | Open TBD-* regressions | 68 |
@@ -285,15 +285,16 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-05-21T13:16 | [#2137](https://github.com/openova-io/openova/pull/2137) | #14 | chore(privacy): redact private partner identity from public  |
 | 2026-05-21T12:19 | [#2136](https://github.com/openova-io/openova/pull/2136) | #2131 | fix(catalyst-api): one-shot reads bypass informer cache (Ref |
 | 2026-05-21T08:51 | [#2135](https://github.com/openova-io/openova/pull/2135) | #2132 | fix(catalyst-api): cutover state-machine idempotent + Job-st |
 | 2026-05-21T07:59 | [#2134](https://github.com/openova-io/openova/pull/2134) | #2133 | feat(marketplace): Pillar 2 BCP wizard step writes to cart.a |
 | 2026-05-21T06:47 | [#2129](https://github.com/openova-io/openova/pull/2129) | #14 | fix(kyverno): cert-manager-issued TLS + wait-for-secret init |
 | 2026-05-21T04:19 | [#2124](https://github.com/openova-io/openova/pull/2124) | #1099 | fix(k8scache): bound event-informer LIST to stop catalyst-ap |
 | 2026-05-20T20:30 | [#2122](https://github.com/openova-io/openova/pull/2122) | #2081 | fix(bootstrap-kit): publish bp-continuum:0.1.2 + lockstep pi |
-| 2026-05-20T20:24 | [#2120](https://github.com/openova-io/openova/pull/2120) | #2115 | fix(newapi): rename qwenPartner channel row name -> qwen  |
+| 2026-05-20T20:24 | [#2120](https://github.com/openova-io/openova/pull/2120) | #2115 | fix(newapi): rename qwenBankDhofar channel row name -> qwen  |
 | 2026-05-20T19:50 | [#2119](https://github.com/openova-io/openova/pull/2119) | #1985 | fix(catalyst-platform): hoist parent_domains_listeners YAML  |
-| 2026-05-20T19:02 | [#2117](https://github.com/openova-io/openova/pull/2117) | #2116 | fix(newapi+vllm): flip vllm defaults OFF — OMTD customer-hosted partner  |
+| 2026-05-20T19:02 | [#2117](https://github.com/openova-io/openova/pull/2117) | #2116 | fix(newapi+vllm): flip vllm defaults OFF — OMTD Bank Dhofar  |
 | 2026-05-20T18:33 | [#2116](https://github.com/openova-io/openova/pull/2116) | #14 | feat(newapi+vllm): wire bp-vllm slot 39 + default in-cluster |
 | 2026-05-20T17:59 | [#2114](https://github.com/openova-io/openova/pull/2114) | #11 | docs(claude): 2026-05-20 session lessons — 10 amnesia anti-p |
 | 2026-05-20T13:05 | [#2110](https://github.com/openova-io/openova/pull/2110) | #665 | docs(consolidate): fold 4 ops/runbook orphans into RUNBOOKS. |
@@ -314,7 +315,6 @@ flowchart LR
 | 2026-05-20T06:41 | [#2076](https://github.com/openova-io/openova/pull/2076) | docs: migrate platform governance ledger from openova-privat |  |
 | 2026-05-20T06:41 | [#2075](https://github.com/openova-io/openova/pull/2075) | #2067 | feat(continuum/d31-acceptance): ship CNPG region-kill zero-t |
 | 2026-05-20T06:35 | [#2074](https://github.com/openova-io/openova/pull/2074) | #12 | feat(tenant-gitops): emit Continuum CR for each multi-region |
-| 2026-05-20T06:27 | [#2073](https://github.com/openova-io/openova/pull/2073) | #2064 | feat(provisioning): generalize bp-cnpg-pair install path bey |
 
 ---
 
