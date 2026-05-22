@@ -1681,6 +1681,32 @@ func writeTfvars(deployDir string, req Request) error {
 			region = "me-east-215"
 		}
 		vars["huawei_region"] = region
+
+		// The Huawei OpenTofu module at infra/providers/huawei/variables.tf
+		// declares a different variable schema for the OBS bucket
+		// (`obs_bucket_name`) and the parent-domains payload
+		// (`parent_domains_yaml`, literal YAML inline-array string) than
+		// the Hetzner module. Mirror the canonical Hetzner-shaped values
+		// into the Huawei-shaped keys so the same tfvars file satisfies
+		// both module schemas without per-provider duplication elsewhere.
+		// The Hetzner-shaped keys remain in the tfvars file as harmless
+		// undeclared-variable warnings under provider=huawei (OpenTofu
+		// treats unknown tfvars as warn, not error — confirmed live in
+		// dc19ea76 prov trace, 2026-05-22).
+		vars["obs_bucket_name"] = req.ObjectStorageBucket
+
+		if len(req.ParentDomains) > 0 {
+			var sb strings.Builder
+			sb.WriteString("[")
+			for i, pd := range req.ParentDomains {
+				if i > 0 {
+					sb.WriteString(", ")
+				}
+				fmt.Fprintf(&sb, "{name: %q, role: %q}", pd.Name, pd.Role)
+			}
+			sb.WriteString("]")
+			vars["parent_domains_yaml"] = sb.String()
+		}
 	}
 
 	raw, err := json.MarshalIndent(vars, "", "  ")
