@@ -414,8 +414,20 @@ resource "huaweicloud_kps_keypair" "main" {
 # pattern Wave 4 plans to extract. Keeping the aws-provider path keeps
 # the bucket purge code one shape across providers.
 
-resource "aws_s3_bucket" "main" {
+# OBS bucket via the native `huaweicloud_obs_bucket` resource.
+#
+# Wave 5.5 (Refs #2140) — switched from `aws_s3_bucket` because the aws
+# provider's auto-refresh always issues GetBucketEncryption against the
+# bucket, and HCS OBS does not expose that API (returns 404
+# NoSuchEncryptionConfiguration on deployment 0bbf240540c9351b
+# 2026-05-22T20:08Z). The Huawei-native resource doesn't call any
+# SSE-config side-read, so the bucket creates cleanly. Cross-cloud
+# bucket-purge symmetry stays intact — the Go-side purge talks vanilla
+# S3 protocol against the same OBS endpoint regardless of which
+# Terraform resource minted the bucket.
+resource "huaweicloud_obs_bucket" "main" {
   bucket = var.obs_bucket_name
+  acl    = "private"
 
-  # tags = local.common_tags  # disabled Wave 5.4: HCS tag API divergence
+  # tags disabled per Wave 5.4 — HCS tag-API divergence
 }

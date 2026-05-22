@@ -133,17 +133,21 @@ variable "huawei_insecure" {
 variable "image_id" {
   type        = string
   description = <<-EOT
-    Huawei IMS image ID. Default `ec509d3b-...` is the operator-confirmed
-    Ubuntu 22.04 server 64bit (40 GB) image in HCS region me-east-215.
-    Operators on public Huawei Cloud override via wizard input.
+    Huawei IMS image ID. Default is the operator-confirmed live
+    `Ubuntu 22.04 server 64bit (40 GB)` image at HCS me-east-215
+    (queried via IMS API 2026-05-22T20:08Z, gold imagetype). Public
+    Huawei Cloud or rotated HCS images override via wizard input.
 
-    The 32-char placeholder default below is the OPERATOR-CONFIRMED
-    "Ubuntu 22.04 server 64bit, 40GB" id at the HCS endpoint; the
     catalyst-api writes the resolved value into tofu.auto.tfvars.json
     at provision time so a stale baked-in default never blocks a fresh
-    image rotation.
+    image rotation. The default below is the live ID — NOT a placeholder.
+
+    Wave 5.5 (Refs #2140): the prior placeholder
+    `ec509d3b-0000-0000-0000-000000000000` triggered ECS create failure
+    `Ecs.0304 No image found with ID ec509d3b-0000-0000-0000-000000000000`
+    on deployment 0bbf240540c9351b. Real UUID baked here.
   EOT
-  default     = "ec509d3b-0000-0000-0000-000000000000"
+  default     = "ec509d3b-e2c5-40b8-987b-ce9623d67a88"
 }
 
 variable "default_control_plane_flavor" {
