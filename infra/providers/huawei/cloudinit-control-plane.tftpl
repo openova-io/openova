@@ -278,17 +278,20 @@ runcmd:
   # — and the resulting kubeconfig's client cert is signed by a CA the
   # primary region's apiserver doesn't trust (HTTP 401 on every reach
   # from catalyst-api Phase-1 watch — caught live on a7decee7f4b171ea
-  # 2026-05-22T22:14Z). Gate via private-IP match: only the host whose
-  # primary interface IP equals `cp_private_ip` (= the primary region's
-  # CP1 .2 address, known at tofu render time) does the PUT-back. The
-  # PUT URL targets the primary region's EIP per Wave 5.8.
+  # 2026-05-22T22:14Z). Gate via HOSTNAME match (Wave 5.10) — only the
+  # host whose hostname equals `primary_cp_hostname` (=
+  # `catalyst-<fqdn-slug>-<primary-region>-cp1`, deterministic via the
+  # ECS `name` attribute) executes the PUT-back. Wave 5.9's prior gate
+  # used cp_private_ip but HCS DHCP doesn't assign deterministic .2
+  # addresses (saw worker IPs .230/.50 on 747841cadcf90f7e); no CP
+  # matched, no PUT-back fired, Phase-1 timed out.
   #
-  # Multi-region kubeconfig federation (catalyst-api dashboard fan-out
-  # per region) is a Wave 6+ follow-up — see Hetzner's PUT-back which
-  # uses a per-region URL suffix (#1579 chroot endpoint pattern).
+  # The PUT URL targets the primary region's EIP per Wave 5.8.
+  # Multi-region kubeconfig federation (per-region PUT-back for
+  # catalyst-api dashboard fan-out) is Wave 6+.
   - |
-    LOCAL_IP=$(ip -4 -j route get 8.8.8.8 2>/dev/null | jq -r '.[0].prefsrc // empty')
-    if [ -n "${deployment_id}" ] && [ -n "${kubeconfig_bearer_token}" ] && [ "$LOCAL_IP" = "${cp_private_ip}" ]; then
+    HOSTNAME=$(hostname)
+    if [ -n "${deployment_id}" ] && [ -n "${kubeconfig_bearer_token}" ] && [ "$HOSTNAME" = "${primary_cp_hostname}" ]; then
       sed "s|server: https://127.0.0.1:6443|server: https://${primary_cp_eip}:6443|" /etc/rancher/k3s/k3s.yaml \
         > /tmp/kubeconfig-rewritten.yaml
       curl -sf -X PUT \
