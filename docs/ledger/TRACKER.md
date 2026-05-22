@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-22T09:15:04Z` |
+| Last refreshed | `2026-05-22T09:30:10Z` |
 | Open issues | 79 |
 | Open DoD gates | 7 / 41 |
 | Open TBD-* regressions | 68 |
@@ -285,6 +285,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-05-22T09:26 | [#2138](https://github.com/openova-io/openova/pull/2138) | #2124 | fix(catalyst-api): remove event SharedInformer (Refs #2125,  |
 | 2026-05-21T13:16 | [#2137](https://github.com/openova-io/openova/pull/2137) | #14 | chore(privacy): redact private partner identity from public  |
 | 2026-05-21T12:19 | [#2136](https://github.com/openova-io/openova/pull/2136) | #2131 | fix(catalyst-api): one-shot reads bypass informer cache (Ref |
 | 2026-05-21T08:51 | [#2135](https://github.com/openova-io/openova/pull/2135) | #2132 | fix(catalyst-api): cutover state-machine idempotent + Job-st |
@@ -314,7 +315,6 @@ flowchart LR
 | 2026-05-20T06:42 | [#2078](https://github.com/openova-io/openova/pull/2078) | docs(claude): add user-global pointer + scope-clarification  |  |
 | 2026-05-20T06:41 | [#2076](https://github.com/openova-io/openova/pull/2076) | docs: migrate platform governance ledger from openova-privat |  |
 | 2026-05-20T06:41 | [#2075](https://github.com/openova-io/openova/pull/2075) | #2067 | feat(continuum/d31-acceptance): ship CNPG region-kill zero-t |
-| 2026-05-20T06:35 | [#2074](https://github.com/openova-io/openova/pull/2074) | #12 | feat(tenant-gitops): emit Continuum CR for each multi-region |
 
 ---
 
