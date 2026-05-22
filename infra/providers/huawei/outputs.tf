@@ -1,0 +1,121 @@
+# Outputs the catalyst-api provisioner reads after `tofu apply` against
+# the Huawei Cloud (Stack) module. Variable + output names mirror the
+# canonical contract in infra/providers/PROVIDER-INTERFACE.md §2 so the
+# Go-side provisioner.readOutputs() is provider-agnostic.
+
+output "control_plane_ip" {
+  description = "Public EIP of the primary-region's first control-plane node. On Huawei the EIP IS the entry point (no cloud LB in Tier-B)."
+  value       = length(huaweicloud_vpc_eip.cp) > 0 ? huaweicloud_vpc_eip.cp[0].address : ""
+}
+
+output "load_balancer_ip" {
+  description = "On Huawei Tier-B we deliberately have NO cloud load-balancer; the primary CP's EIP IS the Gateway entry. Echoed as control_plane_ip so cross-provider handler code reads one field uniformly."
+  value       = length(huaweicloud_vpc_eip.cp) > 0 ? huaweicloud_vpc_eip.cp[0].address : ""
+}
+
+output "sovereign_fqdn" {
+  description = "Echo back the FQDN this Sovereign was provisioned for."
+  value       = var.sovereign_fqdn
+}
+
+output "console_url" {
+  description = "URL where the new Sovereign's Catalyst console is reachable once Flux finishes bootstrapping."
+  value       = "https://console.${var.sovereign_fqdn}"
+}
+
+output "gitops_repo_url" {
+  description = "Git URL Flux on the new cluster watches."
+  value       = "${var.gitops_repo_url}//clusters/${var.sovereign_fqdn}"
+}
+
+# Echo of the input — PROVIDER-INTERFACE.md §2 mandates this even when
+# the Go-side just round-trips the value, so the wizard's success-screen
+# code path is uniform across providers.
+output "gitops_repo_url_out" {
+  description = "Echo of the input gitops_repo_url + branch as a fully-qualified clone URL."
+  value       = "${var.gitops_repo_url}//clusters/${var.sovereign_fqdn}"
+}
+
+output "kubeconfig_path" {
+  description = "Empty at apply-time; cloud-init PUTs the kubeconfig back via the bearer endpoint once k3s starts."
+  value       = ""
+}
+
+# ── OBS bucket outputs (analogue of object_storage_* on Hetzner) ─────────
+
+output "obs_endpoint" {
+  description = "S3-protocol OBS endpoint URL the Sovereign's Harbor + Velero point at."
+  value       = "https://obs.${var.huawei_region}.kom4dc.nationalcloud.om"
+}
+
+output "obs_region" {
+  description = "Huawei region the OBS bucket lives in."
+  value       = var.huawei_region
+}
+
+output "obs_bucket" {
+  description = "Per-Sovereign OBS bucket name."
+  value       = aws_s3_bucket.main.bucket
+}
+
+# PROVIDER-INTERFACE.md §2 — canonical s3_buckets list (drives the wipe
+# handler's per-deployment bucket purge).
+output "s3_buckets" {
+  description = "Names of object-storage buckets the module created. Drives wipe-handler bucket purge."
+  value       = [aws_s3_bucket.main.bucket]
+}
+
+# ── Per-region structured outputs ────────────────────────────────────────
+# PROVIDER-INTERFACE.md §2 region_primary + region_secondaries. Same
+# shape the Hetzner module emits via control_plane_ips_by_region etc.,
+# but keyed by `<code>` directly rather than the `<region>-<index>`
+# composite (Huawei has no shared/legacy singular path to preserve).
+
+output "region_primary" {
+  description = "Code of the primary region (echo of regions[0].code)."
+  value       = length(var.regions) > 0 ? var.regions[0].code : ""
+}
+
+output "region_secondaries" {
+  description = "Codes of secondary regions in declared order."
+  value = [
+    for r in var.regions : r.code
+    if r.role == "secondary"
+  ]
+}
+
+output "control_plane_ips_per_region" {
+  description = "Public EIPs of each region's first control-plane node, keyed by region code."
+  value = {
+    for idx, r in var.regions :
+    r.code => length(huaweicloud_vpc_eip.cp) > idx ? huaweicloud_vpc_eip.cp[idx].address : ""
+  }
+}
+
+output "worker_ips_per_region" {
+  description = "Private IPs of each region's worker nodes, keyed by region code. Workers have no EIP — only cluster-internal connectivity."
+  value = {
+    for idx, r in var.regions :
+    r.code => [
+      for k, ws in huaweicloud_compute_instance.worker :
+      ws.access_ip_v4
+      if startswith(k, "${r.code}-")
+    ]
+  }
+}
+
+output "clustermesh_endpoint_per_region" {
+  description = "Public clustermesh-apiserver endpoint per region (CP EIP + NodePort). Cilium ClusterMesh peers dial these over DMZ-WG/mTLS."
+  value = {
+    for idx, r in var.regions :
+    r.code => length(huaweicloud_vpc_eip.cp) > idx ? "${huaweicloud_vpc_eip.cp[idx].address}:32379" : ""
+  }
+}
+
+output "s3_bucket_per_region" {
+  description = "OBS bucket name per region. Tier-B uses ONE bucket for the Sovereign; emitted as a map for cross-provider uniformity."
+  value = {
+    for r in var.regions :
+    r.code => aws_s3_bucket.main.bucket
+  }
+}

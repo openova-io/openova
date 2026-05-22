@@ -1,0 +1,277 @@
+#cloud-config
+# Catalyst Sovereign control-plane bootstrap — Huawei Cloud (Stack).
+# Sovereign: ${sovereign_fqdn}
+# Region:    ${region} (HCS ${huawei_region}/${huawei_az})
+# Provisioned by: catalyst-provisioner (https://console.openova.io/sovereign)
+#
+# Mirrors the Hetzner cloud-init structure (k3s + Flux + ghcr-pull +
+# handover-jwt + cloud-credentials Secret + kubeconfig postback) so the
+# Sovereign-side bootstrap-kit reconciles identically once Flux comes
+# up. Provider-specific differences (no hcloud-ccm, no Hetzner Object
+# Storage; uses Huawei OBS via S3 endpoint, CP's own EIP IS the LB)
+# are absorbed in the Service+Gateway IP plumbing later in the template.
+
+package_update: true
+package_upgrade: false
+packages:
+  - curl
+  - iptables
+  - jq
+  - ca-certificates
+  - git
+%{ if enable_fail2ban ~}
+  - fail2ban
+%{ endif ~}
+%{ if enable_unattended_upgrades ~}
+  - unattended-upgrades
+  - apt-listchanges
+%{ endif ~}
+
+write_files:
+  # ── Sovereign metadata file (parsed by phase1 watchers) ───────────────
+  - path: /var/lib/catalyst/sovereign.json
+    permissions: '0644'
+    content: |
+      {
+        "sovereignFQDN": "${sovereign_fqdn}",
+        "orgName": ${jsonencode(org_name)},
+        "orgEmail": ${jsonencode(org_email)},
+        "region": "${region}",
+        "huaweiRegion": "${huawei_region}",
+        "huaweiAZ": "${huawei_az}",
+        "provider": "huawei",
+        "k3sVersion": "${k3s_version}",
+        "gitopsRepoUrl": "${gitops_repo_url}",
+        "gitopsBranch": "${gitops_branch}",
+        "deploymentId": "${deployment_id}"
+      }
+
+  # ── Kernel inotify limits — same OS-level fix the Hetzner template ships
+  - path: /etc/sysctl.d/99-catalyst-inotify.conf
+    permissions: '0644'
+    content: |
+      fs.inotify.max_user_instances = 8192
+      fs.inotify.max_user_watches = 1048576
+      fs.inotify.max_queued_events = 16384
+
+  # ── SSH daemon hardening ──────────────────────────────────────────────
+  - path: /etc/ssh/sshd_config.d/99-catalyst-hardening.conf
+    permissions: '0644'
+    content: |
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      ChallengeResponseAuthentication no
+      PermitRootLogin prohibit-password
+      PermitEmptyPasswords no
+      UsePAM yes
+      X11Forwarding no
+      AllowAgentForwarding no
+      AllowTcpForwarding no
+      ClientAliveInterval 300
+      ClientAliveCountMax 2
+      MaxAuthTries 3
+      LoginGraceTime 30
+
+%{ if enable_unattended_upgrades ~}
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    permissions: '0644'
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+      APT::Periodic::AutocleanInterval "7";
+%{ endif ~}
+
+%{ if enable_fail2ban ~}
+  - path: /etc/fail2ban/jail.d/catalyst-sshd.local
+    permissions: '0644'
+    content: |
+      [sshd]
+      enabled = true
+      port = ssh
+      filter = sshd
+      maxretry = 5
+      findtime = 10m
+      bantime = 1h
+      backend = systemd
+%{ endif ~}
+
+  # ── flux-system/ghcr-pull Secret ──────────────────────────────────────
+  - path: /var/lib/catalyst/manifests/00-flux-system-ns.yaml
+    permissions: '0644'
+    content: |
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: flux-system
+
+  - path: /var/lib/catalyst/manifests/01-ghcr-pull-secret.yaml
+    permissions: '0600'
+    content: |
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: ghcr-pull
+        namespace: flux-system
+      type: kubernetes.io/dockerconfigjson
+      stringData:
+        .dockerconfigjson: |
+          {
+            "auths": {
+              "ghcr.io": {
+                "username": "${ghcr_pull_username}",
+                "password": "${ghcr_pull_token}",
+                "auth": "${ghcr_pull_auth_b64}"
+              }
+            }
+          }
+
+  # ── flux-system/cloud-credentials Secret ─────────────────────────────
+  #
+  # Vendor-agnostic name (per #425) — Crossplane Provider for Huawei +
+  # any future Day-2 controller reads `huawei-ak` / `huawei-sk` /
+  # `huawei-project-id` / `huawei-region` keys.
+  - path: /var/lib/catalyst/manifests/02-cloud-credentials-secret.yaml
+    permissions: '0600'
+    content: |
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: cloud-credentials
+        namespace: flux-system
+      type: Opaque
+      stringData:
+        huawei-ak: "${obs_access_key}"
+        huawei-sk: "${obs_secret_key}"
+        huawei-project-id: "${huawei_region}"
+        huawei-region: "${huawei_region}"
+
+  # ── flux-system/object-storage Secret ─────────────────────────────────
+  - path: /var/lib/catalyst/manifests/03-object-storage-secret.yaml
+    permissions: '0600'
+    content: |
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: object-storage
+        namespace: flux-system
+      type: Opaque
+      stringData:
+        endpoint: "${obs_endpoint}"
+        region: "${obs_region}"
+        bucket: "${obs_bucket_name}"
+        access-key: "${obs_access_key}"
+        secret-key: "${obs_secret_key}"
+
+  # ── Handover-JWT public key ──────────────────────────────────────────
+  - path: /var/lib/catalyst/handover-jwt-public.jwk
+    permissions: '0600'
+    content: |
+      ${handover_jwt_public_key}
+
+  # ── Flux GitRepository + Kustomization seed ───────────────────────────
+  - path: /var/lib/catalyst/manifests/10-flux-source.yaml
+    permissions: '0644'
+    content: |
+      apiVersion: source.toolkit.fluxcd.io/v1
+      kind: GitRepository
+      metadata:
+        name: openova
+        namespace: flux-system
+      spec:
+        interval: 1m
+        url: ${gitops_repo_url}
+        ref:
+          branch: ${gitops_branch}
+      ---
+      apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      metadata:
+        name: bootstrap-kit
+        namespace: flux-system
+      spec:
+        interval: 5m
+        path: ./clusters/_template/bootstrap-kit
+        prune: true
+        sourceRef:
+          kind: GitRepository
+          name: openova
+        postBuild:
+          substitute:
+            SOVEREIGN_FQDN: ${sovereign_fqdn}
+            SOVEREIGN_FQDN_DASHED: ${sovereign_fqdn_slug}
+            PROVIDER: huawei
+            PARENT_DOMAINS_YAML: |
+              ${parent_domains_yaml}
+
+  # ── Worker cloud-init for autoscaler (issue #921 analogue) ────────────
+  - path: /var/lib/catalyst/worker-cloud-init.b64
+    permissions: '0600'
+    content: |
+      ${worker_cloud_init_b64}
+
+runcmd:
+  # 1. Apply sysctl for inotify limits + harden sshd
+  - sysctl --system
+  - systemctl reload ssh || true
+
+%{ if enable_fail2ban ~}
+  - systemctl enable --now fail2ban
+%{ endif ~}
+
+  # 2. Install k3s server (no flannel — Cilium replaces it). Cluster +
+  #    service CIDRs are pinned per-region to avoid ClusterMesh peer
+  #    collisions (DoD D11).
+  - |
+    curl -sfL https://get.k3s.io | \
+      INSTALL_K3S_VERSION=${k3s_version} \
+      K3S_TOKEN=${k3s_token} \
+      INSTALL_K3S_EXEC="server \
+        --flannel-backend=none \
+        --disable-network-policy \
+        --disable=traefik \
+        --disable=servicelb \
+        --cluster-cidr=${cluster_cidr} \
+        --service-cidr=${service_cidr} \
+        --tls-san=${sovereign_fqdn} \
+        --node-label=openova.io/region=hw-${region}-rtz-prod \
+        --node-label=catalyst.openova.io/provider=huawei" \
+      sh -
+
+  # 3. Wait for k8s to come up + apply seed manifests.
+  - |
+    for i in $(seq 1 60); do
+      if KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl get nodes >/dev/null 2>&1; then break; fi
+      sleep 5
+    done
+  - KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f /var/lib/catalyst/manifests/00-flux-system-ns.yaml
+  - KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f /var/lib/catalyst/manifests/01-ghcr-pull-secret.yaml
+  - KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f /var/lib/catalyst/manifests/02-cloud-credentials-secret.yaml
+  - KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f /var/lib/catalyst/manifests/03-object-storage-secret.yaml
+
+  # 4. Install Flux + apply the GitRepository + Kustomization seed.
+  - |
+    curl -sfL https://github.com/fluxcd/flux2/releases/download/v2.4.0/flux_2.4.0_linux_amd64.tar.gz \
+      | tar -xz -C /usr/local/bin flux
+  - KUBECONFIG=/etc/rancher/k3s/k3s.yaml flux install --components=source-controller,kustomize-controller,helm-controller,notification-controller || true
+  - KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f /var/lib/catalyst/manifests/10-flux-source.yaml
+
+  # 5. PUT-back kubeconfig to catalyst-api (issue #183 Option D).
+  - |
+    if [ -n "${deployment_id}" ] && [ -n "${kubeconfig_bearer_token}" ]; then
+      EIP=$(curl -s http://169.254.169.254/openstack/latest/meta_data.json | jq -r '.public_ipv4_address // .access_ip // empty')
+      if [ -z "$EIP" ]; then
+        EIP=$(ip -4 -j route get 8.8.8.8 2>/dev/null | jq -r '.[0].prefsrc // empty')
+      fi
+      sed "s|server: https://127.0.0.1:6443|server: https://$EIP:6443|" /etc/rancher/k3s/k3s.yaml \
+        > /tmp/kubeconfig-rewritten.yaml
+      curl -sf -X PUT \
+        -H "Authorization: Bearer ${kubeconfig_bearer_token}" \
+        -H "Content-Type: application/x-yaml" \
+        --data-binary @/tmp/kubeconfig-rewritten.yaml \
+        "${catalyst_api_url}/api/v1/deployments/${deployment_id}/kubeconfig" \
+        || true
+    fi
+
+  # 6. Mark cloud-init complete (consumed by phase1Watch).
+  - mkdir -p /var/lib/catalyst
+  - touch /var/lib/catalyst/cloud-init-complete

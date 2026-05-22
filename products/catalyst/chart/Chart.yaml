@@ -2276,8 +2276,29 @@ name: bp-catalyst-platform
 #
 # Refs #1099 (NOT Closes — operator walk + screenshot is the DoD per
 # CLAUDE.md §0).
-version: 1.4.238
-appVersion: 1.4.238
+version: 1.4.239
+appVersion: 1.4.239
+# 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
+# implementation lands behind the Wave 2 CloudProvider interface.
+# Adds the OpenTofu module at infra/providers/huawei/ (VPC + Subnet +
+# Security Group + ECS + EIP + OBS bucket, Tier-B 2-region canonical
+# shape; mocked-provider tests assert 10 ECS / 6 EIP / 2 VPC / 2 SG /
+# 1 OBS bucket for the canonical shape); fills the Go adapter at
+# providers/huawei (AK/SK Signature v3 over net/http — no Huawei SDK
+# pulled into go.mod; ValidateCreds against /v1/<project_id>/vpcs;
+# Wipe runs tofu destroy + ECS/EIP/SG/VPC sweep + OBS bucket purge;
+# ListServers via the ECS list-by-tag endpoint; ObjectStorageNamer
+# extension implemented). Migrates handler/wipe.go to the providers
+# seam — `hetznerPurge` wire field renamed to `providerPurge`
+# (per-resource-kind map; resolves cross-provider in one shape).
+# Adds `provider` top-level field on the wipe response so the UI can
+# label the banner. handler/retry.go + handler/handover.go remain
+# cloud-agnostic (no Hetzner-specific paths to migrate). New
+# behavioural tests at providers/huawei/provider_test.go
+# (ValidateCreds-rejects-missing-fields, ValidateCreds-AcceptsGoodAKSK,
+# Provision-FailsCloseOnMissingCreds, Wipe-IsIdempotent,
+# RegistryDispatch-HetznerVsHuawei polymorphism proof,
+# BucketName-DeterministicPerDeployment).
 # 1.4.238 — Wave 2 / Issue #1841 (2026-05-23): catalyst-api gains a
 # CloudProvider interface at internal/providers/ with the Hetzner
 # adapter (delegates to existing internal/hetzner + internal/provisioner;
