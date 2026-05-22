@@ -1,5 +1,22 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.240 — Wave 4 / #2140 (2026-05-23) wire-schema additions to
+# provisioner.Request so a POST /api/v1/sovereign/deployments body
+# can carry the Huawei AK/SK + project_id alongside the existing
+# Hetzner fields. New top-level `provider` field (default "hetzner"
+# for back-compat). New optional `huaweiAccessKey` /
+# `huaweiSecretKey` / `huaweiProjectID` / `huaweiRegion` fields,
+# required when provider=huawei. writeTfvars() emits the matching
+# `huawei_*` keys (the OpenTofu module at infra/providers/huawei/
+# variables.tf declares them) and the resolveModulePath helper now
+# swaps the trailing directory in CATALYST_TOFU_MODULE_PATH to
+# match the per-Request provider so the same *Provisioner instance
+# can drive both clouds. The Hetzner-specific
+# ObjectStorageRegion={fsn1,nbg1,hel1} enum is now gated on
+# provider==hetzner so a Huawei prov targeting a non-Hetzner OBS
+# region doesn't 400 unnecessarily. No live cluster touched; Wave 5
+# performs the first fresh-prov walk against a real HCS endpoint.
+#
 # 1.4.237 — TBD-V50 / #2125 (2026-05-22) Root-cause OOM-cycle on
 # mothership catalyst-api (178 restarts in 20h, exit 137 OOMKilled,
 # image d9e678f w/ V49 baked in). PR #2124's bounded LIST 5000-page
@@ -2276,8 +2293,8 @@ name: bp-catalyst-platform
 #
 # Refs #1099 (NOT Closes — operator walk + screenshot is the DoD per
 # CLAUDE.md §0).
-version: 1.4.239
-appVersion: 1.4.239
+version: 1.4.240
+appVersion: 1.4.240
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
 # Adds the OpenTofu module at infra/providers/huawei/ (VPC + Subnet +

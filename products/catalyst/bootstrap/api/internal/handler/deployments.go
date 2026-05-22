@@ -996,12 +996,18 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 	// format breaks the rule the validator emits a clear error rather
 	// than letting tofu apply fail 5 minutes in.
 	if strings.TrimSpace(req.ObjectStorageBucket) == "" && strings.TrimSpace(req.SovereignFQDN) != "" {
-		// Resolve via the providers.CloudProvider seam so a future
-		// non-Hetzner deployment dispatches to its own
-		// ObjectStorageNamer impl. The default (when req carries no
-		// provider hint) is "hetzner" to preserve byte-equivalent
-		// behaviour with the pre-Wave-2 path.
-		providerName := "hetzner"
+		// Resolve via the providers.CloudProvider seam so a non-Hetzner
+		// deployment dispatches to its own ObjectStorageNamer impl
+		// (Huawei's bucket-prefix on OBS follows the same `catalyst-
+		// <fqdn-dashed>-<id-prefix>` shape but the namer lives in
+		// providers/huawei). Wave 4 (#2140) wires this off req.Provider
+		// so a POST with provider=huawei lands on the Huawei adapter's
+		// BucketNameForDeployment; empty/unset Provider falls back to
+		// "hetzner" for the back-compat path.
+		providerName := strings.ToLower(strings.TrimSpace(req.Provider))
+		if providerName == "" {
+			providerName = "hetzner"
+		}
 		if cp, perr := providers.Get(providerName); perr == nil {
 			if namer, ok := cp.(providers.ObjectStorageNamer); ok {
 				req.ObjectStorageBucket = namer.BucketNameForDeployment(req.SovereignFQDN, id)
