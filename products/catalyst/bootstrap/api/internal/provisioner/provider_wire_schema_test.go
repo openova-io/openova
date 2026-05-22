@@ -192,36 +192,52 @@ func TestRequestValidate_Provider_UnknownRejected(t *testing.T) {
 	}
 }
 
-// TestRequest_HuaweiSecretKey_NotSerializedInPersistedRedaction — this
-// test is the inverse of TestRequest_GHCRPullToken_NotSerialized: the
-// Huawei secret key IS serialised in the wire payload (it carries a
-// json:"huaweiSecretKey,omitempty" tag, NOT json:"-") because the
-// wizard's POST body has to ship it. The actual credential hygiene
-// happens at the internal/store.Redact boundary — that's a separate
-// test in internal/store/. Here we just pin the wire shape: a
-// populated HuaweiSecretKey lands in the marshaled JSON under the
-// expected key.
-func TestRequest_HuaweiSecretKey_SerialisedOnWire(t *testing.T) {
-	const sentinel = "TESTSK_WIRE_FORMAT_PROBE_NOT_REAL"
-	r := Request{HuaweiSecretKey: sentinel}
+// TestRequest_HuaweiCreds_NeverOnWire — after PR #2144 (Wave 4.5) the
+// Huawei IAM credentials are server-side-only: stamped from K8s Secret
+// `huawei-operator-creds` via env vars at CreateDeployment, NEVER
+// accepted from the wizard POST body. The four Huawei* fields therefore
+// carry json:"-" tags (matching DynadotAPIKey / GHCRPullToken /
+// HarborRobotToken / PowerDNSAPIKey / PDMBasicAuth* — every other
+// operator credential in the codebase). This test pins the new
+// contract: even when populated, the fields MUST NOT appear in the
+// marshaled JSON.
+//
+// History: the original v1 of this test (PR #2143, Wave 4) asserted
+// the opposite — that huaweiSecretKey IS in the wire. That was the
+// credential-exfiltration antipattern caught + fixed in #2144.
+func TestRequest_HuaweiCreds_NeverOnWire(t *testing.T) {
+	const akSentinel = "TESTAK_WIRE_FORMAT_PROBE_NOT_REAL"
+	const skSentinel = "TESTSK_WIRE_FORMAT_PROBE_NOT_REAL"
+	const pidSentinel = "TESTPID_WIRE_FORMAT_PROBE_NOT_REAL"
+	const regionSentinel = "TESTREGION_WIRE_FORMAT_PROBE_NOT_REAL"
+	r := Request{
+		HuaweiAccessKey: akSentinel,
+		HuaweiSecretKey: skSentinel,
+		HuaweiProjectID: pidSentinel,
+		HuaweiRegion:    regionSentinel,
+	}
 
 	raw, err := jsonMarshal(r)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	if !strings.Contains(raw, "huaweiSecretKey") {
-		t.Errorf("Request.HuaweiSecretKey JSON tag missing: %s", raw)
+	for _, key := range []string{"huaweiAccessKey", "huaweiSecretKey", "huaweiProjectID", "huaweiRegion"} {
+		if strings.Contains(raw, key) {
+			t.Errorf("Huawei field %s leaked into wire JSON (must be json:\"-\"); got: %s", key, raw)
+		}
 	}
-	if !strings.Contains(raw, sentinel) {
-		t.Errorf("Request.HuaweiSecretKey value not in marshaled output: %s", raw)
+	for _, sentinel := range []string{akSentinel, skSentinel, pidSentinel, regionSentinel} {
+		if strings.Contains(raw, sentinel) {
+			t.Errorf("Huawei credential sentinel %q leaked into wire JSON: %s", sentinel, raw)
+		}
 	}
 }
 
-// TestRequest_HuaweiFields_OmitEmpty — empty Huawei fields must NOT
-// serialise. Two reasons: (1) the wire payload stays compact for the
-// majority of Hetzner provisions, and (2) the persisted record never
-// carries dangling empty-string credentials that a future audit might
-// mistake for a leaked cred.
+// TestRequest_HuaweiFields_OmitEmpty — defense-in-depth: even with the
+// new json:"-" tags, double-check empty Huawei fields don't appear.
+// (Redundant with the above test once json:"-" is in place; kept as a
+// regression guard if anyone re-introduces json:"huaweiAccessKey,
+// omitempty" by accident.)
 func TestRequest_HuaweiFields_OmitEmpty(t *testing.T) {
 	r := Request{} // all Huawei fields empty
 
