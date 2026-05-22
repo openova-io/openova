@@ -36,8 +36,8 @@ mock_provider "huaweicloud" {
   }
   mock_resource "huaweicloud_compute_instance" {
     defaults = {
-      id            = "ecs-mock-1"
-      access_ip_v4  = "10.20.1.10"
+      id           = "ecs-mock-1"
+      access_ip_v4 = "10.20.1.10"
     }
   }
   mock_resource "huaweicloud_kps_keypair" {
@@ -57,16 +57,16 @@ mock_provider "aws" {
 }
 
 variables {
-  deployment_id        = "deadbeefcafef00d"
-  sovereign_fqdn       = "t99.omani.works"
-  huawei_access_key    = "AKIAEXAMPLEAKIAEXAMPLE"
-  huawei_secret_key    = "secret-key-not-real-just-padding-32chars"
-  huawei_project_id    = "0123456789abcdef0123456789abcdef"
-  org_name             = "Acme Test"
-  org_email            = "admin@example.com"
-  obs_bucket_name      = "catalyst-t99-omani-works-deadbeef"
-  ssh_public_key       = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakeKeyForTest test@bastion"
-  parent_domains_yaml  = ""
+  deployment_id       = "deadbeefcafef00d"
+  sovereign_fqdn      = "t99.omani.works"
+  huawei_access_key   = "AKIAEXAMPLEAKIAEXAMPLE"
+  huawei_secret_key   = "secret-key-not-real-just-padding-32chars"
+  huawei_project_id   = "0123456789abcdef0123456789abcdef"
+  org_name            = "Acme Test"
+  org_email           = "admin@example.com"
+  obs_bucket_name     = "catalyst-t99-omani-works-deadbeef"
+  ssh_public_key      = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakeKeyForTest test@bastion"
+  parent_domains_yaml = ""
 }
 
 # Scenario 1 — Tier-B canonical two-region shape (primary + secondary).

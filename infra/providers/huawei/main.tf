@@ -296,21 +296,21 @@ locals {
   }), "/(?m)^[ ]*#( |$).*\n/", "")
 
   control_plane_cloud_init = replace(templatefile("${path.module}/cloudinit-control-plane.tftpl", {
-    sovereign_fqdn             = var.sovereign_fqdn
-    sovereign_fqdn_slug        = local.fqdn_slug
-    deployment_id              = var.deployment_id
-    org_name                   = var.org_name
-    org_email                  = var.org_email
-    region                     = var.regions[0].code
-    huawei_region              = var.huawei_region
-    huawei_az                  = var.huawei_az
-    k3s_version                = var.k3s_version
-    k3s_token                  = sha256("${var.huawei_project_id}/${var.sovereign_fqdn}/k3s-bootstrap")
-    cp_private_ip              = cidrhost(local.region_subnet_cidr[local.region_keys[0]], 2)
-    cluster_cidr               = "10.42.0.0/16"
-    service_cidr               = "10.96.0.0/16"
-    gitops_repo_url            = var.gitops_repo_url
-    gitops_branch              = var.gitops_branch
+    sovereign_fqdn      = var.sovereign_fqdn
+    sovereign_fqdn_slug = local.fqdn_slug
+    deployment_id       = var.deployment_id
+    org_name            = var.org_name
+    org_email           = var.org_email
+    region              = var.regions[0].code
+    huawei_region       = var.huawei_region
+    huawei_az           = var.huawei_az
+    k3s_version         = var.k3s_version
+    k3s_token           = sha256("${var.huawei_project_id}/${var.sovereign_fqdn}/k3s-bootstrap")
+    cp_private_ip       = cidrhost(local.region_subnet_cidr[local.region_keys[0]], 2)
+    cluster_cidr        = "10.42.0.0/16"
+    service_cidr        = "10.96.0.0/16"
+    gitops_repo_url     = var.gitops_repo_url
+    gitops_branch       = var.gitops_branch
     parent_domains_yaml = coalesce(
       var.parent_domains_yaml,
       format("[{name: \"%s\", role: \"primary\"}]", var.sovereign_fqdn)
