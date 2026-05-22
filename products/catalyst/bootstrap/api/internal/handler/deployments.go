@@ -973,6 +973,33 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 		req.HarborRobotToken = tok
 	}
 
+	// Stamp Huawei IAM credentials from env vars when the deployment
+	// targets the Huawei provider. SAME pattern as GHCRPullToken /
+	// HarborRobotToken above — operator AK/SK lives in a Kubernetes
+	// Secret (`huawei-operator-creds` in the catalyst ns) projected
+	// into the catalyst-api Pod as CATALYST_HUAWEI_ACCESS_KEY /
+	// _SECRET_KEY / _PROJECT_ID / _REGION env vars. The wizard
+	// payload NEVER carries these — Request.Huawei* fields are
+	// `json:"-"` precisely so credential-exfiltration via wire body
+	// is structurally impossible. Validate() (called below) still
+	// requires them populated when provider=huawei; empty env =
+	// fail-fast 400 with a clear pointer to the missing K8s Secret,
+	// not a 5-minute tofu apply that crashes mid-flight.
+	if req.Provider == "huawei" {
+		if v := os.Getenv("CATALYST_HUAWEI_ACCESS_KEY"); v != "" {
+			req.HuaweiAccessKey = v
+		}
+		if v := os.Getenv("CATALYST_HUAWEI_SECRET_KEY"); v != "" {
+			req.HuaweiSecretKey = v
+		}
+		if v := os.Getenv("CATALYST_HUAWEI_PROJECT_ID"); v != "" {
+			req.HuaweiProjectID = v
+		}
+		if v := os.Getenv("CATALYST_HUAWEI_REGION"); v != "" {
+			req.HuaweiRegion = v
+		}
+	}
+
 	// Mint the deployment ID NOW (before bucket-name derivation) so the
 	// per-Sovereign Object Storage bucket name (issue #371, Fix #111) can
 	// take a deterministic suffix from it. This fixes a real Hetzner

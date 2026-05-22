@@ -250,11 +250,25 @@ type Request struct {
 	// HuaweiRegion is optional — empty defaults to the canonical HCS
 	// region "me-east-215" inside the Huawei provider adapter (see
 	// providers/huawei/provider.go defaultRegion). Operators targeting
-	// public Huawei Cloud override per-deployment.
-	HuaweiAccessKey string `json:"huaweiAccessKey,omitempty"`
-	HuaweiSecretKey string `json:"huaweiSecretKey,omitempty"`
-	HuaweiProjectID string `json:"huaweiProjectID,omitempty"`
-	HuaweiRegion    string `json:"huaweiRegion,omitempty"`
+	// public Huawei Cloud override via env-var.
+	//
+	// SECURITY: `json:"-"` — these credentials are SERVER-SIDE stamped
+	// from env vars at /api/v1/deployments POST time, NEVER accepted
+	// from the wizard payload. Mirrors the canonical pattern used for
+	// every other operator credential (DynadotAPIKey, GHCRPullToken,
+	// HarborRobotToken, PowerDNSAPIKey, PDMBasicAuth*) — operator AK/SK
+	// lives in a Kubernetes Secret on mothership (`huawei-operator-creds`),
+	// projected into the catalyst-api Pod as env vars
+	// CATALYST_HUAWEI_ACCESS_KEY / CATALYST_HUAWEI_SECRET_KEY /
+	// CATALYST_HUAWEI_PROJECT_ID / CATALYST_HUAWEI_REGION. The wire
+	// format cannot inject these — putting them in the request body is
+	// a credential-exfiltration antipattern that the v1 wire schema
+	// (PR #2143, Wave 4) inherited from the early Hetzner shape and
+	// this fix removes.
+	HuaweiAccessKey string `json:"-"`
+	HuaweiSecretKey string `json:"-"`
+	HuaweiProjectID string `json:"-"`
+	HuaweiRegion    string `json:"-"`
 
 	// Legacy singular fields. When Regions is non-empty Validate()
 	// derives these from Regions[0] so writeTfvars()'s single-region
