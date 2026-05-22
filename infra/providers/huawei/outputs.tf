@@ -55,14 +55,14 @@ output "obs_region" {
 
 output "obs_bucket" {
   description = "Per-Sovereign OBS bucket name."
-  value       = aws_s3_bucket.main.bucket
+  value       = huaweicloud_obs_bucket.main.bucket
 }
 
 # PROVIDER-INTERFACE.md §2 — canonical s3_buckets list (drives the wipe
 # handler's per-deployment bucket purge).
 output "s3_buckets" {
   description = "Names of object-storage buckets the module created. Drives wipe-handler bucket purge."
-  value       = [aws_s3_bucket.main.bucket]
+  value       = [huaweicloud_obs_bucket.main.bucket]
 }
 
 # ── Per-region structured outputs ────────────────────────────────────────
@@ -116,6 +116,6 @@ output "s3_bucket_per_region" {
   description = "OBS bucket name per region. Tier-B uses ONE bucket for the Sovereign; emitted as a map for cross-provider uniformity."
   value = {
     for r in var.regions :
-    r.code => aws_s3_bucket.main.bucket
+    r.code => huaweicloud_obs_bucket.main.bucket
   }
 }
