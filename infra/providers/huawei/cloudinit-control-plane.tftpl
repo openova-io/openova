@@ -218,16 +218,28 @@ runcmd:
   - systemctl enable --now fail2ban
 %{ endif ~}
 
-  # 2. Install k3s server (no flannel — Cilium replaces it). Cluster +
-  #    service CIDRs are pinned per-region to avoid ClusterMesh peer
-  #    collisions (DoD D11).
+  # 2. Install k3s server (Wave 5.11 Refs #2140 — Flannel ENABLED,
+  #    default vxlan backend). Cluster + service CIDRs are pinned
+  #    per-region to avoid ClusterMesh peer collisions (DoD D11).
+  #
+  # Wave 3 disabled Flannel (`--flannel-backend=none`) intending Cilium
+  # to replace it via Flux. The result was a chicken-and-egg deadlock:
+  # k3s node stayed NotReady (`cni plugin not initialized`) → Flux
+  # controller Pods stuck Pending (FailedScheduling on not-ready taint)
+  # → bp-cilium HelmRelease never deployed → node never became Ready.
+  # Caught live on c455045f2fd139a4 2026-05-22T23:24Z (Phase 1 saw 0
+  # HelmReleases in 15min).
+  #
+  # Re-enabling Flannel default lets the CP become Ready, Flux schedule,
+  # the bootstrap-kit Kustomization reconcile. The bp-cilium HelmRelease
+  # later in the bootstrap-kit chain replaces Flannel as the active CNI
+  # via Cilium's chained-CNI install path. Cilium ClusterMesh
+  # (multi-region peer) is Wave 6+ — not required for the POC walk.
   - |
     curl -sfL https://get.k3s.io | \
       INSTALL_K3S_VERSION=${k3s_version} \
       K3S_TOKEN=${k3s_token} \
       INSTALL_K3S_EXEC="server \
-        --flannel-backend=none \
-        --disable-network-policy \
         --disable=traefik \
         --disable=servicelb \
         --cluster-cidr=${cluster_cidr} \
