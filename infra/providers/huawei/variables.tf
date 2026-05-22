@@ -162,6 +162,26 @@ variable "default_worker_flavor" {
   default     = "m7n.xlarge.8"
 }
 
+variable "huawei_control_plane_count" {
+  type        = number
+  description = <<-EOT
+    Number of control-plane ECS instances per region. Wave 5.7 (Refs #2140)
+    default is 1, sized for the HCS me-east-215 publicIp quota (10) — the
+    earlier Hetzner-style fixed-3 design consumed 6 EIPs for a 2-region
+    Tier-B Sovereign and left no headroom for mothership + a second
+    Sovereign on the same tenancy (`eip:ListQuotas` confirmed
+    quota=10 used=10 on the first Wave 5 apply attempts 2026-05-22T20:35Z).
+
+    Set to 3 for HA control plane on a tenancy with sufficient EIP
+    headroom (public Huawei Cloud or HCS POD enterprise tier).
+  EOT
+  default     = 1
+  validation {
+    condition     = var.huawei_control_plane_count == 1 || var.huawei_control_plane_count == 3
+    error_message = "huawei_control_plane_count must be 1 (POC) or 3 (HA)."
+  }
+}
+
 # ── SSH ──────────────────────────────────────────────────────────────────
 
 variable "ssh_public_key" {

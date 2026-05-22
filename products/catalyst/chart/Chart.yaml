@@ -1,5 +1,50 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.249 — Wave 5.7 / #2140 (2026-05-23) comprehensive HCS audit +
+# single-pass fixes for the Huawei OpenTofu module. After 6 incremental
+# 1-line fix PRs (#2146 #2148 #2149 #2150 #2152 #2153 — each surfacing
+# ONE divergence at a time on `tofu apply` against
+# https://*.me-east-215.kom4dc.nationalcloud.om), this wave runs a
+# comprehensive local-harness audit + ships the architecturally-correct
+# end-state in one PR:
+#
+# 1. Per-region CP count is now a variable
+#    (`huawei_control_plane_count`, default 1), not hardcoded 3.
+#    Live evidence: HCS me-east-215 `eip:ListQuotas` returns
+#    publicIp quota=10 used=10 after a 2-region Tier-B prov; the old
+#    Hetzner-style 6-EIPs-per-Sovereign design left no headroom for
+#    mothership + a second Sovereign on the same tenancy.
+# 2. One EIP per region (was 1-per-CP) — attached to that region's
+#    primary CP (index 0). Replica CPs (when count=3) carry only
+#    private IPs; ClusterMesh peers dial the primary CP's EIP. DOD
+#    A2 inter-region-over-public-IPs contract preserved.
+# 3. `regions[].worker_count` is now honoured (was ignored — module
+#    hardcoded 2). Cross-provider PROVIDER-INTERFACE.md §1 shape.
+# 4. `lifecycle.ignore_changes` blocks on `huaweicloud_vpc`,
+#    `huaweicloud_vpc_subnet`, and `huaweicloud_compute_instance` for
+#    HCS read-back fields the provider synthesises post-create (tags,
+#    dns_list, dhcp_lease_time, primary_dns, secondary_dns, metadata).
+#    Without these, a second `tofu plan` after a successful apply
+#    shows a perpetual diff.
+# 5. `huaweicloud_vpc_eip.cp` switched from `count = N` to
+#    `for_each = toset(local.cp_eip_regions)` — the resource address
+#    is now keyed by region code (`cp["me-east-215-a"]`) rather than
+#    by composite CP-list index, matching the per-region cardinality.
+#    Outputs (control_plane_ip, control_plane_ips_per_region,
+#    clustermesh_endpoint_per_region) updated to the new key shape.
+#
+# Local-harness validation: `tofu apply -parallelism=1` against the
+# real HCS endpoint, single-region (audit.omani.works on me-east-215),
+# created 15 resources cleanly (1 VPC + 1 subnet + 1 SG + 6 SG rules
+# + 1 EIP + 1 CP ECS + 2 worker ECS + 1 KPS keypair + 1 OBS bucket).
+# Idempotency confirmed: second `tofu plan` says "No changes."
+#
+# Multi-region apply blocked by physical HCS tenancy quota (VPC
+# quota=5 used=5 once mothership-hw01's 2 VPCs + bastion + default
+# are in place + the audit prov adds 1). The right fix for the
+# 2-region walk is a quota raise OR mothership cleanup — outside
+# the scope of this module bump.
+#
 # 1.4.240 — Wave 4 / #2140 (2026-05-23) wire-schema additions to
 # provisioner.Request so a POST /api/v1/sovereign/deployments body
 # can carry the Huawei AK/SK + project_id alongside the existing
@@ -2293,8 +2338,8 @@ name: bp-catalyst-platform
 #
 # Refs #1099 (NOT Closes — operator walk + screenshot is the DoD per
 # CLAUDE.md §0).
-version: 1.4.248
-appVersion: 1.4.248
+version: 1.4.249
+appVersion: 1.4.249
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
 # Adds the OpenTofu module at infra/providers/huawei/ (VPC + Subnet +
