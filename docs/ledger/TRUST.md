@@ -551,7 +551,7 @@ This second add-on captures everything that landed after the prior add-on commit
 These were produced this session by read-only verification agents and are ready to surface into the repo or issue threads as needed:
 
 - `/tmp/design-tbd-v23-deny-egress-proposal.md` — TBD-V23 (Pillar 5 real deny-egress) — **Approach A (scoped CCNP + probe Pod) recommended**; Approach B (`toFQDNs` in egressDeny) definitively dead in Cilium 1.16
-- `/tmp/audit-pillar4-deep-wiring-2026-05-20.md` — Pillar 4 audit (agent `a38de4d2`) — **0/6 wired-correct end-to-end**; 6 atomic findings; key blockers: A1 (marketplace.app.install missing — now V26), A4 (agent dispatch cosmetic), B2 (MCP stdio binary deployed as Pod → EOFs), B3 (no mcp.json injection), C1 (newapi default Bank Dhofar, not in-cluster Qwen), D2 (no SPIFFE/SVID in sandbox)
+- `/tmp/audit-pillar4-deep-wiring-2026-05-20.md` — Pillar 4 audit (agent `a38de4d2`) — **0/6 wired-correct end-to-end**; 6 atomic findings; key blockers: A1 (marketplace.app.install missing — now V26), A4 (agent dispatch cosmetic), B2 (MCP stdio binary deployed as Pod → EOFs), B3 (no mcp.json injection), C1 (newapi default partner, not in-cluster Qwen), D2 (no SPIFFE/SVID in sandbox)
 - `/tmp/audit-pillar5-cutover-2026-05-20.md` — Pillar 5 audit (agent `a52b1404`) — step 08 ships a placeholder ConfigMap that's never applied; passive Flux-Ready survival check ≠ real deny-egress proof
 - `/tmp/investigate-tbd-v24-tethers-2026-05-20.md` — V24 tethers investigation (agent `a33d7356`) — 3 specific MISS findings; MISS-1 + MISS-2 shipped (#2039, #2041); MISS-3 still in investigation
 - `/tmp/audit-pillar1-bss-2026-05-20.md` — Pillar 1 audit (agent `a8d219a3`) — 5/8 wired-correct

@@ -172,7 +172,7 @@ All under `/tmp/` on bastion `vmi3305700`. Read-only verification agents only �
 | Filename | Scope | Key finding | Follow-up issue(s) |
 |---|---|---|---|
 | `/tmp/audit-pillar1-bss-2026-05-20.md` | Pillar 1 (marketplace + signup) | 5/8 wired-correct; AppDetail configSchema gap, wizard CTA anti-canon, billing transactional gap | #2026, #2028, #2000 |
-| `/tmp/audit-pillar4-deep-wiring-2026-05-20.md` | Pillar 4 (Sandbox + MCP) | **0/6 wired-correct end-to-end**; A1 (marketplace.app.install missing), A4 (cosmetic dispatch), B2 (stdio binary deployed as Pod → EOFs), B3 (no mcp.json injection), C1 (newapi default Bank Dhofar not in-cluster Qwen), D2 (no SPIFFE/SVID) | #2040 (V26), #1986 |
+| `/tmp/audit-pillar4-deep-wiring-2026-05-20.md` | Pillar 4 (Sandbox + MCP) | **0/6 wired-correct end-to-end**; A1 (marketplace.app.install missing), A4 (cosmetic dispatch), B2 (stdio binary deployed as Pod → EOFs), B3 (no mcp.json injection), C1 (newapi default partner not in-cluster Qwen), D2 (no SPIFFE/SVID) | #2040 (V26), #1986 |
 | `/tmp/audit-pillar5-cutover-2026-05-20.md` | Pillar 5 (sovereignty cutover) | step 08 ships a placeholder ConfigMap that is never applied — passive Flux-Ready ≠ deny-egress proof | #2033 (V23), #2034 (V24) |
 | `/tmp/investigate-tbd-v24-tethers-2026-05-20.md` | Pillar 5 tether audit | 3 concrete MISS findings vs the "8-tether pivot" claim | MISS-1/2 shipped (#2039, #2041); MISS-3 still open |
 | `/tmp/investigate-tbd-v24-miss3-2026-05-20.md` | TBD-V24 MISS-3 (the third tether) | Crossplane Provider CRs pull from `xpkg.upbound.io` post-cutover | Folded into #2045 (step 11) |
