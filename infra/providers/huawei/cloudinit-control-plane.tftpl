@@ -269,8 +269,26 @@ runcmd:
   # `.public_ipv4_address`), but HCS doesn't populate that field, and
   # the `ip route get 8.8.8.8` fallback returned the PRIVATE subnet IP
   # (10.30.1.70 on 4bb37cbbb1e23ba8 2026-05-22T21:42Z).
+  #
+  # IMPORTANT (Wave 5.9, Refs #2140): only the PRIMARY region's CP1 may
+  # PUT-back. Each CP runs k3s standalone (one independent cluster per
+  # region — Cilium ClusterMesh peers them at L4). Every CP's k3s
+  # generates its OWN cluster CA + client cert in /etc/rancher/k3s/k3s.yaml.
+  # If multiple CPs PUT to the same `/kubeconfig` URL, the last one wins
+  # — and the resulting kubeconfig's client cert is signed by a CA the
+  # primary region's apiserver doesn't trust (HTTP 401 on every reach
+  # from catalyst-api Phase-1 watch — caught live on a7decee7f4b171ea
+  # 2026-05-22T22:14Z). Gate via private-IP match: only the host whose
+  # primary interface IP equals `cp_private_ip` (= the primary region's
+  # CP1 .2 address, known at tofu render time) does the PUT-back. The
+  # PUT URL targets the primary region's EIP per Wave 5.8.
+  #
+  # Multi-region kubeconfig federation (catalyst-api dashboard fan-out
+  # per region) is a Wave 6+ follow-up — see Hetzner's PUT-back which
+  # uses a per-region URL suffix (#1579 chroot endpoint pattern).
   - |
-    if [ -n "${deployment_id}" ] && [ -n "${kubeconfig_bearer_token}" ]; then
+    LOCAL_IP=$(ip -4 -j route get 8.8.8.8 2>/dev/null | jq -r '.[0].prefsrc // empty')
+    if [ -n "${deployment_id}" ] && [ -n "${kubeconfig_bearer_token}" ] && [ "$LOCAL_IP" = "${cp_private_ip}" ]; then
       sed "s|server: https://127.0.0.1:6443|server: https://${primary_cp_eip}:6443|" /etc/rancher/k3s/k3s.yaml \
         > /tmp/kubeconfig-rewritten.yaml
       curl -sf -X PUT \
