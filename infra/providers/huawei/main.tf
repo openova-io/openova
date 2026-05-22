@@ -87,9 +87,13 @@ resource "huaweicloud_vpc" "region" {
 
   name = "${local.name_prefix}-${each.key}-vpc"
   cidr = local.region_vpc_cidr[each.key]
-  # tags = merge(local.common_tags, {
-  # "catalyst.openova.io/region" = each.key
-  # })  # disabled Wave 5.4: HCS tag API divergence
+  # tags disabled Wave 5.4 (HCS tag API divergence).
+
+  # HCS VPC read-back occasionally surfaces a synthesised `tags = []`
+  # even when none were sent; ignore to keep plan clean.
+  lifecycle {
+    ignore_changes = [tags]
+  }
 }
 
 resource "huaweicloud_vpc_subnet" "region" {
@@ -100,9 +104,14 @@ resource "huaweicloud_vpc_subnet" "region" {
   gateway_ip        = cidrhost(local.region_subnet_cidr[each.key], 1)
   vpc_id            = huaweicloud_vpc.region[each.key].id
   availability_zone = var.huawei_az
-  # tags = merge(local.common_tags, {
-  # "catalyst.openova.io/region" = each.key
-  # })  # disabled Wave 5.4: HCS tag API divergence
+  # tags disabled Wave 5.4 (HCS tag API divergence).
+
+  # HCS subnet read-back surfaces `dns_list`, `dhcp_lease_time`,
+  # `primary_dns`, `secondary_dns`, `tags` synthesised from the VPC
+  # default — ignore so subsequent plans don't churn.
+  lifecycle {
+    ignore_changes = [tags, dns_list, primary_dns, secondary_dns, dhcp_lease_time]
+  }
 }
 
 # ── Security group per region ─────────────────────────────────────────────
@@ -229,9 +238,20 @@ locals {
   # Flatten per-region CP indexes into a single ordered list so the
   # count-based EIP + ECS resources stay in lockstep. Each entry maps
   # to one CP node across all regions.
+  #
+  # Wave 5.7 (Refs #2140): per-region CP count now comes from
+  # `huawei_control_plane_count` (default 1 for HCS me-east-215). The
+  # historical fixed-3 layout (Hetzner-style HA per region) consumed
+  # 3 EIPs × N regions = 6 EIPs for a 2-region Tier-B Sovereign, which
+  # exhausted the HCS publicIp quota (10) and left no headroom for
+  # the mothership + a second Sovereign on the same HCS tenancy.
+  # Live evidence 2026-05-22T20:35Z: `error allocating EIP: The request
+  # could not be processed due to conflict in the request` was the
+  # provider's translation of the publicIp quota=10 used=10 error
+  # (verified via `eip:ListQuotas`).
   cp_nodes = flatten([
     for r in var.regions : [
-      for i in range(3) : {
+      for i in range(var.huawei_control_plane_count) : {
         region = r.code
         index  = i
         flavor = local.effective_cp_flavor[r.code]
@@ -239,10 +259,12 @@ locals {
     ]
   ])
 
-  # Same shape for workers — 2 per region per Tier-B sizing.
+  # Per-region worker count comes from `regions[].worker_count` (the
+  # cross-provider PROVIDER-INTERFACE.md §1 shape — set by the wizard
+  # / Go provisioner). Default 2 if zero (POC sizing).
   worker_nodes = flatten([
     for r in var.regions : [
-      for i in range(2) : {
+      for i in range(r.worker_count > 0 ? r.worker_count : 2) : {
         region = r.code
         index  = i
         flavor = local.effective_worker_flavor[r.code]
@@ -257,24 +279,40 @@ locals {
     for w in local.worker_nodes :
     "${w.region}-${w.index}" => w
   }
+
+  # Wave 5.7: one EIP per region, attached to that region's primary CP
+  # (index 0). Reduces the per-Sovereign EIP footprint from N_regions ×
+  # N_cps to N_regions (2 for the canonical 2-region Tier-B), fitting
+  # inside the HCS publicIp quota=10 with mothership headroom. The
+  # primary CP IS the WireGuard DMZ endpoint for its region (DOD A2 —
+  # inter-region traffic flows over public EIPs), and ClusterMesh
+  # apiserver peers dial the OTHER region's primary CP EIP. Failure of
+  # a primary CP demotes its region (k3s replica CPs continue serving
+  # the region from private IPs; cluster-internal load-balancing via
+  # Cilium); cross-region HA is preserved at the region granularity
+  # which IS the DR contract.
+  cp_eip_regions = [for r in var.regions : r.code]
 }
 
 resource "huaweicloud_vpc_eip" "cp" {
-  count = length(local.cp_nodes)
+  for_each = toset(local.cp_eip_regions)
 
   publicip {
     type = "5_bgp"
   }
   bandwidth {
-    name        = "${local.name_prefix}-${local.cp_nodes[count.index].region}-cp${local.cp_nodes[count.index].index + 1}-bw"
+    name        = "${local.name_prefix}-${each.key}-cp1-bw"
     size        = 100
     share_type  = "PER"
     charge_mode = "traffic"
   }
-  # tags = merge(local.common_tags, {
-  # "catalyst.openova.io/region" = local.cp_nodes[count.index].region
-  #     "catalyst.openova.io/role"   = "control-plane"
-  # })  # disabled Wave 5.4: HCS tag API divergence
+  # tags disabled Wave 5.4 (HCS tag-API divergence; restored once HCS TMS endpoint contract stabilises).
+
+  # HCS EIP read-back occasionally surfaces a `tags` field even when
+  # none were sent on create — pin to ignore to prevent perpetual diff.
+  lifecycle {
+    ignore_changes = [tags]
+  }
 }
 
 # ── Cloud-init render (control-plane + worker) ────────────────────────────
@@ -347,10 +385,13 @@ resource "huaweicloud_compute_instance" "control_plane" {
     uuid = huaweicloud_vpc_subnet.region[local.cp_nodes[count.index].region].id
   }
 
-  # Attach the per-node EIP. The provider supports `eip_id` on the
-  # instance resource for direct binding without a separate
-  # `huaweicloud_compute_eip_associate`.
-  eip_id = huaweicloud_vpc_eip.cp[count.index].id
+  # Wave 5.7 (Refs #2140): only the index-0 (primary) CP of each region
+  # gets an EIP; replica CPs (index > 0 — only when
+  # huawei_control_plane_count > 1) run with private IPs only and
+  # peer ClusterMesh via the primary CP's EIP. HCS publicIp quota=10
+  # vs Hetzner-style 1-per-CP design = irreconcilable for any tenancy
+  # carrying mothership + ≥1 Sovereign.
+  eip_id = local.cp_nodes[count.index].index == 0 ? huaweicloud_vpc_eip.cp[local.cp_nodes[count.index].region].id : null
 
   user_data = local.control_plane_cloud_init
 
@@ -365,13 +406,11 @@ resource "huaweicloud_compute_instance" "control_plane" {
   system_disk_type = "SSD"
   system_disk_size = 40
 
-  # tags = merge(local.common_tags, {
-
-  # "catalyst.openova.io/region" = local.cp_nodes[count.index].region
-
-  #     "catalyst.openova.io/role"   = "control-plane"
-
-  # })  # disabled Wave 5.4: HCS tag API divergence
+  # HCS ECS read-back occasionally returns synthesised values for tags
+  # + metadata.os_type + system_disk_id; ignore so plan stays clean.
+  lifecycle {
+    ignore_changes = [tags, metadata]
+  }
 }
 
 # ── Worker ECS instances ──────────────────────────────────────────────────
@@ -400,13 +439,10 @@ resource "huaweicloud_compute_instance" "worker" {
   system_disk_type = "SSD"
   system_disk_size = 40
 
-  # tags = merge(local.common_tags, {
-
-  # "catalyst.openova.io/region" = each.value.region
-
-  #     "catalyst.openova.io/role"   = "worker"
-
-  # })  # disabled Wave 5.4: HCS tag API divergence
+  # HCS read-back divergence — see CP block lifecycle comment.
+  lifecycle {
+    ignore_changes = [tags, metadata]
+  }
 }
 
 # ── SSH key (KPS keypair) ─────────────────────────────────────────────────

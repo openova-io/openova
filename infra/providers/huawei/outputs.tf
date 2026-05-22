@@ -4,13 +4,13 @@
 # Go-side provisioner.readOutputs() is provider-agnostic.
 
 output "control_plane_ip" {
-  description = "Public EIP of the primary-region's first control-plane node. On Huawei the EIP IS the entry point (no cloud LB in Tier-B)."
-  value       = length(huaweicloud_vpc_eip.cp) > 0 ? huaweicloud_vpc_eip.cp[0].address : ""
+  description = "Public EIP of the primary-region's primary CP node. On Huawei the EIP IS the entry point (no cloud LB in Tier-B). Wave 5.7: keyed by region code."
+  value       = length(var.regions) > 0 ? huaweicloud_vpc_eip.cp[var.regions[0].code].address : ""
 }
 
 output "load_balancer_ip" {
   description = "On Huawei Tier-B we deliberately have NO cloud load-balancer; the primary CP's EIP IS the Gateway entry. Echoed as control_plane_ip so cross-provider handler code reads one field uniformly."
-  value       = length(huaweicloud_vpc_eip.cp) > 0 ? huaweicloud_vpc_eip.cp[0].address : ""
+  value       = length(var.regions) > 0 ? huaweicloud_vpc_eip.cp[var.regions[0].code].address : ""
 }
 
 output "sovereign_fqdn" {
@@ -85,10 +85,10 @@ output "region_secondaries" {
 }
 
 output "control_plane_ips_per_region" {
-  description = "Public EIPs of each region's first control-plane node, keyed by region code."
+  description = "Public EIPs of each region's primary CP node, keyed by region code. Wave 5.7: 1 EIP per region (was 1-per-CP)."
   value = {
-    for idx, r in var.regions :
-    r.code => length(huaweicloud_vpc_eip.cp) > idx ? huaweicloud_vpc_eip.cp[idx].address : ""
+    for r in var.regions :
+    r.code => huaweicloud_vpc_eip.cp[r.code].address
   }
 }
 
@@ -107,8 +107,8 @@ output "worker_ips_per_region" {
 output "clustermesh_endpoint_per_region" {
   description = "Public clustermesh-apiserver endpoint per region (CP EIP + NodePort). Cilium ClusterMesh peers dial these over DMZ-WG/mTLS."
   value = {
-    for idx, r in var.regions :
-    r.code => length(huaweicloud_vpc_eip.cp) > idx ? "${huaweicloud_vpc_eip.cp[idx].address}:32379" : ""
+    for r in var.regions :
+    r.code => "${huaweicloud_vpc_eip.cp[r.code].address}:32379"
   }
 }
 
