@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-22T02:45:06Z` |
+| Last refreshed | `2026-05-22T03:00:09Z` |
 | Open issues | 79 |
 | Open DoD gates | 7 / 41 |
 | Open TBD-* regressions | 68 |
