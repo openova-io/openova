@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-22T19:40:00Z` (manual after founder-flagged cron stall 19:38Z) |
+| Last refreshed | `2026-05-22T19:55:00Z` (manual — Wave 5.x rapid-fire in progress) |
 | Open issues | 79 |
 | Open DoD gates | 7 / 41 |
 | Open TBD-* regressions | 68 |
@@ -24,7 +24,10 @@ Founder direction: wipe Hetzner POC (free credit exhausted), pivot to Huawei Oma
 | 4.5 | [#2144](https://github.com/openova-io/openova/pull/2144) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | **Antipattern fix** — Huawei creds → server-side env-var stamp (`json:"-"`); operator creds in `huawei-operator-creds` K8s Secret. Matches GHCR/Harbor/Dynadot pattern. Chart 1.4.241. |
 | 4.6 | [#2145](https://github.com/openova-io/openova/pull/2145) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | Invert Wave 4 tests that asserted the antipattern as correct. Chart 1.4.242. |
 | 5.1 | [#2146](https://github.com/openova-io/openova/pull/2146) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | Provider-aware tfvars: emit `obs_bucket_name` + `parent_domains_yaml` for huawei. Caught by 1st `tofu plan` on dc19ea76. Chart 1.4.243. |
-| 5 | — | <img alt="WAITING_PROV" src="https://img.shields.io/badge/-WAITING__PROV-bf8700?style=flat-square" /> | `hw01.omani.works`: dep `dc19ea76aae64d85`, Tier B (2 fake-regions × (3 CP `s7n.large.4` + 2 worker `m7n.xlarge.8`) = 10 ECS, 6 EIP, 2 VPC, 2 SG). 1st prov failed at tofu plan; Wave 5.1 mothership roll 19:38Z; retry pending. |
+| 5.2 | [#2148](https://github.com/openova-io/openova/pull/2148) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | Provider-aware regions tfvars (Huawei snake_case + `code` instead of camelCase + `cloudRegion`). Caught by 2nd prov attempt a10853cc. Chart 1.4.244. |
+| 5.3 | [#2149](https://github.com/openova-io/openova/pull/2149) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | Vet fix — derive Huawei region role from index (PR #2148 referenced nonexistent RegionSpec.Role). Chart 1.4.245. |
+| 5.4 | [#2150](https://github.com/openova-io/openova/pull/2150) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | HCS endpoint coverage (added kms endpoint) + drop tag-API blocks (HCS tag-API divergence; cosmetic, Wave 6 deferred). Caught by 1st end-to-end apply 8f711cae. Chart 1.4.246. |
+| 5 | — | <img alt="WAITING_PROV" src="https://img.shields.io/badge/-WAITING__PROV-bf8700?style=flat-square" /> | `hw01.omani.works`: dep 8f711cae (3rd attempt) reached `tofu apply` against HCS — VPCs/ECS/EIPs partially created, blocked on KMS endpoint + tag-API. Wave 5.4 fixes those; retrying after chart 1.4.246 mothership roll + HCS partial-state cleanup. |
 | 6 | — | <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> | 5-pillar atomic walk: voucher (P1) / BCP wizard (P2) / CNPG region-kill (P3) / Sandbox + qwen-code + MCP (P4) / sovereignty cutover 600s deny-egress hold (P5). |
 
 **Mid-session anti-pattern catches**: (a) Wave 4 inherited cred-in-wire-body antipattern from Hetzner — Wave 4.5 fixed; (b) classifier-bail mistaken for blocker → D13 encoded in user-global CLAUDE.md; (c) "fake blockers / asking founder to do what I can do" → §−1 banned-phrase mechanical check encoded in CLAUDE.md.
