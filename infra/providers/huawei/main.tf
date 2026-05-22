@@ -362,6 +362,14 @@ locals {
     # deterministically across all CPs and metadata-service shape
     # divergences across cloud stacks.
     primary_cp_eip = huaweicloud_vpc_eip.cp[local.region_keys[0]].publicip.0.ip_address
+    # Primary CP's hostname — used by cloud-init to gate the kubeconfig
+    # PUT-back to ONLY the primary region's CP1 (Wave 5.10, Refs #2140).
+    # Wave 5.9 attempted private-IP match (cp_private_ip = subnet .2)
+    # but HCS DHCP doesn't assign .2 deterministically (workers got
+    # .230 + .50 on 747841cadcf90f7e 2026-05-22T22:53Z); no CP's local
+    # IP matched, no PUT-back happened, Phase-1 timed out. Hostname is
+    # deterministic since the ECS resource sets it via `name`.
+    primary_cp_hostname = "${local.name_prefix}-${local.region_keys[0]}-cp1"
     cluster_cidr        = "10.42.0.0/16"
     service_cidr        = "10.96.0.0/16"
     gitops_repo_url     = var.gitops_repo_url
