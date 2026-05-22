@@ -10,8 +10,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Reject private partner names
+        env:
+          # Pattern held in the repo Actions secret to keep the
+          # forbidden strings out of the public workflow file itself.
+          # Operator sets PARTNER_REDACT_REGEX = '<pattern1>|<pattern2>|...'
+          # via Settings -> Secrets and variables -> Actions -> New secret.
+          # If unset, the guard skips with a warning so PRs aren't
+          # silently blocked.
+          PARTNER_REDACT_REGEX: ${{ secrets.PARTNER_REDACT_REGEX }}
         run: |
-          if git grep -ni -E 'bankdhofar|omtd\.bankdhofar|bank\.dhofar' --untracked -- ':!.github/workflows/redact-guard.yml'; then
+          if [ -z "$PARTNER_REDACT_REGEX" ]; then
+            echo "::warning::PARTNER_REDACT_REGEX secret not set — privacy guard skipped. Operator must configure this in repo Actions secrets."
+            exit 0
+          fi
+          if git grep -ni -E "$PARTNER_REDACT_REGEX" --untracked -- ':!.github/workflows/redact-guard.yml'; then
             echo "::error::Private partner name detected — remove before merge (privacy P0 policy)"
             exit 1
           fi

@@ -116,7 +116,7 @@ Nine PRs after the Sandbox work, surfacing every SME / tenant / DNS / event / id
 | #1628 | billing | Skip Stripe when voucher covers 100% of total (unblocks fully-paid voucher checkout) |
 | #1629 | domain | Per-tenant DNS reconciler — `<slug>.<pool-domain>` resolves to Sovereign LB (was mothership) |
 | #1630 | catalyst-api | Mint HS256 token on SME proxy calls (was forwarding incompatible RS256) |
-| #1631 | sandbox+bootstrap-kit | newapi Sovereign install (Bank Dhofar Qwen wired for Sandbox) |
+| #1631 | sandbox+bootstrap-kit | newapi Sovereign install (partner Qwen wired for Sandbox) |
 
 PR #1626 is the **broker publish leg**. The matching **consume leg** is still open: the Sandbox controller and Organization reconciler need to subscribe to `catalyst.tenant.created` / `catalyst.order.placed` and react. Today they still poll Catalyst-API. See "Remaining convergence gaps" below.
 
@@ -209,7 +209,7 @@ This is gated on **D35** in the new DoD additions.
 ## Remaining convergence gaps after this session
 
 1. **newapi Sovereign-side auth.**
-   #1619 + #1631 shipped the newapi proxy on the Sovereign and wired Bank Dhofar Qwen as a backend. Identity is org-scoped JWT (HS256, minted by `core/services/auth`). The Sovereign-side ingress for `newapi.<fqdn>` is up but the **JWT validation** on the Sovereign side currently trusts any HS256 with the right `iss`; the matching key-rotation flow + JWKS endpoint are NOT yet shipped. Untested on a fresh prov.
+   #1619 + #1631 shipped the newapi proxy on the Sovereign and wired partner Qwen as a backend. Identity is org-scoped JWT (HS256, minted by `core/services/auth`). The Sovereign-side ingress for `newapi.<fqdn>` is up but the **JWT validation** on the Sovereign side currently trusts any HS256 with the right `iss`; the matching key-rotation flow + JWKS endpoint are NOT yet shipped. Untested on a fresh prov.
 
 2. **vCluster CRD on the Sovereign.**
    #1624 installs the vcluster CRDs + controller on the Sovereign at bootstrap. But the controller's RBAC has not been audited for Sovereign-vs-mothership scope, and the Organization controller's reconcile still references the mothership vcluster API in two paths (`organization_controller.go:312`, `organization_controller.go:478`). Will block D29 zero-touch on the first tenant-create on a fresh Sovereign.
@@ -261,7 +261,7 @@ This is gated on **D35** in the new DoD additions.
 #1628  fix(billing): skip Stripe when voucher covers 100%
 #1629  fix(domain): per-tenant DNS reconciler — <slug>.<pool-domain> → Sovereign LB
 #1630  fix(catalyst-api): mint HS256 token on SME proxy calls
-#1631  feat(sandbox+bootstrap-kit): newapi Sovereign install (Bank Dhofar Qwen)
+#1631  feat(sandbox+bootstrap-kit): newapi Sovereign install (partner Qwen)
 #1632  ci(sandbox): build workflows for controller + pty-server + mcp-server
 ```
 
