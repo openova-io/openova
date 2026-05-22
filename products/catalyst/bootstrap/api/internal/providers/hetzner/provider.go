@@ -193,9 +193,15 @@ func (p *Provider) Wipe(ctx context.Context, spec providers.WipeSpec, progress f
 		out.ProviderPurge["floating_ips"] = purge.FloatingIPs
 	}
 
-	// Step 3 — object-storage bucket purge (best effort; requires
-	// S3-protocol creds, which may have been re-prompted by the
-	// wizard).
+	// Step 3 — object-storage bucket purge. Per issue #166 the
+	// handler MUST surface a HARD error when S3 creds are missing
+	// from BOTH the wipe request body AND the in-memory dep.Request
+	// (the on-disk record redacts S3 creds per the credential-
+	// hygiene principle, so a Pod restart after provision drops
+	// them). The pre-#166 silent-skip leaked 10 buckets on
+	// omantel.biz alone; the explicit error message names both
+	// sources so future readers immediately see why bucket-purge
+	// was skipped.
 	accessKey := spec.Creds.Get("object_storage_access_key")
 	secretKey := spec.Creds.Get("object_storage_secret_key")
 	region := spec.Creds.Get("object_storage_region")
@@ -220,6 +226,9 @@ func (p *Provider) Wipe(ctx context.Context, spec providers.WipeSpec, progress f
 		for i := 0; i < removed; i++ {
 			out.S3Buckets = append(out.S3Buckets, prefix+"-*")
 		}
+	} else {
+		out.Errors = append(out.Errors,
+			"object-storage credentials not supplied on request body AND not retained on in-memory deployment record (Pod likely restarted) — bucket purge SKIPPED; re-issue the wipe with objectStorageAccessKey/SecretKey/Region in the body, or run the manual sweep from docs/feedback_idempotent_iac_purge.md")
 	}
 
 	return out, nil

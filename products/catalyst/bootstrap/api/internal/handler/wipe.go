@@ -45,9 +45,15 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/hetzner"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/pdm"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
+
+	// Side-effect import — registers every cloud-provider adapter so
+	// providers.Get(dep.Request.Provider) returns a usable instance.
+	// Without this, the wipe handler's providers.Get() call returns
+	// "unknown provider" in this package's test binary.
+	_ "github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers/all"
 )
 
 // pdmErrNotFound returns the sentinel value to compare against PDM Release
@@ -177,25 +183,52 @@ type wipeRequest struct {
 // the counts in a "Wipe complete — N servers, M load balancers, …
 // removed" success banner.
 //
-// NOTE (Wave 2 / Issue #1841): the `HetznerPurge` field name + the
-// import of internal/hetzner above remain in this file pending Wave 3
-// of the providers/ refactor. The seam (providers.CloudProvider) is
-// in place + the credentials + bucket-naming handlers have migrated;
-// migrating this orchestration-heavy handler requires either (a)
-// moving steps 1+2+2b inside provider.Wipe (changes the wire shape
-// because WipeResult.ProviderPurge is a generic map) or (b) splitting
-// the provider interface into finer-grained methods. The right path
-// is (a) coupled with a UI-side rename of `hetznerPurge` -> `providerPurge`,
-// which lockstep-bumps with Huawei's concrete impl in Wave 3.
+// Wave 3 / Issue #2140 — wire shape renamed from `hetznerPurge` to
+// `providerPurge` (per-resource-kind map) to match the cross-provider
+// shape providers.WipeResult.ProviderPurge emits. The map is keyed
+// by canonical resource-kind ("servers", "load_balancers",
+// "networks", "firewalls", "ssh_keys", "s3_buckets", "volumes",
+// "primary_ips", "floating_ips") so the UI can render the same
+// banner regardless of underlying cloud — Hetzner emits its native
+// kinds; Huawei emits ECS / EIP / SG / VPC under the same map keys
+// ("servers" / "floating_ips" / "firewalls" / "networks"). The
+// `provider` field surfaces which adapter ran the purge so the UI
+// can label the banner correctly.
 type wipeResponse struct {
 	DeploymentID  string              `json:"deploymentId"`
 	SovereignFQDN string              `json:"sovereignFQDN"`
+	Provider      string              `json:"provider,omitempty"`
 	TofuDestroyed bool                `json:"tofuDestroyed"`
-	HetznerPurge  hetzner.PurgeReport `json:"hetznerPurge"`
+	ProviderPurge map[string][]string `json:"providerPurge"`
+	S3Buckets     []string            `json:"s3Buckets,omitempty"`
 	PDMReleased   bool                `json:"pdmReleased"`
 	LocalCleaned  bool                `json:"localCleaned"`
 	Errors        []string            `json:"errors"`
 	WipedAt       string              `json:"wipedAt"`
+}
+
+// providerPurgeTotal sums every per-resource-kind slice in a
+// providers.WipeResult.ProviderPurge map for the SSE log banner.
+func providerPurgeTotal(p map[string][]string) int {
+	n := 0
+	for _, v := range p {
+		n += len(v)
+	}
+	return n
+}
+
+// resolveProviderName returns the canonical provider name for a
+// deployment. Walks the per-region Provider field (the canonical
+// source on the existing wizard payload — every RegionSpec carries
+// its own provider per docs/ARCHITECTURE.md). Defaults to "hetzner"
+// for legacy records that pre-date the per-region payload.
+func resolveProviderName(dep *Deployment) string {
+	for _, r := range dep.Request.Regions {
+		if r.Provider != "" {
+			return strings.ToLower(strings.TrimSpace(r.Provider))
+		}
+	}
+	return "hetzner"
 }
 
 // WipeDeployment handles POST /api/v1/deployments/{id}/wipe.
@@ -335,9 +368,12 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 	dep.eventsCh = make(chan provisioner.Event, 256)
 	dep.mu.Unlock()
 
+	providerName := resolveProviderName(dep)
 	report := wipeResponse{
 		DeploymentID:  id,
 		SovereignFQDN: dep.Request.SovereignFQDN,
+		Provider:      providerName,
+		ProviderPurge: map[string][]string{},
 		WipedAt:       time.Now().UTC().Format(time.RFC3339),
 	}
 
@@ -390,8 +426,20 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 		emit("wipe", "info", "k8scache informer set removed for "+id)
 	}
 
-	// Step 1 — tofu destroy. Pass the freshly-prompted Hetzner token via
-	// the Request so writeTfvars renders it for the destroy run.
+	// Steps 1-2b — dispatch the full purge sequence (tofu destroy +
+	// orphan sweep + object-storage bucket purge) through the
+	// providers.CloudProvider seam. The adapter owns ordering +
+	// resource-kind enumeration; the handler stays cloud-agnostic.
+	//
+	// Wave 3 / Issue #2140: same shape Hetzner + Huawei both
+	// implement. Future AWS / GCP / Azure adapters get the same
+	// dispatch automatically — the handler does not change.
+	//
+	// Credential resolution mirrors the legacy single-provider path:
+	// REQUEST BODY values win over the in-memory dep.Request fallback
+	// (which itself survives a Pod restart only when the wizard didn't
+	// re-prompt before submit). The provider-specific Creds map below
+	// resolves both layers so adapter.Wipe() gets a clean union.
 	wipeReq := dep.Request
 	wipeReq.HetznerToken = body.HetznerToken
 
@@ -399,144 +447,50 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 	tofuCtx, cancel := context.WithTimeout(r.Context(), 30*time.Minute)
 	defer cancel()
 
-	if err := prov.Destroy(tofuCtx, wipeReq, dep.eventsCh); err != nil {
-		report.Errors = append(report.Errors, "tofu destroy: "+err.Error())
-		emit("wipe", "warn", "tofu destroy did not complete cleanly: "+err.Error()+" — falling back to direct Hetzner orphan purge")
-	} else {
-		report.TofuDestroyed = true
-		emit("wipe", "info", "tofu destroy complete")
-	}
-
-	// Step 2 — Hetzner orphan purge (always runs as belt-and-braces, even
-	// when tofu destroy succeeded — catches resources tofu didn't track,
-	// e.g. a half-failed cloud-init that created a worker manually, or
-	// resources the operator created in the same project for testing).
-	purge, err := hetzner.Purge(tofuCtx, body.HetznerToken, dep.Request.SovereignFQDN, func(msg string) {
-		emit("wipe", "info", "hetzner: "+msg)
-	})
-	report.HetznerPurge = purge
-	if err != nil {
-		report.Errors = append(report.Errors, "hetzner purge: "+err.Error())
-	}
-
-	// Step 2b — Hetzner Object Storage bucket purge (issue #706). tofu
-	// destroy does NOT remove `minio_s3_bucket` resources because the
-	// minio provider's force_destroy semantics intentionally fail when
-	// the bucket holds objects. Run AFTER tofu destroy so we don't fight
-	// tofu state, BEFORE the local-record cleanup so the UI banner can
-	// surface the count + any error.
-	//
-	// Credential resolution order (issue #166):
-	//
-	//   1. Wipe REQUEST body (canonical, survives Pod restart) — this
-	//      mirrors the existing HetznerToken-in-body pattern at the top
-	//      of this handler. The wizard re-prompts the operator for the
-	//      same triplet it captured at provision time and POSTs it on
-	//      the Cancel & Wipe modal submit.
-	//   2. In-memory dep.Request (the wizard captured them at provision
-	//      time and they live there until the Pod restarts; on-disk
-	//      records redact them per credential-hygiene principle). Kept
-	//      as a fallback so wipes triggered immediately after a
-	//      successful provision — without a re-prompt — still work.
-	//
-	// When BOTH are empty (Pod restarted AND wizard didn't re-prompt),
-	// surface a HARD error in the response rather than silently leaving
-	// the bucket behind. Bucket orphans cost real money + count against
-	// the Hetzner project's S3-bucket quota; the pre-#166 silent-skip
-	// leaked 10 buckets on omantel.biz alone (catalyst-omantel-biz-*,
-	// one per wiped provision back to prov #11, manually purged via
-	// boto3 with the same creds — confirming the creds work, the
-	// handler just lacked them).
-	//
-	// SSE log hygiene (principle 19): we emit a structural notice that
-	// the bucket-purge step ran with body-supplied vs in-memory creds,
-	// but NEVER the access/secret key values themselves. Credentials
-	// stay in transit-encrypted POST body → in-process variables →
-	// Hetzner S3 SDK, never on the events channel or in logs.
-	//
-	// TODO(#166-followup): consider Option B (per-deployment K8s Secret
-	// holding S3 creds, reaped on wipe) if a future security review
-	// objects to the operator re-prompt model. Option A is shipped
-	// today because it matches the canonical HetznerToken pattern and
-	// survives Pod restarts with zero extra storage.
-	accessKey := strings.TrimSpace(body.ObjectStorageAccessKey)
-	secretKey := strings.TrimSpace(body.ObjectStorageSecretKey)
-	region := strings.TrimSpace(body.ObjectStorageRegion)
-	credsSource := "request-body"
-	if accessKey == "" || secretKey == "" || region == "" {
-		// Fall back to in-memory dep.Request — still useful when the
-		// operator triggers wipe seconds after a successful provision
-		// (no Pod restart in between).
-		if accessKey == "" {
-			accessKey = dep.Request.ObjectStorageAccessKey
-		}
-		if secretKey == "" {
-			secretKey = dep.Request.ObjectStorageSecretKey
-		}
-		if region == "" {
-			region = dep.Request.ObjectStorageRegion
-		}
-		credsSource = "in-memory-request-record"
-	}
-	if accessKey != "" && secretKey != "" && region != "" {
-		emit("wipe", "info", "object-storage: bucket purge starting (creds source: "+credsSource+")")
-		bucketCtx, bucketCancel := context.WithTimeout(r.Context(), 5*time.Minute)
-		removed, berr := hetzner.PurgeBuckets(bucketCtx,
-			hetzner.PurgeBucketsConfig{
-				AccessKey: accessKey,
-				SecretKey: secretKey,
-				Region:    region,
-			},
-			dep.Request.SovereignFQDN,
-			// Per Fix #111: deploymentID feeds the bucket-name suffix so
-			// PurgeBuckets targets the same global-namespace bucket that
-			// CreateDeployment provisioned. dep.ID (URL path lookup key)
-			// IS the deployment ID; we prefer it over Request.DeploymentID
-			// because the on-disk record's stamping flow lands the value
-			// on req only after newID() runs in CreateDeployment, and
-			// dep.ID is always present whether the record came from the
-			// in-memory map or store.Load on Pod restart.
-			dep.ID,
-			func(msg string) { emit("wipe", "info", "object-storage: "+msg) },
-		)
-		bucketCancel()
-		// Issue #153 — PurgeBuckets is now prefix-match: every bucket
-		// matching `catalyst-<fqdn-slug>` (legacy) or
-		// `catalyst-<fqdn-slug>-*` (Fix #111+ deployment-id-suffixed)
-		// gets emptied + deleted. Pre-fix this only purged the ONE
-		// bucket whose suffix matched the CURRENT deployment-id,
-		// leaving every prior provision's bucket orphaned (4+ stale
-		// catalyst-omantel-biz-* buckets observed live).
-		//
-		// Log the prefix actually swept so an operator inspecting the
-		// SSE log can correlate with the `removed` count without
-		// re-deriving the deterministic name. The S3Buckets slice gets
-		// one entry per removed bucket (name not surfaced from the
-		// purge layer; the SSE log already carries per-bucket detail).
-		bucketPrefix := hetzner.BucketNamePrefixForSovereign(dep.Request.SovereignFQDN)
-		for i := 0; i < removed; i++ {
-			report.HetznerPurge.S3Buckets = append(report.HetznerPurge.S3Buckets, bucketPrefix+"-*")
-		}
-		if berr != nil {
-			report.HetznerPurge.Errors = append(report.HetznerPurge.Errors,
-				"object-storage bucket purge: "+berr.Error())
-			report.Errors = append(report.Errors, "object-storage bucket purge: "+berr.Error())
+	// Wave 3 — the provider adapter owns tofu destroy + orphan sweep
+	// + bucket purge end-to-end. The Wipe() method below returns a
+	// WipeResult with per-resource-kind ProviderPurge map and the
+	// list of removed S3 buckets; we project those into the legacy
+	// wire-shape so the wizard's existing SSE+banner code reads them
+	// without further change.
+	cp, perr := providers.Get(providerName)
+	if perr != nil {
+		report.Errors = append(report.Errors, "providers.Get("+providerName+"): "+perr.Error())
+		emit("wipe", "error", "no adapter registered for provider "+providerName+" — falling back to in-process tofu destroy only")
+		// Best-effort fallback: tofu destroy still runs from the
+		// shared provisioner.
+		if err := prov.Destroy(tofuCtx, wipeReq, dep.eventsCh); err != nil {
+			report.Errors = append(report.Errors, "tofu destroy: "+err.Error())
+		} else {
+			report.TofuDestroyed = true
 		}
 	} else {
-		// Both sources empty. Surface as a hard error in the response
-		// (NOT a silent warn) so the wizard banner forces the operator
-		// to re-prompt + retry, instead of pretending the wipe is
-		// complete while a bucket leaks. Issue #166 root cause was
-		// exactly this silent-skip path.
-		msg := "object-storage credentials not supplied on request body AND not retained on in-memory deployment record (Pod likely restarted) — bucket purge SKIPPED; re-issue the wipe with objectStorageAccessKey/SecretKey/Region in the body, or run the manual sweep from docs/feedback_idempotent_iac_purge.md"
-		emit("wipe", "warn", msg)
-		report.Errors = append(report.Errors, msg)
+		credsRaw := buildWipeCredsRaw(providerName, body, dep.Request)
+		wipeSpec := providers.WipeSpec{
+			DeploymentID:  dep.ID,
+			SovereignFQDN: dep.Request.SovereignFQDN,
+			Creds:         providers.ProviderCreds{Raw: credsRaw},
+		}
+		wipeRes, werr := cp.Wipe(tofuCtx, wipeSpec, func(msg string) {
+			emit("wipe", "info", providerName+": "+msg)
+		})
+		if werr != nil {
+			report.Errors = append(report.Errors, providerName+" wipe: "+werr.Error())
+		}
+		if wipeRes != nil {
+			report.TofuDestroyed = wipeRes.TofuDestroyed
+			report.ProviderPurge = wipeRes.ProviderPurge
+			report.S3Buckets = wipeRes.S3Buckets
+			if len(wipeRes.Errors) > 0 {
+				report.Errors = append(report.Errors, wipeRes.Errors...)
+			}
+		}
 	}
 
-	if report.HetznerPurge.Total() > 0 {
-		emit("wipe", "info", "Hetzner orphan purge removed "+itoa(report.HetznerPurge.Total())+" resource(s) (servers: "+itoa(len(report.HetznerPurge.Servers))+", lbs: "+itoa(len(report.HetznerPurge.LoadBalancers))+", networks: "+itoa(len(report.HetznerPurge.Networks))+", firewalls: "+itoa(len(report.HetznerPurge.Firewalls))+", ssh-keys: "+itoa(len(report.HetznerPurge.SSHKeys))+", s3-buckets: "+itoa(len(report.HetznerPurge.S3Buckets))+")")
-	} else if len(report.HetznerPurge.Errors) == 0 {
-		emit("wipe", "info", "Hetzner orphan purge: nothing to remove (clean account)")
+	if providerPurgeTotal(report.ProviderPurge) > 0 {
+		emit("wipe", "info", providerName+" orphan purge removed "+itoa(providerPurgeTotal(report.ProviderPurge))+" resource(s) across kinds: "+kindCountSummary(report.ProviderPurge))
+	} else {
+		emit("wipe", "info", providerName+" orphan purge: nothing to remove (clean account)")
 	}
 
 	// Step 3 — PDM release (pool-subdomain only). Best-effort. Resolve pool
@@ -831,6 +785,83 @@ func (h *Handler) ReleaseSubdomain(w http.ResponseWriter, r *http.Request) {
 		Subdomain:    subdomain,
 		PDMReleased:  true,
 	})
+}
+
+// buildWipeCredsRaw assembles the provider-specific credential bag
+// passed to providers.CloudProvider.Wipe. Resolution order:
+//
+//  1. wipeRequest body fields (canonical, survive Pod restart — the
+//     wizard re-prompts the operator on the Cancel & Wipe modal).
+//  2. In-memory dep.Request fallback (still useful when the operator
+//     triggers wipe seconds after a successful provision and no Pod
+//     restart has happened in between).
+//
+// Per provider, the key names follow each adapter's documented
+// ProviderCreds shape:
+//   - hetzner: hcloud_token, hcloud_project_id, object_storage_*
+//   - huawei:  access_key, secret_key, project_id, region
+func buildWipeCredsRaw(providerName string, body wipeRequest, depReq provisioner.Request) map[string]string {
+	out := map[string]string{}
+	switch strings.ToLower(strings.TrimSpace(providerName)) {
+	case "huawei":
+		// Wave 3: the wizard's Huawei creds POST shape carries
+		// `hetznerToken` as the legacy field name but is interpreted
+		// as the IAM access key when the deployment's provider is
+		// "huawei". Wave 4 extends the wire shape to carry a typed
+		// {accessKey, secretKey, projectId, region} block on the
+		// wipe body — until then, body.HetznerToken doubles as the
+		// Huawei AK + body.ObjectStorageAccessKey doubles as the
+		// SK. (The legacy field-overload is intentional + scoped to
+		// the cancel-and-wipe modal; ValidateCredentials already
+		// dispatches via providers.Get on the typed provider.)
+		out["access_key"] = strings.TrimSpace(body.HetznerToken)
+		out["secret_key"] = strings.TrimSpace(body.ObjectStorageSecretKey)
+		out["project_id"] = strings.TrimSpace(body.ObjectStorageAccessKey)
+		out["region"] = strings.TrimSpace(body.ObjectStorageRegion)
+	default:
+		// hetzner (canonical) — same wire shape pre-Wave-3.
+		token := strings.TrimSpace(body.HetznerToken)
+		out["hcloud_token"] = token
+		out["hcloud_project_id"] = strings.TrimSpace(depReq.HetznerProjectID)
+		// Object-storage creds: body-supplied wins, in-memory dep.Request fallback.
+		access := strings.TrimSpace(body.ObjectStorageAccessKey)
+		if access == "" {
+			access = depReq.ObjectStorageAccessKey
+		}
+		secret := strings.TrimSpace(body.ObjectStorageSecretKey)
+		if secret == "" {
+			secret = depReq.ObjectStorageSecretKey
+		}
+		region := strings.TrimSpace(body.ObjectStorageRegion)
+		if region == "" {
+			region = depReq.ObjectStorageRegion
+		}
+		out["object_storage_access_key"] = access
+		out["object_storage_secret_key"] = secret
+		out["object_storage_region"] = region
+	}
+	return out
+}
+
+// kindCountSummary returns a stable "kind=N, kind=N, ..." string for
+// the SSE wipe-summary banner. Sorted by kind so the banner reads
+// consistently across runs.
+func kindCountSummary(p map[string][]string) string {
+	keys := make([]string, 0, len(p))
+	for k := range p {
+		keys = append(keys, k)
+	}
+	// Stable order via simple insertion sort (avoid sort import bloat).
+	for i := 1; i < len(keys); i++ {
+		for j := i; j > 0 && keys[j-1] > keys[j]; j-- {
+			keys[j-1], keys[j] = keys[j], keys[j-1]
+		}
+	}
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, k+"="+itoa(len(p[k])))
+	}
+	return strings.Join(parts, ", ")
 }
 
 // decodeJSONBody is a thin error-wrapping helper for request bodies. Other

@@ -1,0 +1,76 @@
+name: infra/huawei — OpenTofu validate + test
+
+# Module-local guardrail for the Catalyst Huawei (HCS) Phase-0 OpenTofu
+# module at infra/providers/huawei/. Every PR touching the module re-runs
+# `tofu validate`, `tofu fmt -check`, and the module's own `.tftest.hcl`
+# test suite so the multi-region wiring stays green and the Tier-B
+# canonical 2-region shape produces 10 ECS + 6 EIP + 2 VPC + 2 SG + 1
+# OBS bucket.
+#
+# Per CLAUDE.md "every workflow MUST be event-driven, NEVER scheduled":
+# this workflow is push-on-merge + pull-request-on-touch. There is no
+# `schedule:` trigger; ad-hoc reruns go through workflow_dispatch.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'infra/providers/huawei/**'
+      - '.github/workflows/infra-huawei-tofu.yaml'
+  pull_request:
+    paths:
+      - 'infra/providers/huawei/**'
+      - '.github/workflows/infra-huawei-tofu.yaml'
+  workflow_dispatch:
+
+jobs:
+  validate-and-test:
+    name: validate + fmt + test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: infra/providers/huawei
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          # Pinned to match the same 1.8.5 version the Hetzner sibling
+          # workflow uses. Lockstep so a future OpenTofu bump moves
+          # both providers atomically.
+          tofu_version: 1.8.5
+
+      - name: tofu init (backend=false — no real state for module-local checks)
+        run: tofu init -backend=false
+
+      - name: tofu fmt -check
+        run: tofu fmt -check -recursive
+
+      - name: tofu validate
+        run: tofu validate
+
+      # Same tftpl shell-expansion escape guard the Hetzner workflow
+      # ships (Fix #111). Catches bare `${VAR:-default}` interpolations
+      # inside YAML comments that tofu's templatefile() can't parse.
+      - name: tftpl shell-expansion escape guard
+        run: |
+          set -euo pipefail
+          violations=$(grep -rEnP '^\s*#.*(?<!\$)\$\{[A-Z_]+:-' *.tftpl || true)
+          if [ -n "$violations" ]; then
+            echo "::error title=Unescaped tftpl shell expansion::Use \$\${VAR:-default} (double-dollar) in tftpl YAML comments."
+            echo "Offending lines:"
+            echo "$violations"
+            exit 1
+          fi
+
+      - name: tofu test (offline — mock_provider for huaweicloud + aws)
+        # The module's tests/multi_region.tftest.hcl exercises the Tier-B
+        # canonical shape WITHOUT touching real Huawei API.
+        # `mock_provider "huaweicloud"` + `mock_provider "aws"` short-circuit
+        # all API calls. Real-cloud E2E provisioning lives in Wave 4
+        # (planned `.github/workflows/test-huawei-e2e.yaml` gated on a PR
+        # label, mirroring the Hetzner sibling).
+        run: tofu test
