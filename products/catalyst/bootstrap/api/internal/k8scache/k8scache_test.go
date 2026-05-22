@@ -272,6 +272,63 @@ func TestRegistry_AllAndNames(t *testing.T) {
 	}
 }
 
+// TestDefaultKinds_NoEventInformerRegistered guards TBD-V50 (#2125):
+// Kubernetes Events MUST NOT be registered in DefaultKinds because the
+// SharedInformer abstraction stores every received event for the
+// lifetime of the Pod — an unbounded write-store on a write-once stream.
+// PR #2124 (V49) attempted a 5000-row LIST bound (containment only) but
+// the watch that followed kept accumulating new events, so the
+// catalyst-api Pod still OOM-cycled (178 restarts in 20h on mothership
+// image d9e678f, exit 137 OOMKilled — see TBD-V50 evidence).
+//
+// Architecturally-correct fix: events are read directly from the
+// apiserver with FieldSelector + Limit by the two existing consumers
+// (handler/compliance_runtime.go listFalcoK8sEvents,
+// handler/sovereign.go HandleSovereignJobs). New consumers MUST follow
+// the same pattern — no cache, no informer.
+//
+// A regression that re-registers `event` here will cause an immediate
+// recurrence of the OOM-cycle on any multi-region Sovereign, so this
+// test pins the invariant.
+func TestDefaultKinds_NoEventInformerRegistered(t *testing.T) {
+	for _, k := range DefaultKinds {
+		// Forbidden short name.
+		if k.Name == "event" {
+			t.Fatalf("TBD-V50 (#2125): DefaultKinds must not register %q — "+
+				"events are unbounded; consumers must hit apiserver "+
+				"directly via EventsV1().Events().List(FieldSelector, Limit). "+
+				"See kinds.go for the architectural rationale.", k.Name)
+		}
+		// Forbidden GVR (catches a `Name: "ev"` or similar bypass).
+		if k.GVR.Group == "events.k8s.io" && k.GVR.Resource == "events" {
+			t.Fatalf("TBD-V50 (#2125): DefaultKinds must not register the "+
+				"events.k8s.io/v1 Events GVR (registered as kind %q). "+
+				"See kinds.go for the architectural rationale.", k.Name)
+		}
+		// Forbidden legacy core/v1 Events GVR (apiserver still serves it).
+		if k.GVR.Group == "" && k.GVR.Resource == "events" {
+			t.Fatalf("TBD-V50 (#2125): DefaultKinds must not register the "+
+				"core/v1 Events GVR (registered as kind %q). "+
+				"See kinds.go for the architectural rationale.", k.Name)
+		}
+	}
+}
+
+// TestRegistry_DropsEventAlias is a companion to
+// TestDefaultKinds_NoEventInformerRegistered: the kubectl short-form
+// `ev` alias was removed in the same commit because the underlying
+// `event` Kind is no longer registered. Re-introducing the alias
+// would be a misleading dead-link (Get("ev") would return Kind{} +
+// false, but the alias presence implies it should resolve).
+func TestRegistry_DropsEventAlias(t *testing.T) {
+	if singular, ok := kindShortAliases["ev"]; ok {
+		t.Fatalf("TBD-V50 (#2125): kindShortAliases must not contain %q → %q "+
+			"because the target Kind is no longer registered (events are "+
+			"served via direct apiserver List). Remove the alias to keep "+
+			"the registry truthful.", "ev", singular)
+	}
+}
+
 // ── factory.go ───────────────────────────────────────────────────
 
 // fakeClients constructs a (dynamic, typed) pair seeded with the
