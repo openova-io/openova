@@ -6,13 +6,20 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/hetzner"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/objectstorage"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers"
 
 	// Side-effect import: registers the Hetzner Object Storage Provider
 	// in the objectstorage registry at process init. Adding a new cloud
 	// (AWS / GCP / Azure / OCI) means adding a sibling import here.
 	_ "github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/objectstorage/hetzner"
+
+	// Side-effect import: registers every cloud-provider adapter
+	// (hetzner + huawei stub) into the providers registry at init().
+	// Without this, providers.Get("hetzner") below returns "unknown
+	// provider" in this package's tests (the cmd/api main imports
+	// providers/all directly, but tests run without main).
+	_ "github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers/all"
 )
 
 type validateRequest struct {
@@ -41,27 +48,54 @@ func (h *Handler) ValidateCredentials(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	valid, err := hetzner.ValidateToken(r.Context(), token)
+	// Dispatch via the providers.CloudProvider seam (Wave 2 / Issue
+	// #1841). Today the endpoint only validates Hetzner tokens because
+	// the wizard's StepCredentials Hetzner block POSTs here; future
+	// wizard payloads will carry the provider name on the request
+	// body and switch the dispatch accordingly. The req.Provider field
+	// is already declared above as the wizard's planned-future hook.
+	providerName := strings.TrimSpace(req.Provider)
+	if providerName == "" {
+		providerName = "hetzner"
+	}
+	cp, err := providers.Get(providerName)
 	if err != nil {
-		h.log.Error("hetzner validation error", "err", err)
-		writeJSON(w, http.StatusServiceUnavailable, validateResponse{
+		writeJSON(w, http.StatusBadRequest, validateResponse{
 			Valid:   false,
-			Message: "could not reach Hetzner API — check network connectivity",
+			Message: "unknown cloud provider: " + providerName,
 		})
 		return
 	}
-
-	if valid {
-		writeJSON(w, http.StatusOK, validateResponse{
-			Valid:   true,
-			Message: "read/write access confirmed",
-		})
-	} else {
-		writeJSON(w, http.StatusOK, validateResponse{
+	verr := cp.ValidateCreds(r.Context(), providers.ProviderCreds{
+		Raw: map[string]string{"hcloud_token": token},
+	})
+	if verr != nil {
+		// ValidateCreds returns a non-nil error for BOTH (a)
+		// network/upstream-unreachable AND (b) creds-rejected. The
+		// wizard previously rendered different cards for each (503
+		// vs 200+valid:false). Preserve that split by string-matching
+		// on the underlying message — the hetzner adapter wraps the
+		// transport error in "validate token:" and the rejected case
+		// in "was rejected by Hetzner Cloud API".
+		msg := verr.Error()
+		if strings.Contains(msg, "rejected") {
+			writeJSON(w, http.StatusOK, validateResponse{
+				Valid:   false,
+				Message: "token rejected — ensure it has Read & Write permissions",
+			})
+			return
+		}
+		h.log.Error("provider creds validation error", "provider", providerName, "err", verr)
+		writeJSON(w, http.StatusServiceUnavailable, validateResponse{
 			Valid:   false,
-			Message: "token rejected — ensure it has Read & Write permissions",
+			Message: "could not reach " + strings.Title(providerName) + " API — check network connectivity",
 		})
+		return
 	}
+	writeJSON(w, http.StatusOK, validateResponse{
+		Valid:   true,
+		Message: "read/write access confirmed",
+	})
 }
 
 // validateObjectStorageRequest carries the operator-supplied Object

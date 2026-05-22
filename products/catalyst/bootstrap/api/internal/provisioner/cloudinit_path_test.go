@@ -44,7 +44,11 @@ func modulePath(t *testing.T) string {
 	}
 	// products/catalyst/bootstrap/api/internal/provisioner → repo root
 	repoRoot := filepath.Clean(filepath.Join(cwd, "..", "..", "..", "..", "..", ".."))
-	return filepath.Join(repoRoot, "infra", "hetzner")
+	// Wave 2 / Issue #1841 — module path moved from infra/hetzner to
+	// infra/providers/hetzner (providers/ refactor). The on-image
+	// container still exposes /infra/hetzner via a symlink for
+	// backward-compat; the source-tree path is canonical.
+	return filepath.Join(repoRoot, "infra", "providers", "hetzner")
 }
 
 // readCloudInit reads the canonical cloud-init control-plane template

@@ -27,6 +27,12 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/newapi"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/openbao"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/powerdns"
+	// Side-effect import: registers every CloudProvider adapter
+	// (hetzner + huawei stub) against internal/providers/registry
+	// at init() time. Wave 2 — the registrations are passive; no
+	// handler yet calls providers.Get(). Wave 3 wires the handlers
+	// through the registry once Huawei has a concrete impl.
+	_ "github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers/all"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
 )
 

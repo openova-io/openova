@@ -936,7 +936,12 @@ type Provisioner struct {
 // with a clear pointer to docs/SECRET-ROTATION.md.
 func New() *Provisioner {
 	return &Provisioner{
-		ModulePath:       env("CATALYST_TOFU_MODULE_PATH", "/infra/hetzner"),
+		// Default reflects the providers/ refactor (Wave 2, Issue #1841):
+		// per-cloud tofu modules live under infra/providers/<name>/.
+		// The Containerfile keeps a /infra/hetzner -> /infra/providers/hetzner
+		// symlink so any explicit CATALYST_TOFU_MODULE_PATH=/infra/hetzner
+		// overrides set on older Sovereigns still resolve.
+		ModulePath:       env("CATALYST_TOFU_MODULE_PATH", "/infra/providers/hetzner"),
 		WorkDir:          env("CATALYST_TOFU_WORKDIR", "/var/lib/catalyst/tofu"),
 		GHCRPullToken:    os.Getenv("CATALYST_GHCR_PULL_TOKEN"),
 		HarborRobotToken: os.Getenv("CATALYST_HARBOR_ROBOT_TOKEN"),

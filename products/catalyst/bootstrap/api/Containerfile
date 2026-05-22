@@ -115,14 +115,24 @@ COPY --from=tofu /out/tofu /usr/local/bin/tofu
 COPY --from=build /catalyst-api /catalyst-api
 COPY --from=build /catalyst-dns /usr/local/bin/catalyst-dns
 
-# Bundle the canonical OpenTofu module. provisioner.stageModule() copies these
+# Bundle the canonical OpenTofu module(s). provisioner.stageModule() copies these
 # .tf / .tftpl files into a per-deployment workdir at Launch; the path is
-# CATALYST_TOFU_MODULE_PATH (default /infra/hetzner — see provisioner.New()).
-# Copying the FULL tree (main.tf, variables.tf, outputs.tf, versions.tf,
+# CATALYST_TOFU_MODULE_PATH (default /infra/providers/hetzner — see
+# provisioner.New()).
+#
+# Per the providers/ refactor (Wave 2, Issue #1841), tofu modules now live
+# under infra/providers/<name>/ — Hetzner today, Huawei next. Copying the
+# FULL tree (main.tf, variables.tf, outputs.tf, versions.tf,
 # cloudinit-*.tftpl, plus any future submodules under modules/) keeps the
 # image self-contained: the OpenTofu run inside this Pod has every file the
 # module references, with no network fetch needed at provision time.
-COPY infra/hetzner/ /infra/hetzner/
+#
+# Backward-compat symlink: legacy callers / smoke tests that look at
+# /infra/hetzner/ still see the same files via the symlink below.
+# Removable once every reference in the wider repo migrates (cross-repo
+# sweep deferred to Wave 3 alongside the Huawei concrete impl).
+COPY infra/providers/ /infra/providers/
+RUN ln -s /infra/providers/hetzner /infra/hetzner
 
 # Pre-create the deployments-store directory with the runtime UID's
 # ownership so the catalyst-api process (UID 65534) can write to it.

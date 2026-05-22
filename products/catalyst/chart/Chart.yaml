@@ -2276,8 +2276,19 @@ name: bp-catalyst-platform
 #
 # Refs #1099 (NOT Closes — operator walk + screenshot is the DoD per
 # CLAUDE.md §0).
-version: 1.4.237
-appVersion: 1.4.236
+version: 1.4.238
+appVersion: 1.4.238
+# 1.4.238 — Wave 2 / Issue #1841 (2026-05-23): catalyst-api gains a
+# CloudProvider interface at internal/providers/ with the Hetzner
+# adapter (delegates to existing internal/hetzner + internal/provisioner;
+# byte-equivalent behavior) and a Huawei stub. OpenTofu module moves to
+# infra/providers/hetzner/ with /infra/hetzner symlink for backward
+# compatibility. Zero functional change to Hetzner provisioning path;
+# the seam lets Wave 3 land the concrete Huawei impl by dropping a
+# single new file pair (adapter + tofu module) without touching the
+# handler code. Founder mandate 2026-05-23: "one file for new clouds,
+# not scattered changes". chart bump because catalyst-api image SHA
+# rolls forward.
 # 1.4.235 — TBD-V55 / #2131 (2026-05-21): catalyst-api one-shot
 # ConfigMap reads in the bp-self-sovereign-cutover handlers now retry
 # with bounded backoff on transient `apiserver not ready` (HTTP 503)
