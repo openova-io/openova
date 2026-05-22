@@ -4,11 +4,30 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-22T13:15:02Z` |
+| Last refreshed | `2026-05-22T19:40:00Z` (manual after founder-flagged cron stall 19:38Z) |
 | Open issues | 79 |
 | Open DoD gates | 7 / 41 |
 | Open TBD-* regressions | 68 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 34 / 41 = 82% |
+| **Active wave** | **Hetzner → Huawei migration (Wave 5)** — provisioning `hw01.omani.works` on HCS `me-east-215`, Tier B; in-flight deployment `dc19ea76aae64d85` retrying on chart 1.4.243 after Wave 5.1 tfvars fix |
+
+## 🚀 Session 2026-05-22 — Hetzner → Huawei migration in flight (founder mandate ~17:00Z)
+
+Founder direction: wipe Hetzner POC (free credit exhausted), pivot to Huawei Oman National Cloud (Kom4DC, free POC), 2 fake-regions via VPC isolation, encapsulate provider abstraction so adding AWS/GCP later is "one file" not "scatter changes".
+
+| Wave | PR | Status | Notes |
+|---|---|---|---|
+| 1 | — | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | Hetzner 100% wiped — 0 servers/LBs/networks/FWs/IPs/SSH/buckets across fsn1/nbg1/hel1. 14 stranded S3 buckets cleaned (going back to t112). |
+| 2 | [#2141](https://github.com/openova-io/openova/pull/2141) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | Extract `CloudProvider` interface (ports + adapters / hexagonal). Hetzner adapter + Huawei stub + registry. Chart 1.4.238. |
+| 3 | [#2142](https://github.com/openova-io/openova/pull/2142) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | Huawei provider impl: Go adapter (AK/SK SigV3 over net/http) + `infra/providers/huawei/` OpenTofu module. Chart 1.4.239. |
+| 4 | [#2143](https://github.com/openova-io/openova/pull/2143) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | Wire schema: `Provider` field + Huawei creds in `provisioner.Request`. Chart 1.4.240. |
+| 4.5 | [#2144](https://github.com/openova-io/openova/pull/2144) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | **Antipattern fix** — Huawei creds → server-side env-var stamp (`json:"-"`); operator creds in `huawei-operator-creds` K8s Secret. Matches GHCR/Harbor/Dynadot pattern. Chart 1.4.241. |
+| 4.6 | [#2145](https://github.com/openova-io/openova/pull/2145) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | Invert Wave 4 tests that asserted the antipattern as correct. Chart 1.4.242. |
+| 5.1 | [#2146](https://github.com/openova-io/openova/pull/2146) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | Provider-aware tfvars: emit `obs_bucket_name` + `parent_domains_yaml` for huawei. Caught by 1st `tofu plan` on dc19ea76. Chart 1.4.243. |
+| 5 | — | <img alt="WAITING_PROV" src="https://img.shields.io/badge/-WAITING__PROV-bf8700?style=flat-square" /> | `hw01.omani.works`: dep `dc19ea76aae64d85`, Tier B (2 fake-regions × (3 CP `s7n.large.4` + 2 worker `m7n.xlarge.8`) = 10 ECS, 6 EIP, 2 VPC, 2 SG). 1st prov failed at tofu plan; Wave 5.1 mothership roll 19:38Z; retry pending. |
+| 6 | — | <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> | 5-pillar atomic walk: voucher (P1) / BCP wizard (P2) / CNPG region-kill (P3) / Sandbox + qwen-code + MCP (P4) / sovereignty cutover 600s deny-egress hold (P5). |
+
+**Mid-session anti-pattern catches**: (a) Wave 4 inherited cred-in-wire-body antipattern from Hetzner — Wave 4.5 fixed; (b) classifier-bail mistaken for blocker → D13 encoded in user-global CLAUDE.md; (c) "fake blockers / asking founder to do what I can do" → §−1 banned-phrase mechanical check encoded in CLAUDE.md.
 
 **Legend:** <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> done · <img alt="WAITING_PROV" src="https://img.shields.io/badge/-WAITING__PROV-bf8700?style=flat-square" /> fix shipped, awaits prov · <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> open · <img alt="DEFERRED" src="https://img.shields.io/badge/-DEFERRED-6e7781?style=flat-square" /> deferred
 
@@ -212,7 +231,7 @@ flowchart LR
 | [#1821](https://github.com/openova-io/openova/issues/1821) | DoD D20: Jobs page surfaces all-region jobs with region filter | DoD gate |
 | [#1831](https://github.com/openova-io/openova/issues/1831) | DoD D31: Tenant application with CNPG active-hot-standby replication | DoD gate |
 | [#1835](https://github.com/openova-io/openova/issues/1835) | DoD D35: NATS broker round-trips `catalyst.tenant.created` + `catalyst.order.pla | DoD gate |
-| [#1841](https://github.com/openova-io/openova/issues/1841) | DoD A6: Provider-mix is the canonical case (1 region Hetzner, 1 AWS, 1 Huawei) � | DoD gate |
+| [#1841](https://github.com/openova-io/openova/issues/1841) | DoD A6: Provider-mix is the canonical case (1 region Hetzner, 1 AWS, 1 Huawei) � | DoD gate |
 | [#1882](https://github.com/openova-io/openova/issues/1882) | TBD-A28 kubeconfig?region=hel1 returns 409 — filename mismatch <id>-hel1.yaml  | TBD regression |
 | [#1904](https://github.com/openova-io/openova/issues/1904) | TBD-A41 Sovereign multi-region fan-out regression on t31 — D5/D16/D20 all retu | TBD regression |
 | [#1934](https://github.com/openova-io/openova/issues/1934) | TBD-A47: Single-region cloud-init never installs Cilium → flux-not-reconciling | TBD regression |
