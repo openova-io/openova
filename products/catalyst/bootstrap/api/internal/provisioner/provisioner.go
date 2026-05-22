@@ -206,8 +206,55 @@ type Request struct {
 	// ProvisionParentDomain.
 	ParentDomains []ParentDomain `json:"parentDomains,omitempty"`
 
+	// Provider — which CloudProvider adapter to dispatch to. Wave 4
+	// (refs #2140) introduces this top-level wire field so a single
+	// POST body shape can dispatch to any registered CloudProvider
+	// adapter — today "hetzner" or "huawei"; tomorrow "aws" / "gcp" /
+	// "azure" / "oci". The catalyst-api handler maps this string to
+	// providers.Get(name) at runProvisioning time.
+	//
+	// Empty value is treated as "hetzner" by Validate() so existing
+	// wizard payloads (every payload as of Wave 3, which pre-date the
+	// multi-provider wire work) keep landing as Hetzner deployments
+	// without a wire change. New callers (Wave 5 Huawei pane in the
+	// wizard, direct API callers, automation) MUST set this field
+	// explicitly when targeting a non-Hetzner provider.
+	//
+	// Allowed values match the registry in
+	// products/catalyst/bootstrap/api/internal/providers/all/all.go.
+	// Validation rejects anything outside that set with an actionable
+	// error ("unsupported provider %q (allowed: hetzner, huawei)") so
+	// an operator hitting the API with a typo gets a 400 instead of
+	// silent dispatch to the default Hetzner path.
+	Provider string `json:"provider,omitempty"`
+
 	HetznerToken     string `json:"hetznerToken"`
 	HetznerProjectID string `json:"hetznerProjectID"`
+
+	// Huawei Cloud (HCS) credentials — operator-issued IAM access key
+	// (AK) + secret key (SK) + project_id. Required when
+	// Provider == "huawei".
+	//
+	// Surface boundary: these arrive from the wizard's
+	// StepCredentials Huawei pane (Wave 5 will surface a UI for
+	// this) and flow through to writeTfvars() where they emit as
+	// `huawei_access_key` / `huawei_secret_key` / `huawei_project_id`
+	// / `huawei_region` keys in tofu.auto.tfvars.json — the OpenTofu
+	// module at infra/providers/huawei/variables.tf declares the
+	// matching per-key variables. The plaintext NEVER lands on disk
+	// outside the catalyst-api Pod's encrypted PVC (the per-deployment
+	// workdir, mode 0600). Destroy() removes the workdir on successful
+	// tofu destroy; the persisted deployment record redacts the
+	// secrets via internal/store.Redact.
+	//
+	// HuaweiRegion is optional — empty defaults to the canonical HCS
+	// region "me-east-215" inside the Huawei provider adapter (see
+	// providers/huawei/provider.go defaultRegion). Operators targeting
+	// public Huawei Cloud override per-deployment.
+	HuaweiAccessKey string `json:"huaweiAccessKey,omitempty"`
+	HuaweiSecretKey string `json:"huaweiSecretKey,omitempty"`
+	HuaweiProjectID string `json:"huaweiProjectID,omitempty"`
+	HuaweiRegion    string `json:"huaweiRegion,omitempty"`
 
 	// Legacy singular fields. When Regions is non-empty Validate()
 	// derives these from Regions[0] so writeTfvars()'s single-region
@@ -514,12 +561,38 @@ func (r *Request) Validate() error {
 		r.WorkerCount = r.Regions[0].WorkerCount
 	}
 
-	if strings.TrimSpace(r.HetznerToken) == "" {
-		return errors.New("hetzner token is required")
+	// Provider switch (Wave 4 — Refs #2140). Empty value defaults to
+	// "hetzner" for backward compatibility with every wizard payload
+	// shipped before this PR. Each registered provider has its own
+	// required credential triplet — the validator dispatches on the
+	// normalized lower-cased name so a typo'd "Hetzner" / "HUAWEI" /
+	// "  hetzner " still routes correctly. Unknown providers reject
+	// with a list of the supported names so the operator can fix the
+	// payload without grepping the source.
+	switch strings.ToLower(strings.TrimSpace(r.Provider)) {
+	case "", "hetzner":
+		r.Provider = "hetzner"
+		if strings.TrimSpace(r.HetznerToken) == "" {
+			return errors.New("hetzner token is required")
+		}
+		if strings.TrimSpace(r.HetznerProjectID) == "" {
+			return errors.New("hetzner project ID is required")
+		}
+	case "huawei":
+		r.Provider = "huawei"
+		if strings.TrimSpace(r.HuaweiAccessKey) == "" {
+			return errors.New("huaweiAccessKey is required when provider=huawei")
+		}
+		if strings.TrimSpace(r.HuaweiSecretKey) == "" {
+			return errors.New("huaweiSecretKey is required when provider=huawei")
+		}
+		if strings.TrimSpace(r.HuaweiProjectID) == "" {
+			return errors.New("huaweiProjectID is required when provider=huawei")
+		}
+	default:
+		return fmt.Errorf("unsupported provider %q (allowed: hetzner, huawei)", r.Provider)
 	}
-	if strings.TrimSpace(r.HetznerProjectID) == "" {
-		return errors.New("hetzner project ID is required")
-	}
+
 	if strings.TrimSpace(r.Region) == "" {
 		return errors.New("region is required (runtime parameter, never hardcoded)")
 	}
@@ -531,20 +604,22 @@ func (r *Request) Validate() error {
 	// the request did NOT supply r.Regions[] (back-compat payload from
 	// a pre-multi-region wizard or a direct API caller), the singular
 	// ControlPlaneSize / WorkerSize / Region fields ARE the canonical
-	// SKU+region pair. The legacy path is hetzner-only — there is no
-	// per-Sovereign provider field outside r.Regions, and the singular
-	// fields feed `infra/hetzner/main.tf` exclusively (every other
-	// provider's tofu module reads from r.Regions[]).
+	// SKU+region pair. Wave 4 (#2140) generalises the check to the
+	// resolved r.Provider so a Huawei back-compat caller is not
+	// validated against Hetzner's SKU matrix. IsSkuAvailableInRegion
+	// returns true for un-registered (provider, sku) pairs so the
+	// Huawei path passes through gracefully until the matrix is
+	// populated for HCS flavours.
 	if len(r.Regions) == 0 && strings.TrimSpace(r.ControlPlaneSize) != "" {
-		if !IsSkuAvailableInRegion("hetzner", r.ControlPlaneSize, r.Region) {
+		if !IsSkuAvailableInRegion(r.Provider, r.ControlPlaneSize, r.Region) {
 			return errors.New(formatSkuRegionError(
-				"controlPlaneSize", "hetzner", r.ControlPlaneSize, r.Region,
+				"controlPlaneSize", r.Provider, r.ControlPlaneSize, r.Region,
 			))
 		}
 		if r.WorkerCount > 0 && strings.TrimSpace(r.WorkerSize) != "" &&
-			!IsSkuAvailableInRegion("hetzner", r.WorkerSize, r.Region) {
+			!IsSkuAvailableInRegion(r.Provider, r.WorkerSize, r.Region) {
 			return errors.New(formatSkuRegionError(
-				"workerSize", "hetzner", r.WorkerSize, r.Region,
+				"workerSize", r.Provider, r.WorkerSize, r.Region,
 			))
 		}
 	}
@@ -661,11 +736,21 @@ func (r *Request) Validate() error {
 	if strings.TrimSpace(r.ObjectStorageRegion) == "" {
 		return errors.New("object storage region is required (Hetzner Object Storage region: fsn1 | nbg1 | hel1)")
 	}
-	switch r.ObjectStorageRegion {
-	case "fsn1", "nbg1", "hel1":
-		// OK — Hetzner Object Storage availability as of 2026-04.
-	default:
-		return fmt.Errorf("object storage region %q is not a valid Hetzner Object Storage region (must be fsn1, nbg1, or hel1)", r.ObjectStorageRegion)
+	// Per-provider region whitelist. Hetzner has the fsn1/nbg1/hel1
+	// triplet (every other Hetzner region was added post-2026-04 and is
+	// re-validated downstream by writeTfvars); Huawei (HCS) keeps the
+	// canonical "me-east-215" plus the broader public-Huawei-Cloud
+	// region set (accepted permissively here — the OBS API will reject
+	// at runtime with a clearer message than a hand-curated allow-list
+	// could provide). Wave 4 (#2140) un-pins the Hetzner-specific switch
+	// so a Huawei prov doesn't immediately 400 on a non-Hetzner region.
+	if r.Provider == "hetzner" {
+		switch r.ObjectStorageRegion {
+		case "fsn1", "nbg1", "hel1":
+			// OK — Hetzner Object Storage availability as of 2026-04.
+		default:
+			return fmt.Errorf("object storage region %q is not a valid Hetzner Object Storage region (must be fsn1, nbg1, or hel1)", r.ObjectStorageRegion)
+		}
 	}
 	if strings.TrimSpace(r.ObjectStorageAccessKey) == "" {
 		return errors.New("object storage access key is required (issued in Hetzner Console → Object Storage → Manage Credentials)")
@@ -941,6 +1026,12 @@ func New() *Provisioner {
 		// The Containerfile keeps a /infra/hetzner -> /infra/providers/hetzner
 		// symlink so any explicit CATALYST_TOFU_MODULE_PATH=/infra/hetzner
 		// overrides set on older Sovereigns still resolve.
+		//
+		// Wave 4 (#2140): ModulePath is now the FALLBACK shared across every
+		// provider — Provision()/Destroy() override it per-request via
+		// resolveModulePath() which swaps the trailing directory to match
+		// req.Provider. The env-mounted override remains authoritative when
+		// set (air-gap operators pinning a custom module location).
 		ModulePath:       env("CATALYST_TOFU_MODULE_PATH", "/infra/providers/hetzner"),
 		WorkDir:          env("CATALYST_TOFU_WORKDIR", "/var/lib/catalyst/tofu"),
 		GHCRPullToken:    os.Getenv("CATALYST_GHCR_PULL_TOKEN"),
@@ -949,6 +1040,50 @@ func New() *Provisioner {
 		PDMBasicAuthUser: os.Getenv("CATALYST_PDM_BASIC_AUTH_USER"),
 		PDMBasicAuthPass: os.Getenv("CATALYST_PDM_BASIC_AUTH_PASS"),
 	}
+}
+
+// resolveModulePath returns the OpenTofu module directory for the
+// supplied provider name. Wave 4 (#2140) wired this in so the same
+// *Provisioner instance can drive a Hetzner provision AND a Huawei
+// provision in the same process — no per-provider Provisioner
+// duplication, no env mutation between calls.
+//
+// Resolution rules, in order:
+//
+//  1. If CATALYST_TOFU_MODULE_PATH was set explicitly via env, honour
+//     it verbatim AND swap the trailing directory to match the
+//     provider so an air-gapped operator pinning the root layout
+//     (e.g. "/mnt/iac/infra/providers/hetzner") still picks up the
+//     Huawei sibling at "/mnt/iac/infra/providers/huawei". This keeps
+//     custom mount points working while still supporting per-provider
+//     dispatch.
+//  2. Otherwise fall back to the canonical layout shipped by the
+//     catalyst-api container image: /infra/providers/<provider>/.
+//
+// The provider name is lower-cased and trimmed; Validate() guarantees
+// it's one of the registered names by the time this is called, so an
+// empty / unknown value here is a programmer error — log + fall back
+// to hetzner to preserve byte-equivalent behaviour for the back-compat
+// path.
+func (p *Provisioner) resolveModulePath(provider string) string {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if provider == "" {
+		provider = "hetzner"
+	}
+	base := p.ModulePath
+	if base == "" {
+		base = "/infra/providers/hetzner"
+	}
+	// Strip the trailing directory and re-append the provider name.
+	// filepath.Dir handles trailing-slash variants ("/a/b" and "/a/b/")
+	// equivalently.
+	parent := filepath.Dir(strings.TrimRight(base, "/"))
+	if parent == "" || parent == "." {
+		// Unexpected — env-supplied path was a single segment.
+		// Fall through to the canonical layout.
+		return "/infra/providers/" + provider
+	}
+	return filepath.Join(parent, provider)
 }
 
 // Provision runs the full sequence. Emits events into the channel; returns
@@ -996,7 +1131,16 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 
 	// Stage the module by symlinking — keeps state isolated per deployment
 	// while sharing the canonical module source.
-	if err := stageModule(p.ModulePath, deployDir); err != nil {
+	//
+	// Wave 4 (#2140): the per-Request Provider field selects the per-cloud
+	// tofu module under infra/providers/<provider>/. The Provisioner's
+	// ModulePath default ("/infra/providers/hetzner") covers the
+	// back-compat path when Provider is empty/hetzner; a non-hetzner
+	// Provider swaps to the matching directory under the same root.
+	// Validate() guarantees req.Provider is one of the registered names
+	// at this point.
+	modulePath := p.resolveModulePath(req.Provider)
+	if err := stageModule(modulePath, deployDir); err != nil {
 		return nil, fmt.Errorf("stage tofu module: %w", err)
 	}
 
@@ -1087,8 +1231,11 @@ func (p *Provisioner) Destroy(ctx context.Context, req Request, events chan<- Ev
 	}
 
 	// Re-stage the module + tfvars so a partially-cleaned workdir still
-	// has what tofu needs to destroy.
-	if err := stageModule(p.ModulePath, deployDir); err != nil {
+	// has what tofu needs to destroy. Same provider-aware resolution as
+	// Provision() — a Huawei deployment destroys against
+	// infra/providers/huawei/, not the default Hetzner module.
+	modulePath := p.resolveModulePath(req.Provider)
+	if err := stageModule(modulePath, deployDir); err != nil {
 		return fmt.Errorf("stage tofu module: %w", err)
 	}
 	if err := writeTfvars(deployDir, req); err != nil {
@@ -1487,6 +1634,39 @@ func writeTfvars(deployDir string, req Request) error {
 	}
 	if strings.TrimSpace(req.WorkerSize) != "" {
 		vars["worker_size"] = req.WorkerSize
+	}
+
+	// Provider — emit the normalised lower-case name so downstream
+	// terraform (and any future fan-out logic) can branch on
+	// `var.provider`. Validate() guarantees the value is one of the
+	// known names; an empty string is impossible here.
+	vars["provider"] = req.Provider
+
+	// Huawei Cloud (HCS) credentials — Wave 4 (refs #2140). Emitted
+	// only when provider=huawei so a Hetzner provision never carries
+	// Huawei creds in its tfvars file. The OpenTofu module at
+	// infra/providers/huawei/variables.tf declares matching variables
+	// (huawei_access_key / huawei_secret_key / huawei_project_id /
+	// huawei_region); the module reads them via `var.huawei_*` in
+	// main.tf's huaweicloud provider block.
+	//
+	// huawei_region falls back to the canonical HCS default
+	// ("me-east-215") when the operator omits it — same fallback the
+	// Huawei provider adapter applies in providers/huawei/provider.go
+	// regionFromCreds(). Centralising the default at the tfvars
+	// boundary keeps the OpenTofu module's variables.tf default
+	// authoritative and avoids any "empty string wins over default"
+	// surprise (a real production failure mode — see the
+	// control_plane_size guard above for the analogous Hetzner case).
+	if req.Provider == "huawei" {
+		vars["huawei_access_key"] = req.HuaweiAccessKey
+		vars["huawei_secret_key"] = req.HuaweiSecretKey
+		vars["huawei_project_id"] = req.HuaweiProjectID
+		region := strings.TrimSpace(req.HuaweiRegion)
+		if region == "" {
+			region = "me-east-215"
+		}
+		vars["huawei_region"] = region
 	}
 
 	raw, err := json.MarshalIndent(vars, "", "  ")
