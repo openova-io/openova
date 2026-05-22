@@ -87,9 +87,9 @@ resource "huaweicloud_vpc" "region" {
 
   name = "${local.name_prefix}-${each.key}-vpc"
   cidr = local.region_vpc_cidr[each.key]
-  tags = merge(local.common_tags, {
-    "catalyst.openova.io/region" = each.key
-  })
+  # tags = merge(local.common_tags, {
+  # "catalyst.openova.io/region" = each.key
+  # })  # disabled Wave 5.4: HCS tag API divergence
 }
 
 resource "huaweicloud_vpc_subnet" "region" {
@@ -100,9 +100,9 @@ resource "huaweicloud_vpc_subnet" "region" {
   gateway_ip        = cidrhost(local.region_subnet_cidr[each.key], 1)
   vpc_id            = huaweicloud_vpc.region[each.key].id
   availability_zone = var.huawei_az
-  tags = merge(local.common_tags, {
-    "catalyst.openova.io/region" = each.key
-  })
+  # tags = merge(local.common_tags, {
+  # "catalyst.openova.io/region" = each.key
+  # })  # disabled Wave 5.4: HCS tag API divergence
 }
 
 # ── Security group per region ─────────────────────────────────────────────
@@ -271,10 +271,10 @@ resource "huaweicloud_vpc_eip" "cp" {
     share_type  = "PER"
     charge_mode = "traffic"
   }
-  tags = merge(local.common_tags, {
-    "catalyst.openova.io/region" = local.cp_nodes[count.index].region
-    "catalyst.openova.io/role"   = "control-plane"
-  })
+  # tags = merge(local.common_tags, {
+  # "catalyst.openova.io/region" = local.cp_nodes[count.index].region
+  #     "catalyst.openova.io/role"   = "control-plane"
+  # })  # disabled Wave 5.4: HCS tag API divergence
 }
 
 # ── Cloud-init render (control-plane + worker) ────────────────────────────
@@ -356,10 +356,13 @@ resource "huaweicloud_compute_instance" "control_plane" {
 
   key_pair = huaweicloud_kps_keypair.main.name
 
-  tags = merge(local.common_tags, {
-    "catalyst.openova.io/region" = local.cp_nodes[count.index].region
-    "catalyst.openova.io/role"   = "control-plane"
-  })
+  # tags = merge(local.common_tags, {
+
+  # "catalyst.openova.io/region" = local.cp_nodes[count.index].region
+
+  #     "catalyst.openova.io/role"   = "control-plane"
+
+  # })  # disabled Wave 5.4: HCS tag API divergence
 }
 
 # ── Worker ECS instances ──────────────────────────────────────────────────
@@ -384,10 +387,13 @@ resource "huaweicloud_compute_instance" "worker" {
 
   key_pair = huaweicloud_kps_keypair.main.name
 
-  tags = merge(local.common_tags, {
-    "catalyst.openova.io/region" = each.value.region
-    "catalyst.openova.io/role"   = "worker"
-  })
+  # tags = merge(local.common_tags, {
+
+  # "catalyst.openova.io/region" = each.value.region
+
+  #     "catalyst.openova.io/role"   = "worker"
+
+  # })  # disabled Wave 5.4: HCS tag API divergence
 }
 
 # ── SSH key (KPS keypair) ─────────────────────────────────────────────────
@@ -411,5 +417,5 @@ resource "huaweicloud_kps_keypair" "main" {
 resource "aws_s3_bucket" "main" {
   bucket = var.obs_bucket_name
 
-  tags = local.common_tags
+  # tags = local.common_tags  # disabled Wave 5.4: HCS tag API divergence
 }
