@@ -62,6 +62,15 @@ provider "huaweicloud" {
     obs = "https://obs.${var.huawei_region}.kom4dc.nationalcloud.om"
     elb = "https://elb.${var.huawei_region}.kom4dc.nationalcloud.om"
     tms = "https://tms.${var.huawei_region}.kom4dc.nationalcloud.om"
+
+    # KMS / KPS (Key Pair Service) — needed for huaweicloud_kps_keypair
+    # which registers the operator-supplied SSH key for ECS attachment.
+    # Without this override the provider falls back to
+    # kms.<region>.myhuaweicloud.com (public Huawei Cloud) which the
+    # on-prem HCS deployment can't reach. Caught live on 8f711cae
+    # 2026-05-22T19:52Z: `dial tcp: lookup kms.me-east-215.
+    # myhuaweicloud.com: no such host`.
+    kms = "https://kms.${var.huawei_region}.kom4dc.nationalcloud.om"
   }
 
   insecure = var.huawei_insecure
