@@ -1683,16 +1683,16 @@ func writeTfvars(deployDir string, req Request) error {
 		vars["huawei_region"] = region
 
 		// The Huawei OpenTofu module at infra/providers/huawei/variables.tf
-		// declares a different variable schema for the OBS bucket
-		// (`obs_bucket_name`) and the parent-domains payload
-		// (`parent_domains_yaml`, literal YAML inline-array string) than
-		// the Hetzner module. Mirror the canonical Hetzner-shaped values
-		// into the Huawei-shaped keys so the same tfvars file satisfies
-		// both module schemas without per-provider duplication elsewhere.
-		// The Hetzner-shaped keys remain in the tfvars file as harmless
-		// undeclared-variable warnings under provider=huawei (OpenTofu
-		// treats unknown tfvars as warn, not error — confirmed live in
-		// dc19ea76 prov trace, 2026-05-22).
+		// declares a different variable schema for the OBS bucket name
+		// (`obs_bucket_name`), parent-domains (`parent_domains_yaml`
+		// literal YAML inline-array), and the per-region payload (snake_case
+		// + `code` instead of `cloudRegion`) than the Hetzner module. Mirror
+		// the canonical Hetzner-shaped values into the Huawei-shaped keys
+		// so the same tfvars file satisfies both module schemas. The
+		// Hetzner-shaped keys remain in the tfvars file as harmless
+		// undeclared-variable warnings (OpenTofu treats unknown tfvars as
+		// warn, not error — confirmed live on dc19ea76 + a10853cc prov
+		// traces, 2026-05-22).
 		vars["obs_bucket_name"] = req.ObjectStorageBucket
 
 		if len(req.ParentDomains) > 0 {
@@ -1707,6 +1707,32 @@ func writeTfvars(deployDir string, req Request) error {
 			sb.WriteString("]")
 			vars["parent_domains_yaml"] = sb.String()
 		}
+
+		// Per-region payload — Huawei module's `variable "regions"`
+		// (infra/providers/huawei/variables.tf:32) expects each element
+		// to carry attributes (code, role, control_plane_size, worker_size,
+		// worker_count) in snake_case + `code` as the region tag.
+		// RegionSpec on the wire side uses (provider, cloudRegion,
+		// controlPlaneSize, workerSize, workerCount, role). Project the
+		// wire shape to the Huawei tofu shape so the same Request feeds
+		// both modules.
+		hwRegions := make([]map[string]any, 0, len(req.Regions))
+		for _, r := range req.Regions {
+			hwRegions = append(hwRegions, map[string]any{
+				"code":               r.CloudRegion,
+				"role":               r.Role,
+				"control_plane_size": r.ControlPlaneSize,
+				"worker_size":        r.WorkerSize,
+				"worker_count":       r.WorkerCount,
+			})
+		}
+		// Overwrite the Hetzner-shaped `regions` (the writeTfvars block
+		// above sets it to coalesceRegions(req.Regions) — wire shape).
+		// Under provider=huawei the Huawei tofu module is authoritative
+		// so the Huawei shape wins. The Hetzner adapter is not in play
+		// when provider=huawei, so no downstream consumer reads the
+		// Hetzner-shaped regions on this path.
+		vars["regions"] = hwRegions
 	}
 
 	raw, err := json.MarshalIndent(vars, "", "  ")
