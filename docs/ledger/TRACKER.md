@@ -4,10 +4,10 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-22T02:00:05Z` |
+| Last refreshed | `2026-05-22T02:15:07Z` |
 | Open issues | 79 |
 | Open DoD gates | 7 / 41 |
-| Open TBD-* regressions | 68 |
+| Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 34 / 41 = 82% |
 
 **Legend:** <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> done · <img alt="WAITING_PROV" src="https://img.shields.io/badge/-WAITING__PROV-bf8700?style=flat-square" /> fix shipped, awaits prov · <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> open · <img alt="DEFERRED" src="https://img.shields.io/badge/-DEFERRED-6e7781?style=flat-square" /> deferred
@@ -199,85 +199,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#1094](https://github.com/openova-io/openova/issues/1094) | EPIC: Catalyst Phase 0/1 — 6 EPIC unified roll-out (Compliance / Apps / RBAC / | Other |
-| [#1096](https://github.com/openova-io/openova/issues/1096) | EPIC-1: Compliance — Kyverno policy library + score aggregator + SRE/SecLead U | Other |
-| [#1099](https://github.com/openova-io/openova/issues/1099) | EPIC-4: Cloud Resources — k9s-on-web (drill-down + logs + exec + YAML editor)  | Other |
-| [#1723](https://github.com/openova-io/openova/issues/1723) | TBD-C17: Step 17 — Final WordPress install at slug.omani.homes | TBD regression |
-| [#1734](https://github.com/openova-io/openova/issues/1734) | TBD-G5: Hubble inter-region pod-to-pod data plane — t22 broken, t23+ fixed via | TBD regression |
-| [#1741](https://github.com/openova-io/openova/issues/1741) | TBD-Cov-7 / C6-009: Voucher email arrives in recipient IMAP within 60s | TBD regression |
-| [#1747](https://github.com/openova-io/openova/issues/1747) | TBD-D11: Sandbox runtime E2E — per-Sandbox runtime gated on Org CR (deferred t | TBD regression |
-| [#1808](https://github.com/openova-io/openova/issues/1808) | DoD D5: `/cloud` view: renders all 3 regions, no stuck spinners | DoD gate |
-| [#1819](https://github.com/openova-io/openova/issues/1819) | DoD D18: Sovereign-side catalyst-api can self-monitor Phase-1 install state | DoD gate |
-| [#1820](https://github.com/openova-io/openova/issues/1820) | DoD D19: Apps + Cloud counter consistency | DoD gate |
-| [#1821](https://github.com/openova-io/openova/issues/1821) | DoD D20: Jobs page surfaces all-region jobs with region filter | DoD gate |
-| [#1831](https://github.com/openova-io/openova/issues/1831) | DoD D31: Tenant application with CNPG active-hot-standby replication | DoD gate |
-| [#1835](https://github.com/openova-io/openova/issues/1835) | DoD D35: NATS broker round-trips `catalyst.tenant.created` + `catalyst.order.pla | DoD gate |
-| [#1841](https://github.com/openova-io/openova/issues/1841) | DoD A6: Provider-mix is the canonical case (1 region Hetzner, 1 AWS, 1 Huawei) � | DoD gate |
-| [#1882](https://github.com/openova-io/openova/issues/1882) | TBD-A28 kubeconfig?region=hel1 returns 409 — filename mismatch <id>-hel1.yaml  | TBD regression |
-| [#1904](https://github.com/openova-io/openova/issues/1904) | TBD-A41 Sovereign multi-region fan-out regression on t31 — D5/D16/D20 all retu | TBD regression |
-| [#1934](https://github.com/openova-io/openova/issues/1934) | TBD-A47: Single-region cloud-init never installs Cilium → flux-not-reconciling | TBD regression |
-| [#1948](https://github.com/openova-io/openova/issues/1948) | TBD-A56: openova-flow-server cross-namespace DNS — svc in catalyst-system but  | TBD regression |
-| [#1953](https://github.com/openova-io/openova/issues/1953) | TBD-A59: catalyst projector valkey URL has same NXDOMAIN bug as #1944 (line 660  | TBD regression |
-| [#1972](https://github.com/openova-io/openova/issues/1972) | TBD-A63: PR #1942 chrootSeedSecondaryRegions wired but no secondary jobs in stor | TBD regression |
-| [#1982](https://github.com/openova-io/openova/issues/1982) | TBD-A65: CI gate — measure FULL rendered cloud-init size, not template-post-st | TBD regression |
-| [#1986](https://github.com/openova-io/openova/issues/1986) | TBD-P4: Pillar 4 (Sandbox + qwen-code + MCP) — 4 wiring breaks block end-user  | TBD regression |
-| [#1990](https://github.com/openova-io/openova/issues/1990) | TBD-A67: Tenant org URL — code generates <slug>.omani.homes, founder spec said | TBD regression |
-| [#1994](https://github.com/openova-io/openova/issues/1994) | TBD-A68: residual .openova.io leaks in production code (purge sweep) | TBD regression |
-| [#1995](https://github.com/openova-io/openova/issues/1995) | TBD-A66-followup: stuck-HR recovery sidecar silent RBAC patch failure (kubectl - | TBD regression |
-| [#1997](https://github.com/openova-io/openova/issues/1997) | TBD-A68: organization-controller hits gitea /api/v1/admin/orgs without auth →  | TBD regression |
-| [#1999](https://github.com/openova-io/openova/issues/1999) | TBD-V8: Voucher email never delivered — sme/notification 401 JWT signing-secre | TBD regression |
-| [#2000](https://github.com/openova-io/openova/issues/2000) | TBD-V9: Voucher row decremented before Stripe success — non-transactional rede | TBD regression |
-| [#2001](https://github.com/openova-io/openova/issues/2001) | TBD-V10: Post-purchase redirect goes to operator console, not console.<slug>.oma | TBD regression |
-| [#2002](https://github.com/openova-io/openova/issues/2002) | TBD-V11 [P0]: Tenant provisioning fails — gitea token-to-user bootstrap missin | TBD regression |
-| [#2003](https://github.com/openova-io/openova/issues/2003) | TBD-V12 [P0]: Sandbox newapi CrashLoopBackOff — Redis NOAUTH (bp-newapi has no | TBD regression |
-| [#2015](https://github.com/openova-io/openova/issues/2015) | TBD-V14: sandbox-controller NEWAPI_BASE_URL service-name mismatch breaks qwen-co | TBD regression |
-| [#2016](https://github.com/openova-io/openova/issues/2016) | TBD-V13: bp-self-sovereign-cutover orchestrator state-resume not idempotent acro | TBD regression |
-| [#2019](https://github.com/openova-io/openova/issues/2019) | TBD-A48-v2: Split bp-kyverno into engine + bp-kyverno-policies (separate HR via  | TBD regression |
-| [#2020](https://github.com/openova-io/openova/issues/2020) | TBD-V15: mothership catalyst-api Pending — CPU exhaustion blocks ALL Sovereign | TBD regression |
-| [#2021](https://github.com/openova-io/openova/issues/2021) | TBD-V15: catalyst-bootstrap-api CATALYST_NEWAPI_ADDR default points at non-exist | TBD regression |
-| [#2025](https://github.com/openova-io/openova/issues/2025) | TBD-V17: dormant/off-path in-cluster Service-name mismatches (audit follow-up) | TBD regression |
-| [#2026](https://github.com/openova-io/openova/issues/2026) | TBD-V18: marketplace AppDetail does not render configSchema (replicas/disk/backu | TBD regression |
-| [#2027](https://github.com/openova-io/openova/issues/2027) | TBD-V19: founder decision needed — is Pillar 1 step 4 phone-OTP OR email-magic | TBD regression |
-| [#2028](https://github.com/openova-io/openova/issues/2028) | TBD-V20: wizard StepSuccess "Issue first voucher" CTA points at anti-canon admin | TBD regression |
-| [#2030](https://github.com/openova-io/openova/issues/2030) | TBD-V22: build-projector CI workflow missing; projector image never published | TBD regression |
-| [#2032](https://github.com/openova-io/openova/issues/2032) | TBD-V21: sandbox-controller env-var prefix drift — residual gaps not covered b | TBD regression |
-| [#2033](https://github.com/openova-io/openova/issues/2033) | TBD-V23: bp-self-sovereign-cutover step 08 egress-block-test does NOT apply any  | TBD regression |
-| [#2034](https://github.com/openova-io/openova/issues/2034) | TBD-V24: Pillar 5 "8-tether pivot" claim — chart pivots 5-7 tethers, no author | TBD regression |
-| [#2040](https://github.com/openova-io/openova/issues/2040) | TBD-V26: marketplace.app.install MCP tool blocked by AddApp simulator + auth-boo | TBD regression |
-| [#2042](https://github.com/openova-io/openova/issues/2042) | TBD-V27: thread configSchema form values into install POST (follow-up to PR #203 | TBD regression |
-| [#2047](https://github.com/openova-io/openova/issues/2047) | TBD-V28: blueprint-controller image pin stale — PR #2013 fix in GHCR but never | TBD regression |
-| [#2055](https://github.com/openova-io/openova/issues/2055) | TBD-V29: SPIFFE/SPIRE workload identity — defer per founder PR #665; align doc | TBD regression |
-| [#2057](https://github.com/openova-io/openova/issues/2057) | TBD-V30: card-protocol / mobile card-stream surface — claim unbacked, DEFER (p | TBD regression |
-| [#2058](https://github.com/openova-io/openova/issues/2058) | TBD-V31: align user-journey.md + architecture.md with TBD-V30 card-protocol defe | TBD regression |
-| [#2062](https://github.com/openova-io/openova/issues/2062) | TBD-V32: auto-bump deploy jobs lose push race silently (no retry-on-rebase loop) | TBD regression |
-| [#2064](https://github.com/openova-io/openova/issues/2064) | TBD-V13: Pillar 3 — CNPG replication mode is asynchronous, not synchronous (ze | TBD regression |
-| [#2065](https://github.com/openova-io/openova/issues/2065) | TBD-V14: Pillar 3 — bp-continuum controller is not deployed by the bootstrap-k | TBD regression |
-| [#2066](https://github.com/openova-io/openova/issues/2066) | TBD-V15: Pillar 3 — Continuum CR is not auto-created when an active-hot-standb | TBD regression |
-| [#2067](https://github.com/openova-io/openova/issues/2067) | TBD-V16: Pillar 3 — D31 acceptance test (1M-row write + region-kill + zero-tx- | TBD regression |
-| [#2068](https://github.com/openova-io/openova/issues/2068) | TBD-V17: Pillar 3 — bp-cnpg-pair Blueprint has no standalone install path (onl | TBD regression |
-| [#2077](https://github.com/openova-io/openova/issues/2077) | TBD-V33: migrate platform governance ledger (TRUST/TRACKER/WALK-RUNBOOK) from op | TBD regression |
-| [#2083](https://github.com/openova-io/openova/issues/2083) | TBD-V35: codify OpenOva-platform specifics in canonical docs (5-pillar DoD + dom | TBD regression |
-| [#2085](https://github.com/openova-io/openova/issues/2085) | TBD-V1: Pre-merge CI guard rejects Closes/Fixes/Resolves keywords in PR bodies ( | TBD regression |
-| [#2086](https://github.com/openova-io/openova/issues/2086) | TBD-V35: elevate hollow-chart guard to pre-merge CI check (was post-merge → de | TBD regression |
-| [#2088](https://github.com/openova-io/openova/issues/2088) | TBD-V36: bp-network-policies:1.0.0 lacks no-upstream annotation (will dead-reser | TBD regression |
-| [#2089](https://github.com/openova-io/openova/issues/2089) | TBD-V37: axon:0.1.0 lacks no-upstream annotation (will dead-reserve on next bump | TBD regression |
-| [#2092](https://github.com/openova-io/openova/issues/2092) | TBD-V38: elevate smoke-render guard to pre-merge CI check (was post-merge → de | TBD regression |
-| [#2095](https://github.com/openova-io/openova/issues/2095) | TBD-V39: cert-manager-dynadot-webhook 3 solver tests broken since 2026-05-05 | TBD regression |
-| [#2098](https://github.com/openova-io/openova/issues/2098) | TBD-V13: REAL fold of 12 orphan docs into 8 canonical top-level docs (a6296ed7 w | TBD regression |
-| [#2100](https://github.com/openova-io/openova/issues/2100) | TBD-V41: consolidate 3 strategy orphans — fold FRANCHISE-MODEL + PRODUCT-FAMIL | TBD regression |
-| [#2101](https://github.com/openova-io/openova/issues/2101) | TBD-V42: Fold AUDIT-PROCEDURE + SOVEREIGN-PROVISIONING + UI-REGRESSION-GUARDS +  | TBD regression |
-| [#2103](https://github.com/openova-io/openova/issues/2103) | docs(polish): line-by-line canon polish of GLOSSARY/INVIOLABLE-PRINCIPLES/SOVERE | Other |
-| [#2113](https://github.com/openova-io/openova/issues/2113) | TBD-V44: bp-self-sovereign-cutover must wipe mothership-local child state on cut | TBD regression |
-| [#2115](https://github.com/openova-io/openova/issues/2115) | TBD-V45: No default Sovereign-hosted Qwen channel exists — canonical DoD gap ( | TBD regression |
-| [#2123](https://github.com/openova-io/openova/issues/2123) | TBD-V49: catalyst-api k8scache event-informer unbounded LIST OOM-cycles every mu | TBD regression |
-| [#2125](https://github.com/openova-io/openova/issues/2125) | TBD-V50: RCA Layer 1 — identify residual event-flood triggers post-#2124 (iogr | TBD regression |
-| [#2126](https://github.com/openova-io/openova/issues/2126) | TBD-V51: RCA Layer 2 — incident-response actions amplify event volume | TBD regression |
-| [#2127](https://github.com/openova-io/openova/issues/2127) | TBD-V52: RCA Layer 3 — defense-in-depth against future event floods | TBD regression |
-| [#2128](https://github.com/openova-io/openova/issues/2128) | TBD-V53: cluster cold-start instability — k3s apiserver flap during bootstrap- | TBD regression |
-| [#2130](https://github.com/openova-io/openova/issues/2130) | TBD-V54: kyverno upstream contribution — /health/liveness should serve 503 (no | TBD regression |
-| [#2131](https://github.com/openova-io/openova/issues/2131) | TBD-V55: catalyst-api apiserver-not-ready loop on Sovereign post-Phase-1 — k3s | TBD regression |
-| [#2132](https://github.com/openova-io/openova/issues/2132) | TBD-V56: cutover state-machine doesn't checkpoint step results — Pod restart r | TBD regression |
-| [#2133](https://github.com/openova-io/openova/issues/2133) | TBD-V57: 🛑 Pillar 2 missing — marketplace wizard has NO multi-region/BCP to | TBD regression |
 
 ---
 
@@ -285,36 +206,6 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
-| 2026-05-21T13:16 | [#2137](https://github.com/openova-io/openova/pull/2137) | #14 | chore(privacy): redact private partner identity from public  |
-| 2026-05-21T12:19 | [#2136](https://github.com/openova-io/openova/pull/2136) | #2131 | fix(catalyst-api): one-shot reads bypass informer cache (Ref |
-| 2026-05-21T08:51 | [#2135](https://github.com/openova-io/openova/pull/2135) | #2132 | fix(catalyst-api): cutover state-machine idempotent + Job-st |
-| 2026-05-21T07:59 | [#2134](https://github.com/openova-io/openova/pull/2134) | #2133 | feat(marketplace): Pillar 2 BCP wizard step writes to cart.a |
-| 2026-05-21T06:47 | [#2129](https://github.com/openova-io/openova/pull/2129) | #14 | fix(kyverno): cert-manager-issued TLS + wait-for-secret init |
-| 2026-05-21T04:19 | [#2124](https://github.com/openova-io/openova/pull/2124) | #1099 | fix(k8scache): bound event-informer LIST to stop catalyst-ap |
-| 2026-05-20T20:30 | [#2122](https://github.com/openova-io/openova/pull/2122) | #2081 | fix(bootstrap-kit): publish bp-continuum:0.1.2 + lockstep pi |
-| 2026-05-20T20:24 | [#2120](https://github.com/openova-io/openova/pull/2120) | #2115 | fix(newapi): rename qwenBankDhofar channel row name -> qwen  |
-| 2026-05-20T19:50 | [#2119](https://github.com/openova-io/openova/pull/2119) | #1985 | fix(catalyst-platform): hoist parent_domains_listeners YAML  |
-| 2026-05-20T19:02 | [#2117](https://github.com/openova-io/openova/pull/2117) | #2116 | fix(newapi+vllm): flip vllm defaults OFF — OMTD Bank Dhofar  |
-| 2026-05-20T18:33 | [#2116](https://github.com/openova-io/openova/pull/2116) | #14 | feat(newapi+vllm): wire bp-vllm slot 39 + default in-cluster |
-| 2026-05-20T17:59 | [#2114](https://github.com/openova-io/openova/pull/2114) | #11 | docs(claude): 2026-05-20 session lessons — 10 amnesia anti-p |
-| 2026-05-20T13:05 | [#2110](https://github.com/openova-io/openova/pull/2110) | #665 | docs(consolidate): fold 4 ops/runbook orphans into RUNBOOKS. |
-| 2026-05-20T12:54 | [#2109](https://github.com/openova-io/openova/pull/2109) | #2104 | docs(consolidate): fold SECRET-ROTATION into SECURITY + STAT |
-| 2026-05-20T13:12 | [#2107](https://github.com/openova-io/openova/pull/2107) | #2100 | docs(consolidate): fold 3 strategy orphans into BUSINESS-STR |
-| 2026-05-20T12:50 | [#2106](https://github.com/openova-io/openova/pull/2106) | #2102 | docs(consolidate): fold 4 architecture orphans into ARCHITEC |
-| 2026-05-20T12:37 | [#2099](https://github.com/openova-io/openova/pull/2099) | #2097 | docs(readme): tree-view documentation index + archive orphan |
-| 2026-05-20T10:36 | [#2096](https://github.com/openova-io/openova/pull/2096) | #2095 | test(dynadot-webhook): skip 3 flaky solver tests pending TBD |
-| 2026-05-20T10:40 | [#2094](https://github.com/openova-io/openova/pull/2094) | #2071 | feat(docs): lean documentation strategy — consolidate 16 doc |
-| 2026-05-20T08:24 | [#2093](https://github.com/openova-io/openova/pull/2093) | #2087 | ci: elevate smoke-render guard to pre-merge (prevents dual-a |
-| 2026-05-20T08:05 | [#2091](https://github.com/openova-io/openova/pull/2091) | #2090 | fix(bp-network-policies): add smoke-render-mode=default-off  |
-| 2026-05-20T07:54 | [#2090](https://github.com/openova-io/openova/pull/2090) | #2087 | fix(charts): add no-upstream annotation to bp-network-polici |
-| 2026-05-20T07:51 | [#2087](https://github.com/openova-io/openova/pull/2087) | #181 | ci: elevate hollow-chart guard to pre-merge check (Refs #208 |
-| 2026-05-20T07:32 | [#2084](https://github.com/openova-io/openova/pull/2084) | #1085 | docs: move OpenOva-platform specifics into canonical docs (5 |
-| 2026-05-20T07:35 | [#2082](https://github.com/openova-io/openova/pull/2082) | #1094 | ci: pre-merge guard - reject Closes/Fixes/Resolves keywords  |
-| 2026-05-20T06:50 | [#2079](https://github.com/openova-io/openova/pull/2079) | #2064 | docs(trust): flip Pillar 3 to CODE-COMPLETE — 5/5 audit find |
-| 2026-05-20T06:42 | [#2078](https://github.com/openova-io/openova/pull/2078) | docs(claude): add user-global pointer + scope-clarification  |  |
-| 2026-05-20T06:41 | [#2076](https://github.com/openova-io/openova/pull/2076) | docs: migrate platform governance ledger from openova-privat |  |
-| 2026-05-20T06:41 | [#2075](https://github.com/openova-io/openova/pull/2075) | #2067 | feat(continuum/d31-acceptance): ship CNPG region-kill zero-t |
-| 2026-05-20T06:35 | [#2074](https://github.com/openova-io/openova/pull/2074) | #12 | feat(tenant-gitops): emit Continuum CR for each multi-region |
 
 ---
 
