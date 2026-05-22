@@ -60,20 +60,6 @@ type Kind struct {
 	// Secret. ConfigMap data is treated as PII-adjacent and also
 	// stripped (see redactObject).
 	Sensitive bool
-
-	// HighCardinality — true for kinds whose object count grows
-	// unboundedly on a busy cluster (Kubernetes `event` accumulates
-	// ~tens of thousands per hour). The informer for these kinds is
-	// created from a SEPARATE filtered factory that bounds the initial
-	// LIST with `Limit: 5000`, so the in-process cache cannot blow the
-	// catalyst-api memory budget on a multi-region Sovereign.
-	//
-	// Without this bound, a 3-region Sovereign accumulates ~5GB Go heap
-	// for the event-cache alone (~55K events × 3 regions × ~30KB per
-	// parsed struct), exceeding the 4Gi Pod memory limit → OOMKill
-	// loop → apiserver-not-ready downstream → marketplace/console
-	// 5xx — the symptom that wedged tonight's t39 walk.
-	HighCardinality bool
 }
 
 // DefaultKinds is the built-in registry — every Sovereign starts with
@@ -157,16 +143,26 @@ var DefaultKinds = []Kind{
 	// fanout streams these too. ClusterPolicy is cluster-scoped.
 	{Name: "clusterpolicy", GVR: schema.GroupVersionResource{Group: "kyverno.io", Version: "v1", Resource: "clusterpolicies"}, Namespaced: false},
 
-	// EPIC-4 Slice R4 (#1099) — Events panel feed.
+	// TBD-V50 (#2125) — Kubernetes Events deliberately NOT registered.
 	//
-	// Kubernetes Events live at events.k8s.io/v1 (the modern API; the
-	// legacy core/v1 Events GVR is still served but the new group is
-	// canonical from K8s 1.19+). The Events panel filters Events by
-	// `involvedObject.namespace` + `involvedObject.name` matching the
-	// focused resource — client-side filter happens in the EventsPanel
-	// widget; the server-side stream surface (existing ?fieldSelector=
-	// grammar) supports metadata-level filtering today.
-	{Name: "event", GVR: schema.GroupVersionResource{Group: "events.k8s.io", Version: "v1", Resource: "events"}, Namespaced: true, HighCardinality: true},
+	// Events are a write-once / read-rare resource that the kube-apiserver
+	// already keeps bounded via `--event-ttl=1h` (default). The
+	// SharedInformer abstraction, in contrast, stores every event it
+	// receives for the lifetime of the Pod — an unbounded write-store on
+	// a write-once stream. PR #2124 (V49) attempted to contain the bleed
+	// with a 5000-row initial-LIST cap, but the watch that follows kept
+	// accumulating new events and catalyst-api still OOM-cycled (178
+	// restarts in 20h on the mothership, image d9e678f).
+	//
+	// Architecturally-correct fix: do NOT register `event` as a cached
+	// kind at all. Consumers that need event data already issue direct
+	// apiserver `EventsV1().Events(ns).List(FieldSelector + Limit)` calls
+	// (see handler/compliance_runtime.go listFalcoK8sEvents and
+	// handler/sovereign.go HandleSovereignJobs). New consumers MUST follow
+	// the same pattern — no cache, no informer, no boundedFactory.
+	//
+	// The regression test TestFactory_NoEventInformerRegistered in
+	// k8scache_test.go enforces this invariant.
 
 	// QA-loop iter-2 Fix #17 — CRDs surfaced through /k8s/{kind} need
 	// matching registry entries; otherwise the handler returns
@@ -352,7 +348,9 @@ var kindShortAliases = map[string]string{
 	"rs":     "replicaset",
 	"ing":    "ingress",
 	"ep":     "endpointslice",
-	"ev":     "event",
+	// TBD-V50 (#2125) — `ev` → `event` alias removed because `event` is
+	// no longer cached (see kinds.go above). Consumers that need event
+	// data hit the apiserver directly via EventsV1().Events().List().
 	// QA-loop iter-4 Fix #24 — `kubectl get crd` and `kubectl get crds`
 	// are the conventional ergonomic forms operators reach for. The
 	// plural-alias index handles "customresourcedefinitions" naturally

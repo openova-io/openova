@@ -1,5 +1,23 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.237 — TBD-V50 / #2125 (2026-05-22) Root-cause OOM-cycle on
+# mothership catalyst-api (178 restarts in 20h, exit 137 OOMKilled,
+# image d9e678f w/ V49 baked in). PR #2124's bounded LIST 5000-page
+# fix was containment only — the WATCH that followed the LIST kept
+# accumulating events for the lifetime of the Pod (every restart
+# replays full LIST + watch resync; memory climbs back; next OOM in
+# ~10 min). Architecturally-correct fix: do NOT register `event` as
+# a cached kind at all. Events are write-once / read-rare; the
+# SharedInformer abstraction (which retains every event for Pod
+# lifetime) is the wrong shape. Consumers that need event data
+# already hit the apiserver directly via EventsV1().Events().List
+# (FieldSelector + Limit) — see handler/compliance_runtime.go
+# listFalcoK8sEvents + handler/sovereign.go HandleSovereignJobs.
+# Removes: event Kind from DefaultKinds, HighCardinality field,
+# boundedFactory machinery, `ev` short alias.
+# Adds: TestDefaultKinds_NoEventInformerRegistered regression test
+# + TestRegistry_DropsEventAlias to pin the invariant.
+#
 # 1.4.233 — TBD-V57 / #2133 (2026-05-21) Pillar 2: ship the
 # marketplace BCP wizard step so the customer can actually signal
 # active-hot-standby + region pair at signup. Single source of truth
@@ -2258,7 +2276,7 @@ name: bp-catalyst-platform
 #
 # Refs #1099 (NOT Closes — operator walk + screenshot is the DoD per
 # CLAUDE.md §0).
-version: 1.4.236
+version: 1.4.237
 appVersion: 1.4.236
 # 1.4.235 — TBD-V55 / #2131 (2026-05-21): catalyst-api one-shot
 # ConfigMap reads in the bp-self-sovereign-cutover handlers now retry
