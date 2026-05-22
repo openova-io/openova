@@ -233,6 +233,7 @@ runcmd:
         --cluster-cidr=${cluster_cidr} \
         --service-cidr=${service_cidr} \
         --tls-san=${sovereign_fqdn} \
+        --tls-san=${primary_cp_eip} \
         --node-label=openova.io/region=hw-${region}-rtz-prod \
         --node-label=catalyst.openova.io/provider=huawei" \
       sh -
@@ -256,13 +257,21 @@ runcmd:
   - KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f /var/lib/catalyst/manifests/10-flux-source.yaml
 
   # 5. PUT-back kubeconfig to catalyst-api (issue #183 Option D).
+  #
+  # The apiserver URL inside the PUT'd kubeconfig MUST be the primary
+  # CP's EIP so the mothership (cross-cloud Contabo) can reach it on
+  # 6443. We get the EIP from the OpenTofu module via the template
+  # variable `primary_cp_eip` (Wave 5.8) — tofu knows the EIP
+  # deterministically at render time (the huaweicloud_vpc_eip.cp
+  # resource is created before the ECS instance). Previously the
+  # template tried to fetch the EIP from the HCS OpenStack metadata
+  # service (`169.254.169.254/openstack/latest/meta_data.json`
+  # `.public_ipv4_address`), but HCS doesn't populate that field, and
+  # the `ip route get 8.8.8.8` fallback returned the PRIVATE subnet IP
+  # (10.30.1.70 on 4bb37cbbb1e23ba8 2026-05-22T21:42Z).
   - |
     if [ -n "${deployment_id}" ] && [ -n "${kubeconfig_bearer_token}" ]; then
-      EIP=$(curl -s http://169.254.169.254/openstack/latest/meta_data.json | jq -r '.public_ipv4_address // .access_ip // empty')
-      if [ -z "$EIP" ]; then
-        EIP=$(ip -4 -j route get 8.8.8.8 2>/dev/null | jq -r '.[0].prefsrc // empty')
-      fi
-      sed "s|server: https://127.0.0.1:6443|server: https://$EIP:6443|" /etc/rancher/k3s/k3s.yaml \
+      sed "s|server: https://127.0.0.1:6443|server: https://${primary_cp_eip}:6443|" /etc/rancher/k3s/k3s.yaml \
         > /tmp/kubeconfig-rewritten.yaml
       curl -sf -X PUT \
         -H "Authorization: Bearer ${kubeconfig_bearer_token}" \
