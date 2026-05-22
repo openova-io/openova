@@ -345,6 +345,23 @@ locals {
     k3s_version         = var.k3s_version
     k3s_token           = sha256("${var.huawei_project_id}/${var.sovereign_fqdn}/k3s-bootstrap")
     cp_private_ip       = cidrhost(local.region_subnet_cidr[local.region_keys[0]], 2)
+    # Primary CP's EIP — Wave 5.8 (Refs #2140). The kubeconfig PUT-back
+    # from cloud-init must use this EIP, not the private VPC IP, so the
+    # remote mothership (cross-cloud Contabo) can reach the new
+    # Sovereign's apiserver on 6443. The previous template fetched the
+    # EIP from the HCS OpenStack metadata service
+    # (169.254.169.254/openstack/latest/meta_data.json
+    # `.public_ipv4_address`), but HCS doesn't populate that field;
+    # the fallback heuristic (`ip route get 8.8.8.8`) returned the
+    # private subnet IP, baking it into the PUT'd kubeconfig.
+    # Catalyst-api's Phase-1 watch then tried `https://10.30.1.70:6443`
+    # from the mothership Pod (Contabo) and timed out: caught live on
+    # 4bb37cbbb1e23ba8 2026-05-22T21:42Z. By passing the EIP at template
+    # render time (tofu knows it; it just created the EIP), the
+    # template-rendered `sed` substitution uses the right address
+    # deterministically across all CPs and metadata-service shape
+    # divergences across cloud stacks.
+    primary_cp_eip = huaweicloud_vpc_eip.cp[local.region_keys[0]].publicip.0.ip_address
     cluster_cidr        = "10.42.0.0/16"
     service_cidr        = "10.96.0.0/16"
     gitops_repo_url     = var.gitops_repo_url
