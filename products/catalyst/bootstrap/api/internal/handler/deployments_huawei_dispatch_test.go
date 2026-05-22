@@ -32,42 +32,48 @@ import (
 )
 
 // TestCreateDeployment_Huawei_DispatchesToHuaweiAdapter — happy path:
-// POST body with provider=huawei + complete AK/SK/project_id triplet
-// returns 201, the persisted deployment record carries
-// Provider="huawei", and the auto-derived ObjectStorageBucket uses the
-// Huawei adapter's BucketNameForDeployment (which today shares the
-// same naming contract as the Hetzner adapter — both implement
-// providers.ObjectStorageNamer).
+// POST body with provider=huawei (NO Huawei creds in body) + the four
+// CATALYST_HUAWEI_* env vars set returns 201, the persisted deployment
+// carries Provider="huawei" + Huawei creds stamped from env, and the
+// auto-derived ObjectStorageBucket uses the Huawei adapter's
+// BucketNameForDeployment.
+//
+// History: PR #2143 (Wave 4) v1 of this test passed AK/SK in body.
+// PR #2144 (Wave 4.5) moved Huawei creds to server-side env-var stamp
+// (matching every other operator credential — Dynadot/GHCR/Harbor/
+// PowerDNS/PDM). The body now carries deployment intent only; creds
+// live in the `huawei-operator-creds` Kubernetes Secret on mothership.
 func TestCreateDeployment_Huawei_DispatchesToHuaweiAdapter(t *testing.T) {
 	t.Setenv("DYNADOT_MANAGED_DOMAINS", "omani.works")
 	t.Setenv("CATALYST_HARBOR_ROBOT_TOKEN", "harbor_TEST_PLACEHOLDER")
+	t.Setenv("CATALYST_HUAWEI_ACCESS_KEY", "TESTAK1234567890")
+	t.Setenv("CATALYST_HUAWEI_SECRET_KEY", "TESTSKABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890")
+	t.Setenv("CATALYST_HUAWEI_PROJECT_ID", "0a1b2c3d4e5f6789abcd")
+	t.Setenv("CATALYST_HUAWEI_REGION", "me-east-215")
 	pdm.ResetManagedDomains()
 
 	fake := &fakePDM{}
 	h := NewWithPDM(slog.Default(), fake)
 
 	body, _ := json.Marshal(map[string]any{
-		"provider":         "huawei",
-		"sovereignFQDN":    "hcs.example.om",
+		"provider":      "huawei",
+		"sovereignFQDN": "hcs.example.om",
 		// BYO domain mode — Huawei deployments today provision against
 		// operator-owned domains; pool-mode is the Hetzner-managed
 		// .omani.works case that doesn't apply to HCS.
 		"sovereignDomainMode": "byo",
 		"sovereignSubdomain":  "hcs",
-		// Huawei credentials — required by Validate() when
-		// provider=huawei (Wave 4 wire-schema additions).
-		"huaweiAccessKey": "TESTAK1234567890",
-		"huaweiSecretKey": "TESTSKABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890",
-		"huaweiProjectID": "0a1b2c3d4e5f6789abcd",
-		"huaweiRegion":    "me-east-215",
-		"region":          "me-east-215",
-		"orgName":         "Example HCS Customer",
-		"orgEmail":        "ops@example.om",
-		"sshPublicKey":    "ssh-ed25519 AAAA test",
+		// NOTE: NO huaweiAccessKey / huaweiSecretKey / huaweiProjectID /
+		// huaweiRegion in body. These are json:"-" since PR #2144 —
+		// stamped from env vars at CreateDeployment time. The wizard
+		// frontend should not send them either.
+		"region":       "me-east-215",
+		"orgName":      "Example HCS Customer",
+		"orgEmail":     "ops@example.om",
+		"sshPublicKey": "ssh-ed25519 AAAA test",
 		// Object Storage credentials — Huawei OBS uses S3-compatible
-		// AK/SK; the operator supplies the same AK/SK pair as the IAM
-		// triplet today. Wave 5 may split these per the OBS-specific
-		// IAM separation.
+		// AK/SK; today these are still wizard-supplied. Wave 6 may
+		// move them to env-var stamping too.
 		"objectStorageRegion":    "me-east-215",
 		"objectStorageAccessKey": "TESTAK1234567890",
 		"objectStorageSecretKey": "TESTSKABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890",
@@ -93,14 +99,17 @@ func TestCreateDeployment_Huawei_DispatchesToHuaweiAdapter(t *testing.T) {
 	if dep.Request.Provider != "huawei" {
 		t.Errorf("Request.Provider = %q, want %q", dep.Request.Provider, "huawei")
 	}
-	if dep.Request.HuaweiAccessKey == "" {
-		t.Errorf("Request.HuaweiAccessKey lost during decode/persist")
+	if dep.Request.HuaweiAccessKey != "TESTAK1234567890" {
+		t.Errorf("Request.HuaweiAccessKey = %q, env-var stamp failed", dep.Request.HuaweiAccessKey)
 	}
 	if dep.Request.HuaweiSecretKey == "" {
-		t.Errorf("Request.HuaweiSecretKey lost during decode/persist")
+		t.Errorf("Request.HuaweiSecretKey empty after env-var stamp")
 	}
 	if dep.Request.HuaweiProjectID == "" {
-		t.Errorf("Request.HuaweiProjectID lost during decode/persist")
+		t.Errorf("Request.HuaweiProjectID empty after env-var stamp")
+	}
+	if dep.Request.HuaweiRegion != "me-east-215" {
+		t.Errorf("Request.HuaweiRegion = %q, want me-east-215", dep.Request.HuaweiRegion)
 	}
 
 	// Bucket derivation — Huawei adapter implements
@@ -125,12 +134,20 @@ func TestCreateDeployment_Huawei_DispatchesToHuaweiAdapter(t *testing.T) {
 }
 
 // TestCreateDeployment_Huawei_MissingAccessKey_Rejected — defensive
-// check: a body with provider=huawei but an empty huaweiAccessKey
-// must reject at /api/v1/deployments POST with 400 (not propagate
-// through to runProvisioning and fail several minutes later).
+// check: provider=huawei with NO CATALYST_HUAWEI_ACCESS_KEY env var
+// set (or set but empty) must reject at /api/v1/deployments POST with
+// 400. The wizard payload no longer carries Huawei creds (json:"-"
+// since PR #2144), so the empty-creds case translates to "operator
+// forgot to create the `huawei-operator-creds` K8s Secret" — fail-fast
+// with a clear error rather than crashing 5 min into tofu apply.
 func TestCreateDeployment_Huawei_MissingAccessKey_Rejected(t *testing.T) {
 	t.Setenv("DYNADOT_MANAGED_DOMAINS", "omani.works")
 	t.Setenv("CATALYST_HARBOR_ROBOT_TOKEN", "harbor_TEST_PLACEHOLDER")
+	// CATALYST_HUAWEI_ACCESS_KEY intentionally NOT set; the other 3
+	// are set to ensure the missing-AK is the specific cause of 400.
+	t.Setenv("CATALYST_HUAWEI_SECRET_KEY", "TESTSKABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890")
+	t.Setenv("CATALYST_HUAWEI_PROJECT_ID", "0a1b2c3d4e5f6789abcd")
+	t.Setenv("CATALYST_HUAWEI_REGION", "me-east-215")
 	pdm.ResetManagedDomains()
 
 	fake := &fakePDM{}
@@ -141,9 +158,6 @@ func TestCreateDeployment_Huawei_MissingAccessKey_Rejected(t *testing.T) {
 		"sovereignFQDN":          "hcs.example.om",
 		"sovereignDomainMode":    "byo",
 		"sovereignSubdomain":     "hcs",
-		"huaweiAccessKey":        "", // intentionally empty
-		"huaweiSecretKey":        "TESTSKABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890",
-		"huaweiProjectID":        "0a1b2c3d4e5f6789abcd",
 		"region":                 "me-east-215",
 		"orgName":                "Example",
 		"orgEmail":               "ops@example.om",
