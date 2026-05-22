@@ -1716,11 +1716,22 @@ func writeTfvars(deployDir string, req Request) error {
 		// controlPlaneSize, workerSize, workerCount, role). Project the
 		// wire shape to the Huawei tofu shape so the same Request feeds
 		// both modules.
+		// Role derived from index per the canonical multi-region contract:
+		// index 0 = primary, index > 0 = secondary. RegionSpec itself does
+		// NOT carry a Role field — the wire JSON's `role` key is silently
+		// dropped during decode (see struct at line 159). The Hetzner module
+		// uses the same index-based convention via its main.tf for_each;
+		// here we just materialise the role string for the Huawei module's
+		// validator (variables.tf:32 contains(["primary","secondary"], r.role)).
 		hwRegions := make([]map[string]any, 0, len(req.Regions))
-		for _, r := range req.Regions {
+		for i, r := range req.Regions {
+			role := "secondary"
+			if i == 0 {
+				role = "primary"
+			}
 			hwRegions = append(hwRegions, map[string]any{
 				"code":               r.CloudRegion,
-				"role":               r.Role,
+				"role":               role,
 				"control_plane_size": r.ControlPlaneSize,
 				"worker_size":        r.WorkerSize,
 				"worker_count":       r.WorkerCount,
