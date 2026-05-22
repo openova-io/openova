@@ -377,7 +377,7 @@ func TestNamePrefixForSovereign_MatchesTofuEmit(t *testing.T) {
 	if err != nil {
 		t.Skipf("repo root not found (test running outside repo? %v)", err)
 	}
-	tfPath := filepath.Join(repoRoot, "infra", "hetzner", "main.tf")
+	tfPath := filepath.Join(repoRoot, "infra", "providers", "hetzner", "main.tf")
 	bytes, err := os.ReadFile(tfPath)
 	if err != nil {
 		t.Skipf("Tofu module not readable at %s: %v", tfPath, err)

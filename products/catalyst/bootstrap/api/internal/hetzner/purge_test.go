@@ -35,7 +35,7 @@ func TestPurgeLabelKey_MatchesTofuEmit(t *testing.T) {
 	if err != nil {
 		t.Skipf("repo root not found (test running outside repo? %v)", err)
 	}
-	tfPath := filepath.Join(repoRoot, "infra", "hetzner", "main.tf")
+	tfPath := filepath.Join(repoRoot, "infra", "providers", "hetzner", "main.tf")
 	bytes, err := os.ReadFile(tfPath)
 	if err != nil {
 		t.Skipf("Tofu module not readable at %s: %v", tfPath, err)
@@ -201,7 +201,7 @@ func findRepoRoot() (string, error) {
 	}
 	dir := cwd
 	for {
-		if _, err := os.Stat(filepath.Join(dir, "infra", "hetzner", "main.tf")); err == nil {
+		if _, err := os.Stat(filepath.Join(dir, "infra", "providers", "hetzner", "main.tf")); err == nil {
 			if _, err := os.Stat(filepath.Join(dir, "products", "catalyst")); err == nil {
 				return dir, nil
 			}

@@ -36,11 +36,16 @@ import (
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
-	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/hetzner"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobs"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/pdm"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
+
+	// Side-effect import: registers every CloudProvider adapter so
+	// providers.Get(...) returns a live value in this package's tests
+	// (which build without cmd/api's main.go).
+	_ "github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers/all"
 )
 
 // EventBufferCap bounds the per-deployment in-memory event slice. A long-
@@ -991,7 +996,17 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 	// format breaks the rule the validator emits a clear error rather
 	// than letting tofu apply fail 5 minutes in.
 	if strings.TrimSpace(req.ObjectStorageBucket) == "" && strings.TrimSpace(req.SovereignFQDN) != "" {
-		req.ObjectStorageBucket = hetzner.BucketNameForSovereign(req.SovereignFQDN, id)
+		// Resolve via the providers.CloudProvider seam so a future
+		// non-Hetzner deployment dispatches to its own
+		// ObjectStorageNamer impl. The default (when req carries no
+		// provider hint) is "hetzner" to preserve byte-equivalent
+		// behaviour with the pre-Wave-2 path.
+		providerName := "hetzner"
+		if cp, perr := providers.Get(providerName); perr == nil {
+			if namer, ok := cp.(providers.ObjectStorageNamer); ok {
+				req.ObjectStorageBucket = namer.BucketNameForDeployment(req.SovereignFQDN, id)
+			}
+		}
 	}
 
 	if err := req.Validate(); err != nil {

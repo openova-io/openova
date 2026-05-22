@@ -176,15 +176,26 @@ type wipeRequest struct {
 // wipeResponse summarises what was actually purged. The wizard renders
 // the counts in a "Wipe complete — N servers, M load balancers, …
 // removed" success banner.
+//
+// NOTE (Wave 2 / Issue #1841): the `HetznerPurge` field name + the
+// import of internal/hetzner above remain in this file pending Wave 3
+// of the providers/ refactor. The seam (providers.CloudProvider) is
+// in place + the credentials + bucket-naming handlers have migrated;
+// migrating this orchestration-heavy handler requires either (a)
+// moving steps 1+2+2b inside provider.Wipe (changes the wire shape
+// because WipeResult.ProviderPurge is a generic map) or (b) splitting
+// the provider interface into finer-grained methods. The right path
+// is (a) coupled with a UI-side rename of `hetznerPurge` -> `providerPurge`,
+// which lockstep-bumps with Huawei's concrete impl in Wave 3.
 type wipeResponse struct {
-	DeploymentID  string                `json:"deploymentId"`
-	SovereignFQDN string                `json:"sovereignFQDN"`
-	TofuDestroyed bool                  `json:"tofuDestroyed"`
-	HetznerPurge  hetzner.PurgeReport   `json:"hetznerPurge"`
-	PDMReleased   bool                  `json:"pdmReleased"`
-	LocalCleaned  bool                  `json:"localCleaned"`
-	Errors        []string              `json:"errors"`
-	WipedAt       string                `json:"wipedAt"`
+	DeploymentID  string              `json:"deploymentId"`
+	SovereignFQDN string              `json:"sovereignFQDN"`
+	TofuDestroyed bool                `json:"tofuDestroyed"`
+	HetznerPurge  hetzner.PurgeReport `json:"hetznerPurge"`
+	PDMReleased   bool                `json:"pdmReleased"`
+	LocalCleaned  bool                `json:"localCleaned"`
+	Errors        []string            `json:"errors"`
+	WipedAt       string              `json:"wipedAt"`
 }
 
 // WipeDeployment handles POST /api/v1/deployments/{id}/wipe.

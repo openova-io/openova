@@ -14,11 +14,11 @@ on:
   push:
     branches: [main]
     paths:
-      - 'infra/hetzner/**'
+      - 'infra/providers/hetzner/**'
       - '.github/workflows/infra-hetzner-tofu.yaml'
   pull_request:
     paths:
-      - 'infra/hetzner/**'
+      - 'infra/providers/hetzner/**'
       - '.github/workflows/infra-hetzner-tofu.yaml'
   workflow_dispatch:
 
@@ -29,7 +29,7 @@ jobs:
     timeout-minutes: 10
     defaults:
       run:
-        working-directory: infra/hetzner
+        working-directory: infra/providers/hetzner
     steps:
       - name: Checkout
         uses: actions/checkout@v4

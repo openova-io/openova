@@ -15,7 +15,7 @@ on:
       - 'core/marketplace-api/**'
       - 'products/catalyst/bootstrap/**'
       - 'products/catalyst/chart/**'
-      - 'infra/hetzner/**'
+      - 'infra/providers/**'
       - '.github/workflows/catalyst-build.yaml'
   workflow_dispatch:
 
@@ -223,24 +223,32 @@ jobs:
           tags: ${{ env.API_IMAGE }}:test
 
       # Smoke test — the catalyst-api Pod is the OpenTofu runner, so the .tf
-      # sources MUST be present at /infra/hetzner/ inside the image. Anything
-      # less ships a broken image that fails on every Launch with `stage tofu
-      # module: open /infra/hetzner: no such file or directory`. Failure of
-      # this step fails the build.
-      - name: Smoke test API — verify infra/hetzner/ is bundled
+      # sources MUST be present inside the image. After the providers/
+      # refactor (Wave 2, Issue #1841) the canonical path is
+      # /infra/providers/hetzner/; /infra/hetzner is a backward-compat
+      # symlink for callers that still set CATALYST_TOFU_MODULE_PATH to
+      # the old value. We verify both paths so the smoke test catches a
+      # regression on either.
+      - name: Smoke test API — verify infra/providers/hetzner/ is bundled
         run: |
           set -euo pipefail
+          # Canonical path.
           LISTING=$(docker run --rm --entrypoint sh ${{ env.API_IMAGE }}:test \
-            -c 'ls -la /infra/hetzner/')
+            -c 'ls -la /infra/providers/hetzner/')
           echo "$LISTING"
           for f in main.tf variables.tf outputs.tf versions.tf \
                    cloudinit-control-plane.tftpl cloudinit-worker.tftpl ; do
             if ! echo "$LISTING" | grep -q " ${f}\$"; then
-              echo "Smoke test FAILED: /infra/hetzner/${f} missing from image"
+              echo "Smoke test FAILED: /infra/providers/hetzner/${f} missing from image"
               exit 1
             fi
-            echo "Smoke test OK: /infra/hetzner/${f} present"
+            echo "Smoke test OK: /infra/providers/hetzner/${f} present"
           done
+          # Legacy-compat symlink — same files via /infra/hetzner.
+          LEGACY=$(docker run --rm --entrypoint sh ${{ env.API_IMAGE }}:test \
+            -c 'ls -la /infra/hetzner/main.tf')
+          echo "$LEGACY"
+          echo "$LEGACY" | grep -q 'main.tf' || (echo "Legacy symlink missing"; exit 1)
           echo "All API smoke tests passed."
 
       # tofu CLI smoke test — the runtime image bundles the OpenTofu CLI
