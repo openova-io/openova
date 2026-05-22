@@ -356,6 +356,15 @@ resource "huaweicloud_compute_instance" "control_plane" {
 
   key_pair = huaweicloud_kps_keypair.main.name
 
+  # System disk type — Wave 5.6 (Refs #2140). The huaweicloud provider
+  # defaults to GPSSD which is a public Huawei Cloud SKU; HCS me-east-215
+  # exposes only `SSD` and `SAS` (queried via EVS cinder list-volume-types
+  # 2026-05-22T20:21Z). Pin to SSD for production-appropriate IOPS.
+  # Caught live on c928d81d3256535c: `Ecs.0005 rootVolume type[GPSSD]
+  # is not exist`.
+  system_disk_type = "SSD"
+  system_disk_size = 40
+
   # tags = merge(local.common_tags, {
 
   # "catalyst.openova.io/region" = local.cp_nodes[count.index].region
@@ -386,6 +395,10 @@ resource "huaweicloud_compute_instance" "worker" {
   user_data = local.worker_cloud_init
 
   key_pair = huaweicloud_kps_keypair.main.name
+
+  # System disk type — see CP block comment above (Wave 5.6 / Refs #2140).
+  system_disk_type = "SSD"
+  system_disk_size = 40
 
   # tags = merge(local.common_tags, {
 
