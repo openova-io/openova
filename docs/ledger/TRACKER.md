@@ -4,12 +4,12 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T11:58:00Z` (Waves 5.23-5.25 + cilium pods Running on 19th cluster after vxlan cleanup + k3s host-gw fix) |
+| Last refreshed | `2026-05-23T12:50:00Z` (Waves 5.20-5.25 all merged + catalyst-api rebuilt at fb9938c + 20th deployment `51fcc636d958c26a` POSTed) |
 | Open issues | 79 |
 | Open DoD gates | 7 / 41 |
 | Open TBD-* regressions | 68 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 34 / 41 = 82% |
-| **Active wave** | **🟢 Wave 5 19th attempt: 3 cilium agents Running 1/1 after manual flannel.1 cleanup + Wave 5.25 (k3s --flannel-backend=host-gw lets Cilium own vxlan). HR Ready dropping then climbing as Pods re-roll on Cilium CNI. Region-a 3-node cluster healthy.** || true` to fail2ban + `mkdir -p /var/lib/catalyst`. 17th fires after chart 1.4.258 mothership roll.** |
+| **Active wave** | **🟢 Wave 5 20th attempt: `51fcc636d958c26a` provisioning on Huawei me-east-215 with cumulative Waves 5.20 (worker single-shell) + 5.21 (NAT Gateway) + 5.22 (PUT-back retry-loop) + 5.23 (tlsroutes CRD) + 5.24 (CILIUM_K8S_SERVICE_HOST=cp_private_ip) + 5.25 (k3s --flannel-backend=host-gw). All Waves verified baked into catalyst-api Pod image fb9938c.** |
 
 ## 🚀 Session 2026-05-22 — Hetzner → Huawei migration in flight (founder mandate ~17:00Z)
 
