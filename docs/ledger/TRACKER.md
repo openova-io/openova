@@ -4,12 +4,12 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T18:10:00Z` (Pillar 1 walk PARTIAL: mothership BSS auth chain end-to-end verified via Playwright. Voucher submit blocked on SME stack scaled to 0/0 on mothership — separate fix. 3 screenshots in docs/sessions/2026-05-23-pillar1-walk/.) |
-| Open issues | 79 |
+| Last refreshed | `2026-05-23T18:25:00Z` (Wave 5.32 Gateway resource shipped + live-applied on 27th. Wave 5.33 #2205 filed for Cilium LB exposure on Huawei. Pillar 1 = walkable end-to-end EXCEPT for this single Cilium-LB gap. 17 in-progress (was 31).) |
+| Open issues | 81 |
 | Open DoD gates | 7 / 41 |
 | Open TBD-* regressions | 64 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 34 / 41 = 82% |
-| **Active wave** | **🟢🟢🟢🟢 Wave 5 — 27th cross-node ping VERIFIED. Pillar 1 PARTIAL: walked PIN-via-IMAP → JWT cookie → BSS render → voucher form fill+submit. Submit blocked on `sme/*` deployments 0/0 (mothership openova-private SME microservice stack pre-existing scaled down — needs separate scale-up fix, not Wave 5). Sovereign-side `console.hw01.omani.works` Gateway NOT yet wired = Wave 5.32 scope (bootstrap-kit/01-cilium.yaml has placeholder comment only).** |
+| **Active wave** | **🟢🟢🟢🟢 Wave 5 — Phase 0+1 chain on Huawei HCS CONVERGED. 27th \`e521726137adb8d8\`: 3/3 nodes, 3/3 Cilium, 32+/53 HRs Ready (incl catalyst-platform). Wave 5.32 (#2204) Gateway resource shipped. Wave 5.33 (#2205) = remaining gap: Cilium Gateway exposure via type=LoadBalancer needs CCM (Hetzner-only today) — Option B (cilium-envoy hostPort + iptables DNAT) is the POC unblock. Then Pillar 1 walks end-to-end on Sovereign-side BSS.** |
 
 ## 🚀 Session 2026-05-22 — Hetzner → Huawei migration in flight (founder mandate ~17:00Z)
 
