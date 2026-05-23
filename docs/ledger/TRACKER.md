@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T19:43:00Z` (🟢🟢🟢🟢🟢 FULL HTTPS GATEWAY WORKING on hw01. Wave 5.33 #2205 + Wave 5.34 #2208 BOTH RESOLVED. console.hw01.omani.works HTTPS 200 with trusted LE wildcard cert, auth.hw01 302 to Keycloak, gitea.hw01 200. PRs #2206, #2207, #2209 all merged. Sovereign-side Pillar 1 walk UNBLOCKED.) |
+| Last refreshed | `2026-05-23T20:05:00Z` (🟢🟢🟢🟢🟢 Waves 5.33+5.34 PROVEN on 27th. HCS deep-purged orphan VPCs. 29th deployment \`b25ffa2d756c0724\` provisioning with Wave 5.34 (powerdns/pdm/handover-jwt Secret seeds) baked — first prov where cert-manager DNS01 should succeed out-of-the-box. UAT evidence comments posted on 10 prior Wave issues.) |
 | Open issues | 81 |
 | Open DoD gates | 7 / 41 |
 | Open TBD-* regressions | 64 |
