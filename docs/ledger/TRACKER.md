@@ -4,12 +4,12 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T14:59:00Z` (25th Phase 0 PASS in 3min; Wave 5.29 verified working — CILIUM_K8S_SERVICE_HOST=10.206.1.170 matches actual CP IP; Cilium 3/3 Running 1/1; Phase 1 cascade in progress; HCS API auto-purged 24th + 19th orphans) |
-| Open issues | 81 |
+| Last refreshed | `2026-05-23T15:45:00Z` (Wave 5.30 ROOT CAUSE FIX merged + deep RCA written. 26th in flight with HCS source_dest_check=false + Cilium SG ports baked.) |
+| Open issues | 82 |
 | Open DoD gates | 7 / 41 |
 | Open TBD-* regressions | 68 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 34 / 41 = 82% |
-| **Active wave** | **🟢🟢 Wave 5 — 25th `ca9c881b3971c810` CLEAN BOOT: VPC 10.206.0.0/16, 3 nodes Ready, 3/3 Cilium Running 1/1 with correct CILIUM_K8S_SERVICE_HOST (Wave 5.29 runtime-IP substitute worked first try). cert-manager Running, flux controllers initializing. Phase 1 cascade in progress toward console.hw01.omani.works.** |
+| **Active wave** | **🟢🟢🟢 Wave 5 — 26th `0711c1dfdba8b331` ROOT CAUSE FIX PROV. Wave 5.30 (#2200) ships the actual cause of every pod-to-pod failure across attempts 19-25: HCS port_security_enabled=true silently drops pod-CIDR packets at SDN. Fix: source_dest_check=false on NICs + 4 Cilium-specific SG rules (VXLAN 8472, GENEVE 6081, Cilium-WG 51871, health 4240). RCA doc in docs/sessions/2026-05-23-huawei-cloud-stack-cni-rca.md.** |
 
 ## 🚀 Session 2026-05-22 — Hetzner → Huawei migration in flight (founder mandate ~17:00Z)
 
