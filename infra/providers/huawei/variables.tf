@@ -259,6 +259,43 @@ variable "enable_fail2ban" {
   default     = true
 }
 
+# ── Wave 5.34 (Refs #2208): Sovereign-side Secret seeds ─────────────────
+# Mirror Hetzner cloud-init pattern. Provisioner (provisioner.go) writes
+# these into tofu.auto.tfvars.json regardless of provider; without these
+# variable declarations the Huawei cloudinit-control-plane.tftpl could not
+# reference ${powerdns_api_key} et al.
+
+variable "powerdns_api_key" {
+  type        = string
+  sensitive   = true
+  description = <<-EOT
+    Contabo central PowerDNS API key. Seeded into the Sovereign's
+    cert-manager/powerdns-api-credentials Secret so
+    bp-cert-manager-powerdns-webhook can write DNS-01 challenge TXT
+    records to contabo's authoritative omani.works zone. Empty = wildcard
+    cert never issues (HTTPS listener stays Programmed=False).
+  EOT
+  default     = ""
+}
+
+variable "pdm_basic_auth_user" {
+  type        = string
+  sensitive   = true
+  description = <<-EOT
+    Pool-Domain-Manager basic-auth username. Seeded into the Sovereign's
+    flux-system/pdm-basicauth Secret; Reflector mirrors to catalyst-system.
+    catalyst-api mounts via secretKeyRef for Day-2 add-parent-domain calls.
+  EOT
+  default     = ""
+}
+
+variable "pdm_basic_auth_pass" {
+  type        = string
+  sensitive   = true
+  description = "PDM basic-auth password. Paired with pdm_basic_auth_user."
+  default     = ""
+}
+
 # ── OBS bucket (S3-protocol; mirrors Hetzner object-storage_* triplet) ───
 
 variable "obs_bucket_name" {
