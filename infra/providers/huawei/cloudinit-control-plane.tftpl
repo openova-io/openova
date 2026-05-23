@@ -265,6 +265,20 @@ runcmd:
   - |
     curl -sfL https://github.com/fluxcd/flux2/releases/download/v2.4.0/flux_2.4.0_linux_amd64.tar.gz \
       | tar -xz -C /usr/local/bin flux
+
+  # 4a. Pre-install Gateway API CRDs (Wave 5.19 Refs #2140). bp-cilium's
+  # chart references GatewayClass + HTTPRoute resources but bp-gateway-api
+  # (which installs the CRDs) `dependsOn: bp-cilium` — circular dep means
+  # bp-cilium fails to install on every fresh prov with `no matches for
+  # kind "GatewayClass" in version "gateway.networking.k8s.io/v1"`. Wave
+  # 5.12 patched live; Wave 5.19 seeds at cloud-init time so the CRDs
+  # are present BEFORE Flux tries any HelmRelease.
+  - |
+    for crd in gatewayclasses gateways httproutes grpcroutes referencegrants; do
+      KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f \
+        "https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/v1.2.0/config/crd/standard/gateway.networking.k8s.io_$${crd}.yaml" || true
+    done
+
   - KUBECONFIG=/etc/rancher/k3s/k3s.yaml flux install --components=source-controller,kustomize-controller,helm-controller,notification-controller || true
   - KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f /var/lib/catalyst/manifests/10-flux-source.yaml
 
