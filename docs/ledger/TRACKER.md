@@ -4,12 +4,12 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T08:30:00Z` (manual — Waves 5.15/5.16/5.17 + per-Wave issues #2163-#2168 + 16th attempt cloud-init halt diagnosed) |
+| Last refreshed | `2026-05-23T10:05:00Z` (Waves 5.18/5.19/5.20/5.21 — diagnosed worker stuck root cause: no internet egress on HCS VPCs) |
 | Open issues | 79 |
 | Open DoD gates | 7 / 41 |
 | Open TBD-* regressions | 68 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 34 / 41 = 82% |
-| **Active wave** | **Wave 5 16th attempt: all 6 ECS instances ACTIVE on HCS, CP1 joined cluster + k3s active, BUT workers didn't join — worker cloud-init halts at `systemctl enable --now fail2ban` (HCS Ubuntu apt couldn't install fail2ban; runcmd halts before k3s install). Wave 5.17 (#2169) adds `|| true` to fail2ban + `mkdir -p /var/lib/catalyst`. 17th fires after chart 1.4.258 mothership roll.** |
+| **Active wave** | **Wave 5 19th attempt PR #2179 (NAT Gateway): 18th SSH debug found workers have NO internet egress on HCS VPCs → curl get.k3s.io fails → k3s-agent never installs → only CP joins cluster. Wave 5.21 adds per-region NAT GW + SNAT rule. Waves 5.18/5.19/5.20 turned out to be downstream symptoms.** || true` to fail2ban + `mkdir -p /var/lib/catalyst`. 17th fires after chart 1.4.258 mothership roll.** |
 
 ## 🚀 Session 2026-05-22 — Hetzner → Huawei migration in flight (founder mandate ~17:00Z)
 
@@ -39,6 +39,10 @@ Founder direction: wipe Hetzner POC (free credit exhausted), pivot to Huawei Oma
 | 5.15 | [#2165](https://github.com/openova-io/openova/pull/2165) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | Reduce catalyst-api mem request 512Mi → 192Mi (mothership single-VM 12GB couldn't fit new-image Pod alongside other shared services). Per-Wave issue #2164 (D21 ticketing fix). Chart 1.4.256. |
 | 5.16 | [#2167](https://github.com/openova-io/openova/pull/2167) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | Break tofu DAG cycle: Wave 5.14 introduced `worker_cloud_init_b64 = base64encode(local.worker_cloud_init_by_region[var.regions[0].code])` in CP cloud-init → cycle (CP user_data → worker template → CP IP). Empty placeholder (autoscaler bake unused on Huawei). Per-Wave issue #2166. Chart 1.4.257. |
 | 5.17 | [#2169](https://github.com/openova-io/openova/pull/2169) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | Worker+CP cloud-init resilient to fail2ban-absent: 16th attempt 43b1d82edd4b2c9b had all 6 ECS ACTIVE but workers cloud-init halted at `systemctl enable --now fail2ban` (HCS Ubuntu apt couldn't install package). Add `\|\| true` + `mkdir -p /var/lib/catalyst`. Per-Wave issue #2168. Chart 1.4.258. |
+| 5.18 | [#2172](https://github.com/openova-io/openova/pull/2172) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | bash-wrap fail2ban/reload-ssh in cloud-init runcmd (`|| true` doesn't work in list-form; needs `[\"bash\", \"-c\", \"...\"]`). Per-Wave issue #2171. Chart 1.4.259. |
+| 5.19 | [#2175](https://github.com/openova-io/openova/pull/2175) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | Pre-install Gateway API CRDs in cloud-init seed (permanent fix for Wave 5.12 live patch; bp-cilium↔bp-gateway-api circular dep). Per-Wave issue #2174. Chart 1.4.260. |
+| 5.20 | [#2177](https://github.com/openova-io/openova/pull/2177) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | Collapse worker runcmd to single shell block (bash-wrap list form still halted on HCS — cloud-init runcmd quoting). Per-Wave issue #2176. Chart 1.4.261. |
+| 5.21 | [#2179](https://github.com/openova-io/openova/pull/2179) | <img alt="WAITING_PROV" src="https://img.shields.io/badge/-WAITING__PROV-bf8700?style=flat-square" /> | **ROOT CAUSE FIX** — per-region NAT Gateway + SNAT rule for worker internet egress. 18th attempt SSH debug found workers can't reach `get.k3s.io` (no NAT, no per-worker EIP). Per-Wave issue #2178. Chart 1.4.262. |
 | 5 | — | <img alt="WAITING_PROV" src="https://img.shields.io/badge/-WAITING__PROV-bf8700?style=flat-square" /> | **`hw01.omani.works` 12th attempt: PAT rotation + Gateway CRDs + bp-cilium installed; 28/53 HRs Ready before plateau on worker-join bug.** Wave 5.13/5.14 fix landed; 14th attempt fires after chart 1.4.255 mothership roll. Next remaining: bp-keycloak / bp-cnpg / bp-gitea → bp-catalyst-platform → console.hw01.omani.works HTTPS → Pillar 1 voucher walk. |
 | 6 | — | <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> | 5-pillar atomic walk: voucher (P1) / BCP wizard (P2) / CNPG region-kill (P3) / Sandbox + qwen-code + MCP (P4) / sovereignty cutover 600s deny-egress hold (P5). |
 
