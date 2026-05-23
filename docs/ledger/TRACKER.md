@@ -4,12 +4,12 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T16:56:00Z` (🟢🟢🟢 27th `e521726137adb8d8` CROSS-NODE POD PING WORKS! 0% loss, 0.45ms. Waves 5.30+5.31 verified as the canonical fix. 30/53 HRs Ready and climbing. DNS resolving.) |
-| Open issues | 78 |
+| Last refreshed | `2026-05-23T18:10:00Z` (Pillar 1 walk PARTIAL: mothership BSS auth chain end-to-end verified via Playwright. Voucher submit blocked on SME stack scaled to 0/0 on mothership — separate fix. 3 screenshots in docs/sessions/2026-05-23-pillar1-walk/.) |
+| Open issues | 79 |
 | Open DoD gates | 7 / 41 |
 | Open TBD-* regressions | 64 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 34 / 41 = 82% |
-| **Active wave** | **🟢🟢🟢🟢 Wave 5 — 27th `e521726137adb8d8` ROOT CAUSE FIX VERIFIED. Cross-node pod ping 10.42.0.144 → 10.42.1.35 0% loss 0.45ms. Cilium-only CNI (no Flannel cni0). 30/53 HRs Ready (vs 21 stuck on every prior attempt). DNS resolving via Cilium kube-proxy-replacement. Phase 1 cascade now CONVERGING toward console.hw01.omani.works for Pillar 1 walk.** |
+| **Active wave** | **🟢🟢🟢🟢 Wave 5 — 27th cross-node ping VERIFIED. Pillar 1 PARTIAL: walked PIN-via-IMAP → JWT cookie → BSS render → voucher form fill+submit. Submit blocked on `sme/*` deployments 0/0 (mothership openova-private SME microservice stack pre-existing scaled down — needs separate scale-up fix, not Wave 5). Sovereign-side `console.hw01.omani.works` Gateway NOT yet wired = Wave 5.32 scope (bootstrap-kit/01-cilium.yaml has placeholder comment only).** |
 
 ## 🚀 Session 2026-05-22 — Hetzner → Huawei migration in flight (founder mandate ~17:00Z)
 
