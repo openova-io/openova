@@ -4,12 +4,12 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T15:45:00Z` (Wave 5.30 ROOT CAUSE FIX merged + deep RCA written. 26th in flight with HCS source_dest_check=false + Cilium SG ports baked.) |
-| Open issues | 82 |
+| Last refreshed | `2026-05-23T16:03:00Z` (Wave 5.30 verified on 26th but cross-node ping STILL fails — secondary RCA: dual-CNI race with Flannel cni0. Wave 5.31 PR #2202 merged: kill Flannel + pre-install Cilium via helm in cloud-init. 22 stale issues + 57 stale PRs closed → 78 open / 0 PRs.) |
+| Open issues | 78 |
 | Open DoD gates | 7 / 41 |
-| Open TBD-* regressions | 68 |
+| Open TBD-* regressions | 64 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 34 / 41 = 82% |
-| **Active wave** | **🟢🟢🟢 Wave 5 — 26th `0711c1dfdba8b331` ROOT CAUSE FIX PROV. Wave 5.30 (#2200) ships the actual cause of every pod-to-pod failure across attempts 19-25: HCS port_security_enabled=true silently drops pod-CIDR packets at SDN. Fix: source_dest_check=false on NICs + 4 Cilium-specific SG rules (VXLAN 8472, GENEVE 6081, Cilium-WG 51871, health 4240). RCA doc in docs/sessions/2026-05-23-huawei-cloud-stack-cni-rca.md.** |
+| **Active wave** | **🟢🟢🟢 Wave 5 — 27th awaiting Wave 5.31 build. Cumulative Waves 5.20-5.31: Wave 5.30 (sd-check off) + 5.31 (kill Flannel + pre-install Cilium via helm in cloud-init) eliminate dual-CNI race. Per RCA doc docs/sessions/2026-05-23-huawei-cloud-stack-cni-rca.md.** |
 
 ## 🚀 Session 2026-05-22 — Hetzner → Huawei migration in flight (founder mandate ~17:00Z)
 
