@@ -240,6 +240,7 @@ runcmd:
       INSTALL_K3S_VERSION=${k3s_version} \
       K3S_TOKEN=${k3s_token} \
       INSTALL_K3S_EXEC="server \
+        --flannel-backend=host-gw \
         --disable=traefik \
         --disable=servicelb \
         --cluster-cidr=${cluster_cidr} \
@@ -249,6 +250,13 @@ runcmd:
         --node-label=openova.io/region=hw-${region}-rtz-prod \
         --node-label=catalyst.openova.io/provider=huawei" \
       sh -
+    # Wave 5.25 (Refs #2163): k3s flannel-backend switched from default
+    # vxlan to host-gw — Cilium needs to own vxlan device exclusively,
+    # but Flannel grabs vxlan first → cilium-agent CrashLoop with
+    # "setting up vxlan device: address already in use". host-gw uses
+    # host routing (no vxlan device), letting Cilium own vxlan. Works
+    # because all nodes are on the same L2 VPC subnet (10.20.1.0/24 or
+    # 10.30.1.0/24) per per-region VPC.
 
   # 3. Wait for k8s to come up + apply seed manifests.
   - |
