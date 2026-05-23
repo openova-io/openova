@@ -245,11 +245,19 @@ runcmd:
   # via Cilium's chained-CNI install path. Cilium ClusterMesh
   # (multi-region peer) is Wave 6+ — not required for the POC walk.
   - |
+    # Wave 5.31 (Refs #2163): k3s with NO CNI (--flannel-backend=none +
+    # --disable-network-policy) so Cilium owns the network stack from
+    # the first pod. host-gw left pods on Flannel cni0 bridge which
+    # Cilium IPAM never registered → cross-node pod traffic broken.
+    # Cilium pre-installed via inline helm immediately after k3s starts
+    # (below), BEFORE Flux schedules any HelmRelease — eliminates the
+    # dual-CNI race entirely.
     curl -sfL https://get.k3s.io | \
       INSTALL_K3S_VERSION=${k3s_version} \
       K3S_TOKEN=${k3s_token} \
       INSTALL_K3S_EXEC="server \
-        --flannel-backend=host-gw \
+        --flannel-backend=none \
+        --disable-network-policy \
         --disable=traefik \
         --disable=servicelb \
         --cluster-cidr=${cluster_cidr} \
@@ -273,6 +281,45 @@ runcmd:
       if KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl get nodes >/dev/null 2>&1; then break; fi
       sleep 5
     done
+
+  # Wave 5.31 (Refs #2163): Pre-install Cilium via inline helm BEFORE any
+  # other manifest applies. With --flannel-backend=none the node is
+  # NotReady until a CNI runs; Cilium pre-install makes it Ready so all
+  # subsequent Flux-managed pods schedule on Cilium IPAM (no Flannel
+  # cni0 dual-CNI race that broke attempts 24/25/26).
+  - |
+    # Install helm if missing
+    if ! command -v helm >/dev/null 2>&1; then
+      curl -sfL https://get.helm.sh/helm-v3.16.3-linux-amd64.tar.gz | tar -xz -C /tmp linux-amd64/helm
+      mv /tmp/linux-amd64/helm /usr/local/bin/helm
+      chmod +x /usr/local/bin/helm
+    fi
+    KUBECONFIG=/etc/rancher/k3s/k3s.yaml helm repo add cilium https://helm.cilium.io/ 2>/dev/null || true
+    KUBECONFIG=/etc/rancher/k3s/k3s.yaml helm repo update cilium
+    REAL_IP=$(ip -4 -o addr show dev eth0 | awk '{print $4}' | cut -d/ -f1)
+    KUBECONFIG=/etc/rancher/k3s/k3s.yaml helm upgrade --install cilium cilium/cilium \
+      --version 1.16.5 \
+      --namespace kube-system \
+      --set k8sServiceHost="$REAL_IP" \
+      --set k8sServicePort=6443 \
+      --set kubeProxyReplacement=true \
+      --set ipam.mode=kubernetes \
+      --set routingMode=tunnel \
+      --set tunnelProtocol=vxlan \
+      --set ipv4.enabled=true \
+      --set ipv6.enabled=false \
+      --set hubble.enabled=true \
+      --set operator.replicas=1 \
+      --wait --timeout=5m || echo "cilium pre-install failed; bp-cilium HR will retry"
+    # Wait for Cilium nodes ready (CNI online)
+    for i in $(seq 1 30); do
+      if KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl get nodes -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}' | grep -qv False; then
+        echo "Cilium CNI online, nodes Ready"
+        break
+      fi
+      sleep 10
+    done
+
   - KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f /var/lib/catalyst/manifests/00-flux-system-ns.yaml
   - KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f /var/lib/catalyst/manifests/01-ghcr-pull-secret.yaml
   - KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f /var/lib/catalyst/manifests/02-cloud-credentials-secret.yaml
