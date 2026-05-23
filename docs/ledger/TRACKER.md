@@ -4,12 +4,12 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T13:40:00Z` (Wave 5.26 + 5.27 merged: deployment_id-scoped names + CIDR; 16 stale issues + 5 stale PRs closed; 23rd prov pending build) |
+| Last refreshed | `2026-05-23T14:02:00Z` (Wave 5.26+5.27 merged; 23rd hit HCS VPC quota; manual HCS API purge of 3 orphan VPCs + 1 ECS + 2 NAT + 6 EIPs; 24th in flight; 16 stale issues + 52 stale PRs closed for board hygiene) |
 | Open issues | 79 |
 | Open DoD gates | 7 / 41 |
 | Open TBD-* regressions | 68 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 34 / 41 = 82% |
-| **Active wave** | **🟢 Wave 5 — 20/21/22 attempts hit re-prov collision (KPS keypair then VPC CIDR from orphaned 19th state). Wave 5.26 ships deployment_id-suffix in resource names (#2192 merged), Wave 5.27 ships deployment_id-hash VPC CIDR (#2194 merged). Waiting for Wave 5.27 image build → 23rd prov.** |
+| **Active wave** | **🟢 Wave 5 — 24th attempt `1c40b4bd3d748ecd` provisioning. Cumulative: Waves 5.20-5.27 baked + HCS-side orphan VPCs purged via direct API (3 VPCs, 2 NAT, 1 ECS, 6 EIPs reclaimed). Flux Kustomization catalyst-platform suspended to keep test-session env stable across pod rolls.** |
 
 ## 🚀 Session 2026-05-22 — Hetzner → Huawei migration in flight (founder mandate ~17:00Z)
 
