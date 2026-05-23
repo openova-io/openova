@@ -413,7 +413,7 @@ locals {
     catalyst_api_url           = var.catalyst_api_url
     enable_unattended_upgrades = var.enable_unattended_upgrades
     enable_fail2ban            = var.enable_fail2ban
-    worker_cloud_init_b64      = base64encode(local.worker_cloud_init)
+    worker_cloud_init_b64      = base64encode(local.worker_cloud_init_by_region[var.regions[0].code])
   }), "/(?m)^[ ]*#( |$).*\n/", "")
 }
 
