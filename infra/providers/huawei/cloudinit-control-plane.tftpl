@@ -320,12 +320,26 @@ runcmd:
     if [ -n "${deployment_id}" ] && [ -n "${kubeconfig_bearer_token}" ] && [ "$HOSTNAME" = "${primary_cp_hostname}" ]; then
       sed "s|server: https://127.0.0.1:6443|server: https://${primary_cp_eip}:6443|" /etc/rancher/k3s/k3s.yaml \
         > /tmp/kubeconfig-rewritten.yaml
-      curl -sf -X PUT \
-        -H "Authorization: Bearer ${kubeconfig_bearer_token}" \
-        -H "Content-Type: application/x-yaml" \
-        --data-binary @/tmp/kubeconfig-rewritten.yaml \
-        "${catalyst_api_url}/api/v1/deployments/${deployment_id}/kubeconfig" \
-        || true
+      # Wave 5.22 (Refs #2163): retry PUT-back with backoff. Mothership
+      # catalyst-api may be transiently unreachable at cloud-init time
+      # (rolling restart, OOM recovery, etc.) — curl -sf silently exits
+      # 22 on 5xx and `|| true` swallows it. Caught live on 19th attempt
+      # c5da3542a4fcacff: mothership was 502 during cloud-init PUT-back
+      # window → kubeconfig never delivered → Phase-1 watch timed out.
+      # 12 retries × 30s = 6 min budget covers any reasonable mothership
+      # restart. Last retry's exit is captured so cloud-init log shows
+      # the final code for forensics.
+      for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+        HTTP_CODE=$(curl -sk -o /dev/null -w '%%{http_code}' -X PUT \
+          -H "Authorization: Bearer ${kubeconfig_bearer_token}" \
+          -H "Content-Type: application/x-yaml" \
+          --data-binary @/tmp/kubeconfig-rewritten.yaml \
+          --max-time 15 \
+          "${catalyst_api_url}/api/v1/deployments/${deployment_id}/kubeconfig" || echo "000")
+        echo "kubeconfig PUT-back attempt $attempt → HTTP $HTTP_CODE"
+        if [ "$HTTP_CODE" = "204" ] || [ "$HTTP_CODE" = "200" ]; then break; fi
+        sleep 30
+      done
     fi
 
   # 6. Mark cloud-init complete (consumed by phase1Watch).
