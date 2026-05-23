@@ -303,3 +303,68 @@ spec:
 # Sovereign apply time — contabo's bootstrap path does NOT include this
 # template, so Traefik continues to serve console.openova.io/nova
 # unchanged.
+---
+# Wave 5.32 (Refs #2204): The actual Gateway resource — was a comment-only
+# placeholder for ~20+ days. Every HTTPRoute on a Sovereign attaches to
+# parentRef name=cilium-gateway namespace=kube-system; without this Gateway
+# the routes have no listener → all *.${SOVEREIGN_FQDN} URLs return HTTP 000.
+#
+# Wildcard TLS via cert-manager + bp-cert-manager-powerdns-webhook DNS01
+# challenge against contabo's central PowerDNS at pdns.openova.io.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: sovereign-wildcard
+  namespace: kube-system
+spec:
+  secretName: sovereign-wildcard-tls
+  issuerRef:
+    name: letsencrypt-dns01-prod-powerdns
+    kind: ClusterIssuer
+  dnsNames:
+    - "${SOVEREIGN_FQDN}"
+    - "*.${SOVEREIGN_FQDN}"
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: cilium-gateway
+  namespace: kube-system
+  annotations:
+    # Cilium gateway-controller will provision an Envoy LB exposing
+    # this Gateway on the node IPs. The CP EIP is the public address.
+    io.cilium/lb-ipam-ips: "${SOVEREIGN_LB_IP}"
+spec:
+  gatewayClassName: cilium
+  listeners:
+    - name: https
+      port: 443
+      protocol: HTTPS
+      hostname: "*.${SOVEREIGN_FQDN}"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: sovereign-wildcard-tls
+      allowedRoutes:
+        namespaces:
+          from: All
+    - name: http
+      port: 80
+      protocol: HTTP
+      hostname: "*.${SOVEREIGN_FQDN}"
+      allowedRoutes:
+        namespaces:
+          from: All
+    - name: apex-https
+      port: 443
+      protocol: HTTPS
+      hostname: "${SOVEREIGN_FQDN}"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: sovereign-wildcard-tls
+      allowedRoutes:
+        namespaces:
+          from: All
