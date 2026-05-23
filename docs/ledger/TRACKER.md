@@ -5,7 +5,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 |  |  |
 |---|---|
 | Last refreshed | `2026-05-23T22:05:00Z` (🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢 **ALL 5 PILLARS SCAFFOLDING VERIFIED on hw01.omani.works fresh prov 102ac1f980d6fc7f (Huawei HCS)**. P1=3 vouchers persisted (6adb7f59); P2=BCP Active-hot-standby selected in 6-step wizard (a35d5e56); P3=CNPG primary+replica pair CR + 7 Services incl primary-mesh ClusterMesh-global (0e8bd708); P4=Org reconciler→Gitea+Keycloak+vCluster + Sandbox 11-manifest GitOps (979a99ac); P5=bp-self-sovereign-cutover Helm chart 0.1.37 + 9 step CMs + registry-pivot DS 3/3 + gitea-mirror-resync CronJob succeeding. Full RPO/RTO/600s-hold gating walk pending POC cluster CPU headroom + multi-region prov.) |
-| Open issues | 81 |
+| Open issues | 30 |
 | Open DoD gates | 7 / 41 |
 | Open TBD-* regressions | 64 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 34 / 41 = 82% |
