@@ -4,12 +4,12 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T19:25:00Z` (🟢 Wave 5.33 #2205 RESOLVED — sysctl DS shipped (PR #2206 merged), cilium-envoy now binds 0.0.0.0:80/443. gitea.hw01.omani.works returns HTTP 200 "Catalyst Gitea" via public Huawei EIP 212.72.24.36 — first end-to-end public traffic on Huawei Cloud Stack.) |
+| Last refreshed | `2026-05-23T19:43:00Z` (🟢🟢🟢🟢🟢 FULL HTTPS GATEWAY WORKING on hw01. Wave 5.33 #2205 + Wave 5.34 #2208 BOTH RESOLVED. console.hw01.omani.works HTTPS 200 with trusted LE wildcard cert, auth.hw01 302 to Keycloak, gitea.hw01 200. PRs #2206, #2207, #2209 all merged. Sovereign-side Pillar 1 walk UNBLOCKED.) |
 | Open issues | 81 |
 | Open DoD gates | 7 / 41 |
 | Open TBD-* regressions | 64 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 34 / 41 = 82% |
-| **Active wave** | **🟢🟢🟢🟢🟢 Wave 5 — Phase 0+1+Gateway PUBLIC SERVING on Huawei HCS. 27th \`e521726137adb8d8\`: 3/3 nodes, 3/3 Cilium, 32+/53 HRs, gitea HTTP 200 from public 212.72.24.36. RCA: `cilium-envoy-starter` drops all caps before exec'ing worker (pid 7 CapEff=0) — bind <1024 needs `net.ipv4.ip_unprivileged_port_start=80` host sysctl. Privileged DS (Wave 5.33 PR #2206 merged) applies on every node + survives reboot via /etc/sysctl.d/. Stale orphan DNAT removed. Next: HTTPS cert (dns01-powerdns challenge), console catalyst-ui HTTPRoute fix, then Pillar 1 walk on Sovereign-side BSS.** |
+| **Active wave** | **🟢🟢🟢🟢🟢🟢 Wave 5 — Phase 0+1+Gateway+HTTPS WORKING on Huawei HCS. console.hw01.omani.works HTTPS 200 + trusted LE wildcard cert (cert-manager DNS01 via contabo PowerDNS verified 19:40:57Z). Wave 5.33 sysctl DS (#2206) + Wave 5.34 cloud-init Secret seeds (#2209) + Wave 5.32 Gateway (#2204) all merged. 3 gateway listeners (https/http/apex-https) all Programmed=True. Next: Sovereign-side Pillar 1 walk on console.hw01 BSS — issue voucher, receive email, redeem, org wizard, tenant subdomain HTTPS.** |
 
 ## 🚀 Session 2026-05-22 — Hetzner → Huawei migration in flight (founder mandate ~17:00Z)
 
