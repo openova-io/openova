@@ -4,12 +4,12 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T16:13:00Z` (Mothership 45.151.123.50 DOWN — all ports HTTP 000, SSH timed out. Contabo VM kernel/network deadlock. Apiserver/catalyst-api/console.openova.io all unreachable. Wave 5.31 image f91272f built but cannot roll. 27th blocked on mothership recovery.) |
+| Last refreshed | `2026-05-23T16:37:00Z` (Mothership recovered ~16:31Z. Auto-recovery script fired; 27th POSTed at 16:36 with image 3938bc7 carrying Waves 5.20-5.31. catalyst-api mem dropped to 64Mi to fit mothership memory pressure.) |
 | Open issues | 78 |
 | Open DoD gates | 7 / 41 |
 | Open TBD-* regressions | 64 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 34 / 41 = 82% |
-| **Active wave** | **🛑 Wave 5 — Mothership HARD DOWN. All ports HTTP 000 since ~16:10Z. Wave 5.31 image 3938bc7 built + on GHCR but cannot deploy to mothership. Likely caused by my image-roll + Flux suspend toggles + 96Mi mem reduction during ICE-priority debug. Awaiting natural recovery (k3s sometimes self-heals) or external power-cycle. RCA + Waves 5.20-5.31 captured in docs/sessions/2026-05-23-huawei-cloud-stack-cni-rca.md.** |
+| **Active wave** | **🟢🟢🟢 Wave 5 — 27th `e521726137adb8d8` provisioning. Cumulative Waves 5.20-5.31 baked. Wave 5.30 (sd-check off + Cilium SG ports) + Wave 5.31 (kill Flannel + pre-install Cilium via helm in cloud-init) eliminate the two compound root causes (HCS SDN + dual-CNI race). Mothership recovered from ~20min hard-down via auto-script triggering 27th immediately on apiserver-ready.** |
 
 ## 🚀 Session 2026-05-22 — Hetzner → Huawei migration in flight (founder mandate ~17:00Z)
 
