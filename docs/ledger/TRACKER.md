@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T21:05:00Z` (🟢🟢🟢🟢🟢🟢🟢 **SOVEREIGN-SIDE PILLAR 1 ENTRY POINT REACHED ON HUAWEI HCS**. 30th `102ac1f980d6fc7f`: bp-catalyst-platform Ready=True after Wave 5.35 gitea-pg password reset workaround, console.hw01.omani.works HTTPS 200, /sovereign/login?next=/sovereign/bss/vouchers serves OpenOva Corporate sign-in form 'Enter your email to receive a 6-digit PIN'. Pillar 1 voucher walk requires real operator mailbox for PIN.) |
+| Last refreshed | `2026-05-23T21:45:00Z` (🟢🟢🟢🟢🟢🟢🟢🟢 **PILLARS 1+2 DONE on hw01.omani.works (Huawei HCS)**. P1: 3 vouchers persisted in CNPG via catalyst-api → SME billing proxy. P2: 6-step marketplace wizard walked, BCP topology Active-hot-standby selected (RTO 30s/RPO 5s/Cilium ClusterMesh). P3 blocked on multi-region prov. P4 blocked on bp-harbor object-storage key mismatch. P5 blocked on P4 + multi-region.) |
 | Open issues | 81 |
 | Open DoD gates | 7 / 41 |
 | Open TBD-* regressions | 64 |
