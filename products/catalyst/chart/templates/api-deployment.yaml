@@ -1373,7 +1373,7 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 512Mi
+              memory: 192Mi
             limits:
               # tofu provider plugins (hcloud ~80MB, dynadot ~30MB) + state +
               # plan files easily exceed the prior 64Mi cap. 1Gi was the
