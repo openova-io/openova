@@ -1,0 +1,4 @@
+NAME                                                 STATUS   ROLES                  AGE    VERSION        INTERNAL-IP   EXTERNAL-IP   OS-IMAGE             KERNEL-VERSION      CONTAINER-RUNTIME
+catalyst-hw01-omani-works-e5217261-me-east-215-cp1   Ready    control-plane,master   129m   v1.31.4+k3s1   10.66.1.246   <none>        Ubuntu 22.04.2 LTS   5.15.0-76-generic   containerd://1.7.23-k3s2
+catalyst-hw01-omani-works-e5217261-me-east-215-w1    Ready    <none>                 127m   v1.31.4+k3s1   10.66.1.63    <none>        Ubuntu 22.04.2 LTS   5.15.0-76-generic   containerd://1.7.23-k3s2
+catalyst-hw01-omani-works-e5217261-me-east-215-w2    Ready    <none>                 128m   v1.31.4+k3s1   10.66.1.110   <none>        Ubuntu 22.04.2 LTS   5.15.0-76-generic   containerd://1.7.23-k3s2

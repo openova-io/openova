@@ -1,0 +1,54 @@
+NAMESPACE     NAME                               AGE    READY   STATUS
+flux-system   bp-alloy                           123m   True    Helm install succeeded for release alloy/alloy.v1 with chart bp-alloy@1.0.1
+flux-system   bp-catalyst-platform               123m   True    Helm install succeeded for release catalyst-system/catalyst-platform.v1 with chart bp-catalyst-platform@1.4.261
+flux-system   bp-cert-manager                    123m   True    Helm install succeeded for release cert-manager/cert-manager.v1 with chart bp-cert-manager@1.2.2
+flux-system   bp-cert-manager-powerdns-webhook   123m   True    Helm install succeeded for release cert-manager/cert-manager-powerdns-webhook.v1 with chart bp-cert-manager-powerdns-webhook@1.1.0
+flux-system   bp-cilium                          123m   True    Helm install succeeded for release kube-system/cilium.v1 with chart bp-cilium@1.3.5
+flux-system   bp-cluster-autoscaler-hcloud       123m   False   could not resolve Secret chart values reference 'flux-system/cloud-credentials' with key 'hcloud-token': key not found
+flux-system   bp-cnpg                            123m   True    Helm install succeeded for release cnpg-system/cnpg.v1 with chart bp-cnpg@1.0.1
+flux-system   bp-continuum                       123m   True    Helm install succeeded for release catalyst-system/continuum.v1 with chart bp-continuum@0.1.2
+flux-system   bp-coraza                          123m   True    Helm install succeeded for release coraza/coraza.v1 with chart bp-coraza@1.0.0
+flux-system   bp-crossplane                      123m   True    Helm install succeeded for release crossplane-system/crossplane.v1 with chart bp-crossplane@1.1.4
+flux-system   bp-crossplane-claims               123m   True    Helm install succeeded for release crossplane-system/crossplane-claims.v1 with chart bp-crossplane-claims@1.1.5
+flux-system   bp-dmz-vcluster                    123m   True    Helm install succeeded for release dmz/dmz-vcluster.v1 with chart bp-dmz-vcluster@0.1.0
+flux-system   bp-external-dns                    123m   True    Helm install succeeded for release external-dns/external-dns.v1 with chart bp-external-dns@1.1.7
+flux-system   bp-external-secrets                123m   False   dependency 'flux-system/bp-openbao' is not ready
+flux-system   bp-external-secrets-stores         123m   False   dependency 'flux-system/bp-external-secrets' is not ready
+flux-system   bp-falco                           123m   True    Helm install succeeded for release falco/falco.v1 with chart bp-falco@1.0.1
+flux-system   bp-flux                            123m   True    Helm install succeeded for release flux-system/flux.v1 with chart bp-flux@1.2.4
+flux-system   bp-gateway-api                     123m   True    Helm install succeeded for release flux-system/gateway-api.v1 with chart bp-gateway-api@1.1.0
+flux-system   bp-gitea                           123m   True    Helm install succeeded for release gitea/gitea.v1 with chart bp-gitea@1.2.8
+flux-system   bp-grafana                         123m   True    Helm install succeeded for release grafana/grafana.v1 with chart bp-grafana@1.0.2
+flux-system   bp-guacamole                       123m   True    Helm install succeeded for release catalyst-system/guacamole.v1 with chart bp-guacamole@0.1.28
+flux-system   bp-harbor                          123m   False   could not resolve Secret chart values reference 'flux-system/object-storage' with key 's3-region': key not found
+flux-system   bp-hcloud-ccm                      123m   False   could not resolve Secret chart values reference 'flux-system/cloud-credentials' with key 'hcloud-token': key not found
+flux-system   bp-k8s-ws-proxy                    123m   True    Helm install succeeded for release catalyst-system/k8s-ws-proxy.v1 with chart bp-k8s-ws-proxy@0.1.13
+flux-system   bp-keycloak                        123m   True    Helm upgrade succeeded for release keycloak/keycloak.v2 with chart bp-keycloak@1.4.6
+flux-system   bp-kyverno                         123m   True    Helm install succeeded for release kyverno/kyverno.v1 with chart bp-kyverno@1.3.0
+flux-system   bp-kyverno-policies                123m   True    Helm install succeeded for release kyverno/kyverno-policies.v1 with chart bp-kyverno-policies@1.0.0
+flux-system   bp-loki                            123m   True    Helm install succeeded for release loki/loki.v1 with chart bp-loki@1.0.0
+flux-system   bp-mgmt-vcluster                   123m   True    Helm install succeeded for release mgmt/mgmt-vcluster.v1 with chart bp-mgmt-vcluster@0.1.0
+flux-system   bp-mimir                           123m   True    Helm install succeeded for release mimir/mimir.v1 with chart bp-mimir@1.0.4
+flux-system   bp-nats-jetstream                  123m   True    Helm install succeeded for release nats-system/nats-jetstream.v1 with chart bp-nats-jetstream@1.2.0
+flux-system   bp-newapi                          123m   False   dependency 'flux-system/bp-openbao' is not ready
+flux-system   bp-openbao                         123m   False   Helm install failed for release openbao/openbao with chart bp-openbao@1.2.17: failed post-install: 1 error occurred:...
+flux-system   bp-openova-flow-emitter            123m   True    Helm install succeeded for release catalyst-system/openova-flow-emitter.v1 with chart bp-openova-flow-emitter@0.1.1
+flux-system   bp-openova-flow-server             123m   True    Helm install succeeded for release catalyst-system/openova-flow-server.v1 with chart bp-openova-flow-server@0.2.0
+flux-system   bp-opentelemetry                   123m   True    Helm install succeeded for release opentelemetry/opentelemetry.v1 with chart bp-opentelemetry@1.0.0
+flux-system   bp-powerdns                        123m   True    Helm install succeeded for release powerdns/powerdns.v1 with chart bp-powerdns@1.2.4
+flux-system   bp-reflector                       123m   True    Helm install succeeded for release reflector/reflector.v1 with chart bp-reflector@1.0.0
+flux-system   bp-reloader                        123m   True    Helm install succeeded for release reloader/reloader.v1 with chart bp-reloader@1.0.0
+flux-system   bp-rtz-vcluster                    123m   True    Helm install succeeded for release rtz/rtz-vcluster.v1 with chart bp-rtz-vcluster@0.1.0
+flux-system   bp-sandbox                         123m   False   dependency 'flux-system/bp-harbor' is not ready
+flux-system   bp-sealed-secrets                  123m   True    Helm install succeeded for release kube-system/sealed-secrets.v1 with chart bp-sealed-secrets@1.1.2
+flux-system   bp-seaweedfs                       123m   True    Helm install succeeded for release seaweedfs/seaweedfs.v1 with chart bp-seaweedfs@1.2.0
+flux-system   bp-self-sovereign-cutover          123m   False   dependency 'flux-system/bp-harbor' is not ready
+flux-system   bp-sigstore                        123m   True    Helm install succeeded for release sigstore-system/sigstore.v1 with chart bp-sigstore@1.0.0
+flux-system   bp-syft-grype                      123m   True    Helm install succeeded for release syft-grype/syft-grype.v1 with chart bp-syft-grype@1.0.0
+flux-system   bp-tempo                           123m   True    Helm install succeeded for release tempo/tempo.v1 with chart bp-tempo@1.0.0
+flux-system   bp-trivy                           123m   True    Helm install succeeded for release trivy-system/trivy.v1 with chart bp-trivy@1.0.3
+flux-system   bp-valkey                          123m   True    Helm install succeeded for release valkey/valkey.v1 with chart bp-valkey@1.0.2
+flux-system   bp-vcluster-helmrepo               123m   True    Helm install succeeded for release flux-system/vcluster-helmrepo.v1 with chart bp-vcluster-helmrepo@0.2.0
+flux-system   bp-velero                          123m   False   could not resolve Secret chart values reference 'flux-system/object-storage' with key 's3-region': key not found
+flux-system   bp-vllm                            123m   True    Helm install succeeded for release vllm/vllm.v1 with chart bp-vllm@1.0.0
+flux-system   bp-vpa                             123m   True    Helm install succeeded for release vpa/vpa.v1 with chart bp-vpa@1.0.1
