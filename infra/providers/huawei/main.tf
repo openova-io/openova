@@ -324,14 +324,36 @@ resource "huaweicloud_vpc_eip" "cp" {
 # fresh-prov against either cloud without per-provider trimming.
 
 locals {
-  worker_cloud_init = replace(templatefile("${path.module}/cloudinit-worker.tftpl", {
-    sovereign_fqdn             = var.sovereign_fqdn
-    k3s_version                = var.k3s_version
-    k3s_token                  = sha256("${var.huawei_project_id}/${var.sovereign_fqdn}/k3s-bootstrap")
-    cp_private_ip              = cidrhost(local.region_subnet_cidr[local.region_keys[0]], 2)
-    enable_unattended_upgrades = var.enable_unattended_upgrades
-    enable_fail2ban            = var.enable_fail2ban
-  }), "/(?m)^[ ]*#( |$).*\n/", "")
+  # Wave 5.13 (Refs #2140): per-region worker cloud-init render with the
+  # ACTUAL CP private IP per region (not the wrong `cidrhost(subnet,2)`
+  # assumption). HCS DHCP does not assign deterministic .2 addresses —
+  # workers on 974113d27f0e3666 tried to join 10.20.1.2 but the CP was
+  # at a DHCP-assigned address. Only 1 node ever joined (the CP itself)
+  # → Pods Pending with "Insufficient cpu" because the single CP had
+  # no worker capacity. Use the resource attribute `access_ip_v4` for
+  # the deterministic correct IP. Tofu DAG creates CPs first, then
+  # renders worker cloud-init, then creates workers.
+  #
+  # Map keyed by region code so the for_each worker resource can pick
+  # its OWN region's CP IP.
+  cp_primary_private_ip_by_region = {
+    for r in var.regions :
+    r.code => huaweicloud_compute_instance.control_plane[
+      index([for n in local.cp_nodes : "${n.region}-${n.index}"], "${r.code}-0")
+    ].access_ip_v4
+  }
+
+  worker_cloud_init_by_region = {
+    for r in var.regions :
+    r.code => replace(templatefile("${path.module}/cloudinit-worker.tftpl", {
+      sovereign_fqdn             = var.sovereign_fqdn
+      k3s_version                = var.k3s_version
+      k3s_token                  = sha256("${var.huawei_project_id}/${var.sovereign_fqdn}/k3s-bootstrap")
+      cp_private_ip              = local.cp_primary_private_ip_by_region[r.code]
+      enable_unattended_upgrades = var.enable_unattended_upgrades
+      enable_fail2ban            = var.enable_fail2ban
+    }), "/(?m)^[ ]*#( |$).*\n/", "")
+  }
 
   control_plane_cloud_init = replace(templatefile("${path.module}/cloudinit-control-plane.tftpl", {
     sovereign_fqdn      = var.sovereign_fqdn
@@ -456,7 +478,9 @@ resource "huaweicloud_compute_instance" "worker" {
     uuid = huaweicloud_vpc_subnet.region[each.value.region].id
   }
 
-  user_data = local.worker_cloud_init
+  # Wave 5.13 (Refs #2140): per-region cloud-init render with the ACTUAL
+  # CP private IP for THIS region (not the wrong subnet+2 assumption).
+  user_data = local.worker_cloud_init_by_region[each.value.region]
 
   key_pair = huaweicloud_kps_keypair.main.name
 
