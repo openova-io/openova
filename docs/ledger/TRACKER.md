@@ -4,12 +4,12 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-22T19:55:00Z` (manual — Wave 5.x rapid-fire in progress) |
+| Last refreshed | `2026-05-23T00:05:00Z` (manual — Wave 5 Phase 0+1 BREAKTHROUGH) |
 | Open issues | 79 |
 | Open DoD gates | 7 / 41 |
 | Open TBD-* regressions | 68 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 34 / 41 = 82% |
-| **Active wave** | **Hetzner → Huawei migration (Wave 5)** — provisioning `hw01.omani.works` on HCS `me-east-215`, Tier B; in-flight deployment `dc19ea76aae64d85` retrying on chart 1.4.243 after Wave 5.1 tfvars fix |
+| **Active wave** | **Wave 5 Phase 0+1 SUCCESS on HCS** — 12th attempt 974113d27f0e3666: node Ready, Flux Running 1/1, 53 HelmReleases initialized; HelmRelease convergence blocked on bp-cilium/bp-hcloud-ccm `SourceNotReady` (Hetzner-specific charts not applicable to HCS) |
 
 ## 🚀 Session 2026-05-22 — Hetzner → Huawei migration in flight (founder mandate ~17:00Z)
 
@@ -27,7 +27,12 @@ Founder direction: wipe Hetzner POC (free credit exhausted), pivot to Huawei Oma
 | 5.2 | [#2148](https://github.com/openova-io/openova/pull/2148) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | Provider-aware regions tfvars (Huawei snake_case + `code` instead of camelCase + `cloudRegion`). Caught by 2nd prov attempt a10853cc. Chart 1.4.244. |
 | 5.3 | [#2149](https://github.com/openova-io/openova/pull/2149) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | Vet fix — derive Huawei region role from index (PR #2148 referenced nonexistent RegionSpec.Role). Chart 1.4.245. |
 | 5.4 | [#2150](https://github.com/openova-io/openova/pull/2150) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | HCS endpoint coverage (added kms endpoint) + drop tag-API blocks (HCS tag-API divergence; cosmetic, Wave 6 deferred). Caught by 1st end-to-end apply 8f711cae. Chart 1.4.246. |
-| 5 | — | <img alt="WAITING_PROV" src="https://img.shields.io/badge/-WAITING__PROV-bf8700?style=flat-square" /> | `hw01.omani.works`: dep 8f711cae (3rd attempt) reached `tofu apply` against HCS — VPCs/ECS/EIPs partially created, blocked on KMS endpoint + tag-API. Wave 5.4 fixes those; retrying after chart 1.4.246 mothership roll + HCS partial-state cleanup. |
+| 5.7 | [#2154](https://github.com/openova-io/openova/pull/2154) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | **Comprehensive HCS audit** (sub-agent) — quota arithmetic was the real "conflict" error; switched EIPs to per-region (1/region attached to primary CP) for HCS quota=10; lifecycle.ignore_changes on tags/dns_list/metadata. Chart 1.4.249. |
+| 5.8 | [#2155](https://github.com/openova-io/openova/pull/2155) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | Bake primary CP EIP into cloud-init (via tofu template var `primary_cp_eip`) + tls-san list — HCS metadata service doesn't expose `.public_ipv4_address`. Chart 1.4.250. |
+| 5.9 | [#2156](https://github.com/openova-io/openova/pull/2156) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | Gate kubeconfig PUT-back to primary CP only — each CP runs standalone k3s with own CA; multi-CP PUT race caused HTTP 401. (Initial IP-match gate; superseded by 5.10.) Chart 1.4.251. |
+| 5.10 | [#2157](https://github.com/openova-io/openova/pull/2157) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | Switch PUT-back gate from `cp_private_ip` to `primary_cp_hostname` — HCS DHCP doesn't assign deterministic .2 addresses (saw .230/.50 on prov). Chart 1.4.252. |
+| 5.11 | [#2158](https://github.com/openova-io/openova/pull/2158) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | Enable Flannel default — `--flannel-backend=none` created a chicken-and-egg: node NotReady (no CNI) → Flux Pods Pending → bp-cilium never deployed → loop. Chart 1.4.253. |
+| 5 | — | <img alt="WAITING_PROV" src="https://img.shields.io/badge/-WAITING__PROV-bf8700?style=flat-square" /> | **`hw01.omani.works` ALIVE** — 12th attempt 974113d27f0e3666 reached Phase-1 watch; CP Ready, Flux Running 1/1, 53 HRs initialized. Blocked on Hetzner-specific HRs (bp-cilium / bp-cluster-autoscaler-hcloud / bp-hcloud-ccm / bp-nats-jetstream / bp-reloader) returning `SourceNotReady`. Wave 6: HR-skip-list per provider OR provider-aware HR rendering. |
 | 6 | — | <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> | 5-pillar atomic walk: voucher (P1) / BCP wizard (P2) / CNPG region-kill (P3) / Sandbox + qwen-code + MCP (P4) / sovereignty cutover 600s deny-egress hold (P5). |
 
 **Mid-session anti-pattern catches**: (a) Wave 4 inherited cred-in-wire-body antipattern from Hetzner — Wave 4.5 fixed; (b) classifier-bail mistaken for blocker → D13 encoded in user-global CLAUDE.md; (c) "fake blockers / asking founder to do what I can do" → §−1 banned-phrase mechanical check encoded in CLAUDE.md.
