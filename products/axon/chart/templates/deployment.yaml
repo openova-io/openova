@@ -80,12 +80,26 @@ spec:
           {{- end }}
           resources:
             {{- toYaml .Values.resources.axon | nindent 12 }}
+          # Liveness = process-death detection. /healthz returns 200
+          # whenever the Fastify event loop is alive, regardless of
+          # upstream (vLLM, Claude pool, Valkey) state. Kubelet must
+          # NEVER restart the pod because an external dependency is
+          # degraded — that's readiness's job. Issue #2203: pointing
+          # liveness at /health caused 97 restarts in 6h08m when the
+          # upstream vLLM endpoint dropped TLS handshakes.
           livenessProbe:
             httpGet:
-              path: /health
+              path: /healthz
               port: {{ .Values.axon.port }}
             initialDelaySeconds: 30
             periodSeconds: 15
+          # Readiness = dependency-state detection. /health proxies the
+          # vLLM upstream health (or returns ok for Claude provider).
+          # When the upstream is unreachable the handler returns 200
+          # with `degraded: true` body so kubelet treats the pod as
+          # NOT ready (drop from Service endpoint, no traffic) but
+          # does NOT restart it. Upstream comes back → /health flips
+          # back to `status: ok` → pod rejoins Service endpoint.
           readinessProbe:
             httpGet:
               path: /health

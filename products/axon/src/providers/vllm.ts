@@ -125,13 +125,27 @@ export class VllmProvider {
     return res.json() as Promise<ModelListResponse>;
   }
 
-  async health(): Promise<{ status: string }> {
-    const res = await fetch(`${this.baseUrl}/health`, {
-      headers: { Authorization: `Bearer ${this.apiKey}` },
-    });
-    if (!res.ok) {
-      return { status: `vllm_unhealthy_${res.status}` };
+  // Readiness probe for the vLLM upstream. NEVER throws — a thrown
+  // fetch error (TLS handshake fail, DNS NXDOMAIN, connection refused)
+  // is reported as `degraded: true` + non-"ok" status so the readiness
+  // endpoint stays HTTP 200. Issue #2203: previously fetch failure
+  // bubbled up to the route handler, the route returned 500, the
+  // liveness probe (which also called this same endpoint) killed the
+  // pod, and the restart loop ate kubelet retry budget. Liveness is
+  // now /healthz (process-only); /health is for readiness and tolerates
+  // degraded upstream.
+  async health(): Promise<{ status: string; degraded?: boolean; detail?: string }> {
+    try {
+      const res = await fetch(`${this.baseUrl}/health`, {
+        headers: { Authorization: `Bearer ${this.apiKey}` },
+      });
+      if (!res.ok) {
+        return { status: `vllm_unhealthy_${res.status}`, degraded: true };
+      }
+      return { status: "ok" };
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      return { status: "vllm_unreachable", degraded: true, detail };
     }
-    return { status: "ok" };
   }
 }
