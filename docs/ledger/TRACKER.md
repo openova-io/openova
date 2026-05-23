@@ -4,12 +4,12 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T11:18:00Z` (19th attempt: 6 nodes joined cluster after NAT Gateway, 22/50 HRs Ready; Wave 5.22 PUT-back retry merged) |
+| Last refreshed | `2026-05-23T11:58:00Z` (Waves 5.23-5.25 + cilium pods Running on 19th cluster after vxlan cleanup + k3s host-gw fix) |
 | Open issues | 79 |
 | Open DoD gates | 7 / 41 |
 | Open TBD-* regressions | 68 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 34 / 41 = 82% |
-| **Active wave** | **🟢 Wave 5 19th attempt c5da3542a4fcacff WORKING: all 6 nodes joined (Wave 5.21 NAT Gateway fixed worker egress), kubeconfig PUT'd (manual unblock — Wave 5.22 ships retry for future), Gateway API CRDs seeded (Wave 5.19), bp-cilium installed, 22/50 HRs Ready (3 Hetzner-only HRs suspended on Huawei). Phase-1 chain converging.** || true` to fail2ban + `mkdir -p /var/lib/catalyst`. 17th fires after chart 1.4.258 mothership roll.** |
+| **Active wave** | **🟢 Wave 5 19th attempt: 3 cilium agents Running 1/1 after manual flannel.1 cleanup + Wave 5.25 (k3s --flannel-backend=host-gw lets Cilium own vxlan). HR Ready dropping then climbing as Pods re-roll on Cilium CNI. Region-a 3-node cluster healthy.** || true` to fail2ban + `mkdir -p /var/lib/catalyst`. 17th fires after chart 1.4.258 mothership roll.** |
 
 ## 🚀 Session 2026-05-22 — Hetzner → Huawei migration in flight (founder mandate ~17:00Z)
 
@@ -44,6 +44,9 @@ Founder direction: wipe Hetzner POC (free credit exhausted), pivot to Huawei Oma
 | 5.20 | [#2177](https://github.com/openova-io/openova/pull/2177) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | Collapse worker runcmd to single shell block (bash-wrap list form still halted on HCS — cloud-init runcmd quoting). Per-Wave issue #2176. Chart 1.4.261. |
 | 5.21 | [#2179](https://github.com/openova-io/openova/pull/2179) | <img alt="WAITING_PROV" src="https://img.shields.io/badge/-WAITING__PROV-bf8700?style=flat-square" /> | **ROOT CAUSE FIX** — per-region NAT Gateway + SNAT rule for worker internet egress. 18th attempt SSH debug found workers can't reach `get.k3s.io` (no NAT, no per-worker EIP). Per-Wave issue #2178. Chart 1.4.262. |
 | 5.22 | [#2182](https://github.com/openova-io/openova/pull/2182) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | PUT-back retry-loop in cloud-init — 19th attempt's PUT-back fired during mothership 502 (chart 1.4.262 rolling), curl -sf silent on 5xx + `\|\| true` swallowed it. 12×30s retry loop. Per-Wave #2181. Chart 1.4.263. |
+| 5.23 | [#2185](https://github.com/openova-io/openova/pull/2185) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | Seed Gateway API tlsroutes experimental CRD (Cilium 1.16 operator CrashLoopBackOff without it). Per-Wave #2184. Chart 1.4.264. |
+| 5.24 | [#2187](https://github.com/openova-io/openova/pull/2187) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | Pass cp_private_ip as CILIUM_K8S_SERVICE_HOST in bootstrap-kit Kustomization postBuild substitute (default 10.0.1.2 unreachable on Huawei VPCs). Per-Wave #2186. Chart 1.4.265. |
+| 5.25 | [#2189](https://github.com/openova-io/openova/pull/2189) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | k3s --flannel-backend=host-gw to free vxlan device for Cilium (Cilium-agent CrashLoop "vxlan address already in use"). Per-Wave #2188. Chart 1.4.266. |
 | 5 | — | <img alt="WAITING_PROV" src="https://img.shields.io/badge/-WAITING__PROV-bf8700?style=flat-square" /> | **`hw01.omani.works` 12th attempt: PAT rotation + Gateway CRDs + bp-cilium installed; 28/53 HRs Ready before plateau on worker-join bug.** Wave 5.13/5.14 fix landed; 14th attempt fires after chart 1.4.255 mothership roll. Next remaining: bp-keycloak / bp-cnpg / bp-gitea → bp-catalyst-platform → console.hw01.omani.works HTTPS → Pillar 1 voucher walk. |
 | 6 | — | <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> | 5-pillar atomic walk: voucher (P1) / BCP wizard (P2) / CNPG region-kill (P3) / Sandbox + qwen-code + MCP (P4) / sovereignty cutover 600s deny-egress hold (P5). |
 
