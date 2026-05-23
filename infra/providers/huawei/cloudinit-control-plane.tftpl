@@ -202,6 +202,15 @@ write_files:
             PROVIDER: huawei
             PARENT_DOMAINS_YAML: |
               ${parent_domains_yaml}
+            # Wave 5.24 (Refs #2163) — cilium k8sServiceHost must be the
+            # primary CP's actual private IP. Default in chart is the
+            # Hetzner 10.0.1.2 fallback which doesn't exist on Huawei
+            # VPCs (10.20.x.x / 10.30.x.x). Pass the tofu-rendered
+            # cp_private_ip (Wave 5.13 .access_ip_v4 of primary CP).
+            # Caught live on 19th attempt c5da3542a4fcacff: cilium-agent
+            # stuck "Establishing connection to apiserver
+            # host=https://10.0.1.2:6443" then timeout.
+            CILIUM_K8S_SERVICE_HOST: "${cp_private_ip}"
 
   # ── Worker cloud-init for autoscaler (issue #921 analogue) ────────────
   - path: /var/lib/catalyst/worker-cloud-init.b64
