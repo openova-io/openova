@@ -34,6 +34,32 @@ spec:
       database: {{ .Values.postgres.cluster.database | default "gitea" | quote }}
       owner: {{ .Values.postgres.cluster.owner | default "gitea" | quote }}
 
+  # Wave 5.35 (Refs #2211): explicit declarative role management.
+  # CNPG synthesises the gitea role at initdb time AND the gitea-pg-app
+  # Secret independently. In practice the two values can drift — either
+  # because initdb sets a different password than what eventually lands
+  # in the Secret, OR because a Secret rotation isn't applied back to
+  # the role. Live evidence (hw01 30th HCS 2026-05-23): gitea-app init
+  # container crashed with `pq: password authentication failed for user
+  # "gitea"` despite gitea-pg-app.password being non-empty and matching
+  # gitea-database-secret.password. Manual `ALTER USER gitea WITH
+  # PASSWORD '<gitea-pg-app value>'` resolved it.
+  #
+  # `spec.managed.roles[]` with passwordSecret pointing at the canonical
+  # gitea-pg-app Secret makes CNPG reconcile the role's password to
+  # match the Secret value on every Cluster reconcile. Any drift gets
+  # ALTER USER'd away. The Secret name follows CNPG's own naming
+  # convention so this works even on fresh provisions — when CNPG first
+  # creates gitea-pg-app, the role bootstrap reads from it, eliminating
+  # the initdb-vs-Secret race.
+  managed:
+    roles:
+      - name: {{ .Values.postgres.cluster.owner | default "gitea" | quote }}
+        ensure: present
+        login: true
+        passwordSecret:
+          name: {{ printf "%s-app" (.Values.postgres.cluster.name | default "gitea-pg") | quote }}
+
   # inheritedMetadata.annotations: CNPG propagates these onto every
   # Secret it generates (gitea-pg-app, gitea-pg-superuser, etc.).
   # The k8s-reflector (bp-reflector) requires the SOURCE Secret to carry
