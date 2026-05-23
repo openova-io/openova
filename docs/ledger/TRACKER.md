@@ -4,12 +4,12 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T14:12:00Z` (24th Phase 0 PASSED in 3min — 6 ECS + NAT + VPC clean; Phase 1 22/53 HRs Ready and climbing after Wave 5.28 patched GatewayClass live) |
+| Last refreshed | `2026-05-23T14:43:00Z` (24th Phase 0 PASS in 3min; Phase 1 Cilium service-routing broken — pod-to-pod over Cilium fails (CoreDNS readiness probe `connect: no route to host`). Waves 5.28+5.29 shipped target-state fixes; 25th will boot clean.) |
 | Open issues | 80 |
 | Open DoD gates | 7 / 41 |
 | Open TBD-* regressions | 68 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 34 / 41 = 82% |
-| **Active wave** | **🟢🟢 Wave 5 — 24th attempt `1c40b4bd3d748ecd` Phase 0 SUCCEEDED (3min: VPC + NAT + 3 ECS Ready). Phase 1 climbing: 22/53 HRs Ready. Wave 5.28 (#2196 merged) patches GatewayClass CRD seed race for future provs. Cumulative Waves 5.20-5.28.** |
+| **Active wave** | **🟡 Wave 5 — 24th `1c40b4bd3d748ecd` Phase 0 PASS / Phase 1 BLOCKED on Cilium pod-to-pod routing (cilium-operator + agent had stale CILIUM_K8S_SERVICE_HOST=10.112.1.2; actual CP=10.112.1.173 per HCS DHCP). Wave 5.28 (#2196) + 5.29 (#2198) merged: apiserver-wait + per-CRD retry + runtime-IP substitute. 25th awaiting Wave 5.29 build retry (transient CI auth-checkout failure on first push).** |
 
 ## 🚀 Session 2026-05-22 — Hetzner → Huawei migration in flight (founder mandate ~17:00Z)
 
