@@ -298,14 +298,33 @@ resource "huaweicloud_networking_secgroup_rule" "ingress_cilium_health" {
 # Wave 5.30 (Refs #2163): pod CIDR allow-all from same-region subnet so
 # any pod-to-pod traffic that escapes encap (e.g. host-gw / native routing
 # fallback) is also permitted. Defence-in-depth alongside source_dest_check=false.
-resource "huaweicloud_networking_secgroup_rule" "ingress_pod_cidr" {
+# HCS rejects "any" protocol — list specific protocols Cilium pod-to-pod uses.
+resource "huaweicloud_networking_secgroup_rule" "ingress_pod_cidr_tcp" {
   for_each          = { for r in var.regions : r.code => r }
   security_group_id = huaweicloud_networking_secgroup.region[each.key].id
   direction         = "ingress"
   ethertype         = "IPv4"
-  protocol          = ""
+  protocol          = "tcp"
   remote_ip_prefix  = "10.42.0.0/16"
-  description       = "Pod CIDR all-protocols (Cilium pod-to-pod fallback path)"
+  description       = "Pod CIDR TCP all-ports (Cilium pod-to-pod fallback path)"
+}
+resource "huaweicloud_networking_secgroup_rule" "ingress_pod_cidr_udp" {
+  for_each          = { for r in var.regions : r.code => r }
+  security_group_id = huaweicloud_networking_secgroup.region[each.key].id
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "udp"
+  remote_ip_prefix  = "10.42.0.0/16"
+  description       = "Pod CIDR UDP all-ports (Cilium pod-to-pod fallback path)"
+}
+resource "huaweicloud_networking_secgroup_rule" "ingress_pod_cidr_icmp" {
+  for_each          = { for r in var.regions : r.code => r }
+  security_group_id = huaweicloud_networking_secgroup.region[each.key].id
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "icmp"
+  remote_ip_prefix  = "10.42.0.0/16"
+  description       = "Pod CIDR ICMP (Cilium pod-to-pod diagnostics)"
 }
 
 # SSH — narrow rule per ssh_allowed_cidrs. When the list is empty no
