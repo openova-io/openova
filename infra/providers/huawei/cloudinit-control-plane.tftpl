@@ -168,6 +168,61 @@ write_files:
     content: |
       ${handover_jwt_public_key}
 
+  # Wave 5.34 (Refs #2208): cert-manager/powerdns-api-credentials Secret.
+  # bp-cert-manager-powerdns-webhook reads X-API-Key from this Secret to
+  # authenticate against contabo's authoritative PowerDNS for omani.works.
+  # Without this, DNS-01 challenges hang and the wildcard cert never issues.
+  - path: /var/lib/catalyst/manifests/04-powerdns-api-credentials.yaml
+    permissions: '0600'
+    content: |
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: powerdns-api-credentials
+        namespace: cert-manager
+      type: Opaque
+      data:
+        api-key: ${base64encode(powerdns_api_key)}
+
+  # Wave 5.34 (Refs #2208): flux-system/pdm-basicauth Secret. The
+  # catalyst-api Pod reads CATALYST_PDM_BASIC_AUTH_USER/PASS via
+  # secretKeyRef into pdm-basicauth in catalyst-system. Reflector
+  # mirrors out of flux-system to sme,catalyst,catalyst-system,gitea,
+  # harbor (canonical pattern).
+  - path: /var/lib/catalyst/manifests/05-pdm-basicauth-secret.yaml
+    permissions: '0600'
+    content: |
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: pdm-basicauth
+        namespace: flux-system
+        annotations:
+          reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "sme,catalyst,catalyst-system,gitea,harbor"
+          reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "sme,catalyst,catalyst-system,gitea,harbor"
+      type: Opaque
+      data:
+        username: ${base64encode(pdm_basic_auth_user)}
+        password: ${base64encode(pdm_basic_auth_pass)}
+
+  # Wave 5.34 (Refs #2208): catalyst-system/catalyst-handover-jwt-public
+  # Secret. Mounted at /etc/catalyst/handover-jwt-public/public.jwk by the
+  # catalyst-api Pod. GET /auth/handover returns "server misconfiguration:
+  # public key unavailable" when this is absent (otech48 incident).
+  - path: /var/lib/catalyst/manifests/06-handover-jwt-public-secret.yaml
+    permissions: '0600'
+    content: |
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: catalyst-handover-jwt-public
+        namespace: catalyst-system
+      type: Opaque
+      data:
+        public.jwk: ${base64encode(handover_jwt_public_key)}
+
   # ── Flux GitRepository + Kustomization seed ───────────────────────────
   - path: /var/lib/catalyst/manifests/10-flux-source.yaml
     permissions: '0644'
@@ -324,6 +379,17 @@ runcmd:
   - KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f /var/lib/catalyst/manifests/01-ghcr-pull-secret.yaml
   - KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f /var/lib/catalyst/manifests/02-cloud-credentials-secret.yaml
   - KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f /var/lib/catalyst/manifests/03-object-storage-secret.yaml
+
+  # Wave 5.34 (Refs #2208): port Hetzner Secret-seeding pattern to Huawei.
+  # Without these Secrets, bp-cert-manager-powerdns-webhook DNS-01 challenge
+  # hangs (wildcard cert never issues → HTTPS gateway listener stays
+  # Programmed=False), pdmFlipNS returns 401 against mothership PDM, and
+  # the catalyst-api Pod's handover-JWT verification fails.
+  - KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl create namespace cert-manager --dry-run=client -o yaml | KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f -
+  - KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f /var/lib/catalyst/manifests/04-powerdns-api-credentials.yaml
+  - KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f /var/lib/catalyst/manifests/05-pdm-basicauth-secret.yaml
+  - KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl create namespace catalyst-system --dry-run=client -o yaml | KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f -
+  - KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f /var/lib/catalyst/manifests/06-handover-jwt-public-secret.yaml
 
   # 4. Install Flux + apply the GitRepository + Kustomization seed.
   - |

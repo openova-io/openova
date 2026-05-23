@@ -584,6 +584,11 @@ locals {
     catalyst_api_url           = var.catalyst_api_url
     enable_unattended_upgrades = var.enable_unattended_upgrades
     enable_fail2ban            = var.enable_fail2ban
+    # Wave 5.34 (Refs #2208): Sovereign-side Secret seeds (powerdns DNS-01
+    # cert challenge + PDM basic-auth Day-2 calls). Mirror Hetzner pattern.
+    powerdns_api_key    = var.powerdns_api_key
+    pdm_basic_auth_user = var.pdm_basic_auth_user
+    pdm_basic_auth_pass = var.pdm_basic_auth_pass
     # Wave 5.16 (Refs #2140): empty placeholder. The CP cloud-init bakes
     # worker-cloud-init.b64 into /var/lib/catalyst/ for the bp-cluster-
     # autoscaler-hcloud blueprint to consume on scale-out. On Huawei
