@@ -34,24 +34,24 @@ write_files:
       MaxAuthTries 3
 
 runcmd:
-  - sysctl --system
-  - ["bash", "-c", "systemctl reload ssh || true"]
-%{ if enable_fail2ban ~}
-  - ["bash", "-c", "systemctl enable --now fail2ban || true"]
-%{ endif ~}
-
-  # Join the k3s control-plane at the region's local CP (private IP
-  # 10.x.1.2 inside the workers' VPC). Same `K3S_URL` pattern Hetzner
-  # workers use — the CP's private IP is stable within the region's
-  # /24 subnet.
+  # Wave 5.20: single shell block — cloud-init runcmd list-form had two
+  # silent halts on HCS Ubuntu image: (1) apt-get install fails because
+  # the mirror is unreachable so fail2ban package isn't installed,
+  # (2) bash-wrapped `systemctl enable --now fail2ban` either halts
+  # subshell or has env weirdness. One literal-block shell command
+  # makes the order explicit: sysctl --system → skip-on-error fail2ban
+  # enable → k3s install (the load-bearing step) → mkdir+touch.
   - |
+    set +e
+    sysctl --system
+    systemctl reload ssh 2>/dev/null || true
+    systemctl enable --now fail2ban 2>/dev/null || true
     curl -sfL https://get.k3s.io | \
       INSTALL_K3S_VERSION=${k3s_version} \
       K3S_TOKEN=${k3s_token} \
       K3S_URL=https://${cp_private_ip}:6443 \
-      INSTALL_K3S_EXEC="agent \
-        --node-label=catalyst.openova.io/provider=huawei" \
+      INSTALL_K3S_EXEC="agent --node-label=catalyst.openova.io/provider=huawei" \
       sh -
+    mkdir -p /var/lib/catalyst
+    touch /var/lib/catalyst/worker-bootstrap-complete
 
-  - mkdir -p /var/lib/catalyst
-  - touch /var/lib/catalyst/worker-bootstrap-complete
