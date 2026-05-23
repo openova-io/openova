@@ -215,7 +215,7 @@ runcmd:
   - systemctl reload ssh || true
 
 %{ if enable_fail2ban ~}
-  - systemctl enable --now fail2ban
+  - systemctl enable --now fail2ban || true
 %{ endif ~}
 
   # 2. Install k3s server (Wave 5.11 Refs #2140 — Flannel ENABLED,
