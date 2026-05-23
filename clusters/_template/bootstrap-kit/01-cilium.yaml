@@ -368,3 +368,67 @@ spec:
       allowedRoutes:
         namespaces:
           from: All
+---
+# Wave 5.33 (Refs #2205): cilium-envoy in hostNetwork mode cannot bind 0.0.0.0:80 or :443.
+# Root cause: cilium-envoy-starter (pid 1, has CapEff=0x201400 incl. NET_BIND_SERVICE) exec's
+# the actual cilium-envoy worker (pid 7) with CapEff=0 — caps deliberately dropped by the
+# starter shim. Despite runAsUser=0, a process with empty CapEff cannot bind privileged ports
+# unless the host kernel's net.ipv4.ip_unprivileged_port_start sysctl is lowered to <=80.
+# Default is 1024 → bind('0.0.0.0:80') = EACCES → xDS NACK loop → no Gateway listener →
+# every console.${SOVEREIGN_FQDN} URL HTTP 000.
+#
+# Fix: a tiny privileged DaemonSet that sets the sysctl on each node at boot via chroot /host.
+# The container exits 0 after the write; restartPolicy=Always keeps the Pod alive (sleep infinity)
+# so the kubelet reports Ready. Re-applied on every node reboot via the same DS.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: sysctl-envoy-bind
+  namespace: kube-system
+  labels:
+    catalyst.openova.io/slot: "01"
+spec:
+  selector:
+    matchLabels:
+      app: sysctl-envoy-bind
+  template:
+    metadata:
+      labels:
+        app: sysctl-envoy-bind
+    spec:
+      hostNetwork: true
+      hostPID: true
+      tolerations:
+        - operator: Exists
+      initContainers:
+        - name: set-sysctl
+          image: busybox:1.36
+          securityContext:
+            privileged: true
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              chroot /host sysctl -w net.ipv4.ip_unprivileged_port_start=80
+              chroot /host sh -c 'grep -q "^net.ipv4.ip_unprivileged_port_start" /etc/sysctl.d/99-cilium-envoy-bind.conf 2>/dev/null || echo "net.ipv4.ip_unprivileged_port_start = 80" > /etc/sysctl.d/99-cilium-envoy-bind.conf'
+              echo "sysctl applied: $(chroot /host cat /proc/sys/net/ipv4/ip_unprivileged_port_start)"
+          volumeMounts:
+            - name: host-root
+              mountPath: /host
+      containers:
+        - name: pause
+          image: busybox:1.36
+          command: ["/bin/sh", "-c", "sleep infinity"]
+          resources:
+            requests:
+              cpu: 1m
+              memory: 4Mi
+            limits:
+              cpu: 10m
+              memory: 16Mi
+      volumes:
+        - name: host-root
+          hostPath:
+            path: /
+            type: Directory
