@@ -24,7 +24,23 @@ if (isVllm) {
   app.log.info(`Provider: claude, default model: ${config.defaultModel}`);
 }
 
-// Health check (no auth) — proxy to vLLM backend when using vllm provider
+// Liveness — process-death detection. ALWAYS returns 200 when the
+// Fastify event loop is alive. Independent of upstream provider state
+// (vLLM, Claude pool, Valkey) — those are dependencies, not the axon
+// process itself. Kubelet kills the pod ONLY when this returns non-200,
+// which happens only when the JS event loop is stuck. Upstream-down
+// scenarios surface via /health (readiness) so traffic stops without a
+// restart loop. Issue #2203 — without this split, an upstream TLS/DNS
+// blip caused 97 restarts in 6h08m on one Sovereign.
+app.get("/healthz", async () => ({ status: "alive" }));
+
+// Readiness — dependency-state detection. Returns 200 only when upstream
+// (vLLM or Claude pool) is reachable AND healthy. Kubelet uses this to
+// gate traffic via the Service endpoint; FAILED readiness drops the pod
+// out of rotation but does NOT trigger restart. Always returns HTTP 200
+// with `status` body — never throws on upstream-down (vllm.health()
+// itself was hardened to return `{ status: "vllm_unreachable",
+// degraded: true }` instead of throwing).
 app.get("/health", async () => {
   if (vllm) {
     return vllm.health();
