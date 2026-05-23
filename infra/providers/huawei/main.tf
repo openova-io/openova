@@ -234,6 +234,99 @@ resource "huaweicloud_networking_secgroup_rule" "ingress_icmp" {
   description       = "ICMP (path-MTU + ping diagnostics)"
 }
 
+# Wave 5.30 (Refs #2163): Cilium tunnel/health/encryption ports — node↔node
+# encap and cilium-health checks must be reachable for pod-to-pod traffic
+# across nodes. Without these rules, Cilium VXLAN encap packets (or
+# alternative GENEVE/WG-encrypted) get silently dropped by the HCS SDN
+# even when source_dest_check is off. Per Huawei UCS Cilium prerequisites:
+# https://support.huaweicloud.com/intl/en-us/usermanual-ucs/ucs_01_0204.html
+
+# Cilium VXLAN tunnel default port (8472/UDP — NOT 4789).
+resource "huaweicloud_networking_secgroup_rule" "ingress_cilium_vxlan" {
+  for_each          = { for r in var.regions : r.code => r }
+  security_group_id = huaweicloud_networking_secgroup.region[each.key].id
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "udp"
+  port_range_min    = 8472
+  port_range_max    = 8472
+  remote_ip_prefix  = local.region_subnet_cidr[each.key]
+  description       = "Cilium VXLAN tunnel (intra-region pod-to-pod encap)"
+}
+
+# Cilium GENEVE alternative encap (6081/UDP).
+resource "huaweicloud_networking_secgroup_rule" "ingress_cilium_geneve" {
+  for_each          = { for r in var.regions : r.code => r }
+  security_group_id = huaweicloud_networking_secgroup.region[each.key].id
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "udp"
+  port_range_min    = 6081
+  port_range_max    = 6081
+  remote_ip_prefix  = local.region_subnet_cidr[each.key]
+  description       = "Cilium GENEVE tunnel (alternative encap mode)"
+}
+
+# Cilium WireGuard transparent encryption (51871/UDP — Cilium uses
+# this, NOT the kernel-WG default 51820 that ingress_wireguard above
+# opens for DMZ-WG inter-region).
+resource "huaweicloud_networking_secgroup_rule" "ingress_cilium_wireguard" {
+  for_each          = { for r in var.regions : r.code => r }
+  security_group_id = huaweicloud_networking_secgroup.region[each.key].id
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "udp"
+  port_range_min    = 51871
+  port_range_max    = 51871
+  remote_ip_prefix  = "0.0.0.0/0"
+  description       = "Cilium WireGuard transparent encryption (port 51871, not 51820)"
+}
+
+# Cilium health probes (4240/TCP — node-to-node L3 reachability).
+resource "huaweicloud_networking_secgroup_rule" "ingress_cilium_health" {
+  for_each          = { for r in var.regions : r.code => r }
+  security_group_id = huaweicloud_networking_secgroup.region[each.key].id
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "tcp"
+  port_range_min    = 4240
+  port_range_max    = 4240
+  remote_ip_prefix  = local.region_subnet_cidr[each.key]
+  description       = "Cilium cilium-health (node reachability probes)"
+}
+
+# Wave 5.30 (Refs #2163): pod CIDR allow-all from same-region subnet so
+# any pod-to-pod traffic that escapes encap (e.g. host-gw / native routing
+# fallback) is also permitted. Defence-in-depth alongside source_dest_check=false.
+# HCS rejects "any" protocol — list specific protocols Cilium pod-to-pod uses.
+resource "huaweicloud_networking_secgroup_rule" "ingress_pod_cidr_tcp" {
+  for_each          = { for r in var.regions : r.code => r }
+  security_group_id = huaweicloud_networking_secgroup.region[each.key].id
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "tcp"
+  remote_ip_prefix  = "10.42.0.0/16"
+  description       = "Pod CIDR TCP all-ports (Cilium pod-to-pod fallback path)"
+}
+resource "huaweicloud_networking_secgroup_rule" "ingress_pod_cidr_udp" {
+  for_each          = { for r in var.regions : r.code => r }
+  security_group_id = huaweicloud_networking_secgroup.region[each.key].id
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "udp"
+  remote_ip_prefix  = "10.42.0.0/16"
+  description       = "Pod CIDR UDP all-ports (Cilium pod-to-pod fallback path)"
+}
+resource "huaweicloud_networking_secgroup_rule" "ingress_pod_cidr_icmp" {
+  for_each          = { for r in var.regions : r.code => r }
+  security_group_id = huaweicloud_networking_secgroup.region[each.key].id
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "icmp"
+  remote_ip_prefix  = "10.42.0.0/16"
+  description       = "Pod CIDR ICMP (Cilium pod-to-pod diagnostics)"
+}
+
 # SSH — narrow rule per ssh_allowed_cidrs. When the list is empty no
 # rule lands; break-glass is via HCS console (out-of-band).
 resource "huaweicloud_networking_secgroup_rule" "ingress_ssh" {
@@ -519,6 +612,13 @@ resource "huaweicloud_compute_instance" "control_plane" {
 
   network {
     uuid = huaweicloud_vpc_subnet.region[local.cp_nodes[count.index].region].id
+    # Wave 5.30 (Refs #2163): HCS default port_security_enabled=true drops
+    # any packet whose source IP is not the port's primary fixed IP. Pod
+    # CIDR packets (10.42.x.y src) are silently dropped → Cilium/Flannel
+    # cross-node networking fails entirely. Disable port_security on every
+    # ECS NIC so pod-CIDR packets transit. Documented in Huawei UCS Cilium
+    # prerequisites: https://support.huaweicloud.com/intl/en-us/usermanual-ucs/ucs_01_0204.html
+    source_dest_check = false
   }
 
   # Wave 5.7 (Refs #2140): only the index-0 (primary) CP of each region
@@ -565,6 +665,9 @@ resource "huaweicloud_compute_instance" "worker" {
 
   network {
     uuid = huaweicloud_vpc_subnet.region[each.value.region].id
+    # Wave 5.30 (Refs #2163): see CP block — disable port_security so pod
+    # CIDR packets transit the HCS SDN layer.
+    source_dest_check = false
   }
 
   # Wave 5.13 (Refs #2140): per-region cloud-init render with the ACTUAL
