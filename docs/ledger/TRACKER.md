@@ -4,12 +4,12 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T18:25:00Z` (Wave 5.32 Gateway resource shipped + live-applied on 27th. Wave 5.33 #2205 filed for Cilium LB exposure on Huawei. Pillar 1 = walkable end-to-end EXCEPT for this single Cilium-LB gap. 17 in-progress (was 31).) |
+| Last refreshed | `2026-05-23T19:25:00Z` (🟢 Wave 5.33 #2205 RESOLVED — sysctl DS shipped (PR #2206 merged), cilium-envoy now binds 0.0.0.0:80/443. gitea.hw01.omani.works returns HTTP 200 "Catalyst Gitea" via public Huawei EIP 212.72.24.36 — first end-to-end public traffic on Huawei Cloud Stack.) |
 | Open issues | 81 |
 | Open DoD gates | 7 / 41 |
 | Open TBD-* regressions | 64 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 34 / 41 = 82% |
-| **Active wave** | **🟢🟢🟢🟢 Wave 5 — Phase 0+1 chain on Huawei HCS CONVERGED. 27th \`e521726137adb8d8\`: 3/3 nodes, 3/3 Cilium, 32+/53 HRs Ready (incl catalyst-platform). Wave 5.32 (#2204) Gateway resource shipped. Wave 5.33 (#2205) = remaining gap: Cilium Gateway exposure via type=LoadBalancer needs CCM (Hetzner-only today) — Option B (cilium-envoy hostPort + iptables DNAT) is the POC unblock. Then Pillar 1 walks end-to-end on Sovereign-side BSS.** |
+| **Active wave** | **🟢🟢🟢🟢🟢 Wave 5 — Phase 0+1+Gateway PUBLIC SERVING on Huawei HCS. 27th \`e521726137adb8d8\`: 3/3 nodes, 3/3 Cilium, 32+/53 HRs, gitea HTTP 200 from public 212.72.24.36. RCA: `cilium-envoy-starter` drops all caps before exec'ing worker (pid 7 CapEff=0) — bind <1024 needs `net.ipv4.ip_unprivileged_port_start=80` host sysctl. Privileged DS (Wave 5.33 PR #2206 merged) applies on every node + survives reboot via /etc/sysctl.d/. Stale orphan DNAT removed. Next: HTTPS cert (dns01-powerdns challenge), console catalyst-ui HTTPRoute fix, then Pillar 1 walk on Sovereign-side BSS.** |
 
 ## 🚀 Session 2026-05-22 — Hetzner → Huawei migration in flight (founder mandate ~17:00Z)
 
