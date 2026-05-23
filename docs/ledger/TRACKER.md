@@ -4,12 +4,12 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T16:37:00Z` (Mothership recovered ~16:31Z. Auto-recovery script fired; 27th POSTed at 16:36 with image 3938bc7 carrying Waves 5.20-5.31. catalyst-api mem dropped to 64Mi to fit mothership memory pressure.) |
+| Last refreshed | `2026-05-23T16:56:00Z` (🟢🟢🟢 27th `e521726137adb8d8` CROSS-NODE POD PING WORKS! 0% loss, 0.45ms. Waves 5.30+5.31 verified as the canonical fix. 30/53 HRs Ready and climbing. DNS resolving.) |
 | Open issues | 78 |
 | Open DoD gates | 7 / 41 |
 | Open TBD-* regressions | 64 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 34 / 41 = 82% |
-| **Active wave** | **🟢🟢🟢 Wave 5 — 27th `e521726137adb8d8` provisioning. Cumulative Waves 5.20-5.31 baked. Wave 5.30 (sd-check off + Cilium SG ports) + Wave 5.31 (kill Flannel + pre-install Cilium via helm in cloud-init) eliminate the two compound root causes (HCS SDN + dual-CNI race). Mothership recovered from ~20min hard-down via auto-script triggering 27th immediately on apiserver-ready.** |
+| **Active wave** | **🟢🟢🟢🟢 Wave 5 — 27th `e521726137adb8d8` ROOT CAUSE FIX VERIFIED. Cross-node pod ping 10.42.0.144 → 10.42.1.35 0% loss 0.45ms. Cilium-only CNI (no Flannel cni0). 30/53 HRs Ready (vs 21 stuck on every prior attempt). DNS resolving via Cilium kube-proxy-replacement. Phase 1 cascade now CONVERGING toward console.hw01.omani.works for Pillar 1 walk.** |
 
 ## 🚀 Session 2026-05-22 — Hetzner → Huawei migration in flight (founder mandate ~17:00Z)
 
