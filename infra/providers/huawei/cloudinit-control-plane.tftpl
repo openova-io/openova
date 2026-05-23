@@ -327,6 +327,14 @@ runcmd:
     done
 
   - KUBECONFIG=/etc/rancher/k3s/k3s.yaml flux install --components=source-controller,kustomize-controller,helm-controller,notification-controller || true
+  # Wave 5.29 (Refs #2163): substitute the tofu-baked CILIUM_K8S_SERVICE_HOST
+  # placeholder with the CP's ACTUAL private IP. HCS DHCP non-deterministic —
+  # cidrhost(subnet, 2) baked at tofu-render-time is wrong (CP actually
+  # got .173 on 24th attempt 1c40b4bd). cilium-agent init container
+  # fails "no route to host" on the placeholder IP, leaving Cilium in
+  # CrashLoopBackOff which kills CoreDNS service routing → cascade
+  # failure of every HelmRelease needing kube-dns.
+  - ["bash", "-c", "REAL_IP=$(ip -4 -o addr show dev eth0 | awk '{print $4}' | cut -d/ -f1); sed -i \"s|CILIUM_K8S_SERVICE_HOST: \\\"[0-9.]*\\\"|CILIUM_K8S_SERVICE_HOST: \\\"$REAL_IP\\\"|g\" /var/lib/catalyst/manifests/10-flux-source.yaml; echo \"Wave 5.29: substituted CILIUM_K8S_SERVICE_HOST with $REAL_IP\""]
   - KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f /var/lib/catalyst/manifests/10-flux-source.yaml
 
   # 5. PUT-back kubeconfig to catalyst-api (issue #183 Option D).
