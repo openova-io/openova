@@ -291,16 +291,40 @@ runcmd:
   # 5.12 patched live; Wave 5.19 seeds at cloud-init time so the CRDs
   # are present BEFORE Flux tries any HelmRelease.
   - |
-    # Standard channel CRDs (Wave 5.19)
-    for crd in gatewayclasses gateways httproutes grpcroutes referencegrants; do
-      KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f \
-        "https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/v1.2.0/config/crd/standard/gateway.networking.k8s.io_$${crd}.yaml" || true
+    # Wave 5.28 (Refs #2163): wait for k3s apiserver to be Ready before
+    # seeding CRDs. 24th attempt 1c40b4bd showed gatewayclasses CRD
+    # missing because the for-loop ran while apiserver was still
+    # initialising — gatewayclasses was first in the loop and failed
+    # silently via `|| true`; the 4 subsequent CRDs succeeded once
+    # apiserver came up mid-loop. Pre-wait + per-CRD retry makes it
+    # atomic.
+    for i in $(seq 1 30); do
+      if KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl get --raw=/readyz 2>/dev/null | grep -q ok; then
+        echo "k3s apiserver ready (iter=$i)"
+        break
+      fi
+      sleep 5
     done
-    # Experimental channel — tlsroutes (Wave 5.23 Refs #2163). Cilium
-    # 1.16 operator checks for gateway.networking.k8s.io/v1alpha2 tlsroutes
-    # at startup and CrashLoopBackOffs without it.
-    KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f \
-      "https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/v1.2.0/config/crd/experimental/gateway.networking.k8s.io_tlsroutes.yaml" || true
+    # Standard channel CRDs (Wave 5.19 + retry hardening from Wave 5.28).
+    for crd in gatewayclasses gateways httproutes grpcroutes referencegrants; do
+      for attempt in 1 2 3 4 5; do
+        if KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f \
+          "https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/v1.2.0/config/crd/standard/gateway.networking.k8s.io_$${crd}.yaml"; then
+          break
+        fi
+        echo "CRD $${crd} apply attempt $${attempt}/5 failed; retrying in 5s"
+        sleep 5
+      done
+    done
+    # Experimental channel — tlsroutes (Wave 5.23 Refs #2163) with Wave 5.28 retry.
+    for attempt in 1 2 3 4 5; do
+      if KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f \
+        "https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/v1.2.0/config/crd/experimental/gateway.networking.k8s.io_tlsroutes.yaml"; then
+        break
+      fi
+      echo "tlsroutes CRD apply attempt $${attempt}/5 failed; retrying in 5s"
+      sleep 5
+    done
 
   - KUBECONFIG=/etc/rancher/k3s/k3s.yaml flux install --components=source-controller,kustomize-controller,helm-controller,notification-controller || true
   - KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f /var/lib/catalyst/manifests/10-flux-source.yaml
