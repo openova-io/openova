@@ -4,12 +4,12 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T12:50:00Z` (Waves 5.20-5.25 all merged + catalyst-api rebuilt at fb9938c + 20th deployment `51fcc636d958c26a` POSTed) |
-| Open issues | 79 |
+| Last refreshed | `2026-05-23T13:15:00Z` (Wave 5.26 merged PR #2192, 16 stale issues closed: 94→78) |
+| Open issues | 78 |
 | Open DoD gates | 7 / 41 |
-| Open TBD-* regressions | 68 |
+| Open TBD-* regressions | 67 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 34 / 41 = 82% |
-| **Active wave** | **🟢 Wave 5 20th attempt: `51fcc636d958c26a` provisioning on Huawei me-east-215 with cumulative Waves 5.20 (worker single-shell) + 5.21 (NAT Gateway) + 5.22 (PUT-back retry-loop) + 5.23 (tlsroutes CRD) + 5.24 (CILIUM_K8S_SERVICE_HOST=cp_private_ip) + 5.25 (k3s --flannel-backend=host-gw). All Waves verified baked into catalyst-api Pod image fb9938c.** |
+| **Active wave** | **🟢 Wave 5 20th attempt: KPS keypair name-collision (orphaned from 19th's manual-debugged state) hit on first apply; Wave 5.26 ships deployment_id-scoped name_prefix as the target-state fix. 20th workdir destroy-rebuild via debug Pod in-flight. Cumulative Waves 5.20-5.26 ready for 21st prov.** |
 
 ## 🚀 Session 2026-05-22 — Hetzner → Huawei migration in flight (founder mandate ~17:00Z)
 
@@ -47,6 +47,7 @@ Founder direction: wipe Hetzner POC (free credit exhausted), pivot to Huawei Oma
 | 5.23 | [#2185](https://github.com/openova-io/openova/pull/2185) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | Seed Gateway API tlsroutes experimental CRD (Cilium 1.16 operator CrashLoopBackOff without it). Per-Wave #2184. Chart 1.4.264. |
 | 5.24 | [#2187](https://github.com/openova-io/openova/pull/2187) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | Pass cp_private_ip as CILIUM_K8S_SERVICE_HOST in bootstrap-kit Kustomization postBuild substitute (default 10.0.1.2 unreachable on Huawei VPCs). Per-Wave #2186. Chart 1.4.265. |
 | 5.25 | [#2189](https://github.com/openova-io/openova/pull/2189) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | k3s --flannel-backend=host-gw to free vxlan device for Cilium (Cilium-agent CrashLoop "vxlan address already in use"). Per-Wave #2188. Chart 1.4.266. |
+| 5.26 | [#2192](https://github.com/openova-io/openova/pull/2192) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | Scope resource names by deployment_id (`name_prefix = catalyst-<fqdn>-<dep_id8>`) — 20th attempt 51fcc636 hit HCS KPS keypair conflict because 19th's orphaned keypair "catalyst-hw01-omani-works-key" lingered after manual SSH-debug broke its tofu state. Orphan-purge keys off TMS tag, not name. Per-Wave issue #2191. |
 | 5 | — | <img alt="WAITING_PROV" src="https://img.shields.io/badge/-WAITING__PROV-bf8700?style=flat-square" /> | **`hw01.omani.works` 12th attempt: PAT rotation + Gateway CRDs + bp-cilium installed; 28/53 HRs Ready before plateau on worker-join bug.** Wave 5.13/5.14 fix landed; 14th attempt fires after chart 1.4.255 mothership roll. Next remaining: bp-keycloak / bp-cnpg / bp-gitea → bp-catalyst-platform → console.hw01.omani.works HTTPS → Pillar 1 voucher walk. |
 | 6 | — | <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> | 5-pillar atomic walk: voucher (P1) / BCP wizard (P2) / CNPG region-kill (P3) / Sandbox + qwen-code + MCP (P4) / sovereignty cutover 600s deny-egress hold (P5). |
 
