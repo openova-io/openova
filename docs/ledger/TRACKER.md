@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T21:00:00Z` (🟢🟢🟢🟢🟢🟢 Waves 5.33+5.34 cold-boot VALIDATED on 30th `102ac1f980d6fc7f` — sysctl-DS Running, powerdns Secret seeded, cert Ready, gateway Programmed, gitea+auth HTTPS served via Playwright. Wave 5.35 #2211 filed for NEXT blocker: gitea-app init psql auth race blocks catalyst-gitea-token-mint Job → bp-catalyst-platform stuck → catalyst-api never deploys → console.hw01 returns envoy 404. Sovereign-side Pillar 1 walk blocked on this pre-existing dep-chain bug.) |
+| Last refreshed | `2026-05-23T21:05:00Z` (🟢🟢🟢🟢🟢🟢🟢 **SOVEREIGN-SIDE PILLAR 1 ENTRY POINT REACHED ON HUAWEI HCS**. 30th `102ac1f980d6fc7f`: bp-catalyst-platform Ready=True after Wave 5.35 gitea-pg password reset workaround, console.hw01.omani.works HTTPS 200, /sovereign/login?next=/sovereign/bss/vouchers serves OpenOva Corporate sign-in form 'Enter your email to receive a 6-digit PIN'. Pillar 1 voucher walk requires real operator mailbox for PIN.) |
 | Open issues | 81 |
 | Open DoD gates | 7 / 41 |
 | Open TBD-* regressions | 64 |
