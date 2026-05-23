@@ -84,11 +84,16 @@ Per Principle 25 (D21 anti-pattern), every Wave got its own GitHub issue (#2163-
 
 ## State at end of session
 
-- Wave 5.30 PR #2200 MERGED at 15:39Z
-- Build #2200 in progress; image SHA pending
-- Once image rolls + 26th provisions: pod-to-pod will work on first try
-- All Phase 0 + 1 fixes (Waves 5.20-5.30) baked into catalyst-api image
-- Manual cleanup of orphan VPCs/subnets/NAT/EIPs via direct HCS API; 25th cluster running with Cilium 3/3 but Phase 1 cluster bootstrap stuck due to pre-existing Flannel pods
+- Wave 5.30 PR #2200 MERGED at 15:39Z; image f91272f rolled to mothership
+- 26th attempt 0711c1dfdba8b331 verified Wave 5.30 fix correct (HCS port shows allowed_address_pairs=1.1.1.1/0 = anti-spoof off) but cross-node ping STILL 100% loss
+- **Secondary RCA**: k3s `--flannel-backend=host-gw` creates cni0 bridge. Pods scheduled before Cilium HelmRelease lands get attached to cni0 (Flannel), not Cilium. Cilium IPAM never registers those pod IPs → routing dead.
+- **Wave 5.31 PR #2202 MERGED at 16:01Z**: k3s `--flannel-backend=none`, pre-install Cilium via inline helm in cloud-init immediately after k3s ready. Cilium owns CNI from pod #1. No dual-CNI race possible.
+- 27th awaits Wave 5.31 image build, then triggers
+- Manual cleanup of orphan VPCs/subnets/NAT/EIPs via direct HCS API; 26th cluster running but Phase 1 cluster bootstrap blocked by dual-CNI
+
+### Lesson L8 — Single-issue RCA can miss compound failures
+
+Wave 5.30 fixed the HCS networking blocker (sd-check). But pod-to-pod still failed because of a SECOND independent blocker (Flannel dual-CNI). When dispatching the deep-research agent, framed the question as "why does HCS drop pod traffic?" — got an answer focused on cloud SDN. Should have ALSO asked "what's the CNI state on the node?" earlier — would've found dual-CNI in same RCA pass. Lesson: when multiple subsystems can each independently kill a path, RCA each in parallel.
 
 ## Related artifacts
 
