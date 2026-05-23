@@ -274,10 +274,16 @@ runcmd:
   # 5.12 patched live; Wave 5.19 seeds at cloud-init time so the CRDs
   # are present BEFORE Flux tries any HelmRelease.
   - |
+    # Standard channel CRDs (Wave 5.19)
     for crd in gatewayclasses gateways httproutes grpcroutes referencegrants; do
       KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f \
         "https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/v1.2.0/config/crd/standard/gateway.networking.k8s.io_$${crd}.yaml" || true
     done
+    # Experimental channel — tlsroutes (Wave 5.23 Refs #2163). Cilium
+    # 1.16 operator checks for gateway.networking.k8s.io/v1alpha2 tlsroutes
+    # at startup and CrashLoopBackOffs without it.
+    KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f \
+      "https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/v1.2.0/config/crd/experimental/gateway.networking.k8s.io_tlsroutes.yaml" || true
 
   - KUBECONFIG=/etc/rancher/k3s/k3s.yaml flux install --components=source-controller,kustomize-controller,helm-controller,notification-controller || true
   - KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f /var/lib/catalyst/manifests/10-flux-source.yaml
