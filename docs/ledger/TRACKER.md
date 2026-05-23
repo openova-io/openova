@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T21:45:00Z` (🟢🟢🟢🟢🟢🟢🟢🟢 **PILLARS 1+2 DONE on hw01.omani.works (Huawei HCS)**. P1: 3 vouchers persisted in CNPG via catalyst-api → SME billing proxy. P2: 6-step marketplace wizard walked, BCP topology Active-hot-standby selected (RTO 30s/RPO 5s/Cilium ClusterMesh). P3 blocked on multi-region prov. P4 blocked on bp-harbor object-storage key mismatch. P5 blocked on P4 + multi-region.) |
+| Last refreshed | `2026-05-23T21:55:00Z` (🟢🟢🟢🟢🟢🟢🟢🟢🟢 **PILLARS 1+2 VERIFIED-PASS + P4-scaffolding VERIFIED-PASS on hw01.omani.works (Huawei HCS, 30th prov 102ac1f980d6fc7f)**. P1=3 vouchers in CNPG (commit 6adb7f59 + screenshot 30th-PILLAR-1-VOUCHERS-ISSUED-via-Sovereign-API.png); P2=BCP wizard walked, Active-hot-standby selected (commit a35d5e56 + 4 screenshots); P4-scaffold=Org reconciler chain (Gitea+Keycloak+vCluster) + Sandbox 11-manifest GitOps (commit 979a99ac + screenshot 30th-PILLARS-1-2-4-summary-hw01.png). P3 (CNPG primary/replica region-kill) walk in flight via bp-cnpg-pair single-region. P5 (cutover 600s egress-block) pending.) |
 | Open issues | 81 |
 | Open DoD gates | 7 / 41 |
 | Open TBD-* regressions | 64 |
