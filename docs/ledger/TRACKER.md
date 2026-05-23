@@ -4,12 +4,12 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T14:02:00Z` (Wave 5.26+5.27 merged; 23rd hit HCS VPC quota; manual HCS API purge of 3 orphan VPCs + 1 ECS + 2 NAT + 6 EIPs; 24th in flight; 16 stale issues + 52 stale PRs closed for board hygiene) |
-| Open issues | 79 |
+| Last refreshed | `2026-05-23T14:12:00Z` (24th Phase 0 PASSED in 3min — 6 ECS + NAT + VPC clean; Phase 1 22/53 HRs Ready and climbing after Wave 5.28 patched GatewayClass live) |
+| Open issues | 80 |
 | Open DoD gates | 7 / 41 |
 | Open TBD-* regressions | 68 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 34 / 41 = 82% |
-| **Active wave** | **🟢 Wave 5 — 24th attempt `1c40b4bd3d748ecd` provisioning. Cumulative: Waves 5.20-5.27 baked + HCS-side orphan VPCs purged via direct API (3 VPCs, 2 NAT, 1 ECS, 6 EIPs reclaimed). Flux Kustomization catalyst-platform suspended to keep test-session env stable across pod rolls.** |
+| **Active wave** | **🟢🟢 Wave 5 — 24th attempt `1c40b4bd3d748ecd` Phase 0 SUCCEEDED (3min: VPC + NAT + 3 ECS Ready). Phase 1 climbing: 22/53 HRs Ready. Wave 5.28 (#2196 merged) patches GatewayClass CRD seed race for future provs. Cumulative Waves 5.20-5.28.** |
 
 ## 🚀 Session 2026-05-22 — Hetzner → Huawei migration in flight (founder mandate ~17:00Z)
 
@@ -49,6 +49,7 @@ Founder direction: wipe Hetzner POC (free credit exhausted), pivot to Huawei Oma
 | 5.25 | [#2189](https://github.com/openova-io/openova/pull/2189) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | k3s --flannel-backend=host-gw to free vxlan device for Cilium (Cilium-agent CrashLoop "vxlan address already in use"). Per-Wave #2188. Chart 1.4.266. |
 | 5.26 | [#2192](https://github.com/openova-io/openova/pull/2192) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | Scope resource names by deployment_id (`name_prefix = catalyst-<fqdn>-<dep_id8>`) — 20th attempt 51fcc636 hit HCS KPS keypair conflict because 19th's orphaned keypair "catalyst-hw01-omani-works-key" lingered after manual SSH-debug broke its tofu state. Orphan-purge keys off TMS tag, not name. Per-Wave issue #2191. |
 | 5.27 | [#2194](https://github.com/openova-io/openova/pull/2194) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | Per-deployment VPC CIDR (`cidr_base = 32 + sha256(deployment_id)[0:2] % 216`) — 22nd attempt ac117d1e hit VPC conflict (19/20 attempts left orphaned VPCs at 10.20.0.0/16 + 10.30.0.0/16). Wave 5.26 fixed names; 5.27 fixes CIDRs. Combined = re-prov truly collision-proof. Per-Wave issue #2193. |
+| 5.28 | [#2196](https://github.com/openova-io/openova/pull/2196) | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> | Wait for k3s apiserver Ready + per-CRD retry 5× before Gateway API CRD seed. 24th showed `gatewayclasses` (first in for-loop) silently failed before apiserver init completed; other 4 CRDs succeeded once it came up mid-loop. Per-Wave issue #2195. |
 | 5 | — | <img alt="WAITING_PROV" src="https://img.shields.io/badge/-WAITING__PROV-bf8700?style=flat-square" /> | **`hw01.omani.works` 12th attempt: PAT rotation + Gateway CRDs + bp-cilium installed; 28/53 HRs Ready before plateau on worker-join bug.** Wave 5.13/5.14 fix landed; 14th attempt fires after chart 1.4.255 mothership roll. Next remaining: bp-keycloak / bp-cnpg / bp-gitea → bp-catalyst-platform → console.hw01.omani.works HTTPS → Pillar 1 voucher walk. |
 | 6 | — | <img alt="OPEN" src="https://img.shields.io/badge/-OPEN-cf222e?style=flat-square" /> | 5-pillar atomic walk: voucher (P1) / BCP wizard (P2) / CNPG region-kill (P3) / Sandbox + qwen-code + MCP (P4) / sovereignty cutover 600s deny-egress hold (P5). |
 
