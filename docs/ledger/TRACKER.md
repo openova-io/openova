@@ -4,12 +4,12 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T14:43:00Z` (24th Phase 0 PASS in 3min; Phase 1 Cilium service-routing broken — pod-to-pod over Cilium fails (CoreDNS readiness probe `connect: no route to host`). Waves 5.28+5.29 shipped target-state fixes; 25th will boot clean.) |
-| Open issues | 80 |
+| Last refreshed | `2026-05-23T14:59:00Z` (25th Phase 0 PASS in 3min; Wave 5.29 verified working — CILIUM_K8S_SERVICE_HOST=10.206.1.170 matches actual CP IP; Cilium 3/3 Running 1/1; Phase 1 cascade in progress; HCS API auto-purged 24th + 19th orphans) |
+| Open issues | 81 |
 | Open DoD gates | 7 / 41 |
 | Open TBD-* regressions | 68 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 34 / 41 = 82% |
-| **Active wave** | **🟡 Wave 5 — 24th `1c40b4bd3d748ecd` Phase 0 PASS / Phase 1 BLOCKED on Cilium pod-to-pod routing (cilium-operator + agent had stale CILIUM_K8S_SERVICE_HOST=10.112.1.2; actual CP=10.112.1.173 per HCS DHCP). Wave 5.28 (#2196) + 5.29 (#2198) merged: apiserver-wait + per-CRD retry + runtime-IP substitute. 25th awaiting Wave 5.29 build retry (transient CI auth-checkout failure on first push).** |
+| **Active wave** | **🟢🟢 Wave 5 — 25th `ca9c881b3971c810` CLEAN BOOT: VPC 10.206.0.0/16, 3 nodes Ready, 3/3 Cilium Running 1/1 with correct CILIUM_K8S_SERVICE_HOST (Wave 5.29 runtime-IP substitute worked first try). cert-manager Running, flux controllers initializing. Phase 1 cascade in progress toward console.hw01.omani.works.** |
 
 ## 🚀 Session 2026-05-22 — Hetzner → Huawei migration in flight (founder mandate ~17:00Z)
 
