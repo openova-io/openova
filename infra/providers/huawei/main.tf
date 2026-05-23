@@ -29,20 +29,34 @@ locals {
   # Region keys preserve operator-supplied order. Index 0 = primary.
   region_keys = [for r in var.regions : r.code]
 
-  # Per-region VPC CIDR — first region gets 10.20.0.0/16, second
-  # gets 10.30.0.0/16, third gets 10.40.0.0/16, etc. Each region's
-  # CIDR is isolated (no peering) — collisions across regions are
-  # harmless because traffic never crosses VPC boundaries.
+  # Per-region VPC CIDR — second octet derived from deployment_id hash
+  # so re-provisions of the same FQDN (or sibling Sovereigns sharing a
+  # project) NEVER collide on VPC CIDR. Range 10.32-10.247 (216 buckets)
+  # avoids the canonical 10.0/24 management range and the 10.250+ reserved
+  # range. Each region gets `base + idx*10` (so a 2-region deploy occupies
+  # two distinct /16s).
+  #
+  # Wave 5.27 (Refs #2191 follow-up): caught live on 22nd attempt
+  # ac117d1e — VPC creation rejected because 19th/20th attempts left
+  # orphaned VPCs at 10.20.0.0/16 + 10.30.0.0/16 in HCS. Per Principle
+  # 14 (target-state, no workarounds), per-deployment CIDR is the
+  # canonical fix: tofu state can be lost, manual SSH-debug can
+  # de-sync state, orphan-purge sweeps can lag — fresh CIDR per prov
+  # is the only collision-proof shape.
+  #
+  # Inter-VPC routing is via DMZ WireGuard over PUBLIC EIPs (per
+  # docs/DOD.md A2), so a fresh CIDR per prov is transparent.
+  cidr_base = 32 + (parseint(substr(sha256(var.deployment_id), 0, 2), 16) % 216)
   region_vpc_cidr = {
     for idx, r in var.regions :
-    r.code => format("10.%d.0.0/16", 20 + idx * 10)
+    r.code => format("10.%d.0.0/16", local.cidr_base + idx * 10)
   }
 
   # Per-region subnet CIDR — uniform /24 inside each /16 since the
   # regions don't share a routing domain.
   region_subnet_cidr = {
     for idx, r in var.regions :
-    r.code => format("10.%d.1.0/24", 20 + idx * 10)
+    r.code => format("10.%d.1.0/24", local.cidr_base + idx * 10)
   }
 
   # Effective per-region SKU — operator-supplied wins; module defaults
