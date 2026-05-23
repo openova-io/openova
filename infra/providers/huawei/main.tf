@@ -69,8 +69,21 @@ locals {
 
   # Canonical resource-name prefix that the orphan-purge sweep (Go-side
   # at internal/providers/huawei/ Wave 3) will look for. Pattern mirrors
-  # Hetzner's `catalyst-<fqdn-slug>`.
-  name_prefix = "catalyst-${local.fqdn_slug}"
+  # Hetzner's `catalyst-<fqdn-slug>` BUT also includes the first 8 hex
+  # chars of the deployment_id so re-provisioning the same FQDN never
+  # collides on resource names (HCS rejects same-name KPS keypair / VPC /
+  # OBS bucket / EIP / NAT with HTTP 409 "could not be processed due to
+  # conflict in the request").
+  #
+  # Wave 5.26 (Refs #2191): caught live on 20th attempt 51fcc636d958c26a
+  # — KPS keypair "catalyst-hw01-omani-works-key" collided with the
+  # orphaned keypair from 19th attempt c5da3542 that was not cleaned up
+  # because manual SSH-debug had broken tofu state on the prior prov.
+  #
+  # The orphan-purge sweep (Go-side ListServers / OBS bucket sweep) keys
+  # off TMS tag `catalyst.openova.io/deployment-id`, not the name —
+  # different per-prov names do NOT break orphan cleanup.
+  name_prefix = "catalyst-${local.fqdn_slug}-${substr(var.deployment_id, 0, 8)}"
 
   # Canonical TMS tags per PROVIDER-INTERFACE.md §3 (label conventions).
   # Same key shape as Hetzner; Huawei TMS happens to accept k=v lists.
