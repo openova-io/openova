@@ -315,6 +315,57 @@ resource "huaweicloud_vpc_eip" "cp" {
   }
 }
 
+# ── NAT Gateway for worker egress (Wave 5.21, Refs #2140) ─────────────────
+#
+# Workers (no EIP per A2) need internet to apt-install + curl get.k3s.io
+# during cloud-init. Without NAT, workers' apt update times out + k3s
+# install never runs → only the CP joins the cluster, all Pods Pending
+# Insufficient CPU. Caught live on 18th deployment 57f82ce11ed0c899:
+# worker SSH revealed "curl get.k3s.io: Could not resolve host" + apt
+# halt. One NAT Gateway + one SNAT rule per VPC gives transparent egress
+# for the entire region subnet (workers + CP). Egress flows: worker →
+# NAT GW → NAT EIP → internet. No per-worker EIP needed (keeps HCS
+# publicIp quota=10 comfortable: 2 CP + 2 NAT = 4 EIPs).
+resource "huaweicloud_nat_gateway" "region" {
+  for_each = toset(local.region_keys)
+
+  name        = "${local.name_prefix}-${each.key}-nat"
+  spec        = "1" # small — up to 10K connections, sufficient for POC
+  vpc_id      = huaweicloud_vpc.region[each.key].id
+  subnet_id   = huaweicloud_vpc_subnet.region[each.key].id
+  description = "Catalyst worker egress for region ${each.key}"
+
+  lifecycle {
+    ignore_changes = [tags]
+  }
+}
+
+resource "huaweicloud_vpc_eip" "nat" {
+  for_each = toset(local.region_keys)
+
+  publicip {
+    type = "5_bgp"
+  }
+  bandwidth {
+    name        = "${local.name_prefix}-${each.key}-nat-bw"
+    size        = 100
+    share_type  = "PER"
+    charge_mode = "traffic"
+  }
+
+  lifecycle {
+    ignore_changes = [tags]
+  }
+}
+
+resource "huaweicloud_nat_snat_rule" "region" {
+  for_each = toset(local.region_keys)
+
+  nat_gateway_id = huaweicloud_nat_gateway.region[each.key].id
+  floating_ip_id = huaweicloud_vpc_eip.nat[each.key].id
+  subnet_id      = huaweicloud_vpc_subnet.region[each.key].id
+}
+
 # ── Cloud-init render (control-plane + worker) ────────────────────────────
 #
 # Same comment-stripping regex the Hetzner module uses to land rendered

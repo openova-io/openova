@@ -71,6 +71,10 @@ provider "huaweicloud" {
     # 2026-05-22T19:52Z: `dial tcp: lookup kms.me-east-215.
     # myhuaweicloud.com: no such host`.
     kms = "https://kms.${var.huawei_region}.kom4dc.nationalcloud.om"
+    # NAT Gateway (Wave 5.21, Refs #2140) — workers need internet egress
+    # for apt-install + k3s installer. SNAT rule + EIP gives transparent
+    # egress without per-worker EIP.
+    nat = "https://nat.${var.huawei_region}.kom4dc.nationalcloud.om"
   }
 
   insecure = var.huawei_insecure
