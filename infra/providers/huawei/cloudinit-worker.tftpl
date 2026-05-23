@@ -35,9 +35,9 @@ write_files:
 
 runcmd:
   - sysctl --system
-  - systemctl reload ssh || true
+  - ["bash", "-c", "systemctl reload ssh || true"]
 %{ if enable_fail2ban ~}
-  - systemctl enable --now fail2ban || true
+  - ["bash", "-c", "systemctl enable --now fail2ban || true"]
 %{ endif ~}
 
   # Join the k3s control-plane at the region's local CP (private IP
