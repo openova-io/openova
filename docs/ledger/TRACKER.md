@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-05-23T20:05:00Z` (🟢🟢🟢🟢🟢 Waves 5.33+5.34 PROVEN on 27th. HCS deep-purged orphan VPCs. 29th deployment \`b25ffa2d756c0724\` provisioning with Wave 5.34 (powerdns/pdm/handover-jwt Secret seeds) baked — first prov where cert-manager DNS01 should succeed out-of-the-box. UAT evidence comments posted on 10 prior Wave issues.) |
+| Last refreshed | `2026-05-23T20:42:00Z` (🟢🟢🟢🟢🟢🟢 Waves 5.33+5.34 IaC COLD-BOOT VALIDATED on 30th deployment \`102ac1f980d6fc7f\` fresh prov: sysctl-envoy-bind DS 3/3 Running, powerdns-api-credentials Secret seeded by cloud-init, cert-manager DNS01 cert Ready=True at 20:32:35Z without manual rotation, GatewayClass Accepted=True, Gateway Programmed=True, console.hw01 HTTPS=404 (envoy serving, HTTPRoutes chain pending bp-keycloak/gitea/catalyst-platform).) |
 | Open issues | 81 |
 | Open DoD gates | 7 / 41 |
 | Open TBD-* regressions | 64 |
