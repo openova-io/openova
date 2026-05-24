@@ -59,6 +59,10 @@ func (h *Handler) Routes() *chi.Mux {
 		})
 		r.Route("/registrar/{registrar}", func(r chi.Router) {
 			r.Post("/set-ns", h.SetNS)
+			// /set-dns writes A/AAAA/CNAME/MX/TXT records at the
+			// registrar's own nameservers. Only adapters that implement
+			// registrar.DNSRegistrar participate; others return 501.
+			r.Post("/set-dns", h.SetDNS)
 			// /validate is the read-only twin of /set-ns — checks that the
 			// supplied token CAN reach the registrar and CAN see the named
 			// domain, without flipping any nameservers. The wizard's BYO
