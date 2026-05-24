@@ -100,6 +100,18 @@ spec:
       # `openbao` in the openbao namespace. Override the default so the
       # post-install Jobs can actually reach the server.
       baoAddress: http://openbao.openbao.svc.cluster.local:8200
+      # Wave 5.55 (#2295, 2026-05-24 post-hw01 manual unblock): bump the
+      # init-Job activeDeadlineSeconds from 600s (10m) to 1200s (20m).
+      # On hw01 (Huawei HCS slower storage) the openbao-0 StatefulSet
+      # Pod took ~7m to reach Ready (vs ~3m on Hetzner). With the
+      # 10m default the Job ran out before init could complete; the
+      # founder had to `bao operator init` manually then suspend/resume
+      # the HR. 1200s gives the StatefulSet up to 12 minutes for
+      # cold-start while leaving 8 minutes for bao status wait + init +
+      # unseal + Secret writes. Stays under the parent HR's 15m timeout
+      # so failed runs still surface as HR errors, not silent kit
+      # timeouts.
+      activeDeadlineSeconds: 1200
     # Issue #517 (Phase-8a single-node): openbao upstream chart's
     # 3-replica StatefulSet uses required pod-anti-affinity by hostname.
     # On single-node Phase-8a Sovereigns this leaves 2/3 pods Pending
