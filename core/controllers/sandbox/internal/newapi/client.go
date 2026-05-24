@@ -102,10 +102,18 @@ type liveClient struct {
 
 // New returns a live client. baseURL is the catalyst-api root the
 // bridge handler is mounted on (e.g.
-// "http://newapi.newapi.svc.cluster.local:3000"). adminSecret is the
-// value of NEWAPI_ADMIN_SECRET — chart-emitted by the
+// "http://newapi.newapi.svc.cluster.local:8080" post-Wave-5.57). adminSecret
+// is the value of NEWAPI_ADMIN_SECRET — chart-emitted by the
 // newapi-token-signing-key Secret. httpClient may be nil; in that
-// case a default 30s-timeout client is used.
+// case a default 60s-timeout client is used.
+//
+// Wave 5.57e (#2303, 2026-05-24): timeout bumped 30s -> 60s. On hw01
+// the sandbox-bridge sidecar cold-start can exceed 30s (distroless
+// pull from GHCR over Huawei egress + Go binary start + first :8080
+// listen). Pre-fix, sandbox-controller hit context-deadline on every
+// fresh-Pod reconcile, surfaced as TokenMintFailed even though the
+// bridge was about to become ready. 60s gives one full kubelet pull-
+// retry budget without breaking idempotent re-reconcile semantics.
 //
 // Returns an error when baseURL or adminSecret is empty so the
 // controller fails-loud at process start rather than shipping a
@@ -119,7 +127,7 @@ func New(baseURL, adminSecret string, httpClient HTTPClient) (Client, error) {
 		return nil, errors.New("newapi.New: admin secret is empty")
 	}
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 30 * time.Second}
+		httpClient = &http.Client{Timeout: 60 * time.Second}
 	}
 	return &liveClient{
 		baseURL:     baseURL,
