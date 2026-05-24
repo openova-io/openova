@@ -39,6 +39,25 @@ spec:
         default: 1
         minimum: 1
         maximum: 16
+      sandboxBridge:
+        type: object
+        description: |
+          Sidecar exposing POST /admin/tokens/sandbox on :8080 (Wave 5.57).
+          Inviolable Principle #4 — every knob operator-tunable per Sovereign
+          overlay. Disable when the Sovereign does not run the per-Org Sandbox
+          surface (bp-sandbox not installed) to save the sidecar's 32Mi mem
+          request + ghcr image-pull.
+        properties:
+          enabled:
+            type: boolean
+            default: true
+            description: When false the chart skip-renders the sidecar container + Service port + NetPol rule.
+          port:
+            type: integer
+            default: 8080
+            minimum: 1
+            maximum: 65535
+            description: Sidecar listen port. Must match sandbox-controller's NEWAPI_BASE_URL.
       ingress:
         type: object
         required: [host, adminHost]
