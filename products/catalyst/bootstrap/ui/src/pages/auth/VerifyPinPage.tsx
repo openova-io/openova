@@ -183,10 +183,10 @@ export function VerifyPinPage() {
         className="flex flex-col gap-9"
       >
         <div className="flex flex-col items-center gap-3 text-center">
-          <h1 className="text-2xl font-semibold tracking-tight text-[oklch(94%_0.01_250)]">
+          <h1 className="text-2xl font-semibold tracking-tight text-[var(--color-text-strong)]">
             Enter the verification code
           </h1>
-          <p className="text-[15px] text-[oklch(58%_0.01_250)] leading-snug">
+          <p className="text-[15px] text-[var(--color-text-dim)] leading-snug">
             A 6-digit code was sent to
           </p>
           <button
@@ -194,7 +194,7 @@ export function VerifyPinPage() {
             onClick={copyEmail}
             data-testid="verify-email-pill"
             title="Copy email"
-            className="group inline-flex items-center gap-2 rounded-full border border-[--color-surface-border] bg-[--color-surface-1] px-3.5 py-1.5 text-sm font-medium text-[oklch(85%_0.01_250)] hover:border-[--color-brand-500]/60 hover:bg-[--color-surface-2] transition-colors"
+            className="group inline-flex items-center gap-2 rounded-full border border-[--color-surface-border] bg-[--color-surface-1] px-3.5 py-1.5 text-sm font-medium text-[var(--color-text)] hover:border-[--color-brand-500]/60 hover:bg-[--color-surface-2] transition-colors"
           >
             <span id="verify-email-pill-text" className="select-all">
               {email}
@@ -203,7 +203,7 @@ export function VerifyPinPage() {
               <Check className="h-3.5 w-3.5 text-[--color-success]" aria-label="Copied" />
             ) : (
               <Copy
-                className="h-3.5 w-3.5 text-[oklch(50%_0.01_250)] group-hover:text-[--color-brand-400] transition-colors"
+                className="h-3.5 w-3.5 text-[var(--color-text-dim)] group-hover:text-[--color-brand-400] transition-colors"
                 aria-label="Copy email"
               />
             )}
@@ -262,7 +262,7 @@ export function VerifyPinPage() {
           >
             Didn't get a code? Send a new one
           </button>
-          <p className="text-xs text-[oklch(40%_0.01_250)]">
+          <p className="text-xs text-[var(--color-text-dimmer)]">
             Codes expire after 10 minutes — check your spam folder.
           </p>
         </div>

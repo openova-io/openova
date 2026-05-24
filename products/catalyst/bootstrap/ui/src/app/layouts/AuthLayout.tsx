@@ -25,7 +25,7 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
         <div className="flex items-center gap-2.5">
           {/* Canonical OpenOva mark — see /brand/logo-mark.svg in openova-private */}
           <OOLogo h={22} id="auth-left-logo" />
-          <span className="text-sm font-semibold text-[oklch(92%_0.01_250)] tracking-tight">OpenOva <span className="text-[oklch(60%_0.01_250)] font-normal">Sovereign</span></span>
+          <span className="text-sm font-semibold text-[var(--color-text-strong)] tracking-tight">OpenOva <span className="text-[var(--color-text-dim)] font-normal">Sovereign</span></span>
         </div>
 
         <div className="flex flex-col gap-6">
@@ -34,11 +34,11 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, ease: [0.4, 0, 0.2, 1] }}
           >
-            <p className="text-2xl font-semibold text-[oklch(92%_0.01_250)] leading-snug text-balance">
+            <p className="text-2xl font-semibold text-[var(--color-text-strong)] leading-snug text-balance">
               Enterprise Kubernetes.<br />
               Provisioned in minutes.
             </p>
-            <p className="mt-3 text-sm text-[oklch(50%_0.01_250)] leading-relaxed max-w-xs">
+            <p className="mt-3 text-sm text-[var(--color-text-dim)] leading-relaxed max-w-xs">
               52 open-source components. AI-native operations. Multi-region out of the box.
               Production-grade from day one.
             </p>
@@ -52,13 +52,13 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
             ].map(({ stat, label }) => (
               <div key={label} className="flex items-center gap-3">
                 <span className="text-lg font-bold text-[--color-brand-400] tabular-nums">{stat}</span>
-                <span className="text-sm text-[oklch(45%_0.01_250)]">{label}</span>
+                <span className="text-sm text-[var(--color-text-dimmer)]">{label}</span>
               </div>
             ))}
           </div>
         </div>
 
-        <p className="text-xs text-[oklch(35%_0.01_250)]">
+        <p className="text-xs text-[var(--color-text-dimmer)]">
           © {new Date().getFullYear()} OpenOva · Platform Edition
         </p>
       </div>

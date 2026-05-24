@@ -98,10 +98,10 @@ export function LoginPage() {
         className="flex flex-col gap-8"
       >
         <div className="flex flex-col gap-2 text-center">
-          <h1 className="text-2xl font-semibold tracking-tight text-[oklch(94%_0.01_250)]">
+          <h1 className="text-2xl font-semibold tracking-tight text-[var(--color-text-strong)]">
             Sign in
           </h1>
-          <p className="text-[15px] text-[oklch(58%_0.01_250)]">
+          <p className="text-[15px] text-[var(--color-text-dim)]">
             Enter your email to receive a 6-digit PIN.
           </p>
           {/*
@@ -121,7 +121,7 @@ export function LoginPage() {
           {typeof window !== 'undefined' && window.location?.host && (
             <p
               data-testid="login-canonical-host"
-              className="text-[12px] font-mono text-[oklch(50%_0.01_250)]"
+              className="text-[12px] font-mono text-[var(--color-text-dim)]"
             >
               {window.location.host}
             </p>
@@ -146,7 +146,7 @@ export function LoginPage() {
             <p
               role="status"
               data-testid="login-next-hint"
-              className="text-[13px] text-[oklch(58%_0.01_250)]"
+              className="text-[13px] text-[var(--color-text-dim)]"
             >
               We'll take you to <code>{sanitizeNextParam(next)}</code>{' '}
               after you sign in.
