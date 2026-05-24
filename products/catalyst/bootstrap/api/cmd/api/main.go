@@ -1890,13 +1890,21 @@ func newCompliancePolicyRollupPublisherFromEnv(log *slog.Logger) handler.PolicyR
 		return nil
 	}
 	bucket := env("CATALYST_NATS_KV_POLICY_ROLLUP_BUCKET", "policy-rollup")
+	source := env("CATALYST_SOURCE_FQDN", env("HOSTNAME", "catalyst-api"))
+	// Wave 5.44 (#2251) wired the real NATS JetStream KV publisher via
+	// internal/natspub — replacing the prior nil-returning stub. nats.go
+	// landed in catalyst-api's go.mod via TBD-D35c PR #1918 (the same
+	// dependency that backs sandbox_publisher.go).
+	p, err := natspub.NewComplianceRollupPublisher(url, bucket, source, log,
+		handler.IncrementComplianceNATSPublishFailure)
+	if err != nil {
+		log.Warn("compliance: NATS KV publisher init failed — falling back to best-effort (SSE+Prometheus only)",
+			"url", url, "bucket", bucket, "err", err)
+		return nil
+	}
 	log.Info("compliance: NATS KV publisher wired",
-		"url", url, "bucket", bucket,
-	)
-	// The actual NATS client is wired by a follow-up slice that
-	// imports nats.go. This stub keeps the wiring contract intact
-	// without forcing a Go-module dependency in this slice.
-	return nil
+		"url", url, "bucket", bucket, "source", source)
+	return p
 }
 
 // newComplianceEnvironmentPolicyResolverFromEnv builds a dynamic-
