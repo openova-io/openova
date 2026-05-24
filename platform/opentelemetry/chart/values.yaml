@@ -106,6 +106,10 @@ opentelemetry-collector:
 # CRs" gap.
 opentelemetry-operator:
   enabled: true
+  # Replica count for the operator-controller-manager Deployment.
+  # Upstream chart key is `replicaCount` at the ROOT of the subchart's
+  # values (NOT `replicas`, NOT under `manager.*`). Wave 5.39 fix.
+  replicaCount: 1
   manager:
     image:
       repository: ghcr.io/open-telemetry/opentelemetry-operator/opentelemetry-operator
@@ -113,11 +117,11 @@ opentelemetry-operator:
     collectorImage:
       repository: otel/opentelemetry-collector-contrib
       tag: "0.150.1"
-    # Modest defaults at solo-Sovereign scale. The upstream chart's JSON
-    # schema rejects `resources` + `replicaCount` at root — they live
-    # under `manager.*` (Wave 5.38 fix; CI failed Helm template smoke
-    # render on 1.1.0 with "Additional property resources is not allowed").
-    replicas: 1
+    # Resources for the manager container.
+    # Upstream schema places `resources` under `manager:` (NOT at root).
+    # Wave 5.36 placed it at root → schema rejected. Wave 5.38 also moved
+    # replicas under manager which is ALSO rejected. Wave 5.39 fix:
+    # resources under manager.resources, replicaCount stays at root.
     resources:
       limits:
         cpu: 200m
