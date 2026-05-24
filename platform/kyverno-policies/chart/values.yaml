@@ -74,12 +74,16 @@ compliancePolicies:
 
   probesPresent:
     enabled: true
-    action: Audit
+    # Wave 5.53 (#2286) — EPIC #1094 acceptance requires ~half enforcing.
+    # Probes are P0 reliability; Enforce by default.
+    action: Enforce
     excludeNamespaces: *complianceDefaultExcludes
 
   resourceRequests:
     enabled: true
-    action: Audit
+    # Wave 5.53 — P0 scheduler reliability; without requests workloads
+    # over-commit nodes silently. Enforce by default.
+    action: Enforce
     excludeNamespaces: *complianceDefaultExcludes
 
   resourceLimits:
@@ -99,17 +103,23 @@ compliancePolicies:
 
   ciliumL7Mtls:
     enabled: true
-    action: Audit
+    # Wave 5.53 — zero-trust mesh enforcement; new workloads MUST opt
+    # into the L7 mTLS policy via label. Enforce by default.
+    action: Enforce
     excludeNamespaces: *complianceDefaultExcludes
 
   fluxManaged:
     enabled: true
-    action: Audit
+    # Wave 5.53 — GitOps invariant. Out-of-band kubectl apply bypasses
+    # the audit trail. Enforce by default.
+    action: Enforce
     excludeNamespaces: *complianceDefaultExcludes
 
   harborProxyPull:
     enabled: true
-    action: Audit
+    # Wave 5.53 — supply-chain integrity. All images MUST flow through
+    # the Harbor proxy-cache (signature + SBOM + scan layer). Enforce.
+    action: Enforce
     excludeNamespaces: *complianceDefaultExcludes
     # Operator overrides per-Sovereign (e.g.
     # "^harbor\\.omantel\\.openova\\.io/proxy-(ghcr|dockerhub|quay)/.*").
@@ -121,7 +131,9 @@ compliancePolicies:
 
   imageTagPinned:
     enabled: true
-    action: Audit
+    # Wave 5.53 — supply-chain reproducibility. `:latest` makes the
+    # cluster state non-reproducible. Enforce by default.
+    action: Enforce
     excludeNamespaces: *complianceDefaultExcludes
 
   prometheusScrape:
