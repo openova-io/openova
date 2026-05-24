@@ -67,6 +67,17 @@ spec:
       annotations:
         # Roll the pod when channel/policy config changes.
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        # Wave 5.57c (#2303, 2026-05-24): roll the Pod whenever the
+        # sandboxBridge image or port changes — without this, a chart
+        # upgrade that ONLY changes the sidecar (image tag bump, port,
+        # securityContext) leaves the running Pod untouched because the
+        # checksum/config above only covers the configmap and the rest
+        # of the Pod spec is "diff-equivalent" to Helm's eyes. Caught
+        # live on hw01: chart 1.4.45 shipped the sandbox-bridge sidecar
+        # but the bp-newapi Pod kept running the 2-container 1.4.44
+        # spec (no bridge), so sandbox-controller's POST :8080 hit
+        # nothing → context deadline exceeded.
+        checksum/sandbox-bridge: {{ toYaml .Values.sandboxBridge | sha256sum }}
     spec:
       serviceAccountName: {{ include "bp-newapi.serviceAccountName" . }}
       {{- with .Values.imagePullSecrets }}
