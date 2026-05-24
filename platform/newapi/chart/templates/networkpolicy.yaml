@@ -17,6 +17,18 @@ spec:
         - namespaceSelector:
             matchLabels:
               {{- toYaml .Values.networkPolicy.ingress.fromNamespaceLabels | nindent 14 }}
+        {{- /* Wave 5.57a (#2299) — also allow ingress from additional
+              namespaces listed in .Values.networkPolicy.ingress.allowedFromNamespaces.
+              Catalyst Sovereigns route Cilium Gateway through HTTPRoute
+              hosts; sandbox-controller (catalyst-system) calls newapi
+              admin tokens API directly. Without this list-form, only
+              traefik NS could reach newapi. Each entry is a NS name
+              string; templated into a separate namespaceSelector entry. */}}
+        {{- range .Values.networkPolicy.ingress.allowedFromNamespaces }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . | quote }}
+        {{- end }}
       ports:
         - port: {{ .Values.newapi.port }}
           protocol: TCP
