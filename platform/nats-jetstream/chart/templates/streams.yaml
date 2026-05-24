@@ -29,7 +29,10 @@ metadata:
   labels: {{- include "catalyst-nats.labels" . | nindent 4 }}
     catalyst.openova.io/stream: audit
 spec:
-  name: catalyst.audit
+  # Wave 5.51 (#2280): nack validates spec.name against ^[^.*>]*$ —
+  # no dots allowed in the Stream name. Subjects below keep dots
+  # (those use NATS subject hierarchy which is fine).
+  name: catalyst-audit
   servers:
     - {{ include "catalyst-nats.servers" . }}
   subjects:
@@ -53,7 +56,8 @@ metadata:
   labels: {{- include "catalyst-nats.labels" . | nindent 4 }}
     catalyst.openova.io/stream: events
 spec:
-  name: catalyst.events
+  # Wave 5.51 (#2280) dot-fix — see catalyst-audit above.
+  name: catalyst-events
   servers:
     - {{ include "catalyst-nats.servers" . }}
   subjects:
@@ -73,7 +77,8 @@ metadata:
   labels: {{- include "catalyst-nats.labels" . | nindent 4 }}
     catalyst.openova.io/stream: billing
 spec:
-  name: catalyst.billing
+  # Wave 5.51 (#2280) dot-fix — see catalyst-audit above.
+  name: catalyst-billing
   servers:
     - {{ include "catalyst-nats.servers" . }}
   subjects:
