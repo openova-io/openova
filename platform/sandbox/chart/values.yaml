@@ -77,7 +77,7 @@ runtime:
   # SHA-pinned pty-server image. Empty default fails-fast via the
   # deployment.yaml `required` guard (Inviolable Principle #4a).
   # Auto-bumped by .github/workflows/build-sandbox-pty-server.yaml.
-  ptyServerImage: "ghcr.io/openova-io/openova/sandbox-pty-server:cb1e38d"
+  ptyServerImage: "ghcr.io/openova-io/openova/sandbox-pty-server:5f3f3ef"
   # SHA-pinned openova-sandbox-mcp image. Auto-bumped by
   # .github/workflows/build-sandbox-mcp-server.yaml. 1b0e86c is the
   # last pre-#1658 green build; the rebuilt workflow (repo-root context)
