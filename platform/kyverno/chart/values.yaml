@@ -29,22 +29,40 @@ kyverno:
     install: true
 
   # HA mode — Kyverno 1.18 splits into 4 controllers. Solo-Sovereign default
-  # is replicas=1 per controller; per-Sovereign overlays bump to 3 for true
-  # HA when a regional Sovereign needs admission redundancy.
+  # is replicas=2 (Wave 5.90 #2436) so a single admission-controller restart
+  # doesn't take down the entire fail-closed admission path. Per-Sovereign
+  # overlays may bump to 3 for true HA on regional Sovereigns.
   admissionController:
-    replicas: 1
+    replicas: 2
     image:
       registry: ghcr.io
       repository: kyverno/kyverno
       tag: "v1.18.0"
       pullPolicy: IfNotPresent
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 1
-        memory: 512Mi
+    # Wave 5.90 (#2436) — main container resources bumped from upstream
+    # default 100m/128Mi/384Mi → 500m/512Mi/1Gi. Surfaced live on
+    # d3c6268c (#2423 fresh prov 2026-05-24T20:00Z): with the upstream
+    # defaults, admission-controller on a small s7n.large.4 CP was CPU-
+    # starved during Phase 1 cascade — every Pod create on any
+    # namespace flowed through the kyverno webhook → 10s timeout →
+    # Pod-create cascaded to FailedCreate → bp-keycloak STS wedged →
+    # 22 downstream HRs blocked → console.<fqdn> HTTPS never came up.
+    # With 500m/1Gi the controller has headroom to respond <2s even
+    # during the heaviest Pod-create bursts of Phase 1.
+    #
+    # IMPORTANT: upstream chart key for the MAIN container resources
+    # is `admissionController.container.resources` (NOT just
+    # `.resources` — that key exists in upstream but doesn't propagate
+    # to the Pod spec). The `container:` nesting is the canonical path
+    # per upstream values.yaml line 1238.
+    container:
+      resources:
+        requests:
+          cpu: 500m
+          memory: 512Mi
+        limits:
+          cpu: 2
+          memory: 1Gi
     serviceMonitor:
       enabled: false
 
