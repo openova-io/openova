@@ -575,7 +575,7 @@ func TestEngine_PublishesOnSubscribedEvent(t *testing.T) {
 	rec := &recorder{}
 	pod := uPod("acme", "app", withContainerImages("harbor.openova.io/proxy/x:1"))
 
-	eventCh := make(chan eventLite, 4)
+	eventCh := make(chan Event, 4)
 	cfg := Config{
 		Logger:       quietLogger(),
 		HarborDomain: "harbor.openova.io",
@@ -586,7 +586,7 @@ func TestEngine_PublishesOnSubscribedEvent(t *testing.T) {
 		[]Evaluator{NewHarborEvaluator(cfg)},
 		rec,
 		func(_ string) (Snapshot, []string, error) { return &fakeSnapshot{}, nil, nil },
-		func(_ map[string]struct{}) (<-chan eventLite, func()) {
+		func(_ map[string]struct{}) (<-chan Event, func()) {
 			return eventCh, func() {}
 		},
 	)
@@ -598,7 +598,7 @@ func TestEngine_PublishesOnSubscribedEvent(t *testing.T) {
 	done := make(chan struct{})
 	go func() { _ = eng.Run(ctx); close(done) }()
 
-	eventCh <- eventLite{Cluster: "alpha", Kind: "pod", Object: pod}
+	eventCh <- Event{Cluster: "alpha", Kind: "pod", Object: pod}
 
 	deadline := time.After(2 * time.Second)
 	for {
@@ -634,7 +634,7 @@ func TestEngine_TickerEvaluatesAllPodsAcrossClusters(t *testing.T) {
 		"alpha": {by: map[string][]*unstructured.Unstructured{"pod": {pod1}}},
 		"beta":  {by: map[string][]*unstructured.Unstructured{"pod": {pod2}}},
 	}
-	eventCh := make(chan eventLite, 1)
+	eventCh := make(chan Event, 1)
 
 	cfg := Config{
 		Logger:       quietLogger(),
@@ -655,7 +655,7 @@ func TestEngine_TickerEvaluatesAllPodsAcrossClusters(t *testing.T) {
 			}
 			return s, nil, nil
 		},
-		func(_ map[string]struct{}) (<-chan eventLite, func()) {
+		func(_ map[string]struct{}) (<-chan Event, func()) {
 			return eventCh, func() {}
 		},
 	)
@@ -721,7 +721,7 @@ func TestEngine_RejectsInvalidConfig(t *testing.T) {
 	}
 	if _, err := NewEngine(cfgOK, nil, &recorder{},
 		func(string) (Snapshot, []string, error) { return nil, nil, nil },
-		func(map[string]struct{}) (<-chan eventLite, func()) { return nil, nil }); err == nil {
+		func(map[string]struct{}) (<-chan Event, func()) { return nil, nil }); err == nil {
 		t.Fatalf("empty evaluator slice should error")
 	}
 }
@@ -730,10 +730,10 @@ func TestEngine_DoubleRunRefused(t *testing.T) {
 	cfg := Config{Logger: quietLogger()}
 	cfg.defaults()
 	rec := &recorder{}
-	eventCh := make(chan eventLite)
+	eventCh := make(chan Event)
 	eng, err := NewEngine(cfg, []Evaluator{NewFluxEvaluator(cfg)}, rec,
 		func(string) (Snapshot, []string, error) { return &fakeSnapshot{}, nil, nil },
-		func(map[string]struct{}) (<-chan eventLite, func()) {
+		func(map[string]struct{}) (<-chan Event, func()) {
 			return eventCh, func() {}
 		},
 	)
@@ -750,10 +750,10 @@ func TestEngine_DoubleRunRefused(t *testing.T) {
 }
 
 // Sanity that the package's helper conversions don't drop fields.
-func TestEventLiteFromUnstructured(t *testing.T) {
+func TestEventFromUnstructured(t *testing.T) {
 	pod := uPod("ns", "n")
-	ev := EventLiteFromUnstructured("alpha", "pod", pod)
+	ev := EventFromUnstructured("alpha", "pod", pod)
 	if ev.Cluster != "alpha" || ev.Kind != "pod" || ev.Object != pod {
-		t.Fatalf("EventLiteFromUnstructured dropped a field: %+v", ev)
+		t.Fatalf("EventFromUnstructured dropped a field: %+v", ev)
 	}
 }
