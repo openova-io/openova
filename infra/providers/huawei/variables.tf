@@ -343,3 +343,27 @@ variable "debug_ssh_remote_cidr" {
     to the bastion /32 in tfvars when running recovery from a known IP.
   EOT
 }
+
+# ── Marketplace toggle (Wave 5.88 #2432 — sovereign-tls Kustomization) ──
+variable "marketplace_enabled" {
+  type        = string
+  default     = "true"
+  description = <<-EOT
+    Stringified bool ("true" or "false"). Threaded into sovereign-tls
+    Kustomization's MARKETPLACE_ENABLED postBuild.substitute so
+    bp-catalyst-platform's marketplace + tenant-wildcard HTTPRoutes
+    render on a Sovereign that opts in. Defaults true per the canonical
+    Sovereign posture.
+  EOT
+}
+
+variable "wildcard_cert_use_staging" {
+  type        = string
+  default     = "false"
+  description = <<-EOT
+    Stringified bool. When "true" the sovereign-tls Kustomization's
+    Certificate routes to LE staging (no 5/168h rate-limit per
+    identifier-set; useful when iterating on the same Sovereign FQDN).
+    Default "false" → real-trusted production cert.
+  EOT
+}
