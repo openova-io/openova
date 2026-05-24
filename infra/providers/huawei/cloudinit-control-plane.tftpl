@@ -520,6 +520,58 @@ runcmd:
       done
     fi
 
+  # Wave 5.74 (#2399, founder ask 2026-05-24): SECONDARY-region CPs
+  # PUT-back their own kubeconfig to mothership via the existing
+  # /api/v1/sovereign/secondary-kubeconfig endpoint (sovereign_secondary_
+  # kubeconfig.go HandleSovereignSecondaryKubeconfig). Pre-fix only the
+  # primary CP PUT-back ran (hostname gate above); secondary regions'
+  # kubeconfigs stayed only on their own CP node, never reached
+  # mothership, so the catalyst-api k8sCache only knew about 1 cluster
+  # despite IaC provisioning 2 (founder caught the regression on hw01
+  # 2026-05-24T12:39Z: 6 ECS ACTIVE in tfstate but UI showed 1/1).
+  #
+  # Gate: hostname matches one of the secondary CPs (anything in
+  # region_cp_hostname_map_json EXCEPT primary_cp_hostname). Each
+  # secondary CP rewrites server URL to its OWN region's EIP, POSTs
+  # JSON body {deploymentId, regionKey, kubeconfigYaml} per the
+  # secondaryKubeconfigRequest schema.
+  - |
+    HOSTNAME=$(hostname)
+    REGION_CP_MAP='${region_cp_hostname_map_json}'
+    REGION_EIP_MAP='${region_cp_eip_map_json}'
+    PRIMARY_HOST='${primary_cp_hostname}'
+    PRIMARY_REGION='${primary_region_key}'
+    if [ -n "${deployment_id}" ] && [ -n "${kubeconfig_bearer_token}" ] && [ "$HOSTNAME" != "$PRIMARY_HOST" ]; then
+      # Resolve THIS CP's region key by reverse-lookup in the map.
+      # Map is {"region-a": "hostname-a", "region-b": "hostname-b"}; we
+      # find the key whose value matches our hostname. Pure POSIX awk.
+      MY_REGION=$(echo "$REGION_CP_MAP" | awk -v h="$HOSTNAME" 'BEGIN{FS="[\":,{} ]+"} {for(i=1;i<=NF;i++) if($i==h) print $(i-2)}' | head -1)
+      MY_EIP=$(echo "$REGION_EIP_MAP" | awk -v rk="$MY_REGION" 'BEGIN{FS="[\":,{} ]+"} {for(i=1;i<=NF;i++) if($i==rk) print $(i+2)}' | head -1)
+      if [ -n "$MY_REGION" ] && [ -n "$MY_EIP" ] && [ "$MY_REGION" != "$PRIMARY_REGION" ]; then
+        echo "Wave 5.74: secondary kubeconfig PUT-back from region=$MY_REGION eip=$MY_EIP"
+        sed "s|server: https://127.0.0.1:6443|server: https://$MY_EIP:6443|" /etc/rancher/k3s/k3s.yaml \
+          > /tmp/kubeconfig-secondary.yaml
+        # Wrap kubeconfig YAML inside JSON envelope (handler decodes
+        # JSON body, not raw bytes).
+        KUBECONFIG_ESCAPED=$(awk 'BEGIN{ORS=""} {gsub(/\\/,"\\\\"); gsub(/"/,"\\\""); gsub(/\n/,"\\n"); print $0"\\n"}' /tmp/kubeconfig-secondary.yaml)
+        JSON_BODY=$(printf '{"deploymentId":"%s","regionKey":"%s","kubeconfigYaml":"%s"}' \
+          "${deployment_id}" "$MY_REGION" "$KUBECONFIG_ESCAPED")
+        echo "$JSON_BODY" > /tmp/secondary-kubeconfig-body.json
+        for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+          HTTP_CODE=$(curl -sk -o /dev/null -w '%%{http_code}' -X POST \
+            -H "Authorization: Bearer ${kubeconfig_bearer_token}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/secondary-kubeconfig-body.json \
+            --max-time 15 \
+            "${catalyst_api_url}/api/v1/sovereign/secondary-kubeconfig" || echo "000")
+          echo "Wave 5.74 secondary PUT-back attempt $attempt → HTTP $HTTP_CODE"
+          if [ "$HTTP_CODE" = "204" ] || [ "$HTTP_CODE" = "200" ]; then break; fi
+          sleep 30
+        done
+        rm -f /tmp/secondary-kubeconfig-body.json
+      fi
+    fi
+
   # 6. Mark cloud-init complete (consumed by phase1Watch).
   - mkdir -p /var/lib/catalyst
   - touch /var/lib/catalyst/cloud-init-complete
