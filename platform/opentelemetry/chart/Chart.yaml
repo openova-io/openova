@@ -18,7 +18,7 @@ description: |
   OTLP traffic from in-cluster apps) — DaemonSet / StatefulSet are values
   toggles for node-level collection / WAL persistence respectively.
 type: application
-version: 1.1.0
+version: 1.1.1
 appVersion: "0.150.1"
 keywords: [catalyst, blueprint, opentelemetry, otlp, observability, telemetry, collector, operator, instrumentation]
 maintainers:
