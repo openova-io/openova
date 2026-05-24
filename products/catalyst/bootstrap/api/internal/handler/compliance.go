@@ -2116,6 +2116,12 @@ func (h *Handler) HandleComplianceStream(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
+	// ?scope=resource|application|environment|organization|sovereign
+	// Wave 5.47 (#2266) — audit finding #4 — per-Org/per-App consumers
+	// filter at server-side rather than client-side parse-then-discard.
+	// Empty = no filter (original behaviour, every scope).
+	scopeFilter := strings.TrimSpace(r.URL.Query().Get("scope"))
+
 	ch, unsub := h.compliance.subscribe(clusterID)
 	defer unsub()
 
@@ -2182,6 +2188,14 @@ func (h *Handler) HandleComplianceStream(w http.ResponseWriter, r *http.Request)
 		case ev, ok := <-ch:
 			if !ok {
 				return
+			}
+			// Wave 5.47 (#2266) per-scope filter — when ?scope= was
+			// passed AND the event's score scope doesn't match, skip
+			// without writing. Events with no .Score.Scope pass
+			// through unfiltered (back-compat for non-Score event
+			// types like heartbeat).
+			if scopeFilter != "" && ev.Score.Scope != "" && ev.Score.Scope != scopeFilter {
+				continue
 			}
 			// SSE `event:` prefix — typed listener support per W3C
 			// spec; matrix asserts the literal `event:` token
