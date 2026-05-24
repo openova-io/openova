@@ -30,6 +30,10 @@ The `docs/` tree, in reading order. Every file under `docs/` appears exactly onc
 - [`docs/BUSINESS-STRATEGY.md`](docs/BUSINESS-STRATEGY.md) — positioning, revenue model, competitive landscape, GTM (incl. §5.5 product families map and §10.8 franchise model)
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — technology roadmap 2027–2030: 56-component relevance forecast, components to watch, risks
 
+### Brand kit ([`brand/`](brand/))
+
+- [`brand/README.md`](brand/README.md) — public CC-BY-SA-4.0 brand assets: OO mark + horizontal lockup + stacked lockup. Drop-in SVGs for third-party "powered by OpenOva" placements (chepherd v0.5 + future partner Blueprints).
+
 ### Deep-dive (component / surface level)
 
 - The Catalyst-Zero phase-by-phase execution plan, UI regression catalog, Sovereign provisioning walkthrough, and doc-integrity audit cadence now live in [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md) §8–§11.
