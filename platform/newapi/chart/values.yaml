@@ -865,7 +865,6 @@ sandboxBridge:
       drop: [ALL]
     seccompProfile:
       type: RuntimeDefault
-
 meteringSidecar:
   enabled: true
   image:
