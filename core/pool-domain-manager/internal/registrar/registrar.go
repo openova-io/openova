@@ -111,6 +111,72 @@ type GlueRegistrar interface {
 	GetGlueRecord(ctx context.Context, token, host string) (string, error)
 }
 
+// DNSRegistrar is implemented by adapters whose providers expose the
+// raw zone-level DNS records (A, AAAA, CNAME, MX, TXT) — not just
+// the nameserver list that SetNameservers manipulates. The two
+// surfaces are independent: SetNameservers points the domain at a
+// set of NS hostnames (which typically point to the customer's
+// chosen DNS provider — PowerDNS, Route53, etc); SetDNSRecords
+// writes the raw record set at the REGISTRAR's own nameservers
+// (used when the customer hasn't delegated DNS away and wants the
+// registrar to host the zone directly).
+//
+// Use case: a Sovereign that needs MX or TXT records (mail
+// verification, SPF, DKIM, ACME DNS-01 challenge) on a domain whose
+// nameservers are still the registrar's defaults. Calling
+// SetNameservers would BREAK that — DNSRegistrar lets us write the
+// record set without changing the NS delegation.
+//
+// Adapters whose providers do NOT expose a record-level API (or
+// whose customers have always delegated DNS away) deliberately do
+// not implement this interface. The HTTP handler returns 501 Not
+// Implemented when set-dns is called for such a registrar.
+//
+// Method semantics:
+//
+//   - SetDNSRecords(ctx, token, domain, records): REPLACE the
+//     record set for the domain with `records`. Implementations
+//     MUST be idempotent — calling twice with the same records is
+//     a no-op on the second call (or at worst, a re-write with the
+//     same content). Records NOT in the new set are DELETED;
+//     records in the new set are CREATED or UPDATED. Adapters that
+//     can only update-in-place do a read-modify-write under the hood.
+//
+//   - GetDNSRecords(ctx, token, domain): read back the current
+//     record set. The exact field semantics match SetDNSRecords so
+//     a read-write round trip is lossless.
+type DNSRegistrar interface {
+	SetDNSRecords(ctx context.Context, token, domain string, records []DNSRecord) error
+	GetDNSRecords(ctx context.Context, token, domain string) ([]DNSRecord, error)
+}
+
+// DNSRecord is the provider-agnostic shape every DNSRegistrar
+// adapter translates to/from its native record representation.
+//
+// Type values are uppercase ASCII per RFC 1034. Supported set:
+//
+//	A      IPv4 address — Value is a dotted-quad string
+//	AAAA   IPv6 address — Value is a colon-hex string
+//	CNAME  alias — Value is the target FQDN (trailing dot optional)
+//	MX     mail exchanger — Value is the target FQDN; Priority required
+//	TXT    free-form text — Value is the quoted string contents
+//
+// Future extensions (NS sub-records, SRV, CAA) will go through a
+// minor version bump on the HTTP API path /v2/set-dns.
+type DNSRecord struct {
+	// Subhost is the leftmost label(s). Empty = root of the zone.
+	// "www" = www.<domain>. "_acme-challenge" = ACME DNS-01.
+	Subhost string `json:"subhost"`
+	// Type is one of A, AAAA, CNAME, MX, TXT (uppercase).
+	Type string `json:"type"`
+	// Value is the record's data field. Format varies by Type.
+	Value string `json:"value"`
+	// Priority is the MX priority (0 = highest). Ignored for non-MX.
+	Priority int `json:"priority,omitempty"`
+	// TTL in seconds. 0 = use the registrar's default (typically 3600).
+	TTL int `json:"ttl,omitempty"`
+}
+
 // Typed errors that adapters return so HTTP handlers can map to status
 // codes without string matching.
 //

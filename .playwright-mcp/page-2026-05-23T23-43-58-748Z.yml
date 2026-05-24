@@ -1,0 +1,86 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - navigation "Navigation Bar" [ref=e3]:
+      - generic [ref=e4]:
+        - link "Home" [ref=e5] [cursor=pointer]:
+          - /url: /
+          - img [ref=e6]
+        - link "Explore" [ref=e7] [cursor=pointer]:
+          - /url: /explore/repos
+        - link "Help" [ref=e8] [cursor=pointer]:
+          - /url: https://docs.gitea.com
+      - generic [ref=e9]:
+        - link "Register" [ref=e10] [cursor=pointer]:
+          - /url: /user/sign_up
+          - img [ref=e11]
+          - text: Register
+        - link "Sign In" [ref=e13] [cursor=pointer]:
+          - /url: /user/login?redirect_to=%2f
+          - img [ref=e14]
+          - text: Sign In
+    - main "Home" [ref=e16]:
+      - generic [ref=e18]:
+        - img "Logo" [ref=e19]
+        - generic [ref=e20]:
+          - heading "Catalyst Gitea" [level=1] [ref=e21]
+          - heading "A painless, self-hosted Git service" [level=2] [ref=e22]
+      - generic [ref=e23]:
+        - generic [ref=e24]:
+          - heading "Easy to install" [level=1] [ref=e25]:
+            - img [ref=e26]
+            - text: Easy to install
+          - paragraph [ref=e28]:
+            - text: Simply
+            - link "run the binary" [ref=e29] [cursor=pointer]:
+              - /url: https://docs.gitea.com/installation/install-from-binary
+            - text: for your platform, ship it with
+            - link "Docker" [ref=e30] [cursor=pointer]:
+              - /url: https://github.com/go-gitea/gitea/tree/master/docker
+            - text: ", or get it"
+            - link "packaged" [ref=e31] [cursor=pointer]:
+              - /url: https://docs.gitea.com/installation/install-from-package
+            - text: .
+        - generic [ref=e32]:
+          - heading "Cross-platform" [level=1] [ref=e33]:
+            - img [ref=e34]
+            - text: Cross-platform
+          - paragraph [ref=e36]:
+            - text: Gitea runs anywhere
+            - link "Go" [ref=e37] [cursor=pointer]:
+              - /url: https://go.dev/
+            - text: "can compile for: Windows, macOS, Linux, ARM, etc. Choose the one you love!"
+      - generic [ref=e38]:
+        - generic [ref=e39]:
+          - heading "Lightweight" [level=1] [ref=e40]:
+            - img [ref=e41]
+            - text: Lightweight
+          - paragraph [ref=e43]: Gitea has low minimal requirements and can run on an inexpensive Raspberry Pi. Save your machine energy!
+        - generic [ref=e44]:
+          - heading "Open Source" [level=1] [ref=e45]:
+            - img [ref=e46]
+            - text: Open Source
+          - paragraph [ref=e48]:
+            - text: Go get
+            - link "code.gitea.io/gitea" [ref=e49] [cursor=pointer]:
+              - /url: https://code.gitea.io/gitea
+            - text: "! Join us by"
+            - link "contributing" [ref=e50] [cursor=pointer]:
+              - /url: https://github.com/go-gitea/gitea
+            - text: to make this project even better. Don't be shy to be a contributor!
+  - group "Footer" [ref=e51]:
+    - contentinfo "About Software" [ref=e52]:
+      - link "Powered by Gitea" [ref=e53] [cursor=pointer]:
+        - /url: https://about.gitea.com
+      - text: "Version: 1.22.3 Page:"
+      - strong [ref=e54]: 0ms
+      - text: "Template:"
+      - strong [ref=e55]: 0ms
+    - group "Links" [ref=e56]:
+      - menu [ref=e57] [cursor=pointer]:
+        - generic [ref=e58]:
+          - img [ref=e59]
+          - text: English
+      - link "Licenses" [ref=e61] [cursor=pointer]:
+        - /url: /assets/licenses.txt
+      - link "API" [ref=e62] [cursor=pointer]:
+        - /url: /api/swagger
