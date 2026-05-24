@@ -82,12 +82,21 @@ external-dns:
           name: powerdns-api-credentials
           key: api-key
 
-  # Sources — Service + Ingress per the user-facing brief. Gateway-API
-  # sources (httproute, grpcroute, tlsroute) MAY be added by a per-Sovereign
-  # overlay once Cilium Gateway is the chosen ingress on that cluster.
+  # Sources — Service + Ingress + Gateway-API HTTPRoute. Catalyst
+  # Sovereigns use Cilium Gateway API as the primary ingress, so the
+  # gateway-httproute source MUST be enabled by default — without it
+  # bp-* charts that render HTTPRoute (newapi, harbor, marketplace,
+  # etc.) get zero PowerDNS A records allocated and the hostnames
+  # return NXDOMAIN.
+  #
+  # Wave 5.80 (#2410, founder report 2026-05-24T13:00Z): newapi.hw01
+  # + harbor.hw01 returned HTTP 000 / 404 because external-dns
+  # didn't watch the HTTPRoute kind. Adding gateway-httproute fixes
+  # every HTTPRoute-based host on every Sovereign.
   sources:
     - service
     - ingress
+    - gateway-httproute
 
   # `sync` policy — ExternalDNS owns the record set. Stale records on
   # resource removal are deleted, NOT left dangling. (Brief: policy: sync.)
