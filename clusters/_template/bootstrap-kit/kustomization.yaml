@@ -72,6 +72,12 @@ resources:
   # bp-harbor (slot 19). Chart installs DORMANT — catalyst-api stamps
   # Jobs only on operator-driven cutover trigger.
   - 06a-bp-self-sovereign-cutover.yaml
+  # bp-opentelemetry-operator (slot 19c) — Wave 5.41 chart-split (#2227).
+  # Installs Operator + Instrumentation CRD BEFORE bp-opentelemetry (slot
+  # 20) creates the Catalyst default Instrumentation CR. Eliminates the
+  # Helm-3-doesn't-install-subchart-CRDs-on-upgrade race that broke hw01
+  # across Waves 5.36/5.38/5.39/5.40.
+  - 19c-opentelemetry-operator.yaml
   - 20-opentelemetry.yaml
   - 21-alloy.yaml
   - 22-loki.yaml
