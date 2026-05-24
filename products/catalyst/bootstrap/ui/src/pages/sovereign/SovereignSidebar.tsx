@@ -87,6 +87,22 @@ const FLAT_NAV: FlatNavItem[] = [
     to: '/jobs',
     icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4',
   },
+  // Compliance (Wave 5.62a, Refs #2318 / #1096): expose the existing
+  // SRE / SecLead compliance dashboards (mounted at /sre/compliance +
+  // /sec/compliance in router.tsx) via a single Sidebar entry. Lands
+  // on the SRE dashboard by default; the page links to the SecLead
+  // dashboard + policy drill-downs internally. Backend pipeline is
+  // already shipped (20 baseline Kyverno policies in bp-kyverno-
+  // policies, 6 in Enforce post-Wave-5.53, SSE stream from catalyst-
+  // api at /api/v1/compliance/stream).
+  //
+  // Icon: shield with checkmark — fits the single-stroke family.
+  {
+    id: 'compliance',
+    label: 'Compliance',
+    to: '/sre/compliance',
+    icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z',
+  },
   {
     id: 'users',
     label: 'Users',
@@ -153,7 +169,7 @@ const SETTINGS_SUB_NAV: SubNavItem[] = [
 
 // ── Active-state derivation ───────────────────────────────────────────────────
 
-type ActiveSection = 'apps' | 'sandbox' | 'jobs' | 'dashboard' | 'cloud' | 'users' | 'bss' | 'settings'
+type ActiveSection = 'apps' | 'sandbox' | 'jobs' | 'compliance' | 'dashboard' | 'cloud' | 'users' | 'bss' | 'settings'
 
 const CLOUD_PATH_RE = /^\/(cloud|infrastructure)(\/|$)/
 
@@ -164,6 +180,12 @@ function deriveActiveSection(pathname: string): ActiveSection {
   // /sandbox/$id, and /sandbox/settings (Wave 3).
   if (/^\/sandbox(\/|$)/.test(pathname)) return 'sandbox'
   if (/^\/jobs(\/|$)/.test(pathname)) return 'jobs'
+  // /sre/compliance + /sec/compliance + /compliance/* all highlight
+  // the Compliance nav entry (Wave 5.62a, Refs #2318 / #1096). The
+  // entry's to: '/sre/compliance' is the SRE dashboard landing; the
+  // page links onward to SecLead and PolicyDrilldown.
+  if (/^\/(sre|sec)\/compliance(\/|$)/.test(pathname)) return 'compliance'
+  if (/^\/compliance(\/|$)/.test(pathname)) return 'compliance'
   if (/^\/users(\/|$)/.test(pathname)) return 'users'
   // /bss(/*) → 'bss' so the BSS nav item highlights for every BSS
   // sub-tab (billing/orders/revenue/vouchers/tenants). Family F
