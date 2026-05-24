@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  "Powered by OpenOva" stacked lockup.
+
+  Vertical-stack variant for square-ish placements: footer badges,
+  splash cards, sticker exports, app-card chrome. Mark sits above
+  the wordmark; "powered by" caption sits below.
+
+  Per Wave 5.70 (#2371), CC-BY-SA-4.0 licensed. See brand/README.md.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 200" width="240" height="200" aria-label="Powered by OpenOva">
+  <defs>
+    <linearGradient id="stacked-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#3B82F6"/>
+      <stop offset="100%" stop-color="#818CF8"/>
+    </linearGradient>
+  </defs>
+  <!-- OO mark, centered horizontally at top -->
+  <g transform="translate(85, 20) scale(0.10)">
+    <path
+      d="M 300 88.1966 A 150 150 0 1 0 350 200 A 150 150 0 1 1 400 311.8034"
+      fill="none"
+      stroke="url(#stacked-grad)"
+      stroke-width="100"
+      stroke-linecap="butt"
+    />
+  </g>
+  <!-- Wordmark -->
+  <text x="120" y="140" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="32" font-weight="600" fill="#f3f4f6" letter-spacing="-0.01em">OpenOva</text>
+  <!-- "powered by" caption -->
+  <text x="120" y="170" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="12" font-weight="500" fill="#9ca3af" letter-spacing="0.1em">POWERED BY</text>
+</svg>
