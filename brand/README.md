@@ -10,6 +10,7 @@ Public-facing brand assets for third-party Blueprints, partner surfaces, and "po
 |---|---|
 | `openova-mark.svg` | Icon-only mark (the canonical "OO" interlocking arcs). Favicons, app icons, sidebar marks, lockup icon-position. 700×400 viewBox, gradient blue→indigo. |
 | `powered-by-openova.svg` | "Powered by OpenOva" horizontal lockup. Drop-in SVG combining the mark + wordmark. 480×80 viewBox. Use on third-party UIs that consume OpenOva infrastructure (chepherd pairing screens, partner cards, OEM surfaces). |
+| `powered-by-openova-stacked.svg` | Stacked vertical variant of the lockup. 240×200 viewBox. Use in square-ish placements: footer badges, splash cards, sticker exports, app-card chrome. |
 
 ## License
 
@@ -48,6 +49,7 @@ Under these terms:
 | Version | Date | Changes |
 |---|---|---|
 | 1.0 | 2026-05-24 | Initial public brand-kit. Mark + powered-by lockup. CC-BY-SA-4.0. Filed for Wave 5.70 #2371 in response to chepherd v0.5 ask. |
+| 1.1 | 2026-05-24 | Added stacked vertical lockup (`powered-by-openova-stacked.svg`) — completes the 3-variant set (icon-only / horizontal / stacked) per original #2371 scope. |
 
 ## Contact
 
