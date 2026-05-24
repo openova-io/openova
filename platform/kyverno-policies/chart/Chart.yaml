@@ -19,8 +19,8 @@ description: |
   ClusterPolicy CRs. CRDs are provided by the engine chart's upstream
   Kyverno subchart at slot 27.
 type: application
-version: 1.0.0
-appVersion: "1.0.0"
+version: 1.0.1
+appVersion: "1.0.1"
 keywords: [catalyst, blueprint, kyverno, policy, compliance, audit]
 maintainers:
   - name: OpenOva Catalyst

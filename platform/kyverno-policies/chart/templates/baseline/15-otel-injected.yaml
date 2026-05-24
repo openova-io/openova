@@ -58,36 +58,48 @@ spec:
           {{ `{{request.object.kind}}/{{request.object.metadata.name}}` }} is
           not OTel-instrumented. Add an `otel-collector` sidecar OR
           annotate the Pod template with one of
-          `instrumentation.opentelemetry.io/inject-{java,python,nodejs,go,dotnet}: "true"`.
+          `instrumentation.opentelemetry.io/inject-{java,python,nodejs,go,dotnet}`
+          set to `"true"` (same-NS default), `"<name>"` (same-NS named CR),
+          or `"<namespace>/<name>"` (cross-NS, e.g.
+          `"opentelemetry/default"` for the bp-opentelemetry-managed CR).
         anyPattern:
           - spec:
               template:
                 spec:
                   containers:
                     - name: otel-collector
+          # The annotation VALUE encodes which Instrumentation CR the OTel
+          # Operator should inject from — three valid forms:
+          #   "true"               → Instrumentation `default` in same NS
+          #   "<name>"             → named Instrumentation in same NS
+          #   "<namespace>/<name>" → cross-NS reference
+          #     (e.g. "opentelemetry/default" → the chart-managed default
+          #      CR rendered by bp-opentelemetry 1.1.0+ in Wave 5.36 #2210)
+          # `?*` is the Kyverno wildcard for "any non-empty string" — it
+          # accepts all three forms while still rejecting empty/missing.
           - spec:
               template:
                 metadata:
                   annotations:
-                    instrumentation.opentelemetry.io/inject-java: "true"
+                    instrumentation.opentelemetry.io/inject-java: "?*"
           - spec:
               template:
                 metadata:
                   annotations:
-                    instrumentation.opentelemetry.io/inject-python: "true"
+                    instrumentation.opentelemetry.io/inject-python: "?*"
           - spec:
               template:
                 metadata:
                   annotations:
-                    instrumentation.opentelemetry.io/inject-nodejs: "true"
+                    instrumentation.opentelemetry.io/inject-nodejs: "?*"
           - spec:
               template:
                 metadata:
                   annotations:
-                    instrumentation.opentelemetry.io/inject-go: "true"
+                    instrumentation.opentelemetry.io/inject-go: "?*"
           - spec:
               template:
                 metadata:
                   annotations:
-                    instrumentation.opentelemetry.io/inject-dotnet: "true"
+                    instrumentation.opentelemetry.io/inject-dotnet: "?*"
 {{- end -}}
