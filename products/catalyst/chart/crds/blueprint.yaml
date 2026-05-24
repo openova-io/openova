@@ -124,6 +124,42 @@ spec:
                     Per-Blueprint JSON Schema that drives the install form
                     in the console. Free-form by design — preserve-unknown.
                   x-kubernetes-preserve-unknown-fields: true
+                consoleUI:
+                  type: object
+                  description: |
+                    Wave 5.69 (#2370) — Sovereign-console UI registration
+                    contract for third-party Blueprints (bp-chepherd is
+                    the first consumer; see docs/INTEGRATION-OPENOVA-MCP.md
+                    §5). When sidebarEntry=true the SovereignSidebar.tsx
+                    appends a nav entry between the hardcoded last entry
+                    (BSS) and Settings, in sidebarOrder order. RBAC is
+                    inherited from existing tier-gate.
+                  properties:
+                    sidebarEntry:
+                      type: boolean
+                      default: false
+                      description: When true, register a top-level Sovereign-console sidebar nav entry.
+                    sidebarLabel:
+                      type: string
+                      description: Display label (operator-overridable per Sovereign overlay).
+                    sidebarRoute:
+                      type: string
+                      description: Route path the nav link navigates to (e.g. /apps/bp-chepherd/dashboard).
+                    sidebarOrder:
+                      type: integer
+                      minimum: 0
+                      maximum: 100
+                      description: |
+                        Insert-order between BSS (last hardcoded, order=60) and Settings
+                        (order=99 pinned). Higher = closer to Settings. Default 50.
+                      default: 50
+                    sidebarIcon:
+                      type: string
+                      description: |
+                        SVG path string for the icon (single-stroke, Tabler-style;
+                        see existing FLAT_NAV entries in SovereignSidebar.tsx for
+                        the conventional shape). Default uses the blueprint card
+                        icon.
                 placementSchema:
                   type: object
                   properties:
