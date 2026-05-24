@@ -845,8 +845,20 @@ sandboxBridge:
   enabled: true
   image:
     repository: ghcr.io/openova-io/openova/newapi-sandbox-bridge
-    tag: "be382d4"
-    pullPolicy: IfNotPresent
+    # Wave 5.57d (#2303, 2026-05-24): switch to `:latest` + pullPolicy
+    # Always so Flux re-pulls on every reconcile. Pre-fix: the chart
+    # pinned tag `be382d4` (the build SHA at Wave 5.57 ship) with
+    # IfNotPresent. On hw01 the kubelet had a stale image cache from
+    # an earlier failed pull attempt; subsequent Flux reconciles
+    # didn't re-pull, so the Pod kept running OLD image bytes
+    # (effectively no sandbox-bridge listener) despite the chart
+    # bumping to 1.4.45 / 1.4.46. Using `:latest` + Always trades
+    # immutability for cold-pull rollout reliability — acceptable for
+    # a sidecar that's already opt-in-disable-able via
+    # sandboxBridge.enabled. Operator overlays can pin to a specific
+    # SHA + IfNotPresent if they want air-gap-friendly behavior.
+    tag: "latest"
+    pullPolicy: Always
   port: 8080
   resources:
     requests:
