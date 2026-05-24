@@ -27,8 +27,8 @@ export function ForgotPage() {
         {!sent ? (
           <>
             <div>
-              <h1 className="text-xl font-semibold text-[oklch(92%_0.01_250)]">Reset password</h1>
-              <p className="mt-1 text-sm text-[oklch(50%_0.01_250)]">Enter your email and we'll send you a reset link.</p>
+              <h1 className="text-xl font-semibold text-[var(--color-text-strong)]">Reset password</h1>
+              <p className="mt-1 text-sm text-[var(--color-text-dim)]">Enter your email and we'll send you a reset link.</p>
             </div>
             <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4" noValidate>
               <Input label="Email" type="email" placeholder="you@company.com" autoFocus error={errors.email?.message} {...register('email')} />
@@ -44,12 +44,12 @@ export function ForgotPage() {
               <Send className="h-5 w-5 text-[--color-success]" />
             </div>
             <div>
-              <p className="font-semibold text-[oklch(92%_0.01_250)]">Check your inbox</p>
-              <p className="mt-1 text-sm text-[oklch(50%_0.01_250)]">If an account exists, we've sent a reset link.</p>
+              <p className="font-semibold text-[var(--color-text-strong)]">Check your inbox</p>
+              <p className="mt-1 text-sm text-[var(--color-text-dim)]">If an account exists, we've sent a reset link.</p>
             </div>
           </motion.div>
         )}
-        <Link to="/login" className="flex items-center gap-1.5 text-sm text-[oklch(50%_0.01_250)] hover:text-[oklch(75%_0.01_250)] transition-colors">
+        <Link to="/login" className="flex items-center gap-1.5 text-sm text-[var(--color-text-dim)] hover:text-[oklch(75%_0.01_250)] transition-colors">
           <ArrowLeft className="h-4 w-4" />
           Back to sign in
         </Link>

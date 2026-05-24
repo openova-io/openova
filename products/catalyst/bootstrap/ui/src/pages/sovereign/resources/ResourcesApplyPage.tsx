@@ -61,7 +61,7 @@ export function ResourcesApplyPage() {
     <PortalShell deploymentId={deploymentId} pageTitle="Resources">
       <div className="p-6 space-y-4" data-testid="resources-apply-page">
         <div>
-          <h2 className="text-xl font-semibold text-[oklch(85%_0.01_250)]">Apply YAML</h2>
+          <h2 className="text-xl font-semibold text-[var(--color-text)]">Apply YAML</h2>
           <p className="text-sm text-[oklch(55%_0.01_250)]">
             Apply one or more Kubernetes manifests to <code>{deploymentId}</code>.
             Multi-document YAML (separated by <code>---</code>) is supported. Flux-managed

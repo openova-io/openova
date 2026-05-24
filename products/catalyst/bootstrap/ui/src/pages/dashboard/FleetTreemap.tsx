@@ -120,15 +120,15 @@ export function FleetTreemap() {
         <div>
           <Link
             to="/dashboard"
-            className="text-xs text-[oklch(50%_0.01_250)] hover:underline flex items-center gap-1"
+            className="text-xs text-[var(--color-text-dim)] hover:underline flex items-center gap-1"
           >
             <ArrowLeft className="h-3 w-3" />
             Back to Sovereign Fleet
           </Link>
-          <h1 className="text-xl font-semibold text-[oklch(92%_0.01_250)] mt-1">
+          <h1 className="text-xl font-semibold text-[var(--color-text-strong)] mt-1">
             Fleet Treemap
           </h1>
-          <p className="mt-1 text-sm text-[oklch(50%_0.01_250)]">
+          <p className="mt-1 text-sm text-[var(--color-text-dim)]">
             One cell per Sovereign across the fleet — area scaled by
             installed Applications, colour mapped to health. Click a
             cell to drill into that Sovereign&apos;s per-Region treemap.
@@ -166,12 +166,12 @@ export function FleetTreemap() {
       {/* Controls — disabled placeholders until backend fans out */}
       <div className="flex flex-wrap items-center gap-4 text-xs text-[oklch(55%_0.01_250)]">
         <span className="rounded-md border border-[oklch(28%_0.02_250)] px-2 py-1">
-          Size: <strong className="text-[oklch(85%_0.01_250)]">apps</strong>
+          Size: <strong className="text-[var(--color-text)]">apps</strong>
         </span>
         <span className="rounded-md border border-[oklch(28%_0.02_250)] px-2 py-1">
-          Colour: <strong className="text-[oklch(85%_0.01_250)]">health</strong>
+          Colour: <strong className="text-[var(--color-text)]">health</strong>
         </span>
-        <span className="text-[oklch(40%_0.01_250)]">
+        <span className="text-[var(--color-text-dimmer)]">
           (size_by=memory_aggregate, layer=cluster/app — coming soon, see TBD-E14)
         </span>
       </div>
@@ -181,7 +181,7 @@ export function FleetTreemap() {
       <Card>
         <CardContent className="pt-5">
           {treemap.isLoading ? (
-            <p className="text-sm text-[oklch(50%_0.01_250)]" data-testid="fleet-treemap-loading">
+            <p className="text-sm text-[var(--color-text-dim)]" data-testid="fleet-treemap-loading">
               Loading fleet…
             </p>
           ) : treemap.error ? (
@@ -200,7 +200,7 @@ export function FleetTreemap() {
             </div>
           ) : items.length === 0 ? (
             <div className="text-center py-12" data-testid="fleet-treemap-empty">
-              <p className="text-sm text-[oklch(50%_0.01_250)]">
+              <p className="text-sm text-[var(--color-text-dim)]">
                 No Sovereigns provisioned yet.
               </p>
               <Link to="/wizard">
@@ -256,13 +256,13 @@ function StatCard({
   return (
     <Card>
       <CardContent className="pt-5">
-        <p className="text-xs text-[oklch(45%_0.01_250)] uppercase tracking-wider font-medium">
+        <p className="text-xs text-[var(--color-text-dimmer)] uppercase tracking-wider font-medium">
           {label}
         </p>
-        <p className="mt-1 text-2xl font-bold text-[oklch(92%_0.01_250)] tabular-nums">
+        <p className="mt-1 text-2xl font-bold text-[var(--color-text-strong)] tabular-nums">
           {value}
         </p>
-        {sub && <p className="mt-0.5 text-xs text-[oklch(40%_0.01_250)]">{sub}</p>}
+        {sub && <p className="mt-0.5 text-xs text-[var(--color-text-dimmer)]">{sub}</p>}
       </CardContent>
     </Card>
   )

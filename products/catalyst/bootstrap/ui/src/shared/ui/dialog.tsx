@@ -41,7 +41,7 @@ function DialogContent({ className, children, ...props }: React.ComponentProps<t
         {...props}
       >
         {children}
-        <DialogPrimitive.Close className="absolute right-4 top-4 rounded-[--radius-sm] p-1 text-[oklch(50%_0.01_250)] hover:text-[oklch(85%_0.01_250)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[--color-brand-500]">
+        <DialogPrimitive.Close className="absolute right-4 top-4 rounded-[--radius-sm] p-1 text-[var(--color-text-dim)] hover:text-[var(--color-text)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[--color-brand-500]">
           <X className="h-4 w-4" />
           <span className="sr-only">Close</span>
         </DialogPrimitive.Close>
@@ -57,7 +57,7 @@ function DialogHeader({ className, ...props }: React.HTMLAttributes<HTMLDivEleme
 function DialogTitle({ className, ...props }: React.ComponentProps<typeof DialogPrimitive.Title>) {
   return (
     <DialogPrimitive.Title
-      className={cn('text-base font-semibold text-[oklch(92%_0.01_250)]', className)}
+      className={cn('text-base font-semibold text-[var(--color-text-strong)]', className)}
       {...props}
     />
   )

@@ -40,7 +40,7 @@ export function ContinuumPage({ mode = 'list' }: ContinuumPageProps = {}) {
   return (
     <PortalShell deploymentId={deploymentId} pageTitle="Continuum">
       <div className="p-6 space-y-4" data-testid="continuum-page">
-        <h2 className="text-xl font-semibold text-[oklch(85%_0.01_250)]">DR — Continuum</h2>
+        <h2 className="text-xl font-semibold text-[var(--color-text)]">DR — Continuum</h2>
         {mode === 'list' && (
           <div data-testid="continuum-list">
             <p className="text-sm text-[oklch(55%_0.01_250)]">Continuum DR list (pending live data).</p>

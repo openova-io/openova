@@ -91,14 +91,14 @@ export function SovereignCard({ sovereign, detailOverride, onClick }: SovereignC
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
             <div className="shrink-0 flex h-8 w-8 items-center justify-center rounded-[--radius-md] bg-[--color-surface-2]">
-              <Server className="h-4 w-4 text-[oklch(60%_0.01_250)]" />
+              <Server className="h-4 w-4 text-[var(--color-text-dim)]" />
             </div>
             <div className="min-w-0">
-              <h3 className="text-sm font-semibold text-[oklch(92%_0.01_250)] font-mono truncate">
+              <h3 className="text-sm font-semibold text-[var(--color-text-strong)] font-mono truncate">
                 {sovereign.fqdn || sovereign.id}
               </h3>
               {sovereign.providerType && (
-                <p className="mt-0.5 text-xs text-[oklch(45%_0.01_250)]">
+                <p className="mt-0.5 text-xs text-[var(--color-text-dimmer)]">
                   {sovereign.providerType}
                   {sovereign.region ? ` · ${sovereign.region}` : ''}
                 </p>
@@ -192,7 +192,7 @@ export function SovereignCard({ sovereign, detailOverride, onClick }: SovereignC
             const inactive = configured.filter((r) => !liveSet.has(r))
             if (live.length === 0 && inactive.length === 0) {
               return (
-                <span className="text-xs text-[oklch(40%_0.01_250)]">No regions reported</span>
+                <span className="text-xs text-[var(--color-text-dimmer)]">No regions reported</span>
               )
             }
             return (
@@ -227,9 +227,9 @@ export function SovereignCard({ sovereign, detailOverride, onClick }: SovereignC
 
         {/* Footer — last activity */}
         {detail?.lastActivity && (
-          <p className="text-xs text-[oklch(45%_0.01_250)]">
+          <p className="text-xs text-[var(--color-text-dimmer)]">
             Last activity:{' '}
-            <span className="text-[oklch(60%_0.01_250)]">{formatRelative(detail.lastActivity)}</span>
+            <span className="text-[var(--color-text-dim)]">{formatRelative(detail.lastActivity)}</span>
           </p>
         )}
       </CardContent>
@@ -256,16 +256,16 @@ function Metric({
     tone === 'error'
       ? 'text-[--color-error]'
       : tone === 'muted'
-        ? 'text-[oklch(60%_0.01_250)]'
-        : 'text-[oklch(92%_0.01_250)]'
+        ? 'text-[var(--color-text-dim)]'
+        : 'text-[var(--color-text-strong)]'
   return (
     <div className="rounded-[--radius-md] bg-[--color-surface-2] py-2.5 px-2 flex flex-col items-center">
-      <p className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-[oklch(50%_0.01_250)]">
+      <p className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-[var(--color-text-dim)]">
         {icon}
         {label}
       </p>
       <p className={`mt-0.5 text-lg font-semibold tabular-nums ${colorMain}`}>{value}</p>
-      {sub && <p className="text-[10px] text-[oklch(40%_0.01_250)] truncate">{sub}</p>}
+      {sub && <p className="text-[10px] text-[var(--color-text-dimmer)] truncate">{sub}</p>}
     </div>
   )
 }

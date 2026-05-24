@@ -116,7 +116,7 @@ function ProviderCard({ provider, selected, onSelect }: CloudProviderCardProps) 
 
       {/* Coming soon badge */}
       {provider.comingSoon && (
-        <div className="absolute right-4 top-4 flex items-center gap-1 text-[oklch(45%_0.01_250)]">
+        <div className="absolute right-4 top-4 flex items-center gap-1 text-[var(--color-text-dimmer)]">
           <Lock className="h-3 w-3" />
           <span className="text-xs">Coming soon</span>
         </div>
@@ -125,8 +125,8 @@ function ProviderCard({ provider, selected, onSelect }: CloudProviderCardProps) 
       <div className="flex items-center gap-3">
         {provider.logo}
         <div>
-          <p className="text-sm font-semibold text-[oklch(92%_0.01_250)]">{provider.name}</p>
-          <p className="text-xs text-[oklch(50%_0.01_250)] mt-0.5">
+          <p className="text-sm font-semibold text-[var(--color-text-strong)]">{provider.name}</p>
+          <p className="text-xs text-[var(--color-text-dim)] mt-0.5">
             {provider.regions} region{provider.regions !== 1 ? 's' : ''}
           </p>
         </div>

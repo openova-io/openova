@@ -78,7 +78,7 @@ export function PodLogsPage() {
       <div className="p-6 space-y-4" data-testid="pod-logs-page">
         <div className="flex items-baseline justify-between">
           <div>
-            <h2 className="text-xl font-semibold text-[oklch(85%_0.01_250)]">Logs</h2>
+            <h2 className="text-xl font-semibold text-[var(--color-text)]">Logs</h2>
             <p className="text-sm text-[oklch(55%_0.01_250)]">
               Pod{' '}
               <Link

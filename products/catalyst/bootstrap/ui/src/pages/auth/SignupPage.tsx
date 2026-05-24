@@ -42,8 +42,8 @@ export function SignupPage() {
         className="flex flex-col gap-8"
       >
         <div>
-          <h1 className="text-xl font-semibold text-[oklch(92%_0.01_250)]">Create your account</h1>
-          <p className="mt-1 text-sm text-[oklch(50%_0.01_250)]">
+          <h1 className="text-xl font-semibold text-[var(--color-text-strong)]">Create your account</h1>
+          <p className="mt-1 text-sm text-[var(--color-text-dim)]">
             Start provisioning production-grade Kubernetes in minutes.
           </p>
         </div>
@@ -60,7 +60,7 @@ export function SignupPage() {
             error={errors.password?.message}
             hint="Minimum 12 characters, one uppercase, one number"
             suffix={
-              <button type="button" onClick={() => setShowPassword((v) => !v)} className="text-[oklch(50%_0.01_250)] hover:text-[oklch(75%_0.01_250)] transition-colors" aria-label={showPassword ? 'Hide' : 'Show'}>
+              <button type="button" onClick={() => setShowPassword((v) => !v)} className="text-[var(--color-text-dim)] hover:text-[oklch(75%_0.01_250)] transition-colors" aria-label={showPassword ? 'Hide' : 'Show'}>
                 {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
             }
@@ -73,14 +73,14 @@ export function SignupPage() {
           </Button>
         </form>
 
-        <p className="text-center text-sm text-[oklch(50%_0.01_250)]">
+        <p className="text-center text-sm text-[var(--color-text-dim)]">
           Already have an account?{' '}
           <Link to="/login" className="text-[--color-brand-400] hover:text-[--color-brand-300] font-medium transition-colors">
             Sign in
           </Link>
         </p>
 
-        <p className="text-center text-xs text-[oklch(35%_0.01_250)]">
+        <p className="text-center text-xs text-[var(--color-text-dimmer)]">
           By creating an account you agree to our Terms of Service and Privacy Policy.
         </p>
       </motion.div>

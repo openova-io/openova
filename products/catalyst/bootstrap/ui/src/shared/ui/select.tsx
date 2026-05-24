@@ -11,8 +11,8 @@ function SelectTrigger({ className, children, ...props }: React.ComponentProps<t
       className={cn(
         'flex h-9 w-full items-center justify-between gap-2 rounded-[--radius-md]',
         'bg-[--color-surface-1] border border-[--color-surface-border]',
-        'px-3 text-sm text-[oklch(92%_0.01_250)] transition-all duration-150',
-        'placeholder:text-[oklch(45%_0.01_250)]',
+        'px-3 text-sm text-[var(--color-text-strong)] transition-all duration-150',
+        'placeholder:text-[var(--color-text-dimmer)]',
         'hover:border-[oklch(30%_0.025_250)]',
         'focus:outline-none focus:border-[--color-brand-500]/60 focus:ring-1 focus:ring-[--color-brand-500]/30',
         'disabled:cursor-not-allowed disabled:opacity-40',
@@ -23,7 +23,7 @@ function SelectTrigger({ className, children, ...props }: React.ComponentProps<t
     >
       {children}
       <SelectPrimitive.Icon asChild>
-        <ChevronDown className="h-4 w-4 text-[oklch(50%_0.01_250)] shrink-0" />
+        <ChevronDown className="h-4 w-4 text-[var(--color-text-dim)] shrink-0" />
       </SelectPrimitive.Icon>
     </SelectPrimitive.Trigger>
   )
@@ -59,7 +59,7 @@ function SelectItem({ className, children, ...props }: React.ComponentProps<type
       className={cn(
         'relative flex w-full cursor-pointer select-none items-center rounded-[--radius-sm]',
         'py-1.5 pl-8 pr-2 text-sm text-[oklch(80%_0.01_250)] outline-none transition-colors',
-        'focus:bg-[--color-surface-3] focus:text-[oklch(92%_0.01_250)]',
+        'focus:bg-[--color-surface-3] focus:text-[var(--color-text-strong)]',
         'data-[disabled]:pointer-events-none data-[disabled]:opacity-40',
         className
       )}
@@ -78,7 +78,7 @@ function SelectItem({ className, children, ...props }: React.ComponentProps<type
 function SelectLabel({ className, ...props }: React.ComponentProps<typeof SelectPrimitive.Label>) {
   return (
     <SelectPrimitive.Label
-      className={cn('px-2 py-1.5 text-xs font-semibold text-[oklch(45%_0.01_250)] uppercase tracking-wider', className)}
+      className={cn('px-2 py-1.5 text-xs font-semibold text-[var(--color-text-dimmer)] uppercase tracking-wider', className)}
       {...props}
     />
   )

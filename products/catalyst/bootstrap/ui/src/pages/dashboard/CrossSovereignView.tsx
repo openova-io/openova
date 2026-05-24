@@ -87,14 +87,14 @@ export function CrossSovereignView() {
         className="flex items-start justify-between gap-4 flex-wrap"
       >
         <div>
-          <Link to="/dashboard" className="text-xs text-[oklch(50%_0.01_250)] hover:underline flex items-center gap-1">
+          <Link to="/dashboard" className="text-xs text-[var(--color-text-dim)] hover:underline flex items-center gap-1">
             <ArrowLeft className="h-3 w-3" />
             Back to Sovereign Fleet
           </Link>
-          <h1 className="text-xl font-semibold text-[oklch(92%_0.01_250)] mt-1">
+          <h1 className="text-xl font-semibold text-[var(--color-text-strong)] mt-1">
             Applications across the fleet
           </h1>
-          <p className="mt-1 text-sm text-[oklch(50%_0.01_250)]">
+          <p className="mt-1 text-sm text-[var(--color-text-dim)]">
             Every Application in every visible Sovereign — filter by Org, topology, or DR posture.
           </p>
         </div>
@@ -112,7 +112,7 @@ export function CrossSovereignView() {
         className="grid grid-cols-1 md:grid-cols-3 gap-3"
       >
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[oklch(45%_0.01_250)]" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--color-text-dimmer)]" />
           <Input
             data-testid="cross-sov-filter-org"
             placeholder="Filter by Org slug…"
@@ -126,7 +126,7 @@ export function CrossSovereignView() {
           aria-label="Filter by topology"
           value={topology}
           onChange={(e) => setTopology(e.target.value as '' | TopologyMode)}
-          className="rounded-[--radius-md] border border-[--color-surface-border] bg-[--color-surface-2] px-3 py-2 text-sm text-[oklch(85%_0.01_250)]"
+          className="rounded-[--radius-md] border border-[--color-surface-border] bg-[--color-surface-2] px-3 py-2 text-sm text-[var(--color-text)]"
         >
           {TOPOLOGY_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>
@@ -139,7 +139,7 @@ export function CrossSovereignView() {
           aria-label="Filter by DR posture"
           value={dr}
           onChange={(e) => setDR(e.target.value as '' | DRPosture)}
-          className="rounded-[--radius-md] border border-[--color-surface-border] bg-[--color-surface-2] px-3 py-2 text-sm text-[oklch(85%_0.01_250)]"
+          className="rounded-[--radius-md] border border-[--color-surface-border] bg-[--color-surface-2] px-3 py-2 text-sm text-[var(--color-text)]"
         >
           {DR_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>
@@ -158,7 +158,7 @@ export function CrossSovereignView() {
           <AlertCircle className="h-8 w-8 text-[--color-error]" />
           <div>
             <p className="font-medium text-[oklch(75%_0.01_250)]">Failed to load applications</p>
-            <p className="mt-1 text-sm text-[oklch(45%_0.01_250)]">
+            <p className="mt-1 text-sm text-[var(--color-text-dimmer)]">
               {query.error instanceof Error ? query.error.message : 'Unknown error'}
             </p>
           </div>
@@ -170,8 +170,8 @@ export function CrossSovereignView() {
       ) : rows.length === 0 && !query.isLoading ? (
         <Card>
           <CardContent className="flex flex-col items-center gap-2 py-12 text-center">
-            <Layers className="h-6 w-6 text-[oklch(45%_0.01_250)]" />
-            <p className="text-sm text-[oklch(60%_0.01_250)]" data-testid="cross-sov-empty">
+            <Layers className="h-6 w-6 text-[var(--color-text-dimmer)]" />
+            <p className="text-sm text-[var(--color-text-dim)]" data-testid="cross-sov-empty">
               No Applications match the current filters.
             </p>
           </CardContent>
@@ -185,7 +185,7 @@ export function CrossSovereignView() {
                 className="min-w-full divide-y divide-[--color-surface-border]"
               >
                 <thead>
-                  <tr className="text-left text-[10px] uppercase tracking-wider text-[oklch(50%_0.01_250)]">
+                  <tr className="text-left text-[10px] uppercase tracking-wider text-[var(--color-text-dim)]">
                     <Th>Application</Th>
                     <Th>Sovereign</Th>
                     <Th>Org</Th>
@@ -227,11 +227,11 @@ function Row({ row }: { row: ApplicationRow }) {
       onClick={handleClick}
       data-testid={`cross-sov-row-${row.sovereign.id}-${row.app.name}`}
     >
-      <td className="px-3 py-3 text-sm text-[oklch(92%_0.01_250)] font-mono">
+      <td className="px-3 py-3 text-sm text-[var(--color-text-strong)] font-mono">
         <div className="flex flex-col gap-0.5">
           <span>{row.app.name}</span>
           {row.app.blueprint && (
-            <span className="text-[10px] text-[oklch(45%_0.01_250)]">
+            <span className="text-[10px] text-[var(--color-text-dimmer)]">
               {row.app.blueprint}
               {row.app.version ? ` @ ${row.app.version}` : ''}
             </span>
@@ -245,7 +245,7 @@ function Row({ row }: { row: ApplicationRow }) {
       <td className="px-3 py-3 text-sm">
         <div className="flex flex-wrap gap-1">
           {row.regions.length === 0 ? (
-            <span className="text-[oklch(45%_0.01_250)]">—</span>
+            <span className="text-[var(--color-text-dimmer)]">—</span>
           ) : (
             row.regions.map((r) => (
               <Badge key={r} variant="default">
