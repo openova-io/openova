@@ -235,7 +235,15 @@ spec:
                   if [ -z "$UNSEAL_THRESHOLD" ] || [ "$UNSEAL_THRESHOLD" -lt 1 ] 2>/dev/null; then
                     UNSEAL_THRESHOLD=1
                   fi
-                  KEY_COUNT=$(wc -l < /tmp/.unseal-keys | tr -d ' ')
+                  # Wave 5.67 (#2295, 2026-05-24): match Step 3's grep -c .
+                  # which counts NON-EMPTY lines regardless of trailing newline.
+                  # `wc -l` here was a latent bug — base64 -d of a single-key
+                  # payload yields the key bytes WITHOUT a terminal \n, so
+                  # `wc -l` returned 0 + the idempotent path FAILed with
+                  # "persisted 0 key(s) but threshold=1" even though sed -n
+                  # "${I}p" below would correctly retrieve the key. Caught
+                  # by line-aware audit against Step 3's robust pattern.
+                  KEY_COUNT=$(grep -c . /tmp/.unseal-keys 2>/dev/null || echo 0)
                   if [ "$KEY_COUNT" -lt "$UNSEAL_THRESHOLD" ]; then
                     echo "[openbao-init] FATAL: persisted $KEY_COUNT key(s) but threshold=$UNSEAL_THRESHOLD"
                     exit 1
