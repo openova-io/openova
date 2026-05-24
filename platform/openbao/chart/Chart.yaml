@@ -4,7 +4,7 @@ name: bp-openbao
 # sectionName by default — multi-zone Sovereigns rename HTTPS listeners
 # to https-<sanitised-zone>, breaking NoMatchingListener with the prior
 # pinned sectionName: https. Matches the catalyst-system fix in PR #1888.
-version: 1.2.17
+version: 1.2.18
 description: |
   Catalyst-curated Blueprint umbrella chart for OpenBao. Depends on the
   upstream `openbao` chart as a Helm subchart so `helm dependency build`
