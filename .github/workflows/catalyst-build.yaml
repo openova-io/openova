@@ -487,6 +487,26 @@ jobs:
           grep -E "image: \".*catalyst-(api|ui):" "${API_TPL}" "${UI_TPL}"
           grep -A1 "CATALYST_BUILD_SHA" "${API_TPL}" | head -2
 
+          # Wave 5.48 (#2272) — bump bp-catalyst-platform Chart.yaml patch
+          # version so Blueprint Release re-publishes the OCI artifact
+          # pointing at the bumped image SHAs. Without this bump, Blueprint
+          # Release skips re-publish (it only triggers on chart-content
+          # changes per blueprint-release.yaml:617-639) → Flux on every
+          # Sovereign sees the same chart version → no roll → Wave 5.44/
+          # 5.47 stuck on hw01 for 25+ minutes after merge before being
+          # surfaced. Surfaced live on hw01 2026-05-24T05:48Z.
+          CHART_YAML="products/catalyst/chart/Chart.yaml"
+          CUR_VER=$(grep -E '^version: 1\.4\.[0-9]+$' "${CHART_YAML}" | head -1 | awk '{print $2}')
+          if [ -z "${CUR_VER}" ]; then
+            echo "::error title=Wave 5.48 chart-bump failed::Could not parse version: from ${CHART_YAML}"
+            exit 1
+          fi
+          CUR_PATCH="${CUR_VER##*.}"
+          NEXT_PATCH=$((CUR_PATCH + 1))
+          NEXT_VER="1.4.${NEXT_PATCH}"
+          sed -i -E "s|^version: 1\.4\.[0-9]+\$|version: ${NEXT_VER}|" "${CHART_YAML}"
+          echo "Chart.yaml version bump: ${CUR_VER} -> ${NEXT_VER}"
+
           # contabo's catalyst-platform Kustomization at
           # ./products/catalyst/chart/templates reconciles every 10 min
           # — it will pick up the bumped literal on the next interval.
@@ -520,6 +540,7 @@ jobs:
             products/catalyst/chart/values.yaml
             products/catalyst/chart/templates/api-deployment.yaml
             products/catalyst/chart/templates/ui-deployment.yaml
+            products/catalyst/chart/Chart.yaml
           commit-message: "deploy: update catalyst images to ${{ needs.build-ui.outputs.sha_short }}"
 
       # Closes #712. The push above is made by GITHUB_TOKEN; per GitHub
