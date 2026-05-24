@@ -133,7 +133,7 @@ spec:
       # during the YAML scanner break introduced by PR #1858 and fixed
       # by PR #1866. Auto-bump-pin step didn't fire during the outage.
       # Refs #1864.
-      version: 0.1.29
+      version: 0.1.30
       sourceRef:
         kind: HelmRepository
         name: bp-guacamole
