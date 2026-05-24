@@ -216,6 +216,20 @@ var DefaultKinds = []Kind{
 	// CRD ships v1 only. Refs #1946.
 	{Name: "environment", GVR: schema.GroupVersionResource{Group: "catalyst.openova.io", Version: "v1", Resource: "environments"}, Namespaced: true},
 
+	// dr.openova.io/v1 Continuum — DR orchestration CR per
+	// EPIC-6 #1101 (Multi-cluster + Continuum DR). CRD shipped by
+	// products/catalyst/chart/crds/continuum.yaml; not registered in
+	// the kinds.go list before Wave 5.68 (#1094 acceptance #2 gap)
+	// so the k9s-on-web Cloud/list/continuum URL silently fell back
+	// to kind=pods. With this entry the operator can view + drill
+	// into Continuum CRs from console.<sov-fqdn>/cloud.
+	{Name: "continuum", GVR: schema.GroupVersionResource{Group: "dr.openova.io", Version: "v1", Resource: "continuums"}, Namespaced: true},
+
+	// dr.openova.io/v1 CNPGPair — paired CNPG Cluster orchestration
+	// (primary in regionA, replica in regionB) for #1094 acceptance #2
+	// active-hotstandby. Same registration gap as Continuum.
+	{Name: "cnpgpair", GVR: schema.GroupVersionResource{Group: "dr.openova.io", Version: "v1", Resource: "cnpgpairs"}, Namespaced: true},
+
 	// QA-loop iter-3 Fix #18 — RBAC ClusterRole + ClusterRoleBinding
 	// surfaced through GET /api/v1/sovereigns/{id}/k8s/clusterroles and
 	// /clusterrolebindings. Both are cluster-scoped (Namespaced=false).
