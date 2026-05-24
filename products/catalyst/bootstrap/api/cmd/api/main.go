@@ -253,6 +253,23 @@ func main() {
 			compliance.Start(ctx)
 			h.SetComplianceHandler(compliance)
 			log.Info("compliance: aggregator started")
+
+			// Wave 5.65b (#2337, #1096) — custom evaluator Engine.
+			// HPA-effective / OTel-injected / Hubble-flows-seen /
+			// image-via-Harbor-proxy / Crossplane-managed-by-flux —
+			// emit synthetic PolicyReport-like rows alongside Kyverno
+			// PolicyReports so the scorecard aggregator treats them
+			// uniformly. Engine subscribes to Factory SSE for trigger
+			// re-evaluations + ticks for full sweeps.
+			if err := wireEvaluatorEngine(ctx, log, k8sFactory); err != nil {
+				log.Warn("evaluators: engine wire-up failed; custom evaluators disabled",
+					"err", err,
+				)
+			} else {
+				log.Info("evaluators: engine started",
+					"evaluators", []string{"hpa", "otel", "hubble", "harbor", "flux"},
+				)
+			}
 		}
 	}
 

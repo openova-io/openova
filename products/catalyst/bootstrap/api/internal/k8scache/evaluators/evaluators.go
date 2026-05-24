@@ -298,17 +298,17 @@ type Engine struct {
 
 	// subscribe maps a (user, kinds) pair to a channel. Production
 	// wires to Factory.Subscribe.
-	subscribe func(kinds map[string]struct{}) (<-chan eventLite, func())
+	subscribe func(kinds map[string]struct{}) (<-chan Event, func())
 
 	mu      sync.Mutex
 	started bool
 }
 
-// eventLite is the engine's internal copy of k8scache.Event minus the
+// Event is the engine's internal copy of k8scache.Event minus the
 // EventType — the engine only cares about ADD / MODIFY for the trigger
 // path. DELETE is handled implicitly: when a target disappears from
 // the Indexer, the next tick stops emitting reports for it.
-type eventLite struct {
+type Event struct {
 	Cluster string
 	Kind    string
 	Object  *unstructured.Unstructured
@@ -317,7 +317,7 @@ type eventLite struct {
 // NewEngine wires an Engine without starting it.
 func NewEngine(cfg Config, evals []Evaluator, pub Publisher,
 	resolveSnapshot func(clusterID string) (Snapshot, []string, error),
-	subscribe func(kinds map[string]struct{}) (<-chan eventLite, func()),
+	subscribe func(kinds map[string]struct{}) (<-chan Event, func()),
 ) (*Engine, error) {
 	if cfg.Logger == nil {
 		return nil, errors.New("evaluators: Config.Logger is required")
@@ -562,14 +562,14 @@ func formatLabelMap(m map[string]string) string {
 }
 
 // SubscribeAdapter wraps a k8scache.Factory.Subscribe call into the
-// engine's eventLite channel. Production code in the catalyst-api
+// engine's Event channel. Production code in the catalyst-api
 // `cmd/api/main.go` wires this. Exposed here so tests can construct
 // an Engine without depending on the full Factory.
-type SubscribeAdapter func(kinds map[string]struct{}) (<-chan eventLite, func())
+type SubscribeAdapter func(kinds map[string]struct{}) (<-chan Event, func())
 
-// EventLiteFromUnstructured is a test convenience to build eventLite
+// EventFromUnstructured is a test convenience to build Event
 // values without exposing the unexported field. Used by the table
 // tests in evaluators_test.go.
-func EventLiteFromUnstructured(cluster, kind string, obj *unstructured.Unstructured) eventLite {
-	return eventLite{Cluster: cluster, Kind: kind, Object: obj}
+func EventFromUnstructured(cluster, kind string, obj *unstructured.Unstructured) Event {
+	return Event{Cluster: cluster, Kind: kind, Object: obj}
 }
