@@ -35,7 +35,7 @@ metadata:
       verifying public key (or Sigstore Rekor URL) is operator-supplied
       per Sovereign overlay.
 spec:
-  validationFailureAction: {{ .Values.compliancePolicies.cosignVerified.action | default "Audit" }}
+  validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.cosignVerified.action) }}
   background: false
   rules:
     - name: cosign-verify

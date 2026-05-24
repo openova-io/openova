@@ -34,7 +34,7 @@ metadata:
       voluntary disruptions (node drains, rolling updates) can preserve
       at least one healthy replica.
 spec:
-  validationFailureAction: {{ .Values.compliancePolicies.multiReplica.action | default "Audit" }}
+  validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.multiReplica.action) }}
   background: true
   rules:
     - name: replicas-at-least-two

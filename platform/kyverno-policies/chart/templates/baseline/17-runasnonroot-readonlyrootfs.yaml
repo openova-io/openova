@@ -30,7 +30,7 @@ metadata:
       Pods must declare runAsNonRoot=true at Pod or container level
       AND every container must set readOnlyRootFilesystem=true.
 spec:
-  validationFailureAction: {{ .Values.compliancePolicies.runAsNonRootReadonlyRootFs.action | default "Audit" }}
+  validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.runAsNonRootReadonlyRootFs.action) }}
   background: true
   rules:
     - name: pod-level-or-container-level-runasnonroot

@@ -31,7 +31,7 @@ metadata:
       Namespaces must contain at least one NetworkPolicy or
       CiliumNetworkPolicy so east-west traffic is mediated.
 spec:
-  validationFailureAction: {{ .Values.compliancePolicies.networkpolicyPresent.action | default "Audit" }}
+  validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.networkpolicyPresent.action) }}
   background: true
   rules:
     - name: namespace-must-have-networkpolicy

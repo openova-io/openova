@@ -30,7 +30,7 @@ metadata:
       resources.limits.memory. Without limits, a single Pod can
       exhaust a node and starve neighbors.
 spec:
-  validationFailureAction: {{ .Values.compliancePolicies.resourceLimits.action | default "Audit" }}
+  validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.resourceLimits.action) }}
   background: true
   rules:
     - name: containers-must-declare-cpu-memory-limits

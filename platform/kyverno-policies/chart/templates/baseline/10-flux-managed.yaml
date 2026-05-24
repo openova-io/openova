@@ -38,7 +38,7 @@ metadata:
       Direct kubectl apply is rejected — IaC-first per
       docs/INVIOLABLE-PRINCIPLES.md #3.
 spec:
-  validationFailureAction: {{ .Values.compliancePolicies.fluxManaged.action | default "Audit" }}
+  validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.fluxManaged.action) }}
   background: true
   rules:
     - name: workload-must-be-flux-managed

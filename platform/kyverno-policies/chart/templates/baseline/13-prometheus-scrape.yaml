@@ -32,7 +32,7 @@ metadata:
       OR the workload labels declare monitoring.coreos.com/managed=true
       indicating an operator-managed PodMonitor / ServiceMonitor exists.
 spec:
-  validationFailureAction: {{ .Values.compliancePolicies.prometheusScrape.action | default "Audit" }}
+  validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.prometheusScrape.action) }}
   background: true
   rules:
     - name: workload-must-be-scrape-targeted

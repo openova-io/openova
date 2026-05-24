@@ -38,7 +38,7 @@ metadata:
       "is there an actual selecting CNP/CCNP" check lives in the W2
       hubble evaluator.
 spec:
-  validationFailureAction: {{ .Values.compliancePolicies.ciliumL7Mtls.action | default "Audit" }}
+  validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.ciliumL7Mtls.action) }}
   background: true
   rules:
     - name: cilium-enforced-label

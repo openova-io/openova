@@ -30,7 +30,7 @@ metadata:
       pressure and can't be reasoned about for capacity planning or
       per-Org cost rollups.
 spec:
-  validationFailureAction: {{ .Values.compliancePolicies.resourceRequests.action | default "Audit" }}
+  validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.resourceRequests.action) }}
   background: true
   rules:
     - name: containers-must-declare-cpu-memory-requests
