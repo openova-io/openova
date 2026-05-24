@@ -119,8 +119,8 @@ annotations:
 # `helm template newapi platform/newapi/chart/ -s templates/service.yaml`
 # → metadata.name: newapi-bp-newapi. Walker on t38 (chart 1.4.216,
 # substrate be4f78bc872e2c56) caught the live regression.
-version: 0.3.6
-appVersion: "0.3.6"
+version: 0.3.7
+appVersion: "0.3.7"
 keywords:
   - catalyst
   - sandbox
