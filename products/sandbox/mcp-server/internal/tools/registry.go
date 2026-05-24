@@ -189,6 +189,19 @@ type Env struct {
 	// the gateway (one fewer hop on a tool call).
 	DomainAPIURL string
 
+	// TenantAPIURL — root URL of the SME tenant-service (#2040 fix).
+	// Used by `marketplace.app.install` to POST `/orgs/<TenantID>/apps`
+	// against the canonical install path. The tenant-service publishes
+	// `tenant.app_install_requested` on NATS which provisioning consumes;
+	// gitea Application CR / HelmRelease lands on the tenant's vCluster
+	// via the standard org-controller + Flux chain. SandboxToken is
+	// forwarded as the bearer (HS256 SME wire contract).
+	//
+	// Wired by sandbox-controller from SANDBOX_TENANT_API_URL — typically
+	// `http://gateway.sme.svc.cluster.local:8080/api/tenant`. Empty →
+	// marketplace.app.install surfaces a clear "not configured" error.
+	TenantAPIURL string
+
 	// MarketplaceAPIURL — root URL of the marketplace-api service
 	// (`core/marketplace-api`), e.g.
 	// `http://marketplace-api.marketplace.svc.cluster.local:8082`.
@@ -636,6 +649,20 @@ func defaultCatalogue(env *Env) []Tool {
 		// Sandbox PAT to the domain service which performs the canonical
 		// auth + WHOIS + uniqueness checks. RequiredCapability="marketplace"
 		// gates the bearer.
+		// #2040: marketplace.app.install — Pillar 4 step 2d. Agent
+		// provisions an additional Application on the tenant's vCluster.
+		// Forwards to the tenant-service canonical install path which
+		// publishes the `tenant.app_install_requested` NATS event;
+		// provisioning consumes + creates the Flux resources on the
+		// tenant vCluster (see core/services/provisioning/handlers/
+		// consumer.go::handleAppInstallRequested).
+		{
+			Name:               "marketplace.app.install",
+			Description:        "Install an additional Application into the Sandbox's tenant vCluster. The app slug must match a Blueprint in the Sovereign catalog (e.g. 'wordpress', 'ghost', 'gitea'). Returns the queued install record + the dispatched event ID.",
+			InputSchema:        schemaMarketplaceAppInstall(),
+			Handler:            marketplaceAppInstall,
+			RequiredCapability: "marketplace.app.install",
+		},
 		{
 			Name:               "marketplace.domain.byod",
 			Description:        "Register a Bring-Your-Own-Domain (BYOD) FQDN for the Sandbox's tenant. Returns the CNAME target the operator points at their registrar.",
