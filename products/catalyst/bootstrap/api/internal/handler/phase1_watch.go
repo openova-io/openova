@@ -773,6 +773,21 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		// network I/O — running it on the terminate path's stack
 		// adds ≤100ms before markPhase1Done's caller resumes.
 		h.runSecondaryBridgeBackfill(dep)
+
+		// Wave 5.90 phase 2b (#2441): post-handover flip of bp-kyverno-
+		// policies bootstrapMode from true (fresh-prov default — every
+		// ClusterPolicy renders Audit) → false (canonical per-policy
+		// action restored; 6 policies upgrade to Enforce target state).
+		// Without this hook, every Sovereign stays at Audit forever
+		// because the chart-side default never gets flipped.
+		//
+		// Background goroutine so the Phase-1 terminate path's own SSE
+		// event ordering is not blocked by the 30s per-request REST
+		// timeout. Failures log + emit SSE warn but don't fail the
+		// handover (Audit-stuck is non-catastrophic; operators can
+		// manually patch per #2441 fallback). See post_handover_policy_
+		// enforce.go for the full helper.
+		go h.runPostHandoverPolicyEnforceFlip(dep)
 	}
 }
 
