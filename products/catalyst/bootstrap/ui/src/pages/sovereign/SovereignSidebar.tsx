@@ -22,8 +22,11 @@
 
 import { useState } from 'react'
 import { Link, useRouterState } from '@tanstack/react-router'
+import { useQuery } from '@tanstack/react-query'
 import { loadTokens, parseJWTClaims } from '@/shared/lib/oidc'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
+import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
+import { getSidebarEntries, type SidebarEntry } from '@/lib/console-ui.api'
 
 interface SovereignSidebarProps {
   /** Sovereign FQDN derived from window.location.hostname. */
@@ -218,6 +221,22 @@ export function SovereignSidebar({ sovereignFQDN }: SovereignSidebarProps) {
   const activeSettingsSub = deriveActiveSettingsSubItem(pathname)
   const settingsExpanded = activeSection === 'settings'
 
+  // Wave 5.69c (#2396) — dynamic sidebar entries from installed
+  // Blueprints' spec.consoleUI.sidebarEntry (Wave 5.69 CRD + Wave
+  // 5.69b /console-ui/sidebar-entries handler). Splices into the
+  // FLAT_NAV render path between hardcoded BSS (order=60) and the
+  // pinned Settings entry. Graceful degradation: empty list on
+  // 404/502/network-error leaves the hardcoded nav untouched.
+  const { deploymentId: resolvedDeploymentId } = useResolvedDeploymentId()
+  const dynamicEntriesQuery = useQuery<SidebarEntry[]>({
+    queryKey: ['console-ui-sidebar-entries', resolvedDeploymentId ?? ''],
+    queryFn: () => getSidebarEntries(resolvedDeploymentId ?? ''),
+    enabled: !!resolvedDeploymentId,
+    staleTime: 60_000,
+    placeholderData: (prev) => prev ?? [],
+  })
+  const dynamicEntries: SidebarEntry[] = dynamicEntriesQuery.data ?? []
+
   // Tenant-label expanded state — clicking the pill opens a small inline
   // panel listing the full Sovereign FQDN. The pill itself only has room
   // for a truncated label; the expanded panel guarantees the FQDN is
@@ -348,6 +367,28 @@ export function SovereignSidebar({ sovereignFQDN }: SovereignSidebarProps) {
             >
               <NavIcon d={item.icon} />
               {item.label}
+            </Link>
+          )
+        })}
+
+        {/* Wave 5.69c (#2396) dynamic sidebar entries — Blueprints
+            opted in via spec.consoleUI.sidebarEntry=true. Rendered
+            between hardcoded FLAT_NAV and pinned Settings. */}
+        {dynamicEntries.map((entry) => {
+          const isActive = pathname.startsWith(entry.route)
+          const cls = isActive
+            ? 'bg-[var(--color-accent)]/10 text-[var(--color-accent)]'
+            : 'text-[var(--color-text-dim)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text)]'
+          return (
+            <Link
+              key={`bp-${entry.id}`}
+              to={entry.route as never}
+              className={`mx-2 flex items-center gap-3 rounded-lg px-3 py-2 text-sm no-underline transition-colors ${cls}`}
+              data-testid={`sov-console-nav-bp-${entry.id}`}
+              aria-current={isActive ? 'page' : undefined}
+            >
+              <NavIcon d={entry.icon || 'M4 6h16M4 12h16M4 18h16'} />
+              {entry.label}
             </Link>
           )
         })}
