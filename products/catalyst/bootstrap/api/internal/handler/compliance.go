@@ -2273,7 +2273,28 @@ var (
 		Name:      "policy_mode",
 		Help:      "1 for the active mode, 0 for inactive, per (policy, environment, sovereign, mode).",
 	}, []string{"policy", "environment", "sovereign", "mode"})
+
+	// catalyst_compliance_nats_publish_failures_total — counts every
+	// NATS JetStream KV publish failure from the rollup publisher
+	// (internal/natspub/compliance_rollup_publisher.go). Wave 5.44
+	// (#2251) — audit finding #5: before this, publish failures
+	// were warn-logged only, so operators had no /metrics signal
+	// beyond log scraping. Bumped via IncrementComplianceNATSPublishFailure.
+	metricComplianceNATSPublishFailures = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "catalyst",
+		Subsystem: "compliance",
+		Name:      "nats_publish_failures_total",
+		Help:      "Total NATS JetStream KV publish failures from the compliance rollup publisher.",
+	})
 )
+
+// IncrementComplianceNATSPublishFailure bumps the publish-failure
+// counter. Exported so natspub.ComplianceRollupPublisher can wire it
+// via the onPublishFailure callback without importing the prometheus
+// registry. Wave 5.44 (#2251).
+func IncrementComplianceNATSPublishFailure() {
+	metricComplianceNATSPublishFailures.Inc()
+}
 
 // complianceObserve records the score gauge + per-policy violation
 // counter increments for one Score publish.
