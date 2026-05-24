@@ -645,6 +645,13 @@ locals {
     # Wave 6+ may serve the worker template via a Huawei-AS hook that
     # fetches it from a tofu-OBS object instead of pre-baking on the CP.
     worker_cloud_init_b64 = ""
+    # Wave 5.88 (#2432): wildcard cert issuer selector + marketplace flag
+    # for the sovereign-tls Kustomization (Huawei port of the canonical
+    # Hetzner registration). When wildcard_cert_use_staging=true → LE
+    # staging issuer (no 5/168h rate-limit, useful for repeated reprov);
+    # default false → real-trusted production cert.
+    wildcard_cert_issuer = var.wildcard_cert_use_staging == "true" ? "letsencrypt-dns01-staging-powerdns" : "letsencrypt-dns01-prod-powerdns"
+    marketplace_enabled  = var.marketplace_enabled
   }), "/(?m)^[ ]*#( |$).*\n/", "")
 }
 

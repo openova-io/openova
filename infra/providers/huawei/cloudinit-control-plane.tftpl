@@ -276,6 +276,71 @@ write_files:
             QA_PRIMARY_REGION: "${primary_region_canonical_label}"
             SOVEREIGN_PRIMARY_REGION: "${primary_region_canonical_label}"
             SOVEREIGN_REPLICA_REGION: "${replica_region_canonical_label}"
+      ---
+      # Wave 5.88 (#2432) — sovereign-tls Kustomization. Port of the
+      # canonical Hetzner registration (cloudinit-control-plane.tftpl:1252-1376)
+      # that the Huawei Wave 4 port (2026-05-22) missed. Without this
+      # Kustomization registered, the per-zone Certificate at
+      # clusters/_template/sovereign-tls/cilium-gateway-cert.yaml NEVER
+      # reconciles → cilium-gateway listener has no TLS Secret →
+      # listener stays Programmed=Unknown → console.<fqdn> HTTPS 000.
+      # Surfaced live on d3c6268c (hw01 re-prov 2026-05-24T20:00Z):
+      # bootstrap-kit Ready post-Wave-5.87 but Gateway never Programmed.
+      # The legacy Cert was just ripped (Wave 5.87 #2430) so a Sovereign
+      # on Huawei has ZERO Cert sources for the Gateway without this.
+      apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      metadata:
+        name: sovereign-tls
+        namespace: flux-system
+      spec:
+        interval: 5m
+        path: ./clusters/_template/sovereign-tls
+        prune: true
+        sourceRef:
+          kind: GitRepository
+          name: openova
+        dependsOn:
+          - name: bootstrap-kit
+        wait: true
+        timeout: 5m
+        postBuild:
+          substitute:
+            SOVEREIGN_FQDN: ${sovereign_fqdn}
+            # SOVEREIGN_FQDN_DASHED: periods → dashes for K8s resource
+            # name compliance. Used by sovereign-tls/cilium-gateway.yaml
+            # to reference the chart-rendered per-zone wildcard Secret
+            # (sovereign-wildcard-tls-<dashed-fqdn>).
+            SOVEREIGN_FQDN_DASHED: ${sovereign_fqdn_slug}
+            # SOVEREIGN_LB_IP — Huawei the Gateway listener resolves
+            # against; same shape as Hetzner load_balancer_ipv4.
+            # For HCS this is the primary CP EIP per Wave 5.7 (#2154) —
+            # there is no separate Hetzner-style LB in front of the CP
+            # on HCS. cilium-gateway's lb-ipam-ips annotation pins the
+            # Gateway Service to this EIP.
+            SOVEREIGN_LB_IP: ${primary_cp_eip}
+            MARKETPLACE_ENABLED: "${marketplace_enabled}"
+            PARENT_DOMAINS_YAML: |
+              ${parent_domains_yaml}
+            # WILDCARD_CERT_ISSUER (Fix #176): cilium-gateway-cert.yaml
+            # references this; staging vs prod ClusterIssuer selector.
+            WILDCARD_CERT_ISSUER: "${wildcard_cert_issuer}"
+            # SOVEREIGN_FQDN_SLUG / SOVEREIGN_REGION_KEY: per-region LB
+            # name + location (Hetzner-shape; on HCS the LB-IPAM doesn't
+            # need these but the Gateway template references them via
+            # spec.infrastructure.annotations).
+            SOVEREIGN_FQDN_SLUG: "${sovereign_fqdn_slug}"
+            SOVEREIGN_REGION_KEY: "${primary_region_canonical_label}"
+            # HCLOUD_LB_LOCATION: Hetzner-only annotation; for HCS pass
+            # the canonical region label so the template renders without
+            # an empty-substitute error. cilium-gateway.yaml renders it
+            # into a hcloud-CCM annotation that the Cilium-on-HCS path
+            # ignores (no hcloud-CCM controller running).
+            HCLOUD_LB_LOCATION: "${region}"
+        substituteFrom:
+          - kind: ConfigMap
+            name: sovereign-tls-vars
+            optional: false
 
   # ── Worker cloud-init for autoscaler (issue #921 analogue) ────────────
   - path: /var/lib/catalyst/worker-cloud-init.b64
