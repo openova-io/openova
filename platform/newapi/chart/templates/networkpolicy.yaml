@@ -39,6 +39,14 @@ spec:
         - port: {{ .Values.meteringSidecar.port }}
           protocol: TCP
         {{- end }}
+        {{- if .Values.sandboxBridge.enabled }}
+        # Sandbox-bridge sidecar (#2303, Wave 5.57) — POST
+        # /admin/tokens/sandbox served by the bridge handler on
+        # this port; reachable by the same caller set as the
+        # primary http port (catalyst-system + traefik).
+        - port: {{ .Values.sandboxBridge.port }}
+          protocol: TCP
+        {{- end }}
   egress:
     {{- if .Values.meteringSidecar.enabled }}
     # Metering sidecar emits to NATS JetStream (#798 + #795

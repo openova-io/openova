@@ -53,7 +53,15 @@ env:
   # Wave-9 token mint. Verified with `helm template newapi
   # platform/newapi/chart/ -s templates/service.yaml` → renders
   # `metadata.name: newapi-bp-newapi`.
-  newapiBaseURL: "http://newapi-bp-newapi.newapi.svc.cluster.local:3000"
+  # Wave 5.57 (#2303): the /admin/tokens/sandbox bridge handler runs as
+  # a SIDECAR in the bp-newapi Pod on :8080, NOT inside the upstream
+  # Calcium-Ion binary on :3000. Pre-fix the controller posted to :3000
+  # and hit the upstream binary's default HTML 404 page → JSON-decode
+  # failed with "invalid character '<'" (hw01 walk 2026-05-24). The bp-
+  # newapi Service exposes a second port `bridge: 8080` (Wave 5.57,
+  # platform/newapi/chart/templates/service.yaml) which targets the
+  # sandbox-bridge sidecar.
+  newapiBaseURL: "http://newapi-bp-newapi.newapi.svc.cluster.local:8080"
   # Comma-separated list of NewAPI channel names every freshly-minted
   # Sandbox token is allowed to target. The controller refuses to mint
   # tokens with an empty channel set (NoAllowedChannels condition on

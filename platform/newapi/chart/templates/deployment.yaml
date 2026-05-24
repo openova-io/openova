@@ -215,6 +215,58 @@ spec:
           resources:
             {{- toYaml .Values.newapi.resources | nindent 12 }}
 
+        {{- if .Values.sandboxBridge.enabled }}
+        # ── Sandbox-bridge sidecar (#2303, Wave 5.57) ───────────
+        # Catalyst-side bridge handler at POST /admin/tokens/sandbox.
+        # The upstream Calcium-Ion binary doesn't ship this route, so
+        # without this sidecar sandbox-controller's token-mint call
+        # hits the binary's default 404 HTML page (the "decode
+        # response: invalid character '<'" failure mode on hw01
+        # 2026-05-24). The sidecar serves the same Secret-mounted
+        # signing key + admin secret as the in-binary code path
+        # would.
+        - name: sandbox-bridge
+          image: "{{ .Values.sandboxBridge.image.repository }}:{{ .Values.sandboxBridge.image.tag }}"
+          imagePullPolicy: {{ .Values.sandboxBridge.image.pullPolicy }}
+          ports:
+            - name: bridge
+              containerPort: {{ .Values.sandboxBridge.port }}
+              protocol: TCP
+          env:
+            - name: BRIDGE_LISTEN
+              value: ":{{ .Values.sandboxBridge.port }}"
+            - name: NEWAPI_TOKEN_SIGNING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.sandboxTokenSigningKey.name }}
+                  key: SIGNING_KEY
+            - name: NEWAPI_ADMIN_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.sandboxTokenSigningKey.name }}
+                  key: ADMIN_SECRET
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.sandboxBridge.port }}
+            initialDelaySeconds: 3
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.sandboxBridge.port }}
+            initialDelaySeconds: 1
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.sandboxBridge.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.sandboxBridge.securityContext | nindent 12 }}
+        {{- end }}
+
         {{- if .Values.meteringSidecar.enabled }}
         # ── Metering sidecar (#798) ─────────────────────────────
         # Transparent reverse proxy in front of NewAPI. Observes

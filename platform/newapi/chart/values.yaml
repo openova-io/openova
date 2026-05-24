@@ -833,6 +833,39 @@ hpa:
 # do NOT want metering set `meteringSidecar.enabled: false` in the per-
 # Sovereign overlay (only valid in regulated environments where every
 # channel carries its own out-of-band ledger).
+
+# Sandbox-bridge sidecar (Wave 5.57, Refs #2303). Catalyst-side bridge
+# handler for POST /admin/tokens/sandbox — the upstream Calcium-Ion
+# binary has no such route, so without this sidecar sandbox-controller's
+# token-mint call hits the binary's default 404 HTML page (the "decode
+# response: invalid character '<'" failure mode observed on hw01
+# 2026-05-24). Built by .github/workflows/build-bp-newapi-sandbox-
+# bridge.yaml from platform/newapi/internal/handler.
+sandboxBridge:
+  enabled: true
+  image:
+    repository: ghcr.io/openova-io/openova/newapi-sandbox-bridge
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  port: 8080
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    runAsUser: 65532
+    runAsGroup: 65532
+    capabilities:
+      drop: [ALL]
+    seccompProfile:
+      type: RuntimeDefault
+
 meteringSidecar:
   enabled: true
   image:
