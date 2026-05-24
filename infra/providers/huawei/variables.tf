@@ -312,3 +312,34 @@ variable "obs_bucket_name" {
     error_message = "OBS bucket name must be 3-63 chars, lowercase alphanumeric + hyphens, starting + ending with alphanumeric."
   }
 }
+
+# ── Debug SSH toggle (Wave 5.82 #2419, recovery-script unblock) ──────────
+# Default `false`: the canonical Sovereign posture has NO port 22 ingress
+# on the per-region security group (operator never needs SSH in steady
+# state — k3s + Cilium handle everything inside the cluster, mothership
+# observability covers Day-2). When a recovery flow needs SSH (Wave 5.75
+# manual secondary-kubeconfig PUT-back via `scripts/hw01-recover-
+# secondary-kubeconfig.sh`), the operator flips this to `true` + runs
+# `tofu apply`, runs the script, then flips back + re-applies. The
+# secgroup-rule lifecycle stays in tofu state — no manual Huawei console
+# fiddling that would drift state.
+
+variable "debug_ssh_enabled" {
+  type        = bool
+  default     = false
+  description = <<-EOT
+    When true, opens 22/tcp ingress on every region's security group
+    from `debug_ssh_remote_cidr`. Default false (canonical posture).
+    Flip true to enable recovery-script SSH; flip back after recovery.
+  EOT
+}
+
+variable "debug_ssh_remote_cidr" {
+  type        = string
+  default     = "0.0.0.0/0"
+  description = <<-EOT
+    CIDR allowed to reach 22/tcp when `debug_ssh_enabled = true`.
+    Default 0.0.0.0/0 (broad — relies on key-only SSH auth). Tighten
+    to the bastion /32 in tfvars when running recovery from a known IP.
+  EOT
+}
