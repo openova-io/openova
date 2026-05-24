@@ -247,15 +247,21 @@ func (p *Provider) Wipe(ctx context.Context, spec providers.WipeSpec, progress f
 		WipedAt:       time.Now().UTC(),
 	}
 
-	// Step 1 — tofu destroy. Build a minimal provisioner.Request so
-	// writeTfvars renders a valid tfvars file for the destroy run.
-	// The Request carries the AK/SK + project_id via the same
-	// HetznerToken-style fields the provisioner already understands
-	// (Wave 4 may extract a per-provider creds shape into
-	// provisioner.Request.Creds map).
+	// Step 1 — tofu destroy. Build a destroy Request that carries the
+	// Huawei creds parsed from spec.Creds so writeTfvars renders a
+	// tfvars file with valid AK/SK/project_id/region — provisioner.Destroy
+	// re-stages the module + re-writes tfvars at provisioner.go:1252-1256,
+	// so leaving these empty would OVERWRITE the on-disk tfvars with
+	// empty creds and tofu would fail with 401 verify aksk signature.
+	// Surfaced live by #2428 during the inline #2423 wipe-recreate.
 	destroyReq := provisioner.Request{
-		DeploymentID:  spec.DeploymentID,
-		SovereignFQDN: spec.SovereignFQDN,
+		DeploymentID:    spec.DeploymentID,
+		SovereignFQDN:   spec.SovereignFQDN,
+		Provider:        "huawei",
+		HuaweiAccessKey: hw.AccessKey,
+		HuaweiSecretKey: hw.SecretKey,
+		HuaweiProjectID: hw.ProjectID,
+		HuaweiRegion:    regionFromCreds(spec.Creds),
 	}
 	provEvents := make(chan provisioner.Event, 32)
 	done := make(chan struct{})
