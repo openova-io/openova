@@ -66,7 +66,7 @@ export function NetworkingPage() {
     <PortalShell deploymentId={deploymentId} pageTitle={`Networking — ${label}`}>
       <div className="p-6 space-y-4" data-testid="networking-page">
         <header className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold text-[oklch(85%_0.01_250)]">
+          <h2 className="text-xl font-semibold text-[var(--color-text)]">
             Networking — {label}
           </h2>
           <NetworkingTabs deploymentId={deploymentId} active={slug} />
@@ -179,7 +179,7 @@ function PoliciesTab({ sovereignId }: { sovereignId: string }) {
         ))}
       </div>
       <table className="w-full text-sm" data-testid="policies-table">
-        <thead className="text-left text-[oklch(60%_0.01_250)]">
+        <thead className="text-left text-[var(--color-text-dim)]">
           <tr>
             <th className="py-2">Kind</th>
             <th>Namespace</th>
@@ -197,7 +197,7 @@ function PoliciesTab({ sovereignId }: { sovereignId: string }) {
             >
               <td className="py-2 text-[oklch(75%_0.01_250)]">{p.kind}</td>
               <td className="text-[oklch(70%_0.01_250)]">{p.namespace || '(cluster)'}</td>
-              <td className="text-[oklch(85%_0.01_250)] font-mono">{p.name}</td>
+              <td className="text-[var(--color-text)] font-mono">{p.name}</td>
               <td className="text-[oklch(70%_0.01_250)]">{p.ingress_rules ?? 0}</td>
               <td className="text-[oklch(70%_0.01_250)]">{p.egress_rules ?? 0}</td>
             </tr>
@@ -264,7 +264,7 @@ function ClusterMeshTab({ sovereignId }: { sovereignId: string }) {
         <Stat label="Peers" value={String(data.total)} />
         <Stat label="Mesh keys" value={data.mesh_keys_present ? 'present' : 'missing'} />
       </div>
-      <h3 className="text-sm uppercase text-[oklch(60%_0.01_250)]">Connected clusters</h3>
+      <h3 className="text-sm uppercase text-[var(--color-text-dim)]">Connected clusters</h3>
       {data.clusters.length === 0 ? (
         <Empty
           testId="clustermesh-no-peers"
@@ -273,7 +273,7 @@ function ClusterMeshTab({ sovereignId }: { sovereignId: string }) {
         />
       ) : (
         <table className="w-full text-sm" data-testid="clustermesh-peers-table">
-          <thead className="text-left text-[oklch(60%_0.01_250)]">
+          <thead className="text-left text-[var(--color-text-dim)]">
             <tr>
               <th className="py-2">Cluster</th>
               <th>Status</th>
@@ -286,7 +286,7 @@ function ClusterMeshTab({ sovereignId }: { sovereignId: string }) {
                 className="border-t border-[oklch(20%_0.02_250)]"
                 data-testid={`clustermesh-peer-${p.name}`}
               >
-                <td className="py-2 text-[oklch(85%_0.01_250)] font-mono">{p.name}</td>
+                <td className="py-2 text-[var(--color-text)] font-mono">{p.name}</td>
                 <td className={p.connected ? 'text-emerald-400' : 'text-rose-400'}>
                   {p.connected ? 'connected' : 'disconnected'}
                 </td>
@@ -351,9 +351,9 @@ function NetBirdTab({ sovereignId }: { sovereignId: string }) {
 
   return (
     <section className="space-y-4" data-testid="netbird-tab">
-      <h3 className="text-sm uppercase text-[oklch(60%_0.01_250)]">NetBird deployments</h3>
+      <h3 className="text-sm uppercase text-[var(--color-text-dim)]">NetBird deployments</h3>
       <table className="w-full text-sm" data-testid="netbird-deployments-table">
-        <thead className="text-left text-[oklch(60%_0.01_250)]">
+        <thead className="text-left text-[var(--color-text-dim)]">
           <tr>
             <th className="py-2">Deployment</th>
             <th>Namespace</th>
@@ -368,7 +368,7 @@ function NetBirdTab({ sovereignId }: { sovereignId: string }) {
               className="border-t border-[oklch(20%_0.02_250)]"
               data-testid={`netbird-deployment-${d.name}`}
             >
-              <td className="py-2 text-[oklch(85%_0.01_250)] font-mono">{d.name}</td>
+              <td className="py-2 text-[var(--color-text)] font-mono">{d.name}</td>
               <td className="text-[oklch(70%_0.01_250)]">{d.namespace}</td>
               <td className="text-[oklch(75%_0.01_250)]">{`${d.ready}/${d.desired}`}</td>
               <td className={d.available ? 'text-emerald-400' : 'text-rose-400'}>
@@ -379,7 +379,7 @@ function NetBirdTab({ sovereignId }: { sovereignId: string }) {
         </tbody>
       </table>
       {data.hostname_hint && (
-        <p className="text-sm text-[oklch(60%_0.01_250)]" data-testid="netbird-hostname-hint">
+        <p className="text-sm text-[var(--color-text-dim)]" data-testid="netbird-hostname-hint">
           Browser-facing hostname:{' '}
           <a
             href={`https://${data.hostname_hint}/`}
@@ -451,9 +451,9 @@ function DMZTab({ sovereignId }: { sovereignId: string }) {
 
   return (
     <section className="space-y-4" data-testid="dmz-tab">
-      <h3 className="text-sm uppercase text-[oklch(60%_0.01_250)]">DMZ vClusters</h3>
+      <h3 className="text-sm uppercase text-[var(--color-text-dim)]">DMZ vClusters</h3>
       <table className="w-full text-sm" data-testid="dmz-vclusters-table">
-        <thead className="text-left text-[oklch(60%_0.01_250)]">
+        <thead className="text-left text-[var(--color-text-dim)]">
           <tr>
             <th className="py-2">Name</th>
             <th>Namespace</th>
@@ -467,7 +467,7 @@ function DMZTab({ sovereignId }: { sovereignId: string }) {
               className="border-t border-[oklch(20%_0.02_250)]"
               data-testid={`dmz-vcluster-${v.name}`}
             >
-              <td className="py-2 text-[oklch(85%_0.01_250)] font-mono">{v.name}</td>
+              <td className="py-2 text-[var(--color-text)] font-mono">{v.name}</td>
               <td className="text-[oklch(70%_0.01_250)]">{v.namespace}</td>
               <td className={v.running ? 'text-emerald-400' : 'text-amber-400'}>
                 {v.phase || 'unknown'}
@@ -476,9 +476,9 @@ function DMZTab({ sovereignId }: { sovereignId: string }) {
           ))}
         </tbody>
       </table>
-      <h3 className="text-sm uppercase text-[oklch(60%_0.01_250)]">Isolation NetworkPolicies</h3>
+      <h3 className="text-sm uppercase text-[var(--color-text-dim)]">Isolation NetworkPolicies</h3>
       {data.isolation_cnps.length === 0 ? (
-        <p className="text-sm text-[oklch(60%_0.01_250)]" data-testid="dmz-no-cnps">
+        <p className="text-sm text-[var(--color-text-dim)]" data-testid="dmz-no-cnps">
           No isolation CiliumNetworkPolicies in the dmz namespace yet.
         </p>
       ) : (
@@ -557,7 +557,7 @@ function HubbleTab({ sovereignId }: { sovereignId: string }) {
         <Stat label="UI" value={data.ui_ready ? 'ready' : 'pending'} />
       </div>
       <table className="w-full text-sm" data-testid="hubble-deployments-table">
-        <thead className="text-left text-[oklch(60%_0.01_250)]">
+        <thead className="text-left text-[var(--color-text-dim)]">
           <tr>
             <th className="py-2">Deployment</th>
             <th>Namespace</th>
@@ -572,7 +572,7 @@ function HubbleTab({ sovereignId }: { sovereignId: string }) {
               className="border-t border-[oklch(20%_0.02_250)]"
               data-testid={`hubble-deployment-${d.name}`}
             >
-              <td className="py-2 text-[oklch(85%_0.01_250)] font-mono">{d.name}</td>
+              <td className="py-2 text-[var(--color-text)] font-mono">{d.name}</td>
               <td className="text-[oklch(70%_0.01_250)]">{d.namespace}</td>
               <td className="text-[oklch(75%_0.01_250)]">{`${d.ready}/${d.desired}`}</td>
               <td className={d.available ? 'text-emerald-400' : 'text-rose-400'}>
@@ -618,8 +618,8 @@ function Empty({
       className="p-4 rounded border border-[oklch(25%_0.02_250)] bg-[oklch(15%_0.02_250)]"
       data-testid={testId}
     >
-      <h3 className="text-sm font-semibold text-[oklch(85%_0.01_250)]">{title}</h3>
-      {body && <p className="mt-1 text-sm text-[oklch(60%_0.01_250)]">{body}</p>}
+      <h3 className="text-sm font-semibold text-[var(--color-text)]">{title}</h3>
+      {body && <p className="mt-1 text-sm text-[var(--color-text-dim)]">{body}</p>}
     </div>
   )
 }

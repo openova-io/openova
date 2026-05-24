@@ -388,7 +388,7 @@ export function ResourcesListPage() {
     <PortalShell deploymentId={deploymentId} pageTitle="Resources">
       <div className="p-6 space-y-4" data-testid="resources-list-page">
         <div>
-          <h2 className="text-xl font-semibold text-[oklch(85%_0.01_250)]">Resources</h2>
+          <h2 className="text-xl font-semibold text-[var(--color-text)]">Resources</h2>
           <p className="text-sm text-[oklch(55%_0.01_250)]">
             Live cluster objects from <code>{deploymentId}</code>
             {ns && (

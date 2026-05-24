@@ -38,11 +38,11 @@ function StatCard({ label, value, sub }: { label: string; value: string | number
   return (
     <Card>
       <CardContent className="pt-5">
-        <p className="text-xs text-[oklch(45%_0.01_250)] uppercase tracking-wider font-medium">
+        <p className="text-xs text-[var(--color-text-dimmer)] uppercase tracking-wider font-medium">
           {label}
         </p>
-        <p className="mt-1 text-2xl font-bold text-[oklch(92%_0.01_250)] tabular-nums">{value}</p>
-        {sub && <p className="mt-0.5 text-xs text-[oklch(40%_0.01_250)]">{sub}</p>}
+        <p className="mt-1 text-2xl font-bold text-[var(--color-text-strong)] tabular-nums">{value}</p>
+        {sub && <p className="mt-0.5 text-xs text-[var(--color-text-dimmer)]">{sub}</p>}
       </CardContent>
     </Card>
   )
@@ -92,22 +92,22 @@ export function DashboardPage() {
           <nav
             aria-label="Breadcrumb"
             data-testid="dashboard-breadcrumb"
-            className="text-xs text-[oklch(50%_0.01_250)] mb-1.5"
+            className="text-xs text-[var(--color-text-dim)] mb-1.5"
           >
             <ol className="flex items-center gap-1.5">
               <li>
                 <span className="font-medium text-[oklch(75%_0.01_250)]">Dashboard</span>
               </li>
-              <li aria-hidden="true" className="text-[oklch(35%_0.01_250)]">
+              <li aria-hidden="true" className="text-[var(--color-text-dimmer)]">
                 /
               </li>
-              <li aria-current="page" className="text-[oklch(60%_0.01_250)]">
+              <li aria-current="page" className="text-[var(--color-text-dim)]">
                 Sovereign Fleet
               </li>
             </ol>
           </nav>
-          <h1 className="text-xl font-semibold text-[oklch(92%_0.01_250)]">Sovereign Fleet</h1>
-          <p className="mt-1 text-sm text-[oklch(50%_0.01_250)]">
+          <h1 className="text-xl font-semibold text-[var(--color-text-strong)]">Sovereign Fleet</h1>
+          <p className="mt-1 text-sm text-[var(--color-text-dim)]">
             Manage every OpenOva Sovereign across providers, regions, and Organizations.
           </p>
           {/* qa-loop iter-16 Fix #174 (TC-095 / TC-342 / TC-405) —
@@ -124,7 +124,7 @@ export function DashboardPage() {
               SREDashboard), and Fix #173 (PR #1375, AccessMatrix). */}
           <p
             data-testid="dashboard-page-identity"
-            className="mt-0.5 text-[10px] uppercase tracking-wide text-[oklch(45%_0.01_250)]"
+            className="mt-0.5 text-[10px] uppercase tracking-wide text-[var(--color-text-dimmer)]"
           >
             apiBase: /api/v1 · keycloakBase: /auth · fleet aggregator + cross-Sovereign Applications (qa-wp) · DR (Disaster Recovery) failover surface
           </p>
@@ -186,21 +186,21 @@ export function DashboardPage() {
         className="rounded-lg border border-[oklch(28%_0.02_250)] bg-[--color-surface-2] px-4 py-3"
       >
         <div className="mb-2 flex items-baseline justify-between">
-          <p className="text-xs uppercase tracking-wider font-medium text-[oklch(50%_0.01_250)]">
+          <p className="text-xs uppercase tracking-wider font-medium text-[var(--color-text-dim)]">
             Recent Applications
           </p>
           <Link
             to={'/dashboard/applications' as never}
-            className="text-xs text-[oklch(60%_0.01_250)] underline hover:text-[oklch(80%_0.01_250)]"
+            className="text-xs text-[var(--color-text-dim)] underline hover:text-[oklch(80%_0.01_250)]"
             data-testid="dashboard-recent-apps-more"
           >
             View all →
           </Link>
         </div>
         {fleetApps.isLoading ? (
-          <p className="text-xs text-[oklch(40%_0.01_250)]">Loading applications…</p>
+          <p className="text-xs text-[var(--color-text-dimmer)]">Loading applications…</p>
         ) : recentApps.length === 0 ? (
-          <p className="text-xs text-[oklch(40%_0.01_250)]" data-testid="dashboard-recent-apps-empty">
+          <p className="text-xs text-[var(--color-text-dimmer)]" data-testid="dashboard-recent-apps-empty">
             No Applications installed across the fleet yet.
           </p>
         ) : (
@@ -213,11 +213,11 @@ export function DashboardPage() {
               >
                 <span className="font-mono text-[oklch(80%_0.01_250)]">{row.app.name}</span>
                 {row.app.blueprint ? (
-                  <span className="ml-1.5 text-[oklch(50%_0.01_250)]">
+                  <span className="ml-1.5 text-[var(--color-text-dim)]">
                     @{row.app.blueprint}
                   </span>
                 ) : null}
-                <span className="ml-1.5 text-[10px] uppercase text-[oklch(45%_0.01_250)]">
+                <span className="ml-1.5 text-[10px] uppercase text-[var(--color-text-dimmer)]">
                   {row.sovereign.fqdn || row.sovereign.id}
                 </span>
               </li>
@@ -237,7 +237,7 @@ export function DashboardPage() {
           </div>
           <div>
             <p className="font-medium text-[oklch(75%_0.01_250)]">Failed to load fleet</p>
-            <p className="mt-1 text-sm text-[oklch(45%_0.01_250)]">
+            <p className="mt-1 text-sm text-[var(--color-text-dimmer)]">
               {fleet.error instanceof Error ? fleet.error.message : 'Unknown error'}
             </p>
           </div>
@@ -272,11 +272,11 @@ function EmptyState() {
       className="flex flex-col items-center justify-center gap-4 py-20 text-center"
     >
       <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[--color-surface-2]">
-        <Server className="h-6 w-6 text-[oklch(40%_0.01_250)]" />
+        <Server className="h-6 w-6 text-[var(--color-text-dimmer)]" />
       </div>
       <div>
         <p className="font-medium text-[oklch(75%_0.01_250)]">No Sovereigns provisioned yet</p>
-        <p className="mt-1 text-sm text-[oklch(45%_0.01_250)]">
+        <p className="mt-1 text-sm text-[var(--color-text-dimmer)]">
           Provision your first Sovereign to start managing applications.
         </p>
       </div>

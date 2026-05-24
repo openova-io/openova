@@ -33,7 +33,7 @@ function DropdownMenuItem({ className, inset, ...props }: React.ComponentProps<t
       className={cn(
         'relative flex cursor-pointer select-none items-center gap-2 rounded-[--radius-sm]',
         'px-2 py-1.5 text-sm text-[oklch(80%_0.01_250)] outline-none transition-colors',
-        'focus:bg-[--color-surface-3] focus:text-[oklch(92%_0.01_250)]',
+        'focus:bg-[--color-surface-3] focus:text-[var(--color-text-strong)]',
         'data-[disabled]:pointer-events-none data-[disabled]:opacity-40',
         inset && 'pl-8',
         className
@@ -47,7 +47,7 @@ function DropdownMenuLabel({ className, inset, ...props }: React.ComponentProps<
   return (
     <DropdownMenuPrimitive.Label
       className={cn(
-        'px-2 py-1.5 text-xs font-semibold text-[oklch(45%_0.01_250)] uppercase tracking-wider',
+        'px-2 py-1.5 text-xs font-semibold text-[var(--color-text-dimmer)] uppercase tracking-wider',
         inset && 'pl-8',
         className
       )}

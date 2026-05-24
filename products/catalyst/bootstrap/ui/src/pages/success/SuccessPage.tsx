@@ -15,7 +15,7 @@ function CopyButton({ text }: { text: string }) {
     setTimeout(() => setCopied(false), 2000)
   }
   return (
-    <button onClick={copy} className="flex items-center gap-1 text-xs text-[oklch(50%_0.01_250)] hover:text-[oklch(75%_0.01_250)] transition-colors">
+    <button onClick={copy} className="flex items-center gap-1 text-xs text-[var(--color-text-dim)] hover:text-[oklch(75%_0.01_250)] transition-colors">
       <Copy className="h-3.5 w-3.5" />
       {copied ? 'Copied!' : 'Copy'}
     </button>
@@ -84,8 +84,8 @@ users:
               <CheckCircle2 className="h-8 w-8 text-[--color-success]" />
             </motion.div>
             <div>
-              <h1 className="text-xl font-semibold text-[oklch(92%_0.01_250)]">Cluster is ready</h1>
-              <p className="mt-1 text-sm text-[oklch(50%_0.01_250)]">
+              <h1 className="text-xl font-semibold text-[var(--color-text-strong)]">Cluster is ready</h1>
+              <p className="mt-1 text-sm text-[var(--color-text-dim)]">
                 Your OpenOva platform is running. The Bootstrap wizard has completed its job.
               </p>
             </div>
@@ -97,15 +97,15 @@ users:
               <Server className="h-4 w-4 text-[--color-success] shrink-0" />
               <div className="flex-1">
                 <code className="text-sm font-mono text-[oklch(90%_0.01_250)]">{clusterContext}</code>
-                <p className="text-xs text-[oklch(45%_0.01_250)] mt-0.5">{regionLabel} · {store.workerCount + 1} node{store.workerCount + 1 > 1 ? 's' : ''}</p>
+                <p className="text-xs text-[var(--color-text-dimmer)] mt-0.5">{regionLabel} · {store.workerCount + 1} node{store.workerCount + 1 > 1 ? 's' : ''}</p>
               </div>
               <Badge variant="success">Healthy</Badge>
             </div>
 
             <div className="flex items-center justify-between p-4">
               <div>
-                <p className="text-xs font-semibold text-[oklch(60%_0.01_250)]">Lifecycle Manager</p>
-                <p className="text-xs text-[oklch(45%_0.01_250)] mt-0.5 font-mono">{managerUrl}</p>
+                <p className="text-xs font-semibold text-[var(--color-text-dim)]">Lifecycle Manager</p>
+                <p className="text-xs text-[var(--color-text-dimmer)] mt-0.5 font-mono">{managerUrl}</p>
               </div>
               <a href={managerUrl} target="_blank" rel="noopener noreferrer">
                 <Button variant="secondary" size="sm">
@@ -117,8 +117,8 @@ users:
 
             <div className="flex items-center justify-between p-4">
               <div>
-                <p className="text-xs font-semibold text-[oklch(60%_0.01_250)]">Grafana</p>
-                <p className="text-xs text-[oklch(45%_0.01_250)] mt-0.5 font-mono">{grafanaUrl}</p>
+                <p className="text-xs font-semibold text-[var(--color-text-dim)]">Grafana</p>
+                <p className="text-xs text-[var(--color-text-dimmer)] mt-0.5 font-mono">{grafanaUrl}</p>
               </div>
               <a href={grafanaUrl} target="_blank" rel="noopener noreferrer">
                 <Button variant="secondary" size="sm">
@@ -135,7 +135,7 @@ users:
               <p className="text-sm font-semibold text-[oklch(70%_0.01_250)]">kubeconfig</p>
               <div className="flex items-center gap-3">
                 <CopyButton text={kubeconfig} />
-                <button onClick={downloadKubeconfig} className="flex items-center gap-1 text-xs text-[oklch(50%_0.01_250)] hover:text-[oklch(75%_0.01_250)] transition-colors">
+                <button onClick={downloadKubeconfig} className="flex items-center gap-1 text-xs text-[var(--color-text-dim)] hover:text-[oklch(75%_0.01_250)] transition-colors">
                   <Download className="h-3.5 w-3.5" />
                   Download
                 </button>
@@ -148,7 +148,7 @@ users:
 
           {/* Next steps */}
           <div className="flex flex-col gap-2">
-            <p className="text-xs font-semibold text-[oklch(45%_0.01_250)] uppercase tracking-wider">Next steps</p>
+            <p className="text-xs font-semibold text-[var(--color-text-dimmer)] uppercase tracking-wider">Next steps</p>
             <div className="flex flex-col gap-1.5 text-sm text-[oklch(55%_0.01_250)]">
               {[
                 'Open the Lifecycle Manager to install additional components',
@@ -156,7 +156,7 @@ users:
                 'Review the Grafana observability stack for baseline metrics',
               ].map((step, i) => (
                 <div key={i} className="flex gap-2.5">
-                  <span className="text-[oklch(35%_0.01_250)] shrink-0 font-mono">{i + 1}.</span>
+                  <span className="text-[var(--color-text-dimmer)] shrink-0 font-mono">{i + 1}.</span>
                   {step}
                 </div>
               ))}

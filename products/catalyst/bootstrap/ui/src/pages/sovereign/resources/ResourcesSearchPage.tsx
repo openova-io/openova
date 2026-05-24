@@ -103,7 +103,7 @@ export function ResourcesSearchPage() {
     <PortalShell deploymentId={deploymentId} pageTitle="Resources">
       <div className="p-6 space-y-4" data-testid="resources-search-page">
         <div>
-          <h2 className="text-xl font-semibold text-[oklch(85%_0.01_250)]">Search</h2>
+          <h2 className="text-xl font-semibold text-[var(--color-text)]">Search</h2>
           <p className="text-sm text-[oklch(55%_0.01_250)]">
             Cross-kind search across the catalyst-cache for{' '}
             <code>{deploymentId}</code>.

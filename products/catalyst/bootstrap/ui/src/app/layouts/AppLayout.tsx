@@ -24,7 +24,7 @@ export function AppLayout() {
         {/* Canonical OpenOva mark — see /brand/logo-mark.svg in openova-private */}
         <div className="flex h-14 items-center gap-2.5 px-4 border-b border-[--color-surface-border]">
           <OOLogo h={20} id="app-sidebar-logo" />
-          <span className="text-sm font-semibold text-[oklch(92%_0.01_250)] tracking-tight">OpenOva <span className="text-[oklch(60%_0.01_250)] font-normal">Sovereign</span></span>
+          <span className="text-sm font-semibold text-[var(--color-text-strong)] tracking-tight">OpenOva <span className="text-[var(--color-text-dim)] font-normal">Sovereign</span></span>
         </div>
 
         {/* New deployment CTA */}
@@ -49,7 +49,7 @@ export function AppLayout() {
                   'flex items-center gap-2.5 rounded-[--radius-md] px-2.5 py-2 text-sm font-medium transition-colors duration-150',
                   active
                     ? 'bg-[--color-brand-500]/12 text-[--color-brand-300]'
-                    : 'text-[oklch(55%_0.01_250)] hover:bg-[--color-surface-2] hover:text-[oklch(85%_0.01_250)]'
+                    : 'text-[oklch(55%_0.01_250)] hover:bg-[--color-surface-2] hover:text-[var(--color-text)]'
                 )}
               >
                 <Icon className="h-4 w-4 shrink-0" />
@@ -68,10 +68,10 @@ export function AppLayout() {
                   <AvatarFallback>EB</AvatarFallback>
                 </Avatar>
                 <div className="flex-1 text-left min-w-0">
-                  <p className="text-xs font-medium text-[oklch(85%_0.01_250)] truncate">Emrah Baysal</p>
-                  <p className="text-xs text-[oklch(45%_0.01_250)] truncate">openova.io</p>
+                  <p className="text-xs font-medium text-[var(--color-text)] truncate">Emrah Baysal</p>
+                  <p className="text-xs text-[var(--color-text-dimmer)] truncate">openova.io</p>
                 </div>
-                <ChevronDown className="h-3.5 w-3.5 text-[oklch(45%_0.01_250)] shrink-0" />
+                <ChevronDown className="h-3.5 w-3.5 text-[var(--color-text-dimmer)] shrink-0" />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent side="top" align="start" className="w-48">
