@@ -1,0 +1,58 @@
+{{- /*
+  default-instrumentation.yaml — single Instrumentation CR named
+  `default` in this chart's release namespace (= `opentelemetry`).
+
+  Workloads in any namespace opt into auto-instrumentation by adding a
+  pod annotation:
+
+      instrumentation.opentelemetry.io/inject-go:     "opentelemetry/default"
+      instrumentation.opentelemetry.io/inject-java:   "opentelemetry/default"
+      instrumentation.opentelemetry.io/inject-python: "opentelemetry/default"
+      instrumentation.opentelemetry.io/inject-nodejs: "opentelemetry/default"
+      instrumentation.opentelemetry.io/inject-dotnet: "opentelemetry/default"
+
+  The `opentelemetry/default` reference uses the namespace-qualified form
+  so workloads in tenant namespaces can reference this CR without copying
+  it. The Operator's mutating webhook does the resolution.
+
+  Gated by .Values.opentelemetryOverlay.defaultInstrumentation.enabled
+  (default true) AND .Values.opentelemetry-operator.enabled (default true)
+  — without the Operator subchart the Instrumentation CRD is absent and
+  applying this CR would fail with `no matches for kind`.
+*/}}
+{{- $op := index .Values "opentelemetry-operator" }}
+{{- $inst := .Values.opentelemetryOverlay.defaultInstrumentation }}
+{{- if and $inst.enabled $op.enabled }}
+apiVersion: opentelemetry.io/v1alpha1
+kind: Instrumentation
+metadata:
+  name: default
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-opentelemetry
+    catalyst.openova.io/component: default-instrumentation
+spec:
+  exporter:
+    endpoint: {{ $inst.exporterEndpoint | quote }}
+  propagators:
+    - tracecontext
+    - baggage
+    - b3
+  sampler:
+    type: {{ $inst.sampler.type | quote }}
+    argument: {{ $inst.sampler.argument | quote }}
+  resource:
+    addK8sUIDAttributes: true
+  # Per-language SDK auto-injection. Each block sets the SDK image the
+  # Operator's mutating webhook copies into the workload's init container.
+  go:
+    image: ghcr.io/open-telemetry/opentelemetry-go-instrumentation/autoinstrumentation-go:v0.16.0-alpha
+  java:
+    image: ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-java:2.10.0
+  python:
+    image: ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-python:0.50b0
+  nodejs:
+    image: ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-nodejs:0.55.0
+  dotnet:
+    image: ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-dotnet:1.9.0
+{{- end }}
