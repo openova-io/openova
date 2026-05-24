@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+# bp-newapi — HTTPRoute render audit (Wave 5.84 #2421).
+#
+# Verifies the chart renders a Cilium Gateway HTTPRoute for
+# `newapi.<sovereignFQDN>` when the bootstrap-kit overlay flips
+# `ingress.httpRoute.enabled: true` + sets `sovereignFQDN`.
+#
+# Why this guard: the default values.yaml ships `httpRoute.enabled: false`
+# (sensible: a chart installed standalone on a non-Catalyst cluster
+# shouldn't fight whatever Gateway / Ingress the operator owns). The
+# bootstrap-kit overlay at clusters/_template/bootstrap-kit/80-newapi.yaml
+# flips it on. The CI default-values smoke (blueprint-release.yaml) does
+# NOT exercise the overlay-enabled path, so a regression in
+# templates/httproute.yaml (gate condition, typo in parentRef, hostname
+# templating) would slip through smoke + only surface on a fresh prov as
+# NXDOMAIN for `newapi.<fqdn>`.
+#
+# #2421 observed exactly this on hw01.omani.works (Wave 5.80 walk).
+#
+# Cases:
+#   1. Overlay-enabled render — HTTPRoute kind present with correct
+#      hostname (`newapi.<sovereignFQDN>`)
+#   2. Overlay-enabled render — HTTPRoute parentRefs cite the canonical
+#      Cilium Gateway (`cilium-gateway` in `kube-system`)
+#   3. Overlay-enabled render — HTTPRoute backendRefs point at the
+#      bp-newapi Service on the chart's Service port
+#   4. Default-off path — no HTTPRoute kind in render output (no
+#      regression of the silent-skip behaviour the standalone-install
+#      path relies on)
+#   5. Operator override — explicit `host` overrides the
+#      `newapi.<fqdn>` derived hostname
+
+set -euo pipefail
+
+chart_dir="$(cd "$(dirname "$0")/.." && pwd)"
+helm="${HELM_BIN:-helm}"
+
+"$helm" dependency build "$chart_dir" >/dev/null 2>&1 || true
+
+# Common values that mirror the bootstrap-kit overlay at slot 80 — minus
+# the cluster-specific creds, plus the masterKey shortcut so we don't
+# need a Keycloak issuer for smoke render.
+overlay_values=$(mktemp)
+trap 'rm -f "$overlay_values"' EXIT
+cat > "$overlay_values" <<'EOF'
+sovereignFQDN: smoke.omani.works
+auth:
+  adminUI:
+    mode: masterKey
+database:
+  existingSecret: test-dsn
+ingress:
+  host: api.smoke.omani.works
+  httpRoute:
+    enabled: true
+EOF
+
+# ── Case 1: HTTPRoute renders with derived hostname ──────────────────
+echo "[bp-newapi] Case 1: overlay-enabled render — HTTPRoute present + correct hostname"
+out=$("$helm" template smoke "$chart_dir" -f "$overlay_values" 2>&1)
+
+route_block=$(echo "$out" | awk '/^---$/{f=0} /^kind: HTTPRoute$/{f=1} f')
+if [ -z "$route_block" ]; then
+  echo "FAIL: HTTPRoute did not render with httpRoute.enabled=true + sovereignFQDN"
+  echo "(would surface on fresh Sovereign prov as NXDOMAIN for newapi.<fqdn> — exactly the #2421 symptom)"
+  exit 1
+fi
+if ! echo "$route_block" | grep -q "newapi.smoke.omani.works"; then
+  echo "FAIL: HTTPRoute hostname is not derived as 'newapi.<sovereignFQDN>'"
+  echo "$route_block"
+  exit 1
+fi
+echo "[bp-newapi] Case 1: PASS"
+
+# ── Case 2: parentRefs cite canonical Cilium Gateway ──────────────────
+echo "[bp-newapi] Case 2: parentRefs cite 'cilium-gateway' in 'kube-system'"
+if ! echo "$route_block" | grep -q "name: \"cilium-gateway\""; then
+  echo "FAIL: HTTPRoute parentRefs do not cite name=cilium-gateway"
+  exit 1
+fi
+if ! echo "$route_block" | grep -q "namespace: \"kube-system\""; then
+  echo "FAIL: HTTPRoute parentRefs do not cite namespace=kube-system"
+  exit 1
+fi
+echo "[bp-newapi] Case 2: PASS"
+
+# ── Case 3: backendRefs point at bp-newapi Service ────────────────────
+echo "[bp-newapi] Case 3: backendRefs point at bp-newapi Service"
+if ! echo "$route_block" | grep -q "smoke-bp-newapi"; then
+  echo "FAIL: HTTPRoute backendRefs name does not match include 'bp-newapi.fullname'"
+  exit 1
+fi
+echo "[bp-newapi] Case 3: PASS"
+
+# ── Case 4: default-off path — HTTPRoute absent ───────────────────────
+echo "[bp-newapi] Case 4: default-off path — HTTPRoute not rendered"
+default_values=$(mktemp)
+cat > "$default_values" <<'EOF'
+auth:
+  adminUI:
+    mode: masterKey
+database:
+  existingSecret: test-dsn
+EOF
+out_default=$("$helm" template smoke "$chart_dir" -f "$default_values" 2>&1)
+rm -f "$default_values"
+
+if echo "$out_default" | grep -q "^kind: HTTPRoute$"; then
+  echo "FAIL: HTTPRoute should NOT render when httpRoute.enabled is unset (default)"
+  exit 1
+fi
+echo "[bp-newapi] Case 4: PASS"
+
+# ── Case 5: operator override of explicit host ────────────────────────
+echo "[bp-newapi] Case 5: operator override of httpRoute.host"
+override_values=$(mktemp)
+cat > "$override_values" <<'EOF'
+sovereignFQDN: smoke.omani.works
+auth:
+  adminUI:
+    mode: masterKey
+database:
+  existingSecret: test-dsn
+ingress:
+  host: api.smoke.omani.works
+  httpRoute:
+    enabled: true
+    host: llm.smoke.omani.works
+EOF
+out_override=$("$helm" template smoke "$chart_dir" -f "$override_values" 2>&1)
+rm -f "$override_values"
+
+route_block_override=$(echo "$out_override" | awk '/^---$/{f=0} /^kind: HTTPRoute$/{f=1} f')
+if ! echo "$route_block_override" | grep -q "llm.smoke.omani.works"; then
+  echo "FAIL: explicit httpRoute.host override not propagated to HTTPRoute hostnames"
+  exit 1
+fi
+if echo "$route_block_override" | grep -q "newapi.smoke.omani.works"; then
+  echo "FAIL: explicit override leaked the derived 'newapi.<fqdn>' default"
+  exit 1
+fi
+echo "[bp-newapi] Case 5: PASS"
+
+echo "[bp-newapi] All HTTPRoute render cases PASS"

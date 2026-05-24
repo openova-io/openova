@@ -1,5 +1,14 @@
 apiVersion: v2
 name: bp-newapi
+# 1.4.52 — feat(tests): HTTPRoute render audit (Wave 5.84 #2421). 5-case
+# smoke at chart/tests/httproute-render.sh exercises the overlay-enabled
+# path (httpRoute.enabled=true + sovereignFQDN set) that the canonical
+# bootstrap-kit slot 80 overlay drives. Default-values CI smoke skips
+# the HTTPRoute path silently; without this test a regression in
+# templates/httproute.yaml (gate condition, hostname templating,
+# parentRef typo) would only surface on a fresh Sovereign prov as
+# NXDOMAIN for newapi.<fqdn> — exactly the #2421 symptom on hw01.
+#
 # 1.4.41 — chore(privacy): rename the partner-named channel slot to
 # `qwenPartner` and strip partner identifiers from all comments /
 # fixtures / Secret names.
@@ -402,7 +411,7 @@ name: bp-newapi
 # `lookup valkey.valkey.svc.cluster.local: no such host`). Same hostname
 # already documented as canonical in products/catalyst/chart/values.yaml
 # bp-cnpg-pair comments.
-version: 1.4.51
+version: 1.4.52
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
