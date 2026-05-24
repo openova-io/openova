@@ -5,13 +5,15 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-3-2-observability-and-tracing
 spec:
-  version: 1.0.0
+  version: 1.0.1
   card:
     title: OpenTelemetry Operator
     summary: |
       Auto-injection of OTel SDK sidecars into Pods via Instrumentation
       CRs. Companion to bp-opentelemetry (the collector). Activated by
-      EPIC-5 (#1100).
+      Wave 5.41 (#2227) to unblock #2215 — splits Operator + CRDs out
+      of bp-opentelemetry so Helm 3's subchart-CRDs-on-upgrade race
+      doesn't reoccur.
     family: observability
     documentation: ./README.md
   visibility: unlisted

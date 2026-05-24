@@ -1,12 +1,15 @@
 apiVersion: v2
 name: bp-opentelemetry-operator
-version: 1.0.0
+version: 1.0.1
 description: |
   Catalyst-curated Blueprint umbrella chart for the OpenTelemetry
   Operator. Wraps the upstream open-telemetry/opentelemetry-helm-charts
   `opentelemetry-operator` chart and ships the default Instrumentation CR.
-  Default off — operator opts in deliberately per-Sovereign per
-  docs/INVIOLABLE-PRINCIPLES.md #4.
+  Wave 5.41 (#2227) activated this chart (was Phase-0 scaffold default-off)
+  to fix the chicken-and-egg CRD-vs-CR issue surfaced by Wave 5.36 #2215:
+  Helm 3 doesn't install subchart CRDs on UPGRADE. Splitting Operator+CRDs
+  into this dedicated Blueprint + creating CRs in bp-opentelemetry via
+  Flux dependsOn ordering eliminates the upgrade-time race.
 type: application
 keywords: [catalyst, blueprint, opentelemetry, observability, instrumentation]
 maintainers:

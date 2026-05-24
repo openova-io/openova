@@ -181,10 +181,21 @@ slots:
     depends_on: [bp-gitea, bp-harbor]
     wave: W2.K1
 
-  # ---- Tier 6: observability (W2.K2, slots 20-26) ---------------------------
+  # ---- Tier 6: observability (W2.K2, slots 19c, 20-26) ---------------------
+  - slot: 19c
+    name: bp-opentelemetry-operator
+    # Wave 5.41 (#2227) chart-split — Operator + CRDs in this slot, Collector
+    # + CR in slot 20. Eliminates the Helm-3-doesn't-install-subchart-CRDs-on-
+    # upgrade race that broke hw01 across Wave 5.36/5.38/5.39/5.40.
+    depends_on: [bp-cert-manager]
+    wave: W2.K2
   - slot: 20
     name: bp-opentelemetry
-    depends_on: [bp-cert-manager]
+    # dependsOn bp-opentelemetry-operator added by Wave 5.41 chart-split so
+    # the Collector (this chart) installs only AFTER the Instrumentation CRD
+    # is registered. Without the operator-Ready gate, the upgrade path from
+    # Wave 5.36's bundled-Operator shape would re-fail on hw01.
+    depends_on: [bp-cert-manager, bp-opentelemetry-operator]
     wave: W2.K2
   - slot: 21
     name: bp-alloy

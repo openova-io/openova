@@ -1,0 +1,73 @@
+# bp-opentelemetry-operator — Catalyst Blueprint slot 19c
+# (W2.K2 Observability batch; companion to 20-opentelemetry).
+#
+# Installs the OpenTelemetry Operator + its CRDs (Instrumentation,
+# OpenTelemetryCollector, etc.) BEFORE bp-opentelemetry creates the
+# Catalyst-managed Instrumentation CR at slot 20. Splitting Operator
+# (this slot) from Collector + CR (slot 20) eliminates the Wave 5.36
+# upgrade-time chicken-and-egg race where Helm 3 doesn't install
+# subchart CRDs on upgrade.
+#
+# Wrapper chart:  platform/opentelemetry-operator/chart/
+# Reconciled by:  Flux on the new Sovereign's k3s control plane, AFTER
+#                 bp-cert-manager is Ready (the Operator's mutating
+#                 admission webhook uses cert-manager-issued certs via
+#                 wildcard-issuer ClusterIssuer).
+#
+# dependsOn:
+#   - bp-cert-manager (slot 02) — webhook certs.
+#
+# slot 20 (bp-opentelemetry) is updated by Wave 5.41 to dependsOn this
+# slot 19c so the Collector + CR install only AFTER the CRDs are
+# registered with the API server.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: opentelemetry
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-opentelemetry-operator
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-opentelemetry-operator
+  namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "19c"
+spec:
+  interval: 15m
+  timeout: 15m
+  releaseName: opentelemetry-operator
+  targetNamespace: opentelemetry
+  dependsOn:
+    - name: bp-cert-manager
+  chart:
+    spec:
+      chart: bp-opentelemetry-operator
+      version: 1.0.1
+      sourceRef:
+        kind: HelmRepository
+        name: bp-opentelemetry-operator
+        namespace: flux-system
+  install:
+    timeout: 15m
+    remediation:
+      retries: 3
+  upgrade:
+    timeout: 15m
+    remediation:
+      retries: 3

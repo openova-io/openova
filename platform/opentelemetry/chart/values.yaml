@@ -98,60 +98,11 @@ opentelemetry-collector:
   # Per-Sovereign overlays disable jaeger / zipkin / prometheus receivers
   # via the `ports:` block when they're not needed.
 
-# ─── OpenTelemetry Operator subchart values ──────────────────────────────
-# The Operator installs the `Instrumentation` + `OpenTelemetryCollector`
-# CRDs and the reconciler that injects auto-instrumentation init containers
-# into pods carrying `instrumentation.opentelemetry.io/inject-<lang>`
-# annotations. Per EPIC #1094 — closes the documented "no Instrumentation
-# CRs" gap.
-opentelemetry-operator:
-  enabled: true
-  # Replica count for the operator-controller-manager Deployment.
-  # Upstream chart key is `replicaCount` at the ROOT of the subchart's
-  # values (NOT `replicas`, NOT under `manager.*`). Wave 5.39 fix.
-  replicaCount: 1
-  manager:
-    image:
-      repository: ghcr.io/open-telemetry/opentelemetry-operator/opentelemetry-operator
-      tag: "0.108.0"
-    collectorImage:
-      repository: otel/opentelemetry-collector-contrib
-      tag: "0.150.1"
-    # Resources for the manager container.
-    # Upstream schema places `resources` under `manager:` (NOT at root).
-    # Wave 5.36 placed it at root → schema rejected. Wave 5.38 also moved
-    # replicas under manager which is ALSO rejected. Wave 5.39 fix:
-    # resources under manager.resources, replicaCount stays at root.
-    resources:
-      limits:
-        cpu: 200m
-        memory: 256Mi
-      requests:
-        cpu: 50m
-        memory: 64Mi
-  # Use cert-manager for the operator's mutating webhook (bp-cert-manager
-  # is the dependsOn for slot 20 — clean cert lifecycle vs the upstream-
-  # bundled cert generator that can leave dangling Jobs).
-  admissionWebhooks:
-    certManager:
-      enabled: true
-      issuerRef:
-        kind: ClusterIssuer
-        name: wildcard-issuer
-
 # ─── Catalyst overlay values (consumed by templates/ in this chart) ──────
+# Wave 5.41 (#2227): the OpenTelemetry Operator + default Instrumentation
+# CR moved to bp-opentelemetry-operator (slot 19c). This chart now only
+# ships the Collector. Apps reference the cross-NS Instrumentation CR as
+# `opentelemetry/default` per the OTel Operator-supported annotation form.
 opentelemetryOverlay:
   networkPolicy:
     enabled: false
-  # Default `Instrumentation` CR rendered by templates/default-instrumentation.yaml.
-  # When false, no CR is rendered — workloads must reference an Instrumentation
-  # CR they define themselves.
-  defaultInstrumentation:
-    enabled: true
-    # Endpoint the auto-instrumentation init containers will export to.
-    # Defaults to the in-cluster collector this chart deploys.
-    exporterEndpoint: "http://opentelemetry-opentelemetry-collector.opentelemetry.svc:4318"
-    # Sample rate — default 100% in solo-Sovereign POCs; lower in prod.
-    sampler:
-      type: parentbased_traceidratio
-      argument: "1.0"
