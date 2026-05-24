@@ -104,3 +104,31 @@ catalystStreams:
     ttl: "168h"
     # 1 GiB upper bound.
     maxBytes: 1073741824
+
+# ─── nack subchart values (Wave 5.45 #2254) ──────────────────────────────
+# Installs the JetStream Controller + KeyValue/Stream/Consumer/ObjectStore
+# CRDs that bp-nats-jetstream's kv-buckets.yaml + streams.yaml render
+# against. Without nack the broker is Running but no CRs reconcile.
+#
+# The chart's default deploys nack as 'jetstream' Deployment in the
+# release namespace (nats-system). Watch namespace empty = cluster-wide.
+nack:
+  enabled: true
+  jetstream:
+    # Point at the broker subchart's Service. Same-namespace, no auth
+    # required (NATS auth is operator-config'd separately if at all).
+    nats:
+      url: "nats://nats-jetstream:4222"
+    # Modest defaults at solo-Sovereign scale. Bump replicas via overlay
+    # when HA is sized.
+    replicas: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+  # No webhook or PodMonitor for the controller in our solo profile.
+  podMonitor:
+    enabled: false
