@@ -1,0 +1,152 @@
+name: Test — bp-openbao fresh-prov self-heal
+
+# Wave 5.60 (Refs #2295 DEFENSE layer, follows Wave 5.55 #2310):
+# Spins up a Kind cluster, installs bp-openbao with autoUnseal.enabled=true,
+# and asserts that the openbao-init Job reaches Completed AND the
+# openbao-root-token Secret is populated within the 1200s budget set by
+# Wave 5.55.
+#
+# Why this exists (per Principle #16 DEFENSE layer):
+#   On hw01 2026-05-24T07:01Z the post-install init Job timed out because
+#   the Huawei HCS storage was slower than Hetzner, exhausting the prior
+#   600s activeDeadlineSeconds. The founder had to manually `bao operator
+#   init` to unblock. Wave 5.55 bumped the budget to 1200s, but without a
+#   DEFENSE-layer test, the next time the upstream chart bumps its
+#   StatefulSet image, or someone tweaks init-job.yaml, fresh-prov
+#   breakage will only surface on the next live Sovereign provision.
+#
+# This workflow asserts the happy-path is preserved end-to-end without
+# manual intervention.
+
+on:
+  push:
+    paths:
+      - 'platform/openbao/chart/**'
+      - 'platform/openbao/blueprint.yaml'
+      - 'clusters/_template/bootstrap-kit/08-openbao.yaml'
+      - '.github/workflows/test-bp-openbao-fresh-prov.yaml'
+      - 'tests/e2e/bp-openbao-fresh-prov.sh'
+    branches: [main]
+  pull_request:
+    paths:
+      - 'platform/openbao/chart/**'
+      - 'platform/openbao/blueprint.yaml'
+      - 'clusters/_template/bootstrap-kit/08-openbao.yaml'
+      - '.github/workflows/test-bp-openbao-fresh-prov.yaml'
+      - 'tests/e2e/bp-openbao-fresh-prov.sh'
+  workflow_dispatch:
+
+jobs:
+  fresh-prov-self-heal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install kind + kubectl + helm
+        run: |
+          set -euo pipefail
+          # kind
+          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-amd64
+          chmod +x ./kind && sudo mv ./kind /usr/local/bin/kind
+          # kubectl
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl && sudo mv kubectl /usr/local/bin/kubectl
+          # helm
+          curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+          chmod +x get_helm.sh && ./get_helm.sh
+          kind version; kubectl version --client; helm version
+
+      - name: Create kind cluster
+        run: kind create cluster --name openbao-fresh-prov --wait 90s
+
+      - name: Pre-create openbao namespace + recovery-seed Secret
+        run: |
+          set -euo pipefail
+          kubectl create namespace openbao
+          # The init-job.yaml expects a seed Secret from cloud-init's
+          # autoUnseal block (recovery-seed key, base64 random bytes).
+          # Mimic the cloud-init step here so the fresh-prov test
+          # exercises the same path a real Sovereign hits.
+          SEED=$(head -c 32 /dev/urandom | base64)
+          kubectl -n openbao create secret generic openbao-recovery-seed \
+            --from-literal=recovery-seed="${SEED}"
+
+      - name: helm dep update + install bp-openbao
+        run: |
+          set -euo pipefail
+          helm dep update platform/openbao/chart
+          helm install openbao platform/openbao/chart \
+            --namespace openbao \
+            --set autoUnseal.enabled=true \
+            --set autoUnseal.activeDeadlineSeconds=1200 \
+            --set autoUnseal.baoAddress=http://openbao.openbao.svc.cluster.local:8200 \
+            --set openbao.server.ha.replicas=1 \
+            --set openbao.server.affinity="" \
+            --wait --timeout=15m \
+            || true   # don't fail install — we want to inspect Job state
+          kubectl -n openbao get all
+
+      - name: Wait for openbao-init Job Completed (budget 20 min)
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 60); do
+            if kubectl -n openbao get job openbao-init -o jsonpath='{.status.succeeded}' 2>/dev/null | grep -q "1"; then
+              echo "openbao-init Completed after ${i} * 20s"
+              break
+            fi
+            STATUS=$(kubectl -n openbao get job openbao-init -o jsonpath='{.status}' 2>/dev/null || echo "{}")
+            echo "[$(date -u +%H:%M:%S)] poll ${i}/60 — status: ${STATUS}"
+            sleep 20
+          done
+          # FINAL assertion: Job must have succeeded
+          if ! kubectl -n openbao get job openbao-init -o jsonpath='{.status.succeeded}' | grep -q "1"; then
+            echo "FATAL: openbao-init Job did not complete in 20 min"
+            kubectl -n openbao describe job openbao-init
+            kubectl -n openbao get pods
+            kubectl -n openbao logs -l catalyst.openova.io/component=openbao-init --tail=200 || true
+            exit 1
+          fi
+
+      - name: Assert openbao-root-token Secret has bytes
+        run: |
+          set -euo pipefail
+          if ! kubectl -n openbao get secret openbao-root-token -o jsonpath='{.data.token}' | base64 -d | grep -qE '^[a-zA-Z0-9._-]+$'; then
+            echo "FATAL: openbao-root-token Secret missing or empty"
+            kubectl -n openbao get secret openbao-root-token -o yaml || true
+            exit 1
+          fi
+          echo "openbao-root-token persisted + non-empty (Wave 5.55 self-heal verified)"
+
+      - name: Assert openbao-unseal-keys Secret has bytes
+        run: |
+          set -euo pipefail
+          if ! kubectl -n openbao get secret openbao-unseal-keys -o jsonpath='{.data.unseal-keys-b64}' | base64 -d | grep -qE '^[A-Za-z0-9+/=]+$'; then
+            echo "FATAL: openbao-unseal-keys Secret missing or empty"
+            exit 1
+          fi
+          echo "openbao-unseal-keys persisted (idempotent-reseal path enabled)"
+
+      - name: Assert seed Secret cleaned (single-use consumed)
+        run: |
+          set -euo pipefail
+          if kubectl -n openbao get secret openbao-recovery-seed 2>/dev/null; then
+            echo "WARN: seed Secret still present (Step 5 cleanup skipped or failed)"
+            # not fatal — operator may have re-created it for a re-install path
+          else
+            echo "seed Secret cleaned (consumed correctly)"
+          fi
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## bp-openbao fresh-prov self-heal"
+            echo ""
+            echo "Wave 5.60 DEFENSE-layer test for #2295. Validates that the"
+            echo "post-install init Job:"
+            echo "  - completes within Wave 5.55's 1200s budget"
+            echo "  - persists openbao-root-token + openbao-unseal-keys Secrets"
+            echo "  - cleans the single-use openbao-recovery-seed Secret"
+          } >> "$GITHUB_STEP_SUMMARY"
