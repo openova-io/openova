@@ -696,12 +696,13 @@ ingress:
   enabled: true
   className: "traefik"
   host: "" # operator-supplied (e.g. api.<sovereign-fqdn>)
-  adminHost: "" # operator-supplied (e.g. admin.<sovereign-fqdn>)
+  # Wave 5.81 (#2412): adminHost RIPPED. Ops-staff admin via Catalyst
+  # BSS console (https://console.<sov-fqdn>/bss/*) per founder ruling
+  # 2026-05-18. No separate admin.<sov-fqdn> hostname.
   tls:
     enabled: true
     issuer: "letsencrypt-prod" # cert-manager ClusterIssuer
     apiSecretName: "newapi-api-tls"
-    adminSecretName: "newapi-admin-tls"
   # Path allowlist for the customer-facing host. Anything not on this
   # list returns 404. Locks down the upstream portal UI surface.
   customerAPIAllowedPaths:
