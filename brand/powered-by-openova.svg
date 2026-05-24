@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  "Powered by OpenOva" horizontal lockup.
+
+  Use this for third-party UIs that consume OpenOva infrastructure
+  (chepherd pairing screens, third-party Blueprint cards, OEM partner
+  surfaces). Lockup combines the mark + the wordmark in a single
+  drop-in SVG.
+
+  Per Wave 5.70 (#2371), CC-BY-SA-4.0 licensed. See brand/README.md.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 80" width="480" height="80" aria-label="Powered by OpenOva">
+  <defs>
+    <linearGradient id="lockup-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#3B82F6"/>
+      <stop offset="100%" stop-color="#818CF8"/>
+    </linearGradient>
+  </defs>
+  <!-- "powered by" smallcaps -->
+  <text x="10" y="46" font-family="ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="14" font-weight="500" fill="#9ca3af" letter-spacing="0.05em">POWERED BY</text>
+  <!-- OO mark (scaled inline) -->
+  <g transform="translate(140, 22) scale(0.10)">
+    <path
+      d="M 300 88.1966 A 150 150 0 1 0 350 200 A 150 150 0 1 1 400 311.8034"
+      fill="none"
+      stroke="url(#lockup-grad)"
+      stroke-width="100"
+      stroke-linecap="butt"
+    />
+  </g>
+  <!-- Wordmark -->
+  <text x="220" y="50" font-family="ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="28" font-weight="600" fill="#f3f4f6" letter-spacing="-0.01em">OpenOva</text>
+</svg>
