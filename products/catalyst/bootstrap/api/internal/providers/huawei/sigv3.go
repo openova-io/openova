@@ -159,13 +159,37 @@ func canonicalHeaders(h http.Header) (string, string) {
 }
 
 // canonicalURI returns the path component encoded per the signing
-// spec — a leading slash, trailing slash if the original URI had
-// one. Spec is identical to AWS SigV4.
+// spec. Spec is AWS SigV4 compatible with one HCS divergence: HCS
+// expects the canonical URI to ALWAYS end with `/` (even when the
+// request URI itself does not), per the empirical error response
+// returned by HCS endpoints:
+//
+//	{"error_msg":"...verify aksk signature fail, canonical_request:
+//	GET|/v1/<project>/publicips/||host:vpc.<region>.kom4dc...|x-sdk-
+//	date:<ts>||host;x-sdk-date|<bodyHash>"}
+//
+// Note the trailing `/` after `publicips` in the server's expected
+// canonical-request — even though the actual request URI was
+// `/v1/<project>/publicips` without trailing slash. Pre-Wave-5.91
+// this function returned `u.EscapedPath()` verbatim, missing the
+// trailing slash, causing every Huawei orphan-sweep API call to
+// fail with HTTP 401 verify-aksk-signature-fail. Surfaced live on
+// the d3c6268c wipe (#2423 / #2428 Bug 2) — wipe handler's orphan
+// sweep silently no-op'd because every ECS/VPC/EIP/SG list call
+// 401'd, leaving Huawei resources alive after the wipe.
+//
+// Spec reference: AWS SigV4 + HCS-specific trailing-slash convention
+// verified by 7+ successful API calls from a Python reference
+// implementation (see /tmp/huawei-sigv3.py in the #2423 walk).
 func canonicalURI(u *url.URL) string {
 	if u == nil || u.Path == "" {
 		return "/"
 	}
-	return u.EscapedPath()
+	p := u.EscapedPath()
+	if !strings.HasSuffix(p, "/") {
+		p += "/"
+	}
+	return p
 }
 
 // canonicalQueryString builds the sorted key=val canonical form.
