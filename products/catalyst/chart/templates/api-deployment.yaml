@@ -1373,7 +1373,16 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 192Mi
+              # Wave 5.15 (#2165) trimmed this 512Mi → 192Mi to make space on
+              # the single-VM mothership. Wave 5.59 (#2306, 2026-05-24)
+              # trims further 192Mi → 96Mi after the mothership node hit
+              # 98% memory requests (11812Mi/12000Mi) and catalyst-api
+              # stalled Pending 48+min waiting for scheduling headroom.
+              # Actual steady-state usage observed at ~80-120Mi via
+              # kubectl top; the 96Mi request fits comfortably with
+              # ~16Mi headroom. limit stays at 4Gi (multi-region
+              # helmwatch + tofu plan still need burst budget).
+              memory: 96Mi
             limits:
               # tofu provider plugins (hcloud ~80MB, dynadot ~30MB) + state +
               # plan files easily exceed the prior 64Mi cap. 1Gi was the
