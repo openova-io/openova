@@ -805,6 +805,12 @@ func main() {
 		rg.Get("/api/v1/sovereigns/{id}/k8s/exec/{ns}/{pod}/{container}", h.HandleK8sExecWebSocket)
 		rg.Get("/api/v1/sovereigns/{id}/sessions", h.HandleK8sSessionsList)
 		rg.Get("/api/v1/sovereigns/{id}/sessions/{sessionId}/replay", h.HandleK8sSessionReplay)
+		// Wave 5.69b (#2375, EPIC #1099 #1097) — Sovereign-console
+		// sidebar-entries derived from installed Blueprints'
+		// spec.consoleUI.sidebarEntry (Wave 5.69 CRD field, #2370).
+		// SovereignSidebar.tsx subscribes + appends nav entries
+		// between hardcoded BSS (order=60) and Settings.
+		rg.Get("/api/v1/sovereigns/{id}/console-ui/sidebar-entries", h.HandleConsoleUISidebarEntries)
 		// qa-loop iter-7 Fix #39 — canonical UAT-matrix vocabulary
 		// surface for "issue a remote-shell session". Same business
 		// logic as POST /k8s/exec/.../session but the matrix-canonical
