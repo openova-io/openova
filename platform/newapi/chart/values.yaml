@@ -766,6 +766,14 @@ networkPolicy:
   ingress:
     fromNamespaceLabels:
       kubernetes.io/metadata.name: traefik
+    # Wave 5.57a (#2299) — additional namespaces allowed to call newapi
+    # ingress, rendered as additional namespaceSelector entries by the
+    # template. catalyst-system contains sandbox-controller which calls
+    # /admin/tokens/sandbox for per-Sandbox token mint. Operator can add
+    # more namespaces per-Sovereign overlay without overriding the
+    # primary fromNamespaceLabels.
+    allowedFromNamespaces:
+      - catalyst-system
   egress:
     # NOTE: bp-cnpg egress is NOT listed here — it is rendered
     # directly in templates/networkpolicy.yaml when `.Values.cnpg.enabled`
