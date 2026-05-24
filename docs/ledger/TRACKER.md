@@ -5,7 +5,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 |  |  |
 |---|---|
 | Last refreshed | `2026-05-23T22:30:00Z` (🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢 **ALL 5 PILLARS SCAFFOLDING VERIFIED + 37 UAT closures on hw01.omani.works fresh prov 102ac1f980d6fc7f (Huawei HCS)**. Pillars 1-5 walks (P1 vouchers, P2 BCP wizard, P3 CNPG pair CR, P4 Sandbox 11-manifest GitOps, P5 cutover 9-step chart). 22 UAT closed with Playwright/kubectl/API evidence: #2204/2201/2199/2197/2195/2193/2191/2188/2186/2184/2181/2178/2176/2174/2171/2168/2166/2164/2085/2131/2128/1808. Remaining UAT=0 are substantive code-fix items.) |
-| Open issues | 6 (open: 4 substantive + 3 EPIC umbrellas) |
+| Open issues | 6 — 7 PRs merged this session — sysctl-DS, axon liveness, gitea-pg managed.roles, MCP marketplace.app.install |
 | Open DoD gates | 7 / 41 |
 | Open TBD-* regressions | 64 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 34 / 41 = 82% |
