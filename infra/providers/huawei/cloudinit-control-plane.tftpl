@@ -513,6 +513,29 @@ runcmd:
       echo "tlsroutes CRD apply attempt $${attempt}/5 failed; retrying in 5s"
       sleep 5
     done
+    # Wave 5.89 (Refs #2434) — Cilium Envoy CRDs. cilium-agent on startup
+    # blocks indefinitely waiting for `ciliumenvoyconfigs.cilium.io` +
+    # `ciliumclusterwideenvoyconfigs.cilium.io` to be registered (these
+    # are conditional in the upstream Cilium chart on envoyConfig.enabled
+    # + operator-side registration race). On d3c6268c fresh prov
+    # 2026-05-24T20:32Z, 2 of 3 cilium-agent pods restarted every ~4 min
+    # with `Still waiting for Cilium Operator to register the following
+    # CRDs: [crd:ciliumenvoyconfigs.cilium.io
+    # crd:ciliumclusterwideenvoyconfigs.cilium.io]` → node taint
+    # `node.cilium.io/agent-not-ready` → workloads can't schedule →
+    # entire Phase 1 cascade stalled. Pre-seeding from upstream Cilium
+    # repo breaks the race the same way Wave 5.19 broke the Gateway API
+    # CRD race for bp-cilium.
+    for crd in ciliumenvoyconfigs ciliumclusterwideenvoyconfigs; do
+      for attempt in 1 2 3 4 5; do
+        if KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f \
+          "https://raw.githubusercontent.com/cilium/cilium/v1.16.5/pkg/k8s/apis/cilium.io/client/crds/v2/$${crd}.yaml"; then
+          break
+        fi
+        echo "Cilium CRD $${crd} apply attempt $${attempt}/5 failed; retrying in 5s"
+        sleep 5
+      done
+    done
 
   - KUBECONFIG=/etc/rancher/k3s/k3s.yaml flux install --components=source-controller,kustomize-controller,helm-controller,notification-controller || true
   # Wave 5.29 (Refs #2163): substitute the tofu-baked CILIUM_K8S_SERVICE_HOST
