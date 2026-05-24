@@ -451,27 +451,48 @@ function CategoryDataStatus({ apps }: CategoryDataStatusProps) {
       }
     }
   }
+  const totalApps = apps.length
+  const allEmpty = domains.every((d) => (counts[d] ?? 0) === 0)
   return (
-    <div
-      className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4"
-      data-testid="compliance-category-status"
-    >
-      {domains.map((d) => {
-        const n = counts[d] ?? 0
-        const empty = n === 0
-        return (
-          <div
-            key={d}
-            data-testid={`compliance-category-${d}`}
-            className="flex items-center justify-between rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] px-3 py-2 text-xs"
-          >
-            <span className="font-medium text-[var(--color-text)]">{d}</span>
-            <span className="text-[var(--color-text-dim)]">
-              {empty ? 'No data yet' : `${n} policies`}
-            </span>
-          </div>
-        )
-      })}
+    <div data-testid="compliance-category-status">
+      <div
+        className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4"
+      >
+        {domains.map((d) => {
+          const n = counts[d] ?? 0
+          const empty = n === 0
+          return (
+            <div
+              key={d}
+              data-testid={`compliance-category-${d}`}
+              className="flex items-center justify-between rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] px-3 py-2 text-xs"
+            >
+              <span className="font-medium text-[var(--color-text)]">{d}</span>
+              <span className="text-[var(--color-text-dim)]">
+                {empty ? 'No data yet' : `${n} policies`}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+      {/* Wave 5.78 (#2407) — explainer for the all-empty case so
+          operators understand WHY data is absent. Common on fresh
+          Sovereigns: 20 baseline policies installed but zero per-App
+          PolicyReports until an Org's first Application installs. */}
+      {allEmpty && totalApps === 0 && (
+        <p
+          data-testid="compliance-category-empty-explainer"
+          className="mt-3 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)]/60 px-3 py-2 text-xs text-[var(--color-text-dim)]"
+        >
+          <span className="font-medium text-[var(--color-text)]">No Applications installed yet</span>
+          {' '}— platform Blueprints (Cilium, Cert-Manager, Harbor, ...) are
+          covered by the Sovereign Score above; per-App compliance panels
+          populate as your Organization installs its first Application from
+          the marketplace. The 20 baseline Kyverno policies + custom
+          evaluators ARE running — they have no Apps to evaluate against
+          until install.
+        </p>
+      )}
     </div>
   )
 }
