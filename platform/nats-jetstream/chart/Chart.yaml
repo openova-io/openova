@@ -1,27 +1,44 @@
 apiVersion: v2
 name: bp-nats-jetstream
-version: 1.2.0
+version: 1.3.0
 description: |
-  Catalyst-curated Blueprint umbrella chart for NATS JetStream. Depends on
-  the upstream `nats` chart (nats-io) as a Helm subchart so
-  `helm dependency build` pulls the upstream payload into this artifact;
-  the Catalyst overlay templates in templates/ (NetworkPolicy,
-  ExternalSecret, ServiceMonitor) sit alongside the upstream subchart and
-  Helm renders both at install time. Catalyst-curated values flow into the
-  upstream subchart under the `nats:` key in values.yaml.
+  Catalyst-curated Blueprint umbrella chart for NATS JetStream. Depends
+  on TWO upstream subcharts:
+
+  1. `nats` (nats-io) — the broker StatefulSet + JetStream storage.
+  2. `nack` (nats-io) — JetStream Controller that installs CRDs for
+     KeyValue / Stream / Consumer / ObjectStore and reconciles CRs into
+     runtime JetStream state.
+
+  Wave 5.45 (#2254) added `nack` to close the Wave 5.44 audit gap that
+  surfaced live on hw01: the broker was Running but no JetStream CRDs
+  were registered with the apiserver, so the Catalyst-curated KeyValue
+  CRs in templates/kv-buckets.yaml (policy-rollup / idempotency /
+  dr-leases) were silently un-reconciled — Wave 5.44's NATS publisher
+  could connect but never find a bucket.
+
+  Catalyst overlay templates in templates/ (NetworkPolicy, ExternalSecret,
+  ServiceMonitor, kv-buckets, streams) sit alongside both upstream
+  subcharts and Helm renders them all at install time. Catalyst-curated
+  values flow into the upstream subcharts under the `nats:` + `nack:`
+  keys in values.yaml.
 type: application
-keywords: [catalyst, blueprint, nats-jetstream]
+keywords: [catalyst, blueprint, nats-jetstream, nack, keyvalue, stream]
 maintainers:
   - name: OpenOva Catalyst
     email: catalyst@openova.io
 
-# Upstream chart pulled in as a Helm subchart so `helm dependency build`
-# bundles it into the OCI artifact. Pinned to nats/nats 1.2.0 (matches
+# Upstream charts pulled in as Helm subcharts so `helm dependency build`
+# bundles them into the OCI artifact. Pinned versions match
 # platform/nats-jetstream/blueprint.yaml + values.yaml
-# `catalystBlueprint.upstream.version`). Per
-# docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the version is
-# operator-bumpable via PR + Blueprint release.
+# `catalystBlueprint.upstream.*`. Per docs/INVIOLABLE-PRINCIPLES.md #4
+# (never hardcode) versions are operator-bumpable via PR + Blueprint
+# release.
 dependencies:
   - name: nats
     version: "1.2.0"
     repository: "https://nats-io.github.io/k8s/helm/charts"
+  - name: nack
+    version: "0.29.0"
+    repository: "https://nats-io.github.io/k8s/helm/charts"
+    condition: nack.enabled
