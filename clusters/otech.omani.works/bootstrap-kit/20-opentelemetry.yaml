@@ -24,13 +24,8 @@
 # accept exports. The HelmRelease itself reports Ready as soon as
 # manifests apply cleanly; runtime convergence is observed via kubectl.
 
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: opentelemetry
-  labels:
-    catalyst.openova.io/sovereign: otech.omani.works
+# Namespace `opentelemetry` is declared by slot 19c
+# (19c-opentelemetry-operator.yaml). Wave 5.41 chart-split moved it.
 ---
 apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
