@@ -309,22 +309,36 @@ spec:
 # parentRef name=cilium-gateway namespace=kube-system; without this Gateway
 # the routes have no listener → all *.${SOVEREIGN_FQDN} URLs return HTTP 000.
 #
-# Wildcard TLS via cert-manager + bp-cert-manager-powerdns-webhook DNS01
-# challenge against contabo's central PowerDNS at pdns.openova.io.
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: sovereign-wildcard
-  namespace: kube-system
-spec:
-  secretName: sovereign-wildcard-tls
-  issuerRef:
-    name: letsencrypt-dns01-prod-powerdns
-    kind: ClusterIssuer
-  dnsNames:
-    - "${SOVEREIGN_FQDN}"
-    - "*.${SOVEREIGN_FQDN}"
----
+# Wave 5.87 (Refs #2430, #2423 fresh-prov diagnosis): the LEGACY
+# `sovereign-wildcard` Certificate that previously lived between the
+# Gateway and the comment block above has been REMOVED. Per the
+# 2026-05-15 per-name-cert architecture (see
+# clusters/_template/sovereign-tls/cilium-gateway-cert.yaml file
+# header lines 23-29), the legacy wildcard Cert was superseded by per-
+# zone `sovereign-wildcard-tls-${SOVEREIGN_FQDN_DASHED}` issued from
+# the sovereign-tls Kustomization (which reconciles AFTER bootstrap-
+# kit and overwrites the Gateway listener certificateRefs).
+#
+# Why removal NOW: leaving the legacy Cert in bootstrap-kit causes
+# Flux KSM strict-dry-run validation to fail with `no matches for
+# kind "Certificate" in version "cert-manager.io/v1"` on every fresh
+# prov BEFORE the bp-cert-manager HelmRelease (also in bootstrap-kit)
+# gets a chance to install the CRDs. Flux fails the WHOLE apply on
+# any one dry-run-validation failure — deadlocking the entire
+# bootstrap-kit including cert-manager itself. Caught live on
+# d3c6268c (hw01.omani.works) fresh-prov 2026-05-24T20:00Z:
+# bootstrap-kit Kustomization stuck at `ReconciliationFailed` with
+# this exact error; ZERO HelmReleases applied; Phase 1 deadlocked.
+#
+# TLS material for the Gateway listener is now provided exclusively
+# by the per-name certs in sovereign-tls. The Gateway listener's
+# Secret reference (`sovereign-wildcard-tls` below) is OVERWRITTEN by
+# sovereign-tls's cilium-gateway.yaml at reconcile time with the
+# per-zone Secret. Pre-overwrite the listener has no TLS Secret —
+# harmless; sovereign-tls applies seconds-to-minutes after bootstrap-
+# kit Ready, and console.${SOVEREIGN_FQDN} HTTP 200 lights up once
+# the per-zone cert lands. Confirmed canonical per the file headers
+# in sovereign-tls/cilium-gateway-cert.yaml + cilium-gateway.yaml.
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
