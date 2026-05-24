@@ -40,7 +40,7 @@ metadata:
       `velero.io/backup-volumes` on the owning Pod template OR label
       `velero.io/managed-by-schedule` on the PVC itself.
 spec:
-  validationFailureAction: {{ .Values.compliancePolicies.backupConfigured.action | default "Audit" }}
+  validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.backupConfigured.action) }}
   background: true
   rules:
     - name: pvc-must-be-velero-backed

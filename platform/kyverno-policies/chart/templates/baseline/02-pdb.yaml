@@ -39,7 +39,7 @@ metadata:
       to the workload's full replica count) wedges every voluntary
       disruption. This policy rejects PDBs whose maxUnavailable is 0.
 spec:
-  validationFailureAction: {{ .Values.compliancePolicies.pdb.action | default "Audit" }}
+  validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.pdb.action) }}
   background: true
   rules:
     - name: pdb-maxunavailable-not-zero

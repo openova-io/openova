@@ -37,7 +37,7 @@ metadata:
       Pod count) is checked by the compliance-aggregator's hpa.go
       evaluator (slice W2).
 spec:
-  validationFailureAction: {{ .Values.compliancePolicies.hpaEffective.action | default "Audit" }}
+  validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.hpaEffective.action) }}
   background: true
   rules:
     - name: hpa-minreplicas-positive

@@ -36,7 +36,7 @@ metadata:
       registry. Operator configures the allowed regex via
       .Values.compliancePolicies.harborProxyPull.allowedRegistryRegex.
 spec:
-  validationFailureAction: {{ .Values.compliancePolicies.harborProxyPull.action | default "Audit" }}
+  validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.harborProxyPull.action) }}
   background: true
   rules:
     - name: image-must-be-from-harbor-proxy

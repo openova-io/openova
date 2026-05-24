@@ -33,7 +33,7 @@ metadata:
       probes, kubelet can't detect a wedged process and Service can't
       gate traffic during startup.
 spec:
-  validationFailureAction: {{ .Values.compliancePolicies.probesPresent.action | default "Audit" }}
+  validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.probesPresent.action) }}
   background: true
   rules:
     - name: containers-must-have-liveness-and-readiness

@@ -29,6 +29,25 @@
 #
 # Per docs/INVIOLABLE-PRINCIPLES.md #4 — every value is overridable.
 compliancePolicies:
+  # Wave 5.90 phase 2 (#2436) — bootstrap-mode override.
+  #
+  # When true (DEFAULT, fresh-prov posture), every policy's effective
+  # validationFailureAction is forced to "Audit" regardless of its
+  # per-policy canonical action. PolicyReport rows still emit (visible
+  # in the Compliance Dashboard), but admission passes — no Pod-create
+  # gets fail-closed-blocked during Phase 1 bootstrap.
+  #
+  # The catalyst-api post-handover hook flips this to false once the
+  # Sovereign reaches handover-complete; Flux re-reconciles bp-kyverno-
+  # policies; Helm upgrades the ClusterPolicies to their canonical
+  # Enforce mode where the per-policy values declare it.
+  #
+  # Manual operator override (skip the post-handover auto-flip):
+  #   --set compliancePolicies.bootstrapMode=false
+  # to install all policies at their canonical action immediately
+  # (NOT recommended on fresh prov — see #2436 multi-layer RCA).
+  bootstrapMode: true
+
   # K1 baseline policies
   #
   # Default = enabled: true with action: Audit (permissive). Per #1929 the

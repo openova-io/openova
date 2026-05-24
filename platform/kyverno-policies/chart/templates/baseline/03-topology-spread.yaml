@@ -36,7 +36,7 @@ metadata:
       or topology.kubernetes.io/zone, so a single host or AZ failure
       can't take down every replica.
 spec:
-  validationFailureAction: {{ .Values.compliancePolicies.topologySpread.action | default "Audit" }}
+  validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.topologySpread.action) }}
   background: true
   rules:
     - name: workload-must-declare-spread

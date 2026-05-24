@@ -31,7 +31,7 @@ metadata:
       a @sha256: digest). Floating tags break SHA-pinned audit trails
       and reproducibility.
 spec:
-  validationFailureAction: {{ .Values.compliancePolicies.imageTagPinned.action | default "Audit" }}
+  validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.imageTagPinned.action) }}
   background: true
   rules:
     - name: image-must-have-explicit-tag

@@ -33,7 +33,7 @@ metadata:
       allowVolumeExpansion=true so storage can grow without rebuilding
       the volume.
 spec:
-  validationFailureAction: {{ .Values.compliancePolicies.pvcExpansion.action | default "Audit" }}
+  validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.pvcExpansion.action) }}
   background: true
   rules:
     - name: storageclass-must-allow-expansion

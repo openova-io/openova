@@ -34,7 +34,7 @@ metadata:
       `instrumentation.opentelemetry.io/inject-*: "true"` annotation on
       the Pod template (auto-injection by the OTel operator).
 spec:
-  validationFailureAction: {{ .Values.compliancePolicies.otelInjected.action | default "Audit" }}
+  validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.otelInjected.action) }}
   background: true
   rules:
     - name: workload-must-be-otel-instrumented
