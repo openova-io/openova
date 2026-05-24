@@ -98,11 +98,14 @@ func projectSidebarEntry(bp *unstructured.Unstructured) (SidebarEntry, bool) {
 	label, _, _ := unstructured.NestedString(consoleUI, "sidebarLabel")
 	route, _, _ := unstructured.NestedString(consoleUI, "sidebarRoute")
 	icon, _, _ := unstructured.NestedString(consoleUI, "sidebarIcon")
+	// Wave 5.69d (#2396 reviewer fix): honor CRD-applied default
+	// instead of post-projection coalesce. The CRD declares
+	// `sidebarOrder: { default: 50, minimum: 0 }` so the apiserver
+	// populates 50 on missing fields. An explicit `0` (used to pin
+	// above all hardcoded entries) was being silently rewritten to
+	// 50 here — a real bug for authors who want top-pin behaviour.
 	orderInt64, _, _ := unstructured.NestedInt64(consoleUI, "sidebarOrder")
 	order := int(orderInt64)
-	if order == 0 {
-		order = 50
-	}
 	if label == "" {
 		label = bp.GetName()
 	}
