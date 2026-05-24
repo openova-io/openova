@@ -1,0 +1,144 @@
+name: Build bp-newapi sandbox-bridge
+
+# Builds the sandbox-bridge sidecar image — the Catalyst-side bridge
+# handler for POST /admin/tokens/sandbox (Wave 5.57, Refs #2303).
+#
+# Pre-Wave-5.57 the Go handler at platform/newapi/internal/handler/
+# was orphan code: complete implementation + unit tests + go.mod, but
+# no `cmd/main.go`, no Dockerfile, no CI workflow → never built into
+# an image → never deployed. The sandbox-controller posts to
+# `<newapiBaseURL>/admin/tokens/sandbox` and reached the upstream
+# Calcium-Ion binary, which has no such route and returns its default
+# HTML 404 page (the "decode response: invalid character '<'" failure
+# observed on hw01 2026-05-24).
+#
+# This workflow:
+#   1. Builds the Go binary from platform/newapi/internal/handler/cmd/
+#      sandbox-bridge using its co-located Dockerfile (multi-stage,
+#      distroless static base, nonroot user, :8080).
+#   2. Pushes to ghcr.io/openova-io/openova/newapi-sandbox-bridge tagged
+#      with the commit SHA + `latest`.
+#   3. Bumps platform/newapi/chart/values.yaml `sandboxBridge.image.tag`
+#      to the new SHA.
+#   4. Bumps platform/newapi/chart/Chart.yaml `version` patch level +
+#      dispatches blueprint-release so a fresh bp-newapi:<semver> OCI
+#      artifact carries the new sidecar tag.
+#
+# Triggers on any change under platform/newapi/internal/handler/** so
+# bridge-only PRs (no chart change) also re-publish the sidecar.
+
+on:
+  push:
+    paths:
+      - 'platform/newapi/internal/handler/**'
+      - '.github/workflows/build-bp-newapi-sandbox-bridge.yaml'
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  BRIDGE_IMAGE: ghcr.io/openova-io/openova/newapi-sandbox-bridge
+  BRIDGE_CTX: platform/newapi/internal/handler
+  CHART_VALUES: platform/newapi/chart/values.yaml
+  CHART_YAML: platform/newapi/chart/Chart.yaml
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+      actions: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute image tag
+        id: tag
+        run: |
+          set -euo pipefail
+          short_sha="${GITHUB_SHA::7}"
+          echo "tag=${short_sha}" >> "$GITHUB_OUTPUT"
+          echo "Will tag bridge image: ${BRIDGE_IMAGE}:${short_sha}"
+
+      - name: Build + push sandbox-bridge image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.BRIDGE_CTX }}
+          file: ${{ env.BRIDGE_CTX }}/Dockerfile
+          push: true
+          tags: |
+            ${{ env.BRIDGE_IMAGE }}:${{ steps.tag.outputs.tag }}
+            ${{ env.BRIDGE_IMAGE }}:latest
+          platforms: linux/amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Bump sandbox-bridge tag in values.yaml
+        env:
+          NEW_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          yq eval -i ".sandboxBridge.image.repository = \"${BRIDGE_IMAGE}\"" "${CHART_VALUES}"
+          yq eval -i ".sandboxBridge.image.tag = \"${NEW_TAG}\"" "${CHART_VALUES}"
+          echo "values.yaml after update:"
+          yq eval '.sandboxBridge.image' "${CHART_VALUES}"
+
+      - name: Bump Chart.yaml patch version
+        run: |
+          set -euo pipefail
+          current=$(yq eval '.version' "${CHART_YAML}")
+          IFS='.' read -r major minor patch <<<"${current}"
+          next="${major}.${minor}.$((patch + 1))"
+          yq eval -i ".version = \"${next}\"" "${CHART_YAML}"
+          echo "Chart.yaml: version ${current} -> ${next}"
+          echo "CHART_NEW_VERSION=${next}" >> "$GITHUB_ENV"
+
+      - name: Commit and push chart bump
+        id: deploy_commit
+        uses: ./.github/actions/deploy-bump
+        with:
+          paths: |
+            ${{ env.CHART_VALUES }}
+            ${{ env.CHART_YAML }}
+          commit-message: "deploy: bump bp-newapi sandbox-bridge ${{ steps.tag.outputs.tag }} chart ${{ env.CHART_NEW_VERSION }} (Wave 5.57)"
+
+      - name: Trigger blueprint-release
+        if: steps.deploy_commit.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run blueprint-release.yaml \
+            --repo "${{ github.repository }}" \
+            --ref main \
+            -f blueprint=newapi \
+            -f tree=platform
+          echo "blueprint-release dispatched for platform/newapi @ main"
+
+      - name: Summary
+        run: |
+          {
+            echo "## bp-newapi sandbox-bridge published"
+            echo ""
+            echo "- Image: \`${BRIDGE_IMAGE}:${{ steps.tag.outputs.tag }}\`"
+            echo "- Chart bumped to: \`${CHART_NEW_VERSION:-unchanged}\`"
+            echo "- Refs #2303 (Wave 5.57)"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -33,6 +33,16 @@ spec:
       targetPort: {{ .Values.service.targetPort }}
       protocol: TCP
     {{- end }}
+    {{- if .Values.sandboxBridge.enabled }}
+    # Sandbox-bridge sidecar (#2303, Wave 5.57) — POST
+    # /admin/tokens/sandbox served by the Go bridge handler in
+    # platform/newapi/internal/handler. The sandbox-controller's
+    # NewAPI client targets `<svc>:bridge`.
+    - name: bridge
+      port: {{ .Values.sandboxBridge.port }}
+      targetPort: {{ .Values.sandboxBridge.port }}
+      protocol: TCP
+    {{- end }}
   selector:
     {{- include "bp-newapi.selectorLabels" . | nindent 4 }}
 {{- end }}

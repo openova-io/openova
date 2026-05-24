@@ -1,0 +1,87 @@
+// sandbox-bridge — sidecar binary serving the
+// /admin/tokens/sandbox bridge handler defined in
+// platform/newapi/internal/handler (PR #1638 SandboxToken).
+//
+// Runs as a sidecar in the bp-newapi Pod alongside the upstream
+// Calcium-Ion newapi binary + the metering-sidecar. The Pod's
+// Service exposes this listener on a second port so the
+// sandbox-controller (catalyst-system in each Sovereign's vCluster)
+// can POST a per-Sandbox token-mint request without touching the
+// upstream binary, which has no such route and returns its default
+// HTML 404 page (root cause of Wave 5.57 #2303).
+//
+// Listener layout
+//
+//	:8080  POST /admin/tokens/sandbox  → handler.Handler.SandboxToken
+//	:8080  GET  /metrics               → promhttp.Handler (scrape target)
+//	:8080  GET  /healthz               → 200 OK (kubelet probe)
+//
+// Env contract
+//
+//	NEWAPI_TOKEN_SIGNING_KEY  required — HS256 mint key (same Secret
+//	                          as the upstream Calcium-Ion binary).
+//	NEWAPI_ADMIN_SECRET       required — bearer the sandbox-controller
+//	                          presents. Same Secret, `ADMIN_SECRET` key.
+//	BRIDGE_LISTEN             optional — listen address, default ":8080".
+//
+// Refs #2303, Wave 5.57.
+package main
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/openova-io/openova/platform/newapi/internal/handler"
+)
+
+func main() {
+	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
+	h, err := handler.NewHandlerFromEnv(log)
+	if err != nil {
+		log.Error("bridge: config error at start", "err", err)
+		os.Exit(1)
+	}
+
+	addr := os.Getenv("BRIDGE_LISTEN")
+	if addr == "" {
+		addr = ":8080"
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/admin/tokens/sandbox", h.SandboxToken)
+	mux.Handle("/metrics", handler.MetricsHandler())
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	go func() {
+		log.Info("bridge: listening", "addr", addr)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error("bridge: ListenAndServe", "err", err)
+			os.Exit(1)
+		}
+	}()
+
+	<-ctx.Done()
+	log.Info("bridge: shutting down")
+	shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_ = srv.Shutdown(shutCtx)
+}
