@@ -31,6 +31,17 @@ metadata:
   labels:
     catalyst.openova.io/blueprint: bp-opentelemetry
     catalyst.openova.io/component: default-instrumentation
+  annotations:
+    # Apply this CR via a Helm post-install/post-upgrade hook so it lands
+    # AFTER the opentelemetry-operator subchart's manifests (including the
+    # Instrumentation CRD) are deployed AND the Operator pod has reconciled
+    # the CRD into the API server. Without these hooks, on first install
+    # OR on upgrade from <1.1.0, Helm tries to apply this CR before the
+    # CRD is registered → "no matches for kind Instrumentation". Wave 5.40
+    # surfaced this on hw01 during Wave 5.36 walk.
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation
 spec:
   exporter:
     endpoint: {{ $inst.exporterEndpoint | quote }}
