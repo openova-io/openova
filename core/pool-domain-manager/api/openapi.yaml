@@ -168,8 +168,93 @@ paths:
         '200':
           description: All allocations for the pool
 
+  /api/v1/registrar/{registrar}/set-dns:
+    post:
+      summary: Write raw zone-level DNS records (A/AAAA/CNAME/MX/TXT) via the registrar's record-level API
+      description: |
+        REPLACES the record set for the domain. Records NOT in the new set are
+        DELETED; records in the new set are CREATED or UPDATED. Implementations
+        MUST be idempotent.
+
+        Adapters that lack a record-level API return 501. Use `/set-ns` to
+        delegate DNS to a record-capable provider (PowerDNS, Route53, etc.)
+        instead.
+
+        Refs chepherd/chepherd#36.
+      parameters:
+        - in: path
+          name: registrar
+          required: true
+          schema: { type: string }
+          description: Lowercase adapter name (currently `dynadot` or `namecheap`)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [domain, token, records]
+              properties:
+                domain:
+                  type: string
+                  example: example.com
+                token:
+                  type: string
+                  description: Registrar API credentials. Format varies by adapter (Dynadot = `key:secret`, Namecheap = `apiUser:apiKey:user:clientIP`). NEVER logged.
+                records:
+                  type: array
+                  minItems: 1
+                  items: { $ref: '#/components/schemas/DNSRecord' }
+      responses:
+        '200':
+          description: Records written + read-back confirmation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  registrar: { type: string }
+                  domain: { type: string }
+                  records:
+                    type: array
+                    items: { $ref: '#/components/schemas/DNSRecord' }
+                  propagation:
+                    type: string
+                    description: Coarse human-readable estimate (e.g. "up to 24 hours; typically 1-4 hours")
+        '401': { description: Invalid token }
+        '403': { description: Domain not in account }
+        '404': { description: Unknown registrar }
+        '422': { description: Invalid records (type not in A/AAAA/CNAME/MX/TXT, empty value, etc.) }
+        '429': { description: Registrar rate-limited }
+        '501': { description: Registrar adapter does not implement DNSRegistrar — use /set-ns to delegate DNS instead }
+        '502': { description: Registrar API unavailable }
+
 components:
   schemas:
+    DNSRecord:
+      type: object
+      required: [type, value]
+      properties:
+        subhost:
+          type: string
+          description: Leftmost label(s). Empty = root of zone. `www` = `www.<domain>`.
+          example: www
+        type:
+          type: string
+          enum: [A, AAAA, CNAME, MX, TXT]
+        value:
+          type: string
+          example: 1.2.3.4
+        priority:
+          type: integer
+          minimum: 0
+          description: MX priority (0 = highest). Ignored for non-MX records.
+        ttl:
+          type: integer
+          minimum: 0
+          description: Seconds. 0 = use registrar's default (typically 3600).
+
     CheckResult:
       type: object
       properties:
