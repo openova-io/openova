@@ -82,6 +82,17 @@ func NewEnvFromOS() *Env {
 		KeycloakParentRealm: os.Getenv("KEYCLOAK_PARENT_REALM"),
 		DomainAPIURL:        os.Getenv("SANDBOX_DOMAIN_API_URL"),
 		MarketplaceAPIURL:   os.Getenv("SANDBOX_MARKETPLACE_API_URL"),
+		// TenantAPIURL — root URL of the SME tenant-service. The
+		// marketplace.app.install MCP tool POSTs `/orgs/<TenantID>/apps`
+		// against this URL with the Sandbox HS256 bearer to invoke the
+		// canonical install path (tenant-service publishes the
+		// `tenant.app_install_requested` NATS event which provisioning
+		// consumes — see core/services/tenant/handlers/apps.go:195 and
+		// core/services/provisioning/handlers/consumer.go::handleAppInstallRequested).
+		// Default unset; sandbox-controller injects via SANDBOX_TENANT_API_URL
+		// pointing at the SME gateway `http://gateway.sme.svc.cluster.local:8080/api/tenant`.
+		// Empty → marketplace.app.install surfaces a clear "not configured" error.
+		TenantAPIURL:        os.Getenv("SANDBOX_TENANT_API_URL"),
 		TenantID:            os.Getenv("SANDBOX_TENANT_ID"),
 		StorageS3Endpoint:   os.Getenv("SANDBOX_STORAGE_S3_ENDPOINT"),
 		StorageS3AccessKey:  os.Getenv("SANDBOX_STORAGE_S3_ACCESS_KEY"),

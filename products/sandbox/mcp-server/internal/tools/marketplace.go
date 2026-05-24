@@ -357,3 +357,118 @@ func schemaMarketplaceDomainSubdomain() map[string]any {
 		"additionalProperties": false,
 	}
 }
+
+// mpAppSlugRE constrains the `slug` arg of marketplace.app.install.
+// Mirrors core/services/catalog/store.App.Slug shape: lowercase alnum
+// + hyphen, 2-63 chars, no leading/trailing hyphen. Strict enough to
+// reject obvious junk before the tenant-service round-trip.
+var mpAppSlugRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+
+// marketplaceAppInstallArgs — input schema for marketplace.app.install.
+// Only `slug` is required; `plan` and `params` are forwarded verbatim
+// to the tenant-service which validates against the catalog Blueprint.
+type marketplaceAppInstallArgs struct {
+	Slug   string         `json:"slug"`
+	Plan   string         `json:"plan,omitempty"`
+	Params map[string]any `json:"params,omitempty"`
+}
+
+// marketplaceAppInstall — Pillar 4 step 2d (#2040). Forwards an app
+// install request to the SME tenant-service `POST /tenant/orgs/{id}/apps`
+// canonical handler (core/services/tenant/handlers/apps.go::InstallApp)
+// which publishes `tenant.app_install_requested` on NATS; provisioning
+// consumes + creates the Flux HelmRelease on the tenant's vCluster.
+//
+// Auth: SandboxToken forwarded as `Authorization: Bearer …` (HS256 SME
+// wire contract). The tenant-service jwtMiddleware validates against
+// its own SME_JWT_SECRET; the Sandbox's per-Org claims propagate
+// downstream into the provisioning consumer (org_id, owner_id audit).
+func marketplaceAppInstall(ctx context.Context, raw json.RawMessage) (any, error) {
+	var args marketplaceAppInstallArgs
+	if err := json.Unmarshal(raw, &args); err != nil {
+		return nil, fmt.Errorf("marketplace.app.install: invalid arguments: %w", err)
+	}
+	args.Slug = strings.ToLower(strings.TrimSpace(args.Slug))
+	if args.Slug == "" {
+		return nil, errors.New("marketplace.app.install: `slug` is required")
+	}
+	if !mpAppSlugRE.MatchString(args.Slug) {
+		return nil, fmt.Errorf("marketplace.app.install: `slug` must match %s", mpAppSlugRE.String())
+	}
+	env := EnvFrom(ctx)
+	if env == nil {
+		return nil, errors.New("marketplace.app.install: server env missing on context")
+	}
+	if strings.TrimSpace(env.TenantAPIURL) == "" {
+		return nil, errors.New("marketplace.app.install: SANDBOX_TENANT_API_URL not set (sandbox-controller didn't wire the tenant-service URL)")
+	}
+	if strings.TrimSpace(env.TenantID) == "" {
+		return nil, errors.New("marketplace.app.install: SANDBOX_TENANT_ID not set (controller hasn't bound this Sandbox to a tenant)")
+	}
+	if strings.TrimSpace(env.SandboxToken) == "" {
+		return nil, errors.New("marketplace.app.install: SANDBOX_TOKEN not set (no SME bearer to forward to tenant-service)")
+	}
+	payload := map[string]any{
+		"slug": args.Slug,
+	}
+	if args.Plan != "" {
+		payload["plan"] = args.Plan
+	}
+	if args.Params != nil {
+		payload["params"] = args.Params
+	}
+	urlStr := strings.TrimRight(env.TenantAPIURL, "/") + "/orgs/" + env.TenantID + "/apps"
+	body, status, err := mpDo(ctx, env, urlStr, payload)
+	if err != nil {
+		return nil, fmt.Errorf("marketplace.app.install: %w", err)
+	}
+	switch status {
+	case http.StatusOK, http.StatusAccepted, http.StatusCreated:
+		// tenant-service returns {status:"queued", apps:[…], app_states:{…},
+		// deployed:[…]}. Surface the whole shape so the agent can branch
+		// on app_states (e.g., agent waits for "installed" before binding
+		// HTTPRoute or running smoke tests).
+		var resp map[string]any
+		if err := json.Unmarshal(body, &resp); err != nil {
+			return nil, fmt.Errorf("marketplace.app.install: decode response: %w", err)
+		}
+		resp["slug"] = args.Slug
+		resp["http_status"] = status
+		return resp, nil
+	case http.StatusConflict:
+		// App already installed — idempotent.
+		return map[string]any{
+			"status": "AlreadyInstalled",
+			"slug":   args.Slug,
+			"note":   "App is already deployed on this tenant (idempotent no-op).",
+		}, nil
+	case http.StatusForbidden, http.StatusUnauthorized:
+		return nil, fmt.Errorf("marketplace.app.install: tenant-service rejected the Sandbox bearer (HTTP %d): %s", status, body)
+	default:
+		return nil, fmt.Errorf("marketplace.app.install: tenant-service returned %d: %s", status, body)
+	}
+}
+
+func schemaMarketplaceAppInstall() map[string]any {
+	return map[string]any{
+		"type":     "object",
+		"required": []string{"slug"},
+		"properties": map[string]any{
+			"slug": map[string]any{
+				"type":        "string",
+				"description": "Blueprint slug from the Sovereign catalog (e.g. `wordpress`, `ghost`, `gitea`). Lowercase alnum + hyphen, 2-63 chars.",
+				"pattern":     mpAppSlugRE.String(),
+			},
+			"plan": map[string]any{
+				"type":        "string",
+				"description": "Optional plan slug (e.g. `s`, `m`, `l`). Defaults to the tenant's current plan when omitted.",
+			},
+			"params": map[string]any{
+				"type":                 "object",
+				"description":          "Optional per-Blueprint configSchema values (e.g. replicas, disk_gb). Forwarded verbatim to the install handler.",
+				"additionalProperties": true,
+			},
+		},
+		"additionalProperties": false,
+	}
+}
