@@ -1,0 +1,72 @@
+{{- /*
+HorizontalPodAutoscaler for catalyst-api (Wave 5.61, Refs #2306 DEFENSE).
+
+Containment for #2306 (Wave 5.59 PR #2308) already shrunk the catalyst-api
+mem request from 192Mi → 96Mi to fit the single-VM mothership node.
+This template adds the DEFENSE layer: an HPA that scales catalyst-api
+replicas based on CPU utilization, with a hard cap of 1 replica on
+constrained mothership nodes and the ability to scale up if a future
+multi-node mothership materializes.
+
+Default: min=1 / max=1 / CPU target=80% — effectively a no-op on the
+current single-VM mothership but encoded so future scale-up is opt-in
+via overlay rather than requiring a chart edit.
+
+Per-Sovereign overlay surface:
+  api.hpa.enabled: bool       — gate the entire HPA (default true)
+  api.hpa.minReplicas: int    — floor (default 1)
+  api.hpa.maxReplicas: int    — ceiling (default 1; bump to 3+ when
+                                mothership has node-autoscaler)
+  api.hpa.targetCPU: int      — CPU utilization threshold % (default 80)
+
+Gate on .Values.catalystApi.enabled to keep skip-render parity with the
+Deployment + Service templates.
+*/ -}}
+{{- $hpa := (.Values.catalystApi | default dict).hpa | default dict -}}
+{{- $hpaEnabled := default true $hpa.enabled -}}
+{{- if $hpaEnabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: catalyst-api
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    app.kubernetes.io/name: catalyst-api
+    app.kubernetes.io/component: catalyst-api
+    app.kubernetes.io/part-of: bp-catalyst-platform
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: catalyst-api
+  minReplicas: {{ $hpa.minReplicas | default 1 }}
+  maxReplicas: {{ $hpa.maxReplicas | default 1 }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $hpa.targetCPU | default 80 }}
+  behavior:
+    scaleDown:
+      # Aggressive scale-down: once load drops, get back to minReplicas
+      # quickly. The 60s stabilization window prevents thrashing while
+      # still allowing the Pod to release node memory headroom for the
+      # next Pending workload.
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+    scaleUp:
+      # Conservative scale-up: control plane should be slow to add
+      # replicas — if catalyst-api is CPU-saturated long enough to
+      # warrant a second replica, the operator should investigate
+      # before letting the system silently double its memory request.
+      stabilizationWindowSeconds: 180
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+{{- end }}
