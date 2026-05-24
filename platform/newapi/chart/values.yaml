@@ -845,7 +845,7 @@ sandboxBridge:
   enabled: true
   image:
     repository: ghcr.io/openova-io/openova/newapi-sandbox-bridge
-    tag: "latest"
+    tag: "be382d4"
     pullPolicy: IfNotPresent
   port: 8080
   resources:
