@@ -334,6 +334,28 @@ export function ResourceDetailPage(props: ResourceDetailPageProps) {
               </div>
             )
           )}
+          {tab === 'compliance' && (
+            <div
+              data-testid="resource-detail-compliance"
+              className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-2)] p-6"
+            >
+              <h3 className="text-sm font-semibold text-[var(--color-text)] mb-3">
+                Per-resource policy compliance
+              </h3>
+              <p className="text-xs text-[var(--color-text-dim)] mb-4">
+                Wave 5.79 (#2408) — Kyverno + custom-evaluator policy
+                reports filtered to this {apiKind} <code className="font-mono">{ns}/{name}</code>.
+                Drill-down opens in the full Compliance dashboard.
+              </p>
+              <a
+                href={`/sre/compliance?resource=${encodeURIComponent(`${apiKind}/${ns}/${name}`)}`}
+                className="inline-block rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs text-[var(--color-text)] hover:bg-[var(--color-surface-hover)] no-underline"
+                data-testid="resource-detail-compliance-drilldown"
+              >
+                Open in Compliance Dashboard →
+              </a>
+            </div>
+          )}
           {tab === 'tree' && (
             <ResourceTree basePath={basePath} tree={tree} isError={!!treeErr} isLoading={!tree && !treeErr} />
           )}

@@ -87,6 +87,7 @@ export const RESOURCE_DETAIL_TABS = [
   'events',
   'metrics',
   'sbom',
+  'compliance',
   'tree',
 ] as const
 export type ResourceDetailTab = (typeof RESOURCE_DETAIL_TABS)[number]
