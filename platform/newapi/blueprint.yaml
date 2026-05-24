@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/category: ai-runtime
     catalyst.openova.io/section: pts-4-6-llm-serving
 spec:
-  version: 1.4.49
+  version: 1.4.50
   card:
     title: NewAPI
     summary: |
@@ -60,14 +60,11 @@ spec:
             description: Sidecar listen port. Must match sandbox-controller's NEWAPI_BASE_URL.
       ingress:
         type: object
-        required: [host, adminHost]
+        required: [host]
         properties:
           host:
             type: string
             description: Customer-facing API hostname (operator-supplied, e.g. api.<sovereign-fqdn>).
-          adminHost:
-            type: string
-            description: Ops-staff admin UI hostname (operator-supplied, e.g. admin.<sovereign-fqdn>). IdP-gated.
           tlsIssuer:
             type: string
             default: letsencrypt-prod

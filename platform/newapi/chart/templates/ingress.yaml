@@ -13,11 +13,11 @@ Sovereign install whose overlay forgets to set the hosts surfaces the
 gap as "no Ingress object materialised" — caught by the bootstrap-kit
 smoke test, not by render-time fail.
 */ -}}
-{{- if and .Values.newapi.enabled .Values.ingress.enabled .Values.ingress.host .Values.ingress.adminHost }}
+{{- /* Wave 5.81 (#2412): adminHost dropped — ops-staff admin via Catalyst BSS console only. */ -}}
+{{- if and .Values.newapi.enabled .Values.ingress.enabled .Values.ingress.host }}
 {{- $fullName := include "bp-newapi.fullname" . -}}
 {{- $svcPort := .Values.service.port -}}
 {{- $apiHost := .Values.ingress.host -}}
-{{- $adminHost := .Values.ingress.adminHost -}}
 {{- if .Values.ingress.middleware.enabled }}
 ---
 # ─── Customer-facing API ingress (Traefik Middleware allowlist) ──────────
@@ -77,41 +77,13 @@ spec:
                 port:
                   number: {{ $svcPort }}
           {{- end }}
----
-# ─── Ops-staff admin UI ingress ──────────────────────────────────────────
-# Separate virtual host. Full UI surface allowed (admin UI is the entire
-# upstream NewAPI portal — channels, users, credits, audit). IdP-gated:
-# in keycloak mode the OIDC middleware redirects unauthenticated requests
-# to Keycloak before reaching the pod.
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: {{ $fullName }}-admin
-  labels:
-    {{- include "bp-newapi.labels" . | nindent 4 }}
-  annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: websecure
-    traefik.ingress.kubernetes.io/router.tls: "true"
-    {{- with .Values.ingress.annotations }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
-spec:
-  ingressClassName: {{ .Values.ingress.className }}
-  {{- if .Values.ingress.tls.enabled }}
-  tls:
-    - hosts:
-        - {{ $adminHost }}
-      secretName: {{ .Values.ingress.tls.adminSecretName }}
-  {{- end }}
-  rules:
-    - host: {{ $adminHost }}
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ $fullName }}
-                port:
-                  number: {{ $svcPort }}
+# Wave 5.81 (#2412, founder 2026-05-24T13:11Z) — RIP the dead admin.<sov-fqdn>
+# Ingress. Per founder ruling 2026-05-18 ("this url is rubbish, the back end
+# of the marketplace must be just another menu under console like
+# https://console.<sov>/bss") + platform/newapi/README.md backend-only
+# ruling: Catalyst IS the customer surface; ops-staff admin functions
+# live under console.<sov-fqdn>/bss/* (BSS menu), never on a separate
+# admin.<sov-fqdn> hostname. Removing the second Ingress + the
+# associated $adminHost template var + the configSchema requirement
+# (bp-newapi blueprint.yaml + values.yaml in the same PR).
 {{- end }}
