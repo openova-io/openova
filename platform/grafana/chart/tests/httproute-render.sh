@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# bp-grafana — HTTPRoute render audit (Wave 5.85 #2425).
+#
+# Verifies the chart renders a Cilium Gateway HTTPRoute when the
+# bootstrap-kit overlay flips `gateway.enabled: true` + sets
+# `gateway.host`. The default-values CI smoke does NOT exercise this
+# path because the chart defaults `gateway.enabled` to false (correct
+# for standalone-install on non-Catalyst clusters). Without this guard
+# a regression in `templates/httproute.yaml` (gate condition, hostname
+# templating, parentRef typo) ships fresh-prov NXDOMAIN to every
+# Sovereign + only surfaces on operator walk — exactly the #2421
+# symptom that drove Wave 5.84 for bp-newapi.
+#
+# Cases:
+#   1. Overlay-enabled render — HTTPRoute kind present with correct
+#      hostname
+#   2. parentRefs cite canonical Cilium Gateway
+#      (`cilium-gateway` in `kube-system`)
+#   3. Default-off path — no HTTPRoute kind in render output
+#      (silent-skip behaviour preserved for standalone-install
+#      contexts on non-Catalyst clusters)
+#   4. Operator host override propagates correctly
+
+set -euo pipefail
+
+chart_dir="$(cd "$(dirname "$0")/.." && pwd)"
+helm="${HELM_BIN:-helm}"
+
+"$helm" dependency build "$chart_dir" >/dev/null 2>&1 || true
+
+# ── Case 1: HTTPRoute renders with overlay-enabled values ─────────────
+echo "[bp-grafana] Case 1: overlay-enabled render — HTTPRoute present + correct hostname"
+out=$("$helm" template smoke "$chart_dir" \
+        --set gateway.enabled=true \
+        --set gateway.host=grafana.smoke.omani.works 2>&1)
+
+route_block=$(echo "$out" | awk '/^---$/{f=0} /^kind: HTTPRoute$/{f=1} f')
+if [ -z "$route_block" ]; then
+  echo "FAIL: HTTPRoute did not render with gateway.enabled=true + gateway.host"
+  echo "(would surface on fresh Sovereign prov as NXDOMAIN for grafana.<fqdn>)"
+  exit 1
+fi
+if ! echo "$route_block" | grep -q "grafana.smoke.omani.works"; then
+  echo "FAIL: HTTPRoute hostname does not match gateway.host"
+  echo "$route_block"
+  exit 1
+fi
+echo "[bp-grafana] Case 1: PASS"
+
+# ── Case 2: parentRefs cite canonical Cilium Gateway ──────────────────
+echo "[bp-grafana] Case 2: parentRefs cite 'cilium-gateway' in 'kube-system'"
+if ! echo "$route_block" | grep -q "name: \"cilium-gateway\""; then
+  echo "FAIL: HTTPRoute parentRefs do not cite name=cilium-gateway"
+  exit 1
+fi
+if ! echo "$route_block" | grep -q "namespace: \"kube-system\""; then
+  echo "FAIL: HTTPRoute parentRefs do not cite namespace=kube-system"
+  exit 1
+fi
+echo "[bp-grafana] Case 2: PASS"
+
+# ── Case 3: default-off path — HTTPRoute absent ───────────────────────
+echo "[bp-grafana] Case 3: default-off path — HTTPRoute not rendered"
+out_default=$("$helm" template smoke "$chart_dir" 2>&1)
+if echo "$out_default" | grep -q "^kind: HTTPRoute$"; then
+  echo "FAIL: HTTPRoute should NOT render when gateway.enabled is unset (default)"
+  exit 1
+fi
+echo "[bp-grafana] Case 3: PASS"
+
+# ── Case 4: operator host override propagates ─────────────────────────
+echo "[bp-grafana] Case 4: operator override of gateway.host"
+out_override=$("$helm" template smoke "$chart_dir" \
+        --set gateway.enabled=true \
+        --set gateway.host=custom.smoke.example 2>&1)
+
+route_block_override=$(echo "$out_override" | awk '/^---$/{f=0} /^kind: HTTPRoute$/{f=1} f')
+if ! echo "$route_block_override" | grep -q "custom.smoke.example"; then
+  echo "FAIL: explicit gateway.host override not propagated to HTTPRoute hostnames"
+  exit 1
+fi
+if echo "$route_block_override" | grep -q "grafana.smoke.omani.works"; then
+  echo "FAIL: explicit override leaked the case-1 hostname"
+  exit 1
+fi
+echo "[bp-grafana] Case 4: PASS"
+
+echo "[bp-grafana] All HTTPRoute render cases PASS"

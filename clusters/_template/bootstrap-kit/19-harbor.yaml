@@ -101,7 +101,7 @@ spec:
       # live on otech113 2026-05-05 (issue #935 Bug 1) — Step 02 was
       # in CreateContainerConfigError for 11+ retries, blocking
       # cutover indefinitely.
-      version: 1.2.19
+      version: 1.2.20
       sourceRef:
         kind: HelmRepository
         name: bp-harbor
