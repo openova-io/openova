@@ -234,6 +234,24 @@ resource "huaweicloud_networking_secgroup_rule" "ingress_icmp" {
   description       = "ICMP (path-MTU + ping diagnostics)"
 }
 
+# Wave 5.82 (Refs #2419): optional 22/tcp ingress for recovery-script SSH.
+# Off by default (canonical posture). Toggle via `debug_ssh_enabled = true`
+# in tfvars when running Wave 5.75 recovery-script flow; toggle back when
+# done. Keeps secgroup-rule lifecycle in tofu state instead of drifting
+# via manual Huawei console fiddling.
+resource "huaweicloud_networking_secgroup_rule" "ingress_22_debug" {
+  for_each = var.debug_ssh_enabled ? { for r in var.regions : r.code => r } : {}
+
+  security_group_id = huaweicloud_networking_secgroup.region[each.key].id
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "tcp"
+  port_range_min    = 22
+  port_range_max    = 22
+  remote_ip_prefix  = var.debug_ssh_remote_cidr
+  description       = "SSH (debug-ssh-toggle ON via debug_ssh_enabled=true)"
+}
+
 # Wave 5.30 (Refs #2163): Cilium tunnel/health/encryption ports — node↔node
 # encap and cilium-health checks must be reachable for pod-to-pod traffic
 # across nodes. Without these rules, Cilium VXLAN encap packets (or
