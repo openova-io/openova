@@ -65,7 +65,7 @@ spec:
       # 1.3.0 (TBD-V53 #2128): cold-start race fix — cert-manager-issued
       # TLS + wait-for-tls-secret initContainer. See chart Chart.yaml for
       # the full root-cause analysis.
-      version: 1.3.0
+      version: 1.3.1
       sourceRef:
         kind: HelmRepository
         name: bp-kyverno
