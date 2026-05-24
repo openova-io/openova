@@ -52,7 +52,7 @@ type: application
 # The Postgres workload Pods reconcile into the same NS as the
 # CNPG Cluster CR, NOT into cnpg-system; the prior rule could
 # never match the actual DB Pods.
-version: 1.2.19
+version: 1.2.20
 appVersion: "2.14.3"
 keywords: [catalyst, blueprint, harbor, oci, registry, container]
 maintainers:
