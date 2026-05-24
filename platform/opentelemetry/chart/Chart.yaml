@@ -1,26 +1,29 @@
 apiVersion: v2
 name: bp-opentelemetry
 description: |
-  Catalyst Blueprint umbrella chart for the OpenTelemetry Collector PLUS
-  the OpenTelemetry Operator. Bundles two upstream subcharts:
+  Catalyst Blueprint umbrella chart for the OpenTelemetry Collector.
+  Depends on the upstream `opentelemetry-collector` chart
+  (open-telemetry/helm-charts) as a Helm subchart so `helm dependency
+  build` pulls the upstream payload into this artifact. Catalyst-curated
+  values flow into the upstream subchart under the
+  `opentelemetry-collector:` key in values.yaml.
 
-  1. `opentelemetry-collector` — vendor-neutral OTLP receiver/forwarder
-  2. `opentelemetry-operator` — installs `Instrumentation` CRD + reconciler
-     so apps can opt into auto-instrumentation via pod annotations
-     (`instrumentation.opentelemetry.io/inject-<lang>: opentelemetry/default`).
+  The OTel Collector is the vendor-neutral counterpart to bp-alloy;
+  Catalyst supports both in the observability stack and per-Sovereign
+  overlays choose one. Default deployment mode is `deployment` (a single
+  collector pod handling OTLP traffic from in-cluster apps) — DaemonSet /
+  StatefulSet are values toggles for node-level collection / WAL
+  persistence respectively.
 
-  A default `Instrumentation` CR in the `opentelemetry` NS points workloads
-  at the in-cluster Collector OTLP endpoint
-  (`http://opentelemetry-opentelemetry-collector.opentelemetry.svc:4318`).
-  Apps in other namespaces reference it as `opentelemetry/default`.
-
-  Default deployment mode is `deployment` (a single collector pod handling
-  OTLP traffic from in-cluster apps) — DaemonSet / StatefulSet are values
-  toggles for node-level collection / WAL persistence respectively.
+  Wave 5.41 (#2227) reverted the Wave 5.36 Operator subchart bundling —
+  the Operator + CRDs live in bp-opentelemetry-operator (slot 19c). This
+  chart now installs only the Collector. The default Instrumentation CR
+  moved to bp-opentelemetry-operator's chart (it depends on CRDs that
+  ship there). Flux ordering: 19c (Operator+CRDs) → 20 (this chart).
 type: application
-version: 1.1.3
+version: 1.2.0
 appVersion: "0.150.1"
-keywords: [catalyst, blueprint, opentelemetry, otlp, observability, telemetry, collector, operator, instrumentation]
+keywords: [catalyst, blueprint, opentelemetry, otlp, observability, telemetry, collector]
 maintainers:
   - name: OpenOva Catalyst
     email: catalyst@openova.io
@@ -29,13 +32,7 @@ maintainers:
 # 0.150.1) — current stable on 2026-04-29. Per
 # docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the version is
 # operator-bumpable via PR + Blueprint release.
-# Operator pinned to 0.62.0 (appVersion 0.108.0) — current stable on
-# 2026-05-24. Installs `Instrumentation` + `OpenTelemetryCollector` CRDs.
 dependencies:
   - name: opentelemetry-collector
     version: "0.152.0"
     repository: "https://open-telemetry.github.io/opentelemetry-helm-charts"
-  - name: opentelemetry-operator
-    version: "0.62.0"
-    repository: "https://open-telemetry.github.io/opentelemetry-helm-charts"
-    condition: opentelemetry-operator.enabled

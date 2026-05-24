@@ -1,24 +1,25 @@
-# Master gate. Default off — installing this Blueprint is a no-op until
-# flipped. EPIC-5 (#1100) flips it as part of the observability roll-out
-# AFTER bp-opentelemetry (the collector) is reconciled and reachable.
-enabled: false
+# Master gate. Activated by Wave 5.41 #2227 (chart-split unblock for #2215).
+# Flipped to true to enable the Operator + default Instrumentation CR for
+# all Sovereigns. EPIC #1094 OTel-auto-instr gap closure depends on this.
+enabled: true
 
 catalystBlueprint:
   upstream: { chart: opentelemetry-operator, version: "0.61.0", repo: "https://open-telemetry.github.io/opentelemetry-helm-charts" }
 
-# Default Instrumentation CR rendered when enabled. The CR is created in
-# the namespace .Values.defaultInstrumentation.namespace (default cilium).
-# Per-Application overrides live in per-namespace Instrumentation CRs that
-# application-controller (slice C4 of #1095) renders from
-# Blueprint.spec.observability.traces=otlp.
+# Default Instrumentation CR rendered when enabled. Wave 5.41: the CR lives
+# in the `opentelemetry` namespace (alongside the Catalyst-managed Collector
+# deployed by bp-opentelemetry) so tenant workloads in other namespaces
+# reference it as `opentelemetry/default` per the cross-NS form supported by
+# the OTel Operator. Per-Application overrides live in per-namespace
+# Instrumentation CRs that application-controller (slice C4 of #1095) renders
+# from Blueprint.spec.observability.traces=otlp.
 defaultInstrumentation:
-  enabled: false
-  namespace: cilium
+  enabled: true
+  namespace: opentelemetry
   name: default
-  # OTLP gRPC endpoint of the collector. Default targets bp-opentelemetry's
-  # Service (created by the upstream collector chart in the monitoring
-  # namespace).
-  exporterEndpoint: "http://opentelemetry-collector.monitoring.svc:4317"
+  # OTLP gRPC endpoint of the Catalyst-managed collector deployed by
+  # bp-opentelemetry into the `opentelemetry` namespace.
+  exporterEndpoint: "http://opentelemetry-opentelemetry-collector.opentelemetry.svc:4317"
   # Sampler — parentbased_traceidratio is the bank-tier default. Operator
   # tunes per-Sovereign.
   sampler:
