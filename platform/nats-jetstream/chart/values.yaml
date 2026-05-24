@@ -69,7 +69,16 @@ nats:
 # Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every retention
 # value is a variable and operator-overrideable.
 catalystStreams:
-  enabled: false
+  # Wave 5.50 (#2278) flipped default false -> true. Catalyst's compliance
+  # scorer (#1096 Wave 5.44 NATS KV publisher), idempotency keys
+  # (HTTP write paths), and DR-lease witness (#1101 Continuum) all
+  # depend on the 3 KV buckets that kv-buckets.yaml renders. Without
+  # this gate flipped, those buckets never materialise → Wave 5.44
+  # publisher Put auto-creates the bucket on first use but loses the
+  # chart-defined TTL/maxBytes config. Per-Sovereign overlays MAY set
+  # `false` to opt-out, but the default Sovereign experience requires
+  # these primitives.
+  enabled: true
   # JetStream replication factor. R=3 is the bank-tier default for
   # in-region quorum; the DR Mirror to a second region is a separate
   # follow-up wired by Continuum (#1101).
