@@ -266,6 +266,16 @@ write_files:
             # stuck "Establishing connection to apiserver
             # host=https://10.0.1.2:6443" then timeout.
             CILIUM_K8S_SERVICE_HOST: "${cp_private_ip}"
+            # Wave 5.56 (Refs #2296) — Sovereign-wide canonical region
+            # labels. 19a-bp-sandbox.yaml's hostCluster + 13-bp-catalyst-
+            # platform.yaml's primaryRegion both substitute these. Hetzner
+            # cloud-init port sets them; the Huawei port missed them.
+            # bp-sandbox HR upgrade fails with hostCluster MUST be set if
+            # SOVEREIGN_REGION_CANONICAL_LABEL is empty.
+            SOVEREIGN_REGION_CANONICAL_LABEL: "${region_canonical_label}"
+            QA_PRIMARY_REGION: "${primary_region_canonical_label}"
+            SOVEREIGN_PRIMARY_REGION: "${primary_region_canonical_label}"
+            SOVEREIGN_REPLICA_REGION: "${replica_region_canonical_label}"
 
   # ── Worker cloud-init for autoscaler (issue #921 analogue) ────────────
   - path: /var/lib/catalyst/worker-cloud-init.b64

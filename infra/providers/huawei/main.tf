@@ -538,6 +538,14 @@ locals {
     k3s_version         = var.k3s_version
     k3s_token           = sha256("${var.huawei_project_id}/${var.sovereign_fqdn}/k3s-bootstrap")
     cp_private_ip       = cidrhost(local.region_subnet_cidr[local.region_keys[0]], 2)
+    # Wave 5.56 (Refs #2296) — canonical region labels for the
+    # bootstrap-kit substitute map. Hetzner provider sets these; the
+    # Huawei port missed them, leaving bp-sandbox + downstream HRs
+    # stuck on empty hostCluster. Format mirrors Hetzner pattern:
+    # `hu-<region>-rtz-prod` for replica role, `-mgmt-prod` for primary.
+    region_canonical_label         = "hu-${var.regions[0].code}-rtz-prod"
+    primary_region_canonical_label = "hu-${var.regions[0].code}-rtz-prod"
+    replica_region_canonical_label = length(var.regions) > 1 ? "hu-${var.regions[1].code}-rtz-prod" : ""
     # Primary CP's EIP — Wave 5.8 (Refs #2140). The kubeconfig PUT-back
     # from cloud-init must use this EIP, not the private VPC IP, so the
     # remote mothership (cross-cloud Contabo) can reach the new
