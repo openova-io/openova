@@ -1534,6 +1534,18 @@ func (w *Watcher) processEvent(obj any, terminated chan struct{}, closeOnce *syn
 
 	conds, _ := extractConditions(u)
 	state := DeriveState(conds)
+
+	// Wave 5.103 (#2447): spec.suspend=true means the operator/cloudinit
+	// has intentionally taken this HR out of reconciliation (e.g.,
+	// Hetzner-only HRs on a Huawei Sovereign per Wave 5.102). Without
+	// this check the HR stays at StatePending forever → the per-Sovereign
+	// progress UI shows install-X as "running" indefinitely. Treat
+	// suspended HRs as StateInstalled so they don't block Phase 1's
+	// "all HRs Ready" readiness check.
+	if suspended, ok, _ := unstructured.NestedBool(u.Object, "spec", "suspend"); ok && suspended {
+		state = StateInstalled
+	}
+
 	level := levelFromState(state)
 	message := messageFromConditions(conds, state)
 
@@ -1967,6 +1979,11 @@ func (w *Watcher) SnapshotComponents() []ComponentSnapshot {
 		}
 		conds, _ := extractConditions(u)
 		state := DeriveState(conds)
+		// Wave 5.103 (#2447): suspended HRs report as StateInstalled to
+		// avoid blocking Phase 1 readiness. See SetEventHandler comment.
+		if suspended, ok, _ := unstructured.NestedBool(u.Object, "spec", "suspend"); ok && suspended {
+			state = StateInstalled
+		}
 		message := messageFromConditions(conds, state)
 		var lastTransitionAt time.Time
 		if ready := findCondition(conds, "Ready"); ready != nil {
@@ -2019,6 +2036,11 @@ func ListAndSnapshotHelmReleases(ctx context.Context, dyn dynamic.Interface) ([]
 		}
 		conds, _ := extractConditions(u)
 		state := DeriveState(conds)
+		// Wave 5.103 (#2447): suspended HRs report as StateInstalled to
+		// avoid blocking Phase 1 readiness. See SetEventHandler comment.
+		if suspended, ok, _ := unstructured.NestedBool(u.Object, "spec", "suspend"); ok && suspended {
+			state = StateInstalled
+		}
 		message := messageFromConditions(conds, state)
 		var lastTransitionAt time.Time
 		if ready := findCondition(conds, "Ready"); ready != nil {
