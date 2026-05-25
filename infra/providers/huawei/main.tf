@@ -541,6 +541,10 @@ locals {
       cp_private_ip              = local.cp_primary_private_ip_by_region[r.code]
       enable_unattended_upgrades = var.enable_unattended_upgrades
       enable_fail2ban            = var.enable_fail2ban
+      # Wave 5.92 (#2444): same forward-proxy wiring as the CP template.
+      bootstrap_image_proxy_url = var.bootstrap_image_proxy_url
+      cluster_cidr_no_proxy     = "10.42.0.0/16,10.43.0.0/16,10.96.0.0/16"
+      vpc_subnet_no_proxy       = local.region_subnet_cidr[r.code]
     }), "/(?m)^[ ]*#( |$).*\n/", "")
   }
 
@@ -652,6 +656,14 @@ locals {
     # default false → real-trusted production cert.
     wildcard_cert_issuer = var.wildcard_cert_use_staging == "true" ? "letsencrypt-dns01-staging-powerdns" : "letsencrypt-dns01-prod-powerdns"
     marketplace_enabled  = var.marketplace_enabled
+    # Wave 5.92 (#2444): forward proxy for k3s containerd image pulls,
+    # routes around Huawei NAT destination-filter on 45.151.123.0/24
+    # (Contabo where harbor.openova.io lives). Empty = skip.
+    bootstrap_image_proxy_url = var.bootstrap_image_proxy_url
+    # Per-cluster CIDRs for NO_PROXY (k3s default service/cluster + the
+    # VPC subnet seen on this region's CP).
+    cluster_cidr_no_proxy = "10.42.0.0/16,10.43.0.0/16,10.96.0.0/16"
+    vpc_subnet_no_proxy   = local.region_subnet_cidr[local.region_keys[0]]
   }), "/(?m)^[ ]*#( |$).*\n/", "")
 }
 

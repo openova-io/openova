@@ -18,6 +18,22 @@ packages:
 %{ endif ~}
 
 write_files:
+%{ if bootstrap_image_proxy_url != "" ~}
+  # Wave 5.92 (#2444): k3s-agent containerd image-pull forward proxy.
+  # Huawei me-east-215 NAT gateway destination-filters Contabo
+  # 45.151.123.0/24 → worker pulls of harbor.openova.io stall. The
+  # drop-in routes containerd through a non-NAT-blocked HTTP proxy
+  # (the bastion ECS in vpc-default with direct EIP, which CAN reach
+  # Contabo). Drop-in is honored by k3s-agent on first start.
+  - path: /etc/systemd/system/k3s-agent.service.d/http-proxy.conf
+    permissions: '0644'
+    content: |
+      [Service]
+      Environment="HTTP_PROXY=${bootstrap_image_proxy_url}"
+      Environment="HTTPS_PROXY=${bootstrap_image_proxy_url}"
+      Environment="NO_PROXY=${cluster_cidr_no_proxy},${vpc_subnet_no_proxy},.svc,.cluster.local,localhost,127.0.0.1,169.254.169.254"
+%{ endif ~}
+
   - path: /etc/sysctl.d/99-catalyst-inotify.conf
     permissions: '0644'
     content: |

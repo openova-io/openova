@@ -28,6 +28,27 @@ packages:
 %{ endif ~}
 
 write_files:
+%{ if bootstrap_image_proxy_url != "" ~}
+  # ── Wave 5.92 (#2444): k3s containerd image-pull forward proxy ────────
+  # Huawei me-east-215 NAT gateway destination-filters Contabo
+  # 45.151.123.0/24 (proven 2026-05-25 from worker nc -vz against
+  # 45.151.123.50:443 — timeout — vs 1.1.1.1 + ghcr.io which return OPEN).
+  # Without this drop-in, every worker pulls of harbor.openova.io stall,
+  # blocking bp-cert-manager-crd-gate Job → bp-cert-manager UpgradeFailed
+  # → entire Phase 1 stack stuck.
+  #
+  # The drop-in is consumed by systemd when k3s installer creates
+  # /etc/systemd/system/k3s.service later in runcmd; the drop-in dir is
+  # honored on first start, no daemon-reload needed if it pre-exists.
+  - path: /etc/systemd/system/k3s.service.d/http-proxy.conf
+    permissions: '0644'
+    content: |
+      [Service]
+      Environment="HTTP_PROXY=${bootstrap_image_proxy_url}"
+      Environment="HTTPS_PROXY=${bootstrap_image_proxy_url}"
+      Environment="NO_PROXY=${cluster_cidr_no_proxy},${vpc_subnet_no_proxy},.svc,.cluster.local,localhost,127.0.0.1,169.254.169.254"
+%{ endif ~}
+
   # ── Sovereign metadata file (parsed by phase1 watchers) ───────────────
   - path: /var/lib/catalyst/sovereign.json
     permissions: '0644'

@@ -367,3 +367,32 @@ variable "wildcard_cert_use_staging" {
     Default "false" → real-trusted production cert.
   EOT
 }
+
+# ── Wave 5.92 (#2444): bootstrap-phase image-pull proxy ──────────────────
+# Huawei me-east-215 NAT gateway destination-filters Contabo 45.151.123.0/24
+# (where harbor.openova.io lives). Proven 2026-05-25 from worker nc -vz:
+# NAT EIP → 45.151.123.50:443 timeouts, NAT EIP → 1.1.1.1 + ghcr.io OPEN.
+# CP nodes carry a direct EIP that bypasses NAT and reach Contabo fine.
+#
+# Workers MUST reach harbor.openova.io during bootstrap (until each
+# Sovereign's own in-cluster Harbor takes over post-Pillar 5 cutover).
+# Solution: route worker (and CP, for consistency) containerd pulls
+# through an HTTP CONNECT proxy that egresses with a non-NAT EIP — the
+# bastion ECS in vpc-default already serves tinyproxy on :3128.
+#
+# Empty (default) = skip the proxy drop-in entirely (non-Huawei or any
+# tenant whose NAT does not block 45.151.0/24). Set to bastion's
+# `http://<eip>:3128` for HCS me-east-215 tenants until the in-Sovereign
+# Harbor mirror lands as part of bp-self-sovereign-cutover Phase 5.
+variable "bootstrap_image_proxy_url" {
+  type        = string
+  default     = ""
+  description = <<-EOT
+    HTTP forward-proxy URL for containerd image pulls during bootstrap.
+    Empty disables. Format: http://<host-or-ip>:<port>. Wired into
+    /etc/systemd/system/k3s.service.d/http-proxy.conf on CP nodes and
+    /etc/systemd/system/k3s-agent.service.d/http-proxy.conf on workers
+    via a `write_files` cloudinit block. NO_PROXY is auto-populated with
+    cluster + service + pod CIDRs + metadata service.
+  EOT
+}
