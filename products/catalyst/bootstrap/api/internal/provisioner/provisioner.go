@@ -45,6 +45,18 @@ import (
 	"time"
 )
 
+// Wave 5.93 (#2445) — pluggable hook for post-tofu-apply NAT EIP
+// pre-flight rotation. The huawei package registers itself at init()
+// time via NATEIPPreflightHook = huawei.RotateBlocklistedNATEIPs.
+// Decoupled to avoid the provisioner ↔ huawei import cycle (huawei
+// already imports provisioner for the Provision delegate).
+type natEIPPreflightFunc func(ctx context.Context, provider, deploymentID, sovereignFQDN, accessKey, secretKey, projectID, region string, progress func(msg string)) (int, error)
+
+// NATEIPPreflightHook is the registration point. nil by default — only
+// the huawei adapter's init() sets it. provisioner.Provision calls it
+// after tofu apply for provider == "huawei".
+var NATEIPPreflightHook natEIPPreflightFunc
+
 // ParentDomain is one entry in Request.ParentDomains — a registered
 // parent zone the Sovereign-side PowerDNS becomes authoritative for
 // after NS-flip lands at the registrar.
@@ -1177,6 +1189,22 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 	emit("tofu-apply", "info", "Applying — this provisions real Hetzner resources, please wait")
 	if err := p.runTofu(ctx, deployDir, []string{"apply", "-input=false", "-no-color", "-auto-approve", "tfplan"}, emit); err != nil {
 		return nil, fmt.Errorf("tofu apply: %w", err)
+	}
+
+	// Wave 5.93 (#2445) — for Huawei deployments, rotate any NAT EIPs
+	// that got assigned a blocklisted IP from the Huawei free-pool
+	// before cloud-init starts pulling from harbor.openova.io. Without
+	// this, hw01/hw02/hw03 needed a manual watcher script to rotate
+	// blocklisted .48/.14 EIPs the moment they got assigned.
+	if req.Provider == "huawei" && NATEIPPreflightHook != nil {
+		rotated, err := NATEIPPreflightHook(ctx, req.Provider, req.DeploymentID, req.SovereignFQDN,
+			req.HuaweiAccessKey, req.HuaweiSecretKey, req.HuaweiProjectID, req.HuaweiRegion,
+			func(msg string) { emit("nat-eip-preflight", "info", msg) })
+		if err != nil {
+			emit("nat-eip-preflight", "warn", "EIP pre-flight check failed (non-fatal — cloudinit may stall on harbor.openova.io if a blocklisted EIP is in play): "+err.Error())
+		} else if rotated > 0 {
+			emit("nat-eip-preflight", "info", fmt.Sprintf("Wave 5.93: rotated %d blocklisted NAT EIPs before Phase 1", rotated))
+		}
 	}
 
 	emit("tofu-output", "info", "Reading OpenTofu outputs")
