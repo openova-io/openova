@@ -71,6 +71,8 @@ metadata:
   labels:
     catalyst.openova.io/slot: "50"
 spec:
+  # Wave 5.102 (#2447): suspend on non-Hetzner providers (see 55-bp-hcloud-ccm.yaml).
+  suspend: ${HCLOUD_HR_SUSPEND:=false}
   interval: 15m
   releaseName: cluster-autoscaler
   targetNamespace: cluster-autoscaler

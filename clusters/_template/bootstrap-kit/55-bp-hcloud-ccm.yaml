@@ -66,6 +66,12 @@ metadata:
   labels:
     catalyst.openova.io/slot: "55"
 spec:
+  # Wave 5.102 (#2447): suspend on non-Hetzner providers. The cloudinit's
+  # bootstrap-kit Kustomization substitutes ${HCLOUD_HR_SUSPEND} from the
+  # PROVIDER value: "false" on Hetzner (Hetzner-native), "true" on Huawei
+  # (no hcloud-API target, install would just churn retries). Saves a
+  # multi-minute Helm-install timeout per Hetzner-only HR per fresh prov.
+  suspend: ${HCLOUD_HR_SUSPEND:=false}
   interval: 15m
   releaseName: hcloud-ccm
   targetNamespace: kube-system

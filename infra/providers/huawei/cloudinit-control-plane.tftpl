@@ -318,6 +318,12 @@ write_files:
             SOVEREIGN_FQDN: ${sovereign_fqdn}
             SOVEREIGN_FQDN_DASHED: ${sovereign_fqdn_slug}
             PROVIDER: huawei
+            # Wave 5.102 (#2447): suspend Hetzner-only HRs (bp-hcloud-ccm,
+            # bp-cluster-autoscaler-hcloud, bp-velero). bp-velero needs an
+            # OBS adapter (Wave 6 scope). The other two are no-op on
+            # Huawei. Without suspend, install Helm-times-out after 15m
+            # each → blocks Phase 1 completion.
+            HCLOUD_HR_SUSPEND: "true"
             PARENT_DOMAINS_YAML: |
               ${parent_domains_yaml}
             # Wave 5.24 (Refs #2163) — cilium k8sServiceHost must be the

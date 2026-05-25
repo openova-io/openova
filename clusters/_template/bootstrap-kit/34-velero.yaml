@@ -61,6 +61,9 @@ metadata:
   labels:
     catalyst.openova.io/slot: "34"
 spec:
+  # Wave 5.102 (#2447): suspend on non-Hetzner providers (see 55-bp-hcloud-ccm.yaml comment).
+  # Velero needs hcloud-storage backend — Huawei port needs an OBS adapter (Wave 6 scope).
+  suspend: ${HCLOUD_HR_SUSPEND:=false}
   interval: 15m
   releaseName: velero
   targetNamespace: velero
