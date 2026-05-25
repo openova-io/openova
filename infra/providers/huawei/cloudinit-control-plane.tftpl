@@ -112,6 +112,19 @@ write_files:
       metadata:
         name: ghcr-pull
         namespace: flux-system
+        # Wave 5.95 (#TBD-W5.95): reflector annotations so every namespace
+        # that pulls ghcr.io/openova-io/* (catalyst-system, sme, gitea,
+        # harbor, kube-system, cert-manager, etc.) gets the imagePullSecret
+        # automatically. Without these, catalyst-* + bp-cert-manager
+        # initContainers + bp-harbor + everything else hits 401 Unauthorized
+        # against ghcr.io (the deployment spec references imagePullSecret
+        # `ghcr-pull` in its own namespace, but the Secret only exists in
+        # flux-system). Same pattern Wave 5.34 #2208 applies to pdm-basicauth.
+        annotations:
+          reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "sme,catalyst,catalyst-system,gitea,harbor,cert-manager,kube-system,flux-system,reflector,reloader,kyverno,opentelemetry,openbao,seaweedfs,powerdns,grafana,loki,mimir,tempo,alloy,coraza,crossplane-system,sigstore-system,trivy-system,syft-grype,falco,vpa,valkey,vllm,dmz,mgmt,rtz,external-dns,external-secrets,cnpg-system,velero,nats-system,sealed-secrets"
+          reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "sme,catalyst,catalyst-system,gitea,harbor,cert-manager,kube-system,reflector,reloader,kyverno,opentelemetry,openbao,seaweedfs,powerdns,grafana,loki,mimir,tempo,alloy,coraza,crossplane-system,sigstore-system,trivy-system,syft-grype,falco,vpa,valkey,vllm,dmz,mgmt,rtz,external-dns,external-secrets,cnpg-system,velero,nats-system,sealed-secrets"
       type: kubernetes.io/dockerconfigjson
       stringData:
         .dockerconfigjson: |
@@ -358,6 +371,22 @@ runcmd:
   # 1. Apply sysctl for inotify limits + harden sshd
   - sysctl --system
   - ["bash", "-c", "systemctl reload ssh || true"]
+
+  # Wave 5.96 (#TBD-W5.96): iptables DNAT 443→30443 + 80→30080 so the
+  # canonical Sovereign FQDN reaches the cilium-envoy host-bound listener.
+  # Cilium Gateway-API on hostnetwork mode binds envoy to high ports
+  # (30443/30080) — privileged-port bind fails even with NET_BIND_SERVICE
+  # because cilium-agent gates bind() through its BPF socket-LB program
+  # (verified live on otech45-47 — see clusters/_template/sovereign-tls/
+  # cilium-gateway.yaml line ~217 comment). Hetzner provider uses a tofu-
+  # provisioned hcloud LB that does 443→30443; Huawei provider doesn't yet
+  # have an equivalent ELB module (Wave 6+ scope for Huawei ELB), so we
+  # DNAT on each CP node. Rule persists across k3s + cilium restarts; we
+  # write iptables-restore to a script so reboot replays it via systemd.
+  - ["bash", "-c", "iptables -t nat -A PREROUTING -p tcp --dport 443 -j REDIRECT --to-port 30443 || true"]
+  - ["bash", "-c", "iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 30080 || true"]
+  - ["bash", "-c", "iptables -t nat -A OUTPUT -p tcp -d 127.0.0.0/8 -j RETURN || true"]
+  - ["bash", "-c", "mkdir -p /etc/iptables && iptables-save > /etc/iptables/rules.v4 2>/dev/null || true"]
 
 %{ if enable_fail2ban ~}
   - ["bash", "-c", "systemctl enable --now fail2ban || true"]
