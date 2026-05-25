@@ -337,10 +337,16 @@ write_files:
             # into a hcloud-CCM annotation that the Cilium-on-HCS path
             # ignores (no hcloud-CCM controller running).
             HCLOUD_LB_LOCATION: "${region}"
-        substituteFrom:
-          - kind: ConfigMap
-            name: sovereign-tls-vars
-            optional: false
+          # Wave 5.94 fix: substituteFrom MUST be inside postBuild
+          # (was incorrectly indented at spec-level in Wave 5.88
+          # cloudinit port → Flux strict-decode rejected the manifest
+          # silently during the multi-doc kubectl apply, so the
+          # sovereign-tls Kustomization never reconciled on a fresh
+          # zero-touch prov. Verified live on hw02 bbd373de 2026-05-25.)
+          substituteFrom:
+            - kind: ConfigMap
+              name: sovereign-tls-vars
+              optional: false
 
   # ── Worker cloud-init for autoscaler (issue #921 analogue) ────────────
   - path: /var/lib/catalyst/worker-cloud-init.b64
