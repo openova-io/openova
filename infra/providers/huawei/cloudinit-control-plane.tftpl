@@ -55,26 +55,26 @@ write_files:
   - path: /etc/rancher/k3s/registries.yaml
     permissions: '0644'
     content: |
-      # Wave 5.105 (#2462): mirror docker.io + registry-1.docker.io through bastion
-      # harbor proxy-cache (proxy-dockerhub project) so bp-keycloak postgresql +
-      # bp-falco falcoctl + other docker.io chart images bypass Contabo NAT
-      # blocklist (Wave 5.93 #2444) without per-chart image-rewrite. Without this
-      # mirror, kubelet sees intermittent `dial tcp: lookup production.cloudfront.
-      # docker.com: Try again` → ImagePullBackOff → bootstrap-kit Pods Pending →
-      # bp-keycloak Helm post-install hook times out → cascading FAIL (live
-      # evidence: hw07 49d43efbaf2a46c2 2026-05-25T22:00Z).
+      # Wave 5.106 (#2462): mirror docker.io + registry-1.docker.io through bastion
+      # direct dockerhub proxy at :5002 (separate registry:2 instance, proxy mode →
+      # registry-1.docker.io upstream). Wave 5.105 tried :5000/v2/proxy-dockerhub
+      # but containerd appends /v2/<image> → double-/v2/ → 404. The :5002 proxy
+      # serves /v2/<image> directly, matching containerd canonical mirror semantics.
       mirrors:
         "harbor.openova.io":
           endpoint:
             - "http://212.72.24.20:5000"
         "docker.io":
           endpoint:
-            - "http://212.72.24.20:5000/v2/proxy-dockerhub"
+            - "http://212.72.24.20:5002"
         "registry-1.docker.io":
           endpoint:
-            - "http://212.72.24.20:5000/v2/proxy-dockerhub"
+            - "http://212.72.24.20:5002"
       configs:
         "212.72.24.20:5000":
+          tls:
+            insecure_skip_verify: true
+        "212.72.24.20:5002":
           tls:
             insecure_skip_verify: true
 
