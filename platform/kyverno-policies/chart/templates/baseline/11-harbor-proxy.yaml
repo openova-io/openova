@@ -64,7 +64,13 @@ spec:
           Re-tag the image to pull through the Sovereign's local Harbor
           proxy (e.g. harbor.<sovereign-domain>/proxy-ghcr/...).
         foreach:
-          - list: "request.object.spec.containers || request.object.spec.template.spec.containers"
+          # Wave 5.97 nil-safety fix: filter to containers with non-nil .image
+          # to keep JMESPath regex_match from erroring on ephemeralContainers /
+          # mutating-webhook-injected sidecars that admission-time lack .image.
+          # Erroring policy + Kyverno admission webhook failurePolicy=Fail
+          # blocked ALL pod creation cluster-wide pre-fix (verified hw02
+          # bbd373de 2026-05-25 → 18 policies tripped same JMESPath nil bug).
+          - list: "(request.object.spec.containers || request.object.spec.template.spec.containers)[?image]"
             deny:
               conditions:
                 all:

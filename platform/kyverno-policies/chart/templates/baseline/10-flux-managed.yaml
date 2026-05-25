@@ -72,7 +72,10 @@ spec:
               - key: '{{ `{{ request.object.metadata.labels."app.kubernetes.io/managed-by" || '''' }}` }}'
                 operator: NotEquals
                 value: flux
-              - key: '{{ `{{ length(request.object.metadata.ownerReferences[?kind==''HelmRelease'' || kind==''Kustomization'']) }}` }}'
+              # Wave 5.97 nil-safety: default ownerReferences to empty array so JMESPath
+              # filter doesn't error on resources without owner refs (admission ERROR with
+              # failurePolicy=Fail blocks all pod creation cluster-wide).
+              - key: '{{ `{{ length((request.object.metadata.ownerReferences || `[]`)[?kind==''HelmRelease'' || kind==''Kustomization'']) }}` }}'
                 operator: Equals
                 value: 0
 {{- end -}}
