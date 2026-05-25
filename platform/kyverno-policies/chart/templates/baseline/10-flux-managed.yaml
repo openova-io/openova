@@ -72,10 +72,18 @@ spec:
               - key: '{{ `{{ request.object.metadata.labels."app.kubernetes.io/managed-by" || '''' }}` }}'
                 operator: NotEquals
                 value: flux
-              # Wave 5.97 nil-safety: default ownerReferences to empty array so JMESPath
-              # filter doesn't error on resources without owner refs (admission ERROR with
-              # failurePolicy=Fail blocks all pod creation cluster-wide).
-              - key: '{{ `{{ length((request.object.metadata.ownerReferences || `[]`)[?kind==''HelmRelease'' || kind==''Kustomization'']) }}` }}'
+              # Wave 5.97 nil-safety: check Flux-applied labels instead of
+              # ownerReferences. Flux sets BOTH helm.toolkit.fluxcd.io/name AND
+              # kustomize.toolkit.fluxcd.io/name on every resource it manages.
+              # The original JMESPath filter `ownerReferences[?kind==X]` errors
+              # when ownerReferences is nil (most kubectl-created Pods + debug
+              # pods + admission-time injected sidecars), and admission webhook
+              # failurePolicy=Fail blocks all pod creation cluster-wide.
+              # Label-based check is nil-safe via the `||` JMESPath fallback.
+              - key: '{{ `{{ request.object.metadata.labels."helm.toolkit.fluxcd.io/name" || '''' }}` }}'
                 operator: Equals
-                value: 0
+                value: ''
+              - key: '{{ `{{ request.object.metadata.labels."kustomize.toolkit.fluxcd.io/name" || '''' }}` }}'
+                operator: Equals
+                value: ''
 {{- end -}}
