@@ -160,7 +160,7 @@ spec:
           # values.yaml `images.catalystApi.tag` is also bumped (but
           # unused for catalyst-api; kept for SME services that DO read
           # from values).
-          image: "ghcr.io/openova-io/openova/catalyst-api:30a9392"
+          image: "ghcr.io/openova-io/openova/catalyst-api:7459928"
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
@@ -222,7 +222,7 @@ spec:
             # field so dashboards can correlate api-version <-> chart-
             # version on a single probe.
             - name: CATALYST_BUILD_SHA
-              value: "30a9392"
+              value: "7459928"
             - name: CATALYST_CHART_VERSION
               value: "1.4.95"
             - name: CORS_ORIGIN
