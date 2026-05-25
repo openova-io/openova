@@ -399,10 +399,20 @@ locals {
 
   # Per-region worker count comes from `regions[].worker_count` (the
   # cross-provider PROVIDER-INTERFACE.md §1 shape — set by the wizard
-  # / Go provisioner). Default 2 if zero (POC sizing).
+  # / Go provisioner). Default 3 if zero — Wave 5.104 (#2460): on
+  # Huawei the cluster-autoscaler-hcloud HR is suspend=true (Wave 5.102
+  # — no Huawei API target), so the worker pool is STATIC. The
+  # bootstrap-kit RAM/CPU aggregate (~10 vCPU requests with bp-openbao
+  # / bp-keycloak / bp-gitea / bp-harbor / bp-cnpg-pair running) exceeds
+  # the 2-worker pool (1×2 vCPU CP + 2×4 vCPU workers = 10 vCPU total →
+  # 99.7% saturated → keycloak-config-cli post-install Pod Pending
+  # forever → bp-keycloak Helm hook timeout → bp-gitea / bp-catalyst-
+  # platform / sov-tls Certificate cascading FAIL). Bumping the default
+  # to 3 adds +4 vCPU of headroom — the right answer until the Huawei-
+  # native autoscaler (Wave 6 scope) lands.
   worker_nodes = flatten([
     for r in var.regions : [
-      for i in range(r.worker_count > 0 ? r.worker_count : 2) : {
+      for i in range(r.worker_count > 0 ? r.worker_count : 3) : {
         region = r.code
         index  = i
         flavor = local.effective_worker_flavor[r.code]
