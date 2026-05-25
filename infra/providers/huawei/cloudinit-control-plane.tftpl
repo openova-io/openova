@@ -325,13 +325,14 @@ write_files:
             # to reference the chart-rendered per-zone wildcard Secret
             # (sovereign-wildcard-tls-<dashed-fqdn>).
             SOVEREIGN_FQDN_DASHED: ${sovereign_fqdn_slug}
-            # SOVEREIGN_LB_IP — Huawei the Gateway listener resolves
-            # against; same shape as Hetzner load_balancer_ipv4.
-            # For HCS this is the primary CP EIP per Wave 5.7 (#2154) —
-            # there is no separate Hetzner-style LB in front of the CP
-            # on HCS. cilium-gateway's lb-ipam-ips annotation pins the
-            # Gateway Service to this EIP.
-            SOVEREIGN_LB_IP: ${primary_cp_eip}
+            # SOVEREIGN_LB_IP — Wave 5.98 (#2447): public EIP of the
+            # Huawei ELB v3 that does 443→30443 + 80→30080 routing to
+            # cilium-envoy on primary-region nodes. Sovereign FQDN
+            # A-record points HERE (NOT the CP EIP). external-dns
+            # reads the Gateway's `addresses` and publishes accordingly.
+            # cilium-gateway's lb-ipam-ips annotation pins the Gateway
+            # Service to this EIP.
+            SOVEREIGN_LB_IP: ${elb_eip}
             MARKETPLACE_ENABLED: "${marketplace_enabled}"
             PARENT_DOMAINS_YAML: |
               ${parent_domains_yaml}

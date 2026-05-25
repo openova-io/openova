@@ -581,6 +581,9 @@ locals {
     # deterministically across all CPs and metadata-service shape
     # divergences across cloud stacks.
     primary_cp_eip = huaweicloud_vpc_eip.cp[local.region_keys[0]].publicip.0.ip_address
+    # Wave 5.98 (#2447) — Huawei ELB EIP. Sovereign FQDN points HERE,
+    # NOT at the CP EIP. ELB does 443→30443 + 80→30080 to cilium-envoy.
+    elb_eip = huaweicloud_vpc_eip.elb_primary.publicip.0.ip_address
     # Primary CP's hostname — used by cloud-init to gate the kubeconfig
     # PUT-back to ONLY the primary region's CP1 (Wave 5.10, Refs #2140).
     # Wave 5.9 attempted private-IP match (cp_private_ip = subnet .2)
