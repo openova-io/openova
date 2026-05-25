@@ -207,7 +207,21 @@ write_files:
       stringData:
         endpoint: "${obs_endpoint}"
         region: "${obs_region}"
+        # Wave 5.101 (#2447): bp-harbor + bp-velero chart values reference
+        # `s3-bucket` (not `bucket`) per the canonical AWS S3-protocol
+        # naming. Hetzner port writes both keys for back-compat;
+        # the Huawei port was missing `s3-bucket` → bp-harbor + bp-velero
+        # HRs stuck "could not resolve Secret chart values reference
+        # 'flux-system/object-storage' with key 's3-bucket': key not found"
+        # → bp-self-sovereign-cutover + bp-sandbox blocked indefinitely
+        # (verified hw05 07759e1a 2026-05-25). Emit BOTH keys with the
+        # same value to satisfy any chart variant.
         bucket: "${obs_bucket_name}"
+        s3-bucket: "${obs_bucket_name}"
+        s3-endpoint: "${obs_endpoint}"
+        s3-region: "${obs_region}"
+        s3-access-key: "${obs_access_key}"
+        s3-secret-key: "${obs_secret_key}"
         access-key: "${obs_access_key}"
         secret-key: "${obs_secret_key}"
 
