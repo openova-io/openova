@@ -28,6 +28,42 @@ packages:
 %{ endif ~}
 
 write_files:
+  # Wave 5.100 (#2447) — k3s containerd registry mirror so EVERY pull of
+  # harbor.openova.io/proxy-* is rewritten to the bastion-openova
+  # harbor-cache on 212.72.24.20:5000. This eliminates the Contabo
+  # NAT-blocklist problem entirely: Sovereign workers no longer touch
+  # 45.151.123.0/24, so the third-party IP-reputation blocklist that
+  # flagged Huawei NAT EIPs .14/.48/.59/.92 in succession no longer
+  # affects bootstrap.
+  #
+  # The bastion ECS (vpc-default, direct EIP 212.72.24.20) runs a
+  # registry:2 in proxy-cache mode pointed at https://harbor.openova.io.
+  # Direct EIPs in 212.72.24.0/24 reach Contabo fine — the blocklist is
+  # ONLY against Huawei NAT-egress IPs (NAT gateway shared pool that
+  # accumulated abuse-pattern signals over time). The bastion's direct
+  # EIP path bypasses that.
+  #
+  # The mirror config lives at /etc/rancher/k3s/registries.yaml — k3s
+  # reads it at start, configures containerd. Pulls of
+  # harbor.openova.io/proxy-dockerhub/x:y rewrite to
+  # http://212.72.24.20:5000/proxy-dockerhub/x:y → bastion proxy →
+  # https://harbor.openova.io/proxy-dockerhub/x:y (Contabo). The
+  # endpoint is http (not https) because the bastion's harbor-cache is
+  # on a Huawei-internal path — the security-group rule (Wave 5.100)
+  # opens :5000 from 0.0.0.0/0 within the Huawei tenant, but Cilium
+  # mesh + the NodePort range stay locked down.
+  - path: /etc/rancher/k3s/registries.yaml
+    permissions: '0644'
+    content: |
+      mirrors:
+        "harbor.openova.io":
+          endpoint:
+            - "http://212.72.24.20:5000"
+      configs:
+        "212.72.24.20:5000":
+          tls:
+            insecure_skip_verify: true
+
   # ── Sovereign metadata file (parsed by phase1 watchers) ───────────────
   - path: /var/lib/catalyst/sovereign.json
     permissions: '0644'

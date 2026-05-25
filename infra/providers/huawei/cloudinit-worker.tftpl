@@ -18,6 +18,21 @@ packages:
 %{ endif ~}
 
 write_files:
+  # Wave 5.100 (#2447) — k3s-agent containerd registry mirror. Mirrors
+  # harbor.openova.io → bastion harbor-cache (212.72.24.20:5000). See
+  # cloudinit-control-plane.tftpl Wave 5.100 comment for full rationale.
+  - path: /etc/rancher/k3s/registries.yaml
+    permissions: '0644'
+    content: |
+      mirrors:
+        "harbor.openova.io":
+          endpoint:
+            - "http://212.72.24.20:5000"
+      configs:
+        "212.72.24.20:5000":
+          tls:
+            insecure_skip_verify: true
+
   - path: /etc/sysctl.d/99-catalyst-inotify.conf
     permissions: '0644'
     content: |
