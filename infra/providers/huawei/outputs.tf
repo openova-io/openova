@@ -9,8 +9,8 @@ output "control_plane_ip" {
 }
 
 output "load_balancer_ip" {
-  description = "On Huawei Tier-B we deliberately have NO cloud load-balancer; the primary CP's EIP IS the Gateway entry. Echoed as control_plane_ip so cross-provider handler code reads one field uniformly."
-  value       = length(var.regions) > 0 ? huaweicloud_vpc_eip.cp[var.regions[0].code].address : ""
+  description = "Public EIP of the Wave 5.98 (#2447) Huawei ELB. Sovereign FQDN A-record points HERE. ELB does 443→30443 + 80→30080 TCP passthrough to cilium-envoy on the primary-region nodes (cilium-agent BPF socket-LB blocks privileged-port bind on envoy DS — verified otech45-47)."
+  value       = huaweicloud_vpc_eip.elb_primary.publicip.0.ip_address
 }
 
 output "sovereign_fqdn" {

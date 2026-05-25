@@ -777,3 +777,124 @@ resource "huaweicloud_obs_bucket" "main" {
 
   # tags disabled per Wave 5.4 — HCS tag-API divergence
 }
+
+# ── Wave 5.98 (#2447) — Huawei ELB v3: public 443→30443 + 80→30080 ──────
+# Public ELB that terminates 80/443 from the operator-facing FQDN and
+# forwards to cilium-envoy on the host NodePorts (30080/30443) on the
+# primary-region CP1. The Cilium Gateway-API hostnetwork mode binds
+# cilium-envoy to high ports because cilium-agent's BPF socket-LB
+# program rejects privileged-port bind() syscalls (verified on otech45-47
+# Hetzner port — see clusters/_template/sovereign-tls/cilium-gateway.yaml
+# line ~217 comment). Hetzner provider solves this with hcloud_load_
+# balancer_service 443→30443; this is the Huawei-port equivalent.
+#
+# Sovereign FQDN A-record points at this ELB's EIP (NOT the CP EIP).
+# Phase 1 mothership-side handover writes the A record via PowerDNS.
+
+resource "huaweicloud_vpc_eip" "elb_primary" {
+  publicip {
+    type = "5_bgp"
+  }
+  bandwidth {
+    share_type  = "PER"
+    name        = "${local.name_prefix}-elb-primary-bw"
+    size        = 300
+    charge_mode = "traffic"
+  }
+}
+
+resource "huaweicloud_elb_loadbalancer" "primary" {
+  name              = "${local.name_prefix}-elb-primary"
+  vpc_id            = huaweicloud_vpc.region[local.region_keys[0]].id
+  ipv4_subnet_id    = huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id
+  ipv4_eip_id       = huaweicloud_vpc_eip.elb_primary.id
+  availability_zone = [var.huawei_az]
+  description       = "Catalyst Sovereign ${var.sovereign_fqdn} — Wave 5.98 Cilium-Gateway-API 443→30443 + 80→30080 routing"
+}
+
+resource "huaweicloud_elb_pool" "https" {
+  name            = "${local.name_prefix}-elb-pool-https"
+  protocol        = "TCP"
+  lb_method       = "ROUND_ROBIN"
+  loadbalancer_id = huaweicloud_elb_loadbalancer.primary.id
+  description     = "cilium-envoy targets on port 30443"
+}
+
+resource "huaweicloud_elb_pool" "http" {
+  name            = "${local.name_prefix}-elb-pool-http"
+  protocol        = "TCP"
+  lb_method       = "ROUND_ROBIN"
+  loadbalancer_id = huaweicloud_elb_loadbalancer.primary.id
+  description     = "cilium-envoy targets on port 30080"
+}
+
+resource "huaweicloud_elb_listener" "https" {
+  loadbalancer_id = huaweicloud_elb_loadbalancer.primary.id
+  name            = "${local.name_prefix}-elb-listener-https"
+  protocol        = "TCP"
+  protocol_port   = 443
+  default_pool_id = huaweicloud_elb_pool.https.id
+  idle_timeout    = 60
+  description     = "TCP passthrough — cilium-envoy terminates TLS at 30443"
+}
+
+resource "huaweicloud_elb_listener" "http" {
+  loadbalancer_id = huaweicloud_elb_loadbalancer.primary.id
+  name            = "${local.name_prefix}-elb-listener-http"
+  protocol        = "TCP"
+  protocol_port   = 80
+  default_pool_id = huaweicloud_elb_pool.http.id
+  idle_timeout    = 60
+  description     = "TCP passthrough — ACME HTTP-01 + .well-known"
+}
+
+# Pool members: primary-region nodes (CPs + workers). Cilium-envoy DS runs
+# on every node, so every node serves 30443/30080. local.primary_lb_node_ips
+# collects the private IPs.
+
+locals {
+  primary_lb_node_ips = concat(
+    [for idx, n in local.cp_nodes :
+      huaweicloud_compute_instance.control_plane[idx].access_ip_v4
+      if n.region == local.region_keys[0]
+    ],
+    [for idx, w in local.worker_nodes :
+      huaweicloud_compute_instance.worker[idx].access_ip_v4
+      if w.region == local.region_keys[0]
+    ],
+  )
+}
+
+resource "huaweicloud_elb_member" "https" {
+  count         = length(local.primary_lb_node_ips)
+  pool_id       = huaweicloud_elb_pool.https.id
+  address       = local.primary_lb_node_ips[count.index]
+  protocol_port = 30443
+  subnet_id     = huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id
+}
+
+resource "huaweicloud_elb_member" "http" {
+  count         = length(local.primary_lb_node_ips)
+  pool_id       = huaweicloud_elb_pool.http.id
+  address       = local.primary_lb_node_ips[count.index]
+  protocol_port = 30080
+  subnet_id     = huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id
+}
+
+resource "huaweicloud_elb_monitor" "https" {
+  pool_id     = huaweicloud_elb_pool.https.id
+  protocol    = "TCP"
+  port        = 30443
+  interval    = 10
+  timeout     = 5
+  max_retries = 3
+}
+
+resource "huaweicloud_elb_monitor" "http" {
+  pool_id     = huaweicloud_elb_pool.http.id
+  protocol    = "TCP"
+  port        = 30080
+  interval    = 10
+  timeout     = 5
+  max_retries = 3
+}
