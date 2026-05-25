@@ -595,6 +595,29 @@ runcmd:
   - KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl create namespace catalyst-system --dry-run=client -o yaml | KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f -
   - KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f /var/lib/catalyst/manifests/06-handover-jwt-public-secret.yaml
 
+  # Wave 5.107 (#2462 follow-up): port Hetzner openbao-recovery-seed seeding
+  # (issue #316) to Huawei. Without this Secret the bp-openbao post-install
+  # Job FATALs with "seed Secret openbao-recovery-seed has no key recovery-
+  # seed" → bp-openbao never reaches Ready → bp-external-secrets / bp-newapi
+  # / downstream chain blocks → bp-catalyst-platform install eventually
+  # times out → sov-tls Certificate never issues → Gateway never Programmed
+  # → HTTPS 000 (live evidence: hw07 49d43ef + hw08 e9ded4c, openbao-init
+  # pods 7× Error retries each prov).
+  #
+  # Generate a one-shot 32-byte recovery seed at cloud-init time; the init
+  # Job consumes + deletes it on first success. NEVER appears in tfstate,
+  # NEVER readable from outside this CP node.
+  - KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl create namespace openbao --dry-run=client -o yaml | KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f -
+  - |
+    OPENBAO_SEED=$(head -c 32 /dev/urandom | base64 | tr -d '\n')
+    KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl -n openbao create secret generic openbao-recovery-seed \
+      --from-literal=recovery-seed="$OPENBAO_SEED" \
+      --dry-run=client -o yaml \
+      | KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl annotate --local -f - \
+        openbao.openova.io/single-use=true -o yaml \
+      | KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f -
+    unset OPENBAO_SEED
+
   # 4. Install Flux + apply the GitRepository + Kustomization seed.
   - |
     curl -sfL https://github.com/fluxcd/flux2/releases/download/v2.4.0/flux_2.4.0_linux_amd64.tar.gz \
