@@ -856,13 +856,15 @@ resource "huaweicloud_elb_listener" "http" {
 # collects the private IPs.
 
 locals {
+  # CPs are `count`-based — index by tofu's list-indexed array.
+  # Workers are `for_each`-based on local.worker_map (key=<region>-<index>).
   primary_lb_node_ips = concat(
     [for idx, n in local.cp_nodes :
       huaweicloud_compute_instance.control_plane[idx].access_ip_v4
       if n.region == local.region_keys[0]
     ],
-    [for idx, w in local.worker_nodes :
-      huaweicloud_compute_instance.worker[idx].access_ip_v4
+    [for w in local.worker_nodes :
+      huaweicloud_compute_instance.worker["${w.region}-${w.index}"].access_ip_v4
       if w.region == local.region_keys[0]
     ],
   )
