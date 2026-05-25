@@ -881,7 +881,7 @@ spec:
       # cutover-trigger CTA + Pillar 1 voucher→onboarding chain on
       # the fresh-prov walk. Refs #2131 (NOT Closes — operator walk
       # on fresh prov required).
-      version: 1.4.298
+      version: 1.4.299
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
