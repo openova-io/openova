@@ -24,10 +24,25 @@ write_files:
   - path: /etc/rancher/k3s/registries.yaml
     permissions: '0644'
     content: |
+      # Wave 5.105 (#2462): mirror docker.io + registry-1.docker.io through bastion
+      # harbor proxy-cache (proxy-dockerhub project) so bp-keycloak postgresql +
+      # bp-falco falcoctl + other docker.io chart images bypass Contabo NAT
+      # blocklist (Wave 5.93 #2444) without per-chart image-rewrite. Without this
+      # mirror, kubelet sees intermittent `dial tcp: lookup production.cloudfront.
+      # docker.com: Try again` → ImagePullBackOff → bootstrap-kit Pods Pending →
+      # bp-keycloak Helm post-install hook times out → bp-gitea / bp-catalyst-
+      # platform / sov-tls Certificate cascading FAIL (live evidence: hw07
+      # 49d43efbaf2a46c2 2026-05-25T22:00Z keycloak-postgresql-0 ImagePullBackOff).
       mirrors:
         "harbor.openova.io":
           endpoint:
             - "http://212.72.24.20:5000"
+        "docker.io":
+          endpoint:
+            - "http://212.72.24.20:5000/v2/proxy-dockerhub"
+        "registry-1.docker.io":
+          endpoint:
+            - "http://212.72.24.20:5000/v2/proxy-dockerhub"
       configs:
         "212.72.24.20:5000":
           tls:
