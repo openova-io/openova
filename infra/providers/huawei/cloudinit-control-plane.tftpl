@@ -460,7 +460,21 @@ runcmd:
       mv /tmp/linux-amd64/helm /usr/local/bin/helm
       chmod +x /usr/local/bin/helm
     fi
-    KUBECONFIG=/etc/rancher/k3s/k3s.yaml helm repo add cilium https://helm.cilium.io/ 2>/dev/null || true
+    # Wave 5.99 (#2447) — retry helm repo add (helm.cilium.io DNS/transient
+    # network failures during early cloudinit caused silent skip — the `|| true`
+    # swallowed the error, then `helm repo update cilium` errored "repo cilium
+    # not found", then `helm upgrade --install` errored too, and the trailing
+    # `|| echo cilium pre-install failed; bp-cilium HR will retry` made it
+    # non-fatal. But Flux pods are Pending until CNI is up — chicken-and-egg.
+    # Caught live on hw03 87cd2023d8afb570 2026-05-25.
+    for i in 1 2 3 4 5 6 7 8 9 10; do
+      if KUBECONFIG=/etc/rancher/k3s/k3s.yaml helm repo add cilium https://helm.cilium.io/ --force-update 2>&1; then
+        echo "Wave 5.99: helm repo add cilium succeeded on attempt $i"
+        break
+      fi
+      echo "Wave 5.99: helm repo add cilium attempt $i failed, retrying in 8s"
+      sleep 8
+    done
     KUBECONFIG=/etc/rancher/k3s/k3s.yaml helm repo update cilium
     REAL_IP=$(ip -4 -o addr show dev eth0 | awk '{print $4}' | cut -d/ -f1)
     KUBECONFIG=/etc/rancher/k3s/k3s.yaml helm upgrade --install cilium cilium/cilium \
@@ -476,7 +490,16 @@ runcmd:
       --set ipv6.enabled=false \
       --set hubble.enabled=true \
       --set operator.replicas=1 \
-      --wait --timeout=5m || echo "cilium pre-install failed; bp-cilium HR will retry"
+      --wait --timeout=5m
+    # Wave 5.99: FAIL HARD if cilium didn't install. Continuing without CNI
+    # means Flux pods stay Pending forever (cni plugin not initialized) and
+    # the whole Sovereign provisions never reaches handover-ready. Previously
+    # this was `|| echo cilium pre-install failed; bp-cilium HR will retry`
+    # but bp-cilium HR can't run because Flux can't run because no CNI.
+    if [ "$?" -ne 0 ]; then
+      echo "Wave 5.99: cilium pre-install FAILED HARD — Sovereign will not bootstrap without CNI. Aborting cloudinit."
+      exit 1
+    fi
     # Wait for Cilium nodes ready (CNI online)
     for i in $(seq 1 30); do
       if KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl get nodes -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}' | grep -qv False; then
