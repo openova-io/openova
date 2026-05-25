@@ -610,10 +610,10 @@ locals {
       for rk in local.region_keys :
       rk => huaweicloud_vpc_eip.cp[rk].publicip.0.ip_address
     })
-    cluster_cidr        = "10.42.0.0/16"
-    service_cidr        = "10.96.0.0/16"
-    gitops_repo_url     = var.gitops_repo_url
-    gitops_branch       = var.gitops_branch
+    cluster_cidr    = "10.42.0.0/16"
+    service_cidr    = "10.96.0.0/16"
+    gitops_repo_url = var.gitops_repo_url
+    gitops_branch   = var.gitops_branch
     parent_domains_yaml = coalesce(
       var.parent_domains_yaml,
       format("[{name: \"%s\", role: \"primary\"}]", var.sovereign_fqdn)
