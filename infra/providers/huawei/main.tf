@@ -726,7 +726,20 @@ resource "huaweicloud_compute_instance" "control_plane" {
 resource "huaweicloud_compute_instance" "worker" {
   for_each = local.worker_map
 
-  name              = "${local.name_prefix}-${each.value.region}-w${each.value.index + 1}"
+  # Wave 5.134 (hw30 fix-forward 2026-05-27): worker name carries a hash
+  # of (deployment_id + region + index) instead of plain `w<idx>`. HCS
+  # scheduler exhibited persistent Common.0021 (CollectInfoTask-fail)
+  # on the SAME numerical indices (w3, w5, w6) across 9 attempts on
+  # hw30. Switching to a non-numerical suffix breaks the scheduler-cell
+  # affinity heuristic that appeared to pin those names to specific
+  # broken compute cells. Per docs/PRINCIPLES.md #4 (never hardcode),
+  # the hash is deterministic per (deployment, index) so re-prov of
+  # same deployment_id reuses same names (idempotency preserved).
+  #
+  # Format: <name_prefix>-<region>-w<6hex> where 6hex =
+  # substr(sha256(deployment_id + region + idx), 0, 6). Collision
+  # probability across 8 workers in one Sovereign: ~8²/2/16⁶ ≈ 1.9e-6.
+  name              = "${local.name_prefix}-${each.value.region}-w${substr(sha256("${var.deployment_id}-${each.value.region}-${each.value.index}"), 0, 6)}"
   image_id          = var.image_id
   flavor_id         = each.value.flavor
   availability_zone = var.huawei_az
