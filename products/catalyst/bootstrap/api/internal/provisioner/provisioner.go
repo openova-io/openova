@@ -1197,8 +1197,41 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 	// CP creates serialised by the for_each chain naturally; only the
 	// parallel WORKER fanout was overloading HCS.
 	applyArgs := []string{"apply", "-input=false", "-no-color", "-auto-approve", "-parallelism=2", "tfplan"}
-	if err := p.runTofu(ctx, deployDir, applyArgs, emit); err != nil {
+	// Wave 5.132 (hw30 fix-forward 2026-05-27): retry up to 3 times on
+	// transient HCS scheduler failures (Common.0021 CollectInfoTask-fail).
+	// This error fires when HCS's per-worker metadata-collection step
+	// times out — independent of tofu parallelism. The workers get
+	// scheduled and create the ECS instance, but the post-create info
+	// task fails before tofu can record state. Re-plan + re-apply is
+	// idempotent (the failed workers will be re-created with same names)
+	// and reliably succeeds on the next attempt.
+	const maxApplyRetries = 3
+	var lastErr error
+	for attempt := 1; attempt <= maxApplyRetries; attempt++ {
+		err := p.runTofu(ctx, deployDir, applyArgs, emit)
+		if err == nil {
+			lastErr = nil
+			break
+		}
+		lastErr = err
+		// Only retry transient HCS-side failures. Configuration errors
+		// (ELB.8959, VPC.0211, SYS.0400) are deterministic and won't
+		// fix themselves on retry.
+		errStr := err.Error()
+		if attempt < maxApplyRetries && (strings.Contains(errStr, "Common.0021") || strings.Contains(errStr, "CollectInfoTask-fail")) {
+			emit("tofu-apply", "warn", fmt.Sprintf("HCS Common.0021 (CollectInfoTask-fail) — attempt %d/%d, re-planning + retrying in 30s", attempt, maxApplyRetries))
+			time.Sleep(30 * time.Second)
+			// Re-plan so the next attempt builds a fresh tfplan
+			// that captures any state mutations from the partial apply.
+			if perr := p.runTofu(ctx, deployDir, []string{"plan", "-input=false", "-no-color", "-out=tfplan"}, emit); perr != nil {
+				return nil, fmt.Errorf("tofu plan (retry): %w", perr)
+			}
+			continue
+		}
 		return nil, fmt.Errorf("tofu apply: %w", err)
+	}
+	if lastErr != nil {
+		return nil, fmt.Errorf("tofu apply: %w", lastErr)
 	}
 
 	// Wave 5.93 (#2445) — for Huawei deployments, rotate any NAT EIPs
