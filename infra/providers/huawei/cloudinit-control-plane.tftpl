@@ -320,10 +320,20 @@ write_files:
         name: coredns-custom
         namespace: kube-system
       data:
-        pdns.override: |
-          hosts {
-            212.72.24.20 pdns.openova.io
-            fallthrough
+        # Wave 5.115: use *.server suffix (adds a new server block for this
+        # specific zone) instead of *.override (merges into main block) —
+        # K3s Corefile's main block already has a `hosts /etc/coredns/NodeHosts`
+        # plugin, so a second `hosts {...}` in *.override crashes CoreDNS
+        # with `plugin/hosts: this plugin can only be used once per Server Block`
+        # (hw16 884be6e evidence). A dedicated .server block is cleaner —
+        # CoreDNS routes pdns.openova.io queries to this server.
+        pdns.server: |
+          pdns.openova.io:53 {
+            hosts {
+              212.72.24.20 pdns.openova.io
+              fallthrough
+            }
+            cache 30
           }
 
   # Wave 5.34 (Refs #2208): catalyst-system/catalyst-handover-jwt-public
