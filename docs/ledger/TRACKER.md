@@ -11,6 +11,46 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 34 / 41 = 82% |
 | **Active wave** | **🟡 Wave 5.118-5.120 (2026-05-26) — Huawei harbor-robot-token Secret seeding + Flux source-controller stuck-cache fix. Wave 5.118 ([#2463](https://github.com/openova-io/openova/issues/2463)) ports Hetzner harbor-robot-token Secret seed to Huawei cloud-init (fixes hw20-22 sign-in HTTP 503 catalyst-api CreateContainerConfigError). Wave 5.118b plumbs harbor_robot_token variable through Huawei tofu (`79b2a1fc`). Wave 5.119 ([#2464](https://github.com/openova-io/openova/issues/2464)) attempted SKU bump to s7n.xlarge.4 — FAILED on hw25 with kubeconfig-missing (image_id incompat with bigger SKU). Wave 5.120 (`144d78da`) coredns custom override for harbor.openova.io + proactive Flux source-controller restart post-coredns-apply. hw26 (`b1053cdf1ad16c35`) reached 50/51 HRs True + catalyst-api Running 1/1 + LE wildcard cert + Gateway Programmed=True after ~30 min of MANUAL interventions (Flux restart, 3 kyverno policy deletes, 10+ deployment scale-downs). NOT zero-touch. 3-consecutive-zero-touch demo BLOCKED by [#2466](https://github.com/openova-io/openova/issues/2466) (catalyst-platform chart violates 3 kyverno policies) + [#2467](https://github.com/openova-io/openova/issues/2467) (worker capacity 5×2vCPU insufficient). Both filed as TBDs.** |
 
+## 🟢 Session 2026-05-27 — hw29 fix-forward RCA + Wave 5.124+5.125 (atomic-wipe janitor + k3s watch-cache)
+
+Founder mandate (no more wipe-and-retry; fix-forward in current env + collect permanent fixes for hw30): **DELIVERED**. hw29 reached `console.hw29.omani.works` HTTPS 200 + valid LE prod cert + `/api/v1/auth/pin/issue` 200 (`{"ok":true,"sent":true,...}`) after the RCA + cleanup. Root cause was **NOT** CNPG, **NOT** Cilium, **NOT** cert-manager — they were all downstream symptoms.
+
+### Real RCA (multi-layer per principle 16)
+
+**Trigger**: 35 stale deployment records + 13 stale kubeconfigs + 3 stale tofu workdirs on the mothership PVC. Mothership `helmwatch.Bridge` (k8scache.Factory) probes ALL of them every reconcile cycle.
+
+**Incident-mgmt amplification**: HCS recycles EIPs from a small public pool aggressively → wiped Sovereign's OLD CP EIP gets reassigned to a NEW Sovereign's CP within hours. Mothership keeps presenting OLD CA-signed client certs to the NEW Sovereign's apiserver. Verified live on hw29 cp1 journalctl: **2619 `x509: certificate signed by unknown authority` errors per 10 minutes** from the mothership IP `45.151.123.50`.
+
+**Defense gap**: k3s apiserver's watch-cache window (default 100 entries) gets exhausted in seconds by Cilium IPAM + Flux state machines + CNPG/cert-manager/reflector secret churn + 18 controller lease keepalives @ 5s each. Slow controller-runtime cached clients get `410 Expired: too old resource version`, must re-LIST. Between LIST and watch-resubscribe, cache is stale relative to apiserver → CNPG `setupPostgresPKI` 2nd `ensureCASecret` Get returns `NotFound` AFTER own Create lands → 2nd Create returns 409 `AlreadyExists` → cluster wedges in "Unable to create required cluster objects" forever. Same shape hits cert-manager (cert rotation), harbor, every controller using a cached client.
+
+**Why Hetzner never showed it**: Hetzner IPs aren't aggressively recycled → stale kubeconfigs hit dead IPs (immediate connection refused, no cert-flood pressure on apiserver budget).
+
+**Containment**: purged 33 deployment records + 13 kubeconfigs + 3 tofu workdirs from mothership PVC; restarted catalyst-api; restarted k3s on hw29 cp1 (rebuilt watch-cache). 5/5 stuck CNPG clusters → `Setting up primary` within seconds, all `Cluster in healthy state` within 90s, cert-manager issued LE wildcard prod cert within 2 min, PowerDNS pods Ready, HTTPS 200 + PIN 200.
+
+**HCS-side cleanup**: orphan sweep deleted 2 NAT gateways + 3 VPCs (hw27/hw28 leftovers + `vpc-default`) + 3 subnets + 2 unused SGs (`Sys-FullAccess`, `Sys-WebServer`). Protected: `bastion-openova` ECS/VPC/SG/EIP + hw29 chain.
+
+### Permanent fixes shipped
+
+| Wave | PR | Status | Notes |
+|---|---|---|---|
+| 5.124 atomic-wipe janitor | [#2471](https://github.com/openova-io/openova/pull/2471) | <img alt="MERGED" src="https://img.shields.io/badge/-MERGED-2ea043?style=flat-square" /> | `handler/janitor.go` — hourly periodic janitor purges `status=failed` > 24h + `status=wiped` > 1h + orphan kubeconfigs + orphan tofu workdirs. Wired into `cmd/api/main.go`. Without this, failed/wiped deployments leave wreckage on PVC → mothership presents old client certs to (recycled-IP) new Sovereigns → apiserver budget starvation. Also includes ELB member port revert (Wave 5.124 of `main.tf`): listeners 443/80, members 30443/30080 (Cilium hostnetwork Gateway listener ports). Refs [#2470](https://github.com/openova-io/openova/issues/2470). |
+| 5.125 k3s watch-cache | [#2473](https://github.com/openova-io/openova/pull/2473) | <img alt="OPEN" src="https://img.shields.io/badge/-CI-fbca04?style=flat-square" /> | cloudinit-control-plane.tftpl — bump apiserver `--default-watch-cache-size` 100→200, add `--watch-cache-sizes=secrets#500,configmaps#500`, `--etcd-snapshot-retention=5`. Defense layer for the watch-cache exhaustion that triggered the CNPG/cert-manager AlreadyExists race. Refs [#2472](https://github.com/openova-io/openova/issues/2472). |
+| 5.126 helmwatch 410 reattach | [#2474](https://github.com/openova-io/openova/issues/2474) | <img alt="PLANNED" src="https://img.shields.io/badge/-PLANNED-d73a4a?style=flat-square" /> | mothership-side defense: `k8scache.Factory` helmwatch.Bridge auto-reattaches on `apierrors.IsResourceExpired`, jittered backoff cap 5/min, `helmwatch_reexpired_total{cluster}` metric. Layer-2 defense for #2472. |
+
+### hw29 final DoD walk (2026-05-27)
+
+| Surface | Result |
+|---|---|
+| `console.hw29.omani.works` HTTPS GET | <img alt="200" src="https://img.shields.io/badge/-200-2ea043?style=flat-square" /> + valid LE R13 prod cert (CN=`console.hw29.omani.works`) |
+| `api.hw29.omani.works/healthz` | <img alt="200" src="https://img.shields.io/badge/-200-2ea043?style=flat-square" /> |
+| `POST /api/v1/auth/pin/issue` (email=hat@omani.works) | <img alt="200" src="https://img.shields.io/badge/-200-2ea043?style=flat-square" /> `{"ok":true,"sent":true,"requestId":"...","expiresInSec":600}` |
+| 5/5 CNPG clusters healthy (gitea-pg, pdns-pg, harbor-pg, openova-flow-pg, sme-pg) | <img alt="GREEN" src="https://img.shields.io/badge/-GREEN-2ea043?style=flat-square" /> |
+| cert-manager sovereign-wildcard-tls-hw29-omani-works | <img alt="READY" src="https://img.shields.io/badge/-READY-2ea043?style=flat-square" /> |
+| Mothership PVC clean | 2 active deployments only (hw29 + t42), no orphan kubeconfigs, no orphan tofu workdirs |
+| HCS project clean | hw29 + bastion only; all hw27/hw28 + unused SGs/VPCs purged |
+
+Next: hw30 fresh prov with Wave 5.124 + 5.125 baked in for zero-touch verification.
+
 ## 🟡 Session 2026-05-26 — Wave 5.118-5.120 Huawei zero-touch saga
 
 | Wave | PR/commit | Status | Notes |
