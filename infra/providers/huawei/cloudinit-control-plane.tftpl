@@ -282,6 +282,32 @@ write_files:
       data:
         api-key: ${base64encode(powerdns_api_key)}
 
+  # Wave 5.118 (#2462 follow-up): port Hetzner flux-system/harbor-robot-token
+  # Secret seeding (Hetzner cloudinit-control-plane.tftpl lines 216-266) to
+  # Huawei. catalyst-api references it via REQUIRED (optional=false)
+  # secretKeyRef. Without it: catalyst-api Pod stays in
+  # CreateContainerConfigError, api.hw##.omani.works returns HTTP 503,
+  # console sign-in fails (founder hit this on hw22 ac6389535a3ce400).
+  # Same gap-class as Wave 5.107 (openbao-recovery-seed) — Wave 3 migration
+  # missed a Hetzner→Huawei manifest port. bp-reflector mirrors to every
+  # namespace; catalyst-system picks it up.
+  - path: /var/lib/catalyst/manifests/08-harbor-robot-token-secret.yaml
+    permissions: '0600'
+    content: |
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: harbor-robot-token
+        namespace: flux-system
+        annotations:
+          reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: ""
+          reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: ""
+      type: Opaque
+      data:
+        token: ${base64encode(harbor_robot_token)}
+
   # Wave 5.34 (Refs #2208): flux-system/pdm-basicauth Secret. The
   # catalyst-api Pod reads CATALYST_PDM_BASIC_AUTH_USER/PASS via
   # secretKeyRef into pdm-basicauth in catalyst-system. Reflector
@@ -692,6 +718,8 @@ runcmd:
   - KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f /var/lib/catalyst/manifests/05-pdm-basicauth-secret.yaml
   - KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl create namespace catalyst-system --dry-run=client -o yaml | KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f -
   - KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f /var/lib/catalyst/manifests/06-handover-jwt-public-secret.yaml
+  # Wave 5.118 (#2462): apply harbor-robot-token Secret (catalyst-api REQUIRED secretKeyRef).
+  - KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f /var/lib/catalyst/manifests/08-harbor-robot-token-secret.yaml
 
   # Wave 5.114 (#2462 follow-up): write coredns *.override file at
   # /etc/coredns/custom/pdns.override via a ConfigMap entry — k3s coredns
