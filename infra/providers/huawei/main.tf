@@ -881,10 +881,15 @@ locals {
 }
 
 resource "huaweicloud_elb_member" "https" {
-  count         = length(local.primary_lb_node_ips)
-  pool_id       = huaweicloud_elb_pool.https.id
-  address       = local.primary_lb_node_ips[count.index]
-  protocol_port = 30443
+  count   = length(local.primary_lb_node_ips)
+  pool_id = huaweicloud_elb_pool.https.id
+  address = local.primary_lb_node_ips[count.index]
+  # Wave 5.122 (#2468): Cilium gateway-api `hostnetwork-enabled=true` binds
+  # envoy directly to node :443 + :80 (not NodePort range). Pre-Wave-5.122
+  # this was 30443 (legacy NodePort assumption) → ELB :443 times out
+  # because cilium-envoy never listens on :30443. Now ELB targets :443
+  # which matches the actual envoy listener on each node.
+  protocol_port = 443
   subnet_id     = huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id
 }
 
@@ -892,14 +897,14 @@ resource "huaweicloud_elb_member" "http" {
   count         = length(local.primary_lb_node_ips)
   pool_id       = huaweicloud_elb_pool.http.id
   address       = local.primary_lb_node_ips[count.index]
-  protocol_port = 30080
+  protocol_port = 80 # Wave 5.122 #2468 (was 30080) — matches Cilium hostnetwork bind
   subnet_id     = huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id
 }
 
 resource "huaweicloud_elb_monitor" "https" {
   pool_id     = huaweicloud_elb_pool.https.id
   protocol    = "TCP"
-  port        = 30443
+  port        = 443 # Wave 5.122 #2468 (was 30443) — matches Cilium hostnetwork bind
   interval    = 10
   timeout     = 5
   max_retries = 3
@@ -908,7 +913,7 @@ resource "huaweicloud_elb_monitor" "https" {
 resource "huaweicloud_elb_monitor" "http" {
   pool_id     = huaweicloud_elb_pool.http.id
   protocol    = "TCP"
-  port        = 30080
+  port        = 80 # Wave 5.122 #2468 (was 30080) — matches Cilium hostnetwork bind
   interval    = 10
   timeout     = 5
   max_retries = 3
