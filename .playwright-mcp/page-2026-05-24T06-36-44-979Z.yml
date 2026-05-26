@@ -1,0 +1,55 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e3]:
+    - generic [ref=e4]:
+      - link "OpenOva" [ref=e5] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e6]:
+          - img [ref=e7]
+          - generic [ref=e9]: OpenOva
+      - navigation [ref=e10]:
+        - link "1" [ref=e11] [cursor=pointer]:
+          - /url: /plans
+          - generic [ref=e12]: "1"
+        - generic [ref=e13]: ·
+        - link "2" [ref=e14] [cursor=pointer]:
+          - /url: /apps
+          - generic [ref=e15]: "2"
+        - generic [ref=e16]: ·
+        - link "3" [ref=e17] [cursor=pointer]:
+          - /url: /addons
+          - generic [ref=e18]: "3"
+        - generic [ref=e19]: ·
+        - link "4" [ref=e20] [cursor=pointer]:
+          - /url: /bcp
+          - generic [ref=e21]: "4"
+        - generic [ref=e22]: ·
+        - link "5" [ref=e23] [cursor=pointer]:
+          - /url: /review
+          - generic [ref=e24]: "5"
+        - generic [ref=e25]: ·
+        - link "6" [ref=e26] [cursor=pointer]:
+          - /url: /checkout
+          - generic [ref=e27]: "6"
+      - generic [ref=e28]:
+        - button "Toggle light / dark theme" [ref=e29]:
+          - img [ref=e30]
+        - link [ref=e32] [cursor=pointer]:
+          - /url: /review
+          - img [ref=e33]
+        - link "Sign in" [ref=e35] [cursor=pointer]:
+          - /url: /checkout
+          - img [ref=e36]
+          - text: Sign in
+  - main [ref=e38]:
+    - generic [ref=e44]:
+      - img [ref=e46]
+      - paragraph [ref=e48]: Voucher valid
+      - heading "10 OMR credit" [level=1] [ref=e49]
+      - paragraph [ref=e50]: Pillar 1 walk evidence — 2026-05-24 session canonical DoD walk
+      - paragraph [ref=e51]:
+        - text: "Code:"
+        - code [ref=e52]: PILLAR1WALK
+      - button "Sign up to redeem" [ref=e53]:
+        - text: Sign up to redeem
+        - img [ref=e54]
+      - paragraph [ref=e56]: The credit is applied at checkout after you create your Organization.

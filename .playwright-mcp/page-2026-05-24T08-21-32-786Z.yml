@@ -1,0 +1,145 @@
+- generic [ref=e131]:
+  - complementary [ref=e132]:
+    - generic [ref=e133]:
+      - generic [ref=e134]:
+        - img [ref=e135]
+        - generic [ref=e137]: OpenOva Sovereign
+      - button "hw01.omani.works" [ref=e139]:
+        - generic [ref=e140]: hw01.omani.works
+        - img [ref=e141]
+    - navigation [ref=e143]:
+      - link "Dashboard" [ref=e144] [cursor=pointer]:
+        - /url: /dashboard
+        - img [ref=e145]
+        - text: Dashboard
+      - link "Cloud" [ref=e147] [cursor=pointer]:
+        - /url: /cloud
+        - img [ref=e148]
+        - text: Cloud
+      - link "Apps" [ref=e150] [cursor=pointer]:
+        - /url: /apps
+        - img [ref=e151]
+        - text: Apps
+      - link "Sandbox" [ref=e153] [cursor=pointer]:
+        - /url: /sandbox
+        - img [ref=e154]
+        - text: Sandbox
+      - link "Jobs" [ref=e156] [cursor=pointer]:
+        - /url: /jobs
+        - img [ref=e157]
+        - text: Jobs
+      - link "Users" [ref=e159] [cursor=pointer]:
+        - /url: /users
+        - img [ref=e160]
+        - text: Users
+      - link "BSS" [ref=e162] [cursor=pointer]:
+        - /url: /bss
+        - img [ref=e163]
+        - text: BSS
+      - link "Settings" [ref=e165] [cursor=pointer]:
+        - /url: /settings
+        - img [ref=e166]
+        - text: Settings
+    - generic [ref=e169]:
+      - generic [ref=e170]: T
+      - generic [ref=e171]:
+        - paragraph [ref=e172]: Tenant
+        - paragraph [ref=e173]: hw01.omani.works
+  - generic [ref=e174]:
+    - banner [ref=e175]:
+      - generic [ref=e176]:
+        - heading "Sandbox" [level=1] [ref=e177]
+        - link "Settings →" [ref=e178] [cursor=pointer]:
+          - /url: /sandbox/settings
+      - generic [ref=e179]:
+        - button "No notifications" [ref=e181]:
+          - img [ref=e182]
+        - button "Switch to light theme" [ref=e185]:
+          - img [ref=e186]
+        - button "A" [ref=e193] [cursor=pointer]
+    - main [ref=e194]:
+      - generic [ref=e195]:
+        - region "Choose an agent" [ref=e196]:
+          - article [ref=e197]:
+            - generic [ref=e198]:
+              - generic [ref=e199]:
+                - heading "Aider" [level=2] [ref=e200]
+                - paragraph [ref=e201]: aider
+              - img [ref=e202]
+            - paragraph [ref=e204]: AI pair-programming in your terminal. Git-native edits, multi-file refactors.
+            - button "Start session" [ref=e206]
+          - article [ref=e207]:
+            - generic [ref=e208]:
+              - generic [ref=e209]:
+                - heading "Claude Code" [level=2] [ref=e210]
+                - paragraph [ref=e211]: claude-code
+              - img [ref=e212]
+            - paragraph [ref=e214]: Anthropic’s official agent CLI. Connect Claude Max to use your subscription.
+            - generic [ref=e215]:
+              - button "Start session" [ref=e216]
+              - link "Connect Claude Max" [ref=e217] [cursor=pointer]:
+                - /url: /sandbox/settings
+          - article [ref=e218]:
+            - generic [ref=e219]:
+              - generic [ref=e220]:
+                - heading "Cursor Agent" [level=2] [ref=e221]
+                - paragraph [ref=e222]: cursor-agent
+              - img [ref=e223]
+            - paragraph [ref=e225]: Cursor’s background agent CLI for autonomous code changes.
+            - button "Start session" [ref=e227]
+          - article [ref=e228]:
+            - generic [ref=e229]:
+              - generic [ref=e230]:
+                - heading "Little Coder" [level=2] [ref=e231]
+                - paragraph [ref=e232]: little-coder
+              - img [ref=e233]
+            - paragraph [ref=e235]: Lightweight scoped agent for small, focused edits.
+            - button "Start session" [ref=e237]
+          - article [ref=e238]:
+            - generic [ref=e239]:
+              - generic [ref=e240]:
+                - heading "OpenCode" [level=2] [ref=e241]
+                - paragraph [ref=e242]: opencode
+              - img [ref=e243]
+            - paragraph [ref=e245]: Open-source agent runtime with a swappable model backend.
+            - button "Start session" [ref=e247]
+          - article [ref=e248]:
+            - generic [ref=e249]:
+              - generic [ref=e250]:
+                - heading "Qwen Code" [level=2] [ref=e251]
+                - paragraph [ref=e252]: qwen-code
+              - img [ref=e253]
+            - paragraph [ref=e255]: Alibaba Qwen coding agent. OSS-friendly model defaults.
+            - button "Start session" [ref=e257]
+        - region "Recent sessions" [ref=e258]:
+          - generic [ref=e260]:
+            - heading "Recent sessions" [level=2] [ref=e261]
+            - paragraph [ref=e262]: Sandbox sessions persist across browser tabs — closing this tab does not stop the agent. Pick a session to reattach.
+          - list [ref=e263]:
+            - listitem [ref=e264]:
+              - generic [ref=e265]:
+                - paragraph [ref=e266]: pillar4-walk-evidence
+                - paragraph [ref=e267]: qwen-code · failed
+              - link "Attach →" [ref=e268] [cursor=pointer]:
+                - /url: /sandbox/pillar4-walk-evidence
+            - listitem [ref=e269]:
+              - generic [ref=e270]:
+                - paragraph [ref=e271]: wave-5-57-post-flux-tick
+                - paragraph [ref=e272]: qwen-code · failed
+              - link "Attach →" [ref=e273] [cursor=pointer]:
+                - /url: /sandbox/wave-5-57-post-flux-tick
+      - generic [ref=e274]:
+        - heading "Start Qwen Code session" [level=2] [ref=e275]
+        - paragraph [ref=e276]: Provisions a Sandbox pod in your Org vcluster running qwen-code. The pod persists across browser tabs — closing the tab does not stop the agent.
+        - generic [ref=e277]:
+          - generic [ref=e278]: Session name (optional)
+          - textbox "Session name (optional)" [active] [ref=e279]:
+            - /placeholder: qwen-code-gx6a
+        - generic [ref=e280]:
+          - generic [ref=e281]: Repository (optional)
+          - textbox "Repository (optional) Cloned into /repo/<name> at start." [ref=e282]:
+            - /placeholder: org/site
+          - generic [ref=e283]: Cloned into /repo/<name> at start.
+        - generic [ref=e284]:
+          - button "Cancel" [ref=e285]
+          - button "Start session" [ref=e286]

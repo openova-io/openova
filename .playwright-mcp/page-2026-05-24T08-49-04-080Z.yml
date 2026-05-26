@@ -1,0 +1,17 @@
+- generic [ref=e7]:
+  - generic [ref=e8]:
+    - heading "Sign in" [level=1] [ref=e9]
+    - paragraph [ref=e10]: Enter your email to receive a 6-digit PIN.
+    - paragraph [ref=e11]: console.hw01.omani.works
+    - status [ref=e12]:
+      - text: We'll take you to
+      - code [ref=e13]: /sandbox
+      - text: after you sign in.
+  - generic [ref=e14]:
+    - generic [ref=e15]:
+      - generic [ref=e16]: Email
+      - textbox "Email" [active] [ref=e18]:
+        - /placeholder: you@company.com
+    - button "Send code" [disabled]:
+      - text: Send code
+      - img

@@ -1,0 +1,98 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - img [ref=e7]
+        - generic [ref=e9]: OpenOva Sovereign
+      - button "hw01.omani.works" [ref=e11]:
+        - generic [ref=e12]: hw01.omani.works
+        - img [ref=e13]
+    - navigation [ref=e15]:
+      - link "Dashboard" [ref=e16] [cursor=pointer]:
+        - /url: /dashboard
+        - img [ref=e17]
+        - text: Dashboard
+      - link "Cloud" [ref=e19] [cursor=pointer]:
+        - /url: /cloud
+        - img [ref=e20]
+        - text: Cloud
+      - link "Apps" [ref=e22] [cursor=pointer]:
+        - /url: /apps
+        - img [ref=e23]
+        - text: Apps
+      - link "Sandbox" [ref=e25] [cursor=pointer]:
+        - /url: /sandbox
+        - img [ref=e26]
+        - text: Sandbox
+      - link "Jobs" [ref=e28] [cursor=pointer]:
+        - /url: /jobs
+        - img [ref=e29]
+        - text: Jobs
+      - link "Users" [ref=e31] [cursor=pointer]:
+        - /url: /users
+        - img [ref=e32]
+        - text: Users
+      - link "BSS" [ref=e34] [cursor=pointer]:
+        - /url: /bss
+        - img [ref=e35]
+        - text: BSS
+      - link "Settings" [ref=e37] [cursor=pointer]:
+        - /url: /settings
+        - img [ref=e38]
+        - text: Settings
+    - generic [ref=e41]:
+      - generic [ref=e42]: T
+      - generic [ref=e43]:
+        - paragraph [ref=e44]: Tenant
+        - paragraph [ref=e45]: hw01.omani.works
+  - generic [ref=e46]:
+    - banner [ref=e47]:
+      - generic [ref=e48]:
+        - heading "BSS — Orders" [level=1] [ref=e49]
+        - link "← Back to BSS overview" [ref=e50] [cursor=pointer]:
+          - /url: /bss
+      - generic [ref=e51]:
+        - button "No notifications" [ref=e53]:
+          - img [ref=e54]
+        - button "Switch to light theme" [ref=e57]:
+          - img [ref=e58]
+        - button "Sign in" [ref=e64] [cursor=pointer]
+    - main [ref=e65]:
+      - generic [ref=e66]:
+        - generic [ref=e67]:
+          - paragraph [ref=e69]: Provisioning and billing orders from the marketplace. Click a row to open the order detail.
+          - generic "Backend API not yet wired — display only" [ref=e70]: API pending
+        - generic [ref=e71]:
+          - generic [ref=e72]:
+            - img [ref=e73]
+            - searchbox "Search orders" [ref=e76]
+          - generic [ref=e77]:
+            - generic [ref=e78]:
+              - generic [ref=e79]: Status
+              - combobox "Filter by status" [ref=e80] [cursor=pointer]:
+                - option "All" [selected]
+                - option "Pending"
+                - option "Completed"
+                - option "Failed"
+                - option "Cancelled"
+            - generic [ref=e81]:
+              - generic [ref=e82]: Age
+              - combobox "Filter by age" [ref=e83] [cursor=pointer]:
+                - option "All" [selected]
+                - option "Today"
+                - option "Last 7 days"
+                - option "Last 30 days"
+            - generic [ref=e84]: 0/0
+        - table [ref=e86]:
+          - rowgroup [ref=e87]:
+            - row "Order ID Tenant org Product Status Created Last update Total" [ref=e88]:
+              - columnheader "Order ID" [ref=e89]
+              - columnheader "Tenant org" [ref=e90]
+              - columnheader "Product" [ref=e91]
+              - columnheader "Status" [ref=e92]
+              - columnheader "Created" [ref=e93]
+              - columnheader "Last update" [ref=e94]
+              - columnheader "Total" [ref=e95]
+          - rowgroup [ref=e96]:
+            - row "Loading orders…" [ref=e97]:
+              - cell "Loading orders…" [ref=e98]

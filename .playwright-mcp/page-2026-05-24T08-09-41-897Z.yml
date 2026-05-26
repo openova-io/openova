@@ -1,0 +1,104 @@
+- generic [ref=e162]:
+  - complementary [ref=e163]:
+    - generic [ref=e164]:
+      - generic [ref=e165]:
+        - img [ref=e166]
+        - generic [ref=e168]: OpenOva Sovereign
+      - button "hw01.omani.works" [ref=e170]:
+        - generic [ref=e171]: hw01.omani.works
+        - img [ref=e172]
+    - navigation [ref=e174]:
+      - link "Dashboard" [ref=e175] [cursor=pointer]:
+        - /url: /dashboard
+        - img [ref=e176]
+        - text: Dashboard
+      - link "Cloud" [ref=e178] [cursor=pointer]:
+        - /url: /cloud
+        - img [ref=e179]
+        - text: Cloud
+      - link "Apps" [ref=e181] [cursor=pointer]:
+        - /url: /apps
+        - img [ref=e182]
+        - text: Apps
+      - link "Sandbox" [ref=e184] [cursor=pointer]:
+        - /url: /sandbox
+        - img [ref=e185]
+        - text: Sandbox
+      - link "Jobs" [ref=e187] [cursor=pointer]:
+        - /url: /jobs
+        - img [ref=e188]
+        - text: Jobs
+      - link "Users" [ref=e190] [cursor=pointer]:
+        - /url: /users
+        - img [ref=e191]
+        - text: Users
+      - link "BSS" [ref=e193] [cursor=pointer]:
+        - /url: /bss
+        - img [ref=e194]
+        - text: BSS
+      - link "Settings" [ref=e196] [cursor=pointer]:
+        - /url: /settings
+        - img [ref=e197]
+        - text: Settings
+    - generic [ref=e200]:
+      - generic [ref=e201]: T
+      - generic [ref=e202]:
+        - paragraph [ref=e203]: Tenant
+        - paragraph [ref=e204]: hw01.omani.works
+  - generic [ref=e205]:
+    - banner [ref=e206]:
+      - generic [ref=e207]:
+        - heading "Sandbox · wave-5-57-post-flux-tick" [level=1] [ref=e208]
+        - link "← Back to sandbox" [ref=e209] [cursor=pointer]:
+          - /url: /sandbox
+      - generic [ref=e210]:
+        - button "No notifications" [ref=e212]:
+          - img [ref=e213]
+        - button "Switch to light theme" [ref=e216]:
+          - img [ref=e217]
+        - button "A" [ref=e224] [cursor=pointer]
+    - main [ref=e225]:
+      - generic [ref=e227]:
+        - generic [ref=e228]:
+          - generic [ref=e229]:
+            - heading "Provisioning Sandbox" [level=2] [ref=e230]
+            - paragraph [ref=e231]: The sandbox-controller is reconciling wave-5-57-post-flux-tick. The terminal attaches automatically once every stage is ready.
+          - generic [ref=e232]: Failed
+        - list "Sandbox provisioning stages" [ref=e233]:
+          - listitem [ref=e234]:
+            - img [ref=e236]
+            - generic [ref=e238]:
+              - paragraph [ref=e239]: Namespace
+              - paragraph [ref=e240]: sandbox-<owner> namespace + labels
+          - listitem [ref=e241]:
+            - img [ref=e243]
+            - generic [ref=e245]:
+              - paragraph [ref=e246]: RBAC
+              - paragraph [ref=e247]: ServiceAccount + Role + RoleBinding
+          - listitem [ref=e248]:
+            - img [ref=e250]
+            - generic [ref=e252]:
+              - paragraph [ref=e253]: Storage
+              - paragraph [ref=e254]: repo + claude-memory + cache PVCs
+          - listitem [ref=e255]:
+            - img [ref=e257]
+            - generic [ref=e259]:
+              - paragraph [ref=e260]: pty Pod
+              - paragraph [ref=e261]: pty-server Pod + Service
+          - listitem [ref=e262]:
+            - img [ref=e264]
+            - generic [ref=e266]:
+              - paragraph [ref=e267]: MCP Pod
+              - paragraph [ref=e268]: sandbox-mcp-server Pod + Service
+          - listitem [ref=e269]:
+            - img [ref=e271]
+            - generic [ref=e273]:
+              - paragraph [ref=e274]: newapi Token
+              - paragraph [ref=e275]: minted + secret-bound
+        - generic [ref=e276]:
+          - paragraph [ref=e277]: Provisioning failed
+          - list [ref=e278]:
+            - listitem [ref=e279]:
+              - generic [ref=e280]: Ready · TokenMintFailed
+              - generic [ref=e281]: "newapi: decode response: invalid character '<' looking for beginning of value"
+        - button "Delete + retry" [ref=e283]

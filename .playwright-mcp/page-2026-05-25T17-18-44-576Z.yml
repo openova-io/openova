@@ -1,0 +1,66 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e3]:
+    - generic [ref=e4]:
+      - link "OpenOva" [ref=e5] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e6]:
+          - img [ref=e7]
+          - generic [ref=e9]: OpenOva
+      - navigation [ref=e10]:
+        - link "1" [ref=e11] [cursor=pointer]:
+          - /url: /plans
+          - generic [ref=e12]: "1"
+        - generic [ref=e13]: ·
+        - link "2" [ref=e14] [cursor=pointer]:
+          - /url: /apps
+          - generic [ref=e15]: "2"
+        - generic [ref=e16]: ·
+        - link "3" [ref=e17] [cursor=pointer]:
+          - /url: /addons
+          - generic [ref=e18]: "3"
+        - generic [ref=e19]: ·
+        - link "4" [ref=e20] [cursor=pointer]:
+          - /url: /bcp
+          - generic [ref=e21]: "4"
+        - generic [ref=e22]: ·
+        - link "5" [ref=e23] [cursor=pointer]:
+          - /url: /review
+          - generic [ref=e24]: "5"
+        - generic [ref=e25]: ·
+        - link "6" [ref=e26] [cursor=pointer]:
+          - /url: /checkout
+          - generic [ref=e27]: "6"
+      - generic [ref=e28]:
+        - button "Toggle light / dark theme" [ref=e29]:
+          - img [ref=e30]
+        - link [ref=e33] [cursor=pointer]:
+          - /url: /review
+          - img [ref=e34]
+        - link "Sign in" [ref=e36] [cursor=pointer]:
+          - /url: /checkout
+          - img [ref=e37]
+          - text: Sign in
+  - main [ref=e39]:
+    - generic [ref=e40]:
+      - img [ref=e42]
+      - heading "Build your cloud tenant in under 5 minutes" [level=1] [ref=e46]:
+        - text: Build your cloud tenant
+        - text: in under 5 minutes
+      - paragraph [ref=e47]: Choose a plan, pick your apps, set up your domain, and launch. Every app is FREE — you only pay for the infrastructure.
+      - link "Get Started" [ref=e48] [cursor=pointer]:
+        - /url: /plans
+        - text: Get Started
+        - img [ref=e49]
+      - generic [ref=e51]:
+        - generic [ref=e52]:
+          - text: ∞
+          - paragraph [ref=e53]: Unlimited apps
+        - generic [ref=e54]:
+          - text: 🔒
+          - paragraph [ref=e55]: Isolated tenant
+        - generic [ref=e56]:
+          - text: 🌐
+          - paragraph [ref=e57]: Free subdomains
+        - generic [ref=e58]:
+          - text: ⚡
+          - paragraph [ref=e59]: One-click deploy

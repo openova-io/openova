@@ -1,0 +1,1289 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - img [ref=e7]
+        - generic [ref=e9]: OpenOva Sovereign
+      - button "hw01.omani.works" [ref=e11]:
+        - generic [ref=e12]: hw01.omani.works
+        - img [ref=e13]
+    - navigation [ref=e15]:
+      - link "Dashboard" [ref=e16] [cursor=pointer]:
+        - /url: /dashboard
+        - img [ref=e17]
+        - text: Dashboard
+      - link "Cloud" [ref=e19] [cursor=pointer]:
+        - /url: /cloud
+        - img [ref=e20]
+        - text: Cloud
+      - link "Apps" [ref=e22] [cursor=pointer]:
+        - /url: /apps
+        - img [ref=e23]
+        - text: Apps
+      - link "Sandbox" [ref=e25] [cursor=pointer]:
+        - /url: /sandbox
+        - img [ref=e26]
+        - text: Sandbox
+      - link "Jobs" [ref=e28] [cursor=pointer]:
+        - /url: /jobs
+        - img [ref=e29]
+        - text: Jobs
+      - link "Users" [ref=e31] [cursor=pointer]:
+        - /url: /users
+        - img [ref=e32]
+        - text: Users
+      - link "BSS" [ref=e34] [cursor=pointer]:
+        - /url: /bss
+        - img [ref=e35]
+        - text: BSS
+      - link "Settings" [ref=e37] [cursor=pointer]:
+        - /url: /settings
+        - img [ref=e38]
+        - text: Settings
+    - generic [ref=e41]:
+      - generic [ref=e42]: T
+      - generic [ref=e43]:
+        - paragraph [ref=e44]: Tenant
+        - paragraph [ref=e45]: hw01.omani.works
+  - generic [ref=e46]:
+    - banner [ref=e47]:
+      - heading "Cloud" [level=1] [ref=e49]
+      - generic [ref=e50]:
+        - combobox [ref=e51]:
+          - option "hw01.omani.works" [selected]
+        - button "No notifications" [ref=e53]:
+          - img [ref=e54]
+        - button "Switch to light theme" [ref=e57]:
+          - img [ref=e58]
+        - button "Q" [ref=e226] [cursor=pointer]
+    - main [ref=e65]:
+      - generic [ref=e66]:
+        - generic [ref=e67]: Cloud
+        - generic [ref=e68]:
+          - tablist "Cloud view" [ref=e69]:
+            - tab "Graph" [selected] [ref=e70] [cursor=pointer]:
+              - img [ref=e71]
+              - generic [ref=e77]: Graph
+            - tab "List" [ref=e78] [cursor=pointer]:
+              - img [ref=e79]
+              - generic [ref=e80]: List
+          - button "Toggle fullscreen" [ref=e81] [cursor=pointer]:
+            - img [ref=e82]
+        - generic [ref=e89]:
+          - generic [ref=e90]:
+            - searchbox "Search nodes…" [ref=e91]
+            - generic [ref=e92]:
+              - generic [ref=e93]: Density
+              - slider "Density" [ref=e94]: "50"
+              - generic [ref=e95]: 50%
+          - generic [ref=e96]:
+            - generic [ref=e98]:
+              - button "Cloud 1/1" [ref=e227]:
+                - generic [ref=e101]: Cloud
+                - generic [ref=e102]: 1/1
+              - button "Remove Cloud chip" [ref=e103]: ×
+            - generic [ref=e105]:
+              - button "Region 1/1" [ref=e228]:
+                - generic [ref=e108]: Region
+                - generic [ref=e109]: 1/1
+              - button "Remove Region chip" [ref=e110]: ×
+            - generic [ref=e112]:
+              - button "Cluster 1/1" [ref=e229]:
+                - generic [ref=e115]: Cluster
+                - generic [ref=e116]: 1/1
+              - button "Remove Cluster chip" [ref=e117]: ×
+            - generic [ref=e119]:
+              - button "vCluster 1/1" [ref=e230]:
+                - generic [ref=e122]: vCluster
+                - generic [ref=e123]: 1/1
+              - button "Remove vCluster chip" [ref=e124]: ×
+            - generic [ref=e126]:
+              - button "NodePool 2/2" [ref=e231]:
+                - generic [ref=e129]: NodePool
+                - generic [ref=e130]: 2/2
+              - button "Remove NodePool chip" [ref=e131]: ×
+            - generic [ref=e133]:
+              - button "WorkerNode 3/3" [ref=e232]:
+                - generic [ref=e136]: WorkerNode
+                - generic [ref=e137]: 3/3
+              - button "Remove WorkerNode chip" [ref=e138]: ×
+            - generic [ref=e140]:
+              - button "LoadBalancer 0/0" [ref=e141]:
+                - generic [ref=e143]: LoadBalancer
+                - generic [ref=e144]: 0/0
+              - button "Remove LoadBalancer chip" [ref=e145]: ×
+            - generic [ref=e147]:
+              - button "Network 0/0" [ref=e148]:
+                - generic [ref=e150]: Network
+                - generic [ref=e151]: 0/0
+              - button "Remove Network chip" [ref=e152]: ×
+            - generic [ref=e154]:
+              - button "PVC 66/66" [ref=e233]:
+                - generic [ref=e157]: PVC
+                - generic [ref=e158]: 66/66
+              - button "Remove PVC chip" [ref=e159]: ×
+            - generic [ref=e161]:
+              - button "Bucket 0/0" [ref=e162]:
+                - generic [ref=e164]: Bucket
+                - generic [ref=e165]: 0/0
+              - button "Remove Bucket chip" [ref=e166]: ×
+            - generic [ref=e168]:
+              - button "Volume 0/0" [ref=e169]:
+                - generic [ref=e171]: Volume
+                - generic [ref=e172]: 0/0
+              - button "Remove Volume chip" [ref=e173]: ×
+            - generic [ref=e175]:
+              - button "Service 141/141" [ref=e234]:
+                - generic [ref=e178]: Service
+                - generic [ref=e179]: 141/141
+              - button "Remove Service chip" [ref=e180]: ×
+            - generic [ref=e182]:
+              - button "Ingress 1/1" [ref=e235]:
+                - generic [ref=e185]: Ingress
+                - generic [ref=e186]: 1/1
+              - button "Remove Ingress chip" [ref=e187]: ×
+            - generic [ref=e189]:
+              - button "Namespace 46/46" [ref=e236]:
+                - generic [ref=e192]: Namespace
+                - generic [ref=e193]: 46/46
+              - button "Remove Namespace chip" [ref=e194]: ×
+            - generic [ref=e196]:
+              - button "Deployment 83/83" [ref=e237]:
+                - generic [ref=e199]: Deployment
+                - generic [ref=e200]: 83/83
+              - button "Remove Deployment chip" [ref=e201]: ×
+            - generic [ref=e203]:
+              - button "StatefulSet 17/17" [ref=e238]:
+                - generic [ref=e206]: StatefulSet
+                - generic [ref=e207]: 17/17
+              - button "Remove StatefulSet chip" [ref=e208]: ×
+            - generic [ref=e210]:
+              - button "DaemonSet 8/8" [ref=e239]:
+                - generic [ref=e213]: DaemonSet
+                - generic [ref=e214]: 8/8
+              - button "Remove DaemonSet chip" [ref=e215]: ×
+            - button "Add type chip" [ref=e217]:
+              - generic [ref=e218]: +
+              - generic [ref=e219]: Add
+          - generic [ref=e240]:
+            - img [ref=e241]:
+              - generic [ref=e535]:
+                - button "catalyst-application-controller — Deployment" [ref=e536] [cursor=pointer]:
+                  - img [ref=e539]
+                  - generic: catalyst-application-co…
+                - button "image-reflector-controller — Deployment" [ref=e542] [cursor=pointer]:
+                  - img [ref=e545]
+                  - generic: image-reflector-control…
+                - button "sealed-secrets-controller — Deployment" [ref=e548] [cursor=pointer]:
+                  - img [ref=e551]
+                  - generic: sealed-secrets-controll…
+                - button "powerdns — Deployment" [ref=e554] [cursor=pointer]:
+                  - img [ref=e557]
+                  - generic: powerdns
+                - button "gateway — Deployment" [ref=e560] [cursor=pointer]:
+                  - img [ref=e563]
+                  - generic: gateway
+                - button "catalyst-useraccess-controller — Deployment" [ref=e566] [cursor=pointer]:
+                  - img [ref=e569]
+                  - generic: catalyst-useraccess-con…
+                - button "mimir-distributor — Deployment" [ref=e572] [cursor=pointer]:
+                  - img [ref=e575]
+                  - generic: mimir-distributor
+                - button "console — Deployment" [ref=e578] [cursor=pointer]:
+                  - img [ref=e581]
+                  - generic: console
+                - button "tenant — Deployment" [ref=e584] [cursor=pointer]:
+                  - img [ref=e587]
+                  - generic: tenant
+                - button "vpa-vertical-pod-autoscaler-admission-controller — Deployment" [ref=e590] [cursor=pointer]:
+                  - img [ref=e593]
+                  - generic: vpa-vertical-pod-autosc…
+                - button "harbor-portal — Deployment" [ref=e596] [cursor=pointer]:
+                  - img [ref=e599]
+                  - generic: harbor-portal
+                - button "opentelemetry-operator — Deployment" [ref=e602] [cursor=pointer]:
+                  - img [ref=e605]
+                  - generic: opentelemetry-operator
+                - button "external-dns — Deployment" [ref=e608] [cursor=pointer]:
+                  - img [ref=e611]
+                  - generic: external-dns
+                - button "mimir-overrides-exporter — Deployment" [ref=e614] [cursor=pointer]:
+                  - img [ref=e617]
+                  - generic: mimir-overrides-exporter
+                - button "catalyst-ui — Deployment" [ref=e620] [cursor=pointer]:
+                  - img [ref=e623]
+                  - generic: catalyst-ui
+                - button "openova-flow-emitter — DaemonSet" [ref=e626] [cursor=pointer]:
+                  - img [ref=e629]
+                  - generic: openova-flow-emitter
+                - button "cilium — DaemonSet" [ref=e635] [cursor=pointer]:
+                  - img [ref=e638]
+                  - generic: cilium
+                - button "cilium-envoy — DaemonSet" [ref=e644] [cursor=pointer]:
+                  - img [ref=e647]
+                  - generic: cilium-envoy
+                - button "falco — DaemonSet" [ref=e653] [cursor=pointer]:
+                  - img [ref=e656]
+                  - generic: falco
+                - button "sysctl-envoy-bind — DaemonSet" [ref=e662] [cursor=pointer]:
+                  - img [ref=e665]
+                  - generic: sysctl-envoy-bind
+                - button "registry-pivot — DaemonSet" [ref=e671] [cursor=pointer]:
+                  - img [ref=e674]
+                  - generic: registry-pivot
+                - button "alloy — DaemonSet" [ref=e680] [cursor=pointer]:
+                  - img [ref=e683]
+                  - generic: alloy
+                - button "k8s-ws-proxy — DaemonSet" [ref=e689] [cursor=pointer]:
+                  - img [ref=e692]
+                  - generic: k8s-ws-proxy
+                - button "local-path-provisioner — Deployment" [ref=e698] [cursor=pointer]:
+                  - img [ref=e701]
+                  - generic: local-path-provisioner
+                - button "kyverno-admission-controller — Deployment" [ref=e704] [cursor=pointer]:
+                  - img [ref=e707]
+                  - generic: kyverno-admission-contr…
+                - button "dnsdist — Deployment" [ref=e710] [cursor=pointer]:
+                  - img [ref=e713]
+                  - generic: dnsdist
+                - button "sigstore-policy-controller-webhook — Deployment" [ref=e716] [cursor=pointer]:
+                  - img [ref=e719]
+                  - generic: sigstore-policy-control…
+                - button "vpa-vertical-pod-autoscaler-updater — Deployment" [ref=e722] [cursor=pointer]:
+                  - img [ref=e725]
+                  - generic: vpa-vertical-pod-autosc…
+                - button "marketplace-api — Deployment" [ref=e728] [cursor=pointer]:
+                  - img [ref=e731]
+                  - generic: marketplace-api
+                - button "cert-manager-cainjector — Deployment" [ref=e734] [cursor=pointer]:
+                  - img [ref=e737]
+                  - generic: cert-manager-cainjector
+                - button "mimir-rollout-operator — Deployment" [ref=e740] [cursor=pointer]:
+                  - img [ref=e743]
+                  - generic: mimir-rollout-operator
+                - button "openbao-agent-injector — Deployment" [ref=e746] [cursor=pointer]:
+                  - img [ref=e749]
+                  - generic: openbao-agent-injector
+                - button "catalyst-catalog — Deployment" [ref=e752] [cursor=pointer]:
+                  - img [ref=e755]
+                  - generic: catalyst-catalog
+                - button "catalyst-organization-controller — Deployment" [ref=e758] [cursor=pointer]:
+                  - img [ref=e761]
+                  - generic: catalyst-organization-c…
+                - button "guacamole-server — Deployment" [ref=e764] [cursor=pointer]:
+                  - img [ref=e767]
+                  - generic: guacamole-server
+                - button "catalyst-api — Deployment" [ref=e770] [cursor=pointer]:
+                  - img [ref=e773]
+                  - generic: catalyst-api
+                - button "catalyst-environment-controller — Deployment" [ref=e776] [cursor=pointer]:
+                  - img [ref=e779]
+                  - generic: catalyst-environment-co…
+                - button "cnpg-cloudnative-pg — Deployment" [ref=e782] [cursor=pointer]:
+                  - img [ref=e785]
+                  - generic: cnpg-cloudnative-pg
+                - button "crossplane — Deployment" [ref=e788] [cursor=pointer]:
+                  - img [ref=e791]
+                  - generic: crossplane
+                - button "clustermesh-apiserver — Deployment" [ref=e794] [cursor=pointer]:
+                  - img [ref=e797]
+                  - generic: clustermesh-apiserver
+                - button "mimir-query-scheduler — Deployment" [ref=e800] [cursor=pointer]:
+                  - img [ref=e803]
+                  - generic: mimir-query-scheduler
+                - button "trivy-trivy-operator — Deployment" [ref=e806] [cursor=pointer]:
+                  - img [ref=e809]
+                  - generic: trivy-trivy-operator
+                - button "metrics-server — Deployment" [ref=e812] [cursor=pointer]:
+                  - img [ref=e815]
+                  - generic: metrics-server
+                - button "opentelemetry-opentelemetry-collector — Deployment" [ref=e818] [cursor=pointer]:
+                  - img [ref=e821]
+                  - generic: opentelemetry-opentelem…
+                - button "admin — Deployment" [ref=e824] [cursor=pointer]:
+                  - img [ref=e827]
+                  - generic: admin
+                - button "domain — Deployment" [ref=e830] [cursor=pointer]:
+                  - img [ref=e833]
+                  - generic: domain
+                - button "harbor-registry — Deployment" [ref=e836] [cursor=pointer]:
+                  - img [ref=e839]
+                  - generic: harbor-registry
+                - button "image-automation-controller — Deployment" [ref=e842] [cursor=pointer]:
+                  - img [ref=e845]
+                  - generic: image-automation-contro…
+                - button "mimir-query-frontend — Deployment" [ref=e848] [cursor=pointer]:
+                  - img [ref=e851]
+                  - generic: mimir-query-frontend
+                - button "nats-jetstream-box — Deployment" [ref=e854] [cursor=pointer]:
+                  - img [ref=e857]
+                  - generic: nats-jetstream-box
+                - button "seaweedfs-s3 — Deployment" [ref=e860] [cursor=pointer]:
+                  - img [ref=e863]
+                  - generic: seaweedfs-s3
+                - button "provisioning — Deployment" [ref=e866] [cursor=pointer]:
+                  - img [ref=e869]
+                  - generic: provisioning
+                - button "nats-jetstream — Deployment" [ref=e872] [cursor=pointer]:
+                  - img [ref=e875]
+                  - generic: nats-jetstream
+                - button "grafana — Deployment" [ref=e878] [cursor=pointer]:
+                  - img [ref=e881]
+                  - generic: grafana
+                - button "flux-system — Namespace" [ref=e884] [cursor=pointer]:
+                  - img [ref=e887]
+                  - generic: flux-system
+                - button "guacamole — Namespace" [ref=e889] [cursor=pointer]:
+                  - img [ref=e892]
+                  - generic: guacamole
+                - button "keycloak — Namespace" [ref=e894] [cursor=pointer]:
+                  - img [ref=e897]
+                  - generic: keycloak
+                - button "kyverno — Namespace" [ref=e899] [cursor=pointer]:
+                  - img [ref=e902]
+                  - generic: kyverno
+                - button "openbao — Namespace" [ref=e904] [cursor=pointer]:
+                  - img [ref=e907]
+                  - generic: openbao
+                - button "catalyst — Namespace" [ref=e909] [cursor=pointer]:
+                  - img [ref=e912]
+                  - generic: catalyst
+                - button "kube-node-lease — Namespace" [ref=e914] [cursor=pointer]:
+                  - img [ref=e917]
+                  - generic: kube-node-lease
+                - button "alloy — Namespace" [ref=e919] [cursor=pointer]:
+                  - img [ref=e922]
+                  - generic: alloy
+                - button "crossplane-system — Namespace" [ref=e924] [cursor=pointer]:
+                  - img [ref=e927]
+                  - generic: crossplane-system
+                - button "external-dns — Namespace" [ref=e929] [cursor=pointer]:
+                  - img [ref=e932]
+                  - generic: external-dns
+                - button "falco — Namespace" [ref=e934] [cursor=pointer]:
+                  - img [ref=e937]
+                  - generic: falco
+                - button "grafana — Namespace" [ref=e939] [cursor=pointer]:
+                  - img [ref=e942]
+                  - generic: grafana
+                - button "kube-public — Namespace" [ref=e944] [cursor=pointer]:
+                  - img [ref=e947]
+                  - generic: kube-public
+                - button "kube-system — Namespace" [ref=e949] [cursor=pointer]:
+                  - img [ref=e952]
+                  - generic: kube-system
+                - button "loki — Namespace" [ref=e954] [cursor=pointer]:
+                  - img [ref=e957]
+                  - generic: loki
+                - button "cert-manager — Namespace" [ref=e959] [cursor=pointer]:
+                  - img [ref=e962]
+                  - generic: cert-manager
+                - button "dmz — Namespace" [ref=e964] [cursor=pointer]:
+                  - img [ref=e967]
+                  - generic: dmz
+                - button "external-secrets-system — Namespace" [ref=e969] [cursor=pointer]:
+                  - img [ref=e972]
+                  - generic: external-secrets-system
+                - button "nats-system — Namespace" [ref=e974] [cursor=pointer]:
+                  - img [ref=e977]
+                  - generic: nats-system
+                - button "reloader — Namespace" [ref=e979] [cursor=pointer]:
+                  - img [ref=e982]
+                  - generic: reloader
+                - button "syft-grype — Namespace" [ref=e984] [cursor=pointer]:
+                  - img [ref=e987]
+                  - generic: syft-grype
+                - button "tempo — Namespace" [ref=e989] [cursor=pointer]:
+                  - img [ref=e992]
+                  - generic: tempo
+                - button "vcluster-system — Namespace" [ref=e994] [cursor=pointer]:
+                  - img [ref=e997]
+                  - generic: vcluster-system
+                - button "newapi — Namespace" [ref=e999] [cursor=pointer]:
+                  - img [ref=e1002]
+                  - generic: newapi
+                - button "trivy-system — Namespace" [ref=e1004] [cursor=pointer]:
+                  - img [ref=e1007]
+                  - generic: trivy-system
+                - button "vllm — Namespace" [ref=e1009] [cursor=pointer]:
+                  - img [ref=e1012]
+                  - generic: vllm
+                - button "vpa — Namespace" [ref=e1014] [cursor=pointer]:
+                  - img [ref=e1017]
+                  - generic: vpa
+                - button "cilium-secrets — Namespace" [ref=e1019] [cursor=pointer]:
+                  - img [ref=e1022]
+                  - generic: cilium-secrets
+                - button "coraza — Namespace" [ref=e1024] [cursor=pointer]:
+                  - img [ref=e1027]
+                  - generic: coraza
+                - button "harbor — Namespace" [ref=e1029] [cursor=pointer]:
+                  - img [ref=e1032]
+                  - generic: harbor
+                - button "mimir — Namespace" [ref=e1034] [cursor=pointer]:
+                  - img [ref=e1037]
+                  - generic: mimir
+                - button "opentelemetry — Namespace" [ref=e1039] [cursor=pointer]:
+                  - img [ref=e1042]
+                  - generic: opentelemetry
+                - button "powerdns — Namespace" [ref=e1044] [cursor=pointer]:
+                  - img [ref=e1047]
+                  - generic: powerdns
+                - button "sigstore-system — Namespace" [ref=e1049] [cursor=pointer]:
+                  - img [ref=e1052]
+                  - generic: sigstore-system
+                - button "velero — Namespace" [ref=e1054] [cursor=pointer]:
+                  - img [ref=e1057]
+                  - generic: velero
+                - button "cluster-autoscaler — Namespace" [ref=e1059] [cursor=pointer]:
+                  - img [ref=e1062]
+                  - generic: cluster-autoscaler
+                - button "seaweedfs — Namespace" [ref=e1064] [cursor=pointer]:
+                  - img [ref=e1067]
+                  - generic: seaweedfs
+                - button "sme — Namespace" [ref=e1069] [cursor=pointer]:
+                  - img [ref=e1072]
+                  - generic: sme
+                - button "valkey — Namespace" [ref=e1074] [cursor=pointer]:
+                  - img [ref=e1077]
+                  - generic: valkey
+                - button "pillar4-demo — Namespace" [ref=e1079] [cursor=pointer]:
+                  - img [ref=e1082]
+                  - generic: pillar4-demo
+                - button "pillar3-demo — Namespace" [ref=e1084] [cursor=pointer]:
+                  - img [ref=e1087]
+                  - generic: pillar3-demo
+                - button "catalyst-system — Namespace" [ref=e1089] [cursor=pointer]:
+                  - img [ref=e1092]
+                  - generic: catalyst-system
+                - button "default — Namespace" [ref=e1094] [cursor=pointer]:
+                  - img [ref=e1097]
+                  - generic: default
+                - button "gitea — Namespace" [ref=e1099] [cursor=pointer]:
+                  - img [ref=e1102]
+                  - generic: gitea
+                - button "reflector — Namespace" [ref=e1104] [cursor=pointer]:
+                  - img [ref=e1107]
+                  - generic: reflector
+                - button "cnpg-system — Namespace" [ref=e1109] [cursor=pointer]:
+                  - img [ref=e1112]
+                  - generic: cnpg-system
+                - button "catalyst-hw01-omani-works-102ac1f9-me-east-215-cp1 — WorkerNode" [ref=e1114] [cursor=pointer]:
+                  - img [ref=e1117]
+                  - generic: catalyst-hw01-omani-wor…
+                - button "catalyst-hw01-omani-works-102ac1f9-me-east-215-w1 — WorkerNode" [ref=e1120] [cursor=pointer]:
+                  - img [ref=e1123]
+                  - generic: catalyst-hw01-omani-wor…
+                - button "catalyst-hw01-omani-works-102ac1f9-me-east-215-w2 — WorkerNode" [ref=e1126] [cursor=pointer]:
+                  - img [ref=e1129]
+                  - generic: catalyst-hw01-omani-wor…
+                - button "mimir-ruler — Deployment" [ref=e1132] [cursor=pointer]:
+                  - img [ref=e1135]
+                  - generic: mimir-ruler
+                - button "catalog — Deployment" [ref=e1138] [cursor=pointer]:
+                  - img [ref=e1141]
+                  - generic: catalog
+                - button "notification — Deployment" [ref=e1144] [cursor=pointer]:
+                  - img [ref=e1147]
+                  - generic: notification
+                - button "harbor-nginx — Deployment" [ref=e1150] [cursor=pointer]:
+                  - img [ref=e1153]
+                  - generic: harbor-nginx
+                - button "harbor-core — Deployment" [ref=e1156] [cursor=pointer]:
+                  - img [ref=e1159]
+                  - generic: harbor-core
+                - button "crossplane-rbac-manager — Deployment" [ref=e1162] [cursor=pointer]:
+                  - img [ref=e1165]
+                  - generic: crossplane-rbac-manager
+                - button "kustomize-controller — Deployment" [ref=e1168] [cursor=pointer]:
+                  - img [ref=e1171]
+                  - generic: kustomize-controller
+                - button "source-controller — Deployment" [ref=e1174] [cursor=pointer]:
+                  - img [ref=e1177]
+                  - generic: source-controller
+                - button "cilium-operator — Deployment" [ref=e1180] [cursor=pointer]:
+                  - img [ref=e1183]
+                  - generic: cilium-operator
+                - button "harbor-jobservice — Deployment" [ref=e1186] [cursor=pointer]:
+                  - img [ref=e1189]
+                  - generic: harbor-jobservice
+                - button "guacd — Deployment" [ref=e1192] [cursor=pointer]:
+                  - img [ref=e1195]
+                  - generic: guacd
+                - button "cert-manager-powerdns-webhook-bp-cert-manager-powerdns-webhook — Deployment" [ref=e1198] [cursor=pointer]:
+                  - img [ref=e1201]
+                  - generic: cert-manager-powerdns-w…
+                - button "cert-manager-webhook — Deployment" [ref=e1204] [cursor=pointer]:
+                  - img [ref=e1207]
+                  - generic: cert-manager-webhook
+                - button "kyverno-background-controller — Deployment" [ref=e1210] [cursor=pointer]:
+                  - img [ref=e1213]
+                  - generic: kyverno-background-cont…
+                - button "kyverno-reports-controller — Deployment" [ref=e1216] [cursor=pointer]:
+                  - img [ref=e1219]
+                  - generic: kyverno-reports-control…
+                - button "mimir-querier — Deployment" [ref=e1222] [cursor=pointer]:
+                  - img [ref=e1225]
+                  - generic: mimir-querier
+                - button "ferretdb — Deployment" [ref=e1228] [cursor=pointer]:
+                  - img [ref=e1231]
+                  - generic: ferretdb
+                - button "marketplace — Deployment" [ref=e1234] [cursor=pointer]:
+                  - img [ref=e1237]
+                  - generic: marketplace
+                - button "openova-flow-server — Deployment" [ref=e1240] [cursor=pointer]:
+                  - img [ref=e1243]
+                  - generic: openova-flow-server
+                - button "coraza-bp-coraza — Deployment" [ref=e1246] [cursor=pointer]:
+                  - img [ref=e1249]
+                  - generic: coraza-bp-coraza
+                - button "reflector — Deployment" [ref=e1252] [cursor=pointer]:
+                  - img [ref=e1255]
+                  - generic: reflector
+                - button "billing — Deployment" [ref=e1258] [cursor=pointer]:
+                  - img [ref=e1261]
+                  - generic: billing
+                - button "cert-manager — Deployment" [ref=e1264] [cursor=pointer]:
+                  - img [ref=e1267]
+                  - generic: cert-manager
+                - button "coredns — Deployment" [ref=e1270] [cursor=pointer]:
+                  - img [ref=e1273]
+                  - generic: coredns
+                - button "reloader-reloader — Deployment" [ref=e1276] [cursor=pointer]:
+                  - img [ref=e1279]
+                  - generic: reloader-reloader
+                - button "hubble-relay — Deployment" [ref=e1282] [cursor=pointer]:
+                  - img [ref=e1285]
+                  - generic: hubble-relay
+                - button "hubble-ui — Deployment" [ref=e1288] [cursor=pointer]:
+                  - img [ref=e1291]
+                  - generic: hubble-ui
+                - button "kyverno-cleanup-controller — Deployment" [ref=e1294] [cursor=pointer]:
+                  - img [ref=e1297]
+                  - generic: kyverno-cleanup-control…
+                - button "mimir-gateway — Deployment" [ref=e1300] [cursor=pointer]:
+                  - img [ref=e1303]
+                  - generic: mimir-gateway
+                - button "mimir-minio — Deployment" [ref=e1306] [cursor=pointer]:
+                  - img [ref=e1309]
+                  - generic: mimir-minio
+                - button "auth — Deployment" [ref=e1312] [cursor=pointer]:
+                  - img [ref=e1315]
+                  - generic: auth
+                - button "vpa-vertical-pod-autoscaler-recommender — Deployment" [ref=e1318] [cursor=pointer]:
+                  - img [ref=e1321]
+                  - generic: vpa-vertical-pod-autosc…
+                - button "sandbox-controller — Deployment" [ref=e1324] [cursor=pointer]:
+                  - img [ref=e1327]
+                  - generic: sandbox-controller
+                - button "helm-controller — Deployment" [ref=e1330] [cursor=pointer]:
+                  - img [ref=e1333]
+                  - generic: helm-controller
+                - button "notification-controller — Deployment" [ref=e1336] [cursor=pointer]:
+                  - img [ref=e1339]
+                  - generic: notification-controller
+                - button "gitea — Deployment" [ref=e1342] [cursor=pointer]:
+                  - img [ref=e1345]
+                  - generic: gitea
+                - button "velero — Deployment" [ref=e1348] [cursor=pointer]:
+                  - img [ref=e1351]
+                  - generic: velero
+                - button "powerdns-api — Ingress" [ref=e1354] [cursor=pointer]:
+                  - img [ref=e1357]
+                  - generic: powerdns-api
+                - button "nats-jetstream-js-nats-jetstream-0 — PVC" [ref=e1361] [cursor=pointer]:
+                  - img [ref=e1364]
+                  - generic: nats-jetstream-js-nats-…
+                - button "data-seaweedfs-volume-2 — PVC" [ref=e1368] [cursor=pointer]:
+                  - img [ref=e1371]
+                  - generic: data-seaweedfs-volume-2
+                - button "pillar3-replica-1 — PVC" [ref=e1375] [cursor=pointer]:
+                  - img [ref=e1378]
+                  - generic: pillar3-replica-1
+                - button "gitea-pg-1 — PVC" [ref=e1382] [cursor=pointer]:
+                  - img [ref=e1385]
+                  - generic: gitea-pg-1
+                - button "storage-mimir-alertmanager-0 — PVC" [ref=e1389] [cursor=pointer]:
+                  - img [ref=e1392]
+                  - generic: storage-mimir-alertmana…
+                - button "storage-mimir-compactor-0 — PVC" [ref=e1396] [cursor=pointer]:
+                  - img [ref=e1399]
+                  - generic: storage-mimir-compactor…
+                - button "storage-mimir-ingester-0 — PVC" [ref=e1403] [cursor=pointer]:
+                  - img [ref=e1406]
+                  - generic: storage-mimir-ingester-0
+                - button "storage-mimir-store-gateway-0 — PVC" [ref=e1410] [cursor=pointer]:
+                  - img [ref=e1413]
+                  - generic: storage-mimir-store-gat…
+                - button "nats-jetstream-js-nats-jetstream-2 — PVC" [ref=e1417] [cursor=pointer]:
+                  - img [ref=e1420]
+                  - generic: nats-jetstream-js-nats-…
+                - button "data-seaweedfs-seaweedfs-master-0 — PVC" [ref=e1424] [cursor=pointer]:
+                  - img [ref=e1427]
+                  - generic: data-seaweedfs-seaweedf…
+                - button "data-seaweedfs-volume-1 — PVC" [ref=e1431] [cursor=pointer]:
+                  - img [ref=e1434]
+                  - generic: data-seaweedfs-volume-1
+                - button "syft-grype-bp-syft-grype-reports — PVC" [ref=e1438] [cursor=pointer]:
+                  - img [ref=e1441]
+                  - generic: syft-grype-bp-syft-gryp…
+                - button "valkey-data-valkey-primary-0 — PVC" [ref=e1445] [cursor=pointer]:
+                  - img [ref=e1448]
+                  - generic: valkey-data-valkey-prim…
+                - button "harbor-jobservice — PVC" [ref=e1452] [cursor=pointer]:
+                  - img [ref=e1455]
+                  - generic: harbor-jobservice
+                - button "data-harbor-redis-0 — PVC" [ref=e1459] [cursor=pointer]:
+                  - img [ref=e1462]
+                  - generic: data-harbor-redis-0
+                - button "harbor-pg-1 — PVC" [ref=e1466] [cursor=pointer]:
+                  - img [ref=e1469]
+                  - generic: harbor-pg-1
+                - button "catalyst-api-deployments — PVC" [ref=e1473] [cursor=pointer]:
+                  - img [ref=e1476]
+                  - generic: catalyst-api-deployments
+                - button "pdns-pg-1 — PVC" [ref=e1480] [cursor=pointer]:
+                  - img [ref=e1483]
+                  - generic: pdns-pg-1
+                - button "pillar3-primary-1 — PVC" [ref=e1487] [cursor=pointer]:
+                  - img [ref=e1490]
+                  - generic: pillar3-primary-1
+                - button "catalyst-api-cache — PVC" [ref=e1494] [cursor=pointer]:
+                  - img [ref=e1497]
+                  - generic: catalyst-api-cache
+                - button "mimir-minio — PVC" [ref=e1501] [cursor=pointer]:
+                  - img [ref=e1504]
+                  - generic: mimir-minio
+                - button "data-openbao-0 — PVC" [ref=e1508] [cursor=pointer]:
+                  - img [ref=e1511]
+                  - generic: data-openbao-0
+                - button "guacamole-recordings — PVC" [ref=e1515] [cursor=pointer]:
+                  - img [ref=e1518]
+                  - generic: guacamole-recordings
+                - button "openova-flow-pg-1 — PVC" [ref=e1522] [cursor=pointer]:
+                  - img [ref=e1525]
+                  - generic: openova-flow-pg-1
+                - button "data-dmz-vcluster-0 — PVC" [ref=e1529] [cursor=pointer]:
+                  - img [ref=e1532]
+                  - generic: data-dmz-vcluster-0
+                - button "sme-pg-1 — PVC" [ref=e1536] [cursor=pointer]:
+                  - img [ref=e1539]
+                  - generic: sme-pg-1
+                - button "storage-tempo-0 — PVC" [ref=e1543] [cursor=pointer]:
+                  - img [ref=e1546]
+                  - generic: storage-tempo-0
+                - button "grafana — PVC" [ref=e1550] [cursor=pointer]:
+                  - img [ref=e1553]
+                  - generic: grafana
+                - button "nats-jetstream-js-nats-jetstream-1 — PVC" [ref=e1557] [cursor=pointer]:
+                  - img [ref=e1560]
+                  - generic: nats-jetstream-js-nats-…
+                - button "data-filer-seaweedfs-filer-0 — PVC" [ref=e1564] [cursor=pointer]:
+                  - img [ref=e1567]
+                  - generic: data-filer-seaweedfs-fi…
+                - button "data-seaweedfs-volume-0 — PVC" [ref=e1571] [cursor=pointer]:
+                  - img [ref=e1574]
+                  - generic: data-seaweedfs-volume-0
+                - button "gitea-shared-storage — PVC" [ref=e1578] [cursor=pointer]:
+                  - img [ref=e1581]
+                  - generic: gitea-shared-storage
+                - button "data-keycloak-postgresql-0 — PVC" [ref=e1585] [cursor=pointer]:
+                  - img [ref=e1588]
+                  - generic: data-keycloak-postgresq…
+                - button "hetzner — Cloud" [ref=e1592] [cursor=pointer]:
+                  - img [ref=e1595]
+                  - generic: hetzner
+                - button "hw01.omani.works — Region" [ref=e1597] [cursor=pointer]:
+                  - img [ref=e1600]
+                  - generic: hw01.omani.works
+                - button "hw01.omani.works — Cluster" [ref=e1603] [cursor=pointer]:
+                  - img [ref=e1606]
+                  - generic: hw01.omani.works
+                - button "dmz — vCluster" [ref=e1610] [cursor=pointer]:
+                  - img [ref=e1613]
+                  - generic: dmz
+                - button "pool-control-plane-hw01.omani.works — NodePool" [ref=e1618] [cursor=pointer]:
+                  - img [ref=e1621]
+                  - generic: pool-control-plane-hw01…
+                - button "pool-worker-hw01.omani.works — NodePool" [ref=e1625] [cursor=pointer]:
+                  - img [ref=e1628]
+                  - generic: pool-worker-hw01.omani.…
+                - button "catalyst-api-cache — PVC" [ref=e1632] [cursor=pointer]:
+                  - img [ref=e1635]
+                  - generic: catalyst-api-cache
+                - button "catalyst-api-deployments — PVC" [ref=e1639] [cursor=pointer]:
+                  - img [ref=e1642]
+                  - generic: catalyst-api-deployments
+                - button "guacamole-recordings — PVC" [ref=e1646] [cursor=pointer]:
+                  - img [ref=e1649]
+                  - generic: guacamole-recordings
+                - button "openova-flow-pg-1 — PVC" [ref=e1653] [cursor=pointer]:
+                  - img [ref=e1656]
+                  - generic: openova-flow-pg-1
+                - button "data-dmz-vcluster-0 — PVC" [ref=e1660] [cursor=pointer]:
+                  - img [ref=e1663]
+                  - generic: data-dmz-vcluster-0
+                - button "gitea-pg-1 — PVC" [ref=e1667] [cursor=pointer]:
+                  - img [ref=e1670]
+                  - generic: gitea-pg-1
+                - button "gitea-shared-storage — PVC" [ref=e1674] [cursor=pointer]:
+                  - img [ref=e1677]
+                  - generic: gitea-shared-storage
+                - button "grafana — PVC" [ref=e1681] [cursor=pointer]:
+                  - img [ref=e1684]
+                  - generic: grafana
+                - button "data-harbor-redis-0 — PVC" [ref=e1688] [cursor=pointer]:
+                  - img [ref=e1691]
+                  - generic: data-harbor-redis-0
+                - button "harbor-jobservice — PVC" [ref=e1695] [cursor=pointer]:
+                  - img [ref=e1698]
+                  - generic: harbor-jobservice
+                - button "harbor-pg-1 — PVC" [ref=e1702] [cursor=pointer]:
+                  - img [ref=e1705]
+                  - generic: harbor-pg-1
+                - button "data-keycloak-postgresql-0 — PVC" [ref=e1709] [cursor=pointer]:
+                  - img [ref=e1712]
+                  - generic: data-keycloak-postgresq…
+                - button "mimir-minio — PVC" [ref=e1716] [cursor=pointer]:
+                  - img [ref=e1719]
+                  - generic: mimir-minio
+                - button "storage-mimir-alertmanager-0 — PVC" [ref=e1723] [cursor=pointer]:
+                  - img [ref=e1726]
+                  - generic: storage-mimir-alertmana…
+                - button "storage-mimir-compactor-0 — PVC" [ref=e1730] [cursor=pointer]:
+                  - img [ref=e1733]
+                  - generic: storage-mimir-compactor…
+                - button "storage-mimir-ingester-0 — PVC" [ref=e1737] [cursor=pointer]:
+                  - img [ref=e1740]
+                  - generic: storage-mimir-ingester-0
+                - button "storage-mimir-store-gateway-0 — PVC" [ref=e1744] [cursor=pointer]:
+                  - img [ref=e1747]
+                  - generic: storage-mimir-store-gat…
+                - button "nats-jetstream-js-nats-jetstream-0 — PVC" [ref=e1751] [cursor=pointer]:
+                  - img [ref=e1754]
+                  - generic: nats-jetstream-js-nats-…
+                - button "nats-jetstream-js-nats-jetstream-1 — PVC" [ref=e1758] [cursor=pointer]:
+                  - img [ref=e1761]
+                  - generic: nats-jetstream-js-nats-…
+                - button "nats-jetstream-js-nats-jetstream-2 — PVC" [ref=e1765] [cursor=pointer]:
+                  - img [ref=e1768]
+                  - generic: nats-jetstream-js-nats-…
+                - button "data-openbao-0 — PVC" [ref=e1772] [cursor=pointer]:
+                  - img [ref=e1775]
+                  - generic: data-openbao-0
+                - button "pillar3-primary-1 — PVC" [ref=e1779] [cursor=pointer]:
+                  - img [ref=e1782]
+                  - generic: pillar3-primary-1
+                - button "pillar3-replica-1 — PVC" [ref=e1786] [cursor=pointer]:
+                  - img [ref=e1789]
+                  - generic: pillar3-replica-1
+                - button "pdns-pg-1 — PVC" [ref=e1793] [cursor=pointer]:
+                  - img [ref=e1796]
+                  - generic: pdns-pg-1
+                - button "data-filer-seaweedfs-filer-0 — PVC" [ref=e1800] [cursor=pointer]:
+                  - img [ref=e1803]
+                  - generic: data-filer-seaweedfs-fi…
+                - button "data-seaweedfs-seaweedfs-master-0 — PVC" [ref=e1807] [cursor=pointer]:
+                  - img [ref=e1810]
+                  - generic: data-seaweedfs-seaweedf…
+                - button "data-seaweedfs-volume-0 — PVC" [ref=e1814] [cursor=pointer]:
+                  - img [ref=e1817]
+                  - generic: data-seaweedfs-volume-0
+                - button "data-seaweedfs-volume-1 — PVC" [ref=e1821] [cursor=pointer]:
+                  - img [ref=e1824]
+                  - generic: data-seaweedfs-volume-1
+                - button "data-seaweedfs-volume-2 — PVC" [ref=e1828] [cursor=pointer]:
+                  - img [ref=e1831]
+                  - generic: data-seaweedfs-volume-2
+                - button "sme-pg-1 — PVC" [ref=e1835] [cursor=pointer]:
+                  - img [ref=e1838]
+                  - generic: sme-pg-1
+                - button "syft-grype-bp-syft-grype-reports — PVC" [ref=e1842] [cursor=pointer]:
+                  - img [ref=e1845]
+                  - generic: syft-grype-bp-syft-gryp…
+                - button "storage-tempo-0 — PVC" [ref=e1849] [cursor=pointer]:
+                  - img [ref=e1852]
+                  - generic: storage-tempo-0
+                - button "valkey-data-valkey-primary-0 — PVC" [ref=e1856] [cursor=pointer]:
+                  - img [ref=e1859]
+                  - generic: valkey-data-valkey-prim…
+                - button "dmz-vcluster — StatefulSet" [ref=e1863] [cursor=pointer]:
+                  - img [ref=e1866]
+                  - generic: dmz-vcluster
+                - button "mimir-store-gateway — StatefulSet" [ref=e1872] [cursor=pointer]:
+                  - img [ref=e1875]
+                  - generic: mimir-store-gateway
+                - button "seaweedfs-master — StatefulSet" [ref=e1881] [cursor=pointer]:
+                  - img [ref=e1884]
+                  - generic: seaweedfs-master
+                - button "harbor-redis — StatefulSet" [ref=e1890] [cursor=pointer]:
+                  - img [ref=e1893]
+                  - generic: harbor-redis
+                - button "nats-jetstream — StatefulSet" [ref=e1899] [cursor=pointer]:
+                  - img [ref=e1902]
+                  - generic: nats-jetstream
+                - button "tempo — StatefulSet" [ref=e1908] [cursor=pointer]:
+                  - img [ref=e1911]
+                  - generic: tempo
+                - button "keycloak — StatefulSet" [ref=e1917] [cursor=pointer]:
+                  - img [ref=e1920]
+                  - generic: keycloak
+                - button "mimir-compactor — StatefulSet" [ref=e1926] [cursor=pointer]:
+                  - img [ref=e1929]
+                  - generic: mimir-compactor
+                - button "openbao — StatefulSet" [ref=e1935] [cursor=pointer]:
+                  - img [ref=e1938]
+                  - generic: openbao
+                - button "keycloak-postgresql — StatefulSet" [ref=e1944] [cursor=pointer]:
+                  - img [ref=e1947]
+                  - generic: keycloak-postgresql
+                - button "loki — StatefulSet" [ref=e1953] [cursor=pointer]:
+                  - img [ref=e1956]
+                  - generic: loki
+                - button "mimir-alertmanager — StatefulSet" [ref=e1962] [cursor=pointer]:
+                  - img [ref=e1965]
+                  - generic: mimir-alertmanager
+                - button "mimir-ingester — StatefulSet" [ref=e1971] [cursor=pointer]:
+                  - img [ref=e1974]
+                  - generic: mimir-ingester
+                - button "seaweedfs-filer — StatefulSet" [ref=e1980] [cursor=pointer]:
+                  - img [ref=e1983]
+                  - generic: seaweedfs-filer
+                - button "seaweedfs-volume — StatefulSet" [ref=e1989] [cursor=pointer]:
+                  - img [ref=e1992]
+                  - generic: seaweedfs-volume
+                - button "valkey-primary — StatefulSet" [ref=e1998] [cursor=pointer]:
+                  - img [ref=e2001]
+                  - generic: valkey-primary
+                - button "valkey-replicas — StatefulSet" [ref=e2007] [cursor=pointer]:
+                  - img [ref=e2010]
+                  - generic: valkey-replicas
+                - button "pillar3-primary-ro — Service" [ref=e2016] [cursor=pointer]:
+                  - img [ref=e2019]
+                  - generic: pillar3-primary-ro
+                - button "openova-flow-pg-rw — Service" [ref=e2023] [cursor=pointer]:
+                  - img [ref=e2026]
+                  - generic: openova-flow-pg-rw
+                - button "grafana — Service" [ref=e2030] [cursor=pointer]:
+                  - img [ref=e2033]
+                  - generic: grafana
+                - button "mimir-querier — Service" [ref=e2037] [cursor=pointer]:
+                  - img [ref=e2040]
+                  - generic: mimir-querier
+                - button "seaweedfs-volume — Service" [ref=e2044] [cursor=pointer]:
+                  - img [ref=e2047]
+                  - generic: seaweedfs-volume
+                - button "valkey-replicas — Service" [ref=e2051] [cursor=pointer]:
+                  - img [ref=e2054]
+                  - generic: valkey-replicas
+                - button "harbor-pg-r — Service" [ref=e2058] [cursor=pointer]:
+                  - img [ref=e2061]
+                  - generic: harbor-pg-r
+                - button "harbor-pg-rw — Service" [ref=e2065] [cursor=pointer]:
+                  - img [ref=e2068]
+                  - generic: harbor-pg-rw
+                - button "velero — Service" [ref=e2072] [cursor=pointer]:
+                  - img [ref=e2075]
+                  - generic: velero
+                - button "seaweedfs-s3 — Service" [ref=e2079] [cursor=pointer]:
+                  - img [ref=e2082]
+                  - generic: seaweedfs-s3
+                - button "tempo — Service" [ref=e2086] [cursor=pointer]:
+                  - img [ref=e2089]
+                  - generic: tempo
+                - button "sigstore-policy-controller-webhook-metrics — Service" [ref=e2093] [cursor=pointer]:
+                  - img [ref=e2096]
+                  - generic: sigstore-policy-control…
+                - button "harbor-redis — Service" [ref=e2100] [cursor=pointer]:
+                  - img [ref=e2103]
+                  - generic: harbor-redis
+                - button "alloy — Service" [ref=e2107] [cursor=pointer]:
+                  - img [ref=e2110]
+                  - generic: alloy
+                - button "marketplace-api — Service" [ref=e2114] [cursor=pointer]:
+                  - img [ref=e2117]
+                  - generic: marketplace-api
+                - button "loki-memberlist — Service" [ref=e2121] [cursor=pointer]:
+                  - img [ref=e2124]
+                  - generic: loki-memberlist
+                - button "harbor-portal — Service" [ref=e2128] [cursor=pointer]:
+                  - img [ref=e2131]
+                  - generic: harbor-portal
+                - button "catalyst-ui — Service" [ref=e2135] [cursor=pointer]:
+                  - img [ref=e2138]
+                  - generic: catalyst-ui
+                - button "hubble-peer — Service" [ref=e2142] [cursor=pointer]:
+                  - img [ref=e2145]
+                  - generic: hubble-peer
+                - button "kyverno-reports-controller-metrics — Service" [ref=e2149] [cursor=pointer]:
+                  - img [ref=e2152]
+                  - generic: kyverno-reports-control…
+                - button "mimir-rollout-operator — Service" [ref=e2156] [cursor=pointer]:
+                  - img [ref=e2159]
+                  - generic: mimir-rollout-operator
+                - button "powerdns-anycast — Service" [ref=e2163] [cursor=pointer]:
+                  - img [ref=e2166]
+                  - generic: powerdns-anycast
+                - button "harbor-jobservice — Service" [ref=e2170] [cursor=pointer]:
+                  - img [ref=e2173]
+                  - generic: harbor-jobservice
+                - button "harbor-pg-ro — Service" [ref=e2177] [cursor=pointer]:
+                  - img [ref=e2180]
+                  - generic: harbor-pg-ro
+                - button "catalyst-catalog — Service" [ref=e2184] [cursor=pointer]:
+                  - img [ref=e2187]
+                  - generic: catalyst-catalog
+                - button "external-dns — Service" [ref=e2191] [cursor=pointer]:
+                  - img [ref=e2194]
+                  - generic: external-dns
+                - button "mimir-minio — Service" [ref=e2198] [cursor=pointer]:
+                  - img [ref=e2201]
+                  - generic: mimir-minio
+                - button "mimir-overrides-exporter — Service" [ref=e2205] [cursor=pointer]:
+                  - img [ref=e2208]
+                  - generic: mimir-overrides-exporter
+                - button "openbao — Service" [ref=e2212] [cursor=pointer]:
+                  - img [ref=e2215]
+                  - generic: openbao
+                - button "opentelemetry-opentelemetry-collector — Service" [ref=e2219] [cursor=pointer]:
+                  - img [ref=e2222]
+                  - generic: opentelemetry-opentelem…
+                - button "vpa-vertical-pod-autoscaler-admission-controller-metrics — Service" [ref=e2226] [cursor=pointer]:
+                  - img [ref=e2229]
+                  - generic: vpa-vertical-pod-autosc…
+                - button "mimir-distributor — Service" [ref=e2233] [cursor=pointer]:
+                  - img [ref=e2236]
+                  - generic: mimir-distributor
+                - button "mimir-gateway — Service" [ref=e2240] [cursor=pointer]:
+                  - img [ref=e2243]
+                  - generic: mimir-gateway
+                - button "nats-jetstream-headless — Service" [ref=e2247] [cursor=pointer]:
+                  - img [ref=e2250]
+                  - generic: nats-jetstream-headless
+                - button "ferretdb — Service" [ref=e2254] [cursor=pointer]:
+                  - img [ref=e2257]
+                  - generic: ferretdb
+                - button "openova-flow-server — Service" [ref=e2261] [cursor=pointer]:
+                  - img [ref=e2264]
+                  - generic: openova-flow-server
+                - button "sealed-secrets-controller-metrics — Service" [ref=e2268] [cursor=pointer]:
+                  - img [ref=e2271]
+                  - generic: sealed-secrets-controll…
+                - button "openbao-internal — Service" [ref=e2275] [cursor=pointer]:
+                  - img [ref=e2278]
+                  - generic: openbao-internal
+                - button "domain — Service" [ref=e2282] [cursor=pointer]:
+                  - img [ref=e2285]
+                  - generic: domain
+                - button "pillar3-primary-mesh — Service" [ref=e2289] [cursor=pointer]:
+                  - img [ref=e2292]
+                  - generic: pillar3-primary-mesh
+                - button "catalyst-api — Service" [ref=e2296] [cursor=pointer]:
+                  - img [ref=e2299]
+                  - generic: catalyst-api
+                - button "kubernetes — Service" [ref=e2303] [cursor=pointer]:
+                  - img [ref=e2306]
+                  - generic: kubernetes
+                - button "mimir-ruler — Service" [ref=e2310] [cursor=pointer]:
+                  - img [ref=e2313]
+                  - generic: mimir-ruler
+                - button "openbao-ui — Service" [ref=e2317] [cursor=pointer]:
+                  - img [ref=e2320]
+                  - generic: openbao-ui
+                - button "clustermesh-apiserver — Service" [ref=e2324] [cursor=pointer]:
+                  - img [ref=e2327]
+                  - generic: clustermesh-apiserver
+                - button "seaweedfs-filer-client — Service" [ref=e2331] [cursor=pointer]:
+                  - img [ref=e2334]
+                  - generic: seaweedfs-filer-client
+                - button "pillar3-replica-ro — Service" [ref=e2338] [cursor=pointer]:
+                  - img [ref=e2341]
+                  - generic: pillar3-replica-ro
+                - button "mimir-store-gateway-headless — Service" [ref=e2345] [cursor=pointer]:
+                  - img [ref=e2348]
+                  - generic: mimir-store-gateway-hea…
+                - button "nats-jetstream — Service" [ref=e2352] [cursor=pointer]:
+                  - img [ref=e2355]
+                  - generic: nats-jetstream
+                - button "gitea-ssh — Service" [ref=e2359] [cursor=pointer]:
+                  - img [ref=e2362]
+                  - generic: gitea-ssh
+                - button "metrics-server — Service" [ref=e2366] [cursor=pointer]:
+                  - img [ref=e2369]
+                  - generic: metrics-server
+                - button "mimir-alertmanager-headless — Service" [ref=e2373] [cursor=pointer]:
+                  - img [ref=e2376]
+                  - generic: mimir-alertmanager-head…
+                - button "guacd — Service" [ref=e2380] [cursor=pointer]:
+                  - img [ref=e2383]
+                  - generic: guacd
+                - button "crossplane-webhooks — Service" [ref=e2387] [cursor=pointer]:
+                  - img [ref=e2390]
+                  - generic: crossplane-webhooks
+                - button "dmz-vcluster — Service" [ref=e2394] [cursor=pointer]:
+                  - img [ref=e2397]
+                  - generic: dmz-vcluster
+                - button "cilium-envoy — Service" [ref=e2401] [cursor=pointer]:
+                  - img [ref=e2404]
+                  - generic: cilium-envoy
+                - button "marketplace — Service" [ref=e2408] [cursor=pointer]:
+                  - img [ref=e2411]
+                  - generic: marketplace
+                - button "pillar3-replica-r — Service" [ref=e2415] [cursor=pointer]:
+                  - img [ref=e2418]
+                  - generic: pillar3-replica-r
+                - button "opentelemetry-operator-webhook — Service" [ref=e2422] [cursor=pointer]:
+                  - img [ref=e2425]
+                  - generic: opentelemetry-operator-…
+                - button "source-controller — Service" [ref=e2429] [cursor=pointer]:
+                  - img [ref=e2432]
+                  - generic: source-controller
+                - button "gitea-pg-rw — Service" [ref=e2436] [cursor=pointer]:
+                  - img [ref=e2439]
+                  - generic: gitea-pg-rw
+                - button "clustermesh-apiserver-metrics — Service" [ref=e2443] [cursor=pointer]:
+                  - img [ref=e2446]
+                  - generic: clustermesh-apiserver-m…
+                - button "hubble-ui — Service" [ref=e2450] [cursor=pointer]:
+                  - img [ref=e2453]
+                  - generic: hubble-ui
+                - button "admin — Service" [ref=e2457] [cursor=pointer]:
+                  - img [ref=e2460]
+                  - generic: admin
+                - button "provisioning — Service" [ref=e2464] [cursor=pointer]:
+                  - img [ref=e2467]
+                  - generic: provisioning
+                - button "notification-controller — Service" [ref=e2471] [cursor=pointer]:
+                  - img [ref=e2474]
+                  - generic: notification-controller
+                - button "openova-flow-pg-ro — Service" [ref=e2478] [cursor=pointer]:
+                  - img [ref=e2481]
+                  - generic: openova-flow-pg-ro
+                - button "cert-manager-powerdns-webhook-bp-cert-manager-powerdns-webhook — Service" [ref=e2485] [cursor=pointer]:
+                  - img [ref=e2488]
+                  - generic: cert-manager-powerdns-w…
+                - button "mimir-compactor — Service" [ref=e2492] [cursor=pointer]:
+                  - img [ref=e2495]
+                  - generic: mimir-compactor
+                - button "mimir-query-scheduler-headless — Service" [ref=e2499] [cursor=pointer]:
+                  - img [ref=e2502]
+                  - generic: mimir-query-scheduler-h…
+                - button "billing — Service" [ref=e2506] [cursor=pointer]:
+                  - img [ref=e2509]
+                  - generic: billing
+                - button "tenant — Service" [ref=e2513] [cursor=pointer]:
+                  - img [ref=e2516]
+                  - generic: tenant
+                - button "catalog — Service" [ref=e2520] [cursor=pointer]:
+                  - img [ref=e2523]
+                  - generic: catalog
+                - button "notification — Service" [ref=e2527] [cursor=pointer]:
+                  - img [ref=e2530]
+                  - generic: notification
+                - button "pillar3-replica-rw — Service" [ref=e2534] [cursor=pointer]:
+                  - img [ref=e2537]
+                  - generic: pillar3-replica-rw
+                - button "kyverno-svc-metrics — Service" [ref=e2541] [cursor=pointer]:
+                  - img [ref=e2544]
+                  - generic: kyverno-svc-metrics
+                - button "openbao-standby — Service" [ref=e2548] [cursor=pointer]:
+                  - img [ref=e2551]
+                  - generic: openbao-standby
+                - button "dnsdist — Service" [ref=e2555] [cursor=pointer]:
+                  - img [ref=e2558]
+                  - generic: dnsdist
+                - button "sme-pg-ro — Service" [ref=e2562] [cursor=pointer]:
+                  - img [ref=e2565]
+                  - generic: sme-pg-ro
+                - button "vpa-vertical-pod-autoscaler-recommender-metrics — Service" [ref=e2569] [cursor=pointer]:
+                  - img [ref=e2572]
+                  - generic: vpa-vertical-pod-autosc…
+                - button "vpa-vertical-pod-autoscaler-updater-metrics — Service" [ref=e2576] [cursor=pointer]:
+                  - img [ref=e2579]
+                  - generic: vpa-vertical-pod-autosc…
+                - button "opentelemetry-operator — Service" [ref=e2583] [cursor=pointer]:
+                  - img [ref=e2586]
+                  - generic: opentelemetry-operator
+                - button "k8s-ws-proxy — Service" [ref=e2590] [cursor=pointer]:
+                  - img [ref=e2593]
+                  - generic: k8s-ws-proxy
+                - button "kyverno-cleanup-controller — Service" [ref=e2597] [cursor=pointer]:
+                  - img [ref=e2600]
+                  - generic: kyverno-cleanup-control…
+                - button "mimir-alertmanager — Service" [ref=e2604] [cursor=pointer]:
+                  - img [ref=e2607]
+                  - generic: mimir-alertmanager
+                - button "mimir-query-scheduler — Service" [ref=e2611] [cursor=pointer]:
+                  - img [ref=e2614]
+                  - generic: mimir-query-scheduler
+                - button "pdns-pg-ro — Service" [ref=e2618] [cursor=pointer]:
+                  - img [ref=e2621]
+                  - generic: pdns-pg-ro
+                - button "seaweedfs-filer — Service" [ref=e2625] [cursor=pointer]:
+                  - img [ref=e2628]
+                  - generic: seaweedfs-filer
+                - button "valkey-primary — Service" [ref=e2632] [cursor=pointer]:
+                  - img [ref=e2635]
+                  - generic: valkey-primary
+                - button "cnpg-webhook-service — Service" [ref=e2639] [cursor=pointer]:
+                  - img [ref=e2642]
+                  - generic: cnpg-webhook-service
+                - button "dmz-vcluster-headless — Service" [ref=e2646] [cursor=pointer]:
+                  - img [ref=e2649]
+                  - generic: dmz-vcluster-headless
+                - button "gitea-http — Service" [ref=e2653] [cursor=pointer]:
+                  - img [ref=e2656]
+                  - generic: gitea-http
+                - button "gitea-pg-ro — Service" [ref=e2660] [cursor=pointer]:
+                  - img [ref=e2663]
+                  - generic: gitea-pg-ro
+                - button "keycloak-postgresql — Service" [ref=e2667] [cursor=pointer]:
+                  - img [ref=e2670]
+                  - generic: keycloak-postgresql
+                - button "mimir-store-gateway — Service" [ref=e2674] [cursor=pointer]:
+                  - img [ref=e2677]
+                  - generic: mimir-store-gateway
+                - button "pdns-pg-rw — Service" [ref=e2681] [cursor=pointer]:
+                  - img [ref=e2684]
+                  - generic: pdns-pg-rw
+                - button "sme-pg-rw — Service" [ref=e2688] [cursor=pointer]:
+                  - img [ref=e2691]
+                  - generic: sme-pg-rw
+                - button "valkey-headless — Service" [ref=e2695] [cursor=pointer]:
+                  - img [ref=e2698]
+                  - generic: valkey-headless
+                - button "sandbox-controller-metrics — Service" [ref=e2702] [cursor=pointer]:
+                  - img [ref=e2705]
+                  - generic: sandbox-controller-metr…
+                - button "keycloak-postgresql-hl — Service" [ref=e2709] [cursor=pointer]:
+                  - img [ref=e2712]
+                  - generic: keycloak-postgresql-hl
+                - button "kyverno-background-controller-metrics — Service" [ref=e2716] [cursor=pointer]:
+                  - img [ref=e2719]
+                  - generic: kyverno-background-cont…
+                - button "kyverno-cleanup-controller-metrics — Service" [ref=e2723] [cursor=pointer]:
+                  - img [ref=e2726]
+                  - generic: kyverno-cleanup-control…
+                - button "openbao-agent-injector-svc — Service" [ref=e2730] [cursor=pointer]:
+                  - img [ref=e2733]
+                  - generic: openbao-agent-injector-…
+                - button "pdns-pg-r — Service" [ref=e2737] [cursor=pointer]:
+                  - img [ref=e2740]
+                  - generic: pdns-pg-r
+                - button "harbor-registry — Service" [ref=e2744] [cursor=pointer]:
+                  - img [ref=e2747]
+                  - generic: harbor-registry
+                - button "pillar3-primary-rw — Service" [ref=e2751] [cursor=pointer]:
+                  - img [ref=e2754]
+                  - generic: pillar3-primary-rw
+                - button "webhook-receiver — Service" [ref=e2758] [cursor=pointer]:
+                  - img [ref=e2761]
+                  - generic: webhook-receiver
+                - button "mimir-ingester-headless — Service" [ref=e2765] [cursor=pointer]:
+                  - img [ref=e2768]
+                  - generic: mimir-ingester-headless
+                - button "console — Service" [ref=e2772] [cursor=pointer]:
+                  - img [ref=e2775]
+                  - generic: console
+                - button "openova-flow-pg-r — Service" [ref=e2779] [cursor=pointer]:
+                  - img [ref=e2782]
+                  - generic: openova-flow-pg-r
+                - button "hubble-relay — Service" [ref=e2786] [cursor=pointer]:
+                  - img [ref=e2789]
+                  - generic: hubble-relay
+                - button "loki-headless — Service" [ref=e2793] [cursor=pointer]:
+                  - img [ref=e2796]
+                  - generic: loki-headless
+                - button "pillar3-primary-r — Service" [ref=e2800] [cursor=pointer]:
+                  - img [ref=e2803]
+                  - generic: pillar3-primary-r
+                - button "sealed-secrets-controller — Service" [ref=e2807] [cursor=pointer]:
+                  - img [ref=e2810]
+                  - generic: sealed-secrets-controll…
+                - button "kyverno-svc — Service" [ref=e2814] [cursor=pointer]:
+                  - img [ref=e2817]
+                  - generic: kyverno-svc
+                - button "webhook — Service" [ref=e2821] [cursor=pointer]:
+                  - img [ref=e2824]
+                  - generic: webhook
+                - button "vpa-webhook — Service" [ref=e2828] [cursor=pointer]:
+                  - img [ref=e2831]
+                  - generic: vpa-webhook
+                - button "guacamole-server — Service" [ref=e2835] [cursor=pointer]:
+                  - img [ref=e2838]
+                  - generic: guacamole-server
+                - button "keycloak — Service" [ref=e2842] [cursor=pointer]:
+                  - img [ref=e2845]
+                  - generic: keycloak
+                - button "loki — Service" [ref=e2849] [cursor=pointer]:
+                  - img [ref=e2852]
+                  - generic: loki
+                - button "mimir-ingester — Service" [ref=e2856] [cursor=pointer]:
+                  - img [ref=e2859]
+                  - generic: mimir-ingester
+                - button "auth — Service" [ref=e2863] [cursor=pointer]:
+                  - img [ref=e2866]
+                  - generic: auth
+                - button "harbor-core — Service" [ref=e2870] [cursor=pointer]:
+                  - img [ref=e2873]
+                  - generic: harbor-core
+                - button "harbor — Service" [ref=e2877] [cursor=pointer]:
+                  - img [ref=e2880]
+                  - generic: harbor
+                - button "gitea-pg-r — Service" [ref=e2884] [cursor=pointer]:
+                  - img [ref=e2887]
+                  - generic: gitea-pg-r
+                - button "mimir-gossip-ring — Service" [ref=e2891] [cursor=pointer]:
+                  - img [ref=e2894]
+                  - generic: mimir-gossip-ring
+                - button "mimir-minio-console — Service" [ref=e2898] [cursor=pointer]:
+                  - img [ref=e2901]
+                  - generic: mimir-minio-console
+                - button "openbao-active — Service" [ref=e2905] [cursor=pointer]:
+                  - img [ref=e2908]
+                  - generic: openbao-active
+                - button "sme-pg-r — Service" [ref=e2912] [cursor=pointer]:
+                  - img [ref=e2915]
+                  - generic: sme-pg-r
+                - button "coraza-bp-coraza — Service" [ref=e2919] [cursor=pointer]:
+                  - img [ref=e2922]
+                  - generic: coraza-bp-coraza
+                - button "falco-k8saudit-webhook — Service" [ref=e2926] [cursor=pointer]:
+                  - img [ref=e2929]
+                  - generic: falco-k8saudit-webhook
+                - button "mimir-query-frontend — Service" [ref=e2933] [cursor=pointer]:
+                  - img [ref=e2936]
+                  - generic: mimir-query-frontend
+                - button "seaweedfs-master — Service" [ref=e2940] [cursor=pointer]:
+                  - img [ref=e2943]
+                  - generic: seaweedfs-master
+                - button "gateway — Service" [ref=e2947] [cursor=pointer]:
+                  - img [ref=e2950]
+                  - generic: gateway
+                - button "cert-manager-webhook — Service" [ref=e2954] [cursor=pointer]:
+                  - img [ref=e2957]
+                  - generic: cert-manager-webhook
+                - button "keycloak-headless — Service" [ref=e2961] [cursor=pointer]:
+                  - img [ref=e2964]
+                  - generic: keycloak-headless
+                - button "cilium-gateway-cilium-gateway — Service" [ref=e2968] [cursor=pointer]:
+                  - img [ref=e2971]
+                  - generic: cilium-gateway-cilium-g…
+                - button "kube-dns — Service" [ref=e2975] [cursor=pointer]:
+                  - img [ref=e2978]
+                  - generic: kube-dns
+                - button "mimir-distributor-headless — Service" [ref=e2982] [cursor=pointer]:
+                  - img [ref=e2985]
+                  - generic: mimir-distributor-headl…
+                - button "powerdns — Service" [ref=e2989] [cursor=pointer]:
+                  - img [ref=e2992]
+                  - generic: powerdns
+                - button "trivy-trivy-operator — Service" [ref=e2996] [cursor=pointer]:
+                  - img [ref=e2999]
+                  - generic: trivy-trivy-operator
+            - generic:
+              - generic: 371 nodes
+              - generic: 292 edges
+          - button "ArchiMate connections (12)" [ref=e3004]:
+            - img [ref=e3005]
+            - generic [ref=e3008]: ArchiMate connections (12)

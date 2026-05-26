@@ -1,0 +1,124 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - img [ref=e7]
+        - generic [ref=e9]: OpenOva Sovereign
+      - button "hw01.omani.works" [ref=e11]:
+        - generic [ref=e12]: hw01.omani.works
+        - img [ref=e13]
+    - navigation [ref=e15]:
+      - link "Dashboard" [ref=e16] [cursor=pointer]:
+        - /url: /dashboard
+        - img [ref=e17]
+        - text: Dashboard
+      - link "Cloud" [ref=e19] [cursor=pointer]:
+        - /url: /cloud
+        - img [ref=e20]
+        - text: Cloud
+      - link "Apps" [ref=e22] [cursor=pointer]:
+        - /url: /apps
+        - img [ref=e23]
+        - text: Apps
+      - link "Sandbox" [ref=e25] [cursor=pointer]:
+        - /url: /sandbox
+        - img [ref=e26]
+        - text: Sandbox
+      - link "Jobs" [ref=e28] [cursor=pointer]:
+        - /url: /jobs
+        - img [ref=e29]
+        - text: Jobs
+      - link "Users" [ref=e31] [cursor=pointer]:
+        - /url: /users
+        - img [ref=e32]
+        - text: Users
+      - link "BSS" [ref=e34] [cursor=pointer]:
+        - /url: /bss
+        - img [ref=e35]
+        - text: BSS
+      - link "Settings" [ref=e37] [cursor=pointer]:
+        - /url: /settings
+        - img [ref=e38]
+        - text: Settings
+    - generic [ref=e41]:
+      - generic [ref=e42]: T
+      - generic [ref=e43]:
+        - paragraph [ref=e44]: Tenant
+        - paragraph [ref=e45]: hw01.omani.works
+  - generic [ref=e46]:
+    - banner [ref=e47]:
+      - generic [ref=e48]:
+        - heading "Applications" [level=1] [ref=e49]
+        - link "← Back to apps" [ref=e50] [cursor=pointer]:
+          - /url: /dashboard
+      - generic [ref=e51]:
+        - button "No notifications" [ref=e53]:
+          - img [ref=e54]
+        - button "Switch to light theme" [ref=e57]:
+          - img [ref=e58]
+        - button "Q" [ref=e159] [cursor=pointer]
+    - main [ref=e65]:
+      - generic [ref=e66]:
+        - paragraph [ref=e67]: "AppDetail · canonical 7-tab strip: app-tab-overview · app-tab-topology · app-tab-resources · app-tab-compliance · app-tab-logs · app-tab-settings · app-tab-members"
+        - generic [ref=e68]:
+          - img "OpenTelemetry" [ref=e69]
+          - generic [ref=e70]:
+            - heading "bp-opentelemetry — OpenTelemetry" [level=1] [ref=e71]:
+              - text: bp-opentelemetry
+              - generic [ref=e72]: — OpenTelemetry
+            - paragraph [ref=e73]: Vendor-neutral SDKs and Collector for traces, metrics, logs
+            - generic [ref=e74]:
+              - generic [ref=e75]: INSIGHTS
+              - generic [ref=e76]: BOOTSTRAP
+              - generic [ref=e77]: flux-system
+              - generic [ref=e78]: bp-opentelemetry@1.2.0
+              - generic [ref=e79]: Ready
+              - button "Bootstrap blueprint (not in marketplace)" [disabled] [ref=e160]
+              - generic "Phase derived from HelmRelease Ready condition (no Application CR)" [ref=e161]: "source: HelmRelease"
+        - tablist "App detail tabs" [ref=e82]:
+          - tab "Overview" [ref=e83] [cursor=pointer]:
+            - text: Overview
+            - tab: Overview
+          - tab "Topology" [ref=e84] [cursor=pointer]:
+            - text: Topology
+            - tab: Topology
+          - tab "Resources" [ref=e85] [cursor=pointer]:
+            - text: Resources
+            - tab: Resources
+          - tab "Compliance" [active] [selected] [ref=e86] [cursor=pointer]:
+            - text: Compliance
+            - tab: Compliance
+          - tab "Logs" [ref=e87] [cursor=pointer]:
+            - text: Logs
+            - tab: Logs
+          - tab "Settings" [ref=e88] [cursor=pointer]:
+            - text: Settings
+            - tab: Settings
+          - tab "Members" [ref=e89] [cursor=pointer]:
+            - text: Members
+            - tab: Members
+          - tab "Jobs 1" [ref=e90] [cursor=pointer]:
+            - text: Jobs
+            - generic [ref=e91]: "1"
+            - tab: Jobs
+          - tab "Dependencies 2" [ref=e92] [cursor=pointer]:
+            - text: Dependencies
+            - generic [ref=e93]: "2"
+            - tab: Dependencies
+        - tabpanel [ref=e94]:
+          - generic [ref=e162]:
+            - generic [ref=e163]:
+              - generic [ref=e164]: —
+              - generic [ref=e165]:
+                - heading "Compliance score" [level=3] [ref=e166]
+                - paragraph [ref=e167]: No policies have evaluated this application yet.
+            - generic [ref=e168]:
+              - heading "Per-policy outcome" [level=3] [ref=e169]
+              - paragraph [ref=e170]:
+                - text: No per-policy results yet for this application. Kyverno PolicyReports for
+                - code [ref=e171]: bp-opentelemetry
+                - text: will appear here as admission webhooks evaluate this application's resources.
+            - generic [ref=e172]:
+              - heading "What would I need to fix to reach 90%" [level=3] [ref=e173]
+              - paragraph [ref=e174]: Loading suggestions or no failing policies.
+              - paragraph [ref=e175]: 0 active Violations — each Violation reduces the Compliance Score for this Application.

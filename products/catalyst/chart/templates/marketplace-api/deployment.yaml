@@ -64,4 +64,5 @@ spec:
             readOnlyRootFilesystem: true
             runAsNonRoot: true
             runAsUser: 65534
+        policy.cilium.io/enforced: "true"  # Wave 5.121 #2466
 {{- end }}

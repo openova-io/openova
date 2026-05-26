@@ -1,0 +1,25 @@
+- main [ref=e3]:
+  - img [ref=e9]:
+    - generic [ref=e10]:
+      - generic "Open ao" [ref=e11]
+      - generic "B" [ref=e12]
+  - generic:
+    - generic:
+      - button [ref=e20] [cursor=pointer]:
+        - img [ref=e21]
+      - generic [ref=e23]:
+        - generic [ref=e24]:
+          - paragraph [ref=e25]: "The OpenBao Browser CLI provides an easy way to execute common OpenBao CLI commands, such as write, read, delete, and list. It does not include kv v2 write or put commands. For guidance, type `help`."
+          - paragraph [ref=e26]: "Examples:"
+          - paragraph [ref=e27]: "→ Write secrets to kv v1: write <mount>/my-secret foo=bar"
+          - paragraph [ref=e28]: "→ List kv v1 secret keys: list <mount>/"
+          - paragraph [ref=e29]: "→ Read a kv v1 secret: read <mount>/my-secret"
+          - paragraph [ref=e30]: "→ Mount a kv v2 secret engine: write sys/mounts/<mount> type=kv options=version=2"
+          - paragraph [ref=e31]: "→ Read a kv v2 secret: kv-get <mount>/secret-path"
+          - paragraph [ref=e32]: "→ Read a kv v2 secret's metadata: kv-get <mount>/secret-path -metadata"
+        - generic [ref=e34]:
+          - img [ref=e35]
+          - textbox [ref=e37]
+          - button [ref=e38]:
+            - button [ref=e39] [cursor=pointer]:
+              - img [ref=e40]

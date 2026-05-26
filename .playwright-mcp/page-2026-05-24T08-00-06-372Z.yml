@@ -1,0 +1,104 @@
+- generic [ref=e157]:
+  - complementary [ref=e158]:
+    - generic [ref=e159]:
+      - generic [ref=e160]:
+        - img [ref=e161]
+        - generic [ref=e163]: OpenOva Sovereign
+      - button "hw01.omani.works" [ref=e165]:
+        - generic [ref=e166]: hw01.omani.works
+        - img [ref=e167]
+    - navigation [ref=e169]:
+      - link "Dashboard" [ref=e170] [cursor=pointer]:
+        - /url: /dashboard
+        - img [ref=e171]
+        - text: Dashboard
+      - link "Cloud" [ref=e173] [cursor=pointer]:
+        - /url: /cloud
+        - img [ref=e174]
+        - text: Cloud
+      - link "Apps" [ref=e176] [cursor=pointer]:
+        - /url: /apps
+        - img [ref=e177]
+        - text: Apps
+      - link "Sandbox" [ref=e179] [cursor=pointer]:
+        - /url: /sandbox
+        - img [ref=e180]
+        - text: Sandbox
+      - link "Jobs" [ref=e182] [cursor=pointer]:
+        - /url: /jobs
+        - img [ref=e183]
+        - text: Jobs
+      - link "Users" [ref=e185] [cursor=pointer]:
+        - /url: /users
+        - img [ref=e186]
+        - text: Users
+      - link "BSS" [ref=e188] [cursor=pointer]:
+        - /url: /bss
+        - img [ref=e189]
+        - text: BSS
+      - link "Settings" [ref=e191] [cursor=pointer]:
+        - /url: /settings
+        - img [ref=e192]
+        - text: Settings
+    - generic [ref=e195]:
+      - generic [ref=e196]: T
+      - generic [ref=e197]:
+        - paragraph [ref=e198]: Tenant
+        - paragraph [ref=e199]: hw01.omani.works
+  - generic [ref=e200]:
+    - banner [ref=e201]:
+      - generic [ref=e202]:
+        - heading "Sandbox · wave-5-57-walk-verify" [level=1] [ref=e203]
+        - link "← Back to sandbox" [ref=e204] [cursor=pointer]:
+          - /url: /sandbox
+      - generic [ref=e205]:
+        - button "No notifications" [ref=e207]:
+          - img [ref=e208]
+        - button "Switch to light theme" [ref=e211]:
+          - img [ref=e212]
+        - button "A" [ref=e219] [cursor=pointer]
+    - main [ref=e220]:
+      - generic [ref=e222]:
+        - generic [ref=e223]:
+          - generic [ref=e224]:
+            - heading "Provisioning Sandbox" [level=2] [ref=e225]
+            - paragraph [ref=e226]: The sandbox-controller is reconciling wave-5-57-walk-verify. The terminal attaches automatically once every stage is ready.
+          - generic [ref=e227]: Failed
+        - list "Sandbox provisioning stages" [ref=e228]:
+          - listitem [ref=e229]:
+            - img [ref=e231]
+            - generic [ref=e233]:
+              - paragraph [ref=e234]: Namespace
+              - paragraph [ref=e235]: sandbox-<owner> namespace + labels
+          - listitem [ref=e236]:
+            - img [ref=e238]
+            - generic [ref=e240]:
+              - paragraph [ref=e241]: RBAC
+              - paragraph [ref=e242]: ServiceAccount + Role + RoleBinding
+          - listitem [ref=e243]:
+            - img [ref=e245]
+            - generic [ref=e247]:
+              - paragraph [ref=e248]: Storage
+              - paragraph [ref=e249]: repo + claude-memory + cache PVCs
+          - listitem [ref=e250]:
+            - img [ref=e252]
+            - generic [ref=e254]:
+              - paragraph [ref=e255]: pty Pod
+              - paragraph [ref=e256]: pty-server Pod + Service
+          - listitem [ref=e257]:
+            - img [ref=e259]
+            - generic [ref=e261]:
+              - paragraph [ref=e262]: MCP Pod
+              - paragraph [ref=e263]: sandbox-mcp-server Pod + Service
+          - listitem [ref=e264]:
+            - img [ref=e266]
+            - generic [ref=e268]:
+              - paragraph [ref=e269]: newapi Token
+              - paragraph [ref=e270]: minted + secret-bound
+        - generic [ref=e271]:
+          - paragraph [ref=e272]: Provisioning failed
+          - list [ref=e273]:
+            - listitem [ref=e274]:
+              - generic [ref=e275]: Ready · TokenMintFailed
+              - generic [ref=e276]: "newapi: decode response: invalid character '<' looking for beginning of value"
+        - button "Delete + retry" [ref=e278]

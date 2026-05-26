@@ -38,6 +38,7 @@ app.kubernetes.io/component: controller
 app.kubernetes.io/part-of: catalyst
 app.kubernetes.io/managed-by: {{ .root.Release.Service | default "Helm" }}
 catalyst.openova.io/controller: {{ .name }}
+policy.cilium.io/enforced: "true"
 {{- end -}}
 
 {{/* Selector labels (subset that does not change between releases). */}}

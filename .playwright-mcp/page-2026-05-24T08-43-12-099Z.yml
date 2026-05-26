@@ -1,0 +1,96 @@
+- generic [ref=e175]:
+  - complementary [ref=e176]:
+    - generic [ref=e177]:
+      - generic [ref=e178]:
+        - img [ref=e179]
+        - generic [ref=e181]: OpenOva Sovereign
+      - button "hw01.omani.works" [ref=e183]:
+        - generic [ref=e184]: hw01.omani.works
+        - img [ref=e185]
+    - navigation [ref=e187]:
+      - link "Dashboard" [ref=e188] [cursor=pointer]:
+        - /url: /dashboard
+        - img [ref=e189]
+        - text: Dashboard
+      - link "Cloud" [ref=e191] [cursor=pointer]:
+        - /url: /cloud
+        - img [ref=e192]
+        - text: Cloud
+      - link "Apps" [ref=e194] [cursor=pointer]:
+        - /url: /apps
+        - img [ref=e195]
+        - text: Apps
+      - link "Sandbox" [ref=e197] [cursor=pointer]:
+        - /url: /sandbox
+        - img [ref=e198]
+        - text: Sandbox
+      - link "Jobs" [ref=e200] [cursor=pointer]:
+        - /url: /jobs
+        - img [ref=e201]
+        - text: Jobs
+      - link "Users" [ref=e203] [cursor=pointer]:
+        - /url: /users
+        - img [ref=e204]
+        - text: Users
+      - link "BSS" [ref=e206] [cursor=pointer]:
+        - /url: /bss
+        - img [ref=e207]
+        - text: BSS
+      - link "Settings" [ref=e209] [cursor=pointer]:
+        - /url: /settings
+        - img [ref=e210]
+        - text: Settings
+    - generic [ref=e213]:
+      - generic [ref=e214]: T
+      - generic [ref=e215]:
+        - paragraph [ref=e216]: Tenant
+        - paragraph [ref=e217]: hw01.omani.works
+  - generic [ref=e218]:
+    - banner [ref=e219]:
+      - generic [ref=e220]:
+        - heading "Sandbox · w557-v5-late" [level=1] [ref=e221]
+        - link "← Back to sandbox" [ref=e222] [cursor=pointer]:
+          - /url: /sandbox
+      - generic [ref=e223]:
+        - button "No notifications" [ref=e225]:
+          - img [ref=e226]
+        - button "Switch to light theme" [ref=e229]:
+          - img [ref=e230]
+        - button "A" [ref=e237] [cursor=pointer]
+    - main [ref=e238]:
+      - generic [ref=e240]:
+        - generic [ref=e241]:
+          - generic [ref=e242]:
+            - heading "Provisioning Sandbox" [level=2] [ref=e243]
+            - paragraph [ref=e244]: The sandbox-controller is reconciling w557-v5-late. The terminal attaches automatically once every stage is ready.
+          - generic [ref=e245]: Pending
+        - list "Sandbox provisioning stages" [ref=e246]:
+          - listitem [ref=e247]:
+            - generic [ref=e250]:
+              - paragraph [ref=e251]: Namespace
+              - paragraph [ref=e252]: sandbox-<owner> namespace + labels
+          - listitem [ref=e253]:
+            - img [ref=e255]
+            - generic [ref=e257]:
+              - paragraph [ref=e258]: RBAC
+              - paragraph [ref=e259]: ServiceAccount + Role + RoleBinding
+          - listitem [ref=e260]:
+            - img [ref=e262]
+            - generic [ref=e264]:
+              - paragraph [ref=e265]: Storage
+              - paragraph [ref=e266]: repo + claude-memory + cache PVCs
+          - listitem [ref=e267]:
+            - img [ref=e269]
+            - generic [ref=e271]:
+              - paragraph [ref=e272]: pty Pod
+              - paragraph [ref=e273]: pty-server Pod + Service
+          - listitem [ref=e274]:
+            - img [ref=e276]
+            - generic [ref=e278]:
+              - paragraph [ref=e279]: MCP Pod
+              - paragraph [ref=e280]: sandbox-mcp-server Pod + Service
+          - listitem [ref=e281]:
+            - img [ref=e283]
+            - generic [ref=e285]:
+              - paragraph [ref=e286]: newapi Token
+              - paragraph [ref=e287]: minted + secret-bound

@@ -1,0 +1,118 @@
+- generic [ref=e9]:
+  - complementary [ref=e10]:
+    - generic [ref=e11]:
+      - generic [ref=e12]:
+        - img [ref=e13]
+        - generic [ref=e15]: OpenOva Sovereign
+      - button "hw01.omani.works" [ref=e17]:
+        - generic [ref=e18]: hw01.omani.works
+        - img [ref=e19]
+    - navigation [ref=e21]:
+      - link "Dashboard" [ref=e22] [cursor=pointer]:
+        - /url: /dashboard
+        - img [ref=e23]
+        - text: Dashboard
+      - link "Cloud" [ref=e25] [cursor=pointer]:
+        - /url: /cloud
+        - img [ref=e26]
+        - text: Cloud
+      - link "Apps" [ref=e28] [cursor=pointer]:
+        - /url: /apps
+        - img [ref=e29]
+        - text: Apps
+      - link "Sandbox" [ref=e31] [cursor=pointer]:
+        - /url: /sandbox
+        - img [ref=e32]
+        - text: Sandbox
+      - link "Jobs" [ref=e34] [cursor=pointer]:
+        - /url: /jobs
+        - img [ref=e35]
+        - text: Jobs
+      - link "Users" [ref=e37] [cursor=pointer]:
+        - /url: /users
+        - img [ref=e38]
+        - text: Users
+      - link "BSS" [ref=e40] [cursor=pointer]:
+        - /url: /bss
+        - img [ref=e41]
+        - text: BSS
+      - link "Settings" [ref=e43] [cursor=pointer]:
+        - /url: /settings
+        - img [ref=e44]
+        - text: Settings
+    - generic [ref=e47]:
+      - generic [ref=e48]: T
+      - generic [ref=e49]:
+        - paragraph [ref=e50]: Tenant
+        - paragraph [ref=e51]: hw01.omani.works
+  - generic [ref=e52]:
+    - banner [ref=e53]:
+      - generic [ref=e54]:
+        - heading "Sandbox" [level=1] [ref=e55]
+        - link "Settings →" [ref=e56] [cursor=pointer]:
+          - /url: /sandbox/settings
+      - generic [ref=e57]:
+        - button "No notifications" [ref=e59]:
+          - img [ref=e60]
+        - button "Switch to light theme" [ref=e63]:
+          - img [ref=e64]
+        - button "Q" [ref=e71] [cursor=pointer]
+    - main [ref=e72]:
+      - generic [ref=e73]:
+        - region "Choose an agent" [ref=e74]:
+          - article [ref=e75]:
+            - generic [ref=e76]:
+              - generic [ref=e77]:
+                - heading "Aider" [level=2] [ref=e78]
+                - paragraph [ref=e79]: aider
+              - img [ref=e80]
+            - paragraph [ref=e82]: AI pair-programming in your terminal. Git-native edits, multi-file refactors.
+            - button "Start session" [ref=e84]
+          - article [ref=e85]:
+            - generic [ref=e86]:
+              - generic [ref=e87]:
+                - heading "Claude Code" [level=2] [ref=e88]
+                - paragraph [ref=e89]: claude-code
+              - img [ref=e90]
+            - paragraph [ref=e92]: Anthropic’s official agent CLI. Connect Claude Max to use your subscription.
+            - generic [ref=e93]:
+              - button "Start session" [ref=e94]
+              - link "Connect Claude Max" [ref=e95] [cursor=pointer]:
+                - /url: /sandbox/settings
+          - article [ref=e96]:
+            - generic [ref=e97]:
+              - generic [ref=e98]:
+                - heading "Cursor Agent" [level=2] [ref=e99]
+                - paragraph [ref=e100]: cursor-agent
+              - img [ref=e101]
+            - paragraph [ref=e103]: Cursor’s background agent CLI for autonomous code changes.
+            - button "Start session" [ref=e105]
+          - article [ref=e106]:
+            - generic [ref=e107]:
+              - generic [ref=e108]:
+                - heading "Little Coder" [level=2] [ref=e109]
+                - paragraph [ref=e110]: little-coder
+              - img [ref=e111]
+            - paragraph [ref=e113]: Lightweight scoped agent for small, focused edits.
+            - button "Start session" [ref=e115]
+          - article [ref=e116]:
+            - generic [ref=e117]:
+              - generic [ref=e118]:
+                - heading "OpenCode" [level=2] [ref=e119]
+                - paragraph [ref=e120]: opencode
+              - img [ref=e121]
+            - paragraph [ref=e123]: Open-source agent runtime with a swappable model backend.
+            - button "Start session" [ref=e125]
+          - article [ref=e126]:
+            - generic [ref=e127]:
+              - generic [ref=e128]:
+                - heading "Qwen Code" [level=2] [ref=e129]
+                - paragraph [ref=e130]: qwen-code
+              - img [ref=e131]
+            - paragraph [ref=e133]: Alibaba Qwen coding agent. OSS-friendly model defaults.
+            - button "Start session" [ref=e135]
+        - region "Recent sessions" [ref=e136]:
+          - generic [ref=e138]:
+            - heading "Recent sessions" [level=2] [ref=e139]
+            - paragraph [ref=e140]: Sandbox sessions persist across browser tabs — closing this tab does not stop the agent. Pick a session to reattach.
+          - paragraph [ref=e141]: No sandbox sessions yet. Pick an agent above to start one.

@@ -1,0 +1,202 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e3]:
+    - generic [ref=e4]:
+      - link "OpenOva" [ref=e5] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e6]:
+          - img [ref=e7]
+          - generic [ref=e9]: OpenOva
+      - navigation [ref=e10]:
+        - link "1" [ref=e11] [cursor=pointer]:
+          - /url: /plans
+          - generic [ref=e12]: "1"
+        - generic [ref=e13]: ·
+        - link "2" [ref=e14] [cursor=pointer]:
+          - /url: /apps
+          - generic [ref=e15]: "2"
+        - generic [ref=e16]: ·
+        - link "3" [ref=e17] [cursor=pointer]:
+          - /url: /addons
+          - generic [ref=e18]: "3"
+        - generic [ref=e19]: ·
+        - link "4" [ref=e20] [cursor=pointer]:
+          - /url: /bcp
+          - generic [ref=e21]: "4"
+        - generic [ref=e22]: ·
+        - link "5" [ref=e23] [cursor=pointer]:
+          - /url: /review
+          - generic [ref=e24]: "5"
+        - generic [ref=e25]: ·
+        - link "6" [ref=e26] [cursor=pointer]:
+          - /url: /checkout
+          - generic [ref=e27]: "6"
+      - generic [ref=e28]:
+        - button "Toggle light / dark theme" [ref=e29]:
+          - img [ref=e30]
+        - link [ref=e32] [cursor=pointer]:
+          - /url: /review
+          - img [ref=e33]
+        - link "Sign in" [ref=e35] [cursor=pointer]:
+          - /url: /checkout
+          - img [ref=e36]
+          - text: Sign in
+  - main [ref=e38]:
+    - generic [ref=e39]:
+      - generic [ref=e40]:
+        - heading "Pick a plan" [level=1] [ref=e41]
+        - generic [ref=e42]:
+          - complementary [ref=e43]:
+            - generic [ref=e45]: vCPU
+            - generic [ref=e46]: RAM
+            - generic [ref=e47]: Disk
+            - generic [ref=e48]: Bandwidth
+            - generic [ref=e49]: Backup retention
+            - generic [ref=e50]: SSL certificates
+            - generic [ref=e51]: SSO (SAML / OIDC)
+            - generic [ref=e52]: Response SLA
+            - generic [ref=e53]: Support
+          - generic [ref=e55]:
+            - article [ref=e57]:
+              - generic [ref=e58]:
+                - heading "S" [level=3] [ref=e59]
+                - generic [ref=e61]:
+                  - generic [ref=e62]: OMR
+                  - strong [ref=e63]: "5.000"
+                  - generic [ref=e64]: / mo
+              - generic [ref=e65]: 2 vCPU
+              - generic [ref=e66]: 4 GB
+              - generic [ref=e67]: 25 GB
+              - generic [ref=e68]: 500 GB / mo
+              - generic [ref=e69]: 7 days
+              - generic [ref=e70]: ✓
+              - generic [ref=e71]: ✓
+              - generic [ref=e72]: —
+              - generic [ref=e73]: Email
+              - button "Select" [ref=e75] [cursor=pointer]
+            - generic [ref=e76]:
+              - generic [ref=e77]: Popular
+              - article [ref=e78]:
+                - generic [ref=e79]:
+                  - heading "M" [level=3] [ref=e80]
+                  - generic [ref=e82]:
+                    - generic [ref=e83]: OMR
+                    - strong [ref=e84]: "9.000"
+                    - generic [ref=e85]: / mo
+                - generic [ref=e86]: 4 vCPU
+                - generic [ref=e87]: 8 GB
+                - generic [ref=e88]: 50 GB
+                - generic [ref=e89]: 2 TB / mo
+                - generic [ref=e90]: 15 days
+                - generic [ref=e91]: ✓
+                - generic [ref=e92]: ✓
+                - generic [ref=e93]: 8h
+                - generic [ref=e94]: Email + Chat
+                - button "Select" [ref=e96] [cursor=pointer]
+            - article [ref=e98]:
+              - generic [ref=e99]:
+                - heading "L" [level=3] [ref=e100]
+                - generic [ref=e102]:
+                  - generic [ref=e103]: OMR
+                  - strong [ref=e104]: "16.000"
+                  - generic [ref=e105]: / mo
+              - generic [ref=e106]: 8 vCPU
+              - generic [ref=e107]: 16 GB
+              - generic [ref=e108]: 100 GB
+              - generic [ref=e109]: 10 TB / mo
+              - generic [ref=e110]: 30 days
+              - generic [ref=e111]: ✓
+              - generic [ref=e112]: ✓
+              - generic [ref=e113]: 4h
+              - generic [ref=e114]: Email + Chat + Phone
+              - button "Select" [ref=e116] [cursor=pointer]
+            - article [ref=e118]:
+              - generic [ref=e119]:
+                - heading "XL" [level=3] [ref=e120]
+                - generic [ref=e122]:
+                  - generic [ref=e123]: OMR
+                  - strong [ref=e124]: "30.000"
+                  - generic [ref=e125]: / mo
+              - generic [ref=e126]: 16 vCPU
+              - generic [ref=e127]: 32 GB
+              - generic [ref=e128]: 200 GB
+              - generic [ref=e129]: Unlimited
+              - generic [ref=e130]: 90 days
+              - generic [ref=e131]: ✓
+              - generic [ref=e132]: ✓
+              - generic [ref=e133]: 1h
+              - generic [ref=e134]: Dedicated account manager
+              - button "Select" [ref=e136] [cursor=pointer]
+            - article [ref=e138]:
+              - generic [ref=e139]:
+                - heading "Flexi" [level=3] [ref=e140]
+                - generic [ref=e141]:
+                  - generic [ref=e142]: 1 CU = 1 vCPU + 2 GB RAM
+                  - generic [ref=e143]:
+                    - generic [ref=e144]: OMR
+                    - strong [ref=e145]: "2"
+                    - generic [ref=e146]: / CU / mo
+              - generic [ref=e147]: On demand
+              - generic [ref=e148]: On demand
+              - generic [ref=e149]: On demand
+              - generic [ref=e150]: Metered
+              - generic [ref=e151]: Configurable
+              - generic [ref=e152]: ✓
+              - generic [ref=e153]: ✓
+              - generic [ref=e154]: Configurable
+              - generic [ref=e155]: Email + Chat
+              - button "Select" [ref=e157] [cursor=pointer]
+            - article [ref=e159]:
+              - generic [ref=e160]:
+                - heading "Sandbox Free" [level=3] [ref=e161]
+                - generic [ref=e163]:
+                  - generic [ref=e164]: OMR
+                  - strong [ref=e165]: —
+                  - generic [ref=e166]: / mo
+              - generic [ref=e167]: 0.5 vCPU
+              - generic [ref=e168]: 1 GB
+              - generic [ref=e169]: 5 GB
+              - generic [ref=e170]: —
+              - generic [ref=e171]: —
+              - generic [ref=e172]: ✓
+              - generic [ref=e173]: ✓
+              - generic [ref=e174]: —
+              - generic [ref=e175]: —
+              - button "Select" [ref=e177] [cursor=pointer]
+            - generic [ref=e178]:
+              - generic [ref=e179]: Popular
+              - article [ref=e180]:
+                - generic [ref=e181]:
+                  - heading "Sandbox Pro" [level=3] [ref=e182]
+                  - generic [ref=e184]:
+                    - generic [ref=e185]: OMR
+                    - strong [ref=e186]: "9.000"
+                    - generic [ref=e187]: / mo
+                - generic [ref=e188]: 2 vCPU
+                - generic [ref=e189]: 4 GB
+                - generic [ref=e190]: 50 GB
+                - generic [ref=e191]: —
+                - generic [ref=e192]: —
+                - generic [ref=e193]: ✓
+                - generic [ref=e194]: ✓
+                - generic [ref=e195]: —
+                - generic [ref=e196]: —
+                - button "Select" [ref=e198] [cursor=pointer]
+            - article [ref=e200]:
+              - generic [ref=e201]:
+                - heading "Sandbox Ent" [level=3] [ref=e202]
+                - generic [ref=e204]:
+                  - generic [ref=e205]: OMR
+                  - strong [ref=e206]: "49.000"
+                  - generic [ref=e207]: / mo
+              - generic [ref=e208]: 8 vCPU
+              - generic [ref=e209]: 16 GB
+              - generic [ref=e210]: 500 GB
+              - generic [ref=e211]: —
+              - generic [ref=e212]: —
+              - generic [ref=e213]: ✓
+              - generic [ref=e214]: ✓
+              - generic [ref=e215]: —
+              - generic [ref=e216]: —
+              - button "Select" [ref=e218] [cursor=pointer]
+      - link "Continue to Stack →" [ref=e220] [cursor=pointer]:
+        - /url: /apps

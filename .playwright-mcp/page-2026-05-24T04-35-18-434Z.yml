@@ -1,0 +1,292 @@
+- generic [ref=e9]:
+  - complementary [ref=e10]:
+    - generic [ref=e11]:
+      - generic [ref=e12]:
+        - img [ref=e13]
+        - generic [ref=e15]: OpenOva Sovereign
+      - button "hw01.omani.works" [ref=e17]:
+        - generic [ref=e18]: hw01.omani.works
+        - img [ref=e19]
+    - navigation [ref=e21]:
+      - link "Dashboard" [ref=e22] [cursor=pointer]:
+        - /url: /dashboard
+        - img [ref=e23]
+        - text: Dashboard
+      - link "Cloud" [ref=e25] [cursor=pointer]:
+        - /url: /cloud
+        - img [ref=e26]
+        - text: Cloud
+      - link "Apps" [ref=e28] [cursor=pointer]:
+        - /url: /apps
+        - img [ref=e29]
+        - text: Apps
+      - link "Sandbox" [ref=e31] [cursor=pointer]:
+        - /url: /sandbox
+        - img [ref=e32]
+        - text: Sandbox
+      - link "Jobs" [ref=e34] [cursor=pointer]:
+        - /url: /jobs
+        - img [ref=e35]
+        - text: Jobs
+      - link "Users" [ref=e37] [cursor=pointer]:
+        - /url: /users
+        - img [ref=e38]
+        - text: Users
+      - link "BSS" [ref=e40] [cursor=pointer]:
+        - /url: /bss
+        - img [ref=e41]
+        - text: BSS
+      - link "Settings" [ref=e43] [cursor=pointer]:
+        - /url: /settings
+        - img [ref=e44]
+        - text: Settings
+      - list [ref=e46]:
+        - listitem [ref=e47]:
+          - link "Parent Domains" [ref=e48] [cursor=pointer]:
+            - /url: /parent-domains
+    - generic [ref=e50]:
+      - generic [ref=e51]: T
+      - generic [ref=e52]:
+        - paragraph [ref=e53]: Tenant
+        - paragraph [ref=e54]: hw01.omani.works
+  - generic [ref=e55]:
+    - banner [ref=e56]:
+      - heading "Settings" [level=1] [ref=e58]
+      - generic [ref=e59]:
+        - button "No notifications" [ref=e61]:
+          - img [ref=e62]
+        - button "Switch to light theme" [ref=e65]:
+          - img [ref=e66]
+        - button "Q" [ref=e73] [cursor=pointer]
+    - main [ref=e74]:
+      - generic [ref=e76]:
+        - complementary [ref=e77]:
+          - navigation [ref=e78]:
+            - link "Organization" [ref=e79] [cursor=pointer]:
+              - /url: "#organization"
+            - link "Sovereign" [ref=e80] [cursor=pointer]:
+              - /url: "#sovereign"
+            - link "API tokens" [ref=e81] [cursor=pointer]:
+              - /url: "#api-tokens"
+            - link "Cloud credentials" [ref=e82] [cursor=pointer]:
+              - /url: "#cloud-credentials"
+            - link "DNS" [ref=e83] [cursor=pointer]:
+              - /url: "#dns"
+            - link "Domain mode" [ref=e84] [cursor=pointer]:
+              - /url: "#domain-mode"
+            - link "Marketplace" [ref=e85] [cursor=pointer]:
+              - /url: "#marketplace"
+            - link "Notifications" [ref=e86] [cursor=pointer]:
+              - /url: "#notifications"
+            - link "Members" [ref=e87] [cursor=pointer]:
+              - /url: "#members"
+            - link "Danger zone" [ref=e88] [cursor=pointer]:
+              - /url: "#danger-zone"
+        - main [ref=e89]:
+          - generic [ref=e90]:
+            - generic [ref=e92]:
+              - heading "Organization" [level=2] [ref=e93]
+              - paragraph [ref=e94]: Organisation profile, billing contact, logo.
+            - generic [ref=e95]:
+              - generic [ref=e96]:
+                - term [ref=e97]: Name
+                - definition [ref=e98]: Acme Financial
+              - generic [ref=e99]:
+                - term [ref=e100]: Billing email
+                - definition [ref=e101]: platform@acme.io
+              - generic [ref=e102]:
+                - term [ref=e103]: Industry
+                - definition [ref=e104]: Financial Services
+              - generic [ref=e105]:
+                - term [ref=e106]: Headquarters
+                - definition [ref=e107]: Frankfurt, Germany
+          - generic [ref=e108]:
+            - generic [ref=e110]:
+              - heading "Sovereign" [level=2] [ref=e111]
+              - paragraph [ref=e112]: FQDN, region, Capacity (control plane sizing), deployment id, creation date.
+            - generic [ref=e113]:
+              - generic [ref=e114]:
+                - term [ref=e115]: Sovereign FQDN
+                - definition [ref=e116]: hw01.omani.works
+              - generic [ref=e117]:
+                - term [ref=e118]: Region
+                - definition [ref=e119]: —
+              - generic [ref=e120]:
+                - term [ref=e121]: Capacity
+                - definition [ref=e122]: —
+              - generic [ref=e123]:
+                - term [ref=e124]: Control plane size
+                - definition [ref=e125]: —
+              - generic [ref=e126]:
+                - term [ref=e127]: Deployment ID
+                - definition [ref=e128]: sovereign-hw01.omani.works
+              - generic [ref=e129]:
+                - term [ref=e130]: Created
+                - definition [ref=e131]: 1/1/1, 8:05:43 AM
+              - generic [ref=e132]:
+                - term [ref=e133]: Status
+                - definition [ref=e134]: ready
+          - generic [ref=e135]:
+            - generic [ref=e136]:
+              - generic [ref=e137]:
+                - heading "API tokens" [level=2] [ref=e138]
+                - paragraph [ref=e139]: List, create, and revoke service tokens.
+              - generic [ref=e140]:
+                - generic "Backend API not yet wired — display only" [ref=e141]: API pending
+                - button "Create token" [disabled] [ref=e142]
+            - list [ref=e143]:
+              - listitem [ref=e144]:
+                - generic [ref=e145]:
+                  - generic [ref=e146]: Catalyst API
+                  - generic [ref=e147]: Sovereign control plane
+                - generic [ref=e148]:
+                  - code [ref=e149]: ••••••••••••••••
+                  - button "Revoke" [disabled] [ref=e150]
+              - listitem [ref=e151]:
+                - generic [ref=e152]:
+                  - generic [ref=e153]: OpenBao
+                  - generic [ref=e154]: Secrets vault
+                - generic [ref=e155]:
+                  - code [ref=e156]: ••••••••••••••••
+                  - button "Revoke" [disabled] [ref=e157]
+              - listitem [ref=e158]:
+                - generic [ref=e159]:
+                  - generic [ref=e160]: Harbor
+                  - generic [ref=e161]: Container registry
+                - generic [ref=e162]:
+                  - code [ref=e163]: ••••••••••••••••
+                  - button "Revoke" [disabled] [ref=e164]
+              - listitem [ref=e165]:
+                - generic [ref=e166]:
+                  - generic [ref=e167]: Gitea
+                  - generic [ref=e168]: GitOps source
+                - generic [ref=e169]:
+                  - code [ref=e170]: ••••••••••••••••
+                  - button "Revoke" [disabled] [ref=e171]
+              - listitem [ref=e172]:
+                - generic [ref=e173]:
+                  - generic [ref=e174]: Keycloak
+                  - generic [ref=e175]: Identity provider
+                - generic [ref=e176]:
+                  - code [ref=e177]: ••••••••••••••••
+                  - button "Revoke" [disabled] [ref=e178]
+          - generic [ref=e179]:
+            - generic [ref=e180]:
+              - generic [ref=e181]:
+                - heading "Cloud credentials" [level=2] [ref=e182]
+                - paragraph [ref=e183]: Hetzner provider token + S3 backup keys.
+              - generic "Backend API not yet wired — display only" [ref=e185]: API pending
+            - list [ref=e186]:
+              - listitem [ref=e187]:
+                - generic [ref=e188]: Hetzner provider token
+                - generic [ref=e189]:
+                  - code [ref=e190]: ••••••••••••••••
+                  - button "Rotate" [disabled] [ref=e191]
+              - listitem [ref=e192]:
+                - generic [ref=e193]: S3 backup access key
+                - generic [ref=e194]:
+                  - code [ref=e195]: ••••••••••••••••
+                  - button "Rotate" [disabled] [ref=e196]
+              - listitem [ref=e197]:
+                - generic [ref=e198]: S3 backup secret key
+                - generic [ref=e199]:
+                  - code [ref=e200]: ••••••••••••••••
+                  - button "Rotate" [disabled] [ref=e201]
+          - generic [ref=e202]:
+            - generic [ref=e204]:
+              - heading "DNS" [level=2] [ref=e205]
+              - paragraph [ref=e206]: Pool domain, subdomain, TLS issuer status.
+            - generic [ref=e207]:
+              - generic [ref=e208]:
+                - term [ref=e209]: Pool domain
+                - definition [ref=e210]: omani-works
+              - generic [ref=e211]:
+                - term [ref=e212]: Pool subdomain
+                - definition [ref=e213]: —
+              - generic [ref=e214]:
+                - term [ref=e215]: BYO domain
+                - definition [ref=e216]: —
+              - generic [ref=e217]:
+                - term [ref=e218]: TLS issuer
+                - definition [ref=e219]: Let’s Encrypt (cert-manager)
+          - generic [ref=e220]:
+            - generic [ref=e222]:
+              - heading "Domain mode" [level=2] [ref=e223]
+              - paragraph [ref=e224]: Pool vs Bring-Your-Own — read-only after activation.
+            - generic [ref=e225]:
+              - generic [ref=e226]:
+                - term [ref=e227]: Mode
+                - definition [ref=e228]: pool
+              - generic [ref=e229]:
+                - term [ref=e230]: Lock state
+                - definition [ref=e231]: Locked (Sovereign activated)
+          - generic [ref=e232]:
+            - generic [ref=e234]:
+              - heading "Marketplace" [level=2] [ref=e235]
+              - paragraph [ref=e236]: Public storefront, branding, tenant wildcard ingress. Changes are committed to your GitOps repo and reconciled by Flux within ~1 minute.
+            - generic [ref=e237]:
+              - generic [ref=e238]:
+                - paragraph [ref=e240]: Only console + admin routes are exposed; SME services run in the cluster but have no public ingress.
+                - switch [ref=e241] [cursor=pointer]
+              - generic [ref=e243]:
+                - generic [ref=e244]:
+                  - generic [ref=e245]:
+                    - paragraph [ref=e246]: Storefront name
+                    - paragraph [ref=e247]: Display name in the storefront header (e.g. Otech Cloud).
+                  - textbox "Otech Cloud" [disabled] [ref=e249]
+                - generic [ref=e250]:
+                  - generic [ref=e251]:
+                    - paragraph [ref=e252]: Tagline
+                    - paragraph [ref=e253]: Sub-headline shown under the storefront name.
+                  - textbox "Cloud + SaaS for Oman" [disabled] [ref=e255]
+                - generic [ref=e256]:
+                  - generic [ref=e257]:
+                    - paragraph [ref=e258]: Primary colour
+                    - paragraph [ref=e259]: Accent colour for the storefront chrome (#RRGGBB hex).
+                  - generic [ref=e261]:
+                    - textbox [disabled] [ref=e262]: "#3b82f6"
+                    - textbox "#3B82F6" [disabled] [ref=e263]
+              - generic [ref=e264]:
+                - generic [ref=e265]: No pending changes.
+                - button "Save changes" [ref=e266]
+          - generic [ref=e267]:
+            - generic [ref=e268]:
+              - generic [ref=e269]:
+                - heading "Notifications" [level=2] [ref=e270]
+                - paragraph [ref=e271]: Email + Slack hooks for provisioning events.
+              - generic "Backend API not yet wired — display only" [ref=e273]: API pending
+            - generic [ref=e274]:
+              - generic [ref=e275]:
+                - term [ref=e276]: Email recipients
+                - definition [ref=e277]: —
+              - generic [ref=e278]:
+                - term [ref=e279]: Slack webhook
+                - definition [ref=e280]: —
+          - generic [ref=e281]:
+            - generic [ref=e283]:
+              - heading "Members" [level=2] [ref=e284]
+              - paragraph [ref=e285]: Operators with admin / dev / viewer roles.
+            - paragraph [ref=e286]: Operators are managed on the dedicated User Access page so role bindings, app grants, and namespace scopes share one editor.
+            - link "Open User Access →" [ref=e287] [cursor=pointer]:
+              - /url: /users
+          - generic [ref=e288]:
+            - generic [ref=e290]:
+              - heading "Danger zone" [level=2] [ref=e291]
+              - paragraph [ref=e292]: Wipe Sovereign, decommission, transfer ownership.
+            - list [ref=e293]:
+              - listitem [ref=e294]:
+                - generic [ref=e295]:
+                  - paragraph [ref=e296]: Decommission Sovereign
+                  - paragraph [ref=e297]: Tears down every cloud resource provisioned for this Sovereign. Irreversible.
+                - link "Decommission…" [ref=e299] [cursor=pointer]:
+                  - /url: /decommission/sovereign-hw01.omani.works
+              - listitem [ref=e300]:
+                - generic [ref=e301]:
+                  - paragraph [ref=e302]: Wipe Sovereign data
+                  - paragraph [ref=e303]: Wipes deployment state but keeps the cloud account. Used when the Sovereign got into a bad state and you want to reprovision from the wizard.
+                - generic [ref=e305]: API pending
+              - listitem [ref=e306]:
+                - generic [ref=e307]:
+                  - paragraph [ref=e308]: Transfer ownership
+                  - paragraph [ref=e309]: Hands Sovereign administration to a new operator account.
+                - generic [ref=e311]: API pending

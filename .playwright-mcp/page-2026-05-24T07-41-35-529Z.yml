@@ -1,0 +1,22 @@
+- generic [ref=e26]:
+  - generic [ref=e27]:
+    - heading "Enter the verification code" [level=1] [ref=e28]
+    - paragraph [ref=e29]: A 6-digit code was sent to
+    - button "alice@openova.io Copy email" [ref=e30]:
+      - generic [ref=e31]: alice@openova.io
+      - img "Copy email" [ref=e32]
+  - generic [ref=e35]:
+    - group "Sign-in code" [ref=e36]:
+      - 'generic "Digit 1: empty" [ref=e37]'
+      - 'generic "Digit 2: empty" [ref=e38]'
+      - 'generic "Digit 3: empty" [ref=e39]'
+      - 'generic "Digit 4: empty" [ref=e40]'
+      - 'generic "Digit 5: empty" [ref=e41]'
+      - 'generic "Digit 6: empty" [ref=e42]'
+      - textbox "Sign-in code (6 digits)" [active] [ref=e43]
+    - button "Verify" [disabled]:
+      - text: Verify
+      - img
+  - generic [ref=e44]:
+    - button "Didn't get a code? Send a new one" [ref=e45]
+    - paragraph [ref=e46]: Codes expire after 10 minutes — check your spam folder.

@@ -1,0 +1,172 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - img [ref=e7]
+        - generic [ref=e9]: OpenOva Sovereign
+      - button "hw01.omani.works" [ref=e11]:
+        - generic [ref=e12]: hw01.omani.works
+        - img [ref=e13]
+    - navigation [ref=e15]:
+      - link "Dashboard" [ref=e16] [cursor=pointer]:
+        - /url: /dashboard
+        - img [ref=e17]
+        - text: Dashboard
+      - link "Cloud" [ref=e19] [cursor=pointer]:
+        - /url: /cloud
+        - img [ref=e20]
+        - text: Cloud
+      - link "Apps" [ref=e22] [cursor=pointer]:
+        - /url: /apps
+        - img [ref=e23]
+        - text: Apps
+      - link "Sandbox" [ref=e25] [cursor=pointer]:
+        - /url: /sandbox
+        - img [ref=e26]
+        - text: Sandbox
+      - link "Jobs" [ref=e28] [cursor=pointer]:
+        - /url: /jobs
+        - img [ref=e29]
+        - text: Jobs
+      - link "Users" [ref=e31] [cursor=pointer]:
+        - /url: /users
+        - img [ref=e32]
+        - text: Users
+      - link "BSS" [ref=e34] [cursor=pointer]:
+        - /url: /bss
+        - img [ref=e35]
+        - text: BSS
+      - link "Settings" [ref=e37] [cursor=pointer]:
+        - /url: /settings
+        - img [ref=e38]
+        - text: Settings
+    - generic [ref=e41]:
+      - generic [ref=e42]: T
+      - generic [ref=e43]:
+        - paragraph [ref=e44]: Tenant
+        - paragraph [ref=e45]: hw01.omani.works
+  - generic [ref=e46]:
+    - banner [ref=e47]:
+      - generic [ref=e48]:
+        - heading "Applications" [level=1] [ref=e49]
+        - link "← Back to apps" [ref=e50] [cursor=pointer]:
+          - /url: /dashboard
+      - generic [ref=e51]:
+        - button "No notifications" [ref=e53]:
+          - img [ref=e54]
+        - button "Switch to light theme" [ref=e57]:
+          - img [ref=e58]
+        - button "Sign in" [ref=e64] [cursor=pointer]
+    - main [ref=e65]:
+      - generic [ref=e66]:
+        - paragraph [ref=e67]: "AppDetail · canonical 7-tab strip: app-tab-overview · app-tab-topology · app-tab-resources · app-tab-compliance · app-tab-logs · app-tab-settings · app-tab-members"
+        - generic [ref=e68]:
+          - generic [ref=e69]: c
+          - generic [ref=e70]:
+            - heading "bp-catalyst-platform — catalyst-platform" [level=1] [ref=e71]:
+              - text: bp-catalyst-platform
+              - generic [ref=e72]: — catalyst-platform
+            - paragraph [ref=e73]: Platform
+            - generic [ref=e74]:
+              - generic [ref=e75]: Platform
+              - generic [ref=e76]: BOOTSTRAP
+              - generic [ref=e77]: default
+              - generic [ref=e78]: bp-catalyst-platform
+              - generic [ref=e79]: Pending
+              - button "Loading…" [disabled] [ref=e80]
+              - generic "Phase derived from Application CR status" [ref=e81]: "source: Application CR"
+        - tablist "App detail tabs" [ref=e82]:
+          - tab "Overview" [selected] [ref=e83] [cursor=pointer]:
+            - text: Overview
+            - tab: Overview
+          - tab "Topology" [ref=e84] [cursor=pointer]:
+            - text: Topology
+            - tab: Topology
+          - tab "Resources" [ref=e85] [cursor=pointer]:
+            - text: Resources
+            - tab: Resources
+          - tab "Compliance" [ref=e86] [cursor=pointer]:
+            - text: Compliance
+            - tab: Compliance
+          - tab "Logs" [ref=e87] [cursor=pointer]:
+            - text: Logs
+            - tab: Logs
+          - tab "Settings" [ref=e88] [cursor=pointer]:
+            - text: Settings
+            - tab: Settings
+          - tab "Members" [ref=e89] [cursor=pointer]:
+            - text: Members
+            - tab: Members
+          - tab "Jobs 1" [ref=e90] [cursor=pointer]:
+            - text: Jobs
+            - generic [ref=e91]: "1"
+            - tab: Jobs
+          - tab "Dependencies 0" [ref=e92] [cursor=pointer]:
+            - text: Dependencies
+            - generic [ref=e93]: "0"
+            - tab: Dependencies
+        - tabpanel [ref=e94]:
+          - generic [ref=e95]:
+            - heading "Overview" [level=2] [ref=e96]
+            - generic [ref=e97]:
+              - generic [ref=e98]:
+                - term [ref=e99]: Name
+                - definition [ref=e100]: bp-catalyst-platform
+              - generic [ref=e101]:
+                - term [ref=e102]: Status
+                - definition [ref=e103]: Pending
+              - generic [ref=e104]:
+                - term [ref=e105]: Namespace
+                - definition [ref=e106]: default
+              - generic [ref=e107]:
+                - term [ref=e108]: Blueprint
+                - definition [ref=e109]: bp-catalyst-platform
+              - generic [ref=e110]:
+                - term [ref=e111]: Placement
+                - definition [ref=e112]: single-region
+          - generic [ref=e113]:
+            - heading "About" [level=2] [ref=e114]
+            - paragraph [ref=e115]: Platform
+          - generic [ref=e116]:
+            - heading "Tenant" [level=2] [ref=e117]
+            - paragraph [ref=e118]: Installing into deployment — currently 61 components targeted.
+          - generic [ref=e119]:
+            - heading "Access tiers (Members)" [level=2] [ref=e120]
+            - list "Access tier options for Members" [ref=e121]:
+              - listitem [ref=e122]: "tier: viewer"
+              - listitem [ref=e123]: "tier: developer"
+              - listitem [ref=e124]: "tier: operator"
+              - listitem [ref=e125]: "tier: admin"
+              - listitem [ref=e126]: "tier: owner"
+          - generic [ref=e127]:
+            - heading "Available regions" [level=2] [ref=e128]
+            - list "Available cluster regions" [ref=e129]:
+              - listitem [ref=e130]: hz-fsn-rtz-prod (fsn1)
+              - listitem [ref=e131]: hz-hel-rtz-prod (hel)
+          - generic [ref=e132]:
+            - heading "What you can do here" [level=2] [ref=e133]
+            - list [ref=e134]:
+              - listitem [ref=e135]:
+                - strong [ref=e136]: Topology
+                - text: — see the live region rollout, switch placement modes, add/remove regions.
+              - listitem [ref=e137]:
+                - strong [ref=e138]: Resources
+                - text: — browse the live K8s objects (Deployment, Service, Pod, ConfigMap, Secret) backing this Application.
+              - listitem [ref=e139]:
+                - strong [ref=e140]: Compliance
+                - text: — per-Application compliance score and policy violations.
+              - listitem [ref=e141]:
+                - strong [ref=e142]: Logs
+                - text: — stream container logs in real time (xterm-style viewer).
+              - listitem [ref=e143]:
+                - strong [ref=e144]: Settings
+                - text: — edit parameters against the Blueprint's configSchema and Save them (required fields like
+                - code [ref=e145]: siteTitle
+                - text: are validated; an empty required value surfaces a "required" inline error); Upgrade the Blueprint (a dialog lists the available versions); or Uninstall (a dialog will ask you to Type the application name to confirm).
+              - listitem [ref=e146]:
+                - strong [ref=e147]: Members
+                - text: "— Add Member, change a member's tier, or remove access. Example:"
+                - code [ref=e148]: qa-user1
+                - text: with tier
+                - code [ref=e149]: developer
+                - text: can install and edit, but cannot grant access to other users.

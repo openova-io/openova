@@ -1,0 +1,8 @@
+- generic [ref=e3]:
+  - generic [ref=e6]:
+    - heading "This site can’t be reached" [level=1] [ref=e7]
+    - paragraph [ref=e8]:
+      - strong [ref=e9]: keycloak.hw01.omani.works
+      - text: ’s DNS address could not be found. Diagnosing the problem.
+    - generic [ref=e10]: DNS_PROBE_STARTED
+  - button "Reload" [ref=e13] [cursor=pointer]

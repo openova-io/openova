@@ -1,0 +1,15 @@
+[     504ms] [LOG] searchParamsUpdated  @ https://hubble.hw01.omani.works/bundle.main.eae50800ddcd18c25e9e.js:1
+[     505ms] [LOG] e2e attibutes setEnabled: false @ https://hubble.hw01.omani.works/bundle.main.eae50800ddcd18c25e9e.js:1
+[     505ms] [LOG] router is initialized @ https://hubble.hw01.omani.works/bundle.main.eae50800ddcd18c25e9e.js:1
+[     506ms] [LOG] locationUpdated:  {pathname: /, search: , hash: , state: null, key: default} service-map undefined true @ https://hubble.hw01.omani.works/bundle.main.eae50800ddcd18c25e9e.js:1
+[     507ms] [LOG] UILayer: onLocationUpdated:  {location: Object, hubbleUIState: undefined, isDetached: true} service-map service-map false @ https://hubble.hw01.omani.works/bundle.main.eae50800ddcd18c25e9e.js:1
+[     507ms] [LOG] updated location is detached, calling applyLocalParameters @ https://hubble.hw01.omani.works/bundle.main.eae50800ddcd18c25e9e.js:1
+[     510ms] [LOG] applying local params:  {namespace: null, verdicts: Set(0), httpStatus: null, flowFilters: Array(0), app: service-map} {isHostShown: false, isKubeDNSShown: false, isAggregationOff: null, dataMode: null} @ https://hubble.hw01.omani.works/bundle.main.eae50800ddcd18c25e9e.js:1
+[     511ms] [LOG] setting data mode: cilium-streaming, isChanged: true @ https://hubble.hw01.omani.works/bundle.main.eae50800ddcd18c25e9e.js:1
+[     513ms] [LOG] toggleDetached: dropping layout / collector for service map @ https://hubble.hw01.omani.works/bundle.main.eae50800ddcd18c25e9e.js:1
+[     516ms] [LOG] appToggled service-map service-map false @ https://hubble.hw01.omani.works/bundle.main.eae50800ddcd18c25e9e.js:1
+[     517ms] [LOG] service map: ensuring data fetch for mode: cilium-streaming @ https://hubble.hw01.omani.works/bundle.main.eae50800ddcd18c25e9e.js:1
+[     518ms] [LOG] ensuring service map data stream @ https://hubble.hw01.omani.works/bundle.main.eae50800ddcd18c25e9e.js:1
+[     518ms] [LOG] setting data mode: disabled, isChanged: true @ https://hubble.hw01.omani.works/bundle.main.eae50800ddcd18c25e9e.js:1
+[    1542ms] [WARNING] avg flows ingestion is 585/sec. ui may be unresponsive @ https://hubble.hw01.omani.works/bundle.main.eae50800ddcd18c25e9e.js:1
+[    1543ms] [WARNING] avg flows ingestion is 585/sec. ui may be unresponsive @ https://hubble.hw01.omani.works/bundle.main.eae50800ddcd18c25e9e.js:1

@@ -1,0 +1,172 @@
+- generic [ref=e830]:
+  - complementary [ref=e831]:
+    - generic [ref=e832]:
+      - generic [ref=e833]:
+        - img [ref=e834]
+        - generic [ref=e836]: OpenOva Sovereign
+      - button "hw01.omani.works" [ref=e838]:
+        - generic [ref=e839]: hw01.omani.works
+        - img [ref=e840]
+    - navigation [ref=e842]:
+      - link "Dashboard" [ref=e843] [cursor=pointer]:
+        - /url: /dashboard
+        - img [ref=e844]
+        - text: Dashboard
+      - link "Cloud" [ref=e846] [cursor=pointer]:
+        - /url: /cloud
+        - img [ref=e847]
+        - text: Cloud
+      - link "Apps" [ref=e849] [cursor=pointer]:
+        - /url: /apps
+        - img [ref=e850]
+        - text: Apps
+      - link "Sandbox" [ref=e852] [cursor=pointer]:
+        - /url: /sandbox
+        - img [ref=e853]
+        - text: Sandbox
+      - link "Jobs" [ref=e855] [cursor=pointer]:
+        - /url: /jobs
+        - img [ref=e856]
+        - text: Jobs
+      - link "Users" [ref=e858] [cursor=pointer]:
+        - /url: /users
+        - img [ref=e859]
+        - text: Users
+      - link "BSS" [ref=e861] [cursor=pointer]:
+        - /url: /bss
+        - img [ref=e862]
+        - text: BSS
+      - link "Settings" [ref=e864] [cursor=pointer]:
+        - /url: /settings
+        - img [ref=e865]
+        - text: Settings
+    - generic [ref=e868]:
+      - generic [ref=e869]: T
+      - generic [ref=e870]:
+        - paragraph [ref=e871]: Tenant
+        - paragraph [ref=e872]: hw01.omani.works
+  - generic [ref=e873]:
+    - banner [ref=e874]:
+      - generic [ref=e875]:
+        - heading "Applications" [level=1] [ref=e876]
+        - link "← Back to apps" [ref=e877] [cursor=pointer]:
+          - /url: /dashboard
+      - generic [ref=e878]:
+        - button "No notifications" [ref=e880]:
+          - img [ref=e881]
+        - button "Switch to light theme" [ref=e884]:
+          - img [ref=e885]
+        - button "A" [ref=e892] [cursor=pointer]
+    - main [ref=e893]:
+      - generic [ref=e894]:
+        - paragraph [ref=e895]: "AppDetail · canonical 7-tab strip: app-tab-overview · app-tab-topology · app-tab-resources · app-tab-compliance · app-tab-logs · app-tab-settings · app-tab-members"
+        - generic [ref=e896]:
+          - generic [ref=e897]: d
+          - generic [ref=e898]:
+            - heading "bp-dmz-vcluster — dmz-vcluster" [level=1] [ref=e899]:
+              - text: bp-dmz-vcluster
+              - generic [ref=e900]: — dmz-vcluster
+            - paragraph [ref=e901]: Platform
+            - generic [ref=e902]:
+              - generic [ref=e903]: Platform
+              - generic [ref=e904]: BOOTSTRAP
+              - generic [ref=e905]: flux-system
+              - generic [ref=e906]: bp-dmz-vcluster@0.1.0
+              - generic [ref=e907]: Ready
+              - button "Bootstrap blueprint (not in marketplace)" [disabled] [ref=e908]
+              - generic "Phase derived from HelmRelease Ready condition (no Application CR)" [ref=e909]: "source: HelmRelease"
+        - tablist "App detail tabs" [ref=e910]:
+          - tab "Overview" [selected] [ref=e911] [cursor=pointer]:
+            - text: Overview
+            - tab: Overview
+          - tab "Topology" [ref=e912] [cursor=pointer]:
+            - text: Topology
+            - tab: Topology
+          - tab "Resources" [ref=e913] [cursor=pointer]:
+            - text: Resources
+            - tab: Resources
+          - tab "Compliance" [ref=e914] [cursor=pointer]:
+            - text: Compliance
+            - tab: Compliance
+          - tab "Logs" [ref=e915] [cursor=pointer]:
+            - text: Logs
+            - tab: Logs
+          - tab "Settings" [ref=e916] [cursor=pointer]:
+            - text: Settings
+            - tab: Settings
+          - tab "Members" [ref=e917] [cursor=pointer]:
+            - text: Members
+            - tab: Members
+          - tab "Jobs 1" [ref=e918] [cursor=pointer]:
+            - text: Jobs
+            - generic [ref=e919]: "1"
+            - tab: Jobs
+          - tab "Dependencies 0" [ref=e920] [cursor=pointer]:
+            - text: Dependencies
+            - generic [ref=e921]: "0"
+            - tab: Dependencies
+        - tabpanel [ref=e922]:
+          - generic [ref=e923]:
+            - heading "Overview" [level=2] [ref=e924]
+            - generic [ref=e925]:
+              - generic [ref=e926]:
+                - term [ref=e927]: Name
+                - definition [ref=e928]: bp-dmz-vcluster
+              - generic [ref=e929]:
+                - term [ref=e930]: Status
+                - definition [ref=e931]: Ready
+              - generic [ref=e932]:
+                - term [ref=e933]: Namespace
+                - definition [ref=e934]: flux-system
+              - generic [ref=e935]:
+                - term [ref=e936]: Blueprint
+                - definition [ref=e937]: bp-dmz-vcluster@0.1.0
+              - generic [ref=e938]:
+                - term [ref=e939]: Placement
+                - definition [ref=e940]: single-region
+          - generic [ref=e941]:
+            - heading "About" [level=2] [ref=e942]
+            - paragraph [ref=e943]: Platform
+          - generic [ref=e944]:
+            - heading "Tenant" [level=2] [ref=e945]
+            - paragraph [ref=e946]: Installing into hw01.omani.works — currently 61 components targeted.
+          - generic [ref=e947]:
+            - heading "Access tiers (Members)" [level=2] [ref=e948]
+            - list "Access tier options for Members" [ref=e949]:
+              - listitem [ref=e950]: "tier: viewer"
+              - listitem [ref=e951]: "tier: developer"
+              - listitem [ref=e952]: "tier: operator"
+              - listitem [ref=e953]: "tier: admin"
+              - listitem [ref=e954]: "tier: owner"
+          - generic [ref=e955]:
+            - heading "Available regions" [level=2] [ref=e956]
+            - list "Available cluster regions" [ref=e957]:
+              - listitem [ref=e958]: hz-fsn-rtz-prod (fsn1)
+              - listitem [ref=e959]: hz-hel-rtz-prod (hel)
+          - generic [ref=e960]:
+            - heading "What you can do here" [level=2] [ref=e961]
+            - list [ref=e962]:
+              - listitem [ref=e963]:
+                - strong [ref=e964]: Topology
+                - text: — see the live region rollout, switch placement modes, add/remove regions.
+              - listitem [ref=e965]:
+                - strong [ref=e966]: Resources
+                - text: — browse the live K8s objects (Deployment, Service, Pod, ConfigMap, Secret) backing this Application.
+              - listitem [ref=e967]:
+                - strong [ref=e968]: Compliance
+                - text: — per-Application compliance score and policy violations.
+              - listitem [ref=e969]:
+                - strong [ref=e970]: Logs
+                - text: — stream container logs in real time (xterm-style viewer).
+              - listitem [ref=e971]:
+                - strong [ref=e972]: Settings
+                - text: — edit parameters against the Blueprint's configSchema and Save them (required fields like
+                - code [ref=e973]: siteTitle
+                - text: are validated; an empty required value surfaces a "required" inline error); Upgrade the Blueprint (a dialog lists the available versions); or Uninstall (a dialog will ask you to Type the application name to confirm).
+              - listitem [ref=e974]:
+                - strong [ref=e975]: Members
+                - text: "— Add Member, change a member's tier, or remove access. Example:"
+                - code [ref=e976]: qa-user1
+                - text: with tier
+                - code [ref=e977]: developer
+                - text: can install and edit, but cannot grant access to other users.

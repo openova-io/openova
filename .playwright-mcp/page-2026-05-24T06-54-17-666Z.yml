@@ -1,0 +1,46 @@
+- main [ref=e7]:
+  - generic [ref=e10]:
+    - generic [ref=e12]:
+      - generic [ref=e13]:
+        - img "Grafana" [ref=e14]
+        - heading "Welcome to Grafana" [level=1] [ref=e16]
+      - generic [ref=e20]:
+        - generic [ref=e21]:
+          - generic [ref=e24]: Email or username
+          - textbox "Email or username" [active] [ref=e29]:
+            - /placeholder: email or username
+        - generic [ref=e30]:
+          - generic [ref=e33]: Password
+          - generic [ref=e37]:
+            - textbox "Password" [ref=e38]:
+              - /placeholder: password
+            - switch "Show password" [ref=e40] [cursor=pointer]
+        - button "Log in" [ref=e42] [cursor=pointer]:
+          - generic [ref=e43]: Log in
+        - link "Forgot your password?" [ref=e45] [cursor=pointer]:
+          - /url: /user/password/send-reset-email
+          - generic [ref=e46]: Forgot your password?
+    - list [ref=e49]:
+      - listitem [ref=e50]:
+        - link "Documentation" [ref=e52] [cursor=pointer]:
+          - /url: https://grafana.com/docs/grafana/latest/?utm_source=grafana_footer
+        - text: "|"
+      - listitem [ref=e53]:
+        - link "Support" [ref=e55] [cursor=pointer]:
+          - /url: https://grafana.com/products/enterprise/?utm_source=grafana_footer
+        - text: "|"
+      - listitem [ref=e56]:
+        - link "Community" [ref=e58] [cursor=pointer]:
+          - /url: https://community.grafana.com/?utm_source=grafana_footer
+        - text: "|"
+      - listitem [ref=e59]:
+        - link "Open Source" [ref=e60] [cursor=pointer]:
+          - /url: https://grafana.com/oss/grafana?utm_source=grafana_footer
+        - text: "|"
+      - listitem [ref=e61]:
+        - link "Grafana v12.3.1 (3a1c80ca7c)" [ref=e62] [cursor=pointer]:
+          - /url: https://github.com/grafana/grafana/blob/main/CHANGELOG.md
+        - text: "|"
+      - listitem [ref=e63]:
+        - link "New version available!" [ref=e65] [cursor=pointer]:
+          - /url: https://grafana.com/grafana/download?utm_source=grafana_footer

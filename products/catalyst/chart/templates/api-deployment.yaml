@@ -118,6 +118,11 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: catalyst-api
+        # Wave 5.121 (#2466): kyverno cilium-l7-mtls policy requires this
+        # label on the Pod template so catalyst-network controller attaches
+        # the Pod to the Cilium L7 mTLS mesh. Without it, Helm install was
+        # blocked by admission webhook on every fresh prov.
+        policy.cilium.io/enforced: "true"
     spec:
       # serviceAccountName — bind the Pod to the dedicated cutover-driver
       # ServiceAccount so the /api/v1/sovereign/cutover/start handler can

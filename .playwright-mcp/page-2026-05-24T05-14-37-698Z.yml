@@ -1,0 +1,40 @@
+- main [ref=e3]:
+  - heading "Decommission Sovereign" [level=1] [ref=e4]
+  - paragraph [ref=e5]:
+    - text: This destroys every Hetzner resource for
+    - code [ref=e6]: hw01.omani.works
+    - text: ", releases the PDM allocation (pool subdomains only), removes the parent-zone NS delegation, and wipes the deployment record from Catalyst-Zero. There is no undo path — the only way to recover is to provision a new Sovereign."
+  - list [ref=e7]:
+    - listitem [ref=e8]: tofu destroy against the per-deployment workdir
+    - listitem [ref=e9]: Hetzner orphan force-purge (servers, load balancers, networks, firewalls, ssh-keys, S3 buckets)
+    - listitem [ref=e10]: PDM allocation release (pool-subdomain only)
+    - listitem [ref=e11]: Kubeconfig + workdir + on-disk record removed
+  - group "Backup destination (optional)" [ref=e12]:
+    - generic [ref=e13]: Backup destination (optional)
+    - paragraph [ref=e14]: Velero PV snapshot, OpenBao seal-and-export, and Gitea bundle of every Application repo are pushed here BEFORE the wipe runs. Skip only if all Organizations have already migrated or accepted data loss.
+    - generic [ref=e15]:
+      - generic [ref=e16]:
+        - radio "None (data is permanently lost)" [checked] [ref=e17]
+        - text: None (data is permanently lost)
+      - generic [ref=e18]:
+        - radio "S3" [ref=e19]
+        - text: S3
+      - generic [ref=e20]:
+        - radio "Local download" [ref=e21]
+        - text: Local download
+  - generic [ref=e22]:
+    - checkbox "I confirm all Organizations on this Sovereign have been migrated or have accepted data loss (per SOVEREIGN-PROVISIONING.md §10.1)." [ref=e23]
+    - generic [ref=e24]: I confirm all Organizations on this Sovereign have been migrated or have accepted data loss (per SOVEREIGN-PROVISIONING.md §10.1).
+  - generic [ref=e25]:
+    - text: Type
+    - code [ref=e26]: hw01.omani.works
+    - text: "to confirm:"
+    - textbox "Type hw01.omani.works to confirm:" [ref=e27]
+  - generic [ref=e28]:
+    - text: "Hetzner Cloud API token:"
+    - textbox "Hetzner Cloud API token:" [ref=e29]:
+      - /placeholder: Paste your Hetzner Cloud API token
+  - generic [ref=e30]:
+    - button "Decommission Sovereign" [disabled] [ref=e31]
+    - link "Cancel" [ref=e32] [cursor=pointer]:
+      - /url: /dashboard

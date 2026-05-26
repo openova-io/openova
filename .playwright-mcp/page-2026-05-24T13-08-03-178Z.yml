@@ -1,0 +1,174 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - img [ref=e7]
+        - generic [ref=e9]: OpenOva Sovereign
+      - button "hw01.omani.works" [ref=e11]:
+        - generic [ref=e12]: hw01.omani.works
+        - img [ref=e13]
+    - navigation [ref=e15]:
+      - link "Dashboard" [ref=e16] [cursor=pointer]:
+        - /url: /dashboard
+        - img [ref=e17]
+        - text: Dashboard
+      - link "Cloud" [ref=e19] [cursor=pointer]:
+        - /url: /cloud
+        - img [ref=e20]
+        - text: Cloud
+      - link "Apps" [ref=e22] [cursor=pointer]:
+        - /url: /apps
+        - img [ref=e23]
+        - text: Apps
+      - link "Sandbox" [ref=e25] [cursor=pointer]:
+        - /url: /sandbox
+        - img [ref=e26]
+        - text: Sandbox
+      - link "Jobs" [ref=e28] [cursor=pointer]:
+        - /url: /jobs
+        - img [ref=e29]
+        - text: Jobs
+      - link "Compliance" [ref=e31] [cursor=pointer]:
+        - /url: /sre/compliance
+        - img [ref=e32]
+        - text: Compliance
+      - link "Users" [ref=e34] [cursor=pointer]:
+        - /url: /users
+        - img [ref=e35]
+        - text: Users
+      - link "BSS" [ref=e37] [cursor=pointer]:
+        - /url: /bss
+        - img [ref=e38]
+        - text: BSS
+      - link "Settings" [ref=e40] [cursor=pointer]:
+        - /url: /settings
+        - img [ref=e41]
+        - text: Settings
+    - generic [ref=e44]:
+      - generic [ref=e45]: T
+      - generic [ref=e46]:
+        - paragraph [ref=e47]: Tenant
+        - paragraph [ref=e48]: hw01.omani.works
+  - generic [ref=e49]:
+    - banner [ref=e50]:
+      - heading "Cloud" [level=1] [ref=e52]
+      - generic [ref=e53]:
+        - combobox [ref=e54]:
+          - option "(unknown)" [selected]
+        - button "No notifications" [ref=e56]:
+          - img [ref=e57]
+        - button "Switch to light theme" [ref=e60]:
+          - img [ref=e61]
+        - button "Sign in" [ref=e67] [cursor=pointer]
+    - main [ref=e68]:
+      - generic [ref=e69]:
+        - generic [ref=e70]: Cloud
+        - generic [ref=e71]:
+          - tablist "Cloud view" [ref=e72]:
+            - tab "Graph" [selected] [ref=e73] [cursor=pointer]:
+              - img [ref=e74]
+              - generic [ref=e80]: Graph
+            - tab "List" [ref=e81] [cursor=pointer]:
+              - img [ref=e82]
+              - generic [ref=e83]: List
+          - button "Toggle fullscreen" [ref=e84] [cursor=pointer]:
+            - img [ref=e85]
+        - generic [ref=e92]:
+          - generic [ref=e93]:
+            - searchbox "Search nodes…" [ref=e94]
+            - generic [ref=e95]:
+              - generic [ref=e96]: Density
+              - slider "Density" [ref=e97]: "50"
+              - generic [ref=e98]: 50%
+          - generic [ref=e99]:
+            - generic [ref=e101]:
+              - button "Cloud 0/0" [ref=e102]:
+                - generic [ref=e104]: Cloud
+                - generic [ref=e105]: 0/0
+              - button "Remove Cloud chip" [ref=e106]: ×
+            - generic [ref=e108]:
+              - button "Region 0/0" [ref=e109]:
+                - generic [ref=e111]: Region
+                - generic [ref=e112]: 0/0
+              - button "Remove Region chip" [ref=e113]: ×
+            - generic [ref=e115]:
+              - button "Cluster 0/0" [ref=e116]:
+                - generic [ref=e118]: Cluster
+                - generic [ref=e119]: 0/0
+              - button "Remove Cluster chip" [ref=e120]: ×
+            - generic [ref=e122]:
+              - button "vCluster 0/0" [ref=e123]:
+                - generic [ref=e125]: vCluster
+                - generic [ref=e126]: 0/0
+              - button "Remove vCluster chip" [ref=e127]: ×
+            - generic [ref=e129]:
+              - button "NodePool 0/0" [ref=e130]:
+                - generic [ref=e132]: NodePool
+                - generic [ref=e133]: 0/0
+              - button "Remove NodePool chip" [ref=e134]: ×
+            - generic [ref=e136]:
+              - button "WorkerNode 0/0" [ref=e137]:
+                - generic [ref=e139]: WorkerNode
+                - generic [ref=e140]: 0/0
+              - button "Remove WorkerNode chip" [ref=e141]: ×
+            - generic [ref=e143]:
+              - button "LoadBalancer 0/0" [ref=e144]:
+                - generic [ref=e146]: LoadBalancer
+                - generic [ref=e147]: 0/0
+              - button "Remove LoadBalancer chip" [ref=e148]: ×
+            - generic [ref=e150]:
+              - button "Network 0/0" [ref=e151]:
+                - generic [ref=e153]: Network
+                - generic [ref=e154]: 0/0
+              - button "Remove Network chip" [ref=e155]: ×
+            - generic [ref=e157]:
+              - button "PVC 0/0" [ref=e158]:
+                - generic [ref=e160]: PVC
+                - generic [ref=e161]: 0/0
+              - button "Remove PVC chip" [ref=e162]: ×
+            - generic [ref=e164]:
+              - button "Bucket 0/0" [ref=e165]:
+                - generic [ref=e167]: Bucket
+                - generic [ref=e168]: 0/0
+              - button "Remove Bucket chip" [ref=e169]: ×
+            - generic [ref=e171]:
+              - button "Volume 0/0" [ref=e172]:
+                - generic [ref=e174]: Volume
+                - generic [ref=e175]: 0/0
+              - button "Remove Volume chip" [ref=e176]: ×
+            - generic [ref=e178]:
+              - button "Service 0/0" [ref=e179]:
+                - generic [ref=e181]: Service
+                - generic [ref=e182]: 0/0
+              - button "Remove Service chip" [ref=e183]: ×
+            - generic [ref=e185]:
+              - button "Ingress 0/0" [ref=e186]:
+                - generic [ref=e188]: Ingress
+                - generic [ref=e189]: 0/0
+              - button "Remove Ingress chip" [ref=e190]: ×
+            - generic [ref=e192]:
+              - button "Namespace 0/0" [ref=e193]:
+                - generic [ref=e195]: Namespace
+                - generic [ref=e196]: 0/0
+              - button "Remove Namespace chip" [ref=e197]: ×
+            - generic [ref=e199]:
+              - button "Deployment 0/0" [ref=e200]:
+                - generic [ref=e202]: Deployment
+                - generic [ref=e203]: 0/0
+              - button "Remove Deployment chip" [ref=e204]: ×
+            - generic [ref=e206]:
+              - button "StatefulSet 0/0" [ref=e207]:
+                - generic [ref=e209]: StatefulSet
+                - generic [ref=e210]: 0/0
+              - button "Remove StatefulSet chip" [ref=e211]: ×
+            - generic [ref=e213]:
+              - button "DaemonSet 0/0" [ref=e214]:
+                - generic [ref=e216]: DaemonSet
+                - generic [ref=e217]: 0/0
+              - button "Remove DaemonSet chip" [ref=e218]: ×
+            - button "Add type chip" [ref=e220]:
+              - generic [ref=e221]: +
+              - generic [ref=e222]: Add
+          - generic [ref=e224]:
+            - paragraph [ref=e226]: Provisioning…
+            - paragraph [ref=e227]: The cloud architecture will appear here as soon as the Sovereign cluster reports its first nodes.

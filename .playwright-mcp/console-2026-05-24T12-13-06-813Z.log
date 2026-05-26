@@ -1,0 +1,15 @@
+[     133ms] [ERROR] Failed to load resource: the server responded with a status of 503 (Service Unavailable) @ https://console.hw01.omani.works/api/v1/whoami:0
+[   17631ms] [ERROR] Failed to load resource: the server responded with a status of 503 (Service Unavailable) @ https://console.hw01.omani.works/api/v1/auth/pin/issue:0
+[   87201ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ https://console.hw01.omani.works/api/catalog/apps/bp-grafana:0
+[  897451ms] [ERROR] Failed to load resource: the server responded with a status of 503 (Service Unavailable) @ https://console.hw01.omani.works/api/v1/sovereigns/sovereign-hw01.omani.works/applications/bp-grafana:0
+[  898454ms] [ERROR] Failed to load resource: the server responded with a status of 503 (Service Unavailable) @ https://console.hw01.omani.works/api/v1/sovereigns/sovereign-hw01.omani.works/applications/bp-grafana:0
+[  928458ms] [ERROR] Failed to load resource: the server responded with a status of 503 (Service Unavailable) @ https://console.hw01.omani.works/api/v1/sovereigns/sovereign-hw01.omani.works/applications/bp-grafana:0
+[  929461ms] [ERROR] Failed to load resource: the server responded with a status of 503 (Service Unavailable) @ https://console.hw01.omani.works/api/v1/sovereigns/sovereign-hw01.omani.works/applications/bp-grafana:0
+[  959464ms] [ERROR] Failed to load resource: the server responded with a status of 503 (Service Unavailable) @ https://console.hw01.omani.works/api/v1/sovereigns/sovereign-hw01.omani.works/applications/bp-grafana:0
+[  960467ms] [ERROR] Failed to load resource: the server responded with a status of 503 (Service Unavailable) @ https://console.hw01.omani.works/api/v1/sovereigns/sovereign-hw01.omani.works/applications/bp-grafana:0
+[  990471ms] [ERROR] Failed to load resource: the server responded with a status of 503 (Service Unavailable) @ https://console.hw01.omani.works/api/v1/sovereigns/sovereign-hw01.omani.works/applications/bp-grafana:0
+[  991474ms] [ERROR] Failed to load resource: the server responded with a status of 503 (Service Unavailable) @ https://console.hw01.omani.works/api/v1/sovereigns/sovereign-hw01.omani.works/applications/bp-grafana:0
+[ 1021477ms] [ERROR] Failed to load resource: the server responded with a status of 503 (Service Unavailable) @ https://console.hw01.omani.works/api/v1/sovereigns/sovereign-hw01.omani.works/applications/bp-grafana:0
+[ 1022480ms] [ERROR] Failed to load resource: the server responded with a status of 503 (Service Unavailable) @ https://console.hw01.omani.works/api/v1/sovereigns/sovereign-hw01.omani.works/applications/bp-grafana:0
+[ 1052483ms] [ERROR] Failed to load resource: the server responded with a status of 503 (Service Unavailable) @ https://console.hw01.omani.works/api/v1/sovereigns/sovereign-hw01.omani.works/applications/bp-grafana:0
+[ 1053486ms] [ERROR] Failed to load resource: the server responded with a status of 503 (Service Unavailable) @ https://console.hw01.omani.works/api/v1/sovereigns/sovereign-hw01.omani.works/applications/bp-grafana:0

@@ -1,0 +1,4 @@
+[     138ms] [ERROR] Failed to load resource: the server responded with a status of 503 (Service Unavailable) @ https://console.hw01.omani.works/api/v1/whoami:0
+[   15487ms] [ERROR] Failed to load resource: the server responded with a status of 503 (Service Unavailable) @ https://console.hw01.omani.works/api/v1/auth/pin/issue:0
+[   49553ms] [ERROR] Failed to load resource: the server responded with a status of 503 (Service Unavailable) @ https://console.hw01.omani.works/api/v1/auth/pin/issue:0
+[   66427ms] [ERROR] Failed to load resource: the server responded with a status of 503 (Service Unavailable) @ https://console.hw01.omani.works/api/v1/auth/pin/issue:0

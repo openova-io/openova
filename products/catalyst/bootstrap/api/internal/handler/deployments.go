@@ -998,6 +998,27 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 		if v := os.Getenv("CATALYST_HUAWEI_REGION"); v != "" {
 			req.HuaweiRegion = v
 		}
+		// Wave 5.121 (#2467): Huawei s7n.large.4 (2vCPU/8GB) needs ≥8
+		// workers for the full bp-catalyst-platform stack to fit
+		// (keycloak-config-cli alone requests 500m; gitea/mimir/loki/
+		// trivy each reserve 200-500m per Pod). 5×2vCPU=10vCPU left
+		// 40+ Pods Pending "Insufficient cpu" on hw26. 8×2vCPU=16vCPU
+		// = parity with Hetzner cpx52 single-node baseline. Server-
+		// side stamp when the wizard/test-rig sends a smaller count,
+		// matching the HarborRobotToken/Huawei creds env-stamp shape.
+		// The Huawei tofu module already handles arbitrary worker
+		// counts via for_each.
+		minWorkers := 8
+		if req.WorkerCount < minWorkers {
+			req.WorkerCount = minWorkers
+		}
+		// Per-region override too — Regions[i].WorkerCount is what
+		// the tofu module actually iterates.
+		for i := range req.Regions {
+			if req.Regions[i].Provider == "huawei" && req.Regions[i].WorkerCount < minWorkers {
+				req.Regions[i].WorkerCount = minWorkers
+			}
+		}
 	}
 
 	// Mint the deployment ID NOW (before bucket-name derivation) so the

@@ -106,4 +106,5 @@ spec:
               - key: {{ .key | default "password" }}
                 path: password
       {{- end }}
+        policy.cilium.io/enforced: "true"  # Wave 5.121 #2466
 {{- end }}
