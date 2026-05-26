@@ -60,6 +60,9 @@ write_files:
       # registry-1.docker.io upstream). Wave 5.105 tried :5000/v2/proxy-dockerhub
       # but containerd appends /v2/<image> → double-/v2/ → 404. The :5002 proxy
       # serves /v2/<image> directly, matching containerd canonical mirror semantics.
+      # Wave 5.109 (#2462 follow-up): extend mirror set to cover ghcr.io,
+      # reg.kyverno.io, quay.io via dedicated bastion proxies :5003/:5004/:5005.
+      # See cloudinit-worker.tftpl Wave 5.109 comment for full rationale.
       mirrors:
         "harbor.openova.io":
           endpoint:
@@ -70,11 +73,29 @@ write_files:
         "registry-1.docker.io":
           endpoint:
             - "http://212.72.24.20:5002"
+        "ghcr.io":
+          endpoint:
+            - "http://212.72.24.20:5003"
+        "reg.kyverno.io":
+          endpoint:
+            - "http://212.72.24.20:5004"
+        "quay.io":
+          endpoint:
+            - "http://212.72.24.20:5005"
       configs:
         "212.72.24.20:5000":
           tls:
             insecure_skip_verify: true
         "212.72.24.20:5002":
+          tls:
+            insecure_skip_verify: true
+        "212.72.24.20:5003":
+          tls:
+            insecure_skip_verify: true
+        "212.72.24.20:5004":
+          tls:
+            insecure_skip_verify: true
+        "212.72.24.20:5005":
           tls:
             insecure_skip_verify: true
 
