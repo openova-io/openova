@@ -630,6 +630,22 @@ runcmd:
     # Cilium pre-installed via inline helm immediately after k3s starts
     # (below), BEFORE Flux schedules any HelmRelease — eliminates the
     # dual-CNI race entirely.
+    # Wave 5.125 (#2472): k3s apiserver watch-cache tuned UP from default 100
+    # → 200, with Secrets + ConfigMaps bumped to 500 each. Why: on HCS the
+    # bootstrap phase generates >100 watch-cache evictions in seconds (Cilium
+    # IPAM, Flux HelmRelease state machines, CNPG/cert-manager/reflector
+    # secret churn, controller lease keepalives every ~5s × 18+ leases). The
+    # default window slides ahead of slow consumers (controller-runtime
+    # cached clients on the Sovereign) → informers receive `410 Expired:
+    # too old resource version` → must re-LIST → between LIST + new watch,
+    # the cache is stale relative to apiserver → CNPG's setupPostgresPKI
+    # 2nd ensureCASecret call's cached Get returns NotFound after the
+    # 1st call's Create lands at apiserver → 2nd Create returns 409
+    # AlreadyExists → cluster wedges forever. Verified on hw29 cp1 2026-05-27:
+    # watch from `RV=216699` immediately returned `410 Expired: too old
+    # resource version: 216699 (218360)`. Same shape hit cert-manager (cert
+    # rotation), harbor, etc. Hetzner doesn't show this because IPs aren't
+    # recycled (no mothership cert-flood pressure on apiserver budget).
     curl -sfL https://get.k3s.io | \
       INSTALL_K3S_VERSION=${k3s_version} \
       K3S_TOKEN=${k3s_token} \
@@ -643,7 +659,10 @@ runcmd:
         --tls-san=${sovereign_fqdn} \
         --tls-san=${primary_cp_eip} \
         --node-label=openova.io/region=hw-${region}-rtz-prod \
-        --node-label=catalyst.openova.io/provider=huawei" \
+        --node-label=catalyst.openova.io/provider=huawei \
+        --kube-apiserver-arg=default-watch-cache-size=200 \
+        --kube-apiserver-arg=watch-cache-sizes=secrets#500,configmaps#500 \
+        --etcd-snapshot-retention=5" \
       sh -
     # Wave 5.25 (Refs #2163): k3s flannel-backend switched from default
     # vxlan to host-gw — Cilium needs to own vxlan device exclusively,
