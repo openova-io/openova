@@ -643,6 +643,9 @@ locals {
     powerdns_api_key    = var.powerdns_api_key
     pdm_basic_auth_user = var.pdm_basic_auth_user
     pdm_basic_auth_pass = var.pdm_basic_auth_pass
+    # Wave 5.118 (#2462): harbor-robot-token for catalyst-api REQUIRED
+    # secretKeyRef. Mirror Hetzner pattern (issue #557 followup).
+    harbor_robot_token = var.harbor_robot_token
     # Wave 5.16 (Refs #2140): empty placeholder. The CP cloud-init bakes
     # worker-cloud-init.b64 into /var/lib/catalyst/ for the bp-cluster-
     # autoscaler-hcloud blueprint to consume on scale-out. On Huawei

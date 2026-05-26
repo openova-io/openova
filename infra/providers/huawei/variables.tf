@@ -265,6 +265,21 @@ variable "enable_fail2ban" {
 # variable declarations the Huawei cloudinit-control-plane.tftpl could not
 # reference ${powerdns_api_key} et al.
 
+variable "harbor_robot_token" {
+  type        = string
+  sensitive   = true
+  default     = ""
+  description = <<-EOT
+    Wave 5.118 (#2462): Harbor robot token for `robot$openova-bot` on
+    harbor.openova.io. Seeded into the Sovereign's flux-system/harbor-
+    robot-token Secret (mirrored to catalyst-system by bp-reflector) so
+    catalyst-api's REQUIRED CATALYST_HARBOR_ROBOT_TOKEN secretKeyRef
+    resolves. Without this, catalyst-api Pod stays in
+    CreateContainerConfigError indefinitely → api.<sov> HTTP 503 → no
+    sign-in PIN. Hetzner provider has the same variable (lines 793+).
+  EOT
+}
+
 variable "powerdns_api_key" {
   type        = string
   sensitive   = true
