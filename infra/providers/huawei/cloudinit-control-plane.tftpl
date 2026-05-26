@@ -633,23 +633,30 @@ runcmd:
   - KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f /var/lib/catalyst/manifests/06-handover-jwt-public-secret.yaml
 
   # Wave 5.112 (#2462 follow-up): patch coredns to resolve pdns.openova.io
-  # → bastion-openova IP (212.72.24.20) instead of mothership Contabo IP
-  # (45.151.123.50). cert-manager-powerdns-webhook calls https://pdns.
-  # openova.io/api/v1 for DNS-01 challenges; Huawei NAT can't reach
-  # 45.151.123.50:443. Bastion runs nginx :8443 SNI-proxy to
-  # pdns.openova.io:443, so by overriding DNS we preserve the original
-  # URL (https://pdns.openova.io) — cert validation still works because
-  # the SNI proxy passes through pdns.openova.io's real TLS cert.
+  # → bastion-openova IP (212.72.24.20). cert-manager-powerdns-webhook
+  # calls https://pdns.openova.io/api/v1 for DNS-01; Huawei NAT can't
+  # reach 45.151.123.50:443. Bastion runs nginx :443 SNI-proxy to
+  # pdns.openova.io:443 so DNS override preserves cert validation.
   #
-  # K3s coredns Corefile has `import /etc/coredns/custom/*.server` — we
-  # write a server-block override that adds hosts entries before the
-  # default forward-to-resolv-conf chain.
+  # Wave 5.112b: Wave 5.112's first attempt used nested $(...) inside
+  # JSON patch which YAML/cloud-init failed to parse → cloud-init never
+  # completed → kubeconfig postback never fired → Phase 1 watch
+  # outcome=kubeconfig-missing (hw14 47382dca evidence). Fix: use a
+  # plain heredoc + python (no shell-substitution-in-JSON).
   - |
-    KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl -n kube-system patch cm coredns --type=json -p='[
-      {"op": "replace", "path": "/data/NodeHosts", "value":
-       "$(KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl -n kube-system get cm coredns -o jsonpath=\"{.data.NodeHosts}\")\n212.72.24.20 pdns.openova.io\n"}
-    ]' 2>&1 | head -3
-    # Force coredns to reload (NodeHosts reloads every 60s by default).
+    set +e
+    CURRENT=$(KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl -n kube-system get cm coredns -o jsonpath='{.data.NodeHosts}' 2>/dev/null)
+    NEW="$${CURRENT}
+212.72.24.20 pdns.openova.io"
+    KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl -n kube-system get cm coredns -o yaml \
+      | python3 -c "
+import sys, yaml
+d = yaml.safe_load(sys.stdin)
+nh = d['data'].get('NodeHosts', '')
+if '212.72.24.20 pdns.openova.io' not in nh:
+    d['data']['NodeHosts'] = nh.rstrip() + '\n212.72.24.20 pdns.openova.io\n'
+sys.stdout.write(yaml.safe_dump(d, default_flow_style=False))
+" | KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f -
     KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl -n kube-system rollout restart deploy/coredns 2>&1 | head -3
 
   # Wave 5.107 (#2462 follow-up): port Hetzner openbao-recovery-seed seeding
