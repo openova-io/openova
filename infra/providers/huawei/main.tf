@@ -823,6 +823,26 @@ resource "huaweicloud_elb_loadbalancer" "primary" {
   ipv4_eip_id       = huaweicloud_vpc_eip.elb_primary.id
   availability_zone = [var.huawei_az]
   description       = "Catalyst Sovereign ${var.sovereign_fqdn} — Wave 5.98 Cilium-Gateway-API 443→30443 + 80→30080 routing"
+
+  # Wave 5.128 (hw30 fix-forward 2026-05-27): ignore_changes on flavor IDs.
+  # The huaweicloud provider sends `l4_flavor_id: null` + `l7_flavor_id: null`
+  # on PUT when neither is explicitly set in the resource block (HCS auto-
+  # picks flavors at create-time, and the provider's update path doesn't
+  # round-trip them on subsequent plans). HCS rejects with ELB.8959 "Not
+  # allowed to update both l4_flavor_id and l7_flavor_id to null or empty".
+  # Caught on hw30 #4 + hw29 Wave 5.122 — every tofu apply that touches
+  # any child of the LB (member port change, listener update) cascades to
+  # an attempted LB PUT that fails the apply.
+  #
+  # Flavor IDs are immutable post-create — ignore them so subsequent plans
+  # don't churn. If we ever need to resize the LB, the canonical path is
+  # tofu taint + recreate, not in-place flavor update.
+  lifecycle {
+    ignore_changes = [
+      l4_flavor_id,
+      l7_flavor_id,
+    ]
+  }
 }
 
 resource "huaweicloud_elb_pool" "https" {
