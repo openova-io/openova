@@ -1205,7 +1205,17 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 	// task fails before tofu can record state. Re-plan + re-apply is
 	// idempotent (the failed workers will be re-created with same names)
 	// and reliably succeeds on the next attempt.
-	const maxApplyRetries = 3
+	// Wave 5.133 (hw30 fix-forward 2026-05-27): bumped retry count 3→6
+	// and initial backoff 30s→90s with exponential growth (90s, 180s,
+	// 360s, 720s, 1440s, 2880s). Observed on hw30 #7 that the SAME
+	// worker indices (w3, w4, w5, w6) repeatedly hit Common.0021 across
+	// 3 retries with 30s backoff. HCS scheduler cell-health appears to
+	// recover on minutes-scale, not seconds. Total max wait is ~95 min
+	// worst-case (6 retries × exponential), but most provs settle by
+	// retry #3 (~10 min). The 30m wipe-min-life-protection threshold
+	// (handler/wipe.go) is bumped via env override per #914 if needed.
+	const maxApplyRetries = 6
+	const baseBackoff = 90 * time.Second
 	var lastErr error
 	for attempt := 1; attempt <= maxApplyRetries; attempt++ {
 		err := p.runTofu(ctx, deployDir, applyArgs, emit)
@@ -1219,8 +1229,9 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 		// fix themselves on retry.
 		errStr := err.Error()
 		if attempt < maxApplyRetries && (strings.Contains(errStr, "Common.0021") || strings.Contains(errStr, "CollectInfoTask-fail")) {
-			emit("tofu-apply", "warn", fmt.Sprintf("HCS Common.0021 (CollectInfoTask-fail) — attempt %d/%d, re-planning + retrying in 30s", attempt, maxApplyRetries))
-			time.Sleep(30 * time.Second)
+			backoff := baseBackoff * time.Duration(1<<(attempt-1))
+			emit("tofu-apply", "warn", fmt.Sprintf("HCS Common.0021 (CollectInfoTask-fail) — attempt %d/%d, re-planning + retrying in %s", attempt, maxApplyRetries, backoff))
+			time.Sleep(backoff)
 			// Re-plan so the next attempt builds a fresh tfplan
 			// that captures any state mutations from the partial apply.
 			if perr := p.runTofu(ctx, deployDir, []string{"plan", "-input=false", "-no-color", "-out=tfplan"}, emit); perr != nil {
