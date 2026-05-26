@@ -305,6 +305,27 @@ write_files:
         username: ${base64encode(pdm_basic_auth_user)}
         password: ${base64encode(pdm_basic_auth_pass)}
 
+  # Wave 5.114 (#2462 follow-up): coredns hosts override mapping
+  # pdns.openova.io → 212.72.24.20 (bastion-openova). Mounted into
+  # the coredns Pod via the existing `custom` ConfigMap volume so
+  # CoreDNS's Corefile `import /etc/coredns/custom/*.override` picks
+  # it up without modifying the auto-generated coredns ConfigMap.
+  # See full rationale in the runcmd block below.
+  - path: /var/lib/catalyst/manifests/07-coredns-custom-pdns.yaml
+    permissions: '0644'
+    content: |
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: coredns-custom
+        namespace: kube-system
+      data:
+        pdns.override: |
+          hosts {
+            212.72.24.20 pdns.openova.io
+            fallthrough
+          }
+
   # Wave 5.34 (Refs #2208): catalyst-system/catalyst-handover-jwt-public
   # Secret. Mounted at /etc/catalyst/handover-jwt-public/public.jwk by the
   # catalyst-api Pod. GET /auth/handover returns "server misconfiguration:
@@ -632,32 +653,24 @@ runcmd:
   - KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl create namespace catalyst-system --dry-run=client -o yaml | KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f -
   - KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f /var/lib/catalyst/manifests/06-handover-jwt-public-secret.yaml
 
-  # Wave 5.112 (#2462 follow-up): patch coredns to resolve pdns.openova.io
-  # → bastion-openova IP (212.72.24.20). cert-manager-powerdns-webhook
-  # calls https://pdns.openova.io/api/v1 for DNS-01; Huawei NAT can't
-  # reach 45.151.123.50:443. Bastion runs nginx :443 SNI-proxy to
-  # pdns.openova.io:443 so DNS override preserves cert validation.
+  # Wave 5.114 (#2462 follow-up): write coredns *.override file at
+  # /etc/coredns/custom/pdns.override via a ConfigMap entry — k3s coredns
+  # Corefile imports custom/*.override into the default server block.
+  # This adds a hosts entry mapping pdns.openova.io → 212.72.24.20
+  # (bastion-openova) so cert-manager-powerdns-webhook's DNS-01 challenge
+  # API calls flow through bastion's nginx :443 SNI-proxy (Wave 5.111)
+  # instead of hitting Contabo NAT directly. The override file is loaded
+  # via the existing `import /etc/coredns/custom/*.override` in the
+  # k3s-generated Corefile — no patch of the coredns ConfigMap needed.
   #
-  # Wave 5.112b: Wave 5.112's first attempt used nested $(...) inside
-  # JSON patch which YAML/cloud-init failed to parse → cloud-init never
-  # completed → kubeconfig postback never fired → Phase 1 watch
-  # outcome=kubeconfig-missing (hw14 47382dca evidence). Fix: use a
-  # plain heredoc + python (no shell-substitution-in-JSON).
-  - |
-    set +e
-    CURRENT=$(KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl -n kube-system get cm coredns -o jsonpath='{.data.NodeHosts}' 2>/dev/null)
-    NEW="$${CURRENT}
-212.72.24.20 pdns.openova.io"
-    KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl -n kube-system get cm coredns -o yaml \
-      | python3 -c "
-import sys, yaml
-d = yaml.safe_load(sys.stdin)
-nh = d['data'].get('NodeHosts', '')
-if '212.72.24.20 pdns.openova.io' not in nh:
-    d['data']['NodeHosts'] = nh.rstrip() + '\n212.72.24.20 pdns.openova.io\n'
-sys.stdout.write(yaml.safe_dump(d, default_flow_style=False))
-" | KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f -
-    KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl -n kube-system rollout restart deploy/coredns 2>&1 | head -3
+  # Wave 5.114 supersedes 5.112/5.113 attempts that patched the coredns
+  # ConfigMap's NodeHosts via inline shell/python — both broke cloud-init
+  # (hw14/hw15 47382dca + a10718f9 kubeconfig-missing) because YAML/
+  # heredoc edge cases caused cloud-init to crash before the kubeconfig
+  # PUT step ran. Writing the override as a regular kubectl apply of a
+  # ConfigMap (the canonical pattern Wave 5.34 already uses for 4 other
+  # Secrets) avoids inline shell entirely.
+  - KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f /var/lib/catalyst/manifests/07-coredns-custom-pdns.yaml
 
   # Wave 5.107 (#2462 follow-up): port Hetzner openbao-recovery-seed seeding
   # (issue #316) to Huawei. Without this Secret the bp-openbao post-install
