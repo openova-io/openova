@@ -83,12 +83,31 @@ runcmd:
     sysctl --system
     systemctl reload ssh 2>/dev/null || true
     systemctl enable --now fail2ban 2>/dev/null || true
-    curl -sfL https://get.k3s.io | \
-      INSTALL_K3S_VERSION=${k3s_version} \
-      K3S_TOKEN=${k3s_token} \
-      K3S_URL=https://${cp_private_ip}:6443 \
-      INSTALL_K3S_EXEC="agent --node-label=catalyst.openova.io/provider=huawei" \
-      sh -
+    # Wave 5.108 (#2462 follow-up): retry k3s install up to 10× with backoff.
+    # Live evidence: hw09 6d9eb655 w1 never joined — `curl -sfL https://get.k3s.io | sh`
+    # hit transient DNS NXDOMAIN or get.k3s.io upstream blip ONCE and gave up
+    # silently, leaving the worker as an ACTIVE ECS instance with no k3s agent
+    # running. CPU exhaustion on 3-node cluster then blocked bp-openbao Pod
+    # scheduling → cascade timeout. Same robustness pattern as Wave 5.99 (helm
+    # repo add cilium retry on CP).
+    for attempt in 1 2 3 4 5 6 7 8 9 10; do
+      if curl -sfL https://get.k3s.io | \
+        INSTALL_K3S_VERSION=${k3s_version} \
+        K3S_TOKEN=${k3s_token} \
+        K3S_URL=https://${cp_private_ip}:6443 \
+        INSTALL_K3S_EXEC="agent --node-label=catalyst.openova.io/provider=huawei" \
+        sh -; then
+        echo "[cloudinit] k3s agent install succeeded on attempt $attempt"
+        break
+      fi
+      echo "[cloudinit] k3s agent install attempt $attempt failed; sleeping 15s"
+      sleep 15
+    done
+    # Verify k3s-agent is running (last-line check).
+    systemctl is-active k3s-agent || {
+      echo "[cloudinit] FATAL: k3s-agent not active after 10 retries"
+      exit 1
+    }
     mkdir -p /var/lib/catalyst
     touch /var/lib/catalyst/worker-bootstrap-complete
 

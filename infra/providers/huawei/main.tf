@@ -399,20 +399,17 @@ locals {
 
   # Per-region worker count comes from `regions[].worker_count` (the
   # cross-provider PROVIDER-INTERFACE.md §1 shape — set by the wizard
-  # / Go provisioner). Default 3 if zero — Wave 5.104 (#2460): on
-  # Huawei the cluster-autoscaler-hcloud HR is suspend=true (Wave 5.102
-  # — no Huawei API target), so the worker pool is STATIC. The
-  # bootstrap-kit RAM/CPU aggregate (~10 vCPU requests with bp-openbao
-  # / bp-keycloak / bp-gitea / bp-harbor / bp-cnpg-pair running) exceeds
-  # the 2-worker pool (1×2 vCPU CP + 2×4 vCPU workers = 10 vCPU total →
-  # 99.7% saturated → keycloak-config-cli post-install Pod Pending
-  # forever → bp-keycloak Helm hook timeout → bp-gitea / bp-catalyst-
-  # platform / sov-tls Certificate cascading FAIL). Bumping the default
-  # to 3 adds +4 vCPU of headroom — the right answer until the Huawei-
-  # native autoscaler (Wave 6 scope) lands.
+  # / Go provisioner). Default 4 if zero — Wave 5.104 (#2460) bumped 2→3
+  # for bootstrap-kit CPU; Wave 5.108 (#2462 follow-up) bumps 3→4 for
+  # buffer against intermittent k3s-agent install failures on workers
+  # (hw09 6d9eb655 w1 never joined — `curl get.k3s.io` hit a transient
+  # blip and gave up silently → 3 ACTIVE ECS but 3 k3s nodes → CPU
+  # exhausted → bp-openbao Pending → cascade timeout). Wave 5.108
+  # cloud-init also adds 10× retry on the curl, but the +1 worker
+  # buffer ensures the cluster stays viable even if one retry-exhausts.
   worker_nodes = flatten([
     for r in var.regions : [
-      for i in range(r.worker_count > 0 ? r.worker_count : 3) : {
+      for i in range(r.worker_count > 0 ? r.worker_count : 4) : {
         region = r.code
         index  = i
         flavor = local.effective_worker_flavor[r.code]
