@@ -153,6 +153,15 @@ type RedactedRequest struct {
 	// array form — the migration is transparent to operators.
 	ParentDomains []provisioner.ParentDomain `json:"parentDomains,omitempty"`
 
+	// Wave 5.131 (hw30 fix-forward 2026-05-27): persist top-level
+	// Provider so reload after Pod restart correctly dispatches the
+	// validator branch. Pre-Wave-5.131, the field was silently dropped
+	// at Save() time; on reload the rehydrated request had Provider=""
+	// → validator branched to hetzner → "hetzner token is required"
+	// regardless of provider. The RegionSpec carries provider too but
+	// the validator's top-level switch keys off req.Provider.
+	Provider string `json:"provider,omitempty"`
+
 	HetznerToken     string `json:"hetznerToken,omitempty"`
 	HetznerProjectID string `json:"hetznerProjectID,omitempty"`
 
@@ -215,6 +224,7 @@ func Redact(req provisioner.Request) RedactedRequest {
 		SovereignDomainMode: req.SovereignDomainMode,
 		SovereignPoolDomain: req.SovereignPoolDomain,
 		SovereignSubdomain:  req.SovereignSubdomain,
+		Provider:            req.Provider, // Wave 5.131 — persist provider routing
 		HetznerProjectID:    req.HetznerProjectID,
 		Region:              req.Region,
 		ControlPlaneSize:    req.ControlPlaneSize,
@@ -280,6 +290,7 @@ func (r RedactedRequest) ToProvisionerRequest() provisioner.Request {
 		// provisioner.Request.Validate() then synthesises the primary
 		// entry on the next call — the migration is transparent.
 		ParentDomains:    r.ParentDomains,
+		Provider:         r.Provider, // Wave 5.131 — restore provider routing
 		HetznerToken:     r.HetznerToken, // <redacted> or ""
 		HetznerProjectID: r.HetznerProjectID,
 		Region:           r.Region,
