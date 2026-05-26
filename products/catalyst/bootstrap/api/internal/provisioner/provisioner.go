@@ -1187,7 +1187,17 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 	}
 
 	emit("tofu-apply", "info", "Applying — this provisions real Hetzner resources, please wait")
-	if err := p.runTofu(ctx, deployDir, []string{"apply", "-input=false", "-no-color", "-auto-approve", "tfplan"}, emit); err != nil {
+	// Wave 5.129 (hw30 fix-forward 2026-05-27): cap tofu parallelism at 2.
+	// Default 10 fanned out 8+ worker ECS creates simultaneously, which
+	// overloaded the HCS scheduler's CollectInfoTask and returned
+	// `Common.0021: CollectInfoTask-fail: Sub job fail!` on 4 of 8
+	// workers on hw30 #4. Cap=2 lets the scheduler keep up with worker
+	// creates while still parallelising independent resource graphs
+	// (VPC + subnet + SG + KPS keypair + OBS bucket all create together).
+	// CP creates serialised by the for_each chain naturally; only the
+	// parallel WORKER fanout was overloading HCS.
+	applyArgs := []string{"apply", "-input=false", "-no-color", "-auto-approve", "-parallelism=2", "tfplan"}
+	if err := p.runTofu(ctx, deployDir, applyArgs, emit); err != nil {
 		return nil, fmt.Errorf("tofu apply: %w", err)
 	}
 
