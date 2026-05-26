@@ -403,7 +403,7 @@ spec:
       # `egressTest.blockedDomains` both gain `xpkg.upbound.io` for
       # lockstep. totalSteps bumped 10 → 11; contract test asserts
       # the shift via new Case 22. (Refs #2034)
-      version: 0.1.37
+      version: 0.1.38
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
@@ -437,3 +437,12 @@ spec:
       harborPublicURL: https://registry.${SOVEREIGN_FQDN}
       giteaInternalURL: http://gitea-http.gitea.svc.cluster.local:3000
       giteaPublicURL: https://gitea.${SOVEREIGN_FQDN}
+    # Wave 5.110 (#2462): bastion mirror endpoint for harbor.openova.io,
+    # substituted from cloudinit's flux-system/bastion-mirror Secret
+    # (Huawei provider only; Hetzner leaves the var empty → chart skips
+    # the mirror entry). The cloudinit-control-plane.tftpl writes the
+    # Secret with bastionMirrorEndpoint=http://212.72.24.20:5000 on Huawei
+    # provs and empty/missing on Hetzner. Flux's postBuild substituteFrom
+    # picks it up at HelmRelease apply time.
+    upstream:
+      harborProxyMirrorEndpoint: "${HARBOR_PROXY_MIRROR_ENDPOINT:=}"

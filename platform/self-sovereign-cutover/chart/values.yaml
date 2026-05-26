@@ -70,6 +70,18 @@ upstream:
   # egress-block test asserts the cluster can survive without this URL.
   mothershipHarborURL: "https://harbor.openova.io"
 
+  # Wave 5.110 (#2462): optional bastion mirror in front of harbor.openova.io.
+  # When set (Huawei Sovereigns), the cold-start registries.yaml v1 (rendered
+  # by 04-registry-pivot-daemonset.yaml) ALSO mirrors harbor.openova.io →
+  # this endpoint, so containerd's resolution of ghcr.io/quay.io/etc. (each
+  # rewritten to harbor.openova.io/v2/proxy-X) flows through the bastion
+  # registry:2 cache instead of hitting Contabo NAT directly. Hetzner
+  # Sovereigns leave empty — they reach harbor.openova.io fine over public
+  # Internet without a mirror. Live evidence: hw06-hw10 stuck at Phase 1
+  # because cnpg + openbao etc. images pulled via harbor.openova.io directly
+  # from Huawei NAT EIPs hit intermittent DNS NXDOMAIN.
+  harborProxyMirrorEndpoint: ""
+
 # Local Gitea target — the org + repo created by step 01 (gitea-mirror).
 gitea:
   org: "openova"

@@ -204,6 +204,13 @@ metadata:
     app.kubernetes.io/component: cutover-daemonset
 data:
   # Cold-start registries.yaml v1 — soft-tethered to mothership Harbor.
+  # Wave 5.110 (#2462): include optional `harbor.openova.io → bastion`
+  # mirror when .Values.upstream.harborProxyMirrorEndpoint is set. On
+  # Huawei Sovereigns this MUST be set to http://212.72.24.20:5000 (the
+  # bastion-openova registry:2 cache) so containerd's resolution chain
+  # for ghcr.io / quay.io / etc. (which gets rewritten to
+  # harbor.openova.io/v2/proxy-X) flows through bastion instead of
+  # hitting Contabo NAT directly. Hetzner Sovereigns leave it empty.
   registries.yaml.v1: |
     mirrors:
       ghcr.io:
@@ -227,6 +234,17 @@ data:
       public.ecr.aws:
         endpoint:
           - "{{ .Values.upstream.mothershipHarborURL }}/v2/proxy-ecr"
+      {{- if .Values.upstream.harborProxyMirrorEndpoint }}
+      harbor.openova.io:
+        endpoint:
+          - "{{ .Values.upstream.harborProxyMirrorEndpoint }}"
+      {{- end }}
+    {{- if .Values.upstream.harborProxyMirrorEndpoint }}
+    configs:
+      "{{ regexReplaceAll "^https?://" .Values.upstream.harborProxyMirrorEndpoint "" }}":
+        tls:
+          insecure_skip_verify: true
+    {{- end }}
   # Hot-state registries.yaml v2 — independent. __HARBOR_PUBLIC_URL__
   # placeholder is replaced in-pod by the pivot script.
   registries.yaml.v2: |

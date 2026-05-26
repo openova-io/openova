@@ -359,6 +359,16 @@ write_files:
             # Huawei. Without suspend, install Helm-times-out after 15m
             # each → blocks Phase 1 completion.
             HCLOUD_HR_SUSPEND: "true"
+            # Wave 5.110 (#2462): bastion mirror endpoint for harbor.openova.io.
+            # bp-self-sovereign-cutover's registry-pivot DaemonSet rewrites
+            # /etc/rancher/k3s/registries.yaml with upstream→harbor.openova.io
+            # mirrors. On Huawei we ALSO mirror harbor.openova.io→bastion so
+            # the resulting paths flow through bastion's registry:2 caches
+            # instead of hitting Contabo NAT directly (live evidence: hw06-
+            # hw11 stuck on cnpg/openbao/keycloak/etc. ImagePullBackOff
+            # despite cloudinit's mirrors being overwritten by the pivot
+            # DaemonSet). Hetzner provs leave this empty.
+            HARBOR_PROXY_MIRROR_ENDPOINT: "http://212.72.24.20:5000"
             PARENT_DOMAINS_YAML: |
               ${parent_domains_yaml}
             # Wave 5.24 (Refs #2163) — cilium k8sServiceHost must be the
