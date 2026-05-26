@@ -38,6 +38,20 @@ Founder mandate (no more wipe-and-retry; fix-forward in current env + collect pe
 | 5.126 helmwatch 410 reattach | [#2474](https://github.com/openova-io/openova/issues/2474) | <img alt="PLANNED" src="https://img.shields.io/badge/-PLANNED-d73a4a?style=flat-square" /> | mothership-side defense: `k8scache.Factory` helmwatch.Bridge auto-reattaches on `apierrors.IsResourceExpired`, jittered backoff cap 5/min, `helmwatch_reexpired_total{cluster}` metric. Layer-2 defense for #2472. |
 | 5.127 cilium apparmor HCS | [#2476](https://github.com/openova-io/openova/pull/2476) | <img alt="MERGED" src="https://img.shields.io/badge/-MERGED-2ea043?style=flat-square" /> | clusters/_template/bootstrap-kit/01-cilium.yaml — explicit `container.apparmor.security.beta.kubernetes.io/<name>: unconfined` annotations for all 7 cilium agent pod containers. **THE actual second root cause** of hw29 HTTPS flapping: pod-level `securityContext.appArmorProfile.type: Unconfined` from upstream chart does NOT propagate to init containers on k3s 1.31 → `cri-containerd.apparmor.d` enforce-mode AppArmor blocks `mount-cgroup`'s `nsenter` ptrace on host PID 1 → `Init:CrashLoopBackOff` on every kubelet recreate → cilium-envoy on those workers has no xDS → Gateway listener missing → ELB members OFFLINE → HTTPS connection-refused. Verified live: 3/8 agents → 8/8 agents Ready 1/1 after the annotation patch. Refs [#2475](https://github.com/openova-io/openova/issues/2475). |
 
+### hw30 verifier-prov RCA chain (2026-05-27 cont.)
+
+| Wave | PR | Status | Notes |
+|---|---|---|---|
+| 5.128 ELB lifecycle flavor | [#2480](https://github.com/openova-io/openova/pull/2480) | <img alt="MERGED" src="https://img.shields.io/badge/-MERGED-2ea043?style=flat-square" /> | `huaweicloud_elb_loadbalancer.primary` gets `lifecycle.ignore_changes = [l4_flavor_id, l7_flavor_id]`. Huawei provider sends both null on subsequent plans → HCS rejects with ELB.8959. |
+| 5.129 tofu parallelism cap | [#2480](https://github.com/openova-io/openova/pull/2480) | <img alt="MERGED" src="https://img.shields.io/badge/-MERGED-2ea043?style=flat-square" /> | catalyst-api invokes `tofu apply -parallelism=2`. Default 10 fans out 8 worker ECS creates simultaneously → HCS scheduler `Common.0021: CollectInfoTask-fail` on 4/8 workers. Refs [#2479](https://github.com/openova-io/openova/issues/2479). |
+| 5.130 wipe creds PVC fallback | [#2482](https://github.com/openova-io/openova/pull/2482) | <img alt="MERGED" src="https://img.shields.io/badge/-MERGED-2ea043?style=flat-square" /> | Wipe handler resolves Huawei creds via 4-source chain: typed body → legacy body → in-memory dep.Request → PVC `tofu.auto.tfvars.json`. Pre-Wave-5.130 the wipe call returned `localCleaned=true` but `tofuDestroyed=false` because creds were missing, leaving HCS resources stranded. Refs [#2481](https://github.com/openova-io/openova/issues/2481). |
+| 5.131 ELB lifecycle vpc/eip | [#2483](https://github.com/openova-io/openova/pull/2483) | <img alt="MERGED" src="https://img.shields.io/badge/-MERGED-2ea043?style=flat-square" /> | Extend Wave 5.128 to `vpc_id + ipv4_eip_id`. Same null-on-update bug. |
+| 5.131b persist Provider | [#2484](https://github.com/openova-io/openova/pull/2484) | <img alt="CI" src="https://img.shields.io/badge/-CI-fbca04?style=flat-square" /> | RedactedRequest now carries Provider through Save→Load. Pre-fix, Pod restart blanked the field → validator branched to hetzner → "hetzner token is required" on every retry regardless of actual provider. |
+
+### hw30 #6 status (in flight, dep `ce77aaa336b7052a`)
+
+Phase 0 tofu apply ran with `parallelism=2` (Wave 5.129) and Wave 5.128 LB lifecycle patched. CP + 5 workers created successfully on HCS. ELB created. Apply errored on retry attempt with vpc_id/ipv4_eip_id null-update — Wave 5.131 in chart fixes for fresh prov. After all 7 PRs merge + auto-bump, next hw30 retry should be zero-touch end-to-end.
+
 ### hw29 final DoD walk (2026-05-27)
 
 | Surface | Result |
