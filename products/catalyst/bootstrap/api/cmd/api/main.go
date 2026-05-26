@@ -336,6 +336,17 @@ func main() {
 	// Info; nothing else (no JWTs, no secrets) is logged.
 	go runBakeTimeOwnerSeed(context.Background(), log, homeDyn)
 
+	// Issue #2470 — periodic janitor that purges abandoned wreckage from
+	// the catalyst-api-deployments PVC. Without this, failed deployments
+	// leave kubeconfigs + tofu workdirs + records on disk, which causes
+	// the mothership's helmwatch.Bridge to keep presenting OLD CA-signed
+	// client certs to (potentially-recycled-IP) Sovereign apiservers,
+	// flooding them with x509 cert-auth errors and breaking watch event
+	// delivery cluster-wide. Full RCA in handler/janitor.go header +
+	// session-2026-05-27 record.
+	tofuWorkDir := env("CATALYST_TOFU_WORKDIR", "/var/lib/catalyst/tofu")
+	h.StartJanitor(context.Background(), tofuWorkDir)
+
 	// Issue #1753 (slice G3b) — bp-mimir (slot 23) query-frontend URL
 	// for the Pod metrics sparkline. Per docs/INVIOLABLE-PRINCIPLES.md
 	// #4 the URL is env-overridable; empty disables the mimir path and
