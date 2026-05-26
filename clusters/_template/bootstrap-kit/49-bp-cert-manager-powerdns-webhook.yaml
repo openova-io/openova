@@ -124,6 +124,18 @@ spec:
     # here. Operators provisioning a Sovereign in a non-omani.works pool
     # add a `powerdns: { host: "https://pdns.<other-pool>" }` override
     # in their per-cluster overlay.
+    #
+    # Wave 5.111 (#2462): on Huawei provs, the host is substituted from
+    # cloudinit's bootstrap-kit Kustomization variable ${PDNS_API_HOST}.
+    # Huawei NAT egress can't reach Contabo (45.151.123.50:443 i/o
+    # timeout — same blocklist that motivated Wave 5.93 EIP rotation +
+    # Wave 5.106 docker.io bastion proxy). The bastion-openova
+    # (212.72.24.20) CAN reach pdns.openova.io directly + runs an nginx
+    # HTTPS reverse-proxy on :8443 that forwards to pdns.openova.io. On
+    # Hetzner provs the var is empty/missing, the chart default
+    # (https://pdns.openova.io) wins.
+    powerdns:
+      host: "${PDNS_API_HOST:=https://pdns.openova.io}"
 
     # ─── Paired ClusterIssuer ───────────────────────────────────────────
     # Operator opts in here; the chart's default render skips this

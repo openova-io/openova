@@ -369,6 +369,14 @@ write_files:
             # despite cloudinit's mirrors being overwritten by the pivot
             # DaemonSet). Hetzner provs leave this empty.
             HARBOR_PROXY_MIRROR_ENDPOINT: "http://212.72.24.20:5000"
+            # Wave 5.111 (#2462): bastion-side nginx reverse proxy for
+            # pdns.openova.io. Huawei NAT can't reach 45.151.123.50:443
+            # (Contabo blocklist — same root cause as the harbor mirror
+            # above) → cert-manager DNS-01 challenge → pdns API times
+            # out → wildcard cert never issues → Gateway Programmed=Unknown
+            # → console.<fqdn> HTTPS 000. Bastion runs nginx on :8443 that
+            # SNI-proxies HTTPS to pdns.openova.io.
+            PDNS_API_HOST: "https://212.72.24.20:8443"
             PARENT_DOMAINS_YAML: |
               ${parent_domains_yaml}
             # Wave 5.24 (Refs #2163) — cilium k8sServiceHost must be the
