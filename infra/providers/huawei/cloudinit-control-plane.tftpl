@@ -391,6 +391,24 @@ write_files:
             }
             cache 30
           }
+        # Wave 5.120 (#2464): harbor.openova.io override → bastion harbor proxy
+        # at 212.72.24.20 (Huawei-NAT-whitelisted on TCP/5000-5006). Without
+        # this override, Flux source-controller's helm-chart OCI fetcher
+        # tries the real public IP 45.151.123.50:443 — intermittently blocked
+        # by Huawei NAT TCP/443 outbound on me-east-215 (live evidence: hw26
+        # b1053cdf timed out `nc harbor.openova.io 443` from source-controller
+        # Pod despite cilium-agent host-network reach to github.com:443
+        # working — registries.yaml mirror covers containerd, but source-
+        # controller's Go HTTP client bypasses that for direct OCI reads).
+        # Same .server pattern as pdns/ns*.openova.io above.
+        harbor.server: |
+          harbor.openova.io:53 {
+            hosts {
+              212.72.24.20 harbor.openova.io
+              fallthrough
+            }
+            cache 30
+          }
 
   # Wave 5.34 (Refs #2208): catalyst-system/catalyst-handover-jwt-public
   # Secret. Mounted at /etc/catalyst/handover-jwt-public/public.jwk by the
@@ -739,6 +757,24 @@ runcmd:
   # ConfigMap (the canonical pattern Wave 5.34 already uses for 4 other
   # Secrets) avoids inline shell entirely.
   - KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f /var/lib/catalyst/manifests/07-coredns-custom-pdns.yaml
+
+  # Wave 5.120 (#2464): proactive Flux source-controller restart AFTER the
+  # coredns-custom ConfigMap is in place. If Flux comes up before the
+  # custom DNS overrides apply, the Go HTTP client's connection pool
+  # caches initial DNS resolution failures for harbor.openova.io /
+  # github.com (TCP/443 transiently blocked on me-east-215 Huawei NAT
+  # during cloud-init window), and GitRepository reconcile stays stuck
+  # for the full 15-min Phase-1 watcher budget → kubeconfig-missing
+  # timeout despite all infra being healthy. Live evidence: hw26
+  # b1053cdf source-controller-77d6cd56c9 cached failures; manual
+  # `kubectl delete pod` cleared the cache and GitRepository flipped
+  # Ready=True within 30s. Best-effort + dependency-safe: the
+  # rollout-restart is a no-op until source-controller exists, and the
+  # k3s/flux bootstrap step earlier in this cloud-init guarantees it.
+  - |
+    KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl -n flux-system wait --for=condition=Available --timeout=300s deploy/source-controller 2>/dev/null \
+      && KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl -n flux-system rollout restart deploy/source-controller 2>/dev/null \
+      || echo "Wave 5.120 source-controller restart deferred (deployment not yet present — Flux bootstrap may still be in progress)"
 
   # Wave 5.107 (#2462 follow-up): port Hetzner openbao-recovery-seed seeding
   # (issue #316) to Huawei. Without this Secret the bp-openbao post-install
