@@ -23,6 +23,7 @@ spec:
     metadata:
       labels:
         {{- include "catalog.labels" (dict "root" .) | nindent 8 }}
+        policy.cilium.io/enforced: "true"  # Wave 5.121 #2466
     spec:
       serviceAccountName: {{ include "catalog.fullname" . }}
       automountServiceAccountToken: false
@@ -123,5 +124,4 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       terminationGracePeriodSeconds: 30
-        policy.cilium.io/enforced: "true"  # Wave 5.121 #2466
 {{- end }}

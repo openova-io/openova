@@ -12,6 +12,7 @@ spec:
   template:
     metadata:
       labels:
+        policy.cilium.io/enforced: "true"  # Wave 5.121 #2466
         app: sme-tenant
     spec:
       serviceAccountName: tenant
@@ -95,7 +96,6 @@ spec:
             allowPrivilegeEscalation: false
             runAsNonRoot: true
             runAsUser: 65534
-        policy.cilium.io/enforced: "true"  # Wave 5.121 #2466
 ---
 apiVersion: v1
 kind: Service

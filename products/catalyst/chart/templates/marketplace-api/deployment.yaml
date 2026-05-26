@@ -14,6 +14,7 @@ spec:
   template:
     metadata:
       labels:
+        policy.cilium.io/enforced: "true"  # Wave 5.121 #2466
         app.kubernetes.io/name: marketplace-api
     spec:
       imagePullSecrets:
@@ -64,5 +65,4 @@ spec:
             readOnlyRootFilesystem: true
             runAsNonRoot: true
             runAsUser: 65534
-        policy.cilium.io/enforced: "true"  # Wave 5.121 #2466
 {{- end }}

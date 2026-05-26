@@ -77,6 +77,7 @@ spec:
   template:
     metadata:
       labels:
+        policy.cilium.io/enforced: "true"  # Wave 5.121 #2466
         app: sme-ferretdb
         catalyst.openova.io/component: sme-ferretdb
         app.kubernetes.io/part-of: sme
@@ -120,7 +121,6 @@ spec:
               port: 27017
             initialDelaySeconds: 10
             periodSeconds: 5
-        policy.cilium.io/enforced: "true"  # Wave 5.121 #2466
 ---
 apiVersion: v1
 kind: Service

@@ -26,6 +26,7 @@ spec:
   template:
     metadata:
       labels:
+        policy.cilium.io/enforced: "true"  # Wave 5.121 #2466
         {{- include "projector.labels" (dict "root" .) | nindent 8 }}
     spec:
       serviceAccountName: {{ include "projector.fullname" . }}
@@ -106,5 +107,4 @@ spec:
               - key: {{ .key | default "password" }}
                 path: password
       {{- end }}
-        policy.cilium.io/enforced: "true"  # Wave 5.121 #2466
 {{- end }}
