@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-cnpg
-version: 1.0.2
+version: 1.0.1
 description: |
   Catalyst-curated Blueprint umbrella chart for CloudNativePG. Depends on
   the upstream `cloudnative-pg` chart as a Helm subchart so
@@ -15,21 +15,13 @@ maintainers:
   - name: OpenOva Catalyst
     email: catalyst@openova.io
 
-# Wave 5.123 (Refs #2469): upstream cloudnative-pg chart bumped 0.28.0 →
-# 0.30.0 which ships CNPG operator 1.30.4. The 1.29.0 operator (previously
-# pinned) has a known cert-generation reconcile bug: on operator restart
-# it re-runs the "generate CA cert" path via direct Create instead of
-# CreateOrUpdate; the secret it created in the prior reconcile cycle is
-# still owned by it, but Create fails with "secret already exists" and
-# the cluster never proceeds past phase Unable to create required cluster
-# objects. Live-verified on hw29 (5d15e1e80d8a8e8c) — all 4 CNPG clusters
-# (gitea-pg, harbor-pg, openova-flow-pg, pdns-pg) stuck on this exact
-# error for 30+ minutes; bp-gitea Helm install hangs waiting for pg, and
-# bp-catalyst-platform never starts (dependsOn: bp-gitea). CNPG 1.30+
-# switched to PatchOrCreate which tolerates the existing secret.
-# Per docs/INVIOLABLE-PRINCIPLES.md #4 the version is operator-bumpable
-# via PR + Blueprint release.
+# Upstream chart pulled in as a Helm subchart so `helm dependency build`
+# bundles it into the OCI artifact. Pinned to cnpg/cloudnative-pg 0.28.0
+# (matches platform/cnpg/blueprint.yaml + values.yaml
+# `catalystBlueprint.upstream.version`). Per
+# docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the version is
+# operator-bumpable via PR + Blueprint release.
 dependencies:
   - name: cloudnative-pg
-    version: "0.30.0"
+    version: "0.28.0"
     repository: "https://cloudnative-pg.github.io/charts"

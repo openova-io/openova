@@ -22,7 +22,7 @@ global:
   imageRegistry: ""
 
 catalystBlueprint:
-  upstream: { chart: cloudnative-pg, version: "0.30.0", repo: "https://cloudnative-pg.github.io/charts" }
+  upstream: { chart: cloudnative-pg, version: "0.28.0", repo: "https://cloudnative-pg.github.io/charts" }
 
 # ─── Upstream chart values (subchart key: cloudnative-pg) ─────────────────
 # `helm dependency build` resolves the upstream as a subchart; values here
