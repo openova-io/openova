@@ -177,7 +177,21 @@ type wipeRequest struct {
 	ObjectStorageAccessKey string `json:"objectStorageAccessKey,omitempty"`
 	ObjectStorageSecretKey string `json:"objectStorageSecretKey,omitempty"`
 	ObjectStorageRegion    string `json:"objectStorageRegion,omitempty"`
+
+	// Wave 5.130 (hw30 fix-forward 2026-05-27): typed Huawei creds.
+	// Replaces the legacy `hetznerToken`/`objectStorageSecretKey`
+	// overload that Wave 3 introduced for the Cancel & Wipe modal.
+	// All three sources (typed body, legacy body, in-memory depReq,
+	// per-deployment tfvars on PVC) feed buildWipeCredsRaw via
+	// firstNonEmpty so the wipe handler always finds creds whether
+	// the operator re-prompted via the wizard, the Pod has them in
+	// memory, OR they're only on disk.
+	HuaweiAccessKey string `json:"huaweiAccessKey,omitempty"`
+	HuaweiSecretKey string `json:"huaweiSecretKey,omitempty"`
+	HuaweiProjectID string `json:"huaweiProjectId,omitempty"`
+	HuaweiRegion    string `json:"huaweiRegion,omitempty"`
 }
+
 
 // wipeResponse summarises what was actually purged. The wizard renders
 // the counts in a "Wipe complete — N servers, M load balancers, …
@@ -273,9 +287,48 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	if strings.TrimSpace(body.HetznerToken) == "" {
-		http.Error(w, "hetznerToken is required (re-prompt the operator before calling this endpoint)", http.StatusBadRequest)
-		return
+	// Wave 5.130 (hw30 fix-forward 2026-05-27): for Huawei deployments
+	// the canonical creds resolution order is (1) typed body fields,
+	// (2) in-memory depReq, (3) the per-deployment tofu.auto.tfvars.json
+	// on PVC (which catalyst-api wrote during provision and survives
+	// Pod restart unconditionally). If ALL three sources are empty,
+	// THEN refuse the wipe with a typed error. Otherwise let the wipe
+	// proceed and let buildWipeCredsRaw + the provider adapter do the
+	// rest. For Hetzner the legacy `hetznerToken` is still the only
+	// path until the wizard ships a typed shape.
+	provHint := strings.ToLower(strings.TrimSpace(dep.Request.Provider))
+	if provHint == "" {
+		provHint = "hetzner"
+	}
+	switch provHint {
+	case "huawei":
+		// Try to harvest from PVC tfvars when body fields are empty.
+		if strings.TrimSpace(body.HuaweiAccessKey) == "" || strings.TrimSpace(body.HuaweiSecretKey) == "" {
+			if hw, ok := loadHuaweiCredsFromTfvars(filepath.Join(h.tofuWorkDir(), id)); ok {
+				if strings.TrimSpace(body.HuaweiAccessKey) == "" {
+					body.HuaweiAccessKey = hw.AccessKey
+				}
+				if strings.TrimSpace(body.HuaweiSecretKey) == "" {
+					body.HuaweiSecretKey = hw.SecretKey
+				}
+				if strings.TrimSpace(body.HuaweiProjectID) == "" {
+					body.HuaweiProjectID = hw.ProjectID
+				}
+				if strings.TrimSpace(body.HuaweiRegion) == "" {
+					body.HuaweiRegion = hw.Region
+				}
+			}
+		}
+		if firstNonEmpty(body.HuaweiAccessKey, body.HetznerToken, dep.Request.HuaweiAccessKey) == "" ||
+			firstNonEmpty(body.HuaweiSecretKey, body.ObjectStorageSecretKey, dep.Request.HuaweiSecretKey) == "" {
+			http.Error(w, "huawei credentials are required (huaweiAccessKey + huaweiSecretKey in body, or already on PVC tfvars)", http.StatusBadRequest)
+			return
+		}
+	default:
+		if strings.TrimSpace(body.HetznerToken) == "" {
+			http.Error(w, "hetznerToken is required (re-prompt the operator before calling this endpoint)", http.StatusBadRequest)
+			return
+		}
 	}
 
 	// Issue #914 — minimum-life guard against externally-triggered
@@ -804,20 +857,23 @@ func buildWipeCredsRaw(providerName string, body wipeRequest, depReq provisioner
 	out := map[string]string{}
 	switch strings.ToLower(strings.TrimSpace(providerName)) {
 	case "huawei":
-		// Wave 3: the wizard's Huawei creds POST shape carries
-		// `hetznerToken` as the legacy field name but is interpreted
-		// as the IAM access key when the deployment's provider is
-		// "huawei". Wave 4 extends the wire shape to carry a typed
-		// {accessKey, secretKey, projectId, region} block on the
-		// wipe body — until then, body.HetznerToken doubles as the
-		// Huawei AK + body.ObjectStorageAccessKey doubles as the
-		// SK. (The legacy field-overload is intentional + scoped to
-		// the cancel-and-wipe modal; ValidateCredentials already
-		// dispatches via providers.Get on the typed provider.)
-		out["access_key"] = strings.TrimSpace(body.HetznerToken)
-		out["secret_key"] = strings.TrimSpace(body.ObjectStorageSecretKey)
-		out["project_id"] = strings.TrimSpace(body.ObjectStorageAccessKey)
-		out["region"] = strings.TrimSpace(body.ObjectStorageRegion)
+		// Wave 3 + Wave 5.130 (hw30 fix-forward 2026-05-27): legacy
+		// `hetznerToken` overload kept for the wizard's existing
+		// Cancel & Wipe modal, but PRIMARY path is now the typed
+		// huawei{accessKey,secretKey,projectId,region} body fields
+		// + a fallback to the in-memory dep.Request fields (set at
+		// provision time, survive Pod restart only if the operator
+		// re-submitted via the wizard). When all three sources are
+		// empty, the wipe.go entry path reads from the per-deployment
+		// tofu.auto.tfvars.json on the PVC (see
+		// loadHuaweiCredsFromWorkdir). This makes the wipe truly
+		// atomic: no need for the operator to re-prompt creds after
+		// a Pod restart, because catalyst-api wrote them to disk
+		// during provision.
+		out["access_key"] = firstNonEmpty(body.HuaweiAccessKey, body.HetznerToken, depReq.HuaweiAccessKey)
+		out["secret_key"] = firstNonEmpty(body.HuaweiSecretKey, body.ObjectStorageSecretKey, depReq.HuaweiSecretKey)
+		out["project_id"] = firstNonEmpty(body.HuaweiProjectID, body.ObjectStorageAccessKey, depReq.HuaweiProjectID)
+		out["region"] = firstNonEmpty(body.HuaweiRegion, body.ObjectStorageRegion, depReq.HuaweiRegion)
 	default:
 		// hetzner (canonical) — same wire shape pre-Wave-3.
 		token := strings.TrimSpace(body.HetznerToken)
@@ -873,4 +929,60 @@ func decodeJSONBody(r *http.Request, dst any) error {
 	}
 	defer r.Body.Close()
 	return json.NewDecoder(r.Body).Decode(dst)
+}
+
+// huaweiCreds is the typed extraction of Huawei IAM credentials from
+// tofu.auto.tfvars.json. Used by the wipe handler's Pod-restart-safe
+// fallback (Wave 5.130 hw30 fix-forward 2026-05-27).
+type huaweiCreds struct {
+	AccessKey string
+	SecretKey string
+	ProjectID string
+	Region    string
+}
+
+// loadHuaweiCredsFromTfvars reads tofu.auto.tfvars.json from the given
+// per-deployment workdir and returns the Huawei creds quartet. Returns
+// (zero, false) on any IO/parse error — the caller falls back to the
+// typed-error path that asks the operator to re-prompt via the wizard.
+//
+// The tfvars file is written by provisioner.writeTfvars during phase 0
+// and contains the AK/SK/projectId/region. It persists on the
+// catalyst-api-deployments PVC across Pod restarts.
+func loadHuaweiCredsFromTfvars(workdir string) (huaweiCreds, bool) {
+	path := filepath.Join(workdir, "tofu.auto.tfvars.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return huaweiCreds{}, false
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return huaweiCreds{}, false
+	}
+	get := func(k string) string {
+		if v, ok := raw[k].(string); ok {
+			return strings.TrimSpace(v)
+		}
+		return ""
+	}
+	hw := huaweiCreds{
+		AccessKey: get("huawei_access_key"),
+		SecretKey: get("huawei_secret_key"),
+		ProjectID: get("huawei_project_id"),
+		Region:    get("huawei_region"),
+	}
+	if hw.AccessKey == "" || hw.SecretKey == "" {
+		return huaweiCreds{}, false
+	}
+	return hw, true
+}
+
+// tofuWorkDir returns the root tofu workdir path. Defaults to
+// /var/lib/catalyst/tofu but honors CATALYST_TOFU_WORKDIR for the
+// same env override the provisioner uses.
+func (h *Handler) tofuWorkDir() string {
+	if v := strings.TrimSpace(os.Getenv("CATALYST_TOFU_WORKDIR")); v != "" {
+		return v
+	}
+	return "/var/lib/catalyst/tofu"
 }
