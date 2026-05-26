@@ -841,6 +841,15 @@ resource "huaweicloud_elb_loadbalancer" "primary" {
     ignore_changes = [
       l4_flavor_id,
       l7_flavor_id,
+      # Wave 5.131 (hw30 fix-forward 2026-05-27): provider also sends
+      # null for vpc_id + ipv4_eip_id on subsequent plans (same shape
+      # as the flavor-id bug — HCS auto-pins both at create, provider's
+      # update path doesn't round-trip them). Apply errors:
+      #   * vpc_id can't be updated, <existing> -> ""
+      #   * ipv4_eip_id can't be updated, <existing> -> ""
+      # Both are immutable post-create; ignore them.
+      vpc_id,
+      ipv4_eip_id,
     ]
   }
 }
