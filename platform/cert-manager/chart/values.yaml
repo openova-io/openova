@@ -32,6 +32,20 @@ catalystBlueprint:
 # `helm dependency build` resolves the upstream as a subchart; values here
 # under the `cert-manager:` key flow into that subchart unchanged.
 cert-manager:
+  # Wave 5.116 (#2462): force DNS-01 propagation check to use public
+  # recursive resolvers (8.8.8.8, 1.1.1.1) instead of authoritative NS.
+  # On Hetzner Sovereigns this is a no-op (default behavior already works
+  # because Contabo IPs reach mothership pdns NS fine). On Huawei Sovereigns
+  # the authoritative NS (ns1/2/3.openova.io → 45.151.123.50:53) is blocked
+  # by NAT egress, so cert-manager's propagation check hangs with
+  # "dial tcp 45.151.123.50:53: i/o timeout" — even though the TXT record
+  # WAS written successfully via the Wave 5.111 bastion :443 SNI proxy.
+  # Live evidence: hw19 29acca8e 6/13 challenges stuck on this exact error
+  # until cert-manager Deployment was patched with these flags. Folding the
+  # patch into chart values so future provs are truly zero-touch.
+  extraArgs:
+    - --dns01-recursive-nameservers=8.8.8.8:53,1.1.1.1:53
+    - --dns01-recursive-nameservers-only
   # Install CRDs as part of this chart. The Catalyst overlay's ClusterIssuer
   # template (templates/clusterissuer-letsencrypt-dns01.yaml) depends on the
   # cert-manager.io/v1 CRD being registered before the post-install hook

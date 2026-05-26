@@ -327,10 +327,40 @@ write_files:
         # with `plugin/hosts: this plugin can only be used once per Server Block`
         # (hw16 884be6e evidence). A dedicated .server block is cleaner —
         # CoreDNS routes pdns.openova.io queries to this server.
+        #
+        # Wave 5.117 (#2462): also override ns1/ns2/ns3.openova.io →
+        # bastion. cert-manager's DNS-01 propagation check resolves the
+        # zone's authoritative NS and queries them directly. Without
+        # this override, cert-manager dials ns1.openova.io = 45.151.123.50:53
+        # → blocked by Huawei NAT (live evidence: hw19 29acca8e, 6/13
+        # challenges stuck on `dial tcp 45.151.123.50:53: i/o timeout`).
+        # bastion runs socat UDP+TCP :53 → 45.151.123.50:53 (Wave 5.116b).
         pdns.server: |
           pdns.openova.io:53 {
             hosts {
               212.72.24.20 pdns.openova.io
+              fallthrough
+            }
+            cache 30
+          }
+        ns-openova.server: |
+          ns1.openova.io:53 {
+            hosts {
+              212.72.24.20 ns1.openova.io
+              fallthrough
+            }
+            cache 30
+          }
+          ns2.openova.io:53 {
+            hosts {
+              212.72.24.20 ns2.openova.io
+              fallthrough
+            }
+            cache 30
+          }
+          ns3.openova.io:53 {
+            hosts {
+              212.72.24.20 ns3.openova.io
               fallthrough
             }
             cache 30

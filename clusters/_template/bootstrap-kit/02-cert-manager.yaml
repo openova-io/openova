@@ -43,7 +43,7 @@ spec:
       # 1.2.1 (Fix #158): crdGate hook image switched from
       # bitnami/kubectl:1.30.4 (deleted from Docker Hub 2025-08) to
       # bitnamilegacy/kubectl:1.30.7.
-      version: 1.2.2
+      version: 1.2.3
       sourceRef:
         kind: HelmRepository
         name: bp-cert-manager

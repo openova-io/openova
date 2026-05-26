@@ -14,7 +14,7 @@ name: bp-cert-manager
 # Per CLAUDE.md inviolable rule, ALL chart-hook references MUST be
 # explicit Harbor proxy-cache form — not just rely on the node-level
 # containerd mirror in registries.yaml.
-version: 1.2.2
+version: 1.2.3
 description: |
   Catalyst-curated Blueprint umbrella chart for cert-manager. Depends on the
   upstream `cert-manager` chart (Jetstack) as a Helm subchart so
