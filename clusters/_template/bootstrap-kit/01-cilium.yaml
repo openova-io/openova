@@ -109,6 +109,42 @@ spec:
       envoyConfig:
         enabled: true
       l7Proxy: true
+      # Wave 5.127 (#TBD-hw30-apparmor): explicit per-container apparmor
+      # annotations on the agent DaemonSet pods. Why this is mandatory on
+      # HCS Kom4DC (and likely any host with cri-containerd.apparmor.d in
+      # enforce mode + kernel.yama.ptrace_scope=1):
+      #
+      # The agent's `mount-cgroup` initContainer runs:
+      #   nsenter --cgroup=/hostproc/1/ns/cgroup --mount=/hostproc/1/ns/mnt
+      # to bootstrap the host-side cgroup v2 mount at /run/cilium/cgroupv2.
+      # Opening /proc/1/ns/cgroup requires ptrace_may_access on PID 1.
+      # Even with SYS_PTRACE+SYS_ADMIN+SYS_CHROOT in the container's
+      # CapEff, the default cri-containerd.apparmor.d profile DENIES the
+      # ptrace operation. Result: `nsenter: cannot open
+      # /hostproc/1/ns/cgroup: Permission denied` → mount-cgroup
+      # Init:CrashLoopBackOff → cilium-agent never starts → cilium-envoy
+      # on that node has no xDS source → Gateway listener never binds on
+      # that node's :30443/:30080 → ELB health-check flips that node's
+      # member OFFLINE → tail-latency request gets routed to a worker
+      # whose envoy isn't serving → connection-refused/timeout on TLS.
+      #
+      # The upstream chart sets pod-level
+      # `spec.securityContext.appArmorProfile.type: Unconfined` (the
+      # post-v1.30 modern API). On k3s 1.31 this pod-level field does
+      # NOT propagate to init containers. The deprecated per-container
+      # annotation (still honored through v1.31) is the only form that
+      # works for init containers. Verified live on hw29 cp1 2026-05-27:
+      # before the annotations 3 of 8 cilium agents Init:CrashLoopBackOff
+      # with the nsenter error; after the annotations all 8 Ready 1/1
+      # and HTTPS 200 stable on all ELB members.
+      podAnnotations:
+        container.apparmor.security.beta.kubernetes.io/cilium-agent: unconfined
+        container.apparmor.security.beta.kubernetes.io/config: unconfined
+        container.apparmor.security.beta.kubernetes.io/mount-cgroup: unconfined
+        container.apparmor.security.beta.kubernetes.io/apply-sysctl-overwrites: unconfined
+        container.apparmor.security.beta.kubernetes.io/mount-bpf-fs: unconfined
+        container.apparmor.security.beta.kubernetes.io/clean-cilium-state: unconfined
+        container.apparmor.security.beta.kubernetes.io/install-cni-binaries: unconfined
       prometheus:
         enabled: false
         serviceMonitor:
