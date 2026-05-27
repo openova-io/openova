@@ -1795,13 +1795,30 @@ func (h *Handler) runProvisioning(dep *Deployment) {
 	// and panics "send on closed channel" inside the huawei wipe
 	// callback (wipe.go:442). The Wipe handler closes its own
 	// channel at wipe.go:649 on terminal exit; skip the close here.
+	// Wave 5.156 (2026-05-27): also skip when Status=="wiped" — wipe.go
+	// flips Status from "wiping" → "wiped" at line 643 BEFORE closing
+	// the channel at line 661. If runProvisioning's defer fires after
+	// the Status flip but before wipe.go's close, the original Wave 5.135
+	// guard (which only checked "wiping") let the close through here,
+	// then wipe.go's close panicked "close of closed channel".
+	// Witnessed on hw33 zero-touch wipe #2 of 3 (2026-05-27T12:41:59Z).
 	dep.mu.Lock()
-	skipClose := dep.Status == "wiping"
+	skipClose := dep.Status == "wiping" || dep.Status == "wiped"
 	dep.mu.Unlock()
 	if !skipClose {
-		close(dep.eventsCh)
+		// Defense-in-depth: even with the status guard, a third concurrent
+		// path could close between the check and the close. Wrap in a
+		// func+recover so a double-close doesn't crash the catalyst-api
+		// process.
+		func() {
+			defer func() { _ = recover() }()
+			close(dep.eventsCh)
+		}()
 	}
-	close(dep.done)
+	func() {
+		defer func() { _ = recover() }()
+		close(dep.done)
+	}()
 
 	// Final persist — captures Phase 1 terminal state when the watch
 	// ran, or is a no-op for the Phase 0 failure path (already

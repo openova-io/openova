@@ -656,12 +656,26 @@ _ = deploymentSovereignName // retained for backwards-compat callers; unused on 
 
 	// Close the events channel so SSE consumers get a clean EOF after
 	// replaying the purge log.
+	//
+	// Wave 5.156 (2026-05-27): hw33 wipe #2-of-3 hit `panic: close of
+	// closed channel` here at line 661. Root cause: deployments.go:1801
+	// runProvisioning's defer closed the same channel concurrently
+	// because the Wave 5.135 skipClose guard only matched
+	// Status=="wiping" — but wipe.go flips Status to "wiped" at line 643
+	// BEFORE this close, so the runProvisioning defer saw "wiped" and
+	// closed first. deployments.go:1799 fix extends skipClose to
+	// "wiping"||"wiped". This wipe.go fix wraps the close in
+	// func+recover for defense-in-depth.
 	dep.mu.Lock()
-	if dep.eventsCh != nil {
-		close(dep.eventsCh)
-		dep.eventsCh = nil
-	}
+	ch := dep.eventsCh
+	dep.eventsCh = nil
 	dep.mu.Unlock()
+	if ch != nil {
+		func() {
+			defer func() { _ = recover() }()
+			close(ch)
+		}()
+	}
 
 	writeJSON(w, http.StatusOK, report)
 }
