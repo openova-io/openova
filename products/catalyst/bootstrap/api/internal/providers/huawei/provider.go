@@ -818,9 +818,16 @@ func listNATsByName(ctx context.Context, client *http.Client, hw hwCreds, region
 // cascadeDeleteNAT clears snat_rules + dnat_rules then deletes NAT
 // itself. Without this, NAT delete returns VPC.2016 "Rule has not been
 // deleted" forever.
+//
+// Wave 5.154 (2026-05-27): HCS Kom4DC me-east-215 does NOT publish the
+// public Huawei spec DELETE /v2/{pid}/snat_rules/{rid} — that path
+// returns APIGW.0101 "method DELETE not found". The ONLY working delete
+// path on Kom4DC is the nested form: DELETE /v2/{pid}/nat_gateways/
+// {nid}/snat_rules/{rid}. Verified empirically against hw29/hw30/hw31
+// stuck NATs that Wave 5.153 left behind. Same fix for dnat_rules.
 func cascadeDeleteNAT(ctx context.Context, client *http.Client, hw hwCreds, region, natID string) error {
 	base := fmt.Sprintf("%s/v2/%s", endpointFor("nat", region), hw.ProjectID)
-	// snat_rules
+	// snat_rules — nested delete path required by Kom4DC
 	resp, _, _ := doSignedRequest(client, hw, http.MethodGet, base+"/snat_rules?nat_gateway_id="+natID, nil)
 	var snat struct {
 		Rules []struct {
@@ -829,10 +836,10 @@ func cascadeDeleteNAT(ctx context.Context, client *http.Client, hw hwCreds, regi
 	}
 	if err := json.Unmarshal(resp, &snat); err == nil {
 		for _, r := range snat.Rules {
-			_, _, _ = doSignedRequest(client, hw, http.MethodDelete, base+"/snat_rules/"+r.ID, nil)
+			_, _, _ = doSignedRequest(client, hw, http.MethodDelete, base+"/nat_gateways/"+natID+"/snat_rules/"+r.ID, nil)
 		}
 	}
-	// dnat_rules
+	// dnat_rules — same nested form
 	resp, _, _ = doSignedRequest(client, hw, http.MethodGet, base+"/dnat_rules?nat_gateway_id="+natID, nil)
 	var dnat struct {
 		Rules []struct {
@@ -841,7 +848,7 @@ func cascadeDeleteNAT(ctx context.Context, client *http.Client, hw hwCreds, regi
 	}
 	if err := json.Unmarshal(resp, &dnat); err == nil {
 		for _, r := range dnat.Rules {
-			_, _, _ = doSignedRequest(client, hw, http.MethodDelete, base+"/dnat_rules/"+r.ID, nil)
+			_, _, _ = doSignedRequest(client, hw, http.MethodDelete, base+"/nat_gateways/"+natID+"/dnat_rules/"+r.ID, nil)
 		}
 	}
 	// NAT itself
@@ -887,13 +894,58 @@ func listEIPsByNamePrefix(ctx context.Context, client *http.Client, hw hwCreds, 
 	return out, nil
 }
 
-// cascadeDeleteVPC walks subnet ports (deleting non-network ones),
-// then subnets, then VPC. Without this, subnet delete returns
-// VPC.0209 "subnet is still used" and VPC.0104 "Router contains
-// subnets" cascades through.
+// cascadeDeleteVPC walks the full HCS Kom4DC dependency tree for a VPC:
+//
+//  1. List floating-IPs whose router_id matches this VPC (HCS Kom4DC
+//     uses the same UUID for VPC and its built-in router). Disassociate
+//     (PUT port_id=null) then DELETE each — otherwise router-interface
+//     removal returns "RouterInterfaceInUseByFloatingIP".
+//  2. List ports on each subnet. For COMPUTE-owned ports
+//     (device_owner=compute:...), follow device_id to the ECS and
+//     delete it via the canonical ECS batch-delete endpoint with
+//     delete_publicip+delete_volume — these are orphan ECSs the
+//     name-prefix sweep missed because the operator named them
+//     ad-hoc (e.g. an RCA-recheck probe with a non-catalyst-* name
+//     reused the VPC's keypair → landed in this subnet). Wait briefly
+//     for the ECS to release its port.
+//  3. For the router-interface port on each subnet, find the Neutron
+//     subnet_id from fixed_ips (Kom4DC has TWO subnet IDs per subnet:
+//     the VPC-layer ID and the underlying Neutron ID). Call
+//     PUT /v2.0/routers/{router_id}/remove_router_interface with the
+//     Neutron subnet_id — direct port DELETE returns VPC.2500
+//     "Port's device_owner is not empty and is not neutron:VIP_PORT".
+//  4. Delete the subnet, then the VPC.
+//
+// Wave 5.154 (2026-05-27) root cause: prior cascadeDeleteVPC deleted
+// only non-network ports, never floating-IPs, never the router-interface,
+// and never compute-port-attached orphan ECSs. That left hw29 stuck
+// behind a single rca-recheck-s7nl4-* ECS I had spawned during s7n.large.4
+// capacity-exhaustion debugging — the wipe filter (catalyst-* prefix)
+// missed it, but the port-on-subnet stopped the entire VPC teardown.
 func cascadeDeleteVPC(ctx context.Context, client *http.Client, hw hwCreds, region, vpcID string) error {
 	vpcBase := fmt.Sprintf("%s/v1/%s", endpointFor("vpc", region), hw.ProjectID)
-	// List subnets in this VPC
+	vpcNeutron := fmt.Sprintf("%s/v2.0", endpointFor("vpc", region))
+	ecsBase := fmt.Sprintf("%s/v1/%s", endpointFor("ecs", region), hw.ProjectID)
+
+	// 1. Disassociate + delete floating-IPs bound to this VPC's router.
+	fResp, _, _ := doSignedRequest(client, hw, http.MethodGet, vpcNeutron+"/floatingips", nil)
+	var fipList struct {
+		FloatingIPs []struct {
+			ID       string `json:"id"`
+			RouterID string `json:"router_id"`
+		} `json:"floatingips"`
+	}
+	_ = json.Unmarshal(fResp, &fipList)
+	for _, f := range fipList.FloatingIPs {
+		if f.RouterID != vpcID {
+			continue
+		}
+		disassoc, _ := json.Marshal(map[string]any{"floatingip": map[string]any{"port_id": nil}})
+		_, _, _ = doSignedRequest(client, hw, http.MethodPut, vpcNeutron+"/floatingips/"+f.ID, disassoc)
+		_, _, _ = doSignedRequest(client, hw, http.MethodDelete, vpcNeutron+"/floatingips/"+f.ID, nil)
+	}
+
+	// List subnets in this VPC.
 	resp, _, err := doSignedRequest(client, hw, http.MethodGet, vpcBase+"/subnets", nil)
 	if err != nil {
 		return err
@@ -906,39 +958,119 @@ func cascadeDeleteVPC(ctx context.Context, client *http.Client, hw hwCreds, regi
 		} `json:"subnets"`
 	}
 	_ = json.Unmarshal(resp, &subnetList)
-	// For each subnet in this VPC: delete non-network ports + the subnet
+
+	// Single ports query reused per subnet.
+	pResp, _, _ := doSignedRequest(client, hw, http.MethodGet, vpcBase+"/ports", nil)
+	var portList struct {
+		Ports []struct {
+			ID          string `json:"id"`
+			DeviceOwner string `json:"device_owner"`
+			DeviceID    string `json:"device_id"`
+			FixedIPs    []struct {
+				SubnetID string `json:"subnet_id"`
+			} `json:"fixed_ips"`
+		} `json:"ports"`
+	}
+	_ = json.Unmarshal(pResp, &portList)
+
 	for _, s := range subnetList.Subnets {
 		if s.VPCID != vpcID {
 			continue
 		}
-		// List ports — delete non-network (non-router/non-dhcp) ones
-		pResp, _, _ := doSignedRequest(client, hw, http.MethodGet, vpcBase+"/ports", nil)
-		var portList struct {
-			Ports []struct {
-				ID          string `json:"id"`
-				DeviceOwner string `json:"device_owner"`
-				FixedIPs    []struct {
-					SubnetID string `json:"subnet_id"`
-				} `json:"fixed_ips"`
-			} `json:"ports"`
-		}
-		_ = json.Unmarshal(pResp, &portList)
+		// 2. Delete orphan ECSs whose port sits on this VPC's subnet.
+		//    `network:` (router/dhcp) ports are infrastructure — handled
+		//    by step 3. Compute ports (device_owner=compute:*) and any
+		//    other non-network owner with a device_id imply an ECS.
+		killedECS := false
 		for _, p := range portList.Ports {
-			belongs := false
+			// Match port to this VPC's subnet by inspecting fixed_ips.
+			// fixed_ips[].subnet_id is the Neutron subnet ID. We can't
+			// directly equate it to the VPC subnet ID, but since these
+			// ports came back from the project-scoped list, any port
+			// with a device_id and a non-network owner that we can't
+			// otherwise account for AND whose port maps to our VPC via
+			// network_id will be caught below. Conservative: only kill
+			// when owner starts with "compute:" — clearly an ECS.
+			if !strings.HasPrefix(p.DeviceOwner, "compute:") {
+				continue
+			}
+			if p.DeviceID == "" {
+				continue
+			}
+			// Verify ECS lives in our VPC before deleting.
+			detailURL := fmt.Sprintf("%s/cloudservers/%s", ecsBase, p.DeviceID)
+			eResp, _, _ := doSignedRequest(client, hw, http.MethodGet, detailURL, nil)
+			var srv struct {
+				Server struct {
+					Name     string                 `json:"name"`
+					Metadata map[string]string      `json:"metadata"`
+					Addrs    map[string][]map[string]any `json:"addresses"`
+				} `json:"server"`
+			}
+			if json.Unmarshal(eResp, &srv) != nil {
+				continue
+			}
+			// HARD bastion protection: never touch bastion-* ECSs.
+			if strings.HasPrefix(srv.Server.Name, "bastion-") {
+				continue
+			}
+			// Confirm vpc_id in metadata OR an address keyed by this VPC.
+			matchesVPC := srv.Server.Metadata["vpc_id"] == vpcID
+			if !matchesVPC {
+				if _, ok := srv.Server.Addrs[vpcID]; ok {
+					matchesVPC = true
+				}
+			}
+			if !matchesVPC {
+				continue
+			}
+			delBody, _ := json.Marshal(map[string]any{
+				"servers":         []map[string]string{{"id": p.DeviceID}},
+				"delete_publicip": true,
+				"delete_volume":   true,
+			})
+			_, _, _ = doSignedRequest(client, hw, http.MethodPost, ecsBase+"/cloudservers/delete", delBody)
+			killedECS = true
+		}
+		if killedECS {
+			// Give Kom4DC ~45s to release the compute port.
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(45 * time.Second):
+			}
+		}
+
+		// 3. Find router-interface port for THIS subnet → extract Neutron
+		//    subnet_id from fixed_ips → call remove_router_interface.
+		for _, p := range portList.Ports {
+			if p.DeviceOwner != "network:router_interface_distributed" &&
+				p.DeviceOwner != "network:router_interface" {
+				continue
+			}
+			if p.DeviceID != vpcID {
+				continue
+			}
+			var neutronSubnetID string
 			for _, fi := range p.FixedIPs {
-				if fi.SubnetID == s.ID {
-					belongs = true
+				if fi.SubnetID != "" {
+					neutronSubnetID = fi.SubnetID
 					break
 				}
 			}
-			if !belongs || strings.HasPrefix(p.DeviceOwner, "network:") {
+			if neutronSubnetID == "" {
 				continue
 			}
-			_, _, _ = doSignedRequest(client, hw, http.MethodDelete, vpcBase+"/ports/"+p.ID, nil)
+			rmBody, _ := json.Marshal(map[string]string{"subnet_id": neutronSubnetID})
+			_, _, _ = doSignedRequest(client, hw, http.MethodPut,
+				vpcNeutron+"/routers/"+vpcID+"/remove_router_interface", rmBody)
 		}
+
+		// 4. Delete the subnet.
 		_, _, _ = doSignedRequest(client, hw, http.MethodDelete, vpcBase+"/vpcs/"+vpcID+"/subnets/"+s.ID, nil)
 	}
-	// VPC itself
+
+	// VPC itself.
 	_, status, err := doSignedRequest(client, hw, http.MethodDelete, vpcBase+"/vpcs/"+vpcID, nil)
 	if err != nil {
 		return err
