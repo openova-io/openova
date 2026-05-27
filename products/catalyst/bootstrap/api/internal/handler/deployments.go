@@ -725,15 +725,29 @@ func (h *Handler) resumePhase1Watch(dep *Deployment) {
 		// runProvisioning closes them on the first-launch path).
 		// On resume we own them, so close here to release any
 		// SSE consumers waiting on `event: done`.
+		//
+		// Wave 5.140 (hw30 #16 fix-forward 2026-05-27): defense for
+		// `close of nil channel` panic — a concurrent wipe handler
+		// (wipe.go:649) sets dep.eventsCh = nil after close. Snapshot
+		// channels under dep.mu, nil-check, defer recover. Pod crashed
+		// at 2026-05-27T02:33:34Z in this site during hw30 #16's
+		// provisioning, abandoning the active prov mid-apply.
+		defer func() { _ = recover() }()
 		dep.mu.Lock()
+		evCh := dep.eventsCh
+		doneCh := dep.done
+		dep.mu.Unlock()
 		select {
-		case <-dep.done:
+		case <-doneCh:
 			// Already closed (defensive).
 		default:
-			close(dep.eventsCh)
-			close(dep.done)
+			if evCh != nil {
+				close(evCh)
+			}
+			if doneCh != nil {
+				close(doneCh)
+			}
 		}
-		dep.mu.Unlock()
 	}()
 }
 
