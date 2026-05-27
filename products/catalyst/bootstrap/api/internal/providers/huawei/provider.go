@@ -506,11 +506,45 @@ func buildECSTagFilterBody(deploymentID, sovereignFQDN string) []byte {
 // purgeHuaweiResources sweeps ECS → EIP → SG → VPC in dependency
 // order, deleting every resource tagged with the deployment-id or
 // sovereign label.
+//
+// Wave 5.147 (2026-05-27): also list ECSs by NAME prefix (not just
+// tag) because the huaweicloud_compute_instance resource in
+// infra/providers/huawei/main.tf does NOT set any `tags` attribute —
+// Wave 5.4 disabled tags due to HCS TMS endpoint divergence. So
+// listECSByTag returned zero results across every prior wipe and the
+// orphan ECSs from failed tofu destroys piled up unseen. By 2026-05-27
+// hw30 #17 alone had left 6 stranded s7n.large.4 ECSs which combined
+// with hw29's legitimate consumption to exhaust the HCS scheduler's
+// flavor pool — the real cause of the "Common.0021: No valid host"
+// failures the prior 11 waves chased a wrong theory for.
+//
+// Name-prefix fallback uses the same pattern as Wave 5.138 EIP sweep:
+// catalyst-<sovereign-stem>-<dep-id-short>-* identifies catalyst-owned
+// ECSs regardless of tag state, and excluding by stem keeps neighbor
+// Sovereigns' ECSs safe.
 func purgeHuaweiResources(ctx context.Context, client *http.Client, hw hwCreds, region, sovereignFQDN, deploymentID string, progress func(msg string), out *providers.WipeResult) error {
 	// ECS — delete first (depend on VPC + SG + EIP).
+	// (a) try tag-based lookup (legacy path; will return 0 results
+	// until Wave 5.4 tag-disablement is reverted).
 	servers, err := listECSByTag(ctx, client, hw, region, deploymentID, sovereignFQDN)
 	if err != nil {
-		out.Errors = append(out.Errors, "list ECS: "+err.Error())
+		out.Errors = append(out.Errors, "list ECS by tag: "+err.Error())
+	}
+	// (b) Wave 5.147 — name-prefix sweep so untagged ECSs still get
+	// found and deleted. Union with (a) to deduplicate by ID.
+	byName, nerr := listECSByNamePrefix(ctx, client, hw, region, sovereignFQDN, deploymentID)
+	if nerr != nil {
+		out.Errors = append(out.Errors, "list ECS by name-prefix: "+nerr.Error())
+	}
+	seen := map[string]bool{}
+	for _, s := range servers {
+		seen[s.ID] = true
+	}
+	for _, s := range byName {
+		if !seen[s.ID] {
+			servers = append(servers, s)
+			seen[s.ID] = true
+		}
 	}
 	for _, s := range servers {
 		if err := deleteECS(ctx, client, hw, region, s.ID); err != nil {
@@ -563,6 +597,69 @@ func purgeHuaweiResources(ctx context.Context, client *http.Client, hw hwCreds, 
 		progress("deleted VPC " + v.Name)
 	}
 	return nil
+}
+
+// listECSByNamePrefix lists every ECS in the project, filters by name
+// starting with `catalyst-<sovereign-stem>-<dep-id-short>-` (the
+// canonical local.name_prefix from infra/providers/huawei/main.tf).
+// Wave 5.147 (2026-05-27): used as fallback when listECSByTag returns
+// zero (which is always until tags are re-enabled). Without this,
+// failed tofu destroys leave ECSs stranded forever — the actual cause
+// of the s7n.large.4 HCS pool exhaustion that broke hw30 #4-#22.
+//
+// The sovereign-stem comes from sovereignFQDN with dots replaced by
+// dashes (matches local.name_prefix construction). deploymentID-short
+// is the first 8 chars (matches tofu's behavior).
+func listECSByNamePrefix(ctx context.Context, client *http.Client, hw hwCreds, region, sovereignFQDN, deploymentID string) ([]hwECSServer, error) {
+	if sovereignFQDN == "" {
+		return nil, nil
+	}
+	stem := strings.ReplaceAll(sovereignFQDN, ".", "-")
+	depShort := deploymentID
+	if len(depShort) > 8 {
+		depShort = depShort[:8]
+	}
+	// Match: "catalyst-<stem>-<depShort>-..."
+	prefix := fmt.Sprintf("catalyst-%s-%s-", stem, depShort)
+	// If no deploymentID, fall back to stem-only prefix (covers ALL
+	// deployments for this Sovereign — broader sweep).
+	stemPrefix := fmt.Sprintf("catalyst-%s-", stem)
+
+	// List all ECSs in project.
+	url := fmt.Sprintf("%s/v1/%s/cloudservers/detail", endpointFor("ecs", region), hw.ProjectID)
+	resp, status, err := doSignedRequest(client, hw, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	if status >= 400 {
+		return nil, fmt.Errorf("list ECS detail: status %d: %s", status, snippet(resp, 240))
+	}
+	var decoded struct {
+		Servers []struct {
+			ID     string `json:"id"`
+			Name   string `json:"name"`
+			Status string `json:"status"`
+			Flavor struct {
+				ID string `json:"id"`
+			} `json:"flavor"`
+		} `json:"servers"`
+	}
+	if err := json.Unmarshal(resp, &decoded); err != nil {
+		return nil, fmt.Errorf("decode ECS detail: %w", err)
+	}
+	out := []hwECSServer{}
+	for _, s := range decoded.Servers {
+		matches := false
+		if deploymentID != "" && strings.HasPrefix(s.Name, prefix) {
+			matches = true
+		} else if deploymentID == "" && strings.HasPrefix(s.Name, stemPrefix) {
+			matches = true
+		}
+		if matches {
+			out = append(out, hwECSServer{ID: s.ID, Name: s.Name, Status: s.Status, Flavor: s.Flavor.ID})
+		}
+	}
+	return out, nil
 }
 
 func deleteECS(ctx context.Context, client *http.Client, hw hwCreds, region, id string) error {
