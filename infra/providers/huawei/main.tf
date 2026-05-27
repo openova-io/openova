@@ -737,9 +737,18 @@ resource "huaweicloud_compute_instance" "worker" {
   # same deployment_id reuses same names (idempotency preserved).
   #
   # Format: <name_prefix>-<region>-w<6hex> where 6hex =
-  # substr(sha256(deployment_id + region + idx), 0, 6). Collision
-  # probability across 8 workers in one Sovereign: ~8²/2/16⁶ ≈ 1.9e-6.
-  name              = "${local.name_prefix}-${each.value.region}-w${substr(sha256("${var.deployment_id}-${each.value.region}-${each.value.index}"), 0, 6)}"
+  # substr(sha256(deployment_id + region + idx + retry_attempt), 0, 6).
+  # Collision probability across 8 workers in one Sovereign: ~8²/2/16⁶ ≈ 1.9e-6.
+  #
+  # Wave 5.139 (hw30 #15 fix-forward 2026-05-27): extend the hash input
+  # with var.retry_attempt. Within a single prov, the catalyst-api
+  # Provision retry loop (provisioner.go:1220) bumps retry_attempt before
+  # each retry's plan; tofu sees a NEW name for any worker not already
+  # in state → HCS scheduler picks a fresh cell, dodging the bad cell
+  # that returned Common.0021 on the prior attempt. EXISTING ACTIVE
+  # workers are protected by lifecycle.ignore_changes=[name] below so
+  # their already-created names persist across retries.
+  name              = "${local.name_prefix}-${each.value.region}-w${substr(sha256("${var.deployment_id}-${each.value.region}-${each.value.index}-${var.retry_attempt}"), 0, 6)}"
   image_id          = var.image_id
   flavor_id         = each.value.flavor
   availability_zone = var.huawei_az
@@ -763,8 +772,12 @@ resource "huaweicloud_compute_instance" "worker" {
   system_disk_size = 40
 
   # HCS read-back divergence — see CP block lifecycle comment.
+  # Wave 5.139: also ignore `name` so already-created ACTIVE workers
+  # don't get destroyed when the retry-loop bumps var.retry_attempt
+  # (which changes the formula-computed name for not-yet-created
+  # workers but must NOT trigger a destroy of the alive ones).
   lifecycle {
-    ignore_changes = [tags, metadata]
+    ignore_changes = [tags, metadata, name]
   }
 }
 
