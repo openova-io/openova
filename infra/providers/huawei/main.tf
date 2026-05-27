@@ -598,14 +598,24 @@ locals {
     # .230 + .50 on 747841cadcf90f7e 2026-05-22T22:53Z); no CP's local
     # IP matched, no PUT-back happened, Phase-1 timed out. Hostname is
     # deterministic since the ECS resource sets it via `name`.
-    primary_cp_hostname = "${local.name_prefix}-${local.region_keys[0]}-cp1"
+    #
+    # Wave 5.148 (hw30 #23 fix-forward 2026-05-27): MUST mirror the CP
+    # name salt that Wave 5.144 introduced — otherwise the hostname-match
+    # gate in cloudinit-control-plane.tftpl (line ~938
+    # `if [ "$HOSTNAME" = "${primary_cp_hostname}" ]`) never fires and
+    # the kubeconfig PUT-back never happens. hw30 #23 reached Phase 0
+    # complete but Phase 1 stalled here because primary_cp_hostname was
+    # still the un-salted form. Mirror formula = same sha256(deployment_id
+    # + region + 'cp' + index + retry_attempt) → first 6 hex chars.
+    primary_cp_hostname = "${local.name_prefix}-${local.region_keys[0]}-cp1-${substr(sha256("${var.deployment_id}-${local.region_keys[0]}-cp0-${var.retry_attempt}"), 0, 6)}"
     # Wave 5.74 (#2399, founder ask 2026-05-24): per-region CP-1 hostname
     # map so the cloud-init secondary-kubeconfig PUT-back block can
     # match each CP to its own region key. JSON-encoded for shell-side
     # awk/jq parsing. Format: {"<region-key>": "<cp1-hostname>"}.
+    # Wave 5.148: same salt mirroring.
     region_cp_hostname_map_json = jsonencode({
       for rk in local.region_keys :
-      rk => "${local.name_prefix}-${rk}-cp1"
+      rk => "${local.name_prefix}-${rk}-cp1-${substr(sha256("${var.deployment_id}-${rk}-cp0-${var.retry_attempt}"), 0, 6)}"
     })
     # Primary region key — for the SAME-region match: the primary CP
     # PUTs to /api/v1/deployments/{id}/kubeconfig, secondary CPs PUT
