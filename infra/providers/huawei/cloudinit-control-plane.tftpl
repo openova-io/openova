@@ -501,6 +501,19 @@ write_files:
             QA_PRIMARY_REGION: "${primary_region_canonical_label}"
             SOVEREIGN_PRIMARY_REGION: "${primary_region_canonical_label}"
             SOVEREIGN_REPLICA_REGION: "${replica_region_canonical_label}"
+            # Refs #2533 — G1: per-CP region role. The shared
+            # bootstrap-kit overlays (e.g. bp-cnpg-pair primary/replica
+            # placement) gate on this; primary CP renders "primary",
+            # each secondary CP renders "secondary".
+            SOVEREIGN_REGION_ROLE: "${sovereign_region_role}"
+            # Refs #2535 — G4: Cilium ClusterMesh peer anchors. The
+            # 01-cilium.yaml HelmRelease reads these via the bootstrap-kit
+            # Kustomization's `cluster.name=$${CLUSTER_MESH_NAME:=}` +
+            # `cluster.id=$${CLUSTER_MESH_ID:=0}` envsubst (the $$ escape
+            # protects the placeholder from rendering at templatefile()
+            # time so Flux's envsubst sees the literal $${VAR} marker).
+            CLUSTER_MESH_NAME: "${cluster_mesh_name}"
+            CLUSTER_MESH_ID: "${cluster_mesh_id}"
       ---
       # Wave 5.88 (#2432) — sovereign-tls Kustomization. Port of the
       # canonical Hetzner registration (cloudinit-control-plane.tftpl:1252-1376)

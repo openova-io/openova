@@ -418,3 +418,23 @@ variable "retry_attempt" {
     idempotent — same names, same scheduler decisions.
   EOT
 }
+
+# ── Cilium ClusterMesh anchors (Refs #2535 — G4) ───────────────────────
+# Mirror the Hetzner provider's variables.tf shape. The primary region
+# inherits these directly; secondary regions derive their own name+id
+# in main.tf locals (see cluster_mesh_name_by_region).
+variable "cluster_mesh_name" {
+  type        = string
+  default     = ""
+  description = "Cilium ClusterMesh peer name for this Sovereign's primary region (e.g. hw37-a). Empty = auto-derive from sovereign FQDN stem. Allocated via docs/CLUSTERMESH-CLUSTER-IDS.md."
+}
+
+variable "cluster_mesh_id" {
+  type        = number
+  default     = 0
+  description = "Cilium ClusterMesh peer id for this Sovereign's primary region (1-255 unique within a mesh; 0 = auto-allocate from sovereign deployment_id hash). Allocated via docs/CLUSTERMESH-CLUSTER-IDS.md."
+  validation {
+    condition     = var.cluster_mesh_id >= 0 && var.cluster_mesh_id <= 255
+    error_message = "cluster_mesh_id must be 0 (auto-allocate) or 1-255 (peer id)."
+  }
+}
