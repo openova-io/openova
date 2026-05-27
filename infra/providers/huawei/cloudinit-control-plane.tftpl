@@ -511,7 +511,7 @@ write_files:
             # Kustomization's `cluster.name=$${CLUSTER_MESH_NAME:=}` +
             # `cluster.id=$${CLUSTER_MESH_ID:=0}` envsubst (the $$ escape
             # protects the placeholder from rendering at templatefile()
-            # time so Flux's envsubst sees the literal ${VAR} marker).
+            # time so Flux's envsubst sees the literal $${VAR} marker).
             CLUSTER_MESH_NAME: "${cluster_mesh_name}"
             CLUSTER_MESH_ID: "${cluster_mesh_id}"
       ---
