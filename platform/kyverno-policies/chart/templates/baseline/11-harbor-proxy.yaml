@@ -70,7 +70,26 @@ spec:
           # Erroring policy + Kyverno admission webhook failurePolicy=Fail
           # blocked ALL pod creation cluster-wide pre-fix (verified hw02
           # bbd373de 2026-05-25 → 18 policies tripped same JMESPath nil bug).
-          - list: "(request.object.spec.containers || request.object.spec.template.spec.containers)[?image]"
+          #
+          # Wave 5.151 (hw30 #25 Pillar 5 fix-forward 2026-05-27): the prior
+          # [?image] filter was INCOMPLETE — Pillar 5 cutover step 7
+          # (cutover-catalyst-api-env-patch Job) failed with `regex_match
+          # JMESPath query failed: Invalid type for: <nil>` when patching the
+          # catalyst-api Deployment env. Some container in the Deployment
+          # (probably an init container or admission-time-injected sidecar)
+          # has an image that the [?image] truthiness filter doesn't catch
+          # — e.g. an empty-string image OR a missing image on initContainers
+          # which weren't in the list expression at all. Belt-and-braces:
+          # extend the list expression to also cover initContainers, AND add
+          # a preconditions guard so the deny block only evaluates when
+          # element.image is a non-empty string (Kyverno preconditions short-
+          # circuit deny eval entirely if false).
+          - list: "(request.object.spec.containers || request.object.spec.template.spec.containers || [])[?image] | concat(@, (request.object.spec.initContainers || request.object.spec.template.spec.initContainers || [])[?image])"
+            preconditions:
+              all:
+                - key: "{{ element.image || '' }}"
+                  operator: NotEquals
+                  value: ""
             deny:
               conditions:
                 all:
