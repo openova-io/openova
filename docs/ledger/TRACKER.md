@@ -465,3 +465,13 @@ Caught "fix shipped but actually broken" events + the validation principle that 
 
 **hw30 #12** kicked at 00:25Z (id `df36a62e332c0c3f`) with new image, Wave 5.134 randomized worker names baked in, all 4 Flux Kustomizations suspended (flux-system + apps + catalyst-platform + cinova).
 
+
+## 2026-05-27 — Wave 5.136 SHIPPED (PR #2489 merged): runTofu stderr tee → retry loop engages on Common.0021
+
+**Root cause** discovered after hw30 #12 (df36a62e332c0c3f) failed in 1 attempt at 00:30Z despite the 6-attempt × exponential-backoff retry loop being in code (Waves 5.132/5.133): provisioner.runTofu returned only `tofu apply ... failed: exit status 1`, never including the Common.0021 / CollectInfoTask-fail markers from HCS. The markers streamed to emit() (events buffer) but NOT into the error string the retry-decision substring-matches against. Loop never engaged.
+
+**Fix** (commit 3b5f5064, image tag `:3b5f506`):
+runTofu tees stderr through a bounded 32KB bytes.Buffer alongside the existing emit() streaming, then appends the captured stderr to the returned error on cmd.Wait failure. Retry loop now sees the markers.
+
+**hw30 #13** kicked at 00:38Z (id `76864b8cfcd5961a`) with new image. First prov to actually test the retry loop against real HCS Common.0021.
+
