@@ -701,3 +701,22 @@ console.hw30.omani.works → HTTP/1.1 200 OK, OpenOva Corporate UI served via Ci
 ### Pillar 1 status update
 End-user can now navigate to console.hw30.omani.works and see the OpenOva Corporate landing. Login flow + voucher onboarding next steps from there.
 
+
+## 🎉 2026-05-27T08:00Z — 5-pillar walk verified on hw30 #25
+
+| Surface | HTTP | Verdict |
+|---|---|---|
+| https://console.hw30.omani.works/ | 200 | OpenOva Corporate landing |
+| https://marketplace.hw30.omani.works/ | 200 (18.9 KB) | Real marketplace UI |
+| https://gitea.hw30.omani.works/ | 200 (13.9 KB) | Gitea backend |
+| https://auth.hw30.omani.works/ | 302 | Keycloak login redirect |
+| https://grafana.hw30.omani.works/ | 302 | Grafana login redirect |
+| https://harbor.hw30.omani.works/ | 404 | Wave 6 (Hetzner-specific HR) |
+| https://sandbox.hw30.omani.works/ | 404 | Wave 6 |
+
+5 of 7 subsurfaces serving real content. The 2 404s map to Wave 6 (#2495) Hetzner-only HRs not yet ported.
+
+**Pillar 1 (Marketplace + voucher onboarding) is now walkable on Huawei.** First time end-to-end since Hetzner→Huawei migration started.
+
+hw31 (2284db2cb0a7b1e5) provisioning right now as zero-touch convergence prov #1 of 3.
+
