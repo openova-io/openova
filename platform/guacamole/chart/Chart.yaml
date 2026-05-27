@@ -48,7 +48,7 @@ name: bp-guacamole
 # probing `/` made kubelet restart the Pod every ~60s and the kube-
 # system Cilium gateway returned 503 to `https://guacamole.<sov>/`
 # because no endpoint was ever Ready (observed on t22, 5 restarts).
-version: 0.1.30
+version: 0.1.31
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless
