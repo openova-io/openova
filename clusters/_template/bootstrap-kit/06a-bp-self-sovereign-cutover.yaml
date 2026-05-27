@@ -403,7 +403,7 @@ spec:
       # `egressTest.blockedDomains` both gain `xpkg.upbound.io` for
       # lockstep. totalSteps bumped 10 → 11; contract test asserts
       # the shift via new Case 22. (Refs #2034)
-      version: 0.1.38
+      version: 0.1.39
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
