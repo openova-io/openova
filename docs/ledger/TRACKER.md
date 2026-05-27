@@ -876,3 +876,19 @@ Issue [#2525](https://github.com/openova-io/openova/issues/2525) — hw35 sign-i
 What hw35 added beyond hw32-34: emrah inbox IMAP READ for PIN, PIN verify → catalyst_session JWT, /dashboard renders Sovereign treemap with 22 services + 9-entry sidebar.
 
 Deployment `51bb70ff8bf53b0e` still alive — founder can test at https://console.hw35.omani.works/
+
+
+## 2026-05-28 — hw36/hw37: NAT EIP eventual consistency fix (VPC.2030) + OBS cred derivation
+
+**Root causes fixed this cycle (2 PRs):**
+- **#2527** (`d700cd95`) — `infra/providers/huawei/main.tf`: `time_sleep.nat_eip_propagation` (15s) between EIP creation and SNAT rule; static `depends_on` reference; `hashicorp/time ~>0.10` provider. VPC.2030 added to `isTransient()` in `provisioner.go`.
+- **#2528** (`0d141847`) — `handler/deployments.go`: auto-derive `ObjectStorageAccessKey/SecretKey/Region` from Huawei IAM creds when empty (HCS Kom4DC OBS = same IAM AK/SK).
+
+**hw36** — provisioned with `me-east-215-a` + `me-east-215-b` (✓ multi-region); hit VPC.2030 on SNAT. Wiped.
+**hw37** (`a1065d9051e269b4`, `hw37.omani.works`) — Phase 0 ✓ zero-touch (both SNAT rules created without VPC.2030 after 15s guard). Phase 1 converging — 33/54 HRs True at ~17:21Z (remaining: cnpg/keycloak installing, dep cascade pending).
+
+| Issue | Status |
+|---|---|
+| #2526 (5-pillar DoD walk on hw37) | `status/in-progress` — Phase 1 converging |
+| #2527 (VPC.2030 SNAT fix) | `status/uat` — Phase 0 verified |
+| #2528 (OBS cred derivation) | `status/uat` — POST 400 fix verified |
