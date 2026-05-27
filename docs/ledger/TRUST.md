@@ -593,3 +593,30 @@ All five pillars remain 🔴 **UNVERIFIED** pending mothership substrate restore
 ### Definition-of-Done reminder (still in force)
 
 Same as the prior add-on, restated for clarity: PR merge does not flip any issue to VERIFIED-PASS. The walk is the contract. The verification denominator is still frozen on TBD-V15.
+
+---
+
+## 2026-05-27 — HCS Kom4DC canonical wipe-cascade 🟢 VERIFIED-PASS (3-consecutive zero-touch)
+
+Wave 5.153 + 5.154 + 5.155 + 5.156 + 5.157 — canonical Sovereign wipe cascade on HCS Kom4DC me-east-215.
+
+| Surface | State | Evidence |
+|---|---|---|
+| Canonical `POST /sovereign/api/v1/deployments/{id}/wipe?force=true` returns clean HTTP 200 | 🟢 VERIFIED-PASS | hw34 wipe at 2026-05-27T14:12:03Z — 67s, full `providerPurge` enumeration (firewalls/floating_ips/keypairs/load_balancers/nat_gateways/networks/neutron_subnets/servers all populated). Wave 5.156 (#2522) fix prevented prior 500 panic. |
+| HCS cascade leaves zero `catalyst-*` resources | 🟢 VERIFIED-PASS | 3 consecutive provs (hw32 #1, hw33 #2, hw34 #3) each wiped from 19 catalyst-* → 0 via cascade. Final audit per prov: VPC=0 Subnet=0 SG=0 EIP=0 FloatIP=0 NAT=0 ELB=0 ECS=0 Keypair=0. |
+| Bastion-* resources preserved through cascade | 🟢 VERIFIED-PASS | 7/7 bastion resources untouched at every checkpoint: `bastion-openova` ECS / VPC / subnet / SG / keypair / EIP `bastion-openova-bw` / FloatIP `212.72.24.20`. Hard `bastion-*` name guard in `cascadeDeleteVPC` orphan-ECS sweep + `sweepKeypairs` + `sweepNeutronOrphans`. |
+| Kom4DC nested NAT rule DELETE path (`/v2/{pid}/nat_gateways/{nid}/snat_rules/{rid}`) | 🟢 VERIFIED-PASS | Empirically verified — public Huawei spec path returns APIGW.0101 not-found on Kom4DC; nested form returns 204. file:line at `provider.go:925` (Wave 5.154 → 1abadae). |
+| Floating-IP disassociate+delete by router_id before router-intf removal | 🟢 VERIFIED-PASS | hw29 RCA: without this, `RouterInterfaceInUseByFloatingIP`. With it, router-intf removal returns 200. file:line at `cascadeDeleteVPC` L1025-1032. |
+| Neutron `PUT /v2.0/routers/{rid}/remove_router_interface` with `fixed_ips[].subnet_id` | 🟢 VERIFIED-PASS | Direct port DELETE returns VPC.2500; Neutron PUT with correct Neutron-subnet-id returns 200. file:line at L1140-1152. |
+| Orphan ECS-by-VPC port-match sweep with HARD `bastion-*` skip | 🟢 VERIFIED-PASS | hw29 stuck on `rca-recheck-s7nl4-*` ECS (non-`catalyst-*` name, reused VPC keypair) — `listECSByNamePrefix` missed it but port-on-subnet match caught it. file:line at L1100. |
+| Neutron subnet+network orphan sweep after v1 VPC delete | 🟢 VERIFIED-PASS | Wave 5.155 — v1 `DELETE /vpcs/{id}` returns 204 but Neutron `subnet`+`network` records survive until explicit `DELETE /v2.0/subnets/{id}` + `DELETE /v2.0/networks/{id}`. `sweepNeutronOrphans` at L682. |
+| Keypair sweep by `catalyst-<stem>-` prefix with double-guard `bastion-*` skip | 🟢 VERIFIED-PASS | Wave 5.155 — 68 orphan keypairs accumulated across hw01-hw33 before sweep; cascade now prevents accumulation. `sweepKeypairs` at L721. |
+| Wipe handler returns clean HTTP 200 (no double-close panic) | 🟢 VERIFIED-PASS | Wave 5.156 (#2522, commit b32eb9b9) — `deployments.go:1801` skipClose extended to `Status=="wiping" \|\| "wiped"`; `wipe.go:661` + `deployments.go:1804` wrapped in `func+recover`. Verified on hw34 wipe HTTP 200. |
+| NAT delete retry-with-backoff for HCS eventual consistency | 🟢 VERIFIED-PASS | Wave 5.157 (#2523, commit e0e4a3f9) — Kom4DC has propagation gap between snat_rule commit + NAT-readable visibility. `cascadeDeleteNAT` retries up to 4× (3s/6s/12s/24s) on VPC.2016. Image rolled on mothership 14:24Z. |
+
+Reviewer verdict: sub-agent `a0f1a7ecf9826a9ea` 🟢 VERIFIED-PASS on Wave 5.155 with file:line cites — [comment 4554307903](https://github.com/openova-io/openova/issues/2521#issuecomment-4554307903).
+
+Memory: [`feedback_hcs_kom4dc_wipe_cascade_quirks.md`](../../../.claude/projects/-home-openova-repos-openova/memory/feedback_hcs_kom4dc_wipe_cascade_quirks.md) — 5-quirk Kom4DC reference for future sessions.
+
+Issues closed: #2520 + #2521 + #2522 + #2523 (all with status/completed).
+
