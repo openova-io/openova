@@ -1223,6 +1223,16 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 	const maxApplyRetries = 6
 	const baseBackoff = 90 * time.Second
 	var lastErr error
+	// Wave 5.145 (hw30 #21 fix-forward 2026-05-27): track consecutive
+	// Common.0021 failures on the SAME resource address. If HCS
+	// scheduler keeps rejecting the same address across N retries
+	// despite Wave 5.139/5.144's per-retry name-salt rotation, the
+	// underlying compute cell pool is degraded — name salt can't help.
+	// Abort with a clear "HCS scheduler degraded" error after the 3rd
+	// consecutive same-address failure so we don't burn the remaining
+	// 12m+24m backoffs on a doomed prov. Operator sees the signal in
+	// minutes, can retry later or escalate to HCS ops.
+	lastFailedAddrs := map[string]int{}
 	for attempt := 1; attempt <= maxApplyRetries; attempt++ {
 		err := p.runTofu(ctx, deployDir, applyArgs, emit)
 		if err == nil {
@@ -1249,6 +1259,38 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 			strings.Contains(errStr, "CollectInfoTask-fail") ||
 			(strings.Contains(errStr, "error allocating EIP") && strings.Contains(errStr, "conflict in the request"))
 		if attempt < maxApplyRetries && isTransient {
+			// Wave 5.145 — early-abort detection. Extract resource
+			// addresses from the error string ("with huaweicloud_...
+			// .control_plane[0]," / "worker[\"me-east-215-a-N\"]")
+			// and track consecutive failures per address. After 3
+			// consecutive same-address Common.0021 failures (with 3
+			// different name salts), HCS scheduler is degraded for
+			// that compute pool and further retries are futile.
+			addrs := extractFailedAddrs(errStr)
+			degradedAddrs := []string{}
+			for _, a := range addrs {
+				lastFailedAddrs[a]++
+				if lastFailedAddrs[a] >= 3 && strings.Contains(errStr, "Common.0021") {
+					degradedAddrs = append(degradedAddrs, a)
+				}
+			}
+			// Reset counters for addresses NOT in this attempt's failure set
+			// (so a transient failure doesn't permanently count).
+			for a := range lastFailedAddrs {
+				found := false
+				for _, fa := range addrs {
+					if fa == a {
+						found = true
+						break
+					}
+				}
+				if !found {
+					delete(lastFailedAddrs, a)
+				}
+			}
+			if len(degradedAddrs) > 0 {
+				return nil, fmt.Errorf("HCS scheduler degraded: %d resource address(es) hit Common.0021 in 3+ consecutive retries despite per-retry name salt — %v. The compute cell pool for the (AZ, flavor) tuple is unhealthy. Retry later, escalate to HCS Kom4DC ops with deployment_id=%s, or try a different AZ/flavor", len(degradedAddrs), degradedAddrs, req.DeploymentID)
+			}
 			backoff := baseBackoff * time.Duration(1<<(attempt-1))
 			errLabel := "HCS Common.0021 (CollectInfoTask-fail)"
 			if strings.Contains(errStr, "error allocating EIP") {
@@ -1922,6 +1964,27 @@ func writeTfvars(deployDir string, req Request) error {
 		return err
 	}
 	return os.WriteFile(filepath.Join(deployDir, "tofu.auto.tfvars.json"), raw, 0o600)
+}
+
+// extractFailedAddrs parses tofu's stderr-formatted error block for
+// resource addresses appearing after a `with huaweicloud_...` line.
+// Returns canonical addresses like "control_plane[0]" or
+// "worker[\"me-east-215-a-3\"]" so the retry-loop can track per-address
+// recurrence (Wave 5.145).
+func extractFailedAddrs(errStr string) []string {
+	var addrs []string
+	for _, line := range strings.Split(errStr, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "with huaweicloud_compute_instance.") {
+			continue
+		}
+		// "with huaweicloud_compute_instance.control_plane[0]," → "control_plane[0]"
+		// "with huaweicloud_compute_instance.worker["me-east-215-a-3"]," → "worker["me-east-215-a-3"]"
+		rest := strings.TrimPrefix(line, "with huaweicloud_compute_instance.")
+		rest = strings.TrimSuffix(rest, ",")
+		addrs = append(addrs, rest)
+	}
+	return addrs
 }
 
 // bumpRetryAttempt rewrites the on-disk tofu.auto.tfvars.json with an
