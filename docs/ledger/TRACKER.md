@@ -749,3 +749,12 @@ Plus 3× gitea-mirror-resync cronjobs Complete (post-cutover periodic sync — p
 
 **5 of 8 cutover steps green = Sovereign IS migrating itself to self-sovereign mode on Huawei.** First time end-to-end.
 
+
+## 2026-05-27T08:40Z — Pillar 5 cutover step 6 regression discovered
+
+Step 6 helmrepository-patches Job logs show SUCCESS (53 YAML files edited + pushed to local Gitea). But live HelmRepository state has URLs back at `oci://ghcr.io/openova-io` — and ghcr-pull Secret had ghcr.io auth stripped by step 4 → bp-catalyst-platform 401.
+
+Hypothesis: gitea-mirror-resync cronjob (5min) pulls mothership upstream and overwrites local Gitea's openova/openova repo → bootstrap-kit reconciles to upstream state. Filed as TBD #2517 for next session.
+
+Meanwhile Wave 5.151 (Kyverno null-image fix, image bake in flight) addresses the OTHER Pillar 5 block (step 7 admission webhook denial).
+
