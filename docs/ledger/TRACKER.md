@@ -506,3 +506,17 @@ runTofu tees stderr through a bounded 32KB bytes.Buffer alongside the existing e
 | 5.137 | #2490 | Provision ctx 30m → 180m | #14 fails @ 50s on EIP quota cap |
 | 5.138 | #2491 | Janitor orphan-EIP sweep (catalyst-* bandwidth prefix) | #15 prov in flight (3 retries done, attempt 4 in 12m backoff) |
 
+
+## 2026-05-27T01:58Z — hw30 #15 status update
+
+| Attempt | Time | Backoff to next | Outcome |
+|---|---|---|---|
+| 1 | 01:25:52Z | 1m30s | Common.0021 |
+| 2 | 01:29:50Z | 3m | Common.0021 |
+| 3 | 01:34:37Z | 6m | Common.0021 |
+| 4 | 01:42:25Z | 12m | Common.0021 |
+| 5 | 01:56:31Z | 24m | Common.0021 |
+| 6 | ~02:20Z | — | (final shot) |
+
+HCS state: 6 of 8 expected ECSs ACTIVE (CP1 + 5 workers), all 3 EIPs allocated+bound, VPC 4/5, publicIp 7/10. HCS gradually filling workers — 2 broken-cell slots remain. If attempt 6 lands the final 2, Phase 0 closes and Phase 1 Helm-watch begins.
+
