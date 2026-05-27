@@ -805,3 +805,18 @@ Issue [#2521](https://github.com/openova-io/openova/issues/2521) — Wave 5.155 
 - Issue flipped to `status/uat` (awaiting hw33 + hw34 to complete 3-consecutive zero-touch founder mandate before `status/completed`)
 
 hw33 prov `83b705b4487a3633` kicked 11:56Z on the same Wave 5.155 image. Monitor armed.
+
+## 2026-05-27T12:43Z — hw33 zero-touch prov #2 of 3 — cascade VERIFIED + Wave 5.156 (handler double-close) shipped
+
+Issue [#2521](https://github.com/openova-io/openova/issues/2521) — hw33 prov `83b705b4487a3633` walked end-to-end zero-touch on Wave 5.155 image:
+- HTTPS 200 12:40:30Z + LE prod cert R12 valid 90d
+- Canonical wipe cascade drained 19 catalyst-* → 0 in 1m32s, bastion 7/7 preserved
+- BUT: wipe handler returned HTTP 500 due to **separate** race condition in handler/wipe.go:661 vs handler/deployments.go:1801. The cascade goroutine itself completed before the panic — HCS state correctly cleared.
+
+Wave 5.156 ([#2522](https://github.com/openova-io/openova/issues/2522), commit `b32eb9bf`): 
+- `deployments.go:1801` skipClose extended `"wiping" || "wiped"`
+- `wipe.go:661` snapshot eventsCh under mu + close in `func+recover` wrapper
+- `deployments.go:1804` same recover wrapper on `close(dep.done)`
+
+Image awaits CI bake. After roll, hw34 zero-touch #3 of 3 to complete founder's 3-consecutive mandate.
+
