@@ -503,12 +503,27 @@ resource "huaweicloud_vpc_eip" "nat" {
   }
 }
 
+# HCS NAT plane has eventual consistency with the EIP service — the EIP
+# registers in the VPC plane immediately but the NAT API takes up to 15s
+# to propagate visibility. Creating the SNAT rule without waiting returns
+# VPC.2030 "Floating IP not found". Witnessed live on hw36 d26632c3e536c2f9
+# (2026-05-28). 15s is empirically sufficient; the HCS docs mention a
+# "max 30s" propagation window for EIP state changes.
+resource "time_sleep" "nat_eip_propagation" {
+  for_each = toset(local.region_keys)
+
+  depends_on      = [huaweicloud_vpc_eip.nat]
+  create_duration = "15s"
+}
+
 resource "huaweicloud_nat_snat_rule" "region" {
   for_each = toset(local.region_keys)
 
   nat_gateway_id = huaweicloud_nat_gateway.region[each.key].id
   floating_ip_id = huaweicloud_vpc_eip.nat[each.key].id
   subnet_id      = huaweicloud_vpc_subnet.region[each.key].id
+
+  depends_on = [time_sleep.nat_eip_propagation[each.key]]
 }
 
 # ── Cloud-init render (control-plane + worker) ────────────────────────────

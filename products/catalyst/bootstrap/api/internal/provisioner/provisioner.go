@@ -1266,7 +1266,12 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 			(strings.Contains(errStr, "error creating VPC") && strings.Contains(errStr, "conflict in the request")) ||
 			// Wave 5.149: also subnet/NAT/SG conflicts which share the same
 			// root cause (project-scoped resource pools).
-			(strings.Contains(errStr, "error creating") && strings.Contains(errStr, "conflict in the request"))
+			(strings.Contains(errStr, "error creating") && strings.Contains(errStr, "conflict in the request")) ||
+			// Wave 5.158 (Refs #2527): HCS NAT plane eventual consistency — EIP
+			// just created but NAT API hasn't propagated it yet. The time_sleep
+			// resource in main.tf guards the canonical path; this catch handles
+			// any residual race (e.g. concurrent apply, slow HCS cell).
+			strings.Contains(errStr, "VPC.2030")
 		if attempt < maxApplyRetries && isTransient {
 			// Wave 5.145 — early-abort detection. Extract resource
 			// addresses from the error string ("with huaweicloud_...
