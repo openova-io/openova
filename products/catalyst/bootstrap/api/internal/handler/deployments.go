@@ -1639,7 +1639,20 @@ func (h *Handler) runProvisioning(dep *Deployment) {
 	}()
 
 	prov := provisioner.New()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	// Wave 5.137 (hw30 #13 fix-forward 2026-05-27): bump Provision
+	// timeout 30m→180m. Wave 5.132/5.133 added a 6-attempt × exponential-
+	// backoff retry loop for HCS Common.0021 transient failures
+	// (provisioner.go:1220). Worst-case backoff envelope alone is
+	// 90s+180s+360s+720s+1440s+2880s = ~95 min, plus ~5 min per attempt
+	// for plan+apply = ~125 min. The previous 30m ceiling truncated the
+	// loop at attempt 4 — hw30 #13 (76864b8cfcd5961a) failed at
+	// 2026-05-27T01:12:31Z with "tofu plan (retry): context deadline
+	// exceeded" while waiting between attempts 4 and 5, despite the
+	// retry mechanism working correctly. 180m gives the loop full room
+	// to exhaust (max ~125 min) plus 55 min Phase-1 Helm-watch + safety
+	// margin. CATALYST_PHASE1_WATCH_TIMEOUT is independent (120m,
+	// runProvisioning path) and has its own ceiling.
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Minute)
 	defer cancel()
 
 	result, err := prov.Provision(ctx, dep.Request, producer)
