@@ -43,7 +43,7 @@ name: bp-k8s-ws-proxy
 # hook image switched from curlimages/curl:8.10.1 to
 # harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1 per CLAUDE.md
 # inviolable rule.
-version: 0.1.13
+version: 0.1.14
 appVersion: "0.1.0"
 description: |
   Catalyst-authored Blueprint chart for the k8s-ws-proxy DaemonSet —

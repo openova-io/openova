@@ -29,7 +29,7 @@ k8sWsProxy:
     # SHA-pinned per INVIOLABLE-PRINCIPLES #4a. CI populates this via
     # build-k8s-ws-proxy.yaml on every push to core/cmd/k8s-ws-proxy/**
     # or platform/k8s-ws-proxy/chart/**.
-    tag: "f6757c7"
+    tag: "b32eb9b"
     pullPolicy: IfNotPresent
   # The DaemonSet binds to host port 0 (random); the ClusterIP
   # Service in front uses `internalTrafficPolicy: Local` so kube-proxy
