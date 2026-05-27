@@ -4,9 +4,11 @@ name: bp-mgmt-vcluster
 # (sovereign-multi-region-DoD invariant #4). Founder ruling
 # 2026-05-16: every Sovereign must materialise the MGMT + DMZ + RTZ
 # vCluster topology before convergence is declared. Slot 58 in the
-# bootstrap-kit (renders ONLY on the primary region — secondaries
-# render bp-dmz-vcluster + bp-rtz-vcluster instead).
-version: 0.1.0
+# bootstrap-kit.
+# 0.1.1 — Refs #2537: default `mgmtVcluster.enabled` flipped false→true
+# so every region renders the MGMT vCluster (symmetric topology
+# supersedes asymmetric A4).
+version: 0.1.1
 appVersion: "0.20.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign MGMT

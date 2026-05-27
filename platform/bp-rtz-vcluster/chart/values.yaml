@@ -13,9 +13,17 @@ global:
   imageRegistry: ""
 
 rtzVcluster:
-  # Top-level enable gate. False by default; bootstrap-kit slot 59
-  # postBuild.substitute flips it on ONLY for secondary regions.
-  enabled: false
+  # Top-level enable gate.
+  #
+  # Founder direction 2026-05-28 (Refs #2537): every region runs the
+  # symmetric triad MGMT+RTZ+DMZ. The historical asymmetric A4 contract
+  # (primary=MGMT+DMZ, secondary=DMZ+RTZ) is superseded — the
+  # SOVEREIGN_REGION_ROLE gate that would have flipped this on only on
+  # secondary regions never landed, and is no longer needed.
+  #
+  # Default ON: this slot renders on every region of every Sovereign.
+  # Operators who want to opt out flip via per-Sovereign overlay.
+  enabled: true
 
   # ── Topology identity ───────────────────────────────────────────────
   hostNamespace: rtz

@@ -33,11 +33,18 @@ global:
   imageRegistry: ""
 
 mgmtVcluster:
-  # Top-level enable gate. When false, NO resources render. The
-  # bootstrap-kit Kustomization sets this true via postBuild.substitute
-  # ONLY on the primary region (see clusters/_template/bootstrap-kit/
-  # 58-bp-mgmt-vcluster.yaml).
-  enabled: false
+  # Top-level enable gate.
+  #
+  # Founder direction 2026-05-28 (Refs #2537): every region runs the
+  # symmetric triad MGMT+RTZ+DMZ. The historical asymmetric A4 contract
+  # (primary=MGMT+DMZ, secondary=DMZ+RTZ) is superseded — the
+  # SOVEREIGN_REGION_ROLE gate that would have flipped this on only on
+  # primary regions never landed, and is no longer needed.
+  #
+  # Default ON: this slot renders on every region of every Sovereign.
+  # Operators who want to opt out (single-region SME tier) flip this
+  # to false via per-Sovereign overlay.
+  enabled: true
 
   # ── Topology identity ───────────────────────────────────────────────
   # Host namespace this vCluster's pods land in (inside the HOST k3s).

@@ -3,11 +3,12 @@ name: bp-rtz-vcluster
 # 0.1.0 — initial implementation of DoD A4 vCluster topology
 # (sovereign-multi-region-DoD invariant #4). Founder ruling
 # 2026-05-16: every secondary region must materialise an RTZ
-# vCluster for regional tenant workloads + caches.
-#
-# Slot 59 in the bootstrap-kit (renders ONLY on secondary regions —
-# primaries host MGMT + DMZ, secondaries host DMZ + RTZ).
-version: 0.1.0
+# vCluster for regional tenant workloads + caches. Slot 59 in the
+# bootstrap-kit.
+# 0.1.1 — Refs #2537: default `rtzVcluster.enabled` flipped false→true
+# so every region renders the RTZ vCluster (symmetric topology
+# supersedes asymmetric A4).
+version: 0.1.1
 appVersion: "0.20.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign RTZ
