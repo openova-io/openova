@@ -688,3 +688,16 @@ If #24 succeeds end-to-end (ready state with componentStates populated), the act
 - 24 hw30 prov attempts (#11-#25), 0 successful end-to-end yet.
 - **Actual RCA** identified at 06:09Z (founder's hypothesis): my orphan ECSs were eating HCS s7n.large.4 pool capacity, causing every prior failure to wrongly attribute to "scheduler bad-cell affinity".
 
+
+## 🎉 2026-05-27T07:52Z — FIRST END-TO-END HUAWEI SUCCESS (hw30 #25)
+
+console.hw30.omani.works → HTTP/1.1 200 OK, OpenOva Corporate UI served via Cilium Envoy. **First Huawei Sovereign prov to reach a walkable end-user surface.**
+
+- 9 ECSs ACTIVE: m7n.large.8 CP + 8× m7n.xlarge.8 workers (Wave 5.146 flavor switch)
+- 14+ HRs True via Flux bootstrap-kit
+- HSTS + CSP + Envoy headers as expected
+- ELB members initially OFFLINE — needed ~30min for HCS health-check propagation (not actually a config bug, just slow convergence)
+
+### Pillar 1 status update
+End-user can now navigate to console.hw30.omani.works and see the OpenOva Corporate landing. Login flow + voucher onboarding next steps from there.
+
