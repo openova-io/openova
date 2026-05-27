@@ -84,7 +84,15 @@ import (
 )
 
 const (
-	defaultJanitorInterval     = 1 * time.Hour
+	// Wave 5.150 (Refs #2512, #2513 — Principle 16 L2 INCIDENT-MGMT):
+	// 1h was way too slow for high-iteration debug cycles. A failed
+	// prov can leak 3+ EIPs / 1 VPC / 1 SG in 90 seconds and the next
+	// prov 2 minutes later hits the quota cap. 5 minutes is short
+	// enough to keep up with rapid retries while still leaving an
+	// operator a meaningful window to inspect a failed dep before the
+	// janitor reaps it (failedMaxAge stays 24h — reap-by-age is
+	// separately gated).
+	defaultJanitorInterval     = 5 * time.Minute
 	defaultJanitorFailedMaxAge = 24 * time.Hour
 	defaultJanitorWipedMaxAge  = 1 * time.Hour
 )
