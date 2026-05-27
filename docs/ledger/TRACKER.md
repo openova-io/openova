@@ -520,3 +520,17 @@ runTofu tees stderr through a bounded 32KB bytes.Buffer alongside the existing e
 
 HCS state: 6 of 8 expected ECSs ACTIVE (CP1 + 5 workers), all 3 EIPs allocated+bound, VPC 4/5, publicIp 7/10. HCS gradually filling workers — 2 broken-cell slots remain. If attempt 6 lands the final 2, Phase 0 closes and Phase 1 Helm-watch begins.
 
+
+## 2026-05-27 — Wave 5.139 SHIPPED (PR #2494 merged): per-retry name salt breaks HCS bad-cell affinity within-prov
+
+**Root cause** RCA'd from hw30 #15 (33175ce0eace614f) at 02:05Z: Wave 5.134 randomizes worker names per-DEPLOYMENT (cross-prov affinity broken) but not per-RETRY (within-prov affinity persists). HCS scheduler picked same broken cells across attempts 3, 4, 5 — produced ZERO new ECSs across 3 retries (all 5 ACTIVE workers were created during attempts 1-2 only).
+
+**Fix** (commit 8dc978e5 / merge 2ef38f5d, image tag `:2ef38f5`):
+- `infra/providers/huawei/variables.tf`: new `retry_attempt` number variable (default 0).
+- `infra/providers/huawei/main.tf` worker name: `hash(deployment_id + region + index + retry_attempt)`; worker resource `lifecycle.ignore_changes` adds `name` so ACTIVE workers don't get destroyed when their formula-computed name changes.
+- `provisioner.go` writeTfvars: emit `retry_attempt: 0` default.
+- `provisioner.go` `bumpRetryAttempt(deployDir, N)`: rewrites tfvars between retries.
+- `provisioner.go` Provision retry loop: calls `bumpRetryAttempt(attempt)` before each re-plan.
+
+**Image roll deferred** until hw30 #15 attempt 6 lands.
+
