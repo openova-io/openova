@@ -575,3 +575,14 @@ Open RCA layers (Principle 16 multi-layer):
 
 **hw30 #18** (02fe531cb7ab20e0) kicked at 03:46Z with Wave 5.139+5.140+5.141 baked. First prov with serialized creates.
 
+
+## 2026-05-27 — Waves 5.142+5.143+5.144 SHIPPED (PRs #2503, #2504, #2505)
+
+| Wave | PR | Fix | Outcome |
+|---|---|---|---|
+| 5.142 | #2503 | REVERT 5.141 (parallelism 1→2) | Wave 5.141 made hw30 #18 WORSE (0 ECSs); 5.142 restored Wave 5.129 setting |
+| 5.143 | #2504 | Retry-loop also catches `error allocating EIP: conflict` | hw30 #19 fast-failed at 92s without retry; Wave 5.138 janitor 1h cadence insufficient |
+| 5.144 | #2505 | CP name salted with retry_attempt too | Wave 5.139 only salted workers; CP name static across retries → same bad cell |
+
+**Session total waves**: 5.135-5.144 (10 fixes). hw30 #20 hit CP Common.0021 across 3 attempts proving Wave 5.144 is needed. Manual EIP orphan cleanup performed before kicking #21.
+
