@@ -1257,7 +1257,16 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 		errStr := err.Error()
 		isTransient := strings.Contains(errStr, "Common.0021") ||
 			strings.Contains(errStr, "CollectInfoTask-fail") ||
-			(strings.Contains(errStr, "error allocating EIP") && strings.Contains(errStr, "conflict in the request"))
+			(strings.Contains(errStr, "error allocating EIP") && strings.Contains(errStr, "conflict in the request")) ||
+			// Wave 5.149: VPC-conflict has the same root cause as EIP-conflict
+			// (project quota cap + slow propagation of prior-wipe deletes). HCS
+			// returns: "error creating VPC: The request could not be processed
+			// due to conflict in the request". Same retry semantics — backoff
+			// gives the janitor / manual cleanup time to free a slot.
+			(strings.Contains(errStr, "error creating VPC") && strings.Contains(errStr, "conflict in the request")) ||
+			// Wave 5.149: also subnet/NAT/SG conflicts which share the same
+			// root cause (project-scoped resource pools).
+			(strings.Contains(errStr, "error creating") && strings.Contains(errStr, "conflict in the request"))
 		if attempt < maxApplyRetries && isTransient {
 			// Wave 5.145 — early-abort detection. Extract resource
 			// addresses from the error string ("with huaweicloud_...
@@ -1295,6 +1304,10 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 			errLabel := "HCS Common.0021 (CollectInfoTask-fail)"
 			if strings.Contains(errStr, "error allocating EIP") {
 				errLabel = "HCS EIP-conflict (quota / propagation)"
+			} else if strings.Contains(errStr, "error creating VPC") {
+				errLabel = "HCS VPC-conflict (quota / propagation)"
+			} else if strings.Contains(errStr, "error creating") && strings.Contains(errStr, "conflict in the request") {
+				errLabel = "HCS resource-conflict (quota / propagation)"
 			}
 			emit("tofu-apply", "warn", fmt.Sprintf("%s — attempt %d/%d, re-planning + retrying in %s", errLabel, attempt, maxApplyRetries, backoff))
 			time.Sleep(backoff)
