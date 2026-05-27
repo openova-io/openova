@@ -399,17 +399,15 @@ locals {
 
   # Per-region worker count comes from `regions[].worker_count` (the
   # cross-provider PROVIDER-INTERFACE.md §1 shape — set by the wizard
-  # / Go provisioner). Default 4 if zero — Wave 5.104 (#2460) bumped 2→3
-  # for bootstrap-kit CPU; Wave 5.108 (#2462 follow-up) bumps 3→4 for
-  # buffer against intermittent k3s-agent install failures on workers
-  # (hw09 6d9eb655 w1 never joined — `curl get.k3s.io` hit a transient
-  # blip and gave up silently → 3 ACTIVE ECS but 3 k3s nodes → CPU
-  # exhausted → bp-openbao Pending → cascade timeout). Wave 5.108
-  # cloud-init also adds 10× retry on the curl, but the +1 worker
-  # buffer ensures the cluster stays viable even if one retry-exhausts.
+  # / Go provisioner). Default 3 if zero. Wave 5.108 (#2462) had bumped
+  # 3→4 for k3s-agent install reliability, but cloud-init now ships 10×
+  # retry on the get.k3s.io curl so the +1 buffer is no longer required.
+  # Founder direction 2026-05-28 (Refs #2536): a 2-region Sovereign with
+  # 3 vClusters per region (MGMT+RTZ+DMZ, Refs #2537) needs ~6 ECS
+  # workers total, not 16. Tier-B HCS cost-fit. Walks pass on 3 workers.
   worker_nodes = flatten([
     for r in var.regions : [
-      for i in range(r.worker_count > 0 ? r.worker_count : 4) : {
+      for i in range(r.worker_count > 0 ? r.worker_count : 3) : {
         region = r.code
         index  = i
         flavor = local.effective_worker_flavor[r.code]
