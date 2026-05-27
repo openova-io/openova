@@ -30,6 +30,7 @@ package provisioner
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
@@ -1386,13 +1387,59 @@ func (p *Provisioner) runTofu(ctx context.Context, deployDir string, args []stri
 		return err
 	}
 
-	go streamLines(stdout, "tofu", "info", emit)
-	go streamLines(stderr, "tofu", "warn", emit)
+	// Wave 5.136 (hw30 #12 fix-forward 2026-05-27): also capture stderr to
+	// an in-memory buffer so the caller's retry-decision can substring-
+	// match against actual tofu error text (e.g. "Common.0021",
+	// "CollectInfoTask-fail"). cmd.Wait() returns only "exit status 1"
+	// for tofu failures; the retry loop in Provision (provisioner.go:1231)
+	// was therefore never engaging because the error string lacked the
+	// transient-failure markers. hw30 #12 failed in one attempt at
+	// 2026-05-27T00:30Z despite the 6-attempt exponential-backoff loop
+	// being present in the code (Wave 5.132/5.133) — the matcher just
+	// couldn't see the markers it needed.
+	var stderrBuf bytes.Buffer
+	const stderrCapMax = 32 * 1024 // bound memory; head of stderr is enough for the marker
+	streamDone := make(chan struct{}, 2)
+	go func() {
+		streamLines(stdout, "tofu", "info", emit)
+		streamDone <- struct{}{}
+	}()
+	go func() {
+		streamLinesTee(stderr, "tofu", "warn", emit, &stderrBuf, stderrCapMax)
+		streamDone <- struct{}{}
+	}()
 
-	if err := cmd.Wait(); err != nil {
-		return fmt.Errorf("tofu %s failed: %w", strings.Join(args, " "), err)
+	waitErr := cmd.Wait()
+	<-streamDone
+	<-streamDone
+
+	if waitErr != nil {
+		stderrTail := strings.TrimSpace(stderrBuf.String())
+		if stderrTail != "" {
+			return fmt.Errorf("tofu %s failed: %w | stderr: %s", strings.Join(args, " "), waitErr, stderrTail)
+		}
+		return fmt.Errorf("tofu %s failed: %w", strings.Join(args, " "), waitErr)
 	}
 	return nil
+}
+
+// streamLinesTee streams scanner lines through emit() AND appends them to buf
+// (bounded by capMax bytes) so the caller can inspect tofu stderr for
+// substring markers after cmd.Wait() returns only the exit status.
+func streamLinesTee(r io.Reader, phase, level string, emit func(string, string, string), buf *bytes.Buffer, capMax int) {
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		emit(phase, level, line)
+		if buf.Len()+len(line)+1 <= capMax {
+			buf.WriteString(line)
+			buf.WriteByte('\n')
+		}
+	}
 }
 
 func streamLines(r io.Reader, phase, level string, emit func(string, string, string)) {
