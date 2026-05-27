@@ -586,3 +586,19 @@ Open RCA layers (Principle 16 multi-layer):
 
 **Session total waves**: 5.135-5.144 (10 fixes). hw30 #20 hit CP Common.0021 across 3 attempts proving Wave 5.144 is needed. Manual EIP orphan cleanup performed before kicking #21.
 
+
+## 2026-05-27T04:42Z — hw30 #21 status + Wave 5.144 verification
+
+| Attempt | Time | retry_attempt | Outcome | Fix that engaged |
+|---|---|---|---|---|
+| 1 | 04:33Z | 0 | EIP-conflict elb_primary | Wave 5.143 (retry on EIP-conflict label) |
+| 2 | 04:35Z | 1 | EIP-conflict elb_primary | (manual EIP cleanup) |
+| 3 | 04:39Z | 2 | CP Common.0021 (cp1-f8fae5) | Wave 5.144 salted CP name → confirmed |
+| 4 | ~04:46Z | 3 | (upcoming) | — |
+
+**Wave 5.144 verified working**: CP name now carries 6hex salt per retry (\`cp1-<hash>\`). But Common.0021 still fires on CP — confirms HCS bad-cell affinity is NOT name-driven. Likely (flavor, AZ) tuple or subnet IP range.
+
+**Wave 5.143 verified working**: EIP-conflict triggered retry (label "HCS EIP-conflict (quota / propagation)"). No more fast-fail.
+
+**Next**: if attempts 4-6 all hit CP Common.0021, we've exhausted retry-based mitigation. L4 CONTAINMENT issue #2500 (preflight cell-health probe) becomes the path forward.
+
