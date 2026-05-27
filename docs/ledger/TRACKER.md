@@ -676,3 +676,15 @@ After deleting the 6 orphans manually via HCS API, a direct test `POST s7n.large
 
 If #24 succeeds end-to-end (ready state with componentStates populated), the actual demonstrable Phase 0 + Phase 1 stack is verified for first time.
 
+
+## 2026-05-27T07:03Z — Wave 5.149 SHIPPED, hw30 #25 kicked
+
+**Wave 5.149** (PR #2510, commit 26504728 → image :2650472) — retry-loop substring matcher also catches "error creating VPC: conflict in the request" and the generic "error creating X: conflict in the request" pattern (covers subnet/NAT/SG quota-cap fast-fails). hw30 #24 fast-failed on VPC-conflict because Wave 5.143 only caught EIP-conflict.
+
+**hw30 #25** (8698287bee8f32b0) kicked at 07:03Z with all 15 fix waves active (5.135-5.149).
+
+### Cumulative session totals
+- 15 waves shipped covering: panic guards (5), retry-loop engagements (3 — Common.0021, EIP-conflict, VPC-conflict), context envelope (1), orphan resource sweeps (2 — EIP, ECS), name salt (2 — workers + CP), hostname-match-mirror (1), flavor switch (1).
+- 24 hw30 prov attempts (#11-#25), 0 successful end-to-end yet.
+- **Actual RCA** identified at 06:09Z (founder's hypothesis): my orphan ECSs were eating HCS s7n.large.4 pool capacity, causing every prior failure to wrongly attribute to "scheduler bad-cell affinity".
+
