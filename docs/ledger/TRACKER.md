@@ -733,3 +733,19 @@ hw31 (2284db2cb0a7b1e5) provisioning right now as zero-touch convergence prov #1
 
 This is the most pillar progress on any Huawei prov in the session. **3 of 5 pillars reach 'green or partial-green'.** hw31 fresh-prov in flight will confirm reproducibility.
 
+
+## 2026-05-27T08:25Z — Pillar 5 deep walk: 5/7 cutover steps green on hw30 #25, step 7 Kyverno block
+
+bp-self-sovereign-cutover Jobs on hw30 #25 cluster:
+- ✅ cutover-gitea-mirror — Complete
+- ✅ cutover-harbor-projects — Complete
+- ✅ cutover-harbor-prewarm — Complete
+- ✅ cutover-flux-gitrepository-patch — Complete
+- ✅ cutover-helmrepository-patches — Complete
+- ❌ **cutover-catalyst-api-env-patch — Failed** (Kyverno harbor-proxy-pull policy JMESPath null-image bug — filed TBD)
+- ⏳ deny-egress NetworkPolicy hold — blocked on step 7
+
+Plus 3× gitea-mirror-resync cronjobs Complete (post-cutover periodic sync — proves cutover_complete enough that periodic sync is engaged).
+
+**5 of 8 cutover steps green = Sovereign IS migrating itself to self-sovereign mode on Huawei.** First time end-to-end.
+
