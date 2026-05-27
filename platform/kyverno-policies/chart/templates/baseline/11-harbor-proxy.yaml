@@ -87,7 +87,7 @@ spec:
           - list: "(request.object.spec.containers || request.object.spec.template.spec.containers || [])[?image] | concat(@, (request.object.spec.initContainers || request.object.spec.template.spec.initContainers || [])[?image])"
             preconditions:
               all:
-                - key: "{{ element.image || '' }}"
+                - key: '{{ `{{ element.image || ` }}{{ printf "%q" "" }}{{ ` }}` }}'
                   operator: NotEquals
                   value: ""
             deny:
