@@ -659,7 +659,93 @@ func purgeHuaweiResources(ctx context.Context, client *http.Client, hw hwCreds, 
 		out.ProviderPurge["networks"] = append(out.ProviderPurge["networks"], v.Name)
 		progress("deleted VPC " + v.Name)
 	}
+
+	// 9. Neutron-layer subnet+network leftovers (Wave 5.155).
+	// On HCS Kom4DC, VPC delete via v1 sometimes leaves the underlying
+	// Neutron subnet+network as orphan records. Witnessed on hw29
+	// 2026-05-27: v1/vpcs returned 204 OK but v2.0/subnets and
+	// v2.0/networks still listed the catalyst-hw29-* entries until
+	// explicit DELETE on /v2.0/subnets/{id} and /v2.0/networks/{id}.
+	sweepNeutronOrphans(ctx, client, hw, region, sovereignFQDN, progress, out)
+
+	// 10. Keypair sweep (Wave 5.155). ECS keypairs accumulate one per
+	// prov attempt — failed provs leave them stranded. Without this
+	// sweep we accumulated 68 orphan keypairs on me-east-215 across
+	// hw01-hw33 attempts. Match by `catalyst-<stem>-` prefix with HARD
+	// bastion-* protection.
+	sweepKeypairs(ctx, client, hw, region, sovereignFQDN, progress, out)
 	return nil
+}
+
+// sweepNeutronOrphans removes Neutron-layer subnet+network records that
+// outlive the VPC delete on HCS Kom4DC. Hard bastion-* protection.
+func sweepNeutronOrphans(ctx context.Context, client *http.Client, hw hwCreds, region, sovereignFQDN string, progress func(msg string), out *providers.WipeResult) {
+	if sovereignFQDN == "" {
+		return
+	}
+	stem := strings.ReplaceAll(sovereignFQDN, ".", "-")
+	prefix := "catalyst-" + stem + "-"
+	vpcNeutron := fmt.Sprintf("%s/v2.0", endpointFor("vpc", region))
+	// Subnets
+	resp, _, _ := doSignedRequest(client, hw, http.MethodGet, vpcNeutron+"/subnets", nil)
+	var subnetList struct {
+		Subnets []struct {
+			ID        string `json:"id"`
+			Name      string `json:"name"`
+			NetworkID string `json:"network_id"`
+		} `json:"subnets"`
+	}
+	_ = json.Unmarshal(resp, &subnetList)
+	netIDs := []string{}
+	for _, s := range subnetList.Subnets {
+		if strings.HasPrefix(s.Name, "bastion") {
+			continue
+		}
+		if !strings.HasPrefix(s.Name, prefix) {
+			continue
+		}
+		_, _, _ = doSignedRequest(client, hw, http.MethodDelete, vpcNeutron+"/subnets/"+s.ID, nil)
+		out.ProviderPurge["neutron_subnets"] = append(out.ProviderPurge["neutron_subnets"], s.Name)
+		progress("deleted neutron subnet " + s.Name)
+		if s.NetworkID != "" {
+			netIDs = append(netIDs, s.NetworkID)
+		}
+	}
+	for _, nid := range netIDs {
+		_, _, _ = doSignedRequest(client, hw, http.MethodDelete, vpcNeutron+"/networks/"+nid, nil)
+	}
+}
+
+// sweepKeypairs removes ECS keypairs whose name matches
+// `catalyst-<sovereign-stem>-` with HARD bastion-* protection. Wave 5.155.
+func sweepKeypairs(ctx context.Context, client *http.Client, hw hwCreds, region, sovereignFQDN string, progress func(msg string), out *providers.WipeResult) {
+	if sovereignFQDN == "" {
+		return
+	}
+	stem := strings.ReplaceAll(sovereignFQDN, ".", "-")
+	prefix := "catalyst-" + stem + "-"
+	base := fmt.Sprintf("%s/v2/%s/os-keypairs", endpointFor("ecs", region), hw.ProjectID)
+	resp, _, _ := doSignedRequest(client, hw, http.MethodGet, base, nil)
+	var keyList struct {
+		Keypairs []struct {
+			Keypair struct {
+				Name string `json:"name"`
+			} `json:"keypair"`
+		} `json:"keypairs"`
+	}
+	_ = json.Unmarshal(resp, &keyList)
+	for _, k := range keyList.Keypairs {
+		name := k.Keypair.Name
+		if strings.HasPrefix(name, "bastion") || strings.Contains(name, "bastion") {
+			continue
+		}
+		if !strings.HasPrefix(name, prefix) {
+			continue
+		}
+		_, _, _ = doSignedRequest(client, hw, http.MethodDelete, base+"/"+name, nil)
+		out.ProviderPurge["keypairs"] = append(out.ProviderPurge["keypairs"], name)
+		progress("deleted keypair " + name)
+	}
 }
 
 // ── Wave 5.153 cascade helpers ─────────────────────────────────────────
