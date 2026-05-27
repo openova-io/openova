@@ -29,7 +29,7 @@ flowEmitter:
     # Release smoke-render the chart with default values before the
     # first CI run has populated a SHA. Bootstrap-kit HR overrides at
     # install time so runtime always pulls a deterministic image.
-    tag: "f6757c7"
+    tag: "b32eb9b"
     pullPolicy: IfNotPresent
 
   # ── Runtime configuration ──────────────────────────────────────────
