@@ -620,3 +620,14 @@ Memory: [`feedback_hcs_kom4dc_wipe_cascade_quirks.md`](../../../.claude/projects
 
 Issues closed: #2520 + #2521 + #2522 + #2523 (all with status/completed).
 
+
+## 2026-05-27T15:42Z — Sign-in flow + dashboard render 🟢 VERIFIED-PASS (hw35)
+
+| Surface | State | Evidence |
+|---|---|---|
+| `/login` PIN-issue API returns 200 | 🟢 VERIFIED-PASS | hw35 `POST /api/v1/auth/pin/issue` returned `{"ok":true,"sent":true,"requestId":"aa4317cf-...","expiresInSec":600}` |
+| Stalwart mail delivery to emrah inbox | 🟢 VERIFIED-PASS | mail.openova.io IMAP — sign-in code emails arrived for each PIN-issue; verified READ-ONLY (no mutation per `feedback_never_touch_emrah_baysal_email`) |
+| PIN verify → catalyst_session RS256 JWT | 🟢 VERIFIED-PASS | hw35 verify API returned 200; Set-Cookie `catalyst_session=<JWT>` with claims `tier=owner role=openova-user`, exp 8h |
+| `/dashboard` post-sign-in render | 🟢 VERIFIED-PASS | Playwright loaded `/dashboard` after PIN verify; Sovereign treemap shipped 22 services with live utilisation, 9-entry sidebar (Dashboard/Cloud/Apps/Sandbox/Jobs/Compliance/Users/BSS/Settings) |
+| bp-self-sovereign-cutover step 7 (env-patch Job) on a real handover | 🟢 VERIFIED-PASS | hw35 cutover Job `cutover-catalyst-api-env-patch-1779895078` Completed (no Kyverno harbor-proxy-pull null-image error — Wave 5.151 fix verified live) |
+| catalyst-api Wave 5.157 (`:e0e4a3f`) on mothership serving sign-in API | 🟢 VERIFIED-PASS | both PIN issue + PIN verify endpoints return 200 |

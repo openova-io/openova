@@ -859,3 +859,20 @@ Genuinely-open follow-ups:
 - #2518 — session-timeout UX redirect (ux/low-priority)
 - #2524 — mothership pod-cap 110/110 blocks rolling deploys (NEW, area/catalyst)
 
+
+## 2026-05-27T15:42Z — 🟢🟢🟢🟢 4-CONSECUTIVE zero-touch — hw35 sign-in walk END-TO-END
+
+After founder asked for a fresh prov to test, walked hw35 sign-in flow end-to-end via Playwright + IMAP READ-ONLY PIN extraction.
+
+Issue [#2525](https://github.com/openova-io/openova/issues/2525) — hw35 sign-in walk evidence + 4-consecutive tally.
+
+| # | FQDN | HTTPS 200 | LE PROD | Sign-in walked | Wipe-to-zero |
+|---|---|---|---|---|---|
+| 1 | hw32 | 11:40Z | R12 | not walked | ✓ |
+| 2 | hw33 | 12:40Z | R12 | not walked | ✓ |
+| 3 | hw34 | 14:11Z | R12 | not walked | ✓ |
+| 4 | **hw35** | 15:26Z | **R13** | **✓** | pending (alive for founder) |
+
+What hw35 added beyond hw32-34: emrah inbox IMAP READ for PIN, PIN verify → catalyst_session JWT, /dashboard renders Sovereign treemap with 22 services + 9-entry sidebar.
+
+Deployment `51bb70ff8bf53b0e` still alive — founder can test at https://console.hw35.omani.works/
