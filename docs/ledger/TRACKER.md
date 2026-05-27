@@ -534,3 +534,15 @@ HCS state: 6 of 8 expected ECSs ACTIVE (CP1 + 5 workers), all 3 EIPs allocated+b
 
 **Image roll deferred** until hw30 #15 attempt 6 lands.
 
+
+## 2026-05-27 — Wave 5.140 SHIPPED (PR #2499 merged): resumePhase1Watch nil-channel close panic guard
+
+**Root cause** RCA'd from hw30 #16 (9066477374f5f8b5) at 02:33:34Z. deployments.go:733 in resumePhase1Watch unconditionally close(dep.eventsCh) and close(dep.done). A concurrent wipe handler had run wipe.go:649-650 (close + nil) on the just-failed hw30 #15 dep, leaving dep.eventsCh = nil → next close panicked → process exit → in-flight hw30 #16 prov abandoned mid-apply at attempt 1 of Wave 5.139 retry loop.
+
+**Fix** (commit 83781ad1, image tag `:83781ad`):
+- Snapshot dep.eventsCh + dep.done under dep.mu BEFORE close (avoids race with wipe setting them nil)
+- nil-check both before close
+- defer recover() defense-in-depth (same pattern as Wave 5.135 emit() fix)
+
+**hw30 #17** kicked at 03:21Z (id cebeed8307f75349) with Wave 5.139+5.140 baked. First prov to actually test the per-retry name salt without panic risk.
+
