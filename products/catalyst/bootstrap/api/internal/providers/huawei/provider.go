@@ -937,15 +937,36 @@ func cascadeDeleteNAT(ctx context.Context, client *http.Client, hw hwCreds, regi
 			_, _, _ = doSignedRequest(client, hw, http.MethodDelete, base+"/nat_gateways/"+natID+"/dnat_rules/"+r.ID, nil)
 		}
 	}
-	// NAT itself
-	_, status, err := doSignedRequest(client, hw, http.MethodDelete, base+"/nat_gateways/"+natID, nil)
-	if err != nil {
-		return err
+	// Wave 5.157 (2026-05-27): Kom4DC NAT delete returns VPC.2016
+	// "Rule has not been deleted" on the FIRST attempt even when
+	// snat_rule DELETE returned 204, because Kom4DC has an
+	// eventual-consistency gap between the snat_rule control-plane
+	// commit and NAT-readable visibility. Witnessed live on hw34 wipe
+	// 2026-05-27T14:12:03Z: cascade looked correct but NAT delete 400'd;
+	// 5s later same DELETE returned 204. Solution: retry-with-backoff
+	// loop up to 4 attempts (3s, 6s, 12s, 24s) on VPC.2016 / status 400.
+	var status int
+	var err error
+	backoff := 3
+	for attempt := 1; attempt <= 4; attempt++ {
+		_, status, err = doSignedRequest(client, hw, http.MethodDelete, base+"/nat_gateways/"+natID, nil)
+		if err != nil {
+			return err
+		}
+		if status < 400 || status == http.StatusNotFound {
+			return nil
+		}
+		if attempt == 4 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Duration(backoff) * time.Second):
+		}
+		backoff *= 2
 	}
-	if status >= 400 && status != http.StatusNotFound {
-		return fmt.Errorf("delete NAT: status %d", status)
-	}
-	return nil
+	return fmt.Errorf("delete NAT: status %d after 4 attempts", status)
 }
 
 // listEIPsByNamePrefix uses bandwidth_name prefix (Wave 5.138 pattern)
