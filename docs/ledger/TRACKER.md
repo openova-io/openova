@@ -793,3 +793,15 @@ Bastion-* preserved verified at every step (7 resources untouched: bastion-openo
 
 Links: Issue [#2521](https://github.com/openova-io/openova/issues/2521) carries the close cycle. After hw32 wipe lands at 0, re-prov hw33 + hw34 to reach 3-consecutive zero-touch (founder mandate).
 
+
+## 2026-05-27T11:55Z — 🟢 hw32 zero-touch prov #1 of 3 VERIFIED-PASS
+
+Issue [#2521](https://github.com/openova-io/openova/issues/2521) — Wave 5.155 cascade live-validated end-to-end on a fresh prov + canonical wipe.
+
+- HTTPS 200 + LE prod cert (R12) + browser sign-in screenshot
+- Canonical /wipe cleared 19 catalyst-* → 0 (with 1 second pass on residue via the same code paths to exercise quirks 1-5 on the leftover NAT/VPC after nginx 504 truncated the 1st pass)
+- Bastion-* 7/7 preserved
+- Independent reviewer `a0f1a7ecf9826a9ea` posted **🟢 VERIFIED-PASS** verdict at [comment 4554307903](https://github.com/openova-io/openova/issues/2521#issuecomment-4554307903) with file:line cites for cascadeDeleteNAT (L914/L925), cascadeDeleteVPC (L1011/L1025-1032/L1100/L1140-1152), sweepNeutronOrphans (L682), sweepKeypairs (L721 double-guard)
+- Issue flipped to `status/uat` (awaiting hw33 + hw34 to complete 3-consecutive zero-touch founder mandate before `status/completed`)
+
+hw33 prov `83b705b4487a3633` kicked 11:56Z on the same Wave 5.155 image. Monitor armed.
