@@ -774,3 +774,22 @@ Memory: [`feedback_hcs_kom4dc_wipe_cascade_quirks.md`](../../../../.claude/proje
 
 Catalyst-api on mothership rolled to `:1abadae`. Fresh hw32 prov `5f44f3151b17d847` in flight on 5.155 image. End-to-end DoD validation = (a) prov reaches handover, (b) canonical wipe leaves zero `catalyst-*` residue, (c) repeat twice for 3-consecutive zero-touch perfect provisions (founder mandate).
 
+## 2026-05-27T11:41Z — hw32 zero-touch prov #1 of 3 — HTTPS 200 + LE prod cert + canonical wipe LIVE-VALIDATING Wave 5.155
+
+**Phase 0 + Phase 1 walked end-to-end zero-touch on Wave 5.155 image `:1abadae`:**
+
+| Step | Evidence | Status |
+|---|---|---|
+| Tofu apply | 8 ECSs created (1× m7n.large.8 CP + 7× m7n.xlarge.8 worker, Wave 5.146 flavors), 1 ELB, 1 NAT, 1 VPC, 3 EIPs, 1 keypair | 🟢 |
+| Phase 1 kubeconfig PUT | cloud-init posted kubeconfig 2960 bytes at 10:54:07Z | 🟢 |
+| HelmRelease reconcile | 53 HRs initialised; bp-cert-manager + bp-keycloak + bp-harbor + bp-self-sovereign-cutover installing | 🟢 |
+| HTTPS 200 on console.hw32.omani.works | curl HEAD returned 200 OK from envoy at 11:40:53Z (envoy gateway up, routes wired) | 🟢 |
+| Let's Encrypt PROD cert | issuer `C=US, O=Let's Encrypt, CN=R12` valid 2026-05-27 → 2026-08-25 (R12 = current LE prod intermediate, NOT staging) | 🟢 |
+| Sign-in page screenshot | `/tmp/hw32-screenshots/01-sign-in.png` (browser-rendered) | 🟢 |
+| Canonical wipe | POST `/sovereign/api/v1/deployments/5f44f3151b17d847/wipe?force=true` fired 11:41:33Z; nginx 504 at 5min mark (long server-side cascade); audit at 11:47:56Z showed catalyst-* dropping 19→4 with ELB/ECS/EIP/SG/keypair all already cleared | ⏳ in flight |
+| HCS residue == 0 | drain-watcher polling | pending |
+
+Bastion-* preserved verified at every step (7 resources untouched: bastion-openova ECS, VPC, subnet, SG, keypair, EIP `bastion-openova-bw`, floating-IP 212.72.24.20).
+
+Links: Issue [#2521](https://github.com/openova-io/openova/issues/2521) carries the close cycle. After hw32 wipe lands at 0, re-prov hw33 + hw34 to reach 3-consecutive zero-touch (founder mandate).
+
