@@ -250,7 +250,7 @@ name: bp-self-sovereign-cutover
 # (Refs #2034 — closes after operator-walk-with-screenshot on a fresh
 # multi-region prov verifies Provider CRs reconcile from
 # harbor.<sov-fqdn>/proxy-xpkg.)
-version: 0.1.38
+version: 0.1.39
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

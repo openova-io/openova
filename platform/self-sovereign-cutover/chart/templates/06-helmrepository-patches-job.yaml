@@ -502,6 +502,43 @@ data:
               fi
             fi
 
+            # ---- Phase 1.9 (Wave 5.152, Refs #2517): suspend
+            # gitea-mirror-resync cronjob BEFORE Phase 2's git push ----
+            #
+            # The cronjob force-pushes upstream openova-io/openova into
+            # local Gitea every 5 minutes (see 11-mirror-resync-cronjob).
+            # That overwrites Phase 2's local URL edits within ~5 min,
+            # so the bootstrap-kit Kustomization reconciles back to
+            # upstream URLs (oci://ghcr.io/openova-io) and Step 08's
+            # verify catches it as 'OFFENDER'. Live-caught on hw30 #25
+            # 2026-05-27 (issue #2517): Phase 2 succeeded (53 files
+            # edited + pushed), but 5 minutes later the cronjob force-
+            # pushed upstream, blowing away the edits. Result: bp-
+            # catalyst-platform HR 401 on every reconcile (URL=ghcr.io
+            # but ghcr-pull Secret had been re-stripped of ghcr.io auth
+            # by Step 04 registry-pivot).
+            #
+            # Fix: suspend the cronjob NOW. Operators can re-enable
+            # post-handover if they want continuous upstream-sync
+            # behavior (it's still desirable for chart-bump pull-through
+            # — but that needs a separate seam that doesn't blow away
+            # post-cutover local edits). For now: paused is safer.
+            #
+            # Idempotent — patching suspend=true on an already-suspended
+            # CronJob is a no-op. The CronJob name is constant ('gitea-
+            # mirror-resync' in 'catalyst' ns per chart template
+            # 11-mirror-resync-cronjob.yaml).
+            if kubectl get cronjob -n catalyst gitea-mirror-resync >/dev/null 2>&1; then
+              if kubectl patch cronjob -n catalyst gitea-mirror-resync \
+                  --type=merge -p '{"spec":{"suspend":true}}' >/dev/null 2>&1; then
+                echo "[helmrepository-patches] Phase-1.9 OK: suspended catalyst/gitea-mirror-resync cronjob so Phase-2 git push isn't overwritten"
+              else
+                echo "[helmrepository-patches] Phase-1.9 WARN: kubectl patch cronjob gitea-mirror-resync failed (continuing — Phase-2 push may be reverted within 5min if cronjob keeps firing)" >&2
+              fi
+            else
+              echo "[helmrepository-patches] Phase-1.9 SKIP: catalyst/gitea-mirror-resync cronjob not present (older chart version pre-#1899?)"
+            fi
+
             # ---- Phase 2: push YAML edit to local Gitea (#970) ----
             #
             # The kubectl patches above flip the live HelmRepository
