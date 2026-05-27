@@ -546,3 +546,20 @@ HCS state: 6 of 8 expected ECSs ACTIVE (CP1 + 5 workers), all 3 EIPs allocated+b
 
 **hw30 #17** kicked at 03:21Z (id cebeed8307f75349) with Wave 5.139+5.140 baked. First prov to actually test the per-retry name salt without panic risk.
 
+
+## 2026-05-27T03:30Z — hw30 #17 (Wave 5.139+5.140 active)
+
+| Attempt | Time | retry_attempt salt | Outcome |
+|---|---|---|---|
+| 1 | 03:24Z | 0 | Common.0021 (3 of 8 workers fail) |
+| 2 | 03:27Z | 1 | Common.0021 (still 3 missing) |
+| 3-6 | upcoming | 2-5 | Wave 5.139 should accelerate; if HCS bad cells span >5 of 8 → fail |
+
+HCS state: 5 of 8 ECSs ACTIVE (CP + 4 workers with NEW hashed names — Wave 5.139 confirmed working). Wave 5.139's name salt did get tofu to generate different worker names per attempt as designed; but HCS scheduler bad cells in me-east-215-a appear systemic enough that ~37% of fresh worker-creates fail per attempt.
+
+Open RCA layers (Principle 16 multi-layer):
+- L1 TRIGGER: #2496 — what causes HCS cells to enter bad state
+- L2 INCIDENT-MGMT: #2497 — fail-fast logic when scheduler degraded
+- L3 DEFENSE: #2498 — observability + alerting
+- L4 CONTAINMENT: #2500 — preflight cell-health probe (extends Wave 5.139)
+
