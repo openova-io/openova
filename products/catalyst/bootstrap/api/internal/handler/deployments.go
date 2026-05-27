@@ -1054,6 +1054,22 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 				req.Regions[i].WorkerSize = "m7n.xlarge.8"
 			}
 		}
+		// Issue #2528: Huawei OBS (Object Storage Service) on HCS Kom4DC
+		// uses the same IAM AK/SK as the compute API. Auto-derive the OBS
+		// credentials from the already-stamped Huawei creds so callers
+		// (wizard, automation, direct API) don't need to repeat them.
+		// Only fills empty fields — an explicit objectStorageAccessKey in
+		// the POST body wins (for non-Kom4DC deployments that have
+		// separate OBS keys).
+		if req.ObjectStorageAccessKey == "" {
+			req.ObjectStorageAccessKey = req.HuaweiAccessKey
+		}
+		if req.ObjectStorageSecretKey == "" {
+			req.ObjectStorageSecretKey = req.HuaweiSecretKey
+		}
+		if req.ObjectStorageRegion == "" {
+			req.ObjectStorageRegion = req.HuaweiRegion
+		}
 	}
 
 	// Mint the deployment ID NOW (before bucket-name derivation) so the
