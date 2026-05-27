@@ -523,7 +523,7 @@ resource "huaweicloud_nat_snat_rule" "region" {
   floating_ip_id = huaweicloud_vpc_eip.nat[each.key].id
   subnet_id      = huaweicloud_vpc_subnet.region[each.key].id
 
-  depends_on = [time_sleep.nat_eip_propagation[each.key]]
+  depends_on = [time_sleep.nat_eip_propagation]
 }
 
 # ── Cloud-init render (control-plane + worker) ────────────────────────────
