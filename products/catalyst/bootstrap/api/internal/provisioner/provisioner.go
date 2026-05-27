@@ -1233,10 +1233,28 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 		// Only retry transient HCS-side failures. Configuration errors
 		// (ELB.8959, VPC.0211, SYS.0400) are deterministic and won't
 		// fix themselves on retry.
+		//
+		// Wave 5.143 (hw30 #19 fix-forward 2026-05-27): also catch
+		// `error allocating EIP: The request could not be processed due
+		// to conflict in the request`. This fires when HCS publicIp
+		// quota is at cap from prior-deployment orphan EIPs (Wave 5.138
+		// janitor sweeps these every 1h, but a fresh prov right after a
+		// failed one hasn't waited that long yet). Retrying after a
+		// backoff gives the janitor sweep room to free quota slots OR
+		// gives our manual cleanup time to propagate. Without this,
+		// hw30 #19 fast-failed at 92s with no retry, even though the
+		// underlying quota was about to free.
 		errStr := err.Error()
-		if attempt < maxApplyRetries && (strings.Contains(errStr, "Common.0021") || strings.Contains(errStr, "CollectInfoTask-fail")) {
+		isTransient := strings.Contains(errStr, "Common.0021") ||
+			strings.Contains(errStr, "CollectInfoTask-fail") ||
+			(strings.Contains(errStr, "error allocating EIP") && strings.Contains(errStr, "conflict in the request"))
+		if attempt < maxApplyRetries && isTransient {
 			backoff := baseBackoff * time.Duration(1<<(attempt-1))
-			emit("tofu-apply", "warn", fmt.Sprintf("HCS Common.0021 (CollectInfoTask-fail) — attempt %d/%d, re-planning + retrying in %s", attempt, maxApplyRetries, backoff))
+			errLabel := "HCS Common.0021 (CollectInfoTask-fail)"
+			if strings.Contains(errStr, "error allocating EIP") {
+				errLabel = "HCS EIP-conflict (quota / propagation)"
+			}
+			emit("tofu-apply", "warn", fmt.Sprintf("%s — attempt %d/%d, re-planning + retrying in %s", errLabel, attempt, maxApplyRetries, backoff))
 			time.Sleep(backoff)
 			// Wave 5.139 — bump the retry_attempt salt so any worker
 			// NOT yet in state (i.e. the ones the prior attempt hit
