@@ -1739,7 +1739,20 @@ func (h *Handler) runProvisioning(dep *Deployment) {
 	// have settled. Existing tests that drive runProvisioning's
 	// failure-fast path (no real tofu) still hit close because the
 	// Phase-0 error skips the watch.
-	close(dep.eventsCh)
+	//
+	// Wave 5.135: if a concurrent Wipe handler has taken ownership
+	// (Status == "wiping") it has already replaced dep.eventsCh with
+	// a fresh channel and is sending events through it from its own
+	// goroutines. Closing the (new) channel here races those sends
+	// and panics "send on closed channel" inside the huawei wipe
+	// callback (wipe.go:442). The Wipe handler closes its own
+	// channel at wipe.go:649 on terminal exit; skip the close here.
+	dep.mu.Lock()
+	skipClose := dep.Status == "wiping"
+	dep.mu.Unlock()
+	if !skipClose {
+		close(dep.eventsCh)
+	}
 	close(dep.done)
 
 	// Final persist — captures Phase 1 terminal state when the watch

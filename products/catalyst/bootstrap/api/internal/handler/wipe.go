@@ -438,8 +438,20 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 			Message: msg,
 		}
 		dep.recordEvent(ev)
+		// Wave 5.135: defense-in-depth — recover from "send on
+		// closed channel" if a concurrent close raced us. The
+		// runProvisioning skip-close (deployments.go) is the
+		// primary fix; this recover handles any other reaper
+		// path that may have closed the channel.
+		defer func() { _ = recover() }()
+		dep.mu.Lock()
+		ch := dep.eventsCh
+		dep.mu.Unlock()
+		if ch == nil {
+			return
+		}
 		select {
-		case dep.eventsCh <- ev:
+		case ch <- ev:
 		default:
 		}
 	}
