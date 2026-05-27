@@ -563,3 +563,15 @@ Open RCA layers (Principle 16 multi-layer):
 - L3 DEFENSE: #2498 — observability + alerting
 - L4 CONTAINMENT: #2500 — preflight cell-health probe (extends Wave 5.139)
 
+
+## 2026-05-27 — Wave 5.141 SHIPPED (PR #2502 merged): tofu parallelism 2→1 eliminates HCS pair-ordering bad-cell affinity
+
+**Root cause** RCA'd from hw30 #17 (cebeed83) attempt 1-4: ODD-numbered for_each keys (a-1, a-3, a-5, a-7) fail Common.0021 consistently while EVEN keys (a-0, a-2, a-4, a-6) succeed, even with Wave 5.139's per-retry name salt. HCS scheduler picks DIFFERENT cells for the two simultaneously-posted ECSs per pair; the "second of the pair" lands on a bad cell.
+
+**Fix** (commit d528fe98 / merge 089412687c032, image tag `:0894126`):
+- provisioner.go:1200: `applyArgs = "-parallelism=1"` (was =2)
+- Worker creates now serialize through HCS — eliminates the pair-ordering variable
+- ~2× slower for 8-worker phase but reliable; Wave 5.137 180m ctx ceiling has headroom
+
+**hw30 #18** (02fe531cb7ab20e0) kicked at 03:46Z with Wave 5.139+5.140+5.141 baked. First prov with serialized creates.
+
