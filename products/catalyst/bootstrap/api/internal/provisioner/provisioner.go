@@ -1192,12 +1192,22 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 	// Default 10 fanned out 8+ worker ECS creates simultaneously, which
 	// overloaded the HCS scheduler's CollectInfoTask and returned
 	// `Common.0021: CollectInfoTask-fail: Sub job fail!` on 4 of 8
-	// workers on hw30 #4. Cap=2 lets the scheduler keep up with worker
-	// creates while still parallelising independent resource graphs
-	// (VPC + subnet + SG + KPS keypair + OBS bucket all create together).
-	// CP creates serialised by the for_each chain naturally; only the
-	// parallel WORKER fanout was overloading HCS.
-	applyArgs := []string{"apply", "-input=false", "-no-color", "-auto-approve", "-parallelism=2", "tfplan"}
+	// workers on hw30 #4.
+	//
+	// Wave 5.141 (hw30 #17 fix-forward 2026-05-27): dropped further to
+	// parallelism=1. Wave 5.129's parallelism=2 still let pairs of
+	// CreateServer requests submit simultaneously. Investigation on
+	// hw30 #17 (cebeed8307f75349) showed ODD-numbered for_each keys
+	// (a-1, a-3, a-5, a-7) fail Common.0021 consistently across retries
+	// while EVEN keys (a-0, a-2, a-4, a-6) succeed — even with Wave
+	// 5.139's per-retry name salt randomizing the actual VM names. The
+	// remaining variable is request-pair order: HCS scheduler picks
+	// DIFFERENT cells for the two simultaneously-posted ECSs and the
+	// "second of the pair" tends to land on a bad cell in this AZ
+	// right now. Serializing creates eliminates the pair-ordering
+	// variable entirely. ~2× slower for the 8-worker phase but
+	// reliable; the Wave 5.137 180m ctx ceiling has headroom.
+	applyArgs := []string{"apply", "-input=false", "-no-color", "-auto-approve", "-parallelism=1", "tfplan"}
 	// Wave 5.132 (hw30 fix-forward 2026-05-27): retry up to 3 times on
 	// transient HCS scheduler failures (Common.0021 CollectInfoTask-fail).
 	// This error fires when HCS's per-worker metadata-collection step
