@@ -454,3 +454,14 @@ Caught "fix shipped but actually broken" events + the validation principle that 
 - [INVIOLABLE-PRINCIPLES](https://github.com/openova-io/openova/blob/main/docs/INVIOLABLE-PRINCIPLES.md) — 15 principles
 - Manual refresh: `bash /home/openova/bin/refresh-dod-dashboard.sh`
 - Cron: every 15 minutes
+
+## 2026-05-27 — Wave 5.135 SHIPPED (PR #2488 merged): wipe.go emit() send-on-closed-channel panic fix
+
+**Root cause** discovered during hw30 #11 wipe attempt: deployments.go:1742 unconditionally closed `dep.eventsCh` after Phase 1 watch terminated, but a concurrent Wipe handler had already replaced the channel at wipe.go:421 and was sending events through it from the huawei provider's wipe goroutine. close raced sends → `panic: send on closed channel` → catalyst-api process crashed mid-wipe → HCS resources stranded.
+
+**Fix** (commit 33469885, image tag `:3346988`):
+1. deployments.go: skip `close(dep.eventsCh)` when `dep.Status == "wiping"` under `dep.mu`.
+2. wipe.go emit(): snapshot eventsCh under dep.mu + defer recover() defense-in-depth.
+
+**hw30 #12** kicked at 00:25Z (id `df36a62e332c0c3f`) with new image, Wave 5.134 randomized worker names baked in, all 4 Flux Kustomizations suspended (flux-system + apps + catalyst-platform + cinova).
+
