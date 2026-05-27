@@ -652,3 +652,27 @@ After deleting the 6 orphans manually via HCS API, a direct test `POST s7n.large
 - Wave 5.146 (flavor change) — correct fix (with the caveat that the deeper bug is the wipe path's failure to actually destroy ECSs).
 - Wave 5.147 (planned) — fix the huawei wipe path to verify ECS deletion via HCS API after tofu destroy, force-delete any stranded ECSs by tag.
 
+
+## 2026-05-27T06:50Z — Waves 5.147 + 5.148 SHIPPED; hw30 #24 with full fix chain
+
+**Wave 5.147** (PR #2508, commit 2d8a3eb1, image :2d8a3eb) — fix wipe path: listECSByNamePrefix as fallback when listECSByTag returns zero (ECS tags are disabled per Wave 5.4). This is the actual permanent fix for orphan accumulation. Future failed-wipes will properly destroy stranded ECSs.
+
+**Wave 5.148** (PR #2509, commit 72caa031 → merge e50537d0, image :e50537d) — fix Phase 1 handover gate: \`primary_cp_hostname\` template var now mirrors Wave 5.144's CP name salt formula. hw30 #23 had reached Phase 0 cleanly but Phase 1 stalled because cloud-init's \`if [ "$HOSTNAME" = "$primary_cp_hostname" ]\` never matched (actual `cp1-8c3117` vs template `cp1`).
+
+### hw30 #24 (8bba7a96102a2683) baseline state
+
+| Wave | Effect |
+|---|---|
+| 5.135 panic guards | catalyst-api won't crash mid-wipe |
+| 5.137 180m ctx | retry envelope fits if HCS slow |
+| 5.139 worker name salt | per-retry naming (mostly harmless now) |
+| 5.140 panic guards | resumePhase1Watch nil-channel safe |
+| 5.142 parallelism=2 | reverted bad 5.141 experiment |
+| 5.143 EIP-conflict retry | recoverable from transient EIP collisions |
+| 5.144 CP name salt | per-retry CP naming |
+| 5.146 flavor s7n.large.4→m7n.large.8 | working flavor pool |
+| 5.147 ECS name-prefix sweep | wipe actually destroys orphans |
+| 5.148 primary_cp_hostname salt mirror | handover gate fires |
+
+If #24 succeeds end-to-end (ready state with componentStates populated), the actual demonstrable Phase 0 + Phase 1 stack is verified for first time.
+
