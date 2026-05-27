@@ -1233,6 +1233,16 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 			backoff := baseBackoff * time.Duration(1<<(attempt-1))
 			emit("tofu-apply", "warn", fmt.Sprintf("HCS Common.0021 (CollectInfoTask-fail) — attempt %d/%d, re-planning + retrying in %s", attempt, maxApplyRetries, backoff))
 			time.Sleep(backoff)
+			// Wave 5.139 — bump the retry_attempt salt so any worker
+			// NOT yet in state (i.e. the ones the prior attempt hit
+			// Common.0021 on) gets a NEW name on this retry's plan.
+			// HCS scheduler picks a fresh cell for the new name,
+			// dodging the bad cell. Existing ACTIVE workers are
+			// protected by lifecycle.ignore_changes=[name] in the
+			// huawei worker resource block.
+			if berr := bumpRetryAttempt(deployDir, attempt); berr != nil {
+				emit("tofu-apply", "warn", fmt.Sprintf("retry_attempt bump failed (continuing without name-salt rotation): %v", berr))
+			}
 			// Re-plan so the next attempt builds a fresh tfplan
 			// that captures any state mutations from the partial apply.
 			if perr := p.runTofu(ctx, deployDir, []string{"plan", "-input=false", "-no-color", "-out=tfplan"}, emit); perr != nil {
@@ -1875,11 +1885,41 @@ func writeTfvars(deployDir string, req Request) error {
 		vars["regions"] = hwRegions
 	}
 
+	// Wave 5.139 — initial value for the retry-loop salt; the catalyst-
+	// api Provision retry loop (provisioner.go:1220) bumps this between
+	// attempts via bumpRetryAttempt(). Tofu uses it as one input to the
+	// worker-name hash (infra/providers/huawei/main.tf:742) so unhealthy
+	// workers get a fresh name on each retry and HCS scheduler picks a
+	// fresh cell, dodging the bad-cell affinity that returned
+	// Common.0021 on the prior attempt.
+	vars["retry_attempt"] = 0
+
 	raw, err := json.MarshalIndent(vars, "", "  ")
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(filepath.Join(deployDir, "tofu.auto.tfvars.json"), raw, 0o600)
+}
+
+// bumpRetryAttempt rewrites the on-disk tofu.auto.tfvars.json with an
+// incremented `retry_attempt` value. Called by Provision's retry loop
+// between attempts. Wave 5.139.
+func bumpRetryAttempt(deployDir string, newAttempt int) error {
+	path := filepath.Join(deployDir, "tofu.auto.tfvars.json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var vars map[string]any
+	if err := json.Unmarshal(raw, &vars); err != nil {
+		return fmt.Errorf("decode tfvars for retry bump: %w", err)
+	}
+	vars["retry_attempt"] = newAttempt
+	out, err := json.MarshalIndent(vars, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, out, 0o600)
 }
 
 // stageModule copies the canonical module's *.tf files into the per-deployment

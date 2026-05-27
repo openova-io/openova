@@ -382,3 +382,21 @@ variable "wildcard_cert_use_staging" {
     Default "false" → real-trusted production cert.
   EOT
 }
+
+variable "retry_attempt" {
+  type        = number
+  default     = 0
+  description = <<-EOT
+    Wave 5.139 (hw30 #15 fix-forward 2026-05-27): salt that the
+    catalyst-api Provision retry loop bumps before each retry's plan
+    so worker NAMES change for any worker not yet in tofu state. HCS
+    scheduler picks a fresh cell for the new name, dodging the bad
+    cell that returned Common.0021 (CollectInfoTask-fail) on the
+    prior attempt. Existing ACTIVE workers are protected by
+    lifecycle.ignore_changes=[name] in the worker resource block.
+
+    Starts at 0 on a fresh prov; catalyst-api increments per retry.
+    Reusing the same retry_attempt N (e.g. after a restart) is
+    idempotent — same names, same scheduler decisions.
+  EOT
+}
