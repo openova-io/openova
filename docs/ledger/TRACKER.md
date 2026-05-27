@@ -835,3 +835,27 @@ Waves shipped this cycle: 5.153 (#2520) + 5.154 + 5.155 + 5.156 (#2522) + 5.157 
 
 Open follow-ups: #2522 (handler double-close panic fix, CI building) + #2523 (NAT-delete retry-with-backoff for HCS eventual consistency).
 
+
+## 2026-05-27T14:30Z — Post-mandate cleanup cycle (29 issues disposed)
+
+After 3-consecutive zero-touch mandate complete, ran disposition pass across all open area/catalyst issues:
+
+| Action | Count | Issues |
+|---|---|---|
+| Closed (5-step cycle): core wipe-cascade | 4 | #2520, #2521, #2522, #2523 |
+| Closed (verified by 3-prov mandate) | 9 | #2493, #2503-#2510 |
+| Closed (superseded RCA/orphan-defense) | 8 | #2496-#2501, #2512, #2513 |
+| Closed (cutover-related shipped) | 5 | #2514, #2515, #2516, #2517, #2519 |
+| Closed (older stale waves verified) | 3 | #2460, #2464, #2469 |
+| Closed (cosmetic noise) | 1 | #2511 (tofu-destroy noise — cascade catches everything) |
+| Filed new (mothership pod-cap blocker) | 1 | #2524 (kubelet --max-pods=110 vs 110/110 in steady state) |
+| Re-scoped (UX low-priority) | 1 | #2518 added `ux/low-priority` label |
+| Scope correction | 1 | #2495 — bp-cilium REMOVED from Hetzner-only set (was provider-agnostic mis-classification per founder); actual Hetzner-only HRs: bp-hcloud-ccm + bp-cluster-autoscaler-hcloud + bp-velero |
+
+**0 issues remain at `status/in-progress`.**
+
+Genuinely-open follow-ups:
+- #2495 — Wave 6 Hetzner-only HRs (re-scoped, kept open)
+- #2518 — session-timeout UX redirect (ux/low-priority)
+- #2524 — mothership pod-cap 110/110 blocks rolling deploys (NEW, area/catalyst)
+
