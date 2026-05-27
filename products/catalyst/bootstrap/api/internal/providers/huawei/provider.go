@@ -523,15 +523,32 @@ func buildECSTagFilterBody(deploymentID, sovereignFQDN string) []byte {
 // ECSs regardless of tag state, and excluding by stem keeps neighbor
 // Sovereigns' ECSs safe.
 func purgeHuaweiResources(ctx context.Context, client *http.Client, hw hwCreds, region, sovereignFQDN, deploymentID string, progress func(msg string), out *providers.WipeResult) error {
-	// ECS — delete first (depend on VPC + SG + EIP).
-	// (a) try tag-based lookup (legacy path; will return 0 results
-	// until Wave 5.4 tag-disablement is reverted).
+	// Wave 5.153 (2026-05-27): full cascade purge in proper dependency
+	// order. Prior versions only handled ECS+EIP+SG+VPC — but ELB,
+	// listeners, pools, NAT gateways with snat_rules, and subnet ports
+	// were all left stranded, blocking subnet+VPC delete via dependency
+	// chain 409s. Live witnessed on hw29/hw30/hw31 after canonical wipe:
+	//   - 3 ELBs stuck (listeners/pools holding the LB)
+	//   - 3 NATs stuck (snat_rules not deleted)
+	//   - 4 VPCs stuck (subnets with router/dhcp ports still bound)
+	//   - 1 SG stuck (referenced by stranded ports)
+	// The root cause of every "wipe leaves rubbish" report this session
+	// (#2517, #2519). New cascade order:
+	//   1. ECS (release ports + EIP bindings via delete_publicip:true)
+	//   2. ELB → listeners → pools → members → healthmonitors → LB
+	//      (frees ELB-attached EIPs)
+	//   3. NAT → snat_rules → dnat_rules → NAT itself (frees NAT EIP)
+	//   4. EIP (now all unbound)
+	//   5. SG (after ECSs gone and ELBs/NATs gone, no port refs)
+	//   6. Subnet ports cleanup (custom router/non-network ports)
+	//   7. Subnets
+	//   8. VPC (last — only after all subnets gone)
+
+	// 1. ECS — delete first. tag + name-prefix union for full coverage.
 	servers, err := listECSByTag(ctx, client, hw, region, deploymentID, sovereignFQDN)
 	if err != nil {
 		out.Errors = append(out.Errors, "list ECS by tag: "+err.Error())
 	}
-	// (b) Wave 5.147 — name-prefix sweep so untagged ECSs still get
-	// found and deleted. Union with (a) to deduplicate by ID.
 	byName, nerr := listECSByNamePrefix(ctx, client, hw, region, sovereignFQDN, deploymentID)
 	if nerr != nil {
 		out.Errors = append(out.Errors, "list ECS by name-prefix: "+nerr.Error())
@@ -555,10 +572,53 @@ func purgeHuaweiResources(ctx context.Context, client *http.Client, hw hwCreds, 
 		progress("deleted ECS " + s.Name)
 	}
 
-	// EIP — delete next (depend on nothing once the ECS bindings are gone).
+	// 2. ELB cascade (Wave 5.153) — listeners → pools → members →
+	// healthmonitors → LB. This frees ELB-attached EIPs.
+	elbs, eerr := listELBsByName(ctx, client, hw, region, sovereignFQDN)
+	if eerr != nil {
+		out.Errors = append(out.Errors, "list ELB: "+eerr.Error())
+	}
+	for _, lb := range elbs {
+		if err := cascadeDeleteELB(ctx, client, hw, region, lb.ID); err != nil {
+			out.Errors = append(out.Errors, fmt.Sprintf("delete ELB %s: %s", lb.Name, err))
+			continue
+		}
+		out.ProviderPurge["load_balancers"] = append(out.ProviderPurge["load_balancers"], lb.Name)
+		progress("deleted ELB " + lb.Name)
+	}
+
+	// 3. NAT cascade (Wave 5.153) — snat_rules → dnat_rules → NAT
+	// itself. NAT.0205 "Rule has not been deleted" was the consistent
+	// HCS rejection witnessed on hw29/hw30/hw31 when canonical wipe
+	// tried to delete NAT without clearing rules first.
+	nats, naterr := listNATsByName(ctx, client, hw, region, sovereignFQDN)
+	if naterr != nil {
+		out.Errors = append(out.Errors, "list NAT: "+naterr.Error())
+	}
+	for _, n := range nats {
+		if err := cascadeDeleteNAT(ctx, client, hw, region, n.ID); err != nil {
+			out.Errors = append(out.Errors, fmt.Sprintf("delete NAT %s: %s", n.Name, err))
+			continue
+		}
+		out.ProviderPurge["nat_gateways"] = append(out.ProviderPurge["nat_gateways"], n.Name)
+		progress("deleted NAT " + n.Name)
+	}
+
+	// 4. EIP — by-tag (returns 0 with tags disabled) + name-prefix
+	// fallback so untagged EIPs still get found.
 	eips, err := listEIPsByTag(ctx, client, hw, region, deploymentID, sovereignFQDN)
 	if err != nil {
-		out.Errors = append(out.Errors, "list EIP: "+err.Error())
+		out.Errors = append(out.Errors, "list EIP by tag: "+err.Error())
+	}
+	eipsByName, _ := listEIPsByNamePrefix(ctx, client, hw, region, sovereignFQDN, deploymentID)
+	eipSeen := map[string]bool{}
+	for _, e := range eips {
+		eipSeen[e.ID] = true
+	}
+	for _, e := range eipsByName {
+		if !eipSeen[e.ID] {
+			eips = append(eips, e)
+		}
 	}
 	for _, e := range eips {
 		if err := deleteEIP(ctx, client, hw, region, e.ID); err != nil {
@@ -569,7 +629,7 @@ func purgeHuaweiResources(ctx context.Context, client *http.Client, hw hwCreds, 
 		progress("deleted EIP " + e.Address)
 	}
 
-	// SG — delete after ECS so the SG isn't `in use`.
+	// 5. SG — by-name (covers tags-disabled case).
 	sgs, err := listSGsByName(ctx, client, hw, region, sovereignFQDN)
 	if err != nil {
 		out.Errors = append(out.Errors, "list SG: "+err.Error())
@@ -583,18 +643,308 @@ func purgeHuaweiResources(ctx context.Context, client *http.Client, hw hwCreds, 
 		progress("deleted SG " + sg.Name)
 	}
 
-	// VPC — delete last (nothing depends on it once subnets are gone).
+	// 6+7+8. VPC cascade (Wave 5.153) — find ports in each subnet,
+	// delete non-network ports, then subnets, then VPC. Without this
+	// the subnet delete returns VPC.0209 "subnet is still used" and
+	// VPC delete cascades to 409 "Router contains subnet".
 	vpcs, err := listVPCsByName(ctx, client, hw, region, sovereignFQDN)
 	if err != nil {
 		out.Errors = append(out.Errors, "list VPC: "+err.Error())
 	}
 	for _, v := range vpcs {
-		if err := deleteVPC(ctx, client, hw, region, v.ID); err != nil {
+		if err := cascadeDeleteVPC(ctx, client, hw, region, v.ID); err != nil {
 			out.Errors = append(out.Errors, fmt.Sprintf("delete VPC %s: %s", v.Name, err))
 			continue
 		}
 		out.ProviderPurge["networks"] = append(out.ProviderPurge["networks"], v.Name)
 		progress("deleted VPC " + v.Name)
+	}
+	return nil
+}
+
+// ── Wave 5.153 cascade helpers ─────────────────────────────────────────
+
+type hwELB struct {
+	ID   string
+	Name string
+}
+
+// listELBsByName enumerates v3 ELB load balancers in the project and
+// filters by the `catalyst-<sovereign-stem>-` name prefix.
+func listELBsByName(ctx context.Context, client *http.Client, hw hwCreds, region, sovereignFQDN string) ([]hwELB, error) {
+	if sovereignFQDN == "" {
+		return nil, nil
+	}
+	stem := strings.ReplaceAll(sovereignFQDN, ".", "-")
+	prefix := "catalyst-" + stem + "-"
+	url := fmt.Sprintf("%s/v3/%s/elb/loadbalancers", endpointFor("elb", region), hw.ProjectID)
+	resp, status, err := doSignedRequest(client, hw, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	if status >= 400 {
+		if status == http.StatusNotFound {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("list ELB: status %d: %s", status, snippet(resp, 240))
+	}
+	var decoded struct {
+		LoadBalancers []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"loadbalancers"`
+	}
+	if err := json.Unmarshal(resp, &decoded); err != nil {
+		return nil, fmt.Errorf("decode ELB list: %w", err)
+	}
+	out := []hwELB{}
+	for _, lb := range decoded.LoadBalancers {
+		if strings.HasPrefix(lb.Name, prefix) {
+			out = append(out, hwELB{ID: lb.ID, Name: lb.Name})
+		}
+	}
+	return out, nil
+}
+
+// cascadeDeleteELB walks listeners → pools → members → healthmonitors
+// → LB so HCS doesn't 409 on a still-in-use LB. Witnessed live:
+// canonical wipe always 409'd here because it tried to DELETE the LB
+// with listeners still attached.
+func cascadeDeleteELB(ctx context.Context, client *http.Client, hw hwCreds, region, lbID string) error {
+	base := fmt.Sprintf("%s/v3/%s/elb", endpointFor("elb", region), hw.ProjectID)
+	// Fetch LB with listeners+pools expanded
+	resp, status, err := doSignedRequest(client, hw, http.MethodGet, base+"/loadbalancers/"+lbID, nil)
+	if err != nil || status >= 400 {
+		if status == http.StatusNotFound {
+			return nil
+		}
+		return fmt.Errorf("get LB: status %d: %s", status, snippet(resp, 240))
+	}
+	var lb struct {
+		LoadBalancer struct {
+			Listeners []struct {
+				ID string `json:"id"`
+			} `json:"listeners"`
+			Pools []struct {
+				ID string `json:"id"`
+			} `json:"pools"`
+		} `json:"loadbalancer"`
+	}
+	if err := json.Unmarshal(resp, &lb); err != nil {
+		return fmt.Errorf("decode LB: %w", err)
+	}
+	// Listeners (unset default_pool first to release pool reference)
+	for _, L := range lb.LoadBalancer.Listeners {
+		// PUT to unset default_pool_id
+		_, _, _ = doSignedRequest(client, hw, http.MethodPut, base+"/listeners/"+L.ID,
+			[]byte(`{"listener":{"default_pool_id":null}}`))
+		_, _, _ = doSignedRequest(client, hw, http.MethodDelete, base+"/listeners/"+L.ID, nil)
+	}
+	// Pools (delete members + healthmonitor first)
+	for _, p := range lb.LoadBalancer.Pools {
+		// Get pool detail for members + healthmonitor
+		pResp, pStat, _ := doSignedRequest(client, hw, http.MethodGet, base+"/pools/"+p.ID, nil)
+		if pStat < 400 {
+			var pool struct {
+				Pool struct {
+					Members []struct {
+						ID string `json:"id"`
+					} `json:"members"`
+					HealthMonitorID string `json:"healthmonitor_id"`
+				} `json:"pool"`
+			}
+			if err := json.Unmarshal(pResp, &pool); err == nil {
+				for _, m := range pool.Pool.Members {
+					_, _, _ = doSignedRequest(client, hw, http.MethodDelete, base+"/pools/"+p.ID+"/members/"+m.ID, nil)
+				}
+				if pool.Pool.HealthMonitorID != "" {
+					_, _, _ = doSignedRequest(client, hw, http.MethodDelete, base+"/healthmonitors/"+pool.Pool.HealthMonitorID, nil)
+				}
+			}
+		}
+		_, _, _ = doSignedRequest(client, hw, http.MethodDelete, base+"/pools/"+p.ID, nil)
+	}
+	// LB itself
+	_, status, err = doSignedRequest(client, hw, http.MethodDelete, base+"/loadbalancers/"+lbID, nil)
+	if err != nil {
+		return err
+	}
+	if status >= 400 && status != http.StatusNotFound {
+		return fmt.Errorf("delete LB: status %d", status)
+	}
+	return nil
+}
+
+type hwNAT struct {
+	ID   string
+	Name string
+}
+
+func listNATsByName(ctx context.Context, client *http.Client, hw hwCreds, region, sovereignFQDN string) ([]hwNAT, error) {
+	if sovereignFQDN == "" {
+		return nil, nil
+	}
+	stem := strings.ReplaceAll(sovereignFQDN, ".", "-")
+	prefix := "catalyst-" + stem + "-"
+	url := fmt.Sprintf("%s/v2/%s/nat_gateways", endpointFor("nat", region), hw.ProjectID)
+	resp, status, err := doSignedRequest(client, hw, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	if status >= 400 {
+		if status == http.StatusNotFound {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("list NAT: status %d: %s", status, snippet(resp, 240))
+	}
+	var decoded struct {
+		NATGateways []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"nat_gateways"`
+	}
+	if err := json.Unmarshal(resp, &decoded); err != nil {
+		return nil, fmt.Errorf("decode NAT list: %w", err)
+	}
+	out := []hwNAT{}
+	for _, n := range decoded.NATGateways {
+		if strings.HasPrefix(n.Name, prefix) {
+			out = append(out, hwNAT{ID: n.ID, Name: n.Name})
+		}
+	}
+	return out, nil
+}
+
+// cascadeDeleteNAT clears snat_rules + dnat_rules then deletes NAT
+// itself. Without this, NAT delete returns VPC.2016 "Rule has not been
+// deleted" forever.
+func cascadeDeleteNAT(ctx context.Context, client *http.Client, hw hwCreds, region, natID string) error {
+	base := fmt.Sprintf("%s/v2/%s", endpointFor("nat", region), hw.ProjectID)
+	// snat_rules
+	resp, _, _ := doSignedRequest(client, hw, http.MethodGet, base+"/snat_rules?nat_gateway_id="+natID, nil)
+	var snat struct {
+		Rules []struct {
+			ID string `json:"id"`
+		} `json:"snat_rules"`
+	}
+	if err := json.Unmarshal(resp, &snat); err == nil {
+		for _, r := range snat.Rules {
+			_, _, _ = doSignedRequest(client, hw, http.MethodDelete, base+"/snat_rules/"+r.ID, nil)
+		}
+	}
+	// dnat_rules
+	resp, _, _ = doSignedRequest(client, hw, http.MethodGet, base+"/dnat_rules?nat_gateway_id="+natID, nil)
+	var dnat struct {
+		Rules []struct {
+			ID string `json:"id"`
+		} `json:"dnat_rules"`
+	}
+	if err := json.Unmarshal(resp, &dnat); err == nil {
+		for _, r := range dnat.Rules {
+			_, _, _ = doSignedRequest(client, hw, http.MethodDelete, base+"/dnat_rules/"+r.ID, nil)
+		}
+	}
+	// NAT itself
+	_, status, err := doSignedRequest(client, hw, http.MethodDelete, base+"/nat_gateways/"+natID, nil)
+	if err != nil {
+		return err
+	}
+	if status >= 400 && status != http.StatusNotFound {
+		return fmt.Errorf("delete NAT: status %d", status)
+	}
+	return nil
+}
+
+// listEIPsByNamePrefix uses bandwidth_name prefix (Wave 5.138 pattern)
+// to find catalyst-owned EIPs even when tags are disabled.
+func listEIPsByNamePrefix(ctx context.Context, client *http.Client, hw hwCreds, region, sovereignFQDN, deploymentID string) ([]hwEIP, error) {
+	if sovereignFQDN == "" {
+		return nil, nil
+	}
+	stem := strings.ReplaceAll(sovereignFQDN, ".", "-")
+	prefix := "catalyst-" + stem + "-"
+	url := fmt.Sprintf("%s/v1/%s/publicips", endpointFor("vpc", region), hw.ProjectID)
+	resp, status, err := doSignedRequest(client, hw, http.MethodGet, url, nil)
+	if err != nil || status >= 400 {
+		return nil, err
+	}
+	var decoded struct {
+		PublicIPs []struct {
+			ID            string `json:"id"`
+			Address       string `json:"public_ip_address"`
+			BandwidthName string `json:"bandwidth_name"`
+		} `json:"publicips"`
+	}
+	if err := json.Unmarshal(resp, &decoded); err != nil {
+		return nil, err
+	}
+	out := []hwEIP{}
+	for _, e := range decoded.PublicIPs {
+		if strings.HasPrefix(e.BandwidthName, prefix) {
+			out = append(out, hwEIP{ID: e.ID, Address: e.Address})
+		}
+	}
+	return out, nil
+}
+
+// cascadeDeleteVPC walks subnet ports (deleting non-network ones),
+// then subnets, then VPC. Without this, subnet delete returns
+// VPC.0209 "subnet is still used" and VPC.0104 "Router contains
+// subnets" cascades through.
+func cascadeDeleteVPC(ctx context.Context, client *http.Client, hw hwCreds, region, vpcID string) error {
+	vpcBase := fmt.Sprintf("%s/v1/%s", endpointFor("vpc", region), hw.ProjectID)
+	// List subnets in this VPC
+	resp, _, err := doSignedRequest(client, hw, http.MethodGet, vpcBase+"/subnets", nil)
+	if err != nil {
+		return err
+	}
+	var subnetList struct {
+		Subnets []struct {
+			ID    string `json:"id"`
+			Name  string `json:"name"`
+			VPCID string `json:"vpc_id"`
+		} `json:"subnets"`
+	}
+	_ = json.Unmarshal(resp, &subnetList)
+	// For each subnet in this VPC: delete non-network ports + the subnet
+	for _, s := range subnetList.Subnets {
+		if s.VPCID != vpcID {
+			continue
+		}
+		// List ports — delete non-network (non-router/non-dhcp) ones
+		pResp, _, _ := doSignedRequest(client, hw, http.MethodGet, vpcBase+"/ports", nil)
+		var portList struct {
+			Ports []struct {
+				ID          string `json:"id"`
+				DeviceOwner string `json:"device_owner"`
+				FixedIPs    []struct {
+					SubnetID string `json:"subnet_id"`
+				} `json:"fixed_ips"`
+			} `json:"ports"`
+		}
+		_ = json.Unmarshal(pResp, &portList)
+		for _, p := range portList.Ports {
+			belongs := false
+			for _, fi := range p.FixedIPs {
+				if fi.SubnetID == s.ID {
+					belongs = true
+					break
+				}
+			}
+			if !belongs || strings.HasPrefix(p.DeviceOwner, "network:") {
+				continue
+			}
+			_, _, _ = doSignedRequest(client, hw, http.MethodDelete, vpcBase+"/ports/"+p.ID, nil)
+		}
+		_, _, _ = doSignedRequest(client, hw, http.MethodDelete, vpcBase+"/vpcs/"+vpcID+"/subnets/"+s.ID, nil)
+	}
+	// VPC itself
+	_, status, err := doSignedRequest(client, hw, http.MethodDelete, vpcBase+"/vpcs/"+vpcID, nil)
+	if err != nil {
+		return err
+	}
+	if status >= 400 && status != http.StatusNotFound {
+		return fmt.Errorf("delete VPC: status %d", status)
 	}
 	return nil
 }
