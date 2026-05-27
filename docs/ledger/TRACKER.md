@@ -475,3 +475,12 @@ runTofu tees stderr through a bounded 32KB bytes.Buffer alongside the existing e
 
 **hw30 #13** kicked at 00:38Z (id `76864b8cfcd5961a`) with new image. First prov to actually test the retry loop against real HCS Common.0021.
 
+
+## 2026-05-27 — Wave 5.137 SHIPPED (PR #2490 merged): Provision ctx 30m→180m so retry loop can exhaust
+
+**Root cause** discovered after hw30 #13 (76864b8cfcd5961a) failed at 2026-05-27T01:12:31Z with `tofu plan (retry): context deadline exceeded` — exactly 32m43s after start, between attempts 4 and 5. Wave 5.136 retry loop engaged correctly (4 attempts fired) but the outer 30m Provision ctx truncated it before attempts 5-6 could run. Worst-case backoff envelope alone is ~95 min.
+
+**Fix** (commit 00ac563b, image tag `:00ac563`): bump `context.WithTimeout(context.Background(), 30*time.Minute)` → `180*time.Minute` at deployments.go:1642. Phase 1 Helm-watch timeout is independent (CATALYST_PHASE1_WATCH_TIMEOUT, 120m).
+
+**hw30 #14** kicked at 01:18Z (id `9a65a2add724905f`) with new image. The retry loop now has full room to exhaust if HCS Common.0021 keeps recurring.
+
