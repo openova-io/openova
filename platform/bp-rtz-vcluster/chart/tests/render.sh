@@ -17,14 +17,16 @@ if [[ ! -d charts ]] || [[ -z "$(ls -A charts 2>/dev/null)" ]]; then
   }
 fi
 
-# 1. Default-OFF.
-render_off="$TMP/off.yaml"
-helm template bp-rtz-vcluster . > "$render_off"
-if grep -q "catalyst.openova.io/vcluster-role: rtz" "$render_off" && grep -qE "^kind: Namespace$" "$render_off"; then
-  echo "FAIL: default-OFF rendered umbrella rtz Namespace"
+# 1. Default-ON (Refs #2537): umbrella's namespace + networkpolicy DO
+#    render with chart-default values. Symmetric topology — every region
+#    runs MGMT+RTZ+DMZ.
+render_default="$TMP/default.yaml"
+helm template bp-rtz-vcluster . > "$render_default"
+if ! grep -q "catalyst.openova.io/vcluster-role: rtz" "$render_default" || ! grep -qE "^kind: Namespace$" "$render_default"; then
+  echo "FAIL: default render missing umbrella rtz Namespace"
   exit 1
 fi
-echo "PASS: default-OFF — umbrella namespace + isolation NetworkPolicy do not render"
+echo "PASS: default-ON renders umbrella rtz Namespace"
 
 # 2. Fail-fast on empty image tag.
 if helm template bp-rtz-vcluster . \
