@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-3-3-security-and-policy
     catalyst.openova.io/category: platform
 spec:
-  version: 0.1.13
+  version: 0.1.14
   card:
     title: k8s-ws-proxy
     summary: Per-node WebSocket exec proxy that bridges HMAC-signed upstream callers (catalyst-api, Guacamole) onto the local kube-apiserver pods/exec stream. DaemonSet with internalTrafficPolicy=Local for node-local sessions.

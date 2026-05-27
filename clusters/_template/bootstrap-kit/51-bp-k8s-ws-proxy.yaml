@@ -82,7 +82,7 @@ spec:
       # because the Job (weight -10, lower=earlier in Helm) was
       # applied before its SA (weight 0). Bumps Chart.yaml 0.1.7 ->
       # 0.1.8; CI promote auto-bumps to 0.1.9 with new image SHA.
-      version: 0.1.13
+      version: 0.1.14
       sourceRef:
         kind: HelmRepository
         name: bp-k8s-ws-proxy
