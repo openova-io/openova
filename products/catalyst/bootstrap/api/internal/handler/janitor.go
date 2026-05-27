@@ -72,11 +72,15 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers"
+	huaweiprovider "github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers/huawei"
 )
 
 const (
@@ -197,12 +201,24 @@ func (h *Handler) runJanitorPass(tofuWorkDir string, failedMaxAge, wipedMaxAge t
 	stats.OrphanKubeconfigs = h.cleanOrphanKubeconfigs(activeIDs)
 	stats.OrphanTofuWorkdirs = h.cleanOrphanTofuWorkdirs(tofuWorkDir, activeIDs)
 
+	// Step 3: Wave 5.138 — per-provider orphan-EIP sweep. EIPs are not
+	// tagged on HCS (Wave 5.4 disabled tags) so per-deployment Wipe
+	// cannot find EIPs from PRIOR failed provs. They accumulate up to
+	// the project quota (publicIp default cap = 10) and the next
+	// fresh prov fails fast with "error allocating EIP: conflict". This
+	// sweep identifies catalyst-owned EIPs through their bandwidth name
+	// prefix and deletes any status=DOWN + unbound ones across all
+	// known HCS tfvars on the PVC. Idempotent + safe during active provs
+	// (bound + ACTIVE EIPs are never touched).
+	stats.OrphanEIPs = h.cleanOrphanEIPsHuawei(tofuWorkDir)
+
 	h.log.Info("[JANITOR] pass complete",
 		"durationMs", int(time.Since(startedAt).Milliseconds()),
 		"reaped", stats.Reaped,
 		"reapErrors", stats.ReapErrors,
 		"orphanKubeconfigsDeleted", stats.OrphanKubeconfigs,
 		"orphanTofuWorkdirsDeleted", stats.OrphanTofuWorkdirs,
+		"orphanEIPsDeleted", stats.OrphanEIPs,
 	)
 }
 
@@ -217,6 +233,7 @@ type janitorStats struct {
 	ReapErrors         int
 	OrphanKubeconfigs  int
 	OrphanTofuWorkdirs int
+	OrphanEIPs         int
 }
 
 // reapDeployment is the cleanup primitive used by the janitor. It
@@ -334,6 +351,88 @@ func (h *Handler) cleanOrphanKubeconfigs(activeIDs map[string]struct{}) int {
 				"derivedID", id,
 			)
 		}
+	}
+	return deleted
+}
+
+// cleanOrphanEIPsHuawei walks the per-deployment tfvars files on the
+// PVC to find a working set of huawei creds (any active deployment's
+// AK/SK/project_id/region), then calls huawei.Provider.SweepOrphanEIPs
+// which lists all publicIPs in the project and deletes catalyst-owned
+// status=DOWN + unbound ones.
+//
+// Wave 5.138 (2026-05-27): EIPs are NOT tagged on HCS so per-deployment
+// Wipe.listEIPsByTag cannot find EIPs from PRIOR failed provs. They
+// accumulate to project quota (publicIp default cap = 10) and the next
+// fresh prov fails fast with "error allocating EIP: conflict". This
+// sweep solves the gap; see huawei.Provider.SweepOrphanEIPs for the
+// full rationale.
+//
+// Returns the number of EIPs deleted. Returns 0 + logs on any error.
+// Safe to call even when no huawei deployment exists (no-op).
+func (h *Handler) cleanOrphanEIPsHuawei(tofuWorkDir string) int {
+	if tofuWorkDir == "" {
+		return 0
+	}
+	entries, err := os.ReadDir(tofuWorkDir)
+	if err != nil {
+		return 0
+	}
+	// Find the first deployment with valid huawei creds in its tfvars.
+	// All catalyst-huawei deployments in a single mothership share the
+	// same HCS project so any one set of creds works for the project-
+	// wide sweep.
+	var ak, sk, projectID, region string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		tfvarsPath := filepath.Join(tofuWorkDir, e.Name(), "tofu.auto.tfvars.json")
+		data, err := os.ReadFile(tfvarsPath)
+		if err != nil {
+			continue
+		}
+		var tv map[string]any
+		if err := json.Unmarshal(data, &tv); err != nil {
+			continue
+		}
+		akV, _ := tv["huawei_access_key"].(string)
+		skV, _ := tv["huawei_secret_key"].(string)
+		pidV, _ := tv["huawei_project_id"].(string)
+		regV, _ := tv["huawei_region"].(string)
+		if akV != "" && skV != "" && pidV != "" {
+			ak = akV
+			sk = skV
+			projectID = pidV
+			region = regV
+			if region == "" {
+				region = "me-east-215"
+			}
+			break
+		}
+	}
+	if ak == "" {
+		// No huawei deployments on this mothership — nothing to sweep.
+		return 0
+	}
+	cp, perr := providers.Get("huawei")
+	if perr != nil || cp == nil {
+		h.log.Warn("[JANITOR] huawei provider not wired — skipping orphan-EIP sweep", "err", perr)
+		return 0
+	}
+	hp, ok := cp.(*huaweiprovider.Provider)
+	if !ok || hp == nil {
+		h.log.Warn("[JANITOR] huawei provider type assertion failed — skipping orphan-EIP sweep")
+		return 0
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	deleted, err := hp.SweepOrphanEIPs(ctx, ak, sk, projectID, region, func(msg string) {
+		h.log.Info("[JANITOR] " + msg)
+	})
+	if err != nil {
+		h.log.Warn("[JANITOR] orphan-EIP sweep error", "err", err.Error())
+		return deleted
 	}
 	return deleted
 }

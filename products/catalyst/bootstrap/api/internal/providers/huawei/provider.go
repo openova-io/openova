@@ -645,6 +645,77 @@ func deleteEIP(ctx context.Context, client *http.Client, hw hwCreds, region, id 
 	return nil
 }
 
+// SweepOrphanEIPs lists every publicIP in the HCS project and deletes
+// the ones that are (a) status=DOWN AND (b) unbound (no port_id) AND
+// (c) have a bandwidth name with the "catalyst-" prefix (so we never
+// touch EIPs belonging to non-catalyst workloads in a shared HCS
+// project).
+//
+// Wave 5.138 (2026-05-27): rationale
+// ===================================
+// EIP resources are NOT tagged (Wave 5.4 disabled tags due to HCS TMS
+// endpoint divergence). So per-deployment Wipe (listEIPsByTag) cannot
+// see EIPs from PRIOR failed deployments — they have no tags and a
+// different `deployment-id` than the current Wipe scope. Across 4
+// failed hw30 provs the orphan EIPs piled up to the project quota cap
+// (publicIp used=10/10), and hw30 #14 failed at 50s with
+// "error allocating EIP: The request could not be processed due to
+// conflict in the request" — quota exhaustion. This sweep solves the
+// gap by identifying catalyst-owned EIPs through their bandwidth name
+// (which DOES carry the "catalyst-<sovereign>-..." prefix from
+// huaweicloud_vpc_eip.{cp,nat,elb_primary} in infra/providers/huawei/
+// main.tf), independent of tag presence.
+//
+// Intended caller: the periodic janitor (handler/janitor.go). Idempotent
+// + safe to run during active provisioning: bound EIPs (port_id set)
+// AND active EIPs (status=ACTIVE/BOUND) are never touched.
+func (p *Provider) SweepOrphanEIPs(ctx context.Context, ak, sk, projectID, region string, progress func(msg string)) (int, error) {
+	if progress == nil {
+		progress = func(string) {}
+	}
+	hw := hwCreds{AccessKey: ak, SecretKey: sk, ProjectID: projectID}
+	client := httpClientFor(providers.ProviderCreds{Raw: map[string]string{"region": region}})
+
+	listURL := fmt.Sprintf("%s/v1/%s/publicips", endpointFor("vpc", region), projectID)
+	resp, status, err := doSignedRequest(client, hw, http.MethodGet, listURL, nil)
+	if err != nil {
+		return 0, fmt.Errorf("list publicips: %w", err)
+	}
+	if status >= 400 {
+		return 0, fmt.Errorf("list publicips: status %d: %s", status, snippet(resp, 240))
+	}
+	var decoded struct {
+		PublicIPs []struct {
+			ID            string `json:"id"`
+			Address       string `json:"public_ip_address"`
+			Status        string `json:"status"`
+			PortID        string `json:"port_id"`
+			Type          string `json:"type"`
+			BandwidthName string `json:"bandwidth_name"`
+		} `json:"publicips"`
+	}
+	if err := json.Unmarshal(resp, &decoded); err != nil {
+		return 0, fmt.Errorf("decode publicips: %w", err)
+	}
+	deleted := 0
+	for _, e := range decoded.PublicIPs {
+		bound := e.PortID != ""
+		if e.Status != "DOWN" || bound {
+			continue
+		}
+		if !strings.HasPrefix(e.BandwidthName, "catalyst-") {
+			continue
+		}
+		if err := deleteEIP(ctx, client, hw, region, e.ID); err != nil {
+			progress(fmt.Sprintf("sweep orphan EIP %s (bw=%s): DELETE failed: %v", e.Address, e.BandwidthName, err))
+			continue
+		}
+		progress(fmt.Sprintf("sweep orphan EIP %s (bw=%s): deleted", e.Address, e.BandwidthName))
+		deleted++
+	}
+	return deleted, nil
+}
+
 type hwSG struct {
 	ID   string
 	Name string
