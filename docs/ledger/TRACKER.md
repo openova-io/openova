@@ -758,3 +758,19 @@ Hypothesis: gitea-mirror-resync cronjob (5min) pulls mothership upstream and ove
 
 Meanwhile Wave 5.151 (Kyverno null-image fix, image bake in flight) addresses the OTHER Pillar 5 block (step 7 admission webhook denial).
 
+## 2026-05-27T10:30Z — Waves 5.153 + 5.154 + 5.155 SHIPPED: canonical wipe cascade ROOT-CAUSED on HCS Kom4DC
+
+Issue [#2521](https://github.com/openova-io/openova/issues/2521) — Wave 5.153 (#2520) found wipe leaving rubbish. RCA via direct HCS API probing surfaced FIVE distinct Kom4DC divergences from the public Huawei spec. All five encoded.
+
+| Wave | PR | Status | Fix |
+|---|---|---|---|
+| 5.153 | [#2520](https://github.com/openova-io/openova/pull/2520) (4cfdf90) | <img alt="MERGED" src="https://img.shields.io/badge/-MERGED-2ea043?style=flat-square" /> | Initial cascade scaffolding for purgeHuaweiResources: ELB→NAT→VPC. Live-verified incomplete — NAT 400 + VPC 409 errors on hw29/hw30/hw31. |
+| 5.154 | (451f0b6) | <img alt="MERGED" src="https://img.shields.io/badge/-MERGED-2ea043?style=flat-square" /> | (1) `cascadeDeleteNAT` switched to nested path `/v2/{pid}/nat_gateways/{nid}/snat_rules/{rid}` — Kom4DC does NOT publish the canonical `/v2/{pid}/snat_rules/{rid}` form. (2) `cascadeDeleteVPC` adds floating-IP disassociate+delete by router_id (Kom4DC: VPC_ID == router_ID). (3) Router-interface removal via Neutron `PUT /v2.0/routers/{rid}/remove_router_interface` with `fixed_ips[].subnet_id` (the Neutron subnet ID, NOT the VPC subnet ID). (4) Orphan ECS-by-VPC sweep via port match with HARD `bastion-*` protection — catches `rca-recheck-*` and any non-`catalyst-*` orphans that reuse a VPC keypair. |
+| 5.155 | (1abadae) | <img alt="MERGED" src="https://img.shields.io/badge/-MERGED-2ea043?style=flat-square" /> | (5) `sweepNeutronOrphans` — VPC v1 delete on Kom4DC leaves underlying Neutron `subnet` + `network` records; explicit `DELETE /v2.0/subnets/{id}` + `DELETE /v2.0/networks/{id}` required. (6) `sweepKeypairs` — accumulating one orphan ECS keypair per failed prov; live count showed 68 orphans across hw01-hw33 before sweep. |
+
+Live empirical verification (2026-05-27T10:15-10:30Z): manual application of all 5 quirk fixes against hw29/hw30/hw31 leftovers cleared HCS me-east-215 from `total catalyst=10+` to `total catalyst=0`; bastion-openova (ECS / VPC / subnet / SG / keypair / EIP / floating-IP 212.72.24.20) preserved.
+
+Memory: [`feedback_hcs_kom4dc_wipe_cascade_quirks.md`](../../../../.claude/projects/-home-openova-repos-openova/memory/feedback_hcs_kom4dc_wipe_cascade_quirks.md) — Kom4DC-vs-public-spec divergence reference for future sessions.
+
+Catalyst-api on mothership rolled to `:1abadae`. Fresh hw32 prov `5f44f3151b17d847` in flight on 5.155 image. End-to-end DoD validation = (a) prov reaches handover, (b) canonical wipe leaves zero `catalyst-*` residue, (c) repeat twice for 3-consecutive zero-touch perfect provisions (founder mandate).
+
