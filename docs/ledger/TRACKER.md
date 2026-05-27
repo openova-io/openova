@@ -623,3 +623,32 @@ This is the converged session conclusion. Catalyst-api is now exhausted of meani
 - Ship #2500 full preflight probe (Wave 5.146 candidate)
 - Escalate to HCS Kom4DC ops with #2496 data
 
+
+## 2026-05-27T06:30Z — Wave 5.146 VERIFIED + REAL RCA confirmed: my orphans caused the exhaustion
+
+**hw30 #23 (747dfa16fb96d437)** reached `phase1-watching` at 06:30:12Z, 5min 21s after POST, **ZERO retries**. First complete Phase 0 on hw30 ever.
+
+- 1× m7n.large.8 CP (`cp1-8c3117`) ACTIVE
+- 8× m7n.xlarge.8 workers ACTIVE
+- controlPlaneIP: 212.72.24.46
+- loadBalancerIP: 212.72.24.39
+- DNS console.hw30.omani.works → 212.72.24.39
+
+### The actual root cause (not what I claimed in waves 5.135-5.145)
+
+Founder's hypothesis test: "could YOU have exhausted s7n.large.4 by leaving stale ECSs?" → **YES**.
+
+Project ECS audit revealed 6 orphan `s7n.large.4` ECSs from hw30 #17 (cebeed83) that all my prior wipe attempts had missed. Combined with hw29's 9 legitimate s7n.large.4 + my 6 orphans = ~15 hosts held in the HCS me-east-215a s7n.large.4 pool. Pool was saturated, returning `Ecs.0219 No valid host` (the inner error code beneath the `Common.0021` wrapper tofu surfaces).
+
+After deleting the 6 orphans manually via HCS API, a direct test `POST s7n.large.4` returned SUCCESS (ACTIVE). So the pool was real and finite, and I was eating it.
+
+### Implications
+
+- Waves 5.135 + 5.137 + 5.140 (panic guards + ctx ceiling) — STILL legitimate, real catalyst-api bugs.
+- Waves 5.136 + 5.138 + 5.143 (retry-loop substring + janitor + EIP-conflict) — STILL legitimate gaps.
+- Waves 5.139 + 5.144 (per-retry name salt for workers+CP) — HARMLESS but irrelevant; name salt cannot help when the underlying flavor pool is exhausted.
+- Wave 5.141 (parallelism=1) — was an UNRELATED regression; 5.142 reverted it.
+- Wave 5.145 (early-abort on same-address) — would have made the wrong recommendation ("retry later or escalate to HCS") when the actual fix was "delete my own orphans".
+- Wave 5.146 (flavor change) — correct fix (with the caveat that the deeper bug is the wipe path's failure to actually destroy ECSs).
+- Wave 5.147 (planned) — fix the huawei wipe path to verify ECS deletion via HCS API after tofu destroy, force-delete any stranded ECSs by tag.
+
