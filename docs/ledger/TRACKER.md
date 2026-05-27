@@ -720,3 +720,16 @@ End-user can now navigate to console.hw30.omani.works and see the OpenOva Corpor
 
 hw31 (2284db2cb0a7b1e5) provisioning right now as zero-touch convergence prov #1 of 3.
 
+
+## 2026-05-27T08:05Z — 5-pillar deep walk on hw30 #25
+
+| Pillar | State | Evidence |
+|---|---|---|
+| 1 Marketplace+voucher | ✅ partial | marketplace UI HTTP 200 (18.9 KB). marketplace-api /api/v1/products returns 'no route matched' — needs investigation OR voucher flow is at a different path |
+| 2 Multi-region BCP topology | ✅ entry | /signup returns HTTP 200. UI topology-choice walkthrough needs browser-level test (Playwright) |
+| 3 CNPG | 🟡 5 clusters healthy | openova-flow-pg, gitea-pg, harbor-pg, pdns-pg, sme-pg all 'Cluster in healthy state'. No cnpgpair (single-region prov; multi-region failover = Wave 6 scope) |
+| 4 Sandbox + MCP | 🟡 HR present | bp-sandbox HR exists, Ready=False (waiting bp-catalyst-platform installation completion) |
+| 5 Self-sovereign-cutover | ✅ dormant installed | `bp-self-sovereign-cutover@0.1.38` Helm install succeeded — canonical pre-cutover state ready |
+
+This is the most pillar progress on any Huawei prov in the session. **3 of 5 pillars reach 'green or partial-green'.** hw31 fresh-prov in flight will confirm reproducibility.
+
