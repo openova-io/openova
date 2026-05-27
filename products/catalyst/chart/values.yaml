@@ -656,7 +656,7 @@ services:
     image:
       repository: "ghcr.io/openova-io/openova/projector"
       # Empty `tag` fail-fasts at render time per Inviolable Principle #4a.
-      tag: "f6757c7"
+      tag: "9f6017b"
       pullPolicy: IfNotPresent
     replicas: 1
     # Sovereign cluster id used as the prefix in every projected
