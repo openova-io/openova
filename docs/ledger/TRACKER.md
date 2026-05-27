@@ -484,3 +484,25 @@ runTofu tees stderr through a bounded 32KB bytes.Buffer alongside the existing e
 
 **hw30 #14** kicked at 01:18Z (id `9a65a2add724905f`) with new image. The retry loop now has full room to exhaust if HCS Common.0021 keeps recurring.
 
+
+## 2026-05-27 — Wave 5.138 SHIPPED (PR #2491 merged): janitor sweep for orphan HCS EIPs
+
+**Root cause** discovered after hw30 #14 (9a65a2add724905f) failed at 2026-05-27T01:18:54Z in 50s with `error allocating EIP: The request could not be processed due to conflict in the request`. HCS query showed publicIp `used=10/10` — 5 orphan EIPs from #11/#12/#13 wreckage holding quota slots. Wave 5.4 disabled EIP tags due to HCS TMS endpoint divergence, so per-deployment `Wipe.listEIPsByTag()` cannot find prior-deployment EIPs (no tag → no match → never deleted).
+
+**Fix** (commit 4f16d42b, image tag `:4f16d42`):
+1. `huawei/provider.go`: new `(p *Provider).SweepOrphanEIPs(ctx, ak, sk, projectID, region, progress) (int, error)` — lists all publicIPs in project, deletes status=DOWN + unbound + bandwidth name starts with `catalyst-`. Bound/active EIPs never touched; non-catalyst workloads protected by name-prefix filter.
+2. `handler/janitor.go`: step 3 `cleanOrphanEIPsHuawei` reads HCS creds from any active dep's tfvars on PVC (Wave 5.130 fallback), calls sweep method. Runs every JanitorInterval (1h default).
+
+**Image roll deferred** until hw30 #15 reaches terminal state — rolling now would kill the in-flight tofu apply goroutine. hw30 #15 currently in attempt-4 12m backoff after 3 Common.0021 retries; attempt 5 fires ~01:54Z.
+
+
+## 2026-05-27 — Session-running summary (waves 5.135-5.138 + hw30 #11→#15)
+
+| Wave | PR | Fix | hw30 prov outcome |
+|---|---|---|---|
+| 5.134 | #2454 | Worker name hash randomization | #11 panic during wipe |
+| 5.135 | #2488 | wipe eventsCh send-on-closed-channel race fix | #12 ECS spawn but flux race |
+| 5.136 | #2489 | runTofu stderr tee → retry-loop substring match engages | #13 retry loop fires but ctx truncates @ 32m43s |
+| 5.137 | #2490 | Provision ctx 30m → 180m | #14 fails @ 50s on EIP quota cap |
+| 5.138 | #2491 | Janitor orphan-EIP sweep (catalyst-* bandwidth prefix) | #15 prov in flight (3 retries done, attempt 4 in 12m backoff) |
+
