@@ -858,7 +858,7 @@ sandboxBridge:
     # a sidecar that's already opt-in-disable-able via
     # sandboxBridge.enabled. Operator overlays can pin to a specific
     # SHA + IfNotPresent if they want air-gap-friendly behavior.
-    tag: "latest"
+    tag: "b32eb9b"
     pullPolicy: Always
   port: 8080
   resources:
