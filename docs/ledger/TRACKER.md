@@ -602,3 +602,24 @@ Open RCA layers (Principle 16 multi-layer):
 
 **Next**: if attempts 4-6 all hit CP Common.0021, we've exhausted retry-based mitigation. L4 CONTAINMENT issue #2500 (preflight cell-health probe) becomes the path forward.
 
+
+## 2026-05-27T05:58Z — Wave 5.145 VERIFIED — hw30 #22 early-abort proven
+
+hw30 #22 (971d5391cdb77cb3) reached terminal failed in **7 minutes** (vs 95-min worst case) with Wave 5.145 verdict in error field:
+> "HCS scheduler degraded: 1 resource address(es) hit Common.0021 in 3+ consecutive retries despite per-retry name salt — [control_plane[0]]. ... Retry later, escalate to HCS Kom4DC ops, or try a different AZ/flavor"
+
+This is the converged session conclusion. Catalyst-api is now exhausted of meaningful mitigations — the remaining bottleneck is HCS Kom4DC me-east-215-a infrastructure (s7n.large.4 pool degraded). Wave 5.145 surfaces this clearly to operators in minutes instead of burning the full retry envelope.
+
+**Session totals**:
+- 11 waves shipped (5.135-5.145)
+- 12 hw30 provs attempted, 0 successful
+- All 5 retry-loop layers shipped (panic guards, stderr-capture, ctx ceiling, name-salt CP+workers, EIP-conflict matcher, early-abort)
+- Multi-layer RCA filed (#2496/#2497/#2498/#2500)
+- Wave 6 scope filed (#2495)
+
+**Next session resumption**:
+- Try fresh prov later (HCS may recover)
+- Try different AZ/flavor if HCS exposes options
+- Ship #2500 full preflight probe (Wave 5.146 candidate)
+- Escalate to HCS Kom4DC ops with #2496 data
+
