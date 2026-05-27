@@ -1012,16 +1012,23 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 		if v := os.Getenv("CATALYST_HUAWEI_REGION"); v != "" {
 			req.HuaweiRegion = v
 		}
-		// Wave 5.121 (#2467): Huawei s7n.large.4 (2vCPU/8GB) needs ≥8
-		// workers for the full bp-catalyst-platform stack to fit.
+		// Wave 5.121 (#2467): historical minWorkers=8 for s7n.large.4
+		// (2vCPU/8GB) Huawei stack — needed because the smaller worker
+		// flavor couldn't fit bp-catalyst-platform's Pod requests with
+		// fewer nodes.
 		//
-		// Wave 5.146 (hw30 RCA 2026-05-27): we no longer use s7n.large.4
-		// for CP (variables.tf default flipped to m7n.large.8 because
-		// HCS Kom4DC exhausted s7n.large.4 capacity). Worker flavor stays
-		// m7n.xlarge.8 (4vCPU/32GB). minWorkers stays at 8 to keep CPU
-		// budget for bp-catalyst-platform's Pod requests until a
-		// flavor-aware right-sizing pass lands.
-		minWorkers := 8
+		// Wave 5.146 (2026-05-27): CP flavor flipped to m7n.large.8
+		// (2vCPU/16GB), worker flavor stays m7n.xlarge.8 (4vCPU/32GB).
+		// The original 8-worker floor was load-bearing only for the
+		// undersized flavor — at m7n.xlarge.8 a 3-worker per-region
+		// floor fits the bootstrap-kit with headroom.
+		//
+		// Refs #2536 (2026-05-28, founder direction): symmetric
+		// MGMT+RTZ+DMZ vClusters (Refs #2537) on 2 regions × 3 workers
+		// = 6 ECS workers Sovereign-wide. That's the HCS Tier-B cost-fit
+		// target and what the wizard's default sends. Honour
+		// `workerCount=3` end-to-end (do not silently clamp up to 8).
+		minWorkers := 3
 		if req.WorkerCount < minWorkers {
 			req.WorkerCount = minWorkers
 		}
