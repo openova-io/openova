@@ -673,7 +673,16 @@ locals {
 resource "huaweicloud_compute_instance" "control_plane" {
   count = length(local.cp_nodes)
 
-  name              = "${local.name_prefix}-${local.cp_nodes[count.index].region}-cp${local.cp_nodes[count.index].index + 1}"
+  # Wave 5.144 (hw30 #20 fix-forward 2026-05-27): CP name also carries
+  # the retry_attempt salt. Without it, Wave 5.139 only randomized
+  # WORKER names; the CP name stayed static across retries so HCS
+  # scheduler kept picking the same broken cell on every retry. hw30
+  # #20 hit Common.0021 on CP across both attempts at 04:20Z + 04:23Z
+  # with parallelism=2 — same cell, same failure. The 6hex salt
+  # tail `cp<count+1>-<6hex>` differs per retry, so HCS picks fresh
+  # cells. lifecycle.ignore_changes=[name] below protects an already-
+  # ACTIVE CP from being destroyed when the formula changes.
+  name              = "${local.name_prefix}-${local.cp_nodes[count.index].region}-cp${local.cp_nodes[count.index].index + 1}-${substr(sha256("${var.deployment_id}-${local.cp_nodes[count.index].region}-cp${local.cp_nodes[count.index].index}-${var.retry_attempt}"), 0, 6)}"
   image_id          = var.image_id
   flavor_id         = local.cp_nodes[count.index].flavor
   availability_zone = var.huawei_az
@@ -713,8 +722,11 @@ resource "huaweicloud_compute_instance" "control_plane" {
 
   # HCS ECS read-back occasionally returns synthesised values for tags
   # + metadata.os_type + system_disk_id; ignore so plan stays clean.
+  # Wave 5.144: also ignore `name` so an ACTIVE CP doesn't get
+  # destroyed when the retry-loop bumps var.retry_attempt and
+  # changes its formula-computed name.
   lifecycle {
-    ignore_changes = [tags, metadata]
+    ignore_changes = [tags, metadata, name]
   }
 }
 
