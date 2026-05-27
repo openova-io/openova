@@ -12,10 +12,12 @@
 #                         ... image tag is empty` message from
 #                         _helpers.tpl.
 #
-#   default-OFF + slot  — when default-OFF, render produces ZERO of
-#                         our umbrella's resources (namespace,
-#                         networkpolicy). The upstream subchart's
-#                         own enable gates govern its render.
+#   default-ON          — Refs #2537 (2026-05-28): default flipped
+#                         false→true so every region renders the MGMT
+#                         vCluster (symmetric topology). Render produces
+#                         the umbrella's Namespace + isolation
+#                         NetworkPolicy. Operators wanting opt-out
+#                         flip in per-Sovereign overlay.
 #
 # Wired into .github/workflows/blueprint-release.yaml's helm template
 # smoke step via path-matrix. Mirrors platform/netbird/chart/tests/render.sh.
@@ -42,23 +44,17 @@ if [[ ! -d charts ]] || [[ -z "$(ls -A charts 2>/dev/null)" ]]; then
 fi
 
 # ─────────────────────────────────────────────────────────────────────
-# 1. Default-OFF: our umbrella's namespace + networkpolicy do NOT render.
+# 1. Default-ON (Refs #2537): umbrella's namespace + networkpolicy DO
+#    render with chart-default values. Symmetric topology — every region
+#    runs MGMT+RTZ+DMZ.
 # ─────────────────────────────────────────────────────────────────────
-render_off="$TMP/off.yaml"
-helm template bp-mgmt-vcluster . > "$render_off"
-if grep -qE "^kind: Namespace$" "$render_off" && grep -q "catalyst.openova.io/vcluster-role: mgmt" "$render_off"; then
-  echo "FAIL: default-OFF rendered umbrella mgmt Namespace"
+render_default="$TMP/default.yaml"
+helm template bp-mgmt-vcluster . > "$render_default"
+if ! grep -qE "^kind: Namespace$" "$render_default" || ! grep -q "catalyst.openova.io/vcluster-role: mgmt" "$render_default"; then
+  echo "FAIL: default render missing umbrella mgmt Namespace"
   exit 1
 fi
-if grep -qE "^kind: NetworkPolicy$" "$render_off" && grep -q "isolation" "$render_off"; then
-  # The upstream chart may ship its own NetworkPolicy templates; we only
-  # fail if OUR umbrella's `-isolation` NetworkPolicy rendered.
-  if grep -q "bp-mgmt-vcluster-isolation\|mgmt-vcluster-isolation" "$render_off"; then
-    echo "FAIL: default-OFF rendered umbrella NetworkPolicy"
-    exit 1
-  fi
-fi
-echo "PASS: default-OFF — umbrella namespace + isolation NetworkPolicy do not render"
+echo "PASS: default-ON renders umbrella mgmt Namespace"
 
 # ─────────────────────────────────────────────────────────────────────
 # 2. Fail-fast on empty image tag.
