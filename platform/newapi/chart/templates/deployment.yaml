@@ -44,6 +44,11 @@ the configmap mirrors this gate.
 {{- if and (not $effCredsSecret) .Values.credentials.autoProvision -}}
 {{- $effCredsSecret = default (printf "%s-app-creds" (include "bp-newapi.fullname" .)) .Values.credentials.autoSecretName -}}
 {{- end -}}
+{{- /* Resolve sandbox token signing key secret: explicit override > chart auto-provision */ -}}
+{{- $effTokenSigningKeySecret := .Values.sandboxTokenSigningKey.existingSecret -}}
+{{- if and (not $effTokenSigningKeySecret) .Values.sandboxTokenSigningKey.autoProvision -}}
+{{- $effTokenSigningKeySecret = default (printf "%s-token-signing-key" (include "bp-newapi.fullname" .)) .Values.sandboxTokenSigningKey.autoSecretName -}}
+{{- end -}}
 {{- $deployReady := and .Values.newapi.enabled $effDbSecret $effCredsSecret -}}
 {{- if and $kcMode (not $kcConfigured) -}}
 {{- $deployReady = false -}}
@@ -249,12 +254,12 @@ spec:
             - name: NEWAPI_TOKEN_SIGNING_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.sandboxTokenSigningKey.name }}
+                  name: {{ $effTokenSigningKeySecret }}
                   key: SIGNING_KEY
             - name: NEWAPI_ADMIN_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.sandboxTokenSigningKey.name }}
+                  name: {{ $effTokenSigningKeySecret }}
                   key: ADMIN_SECRET
           livenessProbe:
             httpGet:
