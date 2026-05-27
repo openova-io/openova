@@ -1013,15 +1013,14 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 			req.HuaweiRegion = v
 		}
 		// Wave 5.121 (#2467): Huawei s7n.large.4 (2vCPU/8GB) needs ≥8
-		// workers for the full bp-catalyst-platform stack to fit
-		// (keycloak-config-cli alone requests 500m; gitea/mimir/loki/
-		// trivy each reserve 200-500m per Pod). 5×2vCPU=10vCPU left
-		// 40+ Pods Pending "Insufficient cpu" on hw26. 8×2vCPU=16vCPU
-		// = parity with Hetzner cpx52 single-node baseline. Server-
-		// side stamp when the wizard/test-rig sends a smaller count,
-		// matching the HarborRobotToken/Huawei creds env-stamp shape.
-		// The Huawei tofu module already handles arbitrary worker
-		// counts via for_each.
+		// workers for the full bp-catalyst-platform stack to fit.
+		//
+		// Wave 5.146 (hw30 RCA 2026-05-27): we no longer use s7n.large.4
+		// for CP (variables.tf default flipped to m7n.large.8 because
+		// HCS Kom4DC exhausted s7n.large.4 capacity). Worker flavor stays
+		// m7n.xlarge.8 (4vCPU/32GB). minWorkers stays at 8 to keep CPU
+		// budget for bp-catalyst-platform's Pod requests until a
+		// flavor-aware right-sizing pass lands.
 		minWorkers := 8
 		if req.WorkerCount < minWorkers {
 			req.WorkerCount = minWorkers
@@ -1031,6 +1030,28 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 		for i := range req.Regions {
 			if req.Regions[i].Provider == "huawei" && req.Regions[i].WorkerCount < minWorkers {
 				req.Regions[i].WorkerCount = minWorkers
+			}
+		}
+		// Wave 5.146: server-side stamp away exhausted s7n.large.4
+		// flavor on Huawei provs. The wizard / test rig may still send
+		// s7n.large.4 if the operator hasn't refreshed the SKU list;
+		// rewrite to m7n.large.8 (2vCPU/16GB drop-in replacement) so
+		// HCS scheduler can actually place the VMs.
+		if req.ControlPlaneSize == "s7n.large.4" || req.ControlPlaneSize == "" {
+			req.ControlPlaneSize = "m7n.large.8"
+		}
+		if req.WorkerSize == "s7n.large.4" || req.WorkerSize == "" {
+			req.WorkerSize = "m7n.xlarge.8"
+		}
+		for i := range req.Regions {
+			if req.Regions[i].Provider != "huawei" {
+				continue
+			}
+			if req.Regions[i].ControlPlaneSize == "s7n.large.4" || req.Regions[i].ControlPlaneSize == "" {
+				req.Regions[i].ControlPlaneSize = "m7n.large.8"
+			}
+			if req.Regions[i].WorkerSize == "s7n.large.4" || req.Regions[i].WorkerSize == "" {
+				req.Regions[i].WorkerSize = "m7n.xlarge.8"
 			}
 		}
 	}

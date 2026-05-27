@@ -152,8 +152,26 @@ variable "image_id" {
 
 variable "default_control_plane_flavor" {
   type        = string
-  description = "Default ECS flavor for control-plane nodes when regions[].control_plane_size is empty. `s7n.large.4` = 2 vCPU / 8 GB."
-  default     = "s7n.large.4"
+  description = <<-EOT
+    Default ECS flavor for control-plane nodes when regions[].control_plane_size
+    is empty. `m7n.large.8` = 2 vCPU / 16 GB.
+
+    Wave 5.146 (hw30 RCA 2026-05-27): changed from `s7n.large.4` (2 vCPU / 8 GB).
+    HCS Kom4DC me-east-215a has `s7n.large.4` pool EXHAUSTED — direct API
+    CreateServer returns `Ecs.0219: No valid host was found`. Same test for
+    `m7n.large.8` returned SUCCESS reaching ACTIVE. m7n.large.8 is a drop-in
+    replacement with same vCPU and 2× RAM.
+
+    Old `Common.0021: CollectInfoTask-fail` errors were just the outer-job
+    wrapper around `Ecs.0219` (no-valid-host). The Wave 5.135-5.145 retry/
+    panic-guard chain (11 waves) was chasing a wrong "scheduler bad-cell
+    affinity" theory — the real bug was flavor-pool exhaustion the whole
+    time.
+
+    Future flavor changes: verify via direct HCS API POST + read sub_jobs[0]
+    .error_code for the actual capacity signal (NOT the Common.0021 wrapper).
+  EOT
+  default     = "m7n.large.8"
 }
 
 variable "default_worker_flavor" {
