@@ -435,19 +435,34 @@ func (h *Handler) cleanOrphanEIPsHuawei(tofuWorkDir string, activeIDs map[string
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	// G15 (Refs #2553): build the set of 8-char deployment-ID prefixes
-	// for every ACTIVE deployment (in-memory + on-disk record). Pass it
-	// to SweepOrphanEIPs so freshly-created EIPs (status=DOWN, unbound)
-	// from an in-flight tofu apply are NOT eaten by the orphan sweep.
-	// The Huawei bandwidth name convention is:
-	//   catalyst-<sovereign-dashed>-<8charDepIDPrefix>-<purpose>-bw
-	// so we can correlate by the 8-char prefix.
+	// G16 (Refs #2555): protect ONLY in-flight deployments. G15's first
+	// cut used activeIDs (every record on disk), which meant a FAILED
+	// deployment's EIPs were "skipped" forever because its record was
+	// still in the set. Result: hw43+hw44 failed deployments' EIPs
+	// piled up to project quota, starving the next prov.
+	// In-flight statuses (must protect): pending, provisioning,
+	// tofu-applying, flux-bootstrapping, phase1-watching, wiping.
+	// Terminal statuses (let janitor reclaim): ready (bound EIPs won't
+	// match orphan criteria anyway), failed, wiped, adopted.
 	activePrefixes := map[string]struct{}{}
-	for id := range activeIDs {
-		if len(id) >= 8 {
-			activePrefixes[id[:8]] = struct{}{}
+	h.deployments.Range(func(_, val any) bool {
+		dep, ok := val.(*Deployment)
+		if !ok || dep == nil {
+			return true
 		}
-	}
+		dep.mu.Lock()
+		st := dep.Status
+		id := dep.ID
+		dep.mu.Unlock()
+		switch st {
+		case "pending", "provisioning", "tofu-applying",
+			"flux-bootstrapping", "phase1-watching", "wiping":
+			if len(id) >= 8 {
+				activePrefixes[id[:8]] = struct{}{}
+			}
+		}
+		return true
+	})
 	deleted, err := hp.SweepOrphanEIPs(ctx, ak, sk, projectID, region, activePrefixes, func(msg string) {
 		h.log.Info("[JANITOR] " + msg)
 	})
