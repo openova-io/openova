@@ -77,7 +77,7 @@ spec:
       # 1.2.4 captures stderr to a temp file and emits structured
       # `[A66]` log lines (detection / success / failure-with-stderr).
       # RBAC was already correct in 1.2.3.
-      version: 1.2.5
+      version: 1.2.6
       sourceRef:
         kind: HelmRepository
         name: bp-flux

@@ -5,7 +5,7 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-3-2-gitops-and-iac
 spec:
-  version: 1.2.5
+  version: 1.2.6
   card:
     title: flux
     summary: GitOps reconciler. One per vcluster (source + kustomize + helm controllers); host-level Flux per host cluster watches its bp-* OCI sources.
