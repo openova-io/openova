@@ -620,13 +620,63 @@ func purgeHuaweiResources(ctx context.Context, client *http.Client, hw hwCreds, 
 			eips = append(eips, e)
 		}
 	}
-	for _, e := range eips {
-		if err := deleteEIP(ctx, client, hw, region, e.ID); err != nil {
-			out.Errors = append(out.Errors, fmt.Sprintf("delete EIP %s: %s", e.Address, err))
-			continue
+	// Wave 5.160 G13 (Refs #2545 hw40 forensic 2026-05-28): the first
+	// deleteEIP pass can return 200 OK while HCS reports `floatingip:
+	// associated_with_loadbalancer` or `still attached to ECS`. Surfaced
+	// live on hw40 wipe — `ProviderPurge["floating_ips"]` listed 5
+	// addresses as "deleted" but a fresh GET /publicips post-wipe showed
+	// all 5 still present with status=ACTIVE. Caused publicIp quota
+	// (10) exhaustion on the very next prov.
+	//
+	// Mitigation: run the delete loop UP TO 3 times with backoff. After
+	// each pass, re-list and only keep `floating_ips` entries that are
+	// actually gone. Records that survive 3 passes are logged in
+	// `out.Errors` so the operator sees the real residual.
+	const eipPasses = 3
+	eipDone := map[string]string{}
+	for pass := 1; pass <= eipPasses; pass++ {
+		for _, e := range eips {
+			if _, ok := eipDone[e.ID]; ok {
+				continue
+			}
+			if err := deleteEIP(ctx, client, hw, region, e.ID); err != nil {
+				if pass == eipPasses {
+					out.Errors = append(out.Errors, fmt.Sprintf("delete EIP %s (pass %d): %s", e.Address, pass, err))
+				}
+				continue
+			}
+			eipDone[e.ID] = e.Address
+			progress(fmt.Sprintf("deleted EIP %s (pass %d)", e.Address, pass))
 		}
-		out.ProviderPurge["floating_ips"] = append(out.ProviderPurge["floating_ips"], e.Address)
-		progress("deleted EIP " + e.Address)
+		// Re-list to verify; drop any IDs that came back from the dead.
+		stillThere, _ := listEIPsByNamePrefix(ctx, client, hw, region, sovereignFQDN, deploymentID)
+		survived := map[string]bool{}
+		for _, e := range stillThere {
+			survived[e.ID] = true
+		}
+		for id := range eipDone {
+			if survived[id] {
+				delete(eipDone, id) // not actually deleted; will retry next pass
+			}
+		}
+		if len(eipDone) == len(eips) {
+			break
+		}
+		// Brief backoff between passes so HCS can finish detach work
+		// (LB unbind, ECS port release).
+		select {
+		case <-ctx.Done():
+		case <-time.After(time.Duration(2*pass) * time.Second):
+		}
+	}
+	for _, addr := range eipDone {
+		out.ProviderPurge["floating_ips"] = append(out.ProviderPurge["floating_ips"], addr)
+	}
+	// Any EIPs that survived all 3 passes — surface them so the
+	// operator + the next prov see real residual.
+	stillStuck, _ := listEIPsByNamePrefix(ctx, client, hw, region, sovereignFQDN, deploymentID)
+	for _, e := range stillStuck {
+		out.Errors = append(out.Errors, fmt.Sprintf("EIP %s survived %d wipe passes (still in HCS — quota will be hit on next prov)", e.Address, eipPasses))
 	}
 
 	// 5. SG — by-name (covers tags-disabled case).
