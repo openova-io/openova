@@ -33,7 +33,7 @@ CHART_DIR="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
 # runs against a /tmp fake chart but still needs to validate against the
 # real repo's cloud-init template).
 REPO_ROOT="${REPO_ROOT:-$(cd "$CHART_DIR/../../.." && pwd)}"
-CLOUDINIT_TPL="$REPO_ROOT/infra/hetzner/cloudinit-control-plane.tftpl"
+CLOUDINIT_TPL="$REPO_ROOT/infra/providers/hetzner/cloudinit-control-plane.tftpl"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 

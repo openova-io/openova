@@ -41,7 +41,7 @@ name: bp-flux
 # verbs grant exists); the silent failure was diagnostic-blind, not
 # RBAC-blind. The Chart.yaml bump here exists so the bootstrap-kit
 # pin auto-sync hook propagates the new image into fresh provs.
-version: 1.2.5
+version: 1.2.6
 description: |
   Catalyst-curated Blueprint umbrella chart for Flux. Depends on the
   upstream `flux2` chart (fluxcd-community) as a Helm subchart so
