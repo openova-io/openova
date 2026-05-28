@@ -689,6 +689,13 @@ locals {
         for rk in local.region_keys :
         rk => huaweicloud_vpc_eip.cp[rk].publicip.0.ip_address
       })
+      # Refs #2545 — G7: per-CP region key + EIP, baked at render time.
+      # Replaces the broken awk JSON reverse-lookup that silently failed
+      # on hw38 because region names appeared as both keys + value-stems.
+      # Each CP cloud-init render uses its OWN region's values (no map
+      # lookup needed at boot).
+      my_region_key   = r.code
+      my_region_eip   = huaweicloud_vpc_eip.cp[r.code].publicip.0.ip_address
       cluster_cidr    = "10.42.0.0/16"
       service_cidr    = "10.96.0.0/16"
       gitops_repo_url = var.gitops_repo_url
