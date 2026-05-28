@@ -1405,7 +1405,7 @@ func deleteEIP(ctx context.Context, client *http.Client, hw hwCreds, region, id 
 // Intended caller: the periodic janitor (handler/janitor.go). Idempotent
 // + safe to run during active provisioning: bound EIPs (port_id set)
 // AND active EIPs (status=ACTIVE/BOUND) are never touched.
-func (p *Provider) SweepOrphanEIPs(ctx context.Context, ak, sk, projectID, region string, progress func(msg string)) (int, error) {
+func (p *Provider) SweepOrphanEIPs(ctx context.Context, ak, sk, projectID, region string, activeDepIDPrefixes map[string]struct{}, progress func(msg string)) (int, error) {
 	if progress == nil {
 		progress = func(string) {}
 	}
@@ -1441,6 +1441,26 @@ func (p *Provider) SweepOrphanEIPs(ctx context.Context, ak, sk, projectID, regio
 		}
 		if !strings.HasPrefix(e.BandwidthName, "catalyst-") {
 			continue
+		}
+		// G15 (Refs #2553): skip EIPs whose bandwidth_name carries the
+		// 8-char prefix of any ACTIVE deployment. Format the renderer
+		// uses: catalyst-<sovereign-dashed>-<8charDepIDPrefix>-<purpose>-bw
+		// (e.g. catalyst-hw43-omani-works-5b413990-elb-primary-bw).
+		// Without this guard the sweep eats freshly-created EIPs from
+		// in-flight `tofu apply` runs — they sit DOWN+unbound for the
+		// few minutes between EIP allocation and ECS/NAT bind.
+		if len(activeDepIDPrefixes) > 0 {
+			skip := false
+			for prefix := range activeDepIDPrefixes {
+				if strings.Contains(e.BandwidthName, "-"+prefix+"-") {
+					skip = true
+					break
+				}
+			}
+			if skip {
+				progress(fmt.Sprintf("sweep orphan EIP %s (bw=%s): skipped (active deployment)", e.Address, e.BandwidthName))
+				continue
+			}
 		}
 		if err := deleteEIP(ctx, client, hw, region, e.ID); err != nil {
 			progress(fmt.Sprintf("sweep orphan EIP %s (bw=%s): DELETE failed: %v", e.Address, e.BandwidthName, err))
