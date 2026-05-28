@@ -671,6 +671,7 @@ runcmd:
         --service-cidr=${service_cidr} \
         --tls-san=${sovereign_fqdn} \
         --tls-san=${primary_cp_eip} \
+        --tls-san=${my_region_eip} \
         --node-label=openova.io/region=hw-${region}-rtz-prod \
         --node-label=catalyst.openova.io/provider=huawei \
         --kube-apiserver-arg=default-watch-cache-size=200 \
