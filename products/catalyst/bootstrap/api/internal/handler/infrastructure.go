@@ -1602,7 +1602,7 @@ func (h *Handler) sovereignDynamicClient(dep *Deployment) (dynamic.Interface, er
 func (h *Handler) loaderInputFor(dep *Deployment) infrastructure.LoaderInput {
 	dep.mu.Lock()
 	defer dep.mu.Unlock()
-	return infrastructure.LoaderInput{
+	in := infrastructure.LoaderInput{
 		DeploymentID:     dep.ID,
 		Status:           statusForDeployment(dep),
 		SovereignFQDN:    dep.Request.SovereignFQDN,
@@ -1616,6 +1616,16 @@ func (h *Handler) loaderInputFor(dep *Deployment) infrastructure.LoaderInput {
 		HetznerProjectID: dep.Request.HetznerProjectID,
 		DynamicClient:    h.tryDynamicClientLocked(dep),
 	}
+	// G14 (Refs #2551): wire k8sCache so the chroot post-cutover
+	// fallback in topology_loader.buildTopology can fan out across
+	// every registered cluster (primary + secondary kubeconfigs)
+	// instead of synthesising a single Region from the in-cluster
+	// client. Nil-tolerant — tests without k8sCache fall through to
+	// the single-cluster DynamicClient path.
+	if h.k8sCache != nil {
+		in.K8sCache = h.k8sCache
+	}
+	return in
 }
 
 // tryDynamicClientLocked — best-effort dynamic client for live-source

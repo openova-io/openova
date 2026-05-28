@@ -32,6 +32,16 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 )
 
+// K8sCacheReader — narrow read-only view of the catalyst-api k8sCache
+// Factory the loader uses to fan out across multi-region clusters in
+// the chroot post-cutover fallback (G14, Refs #2551). Defined as an
+// interface so the loader doesn't import the k8scache package (would
+// create a cycle: handler→infrastructure→k8scache→handler-types).
+type K8sCacheReader interface {
+	Clusters() []string
+	DynamicClientFor(clusterID string) (dynamic.Interface, error)
+}
+
 // LoaderInput — the deployment-shaped data the handler hands to the
 // loader. The loader does not import the handler package (would
 // create a cycle); the handler unwraps Deployment fields onto this
@@ -54,6 +64,14 @@ type LoaderInput struct {
 	// kubeconfig hasn't been postedback yet — the loader emits empty
 	// arrays for live-source fields in that case.
 	DynamicClient dynamic.Interface
+
+	// K8sCache — multi-region fan-out source for the chroot post-
+	// cutover fallback (G14, Refs #2551). When set + the chroot has
+	// >1 registered cluster (primary + secondary kubeconfigs both
+	// loaded), the loader emits one Region per cluster instead of
+	// the single in-cluster region. Nil → falls back to DynamicClient
+	// single-cluster behaviour (legacy path).
+	K8sCache K8sCacheReader
 }
 
 // Load composes the unified TopologyResponse. The function is
@@ -113,14 +131,42 @@ func buildTopology(ctx context.Context, in LoaderInput) TopologyData {
 			WorkerCount:      in.WorkerCount,
 		}
 		regions = append(regions, buildRegion(ctx, in, legacy))
+	} else if in.K8sCache != nil && len(in.K8sCache.Clusters()) > 0 {
+		// Chroot post-cutover path with multi-cluster k8sCache (G14,
+		// Refs #2551). When the chroot has BOTH primary + secondary
+		// kubeconfigs registered (via the cloud-init secondary-PUT-
+		// back posting to /api/v1/sovereign/secondary-kubeconfig +
+		// the k8sCache rescan loop), fan out across every cluster so
+		// the operator sees one Region per region. Previously this
+		// path called buildRegionFromLiveNodes ONCE against the
+		// in-cluster client, hiding the secondary region entirely.
+		for _, cid := range in.K8sCache.Clusters() {
+			dc, err := in.K8sCache.DynamicClientFor(cid)
+			if err != nil || dc == nil {
+				continue
+			}
+			perClusterIn := in
+			perClusterIn.DynamicClient = dc
+			// Hint the region by parsing the secondary suffix off the
+			// k8sCache cluster ID. Format: "<depID>" for primary,
+			// "<depID>-<region>" for secondaries. The hint flows
+			// through to buildRegionFromLiveNodes' regionName when no
+			// Node carries an explicit region label.
+			if strings.HasPrefix(cid, in.DeploymentID+"-") {
+				perClusterIn.Region = strings.TrimPrefix(cid, in.DeploymentID+"-")
+			} else if cid != in.DeploymentID {
+				perClusterIn.Region = cid
+			}
+			if rs, ok := buildRegionFromLiveNodes(ctx, perClusterIn); ok {
+				regions = append(regions, rs)
+			}
+		}
 	} else if in.DynamicClient != nil && in.SovereignFQDN != "" {
-		// Chroot post-cutover path: the synthesised Deployment record
-		// has empty Regions + empty Region (the wizard data lives on
-		// the mother). Probe the live cluster's Nodes via the dynamic
-		// client, group by `node.kubernetes.io/instance-type`, and
-		// emit one Region with one Cluster carrying all real Nodes +
-		// derived NodePools. Result: /cloud kind=clusters /node-pools
-		// /worker-nodes render real data on the chroot.
+		// Single-cluster chroot path: no k8sCache (test / legacy) but
+		// a DynamicClient is wired. Probe the live cluster's Nodes
+		// via the dynamic client, group by `node.kubernetes.io/
+		// instance-type`, and emit one Region with one Cluster
+		// carrying all real Nodes + derived NodePools.
 		if rs, ok := buildRegionFromLiveNodes(ctx, in); ok {
 			regions = append(regions, rs)
 		}
@@ -151,10 +197,15 @@ func buildRegionFromLiveNodes(ctx context.Context, in LoaderInput) (Region, bool
 	}
 
 	// Pick a region from a Node label if any node carries one; else
-	// fall back to the SovereignFQDN as the region label.
+	// fall back to the in.Region hint (set by the k8sCache fan-out
+	// caller per-cluster), then the SovereignFQDN as last resort.
+	// `openova.io/region` is the catalyst-canonical label written by
+	// cloud-init (e.g., "hu-me-east-215-a-rtz-prod") — preferred over
+	// the upstream k8s topology labels because it carries the full
+	// catalyst region slug.
 	regionName := ""
 	for _, n := range list.Items {
-		for _, k := range []string{"topology.kubernetes.io/region", "failure-domain.beta.kubernetes.io/region"} {
+		for _, k := range []string{"openova.io/region", "topology.kubernetes.io/region", "failure-domain.beta.kubernetes.io/region"} {
 			if v, ok := n.GetLabels()[k]; ok && v != "" {
 				regionName = v
 				break
@@ -163,6 +214,9 @@ func buildRegionFromLiveNodes(ctx context.Context, in LoaderInput) (Region, bool
 		if regionName != "" {
 			break
 		}
+	}
+	if regionName == "" {
+		regionName = in.Region
 	}
 	if regionName == "" {
 		regionName = in.SovereignFQDN
@@ -260,7 +314,14 @@ func buildRegionFromLiveNodes(ctx context.Context, in LoaderInput) (Region, bool
 	if clusterName == "" {
 		clusterName = "cluster-" + in.DeploymentID
 	}
+	// Per-region clusterID: when the caller hinted a Region (k8sCache
+	// fan-out, G14 Refs #2551), suffix it so primary + secondary
+	// rows have distinct IDs. The mothership topology path's
+	// buildRegion does the same via `cluster-<depID>-<cloudRegion>`.
 	clusterID := "cluster-" + in.DeploymentID
+	if in.Region != "" {
+		clusterID = "cluster-" + in.DeploymentID + "-" + in.Region
+	}
 	cluster := Cluster{
 		ID:            clusterID,
 		Name:          clusterName,
@@ -272,7 +333,36 @@ func buildRegionFromLiveNodes(ctx context.Context, in LoaderInput) (Region, bool
 		NodePools:     pools,
 		Nodes:         allNodes,
 	}
+	// Provider selection: prefer the wizard-declared provider; if the
+	// chroot's synthesised deployment has no Provider (G14, Refs
+	// #2551), sniff the first Node's provider hints before defaulting.
+	// k3s sets node.spec.providerID="<provider>://<id>" (e.g.,
+	// "huawei://..." / "hcloud://...") + sometimes a label like
+	// "topology.kubernetes.io/cloud-provider". Default "hetzner" is
+	// kept only as the absolute last resort.
 	provider := in.Provider
+	if provider == "" {
+		for _, n := range list.Items {
+			if v, ok := n.GetLabels()["topology.kubernetes.io/cloud-provider"]; ok && v != "" {
+				provider = v
+				break
+			}
+			if spec, ok := n.Object["spec"].(map[string]any); ok {
+				if pid, _ := spec["providerID"].(string); pid != "" {
+					if idx := strings.Index(pid, "://"); idx > 0 {
+						scheme := pid[:idx]
+						switch scheme {
+						case "hcloud":
+							provider = "hetzner"
+						default:
+							provider = scheme
+						}
+						break
+					}
+				}
+			}
+		}
+	}
 	if provider == "" {
 		provider = "hetzner"
 	}
