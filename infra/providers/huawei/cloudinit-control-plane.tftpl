@@ -989,19 +989,20 @@ runcmd:
   # JSON body {deploymentId, regionKey, kubeconfigYaml} per the
   # secondaryKubeconfigRequest schema.
   - |
+    # Refs #2545 — G7: replace the broken awk-based JSON reverse-lookup
+    # (it returned the prior hostname instead of the region key when region
+    # names appear as both keys + value-fragments — hw38 forensic 2026-05-28)
+    # with direct template variables. Each CP cloud-init is now rendered
+    # per-region (G1, Refs #2533), so MY_REGION/MY_EIP can be hard-baked
+    # by tofu — no awk required.
     HOSTNAME=$(hostname)
-    REGION_CP_MAP='${region_cp_hostname_map_json}'
-    REGION_EIP_MAP='${region_cp_eip_map_json}'
     PRIMARY_HOST='${primary_cp_hostname}'
     PRIMARY_REGION='${primary_region_key}'
+    MY_REGION='${my_region_key}'
+    MY_EIP='${my_region_eip}'
     if [ -n "${deployment_id}" ] && [ -n "${kubeconfig_bearer_token}" ] && [ "$HOSTNAME" != "$PRIMARY_HOST" ]; then
-      # Resolve THIS CP's region key by reverse-lookup in the map.
-      # Map is {"region-a": "hostname-a", "region-b": "hostname-b"}; we
-      # find the key whose value matches our hostname. Pure POSIX awk.
-      MY_REGION=$(echo "$REGION_CP_MAP" | awk -v h="$HOSTNAME" 'BEGIN{FS="[\":,{} ]+"} {for(i=1;i<=NF;i++) if($i==h) print $(i-2)}' | head -1)
-      MY_EIP=$(echo "$REGION_EIP_MAP" | awk -v rk="$MY_REGION" 'BEGIN{FS="[\":,{} ]+"} {for(i=1;i<=NF;i++) if($i==rk) print $(i+2)}' | head -1)
       if [ -n "$MY_REGION" ] && [ -n "$MY_EIP" ] && [ "$MY_REGION" != "$PRIMARY_REGION" ]; then
-        echo "Wave 5.74: secondary kubeconfig PUT-back from region=$MY_REGION eip=$MY_EIP"
+        echo "Wave 5.74 G7: secondary kubeconfig PUT-back from region=$MY_REGION eip=$MY_EIP host=$HOSTNAME"
         sed "s|server: https://127.0.0.1:6443|server: https://$MY_EIP:6443|" /etc/rancher/k3s/k3s.yaml \
           > /tmp/kubeconfig-secondary.yaml
         # Wrap kubeconfig YAML inside JSON envelope (handler decodes
