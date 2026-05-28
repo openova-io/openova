@@ -44,11 +44,19 @@ cloudnative-pg:
   replicaCount: 1
 
   resources:
+    # G17 (Refs #2557, 2026-05-28): bumped memory 256/512Mi → 512Mi/1Gi.
+    # cnpg-cloudnative-pg v1.29.0 OOM'd during init on a fresh cluster at
+    # 512Mi limit — Go runtime exited code 2 right after "Kubernetes system
+    # metadata" log, before binding webhook port. Caught on hw45 multi-
+    # region prov: Flux helm install kept retrying for 30+ min, masking
+    # the real cause. Verified fix by live-patching the deployment to 1Gi
+    # → cnpg pod Ready in 60s. Phase 1 unblocks 18 dependent HRs (gitea,
+    # keycloak, openbao, powerdns, harbor, grafana, etc.).
     requests:
       cpu: 100m
-      memory: 256Mi
-    limits:
       memory: 512Mi
+    limits:
+      memory: 1Gi
 
   # PodMonitor for the operator — DEFAULT OFF.
   #
