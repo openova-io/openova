@@ -104,6 +104,22 @@ catalyst:
 # 64Mi to keep scheduler footprint small on small CPs.
 flux2:
   installCRDs: true
+  # G20 (Refs #2566, 2026-05-28): disable flux2's bundled NetworkPolicies.
+  # Upstream flux2 chart 2.14.1 renders `flux-system/allow-egress` with
+  # `egress: [{}]` (intended "allow all egress"). On Cilium 1.16 in
+  # `enable-policy: default` mode, the empty rule object is interpreted
+  # as denying world egress from selected pods — source-controller
+  # cannot reach github.com to clone bootstrap-kit source. Caught on
+  # hw47: 30+ min of `dial tcp 20.205.243.166:443: i/o timeout` errors
+  # while a default-ns pod on the SAME node had full egress.
+  #
+  # bp-network-policies' default-deny + allow-system-namespaces CCNPs
+  # cover the same zero-trust intent declaratively + correctly
+  # (flux-system is in allowSystemNamespaces). Disabling the flux2-
+  # bundled NPs avoids the double-policy + Cilium-misinterpret
+  # collision.
+  policies:
+    create: false
   sourceController:
     resources:
       requests: { cpu: 50m, memory: 64Mi }
