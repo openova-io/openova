@@ -24,6 +24,67 @@
 
 ---
 
+## §0 — True DoD: `deployment.status=ready` is NOT proof (G18 / #2561)
+
+**Refs: #2561 (G18, 2026-05-28).** The single most-common pattern of fake
+"done" claims in this repo has been agents treating catalyst-api's
+`deployment.status=ready` flag as proof of convergence. **It is not.** The
+flag is a one-shot snapshot set by the Phase-1 watcher when N HelmReleases
+reach Ready=True — and then **never re-evaluated**. After that point HRs
+can and do flip back to False (Flux upgrade cycles, Kyverno admission
+denials, runtime OOM crashloops, manual surgical patches). The Console
+"Jobs" tab continues to show the live stuck reality; the deployment record
+keeps lying.
+
+### The contract
+
+Claiming a Sovereign "ready" without a green run of
+[`scripts/sovereign-dod-verify.sh`](../scripts/sovereign-dod-verify.sh)
+attached to the issue is **illegal output**. The verifier re-evaluates LIVE
+STATE across six layers at the moment of the check:
+
+| Layer | What it checks |
+|---|---|
+| L1 | Deployment record: status, handover, CP IP, LB IP |
+| L2 | Both regions' kubeconfigs reachable; ≥ 4 nodes Ready per region |
+| L3 | Every required HR has `status.conditions[type=Ready].status=True` **now**; zero False, zero Unknown (excluding Hetzner-suspended) |
+| L4 | Every catalyst-system control-plane pod is Ready (api, ui, catalog, 4 controllers, marketplace-api) |
+| L5 | HTTPS responds with 2xx/3xx/40x on console / api / auth / gitea / harbor / bao / marketplace / pdns; TLS cert is from REAL Let's Encrypt (not staging) |
+| L6 | **Zero-touch audit**: no `kubectl-set`, `kubectl-patch`, `kubectl-edit` managers on tracked resources; no `kubectl.kubernetes.io/restartedAt` annotations on any tracked Deployment/DaemonSet/StatefulSet (catches `kubectl rollout restart` surgery). |
+
+L6 is the **load-bearing** check. Without it the verifier is gameable.
+Operators (and agents) who restart a DaemonSet or `kubectl set image` a
+deployment to "fix" a stuck HR have NOT achieved zero-touch — the
+verifier fails loudly and shows exactly which resource was touched.
+
+### How to run
+
+```bash
+./scripts/sovereign-dod-verify.sh <deployment-id>
+```
+
+- Exits 0 only on full pass (≈ 85 checks). Paste full stdout into the issue
+  comment to satisfy the contract.
+- Exits 1 on any failure. Output names every failing check; do not claim
+  ready.
+- Exits 2 on usage/setup error.
+
+### What this replaces
+
+Every prior "phase1Outcome=ready ✅" claim in agent reports. The flag is
+still useful as a hint ("Phase 1 reached its synchronous high-water mark")
+but it is not the contract.
+
+### Adjacent: `status/completed` label gating (future G19)
+
+A GitHub workflow (filed as follow-up G19) will refuse to apply
+`status/completed` on any issue whose comments do not contain the
+verifier's full output ending in `✅ TRUE READY — all N checks pass.`. Until
+that ships, the discipline is contractual: agents and operators MUST run
+the verifier and paste its output.
+
+---
+
 ## §1 — The 5 inseparable pillars
 
 Every dispatch in this repo must answer:
