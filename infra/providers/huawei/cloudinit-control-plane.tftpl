@@ -914,6 +914,26 @@ runcmd:
   - ["bash", "-c", "REAL_IP=$(ip -4 -o addr show dev eth0 | awk '{print $4}' | cut -d/ -f1); sed -i \"s|CILIUM_K8S_SERVICE_HOST: \\\"[0-9.]*\\\"|CILIUM_K8S_SERVICE_HOST: \\\"$REAL_IP\\\"|g\" /var/lib/catalyst/manifests/10-flux-source.yaml; echo \"Wave 5.29: substituted CILIUM_K8S_SERVICE_HOST with $REAL_IP\""]
   - KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f /var/lib/catalyst/manifests/10-flux-source.yaml
 
+  # Refs #2545 G11 (2026-05-28): Flux source-controller's first GitHub
+  # clone reliably hangs on HCS me-east-215 because the source-controller
+  # Pod starts before the HCS NAT SNAT rule has fully propagated. The Go
+  # HTTP client caches the initial i/o-timeout state and never recovers
+  # — even after NAT is fully working (verified live: fresh curlimages
+  # pod in same NS clones github.com in 0.87s while source-controller
+  # times out on every retry). Manual `kubectl delete pod` clears the
+  # cache and GitRepository flips Ready=True within 30s.
+  #
+  # The pre-existing Wave 5.120 block (line ~807) fires BEFORE this
+  # `flux install` so its kubectl-wait short-circuits ("deployment not
+  # yet present"). Re-run AFTER Flux is installed + GitRepository CR
+  # has had its first reconcile-attempt to clear any stuck state.
+  - |
+    KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl -n flux-system wait --for=condition=Available --timeout=300s deploy/source-controller 2>/dev/null \
+      && sleep 30 \
+      && KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl -n flux-system rollout restart deploy/source-controller 2>/dev/null \
+      && echo "Wave 5.150 G11: source-controller restarted post-install to clear cached DNS/conn failures" \
+      || echo "Wave 5.150 G11: source-controller restart failed — investigate manually"
+
   # 5. PUT-back kubeconfig to catalyst-api (issue #183 Option D).
   #
   # The apiserver URL inside the PUT'd kubeconfig MUST be the primary
@@ -1006,12 +1026,13 @@ runcmd:
         echo "Wave 5.74 G7: secondary kubeconfig PUT-back from region=$MY_REGION eip=$MY_EIP host=$HOSTNAME"
         sed "s|server: https://127.0.0.1:6443|server: https://$MY_EIP:6443|" /etc/rancher/k3s/k3s.yaml \
           > /tmp/kubeconfig-secondary.yaml
-        # Wrap kubeconfig YAML inside JSON envelope (handler decodes
-        # JSON body, not raw bytes).
-        KUBECONFIG_ESCAPED=$(awk 'BEGIN{ORS=""} {gsub(/\\/,"\\\\"); gsub(/"/,"\\\""); gsub(/\n/,"\\n"); print $0"\\n"}' /tmp/kubeconfig-secondary.yaml)
-        JSON_BODY=$(printf '{"deploymentId":"%s","regionKey":"%s","kubeconfigYaml":"%s"}' \
-          "${deployment_id}" "$MY_REGION" "$KUBECONFIG_ESCAPED")
-        echo "$JSON_BODY" > /tmp/secondary-kubeconfig-body.json
+        # Refs #2545 G12 (2026-05-28): build JSON via python3 instead of
+        # awk-escape + dash printf. The previous shape silently failed:
+        # awk emits literal `\n` sequences, dash printf (Ubuntu /bin/sh)
+        # interprets `\n` as newline (POSIX), JSON becomes multi-line,
+        # catalyst-api decoder returns 400. python3 json.dumps handles
+        # ALL escaping correctly + Ubuntu cloud images ship python3.
+        python3 -c "import json,sys; print(json.dumps({'deploymentId':'${deployment_id}','regionKey':'$MY_REGION','kubeconfigYaml':open('/tmp/kubeconfig-secondary.yaml').read()}))" > /tmp/secondary-kubeconfig-body.json
         for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
           HTTP_CODE=$(curl -sk -o /dev/null -w '%%{http_code}' -X POST \
             -H "Authorization: Bearer ${kubeconfig_bearer_token}" \
