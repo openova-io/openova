@@ -79,12 +79,35 @@ spec:
           # (probably an init container or admission-time-injected sidecar)
           # has an image that the [?image] truthiness filter doesn't catch
           # — e.g. an empty-string image OR a missing image on initContainers
-          # which weren't in the list expression at all. Belt-and-braces:
-          # extend the list expression to also cover initContainers, AND add
-          # a preconditions guard so the deny block only evaluates when
-          # element.image is a non-empty string (Kyverno preconditions short-
-          # circuit deny eval entirely if false).
-          - list: "(request.object.spec.containers || request.object.spec.template.spec.containers || [])[?image] | concat(@, (request.object.spec.initContainers || request.object.spec.template.spec.initContainers || [])[?image])"
+          # which weren't in the list expression at all.
+          #
+          # G19 (Refs #2563, 2026-05-28): the previous cut used JMESPath
+          # `concat(@, ...)` to union containers + initContainers, but
+          # Kyverno's bundled go-jmespath does NOT include the `concat`
+          # function — every admission errored with:
+          #   "failed to evaluate list: JMESPath query failed: unknown
+          #    function: concat"
+          # → policy.failurePolicy=Fail → catalyst-api Deployment patches
+          # rejected cluster-wide → bp-catalyst-platform stuck in Helm
+          # rollback failure. Caught on hw46 multi-region (deployment
+          # ba79375bdd69c46c) blocking bp-continuum + bp-sandbox cascade.
+          #
+          # Fix: split into TWO foreach entries — one for containers, one
+          # for initContainers. No concat needed; each foreach iterates
+          # its own list. Preconditions still skip empty/nil images.
+          - list: "(request.object.spec.containers || request.object.spec.template.spec.containers || [])[?image]"
+            preconditions:
+              all:
+                - key: '{{ `{{ element.image || ` }}{{ printf "%q" "" }}{{ ` }}` }}'
+                  operator: NotEquals
+                  value: ""
+            deny:
+              conditions:
+                all:
+                  - key: '{{ printf `{{ regex_match(%q, element.image) }}` .Values.compliancePolicies.harborProxyPull.allowedRegistryRegex }}'
+                    operator: Equals
+                    value: false
+          - list: "(request.object.spec.initContainers || request.object.spec.template.spec.initContainers || [])[?image]"
             preconditions:
               all:
                 - key: '{{ `{{ element.image || ` }}{{ printf "%q" "" }}{{ ` }}` }}'
