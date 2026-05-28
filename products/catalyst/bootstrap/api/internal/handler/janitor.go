@@ -218,7 +218,7 @@ func (h *Handler) runJanitorPass(tofuWorkDir string, failedMaxAge, wipedMaxAge t
 	// prefix and deletes any status=DOWN + unbound ones across all
 	// known HCS tfvars on the PVC. Idempotent + safe during active provs
 	// (bound + ACTIVE EIPs are never touched).
-	stats.OrphanEIPs = h.cleanOrphanEIPsHuawei(tofuWorkDir)
+	stats.OrphanEIPs = h.cleanOrphanEIPsHuawei(tofuWorkDir, activeIDs)
 
 	h.log.Info("[JANITOR] pass complete",
 		"durationMs", int(time.Since(startedAt).Milliseconds()),
@@ -378,7 +378,7 @@ func (h *Handler) cleanOrphanKubeconfigs(activeIDs map[string]struct{}) int {
 //
 // Returns the number of EIPs deleted. Returns 0 + logs on any error.
 // Safe to call even when no huawei deployment exists (no-op).
-func (h *Handler) cleanOrphanEIPsHuawei(tofuWorkDir string) int {
+func (h *Handler) cleanOrphanEIPsHuawei(tofuWorkDir string, activeIDs map[string]struct{}) int {
 	if tofuWorkDir == "" {
 		return 0
 	}
@@ -435,7 +435,20 @@ func (h *Handler) cleanOrphanEIPsHuawei(tofuWorkDir string) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	deleted, err := hp.SweepOrphanEIPs(ctx, ak, sk, projectID, region, func(msg string) {
+	// G15 (Refs #2553): build the set of 8-char deployment-ID prefixes
+	// for every ACTIVE deployment (in-memory + on-disk record). Pass it
+	// to SweepOrphanEIPs so freshly-created EIPs (status=DOWN, unbound)
+	// from an in-flight tofu apply are NOT eaten by the orphan sweep.
+	// The Huawei bandwidth name convention is:
+	//   catalyst-<sovereign-dashed>-<8charDepIDPrefix>-<purpose>-bw
+	// so we can correlate by the 8-char prefix.
+	activePrefixes := map[string]struct{}{}
+	for id := range activeIDs {
+		if len(id) >= 8 {
+			activePrefixes[id[:8]] = struct{}{}
+		}
+	}
+	deleted, err := hp.SweepOrphanEIPs(ctx, ak, sk, projectID, region, activePrefixes, func(msg string) {
 		h.log.Info("[JANITOR] " + msg)
 	})
 	if err != nil {
