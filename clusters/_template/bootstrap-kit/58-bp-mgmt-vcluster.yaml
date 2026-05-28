@@ -101,10 +101,12 @@ spec:
   # cloud-init).
   values:
     mgmtVcluster:
-      # Flipped on for the primary region by tofu's primary postBuild
-      # (mgmt_vcluster_enabled=true). Secondaries render this slot but
-      # tofu sets the substitute false → chart renders zero resources.
-      enabled: ${MGMT_VCLUSTER_ENABLED:=false}
+      # Refs #2537 G9 (2026-05-28): drop the MGMT_VCLUSTER_ENABLED
+      # substitute. The "follow-up PR to wire the substitute on primary
+      # only" never landed, leaving every Sovereign with mgmt-vcluster
+      # SILENTLY OFF for 2 weeks. Founder direction: symmetric topology
+      # — every region renders MGMT+RTZ+DMZ. Hardcode true.
+      enabled: true
       hostNamespace: mgmt
       vclusterName: mgmt
       role: primary

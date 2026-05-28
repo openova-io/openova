@@ -79,10 +79,10 @@ spec:
       retries: 3
   values:
     rtzVcluster:
-      # Flipped on by tofu's secondary-CP postBuild (rtz_vcluster_enabled=true).
-      # Primary renders this slot too but tofu sets the substitute false →
-      # chart renders zero resources on the primary.
-      enabled: ${RTZ_VCLUSTER_ENABLED:=false}
+      # Refs #2537 G9 (2026-05-28): drop the RTZ_VCLUSTER_ENABLED
+      # substitute (never landed — same fate as MGMT). Symmetric
+      # topology — every region renders MGMT+RTZ+DMZ.
+      enabled: true
       hostNamespace: rtz
       vclusterName: rtz
       role: secondary
