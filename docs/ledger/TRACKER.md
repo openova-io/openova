@@ -1111,4 +1111,40 @@ Deployment `51bb70ff8bf53b0e` still alive — founder can test at https://consol
 |---|---|
 | #2526 (5-pillar DoD walk on hw37) | `status/in-progress` — Phase 1 converging |
 | #2527 (VPC.2030 SNAT fix) | `status/uat` — Phase 0 verified |
+
+
+## 2026-05-29T23:24Z — 🟢 hw55 v7 PILLAR 1 WALK COMPLETE (Plans → Apps → Add-ons → BCP → Review → Checkout → Sign-in code dispatched)
+
+End-to-end Pillar 1 walk verified on **hw55 v7** (dep `7b07b1d5139ccf83`) against
+the still-converging substrate (HRs 47 True / 4 False / 3 empty — bp-catalyst-platform
+helm-rollback Kyverno-blocked + bp-kyverno-policies HelmChart stuck on Harbor-only
+ghcr-pull post bp-self-sovereign-cutover). curl 5/6 non-000 GREEN
+(`console.hw55` 200, `marketplace.hw55` 200, `keycloak.hw55` 302, etc.).
+META-AUDITs 1-5 complete; G43 cancelled as fake-blocker by lead.
+
+| Step | URL | Screenshot | Outcome |
+|---|---|---|---|
+| 1 Plans | `marketplace.hw55.omani.works/plans/` | `hw55-v7-pillar1-step1-plans.png` | 8 tiers render; M Popular default-selected (OMR 9.000/mo) |
+| 2 Apps | `/apps/` | `hw55-v7-pillar1-step2-apps.png` | 14 apps render; WordPress + Sandbox added to stack |
+| 3 Add-ons | `/addons/` | `hw55-v7-pillar1-step3-addons.png` | Add-ons + domains step renders |
+| 4 BCP | `/bcp/` | `hw55-v7-pillar1-step4-bcp.png` | **Active-hot-standby +OMR 5.000/mo selected** (multi-region canon) |
+| 5 Review | `/review/` | `hw55-v7-pillar1-step5-review.png` | Review summary: 2 apps + M plan + 0% extras = OMR 9.000/mo total |
+| 6 Checkout | `/checkout/` | `hw55-v7-pillar1-step6-checkout.png` | Sign-in form renders |
+| 6b Code | `/checkout/` POST | `hw55-v7-pillar1-step6b-code-sent.png` | **"6-digit code sent to alierenbaysal@gmail.com" — Phase 1a Stalwart mail dispatch WORKING** |
+
+**Result**: Pillar 1 marketplace voucher onboarding flow walks end-to-end on a
+substrate that the verifier reports as 47/4/3. curl + walk = real GREEN per
+founder's load-bearing reframe. Despite 4 HRs not-ready (cascade behind
+bp-kyverno-policies HelmChart Harbor-pull block), the catalyst-api Pod is
+alive serving traffic + magic-link endpoint dispatches via Stalwart.
+
+Evidence comment landed on **#2526** with all 7 screenshots inline. Walk
+artifact landing satisfies the §-3 single-generative-criterion for v7's
+state-of-walk (1 of 3 toward 3-consecutive zero-touch). v7 is NOT
+verifier-GREEN; tagging this row as **walk-only** not zero-touch.
+
+Open: 18 issues. Active: #2526 (DoD walk hw37/hw55) · #2527 (UAT VPC.2030) ·
+#2528 (UAT OBS-cred derive) · #2589/#2590/#2592 (G33/G34/G35) · #2593 (G38) ·
+#2594/#2595 (G40/G37). Next: G40 cascade resolution (chart 1.0.17 cant pull
+post-cutover) → 47/4/3 → 51/0/3 → walk #2 of 3 OR POST v8 with stable codebase.
 | #2528 (OBS cred derivation) | `status/uat` — POST 400 fix verified |
