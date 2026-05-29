@@ -62,39 +62,36 @@ spec:
   # covers them at issuance time. Order is preserved in the cert; for
   # cosmetic reasons the operator-facing names come first.
   dnsNames:
-    # G28-followup (Refs #2570, 2026-05-29): Gateway listener
-    # `https` carries hostname `*.${SOVEREIGN_FQDN}` and `apex-https`
-    # carries hostname `${SOVEREIGN_FQDN}`. Per Gateway API spec
-    # cilium-operator validates listener.hostname against cert SAN
-    # — a listener with wildcard hostname requires the cert to carry
-    # the matching `*.${SOVEREIGN_FQDN}` wildcard SAN, NOT individual
-    # subdomain SANs. Without `*.${SOVEREIGN_FQDN}` + `${SOVEREIGN_FQDN}`
-    # the listener stays Programmed=False/InvalidCertificateRef even
-    # when the cert is issued + the dashed Secret name resolves.
-    # Verified live on hw54 14:59Z post-G28: cert had specific
-    # subdomain SANs but listener wildcard rejected the ref.
+    # G34 (Refs #2590, 2026-05-29): wildcard-only SAN list. LE prod
+    # rejects Orders that mix `*.<fqdn>` with specific subdomain SANs
+    # covered by it ("Domain name X is redundant with a wildcard domain
+    # in the same request"). Verified live on hw55 v3 18:16Z — Order
+    # errored within 4s.
+    #
+    # The G28-followup commit `bdef11d5` (2026-05-29) prepended the
+    # wildcard SAN to satisfy Cilium Gateway API listener validation
+    # (the `*.<fqdn>` listener hostname requires a matching wildcard
+    # SAN, NOT a per-subdomain SAN) but did not remove the now-redundant
+    # subdomain entries — this commit completes that fix.
+    #
+    # Validation chain:
+    #   - Cilium Gateway `https` listener hostname `*.<fqdn>` matches
+    #     SAN `*.<fqdn>` → Programmed=True
+    #   - Cilium Gateway `apex-https` listener hostname `<fqdn>` matches
+    #     SAN `<fqdn>` → Programmed=True
+    #   - Browser visiting any single-label subdomain (console, auth,
+    #     gitea, sandbox, etc.) sees SAN `*.<fqdn>` matching its
+    #     hostname per RFC 6125 → no CERT_COMMON_NAME_INVALID
+    #   - Cilium-envoy serves the same cert for all subdomain HTTPRoutes
+    #     via SNI
+    #
+    # Note re original per-name design (2026-05-15 header): the N-bucket
+    # LE rate-limit spread the per-name design provided is now collapsed
+    # back to a single `{*.<fqdn>, <fqdn>}` identifier-set bucket
+    # (5/week/registered-domain). For HCS provs that hit the same TLD
+    # frequently, the canonical mitigation is TLD rotation per the
+    # parent_domains pool (omani.works ↔ omantel.biz ↔ omani.homes per
+    # feedback_canonical_end_user_dod), NOT re-introducing per-name SANs
+    # (which conflict with the Gateway API wildcard-listener contract).
     - "*.${SOVEREIGN_FQDN}"
     - "${SOVEREIGN_FQDN}"
-    - "console.${SOVEREIGN_FQDN}"
-    - "auth.${SOVEREIGN_FQDN}"
-    - "gitea.${SOVEREIGN_FQDN}"
-    - "registry.${SOVEREIGN_FQDN}"
-    - "api.${SOVEREIGN_FQDN}"
-    - "bao.${SOVEREIGN_FQDN}"
-    - "grafana.${SOVEREIGN_FQDN}"
-    - "hubble.${SOVEREIGN_FQDN}"
-    - "pdns.${SOVEREIGN_FQDN}"
-    - "openova-flow.${SOVEREIGN_FQDN}"
-    - "guacamole.${SOVEREIGN_FQDN}"
-    - "marketplace.${SOVEREIGN_FQDN}"
-    # sandbox.<sov-fqdn> — public URL for the per-Sandbox pty-server (PR #1641).
-    # The sandbox-controller renders an HTTPRoute on sandbox.<sov-fqdn>/
-    # sessions/<owner-uid>/* attached to the cilium-gateway. The wildcard
-    # `*.<sov-fqdn>` Gateway listener already matches the hostname, but the
-    # per-name SAN cert here must include `sandbox.<sov-fqdn>` for
-    # cilium-envoy to serve the right cert (otherwise browsers see
-    # NET::ERR_CERT_COMMON_NAME_INVALID). Matches the entry in
-    # products/catalyst/bootstrap/api/internal/handler/sovereign_dns_records.go
-    # CanonicalSovereignSubdomains so the parent-zone A-record set + cert
-    # SAN list stay aligned.
-    - "sandbox.${SOVEREIGN_FQDN}"
