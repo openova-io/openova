@@ -231,6 +231,14 @@ spec:
             # the cloud-Hetzner default is now A3-compliant out of the
             # box.
             type: ${CLUSTERMESH_SERVICE_TYPE:=LoadBalancer}
+            # G3 (Refs #2534, 2026-05-29): per-region NodePort number when
+            # type=NodePort. Empty string means k8s assigns a random
+            # NodePort in 30000-32767; HCS provider's cloud-init pins
+            # `CLUSTERMESH_NODE_PORT: "31333"` (matching the HCS security-
+            # group ingress rule in infra/providers/huawei/main.tf) so the
+            # peer-dial address is stable + deterministic. Hetzner leaves
+            # this empty (LB pattern doesn't need it).
+            nodePort: ${CLUSTERMESH_NODE_PORT:=}
             # Hetzner CCM requires location OR network-zone annotation
             # to allocate the LB. ${HCLOUD_LB_LOCATION} flows from the
             # bootstrap-kit Kustomization substitute, set by the
