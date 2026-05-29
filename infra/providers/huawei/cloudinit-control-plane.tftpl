@@ -453,6 +453,25 @@ write_files:
         sourceRef:
           kind: GitRepository
           name: openova
+        # G33 (Refs #2589, 2026-05-29): mirror Hetzner cloudinit's
+        # bootstrap-kit Kustomization wait/timeout contract. Without
+        # `wait: true`, Ready fires as soon as manifests commit to etcd
+        # (~30s) — but bp-catalyst-platform's chart template ships the
+        # sovereign-tls-vars ConfigMap (takes 15-30min). The downstream
+        # sovereign-tls Kustomization `dependsOn: bootstrap-kit` then
+        # fires too early, fails postBuild.substituteFrom on the
+        # missing CM, and retries until bp-catalyst-platform eventually
+        # lands — masking L5 HTTPS surfaces in the verifier window.
+        # Verified reproduced on hw55 v2 + v3.
+        # `timeout: 5m` matches the Hetzner pattern (issue #492 lesson):
+        # 30m would deadlock on bad-apply revision lock when iterative
+        # fixes during Phase-8a get applied on the next GitRepository
+        # poll — kustomize-controller holds the revision lock for the
+        # FULL timeout window and refuses to pick up new SHAs. Failed
+        # reconciles release the lock fast (~6m worst case) so a
+        # fresh fix-forward gets applied on the next poll.
+        wait: true
+        timeout: 5m
         postBuild:
           substitute:
             SOVEREIGN_FQDN: ${sovereign_fqdn}
