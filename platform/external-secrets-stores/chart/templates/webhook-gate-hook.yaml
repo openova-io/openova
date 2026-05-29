@@ -100,6 +100,22 @@ spec:
         - name: gate
           image: {{ $image | quote }}
           imagePullPolicy: {{ $pullPolicy | quote }}
+          # G26 (Refs #2581, 2026-05-29): bp-kyverno-policies' 05-resource-requests
+          # and 06-resource-limits enforce on kinds=Job and exclude only by
+          # namespace. The webhook-gate Job runs in external-secrets-stores
+          # namespace which is NOT excluded — without explicit requests +
+          # limits the pre-install hook is denied at admission, the HR never
+          # reaches Ready, and downstream HRs that dependsOn external-secrets-
+          # stores stay stuck (verified live on hw54 13:46Z). Conservative
+          # values: bash + kubectl polling loop with ~15s budget burns
+          # ≤50m CPU / ≤64Mi RAM in steady-state.
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "32Mi"
+            limits:
+              cpu: "100m"
+              memory: "128Mi"
           securityContext:
             runAsNonRoot: true
             runAsUser: 1001
