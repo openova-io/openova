@@ -149,6 +149,17 @@ v4 will carry G33+G2-fu+G31+G30+G34 all live via Flux pull. No new catalyst-api 
 
 **hw55 v4 POSTED 18:30Z — deployment `b13a4675826223c0`**, status=provisioning. Same 2-region body. **The first realistic GREEN candidate of session** — v4's Flux first-clone pulls main HEAD = includes G30+G31+G33+G34+G2-fu ALL LIVE. Background poll `b40e6gmvc` armed; ETA ~25-35min for Phase 0+1 with wait:true honesty cost.
 
+**🚨 v4 FAILED 18:32:54Z — 42s into tofu plan, NO infra created.** Self-inflicted bug in my own G2-followup commit `c73ea542`: the bash retry-loop `for i in $(seq 1 24)` + `${i}*5` + `"$i" = "24"` references the bash variable `i` with `${}` syntax that tofu's templatefile() parses as a template var reference. `vars map does not contain key "i"`.
+
+**Fix shipped `5a22c8a5`** — escaped all 3 reference forms:
+- `${i}` → `$${i}`
+- `$((i*5))` → `$$((i*5))`
+- `"$i"` → `"$${i}"`
+
+Same class as G28 e39a9bc8 (YAML-comment `${VAR:=default}` parse errors). Defense-in-depth: **G36 #2591 FILED** — CI gate to render templatefile() with representative vars fixture at image-build time, fail-fast on any "vars map does not contain key X" before catalyst-api image publish.
+
+**v4 WIPED via API** (tofuDestroyed=true confirms no infra was created). Build & Deploy on `5a22c8a5` in_progress 18:34Z. Awaiting catalyst-api roll to `5a22c8a` before POST v5. Background watcher `bb9z1a3i7` armed.
+
 **G31 #2587 FILED** — sovereign-dod-verify.sh L6 false-positive on G11 #2545 cloudinit-bootstrap-window restartedAt annotation. Path A whitelist (verifier-side timestamp compare against `deployment.startedAt + 30min`) recommended over Path B (cloud-init alternative). Audit alert: prior "verifier GREEN" claims post-G11 may be tainted by false-negative (verifier reported PASS due to logic miss vs cloudinit-window discriminator).
 
 **G32 #2588 FILED** — hw55 v2 region-A only 2W Ready of 3 requested (asymmetric scaling vs region-B 3/3). Hypothesis space: HCS capacity / cloudinit fail / kubeadm-token / NAT timing (#2586 overlap). RCA TBD via HCS API ECS list query.
