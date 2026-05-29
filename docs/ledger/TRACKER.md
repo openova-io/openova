@@ -110,6 +110,22 @@ Follow-up TBD candidate (G29): why did `e39a9bc8` deploy-bump no-op? `infra/prov
 
 **G2-followup #2586 NOT yet fixed** — line 989 of HCS cloudinit IS unconditional `flux install` already; needs RCA on WHY it failed silently on region-b (likely ghcr.io pull failure before NAT propagation). Real fix is retry-loop or wait-for-NAT, not a 5min mirror. Will capture hw55 v3 evidence + ship proper fix as G2-followup-fix.
 
+**STRATEGY OVERRIDE 17:55Z** — openova-lead rejected reflexive v3-wipe-then-v4. v3 became deep-investigation lab. NO wipe until 5-step RCA done.
+
+**STEP 1 LE rate-limit (CT-log query)**: `*.omani.works` 7-day issuance count = **0**. NO LE quota burned because sovereign-tls Kustomization never reached Certificate creation across hw53/hw54/hw55-v1/v2/v3. **TLD flip NOT needed for v4.**
+
+**STEP 2 v3 deep RCA**: REPRODUCED on v2 AND v3 — `configmaps "sovereign-tls-vars" not found`. Same failure shape = **structural, not race**. Handover-JWT Secret EXISTS on v3 (ruled out). Cross-kind dependsOn ruled out (sovereign-tls→bootstrap-kit IS K→K). Chart-template comment (#2118 Closes) explicitly assumes `bootstrap-kit Ready iff all HRs Ready` — **assumption FALSE without wait:true**. Hetzner cloudinit has wait:true + timeout:5m (#492); HCS port missed it.
+
+**STEP 3 G32 region-A workers**: v3 region-A = 4/4 nodes Ready (1 CP + 3 workers). v2's 2-of-3 was **TRANSIENT** (capacity / cloudinit / NAT timing), NOT persistent. G32 #2588 → status/parked.
+
+**STEP 4 HCS orphan sweep DEFERRED** — must run before declaring 1/3 GREEN.
+
+**G33 #2589 FILED + FIX SHIPPED `9f3d7587`** — `wait: true` + `timeout: 5m` on HCS bootstrap-kit Kustomization (mirrors Hetzner). 5m chosen per #492 history (30m default deadlocked otech8 1bfc46347564467b when fix-forward landed 1m after bad SHA). lead approved 5m deviation from initial 30m suggestion.
+
+**Audit chain comment posted on G31 #2587** — multi-layer false-history: L4 (catalyst-api Pod missing) + L5 (HTTPS surfaces 000) + L6 (G11 cloudinit restartedAt) all hidden across recent claimed-GREEN provs. Prior verifier-GREEN claims post-G11 deprecated. G31 L6 whitelist + G33 wait:true together = genuine GREEN gate for next prov.
+
+**18:06Z Build & Deploy on `9f3d7587` in_progress** (G29 no-recurrence 3rd consecutive). catalyst-api currently on `c73ea54`. Will roll to `9f3d758` on deploy commit landing. Post-roll: capture v3 baseline → wipe v3 → POST v4 → expect ~20-30min Phase 1 (wait:true honesty cost).
+
 **G31 #2587 FILED** — sovereign-dod-verify.sh L6 false-positive on G11 #2545 cloudinit-bootstrap-window restartedAt annotation. Path A whitelist (verifier-side timestamp compare against `deployment.startedAt + 30min`) recommended over Path B (cloud-init alternative). Audit alert: prior "verifier GREEN" claims post-G11 may be tainted by false-negative (verifier reported PASS due to logic miss vs cloudinit-window discriminator).
 
 **G32 #2588 FILED** — hw55 v2 region-A only 2W Ready of 3 requested (asymmetric scaling vs region-B 3/3). Hypothesis space: HCS capacity / cloudinit fail / kubeadm-token / NAT timing (#2586 overlap). RCA TBD via HCS API ECS list query.
