@@ -498,6 +498,19 @@ write_files:
             # -> TCP 443 from public BLOCKED forever.
             SOVEREIGN_GATEWAY_HTTPS_PORT: "30443"
             SOVEREIGN_GATEWAY_HTTP_PORT: "30080"
+            # G30 (Refs #TBD, 2026-05-29): bootstrap-kit slot 57
+            # bp-openova-flow-emitter consumes SOVEREIGN_DEPLOYMENT_ID
+            # (FLOW_ID env on the DaemonSet) + SOVEREIGN_REGION_KEY
+            # (REGION_KEY env). Hetzner cloudinit sets both at
+            # bootstrap-kit substitute level (lines ~1040-1041); the
+            # Huawei port missed them, leaving the openova-flow-adapter-
+            # flux container fail-fast on `config: FLOW_ID is required`
+            # → CrashLoopBackOff → L4 verifier-FAIL (live evidence:
+            # hw55 v2 17:13Z openova-flow-emitter-* pods restarted 5x).
+            # Mirrors the per-CP region pattern (G1 #2533) — each CP's
+            # cloud-init render gets ITS region's canonical label.
+            SOVEREIGN_DEPLOYMENT_ID: ${deployment_id}
+            SOVEREIGN_REGION_KEY: ${region_canonical_label}
             # Wave 5.110 (#2462): bastion mirror endpoint for harbor.openova.io.
             # bp-self-sovereign-cutover's registry-pivot DaemonSet rewrites
             # /etc/rancher/k3s/registries.yaml with upstream→harbor.openova.io
