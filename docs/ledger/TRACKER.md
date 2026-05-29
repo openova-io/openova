@@ -95,6 +95,29 @@ Follow-up TBD candidate (G29): why did `e39a9bc8` deploy-bump no-op? `infra/prov
 - Impact on hw55 v2: this prov's CP cloud-init was rendered BEFORE the fix → still broken. Verifier L4 will FAIL on openova-flow-emitter row. Wipe + re-POST hw55 v3 needed for true zero-touch GREEN.
 - openova-flow-emitter is Pillar 4 scope (feeds openova-flow-canvas), NOT Pillar 1 — Pillar 1 walk MAY work on this prov but strict verifier will require hw55 v3.
 
+**17:25Z catalyst-api ROLLED to `8007593`** (deploy commit `ba696c03` + bootstrap-kit pin auto-bump `b09589a9` 1.4.380 → 1.4.381). **G29 #2584 hypothesis strengthened to "intermittent race"** — auto-trigger fired cleanly for BOTH `80075936` and `5f671849` pushes; only `e39a9bc8` no-op'd. G29 status/uat acceptance: deploy log evidence on a future no-op to confirm pull-rebase race vs awk-step ordering.
+
+**17:30Z hw55 v2 verifier — 18 of 81 checks FAIL** (raw `/tmp/hw54-mgmt/hw55v2-verifier.log`):
+- L2.3 region-A nodes Ready: 3 (expected ≥4) — **NEW BUG**: workerCount=3 requested but only 2 workers in region-a vs 3 in region-b (asymmetric scaling)
+- L3 3 FAILs: bp-powerdns Unknown / bp-external-dns False (dep on powerdns) / bp-continuum False (dep on catalyst-platform)
+- L4 catalyst-system/catalyst-api POD_NOT_FOUND — bp-catalyst-platform Helm-install-succeeded ≠ Pods-Ready (disableWait:true)
+- L5 8/8 HTTPS surfaces returned `000000` — sovereign-tls Kustomization blocked on missing `sovereign-tls-vars` ConfigMap (chicken-egg with bp-catalyst-platform)
+- L6 FAIL: 1 rollout-restart annotation = `flux-system/source-controller` (G11 #2545 cloudinit auto-workaround). **L6 needs refinement to ignore cloudinit-bootstrap-window annotations**, OR G11 needs a non-annotation fix shape.
+
+**hw55 v2 WIPED 17:33Z** (pdmReleased=true, localCleaned=true).
+
+**hw55 v3 POSTED 17:34Z — deployment `882d4dce18627016`**, status=provisioning. Same 2-region body (me-east-215-a primary + me-east-215-b replica, workerCount=3 each). Carrying G30 fix in cloud-init (catalyst-api `8007593` renders SOVEREIGN_DEPLOYMENT_ID + SOVEREIGN_REGION_KEY). Background poll `brlvmnmd0` armed.
+
+**G2-followup #2586 NOT yet fixed** — line 989 of HCS cloudinit IS unconditional `flux install` already; needs RCA on WHY it failed silently on region-b (likely ghcr.io pull failure before NAT propagation). Real fix is retry-loop or wait-for-NAT, not a 5min mirror. Will capture hw55 v3 evidence + ship proper fix as G2-followup-fix.
+
+**G31 #2587 FILED** — sovereign-dod-verify.sh L6 false-positive on G11 #2545 cloudinit-bootstrap-window restartedAt annotation. Path A whitelist (verifier-side timestamp compare against `deployment.startedAt + 30min`) recommended over Path B (cloud-init alternative). Audit alert: prior "verifier GREEN" claims post-G11 may be tainted by false-negative (verifier reported PASS due to logic miss vs cloudinit-window discriminator).
+
+**G32 #2588 FILED** — hw55 v2 region-A only 2W Ready of 3 requested (asymmetric scaling vs region-B 3/3). Hypothesis space: HCS capacity / cloudinit fail / kubeadm-token / NAT timing (#2586 overlap). RCA TBD via HCS API ECS list query.
+
+**L4 catalyst-api POD_NOT_FOUND interpretation**: verifier L4 check uses `kubectl get pod -n catalyst-system -l app.kubernetes.io/name=catalyst-api` — name-match is correct, NOT a verifier bug (G33 hypothesis A FALSE). 7 of 8 control-plane pods PASS L4 (catalyst-ui/catalyst-catalog/application-controller/organization-controller/environment-controller/useraccess-controller/marketplace-api). Only catalyst-api specifically not present in catalyst-system on v2 — likely bp-catalyst-platform partial-install (Pod definition depends on missing sovereign-tls-vars CM OR sovereign-side handover JWT key Secret). Investigate on v3 if it recurs.
+
+**G2-followup #2586 RCA REFINED** — comment posted: HCS NAT egress timing race (asymmetric primary-vs-secondary NAT propagation timing); SAME root cause as G11 #2545 but pre-install pull failures not addressed by G11. Fix shape = wrap line 989 `flux install` in a 120s retry-loop guarded by ghcr.io reachability check.
+
 **True cnpg RCA after 3 wrong G17 iterations (G21):** cnpg-cloudnative-pg v1.29.0's Deployment declares its `webhook-certificates` volume mount with `optional: true` on Secret `cnpg-webhook-cert`. Secret is normally created by cnpg-operator at runtime (chicken-egg). Under apiserver load (busy Phase-1 with many Kyverno admission webhooks), kubelet's Secret list-watch can't sync the Secret to cache within the mount deadline → falls back to empty tmpfs → cnpg reads empty `tls.crt` → silent `os.Exit(2)` in TLS server setup, no panic trace, no `OOMKilled` reason. Looked exactly like OOM but wasn't. Why hw41/hw42 worked: lower apiserver load (fewer Kyverno policies pre-Wave 5.151). G17/b/c memory bumps were placebo. **G21 fix: cert-manager-based pre-install Helm hooks pre-mint the Secret BEFORE the Deployment installs, blocked by a Job that polls until `kubectl get secret cnpg-webhook-cert` succeeds.**
 
 **True source-controller egress RCA (G22):** flux2 v2.4.0 install bundles 3 NPs in flux-system (`allow-egress`, `allow-scraping`, `allow-webhooks`). `allow-egress` selects ALL pods + declares `egress: [{}]` intended as allow-all. Cilium 1.16 in default mode interprets the empty rule as deny-world → source-controller can't reach github.com → bootstrap-kit GitRepository never syncs → Kustomization stays `Source artifact not found, retrying in 30s` forever. G20 disabled the wrong NP source (the bp-flux chart's flux2 subchart). G22 disables at the bootstrap site: `flux install --network-policy=false` on Huawei, `kubectl delete netpol` post-`install.yaml` on Hetzner. Caught blocking hw47 + hw50.
