@@ -173,6 +173,10 @@ Same class as G28 e39a9bc8 (YAML-comment `${VAR:=default}` parse errors). Defens
 
 **G35 #2592 FILED + FIX SHIPPED `6fc3419a`** — Certificate commonName `console.${SOVEREIGN_FQDN}` not in dnsNames after G34 wildcard-only SAN list. LE rejects CSR per ACME RFC 8555 (literal CN-in-SAN match, no wildcard expansion). Verified live v5 19:25Z: `"console.hw55.omani.works" does not exist in [*.hw55.omani.works hw55.omani.works]`. Fix: commonName → `${SOVEREIGN_FQDN}` (apex, IS in dnsNames). Cert serving paths unchanged.
 
+**19:34Z hw55 v5 WIPED + hw55 v6 POSTED `cd3a696fe77db709`** with 8 fixes baked from first Flux clone: G30+G31+G31-fix2+G33+G34+G35+G2-fu+G2-fu-fix2. **v5 self-heal failed via G37 candidate** — Flux source-controller on v5 stuck at revision `476c23fd5379...` while main moved 4 commits forward (3161cf52). source-controller polled every ~1min for 5min straight reporting "no changes since last reconcilation" (HTTP cache hang — same pattern observed on v3). G11 #2545 addresses POST-install DNS cache (single restart workaround); this G37-candidate is mid-Phase-1 git fetch returning stale HEAD despite GitHub HEAD moving forward. Recurrence on v6 → file G37 with root-fix scope (force-fetch annotation OR shorter cache headers). **v6 = 4th realistic-GREEN-candidate attempt**. Background poll `b351kowqs` armed. ETA ~25-35min Phase 0+1.
+
+**G35 #2592 → status/uat 19:50Z** pending v6 verifier evidence (Certificate CN=apex ISSUED + LE Order GREEN + L5 surfaces respond).
+
 **G31 #2587 FILED** — sovereign-dod-verify.sh L6 false-positive on G11 #2545 cloudinit-bootstrap-window restartedAt annotation. Path A whitelist (verifier-side timestamp compare against `deployment.startedAt + 30min`) recommended over Path B (cloud-init alternative). Audit alert: prior "verifier GREEN" claims post-G11 may be tainted by false-negative (verifier reported PASS due to logic miss vs cloudinit-window discriminator).
 
 **G32 #2588 FILED** — hw55 v2 region-A only 2W Ready of 3 requested (asymmetric scaling vs region-B 3/3). Hypothesis space: HCS capacity / cloudinit fail / kubeadm-token / NAT timing (#2586 overlap). RCA TBD via HCS API ECS list query.
