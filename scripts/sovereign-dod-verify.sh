@@ -34,7 +34,13 @@
 #     the ONLY mechanism that catches "I live-patched cnpg to fix it" and
 #     prevents the agent from claiming zero-touch after surgery.
 
-set -euo pipefail
+# G25 (Refs #2578, 2026-05-29): drop `-e` so a single failed python heredoc,
+# curl, or openssl pipe doesn't kill the whole script before RESULTS print.
+# Mid-run crashes used to leave the user with section headers but no
+# pass/fail lines (caught on hw46/hw52). Now every check prints inline
+# (see pass()/fail() below) AND -e is off so internal failures count as
+# fail rather than aborting. -u + -o pipefail stay on for real bash bugs.
+set -uo pipefail
 
 DEP_ID="${1:-}"
 if [[ -z "$DEP_ID" ]]; then
@@ -56,8 +62,13 @@ PASS=0
 FAIL=0
 RESULTS=()
 
-pass()  { RESULTS+=("✅ $1"); PASS=$((PASS+1)); TOTAL=$((TOTAL+1)); }
-fail()  { RESULTS+=("❌ $1"); FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); }
+# G25 (Refs #2578): pass/fail print INLINE as each check runs (was buffered
+# into RESULTS for end-of-run output, so mid-run crash → no evidence at all).
+# Still also push to RESULTS so the end-of-run summary block still renders
+# when the script reaches the end. Tradeoff: ~2x output volume; worth it
+# because partial output beats zero output every time.
+pass()  { local m="✅ $1"; echo "$m"; RESULTS+=("$m"); PASS=$((PASS+1)); TOTAL=$((TOTAL+1)); }
+fail()  { local m="❌ $1"; echo "$m"; RESULTS+=("$m"); FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); }
 
 check_eq() {
     local name="$1" expected="$2" actual="$3"
@@ -160,6 +171,10 @@ REQUIRED_HRS=(
 )
 
 for hr in "${REQUIRED_HRS[@]}"; do
+    # G25 (Refs #2578): `|| echo HR_PARSE_FAIL` so a malformed HR object or
+    # python exception on this one HR doesn't kill the script. The failing
+    # HR is reported as a fail check below — script continues for remaining
+    # HRs and L4/L5/L6.
     READY=$(echo "$HRS_JSON" | python3 -c "
 import sys,json
 d=json.load(sys.stdin)
@@ -172,7 +187,7 @@ for item in d.get('items',[]):
         print('NO_READY_CONDITION')
         exit()
 print('HR_NOT_FOUND')
-")
+" 2>/dev/null || echo "HR_PARSE_FAIL")
     check_eq "L3 HR $hr Ready" "True" "$READY"
 done
 
@@ -188,7 +203,7 @@ for item in d.get("items",[]):
             if "Suspended" not in cond.get("reason",""):
                 c+=1
 print(c)
-')
+' 2>/dev/null || echo "PARSE_FAIL")
 UNKNOWN_COUNT=$(echo "$HRS_JSON" | python3 -c '
 import sys,json
 d=json.load(sys.stdin)
@@ -198,7 +213,7 @@ for item in d.get("items",[]):
         if cond.get("type")=="Ready" and cond.get("status")=="Unknown":
             c+=1
 print(c)
-')
+' 2>/dev/null || echo "PARSE_FAIL")
 check_eq "L3 HRs Ready=False (excluding Suspended)" "0" "$FALSE_COUNT"
 check_eq "L3 HRs Ready=Unknown (in-flight rollback)" "0" "$UNKNOWN_COUNT"
 
@@ -233,9 +248,11 @@ for h in "${HOSTS[@]}"; do
 done
 
 # TLS cert must be issued by REAL Let's Encrypt (not staging "Fake LE")
+# `|| true` so set -euo pipefail doesn't bail on transient connect/parse failures —
+# the resulting empty CERT_ISSUER is correctly captured as a FAIL by the check below.
 CERT_ISSUER=$(echo | openssl s_client -connect "console.${FQDN}:443" -servername "console.${FQDN}" 2>/dev/null \
               | openssl x509 -noout -issuer 2>/dev/null \
-              | sed 's/^issuer=//')
+              | sed 's/^issuer=//' || true)
 if [[ "$CERT_ISSUER" == *"Let's Encrypt"* ]] && [[ "$CERT_ISSUER" != *"STAGING"* ]] && [[ "$CERT_ISSUER" != *"Fake"* ]]; then
     pass "L5 console TLS issuer: $CERT_ISSUER (LE prod)"
 else
