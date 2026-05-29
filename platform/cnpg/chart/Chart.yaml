@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-cnpg
-version: 1.0.3
+version: 1.0.4
 description: |
   Catalyst-curated Blueprint umbrella chart for CloudNativePG. Depends on
   the upstream `cloudnative-pg` chart as a Helm subchart so
