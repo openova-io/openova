@@ -56,7 +56,17 @@ spec:
   issuerRef:
     name: ${WILDCARD_CERT_ISSUER}
     kind: ClusterIssuer
-  commonName: "console.${SOVEREIGN_FQDN}"
+  # G35 (Refs #2592, 2026-05-29): commonName MUST appear in dnsNames
+  # per ACME RFC 8555 — LE rejects Order with "The CSR PEM requests a
+  # commonName that is not present in the list of dnsNames or
+  # ipAddresses." Previously this read `console.${SOVEREIGN_FQDN}` but
+  # G34's wildcard-only dnsNames removed all single-label subdomain
+  # SANs. The apex `${SOVEREIGN_FQDN}` IS in dnsNames and serves the
+  # same trust-chain purpose for the wildcard-listener Gateway path.
+  # Verified live on hw55 v5 19:25Z: prior commonName triggered
+  # immediate Order-issue failure even though the wildcard SAN covers
+  # `console.<fqdn>` for browser TLS validation.
+  commonName: "${SOVEREIGN_FQDN}"
   # SubjectAltNames — explicit list of Sovereign-facing surfaces. New
   # services added to bootstrap-kit MUST be added here so the cert
   # covers them at issuance time. Order is preserved in the cert; for
