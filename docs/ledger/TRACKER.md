@@ -177,6 +177,18 @@ Same class as G28 e39a9bc8 (YAML-comment `${VAR:=default}` parse errors). Defens
 
 **G35 #2592 → status/uat 19:50Z** pending v6 verifier evidence (Certificate CN=apex ISSUED + LE Order GREEN + L5 surfaces respond).
 
+**v6 BLOCKED 25min — G38 #2593 surfaced 19:55Z**: bp-opentelemetry-operator chart-level race. Chart ships Instrumentation CR in same release as the operator that registers `minstrumentation.kb.io` webhook. On install, Helm applies CR before webhook Pod Endpoints populate → "no endpoints available for service opentelemetry-operator-webhook" → Helm upgrade Failed → HR Released=False permanently. **G33 wait:true SURFACED IT HONESTLY** — bootstrap-kit Kustomization `failed early due to stalled resources: [HelmRelease/flux-system/bp-opentelemetry-operator status: 'Failed']`. Pre-G33 this would have silently half-installed observability stack. Cascade blocked → curl=000 forever on v6.
+
+**G38 FIX SHIPPED `1af5ab96`** — chart 1.0.2 → 1.0.3 with G26 webhook-gate pattern mirror:
+- `webhook-gate-rbac.yaml` (SA + Role + RoleBinding; post-install hook weight 0)
+- `webhook-gate-hook.yaml` (Job; post-install hook weight 5; polls opentelemetry-operator-webhook Endpoints, 60s budget)
+- `instrumentation-default.yaml` (now Helm hook post-install + post-upgrade weight 10, runs after gate)
+- Helm hook-weight ordering: 0 (RBAC) → 5 (gate Job) → 10 (Instrumentation CR)
+
+**hw55 v6 WIPED 20:16Z + hw55 v7 POSTED 20:16Z — deployment `7b07b1d5139ccf83`** with 9 fixes baked from first Flux clone: G30+G31+G31-fix2+G33+G34+G35+G38+G2-fu+G2-fu-fix2. Background poll `bwcdwam5h` armed for terminal. **5th realistic-GREEN-candidate attempt**. Discovery rate decelerating per asymptote forecast (v6 surfaced 1 new bug; v7 expected 0-1).
+
+**Tech-lead-coordination protocol update**: every 5min surface enumerates SPECIFIC blocking HRs (not just count), so root causes surface earlier — accepting the v6 25min-stuck cost which would have been caught by deeper queries at T+24min.
+
 **G31 #2587 FILED** — sovereign-dod-verify.sh L6 false-positive on G11 #2545 cloudinit-bootstrap-window restartedAt annotation. Path A whitelist (verifier-side timestamp compare against `deployment.startedAt + 30min`) recommended over Path B (cloud-init alternative). Audit alert: prior "verifier GREEN" claims post-G11 may be tainted by false-negative (verifier reported PASS due to logic miss vs cloudinit-window discriminator).
 
 **G32 #2588 FILED** — hw55 v2 region-A only 2W Ready of 3 requested (asymmetric scaling vs region-B 3/3). Hypothesis space: HCS capacity / cloudinit fail / kubeadm-token / NAT timing (#2586 overlap). RCA TBD via HCS API ECS list query.
