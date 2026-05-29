@@ -395,8 +395,15 @@ metadata:
 spec:
   gatewayClassName: cilium
   listeners:
+    # G28 (Refs #2570, 2026-05-29): Listener ports are provider-aware
+    # envsubst placeholders. Hetzner sovereigns bind cilium-envoy on
+    # host:443/:80 directly (LB targets node:443/:80). HCS sovereigns
+    # bind cilium-envoy on host:30443/:30080 because the HCS ELB pool
+    # members target NodePort range 30000-32767 and translate ingress
+    # 443→30443 + 80→30080. Defaults preserve Hetzner zero-touch
+    # behavior; Huawei cloudinit postBuild overrides them.
     - name: https
-      port: 443
+      port: ${SOVEREIGN_GATEWAY_HTTPS_PORT:=443}
       protocol: HTTPS
       hostname: "*.${SOVEREIGN_FQDN}"
       tls:
@@ -408,14 +415,14 @@ spec:
         namespaces:
           from: All
     - name: http
-      port: 80
+      port: ${SOVEREIGN_GATEWAY_HTTP_PORT:=80}
       protocol: HTTP
       hostname: "*.${SOVEREIGN_FQDN}"
       allowedRoutes:
         namespaces:
           from: All
     - name: apex-https
-      port: 443
+      port: ${SOVEREIGN_GATEWAY_HTTPS_PORT:=443}
       protocol: HTTPS
       hostname: "${SOVEREIGN_FQDN}"
       tls:
