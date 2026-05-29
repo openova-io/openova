@@ -1026,10 +1026,10 @@ runcmd:
   - |
     for i in $(seq 1 24); do
       if curl -sk -o /dev/null --max-time 5 https://ghcr.io/v2/ 2>/dev/null; then
-        echo "G2-fu: ghcr.io reachable after ${i}*5=$((i*5))s — proceeding with flux install"
+        echo "G2-fu: ghcr.io reachable after $${i}*5=$$((i*5))s — proceeding with flux install"
         break
       fi
-      if [ "$i" = "24" ]; then
+      if [ "$${i}" = "24" ]; then
         echo "G2-fu: WARNING ghcr.io still unreachable after 120s; attempting flux install anyway (cloudinit-debug.log will show pull failures)"
       fi
       sleep 5
