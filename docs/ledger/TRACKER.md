@@ -160,6 +160,8 @@ Same class as G28 e39a9bc8 (YAML-comment `${VAR:=default}` parse errors). Defens
 
 **v4 WIPED via API** (tofuDestroyed=true confirms no infra was created). Build & Deploy on `5a22c8a5` in_progress 18:34Z. Awaiting catalyst-api roll to `5a22c8a` before POST v5. Background watcher `bb9z1a3i7` armed.
 
+**18:38Z catalyst-api ROLLED to `5a22c8a`** (G29 4th consecutive clean auto-deploy this session — outlier hypothesis strengthened). **hw55 v5 POSTED 18:38Z — deployment `16857f24fce58e37`** with 6 fixes baked: G30 (FLOW_ID) + G31 (verifier L6 whitelist) + G33 (wait:true bootstrap-kit) + G34 (LE SAN list) + G2-fu (NAT egress retry) + G2-fu-fix2 (bash $ escape). Background poll `bgm974btm` armed for terminal state. **Widened-regex cloudinit audit CLEAN** — `${i}` was the only unescaped bash ref; all other `${attempt}`, `${crd}`, etc. already `$$`-escaped. v5 = 3rd realistic-GREEN-candidate attempt.
+
 **G31 #2587 FILED** — sovereign-dod-verify.sh L6 false-positive on G11 #2545 cloudinit-bootstrap-window restartedAt annotation. Path A whitelist (verifier-side timestamp compare against `deployment.startedAt + 30min`) recommended over Path B (cloud-init alternative). Audit alert: prior "verifier GREEN" claims post-G11 may be tainted by false-negative (verifier reported PASS due to logic miss vs cloudinit-window discriminator).
 
 **G32 #2588 FILED** — hw55 v2 region-A only 2W Ready of 3 requested (asymmetric scaling vs region-B 3/3). Hypothesis space: HCS capacity / cloudinit fail / kubeadm-token / NAT timing (#2586 overlap). RCA TBD via HCS API ECS list query.
