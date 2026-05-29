@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-opentelemetry-operator
-version: 1.0.2
+version: 1.0.3
 description: |
   Catalyst-curated Blueprint umbrella chart for the OpenTelemetry
   Operator. Wraps the upstream open-telemetry/opentelemetry-helm-charts

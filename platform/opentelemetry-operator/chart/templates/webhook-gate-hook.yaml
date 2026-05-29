@@ -1,0 +1,169 @@
+{{- /*
+G38 (Refs #2593, 2026-05-29): bp-opentelemetry-operator mutating-webhook
+readiness gate. Same pattern as G26 #2581's bp-external-secrets-stores
+webhook-gate.
+
+Background — the race we close
+==============================
+This chart ships a default `Instrumentation` CR (templates/instrumentation-
+default.yaml). The operator's own ValidatingWebhookConfiguration
+`mutating-webhook-configuration` carries the
+`minstrumentation.kb.io` webhook for the Instrumentation kind, backed
+by Service `opentelemetry-operator-webhook` in the `opentelemetry`
+namespace.
+
+On cold install / mid-upgrade Pod-roll, the Service's Endpoints have
+not yet populated when Helm tries to apply the Instrumentation CR.
+The apiserver returns:
+
+  "failed calling webhook \"minstrumentation.kb.io\":
+   Post \"https://opentelemetry-operator-webhook.opentelemetry.svc:443/mutate-...\":
+   no endpoints available for service \"opentelemetry-operator-webhook\""
+
+Helm `install`/`upgrade` returns non-zero. Without `remediation.retries`
+on the HelmRelease the install is terminal — Released=False forever.
+G33 #2589's wait:true on the bootstrap-kit Kustomization surfaces this
+honestly as `stalled resources` instead of masking it.
+
+Caught live on hw55 v6 19:55Z (deployment cd3a696fe77db709): bootstrap-
+kit Kustomization `health check failed after 474.188964ms: failed
+early due to stalled resources: [HelmRelease/flux-system/bp-
+opentelemetry-operator status: 'Failed']`.
+
+Pattern — mirror G26
+====================
+1. webhook-gate-hook.yaml (this file): post-install + post-upgrade Job
+   weight 5 — kubectl polls Endpoints `opentelemetry-operator-webhook`
+   in `opentelemetry` namespace until ≥1 ready address (60s budget,
+   2s interval). Exits 0 on ready, 1 on timeout.
+
+2. webhook-gate-rbac.yaml: ServiceAccount + Role + RoleBinding scoped
+   to GET Endpoints in `opentelemetry` ns. post-install + post-upgrade
+   hook weight 0 — runs before webhook-gate-hook.
+
+3. instrumentation-default.yaml: now annotated as post-install +
+   post-upgrade hook weight 10 — runs AFTER webhook-gate confirms
+   the webhook is reachable.
+
+Helm hook-weight ordering within a single hook phase:
+  0 (RBAC) → 5 (gate Job) → 10 (Instrumentation CR apply)
+
+If the Instrumentation CR apply still hits a webhook hiccup after
+the gate passes, the chart's `disableWait:true` on the HelmRelease
+spec + Flux retry interval handle it next pass.
+
+Why post-install (not pre-install)
+==================================
+The Job kubectl-waits for the chart's OWN webhook Endpoints. The
+webhook is registered + Service created + Pod scheduled only as part
+of THIS release's regular templates. A pre-install hook would wait
+forever because the operator Deployment hasn't been applied yet. The
+post-install hook fires after Helm applies the regular templates (incl.
+the operator Deployment), so the webhook IS coming up while the gate
+polls.
+
+`backoffLimit: 0` + 60s budget keeps the failure mode bounded and
+surfaces a genuinely-broken operator install (e.g. ImagePullBackOff,
+crashloop) as a clear "webhook gate timeout" condition rather than a
+mysterious chart misconfiguration.
+*/}}
+{{- $gate := .Values.webhookGate | default dict -}}
+{{- $enabled := true -}}
+{{- if hasKey $gate "enabled" -}}
+{{-   $enabled = $gate.enabled -}}
+{{- end -}}
+{{- if and $enabled .Values.defaultInstrumentation.enabled }}
+{{- $svcName := (($gate.service).name) | default "opentelemetry-operator-webhook" -}}
+{{- $svcNs := (($gate.service).namespace) | default "opentelemetry" -}}
+{{- $timeout := $gate.timeoutSeconds | default 60 -}}
+{{- $interval := $gate.intervalSeconds | default 2 -}}
+{{- $image := $gate.image | default "bitnamilegacy/kubectl:1.30.7" -}}
+{{- $pullPolicy := $gate.imagePullPolicy | default "IfNotPresent" -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-webhook-gate
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: bp-opentelemetry-operator
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/component: webhook-gate
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bp-opentelemetry-operator
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        catalyst.openova.io/component: webhook-gate
+    spec:
+      serviceAccountName: {{ .Release.Name }}-webhook-gate
+      restartPolicy: Never
+      containers:
+        - name: gate
+          image: {{ $image | quote }}
+          imagePullPolicy: {{ $pullPolicy | quote }}
+          # G26-equivalent resources (Refs #2581) — sized for ~15s
+          # kubectl poll loop; Kyverno 05-resource-requests +
+          # 06-resource-limits enforce on Job kind across namespaces
+          # not in their exclude list. `opentelemetry` is not excluded
+          # so explicit resources are mandatory.
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "32Mi"
+            limits:
+              cpu: "100m"
+              memory: "128Mi"
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: WEBHOOK_SVC
+              value: {{ $svcName | quote }}
+            - name: WEBHOOK_NS
+              value: {{ $svcNs | quote }}
+            - name: TIMEOUT_SECONDS
+              value: {{ $timeout | quote }}
+            - name: INTERVAL_SECONDS
+              value: {{ $interval | quote }}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              echo "OTel-operator webhook gate: poll endpoints/${WEBHOOK_NS}/${WEBHOOK_SVC} until at least 1 ready address (budget=${TIMEOUT_SECONDS}s, interval=${INTERVAL_SECONDS}s)"
+              deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
+              attempt=0
+              while [ "$(date +%s)" -lt "${deadline}" ]; do
+                attempt=$(( attempt + 1 ))
+                ready_count="$(kubectl get endpoints "${WEBHOOK_SVC}" \
+                  -n "${WEBHOOK_NS}" \
+                  --ignore-not-found \
+                  -o jsonpath='{range .subsets[*]}{.addresses[*].ip}{"\n"}{end}' 2>/dev/null \
+                  | tr ' ' '\n' | grep -c . || true)"
+                if [ "${ready_count}" -ge 1 ]; then
+                  echo "Webhook ready after ${attempt} attempt(s); endpoints=${ready_count}."
+                  exit 0
+                fi
+                echo "Attempt ${attempt}: endpoints not ready (count=${ready_count}); sleeping ${INTERVAL_SECONDS}s."
+                sleep "${INTERVAL_SECONDS}"
+              done
+              echo "FATAL: OTel-operator mutating webhook ${WEBHOOK_NS}/${WEBHOOK_SVC} did not become ready within ${TIMEOUT_SECONDS}s." >&2
+              echo "Diagnose with:" >&2
+              echo "  kubectl -n ${WEBHOOK_NS} get pods -l app.kubernetes.io/name=opentelemetry-operator" >&2
+              echo "  kubectl -n ${WEBHOOK_NS} get endpoints ${WEBHOOK_SVC}" >&2
+              echo "  kubectl get mutatingwebhookconfiguration | grep opentelemetry" >&2
+              exit 1
+{{- end }}

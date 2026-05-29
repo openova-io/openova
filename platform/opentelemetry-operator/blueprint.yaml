@@ -5,7 +5,7 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-3-2-observability-and-tracing
 spec:
-  version: 1.0.2
+  version: 1.0.3
   card:
     title: OpenTelemetry Operator
     summary: |

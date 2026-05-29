@@ -27,6 +27,21 @@ metadata:
     app.kubernetes.io/component: instrumentation-default
     catalyst.openova.io/blueprint: bp-opentelemetry-operator
     catalyst.openova.io/blueprint-version: {{ .Chart.Version | quote }}
+  # G38 (Refs #2593, 2026-05-29): apply the Instrumentation CR as a
+  # post-install + post-upgrade Helm hook AFTER the webhook-gate Job
+  # confirms the operator's own `minstrumentation.kb.io` mutating
+  # webhook has reachable Endpoints. Without these hook annotations,
+  # Helm applied the CR in the same release as the operator that
+  # serves the webhook → the webhook call failed with `no endpoints
+  # available for service "opentelemetry-operator-webhook"` → Helm
+  # install/upgrade Failed → HR Released=False forever → bootstrap-kit
+  # Kustomization (G33 wait:true) honestly reported `stalled resources`.
+  # Verified live on hw55 v6 19:55Z. hook-weight 10 ensures this runs
+  # AFTER the webhook-gate Job (weight 5) confirms readiness.
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation
 spec:
   exporter:
     endpoint: {{ .Values.defaultInstrumentation.exporterEndpoint | quote }}
