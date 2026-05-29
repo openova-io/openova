@@ -126,6 +126,25 @@ Follow-up TBD candidate (G29): why did `e39a9bc8` deploy-bump no-op? `infra/prov
 
 **18:06Z Build & Deploy on `9f3d7587` in_progress** (G29 no-recurrence 3rd consecutive). catalyst-api currently on `c73ea54`. Will roll to `9f3d758` on deploy commit landing. Post-roll: capture v3 baseline → wipe v3 → POST v4 → expect ~20-30min Phase 1 (wait:true honesty cost).
 
+**18:09Z catalyst-api ROLLED to `9f3d758`** (G33+G31+G2-fu+G30 LIVE). G29 race did NOT recur — deploy-bump retry loop succeeded on attempt 2 (commit `a7f7cd3f`). bp-catalyst-platform pin auto-bumped to 1.4.383 (`ce04246f`). My misread-as-G29-recurrence corrected via deploy-job log audit.
+
+**18:10Z hw55 v3 reached `phase1Outcome: ready`** organically (no G33-fix in its rendered cloudinit — bp-catalyst-platform install eventually completed on 30m timeout, sovereign-tls-vars CM materialized, sovereign-tls Kustomization began reconciling). v3 became the deep-investigation lab.
+
+**18:14Z bp-catalyst-platform 1.4.383 INSTALLED** on v3, all 8 catalyst-system pods Running 1/1 (catalyst-api / catalyst-ui / catalyst-catalog / 4-controllers / marketplace-api). G33 fix architectural intent VALIDATED via organic-converge (cascade unblocked WITHOUT wait:true, just via 30m install completion). G33 fix LOAD-BEARING for bounded-deterministic timing on v4+.
+
+**18:30Z v3 verifier (G31 whitelist live)**: 24 of 81 checks FAIL. L4 ALL 8 POD_NOT_FOUND at snapshot moment (Pods materialized AFTER snapshot — converge race). L5 ALL 000 (sovereign-tls Kustomization blocked on G34). L6 evidence captured for v4 re-test.
+
+**🚨 G34 #2590 FILED + FIX SHIPPED `eb2f36bf`** — LE prod 400 malformed on sovereign-wildcard-tls Order at hw55 v3 18:16Z:
+> `Domain name "guacamole.hw55.omani.works" is redundant with a wildcard domain in the same request`
+
+ROOT CAUSE: G28-followup `bdef11d5` prepended wildcard SAN to satisfy Cilium Gateway API listener validation but kept the 13 per-subdomain SANs (now redundant with wildcard). LE rejects. hw54 didn't catch it because hw54 was DEBUG env (cert minted in-cluster, LE Order path NEVER exercised — "VERIFIED LIVE hw54 14:59Z" was structurally blind).
+
+Fix: dnsNames = ONLY `*.<fqdn>` + `<fqdn>`. RFC 6125 + Gateway API + Cilium SNI all clean. v3 self-heals via Flux pull (~1-5min — clusters/_template/** isn't in catalyst-build path filter so no catalyst-api rebuild needed).
+
+**G34 4th-layer added to #2587 audit chain**: L6+L5+L4+LE-Order all hidden across recent claimed-GREEN provs post-G11. Verification scope now must enumerate which paths exercised — hw54 TCP 443 OPEN ≠ LE Order accepted.
+
+v4 will carry G33+G2-fu+G31+G30+G34 all live via Flux pull. No new catalyst-api roll needed.
+
 **G31 #2587 FILED** — sovereign-dod-verify.sh L6 false-positive on G11 #2545 cloudinit-bootstrap-window restartedAt annotation. Path A whitelist (verifier-side timestamp compare against `deployment.startedAt + 30min`) recommended over Path B (cloud-init alternative). Audit alert: prior "verifier GREEN" claims post-G11 may be tainted by false-negative (verifier reported PASS due to logic miss vs cloudinit-window discriminator).
 
 **G32 #2588 FILED** — hw55 v2 region-A only 2W Ready of 3 requested (asymmetric scaling vs region-B 3/3). Hypothesis space: HCS capacity / cloudinit fail / kubeadm-token / NAT timing (#2586 overlap). RCA TBD via HCS API ECS list query.
