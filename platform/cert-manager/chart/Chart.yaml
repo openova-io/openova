@@ -14,7 +14,7 @@ name: bp-cert-manager
 # Per CLAUDE.md inviolable rule, ALL chart-hook references MUST be
 # explicit Harbor proxy-cache form — not just rely on the node-level
 # containerd mirror in registries.yaml.
-version: 1.2.3
+version: 1.2.4
 description: |
   Catalyst-curated Blueprint umbrella chart for cert-manager. Depends on the
   upstream `cert-manager` chart (Jetstack) as a Helm subchart so
@@ -30,12 +30,12 @@ maintainers:
     email: catalyst@openova.io
 
 # Upstream chart pulled in as a Helm subchart so `helm dependency build`
-# bundles it into the OCI artifact. Pinned to jetstack/cert-manager v1.16.2
+# bundles it into the OCI artifact. Pinned to jetstack/cert-manager v1.16.5
 # (matches platform/cert-manager/blueprint.yaml + values.yaml
 # `catalystBlueprint.upstream.version`). Per
 # docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the version is
 # operator-bumpable via PR + Blueprint release.
 dependencies:
   - name: cert-manager
-    version: "v1.16.2"
+    version: "v1.16.5"
     repository: "https://charts.jetstack.io"

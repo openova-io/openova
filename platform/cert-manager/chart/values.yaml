@@ -26,7 +26,7 @@ global:
   imageRegistry: ""
 
 catalystBlueprint:
-  upstream: { chart: cert-manager, version: "v1.16.2", repo: "https://charts.jetstack.io" }
+  upstream: { chart: cert-manager, version: "v1.16.5", repo: "https://charts.jetstack.io" }
 
 # ─── Upstream chart values (subchart key: cert-manager) ───────────────────
 # `helm dependency build` resolves the upstream as a subchart; values here

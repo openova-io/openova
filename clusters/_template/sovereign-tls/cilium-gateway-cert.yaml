@@ -62,6 +62,19 @@ spec:
   # covers them at issuance time. Order is preserved in the cert; for
   # cosmetic reasons the operator-facing names come first.
   dnsNames:
+    # G28-followup (Refs #2570, 2026-05-29): Gateway listener
+    # `https` carries hostname `*.${SOVEREIGN_FQDN}` and `apex-https`
+    # carries hostname `${SOVEREIGN_FQDN}`. Per Gateway API spec
+    # cilium-operator validates listener.hostname against cert SAN
+    # — a listener with wildcard hostname requires the cert to carry
+    # the matching `*.${SOVEREIGN_FQDN}` wildcard SAN, NOT individual
+    # subdomain SANs. Without `*.${SOVEREIGN_FQDN}` + `${SOVEREIGN_FQDN}`
+    # the listener stays Programmed=False/InvalidCertificateRef even
+    # when the cert is issued + the dashed Secret name resolves.
+    # Verified live on hw54 14:59Z post-G28: cert had specific
+    # subdomain SANs but listener wildcard rejected the ref.
+    - "*.${SOVEREIGN_FQDN}"
+    - "${SOVEREIGN_FQDN}"
     - "console.${SOVEREIGN_FQDN}"
     - "auth.${SOVEREIGN_FQDN}"
     - "gitea.${SOVEREIGN_FQDN}"

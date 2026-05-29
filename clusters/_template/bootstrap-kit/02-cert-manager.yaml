@@ -43,7 +43,13 @@ spec:
       # 1.2.1 (Fix #158): crdGate hook image switched from
       # bitnami/kubectl:1.30.4 (deleted from Docker Hub 2025-08) to
       # bitnamilegacy/kubectl:1.30.7.
-      version: 1.2.3
+      # 1.2.4 (G28-followup Refs #2570, 2026-05-29): upstream
+      # cert-manager v1.16.2 → v1.16.5. Latest patch in 1.16.x line.
+      # Targets the recurring "secrets ...-z9xlw already exists"
+      # next-private-key informer-cache race that blocks Certificate
+      # issuance on HCS provs (verified live hw54 15:07Z). Plus
+      # CVE-2025-22871/22870/22872 fixes.
+      version: 1.2.4
       sourceRef:
         kind: HelmRepository
         name: bp-cert-manager
