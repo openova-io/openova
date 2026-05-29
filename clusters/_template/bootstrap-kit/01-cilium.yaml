@@ -409,8 +409,17 @@ spec:
       tls:
         mode: Terminate
         certificateRefs:
+          # G28-followup (Refs #2570, 2026-05-29): per-zone wildcard Secret
+          # name is suffixed with the dashed FQDN (chart renders
+          # sovereign-wildcard-tls-<SOVEREIGN_FQDN_DASHED>). The Hetzner
+          # default substitute SOVEREIGN_FQDN_DASHED is set in
+          # cloudinit-control-plane.tftpl; Huawei sets it in its postBuild.
+          # Without the dashed suffix the listener references a Secret
+          # that doesn't exist (cert-manager creates the dashed one),
+          # so Programmed=False/InvalidCertificateRef. Verified live on
+          # hw54 14:59Z post-G28.
           - kind: Secret
-            name: sovereign-wildcard-tls
+            name: sovereign-wildcard-tls-${SOVEREIGN_FQDN_DASHED}
       allowedRoutes:
         namespaces:
           from: All
@@ -428,8 +437,17 @@ spec:
       tls:
         mode: Terminate
         certificateRefs:
+          # G28-followup (Refs #2570, 2026-05-29): per-zone wildcard Secret
+          # name is suffixed with the dashed FQDN (chart renders
+          # sovereign-wildcard-tls-<SOVEREIGN_FQDN_DASHED>). The Hetzner
+          # default substitute SOVEREIGN_FQDN_DASHED is set in
+          # cloudinit-control-plane.tftpl; Huawei sets it in its postBuild.
+          # Without the dashed suffix the listener references a Secret
+          # that doesn't exist (cert-manager creates the dashed one),
+          # so Programmed=False/InvalidCertificateRef. Verified live on
+          # hw54 14:59Z post-G28.
           - kind: Secret
-            name: sovereign-wildcard-tls
+            name: sovereign-wildcard-tls-${SOVEREIGN_FQDN_DASHED}
       allowedRoutes:
         namespaces:
           from: All
