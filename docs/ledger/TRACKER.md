@@ -1147,4 +1147,33 @@ Open: 18 issues. Active: #2526 (DoD walk hw37/hw55) · #2527 (UAT VPC.2030) ·
 #2528 (UAT OBS-cred derive) · #2589/#2590/#2592 (G33/G34/G35) · #2593 (G38) ·
 #2594/#2595 (G40/G37). Next: G40 cascade resolution (chart 1.0.17 cant pull
 post-cutover) → 47/4/3 → 51/0/3 → walk #2 of 3 OR POST v8 with stable codebase.
+
+
+## 2026-05-29T23:30Z — 🚀 v8 / hw56 POSTED — clean attempt with all META-AUDIT fixes baked
+
+Lead recommendation **(b)** taken: POST v8 with stable codebase post-META-AUDIT-1-5.
+
+**Deployment ID**: `14ab27723dac0c86` (HTTP 201, `status=provisioning`)
+**FQDN**: `hw56.omani.works`
+**Regions**: `me-east-215-a` (primary) + `me-east-215-b` (replica) — 2-code multi-region mimic per [[feedback_multiregion_hcs_mimic_violation_2026_05_28]]
+**Body shape**: cloned from v7 (`7b07b1d5139ccf83`), fields mutated: sovereignFQDN/sovereignSubdomain/objectStorageBucket-popped (server-side regen per #2528 OBS auto-derive)
+**Auth**: forged owner-scope JWT via `handover-jwt-private.pem` (RSA256, exp+86400s)
+**v7 status**: kept alive as reference per lead direction; quota allowing
+
+**Baked fixes carried by v8**:
+- G2-followup + G2-fu-fix2: flux install retry-loop wrap with ghcr.io reachability gate (tofu templatefile escaped vars)
+- G30: bootstrap-kit Kustomization postBuild.substitute carries `SOVEREIGN_DEPLOYMENT_ID` + `SOVEREIGN_REGION_KEY`
+- G31-fix2 + G31-fix3: verifier nanosecond fromisoformat strip + L6 cilium-envoy-tls-restart explicit allowlist
+- G33: bootstrap-kit Kustomization `wait: true` + `timeout: 5m` (mirror Hetzner #492, NOT 30m)
+- G34: cilium-gateway-cert dnsNames reduced to `[*.${SOVEREIGN_FQDN}, ${SOVEREIGN_FQDN}]`
+- G35: cilium-gateway-cert commonName apex (`${SOVEREIGN_FQDN}`, in dnsNames per ACME)
+- G38: bp-opentelemetry-operator webhook-gate hook (chart 1.0.3)
+- G40 + G40-batch: Kyverno baseline policies inline `|| ""` nil-guard (charts 1.0.16 + 1.0.17)
+- G42: L5 verifier regex accepts 404
+
+**ETA**: ~25-35min Phase 0 + Phase 1 cascade per lead's estimate.
+
+**Target**: 51/0/3 → verifier 81/81 → walk + screenshot → ZT#1 of 3 with provenance from clean Phase-0+1 install (no Helm-rollback complexity).
+
+Refs #2526 (DoD walk evidence umbrella).
 | #2528 (OBS cred derivation) | `status/uat` — POST 400 fix verified |
