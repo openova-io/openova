@@ -189,6 +189,12 @@ Same class as G28 e39a9bc8 (YAML-comment `${VAR:=default}` parse errors). Defens
 
 **Tech-lead-coordination protocol update**: every 5min surface enumerates SPECIFIC blocking HRs (not just count), so root causes surface earlier — accepting the v6 25min-stuck cost which would have been caught by deeper queries at T+24min.
 
+**v7 T+22min (20:40Z): cascade progressing, G38 fix WORKING.** HRs 39 True / 8 False / 4 Unknown / 3 empty. **bp-opentelemetry-operator Ready=True with chart 1.0.3 — `Helm upgrade succeeded for release opentelemetry/opentelemetry-operator.v2`**. G38 #2593 ARCHITECTURALLY VALIDATED on live cluster. Installing now: bp-mimir / bp-openbao / bp-powerdns / bp-self-sovereign-cutover. Dep-waiters: bp-catalyst-platform←gitea, bp-external-dns←powerdns, bp-external-secrets←openbao chain. bp-cnpg flipped to Ready=True (was T+34min blocker per lead's direct query).
+
+**🚨 G11-derivative on v7 surfaced 20:40Z**: bootstrap-kit Kustomization `Source artifact not found, retrying in 30s`. Source-controller restarted by G11 cloudinit auto-workaround at 20:35:33Z but post-restart github.com clones all timeout: `unable to clone 'https://github.com/openova-io/openova': context deadline exceeded` (5 consecutive failures 20:36-20:40Z). Distinct from G37 (no-changes cache hang) — this is github.com mid-prov egress intermittent failure. HRs cascade STILL progresses via OCI/ghcr.io (working independent of github.com). Kustomization apply FROZEN at last reconcile — won't block existing HRs but sovereign-tls reconcile will need GitRepository artifact when it fires. **G11-fix2 candidate** — under investigation.
+
+**curl=000 still** at T+22min — Gateway not Programmed (cascade not yet reached sovereign-tls). Expected.
+
 **G31 #2587 FILED** — sovereign-dod-verify.sh L6 false-positive on G11 #2545 cloudinit-bootstrap-window restartedAt annotation. Path A whitelist (verifier-side timestamp compare against `deployment.startedAt + 30min`) recommended over Path B (cloud-init alternative). Audit alert: prior "verifier GREEN" claims post-G11 may be tainted by false-negative (verifier reported PASS due to logic miss vs cloudinit-window discriminator).
 
 **G32 #2588 FILED** — hw55 v2 region-A only 2W Ready of 3 requested (asymmetric scaling vs region-B 3/3). Hypothesis space: HCS capacity / cloudinit fail / kubeadm-token / NAT timing (#2586 overlap). RCA TBD via HCS API ECS list query.
