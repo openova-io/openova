@@ -722,6 +722,24 @@ runcmd:
     done
     KUBECONFIG=/etc/rancher/k3s/k3s.yaml helm repo update cilium
     REAL_IP=$(ip -4 -o addr show dev eth0 | awk '{print $4}' | cut -d/ -f1)
+    # G24 (Refs #2575, 2026-05-29): bpf.masquerade=true (line 736) is the
+    # critical missing flag that was silently absent from Huawei's --set-
+    # based pre-Flux Cilium install. Hetzner enables it via the structured
+    # /var/lib/catalyst/cilium-values.yaml (cloudinit-control-plane.tftpl
+    # in providers/hetzner/, ~line 1043). Without BPF masquerade Cilium
+    # falls back to iptables masquerade which does NOT correctly SNAT pod
+    # CIDR (10.42.0.0/16) traffic to the node IP before it hits the HCS
+    # NAT gateway. The HCS NAT SNAT rule (infra/providers/huawei/main.tf
+    # huaweicloud_nat_snat_rule.region) matches only the VPC subnet CIDR
+    # (10.61.x.0/24 = node IPs), not pod CIDR — so pod-sourced packets
+    # egress with src=10.42.x.y, NAT GW SNAT rule does not apply, packet
+    # drops at gateway. Symptom: ALL pod-to-external times out (DNS,
+    # github.com, even 1.1.1.1) while hostNetwork pods reach external
+    # fine. Blocked source-controller's github.com clone on hw45 → hw51,
+    # bootstrap-kit Kustomization never reconciled → bp-cilium HR never
+    # upgraded with the chart-default bpf.masquerade=true → chicken-egg
+    # deadlock. G14/G15/G16/G20/G22 were all symptom-chasers around this
+    # one missing flag.
     KUBECONFIG=/etc/rancher/k3s/k3s.yaml helm upgrade --install cilium cilium/cilium \
       --version 1.16.5 \
       --namespace kube-system \
@@ -733,6 +751,7 @@ runcmd:
       --set tunnelProtocol=vxlan \
       --set ipv4.enabled=true \
       --set ipv6.enabled=false \
+      --set bpf.masquerade=true \
       --set hubble.enabled=true \
       --set operator.replicas=1 \
       --wait --timeout=5m
