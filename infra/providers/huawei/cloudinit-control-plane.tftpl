@@ -986,6 +986,35 @@ runcmd:
   # bp-network-policies (slot 30) provides the proper zero-trust posture
   # via CCNPs with flux-system in allowSystemNamespaces, so no security
   # regression.
+  # G2-followup (Refs #2586, 2026-05-29): wrap `flux install` in a
+  # 120s reachability gate against ghcr.io. The HCS NAT SNAT-rule
+  # propagation for a freshly-attached CP EIP races the cloud-init
+  # runcmd; on the SECONDARY CP this race is reliably LOST (verified
+  # live hw55 v2 17:13Z: region-b flux-system namespace empty, no
+  # source-controller/helm-controller/kustomize-controller/notification-
+  # controller pods despite identical cloud-init payload).
+  # Without this gate, `flux install`'s `helm pull` for each of the 4
+  # controller images fails with i/o-timeout; the `|| true` suffix
+  # swallows the error → no Flux installed → no Kustomization apply
+  # at the next runcmd line → ALL secondary CPs missing Flux on HCS.
+  # The PRIMARY CP's race is normally WON because (a) tofu sequences
+  # the primary EIP attach before secondary EIPs, (b) primary CP
+  # cloudinit does heavier work (kubeconfig PUT-back, etc.) before
+  # this line, giving NAT propagation enough headroom.
+  # Distinct from G11 #2545: G11 fixes the POST-install source-
+  # controller HTTP-client DNS-cache hang via auto-rollout-restart;
+  # this G2-followup gates the PRE-install pull-failures.
+  - |
+    for i in $(seq 1 24); do
+      if curl -sk -o /dev/null --max-time 5 https://ghcr.io/v2/ 2>/dev/null; then
+        echo "G2-fu: ghcr.io reachable after ${i}*5=$((i*5))s — proceeding with flux install"
+        break
+      fi
+      if [ "$i" = "24" ]; then
+        echo "G2-fu: WARNING ghcr.io still unreachable after 120s; attempting flux install anyway (cloudinit-debug.log will show pull failures)"
+      fi
+      sleep 5
+    done
   - KUBECONFIG=/etc/rancher/k3s/k3s.yaml flux install --components=source-controller,kustomize-controller,helm-controller,notification-controller --network-policy=false || true
   # Wave 5.29 (Refs #2163): substitute the tofu-baked CILIUM_K8S_SERVICE_HOST
   # placeholder with the CP's ACTUAL private IP. HCS DHCP non-deterministic —
