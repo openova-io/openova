@@ -464,6 +464,19 @@ write_files:
             # Huawei. Without suspend, install Helm-times-out after 15m
             # each → blocks Phase 1 completion.
             HCLOUD_HR_SUSPEND: "true"
+            # G3 (Refs #2534, 2026-05-29): clustermesh-apiserver Service
+            # cannot be type=LoadBalancer on HCS — there is no in-cluster
+            # cloud-controller-manager that materialises a Service-level
+            # LB (the tofu-provisioned ELB at infra/providers/huawei/
+            # main.tf serves only the public Cilium Gateway 443/80).
+            # Per docs/SOVEREIGN-MULTI-REGION-DOD.md A3 ruling adapted
+            # for HCS: peers dial the CP node's EIP on the deterministic
+            # NodePort 31333. HCS security group ingress for tcp/31333
+            # on CP nodes is added in main.tf (G3 follow-on).
+            # Hetzner keeps type=LoadBalancer (its substitute defaults
+            # to LoadBalancer + empty NodePort number).
+            CLUSTERMESH_SERVICE_TYPE: "NodePort"
+            CLUSTERMESH_NODE_PORT: "31333"
             # Wave 5.110 (#2462): bastion mirror endpoint for harbor.openova.io.
             # bp-self-sovereign-cutover's registry-pivot DaemonSet rewrites
             # /etc/rancher/k3s/registries.yaml with upstream→harbor.openova.io
