@@ -1924,6 +1924,17 @@ runcmd:
   # CI gate `platform/flux/chart/tests/version-pin-replay.sh` rejects
   # divergence between this URL's version and the chart's subchart pin.
   - 'curl -fsSL https://github.com/fluxcd/flux2/releases/download/v2.4.0/install.yaml | kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml apply -f -'
+  # G22 (Refs #2572, 2026-05-29): strip flux-bundled NetworkPolicies.
+  # The upstream install.yaml creates flux-system/{allow-egress,
+  # allow-scraping,allow-webhooks}. On Cilium 1.16 default mode, the
+  # empty `egress: [{}]` rule is interpreted as deny-world → source-
+  # controller can't reach github.com to clone bootstrap-kit. bp-network-
+  # policies (slot 30) provides correct zero-trust via CCNPs with flux-
+  # system in allowSystemNamespaces, so no security regression. (Huawei
+  # cloudinit uses `flux install --network-policy=false` for the same
+  # effect; here we delete post-apply since this code path uses the
+  # upstream install.yaml directly.)
+  - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml -n flux-system delete networkpolicy allow-egress allow-scraping allow-webhooks --ignore-not-found || true'
   - 'kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml -n flux-system wait --for=condition=Available --timeout=300s deployment --all'
 
   # ── flux-system/ghcr-pull Secret (applied BEFORE GitRepository) ──────
