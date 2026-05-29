@@ -325,7 +325,15 @@ window = int('$BOOTSTRAP_WINDOW_SEC')
 boot_cutoff = None
 if started:
     try:
-        s = dt.datetime.fromisoformat(started.replace('Z','+00:00'))
+        # G31-fix2 (Refs #2587): catalyst-api writes nanosecond-precision
+        # ISO timestamps (e.g. '2026-05-29T18:38:45.610130585Z'). Python
+        # 3.10's fromisoformat caps sub-second at microseconds (6 digits)
+        # and rejects 9-digit nanoseconds → ValueError → boot_cutoff
+        # stays None → every restartedAt annotation falsely classified
+        # POST window. Strip to microseconds before parse.
+        import re as _re
+        norm = _re.sub(r'(\.\d{6})\d+', r'\1', started.replace('Z','+00:00'))
+        s = dt.datetime.fromisoformat(norm)
         boot_cutoff = s + dt.timedelta(seconds=window)
     except: pass
 hits=[]
@@ -340,7 +348,7 @@ for item in d.get('items',[]):
     if boot_cutoff:
         try:
             # Annotation timestamps can carry tz offsets like +08:00 or be UTC Z.
-            t = dt.datetime.fromisoformat(val.replace('Z','+00:00'))
+            t = dt.datetime.fromisoformat(_re.sub(r'(\.\d{6})\d+', r'\1', val.replace('Z','+00:00')))
             if t <= boot_cutoff: in_window = True
         except: pass
     line=f'$ns/{kind}/{name} restartedAt={val}'
