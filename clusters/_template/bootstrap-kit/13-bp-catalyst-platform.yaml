@@ -41,7 +41,17 @@ metadata:
     # Ready=True the Sovereign is fully self-sufficient.
     catalyst.openova.io/slot: "13"
     catalyst.openova.io/component: catalyst-platform
+    catalyst.openova.io/region-role: primary
 spec:
+  # G2 (Refs #2574, 2026-05-29): bp-catalyst-platform is mothership-only.
+  # On a secondary CP this HR must NOT install — the Sovereign control
+  # plane (catalyst-api / catalyst-ui / controllers / catalyst-catalog /
+  # marketplace-api) belongs in the primary region's MGMT vCluster.
+  # SECONDARY_HR_SUSPEND substitute renders "true" on every secondary
+  # CP's cloud-init (sovereign_region_role != "primary") and "false" on
+  # the primary CP, suspending this HR cluster-side without touching
+  # the chart catalog.
+  suspend: ${SECONDARY_HR_SUSPEND:=false}
   interval: 15m
   releaseName: catalyst-platform
   targetNamespace: catalyst-system

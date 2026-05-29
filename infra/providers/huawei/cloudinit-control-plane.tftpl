@@ -464,6 +464,15 @@ write_files:
             # Huawei. Without suspend, install Helm-times-out after 15m
             # each → blocks Phase 1 completion.
             HCLOUD_HR_SUSPEND: "true"
+            # G2 (Refs #2574, 2026-05-29): per-region HR suspension for
+            # mothership-only slots (13-bp-catalyst-platform, 19a-bp-
+            # sandbox, 06a-bp-self-sovereign-cutover, 62-bp-continuum).
+            # SOVEREIGN_REGION_ROLE is rendered per-CP by tofu's
+            # cp_cloud_init_by_region map — primary CP gets "primary",
+            # each secondary CP gets "secondary". This Terraform-side
+            # ternary flips the substitute to "true" only when the CP
+            # is NOT the primary.
+            SECONDARY_HR_SUSPEND: "${sovereign_region_role == "primary" ? "false" : "true"}"
             # G3 (Refs #2534, 2026-05-29): clustermesh-apiserver Service
             # cannot be type=LoadBalancer on HCS — there is no in-cluster
             # cloud-controller-manager that materialises a Service-level

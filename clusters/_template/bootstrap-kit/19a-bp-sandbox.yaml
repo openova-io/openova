@@ -47,7 +47,13 @@ metadata:
   labels:
     catalyst.openova.io/slot: "19a"
     catalyst.openova.io/component: sandbox-controller
+    catalyst.openova.io/region-role: primary
 spec:
+  # G2 (Refs #2574, 2026-05-29): primary-only HR — bp-sandbox depends
+  # on bp-catalyst-platform (slot 13) which is also primary-only.
+  # Per docs/SOVEREIGN-MULTI-REGION-DOD.md §A4, Sandbox lives in the
+  # primary MGMT vCluster only.
+  suspend: ${SECONDARY_HR_SUSPEND:=false}
   interval: 15m
   releaseName: sandbox
   targetNamespace: catalyst-system

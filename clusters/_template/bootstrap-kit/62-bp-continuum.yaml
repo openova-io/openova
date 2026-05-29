@@ -87,9 +87,15 @@ metadata:
   labels:
     catalyst.openova.io/slot: "62"
     catalyst.openova.io/component: continuum-controller
+    catalyst.openova.io/region-role: primary
     openova.io/category: customer-facing-capability
     openova.io/epic: "6"
 spec:
+  # G2 (Refs #2574, 2026-05-29): primary-only HR — continuum-controller
+  # is part of the Catalyst control plane and must run only in the
+  # primary region's MGMT vCluster. SECONDARY_HR_SUSPEND="true" on
+  # secondary CPs suspends this HR; "false" on primary lets it install.
+  suspend: ${SECONDARY_HR_SUSPEND:=false}
   interval: 15m
   releaseName: continuum
   # targetNamespace = catalyst-system to colocate with the other
