@@ -145,6 +145,10 @@ Fix: dnsNames = ONLY `*.<fqdn>` + `<fqdn>`. RFC 6125 + Gateway API + Cilium SNI 
 
 v4 will carry G33+G2-fu+G31+G30+G34 all live via Flux pull. No new catalyst-api roll needed.
 
+**hw55 v3 WIPED 18:30Z**. Skipped Flux self-heal of v3 G34 because source-controller was STUCK at `ce04246f` (G11-style HTTP cache hang — "no changes since last reconcilation" despite eb2f36bf + 38881d20 on remote). v3 baseline captured at `/tmp/hw54-mgmt/v3-*.txt` BEFORE wipe.
+
+**hw55 v4 POSTED 18:30Z — deployment `b13a4675826223c0`**, status=provisioning. Same 2-region body. **The first realistic GREEN candidate of session** — v4's Flux first-clone pulls main HEAD = includes G30+G31+G33+G34+G2-fu ALL LIVE. Background poll `b40e6gmvc` armed; ETA ~25-35min for Phase 0+1 with wait:true honesty cost.
+
 **G31 #2587 FILED** — sovereign-dod-verify.sh L6 false-positive on G11 #2545 cloudinit-bootstrap-window restartedAt annotation. Path A whitelist (verifier-side timestamp compare against `deployment.startedAt + 30min`) recommended over Path B (cloud-init alternative). Audit alert: prior "verifier GREEN" claims post-G11 may be tainted by false-negative (verifier reported PASS due to logic miss vs cloudinit-window discriminator).
 
 **G32 #2588 FILED** — hw55 v2 region-A only 2W Ready of 3 requested (asymmetric scaling vs region-B 3/3). Hypothesis space: HCS capacity / cloudinit fail / kubeadm-token / NAT timing (#2586 overlap). RCA TBD via HCS API ECS list query.
