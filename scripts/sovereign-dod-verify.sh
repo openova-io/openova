@@ -108,6 +108,15 @@ fi
 
 FQDN=$(echo "$RECORD" | python3 -c 'import sys,json; print(json.load(sys.stdin)["request"]["sovereignFQDN"])')
 PROVIDER=$(echo "$RECORD" | python3 -c 'import sys,json; print(json.load(sys.stdin)["request"]["provider"])')
+# G31 #2587 (2026-05-29): cloudinit-bootstrap window for the L6 rollout-
+# restart audit. G11 #2545's source-controller auto-restart fires within
+# the first ~5-10min of the CP boot; the verifier whitelists any
+# `kubectl.kubernetes.io/restartedAt` annotation whose timestamp is
+# WITHIN startedAt + BOOTSTRAP_WINDOW_SEC and FAILs any newer one
+# (= post-handover surgery). 30min covers the longest observed
+# G11 fire window across HCS me-east-215 NAT propagation variance.
+STARTED_AT=$(echo "$RECORD" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("startedAt",""))')
+BOOTSTRAP_WINDOW_SEC=1800
 
 KUBE_A="/var/lib/catalyst/kubeconfigs/${DEP_ID}.yaml"
 KUBE_B="/var/lib/catalyst/kubeconfigs/${DEP_ID}-me-east-215-b.yaml"
@@ -297,30 +306,70 @@ fi
 # Pod template. Any such annotation on a tracked workload is surgery.
 # Flux/Helm-managed restarts use `reloader.stakater.com/auto` or
 # `helm.sh/hook-restart` annotations instead — both whitelisted.
+#
+# G31 #2587 (2026-05-29): annotations whose timestamp is within the
+# cloudinit-bootstrap window (deployment.startedAt + 30min) are
+# whitelisted — they're created by the cloud-init script itself
+# (canonical example: G11 #2545's source-controller auto-restart
+# clears the HTTP client DNS cache after HCS NAT SNAT-rule propagation).
+# Anything NEWER than startedAt + 30min IS surgery and FAILS L6.
 RESTART_HITS=0
+BOOTSTRAP_HITS=0
 for ns in catalyst-system cnpg-system kube-system flux-system; do
     HITS=$(cluster_kubectl "$KUBE_A" -n "$ns" get deployment,daemonset,statefulset -o json 2>/dev/null | python3 -c "
-import sys,json
+import sys,json,datetime as dt
 try: d=json.load(sys.stdin)
 except: d={}
+started = '$STARTED_AT'
+window = int('$BOOTSTRAP_WINDOW_SEC')
+boot_cutoff = None
+if started:
+    try:
+        s = dt.datetime.fromisoformat(started.replace('Z','+00:00'))
+        boot_cutoff = s + dt.timedelta(seconds=window)
+    except: pass
 hits=[]
+bootstrap=[]
 for item in d.get('items',[]):
     kind=item.get('kind','')
     name=item.get('metadata',{}).get('name','')
     ann=item.get('spec',{}).get('template',{}).get('metadata',{}).get('annotations',{}) or {}
-    if 'kubectl.kubernetes.io/restartedAt' in ann:
-        hits.append(f'$ns/{kind}/{name} restartedAt={ann[\"kubectl.kubernetes.io/restartedAt\"]}')
-for h in hits: print(h)
+    val=ann.get('kubectl.kubernetes.io/restartedAt','')
+    if not val: continue
+    in_window = False
+    if boot_cutoff:
+        try:
+            # Annotation timestamps can carry tz offsets like +08:00 or be UTC Z.
+            t = dt.datetime.fromisoformat(val.replace('Z','+00:00'))
+            if t <= boot_cutoff: in_window = True
+        except: pass
+    line=f'$ns/{kind}/{name} restartedAt={val}'
+    if in_window:
+        bootstrap.append(line+' [WITHIN bootstrap window — whitelisted]')
+    else:
+        hits.append(line+' [POST bootstrap window — SURGERY]')
+for h in hits: print('HIT:'+h)
+for b in bootstrap: print('BOOT:'+b)
 print('COUNT:'+str(len(hits)))
+print('BOOTCOUNT:'+str(len(bootstrap)))
 ")
-    NS_HITS=$(echo "$HITS" | grep -oP '(?<=COUNT:)\d+' | tail -1 || echo "0")
+    NS_HITS=$(echo "$HITS" | grep -oP '(?<=^COUNT:)\d+' | tail -1 || echo "0")
+    NS_BOOT=$(echo "$HITS" | grep -oP '(?<=^BOOTCOUNT:)\d+' | tail -1 || echo "0")
     if [[ "${NS_HITS:-0}" != "0" ]]; then
         echo "    ROLLOUT-RESTART SURGERY in ns/$ns:"
-        echo "$HITS" | grep -v '^COUNT:' | sed 's/^/      /'
+        echo "$HITS" | grep '^HIT:' | sed 's/^HIT:/      /'
         RESTART_HITS=$((RESTART_HITS + NS_HITS))
+    fi
+    if [[ "${NS_BOOT:-0}" != "0" ]]; then
+        echo "    bootstrap-window annotations in ns/$ns (whitelisted):"
+        echo "$HITS" | grep '^BOOT:' | sed 's/^BOOT:/      /'
+        BOOTSTRAP_HITS=$((BOOTSTRAP_HITS + NS_BOOT))
     fi
 done
 check_eq "L6 kubectl-rollout-restart annotations across tracked ns" "0" "$RESTART_HITS"
+if [[ "${BOOTSTRAP_HITS:-0}" != "0" ]]; then
+    echo "    L6 note: $BOOTSTRAP_HITS bootstrap-window annotation(s) within startedAt + ${BOOTSTRAP_WINDOW_SEC}s — whitelisted per G31 #2587."
+fi
 
 # Same audit on catalyst-system + cnpg-system Deployments
 for ns in catalyst-system cnpg-system kube-system; do
