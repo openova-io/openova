@@ -162,6 +162,17 @@ Same class as G28 e39a9bc8 (YAML-comment `${VAR:=default}` parse errors). Defens
 
 **18:38Z catalyst-api ROLLED to `5a22c8a`** (G29 4th consecutive clean auto-deploy this session — outlier hypothesis strengthened). **hw55 v5 POSTED 18:38Z — deployment `16857f24fce58e37`** with 6 fixes baked: G30 (FLOW_ID) + G31 (verifier L6 whitelist) + G33 (wait:true bootstrap-kit) + G34 (LE SAN list) + G2-fu (NAT egress retry) + G2-fu-fix2 (bash $ escape). Background poll `bgm974btm` armed for terminal state. **Widened-regex cloudinit audit CLEAN** — `${i}` was the only unescaped bash ref; all other `${attempt}`, `${crd}`, etc. already `$$`-escaped. v5 = 3rd realistic-GREEN-candidate attempt.
 
+**🎯 19:15:29Z hw55 v5 REACHED `phase1Outcome=ready`** (37min Phase 0+1 — slower than v3's 26min but with WAIT:TRUE honesty cost). 51/51 user-installed HRs Ready=True. ALL 8 catalyst-system pods Running 1/1. bp-catalyst-platform 1.4.383 installed. **G33 wait:true ARCHITECTURALLY VALIDATED on live cluster** (independent of cert chain).
+
+**v5 verifier 11/81 FAIL** (down from v2's 18/81 = 39% reduction):
+- L1.2 handoverFiredAt empty (TIMING — verifier ran at 19:15Z, handover fired 19:25Z = WAS empty at that moment)
+- L5 8/8 surfaces 000 + console TLS issuer '' (sovereign-tls Kustomization Unknown — wildcard Cert blocked on G35)
+- L6 1 surgical (G31 Python parse bug — fixed by G31-fix2)
+
+**G31-fix2 SHIPPED `d67bac79`** — Python 3.10 `fromisoformat` caps sub-second at 6 digits; catalyst-api writes 9-digit nanosecond precision (`2026-05-29T18:38:45.610130585Z`). ValueError silently caught → boot_cutoff None → every restartedAt classified POST window. Fix: regex-truncate `(\.\d{6})\d+` → `\1` before parse. Verified with v5 data: source-controller restartedAt now correctly `in_window: True`.
+
+**G35 #2592 FILED + FIX SHIPPED `6fc3419a`** — Certificate commonName `console.${SOVEREIGN_FQDN}` not in dnsNames after G34 wildcard-only SAN list. LE rejects CSR per ACME RFC 8555 (literal CN-in-SAN match, no wildcard expansion). Verified live v5 19:25Z: `"console.hw55.omani.works" does not exist in [*.hw55.omani.works hw55.omani.works]`. Fix: commonName → `${SOVEREIGN_FQDN}` (apex, IS in dnsNames). Cert serving paths unchanged.
+
 **G31 #2587 FILED** — sovereign-dod-verify.sh L6 false-positive on G11 #2545 cloudinit-bootstrap-window restartedAt annotation. Path A whitelist (verifier-side timestamp compare against `deployment.startedAt + 30min`) recommended over Path B (cloud-init alternative). Audit alert: prior "verifier GREEN" claims post-G11 may be tainted by false-negative (verifier reported PASS due to logic miss vs cloudinit-window discriminator).
 
 **G32 #2588 FILED** — hw55 v2 region-A only 2W Ready of 3 requested (asymmetric scaling vs region-B 3/3). Hypothesis space: HCS capacity / cloudinit fail / kubeadm-token / NAT timing (#2586 overlap). RCA TBD via HCS API ECS list query.
