@@ -87,7 +87,7 @@ Follow-up TBD candidate (G29): why did `e39a9bc8` deploy-bump no-op? `infra/prov
 - bp-catalyst-platform Unknown (umbrella, 30m timeout), bp-powerdns Unknown, bp-self-sovereign-cutover Unknown.
 - 6/7 Certificates Ready=True. G27 evidence captured: cert-manager.v1 InstallSucceeded + running `quay.io/jetstack/cert-manager-controller:v1.16.5` + ZERO "already exists" re-queue loops.
 - NO `sovereign-wildcard-tls-*` Certificate yet — blocked on sovereign-tls Kustomization which is `False, configmaps "sovereign-tls-vars" not found` (depends on bp-catalyst-platform installing the ConfigMap; normal cascade ordering).
-- Region-b: 4/4 nodes Ready BUT no Flux pods in flux-system namespace — G2 follow-up needed (secondary CP cloud-init doesn't install Flux, only creates the namespace + Cilium + coredns + metrics-server).
+- Region-b: 4/4 nodes Ready BUT no Flux pods in flux-system namespace — **G2-followup #2586 FILED 17:2XZ** (HCS cloudinit gates `flux install` on `HOSTNAME = primary_cp_hostname` per Wave 5.10 — secondaries never get Flux; multi-region active-hot-standby requires both CPs to have local Flux. Fix shape: Option B = run `flux install` on every CP unconditionally. DEFENSE-layer adds verifier L2.5 per-region Flux CRD presence check).
 
 **🚨 G30 #2585 FILED + FIX SHIPPED 17:1XZ — HCS cloudinit missing SOVEREIGN_DEPLOYMENT_ID/REGION_KEY**:
 - Symptom: `openova-flow-emitter` DaemonSet (3 pods) CrashLoopBackOff after 5 restarts each, log `config: FLOW_ID is required`.
