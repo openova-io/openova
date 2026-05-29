@@ -12,6 +12,19 @@
 # meaningful value is configurable; cluster overlays in clusters/<sovereign>/
 # may override any of these without rebuilding the Blueprint OCI artifact.
 
+# G21 (Refs #2570, 2026-05-28): pre-mint cnpg-webhook-cert Secret via
+# cert-manager so cnpg's Deployment volume mount has a valid Secret
+# to consume at pod-creation time. See
+# templates/webhook-cert-bootstrap.yaml for the rationale (kubelet
+# Secret-cache sync race under apiserver load).
+webhookCertBootstrap:
+  enabled: true
+  certDuration: 8760h
+  certRenewBefore: 720h
+  # Pinned to the in-Sovereign Harbor proxy-cache per
+  # docs/INVIOLABLE-PRINCIPLES.md image-source rule.
+  kubectlImage: harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.31.4
+
 global:
   # When set, ALL image pulls in this chart route through this registry.
   # Used post-handover when the Sovereign's own Harbor takes over the
