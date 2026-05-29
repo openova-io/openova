@@ -489,13 +489,13 @@ write_files:
             # G28 (Refs #2570, 2026-05-29): Gateway listener ports on
             # HCS bind cilium-envoy to NodePort range 30000-32767. The
             # tofu-provisioned HCS ELB (main.tf) maps public ingress
-            # 443→30443 + 80→30080 to pool members on those NodePorts.
-            # bootstrap-kit/01-cilium.yaml's Gateway carries the
-            # ${SOVEREIGN_GATEWAY_HTTPS_PORT:=443} envsubst placeholder
-            # (default Hetzner 443/80; overridden here for HCS).
-            # Without this override, cilium-envoy binds host:443 + host:80
-            # but HCS ELB pool members target 30443/30080 → ELB pool
-            # health-check fails → TCP 443 from public BLOCKED forever.
+            # 443->30443 + 80->30080 to pool members on those NodePorts.
+            # bootstrap-kit/01-cilium.yaml Gateway uses envsubst
+            # placeholder SOVEREIGN_GATEWAY_HTTPS_PORT (default 443 on
+            # Hetzner; overridden here to 30443 for HCS). Without this
+            # override, cilium-envoy binds host:443 + host:80 but HCS
+            # ELB pool members target 30443/30080 -> health-check fails
+            # -> TCP 443 from public BLOCKED forever.
             SOVEREIGN_GATEWAY_HTTPS_PORT: "30443"
             SOVEREIGN_GATEWAY_HTTP_PORT: "30080"
             # Wave 5.110 (#2462): bastion mirror endpoint for harbor.openova.io.
