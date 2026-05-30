@@ -70,7 +70,15 @@ metadata:
   labels:
     catalyst.openova.io/slot: "19"
 spec:
-  interval: 15m
+  # G50 (Refs #2602, 2026-05-30): interval 15m → 1m so install remediation
+  # retries fire within ~5min total (5 × 1m) instead of 45min (3 × 15m).
+  # Catches the cnpg-webhook caBundle race (~30-60s clear time) where the
+  # MutatingWebhookConfiguration's caBundle is populated by cert-manager-
+  # cainjector after a delay. Verified live on hw58 v10 02:00Z:
+  # InstallFailed "x509: certificate signed by unknown authority" calling
+  # mcluster.cnpg.io webhook; cert was Ready 5min later but no retry fired
+  # within the 33min observation window. Same META-AUDIT 1 class as G44.
+  interval: 1m
   releaseName: harbor
   targetNamespace: harbor
   # Harbor depends on:
@@ -116,12 +124,14 @@ spec:
     timeout: 15m
     disableWait: true
     remediation:
-      retries: 3
+      retries: 5
+      remediateLastFailure: true
   upgrade:
     timeout: 15m
     disableWait: true
     remediation:
-      retries: 3
+      retries: 5
+      remediateLastFailure: true
   # ── Vendor-agnostic Object Storage backend wiring (issue #383 / #425) ──
   #
   # Each entry below pulls a single key from the canonical

@@ -73,7 +73,10 @@ metadata:
   labels:
     catalyst.openova.io/slot: "11"
 spec:
-  interval: 15m
+  # G50 (Refs #2602, 2026-05-30): interval 15m → 1m so install remediation
+  # retries fire within ~5min total instead of 45min. Catches cnpg-webhook
+  # caBundle race. See clusters/_template/bootstrap-kit/19-harbor.yaml G50 comment.
+  interval: 1m
   timeout: 15m
   releaseName: powerdns
   targetNamespace: powerdns
@@ -142,7 +145,8 @@ spec:
     timeout: 15m
     disableWait: true
     remediation:
-      retries: 3
+      retries: 5
+      remediateLastFailure: true
   upgrade:
     timeout: 15m
     disableWait: true
