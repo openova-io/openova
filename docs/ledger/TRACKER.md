@@ -1416,3 +1416,23 @@ ETA hw67 attempt: wipe hw66 + POST hw67 once chart 1.0.6 cascade completes (~10 
 Lesson: when copying YAML structure between similar Jobs, parity audit (volumes/RBAC/comments) catches gaps. Future Phase: chart-template parity-test in CI (compare Job pod specs across cutover steps; flag missing common volumes/securityContext fields).
 
 **Session tally update**: 15 META-AUDIT sub-classes catalogued (was 14; +sub-class 11 implementation-bug-copy-paste) across 10 wipes. G55→G63 = 8 architectural fixes shipped + 6 superseded.
+
+---
+
+## 🟢 Session 2026-05-30 continued — G64 glob fix + hw71 outcome + hw72 attempt
+
+| Time (UTC) | hw## | id | Status | Verifier | Cause / G-fix |
+|---|---|---|---|---|---|
+| 14:45→TBD | hw71 | 75118caeb60cdbfc | LIVE diagnostic | 80-ish/81 (catalyst-api Pod denied) | G62+G63 architectural chain CONFIRMED WORKING live: Step 07 logs `G62 OK: Gitea-edit pushed ... global.imageRegistry='registry.hw71/proxy-ghcr'`. After force-reconcile: HR.spec.values.global.imageRegistry PERSISTED + catalyst-api Deployment image flipped to `registry.hw71.omani.works/proxy-ghcr/openova-io/openova/catalyst-api:baf5335`. But policy STILL denied because G60 glob `harbor.*/proxy-*/*` doesn't match `registry.*` subdomain. → G64 filed + shipped. |
+| TBD→TBD | hw72 | TBD | TBD | TBD | **ZT#2 attempt #14 / 11th wipe-cycle** with FULL G55+G57+G58+G59+G60+G61+G62+G63+G64 stack baked. ETA terminal ~+40min from POST. Falsifiable: G64 glob `*/proxy-*/*` matches `registry.<sov>/proxy-ghcr/...` → Pod CREATE passes → 81/81. Per lead reviewer-1: "This is the LAST architectural bug per your own analysis." |
+
+| G# | Issue | PR/Commit | Subject | Status |
+|---|---|---|---|---|
+| **G63** | #2613 | merged (9f79ae63) | Step 07 add tmp emptyDir mount (chart-template parity gap vs Step 06) | shipped, validated on hw71 |
+| **G64** | #2613 | merged (this commit) | Broaden harbor-proxy-pull glob `harbor.*/proxy-*/*` → `*/proxy-*/*`. Sovereign HTTPRoute exposes Harbor at `registry.<sov>` subdomain; G60 glob was copy-paste artifact. Chart 1.0.22→1.0.23. | shipped |
+
+**META-AUDIT 10 candidate (post-ZT)**: policy-value-vs-actual-deployment consistency check. Worker caught the subdomain mismatch in G61 message but didn't go back to fix G60. Pre-merge gate: any policy/config value referencing infrastructure should cross-check HTTPRoute hostnames + DNS records + chart defaults of components it gates.
+
+**Pattern self-reflection per lead reviewer-1**: 4 implementation/config-bug fixes after new G-class ships (G60 parser → G61 parser → G63 mount → G64 glob). NOT architectural recurrence — implementation-detail recurrence. META-AUDIT 9 (chart-template parity-check) + META-AUDIT 10 (policy-value-vs-actual-deployment) both candidate for post-ZT discipline.
+
+**Session tally**: 16 sub-classes / 11 wipes / 9 G-fixes shipped (G55-G64). hw72 carries cumulative learning. Convergence: hw68 4F → hw69 1F arch → hw70 1F impl-bug → hw71 1F impl-bug → hw72 expected **81/81**.
