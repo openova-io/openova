@@ -39,6 +39,9 @@ rules:
   - apiGroups: [""]
     resources: ["endpoints"]
     verbs: ["get", "list", "watch"]
+  # G44 (Refs #2596): CRD-discovery check is via kubectl api-resources
+  # (discovery endpoint) — requires no resource-level RBAC, so no
+  # additional grants needed beyond the SA's default authenticated access.
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

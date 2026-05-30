@@ -75,7 +75,15 @@ mysterious chart misconfiguration.
 {{- if and $enabled .Values.defaultInstrumentation.enabled }}
 {{- $svcName := (($gate.service).name) | default "opentelemetry-operator-webhook" -}}
 {{- $svcNs := (($gate.service).namespace) | default "opentelemetry" -}}
-{{- $timeout := $gate.timeoutSeconds | default 60 -}}
+{{- /* G44 (Refs #2596): timeout 60→300s — covers CRD-vs-operator
+       RESTMapper-cache race observed on hw56 v8 00:34Z. Operator's
+       controller-runtime tries to list OpenTelemetryCollector before
+       the apiserver's discovery cache has registered the CRD; operator
+       crashes with `no matches for kind "OpenTelemetryCollector"`. The
+       gate Job's job is to keep the chart install/upgrade in-flight
+       long enough for the operator's CrashLoopBackOff to self-resolve
+       once CRDs propagate (typically 30-90s, with safety margin). */}}
+{{- $timeout := $gate.timeoutSeconds | default 300 -}}
 {{- $interval := $gate.intervalSeconds | default 2 -}}
 {{- $image := $gate.image | default "bitnamilegacy/kubectl:1.30.7" -}}
 {{- $pullPolicy := $gate.imagePullPolicy | default "IfNotPresent" -}}
@@ -143,7 +151,19 @@ spec:
           args:
             - |
               set -euo pipefail
-              echo "OTel-operator webhook gate: poll endpoints/${WEBHOOK_NS}/${WEBHOOK_SVC} until at least 1 ready address (budget=${TIMEOUT_SECONDS}s, interval=${INTERVAL_SECONDS}s)"
+              # G44 (Refs #2596): gate on TWO conditions —
+              #   (a) webhook Endpoints have ≥1 ready address (G38 original)
+              #   (b) opentelemetrycollectors.opentelemetry.io CRD is
+              #       List-able by THIS Job's SA (proves apiserver discovery
+              #       cache has caught up to the upstream-subchart CRDs)
+              # Both must pass within the budget. The operator's controller-
+              # runtime starts up successfully ONLY when (b) is true; the
+              # Instrumentation CR apply needs (a). Gating on both ensures
+              # the chart install/upgrade reports success only after the
+              # operator self-recovers from any RESTMapper-cache race.
+              echo "OTel-operator gate (budget=${TIMEOUT_SECONDS}s, interval=${INTERVAL_SECONDS}s):"
+              echo "  (a) endpoints/${WEBHOOK_NS}/${WEBHOOK_SVC} ≥1 ready"
+              echo "  (b) opentelemetrycollectors.opentelemetry.io List-able"
               deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
               attempt=0
               while [ "$(date +%s)" -lt "${deadline}" ]; do
@@ -153,17 +173,27 @@ spec:
                   --ignore-not-found \
                   -o jsonpath='{range .subsets[*]}{.addresses[*].ip}{"\n"}{end}' 2>/dev/null \
                   | tr ' ' '\n' | grep -c . || true)"
-                if [ "${ready_count}" -ge 1 ]; then
-                  echo "Webhook ready after ${attempt} attempt(s); endpoints=${ready_count}."
+                # Use kubectl api-resources (discovery endpoint) — does NOT
+                # require resource-level list RBAC. Proves the apiserver's
+                # discovery cache has registered the CRD, which is what the
+                # operator's RESTMapper needs.
+                crd_listable=0
+                if kubectl api-resources --api-group=opentelemetry.io --no-headers 2>/dev/null | grep -q opentelemetrycollectors; then
+                  crd_listable=1
+                fi
+                if [ "${ready_count}" -ge 1 ] && [ "${crd_listable}" -eq 1 ]; then
+                  echo "Gate cleared after ${attempt} attempt(s); endpoints=${ready_count}, crd_listable=${crd_listable}."
                   exit 0
                 fi
-                echo "Attempt ${attempt}: endpoints not ready (count=${ready_count}); sleeping ${INTERVAL_SECONDS}s."
+                echo "Attempt ${attempt}: endpoints=${ready_count}, crd_listable=${crd_listable}; sleeping ${INTERVAL_SECONDS}s."
                 sleep "${INTERVAL_SECONDS}"
               done
-              echo "FATAL: OTel-operator mutating webhook ${WEBHOOK_NS}/${WEBHOOK_SVC} did not become ready within ${TIMEOUT_SECONDS}s." >&2
+              echo "FATAL: OTel-operator gate did not clear within ${TIMEOUT_SECONDS}s." >&2
               echo "Diagnose with:" >&2
               echo "  kubectl -n ${WEBHOOK_NS} get pods -l app.kubernetes.io/name=opentelemetry-operator" >&2
               echo "  kubectl -n ${WEBHOOK_NS} get endpoints ${WEBHOOK_SVC}" >&2
               echo "  kubectl get mutatingwebhookconfiguration | grep opentelemetry" >&2
+              echo "  kubectl get crd | grep opentelemetry.io" >&2
+              echo "  kubectl get opentelemetrycollectors.opentelemetry.io -A" >&2
               exit 1
 {{- end }}
