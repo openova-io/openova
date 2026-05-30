@@ -1498,3 +1498,14 @@ Architectural pivot pending lead decision:
 | 18:30Z→TBD | hw74 | TBD | PENDING (wait CI bake ~10min) | TBD | **ZT#2 attempt #16 / 13th wipe-cycle** with FULL G55+G57+G58+G59+G60+G61+G62+G63+G64+G65+G66 = 11-fix stack baked. Falsifiable: Step 03 Phase A skopeo-pushes ~25 openova-io images → Step 07 patches catalyst-api to `registry.<sov>/openova-io/openova/catalyst-api:<tag>` → Kyverno anyPattern accepts → Pod CREATE passes → kubelet pull NATIVE → catalyst-api Ready → 81/81 + L6 CLEAN. |
 
 **Session tally**: 20 sub-classes (+14 Harbor-github-ghcr-adapter-auth) / 13 wipes / 12 G-fixes shipped (G55-G66). hw74 = first prov with G55-G66 stack from boot.
+
+| G# | Issue | PR/Commit | Subject | Status |
+|---|---|---|---|---|
+| **G66 follow-up** | #2615 | 006420f8 | Step 02 also creates `openova-io` push-mode Harbor project (caught during pre-flight: fresh Sovereign Harbor only has library/proxy-*; skopeo push to openova-io would 404). New `.Values.harbor.pushProjects` default `["openova-io"]`. Lockstep bp-self-sovereign-cutover 0.1.43→0.1.44. | shipped |
+
+| Time (UTC) | hw## | id | Status | Verifier | Cause / G-fix |
+|---|---|---|---|---|---|
+| 18:46→18:48Z | hw73 | eae69d9569e09d03 | WIPED | N/A | G65 architectural validated end-to-end; G66 exposed (Harbor proxy-cache auth); replaced by hw74 with G66 baked. |
+| 18:48Z→TBD | hw74 | 78f585b1b79ef965 | LIVE prov | TBD | **ZT#2 attempt #16 / 13th wipe-cycle** with FULL G55+G57+G58+G59+G60+G61+G62+G63+G64+G65+G66 = 11-fix stack baked. bp-catalyst-platform chart 1.4.393 (includes bp-self-sovereign-cutover 0.1.44 + bp-kyverno-policies 1.0.24). ETA terminal ~+40min from POST. Falsifiable: Step 02 creates openova-io push project → Step 03 Phase A skopeo enumerates ~25 ghcr.io/openova-io/* images + native-pushes to registry.<sov>/openova-io/... → Step 07 patches catalyst-api Deployment image to native path (no /proxy-ghcr/) → Kyverno anyPattern accepts native-push glob → Pod CREATE passes → kubelet pull NATIVE from local Harbor → catalyst-api Ready → 81/81 + L6 CLEAN. |
+
+**Session tally**: 21 sub-classes (+14 Harbor-github-ghcr-adapter-auth; +15 Harbor-pushproject-missing) / 14 wipes / 13 G-fixes shipped (G55-G66). hw74 = first prov with G55-G66 stack from boot.
