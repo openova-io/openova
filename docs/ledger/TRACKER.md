@@ -1456,3 +1456,12 @@ Lesson: when copying YAML structure between similar Jobs, parity audit (volumes/
 **Pattern self-reflection**: G65 is genuinely NEW class (CRD-vs-operator-startup-race), not symptom-chase. Discovered ONLY because hw72 happened to lose the race AT exactly the wrong moment. Convergence trajectory: hw68 4F → hw69 1F arch → hw70 1F impl → hw71 1F config → hw72 1F **NEW ARCH class** → hw73 expected 81/81 with G65 baked.
 
 **Session tally**: 17 sub-classes / 12 wipes / 10 G-fixes shipped (G55-G65). Next: chart auto-bump on G65, wipe hw72, POST hw73 with G55+G57+G58+G59+G60+G61+G62+G63+G64+G65 = 10-fix stack for ZT#2 attempt #15.
+
+| Time (UTC) | hw## | id | Status | Verifier | Cause / G-fix |
+|---|---|---|---|---|---|
+| 17:08→17:13Z | hw72 | 9d4a5b629fcc38bb | WIPED | N/A (DEAD by self-mutation) | Self-disclosed: cilium-operator pod-delete during diagnostic invalidated L6 zero-touch. After workaround, hw72 actually reached status=ready (RCA validated). Wiped + replaced by hw73. |
+| 17:14Z→TBD | hw73 | eae69d9569e09d03 | LIVE prov | TBD | **ZT#2 attempt #15 / 12th wipe-cycle** with FULL G55+G57+G58+G59+G60+G61+G62+G63+G64+G65 = 10-fix stack baked. Mothership catalyst-api manually bumped to fd378e3 (auto-bump bot doesn't track api-deployment-kustomize.yaml literal — META-AUDIT 12 candidate). ETA terminal ~+40min from POST. Falsifiable: G65-B cloud-init order (CRDs before cilium + --set gatewayAPI.enabled=true) → cilium operator boots with correct config AND CRDs present → gateway-controller registers from boot → GatewayClass/Gateway PROGRAMMED=True within seconds of bp-cilium HR Ready → sovereign-wildcard cert mints → handover fires within standard window → 81/81 + L6 CLEAN. |
+
+**META-AUDIT 12 candidate (NEW)**: catalyst-build deploy-step auto-bump must update BOTH `api-deployment.yaml` (templated, Sovereign-Helm) AND `api-deployment-kustomize.yaml` (literal, mothership-Kustomize). Currently only handles the former. File-header comment claims both are updated but reality says no. Discovered while unblocking G65 (mothership stuck at 7468a69, pre-G65). Manual bump via efacac8e shipped this session.
+
+**Session tally**: 18 sub-classes (+12 auto-bump-incompleteness) / 13 wipes / 11 G-fixes shipped (G55-G65). hw73 = first prov with full G55-G65 stack from boot.
