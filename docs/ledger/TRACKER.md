@@ -1556,3 +1556,6 @@ Pillar 1 wizard walked end-to-end (6 steps + checkout sign-in):
 **Session tally**: 22 sub-classes / 15 wipes / 14 G-fixes shipped (G55-G67). **ZT#2 LANDED. ZT#3 in flight.**
 
 | 20:49→TBD | hw76 | 2ad8ca9239f814a0 | LIVE prov | TBD | ZT#3 attempt — IDENTICAL stack as hw75 (G55-G67 + workerCount=4). +48min Phase 0 still progressing (slower than hw75 +38min ready) — 10 nodes vs 6 = bigger cluster slower boot, substrate variance not failure. Wakeup re-scheduled 22:09Z for Phase 1 + handover window. Reproducibility test: variance in time = OK; variance in outcome = surfaces new class. |
+
+| 22:10Z | hw76 | 2ad8ca9239f814a0 | **FAILED** Phase 0 (21:40:47Z) | N/A | HCS API "conflict in the request" on VPC + EIP creation me-east-215-a/b. Infrastructure flake (likely stale HCS state from hw75 wipe — VPCs/EIPs collision). JANITOR swept orphan EIPs post-failure. NOT a new architectural class — HCS-side transient. Retry as hw77. |
+| 22:10Z→TBD | hw77 | 4ffb7e103f038e77 | LIVE prov | TBD | **ZT#3 attempt #2** (retry after hw76 HCS flake) — IDENTICAL G55-G67 + workerCount=4 stack. Falsifiable: HCS API now permits VPC/EIP creation post-JANITOR-sweep → reach Phase 1 → cutover → 81/81. |
