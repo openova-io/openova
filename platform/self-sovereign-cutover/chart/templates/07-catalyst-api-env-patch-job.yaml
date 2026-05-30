@@ -79,11 +79,10 @@ data:
             # would be denied by harbor-proxy-pull policy (verified
             # live hw68 v17 G60 admission test).
             HARBOR_HOST=$(echo "${HARBOR_PUBLIC_URL}" | sed -e 's|^https\?://||' -e 's|/.*$||')
-            # chart templates render image as
-            # "{{ global.imageRegistry }}/{{ images.organization }}/<comp>:<tag>"
+            # chart templates render image as registry/organization/comp:tag
             # so REGISTRY is JUST the host+proxy prefix (NOT including
-            # org path), letting the chart's images.organization
-            # ("openova-io/openova") concatenate cleanly.
+            # org path) — chart's images.organization (openova-io/openova)
+            # concatenates downstream of the registry value.
             REGISTRY="${HARBOR_HOST}/proxy-ghcr"
             echo "[catalyst-api-env-patch] G61 HR patch ${HR_NAMESPACE}/${HR_NAME} spec.values.global.imageRegistry=${REGISTRY}"
             PATCH=$(printf '{"spec":{"values":{"global":{"imageRegistry":"%s"}}}}' "${REGISTRY}")
