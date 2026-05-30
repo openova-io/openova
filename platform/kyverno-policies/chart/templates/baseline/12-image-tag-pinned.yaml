@@ -58,24 +58,19 @@ spec:
           or no tag). Pin to an explicit tag or @sha256 digest.
         foreach:
           # Wave 5.97 nil-safety: filter to containers with .image set (see 11-harbor-proxy.yaml comment).
-          # G40 (Refs #2594, 2026-05-29): inline `|| ""` nil-guard on element.image
-          # in regex_match calls. Kyverno's variable-substitution runs BEFORE
-          # filter/precondition evaluation; nil element.image errors out the
-          # whole rule with "Invalid type for: <nil>, expected: string"
-          # (verified live on hw55 v7 21:10Z via 11-harbor-proxy.yaml). Same
-          # class as G19 #2563 (concat). Empty string never matches the regex
-          # → condition stays false → no spurious deny. Filter [?image]
-          # stays as defense-in-depth.
+          # G45 (Refs #2597, 2026-05-30): use not_null() canonical JMESPath
+          # null-coalescing instead of `|| ""` (G40 was insufficient — see
+          # 11-harbor-proxy.yaml G45 comment for the live evidence on hw56 v8).
           - list: "(request.object.spec.containers || request.object.spec.template.spec.containers)[?image]"
             deny:
               conditions:
                 any:
                   # Reject `:latest` tag (any registry/path).
-                  - key: '{{ `{{ regex_match(''(:latest$|^[^@]*latest$)'', element.image || '''') }}` }}'
+                  - key: '{{ `{{ regex_match(''(:latest$|^[^@]*latest$)'', not_null(element.image, '''')) }}` }}'
                     operator: Equals
                     value: true
                   # Reject images with no tag and no @sha256: digest.
-                  - key: '{{ `{{ regex_match(''^[^:@]+$'', element.image || '''') }}` }}'
+                  - key: '{{ `{{ regex_match(''^[^:@]+$'', not_null(element.image, '''')) }}` }}'
                     operator: Equals
                     value: true
 {{- end -}}

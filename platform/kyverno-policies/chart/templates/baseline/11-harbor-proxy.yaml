@@ -98,49 +98,36 @@ spec:
           - list: "(request.object.spec.containers || request.object.spec.template.spec.containers || [])[?image]"
             preconditions:
               all:
-                - key: '{{ `{{ element.image || ` }}{{ printf "%q" "" }}{{ ` }}` }}'
+                - key: '{{ `{{ not_null(element.image, ` }}{{ printf "%q" "" }}{{ `) }}` }}'
                   operator: NotEquals
                   value: ""
             deny:
               conditions:
                 all:
-                  # G40 (Refs #2594, 2026-05-29): inline `|| ""` nil-guard
-                  # on element.image. Kyverno's variable-substitution pass for
-                  # the deny clause runs BEFORE the precondition gate fires —
-                  # when element.image is nil (e.g. mid-Helm-rollback pod-
-                  # template-rewrite on catalyst-api: hw55 v7 21:10Z), regex_match
-                  # errors with "Invalid type for: <nil>, expected: string"
-                  # and the whole rule fails, NOT just this element. The
-                  # precondition above stays as defense-in-depth but the
-                  # inline guard ensures regex_match always receives a string.
-                  # Empty string never matches the regex → condition stays
-                  # `false` → deny.value=false → no spurious deny.
-                  # Same nil-handling class as G19 #2563 (concat).
-                  - key: '{{ printf `{{ regex_match(%q, element.image || %q) }}` .Values.compliancePolicies.harborProxyPull.allowedRegistryRegex "" }}'
+                  # G45 (Refs #2597, 2026-05-30): G40's inline `|| ""` was
+                  # insufficient. Kyverno's JMESPath dialect doesn't short-circuit
+                  # `||` against nil the way Go does — the OR operand returns
+                  # `<nil>` to regex_match before the empty-string coercion
+                  # applies. Verified live on hw56 v8 00:35Z, PolicyViolation
+                  # event on opentelemetry-operator Pod with the exact error:
+                  # "JMESPath query failed: Invalid type for: <nil>".
+                  # Use `not_null(arg, "")` — JMESPath's canonical null-coalescing
+                  # built-in that explicitly returns the first non-nil argument.
+                  - key: '{{ printf `{{ regex_match(%q, not_null(element.image, %q)) }}` .Values.compliancePolicies.harborProxyPull.allowedRegistryRegex "" }}'
                     operator: Equals
                     value: false
           - list: "(request.object.spec.initContainers || request.object.spec.template.spec.initContainers || [])[?image]"
             preconditions:
               all:
-                - key: '{{ `{{ element.image || ` }}{{ printf "%q" "" }}{{ ` }}` }}'
+                - key: '{{ `{{ not_null(element.image, ` }}{{ printf "%q" "" }}{{ `) }}` }}'
                   operator: NotEquals
                   value: ""
             deny:
               conditions:
                 all:
-                  # G40 (Refs #2594, 2026-05-29): inline `|| ""` nil-guard
-                  # on element.image. Kyverno's variable-substitution pass for
-                  # the deny clause runs BEFORE the precondition gate fires —
-                  # when element.image is nil (e.g. mid-Helm-rollback pod-
-                  # template-rewrite on catalyst-api: hw55 v7 21:10Z), regex_match
-                  # errors with "Invalid type for: <nil>, expected: string"
-                  # and the whole rule fails, NOT just this element. The
-                  # precondition above stays as defense-in-depth but the
-                  # inline guard ensures regex_match always receives a string.
-                  # Empty string never matches the regex → condition stays
-                  # `false` → deny.value=false → no spurious deny.
-                  # Same nil-handling class as G19 #2563 (concat).
-                  - key: '{{ printf `{{ regex_match(%q, element.image || %q) }}` .Values.compliancePolicies.harborProxyPull.allowedRegistryRegex "" }}'
+                  # G45 (Refs #2597, 2026-05-30): not_null() canonical null-coalescing.
+                  # See G45 comment above.
+                  - key: '{{ printf `{{ regex_match(%q, not_null(element.image, %q)) }}` .Values.compliancePolicies.harborProxyPull.allowedRegistryRegex "" }}'
                     operator: Equals
                     value: false
 {{- end -}}
