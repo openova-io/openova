@@ -1178,6 +1178,51 @@ Lead recommendation **(b)** taken: POST v8 with stable codebase post-META-AUDIT-
 Refs #2526 (DoD walk evidence umbrella).
 
 
+## 2026-05-30T03:16Z — 🟢🟢🟢🟢🟢 **ZT#1 of 3 ACHIEVED on v11/hw59** — verifier 81/81 GREEN + Pillar 1 walk COMPLETE
+
+After v8/v9/v10 each surfaced new META-AUDIT 1 (Helm-vs-webhook race) instances + G48 worker-join blocker, **v11/hw59 (`39f537a51cab9456`) reached terminal state at 03:14Z** and walked Pillar 1 end-to-end.
+
+### Verifier `scripts/sovereign-dod-verify.sh 39f537a51cab9456` → **✅ TRUE READY — 81/81 checks pass**
+
+| Layer | Result |
+|---|---|
+| L3 (HRs Ready) | All bp-* True (bp-opentelemetry, bp-opentelemetry-operator, bp-openova-flow-server, bp-openova-flow-emitter, bp-reloader, bp-reflector, bp-sealed-secrets, bp-vpa, bp-guacamole, bp-k8s-ws-proxy, bp-sandbox, bp-catalyst-platform, bp-continuum); 0 False; 0 Unknown |
+| L4 (CP pods) | catalyst-api/ui/catalog + application/organization/environment/useraccess controllers + marketplace-api all 1/1 Ready |
+| L5 (HTTPS surfaces) | console=200, marketplace=200, gitea=200, auth=302, bao=307, api/harbor/pdns=404. **LE prod cert (CN=R1)** |
+| L6 (zero-touch) | **0 surgical edits** across all tracked resources. No kubectl set image / patch / rollout restart |
+
+### Pillar 1 walk: 8 screenshots committed `4b0b62ee` + evidence comment on #2526 (https://github.com/openova-io/openova/issues/2526#issuecomment-4581469033)
+
+| Step | URL | Screenshot |
+|---|---|---|
+| Landing | `marketplace.hw59.omani.works/` | `hw59-v11-pillar1-step0-landing.png` |
+| 1 Plans | `/plans/` | `step1-plans.png` (8 tiers) |
+| 2 Apps | `/apps/` | `step2-apps.png` (14 apps) |
+| 3 Add-ons | `/addons/` | `step3-addons.png` |
+| 4 BCP | `/bcp/` | `step4-bcp.png` (Active-hot-standby +OMR 5.000/mo) |
+| 5 Review | `/review/` | `step5-review.png` |
+| 6 Checkout | `/checkout/` | `step6-checkout.png` (sign-in form) |
+| 6b Code | POST | `step6b-code-sent.png` (Phase 1a Stalwart dispatch ✓) |
+
+### Multi-region nodes (G48 ✓✓)
+
+- region-a (212.72.24.48 / LB 212.72.24.92): 1 CP + 3 workers, all Ready
+- region-b: 1 CP + 3 workers, all Ready
+- **8/8 nodes joined on first attempt** — G48 systemd retry-until-success works as designed
+
+### 17+ baked fix provenance
+
+G2-fu, G2-fu-fix2, G30, G31-fix2/3, G33, G34, G35, G38, G40+G40-batch, G42, **G44** (otel CRD-discovery gate), **G45** (Kyverno not_null — Audit-mode noise but cascade unblocked), **G46** (CP cloudinit systemd flux-install retry), **G48** (worker cloudinit systemd k3s-agent retry), **G49** (bp-mimir webhook-gate), **G50** (bp-harbor/bp-powerdns/bp-openova-flow-server retry tuning).
+
+**Wall-clock**: POST 02:27:38Z → terminal 03:14Z → walk + screenshots + #2526 evidence 03:16Z = **~49min end-to-end zero-touch**.
+
+### Path to 3-consec ZT
+
+1 of 3 ACHIEVED. v12 + v13 next — same fix set baked, same converge time expected.
+
+Refs #2526 (closed via 5-step agent-owned cycle pending TRACKER + walk evidence + sub-agent reviewer dispatch).
+
+
 ## 2026-05-30T00:55Z — v8 WIPED + G44/G45/G46/G47 batch shipped + v9 POSTED
 
 v8 hit 4 distinct blockers at +1h Phase 1:
