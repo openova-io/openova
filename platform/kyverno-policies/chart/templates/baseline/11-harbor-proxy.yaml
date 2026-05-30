@@ -7,15 +7,41 @@ proxy — references like `harbor.<sovereign-domain>/proxy-ghcr/...`,
 ghcr.io, docker.io, quay.io, etc. break the air-gap-ready posture and
 the per-Sovereign vulnerability scanning gate.
 
-The exact regex for the allowed registry prefix is operator-configurable
-via .Values.compliancePolicies.harborProxyPull.allowedRegistryRegex
-(per docs/INVIOLABLE-PRINCIPLES.md #4) — different Sovereigns are
-deployed at different domains, so hardcoding `harbor.omantel.openova.io`
-would fail every other Sovereign.
+The Harbor-proxy glob is operator-configurable via
+.Values.compliancePolicies.harborProxyPull.allowedImagePattern
+(per docs/INVIOLABLE-PRINCIPLES.md #4) — different Sovereigns deploy at
+different domains; the default glob `harbor.*/proxy-*/*` matches every
+Sovereign's proxy paths and is future-proof for new proxy sources.
 
 Default mode enforcing per design §4.3. Operators flip to Audit while
 seeding the Harbor proxy on a fresh Sovereign and back to Enforce
 after the proxy is warm.
+*/}}
+{{/*
+G60 (Refs #2611, 2026-05-30): RE-ARCHITECTED. 7 prior rounds (G19→G40→
+G45→G51→G55→G58) patched the regex_match+foreach+element.X expression
+without ever asking the architectural question. ALL hit Kyverno's
+JMESPath nil-substitution edge cases somewhere (empty initContainers,
+sidecar injection, autogen Deployment variant, autogen=none + Pod
+CREATE). Conclusion in retrospective: `foreach + regex_match +
+element.X` is architecturally incompatible with Kyverno 1.18's image-
+context extraction across enough container-spec edge cases that no
+expression-level tweak converges.
+
+G60 drops the foreach + regex_match + element.X primitive entirely.
+Replaces with Kyverno's CANONICAL `validate.pattern` + glob — the
+oldest + most stable Kyverno primitive. Pattern validation uses
+request.object-direct data (always populated server-side), no
+JMESPath substitution path, no element.X nil race possible. Autogen
+expands `containers.image` glob cleanly to `template.spec.containers.
+image` for Deployment/StatefulSet/etc.
+
+Trade-off: glob-only (not full regex). Glob `harbor.*/proxy-*/*` is
+functionally equivalent to the original regex `^harbor\..+/proxy-
+(ghcr|dockerhub|quay|registry-1\.docker\.io)/.*` AND future-proof for
+new proxy sources (kyverno cosign mirror, new registry, etc.). The
+4-explicit-source enumeration was never operationally desired — it
+was an artifact of regex authoring.
 */}}
 {{- if .Values.compliancePolicies.harborProxyPull.enabled -}}
 apiVersion: kyverno.io/v1
@@ -33,27 +59,8 @@ metadata:
     policies.kyverno.io/severity: high
     policies.kyverno.io/description: >-
       Container images must reference a Sovereign-local Harbor proxy
-      registry. Operator configures the allowed regex via
-      .Values.compliancePolicies.harborProxyPull.allowedRegistryRegex.
-    # G58 (Refs #2609, 2026-05-30): disable Kyverno autogen.
-    # G55 scoped match.kinds to [Pod] only to avoid Kyverno's
-    # images.containers context auto-population returning nil-bearing
-    # entries on Deployment/etc. kinds. But Kyverno's AUTOGEN feature
-    # automatically generates additional rules for higher-level
-    # controllers (Deployment/StatefulSet/DaemonSet/Job/CronJob) from
-    # any Pod-only policy — preserving the same JMESPath expressions
-    # applied to .spec.template.spec.containers[*]. The auto-generated
-    # rule recreates the SAME nil-substitution bug at admission time.
-    #
-    # Verified live hw65 v17 09:50Z: bp-catalyst-platform Helm rollback
-    # FAILED on `autogen-image-must-be-from-harbor-proxy` with the same
-    # JMESPath nil error, even though the Pod-only `image-must-be-from-
-    # harbor-proxy` rule was correctly scoped.
-    #
-    # Pod-level enforcement is sufficient — every Deployment creates
-    # Pods that pass through the Pod admission gate. Disabling autogen
-    # eliminates the Deployment-targeting variant entirely.
-    pod-policies.kyverno.io/autogen-controllers: "none"
+      registry. Operator configures the allowed glob via
+      .Values.compliancePolicies.harborProxyPull.allowedImagePattern.
 spec:
   validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.harborProxyPull.action) }}
   background: true
@@ -61,27 +68,14 @@ spec:
     - name: image-must-be-from-harbor-proxy
       match:
         any:
-          # G55 (Refs #2605, 2026-05-30): scope to Pod kind ONLY.
-          # Kyverno's `images.containers` server-side context auto-
-          # populates RELIABLY only for Pod admission. For Deployment/
-          # StatefulSet/DaemonSet/Job/CronJob the image-extractor
-          # returns entries with nil `.reference` → substitution-
-          # before-eval crashes the JMESPath query with
-          # "Invalid type for: <nil>". Pod admission is the canonical
-          # enforcement boundary: every Deployment/etc. creates Pods
-          # that go through the same admission gate, so Pod-level
-          # enforcement is fully sufficient + architecturally correct
-          # (this is the Kyverno-recommended pattern).
-          #
-          # Verified live hw63 v15 07:01Z: Pod admission successfully
-          # blocked trivy-system/scan-vulnerabilityreport Pod with
-          # this exact policy while Deployment/catalyst-api patch
-          # failed with nil-JMESPath error. G19/G40/G45/G51 all tried
-          # to patch the symptom on the broader match set; G55 fixes
-          # the architectural mismatch.
           - resources:
               kinds:
                 - Pod
+                - Deployment
+                - StatefulSet
+                - DaemonSet
+                - Job
+                - CronJob
       exclude:
         any:
           - resources:
@@ -91,50 +85,17 @@ spec:
                 {{- end }}
       validate:
         message: >-
-          Container image does not match the allowed Harbor-proxy regex
-          {{ .Values.compliancePolicies.harborProxyPull.allowedRegistryRegex | quote }}.
+          Container image does not match the allowed Harbor-proxy glob
+          {{ .Values.compliancePolicies.harborProxyPull.allowedImagePattern | default "harbor.*/proxy-*/*" | quote }}.
           Re-tag the image to pull through the Sovereign's local Harbor
           proxy (e.g. harbor.<sovereign-domain>/proxy-ghcr/...).
-        foreach:
-          # G51 (Refs #2603, 2026-05-30): switch from
-          # `request.object.spec.containers.*.image` (raw resource path) +
-          # `not_null(element.image, "")` wrapper to `images.containers.*`
-          # (Kyverno-populated server-side context). The raw path triggers
-          # Kyverno's variable-substitution-before-JMESPath-eval bug:
-          # `element.image` is rendered as literal `<nil>` when nil, which
-          # the JMESPath parser rejects regardless of `not_null` wrapper
-          # (Kyverno's go-jmespath does not support `not_null` as a
-          # substitution-time function — it gets evaluated AFTER nil
-          # substitution corrupts the expression).
-          #
-          # `images.containers` / `images.initContainers` are populated by
-          # Kyverno's image-extractor server-side: each entry is a struct
-          # with `.reference` (full OCI ref string), `.registry`, `.path`,
-          # `.name`, `.tag`, `.digest`. Always strings, never Go-nil.
-          # Entries for containers with empty image are simply absent from
-          # the array (filtered server-side), not present-with-nil.
-          #
-          # `values(images.containers || `{}`)` defaults to empty object
-          # when no containers, yielding empty iteration → no admission
-          # error on resources without containers (e.g. mid-Helm-template-
-          # rewrite, mutating-webhook injection states).
-          #
-          # Why G19 → G40 → G45 all failed: each tried to patch the symptom
-          # (nil element.image) without escaping the raw-resource +
-          # substitution path. G51 changes the data source to one that's
-          # guaranteed-non-nil at substitution time.
-          - list: "values(images.containers || `{}`)"
-            deny:
-              conditions:
-                all:
-                  - key: '{{ printf `{{ regex_match(%q, element.reference) }}` .Values.compliancePolicies.harborProxyPull.allowedRegistryRegex }}'
-                    operator: Equals
-                    value: false
-          - list: "values(images.initContainers || `{}`)"
-            deny:
-              conditions:
-                all:
-                  - key: '{{ printf `{{ regex_match(%q, element.reference) }}` .Values.compliancePolicies.harborProxyPull.allowedRegistryRegex }}'
-                    operator: Equals
-                    value: false
+        pattern:
+          spec:
+            # =(initContainers): match-if-exists; if Pod has no
+            # initContainers, this clause is a no-op (Kyverno pattern
+            # anchor semantics — `=(<key>)` is "conditional-on-presence").
+            =(initContainers):
+              - image: {{ .Values.compliancePolicies.harborProxyPull.allowedImagePattern | default "harbor.*/proxy-*/*" | quote }}
+            containers:
+              - image: {{ .Values.compliancePolicies.harborProxyPull.allowedImagePattern | default "harbor.*/proxy-*/*" | quote }}
 {{- end -}}

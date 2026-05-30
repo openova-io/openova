@@ -6,11 +6,19 @@ Container images must be tagged with a non-`:latest`, non-empty tag.
 bytes can change underneath any pod restart, breaking the
 SHA-pinned audit-trail contract in CLAUDE.md §4a.
 
-This policy uses Kyverno's pattern engine with anchors to assert image
-references end with a non-empty tag that is NOT `latest`. SHA-digest
-references (`@sha256:...`) are also accepted and treated as pinned.
+G60 (Refs #2611, 2026-05-30): RE-ARCHITECTED. See 11-harbor-proxy.yaml
+G60 commentary for the full rationale — drops the foreach + regex_match
++ element.X primitive (which hit Kyverno's JMESPath nil-substitution
+edge cases across 7 rounds) and replaces with canonical
+`validate.pattern` + Kyverno's NEGATIVE-PATTERN anchor `X!(<value>)`
+("must NOT equal"). Pattern validation uses request.object-direct data
+(server-side populated, no JMESPath substitution, no element.X nil).
 
-Default mode enforcing per design §4.3.
+Trade-off: glob-only (not full regex). The original regex enforced
+"must NOT end in :latest AND must NOT be tag-less". Glob equivalent
+via Kyverno anchor semantics:
+  - `X(<image>): "!*:latest"`  (negative anchor — image must NOT match)
+  - `X(<image>): "*:*"`        (existence anchor — image MUST have a tag/digest)
 */}}
 {{- if .Values.compliancePolicies.imageTagPinned.enabled -}}
 apiVersion: kyverno.io/v1
@@ -30,28 +38,21 @@ metadata:
       Container images must reference an explicit, non-:latest tag (or
       a @sha256: digest). Floating tags break SHA-pinned audit trails
       and reproducibility.
-    # G58 (Refs #2609, 2026-05-30): disable Kyverno autogen — see
-    # 11-harbor-proxy.yaml G58 annotation comment for full rationale.
-    # Pod-level enforcement is sufficient + Kyverno autogen variants
-    # recreate the same nil-substitution bug on Deployment kinds.
-    pod-policies.kyverno.io/autogen-controllers: "none"
 spec:
   validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.imageTagPinned.action) }}
   background: true
   rules:
-    - name: image-must-have-explicit-tag
+    - name: image-must-not-be-latest
       match:
         any:
-          # G55 (Refs #2605, 2026-05-30): scope to Pod kind ONLY.
-          # See 11-harbor-proxy.yaml G55 comment for full rationale —
-          # Kyverno's `images.containers` server-side context only
-          # auto-populates reliably for Pod admission; Deployment/
-          # StatefulSet/etc. return nil-bearing entries that crash
-          # the JMESPath query at substitution time. Pod-level
-          # enforcement is canonical + sufficient.
           - resources:
               kinds:
                 - Pod
+                - Deployment
+                - StatefulSet
+                - DaemonSet
+                - Job
+                - CronJob
       exclude:
         any:
           - resources:
@@ -62,34 +63,13 @@ spec:
       validate:
         message: >-
           One or more containers reference an unpinned image (`:latest`
-          or no tag). Pin to an explicit tag or @sha256 digest.
-        foreach:
-          # G51 (Refs #2603, 2026-05-30): switch from raw element.image +
-          # not_null wrapper to Kyverno-populated images.containers context.
-          # See 11-harbor-proxy.yaml G51 comment for full rationale: raw
-          # `element.image` triggers Kyverno's variable-substitution-before-
-          # JMESPath bug when nil. `images.containers` is server-side
-          # populated with guaranteed-string `.reference` / `.tag` fields.
-          - list: "values(images.containers || `{}`)"
-            deny:
-              conditions:
-                any:
-                  # Reject `:latest` tag (any registry/path).
-                  - key: '{{ `{{ regex_match(''(:latest$|^[^@]*latest$)'', element.reference) }}` }}'
-                    operator: Equals
-                    value: true
-                  # Reject images with no tag and no @sha256: digest.
-                  - key: '{{ `{{ regex_match(''^[^:@]+$'', element.reference) }}` }}'
-                    operator: Equals
-                    value: true
-          - list: "values(images.initContainers || `{}`)"
-            deny:
-              conditions:
-                any:
-                  - key: '{{ `{{ regex_match(''(:latest$|^[^@]*latest$)'', element.reference) }}` }}'
-                    operator: Equals
-                    value: true
-                  - key: '{{ `{{ regex_match(''^[^:@]+$'', element.reference) }}` }}'
-                    operator: Equals
-                    value: true
+          or no tag/digest). Pin to an explicit tag or @sha256 digest.
+        pattern:
+          spec:
+            # X(<key>): "<glob>" enforces the value to match. Use
+            # negative wildcard "!*:latest" to deny :latest images.
+            =(initContainers):
+              - (image): "!*:latest"
+            containers:
+              - (image): "!*:latest"
 {{- end -}}

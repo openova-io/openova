@@ -19,20 +19,30 @@ description: |
   ClusterPolicy CRs. CRDs are provided by the engine chart's upstream
   Kyverno subchart at slot 27.
 type: application
-# 1.0.21 (G58 #2609, 2026-05-30): disable Kyverno autogen on
-# harbor-proxy-pull + image-tag-pinned via
-# `pod-policies.kyverno.io/autogen-controllers: "none"` annotation.
-# G55 scoped to Pod kind but Kyverno's AUTOGEN feature auto-generated
-# Deployment/StatefulSet/etc. variants from the Pod policy, recreating
-# the same nil-substitution JMESPath crash. Verified live hw65 v17
-# 09:50Z: bp-catalyst-platform Helm rollback failed on
-# `autogen-image-must-be-from-harbor-proxy` despite G55. Pod-level
-# enforcement is sufficient — every Deployment creates Pods that
-# pass through the Pod admission gate.
+# 1.0.22 (G60 RETROSPECTIVE #2611, 2026-05-30): META-AUDIT 7 closed.
+# RE-ARCHITECTED harbor-proxy-pull + image-tag-pinned policies. After
+# 7 rounds of regex_match+foreach+element.X patching (G19→G40→G45→G51→
+# G55→G58) all hit Kyverno's JMESPath nil-substitution edge cases at
+# different places (empty initContainers, sidecar injection, autogen
+# Deployment variant, autogen=none + Pod CREATE).
 #
-# 1.0.20 (G55 #2605): scope match.kinds=[Pod] only. INSUFFICIENT on
-# its own because of autogen — kept for clarity, G58 completes it.
-version: 1.0.21
+# G60 drops the foreach+regex_match+element.X primitive ENTIRELY.
+# Replaces with canonical `validate.pattern` + glob — oldest + most
+# stable Kyverno primitive. Pattern validation uses request.object-
+# direct data (server-side populated, no JMESPath substitution path,
+# no element.X nil race). Autogen expands `containers.image` glob to
+# `template.spec.containers.image` for Deployment/StatefulSet/etc.
+#
+# match.kinds restored to all Pod-spec-bearing kinds (G55 reverted).
+# autogen annotation removed (G58 reverted) — pattern validation
+# autogen-expansion is well-tested.
+#
+# allowedRegistryRegex → allowedImagePattern (rename for glob clarity)
+# Default `harbor.*/proxy-*/*` covers all proxy paths + future-proof.
+#
+# 1.0.21 (G58 #2609): autogen=none — reverted in G60
+# 1.0.20 (G55 #2605): match.kinds=[Pod] only — reverted in G60
+version: 1.0.22
 appVersion: "1.0.2"
 keywords: [catalyst, blueprint, kyverno, policy, compliance, audit]
 maintainers:

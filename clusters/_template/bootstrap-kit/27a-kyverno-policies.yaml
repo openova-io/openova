@@ -42,16 +42,17 @@ spec:
   chart:
     spec:
       chart: bp-kyverno-policies
-      # 1.0.21 (G58 #2609, 2026-05-30): disable Kyverno autogen on
-      # harbor-proxy-pull + image-tag-pinned. G55 (1.0.20) scoped to
-      # Pod kind but Kyverno's AUTOGEN feature auto-generated
-      # Deployment/StatefulSet/etc. variants, recreating the same
-      # nil-substitution JMESPath crash. Verified live hw65 v17:
-      # bp-catalyst-platform Helm rollback failed on
-      # `autogen-image-must-be-from-harbor-proxy` despite G55.
-      # Pod-level enforcement remains sufficient — Pods get checked
-      # at scheduling time regardless of Deployment-level admit.
-      version: 1.0.21
+      # 1.0.22 (G60 RETROSPECTIVE #2611, 2026-05-30): META-AUDIT 7 closed.
+      # Architectural rewrite of harbor-proxy-pull + image-tag-pinned.
+      # 7 prior rounds (G19→G40→G45→G51→G55→G58) all patched
+      # regex_match+foreach+element.X expression — never asked the
+      # architectural question. ALL hit Kyverno JMESPath nil edge
+      # cases somewhere (empty initContainers, sidecar injection,
+      # autogen Deployment variant, autogen=none + Pod CREATE).
+      # G60 drops that primitive in favor of canonical
+      # `validate.pattern` + glob — request.object-direct data,
+      # no JMESPath substitution path, no element.X nil race.
+      version: 1.0.22
       sourceRef:
         kind: HelmRepository
         name: bp-kyverno

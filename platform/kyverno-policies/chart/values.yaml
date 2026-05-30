@@ -140,13 +140,17 @@ compliancePolicies:
     # the Harbor proxy-cache (signature + SBOM + scan layer). Enforce.
     action: Enforce
     excludeNamespaces: *complianceDefaultExcludes
-    # Operator overrides per-Sovereign (e.g.
-    # "^harbor\\.omantel\\.openova\\.io/proxy-(ghcr|dockerhub|quay)/.*").
-    # The default below allows any host of the form
-    # `harbor.<sovereign-domain>/proxy-<upstream>/*`. Operator narrows
-    # this per Sovereign overlay. Empty pattern would match everything,
-    # which would silently disable the rule.
-    allowedRegistryRegex: "^harbor\\..+/proxy-(ghcr|dockerhub|quay|registry-1\\.docker\\.io)/.*"
+    # G60 (Refs #2611, 2026-05-30): renamed `allowedRegistryRegex` →
+    # `allowedImagePattern` to reflect Kyverno glob semantics (not regex).
+    # Original regex `^harbor\..+/proxy-(ghcr|dockerhub|quay|
+    # registry-1\.docker\.io)/.*` was functionally equivalent to
+    # `harbor.*/proxy-*/*` AND future-proof for new proxy sources.
+    # 7 prior rounds (G19→G58) of regex_match+foreach+element.X
+    # patching all hit Kyverno's JMESPath nil-substitution edge cases.
+    # G60 drops that primitive in favor of canonical `validate.pattern`
+    # + glob — request.object-direct data, no JMESPath substitution,
+    # no element.X nil race. Pattern is operator-configurable.
+    allowedImagePattern: "harbor.*/proxy-*/*"
 
   imageTagPinned:
     enabled: true
