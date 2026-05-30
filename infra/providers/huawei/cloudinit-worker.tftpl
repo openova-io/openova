@@ -105,36 +105,85 @@ runcmd:
   # subshell or has env weirdness. One literal-block shell command
   # makes the order explicit: sysctl --system → skip-on-error fail2ban
   # enable → k3s install (the load-bearing step) → mkdir+touch.
+  #
+  # G48 (Refs #2600, 2026-05-30): replace bounded 10×15s=150s retry-loop
+  # with systemd one-shot retry-until-success unit (mirror G46 pattern
+  # from cloudinit-control-plane.tftpl). Verified live on hw57 v9 region-a
+  # at +31min: 2 of 3 worker ECS ACTIVE on HCS but failed to join k3s after
+  # the 10-retry budget exhausted. bp-mimir/bp-harbor/bp-openova-flow-server
+  # Pending on insufficient nodes → bootstrap-kit Kustomization stalled →
+  # sovereign-tls blocked → Gateway unprogrammed → console unreachable.
+  # Target-state per founder mandate "never workaround": systemd retries
+  # forever until k3s-agent.service is active, eventually-consistent
+  # convergence regardless of any transient CP-readiness / get.k3s.io /
+  # network blip.
   - |
     set +e
     sysctl --system
     systemctl reload ssh 2>/dev/null || true
     systemctl enable --now fail2ban 2>/dev/null || true
-    # Wave 5.108 (#2462 follow-up): retry k3s install up to 10× with backoff.
-    # Live evidence: hw09 6d9eb655 w1 never joined — `curl -sfL https://get.k3s.io | sh`
-    # hit transient DNS NXDOMAIN or get.k3s.io upstream blip ONCE and gave up
-    # silently, leaving the worker as an ACTIVE ECS instance with no k3s agent
-    # running. CPU exhaustion on 3-node cluster then blocked bp-openbao Pod
-    # scheduling → cascade timeout. Same robustness pattern as Wave 5.99 (helm
-    # repo add cilium retry on CP).
-    for attempt in 1 2 3 4 5 6 7 8 9 10; do
-      if curl -sfL https://get.k3s.io | \
-        INSTALL_K3S_VERSION=${k3s_version} \
-        K3S_TOKEN=${k3s_token} \
-        K3S_URL=https://${cp_private_ip}:6443 \
-        INSTALL_K3S_EXEC="agent --node-label=catalyst.openova.io/provider=huawei" \
-        sh -; then
-        echo "[cloudinit] k3s agent install succeeded on attempt $attempt"
+    # Write the install script.
+    cat > /usr/local/bin/openova-k3s-agent-install.sh <<'K3S_INSTALL'
+    #!/bin/bash
+    set -euo pipefail
+    # Idempotency: if k3s-agent.service is already active, exit 0.
+    if systemctl is-active k3s-agent >/dev/null 2>&1; then
+      echo "openova-k3s-agent-install: k3s-agent already active; nothing to do"
+      exit 0
+    fi
+    # Install via canonical k3s installer (resolves get.k3s.io → fetches
+    # binary → systemd unit). Each attempt exits 0 only if both curl|sh
+    # and the post-install agent registration succeed.
+    if ! curl -sfL --max-time 30 https://get.k3s.io | \
+      INSTALL_K3S_VERSION=${k3s_version} \
+      K3S_TOKEN=${k3s_token} \
+      K3S_URL=https://${cp_private_ip}:6443 \
+      INSTALL_K3S_EXEC="agent --node-label=catalyst.openova.io/provider=huawei" \
+      sh -; then
+      echo "openova-k3s-agent-install: get.k3s.io install step failed; exiting nonzero for systemd retry"
+      exit 1
+    fi
+    # Verify k3s-agent registered with CP (give it 30s to come up).
+    for i in $(seq 1 6); do
+      if systemctl is-active k3s-agent >/dev/null 2>&1; then
+        echo "openova-k3s-agent-install: SUCCESS k3s-agent active"
+        mkdir -p /var/lib/catalyst
+        touch /var/lib/catalyst/worker-bootstrap-complete
+        exit 0
+      fi
+      sleep 5
+    done
+    echo "openova-k3s-agent-install: k3s-agent did NOT become active within 30s of install; exiting nonzero for systemd retry"
+    exit 1
+    K3S_INSTALL
+    chmod 0755 /usr/local/bin/openova-k3s-agent-install.sh
+    # Write the systemd unit.
+    cat > /etc/systemd/system/openova-k3s-agent-install.service <<'K3S_UNIT'
+    [Unit]
+    Description=OpenOva k3s-agent install + register with retry-until-success
+    After=network-online.target
+    Wants=network-online.target
+    StartLimitIntervalSec=0
+    [Service]
+    Type=oneshot
+    RemainAfterExit=yes
+    ExecStart=/usr/local/bin/openova-k3s-agent-install.sh
+    Restart=on-failure
+    RestartSec=30
+    [Install]
+    WantedBy=multi-user.target
+    K3S_UNIT
+    systemctl daemon-reload
+    systemctl enable openova-k3s-agent-install.service
+    # Try once now (non-blocking — systemd retries every 30s on failure).
+    systemctl start openova-k3s-agent-install.service || true
+    # Wait up to 300s for first success so cloud-init exits with a useful
+    # marker. If wait expires, systemd keeps retrying in the background.
+    for i in $(seq 1 60); do
+      if systemctl is-active k3s-agent >/dev/null 2>&1; then
+        echo "G48: k3s-agent active via systemd after $((i*5))s"
         break
       fi
-      echo "[cloudinit] k3s agent install attempt $attempt failed; sleeping 15s"
-      sleep 15
+      sleep 5
     done
-    # Verify k3s-agent is running (last-line check).
-    systemctl is-active k3s-agent || {
-      echo "[cloudinit] FATAL: k3s-agent not active after 10 retries"
-      exit 1
-    }
-    mkdir -p /var/lib/catalyst
-    touch /var/lib/catalyst/worker-bootstrap-complete
 
