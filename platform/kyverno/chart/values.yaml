@@ -308,3 +308,19 @@ kyvernoOverlay:
         - monitoring
         - ingress
         - default
+
+# G54 (Refs #2605, 2026-05-30): self-referential webhook-gate Job + RBAC defaults.
+# Post-install hook polls kyverno-svc Endpoints + own TLS Secret presence BEFORE
+# Helm marks the release Installed. Closes META-AUDIT 1 sub-class 3 — self-
+# referential admission webhook bootstrap deadlock. See templates/webhook-gate-
+# hook.yaml G54 comment for the full failure-chain analysis.
+webhookGate:
+  enabled: true
+  service:
+    name: kyverno-svc
+    namespace: kyverno
+  tlsSecretName: kyverno-svc.kyverno.svc.kyverno-tls-pair
+  timeoutSeconds: 300
+  intervalSeconds: 2
+  image: "bitnamilegacy/kubectl:1.30.7"
+  imagePullPolicy: IfNotPresent

@@ -63,9 +63,12 @@ spec:
     spec:
       chart: bp-kyverno
       # 1.3.0 (TBD-V53 #2128): cold-start race fix — cert-manager-issued
-      # TLS + wait-for-tls-secret initContainer. See chart Chart.yaml for
-      # the full root-cause analysis.
-      version: 1.3.1
+      # TLS + wait-for-tls-secret initContainer.
+      # 1.3.2 (G54 #2605, 2026-05-30): self-referential webhook-gate Job
+      # closes META-AUDIT 1 sub-class 3 — kyverno admission webhook
+      # registered before kyverno-svc Pod ready blocks own Secret CREATE
+      # via failurePolicy: Fail. Verified deadlock on hw62 v14 06:11Z.
+      version: 1.3.2
       sourceRef:
         kind: HelmRepository
         name: bp-kyverno

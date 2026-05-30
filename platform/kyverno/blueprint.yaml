@@ -8,7 +8,7 @@ spec:
   # 1.3.0 (TBD-V53 #2128): Cold-start race fix — cert-manager-issued TLS
   # + extraInitContainer that blocks main container until the secret is
   # populated. See platform/kyverno/chart/Chart.yaml for the full rationale.
-  version: 1.3.1
+  version: 1.3.2
   card:
     title: Kyverno
     family: guardian

@@ -1,0 +1,177 @@
+{{- /*
+G54 (Refs #2605, 2026-05-30): bp-kyverno post-install webhook readiness gate.
+
+Background — the self-referential bootstrap deadlock
+=====================================================
+bp-kyverno is BOTH the admission webhook engine AND a resource that
+needs admission. On cold install:
+
+1. Helm applies Deployment + Service + MutatingWebhookConfiguration
+   (failurePolicy: Fail) + cert-manager Certificate `kyverno-svc-cert`.
+2. kyverno-admission-controller Pods start, need Secret
+   `kyverno-svc.kyverno.svc.kyverno-tls-pair` to serve TLS.
+3. cert-manager tries to CREATE the Secret (via its Certificate
+   reconciler).
+4. Apiserver calls Kyverno admission webhook (pre-registered) →
+   unreachable (Pods CrashLoopBackOff because Secret not mounted) →
+   admission FAIL.
+5. **Secret CREATE blocked cluster-wide while Kyverno admission down.**
+6. Including the Secret Kyverno itself needs to start.
+7. Infinite deadlock — Kyverno never starts, cert-manager queue jams
+   on ALL Certificates (verified live hw62 v14 06:11Z: 100+
+   CertificateRequests Ready but Secret never written).
+
+Cascading effect: every downstream cert-manager-issued Secret blocked
+(cnpg-webhook-cert, cert-manager-powerdns-webhook-tls, etc.) → bp-cnpg
+pre-install cert-wait Pod times out 15m → bp-cnpg HR InstallFailed →
+all cnpg-dependent HRs (bp-gitea / bp-harbor / bp-powerdns /
+bp-openova-flow-server / bp-newapi) DependencyNotReady → bootstrap-kit
+Kustomization stalled → sovereign-tls blocked → Gateway never
+Programmed → curl 000. End-to-end failure.
+
+v11 (ZT#1) avoided by timing luck: cert-manager issued Kyverno TLS
+Secret BEFORE Kyverno webhook registered. v14 lost the race.
+
+Pattern — extend G53 (gate-at-producer) to self-referential case
+================================================================
+This post-install Job verifies that bp-kyverno IS healthy enough to
+serve admission BEFORE Helm marks the release Installed → before HR
+Ready=True. While Helm is still in the post-install hook phase,
+downstream HRs (bp-cnpg, bp-cnpg-dependents, anything else needing
+admission) wait via `dependsOn: bp-kyverno` (which transitively gates
+on bp-kyverno being Ready).
+
+Two gate conditions:
+  (a) Endpoints `kyverno-svc` in `kyverno` ns has ≥1 ready address
+      (admission Pod up + healthy)
+  (b) Secret `kyverno-svc.kyverno.svc.kyverno-tls-pair` exists with
+      non-empty tls.crt field (cert-manager has issued the cert and
+      it's mounted on the Pod)
+
+Both must clear. 300s budget, 2s interval.
+
+If the gate times out: Helm install fails → Flux remediation retries
+the install. The retry creates fresh hooks; if cert-manager has
+caught up by then (cluster races resolve over time), the second
+attempt succeeds. Defense-in-depth: G50 retry tuning on
+cnpg-dependents kicks in if cnpg-webhook race still surfaces.
+
+Why post-install (not pre-install): the MutatingWebhookConfiguration
+and the admission Pod are CREATED by Helm regular templates. A
+pre-install hook would have nothing to gate. Post-install fires after
+Helm applies the regular templates; the gate confirms readiness
+before HR Ready propagates.
+
+Same architectural pattern as G38 / G44 / G49 / G53 — producer-side
+gate. Sub-class 3 (self-referential webhook bootstrap) added to
+META-AUDIT 1 catalog.
+*/}}
+{{- $gate := .Values.webhookGate | default dict -}}
+{{- $enabled := true -}}
+{{- if hasKey $gate "enabled" -}}
+{{-   $enabled = $gate.enabled -}}
+{{- end -}}
+{{- if $enabled }}
+{{- $svcName := (($gate.service).name) | default "kyverno-svc" -}}
+{{- $svcNs := (($gate.service).namespace) | default "kyverno" -}}
+{{- $secretName := $gate.tlsSecretName | default "kyverno-svc.kyverno.svc.kyverno-tls-pair" -}}
+{{- $timeout := $gate.timeoutSeconds | default 300 -}}
+{{- $interval := $gate.intervalSeconds | default 2 -}}
+{{- $image := $gate.image | default "bitnamilegacy/kubectl:1.30.7" -}}
+{{- $pullPolicy := $gate.imagePullPolicy | default "IfNotPresent" -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-webhook-gate
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/component: webhook-gate
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bp-kyverno
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        catalyst.openova.io/component: webhook-gate
+    spec:
+      serviceAccountName: {{ .Release.Name }}-webhook-gate
+      restartPolicy: Never
+      containers:
+        - name: gate
+          image: {{ $image | quote }}
+          imagePullPolicy: {{ $pullPolicy | quote }}
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "32Mi"
+            limits:
+              cpu: "100m"
+              memory: "128Mi"
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: WEBHOOK_SVC
+              value: {{ $svcName | quote }}
+            - name: WEBHOOK_NS
+              value: {{ $svcNs | quote }}
+            - name: TLS_SECRET
+              value: {{ $secretName | quote }}
+            - name: TIMEOUT_SECONDS
+              value: {{ $timeout | quote }}
+            - name: INTERVAL_SECONDS
+              value: {{ $interval | quote }}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              echo "kyverno self-referential webhook gate: poll (a) endpoints/${WEBHOOK_NS}/${WEBHOOK_SVC} ≥1 ready, (b) secret/${WEBHOOK_NS}/${TLS_SECRET} has non-empty tls.crt (budget=${TIMEOUT_SECONDS}s, interval=${INTERVAL_SECONDS}s)"
+              deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
+              attempt=0
+              while [ "$(date +%s)" -lt "${deadline}" ]; do
+                attempt=$(( attempt + 1 ))
+                # (a) Endpoint readiness
+                ep_count="$(kubectl get endpoints "${WEBHOOK_SVC}" \
+                  -n "${WEBHOOK_NS}" \
+                  --ignore-not-found \
+                  -o jsonpath='{range .subsets[*]}{.addresses[*].ip}{"\n"}{end}' 2>/dev/null \
+                  | tr ' ' '\n' | grep -c . || true)"
+                # (b) TLS Secret exists + has non-empty tls.crt
+                tls_len="$(kubectl get secret "${TLS_SECRET}" \
+                  -n "${WEBHOOK_NS}" \
+                  --ignore-not-found \
+                  -o jsonpath='{.data.tls\.crt}' 2>/dev/null \
+                  | wc -c | tr -d ' ')"
+                if [ "${ep_count}" -ge 1 ] && [ "${tls_len}" -gt 100 ]; then
+                  echo "Both conditions cleared after ${attempt} attempt(s); endpoints=${ep_count} tls_crt_len=${tls_len}."
+                  exit 0
+                fi
+                echo "Attempt ${attempt}: endpoints=${ep_count} tls_crt_len=${tls_len}; sleeping ${INTERVAL_SECONDS}s."
+                sleep "${INTERVAL_SECONDS}"
+              done
+              echo "FATAL: kyverno self-referential gate did not clear within ${TIMEOUT_SECONDS}s." >&2
+              echo "Diagnose with:" >&2
+              echo "  kubectl -n ${WEBHOOK_NS} get pods -l app.kubernetes.io/component=admission-controller" >&2
+              echo "  kubectl -n ${WEBHOOK_NS} get endpoints ${WEBHOOK_SVC}" >&2
+              echo "  kubectl -n ${WEBHOOK_NS} get secret ${TLS_SECRET}" >&2
+              echo "  kubectl get certificate -n ${WEBHOOK_NS}" >&2
+              echo "  kubectl get certificaterequest -n ${WEBHOOK_NS}" >&2
+              echo "" >&2
+              echo "Self-referential bootstrap deadlock hint: if Pods CrashLoopBackOff on missing Secret, cert-manager may be unable to CREATE the Secret because the Kyverno admission webhook itself is blocking Secret admissions (failurePolicy: Fail). Check whether cert-manager queue is jammed with CertificateRequests Ready=True but Secret never written cluster-wide." >&2
+              exit 1
+{{- end }}

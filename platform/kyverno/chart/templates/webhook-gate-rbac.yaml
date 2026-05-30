@@ -1,0 +1,70 @@
+{{- /*
+G54 (Refs #2605, 2026-05-30): RBAC for the kyverno self-referential
+webhook-gate Job. Same pattern as G38/G44/G49/G53.
+
+Scoped to:
+- GET Endpoints in kyverno ns (verify admission Service has ≥1 ready address)
+- GET Secrets in kyverno ns (verify own TLS Secret exists with non-empty
+  tls.crt — the Secret kyverno-svc.kyverno.svc.kyverno-tls-pair that
+  kyverno-admission-controller mounts at boot)
+
+Both are namespace-scoped → Role + RoleBinding only, no cluster-scope grant needed.
+*/}}
+{{- $gate := .Values.webhookGate | default dict -}}
+{{- $enabled := true -}}
+{{- if hasKey $gate "enabled" -}}
+{{-   $enabled = $gate.enabled -}}
+{{- end -}}
+{{- if $enabled }}
+{{- $svcNs := (($gate.service).namespace) | default "kyverno" -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-webhook-gate
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    catalyst.openova.io/component: webhook-gate
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-webhook-gate
+  namespace: {{ $svcNs | quote }}
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    catalyst.openova.io/component: webhook-gate
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: [""]
+    resources: ["endpoints", "secrets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-webhook-gate
+  namespace: {{ $svcNs | quote }}
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    catalyst.openova.io/component: webhook-gate
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-webhook-gate
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ .Release.Name }}-webhook-gate
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}
