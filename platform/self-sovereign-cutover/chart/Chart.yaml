@@ -283,7 +283,39 @@ name: bp-self-sovereign-cutover
 # emptyDir pattern as Step 06's existing tmp mount. Without this,
 # G62 Gitea persistence pass silently fails its WARN path and the
 # live HR-patch gets reverted by Flux within ~5min.
-version: 0.1.42
+#
+# 0.1.43 (G66 #2615, 2026-05-31): ARCHITECTURAL PIVOT from Harbor
+# proxy-cache for ghcr.io to skopeo NATIVE PUSH for openova-io
+# images.
+#
+# Step 03 (harbor-prewarm) rewrite — Phase A: enumerate every
+# `ghcr.io/openova-io/*` image cluster-wide via kubectl, then skopeo
+# copy each into local Harbor at `registry.<sov>/openova-io/...`
+# using the original ghcr.io PAT (intact in flux-system/ghcr-pull
+# at step 03 time, before step 06 phase-0 strips ghcr.io entry).
+# Phase B (legacy proxy HEAD) retained for non-openova-io public
+# upstream images (cilium/cert-manager/postgres/etc.).
+#
+# Step 07 (catalyst-api-env-patch) update — REGISTRY value now bare
+# `${HARBOR_HOST}` instead of `${HARBOR_HOST}/proxy-ghcr`. Chart
+# templates render `{{global.imageRegistry}}/{{organization}}/<svc>:<tag>`
+# → final path `registry.<sov>/openova-io/openova/<svc>:<tag>` matches
+# Phase A's native-pushed path. G62 Gitea-persist pass writes the
+# same value to bootstrap-kit so Flux Kustomization preserves it.
+#
+# RCA (45min validation hw73 9d4a5b629fcc38bb 2026-05-30): Harbor's
+# `github-ghcr` proxy-cache adapter cannot authenticate to ghcr.io
+# even with a valid `ghp_*` PAT. ghcr.io requires the 2-step
+# `/token?scope=...` flow; Harbor's adapter doesn't execute it
+# correctly for our PAT setup. 14+ openova-io services affected.
+# Native push eliminates the dependency entirely + makes the
+# Sovereign carry IMMUTABLE pushed images post-cutover (sovereignty
+# target-state per docs/DOD.md Pillar 5 — deny-egress hold passes
+# genuinely, no pull dependency on upstream).
+#
+# Lockstep with bp-kyverno-policies 1.0.24 (G66 anyPattern: allow
+# both proxy-*/* and openova-io/* globs).
+version: 0.1.43
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

@@ -62,17 +62,25 @@ spec:
                 {{- end }}
       validate:
         message: >-
-          Container image does not match the allowed Harbor-proxy glob
-          {{ .Values.compliancePolicies.harborProxyPull.allowedImagePattern | default "harbor.*/proxy-*/*" | quote }}.
+          Container image does not match any allowed Harbor-source glob
+          (proxy-cache `*/proxy-*/*` or native-push `*/openova-io/*`).
           Re-tag the image to pull through the Sovereign's local Harbor
-          proxy (e.g. harbor.<sovereign-domain>/proxy-ghcr/...).
-        pattern:
-          spec:
-            # =(initContainers): match-if-exists; if Pod has no
-            # initContainers, this clause is a no-op (Kyverno pattern
-            # anchor semantics — `=(<key>)` is "conditional-on-presence").
-            =(initContainers):
-              - image: {{ .Values.compliancePolicies.harborProxyPull.allowedImagePattern | default "harbor.*/proxy-*/*" | quote }}
-            containers:
-              - image: {{ .Values.compliancePolicies.harborProxyPull.allowedImagePattern | default "harbor.*/proxy-*/*" | quote }}
+          (e.g. registry.<sov-fqdn>/proxy-ghcr/... or
+          registry.<sov-fqdn>/openova-io/openova/<svc>:<tag>).
+        # G66 (Refs #2615, 2026-05-31): anyPattern lets multiple globs
+        # validate independently — image passes if it matches ANY one.
+        # Required because openova-io application images are NATIVE-
+        # pushed (no /proxy-*/ segment) while upstream public images
+        # come via proxy-cache (have /proxy-*/ segment).
+        anyPattern:
+          {{- range $pat := .Values.compliancePolicies.harborProxyPull.allowedImagePatterns }}
+          - spec:
+              # =(initContainers): match-if-exists; if Pod has no
+              # initContainers, this clause is a no-op (Kyverno pattern
+              # anchor semantics — `=(<key>)` is "conditional-on-presence").
+              =(initContainers):
+                - image: {{ $pat | quote }}
+              containers:
+                - image: {{ $pat | quote }}
+          {{- end }}
 {{- end -}}

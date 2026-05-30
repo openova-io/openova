@@ -52,7 +52,21 @@ type: application
 # MARKER is the `/proxy-` path prefix (uniquely Harbor convention),
 # not the subdomain. META-AUDIT 10 candidate locked in for post-ZT:
 # policy-value-vs-actual-deployment consistency check.
-version: 1.0.23
+#
+# 1.0.24 (G66 #2615, 2026-05-31): switch validate.pattern (single
+# glob) → validate.anyPattern (list of globs) to allow BOTH:
+#   - `*/proxy-*/*` — proxy-cache mode (cilium/cert-manager/postgres)
+#   - `*/openova-io/*` — native-push mode (catalyst-api + openova-io
+#     services pushed by Step 03 Phase A skopeo into local Harbor)
+# RCA: G55-G64 chain assumed Harbor proxy-cache could authenticate
+# ghcr.io for openova-io PRIVATE packages. 45min hw73 validation
+# proved otherwise — Harbor's github-ghcr adapter doesn't execute
+# the 2-step token-endpoint flow ghcr.io requires. G66 pivots to
+# native push for openova-io (immutable sovereignty per Pillar 5)
+# while keeping proxy-cache for anonymous public registries.
+# Lockstep with bp-self-sovereign-cutover 0.1.43 (Step 03 Phase A
+# skopeo native-push + Step 07 REGISTRY drops /proxy-ghcr/ suffix).
+version: 1.0.24
 appVersion: "1.0.2"
 keywords: [catalyst, blueprint, kyverno, policy, compliance, audit]
 maintainers:

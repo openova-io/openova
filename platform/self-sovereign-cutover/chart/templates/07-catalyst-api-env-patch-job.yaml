@@ -97,11 +97,23 @@ data:
             # would be denied by harbor-proxy-pull policy (verified
             # live hw68 v17 G60 admission test).
             HARBOR_HOST=$(echo "${HARBOR_PUBLIC_URL}" | sed -e 's|^https\?://||' -e 's|/.*$||')
-            # chart templates render image as registry/organization/comp:tag
-            # so REGISTRY is JUST the host+proxy prefix (NOT including
-            # org path) — chart's images.organization (openova-io/openova)
-            # concatenates downstream of the registry value.
-            REGISTRY="${HARBOR_HOST}/proxy-ghcr"
+            # G66 #2615 (2026-05-31): REGISTRY is `${HARBOR_HOST}` BARE —
+            # NO `/proxy-ghcr/` suffix. Step 03 Phase A skopeo-pushes
+            # openova-io images NATIVELY into local Harbor at path
+            # ${HARBOR_HOST}/openova-io/openova/<svc>:<tag>. Chart
+            # templates render image as
+            # ${global.imageRegistry}/${images.organization}/<comp>:<tag>
+            # — with REGISTRY=${HARBOR_HOST} and images.organization=
+            # openova-io/openova, the final path matches Phase A's
+            # pushed path exactly. The previous `/proxy-ghcr/` suffix
+            # required Harbor proxy-cache adapter to auth ghcr.io —
+            # which doesn't work (Harbor github-ghcr adapter cannot do
+            # the 2-step token-endpoint flow ghcr.io requires for
+            # private packages; 45min validation hw73 2026-05-30).
+            # Phase A native push eliminates the dependency entirely;
+            # Sovereign carries IMMUTABLE pushed images post-cutover
+            # (docs/DOD.md Pillar 5 sovereignty target-state).
+            REGISTRY="${HARBOR_HOST}"
             echo "[catalyst-api-env-patch] G61 HR patch ${HR_NAMESPACE}/${HR_NAME} spec.values.global.imageRegistry=${REGISTRY}"
             PATCH=$(printf '{"spec":{"values":{"global":{"imageRegistry":"%s"}}}}' "${REGISTRY}")
             kubectl patch hr "${HR_NAME}" \

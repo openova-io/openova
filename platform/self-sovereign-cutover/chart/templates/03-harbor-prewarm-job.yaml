@@ -1,9 +1,32 @@
 {{- /*
 Step 03 — harbor-prewarm.
 
-For each image in .Values.prewarm.images, issues a HEAD against the
-local Harbor proxy-cache so the upstream image lands in the cache
-BEFORE the cluster's first reconcile reaches for it.
+Phase A (G66 #2615, 2026-05-31): NATIVE PUSH openova-io application
+images into local Harbor via skopeo, using the original ghcr.io PAT
+from flux-system/ghcr-pull (intact at step 03 time, BEFORE step 04
+pivot and step 06 strip). Eliminates Harbor proxy-cache dependency
+on ghcr.io authentication — Harbor's github-ghcr adapter cannot
+auth ghcr.io reliably even with a valid PAT (45min validation
+hw73 9d4a5b629fcc38bb 2026-05-30: tried github-ghcr + docker-registry
+types, multiple usernames, manual PUT with verified-good PAT — all
+401 from upstream because ghcr.io requires the 2-step
+`/token?scope=...` flow that Harbor's adapter doesn't execute).
+
+The post-cutover Sovereign carries IMMUTABLE pushed images for every
+openova-io component — sovereignty target-state per docs/DOD.md
+Pillar 5. The deny-egress hold against ghcr.io now passes
+genuinely (no pull dependency on upstream).
+
+Phase B (existing): HEAD against local Harbor proxy-cache for
+non-openova-io upstream images (cilium, cert-manager, kyverno,
+loki, postgres, redis, etc.) — proxy-cache works fine for these
+because they're public anonymous-pull registries (quay.io,
+docker hub, registry.k8s.io).
+
+Source list (Phase A): dynamic enumeration via kubectl walking
+every Pod's container images cluster-wide; deduplicates by
+`ghcr.io/openova-io/*` prefix. Phase B list comes from
+.Values.prewarm.images verbatim (legacy contract — proxy-* paths).
 
 Image phase: pre.
 */ -}}
@@ -29,11 +52,17 @@ data:
     activeDeadlineSeconds: {{ .Values.stepTimeouts.harborPrewarmSeconds }}
     containers:
       - name: harbor-prewarm
-        image: {{ include "bp-self-sovereign-cutover.image" (dict "repository" .Values.images.curl.repository "tag" .Values.images.curl.tag "cutoverPhase" "pre" "Values" .Values) }}
+        # G66: switch from curl-only to alpine/k8s (has kubectl) + apt
+        # install skopeo at runtime. alpine/k8s is already the canonical
+        # cutover-step image carrying kubectl; adding skopeo via apk
+        # keeps the image small + composable.
+        image: {{ include "bp-self-sovereign-cutover.image" (dict "repository" .Values.images.kubectl.repository "tag" .Values.images.kubectl.tag "cutoverPhase" "pre" "Values" .Values) }}
         imagePullPolicy: IfNotPresent
         env:
           - name: HARBOR_INTERNAL_URL
             value: {{ .Values.sovereign.harborInternalURL | quote }}
+          - name: HARBOR_PUBLIC_URL
+            value: {{ .Values.sovereign.harborPublicURL | quote }}
           - name: HARBOR_USERNAME
             valueFrom:
               secretKeyRef:
@@ -45,15 +74,103 @@ data:
               secretKeyRef:
                 name: {{ .Values.harbor.adminSecretRef.name }}
                 key: {{ .Values.harbor.adminSecretRef.passwordKey }}
+          # G66: GHCR PAT from flux-system/ghcr-pull (intact at step 03
+          # time, BEFORE step 06 phase-0 strips ghcr.io entry). The
+          # dockerconfigjson auth field carries `<user>:<PAT>` base64-
+          # encoded — Phase A parses it to extract the PAT for skopeo
+          # --src-creds.
+          - name: GHCR_DOCKERCONFIG
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.harbor.ghcrSecretRef.name }}
+                key: {{ .Values.harbor.ghcrSecretRef.dockerConfigKey }}
+          - name: GHCR_DOCKERCONFIG_NAMESPACE
+            value: {{ .Values.harbor.ghcrSecretRef.namespace | quote }}
         volumeMounts:
           - name: prewarm
             mountPath: /work
             readOnly: true
+          - name: tmp
+            mountPath: /tmp
         command: ["/bin/sh", "-c"]
         args:
           - |
             set -eu
             : "${HARBOR_USERNAME:=admin}"
+
+            # ─── Phase A: skopeo native push of openova-io images ──────
+            echo "[harbor-prewarm] Phase A: install skopeo + enumerate openova-io images"
+            apk add --no-cache skopeo jq >/dev/null 2>&1 || true
+            if ! command -v skopeo >/dev/null 2>&1; then
+              echo "[harbor-prewarm] FATAL: skopeo not available after apk install"
+              exit 1
+            fi
+            if ! command -v jq >/dev/null 2>&1; then
+              echo "[harbor-prewarm] FATAL: jq not available after apk install"
+              exit 1
+            fi
+            if ! command -v kubectl >/dev/null 2>&1; then
+              echo "[harbor-prewarm] FATAL: kubectl missing from image"
+              exit 1
+            fi
+
+            # Extract GHCR PAT from dockerconfigjson.
+            # GHCR_DOCKERCONFIG may be base64-encoded (some secret keys
+            # return raw bytes; ENV gives us raw stringData). Try decode
+            # then fall back to raw.
+            dc_decoded=$(printf '%s' "${GHCR_DOCKERCONFIG}" | base64 -d 2>/dev/null || printf '%s' "${GHCR_DOCKERCONFIG}")
+            # Locate the ghcr.io entry's auth (base64 of "<user>:<PAT>").
+            ghcr_auth_b64=$(printf '%s' "${dc_decoded}" | jq -r '.auths["ghcr.io"].auth // empty')
+            if [ -z "${ghcr_auth_b64}" ]; then
+              echo "[harbor-prewarm] FATAL: no ghcr.io auth entry in ${GHCR_DOCKERCONFIG_NAMESPACE}/ghcr-pull dockerconfigjson — step 06 phase-0 may have already pivoted (race with cutover order)"
+              # List what auths ARE present for diagnostic
+              printf '%s' "${dc_decoded}" | jq -r '.auths | keys[]' 2>&1 | sed 's/^/  auth-host: /'
+              exit 1
+            fi
+            ghcr_user=$(printf '%s' "${ghcr_auth_b64}" | base64 -d | awk -F: '{print $1}')
+            ghcr_pat=$(printf '%s' "${ghcr_auth_b64}" | base64 -d | awk -F: '{print $2}')
+            echo "[harbor-prewarm] ghcr.io auth extracted: user=${ghcr_user} pat=${ghcr_pat:0:8}... (len=${#ghcr_pat})"
+
+            HARBOR_HOST=$(printf '%s' "${HARBOR_PUBLIC_URL}" | sed -e 's,^https\?://,,' -e 's,/$,,')
+
+            # Enumerate openova-io images from all Pods cluster-wide.
+            # Capture initContainers + containers + ephemeralContainers.
+            echo "[harbor-prewarm] enumerating openova-io images across cluster"
+            openova_images=$(kubectl get pods -A -o json | \
+              jq -r '.items[].spec | (.containers // [])[].image, (.initContainers // [])[].image, (.ephemeralContainers // [])[].image' | \
+              grep '^ghcr.io/openova-io/' | sort -u)
+            count=$(printf '%s\n' "${openova_images}" | grep -c . || true)
+            echo "[harbor-prewarm] found ${count} unique openova-io images to native-push"
+
+            # Native push each via skopeo copy.
+            push_ok=0
+            push_fail=0
+            for upstream in ${openova_images}; do
+              # Convert ghcr.io/X/Y:tag → HARBOR_HOST/X/Y:tag
+              # (drop ghcr.io/ prefix, keep rest identical)
+              local_ref="${HARBOR_HOST}/${upstream#ghcr.io/}"
+              echo "[harbor-prewarm] copy ${upstream} → ${local_ref}"
+              if skopeo copy \
+                --src-creds="${ghcr_user}:${ghcr_pat}" \
+                --dest-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
+                --dest-tls-verify=true \
+                --src-tls-verify=true \
+                "docker://${upstream}" "docker://${local_ref}" 2>&1 | sed 's/^/  /'; then
+                push_ok=$((push_ok+1))
+                echo "[harbor-prewarm] OK ${upstream}"
+              else
+                push_fail=$((push_fail+1))
+                echo "[harbor-prewarm] FAIL ${upstream}"
+              fi
+            done
+            echo "[harbor-prewarm] Phase A complete: push_ok=${push_ok} push_fail=${push_fail}"
+            if [ "${push_fail}" -gt 0 ]; then
+              echo "[harbor-prewarm] FATAL: ${push_fail} openova-io image(s) failed to push — Sovereign cannot survive ghcr.io deny-egress post-cutover"
+              exit 1
+            fi
+
+            # ─── Phase B (legacy): HEAD against proxy-cache for non-openova-io ─
+            echo "[harbor-prewarm] Phase B: HEAD against proxy-cache for upstream images"
             base="${HARBOR_INTERNAL_URL}/v2"
             ok=0
             fail=0
@@ -71,20 +188,23 @@ data:
                 *)           fail=$((fail+1)); echo "[harbor-prewarm] MISS ${ref} (${code})" ;;
               esac
             done < /work/prewarm.list
-            echo "[harbor-prewarm] primed=${ok} failed=${fail}"
+            echo "[harbor-prewarm] Phase B complete: primed=${ok} failed=${fail}"
             total=$((ok+fail))
             if [ "${total}" -gt 0 ] && [ "${fail}" -gt $((total/4)) ]; then
-              echo "[harbor-prewarm] failure rate exceeds 25% — failing step"
+              echo "[harbor-prewarm] Phase B failure rate exceeds 25% — failing step"
               exit 1
             fi
         resources:
-          requests: { cpu: 100m, memory: 128Mi }
-          limits:   { memory: 512Mi }
+          # G66: bump for skopeo image-copy work (downloads layers).
+          requests: { cpu: 500m, memory: 512Mi }
+          limits:   { memory: 2Gi }
         securityContext:
           runAsNonRoot: true
           runAsUser: 1000
           allowPrivilegeEscalation: false
-          readOnlyRootFilesystem: false
+          # G66: skopeo needs writable /tmp for layer staging
+          # (emptyDir mount below provides it; root FS stays read-only).
+          readOnlyRootFilesystem: true
           capabilities:
             drop: ["ALL"]
     volumes:
@@ -94,3 +214,5 @@ data:
           items:
             - key: prewarm.list
               path: prewarm.list
+      - name: tmp
+        emptyDir: {}

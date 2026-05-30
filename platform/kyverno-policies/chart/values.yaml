@@ -151,14 +151,25 @@ compliancePolicies:
     # `/proxy-<upstream>/<path>` URL pattern, NOT the `harbor.*` subdomain.
     # Sovereign HTTPRoute exposes Harbor at `registry.<sov-fqdn>` (per
     # bp-harbor HTTPRoute hostname, e.g. `registry.hw71.omani.works`).
-    # G60's `harbor.*` glob was a copy-paste from the original regex
-    # without checking the actual deployed Harbor subdomain — verified
-    # live hw71 14:46Z when G62 chain finally landed harbor URLs on the
-    # catalyst-api Deployment and the policy still denied because the
-    # Harbor URL was `registry.<sov>/proxy-ghcr/...` not `harbor.<sov>/...`.
-    # `/proxy-` prefix is uniquely Harbor's convention so this glob
-    # remains operationally secure.
+    #
+    # G66 (Refs #2615, 2026-05-31): allow registry.*/openova-io/* in
+    # ADDITION to */proxy-*/* — Step 03 Phase A skopeo-PUSHES openova-io
+    # application images NATIVELY into local Harbor (not via proxy-cache)
+    # because Harbor's github-ghcr proxy-cache adapter cannot auth
+    # ghcr.io reliably. Native-push path is `registry.<sov>/openova-io/
+    # openova/<svc>:<tag>` — distinct from `registry.<sov>/proxy-*/...`.
+    # Both are LEGITIMATE post-cutover image sources from the local
+    # Sovereign Harbor: proxy-cache for anonymous public registries
+    # (quay/docker/k8s/gcr) + native push for private openova-io.
+    #
+    # Switched single `allowedImagePattern` (string) → `allowedImagePatterns`
+    # (list) + Kyverno's `anyPattern` to support multiple globs. The
+    # legacy single-string `allowedImagePattern` is retained for backward
+    # compatibility (used as fallback when list is empty).
     allowedImagePattern: "*/proxy-*/*"
+    allowedImagePatterns:
+      - "*/proxy-*/*"           # proxy-cache mode (cilium, cert-manager, postgres, etc.)
+      - "*/openova-io/*"        # native-push mode (catalyst-api + all openova-io services post-cutover)
 
   imageTagPinned:
     enabled: true
