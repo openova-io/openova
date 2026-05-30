@@ -57,7 +57,13 @@ spec:
   chart:
     spec:
       chart: bp-cnpg
-      version: 1.0.5
+      # 1.0.6 (G59 #2610, 2026-05-30): G21 webhookCertBootstrap
+      # disabled. Hw66 live RCA: G21 self-signed cert in mounted
+      # Secret conflicted with cnpg-operator-internal cnpg-ca-secret
+      # CA written to MutatingWebhookConfiguration caBundle → x509
+      # verify failed → all Cluster CR admissions denied. G53
+      # webhook-gate remains as readiness signal.
+      version: 1.0.6
       sourceRef:
         kind: HelmRepository
         name: bp-cnpg

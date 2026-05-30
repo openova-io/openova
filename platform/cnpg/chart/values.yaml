@@ -17,8 +17,38 @@
 # to consume at pod-creation time. See
 # templates/webhook-cert-bootstrap.yaml for the rationale (kubelet
 # Secret-cache sync race under apiserver load).
+#
+# G59 (Refs #2610, 2026-05-30): DISABLE BY DEFAULT — META-AUDIT 1
+# sub-class 8 surfaced live on hw66 (e78e84ce2f232acc) 10:42Z. G21's
+# self-signed Issuer + pre-minted Secret CONFLICTS with CNPG operator's
+# internal `cnpg-ca-secret` auto-CA-bootstrap workflow:
+#   - G21 produces self-signed LEAF cert (CN==Issuer), writes to Secret
+#   - Mounted cnpg-webhook-cert Secret contains that leaf
+#   - cnpg-operator generates its OWN internal `cnpg-ca-secret`
+#     (proper CA with isCA:true) + writes MutatingWebhookConfiguration
+#     caBundle to be the cnpg-ca-secret CA chain
+#   - Apiserver verifies served leaf (G21 self-signed) against MWC
+#     caBundle (operator's cnpg-ca-secret) → x509 chain mismatch:
+#     "parent certificate cannot sign this kind of certificate"
+# Live verified hw66: ALL Cluster CR admissions fail (bp-catalyst-
+# platform + bp-newapi Helm install denied). Even after kubectl-patch
+# of MWC caBundle to match served cert, apiserver still rejects
+# because self-signed LEAF can't act as CA.
+#
+# Resolution: disable G21 entirely. Trust upstream cnpg-operator's
+# self-managed cert + cnpg-ca-secret flow which is internally
+# consistent (cert it serves matches caBundle it writes). G53 (#2604)
+# post-install webhook-gate Job remains to handle the readiness race
+# G21 was originally addressing (polling Endpoints + caBundle non-
+# empty + TLS Secret non-empty). Kubelet Secret-cache race on cold
+# install is mitigated by G53's poll loop + operator's natural
+# restart-on-failure cycle.
+#
+# β-flag grep before disable (60s): no upstream cnpg-chart flag for
+# "trust pre-existing Secret, don't regen". γ (disable G21) is the
+# minimum-intervention fix.
 webhookCertBootstrap:
-  enabled: true
+  enabled: false
   certDuration: 8760h
   certRenewBefore: 720h
   # Pinned to the in-Sovereign Harbor proxy-cache per

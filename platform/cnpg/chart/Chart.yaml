@@ -1,6 +1,14 @@
 apiVersion: v2
 name: bp-cnpg
-version: 1.0.5
+# 1.0.6 (G59 #2610, 2026-05-30): disable G21 webhookCertBootstrap by
+# default. Live RCA on hw66 (e78e84ce2f232acc) 10:42Z: G21's
+# self-signed cert in mounted Secret CONFLICTS with operator-internal
+# cnpg-ca-secret CA written to MutatingWebhookConfiguration caBundle.
+# Apiserver x509 verify fails ("parent certificate cannot sign this
+# kind of certificate") → bp-catalyst-platform + bp-newapi Helm
+# install denied. Trust upstream operator's self-managed cert flow;
+# G53 webhook-gate Job remains as the readiness signal.
+version: 1.0.6
 description: |
   Catalyst-curated Blueprint umbrella chart for CloudNativePG. Depends on
   the upstream `cloudnative-pg` chart as a Helm subchart so
