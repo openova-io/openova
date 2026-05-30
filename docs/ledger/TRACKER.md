@@ -1465,3 +1465,22 @@ Lesson: when copying YAML structure between similar Jobs, parity audit (volumes/
 **META-AUDIT 12 candidate (NEW)**: catalyst-build deploy-step auto-bump must update BOTH `api-deployment.yaml` (templated, Sovereign-Helm) AND `api-deployment-kustomize.yaml` (literal, mothership-Kustomize). Currently only handles the former. File-header comment claims both are updated but reality says no. Discovered while unblocking G65 (mothership stuck at 7468a69, pre-G65). Manual bump via efacac8e shipped this session.
 
 **Session tally**: 18 sub-classes (+12 auto-bump-incompleteness) / 13 wipes / 11 G-fixes shipped (G55-G65). hw73 = first prov with full G55-G65 stack from boot.
+
+| Time (UTC) | hw## | id | Status | Verifier | Cause / G-fix |
+|---|---|---|---|---|---|
+| 18:00-18:15Z | hw73 | eae69d9569e09d03 | LIVE 78/81 (G65 validated, G66 exposed) | 78/81 | G65 ARCHITECTURALLY WORKS on fresh prov: cilium-operator boots with `enable-gateway-api='true'` AND CRDs present from boot → GatewayClass+Gateway PROGRAMMED=True → sovereign-wildcard cert LE Prod → 54/54 HRs Ready. **But G66 EXPOSED**: Harbor proxy-cache adapter for github-ghcr CANNOT auth to ghcr.io even with valid PAT. catalyst-api Deployment pod ImagePullBackOff → 0/1 → api.hw73 → 503. 14+ openova-io services affected. RCA confirmed: ghcr.io requires 2-step token-endpoint flow that Harbor's github-ghcr adapter isn't doing correctly. |
+
+**G66 RCA finding (deeper than session brief)**:
+Initial hypothesis was "Step 02 reads pivoted secret" (Step 02 reads correct PAT but Harbor proxy adapter fails). Actual finding (45min validation):
+- tfvars `ghcr_pull_token` = real `ghp_*` PAT (verified via api.github.com/user as `emrahbaysal`)
+- Manually PUT correct creds to Harbor registry-1 with `github-ghcr` type → still 401 from upstream
+- Tried `docker-registry` type → same 401
+- Tried multiple usernames (`_`, `openova-bot`, `emrahbaysal`) → all 401
+- Direct `curl -u user:PAT https://ghcr.io/v2/...` always 401 (ghcr.io requires 2-step token endpoint)
+- openova/catalyst-api ghcr.io package is PRIVATE → anonymous bearer returns empty/403
+
+Architectural pivot pending lead decision:
+- **Option X**: rewrite Step 03 as skopeo native PUSH from ghcr.io → local Harbor (no proxy auth dependency, sovereign carries immutable images). ~2h ship.
+- **Option Z**: make openova-io packages PUBLIC on ghcr.io. 5min ship. Cons: exposes proprietary images.
+
+**Session tally**: 19 sub-classes (+12 auto-bump; +13 Harbor-proxy-cache-auth) / 13 wipes / 11 G-fixes shipped (G55-G65). G66 in flight pending lead architectural decision.
