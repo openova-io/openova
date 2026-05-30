@@ -1,0 +1,193 @@
+===========================================================
+ Sovereign DoD verifier — deployment 6a1ee682b987b202 (hw75.omani.works)
+ Provider: huawei
+ 2026-05-30T20:45:25Z
+===========================================================
+----- L1: deployment record -----
+✅ L1.1 deployment.status: ready
+✅ L1.2 handoverFiredAt: 2026-05-30T20:35:25.054506516Z
+✅ L1.3 controlPlaneIP: 212.72.24.92
+✅ L1.4 loadBalancerIP: 212.72.24.14
+----- L2: kubernetes (both regions) -----
+✅ L2.1 region-A kubeconfig exists
+✅ L2.2 region-B kubeconfig exists
+✅ L2.3 region-A nodes Ready: 5 (>= 4)
+✅ L2.4 region-B nodes Ready: 5 (>= 4)
+----- L3: HelmReleases (live, re-evaluated NOW) -----
+✅ L3 HR bp-cilium Ready: True
+✅ L3 HR bp-cert-manager Ready: True
+✅ L3 HR bp-cert-manager-powerdns-webhook Ready: True
+✅ L3 HR bp-flux Ready: True
+✅ L3 HR bp-gateway-api Ready: True
+✅ L3 HR bp-gitea Ready: True
+✅ L3 HR bp-grafana Ready: True
+✅ L3 HR bp-harbor Ready: True
+✅ L3 HR bp-keycloak Ready: True
+✅ L3 HR bp-kyverno Ready: True
+✅ L3 HR bp-kyverno-policies Ready: True
+✅ L3 HR bp-loki Ready: True
+✅ L3 HR bp-mgmt-vcluster Ready: True
+✅ L3 HR bp-rtz-vcluster Ready: True
+✅ L3 HR bp-dmz-vcluster Ready: True
+✅ L3 HR bp-cnpg Ready: True
+✅ L3 HR bp-openbao Ready: True
+✅ L3 HR bp-external-secrets Ready: True
+✅ L3 HR bp-external-secrets-stores Ready: True
+✅ L3 HR bp-powerdns Ready: True
+✅ L3 HR bp-external-dns Ready: True
+✅ L3 HR bp-falco Ready: True
+✅ L3 HR bp-trivy Ready: True
+✅ L3 HR bp-sigstore Ready: True
+✅ L3 HR bp-syft-grype Ready: True
+✅ L3 HR bp-nats-jetstream Ready: True
+✅ L3 HR bp-valkey Ready: True
+✅ L3 HR bp-seaweedfs Ready: True
+✅ L3 HR bp-crossplane Ready: True
+✅ L3 HR bp-crossplane-claims Ready: True
+✅ L3 HR bp-mimir Ready: True
+✅ L3 HR bp-tempo Ready: True
+✅ L3 HR bp-alloy Ready: True
+✅ L3 HR bp-coraza Ready: True
+✅ L3 HR bp-newapi Ready: True
+✅ L3 HR bp-vllm Ready: True
+✅ L3 HR bp-opentelemetry Ready: True
+✅ L3 HR bp-opentelemetry-operator Ready: True
+✅ L3 HR bp-openova-flow-server Ready: True
+✅ L3 HR bp-openova-flow-emitter Ready: True
+✅ L3 HR bp-reloader Ready: True
+✅ L3 HR bp-reflector Ready: True
+✅ L3 HR bp-sealed-secrets Ready: True
+✅ L3 HR bp-vpa Ready: True
+✅ L3 HR bp-guacamole Ready: True
+✅ L3 HR bp-k8s-ws-proxy Ready: True
+✅ L3 HR bp-sandbox Ready: True
+✅ L3 HR bp-catalyst-platform Ready: True
+✅ L3 HR bp-continuum Ready: True
+✅ L3 HRs Ready=False (excluding Suspended): 0
+✅ L3 HRs Ready=Unknown (in-flight rollback): 0
+----- L4: catalyst control-plane pods -----
+✅ L4 catalyst-system/catalyst-api container Ready: true
+✅ L4 catalyst-system/catalyst-ui container Ready: true
+✅ L4 catalyst-system/catalyst-catalog container Ready: true
+✅ L4 catalyst-system/application-controller container Ready: true
+✅ L4 catalyst-system/organization-controller container Ready: true
+✅ L4 catalyst-system/environment-controller container Ready: true
+✅ L4 catalyst-system/useraccess-controller container Ready: true
+✅ L4 catalyst-system/marketplace-api container Ready: true
+----- L5: end-user HTTPS surfaces -----
+✅ L5 GET https://console.hw75.omani.works/ → HTTP 200
+✅ L5 GET https://api.hw75.omani.works/ → HTTP 404
+✅ L5 GET https://auth.hw75.omani.works/ → HTTP 302
+✅ L5 GET https://gitea.hw75.omani.works/ → HTTP 200
+✅ L5 GET https://harbor.hw75.omani.works/ → HTTP 404
+✅ L5 GET https://bao.hw75.omani.works/ → HTTP 307
+✅ L5 GET https://marketplace.hw75.omani.works/ → HTTP 200
+✅ L5 GET https://pdns.hw75.omani.works/ → HTTP 404
+✅ L5 console TLS issuer: C = US, O = Let's Encrypt, CN = YR1 (LE prod)
+----- L6: zero-touch audit -----
+✅ L6 surgical edits on HelmReleases: 0
+error: required resource not specified
+error: required resource not specified
+error: required resource not specified
+    bootstrap-window annotations in ns/kube-system (whitelisted):
+      kube-system/Deployment/cilium-operator restartedAt=2026-05-30T20:35:19Z [G28 sovereign-tls cilium-envoy-tls-restart Job — canonical]
+      kube-system/DaemonSet/cilium-envoy restartedAt=2026-05-30T20:35:27Z [G28 sovereign-tls cilium-envoy-tls-restart Job — canonical]
+error: required resource not specified
+    bootstrap-window annotations in ns/flux-system (whitelisted):
+      flux-system/Deployment/source-controller restartedAt=2026-05-31T04:04:10+08:00 [WITHIN bootstrap window — whitelisted]
+✅ L6 kubectl-rollout-restart annotations across tracked ns: 0
+    L6 note: 3 bootstrap-window annotation(s) within startedAt + 1800s — whitelisted per G31 #2587.
+✅ L6 surgical edits in ns/catalyst-system: 0
+✅ L6 surgical edits in ns/cnpg-system: 0
+✅ L6 surgical edits in ns/kube-system: 0
+
+============================================================
+Total checks: 81
+Passed:       81
+Failed:       0
+============================================================
+
+✅ L1.1 deployment.status: ready
+✅ L1.2 handoverFiredAt: 2026-05-30T20:35:25.054506516Z
+✅ L1.3 controlPlaneIP: 212.72.24.92
+✅ L1.4 loadBalancerIP: 212.72.24.14
+✅ L2.1 region-A kubeconfig exists
+✅ L2.2 region-B kubeconfig exists
+✅ L2.3 region-A nodes Ready: 5 (>= 4)
+✅ L2.4 region-B nodes Ready: 5 (>= 4)
+✅ L3 HR bp-cilium Ready: True
+✅ L3 HR bp-cert-manager Ready: True
+✅ L3 HR bp-cert-manager-powerdns-webhook Ready: True
+✅ L3 HR bp-flux Ready: True
+✅ L3 HR bp-gateway-api Ready: True
+✅ L3 HR bp-gitea Ready: True
+✅ L3 HR bp-grafana Ready: True
+✅ L3 HR bp-harbor Ready: True
+✅ L3 HR bp-keycloak Ready: True
+✅ L3 HR bp-kyverno Ready: True
+✅ L3 HR bp-kyverno-policies Ready: True
+✅ L3 HR bp-loki Ready: True
+✅ L3 HR bp-mgmt-vcluster Ready: True
+✅ L3 HR bp-rtz-vcluster Ready: True
+✅ L3 HR bp-dmz-vcluster Ready: True
+✅ L3 HR bp-cnpg Ready: True
+✅ L3 HR bp-openbao Ready: True
+✅ L3 HR bp-external-secrets Ready: True
+✅ L3 HR bp-external-secrets-stores Ready: True
+✅ L3 HR bp-powerdns Ready: True
+✅ L3 HR bp-external-dns Ready: True
+✅ L3 HR bp-falco Ready: True
+✅ L3 HR bp-trivy Ready: True
+✅ L3 HR bp-sigstore Ready: True
+✅ L3 HR bp-syft-grype Ready: True
+✅ L3 HR bp-nats-jetstream Ready: True
+✅ L3 HR bp-valkey Ready: True
+✅ L3 HR bp-seaweedfs Ready: True
+✅ L3 HR bp-crossplane Ready: True
+✅ L3 HR bp-crossplane-claims Ready: True
+✅ L3 HR bp-mimir Ready: True
+✅ L3 HR bp-tempo Ready: True
+✅ L3 HR bp-alloy Ready: True
+✅ L3 HR bp-coraza Ready: True
+✅ L3 HR bp-newapi Ready: True
+✅ L3 HR bp-vllm Ready: True
+✅ L3 HR bp-opentelemetry Ready: True
+✅ L3 HR bp-opentelemetry-operator Ready: True
+✅ L3 HR bp-openova-flow-server Ready: True
+✅ L3 HR bp-openova-flow-emitter Ready: True
+✅ L3 HR bp-reloader Ready: True
+✅ L3 HR bp-reflector Ready: True
+✅ L3 HR bp-sealed-secrets Ready: True
+✅ L3 HR bp-vpa Ready: True
+✅ L3 HR bp-guacamole Ready: True
+✅ L3 HR bp-k8s-ws-proxy Ready: True
+✅ L3 HR bp-sandbox Ready: True
+✅ L3 HR bp-catalyst-platform Ready: True
+✅ L3 HR bp-continuum Ready: True
+✅ L3 HRs Ready=False (excluding Suspended): 0
+✅ L3 HRs Ready=Unknown (in-flight rollback): 0
+✅ L4 catalyst-system/catalyst-api container Ready: true
+✅ L4 catalyst-system/catalyst-ui container Ready: true
+✅ L4 catalyst-system/catalyst-catalog container Ready: true
+✅ L4 catalyst-system/application-controller container Ready: true
+✅ L4 catalyst-system/organization-controller container Ready: true
+✅ L4 catalyst-system/environment-controller container Ready: true
+✅ L4 catalyst-system/useraccess-controller container Ready: true
+✅ L4 catalyst-system/marketplace-api container Ready: true
+✅ L5 GET https://console.hw75.omani.works/ → HTTP 200
+✅ L5 GET https://api.hw75.omani.works/ → HTTP 404
+✅ L5 GET https://auth.hw75.omani.works/ → HTTP 302
+✅ L5 GET https://gitea.hw75.omani.works/ → HTTP 200
+✅ L5 GET https://harbor.hw75.omani.works/ → HTTP 404
+✅ L5 GET https://bao.hw75.omani.works/ → HTTP 307
+✅ L5 GET https://marketplace.hw75.omani.works/ → HTTP 200
+✅ L5 GET https://pdns.hw75.omani.works/ → HTTP 404
+✅ L5 console TLS issuer: C = US, O = Let's Encrypt, CN = YR1 (LE prod)
+✅ L6 surgical edits on HelmReleases: 0
+✅ L6 kubectl-rollout-restart annotations across tracked ns: 0
+✅ L6 surgical edits in ns/catalyst-system: 0
+✅ L6 surgical edits in ns/cnpg-system: 0
+✅ L6 surgical edits in ns/kube-system: 0
+
+✅ TRUE READY — all 81 checks pass.
+   Paste this full output into the issue comment to satisfy the §True-DoD contract.
