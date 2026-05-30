@@ -1436,3 +1436,23 @@ Lesson: when copying YAML structure between similar Jobs, parity audit (volumes/
 **Pattern self-reflection per lead reviewer-1**: 4 implementation/config-bug fixes after new G-class ships (G60 parser → G61 parser → G63 mount → G64 glob). NOT architectural recurrence — implementation-detail recurrence. META-AUDIT 9 (chart-template parity-check) + META-AUDIT 10 (policy-value-vs-actual-deployment) both candidate for post-ZT discipline.
 
 **Session tally**: 16 sub-classes / 11 wipes / 9 G-fixes shipped (G55-G64). hw72 carries cumulative learning. Convergence: hw68 4F → hw69 1F arch → hw70 1F impl-bug → hw71 1F impl-bug → hw72 expected **81/81**.
+
+---
+
+## 🟠 Session 2026-05-30→31 continued — G65 ARCHITECTURAL FIX + hw72 outcome + ZT#2 attempt #15
+
+| Time (UTC) | hw## | id | Status | Verifier | Cause / G-fix |
+|---|---|---|---|---|---|
+| 15:41→16:35Z | hw72 | 9d4a5b629fcc38bb | **DEAD (self-mutated, cannot count for ZT)** | N/A | **NEW ARCHITECTURAL BUG class — G65**: Cilium operator at slot 01 starts BEFORE gateway-api CRDs land → silently skips gateway-controller registration → GatewayClass + Gateway stuck ACCEPTED/PROGRAMMED=Unknown forever → sovereign-wildcard cert never minted → handover never fires. At +48min status=phase1-watching with 50/54 HRs True, no Gateway, no cert. **Self-disclosed mutation**: `kubectl delete pod cilium-operator-*` proved RCA in 5sec — new pod with CRDs present brought gateway-controller live + all HTTPRoutes reconciled. The mutation invalidates L6 zero-touch audit for this attempt. |
+
+| G# | Issue | PR/Commit | Subject | Status |
+|---|---|---|---|---|
+| **G65** | #2614 | fd378e3e | A: Flux dependsOn reversed — bp-cilium dependsOn bp-gateway-api (CRDs install first). B: cloud-init huawei — gateway-api CRDs install BEFORE cilium helm install + `--set gatewayAPI.enabled=true` so operator boots with correct config AND CRDs present. **G65-A alone insufficient**: Flux Helm-upgrade of bp-cilium does NOT roll the operator pod (no checksum/config annotation on upstream Cilium chart's operator template, replicaset hash unchanged on hw72). Must boot operator correctly from cloud-init. Hetzner provider has same race-vulnerable pattern (follow-up). | shipped |
+
+**META-AUDIT 11 candidate (NEW class — CRD-vs-operator-startup-race)**: For ALL operators that read CRD-feature-flags at startup (cilium/cnpg/kyverno/cert-manager/otel-operator/etc.), verify their parent chart dependsOn the CRD-installer chart. Pattern: operator silently skips controller subsys when CRDs absent; never re-discovers. Same META-AUDIT class as kyverno-vs-kyverno-policies (#2019).
+
+**Why hw65-hw71 passed**: race-dependent. Either older cilium operator-image was more forgiving (auto-retry on missing CRDs) OR Flux install ordering was variably correct. The architectural fix is mandatory regardless — race exposure was the bug, not the symptom.
+
+**Pattern self-reflection**: G65 is genuinely NEW class (CRD-vs-operator-startup-race), not symptom-chase. Discovered ONLY because hw72 happened to lose the race AT exactly the wrong moment. Convergence trajectory: hw68 4F → hw69 1F arch → hw70 1F impl → hw71 1F config → hw72 1F **NEW ARCH class** → hw73 expected 81/81 with G65 baked.
+
+**Session tally**: 17 sub-classes / 12 wipes / 10 G-fixes shipped (G55-G65). Next: chart auto-bump on G65, wipe hw72, POST hw73 with G55+G57+G58+G59+G60+G61+G62+G63+G64+G65 = 10-fix stack for ZT#2 attempt #15.
