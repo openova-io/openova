@@ -1287,3 +1287,31 @@ Founder mandate (verbatim): *"work non stop until you reach to zero touch perfec
 **Sibling concern (post-G55):** `cutover-catalyst-api-env-patch-1780123967` Job permanently failed (backoffLimit=3, failed=4, exhausted) — also blocked by the same Kyverno-on-Deployment bug. Once G55 lands, this Job won't auto-retry. Sovereignty cutover (CATALYST_GITOPS_REPO_URL pivot to local Gitea) requires manual re-trigger of this Job OR bp-self-sovereign-cutover HR upgrade. Will file G56 issue post-ZT#2 if needed; not blocking verifier 81/81 + walk.
 
 **Open issues count this session: 2 (active G-fixes still in-flight #2606 + parent #2526). Other G-fixes #2598-#2605 are merged; their target-state ladders to v15-and-beyond evidence.**
+
+---
+
+## 🔴 Session 2026-05-30 continued — G55→G59 chain + hw63→hw66 attempts at ZT#2
+
+| Time (UTC) | hw## | id | Wiped/Live | Verifier | Cause / G-fix |
+|---|---|---|---|---|---|
+| 06:22→07:26Z | hw63 | 3e05497f06b0a0db | WIPED | 77/81 | META-AUDIT 1 sub-class 5 (cutover-vs-mirror race, #2607) — cutover-helmrepository-patches breaks ghcr.io auth post-cutover |
+| 07:30→08:00Z | hw64 | 849220159fab8367 | WIPED | N/A (Phase 1 hung) | META-AUDIT 1 sub-class 6 (flux-binary install, #2608) — G46 systemd retry assumed binary present; cloud-init binary download failed (gzip stdin EOF), retry script exit 127 forever |
+| 08:13→09:03Z | hw65#1 | f18872c2d5255200 | WIPED | 77/81 | LE STAGING cert (qaTestEnabled=true bug) — Fix #123 mapping auto-flipped to staging |
+| 09:03→10:48Z | hw65#2 | 88b8b37b9b3c095f | WIPED | 79/81 | META-AUDIT 7 sub-class 7 (Kyverno autogen, #2609) — G55 Pod-only scope bypassed by autogen-generated Deployment variant |
+| 09:57→TBD | hw66 | e78e84ce2f232acc | TBD | 47T/4F/3E (kept diagnostic, will wipe pre-hw67) | META-AUDIT 1 sub-class 8 (cnpg cert chain, #2610) — G21 self-signed leaf cert conflicts with operator-internal cnpg-ca-secret CA |
+
+| G# | Issue | PR/Commit | Subject | Status |
+|---|---|---|---|---|
+| **G55** | #2606 | a6ad377d | Kyverno harbor-proxy + image-tag scope match=[Pod] only | merged, superseded by G58 |
+| **G56** | #2607 | (target-state filed) | bp-self-sovereign-cutover vs gitea-mirror race | filed only — long-term fix, doesn't gate ZT |
+| **G57** | #2608 | 7468a698 | openova-flux-install.sh idempotent binary re-download | merged |
+| **G58** | #2609 | dc712491 | Kyverno autogen disabled via `pod-policies.kyverno.io/autogen-controllers: "none"` | merged |
+| **G59** | #2610 | 8650478c | bp-cnpg disable G21 webhookCertBootstrap (operator-managed cert flow) | merged (chart 1.0.6 baking) |
+
+**Live evidence (hw66 META-AUDIT 1 sub-class 8 verification)**: kubectl-patched MutatingWebhookConfiguration.caBundle to MATCH served cert → patch persisted (operator does NOT overwrite) → bp-catalyst-platform STILL fails because self-signed LEAF cannot act as CA. This confirms the deeper root cause: G21's pre-mint pattern is INCOMPATIBLE with operator-internal CA flow.
+
+**META-AUDIT 7 (Kyverno) sub-class 7 complete**: 4 rounds patching element.X nil — G45 (wrap not_null) → G51 (server-side context) → G55 (Pod-kind scope) → **G58 (disable autogen)** = definitive. Kyverno autogen feature was the missing variable: when scoping a policy to Pod, autogen still generates Deployment/StatefulSet variants that recreate the bug.
+
+**META-AUDIT 1 (Helm-vs-webhook race) sub-classes**: 1 (same-chart-internal), 2 (downstream-waits-upstream), 3 (self-referential-bootstrap), 4 (autogen-bypass — fixed in G58 separately), 5 (cutover-vs-mirror — G56 filed), 6 (prereq-binary-install non-idempotent — G57), **7** subsumed under META-AUDIT 7 / Kyverno, **8** (controller-managed vs orchestrator-provided cert conflict — G59).
+
+ETA hw67 attempt: wipe hw66 + POST hw67 once chart 1.0.6 cascade completes (~10 min CI + auto-bump-pin). hw67 carries G55+G57+G58+G59 baked from first install with qaTestEnabled=false (LE prod) + ownerEmail captured (mothership UI visible).
