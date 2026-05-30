@@ -19,7 +19,16 @@ description: |
   ClusterPolicy CRs. CRDs are provided by the engine chart's upstream
   Kyverno subchart at slot 27.
 type: application
-version: 1.0.19
+# 1.0.20 (G55 #2605, 2026-05-30): scope harbor-proxy-pull +
+# image-tag-pinned policy matches to Pod kind only. Kyverno's
+# images.containers server-side context auto-populates reliably ONLY
+# for Pod admission; Deployment/StatefulSet/etc. return nil-bearing
+# entries that crash the JMESPath query at substitution time. Pod
+# admission is the canonical + sufficient enforcement boundary —
+# every Deployment creates Pods that pass through the same gate.
+# v15/hw63 bp-catalyst-platform Helm rollback RollbackFailed proved
+# G51 insufficient on Deployment patch path.
+version: 1.0.20
 appVersion: "1.0.2"
 keywords: [catalyst, blueprint, kyverno, policy, compliance, audit]
 maintainers:

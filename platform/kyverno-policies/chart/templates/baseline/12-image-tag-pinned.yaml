@@ -37,14 +37,16 @@ spec:
     - name: image-must-have-explicit-tag
       match:
         any:
+          # G55 (Refs #2605, 2026-05-30): scope to Pod kind ONLY.
+          # See 11-harbor-proxy.yaml G55 comment for full rationale —
+          # Kyverno's `images.containers` server-side context only
+          # auto-populates reliably for Pod admission; Deployment/
+          # StatefulSet/etc. return nil-bearing entries that crash
+          # the JMESPath query at substitution time. Pod-level
+          # enforcement is canonical + sufficient.
           - resources:
               kinds:
                 - Pod
-                - Deployment
-                - StatefulSet
-                - DaemonSet
-                - Job
-                - CronJob
       exclude:
         any:
           - resources:

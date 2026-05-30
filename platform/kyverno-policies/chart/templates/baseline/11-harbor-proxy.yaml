@@ -42,14 +42,27 @@ spec:
     - name: image-must-be-from-harbor-proxy
       match:
         any:
+          # G55 (Refs #2605, 2026-05-30): scope to Pod kind ONLY.
+          # Kyverno's `images.containers` server-side context auto-
+          # populates RELIABLY only for Pod admission. For Deployment/
+          # StatefulSet/DaemonSet/Job/CronJob the image-extractor
+          # returns entries with nil `.reference` → substitution-
+          # before-eval crashes the JMESPath query with
+          # "Invalid type for: <nil>". Pod admission is the canonical
+          # enforcement boundary: every Deployment/etc. creates Pods
+          # that go through the same admission gate, so Pod-level
+          # enforcement is fully sufficient + architecturally correct
+          # (this is the Kyverno-recommended pattern).
+          #
+          # Verified live hw63 v15 07:01Z: Pod admission successfully
+          # blocked trivy-system/scan-vulnerabilityreport Pod with
+          # this exact policy while Deployment/catalyst-api patch
+          # failed with nil-JMESPath error. G19/G40/G45/G51 all tried
+          # to patch the symptom on the broader match set; G55 fixes
+          # the architectural mismatch.
           - resources:
               kinds:
                 - Pod
-                - Deployment
-                - StatefulSet
-                - DaemonSet
-                - Job
-                - CronJob
       exclude:
         any:
           - resources:
