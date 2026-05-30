@@ -57,20 +57,32 @@ spec:
           One or more containers reference an unpinned image (`:latest`
           or no tag). Pin to an explicit tag or @sha256 digest.
         foreach:
-          # Wave 5.97 nil-safety: filter to containers with .image set (see 11-harbor-proxy.yaml comment).
-          # G45 (Refs #2597, 2026-05-30): use not_null() canonical JMESPath
-          # null-coalescing instead of `|| ""` (G40 was insufficient — see
-          # 11-harbor-proxy.yaml G45 comment for the live evidence on hw56 v8).
-          - list: "(request.object.spec.containers || request.object.spec.template.spec.containers)[?image]"
+          # G51 (Refs #2603, 2026-05-30): switch from raw element.image +
+          # not_null wrapper to Kyverno-populated images.containers context.
+          # See 11-harbor-proxy.yaml G51 comment for full rationale: raw
+          # `element.image` triggers Kyverno's variable-substitution-before-
+          # JMESPath bug when nil. `images.containers` is server-side
+          # populated with guaranteed-string `.reference` / `.tag` fields.
+          - list: "values(images.containers || `{}`)"
             deny:
               conditions:
                 any:
                   # Reject `:latest` tag (any registry/path).
-                  - key: '{{ `{{ regex_match(''(:latest$|^[^@]*latest$)'', not_null(element.image, '''')) }}` }}'
+                  - key: '{{ `{{ regex_match(''(:latest$|^[^@]*latest$)'', element.reference) }}` }}'
                     operator: Equals
                     value: true
                   # Reject images with no tag and no @sha256: digest.
-                  - key: '{{ `{{ regex_match(''^[^:@]+$'', not_null(element.image, '''')) }}` }}'
+                  - key: '{{ `{{ regex_match(''^[^:@]+$'', element.reference) }}` }}'
+                    operator: Equals
+                    value: true
+          - list: "values(images.initContainers || `{}`)"
+            deny:
+              conditions:
+                any:
+                  - key: '{{ `{{ regex_match(''(:latest$|^[^@]*latest$)'', element.reference) }}` }}'
+                    operator: Equals
+                    value: true
+                  - key: '{{ `{{ regex_match(''^[^:@]+$'', element.reference) }}` }}'
                     operator: Equals
                     value: true
 {{- end -}}
