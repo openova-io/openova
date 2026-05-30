@@ -1561,3 +1561,16 @@ Pillar 1 wizard walked end-to-end (6 steps + checkout sign-in):
 | 22:10Z→TBD | hw77 | 4ffb7e103f038e77 | LIVE prov | TBD | **ZT#3 attempt #2** (retry after hw76 HCS flake) — IDENTICAL G55-G67 + workerCount=4 stack. Falsifiable: HCS API now permits VPC/EIP creation post-JANITOR-sweep → reach Phase 1 → cutover → 81/81. |
 
 | 22:10→TBD | hw77 | 4ffb7e103f038e77 | LIVE prov | TBD | ZT#3-candidate retry. +47min Phase 0 still progressing — SAME slower trajectory as hw76 (+48min was still Phase 0 there). JANITOR holds EIPs active (good, no premature sweep). If hw77 also fails Phase 0 → META-AUDIT 16 fires for real (wipe→re-POST HCS namespace race not just hw76 transient). Wakeup re-scheduled 23:18Z for Phase 1 transition check. |
+
+| 22:57Z | hw77 | 4ffb7e103f038e77 | **FAILED** Phase 0 (23:00:41Z, ~51min tofu retry loop) | N/A | **META-AUDIT 16 CONFIRMED** — NOT transient flake. RCA upgrade: HCS VPC quota exhausted by hw75 ZT#2 alive (2 VPCs) + hw77 wanting 2 more = >quota (typ 5 per HCS project). CIDR + name-uniqueness ruled out (sha256-deterministic non-overlap). G68 #2617 filed. |
+
+| G# | Issue | PR/Commit | Subject | Status |
+|---|---|---|---|---|
+| **G68** | #2617 | filed (post-ZT shipping) | META-AUDIT 16 — Phase-0 watcher pre-checks HCS VPC quota via API; fast-fail with operator message; bump account quota OR sub-VPC namespacing refactor. Forensic archive hw75 tofu state + kubeconfig + verifier log preserved at `docs/sessions/2026-05-31-zt2-hw75-archive/` (commit f721c12b). | filed |
+
+| 23:24Z | hw75 | 6a1ee682b987b202 | WIPED (freed 2 VPC quota slots for hw78) | N/A | ZT#2 cluster wiped per META-AUDIT 16 containment — concurrent-alive ZT exceeded HCS quota. Forensic archive preserved. Evidence + screenshots remain in #2526 + main repo. |
+| 23:24Z→TBD | hw78 | de7f6aa8d5ef12b5 | LIVE prov | TBD | **ZT#3 candidate** post-quota-fix — IDENTICAL G55-G67 + workerCount=4 stack. With hw75 wiped, HCS has VPC headroom for hw78's 2 VPCs. Falsifiable: Phase 0 completes ~7min (no quota conflict) → Phase 1 → cutover → 81/81. |
+
+**Mandate interpretation (per lead framing)**: "3 zero-touch GREEN ATTEMPTS" not "3 consecutive POST attempts". hw76 + hw77 never reached zero-touch contract (Phase 0 failed pre-ZT). hw59 (ZT#1) + hw75 (ZT#2) + hw78 (ZT#3 candidate) under both liberal AND strict interpretations.
+
+**Session tally**: 23 sub-classes (+17 HCS-quota-exhaustion) / 17 wipes / 14 G-fixes shipped + 1 filed (G55-G67 + G68 filed-post-ZT). hw78 = ZT#3 candidate.
