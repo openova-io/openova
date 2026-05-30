@@ -1,47 +1,24 @@
 {{/*
-K1 — harbor-proxy-pull (governance, ENFORCING default).
+K1 - harbor-proxy-pull (governance, ENFORCING default).
 
 Container images must be pulled through the Sovereign's local Harbor
-proxy — references like `harbor.<sovereign-domain>/proxy-ghcr/...`,
-`harbor.<sovereign-domain>/proxy-dockerhub/...`, etc. Direct pulls from
-ghcr.io, docker.io, quay.io, etc. break the air-gap-ready posture and
-the per-Sovereign vulnerability scanning gate.
+proxy. The Harbor-proxy glob is operator-configurable via
+.Values.compliancePolicies.harborProxyPull.allowedImagePattern.
+Default glob "harbor.STAR/proxy-STAR/STAR" matches every Sovereign's
+proxy paths and is future-proof for new proxy sources.
 
-The Harbor-proxy glob is operator-configurable via
-.Values.compliancePolicies.harborProxyPull.allowedImagePattern
-(per docs/INVIOLABLE-PRINCIPLES.md #4) — different Sovereigns deploy at
-different domains; the default glob `harbor.*/proxy-*/*` matches every
-Sovereign's proxy paths and is future-proof for new proxy sources.
-
-Default mode enforcing per design §4.3. Operators flip to Audit while
-seeding the Harbor proxy on a fresh Sovereign and back to Enforce
-after the proxy is warm.
-*/}}
-{{/*
-G60 (Refs #2611, 2026-05-30): RE-ARCHITECTED. 7 prior rounds (G19→G40→
-G45→G51→G55→G58) patched the regex_match+foreach+element.X expression
+G60 (Refs #2611, 2026-05-30): RE-ARCHITECTED. 7 prior rounds (G19
+through G58) patched the regex_match + foreach + element.X expression
 without ever asking the architectural question. ALL hit Kyverno's
 JMESPath nil-substitution edge cases somewhere (empty initContainers,
 sidecar injection, autogen Deployment variant, autogen=none + Pod
-CREATE). Conclusion in retrospective: `foreach + regex_match +
-element.X` is architecturally incompatible with Kyverno 1.18's image-
-context extraction across enough container-spec edge cases that no
-expression-level tweak converges.
+CREATE).
 
 G60 drops the foreach + regex_match + element.X primitive entirely.
-Replaces with Kyverno's CANONICAL `validate.pattern` + glob — the
+Replaces with Kyverno's CANONICAL validate.pattern + glob - the
 oldest + most stable Kyverno primitive. Pattern validation uses
-request.object-direct data (always populated server-side), no
-JMESPath substitution path, no element.X nil race possible. Autogen
-expands `containers.image` glob cleanly to `template.spec.containers.
-image` for Deployment/StatefulSet/etc.
-
-Trade-off: glob-only (not full regex). Glob `harbor.*/proxy-*/*` is
-functionally equivalent to the original regex `^harbor\..+/proxy-
-(ghcr|dockerhub|quay|registry-1\.docker\.io)/.*` AND future-proof for
-new proxy sources (kyverno cosign mirror, new registry, etc.). The
-4-explicit-source enumeration was never operationally desired — it
-was an artifact of regex authoring.
+request.object-direct data, no JMESPath substitution path, no
+element.X nil race possible.
 */}}
 {{- if .Values.compliancePolicies.harborProxyPull.enabled -}}
 apiVersion: kyverno.io/v1
