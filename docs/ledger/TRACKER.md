@@ -1509,3 +1509,16 @@ Architectural pivot pending lead decision:
 | 18:48Z→TBD | hw74 | 78f585b1b79ef965 | LIVE prov | TBD | **ZT#2 attempt #16 / 13th wipe-cycle** with FULL G55+G57+G58+G59+G60+G61+G62+G63+G64+G65+G66 = 11-fix stack baked. bp-catalyst-platform chart 1.4.393 (includes bp-self-sovereign-cutover 0.1.44 + bp-kyverno-policies 1.0.24). ETA terminal ~+40min from POST. Falsifiable: Step 02 creates openova-io push project → Step 03 Phase A skopeo enumerates ~25 ghcr.io/openova-io/* images + native-pushes to registry.<sov>/openova-io/... → Step 07 patches catalyst-api Deployment image to native path (no /proxy-ghcr/) → Kyverno anyPattern accepts native-push glob → Pod CREATE passes → kubelet pull NATIVE from local Harbor → catalyst-api Ready → 81/81 + L6 CLEAN. |
 
 **Session tally**: 21 sub-classes (+14 Harbor-github-ghcr-adapter-auth; +15 Harbor-pushproject-missing) / 14 wipes / 13 G-fixes shipped (G55-G66). hw74 = first prov with G55-G66 stack from boot.
+
+| G# | Issue | PR/Commit | Subject | Status |
+|---|---|---|---|---|
+| **G67** (γ-α) | #2616 | 09cfa2b9 | Right-size Pod CPU requests for top 3 over-requesters: otel collector 1000m→200m (no requests block→k8s default=limits=1), kyverno admission 500m→200m, seaweedfs volume 500m→300m. Frees ~2900m on region-a cluster, accommodates cutover Jobs that were blocked at 99% CPU saturation. Lockstep bp-opentelemetry 1.2.0→1.2.1, bp-kyverno 1.3.2→1.3.3, bp-seaweedfs 1.2.0→1.2.1. | shipped |
+| **G67** (γ-β) | #2616 | per-prov POST | workerCount=4 in hw75 POST body (was 3). +30% cluster headroom. WizardState UI default bump (2→4) separate operator-facing change for follow-up. | per-prov |
+
+| Time (UTC) | hw## | id | Status | Verifier | Cause / G-fix |
+|---|---|---|---|---|---|
+| 18:48Z→19:43Z+ | hw74 | 78f585b1b79ef965 | LIVE STUCK (cutover Step 01 Pod Pending 14min+) | N/A | G65 + G66 chain VALIDATED through Phase 1 (Gateway PROGRAMMED + 47/54 HRs + catalyst-api 1/1 pre-cutover). BUT cluster CPU 99% saturated by Phase 1 HRs (otel 1000m + kyverno 1000m + seaweedfs 1500m = 3500m alone) → cutover gitea-mirror Pod (100m) FailedScheduling 0/3 nodes. G67 NEW BUG class — cluster-headroom math wasn't accounting for cutover Jobs. Wipe + replace by hw75 with G67 baked + workerCount=4. |
+
+**META-AUDIT 14 candidate (post-ZT)**: catalyst-api Phase-1 watcher should validate Allocated CPU% < 90% across all nodes BEFORE firing handover/declaring ready. Without it, cluster saturation hides as silent stuck-cutover.
+
+**Session tally**: 22 sub-classes (+16 cluster-CPU-saturation) / 14 wipes / 14 G-fixes shipped (G55-G67). hw75 = first prov with full G55-G67 stack + workerCount=4.
