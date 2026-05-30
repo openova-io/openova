@@ -1394,3 +1394,25 @@ ETA hw67 attempt: wipe hw66 + POST hw67 once chart 1.0.6 cascade completes (~10 
 **Convergence signal**: hw68 4 FAIL → hw69 1 FAIL (80/81) → hw70 expected 0 FAIL (81/81). G60+G61+G62 architectural triad addressing META-AUDIT 1 sub-classes 9+10 (Kyverno enforces ghcr.io denial; chart parameterizes via global.imageRegistry; cutover persists value to Gitea).
 
 **Session tally**: 14 META-AUDIT sub-classes catalogued across 10 wipes (hw60→hw70). G55→G62 chain = 7 architectural fixes shipped this session + 6 superseded. hw70 carries cumulative learning.
+
+---
+
+## 🟢 Session 2026-05-30 continued — G63 implementation-bug fix + hw70 outcome + hw71 attempt
+
+| Time (UTC) | hw## | id | Status | Verifier | Cause / G-fix |
+|---|---|---|---|---|---|
+| 13:56→14:45Z | hw70 | 3a3b80be316b6567 | WIPED | 80/81 | G60+G61+G62 architectural triad correctly applied to cluster level. Step 07 G62 Gitea pass logged WARN: "git clone failed (Read-only file system)". Live exec into Step 07 Pod confirmed readOnlyRootFilesystem=true + NO emptyDir mount at /tmp → mkdir /tmp/repo fails → G62 WARN-only path → Flux reverts HR.spec.values.global.imageRegistry within ~5min → catalyst-api Deployment image stays ghcr.io → Pod CREATE denied by G60. Implementation gap from chart-template copy-paste between Steps 06+07. → G63 filed. |
+| 14:45→TBD | hw71 | 75118caeb60cdbfc | LIVE prov | TBD | **ZT#2 attempt #13 / 10th wipe-cycle** with FULL G55+G57+G58+G59+G60+G61+G62+G63 stack baked. LE PROD cert, ownerEmail captured. ETA terminal ~15:24Z. Falsifiable: G63 emptyDir → git clone succeeds → Gitea push lands → Flux Kustomization preserves imageRegistry=registry.hw71/proxy-ghcr → catalyst-api image flips to harbor URL → Pod CREATE passes G60 → 81/81 GREEN. |
+
+| G# | Issue | PR/Commit | Subject | Status |
+|---|---|---|---|---|
+| **G63** | #2613 | merged (9f79ae63) | Step 07 add writable /tmp emptyDir mount. Step 06 had it (visible in podSpec) — Step 07 was missing. Without this, G62's git clone fails silently with "Read-only file system" → live HR-patch only → Flux reverts. Chart bp-self-sovereign-cutover 0.1.41→0.1.42 published 14:45Z. | shipped |
+
+**META-AUDIT 9 candidate**: chart-template parity-check between similar Jobs. 3 implementation-bug fixes shipped this session for Helm syntax/missing-volume issues:
+- G60 commit fix (ee07e600) — Helm comment had literal `{{ }}` syntax → "function global not defined"
+- G61 commit fix (9c4faf47) — Step 07 comment had literal `{{ global.X }}` syntax → same parse error
+- G63 — Step 07 missing tmp emptyDir mount vs Step 06's existing mount
+
+Lesson: when copying YAML structure between similar Jobs, parity audit (volumes/RBAC/comments) catches gaps. Future Phase: chart-template parity-test in CI (compare Job pod specs across cutover steps; flag missing common volumes/securityContext fields).
+
+**Session tally update**: 15 META-AUDIT sub-classes catalogued (was 14; +sub-class 11 implementation-bug-copy-paste) across 10 wipes. G55→G63 = 8 architectural fixes shipped + 6 superseded.
