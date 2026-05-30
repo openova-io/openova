@@ -1424,7 +1424,7 @@ Lesson: when copying YAML structure between similar Jobs, parity audit (volumes/
 | Time (UTC) | hw## | id | Status | Verifier | Cause / G-fix |
 |---|---|---|---|---|---|
 | 14:45→TBD | hw71 | 75118caeb60cdbfc | LIVE diagnostic | 80-ish/81 (catalyst-api Pod denied) | G62+G63 architectural chain CONFIRMED WORKING live: Step 07 logs `G62 OK: Gitea-edit pushed ... global.imageRegistry='registry.hw71/proxy-ghcr'`. After force-reconcile: HR.spec.values.global.imageRegistry PERSISTED + catalyst-api Deployment image flipped to `registry.hw71.omani.works/proxy-ghcr/openova-io/openova/catalyst-api:baf5335`. But policy STILL denied because G60 glob `harbor.*/proxy-*/*` doesn't match `registry.*` subdomain. → G64 filed + shipped. |
-| TBD→TBD | hw72 | TBD | TBD | TBD | **ZT#2 attempt #14 / 11th wipe-cycle** with FULL G55+G57+G58+G59+G60+G61+G62+G63+G64 stack baked. ETA terminal ~+40min from POST. Falsifiable: G64 glob `*/proxy-*/*` matches `registry.<sov>/proxy-ghcr/...` → Pod CREATE passes → 81/81. Per lead reviewer-1: "This is the LAST architectural bug per your own analysis." |
+| 14:54→TBD | hw72 | 9d4a5b629fcc38bb | LIVE prov | TBD | **ZT#2 attempt #14 / 11th wipe-cycle** with FULL G55+G57+G58+G59+G60+G61+G62+G63+G64 stack baked. ETA terminal ~+40min from POST. Falsifiable: G64 glob `*/proxy-*/*` matches `registry.<sov>/proxy-ghcr/...` → Pod CREATE passes → 81/81. Per lead reviewer-1: "This is the LAST architectural bug per your own analysis." |
 
 | G# | Issue | PR/Commit | Subject | Status |
 |---|---|---|---|---|
