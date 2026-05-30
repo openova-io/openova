@@ -1252,3 +1252,38 @@ ETA Phase 0 ~25-35min + Phase 1 ~20min. Target: verifier 81/81 → Pillar 1 walk
 
 Refs #2526
 | #2528 (OBS cred derivation) | `status/uat` — POST 400 fix verified |
+
+---
+
+## 🔴 Session 2026-05-30 — 3-consecutive-zero-touch chase + G44→G55 META-AUDIT 1 cascade
+
+Founder mandate (verbatim): *"work non stop until you reach to zero touch perfect 3 consecutive provisionings. And never workaround, always deeeeeeeeeeep dive root cause analysis and permanent solutions!!!!!"*
+
+**G44–G55 chain on META-AUDIT 1 (Helm-vs-webhook race) + Kyverno JMESPath kind-dependent context auto-population:**
+
+| G# | Issue | PR/Commit | Subject | Status |
+|---|---|---|---|---|
+| G44 | (#2598) | merged | bp-opentelemetry-operator webhook-gate Job extended with CRD discovery check + timeout 60→300s | merged |
+| G45 | — | (subsumed) | First attempt at Kyverno JMESPath nil: `not_null(element.image, "")` wrapper | INSUFFICIENT |
+| G46 | (#2600) | merged | Huawei cloud-init systemd one-shot for Flux install (Restart=on-failure) | merged |
+| G48 | (#2601) | merged | Huawei cloud-init systemd one-shot for k3s-agent install (replaces Wave 5.108 bounded retry) | merged |
+| G49 | (#2602) | merged | bp-mimir pre-upgrade webhook-gate Job (mimir-rollout-operator endpoints) | merged |
+| G50 | — | merged | Bootstrap-kit interval 15m→1m + remediation retries 3→5 + remediateLastFailure=true on 3 cnpg-dependent HRs | merged |
+| G51 | (#2603) | merged | Kyverno JMESPath: switch to `values(images.containers \|\| `{}`)` + `element.reference` | INSUFFICIENT on Deployment kind |
+| G53 | (#2604) | merged | bp-cnpg post-install webhook-gate Job (Endpoints + 2 webhook caBundles non-empty) | merged |
+| G54 | (#2605) | merged (c906fff6) | bp-kyverno self-referential webhook-gate Job (META-AUDIT 1 sub-class 3) | merged |
+| **G55** | **(#2606)** | **merged (a6ad377d)** | **Kyverno harbor-proxy + image-tag policies — restrict match to Pod kind ONLY. RCA: `images.containers` context auto-populates RELIABLY only for Pod admission; Deployment/StatefulSet/etc. crash JMESPath at substitution with element.reference=nil. Pod is the canonical enforcement boundary (Kyverno docs).** | **chart 1.0.20 published, awaiting Flux cascade on hw63** |
+
+**v11 (hw59 39f537a51cab9456) — ZT#1 ACHIEVED 2026-05-30T03:14Z** (4b0b62ee walk-evidence commit + #2526 comment-7 03:18:03Z + 7 screenshots posted). Verifier 81/81 GREEN + Pillar 1 marketplace walked. **1 of 3 zero-touch provs done.**
+
+**v12 (hw60) — JMESPath bug surfaced.** G51 shipped as fix. Verifier 79/81 (2 FAILs all from bp-catalyst-platform Helm rollback denied by Kyverno on Deployment patch). Wiped.
+
+**v13 (hw61) — cnpg-webhook race.** G53 shipped (bp-cnpg producer-side webhook-gate). Wiped.
+
+**v14 (hw62) — Kyverno self-referential deadlock.** kyverno-admission-controller CrashLoopBackOff missing own TLS Secret → cluster-wide Secret CREATE blocked → cert-manager queue jammed (100+ CertificateRequests Ready but Secret never written) → bp-cnpg cert-wait pod times out 15m → cascade failure. G54 shipped (bp-kyverno self-referential webhook-gate). Wiped.
+
+**v15 (hw63 3e05497f06b0a0db) — G55 candidate prov.** status=ready 06:55:02Z handoverFiredAt 06:58:04Z. ALL 8 L5 HTTPS surfaces 200/302/307/404 with LE prod cert. L6 zero-touch audit GREEN (0 surgical edits, 0 rollout-restart annotations outside whitelist). **Verifier 77/81 — 4 FAIL all single root cause: bp-catalyst-platform Helm rollback denied by Kyverno harbor-proxy-pull on Deployment/catalyst-api patch (G51 insufficient on Deployment kind).** RCA documented, G55 (Pod-only scope) shipped + chart published 07:12:46Z + Flux GitRepository on hw63 already at a6ad377d. Awaiting bootstrap-kit Kustomization to apply revision → bp-kyverno-policies HR upgrade 1.0.19→1.0.20 → Flux remediation retry on bp-catalyst-platform → cascade-recover. **v15 stays alive; wipe avoided.** ETA verifier 81/81 ~10-15 min if Flux cascade clean.
+
+**Sibling concern (post-G55):** `cutover-catalyst-api-env-patch-1780123967` Job permanently failed (backoffLimit=3, failed=4, exhausted) — also blocked by the same Kyverno-on-Deployment bug. Once G55 lands, this Job won't auto-retry. Sovereignty cutover (CATALYST_GITOPS_REPO_URL pivot to local Gitea) requires manual re-trigger of this Job OR bp-self-sovereign-cutover HR upgrade. Will file G56 issue post-ZT#2 if needed; not blocking verifier 81/81 + walk.
+
+**Open issues count this session: 2 (active G-fixes still in-flight #2606 + parent #2526). Other G-fixes #2598-#2605 are merged; their target-state ladders to v15-and-beyond evidence.**
