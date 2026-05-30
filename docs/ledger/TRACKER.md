@@ -1374,3 +1374,23 @@ ETA hw67 attempt: wipe hw66 + POST hw67 once chart 1.0.6 cascade completes (~10 
 **Path C executed** per lead reviewer-1 direction: closed Kyverno regex_match expression cycle (G19→G40→G45→G51→G55→G58) via G60 architectural rewrite. 6 closed-as-superseded issues + 11 status/uat flips visible to founder. G61 follow-up addresses the latent chart bug uncovered by G60's clean enforcement.
 
 **Session arc**: 13 META-AUDIT 1 + META-AUDIT 7 sub-classes catalogued across 9 wipes. G55→G61 = 7 architectural fixes shipped + 5 superseded. hw69 carries the cumulative learning.
+
+---
+
+## 🟢 Session 2026-05-30 continued — G62 architectural rule + hw70 attempt
+
+**Architectural rule established in #2613**: every cutover live-patch MUST persist to local Gitea source-of-truth, not just to live cluster API. Closes META-AUDIT 1 sub-class 10 (Flux Kustomization reverts kubectl-patched HR values within ~5min by re-reading Git source).
+
+| G# | Issue | PR/Commit | Subject | Status |
+|---|---|---|---|---|
+| **G62** | #2613 | merged (b0587a7f) | Step 07 G62-A pass: Gitea clone+edit+push for bootstrap-kit `13-bp-catalyst-platform.yaml` setting `spec.values.global.imageRegistry: 'registry.<sov>/proxy-ghcr'`. Pre-cutover `''` literal seam falls back to ghcr.io. cutover chart 0.1.40→0.1.41 published 13:54:38Z. | shipped |
+| **G56** | #2607 | CLOSED 13:54:27Z | Superseded by #2613 architectural rule (Step 06 audit confirmed already follows the rule via Phase 2+2.5; G56 was correctly filed as hypothetical). | closed-superseded |
+
+| Time (UTC) | hw## | id | Status | Verifier | Cause / G-fix |
+|---|---|---|---|---|---|
+| 13:04→13:54Z | hw69 | 4068cea76382dc11 | WIPED | 80/81 | G60+G61 closing gap from hw68 77→80/81. Only api.hw69 503 because catalyst-api Pod missing. RCA: Step 07 G61 live HR-patch reverted by Flux Kustomization (sub-class 10) → G62 filed. |
+| 13:57→TBD | hw70 | 3a3b80be316b6567 | LIVE prov | TBD | **ZT#2 attempt #12 / 9th wipe-cycle** with FULL G55+G57+G58+G59+G60+G61+G62 stack baked. LE PROD cert, ownerEmail captured. ETA terminal ~14:36Z. Falsifiable: G62 Gitea persistence + G60 Kyverno + G61 chart param → catalyst-api Deployment image=harbor.hw70/proxy-ghcr/... → Pod CREATE passes → 81/81. |
+
+**Convergence signal**: hw68 4 FAIL → hw69 1 FAIL (80/81) → hw70 expected 0 FAIL (81/81). G60+G61+G62 architectural triad addressing META-AUDIT 1 sub-classes 9+10 (Kyverno enforces ghcr.io denial; chart parameterizes via global.imageRegistry; cutover persists value to Gitea).
+
+**Session tally**: 14 META-AUDIT sub-classes catalogued across 10 wipes (hw60→hw70). G55→G62 chain = 7 architectural fixes shipped this session + 6 superseded. hw70 carries cumulative learning.
