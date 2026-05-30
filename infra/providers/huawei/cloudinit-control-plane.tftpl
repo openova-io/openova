@@ -788,6 +788,51 @@ runcmd:
     done
     KUBECONFIG=/etc/rancher/k3s/k3s.yaml helm repo update cilium
     REAL_IP=$(ip -4 -o addr show dev eth0 | awk '{print $4}' | cut -d/ -f1)
+    # G65 #2614 (2026-05-31): pre-install gateway-api CRDs BEFORE the
+    # cilium helm install below, so the Cilium operator boots with
+    # the CRDs already registered on the apiserver. Without this, the
+    # operator starts with `enable-gateway-api=true` (set by --set
+    # gatewayAPI.enabled=true on the helm install line) but doesn't
+    # find the CRDs and SILENTLY skips registering its
+    # gateway-controller subsystem — leaving GatewayClass and Gateway
+    # stuck ACCEPTED/PROGRAMMED=Unknown ("Waiting for controller")
+    # forever. Proven hw72 9d4a5b629fcc38bb 2026-05-30: `kubectl
+    # delete pod cilium-operator-*` after CRDs were present brought
+    # gateway-controller live and HTTPRoutes reconciled in seconds.
+    # The CRD seeding block previously lived AFTER the cilium helm
+    # install (under section "4a. Pre-install Gateway API CRDs") and
+    # was kept there as a guard against bp-cilium HR chart references
+    # to GatewayClass/HTTPRoute resources — that guard still holds
+    # but is no longer enough on its own; the operator pod must also
+    # see the CRDs at its OWN boot, not later.
+    #
+    # Wait for k3s apiserver first (same wait-loop pattern as the
+    # original CRD seed block at section 4a).
+    for i in $(seq 1 30); do
+      if KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl get --raw=/readyz 2>/dev/null | grep -q ok; then
+        echo "G65: k3s apiserver ready, seeding gateway-api CRDs pre-cilium (iter=$i)"
+        break
+      fi
+      sleep 5
+    done
+    for crd in gatewayclasses gateways httproutes grpcroutes referencegrants; do
+      for attempt in 1 2 3 4 5; do
+        if KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f \
+          "https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/v1.2.0/config/crd/standard/gateway.networking.k8s.io_$${crd}.yaml"; then
+          break
+        fi
+        echo "G65: gateway-api CRD $${crd} apply attempt $${attempt}/5 failed; retrying in 5s"
+        sleep 5
+      done
+    done
+    for attempt in 1 2 3 4 5; do
+      if KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl apply -f \
+        "https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/v1.2.0/config/crd/experimental/gateway.networking.k8s.io_tlsroutes.yaml"; then
+        break
+      fi
+      echo "G65: tlsroutes CRD apply attempt $${attempt}/5 failed; retrying in 5s"
+      sleep 5
+    done
     # G24 (Refs #2575, 2026-05-29): bpf.masquerade=true (line 736) is the
     # critical missing flag that was silently absent from Huawei's --set-
     # based pre-Flux Cilium install. Hetzner enables it via the structured
@@ -820,6 +865,7 @@ runcmd:
       --set bpf.masquerade=true \
       --set hubble.enabled=true \
       --set operator.replicas=1 \
+      --set gatewayAPI.enabled=true \
       --wait --timeout=5m
     # Wave 5.99: FAIL HARD if cilium didn't install. Continuing without CNI
     # means Flux pods stay Pending forever (cni plugin not initialized) and

@@ -35,6 +35,15 @@ spec:
   interval: 15m
   releaseName: cilium
   targetNamespace: kube-system
+  # G65 #2614 (2026-05-31): bp-gateway-api (slot 01a) installs the
+  # gateway.networking.k8s.io CRDs that the Cilium operator reads at
+  # startup when `enable-gateway-api=true`. If CRDs aren't registered
+  # when the operator boots, it silently skips the gateway-controller
+  # subsys and GatewayClass/Gateway stay ACCEPTED=Unknown forever
+  # (proven hw72 9d4a5b629fcc38bb, 2026-05-30). Same META-AUDIT 11
+  # class as bp-kyverno-vs-bp-kyverno-policies (#2019).
+  dependsOn:
+    - name: bp-gateway-api
   chart:
     spec:
       chart: bp-cilium

@@ -25,10 +25,29 @@
 # Wrapper chart: platform/gateway-api/chart/
 # Reconciled by: Flux on the new Sovereign's k3s control plane.
 #
-# dependsOn: bp-cilium — Cilium owns the GatewayClass that the upstream
-# Gateway resources reference; this Blueprint just installs the CRD
-# schema. Sequencing CRDs after the CNI also ensures the apiserver has
-# a working pod network when the CRD apply lands.
+# G65 #2614 (2026-05-31): dependsOn REVERSED — bp-cilium now
+# dependsOn bp-gateway-api (this Blueprint), not the other way around.
+# RCA hw72 9d4a5b629fcc38bb (2026-05-30): Cilium operator at slot 01
+# starts with `enable-gateway-api=true` config; if gateway-api CRDs
+# don't yet exist on the apiserver at that moment, the operator
+# SILENTLY skips registering its gateway-controller subsystem and
+# never re-discovers them after they land. Result: GatewayClass
+# ACCEPTED=Unknown ("Waiting for controller") + Gateway PROGRAMMED=
+# Unknown FOREVER. No sovereign-wildcard cert mints, handover never
+# fires. Proven on hw72 by `kubectl delete pod cilium-operator-*` —
+# new operator pod with CRDs already present came up with
+# gateway-controller subsys live → GatewayClass=True + Gateway
+# PROGRAMMED=True in 5sec → all HTTPRoutes reconciled.
+#
+# The fix is structural: CRDs install FIRST (this slot, no deps),
+# THEN Cilium operator starts with CRDs already registered. The old
+# claim "sequencing CRDs after the CNI ensures pod network for the
+# CRD apply" was wrong — CRD apply is a control-plane operation that
+# doesn't need pod-network connectivity to flux-system.
+#
+# Same META-AUDIT 11 class as bp-kyverno-vs-bp-kyverno-policies CRD
+# race (issue #2019): operators that read `enable-X-controller=true`
+# at startup MUST be ordered AFTER the X-CRD installer.
 
 ---
 apiVersion: source.toolkit.fluxcd.io/v1beta2
@@ -57,8 +76,9 @@ spec:
   # release marker Secret lives. Using flux-system keeps the marker
   # next to every other bootstrap-kit release.
   targetNamespace: flux-system
-  dependsOn:
-    - name: bp-cilium
+  # G65 #2614: NO dependsOn — this Blueprint installs the gateway-api
+  # CRD schema and must reconcile FIRST so bp-cilium's operator sees
+  # the CRDs at startup. See top-of-file comment for full RCA.
   chart:
     spec:
       chart: bp-gateway-api
