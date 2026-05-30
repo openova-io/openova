@@ -13,7 +13,7 @@ description: |
   overlays scale per-component replicas + flip zone-aware-replication on
   for HA Sovereigns.
 type: application
-version: 1.0.4
+version: 1.0.5
 appVersion: "3.0.4"
 keywords: [catalyst, blueprint, mimir, observability, metrics, prometheus]
 maintainers:

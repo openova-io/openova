@@ -1,0 +1,151 @@
+{{- /*
+G49 (Refs #2601, 2026-05-30): bp-mimir prepare-downscale webhook readiness
+gate. Same pattern as G38 #2593 bp-opentelemetry-operator webhook-gate.
+
+Background — the race we close
+==============================
+The upstream mimir-distributed chart registers a mutating webhook
+`prepare-downscale-mimir.grafana.com` on the mimir StatefulSets
+(alertmanager / compactor / ingester / store-gateway), backed by Service
+`mimir-rollout-operator` in the `mimir` namespace.
+
+On first Helm install Helm tries to apply/patch the StatefulSets. The
+webhook is registered + Service + Pod are all part of THIS release's
+regular templates, but Helm applies them in parallel. The StatefulSet
+patch fires before the rollout-operator Pod's Endpoints have populated.
+The apiserver returns:
+
+  "Internal error occurred: failed calling webhook
+   \"prepare-downscale-mimir.grafana.com\": failed to call webhook:
+   Post \"https://mimir-rollout-operator.mimir.svc:443/admission/
+   prepare-downscale?timeout=10s\": no endpoints available for service
+   \"mimir-rollout-operator\""
+
+Helm reports upgrade-failed. On initial install, no rollback target →
+HR Stalled with `MissingRollbackTarget` forever, regardless of Flux's
+install.remediation.retries setting.
+
+Caught live on hw58 v10 02:00Z (deployment f3bad67124240b5a): bp-mimir
+HR Stalled, all mimir pods 1/1 Running (operator IS up) but Endpoints
+hadn't propagated when Helm tried to patch the StatefulSets.
+
+Pattern — mirror G38
+====================
+1. webhook-gate-hook.yaml (this file): **pre-upgrade** Job weight 5 —
+   kubectl polls Endpoints `mimir-rollout-operator` in `mimir` namespace
+   until ≥1 ready address (300s budget, 2s interval). Exits 0 on ready.
+   pre-upgrade rather than post-install because: Helm calls the webhook
+   during the upgrade phase (StatefulSet patches); we need the gate to
+   block BEFORE Helm starts the upgrade.
+
+   Note: on initial install no pre-upgrade hook fires (install-only
+   flow), so the upgrade-vs-webhook race manifests on the SECOND Helm
+   pass (which is the "fix-up" pass Flux runs after the first install
+   leaves the release in a partial state). The gate catches that pass.
+
+2. webhook-gate-rbac.yaml: ServiceAccount + Role + RoleBinding scoped
+   to GET Endpoints in `mimir` ns. pre-upgrade hook weight 0.
+
+Why not post-install
+====================
+The upstream mimir-distributed chart applies the rollout-operator Pod
+in the install phase. A post-install hook would wait AFTER install
+succeeded — but the install ITSELF didn't fail; the subsequent UPGRADE
+(triggered by Flux reconcile) is what hits the webhook. Pre-upgrade is
+the correct phase.
+*/}}
+{{- $gate := .Values.webhookGate | default dict -}}
+{{- $enabled := true -}}
+{{- if hasKey $gate "enabled" -}}
+{{-   $enabled = $gate.enabled -}}
+{{- end -}}
+{{- if $enabled }}
+{{- $svcName := (($gate.service).name) | default "mimir-rollout-operator" -}}
+{{- $svcNs := (($gate.service).namespace) | default "mimir" -}}
+{{- $timeout := $gate.timeoutSeconds | default 300 -}}
+{{- $interval := $gate.intervalSeconds | default 2 -}}
+{{- $image := $gate.image | default "bitnamilegacy/kubectl:1.30.7" -}}
+{{- $pullPolicy := $gate.imagePullPolicy | default "IfNotPresent" -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-webhook-gate
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: bp-mimir
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/component: webhook-gate
+  annotations:
+    "helm.sh/hook": pre-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bp-mimir
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        catalyst.openova.io/component: webhook-gate
+    spec:
+      serviceAccountName: {{ .Release.Name }}-webhook-gate
+      restartPolicy: Never
+      containers:
+        - name: gate
+          image: {{ $image | quote }}
+          imagePullPolicy: {{ $pullPolicy | quote }}
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "32Mi"
+            limits:
+              cpu: "100m"
+              memory: "128Mi"
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: WEBHOOK_SVC
+              value: {{ $svcName | quote }}
+            - name: WEBHOOK_NS
+              value: {{ $svcNs | quote }}
+            - name: TIMEOUT_SECONDS
+              value: {{ $timeout | quote }}
+            - name: INTERVAL_SECONDS
+              value: {{ $interval | quote }}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              echo "mimir webhook gate: poll endpoints/${WEBHOOK_NS}/${WEBHOOK_SVC} until at least 1 ready address (budget=${TIMEOUT_SECONDS}s, interval=${INTERVAL_SECONDS}s)"
+              deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
+              attempt=0
+              while [ "$(date +%s)" -lt "${deadline}" ]; do
+                attempt=$(( attempt + 1 ))
+                ready_count="$(kubectl get endpoints "${WEBHOOK_SVC}" \
+                  -n "${WEBHOOK_NS}" \
+                  --ignore-not-found \
+                  -o jsonpath='{range .subsets[*]}{.addresses[*].ip}{"\n"}{end}' 2>/dev/null \
+                  | tr ' ' '\n' | grep -c . || true)"
+                if [ "${ready_count}" -ge 1 ]; then
+                  echo "Webhook ready after ${attempt} attempt(s); endpoints=${ready_count}."
+                  exit 0
+                fi
+                echo "Attempt ${attempt}: endpoints not ready (count=${ready_count}); sleeping ${INTERVAL_SECONDS}s."
+                sleep "${INTERVAL_SECONDS}"
+              done
+              echo "FATAL: mimir-rollout-operator webhook ${WEBHOOK_NS}/${WEBHOOK_SVC} did not become ready within ${TIMEOUT_SECONDS}s." >&2
+              echo "Diagnose with:" >&2
+              echo "  kubectl -n ${WEBHOOK_NS} get pods -l app.kubernetes.io/name=mimir,app.kubernetes.io/component=rollout-operator" >&2
+              echo "  kubectl -n ${WEBHOOK_NS} get endpoints ${WEBHOOK_SVC}" >&2
+              echo "  kubectl get mutatingwebhookconfiguration | grep mimir" >&2
+              exit 1
+{{- end }}

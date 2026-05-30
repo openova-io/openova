@@ -160,3 +160,17 @@ complianceRules:
     # are still failing. Default 50.
     enforcingViolationsPerHour: 50
     enforcingFor: 5m
+
+# G49 (Refs #2601, 2026-05-30): webhook-gate Job + RBAC defaults.
+# Polls mimir-rollout-operator Service Endpoints during pre-upgrade
+# hook to close the Helm-vs-webhook race on StatefulSet patches.
+# Mirror of bp-opentelemetry-operator G38 pattern.
+webhookGate:
+  enabled: true
+  service:
+    name: mimir-rollout-operator
+    namespace: mimir
+  timeoutSeconds: 300
+  intervalSeconds: 2
+  image: "bitnamilegacy/kubectl:1.30.7"
+  imagePullPolicy: IfNotPresent
