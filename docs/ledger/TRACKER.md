@@ -1554,3 +1554,5 @@ Pillar 1 wizard walked end-to-end (6 steps + checkout sign-in):
 | 20:49Z→TBD | hw76 | 2ad8ca9239f814a0 | LIVE prov | TBD | **ZT#3 of 3 attempt** with IDENTICAL G55-G67 stack + workerCount=4. Falsifiable: reproduce hw75 81/81 with zero new classes. Convergence proof = 3 consecutive zero-touch perfect provisionings (founder mandate). |
 
 **Session tally**: 22 sub-classes / 15 wipes / 14 G-fixes shipped (G55-G67). **ZT#2 LANDED. ZT#3 in flight.**
+
+| 20:49→TBD | hw76 | 2ad8ca9239f814a0 | LIVE prov | TBD | ZT#3 attempt — IDENTICAL stack as hw75 (G55-G67 + workerCount=4). +48min Phase 0 still progressing (slower than hw75 +38min ready) — 10 nodes vs 6 = bigger cluster slower boot, substrate variance not failure. Wakeup re-scheduled 22:09Z for Phase 1 + handover window. Reproducibility test: variance in time = OK; variance in outcome = surfaces new class. |
