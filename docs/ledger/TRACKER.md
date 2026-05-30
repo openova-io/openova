@@ -1484,3 +1484,17 @@ Architectural pivot pending lead decision:
 - **Option Z**: make openova-io packages PUBLIC on ghcr.io. 5min ship. Cons: exposes proprietary images.
 
 **Session tally**: 19 sub-classes (+12 auto-bump; +13 Harbor-proxy-cache-auth) / 13 wipes / 11 G-fixes shipped (G55-G65). G66 in flight pending lead architectural decision.
+
+| G# | Issue | PR/Commit | Subject | Status |
+|---|---|---|---|---|
+| **G66** | #2615 | 58e172a8 | Skopeo native-push for openova-io to local Harbor (Step 03 Phase A) + Step 07 REGISTRY drops /proxy-ghcr/ suffix (`${HARBOR_HOST}` bare) + Kyverno harbor-proxy-pull anyPattern with `*/proxy-*/*` AND `*/openova-io/*` globs. Lockstep bp-self-sovereign-cutover 0.1.42→0.1.43 + bp-kyverno-policies 1.0.23→1.0.24. Architectural pivot from broken Harbor github-ghcr proxy-cache auth to immutable Sovereign-pushed images (Pillar 5 sovereignty). | shipped |
+
+**Option Z (alternative not taken)**: `gh api packages/openova-io/openova/<svc>/visibility=public` — 5min ship but requires founder-domain authorization (business/IP decision) AND doesn't address sovereignty gap. Surfaced for founder awareness; X is canonical regardless.
+
+**META-AUDIT 13 candidate (post-ZT)**: cutover step health validation post-mutation — Step 07 succeeded but Pod ImagePullBackOff (no fail-fast gate). Future: each cutover step that mutates dependencies should validate the dependency works before reporting Ready.
+
+| Time (UTC) | hw## | id | Status | Verifier | Cause / G-fix |
+|---|---|---|---|---|---|
+| 18:30Z→TBD | hw74 | TBD | PENDING (wait CI bake ~10min) | TBD | **ZT#2 attempt #16 / 13th wipe-cycle** with FULL G55+G57+G58+G59+G60+G61+G62+G63+G64+G65+G66 = 11-fix stack baked. Falsifiable: Step 03 Phase A skopeo-pushes ~25 openova-io images → Step 07 patches catalyst-api to `registry.<sov>/openova-io/openova/catalyst-api:<tag>` → Kyverno anyPattern accepts → Pod CREATE passes → kubelet pull NATIVE → catalyst-api Ready → 81/81 + L6 CLEAN. |
+
+**Session tally**: 20 sub-classes (+14 Harbor-github-ghcr-adapter-auth) / 13 wipes / 12 G-fixes shipped (G55-G66). hw74 = first prov with G55-G66 stack from boot.
