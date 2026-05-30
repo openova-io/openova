@@ -413,10 +413,13 @@ spec:
       # bp-catalyst-platform spec.values.global.imageRegistry to local
       # Harbor proxy so post-cutover catalyst-api Pod admission passes
       # the harbor-proxy-pull policy (G60-enforced post-handover).
+      # 0.1.42 (G63 #2613): add writable /tmp emptyDir mount to
+      # Step 07 Pod so G62 git clone+push doesn't fail with
+      # "Read-only file system" (verified live hw70 14:38Z).
       # 0.1.41 (G62 #2613): Step 07 G62-A pass — durable Gitea edit
       # of bootstrap-kit imageRegistry seam so Flux Kustomization
       # preserves the HR patch (sub-class 10 architectural fix).
-      version: 0.1.41
+      version: 0.1.42
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

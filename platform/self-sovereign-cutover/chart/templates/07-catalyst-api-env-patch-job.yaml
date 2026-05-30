@@ -203,3 +203,15 @@ data:
           readOnlyRootFilesystem: true
           capabilities:
             drop: ["ALL"]
+        # G63 (#2613, 2026-05-30): writable /tmp for G62 git clone +
+        # working dir. readOnlyRootFilesystem: true blocks any write
+        # to /tmp unless explicitly mounted emptyDir. Without this
+        # mount, G62's git clone fails with "Read-only file system"
+        # (verified live hw70 14:38Z). Same emptyDir pattern as
+        # Step 06's tmp mount.
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+    volumes:
+      - name: tmp
+        emptyDir: {}

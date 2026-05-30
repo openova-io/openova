@@ -277,7 +277,13 @@ name: bp-self-sovereign-cutover
 # sub-class 10). Also applies retroactively to Step 06's
 # helmrepository-patches (already has Gitea persistence via Phase 2)
 # — convention adherence confirmed via audit.
-version: 0.1.41
+# 0.1.42 (G63 #2613, 2026-05-30): add writable /tmp emptyDir mount
+# to Step 07 Pod (readOnlyRootFilesystem: true blocked G62 git clone
+# with "Read-only file system" — verified live hw70 14:38Z). Same
+# emptyDir pattern as Step 06's existing tmp mount. Without this,
+# G62 Gitea persistence pass silently fails its WARN path and the
+# live HR-patch gets reverted by Flux within ~5min.
+version: 0.1.42
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
