@@ -1529,3 +1529,28 @@ Architectural pivot pending lead decision:
 | 19:54Z→TBD | hw75 | 6a1ee682b987b202 | LIVE prov | TBD | **ZT#2 attempt #17 / 14th wipe-cycle** with FULL G55+G57+G58+G59+G60+G61+G62+G63+G64+G65+G66+G67 = 12-fix stack + γ-β workerCount=4 per region. bp-catalyst-platform 1.4.394 (includes bp-opentelemetry:1.2.1 + bp-kyverno:1.3.3 + bp-seaweedfs:1.2.1 right-sized requests). ETA terminal ~+40min. Falsifiable: cluster Allocated CPU% < 90% across all 4 workers/CP/region (γ-β added node + γ-α freed ~2900m) → cutover Step 01 gitea-mirror Pod schedules immediately → Step 03 Phase A skopeo native-push → Step 07 catalyst-api flips to registry.hw75/openova-io/openova/catalyst-api:<tag> NATIVE path → Kyverno anyPattern accepts → Pod Ready 1/1 → 81/81 + L6 CLEAN. |
 
 **Session tally**: 22 sub-classes (+16 cluster-CPU-saturation closed by G67) / 15 wipes / 14 G-fixes shipped (G55-G67). hw75 = first prov with G55-G67 stack from boot + extra CPU headroom.
+
+---
+
+## 🟢🟢🟢 ZT#2 of 3 ACHIEVED — hw75 SUBSTRATE+WALK VERIFIED (2026-05-30 20:49Z)
+
+| Time (UTC) | hw## | id | Status | Verifier | Evidence |
+|---|---|---|---|---|---|
+| 19:54→20:32:34Z | hw75 | 6a1ee682b987b202 | **READY 81/81 + L6 CLEAN + handoverFiredAt populated** | **81/81 ✓** | [#2526 comment 4584682891](https://github.com/openova-io/openova/issues/2526#issuecomment-4584682891) — 7 screenshots committed `48a6ff08` |
+
+**G55-G67 stack (12 fixes) baked from boot. ZERO MUTATIONS. LE Prod TLS. handoverFiredAt=20:35:25Z. phase1Outcome=ready. Convergence trajectory: hw68 4F → hw69-hw74 each 1F new class → hw75 81/81.**
+
+Pillar 1 wizard walked end-to-end (6 steps + checkout sign-in):
+1. landing — Build Your Tenant 
+2. plans  — 9-tier pricing matrix (M preselected)
+3. apps   — App catalog
+4. addons — Add-ons & Domains
+5. bcp    — Business Continuity topology
+6. review — Order review
+7. checkout — Sign-in
+
+| Time (UTC) | hw## | id | Status | Verifier | Cause / G-fix |
+|---|---|---|---|---|---|
+| 20:49Z→TBD | hw76 | 2ad8ca9239f814a0 | LIVE prov | TBD | **ZT#3 of 3 attempt** with IDENTICAL G55-G67 stack + workerCount=4. Falsifiable: reproduce hw75 81/81 with zero new classes. Convergence proof = 3 consecutive zero-touch perfect provisionings (founder mandate). |
+
+**Session tally**: 22 sub-classes / 15 wipes / 14 G-fixes shipped (G55-G67). **ZT#2 LANDED. ZT#3 in flight.**
