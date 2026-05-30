@@ -52,7 +52,10 @@ spec:
       # G60 drops that primitive in favor of canonical
       # `validate.pattern` + glob — request.object-direct data,
       # no JMESPath substitution path, no element.X nil race.
-      version: 1.0.22
+      # 1.0.23 (G64 #2613, 2026-05-30): broaden harbor-proxy-pull glob
+      # to `*/proxy-*/*` — Sovereigns expose Harbor at `registry.<sov>`
+      # subdomain not `harbor.<sov>`. Verified live hw71.
+      version: 1.0.23
       sourceRef:
         kind: HelmRepository
         name: bp-kyverno

@@ -142,15 +142,23 @@ compliancePolicies:
     excludeNamespaces: *complianceDefaultExcludes
     # G60 (Refs #2611, 2026-05-30): renamed `allowedRegistryRegex` →
     # `allowedImagePattern` to reflect Kyverno glob semantics (not regex).
-    # Original regex `^harbor\..+/proxy-(ghcr|dockerhub|quay|
-    # registry-1\.docker\.io)/.*` was functionally equivalent to
-    # `harbor.*/proxy-*/*` AND future-proof for new proxy sources.
-    # 7 prior rounds (G19→G58) of regex_match+foreach+element.X
-    # patching all hit Kyverno's JMESPath nil-substitution edge cases.
-    # G60 drops that primitive in favor of canonical `validate.pattern`
-    # + glob — request.object-direct data, no JMESPath substitution,
-    # no element.X nil race. Pattern is operator-configurable.
-    allowedImagePattern: "harbor.*/proxy-*/*"
+    # G60 drops the foreach+regex_match+element.X primitive in favor of
+    # canonical `validate.pattern` + glob — request.object-direct data,
+    # no JMESPath substitution, no element.X nil race.
+    #
+    # G64 (Refs #2613, 2026-05-30): broaden glob from `harbor.*/proxy-*/*`
+    # to `*/proxy-*/*`. The SEMANTIC MARKER for "Harbor proxy" is the
+    # `/proxy-<upstream>/<path>` URL pattern, NOT the `harbor.*` subdomain.
+    # Sovereign HTTPRoute exposes Harbor at `registry.<sov-fqdn>` (per
+    # bp-harbor HTTPRoute hostname, e.g. `registry.hw71.omani.works`).
+    # G60's `harbor.*` glob was a copy-paste from the original regex
+    # without checking the actual deployed Harbor subdomain — verified
+    # live hw71 14:46Z when G62 chain finally landed harbor URLs on the
+    # catalyst-api Deployment and the policy still denied because the
+    # Harbor URL was `registry.<sov>/proxy-ghcr/...` not `harbor.<sov>/...`.
+    # `/proxy-` prefix is uniquely Harbor's convention so this glob
+    # remains operationally secure.
+    allowedImagePattern: "*/proxy-*/*"
 
   imageTagPinned:
     enabled: true

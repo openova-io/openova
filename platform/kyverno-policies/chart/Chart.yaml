@@ -42,7 +42,17 @@ type: application
 #
 # 1.0.21 (G58 #2609): autogen=none — reverted in G60
 # 1.0.20 (G55 #2605): match.kinds=[Pod] only — reverted in G60
-version: 1.0.22
+# 1.0.23 (G64 #2613, 2026-05-30): broaden harbor-proxy-pull glob from
+# `harbor.*/proxy-*/*` to `*/proxy-*/*`. G60 chose `harbor.*` as the
+# subdomain prefix without checking actual deployed Harbor HTTPRoute
+# hostname — Sovereigns expose Harbor at `registry.<sov>` subdomain.
+# Verified live hw71 14:46Z: G62 chain finally landed harbor URLs on
+# catalyst-api Deployment (`registry.hw71.omani.works/proxy-ghcr/...`)
+# and policy still denied because of subdomain mismatch. SEMANTIC
+# MARKER is the `/proxy-` path prefix (uniquely Harbor convention),
+# not the subdomain. META-AUDIT 10 candidate locked in for post-ZT:
+# policy-value-vs-actual-deployment consistency check.
+version: 1.0.23
 appVersion: "1.0.2"
 keywords: [catalyst, blueprint, kyverno, policy, compliance, audit]
 maintainers:
