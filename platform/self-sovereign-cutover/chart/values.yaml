@@ -156,6 +156,19 @@ harbor:
     # (Provider packages typically pull anonymously), an operator
     # overlay that adds xpkg credentials gets the same clean-up here.
     - "xpkg.upbound.io"
+  # G66 #2615 (2026-05-31): push-mode projects for skopeo native
+  # uploads of openova-io application images. Distinct from
+  # proxyProjects (which are proxy-cache mode with upstream
+  # adapters). Push-mode projects exist only as local Harbor
+  # storage — no upstream. Step 02 ensures these exist; Step 03
+  # Phase A skopeo-pushes images into them.
+  #
+  # The `openova-io` project name matches the path segment in
+  # ghcr.io/openova-io/openova/<svc>:<tag> — Phase A copies to
+  # registry.<sov>/openova-io/openova/<svc>:<tag>, dropping only
+  # the `ghcr.io/` host prefix.
+  pushProjects:
+    - "openova-io"
   # Seven proxy-cache projects + their upstream registry endpoints.
   # Names are stable because step 06 (helmrepository-patches) +
   # registries.yaml v2 (registry-pivot) rewrite paths against these

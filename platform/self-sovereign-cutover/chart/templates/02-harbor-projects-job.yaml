@@ -117,6 +117,28 @@ data:
             done
 
             echo "[harbor-projects] all proxy-cache projects ensured"
+
+            # G66 #2615 (2026-05-31): create push-mode projects (no
+            # registry_id) for native-pushed images. Step 03 Phase A
+            # skopeo-pushes openova-io application images into the
+            # `openova-io` project at registry.<sov>/openova-io/...
+            # — Harbor requires the project to exist before push.
+            # Push-mode projects are SEPARATE from proxy-cache projects:
+            # no registry_id field; public=false (private by default;
+            # operators with harbor admin auth push, anonymous pull
+            # gated by Sovereign HTTPRoute auth + Kyverno glob).
+            for push_proj in {{ join " " .Values.harbor.pushProjects }}; do
+              echo "[harbor-projects] ensuring push-mode project ${push_proj}"
+              proj_payload="{\"project_name\":\"${push_proj}\",\"public\":false,\"metadata\":{\"public\":\"false\"}}"
+              code=$(curl -s -o /tmp/proj.out -w "%{http_code}" -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" -X POST \
+                -H "Content-Type: application/json" \
+                "${base}/projects" --data "${proj_payload}")
+              case "${code}" in
+                201|409) echo "[harbor-projects]   push project ${push_proj} OK (${code})" ;;
+                *)       echo "[harbor-projects]   push project ${push_proj} FAILED (${code})"; cat /tmp/proj.out; exit 1 ;;
+              esac
+            done
+            echo "[harbor-projects] all push-mode projects ensured"
         resources:
           requests: { cpu: 100m, memory: 128Mi }
           limits:   { memory: 512Mi }

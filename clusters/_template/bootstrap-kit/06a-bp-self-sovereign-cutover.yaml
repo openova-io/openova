@@ -419,7 +419,7 @@ spec:
       # 0.1.41 (G62 #2613): Step 07 G62-A pass — durable Gitea edit
       # of bootstrap-kit imageRegistry seam so Flux Kustomization
       # preserves the HR patch (sub-class 10 architectural fix).
-      version: 0.1.43
+      version: 0.1.44
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
