@@ -1,0 +1,105 @@
+{{- /*
+G53 (Refs #2604, 2026-05-30): RBAC for the cnpg webhook-gate Job.
+Same pattern as G38 #2593 webhook-gate-rbac for bp-opentelemetry-operator.
+
+Scoped to:
+- GET Endpoints in cnpg-system ns (verify webhook Service has ≥1 ready address)
+- Cluster-level GET on Mutating/ValidatingWebhookConfiguration (verify caBundle populated)
+
+Webhook-config GET is cluster-scoped → ClusterRole + ClusterRoleBinding.
+*/}}
+{{- $gate := .Values.webhookGate | default dict -}}
+{{- $enabled := true -}}
+{{- if hasKey $gate "enabled" -}}
+{{-   $enabled = $gate.enabled -}}
+{{- end -}}
+{{- if $enabled }}
+{{- $svcNs := (($gate.service).namespace) | default "cnpg-system" -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-webhook-gate
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: bp-cnpg
+    catalyst.openova.io/component: webhook-gate
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-webhook-gate
+  namespace: {{ $svcNs | quote }}
+  labels:
+    app.kubernetes.io/name: bp-cnpg
+    catalyst.openova.io/component: webhook-gate
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: [""]
+    resources: ["endpoints"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-webhook-gate
+  namespace: {{ $svcNs | quote }}
+  labels:
+    app.kubernetes.io/name: bp-cnpg
+    catalyst.openova.io/component: webhook-gate
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-webhook-gate
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ .Release.Name }}-webhook-gate
+  apiGroup: rbac.authorization.k8s.io
+---
+# Cluster-scoped: webhook configurations live at cluster scope.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-webhook-gate
+  labels:
+    app.kubernetes.io/name: bp-cnpg
+    catalyst.openova.io/component: webhook-gate
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["mutatingwebhookconfigurations", "validatingwebhookconfigurations"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-webhook-gate
+  labels:
+    app.kubernetes.io/name: bp-cnpg
+    catalyst.openova.io/component: webhook-gate
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-webhook-gate
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ .Release.Name }}-webhook-gate
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}

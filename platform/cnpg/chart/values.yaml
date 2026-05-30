@@ -92,6 +92,22 @@ cloudnative-pg:
   # manager) provides the TLS cert per Sovereign convention.
 
 # ─── Catalyst-managed overlay values consumed by templates/ ───────────────
-# (None today — the wrapper currently ships no Catalyst-authored
-# templates. Reserved for future NetworkPolicy / RBAC overlays once the
-# bootstrap-kit security tier (W2.K3) is fully reconciled.)
+
+# G53 (Refs #2604, 2026-05-30): webhook-gate Job + RBAC defaults.
+# Post-install hook polls cnpg-webhook-service Endpoints + Mutating/Validating
+# WebhookConfiguration caBundle until all 3 cleared, BEFORE Helm marks the
+# release Installed. Mirrors G38/G44/G49 producer-side gate pattern.
+# Closes META-AUDIT 1 downstream-chart x509 cnpg-webhook race that blocked
+# bp-gitea / bp-harbor / bp-newapi / bp-openova-flow-server / bp-powerdns
+# on hw61 v13 04:50Z (deployment bc232915d870bbc3).
+webhookGate:
+  enabled: true
+  service:
+    name: cnpg-webhook-service
+    namespace: cnpg-system
+  mutatingWebhookName: cnpg-mutating-webhook-configuration
+  validatingWebhookName: cnpg-validating-webhook-configuration
+  timeoutSeconds: 300
+  intervalSeconds: 2
+  image: "bitnamilegacy/kubectl:1.30.7"
+  imagePullPolicy: IfNotPresent

@@ -1,0 +1,181 @@
+{{- /*
+G53 (Refs #2604, 2026-05-30): bp-cnpg post-install webhook readiness gate.
+
+Background — the race we close
+==============================
+The upstream cloudnative-pg chart registers a MutatingWebhookConfiguration
+`cnpg-mutating-webhook-configuration` + ValidatingWebhookConfiguration
+`cnpg-validating-webhook-configuration` backed by Service
+`cnpg-webhook-service` in `cnpg-system` namespace. The webhook cert is
+issued by cert-manager (Certificate `cnpg-webhook-cert`) and the
+caBundle field on the webhook configurations is populated by
+cert-manager-cainjector via the annotation
+`cert-manager.io/inject-ca-from`.
+
+On cold install, bp-cnpg HR flips Ready=True the moment Helm reports
+the release as Installed (all manifests applied) — typically BEFORE:
+- cert-manager has issued the cert
+- cainjector has noticed the Certificate Ready event
+- cainjector has patched the caBundle on the webhook configs
+- the apiserver has refreshed its webhook config cache + verified TLS
+  trust to the cnpg-webhook-service endpoint
+
+Dependents with `dependsOn: bp-cnpg` start their install IMMEDIATELY.
+If their chart includes a `postgresql.cnpg.io/v1.Cluster` CR, the
+apiserver calls the cnpg-webhook (mcluster.cnpg.io) and fails:
+
+  x509: certificate signed by unknown authority (possibly because of
+  "x509: invalid signature: parent certificate cannot sign this kind
+  of certificate") while trying to verify candidate authority
+  certificate "cnpg-webhook-service.cnpg-system.svc"
+
+Helm install fails → HR Stalled (chart-default retries=4 exhausts) or
+stuck retrying (G50-patched HRs only).
+
+Caught live on hw61 v13 04:50Z (deployment bc232915d870bbc3):
+bp-gitea Stalled RetriesExceeded, bp-harbor / bp-newapi /
+bp-openova-flow-server / bp-powerdns all InstallFailed cascading from
+the same cnpg-webhook race.
+
+Pattern — mirror G38/G44/G49 (gate-at-producer)
+================================================
+1. webhook-gate-hook.yaml (this file): post-install + post-upgrade Job
+   weight 5 — polls THREE conditions:
+     (a) Endpoints `cnpg-webhook-service` in `cnpg-system` ≥1 ready address
+     (b) MutatingWebhookConfiguration `cnpg-mutating-webhook-configuration`
+         caBundle is non-empty (cainjector populated)
+     (c) ValidatingWebhookConfiguration `cnpg-validating-webhook-configuration`
+         caBundle is non-empty
+   All three must clear. 300s budget, 2s interval.
+
+2. webhook-gate-rbac.yaml: SA (release ns) + Role (cnpg-system ns for
+   Endpoints GET) + RoleBinding + ClusterRole (Mutating/Validating
+   WebhookConfiguration GET cluster-scope) + ClusterRoleBinding.
+   hook-weight 0 (runs before the gate Job).
+
+Helm marks the release Installed only when ALL post-install hooks
+succeed. HR Ready=True only then. Dependents safely install.
+
+Why not pre-install: the webhook Service + Configurations are CREATED
+by THIS chart's regular templates. A pre-install hook would wait
+forever because nothing exists yet. Post-install fires AFTER Helm
+applies the regular templates, so the webhook IS coming up while the
+gate polls. Same architectural decision as G38.
+
+If the gate times out: bp-cnpg HR reports InstallFailed → Flux
+remediation retries (chart-spec install.remediation.retries) — same
+defense as the original G50 retry tuning. Both layers protect.
+*/}}
+{{- $gate := .Values.webhookGate | default dict -}}
+{{- $enabled := true -}}
+{{- if hasKey $gate "enabled" -}}
+{{-   $enabled = $gate.enabled -}}
+{{- end -}}
+{{- if $enabled }}
+{{- $svcName := (($gate.service).name) | default "cnpg-webhook-service" -}}
+{{- $svcNs := (($gate.service).namespace) | default "cnpg-system" -}}
+{{- $mutName := $gate.mutatingWebhookName | default "cnpg-mutating-webhook-configuration" -}}
+{{- $valName := $gate.validatingWebhookName | default "cnpg-validating-webhook-configuration" -}}
+{{- $timeout := $gate.timeoutSeconds | default 300 -}}
+{{- $interval := $gate.intervalSeconds | default 2 -}}
+{{- $image := $gate.image | default "bitnamilegacy/kubectl:1.30.7" -}}
+{{- $pullPolicy := $gate.imagePullPolicy | default "IfNotPresent" -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-webhook-gate
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: bp-cnpg
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/component: webhook-gate
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bp-cnpg
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        catalyst.openova.io/component: webhook-gate
+    spec:
+      serviceAccountName: {{ .Release.Name }}-webhook-gate
+      restartPolicy: Never
+      containers:
+        - name: gate
+          image: {{ $image | quote }}
+          imagePullPolicy: {{ $pullPolicy | quote }}
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "32Mi"
+            limits:
+              cpu: "100m"
+              memory: "128Mi"
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: WEBHOOK_SVC
+              value: {{ $svcName | quote }}
+            - name: WEBHOOK_NS
+              value: {{ $svcNs | quote }}
+            - name: MUT_WEBHOOK
+              value: {{ $mutName | quote }}
+            - name: VAL_WEBHOOK
+              value: {{ $valName | quote }}
+            - name: TIMEOUT_SECONDS
+              value: {{ $timeout | quote }}
+            - name: INTERVAL_SECONDS
+              value: {{ $interval | quote }}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              echo "cnpg webhook gate: poll (a) endpoints/${WEBHOOK_NS}/${WEBHOOK_SVC} ready, (b) MutatingWebhookConfiguration ${MUT_WEBHOOK} caBundle, (c) ValidatingWebhookConfiguration ${VAL_WEBHOOK} caBundle (budget=${TIMEOUT_SECONDS}s, interval=${INTERVAL_SECONDS}s)"
+              deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
+              attempt=0
+              while [ "$(date +%s)" -lt "${deadline}" ]; do
+                attempt=$(( attempt + 1 ))
+                # (a) Endpoint readiness
+                ep_count="$(kubectl get endpoints "${WEBHOOK_SVC}" \
+                  -n "${WEBHOOK_NS}" \
+                  --ignore-not-found \
+                  -o jsonpath='{range .subsets[*]}{.addresses[*].ip}{"\n"}{end}' 2>/dev/null \
+                  | tr ' ' '\n' | grep -c . || true)"
+                # (b) Mutating caBundle non-empty
+                mut_ca_len="$(kubectl get mutatingwebhookconfiguration "${MUT_WEBHOOK}" \
+                  --ignore-not-found \
+                  -o jsonpath='{.webhooks[0].clientConfig.caBundle}' 2>/dev/null \
+                  | wc -c | tr -d ' ')"
+                # (c) Validating caBundle non-empty
+                val_ca_len="$(kubectl get validatingwebhookconfiguration "${VAL_WEBHOOK}" \
+                  --ignore-not-found \
+                  -o jsonpath='{.webhooks[0].clientConfig.caBundle}' 2>/dev/null \
+                  | wc -c | tr -d ' ')"
+                if [ "${ep_count}" -ge 1 ] && [ "${mut_ca_len}" -gt 100 ] && [ "${val_ca_len}" -gt 100 ]; then
+                  echo "All three conditions cleared after ${attempt} attempt(s); endpoints=${ep_count} mut_caBundle_len=${mut_ca_len} val_caBundle_len=${val_ca_len}."
+                  exit 0
+                fi
+                echo "Attempt ${attempt}: endpoints=${ep_count} mut_caBundle_len=${mut_ca_len} val_caBundle_len=${val_ca_len}; sleeping ${INTERVAL_SECONDS}s."
+                sleep "${INTERVAL_SECONDS}"
+              done
+              echo "FATAL: cnpg webhook gate did not clear within ${TIMEOUT_SECONDS}s." >&2
+              echo "Diagnose with:" >&2
+              echo "  kubectl -n ${WEBHOOK_NS} get pods -l app.kubernetes.io/name=cloudnative-pg" >&2
+              echo "  kubectl -n ${WEBHOOK_NS} get endpoints ${WEBHOOK_SVC}" >&2
+              echo "  kubectl get mutatingwebhookconfiguration ${MUT_WEBHOOK} -o yaml | grep -A2 caBundle | head -5" >&2
+              echo "  kubectl get certificate -n ${WEBHOOK_NS}" >&2
+              exit 1
+{{- end }}
