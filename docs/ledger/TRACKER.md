@@ -1559,3 +1559,5 @@ Pillar 1 wizard walked end-to-end (6 steps + checkout sign-in):
 
 | 22:10Z | hw76 | 2ad8ca9239f814a0 | **FAILED** Phase 0 (21:40:47Z) | N/A | HCS API "conflict in the request" on VPC + EIP creation me-east-215-a/b. Infrastructure flake (likely stale HCS state from hw75 wipe — VPCs/EIPs collision). JANITOR swept orphan EIPs post-failure. NOT a new architectural class — HCS-side transient. Retry as hw77. |
 | 22:10Z→TBD | hw77 | 4ffb7e103f038e77 | LIVE prov | TBD | **ZT#3 attempt #2** (retry after hw76 HCS flake) — IDENTICAL G55-G67 + workerCount=4 stack. Falsifiable: HCS API now permits VPC/EIP creation post-JANITOR-sweep → reach Phase 1 → cutover → 81/81. |
+
+| 22:10→TBD | hw77 | 4ffb7e103f038e77 | LIVE prov | TBD | ZT#3-candidate retry. +47min Phase 0 still progressing — SAME slower trajectory as hw76 (+48min was still Phase 0 there). JANITOR holds EIPs active (good, no premature sweep). If hw77 also fails Phase 0 → META-AUDIT 16 fires for real (wipe→re-POST HCS namespace race not just hw76 transient). Wakeup re-scheduled 23:18Z for Phase 1 transition check. |
