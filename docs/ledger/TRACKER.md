@@ -1176,4 +1176,34 @@ Lead recommendation **(b)** taken: POST v8 with stable codebase post-META-AUDIT-
 **Target**: 51/0/3 → verifier 81/81 → walk + screenshot → ZT#1 of 3 with provenance from clean Phase-0+1 install (no Helm-rollback complexity).
 
 Refs #2526 (DoD walk evidence umbrella).
+
+
+## 2026-05-30T00:55Z — v8 WIPED + G44/G45/G46/G47 batch shipped + v9 POSTED
+
+v8 hit 4 distinct blockers at +1h Phase 1:
+1. bp-opentelemetry-operator CrashLoopBackOff: `no matches for kind OpenTelemetryCollector` (G38 webhook-gate insufficient — operator's controller-runtime hits RESTMapper cache race)
+2. Kyverno harbor-proxy-pull PolicyViolation: `JMESPath nil at regex_match(..., element.image || "")` (G40 inline `|| ""` insufficient — JMESPath doesn't short-circuit nil like Go)
+3. region-a Flux NOT installed: G2-followup 120s retry budget exhausted (cloud-init `|| true` swallowed the failure)
+4. 6 worker ECS ACTIVE on HCS but not joining k3s (deferred — existing HCS pattern, v7 also lacked workers but walked Pillar 1 fine via CP master-toleration)
+
+v8 WIPED at 00:55:24Z. Batch shipped to main:
+
+| G | Issue | PR commit | Chart bump | Scope |
+|---|---|---|---|---|
+| G44 | #2596 | `1694c570` | bp-opentelemetry-operator 1.0.3→1.0.4 | webhook-gate extended with `kubectl api-resources --api-group=opentelemetry.io` CRD-discovery poll + timeout 60→300s |
+| G45 | #2597 | `a5a94a39` | bp-kyverno-policies 1.0.17→1.0.18 | canonical `not_null(element.image, "")` JMESPath null-coalescing in 11-harbor-proxy + 12-image-tag-pinned (containers + initContainers, deny + preconditions) |
+| G46 | #2598 | `503e6a14` | (no chart — Huawei cloudinit infra) | systemd one-shot `openova-flux-install.service` Restart=on-failure RestartSec=30 StartLimitIntervalSec=0 — retries forever until success; cloud-init waits ≤300s before proceeding |
+| G47 | #2599 | (META-AUDIT 6 follow-up) | CI fix — not blocking v9 | Blueprint Release `detect` uses `git diff HEAD~1 HEAD`; stacked-commit pushes skip chart bumps. Fix: use `\${{ github.event.before }}..\${{ github.sha }}` |
+
+**CI gap inline-worked-around**: G47 root cause caught — push of G45→G44→G46 stacked: detect ran at HEAD=503e6a14 and only saw G46 (no chart). Workflow_dispatch fired manually for opentelemetry-operator + kyverno-policies. Both 1.0.4 + 1.0.18 published 01:06:17-21Z. Bootstrap-kit pins auto-bumped: 19c (1.0.4) + 27a (1.0.18) live on main.
+
+**v9 / hw57 POSTED**: dep `c3fbd39e415f5e43` HTTP 201 status=provisioning at **2026-05-30T01:11Z**
+
+- Body cloned from v7 (sovereignFQDN/Subdomain → hw57, objectStorageBucket server-side regen)
+- 2-code multi-region (me-east-215-a + me-east-215-b)
+- Carries 14+ baked fixes: G2-fu+G2-fu-fix2, G30, G31-fix2/3, G33, G34, G35, G38+G44, G40+G40-batch+G45, G42, G46
+
+ETA Phase 0 ~25-35min + Phase 1 ~20min. Target: verifier 81/81 → Pillar 1 walk + screenshot → **ZT#1 of 3 with full provenance**.
+
+Refs #2526
 | #2528 (OBS cred derivation) | `status/uat` — POST 400 fix verified |
