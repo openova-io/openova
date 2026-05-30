@@ -35,6 +35,25 @@ metadata:
       Container images must reference a Sovereign-local Harbor proxy
       registry. Operator configures the allowed regex via
       .Values.compliancePolicies.harborProxyPull.allowedRegistryRegex.
+    # G58 (Refs #2609, 2026-05-30): disable Kyverno autogen.
+    # G55 scoped match.kinds to [Pod] only to avoid Kyverno's
+    # images.containers context auto-population returning nil-bearing
+    # entries on Deployment/etc. kinds. But Kyverno's AUTOGEN feature
+    # automatically generates additional rules for higher-level
+    # controllers (Deployment/StatefulSet/DaemonSet/Job/CronJob) from
+    # any Pod-only policy — preserving the same JMESPath expressions
+    # applied to .spec.template.spec.containers[*]. The auto-generated
+    # rule recreates the SAME nil-substitution bug at admission time.
+    #
+    # Verified live hw65 v17 09:50Z: bp-catalyst-platform Helm rollback
+    # FAILED on `autogen-image-must-be-from-harbor-proxy` with the same
+    # JMESPath nil error, even though the Pod-only `image-must-be-from-
+    # harbor-proxy` rule was correctly scoped.
+    #
+    # Pod-level enforcement is sufficient — every Deployment creates
+    # Pods that pass through the Pod admission gate. Disabling autogen
+    # eliminates the Deployment-targeting variant entirely.
+    pod-policies.kyverno.io/autogen-controllers: "none"
 spec:
   validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.harborProxyPull.action) }}
   background: true

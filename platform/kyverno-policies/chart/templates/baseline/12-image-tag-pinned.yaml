@@ -30,6 +30,11 @@ metadata:
       Container images must reference an explicit, non-:latest tag (or
       a @sha256: digest). Floating tags break SHA-pinned audit trails
       and reproducibility.
+    # G58 (Refs #2609, 2026-05-30): disable Kyverno autogen — see
+    # 11-harbor-proxy.yaml G58 annotation comment for full rationale.
+    # Pod-level enforcement is sufficient + Kyverno autogen variants
+    # recreate the same nil-substitution bug on Deployment kinds.
+    pod-policies.kyverno.io/autogen-controllers: "none"
 spec:
   validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.imageTagPinned.action) }}
   background: true
