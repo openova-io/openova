@@ -1522,3 +1522,10 @@ Architectural pivot pending lead decision:
 **META-AUDIT 14 candidate (post-ZT)**: catalyst-api Phase-1 watcher should validate Allocated CPU% < 90% across all nodes BEFORE firing handover/declaring ready. Without it, cluster saturation hides as silent stuck-cutover.
 
 **Session tally**: 22 sub-classes (+16 cluster-CPU-saturation) / 14 wipes / 14 G-fixes shipped (G55-G67). hw75 = first prov with full G55-G67 stack + workerCount=4.
+
+| Time (UTC) | hw## | id | Status | Verifier | Cause / G-fix |
+|---|---|---|---|---|---|
+| 19:53→19:54Z | hw74 | 78f585b1b79ef965 | WIPED | N/A | G65 + G66 validated through Phase 1; G67 cluster-CPU-saturation exposed at cutover Step 01. Wiped + replaced by hw75 with G55-G67 + workerCount=4. |
+| 19:54Z→TBD | hw75 | 6a1ee682b987b202 | LIVE prov | TBD | **ZT#2 attempt #17 / 14th wipe-cycle** with FULL G55+G57+G58+G59+G60+G61+G62+G63+G64+G65+G66+G67 = 12-fix stack + γ-β workerCount=4 per region. bp-catalyst-platform 1.4.394 (includes bp-opentelemetry:1.2.1 + bp-kyverno:1.3.3 + bp-seaweedfs:1.2.1 right-sized requests). ETA terminal ~+40min. Falsifiable: cluster Allocated CPU% < 90% across all 4 workers/CP/region (γ-β added node + γ-α freed ~2900m) → cutover Step 01 gitea-mirror Pod schedules immediately → Step 03 Phase A skopeo native-push → Step 07 catalyst-api flips to registry.hw75/openova-io/openova/catalyst-api:<tag> NATIVE path → Kyverno anyPattern accepts → Pod Ready 1/1 → 81/81 + L6 CLEAN. |
+
+**Session tally**: 22 sub-classes (+16 cluster-CPU-saturation closed by G67) / 15 wipes / 14 G-fixes shipped (G55-G67). hw75 = first prov with G55-G67 stack from boot + extra CPU headroom.
