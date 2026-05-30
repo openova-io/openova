@@ -1,3 +1,17 @@
+# G61 (Refs #2612, 2026-05-30): Kustomize-mode sibling of
+# api-deployment.yaml. Contabo-mkt applies this via raw Kustomize
+# (kustomize-controller does not render Helm templates). The Helm
+# sibling (api-deployment.yaml) uses {{ .Values.global.imageRegistry }}
+# so Sovereign-Helm honours post-cutover registry override.
+#
+# This file uses a literal `ghcr.io/...` image ref so Kustomize on
+# contabo applies it unchanged. CI auto-bumps the literal here AND
+# the values.yaml `images.catalystApi.tag` so contabo + Sovereigns
+# roll to the same SHA. Same Kustomize-vs-Helm split pattern as
+# clusterrolebinding-cutover-driver-kustomize.yaml (issue #830).
+#
+# Kept out of the Helm-rendered bundle via .helmignore.
+
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -157,21 +171,15 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: catalyst-api
-          # G61 (Refs #2612, 2026-05-30): templated image ref so
-          # Sovereign-Helm honours `global.imageRegistry` override
-          # (post-cutover patches HelmRelease.spec.values.global.
-          # imageRegistry = harbor.<sovereign>/proxy-ghcr/openova-io/
-          # openova → catalyst-api restart pulls through Harbor →
-          # admission policy harbor-proxy-pull allows the Pod).
-          # Pre-G61 literal `ghcr.io/...` was incompatible with the
-          # post-handover enforce-mode harbor-proxy-pull policy.
-          #
-          # Contabo-mkt Kustomize path uses api-deployment-kustomize.
-          # yaml (literal ghcr.io ref, .helmignore'd from Sovereign
-          # bundle). CI auto-bumps both the literal in the kustomize
-          # file AND the values.yaml `images.catalystApi.tag` so
-          # contabo and Sovereigns roll together.
-          image: "{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}{{ else }}{{ .Values.images.registry }}{{ end }}/{{ .Values.images.organization }}/catalyst-api:{{ .Values.images.catalystApi.tag }}"
+          # Literal image ref — required for the contabo-mkt Kustomize
+          # path (kustomize-controller doesn't render Helm templates).
+          # Auto-bumped by .github/workflows/catalyst-build.yaml's deploy
+          # step on every push to main, so Sovereigns AND contabo both
+          # roll to the latest catalyst-api SHA. The matching
+          # values.yaml `images.catalystApi.tag` is also bumped (but
+          # unused for catalyst-api; kept for SME services that DO read
+          # from values).
+          image: "ghcr.io/openova-io/openova/catalyst-api:7468a69"
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080

@@ -409,7 +409,11 @@ spec:
       # `egressTest.blockedDomains` both gain `xpkg.upbound.io` for
       # lockstep. totalSteps bumped 10 → 11; contract test asserts
       # the shift via new Case 22. (Refs #2034)
-      version: 0.1.39
+      # 0.1.40 (G61 #2612, 2026-05-30): Step 07 also patches HR
+      # bp-catalyst-platform spec.values.global.imageRegistry to local
+      # Harbor proxy so post-cutover catalyst-api Pod admission passes
+      # the harbor-proxy-pull policy (G60-enforced post-handover).
+      version: 0.1.40
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

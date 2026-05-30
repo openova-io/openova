@@ -2338,7 +2338,14 @@ name: bp-catalyst-platform
 #
 # Refs #1099 (NOT Closes — operator walk + screenshot is the DoD per
 # CLAUDE.md §0).
-version: 1.4.387
+# 1.4.388 (G61 #2612, 2026-05-30): api-deployment.yaml templated via
+# global.imageRegistry so Sovereign-Helm + post-cutover HR patch
+# resolves catalyst-api image to harbor-proxy URL (passing
+# harbor-proxy-pull admission policy). Kustomize-mode contabo-mkt
+# path uses sibling api-deployment-kustomize.yaml (literal ghcr.io).
+# .helmignore excludes the kustomize sibling from Sovereign bundle.
+# Pairs with bp-self-sovereign-cutover 0.1.40 (Step 07 HR patch).
+version: 1.4.388
 appVersion: 1.4.349
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.

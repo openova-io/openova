@@ -1,8 +1,31 @@
 {{- /*
-Step 07 — catalyst-api-env-patch.
+Step 07 — catalyst-api-env-patch + HR image-registry patch (G61 #2612).
 
-Sets the env var on the catalyst-api Deployment that drives its
-GitOps source URL. Trips a rolling restart of the catalyst-api pod fleet.
+Two-phase patch to the catalyst-api Deployment via its parent
+HelmRelease + a follow-up env-set:
+
+Phase 1 (G61, this commit): patch HR bp-catalyst-platform
+spec.values.global.imageRegistry to the Sovereign-local Harbor
+proxy URL. Flux helm-controller reconciles -> Helm upgrades the
+catalyst-api + catalyst-ui Deployments with the new harbor-proxy
+image refs -> Pod CREATE passes the post-cutover harbor-proxy-pull
+admission policy (Pod admission ENFORCING mode post-handover;
+pre-G61 catalyst-api Deployment image was hardcoded ghcr.io which
+the policy correctly denied after Kyverno bootstrapMode->Enforce
+flip).
+
+Phase 2 (pre-G61): kubectl set env CATALYST_GITOPS_REPO_URL pointing
+catalyst-api at the local Gitea mirror. Triggers another rolling
+restart (likely already in-flight from Phase 1's HR upgrade, but
+the rollout-status wait blocks until BOTH the new image + new env
+are observed).
+
+G60 (#2611) Kyverno policy rewrite uncovered this latent chart bug
+via clean admission denial. G61 (#2612) parameterizes the chart
+catalyst-api image via global.imageRegistry + cutover Job patches
+that HR value post-handover. Per Principle 14 no workaround: the
+cutover Job patches HR.spec.values (declarative state via Flux)
+rather than kubectl-set-image-ing the Deployment directly.
 
 Image phase: post.
 */ -}}
@@ -35,11 +58,67 @@ data:
             value: {{ .Values.catalystAPI.envVar | quote }}
           - name: ENV_VAR_VALUE
             value: {{ printf "%s/%s/%s" .Values.sovereign.giteaInternalURL .Values.gitea.org .Values.gitea.repo | quote }}
+          # G61 (#2612): HR patch inputs.
+          - name: HR_NAME
+            value: "bp-catalyst-platform"
+          - name: HR_NAMESPACE
+            value: "flux-system"
+          - name: HARBOR_PUBLIC_URL
+            value: {{ .Values.sovereign.harborPublicURL | quote }}
         command: ["/bin/sh", "-c"]
         args:
           - |
             set -eu
             echo "[catalyst-api-env-patch] target=${DEPLOYMENT_NAMESPACE}/${DEPLOYMENT_NAME}"
+
+            # G61 Phase 1: patch HR.spec.values.global.imageRegistry
+            # so Flux helm-controller upgrades catalyst-api Deployment
+            # to the Sovereign-local Harbor proxy image. Without this,
+            # the chart's templated images would render with the
+            # default ghcr.io registry and post-cutover Pod CREATE
+            # would be denied by harbor-proxy-pull policy (verified
+            # live hw68 v17 G60 admission test).
+            HARBOR_HOST=$(echo "${HARBOR_PUBLIC_URL}" | sed -e 's|^https\?://||' -e 's|/.*$||')
+            # chart templates render image as
+            # "{{ global.imageRegistry }}/{{ images.organization }}/<comp>:<tag>"
+            # so REGISTRY is JUST the host+proxy prefix (NOT including
+            # org path), letting the chart's images.organization
+            # ("openova-io/openova") concatenate cleanly.
+            REGISTRY="${HARBOR_HOST}/proxy-ghcr"
+            echo "[catalyst-api-env-patch] G61 HR patch ${HR_NAMESPACE}/${HR_NAME} spec.values.global.imageRegistry=${REGISTRY}"
+            PATCH=$(printf '{"spec":{"values":{"global":{"imageRegistry":"%s"}}}}' "${REGISTRY}")
+            kubectl patch hr "${HR_NAME}" \
+              -n "${HR_NAMESPACE}" \
+              --type=merge \
+              -p "${PATCH}" || echo "[catalyst-api-env-patch] HR patch failed (non-fatal; will retry on next cutover)"
+
+            # Force-reconcile so Flux picks up the change immediately
+            # (HR default interval is 15m, too slow for cutover SLA).
+            kubectl annotate hr "${HR_NAME}" \
+              -n "${HR_NAMESPACE}" \
+              "reconcile.fluxcd.io/requestedAt=$(date +%s)" \
+              --overwrite || true
+
+            # Wait for Helm upgrade to start (HR Reconciling reason
+            # transitions). Up to 30s for Flux to observe the patch.
+            for i in $(seq 1 15); do
+              READY=$(kubectl get hr "${HR_NAME}" -n "${HR_NAMESPACE}" \
+                -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "?")
+              REASON=$(kubectl get hr "${HR_NAME}" -n "${HR_NAMESPACE}" \
+                -o jsonpath='{.status.conditions[?(@.type=="Ready")].reason}' 2>/dev/null || echo "?")
+              if [ "${REASON}" = "ReconciliationSucceeded" ] || [ "${REASON}" = "UpgradeSucceeded" ]; then
+                echo "[catalyst-api-env-patch] G61 HR Upgrade complete (${READY}/${REASON}) after ${i} polls"
+                break
+              fi
+              if [ "${REASON}" = "Progressing" ] || [ "${REASON}" = "ReleasedWithOldRelease" ]; then
+                echo "[catalyst-api-env-patch] G61 HR upgrade in flight (${i}/15): ${READY}/${REASON}"
+              fi
+              sleep 2
+            done
+
+            # G61 Phase 2 (was Step 07 pre-G61): set env on the
+            # catalyst-api Deployment so it routes GitOps queries to
+            # the local Gitea mirror.
             echo "[catalyst-api-env-patch] ${ENV_VAR_NAME}=${ENV_VAR_VALUE}"
             kubectl set env "deploy/${DEPLOYMENT_NAME}" \
               -n "${DEPLOYMENT_NAMESPACE}" \

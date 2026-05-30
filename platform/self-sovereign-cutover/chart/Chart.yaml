@@ -250,7 +250,18 @@ name: bp-self-sovereign-cutover
 # (Refs #2034 — closes after operator-walk-with-screenshot on a fresh
 # multi-region prov verifies Provider CRs reconcile from
 # harbor.<sov-fqdn>/proxy-xpkg.)
-version: 0.1.39
+# 0.1.40 (G61 #2612, 2026-05-30): step 07-catalyst-api-env-patch now
+# also patches HelmRelease bp-catalyst-platform spec.values.global.
+# imageRegistry to the Sovereign-local Harbor proxy URL. Flux upgrades
+# the catalyst-api + catalyst-ui Deployments with harbor-proxy image
+# refs so post-cutover Pod CREATE passes harbor-proxy-pull policy
+# (Pod admission ENFORCING mode post-handover). Pre-G61 catalyst-api
+# Deployment image was hardcoded ghcr.io which the policy correctly
+# denied. Pairs with bp-catalyst-platform chart change (api-deployment.
+# yaml templated via global.imageRegistry, api-deployment-kustomize.
+# yaml literal for contabo-mkt path). Uses existing RBAC
+# (helmreleases verbs update+patch already granted).
+version: 0.1.40
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

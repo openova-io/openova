@@ -891,7 +891,12 @@ spec:
       # cutover-trigger CTA + Pillar 1 voucher→onboarding chain on
       # the fresh-prov walk. Refs #2131 (NOT Closes — operator walk
       # on fresh prov required).
-      version: 1.4.387
+      # 1.4.388 (G61 #2612, 2026-05-30): api-deployment.yaml templated
+      # via global.imageRegistry so Sovereign-Helm + post-cutover HR
+      # patch can flip catalyst-api image to harbor-proxy URL passing
+      # the harbor-proxy-pull admission policy. Kustomize-mode sibling
+      # api-deployment-kustomize.yaml (literal) handles contabo-mkt.
+      version: 1.4.388
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

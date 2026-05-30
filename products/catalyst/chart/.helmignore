@@ -38,3 +38,6 @@ templates/clusterrolebinding-cutover-driver-kustomize.yaml
 # 1.4.95. The samples are intentionally invalid for chart-author dry-runs;
 # they MUST never reach a real cluster.
 crds/tests/
+
+# G61 (#2612): Kustomize-mode sibling files (literal image refs for contabo-mkt)
+templates/api-deployment-kustomize.yaml

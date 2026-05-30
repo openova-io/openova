@@ -4,7 +4,7 @@ namespace: catalyst
 resources:
   - ui-deployment.yaml
   - ui-service.yaml
-  - api-deployment.yaml
+  - api-deployment-kustomize.yaml
   - api-deployments-pvc.yaml
   - api-cache-pvc.yaml
   - api-service.yaml
