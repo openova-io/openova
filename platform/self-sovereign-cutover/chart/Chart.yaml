@@ -261,7 +261,23 @@ name: bp-self-sovereign-cutover
 # yaml templated via global.imageRegistry, api-deployment-kustomize.
 # yaml literal for contabo-mkt path). Uses existing RBAC
 # (helmreleases verbs update+patch already granted).
-version: 0.1.40
+# 0.1.41 (G62 #2613, 2026-05-30): Step 07 extended with G62-A Gitea
+# DURABLE pass — after the live HR-patch (G61), clone+edit+push
+# clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml in
+# local Gitea to replace the literal empty `imageRegistry: ''` seam
+# with `'registry.<sov-fqdn>/proxy-ghcr'`. This makes Flux
+# Kustomization reconciles PRESERVE the HR.spec.values.global.
+# imageRegistry value (without G62 the live HR-patch alone is
+# reverted by Flux re-reading Git source — verified live on hw69
+# at 13:43Z: 80/81 verifier with only catalyst-api Pod admission
+# fail because HR patch reverted).
+#
+# Architectural rule established in #2613: every cutover live-patch
+# MUST persist to local Gitea source-of-truth (META-AUDIT 1
+# sub-class 10). Also applies retroactively to Step 06's
+# helmrepository-patches (already has Gitea persistence via Phase 2)
+# — convention adherence confirmed via audit.
+version: 0.1.41
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

@@ -413,7 +413,10 @@ spec:
       # bp-catalyst-platform spec.values.global.imageRegistry to local
       # Harbor proxy so post-cutover catalyst-api Pod admission passes
       # the harbor-proxy-pull policy (G60-enforced post-handover).
-      version: 0.1.40
+      # 0.1.41 (G62 #2613): Step 07 G62-A pass — durable Gitea edit
+      # of bootstrap-kit imageRegistry seam so Flux Kustomization
+      # preserves the HR patch (sub-class 10 architectural fix).
+      version: 0.1.41
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

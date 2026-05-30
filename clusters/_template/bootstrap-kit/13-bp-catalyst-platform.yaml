@@ -991,6 +991,17 @@ spec:
       # handover-time (no wait for the orchestrator's chart-values
       # overlay write). TBD-A15 (t24 zero-touch, 2026-05-18, issue #1844).
       sovereignSelfDeploymentId: '${SOVEREIGN_DEPLOYMENT_ID:-}'
+      # G62 (Refs #2613, 2026-05-30): imageRegistry override seam.
+      # Empty literal default at Phase 1 (pre-cutover) → chart's
+      # `{{ if .Values.global.imageRegistry }}` falls back to
+      # `.Values.images.registry` (ghcr.io). Cutover Step 07 G62-A
+      # pass DURABLY edits this file in local Gitea, replacing the
+      # empty string with `registry.<sov-fqdn>/proxy-ghcr` so the
+      # value survives Flux Kustomization reconciles (live HR-patch
+      # alone is reverted by Flux reading Git source — META-AUDIT 1
+      # sub-class 10, architectural rule: every cutover live-patch
+      # MUST persist to local Gitea source-of-truth).
+      imageRegistry: ''
     ingress:
       hosts:
         console:

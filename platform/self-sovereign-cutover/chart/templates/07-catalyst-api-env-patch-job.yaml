@@ -65,6 +65,24 @@ data:
             value: "flux-system"
           - name: HARBOR_PUBLIC_URL
             value: {{ .Values.sovereign.harborPublicURL | quote }}
+          # G62 (#2613): Gitea persistence inputs — durable source-of-truth
+          # edit so Flux Kustomization doesn't revert the HR patch.
+          - name: GITEA_INTERNAL_URL
+            value: {{ .Values.sovereign.giteaInternalURL | quote }}
+          - name: GITEA_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.gitea.adminSecretRef.name }}
+                key: {{ .Values.gitea.adminSecretRef.usernameKey }}
+          - name: GITEA_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.gitea.adminSecretRef.name }}
+                key: {{ .Values.gitea.adminSecretRef.passwordKey }}
+          - name: GITEA_ORG
+            value: {{ .Values.gitea.org | quote }}
+          - name: GITEA_REPO
+            value: {{ .Values.gitea.repo | quote }}
         command: ["/bin/sh", "-c"]
         args:
           - |
@@ -90,6 +108,55 @@ data:
               -n "${HR_NAMESPACE}" \
               --type=merge \
               -p "${PATCH}" || echo "[catalyst-api-env-patch] HR patch failed (non-fatal; will retry on next cutover)"
+
+            # G62 (#2613) DURABLE PASS: edit local Gitea source-of-truth
+            # so Flux Kustomization doesn't revert the live HR patch.
+            # Architectural rule per #2613: every cutover live-patch MUST
+            # persist to local Gitea source-of-truth, not just to live
+            # cluster API. Mirrors Step-06 Phase 2.5's Gitea-edit pattern.
+            #
+            # bootstrap-kit `13-bp-catalyst-platform.yaml` ships
+            # `imageRegistry: ''` (empty literal) at spec.values.global
+            # so Phase 1 (pre-cutover) renders empty → chart falls back
+            # to images.registry (ghcr.io). Post-cutover sed-replaces
+            # the empty string with REGISTRY so Flux Kustomization
+            # reconciles see the harbor URL on every cycle.
+            cd /tmp
+            rm -rf repo
+            push_url=$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E "s,^(https?://),\1${GITEA_USERNAME}:${GITEA_PASSWORD}@,")"/${GITEA_ORG}/${GITEA_REPO}.git"
+            if git clone --depth 1 --branch main "${push_url}" repo >/dev/null 2>&1; then
+              cd repo
+              git config user.email "self-sovereign-cutover@${HARBOR_HOST}"
+              git config user.name  "self-sovereign-cutover (G62 imageRegistry patch)"
+              target="clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml"
+              if [ -f "${target}" ]; then
+                # Match `imageRegistry: ''` at 6-space indent under
+                # global: block. Replace with the harbor URL.
+                # Idempotent: re-runs against an already-edited file
+                # rewrite the URL value (handles harbor host changes).
+                if sed -i -E "s|^([[:space:]]{6}imageRegistry:[[:space:]]*)['\"]?[^'\"]*['\"]?[[:space:]]*\$|\1'${REGISTRY}'|" "${target}" 2>/dev/null; then
+                  if ! git diff --quiet "${target}"; then
+                    git add "${target}"
+                    git commit -m "cutover G62: pivot global.imageRegistry to local Harbor (${REGISTRY})" >/dev/null
+                    if git push origin main >/dev/null 2>&1; then
+                      echo "[catalyst-api-env-patch] G62 OK: Gitea-edit pushed ${target} global.imageRegistry='${REGISTRY}'"
+                    else
+                      echo "[catalyst-api-env-patch] G62 WARN: git push failed (live HR-patch above is non-durable; next Flux reconcile may revert)" >&2
+                    fi
+                  else
+                    echo "[catalyst-api-env-patch] G62 SKIP: ${target} already has imageRegistry=${REGISTRY} (idempotent re-run)"
+                  fi
+                else
+                  echo "[catalyst-api-env-patch] G62 WARN: sed match failed on ${target}; live HR-patch durability not guaranteed" >&2
+                fi
+              else
+                echo "[catalyst-api-env-patch] G62 SKIP: ${target} not present in local mirror"
+              fi
+              cd /tmp
+              rm -rf repo
+            else
+              echo "[catalyst-api-env-patch] G62 WARN: git clone of local Gitea failed (URL=${GITEA_INTERNAL_URL}); live HR-patch durability not guaranteed" >&2
+            fi
 
             # Force-reconcile so Flux picks up the change immediately
             # (HR default interval is 15m, too slow for cutover SLA).
