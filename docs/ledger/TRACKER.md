@@ -1315,3 +1315,41 @@ Founder mandate (verbatim): *"work non stop until you reach to zero touch perfec
 **META-AUDIT 1 (Helm-vs-webhook race) sub-classes**: 1 (same-chart-internal), 2 (downstream-waits-upstream), 3 (self-referential-bootstrap), 4 (autogen-bypass — fixed in G58 separately), 5 (cutover-vs-mirror — G56 filed), 6 (prereq-binary-install non-idempotent — G57), **7** subsumed under META-AUDIT 7 / Kyverno, **8** (controller-managed vs orchestrator-provided cert conflict — G59).
 
 ETA hw67 attempt: wipe hw66 + POST hw67 once chart 1.0.6 cascade completes (~10 min CI + auto-bump-pin). hw67 carries G55+G57+G58+G59 baked from first install with qaTestEnabled=false (LE prod) + ownerEmail captured (mothership UI visible).
+
+---
+
+## 🟢 Session 2026-05-30 — Path C trigger + G60 retrospective + W1 batch close
+
+**Convergence answer per lead reviewer-1**: Path C confirmed via live evidence on hw67 (bare-Pod-fail-in-3-namespaces). Kyverno harbor-proxy-pull policy is architecturally hostile to Kyverno 1.18's image-context extraction. **Substrate is NOT the long tail. Platform is.** G60 architectural rewrite is the SINGLE gate to ZT#2.
+
+**Workstream 1 — Batch close 15 status/in-progress G-series**:
+- CLOSED 5 superseded Kyverno-cycle: #2594 G40, #2597 G45, #2603 G51, #2606 G55, #2609 G58 (7-round regex_match patch chain, all containment-only)
+- FLIPPED 11 to status/uat (G-fix shipped + baked into hw67 stack): #2593 G38, #2596 G44, #2598 G46, #2600 G48, #2601 G50, #2602 G49, #2604 G53, #2605 G54, #2607 G56, #2608 G57, #2610 G59
+- Visible status/in-progress on G-series: 16 → 0
+
+**Workstream 2 — G60 architectural retrospective (#2611 + commit 24636ea8)**:
+- READ before propose: git blame origin (fb952fad commit, original `request.object.spec.containers || ...` + `element.image` direct path), 7-round chain (concat→nil-guard→not_null→server-side-context→Pod-only→autogen-none), Kyverno 1.18 docs on canonical patterns
+- Architectural decision: drop `foreach + regex_match + element.X` ENTIRELY → use `validate.pattern` + glob (oldest + most stable Kyverno primitive)
+- Implementation: rewrite 11-harbor-proxy + 12-image-tag-pinned with `pattern.spec.containers[*].image: "harbor.*/proxy-*/*"` (and `(image): "!*:latest"` for tag-pinned). Revert G55 (match.kinds=[Pod]) and G58 (autogen=none) — pattern validation autogen-expansion is safe.
+- Trade-off: glob-only (not full regex). Default `harbor.*/proxy-*/*` covers all proxy paths + future-proof (4-source regex enumeration was authoring artifact)
+- META-AUDIT 7 (Kyverno) CLOSED — no further regex_match patches
+
+**Workstream 3 — Hetzner parallel ZT**: BLOCKED (no Hetzner token in mothership cluster — only huawei-operator-creds; 5-mechanism unblock table exhausted). Bare-Pod-fail-in-3-namespaces already proved Kyverno-not-substrate; W3 confirmatory only. Dropped with lead approval.
+
+**hw67 (28239befef25c0b9)**: 79/81 verifier (2 FAIL: catalyst-api Pod CREATE denied by Kyverno + L2.3 region-A nodes 0 timing). Kept alive as diagnostic. Wipe pre-hw68 POST.
+
+**G-fix chain final tally for ZT#2 attempt on hw68**:
+| G# | What it does |
+|---|---|
+| G55 | (reverted by G60) — was: Pod-only match scope |
+| G57 | cloud-init flux binary retry + self-heal |
+| G58 | (reverted by G60) — was: autogen=none annotation |
+| G59 | bp-cnpg G21 webhookCertBootstrap disabled |
+| **G60** | **rewrite Kyverno policies using validate.pattern + glob (architectural)** |
+
+**Post-G60 contract (locked)**:
+1. CI builds bp-kyverno-policies chart 1.0.22 (in flight)
+2. Wipe hw67 + POST hw68 with G55+G57+G58+G59+G60 baked (G55+G58 effectively reverted but harmless)
+3. Verifier 81/81 + L6 zero-touch required for ZT#2
+4. If 81/81: walk Pillar 1 + screenshots on #2526 = ZT#2 LANDED
+5. POST hw69 immediately after for ZT#3 (same stack)
