@@ -1353,3 +1353,24 @@ ETA hw67 attempt: wipe hw66 + POST hw67 once chart 1.0.6 cascade completes (~10 
 3. Verifier 81/81 + L6 zero-touch required for ZT#2
 4. If 81/81: walk Pillar 1 + screenshots on #2526 = ZT#2 LANDED
 5. POST hw69 immediately after for ZT#3 (same stack)
+
+---
+
+## 🟢 Session 2026-05-30 continued — G60+G61 architectural ship + hw67→hw69 attempts
+
+**Lead reviewer-1 verdict on G60 (post-hw68 live test)**: "G60 confirmed architectural win (Test 1+2 live evidence = closed Kyverno cycle for real)". META-AUDIT 7 (Kyverno) CLOSED.
+
+| G# | Issue | PR/Commit | Subject | hw68/hw69 Status |
+|---|---|---|---|---|
+| **G60** | #2611 | merged (24636ea8 + ee07e600 helm parser fix) | RETROSPECTIVE — drop regex_match+foreach+element.X primitive ENTIRELY. Use canonical `validate.pattern` + glob (request.object-direct data, no JMESPath substitution, no element.X nil race). Reverts G55+G58 as harmless under pattern semantics. | hw68 LIVE CONFIRMED via Test 1 (harbor image → CREATED) + Test 2 (ghcr.io image → CLEAN DENIAL with proper policy message, no nil-substitution crash) |
+| **G61** | #2612 | merged (baf53357 + 9c4faf47 comment fix) | bp-catalyst-platform chart 1.4.388/1.4.389: api-deployment.yaml templated via `global.imageRegistry` pattern (matches existing 9 sme-services templates) + NEW api-deployment-kustomize.yaml literal for contabo-mkt path + .helmignore split. bp-self-sovereign-cutover 0.1.40: Step 07 patches HR bp-catalyst-platform spec.values.global.imageRegistry = harbor.<sov>/proxy-ghcr BEFORE existing env-set. Existing RBAC already permits helmreleases update+patch. | shipped, baked in hw69 |
+
+| Time (UTC) | hw## | id | Wiped/Live | Verifier | Cause / G-fix |
+|---|---|---|---|---|---|
+| 11:01→12:03Z | hw67 | 28239befef25c0b9 | WIPED | 79/81 | Kyverno cycle recurrence (Path C trigger). G55+G58 broke Pod-level admission too (bare Pod CREATE fails in catalyst-system + trivy-system with same nil error). META-AUDIT 7 retrospective filed as G60. |
+| 12:05→13:04Z | hw68 | 1e1b5af65a0e87de | WIPED | 77/81 | **G60 ARCHITECTURAL WIN CONFIRMED live**: harbor-proxy image POD admission succeeds, ghcr.io POD admission cleanly denied with policy message (no nil crash). 4 FAILs were META-AUDIT 1 sub-class 9: catalyst-api chart hardcodes ghcr.io image, cutover doesn't patch post-handover → Pod CREATE correctly denied. G61 filed. |
+| 13:04→TBD | hw69 | 4068cea76382dc11 | LIVE prov | TBD | **ZT#2 attempt #11 (8th wipe-cycle this session)** with FULL G55+G57+G58+G59+G60+G61 stack baked. LE PROD cert, ownerEmail captured. ETA terminal ~13:42Z. Falsifiable hypothesis: chart template `global.imageRegistry` → cutover Step 07 HR patch → Flux helm-controller upgrade → catalyst-api Deployment image flips to harbor.hw69/proxy-ghcr/... → Pod CREATE passes G60 policy → 81/81 GREEN. |
+
+**Path C executed** per lead reviewer-1 direction: closed Kyverno regex_match expression cycle (G19→G40→G45→G51→G55→G58) via G60 architectural rewrite. 6 closed-as-superseded issues + 11 status/uat flips visible to founder. G61 follow-up addresses the latent chart bug uncovered by G60's clean enforcement.
+
+**Session arc**: 13 META-AUDIT 1 + META-AUDIT 7 sub-classes catalogued across 9 wipes. G55→G61 = 7 architectural fixes shipped + 5 superseded. hw69 carries the cumulative learning.
