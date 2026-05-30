@@ -17,7 +17,7 @@ type: application
 # an extraInitContainer blocks the main container until the secret has a
 # populated tls.crt. Eliminates the apiserver→webhook TLS handshake EOF
 # that wedged bootstrap-kit on every fresh-prov Sovereign.
-version: 1.3.2
+version: 1.3.3
 appVersion: "v1.18.0"
 keywords: [catalyst, blueprint, kyverno, policy, admission, security]
 maintainers:

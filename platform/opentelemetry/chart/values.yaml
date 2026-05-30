@@ -39,7 +39,20 @@ opentelemetry-collector:
 
   # Resources — modest defaults; the memory_limiter processor's defaults
   # (limit_percentage: 80, spike_limit_percentage: 25) reference these.
+  #
+  # G67 #2616 (2026-05-31): explicit `requests` block 200m/256Mi.
+  # Without `requests`, Kubernetes defaults requests=limits → 1000m CPU
+  # requested per Pod. On a Sovereign with 3 m7n.xlarge.8 workers
+  # (4 CPU each), this single Pod ate 25% of one worker's CPU budget,
+  # contributing to cluster CPU saturation that BLOCKED cutover Step 01
+  # (gitea-mirror Pod 100m couldn't schedule on any node — hw74
+  # 78f585b1b79ef965 2026-05-31). Actual usage observed: 210m / 1000m
+  # request = 21% — heavy over-provision. 200m request is true
+  # right-size; limits stay generous at 1 CPU for burst capacity.
   resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
     limits:
       cpu: 1
       memory: 512Mi

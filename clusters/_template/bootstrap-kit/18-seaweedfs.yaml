@@ -62,7 +62,7 @@ spec:
       # default to it (bp-guacamole recordings, future
       # bp-loki/mimir/tempo cache) bind day-1 on bare-k3s Sovereigns
       # without waiting for bp-hcloud-csi or the SeaweedFS CSI driver.
-      version: 1.2.0
+      version: 1.2.1
       sourceRef:
         kind: HelmRepository
         name: bp-seaweedfs

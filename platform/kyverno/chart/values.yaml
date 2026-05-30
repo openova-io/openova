@@ -56,9 +56,14 @@ kyverno:
     # to the Pod spec). The `container:` nesting is the canonical path
     # per upstream values.yaml line 1238.
     container:
+      # G67 #2616 (2026-05-31): cpu request 500m → 200m. Live use on
+      # hw74 was ~50m/admission-controller — 200m is conservative
+      # right-size. Original 500m × 2 replicas ate 1000m on workers,
+      # contributing to cluster CPU saturation that blocked cutover
+      # Step 01 Pod scheduling.
       resources:
         requests:
-          cpu: 500m
+          cpu: 200m
           memory: 512Mi
         limits:
           cpu: 2

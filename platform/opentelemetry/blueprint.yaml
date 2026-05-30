@@ -5,7 +5,7 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-3-observability
 spec:
-  version: 1.2.0
+  version: 1.2.1
   card:
     title: OpenTelemetry Collector
     family: insights

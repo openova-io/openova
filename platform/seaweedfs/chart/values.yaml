@@ -153,10 +153,15 @@ seaweedfs:
     # Idle timeout — close idle connections after 30 minutes.
     idleTimeout: 30
     # Resources tuned for solo Sovereign.
+    # G67 #2616 (2026-05-31): cpu request 500m → 300m. 3 volume Pods
+    # × 500m = 1500m of cluster request budget for SeaweedFS alone.
+    # Right-sized to 300m × 3 = 900m, freeing 600m for cutover Jobs
+    # and tenant workloads. Limit stays at 2 CPU for burst capacity
+    # during high-throughput periods.
     resources:
       requests:
         memory: 1Gi
-        cpu: 500m
+        cpu: 300m
       limits:
         memory: 4Gi
         cpu: 2
