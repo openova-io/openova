@@ -1023,18 +1023,72 @@ runcmd:
   # Distinct from G11 #2545: G11 fixes the POST-install source-
   # controller HTTP-client DNS-cache hang via auto-rollout-restart;
   # this G2-followup gates the PRE-install pull-failures.
+  # G46 (Refs #2598, 2026-05-30): replace cloud-init synchronous retry loop
+  # with a systemd one-shot unit. Verified live on hw56 v8 00:40Z: region-a
+  # CP came up Ready but Flux was NOT installed (flux-system ns empty, no
+  # CRDs). G2-followup retry budget (120s) exhausted before ghcr.io
+  # propagated through the NAT SNAT-rule. Cloud-init moved on (the `|| true`
+  # swallowed the failure), no further attempt to install Flux ever fired.
+  # Target-state fix: systemd unit retries forever until success. Cloud-init
+  # is fire-and-forget; convergence is the responsibility of a long-running
+  # daemon, not a bash loop bounded by cloud-init's runcmd timeout.
   - |
-    for i in $(seq 1 24); do
-      if curl -sk -o /dev/null --max-time 5 https://ghcr.io/v2/ 2>/dev/null; then
-        echo "G2-fu: ghcr.io reachable after $${i}*5=$$((i*5))s — proceeding with flux install"
+    # Write systemd one-shot retry-until-success Flux installer.
+    cat > /usr/local/bin/openova-flux-install.sh <<'FLUX_INSTALL'
+    #!/bin/bash
+    set -euo pipefail
+    KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+    export KUBECONFIG
+    # Idempotency: if source-controller deployment already exists, done.
+    if kubectl get deployment -n flux-system source-controller >/dev/null 2>&1; then
+      echo "openova-flux-install: source-controller already installed; nothing to do"
+      exit 0
+    fi
+    # Reachability gate.
+    if ! curl -sk -o /dev/null --max-time 5 https://ghcr.io/v2/ 2>/dev/null; then
+      echo "openova-flux-install: ghcr.io NOT reachable; exiting nonzero so systemd retries"
+      exit 1
+    fi
+    echo "openova-flux-install: ghcr.io reachable; running flux install"
+    flux install --components=source-controller,kustomize-controller,helm-controller,notification-controller --network-policy=false
+    # Verify the install actually landed.
+    if kubectl get deployment -n flux-system source-controller >/dev/null 2>&1; then
+      echo "openova-flux-install: SUCCESS"
+      exit 0
+    fi
+    echo "openova-flux-install: flux install ran but source-controller deployment NOT present; exiting nonzero"
+    exit 1
+    FLUX_INSTALL
+    chmod 0755 /usr/local/bin/openova-flux-install.sh
+    cat > /etc/systemd/system/openova-flux-install.service <<'FLUX_UNIT'
+    [Unit]
+    Description=OpenOva Flux install with retry-until-success
+    After=k3s.service network-online.target
+    Wants=k3s.service network-online.target
+    StartLimitIntervalSec=0
+    [Service]
+    Type=oneshot
+    RemainAfterExit=yes
+    ExecStart=/usr/local/bin/openova-flux-install.sh
+    Restart=on-failure
+    RestartSec=30
+    [Install]
+    WantedBy=multi-user.target
+    FLUX_UNIT
+    systemctl daemon-reload
+    systemctl enable openova-flux-install.service
+    # Try once now (non-blocking — if it fails, systemd retries every 30s).
+    systemctl start openova-flux-install.service || true
+    # Wait up to 300s for first success so subsequent runcmd lines that
+    # depend on Flux CRDs don't fire before they exist. If the wait expires,
+    # we proceed; systemd keeps retrying in the background.
+    for i in $(seq 1 60); do
+      if KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl get deployment -n flux-system source-controller >/dev/null 2>&1; then
+        echo "G46: flux install completed via systemd after $${i}*5=$$((i*5))s"
         break
-      fi
-      if [ "$${i}" = "24" ]; then
-        echo "G2-fu: WARNING ghcr.io still unreachable after 120s; attempting flux install anyway (cloudinit-debug.log will show pull failures)"
       fi
       sleep 5
     done
-  - KUBECONFIG=/etc/rancher/k3s/k3s.yaml flux install --components=source-controller,kustomize-controller,helm-controller,notification-controller --network-policy=false || true
   # Wave 5.29 (Refs #2163): substitute the tofu-baked CILIUM_K8S_SERVICE_HOST
   # placeholder with the CP's ACTUAL private IP. HCS DHCP non-deterministic —
   # cidrhost(subnet, 2) baked at tofu-render-time is wrong (CP actually
