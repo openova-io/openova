@@ -919,8 +919,32 @@ runcmd:
 
   # 4. Install Flux + apply the GitRepository + Kustomization seed.
   - |
-    curl -sfL https://github.com/fluxcd/flux2/releases/download/v2.4.0/flux_2.4.0_linux_amd64.tar.gz \
-      | tar -xz -C /usr/local/bin flux
+    # G57 (Refs #2608, 2026-05-30): retry-and-verify binary download.
+    # Previously a single `curl|tar` pipe — if github.com release CDN
+    # returns 0-byte/partial response, tar fails (`gzip: stdin:
+    # unexpected end of file`), `/usr/local/bin/flux` is never created,
+    # and the G46 systemd openova-flux-install.service retry loop CAN'T
+    # recover because its script assumes flux binary is present —
+    # script exits 127 forever (verified on v16/hw64 30-min deadlock).
+    # Fix: bounded retry loop with explicit size check + executable
+    # check. Idempotent: short-circuits if binary already present.
+    if ! command -v flux >/dev/null 2>&1; then
+      for attempt in 1 2 3 4 5 6 7 8 9 10; do
+        if curl -fsSL --max-time 60 \
+             https://github.com/fluxcd/flux2/releases/download/v2.4.0/flux_2.4.0_linux_amd64.tar.gz \
+             -o /tmp/flux.tar.gz \
+           && [ -s /tmp/flux.tar.gz ] \
+           && tar -xzf /tmp/flux.tar.gz -C /usr/local/bin flux \
+           && [ -x /usr/local/bin/flux ] \
+           && /usr/local/bin/flux --version >/dev/null 2>&1; then
+          echo "flux binary installed (attempt $attempt)"
+          break
+        fi
+        echo "flux binary download/extract failed (attempt $attempt/10); retrying in 10s"
+        rm -f /tmp/flux.tar.gz /usr/local/bin/flux
+        sleep 10
+      done
+    fi
 
   # 4a. Pre-install Gateway API CRDs (Wave 5.19 Refs #2140). bp-cilium's
   # chart references GatewayClass + HTTPRoute resources but bp-gateway-api
@@ -1043,6 +1067,28 @@ runcmd:
     if kubectl get deployment -n flux-system source-controller >/dev/null 2>&1; then
       echo "openova-flux-install: source-controller already installed; nothing to do"
       exit 0
+    fi
+    # G57 (Refs #2608, 2026-05-30): self-heal missing flux binary.
+    # cloud-init's binary download (runcmd item #4) can fail on GitHub
+    # release CDN flakiness (0-byte tarball → `gzip: stdin: unexpected
+    # end of file`); without re-download here, the systemd retry loop
+    # below can never succeed because flux binary is absent.
+    # Verified deadlock: v16/hw64 2026-05-30 07:30→07:55Z+ (30min).
+    if ! command -v flux >/dev/null 2>&1 || ! /usr/local/bin/flux --version >/dev/null 2>&1; then
+      echo "openova-flux-install: flux binary missing or corrupt; re-downloading"
+      rm -f /tmp/flux.tar.gz /usr/local/bin/flux
+      if ! curl -fsSL --max-time 60 \
+           https://github.com/fluxcd/flux2/releases/download/v2.4.0/flux_2.4.0_linux_amd64.tar.gz \
+           -o /tmp/flux.tar.gz \
+         || [ ! -s /tmp/flux.tar.gz ] \
+         || ! tar -xzf /tmp/flux.tar.gz -C /usr/local/bin flux \
+         || [ ! -x /usr/local/bin/flux ] \
+         || ! /usr/local/bin/flux --version >/dev/null 2>&1; then
+        echo "openova-flux-install: flux binary re-download FAILED; exiting nonzero so systemd retries in 30s"
+        rm -f /tmp/flux.tar.gz /usr/local/bin/flux
+        exit 1
+      fi
+      echo "openova-flux-install: flux binary re-installed"
     fi
     # Reachability gate.
     if ! curl -sk -o /dev/null --max-time 5 https://ghcr.io/v2/ 2>/dev/null; then
