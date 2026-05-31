@@ -567,7 +567,7 @@ locals {
       # topology spread + CNPG affinity + dashboard region grouping
       # all collapse to single-region. Huawei CCM doesn't stamp
       # standard topology labels by default; cloudinit fills the gap.
-      region                     = r.code
+      region = r.code
     }), "/(?m)^[ ]*#( |$).*\n/", "")
   }
 
