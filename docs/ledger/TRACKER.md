@@ -1697,3 +1697,5 @@ hw76 + hw77 failed Phase 0 at HCS VPC quota BEFORE zero-touch contract reached (
 | 2026-06-01 19:45Z | **G98 ROOT CAUSE — Pods lack `catalyst.openova.io/application` label** | analysis + fix-shape recommendation | filed on #2644 | Compliance handler stores per-resource verdict rows correctly. Aggregation into per-Application Score rows requires Pods to carry app-label. Most charts don't stamp it → only sovereign-aggregate populated. Fix shape recommendation: ship a Kyverno MUTATE ClusterPolicy in bp-kyverno-policies that auto-stamps app label cluster-wide based on namespace inference. Single-PR fix unblocks per-app rollups for every chart at once. |
 
 | 2026-06-01 19:50Z | **G102 closed-as-downstream of G99** | n/a | closed-by-G99 | powerdns-anycast NodePort 30053 same root cause as clustermesh-apiserver — no cloud CCM. Cilium LB IPAM (G99) covers both. |
+
+| 2026-05-31 19:58Z | auto-tick | main@cae0c115 | n/a | Cron heartbeat — no manual TRACKER row since last main commit; refresh-openova-tracker.sh fired. If you see consecutive auto-ticks, the session is silent — confirm work is happening or pause cleanly. |
