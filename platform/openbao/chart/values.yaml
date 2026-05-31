@@ -149,3 +149,32 @@ autoUnseal:
     # Token TTLs for ESO sessions.
     tokenTTL: "1h"
     tokenMaxTTL: "24h"
+
+# ─── G91.openbao (#2655) SSO opt-in ───────────────────────────────────────
+# Per SECURITY.md §6.3 every Application Blueprint declares SSO support
+# with a single value. bp-sso-bridge (G91.1 #2652) watches every HR with
+# `sso.enabled: true` and reconciles a Keycloak Client + OpenBao
+# `secret/sso/openbao` + ExternalSecret in this namespace.
+#
+# bp-openbao opens its UI + CLI to OIDC users via the `oidc` auth method,
+# bound to the realm `sovereign-admins` group → sso-operator-admin policy
+# (write-everything-anywhere). Local root token remains revoked after
+# auth-bootstrap; the only privileged login surface post-bootstrap is OIDC.
+sso:
+  enabled: true
+  realm: sovereign
+  # Per-Sovereign cluster overlay sets this (e.g. `hw86.omani.works`). When
+  # empty the sso-configure Deployment renders but its loop logs
+  # "ESO Secret keys not yet present" forever — see templates/
+  # sso-configure-deployment.yaml comments.
+  sovereignFqdn: ""
+  # OIDC client ID — defaults to "openbao" (bp-sso-bridge strips "bp-" from
+  # the HR name).
+  clientId: openbao
+  externalSecretStoreName: vault-region1
+  refreshInterval: 1h
+  # Realm group → OpenBao operator-admin policy mapping. The Sovereign
+  # operator (deployment.OrgEmail) is auto-added to `sovereign-admins` by
+  # the realm import; users in this group land with the sso-operator-admin
+  # policy (full read/write/sudo on every path).
+  adminGroup: sovereign-admins

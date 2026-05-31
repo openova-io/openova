@@ -209,6 +209,51 @@ spec:
                 ttl=$TOKEN_TTL \
                 max_ttl=$TOKEN_MAX_TTL
 
+              # ─── G91.openbao (#2655) — sso-bridge + sso-configure roles ─
+              # bp-sso-bridge writes the per-app OAuth bundle under
+              # `secret/sso/<clientId>`; ESO consumers in app namespaces
+              # then read it via the existing external-secrets-read
+              # policy + K8s SA auth. bp-sso-bridge needs its own
+              # write-bearing policy, and a Deployment inside this
+              # namespace (sso-configure-deployment.yaml) needs an
+              # admin-scoped policy to enable + configure the oidc auth
+              # method on OpenBao itself.
+              echo "[openbao-auth-bootstrap] writing sso-bridge-write policy"
+              cat <<EOF | bao policy write sso-bridge-write -
+              path "$KV_MOUNT_PATH/data/sso/*" {
+                capabilities = ["create", "read", "update", "delete", "list"]
+              }
+              path "$KV_MOUNT_PATH/metadata/sso/*" {
+                capabilities = ["read", "list", "delete"]
+              }
+              EOF
+              bao write auth/$AUTH_MOUNT_PATH/role/sso-bridge \
+                bound_service_account_names=sso-bridge-reconciler \
+                bound_service_account_namespaces=sso-bridge \
+                policies=sso-bridge-write,external-secrets-read \
+                ttl=$TOKEN_TTL \
+                max_ttl=$TOKEN_MAX_TTL
+
+              # sso-configure: admin-scoped policy for the in-namespace
+              # Deployment that enables + configures the oidc auth method
+              # on OpenBao after bp-sso-bridge has materialised the
+              # secret/sso/openbao bundle. Per-call retry-with-backoff
+              # makes this safe to run continuously.
+              echo "[openbao-auth-bootstrap] writing sso-configure-admin policy"
+              cat <<EOF | bao policy write sso-configure-admin -
+              path "sys/auth" { capabilities = ["read", "list"] }
+              path "sys/auth/oidc" { capabilities = ["create", "update", "delete", "sudo"] }
+              path "sys/auth/oidc/*" { capabilities = ["create", "read", "update", "delete", "list", "sudo"] }
+              path "auth/oidc/*" { capabilities = ["create", "read", "update", "delete", "list"] }
+              path "sys/policies/acl/sso-operator-admin" { capabilities = ["create", "read", "update", "delete"] }
+              EOF
+              bao write auth/$AUTH_MOUNT_PATH/role/sso-configure \
+                bound_service_account_names=openbao-sso-configure \
+                bound_service_account_namespaces=$NAMESPACE \
+                policies=sso-configure-admin \
+                ttl=$TOKEN_TTL \
+                max_ttl=$TOKEN_MAX_TTL
+
               # ─── Revoke + cleanup root token ──────────────────────────
               # Acceptance criterion #6: the privileged root token must
               # not persist past the install window. Revoke it inside
