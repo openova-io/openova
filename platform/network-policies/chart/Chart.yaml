@@ -1,11 +1,22 @@
 apiVersion: v2
 name: bp-network-policies
-version: 1.0.2
+# 1.0.3 (G101 Refs #2650, 2026-06-01): default-deny flipped from
+# operator-opt-in to mandatory-on. Zero-trust posture is the canonical
+# Sovereign default per ADR-0001 §2 + DoD §A5. allowSystemNamespaces
+# expanded from 8 → 45 namespaces covering every targetNamespace
+# declared in clusters/_template/bootstrap-kit/*.yaml plus the 3
+# vCluster syncer namespaces (dmz/mgmt/rtz). bootstrap-kit slot 26
+# installs this Blueprint by default so every fresh prov has zero-trust
+# from boot. Per-Blueprint CNPs progressively tighten beyond this
+# coarse safety net.
+# 1.0.2 (initial — operator-opt-in).
+version: 1.0.3
 description: |
   Catalyst zero-trust default-deny CiliumClusterwideNetworkPolicy +
   allow-templates for control-plane namespaces, intra-namespace traffic,
-  and CoreDNS egress. Default off — operator opts in deliberately
-  per-Sovereign per docs/INVIOLABLE-PRINCIPLES.md #4.
+  and CoreDNS egress. Default ON per docs/DOD.md §A5 (zero-trust) +
+  ADR-0001 §2 — every fresh Sovereign installs default-deny from boot;
+  operator MAY override per Sovereign overlay.
 type: application
 keywords: [catalyst, blueprint, network-policy, cilium, zero-trust]
 maintainers:
@@ -22,14 +33,11 @@ maintainers:
 #   Helm subchart to bundle. Same shape as bp-kyverno-policies (PR #2023)
 #   and bp-continuum (PR #2081).
 #
-# - catalyst.openova.io/smoke-render-mode: default-off
-#   The chart's `enabled` master gate defaults to false (see blueprint.yaml
-#   configSchema.enabled.default: false — installing this Blueprint is a
-#   no-op until the operator opts in). The Blueprint-Release smoke-render
-#   step does `helm template` with default values; without this annotation
-#   it errors with "Rendered output is suspiciously short (1 lines)" and
-#   dead-reserves the version. Same pattern as bp-continuum (PR #2081)
-#   which has the identical default-off shape.
+# - catalyst.openova.io/smoke-render-mode: default-off RETIRED at 1.0.3
+#   The 1.0.2 default `enabled: false` made the smoke-render output
+#   too short. 1.0.3 (G101) flipped the default to `enabled: true`, so
+#   the chart now renders its full output (default-deny + DNS-egress
+#   + system-namespaces allow templates) without operator overlay. The
+#   smoke-render annotation is no longer needed.
 annotations:
   catalyst.openova.io/no-upstream: "true"
-  catalyst.openova.io/smoke-render-mode: default-off

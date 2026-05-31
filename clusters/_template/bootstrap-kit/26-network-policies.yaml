@@ -1,0 +1,79 @@
+# bp-network-policies — Catalyst bootstrap-kit Blueprint #26
+# (W2.K3, Tier 7 — Security/Policy library, zero-trust baseline).
+#
+# G101 (Refs #2650, 2026-06-01): bp-network-policies was NEVER in
+# bootstrap-kit. Chart existed but no Sovereign installed it → ZERO
+# zero-trust enforcement on every fresh prov → live finding on hw86:
+# only 4 CiliumNetworkPolicies across the entire cluster (catalyst-
+# system / external-dns / kube-system / valkey) and ZERO
+# CiliumClusterwideNetworkPolicies. Every namespace was implicit-allow
+# → A5 (zero-trust default-deny) violated on every Sovereign since
+# Sovereign shipped. This slot installs the chart by default so every
+# fresh prov has zero-trust from boot.
+#
+# Reconciled by: Flux on the new Sovereign's k3s control plane, AFTER
+# bp-cilium (slot 01) installs the cilium.io CRDs the
+# CiliumClusterwideNetworkPolicy template targets.
+#
+# Ordering: slot 26 runs after slot 01 (bp-cilium). Cross-kind
+# dependsOn (HelmRelease → Kustomization) is silently ignored per
+# docs/INVIOLABLE-PRINCIPLES.md #14, so the same-kind HR→HR dependsOn
+# below is the load-bearing signal; the Kustomization slot ordering is
+# the belt-and-suspenders.
+#
+# Wrapper chart: platform/network-policies/chart/ (pure overlay; no
+# upstream subchart — CRDs come from bp-cilium's upstream Cilium chart).
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: catalyst-system
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-network-policies
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-network-policies
+  namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "26"
+spec:
+  interval: 15m
+  releaseName: network-policies
+  targetNamespace: catalyst-system
+  dependsOn:
+    - name: bp-cilium
+  chart:
+    spec:
+      chart: bp-network-policies
+      # 1.0.3 (G101 Refs #2650, 2026-06-01): default-deny flipped to
+      # mandatory-on; allowSystemNamespaces expanded to 45 control-
+      # plane namespaces covering every bootstrap-kit targetNamespace
+      # plus the 3 vCluster syncer namespaces.
+      version: 1.0.3
+      sourceRef:
+        kind: HelmRepository
+        name: bp-network-policies
+        namespace: flux-system
+  install:
+    timeout: 5m
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    timeout: 5m
+    disableWait: true
+    remediation:
+      retries: 3

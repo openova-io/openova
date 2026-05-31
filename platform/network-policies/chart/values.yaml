@@ -1,20 +1,65 @@
-# Master gate. Default off — installing this Blueprint is a no-op until
-# flipped. EPIC-5 (#1100) flips it as part of the zero-trust roll-out.
-enabled: false
+# Master gate. G101 (Refs #2650, 2026-06-01) flipped to TRUE by default
+# — zero-trust posture is mandatory per ADR-0001 §2 + DoD §A5. Every
+# fresh Sovereign installs default-deny on Pod CREATE; per-Blueprint
+# CiliumNetworkPolicy allow rules cover declared ingress/egress.
+# Operators MAY override `enabled: false` per Sovereign overlay for
+# debug-mode, but the default is zero-trust.
+enabled: true
 
-# Catalyst control-plane namespaces that need full ingress/egress so the
-# platform itself stays up after default-deny is applied. Operators can
-# extend per-Sovereign (e.g. add `gitea`, `harbor`, `loki` if those run
-# in their own namespaces).
+# G101 (Refs #2650, 2026-06-01) — EXPANDED. Catalyst control-plane
+# namespaces that need full ingress/egress so the platform itself stays
+# up after default-deny is applied. The list mirrors every
+# targetNamespace declared in clusters/_template/bootstrap-kit/*.yaml
+# plus the 3 vCluster syncer namespaces (dmz/mgmt/rtz). Per-Blueprint
+# explicit CNPs progressively tighten each namespace; this list is the
+# coarse-grained safety net so a fresh prov doesn't sever inter-platform
+# flows the moment default-deny activates.
 allowSystemNamespaces:
-  - kube-system
-  - flux-system
-  - cilium
-  - cert-manager
+  - alloy
   - catalyst
-  - openova-system
-  - monitoring
+  - catalyst-system
+  - cert-manager
+  - cilium
+  - cilium-gateway
+  - cluster-autoscaler
+  - cnpg-system
+  - coraza
+  - crossplane-system
+  - dmz
+  - external-dns
+  - external-secrets-system
+  - falco
+  - flux-system
+  - gitea
+  - grafana
+  - harbor
   - ingress
+  - keycloak
+  - kube-system
+  - kyverno
+  - loki
+  - mgmt
+  - mimir
+  - monitoring
+  - nats-system
+  - newapi
+  - openbao
+  - opentelemetry
+  - openova-system
+  - powerdns
+  - reflector
+  - reloader
+  - rtz
+  - seaweedfs
+  - sigstore-system
+  - sme
+  - syft-grype
+  - tempo
+  - trivy-system
+  - valkey
+  - velero
+  - vllm
+  - vpa
 
 # NOTE: Pod-to-Pod within the SAME namespace is NOT handled here. Cilium
 # CCNPs can't express "same namespace as the source Pod" without listing
