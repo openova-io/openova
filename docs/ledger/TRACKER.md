@@ -1643,3 +1643,9 @@ hw76 + hw77 failed Phase 0 at HCS VPC quota BEFORE zero-touch contract reached (
 | 08:35Z→TBD | hw84 | bf7de50d4b5ca99e | LIVE prov | TBD | **SINGLE-REGION mitigation** (region-a only, region-b dropped). bcpTopology=single-region. workerCount=4. Pillar 2 multi-region DEFERRED until HCS recovery. If succeeds → validates G69+L7 full-DoD cutover-completion on single-region (other 4 Pillars + cutover Steps 01-08 + L7 verifier 86/86 still testable). Single-region prov faster ~30-40min. |
 
 | 09:07Z | hw84 | bf7de50d4b5ca99e | Phase 1 in progress (4 nodes Ready, 50/54 HRs True, Gateway PROGRAMMED, bp-self-sovereign-cutover Unknown=Running) | TBD | **SINGLE-REGION DOES UNBLOCK Phase 0** (events=3003 well past stuck 1652 signature). catalyst-api Pod 0/1 ContainerCreating 8min — slow ghcr.io image pull from HCS bandwidth (~1GB catalyst-api binary). Auto-trigger Job waits on catalyst-api ready. Continuing to wait. Founder briefed via chepherd_alert kind=stuck urgency=high with 5 paths. Single-region path validated as functional. |
+
+| G# | Issue | PR/Commit | Subject | Status |
+|---|---|---|---|---|
+| **G72** | #2618-followup | 953dc771 | Step 03 base64-decode-only-when-not-JSON. Live evidence hw84: G69-followup skopeo download SUCCEEDED ("skopeo version 1.15.2"), then jq parsed garbage from busybox base64 decode of already-decoded JSON env var. Fix: detect first char='{' → skip base64. Lockstep bp-self-sovereign-cutover 0.1.46→0.1.47. | shipped |
+
+| 09:35Z | hw84 | bf7de50d4b5ca99e | LIVE Phase 1=ready handover=09:12Z BUT Step 03 G72 jq error → cutover broken | Substrate works | Single-region UNBLOCKED Phase 0/1. catalyst-api Ready, Sovereign serving HTTP. Only G72 blocks cutover Steps 04-08. With G72 fix shipped, hw85 should complete cutover → first FULL-DOD ZT#1 achievable. |
