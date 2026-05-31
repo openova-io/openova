@@ -87,3 +87,11 @@ spec:
   values:
     gateway:
       host: grafana.${SOVEREIGN_FQDN}
+    # G91.grafana (#2658) — wire bp-sso-bridge framework. The chart-side
+    # grafana.ini.auth.generic_oauth block computes auth_url / token_url /
+    # api_url from sovereignFqdn. Without this envsubst, the Grafana
+    # sign-in OAuth attempt errors with empty URLs (clear behaviour, not
+    # half-config); with the envsubst SSO works zero-touch on every
+    # fresh Sovereign.
+    sso:
+      sovereignFqdn: ${SOVEREIGN_FQDN}
