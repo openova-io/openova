@@ -1628,3 +1628,6 @@ hw76 + hw77 failed Phase 0 at HCS VPC quota BEFORE zero-touch contract reached (
 
 | 06:44Z | hw80 | b426e54cbe5beb5d | WIPED (Phase 0 stuck — no progress 22min+, tofu state at 06:20Z, no error reported, catalyst-api watcher abandoned but status=provisioning hung) | N/A | Likely transient HCS provisioning hang. JANITOR saw all 5 EIPs allocated. No tofu process running in catalyst-api. Wipe + retry as hw81. |
 | 06:44Z→TBD | hw81 | 8754684b93a92da7 | LIVE prov | TBD | **full-DoD ZT#1 retry #2** — IDENTICAL G55-G69-followup stack. Falsifiable: HCS healthy this time → Phase 0 ~7min → Phase 1 → cutover Step 03 skopeo download succeeds (G69-followup) → Steps 04-08 Complete → verifier 86/86. |
+
+| 07:34Z | hw81 | 8754684b93a92da7 | WIPED (3rd Phase 0 hang in a row) | N/A | Same pattern as hw79+hw80: tofu got partway through me-east-215-a resources (1 VPC + 3 EIPs + secgroup + keypair) then froze. No tofu process. Watcher didn't detect death (G70 candidate). Likely systemic HCS me-east-215 issue today. |
+| 07:34Z→TBD | hw82 | daf03dc51559ecbe | LIVE prov | TBD | 3rd HCS retry — same G55-G69-followup stack + workerCount=4. If same hang at +25min: try workerCount=2 OR escalate HCS regional health concern. |
