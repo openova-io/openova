@@ -263,3 +263,39 @@ mcp:
       name: ""
       key: "token"
 extraEnv: {}
+
+# ─── G91.sandbox (#2657) SSO opt-in ───────────────────────────────────────
+# Per SECURITY.md §6.3 every Application Blueprint declares SSO support
+# with a single value. bp-sso-bridge (G91.1 #2652) watches every HR with
+# `sso.enabled: true` and reconciles a Keycloak Client + OpenBao
+# `secret/sso/sandbox` + ExternalSecret in this namespace.
+#
+# bp-sandbox propagates the resulting Secret into the sandbox-controller
+# Pod as three env vars (SANDBOX_SSO_CLIENT_ID, SANDBOX_SSO_CLIENT_SECRET,
+# SANDBOX_SSO_ISSUER_URL); the controller in turn injects them into the
+# per-Sandbox pty-server PodSpec so each user Sandbox UI is OIDC-fronted
+# without a per-Sandbox Keycloak Client (one parent Client + per-user
+# subject = scales cleanly).
+#
+# G91.sandbox-controller follow-up: the sandbox-controller Go code at
+# core/controllers/sandbox/ must learn to read these env vars and stamp
+# them onto the per-Sandbox pty-server's container env. This chart
+# change is the seam; the controller code follow-up wires the runtime
+# half. The env vars are present + unused until that lands.
+sso:
+  enabled: true
+  realm: sovereign
+  # Per-Sovereign cluster overlay sets this (e.g. `hw86.omani.works`).
+  # When empty the SSO env vars on the controller Pod are empty strings,
+  # and the controller's follow-up code path will skip OIDC injection
+  # (fail-open to local Sandbox auth) rather than half-configuring.
+  sovereignFqdn: ""
+  # OIDC client ID — defaults to "sandbox" (bp-sso-bridge strips "bp-"
+  # from the HR name).
+  clientId: sandbox
+  externalSecretStoreName: vault-region1
+  refreshInterval: 1h
+  # Realm group the controller honors as Sandbox admin (full UI). The
+  # Sovereign operator (deployment.OrgEmail) is auto-added by the realm
+  # import.
+  adminGroup: sovereign-admins

@@ -28,21 +28,23 @@ slots:
   # ---- Tier 0-4: present today (post-PR-247 baseline) -----------------------
   - slot: 1
     name: bp-cilium
-    # Refs #2650 dep-graph reconcile (2026-06-01): bp-cilium installs the
-    # cilium-gateway controller and enables gatewayAPI.enabled=true. That
-    # requires the upstream Gateway API CRDs to be present — installed by
-    # bp-gateway-api at slot 1a. So bp-cilium dependsOn bp-gateway-api.
-    # Earlier expected-deps had the edge reversed (gateway-api → cilium)
-    # which contradicted both the actual on-disk HR config and the
-    # canonical install order documented in issue #503.
+    # G65 (META-AUDIT 1 sub-class 11, #2105 / #2106): Cilium 1.16's
+    # `gatewayAPI.enabled=true` controller fails to start with `CRD
+    # gateway.networking.k8s.io/v1.Gateway not found` unless the
+    # upstream Kubernetes Gateway API CRDs are already registered with
+    # the apiserver. The cleanest fix is dep ordering — install
+    # bp-gateway-api FIRST (slot 1a's chart is CRD-only and has no
+    # cluster-network requirement), then bp-cilium. Same shape as
+    # bp-crossplane-claims dependsOn bp-crossplane (CRD provider →
+    # CRD consumer).
     depends_on: [bp-gateway-api]
     wave: present
   - slot: 1a
     name: bp-gateway-api
     # Upstream Kubernetes Gateway API CRDs (Standard channel — issue #503).
-    # Pure CRD install; no controller, no dependencies. bp-cilium installs
-    # the cilium-gateway controller that USES these CRDs via
-    # gatewayAPI.enabled=true (slot 1 dependsOn this slot).
+    # G65 (2026-05-31): bp-gateway-api ships first (no upstream cluster
+    # dep) and bp-cilium gates on its Ready. This chart is CRD-only +
+    # tiny so it converges before bp-cilium's controller image pull.
     depends_on: []
     wave: present
   - slot: 2

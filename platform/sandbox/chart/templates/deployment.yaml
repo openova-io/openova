@@ -185,6 +185,41 @@ spec:
             - name: {{ $k | quote }}
               value: {{ $v | quote }}
             {{- end }}
+            {{- /* G91.sandbox (#2657) — SSO env wiring. The
+                   sandbox-controller reads these env vars and (follow-up:
+                   core/controllers/sandbox/) propagates them into the
+                   per-Sandbox pty-server PodSpec for OIDC-fronted UI auth.
+                   secretRef is `optional: true` so a fresh-prov Sovereign
+                   where bp-sso-bridge hasn't yet materialised the
+                   ExternalSecret does NOT crash the controller. */ -}}
+            {{- if .Values.sso.enabled }}
+            - name: SANDBOX_SSO_ENABLED
+              value: "true"
+            - name: SANDBOX_SSO_REALM
+              value: {{ .Values.sso.realm | default "sovereign" | quote }}
+            - name: SANDBOX_SSO_SOVEREIGN_FQDN
+              value: {{ .Values.sso.sovereignFqdn | default "" | quote }}
+            - name: SANDBOX_SSO_ADMIN_GROUP
+              value: {{ .Values.sso.adminGroup | default "sovereign-admins" | quote }}
+            - name: SANDBOX_SSO_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: sandbox-sso-oidc-credentials
+                  key: client_id
+                  optional: true
+            - name: SANDBOX_SSO_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: sandbox-sso-oidc-credentials
+                  key: client_secret
+                  optional: true
+            - name: SANDBOX_SSO_ISSUER_URL
+              valueFrom:
+                secretKeyRef:
+                  name: sandbox-sso-oidc-credentials
+                  key: issuer_url
+                  optional: true
+            {{- end }}
           ports:
             - name: metrics
               containerPort: 8080
