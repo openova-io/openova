@@ -969,6 +969,38 @@ spec:
   # for console/admin/api. All chart-level Catalyst service config (image refs,
   # OTel endpoints, NATS subjects) lives in products/catalyst/chart/values.yaml.
   values:
+    # G91.catalyst-console-admin-self-grant (#2659): the Sovereign operator
+    # (deployment.OrgEmail; from the sovereign-fqdn ConfigMap orgEmail key)
+    # is auto-granted the realm-role `catalyst-admin` (composite over
+    # catalyst-{viewer,developer,operator,admin,owner} per
+    # platform/keycloak/chart/templates/configmap-sovereign-realm.yaml).
+    #
+    # `skipClientUpsert: true` is mandatory — the `catalyst-ui` Keycloak
+    # Client is created by the realm import at bp-keycloak install time
+    # (PKCE public client, exact redirectUris, exact webOrigins). If
+    # bp-sso-bridge tried to upsert it, the PUT would clobber that
+    # pre-existing definition. The opt-out shipped in
+    # bp-sso-bridge 0.1.1 (G91-fu, Refs #2659, edc55c08) gates exactly
+    # this case — `skipClientUpsert: true` makes bp-sso-bridge skip the
+    # per-Client upsert + ExternalSecret + per-Client `admin` grant path
+    # and ONLY run grant_operator_realm_roles.
+    #
+    # clientId is set to `catalyst-ui` to match the realm-import Client.
+    # bp-sso-bridge does not consult clientId when skipClientUpsert=true
+    # (it only feeds the labels/logs); the realm-role grant is per-user
+    # not per-client.
+    #
+    # realm-role `catalyst-admin` exists in the realm import (see
+    # configmap-sovereign-realm.yaml composite-role chain). If a future
+    # realm re-architecture drops the role, the grant is a no-op (the
+    # framework's lookup returns 404 and logs a WARN — non-fatal).
+    sso:
+      enabled: true
+      realm: sovereign
+      clientId: catalyst-ui
+      skipClientUpsert: true
+      realmRolesGranted:
+        - catalyst-admin
     # G87 #2634: multi-region CNPG instances default (1 single-region, 2 multi).
     # Applies to sme-services' CNPG cluster (sme-pg).
     sme:
