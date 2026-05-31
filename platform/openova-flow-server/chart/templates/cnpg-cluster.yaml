@@ -29,6 +29,16 @@ spec:
   instances: {{ .Values.postgres.cluster.instances | default 1 }}
   imageName: ghcr.io/cloudnative-pg/postgresql:{{ .Values.postgres.cluster.pgVersion | default "16" }}
 
+  {{- /* G93.3 (Refs #2668) — see bp-gitea cnpg-cluster.yaml for full
+  rationale. When instances>=2, default CNPG affinity.topologyKey to
+  topology.kubernetes.io/region for cross-region spread on Cilium
+  ClusterMesh. */ -}}
+  {{- if ge (int (.Values.postgres.cluster.instances | default 1)) 2 }}
+  affinity:
+    topologyKey: {{ (default dict .Values.postgres.cluster.affinity).topologyKey | default "topology.kubernetes.io/region" | quote }}
+    podAntiAffinityType: {{ (default dict .Values.postgres.cluster.affinity).podAntiAffinityType | default "preferred" | quote }}
+  {{- end }}
+
   bootstrap:
     initdb:
       database: {{ .Values.postgres.cluster.database | default "openova_flow" | quote }}

@@ -66,6 +66,15 @@ metadata:
 spec:
   instances: {{ .Values.cnpg.cluster.instances | default 1 }}
   imageName: {{ .Values.cnpg.cluster.imageName | default "ghcr.io/cloudnative-pg/postgresql:16.4" | quote }}
+  {{- /* G93.3 (Refs #2668) — see bp-gitea cnpg-cluster.yaml for full
+  rationale. When instances>=2, default CNPG affinity.topologyKey to
+  topology.kubernetes.io/region for cross-region spread on Cilium
+  ClusterMesh. */ -}}
+  {{- if ge (int (.Values.cnpg.cluster.instances | default 1)) 2 }}
+  affinity:
+    topologyKey: {{ (default dict .Values.cnpg.cluster.affinity).topologyKey | default "topology.kubernetes.io/region" | quote }}
+    podAntiAffinityType: {{ (default dict .Values.cnpg.cluster.affinity).podAntiAffinityType | default "preferred" | quote }}
+  {{- end }}
   storage:
     size: {{ .Values.cnpg.cluster.storage | default "5Gi" | quote }}
     {{- with .Values.cnpg.cluster.storageClassName }}
