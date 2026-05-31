@@ -59,6 +59,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -778,7 +779,41 @@ func applicationInstallCallerAuthorized(claims *auth.Claims) bool {
 	case "admin", "owner":
 		return true
 	}
+	// G78b #2625 / G87a (2026-06-01): the registered Sovereign operator
+	// (deployment.request.OrgEmail, propagated to OPERATOR_EMAIL env on
+	// the chroot catalyst-api Pod) is owner-equivalent across every
+	// authz gate, regardless of which login flow minted their session
+	// (PIN-verify auto-stamps catalyst-owner; some OIDC flows mint a
+	// session with empty realm_access.roles + empty tier — verified
+	// live hw86 founder session 2026-06-01: 403 body had
+	// `sessionRoles:"" sessionTier:""`).
+	//
+	// The deployment record IS the source of truth for who owns this
+	// Sovereign. Claims are a (sometimes-broken) JWT-mapper transport
+	// layer. When claim-shape fails, trust the deployment record.
+	if isSovereignOperatorClaim(claims) {
+		return true
+	}
 	return false
+}
+
+// isSovereignOperatorClaim — true when the caller's email matches the
+// Sovereign's registered operator (OPERATOR_EMAIL env on chroot, or
+// deployment.request.OrgEmail on mothership). Case-insensitive,
+// whitespace-trimmed. Empty op email or empty caller email → false.
+func isSovereignOperatorClaim(claims *auth.Claims) bool {
+	if claims == nil {
+		return false
+	}
+	opEmail := strings.ToLower(strings.TrimSpace(os.Getenv("OPERATOR_EMAIL")))
+	if opEmail == "" {
+		return false
+	}
+	callerEmail := strings.ToLower(strings.TrimSpace(claims.Email))
+	if callerEmail == "" {
+		return false
+	}
+	return callerEmail == opEmail
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
