@@ -1631,3 +1631,10 @@ hw76 + hw77 failed Phase 0 at HCS VPC quota BEFORE zero-touch contract reached (
 
 | 07:34Z | hw81 | 8754684b93a92da7 | WIPED (3rd Phase 0 hang in a row) | N/A | Same pattern as hw79+hw80: tofu got partway through me-east-215-a resources (1 VPC + 3 EIPs + secgroup + keypair) then froze. No tofu process. Watcher didn't detect death (G70 candidate). Likely systemic HCS me-east-215 issue today. |
 | 07:34Z→TBD | hw82 | daf03dc51559ecbe | LIVE prov | TBD | 3rd HCS retry — same G55-G69-followup stack + workerCount=4. If same hang at +25min: try workerCount=2 OR escalate HCS regional health concern. |
+
+| 08:07Z | hw82 | daf03dc51559ecbe | WIPED (4th HCS Phase 0 hang — events=1652 signature) | N/A | Pattern: hw79+hw80+hw81+hw82 ALL hung same way at events=1652. Tofu partial resources (1 VPC + 3 EIPs + secgroup + keypair) then died. No tofu PID. status=provisioning hung (G70 #2619 watcher gap). Likely HCS me-east-215 API throttling on rapid wipe→POST cycles. Founder alerted via chepherd_alert_human kind=stuck urgency=medium. |
+| 08:07Z→TBD | hw83 | 78dbf79c4f8e76cc | LIVE prov | TBD | **G70-mitigation: workerCount=2** (was 4) per region. Halves HCS API burst (10 resources → 6). EARLY-DETECT at +25min. If success → full-DoD ZT#1 candidate. If hangs: region switch OR pause for HCS recovery. |
+
+| G# | Issue | PR/Commit | Subject | Status |
+|---|---|---|---|---|
+| **G70** | #2619 | filed (post-mandate ship) | catalyst-api Phase 0 watcher tofu-death-detection. Watcher polls ps + tfstate-mtime every 60s; if tofu PID gone AND tfstate stale >5min AND status=provisioning → flip to status=failed-phase0 + emit Event. Saves ~22min per hung prov + unblocks JANITOR cleanup. | filed |
