@@ -39,6 +39,20 @@
 //	LEADER_ELECT_NS        default: in-cluster pod namespace; falls
 //	                       back to "openova-system"
 //	LOG_LEVEL              debug|info|warn|error (default info)
+//
+// G92.1 #2660 vCluster placement env vars (optional; defaults match
+// the loft-sh/vcluster + bp-<name>-vcluster slot 54/58/59 convention).
+// Set these only when a Sovereign customised the bp-<name>-vcluster
+// chart values away from the default (e.g. host namespace renamed):
+//
+//	VCLUSTER_PLACEMENT_DMZ_NS       host ns for the DMZ vCluster
+//	                                (default: dmz)
+//	VCLUSTER_PLACEMENT_DMZ_SECRET   admin kubeconfig Secret name
+//	                                (default: vc-dmz)
+//	VCLUSTER_PLACEMENT_MGMT_NS      (default: mgmt)
+//	VCLUSTER_PLACEMENT_MGMT_SECRET  (default: vc-mgmt)
+//	VCLUSTER_PLACEMENT_RTZ_NS       (default: rtz)
+//	VCLUSTER_PLACEMENT_RTZ_SECRET   (default: vc-rtz)
 package main
 
 import (
@@ -173,6 +187,24 @@ func loadConfigFromEnv() controller.Config {
 		// prov per ADR-0001 §A4). Empty = unset, treated as
 		// single-region by placement.EffectiveDefault.
 		SovereignBcpTopology: env("SOVEREIGN_BCP_TOPOLOGY", ""),
+		// G92.1 #2660 — vCluster placement map. Defaults match the
+		// loft-sh convention (HostNamespace = name, Secret = "vc-"+name).
+		// Operators override per Sovereign via env vars when the
+		// bp-<name>-vcluster chart was customised.
+		VClusterPlacements: map[string]controller.VClusterPlacement{
+			"dmz": {
+				HostNamespace:    env("VCLUSTER_PLACEMENT_DMZ_NS", "dmz"),
+				KubeconfigSecret: env("VCLUSTER_PLACEMENT_DMZ_SECRET", "vc-dmz"),
+			},
+			"mgmt": {
+				HostNamespace:    env("VCLUSTER_PLACEMENT_MGMT_NS", "mgmt"),
+				KubeconfigSecret: env("VCLUSTER_PLACEMENT_MGMT_SECRET", "vc-mgmt"),
+			},
+			"rtz": {
+				HostNamespace:    env("VCLUSTER_PLACEMENT_RTZ_NS", "rtz"),
+				KubeconfigSecret: env("VCLUSTER_PLACEMENT_RTZ_SECRET", "vc-rtz"),
+			},
+		},
 	}
 }
 

@@ -27,6 +27,15 @@ spec:
   {{- with .Values.catalystOverlay.cnpg.imageName }}
   imageName: {{ . | quote }}
   {{- end }}
+  {{- /* G93.3 (Refs #2668) — see bp-gitea cnpg-cluster.yaml for full
+  rationale. When instances>=2, default CNPG affinity.topologyKey to
+  topology.kubernetes.io/region for cross-region spread on Cilium
+  ClusterMesh. */ -}}
+  {{- if ge (int (.Values.catalystOverlay.cnpg.instances | default 1)) 2 }}
+  affinity:
+    topologyKey: {{ (default dict .Values.catalystOverlay.cnpg.affinity).topologyKey | default "topology.kubernetes.io/region" | quote }}
+    podAntiAffinityType: {{ (default dict .Values.catalystOverlay.cnpg.affinity).podAntiAffinityType | default "preferred" | quote }}
+  {{- end }}
   storage:
     size: {{ .Values.catalystOverlay.cnpg.storage.size }}
     {{- with .Values.catalystOverlay.cnpg.storage.storageClass }}

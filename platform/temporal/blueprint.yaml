@@ -5,7 +5,7 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-4-3-workflow-and-processing
 spec:
-  version: 1.0.0
+  version: 1.0.1
   card:
     title: Temporal
     summary: Durable workflow orchestration with saga + compensation. Postgres-backed (CNPG); Postgres visibility store; Web UI; Keycloak OIDC integration via `--auth-claim-mapper`.

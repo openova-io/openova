@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-llm-gateway
-version: 1.0.0
+version: 1.0.1
 appVersion: "v1.57.2"
 description: |
   Catalyst-curated Blueprint umbrella chart for the LLM Gateway —

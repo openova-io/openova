@@ -38,6 +38,17 @@ spec:
   instances: {{ .Values.postgres.cluster.instances | default 1 }}
   imageName: ghcr.io/cloudnative-pg/postgresql:{{ .Values.postgres.cluster.pgVersion | default "16" }}
 
+  {{- /* G93.3 (Refs #2668) — see bp-gitea cnpg-cluster.yaml for the full
+  rationale. When instances>=2, default the CNPG affinity.topologyKey
+  to topology.kubernetes.io/region so the operator's auto-generated
+  podAntiAffinity spreads replicas across regions on Cilium
+  ClusterMesh peers. */ -}}
+  {{- if ge (int (.Values.postgres.cluster.instances | default 1)) 2 }}
+  affinity:
+    topologyKey: {{ (default dict .Values.postgres.cluster.affinity).topologyKey | default "topology.kubernetes.io/region" | quote }}
+    podAntiAffinityType: {{ (default dict .Values.postgres.cluster.affinity).podAntiAffinityType | default "preferred" | quote }}
+  {{- end }}
+
   bootstrap:
     initdb:
       # Harbor connects to a DB named "registry" (upstream coreDatabase default).

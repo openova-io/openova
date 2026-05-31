@@ -288,9 +288,9 @@ images:
   organization: "openova-io/openova"
   # SHA tags — bump these via CI when building new images.
   catalystApi:
-    tag: "4e0bdd5"
+    tag: "6400d39"
   catalystUi:
-    tag: "4e0bdd5"
+    tag: "6400d39"
   marketplaceApi:
     tag: "3c2f7e4"
   console:
@@ -389,7 +389,7 @@ controllers:
       # controller workflow). Previously: 72e3f08 = qa-loop iter-8
       # Fix #42 (#1252 + Containerfile fix-up #1253), fixed Bug 1
       # (UserAccess Claim namespace).
-      tag: "9f6017b"
+      tag: "0dae416"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -425,7 +425,7 @@ controllers:
       # EnsureBranch before PutFile so Gitea's branch-missing 404
       # (mapped to ErrRepoNotFound by the client) no longer dead-loops
       # the env-controller.
-      tag: "b32eb9b"
+      tag: "0dae416"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -459,7 +459,7 @@ controllers:
     enabled: false
     image:
       repository: "ghcr.io/openova-io/openova/blueprint-controller"
-      tag: "b32eb9b"
+      tag: "0dae416"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -486,7 +486,7 @@ controllers:
       # cross-namespace ownerRef on the host-side Flux CRs (was being
       # silently GC'd by the K8s collector because Application lives
       # in a different namespace from flux-system).
-      tag: "9f6017b"
+      tag: "0dae416"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -541,7 +541,7 @@ controllers:
       repository: "ghcr.io/openova-io/openova/useraccess-controller"
       # SHA pinned to the latest GHCR-published push-on-main build per
       # docs/INVIOLABLE-PRINCIPLES.md #4a.
-      tag: "b32eb9b"
+      tag: "0dae416"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
