@@ -357,7 +357,7 @@ spec:
   #
   # When VCluster is set, this is the namespace INSIDE the vCluster's
   # apiserver (the vCluster syncer mirrors it back to the host as
-  # `<inner-ns>-x-<vcluster>`). The host syncer mirror is invisible to
+  # <inner-ns>-x-<vcluster>). The host syncer mirror is invisible to
   # helm-controller — it sees the vCluster's own ns view.
   targetNamespace: {{ .AppNamespace }}
 {{- if .VCluster }}
