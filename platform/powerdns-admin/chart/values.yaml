@@ -1,0 +1,149 @@
+# bp-powerdns-admin values overlay.
+#
+# Per Inviolable Principle #4 (never hardcode) every operationally-
+# meaningful value flows from this file. Per-Sovereign cluster overlays
+# (clusters/<sovereign>/) wire gateway.host, pdns.apiUrl, sso.sovereignFqdn.
+
+# Image — pinned PowerDNS-Admin upstream (ngoduykhanh project). Routed
+# through the per-Sovereign Harbor proxy-cache per CLAUDE.md
+# MIRROR-EVERYTHING rule.
+image:
+  repository: harbor.openova.io/proxy-dockerhub/ngoduykhanh/powerdns-admin
+  tag: "0.4.2"
+  pullPolicy: IfNotPresent
+  pullSecrets:
+    - name: ghcr-pull
+
+replicas: 1
+
+# Pod-level security.
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 100
+  runAsGroup: 101
+  fsGroup: 101
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false      # PDA writes session/cache to /tmp
+  capabilities:
+    drop: [ALL]
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# Container port the Gunicorn process inside ngoduykhanh/powerdns-admin
+# binds to. Upstream Containerfile defaults to 9191.
+service:
+  port: 80
+  targetPort: 9191
+  type: ClusterIP
+
+# Catalyst HTTPRoute (Cilium Gateway API, issue #387). Per-Sovereign
+# overlay supplies gateway.host (e.g. admin.dns.<sovereign-fqdn>).
+gateway:
+  enabled: true
+  host: ""
+  path: "/"
+  backendService: ""               # defaults to <release>-bp-powerdns-admin
+  backendPort: 80
+  parentRef:
+    name: cilium-gateway
+    namespace: kube-system
+    sectionName: ""                 # multi-zone-safe (PR #1888 / TBD-A40)
+
+# ─── CNPG-managed Postgres cluster for PDA metadata ──────────────────────
+# PowerDNS-Admin needs a SQL backend for users, audit log, history. Per
+# the bp-harbor / bp-gitea pattern, we materialise a Catalyst-managed
+# CNPG Cluster + reflect the generated `<cluster>-app` Secret to give
+# the upstream container a stable password binding.
+postgres:
+  cluster:
+    name: pda-pg
+    namespace: ""                  # defaults to .Release.Namespace
+    instances: 1
+    pgVersion: "16"
+    database: pda
+    owner: pda
+    storageSize: 5Gi
+    storageClass: local-path
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+# Reflector — mirrors the CNPG-generated `pda-pg-app` Secret into
+# `pda-database-secret` so the deployment.yaml secretKeyRef resolves
+# regardless of CNPG operator's own naming scheme.
+databaseSecret:
+  name: pda-database-secret
+  cnpgSecretName: pda-pg-app
+  passwordKey: password
+  usernameKey: username
+
+# ─── PowerDNS backend endpoint ───────────────────────────────────────────
+# Where the running PDA container reaches the authoritative server.
+# Per-Sovereign overlay sets these or accepts the in-cluster default
+# (matches platform/powerdns/chart/templates/dnsdist.yaml api Service
+# name + port).
+pdns:
+  apiUrl: "http://bp-powerdns-api.powerdns.svc.cluster.local:8081"
+  # The API key the PDA container POSTs via X-API-Key. bp-powerdns chart
+  # ships templates/api-credentials-secret.yaml; the same Secret is
+  # reflected into this namespace via the reflector chain so we read
+  # the bytes via secretKeyRef.
+  apiKeySecret:
+    name: pdns-api-credentials
+    key: api-key
+  version: "4.7"
+  protocol: http
+
+# ─── Flask SECRET_KEY ────────────────────────────────────────────────────
+# 32-byte URL-safe secret used by Flask to sign session cookies. Helm
+# `lookup` makes it idempotent across reconciles; operator override
+# wins for sealed-secret restoration scenarios.
+flaskSecretKey:
+  secretName: pda-flask-key
+  override: ""                       # set to pre-existing value to import
+
+# ─── G91.powerdns-admin (#2656) SSO opt-in ───────────────────────────────
+# Per SECURITY.md §6.3 — bp-sso-bridge auto-provisions a Keycloak Client
+# `powerdns-admin`, stores client_secret + URL bundle in OpenBao at
+# `secret/sso/powerdns-admin`, emits an ExternalSecret in this namespace,
+# and grants the Sovereign operator (deployment.OrgEmail) the
+# Administrator role.
+sso:
+  enabled: true
+  realm: sovereign
+  # Per-Sovereign cluster overlay sets this (e.g. `hw86.omani.works`).
+  # When empty the OIDC env vars on the PDA Pod stay empty strings —
+  # PDA falls back to local-account auth (clear behaviour, not a half-
+  # config).
+  sovereignFqdn: ""
+  clientId: powerdns-admin
+  externalSecretStoreName: vault-region1
+  refreshInterval: 1h
+  adminGroup: sovereign-admins
+  # Auto-onboarding — PDA creates a local user record on first OIDC
+  # sign-in if it doesn't already exist.
+  autoOnboard: true
+
+# Misc PDA settings.
+config:
+  # Trust the per-Sovereign Gateway's X-Forwarded-* headers so PDA's
+  # internal URL generation matches the public scheme/host.
+  proxyFix: true
+  # Default landing page after sign-in.
+  defaultLandingPage: dashboard
+
+extraEnv: []

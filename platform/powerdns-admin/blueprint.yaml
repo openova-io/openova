@@ -1,0 +1,26 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-powerdns-admin
+  labels:
+    catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
+spec:
+  version: 0.1.0
+  card:
+    title: powerdns-admin
+    summary: |
+      PowerDNS-Admin (ngoduykhanh/powerdns-admin) web UI for per-Sovereign
+      PowerDNS zone + record management. CNPG-backed Postgres metadata,
+      Catalyst SSO via Keycloak. Reads PDNS_API_URL / PDNS_API_KEY from
+      bp-powerdns to drive the authoritative DNS server.
+  visibility: unlisted              # mandatory infra
+  manifests:
+    chart: ./chart
+  depends:
+    - bp-powerdns
+    - bp-cnpg
+    - bp-keycloak
+    - bp-sso-bridge
+    - bp-external-secrets-stores
+    - bp-reflector
+    - bp-gateway-api

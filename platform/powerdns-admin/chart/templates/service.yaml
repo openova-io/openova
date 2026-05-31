@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-bp-powerdns-admin
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: bp-powerdns-admin
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/blueprint: bp-powerdns-admin
+spec:
+  type: {{ .Values.service.type | default "ClusterIP" }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port | default 80 }}
+      targetPort: {{ .Values.service.targetPort | default 9191 }}
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: bp-powerdns-admin
+    app.kubernetes.io/instance: {{ .Release.Name }}

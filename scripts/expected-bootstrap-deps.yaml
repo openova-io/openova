@@ -108,6 +108,26 @@ slots:
     # "secret pdns-pg-app not found" (caught live during otech28).
     depends_on: [bp-cert-manager, bp-gateway-api, bp-cnpg]
     wave: present
+  - slot: "11a"
+    name: bp-powerdns-admin
+    # G91.powerdns-admin (#2656, 2026-05-31): PowerDNS-Admin web UI on
+    # top of bp-powerdns. Chart constructed in-house (no upstream Helm).
+    # bp-powerdns dep — PDA reads PDNS_API_URL + pdns-api-credentials
+    # which only land after slot 11 Ready. bp-cnpg dep — chart ships
+    # its own pda-pg Cluster CR. bp-keycloak + bp-sso-bridge — SSO via
+    # G91.1 framework. bp-external-secrets-stores — pda-sso-oidc-
+    # credentials ExternalSecret. bp-reflector — mirrors CNPG-generated
+    # pda-pg-app Secret into pda-database-secret in the chart namespace.
+    # bp-gateway-api — HTTPRoute.
+    depends_on:
+      - bp-powerdns
+      - bp-cnpg
+      - bp-keycloak
+      - bp-sso-bridge
+      - bp-external-secrets-stores
+      - bp-reflector
+      - bp-gateway-api
+    wave: present
   - slot: 12
     name: bp-external-dns
     # bp-reflector dep (issue #543): external-dns HTTPRoute uses reflector-mirrored

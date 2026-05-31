@@ -1,0 +1,89 @@
+# bp-powerdns-admin — Catalyst bootstrap-kit slot 11a (post-powerdns).
+#
+# Deploys the PowerDNS-Admin web UI on a Sovereign so operators can edit
+# zones + records without dropping into pdns_control CLI on the bp-powerdns
+# Pod. Slot 11a so it sequences after bp-powerdns (slot 11) — the PDA
+# container needs PDNS_API_URL reachable + the per-Sovereign
+# pdns-api-credentials Secret materialised before it starts.
+#
+# G91.powerdns-admin (#2656): chart constructed from scratch (no upstream
+# Helm chart for ngoduykhanh/powerdns-admin), opts into bp-sso-bridge via
+# the standard `sso:` block. Per-Sovereign overlay sets gateway.host
+# (admin.dns.<sovereign-fqdn>) + sso.sovereignFqdn.
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-powerdns-admin
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: powerdns-admin
+  labels:
+    catalyst.openova.io/blueprint: bp-powerdns-admin
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-powerdns-admin
+  namespace: flux-system
+spec:
+  releaseName: powerdns-admin
+  targetNamespace: powerdns-admin
+  interval: 15m
+  install:
+    timeout: 15m
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+  upgrade:
+    timeout: 15m
+    remediation:
+      retries: 3
+      strategy: rollback
+      remediateLastFailure: true
+    cleanupOnFail: true
+  dependsOn:
+    - name: bp-powerdns
+      namespace: flux-system
+    - name: bp-cnpg
+      namespace: flux-system
+    - name: bp-keycloak
+      namespace: flux-system
+    - name: bp-sso-bridge
+      namespace: flux-system
+    - name: bp-external-secrets-stores
+      namespace: flux-system
+    - name: bp-reflector
+      namespace: flux-system
+    - name: bp-gateway-api
+      namespace: flux-system
+  chart:
+    spec:
+      chart: bp-powerdns-admin
+      version: 0.1.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-powerdns-admin
+        namespace: flux-system
+      interval: 15m
+  values:
+    # Per-Sovereign overlays supply:
+    #   gateway.host           — e.g. admin.dns.${SOVEREIGN_FQDN}
+    #   sso.sovereignFqdn      — e.g. ${SOVEREIGN_FQDN}
+    # All other defaults inherit from platform/powerdns-admin/chart/values.yaml.
+    gateway:
+      host: "admin.dns.${SOVEREIGN_FQDN}"
+    sso:
+      sovereignFqdn: "${SOVEREIGN_FQDN}"
