@@ -145,6 +145,14 @@ sovereign:
   enableHotStandby: ""
   primaryRegion: ""
   replicaRegion: ""
+  # G93.2 (Refs #2667) — Sovereign-wide BCP topology enum string.
+  # ("single-region" | "active-hotstandby" | "active-active"). The
+  # application-controller reads this via the sovereign-fqdn ConfigMap
+  # to pick the right Blueprint placementSchema default for an
+  # Application CR with empty spec.placement. Stamped from cloud-init's
+  # SOVEREIGN_BCP_TOPOLOGY postBuild.substitute (G93.1, Refs #2666);
+  # default empty for legacy Sovereigns whose cloud-init predates G93.1.
+  bcpTopology: ""
 
 # ─── Gitea-API wait budget (qa-loop Wave 27 Fix #184) ──────────────────
 # Knobs consumed by templates/catalyst-gitea-token-secret.yaml's pre-

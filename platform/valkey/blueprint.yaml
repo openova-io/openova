@@ -65,6 +65,15 @@ spec:
   placementSchema:
     modes: [single-region, active-active, active-hotstandby]
     default: single-region            # Valkey replication is per-Application
+    # G93.2 (Refs #2667) — On a multi-region Sovereign the canonical
+    # Valkey topology is active-hotstandby: primary instance accepts
+    # writes in regions[0], replica streams from primary in regions[1]
+    # over Cilium ClusterMesh (REPLICAOF protocol per docs/SRE.md §2
+    # replication matrix). Without this seam, a fresh Application
+    # install on a 2-region Sovereign defaults to single-region and
+    # the cross-region replica never spins up — Pillar 3 cache-warm-
+    # failover is impossible.
+    defaultOnMultiRegion: active-hotstandby
   manifests:
     chart: ./chart
   # Valkey is a self-contained cache — only needs Flux Ready. The Flux HR

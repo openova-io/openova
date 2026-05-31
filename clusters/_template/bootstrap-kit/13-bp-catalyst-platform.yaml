@@ -1131,6 +1131,18 @@ spec:
       enableHotStandby: '${SOVEREIGN_ENABLE_HOT_STANDBY:-}'
       primaryRegion: '${SOVEREIGN_PRIMARY_REGION:-}'
       replicaRegion: '${SOVEREIGN_REPLICA_REGION:-}'
+      # G93.2 (Refs #2667) — operator-visible BCP topology enum string.
+      # Stamped from cloud-init's SOVEREIGN_BCP_TOPOLOGY Kustomization
+      # postBuild.substitute (G93.1, Refs #2666), derived from
+      # catalyst-api's Request.BcpTopology with auto-derivation for
+      # the empty/multi-region case. The chart's sovereign-fqdn
+      # ConfigMap exposes it as `bcpTopology` key; the application-
+      # controller reads it via configMapKeyRef so a multi-region
+      # Sovereign + a CNPG-backed Blueprint with
+      # placementSchema.defaultOnMultiRegion=active-hotstandby auto-
+      # picks active-hotstandby on every fresh marketplace install
+      # (Pillar 3 zero-tx-loss zero-touch).
+      bcpTopology: '${SOVEREIGN_BCP_TOPOLOGY:-}'
       # configuredRegions — YAML list of region keys this Sovereign was
       # provisioned with (e.g. ["fsn1", "hel1"]). Threaded from cloud-init's
       # SOVEREIGN_CONFIGURED_REGIONS_YAML Kustomization postBuild substitute

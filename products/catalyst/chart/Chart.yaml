@@ -2345,7 +2345,13 @@ name: bp-catalyst-platform
 # path uses sibling api-deployment-kustomize.yaml (literal ghcr.io).
 # .helmignore excludes the kustomize sibling from Sovereign bundle.
 # Pairs with bp-self-sovereign-cutover 0.1.40 (Step 07 HR patch).
-version: 1.4.413
+# 1.4.414 (G93.2 #2667, 2026-06-01): sovereign-fqdn ConfigMap exposes
+# `bcpTopology` key (stamped from cloud-init's SOVEREIGN_BCP_TOPOLOGY
+# postBuild.substitute via G93.1 #2666); application-controller
+# Deployment mounts SOVEREIGN_BCP_TOPOLOGY env from that key so
+# Blueprint placementSchema.defaultOnMultiRegion drives empty-
+# spec.placement on multi-region Sovereigns.
+version: 1.4.414
 appVersion: 1.4.349
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.

@@ -181,3 +181,54 @@ func AllowedByBlueprint(mode string, allowed []string) bool {
 	}
 	return false
 }
+
+// SovereignTopology constants — Sovereign-wide BCP topology the
+// Application is being installed under. Mirrors
+// provisioner.Request.BcpTopology (G93.1, Refs #2666). Read at
+// controller startup from the SOVEREIGN_BCP_TOPOLOGY env the
+// bp-catalyst-platform chart slot 13 stamps from cloud-init. The
+// controller passes this into EffectiveDefault below.
+const (
+	SovereignTopologySingleRegion     = "single-region"
+	SovereignTopologyActiveHotStandby = "active-hotstandby"
+	SovereignTopologyActiveActive     = "active-active"
+)
+
+// EffectiveDefault picks the right placement mode when the Application
+// CR's spec.placement is empty:
+//
+//  1. If the Sovereign is multi-region (active-hotstandby /
+//     active-active) AND the Blueprint declares
+//     `placementSchema.defaultOnMultiRegion`, return that. This is the
+//     G93.2 (Refs #2667) target-state — every CNPG-backed Blueprint
+//     sets defaultOnMultiRegion="active-hotstandby" so a fresh
+//     marketplace install on a 2-region Sovereign lands Pillar 3
+//     zero-touch.
+//  2. Otherwise fall back to `placementSchema.default` (the existing
+//     single-knob default).
+//  3. If neither is set, return "single-region" as the safe last
+//     resort.
+//
+// Per-Blueprint declarative seam: the Blueprint author picks the
+// preferred multi-region default; the application-controller honours it
+// without per-controller switch statements. New Blueprints opt in by
+// adding the field; existing single-region Blueprints don't need to
+// change.
+//
+// Validation: the caller is responsible for ensuring the returned mode
+// is in `placementSchema.modes[]` (use AllowedByBlueprint). If the
+// chosen default is not in modes[], that's a Blueprint-author bug the
+// blueprint-controller's validator catches at publish time
+// (validate.go §placementSchema.defaultOnMultiRegion-in-modes).
+func EffectiveDefault(sovereignTopology, blueprintDefault, blueprintDefaultOnMultiRegion string) string {
+	switch sovereignTopology {
+	case SovereignTopologyActiveHotStandby, SovereignTopologyActiveActive:
+		if blueprintDefaultOnMultiRegion != "" {
+			return blueprintDefaultOnMultiRegion
+		}
+	}
+	if blueprintDefault != "" {
+		return blueprintDefault
+	}
+	return ModeSingleRegion
+}
