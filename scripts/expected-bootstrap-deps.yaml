@@ -315,7 +315,10 @@ slots:
   # ---- Tier 8 + 9: edge + apps + AI runtime (W2.K4, slots 35-48) ------------
   - slot: 35
     name: bp-coraza
-    depends_on: [bp-cilium, bp-cert-manager]
+    # G92.4 #2663 (2026-06-01): DMZ vCluster placement adds
+    # bp-dmz-vcluster as a new edge so the install gates on vc-dmz
+    # existing before helm-controller attempts the pivot.
+    depends_on: [bp-dmz-vcluster, bp-cilium, bp-cert-manager]
     wave: W2.K4
   - slot: 36
     name: bp-stunner
