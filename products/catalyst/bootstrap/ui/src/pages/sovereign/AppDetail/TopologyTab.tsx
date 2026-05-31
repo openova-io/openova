@@ -145,7 +145,7 @@ export function TopologyTab({
 
   const availableRegions = useMemo(() => {
     const set = new Set<string>(currentRegions)
-    const regions = infraQ.data?.regions ?? []
+    const regions = infraQ.data?.topology?.regions ?? []
     for (const r of regions) {
       // RegionSpec carries both `name` (the catalyst region id e.g.
       // hw-me-east-215-a-rtz-prod) and `providerRegion` (the cloud
