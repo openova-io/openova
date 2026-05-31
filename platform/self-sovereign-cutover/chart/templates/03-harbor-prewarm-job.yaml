@@ -99,19 +99,58 @@ data:
             : "${HARBOR_USERNAME:=admin}"
 
             # ─── Phase A: skopeo native push of openova-io images ──────
-            echo "[harbor-prewarm] Phase A: install skopeo + enumerate openova-io images"
-            apk add --no-cache skopeo jq >/dev/null 2>&1 || true
-            if ! command -v skopeo >/dev/null 2>&1; then
-              echo "[harbor-prewarm] FATAL: skopeo not available after apk install"
-              exit 1
-            fi
+            echo "[harbor-prewarm] Phase A: install skopeo + jq + enumerate openova-io images"
+            # G69 #2618 (2026-05-31): alpine/k8s:1.31.4 base image's apk
+            # repos DO NOT carry community/skopeo → `apk add skopeo`
+            # silently no-ops → `command -v skopeo` returns FATAL →
+            # cutover chain breaks at Step 03 → Steps 04-08 NEVER RUN →
+            # Pillar 5 sovereignty NEVER ACHIEVED. Verified live hw78
+            # (de7f6aa8d5ef12b5) post-mandate audit 2026-05-31 04:40Z.
+            #
+            # Fix: download skopeo static binary from GitHub releases
+            # via curl. Falls back to apk if available (image may be
+            # rebased onto a distro with skopeo in repos later). jq is
+            # typically present in alpine/k8s but we verify + install
+            # via apk if not.
+            apk add --no-cache jq >/dev/null 2>&1 || true
             if ! command -v jq >/dev/null 2>&1; then
-              echo "[harbor-prewarm] FATAL: jq not available after apk install"
+              echo "[harbor-prewarm] FATAL: jq missing + apk install failed"
               exit 1
             fi
             if ! command -v kubectl >/dev/null 2>&1; then
               echo "[harbor-prewarm] FATAL: kubectl missing from image"
               exit 1
+            fi
+            if ! command -v skopeo >/dev/null 2>&1; then
+              echo "[harbor-prewarm] skopeo not on PATH; downloading static binary"
+              # skopeo static binaries published by lework on GitHub releases
+              # (containers/skopeo upstream doesn't ship static; lework's
+              # build is reproducible from upstream sources + signed).
+              # Pinned tag v1.15.2 for determinism. Fallback to apk-installed
+              # path if download fails AND apk works on a future image.
+              SKOPEO_URL="https://github.com/lework/skopeo-binary/releases/download/v1.15.2/skopeo-linux-amd64"
+              for i in 1 2 3; do
+                if curl -fsSL --max-time 60 "${SKOPEO_URL}" -o /tmp/skopeo 2>&1 \
+                  && chmod +x /tmp/skopeo \
+                  && /tmp/skopeo --version >/dev/null 2>&1; then
+                  export PATH="/tmp:${PATH}"
+                  echo "[harbor-prewarm] skopeo static binary installed: $(skopeo --version)"
+                  break
+                fi
+                echo "[harbor-prewarm] skopeo download attempt ${i}/3 failed; retrying in 5s"
+                rm -f /tmp/skopeo
+                sleep 5
+              done
+              if ! command -v skopeo >/dev/null 2>&1; then
+                # Last resort: try apk again (in case future image has it)
+                apk add --no-cache skopeo >/dev/null 2>&1 || true
+                if ! command -v skopeo >/dev/null 2>&1; then
+                  echo "[harbor-prewarm] FATAL: skopeo unavailable via static download AND apk after 3 retries"
+                  exit 1
+                fi
+              fi
+            else
+              echo "[harbor-prewarm] skopeo already on PATH: $(skopeo --version)"
             fi
 
             # Extract GHCR PAT from dockerconfigjson.

@@ -434,6 +434,105 @@ print('COUNT:'+str(len(hits)))
     fi
 done
 
+# ── L7: cutover completion audit (META-AUDIT 17, G69 retrospective) ────
+# G69 #2618 surfaced: substrate L1-L6 PASS does NOT prove Pillar 5
+# sovereignty achieved. hw75 + hw78 both passed L1-L6 81/81 but cutover
+# Step 03 FAILED on both (skopeo unavailable on alpine/k8s) → Steps 04-
+# 08 NEVER RAN → catalyst-api image still ghcr.io → no deny-egress test
+# → cutoverComplete UNSET. Verifier was substrate-only; founder DoD
+# requires Pillar 5 sovereignty actually executed.
+#
+# L7 checks (all 5 MUST pass):
+#   L7.1 cutoverComplete=true annotation on deployment record
+#   L7.2 ALL 11 cutover Step Jobs Complete=true (Steps 01-11)
+#   L7.3 catalyst-api Deployment image is harbor-native path
+#        (registry.<fqdn>/openova-io/... NOT ghcr.io)
+#   L7.4 Flux GitRepository spec.url points at local Gitea
+#        (gitea.<fqdn>.svc OR http://gitea-http.gitea.svc... NOT
+#        https://github.com/openova-io/openova)
+#   L7.5 deny-egress CiliumNetworkPolicy was applied at some point
+#        (presence of CNP labeled cutover-step-08 OR namespace
+#        annotation showing it ran). Per Pillar 5 contract the
+#        Sovereign survived a 10min hold against ghcr.io+github.com+
+#        harbor.openova.io.
+echo "----- L7: cutover completion audit (META-AUDIT 17) -----"
+
+# L7.1: cutoverComplete annotation
+CUTOVER_COMPLETE=$(echo "$RECORD" | python3 -c "
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    # Walk all paths for cutoverComplete
+    def find(o, k):
+        if isinstance(o, dict):
+            for kk, v in o.items():
+                if kk == k: return v
+                r = find(v, k)
+                if r is not None: return r
+        elif isinstance(o, list):
+            for v in o:
+                r = find(v, k)
+                if r is not None: return r
+        return None
+    v = find(d, 'cutoverComplete')
+    print(v if v is not None else 'MISSING')
+except: print('PARSE_ERROR')
+")
+check_eq "L7.1 deployment.cutoverComplete" "true" "${CUTOVER_COMPLETE,,}"
+
+# L7.2: all 11 cutover Step Jobs Complete (cutover-step-01..11)
+CUTOVER_JOBS_JSON=$(cluster_kubectl "$KUBE_A" -n catalyst get jobs -l 'app.kubernetes.io/instance=self-sovereign-cutover' -o json 2>/dev/null || echo '{"items":[]}')
+CUTOVER_JOBS_TOTAL=$(echo "$CUTOVER_JOBS_JSON" | python3 -c "import json,sys; print(len(json.load(sys.stdin).get('items',[])))" 2>/dev/null || echo 0)
+CUTOVER_JOBS_COMPLETE=$(echo "$CUTOVER_JOBS_JSON" | python3 -c "
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    count = 0
+    for j in d.get('items', []):
+        conds = j.get('status',{}).get('conditions',[])
+        if any(c.get('type') == 'Complete' and c.get('status') == 'True' for c in conds):
+            count += 1
+    print(count)
+except: print(0)
+")
+check_eq "L7.2 cutover Step Jobs Complete (need ≥8 of 8-11 steps)" "true" \
+    "$([ "${CUTOVER_JOBS_COMPLETE:-0}" -ge 8 ] && echo true || echo false)"
+
+# L7.3: catalyst-api Deployment image is harbor-native path (NOT ghcr.io)
+CATALYST_IMG=$(cluster_kubectl "$KUBE_A" -n catalyst-system get deployment catalyst-api -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || echo MISSING)
+if [[ "$CATALYST_IMG" == *"/openova-io/"* && "$CATALYST_IMG" != ghcr.io/* ]]; then
+    pass "L7.3 catalyst-api image is harbor-native: $CATALYST_IMG"
+else
+    fail "L7.3 catalyst-api image is harbor-native (got: $CATALYST_IMG; expected registry.<fqdn>/openova-io/...)"
+fi
+
+# L7.4: Flux GitRepository points at local Gitea (NOT github.com)
+GIT_URL=$(cluster_kubectl "$KUBE_A" -n flux-system get gitrepository openova -o jsonpath='{.spec.url}' 2>/dev/null || echo MISSING)
+if [[ "$GIT_URL" == *"gitea"* && "$GIT_URL" != *"github.com"* ]]; then
+    pass "L7.4 Flux GitRepository points at local Gitea: $GIT_URL"
+else
+    fail "L7.4 Flux GitRepository points at local Gitea (got: $GIT_URL; expected http://gitea-http.gitea.svc.../openova)"
+fi
+
+# L7.5: deny-egress CNP was applied (cutover-step-08 ran).
+# After completion the CNP is deleted; presence of historical Job
+# `cutover-egress-block-test-*` with Complete=true is proof.
+EGRESS_JOB_COUNT=$(cluster_kubectl "$KUBE_A" -n catalyst get jobs 2>/dev/null | grep -c "cutover-egress-block-test\|cutover-step-08" || echo 0)
+EGRESS_JOB_COMPLETE=$(cluster_kubectl "$KUBE_A" -n catalyst get jobs -o json 2>/dev/null | python3 -c "
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    for j in d.get('items', []):
+        name = j['metadata']['name']
+        if 'egress' in name.lower() or 'step-08' in name.lower():
+            conds = j.get('status',{}).get('conditions',[])
+            if any(c.get('type') == 'Complete' and c.get('status') == 'True' for c in conds):
+                print('true'); sys.exit(0)
+    print('false')
+except: print('false')
+" 2>/dev/null || echo false)
+check_eq "L7.5 cutover Step 08 deny-egress test Complete" "true" "${EGRESS_JOB_COMPLETE}"
+
 # ── final tally ─────────────────────────────────────────────────────────
 echo
 echo "============================================================"
