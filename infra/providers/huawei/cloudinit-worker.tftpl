@@ -138,7 +138,7 @@ runcmd:
       INSTALL_K3S_VERSION=${k3s_version} \
       K3S_TOKEN=${k3s_token} \
       K3S_URL=https://${cp_private_ip}:6443 \
-      INSTALL_K3S_EXEC="agent --node-label=catalyst.openova.io/provider=huawei" \
+      INSTALL_K3S_EXEC="agent --node-label=catalyst.openova.io/provider=huawei --node-label=openova.io/region=hw-${region}-rtz-prod --node-label=topology.kubernetes.io/region=${region} --node-label=topology.kubernetes.io/zone=${region}" \
       sh -; then
       echo "openova-k3s-agent-install: get.k3s.io install step failed; exiting nonzero for systemd retry"
       exit 1

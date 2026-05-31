@@ -458,11 +458,11 @@ func TestCompliance_IngestPolicyReportAndPublish(t *testing.T) {
 
 	keys := nats.Keys()
 	want := []string{
-		"resource:deployment/ns1/billing",
-		"application:billing",
-		"environment:acme-prod",
-		"organization:acme",
-		"sovereign:acme",
+		"resource.deployment/ns1/billing",
+		"application.billing",
+		"environment.acme-prod",
+		"organization.acme",
+		"sovereign.acme",
 	}
 	for _, k := range want {
 		if _, ok := nats.Get(k); !ok {
@@ -471,7 +471,7 @@ func TestCompliance_IngestPolicyReportAndPublish(t *testing.T) {
 	}
 
 	// Verify resource score = 50 (1 of 2 weight-50 policies pass).
-	body, _ := nats.Get("resource:deployment/ns1/billing")
+	body, _ := nats.Get("resource.deployment/ns1/billing")
 	var s Score
 	if err := json.Unmarshal(body, &s); err != nil {
 		t.Fatalf("unmarshal score: %v", err)
@@ -492,10 +492,10 @@ func TestCompliance_IngestSyntheticReport(t *testing.T) {
 	publishToFactory(f, k8scache.KindComplianceEvaluator, report)
 
 	waitFor(t, 1*time.Second, func() bool {
-		_, ok := nats.Get("resource:deployment/ns1/billing")
+		_, ok := nats.Get("resource.deployment/ns1/billing")
 		return ok
 	})
-	body, _ := nats.Get("resource:deployment/ns1/billing")
+	body, _ := nats.Get("resource.deployment/ns1/billing")
 	var s Score
 	_ = json.Unmarshal(body, &s)
 	if s.PolicyResults["flux-managed"] != "fail" {

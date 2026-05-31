@@ -90,25 +90,75 @@ type resourceTreeNode struct {
 //   - PersistentVolume / PersistentVolumeClaim — Phase-based (Bound /
 //     Pending / Released / Failed) NOT condition-based; the resource-
 //     tree node already surfaces Phase, so don't apply the Ready badge
-var passiveKindNames = map[string]struct{}{
-	"secret":               {},
-	"configmap":            {},
-	"endpoints":            {},
-	"endpointslice":        {},
-	"serviceaccount":       {},
-	"role":                 {},
-	"rolebinding":          {},
-	"clusterrole":          {},
-	"clusterrolebinding":   {},
-	"policyreport":         {},
-	"clusterpolicyreport":  {},
-	"persistentvolume":     {},
-	"persistentvolumeclaim": {},
+// G88 #2635 (2026-05-31): broader passive set per founder feedback that
+// initial G80 fix covered only a limited set. Inverted to opt-IN active
+// kinds + treat everything else as passive — the active set is small
+// and well-defined (workloads + Flux source/release CRs), while the
+// passive set is open-ended (anything with no Ready condition).
+var activeKindNames = map[string]struct{}{
+	// Pod-lifecycle workloads (status.conditions[type=Ready])
+	"pod":                   {},
+	"replicaset":            {},
+	"deployment":            {},
+	"statefulset":           {},
+	"daemonset":             {},
+	"job":                   {},
+	"cronjob":               {},
+	"replicationcontroller": {},
+	// Flux source + release (status.conditions[type=Ready])
+	"helmrelease":      {},
+	"helmrepository":   {},
+	"helmchart":        {},
+	"gitrepository":    {},
+	"ocirepository":    {},
+	"bucket":           {},
+	"kustomization":    {},
+	"imagerepository":  {},
+	"imageupdateautomation": {},
+	"alert":            {},
+	"provider":         {}, // pkg.crossplane.io + flux notification
+	"receiver":         {},
+	// Networking — Service/Ingress/Gateway have Ready/Programmed conditions
+	"service":      {},
+	"ingress":      {},
+	"gateway":      {},
+	"httproute":    {},
+	"grpcroute":    {},
+	// Cert-Manager
+	"certificate":        {},
+	"certificaterequest": {},
+	"order":              {},
+	"challenge":          {},
+	"issuer":             {},
+	"clusterissuer":      {},
+	// Argo-rollouts / Karpenter / KEDA / etc — most have Ready
+	"rollout":           {},
+	"nodeclaim":         {},
+	"scaledobject":      {},
+	"scaledjob":         {},
+	// CNPG database CR
+	"cluster": {}, // postgresql.cnpg.io/Cluster has Ready
+	"pooler":  {},
+	// Cilium / CRDs with status
+	"ciliumloadbalancerippool": {},
+	"ciliumnode":               {},
+	// Crossplane managed resources have Ready+Synced
+	"providerrevision": {},
+	"compositionrevision": {},
+	// Application/Continuum/CnpgPair (Catalyst)
+	"application": {},
+	"continuum":   {},
+	"cnpgpair":    {},
 }
 
+// isPassiveKind returns true for K8s kinds without a Ready-condition
+// concept (Secrets/ConfigMaps/PolicyReports/Endpoints/RBAC bindings/
+// passive networking/static config/etc.). UI renders these as `N/A`
+// instead of defaulting to `Pending` which is misleading for objects
+// that have no readiness semantics by design.
 func isPassiveKind(name string) bool {
-	_, isPassive := passiveKindNames[strings.ToLower(name)]
-	return isPassive
+	_, isActive := activeKindNames[strings.ToLower(name)]
+	return !isActive
 }
 
 // HandleK8sResourceTree — GET

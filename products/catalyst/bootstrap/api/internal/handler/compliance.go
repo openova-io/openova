@@ -947,7 +947,17 @@ func (c *ComplianceHandler) publishScore(ctx context.Context, clusterID string, 
 	}
 	// NATS KV.
 	if c.publisher != nil {
-		key := s.Scope + ":" + s.ID
+		// G86 #2633 (2026-05-31): NATS JetStream KV bucket keys may NOT
+		// contain `:` per the docs (allowed: alphanumeric, `.`, `_`,
+		// `-`, `=`, `/`). Previously every score-publish failed with
+		// `nats: invalid key` and the compliance scorecard read path
+		// got ZERO data → SREDashboardPage rendered empty regardless
+		// of Kyverno PolicyReport activity. Replace `:` with `.`
+		// (NATS-native separator). Read path uses fanout SSE +
+		// REST scorecard rebuild from PolicyReports, so no consumer-
+		// side change needed for the historical KV data — it was
+		// never readable anyway.
+		key := s.Scope + "." + s.ID
 		body, err := json.Marshal(s)
 		if err == nil {
 			natsCtx, cancel := context.WithTimeout(ctx, c.cfg.NATSPublishTimeout)

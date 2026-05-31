@@ -739,6 +739,8 @@ runcmd:
         --tls-san=${primary_cp_eip} \
         --tls-san=${my_region_eip} \
         --node-label=openova.io/region=hw-${region}-rtz-prod \
+        --node-label=topology.kubernetes.io/region=${region} \
+        --node-label=topology.kubernetes.io/zone=${region} \
         --node-label=catalyst.openova.io/provider=huawei \
         --kube-apiserver-arg=default-watch-cache-size=200 \
         --kube-apiserver-arg=watch-cache-sizes=secrets#500,configmaps#500 \

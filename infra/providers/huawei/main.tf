@@ -561,6 +561,13 @@ locals {
       cp_private_ip              = local.cp_primary_private_ip_by_region[r.code]
       enable_unattended_upgrades = var.enable_unattended_upgrades
       enable_fail2ban            = var.enable_fail2ban
+      # G87 #2634 (2026-05-31): per-worker region key for K8s
+      # topology labels (`topology.kubernetes.io/region` +
+      # `openova.io/region`). Without these, the K8s scheduler's
+      # topology spread + CNPG affinity + dashboard region grouping
+      # all collapse to single-region. Huawei CCM doesn't stamp
+      # standard topology labels by default; cloudinit fills the gap.
+      region                     = r.code
     }), "/(?m)^[ ]*#( |$).*\n/", "")
   }
 
