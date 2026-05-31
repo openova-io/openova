@@ -459,7 +459,7 @@ controllers:
     enabled: false
     image:
       repository: "ghcr.io/openova-io/openova/blueprint-controller"
-      tag: "0dae416"
+      tag: "8d01e2f"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
