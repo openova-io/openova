@@ -236,6 +236,22 @@ func main() {
 			log.Info("k8scache: data plane started",
 				"sovereigns", len(k8sFactory.Clusters()),
 			)
+			// G95.1 (Refs #2642) — wire the ExecStreamFactory so the
+			// /api/v1/sovereigns/{id}/k8s/exec/{ns}/{pod}/{container}
+			// WebSocket handler can actually dial the apiserver's
+			// pods/exec subresource. Pre-G95.1 SetExecStreamFactory was
+			// only called from tests; the production handler's
+			// execStreamFactoryGet() returned nil → handler responded
+			// 503 → browser saw an empty terminal (the symptom founder
+			// reported). The factory builds a remotecommand SPDY
+			// executor per call against the cluster's rest.Config
+			// captured by k8scache at registration time + bridges its
+			// duplex stdin/stdout into the io.ReadWriteCloser the
+			// pump-loop expects. Stderr is multiplexed into the same
+			// stdout pipe (xterm.js renders both streams in the same
+			// terminal — the convention the chepherd reference
+			// implementation uses, mirrored here).
+			h.SetExecStreamFactory(newExecStreamFactory(k8sFactory, log))
 			// EPIC-1 #1096 slice S — compliance score aggregator. Wired
 			// AFTER k8sCache because runWatch subscribes to the
 			// Factory's SSE fanout. Nil publisher + nil resolver are

@@ -230,3 +230,33 @@ func TestHandleK8sExecWebSocket_DefaultsCommand(t *testing.T) {
 	}
 	stream.Close()
 }
+
+// TestClusterIDFromExecContext_RoundTrip — G95.1 (Refs #2642).
+//
+// Pins the round-trip behaviour of the unexported execClusterIDKey
+// context value the production exec_stream_wire.go reads to resolve
+// the cluster's rest.Config. Empty-context returns "" (the test-fake-
+// factory path); a stamped context round-trips the value verbatim.
+//
+// Without this test, a refactor that changed the context key shape
+// could silently break the production exec path (browser would see
+// "exec stream: cluster id missing from request context" 502s) and
+// only get caught at live-prov walk time.
+func TestClusterIDFromExecContext_RoundTrip(t *testing.T) {
+	// Empty context → empty string.
+	if got := ClusterIDFromExecContext(context.Background()); got != "" {
+		t.Fatalf("empty ctx: got %q, want \"\"", got)
+	}
+	// Stamped context → the stamped value.
+	ctx := contextWithExecClusterID(context.Background(), "primary-mgmt")
+	if got := ClusterIDFromExecContext(ctx); got != "primary-mgmt" {
+		t.Fatalf("stamped ctx: got %q, want %q", got, "primary-mgmt")
+	}
+	// Non-string value under the same key (defensive — never expected
+	// in production, but pin the behaviour so a future regression
+	// doesn't accidentally panic the request goroutine).
+	bad := context.WithValue(context.Background(), execClusterIDKey{}, 42)
+	if got := ClusterIDFromExecContext(bad); got != "" {
+		t.Fatalf("non-string value: got %q, want \"\"", got)
+	}
+}
