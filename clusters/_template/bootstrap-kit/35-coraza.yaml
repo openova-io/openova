@@ -19,14 +19,18 @@
 # is event-driven via the Flux dependsOn graph (downstream HRs check
 # Ready=True on this HR). Per session-2026-04-30 architectural decision,
 # we never use blanket `spec.timeout: Nm` watchdogs.
+#
+# G92.4 #2663 (2026-06-01): the HelmRelease installs INSIDE the DMZ
+# vCluster via Flux v2 spec.kubeConfig.secretRef → vc-dmz (kubeconfig
+# Secret exported by bp-dmz-vcluster slot 54). Per docs/SOVEREIGN-MULTI-
+# REGION-DOD.md §A4 north-south WAF lives in DMZ alongside Cilium-
+# Gateway listeners + HTTPRoutes so the L7 evaluation hook stays
+# co-located with the inbound traffic surface (no host hop). The chart
+# ships no CNPG Cluster CR + no external state, so the move is a clean
+# pivot — the HR CR itself lives in host ns `dmz` so helm-controller
+# resolves the kubeConfig Secret from the same namespace (Flux v2
+# SecretReference contract).
 
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: coraza
-  labels:
-    catalyst.openova.io/sovereign: SOVEREIGN_FQDN_PLACEHOLDER
 ---
 apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
@@ -44,16 +48,34 @@ apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
   name: bp-coraza
-  namespace: flux-system
+  # G92.4 #2663: HR lives in host ns `dmz` (where bp-dmz-vcluster
+  # exports vc-dmz Secret). helm-controller authenticates against the
+  # vCluster apiserver and installs the chart inside the vCluster.
+  namespace: dmz
   labels:
     catalyst.openova.io/slot: "35"
+    catalyst.openova.io/vcluster: dmz
 spec:
   interval: 15m
   releaseName: coraza
+  # targetNamespace = inner namespace INSIDE the dmz vCluster.
   targetNamespace: coraza
+  # vCluster pivot — helm-controller installs the chart inside dmz
+  # vCluster (Flux v2 HelmRelease v2 contract). G92.4 #2663.
+  kubeConfig:
+    secretRef:
+      name: vc-dmz
+      key: config
   dependsOn:
+    # G92.4 #2663: bp-dmz-vcluster MUST be Ready before this HR tries
+    # to install — vc-dmz Secret doesn't exist until then. Cross-ns
+    # dependsOn requires explicit `namespace:`.
+    - name: bp-dmz-vcluster
+      namespace: flux-system
     - name: bp-cilium
+      namespace: flux-system
     - name: bp-cert-manager
+      namespace: flux-system
   chart:
     spec:
       chart: bp-coraza
@@ -63,6 +85,10 @@ spec:
         name: bp-coraza
         namespace: flux-system
   install:
+    # G92.4 #2663: createNamespace=true so helm-controller provisions
+    # the inner `coraza` namespace inside the dmz vCluster on first
+    # install (no host-side Namespace YAML needed).
+    createNamespace: true
     timeout: 15m
     disableWait: true
     remediation:
