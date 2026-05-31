@@ -132,6 +132,17 @@ slots:
     name: bp-crossplane-claims
     depends_on: [bp-crossplane]
     wave: present
+  - slot: "13b"
+    name: bp-sso-bridge
+    # G91.1 framework (Refs #2652, worker-1 commit 174a0ad3): the
+    # bp-sso-bridge reconciler watches every HR cluster-wide; when an
+    # HR declares `sso.enabled: true` it materialises the matching
+    # Keycloak Client + ExternalSecret + grants the Sovereign operator
+    # the per-app admin role. Needs bp-keycloak (Sovereign realm) +
+    # bp-openbao (KV2 client_secret store) + bp-catalyst-platform
+    # (sovereign-fqdn ConfigMap with `orgEmail` key) all Ready.
+    depends_on: [bp-keycloak, bp-openbao, bp-catalyst-platform]
+    wave: present
 
   # ---- Tier 5: storage + DB (W2.K1, slots 15-19) ----------------------------
   - slot: 15

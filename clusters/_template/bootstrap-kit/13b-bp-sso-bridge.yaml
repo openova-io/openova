@@ -1,0 +1,78 @@
+# bp-sso-bridge — Catalyst bootstrap-kit Blueprint #13b
+# (G91.1 framework — Refs #2652).
+#
+# G91.1 (worker-1 commit 174a0ad3) shipped the chart at platform/sso-bridge/
+# but NO bootstrap-kit slot. Result: chart existed but never installed on
+# any Sovereign → every G91 sub-ticket (G91.gitea / G91.harbor / G91.openbao
+# / G91.grafana / G91.sandbox / G91.powerdns-admin / G91.catalyst-console-
+# admin-self-grant) shipped chart values with `sso.enabled: true` but the
+# reconciler that materialises the Keycloak Client + grants the operator
+# admin role was never running. THIS slot installs it.
+#
+# Lead PR (Refs G91 #2646, 2026-06-01): adds the canonical install slot.
+#
+# Reconciled by: Flux on the new Sovereign's k3s control plane, AFTER
+# bp-keycloak (slot 09) reaches Ready (Sovereign realm + admin client),
+# bp-openbao (slot 08) reaches Ready (KV2 secrets store the client_secret),
+# and bp-catalyst-platform (slot 13) reaches Ready (sovereign-fqdn
+# ConfigMap with `orgEmail` key that bp-sso-bridge reads to determine
+# which user gets the per-app admin grant).
+#
+# Wrapper chart: platform/sso-bridge/chart/
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sso-bridge
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-sso-bridge
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-sso-bridge
+  namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "13b"
+spec:
+  interval: 15m
+  releaseName: sso-bridge
+  targetNamespace: sso-bridge
+  dependsOn:
+    - name: bp-keycloak
+    - name: bp-openbao
+    - name: bp-catalyst-platform
+  chart:
+    spec:
+      chart: bp-sso-bridge
+      # 0.1.1 (G91-fu, Refs #2659, edc55c08 PR #2676): adds realm-role
+      # grant + skipClientUpsert opt-out for charts whose Keycloak Client
+      # is realm-imported at bp-keycloak install time (catalyst-ui etc.).
+      version: 0.1.1
+      sourceRef:
+        kind: HelmRepository
+        name: bp-sso-bridge
+        namespace: flux-system
+  install:
+    timeout: 5m
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    timeout: 5m
+    disableWait: true
+    remediation:
+      retries: 3
