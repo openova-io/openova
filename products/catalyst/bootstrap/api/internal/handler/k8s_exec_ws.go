@@ -114,7 +114,16 @@ func (h *Handler) HandleK8sExecWebSocket(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	stream, err := factory(r.Context(), ns, pod, container, cmd)
+	// G95.1 (Refs #2642) — thread the resolved cluster ID through the
+	// request context so the ExecStreamFactory closure can resolve the
+	// matching rest.Config via k8scache.Factory.RestConfigFor. Without
+	// this, the closure would either need a separate path-param parse
+	// (duplicating chi-param logic + breaking the resolveChrootClusterID
+	// alias) or accept the cluster id as a positional argument (which
+	// changes every test-side fake factory). Context-threaded ID keeps
+	// the factory signature stable for tests + production.
+	ctx := contextWithExecClusterID(r.Context(), sovereignID)
+	stream, err := factory(ctx, ns, pod, container, cmd)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("exec stream: %v", err), http.StatusBadGateway)
 		return
@@ -128,7 +137,30 @@ func (h *Handler) HandleK8sExecWebSocket(w http.ResponseWriter, r *http.Request)
 	}
 	defer conn.Close()
 
-	pumpExecStream(r.Context(), conn, stream, h.log)
+	pumpExecStream(ctx, conn, stream, h.log)
+}
+
+// execClusterIDKey is the unexported context key under which
+// HandleK8sExecWebSocket stamps the resolved cluster ID. Production
+// main.go's exec_stream_wire.go reads via ClusterIDFromExecContext.
+//
+// G95.1 (Refs #2642).
+type execClusterIDKey struct{}
+
+func contextWithExecClusterID(ctx context.Context, clusterID string) context.Context {
+	return context.WithValue(ctx, execClusterIDKey{}, clusterID)
+}
+
+// ClusterIDFromExecContext returns the cluster ID stamped on an exec
+// request's context by HandleK8sExecWebSocket. Empty string when not
+// stamped (the test-fake-factory path).
+//
+// G95.1 (Refs #2642).
+func ClusterIDFromExecContext(ctx context.Context) string {
+	if v, ok := ctx.Value(execClusterIDKey{}).(string); ok {
+		return v
+	}
+	return ""
 }
 
 // pumpExecStream is the bidirectional pump between the WebSocket and

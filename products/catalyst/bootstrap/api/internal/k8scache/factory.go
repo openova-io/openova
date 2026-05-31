@@ -260,6 +260,18 @@ type clusterState struct {
 	factory dynamicinformer.DynamicSharedInformerFactory
 	dyn     dynamic.Interface
 	core    kubernetes.Interface
+	// G95.1 (Refs #2642) — the *rest.Config parsed from this cluster's
+	// kubeconfig. Stored so the handler layer can build a SPDY
+	// executor against the apiserver's `pods/exec` subresource via
+	// remotecommand.NewSPDYExecutor. Without this, the
+	// /api/v1/sovereigns/{id}/k8s/exec/... WebSocket handler had no
+	// way to dial the apiserver — every call to ExecStreamFactory
+	// returned nil → handler returned 503 → browser saw an empty
+	// terminal (the "WebSocket opens but renders empty" symptom
+	// founder reported). Nil when the cluster was registered with a
+	// pre-built DynamicClient (the test path); production
+	// kubeconfig-loaded clusters populate it.
+	restCfg *rest.Config
 	informers     map[string]cache.SharedIndexInformer // keyed by Kind.Name
 	indexers      map[string]cache.Indexer             // keyed by Kind.Name
 	synced        map[string]bool                      // keyed by Kind.Name
@@ -485,6 +497,11 @@ func (f *Factory) AddCluster(c ClusterRef) error {
 
 	dyn := c.DynamicClient
 	core := c.CoreClient
+	// G95.1 (Refs #2642) — capture the *rest.Config for this cluster
+	// so the handler layer (k8s_exec_ws.go) can build a SPDY executor
+	// against the apiserver's pods/exec subresource. Nil on the
+	// pre-built-DynamicClient test path.
+	var restCfg *rest.Config
 	if dyn == nil {
 		if c.KubeconfigPath == "" {
 			return errors.New("k8scache: ClusterRef requires either DynamicClient or KubeconfigPath")
@@ -493,7 +510,7 @@ func (f *Factory) AddCluster(c ClusterRef) error {
 		if err != nil {
 			return fmt.Errorf("read kubeconfig %q: %w", c.KubeconfigPath, err)
 		}
-		restCfg, err := clientcmd.RESTConfigFromKubeConfig(raw)
+		restCfg, err = clientcmd.RESTConfigFromKubeConfig(raw)
 		if err != nil {
 			return fmt.Errorf("parse kubeconfig %q: %w", c.KubeconfigPath, err)
 		}
@@ -533,6 +550,7 @@ func (f *Factory) AddCluster(c ClusterRef) error {
 		id:          c.ID,
 		dyn:         dyn,
 		core:        core,
+		restCfg:     restCfg, // G95.1 (Refs #2642) — nil on pre-built-client test path; production kubeconfig path populates it for exec-stream SPDY dials.
 		factory:     dynamicinformer.NewDynamicSharedInformerFactory(dyn, f.cfg.Resync),
 		informers:   map[string]cache.SharedIndexInformer{},
 		indexers:    map[string]cache.Indexer{},
@@ -902,6 +920,34 @@ func (f *Factory) CoreClient(clusterID string) kubernetes.Interface {
 		return nil
 	}
 	return cs.core
+}
+
+// RestConfigFor returns the *rest.Config for a registered Sovereign
+// cluster, or an error when no such cluster is registered (or when
+// the cluster was injected with a pre-built dynamic.Interface and
+// therefore has no captured rest.Config — the test-only path).
+//
+// G95.1 (Refs #2642) — used by k8s_exec_ws.go's ExecStreamFactory to
+// build a remotecommand.NewSPDYExecutor against the apiserver's
+// `pods/exec` subresource. Without this accessor the handler had no
+// way to dial the apiserver; the factory was never wired in
+// production main.go → ExecStreamFactory always returned nil → every
+// exec WebSocket returned 503 → browser saw an empty terminal (the
+// symptom founder reported on #2642).
+//
+// Lifecycle parity with CoreClient + DynamicClientFor: same map, same
+// lock, no new per-cluster pool.
+func (f *Factory) RestConfigFor(clusterID string) (*rest.Config, error) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	cs, ok := f.clusters[clusterID]
+	if !ok {
+		return nil, fmt.Errorf("k8scache: cluster %q not registered", clusterID)
+	}
+	if cs.restCfg == nil {
+		return nil, fmt.Errorf("k8scache: cluster %q has no captured rest.Config (registered with pre-built DynamicClient)", clusterID)
+	}
+	return cs.restCfg, nil
 }
 
 // DynamicClientFor returns the dynamic.Interface for a registered
