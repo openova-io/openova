@@ -3,14 +3,18 @@
 # Wrapper chart: platform/openbao/chart/
 # Catalyst-curated values: platform/openbao/chart/values.yaml
 # Reconciled by: Flux on the new Sovereign's k3s control plane.
+#
+# G92.2 #2661 (2026-06-01): the HelmRelease installs INSIDE the MGMT
+# vCluster via Flux v2 spec.kubeConfig.secretRef → vc-mgmt (kubeconfig
+# Secret exported by bp-mgmt-vcluster slot 58). Per docs/SOVEREIGN-
+# MULTI-REGION-DOD.md §A4 the secret backend lives in MGMT so it's
+# co-located with catalyst-api / sme-services. The HR CR itself lives
+# in host ns `mgmt` so helm-controller resolves the kubeConfig Secret
+# from the same namespace (Flux v2 SecretReference contract). The
+# bp-cnpg-backed audit/storage adjuncts continue to use the host's
+# CNPG-operator-reconciled Service via cross-vCluster DNS (vCluster
+# CoreDNS forwards unknown queries to host kube-dns).
 
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: openbao
-  labels:
-    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
 ---
 apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
@@ -28,20 +32,37 @@ apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
   name: bp-openbao
-  namespace: flux-system
+  # G92.2 #2661: HR lives in host ns `mgmt` (where bp-mgmt-vcluster
+  # exports vc-mgmt Secret). helm-controller authenticates against the
+  # vCluster apiserver and installs the chart inside the vCluster.
+  namespace: mgmt
   labels:
     catalyst.openova.io/slot: "08"
+    catalyst.openova.io/vcluster: mgmt
 spec:
   interval: 15m
   releaseName: openbao
+  # targetNamespace = inner namespace INSIDE the mgmt vCluster.
   targetNamespace: openbao
+  # vCluster pivot — helm-controller installs the chart inside mgmt
+  # vCluster (Flux v2 HelmRelease v2 contract). G92.2 #2661.
+  kubeConfig:
+    secretRef:
+      name: vc-mgmt
+      key: config
   dependsOn:
+    # G92.2 #2661: bp-mgmt-vcluster MUST be Ready before this HR tries
+    # to install — vc-mgmt Secret doesn't exist until then. Cross-ns
+    # dependsOn requires explicit `namespace:`.
+    - name: bp-mgmt-vcluster
+      namespace: flux-system
     # bp-gateway-api (issue #503): chart ships an HTTPRoute template at
     # platform/openbao/chart/templates/httproute.yaml; the
     # gateway.networking.k8s.io/v1 CRDs MUST be registered before this
     # HelmRelease applies or install fails with `no matches for kind
-    # HTTPRoute`.
+    # HTTPRoute`. G92.2: bp-gateway-api lives on host (flux-system).
     - name: bp-gateway-api
+      namespace: flux-system
     # bp-cnpg (issue #512): the OpenBao 3-node Raft post-install init Job
     # (Helm hook weight 5) runs `bao operator init` and seals/unseals via
     # Kubernetes auth; both paths require the cnpg PostgreSQL backing the
@@ -50,7 +71,10 @@ spec:
     # otech16 (2026-05-02): even with timeout=15m, the hook raced cnpg
     # coming up. Adding the explicit dep makes Flux wait for bp-cnpg
     # Ready=True before starting bp-openbao install. See issue #512.
+    # G92.2: bp-cnpg stays host-substrate (G92.6 #2665) so the dep is
+    # cross-ns (flux-system).
     - name: bp-cnpg
+      namespace: flux-system
   chart:
     spec:
       chart: bp-openbao
@@ -67,6 +91,10 @@ spec:
   # initialised — the init hook drives that out-of-band). Replaces
   # PR #221 spec.timeout: 15m.
   install:
+    # G92.2 #2661: createNamespace=true so helm-controller provisions
+    # the inner `openbao` namespace inside the mgmt vCluster on first
+    # install.
+    createNamespace: true
     disableWait: true
     timeout: 15m
     remediation:

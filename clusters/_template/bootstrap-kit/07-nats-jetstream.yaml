@@ -3,14 +3,17 @@
 # Wrapper chart: platform/nats-jetstream/chart/
 # Catalyst-curated values: platform/nats-jetstream/chart/values.yaml
 # Reconciled by: Flux on the new Sovereign's k3s control plane.
+#
+# G92.2 #2661 (2026-06-01): the HelmRelease installs INSIDE the MGMT
+# vCluster via Flux v2 spec.kubeConfig.secretRef → vc-mgmt (kubeconfig
+# Secret exported by bp-mgmt-vcluster slot 58). Per docs/SOVEREIGN-
+# MULTI-REGION-DOD.md §A4 the control-plane event bus lives in MGMT
+# so it's co-located with catalyst-api / openova-flow-server / sme-
+# services — all consumers reach NATS via in-vCluster DNS without
+# touching the host. The HR CR itself lives in host ns `mgmt` so
+# helm-controller resolves the kubeConfig Secret from the same
+# namespace (Flux v2 SecretReference contract).
 
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: nats-system
-  labels:
-    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
 ---
 apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
@@ -28,17 +31,39 @@ apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
   name: bp-nats-jetstream
-  namespace: flux-system
+  # G92.2 #2661: HR lives in host ns `mgmt` (where bp-mgmt-vcluster
+  # exports vc-mgmt Secret). helm-controller authenticates against the
+  # vCluster apiserver and installs the chart inside the vCluster.
+  # The inner namespace `nats-system` is created INSIDE the vCluster
+  # via spec.install.createNamespace below.
+  namespace: mgmt
   labels:
     catalyst.openova.io/slot: "07"
+    catalyst.openova.io/vcluster: mgmt
 spec:
   interval: 15m
   releaseName: nats-jetstream
+  # targetNamespace = the inner namespace INSIDE the mgmt vCluster.
+  # The vCluster syncer maps it back to host as
+  # `<inner>-x-nats-system-x-mgmt` — the Catalyst-side consumers stay
+  # inside the vCluster and resolve `nats-jetstream.nats-system.svc.
+  # cluster.local` natively via vCluster CoreDNS.
   targetNamespace: nats-system
-  # No dependsOn: bp-spire was dropped (PR #665, founder direction
-  # 2026-05-03 — Cilium WireGuard mesh handles east-west mTLS).
-  # NATS no longer needs SVID-based auth; the kernel-level WireGuard
-  # encryption between every pod covers the in-flight traffic.
+  # vCluster pivot — helm-controller pulls the kubeconfig from the
+  # vc-mgmt Secret in this HR's own namespace and installs the chart
+  # INSIDE the mgmt vCluster (Flux v2 HelmRelease v2 contract).
+  # G92.2 #2661.
+  kubeConfig:
+    secretRef:
+      name: vc-mgmt
+      key: config
+  # G92.2: bp-mgmt-vcluster (slot 58) MUST be Ready before this HR
+  # tries to install — otherwise vc-mgmt doesn't exist and the
+  # kubeConfig lookup fails. bp-mgmt-vcluster lives in flux-system so
+  # the dep is cross-namespace and needs an explicit `namespace:`.
+  dependsOn:
+    - name: bp-mgmt-vcluster
+      namespace: flux-system
   chart:
     spec:
       chart: bp-nats-jetstream
@@ -52,6 +77,11 @@ spec:
   # cold start. Helm install completes when manifests apply; downstream
   # dependsOn checks Ready=True independently. Replaces PR #221 timeout.
   install:
+    # G92.2 #2661: createNamespace=true so helm-controller provisions
+    # the inner `nats-system` namespace inside the mgmt vCluster on
+    # first install (no host-side Namespace YAML needed — the inner
+    # namespace is the vCluster's view).
+    createNamespace: true
     timeout: 15m
     disableWait: true
     remediation:
