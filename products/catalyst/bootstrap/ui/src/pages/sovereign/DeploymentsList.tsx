@@ -31,7 +31,7 @@
  * terminated deployments (issue #689 reuses the same surface).
  */
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { useSession } from '@/shared/lib/useSession'
@@ -153,6 +153,22 @@ export function DeploymentsList() {
     }
   }
 
+  // Refs #2544 (founder bug 2026-05-27): operator session times out
+  // (default 4h per auth/session.go ClearSessionCookie path) → stale
+  // tab returns to "You must sign in" placeholder text + manual click.
+  // Auto-redirect to OIDC sign-in flow when session expires while page
+  // is mounted, preserving the deployments-list path as return target.
+  // The OIDC roundtrip is invisible to the operator (Keycloak still
+  // remembers them as a known user even though catalyst-api dropped
+  // its cookie).
+  useEffect(() => {
+    if (session.loading) return
+    if (!session.signedIn) {
+      const returnTo = encodeURIComponent(window.location.pathname + window.location.search)
+      window.location.replace(`/oauth/initiate?return_to=${returnTo}`)
+    }
+  }, [session.loading, session.signedIn])
+
   if (session.loading || loading) {
     return (
       <div data-testid="deployments-list-loading" style={{ padding: 24 }}>
@@ -162,11 +178,16 @@ export function DeploymentsList() {
   }
 
   if (!session.signedIn) {
+    // useEffect above triggers OIDC redirect; this placeholder renders
+    // for the single tick before navigation fires. Per Principle 9 the
+    // text stays as defense-in-depth — if the redirect URL ever
+    // returns a 404 (handler off), the operator still has a click path.
     return (
       <div data-testid="deployments-list-anon" style={{ padding: 24 }}>
         <h1>Your deployments</h1>
         <p>
-          You must <Link to="/login">sign in</Link> to view your deployments.
+          Session expired — refreshing sign-in…{' '}
+          <Link to="/login">click to sign in manually</Link> if the redirect doesn&rsquo;t happen.
         </p>
       </div>
     )
