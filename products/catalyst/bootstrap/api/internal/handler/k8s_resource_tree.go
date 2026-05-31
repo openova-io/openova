@@ -62,7 +62,14 @@ type resourceTreeNode struct {
 	// render `N/A` instead of defaulting to `Pending` when Ready is
 	// false. Omitted from JSON when true (the common case) so existing
 	// clients are unaffected.
-	ReadinessApplicable bool               `json:"readinessApplicable,omitempty"`
+	// G80 #2627: `passive: true` marks kinds with no Ready concept
+	// (Secret/ConfigMap/PolicyReport/Endpoints/etc.) so the UI renders
+	// `N/A` instead of `Pending`. Inverted from the natural
+	// "applicable" framing because `bool + json:omitempty` strips the
+	// false case — the OMITTED side must be the common one (non-passive
+	// workload kinds). When omitted, the UI treats the kind as
+	// readiness-applicable (default behavior).
+	Passive bool `json:"passive,omitempty"`
 	Owners              []resourceTreeNode `json:"owners,omitempty"`
 	Children            []resourceTreeNode `json:"children,omitempty"`
 }
@@ -99,9 +106,9 @@ var passiveKindNames = map[string]struct{}{
 	"persistentvolumeclaim": {},
 }
 
-func kindHasReadiness(name string) bool {
+func isPassiveKind(name string) bool {
 	_, isPassive := passiveKindNames[strings.ToLower(name)]
-	return !isPassive
+	return isPassive
 }
 
 // HandleK8sResourceTree — GET
@@ -252,7 +259,7 @@ func (h *Handler) buildResourceTreeNode(
 // of common spots so the UI doesn't have to peek into every CR shape.
 func resourceTreeNodeFor(kind k8scache.Kind, obj *unstructured.Unstructured) resourceTreeNode {
 	if obj == nil {
-		return resourceTreeNode{Kind: kind.Name, ReadinessApplicable: kindHasReadiness(kind.Name)}
+		return resourceTreeNode{Kind: kind.Name, Passive: isPassiveKind(kind.Name)}
 	}
 	apiGroup := kind.GVR.Group
 	node := resourceTreeNode{
@@ -261,7 +268,7 @@ func resourceTreeNodeFor(kind k8scache.Kind, obj *unstructured.Unstructured) res
 		Ns:                  obj.GetNamespace(),
 		Name:                obj.GetName(),
 		UID:                 string(obj.GetUID()),
-		ReadinessApplicable: kindHasReadiness(kind.Name),
+		Passive: isPassiveKind(kind.Name),
 	}
 	if phase, ok, _ := unstructured.NestedString(obj.Object, "status", "phase"); ok {
 		node.Phase = phase

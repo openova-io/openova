@@ -41,16 +41,16 @@ function statusBadge(node: ResourceTreeNode): string {
   if (node.ready) return 'Ready'
   if (node.phase) return node.phase
   // G80 #2627: passive K8s kinds (Secret/ConfigMap/PolicyReport/etc.)
-  // have no Ready concept. Backend marks them readinessApplicable=false;
-  // treat undefined as true for compat with older API responses.
-  if (node.readinessApplicable === false) return 'N/A'
+  // have no Ready concept. Backend marks them passive=true; render N/A
+  // instead of Pending.
+  if (node.passive === true) return 'N/A'
   return 'Pending'
 }
 
 function statusColorClass(node: ResourceTreeNode): string {
   if (node.ready) return 'text-emerald-300'
   if (node.phase === 'Failed' || node.phase === 'Error') return 'text-rose-300'
-  if (node.readinessApplicable === false) return 'text-[var(--color-text-dim)]'
+  if (node.passive === true) return 'text-[var(--color-text-dim)]'
   return 'text-amber-300'
 }
 

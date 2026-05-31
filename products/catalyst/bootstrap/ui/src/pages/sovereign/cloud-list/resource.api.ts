@@ -188,13 +188,14 @@ export interface ResourceTreeNode {
   phase?: string
   ready: boolean
   /**
-   * G80 #2627: false when the K8s kind has no `Ready` condition
-   * concept (Secret/ConfigMap/PolicyReport/Endpoints/ServiceAccount/
-   * Role/etc.). UI renders `N/A` instead of defaulting to `Pending`.
-   * Backend omits when true (default). Treat undefined as true to
-   * preserve compatibility with older API responses.
+   * G80 #2627: true when the K8s kind has no `Ready` condition concept
+   * (Secret/ConfigMap/PolicyReport/Endpoints/ServiceAccount/Role/etc.).
+   * UI renders `N/A` instead of defaulting to `Pending`. Backend omits
+   * when false (the common case — workload kinds with real readiness
+   * semantics). Inverted from the natural "applicable" framing because
+   * Go's `bool+omitempty` strips the false case.
    */
-  readinessApplicable?: boolean
+  passive?: boolean
   owners?: ResourceTreeNode[]
   children?: ResourceTreeNode[]
 }
