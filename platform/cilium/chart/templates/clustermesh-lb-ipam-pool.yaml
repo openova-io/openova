@@ -1,0 +1,65 @@
+{{/*
+G99 (Refs #2648) — Cilium LoadBalancer IPAM pool for clustermesh-apiserver.
+
+ROOT CAUSE this template fixes:
+  HCS (Huawei Cloud) provider has no cloud CCM. Services with
+  type=LoadBalancer stay Pending forever on HCS Sovereigns — no
+  controller exists to allocate an ExternalIP. The G3 workaround
+  (#2534) flipped CLUSTERMESH_SERVICE_TYPE to NodePort 31333, which
+  violates DoD §A3 ("ClusterMesh apiserver Service = LoadBalancer
+  NEVER NodePort"). Hetzner Sovereigns are unaffected — hcloud-ccm
+  allocates a real LB per peer region.
+
+CANONICAL FIX:
+  Cilium itself can act as a LoadBalancer controller via the
+  CiliumLoadBalancerIPPool CR (GA in Cilium 1.16+). When enabled,
+  Cilium watches Services type=LoadBalancer and assigns an ExternalIP
+  from this pool, with no cloud CCM dependency. For inter-region
+  clustermesh-apiserver peering on HCS, the pool = the local CP node's
+  public IPv4 (already provisioned by tofu; reachable by the remote
+  peer over the public WG-encrypted path).
+
+  L2Announcement is NOT required for clustermesh-apiserver because the
+  remote peer dials a KNOWN IP from the `cilium clustermesh connect`
+  runbook output — there's no ARP-probe path. BGP is NOT required
+  because HCS has no in-region BGP peer.
+
+OPERATOR GATE:
+  Enabled per-provider via the HelmRelease overlay substitute
+  CILIUM_LB_IPAM_ENABLED (true on HCS, unset on Hetzner). Per
+  docs/INVIOLABLE-PRINCIPLES.md #4 the chart never auto-enables.
+
+VERIFICATION (post-fresh-prov on HCS multi-region):
+  kubectl -n kube-system get svc clustermesh-apiserver \
+    -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+  # → should equal the CP node's public IPv4, NOT empty
+  cilium clustermesh status --context <local>
+  # → 2/2 remote clusters Ready (3-region prov: each peer sees 2 others)
+*/}}
+{{- if .Values.cilium.clustermesh.apiserver.service.lbIpam }}
+{{- if .Values.cilium.clustermesh.apiserver.service.lbIpam.enabled }}
+apiVersion: cilium.io/v2alpha1
+kind: CiliumLoadBalancerIPPool
+metadata:
+  name: clustermesh-apiserver
+  labels:
+    app.kubernetes.io/name: bp-cilium
+    app.kubernetes.io/component: clustermesh-lb-ipam
+    catalyst.openova.io/blueprint: bp-cilium
+    catalyst.openova.io/blueprint-version: {{ .Chart.Version | quote }}
+spec:
+  # Per-region CIDR list, set by the per-provider cloudinit substitute
+  # CILIUM_LB_IPAM_CIDRS. For HCS: this region's CP-node public IPv4/32.
+  # For Hetzner: leave lbIpam.enabled=false; hcloud-ccm handles LB.
+  blocks:
+    {{- range .Values.cilium.clustermesh.apiserver.service.lbIpam.cidrs }}
+    - cidr: {{ . | quote }}
+    {{- end }}
+  serviceSelector:
+    matchLabels:
+      # Match the upstream Cilium chart's clustermesh-apiserver Service.
+      # Verified against cilium/cilium-chart helm template — Service is
+      # labeled k8s-app=clustermesh-apiserver in kube-system namespace.
+      k8s-app: clustermesh-apiserver
+{{- end }}
+{{- end }}

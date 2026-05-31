@@ -1,5 +1,19 @@
 apiVersion: v2
 name: bp-cilium
+# 1.3.6 (G99 Refs #2648, 2026-06-01): NEW template clustermesh-lb-ipam-
+# pool.yaml renders a CiliumLoadBalancerIPPool CR when
+# clustermesh.apiserver.service.lbIpam.enabled=true. Lets Cilium itself
+# allocate ExternalIP for the clustermesh-apiserver Service on providers
+# with no cloud CCM (HCS today; bare-metal Sovereigns in future). Pool
+# = per-region CP-node public IPv4/32 (operator-supplied via per-Sovereign
+# overlay or per-provider cloudinit). Restores DoD §A3 compliance on HCS:
+# ClusterMesh apiserver Service = LoadBalancer (NEVER NodePort). Replaces
+# the G3 (#2534) NodePort 31333 workaround. Verification gate: cilium
+# clustermesh status shows N-1/N-1 remote clusters Ready on every peer
+# post-fresh-prov. Lockstep: HCS provider cloudinit must set
+# CILIUM_LB_IPAM_ENABLED=true + CILIUM_LB_IPAM_CIDRS=<cp-pub-ip>/32 AND
+# rip out CLUSTERMESH_SERVICE_TYPE=NodePort + CLUSTERMESH_NODE_PORT=31333
+# in same merge wave. bootstrap-kit 01-cilium.yaml adds the substitute.
 # 1.3.4 — prov #55 worker-cilium crashloop fix: flip kubeProxyReplacement
 # false → true. Caught on 3-region prov 8d85a64cb8807cdc 2026-05-12: every
 # worker node that joined AFTER the Flux helm-upgrade saw the rendered
@@ -32,7 +46,7 @@ name: bp-cilium
 # + socketLB.hostNamespaceOnly=true defaults so fresh worker pods can
 # resolve DNS reliably on first-join (cilium/cilium#28456 mitigation).
 # Backward-compat: per-Sovereign overlays MAY override either knob.
-version: 1.3.5
+version: 1.3.6
 description: |
   Catalyst-curated Blueprint umbrella chart for Cilium. Depends on the
   upstream `cilium` chart as a Helm subchart so `helm dependency build`

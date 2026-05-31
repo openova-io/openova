@@ -492,19 +492,22 @@ write_files:
             # ternary flips the substitute to "true" only when the CP
             # is NOT the primary.
             SECONDARY_HR_SUSPEND: "${sovereign_region_role == "primary" ? "false" : "true"}"
-            # G3 (Refs #2534, 2026-05-29): clustermesh-apiserver Service
-            # cannot be type=LoadBalancer on HCS — there is no in-cluster
-            # cloud-controller-manager that materialises a Service-level
-            # LB (the tofu-provisioned ELB at infra/providers/huawei/
-            # main.tf serves only the public Cilium Gateway 443/80).
-            # Per docs/SOVEREIGN-MULTI-REGION-DOD.md A3 ruling adapted
-            # for HCS: peers dial the CP node's EIP on the deterministic
-            # NodePort 31333. HCS security group ingress for tcp/31333
-            # on CP nodes is added in main.tf (G3 follow-on).
-            # Hetzner keeps type=LoadBalancer (its substitute defaults
-            # to LoadBalancer + empty NodePort number).
-            CLUSTERMESH_SERVICE_TYPE: "NodePort"
-            CLUSTERMESH_NODE_PORT: "31333"
+            # G99 (Refs #2648, 2026-06-01): RESTORE A3 compliance on HCS.
+            # The G3 NodePort 31333 workaround violated DoD §A3 (ClusterMesh
+            # apiserver Service = LoadBalancer NEVER NodePort). Real fix:
+            # bp-cilium 1.3.6's new CiliumLoadBalancerIPPool template lets
+            # Cilium itself assign ExternalIP for type=LoadBalancer Services
+            # without a cloud CCM. Pool = this region's CP-node EIP/32; the
+            # remote peer dials this stable IP from `cilium clustermesh
+            # connect` runbook output. WireGuard node-encryption secures
+            # the LB→node→pod path end-to-end.
+            #
+            # CLUSTERMESH_SERVICE_TYPE unset here → bootstrap-kit envsubst
+            # default ${CLUSTERMESH_SERVICE_TYPE:=LoadBalancer} applies.
+            # CLUSTERMESH_NODE_PORT unset → empty (NodePort field unused
+            # when type=LoadBalancer).
+            CILIUM_LB_IPAM_ENABLED: "true"
+            CILIUM_LB_IPAM_CIDRS: "${my_region_eip}/32"
             # G28 (Refs #2570, 2026-05-29): Gateway listener ports on
             # HCS bind cilium-envoy to NodePort range 30000-32767. The
             # tofu-provisioned HCS ELB (main.tf) maps public ingress

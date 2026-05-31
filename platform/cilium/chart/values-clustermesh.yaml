@@ -52,6 +52,18 @@ cilium:
         # non-cloud / bare-metal Sovereigns flip this to NodePort in
         # their per-Sovereign overlay.
         type: LoadBalancer
+        # G99 (Refs #2648, 2026-06-01) — Cilium LB IPAM for HCS.
+        # HCS has no cloud CCM → type=LoadBalancer stays Pending
+        # forever without an in-cluster LB controller. When enabled,
+        # templates/clustermesh-lb-ipam-pool.yaml renders a
+        # CiliumLoadBalancerIPPool CR; Cilium itself assigns an
+        # ExternalIP from the configured pool. HCS provider cloudinit
+        # sets CILIUM_LB_IPAM_ENABLED=true + CILIUM_LB_IPAM_CIDRS=
+        # <this-region-cp-public-ipv4>/32 (per-region CP node IP).
+        # Hetzner leaves these unset (hcloud-ccm path stays canonical).
+        lbIpam:
+          enabled: false
+          cidrs: []
       tls:
         # Mutual cert auth between Cilium peers — every peer's
         # clustermesh-apiserver verifies the other's cert against the
