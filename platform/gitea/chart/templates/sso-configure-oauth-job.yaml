@@ -1,0 +1,228 @@
+{{- /*
+G91.gitea (#2653) — configure Gitea OAuth source from bp-sso-bridge.
+
+Why this Job instead of upstream gitea.oauth list:
+  The upstream chart's `gitea.oauth` list requires `autoDiscoverUrl` to
+  be a literal string at chart-render time. Embedding the per-Sovereign
+  FQDN there would require every Sovereign to ship a cluster overlay
+  for bp-gitea — operationally painful + couples app charts to
+  Sovereign-FQDN provisioning. By moving the OAuth-source bootstrap
+  here we (a) compute the URL from .Values.sso.sovereignFqdn at chart-
+  template time, (b) wait inside the Job for both the gitea Pod and
+  the ESO-rendered gitea-oauth-source-credentials Secret, (c) idempotently
+  add OR update the auth source.
+
+When this fires:
+  - post-install (creates the source)
+  - post-upgrade (updates if sovereignFqdn changed or secret rotated;
+    update-oauth on an unchanged source is a no-op)
+
+The Job calls into the gitea-0 Pod via `kubectl exec` rather than
+running gitea CLI in its own container so we avoid pinning a gitea
+image version here.
+*/ -}}
+{{- if and .Values.sso.enabled .Values.sso.sovereignFqdn }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-sso-configure
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-gitea
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-sso-configure
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-gitea
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["gitea-oauth-source-credentials"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-sso-configure
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-gitea
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .Release.Name }}-sso-configure
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-sso-configure
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-sso-configure
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-gitea
+    catalyst.openova.io/component: sso-configure
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600
+  activeDeadlineSeconds: 900
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gitea-sso-configure
+        catalyst.openova.io/blueprint: bp-gitea
+        catalyst.openova.io/component: sso-configure
+    spec:
+      serviceAccountName: {{ .Release.Name }}-sso-configure
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: configure
+          image: harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.30.7
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          env:
+            - name: AUTH_NAME
+              value: "openova-sso"
+            - name: AUTO_DISCOVER_URL
+              value: "https://auth.{{ .Values.sso.sovereignFqdn }}/realms/{{ .Values.sso.realm | default "sovereign" }}/.well-known/openid-configuration"
+            - name: OIDC_SCOPES
+              value: "openid profile email {{ .Values.sso.groupClaimName | default "groups" }}"
+            - name: GROUP_CLAIM_NAME
+              value: {{ .Values.sso.groupClaimName | default "groups" | quote }}
+            - name: ADMIN_GROUP
+              value: {{ .Values.sso.adminGroup | default "sovereign-admins" | quote }}
+            - name: RESTRICTED_GROUP
+              value: {{ .Values.sso.restrictedGroup | default "" | quote }}
+            - name: GITEA_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            - name: OAUTH_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: gitea-oauth-source-credentials
+                  key: key
+            - name: OAUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: gitea-oauth-source-credentials
+                  key: secret
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "32Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+
+              echo "[$(date -u +%FT%TZ)] G91.gitea SSO configure starting."
+              echo "  AUTH_NAME=${AUTH_NAME}"
+              echo "  AUTO_DISCOVER_URL=${AUTO_DISCOVER_URL}"
+              echo "  ADMIN_GROUP=${ADMIN_GROUP}"
+              echo "  GITEA_NAMESPACE=${GITEA_NAMESPACE}"
+
+              # Wait for gitea Pod Ready (up to 10 min — first install
+              # races bp-cnpg + ESO + the upstream init container).
+              echo "[$(date -u +%FT%TZ)] waiting for gitea Pod Ready..."
+              for i in $(seq 1 60); do
+                if kubectl get pod gitea-0 -n "${GITEA_NAMESPACE}" >/dev/null 2>&1; then
+                  if kubectl wait --for=condition=Ready pod/gitea-0 \
+                       -n "${GITEA_NAMESPACE}" --timeout=10s >/dev/null 2>&1; then
+                    echo "[$(date -u +%FT%TZ)] gitea-0 is Ready."
+                    break
+                  fi
+                fi
+                echo "  attempt $i/60: gitea-0 not yet Ready; sleeping 10s..."
+                sleep 10
+              done
+
+              if ! kubectl wait --for=condition=Ready pod/gitea-0 \
+                   -n "${GITEA_NAMESPACE}" --timeout=10s >/dev/null 2>&1; then
+                echo "FATAL: gitea-0 did not become Ready within 10 min." >&2
+                exit 1
+              fi
+
+              # Idempotency: check if an OAuth source with this name exists.
+              echo "[$(date -u +%FT%TZ)] checking existing auth sources..."
+              AUTH_LIST="$(kubectl exec -n "${GITEA_NAMESPACE}" gitea-0 -- \
+                gitea admin auth list --vertical-bars 2>&1 || true)"
+              echo "${AUTH_LIST}"
+
+              AUTH_ID="$(echo "${AUTH_LIST}" \
+                | awk -F '|' -v name="${AUTH_NAME}" \
+                  '$2 ~ name && $3 ~ /OAuth2/ {gsub(/ /,"",$1); print $1}' \
+                | head -n1 || true)"
+
+              # Build a common arg list.
+              COMMON_ARGS=(
+                --provider openidConnect
+                --key "${OAUTH_KEY}"
+                --secret "${OAUTH_SECRET}"
+                --auto-discover-url "${AUTO_DISCOVER_URL}"
+                --scopes "${OIDC_SCOPES}"
+                --group-claim-name "${GROUP_CLAIM_NAME}"
+                --admin-group "${ADMIN_GROUP}"
+              )
+              if [ -n "${RESTRICTED_GROUP}" ]; then
+                COMMON_ARGS+=( --restricted-group "${RESTRICTED_GROUP}" )
+              fi
+
+              if [ -z "${AUTH_ID}" ]; then
+                echo "[$(date -u +%FT%TZ)] adding new OAuth source '${AUTH_NAME}'..."
+                kubectl exec -n "${GITEA_NAMESPACE}" gitea-0 -- \
+                  gitea admin auth add-oauth --name "${AUTH_NAME}" "${COMMON_ARGS[@]}"
+              else
+                echo "[$(date -u +%FT%TZ)] updating OAuth source id=${AUTH_ID} ('${AUTH_NAME}')..."
+                kubectl exec -n "${GITEA_NAMESPACE}" gitea-0 -- \
+                  gitea admin auth update-oauth --id "${AUTH_ID}" --name "${AUTH_NAME}" "${COMMON_ARGS[@]}"
+              fi
+
+              echo "[$(date -u +%FT%TZ)] OAuth source configured. Final list:"
+              kubectl exec -n "${GITEA_NAMESPACE}" gitea-0 -- gitea admin auth list
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 16Mi
+{{- end }}

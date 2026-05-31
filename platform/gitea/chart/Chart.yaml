@@ -8,7 +8,28 @@ name: bp-gitea
 # sectionName by default — multi-zone Sovereigns rename HTTPS listeners
 # to https-<sanitised-zone>, breaking NoMatchingListener with the prior
 # pinned sectionName: https. Matches the catalyst-system fix in PR #1888.
-version: 1.2.10
+#
+# 1.2.11 (G91.gitea #2653, 2026-05-31): opt in to the bp-sso-bridge
+# (G91.1 #2652) SSO framework. New top-level `sso:` block (defaults
+# enabled=true). Ships:
+#   - templates/sso-oauth-source-externalsecret.yaml — ExternalSecret
+#     that reads bp-sso-bridge's OpenBao `secret/sso/gitea` bundle and
+#     emits the gitea-oauth-source-credentials Secret with key/secret
+#     keys (upstream gitea chart's existingSecret schema).
+#   - templates/sso-configure-oauth-job.yaml — Helm post-install +
+#     post-upgrade Job that calls `gitea admin auth add-oauth` (or
+#     update-oauth) from the gitea-0 Pod, computing autoDiscoverUrl
+#     from .Values.sso.sovereignFqdn at chart-template time. Idempotent
+#     on chart upgrade.
+#   - gitea.gitea.config.oauth2_client: app.ini global toggles —
+#     ENABLE_AUTO_REGISTRATION, ACCOUNT_LINKING=auto, USERNAME=nickname,
+#     UPDATE_AVATAR=true.
+# Sovereign operator (deployment.OrgEmail; auto-granted by
+# bp-sso-bridge to client's admin role + sovereign-admins group) lands
+# directly in Gitea as a site admin via OIDC. Local `gitea_admin` user
+# remains the break-glass account for bp-self-sovereign-cutover Step 1.
+# Per SECURITY.md §6.3 (App-level SSO).
+version: 1.2.11
 description: |
   Catalyst-curated Blueprint umbrella chart for Gitea. Depends on the
   upstream `gitea` chart (dl.gitea.com) as a Helm subchart so

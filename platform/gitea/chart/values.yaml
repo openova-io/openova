@@ -57,6 +57,24 @@ gitea:
         NAME: gitea
         USER: gitea
         SSL_MODE: disable
+      # G91.gitea (#2653) — global OAuth2-client toggles. Per-provider
+      # config (clientId/secret/autoDiscoverUrl) lives under `gitea.oauth`
+      # below; these are the global app.ini knobs.
+      oauth2_client:
+        ENABLE_AUTO_REGISTRATION: true
+        # Use email + username from claims; never email-only (avoids
+        # collisions when the operator email matches a different person's
+        # local Gitea account).
+        USERNAME: nickname
+        # Avoid email confirmation prompt — the realm enforces
+        # `loginWithEmailAllowed` + email verification at the Keycloak
+        # layer (configmap-sovereign-realm.yaml).
+        REGISTER_EMAIL_CONFIRM: false
+        # Update profile avatar from the IdP on each login.
+        UPDATE_AVATAR: true
+        # Account-link-required-form: redirect users with an existing
+        # local Gitea account to confirm linkage on first OIDC login.
+        ACCOUNT_LINKING: auto
     # Gitea built-in metrics + ServiceMonitor — DEFAULT OFF.
     #
     # Per docs/INVIOLABLE-PRINCIPLES.md #4 and
@@ -83,6 +101,16 @@ gitea:
           secretKeyRef:
             name: gitea-database-secret
             key: password
+    # G91.gitea (#2653) — upstream chart's per-provider OAuth list.
+    # Empty default; bp-gitea ships a Helm post-install hook Job
+    # (templates/sso-configure-oauth-job.yaml) that calls
+    # `gitea admin auth add-oauth` from inside the gitea Pod using the
+    # gitea-oauth-source-credentials Secret. The hook is preferred over
+    # the upstream chart's gitea.oauth path because it lets the chart
+    # compute autoDiscoverUrl from .Values.sso.sovereignFqdn at template
+    # time without requiring a per-Sovereign cluster overlay for every
+    # new app.
+    oauth: []
   # Bitnami postgresql subchart DISABLED — bitnami/* and bitnamilegacy/*
   # images are unavailable via the Harbor proxy_cache (DockerHub returns
   # text/html for these namespaces — image pull fails with "unexpected media
@@ -170,3 +198,49 @@ gateway:
     # pinning sectionName: https breaks NoMatchingListener. Cilium Gateway
     # matches by hostname filter. See PR #1888 / TBD-A40 / issue #1902.
     sectionName: ""
+
+# ─── G91.gitea (#2653) SSO opt-in ─────────────────────────────────────────
+# Per SECURITY.md §6.3 every Application Blueprint declares SSO support
+# with a single value. bp-sso-bridge (G91.1 #2652) watches every HR with
+# `sso.enabled: true` and reconciles a Keycloak Client + OpenBao
+# `secret/sso/<clientId>` + ExternalSecret in this namespace.
+#
+# bp-gitea opts in by default — Sovereign-operator SSO is mandatory; per-
+# user logins flow through the Sovereign realm only. The local Gitea admin
+# (`gitea_admin`) still exists as a break-glass account for cutover step 1.
+sso:
+  enabled: true
+  # Keycloak realm. Defaults to the shared-sovereign realm shipped by
+  # platform/keycloak/chart/templates/configmap-sovereign-realm.yaml.
+  realm: sovereign
+  # Sovereign FQDN — used to compute issuer / auto-discover URL.
+  # Per-Sovereign cluster overlay sets this (e.g. `hw86.omani.works`).
+  # Empty default leaves autoDiscoverUrl unrendered; the upstream chart's
+  # `gitea.oauth` list still emits but Gitea's init container exits with
+  # a clear "missing required flag --auto-discover-url" message rather
+  # than installing a half-configured auth source.
+  sovereignFqdn: ""
+  # OIDC client ID — defaults to "gitea" (matches bp-sso-bridge convention
+  # of stripping "bp-" from the HR name).
+  clientId: gitea
+  # ESO ClusterSecretStore that mirrors OpenBao `secret/sso/<clientId>`
+  # into the gitea-oauth-source-credentials Secret in this namespace.
+  # Default matches bp-external-secrets-stores values.yaml
+  # `clusterSecretStore.name`.
+  externalSecretStoreName: vault-region1
+  # Refresh interval for the rendered Secret. Per-app key rotation cadence
+  # is controlled at the OpenBao policy layer (SECURITY.md §7); shorter
+  # intervals here just amplify Pod restart churn.
+  refreshInterval: 1h
+  # Auto-register Keycloak users as Gitea local users on first OIDC login.
+  # Per SECURITY.md §6.3 every Org user gets one-click SSO across all Apps
+  # without seeing OAuth config.
+  autoRegisterUsers: true
+  # Group claim the realm emits (configmap-sovereign-realm.yaml emits
+  # `groups` under the `groups` clientScope).
+  groupClaimName: groups
+  # Realm group → Gitea admin role mapping. The Sovereign operator
+  # (deployment.OrgEmail) is auto-added to `sovereign-admins` by the realm
+  # import; users in this group land as Gitea site admins.
+  adminGroup: sovereign-admins
+  restrictedGroup: ""
