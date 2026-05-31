@@ -1606,3 +1606,17 @@ hw76 + hw77 failed Phase 0 at HCS VPC quota BEFORE zero-touch contract reached (
 | 2026-05-31 04:26Z | POST-MANDATE STANDBY T+4h | n/a | Still pending direction. 11 open issues unchanged. 1h wakeup re-armed. |
 
 | 2026-05-31 04:55Z | POST-MANDATE AUDIT | hw78 5-Pillar + open-issue triage | Pillars 1✓ 2🟡 3🔴 4🟡 5🔴 (G69 NEW BUG #2618: cutover Step 03 'skopeo not available after apk install' on alpine/k8s base → Steps 04-08 NEVER RAN → catalyst-api image still ghcr.io NOT pivoted → no deny-egress test → cutoverComplete UNSET on hw75+hw78). Verifier 81/81 was SUBSTRATE-ONLY; need L7 extension (META-AUDIT 17). 3 pre-existing G##s closed (#2588 G32 / #2590 G34 / #2595 G37 — substrate-validated). Open 11→8. Audit doc: docs/sessions/2026-05-31-post-mandate-audit/hw78-5pillar-gap-analysis.md (63b566e9). |
+
+| G# | Issue | PR/Commit | Subject | Status |
+|---|---|---|---|---|
+| **G69** | #2618 | de376870 | Static skopeo binary download in cutover Step 03 (replaces broken `apk add skopeo` on alpine/k8s base — lework/skopeo-binary v1.15.2 via curl 3-retry + fallback to apk). Lockstep bp-self-sovereign-cutover 0.1.44→0.1.45. **UNBLOCKS Pillar 5** (Steps 04-08 will now run). | shipped |
+| **L7 META-AUDIT 17** | (in same commit) | de376870 | sovereign-dod-verify.sh extended with 5 cutover-completion checks (L7.1-L7.5: cutoverComplete + Step Jobs Complete + harbor-native image + Flux GitRepository local Gitea + deny-egress test). Verifier 81→86 checks. Smoke test on hw78 confirms L7 correctly fails 5/86. | shipped |
+
+**REVISED MANDATE FRAMEWORK** (founder correction acknowledged):
+- substrate-ZT ≠ full-DoD-ZT
+- hw59 + hw75 + hw78 = substrate-ZT (Pillar 1 walked OK)
+- **Full-DoD ZT (Pillar 5 sovereignty + L7 verifier 86/86) NOT YET ACHIEVED on any prov**
+- Going forward only L7-passing provs count
+- Target: 3 consecutive full-DoD ZTs = hw79 + hw80 + hw81 after G69 bake
+
+**Continuous execution mode** (no standby). Founder alerted via chepherd_alert_human kind=failure urgency=high.
