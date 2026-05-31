@@ -1198,6 +1198,24 @@ func FactoryFromEnv(ctx context.Context, log *slog.Logger, core kubernetes.Inter
 		log.Warn("k8scache: kubeconfigs dir unreadable; starting with no clusters",
 			"dir", dir, "err", err)
 	}
+	// G94 (Refs #2641, 2026-06-01) — Startup diagnostic. Founder reports
+	// chroot Pod restarts lose secondary cluster registration on every
+	// roll. PVC persistence + LoadClustersFromDir + AddCluster path is
+	// supposed to auto-recover. This INFO-level enumeration surfaces
+	// what FactoryFromEnv actually saw at boot so live evidence on hw86
+	// can confirm whether (a) files are missing from PVC, (b) files
+	// present but skipped by filter, or (c) files present + loaded but
+	// downstream AddCluster fails on apiserver reachability.
+	for _, c := range clusters {
+		log.Info("k8scache: startup — loaded cluster from kubeconfigs dir",
+			"id", c.ID,
+			"path", c.KubeconfigPath,
+		)
+	}
+	log.Info("k8scache: startup — kubeconfigs dir scan complete",
+		"dir", dir,
+		"clusterCount", len(clusters),
+	)
 	// Chroot self-registration: when catalyst-api runs ON a Sovereign
 	// cluster (post-cutover, i.e. SOVEREIGN_FQDN env is set), there is
 	// no posted-back kubeconfig in /var/lib/catalyst/kubeconfigs/ — the
