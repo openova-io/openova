@@ -1,5 +1,11 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.49 (G96 Refs #2643, 2026-06-01): retire Step 06 Phase 1.9
+# (kubectl patch cronjob suspend:true). G75 0.1.48 made Step 01
+# finalize DELETE the gitea-mirror-resync cronjob entirely + patch
+# HR enabled=false in IaC. The Phase 1.9 patch-suspend ran on a
+# non-existent object every Step 06 invocation — dead code per
+# Principle 9 (no defensive backstop for scenarios that can't happen).
 # 0.1.28 (Fix #158, 2026-05-11): values.yaml comment cleanup — chart
 # already migrated off bitnami/kubectl on 0.1.10 (alpine/k8s for kubectl,
 # alpine for chroot-pivot). Comment text now reflects the platform-wide
@@ -357,7 +363,7 @@ name: bp-self-sovereign-cutover
 #
 # RBAC: ClusterRole gains batch.cronjobs {get,list,watch,delete} so
 # Step 01 can DELETE the live resource.
-version: 0.1.48
+version: 0.1.49
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
