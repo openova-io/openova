@@ -1638,3 +1638,6 @@ hw76 + hw77 failed Phase 0 at HCS VPC quota BEFORE zero-touch contract reached (
 | G# | Issue | PR/Commit | Subject | Status |
 |---|---|---|---|---|
 | **G70** | #2619 | filed (post-mandate ship) | catalyst-api Phase 0 watcher tofu-death-detection. Watcher polls ps + tfstate-mtime every 60s; if tofu PID gone AND tfstate stale >5min AND status=provisioning → flip to status=failed-phase0 + emit Event. Saves ~22min per hung prov + unblocks JANITOR cleanup. | filed |
+
+| 08:35Z | hw83 | 78dbf79c4f8e76cc | WIPED (5th HCS Phase 0 hang; workerCount=2 mitigation DID NOT help) | N/A | Same exact tfstate signature as hw80/hw81/hw82 (region-a base resources only, region-b VPC creation never started). Burst-rate hypothesis WRONG — HCS me-east-215-b API broken. |
+| 08:35Z→TBD | hw84 | bf7de50d4b5ca99e | LIVE prov | TBD | **SINGLE-REGION mitigation** (region-a only, region-b dropped). bcpTopology=single-region. workerCount=4. Pillar 2 multi-region DEFERRED until HCS recovery. If succeeds → validates G69+L7 full-DoD cutover-completion on single-region (other 4 Pillars + cutover Steps 01-08 + L7 verifier 86/86 still testable). Single-region prov faster ~30-40min. |
