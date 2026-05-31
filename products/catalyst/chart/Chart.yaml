@@ -2345,7 +2345,7 @@ name: bp-catalyst-platform
 # path uses sibling api-deployment-kustomize.yaml (literal ghcr.io).
 # .helmignore excludes the kustomize sibling from Sovereign bundle.
 # Pairs with bp-self-sovereign-cutover 0.1.40 (Step 07 HR patch).
-version: 1.4.409
+version: 1.4.410
 appVersion: 1.4.349
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
