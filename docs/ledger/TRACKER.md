@@ -1604,3 +1604,5 @@ hw76 + hw77 failed Phase 0 at HCS VPC quota BEFORE zero-touch contract reached (
 | 2026-05-31 03:25Z | POST-MANDATE STANDBY T+3h | n/a | Still pending founder direction. Substrate verified hw75+hw78 still posted as #2526 ZT#2+ZT#3 evidence. 11 open issues unchanged. 1h wakeup re-armed. |
 
 | 2026-05-31 04:26Z | POST-MANDATE STANDBY T+4h | n/a | Still pending direction. 11 open issues unchanged. 1h wakeup re-armed. |
+
+| 2026-05-31 04:55Z | POST-MANDATE AUDIT | hw78 5-Pillar + open-issue triage | Pillars 1✓ 2🟡 3🔴 4🟡 5🔴 (G69 NEW BUG #2618: cutover Step 03 'skopeo not available after apk install' on alpine/k8s base → Steps 04-08 NEVER RAN → catalyst-api image still ghcr.io NOT pivoted → no deny-egress test → cutoverComplete UNSET on hw75+hw78). Verifier 81/81 was SUBSTRATE-ONLY; need L7 extension (META-AUDIT 17). 3 pre-existing G##s closed (#2588 G32 / #2590 G34 / #2595 G37 — substrate-validated). Open 11→8. Audit doc: docs/sessions/2026-05-31-post-mandate-audit/hw78-5pillar-gap-analysis.md (63b566e9). |
