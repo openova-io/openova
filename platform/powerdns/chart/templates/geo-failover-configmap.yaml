@@ -1,0 +1,96 @@
+{{- /*
+G93.4 (Refs #2669) — geo-failover-spec ConfigMap.
+
+Records the operator's per-Application geo-failover intent (hostname +
+primary/replica IP + healthcheck URL) so:
+
+  1. The admin console's Geo-Failover page can render the configured
+     entries WITHOUT calling the PowerDNS API.
+  2. The application-controller (follow-up workstream) can derive entries
+     from Application CR `status.regions[].externalIP` + `spec.hostname`
+     and merge into this ConfigMap declaratively.
+  3. A future zone-bootstrap-job extension consumes this ConfigMap as
+     the source of truth for the LUA-record write loop (current PR
+     ships the data shape only; the API-call loop lands in a follow-up
+     to keep this PR's blast radius minimal).
+
+Render-time defaults: per-record `healthCheck.interval` / `.timeout` fall
+back to chart-level `geoFailover.defaultProbeIntervalSeconds` /
+`defaultProbeTimeoutSeconds` so a minimal operator payload
+(`hostname`, `primaryIP`, `replicaIP`, `healthCheck.url`) is sufficient.
+
+Render-time validation: empty hostname / missing IP / missing healthcheck
+URL fails the template render with a clear actionable error rather than
+landing a half-formed ConfigMap that downstream consumers would silently
+skip.
+
+Skipped entirely when `.Values.geoFailover.enabled=false` OR
+`.Values.geoFailover.records` is empty — zero side effects for the
+single-region case.
+*/}}
+{{- if and .Values.geoFailover.enabled (gt (len (default (list) .Values.geoFailover.records)) 0) }}
+{{- $ttl := default 300 .Values.geoFailover.ttl }}
+{{- $defaultInterval := default 10 .Values.geoFailover.defaultProbeIntervalSeconds }}
+{{- $defaultTimeout := default 2 .Values.geoFailover.defaultProbeTimeoutSeconds }}
+{{- $entries := list }}
+{{- range $i, $rec := .Values.geoFailover.records }}
+  {{- if not $rec.hostname }}
+    {{- fail (printf "geoFailover.records[%d].hostname is required" $i) }}
+  {{- end }}
+  {{- if not $rec.primaryIP }}
+    {{- fail (printf "geoFailover.records[%d].primaryIP is required (hostname=%q)" $i $rec.hostname) }}
+  {{- end }}
+  {{- if not $rec.replicaIP }}
+    {{- fail (printf "geoFailover.records[%d].replicaIP is required (hostname=%q) — single-region failover is not a failover" $i $rec.hostname) }}
+  {{- end }}
+  {{- if not (and $rec.healthCheck $rec.healthCheck.url) }}
+    {{- fail (printf "geoFailover.records[%d].healthCheck.url is required (hostname=%q)" $i $rec.hostname) }}
+  {{- end }}
+  {{- $interval := default $defaultInterval $rec.healthCheck.interval }}
+  {{- $timeout := default $defaultTimeout $rec.healthCheck.timeout }}
+  {{- $entry := dict
+      "hostname" $rec.hostname
+      "primaryIP" $rec.primaryIP
+      "replicaIP" $rec.replicaIP
+      "ttl" (default $ttl $rec.ttl)
+      "healthCheck" (dict
+        "url" $rec.healthCheck.url
+        "interval" $interval
+        "timeout" $timeout
+      )
+  }}
+  {{- $entries = append $entries $entry }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: powerdns-geo-failover-spec
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-powerdns.labels" . | nindent 4 }}
+    catalyst.openova.io/component: geo-failover
+  annotations:
+    catalyst.openova.io/comment: |
+      G93.4 (Refs #2669) — per-Application geo-failover intent.
+      Renders the canonical LUA-record body for each entry so a
+      follow-up zone-bootstrap-job loop can write them via the
+      PowerDNS API without re-rendering. Admin console reads the
+      `entries.json` key to populate the Geo-Failover page.
+data:
+  entries.json: |
+    {{ $entries | toJson }}
+  # Pre-rendered LUA-record bodies, one per entry. The canonical
+  # PowerDNS lua-record shape for active-hotstandby failover:
+  #
+  #   <hostname>.  <ttl>  IN  LUA  A  "ifurlup('<url>', {'<primary>', '<replica>'}, {timeout=<timeout>, interval=<interval>})"
+  #
+  # `ifurlup` probes the URL on the configured interval; returns
+  # primaryIP while the probe passes, falls through to replicaIP
+  # otherwise. Multiple entries in the {{`{...}`}} table act as a
+  # priority list — leftmost is preferred. See:
+  # https://doc.powerdns.com/authoritative/lua-records/functions.html#ifurlup
+  records.txt: |
+    {{- range $entry := $entries }}
+    {{ $entry.hostname }}.  {{ $entry.ttl }}  IN  LUA  A  "ifurlup('{{ $entry.healthCheck.url }}', {'{{ $entry.primaryIP }}', '{{ $entry.replicaIP }}'}, {timeout={{ $entry.healthCheck.timeout }}, interval={{ $entry.healthCheck.interval }}})"
+    {{- end }}
+{{- end }}

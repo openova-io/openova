@@ -491,6 +491,72 @@ crossplane:
 #       role: sme-pool
 zones: []
 
+# ─── Geo-failover lua-records (G93.4, Refs #2669) ────────────────────────
+# Per-Application geo-failover via PowerDNS lua-records (the `ifurlup`
+# pattern). When a multi-region Sovereign installs an Application that
+# wants cross-region failover (Pillar 3 zero-tx-loss for stateless
+# Application HRs), the operator (or the application-controller in a
+# follow-up workstream) declares each entry here:
+#
+#   geoFailover:
+#     records:
+#       - hostname: app.example.com   # FQDN to publish (must be in `zones`)
+#         primaryIP: "10.0.1.10"     # primary region's HTTPRoute backend IP
+#         replicaIP: "10.0.2.10"     # replica region's HTTPRoute backend IP
+#         healthCheck:
+#           url: "https://app.example.com/healthz"
+#           interval: 10              # seconds between probes
+#           timeout: 2                # per-probe timeout
+#
+# The zone-bootstrap Job (Phase 2 of this PR — separate commit) walks
+# this list and writes lua-records of the canonical form:
+#
+#   <hostname>.  300  IN  LUA  A  "ifurlup('<healthcheck>',{'<primaryIP>','<replicaIP>'})"
+#
+# At resolve time PowerDNS's lua-record engine probes the healthcheck
+# URL — when the primary returns 2xx, replies with primaryIP; when it
+# returns non-2xx or times out, replies with replicaIP. The DNS TTL
+# (300s default) caps the cutover window. See PowerDNS upstream docs:
+# https://doc.powerdns.com/authoritative/lua-records/index.html
+#
+# `enable-lua-records=yes` is already on in this chart's pdns.conf
+# (values.yaml ~L244) so no operator action is needed to flip it.
+#
+# Default empty: a single-region Sovereign or a multi-region Sovereign
+# without per-Application geo-failover configured renders zero
+# lua-records (zero regression). The companion ConfigMap
+# `powerdns-geo-failover-spec` records the operator's intent for
+# downstream automation + the admin console's Geo-Failover page.
+#
+# Multi-layer RCA (Principle 16): pre-G93.4 the only multi-region
+# failover mechanism was Cilium ClusterMesh, which only works for
+# in-cluster traffic; cross-region failover for EXTERNAL traffic
+# (browsers, mobile apps, third-party integrations) required manual
+# operator action against PowerDNS API. lua-records make the
+# failover declarative + driven by Application CR state.
+geoFailover:
+  # Toggle the geo-failover spec ConfigMap + (Phase 2) the
+  # zone-bootstrap-job lua-record loop. Default true so any operator
+  # populating `records` below opts in; flip false to suppress the
+  # spec ConfigMap entirely.
+  enabled: true
+  # Per-Application failover entries. Empty list = no records
+  # rendered, no Job runs. Validation: each entry MUST have
+  # hostname, primaryIP, replicaIP, healthCheck.url — the zone-
+  # bootstrap-job's lua-record loop fails fast on missing fields.
+  records: []
+  # Default TTL for the rendered LUA A-records. The DNS TTL caps the
+  # cutover window — lower = faster failover, more authoritative-
+  # server load. PowerDNS upstream recommends 300s for lua-records
+  # with sub-minute healthcheck intervals.
+  ttl: 300
+  # Default healthcheck poll interval (seconds) when the per-entry
+  # `healthCheck.interval` is omitted.
+  defaultProbeIntervalSeconds: 10
+  # Default healthcheck per-probe timeout (seconds) when the per-entry
+  # `healthCheck.timeout` is omitted.
+  defaultProbeTimeoutSeconds: 2
+
 # ─── Zone bootstrap Job ───────────────────────────────────────────────────
 # Helm hook Job that creates every entry in `zones` above against the
 # in-cluster PowerDNS REST API. Renders as a Helm post-install,post-upgrade
