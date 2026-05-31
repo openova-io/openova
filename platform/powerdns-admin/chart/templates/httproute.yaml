@@ -1,0 +1,34 @@
+{{- /*
+HTTPRoute — Cilium Gateway API (issue #387). Per-Sovereign overlay
+supplies `gateway.host` (e.g. admin.dns.<sovereign-fqdn>). Default
+parentRef cilium-gateway/kube-system. sectionName intentionally empty
+per PR #1888 / TBD-A40 (multi-zone Sovereigns rename HTTPS listeners).
+*/ -}}
+{{- if and .Values.gateway.enabled .Values.gateway.host }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ .Release.Name }}-bp-powerdns-admin
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: bp-powerdns-admin
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/blueprint: bp-powerdns-admin
+spec:
+  parentRefs:
+    - name: {{ .Values.gateway.parentRef.name | default "cilium-gateway" }}
+      namespace: {{ .Values.gateway.parentRef.namespace | default "kube-system" }}
+      {{- with .Values.gateway.parentRef.sectionName }}
+      sectionName: {{ . | quote }}
+      {{- end }}
+  hostnames:
+    - {{ .Values.gateway.host | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: {{ .Values.gateway.path | default "/" | quote }}
+      backendRefs:
+        - name: {{ .Values.gateway.backendService | default (printf "%s-bp-powerdns-admin" .Release.Name) }}
+          port: {{ .Values.gateway.backendPort | default 80 }}
+{{- end }}

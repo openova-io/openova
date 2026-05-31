@@ -1,0 +1,148 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-bp-powerdns-admin
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: bp-powerdns-admin
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/blueprint: bp-powerdns-admin
+spec:
+  replicas: {{ .Values.replicas | default 1 }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bp-powerdns-admin
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bp-powerdns-admin
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        catalyst.openova.io/blueprint: bp-powerdns-admin
+    spec:
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: powerdns-admin
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy | default "IfNotPresent" }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.targetPort | default 9191 }}
+              protocol: TCP
+          env:
+            # ─── Database wiring ───────────────────────────────────────
+            - name: SQLA_DB_TYPE
+              value: "postgres"
+            - name: SQLA_DB_HOST
+              value: "{{ .Values.postgres.cluster.name | default "pda-pg" }}-rw.{{ .Release.Namespace }}.svc.cluster.local"
+            - name: SQLA_DB_PORT
+              value: "5432"
+            - name: SQLA_DB_NAME
+              value: {{ .Values.postgres.cluster.database | default "pda" | quote }}
+            - name: SQLA_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.databaseSecret.name | default "pda-database-secret" }}
+                  key: {{ .Values.databaseSecret.usernameKey | default "username" }}
+            - name: SQLA_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.databaseSecret.name | default "pda-database-secret" }}
+                  key: {{ .Values.databaseSecret.passwordKey | default "password" }}
+            # ─── Flask SECRET_KEY ─────────────────────────────────────
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.flaskSecretKey.secretName | default "pda-flask-key" }}
+                  key: SECRET_KEY
+            # ─── PowerDNS backend ────────────────────────────────────
+            - name: PDNS_VERSION
+              value: {{ .Values.pdns.version | default "4.7" | quote }}
+            - name: PDNS_PROTO
+              value: {{ .Values.pdns.protocol | default "http" | quote }}
+            - name: PDNS_API_URL
+              value: {{ .Values.pdns.apiUrl | quote }}
+            - name: PDNS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.pdns.apiKeySecret.name | default "pdns-api-credentials" }}
+                  key: {{ .Values.pdns.apiKeySecret.key | default "api-key" }}
+            # ─── Proxy + UI behaviour ────────────────────────────────
+            - name: GUNICORN_LOGLEVEL
+              value: "info"
+            {{- if .Values.config.proxyFix }}
+            - name: REMOTE_USER_LOGOUT_URL
+              value: "/login"
+            - name: PROXY_FIX
+              value: "true"
+            {{- end }}
+            # ─── G91.powerdns-admin SSO wiring ───────────────────────
+            {{- if .Values.sso.enabled }}
+            - name: OIDC_OAUTH_ENABLED
+              value: "True"
+            - name: OIDC_OAUTH_AUTO_CONFIGURE
+              value: "True"
+            - name: OIDC_OAUTH_SCOPE
+              value: "openid profile email groups"
+            - name: OIDC_OAUTH_USERNAME_CLAIM
+              value: "preferred_username"
+            - name: OIDC_OAUTH_FIRST_NAME_PROPERTY
+              value: "given_name"
+            - name: OIDC_OAUTH_LAST_NAME_PROPERTY
+              value: "family_name"
+            - name: OIDC_OAUTH_EMAIL_PROPERTY
+              value: "email"
+            - name: OIDC_OAUTH_ACCOUNT_NAME_PROPERTY
+              value: "groups"
+            - name: OIDC_OAUTH_ACCOUNT_DESCRIPTION_PROPERTY
+              value: "preferred_username"
+            - name: SIGNUP_ENABLED
+              value: {{ .Values.sso.autoOnboard | default true | quote }}
+            {{- end }}
+            {{- range .Values.extraEnv }}
+            - name: {{ .name | quote }}
+              value: {{ .value | quote }}
+            {{- end }}
+          envFrom:
+            {{- if .Values.sso.enabled }}
+            - secretRef:
+                name: pda-sso-oidc-credentials
+                optional: true
+            {{- end }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: app-upload
+              mountPath: /app/upload
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 5
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: app-upload
+          emptyDir:
+            sizeLimit: 64Mi

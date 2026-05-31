@@ -1,0 +1,29 @@
+{{- /*
+CNPG Cluster for PowerDNS-Admin metadata (users, RBAC, audit log).
+Mirrors platform/gitea/chart/templates/cnpg-cluster.yaml.
+
+CNPG operator generates a `<cluster>-app` Secret with the postgres-app
+user's password; reflector mirrors it into pda-database-secret (see
+templates/database-secret.yaml) so deployment.yaml can read the password
+via secretKeyRef without a cross-namespace reference.
+*/ -}}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ .Values.postgres.cluster.name | default "pda-pg" }}
+  namespace: {{ .Values.postgres.cluster.namespace | default .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-powerdns-admin
+    catalyst.openova.io/component: pda-pg-cluster
+spec:
+  instances: {{ .Values.postgres.cluster.instances | default 1 }}
+  imageName: ghcr.io/cloudnative-pg/postgresql:{{ .Values.postgres.cluster.pgVersion | default "16" }}
+  bootstrap:
+    initdb:
+      database: {{ .Values.postgres.cluster.database | default "pda" }}
+      owner: {{ .Values.postgres.cluster.owner | default "pda" }}
+  storage:
+    size: {{ .Values.postgres.cluster.storageSize | default "5Gi" }}
+    storageClass: {{ .Values.postgres.cluster.storageClass | default "local-path" }}
+  resources:
+    {{- toYaml .Values.postgres.cluster.resources | nindent 4 }}

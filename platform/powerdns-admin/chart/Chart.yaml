@@ -1,0 +1,36 @@
+apiVersion: v2
+name: bp-powerdns-admin
+version: 0.1.0
+description: |
+  PowerDNS-Admin (ngoduykhanh/powerdns-admin) web UI Blueprint for
+  per-Sovereign PowerDNS zone + record management. Drives the
+  authoritative DNS server via PDNS_API_URL / PDNS_API_KEY (from
+  bp-powerdns) and persists its own metadata (users, account audit,
+  RBAC) into a dedicated CNPG Cluster.
+
+  Catalyst SSO via bp-sso-bridge (G91.1 #2652): the framework
+  auto-provisions a Keycloak Client `powerdns-admin`, stores the
+  client_secret in OpenBao at `secret/sso/powerdns-admin`, materialises
+  an ExternalSecret in this namespace, and grants the Sovereign
+  operator the client's `admin` role. PowerDNS-Admin reads the OIDC
+  config via env vars (OIDC_OAUTH_*) injected from the
+  ExternalSecret-rendered Secret.
+
+  Per ADR-0001 / docs/PLATFORM-TECH-STACK.md §3.5 the chart is
+  vendor-agnostic — per-Sovereign overlays set the gateway hostname
+  (admin.dns.<sovereign-fqdn>) and the PDNS endpoint reachable from
+  Pods inside the Sovereign cluster.
+type: application
+keywords: [catalyst, blueprint, powerdns-admin, dns, ui, sso]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+annotations:
+  # PowerDNS-Admin upstream ships only a container image — no upstream
+  # Helm chart. This Blueprint constructs the deployment shape itself
+  # (Deployment + Service + HTTPRoute + CNPG Cluster + Secrets) so the
+  # blueprint-release umbrella-shape gate (issue #181 +
+  # docs/BLUEPRINT-AUTHORING.md §11.1) accepts no-upstream charts.
+  catalyst.openova.io/no-upstream: "true"
+  catalyst.openova.io/depends-on: "bp-powerdns,bp-cnpg,bp-keycloak,bp-sso-bridge,bp-external-secrets-stores,bp-reflector,bp-gateway-api"
