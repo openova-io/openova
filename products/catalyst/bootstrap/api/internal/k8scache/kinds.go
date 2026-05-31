@@ -98,6 +98,11 @@ var DefaultKinds = []Kind{
 	// EndpointSlice — exact Service→Pod membership without recomputing
 	// label-selector matches client-side for every Service-Pod pair.
 	{Name: "endpointslice", GVR: schema.GroupVersionResource{Group: "discovery.k8s.io", Version: "v1", Resource: "endpointslices"}, Namespaced: true},
+	// Note: `event` is intentionally NOT registered as a cache kind per
+	// TBD-V50 #2125 — events are unbounded; consumers must hit the
+	// apiserver directly via EventsV1().Events(ns).List(FieldSelector,
+	// Limit). EventsPanel's empty-state bug (G89 #2636) is fixed in
+	// the events handler + UI, not by registering this kind here.
 
 	// Crossplane managed resources — provider-hcloud's K8s projection
 	// of cloud-side objects (ADR-0001 §5: cloud + K8s data are
