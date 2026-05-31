@@ -570,6 +570,18 @@ write_files:
             QA_PRIMARY_REGION: "${primary_region_canonical_label}"
             SOVEREIGN_PRIMARY_REGION: "${primary_region_canonical_label}"
             SOVEREIGN_REPLICA_REGION: "${replica_region_canonical_label}"
+            # G93.1 (Refs #2666) — BCP topology Kustomization
+            # substitutes. The Huawei port silently lacked these keys
+            # entirely pre-G93.1 → every HCS multi-region Sovereign
+            # silently landed Pillar 3 broken (single-Cluster CNPG on
+            # every tenant Application, no zero-tx-loss). The chart's
+            # `${SOVEREIGN_ENABLE_HOT_STANDBY:-}` envsubst now resolves
+            # to the tofu var's "true"/"false" value, derived from
+            # var.bcp_topology by catalyst-api. SOVEREIGN_BCP_TOPOLOGY
+            # carries the enum string for the Settings page
+            # Continuity Plan row + the BSS-menu DR posture chip.
+            SOVEREIGN_ENABLE_HOT_STANDBY: "${enable_hot_standby}"
+            SOVEREIGN_BCP_TOPOLOGY: "${bcp_topology}"
             # Refs #2533 — G1: per-CP region role. The shared
             # bootstrap-kit overlays (e.g. bp-cnpg-pair primary/replica
             # placement) gate on this; primary CP renders "primary",

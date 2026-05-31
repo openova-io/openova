@@ -668,6 +668,20 @@ locals {
       region_canonical_label         = "hw-${r.code}-rtz-prod"
       primary_region_canonical_label = "hw-${var.regions[0].code}-rtz-prod"
       replica_region_canonical_label = length(var.regions) > 1 ? "hw-${var.regions[1].code}-rtz-prod" : ""
+      # G93.1 (Refs #2666) — BCP topology threading. The Huawei
+      # cloud-init template adds SOVEREIGN_ENABLE_HOT_STANDBY +
+      # SOVEREIGN_BCP_TOPOLOGY to the Kustomization
+      # postBuild.substitute map for the first time here. Pre-G93.1
+      # the Huawei port silently lacked these keys → every HCS
+      # multi-region Sovereign landed Pillar 3 broken (the
+      # bp-catalyst-platform chart's `${SOVEREIGN_ENABLE_HOT_STANDBY:-}`
+      # envsubst resolved to literal empty → chart-side default
+      # `false` always won). Same string vars + same target-state
+      # shape as the Hetzner port; catalyst-api computes them from
+      # Request.BcpTopology with auto-derivation for the empty/
+      # multi-region case.
+      bcp_topology       = var.bcp_topology
+      enable_hot_standby = var.enable_hot_standby
       # G87 #2634: multi-region Sovereigns default CNPG instances=2
       # so per-chart cnpg-cluster.yaml renders 2 replicas + spread-
       # across-regions affinity. Single-region keeps the existing
