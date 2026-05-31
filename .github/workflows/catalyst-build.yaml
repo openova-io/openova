@@ -470,8 +470,19 @@ jobs:
           # so PRs #1051..#1059 never reached anyone except via manual
           # `kubectl set image` patches on omantel.
           API_TPL="products/catalyst/chart/templates/api-deployment.yaml"
+          # G29-followup (2026-05-31): kustomize-controller can't render Helm
+          # templates, so contabo-mkt's catalyst-platform Kustomization
+          # actually consumes api-deployment-kustomize.yaml (literal image),
+          # NOT api-deployment.yaml (Helm template). The deploy bump
+          # previously sed-patched only api-deployment.yaml whose image
+          # field is a `{{ ... }}` directive that no sed could match —
+          # net: contabo-mkt catalyst-api stayed pinned on the LAST manually-
+          # bumped SHA for days/weeks while every deploy commit pushed
+          # green. Caught live hw86 walk 2026-05-31: catalyst-api stuck at
+          # fd378e3 while ui rolled to 8a6536c. Now sed both files.
+          API_KUST_TPL="products/catalyst/chart/templates/api-deployment-kustomize.yaml"
           UI_TPL="products/catalyst/chart/templates/ui-deployment.yaml"
-          sed -i -E "s|(image: \"ghcr\.io/openova-io/openova/catalyst-api:)[^\"]*\"|\1${SHA_SHORT}\"|" "${API_TPL}"
+          sed -i -E "s|(image: \"ghcr\.io/openova-io/openova/catalyst-api:)[^\"]*\"|\1${SHA_SHORT}\"|" "${API_TPL}" "${API_KUST_TPL}"
           sed -i -E "s|(image: \"ghcr\.io/openova-io/openova/catalyst-ui:)[^\"]*\"|\1${SHA_SHORT}\"|"  "${UI_TPL}"
           # qa-loop iter-3 Fix #18 — also bump the CATALYST_BUILD_SHA env
           # literal in the api-deployment so /api/v1/version returns the
