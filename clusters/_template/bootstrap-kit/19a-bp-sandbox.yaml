@@ -187,6 +187,13 @@ spec:
   # pin (single source of truth, INVIOLABLE-PRINCIPLES.md #4a).
   values:
     enabled: ${SANDBOX_ENABLED:-true}
+    # G91.sandbox (#2657) — wire bp-sso-bridge framework. The chart-side
+    # SANDBOX_SSO_* env-vars on the sandbox-controller Pod are sourced
+    # from the ExternalSecret-rendered Secret + .Values.sso.sovereignFqdn
+    # is what the follow-up sandbox-controller code uses to compute the
+    # per-Sandbox pty-server OIDC redirect URI.
+    sso:
+      sovereignFqdn: ${SOVEREIGN_FQDN}
     env:
       hostCluster: ${SOVEREIGN_REGION_CANONICAL_LABEL}
       sovereignFQDN: ${SOVEREIGN_FQDN}

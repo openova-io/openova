@@ -175,6 +175,11 @@ spec:
   values:
     gateway:
       host: registry.${SOVEREIGN_FQDN}
+    # G91.harbor (#2654) — wire bp-sso-bridge framework. The chart-side
+    # post-install Job PUTs /api/v2.0/configurations with
+    # auth_mode=oidc_auth + oidc_endpoint computed from sovereignFqdn.
+    sso:
+      sovereignFqdn: ${SOVEREIGN_FQDN}
     # G87 #2634: multi-region CNPG instances default (1 single-region, 2 multi).
     postgres:
       cluster:

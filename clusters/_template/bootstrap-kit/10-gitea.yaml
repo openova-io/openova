@@ -76,6 +76,13 @@ spec:
   values:
     global:
       sovereignFQDN: ${SOVEREIGN_FQDN}
+    # G91.gitea (#2653) — wire bp-sso-bridge framework. The chart-side
+    # post-install Job needs sovereignFqdn to compute the OIDC
+    # autoDiscoverUrl at chart-template time. Empty default in the
+    # chart values short-circuits the configure-oauth Job; the envsubst
+    # below makes SSO work zero-touch on every fresh Sovereign.
+    sso:
+      sovereignFqdn: ${SOVEREIGN_FQDN}
     # G87 #2634 (2026-06-01): multi-region Sovereigns default CNPG
     # instances to 2 so the operator spreads across regions via
     # topology.kubernetes.io/region antiAffinity. Single-region falls

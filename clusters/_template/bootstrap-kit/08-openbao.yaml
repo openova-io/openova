@@ -90,6 +90,13 @@ spec:
   values:
     gateway:
       host: bao.${SOVEREIGN_FQDN}
+    # G91.openbao (#2655) — wire bp-sso-bridge framework. The chart-side
+    # continuous reconciler Deployment computes OIDC discovery + redirect
+    # URLs from sovereignFqdn. Empty default leaves the reconciler logging
+    # "ESO Secret keys not yet present"; the envsubst below activates it
+    # zero-touch on every fresh Sovereign.
+    sso:
+      sovereignFqdn: ${SOVEREIGN_FQDN}
     autoUnseal:
       enabled: true
       # Issue #517 (cont): the chart's init-job.yaml + auth-bootstrap-job.yaml
