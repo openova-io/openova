@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"os"
+	"strings"
 )
 
 type contextKey string
@@ -63,6 +65,24 @@ func RequireSession(cfg *Config, log *slog.Logger) func(http.Handler) http.Handl
 				return
 			}
 
+			// G97 (Refs #2647, 2026-06-01) — Sovereign operator role
+			// stamping. The deployment's request.OrgEmail (stamped by the
+			// orchestrator into OPERATOR_EMAIL env at chroot install time)
+			// is the canonical Sovereign operator. Their JWT email
+			// matches; upstream Keycloak may or may not have stamped
+			// catalyst-owner role + tier=owner. This enrichment guarantees
+			// the operator's downstream session always carries owner-tier
+			// authority, independent of Keycloak realm configuration drift
+			// or PIN-derived session shape. Idempotent: if Keycloak
+			// already stamped the role + tier, the operations are no-ops.
+			//
+			// Replaces the per-handler isSovereignOperatorClaim email-
+			// override (G78b) as the canonical authz seam. Email-override
+			// remains in place as defense-in-depth, but tier+role-based
+			// gates (the canonical pattern) now also accept the operator
+			// without a separate email check.
+			stampSovereignOperatorClaim(claims)
+
 			// Inject identity headers for downstream handlers (e.g. handover
 			// JWT signing in handler/handover_jwt.go reads X-User-Email).
 			r.Header.Set("X-User-Email", claims.Email)
@@ -81,6 +101,51 @@ func RequireSession(cfg *Config, log *slog.Logger) func(http.Handler) http.Handl
 func ClaimsFromContext(ctx context.Context) *Claims {
 	c, _ := ctx.Value(ClaimsKey).(*Claims)
 	return c
+}
+
+// sovereignOperatorRoleName is the canonical realm role name for the
+// Sovereign operator. Matches the EPIC-3 §6.2 catalyst-<tier> projection
+// (whoamiInjectTierRoles in handler/auth.go) so downstream UI checks that
+// look for catalyst-owner pass.
+const sovereignOperatorRoleName = "catalyst-owner"
+
+// sovereignOperatorTier is the canonical tier value for the Sovereign
+// operator. Top of the inheritance chain in handler/auth.go
+// whoamiTierInheritance — owner inherits admin/operator/developer/viewer.
+const sovereignOperatorTier = "owner"
+
+// stampSovereignOperatorClaim enriches the JWT-derived Claims when the
+// bearer matches the Sovereign operator's email. The operator email comes
+// from OPERATOR_EMAIL env (orchestrator-stamped at chroot install time
+// from deployment.request.OrgEmail). Idempotent: when Keycloak already
+// stamped tier=owner + catalyst-owner role, this is a no-op.
+//
+// G97 (Refs #2647, 2026-06-01) — Closes the gap where Keycloak realm
+// configuration drift, PIN-derived sessions, or chroot-internal JWT mint
+// paths leave the operator's session with empty tier + empty roles. The
+// per-handler isSovereignOperatorClaim email-override (G78b) is the
+// belt; this is the suspenders — tier+role gates (the canonical pattern)
+// now accept the operator without a per-handler email check.
+func stampSovereignOperatorClaim(claims *Claims) {
+	if claims == nil {
+		return
+	}
+	opEmail := strings.ToLower(strings.TrimSpace(os.Getenv("OPERATOR_EMAIL")))
+	if opEmail == "" {
+		return
+	}
+	if strings.ToLower(strings.TrimSpace(claims.Email)) != opEmail {
+		return
+	}
+	if claims.Tier == "" || strings.ToLower(claims.Tier) != sovereignOperatorTier {
+		claims.Tier = sovereignOperatorTier
+	}
+	for _, r := range claims.RealmAccess.Roles {
+		if r == sovereignOperatorRoleName {
+			return
+		}
+	}
+	claims.RealmAccess.Roles = append(claims.RealmAccess.Roles, sovereignOperatorRoleName)
 }
 
 func writeAuthError(w http.ResponseWriter, msg string, code int) {
