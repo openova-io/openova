@@ -200,7 +200,7 @@ func buildRegionFromLiveNodes(ctx context.Context, in LoaderInput) (Region, bool
 	// fall back to the in.Region hint (set by the k8sCache fan-out
 	// caller per-cluster), then the SovereignFQDN as last resort.
 	// `openova.io/region` is the catalyst-canonical label written by
-	// cloud-init (e.g., "hu-me-east-215-a-rtz-prod") — preferred over
+	// cloud-init (e.g., "hw-me-east-215-a-rtz-prod") — preferred over
 	// the upstream k8s topology labels because it carries the full
 	// catalyst region slug.
 	regionName := ""

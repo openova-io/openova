@@ -653,11 +653,21 @@ locals {
       # bootstrap-kit substitute map. Hetzner provider sets these; the
       # Huawei port missed them, leaving bp-sandbox + downstream HRs
       # stuck on empty hostCluster. Format mirrors Hetzner pattern:
-      # `hu-<region>-rtz-prod` for replica role, `-mgmt-prod` for primary.
+      # `<provider-prefix>-<region>-rtz-prod`.
       # G1: now per-region (was always primary).
-      region_canonical_label         = "hu-${r.code}-rtz-prod"
-      primary_region_canonical_label = "hu-${var.regions[0].code}-rtz-prod"
-      replica_region_canonical_label = length(var.regions) > 1 ? "hu-${var.regions[1].code}-rtz-prod" : ""
+      #
+      # G84 #2631 (2026-06-01): provider prefix was `hu-` (typo) but
+      # cloudinit stamps `openova.io/region=hw-<region>-rtz-prod`
+      # (correct — `hw` for Huawei per Catalyst naming, NOT `hu`).
+      # vCluster nodeSelector `openova.io/region: <SOVEREIGN_REGION_
+      # CANONICAL_LABEL>` got `hu-...` → no node matched → all 3
+      # vClusters (dmz/mgmt/rtz) Pending forever → dashboard
+      # vCluster grouping had nothing inside to show → Pillar 4
+      # (Sandbox + qwen-code lives in a vCluster) silently broken
+      # on every HCS Sovereign since multi-region HCS shipped.
+      region_canonical_label         = "hw-${r.code}-rtz-prod"
+      primary_region_canonical_label = "hw-${var.regions[0].code}-rtz-prod"
+      replica_region_canonical_label = length(var.regions) > 1 ? "hw-${var.regions[1].code}-rtz-prod" : ""
       # Primary CP's EIP — Wave 5.8 (Refs #2140). The kubeconfig PUT-back
       # from cloud-init must use this EIP, not the private VPC IP, so the
       # remote mothership (cross-cloud Contabo) can reach the new
