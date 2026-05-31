@@ -1,0 +1,102 @@
+{{/*
+K22 — substrate-stays-on-host (architecture invariant, A4).
+
+G92.6 (Refs #2665) — enforces docs/DOD.md §A4: "vCluster topology:
+primary region = MGMT+DMZ; each secondary region = DMZ+RTZ. Cross-
+vCluster intra-region traffic stays inside host k3s via Cilium."
+
+Substrate components (Cilium-agent, Flux, Kyverno, cert-manager, ESO,
+CNPG-operator, vCluster-syncers) operate against host-k3s primitives:
+- Cilium-agent runs as a DaemonSet on every host node (CNI).
+- Flux reconciles HelmReleases on the host kube-apiserver.
+- Kyverno's admission webhook is registered with the host kube-apiserver.
+- cert-manager's ClusterIssuer is cluster-scoped on the host.
+- ESO's ExternalSecret CR is cluster-scoped on the host.
+- CNPG-operator reconciles cnpg.io/Cluster CRs on the host (its CRDs
+  ship with the operator).
+- vCluster-syncers create vClusters; the syncers themselves run on
+  the host.
+
+If any of these were installed INSIDE a vCluster (via HelmRelease.spec.
+kubeConfig.secretRef pointing at the vCluster's admin kubeconfig from
+G92.1 #2660), the substrate would lose its hostside view: Cilium-agent
+would not run as a DaemonSet on host nodes (only on the vCluster's
+phantom nodes), Flux would only reconcile inside the vCluster's
+namespace projection, Kyverno's webhook would intercept only vCluster-
+syncer'd Pods (not the real workloads), etc. The Sovereign would
+silently degrade.
+
+This policy fail-closes any HelmRelease whose `metadata.name` matches
+a substrate Blueprint AND whose `spec.kubeConfig` field is set —
+i.e., any attempt to install substrate into a vCluster instead of the
+host k3s. The G92.1 vcluster-placement seam stays intact for non-
+substrate Blueprints (the per-Org marketplace apps that LEGITIMATELY
+install into a vCluster); the policy only catches misconfigured
+substrate.
+
+Mode: Enforce per-canonical (gated by bootstrapMode override per
+Wave 5.90 #2436). The substrate placement contract is architectural —
+operator override via `excludeNamespaces` is intentional escape hatch
+when an air-gapped Sovereign has bespoke substrate placement
+requirements. Per docs/INVIOLABLE-PRINCIPLES.md #4 every value
+overridable via .Values.compliancePolicies.substrateOnHost.*.
+*/}}
+{{- if .Values.compliancePolicies.substrateOnHost.enabled -}}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: substrate-stays-on-host
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: architecture
+  annotations:
+    policies.kyverno.io/title: Substrate Blueprints must install on host k3s
+    policies.kyverno.io/category: catalyst-architecture-invariant
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >-
+      The substrate components listed in docs/DOD.md §A4 (Cilium-agent,
+      Flux, Kyverno, cert-manager, ESO, CNPG-operator, vCluster-syncers)
+      MUST install on the host k3s cluster, never inside a vCluster.
+      A HelmRelease for one of these Blueprints with `spec.kubeConfig`
+      set indicates a misconfigured G92.1 vcluster-placement override.
+spec:
+  validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.substrateOnHost.action) }}
+  background: true
+  rules:
+    - name: helmrelease-no-vcluster-kubeconfig-for-substrate
+      match:
+        any:
+          - resources:
+              kinds:
+                - HelmRelease
+              names:
+                {{- range $name := .Values.compliancePolicies.substrateOnHost.substrateBlueprints }}
+                - {{ $name | quote }}
+                {{- end }}
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                {{- range $ns := .Values.compliancePolicies.substrateOnHost.excludeNamespaces }}
+                - {{ $ns }}
+                {{- end }}
+      validate:
+        message: >-
+          {{ `{{request.object.kind}}/{{request.object.metadata.name}}` }} is
+          a substrate Blueprint and MUST install on the host k3s cluster.
+          Detected `spec.kubeConfig.secretRef` set — this would install the
+          substrate INTO a vCluster, violating docs/DOD.md §A4 architecture
+          invariant. The G92.1 vcluster-placement seam (Refs #2660) is for
+          non-substrate marketplace applications only. Remove the
+          `spec.kubeConfig` block on this HelmRelease, OR — if your
+          Sovereign legitimately requires bespoke substrate placement —
+          add the namespace to
+          .Values.compliancePolicies.substrateOnHost.excludeNamespaces.
+        pattern:
+          spec:
+            # Forbid `spec.kubeConfig` entirely for substrate HRs. Kyverno
+            # negation pattern `X(field): "null"` enforces field absence.
+            =(kubeConfig): "null"
+{{- end }}

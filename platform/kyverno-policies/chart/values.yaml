@@ -256,6 +256,56 @@ compliancePolicies:
     action: Audit
     excludeNamespaces: *complianceDefaultExcludes
 
+  # G92.6 (Refs #2665, 2026-06-01) — substrate-stays-on-host
+  # architecture invariant policy. Per docs/DOD.md §A4 the substrate
+  # components (Cilium-agent, Flux, Kyverno, cert-manager, ESO,
+  # CNPG-operator, vCluster-syncers) MUST install on the host k3s
+  # cluster, never inside a vCluster. The G92.1 (#2660) vcluster-
+  # placement seam allowed any HelmRelease to opt into vCluster
+  # installation via `spec.kubeConfig.secretRef`; a misconfigured
+  # substrate HR using that seam would silently degrade the Sovereign
+  # (Cilium-agent only running on vCluster's phantom nodes, Flux
+  # reconciling only inside the vCluster's projection, etc.).
+  #
+  # This policy fail-closes any HelmRelease whose `metadata.name`
+  # matches a substrate Blueprint AND whose `spec.kubeConfig` field is
+  # set. Default action: Enforce (architectural invariant — not a soft
+  # compliance recommendation). Operators on an air-gapped Sovereign
+  # with bespoke substrate placement can override per-namespace via
+  # excludeNamespaces.
+  substrateOnHost:
+    enabled: true
+    action: Enforce
+    # Substrate Blueprints — the canonical name set documented in
+    # docs/DOD.md §A4. Operators MAY extend this list when shipping
+    # a custom substrate component (rare); MUST NOT shrink it because
+    # every name here protects an A4 invariant.
+    substrateBlueprints:
+      - bp-cilium
+      - bp-flux
+      - bp-kyverno
+      - bp-kyverno-policies
+      - bp-cert-manager
+      - bp-cert-manager-powerdns-webhook
+      - bp-cert-manager-dynadot-webhook
+      - bp-external-secrets
+      - bp-cnpg
+      - bp-cnpg-pair
+      - bp-mgmt-vcluster
+      - bp-dmz-vcluster
+      - bp-rtz-vcluster
+      - bp-vcluster-helmrepo
+    # Per-namespace escape hatch. The 3 vCluster syncer namespaces
+    # (dmz/mgmt/rtz) legitimately host the bp-*-vcluster syncer
+    # StatefulSets — the syncers themselves land on host k3s via
+    # the bp-*-vcluster HR (which is itself substrate-on-host), but
+    # their namespaces are carved out so per-Sovereign overlays
+    # that re-deploy a syncer don't trip the policy.
+    excludeNamespaces:
+      - dmz
+      - mgmt
+      - rtz
+
   # G98 (Refs #2644, 2026-06-01) — MUTATE policy that auto-stamps
   # `catalyst.openova.io/application` label on Pods cluster-wide.
   # Without this label, the Compliance scorecard's per-Application

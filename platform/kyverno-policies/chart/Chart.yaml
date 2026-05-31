@@ -1,5 +1,12 @@
 apiVersion: v2
 name: bp-kyverno-policies
+# 1.0.27 (G92.6 #2665, 2026-06-01): new K22 substrate-stays-on-host
+# ClusterPolicy. Per docs/DOD.md §A4 the substrate components (Cilium,
+# Flux, Kyverno, cert-manager, ESO, CNPG-operator, vCluster-syncers)
+# MUST install on host k3s, never inside a vCluster. The policy fail-
+# closes any HelmRelease whose metadata.name matches a substrate
+# Blueprint AND whose spec.kubeConfig field is set — catches misuse
+# of the G92.1 (#2660) vcluster-placement seam against substrate.
 description: |
   Catalyst Blueprint chart that ships the EPIC-1 (#1096) compliance policy
   library — 20 ClusterPolicy templates rendered against Kyverno CRDs that
@@ -74,7 +81,7 @@ type: application
 # while keeping proxy-cache for anonymous public registries.
 # Lockstep with bp-self-sovereign-cutover 0.1.43 (Step 03 Phase A
 # skopeo native-push + Step 07 REGISTRY drops /proxy-ghcr/ suffix).
-version: 1.0.26
+version: 1.0.27
 appVersion: "1.0.2"
 keywords: [catalyst, blueprint, kyverno, policy, compliance, audit]
 maintainers:
