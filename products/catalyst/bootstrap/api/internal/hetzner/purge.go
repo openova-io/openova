@@ -1025,3 +1025,137 @@ func (b hetznerListBody) errMsg() string {
 	}
 	return e.Code + ": " + e.Message
 }
+
+// ── G103 (Refs #2670) — Hetzner port of the post-wipe zero-orphan gate ──
+
+// VerifyReport is the per-kind residual list returned by VerifyZeroOrphans.
+// A non-zero Total() means the wipe contract was violated: catalyst-*
+// resources survived the cascade purge and the next prov attempt may hit
+// quota / name-collision failures on the same Hetzner project.
+//
+// Mirrors providers.WipeResult.ResidualOrphans shape so the catalyst-api
+// provider adapter can copy keys 1:1.
+type VerifyReport struct {
+	Servers       []string
+	LoadBalancers []string
+	Networks      []string
+	Firewalls     []string
+	SSHKeys       []string
+	Volumes       []string
+	PrimaryIPs    []string
+	FloatingIPs   []string
+	Errors        []string
+}
+
+// Total returns the count of surviving catalyst-* resources across kinds.
+// Zero = wipe contract honoured; non-zero = real residual.
+func (v VerifyReport) Total() int {
+	return len(v.Servers) + len(v.LoadBalancers) + len(v.Networks) +
+		len(v.Firewalls) + len(v.SSHKeys) + len(v.Volumes) +
+		len(v.PrimaryIPs) + len(v.FloatingIPs)
+}
+
+// AsMap returns the per-kind survivor names keyed by canonical resource
+// kind ("servers" / "load_balancers" / "networks" / "firewalls" /
+// "ssh_keys" / "volumes" / "primary_ips" / "floating_ips") — the same
+// vocab providers.WipeResult.ResidualOrphans uses. Empty kinds are
+// omitted so consumers can range over a known-non-empty map.
+func (v VerifyReport) AsMap() map[string][]string {
+	out := map[string][]string{}
+	if len(v.Servers) > 0 {
+		out["servers"] = v.Servers
+	}
+	if len(v.LoadBalancers) > 0 {
+		out["load_balancers"] = v.LoadBalancers
+	}
+	if len(v.Networks) > 0 {
+		out["networks"] = v.Networks
+	}
+	if len(v.Firewalls) > 0 {
+		out["firewalls"] = v.Firewalls
+	}
+	if len(v.SSHKeys) > 0 {
+		out["ssh_keys"] = v.SSHKeys
+	}
+	if len(v.Volumes) > 0 {
+		out["volumes"] = v.Volumes
+	}
+	if len(v.PrimaryIPs) > 0 {
+		out["primary_ips"] = v.PrimaryIPs
+	}
+	if len(v.FloatingIPs) > 0 {
+		out["floating_ips"] = v.FloatingIPs
+	}
+	return out
+}
+
+// VerifyZeroOrphans walks every Hetzner Cloud resource kind that Purge
+// targets and records any entry that still carries the Sovereign label
+// `catalyst.openova.io/sovereign=<fqdn>`. Resources with names starting
+// `bastion` are hard-excluded so the canonical break-glass infrastructure
+// (bastion-IP, mothership bastion SSH key, etc. — same protection rule as
+// the HCS port per memory feedback_hcs_kom4dc_wipe_cascade_quirks) is
+// never flagged as a residual.
+//
+// Returns ok=true + an empty VerifyReport iff the post-wipe scan found
+// zero survivors. ok=false + a populated report means the wipe contract
+// was violated; the provider adapter copies the AsMap() output into
+// providers.WipeResult.ResidualOrphans + leaves VerifiedZeroOrphans=false.
+//
+// G103 (Refs #2670) Hetzner-side parity with the existing HCS gate so
+// the G104 (Refs #2671) 3xZT certification script can certify either
+// provider via the same single signal.
+func VerifyZeroOrphans(ctx context.Context, token, sovereignFQDN string, progress func(msg string)) (VerifyReport, bool) {
+	report := VerifyReport{}
+	if progress == nil {
+		progress = func(string) {}
+	}
+	if strings.TrimSpace(token) == "" {
+		report.Errors = append(report.Errors, "hetzner token is empty")
+		return report, false
+	}
+	if err := validateSovereignFQDNForPurge(sovereignFQDN); err != nil {
+		report.Errors = append(report.Errors, err.Error())
+		return report, false
+	}
+
+	progress("verifying zero orphans (G103 #2670 post-wipe gate)")
+
+	labelSelector := FilterByLabel(PurgeLabelKey, sovereignFQDN)
+
+	type kind struct {
+		path    string
+		listKey string
+		into    *[]string
+	}
+	kinds := []kind{
+		{"/v1/servers", "servers", &report.Servers},
+		{"/v1/load_balancers", "load_balancers", &report.LoadBalancers},
+		{"/v1/networks", "networks", &report.Networks},
+		{"/v1/firewalls", "firewalls", &report.Firewalls},
+		{"/v1/ssh_keys", "ssh_keys", &report.SSHKeys},
+		{"/v1/volumes", "volumes", &report.Volumes},
+		{"/v1/primary_ips", "primary_ips", &report.PrimaryIPs},
+		{"/v1/floating_ips", "floating_ips", &report.FloatingIPs},
+	}
+	for _, k := range kinds {
+		survivors, err := listResources(ctx, token, k.path, labelSelector, k.listKey)
+		if err != nil {
+			report.Errors = append(report.Errors, "verify list "+k.listKey+": "+err.Error())
+			continue
+		}
+		for _, r := range survivors {
+			if strings.HasPrefix(r.Name, "bastion") || strings.Contains(r.Name, "bastion") {
+				continue
+			}
+			*k.into = append(*k.into, r.Name)
+		}
+	}
+
+	if report.Total() == 0 {
+		progress("verified zero orphans — wipe contract honoured")
+		return report, true
+	}
+	progress(fmt.Sprintf("RESIDUAL ORPHANS: %d catalyst-* resource(s) survived wipe (bastion-* excluded)", report.Total()))
+	return report, false
+}
