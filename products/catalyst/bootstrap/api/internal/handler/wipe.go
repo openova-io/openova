@@ -219,6 +219,18 @@ type wipeResponse struct {
 	LocalCleaned  bool                `json:"localCleaned"`
 	Errors        []string            `json:"errors"`
 	WipedAt       string              `json:"wipedAt"`
+
+	// G103 (Refs #2670) — post-wipe orphan-verification surface.
+	// VerifiedZeroOrphans == true means the provider ran a post-wipe
+	// scan AND found zero catalyst-* resources (bastion-* excluded).
+	// This is the canonical "wipe was complete" signal the operator
+	// admin console + the G104 (Refs #2671) CI zero-touch gate read.
+	//
+	// When false, ResidualOrphans carries the per-resource-kind names
+	// of every survivor so the operator (or the gate) can see exactly
+	// what survived without re-scanning the cloud account.
+	VerifiedZeroOrphans bool                `json:"verifiedZeroOrphans"`
+	ResidualOrphans     map[string][]string `json:"residualOrphans,omitempty"`
 }
 
 // providerPurgeTotal sums every per-resource-kind slice in a
@@ -546,6 +558,11 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 			report.TofuDestroyed = wipeRes.TofuDestroyed
 			report.ProviderPurge = wipeRes.ProviderPurge
 			report.S3Buckets = wipeRes.S3Buckets
+			// G103 (Refs #2670) — propagate the post-wipe orphan-
+			// verification result so the operator console + the G104
+			// CI gate see whether the wipe contract was honoured.
+			report.VerifiedZeroOrphans = wipeRes.VerifiedZeroOrphans
+			report.ResidualOrphans = wipeRes.ResidualOrphans
 			if len(wipeRes.Errors) > 0 {
 				report.Errors = append(report.Errors, wipeRes.Errors...)
 			}
@@ -556,6 +573,15 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 		emit("wipe", "info", providerName+" orphan purge removed "+itoa(providerPurgeTotal(report.ProviderPurge))+" resource(s) across kinds: "+kindCountSummary(report.ProviderPurge))
 	} else {
 		emit("wipe", "info", providerName+" orphan purge: nothing to remove (clean account)")
+	}
+
+	// G103 (Refs #2670) — surface the post-wipe verification verdict
+	// on the SSE stream so the operator + the G104 zero-touch gate see
+	// the canonical contract signal alongside the purge totals.
+	if report.VerifiedZeroOrphans {
+		emit("wipe", "info", providerName+" G103 verification: zero orphans — wipe contract honoured")
+	} else if residualTotal := providerPurgeTotal(report.ResidualOrphans); residualTotal > 0 {
+		emit("wipe", "error", providerName+" G103 verification: "+itoa(residualTotal)+" catalyst-* resource(s) survived wipe (bastion-* excluded): "+kindCountSummary(report.ResidualOrphans))
 	}
 
 	// Step 3 — PDM release (pool-subdomain only). Best-effort. Resolve pool

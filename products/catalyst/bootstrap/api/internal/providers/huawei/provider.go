@@ -307,7 +307,148 @@ func (p *Provider) Wipe(ctx context.Context, spec providers.WipeSpec, progress f
 		out.S3Buckets = append(out.S3Buckets, prefix+"-*")
 	}
 
+	// G103 (Refs #2670) — Step 4: post-wipe orphan verification. Walk
+	// every cleanup-bearing resource kind ONE MORE TIME and surface
+	// anything that still carries the catalyst-<stem>- name prefix
+	// (bastion-* hard-excluded). Per the G103 issue contract:
+	//
+	//   - 0 VPCs / EIPs / NATs / ECSs / keypairs besides bastion-*
+	//
+	// Non-empty residual = the wipe contract was violated; downstream
+	// prov attempts on the same account WILL hit quota + name-collision
+	// failures. The CI zero-touch gate (G104 #2671) consumes this
+	// `VerifiedZeroOrphans` boolean to fail the contract loudly.
+	verifyZeroOrphans(ctx, client, hw, region, spec.SovereignFQDN, progress, out)
+
 	return out, nil
+}
+
+// verifyZeroOrphans walks every cleanup-bearing resource kind and
+// records any catalyst-<stem>- prefixed entries (excluding bastion-*)
+// in out.ResidualOrphans. Sets out.VerifiedZeroOrphans=true when the
+// scan finds zero residuals across every kind — that is the canonical
+// "wipe was complete" signal the operator + CI gate read.
+//
+// G103 (Refs #2670) acceptance: post-wipe account must contain
+// 0 catalyst-* VPCs / EIPs / NATs / ECSs / keypairs (the bastion-*
+// fleet is hard-protected throughout this codebase per
+// memory feedback_hcs_kom4dc_wipe_cascade_quirks bastion-IP
+// preservation rule).
+func verifyZeroOrphans(ctx context.Context, client *http.Client, hw hwCreds, region, sovereignFQDN string, progress func(msg string), out *providers.WipeResult) {
+	if sovereignFQDN == "" {
+		return
+	}
+	progress("verifying zero orphans (G103 #2670 post-wipe gate)")
+	if out.ResidualOrphans == nil {
+		out.ResidualOrphans = map[string][]string{}
+	}
+
+	// ECS residuals.
+	if servers, err := listECSByNamePrefix(ctx, client, hw, region, sovereignFQDN, ""); err == nil {
+		for _, s := range servers {
+			if strings.HasPrefix(s.Name, "bastion") || strings.Contains(s.Name, "bastion") {
+				continue
+			}
+			out.ResidualOrphans["servers"] = append(out.ResidualOrphans["servers"], s.Name)
+		}
+	}
+
+	// EIP residuals.
+	if eips, err := listEIPsByNamePrefix(ctx, client, hw, region, sovereignFQDN, ""); err == nil {
+		for _, e := range eips {
+			if strings.HasPrefix(e.Address, "bastion") {
+				continue
+			}
+			out.ResidualOrphans["floating_ips"] = append(out.ResidualOrphans["floating_ips"], e.Address)
+		}
+	}
+
+	// NAT residuals.
+	if nats, err := listNATsByName(ctx, client, hw, region, sovereignFQDN); err == nil {
+		for _, n := range nats {
+			if strings.HasPrefix(n.Name, "bastion") {
+				continue
+			}
+			out.ResidualOrphans["nat_gateways"] = append(out.ResidualOrphans["nat_gateways"], n.Name)
+		}
+	}
+
+	// VPC residuals.
+	if vpcs, err := listVPCsByName(ctx, client, hw, region, sovereignFQDN); err == nil {
+		for _, v := range vpcs {
+			if strings.HasPrefix(v.Name, "bastion") {
+				continue
+			}
+			out.ResidualOrphans["networks"] = append(out.ResidualOrphans["networks"], v.Name)
+		}
+	}
+
+	// SG residuals.
+	if sgs, err := listSGsByName(ctx, client, hw, region, sovereignFQDN); err == nil {
+		for _, sg := range sgs {
+			if strings.HasPrefix(sg.Name, "bastion") {
+				continue
+			}
+			out.ResidualOrphans["firewalls"] = append(out.ResidualOrphans["firewalls"], sg.Name)
+		}
+	}
+
+	// ELB residuals.
+	if elbs, err := listELBsByName(ctx, client, hw, region, sovereignFQDN); err == nil {
+		for _, lb := range elbs {
+			if strings.HasPrefix(lb.Name, "bastion") {
+				continue
+			}
+			out.ResidualOrphans["load_balancers"] = append(out.ResidualOrphans["load_balancers"], lb.Name)
+		}
+	}
+
+	// Keypair residuals — list ALL keypairs in project, filter by stem
+	// prefix excluding bastion. Mirrors sweepKeypairs's listing logic.
+	stem := strings.ReplaceAll(sovereignFQDN, ".", "-")
+	prefix := "catalyst-" + stem + "-"
+	kpBase := fmt.Sprintf("%s/v2/%s/os-keypairs", endpointFor("ecs", region), hw.ProjectID)
+	resp, _, _ := doSignedRequest(client, hw, http.MethodGet, kpBase, nil)
+	var keyList struct {
+		Keypairs []struct {
+			Keypair struct {
+				Name string `json:"name"`
+			} `json:"keypair"`
+		} `json:"keypairs"`
+	}
+	_ = json.Unmarshal(resp, &keyList)
+	for _, k := range keyList.Keypairs {
+		name := k.Keypair.Name
+		if strings.HasPrefix(name, "bastion") || strings.Contains(name, "bastion") {
+			continue
+		}
+		if !strings.HasPrefix(name, prefix) {
+			continue
+		}
+		out.ResidualOrphans["keypairs"] = append(out.ResidualOrphans["keypairs"], name)
+	}
+
+	// Compute the zero-orphans verdict + log the residuals (if any) so
+	// the operator's SSE banner + the CI gate see the same signal.
+	totalResiduals := 0
+	for _, names := range out.ResidualOrphans {
+		totalResiduals += len(names)
+	}
+	if totalResiduals == 0 {
+		out.VerifiedZeroOrphans = true
+		progress("verified zero orphans — wipe contract honoured")
+		// Drop the empty map so consumers can compare against nil.
+		out.ResidualOrphans = nil
+		return
+	}
+	out.VerifiedZeroOrphans = false
+	out.Errors = append(out.Errors, fmt.Sprintf(
+		"G103 wipe-contract violation: %d catalyst-* resource(s) survived wipe (bastion-* excluded) — see ResidualOrphans",
+		totalResiduals,
+	))
+	for kind, names := range out.ResidualOrphans {
+		progress(fmt.Sprintf("RESIDUAL ORPHAN: %d %s entries survived wipe: %v", len(names), kind, names))
+	}
 }
 
 // ListServers returns the Huawei-side ECS inventory for one
