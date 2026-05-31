@@ -351,10 +351,23 @@ func (h *Handler) HandleK8sExecSession(w http.ResponseWriter, r *http.Request) {
 	// Authorization FIRST (qa-loop iter-9 Fix #43, Cluster-A).
 	claims := auth.ClaimsFromContext(r.Context())
 	if !execSessionCallerAuthorized(claims) {
+		// G78a (2026-06-01): surface ACTUAL claims in the 403 body so
+		// operators can see WHY their session was rejected (catalyst-
+		// admin/owner realm-role mapper might be misconfigured; tier
+		// claim might be empty/viewer). This is a diagnosability
+		// improvement on the way to a permanent fix.
+		var rolesDbg string
+		var tierDbg string
+		if claims != nil {
+			rolesDbg = strings.Join(claims.RealmAccess.Roles, ",")
+			tierDbg = claims.Tier
+		}
 		writeJSON(w, http.StatusForbidden, map[string]string{
-			"error":  "forbidden",
-			"code":   "403",
-			"detail": "POST /k8s/exec/.../session requires realm role catalyst-admin/catalyst-owner/application-admin OR tier developer/operator/admin/owner",
+			"error":          "forbidden",
+			"code":           "403",
+			"detail":         "POST /k8s/exec/.../session requires realm role catalyst-admin/catalyst-owner/application-admin OR tier developer/operator/admin/owner",
+			"sessionRoles":   rolesDbg,
+			"sessionTier":    tierDbg,
 		})
 		return
 	}
