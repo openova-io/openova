@@ -15,8 +15,22 @@ type: application
 # sectionName by default — multi-zone Sovereigns rename HTTPS listeners
 # to https-<sanitised-zone>, breaking NoMatchingListener with the prior
 # pinned sectionName: https. Matches the catalyst-system fix in PR #1888.
-version: 1.0.3
+version: 1.0.4
 appVersion: "12.3.1"
+# 1.0.4 (G91.grafana #2658, 2026-05-31): opt in to the bp-sso-bridge
+# (G91.1 #2652) SSO framework. Top-level `sso:` block (defaults
+# enabled=true). Adds templates/sso-oauth-source-externalsecret.yaml
+# (ExternalSecret reading bp-sso-bridge's OpenBao `secret/sso/grafana`
+# bundle into Secret keys GF_AUTH_GENERIC_OAUTH_CLIENT_ID +
+# _CLIENT_SECRET — Grafana's canonical env-var-override mechanism).
+# Wires `grafana.envFromSecret: grafana-sso-oidc-credentials` so the
+# rendered env vars override the matching grafana.ini placeholders.
+# grafana.ini.auth.generic_oauth pre-configures scopes, login_attribute_
+# path=preferred_username, groups_attribute_path=groups, and
+# role_attribute_path mapping the realm sovereign-admins group → Admin
+# role. Per-Sovereign cluster overlay sets auth_url/token_url/api_url
+# from sso.sovereignFqdn + sso.realm.
+# Per SECURITY.md §6.3 (App-level SSO).
 keywords: [catalyst, blueprint, grafana, observability, dashboards]
 maintainers:
   - name: OpenOva Catalyst

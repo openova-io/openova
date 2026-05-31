@@ -98,12 +98,93 @@ grafana:
     create: true
     name: ""
 
+  # G91.grafana (#2658) — inject GF_AUTH_GENERIC_OAUTH_CLIENT_ID +
+  # _CLIENT_SECRET from the ExternalSecret-rendered Secret.
+  # The upstream chart concatenates envFromSecret + envFromSecrets.
+  envFromSecret: "grafana-sso-oidc-credentials"
+
+  # G91.grafana (#2658) — generic_oauth + auth defaults wired through
+  # grafana.ini. Per Grafana's value-override rule env vars take
+  # precedence over grafana.ini values, so the GF_AUTH_GENERIC_OAUTH_*
+  # env vars injected via envFromSecret above override the placeholders
+  # below. We still set the placeholders so the rendered grafana.ini
+  # carries the right scopes + URLs (env-only-rotation is fine, but
+  # operators inspecting /etc/grafana/grafana.ini see the right block).
+  #
+  # Per-Sovereign cluster overlay should set
+  # `grafana.grafana\.ini.auth\.generic_oauth.auth_url` /
+  # `.token_url` / `.api_url` to the realm URLs computed from
+  # sso.sovereignFqdn. The chart leaves them blank by default so a
+  # half-configured signin attempt errors clearly rather than wedging
+  # the grafana login UI.
+  "grafana.ini":
+    server:
+      root_url: "https://%(domain)s/"
+    auth:
+      disable_login_form: false
+      oauth_auto_login: false
+    "auth.generic_oauth":
+      enabled: true
+      name: "OpenOva SSO"
+      icon: signin
+      allow_sign_up: true
+      auto_login: false
+      client_id: "${GF_AUTH_GENERIC_OAUTH_CLIENT_ID}"
+      client_secret: "${GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET}"
+      scopes: "openid profile email groups"
+      # Per-Sovereign overlay populates these from sso.sovereignFqdn
+      # + sso.realm. Empty default = clear error on signin (rather
+      # than silent half-config).
+      auth_url: ""
+      token_url: ""
+      api_url: ""
+      # JMESPath expression: any contains() over the realm `groups`
+      # claim that matches the adminGroup → Admin, else Viewer.
+      # Operator overlays may broaden this to map additional groups.
+      role_attribute_path: "contains(groups[*], 'sovereign-admins') && 'Admin' || 'Viewer'"
+      # `email` claim provides the login identifier.
+      login_attribute_path: "preferred_username"
+      groups_attribute_path: "groups"
+      # Use email as the identifier when a user lacks login.
+      use_pkce: true
+
 # ─── Catalyst overlay values (consumed by templates/ in this chart) ──────
 # Reserved for Catalyst-side overlays (NetworkPolicy, ExternalSecret) added
 # in a follow-up PR once bp-grafana is consumed in clusters/_template/.
 grafanaOverlay:
   networkPolicy:
     enabled: false
+
+# ─── G91.grafana (#2658) SSO opt-in ───────────────────────────────────────
+# Per SECURITY.md §6.3 every Application Blueprint declares SSO support
+# with a single value. bp-sso-bridge (G91.1 #2652) watches every HR with
+# `sso.enabled: true` and reconciles a Keycloak Client + OpenBao
+# `secret/sso/grafana` + ExternalSecret in this namespace.
+#
+# bp-grafana plumbs the OIDC credentials into the upstream grafana chart's
+# generic_oauth path via the env-var-override mechanism — see
+# templates/sso-oauth-source-externalsecret.yaml. The grafana.ini values
+# below + the envFromSecret reference (added under grafana:) wire it all
+# together. role_attribute_path maps Keycloak realm groups to Grafana
+# roles: sovereign-admins → Admin, everyone else → Viewer.
+sso:
+  enabled: true
+  realm: sovereign
+  # Per-Sovereign cluster overlay sets this (e.g. `hw86.omani.works`).
+  # When empty the grafana.ini generic_oauth section still renders but
+  # auth_url/token_url/api_url are empty strings → users see an OAuth
+  # error on attempted sign-in (clear diagnostic) rather than a silent
+  # half-config.
+  sovereignFqdn: ""
+  clientId: grafana
+  externalSecretStoreName: vault-region1
+  refreshInterval: 1h
+  # Realm group → Grafana role mapping (JMESPath expression evaluated
+  # against the OIDC userinfo response by Grafana's
+  # role_attribute_path). The Sovereign operator is auto-added to
+  # `sovereign-admins` by the realm import; users in that group land
+  # as Grafana org-level Admins.
+  adminGroup: sovereign-admins
 
 # ─── Catalyst HTTPRoute (Cilium Gateway API, issue #387) ──────────────────
 # Replaces the upstream chart's networking.k8s.io/v1.Ingress on Sovereigns.
