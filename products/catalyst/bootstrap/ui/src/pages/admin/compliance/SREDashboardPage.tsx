@@ -28,7 +28,10 @@ import { PortalShell } from '@/pages/sovereign/PortalShell'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { useComplianceStream } from '@/lib/useComplianceStream'
 import { ComplianceTreemap } from '@/widgets/compliance/ComplianceTreemap'
-import { scorecardToTreemapNodes } from '@/widgets/compliance/scorecardToTreemapNodes'
+import {
+  categoryScoresToTreemapNodes,
+  scorecardToTreemapNodes,
+} from '@/widgets/compliance/scorecardToTreemapNodes'
 import type { ComplianceTreemapNode } from '@/widgets/compliance/ComplianceTreemapNode'
 import {
   COMPLIANCE_FRAMEWORKS,
@@ -171,6 +174,7 @@ export function SREDashboardPage({
       organizations: base.organizations.map(replace),
       environments: base.environments.map(replace),
       applications: base.applications.map(replace),
+      categoryScores: base.categoryScores,
       generatedAt: base.generatedAt,
     }
   }, [initialDataOverride, query.data, stream.scores])
@@ -188,10 +192,19 @@ export function SREDashboardPage({
     })
   }, [merged, orgFilter, envFilter, resourceFilter])
 
-  const treemapNodes: ComplianceTreemapNode[] = useMemo(
-    () => scorecardToTreemapNodes(filteredApps, policyDomainFilter),
-    [filteredApps, policyDomainFilter],
-  )
+  const treemapNodes: ComplianceTreemapNode[] = useMemo(() => {
+    const perAppNodes = scorecardToTreemapNodes(filteredApps, policyDomainFilter)
+    if (perAppNodes.length > 0) return perAppNodes
+    // G86b #2633 (2026-06-01): per-app rollups are absent (workloads
+    // lack catalyst app labels → enrichResourceState produces 0
+    // application buckets) but `categoryScores` on the same scorecard
+    // carries the real per-domain numerator/denominator. Synthesize
+    // one cell per non-empty category so operators see the actual
+    // compliance distribution instead of the "No data yet" empty
+    // placeholder. Per-app rollups remain the primary path — this
+    // only fires when they're empty AND categoryScores has data.
+    return categoryScoresToTreemapNodes(merged?.categoryScores)
+  }, [filteredApps, policyDomainFilter, merged?.categoryScores])
 
   // Filter chips dropdown options.
   const orgOptions = useMemo(() => {
@@ -226,7 +239,16 @@ export function SREDashboardPage({
 
   // Use `merged` (already normalized) so a nil-slice payload from the
   // backend is treated as "empty", not as a crash.
-  const isEmpty = !query.isLoading && !!merged && merged.applications.length === 0
+  // G86b #2633 (2026-06-01): the dashboard is empty ONLY when BOTH
+  // per-app rollups AND the category-fallback are empty. Pre-G86b a
+  // Sovereign with real category data (e.g. baseline 14/18 passing,
+  // Sovereign Score 50%) but zero per-app buckets rendered the empty
+  // placeholder despite having concrete compliance data to show.
+  const isEmpty =
+    !query.isLoading &&
+    !!merged &&
+    merged.applications.length === 0 &&
+    treemapNodes.length === 0
 
   return (
     <PortalShell deploymentId={deploymentId} pageTitle="Compliance">

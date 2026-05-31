@@ -78,11 +78,35 @@ export interface Violation {
   time: string
 }
 
+/**
+ * CategoryScore — backend per-category headline rollup (security / sre /
+ * baseline). Always present on the wire (zero-denominator entries
+ * surface `score:0`, never null). Mirrors
+ * `internal/handler/compliance.go.CategoryScore`.
+ */
+export interface CategoryScore {
+  score: number
+  numerator: number
+  denominator: number
+  policyCount: number
+}
+
 export interface ScorecardResponse {
   sovereign: Score
   organizations: Score[]
   environments: Score[]
   applications: Score[]
+  /**
+   * Server-computed per-category headline scorecard. Keys are the
+   * canonical scoring domains: `security`, `sre`, `baseline`. Present
+   * on every response — empty domains surface `score:0`. UI fallback:
+   * when `applications: []` (per-app rollup not yet populated — typical
+   * on a fresh Sovereign before workloads carry catalyst app labels)
+   * the treemap synthesises one cell per non-zero category so operators
+   * see the real compliance distribution instead of an empty surface
+   * (G86b #2633, 2026-06-01).
+   */
+  categoryScores?: Record<string, CategoryScore>
   generatedAt: string
 }
 
@@ -168,6 +192,10 @@ export function normalizeScorecard(raw: Partial<ScorecardResponse> | null | unde
     organizations: Array.isArray(safe.organizations) ? safe.organizations : [],
     environments: Array.isArray(safe.environments) ? safe.environments : [],
     applications: Array.isArray(safe.applications) ? safe.applications : [],
+    categoryScores:
+      safe.categoryScores && typeof safe.categoryScores === 'object'
+        ? (safe.categoryScores as Record<string, CategoryScore>)
+        : undefined,
     generatedAt: safe.generatedAt ?? new Date().toISOString(),
   }
 }
