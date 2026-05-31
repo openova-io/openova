@@ -28,18 +28,22 @@ slots:
   # ---- Tier 0-4: present today (post-PR-247 baseline) -----------------------
   - slot: 1
     name: bp-cilium
-    depends_on: []
+    # Refs #2650 dep-graph reconcile (2026-06-01): bp-cilium installs the
+    # cilium-gateway controller and enables gatewayAPI.enabled=true. That
+    # requires the upstream Gateway API CRDs to be present — installed by
+    # bp-gateway-api at slot 1a. So bp-cilium dependsOn bp-gateway-api.
+    # Earlier expected-deps had the edge reversed (gateway-api → cilium)
+    # which contradicted both the actual on-disk HR config and the
+    # canonical install order documented in issue #503.
+    depends_on: [bp-gateway-api]
     wave: present
   - slot: 1a
     name: bp-gateway-api
     # Upstream Kubernetes Gateway API CRDs (Standard channel — issue #503).
-    # Cilium 1.16's `gatewayAPI.enabled=true` enables the controller but does
-    # NOT install the gateway.networking.k8s.io CRDs themselves; without them
-    # every chart that ships HTTPRoute templates (bp-keycloak / bp-gitea /
-    # bp-powerdns / bp-openbao / bp-harbor / bp-grafana / bp-catalyst-platform)
-    # fails install with `no matches for kind HTTPRoute`. Same split-CRD
-    # pattern as bp-crossplane-claims and bp-external-secrets-stores.
-    depends_on: [bp-cilium]
+    # Pure CRD install; no controller, no dependencies. bp-cilium installs
+    # the cilium-gateway controller that USES these CRDs via
+    # gatewayAPI.enabled=true (slot 1 dependsOn this slot).
+    depends_on: []
     wave: present
   - slot: 2
     name: bp-cert-manager
