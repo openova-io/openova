@@ -276,6 +276,35 @@ type WipeResult struct {
 	// success as 200 with a non-empty errors body).
 	Errors []string
 
+	// G103 (Refs #2670) — Post-wipe orphan-verification residuals.
+	// Keyed by resource-kind (same vocab as ProviderPurge); each value
+	// is the slice of resource names that the post-wipe scan found
+	// STILL PRESENT with a catalyst-* prefix (bastion-* hard-excluded).
+	// A non-empty map means the wipe contract was violated:
+	// downstream prov attempts on the same account will hit quota +
+	// name-collision failures.
+	//
+	// The canonical wipe contract (per G103 issue acceptance):
+	//   - 0 VPCs (besides bastion)
+	//   - 0 EIPs (besides bastion)
+	//   - 0 NAT gateways (besides bastion)
+	//   - 0 ECSs (besides bastion)
+	//   - 0 keypairs (besides bastion-openova-kp)
+	//
+	// Providers that implement orphan verification populate this map;
+	// providers that don't leave it nil. The wipe handler logs any
+	// non-empty entries at error level and surfaces them in the
+	// SSE event stream so the operator sees real residual.
+	ResidualOrphans map[string][]string
+
+	// G103 (Refs #2670) — VerifiedZeroOrphans is true when the
+	// provider ran a post-wipe orphan scan AND the scan found zero
+	// catalyst-* resources (bastion-* excluded). Providers that don't
+	// implement verification leave this false. The operator-facing
+	// audit-hcs verification + the CI zero-orphan gate read this
+	// boolean as the canonical "wipe was complete" signal.
+	VerifiedZeroOrphans bool
+
 	// WipedAt — wall-clock timestamp the Wipe call returned.
 	WipedAt time.Time
 }
