@@ -503,7 +503,9 @@ write_files:
             # the LB→node→pod path end-to-end.
             #
             # CLUSTERMESH_SERVICE_TYPE unset here → bootstrap-kit envsubst
-            # default ${CLUSTERMESH_SERVICE_TYPE:=LoadBalancer} applies.
+            # default $${CLUSTERMESH_SERVICE_TYPE:=LoadBalancer} applies
+            # (`$$` escape so tofu passes the literal `${VAR}` through
+            # to Flux's envsubst — same pattern as lines 584/592/593/595).
             # CLUSTERMESH_NODE_PORT unset → empty (NodePort field unused
             # when type=LoadBalancer).
             CILIUM_LB_IPAM_ENABLED: "true"
