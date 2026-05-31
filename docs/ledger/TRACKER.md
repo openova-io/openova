@@ -1596,3 +1596,5 @@ hw76 + hw77 failed Phase 0 at HCS VPC quota BEFORE zero-touch contract reached (
 - 14 G-fixes shipped (G55-G67) + 1 filed post-ZT (G68 #2617)
 - 2 ZT GREEN provisions this session (hw75 + hw78)
 - Convergence trajectory: hw68 4F → hw69-hw74 each 1F new class → **hw75 0F (ZT#2)** → hw76+hw77 (HCS quota, G68) → **hw78 0F (ZT#3)** = MANDATE COMPLETE
+
+| 2026-05-31 01:00Z | POST-MANDATE | Issue batch-close audit | 33 → 11 open (-22 = 67% reduction) | Audited 23 G## issues (G26-G67 series) against hw75 (6a1ee682b987b202) + hw78 (de7f6aa8d5ef12b5) substrate-validation. Each got audit comment citing hw75+hw78 evidence + #2526 references per §1 5-step agent-owned cycle, then `gh issue close`. Closed: #2580,2581,2585,2586,2587,2589,2592,2593,2596,2598,2600,2601,2602,2604,2605,2608,2610,2611,2612,2613,2614,2615,2616 (G26→G67). Remaining 11 = #2617 G68 (filed post-ZT), 6 pre-existing prior-session G## (G29/G32/G34/G36/G37/G47), #2544 (deployments UX), 3 EPICs (#2526 5-Pillar, #2316 Shepherd, #1096 Compliance). |
