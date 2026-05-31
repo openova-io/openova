@@ -318,7 +318,13 @@ export function ResourceDetailPage(props: ResourceDetailPageProps) {
             />
           )}
           {tab === 'events' && (
-            <EventsPanel allEvents={allEvents} ns={ns} name={name} kindCanonical={apiKind} />
+            <EventsPanel
+              allEvents={allEvents}
+              ns={ns}
+              name={name}
+              kindCanonical={apiKind}
+              deploymentId={deploymentId}
+            />
           )}
           {tab === 'metrics' && (
             <MetricsPanel deploymentId={deploymentId} kind={apiKind} ns={ns || undefined} name={name} />

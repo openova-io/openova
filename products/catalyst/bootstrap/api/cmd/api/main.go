@@ -857,6 +857,11 @@ func main() {
 		rg.Get("/api/v1/sovereigns/{id}/k8s/metrics/{kind}/{ns}/{name}", h.HandleK8sResourceMetrics)
 		rg.Get("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}", h.HandleK8sResourceGet)
 		rg.Get("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/tree", h.HandleK8sResourceTree)
+		// G89 #2636 (2026-05-31): per-resource Events (direct apiserver
+		// List, bypasses k8scache per TBD-V50). Different prefix
+		// `events-for/{kind}/...` to avoid colliding with the cache's
+		// kind-list path which already uses /k8s/{kind}/{ns}/{name}.
+		rg.Get("/api/v1/sovereigns/{id}/k8s/events-for/{kind}/{ns}/{name}", h.HandleK8sEventsForResource)
 		rg.Post("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/scale", h.HandleK8sResourceScale)
 		// PUT /scale alias (qa-loop iter-7 Cluster-C, #1227): the
 		// Sovereign Console UI + qa-loop matrix use PUT to align with
