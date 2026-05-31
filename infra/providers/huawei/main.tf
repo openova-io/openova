@@ -668,6 +668,11 @@ locals {
       region_canonical_label         = "hw-${r.code}-rtz-prod"
       primary_region_canonical_label = "hw-${var.regions[0].code}-rtz-prod"
       replica_region_canonical_label = length(var.regions) > 1 ? "hw-${var.regions[1].code}-rtz-prod" : ""
+      # G87 #2634: multi-region Sovereigns default CNPG instances=2
+      # so per-chart cnpg-cluster.yaml renders 2 replicas + spread-
+      # across-regions affinity. Single-region keeps the existing
+      # instances=1 default.
+      sovereign_cnpg_instances = length(var.regions) > 1 ? "2" : "1"
       # Primary CP's EIP — Wave 5.8 (Refs #2140). The kubeconfig PUT-back
       # from cloud-init must use this EIP, not the private VPC IP, so the
       # remote mothership (cross-cloud Contabo) can reach the new

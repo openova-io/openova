@@ -969,6 +969,12 @@ spec:
   # for console/admin/api. All chart-level Catalyst service config (image refs,
   # OTel endpoints, NATS subjects) lives in products/catalyst/chart/values.yaml.
   values:
+    # G87 #2634: multi-region CNPG instances default (1 single-region, 2 multi).
+    # Applies to sme-services' CNPG cluster (sme-pg).
+    sme:
+      postgres:
+        cluster:
+          instances: ${SOVEREIGN_CNPG_INSTANCES:=1}
     global:
       sovereignFQDN: ${SOVEREIGN_FQDN}
       # sovereignLBIP — Sovereign's load-balancer public IPv4. Issue #900:

@@ -572,6 +572,18 @@ write_files:
             # placement) gate on this; primary CP renders "primary",
             # each secondary CP renders "secondary".
             SOVEREIGN_REGION_ROLE: "${sovereign_region_role}"
+            # G87 #2634 (2026-06-01): per-CNPG-cluster instance count.
+            # Multi-region Sovereigns default to 2 instances per CNPG
+            # cluster so the CNPG operator can spread across regions
+            # via `affinity.podAntiAffinity.topologyKey: topology.
+            # kubernetes.io/region` (substrate label stamped by G87
+            # cloudinit). Per-chart HR slots in the bootstrap-kit
+            # reference `$${SOVEREIGN_CNPG_INSTANCES:=1}` so single-
+            # region Sovereigns keep the existing 1-instance behavior
+            # and multi-region get 2. CnpgPair / Continuum CR
+            # creation (true BCP cross-region failover) is a separate
+            # application-controller workstream tracked in #2634.
+            SOVEREIGN_CNPG_INSTANCES: "${sovereign_cnpg_instances}"
             # Refs #2535 — G4: Cilium ClusterMesh peer anchors. The
             # 01-cilium.yaml HelmRelease reads these via the bootstrap-kit
             # Kustomization's `cluster.name=$${CLUSTER_MESH_NAME:=}` +

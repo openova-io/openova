@@ -160,6 +160,10 @@ spec:
   # The HTTPRoute attaches to cilium-gateway/kube-system and is the
   # active path on Sovereigns.
   values:
+    # G87 #2634: multi-region CNPG instances default (1 single-region, 2 multi).
+    postgres:
+      cluster:
+        instances: ${SOVEREIGN_CNPG_INSTANCES:=1}
     api:
       host: pdns.${SOVEREIGN_FQDN}
       gateway:

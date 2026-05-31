@@ -236,6 +236,10 @@ spec:
   # these by setting them in this HelmRelease's spec.values.
   values:
     sovereignFQDN: ${SOVEREIGN_FQDN}
+    # G87 #2634: multi-region CNPG instances default (1 single-region, 2 multi).
+    postgres:
+      cluster:
+        instances: ${SOVEREIGN_CNPG_INSTANCES:=1}
     ingress:
       host: api.${SOVEREIGN_FQDN}
       # Wave 5.81 (#2412): adminHost dropped — ops-staff admin via

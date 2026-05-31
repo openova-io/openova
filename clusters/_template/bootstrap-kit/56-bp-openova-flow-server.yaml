@@ -97,6 +97,10 @@ spec:
   # with the concrete sovereign FQDN before the HR bytes land in the
   # cluster.
   values:
+    # G87 #2634: multi-region CNPG instances default (1 single-region, 2 multi).
+    postgres:
+      cluster:
+        instances: ${SOVEREIGN_CNPG_INSTANCES:=1}
     flowServer:
       enabled: true
       httproute:

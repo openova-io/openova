@@ -175,6 +175,10 @@ spec:
   values:
     gateway:
       host: registry.${SOVEREIGN_FQDN}
+    # G87 #2634: multi-region CNPG instances default (1 single-region, 2 multi).
+    postgres:
+      cluster:
+        instances: ${SOVEREIGN_CNPG_INSTANCES:=1}
     objectStorage:
       enabled: true
       useExistingSecret: false

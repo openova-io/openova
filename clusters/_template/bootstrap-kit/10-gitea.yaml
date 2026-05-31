@@ -76,6 +76,13 @@ spec:
   values:
     global:
       sovereignFQDN: ${SOVEREIGN_FQDN}
+    # G87 #2634 (2026-06-01): multi-region Sovereigns default CNPG
+    # instances to 2 so the operator spreads across regions via
+    # topology.kubernetes.io/region antiAffinity. Single-region falls
+    # back to 1.
+    postgres:
+      cluster:
+        instances: ${SOVEREIGN_CNPG_INSTANCES:=1}
     # Per-Sovereign overrides — issue #387:
     # Cilium Gateway HTTPRoute exposes Gitea at gitea.${SOVEREIGN_FQDN}.
     # Upstream chart's own Ingress is disabled (gitea.ingress.enabled=false
