@@ -46,6 +46,56 @@ variable "marketplace_enabled" {
   }
 }
 
+# ── BCP topology (Refs #2666 G93.1) ──────────────────────────────────────
+# Business-Continuity-Planning topology the operator chose at provision
+# time. The canonical seam between the Catalyst console's wizard
+# StepProvider (the operator picks "Single region" vs "Active hot-standby
+# (2 regions)" vs "Active-active") and the chart-side
+# `SOVEREIGN_ENABLE_HOT_STANDBY` envsubst the bp-catalyst-platform chart
+# slot 13 + the sme_tenant_gitops writer + every bp-* multi-region chart
+# read at render time.
+#
+# Pre-G93.1 the cloud-init template HARDCODED `SOVEREIGN_ENABLE_HOT_STANDBY:
+# ""` regardless of len(var.regions); the Huawei port omitted the key
+# entirely. Both meant every multi-region Sovereign silently landed
+# single-Cluster CNPG on every tenant Application — Pillar 3
+# zero-transactions-lost was impossible to honour without per-overlay
+# operator action. catalyst-api's provisioner.Request.BcpTopology field
+# (G93.1) is the declarative source-of-truth that this var carries into
+# tofu.auto.tfvars.json. provisioner.deriveBcpTopology applies the auto-
+# derivation rule (empty + len(regions)>=2 → active-hotstandby; else
+# single-region) so a zero-touch multi-region prov lands on the target-
+# state shape without an operator opt-in.
+variable "bcp_topology" {
+  type        = string
+  description = "BCP topology: 'single-region', 'active-hotstandby' (primary+replica CNPG pair across two regions), or 'active-active' (symmetric multi-region; today renders as active-hotstandby at the cnpg-pair layer with the G93.4 routing knob a separate workstream)."
+  default     = "single-region"
+  validation {
+    condition     = contains(["single-region", "active-hotstandby", "active-active"], var.bcp_topology)
+    error_message = "bcp_topology must be one of: single-region, active-hotstandby, active-active."
+  }
+}
+
+# enable_hot_standby — derived companion of var.bcp_topology, kept as
+# its own var so the cloud-init template can interpolate the
+# already-stringified "true"/"false" verbatim into the Kustomization
+# postBuild.substitute map without an HCL conditional at render time.
+# provisioner.bcpTopologyEnableHotStandby maps the topology enum →
+# this string. Cross-validation rule: bcp_topology="single-region" with
+# enable_hot_standby="true" is rejected at plan time — this is the seam
+# that catches a hand-edited tfvars from drifting out of lockstep with
+# what catalyst-api emitted (or a future migration script forgetting to
+# update both keys in tandem).
+variable "enable_hot_standby" {
+  type        = string
+  description = "When 'true', the new Sovereign's bp-catalyst-platform chart renders the active-hotstandby CNPG shape on every CNPG-backed tenant Application (Pillar 3 zero-tx-loss). Derived from var.bcp_topology by catalyst-api; lockstep enforced at plan time."
+  default     = "false"
+  validation {
+    condition     = contains(["true", "false"], var.enable_hot_standby)
+    error_message = "enable_hot_standby must be the string 'true' or 'false'."
+  }
+}
+
 # ── QA fixtures auto-enable (Fix #73 — qa-loop bounded-cycle iter-16) ──
 # When set, bp-catalyst-platform's qaFixtures stack (qa-<sov> namespace +
 # qa-wp Application + Continuum CR + CNPGPair + PDM CRs + ScheduledBackup

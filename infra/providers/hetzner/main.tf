@@ -698,6 +698,16 @@ locals {
     wildcard_cert_issuer      = local.wildcard_cert_issuer
     cluster_mesh_name         = var.cluster_mesh_name
     cluster_mesh_id           = var.cluster_mesh_id
+    # G93.1 (Refs #2666) — BCP topology threading into the cloud-init
+    # Kustomization postBuild.substitute map. Pre-G93.1 the template
+    # hardcoded `SOVEREIGN_ENABLE_HOT_STANDBY: ""`; the chart's
+    # `${SOVEREIGN_ENABLE_HOT_STANDBY:-}` envsubst then always
+    # evaluated to empty and every multi-region Sovereign landed
+    # Pillar 3 broken. The two vars below carry the operator's choice
+    # verbatim — catalyst-api computes them from Request.BcpTopology
+    # (with auto-derivation for the empty/multi-region case).
+    bcp_topology       = var.bcp_topology
+    enable_hot_standby = var.enable_hot_standby
 
     # Multi-domain Sovereign (issue #827). When the wizard supplies an
     # explicit parent-domain list, use it verbatim. Otherwise default to a
@@ -1268,6 +1278,13 @@ locals {
       qa_organization           = var.qa_organization
       wildcard_cert_use_staging = var.wildcard_cert_use_staging
       wildcard_cert_issuer      = local.wildcard_cert_issuer
+      # G93.1 (Refs #2666) — same BCP topology values as the primary CP.
+      # Sovereign-wide invariant: every region's bootstrap-kit Kustomization
+      # substitute resolves to the same SOVEREIGN_ENABLE_HOT_STANDBY +
+      # SOVEREIGN_BCP_TOPOLOGY so sme_tenant_gitops's tenant render and
+      # the chart-side cnpg-pair gating agree across regions.
+      bcp_topology       = var.bcp_topology
+      enable_hot_standby = var.enable_hot_standby
       # Per-secondary-region ClusterMesh anchors. id is incremented per
       # peer index so each secondary region gets a unique slot in the
       # mesh registry; primary region keeps var.cluster_mesh_id.

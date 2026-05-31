@@ -390,6 +390,37 @@ variable "marketplace_enabled" {
   EOT
 }
 
+# ── BCP topology (Refs #2666 G93.1) ────────────────────────────────────
+# Companion to the Hetzner port's `bcp_topology` + `enable_hot_standby`
+# vars. Pre-G93.1 the Huawei cloud-init template OMITTED the
+# SOVEREIGN_ENABLE_HOT_STANDBY envsubst key entirely (Hetzner had it
+# hardcoded to ""; Huawei never even surfaced it) → every HCS multi-
+# region Sovereign silently landed single-Cluster CNPG, defeating
+# Pillar 3 zero-tx-loss on every Huawei prov. catalyst-api emits this
+# key into tofu.auto.tfvars.json from Request.BcpTopology; the
+# cloud-init template substitutes it into the Kustomization
+# postBuild.substitute map so the bp-catalyst-platform chart slot 13
+# `${SOVEREIGN_ENABLE_HOT_STANDBY:-}` envsubst resolves correctly.
+variable "bcp_topology" {
+  type        = string
+  description = "BCP topology: 'single-region', 'active-hotstandby' (primary+replica CNPG pair across two HCS regions), or 'active-active' (symmetric multi-region; today renders as active-hotstandby at the cnpg-pair layer with the G93.4 routing knob a separate workstream)."
+  default     = "single-region"
+  validation {
+    condition     = contains(["single-region", "active-hotstandby", "active-active"], var.bcp_topology)
+    error_message = "bcp_topology must be one of: single-region, active-hotstandby, active-active."
+  }
+}
+
+variable "enable_hot_standby" {
+  type        = string
+  description = "When 'true', the HCS Sovereign's bp-catalyst-platform chart renders the active-hotstandby CNPG shape on every CNPG-backed tenant Application (Pillar 3 zero-tx-loss). Derived from var.bcp_topology by catalyst-api; lockstep enforced at plan time."
+  default     = "false"
+  validation {
+    condition     = contains(["true", "false"], var.enable_hot_standby)
+    error_message = "enable_hot_standby must be the string 'true' or 'false'."
+  }
+}
+
 variable "wildcard_cert_use_staging" {
   type        = string
   default     = "false"

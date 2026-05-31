@@ -157,6 +157,62 @@ const defaultRegistrarKind = "dynadot"
 // or the catalyst-api does so server-side.
 var s3BucketNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$`)
 
+// BCP topology constants — the operator-visible enum for
+// Request.BcpTopology. See the doc comment on the field for the full
+// semantic contract.
+const (
+	BcpTopologySingleRegion     = "single-region"
+	BcpTopologyActiveHotStandby = "active-hotstandby"
+	BcpTopologyActiveActive     = "active-active"
+)
+
+// validBcpTopologies is the wire-allowed set the validator checks
+// against. Kept in sync with the chart-side enum in
+// products/catalyst/chart/crds/cnpgpair.yaml (`spec.topology`) and the
+// applications_update.go placement.mode set.
+var validBcpTopologies = map[string]struct{}{
+	BcpTopologySingleRegion:     {},
+	BcpTopologyActiveHotStandby: {},
+	BcpTopologyActiveActive:     {},
+}
+
+// deriveBcpTopology applies the auto-derivation rule documented on
+// Request.BcpTopology:
+//
+//   - Empty + len(Regions) >= 2  → "active-hotstandby"
+//   - Empty + len(Regions) <  2  → "single-region"
+//   - Explicit value preserved verbatim
+//
+// Pulled into a helper so the unit tests and writeTfvars share one
+// source of truth — there is exactly one place that decides what the
+// effective topology is for a given Request.
+func deriveBcpTopology(req Request) string {
+	t := strings.TrimSpace(req.BcpTopology)
+	if t != "" {
+		return t
+	}
+	if len(req.Regions) >= 2 {
+		return BcpTopologyActiveHotStandby
+	}
+	return BcpTopologySingleRegion
+}
+
+// bcpTopologyEnableHotStandby maps the effective topology to the
+// `enable_hot_standby` tofu var (string "true"/"false"). The
+// `active-active` topology is treated as a superset of
+// `active-hotstandby` at the cnpg-pair layer (active-active still
+// requires a primary + replica CNPG pair under the hood per docs/
+// SRE.md §2 sync-replica matrix); the symmetric routing knob is a
+// separate workstream (G93.4 Refs #2669).
+func bcpTopologyEnableHotStandby(topology string) string {
+	switch topology {
+	case BcpTopologyActiveHotStandby, BcpTopologyActiveActive:
+		return "true"
+	default:
+		return "false"
+	}
+}
+
 // RegionSpec is one entry in Request.Regions — the per-region sizing
 // payload the wizard's StepProvider produces. Each topology slot has its
 // own provider, its own cloud-region, and its own SKU vocabulary, so the
@@ -295,6 +351,53 @@ type Request struct {
 	WorkerCount      int    `json:"workerCount"`
 
 	HAEnabled bool `json:"haEnabled"`
+
+	// BcpTopology — Business-Continuity-Planning topology the operator
+	// chose at provision time. One of:
+	//
+	//   - "single-region"     — one region, no cross-region DR shape. The
+	//                           Sovereign renders single-Cluster CNPG on
+	//                           every CNPG-backed tenant Application.
+	//   - "active-hotstandby" — primary + replica region pair. The
+	//                           Sovereign renders the bp-cnpg-pair shape
+	//                           on every CNPG-backed tenant Application
+	//                           (Pillar 3 zero-tx-loss claim).
+	//   - "active-active"     — symmetric multi-region; reserved for
+	//                           future work (Refs #2669 G93.4). Today
+	//                           validates as "active-hotstandby" at this
+	//                           layer; the symmetric routing knob is
+	//                           rendered by a follow-up workstream.
+	//
+	// Threaded into tofu via var.enable_hot_standby + the existing
+	// var-derived primary/replica region labels, then into the cloud-init
+	// Flux Kustomization postBuild.substitute as SOVEREIGN_ENABLE_HOT_STANDBY
+	// which the bp-catalyst-platform chart slot 13 reads via
+	// `${SOVEREIGN_ENABLE_HOT_STANDBY:-}`. Pre-G93.1 the cloud-init template
+	// HARDCODED this envsubst key to empty regardless of the operator's
+	// intent (and the Huawei port lacked it entirely) — every multi-region
+	// prov silently landed single-Cluster CNPG, defeating Pillar 3.
+	//
+	// Default-derivation rule (Validate()):
+	//   - Empty + len(Regions) >= 2  → "active-hotstandby"   (target-state)
+	//   - Empty + len(Regions) <  2  → "single-region"
+	//   - Explicit value preserved verbatim
+	//
+	// Multi-layer RCA (Refs #2666 G93.1, docs/PRINCIPLES.md Principle 16):
+	//   - Trigger: HARDCODED `SOVEREIGN_ENABLE_HOT_STANDBY: ""` in the
+	//     hetzner cloud-init template; the Huawei port missed it entirely
+	//     so the chart's `${SOVEREIGN_ENABLE_HOT_STANDBY:-}` envsubst
+	//     evaluated to literal empty → chart-side fallback `false` always
+	//     won. Every fresh multi-region prov landed Pillar 3 broken.
+	//   - Defense: BcpTopology is the declarative seam on the wire, with
+	//     auto-derivation for the common case. The cloud-init template
+	//     reads `${enable_hot_standby}` from the tofu var instead of
+	//     hardcoded "".
+	//   - Containment: tofu var validation `["true","false"]` makes a
+	//     typo at tfvars-write time a `tofu plan` failure (not a silent
+	//     wrong default). The provisioner.Request.Validate() rejects
+	//     unknown topology strings at /api/v1/deployments POST time so
+	//     the operator gets a 400 instead of a wrong-by-default prov.
+	BcpTopology string `json:"bcpTopology,omitempty"`
 
 	// MarketplaceEnabled — when true, bp-catalyst-platform 1.3.0+ renders the
 	// marketplace + tenant-wildcard HTTPRoutes (issue #710). Threaded into
@@ -649,6 +752,38 @@ func (r *Request) Validate() error {
 				"workerSize", r.Provider, r.WorkerSize, r.Region,
 			))
 		}
+	}
+
+	// BCP topology (Refs #2666 G93.1) — validate explicit value if
+	// the operator supplied one; auto-derive when empty so every
+	// multi-region payload lands on the target-state Pillar 3 shape
+	// without a per-overlay write. Place this check AFTER the Regions
+	// mirror above so deriveBcpTopology() sees the canonical
+	// len(Regions) count. Normalisation is whitespace-trim + lowercase
+	// so the operator can send "Active-HotStandby" / " single-region "
+	// and still hit the enum.
+	if explicit := strings.ToLower(strings.TrimSpace(r.BcpTopology)); explicit != "" {
+		if _, ok := validBcpTopologies[explicit]; !ok {
+			return fmt.Errorf(
+				"bcpTopology %q is not one of: single-region, active-hotstandby, active-active",
+				r.BcpTopology,
+			)
+		}
+		r.BcpTopology = explicit
+	} else {
+		r.BcpTopology = deriveBcpTopology(*r)
+	}
+	// Cross-field invariant: active-hotstandby and active-active both
+	// require >=2 regions on the wire — a single-region prov cannot
+	// satisfy Pillar 3 zero-tx-loss. Fail-fast at /api/v1/deployments
+	// POST time so the operator gets a 400 instead of an apply that
+	// boots single-region with the chart still rendering single-cluster
+	// CNPG (which would be a wrong-by-default silent regression).
+	if (r.BcpTopology == BcpTopologyActiveHotStandby || r.BcpTopology == BcpTopologyActiveActive) && len(r.Regions) < 2 {
+		return fmt.Errorf(
+			"bcpTopology=%q requires len(regions)>=2 (got %d) — Pillar 3 zero-transactions-lost cannot be honoured single-region",
+			r.BcpTopology, len(r.Regions),
+		)
 	}
 
 	// ParentDomains migration (issue #826 — backward compat with the
@@ -1624,6 +1759,44 @@ func writeTfvars(deployDir string, req Request) error {
 		// Stringified for the same envsubst-passthrough reason as
 		// qa_fixtures_enabled.
 		"wildcard_cert_use_staging": map[bool]string{true: "true", false: "false"}[req.QATestEnabled],
+
+		// BCP topology threading (Refs #2666 G93.1). Pre-G93.1 the
+		// cloud-init Kustomization substitute SOVEREIGN_ENABLE_HOT_STANDBY
+		// was hardcoded to "" on Hetzner and absent on Huawei → the
+		// bp-catalyst-platform chart's slot-13
+		// `${SOVEREIGN_ENABLE_HOT_STANDBY:-}` always evaluated to empty,
+		// so the chart-side fallback `false` won on EVERY multi-region
+		// Sovereign. The sme_tenant_gitops writer reads the same env at
+		// catalyst-api runtime to decide whether to inject
+		// `pg.activeHotStandby` into every tenant bp-wordpress-tenant
+		// HelmRelease — empty meant single-Cluster CNPG always, even on
+		// a 2-region prov. Pillar 3 zero-tx-loss was silently impossible.
+		//
+		// Both topology values that imply a primary+replica CNPG pair
+		// (active-hotstandby, active-active) flip `enable_hot_standby`
+		// to "true"; single-region stays "false". The Hetzner +
+		// Huawei cloud-init templates now interpolate this tofu var
+		// into the Kustomization substitute map (G93.1 PR), replacing
+		// the previously-hardcoded literal. See
+		// infra/providers/{hetzner,huawei}/variables.tf for the matching
+		// "true"/"false" validation block — a typo (e.g. "True") fails
+		// at `tofu plan` rather than landing a wrong-by-default prov.
+		//
+		// The effective topology is computed by deriveBcpTopology, the
+		// same helper Validate() calls — there is exactly one source of
+		// truth for "is this an active-hotstandby Sovereign". Tests in
+		// provisioner_bcp_topology_test.go pin every branch of the
+		// derivation + the resulting tfvars emission.
+		"enable_hot_standby": bcpTopologyEnableHotStandby(deriveBcpTopology(req)),
+		// Mirror the canonical effective string into the tfvars so an
+		// operator inspecting tofu.auto.tfvars.json on the catalyst-api
+		// PVC can answer "what topology did this Sovereign provision
+		// under?" without re-reading the deployment record. The Hetzner
+		// + Huawei variables.tf declare a matching string variable
+		// `bcp_topology`. The catalyst-api ledger + the Sovereign-side
+		// status surfaces use this same value to render the BSS-menu DR
+		// posture chip and the Settings page Continuity Plan row.
+		"bcp_topology": deriveBcpTopology(req),
 
 		// QA namespace + Organization names — derived from the Sovereign
 		// FQDN's first label at provision time per principle #4 (never

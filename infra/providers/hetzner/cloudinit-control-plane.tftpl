@@ -1180,11 +1180,32 @@ write_files:
             # replicaRegion is empty per sme_tenant_gitops.go contract).
             SOVEREIGN_PRIMARY_REGION: "${primary_region_canonical_label}"
             SOVEREIGN_REPLICA_REGION: "${replica_region_canonical_label}"
-            # SOVEREIGN_ENABLE_HOT_STANDBY — D31 opt-in. Default empty
-            # (= disabled) on every fresh prov; operators / wizard flip via
-            # per-Sovereign overlay write. Reserved here so a future tofu
-            # variable can populate without a chart-side change.
-            SOVEREIGN_ENABLE_HOT_STANDBY: ""
+            # SOVEREIGN_ENABLE_HOT_STANDBY — D31 / G93.1 (Refs #2666).
+            # Derived from var.bcp_topology by catalyst-api's
+            # provisioner.bcpTopologyEnableHotStandby helper:
+            # "active-hotstandby" and "active-active" → "true";
+            # "single-region" → "false". Pre-G93.1 this key was
+            # HARDCODED to "" here, so the chart's
+            # `$${SOVEREIGN_ENABLE_HOT_STANDBY:-}` envsubst always
+            # evaluated to literal empty → the chart-side default
+            # `false` always won → every multi-region prov silently
+            # landed single-Cluster CNPG → Pillar 3 zero-tx-loss
+            # impossible without a per-overlay flip. Now driven by the
+            # tofu var, which the wizard's StepProvider chooses or
+            # which auto-derives from len(regions)>=2 inside
+            # provisioner.Request.Validate().
+            SOVEREIGN_ENABLE_HOT_STANDBY: "${enable_hot_standby}"
+            # SOVEREIGN_BCP_TOPOLOGY — operator-visible enum string
+            # (single-region | active-hotstandby | active-active).
+            # Rendered into the Settings page Continuity Plan row +
+            # the BSS-menu DR posture chip on the Sovereign console.
+            # Distinct from SOVEREIGN_ENABLE_HOT_STANDBY because the
+            # `active-active` future shape and the today-canonical
+            # `active-hotstandby` shape both flip the boolean but the
+            # operator-visible label must distinguish them. Charts
+            # that need the boolean keep reading the existing key;
+            # catalyst-api status surfaces read this string one.
+            SOVEREIGN_BCP_TOPOLOGY: "${bcp_topology}"
             # SOVEREIGN_CONFIGURED_REGIONS_YAML — YAML inline-list literal of
             # the cloudRegions this Sovereign was provisioned with
             # (e.g. `["fsn1","hel1"]`). Chart joins into the comma-separated
