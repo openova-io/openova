@@ -312,6 +312,48 @@ data:
         "${KC_ADDR%/}/admin/realms/${KC_REALM}/users/${user_id}/role-mappings/clients/${kc_id}" >/dev/null || true
     }
 
+    grant_operator_realm_roles() {
+      # $1 = operator email, $2 = space-separated list of realm-role names
+      # Some apps (e.g. catalyst-console, which has a pre-existing
+      # catalyst-ui Client in the realm import) need the operator granted
+      # REALM-level roles rather than per-Client roles. The realm-role
+      # 'catalyst-admin' grants full operator-console privileges via the
+      # realm's catalyst-{viewer,developer,operator,admin,owner} composite
+      # chain (configmap-sovereign-realm.yaml).
+      local email="$1" roles="$2"
+      [ -z "${email}" ] && { warn "no operator email; skipping realm-role grant"; return 0; }
+      [ -z "${roles}" ] && return 0
+
+      local user_id
+      user_id="$(curl -fsS \
+        -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
+        "${KC_ADDR%/}/admin/realms/${KC_REALM}/users?email=${email}&exact=true" \
+        | jq -r '.[0].id // empty')"
+      if [ -z "${user_id}" ]; then
+        warn "operator user '${email}' not yet provisioned; realm-role grant deferred"
+        return 0
+      fi
+
+      for role_name in ${roles}; do
+        local role_rep
+        role_rep="$(curl -fsS \
+          -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
+          "${KC_ADDR%/}/admin/realms/${KC_REALM}/roles/${role_name}" 2>/dev/null)"
+        if [ -z "${role_rep}" ] || ! printf '%s' "${role_rep}" | jq -e '.id' >/dev/null 2>&1; then
+          warn "realm-role '${role_name}' not found in realm ${KC_REALM}; skipping grant"
+          continue
+        fi
+        # POST role-mapping for the user (realm-level). Idempotent.
+        curl -fsS -X POST \
+          -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
+          -H "Content-Type: application/json" \
+          -d "[${role_rep}]" \
+          "${KC_ADDR%/}/admin/realms/${KC_REALM}/users/${user_id}/role-mappings/realm" >/dev/null \
+          && log "granted realm-role '${role_name}' to ${email}" \
+          || warn "POST realm role-mapping '${role_name}' for ${email} failed"
+      done
+    }
+
     emit_external_secret() {
       # $1 = clientId, $2 = HR namespace
       local cid="$1" hrns="$2"
@@ -372,11 +414,42 @@ data:
       # — bp-gitea is the HR, but the natural OIDC clientId is `gitea`).
       local cid="${name#bp-}"
 
-      log "reconcile ${name} (ns=${ns} clientId=${cid})"
+      # G91.catalyst-console-admin-self-grant (#2659) — pull per-HR
+      # `.spec.values.sso.realmRolesGranted` (list of strings). Some apps
+      # need REALM-level role grants on the operator rather than (or in
+      # addition to) the per-Client `admin` role — most notably
+      # bp-catalyst-platform, whose operator console uses a pre-existing
+      # `catalyst-ui` Client from the realm import and is gated by
+      # realm-roles `catalyst-{viewer,developer,operator,admin,owner}`
+      # rather than a per-Client role. Empty/missing = legacy
+      # per-Client-only grant.
+      local realm_roles
+      realm_roles="$(printf '%s' "${hr}" | jq -r '(.spec.values.sso.realmRolesGranted // []) | join(" ")')"
 
-      upsert_client "${cid}" "${fqdn}" || { err "upsert ${cid} failed"; return 1; }
-      emit_external_secret "${cid}" "${ns}" || { err "emit-es ${cid} failed"; return 1; }
-      grant_operator_admin "${cid}" "${op_email}" || warn "grant-admin ${cid} non-fatal"
+      # G91.catalyst-console-admin-self-grant (#2659) — opt-out of
+      # per-Client upsert + per-Client-`admin` grant. Apps that ship
+      # their own pre-existing Keycloak Client via realm-import (e.g.
+      # `catalyst-ui` in the sovereign realm JSON) can declare
+      # `.spec.values.sso.skipClientUpsert: true` to mark themselves
+      # opt-in for the realm-role-grant path only — bp-sso-bridge then
+      # skips both upsert_client and emit_external_secret (no
+      # client_secret to materialise) and ONLY runs realm-role grant.
+      local skip_upsert
+      skip_upsert="$(printf '%s' "${hr}" | jq -r '.spec.values.sso.skipClientUpsert // false')"
+
+      log "reconcile ${name} (ns=${ns} clientId=${cid} realmRoles='${realm_roles}' skipUpsert=${skip_upsert})"
+
+      if [ "${skip_upsert}" != "true" ]; then
+        upsert_client "${cid}" "${fqdn}" || { err "upsert ${cid} failed"; return 1; }
+        emit_external_secret "${cid}" "${ns}" || { err "emit-es ${cid} failed"; return 1; }
+        grant_operator_admin "${cid}" "${op_email}" || warn "grant-admin ${cid} non-fatal"
+      else
+        log "skipping client upsert + ExternalSecret for ${cid} (sso.skipClientUpsert=true)"
+      fi
+
+      if [ -n "${realm_roles}" ]; then
+        grant_operator_realm_roles "${op_email}" "${realm_roles}" || warn "grant-realm-roles ${realm_roles} non-fatal"
+      fi
     }
 
     cleanup_orphans() {

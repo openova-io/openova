@@ -1,6 +1,24 @@
 apiVersion: v2
 name: bp-sso-bridge
-version: 0.1.0
+version: 0.1.1
+# 0.1.1 (G91.catalyst-console-admin-self-grant #2659, 2026-05-31):
+# extends the reconcile loop with:
+#   - `grant_operator_realm_roles` — grants the operator user the
+#     space-separated list of realm-roles named in the HR's
+#     `.spec.values.sso.realmRolesGranted` array. Idempotent (Keycloak
+#     swallows duplicate role-mappings). Required for #2659 because
+#     bp-catalyst-platform's operator console (`catalyst-ui` Client,
+#     pre-existing in the realm import) is gated by realm-roles
+#     `catalyst-{viewer,developer,operator,admin,owner}`, not a per-
+#     Client role.
+#   - `.spec.values.sso.skipClientUpsert: true` opt-out flag — apps
+#     that already have a pre-existing Keycloak Client (e.g.
+#     `catalyst-ui`) can declare this to mark themselves opt-in for
+#     the realm-role-grant path only; the framework then skips
+#     upsert_client + emit_external_secret + per-Client `admin` grant.
+# Backwards-compatible: every existing consumer (bp-gitea, bp-harbor,
+# bp-openbao, bp-grafana, bp-sandbox) keeps the legacy per-Client
+# upsert + admin path because neither new field is set.
 description: |
   Catalyst SSO framework (G91 #2652). Reconciles a Keycloak Client per
   HelmRelease that declares `sso.enabled: true` in its values, stores the
