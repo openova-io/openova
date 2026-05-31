@@ -550,6 +550,7 @@ jobs:
           paths: |
             products/catalyst/chart/values.yaml
             products/catalyst/chart/templates/api-deployment.yaml
+            products/catalyst/chart/templates/api-deployment-kustomize.yaml
             products/catalyst/chart/templates/ui-deployment.yaml
             products/catalyst/chart/Chart.yaml
           commit-message: "deploy: update catalyst images to ${{ needs.build-ui.outputs.sha_short }}"
