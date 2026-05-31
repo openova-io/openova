@@ -231,6 +231,19 @@ type Config struct {
 	// reconcile when nothing else triggered it. Defaults to 5 minutes.
 	RequeueAfter time.Duration
 
+	// SovereignBcpTopology — the Sovereign-wide BCP topology this
+	// catalyst-platform was provisioned under (G93.1, Refs #2666). One
+	// of "single-region", "active-hotstandby", or "active-active".
+	// Empty = unset, treated as single-region for default derivation.
+	// Read from the SOVEREIGN_BCP_TOPOLOGY env at controller startup;
+	// the bp-catalyst-platform chart slot 13 stamps it from cloud-init
+	// via the bootstrap-kit Kustomization postBuild.substitute. The
+	// G93.2 (Refs #2667) default-derivation seam consults this when an
+	// Application CR omits `spec.placement`: a multi-region Sovereign
+	// auto-picks the Blueprint's `defaultOnMultiRegion` mode so
+	// Pillar 3 zero-tx-loss holds without operator opt-in.
+	SovereignBcpTopology string
+
 	// HostFluxNamespace is the K8s namespace on the HOST cluster (not
 	// the vCluster) where the per-Application Flux GitRepository +
 	// Kustomization CRs are upserted. Defaults to "flux-system" — the
@@ -583,6 +596,26 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 		return r.markFailed(ctx, app, ReasonInvalid,
 			fmt.Sprintf("blueprintRef.version %q is not an exact MAJOR.MINOR.PATCH semver",
 				spec.BlueprintVersion))
+	}
+
+	// 4.5 (G93.2, Refs #2667) — derive effective placement when the
+	// Application CR's spec.placement is empty. The Blueprint declares
+	// its preferred single-region default + its preferred multi-region
+	// default; the controller picks the right one based on the
+	// Sovereign-wide BCP topology (SOVEREIGN_BCP_TOPOLOGY env, threaded
+	// in via Config.SovereignBcpTopology by main.go). When operator
+	// supplied spec.placement explicitly, this is a no-op.
+	if spec.Placement == "" {
+		spec.Placement = placement.EffectiveDefault(
+			r.Cfg.SovereignBcpTopology,
+			blueprintDefaultPlacement(bp),
+			blueprintDefaultOnMultiRegion(bp),
+		)
+		r.Log.Info("derived effective placement from Blueprint defaults",
+			"app", app.GetName(),
+			"blueprint", spec.BlueprintName,
+			"sovereignTopology", r.Cfg.SovereignBcpTopology,
+			"effectivePlacement", spec.Placement)
 	}
 
 	// 5. Validate placement against Blueprint.placementSchema.modes.
@@ -1522,10 +1555,16 @@ func parseSpec(app *unstructured.Unstructured) (appSpec, error) {
 	}
 	out.BlueprintVersion = bpVer
 
+	// G93.2 (Refs #2667) — spec.placement is OPTIONAL. When the
+	// operator omits it, the controller derives the effective default
+	// from the Blueprint's placementSchema.{default,defaultOnMultiRegion}
+	// + the Sovereign-wide BCP topology (SOVEREIGN_BCP_TOPOLOGY env).
+	// Empty here is propagated; the reconciler stamps the derived value
+	// before validating against placementSchema.modes[]. This is the
+	// seam that makes a fresh marketplace install on a multi-region
+	// Sovereign land on active-hotstandby zero-touch for every
+	// CNPG-backed Blueprint that declares defaultOnMultiRegion.
 	pl, _, _ := unstructured.NestedString(app.Object, "spec", "placement")
-	if pl == "" {
-		return out, errors.New("spec.placement is required")
-	}
 	out.Placement = pl
 
 	rgRaw, _, _ := unstructured.NestedSlice(app.Object, "spec", "regions")
@@ -1595,6 +1634,27 @@ func blueprintAllowedModes(bp *unstructured.Unstructured) []string {
 		}
 	}
 	return out
+}
+
+// blueprintDefaultPlacement reads `spec.placementSchema.default` from a
+// Blueprint — the single-knob default the Application CR picks up when
+// `spec.placement` is empty AND the Sovereign is single-region OR the
+// Blueprint did not declare `defaultOnMultiRegion`. Empty when absent.
+// G93.2 (Refs #2667) companion of blueprintDefaultOnMultiRegion.
+func blueprintDefaultPlacement(bp *unstructured.Unstructured) string {
+	s, _, _ := unstructured.NestedString(bp.Object, "spec", "placementSchema", "default")
+	return s
+}
+
+// blueprintDefaultOnMultiRegion reads
+// `spec.placementSchema.defaultOnMultiRegion` from a Blueprint — the
+// G93.2 (Refs #2667) declarative seam that lets a CNPG-backed Blueprint
+// opt every Application of its kind into active-hotstandby on a
+// multi-region Sovereign without per-call wiring. Empty when absent
+// (the controller then falls back to placementSchema.default).
+func blueprintDefaultOnMultiRegion(bp *unstructured.Unstructured) string {
+	s, _, _ := unstructured.NestedString(bp.Object, "spec", "placementSchema", "defaultOnMultiRegion")
+	return s
 }
 
 // blueprintVCluster reads spec.placementSchema.vcluster from a

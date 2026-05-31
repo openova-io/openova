@@ -163,4 +163,16 @@ data:
   enableHotStandby: {{ default "" .Values.sovereign.enableHotStandby | quote }}
   primaryRegion: {{ default "" .Values.sovereign.primaryRegion | quote }}
   replicaRegion: {{ default "" .Values.sovereign.replicaRegion | quote }}
+  # G93.2 (Refs #2667) — bcpTopology is the operator-visible enum
+  # string ("single-region" | "active-hotstandby" | "active-active")
+  # the application-controller reads to pick the right
+  # Blueprint placementSchema default for empty spec.placement on
+  # Application CRs. Stamped from cloud-init's
+  # SOVEREIGN_BCP_TOPOLOGY Kustomization postBuild.substitute
+  # (G93.1, Refs #2666) which catalyst-api derives from
+  # Request.BcpTopology with auto-derivation for the
+  # empty/multi-region case. Default "" keeps existing single-knob
+  # behaviour for legacy Sovereigns where the cloud-init template
+  # predates G93.1.
+  bcpTopology: {{ default "" .Values.sovereign.bcpTopology | quote }}
 {{- end }}

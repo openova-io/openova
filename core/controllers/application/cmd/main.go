@@ -177,6 +177,16 @@ func loadConfigFromEnv() controller.Config {
 		GiteaInClusterURL:       env("GITEA_IN_CLUSTER_URL", "http://gitea-http.gitea.svc.cluster.local:3000"),
 		HostFluxIntervalSeconds: envInt("HOST_FLUX_INTERVAL_SECONDS", 60),
 		FluxGiteaSecretRef:      env("FLUX_GITEA_SECRET_REF", ""),
+		// G93.2 (Refs #2667) — Sovereign-wide BCP topology. Stamped
+		// from cloud-init by the G93.1 (Refs #2666) chain:
+		// var.bcp_topology → SOVEREIGN_BCP_TOPOLOGY (Kustomization
+		// postBuild.substitute) → bp-catalyst-platform chart slot 13 →
+		// catalyst-api Pod env. The application-controller reads this
+		// once at startup; the value is Sovereign-wide invariant for
+		// the life of the prov (changing it requires a wipe + fresh
+		// prov per ADR-0001 §A4). Empty = unset, treated as
+		// single-region by placement.EffectiveDefault.
+		SovereignBcpTopology: env("SOVEREIGN_BCP_TOPOLOGY", ""),
 		// G92.1 #2660 — vCluster placement map. Defaults match the
 		// loft-sh convention (HostNamespace = name, Secret = "vc-"+name).
 		// Operators override per Sovereign via env vars when the

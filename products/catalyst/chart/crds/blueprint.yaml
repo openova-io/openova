@@ -193,6 +193,27 @@ spec:
                         - primary-only
                         - secondary-only
                         - every-region
+                    # G93.2 (Refs #2667) — defaultOnMultiRegion is the
+                    # Blueprint author's declarative preferred default
+                    # when the Sovereign is multi-region (BCP topology =
+                    # active-hotstandby or active-active). The
+                    # application-controller consults this when the
+                    # Application CR's spec.placement is empty:
+                    #   - Multi-region Sovereign + defaultOnMultiRegion
+                    #     set → use it (target-state Pillar 3 zero-
+                    #     touch for CNPG-backed Blueprints).
+                    #   - Otherwise → fall back to `default` (single-
+                    #     knob backwards-compat).
+                    # When set, MUST be in modes[] (validator enforces).
+                    defaultOnMultiRegion:
+                      type: string
+                      enum:
+                        - single-region
+                        - active-active
+                        - active-hotstandby
+                        - primary-only
+                        - secondary-only
+                        - every-region
                     minRegions:
                       type: integer
                       minimum: 1

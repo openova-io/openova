@@ -208,6 +208,13 @@ spec:
     # deployments MUST stay on `sync`. Multi-replica-region (active-
     # active for Postgres) is out of scope per master-brief §9.6.
     modes: [active-hotstandby]
+    # G93.2 (Refs #2667) — bp-cnpg-pair has exactly one mode, so this
+    # is the only sensible default. The application-controller
+    # consults defaultOnMultiRegion when an Application CR omits
+    # spec.placement on a multi-region Sovereign — for bp-cnpg-pair
+    # that's the target-state Pillar 3 shape by definition.
+    default: active-hotstandby
+    defaultOnMultiRegion: active-hotstandby
     minRegions: 2
     maxRegions: 2
 

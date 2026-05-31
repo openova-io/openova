@@ -66,7 +66,16 @@ spec:
           properties:
             spec:
               type: object
-              required: [environmentRef, blueprintRef, placement, regions]
+              # G93.2 (Refs #2667) — `placement` OPTIONAL on the wire.
+              # The application-controller derives the effective default
+              # from the Blueprint's placementSchema.{default,
+              # defaultOnMultiRegion} + the Sovereign-wide BCP topology
+              # (SOVEREIGN_BCP_TOPOLOGY env, G93.1) when the field is
+              # omitted. Operator-supplied placement is preserved
+              # verbatim — this only changes the empty-wire behaviour,
+              # from "controller fails the Application" to
+              # "controller picks the Blueprint's declared default".
+              required: [environmentRef, blueprintRef, regions]
               properties:
                 environmentRef:
                   type: string

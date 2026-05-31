@@ -259,6 +259,28 @@ func Validate(bp *unstructured.Unstructured, catalog map[string]struct{}) Result
 				))
 			}
 		}
+		// G93.2 (Refs #2667) — defaultOnMultiRegion is the Blueprint
+		// author's declarative preferred default for multi-region
+		// Sovereigns. Same canonical-set + in-modes[] invariants as
+		// `default`. If a Blueprint forgets to add the mode to modes[]
+		// but declares it here, every install on a multi-region
+		// Sovereign would land an Application CR with a placement
+		// outside the allowed modes — the application-controller would
+		// then mark every Application Failed. Fail-fast at publish.
+		if dMR, _, _ := unstructured.NestedString(pSchema, "defaultOnMultiRegion"); dMR != "" {
+			if _, ok := canonicalPlacementModes[dMR]; !ok {
+				res.Errors = append(res.Errors, fmt.Sprintf(
+					"spec.placementSchema.defaultOnMultiRegion = %q; legal values: single-region, active-active, active-hotstandby, primary-only, secondary-only, every-region",
+					dMR,
+				))
+			}
+			if len(modes) > 0 && !containsString(modes, dMR) {
+				res.Errors = append(res.Errors, fmt.Sprintf(
+					"spec.placementSchema.defaultOnMultiRegion = %q is not in modes[]: %v",
+					dMR, modes,
+				))
+			}
+		}
 	}
 
 	// --- manifests.source.kind — when present, in canonical set.

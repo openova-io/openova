@@ -92,3 +92,76 @@ func TestAllowedByBlueprint(t *testing.T) {
 		t.Error("expected active-hotstandby to be rejected")
 	}
 }
+
+// ── EffectiveDefault (G93.2, Refs #2667) ─────────────────────────────
+//
+// Pins the four-decision lattice (sovereign topology × Blueprint
+// declarations) so a future refactor cannot silently regress the
+// Pillar-3 zero-touch contract.
+
+func TestEffectiveDefault_MultiRegionUsesBlueprintOverride(t *testing.T) {
+	got := EffectiveDefault(
+		SovereignTopologyActiveHotStandby,
+		ModeSingleRegion,     // single-knob default
+		ModeActiveHotStandby, // multi-region default
+	)
+	if got != ModeActiveHotStandby {
+		t.Fatalf("EffectiveDefault(hot-standby, sr, ahs) = %q, want %q", got, ModeActiveHotStandby)
+	}
+}
+
+func TestEffectiveDefault_MultiRegionFallsBackToDefault(t *testing.T) {
+	// Blueprint did not declare defaultOnMultiRegion — fall back to the
+	// existing placementSchema.default so existing Blueprints don't
+	// change behaviour.
+	got := EffectiveDefault(
+		SovereignTopologyActiveHotStandby,
+		ModeSingleRegion,
+		"",
+	)
+	if got != ModeSingleRegion {
+		t.Fatalf("EffectiveDefault(hot-standby, sr, '') = %q, want %q", got, ModeSingleRegion)
+	}
+}
+
+func TestEffectiveDefault_SingleRegionIgnoresMultiRegionOverride(t *testing.T) {
+	// Single-region Sovereign — defaultOnMultiRegion is irrelevant.
+	got := EffectiveDefault(
+		SovereignTopologySingleRegion,
+		ModeSingleRegion,
+		ModeActiveHotStandby,
+	)
+	if got != ModeSingleRegion {
+		t.Fatalf("EffectiveDefault(sr, sr, ahs) = %q, want %q", got, ModeSingleRegion)
+	}
+}
+
+func TestEffectiveDefault_ActiveActiveUsesMultiRegionOverride(t *testing.T) {
+	// Symmetric topology is also multi-region — overrides apply.
+	got := EffectiveDefault(
+		SovereignTopologyActiveActive,
+		ModeSingleRegion,
+		ModeActiveActive,
+	)
+	if got != ModeActiveActive {
+		t.Fatalf("EffectiveDefault(aa, sr, aa) = %q, want %q", got, ModeActiveActive)
+	}
+}
+
+func TestEffectiveDefault_NoBlueprintDefaultsAtAll(t *testing.T) {
+	// Defensive: Blueprint forgot to declare either knob — safe last
+	// resort is single-region so the controller can still install.
+	got := EffectiveDefault(SovereignTopologyActiveHotStandby, "", "")
+	if got != ModeSingleRegion {
+		t.Fatalf("EffectiveDefault(hot-standby, '', '') = %q, want %q (safe fallback)", got, ModeSingleRegion)
+	}
+}
+
+func TestEffectiveDefault_UnknownTopologyFallsBackToDefault(t *testing.T) {
+	// Defensive: an unset / typo'd SOVEREIGN_BCP_TOPOLOGY env should
+	// behave like single-region (no multi-region override).
+	got := EffectiveDefault("", ModeSingleRegion, ModeActiveHotStandby)
+	if got != ModeSingleRegion {
+		t.Fatalf("EffectiveDefault('', sr, ahs) = %q, want %q", got, ModeSingleRegion)
+	}
+}

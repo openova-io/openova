@@ -86,6 +86,21 @@ spec:
               value: {{ .Values.controllers.application.hostFluxIntervalSeconds | default 60 | quote }}
             - name: FLUX_GITEA_SECRET_REF
               value: {{ .Values.controllers.application.fluxGiteaSecretRef | default "" | quote }}
+            # G93.2 (Refs #2667) — Sovereign-wide BCP topology. Read
+            # from the sovereign-fqdn ConfigMap which the chart stamps
+            # from the cloud-init Kustomization postBuild.substitute
+            # SOVEREIGN_BCP_TOPOLOGY key (G93.1, Refs #2666). When the
+            # Sovereign is multi-region (active-hotstandby or
+            # active-active) the application-controller uses each
+            # Blueprint's placementSchema.defaultOnMultiRegion when
+            # spec.placement is empty so Pillar 3 zero-tx-loss holds
+            # zero-touch on every fresh marketplace install.
+            - name: SOVEREIGN_BCP_TOPOLOGY
+              valueFrom:
+                configMapKeyRef:
+                  name: sovereign-fqdn
+                  key: bcpTopology
+                  optional: true
             {{- range $k, $v := .Values.controllers.application.env }}
             - name: {{ $k | quote }}
               value: {{ $v | quote }}
