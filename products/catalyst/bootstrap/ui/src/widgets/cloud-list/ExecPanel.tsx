@@ -96,7 +96,15 @@ export function ExecPanel(props: ExecPanelProps) {
       const create = createSession ?? createExecSession
       const resp = await create(deploymentId, ns, pod, container)
       setSession(resp)
-      setPhase('iframe-loading')
+      // G85 #2632 (2026-06-01): default to WebSocket+xterm.js (was
+      // iframe-Guacamole with 5s fallback). The Guacamole iframe path
+      // pointed at `guacamole.<dep>.sovereign.local` which is a
+      // cluster-internal URL the operator's browser cannot resolve.
+      // Every "Open shell" click 100% fell through to fallback after a
+      // visible 5s spinner. Make WS+xterm the primary path; iframe
+      // remains the fallback for the rare case operators have
+      // resolvable Guacamole + want server-side recording.
+      setPhase('fallback-loading')
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
       setPhase('error')
