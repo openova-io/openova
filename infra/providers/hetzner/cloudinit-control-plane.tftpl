@@ -1186,7 +1186,7 @@ write_files:
             # "active-hotstandby" and "active-active" → "true";
             # "single-region" → "false". Pre-G93.1 this key was
             # HARDCODED to "" here, so the chart's
-            # `${SOVEREIGN_ENABLE_HOT_STANDBY:-}` envsubst always
+            # `$${SOVEREIGN_ENABLE_HOT_STANDBY:-}` envsubst always
             # evaluated to literal empty → the chart-side default
             # `false` always won → every multi-region prov silently
             # landed single-Cluster CNPG → Pillar 3 zero-tx-loss

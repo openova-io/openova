@@ -575,7 +575,7 @@ write_files:
             # entirely pre-G93.1 → every HCS multi-region Sovereign
             # silently landed Pillar 3 broken (single-Cluster CNPG on
             # every tenant Application, no zero-tx-loss). The chart's
-            # `${SOVEREIGN_ENABLE_HOT_STANDBY:-}` envsubst now resolves
+            # `$${SOVEREIGN_ENABLE_HOT_STANDBY:-}` envsubst now resolves
             # to the tofu var's "true"/"false" value, derived from
             # var.bcp_topology by catalyst-api. SOVEREIGN_BCP_TOPOLOGY
             # carries the enum string for the Settings page
