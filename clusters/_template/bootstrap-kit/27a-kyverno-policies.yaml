@@ -55,7 +55,15 @@ spec:
       # 1.0.23 (G64 #2613, 2026-05-30): broaden harbor-proxy-pull glob
       # to `*/proxy-*/*` — Sovereigns expose Harbor at `registry.<sov>`
       # subdomain not `harbor.<sov>`. Verified live hw71.
-      version: 1.0.24
+      # 1.0.25 (G84a/G87b #2637, 2026-06-01): add dmz/mgmt/rtz to the
+      # default excludeNamespaces so the 6 canonically-Enforce policies
+      # don't block upstream loft-sh/vcluster STS Pods that don't meet
+      # readOnlyRootFilesystem/runAsNonRoot/probes-present defaults.
+      # Without this, every fresh HCS Sovereign has all 3 vClusters
+      # Pending forever post-Phase-2b bootstrapMode flip → dashboard
+      # vCluster grouping shows only "host" → Pillar 4 (Sandbox) silent
+      # broken.
+      version: 1.0.25
       sourceRef:
         kind: HelmRepository
         name: bp-kyverno

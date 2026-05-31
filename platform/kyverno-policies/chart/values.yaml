@@ -80,6 +80,20 @@ compliancePolicies:
       - kyverno
       - monitoring
       - ingress
+      # G84a/G87b #2637 (2026-06-01): the 3 vCluster syncer namespaces
+      # host upstream loft-sh/vcluster StatefulSets we don't own. Their
+      # Pod templates lack readOnlyRootFilesystem / runAsNonRoot /
+      # probes-present / per-region affinity etc. Without these excludes,
+      # Phase-2b bootstrapMode→false flip (post_handover_policy_enforce.go)
+      # cascades into vCluster admission denial → all 3 vClusters
+      # (dmz/mgmt/rtz) stuck Pending forever → dashboard vCluster
+      # grouping shows only "host" because vCluster syncers never start
+      # → Pillar 4 Sandbox (lives in vcluster) silently broken on every
+      # HCS Sovereign that successfully completed Phase 1.
+      # Verified live hw86 2026-06-01.
+      - dmz
+      - mgmt
+      - rtz
 
   pdb:
     enabled: true
