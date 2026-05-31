@@ -8,8 +8,14 @@ name: bp-rtz-vcluster
 # 0.1.1 — Refs #2537: default `rtzVcluster.enabled` flipped false→true
 # so every region renders the RTZ vCluster (symmetric topology
 # supersedes asymmetric A4).
-version: 0.1.1
-appVersion: "0.20.0"
+# 0.2.0 — Refs #2664/#2639 (G92 EPIC, 2026-06-01) lockstep bump of
+# loft-sh/vcluster subchart 0.20.0 → 0.21.0 (sibling to bp-mgmt-vcluster
+# 0.2.0 + bp-dmz-vcluster 0.2.0). Picks up `sync.toHost.customResources`
+# schema so RTZ vCluster-placed tenant Applications (G92.5 #2664) +
+# per-Org CNPG can wire CR sync to the host cnpg-operator without a
+# follow-up chart bump.
+version: 0.2.0
+appVersion: "0.21.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign RTZ
   vCluster. Implements docs/SOVEREIGN-MULTI-REGION-DOD.md A4
@@ -51,7 +57,10 @@ maintainers:
 
 dependencies:
   - name: vcluster
-    version: "0.20.0"
+    # G92 EPIC #2639 (2026-06-01) — sibling bump with bp-mgmt-vcluster
+    # 0.2.0 + bp-dmz-vcluster 0.2.0. See bp-mgmt-vcluster/chart/Chart.yaml
+    # for the full RCA on why the 0.21.0 schema is required.
+    version: "0.21.0"
     repository: "https://charts.loft.sh"
     # The subchart only renders when the umbrella's top-level
     # `rtzVcluster.enabled` is true. Default-OFF therefore renders ZERO

@@ -8,8 +8,23 @@ name: bp-mgmt-vcluster
 # 0.1.1 — Refs #2537: default `mgmtVcluster.enabled` flipped false→true
 # so every region renders the MGMT vCluster (symmetric topology
 # supersedes asymmetric A4).
-version: 0.1.1
-appVersion: "0.20.0"
+# 0.2.0 — Refs #2661/#2639 (G92 EPIC, 2026-06-01) lockstep with sibling
+# charts: loft-sh/vcluster subchart bumped 0.20.0 → 0.21.0 to pick up the
+# `sync.toHost.customResources` schema field. Required by the G92
+# vCluster placement matrix — bp-keycloak / bp-gitea / bp-harbor /
+# bp-catalyst-platform install INSIDE the MGMT vCluster (G92.2 #2661 +
+# G92.3 #2662), and their Helm-templated CNPG `Cluster` CRs
+# (`postgresql.cnpg.io/v1`) need to reflect from vCluster → host so the
+# host's cnpg-operator (G92.6 substrate per #2665) can reconcile them.
+# v0.20.0's schema rejected the field (`helm template` returned
+# "Additional property customResources is not allowed"); v0.21.0 ships
+# the schema entry per the loft-sh CHANGELOG. Coupled with
+# bp-dmz-vcluster 0.2.0 + bp-rtz-vcluster 0.2.0 (sibling bumps in the
+# same PR) so all 3 vCluster umbrellas stay on the same loft-sh tag —
+# drift between siblings would surface as inconsistent syncer
+# behaviour across the DMZ / MGMT / RTZ apiservers.
+version: 0.2.0
+appVersion: "0.21.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign MGMT
   vCluster. Implements docs/SOVEREIGN-MULTI-REGION-DOD.md A4
@@ -61,7 +76,16 @@ maintainers:
 # hardcode) the version is operator-bumpable via PR.
 dependencies:
   - name: vcluster
-    version: "0.20.0"
+    # G92 EPIC #2639 (2026-06-01): bumped 0.20.0 → 0.21.0 so the
+    # umbrella can declare `vcluster.sync.toHost.customResources` —
+    # the schema entry that lets the syncer mirror CNPG `Cluster` CRs
+    # (postgresql.cnpg.io/v1) from inside the vCluster back to the
+    # host k3s where the cnpg-operator (substrate per G92.6 #2665)
+    # reconciles them. Without this, every chart that ships a CNPG
+    # Cluster template (bp-gitea, bp-harbor, bp-catalyst-platform)
+    # silently skips it under the chart's Capabilities gate when
+    # installed inside the vCluster.
+    version: "0.21.0"
     repository: "https://charts.loft.sh"
     # The subchart only renders when the umbrella's top-level
     # `mgmtVcluster.enabled` is true. Default-OFF therefore renders
