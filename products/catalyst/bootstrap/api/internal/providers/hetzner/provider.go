@@ -231,6 +231,30 @@ func (p *Provider) Wipe(ctx context.Context, spec providers.WipeSpec, progress f
 			"object-storage credentials not supplied on request body AND not retained on in-memory deployment record (Pod likely restarted) — bucket purge SKIPPED; re-issue the wipe with objectStorageAccessKey/SecretKey/Region in the body, or run the manual sweep from docs/feedback_idempotent_iac_purge.md")
 	}
 
+	// G103 (Refs #2670) — Hetzner-side post-wipe zero-orphan
+	// verification. Parity with the HCS port (huawei/provider.go
+	// verifyZeroOrphans) so the G104 (Refs #2671) 3xZT certification
+	// script can certify either provider via the same single signal.
+	//
+	// Walks every Hetzner Cloud resource kind the cascade purge targets
+	// (servers / load_balancers / networks / firewalls / ssh_keys /
+	// volumes / primary_ips / floating_ips) ONE MORE TIME and records
+	// any catalyst.openova.io/sovereign-labelled survivor — bastion-*
+	// hard-excluded. VerifiedZeroOrphans=true only when every kind
+	// returns empty.
+	verifyReport, verified := hcloudpurge.VerifyZeroOrphans(ctx, token, spec.SovereignFQDN, progress)
+	out.VerifiedZeroOrphans = verified
+	if !verified {
+		out.ResidualOrphans = verifyReport.AsMap()
+		out.Errors = append(out.Errors, fmt.Sprintf(
+			"G103 wipe-contract violation: %d catalyst-* Hetzner resource(s) survived wipe (bastion-* excluded) — see ResidualOrphans",
+			verifyReport.Total(),
+		))
+	}
+	if len(verifyReport.Errors) > 0 {
+		out.Errors = append(out.Errors, verifyReport.Errors...)
+	}
+
 	return out, nil
 }
 
