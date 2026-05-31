@@ -60,6 +60,8 @@ import (
 	apiresource "k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 )
 
 // AgeNormaliseDays — the upper bound for the `age` color metric.
@@ -177,13 +179,53 @@ func (h *Handler) GetDashboardTreemap(w http.ResponseWriter, r *http.Request) {
 	// the has-cluster check fails and the dashboard returns empty.
 	// Other handlers (k8s.go, networking.go, k8s_search.go, etc.) already
 	// call resolveChrootClusterID — dashboard was the missing caller.
-	clusterID := strings.TrimSpace(q.Get("deployment_id"))
+	depID := strings.TrimSpace(q.Get("deployment_id"))
+	clusterID := depID
 	if h.k8sCache != nil {
 		clusterID = h.resolveChrootClusterID(clusterID)
 	}
 	if clusterID == "" || h.k8sCache == nil || !h.k8sCacheHasCluster(clusterID) {
 		writeJSON(w, http.StatusOK, treemapResponse{Items: []treemapItem{}, TotalCount: 0})
 		return
+	}
+
+	// G77 #2624 (2026-05-31): build clusterID→cloudRegion map from the
+	// deployment's declared Regions[]. Used as the region fallback when
+	// Node labels (`openova.io/region` / `topology.kubernetes.io/region`)
+	// are missing — common on HCS where Huawei CCM doesn't stamp the
+	// topology label. Without this fallback, dimensionKey returns the
+	// raw clusterID (e.g. `afc8800bc03751c6` / `hw-me-east-215-a-rtz-prod`)
+	// as the "region" label, producing meaningless bucket names.
+	//
+	// Convention: primary clusterID = `<depID>` (or
+	// `sovereign-<fqdn>` fallback); secondary clusterIDs follow
+	// `<depID>-<cloudRegion>` per sovereign_secondary_kubeconfig.go.
+	// First declared region = primary; subsequent = secondaries.
+	clusterRegion := map[string]string{}
+	var depForRegions *Deployment
+	if val, ok := h.deployments.Load(depID); ok {
+		depForRegions = val.(*Deployment)
+	} else {
+		depForRegions = h.chrootEnsureDeployment(depID)
+	}
+	if depForRegions != nil {
+		depForRegions.mu.Lock()
+		regs := append([]provisioner.RegionSpec(nil), depForRegions.Request.Regions...)
+		fqdn := depForRegions.Request.SovereignFQDN
+		depForRegions.mu.Unlock()
+		if len(regs) > 0 && regs[0].CloudRegion != "" {
+			// Primary cluster identifiers we may see in k8sCache.
+			clusterRegion[depID] = regs[0].CloudRegion
+			if fqdn != "" {
+				clusterRegion["sovereign-"+fqdn] = regs[0].CloudRegion
+			}
+		}
+		for _, rs := range regs {
+			if rs.CloudRegion == "" {
+				continue
+			}
+			clusterRegion[depID+"-"+rs.CloudRegion] = rs.CloudRegion
+		}
 	}
 
 	// D16 multi-cluster fan-out (caught on t132 2026-05-16): when
@@ -235,7 +277,7 @@ func (h *Handler) GetDashboardTreemap(w http.ResponseWriter, r *http.Request) {
 		// the cloud-list canvas) and the per-pod lookup is a map probe.
 		namespaces, _, _ := h.k8sCache.List(cid, "namespace", labels.Everything())
 		nodes, _, _ := h.k8sCache.List(cid, "node", labels.Everything())
-		rows = append(rows, buildPodRows(pods, pvcs, podMetrics, namespaces, nodes, cid)...)
+		rows = append(rows, buildPodRows(pods, pvcs, podMetrics, namespaces, nodes, cid, clusterRegion[cid])...)
 	}
 	resp := aggregateRows(rows, groupBy, colorBy, sizeBy)
 	writeJSON(w, http.StatusOK, resp)
@@ -277,7 +319,12 @@ type podRow struct {
 // no namespace/node lists (older tests, the "cache absent" path) may
 // pass nil — every enrichment is a best-effort map probe with a
 // well-defined fallback.
-func buildPodRows(pods, pvcs, podMetrics, namespaces, nodes []*unstructured.Unstructured, clusterID string) []podRow {
+// G77 #2624 (2026-05-31): clusterCloudRegion is the cloudRegion code
+// for this cluster, joined from deployment.Request.Regions[] in
+// HandleTreemap. Used as a region fallback when Pods/Nodes lack the
+// `openova.io/region`/`topology.kubernetes.io/region` label — common
+// on HCS where Huawei CCM doesn't stamp the topology label.
+func buildPodRows(pods, pvcs, podMetrics, namespaces, nodes []*unstructured.Unstructured, clusterID string, clusterCloudRegion string) []podRow {
 	pvcByKey := map[string]*unstructured.Unstructured{}
 	for _, p := range pvcs {
 		key := p.GetNamespace() + "/" + p.GetName()
@@ -348,6 +395,14 @@ func buildPodRows(pods, pvcs, podMetrics, namespaces, nodes []*unstructured.Unst
 					}
 				}
 			}
+		}
+		// G77 #2624: when every label lookup misses (HCS doesn't stamp
+		// topology labels by default), fall back to the cluster's
+		// declared cloudRegion. dimensionKey then groups by real region
+		// codes (`me-east-215-a`, `me-east-215-b`) instead of the raw
+		// clusterID hex.
+		if region == "" && clusterCloudRegion != "" {
+			region = clusterCloudRegion
 		}
 		row := podRow{
 			namespace:   p.GetNamespace(),
