@@ -255,3 +255,18 @@ compliancePolicies:
     enabled: true
     action: Audit
     excludeNamespaces: *complianceDefaultExcludes
+
+  # G98 (Refs #2644, 2026-06-01) — MUTATE policy that auto-stamps
+  # `catalyst.openova.io/application` label on Pods cluster-wide.
+  # Without this label, the Compliance scorecard's per-Application
+  # rollup can only emit sovereign-scope verdicts; per-Application
+  # drill-down stays blank because upstream charts don't stamp the
+  # catalyst-specific label. MUTATE copies `app.kubernetes.io/instance`
+  # (or `app.kubernetes.io/name` as fallback) into the catalyst label
+  # using Kyverno's `+(label)` add-when-missing syntax — never
+  # overrides an explicit operator-set value. Enabled by default since
+  # the policy is non-rejecting (cannot block any workload) and
+  # silently enriches every Pod on CREATE.
+  appLabelMutate:
+    enabled: true
+    excludeNamespaces: *complianceDefaultExcludes

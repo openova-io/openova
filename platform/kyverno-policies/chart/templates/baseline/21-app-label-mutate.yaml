@@ -1,0 +1,127 @@
+{{/*
+G98 (Refs #2644, 2026-06-01) — Auto-stamp `catalyst.openova.io/application`
+label on Pods cluster-wide.
+
+ROOT CAUSE this policy fixes:
+  The Compliance scorecard's per-Application rollup (catalyst-api
+  handler/compliance.go aggregating per-resource verdict rows into a
+  Score per Application) requires every Pod to carry the
+  `catalyst.openova.io/application=<app-name>` label. Most Helm
+  charts upstream (gitea, harbor, openbao, grafana, etc.) don't stamp
+  this label — they only stamp standard `app.kubernetes.io/instance`.
+  Without app-label, the aggregation can only emit `sovereign`-scope
+  rollups; per-Application drill-down is blank.
+
+CANONICAL FIX (MUTATE, not VALIDATE):
+  Kyverno MUTATE policy that copies `app.kubernetes.io/instance` into
+  `catalyst.openova.io/application` on Pod CREATE. Falls back to
+  `app.kubernetes.io/name` when instance is unset. Both source labels
+  are the K8s-recommended convention so coverage is broad without
+  patching every upstream chart.
+
+  Why MUTATE over VALIDATE:
+    A VALIDATE policy would reject Pods missing the label — that
+    breaks every existing chart on a fresh prov. MUTATE silently
+    enriches; charts continue to install; per-Application rollups
+    populate immediately on the next handover.
+
+  Per docs/INVIOLABLE-PRINCIPLES.md #4 the policy is gated by
+  `.Values.compliancePolicies.appLabelMutate.enabled` so an operator
+  can override per Sovereign.
+
+OPT-OUT (per-Pod): set `catalyst.openova.io/application` to any value
+in the Pod spec — Kyverno's `+(label)` syntax only adds when MISSING.
+
+VERIFICATION (post-install):
+  kubectl run smoke --image=busybox:1.36 -l app.kubernetes.io/instance=foo --restart=Never -- sleep 60
+  kubectl get pod smoke -o jsonpath='{.metadata.labels.catalyst\.openova\.io/application}'
+  # → "foo"
+
+Multi-layer RCA per Principle 16:
+  TRIGGER: upstream charts don't stamp the catalyst-specific label.
+  INCIDENT-MGMT: previous "no rollup data" hidden because per-chart
+    PR campaign would have been weeks of churn across N charts.
+  DEFENSE: this MUTATE works for every chart at once, including
+    future Blueprints, without chart-side cooperation.
+  CONTAINMENT: ships as a single Kyverno ClusterPolicy in the
+    existing bp-kyverno-policies bundle (no new chart, no new HR).
+*/}}
+{{- if and (hasKey .Values.compliancePolicies "appLabelMutate") .Values.compliancePolicies.appLabelMutate.enabled -}}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: app-label-mutate
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: observability
+  annotations:
+    policies.kyverno.io/title: Auto-stamp catalyst.openova.io/application label
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: low
+    policies.kyverno.io/description: >-
+      MUTATE policy: on Pod CREATE, copy app.kubernetes.io/instance into
+      catalyst.openova.io/application when the latter is missing. Enables
+      per-Application compliance rollups for every chart without per-chart
+      patches.
+spec:
+  background: false
+  rules:
+    - name: stamp-from-instance-label
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                {{- range $ns := .Values.compliancePolicies.appLabelMutate.excludeNamespaces }}
+                - {{ $ns }}
+                {{- end }}
+      preconditions:
+        all:
+          - key: {{ `"{{ request.object.metadata.labels.\"app.kubernetes.io/instance\" || '' }}"` }}
+            operator: NotEquals
+            value: ""
+          - key: {{ `"{{ request.object.metadata.labels.\"catalyst.openova.io/application\" || '' }}"` }}
+            operator: Equals
+            value: ""
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            labels:
+              # `+(label)` only adds when absent — never overrides operator-set value.
+              +(catalyst.openova.io/application): {{ `"{{ request.object.metadata.labels.\"app.kubernetes.io/instance\" }}"` }}
+    - name: stamp-from-name-label-fallback
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                {{- range $ns := .Values.compliancePolicies.appLabelMutate.excludeNamespaces }}
+                - {{ $ns }}
+                {{- end }}
+      preconditions:
+        all:
+          - key: {{ `"{{ request.object.metadata.labels.\"app.kubernetes.io/instance\" || '' }}"` }}
+            operator: Equals
+            value: ""
+          - key: {{ `"{{ request.object.metadata.labels.\"app.kubernetes.io/name\" || '' }}"` }}
+            operator: NotEquals
+            value: ""
+          - key: {{ `"{{ request.object.metadata.labels.\"catalyst.openova.io/application\" || '' }}"` }}
+            operator: Equals
+            value: ""
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            labels:
+              +(catalyst.openova.io/application): {{ `"{{ request.object.metadata.labels.\"app.kubernetes.io/name\" }}"` }}
+{{- end }}
