@@ -64,8 +64,12 @@ spec:
   #     PostgresqlInstance claim once cnpg is Ready. The DSN is mounted
   #     into NewAPI via `database.existingSecret` (operator-set).
   dependsOn:
+    # G92.2 #2661 (2026-06-01): bp-openbao + bp-keycloak HRs moved to
+    # host ns `mgmt`.
     - name: bp-openbao
+      namespace: mgmt
     - name: bp-keycloak
+      namespace: mgmt
     - name: bp-cnpg
   chart:
     spec:

@@ -74,7 +74,11 @@ slots:
     wave: present
   - slot: 7
     name: bp-nats-jetstream
-    depends_on: []
+    # G92.2 #2661 (2026-06-01): MGMT vCluster placement. HR carries
+    # spec.kubeConfig.secretRef → vc-mgmt + dependsOn bp-mgmt-vcluster
+    # so the install gates on the vCluster being Ready (otherwise the
+    # kubeconfig Secret doesn't exist and helm-controller errors).
+    depends_on: [bp-mgmt-vcluster]
     wave: present
   - slot: 8
     name: bp-openbao
@@ -83,12 +87,17 @@ slots:
     # bp-cnpg dep (issue #512): post-install init hook (`bao operator init`)
     # races cnpg readiness on a fresh Sovereign, hitting the 15m install
     # timeout. Explicit dep makes Flux wait for cnpg Ready=True first.
-    depends_on: [bp-gateway-api, bp-cnpg]
+    # G92.2 #2661 (2026-06-01): MGMT vCluster placement adds
+    # bp-mgmt-vcluster as a new edge — vc-mgmt Secret must exist
+    # before helm-controller can pivot into the vCluster apiserver.
+    depends_on: [bp-mgmt-vcluster, bp-gateway-api, bp-cnpg]
     wave: present
   - slot: 9
     name: bp-keycloak
     # bp-gateway-api dep (issue #503): chart ships an HTTPRoute template.
-    depends_on: [bp-cert-manager, bp-gateway-api]
+    # G92.2 #2661 (2026-06-01): MGMT vCluster placement adds
+    # bp-mgmt-vcluster as a new edge.
+    depends_on: [bp-mgmt-vcluster, bp-cert-manager, bp-gateway-api]
     wave: present
   - slot: 10
     name: bp-gitea

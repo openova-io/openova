@@ -70,7 +70,9 @@ spec:
     # Phase-8a-preflight otech16 (2026-05-02): adding bp-keycloak +
     # bp-cnpg here makes Flux wait for both Ready=True before starting
     # the umbrella install, eliminating the race.
+    # G92.2 #2661 (2026-06-01): bp-keycloak HR moved to host ns `mgmt`.
     - name: bp-keycloak
+      namespace: mgmt
     - name: bp-cnpg
     # bp-crossplane-claims (chart-roll-rca iter-15, 2026-05-10): owns the
     # access.openova.io/v1alpha1 XRD that qa-fixtures UserAccess CRs
