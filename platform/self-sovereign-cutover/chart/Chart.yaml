@@ -326,7 +326,7 @@ name: bp-self-sovereign-cutover
 # enumerates push-mode project names; Step 02 POSTs each to /projects
 # with `public:false` and NO registry_id (Harbor treats absence as
 # push-mode). Lockstep update — bp-kyverno-policies 1.0.24 unchanged.
-version: 0.1.45
+version: 0.1.46
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

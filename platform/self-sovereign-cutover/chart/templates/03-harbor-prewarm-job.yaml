@@ -128,9 +128,16 @@ data:
               # build is reproducible from upstream sources + signed).
               # Pinned tag v1.15.2 for determinism. Fallback to apk-installed
               # path if download fails AND apk works on a future image.
+              # G69-followup #2618 (2026-05-31): bump --max-time 60→600
+              # AND add resume support. Live evidence hw79: HCS bandwidth
+              # to github.com is ~120-360KB/s; 38MB skopeo binary needs
+              # ~3-5min on slow links. Original 60s timeout broke at
+              # 7-22MB partial downloads on all 3 retries. Curl --retry +
+              # -C - resumes partial downloads across retries so we
+              # accumulate progress instead of restarting at 0 each time.
               SKOPEO_URL="https://github.com/lework/skopeo-binary/releases/download/v1.15.2/skopeo-linux-amd64"
               for i in 1 2 3; do
-                if curl -fsSL --max-time 60 "${SKOPEO_URL}" -o /tmp/skopeo 2>&1 \
+                if curl -fsSL --max-time 600 --retry 3 --retry-delay 5 -C - "${SKOPEO_URL}" -o /tmp/skopeo 2>&1 \
                   && chmod +x /tmp/skopeo \
                   && /tmp/skopeo --version >/dev/null 2>&1; then
                   export PATH="/tmp:${PATH}"
@@ -138,9 +145,15 @@ data:
                   break
                 fi
                 echo "[harbor-prewarm] skopeo download attempt ${i}/3 failed; retrying in 5s"
-                rm -f /tmp/skopeo
+                # Keep partial download (do NOT rm) so -C - resumes from
+                # last byte on next attempt; only clear if all 3 fail.
                 sleep 5
               done
+              # If all 3 retries failed with partial files, clear to avoid
+              # corrupt binary detection.
+              if [ ! -x /tmp/skopeo ] || ! /tmp/skopeo --version >/dev/null 2>&1; then
+                rm -f /tmp/skopeo
+              fi
               if ! command -v skopeo >/dev/null 2>&1; then
                 # Last resort: try apk again (in case future image has it)
                 apk add --no-cache skopeo >/dev/null 2>&1 || true
