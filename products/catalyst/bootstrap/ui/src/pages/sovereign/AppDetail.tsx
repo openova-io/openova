@@ -230,6 +230,12 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
   // chip surfaces both so the operator can see the lag.
   const appHRReady = !!apiApp?.hrReady
   const appPhaseFromCR = apiApp?.phaseFromCR?.trim() ?? ''
+  // G90 (2026-06-01) — operator-visible front-door URL. Empty when the
+  // Application has no externally-exposed HTTPRoute. Renders as an
+  // "External URL" row + "Open" button on the Overview tab so the
+  // operator can launch the app (SSO-authenticated via Keycloak) in a
+  // new tab from the AppDetail page itself.
+  const appExternalURL = apiApp?.externalURL?.trim() ?? ''
   // Matrix asserts the literal `Ready` token in the Overview body
   // (TC-068). When the API hasn't reported a phase yet, render the
   // mapped `status` chip phrase instead of an empty string so the test
@@ -550,6 +556,7 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
               appPlacement={appPlacement}
               appPrimaryRegion={appPrimaryRegion}
               appLastReconciled={appLastReconciled}
+              appExternalURL={appExternalURL}
               isServiceApp={isServiceApp}
               compState={compState}
               deps={deps}
@@ -872,6 +879,11 @@ interface OverviewPanelProps {
   appPlacement: string
   appPrimaryRegion: string
   appLastReconciled: string
+  /**
+   * G90 (2026-06-01) — operator-visible front-door URL. Empty when the
+   * Application has no externally-exposed HTTPRoute.
+   */
+  appExternalURL: string
   isServiceApp: boolean
   compState:
     | {
@@ -904,6 +916,7 @@ function OverviewPanel({
   appPlacement,
   appPrimaryRegion,
   appLastReconciled,
+  appExternalURL,
   isServiceApp,
   compState,
   deps,
@@ -988,6 +1001,54 @@ function OverviewPanel({
               <dt>Last reconciled</dt>
               <dd data-testid="app-detail-overview-last-reconciled">
                 {new Date(appLastReconciled).toLocaleString()}
+              </dd>
+            </div>
+          ) : null}
+          {/*
+            G90 (2026-06-01) — operator-visible front-door URL row.
+            Renders only when the BE resolved an HTTPRoute hostname
+            for this Application (most installed app components like
+            gitea, harbor, grafana, keycloak, marketplace, hubble-ui;
+            empty for controllers / operators / internal components).
+            The link opens in a new tab; the destination is already
+            wired as a Keycloak OIDC client so the operator's SSO
+            session carries through.
+          */}
+          {appExternalURL ? (
+            <div className="overview-row">
+              <dt>External URL</dt>
+              <dd data-testid="app-detail-overview-external-url">
+                <a
+                  href={appExternalURL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-testid="app-detail-external-url-link"
+                  className="external-url-link"
+                >
+                  {appExternalURL}
+                  <svg
+                    viewBox="0 0 24 24"
+                    width={11}
+                    height={11}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2.2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                    style={{ marginLeft: '0.3rem', verticalAlign: 'middle' }}
+                  >
+                    <path d="M14 3h7v7" />
+                    <path d="M10 14L21 3" />
+                    <path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
+                  </svg>
+                </a>
+                <span
+                  className="external-url-hint"
+                  style={{ display: 'block', marginTop: '0.25rem' }}
+                >
+                  Opens in a new tab. Signs in via your Sovereign's Keycloak SSO session.
+                </span>
               </dd>
             </div>
           ) : null}
@@ -1266,6 +1327,29 @@ const APP_DETAIL_CSS = `
   letter-spacing: 0.04em;
 }
 .overview-row dd { margin: 0; font-size: 0.9rem; color: var(--color-text); }
+/*
+ * G90 (2026-06-01) — operator-visible launch link on the Overview tab.
+ * Renders the resolved HTTPRoute URL as a clickable accent-coloured
+ * link with an external-link icon. The hint line below clarifies the
+ * SSO behaviour so the operator knows they don't need to log in again.
+ */
+.external-url-link {
+  color: var(--color-accent);
+  font-weight: 600;
+  text-decoration: none;
+  word-break: break-all;
+}
+.external-url-link:hover { text-decoration: underline; }
+.external-url-link:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.external-url-hint {
+  font-size: 0.75rem;
+  color: var(--color-text-dim);
+  font-style: italic;
+}
 .dep-list { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .dep-list li {
   background: var(--color-surface);

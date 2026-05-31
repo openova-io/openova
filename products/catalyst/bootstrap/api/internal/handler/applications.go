@@ -1020,6 +1020,17 @@ type applicationDetailResponse struct {
 	// disagreement without losing data.
 	HRReady     bool   `json:"hrReady,omitempty"`
 	PhaseFromCR string `json:"phaseFromCR,omitempty"`
+
+	// ExternalURL — front-door URL the operator clicks from the
+	// AppDetail Overview tab to open this installed Application in a
+	// new browser tab (G90, 2026-06-01). Joined from the matching
+	// HTTPRoute in `targetNamespace` whose name OR backendRef Service
+	// name equals `releaseName`. Empty when the Application has no
+	// HTTPRoute (e.g. operators, internal controllers). Behind the URL
+	// the upstream chart is already wired as an OIDC client to the
+	// Sovereign's Keycloak so the click lands the operator with their
+	// existing SSO session active.
+	ExternalURL string `json:"externalURL,omitempty"`
 }
 
 // HandleApplicationGet — GET /api/v1/sovereigns/{id}/applications/{name}
@@ -1184,6 +1195,12 @@ func (h *Handler) HandleApplicationGet(w http.ResponseWriter, r *http.Request) {
 		resp.PhaseFromCR = resp.Phase
 		resp.Phase = "Ready"
 	}
+
+	// G90 2026-06-01: resolve the operator-visible front-door URL by
+	// joining the (targetNamespace, releaseName) against HTTPRoutes in
+	// the chroot k8sCache. Drives the "External URL" row on AppDetail
+	// Overview + the per-card "Open" button on the AppsPage list.
+	resp.ExternalURL = h.lookupExternalURL(r.Context(), depID, resp.TargetNamespace, resp.ReleaseName)
 
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -1350,9 +1367,77 @@ func (h *Handler) synthesiseAppFromHelmRelease(ctx context.Context, depID, name 
 			}
 		}
 		resp.Phase = phase
+		resp.ExternalURL = h.lookupExternalURL(ctx, depID, resp.TargetNamespace, resp.ReleaseName)
 		return resp, true
 	}
 	return applicationDetailResponse{}, false
+}
+
+// lookupExternalURL — G90 2026-06-01.
+//
+// Resolve the operator-visible front-door URL for an installed Application
+// by joining its (targetNamespace, releaseName) against the HTTPRoute set
+// in the chroot k8sCache. Returns "https://<spec.hostnames[0]>" of the
+// first matching HTTPRoute, or "" when:
+//
+//   - k8sCache is unavailable (pre-handover mothership / CI)
+//   - no HTTPRoute in targetNamespace matches releaseName (controllers,
+//     operators, internal components with no UI surface)
+//   - Gateway API isn't installed on this Sovereign
+//
+// Match rule: the HTTPRoute's name OR any backendRefs[].name in any rule
+// equals releaseName. The chart-helpers convention names HTTPRoutes after
+// the release (gitea, harbor, grafana, keycloak, openbao, marketplace,
+// guacamole on hw86), and even when the route is named differently the
+// backend Service that fronts the app is named after the release. This
+// covers both the canonical pattern AND charts that ship multiple routes
+// (e.g. harbor's registry endpoint vs notary).
+//
+// The SPA renders the returned URL as an "External URL" row on AppDetail
+// Overview and an "Open" button on the AppsPage card.
+func (h *Handler) lookupExternalURL(ctx context.Context, depID, targetNamespace, releaseName string) string {
+	if h.k8sCache == nil || releaseName == "" {
+		return ""
+	}
+	clusterID := h.resolveChrootClusterID(depID)
+	if !h.k8sCacheHasCluster(clusterID) {
+		return ""
+	}
+	routes, _, err := h.k8sCache.List(clusterID, "httproute", labels.Everything())
+	if err != nil {
+		return ""
+	}
+	for _, rt := range routes {
+		if targetNamespace != "" && rt.GetNamespace() != targetNamespace {
+			continue
+		}
+		hosts, _, _ := unstructured.NestedStringSlice(rt.Object, "spec", "hostnames")
+		if len(hosts) == 0 || hosts[0] == "" {
+			continue
+		}
+		if rt.GetName() == releaseName {
+			return "https://" + hosts[0]
+		}
+		rules, _, _ := unstructured.NestedSlice(rt.Object, "spec", "rules")
+		for _, rl := range rules {
+			rm, isMap := rl.(map[string]interface{})
+			if !isMap {
+				continue
+			}
+			refs, _, _ := unstructured.NestedSlice(rm, "backendRefs")
+			for _, ref := range refs {
+				rfm, isMap := ref.(map[string]interface{})
+				if !isMap {
+					continue
+				}
+				svcName, _, _ := unstructured.NestedString(rfm, "name")
+				if svcName == releaseName {
+					return "https://" + hosts[0]
+				}
+			}
+		}
+	}
+	return ""
 }
 
 // ── HTTP handler — list (GET /sovereigns/{id}/applications) ──────────

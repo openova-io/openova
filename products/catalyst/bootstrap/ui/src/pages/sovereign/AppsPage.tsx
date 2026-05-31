@@ -99,6 +99,16 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
      * render. Closes qa-loop iter-7 TC-090.
      */
     environmentById: Record<string, string>
+    /**
+     * externalURLById — front-door URL (https://<host>) the operator
+     * clicks to open this installed Application in a new browser tab
+     * with their existing Keycloak SSO session active. Populated by the
+     * BE by joining each HR's (targetNamespace, releaseName) against
+     * the cluster's HTTPRoute set. Missing when the app has no
+     * externally-exposed route (controllers, operators, internal
+     * components). G90 2026-06-01.
+     */
+    externalURLById: Record<string, string>
   }
   const liveAppsQuery = useQuery<LiveAppsData>({
     queryKey: ['sovereign-apps-live'],
@@ -116,13 +126,18 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
           status?: string
           marketplacePublished?: boolean
           environment?: string
+          externalURL?: string
         }>
       }
       const statusById: Record<string, ApplicationStatus> = {}
       const publishedBySlug: Record<string, boolean> = {}
       const environmentById: Record<string, string> = {}
+      const externalURLById: Record<string, string> = {}
       for (const a of body.apps ?? []) {
         if (!a.id) continue
+        if (typeof a.externalURL === 'string' && a.externalURL !== '') {
+          externalURLById[a.id] = a.externalURL
+        }
         switch (a.status) {
           case 'installed':
           case 'bootstrap':
@@ -148,7 +163,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
           environmentById[a.id] = a.environment
         }
       }
-      return { statusById, publishedBySlug, environmentById }
+      return { statusById, publishedBySlug, environmentById, externalURLById }
     },
     retry: false,
     placeholderData: (prev) => prev,
@@ -156,6 +171,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
   const liveAppStatus = liveAppsQuery.data?.statusById ?? {}
   const publishedBySlug = liveAppsQuery.data?.publishedBySlug ?? {}
   const environmentById = liveAppsQuery.data?.environmentById ?? {}
+  const externalURLById = liveAppsQuery.data?.externalURLById ?? {}
   const refetchLive = liveAppsQuery.refetch
   // DEFAULT_APP_ENVIRONMENT mirrors the BE's defaultSovereignEnvironment
   // so even when the live API hasn't responded yet (cold load) every
@@ -615,11 +631,13 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
               ? publishedBySlug[slug]
               : null
             const environment = environmentById[app.id] ?? DEFAULT_APP_ENVIRONMENT
+            const externalURL = externalURLById[app.id] ?? ''
             return (
               <AppCard
                 key={app.id}
                 app={app}
                 environment={environment}
+                externalURL={externalURL}
                 status={(() => {
                   // Live API status wins when present.
                   const live = liveAppStatus[app.id]
@@ -702,9 +720,20 @@ interface AppCardProps {
   marketplacePublished?: boolean | null
   slug?: string
   onPublishedChange?: (next: boolean) => Promise<void>
+  /**
+   * G90 (2026-06-01) — operator-visible front-door URL for this
+   * Application (e.g. https://gitea.hw86.omani.works). Empty when the
+   * app has no externally-exposed HTTPRoute (controllers, operators).
+   * Renders as a prominent "Open" launch button inside the
+   * `.status-corner` next to the INSTALLED badge; clicking opens a new
+   * tab to the URL, which Keycloak SSO-authenticates the operator into
+   * the target app (every bp-* chart with a UI surface is already
+   * registered as an OIDC client on the Sovereign).
+   */
+  externalURL?: string
 }
 
-function AppCard({ app, status, isService, environment, marketplacePublished, slug, onPublishedChange }: AppCardProps) {
+function AppCard({ app, status, isService, environment, marketplacePublished, slug, onPublishedChange, externalURL }: AppCardProps) {
   const stateClass = `state-${status}`
   // Chroot-aware target: on the mother monitor surface
   // (console.openova.io/sovereign/provision/<id>/...) every link MUST stay
@@ -762,6 +791,40 @@ function AppCard({ app, status, isService, environment, marketplacePublished, sl
       </div>
 
       <div className="status-corner">
+        {externalURL && status === 'installed' ? (
+          <button
+            type="button"
+            className="open-app-btn"
+            data-testid={`sov-app-open-${app.id}`}
+            data-external-url={externalURL}
+            title={`Open ${app.title} (${externalURL}) — opens in new tab with SSO`}
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              // Use noopener+noreferrer so the launched app cannot
+              // window.opener back into the console. SSO is handled by
+              // the destination via OIDC redirect → Keycloak.
+              window.open(externalURL, '_blank', 'noopener,noreferrer')
+            }}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width={11}
+              height={11}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2.2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M14 3h7v7" />
+              <path d="M10 14L21 3" />
+              <path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
+            </svg>
+            Open
+          </button>
+        ) : null}
         {marketplacePublished !== null && marketplacePublished !== undefined && slug ? (
           <button
             type="button"
@@ -1043,6 +1106,39 @@ const APPS_PAGE_CSS = `
 }
 
 .status-corner { position: absolute; bottom: 0.5rem; right: 0.55rem; display: flex; gap: 0.4rem; align-items: center; }
+/*
+ * G90 2026-06-01 — operator-visible launch button for installed
+ * Applications with an externally-exposed HTTPRoute. Renders in the
+ * status-corner row alongside the INSTALLED badge so the affordance
+ * is impossible to miss when scanning the apps grid.
+ */
+.open-app-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.18rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
+  background: var(--color-accent);
+  color: #fff;
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1.4;
+  font-family: inherit;
+  cursor: pointer;
+  pointer-events: auto;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  transition: filter 120ms ease, box-shadow 120ms ease;
+}
+.open-app-btn:hover {
+  filter: brightness(1.1);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+}
+.open-app-btn:focus-visible {
+  outline: 2px solid var(--color-text-strong);
+  outline-offset: 1px;
+}
 .publish-chip {
   display: inline-flex;
   align-items: center;

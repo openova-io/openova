@@ -518,6 +518,28 @@ type sovereignAppItem struct {
 	// on the app card. The deleted /catalog page's per-row toggle has
 	// moved here. Toggled via PATCH /api/v1/sovereign/apps/{slug}/publish.
 	MarketplacePublished *bool `json:"marketplacePublished,omitempty"`
+
+	// ExternalURL — front-door URL the operator clicks to open this
+	// installed Application in a new browser tab (G90, 2026-06-01,
+	// founder UX gap on hw86: every installed app showed INSTALLED but
+	// had no clickable launch affordance). Populated by joining the
+	// installed HelmRelease's (targetNamespace, releaseName) against
+	// every Gateway-API HTTPRoute on the cluster; the first HTTPRoute
+	// whose name OR backend Service name matches the release wins, and
+	// we surface `https://<spec.hostnames[0]>`.
+	//
+	// Empty when:
+	//   - the app has no HTTPRoute (controllers, operators, bootstrap
+	//     internals that don't expose a UI surface)
+	//   - the HTTPRoute lives in a namespace this lookup didn't reach
+	//   - Gateway API isn't installed on the Sovereign yet
+	//
+	// FE renders an "Open" button on the card when non-empty; otherwise
+	// the card is unchanged. Behind the URL each upstream chart is
+	// already wired as a Keycloak OIDC client so the click lands the
+	// operator with their existing SSO session active — no extra wiring
+	// needed on the FE.
+	ExternalURL string `json:"externalURL,omitempty"`
 }
 
 type sovereignAppsResponse struct {
@@ -572,6 +594,20 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 	// every row falls back, which is the target-state behaviour for
 	// single-environment Sovereigns.
 	envBySlug := map[string]string{}
+	// hrTarget — per-HR (targetNamespace, releaseName) keyed by HR name.
+	// Needed by the externalURL join below to point an HTTPRoute lookup
+	// at the actual install location instead of guessing. G90 2026-06-01.
+	type hrTarget struct {
+		targetNamespace string
+		releaseName     string
+	}
+	hrInfo := map[string]hrTarget{}
+	// urlByHRName — front-door URL for each installed HR, populated by
+	// joining each HR's (targetNamespace, releaseName) against the
+	// cluster's HTTPRoute set. G90 2026-06-01 — feeds sovereignAppItem.ExternalURL
+	// so the AppsPage card can render an "Open" launch button next to
+	// the INSTALLED badge.
+	urlByHRName := map[string]string{}
 	deps, depsErr := h.sovereignDepsFor()
 	if depsErr == nil {
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
@@ -584,6 +620,68 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 				} else {
 					installed[name] = "installing"
 				}
+				tn, _, _ := unstructured.NestedString(hr.Object, "spec", "targetNamespace")
+				if tn == "" {
+					if sn, _, _ := unstructured.NestedString(hr.Object, "spec", "storageNamespace"); sn != "" {
+						tn = sn
+					} else {
+						tn = hr.GetNamespace()
+					}
+				}
+				rn, _, _ := unstructured.NestedString(hr.Object, "spec", "releaseName")
+				if rn == "" {
+					rn = name
+				}
+				hrInfo[name] = hrTarget{targetNamespace: tn, releaseName: rn}
+			}
+		}
+		// Build the HTTPRoute index: (namespace, name) → "https://<host>"
+		// plus (namespace, backend-service-name) → "https://<host>" so
+		// the join below matches whether the chart named its HTTPRoute
+		// after the release (the common case — gitea, harbor, grafana,
+		// keycloak, openbao, marketplace, guacamole on hw86) or after a
+		// different sub-component (e.g. harbor's HTTPRoute named
+		// `harbor` but releaseName also `harbor`). Empty hostnames are
+		// skipped — a route with no hostname can't be launched.
+		hrURL := map[[2]string]string{}
+		if hrlist, err := deps.dyn.Resource(httpRouteGVR).Namespace("").List(ctx, metav1.ListOptions{}); err == nil {
+			for _, rt := range hrlist.Items {
+				hosts, _, _ := unstructured.NestedStringSlice(rt.Object, "spec", "hostnames")
+				if len(hosts) == 0 || hosts[0] == "" {
+					continue
+				}
+				url := "https://" + hosts[0]
+				ns := rt.GetNamespace()
+				hrURL[[2]string{ns, rt.GetName()}] = url
+				// Index by backendRef name too — handles the case where
+				// the HTTPRoute is named differently from the Service it
+				// fronts (e.g. `<release>-http`, `<release>-public`).
+				rules, _, _ := unstructured.NestedSlice(rt.Object, "spec", "rules")
+				for _, rl := range rules {
+					rm, isMap := rl.(map[string]interface{})
+					if !isMap {
+						continue
+					}
+					refs, _, _ := unstructured.NestedSlice(rm, "backendRefs")
+					for _, ref := range refs {
+						rfm, isMap := ref.(map[string]interface{})
+						if !isMap {
+							continue
+						}
+						svcName, _, _ := unstructured.NestedString(rfm, "name")
+						if svcName == "" {
+							continue
+						}
+						if _, exists := hrURL[[2]string{ns, svcName}]; !exists {
+							hrURL[[2]string{ns, svcName}] = url
+						}
+					}
+				}
+			}
+		}
+		for hrName, info := range hrInfo {
+			if url, ok := hrURL[[2]string{info.targetNamespace, info.releaseName}]; ok {
+				urlByHRName[hrName] = url
 			}
 		}
 		// Application CR pass — separate List so a missing CRD or
@@ -634,6 +732,7 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 			Status:       "bootstrap",
 			BootstrapKit: true,
 			Environment:  resolveAppEnvironment(envBySlug, b.Slug),
+			ExternalURL:  urlByHRName[b.ID],
 		})
 	}
 
@@ -660,6 +759,7 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 			Status:       status,
 			BootstrapKit: false,
 			Environment:  resolveAppEnvironment(envBySlug, b.Slug),
+			ExternalURL:  urlByHRName[b.ID],
 		})
 	}
 

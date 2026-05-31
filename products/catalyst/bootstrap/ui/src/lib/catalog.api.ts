@@ -236,6 +236,16 @@ export interface ApplicationDetailResponse {
    */
   hrReady?: boolean
   phaseFromCR?: string
+  /**
+   * G90 (2026-06-01, founder UX gap on hw86): front-door URL the
+   * operator clicks to open this installed Application in a new browser
+   * tab with their Keycloak SSO session active. Backend resolves by
+   * joining (targetNamespace, releaseName) against the cluster's
+   * HTTPRoute set; empty when the app has no externally-exposed route
+   * (controllers, operators, internal components). FE renders an
+   * "External URL" row on AppDetail Overview when non-empty.
+   */
+  externalURL?: string
 }
 
 /** PreviewManifest — one rendered file in the preview output. */
