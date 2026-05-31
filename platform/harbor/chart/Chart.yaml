@@ -52,7 +52,7 @@ type: application
 # The Postgres workload Pods reconcile into the same NS as the
 # CNPG Cluster CR, NOT into cnpg-system; the prior rule could
 # never match the actual DB Pods.
-version: 1.2.21
+version: 1.2.22
 appVersion: "2.14.3"
 # 1.2.21 (G91.harbor #2654, 2026-05-31): opt in to the bp-sso-bridge
 # (G91.1 #2652) SSO framework. Top-level `sso:` block (defaults
