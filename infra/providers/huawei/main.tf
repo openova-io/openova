@@ -598,8 +598,26 @@ locals {
   # local.secondary_region_cloud_init pattern, but as a single map keyed
   # by region (the count-based control_plane resource looks up by
   # local.cp_nodes[count.index].region).
+  # G76+G82 #2623/#2629 (2026-05-31): per-region cloud-init must know
+  # its OWN index in var.regions so it can synthesise the canonical
+  # `<cloudRegion>-<idx>` regionKey when PUTting back its kubeconfig
+  # to mothership /api/v1/sovereign/secondary-kubeconfig. Without the
+  # index suffix, mothership's d16-export waiter (`regionKeysForExport`
+  # in deployment_handover_export.go) keeps waiting forever on a file
+  # at `<depID>-<cloudRegion>-<idx>.yaml` that never appears (Hetzner
+  # tofu uses `secondary_regions = { for i, r in var.regions :
+  # "${r.cloudRegion}-${i}" => r if i > 0 }` — Huawei was previously
+  # missing the index suffix and posted plain `r.code` as regionKey).
+  # Net effect on every HCS multi-region prov: chroot never received
+  # secondary kubeconfig → k8sCache only had primary → CNPG topology
+  # showed single-region (#2629) + Jobs view missed region-B (#2623).
+  # Verified live hw86 afc8800bc03751c6 2026-05-31: file landed at
+  # `afc8800bc03751c6-me-east-215-b.yaml` while d16-export waited on
+  # `afc8800bc03751c6-me-east-215-b-1.yaml` (12+min later still
+  # waiting). Fix: index-aware for_each + indexed region key per
+  # Hetzner convention.
   cp_cloud_init_by_region = {
-    for r in var.regions :
+    for idx, r in var.regions :
     r.code => replace(templatefile("${path.module}/cloudinit-control-plane.tftpl", {
       sovereign_fqdn      = var.sovereign_fqdn
       sovereign_fqdn_slug = local.fqdn_slug
@@ -694,7 +712,14 @@ locals {
       # on hw38 because region names appeared as both keys + value-stems.
       # Each CP cloud-init render uses its OWN region's values (no map
       # lookup needed at boot).
-      my_region_key   = r.code
+      #
+      # G76+G82 #2623/#2629 (2026-05-31): primary region keeps the bare
+      # `r.code` (matches mothership's `regionKeyFromSpec` returning ""
+      # for idx 0 so primary file lands at `<depID>.yaml`); secondaries
+      # adopt the Hetzner-canonical `<r.code>-<idx>` shape so mothership's
+      # d16-export waiter finds the kubeconfig file post-PUT-back +
+      # forwards to the chroot's k8sCache.
+      my_region_key   = idx == 0 ? r.code : "${r.code}-${idx}"
       my_region_eip   = huaweicloud_vpc_eip.cp[r.code].publicip.0.ip_address
       cluster_cidr    = "10.42.0.0/16"
       service_cidr    = "10.96.0.0/16"
