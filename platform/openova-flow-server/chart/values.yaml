@@ -40,7 +40,7 @@ flowServer:
     # Release smoke-render the chart with default values before the
     # first CI run has populated a SHA. Bootstrap-kit HR overrides at
     # install time so runtime always pulls a deterministic image.
-    tag: "9f6017b"
+    tag: "1ccd9be"
     pullPolicy: IfNotPresent
   port: 8080
   # Per-flow ring buffer capacity (FlowMessage envelopes). The server
