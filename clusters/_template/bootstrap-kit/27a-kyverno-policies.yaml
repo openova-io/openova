@@ -63,7 +63,7 @@ spec:
       # Pending forever post-Phase-2b bootstrapMode flip → dashboard
       # vCluster grouping shows only "host" → Pillar 4 (Sandbox) silent
       # broken.
-      version: 1.0.25
+      version: 1.0.26
       sourceRef:
         kind: HelmRepository
         name: bp-kyverno

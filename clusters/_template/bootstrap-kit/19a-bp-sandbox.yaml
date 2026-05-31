@@ -139,7 +139,7 @@ spec:
       # helper), not bare `newapi`. Pre-fix every Sovereign's
       # sandbox-controller TokenMint POST returned `no such host`,
       # blocking the canonical Pillar-4 qwen-code customer journey.
-      version: 0.3.7
+      version: 0.3.8
       sourceRef:
         kind: HelmRepository
         name: bp-sandbox

@@ -87,17 +87,15 @@ jobs:
       # guard plugs the comment-line gap that validate misses because
       # templatefile() doesn't actually run during `validate`.
       #
-      # Ubuntu-latest runners ship GNU grep with PCRE (`-P`) enabled.
+      # tftpl shell-expansion escape guard (Fix #111 + broadened
+      # 2026-06-01 per PR #2675 + G99 retrospective). Replaced inline
+      # regex with canonical scripts/check-tofu-flux-envsubst.sh which
+      # catches ALL colon shapes (bare, :=, :-, :?, :+) on ALL lines
+      # (not just comments). Earlier inline guard only matched `:-`
+      # on comment lines — missed PR #2675 + my G99 line 506.
       - name: tftpl shell-expansion escape guard (Fix #111)
-        run: |
-          set -euo pipefail
-          violations=$(grep -rEnP '^\s*#.*(?<!\$)\$\{[A-Z_]+:-' *.tftpl || true)
-          if [ -n "$violations" ]; then
-            echo "::error title=Unescaped tftpl shell expansion::Use \$\${VAR:-default} (double-dollar) in tftpl YAML comments — bare \${VAR:-default} is consumed by tofu's templatefile() and breaks 'tofu plan' with 'Template interpolation doesn't expect a colon at this location' (see PR #1311 / PR #1328 / Fix #111)."
-            echo "Offending lines:"
-            echo "$violations"
-            exit 1
-          fi
+        working-directory: ${{ github.workspace }}
+        run: ./scripts/check-tofu-flux-envsubst.sh
 
       - name: tofu test (offline — mock_provider + override_resource)
         # The module's tests/multi_region.tftest.hcl exercises the

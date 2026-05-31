@@ -276,6 +276,54 @@ type Config struct {
 	// stuck at `Provisioning` indefinitely because the K8s Watch on
 	// Application CRs doesn't fire when a SIBLING HR's status changes.
 	HelmReleaseObservationInterval time.Duration
+
+	// VClusterPlacements maps a vCluster name (dmz|mgmt|rtz, the value
+	// the Blueprint declares at spec.placementSchema.vcluster) to its
+	// resolved host namespace + admin kubeconfig Secret name. The
+	// controller stamps these on the rendered HelmRelease so Flux v2
+	// helm-controller pivots into the vCluster apiserver via
+	// spec.kubeConfig.secretRef. Per docs/SOVEREIGN-MULTI-REGION-DOD.md
+	// §A4. Defaults applied in Config.Defaults() if unset.
+	//
+	// G92.1 #2660 (2026-06-01).
+	VClusterPlacements map[string]VClusterPlacement
+}
+
+// VClusterPlacement carries the per-vCluster runtime values the
+// controller stamps on the rendered HelmRelease. Both fields default
+// from the loft-sh/vcluster chart convention (host namespace = vCluster
+// name, kubeconfig Secret = `vc-<name>`); operators override via Config
+// when a Sovereign customised the bp-<name>-vcluster chart values.
+//
+// G92.1 #2660.
+type VClusterPlacement struct {
+	// HostNamespace is the namespace ON THE HOST k3s where the
+	// vCluster's pods + kubeconfig Secret live. Stamped on the
+	// rendered HelmRelease's metadata.namespace so Flux v2
+	// helm-controller resolves spec.kubeConfig.secretRef from the
+	// same namespace as the HR.
+	HostNamespace string
+
+	// KubeconfigSecret is the name of the Secret the vCluster chart
+	// exports with the admin kubeconfig YAML (data.config). Stamped
+	// on spec.kubeConfig.secretRef.name.
+	KubeconfigSecret string
+}
+
+// DefaultVClusterPlacements returns the loft-sh/vcluster convention
+// mapping for dmz/mgmt/rtz — host namespace = vCluster name,
+// kubeconfig Secret = "vc-"+name. Matches platform/bp-<name>-vcluster
+// chart values shipped by slots 54/58/59 in the bootstrap-kit.
+//
+// Operators override per Sovereign by setting VCLUSTER_PLACEMENT_<NAME>
+// env vars (see cmd/main.go); this default keeps the controller
+// self-contained for tests + smoke renders.
+func DefaultVClusterPlacements() map[string]VClusterPlacement {
+	return map[string]VClusterPlacement{
+		"dmz":  {HostNamespace: "dmz", KubeconfigSecret: "vc-dmz"},
+		"mgmt": {HostNamespace: "mgmt", KubeconfigSecret: "vc-mgmt"},
+		"rtz":  {HostNamespace: "rtz", KubeconfigSecret: "vc-rtz"},
+	}
 }
 
 // Defaults applies missing-field defaults to a Config. Returns a copy.
@@ -310,6 +358,9 @@ func (c Config) Defaults() Config {
 	}
 	if out.HelmReleaseObservationInterval <= 0 {
 		out.HelmReleaseObservationInterval = 30 * time.Second
+	}
+	if out.VClusterPlacements == nil {
+		out.VClusterPlacements = DefaultVClusterPlacements()
 	}
 	return out
 }
@@ -595,6 +646,17 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 	bpSourceRef, _, _ := unstructured.NestedString(bp.Object, "spec", "manifests", "source", "ref")
 	bpChart, _, _ := unstructured.NestedString(bp.Object, "spec", "manifests", "chart")
 	bpDigest, _, _ := unstructured.NestedString(bp.Object, "status", "ociDigest")
+	// G92.1 #2660 — Blueprint authors declare the vCluster the
+	// rendered HelmRelease targets via spec.placementSchema.vcluster
+	// (dmz|mgmt|rtz). Empty/unset = install onto the host k3s
+	// (legacy shape, kept for substrate Blueprints per G92.6 #2665).
+	bpVCluster := blueprintVCluster(bp)
+	vcPlacement, vcOK := r.Cfg.VClusterPlacements[bpVCluster]
+	if bpVCluster != "" && !vcOK {
+		return r.markFailed(ctx, app, ReasonInvalid,
+			fmt.Sprintf("Blueprint %q declares placementSchema.vcluster=%q but the controller has no VClusterPlacements mapping for it (configure VCLUSTER_PLACEMENT_%s_NS + _SECRET, or drop the field)",
+				spec.BlueprintName, bpVCluster, strings.ToUpper(bpVCluster)))
+	}
 
 	regionStatuses := make([]map[string]interface{}, 0, len(plan.Regions))
 	allCommitted := true
@@ -625,6 +687,14 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 			IntervalSeconds:  r.Cfg.HelmReleaseIntervalSeconds,
 			OwnerAppUID:      string(app.GetUID()),
 			OwnerAppGen:      app.GetGeneration(),
+			// vCluster pivot — empty Blueprint declaration =
+			// host placement (legacy + G92.6 substrate); otherwise
+			// stamp host namespace + kubeconfig Secret so Flux v2
+			// helm-controller installs INSIDE the vCluster
+			// (G92.1 #2660).
+			VCluster:                 bpVCluster,
+			VClusterHostNamespace:    vcPlacement.HostNamespace,
+			VClusterKubeconfigSecret: vcPlacement.KubeconfigSecret,
 		})
 		if err != nil {
 			return r.markDegraded(ctx, app, ReasonRenderError,
@@ -683,7 +753,18 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 	//     already in Gitea so a future reconcile pass (or operator
 	//     re-apply) can resolve. We log + mark Degraded so the
 	//     Application visibly fails its Ready bar.
-	if err := r.ensureHostFluxBootstrap(ctx, app, envSpec, plan); err != nil {
+	//
+	//     G92.1 #2660 — when the Blueprint declares a vCluster, the
+	//     Kustomization's targetNamespace must be the vCluster's host
+	//     namespace so the HR CR itself lands there (where Flux v2
+	//     resolves the kubeConfig.secretRef). The IN-vCluster install
+	//     target stays the Application's namespace (rendered HR's
+	//     spec.targetNamespace).
+	hostHRNamespace := app.GetNamespace()
+	if bpVCluster != "" {
+		hostHRNamespace = vcPlacement.HostNamespace
+	}
+	if err := r.ensureHostFluxBootstrap(ctx, app, envSpec, plan, hostHRNamespace); err != nil {
 		return r.markDegraded(ctx, app, ReasonGiteaError,
 			fmt.Sprintf("ensure host Flux bootstrap: %v", err))
 	}
@@ -938,6 +1019,7 @@ func (r *Reconciler) ensureHostFluxBootstrap(
 	app *unstructured.Unstructured,
 	envSpec envParsedSpec,
 	plan placement.Plan,
+	hostHRNamespace string,
 ) error {
 	ns := r.Cfg.HostFluxNamespace
 	branch := branchForEnvType(envSpec.EnvType)
@@ -1027,10 +1109,17 @@ func (r *Reconciler) ensureHostFluxBootstrap(
 			return fmt.Errorf("set Kustomization labels: %w", err)
 		}
 		ksSpec := map[string]interface{}{
-			"interval":        fmt.Sprintf("%ds", r.Cfg.HostFluxIntervalSeconds),
-			"path":            fmt.Sprintf("./clusters/%s/applications/%s", rp.Name, app.GetName()),
-			"prune":           true,
-			"targetNamespace": app.GetNamespace(),
+			"interval": fmt.Sprintf("%ds", r.Cfg.HostFluxIntervalSeconds),
+			"path":     fmt.Sprintf("./clusters/%s/applications/%s", rp.Name, app.GetName()),
+			"prune":    true,
+			// targetNamespace = where the HR CR lands on the HOST. For
+			// host-placement Applications this is the Application's own
+			// namespace (legacy). For vCluster-placement Applications
+			// (G92.1 #2660) it's the vCluster's host namespace so
+			// helm-controller resolves spec.kubeConfig.secretRef from
+			// the same namespace as the HR (Flux v2 SecretReference
+			// contract).
+			"targetNamespace": hostHRNamespace,
 			"sourceRef": map[string]interface{}{
 				"kind":      "GitRepository",
 				"name":      repoName,
@@ -1506,6 +1595,18 @@ func blueprintAllowedModes(bp *unstructured.Unstructured) []string {
 		}
 	}
 	return out
+}
+
+// blueprintVCluster reads spec.placementSchema.vcluster from a
+// Blueprint and returns one of "dmz" / "mgmt" / "rtz" / "". Empty
+// means the Blueprint either doesn't declare the field (treated as
+// host placement — legacy + substrate-only Blueprints per G92.6) or
+// declared it as the empty string. The controller cross-checks
+// against r.Cfg.VClusterPlacements before stamping it on the
+// rendered HelmRelease (G92.1 #2660).
+func blueprintVCluster(bp *unstructured.Unstructured) string {
+	vc, _, _ := unstructured.NestedString(bp.Object, "spec", "placementSchema", "vcluster")
+	return vc
 }
 
 // branchForEnvType maps env-type → Gitea branch name per NAMING §11.2.

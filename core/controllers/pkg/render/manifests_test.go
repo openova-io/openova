@@ -207,6 +207,94 @@ func TestRender_CreateNamespaceTrue(t *testing.T) {
 	}
 }
 
+// TestRender_VClusterPlacementMGMT asserts the rendered HelmRelease
+// installs INTO the MGMT vCluster (G92.1 #2660 + #2639 EPIC). The
+// vCluster pivot uses Flux v2's spec.kubeConfig.secretRef contract;
+// helm-controller authenticates against the vCluster's admin
+// kubeconfig and installs the chart inside the vCluster, not on the
+// host k3s.
+//
+// Founder mandate 2026-05-31: "vclusters are not there for fun
+// purpose, they are there for containing the applications". Without
+// this code path every bp-* landed on the host k3s and the three
+// vClusters created at bootstrap (slots 54/58/59) stood empty.
+func TestRender_VClusterPlacementMGMT(t *testing.T) {
+	in := baseInputs()
+	in.VCluster = "mgmt"
+	res, err := Render(in)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	hr := string(res.HelmReleaseYAML)
+
+	// HR lives in the vCluster's host namespace (mgmt) so the
+	// kubeconfig Secret lookup is co-located.
+	if !strings.Contains(hr, "namespace: mgmt") {
+		t.Errorf("vCluster=mgmt: HelmRelease metadata.namespace must be 'mgmt' (vCluster host ns), got:\n%s", hr)
+	}
+	// kubeConfig pivot (Flux v2 contract).
+	if !strings.Contains(hr, "kubeConfig:") {
+		t.Errorf("vCluster=mgmt: HelmRelease must carry spec.kubeConfig, got:\n%s", hr)
+	}
+	if !strings.Contains(hr, "name: vc-mgmt") {
+		t.Errorf("vCluster=mgmt: kubeConfig.secretRef.name must be 'vc-mgmt' (loft-sh/vcluster convention), got:\n%s", hr)
+	}
+	if !strings.Contains(hr, "key: config") {
+		t.Errorf("vCluster=mgmt: kubeConfig.secretRef.key must be 'config' (Secret data key for kubeconfig), got:\n%s", hr)
+	}
+	// targetNamespace stays the Application's INSIDE-vCluster namespace.
+	if !strings.Contains(hr, "targetNamespace: acme") {
+		t.Errorf("vCluster=mgmt: spec.targetNamespace must remain the Application's inner namespace, got:\n%s", hr)
+	}
+	// Label for traceability.
+	if !strings.Contains(hr, "catalyst.openova.io/vcluster: mgmt") {
+		t.Errorf("vCluster=mgmt: HR must stamp catalyst.openova.io/vcluster label, got:\n%s", hr)
+	}
+}
+
+// TestRender_VClusterPlacementOverrides asserts the Config knob lets
+// the operator override the default loft-sh/vcluster convention
+// (host-namespace = vCluster name, kubeconfig Secret = `vc-<name>`)
+// when a Sovereign customised the bp-*-vcluster chart values.
+func TestRender_VClusterPlacementOverrides(t *testing.T) {
+	in := baseInputs()
+	in.VCluster = "dmz"
+	in.VClusterHostNamespace = "dmz-edge"
+	in.VClusterKubeconfigSecret = "vc-edge-config"
+	res, err := Render(in)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	hr := string(res.HelmReleaseYAML)
+	if !strings.Contains(hr, "namespace: dmz-edge") {
+		t.Errorf("VClusterHostNamespace override should be honored, got:\n%s", hr)
+	}
+	if !strings.Contains(hr, "name: vc-edge-config") {
+		t.Errorf("VClusterKubeconfigSecret override should be honored, got:\n%s", hr)
+	}
+}
+
+// TestRender_NoVClusterUnchanged asserts the host-placement path
+// (VCluster empty) produces no kubeConfig pivot — preserving every
+// pre-existing Application that lands on the host k3s.
+func TestRender_NoVClusterUnchanged(t *testing.T) {
+	res, err := Render(baseInputs())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	hr := string(res.HelmReleaseYAML)
+	if strings.Contains(hr, "kubeConfig:") {
+		t.Errorf("Host placement (VCluster='') must NOT emit kubeConfig, got:\n%s", hr)
+	}
+	if strings.Contains(hr, "catalyst.openova.io/vcluster:") {
+		t.Errorf("Host placement must NOT stamp catalyst.openova.io/vcluster label, got:\n%s", hr)
+	}
+	// HR namespace stays the Application namespace.
+	if !strings.Contains(hr, "namespace: acme") {
+		t.Errorf("Host placement HR.namespace should be AppNamespace, got:\n%s", hr)
+	}
+}
+
 // TestRender_AppNamespaceFallbackToOrg asserts the back-compat default:
 // callers that haven't been updated to pass AppNamespace explicitly
 // still produce valid output (matching the legacy bug-compatible shape

@@ -29,6 +29,24 @@ spec:
   instances: {{ .Values.postgres.cluster.instances | default 1 }}
   imageName: ghcr.io/cloudnative-pg/postgresql:{{ .Values.postgres.cluster.pgVersion | default "16" }}
 
+  {{- /*
+  G93.3 (Refs #2668) — when instances >= 2, default the CNPG
+  Cluster CR's affinity.topologyKey to topology.kubernetes.io/region
+  so the CNPG operator's auto-generated podAntiAffinity spreads
+  replicas across regions on Cilium ClusterMesh peers (Pillar 3 zero-
+  tx-loss). Single-instance Sovereigns skip the block so the CNPG
+  operator falls back to its upstream default (kubernetes.io/hostname,
+  preferred) and a single-node prod still schedules. Operator
+  overrides via .Values.postgres.cluster.affinity.{topologyKey,
+  podAntiAffinityType} if the chart-default is wrong for the
+  deployment shape.
+  */ -}}
+  {{- if ge (int (.Values.postgres.cluster.instances | default 1)) 2 }}
+  affinity:
+    topologyKey: {{ (default dict .Values.postgres.cluster.affinity).topologyKey | default "topology.kubernetes.io/region" | quote }}
+    podAntiAffinityType: {{ (default dict .Values.postgres.cluster.affinity).podAntiAffinityType | default "preferred" | quote }}
+  {{- end }}
+
   bootstrap:
     initdb:
       database: {{ .Values.postgres.cluster.database | default "gitea" | quote }}

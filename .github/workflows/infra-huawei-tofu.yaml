@@ -52,19 +52,16 @@ jobs:
       - name: tofu validate
         run: tofu validate
 
-      # Same tftpl shell-expansion escape guard the Hetzner workflow
-      # ships (Fix #111). Catches bare `${VAR:-default}` interpolations
-      # inside YAML comments that tofu's templatefile() can't parse.
+      # tftpl shell-expansion escape guard (Fix #111 + broadened
+      # 2026-06-01 per PR #2675 + G99 retrospective). Uses the
+      # canonical scripts/check-tofu-flux-envsubst.sh which catches
+      # ALL colon shapes (bare, :=, :-, :?, :+) on ALL lines (not just
+      # comments). Earlier inline guard only matched `:-` operator on
+      # comment lines — missed worker-3's PR #2675 (bare `:default`)
+      # and lead's G99 line 506 (`:=` operator).
       - name: tftpl shell-expansion escape guard
-        run: |
-          set -euo pipefail
-          violations=$(grep -rEnP '^\s*#.*(?<!\$)\$\{[A-Z_]+:-' *.tftpl || true)
-          if [ -n "$violations" ]; then
-            echo "::error title=Unescaped tftpl shell expansion::Use \$\${VAR:-default} (double-dollar) in tftpl YAML comments."
-            echo "Offending lines:"
-            echo "$violations"
-            exit 1
-          fi
+        working-directory: ${{ github.workspace }}
+        run: ./scripts/check-tofu-flux-envsubst.sh
 
       - name: tofu test (offline — mock_provider for huaweicloud + aws)
         # The module's tests/multi_region.tftest.hcl exercises the Tier-B

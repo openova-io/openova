@@ -1,0 +1,96 @@
+name: Banned words validate
+
+# Pre-merge guard for founder's banned-words list (docs/PRINCIPLES.md
+# "Banned words" section, set 2026-06-01).
+#
+# We are in the final stage of the product. The language of an ultimate-
+# product ship is not the language of a backlog or a debate. Four words
+# are banned from every commit message, PR body, issue title/body,
+# ledger row, comment, and code identifier:
+#
+#   MVP             ship the ultimate product (no "minimum viable")
+#   Iteration       'chain' or 'series' for genuine multi-PR ships
+#   out of scope    ship it OR ship a follow-up PR
+#   Blocker         'next action: do X' framing instead
+#
+# This workflow checks the PR BODY + every commit message in the PR's
+# range against the banned list. Code-file content checks are deferred
+# to a follow-up PR (111 legacy files contain banned-word text;
+# scrubbing them is a separate chain).
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  banned-words-pr-body:
+    name: Reject banned words in PR body
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Inspect PR body for banned words
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -u
+          echo "PR #${PR_NUMBER}"
+          echo "Title: ${PR_TITLE}"
+          echo ""
+
+          PATTERN='\bMVP\b|\biterat(ion|ions|ive|ively)\b|\bout[ -_]of[ -_]scope\b|\bblocker[s]?\b'
+
+          VIOLATIONS=""
+          if printf '%s' "${PR_TITLE:-}" | grep -iqP "${PATTERN}"; then
+            VIOLATIONS="${VIOLATIONS}- PR TITLE matches banned-word pattern"$'\n'
+          fi
+          if printf '%s' "${PR_BODY:-}" | grep -iqP "${PATTERN}"; then
+            VIOLATIONS="${VIOLATIONS}- PR BODY matches banned-word pattern"$'\n'
+          fi
+
+          if [ -n "$VIOLATIONS" ]; then
+            echo "::error::PR violates docs/PRINCIPLES.md 'Banned words' rule."
+            echo ""
+            echo "Violations:"
+            printf '%s' "$VIOLATIONS"
+            echo ""
+            echo "Banned words (set 2026-06-01 — additive only, never removed):"
+            echo "  MVP            → ship the ultimate product (no 'minimum viable')"
+            echo "  Iteration      → 'chain' or 'series' for genuine multi-PR ships"
+            echo "  out of scope   → ship it OR ship a follow-up PR"
+            echo "  Blocker        → 'next action: do X' framing instead"
+            echo ""
+            echo "Edit the PR title/body to remove the banned words. The 'edited'"
+            echo "trigger re-runs this check automatically."
+            exit 1
+          fi
+
+          echo "OK — PR title/body does not use banned words."
+
+  banned-words-commit-messages:
+    name: Reject banned words in commit messages on this PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Checkout (full history for commit range)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan commit messages
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -u
+          # The check-no-banned-words.sh script supports --commit-messages
+          # mode with an explicit range. Use the PR's base..head range so
+          # we only scan commits authored on this branch (not the whole
+          # history).
+          chmod +x scripts/check-no-banned-words.sh
+          ./scripts/check-no-banned-words.sh --commit-messages "${BASE_SHA}..${HEAD_SHA}"

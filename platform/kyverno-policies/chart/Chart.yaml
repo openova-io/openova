@@ -19,6 +19,14 @@ description: |
   ClusterPolicy CRs. CRDs are provided by the engine chart's upstream
   Kyverno subchart at slot 27.
 type: application
+# 1.0.26 (G98 Refs #2644, 2026-06-01): NEW MUTATE policy
+# `app-label-mutate` auto-stamps `catalyst.openova.io/application`
+# label on Pods cluster-wide using `app.kubernetes.io/instance`
+# (or `app.kubernetes.io/name` fallback) as source. Kyverno's
+# `+(label)` add-when-missing syntax means no override of operator-
+# set values. Unblocks per-Application Compliance scorecard rollups
+# for every chart at once, without per-chart label-stamping PRs.
+# Default ENABLED — non-rejecting MUTATE cannot block any workload.
 # 1.0.22 (G60 RETROSPECTIVE #2611, 2026-05-30): META-AUDIT 7 closed.
 # RE-ARCHITECTED harbor-proxy-pull + image-tag-pinned policies. After
 # 7 rounds of regex_match+foreach+element.X patching (G19→G40→G45→G51→
@@ -66,7 +74,7 @@ type: application
 # while keeping proxy-cache for anonymous public registries.
 # Lockstep with bp-self-sovereign-cutover 0.1.43 (Step 03 Phase A
 # skopeo native-push + Step 07 REGISTRY drops /proxy-ghcr/ suffix).
-version: 1.0.25
+version: 1.0.26
 appVersion: "1.0.2"
 keywords: [catalyst, blueprint, kyverno, policy, compliance, audit]
 maintainers:
