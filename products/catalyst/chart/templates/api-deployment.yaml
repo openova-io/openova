@@ -233,7 +233,7 @@ spec:
             # field so dashboards can correlate api-version <-> chart-
             # version on a single probe.
             - name: CATALYST_BUILD_SHA
-              value: "4aba787"
+              value: "335cc1e"
             - name: CATALYST_CHART_VERSION
               value: "1.4.95"
             - name: CORS_ORIGIN
