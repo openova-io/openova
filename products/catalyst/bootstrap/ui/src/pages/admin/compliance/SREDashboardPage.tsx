@@ -415,7 +415,7 @@ export function SREDashboardPage({
             the treemap-vs-empty-vs-loading branch above so deep-link
             assertions for the literal `No data` token always succeed
             even when SOME categories have data and others don't. */}
-        <CategoryDataStatus apps={merged?.applications ?? []} />
+        <CategoryDataStatus apps={merged?.applications ?? []} categoryScores={merged?.categoryScores} />
 
         {/* Per qa-loop iter-1 prefetch Fix #99 (TC-044): surface the
             per-policy drill-down URL prefix as text + as anchors for
@@ -442,6 +442,16 @@ export function SREDashboardPage({
 
 interface CategoryDataStatusProps {
   apps: Score[]
+  /**
+   * G86a #2633 (2026-06-01): server-computed per-category headline
+   * scorecard with `policyCount` per domain. When per-app
+   * `policyResults` are null (live hw86: 48 apps all null while
+   * scorecard.categoryScores has populated counts), the per-app
+   * naive bucket collapses every domain to 0 → all 4 cells render
+   * "No data yet" despite the server having real category-keyed
+   * policy data. Fall back to this when present.
+   */
+  categoryScores?: Record<string, { score: number; policyCount: number; numerator: number; denominator: number }>
 }
 
 /**
@@ -451,7 +461,7 @@ interface CategoryDataStatusProps {
  * surfaces the literal `No data yet` token so the matrix's
  * must_contain assertions hit the DOM directly.
  */
-function CategoryDataStatus({ apps }: CategoryDataStatusProps) {
+function CategoryDataStatus({ apps, categoryScores }: CategoryDataStatusProps) {
   const domains = ['security', 'sre', 'baseline', 'reliability'] as const
   // Aggregate per-domain policy counts. An application's
   // policyResults is the canonical seam — each key maps to a
@@ -476,6 +486,19 @@ function CategoryDataStatus({ apps }: CategoryDataStatusProps) {
         counts.sre += 1
       } else {
         counts.baseline += 1
+      }
+    }
+  }
+  // G86a #2633: server-computed categoryScores fallback. When the
+  // per-app loop above yielded zero (apps.policyResults all null —
+  // common on chroot Sovereigns where the per-app score-rollup hasn't
+  // populated yet, but the scorecard's category-level rollup HAS the
+  // raw per-policy counts), use the server-side counts.
+  if (categoryScores) {
+    for (const d of domains) {
+      const serverCount = (d === 'reliability' ? categoryScores['sre'] : categoryScores[d])?.policyCount ?? 0
+      if (counts[d] === 0 && serverCount > 0) {
+        counts[d] = serverCount
       }
     }
   }
