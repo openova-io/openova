@@ -326,7 +326,38 @@ name: bp-self-sovereign-cutover
 # enumerates push-mode project names; Step 02 POSTs each to /projects
 # with `public:false` and NO registry_id (Harbor treats absence as
 # push-mode). Lockstep update — bp-kyverno-policies 1.0.24 unchanged.
-version: 0.1.47
+#
+# 0.1.48 (G75 #2622, 2026-05-31): SEVER UPSTREAM GIT TETHER. Step 01
+# (gitea-mirror) finalize block now (a) patches HR
+# bp-self-sovereign-cutover spec.values.mirrorResync.enabled=false,
+# (b) DELETEs the live `gitea-mirror-resync` CronJob in `catalyst`
+# namespace, then (c) waits 6 min and re-verifies the CronJob is still
+# absent (META-AUDIT 13 post-verify-action-took-effect pattern).
+# Template 11-mirror-resync-cronjob.yaml gated behind
+# `.Values.mirrorResync.enabled` (default true) so Flux reconcile
+# post-HR-patch renders ZERO CronJob resource — the live delete sticks.
+#
+# Why: gitea-mirror-resync ran every 5min doing
+# `git push --mirror --force` from upstream openova-io/openova → local
+# Gitea. That force-overwrite CLOBBERED cutover Step 06's
+# HelmRepository URL pivot pushes (and Step 07 Phase 2.5 sed edits)
+# within 5min of completion. G62 "Gitea persist" pattern (chart 0.1.41,
+# #2613) was therefore a no-op architecturally — Step 06+07 pushes
+# survived ~5min then got force-overwritten. Verified live hw86
+# afc8800bc03751c6 2026-05-31: Step 06 pushed HelmRepository URL pivot
+# 11:34Z, mirror-resync fired 11:45Z wiped it, Step 08 fired 12:00Z
+# saw HRs still at ghcr.io → cutoverComplete=false.
+#
+# Why DELETE not SUSPEND: per Principle 14, severance must be
+# irreversible at the IaC layer. A suspended cronjob is a future drift
+# trap. Setting `enabled: false` flips the chart template to render
+# nothing — Flux reconciles to empty state, the CronJob STAYS GONE.
+# This closes one of the 8 tethers ADR-0002 §Pillar 5 contractually
+# requires cutover to sever.
+#
+# RBAC: ClusterRole gains batch.cronjobs {get,list,watch,delete} so
+# Step 01 can DELETE the live resource.
+version: 0.1.48
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

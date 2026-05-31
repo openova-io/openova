@@ -50,6 +50,22 @@ Design notes
   sandboxed soak Sovereign that intentionally stays N days behind
   upstream can suspend this CronJob via per-Sovereign overlay.
 
+- G75 #2622 (2026-05-31): MASTER SEVERANCE GATE
+  (`.Values.mirrorResync.enabled`) ships at default `true`. Cutover
+  Step 01 flips it to `false` via HR patch on bp-self-sovereign-
+  cutover, then DELETEs the live CronJob. The combination of (a)
+  IaC flag false + (b) live delete means Flux won't recreate the
+  resource on the next reconcile. This is the architectural
+  severance of the GIT-source upstream tether per ADR-0002
+  §Pillar 5 (one of the 8 tethers cutover is contractually
+  required to sever). Previously cutover Step 06 (HelmRepository
+  URL pivot) + Step 07 (Phase 2.5 sed) pushed changes that
+  SURVIVED ~5min and then got CLOBBERED by this CronJob's next
+  `git push --mirror --force` — verified live hw86
+  afc8800bc03751c6 2026-05-31. Suspend is NOT equivalent
+  (Principle 14): a suspended cronjob is a future drift trap;
+  severance must be irreversible at the IaC layer.
+
 - Image: same `images.git` as Step-01 (alpine/git). MUST use the
   cutoverPhase: "pre" image because pre-cutover the local Harbor
   proxy-cache isn't routable yet and the CronJob is created
@@ -76,6 +92,7 @@ On a fresh prov post-cutover:
 
 Image phase: pre — uses upstream-public image like Step-01.
 */ -}}
+{{- if .Values.mirrorResync.enabled }}
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -217,3 +234,4 @@ spec:
                 readOnlyRootFilesystem: false
                 capabilities:
                   drop: ["ALL"]
+{{- end }}

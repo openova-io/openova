@@ -419,7 +419,16 @@ spec:
       # 0.1.41 (G62 #2613): Step 07 G62-A pass — durable Gitea edit
       # of bootstrap-kit imageRegistry seam so Flux Kustomization
       # preserves the HR patch (sub-class 10 architectural fix).
-      version: 0.1.47
+      # 0.1.48 (G75 #2622, 2026-05-31): Step 01 finalize SEVERS the
+      # upstream git tether — patches HR mirrorResync.enabled=false +
+      # DELETEs the gitea-mirror-resync CronJob + 6min post-verify
+      # hold confirming Flux doesn't recreate. Closes ADR-0002 §Pillar
+      # 5 contract on the GIT-source tether. Verified live hw86
+      # afc8800bc03751c6: Step 06 HelmRepository URL pivot pushed
+      # 11:34Z, mirror-resync fired 11:45Z wiped it, Step 08 saw HRs
+      # still at ghcr.io → cutoverComplete=false. The 5-min force-push
+      # loop made G62 "Gitea persist" a no-op architecturally.
+      version: 0.1.48
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

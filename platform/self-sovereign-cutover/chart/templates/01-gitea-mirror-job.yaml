@@ -215,6 +215,48 @@ data:
             if printf '%s' "${repo_meta}" | grep -q '"mirror":false'; then
               echo "[gitea-mirror] verified: mirror=false on ${GITEA_ORG}/${GITEA_REPO} (writable for cutover step-06)"
             fi
+
+            # G75 #2622 (2026-05-31): SEVER UPSTREAM GIT TETHER (ADR-0002
+            # Pillar 5 contract). gitea-mirror-resync CronJob runs every
+            # 5min doing `git push --mirror --force` from upstream → local
+            # Gitea, which CLOBBERS cutover Step 06+07 pushes. G62
+            # "Gitea persist" pattern has been a no-op architecturally
+            # because of this tether — Step 06+07 pushes survive ~5min
+            # then get force-overwritten. Verified live hw86
+            # afc8800bc03751c6 2026-05-31: Step 06 pushed HelmRepository
+            # URL pivot 11:34, mirror-resync fired 11:45 wiped it, Step
+            # 08 fired 12:00 saw HRs still at ghcr.io → FAILED.
+            #
+            # B' shape (per lead): IaC removal (HR values flag) + live
+            # DELETE + post-verify wait window. Suspend would be a
+            # workaround per Principle 14 — severance must be irreversible.
+            #
+            # Order: HR patch FIRST (so Flux re-reconcile doesn't recreate
+            # after live delete), THEN live delete, THEN post-verify
+            # waits ≥1 mirror-resync interval to confirm the tether stays
+            # severed.
+            echo "[gitea-mirror] G75: severing upstream git tether (delete mirror-resync CronJob)"
+            kubectl patch hr -n flux-system bp-self-sovereign-cutover \
+              --type=merge \
+              -p '{"spec":{"values":{"mirrorResync":{"enabled":false}}}}' 2>&1 || \
+              echo "[gitea-mirror] G75 WARN: HR patch failed (cronjob will recreate after delete unless chart conditional gates it)"
+
+            kubectl delete cronjob -n {{ .Release.Namespace }} gitea-mirror-resync --ignore-not-found=true 2>&1 || \
+              echo "[gitea-mirror] G75 WARN: cronjob delete failed (RBAC?)"
+
+            # Post-verify: wait 6min (>1 mirror-resync interval) + confirm
+            # CronJob still absent + confirm local Gitea HEAD unchanged.
+            CRONJOB_NS={{ .Release.Namespace }}
+            for i in $(seq 1 6); do
+              sleep 60
+              if kubectl get cronjob -n "${CRONJOB_NS}" gitea-mirror-resync >/dev/null 2>&1; then
+                echo "[gitea-mirror] G75 FATAL: cronjob reappeared at ${i}min — Flux re-reconciled despite HR patch (template not conditional?)"
+                exit 1
+              fi
+              echo "[gitea-mirror] G75 post-verify (${i}/6): cronjob still absent"
+            done
+            echo "[gitea-mirror] G75 OK: upstream git tether severed (cronjob deleted + HR patched + 6min hold confirmed no recreate)"
+
             echo "[gitea-mirror] step complete"
         resources:
           requests: { cpu: 100m, memory: 256Mi }

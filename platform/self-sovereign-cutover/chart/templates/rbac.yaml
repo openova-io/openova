@@ -121,6 +121,9 @@ rules:
   - apiGroups: ["cilium.io"]
     resources: ["ciliumnetworkpolicies"]
     verbs: ["delete", "patch", "update"]   # step 08 removes the policy at end-of-test
+  - apiGroups: ["batch"]
+    resources: ["cronjobs"]
+    verbs: ["get", "list", "watch", "delete"]   # G75 #2622: step 01 deletes gitea-mirror-resync CronJob to sever upstream git tether (ADR-0002 Pillar 5)
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
