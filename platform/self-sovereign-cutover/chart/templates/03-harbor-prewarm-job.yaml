@@ -167,10 +167,23 @@ data:
             fi
 
             # Extract GHCR PAT from dockerconfigjson.
-            # GHCR_DOCKERCONFIG may be base64-encoded (some secret keys
-            # return raw bytes; ENV gives us raw stringData). Try decode
-            # then fall back to raw.
-            dc_decoded=$(printf '%s' "${GHCR_DOCKERCONFIG}" | base64 -d 2>/dev/null || printf '%s' "${GHCR_DOCKERCONFIG}")
+            # G72 #2618-followup (2026-05-31): Kubernetes env from
+            # secretKeyRef ALWAYS passes the DECODED secret value (raw
+            # bytes/string as stored under .data after base64 decode).
+            # Prior naive `base64 -d 2>/dev/null || raw` fallback fired
+            # base64 -d on already-decoded JSON, which produced garbage
+            # output (busybox base64 doesn't strictly fail on non-base64
+            # input) → jq parse error "Invalid numeric literal at line 1,
+            # column 21". Live evidence hw84 bf7de50d4b5ca99e Step 03.
+            #
+            # Fix: detect if input starts with `{` (JSON object) — if so,
+            # use as-is (no base64 decode attempt). Otherwise try base64
+            # decode then fall back to raw.
+            if [ "${GHCR_DOCKERCONFIG:0:1}" = "{" ]; then
+              dc_decoded="${GHCR_DOCKERCONFIG}"
+            else
+              dc_decoded=$(printf '%s' "${GHCR_DOCKERCONFIG}" | base64 -d 2>/dev/null || printf '%s' "${GHCR_DOCKERCONFIG}")
+            fi
             # Locate the ghcr.io entry's auth (base64 of "<user>:<PAT>").
             ghcr_auth_b64=$(printf '%s' "${dc_decoded}" | jq -r '.auths["ghcr.io"].auth // empty')
             if [ -z "${ghcr_auth_b64}" ]; then
