@@ -1620,3 +1620,6 @@ hw76 + hw77 failed Phase 0 at HCS VPC quota BEFORE zero-touch contract reached (
 - Target: 3 consecutive full-DoD ZTs = hw79 + hw80 + hw81 after G69 bake
 
 **Continuous execution mode** (no standby). Founder alerted via chepherd_alert_human kind=failure urgency=high.
+
+| 04:54Z | hw78 | de7f6aa8d5ef12b5 | WIPED (freed HCS quota for hw79) | N/A | Substrate-ZT cluster wiped. Pre-wipe audit findings in `docs/sessions/2026-05-31-post-mandate-audit/hw78-5pillar-gap-analysis.md`. |
+| 04:56→TBD | hw79 | c2a113be211e8c17 | LIVE prov | TBD | **full-DoD ZT#1 attempt** — FIRST prov with G55+G57+G58+G59+G60+G61+G62+G63+G64+G65+G66+G67+G69 = 13-fix stack baked + workerCount=4. Verifier extended to 86 checks (81 substrate + 5 L7 cutover-completion). Falsifiable: skopeo static binary downloads → Step 03 Phase A succeeds → Steps 04-08 ALL Complete → catalyst-api flips to native path → deny-egress hold survives → cutoverComplete=true → L7.1-L7.5 PASS → 86/86. |
