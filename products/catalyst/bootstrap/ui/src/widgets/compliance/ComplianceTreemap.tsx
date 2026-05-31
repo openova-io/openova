@@ -61,6 +61,23 @@ export interface ComplianceTreemapProps {
   forceHeight?: number
 }
 
+/**
+ * RechartsCellProps — shape recharts v3 passes to the content callback.
+ *
+ * In recharts v3 the Treemap `content` function is invoked with the
+ * computed TreemapNode itself as the single argument
+ * (`content(nodeProps)` in ContentItem) — not with a `{payload, ...}`
+ * wrapper as recharts v2 did. The node carries `x/y/width/height/
+ * depth/name/value/children` AT THE TOP LEVEL, plus every original
+ * data field (size, total, score, …) spread back onto it via
+ * `_objectSpread({}, node)`. There is no `payload` key.
+ *
+ * Pre-G86b this interface declared `payload?: ComplianceTreemapNode`
+ * and the cell renderer destructured `payload` → it was always
+ * undefined → the early `if (!payload) return null` short-circuit
+ * fired for EVERY leaf → 48 empty `<g>` containers with no `<rect>`
+ * inside → blank treemap surface despite valid wire data.
+ */
 interface RechartsCellProps {
   x?: number
   y?: number
@@ -68,17 +85,22 @@ interface RechartsCellProps {
   height?: number
   depth?: number
   name?: string
-  payload?: ComplianceTreemapNode
-  // Recharts passes the full root node into every cell. We ignore.
+  children?: ComplianceTreemapNode[]
+  total?: number | null
+  size?: number
+  score?: ComplianceTreemapNode['score']
+  // Recharts adds its own bookkeeping fields too; we don't use them.
   root?: unknown
   index?: number
-  // Custom — passed via `content={...} colors={palette}` in props.
+  value?: number
+  tooltipIndex?: unknown
 }
 
 /**
  * renderTreemapCell — pure cell-rendering function. NOT a React
  * component (no hooks, no state) — recharts invokes it as a tree-walk
- * callback with the cell's geometry + payload. Returns SVG nodes.
+ * callback with the cell's geometry + payload-equivalent fields
+ * spread onto the same argument object. Returns SVG nodes.
  *
  * The two callsite-specific values (palette + onLeafClick) flow in
  * through the closure created at component-render time; the returned
@@ -90,16 +112,20 @@ function renderTreemapCell(
   onLeafClick: ((n: ComplianceTreemapNode) => void) | undefined,
 ): (props: RechartsCellProps) => React.ReactNode {
   return function cellRenderer(props: RechartsCellProps): React.ReactNode {
-    const { x = 0, y = 0, width = 0, height = 0, depth = 0, payload } = props
+    const { x = 0, y = 0, width = 0, height = 0, depth = 0 } = props
     if (width <= 0 || height <= 0) return null
 
     // Depth 0 is the synthetic root recharts wraps everything in. We
-    // never render it — it has no payload.
-    if (depth === 0 || !payload) return null
+    // never render it.
+    if (depth === 0) return null
 
-    const isLeaf = !payload.children || payload.children.length === 0
-    const total = payload.total ?? null
-    const name = payload.name ?? '—'
+    // Recharts v3 contract: every original data field is spread back
+    // onto the node argument, so `name / children / total / score` are
+    // read DIRECTLY off props — not via a `payload` wrapper.
+    const children = props.children as ComplianceTreemapNode[] | undefined
+    const isLeaf = !children || children.length === 0
+    const total = props.total ?? null
+    const name = props.name ?? '—'
     const fill = isLeaf
       ? scoreColor(total, palette)
       : 'rgba(255, 255, 255, 0.04)'
@@ -109,12 +135,23 @@ function renderTreemapCell(
     const showLabel = width >= LABEL_MIN_WIDTH_PX && height >= LABEL_MIN_HEIGHT_PX
     const cursor = isLeaf && onLeafClick ? 'pointer' : 'default'
 
+    // Reconstruct a ComplianceTreemapNode for the click handler so the
+    // existing onLeafClick signature is preserved (no API change for
+    // consumers). The synthesised node carries the same fields the
+    // upstream mapper produced.
+    const nodeForClick: ComplianceTreemapNode = {
+      name,
+      total,
+      size: props.size ?? 0,
+      score: props.score,
+    }
+
     return (
       <g
         data-testid={`compliance-treemap-cell-${name}`}
         style={{ cursor }}
         onClick={() => {
-          if (isLeaf && onLeafClick) onLeafClick(payload)
+          if (isLeaf && onLeafClick) onLeafClick(nodeForClick)
         }}
       >
       <rect
