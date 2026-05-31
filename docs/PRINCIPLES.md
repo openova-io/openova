@@ -377,6 +377,34 @@ Any of the following in a diff is *not* approval — it is a clue to hunt the up
 
 ---
 
+## Banned words (founder direction 2026-06-01)
+
+The following words are **banned from every commit message, PR body,
+issue title, issue body, ledger row, comment, code identifier, and
+chat reply**. We are in the final stage of the product — every
+artifact must carry the language of a shipping product, not the
+language of a backlog or a debate:
+
+- **MVP** — there is no "minimum viable" product. We ship the ultimate
+  product. If the canonical surface requires N features, all N ship.
+- **Iteration** — refactor or "next pass" is not work; **target-state shape
+  ships in one PR** (per Principle 1 + 14). If something is genuinely a
+  multi-PR ship, label it as `chain` or `series`, not "iteration".
+- **out of scope** — every gap is in scope. The only legal response to
+  a gap is "ship it" or "ship a follow-up PR". Never "out of scope".
+- **Blocker** — there are no blockers. There are problems with
+  identified next actions. If you find yourself wanting to write
+  "blocked on X", write "next action: do X" instead.
+
+Each banned word has a canonical replacement listed above. The CI
+guard at `scripts/check-no-banned-words.sh` (planned) will fail any
+commit/PR containing them. Until that lands, reviewers and dispatching
+leads flag them at PR-comment time.
+
+This list is **additive only** — words enter, they do not leave.
+
+---
+
 ## Part III — How these relate
 
 Part I (Principles 1-15) defines *what to do*. Part II (anti-patterns A1-A15) is the catalog of *how violations manifest in PRs* — concrete shapes you can grep for during review.
