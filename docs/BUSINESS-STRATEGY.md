@@ -1361,7 +1361,7 @@ Every migration follows a structured approach:
 1. ASSESS (Week 1-2)
    ├── Inventory current state
    ├── Map dependencies
-   ├── Identify risks and blockers
+   ├── Identify risks and required next actions
    └── Estimate effort and timeline
 
 2. PLAN (Week 2-3)

@@ -1490,10 +1490,10 @@ This is the **canonical** voucher implementation. Do not redesign. Read what's t
 These agreements survive any context compaction and apply to every phase of the work below.
 
 1. **Catalyst-Zero is the existing Contabo deployment.** Not greenfield. The work is consolidate + cutover + extend, not rebuild.
-2. **omani.works is the first Sovereign-provided subdomain pool** (registered to the OpenOva Dynadot account). User dynamically picks `omantel.omani.works` during provisioning. The wizard offers BYO domain (customer's own) or a Sovereign-pool subdomain (default). Multi-region setups are out of scope for the first run.
+2. **omani.works is the first Sovereign-provided subdomain pool** (registered to the OpenOva Dynadot account). User dynamically picks `omantel.omani.works` during provisioning. The wizard offers BYO domain (customer's own) or a Sovereign-pool subdomain (default). Multi-region setups land in the multi-region chain once the single-region first run ships.
 3. **Existing admin voucher implementation is the source of truth.** Do not propose new CRDs. Read the existing implementation, propagate it to franchised Sovereigns, document it.
 4. **G2 quality only.** Catalyst-curated wrapper Helm charts at `platform/<x>/chart/` for every component in the bootstrap kit. No upstream-as-is shortcuts. No corner-cutting. The unified Blueprint contract from §3 is the standard.
-5. **No mocks. No iterations. No partial deliveries.** Waterfall — every phase produces real, deployed, working artifacts.
+5. **No mocks. No partial deliveries.** Waterfall — every phase produces real, deployed, working artifacts in a single ship.
 6. **All product code is public.** Per the build-minutes constraint, code moves to `openova/` (the public monorepo) before any further development. CI runs in the public repo from this point onward.
 7. **The Vite scaffold at `products/catalyst/bootstrap/ui/`** merges into `core/console/src/pages/sovereign/`. It does not become its own deployable.
 8. **Sovereign-provisioning wizard target URL: `console.openova.io/sovereign`.** Captured fields include domain (BYO or pool), Hetzner Cloud API token, Hetzner project ID, Hetzner region (runtime parameter, never hardcoded), plus the marketplace-style App selection.

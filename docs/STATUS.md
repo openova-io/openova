@@ -18,7 +18,7 @@ The other architecture docs describe the **target**: where Catalyst is going. Th
 | 🟦 **CODE-COMPLETE** | All controllers + CRDs + tests landed; awaiting fresh-prov walk to flip to ✅ per 5-pillar DoD. |
 | 🚧 **Partial** | Some code exists; significant gaps; not production-ready. |
 | 📐 **Design** | Documented in canonical docs; no code yet. The doc is the contract for the future implementation. |
-| ⏸ **Deferred** | Mentioned in docs but explicitly out of scope until later. |
+| ⏸ **Deferred** | Mentioned in docs but explicitly queued for a future chain. |
 
 Per [`DOD.md`](DOD.md), 🟦 CODE-COMPLETE does NOT mean shipped. A pillar is **shipped** when an operator walks a **fresh prov** through the pillar-relevant steps and produces a screenshot + non-empty wire-capture + working downstream artifact. PR merge ≠ pillar shipped.
 
