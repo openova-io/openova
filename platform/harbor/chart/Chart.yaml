@@ -52,8 +52,27 @@ type: application
 # The Postgres workload Pods reconcile into the same NS as the
 # CNPG Cluster CR, NOT into cnpg-system; the prior rule could
 # never match the actual DB Pods.
-version: 1.2.20
+version: 1.2.21
 appVersion: "2.14.3"
+# 1.2.21 (G91.harbor #2654, 2026-05-31): opt in to the bp-sso-bridge
+# (G91.1 #2652) SSO framework. Top-level `sso:` block (defaults
+# enabled=true). Ships:
+#   - templates/sso-oauth-source-externalsecret.yaml — ExternalSecret
+#     reading bp-sso-bridge's OpenBao `secret/sso/harbor` bundle into
+#     the harbor-sso-oidc-credentials Secret.
+#   - templates/sso-configure-oauth-job.yaml — Helm post-install +
+#     post-upgrade Job that PUTs Harbor's `/api/v2.0/configurations`
+#     with auth_mode=oidc_auth + oidc_endpoint/oidc_client_id/
+#     oidc_client_secret/oidc_scope/oidc_groups_claim/oidc_admin_group/
+#     oidc_user_claim/oidc_verify_cert/oidc_auto_onboard. Auth uses
+#     the local Harbor admin password from harbor-admin Secret
+#     (single-key HARBOR_ADMIN_PASSWORD; username hardcoded `admin`
+#     per templates/admin-secret.yaml). Idempotent on chart reconcile.
+# Sovereign operator (deployment.OrgEmail; auto-granted by
+# bp-sso-bridge to client's admin role + sovereign-admins realm
+# group) lands in Harbor as a system admin via OIDC. The local
+# Harbor `admin` user remains the break-glass account.
+# Per SECURITY.md §6.3 (App-level SSO).
 keywords: [catalyst, blueprint, harbor, oci, registry, container]
 maintainers:
   - name: OpenOva Catalyst

@@ -411,12 +411,51 @@ harborOverlay:
       kind: ClusterIssuer
       name: ""
   sso:
+    # Deprecated alias retained for any pre-G91 cluster overlays that
+    # toggle `harborOverlay.sso.enabled`. G91.harbor (#2654) introduces
+    # a first-class top-level `sso:` block (see below) wired to the
+    # bp-sso-bridge framework. This sub-block now mirrors the new top-
+    # level value at chart-template time inside templates/networkpolicy.yaml.
     enabled: false
     keycloakRealm: ""
     keycloakClientId: ""
   pullMirror:
     enabled: false
     upstreams: []     # list of {name, url, schedule, filter} entries
+
+# ─── G91.harbor (#2654) SSO opt-in ────────────────────────────────────────
+# Per SECURITY.md §6.3 every Application Blueprint declares SSO support
+# with a single value. bp-sso-bridge (G91.1 #2652) watches every HR with
+# `sso.enabled: true` and reconciles a Keycloak Client + OpenBao
+# `secret/sso/<clientId>` + ExternalSecret in this namespace.
+#
+# bp-harbor opts in by default — Sovereign-operator SSO is mandatory.
+# Harbor's local `admin` user (HARBOR_ADMIN_PASSWORD in admin-secret.yaml)
+# remains as the break-glass account for Sovereign-recovery scenarios.
+sso:
+  enabled: true
+  realm: sovereign
+  # Per-Sovereign cluster overlay sets this (e.g. `hw86.omani.works`).
+  # When empty the configure-oauth Job is suppressed so a half-configured
+  # auth_mode can never land.
+  sovereignFqdn: ""
+  # OIDC client ID — defaults to "harbor" (bp-sso-bridge strips "bp-"
+  # from the HR name).
+  clientId: harbor
+  externalSecretStoreName: vault-region1
+  refreshInterval: 1h
+  # Harbor's `oidc_user_claim` — `preferred_username` is the standard
+  # OIDC claim that maps to the Keycloak realm's username. Defaults to
+  # name as Harbor strips most non-ASCII characters.
+  userClaim: preferred_username
+  groupClaimName: groups
+  adminGroup: sovereign-admins
+  # Verify the Keycloak TLS cert. The realm runs behind the per-Sovereign
+  # cert-manager-managed cert which is trusted by Harbor's pod's CA bundle
+  # (cert-manager Issuer is one of the bootstrap-kit's CA roots).
+  verifyCert: true
+  configureJob:
+    image: harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1
 
 # ─── Catalyst HTTPRoute (Cilium Gateway API, issue #387) ──────────────────
 # Replaces the upstream chart's networking.k8s.io/v1.Ingress on Sovereigns.

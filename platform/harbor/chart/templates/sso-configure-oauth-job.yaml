@@ -1,0 +1,240 @@
+{{- /*
+G91.harbor (#2654) — configure Harbor OIDC auth from bp-sso-bridge.
+
+Harbor's auth-mode + OIDC config lives in the registry's own DB and is
+mutated via the Harbor REST API
+(`PUT /api/v2.0/configurations`). The upstream Helm chart exposes
+nothing for OIDC — operators historically toggled it post-install in
+the Harbor admin UI.
+
+This Job runs as a Helm post-install + post-upgrade hook with high
+weight so it lands after harbor-core is Ready, calls the Harbor API
+with admin credentials sourced from templates/admin-secret.yaml, and
+writes the OIDC config bundle sourced from
+templates/sso-oauth-source-externalsecret.yaml.
+
+Idempotency: PUT replaces the full config block on Harbor's side; we
+re-PUT the same payload on every chart reconcile. If
+.Values.sso.sovereignFqdn is empty, the Job is suppressed so a half-
+configured auth-mode never lands on a fresh prov.
+*/ -}}
+{{- if and .Values.sso.enabled .Values.sso.sovereignFqdn }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-sso-configure
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-harbor
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-sso-configure
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-harbor
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames:
+      - harbor-sso-oidc-credentials
+      - {{ .Values.harborAdmin.secretName | default "harbor-admin" }}
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-sso-configure
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-harbor
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .Release.Name }}-sso-configure
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-sso-configure
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-sso-configure
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-harbor
+    catalyst.openova.io/component: sso-configure
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600
+  activeDeadlineSeconds: 900
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: harbor-sso-configure
+        catalyst.openova.io/blueprint: bp-harbor
+        catalyst.openova.io/component: sso-configure
+    spec:
+      serviceAccountName: {{ .Release.Name }}-sso-configure
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: configure
+          image: {{ .Values.sso.configureJob.image | default "harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1" | quote }}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          env:
+            - name: HARBOR_CORE_URL
+              value: "http://{{ .Release.Name }}-core.{{ .Release.Namespace }}.svc.cluster.local"
+            # Harbor's admin username is hardcoded upstream
+            # (see templates/admin-secret.yaml docstring).
+            - name: HARBOR_ADMIN_USER
+              value: "admin"
+            - name: HARBOR_ADMIN_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.harborAdmin.secretName | default "harbor-admin" | quote }}
+                  key: HARBOR_ADMIN_PASSWORD
+            - name: OIDC_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: harbor-sso-oidc-credentials
+                  key: client_id
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: harbor-sso-oidc-credentials
+                  key: client_secret
+            - name: OIDC_ENDPOINT
+              value: "https://auth.{{ .Values.sso.sovereignFqdn }}/realms/{{ .Values.sso.realm | default "sovereign" }}"
+            - name: OIDC_NAME
+              value: "openova-sso"
+            - name: OIDC_SCOPE
+              value: "openid,profile,email,{{ .Values.sso.groupClaimName | default "groups" }}"
+            - name: OIDC_GROUPS_CLAIM
+              value: {{ .Values.sso.groupClaimName | default "groups" | quote }}
+            - name: OIDC_ADMIN_GROUP
+              value: {{ .Values.sso.adminGroup | default "sovereign-admins" | quote }}
+            - name: OIDC_USER_CLAIM
+              value: {{ .Values.sso.userClaim | default "preferred_username" | quote }}
+            - name: OIDC_VERIFY_CERT
+              value: {{ .Values.sso.verifyCert | default true | quote }}
+            - name: OIDC_AUTO_ONBOARD
+              value: "true"
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "32Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+
+              echo "[$(date -u +%FT%TZ)] G91.harbor SSO configure starting."
+              echo "  HARBOR_CORE_URL=${HARBOR_CORE_URL}"
+              echo "  OIDC_NAME=${OIDC_NAME}"
+              echo "  OIDC_ENDPOINT=${OIDC_ENDPOINT}"
+              echo "  OIDC_ADMIN_GROUP=${OIDC_ADMIN_GROUP}"
+
+              # Wait for harbor-core /api/v2.0/ping to be reachable (~10 min budget).
+              echo "[$(date -u +%FT%TZ)] waiting for harbor-core..."
+              i=0
+              while [ "$i" -lt 60 ]; do
+                if curl -fsS -o /tmp/ping.out "${HARBOR_CORE_URL}/api/v2.0/ping" 2>/dev/null; then
+                  echo "[$(date -u +%FT%TZ)] harbor-core /ping OK."
+                  break
+                fi
+                i=$((i+1))
+                echo "  attempt $i/60: harbor-core not yet ready; sleeping 10s..."
+                sleep 10
+              done
+
+              if ! curl -fsS -o /tmp/ping.out "${HARBOR_CORE_URL}/api/v2.0/ping" 2>/dev/null; then
+                echo "FATAL: harbor-core /api/v2.0/ping did not respond within 10 min." >&2
+                exit 1
+              fi
+
+              # Build the configuration payload.
+              # Harbor accepts a partial PUT — only the keys we include are
+              # written, so we don't have to GET the full config first.
+              cat >/tmp/payload.json <<JSON
+              {
+                "auth_mode": "oidc_auth",
+                "oidc_name": "${OIDC_NAME}",
+                "oidc_endpoint": "${OIDC_ENDPOINT}",
+                "oidc_client_id": "${OIDC_CLIENT_ID}",
+                "oidc_client_secret": "${OIDC_CLIENT_SECRET}",
+                "oidc_scope": "${OIDC_SCOPE}",
+                "oidc_groups_claim": "${OIDC_GROUPS_CLAIM}",
+                "oidc_admin_group": "${OIDC_ADMIN_GROUP}",
+                "oidc_user_claim": "${OIDC_USER_CLAIM}",
+                "oidc_verify_cert": ${OIDC_VERIFY_CERT},
+                "oidc_auto_onboard": ${OIDC_AUTO_ONBOARD}
+              }
+              JSON
+
+              # PUT to /api/v2.0/configurations with admin basic auth.
+              # Harbor returns 200 on accepted change; non-2xx exits non-zero.
+              echo "[$(date -u +%FT%TZ)] writing OIDC config via Harbor API..."
+              HTTP_CODE="$(curl -sS -o /tmp/resp.out -w '%{http_code}' \
+                -X PUT \
+                -u "${HARBOR_ADMIN_USER}:${HARBOR_ADMIN_PASS}" \
+                -H 'Content-Type: application/json' \
+                --data-binary @/tmp/payload.json \
+                "${HARBOR_CORE_URL}/api/v2.0/configurations")"
+
+              echo "[$(date -u +%FT%TZ)] Harbor API response: HTTP ${HTTP_CODE}"
+              cat /tmp/resp.out || true
+              echo ""
+
+              case "${HTTP_CODE}" in
+                2*) echo "OIDC configuration applied successfully." ;;
+                *)
+                  echo "FATAL: PUT /api/v2.0/configurations returned ${HTTP_CODE}." >&2
+                  exit 1
+                  ;;
+              esac
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 16Mi
+{{- end }}
