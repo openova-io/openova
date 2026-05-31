@@ -201,6 +201,31 @@ spec:
                       type: integer
                       minimum: 1
                       maximum: 5
+                    vcluster:
+                      type: string
+                      # G92.1 #2660 (2026-06-01) — Blueprint authors
+                      # declare WHICH per-region vCluster the rendered
+                      # HelmRelease installs INTO. Empty / unset =
+                      # install onto the host k3s (substrate
+                      # Blueprints per G92.6 #2665 — Cilium-agent,
+                      # Flux, Kyverno, cert-manager, ESO,
+                      # CNPG-operator). The application-controller
+                      # reads this field and stamps
+                      # spec.kubeConfig.secretRef on the rendered HR
+                      # so Flux helm-controller pivots into the
+                      # vCluster apiserver. Per
+                      # docs/SOVEREIGN-MULTI-REGION-DOD.md §A4 the
+                      # three vClusters partition workloads:
+                      #   dmz  — Cilium-Gateway, WAF-Coraza,
+                      #          HTTPRoutes, Stalwart (#2663)
+                      #   mgmt — catalyst-api/ui, Keycloak, OpenBao,
+                      #          NATS, gitea, harbor (#2661 + #2662)
+                      #   rtz  — Tenant Applications, Sandbox,
+                      #          per-Org CNPG (#2664)
+                      enum:
+                        - dmz
+                        - mgmt
+                        - rtz
                   x-kubernetes-preserve-unknown-fields: true
                 depends:
                   type: array

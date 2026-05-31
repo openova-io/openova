@@ -133,6 +133,40 @@ type Inputs struct {
 	// deleted + recreated).
 	OwnerAppUID string
 	OwnerAppGen int64
+
+	// VCluster is the per-region vCluster the rendered HelmRelease
+	// targets. Empty string = install onto the host k3s apiserver.
+	// "dmz" | "mgmt" | "rtz" = install onto the named vCluster's
+	// apiserver via Flux helm-controller's `spec.kubeconfig.secretRef`
+	// pivot. Per docs/SOVEREIGN-MULTI-REGION-DOD.md §A4 the three
+	// per-region vClusters partition the workloads:
+	//   dmz   — public-fronted (Cilium Gateway + WAF + HTTPRoutes + SMTP)
+	//   mgmt  — control-plane (catalyst-api/ui, Keycloak, OpenBao, NATS, Gitea, Harbor)
+	//   rtz   — tenant Applications + Sandbox + per-Org CNPG
+	//   ""    — host substrate (Cilium-agent, Flux, Kyverno, cert-manager, ESO, CNPG-operator)
+	//
+	// G92.1 #2660 (2026-06-01): without this knob every bp-* HR
+	// installed onto the host k3s — the three vClusters were created at
+	// bootstrap (slots 54/58/59) but stood empty. Founder direction:
+	// "vclusters are not there for fun purpose, they are there for
+	// containing the applications".
+	VCluster string
+
+	// VClusterHostNamespace is the host-cluster namespace the vCluster's
+	// pods + admin kubeconfig Secret live in. By convention
+	// (platform/bp-<vcluster>-vcluster chart values) this equals the
+	// vCluster's name — `dmz` for dmz, `mgmt` for mgmt, `rtz` for rtz.
+	// Stamped on `metadata.namespace` of the rendered HelmRelease when
+	// VCluster is non-empty (helm-controller resolves the kubeconfig
+	// Secret from the same namespace as the HR).
+	VClusterHostNamespace string
+
+	// VClusterKubeconfigSecret is the name of the Secret the vCluster
+	// chart exports with the admin kubeconfig. By upstream loft-sh/
+	// vcluster convention this is `vc-<vclusterName>` — `vc-dmz`,
+	// `vc-mgmt`, `vc-rtz`. Stamped on
+	// `spec.kubeconfig.secretRef.name`.
+	VClusterKubeconfigSecret string
 }
 
 // Source kind constants — mirror the Blueprint CRD enum.
@@ -231,6 +265,21 @@ func (in *Inputs) applyDefaults() {
 	if in.AppNamespace == "" {
 		in.AppNamespace = in.Org
 	}
+	// vCluster placement defaults: when VCluster is set but the
+	// derived host namespace + Secret name are not, fall back to the
+	// upstream loft-sh/vcluster convention (vCluster name = host
+	// namespace = `vc-<name>` Secret). The controller is free to
+	// override either via Config — this default keeps the renderer
+	// self-contained for `helm template` smoke + idempotent rendering
+	// when called from tests.
+	if in.VCluster != "" {
+		if in.VClusterHostNamespace == "" {
+			in.VClusterHostNamespace = in.VCluster
+		}
+		if in.VClusterKubeconfigSecret == "" {
+			in.VClusterKubeconfigSecret = "vc-" + in.VCluster
+		}
+	}
 }
 
 // mergeValues overlays standby flags onto the user values when the
@@ -275,7 +324,11 @@ apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
   name: {{ .AppName }}
-  namespace: {{ .AppNamespace }}
+  # HR.metadata.namespace = vCluster's host namespace when VCluster is
+  # set (so helm-controller resolves spec.kubeconfig.secretRef from the
+  # SAME namespace as the HR — Flux v2 semantic), else the Application
+  # CR's own namespace. G92.1 #2660.
+  namespace: {{ .HRNamespace }}
   labels:
     app.kubernetes.io/managed-by: application-controller
     app.kubernetes.io/name: {{ .AppName }}
@@ -285,6 +338,9 @@ metadata:
     catalyst.openova.io/region: {{ .Region }}
     catalyst.openova.io/placement-role: {{ .PlacementRole }}
     catalyst.openova.io/blueprint: {{ .BlueprintName }}
+{{- if .VCluster }}
+    catalyst.openova.io/vcluster: {{ .VCluster }}
+{{- end }}
 {{- if .OwnerAppUID }}
     catalyst.openova.io/application-uid: "{{ .OwnerAppUID }}"
 {{- end }}
@@ -298,7 +354,23 @@ spec:
   # slug). qa-loop iter-10 Fix #44: prior versions used Org which on
   # omantel resolved to "omantel-platform" while the Application lived
   # in "qa-omantel" — the workload Pod landed in the wrong namespace.
+  #
+  # When VCluster is set, this is the namespace INSIDE the vCluster's
+  # apiserver (the vCluster syncer mirrors it back to the host as
+  # <inner-ns>-x-<vcluster>). The host syncer mirror is invisible to
+  # helm-controller — it sees the vCluster's own ns view.
   targetNamespace: {{ .AppNamespace }}
+{{- if .VCluster }}
+  # vCluster pivot — helm-controller pulls the kubeconfig from the
+  # named Secret in this HR's own namespace and installs the chart
+  # INSIDE the vCluster, not on the host. Per Flux v2
+  # helm.toolkit.fluxcd.io/v2 HelmRelease contract
+  # (spec.kubeconfig.secretRef). G92.1 #2660 (2026-06-01).
+  kubeConfig:
+    secretRef:
+      name: {{ .VClusterKubeconfigSecret }}
+      key: config
+{{- end }}
   chart:
     spec:
       chart: {{ .Chart }}
@@ -346,16 +418,28 @@ func renderHelmRelease(in Inputs, valuesYAML string) ([]byte, error) {
 	}
 
 	indented := indentYAMLBlock(valuesYAML, 4)
+	// HRNamespace = the host-cluster namespace the HelmRelease CR
+	// itself lives in. For vCluster placement this MUST be the vCluster's
+	// host namespace because Flux helm-controller resolves
+	// spec.kubeConfig.secretRef from the same namespace as the HR (Flux
+	// v2 SecretReference contract). For host placement it stays the
+	// Application's own namespace (the legacy shape).
+	hrNamespace := in.AppNamespace
+	if in.VCluster != "" {
+		hrNamespace = in.VClusterHostNamespace
+	}
 	data := struct {
 		Inputs
 		SourceKindCR   string
 		ValuesYAML     string
 		ValuesIndented string
+		HRNamespace    string
 	}{
 		Inputs:         in,
 		SourceKindCR:   sourceKindCR,
 		ValuesYAML:     valuesYAML,
 		ValuesIndented: indented,
+		HRNamespace:    hrNamespace,
 	}
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
