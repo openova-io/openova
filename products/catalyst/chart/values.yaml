@@ -425,7 +425,7 @@ controllers:
       # EnsureBranch before PutFile so Gitea's branch-missing 404
       # (mapped to ErrRepoNotFound by the client) no longer dead-loops
       # the env-controller.
-      tag: "0dae416"
+      tag: "8d01e2f"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
