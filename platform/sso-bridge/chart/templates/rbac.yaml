@@ -1,0 +1,87 @@
+{{- /*
+RBAC for the reconcile loop.
+
+ClusterRole grants:
+  - HelmRelease list/watch cluster-wide (to discover apps with sso.enabled=true)
+  - ExternalSecret create/get/list/patch in any namespace (to emit the
+    per-app ExternalSecret that mirrors client_secret from OpenBao)
+  - Secret get cluster-wide (to read the catalyst-kc-sa-credentials Secret
+    reflected by emberstack into catalyst-system, and to read app namespaces'
+    chart-rendered Secrets when cross-checking ESO writeback)
+  - ConfigMap get cluster-wide (to read sovereign-fqdn CM in catalyst-system
+    for orgEmail + sovereignFqdn)
+  - Events create in `sso-bridge` ns (loop emits ReconcileSucceeded /
+    ReconcileFailed Events for operator observability)
+
+No HelmRelease patch/update — bp-sso-bridge is read-only with respect to
+HRs. The contract is that the APP author sets sso.enabled=true; the bridge
+never mutates HR spec back. That keeps the GitOps reconcile direction
+single (Flux → cluster) and prevents loops with the application-controller.
+*/ -}}
+{{- if .Values.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-reconciler
+  labels:
+    catalyst.openova.io/blueprint: bp-sso-bridge
+rules:
+  - apiGroups: ["helm.toolkit.fluxcd.io"]
+    resources: ["helmreleases"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["external-secrets.io"]
+    resources: ["externalsecrets"]
+    verbs: ["get", "list", "watch", "create", "patch", "update", "delete"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-reconciler
+  labels:
+    catalyst.openova.io/blueprint: bp-sso-bridge
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-reconciler
+subjects:
+  - kind: ServiceAccount
+    name: sso-bridge-reconciler
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-reconciler-events
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-sso-bridge
+rules:
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-reconciler-events
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-sso-bridge
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .Release.Name }}-reconciler-events
+subjects:
+  - kind: ServiceAccount
+    name: sso-bridge-reconciler
+    namespace: {{ .Release.Namespace }}
+{{- end }}

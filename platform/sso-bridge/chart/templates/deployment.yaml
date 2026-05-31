@@ -1,0 +1,95 @@
+{{- if .Values.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sso-bridge-reconciler
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-sso-bridge
+    app.kubernetes.io/name: sso-bridge-reconciler
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate            # single-writer reconciler; no parallel ticks
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sso-bridge-reconciler
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sso-bridge-reconciler
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        catalyst.openova.io/blueprint: bp-sso-bridge
+      annotations:
+        # Trigger Pod restart whenever the reconcile script CM changes
+        # (no separate watch / SIGHUP path — Kubernetes does this for us).
+        checksum/reconciler: {{ include (print $.Template.BasePath "/configmap-reconciler.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: sso-bridge-reconciler
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}
+      containers:
+        - name: reconciler
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/bin/bash"]
+          args: ["/etc/sso-bridge/reconcile.sh"]
+          env:
+            - name: KC_ADDR
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.keycloak.credentialsSecretName }}
+                  key: addr
+            - name: KC_REALM
+              value: {{ .Values.keycloak.realm | quote }}
+            - name: KC_SA_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.keycloak.credentialsSecretName }}
+                  key: client-id
+            - name: KC_SA_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.keycloak.credentialsSecretName }}
+                  key: client-secret
+            - name: OPENBAO_ADDR
+              value: {{ .Values.openbao.addr | quote }}
+            - name: OPENBAO_KV_MOUNT
+              value: {{ .Values.openbao.kvMount | quote }}
+            - name: OPENBAO_K8S_AUTH_PATH
+              value: {{ .Values.openbao.kubernetesAuth.mountPath | quote }}
+            - name: OPENBAO_K8S_AUTH_ROLE
+              value: {{ .Values.openbao.kubernetesAuth.role | quote }}
+            - name: INTERVAL_SECONDS
+              value: {{ .Values.reconcile.intervalSeconds | quote }}
+            - name: TIMEOUT_SECONDS
+              value: {{ .Values.reconcile.timeoutSeconds | quote }}
+            - name: SOVEREIGN_FQDN_CM_NS
+              value: {{ .Values.operator.sovereignFqdnConfigMap.namespace | quote }}
+            - name: SOVEREIGN_FQDN_CM_NAME
+              value: {{ .Values.operator.sovereignFqdnConfigMap.name | quote }}
+            - name: SOVEREIGN_FQDN_ORG_EMAIL_KEY
+              value: {{ .Values.operator.sovereignFqdnConfigMap.orgEmailKey | quote }}
+            - name: SOVEREIGN_FQDN_SOVEREIGN_FQDN_KEY
+              value: {{ .Values.operator.sovereignFqdnConfigMap.sovereignFqdnKey | quote }}
+            - name: OPERATOR_EMAIL_OVERRIDE
+              value: {{ .Values.operator.emailOverride | quote }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: reconciler-script
+              mountPath: /etc/sso-bridge
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: reconciler-script
+          configMap:
+            name: {{ .Release.Name }}-reconciler
+            defaultMode: 0555
+        - name: tmp
+          emptyDir:
+            sizeLimit: 32Mi
+{{- end }}

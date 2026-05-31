@@ -1,0 +1,25 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-sso-bridge
+  labels:
+    catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
+spec:
+  version: 0.1.0
+  card:
+    title: sso-bridge
+    summary: |
+      Catalyst SSO framework. Watches every HelmRelease cluster-wide; when an
+      app declares `sso.enabled: true` in its values, auto-provisions a
+      Keycloak Client in the Sovereign realm, materialises the OAuth
+      client_secret in OpenBao + emits an ExternalSecret CR in the app's
+      namespace, and grants the Sovereign operator (Org.email) the app's
+      admin role. Mandatory infra — auto-installed by the bootstrap-kit.
+      Per SECURITY.md §6.3 (App-level SSO).
+  visibility: unlisted              # mandatory infra
+  manifests:
+    chart: ./chart
+  depends:
+    - bp-keycloak
+    - bp-openbao
+    - bp-external-secrets-stores

@@ -1,0 +1,18 @@
+{{- /*
+bp-sso-bridge runs in its own `sso-bridge` ns. Helm doesn't auto-create
+the release namespace when the chart references it from a static
+.Release.Namespace; Flux applies into the namespace the HelmRelease points
+at. So this template makes the namespace explicit + sets the labels
+catalyst's Pod-Security-Standard baseline expects.
+*/ -}}
+{{- if .Values.enabled }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-sso-bridge
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+{{- end }}

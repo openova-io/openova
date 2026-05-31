@@ -1,0 +1,95 @@
+# Catalyst bp-sso-bridge values overlay.
+#
+# Per Inviolable Principle #4 (never hardcode): every operational knob
+# flows from this file or from the per-Sovereign sovereign-fqdn ConfigMap.
+
+# Enable/disable the entire framework. Operator overlays may flip to false
+# during incident response (e.g. Keycloak realm import in flux); shipping
+# default = true because the framework is mandatory infra per SECURITY.md
+# §6.3.
+enabled: true
+
+# Reconcile loop image. Same Harbor-proxied bitnamilegacy/kubectl image
+# the rest of the catalog uses for chart-side bash tooling (Fix #163,
+# CLAUDE.md MIRROR-EVERYTHING rule).
+image:
+  repository: harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl
+  tag: "1.30.7"
+  pullPolicy: IfNotPresent
+
+# Reconcile cadence. 60s is the natural ceiling for "operator pushed a new
+# app + wants SSO immediately"; tighter intervals burn API calls without
+# meaningful UX delta. Bounded at 600s for upper sanity.
+reconcile:
+  intervalSeconds: 60
+  # If a single reconcile loop exceeds this, the next tick triggers anyway —
+  # i.e. we never serialise behind a stuck tick. Safe because all the
+  # underlying calls are idempotent.
+  timeoutSeconds: 120
+
+# Keycloak admin endpoint.
+# Re-uses the existing catalyst-kc-sa-credentials Secret (reflected from
+# `keycloak` ns into `catalyst-system` by emberstack/reflector — see
+# platform/keycloak/chart/templates/configmap-sovereign-realm.yaml).
+# bp-sso-bridge runs in its own `sso-bridge` ns so the reflector annotation
+# on that Secret must allow `sso-bridge` too — this chart applies an
+# auto-mirror Secret in `sso-bridge` ns that picks up from the upstream
+# reflector chain. See templates/secret-kc-credentials-mirror.yaml.
+keycloak:
+  # Realm name. Default matches platform/keycloak default
+  # (configmap-sovereign-realm.yaml `$realmName := default "sovereign"`).
+  realm: sovereign
+  # The Secret-key map of the reflected catalyst-kc-sa-credentials.
+  # Keys: addr / realm / client-id / client-secret.
+  credentialsSecretName: catalyst-kc-sa-credentials
+
+# OpenBao endpoint. Default matches platform/external-secrets-stores
+# values.yaml `clusterSecretStore.server`.
+openbao:
+  addr: "http://openbao.openbao.svc.cluster.local:8200"
+  # KV v2 mount path under which we write `secret/sso/<clientId>` entries.
+  # Defaults to the `secret` mount the bp-openbao chart sets up at
+  # bootstrap time (clusterSecretStore.path).
+  kvMount: "secret"
+  # K8s SA auth role bound to bp-sso-bridge's ServiceAccount on bp-openbao
+  # bootstrap. Created by the bp-openbao bootstrap kustomize (Phase-1).
+  kubernetesAuth:
+    mountPath: "kubernetes"
+    role: "sso-bridge"
+    serviceAccountName: sso-bridge-reconciler
+    serviceAccountNamespace: sso-bridge
+
+# Operator email override. If empty (default) the reconciler reads the
+# value from the per-Sovereign sovereign-fqdn ConfigMap key `orgEmail`
+# (set by catalyst-api Phase-1 watcher from deployment.request.OrgEmail).
+operator:
+  emailOverride: ""
+  sovereignFqdnConfigMap:
+    name: sovereign-fqdn
+    namespace: catalyst-system
+    orgEmailKey: orgEmail
+    sovereignFqdnKey: sovereignFqdn
+
+# Resource budget for the reconcile loop Pod. ~10 apps reconciled per tick
+# is the steady-state, all calls go through in-cluster Services, the
+# heaviest work is jq filtering.
+resources:
+  requests:
+    cpu: "20m"
+    memory: "64Mi"
+  limits:
+    cpu: "200m"
+    memory: "256Mi"
+
+# Pod-level security context. runAsNonRoot is mandatory under the catalyst
+# Kyverno baseline policies.
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+  seccompProfile:
+    type: RuntimeDefault

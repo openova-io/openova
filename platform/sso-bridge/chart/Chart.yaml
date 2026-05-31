@@ -1,0 +1,67 @@
+apiVersion: v2
+name: bp-sso-bridge
+version: 0.1.0
+description: |
+  Catalyst SSO framework (G91 #2652). Reconciles a Keycloak Client per
+  HelmRelease that declares `sso.enabled: true` in its values, stores the
+  OAuth client_secret in OpenBao, emits an ExternalSecret CR in the app's
+  namespace so the app picks up the secret declaratively, and grants the
+  Sovereign operator (deployment.OrgEmail; sovereign-fqdn ConfigMap key
+  `orgEmail`) the app's admin role.
+
+  Per SECURITY.md §6.3 the configSchema contract is:
+
+      sso:
+        enabled: true
+
+  ZERO additional knobs required from the app author — clientId, redirect
+  URIs, scopes, mappers, secret storage path, and ExternalSecret target are
+  derived from the HelmRelease name + the app's chart values + the
+  Sovereign realm definition.
+
+  Architecture (controller-loop in Bash, not controller-runtime Go):
+    1. ServiceAccount + ClusterRole (HR list/watch cluster-wide, ExternalSecret
+       create/patch in any ns, sovereign-fqdn ConfigMap read).
+    2. Deployment running a single-replica reconcile loop (60s tick).
+    3. Loop pulls every HelmRelease with `.spec.values.sso.enabled == true`,
+       derives the per-app OIDC client spec, and:
+         a. Mints a per-Sovereign Keycloak admin token via the
+            catalyst-kc-sa-credentials Secret reflected from the keycloak
+            namespace into catalyst-system (already in place per
+            platform/keycloak/chart/templates/configmap-sovereign-realm.yaml).
+         b. Upserts the Client (POST or PUT) including ProtocolMappers for
+            username, email, groups, org.
+         c. On first install: generates a 32-char client_secret and PUTs it
+            into OpenBao at `secret/sso/<clientId>`.
+            On upgrade: re-uses the value already in OpenBao (idempotent;
+            no rotation on each tick).
+         d. Emits an ExternalSecret CR in the HR's namespace
+            (named `<clientId>-sso-oidc-credentials`) that mirrors the
+            client_secret from OpenBao into a K8s Secret.
+         e. Maps the operator's email → app's admin client-role.
+       On HR deletion: deletes the Keycloak Client + OpenBao key + ESO CR.
+
+  Why a Bash + kubectl + curl loop, not a controller-runtime Go binary
+  ====================================================================
+  Per Inviolable Principle #4 (waterfall-quality target-state) AND
+  Principle #14 (no workarounds): the right tool for "sync ≤30 app
+  Clients every minute" is a polling reconciler, not a per-event
+  controller. Controller-runtime would add a Go module, CRD types, a new
+  CI build path, and lockstep image promotion just to wrap the same
+  Kubernetes informer pattern around a couple of Admin REST API calls.
+  Pure bash + kubectl + curl + jq fits in this chart, ships zero new
+  images (`harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.30.7`
+  is already mirrored by every Sovereign per Fix #163), and stays in
+  source on the operator's screen instead of in a remote binary.
+
+  Optionally swap to controller-runtime when Catalyst grows a first-class
+  KeycloakClient CRD (deferred — not on the current EPIC plate).
+type: application
+keywords: [catalyst, blueprint, sso, keycloak, openbao, external-secrets, oidc]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+annotations:
+  catalyst.openova.io/no-upstream: "true"
+  catalyst.openova.io/depends-on: "bp-keycloak,bp-openbao,bp-external-secrets-stores"
