@@ -541,7 +541,7 @@ controllers:
       repository: "ghcr.io/openova-io/openova/useraccess-controller"
       # SHA pinned to the latest GHCR-published push-on-main build per
       # docs/INVIOLABLE-PRINCIPLES.md #4a.
-      tag: "0dae416"
+      tag: "8d01e2f"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
