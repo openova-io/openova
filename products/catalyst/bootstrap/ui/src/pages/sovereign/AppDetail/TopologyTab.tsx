@@ -27,6 +27,7 @@ import {
   getCatalogItem,
   type CatalogItem,
 } from '@/lib/catalog.api'
+import { getHierarchicalInfrastructure } from '@/lib/infrastructure.types'
 import { TopologyEditor } from '@/widgets/topology/TopologyEditor'
 import { DRSection } from '@/widgets/continuum/DRSection'
 
@@ -129,21 +130,32 @@ export function TopologyTab({
   })
   const blueprint: CatalogItem | undefined = blueprintQ.data
 
-  // Available regions placeholder — slice T accepts the AppDetail's
-  // canonical region pool through props in a future refactor; for now
-  // we surface the union of currently-deployed regions and let the
-  // operator type-add via region picker. Sovereign /clusters is wired
-  // via a follow-up in EPIC-4 (the Resources tab).
+  // G83 #2630: availableRegions sourced from the Sovereign's own
+  // infrastructure topology (deployment.request.regions[].cloudRegion)
+  // instead of the prior hardcoded Hetzner placeholder list. On a
+  // multi-region HCS Sovereign (e.g. hw86) this surfaces the real
+  // me-east-215-a/b codes; on a Hetzner Sovereign it surfaces the
+  // hz-* codes the operator actually provisioned.
+  const infraQ = useQuery({
+    queryKey: ['infrastructure-topology', sovereignId],
+    queryFn: () => getHierarchicalInfrastructure(sovereignId),
+    enabled: !!sovereignId && !disableNetwork,
+    staleTime: 60_000,
+  })
+
   const availableRegions = useMemo(() => {
     const set = new Set<string>(currentRegions)
-    // Add canonical Hetzner / Equinix labels so a fresh active-active
-    // upgrade has something to pick from. The list is illustrative —
-    // future EPIC-4 wires the actual cluster list.
-    for (const candidate of ['hz-fsn-rtz-prod', 'hz-hel-rtz-prod', 'hz-nbg-rtz-prod']) {
-      set.add(candidate)
+    const regions = infraQ.data?.regions ?? []
+    for (const r of regions) {
+      // RegionSpec carries both `name` (the catalyst region id e.g.
+      // hw-me-east-215-a-rtz-prod) and `providerRegion` (the cloud
+      // code e.g. me-east-215-a). The TopologyEditor consumes the
+      // catalyst id since Application.spec.regions stores those, so
+      // surface `name` here.
+      if (r.name) set.add(r.name)
     }
     return Array.from(set).sort()
-  }, [currentRegions])
+  }, [currentRegions, infraQ.data])
 
   useEffect(() => {
     // When initialApp updates, just trigger no-op so consumers re-derive.

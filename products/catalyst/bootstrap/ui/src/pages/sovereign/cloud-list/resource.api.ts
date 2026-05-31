@@ -187,6 +187,14 @@ export interface ResourceTreeNode {
   uid?: string
   phase?: string
   ready: boolean
+  /**
+   * G80 #2627: false when the K8s kind has no `Ready` condition
+   * concept (Secret/ConfigMap/PolicyReport/Endpoints/ServiceAccount/
+   * Role/etc.). UI renders `N/A` instead of defaulting to `Pending`.
+   * Backend omits when true (default). Treat undefined as true to
+   * preserve compatibility with older API responses.
+   */
+  readinessApplicable?: boolean
   owners?: ResourceTreeNode[]
   children?: ResourceTreeNode[]
 }

@@ -242,7 +242,10 @@ export function ResourceDetailPage(props: ResourceDetailPageProps) {
       </header>
 
       <div role="tablist" aria-label="Resource detail tabs" className="flex flex-wrap gap-1 border-b border-[var(--color-border)]">
-        {RESOURCE_DETAIL_TABS.map((t) => {
+        {/* G79 #2626: 'exec' tab is only meaningful for Pods. Hide it on
+            non-Pod kinds rather than rendering a tab whose content is
+            "Drill into the Tree tab and pick a child Pod." */}
+        {RESOURCE_DETAIL_TABS.filter((t) => t !== 'exec' || apiKind === 'pod').map((t) => {
           const active = t === tab
           return (
             <button

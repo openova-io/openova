@@ -354,7 +354,7 @@ func (h *Handler) HandleK8sExecSession(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, map[string]string{
 			"error":  "forbidden",
 			"code":   "403",
-			"detail": "POST /k8s/exec/.../session requires tier-developer or higher",
+			"detail": "POST /k8s/exec/.../session requires realm role catalyst-admin/catalyst-owner/application-admin OR tier developer/operator/admin/owner",
 		})
 		return
 	}
@@ -634,6 +634,15 @@ func (h *Handler) HandleK8sSessionReplay(w http.ResponseWriter, r *http.Request)
 // execSessionCallerAuthorized — tier-developer or higher gate. Reuses
 // applicationInstallCallerAuthorized as the base and additionally
 // accepts `developer` tier (per EPIC-3 §6.2 `workloads.exec/console`).
+//
+// G78 #2625 (2026-05-31): the tier hierarchy per Claims.Tier comment is
+// `viewer < developer < operator < admin < owner` — admin and owner are
+// HIGHER than developer/operator. The fallback switch only accepted
+// developer + operator, so a caller with tier=admin or owner but no
+// matching realm role (e.g. fresh Keycloak session before the realm-role
+// mapper has propagated) was incorrectly denied with
+// "requires tier-developer or higher". Expand the switch to cover the
+// full "developer or higher" hierarchy as documented.
 func execSessionCallerAuthorized(claims *auth.Claims) bool {
 	// Lenient nil-claims fall-through (matches every other endpoint;
 	// session middleware is the source of truth for whether auth was
@@ -645,7 +654,7 @@ func execSessionCallerAuthorized(claims *auth.Claims) bool {
 		return true
 	}
 	switch strings.ToLower(strings.TrimSpace(claims.Tier)) {
-	case "developer", "operator":
+	case "developer", "operator", "admin", "owner":
 		return true
 	}
 	return false

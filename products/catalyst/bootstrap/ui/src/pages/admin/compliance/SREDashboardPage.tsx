@@ -87,8 +87,20 @@ export function SREDashboardPage({
     const v = new URLSearchParams(window.location.search).get('env')
     return v && v.trim() !== '' ? v : null
   })()
+  // G81 #2628: ?resource=<kind>/<ns>/<name> deep-link from
+  // ResourceDetailPage.tsx — surface as a filter chip and apply
+  // client-side to the treemap rows. Backend Score.resource carries the
+  // same kind/ns/name shape, so a direct string match is the canonical
+  // join. URL decoded by URLSearchParams (so 'deployment%2Fcnpg-system'
+  // arrives as 'deployment/cnpg-system'). Empty/whitespace = no filter.
+  const initialResourceFilter = (() => {
+    if (typeof window === 'undefined') return null
+    const v = new URLSearchParams(window.location.search).get('resource')
+    return v && v.trim() !== '' ? v.trim() : null
+  })()
   const [orgFilter, setOrgFilter] = useState<string | null>(initialOrgFilter)
   const [envFilter, setEnvFilter] = useState<string | null>(initialEnvFilter)
+  const [resourceFilter, setResourceFilter] = useState<string | null>(initialResourceFilter)
 
   // C11-009: framework-filter chip set (PCI / ISO27001 / SOC2 / GDPR /
   // HIPAA / DORA / NIS2 / FedRAMP). Multi-select; the URL accepts a
@@ -163,15 +175,18 @@ export function SREDashboardPage({
     }
   }, [initialDataOverride, query.data, stream.scores])
 
-  // Apply org / env filters to applications before treemap render.
+  // Apply org / env / resource filters to applications before treemap
+  // render. resourceFilter is the G81 deep-link from a
+  // ResourceDetailPage — matches `score.resource` exactly when present.
   const filteredApps: Score[] = useMemo(() => {
     if (!merged) return []
     return merged.applications.filter((a) => {
       if (orgFilter && a.organizationRef !== orgFilter) return false
       if (envFilter && a.environmentRef !== envFilter) return false
+      if (resourceFilter && a.resource !== resourceFilter) return false
       return true
     })
-  }, [merged, orgFilter, envFilter])
+  }, [merged, orgFilter, envFilter, resourceFilter])
 
   const treemapNodes: ComplianceTreemapNode[] = useMemo(
     () => scorecardToTreemapNodes(filteredApps, policyDomainFilter),
@@ -316,6 +331,19 @@ export function SREDashboardPage({
             onChange={setEnvFilter}
             testId="compliance-filter-env"
           />
+          {resourceFilter ? (
+            <button
+              type="button"
+              onClick={() => setResourceFilter(null)}
+              data-testid="compliance-filter-resource"
+              className="inline-flex items-center gap-1 rounded-full border border-[var(--color-border)] bg-[var(--color-bg-3)] px-2 py-0.5 text-[10px] text-[var(--color-text)] hover:bg-[var(--color-bg-2)]"
+              title="Click to clear the resource filter"
+            >
+              <span className="text-[var(--color-text-dim)]">Resource:</span>
+              <code className="font-mono">{resourceFilter}</code>
+              <span aria-hidden="true">×</span>
+            </button>
+          ) : null}
           <span className="ml-auto text-[10px] text-[var(--color-text-dim)]" data-testid="compliance-stream-status">
             {stream.isError
               ? 'live: reconnecting…'

@@ -56,8 +56,52 @@ type resourceTreeNode struct {
 	UID      string             `json:"uid,omitempty"`
 	Phase    string             `json:"phase,omitempty"`
 	Ready    bool               `json:"ready"`
-	Owners   []resourceTreeNode `json:"owners,omitempty"`
-	Children []resourceTreeNode `json:"children,omitempty"`
+	// G80 #2627: ReadinessApplicable is false for K8s kinds that have
+	// no `Ready` condition concept (Secret, ConfigMap, PolicyReport,
+	// Endpoints, ServiceAccount, Role, etc.). The UI uses this to
+	// render `N/A` instead of defaulting to `Pending` when Ready is
+	// false. Omitted from JSON when true (the common case) so existing
+	// clients are unaffected.
+	ReadinessApplicable bool               `json:"readinessApplicable,omitempty"`
+	Owners              []resourceTreeNode `json:"owners,omitempty"`
+	Children            []resourceTreeNode `json:"children,omitempty"`
+}
+
+// passiveKindNames — lower-cased k8scache.Kind.Name values for K8s
+// resource kinds that don't carry a `Ready` condition. These are status-
+// free or static-data objects; the readiness classifier should render
+// them as N/A rather than defaulting to Pending. G80 #2627.
+//
+// Notable additions on top of obvious ones (Secret/ConfigMap):
+//   - PolicyReport / ClusterPolicyReport — Kyverno status objects with
+//     a `results[]` block, no Ready condition
+//   - Endpoints / EndpointSlice — derived from Service+Pod readiness;
+//     parent Service is the right surface for readiness
+//   - Role / RoleBinding / ClusterRole / ClusterRoleBinding — pure RBAC
+//     bindings, no runtime state
+//   - ServiceAccount — just a token holder
+//   - PersistentVolume / PersistentVolumeClaim — Phase-based (Bound /
+//     Pending / Released / Failed) NOT condition-based; the resource-
+//     tree node already surfaces Phase, so don't apply the Ready badge
+var passiveKindNames = map[string]struct{}{
+	"secret":               {},
+	"configmap":            {},
+	"endpoints":            {},
+	"endpointslice":        {},
+	"serviceaccount":       {},
+	"role":                 {},
+	"rolebinding":          {},
+	"clusterrole":          {},
+	"clusterrolebinding":   {},
+	"policyreport":         {},
+	"clusterpolicyreport":  {},
+	"persistentvolume":     {},
+	"persistentvolumeclaim": {},
+}
+
+func kindHasReadiness(name string) bool {
+	_, isPassive := passiveKindNames[strings.ToLower(name)]
+	return !isPassive
 }
 
 // HandleK8sResourceTree — GET
@@ -208,15 +252,16 @@ func (h *Handler) buildResourceTreeNode(
 // of common spots so the UI doesn't have to peek into every CR shape.
 func resourceTreeNodeFor(kind k8scache.Kind, obj *unstructured.Unstructured) resourceTreeNode {
 	if obj == nil {
-		return resourceTreeNode{Kind: kind.Name}
+		return resourceTreeNode{Kind: kind.Name, ReadinessApplicable: kindHasReadiness(kind.Name)}
 	}
 	apiGroup := kind.GVR.Group
 	node := resourceTreeNode{
-		Kind:     kind.Name,
-		APIGroup: apiGroup,
-		Ns:       obj.GetNamespace(),
-		Name:     obj.GetName(),
-		UID:      string(obj.GetUID()),
+		Kind:                kind.Name,
+		APIGroup:            apiGroup,
+		Ns:                  obj.GetNamespace(),
+		Name:                obj.GetName(),
+		UID:                 string(obj.GetUID()),
+		ReadinessApplicable: kindHasReadiness(kind.Name),
 	}
 	if phase, ok, _ := unstructured.NestedString(obj.Object, "status", "phase"); ok {
 		node.Phase = phase
