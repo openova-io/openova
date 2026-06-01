@@ -314,18 +314,17 @@ jobs:
       - name: G36 — tofu test against tftpl fixtures (catches G29-class parse bugs)
         run: |
           set -euo pipefail
-          # G36 hotfix 2026-06-01: scope to `huawei` only for now. The
-          # `hetzner` test fixture has a pre-existing failure on
-          # `legacy_no_regions_payload` — the cloud-init renders above
-          # the 32256-byte guardrail at line 944 of main.tf (comment
-          # bloat in cloudinit-control-plane.tftpl per issues #966 +
-          # #1981). That failure is orthogonal to the G29 incident class
-          # this gate protects against. Re-enable `hetzner` once the
-          # cloud-init bloat is culled (separate ticket).
-          #
-          # G29 itself was huawei-only (hw55 v1 2026-05-29 16:40Z), so
-          # huawei coverage closes the operationally-meaningful gap.
-          for provider in huawei; do
+          # G36 #2591 — tofu test gate against BOTH providers' tftpl
+          # fixtures. Catches G29-class templatefile-render bugs at
+          # build time. G107 #2702 (PR #2710, 2026-06-01) unblocked
+          # hetzner by stripping 1202 lines of comment bloat from
+          # cloudinit-control-plane.tftpl + wrapping the guardrail
+          # error_message in nonsensitive() + removing an invalid
+          # `bucket` override in the tftest fixture. With those fixes
+          # `tofu test` passes 10/10 on hetzner — re-adding it to the
+          # gate so the catalyst-build pipeline blocks any future
+          # cloud-init regression at PR time on BOTH providers.
+          for provider in hetzner huawei; do
             echo "=== tofu test: infra/providers/${provider} ==="
             (
               cd openova-src/infra/providers/${provider}
