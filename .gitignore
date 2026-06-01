@@ -32,3 +32,6 @@ products/*/chart/Chart.lock
 **/terraform.tfstate.backup
 **/*.tfstate
 **/*.tfstate.backup
+
+# Playwright MCP session artifacts (screenshots in repo-root + per-session logs/snapshots)
+.playwright-mcp/
