@@ -297,6 +297,34 @@ jobs:
             ${{ env.API_IMAGE }}:test -c 'tofu version | head -1'
           echo "Smoke test OK: tofu executable as UID 65534."
 
+      # G36 #2591: gate the push on `tofu test` against both providers'
+      # `multi_region.tftest.hcl` fixtures. `tofu test` plans the module
+      # under mocked providers, which forces `templatefile()` evaluation
+      # on every reference in main.tf — catching the G29 incident class
+      # (bash `${i}` or `${...:=...}` envsubst-default tokens inside a
+      # `.tftpl` that crash the templatefile parser) BEFORE the image
+      # ships. Pre-G36, those errors only surfaced mid-prov at
+      # `tofu apply` time, after the new catalyst-api image was already
+      # live (G29 / hw55 v1 / 2026-05-29 16:40Z).
+      - name: Install OpenTofu CLI on runner
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: 1.11.6
+
+      - name: G36 — tofu test against tftpl fixtures (catches G29-class parse bugs)
+        run: |
+          set -euo pipefail
+          for provider in hetzner huawei; do
+            echo "=== tofu test: infra/providers/${provider} ==="
+            (
+              cd openova-src/infra/providers/${provider}
+              tofu init -backend=false -input=false -no-color
+              tofu test -no-color
+            )
+            echo "=== ${provider}: PASS ==="
+          done
+          echo "G36 gate OK: every templatefile() in both providers parses + renders."
+
       - name: Push API image
         uses: docker/build-push-action@v6
         with:
