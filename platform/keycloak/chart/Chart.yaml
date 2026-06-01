@@ -1,5 +1,19 @@
 apiVersion: v2
 name: bp-keycloak
+# 1.4.9 (G113 #2725 followup, 2026-06-02): codify the runtime KC fix
+# discovered while debugging hw86 silent-SSO. The sovereign realm import
+# now ships `authenticatorConfig: [{alias: catalyst-pin-redirector,
+# config: {defaultProvider: catalyst-pin}}]` + an `authenticationFlows`
+# override on the `browser` flow that binds that config to the
+# `identity-provider-redirector` execution. Without this, even with
+# `kc_idp_hint=catalyst-pin` passed by each per-app SSO config, KC
+# silently fell through to the username/password form. Live evidence
+# 2026-06-02 12:08Z: 4-hop no-cookie SSO probe failed → POST
+# /admin/realms/sovereign/authentication/executions/{id}/config with the
+# same payload returned HTTP 201 → next probe verified 4-hop chain
+# end-to-end (Grafana → KC realm auth 303 → KC broker /catalyst-pin/login
+# 303 → catalyst-api /oidc/auth 303 → console /login 302 on no-cookie).
+# Refs #2725.
 # 1.4.8 (G112 #2721, 2026-06-01): postgresql.auth.existingSecret pivot —
 # new templates/postgresql-credentials.yaml materialises a stable
 # `keycloak-postgresql` Secret via lookup-or-generate +
@@ -10,7 +24,7 @@ name: bp-keycloak
 # sectionName by default — multi-zone Sovereigns rename HTTPS listeners
 # to https-<sanitised-zone>, breaking NoMatchingListener with the prior
 # pinned sectionName: https. Matches the catalyst-system fix in PR #1888.
-version: 1.4.8
+version: 1.4.9
 description: |
   Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
   upstream `keycloak` chart (bitnami) as a Helm subchart so
