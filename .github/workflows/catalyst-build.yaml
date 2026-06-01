@@ -53,6 +53,32 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # G110-followup #2706 (2026-06-01): vitest gate. The Vite-built UI
+      # image bundles src/ as compiled JS; vitest unit tests on src/
+      # (e.g. urls.test.ts regression cases for G110 host-aware topology)
+      # never ran in CI before this — the Containerfile only invoked
+      # `npm run build`. Now we run `vitest` BEFORE the docker build so
+      # any regression on src/shared/config/urls.ts (or any other unit-
+      # tested file) fails CI at PR time, not at operator-walk time on
+      # a fresh prov. Reviewer-agent on PR #2709 flagged this gap.
+      - name: Set up Node for vitest
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: openova-src/products/catalyst/bootstrap/ui/package-lock.json
+
+      - name: Install UI dependencies
+        run: |
+          cd openova-src/products/catalyst/bootstrap/ui
+          npm ci
+
+      - name: G110-followup vitest gate — run UI unit tests
+        run: |
+          cd openova-src/products/catalyst/bootstrap/ui
+          npm test
+          echo "G110-followup gate OK: catalyst-ui unit tests pass."
+
       - name: Build UI image (test)
         uses: docker/build-push-action@v6
         with:

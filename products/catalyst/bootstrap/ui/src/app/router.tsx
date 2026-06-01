@@ -1,6 +1,6 @@
 import { createRouter, createRoute, createRootRoute, redirect, isRedirect } from '@tanstack/react-router'
 import { IS_SAAS } from '@/shared/constants/env'
-import { API_BASE } from '@/shared/config/urls'
+import { API_BASE, isCatalystZeroURL } from '@/shared/config/urls'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import { setProvisionFlashBanner } from '@/shared/lib/flashBanner'
 import { currentPathRelativeToBasepath } from '@/shared/lib/basepathRelative'
@@ -19,10 +19,11 @@ import { currentPathRelativeToBasepath } from '@/shared/lib/basepathRelative'
  * if the current path starts with '/sovereign', tell the router the
  * base is '/sovereign' so it strips the prefix before matching routes.
  */
-const basepath =
-  typeof window !== 'undefined' && window.location.pathname.startsWith('/sovereign')
-    ? '/sovereign'
-    : '/'
+// G110-followup #2706: route through isCatalystZeroURL() (host + path), not
+// path-only — on a Sovereign cluster a stale-bookmark URL like
+// `console.<sov-fqdn>/sovereign/login` was setting basepath='/sovereign'
+// and trapping every internal navigation under `/sovereign/*` forever.
+const basepath = isCatalystZeroURL() ? '/sovereign' : '/'
 
 /**
  * isCatalystZero — true when the UI is running on Catalyst-Zero
@@ -219,9 +220,8 @@ async function rootBeforeLoad({ location }: { location: { pathname: string } }) 
     // `navigate({to})` paths are fine because the router re-adds
     // basepath on internal navigation; only this hard-nav escape was
     // broken.
-    const basepath = window.location.pathname.startsWith('/sovereign')
-      ? '/sovereign'
-      : ''
+    // G110-followup #2706: host + path check (not path-only).
+    const basepath = isCatalystZeroURL() ? '/sovereign' : ''
     const newURL = basepath + canonical + window.location.search + window.location.hash
     window.location.replace(newURL)
     throw redirect({ to: canonical as never, replace: true })

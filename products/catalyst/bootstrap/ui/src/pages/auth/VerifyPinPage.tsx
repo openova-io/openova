@@ -18,7 +18,7 @@ import { useNavigate, useSearch } from '@tanstack/react-router'
 import { AuthShell } from '@/app/layouts/AuthLayout'
 import { Button } from '@/shared/ui/button'
 import { PinInput6 } from '@/components/PinInput6'
-import { API_BASE } from '@/shared/config/urls'
+import { API_BASE, isCatalystZeroURL } from '@/shared/config/urls'
 import { sanitizeNextParam } from '@/app/auth-gate'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
 
@@ -133,10 +133,8 @@ export function VerifyPinPage() {
           // `/sovereign/sovereign/...` → nginx 404.
           if (target.startsWith('/sovereign/')) target = target.slice('/sovereign'.length)
           else if (target === '/sovereign') target = '/'
-          const basepath =
-            window.location.pathname.startsWith('/sovereign')
-              ? '/sovereign'
-              : ''
+          // G110-followup #2706: host + path check (not path-only).
+          const basepath = isCatalystZeroURL() ? '/sovereign' : ''
           const fullTarget = basepath + target
           window.location.replace(fullTarget)
           return

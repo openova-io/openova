@@ -52,22 +52,47 @@
  * CATALYST_ZERO_HOSTS list below — keep it explicit, never a regex
  * (per docs/INVIOLABLE-PRINCIPLES.md #4 against silent regex drift).
  */
-const CATALYST_ZERO_HOSTS: ReadonlyArray<string> = [
+const CATALYST_ZERO_HOSTNAMES: ReadonlyArray<string> = [
   'console.openova.io',
 ]
 
-const isCatalystZeroHost = (host: string): boolean =>
-  CATALYST_ZERO_HOSTS.includes(host)
+/**
+ * Is the current URL a Catalyst-Zero (contabo) URL — i.e. hostname AND
+ * path both match the contabo `console.openova.io/sovereign/*` pattern?
+ *
+ * G110-followup #2706 (2026-06-01): exported helper so router.tsx,
+ * SovereignConsoleLayout.tsx, AuthCallbackPage.tsx, VerifyPinPage.tsx
+ * and any future call-site keys off ONE topology test, not 5 ad-hoc
+ * path-prefix checks. Each of those 5 sites previously did
+ * `window.location.pathname.startsWith('/sovereign')` directly —
+ * Reviewer-agent on PR #2709 flagged the inconsistency.
+ *
+ * Distinct from any pre-existing local `isCatalystZero` consts that
+ * check the HOSTNAME ONLY (used to gate wizardAuthGuard / OIDC-callback
+ * eligibility): this helper requires BOTH the contabo hostname AND the
+ * `/sovereign` path prefix. Use `isCatalystZeroURL()` for routing /
+ * basepath decisions (where the path matters) and the local
+ * `isCatalystZero` consts for auth-mode decisions (where only the
+ * hostname matters).
+ *
+ * Uses `window.location.hostname` (not `host`) so non-default-port
+ * deployments (e.g. dev contabo on `:8443`) still match correctly.
+ */
+export const isCatalystZeroURL = (): boolean => {
+  if (typeof window === 'undefined') return false
+  const isContaboHost = CATALYST_ZERO_HOSTNAMES.includes(
+    window.location.hostname,
+  )
+  const hasSovereignPrefix = window.location.pathname.startsWith('/sovereign')
+  return isContaboHost && hasSovereignPrefix
+}
 
 export const BASE: string = (() => {
   if (typeof window !== 'undefined') {
     // G110: require BOTH the path prefix AND the contabo host before
     // claiming Catalyst-Zero. Path-only check was the root-cause for
     // the hw86 `/sovereign/login` → HTTP 405 chain.
-    if (
-      window.location.pathname.startsWith('/sovereign') &&
-      isCatalystZeroHost(window.location.host)
-    ) {
+    if (isCatalystZeroURL()) {
       return '/sovereign/'
     }
     // Sovereign cluster (or any non-contabo host) — BASE = '/'.
