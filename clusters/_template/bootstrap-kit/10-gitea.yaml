@@ -4,14 +4,18 @@
 # directly) so the Sovereign is air-gap-ready by construction.
 #
 # Wrapper chart: platform/gitea/chart/
+#
+# G92.3 #2662 (2026-06-01): the HelmRelease installs INSIDE the MGMT
+# vCluster via Flux v2 spec.kubeConfig.secretRef → vc-mgmt. Per docs/
+# SOVEREIGN-MULTI-REGION-DOD.md §A4 gitea is MGMT-tier (intra-cluster
+# HA, primary region only). The chart's CNPG `Cluster` CR
+# (templates/cnpg-cluster.yaml) lands in the vCluster apiserver where
+# the bp-mgmt-vcluster 0.2.1 sync.toHost.customResources policy
+# (PR alongside this commit) mirrors it back to the host k3s for the
+# cnpg-operator (G92.6 substrate) to reconcile. The HR CR itself
+# lives in host ns `mgmt` so helm-controller resolves the kubeConfig
+# Secret from the same namespace (Flux v2 SecretReference contract).
 
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: gitea
-  labels:
-    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
 ---
 apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
@@ -29,27 +33,51 @@ apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
   name: bp-gitea
-  namespace: flux-system
+  # G92.3 #2662: HR lives in host ns `mgmt` (where bp-mgmt-vcluster
+  # exports vc-mgmt Secret). helm-controller authenticates against the
+  # vCluster apiserver and installs the chart inside the vCluster.
+  namespace: mgmt
   labels:
     catalyst.openova.io/slot: "10"
+    catalyst.openova.io/vcluster: mgmt
 spec:
   interval: 15m
   releaseName: gitea
+  # targetNamespace = inner namespace INSIDE the mgmt vCluster.
   targetNamespace: gitea
+  # vCluster pivot — helm-controller installs the chart inside mgmt
+  # vCluster (Flux v2 HelmRelease v2 contract). G92.3 #2662.
+  kubeConfig:
+    secretRef:
+      name: vc-mgmt
+      key: config
   dependsOn:
-    # G92.2 #2661 (2026-06-01): bp-keycloak HR moved to host ns `mgmt`
-    # (it installs INSIDE the mgmt vCluster). Cross-ns dependsOn
-    # requires explicit `namespace:`.
+    # G92.3 #2662 (2026-06-01): bp-mgmt-vcluster MUST be Ready before
+    # this HR tries to install — vc-mgmt Secret + the customResources
+    # sync policy both materialise from that release.
+    - name: bp-mgmt-vcluster
+      namespace: flux-system
+    # G92.2 #2661: bp-keycloak HR lives in host ns `mgmt`.
     - name: bp-keycloak
       namespace: mgmt
     # bp-gateway-api (issue #503): chart ships an HTTPRoute template;
     # gateway.networking.k8s.io/v1 CRDs must be registered first.
+    # Cross-ns now (bp-gateway-api stays in flux-system on host).
     - name: bp-gateway-api
+      namespace: flux-system
     # bp-cnpg (issue #584): chart ships a CNPG Cluster CR;
     # postgresql.cnpg.io/v1 CRD must be registered before bp-gitea
     # applies so the Capabilities gate in cnpg-cluster.yaml creates
-    # the Cluster rather than skipping it silently.
+    # the Cluster rather than skipping it silently. bp-cnpg-operator
+    # is host substrate (G92.6 #2665) and the CRDs are installed at
+    # the HOST k3s apiserver — the vCluster's apiserver inherits the
+    # CRD registration via the syncer's fromHost CRD discovery, so
+    # the Capabilities gate inside the vCluster apiserver evaluates
+    # `true` and the Cluster CR is created (then synced back to host
+    # by the customResources policy declared in bp-mgmt-vcluster 0.2.1
+    # values.yaml).
     - name: bp-cnpg
+      namespace: flux-system
   chart:
     spec:
       chart: bp-gitea
@@ -68,6 +96,10 @@ spec:
   # Helm install completes when manifests apply; downstream dependsOn
   # checks Ready=True independently. Replaces PR #221 spec.timeout: 15m.
   install:
+    # G92.3 #2662: createNamespace=true so helm-controller provisions
+    # the inner `gitea` namespace inside the mgmt vCluster on first
+    # install.
+    createNamespace: true
     disableWait: true
     timeout: 15m
     remediation:

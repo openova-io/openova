@@ -41,14 +41,22 @@
 # consumer of CNPG (registry metadata DB), and its presence gates
 # Cosign signing in bp-sigstore (slot 32) and image pinning across
 # all later HRs.
+#
+# G92.3 #2662 (2026-06-01): the HelmRelease installs INSIDE the MGMT
+# vCluster via Flux v2 spec.kubeConfig.secretRef → vc-mgmt. Per docs/
+# SOVEREIGN-MULTI-REGION-DOD.md §A4 harbor is MGMT-tier (intra-cluster
+# HA, primary region only). The chart's CNPG `Cluster` CR
+# (templates/cnpg-cluster.yaml) lands in the vCluster apiserver where
+# the bp-mgmt-vcluster 0.2.1 sync.toHost.customResources policy mirrors
+# it back to the host k3s for the cnpg-operator (G92.6 substrate) to
+# reconcile. Object Storage S3 credentials still come from the host's
+# flux-system/object-storage Secret via Flux valuesFrom — the
+# helm-controller running on host resolves valuesFrom from the HR's
+# OWN namespace (now `mgmt`), so the Secret must be mirrored from
+# flux-system into mgmt via bp-reflector. That's a separate follow-up;
+# this PR ships the pivot pattern only and the existing flux-system
+# Secret continues to work via the chart's fallback path.
 
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: harbor
-  labels:
-    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
 ---
 apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
@@ -66,9 +74,13 @@ apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
   name: bp-harbor
-  namespace: flux-system
+  # G92.3 #2662: HR lives in host ns `mgmt` (where bp-mgmt-vcluster
+  # exports vc-mgmt Secret). helm-controller authenticates against the
+  # vCluster apiserver and installs the chart inside the vCluster.
+  namespace: mgmt
   labels:
     catalyst.openova.io/slot: "19"
+    catalyst.openova.io/vcluster: mgmt
 spec:
   # G50 (Refs #2602, 2026-05-30): interval 15m → 1m so install remediation
   # retries fire within ~5min total (5 × 1m) instead of 45min (3 × 15m).
@@ -80,17 +92,32 @@ spec:
   # within the 33min observation window. Same META-AUDIT 1 class as G44.
   interval: 1m
   releaseName: harbor
+  # targetNamespace = inner namespace INSIDE the mgmt vCluster.
   targetNamespace: harbor
+  # vCluster pivot — helm-controller installs the chart inside mgmt
+  # vCluster (Flux v2 HelmRelease v2 contract). G92.3 #2662.
+  kubeConfig:
+    secretRef:
+      name: vc-mgmt
+      key: config
   # Harbor depends on:
   #   - bp-cnpg(16): registry metadata DB (postgresql.cnpg.io/v1.Cluster).
   #   - bp-cert-manager(02): registry endpoint TLS via ClusterIssuer.
   # bp-seaweedfs dependency REMOVED per ADR-0001 §13 (cloud-direct).
   dependsOn:
+    # G92.3 #2662 (2026-06-01): bp-mgmt-vcluster MUST be Ready before
+    # this HR tries to install — vc-mgmt Secret + the customResources
+    # sync policy both materialise from that release.
+    - name: bp-mgmt-vcluster
+      namespace: flux-system
     - name: bp-cnpg
+      namespace: flux-system
     - name: bp-cert-manager
+      namespace: flux-system
     # bp-gateway-api (issue #503): chart ships an HTTPRoute template;
     # gateway.networking.k8s.io/v1 CRDs must be registered first.
     - name: bp-gateway-api
+      namespace: flux-system
   chart:
     spec:
       chart: bp-harbor
@@ -121,6 +148,10 @@ spec:
   # explicit HR-level timeout overrides Helm's 5m default which expires
   # before Harbor reaches Ready (prov #24 c776423270f4ae30 04:17 incident).
   install:
+    # G92.3 #2662: createNamespace=true so helm-controller provisions
+    # the inner `harbor` namespace inside the mgmt vCluster on first
+    # install.
+    createNamespace: true
     timeout: 15m
     disableWait: true
     remediation:
