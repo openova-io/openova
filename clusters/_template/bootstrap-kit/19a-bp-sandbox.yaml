@@ -43,23 +43,47 @@ apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
   name: bp-sandbox
-  namespace: flux-system
+  # G92.5 #2664 (2026-06-01): HR lives in host ns `rtz` (where
+  # bp-rtz-vcluster exports vc-rtz Secret). helm-controller
+  # authenticates against the RTZ vCluster apiserver and installs the
+  # chart inside the vCluster. Per docs/SOVEREIGN-MULTI-REGION-DOD.md
+  # §A4 Sandbox is RTZ-tier (tenant zone) — co-located with per-Org
+  # tenant Applications + per-Org CNPG. The chart's per-Sandbox CNPG
+  # Cluster CR dispatch (sandbox.db.provision block) lands in vCluster,
+  # reflects to host via bp-rtz-vcluster 0.2.1 customResources policy.
+  #
+  # The older "Sandbox lives in primary MGMT vCluster only" assumption
+  # is retired — G92 EPIC supersedes. Dep on bp-catalyst-platform
+  # (host-substrate today, per G92.3 follow-up) is now cross-cluster:
+  # the controller inside RTZ vCluster resolves catalyst-api via the
+  # vCluster CoreDNS forwarder.
+  namespace: rtz
   labels:
     catalyst.openova.io/slot: "19a"
     catalyst.openova.io/component: sandbox-controller
-    catalyst.openova.io/region-role: primary
+    catalyst.openova.io/vcluster: rtz
 spec:
-  # G2 (Refs #2574, 2026-05-29): primary-only HR — bp-sandbox depends
-  # on bp-catalyst-platform (slot 13) which is also primary-only.
-  # Per docs/SOVEREIGN-MULTI-REGION-DOD.md §A4, Sandbox lives in the
-  # primary MGMT vCluster only.
   suspend: ${SECONDARY_HR_SUSPEND:=false}
   interval: 15m
   releaseName: sandbox
+  # targetNamespace = inner namespace INSIDE the rtz vCluster.
   targetNamespace: catalyst-system
+  # vCluster pivot — helm-controller installs the chart inside rtz
+  # vCluster (Flux v2 HelmRelease v2 contract). G92.5 #2664.
+  kubeConfig:
+    secretRef:
+      name: vc-rtz
+      key: config
   dependsOn:
+    # G92.5 #2664 (2026-06-01): bp-rtz-vcluster MUST be Ready before
+    # this HR tries to install — vc-rtz Secret + the customResources
+    # sync policy both materialise from that release.
+    - name: bp-rtz-vcluster
+      namespace: flux-system
     - name: bp-vcluster-helmrepo
+      namespace: flux-system
     - name: bp-catalyst-platform
+      namespace: flux-system
     # bp-harbor (slot 19, Wave 11 convergence fix 2026-05-18) — sandbox's
     # chart pull goes through harbor.<sov-fqdn> after the post-handover
     # cutover Step-06 phase-1 HelmRepository URL rewrite. Without this
@@ -147,6 +171,10 @@ spec:
         name: bp-sandbox
         namespace: flux-system
   install:
+    # G92.5 #2664: createNamespace=true so helm-controller provisions
+    # the inner `catalyst-system` namespace inside the rtz vCluster on
+    # first install.
+    createNamespace: true
     timeout: 10m
     disableWait: true
     remediation:

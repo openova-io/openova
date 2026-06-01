@@ -97,6 +97,29 @@ vcluster:
         enabled: true
       secrets:
         enabled: true
+      # G92.5 #2664 (2026-06-01) — CNPG `Cluster` CR sync vCluster → host.
+      # Mirrors the policy bp-mgmt-vcluster 0.2.1 ships (PR #2692). The
+      # RTZ vCluster hosts per-Org tenant Applications + Sandbox per
+      # docs/SOVEREIGN-MULTI-REGION-DOD.md §A4; both paths route
+      # PostgreSQL provisioning through the host cnpg-operator (G92.6
+      # substrate per #2665) via this sync policy:
+      #
+      #   - Tenant Applications: application-controller (G92.1 #2660,
+      #     PR #2674) renders the per-Application HR with
+      #     placementSchema.vcluster=rtz; the chart's CNPG Cluster CR
+      #     lands in vCluster's apiserver and reflects to host via
+      #     this policy.
+      #   - Sandbox: sandbox-controller's per-Sandbox CNPG Cluster CR
+      #     dispatch (slot 19a `sandbox.db.provision` block, D31
+      #     active-hot-standby aware) lands in vCluster, reflects to
+      #     host the same way.
+      customResources:
+        clusters.postgresql.cnpg.io:
+          enabled: true
+        poolers.postgresql.cnpg.io:
+          enabled: true
+        scheduledbackups.postgresql.cnpg.io:
+          enabled: true
     fromHost:
       ingressClasses:
         enabled: true
