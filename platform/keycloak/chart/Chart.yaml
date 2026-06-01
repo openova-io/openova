@@ -1,10 +1,16 @@
 apiVersion: v2
 name: bp-keycloak
+# 1.4.8 (G112 #2721, 2026-06-01): postgresql.auth.existingSecret pivot —
+# new templates/postgresql-credentials.yaml materialises a stable
+# `keycloak-postgresql` Secret via lookup-or-generate +
+# helm.sh/resource-policy: keep. Eliminates the password-mismatch
+# crashloop when bp-keycloak HR re-installs while the postgres STS
+# volumeClaimTemplate PVC persists (caught live hw86 2026-06-01).
 # 1.4.6 (Fix #1902, TBD-A40, 2026-05-19): omit HTTPRoute parentRef
 # sectionName by default — multi-zone Sovereigns rename HTTPS listeners
 # to https-<sanitised-zone>, breaking NoMatchingListener with the prior
 # pinned sectionName: https. Matches the catalyst-system fix in PR #1888.
-version: 1.4.7
+version: 1.4.8
 description: |
   Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
   upstream `keycloak` chart (bitnami) as a Helm subchart so
