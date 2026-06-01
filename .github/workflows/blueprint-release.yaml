@@ -91,7 +91,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          # G47 #2599: fetch full history so we can diff against the
+          # `github.event.before` base of the push, not just HEAD~1.
+          # HEAD~1 undercounts when a single push lands a stacked set of
+          # commits — only the tip's diff is inspected, every chart bump
+          # in earlier commits in the same push gets skipped.
+          fetch-depth: 0
 
       - name: Detect changed Blueprints
         id: changed
@@ -103,8 +108,20 @@ jobs:
             echo "matrix={\"include\":[{\"path\":\"${tree}/${{ inputs.blueprint }}\"}]}" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # Compare against previous commit; emit a matrix of changed paths.
-          changed=$(git diff --name-only HEAD~1 HEAD | grep -E '^(platform|products)/[^/]+/(chart/|blueprint\.yaml)' | awk -F/ '{print $1"/"$2}' | sort -u)
+          # G47 #2599: diff against the base of the push (covers stacked
+          # commits), not against HEAD~1 (which only inspects the tip).
+          BEFORE='${{ github.event.before }}'
+          AFTER='${{ github.sha }}'
+          ZERO=0000000000000000000000000000000000000000
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "$ZERO" ]; then
+            # workflow_dispatch / initial push / branch-create — no
+            # meaningful `before` exists. Fall back to single-commit diff.
+            BASE=HEAD~1
+          else
+            BASE="$BEFORE"
+          fi
+          echo "Diffing $BASE..$AFTER"
+          changed=$(git diff --name-only "$BASE" "$AFTER" | grep -E '^(platform|products)/[^/]+/(chart/|blueprint\.yaml)' | awk -F/ '{print $1"/"$2}' | sort -u)
           echo "Changed blueprints:"
           echo "$changed"
           if [ -z "$changed" ]; then
