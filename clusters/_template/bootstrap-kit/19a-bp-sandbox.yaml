@@ -96,7 +96,6 @@ spec:
     # Sandbox MVP without manual Day-2 add-app re-introduction.
     # G92.3 #2662 (2026-06-01): bp-harbor HR moved to host ns `mgmt`.
     - name: bp-harbor
-      namespace: mgmt
   chart:
     spec:
       chart: sandbox
