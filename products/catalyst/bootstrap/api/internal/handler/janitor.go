@@ -220,6 +220,17 @@ func (h *Handler) runJanitorPass(tofuWorkDir string, failedMaxAge, wipedMaxAge t
 	// (bound + ACTIVE EIPs are never touched).
 	stats.OrphanEIPs = h.cleanOrphanEIPsHuawei(tofuWorkDir, activeIDs)
 
+	// Step 4: G73 (Refs #2620) — per-provider orphan-keypair sweep.
+	// Keypairs are not tagged on HCS so per-deployment Wipe.sweepKeypairs
+	// finds them only via the parent Sovereign FQDN in tfvars; every
+	// keypair belonging to a wiped record falls out of reach and
+	// accumulates against the project quota (default cap = 100). The
+	// 2026-05-27 Kom4DC RCA observed 68 orphans piled up across failed
+	// provs (memory feedback_hcs_kom4dc_wipe_cascade_quirks.md). Same
+	// shape as Step 3: catalyst- prefix match, in-flight protection by
+	// 8-char deployment-ID prefix, bastion-* hard-protected.
+	stats.OrphanKeypairs = h.cleanOrphanKeypairsHuawei(tofuWorkDir, activeIDs)
+
 	h.log.Info("[JANITOR] pass complete",
 		"durationMs", int(time.Since(startedAt).Milliseconds()),
 		"reaped", stats.Reaped,
@@ -227,6 +238,7 @@ func (h *Handler) runJanitorPass(tofuWorkDir string, failedMaxAge, wipedMaxAge t
 		"orphanKubeconfigsDeleted", stats.OrphanKubeconfigs,
 		"orphanTofuWorkdirsDeleted", stats.OrphanTofuWorkdirs,
 		"orphanEIPsDeleted", stats.OrphanEIPs,
+		"orphanKeypairsDeleted", stats.OrphanKeypairs,
 	)
 }
 
@@ -242,6 +254,7 @@ type janitorStats struct {
 	OrphanKubeconfigs  int
 	OrphanTofuWorkdirs int
 	OrphanEIPs         int
+	OrphanKeypairs     int
 }
 
 // reapDeployment is the cleanup primitive used by the janitor. It
@@ -468,6 +481,102 @@ func (h *Handler) cleanOrphanEIPsHuawei(tofuWorkDir string, activeIDs map[string
 	})
 	if err != nil {
 		h.log.Warn("[JANITOR] orphan-EIP sweep error", "err", err.Error())
+		return deleted
+	}
+	return deleted
+}
+
+// cleanOrphanKeypairsHuawei mirrors cleanOrphanEIPsHuawei but for SSH
+// keypairs. Keypairs are not tagged on HCS, so per-deployment Wipe
+// finds them only via the parent Sovereign FQDN in tfvars — every
+// keypair on a record wiped via the canonical wipe endpoint falls out
+// of reach and piles up against the project quota (default cap = 100).
+//
+// G73 (Refs #2620): walks `tofuWorkDir` for any per-deployment
+// `tofu.auto.tfvars.json` carrying huawei creds, then calls
+// `huawei.Provider.SweepOrphanKeypairs` for the project-wide sweep.
+//
+// Same in-flight protection scheme as cleanOrphanEIPsHuawei: only
+// statuses `pending` / `provisioning` / `tofu-applying` /
+// `flux-bootstrapping` / `phase1-watching` / `wiping` mark a
+// deployment's 8-char ID prefix as protected. Terminal statuses
+// (ready / failed / wiped / adopted) leave their keypairs reclaimable.
+func (h *Handler) cleanOrphanKeypairsHuawei(tofuWorkDir string, activeIDs map[string]struct{}) int {
+	if tofuWorkDir == "" {
+		return 0
+	}
+	entries, err := os.ReadDir(tofuWorkDir)
+	if err != nil {
+		return 0
+	}
+	var ak, sk, projectID, region string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		tfvarsPath := filepath.Join(tofuWorkDir, e.Name(), "tofu.auto.tfvars.json")
+		data, err := os.ReadFile(tfvarsPath)
+		if err != nil {
+			continue
+		}
+		var tv map[string]any
+		if err := json.Unmarshal(data, &tv); err != nil {
+			continue
+		}
+		akV, _ := tv["huawei_access_key"].(string)
+		skV, _ := tv["huawei_secret_key"].(string)
+		pidV, _ := tv["huawei_project_id"].(string)
+		regV, _ := tv["huawei_region"].(string)
+		if akV != "" && skV != "" && pidV != "" {
+			ak = akV
+			sk = skV
+			projectID = pidV
+			region = regV
+			if region == "" {
+				region = "me-east-215"
+			}
+			break
+		}
+	}
+	if ak == "" {
+		return 0
+	}
+	cp, perr := providers.Get("huawei")
+	if perr != nil || cp == nil {
+		h.log.Warn("[JANITOR] huawei provider not wired — skipping orphan-keypair sweep", "err", perr)
+		return 0
+	}
+	hp, ok := cp.(*huaweiprovider.Provider)
+	if !ok || hp == nil {
+		h.log.Warn("[JANITOR] huawei provider type assertion failed — skipping orphan-keypair sweep")
+		return 0
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	activePrefixes := map[string]struct{}{}
+	h.deployments.Range(func(_, val any) bool {
+		dep, ok := val.(*Deployment)
+		if !ok || dep == nil {
+			return true
+		}
+		dep.mu.Lock()
+		st := dep.Status
+		id := dep.ID
+		dep.mu.Unlock()
+		switch st {
+		case "pending", "provisioning", "tofu-applying",
+			"flux-bootstrapping", "phase1-watching", "wiping":
+			if len(id) >= 8 {
+				activePrefixes[id[:8]] = struct{}{}
+			}
+		}
+		return true
+	})
+	deleted, err := hp.SweepOrphanKeypairs(ctx, ak, sk, projectID, region, activePrefixes, func(msg string) {
+		h.log.Info("[JANITOR] " + msg)
+	})
+	if err != nil {
+		h.log.Warn("[JANITOR] orphan-keypair sweep error", "err", err.Error())
 		return deleted
 	}
 	return deleted

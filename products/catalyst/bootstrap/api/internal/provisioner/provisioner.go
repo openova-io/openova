@@ -58,6 +58,22 @@ type natEIPPreflightFunc func(ctx context.Context, provider, deploymentID, sover
 // after tofu apply for provider == "huawei".
 var NATEIPPreflightHook natEIPPreflightFunc
 
+// G68 #2617 — pluggable hook for pre-Phase-0 HCS VPC quota check.
+// Same decoupling rationale as NATEIPPreflightHook: the huawei package
+// registers itself at init() time via
+// VPCQuotaHook = huawei.VPCQuotaPreflight, which calls
+// (*huawei.Provider).VPCQuota under the hood. The hook returns
+// (used, limit, err). On err != nil the caller logs + skips the check
+// (transient API failure must not block legitimate provs); on
+// used+needed > limit the caller fails fast with a clear error before
+// any tofu init runs.
+type vpcQuotaFunc func(ctx context.Context, accessKey, secretKey, projectID, region string) (used, limit int, err error)
+
+// VPCQuotaHook is the registration point. nil by default — only the
+// huawei adapter's init() sets it. provisioner.Provision calls it
+// before tofu init for provider == "huawei".
+var VPCQuotaHook vpcQuotaFunc
+
 // ParentDomain is one entry in Request.ParentDomains — a registered
 // parent zone the Sovereign-side PowerDNS becomes authoritative for
 // after NS-flip lands at the registrar.
@@ -1310,6 +1326,35 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 	// in the working directory at apply time.
 	if err := writeTfvars(deployDir, req); err != nil {
 		return nil, fmt.Errorf("write tfvars: %w", err)
+	}
+
+	// G68 #2617: HCS VPC quota pre-flight. The HCS project has a hard cap
+	// on VPCs per project (default 5). A multi-region prov requests one
+	// VPC per region; if the project is at-or-near the cap from prior
+	// failed wipes, `tofu apply` fails mid-run after Phase 0 has already
+	// allocated CP + EIPs + SGs (~3 min sunk cost). Pre-flight the quota
+	// here so the wizard surfaces a clear error immediately and the
+	// operator can wipe an old prov before retrying.
+	//
+	// The check is BEST-EFFORT: any quota-API failure (transient 5xx,
+	// missing `vpc` resource type in response) falls through to tofu
+	// apply, which is the canonical authority. We never block on quota
+	// uncertainty — only on quota *known to be insufficient*.
+	if req.Provider == "huawei" && len(req.Regions) > 0 && VPCQuotaHook != nil {
+		needed := len(req.Regions)
+		region := strings.TrimSpace(req.HuaweiRegion)
+		if region == "" {
+			region = "me-east-215"
+		}
+		used, limit, qerr := VPCQuotaHook(ctx, req.HuaweiAccessKey, req.HuaweiSecretKey, req.HuaweiProjectID, region)
+		if qerr != nil {
+			emit("tofu-init", "warn", fmt.Sprintf("HCS VPC quota check skipped (transient API error): %v", qerr))
+		} else {
+			emit("tofu-init", "info", fmt.Sprintf("HCS VPC quota: used %d / %d, requesting %d", used, limit, needed))
+			if used+needed > limit {
+				return nil, fmt.Errorf("HCS VPC quota exhausted: project at %d/%d, this prov requests %d more — wipe an existing Sovereign before retrying", used, limit, needed)
+			}
+		}
 	}
 
 	emit("tofu-init", "info", "Initialising OpenTofu working directory")
