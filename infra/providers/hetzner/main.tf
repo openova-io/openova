@@ -941,11 +941,17 @@ resource "hcloud_server" "control_plane" {
   lifecycle {
     precondition {
       condition     = length(local.control_plane_cloud_init) <= 32256
-      error_message = "Rendered control-plane cloud-init is ${length(local.control_plane_cloud_init)} bytes, exceeds 32256 (~31.5 KiB) guardrail (Hetzner hard cap is 32768). Cull comments / move bloat out of cloudinit-control-plane.tftpl. See issues #966 / #1981."
+      # G107 #2702 (2026-06-01): wrap length() with nonsensitive() so the
+      # byte count shows in the error_message. Without it tofu redacts the
+      # entire message because the local references hcloud_token / ssh_key
+      # marked sensitive. Operators iterating on cloud-init slim-downs
+      # cannot target their cuts without knowing the actual overshoot;
+      # nonsensitive() leaks only the integer length, not any token bytes.
+      error_message = "Rendered control-plane cloud-init is ${nonsensitive(length(local.control_plane_cloud_init))} bytes, exceeds 32256 (~31.5 KiB) guardrail (Hetzner hard cap is 32768). Cull comments / move bloat out of cloudinit-control-plane.tftpl. See issues #966 / #1981."
     }
     precondition {
       condition     = length(local.worker_cloud_init) <= 30720
-      error_message = "Rendered worker cloud-init is ${length(local.worker_cloud_init)} bytes, exceeds 30720 (30 KiB) guardrail (Hetzner hard cap is 32768). Cull comments / move bloat out of cloudinit-worker.tftpl. See issue #966."
+      error_message = "Rendered worker cloud-init is ${nonsensitive(length(local.worker_cloud_init))} bytes, exceeds 30720 (30 KiB) guardrail (Hetzner hard cap is 32768). Cull comments / move bloat out of cloudinit-worker.tftpl. See issue #966."
     }
   }
 

@@ -103,8 +103,12 @@ mock_provider "hcloud" {
 override_resource {
   target = aws_s3_bucket.main
   values = {
-    id     = "catalyst-test-example-com"
-    bucket = "catalyst-test-example-com"
+    id = "catalyst-test-example-com"
+    # G107 #2702 (2026-06-01): `bucket` is a required configuration input
+    # on aws_s3_bucket, not a computed attribute. tofu test refuses to
+    # override config inputs with "Invalid mock/override field `bucket`".
+    # The bucket name is resolved naturally from var.object_storage_bucket_name
+    # — overriding it here is unnecessary AND blocks the test from running.
   }
 }
 
