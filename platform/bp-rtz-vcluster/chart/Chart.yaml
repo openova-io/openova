@@ -14,7 +14,13 @@ name: bp-rtz-vcluster
 # schema so RTZ vCluster-placed tenant Applications (G92.5 #2664) +
 # per-Org CNPG can wire CR sync to the host cnpg-operator without a
 # follow-up chart bump.
-version: 0.2.0
+# 0.2.1 — Refs #2664/#2639 (G92.5 EPIC, 2026-06-01): values.yaml now
+# declares `vcluster.sync.toHost.customResources` for the 3 CNPG CR
+# kinds — mirrors the bp-mgmt-vcluster 0.2.1 policy (PR #2692). The
+# RTZ vCluster hosts per-Org tenant Applications + Sandbox per DoD
+# §A4; both paths route CNPG provisioning through the host
+# cnpg-operator (G92.6 substrate per #2665) via this sync.
+version: 0.2.1
 appVersion: "0.21.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign RTZ
