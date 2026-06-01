@@ -552,6 +552,23 @@ type pinVerifyRequest struct {
 
 type pinVerifyResponse struct {
 	OK bool `json:"ok"`
+	// G113 #2725 Option B Step 3 (2026-06-02): when the OIDC provider is
+	// enabled (CATALYST_OIDC_PROVIDER_ENABLED=true), HandlePinVerify
+	// includes a `kcBrokerURL` that catalyst-ui should hard-navigate the
+	// browser to via window.location.assign() immediately after a
+	// successful PIN verify. Hitting that URL triggers KC's
+	// identity-broker, which does an OIDC roundtrip against catalyst-api
+	// (using the catalyst_session cookie we JUST set as proof of PIN-
+	// authentication), and drops a real KC realm session cookie on
+	// auth.<sov-fqdn>. After that, every per-app SSO redirect succeeds
+	// silently. The catalyst-ui handler should still set up its own
+	// session state BEFORE navigating away (the broker flow eventually
+	// returns the browser to /auth/callback on the UI origin via KC's
+	// post-broker redirect).
+	//
+	// Empty when CATALYST_OIDC_PROVIDER_ENABLED is unset — catalyst-ui
+	// then falls back to the existing /wizard navigation.
+	KCBrokerURL string `json:"kcBrokerURL,omitempty"`
 }
 
 // HandlePinVerify handles POST /api/v1/auth/pin/verify.
@@ -750,7 +767,59 @@ func (h *Handler) HandlePinVerify(w http.ResponseWriter, r *http.Request) {
 		"expires_in", cookieMaxAge,
 	)
 
-	writeJSON(w, http.StatusOK, pinVerifyResponse{OK: true})
+	// G113 #2725 Option B Step 3: if the OIDC provider is enabled,
+	// compute the KC identity-broker URL so catalyst-ui can navigate
+	// the browser through the brokered OIDC flow. After that one-time
+	// roundtrip, auth.<sov-fqdn> holds the realm session cookie and
+	// every subsequent per-app SSO redirect is silent.
+	resp := pinVerifyResponse{OK: true}
+	if os.Getenv("CATALYST_OIDC_PROVIDER_ENABLED") == "true" {
+		if brokerURL := buildKCBrokerURL(r); brokerURL != "" {
+			resp.KCBrokerURL = brokerURL
+		}
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// buildKCBrokerURL constructs the Keycloak identity-broker URL that
+// catalyst-ui should hard-navigate to after PIN verify in order to
+// federate the catalyst-api OIDC IdP into the operator's KC realm
+// session.
+//
+// G113 #2725 Option B Step 3 (2026-06-02): URL shape is
+//
+//	https://auth.<sov-fqdn>/realms/sovereign/broker/<alias>/login
+//	  ?kc_idp_hint=<alias>
+//	  &redirect_uri=https://console.<sov-fqdn>/auth/callback
+//
+// The `<alias>` matches the identityProviders[] entry added to the
+// bp-keycloak realm-config ConfigMap (Step 4 of this chain). KC's
+// broker handler does the OIDC roundtrip against catalyst-api at
+// /oidc/auth → /oidc/token, then 302s the browser to redirect_uri
+// with a one-time KC code that catalyst-ui's existing
+// AuthCallbackPage handles via handleCallback().
+//
+// SOVEREIGN_FQDN env is set on every Sovereign by the bp-catalyst-
+// platform chart from .Values.sovereignFqdn. Returns empty string on
+// Catalyst-Zero (no per-Sovereign realm to broker into) or when
+// SOVEREIGN_FQDN is unset.
+func buildKCBrokerURL(r *http.Request) string {
+	sovFQDN := strings.TrimSpace(os.Getenv("SOVEREIGN_FQDN"))
+	if sovFQDN == "" {
+		return ""
+	}
+	alias := os.Getenv("CATALYST_PIN_BROKER_CLIENT_ID")
+	if alias == "" {
+		alias = "catalyst-pin"
+	}
+	realm := os.Getenv("CATALYST_KC_REALM")
+	if realm == "" {
+		realm = "sovereign"
+	}
+	redirectURI := "https://console." + sovFQDN + "/auth/callback"
+	return "https://auth." + sovFQDN + "/realms/" + realm + "/broker/" + alias + "/login" +
+		"?kc_idp_hint=" + alias + "&redirect_uri=" + url.QueryEscape(redirectURI)
 }
 
 // HandleAuthLogout handles DELETE /api/v1/auth/session.

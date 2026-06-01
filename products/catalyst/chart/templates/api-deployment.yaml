@@ -621,6 +621,38 @@ spec:
                   name: catalyst-kc-sa-credentials
                   key: client-secret
                   optional: true
+            # ── G113 Option B (#2725) OIDC IDP provider wiring ──────────
+            # The catalyst-api OIDC provider package (internal/oidcprovider/
+            # provider.go) is wired in main.go behind the
+            # CATALYST_OIDC_PROVIDER_ENABLED flag. On a Sovereign with
+            # SOVEREIGN_FQDN set, after HandlePinVerify mints the
+            # catalyst_session cookie it ALSO returns a `kcBrokerURL`
+            # pointing the browser through KC's identity-broker. The
+            # broker server-side calls /oidc/token on this Pod with the
+            # client_secret below; we match it against the value in the
+            # catalyst-pin-broker-credentials Secret (created by
+            # bp-keycloak templates/pin-broker-secret.yaml and mirrored
+            # into catalyst-system via the reflector annotation). When
+            # the Secret is absent (e.g. mothership / catalyst-zero)
+            # CATALYST_PIN_BROKER_CLIENT_SECRET is empty and the OIDC
+            # provider routes are skipped in main.go (logged as
+            # "env set but signer / issuer / secret missing").
+            - name: CATALYST_OIDC_PROVIDER_ENABLED
+              value: "true"
+            - name: CATALYST_OIDC_PROVIDER_ISSUER_URL
+              # api.<sov-fqdn> is the public origin where /oidc/* mounts
+              # (same HTTPRoute as /api/v1/*, see bootstrap/api/HTTPRoute
+              # in this chart). Empty on catalyst-zero — the gate above
+              # then short-circuits.
+              value: {{ printf "https://api.%s" .Values.sovereign.fqdn | quote }}
+            - name: CATALYST_PIN_BROKER_CLIENT_ID
+              value: "catalyst-pin"
+            - name: CATALYST_PIN_BROKER_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: catalyst-pin-broker-credentials
+                  key: client-secret
+                  optional: true
             # ── Gitea client (qa-loop iter-12 Fix #53B) ──────────────────
             # CATALYST_GITEA_URL + CATALYST_GITEA_TOKEN feed
             # internal/handler/blueprints.go giteaClientFromEnv() so the
