@@ -8,6 +8,10 @@ metadata:
     catalyst.openova.io/blueprint: bp-sso-bridge
     app.kubernetes.io/name: sso-bridge-reconciler
     app.kubernetes.io/instance: {{ .Release.Name }}
+  {{- with .Values.deploymentAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
   replicas: 1
   strategy:
@@ -22,10 +26,16 @@ spec:
         app.kubernetes.io/name: sso-bridge-reconciler
         app.kubernetes.io/instance: {{ .Release.Name }}
         catalyst.openova.io/blueprint: bp-sso-bridge
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       annotations:
         # Trigger Pod restart whenever the reconcile script CM changes
         # (no separate watch / SIGHUP path — Kubernetes does this for us).
         checksum/reconciler: {{ include (print $.Template.BasePath "/configmap-reconciler.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
     spec:
       serviceAccountName: sso-bridge-reconciler
       securityContext:
@@ -34,8 +44,21 @@ spec:
         - name: reconciler
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # G109 #2705: container-level securityContext is mandatory under
+          # PodSecurity restricted (Pod-level alone doesn't satisfy
+          # allowPrivilegeEscalation / capabilities / readOnlyRootFilesystem).
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           command: ["/bin/bash"]
           args: ["/etc/sso-bridge/reconcile.sh"]
+          # G109 #2705: liveness + readiness probes are mandatory under
+          # Kyverno `probes-present`. Probes check the reconcile loop's
+          # heartbeat file at /tmp/sso-bridge-last-tick (configmap-reconciler.yaml
+          # writes this on every successful tick).
+          livenessProbe:
+            {{- toYaml .Values.probes.liveness | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.probes.readiness | nindent 12 }}
           env:
             - name: KC_ADDR
               valueFrom:

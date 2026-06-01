@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-sso-bridge
-version: 0.1.1
+version: 0.2.0
 # 0.1.1 (G91.catalyst-console-admin-self-grant #2659, 2026-05-31):
 # extends the reconcile loop with:
 #   - `grant_operator_realm_roles` — grants the operator user the
