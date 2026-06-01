@@ -16,6 +16,8 @@ import { Button } from '@/shared/ui/button'
 import { Input } from '@/shared/ui/input'
 import { API_BASE } from '@/shared/config/urls'
 import { sanitizeNextParam } from '@/app/auth-gate'
+import { DETECTED_MODE } from '@/shared/lib/detectMode'
+import { initiateLogin } from '@/shared/lib/oidc'
 
 type State = 'idle' | 'sending' | 'error'
 
@@ -168,6 +170,48 @@ export function LoginPage() {
           </div>
         )}
 
+        {/*
+          G113 #2725 (2026-06-02): on Sovereign mode, show the canonical
+          "Sign in with Sovereign SSO" button as the PRIMARY path. The
+          existing catalyst-ui Keycloak PKCE client is already registered
+          in the sovereign realm (bp-keycloak/templates/configmap-
+          sovereign-realm.yaml). initiateLogin() in shared/lib/oidc.ts
+          stores PKCE verifier in sessionStorage and 302s to
+          auth.<sov-fqdn>/realms/sovereign/protocol/openid-connect/auth.
+          After the operator signs in there ONCE, the Keycloak realm
+          cookie on auth.<sov-fqdn> is the canonical browser session —
+          every subsequent click into grafana/gitea/harbor/openbao
+          reuses it silently (no double-login).
+
+          The PIN form remains below as a fallback for (a) first-time
+          invitations where the operator's KC user record doesn't exist
+          yet, and (b) passwordless-recovery when the realm KC session
+          has expired and password-reset isn't available.
+
+          Catalyst-Zero mode (console.openova.io) keeps PIN as the only
+          path — there's no per-Sovereign Keycloak realm cookie to
+          carry into apps on that side.
+        */}
+        {DETECTED_MODE.mode === 'sovereign' && DETECTED_MODE.sovereignFQDN && (
+          <>
+            <Button
+              type="button"
+              size="lg"
+              className="mt-1 w-full"
+              data-testid="login-sso"
+              onClick={() => initiateLogin(DETECTED_MODE.sovereignFQDN!)}
+            >
+              Sign in with Sovereign SSO
+              <ArrowRight className="h-4 w-4" />
+            </Button>
+            <div className="my-2 flex items-center gap-3 text-[12px] text-[var(--color-text-dim)]">
+              <div className="h-px flex-1 bg-[var(--color-border)]" />
+              <span>or use a one-time PIN</span>
+              <div className="h-px flex-1 bg-[var(--color-border)]" />
+            </div>
+          </>
+        )}
+
         <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
           <Input
             label="Email"
@@ -183,6 +227,7 @@ export function LoginPage() {
 
           <Button
             type="submit"
+            variant={DETECTED_MODE.mode === 'sovereign' ? 'outline' : 'primary'}
             loading={state === 'sending'}
             disabled={state === 'sending' || !email.trim()}
             size="lg"
