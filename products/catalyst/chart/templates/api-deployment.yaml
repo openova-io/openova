@@ -639,12 +639,14 @@ spec:
             # "env set but signer / issuer / secret missing").
             - name: CATALYST_OIDC_PROVIDER_ENABLED
               value: "true"
-            - name: CATALYST_OIDC_PROVIDER_ISSUER_URL
-              # api.<sov-fqdn> is the public origin where /oidc/* mounts
-              # (same HTTPRoute as /api/v1/*, see bootstrap/api/HTTPRoute
-              # in this chart). Empty on catalyst-zero — the gate above
-              # then short-circuits.
-              value: {{ printf "https://api.%s" .Values.sovereign.fqdn | quote }}
+            # CATALYST_OIDC_PROVIDER_ISSUER_URL intentionally omitted:
+            # main.go derives it from SOVEREIGN_FQDN (sovereign-fqdn
+            # ConfigMap, set later in this env list) — `https://api.<fqdn>`.
+            # The earlier `.Values.sovereign.fqdn` template was broken —
+            # no such Values path; rendered as `%!s(<nil>)` live, which
+            # was overridden via `kubectl set env` on hw86 (2026-06-02).
+            # On catalyst-zero SOVEREIGN_FQDN is empty so the OIDC routes
+            # short-circuit, matching the prior behaviour.
             - name: CATALYST_PIN_BROKER_CLIENT_ID
               value: "catalyst-pin"
             - name: CATALYST_PIN_BROKER_CLIENT_SECRET
