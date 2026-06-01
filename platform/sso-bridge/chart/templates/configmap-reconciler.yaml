@@ -482,6 +482,14 @@ data:
       tick_started="$(date +%s)"
       tick_deadline=$(( tick_started + TIMEOUT_SECONDS ))
 
+      # G109 #2705: heartbeat for liveness/readiness probes. Updating on
+      # every tick (even skipped ones) signals the loop is alive — the
+      # liveness probe in deployment.yaml expects this file's mtime to be
+      # within 10 min. Skipped ticks (no KC token, no OpenBao token,
+      # no Sovereign FQDN ConfigMap) still touch the file because the
+      # reconciler IS alive, just degraded upstream.
+      touch /tmp/sso-bridge-last-tick
+
       mint_kc_token || { warn "skipping tick (no KC token)"; sleep "${INTERVAL_SECONDS}"; continue; }
       openbao_login || { warn "skipping tick (no OpenBao token)"; sleep "${INTERVAL_SECONDS}"; continue; }
 
