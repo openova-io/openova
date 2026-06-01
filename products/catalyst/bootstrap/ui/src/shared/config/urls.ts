@@ -28,12 +28,50 @@
  * Runtime base path, normalized to always end with '/'.
  *
  * On contabo-mkt (Catalyst-Zero): window.location.pathname starts with
- * '/sovereign' → BASE = '/sovereign/'.
- * On Sovereign clusters: BASE = '/'.
+ * '/sovereign' AND window.location.host is `console.openova.io` →
+ * BASE = '/sovereign/'.
+ * On Sovereign clusters: BASE = '/' regardless of pathname.
+ *
+ * G110 #2706 (2026-06-01): the path-only check was too permissive — an
+ * operator who lands on `https://console.<sov-fqdn>/sovereign/login`
+ * (stale bookmark, copy-paste, or wrong external link) would get
+ * BASE = '/sovereign/' and every fetch POST would hit nginx HTTP 405
+ * because the Sovereign's HTTPRoute doesn't strip a `/sovereign` prefix
+ * the way contabo's Traefik does. Live evidence on hw86 2026-06-01T13:25Z:
+ *
+ *   POST /sovereign/api/v1/auth/pin/issue → HTTP 405 (nginx)
+ *   POST /api/v1/auth/pin/issue → HTTP 200 (PIN sent)
+ *
+ * The host-aware check is the canonical fix: only Catalyst-Zero on
+ * contabo serves the UI under `/sovereign/*` via Traefik strip-prefix,
+ * and that's identified by the `console.openova.io` host. Any other
+ * host (`console.<sov-fqdn>`) is a Sovereign cluster where BASE = '/'.
+ *
+ * Future host names that might surface for Catalyst-Zero (e.g. a
+ * staging contabo `staging.openova.io`) can be added to the
+ * CATALYST_ZERO_HOSTS list below — keep it explicit, never a regex
+ * (per docs/INVIOLABLE-PRINCIPLES.md #4 against silent regex drift).
  */
+const CATALYST_ZERO_HOSTS: ReadonlyArray<string> = [
+  'console.openova.io',
+]
+
+const isCatalystZeroHost = (host: string): boolean =>
+  CATALYST_ZERO_HOSTS.includes(host)
+
 export const BASE: string = (() => {
-  if (typeof window !== 'undefined' && window.location.pathname.startsWith('/sovereign')) {
-    return '/sovereign/'
+  if (typeof window !== 'undefined') {
+    // G110: require BOTH the path prefix AND the contabo host before
+    // claiming Catalyst-Zero. Path-only check was the root-cause for
+    // the hw86 `/sovereign/login` → HTTP 405 chain.
+    if (
+      window.location.pathname.startsWith('/sovereign') &&
+      isCatalystZeroHost(window.location.host)
+    ) {
+      return '/sovereign/'
+    }
+    // Sovereign cluster (or any non-contabo host) — BASE = '/'.
+    return '/'
   }
   // Build-time fallback (SSR / jsdom / unit tests without window).
   const _rawBase = import.meta.env.BASE_URL
