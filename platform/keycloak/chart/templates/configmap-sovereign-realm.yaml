@@ -400,6 +400,45 @@ data:
           }
         ]
       },
+      {{- /*
+      G113 #2725 followup (hw86 2026-06-02 12:08Z): the realm's default
+      "browser" authentication flow includes an "Identity Provider
+      Redirector" execution at level=0 ALTERNATIVE, but ships WITHOUT
+      an authenticationConfig bound — so even with `kc_idp_hint=catalyst-pin`
+      on the auth URL, KC silently falls through to the username/password
+      form. The runtime-only fix on hw86 was:
+        POST /admin/realms/sovereign/authentication/executions/<id>/config
+        {"alias":"catalyst-pin-redirector","config":{"defaultProvider":"catalyst-pin"}}
+      The codified equivalent in this realm import is the
+      `authenticatorConfig` array below + the matching
+      `authenticationFlows[].executions[].authenticatorConfig: catalyst-pin-redirector`
+      reference. KC's realm-import reader binds the config to the
+      execution by alias. Verify post-deploy via the 4-hop no-cookie
+      probe documented in TRACKER row 2026-06-02 12:08Z.
+      */ -}}
+      "authenticatorConfig": [
+        {
+          "alias": "catalyst-pin-redirector",
+          "config": {
+            "defaultProvider": "catalyst-pin"
+          }
+        }
+      ],
+      "authenticationFlows": [
+        {
+          "alias": "browser",
+          "description": "Default browser flow with catalyst-pin IdP auto-delegation (G113 #2725).",
+          "providerId": "basic-flow",
+          "topLevel": true,
+          "builtIn": true,
+          "authenticationExecutions": [
+            { "authenticator": "auth-cookie", "requirement": "ALTERNATIVE", "priority": 10, "autheticatorFlow": false },
+            { "authenticator": "auth-spnego", "requirement": "DISABLED", "priority": 20, "autheticatorFlow": false },
+            { "authenticator": "identity-provider-redirector", "authenticatorConfig": "catalyst-pin-redirector", "requirement": "ALTERNATIVE", "priority": 25, "autheticatorFlow": false },
+            { "flowAlias": "forms", "requirement": "ALTERNATIVE", "priority": 30, "autheticatorFlow": true }
+          ]
+        }
+      ],
       "identityProviders": [
         {{- /*
         G113 #2725 Option B Step 4 (2026-06-02): register catalyst-api
