@@ -87,28 +87,29 @@ slots:
     # bp-cnpg dep (issue #512): post-install init hook (`bao operator init`)
     # races cnpg readiness on a fresh Sovereign, hitting the 15m install
     # timeout. Explicit dep makes Flux wait for cnpg Ready=True first.
-    # G92.2 #2661 (2026-06-01): MGMT vCluster placement adds
-    # bp-mgmt-vcluster as a new edge — vc-mgmt Secret must exist
-    # before helm-controller can pivot into the vCluster apiserver.
-    depends_on: [bp-mgmt-vcluster, bp-gateway-api, bp-cnpg]
+    # G92.2 #2661 (2026-06-01): MGMT vCluster placement added
+    # bp-mgmt-vcluster as a new edge — REVERTED by G105-followup
+    # PR #2697/#2715/#2717/#2719/#2720 (vCluster lacks Gateway API +
+    # ExternalSecret CRDs + mgmt namespace inside itself). App installs
+    # on HOST until vCluster CRD sync ships. bp-mgmt-vcluster edge
+    # dropped to match the live slot 08-openbao.yaml.
+    depends_on: [bp-gateway-api, bp-cnpg]
     wave: present
   - slot: 9
     name: bp-keycloak
     # bp-gateway-api dep (issue #503): chart ships an HTTPRoute template.
-    # G92.2 #2661 (2026-06-01): MGMT vCluster placement adds
-    # bp-mgmt-vcluster as a new edge.
-    depends_on: [bp-mgmt-vcluster, bp-cert-manager, bp-gateway-api]
+    # G92.2 #2661 (2026-06-01): MGMT vCluster placement added
+    # bp-mgmt-vcluster — REVERTED by G105-followup (see slot 8 note).
+    depends_on: [bp-cert-manager, bp-gateway-api]
     wave: present
   - slot: 10
     name: bp-gitea
     # bp-gateway-api dep (issue #503): chart ships an HTTPRoute template.
     # bp-cnpg dep (issue #584): chart ships a CNPG Cluster CR; postgresql.cnpg.io/v1
     # CRD must be registered before bp-gitea applies so Capabilities gate fires.
-    # G92.3 #2662 (2026-06-01): MGMT vCluster placement adds
-    # bp-mgmt-vcluster as a new edge — vc-mgmt Secret + the
-    # sync.toHost.customResources policy both materialise from that
-    # release before bp-gitea's helm-controller pivot can succeed.
-    depends_on: [bp-mgmt-vcluster, bp-keycloak, bp-gateway-api, bp-cnpg]
+    # G92.3 #2662 (2026-06-01): MGMT vCluster placement added
+    # bp-mgmt-vcluster — REVERTED by G105-followup (see slot 8 note).
+    depends_on: [bp-keycloak, bp-gateway-api, bp-cnpg]
     wave: present
   - slot: 11
     name: bp-powerdns

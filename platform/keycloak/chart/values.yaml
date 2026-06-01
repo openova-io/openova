@@ -223,6 +223,18 @@ keycloak:
     auth:
       username: keycloak
       database: keycloak
+      # G112 #2721 (2026-06-01): point the Bitnami postgresql subchart at
+      # the catalyst-owned `keycloak-postgresql` Secret materialised by
+      # templates/postgresql-credentials.yaml. The catalyst template uses
+      # lookup-or-generate + helm.sh/resource-policy: keep, so the
+      # password persists across HR uninstall/reinstall — matching the
+      # STS volumeClaimTemplate PVC which also persists. Without this,
+      # the subchart auto-generates a fresh random password on every
+      # reinstall while the PVC retains the OLD password → Keycloak
+      # CrashLoopBackOff "FATAL: password authentication failed".
+      # Caught live on hw86 2026-06-01 blocking the entire bp-* cascade
+      # (memory feedback_sso_manual_recovery_procedure.md).
+      existingSecret: "keycloak-postgresql"
     image:
       registry: docker.io
       repository: bitnamilegacy/postgresql
