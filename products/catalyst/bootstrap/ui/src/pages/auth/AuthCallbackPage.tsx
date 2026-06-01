@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useSearch, useRouter } from '@tanstack/react-router'
+import { isCatalystZeroURL } from '@/shared/config/urls'
 
 /**
  * AuthCallbackPage — handles the OIDC / Keycloak authorization_code callback.
@@ -37,8 +38,8 @@ import { useSearch, useRouter } from '@tanstack/react-router'
  * so the prefix is empty.
  */
 function uiBase(): string {
-  if (typeof window === 'undefined') return ''
-  return window.location.pathname.startsWith('/sovereign') ? '/sovereign' : ''
+  // G110-followup #2706: host + path check (not path-only).
+  return isCatalystZeroURL() ? '/sovereign' : ''
 }
 
 // Detect Catalyst-Zero at module-init time (same logic as router.tsx).

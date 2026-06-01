@@ -122,11 +122,73 @@ describe('shared/config/urls', () => {
     for (const { host, pathname, expected } of cases) {
       it(`host=${host} pathname=${pathname} → BASE=${expected}`, async () => {
         vi.stubGlobal('window', {
-          location: { host, pathname },
+          // G110-followup #2706: urls.ts now uses hostname, not host —
+          // expose both so existing tests still match (host carries the
+          // port; hostname is portless).
+          location: { host, hostname: host, pathname },
         })
         const mod = await import('./urls')
         expect(mod.BASE).toBe(expected)
       })
     }
+  })
+
+  /**
+   * G110-followup #2706 — direct isCatalystZero() helper tests.
+   *
+   * Reviewer-agent flagged 5 other call-sites doing pathname.startsWith('/sovereign')
+   * directly. PR #2709-followup extracts isCatalystZero() and routes them
+   * through it. These tests pin the helper's contract so future use-sites
+   * cannot regress.
+   *
+   * Also covers the non-default-port edge case the reviewer flagged
+   * (host includes `:port` when non-default, hostname is portless).
+   */
+  describe('isCatalystZero() — G110-followup helper (#2706)', () => {
+    beforeEach(() => {
+      vi.resetModules()
+    })
+    afterEach(() => {
+      vi.unstubAllGlobals()
+      vi.resetModules()
+    })
+
+    const cases: Array<{
+      hostname: string
+      pathname: string
+      expected: boolean
+      note: string
+    }> = [
+      // Catalyst-Zero on contabo
+      { hostname: 'console.openova.io', pathname: '/sovereign/login', expected: true, note: 'contabo + /sovereign' },
+      { hostname: 'console.openova.io', pathname: '/sovereign', expected: true, note: 'contabo + /sovereign root' },
+      { hostname: 'console.openova.io', pathname: '/', expected: false, note: 'contabo + root' },
+      { hostname: 'console.openova.io', pathname: '/login', expected: false, note: 'contabo + /login (no /sovereign)' },
+      // Sovereign clusters (any non-contabo hostname)
+      { hostname: 'console.hw86.omani.works', pathname: '/sovereign/login', expected: false, note: 'sovereign + stale-bookmark /sovereign' },
+      { hostname: 'console.hw86.omani.works', pathname: '/login', expected: false, note: 'sovereign + canonical /login' },
+      { hostname: 'console.t38.omani.works', pathname: '/sovereign', expected: false, note: 'another Sovereign + /sovereign' },
+      // Non-default-port contabo (reviewer-flagged edge case)
+      // urls.ts now uses hostname so the port is NOT in the comparison —
+      // this case correctly identifies as Catalyst-Zero even if served
+      // on `:8443` (dev / staging contabo).
+      { hostname: 'console.openova.io', pathname: '/sovereign/login', expected: true, note: 'contabo non-default-port (hostname portless)' },
+    ]
+
+    for (const { hostname, pathname, expected, note } of cases) {
+      it(`${note}: hostname=${hostname} pathname=${pathname} → ${expected}`, async () => {
+        vi.stubGlobal('window', {
+          location: { hostname, pathname },
+        })
+        const mod = await import('./urls')
+        expect(mod.isCatalystZeroURL()).toBe(expected)
+      })
+    }
+
+    it('returns false when window is undefined (SSR / build-time)', async () => {
+      vi.stubGlobal('window', undefined)
+      const mod = await import('./urls')
+      expect(mod.isCatalystZeroURL()).toBe(false)
+    })
   })
 })

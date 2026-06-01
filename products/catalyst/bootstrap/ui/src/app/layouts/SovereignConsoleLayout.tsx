@@ -51,7 +51,7 @@
 import { useEffect, useState } from 'react'
 import { Outlet } from '@tanstack/react-router'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
-import { API_BASE, BASE } from '@/shared/config/urls'
+import { API_BASE, BASE, isCatalystZeroURL } from '@/shared/config/urls'
 import { currentPathRelativeToBasepath } from '@/shared/lib/basepathRelative'
 import {
   loadTokens,
@@ -69,8 +69,10 @@ import { RequiredActionsModal } from '@/components/RequiredActionsModal'
  * browser URL still reflects).
  */
 function uiBase(): string {
-  if (typeof window === 'undefined') return ''
-  return window.location.pathname.startsWith('/sovereign') ? '/sovereign' : ''
+  // G110-followup #2706: host + path check (not path-only) — on a
+  // Sovereign cluster the canonical URL has no /sovereign prefix even
+  // if the operator landed on a stale /sovereign bookmark.
+  return isCatalystZeroURL() ? '/sovereign' : ''
 }
 
 /**
