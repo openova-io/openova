@@ -94,6 +94,18 @@ compliancePolicies:
       - dmz
       - mgmt
       - rtz
+      # G109 #2705 (2026-06-01): bp-sso-bridge reconciler is single-writer
+      # by design (parallel ticks would race the Keycloak Client upserts +
+      # OpenBao secret writes). `multiReplica` / `pdb` / `topologySpread` /
+      # `hpa` policies would reject the chart's `replicas: 1`. A future
+      # leader-election + fencing refactor could enable replicas>=2; until
+      # then exempt the namespace. The per-workload
+      # `policies.kyverno.io/exempt` annotation in the chart's
+      # `deploymentAnnotations` is documentation-only — catalyst Kyverno
+      # policies key on namespace-list exclusion (this anchor), not
+      # per-workload annotation. Code-reviewer agent surfaced this gap
+      # 2026-06-01T13:35Z (G109 review verdict PASS-with-caveats).
+      - sso-bridge
 
   pdb:
     enabled: true

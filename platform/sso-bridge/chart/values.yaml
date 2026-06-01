@@ -165,10 +165,30 @@ podLabels:
 # Workload-level compliance exemption annotation for the Deployment.
 # G109 #2705: the reconciler is a single-writer Bash script and CANNOT run
 # with replicas > 1 (parallel ticks would race the Keycloak Client upserts
-# + OpenBao writes). Kyverno's `replicas-at-least-two` policy violates this
-# correctness constraint, so we exempt the workload via the standard
-# annotation Kyverno recognises (per docs/RUNBOOKS.md §kyverno-exemption).
-# Operators may force-enable multi-replica via leaderElection-and-fencing
-# in a future chart version; this is the today's-correct shape.
+# + OpenBao writes). The catalyst Kyverno policies use namespace-list
+# exclusion (NOT per-workload annotation), so the actual exemption ships
+# in `platform/kyverno-policies/chart/values.yaml` `complianceDefaultExcludes`
+# (added in G109-followup). This annotation is kept as DOCUMENTATION of
+# intent for operators reading the manifest. A future leader-election +
+# fencing refactor could enable replicas>=2; the namespace-exclusion stays
+# either way for `pdb`, `topologySpread`, `hpa-effective` policies.
 deploymentAnnotations:
   policies.kyverno.io/exempt: "replicas-at-least-two"
+
+# NetworkPolicy for the reconciler.
+#
+# G109-followup #2705 (2026-06-01): Kyverno baseline policy
+# `networkpolicy-present` (baseline/14) rejects any namespace without a
+# NetworkPolicy. Chart 0.2.0 hardened the Deployment but did NOT ship a
+# NetworkPolicy template. Reviewer-agent verdict 2026-06-01T13:35Z flagged
+# the gap. This block configures the egress allow-list.
+#
+# Default keycloak/openbao Namespaces match the platform charts.
+# Post-G92.2 placement may move these inside the mgmt vCluster — operators
+# rewrite via per-Sovereign overlay in that case.
+networkPolicy:
+  enabled: true
+  keycloakNamespace: keycloak
+  keycloakPort: 80
+  openbaoNamespace: openbao
+  openbaoPort: 8200

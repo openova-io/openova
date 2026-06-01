@@ -1,0 +1,83 @@
+{{- /*
+NetworkPolicy for the bp-sso-bridge reconciler.
+
+G109 #2705 / G109-followup (2026-06-01) — Code-reviewer agent surfaced
+that Kyverno `networkpolicy-present` policy (baseline/14) rejects any
+namespace without a NetworkPolicy. Chart 0.2.0 hardened the Deployment
+but did NOT add a NetworkPolicy template — the `sso-bridge` namespace
+would fail admission on a Sovereign with default policy enforcement.
+
+The reconciler needs egress to exactly four endpoints:
+  - K8s apiserver (kubectl list HRs, write ExternalSecret CRs)
+  - Cluster DNS (resolve in-cluster Service names)
+  - Keycloak admin endpoint (mint SA token, upsert Client, grant roles)
+  - OpenBao admin endpoint (login via K8s SA auth, write KV2 secret)
+
+Ingress: NONE. The reconciler exposes no listener (the /metrics endpoint
+referenced in `prometheus.io/scrape` annotation is a future enhancement
+per chart 0.2.0 hardening; today the annotation is intent-only).
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the policy is
+operator-tunable via `.Values.networkPolicy.*` knobs.
+*/}}
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bp-sso-bridge
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-sso-bridge
+    app.kubernetes.io/name: sso-bridge-reconciler
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: sso-bridge-reconciler
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress: []
+  egress:
+    # Cluster DNS — every other egress dest is resolved by name.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Kubernetes API — reconciler lists HRs cluster-wide + writes
+    # ExternalSecret CRs into each app's namespace.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+    # Keycloak admin endpoint — same namespace selector as
+    # bp-keycloak's NetworkPolicy ingress allow-list. Per-Sovereign
+    # overlays MAY rewrite the namespace if bp-keycloak is relocated
+    # (e.g. inside the mgmt vCluster post-G92.2 — that path uses a
+    # different ingress route per the syncer-mangled name from G105).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.keycloakNamespace | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.networkPolicy.keycloakPort }}
+    # OpenBao admin endpoint — same shape as Keycloak.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.openbaoNamespace | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.networkPolicy.openbaoPort }}
+{{- end }}

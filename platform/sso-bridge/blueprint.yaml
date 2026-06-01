@@ -5,7 +5,7 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
 spec:
-  version: 0.2.0
+  version: 0.2.1
   card:
     title: sso-bridge
     summary: |
