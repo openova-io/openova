@@ -109,16 +109,64 @@ runs:
         git config user.name  "${DEPLOY_BUMP_USER_NAME}"
         git config user.email "${DEPLOY_BUMP_USER_EMAIL}"
 
-        # Stage every requested path. xargs handles whitespace- and
-        # newline-separated input identically and re-raises non-zero
-        # exit codes from `git add` so a typo'd path fails loudly.
+        # G29 #2584 (2026-06-01): snapshot the intended file contents
+        # BEFORE we commit. On a push race, the prior `pull --rebase
+        # --autostash || true` had a silent failure mode where:
+        #
+        #   1. Push attempt 1 rejected because a concurrent build's
+        #      deploy-bump landed first.
+        #   2. `git pull --rebase --autostash` hit a conflict on the
+        #      same line (both build workflows touched values.yaml's
+        #      catalystApi/catalystUi `tag:` line).
+        #   3. The rebase exited non-zero, leaving HEAD at origin/main
+        #      and our deploy commit unapplied.
+        #   4. The `|| true` swallowed the failure.
+        #   5. Push attempt 2 sent HEAD:main where HEAD = origin/main.
+        #      Git reports "Everything up-to-date" and reports SUCCESS.
+        #   6. `pushed=true` returned by the action; workflow proceeded
+        #      to dispatch blueprint-release. Operators saw a green CI
+        #      run and assumed the bump shipped.
+        #   7. But values.yaml on main carried the OTHER concurrent
+        #      build's SHA, not ours. Operators downstream installed
+        #      the wrong image.
+        #
+        # Live damage: G28 #2584 incident — e39a9bc8 (cloudinit fix-
+        # forward, the critical tofu-template escape) appeared to
+        # deploy successfully but values.yaml stayed at 9b07b9a; the
+        # next prov FAILED with the very error e39a9bc8 was meant to
+        # fix. Lead had to manually `workflow_dispatch` Build & Deploy
+        # to recover.
+        #
+        # Fix: instead of trying to rebase our commit across a race,
+        # we (a) snapshot the intended file contents up-front, then
+        # (b) on every push retry, hard-reset to the latest origin/main
+        # AND re-apply the snapshot. The action becomes
+        # state-machine-shaped: "make origin/main have these file
+        # contents, with this commit message." Conflicts can't drop
+        # the bump because there IS no rebase — every retry starts
+        # fresh from origin/main and re-applies the intent on top.
+        INTENT_DIR="${RUNNER_TEMP:-/tmp}/deploy-bump-intent-$$"
+        mkdir -p "${INTENT_DIR}"
+        SNAPSHOTTED_PATHS=()
+        # shellcheck disable=SC2086
+        for p in $(echo "${DEPLOY_BUMP_PATHS}"); do
+          if [ -e "${p}" ]; then
+            mkdir -p "${INTENT_DIR}/$(dirname "${p}")"
+            cp "${p}" "${INTENT_DIR}/${p}"
+            SNAPSHOTTED_PATHS+=("${p}")
+          fi
+        done
+        echo "deploy-bump: snapshotted ${#SNAPSHOTTED_PATHS[@]} path(s) into ${INTENT_DIR}"
+
+        # Initial check — if nothing actually changed vs HEAD, exit
+        # early with pushed=false (idempotent re-runs).
         # shellcheck disable=SC2086
         echo "${DEPLOY_BUMP_PATHS}" | xargs git add --
-
         if git diff --staged --quiet; then
           echo "deploy-bump: no staged changes — skipping commit/push."
           echo "pushed=false"   >> "$GITHUB_OUTPUT"
           echo "commit_sha="   >> "$GITHUB_OUTPUT"
+          rm -rf "${INTENT_DIR}"
           exit 0
         fi
 
@@ -126,11 +174,6 @@ runs:
         COMMIT_SHA="$(git rev-parse HEAD)"
         echo "deploy-bump: committed ${COMMIT_SHA}"
 
-        # Pull --rebase retry loop. Without this, two parallel build
-        # workflows committing within ~2 min of each other will see
-        # the second `git push` rejected with
-        # `[rejected] main -> main (fetch first)` and the auto-bump
-        # commit is lost (TBD-V32 / openova-io/openova#2062).
         MAX="${DEPLOY_BUMP_MAX_ATTEMPTS:-5}"
         pushed=false
         for i in $(seq 1 "${MAX}"); do
@@ -138,14 +181,49 @@ runs:
             pushed=true
             break
           fi
-          echo "deploy-bump: push attempt ${i}/${MAX} failed — rebasing and retrying."
+          echo "deploy-bump: push attempt ${i}/${MAX} failed — refetching + re-applying snapshot."
+
+          # Recover from any prior iteration that may have left a
+          # rebase / cherry-pick / merge in progress. Best-effort: if
+          # there's nothing to abort, the command returns non-zero
+          # and we ignore it.
+          git rebase --abort 2>/dev/null || true
+          git cherry-pick --abort 2>/dev/null || true
+          git merge --abort 2>/dev/null || true
+
+          # Fetch latest origin/main and hard-reset HEAD onto it. This
+          # discards our local deploy commit; we re-create it from the
+          # snapshot below, which guarantees the values.yaml /
+          # template / Chart.yaml content we intended is what reaches
+          # main (regardless of what the racing deploy committed).
           git fetch origin main
-          # `|| true` keeps the loop alive when the rebase has nothing
-          # to replay (e.g. our commit is still ahead of origin but
-          # the push raced on a transient network hiccup).
-          git pull --rebase --autostash origin main || true
+          git reset --hard origin/main
+
+          # Re-apply the snapshotted intent.
+          for p in "${SNAPSHOTTED_PATHS[@]}"; do
+            src="${INTENT_DIR}/${p}"
+            if [ -f "${src}" ]; then
+              mkdir -p "$(dirname "${p}")"
+              cp "${src}" "${p}"
+            fi
+          done
+
+          # shellcheck disable=SC2086
+          echo "${DEPLOY_BUMP_PATHS}" | xargs git add --
+          if git diff --staged --quiet; then
+            # The racing deploy already pushed identical content (rare
+            # but possible — both jobs computed the same SHA short for
+            # the same git tree). Accept as no-op success.
+            echo "deploy-bump: intent matches origin/main after refetch on attempt ${i} — accepting as no-op success."
+            pushed=true
+            break
+          fi
+
+          git commit -m "${DEPLOY_BUMP_MESSAGE}"
           sleep "$((i * 2))"
         done
+
+        rm -rf "${INTENT_DIR}"
 
         if [ "${pushed}" != "true" ]; then
           echo "deploy-bump: all ${MAX} push attempts failed." >&2
@@ -154,9 +232,24 @@ runs:
           exit 1
         fi
 
-        # Re-resolve HEAD: a successful rebase between attempts may
-        # have changed the commit SHA we landed.
+        # Re-resolve HEAD: each retry recreates the commit, so the
+        # SHA we landed may differ from the one we first committed.
         FINAL_SHA="$(git rev-parse HEAD)"
-        echo "deploy-bump: pushed ${FINAL_SHA} to origin/main."
+
+        # G29 #2584 post-push verification: confirm the SHA we report
+        # in `commit-sha` is actually on origin/main. Catches the
+        # narrow case where the loop break fired on a `Everything
+        # up-to-date` push (which would have meant HEAD == origin/main
+        # pre-push and our deploy commit is still local-only).
+        git fetch origin main
+        REMOTE_SHA="$(git rev-parse origin/main)"
+        if ! git merge-base --is-ancestor "${FINAL_SHA}" "${REMOTE_SHA}"; then
+          echo "deploy-bump: ERROR — FINAL_SHA ${FINAL_SHA} is not an ancestor of origin/main ${REMOTE_SHA}; the silent-no-op race fired." >&2
+          echo "pushed=false" >> "$GITHUB_OUTPUT"
+          echo "commit_sha=${FINAL_SHA}" >> "$GITHUB_OUTPUT"
+          exit 1
+        fi
+
+        echo "deploy-bump: pushed ${FINAL_SHA} to origin/main (verified)."
         echo "pushed=true" >> "$GITHUB_OUTPUT"
         echo "commit_sha=${FINAL_SHA}" >> "$GITHUB_OUTPUT"
