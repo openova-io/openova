@@ -288,9 +288,9 @@ images:
   organization: "openova-io/openova"
   # SHA tags — bump these via CI when building new images.
   catalystApi:
-    tag: "dc9ca6e"
+    tag: "52d3457"
   catalystUi:
-    tag: "dc9ca6e"
+    tag: "52d3457"
   marketplaceApi:
     tag: "3c2f7e4"
   console:
@@ -345,7 +345,7 @@ runtime:
   # overlays MAY override (e.g. to a `keycloak.openova.com` external
   # admin endpoint, or to a Catalyst-Zero contabo URL, or back to the
   # pre-G92.2 path on Sovereigns provisioned BEFORE G92.2 landed).
-  keycloakAddr: "http://keycloak-x-keycloak-x-mgmt-vcluster.mgmt.svc.cluster.local:80"
+  keycloakAddr: "http://keycloak-x-keycloak-x-mgmt.mgmt.svc.cluster.local:80"
   # Keycloak realm the per-Org realms are nested under. Default
   # `sovereign` matches the bp-keycloak chart's auto-provisioned
   # tenant realm (the contabo mothership uses `openova` instead).
@@ -698,11 +698,11 @@ services:
       # INSIDE the mgmt vCluster (Service `nats-jetstream.nats-system`
       # in vCluster apiserver). The bp-mgmt-vcluster syncer reflects
       # it to the host as the syncer-mangled name
-      # `nats-jetstream-x-nats-system-x-mgmt-vcluster.mgmt.svc.cluster.local:4222`.
+      # `nats-jetstream-x-nats-system-x-mgmt.mgmt.svc.cluster.local:4222`.
       # Pre-G92.2 default `nats-jetstream.nats-system.svc.cluster.local:4222`
       # returned NXDOMAIN because the `nats-system` namespace no longer
       # exists on the host k3s.
-      url: "nats://nats-jetstream-x-nats-system-x-mgmt-vcluster.mgmt.svc.cluster.local:4222"
+      url: "nats://nats-jetstream-x-nats-system-x-mgmt.mgmt.svc.cluster.local:4222"
       stream: "catalyst.events"
       subject: "catalyst.events.>"
     valkey:
