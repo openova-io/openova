@@ -104,7 +104,11 @@ slots:
     # bp-gateway-api dep (issue #503): chart ships an HTTPRoute template.
     # bp-cnpg dep (issue #584): chart ships a CNPG Cluster CR; postgresql.cnpg.io/v1
     # CRD must be registered before bp-gitea applies so Capabilities gate fires.
-    depends_on: [bp-keycloak, bp-gateway-api, bp-cnpg]
+    # G92.3 #2662 (2026-06-01): MGMT vCluster placement adds
+    # bp-mgmt-vcluster as a new edge — vc-mgmt Secret + the
+    # sync.toHost.customResources policy both materialise from that
+    # release before bp-gitea's helm-controller pivot can succeed.
+    depends_on: [bp-mgmt-vcluster, bp-keycloak, bp-gateway-api, bp-cnpg]
     wave: present
   - slot: 11
     name: bp-powerdns
@@ -207,7 +211,9 @@ slots:
     # clusters/_template/bootstrap-kit/19-harbor.yaml lines 35-37.
     # bp-gateway-api dep (issue #503): chart ships an HTTPRoute template;
     # gateway.networking.k8s.io/v1 CRDs must be registered first.
-    depends_on: [bp-cnpg, bp-cert-manager, bp-gateway-api]
+    # G92.3 #2662 (2026-06-01): MGMT vCluster placement adds
+    # bp-mgmt-vcluster as a new edge.
+    depends_on: [bp-mgmt-vcluster, bp-cnpg, bp-cert-manager, bp-gateway-api]
     wave: W2.K1
   - slot: 6a
     name: bp-self-sovereign-cutover

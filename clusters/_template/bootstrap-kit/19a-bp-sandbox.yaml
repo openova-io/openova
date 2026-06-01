@@ -70,7 +70,9 @@ spec:
     # Wave 7 #1610 (bp-hcloud-csi, REMOVED) but resolved by sequencing
     # rather than removal so the slot remains available for Wave 11
     # Sandbox MVP without manual Day-2 add-app re-introduction.
+    # G92.3 #2662 (2026-06-01): bp-harbor HR moved to host ns `mgmt`.
     - name: bp-harbor
+      namespace: mgmt
   chart:
     spec:
       chart: sandbox
