@@ -587,7 +587,12 @@ slots:
   #     sequencing rather than removal so the slot remains available.
   - slot: "19a"
     name: bp-sandbox
+    # G92.5 #2664 (2026-06-01): RTZ vCluster placement adds
+    # bp-rtz-vcluster as a new edge — vc-rtz Secret + the
+    # sync.toHost.customResources policy both materialise from that
+    # release before sandbox's helm-controller pivot can succeed.
     depends_on:
+      - bp-rtz-vcluster
       - bp-vcluster-helmrepo
       - bp-catalyst-platform
       - bp-harbor
