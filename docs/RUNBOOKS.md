@@ -399,6 +399,54 @@ LLM_PARTNER_CONTRACT_REF: "<operator-supplied legal contract reference>"
 
 **Privacy posture.** The partner identity is intentionally NOT stored in any tracked file in this public repo. All references to the partner (endpoint URL, account ID, contract ref) live in operator-supplied Secrets + per-Sovereign overlays that are not part of the public catalog. A CI guard (`.github/workflows/redact-guard.yml`) fails any PR that reintroduces partner-identifying names into tracked files.
 
+### 2.8 GitHub PAT rotation (`ghcr-pull` Secret)
+
+Founder-physical action. **Required when** Flux on the mothership OR any Sovereign reports `HelmChart ... is not ready: ... failed to login to OCI registry: ... 401 Unauthorized` — the GitHub PAT that authenticates `oci://ghcr.io/openova-io/bp-*` pulls has expired or been revoked.
+
+**Diagnostic** (read-only, safe to run anytime):
+
+```bash
+# Token currently in the mothership Secret
+TOKEN=$(kubectl get secret -n flux-system ghcr-pull -o jsonpath='{.data.\.dockerconfigjson}' \
+  | base64 -d | jq -r '.auths["ghcr.io"].password')
+
+# Live check against ghcr.io
+curl -s -u "emrahbaysal:${TOKEN}" -o /dev/null -w "ghcr.io/v2/ HTTP %{http_code}\n" https://ghcr.io/v2/
+# 200 = alive, 401 = expired/revoked
+```
+
+**Rotation** (founder-only — per `~/.claude/projects/.../memory/feedback_never_touch_emrah_baysal_email.md`, agents must NEVER rotate `emrah.baysal@openova.io` / `emrahbaysal` credentials autonomously):
+
+1. Generate a fresh PAT at `https://github.com/settings/tokens/new` with scope `read:packages` (write-required only on the build runner; pull-only is enough for ghcr OCI consumers).
+
+2. Update the mothership Secret:
+   ```bash
+   PAT=ghp_...new-pat...
+   AUTH=$(echo -n "emrahbaysal:${PAT}" | base64 -w0)
+   B64=$(echo -n "{\"auths\":{\"ghcr.io\":{\"username\":\"emrahbaysal\",\"password\":\"${PAT}\",\"auth\":\"${AUTH}\"}}}" | base64 -w0)
+   kubectl patch secret -n flux-system ghcr-pull --type=merge -p "{\"data\":{\".dockerconfigjson\":\"${B64}\"}}"
+   ```
+
+3. Update every Sovereign's `tofu.auto.tfvars.json` on the catalyst-api-deployments PVC:
+   ```bash
+   # Spin up debug Pod with PVC mount, then:
+   for f in /deps/tofu/*/tofu.auto.tfvars.json; do
+     jq --arg t "${PAT}" '.ghcr_pull_token = $t' "$f" > /tmp/x && mv /tmp/x "$f"
+   done
+   ```
+
+4. Force-reconcile every Sovereign's `flux-system/bp-cilium` HelmChart (cascades through bp-mgmt-vcluster → bp-keycloak → bp-sso-bridge):
+   ```bash
+   kubectl annotate helmrepository -n flux-system bp-cilium \
+     reconcile.fluxcd.io/requestedAt=$(date +%s) --overwrite
+   ```
+
+5. Verify: every HR `kubectl get hr -A | grep -v True` should drain back to ≤ founder-physical / known-blocked sets within 2 min.
+
+**Why this is sensitive**: a leaked `read:packages` PAT is a low-severity disclosure (no write, no repo access), but the same `emrahbaysal` account holds `repo` scope tokens elsewhere — rotating the wrong one breaks CI. Agents reading this runbook must NEVER execute step 1 or 2; only diagnose + report. The G106 #2701 incident was caught when the mothership PAT silently expired and cascaded into 8 HRs Ready=False on hw86 — fix lands when the founder rotates per this runbook.
+
+**Reference**: G106 issue #2701, live caught 2026-06-01.
+
 ---
 
 ## §3 — Blueprint authoring
