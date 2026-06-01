@@ -76,6 +76,17 @@ func New() *Provider { return &Provider{} }
 func init() {
 	providers.RegisterProvider(Name, New())
 	provisioner.NATEIPPreflightHook = RotateBlocklistedNATEIPs
+	provisioner.VPCQuotaHook = VPCQuotaPreflight
+}
+
+// VPCQuotaPreflight is the function registered as
+// provisioner.VPCQuotaHook by init(). It is the same shape as
+// (*Provider).VPCQuota but as a free function so the provisioner
+// package can call it without importing huawei (preventing the
+// provisioner ↔ huawei import cycle — huawei already imports
+// provisioner for the Provision delegate).
+func VPCQuotaPreflight(ctx context.Context, accessKey, secretKey, projectID, region string) (used, limit int, err error) {
+	return New().VPCQuota(ctx, accessKey, secretKey, projectID, region)
 }
 
 // Name returns the canonical provider name.
@@ -1611,6 +1622,145 @@ func (p *Provider) SweepOrphanEIPs(ctx context.Context, ak, sk, projectID, regio
 		deleted++
 	}
 	return deleted, nil
+}
+
+// SweepOrphanKeypairs lists all keypairs in the HCS project and deletes
+// catalyst-owned keypairs whose name carries no in-flight deployment-ID
+// prefix. Wave 5.155 RCA in
+// feedback_hcs_kom4dc_wipe_cascade_quirks.md observed 68 orphan
+// keypairs accumulated across failed provs because keypairs are not
+// tagged on HCS — per-deployment Wipe.sweepKeypairs (line 912) finds
+// them only when their parent Sovereign FQDN survives in tfvars,
+// missing every keypair from a wiped record. The project keypair quota
+// (default 100) gets eaten silently until the next prov fails with
+// `KeyPair.0001 quota exceeded`.
+//
+// G73 (Refs #2620): mirror SweepOrphanEIPs — list all catalyst-prefixed
+// keypairs, skip any whose name contains an active deployment ID
+// prefix, delete the rest. Bastion keypairs are hard-protected.
+//
+// Returns the count of keypairs deleted. activeDepIDPrefixes is a set
+// of 8-char prefixes of in-flight deployment IDs (status one of
+// pending / provisioning / tofu-applying / flux-bootstrapping /
+// phase1-watching / wiping). Empty = no protection (post-wipe sweep).
+func (p *Provider) SweepOrphanKeypairs(ctx context.Context, ak, sk, projectID, region string, activeDepIDPrefixes map[string]struct{}, progress func(msg string)) (int, error) {
+	if progress == nil {
+		progress = func(string) {}
+	}
+	hw := hwCreds{AccessKey: ak, SecretKey: sk, ProjectID: projectID}
+	client := httpClientFor(providers.ProviderCreds{Raw: map[string]string{"region": region}})
+
+	listURL := fmt.Sprintf("%s/v2/%s/os-keypairs", endpointFor("ecs", region), projectID)
+	resp, status, err := doSignedRequest(client, hw, http.MethodGet, listURL, nil)
+	if err != nil {
+		return 0, fmt.Errorf("list keypairs: %w", err)
+	}
+	if status >= 400 {
+		return 0, fmt.Errorf("list keypairs: status %d: %s", status, snippet(resp, 240))
+	}
+	var decoded struct {
+		Keypairs []struct {
+			Keypair struct {
+				Name string `json:"name"`
+			} `json:"keypair"`
+		} `json:"keypairs"`
+	}
+	if err := json.Unmarshal(resp, &decoded); err != nil {
+		return 0, fmt.Errorf("decode keypairs: %w", err)
+	}
+	deleted := 0
+	for _, k := range decoded.Keypairs {
+		name := k.Keypair.Name
+		if name == "" {
+			continue
+		}
+		// Hard-protect bastion-* keypairs — these are operator-owned and
+		// never belong to a catalyst deployment.
+		if strings.HasPrefix(name, "bastion") || strings.Contains(name, "bastion") {
+			continue
+		}
+		// Only sweep catalyst-prefixed keypairs. Naming shape per
+		// infra/providers/huawei/main.tf: `catalyst-<sovereign-dashed>-<purpose>`.
+		if !strings.HasPrefix(name, "catalyst-") {
+			continue
+		}
+		// Skip keypairs of any in-flight deployment. The 8-char
+		// deployment-ID prefix appears in keypair names rendered for
+		// the per-region cluster bootstrap, mirroring the EIP
+		// bandwidth-name protection pattern in SweepOrphanEIPs.
+		if len(activeDepIDPrefixes) > 0 {
+			skip := false
+			for prefix := range activeDepIDPrefixes {
+				if strings.Contains(name, "-"+prefix+"-") || strings.Contains(name, "-"+prefix) {
+					skip = true
+					break
+				}
+			}
+			if skip {
+				progress(fmt.Sprintf("sweep orphan keypair %s: skipped (active deployment)", name))
+				continue
+			}
+		}
+		delURL := fmt.Sprintf("%s/%s", listURL, name)
+		_, dstatus, derr := doSignedRequest(client, hw, http.MethodDelete, delURL, nil)
+		if derr != nil {
+			progress(fmt.Sprintf("sweep orphan keypair %s: DELETE failed: %v", name, derr))
+			continue
+		}
+		if dstatus >= 400 && dstatus != http.StatusNotFound {
+			progress(fmt.Sprintf("sweep orphan keypair %s: DELETE status %d", name, dstatus))
+			continue
+		}
+		progress(fmt.Sprintf("sweep orphan keypair %s: deleted", name))
+		deleted++
+	}
+	return deleted, nil
+}
+
+// VPCQuota returns the project's VPC quota usage as (used, limit). HCS
+// API: GET /v1/{project_id}/quotas?type=vpc returns
+// `{quotas: {resources: [{type: "vpc", used: N, quota: M}, ...]}}`.
+//
+// G68 (Refs #2617): catalyst-api Phase 0 pre-flight check. Without it,
+// a fresh prov requesting 2 regions on a project with 5/5 VPCs in use
+// fails mid `tofu apply` after Phase 0 has already created CP + EIPs +
+// SGs (~3 min sunk cost). With the pre-flight the request fails fast
+// with `HCS VPC quota exhausted (5/5)` before any resource is created.
+//
+// Returns (used, limit, err). On any API or decode failure returns
+// (0, 0, err) — the caller MUST treat err != nil as "quota unknown,
+// proceed" to avoid blocking provs when the quota endpoint is
+// transiently unavailable. The pre-flight is a fast-fail signal, not a
+// hard gate; the canonical authority is the tofu apply error path.
+func (p *Provider) VPCQuota(ctx context.Context, ak, sk, projectID, region string) (used, limit int, err error) {
+	hw := hwCreds{AccessKey: ak, SecretKey: sk, ProjectID: projectID}
+	client := httpClientFor(providers.ProviderCreds{Raw: map[string]string{"region": region}})
+	url := fmt.Sprintf("%s/v1/%s/quotas?type=vpc", endpointFor("vpc", region), projectID)
+	resp, status, reqErr := doSignedRequest(client, hw, http.MethodGet, url, nil)
+	if reqErr != nil {
+		return 0, 0, fmt.Errorf("VPC quota GET: %w", reqErr)
+	}
+	if status >= 400 {
+		return 0, 0, fmt.Errorf("VPC quota GET: status %d: %s", status, snippet(resp, 240))
+	}
+	var decoded struct {
+		Quotas struct {
+			Resources []struct {
+				Type  string `json:"type"`
+				Used  int    `json:"used"`
+				Quota int    `json:"quota"`
+			} `json:"resources"`
+		} `json:"quotas"`
+	}
+	if jerr := json.Unmarshal(resp, &decoded); jerr != nil {
+		return 0, 0, fmt.Errorf("decode VPC quota: %w", jerr)
+	}
+	for _, r := range decoded.Quotas.Resources {
+		if r.Type == "vpc" {
+			return r.Used, r.Quota, nil
+		}
+	}
+	return 0, 0, fmt.Errorf("VPC quota: type=vpc resource not present in HCS quota response")
 }
 
 type hwSG struct {
