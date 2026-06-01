@@ -42,20 +42,19 @@ metadata:
 spec:
   interval: 15m
   releaseName: keycloak
-  # targetNamespace = inner namespace INSIDE the mgmt vCluster.
   targetNamespace: keycloak
-  # vCluster pivot — helm-controller installs the chart inside mgmt
-  # vCluster (Flux v2 HelmRelease v2 contract). G92.2 #2661.
-  kubeConfig:
-    secretRef:
-      name: vc-mgmt
-      key: config
+  # G105-followup #2697 (2026-06-01) — G92.2 #2661 placement REVERTED.
+  # bp-keycloak was moved INSIDE the mgmt vCluster, but the vCluster
+  # doesn't yet sync Gateway API CRDs / ExternalSecret CRDs / mgmt ns
+  # back to host, so the chart's HTTPRoute + ExternalSecret resources
+  # fail admission inside the vCluster with `no matches for kind
+  # "HTTPRoute" in version "gateway.networking.k8s.io/v1"`. The
+  # application-controller G92.1 #2674 pivot at the Blueprint layer
+  # STAYS — only this slot's hard-coded kubeConfig.secretRef is removed
+  # so the chart installs on HOST until vCluster CRD sync ships.
+  # Caught live on hw86 2026-06-01: founder PIN-sign-in fails → cascade →
+  # grafana shows local login → no SSO.
   dependsOn:
-    # G92.2 #2661: bp-mgmt-vcluster MUST be Ready before this HR tries
-    # to install — vc-mgmt Secret doesn't exist until then. Cross-ns
-    # dependsOn requires explicit `namespace:`.
-    - name: bp-mgmt-vcluster
-      namespace: flux-system
     - name: bp-cert-manager
       namespace: flux-system
     # bp-gateway-api (issue #503): chart ships an HTTPRoute template;

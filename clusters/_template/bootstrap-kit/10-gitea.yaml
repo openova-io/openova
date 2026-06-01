@@ -43,21 +43,14 @@ metadata:
 spec:
   interval: 15m
   releaseName: gitea
-  # targetNamespace = inner namespace INSIDE the mgmt vCluster.
   targetNamespace: gitea
-  # vCluster pivot — helm-controller installs the chart inside mgmt
-  # vCluster (Flux v2 HelmRelease v2 contract). G92.3 #2662.
-  kubeConfig:
-    secretRef:
-      name: vc-mgmt
-      key: config
+  # G105-followup #2697 (2026-06-01) — G92.3 #2662 placement REVERTED.
+  # vCluster lacks Gateway API + ExternalSecret CRDs and the mgmt
+  # namespace inside itself. App installs on HOST until vCluster CRD
+  # sync ships. Application-controller G92.1 Blueprint-layer pivot
+  # stays; only slot-level forcing removed.
   dependsOn:
-    # G92.3 #2662 (2026-06-01): bp-mgmt-vcluster MUST be Ready before
-    # this HR tries to install — vc-mgmt Secret + the customResources
-    # sync policy both materialise from that release.
-    - name: bp-mgmt-vcluster
-      namespace: flux-system
-    # G92.2 #2661: bp-keycloak HR lives in host ns `mgmt`.
+    # bp-keycloak now lives on host (G105-followup) — no cross-ns.
     - name: bp-keycloak
       namespace: mgmt
     # bp-gateway-api (issue #503): chart ships an HTTPRoute template;
