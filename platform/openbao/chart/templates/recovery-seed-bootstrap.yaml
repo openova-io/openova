@@ -1,0 +1,57 @@
+{{/*
+G111 #2718 Defense fix — pre-create `openbao-recovery-seed` Secret so the
+post-install init-job (templates/init-job.yaml:284) doesn't FATAL with
+"seed Secret openbao-recovery-seed has no key recovery-seed".
+
+Pattern (matches catalystApiServerClientSecret in bp-keycloak, and the
+G112 #2721 keycloak-postgresql template):
+- `lookup` an existing Secret first (idempotent across reinstalls)
+- If absent, generate 32 cryptographically random bytes (randAlphaNum 64
+  → 64 ASCII chars ≈ 384 bits of entropy, base64-encoded)
+- Annotate `helm.sh/resource-policy: keep` so helm uninstall NEVER
+  deletes the Secret — losing it after `bao operator init` writes
+  recovery shares would lock the operator out of the vault
+
+Caught live during G105 cascade walk on hw86 2026-06-01: init-job
+post-install hook crashed in step 3 with "FATAL: seed Secret
+openbao-recovery-seed has no key recovery-seed" — required manual
+`kubectl create secret generic openbao-recovery-seed --from-literal=
+recovery-seed=$(openssl rand -base64 32)` containment before the chart
+could complete first-install.
+
+Refs #2697 (G105 cascade — this gap surfaced during the cascade walk).
+*/}}
+{{- $seedSecret := (((.Values).autoUnseal).seedSecret) | default dict -}}
+{{- $name := $seedSecret.name | default "openbao-recovery-seed" -}}
+{{- $key := $seedSecret.key | default "recovery-seed" -}}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace $name -}}
+{{- $value := "" -}}
+{{- if $existing -}}
+  {{- /* Re-emit existing value byte-for-byte. */ -}}
+  {{- $value = index $existing.data $key | default "" | b64dec -}}
+{{- end -}}
+{{- if not $value -}}
+  {{- /* Fresh install OR existing Secret lacks the expected key — seed it. */ -}}
+  {{- $value = randAlphaNum 64 -}}
+{{- end }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    # NEVER let helm uninstall drop this Secret. The PVC holding the
+    # OpenBao raft data persists across helm uninstall (StatefulSet
+    # volumeClaimTemplate); losing the recovery-seed while the data
+    # dir persists means the operator can never recover root access
+    # via `bao operator generate-root` — auto-unseal stays broken.
+    helm.sh/resource-policy: keep
+  labels:
+    app.kubernetes.io/name: openbao
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: recovery-seed
+    catalyst.openova.io/component: openbao-recovery-seed
+type: Opaque
+stringData:
+  {{ $key }}: {{ $value | quote }}
