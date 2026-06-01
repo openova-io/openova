@@ -21,7 +21,7 @@ could complete first-install.
 
 Refs #2697 (G105 cascade — this gap surfaced during the cascade walk).
 */}}
-{{- $seedSecret := .Values.bao.autoUnseal.seedSecret | default dict -}}
+{{- $seedSecret := (((.Values).autoUnseal).seedSecret) | default dict -}}
 {{- $name := $seedSecret.name | default "openbao-recovery-seed" -}}
 {{- $key := $seedSecret.key | default "recovery-seed" -}}
 {{- $existing := lookup "v1" "Secret" .Release.Namespace $name -}}
