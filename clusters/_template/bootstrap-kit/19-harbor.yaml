@@ -92,14 +92,12 @@ spec:
   # within the 33min observation window. Same META-AUDIT 1 class as G44.
   interval: 1m
   releaseName: harbor
-  # targetNamespace = inner namespace INSIDE the mgmt vCluster.
   targetNamespace: harbor
-  # vCluster pivot — helm-controller installs the chart inside mgmt
-  # vCluster (Flux v2 HelmRelease v2 contract). G92.3 #2662.
-  kubeConfig:
-    secretRef:
-      name: vc-mgmt
-      key: config
+  # G105-followup #2697 (2026-06-01) — G92.3 #2662 placement REVERTED.
+  # vCluster lacks Gateway API + ExternalSecret CRDs + the mgmt
+  # namespace inside itself. App installs on HOST until vCluster CRD
+  # sync ships. Application-controller G92.1 Blueprint-layer pivot
+  # stays; only slot-level forcing removed.
   # Harbor depends on:
   #   - bp-cnpg(16): registry metadata DB (postgresql.cnpg.io/v1.Cluster).
   #   - bp-cert-manager(02): registry endpoint TLS via ClusterIssuer.
