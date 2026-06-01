@@ -179,7 +179,7 @@ spec:
           # values.yaml `images.catalystApi.tag` is also bumped (but
           # unused for catalyst-api; kept for SME services that DO read
           # from values).
-          image: "ghcr.io/openova-io/openova/catalyst-api:52d3457"
+          image: "ghcr.io/openova-io/openova/catalyst-api:c7111ae"
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
@@ -379,7 +379,7 @@ spec:
               # G105 #2697 default flipped to the syncer-mangled name —
               # post-G92.2 nats-jetstream runs INSIDE the mgmt vCluster
               # and the host's `nats-system` namespace no longer exists.
-              value: '{{ .Values.catalystApi.natsURL | default "nats://nats-jetstream-x-nats-system-x-mgmt.mgmt.svc.cluster.local:4222" }}'
+              value: '{{ .Values.catalystApi.natsURL | default "nats://nats-jetstream-x-nats-system-x-mgmt-vcluster.mgmt.svc.cluster.local:4222" }}'
             # CATALYST_K8SCACHE_KUBECONFIGS_DIR — issue #321. Directory
             # the k8scache.Factory reads kubeconfigs from at startup.
             # The data-plane SharedInformerFactory opens one informer

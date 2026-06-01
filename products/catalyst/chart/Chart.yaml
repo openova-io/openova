@@ -2352,7 +2352,7 @@ name: bp-catalyst-platform
 # Blueprint placementSchema.defaultOnMultiRegion drives empty-
 # spec.placement on multi-region Sovereigns.
 # (Bumped 414 → 415 after main concurrently shipped a 1.4.414.)
-version: 1.4.422
+version: 1.4.423
 appVersion: 1.4.349
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
