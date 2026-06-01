@@ -83,9 +83,7 @@ spec:
     # ordering puts cutover after these two come up.
     # G92.3 #2662 (2026-06-01): both HRs moved to host ns `mgmt`.
     - name: bp-gitea
-      namespace: mgmt
     - name: bp-harbor
-      namespace: mgmt
     # NB on issue #1871 (TBD-A24 cutover↔gateway circular deadlock):
     # PR #1875 initially added `- name: sovereign-tls` to this list.
     # That fix was UNRESOLVABLE in Flux: HelmRelease.dependsOn can

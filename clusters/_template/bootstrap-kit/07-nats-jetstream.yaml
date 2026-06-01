@@ -32,11 +32,10 @@ kind: HelmRelease
 metadata:
   name: bp-nats-jetstream
   # G92.2 #2661: HR lives in host ns `mgmt` (where bp-mgmt-vcluster
-  # exports vc-mgmt Secret). helm-controller authenticates against the
-  # vCluster apiserver and installs the chart inside the vCluster.
-  # The inner namespace `nats-system` is created INSIDE the vCluster
-  # via spec.install.createNamespace below.
-  namespace: mgmt
+  # G105-followup4 #2697 (2026-06-01): metadata.namespace reverted
+  # to flux-system. G92.x slot-level forcing dropped (see slot
+  # 09-keycloak.yaml header comment for the rationale).
+  namespace: flux-system
   labels:
     catalyst.openova.io/slot: "07"
     catalyst.openova.io/vcluster: mgmt
@@ -50,14 +49,10 @@ spec:
   # cluster.local` natively via vCluster CoreDNS.
   targetNamespace: nats-system
   # vCluster pivot — helm-controller pulls the kubeconfig from the
-  # vc-mgmt Secret in this HR's own namespace and installs the chart
-  # INSIDE the mgmt vCluster (Flux v2 HelmRelease v2 contract).
-  # G92.2 #2661.
-  kubeConfig:
-    secretRef:
-      name: vc-mgmt
-      key: config
-  # G92.2: bp-mgmt-vcluster (slot 58) MUST be Ready before this HR
+  # G105-followup4 #2697 (2026-06-01): kubeConfig.secretRef removed
+  # (G92.x slot-level forcing dropped, see slot 09-keycloak.yaml for
+  # the chain RCA). bp-nats-jetstream installs on host.
+  # G105-followup-note: bp-mgmt-vcluster (slot 58) MUST be Ready before this HR
   # tries to install — otherwise vc-mgmt doesn't exist and the
   # kubeConfig lookup fails. bp-mgmt-vcluster lives in flux-system so
   # the dep is cross-namespace and needs an explicit `namespace:`.

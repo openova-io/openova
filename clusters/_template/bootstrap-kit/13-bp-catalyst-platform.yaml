@@ -58,7 +58,6 @@ spec:
   dependsOn:
     # G92.3 #2662 (2026-06-01): bp-gitea HR moved to host ns `mgmt`.
     - name: bp-gitea
-      namespace: mgmt
     # bp-gateway-api (issue #503): umbrella chart ships catalyst-ui +
     # catalyst-api HTTPRoute templates; gateway.networking.k8s.io/v1
     # CRDs must be registered first.
@@ -74,7 +73,6 @@ spec:
     # the umbrella install, eliminating the race.
     # G92.2 #2661 (2026-06-01): bp-keycloak HR moved to host ns `mgmt`.
     - name: bp-keycloak
-      namespace: mgmt
     - name: bp-cnpg
     # bp-crossplane-claims (chart-roll-rca iter-15, 2026-05-10): owns the
     # access.openova.io/v1alpha1 XRD that qa-fixtures UserAccess CRs

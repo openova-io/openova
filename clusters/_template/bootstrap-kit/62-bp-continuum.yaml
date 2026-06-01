@@ -106,7 +106,6 @@ spec:
     - name: bp-catalyst-platform
     # G92.2 #2661 (2026-06-01): bp-nats-jetstream HR moved to host ns `mgmt`.
     - name: bp-nats-jetstream
-      namespace: mgmt
     - name: bp-powerdns
   chart:
     spec:

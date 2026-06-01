@@ -61,7 +61,6 @@ spec:
       namespace: flux-system
     # G92.2 #2661 (2026-06-01): bp-keycloak HR moved to host ns `mgmt`.
     - name: bp-keycloak
-      namespace: mgmt
     - name: bp-sso-bridge
       namespace: flux-system
     - name: bp-external-secrets-stores
