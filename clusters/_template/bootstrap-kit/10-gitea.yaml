@@ -35,8 +35,12 @@ metadata:
   name: bp-gitea
   # G92.3 #2662: HR lives in host ns `mgmt` (where bp-mgmt-vcluster
   # exports vc-mgmt Secret). helm-controller authenticates against the
-  # vCluster apiserver and installs the chart inside the vCluster.
-  namespace: mgmt
+  # G105-followup #2697 (2026-06-01): metadata.namespace reverted to
+  # flux-system. With G92.x slot-level forcing dropped, the HR no
+  # longer needs to colocate with vc-mgmt. Reverting also restores
+  # the Helm valuesFrom lookup of secrets like 'object-storage'
+  # (cloud-init seeds it in flux-system; lookup is in HR's own ns).
+  namespace: flux-system
   labels:
     catalyst.openova.io/slot: "10"
     catalyst.openova.io/vcluster: mgmt
@@ -50,12 +54,10 @@ spec:
   # sync ships. Application-controller G92.1 Blueprint-layer pivot
   # stays; only slot-level forcing removed.
   dependsOn:
-    # bp-keycloak now lives on host (G105-followup) — no cross-ns.
+    # bp-keycloak now lives in flux-system (G105-followup #2697).
     - name: bp-keycloak
-      namespace: mgmt
     # bp-gateway-api (issue #503): chart ships an HTTPRoute template;
     # gateway.networking.k8s.io/v1 CRDs must be registered first.
-    # Cross-ns now (bp-gateway-api stays in flux-system on host).
     - name: bp-gateway-api
       namespace: flux-system
     # bp-cnpg (issue #584): chart ships a CNPG Cluster CR;
