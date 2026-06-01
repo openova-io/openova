@@ -8,7 +8,7 @@
  * absolute URLs through untouched so callers can opt in to cross-origin.
  */
 
-import { describe, it, expect } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { API_BASE, apiUrl, BASE, path } from './urls'
 
 describe('shared/config/urls', () => {
@@ -75,5 +75,58 @@ describe('shared/config/urls', () => {
         expect(apiUrl(apiUrl(x))).toBe(apiUrl(x))
       }
     })
+  })
+
+  /**
+   * G110 #2706 (2026-06-01) — host-aware topology detection regression
+   * guards. The path-only check in the prior implementation caused an
+   * operator on `console.<sov-fqdn>/sovereign/login` to get BASE =
+   * '/sovereign/' and every fetch POST returned nginx HTTP 405. The new
+   * implementation requires BOTH the path prefix AND the contabo host.
+   * These tests pin the per-input → BASE mapping by re-importing the
+   * module under different window.location stubs.
+   */
+  describe('BASE — G110 host-aware topology detection (#2706)', () => {
+    // BASE is evaluated at module-load time; reset module cache BEFORE
+    // each test so the dynamic import re-evaluates the IIFE with the
+    // current window stub. Without resetModules in beforeEach, the
+    // first test sees the module-load BASE (captured by the static
+    // `import` at the top of this file) and silently fails.
+    beforeEach(() => {
+      vi.resetModules()
+    })
+    afterEach(() => {
+      vi.unstubAllGlobals()
+      vi.resetModules()
+    })
+
+    const cases: Array<{ host: string; pathname: string; expected: string }> = [
+      // Catalyst-Zero on contabo — both signals match → /sovereign/
+      { host: 'console.openova.io', pathname: '/sovereign/login', expected: '/sovereign/' },
+      { host: 'console.openova.io', pathname: '/sovereign/deployments', expected: '/sovereign/' },
+
+      // Catalyst-Zero on contabo — operator lands on root path → '/'
+      { host: 'console.openova.io', pathname: '/', expected: '/' },
+
+      // Sovereign cluster — operator on canonical path → '/'
+      { host: 'console.hw86.omani.works', pathname: '/login', expected: '/' },
+      { host: 'console.t38.omani.works', pathname: '/', expected: '/' },
+
+      // Sovereign cluster — operator on stale-bookmark /sovereign path.
+      // Pre-G110 this returned '/sovereign/' and broke all API POSTs.
+      // Post-G110: '/'.
+      { host: 'console.hw86.omani.works', pathname: '/sovereign/login', expected: '/' },
+      { host: 'console.t38.omani.works', pathname: '/sovereign/deployments', expected: '/' },
+    ]
+
+    for (const { host, pathname, expected } of cases) {
+      it(`host=${host} pathname=${pathname} → BASE=${expected}`, async () => {
+        vi.stubGlobal('window', {
+          location: { host, pathname },
+        })
+        const mod = await import('./urls')
+        expect(mod.BASE).toBe(expected)
+      })
+    }
   })
 })
