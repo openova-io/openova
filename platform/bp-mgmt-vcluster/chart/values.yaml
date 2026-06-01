@@ -86,7 +86,7 @@ mgmtVcluster:
   # overlay rewrites to `harbor.<sovereign-fqdn>/proxy-ghcr/...`.
   image:
     repository: "harbor.openova.io/proxy-ghcr/loft-sh/vcluster"
-    tag: "0.20.0"
+    tag: "0.21.0"
     pullPolicy: "IfNotPresent"
 
   # ── NetworkPolicy isolation baseline ───────────────────────────
@@ -135,7 +135,7 @@ vcluster:
         # vCluster syncer image. MIRROR-EVERYTHING via Harbor proxy.
         registry: harbor.openova.io
         repository: proxy-ghcr/loft-sh/vcluster
-        tag: "0.20.0"
+        tag: "0.21.0"
       resources:
         requests:
           cpu: "200m"

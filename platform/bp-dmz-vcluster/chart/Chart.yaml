@@ -19,7 +19,7 @@ name: bp-dmz-vcluster
 # 0.2.0 + bp-rtz-vcluster 0.2.0). Picks up `sync.toHost.customResources`
 # schema so DMZ vCluster-placed charts that need cross-vCluster CR sync
 # can wire it in without a follow-up chart bump.
-version: 0.2.0
+version: 0.2.1
 appVersion: "0.21.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign DMZ
