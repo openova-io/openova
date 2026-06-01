@@ -61,6 +61,17 @@ jobs:
       - name: Create kind cluster
         run: kind create cluster --name openbao-fresh-prov --wait 90s
 
+      - name: Install ExternalSecrets CRDs (chart references ExternalSecret kind)
+        # G111-followup 2026-06-02: bp-openbao chart's templates/sso-oauth-source-externalsecret.yaml
+        # renders an ExternalSecret CR (external-secrets.io/v1beta1). Without the CRD installed
+        # first, `helm install` fails with `resource mapping not found for name: ...
+        # no matches for kind "ExternalSecret"` and never reaches the post-install init-job hook.
+        # Pre-existing test-env gap, not introduced by recovery-seed-bootstrap fix in this PR.
+        run: |
+          set -euo pipefail
+          kubectl apply -f https://raw.githubusercontent.com/external-secrets/external-secrets/v0.10.4/deploy/crds/bundle.yaml
+          kubectl wait --for=condition=Established crd/externalsecrets.external-secrets.io --timeout=60s
+
       - name: Pre-create openbao namespace + recovery-seed Secret
         run: |
           set -euo pipefail
