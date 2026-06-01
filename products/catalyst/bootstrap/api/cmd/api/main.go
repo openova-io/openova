@@ -492,6 +492,18 @@ func main() {
 	// install-order isn't a problem).
 	if os.Getenv("CATALYST_OIDC_PROVIDER_ENABLED") == "true" {
 		issuerURL := env("CATALYST_OIDC_PROVIDER_ISSUER_URL", "")
+		// G113-followup: chart used to template the issuer from
+		// .Values.sovereign.fqdn which is nil (the path doesn't exist
+		// in values.yaml — the real Sovereign FQDN arrives via the
+		// sovereign-fqdn ConfigMap on the SOVEREIGN_FQDN env). When
+		// CATALYST_OIDC_PROVIDER_ISSUER_URL is empty but SOVEREIGN_FQDN
+		// is set, derive `https://api.<fqdn>` here so the chart can
+		// drop the broken templated value entirely.
+		if issuerURL == "" {
+			if fqdn := os.Getenv("SOVEREIGN_FQDN"); fqdn != "" {
+				issuerURL = "https://api." + fqdn
+			}
+		}
 		clientSecret := os.Getenv("CATALYST_PIN_BROKER_CLIENT_SECRET")
 		if signer := h.GetHandoverSigner(); signer != nil && issuerURL != "" && clientSecret != "" {
 			oidcProv := &oidcprovider.Provider{
