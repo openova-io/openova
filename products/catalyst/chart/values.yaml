@@ -326,8 +326,26 @@ images:
 runtime:
   # Keycloak admin API base URL. Consumed as CATALYST_KC_ADDR by
   # organization-controller (per-Org realm provisioning via the KC
-  # Admin API).
-  keycloakAddr: "http://keycloak.keycloak.svc.cluster.local:80"
+  # Admin API) AND by catalyst-api (operator PIN-issue → KC EnsureUser).
+  #
+  # G105 #2697 (2026-06-01): post-G92.2 #2687, bp-keycloak's HR carries
+  # `placementSchema.vcluster: mgmt` so application-controller (G92.1
+  # #2674) routes the chart INSIDE the mgmt vCluster via Flux's
+  # `kubeConfig.secretRef`. The chart's Service `Service keycloak.keycloak`
+  # then lives inside the vCluster apiserver, NOT on host k3s. The
+  # bp-mgmt-vcluster `sync.toHost.services.enabled: true` syncer reflects
+  # the Service back to the host with the canonical syncer-mangled name
+  # `<service>-x-<inner-ns>-x-<vcluster-name>.<host-ns>.svc.cluster.local`.
+  # Pre-G92.2 default `keycloak.keycloak.svc.cluster.local:80` returns
+  # NXDOMAIN because the host's `keycloak` namespace no longer exists —
+  # PIN sign-in fails with `could not provision user record` (caught
+  # live on hw86 2026-06-01).
+  #
+  # The new default points at the syncer-mangled name. Per-Sovereign
+  # overlays MAY override (e.g. to a `keycloak.openova.com` external
+  # admin endpoint, or to a Catalyst-Zero contabo URL, or back to the
+  # pre-G92.2 path on Sovereigns provisioned BEFORE G92.2 landed).
+  keycloakAddr: "http://keycloak-x-keycloak-x-mgmt.mgmt.svc.cluster.local:80"
   # Keycloak realm the per-Org realms are nested under. Default
   # `sovereign` matches the bp-keycloak chart's auto-provisioned
   # tenant realm (the contabo mothership uses `openova` instead).
@@ -673,10 +691,18 @@ services:
     # k8scache.Factory).
     clusterID: ""
     nats:
-      # In-cluster NATS JetStream Service URL. Namespace is `nats-system`
-      # (see clusters/_template/bootstrap-kit/07-nats-jetstream.yaml) —
-      # previous default of `.nats-jetstream.svc` was an NXDOMAIN bug.
-      url: "nats://nats-jetstream.nats-system.svc.cluster.local:4222"
+      # In-cluster NATS JetStream Service URL.
+      #
+      # G105 #2697 (2026-06-01): post-G92.2 #2687, bp-nats-jetstream's
+      # HR carries `placementSchema.vcluster: mgmt` so the chart lives
+      # INSIDE the mgmt vCluster (Service `nats-jetstream.nats-system`
+      # in vCluster apiserver). The bp-mgmt-vcluster syncer reflects
+      # it to the host as the syncer-mangled name
+      # `nats-jetstream-x-nats-system-x-mgmt.mgmt.svc.cluster.local:4222`.
+      # Pre-G92.2 default `nats-jetstream.nats-system.svc.cluster.local:4222`
+      # returned NXDOMAIN because the `nats-system` namespace no longer
+      # exists on the host k3s.
+      url: "nats://nats-jetstream-x-nats-system-x-mgmt.mgmt.svc.cluster.local:4222"
       stream: "catalyst.events"
       subject: "catalyst.events.>"
     valkey:
