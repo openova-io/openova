@@ -70,7 +70,7 @@ spec:
   chart:
     spec:
       chart: bp-mgmt-vcluster
-      version: 0.2.0
+      version: 0.2.1
       sourceRef:
         kind: HelmRepository
         name: bp-mgmt-vcluster

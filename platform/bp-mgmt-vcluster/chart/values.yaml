@@ -171,6 +171,42 @@ vcluster:
         enabled: true
       secrets:
         enabled: true
+      # G92.3 #2662 (2026-06-01) — CNPG `Cluster` CR sync vCluster → host.
+      # Required by every MGMT-tier chart that ships a Helm-templated
+      # `postgresql.cnpg.io/v1.Cluster` (bp-gitea, bp-harbor, and the
+      # follow-up bp-catalyst-platform move). Per G92.6 #2665 the
+      # cnpg-operator stays on host substrate; without this sync block
+      # the Cluster CR lands inside the vCluster apiserver where the
+      # operator can't see it, the chart's Capabilities gate fails
+      # silently, and no PostgreSQL is provisioned.
+      #
+      # vCluster 0.21+'s `customResources` syntax (the loft-sh subchart
+      # bump from 0.20.0 → 0.21.0 landed in PR #2690 / e0148e2c) makes
+      # the mirror declarative: the syncer watches Cluster CRs in the
+      # vCluster's apiserver and writes them to the host k3s in a
+      # syncer-mangled namespace (`<inner-ns>-x-<vcluster>`), where the
+      # cnpg-operator reconciles them and creates the StatefulSet pods.
+      # The already-enabled `services` sync above carries the PG
+      # Service back into the vCluster's view, so the chart's
+      # `<release>-pg-rw.<inner-ns>.svc.cluster.local` URL resolves
+      # natively from inside the vCluster.
+      #
+      # Coverage:
+      #   clusters.postgresql.cnpg.io         primary CR — every CNPG-
+      #                                       backed service ships one
+      #                                       (gitea-pg, harbor-pg,
+      #                                       catalyst-pg, openbao-audit-pg)
+      #   poolers.postgresql.cnpg.io          read-replica routing for
+      #                                       active-hot-standby tier
+      #   scheduledbackups.postgresql.cnpg.io daily backup CRs (host's
+      #                                       backup quota applies)
+      customResources:
+        clusters.postgresql.cnpg.io:
+          enabled: true
+        poolers.postgresql.cnpg.io:
+          enabled: true
+        scheduledbackups.postgresql.cnpg.io:
+          enabled: true
     fromHost:
       ingressClasses:
         enabled: true
