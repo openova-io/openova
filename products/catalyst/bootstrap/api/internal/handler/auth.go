@@ -767,17 +767,29 @@ func (h *Handler) HandlePinVerify(w http.ResponseWriter, r *http.Request) {
 		"expires_in", cookieMaxAge,
 	)
 
-	// G113 #2725 Option B Step 3: if the OIDC provider is enabled,
-	// compute the KC identity-broker URL so catalyst-ui can navigate
-	// the browser through the brokered OIDC flow. After that one-time
-	// roundtrip, auth.<sov-fqdn> holds the realm session cookie and
-	// every subsequent per-app SSO redirect is silent.
+	// G113 #2725 followup (hw86 2026-06-02 20:35Z): the kcBrokerURL
+	// plumbing originally introduced in PR #2727 emitted a URL of the
+	// form `/realms/<realm>/broker/<alias>/login?kc_idp_hint=...` which
+	// Keycloak REJECTS as `invalidRequestMessage` on direct invocation
+	// (that endpoint is session-scoped — needs session_code/client_id/
+	// tab_id from an active KC auth flow). Live evidence from hw86 KC
+	// log: `IDENTITY_PROVIDER_LOGIN_ERROR error="invalidRequestMessage"
+	// identity_provider="catalyst-pin"` when catalyst-ui hard-navigated
+	// the user there post-PIN.
+	//
+	// With the bp-keycloak realm import now binding the Identity
+	// Provider Redirector execution to `defaultProvider=catalyst-pin`
+	// (PR #2730), the realm-session bootstrap happens naturally on the
+	// FIRST per-app SSO redirect (Grafana/Gitea/Harbor/OpenBao) — KC
+	// auto-delegates to catalyst-pin IdP which finds the catalyst_session
+	// cookie set by PIN verify, mints a code, and KC drops the realm
+	// session cookie. No separate pre-flight broker call needed.
+	//
+	// Returning empty `KCBrokerURL` makes catalyst-ui's VerifyPinPage
+	// skip the (broken) hard-navigation and proceed to /dashboard. The
+	// field stays in the JSON shape (omitempty) so a stale catalyst-ui
+	// image that still checks for it continues to work.
 	resp := pinVerifyResponse{OK: true}
-	if os.Getenv("CATALYST_OIDC_PROVIDER_ENABLED") == "true" {
-		if brokerURL := buildKCBrokerURL(r); brokerURL != "" {
-			resp.KCBrokerURL = brokerURL
-		}
-	}
 
 	writeJSON(w, http.StatusOK, resp)
 }
