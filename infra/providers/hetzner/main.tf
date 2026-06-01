@@ -990,7 +990,7 @@ resource "hcloud_server" "worker" {
   lifecycle {
     precondition {
       condition     = length(local.worker_cloud_init) <= 30720
-      error_message = "Rendered worker cloud-init is ${length(local.worker_cloud_init)} bytes, exceeds 30720 (30 KiB) guardrail (Hetzner hard cap is 32768). Cull comments / move bloat out of cloudinit-worker.tftpl. See issue #966."
+      error_message = "Rendered worker cloud-init is ${nonsensitive(length(local.worker_cloud_init))} bytes, exceeds 30720 (30 KiB) guardrail (Hetzner hard cap is 32768). Cull comments / move bloat out of cloudinit-worker.tftpl. See issue #966."
     }
   }
 
@@ -1445,11 +1445,11 @@ resource "hcloud_server" "secondary_control_plane" {
   lifecycle {
     precondition {
       condition     = length(local.secondary_region_cloud_init[each.key]) <= 32256
-      error_message = "Rendered control-plane cloud-init for secondary region ${each.key} is ${length(local.secondary_region_cloud_init[each.key])} bytes, exceeds 32256 (~31.5 KiB) guardrail (Hetzner hard cap is 32768)."
+      error_message = "Rendered control-plane cloud-init for secondary region ${each.key} is ${nonsensitive(length(local.secondary_region_cloud_init[each.key]))} bytes, exceeds 32256 (~31.5 KiB) guardrail (Hetzner hard cap is 32768)."
     }
     precondition {
       condition     = length(local.secondary_region_worker_cloud_init[each.key]) <= 30720
-      error_message = "Rendered worker cloud-init for secondary region ${each.key} is ${length(local.secondary_region_worker_cloud_init[each.key])} bytes, exceeds 30720 (30 KiB) guardrail."
+      error_message = "Rendered worker cloud-init for secondary region ${each.key} is ${nonsensitive(length(local.secondary_region_worker_cloud_init[each.key]))} bytes, exceeds 30720 (30 KiB) guardrail."
     }
   }
 
