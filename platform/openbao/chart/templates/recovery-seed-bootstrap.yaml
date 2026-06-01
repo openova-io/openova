@@ -25,14 +25,26 @@ Refs #2697 (G105 cascade — this gap surfaced during the cascade walk).
 {{- $name := $seedSecret.name | default "openbao-recovery-seed" -}}
 {{- $key := $seedSecret.key | default "recovery-seed" -}}
 {{- $existing := lookup "v1" "Secret" .Release.Namespace $name -}}
-{{- $value := "" -}}
+{{- $valueB64 := "" -}}
 {{- if $existing -}}
-  {{- /* Re-emit existing value byte-for-byte. */ -}}
-  {{- $value = index $existing.data $key | default "" | b64dec -}}
+  {{- /*
+  Re-emit the existing base64-encoded value byte-for-byte. CRITICAL: do
+  NOT b64dec here — the underlying recovery seed (random raw bytes
+  written by `bao operator init`) CANNOT round-trip through YAML
+  `stringData:` (YAML refuses control characters in strings).
+  Live evidence from hw86 2026-06-01 22:12Z: HR Ready=False with
+  `yaml: control characters are not allowed` because the prior template
+  version decoded the value, then re-emitted into stringData. Fix: keep
+  the value base64-encoded throughout and emit into the Secret's `data:`
+  field (already base64 — YAML-safe by definition).
+  */ -}}
+  {{- $valueB64 = index $existing.data $key | default "" -}}
 {{- end -}}
-{{- if not $value -}}
-  {{- /* Fresh install OR existing Secret lacks the expected key — seed it. */ -}}
-  {{- $value = randAlphaNum 64 -}}
+{{- if not $valueB64 -}}
+  {{- /* Fresh install OR existing Secret lacks the expected key — seed it.
+     randAlphaNum 64 produces 64 ASCII alphanumeric chars; base64-encode
+     for the data: field below. */ -}}
+  {{- $valueB64 = randAlphaNum 64 | b64enc -}}
 {{- end }}
 ---
 apiVersion: v1
@@ -53,5 +65,5 @@ metadata:
     app.kubernetes.io/component: recovery-seed
     catalyst.openova.io/component: openbao-recovery-seed
 type: Opaque
-stringData:
-  {{ $key }}: {{ $value | quote }}
+data:
+  {{ $key }}: {{ $valueB64 }}
