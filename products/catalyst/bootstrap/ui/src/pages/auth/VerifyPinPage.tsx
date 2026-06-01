@@ -83,6 +83,14 @@ export function VerifyPinPage() {
         error?: string
         detail?: string
         attemptsRemaining?: number
+        // G113 #2725 Option B Step 6 (2026-06-02): when catalyst-api
+        // has CATALYST_OIDC_PROVIDER_ENABLED + SOVEREIGN_FQDN set,
+        // pin/verify returns a kcBrokerURL that points the browser
+        // through Keycloak's identity-broker to drop a real KC realm
+        // session cookie on auth.<sov-fqdn>. After that one-time
+        // roundtrip, every per-app SSO redirect (Grafana / Gitea /
+        // Harbor / OpenBao) succeeds silently — no second login form.
+        kcBrokerURL?: string
       }
       if (res.ok && body.ok) {
         // Mark the rootRoute auth gate (#1090 cluster A2) as satisfied
@@ -91,6 +99,21 @@ export function VerifyPinPage() {
         // check would otherwise fail and bounce the operator right back
         // to /login (regression on omantel 2026-05-09).
         try { sessionStorage.setItem('catalyst:authed', '1') } catch { /* private browsing */ }
+        // G113 Step 6 — hard-navigate to the KC identity-broker URL
+        // when catalyst-api signalled one. The broker flow does an
+        // OIDC roundtrip back to catalyst-api (using the catalyst_session
+        // cookie we JUST set as proof of PIN auth), then KC drops a
+        // realm session cookie on auth.<sov-fqdn> and 302s back to
+        // console.<sov-fqdn>/auth/callback where the existing
+        // AuthCallbackPage.tsx completes the PKCE handshake. Net effect:
+        // after this one-time roundtrip, every subsequent click into
+        // Grafana / Gitea / Harbor / OpenBao is silent SSO (no second
+        // login form). Founder verbatim 2026-06-02 ~08:10Z:
+        // "this is literally asking me fucking username and password!!!"
+        if (body.kcBrokerURL && typeof window !== 'undefined') {
+          window.location.replace(body.kcBrokerURL)
+          return
+        }
         // Hard navigation so the next page boot reads the cookie via
         // /whoami fresh and the auth gate sees the marker. Mirrors the
         // pattern Fix #A (PR #1093) uses on the unauth path.

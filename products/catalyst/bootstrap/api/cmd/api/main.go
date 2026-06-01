@@ -21,6 +21,7 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handler"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handoverjwt"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/oidcprovider"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/keycloak"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/natspub"
@@ -474,6 +475,43 @@ func main() {
 	// or stale magic-link emails degrade gracefully.
 	r.Post("/api/v1/auth/pin/issue", h.HandlePinIssue)
 	r.Post("/api/v1/auth/pin/verify", h.HandlePinVerify)
+
+	// G113 #2725 Option B Step 2 (2026-06-02): OIDC IDP provider routes.
+	// Keycloak's identity-broker federates catalyst-api as an external
+	// OIDC IdP into the sovereign realm under alias `catalyst-pin`.
+	// After PIN-verify drops `catalyst_session`, catalyst-ui redirects
+	// the browser through the broker — which performs an OIDC roundtrip
+	// against THESE 5 endpoints — and KC drops a realm session cookie
+	// on auth.<sov-fqdn>. Every subsequent per-app SSO redirect then
+	// succeeds silently. See internal/oidcprovider/provider.go.
+	//
+	// Wired only when CATALYST_OIDC_PROVIDER_ENABLED=true AND the
+	// handoverSigner is loaded AND the catalyst-pin client_secret env
+	// is set; otherwise routes are absent and KC's broker call would
+	// 404 (the realm-config IDP entry is gated by the same env, so
+	// install-order isn't a problem).
+	if os.Getenv("CATALYST_OIDC_PROVIDER_ENABLED") == "true" {
+		issuerURL := env("CATALYST_OIDC_PROVIDER_ISSUER_URL", "")
+		clientSecret := os.Getenv("CATALYST_PIN_BROKER_CLIENT_SECRET")
+		if signer := h.GetHandoverSigner(); signer != nil && issuerURL != "" && clientSecret != "" {
+			oidcProv := &oidcprovider.Provider{
+				IssuerURL:                  issuerURL,
+				ExpectedClientID:           env("CATALYST_PIN_BROKER_CLIENT_ID", "catalyst-pin"),
+				ExpectedClientSecret:       clientSecret,
+				Signer:                     signer,
+				SessionSubjectFromCookie:   makeSessionValidator(signer, log),
+			}
+			r.Get("/oidc/.well-known/openid-configuration", oidcProv.Discovery)
+			r.Get("/oidc/auth", oidcProv.Auth)
+			r.Post("/oidc/token", oidcProv.Token)
+			r.Get("/oidc/userinfo", oidcProv.Userinfo)
+			r.Get("/oidc/certs", oidcProv.Certs)
+			log.Info("oidc-provider: routes wired", "issuer", issuerURL)
+		} else {
+			log.Warn("oidc-provider: env set but signer / issuer / secret missing — routes NOT wired",
+				"has_signer", signer != nil, "has_issuer", issuerURL != "", "has_secret", clientSecret != "")
+		}
+	}
 
 	// QA-loop iter-11 Cluster-A: tier-scoped session minting.
 	// POST /api/v1/auth/test-session?tier=<viewer|developer|operator|admin|owner>

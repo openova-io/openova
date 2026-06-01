@@ -400,6 +400,67 @@ data:
           }
         ]
       },
+      "identityProviders": [
+        {{- /*
+        G113 #2725 Option B Step 4 (2026-06-02): register catalyst-api
+        as an external OIDC Identity Provider in the sovereign realm.
+        Keycloak's identity-broker handles the federation:
+
+          Browser hits https://auth.<sov-fqdn>/realms/sovereign/broker/catalyst-pin/login
+            → KC 302s browser to https://api.<sov-fqdn>/oidc/auth?...
+            → catalyst-api reads catalyst_session cookie (PIN-verified)
+              and 302s back to KC's broker endpoint with `code`
+            → KC server calls https://api.<sov-fqdn>/oidc/token to exchange
+            → KC validates id_token signature via https://api.<sov-fqdn>/oidc/certs
+            → KC drops REALM SESSION COOKIE on auth.<sov-fqdn>
+            → KC 302s back to the post-broker redirect_uri (catalyst-ui)
+
+        After this one-time roundtrip, every subsequent OIDC redirect
+        from Grafana / Gitea / Harbor / OpenBao reuses the KC realm
+        session cookie silently — no second login form.
+
+        firstBrokerLoginFlow=auto-link uses the user's federated email
+        to auto-link with any pre-existing realm user (matches the
+        catalyst-api EnsureUser path).
+
+        trustEmail=true skips KC's email-verify required-action since
+        we already verified email via the PIN delivery.
+        */ -}}
+        {
+          "alias": "catalyst-pin",
+          "displayName": "Catalyst PIN Sign-In",
+          "providerId": "oidc",
+          "enabled": true,
+          "trustEmail": true,
+          "storeToken": false,
+          "addReadTokenRoleOnCreate": false,
+          "authenticateByDefault": false,
+          "linkOnly": false,
+          "firstBrokerLoginFlowAlias": "first broker login",
+          "config": {
+            "clientId": "catalyst-pin",
+            {{- /*
+            G113 Step 5: use the shared named template
+            `bp-keycloak.pinBrokerClientSecret` (defined in _helpers.tpl)
+            so this realm-config and templates/pin-broker-secret.yaml
+            ALWAYS emit the same value — including on first install where
+            no K8s Secret exists yet.
+            */ -}}
+            "clientSecret": {{ include "bp-keycloak.pinBrokerClientSecret" . | quote }},
+            "clientAuthMethod": "client_secret_post",
+            "authorizationUrl": "https://api.{{ .Values.sovereignFQDN }}/oidc/auth",
+            "tokenUrl": "https://api.{{ .Values.sovereignFQDN }}/oidc/token",
+            "userInfoUrl": "https://api.{{ .Values.sovereignFQDN }}/oidc/userinfo",
+            "jwksUrl": "https://api.{{ .Values.sovereignFQDN }}/oidc/certs",
+            "issuer": "https://api.{{ .Values.sovereignFQDN }}",
+            "defaultScope": "openid email profile groups",
+            "syncMode": "FORCE",
+            "validateSignature": "true",
+            "useJwksUrl": "true",
+            "guiOrder": "1"
+          }
+        }
+      ],
       "users": [
         {
           "username": "service-account-catalyst-api-server",
