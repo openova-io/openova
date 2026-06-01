@@ -39,6 +39,13 @@ spec:
   type: oci
   interval: 15m
   url: oci://ghcr.io/openova-io
+  # G2722 #2722 (2026-06-01): private GHCR registry — secretRef:
+  # ghcr-pull required, else helm-controller falls back to anonymous
+  # auth and the OCI pull returns 401. Caught live on hw86 — bp-sso-
+  # bridge HR stuck SourceNotReady blocking the reconciler Pod. Every
+  # other slot file already has this; 13b was the only one missing it.
+  secretRef:
+    name: ghcr-pull
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
