@@ -19,6 +19,19 @@ resources:
   - 11-powerdns.yaml
   - 12-external-dns.yaml
   - 13-bp-catalyst-platform.yaml
+  # G91.1 #2652 — bp-sso-bridge framework. Reconciler that watches
+  # every G91-opted-in HelmRelease (`spec.values.sso.enabled: true`)
+  # and provisions the matching Keycloak Client + grants the operator
+  # admin role + writes the client_secret into OpenBao + emits the
+  # ExternalSecret in the app's namespace. WITHOUT this slot, every
+  # G91 sub-ticket (G91.gitea / G91.harbor / G91.openbao / G91.grafana
+  # / G91.sandbox / G91.powerdns-admin / G91.catalyst-console-self-
+  # grant) ships chart values with `sso.enabled: true` but the
+  # reconciler never runs → no per-app Clients → no external login
+  # links → SSO is broken end-to-end. Caught live on hw86 2026-06-01
+  # (founder walk: slot file existed at 13b-bp-sso-bridge.yaml but
+  # kustomization.yaml didn't list it, so Flux never created the HR).
+  - 13b-bp-sso-bridge.yaml
   - 14-crossplane-claims.yaml
   - 15-external-secrets.yaml
   - 15a-external-secrets-stores.yaml
