@@ -124,7 +124,17 @@ type codeEntry struct {
 	subject     string
 	groups      []string
 	redirectURI string
-	expiresAt   time.Time
+	// nonce echoes the OIDC `nonce` parameter from the /oidc/auth request
+	// back into the id_token's `nonce` claim. OpenID Connect Core 1.0
+	// §3.1.3.7 requires the id_token nonce match what the client sent on
+	// the auth request — KC's broker enforces this strictly:
+	//   "OpenID Provider [oidc] did not return a nonce"
+	// G113-followup hw86 2026-06-01 23:52Z: caught live with the autonomous
+	// silent-SSO walk attempt — the brokered handshake reached the broker
+	// callback with a valid code, but KC rejected the id_token because
+	// nonce was missing. Capture at /oidc/auth + echo at /oidc/token.
+	nonce     string
+	expiresAt time.Time
 }
 
 // Discovery returns the .well-known/openid-configuration JSON.
@@ -164,6 +174,7 @@ func (p *Provider) Auth(w http.ResponseWriter, r *http.Request) {
 	state := q.Get("state")
 	responseType := q.Get("response_type")
 	scope := q.Get("scope")
+	nonce := q.Get("nonce")
 
 	if clientID != p.ExpectedClientID {
 		http.Error(w, "invalid_client_id", http.StatusBadRequest)
@@ -198,6 +209,7 @@ func (p *Provider) Auth(w http.ResponseWriter, r *http.Request) {
 		subject:     subject,
 		groups:      groups,
 		redirectURI: redirectURI,
+		nonce:       nonce,
 		expiresAt:   time.Now().Add(60 * time.Second),
 	})
 
@@ -276,6 +288,14 @@ func (p *Provider) Token(w http.ResponseWriter, r *http.Request) {
 		"exp":            now.Add(time.Duration(expiresIn) * time.Second).Unix(),
 		"auth_time":      now.Unix(),
 		"typ":            "ID",
+	}
+	// OpenID Connect Core 1.0 §3.1.3.7: id_token MUST include the nonce
+	// value from the auth request when present. KC's broker enforces this
+	// strictly — without it the brokered callback fails with
+	// "OpenID Provider [oidc] did not return a nonce" and the silent-SSO
+	// chain breaks at the last hop.
+	if entry.nonce != "" {
+		idClaims["nonce"] = entry.nonce
 	}
 	idToken, err := p.Signer.SignCustomClaims(idClaims)
 	if err != nil {
