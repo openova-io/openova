@@ -246,6 +246,29 @@ export interface ApplicationDetailResponse {
    * "External URL" row on AppDetail Overview when non-empty.
    */
   externalURL?: string
+  /**
+   * G117.4 #2743 AC3 (2026-06-03): Application CR's metadata.uid.
+   * Required by catalyst-api `GET /catalyst/v1/apps/{uid}/launch-url`
+   * (per endpoint_handler.go:529 HandleGetLaunchURL — findApplicationByUID).
+   * Backend MUST populate this from `obj.GetUID()` on the GET-Application
+   * response so the FE's Launch button can mint a silent-SSO URL with
+   * `prompt=none&kc_idp_hint=catalyst-pin`. Empty/undefined → FE falls
+   * back to the legacy `externalURL` direct link.
+   */
+  uid?: string
+}
+
+/**
+ * G117.4 #2743 AC3 — response body of GET
+ * /catalyst/v1/apps/{uid}/launch-url[?endpoint=<name>]. Backend appends
+ * `prompt=none&kc_idp_hint=catalyst-pin` so the operator lands inside
+ * the app without a Keycloak login form (silent-SSO budget &lt;500ms per
+ * locked decision #3). 60s expiry.
+ */
+export interface LaunchURLResponse {
+  URL: string
+  ExpiresAt: string
+  Endpoint: string
 }
 
 /** PreviewManifest — one rendered file in the preview output. */
@@ -319,6 +342,28 @@ export async function getApplication(
   if (res.status === 404) return null
   if (!res.ok) {
     throw new Error(`getApplication: HTTP ${res.status}`)
+  }
+  return res.json()
+}
+
+/**
+ * G117.4 #2743 AC3 — fetch a one-shot silent-SSO Launch URL for an
+ * installed Application instance. Returns null on 404 / 409 (sso-not-
+ * enabled) / 503 (cluster-unavailable) so callers can gracefully fall
+ * back to the legacy `externalURL` direct link without surfacing a
+ * scary error toast for the common no-SSO case (controllers, scaffolds).
+ * Throws on other 4xx/5xx so genuine network/auth issues surface.
+ */
+export async function getLaunchURL(
+  uid: string,
+  endpoint?: string,
+): Promise<LaunchURLResponse | null> {
+  const qs = endpoint ? `?endpoint=${encodeURIComponent(endpoint)}` : ''
+  const url = `${API_BASE}/catalyst/v1/apps/${encodeURIComponent(uid)}/launch-url${qs}`
+  const res = await authedFetch(url, { headers: { Accept: 'application/json' } })
+  if (res.status === 404 || res.status === 409 || res.status === 503) return null
+  if (!res.ok) {
+    throw new Error(`getLaunchURL: HTTP ${res.status}`)
   }
   return res.json()
 }
