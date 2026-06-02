@@ -50,7 +50,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"regexp"
 	"strings"
 	"time"
 
@@ -63,9 +62,11 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 
+	"github.com/openova-io/openova/core/controllers/application/admission"
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/giteapr"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/instances"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/precheck"
 )
 
@@ -110,15 +111,6 @@ type resolvedEndpoint struct {
 	Status            string `json:"status"`
 	CertificateStatus string `json:"certificateStatus,omitempty"`
 	LaunchURL         string `json:"launchURL,omitempty"`
-}
-
-// createInstanceRequest mirrors `schema/CreateInstanceRequest`.
-type createInstanceRequest struct {
-	Blueprint string                 `json:"blueprint"`
-	Org       string                 `json:"org"`
-	Name      string                 `json:"name"`
-	Topology  string                 `json:"topology,omitempty"`
-	Values    map[string]interface{} `json:"values,omitempty"`
 }
 
 // applicationSummary mirrors `schema/ApplicationSummary`.
@@ -555,8 +547,15 @@ func (h *Handler) HandleGetLaunchURL(w http.ResponseWriter, r *http.Request) {
 }
 
 // HandleCreateInstance — POST /catalyst/v1/apps/instances
+//
+// G117 W2.C2 wiring: the handler decodes + sanitises via the locked
+// `instances.CreateInstanceRequest` shape, delegates the 4 admission
+// gates (multi-instance-disabled, max-per-org-exceeded, name-collision,
+// isolation-level-invalid) to `admission.EvaluateCreate`, and writes
+// `spec.instanceId`, `spec.isolationLevel`, `spec.namingTemplate` on
+// the resulting Application CR per the W2.C2 brief + OpenAPI contract.
 func (h *Handler) HandleCreateInstance(w http.ResponseWriter, r *http.Request) {
-	var body createInstanceRequest
+	var body instances.CreateInstanceRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
 			"code":    "invalid-body",
@@ -564,20 +563,15 @@ func (h *Handler) HandleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	body.Blueprint = strings.TrimSpace(body.Blueprint)
-	body.Org = strings.TrimSpace(body.Org)
-	body.Name = strings.TrimSpace(body.Name)
-	if body.Blueprint == "" || body.Org == "" || body.Name == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"code":    "missing-required",
-			"message": "blueprint, org, name are required",
-		})
-		return
-	}
-	if !appInstanceNameRE.MatchString(body.Name) {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"code":    "invalid-name",
-			"message": "name must match RFC-1123 lowercase slug",
+	body.Sanitise()
+	if shapeErr := body.ValidateShape(); shapeErr != nil {
+		status := http.StatusBadRequest
+		if shapeErr.Code == "isolation-level-invalid" {
+			status = http.StatusUnprocessableEntity
+		}
+		writeJSON(w, status, map[string]string{
+			"code":    shapeErr.Code,
+			"message": shapeErr.Message,
 		})
 		return
 	}
@@ -620,36 +614,57 @@ func (h *Handler) HandleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Multi-instance gating per OpenAPI: 409 when multiInstance not
-	// enabled AND an instance already exists in this Org.
-	mi := readMultiInstance(bpDoc)
-	if !mi.Enabled {
-		existing, err := listAppsInOrg(r.Context(), client, body.Org, body.Blueprint)
-		if err == nil && len(existing) > 0 {
-			writeJSON(w, http.StatusConflict, map[string]string{
-				"code":    "multi-instance-disabled",
-				"message": fmt.Sprintf("Blueprint %q does not permit multiple instances per Organization", body.Blueprint),
-			})
-			return
-		}
-	} else if mi.MaxPerOrg > 0 {
-		existing, err := listAppsInOrg(r.Context(), client, body.Org, body.Blueprint)
-		if err == nil && len(existing) >= mi.MaxPerOrg {
-			writeJSON(w, http.StatusConflict, map[string]string{
-				"code":    "max-per-org",
-				"message": fmt.Sprintf("Blueprint %q allows at most %d instances per Organization", body.Blueprint, mi.MaxPerOrg),
-			})
-			return
-		}
+	// Build the existing-applications projection for the admission gates.
+	existingList, _ := listAppsInOrg(r.Context(), client, body.Org, body.Blueprint)
+	existing := make([]admission.ExistingApplication, 0, len(existingList))
+	for i := range existingList {
+		instanceID, _, _ := unstructured.NestedString(existingList[i].Object, "spec", "instanceId")
+		existing = append(existing, admission.ExistingApplication{
+			Name:       existingList[i].GetName(),
+			InstanceID: instanceID,
+			Blueprint:  extractBlueprintFromApp(&existingList[i]),
+		})
 	}
 
-	obj := newApplicationCRForInstance(body, chosen)
+	mi := readMultiInstance(bpDoc)
+	decision := admission.EvaluateCreate(
+		admission.CreateRequest{
+			Blueprint:      body.Blueprint,
+			Org:            body.Org,
+			Name:           body.Name,
+			IsolationLevel: body.IsolationLevel,
+		},
+		admission.BlueprintMultiInstance{Enabled: mi.Enabled, MaxPerOrg: mi.MaxPerOrg},
+		existing,
+	)
+	if rejection := instances.MapDecision(decision); rejection != nil {
+		writeJSON(w, rejection.StatusCode, map[string]string{
+			"code":    string(rejection.Code),
+			"message": rejection.Message,
+		})
+		return
+	}
+
+	seed, err := body.Build(chosen)
+	if err != nil {
+		// Should not occur after ValidateShape, but be defensive.
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"code":    "invalid-body",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	obj := newApplicationCRFromSeed(seed)
 	created, err := client.Resource(ApplicationGVR()).Namespace(body.Org).Create(
 		r.Context(), obj, metav1.CreateOptions{})
 	if err != nil {
 		if apierrors.IsAlreadyExists(err) {
+			// Belt-and-suspenders — admission gate should have caught
+			// this; if it slipped past (race), return the same code
+			// the admission gate would have returned.
 			writeJSON(w, http.StatusConflict, map[string]string{
-				"code":    "name-conflict",
+				"code":    string(admission.CodeNameCollision),
 				"message": fmt.Sprintf("Application %q already exists in Org %s", body.Name, body.Org),
 			})
 			return
@@ -723,8 +738,6 @@ func (h *Handler) HandleListBlueprintInstances(w http.ResponseWriter, r *http.Re
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
-
-var appInstanceNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,40}[a-z0-9]$`)
 
 func writeAppNotFound(w http.ResponseWriter, uid string, err error) {
 	writeJSON(w, http.StatusNotFound, map[string]string{
@@ -1105,31 +1118,33 @@ func listAppsInOrg(ctx context.Context, c dynamic.Interface, org, blueprint stri
 	return out, nil
 }
 
-// newApplicationCRForInstance builds the Application CR for the
-// multi-instance create endpoint.
-func newApplicationCRForInstance(req createInstanceRequest, chosenTopology string) *unstructured.Unstructured {
+// newApplicationCRFromSeed builds the Application CR for the
+// multi-instance create endpoint from an `instances.ApplicationSeed`.
+// Includes the W2.C2 spec fields (instanceId, isolationLevel,
+// namingTemplate) plus the legacy environmentRef / blueprintRef /
+// placement / regions / parameters envelope.
+func newApplicationCRFromSeed(seed instances.ApplicationSeed) *unstructured.Unstructured {
 	obj := &unstructured.Unstructured{}
 	obj.SetAPIVersion(ApplicationGVR().Group + "/" + ApplicationGVR().Version)
 	obj.SetKind("Application")
-	obj.SetName(req.Name)
-	obj.SetNamespace(req.Org)
-	obj.SetLabels(map[string]string{
-		"catalyst.openova.io/managed-by":   "catalyst-api",
-		"catalyst.openova.io/organization": req.Org,
-		"catalyst.openova.io/blueprint":    strings.TrimPrefix(req.Blueprint, "bp-"),
-		"catalyst.openova.io/topology":     chosenTopology,
-	})
+	obj.SetName(seed.Name)
+	obj.SetNamespace(seed.Namespace)
+	obj.SetLabels(seed.Labels)
 	spec := map[string]interface{}{
-		"environmentRef": req.Org + "-prod",
+		"environmentRef": seed.Namespace + "-prod",
 		"blueprintRef": map[string]interface{}{
-			"name": req.Blueprint,
+			"name": seed.Blueprint,
 		},
-		"placement": chosenTopology,
+		"placement": seed.Topology,
 		"regions":   []interface{}{"primary"},
+		// ── G117.2 W2.C2 multi-instance fields ──
+		"instanceId":     seed.InstanceID,
+		"isolationLevel": string(seed.IsolationLevel),
+		"namingTemplate": seed.NamingTemplate,
 	}
-	if len(req.Values) > 0 {
-		vals := make(map[string]interface{}, len(req.Values))
-		for k, v := range req.Values {
+	if len(seed.Values) > 0 {
+		vals := make(map[string]interface{}, len(seed.Values))
+		for k, v := range seed.Values {
 			vals[k] = v
 		}
 		spec["parameters"] = vals

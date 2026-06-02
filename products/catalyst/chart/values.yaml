@@ -1713,3 +1713,28 @@ security:
       - catalyst
       - flux-system
       - kube-system
+
+# ── G117 W2.C2 — one-shot migrations on chart install/upgrade ─────────────
+# Each migration runs as a post-install + post-upgrade Helm hook Job. Each
+# is idempotent (the Job's script skips already-migrated CRs). Disable an
+# individual migration with `<name>.enabled: false` once the operator has
+# verified the field is populated on every Application CR in the cluster.
+migrations:
+  # Backfill spec.instanceId / spec.isolationLevel / spec.namingTemplate
+  # on every pre-existing Application CR. See
+  # tools/migrate-applications-instanceId.py + the W2.C2 brief
+  # (issue #2741, parent EPIC #2737).
+  applicationsInstanceId:
+    enabled: true
+    # serviceAccountName — overridden only on multi-Catalyst-instance
+    # clusters where two Catalyst Helm releases would collide on the SA.
+    serviceAccountName: catalyst-application-migrator
+    # image — slim container with python3 + kubectl. The default image
+    # tag is owned by the catalyst-platform release train; bump in
+    # lockstep with the catalyst-api image when the Python script
+    # surface evolves.
+    image: ghcr.io/openova-io/catalyst-migrator:0.1.0
+    # dryRun — when true the Job prints the would-apply patches and
+    # exits 0. Useful for sovereign-admin walkthrough before the real
+    # migration runs.
+    dryRun: false
