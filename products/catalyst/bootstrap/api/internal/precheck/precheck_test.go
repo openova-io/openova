@@ -107,6 +107,105 @@ func TestCheckCertManager_DifferentOwner(t *testing.T) {
 	}
 }
 
+// TestCheckCertManager_HostnameUnderWildcardPasses — G117 #2864 Gap 6.
+// When the Sovereign's Gateway wildcard Certificate `*.<sov-fqdn>`
+// already covers the new endpoint hostname, the per-Application
+// owner-mismatch must be auto-PASSed with code `covered-by-wildcard`.
+func TestCheckCertManager_HostnameUnderWildcardPasses(t *testing.T) {
+	res := CheckCertManager(context.Background(),
+		Mutation{Op: OpCreate, Org: "acme", App: "wp", Name: "ui", Hostname: "grafana.hw86.omani.works"},
+		func(_ context.Context, _ string) (CertOwner, bool, error) {
+			return CertOwner{
+				Org:            "sovereign",
+				App:            "gateway",
+				IsWildcard:     true,
+				WildcardDomain: "hw86.omani.works",
+			}, true, nil
+		},
+	)
+	if !res.Pass {
+		t.Fatalf("hostname under wildcard should pass; got %+v", res)
+	}
+	if res.Code != "covered-by-wildcard" {
+		t.Fatalf("expected covered-by-wildcard; got %s", res.Code)
+	}
+	if !strings.Contains(res.Message, "grafana.hw86.omani.works") {
+		t.Fatalf("message should mention the hostname; got %q", res.Message)
+	}
+	if !strings.Contains(res.Message, "*.hw86.omani.works") {
+		t.Fatalf("message should mention the wildcard pattern; got %q", res.Message)
+	}
+}
+
+// TestCheckCertManager_HostnameOutsideWildcardFails — wildcard
+// coverage must NOT over-broadly approve hostnames that fall outside
+// the wildcard's exact one-label scope (spec: `*.example.com` covers
+// `foo.example.com` but NOT `foo.bar.example.com` and NOT
+// `example.com` itself). When the new hostname is outside the
+// wildcard's scope AND the owner mismatches, the precheck must FAIL
+// with `cert-conflict`.
+func TestCheckCertManager_HostnameOutsideWildcardFails(t *testing.T) {
+	cases := []struct {
+		name     string
+		hostname string
+		// All cases use the same wildcard cert + a mismatched owner so
+		// the test isolates the wildcard-scoping logic. Different
+		// hostnames probe different scope-violation modes.
+	}{
+		{"two-level-subdomain", "deep.grafana.hw86.omani.works"}, // *.hw86.omani.works covers ONE label only
+		{"unrelated-domain", "grafana.t99.omani.trade"},          // entirely different base
+		{"bare-base-domain", "hw86.omani.works"},                 // wildcards do NOT cover the apex
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			res := CheckCertManager(context.Background(),
+				Mutation{Op: OpCreate, Org: "acme", App: "wp", Name: "ui", Hostname: c.hostname},
+				func(_ context.Context, _ string) (CertOwner, bool, error) {
+					return CertOwner{
+						Org:            "sovereign",
+						App:            "gateway",
+						IsWildcard:     true,
+						WildcardDomain: "hw86.omani.works",
+					}, true, nil
+				},
+			)
+			if res.Pass {
+				t.Fatalf("hostname outside wildcard should fail; got %+v", res)
+			}
+			if res.Code != "cert-conflict" {
+				t.Fatalf("expected cert-conflict; got %s", res.Code)
+			}
+		})
+	}
+}
+
+// TestCheckCertManager_NonWildcardSameOwnerUnchanged — regression
+// guard: the existing same-owner short-circuit path must continue to
+// short-circuit BEFORE the wildcard check. Same Org/App + same Name
+// should still PASS with `same-owner` (NOT `covered-by-wildcard`)
+// even when a wildcard cert exists alongside it.
+func TestCheckCertManager_NonWildcardSameOwnerUnchanged(t *testing.T) {
+	res := CheckCertManager(context.Background(),
+		Mutation{Op: OpUpdate, Org: "acme", App: "wp", Name: "ui", Hostname: "x.example.com"},
+		func(_ context.Context, _ string) (CertOwner, bool, error) {
+			// Owner matches — the same-owner branch wins regardless of
+			// any IsWildcard hint the lookup happens to emit.
+			return CertOwner{
+				Org:            "acme",
+				App:            "wp",
+				IsWildcard:     true,
+				WildcardDomain: "example.com",
+			}, true, nil
+		},
+	)
+	if !res.Pass {
+		t.Fatalf("same owner should pass; got %+v", res)
+	}
+	if res.Code != "same-owner" {
+		t.Fatalf("expected same-owner (short-circuit before wildcard branch); got %s", res.Code)
+	}
+}
+
 func TestCheckCertManager_LookupError(t *testing.T) {
 	res := CheckCertManager(context.Background(),
 		Mutation{Op: OpCreate, Org: "acme", App: "wp", Name: "ui", Hostname: "x.example.com"},

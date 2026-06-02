@@ -124,17 +124,41 @@ func (b Bundle) FailedStages() []string {
 // existing owner must match; otherwise the cert would be silently
 // reassigned and the previous owner's traffic would 502.
 //
+// G117 #2864 (Gap 6): When the Sovereign's Gateway carries a wildcard
+// Certificate (e.g. `*.<sov-fqdn>`) every new endpoint hostname under
+// that wildcard would otherwise be rejected as a cert-conflict because
+// the wildcard cert's owner labels (= Gateway / Sovereign infra) do
+// NOT match the per-Application endpoint mutation. Lookups MUST set
+// `IsWildcard=true` + `WildcardDomain=<base-domain>` when they find a
+// wildcard Certificate so CheckCertManager can auto-PASS new
+// hostnames under that wildcard.
+//
 // Returns:
 //   - (owner, true, nil)  — an existing Certificate covers `hostname`
-//     owned by `<org>/<app>` (in our own label vocabulary)
+//     owned by `<org>/<app>` (in our own label vocabulary). When the
+//     covering Certificate is a wildcard, owner.IsWildcard=true and
+//     owner.WildcardDomain is the base domain (e.g. "hw86.omani.works"
+//     for a `*.hw86.omani.works` cert).
 //   - ("", false, nil)    — no existing Certificate
 //   - ("", false, err)    — lookup failed; the caller treats as 503
 type CertConflictLookup func(ctx context.Context, hostname string) (owner CertOwner, exists bool, err error)
 
 // CertOwner labels a Certificate's owning Application.
+//
+// IsWildcard / WildcardDomain populated when the covering Certificate
+// is a wildcard (e.g. `*.<sov-fqdn>`). See CertConflictLookup +
+// CheckCertManager for the auto-PASS semantics this enables.
 type CertOwner struct {
 	Org string
 	App string
+	// IsWildcard is true when the discovered Certificate's spec.commonName
+	// (or any entry in spec.dnsNames[]) begins with `*.`. G117 #2864.
+	IsWildcard bool
+	// WildcardDomain is the base domain of the wildcard Certificate —
+	// the suffix after `*.`. Empty when IsWildcard=false. Example:
+	// for a Certificate covering `*.hw86.omani.works`, WildcardDomain
+	// is `hw86.omani.works`. G117 #2864.
+	WildcardDomain string
 }
 
 // DNSConflictLookup answers: is this hostname already pinned to a
@@ -197,11 +221,13 @@ func ValidateMutation(m Mutation) error {
 //
 // Pass when: no existing Certificate covers the hostname, OR an
 // existing Certificate already belongs to the same Application
-// (re-issue / update case is benign).
+// (re-issue / update case is benign), OR the existing Certificate is
+// a wildcard (`*.<base-domain>`) and the new hostname falls under
+// that base domain (G117 #2864 — Gap 6 of #2856).
 //
-// Fail when: an existing Certificate belongs to a different
-// Application — issuing a duplicate would steal the cert from the
-// existing owner.
+// Fail when: an existing non-wildcard Certificate belongs to a
+// different Application — issuing a duplicate would steal the cert
+// from the existing owner.
 //
 // 503 ("lookup-unavailable") when the wired lookup function errors.
 // The caller-side handler converts this into a precheck-pending state
@@ -236,12 +262,52 @@ func CheckCertManager(ctx context.Context, m Mutation, lookup CertConflictLookup
 	if strings.EqualFold(owner.Org, m.Org) && strings.EqualFold(owner.App, m.App) {
 		return Result{Stage: stage, Pass: true, Code: "same-owner"}
 	}
+	// G117 #2864 (Gap 6): wildcard Certificate coverage auto-PASS.
+	// When the Gateway's wildcard cert (`*.<sov-fqdn>`) already covers
+	// the new endpoint hostname, the per-Application owner-mismatch is
+	// benign — the new endpoint will reuse the wildcard cert via the
+	// Gateway and no per-Application Certificate is required.
+	if owner.IsWildcard && hostnameUnderWildcard(m.Hostname, owner.WildcardDomain) {
+		return Result{
+			Stage:   stage,
+			Pass:    true,
+			Code:    "covered-by-wildcard",
+			Message: fmt.Sprintf("hostname %q is covered by wildcard Certificate for %q", m.Hostname, "*."+owner.WildcardDomain),
+		}
+	}
 	return Result{
 		Stage:   stage,
 		Pass:    false,
 		Code:    "cert-conflict",
 		Message: fmt.Sprintf("hostname %q already has a Certificate owned by %s/%s", m.Hostname, owner.Org, owner.App),
 	}
+}
+
+// hostnameUnderWildcard reports whether `hostname` is covered by a
+// wildcard Certificate whose base domain is `base` (the suffix after
+// `*.`).
+//
+// Wildcards in cert-manager / TLS spec terms cover EXACTLY ONE label
+// of hostname depth — `*.example.com` covers `foo.example.com` but
+// NOT `foo.bar.example.com` and NOT `example.com` itself. We mirror
+// that constraint here so the precheck doesn't over-broadly approve.
+func hostnameUnderWildcard(hostname, base string) bool {
+	hostname = strings.ToLower(strings.TrimSpace(hostname))
+	base = strings.ToLower(strings.TrimSpace(base))
+	if hostname == "" || base == "" {
+		return false
+	}
+	suffix := "." + base
+	if !strings.HasSuffix(hostname, suffix) {
+		return false
+	}
+	// Strip the matching suffix and assert the remainder is exactly
+	// one DNS label (no further dots).
+	prefix := strings.TrimSuffix(hostname, suffix)
+	if prefix == "" || strings.Contains(prefix, ".") {
+		return false
+	}
+	return true
 }
 
 // CheckDNSConflict runs the dns-conflict-precheck stage.
