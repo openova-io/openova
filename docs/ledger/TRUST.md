@@ -631,3 +631,33 @@ Issues closed: #2520 + #2521 + #2522 + #2523 (all with status/completed).
 | `/dashboard` post-sign-in render | 🟢 VERIFIED-PASS | Playwright loaded `/dashboard` after PIN verify; Sovereign treemap shipped 22 services with live utilisation, 9-entry sidebar (Dashboard/Cloud/Apps/Sandbox/Jobs/Compliance/Users/BSS/Settings) |
 | bp-self-sovereign-cutover step 7 (env-patch Job) on a real handover | 🟢 VERIFIED-PASS | hw35 cutover Job `cutover-catalyst-api-env-patch-1779895078` Completed (no Kyverno harbor-proxy-pull null-image error — Wave 5.151 fix verified live) |
 | catalyst-api Wave 5.157 (`:e0e4a3f`) on mothership serving sign-in API | 🟢 VERIFIED-PASS | both PIN issue + PIN verify endpoints return 200 |
+
+
+## 2026-06-02T13:00Z — G117 EPIC #2737 code-side complete — 27 PRs / 7 sub-EPICs CLOSED 🟦 CODE-COMPLETE
+
+Per `feedback_definition_of_done_operator_walk.md` — code-side complete is **NOT** ✅ Pillar-shipped. Founder fresh-prov walk on hw87 (Op-B prov in flight as of 12:55Z) is the gating verification.
+
+| Surface | State | Evidence |
+|---|---|---|
+| **G117.0 GATE** — hw86 runs pure-main config, silent-SSO 4-hop chain PASS without runtime workarounds | 🟢 VERIFIED-PASS | W2.C6 verifier comment + execution doc: [#2737 comment 4602160405](https://github.com/openova-io/openova/issues/2737#issuecomment-4602160405). Image swap `f61a52a` → `4d9686d` covers all G113-followup PRs (#2729/#2731/#2733/#2734); env overrides removed; HR+Kustomization un-suspended; bp-keycloak 1.4.11 reconciled; 7-probe verification GREEN (probe C cosmetic PARTIAL — kcBrokerURL dead-code grep). PR #2791 + audit doc on main. |
+| **G117.1** — 87 blueprints declare typed `spec.topology` + `spec.endpoints` + `spec.sso` + `spec.multiInstance` (#2740) | 🟦 CODE-COMPLETE | 3 W1 migration PRs merged: #2747 (16 CP) + #2746 (38 infra) + #2748 (29 App) + D6 #2805 (3 missing scaffolds). UAT reviewer 83/84 PASS (openclaw scaffold TBD). Admission JSON-schema CI gate fires on every PR. Awaits founder fresh-prov walk for 🟢. |
+| **G117.2** — Catalog drill-down (class/instance split) + multi-instance Application CRD (#2741) | 🟦 CODE-COMPLETE | W1.B5 #2750 (console UI + LaunchButton + TopologyPicker + EndpointsTab) + W2.C2 #2795 (CRD with `spec.instanceId` immutable via CEL + `spec.isolationLevel` enum + 22 admission tests). 12/12 Playwright specs green in mock mode. UAT reviewer SAFE-TO-CLOSE all 6 axes. |
+| **G117.3** — catalyst-api Endpoint CRUD + Gitea-IaC PR pipeline (#2742) | 🟦 CODE-COMPLETE | 4 PRs: W1.B4 #2752 (7 OpenAPI handlers + giteapr writer + Kyverno/cert-mgr/DNS precheck) + W2.C3 #2793 (ADR-0009 per-Org IaC repo bootstrap on Org create + OpenBao kv/data/org/<slug>/iac-bot-token) + W2.C5 #2792 (Org-membership gate + Sovereign.spec.regions detection + CI integration job actually running) + W3.D4 #2800 (per-Org token writer + KUBECONFIG export). UAT reviewer SAFE-TO-CLOSE all 5 axes; integration tests 5m55s SUCCESS (vs prior 1m46s silent-skip signature). |
+| **G117.4** — Launch button + silent SSO (#2743) | 🟦 CODE-COMPLETE | LaunchButton.svelte (#2750) + buildLaunchURL `prompt=none&kc_idp_hint=catalyst-pin` per locked decision #3. 12 in-scope blueprints carry full SSO triplet; hubble via cilium no-op; opensearch-dashboards/iceberg/litmus dropped per Aux-2 audit. Playwright URL-shape test (W1.B5) PASSes. |
+| **G117.5** — SSO fan-out across 3 tiers + per-Org KC realm (#2744) | 🟦 CODE-COMPLETE | 5 PRs: W1.B6 #2787 (Tier-1: gitea/harbor/openbao/grafana + G115 datasources/dashboards) + W2.C4 #2794 (per-Org realm template + bp-sso-bridge 2-hop federation) + W3.D1 #2802 (Tier-2: guacamole/powerdns-admin/hubble) + W3.D2 #2799 (Tier-3 Part 1: matrix/langfuse/temporal/librechat) + W3.D3 #2798 (Tier-3 Part 2: openmeter/wordpress) + W3.D5 #2804 (bp-sso-bridge AppRegistration ConfigMap watcher) + D7 #2806 (tier1ClientSecret rotation salt knob) + D8 #2808 (session_secret in bundle for librechat). UAT reviewer + W3.D5 verifier all GREEN. |
+| **G117.6** — application-controller honor `spec.topology` + multi-instance + per-Org realm (#2745) | 🟦 CODE-COMPLETE | W2.C1 #2790 (topology resolver + FanoutHRs render package + canonical labels + sha256-suffix-5 HR-name truncation) + W2.C2 #2795 (multi-instance CRD) + W3.D4 #2800 (real `upsertHostResource(FluxHelmReleaseGVR,...)` HR persistence, replacing `_ = perClusterFanout` discard). UAT reviewer SAFE-TO-CLOSE all 5 axes. |
+
+### Memory shipped this EPIC (9 feedback files)
+
+- `feedback_wave1_agents_skip_verifier_pattern.md` — dispatcher must spawn verifier post-PR-open (5/5 worktree-isolated agents systematically skipped)
+- `feedback_stalwart_sovereign_mothership_tether_antipattern.md` — Principle #11 hardcoded `mail.openova.io` violation pattern
+- `feedback_gh_issue_create_pipe_field_separator_disaster.md` — never `|` field-sep in while-read loops with markdown-table bodies
+- `feedback_worktree_disk_accumulation_at_high_parallelism.md` — 14+ accumulated worktrees fills 98GB; clean per merge
+- `feedback_parallel_pr_merge_cascade_conflicts.md` — N-1 rebase cycles for N PRs touching the same file; concat-pattern syntax-error trap
+- `feedback_never_pause_for_signal_when_autonomy_granted.md` — forbidden closing phrases under autonomy mandate
+- `feedback_sprig_default_bool_unsafe.md` (W3.D1 shipped) — `default true false` returns `true`; use `eq (toString X) "false"`
+- 2 G117-execution-specific pitfall files (g117_w1b2_infra + g117_w1b3_blueprint-topology overrides)
+
+### Open follow-ups (non-blocking)
+- #2737 EPIC stays open until founder walks fresh prov hw87 end-to-end
+- #2803 W4.D1: Op-B (hw87 prov on Huawei HCS me-east-215-{a,b}) in flight as of 13:00Z; Op-A (hw86 wipe) stays gated on Op-B PASS
