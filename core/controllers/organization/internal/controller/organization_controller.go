@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/openova-io/openova/core/controllers/organization/internal/gitops"
+	"github.com/openova-io/openova/core/controllers/organization/internal/iacbootstrap"
 	orgapi "github.com/openova-io/openova/core/controllers/organization/internal/orgapi"
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
 )
@@ -123,6 +124,17 @@ type Reconciler struct {
 	// CATALYST_USERACCESS_NAMESPACE overrides this for non-canonical
 	// installs.
 	UserAccessNamespace string
+
+	// IacBootstrapGitea is the narrow GiteaClient seam the
+	// iacbootstrap package uses. Production wires the same
+	// `*gitea.Client` as `GiteaClient` above; tests inject a fake. Nil
+	// disables the bootstrap flow (the Reconcile loop surfaces
+	// state=Disabled).
+	IacBootstrapGitea iacbootstrap.GiteaClient
+
+	// IacBootstrapTokens is the per-Org robot-token store (OpenBao
+	// KV-v2 in production). Nil disables the bootstrap flow.
+	IacBootstrapTokens iacbootstrap.TokenStore
 }
 
 // SetupWithManager registers the reconciler with the controller-runtime
@@ -142,16 +154,34 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	var org orgapi.Organization
 	if err := r.Get(ctx, req.NamespacedName, &org); err != nil {
 		if apierrors.IsNotFound(err) {
-			// CR was deleted — nothing to do (delete-handling is
-			// out of scope for slice C1; a future slice may add
-			// a finalizer that purges the Keycloak group + Gitea
-			// Org. For now we leave them in place to preserve
-			// audit history per founder direction on
-			// "Sovereigns retain customer data unless explicit
-			// purge").
+			// CR was deleted — nothing to do here. The iac-bootstrap
+			// finalizer runs in the deletion-timestamp branch below;
+			// by the time the CR has fully tombstoned the finalizer
+			// has already been removed.
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("get organization: %w", err)
+	}
+
+	// Deletion path (G117 W2.C3): if the CR has been marked for
+	// deletion AND still carries the iac-bootstrap finalizer, run
+	// iacbootstrap.Teardown then drop the finalizer so the CR can
+	// tombstone. Per the K8s finalizer pattern, returning early here
+	// before the Keycloak/Gitea ensure steps prevents recreating
+	// artifacts we're about to delete.
+	if !org.DeletionTimestamp.IsZero() {
+		if containsFinalizer(org.Finalizers, IacBootstrapFinalizer) {
+			if err := r.teardownIacBootstrap(ctx, &org); err != nil {
+				log.Error(err, "iac-bootstrap teardown")
+				return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+			}
+			if removeIacBootstrapFinalizer(&org) {
+				if uerr := r.Update(ctx, &org); uerr != nil {
+					return ctrl.Result{}, fmt.Errorf("remove finalizer: %w", uerr)
+				}
+			}
+		}
+		return ctrl.Result{}, nil
 	}
 
 	// Drift check: a CR's slug field must match the resource name
@@ -162,6 +192,21 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return r.fail(ctx, &org, "SlugMetadataMismatch",
 			fmt.Sprintf("spec.slug=%q != metadata.name=%q (CRs are immutable on slug after admission)",
 				org.Spec.Slug, org.Name))
+	}
+
+	// Add the iac-bootstrap finalizer on first observation so a
+	// subsequent delete can trigger iacbootstrap.Teardown. Only persists
+	// when wiring is present (we don't add a finalizer for a flow that
+	// will never run).
+	if r.IacBootstrapGitea != nil && r.IacBootstrapTokens != nil {
+		if ensureIacBootstrapFinalizer(&org) {
+			if err := r.Update(ctx, &org); err != nil {
+				return ctrl.Result{}, fmt.Errorf("add iac-bootstrap finalizer: %w", err)
+			}
+			// Update changes resourceVersion; the next reconcile will
+			// pick up the latest copy via the informer.
+			return ctrl.Result{Requeue: true}, nil
+		}
 	}
 
 	// 1. Keycloak group.
@@ -256,6 +301,19 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return r.fail(ctx, &org, "TenantRouteFailed", err.Error())
 	}
 
+	// 5c. Per-Org IaC repo bootstrap (G117.3 / W2.C3 — ADR-0009).
+	// Provisions the canonical `<slug>/iac` repo, the `<slug>-iac-bot`
+	// robot user, branch protection on main, and the OpenBao-backed
+	// robot token. Idempotent: a steady-state Org produces zero Gitea
+	// writes. Failure is non-fatal for the Org's other outputs — we
+	// surface the lastError on status.iacBootstrap and rely on the
+	// 30s requeue (Ready failure path) to retry.
+	iacStatus := r.reconcileIacBootstrap(ctx, &org)
+	if iacStatus.State == "Failed" {
+		log.Error(errors.New("iac-bootstrap"), iacStatus.LastError,
+			"organization", org.Name)
+	}
+
 	// 6. Status update — Ready=True plus the per-step federation
 	// conditions (always present so the access-matrix UI can render
 	// the federation column without conditional logic).
@@ -274,6 +332,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			Name:  gOrg.Username,
 			Repos: []string{repoName},
 		},
+		IacBootstrap: iacStatus,
 		Conditions: []orgapi.Condition{
 			{
 				Type:               "Ready",
@@ -284,6 +343,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			},
 			idpCond,
 			mappersCond,
+			iacBootstrapCondition(iacStatus),
 		},
 		ObservedGeneration: org.Generation,
 	}

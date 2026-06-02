@@ -15,6 +15,18 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 29 Application-tier `platform/<bp>/blueprint.yaml` files now carry the typed `spec.topology` + `spec.endpoints` + `spec.sso` + `spec.multiInstance` blocks per the new G117 contract (`platform/_schemas/blueprint-topology.json`). Derived from the per-row App-tier audit table in [`docs/sessions/2026-06-02-per-blueprint-topology-audit.md`](../sessions/2026-06-02-per-blueprint-topology-audit.md). 9 scaffold-only blueprints (ferretdb / strimzi / clickhouse / opensearch / milvus / neo4j / flink / debezium / iceberg) got a fresh minimal `blueprint.yaml` carrying just the 4 G117 blocks ahead of chart authoring. Helper: `tools/g117_w1b3_apply.py` (idempotent — re-runs replace the marked `# ── G117.1 ──` block in-place). Tracking: [#2740](https://github.com/openova-io/openova/issues/2740). Branch: `feat/g117-1-topology-application`.
 
+## 🟦 G117.3 / W2.C3 + G117.3b (2026-06-02) — organization-controller wires ADR-0009 iac-bootstrap
+
+organization-controller now codifies the ADR-0009 per-Org IaC repo bootstrap pipeline in Go and runs it on every Organization CR reconcile. New package `core/controllers/organization/internal/iacbootstrap/` (Bootstrap + Teardown + RotateRobotToken + OpenBaoStore + canonical-tree seed). Reconcile loop:
+
+1. Adds `orgs.openova.io/iac-bootstrap` finalizer on first observation.
+2. Calls Bootstrap (6 idempotent steps: Org → repo → tree → robot user → collaborator → branch protection on `main` with locked status checks `kyverno-admission` / `cert-manager-precheck` / `dns-conflict-precheck`).
+3. Persists the freshly-minted plaintext robot token to OpenBao at `kv/org/<slug>/iac-bot-token` (G117.3b / [#2765](https://github.com/openova-io/openova/issues/2765)).
+4. Surfaces `Organization.status.iacBootstrap{state, repoURL, robotUsername, lastError}` + an `IacRepoBootstrapped` Condition.
+5. On Org delete: Teardown reverses provisioning in order (branch-protection → collaborator → repo → token → user → OpenBao path) then removes the finalizer.
+
+Gitea client extended in `core/controllers/pkg/gitea/admin_users.go` with `CreateAdminUser` / `CreateUserAccessToken` / `AddCollaborator` / `EnsureBranchProtection` + delete equivalents — 8 new methods, all idempotent. CRD schema extended with `status.iacBootstrap`. OpenAPI doc extended with informational `/orgs/{org}/iac-bootstrap` (GET/POST/DELETE). 50+ unit tests across gitea / iacbootstrap / controller packages. Tracking: [#2742](https://github.com/openova-io/openova/issues/2742) (G117.3) + [#2765](https://github.com/openova-io/openova/issues/2765) (G117.3b). Branch: `feat/g117-3-org-iac-bootstrap`.
+
 ## 🟡 Session 2026-05-28 → 29 — HCS multi-region 3-consecutive-zero-touch hunt + permanent DoD verifier (G14–G22)
 
 **End-goal: 3 consecutive verifier-validated zero-touch provs on HCS Kom4DC for #2526.** Honest score on `bash scripts/sovereign-dod-verify.sh` = **0** so far (hw41/hw42 predate the verifier; would likely fail L3 + L6 if re-run today). 8 G-fixes shipped this session permanently in repo. Each `G##` ladders directly to #2526.

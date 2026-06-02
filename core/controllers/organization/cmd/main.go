@@ -27,6 +27,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	"github.com/openova-io/openova/core/controllers/organization/internal/controller"
+	"github.com/openova-io/openova/core/controllers/organization/internal/iacbootstrap"
 	orgapi "github.com/openova-io/openova/core/controllers/organization/internal/orgapi"
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
 	"github.com/openova-io/openova/core/controllers/pkg/natsbus"
@@ -81,6 +82,15 @@ func main() {
 	// installs.
 	uaNs := envOr("CATALYST_USERACCESS_NAMESPACE", "catalyst-system")
 
+	// G117.3 W2.C3 — IaC repo bootstrap (ADR-0009).
+	// OpenBao seam for per-Org Gitea robot-token storage. Optional:
+	// when CATALYST_OPENBAO_ADDR is unset the bootstrap flow renders
+	// state=Disabled on the Organization status so the operator console
+	// shows a "feature not wired" badge rather than appearing to hang.
+	openbaoAddr := strings.TrimSpace(os.Getenv("CATALYST_OPENBAO_ADDR"))
+	openbaoToken := strings.TrimSpace(os.Getenv("CATALYST_OPENBAO_TOKEN"))
+	openbaoMount := envOr("CATALYST_OPENBAO_KV_MOUNT", "kv")
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsserver.Options{BindAddress: metricsAddr},
@@ -102,11 +112,34 @@ func main() {
 		os.Exit(1)
 	}
 
+	giteaClient := gitea.New(giteaURL, giteaToken)
+
+	// IaC bootstrap deps: reuse the same Gitea client (it already
+	// surfaces the admin-user / collaborator / branch-protection
+	// methods via core/controllers/pkg/gitea/admin_users.go) plus an
+	// OpenBao-backed token store when wired.
+	var (
+		iacGitea  iacbootstrap.GiteaClient
+		iacTokens iacbootstrap.TokenStore
+	)
+	if openbaoAddr != "" && openbaoToken != "" {
+		iacGitea = giteaClient
+		iacTokens = iacbootstrap.NewOpenBaoStore(iacbootstrap.OpenBaoConfig{
+			Addr:      openbaoAddr,
+			Token:     openbaoToken,
+			MountPath: openbaoMount,
+		})
+		log.Info("iac-bootstrap: OpenBao seam wired",
+			"addr", openbaoAddr, "kv_mount", openbaoMount)
+	} else {
+		log.Info("iac-bootstrap: disabled (CATALYST_OPENBAO_ADDR/TOKEN unset)")
+	}
+
 	r := &controller.Reconciler{
 		Client:                    mgr.GetClient(),
 		Log:                       log.WithName("reconciler"),
 		Keycloak:                  controller.NewLiveKeycloak(kcAddr, kcRealm, kcSAID, kcSASecret),
-		GiteaClient:               gitea.New(giteaURL, giteaToken),
+		GiteaClient:               giteaClient,
 		HostCluster:               hostCluster,
 		VClusterChartVersion:      chartVer,
 		VClusterHelmRepoName:      helmRepoName,
@@ -114,6 +147,8 @@ func main() {
 		Branch:                    branch,
 		FederationSecretNamespace: fedSecretNs,
 		UserAccessNamespace:       uaNs,
+		IacBootstrapGitea:         iacGitea,
+		IacBootstrapTokens:        iacTokens,
 	}
 	if err := r.SetupWithManager(mgr); err != nil {
 		log.Error(err, "setup reconciler")
