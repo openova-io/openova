@@ -1713,3 +1713,33 @@ security:
       - catalyst
       - flux-system
       - kube-system
+
+# ─── Chart-driven schema migrations (G117.2, PR #2795) ────────────────────
+# Hook Jobs that backfill or transform existing CRs after a chart upgrade.
+# Each migration is opt-in (default `enabled: false`) so the smoke-render
+# path does not require migration artifacts to be staged and the same
+# chart bytes can ship to brand-new Sovereigns where the migration is a
+# no-op anyway. Operators flip `enabled: true` on a per-Sovereign overlay
+# when an in-place backfill is required.
+#
+# applicationsInstanceId: G117 W2.C2 (PR #2795) — backfills
+# spec.instanceId / spec.isolationLevel / spec.namingTemplate on every
+# pre-existing Application CR. Idempotent: the script
+# `tools/migrate-applications-instanceId.py` skips any CR that already
+# carries a non-empty spec.instanceId.
+migrations:
+  applicationsInstanceId:
+    enabled: false
+    # ServiceAccount + matching ClusterRole/Binding minted by the
+    # template (narrow scope: get/list/patch on
+    # applications.apps.openova.io across all namespaces).
+    serviceAccountName: catalyst-application-migrator
+    # Migrator image — defaults to a known-published tag. Operators
+    # may pin a per-Sovereign override when a newer migrator is
+    # required (e.g. additional fields backfilled in a later chart
+    # version).
+    image: ghcr.io/openova-io/catalyst-migrator:0.1.0
+    # Dry-run prints the patches that WOULD be applied without
+    # mutating any CR. Useful for first-time operator verification
+    # before flipping `enabled: true` in a real run.
+    dryRun: false
