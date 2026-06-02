@@ -1,0 +1,207 @@
+# G117 mock fixtures — matches docs/api/catalyst-api-openapi.yaml shapes.
+#
+# The console dev-server reads this when MOCK_API=1 is set in the env. The
+# fixture is also imported by the Wave-1 Playwright specs as a deterministic
+# data source.
+#
+# Keep this file in lockstep with:
+#   - docs/api/catalyst-api-openapi.yaml (CatalogBlueprint / Application / Endpoint shapes)
+#   - examples/blueprint-grafana-fully-declared.yaml (grafana fixture mirror)
+
+blueprints:
+  grafana:
+    name: grafana
+    version: "1.0.4"
+    title: Grafana
+    description: Visualization and dashboarding for the LGTM observability stack.
+    family: insights
+    section: pts-3-observability
+    instanceCount: 2
+    supportedTopologies: [active-hot-standby, singleton]
+    defaultTopology: active-hot-standby
+    multiInstance:
+      enabled: true
+      maxPerOrg: 5
+    sso:
+      realm: sovereign
+      silentLogin: true
+    endpoints:
+      - name: ui
+        hostnameTemplate: "grafana.{{.SovereignFQDN}}"
+        port: 443
+        protocol: https
+        tls: true
+        visibility: public
+        launchDefault: true
+        ssoEnabled: true
+
+  harbor:
+    name: harbor
+    version: "1.5.0"
+    title: Harbor
+    description: OCI registry with Trivy scanning + Cosign signing.
+    family: registry
+    section: pts-2-platform
+    instanceCount: 1
+    supportedTopologies: [active-hot-standby, singleton]
+    defaultTopology: active-hot-standby
+    multiInstance:
+      enabled: false
+    sso:
+      realm: sovereign
+      silentLogin: true
+    endpoints:
+      - name: ui
+        hostnameTemplate: "harbor.{{.SovereignFQDN}}"
+        port: 443
+        protocol: https
+        tls: true
+        visibility: public
+        launchDefault: true
+        ssoEnabled: true
+      - name: registry
+        hostnameTemplate: "registry.{{.SovereignFQDN}}"
+        port: 443
+        protocol: https
+        tls: true
+        visibility: public
+        ssoEnabled: false
+
+  gitea:
+    name: gitea
+    version: "1.4.9"
+    title: Gitea
+    description: Self-hosted Git server.
+    family: source
+    section: pts-2-platform
+    instanceCount: 1
+    supportedTopologies: [active-hot-standby, singleton]
+    defaultTopology: active-hot-standby
+    multiInstance:
+      enabled: false
+    sso:
+      realm: sovereign
+      silentLogin: true
+    endpoints:
+      - name: ui
+        hostnameTemplate: "gitea.{{.SovereignFQDN}}"
+        port: 443
+        protocol: https
+        tls: true
+        visibility: public
+        launchDefault: true
+        ssoEnabled: true
+
+  openbao:
+    name: openbao
+    version: "1.2.21"
+    title: OpenBao
+    description: Vault-compatible secret store.
+    family: security
+    section: pts-2-platform
+    instanceCount: 1
+    supportedTopologies: [active-hot-standby, singleton]
+    defaultTopology: active-hot-standby
+    multiInstance:
+      enabled: false
+    sso:
+      realm: sovereign
+      silentLogin: true
+    endpoints:
+      - name: ui
+        hostnameTemplate: "vault.{{.SovereignFQDN}}"
+        port: 443
+        protocol: https
+        tls: true
+        visibility: public
+        launchDefault: true
+        ssoEnabled: true
+
+instances:
+  grafana:
+    - id: 8a1e9bf2-7c4d-4b3a-9f1e-2c5a8d3f6e0a
+      name: metrics-primary
+      blueprint: grafana
+      org: acme
+      topology: active-hot-standby
+      status: Ready
+      createdAt: "2026-05-28T10:00:00Z"
+    - id: c2d8e4a1-3b6f-4e7c-8a9d-1f5b7c3e9a2d
+      name: metrics-staging
+      blueprint: grafana
+      org: acme
+      topology: singleton
+      status: Ready
+      createdAt: "2026-06-01T14:30:00Z"
+  harbor:
+    - id: f3a9b1d8-4c2e-4d5f-9a7b-6e8c1d3f5a7b
+      name: registry-primary
+      blueprint: harbor
+      org: acme
+      topology: active-hot-standby
+      status: Ready
+      createdAt: "2026-05-15T08:00:00Z"
+
+apps:
+  "8a1e9bf2-7c4d-4b3a-9f1e-2c5a8d3f6e0a":
+    id: 8a1e9bf2-7c4d-4b3a-9f1e-2c5a8d3f6e0a
+    name: metrics-primary
+    blueprint: grafana
+    org: acme
+    topology: active-hot-standby
+    status: Ready
+    createdAt: "2026-05-28T10:00:00Z"
+    perCluster:
+      - cluster: mgmt-A
+        role: active
+        status: Ready
+        hr: grafana-metrics-primary
+      - cluster: mgmt-B
+        role: passive
+        status: Ready
+        hr: grafana-metrics-primary
+    endpoints:
+      - name: ui
+        hostname: "grafana.acme.t01.omani.works"
+        protocol: https
+        tls: true
+        visibility: public
+        ssoEnabled: true
+        launchDefault: true
+        status: Ready
+        certificateStatus: Issued
+  "mock-app-1":
+    id: mock-app-1
+    name: mock-instance
+    blueprint: grafana
+    org: acme
+    topology: singleton
+    status: Ready
+    createdAt: "2026-06-02T00:00:00Z"
+    perCluster:
+      - cluster: mgmt-A
+        role: singleton
+        status: Ready
+        hr: grafana-mock
+    endpoints:
+      - name: ui
+        hostname: "grafana.mock.t01.omani.works"
+        protocol: https
+        tls: true
+        visibility: public
+        ssoEnabled: true
+        launchDefault: true
+        status: Ready
+
+endpoints:
+  "8a1e9bf2-7c4d-4b3a-9f1e-2c5a8d3f6e0a":
+    - name: ui
+      hostname: "grafana.acme.t01.omani.works"
+      protocol: https
+      port: 443
+      tls: true
+      visibility: public
+      ssoEnabled: true
+      launchDefault: true
+      status: Ready
+      certificateStatus: Issued
