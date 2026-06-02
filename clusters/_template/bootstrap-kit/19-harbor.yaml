@@ -222,6 +222,15 @@ spec:
       useExistingSecret: false
       credentialsSecretName: harbor-objectstorage-credentials
     harbor:
+      # G117.E2E-H12 #2844 (2026-06-03): per-Sovereign externalURL override.
+      # Chart default is "https://harbor.example.local" (placeholder for smoke
+      # renders). The upstream goharbor/harbor chart writes this value into
+      # the harbor-core Deployment's EXT_ENDPOINT env, which Harbor uses as
+      # the OIDC redirect_uri base. Without the override here, the per-Org
+      # KC OIDC client's redirect_uri matches "harbor.example.local" rather
+      # than "registry.<sov-fqdn>" → silent-SSO callback 400s on every
+      # operator login. Caught live by H12 Playwright walk on hw86 2026-06-03.
+      externalURL: "https://registry.${SOVEREIGN_FQDN}"
       persistence:
         imageChartStorage:
           type: s3
