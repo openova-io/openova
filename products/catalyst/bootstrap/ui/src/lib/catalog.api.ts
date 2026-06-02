@@ -28,7 +28,7 @@
  * distinction is resolved at config-time, not in components.
  */
 
-import { API_BASE } from '@/shared/config/urls'
+import { API_BASE, BASE } from '@/shared/config/urls'
 import { authedFetch } from '@/shared/lib/authedFetch'
 
 /* ── Wire types ──────────────────────────────────────────────────── */
@@ -162,7 +162,13 @@ export async function listBlueprintInstancesByName(
   const params = new URLSearchParams()
   if (opts.org) params.set('org', opts.org)
   const qs = params.toString()
-  const url = `${API_BASE}/catalyst/v1/catalog/${encodeURIComponent(bare)}/instances${qs ? '?' + qs : ''}`
+  // The /catalyst/v1/... route group is registered WITHOUT the /api/
+  // prefix at cmd/api/main.go:1412 (HandleListBlueprintInstances). Use
+  // BASE (not API_BASE) so we don't ship /api/catalyst/v1/... which chi
+  // doesn't match and which returns 404 (caught live on hw86 walk
+  // 2026-06-03 after #2876 deploy — CatalogDetail's instancesQuery
+  // surfaced the 404 in the rendered error state).
+  const url = `${BASE}catalyst/v1/catalog/${encodeURIComponent(bare)}/instances${qs ? '?' + qs : ''}`
   const res = await authedFetch(url, { headers: { Accept: 'application/json' } })
   if (!res.ok) {
     throw new Error(`listBlueprintInstancesByName: HTTP ${res.status}`)
