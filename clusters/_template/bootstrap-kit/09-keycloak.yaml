@@ -114,7 +114,14 @@ spec:
       # it to the SHA-256 seed, atomically rotating every derived SSO
       # client secret on next helm upgrade. Empty default preserves
       # render-stability + back-compat. Refs #2789.
-      version: 1.4.15
+      # 1.4.15 (G117.E2E-A1 #2816, 2026-06-03): trim Tier-2 sovereign-realm
+      # client descriptions (powerdns-admin, hubble-ui) below varchar(255)
+      # so keycloak-config-cli stops crashing on every upgrade. Refs #2816.
+      # 1.4.16 (G117.E2E-A7 #2816, 2026-06-03): extends the trim to the
+      # tenant-realm + per-Org-realm templates that PR #2824 left
+      # unaddressed. The per-Org case is the gating fix for the W2.C4
+      # cross-Org silent-SSO walk on hw86. Refs #2816 #2744.
+      version: 1.4.16
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak

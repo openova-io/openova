@@ -358,7 +358,7 @@ data:
         {
           "clientId": {{ ($t.stalwart.clientID | default "stalwart") | quote }},
           "name": "Stalwart (SME tenant — mail server OIDC)",
-          "description": "Confidential OIDC client for the SME tenant's Stalwart mail server. serviceAccountsEnabled=true so the directory.keycloak backend can use client_credentials to introspect IMAP/SMTP tokens; standardFlowEnabled=true so the webmail UI can do auth-code login. Single client covers both flows.",
+          "description": "Confidential OIDC client for SME tenant Stalwart mail (client_credentials for IMAP/SMTP introspect + auth-code for webmail).",
           "enabled": true,
           "publicClient": false,
           "standardFlowEnabled": true,

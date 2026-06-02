@@ -219,7 +219,7 @@ data:
         },
         {
           "alias": "first broker login auto link",
-          "description": "G113 #2725 Bug-6 carryover: auto-link federated identity to existing realm user by email match without SMTP confirmation. Required because the sovereign-broker IdP federates a realm user whose email may already exist in the Org realm (e.g. operator pre-provisioned).",
+          "description": "G113 #2725 Bug-6 carryover: auto-link federated identity to existing realm user by email match (no SMTP).",
           "providerId": "basic-flow",
           "topLevel": true,
           "builtIn": false,
