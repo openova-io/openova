@@ -1,0 +1,227 @@
+{{- /*
+G115 #2744 — Starter dashboard pack for the LGTM observability stack.
+
+Why this template:
+  bp-grafana defaults `grafana.dashboards: {}` (per values.yaml). On a
+  fresh install the Grafana home page shows only the upstream stock
+  dashboards — none of them targeted at the OpenOva control plane.
+  Per-Sovereign overlays historically had to import dashboards
+  manually via the UI, which is forgotten on every fresh prov.
+
+Codification approach:
+  - Each ConfigMap below carries the grafana sidecar discovery label
+    (default `grafana_dashboard: "1"`). The kiwigrid/k8s-sidecar in
+    the upstream chart watches cluster-wide and writes their `data:`
+    keys into /etc/grafana/provisioning/dashboards/ inside the Pod.
+    Grafana picks them up on its 30s reload cycle.
+  - The dashboards here are deliberately MINIMAL starter dashboards
+    (single-panel "is anything alive?" smoke checks) so:
+      (a) the ConfigMap size stays small (kubectl apply tolerates
+          dashboards up to ~1MB but per-Sovereign overlays may want
+          to scale-out the starter pack significantly).
+      (b) the chart-test render time stays bounded.
+      (c) operators can replace any individual dashboard via per-
+          Sovereign overlay without forking the chart.
+  - Full vendor dashboards (kube-state-metrics, node-exporter, Mimir
+    mixin, Loki mixin, Tempo mixin) are 50-200KB each and are best
+    delivered by an out-of-band sidecar-discovered ConfigMap published
+    by per-Sovereign overlays or a dedicated bp-grafana-dashboards
+    chart. See observabilityStack.dashboards.starter.note below.
+
+Starter dashboards shipped (all gated by separate enable toggles):
+  - cluster-overview         — at-a-glance Pod / Node / Deployment counts
+  - node-exporter-summary    — CPU/mem/disk per node (single panel)
+  - kube-state-summary       — Deployments ready vs. desired
+  - openbao-audit            — OpenBao audit log volume from Loki
+  - flux-reconcile-health    — Flux Kustomization/HelmRelease ready ratio
+*/ -}}
+{{- if and .Values.observabilityStack .Values.observabilityStack.enabled .Values.observabilityStack.dashboards.starter.enabled }}
+{{- $cmName := printf "%s-starter-dashboards" (include "grafana.fullname" . | default "grafana") }}
+{{- $label := .Values.observabilityStack.sidecarDashboardLabel | default "grafana_dashboard" }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $cmName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-grafana
+    catalyst.openova.io/component: grafana-dashboards-starter
+    {{ $label }}: "1"
+  annotations:
+    catalyst.openova.io/note: |
+      Starter pack. Replace any individual dashboard via per-Sovereign
+      overlay: set
+        grafana.dashboardConfigMaps.<name>.enabled: false
+      AND ship your own ConfigMap with the same {{ $label }}: "1" label
+      in any namespace the sidecar scans.
+data:
+  {{- if .Values.observabilityStack.dashboards.starter.clusterOverview }}
+  cluster-overview.json: |-
+    {
+      "schemaVersion": 38,
+      "title": "Catalyst — Cluster Overview",
+      "uid": "catalyst-cluster-overview",
+      "tags": ["catalyst", "g115", "starter"],
+      "timezone": "browser",
+      "time": {"from": "now-6h", "to": "now"},
+      "refresh": "30s",
+      "panels": [
+        {
+          "id": 1,
+          "title": "Pod count (Running)",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"x": 0, "y": 0, "w": 8, "h": 4},
+          "targets": [
+            {"expr": "count(kube_pod_status_phase{phase=\"Running\"})", "refId": "A"}
+          ]
+        },
+        {
+          "id": 2,
+          "title": "Node count (Ready)",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"x": 8, "y": 0, "w": 8, "h": 4},
+          "targets": [
+            {"expr": "count(kube_node_status_condition{condition=\"Ready\",status=\"true\"})", "refId": "A"}
+          ]
+        },
+        {
+          "id": 3,
+          "title": "Namespace count",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"x": 16, "y": 0, "w": 8, "h": 4},
+          "targets": [
+            {"expr": "count(kube_namespace_created)", "refId": "A"}
+          ]
+        }
+      ]
+    }
+  {{- end }}
+  {{- if .Values.observabilityStack.dashboards.starter.nodeExporter }}
+  node-exporter-summary.json: |-
+    {
+      "schemaVersion": 38,
+      "title": "Catalyst — Node Exporter Summary",
+      "uid": "catalyst-node-exporter",
+      "tags": ["catalyst", "g115", "starter", "nodes"],
+      "timezone": "browser",
+      "time": {"from": "now-1h", "to": "now"},
+      "refresh": "30s",
+      "panels": [
+        {
+          "id": 1,
+          "title": "CPU usage % per node",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"x": 0, "y": 0, "w": 24, "h": 8},
+          "targets": [
+            {
+              "expr": "100 - (avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+              "refId": "A",
+              "legendFormat": "{{ "{{ instance }}" }}"
+            }
+          ]
+        }
+      ]
+    }
+  {{- end }}
+  {{- if .Values.observabilityStack.dashboards.starter.kubeState }}
+  kube-state-summary.json: |-
+    {
+      "schemaVersion": 38,
+      "title": "Catalyst — Deployments Ready vs. Desired",
+      "uid": "catalyst-kube-state",
+      "tags": ["catalyst", "g115", "starter", "workload"],
+      "timezone": "browser",
+      "time": {"from": "now-6h", "to": "now"},
+      "refresh": "30s",
+      "panels": [
+        {
+          "id": 1,
+          "title": "Deployments — Ready/Desired ratio",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"x": 0, "y": 0, "w": 24, "h": 8},
+          "targets": [
+            {
+              "expr": "sum(kube_deployment_status_replicas_ready) / sum(kube_deployment_status_replicas)",
+              "refId": "A",
+              "legendFormat": "Ready ratio"
+            }
+          ]
+        }
+      ]
+    }
+  {{- end }}
+  {{- if .Values.observabilityStack.dashboards.starter.openbaoAudit }}
+  openbao-audit.json: |-
+    {
+      "schemaVersion": 38,
+      "title": "Catalyst — OpenBao Audit Log Volume",
+      "uid": "catalyst-openbao-audit",
+      "tags": ["catalyst", "g115", "starter", "openbao", "audit"],
+      "timezone": "browser",
+      "time": {"from": "now-6h", "to": "now"},
+      "refresh": "1m",
+      "panels": [
+        {
+          "id": 1,
+          "title": "Audit events per minute (from Loki)",
+          "type": "timeseries",
+          "datasource": {"type": "loki", "uid": "loki"},
+          "gridPos": {"x": 0, "y": 0, "w": 24, "h": 8},
+          "targets": [
+            {
+              "expr": "sum by (type) (rate({namespace=\"openbao\"} |= \"audit\" [1m]))",
+              "refId": "A",
+              "legendFormat": "{{ "{{ type }}" }}"
+            }
+          ]
+        }
+      ]
+    }
+  {{- end }}
+  {{- if .Values.observabilityStack.dashboards.starter.fluxReconcile }}
+  flux-reconcile-health.json: |-
+    {
+      "schemaVersion": 38,
+      "title": "Catalyst — Flux Reconcile Health",
+      "uid": "catalyst-flux-health",
+      "tags": ["catalyst", "g115", "starter", "flux"],
+      "timezone": "browser",
+      "time": {"from": "now-6h", "to": "now"},
+      "refresh": "30s",
+      "panels": [
+        {
+          "id": 1,
+          "title": "HelmRelease Ready=true count",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"x": 0, "y": 0, "w": 12, "h": 4},
+          "targets": [
+            {
+              "expr": "sum(gotk_reconcile_condition{kind=\"HelmRelease\",type=\"Ready\",status=\"True\"})",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "title": "Kustomization Ready=true count",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"x": 12, "y": 0, "w": 12, "h": 4},
+          "targets": [
+            {
+              "expr": "sum(gotk_reconcile_condition{kind=\"Kustomization\",type=\"Ready\",status=\"True\"})",
+              "refId": "A"
+            }
+          ]
+        }
+      ]
+    }
+  {{- end }}
+{{- end }}

@@ -120,6 +120,8 @@ spec:
           env:
             - name: AUTH_NAME
               value: "openova-sso"
+            # AUTO_DISCOVER_URL still used as fallback when authorize_url
+            # is not yet populated in the ESO Secret (early in install).
             - name: AUTO_DISCOVER_URL
               value: "https://auth.{{ .Values.sso.sovereignFqdn }}/realms/{{ .Values.sso.realm | default "sovereign" }}/.well-known/openid-configuration"
             - name: OIDC_SCOPES
@@ -132,6 +134,16 @@ spec:
               value: {{ .Values.sso.restrictedGroup | default "" | quote }}
             - name: GITEA_NAMESPACE
               value: {{ .Release.Namespace | quote }}
+            # G117.5 #2744 — IDP_HINT toggles whether we pass the
+            # hinted authorize_url via --auth-url + --use-custom-url-
+            # mapping. When non-empty the Job reads the
+            # already-hinted `authorize_url` key out of
+            # gitea-oauth-source-credentials and constructs the explicit
+            # URL set. When empty we fall back to --auto-discover-url
+            # only (pre-G117.5 behaviour) so non-Catalyst installs still
+            # work.
+            - name: IDP_HINT
+              value: {{ .Values.sso.idpHint | quote }}
             - name: OAUTH_KEY
               valueFrom:
                 secretKeyRef:
@@ -152,6 +164,12 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            # G117.5 #2744 — mount the full SSO Secret so the Job can
+            # read authorize_url/token_url/userinfo_url alongside the
+            # short key+secret env vars.
+            - name: sso-bundle
+              mountPath: /etc/sso-bundle
+              readOnly: true
           command: ["/bin/bash", "-c"]
           args:
             - |
@@ -162,6 +180,7 @@ spec:
               echo "  AUTO_DISCOVER_URL=${AUTO_DISCOVER_URL}"
               echo "  ADMIN_GROUP=${ADMIN_GROUP}"
               echo "  GITEA_NAMESPACE=${GITEA_NAMESPACE}"
+              echo "  IDP_HINT=${IDP_HINT}"
 
               # Wait for gitea Pod Ready (up to 10 min — first install
               # races bp-cnpg + ESO + the upstream init container).
@@ -195,16 +214,48 @@ spec:
                   '$2 ~ name && $3 ~ /OAuth2/ {gsub(/ /,"",$1); print $1}' \
                 | head -n1 || true)"
 
-              # Build a common arg list.
-              COMMON_ARGS=(
-                --provider openidConnect
-                --key "${OAUTH_KEY}"
-                --secret "${OAUTH_SECRET}"
-                --auto-discover-url "${AUTO_DISCOVER_URL}"
-                --scopes "${OIDC_SCOPES}"
-                --group-claim-name "${GROUP_CLAIM_NAME}"
-                --admin-group "${ADMIN_GROUP}"
-              )
+              # G117.5: if the ESO-rendered Secret already carries the
+              # hinted authorize_url, use --use-custom-url-mapping +
+              # --auth-url so the IDP hint reaches KC. Otherwise fall
+              # back to auto-discover.
+              AUTH_URL_FILE="/etc/sso-bundle/authorize_url"
+              TOKEN_URL_FILE="/etc/sso-bundle/token_url"
+              USERINFO_URL_FILE="/etc/sso-bundle/userinfo_url"
+
+              if [ -n "${IDP_HINT}" ] \
+                 && [ -s "${AUTH_URL_FILE}" ] \
+                 && [ -s "${TOKEN_URL_FILE}" ] \
+                 && [ -s "${USERINFO_URL_FILE}" ]; then
+                AUTH_URL="$(cat "${AUTH_URL_FILE}")"
+                TOKEN_URL="$(cat "${TOKEN_URL_FILE}")"
+                USERINFO_URL="$(cat "${USERINFO_URL_FILE}")"
+                echo "[$(date -u +%FT%TZ)] using custom URL mapping (IDP_HINT=${IDP_HINT})"
+                echo "  AUTH_URL=${AUTH_URL}"
+                COMMON_ARGS=(
+                  --provider openidConnect
+                  --key "${OAUTH_KEY}"
+                  --secret "${OAUTH_SECRET}"
+                  --use-custom-url-mapping
+                  --custom-auth-url "${AUTH_URL}"
+                  --custom-token-url "${TOKEN_URL}"
+                  --custom-profile-url "${USERINFO_URL}"
+                  --scopes "${OIDC_SCOPES}"
+                  --group-claim-name "${GROUP_CLAIM_NAME}"
+                  --admin-group "${ADMIN_GROUP}"
+                )
+              else
+                echo "[$(date -u +%FT%TZ)] using auto-discover (no IDP_HINT or ESO Secret not yet populated)"
+                COMMON_ARGS=(
+                  --provider openidConnect
+                  --key "${OAUTH_KEY}"
+                  --secret "${OAUTH_SECRET}"
+                  --auto-discover-url "${AUTO_DISCOVER_URL}"
+                  --scopes "${OIDC_SCOPES}"
+                  --group-claim-name "${GROUP_CLAIM_NAME}"
+                  --admin-group "${ADMIN_GROUP}"
+                )
+              fi
+
               if [ -n "${RESTRICTED_GROUP}" ]; then
                 COMMON_ARGS+=( --restricted-group "${RESTRICTED_GROUP}" )
               fi
@@ -225,4 +276,13 @@ spec:
         - name: tmp
           emptyDir:
             sizeLimit: 16Mi
+        # G117.5 #2744 — the full SSO Secret as a projected volume so
+        # the Job reads the hinted authorize_url alongside the bare
+        # client_id+client_secret. optional=true so the Job still
+        # renders + runs in the fallback (--auto-discover-url) path on
+        # first install before ESO has populated the bundle keys.
+        - name: sso-bundle
+          secret:
+            secretName: gitea-oauth-source-credentials
+            optional: true
 {{- end }}

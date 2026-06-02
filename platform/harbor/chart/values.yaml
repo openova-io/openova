@@ -454,6 +454,13 @@ sso:
   # cert-manager-managed cert which is trusted by Harbor's pod's CA bundle
   # (cert-manager Issuer is one of the bootstrap-kit's CA roots).
   verifyCert: true
+  # G117.5 #2744 — Identity Provider hint injected via Harbor's
+  # `oidc_extra_redirect_parms` config field so KC's IDR delegates
+  # silently to the catalyst-pin broker on every Harbor `/c/oidc/login`
+  # redirect. Defense-in-depth to the realm-config IDR `defaultProvider`
+  # binding (bp-keycloak 1.4.9+). Per-Sovereign overlay may override
+  # (empty string disables defense-in-depth).
+  idpHint: catalyst-pin
   configureJob:
     image: harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1
 

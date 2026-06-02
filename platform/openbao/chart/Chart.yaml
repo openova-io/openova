@@ -1,10 +1,20 @@
 apiVersion: v2
 name: bp-openbao
+# 1.2.23 (G117.5 #2744, 2026-06-02): SSO Tier-1 codification companion
+# bump. Adds `sso.idpHint` value documenting that OpenBao's OIDC backend
+# does NOT expose an `auth_url` query-param knob (per upstream
+# builtin/credential/jwt/path_oidc.go createOIDCRequest); silent SSO via
+# catalyst-pin is therefore delivered EXCLUSIVELY by the realm-config
+# IDR `defaultProvider` binding shipped in bp-keycloak 1.4.9+. No
+# behavioural change to the sso-configure Deployment loop. Bump is for
+# value-schema parity with the other Tier-1 charts (bp-grafana,
+# bp-gitea, bp-harbor) so per-Sovereign overlays can override the hint
+# uniformly. Refs #2744.
 # 1.2.17 (Fix #1902, TBD-A40, 2026-05-19): omit HTTPRoute parentRef
 # sectionName by default — multi-zone Sovereigns rename HTTPS listeners
 # to https-<sanitised-zone>, breaking NoMatchingListener with the prior
 # pinned sectionName: https. Matches the catalyst-system fix in PR #1888.
-version: 1.2.22
+version: 1.2.23
 # 1.2.20 (G91.openbao #2655, 2026-05-31): opt in to the bp-sso-bridge
 # (G91.1 #2652) SSO framework. Top-level `sso:` block (defaults
 # enabled=true). Adds: templates/sso-oauth-source-externalsecret.yaml

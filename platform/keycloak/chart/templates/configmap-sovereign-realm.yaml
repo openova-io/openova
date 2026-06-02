@@ -382,6 +382,187 @@ data:
           "attributes": {
             "access.token.lifespan": "300"
           }
+        }{{- /*
+        G117.5 #2744 — Tier-1 silent-SSO clients codified in realm import.
+
+        Each entry below pre-declares the per-app OIDC client that
+        bp-sso-bridge previously POSTed at runtime via the Admin API
+        (see platform/sso-bridge/chart/templates/configmap-reconciler.yaml
+        emit_external_secret). The bridge still owns:
+          - distribution of the client_secret into OpenBao
+            `secret/sso/<clientId>` (then ExternalSecret-mirrored into
+            the consumer namespace)
+          - operator-user grant (admin client-role mapping)
+          - cleanup of orphaned ExternalSecrets
+
+        What changes with codification:
+          - On a fresh install the realm import creates these 4 clients
+            BEFORE bp-sso-bridge runs. The bridge's loop then finds them
+            on its first tick ("Existing Client: KC returns stored secret;
+            reuse it") and populates OpenBao with the secret baked into
+            the realm-import JSON below.
+          - Founder/operator manual recovery procedure
+            (feedback_sso_manual_recovery_procedure.md Step 2: "create
+            realm + 4 clients manually") becomes obsolete. The 4 clients
+            are part of the canonical realm shape.
+          - Per `bp-keycloak.tier1ClientSecret` helper, each client's
+            `secret` field is derived deterministically from
+            Release.Name|Release.Namespace|clientId — so chart upgrade
+            renders the same value, AND each Sovereign gets a unique
+            value (no shared default across deployments).
+          - `kc_idp_hint=catalyst-pin` defense-in-depth: each redirectUri
+            allows the per-app SSO callback; the consumer apps put
+            `?kc_idp_hint=catalyst-pin` on the authorize_url they construct
+            (see per-app chart values), and the realm-config IDR
+            `defaultProvider` makes that hint redundant but cheap.
+        */ -}},
+        {
+          "clientId": "grafana",
+          "name": "Grafana (Tier-1 silent-SSO)",
+          "description": "G117.5 #2744 — observability UI silent-SSO via catalyst-pin broker.",
+          "enabled": true,
+          "publicClient": false,
+          "standardFlowEnabled": true,
+          "directAccessGrantsEnabled": false,
+          "implicitFlowEnabled": false,
+          "serviceAccountsEnabled": false,
+          "authorizationServicesEnabled": false,
+          "secret": {{ include "bp-keycloak.tier1ClientSecret" (dict "ctx" . "clientId" "grafana") | quote }},
+          "redirectUris": [
+            "https://grafana.{{ .Values.sovereignFQDN }}/*"
+          ],
+          "webOrigins": [
+            "https://grafana.{{ .Values.sovereignFQDN }}"
+          ],
+          "defaultClientScopes": [
+            "web-origins",
+            "acr",
+            "profile",
+            "roles",
+            "email",
+            "groups"
+          ],
+          "optionalClientScopes": [
+            "address",
+            "phone",
+            "offline_access",
+            "microprofile-jwt"
+          ],
+          "attributes": {
+            "access.token.lifespan": "900",
+            "post.logout.redirect.uris": "https://grafana.{{ .Values.sovereignFQDN }}/*"
+          }
+        },
+        {
+          "clientId": "gitea",
+          "name": "Gitea (Tier-1 silent-SSO)",
+          "description": "G117.5 #2744 — code-host silent-SSO via catalyst-pin broker.",
+          "enabled": true,
+          "publicClient": false,
+          "standardFlowEnabled": true,
+          "directAccessGrantsEnabled": false,
+          "implicitFlowEnabled": false,
+          "serviceAccountsEnabled": false,
+          "authorizationServicesEnabled": false,
+          "secret": {{ include "bp-keycloak.tier1ClientSecret" (dict "ctx" . "clientId" "gitea") | quote }},
+          "redirectUris": [
+            "https://gitea.{{ .Values.sovereignFQDN }}/*"
+          ],
+          "webOrigins": [
+            "https://gitea.{{ .Values.sovereignFQDN }}"
+          ],
+          "defaultClientScopes": [
+            "web-origins",
+            "acr",
+            "profile",
+            "roles",
+            "email",
+            "groups"
+          ],
+          "optionalClientScopes": [
+            "address",
+            "phone",
+            "offline_access",
+            "microprofile-jwt"
+          ],
+          "attributes": {
+            "access.token.lifespan": "900",
+            "post.logout.redirect.uris": "https://gitea.{{ .Values.sovereignFQDN }}/*"
+          }
+        },
+        {
+          "clientId": "harbor",
+          "name": "Harbor (Tier-1 silent-SSO)",
+          "description": "G117.5 #2744 — registry UI silent-SSO via catalyst-pin broker. EXT_ENDPOINT in Harbor core ConfigMap MUST match the registry.<sov-fqdn> redirectUri.",
+          "enabled": true,
+          "publicClient": false,
+          "standardFlowEnabled": true,
+          "directAccessGrantsEnabled": false,
+          "implicitFlowEnabled": false,
+          "serviceAccountsEnabled": false,
+          "authorizationServicesEnabled": false,
+          "secret": {{ include "bp-keycloak.tier1ClientSecret" (dict "ctx" . "clientId" "harbor") | quote }},
+          "redirectUris": [
+            "https://registry.{{ .Values.sovereignFQDN }}/*"
+          ],
+          "webOrigins": [
+            "https://registry.{{ .Values.sovereignFQDN }}"
+          ],
+          "defaultClientScopes": [
+            "web-origins",
+            "acr",
+            "profile",
+            "roles",
+            "email",
+            "groups"
+          ],
+          "optionalClientScopes": [
+            "address",
+            "phone",
+            "offline_access",
+            "microprofile-jwt"
+          ],
+          "attributes": {
+            "access.token.lifespan": "900",
+            "post.logout.redirect.uris": "https://registry.{{ .Values.sovereignFQDN }}/*"
+          }
+        },
+        {
+          "clientId": "openbao",
+          "name": "OpenBao (Tier-1 silent-SSO)",
+          "description": "G117.5 #2744 — secrets-manager UI silent-SSO via catalyst-pin broker. CLI loopback included for `bao login -method=oidc`.",
+          "enabled": true,
+          "publicClient": false,
+          "standardFlowEnabled": true,
+          "directAccessGrantsEnabled": false,
+          "implicitFlowEnabled": false,
+          "serviceAccountsEnabled": false,
+          "authorizationServicesEnabled": false,
+          "secret": {{ include "bp-keycloak.tier1ClientSecret" (dict "ctx" . "clientId" "openbao") | quote }},
+          "redirectUris": [
+            "https://bao.{{ .Values.sovereignFQDN }}/ui/vault/auth/oidc/oidc/callback",
+            "http://localhost:8250/oidc/callback"
+          ],
+          "webOrigins": [
+            "https://bao.{{ .Values.sovereignFQDN }}"
+          ],
+          "defaultClientScopes": [
+            "web-origins",
+            "acr",
+            "profile",
+            "roles",
+            "email",
+            "groups"
+          ],
+          "optionalClientScopes": [
+            "address",
+            "phone",
+            "offline_access",
+            "microprofile-jwt"
+          ],
+          "attributes": {
+            "access.token.lifespan": "900"
+          }
         }
       ],
       "clientScopeMappings": {

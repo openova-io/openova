@@ -1,5 +1,21 @@
 apiVersion: v2
 name: bp-keycloak
+# 1.4.10 (G117.5 #2744, 2026-06-02): Tier-1 silent-SSO clients codified
+# in the sovereign realm-import. New entries appended to clients[]:
+#   - grafana       (redirectUris: https://grafana.<sov-fqdn>/*)
+#   - gitea         (redirectUris: https://gitea.<sov-fqdn>/*)
+#   - harbor        (redirectUris: https://registry.<sov-fqdn>/*)
+#   - openbao       (redirectUris: https://bao.<sov-fqdn>/ui/vault/auth/
+#                    oidc/oidc/callback + http://localhost:8250/oidc/callback)
+# Each client's `secret` is derived deterministically via the new
+# `bp-keycloak.tier1ClientSecret` named template (sha256sum of
+# Release.Name|Release.Namespace|clientId — stable across renders, unique
+# per Sovereign). bp-sso-bridge's reconcile loop discovers these on its
+# first tick (existing-client codepath: KC returns the stored secret;
+# bridge reuses it) and distributes the bundle to OpenBao
+# `secret/sso/<clientId>`. Codifies the manual step "create realm + 4
+# clients manually" from feedback_sso_manual_recovery_procedure.md
+# Step 2. Refs #2744.
 # 1.4.9 (G113 #2725 followup, 2026-06-02): codify the runtime KC fix
 # discovered while debugging hw86 silent-SSO. The sovereign realm import
 # now ships `authenticatorConfig: [{alias: catalyst-pin-redirector,
@@ -24,7 +40,7 @@ name: bp-keycloak
 # sectionName by default — multi-zone Sovereigns rename HTTPS listeners
 # to https-<sanitised-zone>, breaking NoMatchingListener with the prior
 # pinned sectionName: https. Matches the catalyst-system fix in PR #1888.
-version: 1.4.9
+version: 1.4.10
 description: |
   Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
   upstream `keycloak` chart (bitnami) as a Helm subchart so

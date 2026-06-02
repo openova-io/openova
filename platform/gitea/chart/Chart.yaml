@@ -1,5 +1,14 @@
 apiVersion: v2
 name: bp-gitea
+# 1.2.13 (G117.5 #2744, 2026-06-02): SSO defense-in-depth via
+# kc_idp_hint=catalyst-pin. ExternalSecret now appends the hint to the
+# `authorize_url` written into gitea-oauth-source-credentials; the
+# configure-oauth Job switches to `--use-custom-url-mapping --custom-
+# auth-url` when IDP_HINT is non-empty, so the hinted URL reaches KC on
+# every Gitea /user/oauth2/openova-sso redirect. Falls back to --auto-
+# discover-url when the ESO Secret hasn't yet populated the bundle keys
+# (early in install). Defense-in-depth to the realm-config IDR
+# `defaultProvider` binding shipped by bp-keycloak 1.4.9+. Refs #2744.
 # 1.2.6 (Fix #163, 2026-05-11, MIRROR-EVERYTHING): database-secret-sync-job
 # hook image switched from curlimages/curl:8.10.1 to
 # harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1 per CLAUDE.md
@@ -29,7 +38,7 @@ name: bp-gitea
 # directly in Gitea as a site admin via OIDC. Local `gitea_admin` user
 # remains the break-glass account for bp-self-sovereign-cutover Step 1.
 # Per SECURITY.md §6.3 (App-level SSO).
-version: 1.2.12
+version: 1.2.13
 description: |
   Catalyst-curated Blueprint umbrella chart for Gitea. Depends on the
   upstream `gitea` chart (dl.gitea.com) as a Helm subchart so

@@ -244,3 +244,11 @@ sso:
   # import; users in this group land as Gitea site admins.
   adminGroup: sovereign-admins
   restrictedGroup: ""
+  # G117.5 #2744 — Identity Provider hint appended to the authorize_url
+  # written into gitea-oauth-source-credentials Secret by the
+  # ExternalSecret template. Combined with the bp-keycloak 1.4.9+ realm-
+  # config IDR `defaultProvider=catalyst-pin` binding, this delivers
+  # silent SSO without the KC username/password form. Per-Sovereign
+  # overlay may override (empty string disables defense-in-depth and
+  # falls back to --auto-discover-url at OAuth-source configure time).
+  idpHint: catalyst-pin
