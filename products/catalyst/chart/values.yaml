@@ -1722,9 +1722,17 @@ security:
 # templates/migrate-applications-instanceId-job.yaml. Operators can disable
 # specific migrations via per-Sovereign valuesFrom overlay if they want to
 # defer the backfill to a separate ops window.
+# NOTE: this block appears twice in this file because PR #2795 + PR #2823
+# both added it; Helm keeps the last definition, so both must stay aligned.
+# Default is `enabled: false` because the image
+# `ghcr.io/openova-io/catalyst-migrator:0.1.0` is NOT (yet) published to GHCR
+# (#2830). Operators that have built+published the migrator image can flip
+# this to true via per-Sovereign valuesFrom overlay. Once #2830 closes
+# (image published + imagePullSecrets wired into the Pod template), flip
+# this default back to true.
 migrations:
   applicationsInstanceId:
-    enabled: true
+    enabled: false
     dryRun: false
     serviceAccountName: catalyst-application-migrator
     image: ghcr.io/openova-io/catalyst-migrator:0.1.0
@@ -1732,9 +1740,13 @@ migrations:
 # ── Migrations (post-install / post-upgrade Helm-hook Jobs) ──────────────
 # Per PR #2795 (G117.2 multi-instance Application CRD): backfill spec.instanceId
 # on legacy Application CRs that pre-date the immutable-id field.
+#
+# Duplicate of the block above — Helm keeps the LAST `migrations:` map seen
+# (per YAML merge semantics) so this is the effective default. Flipped to
+# `enabled: false` per #2830 — see comment above the previous block.
 migrations:
   applicationsInstanceId:
-    enabled: true
+    enabled: false
     dryRun: false
     serviceAccountName: catalyst-application-migrator
     image: ghcr.io/openova-io/catalyst-migrator:0.1.0

@@ -1,5 +1,20 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.439 — G117.E2E-A1 #2830 (2026-06-03): default
+# `.Values.migrations.applicationsInstanceId.enabled` to FALSE until the
+# `ghcr.io/openova-io/catalyst-migrator:0.1.0` image actually exists on
+# GHCR. Currently the package is 404 on GHCR (`gh api ...catalyst-migrator
+# = Package not found`) so the post-install/post-upgrade hook Job
+# `catalyst-platform-migrate-applications-instance-id` is stuck in
+# ImagePullBackOff → exhausts backoffLimit:3 → Helm rolls back the entire
+# bp-catalyst-platform HR → bp-sso-bridge + bp-continuum + everything else
+# downstream stalls Ready=False on `dependency 'flux-system/bp-
+# catalyst-platform' is not ready`. Caught live on hw86 2026-06-03 while
+# unblocking the G117.E2E-A1 cascade. Operators that have built+published
+# the migrator image themselves can re-enable via per-Sovereign overlay
+# `migrations.applicationsInstanceId.enabled: true`. Once #2830 closes
+# (image published + imagePullSecrets wired into Pod spec) this default
+# flips back to true. Refs #2830 #2737 #2816 #2795 #2823.
 # 1.4.249 — Wave 5.7 / #2140 (2026-05-23) comprehensive HCS audit +
 # single-pass fixes for the Huawei OpenTofu module. After 6 incremental
 # 1-line fix PRs (#2146 #2148 #2149 #2150 #2152 #2153 — each surfacing
@@ -2366,7 +2381,7 @@ name: bp-catalyst-platform
 # validate clean; 4 pre-existing failures (placementSchema bounds in
 # bp-{dmz,rtz}-vcluster + bare-string depends[] in powerdns-admin +
 # sso-bridge) are unrelated to this slice.
-version: 1.4.438
+version: 1.4.439
 appVersion: 1.4.349
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
