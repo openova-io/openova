@@ -288,9 +288,9 @@ images:
   organization: "openova-io/openova"
   # SHA tags — bump these via CI when building new images.
   catalystApi:
-    tag: "626cc1e"
+    tag: "44dedf2"
   catalystUi:
-    tag: "626cc1e"
+    tag: "44dedf2"
   marketplaceApi:
     tag: "3c2f7e4"
   console:
@@ -504,7 +504,7 @@ controllers:
       # cross-namespace ownerRef on the host-side Flux CRs (was being
       # silently GC'd by the K8s collector because Application lives
       # in a different namespace from flux-system).
-      tag: "44dedf2"
+      tag: "8d01e2f"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
