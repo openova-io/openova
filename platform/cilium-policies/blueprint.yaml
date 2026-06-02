@@ -1,0 +1,60 @@
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-cilium-policies
+  labels:
+    catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
+spec:
+  # G117.1-followup (Refs #2749, 2026-06-02): initial spec.topology
+  # declaration AND fresh chart scaffold. Per
+  # docs/sessions/2026-06-02-per-blueprint-topology-audit.md row 54
+  # (bp-cilium-policies): per-host-cluster singleton, replicated via
+  # Flux from Git (the source-of-truth is the Catalyst monorepo;
+  # Flux pulls them onto every cluster).
+  #
+  # CRDs-only chart — emits CiliumNetworkPolicy + CiliumClusterwideNetwork
+  # Policy CRs. The CRDs themselves are installed by bp-cilium (the
+  # engine chart). This chart MUST install AFTER bp-cilium so the
+  # apiserver's RESTMapper has learned cilium.io/v2.CiliumNetworkPolicy
+  # before Helm tries to apply the policy CRs (same CRD-ordering shape
+  # that bp-kyverno-policies addresses for Kyverno; see Issue #2019).
+  version: 1.0.0
+  card:
+    title: Cilium Policy Library
+    family: networking
+    description: |
+      Catalyst-authored CiliumNetworkPolicy / CiliumClusterwideNetwork
+      Policy CR library. Per-cluster network microsegmentation overlay
+      on top of bp-cilium (the engine) and bp-network-policies (the
+      default-deny baseline). Future per-Application allow rules will
+      be authored here.
+    docs: https://docs.cilium.io/en/stable/security/policy/
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        replication:
+          backend: flux-git
+          mode: async
+        placement:
+          tier: ''
+          clusters:
+            - mgmt-A
+            - mgmt-B
+            - dmz-A
+            - dmz-B
+            - rtz-A
+            - rtz-B
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  multiInstance:
+    enabled: false

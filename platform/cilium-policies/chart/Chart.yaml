@@ -1,0 +1,55 @@
+apiVersion: v2
+name: bp-cilium-policies
+# G117.1-followup (Refs #2749, 2026-06-02): initial fresh scaffold.
+# CRDs-only chart that emits CiliumNetworkPolicy /
+# CiliumClusterwideNetworkPolicy CR overlays on top of bp-cilium
+# (which installs the cilium.io CRDs themselves). Same architectural
+# split as bp-kyverno (engine) + bp-kyverno-policies (policy library):
+# splitting prevents the CRD install-ordering race where Helm tries to
+# apply policy CRs before the apiserver RESTMapper has learned the
+# corresponding CRDs (see Issue #2019 for the canonical RCA on
+# Kyverno; the same pattern applies to Cilium).
+#
+# This scaffold ships ONE placeholder template (a documented allow-
+# intra-namespace CR gated by .Values.enabled=false). Real per-
+# Application policies will land in follow-up PRs as the application-
+# controller starts emitting CiliumNetworkPolicy CRs from
+# Blueprint.spec.networking.egress declarations.
+version: 1.0.0
+appVersion: "1.0.0"
+description: |
+  Catalyst Blueprint chart that ships the CiliumNetworkPolicy / Cilium
+  ClusterwideNetworkPolicy CR library — Catalyst-authored
+  microsegmentation overlay on top of bp-cilium (engine) +
+  bp-network-policies (default-deny baseline).
+
+  Split from bp-cilium (predecessor: policies would have shipped in-tree
+  with the engine) for the same CRD-ordering reason that bp-kyverno-
+  policies was split from bp-kyverno per Issue #2019 — the apiserver
+  RESTMapper must learn cilium.io/v2.CiliumNetworkPolicy before Helm
+  applies the policy CRs.
+type: application
+keywords: [catalyst, blueprint, cilium, network-policy, microsegmentation]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Annotations:
+#
+# - catalyst.openova.io/no-upstream: "true"
+#   Opt out of the hollow-chart guard (Blueprint-Release workflow / issue
+#   #181): this chart legitimately ships only Catalyst-authored CRs that
+#   target the cilium.io CRDs installed by bp-cilium. It has NO upstream
+#   Helm subchart to bundle. Same shape as bp-kyverno-policies +
+#   bp-network-policies + bp-crossplane-claims.
+#
+# - catalyst.openova.io/smoke-render-mode: "default-off"
+#   The initial scaffold defaults `.Values.enabled` to false (operator
+#   opts in explicitly when ready to ship CR policies). With default
+#   values the chart renders zero CRs (just header comments), tripping
+#   the smoke-render guard. Marking smoke-render-mode=default-off tells
+#   the guard to render with `--set enabled=true` instead. Removed once
+#   real per-Application CRs land and the default flips.
+annotations:
+  catalyst.openova.io/no-upstream: "true"
+  catalyst.openova.io/smoke-render-mode: "default-off"

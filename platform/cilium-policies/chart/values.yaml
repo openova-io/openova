@@ -1,0 +1,34 @@
+# bp-cilium-policies values — Catalyst CiliumNetworkPolicy overlay.
+#
+# G117.1-followup (Refs #2749, 2026-06-02): initial scaffold. Defaults
+# OFF — operator opts in once per-Application policies are authored.
+# Activating this chart on a fresh Sovereign without policy content
+# would render zero CRs (no-op), which is the intentional initial
+# state.
+#
+# Schema mirrors bp-kyverno-policies and bp-network-policies — the
+# top-level `enabled` gate plus per-policy nested maps for the policy
+# library that will follow in subsequent PRs.
+
+# Master gate. Default OFF — opt-in until real policy content lands.
+# Operator flips to true per Sovereign overlay (or via the umbrella
+# bp-catalyst-platform values) once a per-Application allow-rule
+# library is ready to ship. With `enabled: false` the chart renders
+# only the header comment in the placeholder template — installation
+# is a no-op (does NOT sever any traffic).
+enabled: false
+
+# Per-policy gates. Each entry is a nested map keyed by a stable
+# policy name; populated as real policies are authored. Schema per
+# policy (proposed, finalised when first real policy lands):
+#
+#   <name>:
+#     enabled: bool                  # required — gate
+#     description: string            # operator-facing rationale
+#     mode: "audit" | "enforce"      # default audit
+#     selector: {...}                # CiliumNetworkPolicy endpointSelector
+#     ingress: [...]                 # CiliumNetworkPolicy ingress rules
+#     egress: [...]                  # CiliumNetworkPolicy egress rules
+#
+# Until populated, this map exists for documentation only.
+policies: {}
