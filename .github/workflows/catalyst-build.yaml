@@ -598,6 +598,115 @@ jobs:
           # old image while the Sovereign provisioning churned through
           # the same SHA being fixed downstream).
 
+      # #2851 (2026-06-03) — controller-image freshness sweep.
+      #
+      # Background: each of the 5 Group C controllers (application /
+      # blueprint / environment / organization / useraccess) has its
+      # OWN build workflow that auto-bumps its OWN values.yaml tag on
+      # push-to-main. In theory the chart converges. In practice the
+      # H9 walk on 2026-06-03 caught 4 of 5 controllers pinned to
+      # `8d01e2f` (G93.2-era, pre-G117.6) for weeks — every per-
+      # controller auto-bump that fired between G93.2 and G117.6
+      # silently dropped: bot-author push race against parallel deploy
+      # commits, dispatch step skipped because the controller's PR
+      # also touched core/console/ (so the catalyst-build path filter
+      # fired first), Chart.yaml bump landing on a non-image commit
+      # that masked the controller bump, etc. Result: chart shipped a
+      # binary BEFORE G117.6 PR #2790 → application-controller had
+      # NO topology fan-out + NO multi-instance fields. Same root
+      # class as PR #2854/#2865 PIN-login outage (catalyst-api shipping
+      # at `2ae493f` — a SHA BEFORE PR #2854's env rename).
+      #
+      # Defense: every catalyst-build deploy step now ALSO sweeps the
+      # 5 controller pins by resolving the LATEST pushed SHA tag from
+      # GHCR for each controller package and stamping it into
+      # values.yaml. This is belt-and-braces — controllers also retain
+      # their own auto-bump, but the catalyst-build sweep guarantees
+      # that *every* time the catalyst chart re-publishes, controller
+      # pins are at most as stale as the latest pushed image. Since
+      # blueprint-release fires from this same job, the chart and the
+      # controller pins re-sync on every catalyst-build run.
+      #
+      # GHCR API: `/orgs/openova-io/packages/container/<name>/versions`
+      # — pattern already used by scripts/check-bootstrap-kit-pin-
+      # sync.sh:332. Returns versions sorted by created_at desc.
+      # `updated_at` of the topmost non-`sha256-` tag = latest pushed
+      # image. We extract its short-SHA tag (7-hex) and stamp it.
+      - name: '#2851 — Sweep controller image tags from latest GHCR pushes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VALUES="products/catalyst/chart/values.yaml"
+
+          # Per-controller mapping: values-key (under `controllers:`)
+          # → GHCR package name. Add new controllers here when they
+          # land in core/controllers/ and have a build-*-controller
+          # workflow registered in scripts/check-controller-workflow-
+          # uniformity.sh.
+          declare -A CTRL_PKG=(
+            [application]=application-controller
+            [blueprint]=blueprint-controller
+            [environment]=environment-controller
+            [organization]=organization-controller
+            [useraccess]=useraccess-controller
+          )
+
+          bumped=0
+          for key in "${!CTRL_PKG[@]}"; do
+            pkg="${CTRL_PKG[$key]}"
+            # Query GHCR for the most-recently-pushed tag. We filter
+            # out cosign signature artifacts (sha256-…) and the
+            # rolling `latest` tag (which is just an alias, not a
+            # SHA-pinnable target per Principle #4a). The remaining
+            # entries are 7-hex short SHAs stamped by the per-
+            # controller build workflow. Take the first 7-hex hit on
+            # the highest-`updated_at` version → that's the latest
+            # main-HEAD push.
+            tag=$(gh api "/orgs/openova-io/packages/container/${pkg}/versions" --paginate 2>/dev/null \
+              | jq -r '[.[] | {u:.updated_at, tags:(.metadata.container.tags // [])}]
+                       | sort_by(.u) | reverse
+                       | .[].tags[]?' 2>/dev/null \
+              | grep -vE '^(sha256-|latest$)' \
+              | grep -E '^[0-9a-f]{7}$' \
+              | head -1 || true)
+
+            if [ -z "${tag}" ]; then
+              echo "WARN: GHCR returned no 7-hex tag for ${pkg} — skipping controller bump (chart will keep current pin)."
+              continue
+            fi
+
+            # Read the current pin from values.yaml so we can no-op
+            # if already in sync (avoids needless commits).
+            cur=$(awk -v k="${key}" '
+              /^controllers:/ { in_c=1 }
+              in_c && $0 ~ "^  " k ":" { in_k=1; next }
+              in_c && /^  [a-z]/ && !($0 ~ "^  " k ":") { in_k=0 }
+              in_k && /^      tag:/ {
+                match($0, /"[^"]*"/); print substr($0, RSTART+1, RLENGTH-2); exit
+              }
+            ' "${VALUES}")
+
+            if [ "${cur}" = "${tag}" ]; then
+              echo "OK: controllers.${key}.image.tag already at ${tag}"
+              continue
+            fi
+
+            # Awk patch mirrors the per-controller workflow's bump
+            # (build-organization-controller.yaml lines 170-176 et
+            # al.) so chart-side semantics stay identical.
+            awk -v k="${key}" -v sha="${tag}" '
+              /^controllers:/ { in_c=1 }
+              in_c && $0 ~ "^  " k ":" { print; in_k=1; next }
+              in_c && /^  [a-z]/ && !($0 ~ "^  " k ":") { in_k=0 }
+              in_k && /^      tag:/ { sub(/"[^"]*"/, "\"" sha "\""); in_k=0 }
+              { print }
+            ' "${VALUES}" > "${VALUES}.tmp" && mv "${VALUES}.tmp" "${VALUES}"
+            echo "BUMPED: controllers.${key}.image.tag ${cur} -> ${tag}"
+            bumped=$((bumped + 1))
+          done
+          echo "#2851 sweep: bumped ${bumped}/5 controller pin(s) to latest GHCR."
+
       # values.yaml + the two literal-image templates (api-deployment,
       # ui-deployment) are bumped together so:
       #   - Sovereigns get the new SHA via the next OCI chart publish
@@ -624,7 +733,7 @@ jobs:
             products/catalyst/chart/templates/api-deployment-kustomize.yaml
             products/catalyst/chart/templates/ui-deployment.yaml
             products/catalyst/chart/Chart.yaml
-          commit-message: "deploy: update catalyst images to ${{ needs.build-ui.outputs.sha_short }}"
+          commit-message: "deploy: update catalyst images to ${{ needs.build-ui.outputs.sha_short }} (+ #2851 controller sweep)"
 
       # Closes #712. The push above is made by GITHUB_TOKEN; per GitHub
       # Actions design, commits authored by GITHUB_TOKEN do NOT re-trigger

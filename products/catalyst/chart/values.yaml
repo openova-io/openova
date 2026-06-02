@@ -400,10 +400,12 @@ controllers:
       # 7ff7ea8 (2026-06-02) which itself superseded c9b58ea (TBD-A68
       # / #1997, 2026-05-20). Picks up the latest organization-
       # controller main-HEAD push including G117.2/G117.3b iac-bootstrap.
-      # The CI auto-image-bump workflow covers catalystApi/catalystUi/
-      # marketplaceApi/console only — controller images drift through
-      # chart bumps until a manual edit lands. Follow-up issue tracks
-      # closing that gap.
+      # #2851 (2026-06-03): controller pins are now auto-bumped by
+      # (a) each build-*-controller.yaml's own auto-bump step and
+      # (b) the catalyst-build.yaml #2851 sweep step on every catalyst
+      # rebuild, plus (c) the controller-image-tag freshness guard
+      # (scripts/check-controller-image-tag-freshness.sh) fails any PR
+      # that lets a controller pin drift > 50 commits behind GHCR.
       # Previously: c9b58ea = TBD-A68 fix (#1997, 2026-05-20) — picks
       # up PR #1910's gitea-client fix (POST /api/v1/orgs instead of
       # the admin-only /api/v1/admin/orgs endpoint that returned HTTP
@@ -444,9 +446,8 @@ controllers:
       repository: "ghcr.io/openova-io/openova/environment-controller"
       # 32050f0 = H9-walk follow-up (#2745, 2026-06-03) — bumped from
       # 8d01e2f (2026-05-31) to the latest environment-controller main-
-      # HEAD push (2026-06-02). The CI auto-image-bump workflow covers
-      # catalystApi/catalystUi/marketplaceApi/console only — controller
-      # images drift through chart bumps until a manual edit lands.
+      # HEAD push (2026-06-02). #2851 sweep + freshness guard now
+      # keeps this pin in sync — see organization-controller note above.
       # Previously: a3ba200 = qa-loop iter-8 Fix #42 follow-up (#1257)
       # — adds EnsureBranch before PutFile so Gitea's branch-missing
       # 404 (mapped to ErrRepoNotFound by the client) no longer dead-
@@ -516,10 +517,9 @@ controllers:
       # 44dedf2 = H9-walk follow-up (#2745, 2026-06-03) — bumped from
       # 8d01e2f (G93.2 era, pre-G117.6). 44dedf2 is the latest main-
       # HEAD push (2026-06-02) and contains G117.6 PR #2790 (commit
-      # 67e23a55) + G117.2 multi-instance fields. The CI auto-image-
-      # bump workflow covers catalystApi/catalystUi/marketplaceApi/
-      # console only — controller tags must be bumped manually until
-      # the gap is closed (follow-up issue tracked alongside this PR).
+      # 67e23a55) + G117.2 multi-instance fields. #2851 closed the
+      # drift gap — see organization-controller note above for the
+      # 3-layer defense (own auto-bump + catalyst-build sweep + guard).
       # Previously: a3ba200 = qa-loop iter-8 Fix #42 follow-up (#1257)
       # — drops cross-namespace ownerRef on the host-side Flux CRs
       # (was being silently GC'd by the K8s collector because
@@ -580,9 +580,8 @@ controllers:
       # SHA pinned to the latest GHCR-published push-on-main build per
       # docs/INVIOLABLE-PRINCIPLES.md #4a. dcd2bb3 = H9-walk follow-up
       # (#2745, 2026-06-03) — bumped from 8d01e2f (2026-05-31) to the
-      # latest useraccess-controller main-HEAD push (2026-06-02). The
-      # CI auto-image-bump workflow does not cover controller images;
-      # tracked as follow-up alongside this PR.
+      # latest useraccess-controller main-HEAD push (2026-06-02).
+      # #2851 closed the drift gap (auto-bump + sweep + freshness guard).
       tag: "dcd2bb3"
       pullPolicy: IfNotPresent
     replicas: 1

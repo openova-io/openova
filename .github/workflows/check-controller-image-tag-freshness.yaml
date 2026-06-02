@@ -1,0 +1,66 @@
+name: Controller-image-tag freshness guard
+
+# Defense for #2851 (2026-06-03) — pre-merge guard that fails if any of
+# the 5 Group C controller image tags in
+# products/catalyst/chart/values.yaml is more than 50 commits behind
+# the latest pushed image on GHCR.
+#
+# Background
+# ----------
+# Each controller has its own build-*-controller.yaml that auto-bumps
+# its OWN values.yaml tag on push-to-main (TBD-A69 / PRs #2005 #2012).
+# Despite that, the H9-walk on 2026-06-03 caught 4 of 5 controllers
+# pinned to `8d01e2f` (G93.2-era, pre-G117.6) for weeks — per-
+# controller auto-bumps had silently dropped on race / dispatch-skip /
+# Chart.yaml masking. Same root class as PR #2854/#2865 PIN-login
+# outage (catalyst-api shipping `2ae493f` BEFORE PR #2854's env
+# rename).
+#
+# This workflow runs the freshness check on every PR that touches
+# products/catalyst/chart/values.yaml (so PRs that manually bump pins
+# get caught) AND on every push to main (so the post-merge state is
+# audited even when the PR itself didn't touch values.yaml — e.g.
+# blueprint-release.yaml races). The catalyst-build.yaml #2851 sweep
+# step closes the gap proactively on every build; this guard is the
+# belt-and-braces gate that fails any merge re-introducing a stale
+# pin.
+#
+# Per `feedback_inviolable_principles.md`: event-driven only, NO cron.
+
+on:
+  pull_request:
+    paths:
+      - 'products/catalyst/chart/values.yaml'
+      - 'scripts/check-controller-image-tag-freshness.sh'
+      - '.github/workflows/check-controller-image-tag-freshness.yaml'
+  push:
+    branches: [main]
+    paths:
+      - 'products/catalyst/chart/values.yaml'
+      - 'scripts/check-controller-image-tag-freshness.sh'
+      - '.github/workflows/check-controller-image-tag-freshness.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  check:
+    name: Controller-image-tag freshness
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Need full history so `git rev-list <pin>..<latest>` can
+          # compute the lag. PR shallow clones drop the per-controller
+          # commits we're counting against.
+          fetch-depth: 0
+
+      - name: Run controller-image-tag freshness check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MAX_LAG_COMMITS: '50'
+        run: bash scripts/check-controller-image-tag-freshness.sh
