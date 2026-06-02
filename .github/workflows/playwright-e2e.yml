@@ -69,11 +69,16 @@ jobs:
 
       - name: Wait for console
         run: |
+          # The existing core/console Astro config serves under /nova base
+          # (see core/console/astro.config.mjs). Probe both / and /nova so
+          # this gate survives a future base-path change without re-edit.
           for i in $(seq 1 60); do
-            if curl -sf -o /dev/null http://localhost:4322/; then
-              echo "console ready after ${i}s"
-              exit 0
-            fi
+            for path in /nova/ /; do
+              if curl -sf -o /dev/null "http://localhost:4322${path}"; then
+                echo "console ready after ${i}s at ${path}"
+                exit 0
+              fi
+            done
             sleep 1
           done
           echo "console failed to start — log:"
@@ -87,7 +92,7 @@ jobs:
         run: |
           cat > /tmp/g117-scaffold-smoke.spec.ts <<'EOF'
           import { test, expect } from '@playwright/test';
-          const BASE = process.env.BASE_URL || 'http://localhost:4322';
+          const BASE = process.env.BASE_URL || 'http://localhost:4322/nova/';
           test('console root loads', async ({ page }) => {
             const r = await page.goto(BASE);
             expect(r?.status() ?? 0).toBeLessThan(500);
