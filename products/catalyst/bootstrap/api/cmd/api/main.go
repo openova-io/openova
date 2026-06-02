@@ -29,6 +29,7 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/newapi"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/openbao"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/powerdns"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/precheck"
 	// Side-effect import: registers every CloudProvider adapter
 	// (hetzner + huawei stub) against internal/providers/registry
 	// at init() time. Wave 2 — the registrations are passive; no
@@ -427,11 +428,19 @@ func main() {
 	// SOVEREIGN_REGIONS env when the dynamic client is unwired or the
 	// Sovereign CRD is absent (chroot dev surface).
 	var regionsCounter func(ctx context.Context) (int, error)
+	var certLookup precheck.CertConflictLookup
 	if dynCfg, derr := rest.InClusterConfig(); derr == nil {
 		if dynClient, dcerr := dynamic.NewForConfig(dynCfg); dcerr == nil {
 			regionsCounter = func(ctx context.Context) (int, error) {
 				return handler.CountSovereignRegions(ctx, dynClient)
 			}
+			// G117 #2864 (Gap 6) — wire the production cert-manager
+			// Certificate lookup so cert-manager-precheck auto-PASSes
+			// hostnames under the Sovereign's `*.<sov-fqdn>` wildcard
+			// Certificate. Without this wire the precheck returns
+			// `lookup-unavailable` (503) and every endpoint mutation
+			// fails on a live Sovereign.
+			certLookup = handler.NewProductionCertConflictLookup(dynClient)
 		}
 	}
 	// Production WriterFactory closure — routes through the per-Handler
@@ -449,11 +458,13 @@ func main() {
 		WriterFactory:  writerFactory,
 		SovereignFQDN:  env("SOVEREIGN_FQDN", ""),
 		RegionsCounter: regionsCounter,
+		CertLookup:     certLookup,
 	})
 	log.Info("g117.3: endpoint precheck deps wired",
 		"sovereignFQDN", env("SOVEREIGN_FQDN", ""),
 		"writerFactory", "Handler.NewProductionGiteaIaCWriter (per-Org openbao token, env fallback)",
 		"regionsCounter", regionsCounter != nil,
+		"certLookup", certLookup != nil,
 	)
 
 	// EPIC-3 #1098 slice U8 — RBAC audit Bus. Owns:

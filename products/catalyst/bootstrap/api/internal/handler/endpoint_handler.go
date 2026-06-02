@@ -1472,3 +1472,142 @@ func (n *noopStatusChecker) GetStatuses(_ context.Context, _, _, _ string) (map[
 
 // _ = silence unused-import linter when build tags vary.
 var _ = schema.GroupVersionResource{}
+
+// ── Production CertConflictLookup (G117 #2864 Gap 6) ────────────────
+
+// NewProductionCertConflictLookup returns a precheck.CertConflictLookup
+// that walks every cert-manager.io/v1 Certificate in the cluster and
+// matches by spec.commonName + spec.dnsNames[]. When the covering
+// Certificate uses a wildcard pattern (e.g. `*.<sov-fqdn>`) the
+// returned CertOwner sets IsWildcard=true + WildcardDomain to the
+// base domain so CheckCertManager can auto-PASS new hostnames under
+// the wildcard's scope (per G117 #2864 / Gap 6 of #2856).
+//
+// Owner labels are sourced from the Certificate's
+// `catalyst.openova.io/organization` + `catalyst.openova.io/app`
+// labels. The Sovereign-Gateway's wildcard Certificate typically
+// carries no per-Application owner labels — in that case we surface
+// (`sovereign`, `gateway`) as a deterministic placeholder so the
+// auto-PASS-by-wildcard branch fires cleanly without leaking
+// namespace/name internals into the verdict.
+//
+// Lookup precedence:
+//
+//  1. Exact match on spec.commonName (or any spec.dnsNames[] entry) —
+//     returns the owner of THAT Certificate directly. IsWildcard
+//     reflects whether the matched entry began with `*.`.
+//  2. Wildcard match: any Certificate whose commonName/dnsNames
+//     contains a `*.<base>` pattern that covers `hostname` (one
+//     label of depth, exact base-domain suffix). Returns the owner
+//     of the wildcard Certificate with IsWildcard=true +
+//     WildcardDomain=<base>.
+//  3. No match — (CertOwner{}, false, nil).
+//
+// Transport errors from the apiserver propagate as the err return so
+// CheckCertManager surfaces `lookup-failed` (HTTP 503-class). A
+// missing cert-manager CRD (chroot dev surface) returns
+// (CertOwner{}, false, nil) — no Certificates means no conflict.
+func NewProductionCertConflictLookup(dynClient dynamic.Interface) precheck.CertConflictLookup {
+	return func(ctx context.Context, hostname string) (precheck.CertOwner, bool, error) {
+		if dynClient == nil {
+			return precheck.CertOwner{}, false, errors.New("cert-manager lookup: dynamic client nil")
+		}
+		hostname = strings.ToLower(strings.TrimSpace(hostname))
+		if hostname == "" {
+			return precheck.CertOwner{}, false, nil
+		}
+		list, err := dynClient.Resource(certificateGVR).Namespace("").List(ctx, metav1.ListOptions{})
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return precheck.CertOwner{}, false, nil
+			}
+			return precheck.CertOwner{}, false, fmt.Errorf("cert-manager lookup: list certificates: %w", err)
+		}
+		var wildcardHit *precheck.CertOwner
+		for i := range list.Items {
+			c := &list.Items[i]
+			cn, _, _ := unstructured.NestedString(c.Object, "spec", "commonName")
+			dnsNames, _, _ := unstructured.NestedStringSlice(c.Object, "spec", "dnsNames")
+			candidates := make([]string, 0, len(dnsNames)+1)
+			if cn != "" {
+				candidates = append(candidates, cn)
+			}
+			candidates = append(candidates, dnsNames...)
+			owner := certOwnerFromObject(c)
+			for _, name := range candidates {
+				name = strings.ToLower(strings.TrimSpace(name))
+				if name == "" {
+					continue
+				}
+				// Exact match short-circuits regardless of wildcard.
+				if name == hostname {
+					o := owner
+					o.IsWildcard = strings.HasPrefix(name, "*.")
+					if o.IsWildcard {
+						o.WildcardDomain = strings.TrimPrefix(name, "*.")
+					}
+					return o, true, nil
+				}
+				// Wildcard candidate? Stash the first hit; an exact
+				// match later in the scan still wins (continues loop).
+				if strings.HasPrefix(name, "*.") {
+					base := strings.TrimPrefix(name, "*.")
+					if wildcardCovers(hostname, base) && wildcardHit == nil {
+						o := owner
+						o.IsWildcard = true
+						o.WildcardDomain = base
+						wildcardHit = &o
+					}
+				}
+			}
+		}
+		if wildcardHit != nil {
+			return *wildcardHit, true, nil
+		}
+		return precheck.CertOwner{}, false, nil
+	}
+}
+
+// certOwnerFromObject lifts (Org, App) from the Certificate's
+// canonical catalyst.openova.io labels. Sovereign-Gateway wildcard
+// certs typically carry no per-Application labels — we surface
+// (`sovereign`, `gateway`) as a deterministic placeholder so the
+// CheckCertManager auto-PASS-by-wildcard branch (G117 #2864) fires
+// without leaking namespace/name into the verdict.
+func certOwnerFromObject(c *unstructured.Unstructured) precheck.CertOwner {
+	labels := c.GetLabels()
+	org := ""
+	app := ""
+	if labels != nil {
+		org = strings.TrimSpace(labels["catalyst.openova.io/organization"])
+		app = strings.TrimSpace(labels["catalyst.openova.io/app"])
+	}
+	if org == "" {
+		org = "sovereign"
+	}
+	if app == "" {
+		app = "gateway"
+	}
+	return precheck.CertOwner{Org: org, App: app}
+}
+
+// wildcardCovers mirrors the precheck-package wildcard-scope rule
+// (TLS spec: `*.<base>` covers ONE label of depth, not the apex). We
+// inline it here so the production lookup is self-contained and the
+// precheck package's helper stays unexported.
+func wildcardCovers(hostname, base string) bool {
+	hostname = strings.ToLower(strings.TrimSpace(hostname))
+	base = strings.ToLower(strings.TrimSpace(base))
+	if hostname == "" || base == "" {
+		return false
+	}
+	suffix := "." + base
+	if !strings.HasSuffix(hostname, suffix) {
+		return false
+	}
+	prefix := strings.TrimSuffix(hostname, suffix)
+	if prefix == "" || strings.Contains(prefix, ".") {
+		return false
+	}
+	return true
+}
