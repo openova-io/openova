@@ -110,6 +110,51 @@ patterns are **not** approval — they are clues to investigate. Red flags to hu
 is the enemy. The issue closes only after the operator-walk-with-screenshot
 lands as a comment on the issue itself.
 
+### Autonomy mandate — NEVER call `AskUserQuestion` mid-session
+
+Founder rebuke 2026-06-03 (verbatim, while #2743 walk was in progress and the
+catalyst-api Pod was ContainerCreating): *"stop viloating fucking autonmous
+nonstop principeles!!! STop asking stupig quesiuons!!! never stop and never
+decrease the momentum until you reach to 100% DoD!!!!!!!"*
+
+**`AskUserQuestion` is a HARD BAN under any active autonomy mandate** — same
+class of violation as the closing-phrase patterns documented in memory
+[`feedback_never_pause_for_signal_when_autonomy_granted.md`](https://github.com/openova-io/openova/tree/main/docs)
+and the freshly-shipped
+[`feedback_never_askuserquestion_under_autonomy.md`](https://github.com/openova-io/openova/tree/main/docs).
+Asking "should I A or B?" halts dispatch and waits for human signal — that IS
+the violation, regardless of how nicely framed by a UI tool call.
+
+**Forbidden under autonomy:**
+
+- `AskUserQuestion` four-option pickers ("which path do you want?", "checkpoint
+  here or continue?", "A / B / C / abort?").
+- Any closing phrase that fishes for a green-light: "say the word", "ready when
+  you are", "awaiting your signal", "want me to", "should I proceed?".
+- Offering "stop the session" or "checkpoint state" as an option — those are
+  ALWAYS wrong under autonomy. Never present them.
+
+**How to apply when tempted to ask:**
+
+- When you'd reach for `AskUserQuestion`, instead: **auto-pick the
+  highest-ICE option silently, dispatch immediately, and file the other
+  options as follow-up backlog** (TBD-V## or sub-issue checklist row).
+- Allowed closing phrasing: "dispatched X, next fires on auto-gate" / "merged
+  Y, moving to Z" / "verifier returned green, queueing next walk".
+- The autonomy mandate ENDS only on explicit founder revoke phrases: **"stop"
+  / "pause" / "wait for me" / "I'll decide" / "checkpoint here"**. Until one
+  of those lands in the pane, KEEP GOING.
+
+**What is still allowed (do not weaken these):** the genuine destructive-action
+confirmations in this file's §Commit-conventions + §Pre-flight-checklist row
+"Wipe / scale / destroy any Sovereign or namespace" — Sovereign wipes,
+force-push to `main`, public-facing sends (Slack to founder, customer emails),
+shared-infra deletions. Those confirmations are **inline `please confirm
+before I run` text prompts** that name the exact destructive command — they
+are NOT `AskUserQuestion` four-option pickers. Mid-walk routing decisions,
+PR-body wording, branch names, ICE tradeoffs between two acceptable paths —
+none of those qualify; auto-pick and dispatch.
+
 ### Sovereignty cutover — `bp-self-sovereign-cutover`
 
 A franchised Sovereign is tethered to the OpenOva mothership in 8 places (full
