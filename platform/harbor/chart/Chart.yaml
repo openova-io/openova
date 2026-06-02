@@ -52,8 +52,15 @@ type: application
 # The Postgres workload Pods reconcile into the same NS as the
 # CNPG Cluster CR, NOT into cnpg-system; the prior rule could
 # never match the actual DB Pods.
-version: 1.2.22
+version: 1.2.23
 appVersion: "2.14.3"
+# 1.2.23 (G117.5 #2744, 2026-06-02): SSO defense-in-depth via Harbor's
+# `oidc_extra_redirect_parms` config field. The configure-oauth Job now
+# PUTs the field with `{"kc_idp_hint":"catalyst-pin"}` (per top-level
+# `sso.idpHint` value) so KC receives the hint on every Harbor
+# `/c/oidc/login` redirect → IDR delegates silently to the catalyst-pin
+# broker. Defense-in-depth to the realm-config IDR `defaultProvider`
+# binding shipped by bp-keycloak 1.4.9+. Refs #2744.
 # 1.2.21 (G91.harbor #2654, 2026-05-31): opt in to the bp-sso-bridge
 # (G91.1 #2652) SSO framework. Top-level `sso:` block (defaults
 # enabled=true). Ships:

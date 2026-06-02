@@ -98,6 +98,38 @@ grafana:
     create: true
     name: ""
 
+  # G115 #2744 — Enable the kiwigrid/k8s-sidecar that auto-discovers
+  # ConfigMaps labelled `grafana_datasource: "1"` (resp.
+  # `grafana_dashboard: "1"`) cluster-wide and writes their
+  # `data:` keys into the grafana Pod's /etc/grafana/provisioning/
+  # subdirs. The bp-grafana umbrella ships starter datasource +
+  # dashboard ConfigMaps (templates/datasource-configmaps.yaml +
+  # templates/dashboard-configmaps.yaml) gated by the
+  # observabilityStack.* block below; the sidecar picks them up at
+  # Pod boot so fresh-install Grafana renders charts immediately
+  # without the per-Sovereign overlay having to wire each.
+  sidecar:
+    datasources:
+      enabled: true
+      label: grafana_datasource
+      labelValue: "1"
+      # Cluster-wide discovery so a per-Sovereign overlay can ship its
+      # own datasource ConfigMap in any namespace.
+      searchNamespace: ALL
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
+      # Provider name shown in Grafana UI's "Dashboards by source" list.
+      provider:
+        name: "catalyst-starter"
+        orgid: 1
+        folder: "Catalyst"
+        type: file
+        disableDelete: false
+        allowUiUpdates: false
+
   # G91.grafana (#2658) — inject GF_AUTH_GENERIC_OAUTH_CLIENT_ID +
   # _CLIENT_SECRET from the ExternalSecret-rendered Secret.
   # The upstream chart concatenates envFromSecret + envFromSecrets.
@@ -185,6 +217,13 @@ sso:
   # `sovereign-admins` by the realm import; users in that group land
   # as Grafana org-level Admins.
   adminGroup: sovereign-admins
+  # G117.5 #2744 — Identity Provider hint appended to the OIDC
+  # authorize_url so KC's Identity Provider Redirector delegates to
+  # the catalyst-pin broker without prompting for username/password.
+  # Defense-in-depth to the realm-config IDR `defaultProvider` binding
+  # shipped by bp-keycloak 1.4.9+ (PR #2730). Per-Sovereign overlay may
+  # override (e.g. set to empty string to disable defense-in-depth).
+  idpHint: catalyst-pin
 
 # ─── Catalyst HTTPRoute (Cilium Gateway API, issue #387) ──────────────────
 # Replaces the upstream chart's networking.k8s.io/v1.Ingress on Sovereigns.
@@ -207,3 +246,60 @@ gateway:
     # pinning sectionName: https breaks NoMatchingListener. Cilium Gateway
     # matches by hostname filter. See PR #1888 / TBD-A40 / issue #1902.
     sectionName: ""
+
+# ─── G115 #2744 — Observability stack auto-wiring ─────────────────────────
+# Default-on starter datasources + dashboards consumed by the upstream
+# grafana subchart's sidecar (configured above as
+# `grafana.sidecar.datasources` / `grafana.sidecar.dashboards`). Per
+# docs/INVIOLABLE-PRINCIPLES.md #4, every URL/tenant is operator-overridable
+# via per-Sovereign overlay or set to empty to disable the individual
+# datasource.
+#
+# The Service DNS defaults below assume the bootstrap-kit slot conventions
+# (releaseName + targetNamespace) in clusters/_template/bootstrap-kit/
+# 22-loki.yaml, 23-mimir.yaml, 24-tempo.yaml. Multi-cluster federation
+# overlays MAY point at a regional aggregator instead.
+observabilityStack:
+  enabled: true
+  # Custom sidecar discovery label override (mirrors
+  # grafana.sidecar.datasources.label / .dashboards.label set above).
+  # Keep these in sync if a per-Sovereign overlay flips either.
+  sidecarLabel: grafana_datasource
+  sidecarDashboardLabel: grafana_dashboard
+  datasources:
+    prometheus:
+      enabled: true
+      # bp-mimir 1.0.5+ exposes its query frontend via the
+      # `<release>-mimir-nginx` Service on port 80 in the mimir
+      # namespace. The bootstrap-kit slot 23 wires releaseName=mimir,
+      # targetNamespace=mimir → mimir-nginx.mimir.svc:80.
+      url: "http://mimir-nginx.mimir.svc.cluster.local:80/prometheus"
+      tenantId: anonymous
+    loki:
+      enabled: true
+      # bp-loki 1.0.0 single-binary chart Service name is `<release>`
+      # (no -gateway suffix on the simple-deployment values shipped by
+      # bp-loki today). Bootstrap-kit slot 22 wires releaseName=loki,
+      # targetNamespace=loki → loki.loki.svc:3100.
+      url: "http://loki.loki.svc.cluster.local:3100"
+      tenantId: anonymous
+    tempo:
+      enabled: true
+      # bp-tempo 1.0.0 single-binary chart Service name is `<release>`.
+      # Bootstrap-kit slot 24 wires releaseName=tempo,
+      # targetNamespace=tempo → tempo.tempo.svc:3100 for the query API.
+      url: "http://tempo.tempo.svc.cluster.local:3100"
+    alertmanager:
+      # Default OFF — Mimir's bundled AM and standalone bp-alertmanager
+      # are not yet wired in clusters/_template/. Per-Sovereign overlay
+      # flips this on with the right Service DNS.
+      enabled: false
+      url: ""
+  dashboards:
+    starter:
+      enabled: true
+      clusterOverview: true
+      nodeExporter: true
+      kubeState: true
+      openbaoAudit: true
+      fluxReconcile: true

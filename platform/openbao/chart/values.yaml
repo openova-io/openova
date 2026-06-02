@@ -178,3 +178,13 @@ sso:
   # the realm import; users in this group land with the sso-operator-admin
   # policy (full read/write/sudo on every path).
   adminGroup: sovereign-admins
+  # G117.5 #2744 — Identity Provider hint. NOTE: OpenBao's OIDC
+  # (jwt) backend builds the auth_url server-side via the hashicorp/cap
+  # library and does NOT expose a knob to inject arbitrary query params
+  # (per builtin/credential/jwt/path_oidc.go createOIDCRequest). Silent
+  # SSO via catalyst-pin is therefore delivered EXCLUSIVELY by the
+  # realm-config IDR `defaultProvider=catalyst-pin` binding shipped in
+  # bp-keycloak 1.4.9+ (PR #2730) — NOT by an auth_url query-string. The
+  # value below is kept for consistency with other Tier-1 charts + for
+  # documentation; it is not consumed by the configure-deployment.
+  idpHint: catalyst-pin

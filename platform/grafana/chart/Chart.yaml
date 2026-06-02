@@ -11,11 +11,30 @@ description: |
   (logs), bp-tempo (traces), bp-mimir (metrics), and bp-alloy or
   bp-opentelemetry (collection).
 type: application
+# 1.0.5 (G117.5 + G115 #2744, 2026-06-02): SSO defense-in-depth +
+# observability-stack auto-wiring on fresh install.
+#   - SSO: emit GF_AUTH_GENERIC_OAUTH_AUTH_URL with `?kc_idp_hint=
+#     catalyst-pin` in the ESO-rendered Secret. Combined with bp-keycloak
+#     1.4.9+ realm-config IDR `defaultProvider` this delivers silent SSO
+#     in two layers (realm-config primary + per-app hint defense-in-depth).
+#     Adds TOKEN_URL + API_URL env-override keys so the grafana Pod has the
+#     full env-override set rather than the chart-render-time empty defaults
+#     in `grafana.ini.auth.generic_oauth`.
+#   - G115: ship pre-baked Prometheus/Loki/Tempo (+ optional Alertmanager)
+#     datasources via templates/datasource-configmaps.yaml, picked up by the
+#     upstream `grafana.sidecar.datasources` discovery (now enabled by
+#     default). Ship 5-dashboard starter pack via templates/dashboard-
+#     configmaps.yaml: cluster-overview, node-exporter, kube-state, openbao-
+#     audit, flux-reconcile-health. Per-Sovereign overlays can override any
+#     URL/tenant/dashboard via `observabilityStack.*` knobs. Default Service
+#     DNS matches bootstrap-kit slots 22-loki / 23-mimir / 24-tempo
+#     (releaseName + targetNamespace).
+# Refs #2744.
 # 1.0.2 (Fix #1902, TBD-A40, 2026-05-19): omit HTTPRoute parentRef
 # sectionName by default — multi-zone Sovereigns rename HTTPS listeners
 # to https-<sanitised-zone>, breaking NoMatchingListener with the prior
 # pinned sectionName: https. Matches the catalyst-system fix in PR #1888.
-version: 1.0.4
+version: 1.0.5
 appVersion: "12.3.1"
 # 1.0.4 (G91.grafana #2658, 2026-05-31): opt in to the bp-sso-bridge
 # (G91.1 #2652) SSO framework. Top-level `sso:` block (defaults

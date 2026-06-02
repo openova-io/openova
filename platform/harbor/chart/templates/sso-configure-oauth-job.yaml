@@ -154,6 +154,18 @@ spec:
               value: {{ .Values.sso.verifyCert | default true | quote }}
             - name: OIDC_AUTO_ONBOARD
               value: "true"
+            # G117.5 #2744 — pass `kc_idp_hint=<idpHint>` to KC on every
+            # OIDC redirect from Harbor's `/c/oidc/login` so the IDR
+            # delegates silently to the catalyst-pin broker. Harbor
+            # injects these as URL-query parameters on /authorize.
+            # Combined with the bp-keycloak 1.4.9+ realm-config IDR
+            # `defaultProvider` binding this delivers silent SSO.
+            # JSON object string per Harbor config-model (since v2.4):
+            # `oidc_extra_redirect_parms` (note the typo, preserved
+            # upstream). Empty hint → "{}" so we don't carry a stale
+            # value forward on operator opt-out.
+            - name: OIDC_EXTRA_REDIRECT_PARMS
+              value: {{ ternary (printf "{\"kc_idp_hint\":\"%s\"}" .Values.sso.idpHint) "{}" (ne (.Values.sso.idpHint | default "") "") | quote }}
           resources:
             requests:
               cpu: "10m"
@@ -196,6 +208,12 @@ spec:
               # Build the configuration payload.
               # Harbor accepts a partial PUT — only the keys we include are
               # written, so we don't have to GET the full config first.
+              # G117.5 #2744: include oidc_extra_redirect_parms so KC
+              # receives the kc_idp_hint on every /authorize redirect.
+              # Per Harbor v2.0 swagger.yaml the field is `type: string`
+              # (a JSON-encoded string-to-string map), so we double-
+              # encode by shell-escaping any internal quotes.
+              ESCAPED_EXTRA="$(printf '%s' "${OIDC_EXTRA_REDIRECT_PARMS}" | sed 's/"/\\"/g')"
               cat >/tmp/payload.json <<JSON
               {
                 "auth_mode": "oidc_auth",
@@ -208,7 +226,8 @@ spec:
                 "oidc_admin_group": "${OIDC_ADMIN_GROUP}",
                 "oidc_user_claim": "${OIDC_USER_CLAIM}",
                 "oidc_verify_cert": ${OIDC_VERIFY_CERT},
-                "oidc_auto_onboard": ${OIDC_AUTO_ONBOARD}
+                "oidc_auto_onboard": ${OIDC_AUTO_ONBOARD},
+                "oidc_extra_redirect_parms": "${ESCAPED_EXTRA}"
               }
               JSON
 

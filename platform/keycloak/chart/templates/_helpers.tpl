@@ -46,3 +46,43 @@ template renders within the same pass — which IS the case for Helm 3.
   {{- $seed | sha256sum -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+G117.5 #2744 — Tier-1 OIDC client secret derivation.
+
+The four Tier-1 SSO-federated apps (gitea, harbor, openbao, grafana) get
+their OIDC clients pre-declared in the sovereign realm import below.
+Each client needs a stable `secret` baked into the realm-import JSON so
+that:
+  1. On first install the realm import creates the client with this
+     exact value (Keycloak stores it).
+  2. bp-sso-bridge's reconcile loop (per its contract: "Existing Client:
+     KC always returns the stored secret; reuse it") reads the same
+     value back and distributes it via OpenBao `secret/sso/<clientId>`
+     bundle for ExternalSecret consumption.
+  3. On chart upgrade the same lookup-or-derive path returns the same
+     value (Keycloak refuses to update an existing realm via import
+     anyway — the import is one-shot — so this only matters for
+     first-install determinism).
+
+Pattern matches `bp-keycloak.pinBrokerClientSecret` above. Each derivation
+is namespace + release + clientId-scoped to avoid collisions across
+multiple realms or release names in the same cluster.
+
+Per memory feedback_chart_credential_persistence_defense.md: when a
+chart pre-declares a credential that downstream charts consume, the
+upstream chart MUST emit a stable Secret (annotated
+helm.sh/resource-policy: keep) carrying the same value. Here the
+"downstream Secret" is the OpenBao bundle that bp-sso-bridge maintains
+— the realm-import JSON IS the upstream emission of the value Keycloak
+stores. No additional K8s Secret needed in the keycloak namespace; the
+value flows: realm-import → Keycloak DB → bp-sso-bridge GET → OpenBao
+KV → ExternalSecret → per-app namespace.
+*/}}
+{{- define "bp-keycloak.tier1ClientSecret" -}}
+{{- /* Expects a dict: {ctx: ., clientId: <string>} */ -}}
+{{- $ctx := .ctx -}}
+{{- $cid := .clientId -}}
+{{- $seed := printf "%s|%s|tier1-sso|%s" $ctx.Release.Name $ctx.Release.Namespace $cid -}}
+{{- $seed | sha256sum -}}
+{{- end -}}

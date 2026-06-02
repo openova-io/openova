@@ -1,0 +1,164 @@
+{{- /*
+G115 #2744 — Pre-baked datasources for the LGTM observability stack.
+
+Why this template:
+  bp-grafana defaults `grafana.datasources: {}` (per values.yaml) so a
+  fresh-install Grafana lands with ZERO datasources — every dashboard
+  shows "No data source available", which is the symptom the G115
+  ticket tracks. Per-Sovereign overlays historically had to wire each
+  datasource manually via `grafana.datasources` ConfigMap-render path,
+  which (a) duplicates effort across every Sovereign, (b) drifts vs.
+  the in-cluster Service DNS naming, (c) tightly couples the overlay
+  to the platform/{mimir,loki,tempo} chart-render shape.
+
+Codification approach:
+  - This template emits one ConfigMap per datasource. Each carries the
+    upstream grafana chart's sidecar discovery label
+    (`grafana_datasource: "1"`) so `grafana.sidecar.datasources.enabled`
+    (set true in values.yaml) auto-mounts them at Pod boot.
+  - The Service DNS used here is computed from the canonical bootstrap-
+    kit slot conventions (releaseName + targetNamespace in
+    `clusters/_template/bootstrap-kit/22-loki.yaml`, `23-mimir.yaml`,
+    `24-tempo.yaml`).
+  - All values are opt-out / opt-in via .Values.observabilityStack
+    knobs (Inviolable Principle #4). Per-Sovereign overlays MAY pin
+    different Service DNS names (e.g. multi-cluster federation) and
+    MAY disable any individual datasource.
+
+Sidecar contract (per grafana chart 10.5.15 / Grafana 12.3.1):
+  The grafana sub-chart's sidecar container (kiwigrid/k8s-sidecar)
+  watches ConfigMaps cluster-wide with the configured label selector
+  and writes their `data:` keys into the grafana Pod's
+  /etc/grafana/provisioning/datasources/ directory. Grafana picks them
+  up on its 30s reload cycle. No grafana Pod restart needed.
+
+Datasources wired:
+  - Prometheus (via Mimir's nginx gateway — Mimir speaks the Prometheus
+    remote-read API). Default datasource (UI auto-selected).
+  - Loki (logs)
+  - Tempo (traces)
+
+A starter "alertmanager" datasource can be added by per-Sovereign
+overlay; not shipped here because the canonical Alertmanager Service
+varies (Mimir's bundled AM vs. standalone bp-alertmanager).
+*/ -}}
+{{- if and .Values.observabilityStack .Values.observabilityStack.enabled }}
+{{- if .Values.observabilityStack.datasources.prometheus.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "grafana.fullname" . | default "grafana" }}-datasource-prometheus
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-grafana
+    catalyst.openova.io/component: grafana-datasource
+    # Sidecar label per the kiwigrid/k8s-sidecar contract embedded in
+    # the upstream grafana chart's sidecar.datasources.label/labelValue.
+    # Default of the upstream chart is `grafana_datasource: "1"`; we
+    # match the default to avoid forcing operators to override.
+    {{ .Values.observabilityStack.sidecarLabel | default "grafana_datasource" }}: "1"
+data:
+  prometheus-datasource.yaml: |-
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: {{ .Values.observabilityStack.datasources.prometheus.url | quote }}
+        isDefault: true
+        editable: false
+        jsonData:
+          # Per-Sovereign overlay may override; 30s matches Grafana's
+          # default scrape-interval tile.
+          timeInterval: "30s"
+          # Mimir-specific: scope query to a single tenant via the
+          # X-Scope-OrgID header. Default `anonymous` matches Mimir's
+          # default no-auth tenant ID.
+          httpHeaderName1: "X-Scope-OrgID"
+        secureJsonData:
+          httpHeaderValue1: {{ .Values.observabilityStack.datasources.prometheus.tenantId | default "anonymous" | quote }}
+{{- end }}
+{{- if .Values.observabilityStack.datasources.loki.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "grafana.fullname" . | default "grafana" }}-datasource-loki
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-grafana
+    catalyst.openova.io/component: grafana-datasource
+    {{ .Values.observabilityStack.sidecarLabel | default "grafana_datasource" }}: "1"
+data:
+  loki-datasource.yaml: |-
+    apiVersion: 1
+    datasources:
+      - name: Loki
+        type: loki
+        access: proxy
+        url: {{ .Values.observabilityStack.datasources.loki.url | quote }}
+        editable: false
+        jsonData:
+          httpHeaderName1: "X-Scope-OrgID"
+        secureJsonData:
+          httpHeaderValue1: {{ .Values.observabilityStack.datasources.loki.tenantId | default "anonymous" | quote }}
+{{- end }}
+{{- if .Values.observabilityStack.datasources.tempo.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "grafana.fullname" . | default "grafana" }}-datasource-tempo
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-grafana
+    catalyst.openova.io/component: grafana-datasource
+    {{ .Values.observabilityStack.sidecarLabel | default "grafana_datasource" }}: "1"
+data:
+  tempo-datasource.yaml: |-
+    apiVersion: 1
+    datasources:
+      - name: Tempo
+        type: tempo
+        access: proxy
+        url: {{ .Values.observabilityStack.datasources.tempo.url | quote }}
+        editable: false
+        jsonData:
+          # Link Tempo traces to Loki logs (trace-to-logs) — drill-down
+          # from a trace span to the originating log line using the
+          # standard "traceID" label match.
+          tracesToLogsV2:
+            datasourceUid: loki
+            tags: ['service.name', 'service.namespace']
+          # Service-graph queries land in Mimir under the canonical
+          # "tempo_service_graph_*" metric names emitted by Tempo's
+          # metrics-generator.
+          serviceMap:
+            datasourceUid: prometheus
+{{- end }}
+{{- if .Values.observabilityStack.datasources.alertmanager.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "grafana.fullname" . | default "grafana" }}-datasource-alertmanager
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-grafana
+    catalyst.openova.io/component: grafana-datasource
+    {{ .Values.observabilityStack.sidecarLabel | default "grafana_datasource" }}: "1"
+data:
+  alertmanager-datasource.yaml: |-
+    apiVersion: 1
+    datasources:
+      - name: Alertmanager
+        type: alertmanager
+        access: proxy
+        url: {{ .Values.observabilityStack.datasources.alertmanager.url | quote }}
+        editable: false
+        jsonData:
+          implementation: prometheus
+          handleGrafanaManagedAlerts: false
+{{- end }}
+{{- end }}
