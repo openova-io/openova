@@ -1,6 +1,13 @@
 apiVersion: v2
 name: bp-sso-bridge
-version: 0.2.3
+version: 0.2.4
+# 0.2.4 (G117.5c-followup #2807, 2026-06-02): extend Tier-3 per-Org
+# OpenBao bundle to include `session_secret` so librechat's
+# OPENID_SESSION_SECRET env var resolves via ExternalSecret. Derived
+# deterministically from sha256(clientId|session|realm|client_secret)
+# — render-stable across reconcile ticks, distinct from client_secret,
+# and never rotates on its own. Other Tier-3 apps that don't reference
+# the key just ignore it. Refs #2807.
 # 0.2.3 (G117.5c #2801, 2026-06-02): Tier-3 AppRegistration ConfigMap
 # watcher. Two new bash functions in templates/configmap-reconciler.yaml:
 #   - upsert_per_org_client: for one ConfigMap labelled

@@ -793,15 +793,25 @@ data:
       # ExternalSecret can resolve. The bundle shape matches the
       # Tier-3 sso-externalsecret.yaml templates (client_id +
       # client_secret + issuer_url, plus the standard discovery URLs).
-      local issuer
+      #
+      # G117.5c-followup #2807: librechat's ExternalSecret references
+      # `property: session_secret` (for OPENID_SESSION_SECRET env var)
+      # which the original W3.D5 bundle did not emit. Derive it
+      # deterministically from cid+realm+client_secret so it is stable
+      # across reconcile ticks AND distinct from client_secret. Other
+      # Tier-3 apps that don't reference this key just ignore it.
+      local issuer session_secret
       issuer="https://auth.$(sovereign_fqdn)/realms/${realm}"
+      session_secret="$(printf '%s|session|%s|%s' "${cid}" "${realm}" "${secret}" | sha256sum | awk '{print $1}')"
       local bundle
       bundle="$(jq -nc \
         --arg cid "${cid}" \
         --arg secret "${secret}" \
+        --arg session "${session_secret}" \
         --arg issuer "${issuer}" \
         --arg realm "${realm}" \
-        '{client_id:$cid, client_secret:$secret, issuer_url:$issuer, realm:$realm,
+        '{client_id:$cid, client_secret:$secret, session_secret:$session,
+          issuer_url:$issuer, realm:$realm,
           authorize_url:($issuer+"/protocol/openid-connect/auth"),
           token_url:($issuer+"/protocol/openid-connect/token"),
           userinfo_url:($issuer+"/protocol/openid-connect/userinfo"),

@@ -85,7 +85,7 @@ spec:
       # 0.1.1 (G91-fu, Refs #2659, edc55c08 PR #2676): adds realm-role
       # grant + skipClientUpsert opt-out for charts whose Keycloak Client
       # is realm-imported at bp-keycloak install time (catalyst-ui etc.).
-      version: 0.2.3
+      version: 0.2.4
       sourceRef:
         kind: HelmRepository
         name: bp-sso-bridge
