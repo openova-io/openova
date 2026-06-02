@@ -277,6 +277,26 @@ func (h *Handler) AuthHandover(w http.ResponseWriter, r *http.Request) {
 		"email":          claims.Email,
 		"email_verified": true,
 		"role":           "sovereign-admin",
+		// G117 #2856 Gap 2 (2026-06-03): preserve authz claims so
+		// every catalyst-api handler that checks claims.Tier or
+		// claims.RealmAccess.Roles recognises the handover-derived
+		// session as Sovereign-owner. The auth.Claims struct has no
+		// `Role` field, so the bare "role" claim above is silently
+		// dropped at parse time — every downstream authz gate then
+		// falls back to the OPERATOR_EMAIL short-circuit
+		// (applicationInstallCallerAuthorized → isSovereignOperatorClaim),
+		// which only matches the SINGLE registered operator email.
+		// Multi-owner Sovereigns (2nd sovereign-admin owners) hit 403
+		// on every authed endpoint, caught live by H11 walk on hw86
+		// 2026-06-02 (PILLAR1WALK voucher mint via BSS-menu).
+		//
+		// Mirror the PIN-derived session pattern (auth.go:274) so the
+		// handover session carries the same tier=owner + realm-role
+		// list the rbacAssignPrivilegedRoles loop expects.
+		"tier": "owner",
+		"realm_access": map[string][]string{
+			"roles": {"catalyst-owner", "catalyst-admin", "sovereign-admins"},
+		},
 		"iat":            time.Now().Unix(),
 		"exp":            time.Now().Add(sessionTTL).Unix(),
 		"jti":            uuid.NewString(),
