@@ -1,5 +1,18 @@
 apiVersion: v2
 name: bp-keycloak
+# 1.4.11 (G113 #2725 Bug-6 codification, 2026-06-02): codify the runtime
+# pre-link workaround for KC first-broker-login flow. The default flow
+# fires `idp-confirm-link` (REQUIRED) + `Verify Existing Account by Email`
+# whenever the federated catalyst-pin user collides by email with an
+# existing realm user — both steps require KC SMTP. On Sovereigns whose
+# KC SMTP is not yet wired up the broker callback hangs. Runtime
+# workaround on hw86 was per-user POST /admin/realms/sovereign/users/
+# {id}/federated-identity/{alias} (HTTP 204) — manual pre-link. Codified
+# equivalent: a new custom top-level authentication flow `first broker
+# login auto link` with only `idp-create-user-if-unique` (ALT) +
+# `idp-auto-link` (ALT). The catalyst-pin IdP's firstBrokerLoginFlowAlias
+# now points at it; trustEmail=true (already set) makes the auto-link
+# trigger on email match WITHOUT any SMTP or user prompt. Refs #2725.
 # 1.4.10 (G117.5 #2744, 2026-06-02): Tier-1 silent-SSO clients codified
 # in the sovereign realm-import. New entries appended to clients[]:
 #   - grafana       (redirectUris: https://grafana.<sov-fqdn>/*)
@@ -40,7 +53,7 @@ name: bp-keycloak
 # sectionName by default — multi-zone Sovereigns rename HTTPS listeners
 # to https-<sanitised-zone>, breaking NoMatchingListener with the prior
 # pinned sectionName: https. Matches the catalyst-system fix in PR #1888.
-version: 1.4.10
+version: 1.4.11
 description: |
   Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
   upstream `keycloak` chart (bitnami) as a Helm subchart so

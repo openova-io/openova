@@ -90,7 +90,12 @@ spec:
       # outer hook-wait accommodates the inner 15m availability window.
       # 1.4.3 (issue #129): bumped keycloakConfigCli.availabilityCheck.timeout
       # 120s → 600s + backoffLimit 1 → 5 (fresh-install wedge).
-      version: 1.4.10
+      # 1.4.11 (G113 #2725 Bug-6, 2026-06-02): realm import adds the
+      # `first broker login auto link` custom flow + switches catalyst-pin
+      # IdP's firstBrokerLoginFlowAlias to it — bypasses KC SMTP for
+      # first-broker-login email-collision handling on Sovereigns whose
+      # KC SMTP is not yet wired.
+      version: 1.4.11
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak

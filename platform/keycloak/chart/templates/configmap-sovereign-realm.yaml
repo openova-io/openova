@@ -618,6 +618,36 @@ data:
             { "authenticator": "identity-provider-redirector", "authenticatorConfig": "catalyst-pin-redirector", "requirement": "ALTERNATIVE", "priority": 25, "autheticatorFlow": false },
             { "flowAlias": "forms", "requirement": "ALTERNATIVE", "priority": 30, "autheticatorFlow": true }
           ]
+        },
+        {{- /*
+        G113 #2725 Bug-6 codification (hw86 2026-06-02): KC's DEFAULT
+        "first broker login" flow runs `idp-confirm-link` (REQUIRED) +
+        `Verify Existing Account by Email` (ALTERNATIVE) whenever the
+        federated user collides with an existing realm user by email.
+        Both steps require a working SMTP relay; on Sovereigns where KC
+        SMTP is not yet wired they 500 with "Failed to send email" and
+        the broker callback hangs. Runtime workaround on hw86 was
+        POST /admin/realms/sovereign/users/{id}/federated-identity/{alias}
+        (HTTP 204) per IdP user — manual pre-linking.
+
+        Codified equivalent below: a custom top-level flow with ONLY
+        two ALTERNATIVE executions — create-user-if-unique then
+        idp-auto-link. With trustEmail=true on the catalyst-pin IdP
+        (set further down) KC auto-links the federated identity to an
+        existing realm user by email match WITHOUT prompting the user
+        or sending any email. The IdP's firstBrokerLoginFlowAlias
+        below points at this flow.
+        */ -}}
+        {
+          "alias": "first broker login auto link",
+          "description": "G113 #2725: auto-link federated identity to existing realm user by email match without SMTP confirmation. Used by catalyst-pin IdP.",
+          "providerId": "basic-flow",
+          "topLevel": true,
+          "builtIn": false,
+          "authenticationExecutions": [
+            { "authenticator": "idp-create-user-if-unique", "requirement": "ALTERNATIVE", "priority": 10, "autheticatorFlow": false },
+            { "authenticator": "idp-auto-link", "requirement": "ALTERNATIVE", "priority": 20, "autheticatorFlow": false }
+          ]
         }
       ],
       "identityProviders": [
@@ -656,7 +686,7 @@ data:
           "addReadTokenRoleOnCreate": false,
           "authenticateByDefault": false,
           "linkOnly": false,
-          "firstBrokerLoginFlowAlias": "first broker login",
+          "firstBrokerLoginFlowAlias": "first broker login auto link",
           "config": {
             "clientId": "catalyst-pin",
             {{- /*
