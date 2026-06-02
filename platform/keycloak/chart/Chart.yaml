@@ -1,5 +1,13 @@
 apiVersion: v2
 name: bp-keycloak
+# 1.4.14 (G117.5b #2789, 2026-06-02): SSO client-secret rotation knob.
+# Adds optional .Values.sso.tier1ClientSecretSalt — when non-empty, the
+# Tier-1/Tier-2/Tier-3 client-secret derivation helpers in _helpers.tpl
+# append it to the SHA-256 seed, atomically rotating every derived SSO
+# client secret in the realm-import on next helm upgrade. Empty default
+# preserves render-stability + back-compat (existing Sovereigns keep
+# their current secrets across this upgrade). bp-sso-bridge auto-
+# discovers the new secrets on its next tick. Refs #2789.
 # 1.4.13 (G117.5 W3.D1 #2744, 2026-06-02): Tier-2 silent-SSO clients
 # codified in the sovereign realm-import. New entries appended to clients[]:
 #   - guacamole       (redirectUris: https://guacamole.<sov-fqdn>/*)
@@ -94,7 +102,7 @@ name: bp-keycloak
 # sectionName by default — multi-zone Sovereigns rename HTTPS listeners
 # to https-<sanitised-zone>, breaking NoMatchingListener with the prior
 # pinned sectionName: https. Matches the catalyst-system fix in PR #1888.
-version: 1.4.13
+version: 1.4.14
 description: |
   Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
   upstream `keycloak` chart (bitnami) as a Helm subchart so
