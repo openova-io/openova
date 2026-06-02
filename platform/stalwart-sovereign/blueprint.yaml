@@ -170,7 +170,7 @@ spec:
           roles: {}
   endpoints:
   - name: smtp-external
-    hostnameTemplate: mail.openova.io
+    hostnameTemplate: mail.{{.SovereignFQDN}}
     port: 587
     protocol: tcp
     tls: true
