@@ -75,3 +75,55 @@ spec:
       version: ^1
   upgrades:
     from: ["0.x"]
+  # ── G117.1 (Wave-1/B3) — topology + endpoints + sso + multiInstance ──
+  topology:
+    supported:
+    - active-active
+    - singleton
+    defaults:
+      multi-region: active-active
+      single-region: singleton
+    perTopology:
+      active-active:
+        replication:
+          backend: none
+          mode: none
+        switchover:
+          mechanism: none
+        placement:
+          tier: rtz
+          clusters:
+          - rtz-A
+          - rtz-B
+          roles:
+            rtz-A: active
+            rtz-B: active
+      singleton:
+        placement:
+          tier: rtz
+          clusters:
+          - rtz-A
+          roles:
+            rtz-A: singleton
+  endpoints:
+  - name: ui
+    hostnameTemplate: kserve.{{.OrgSlug}}.{{.SovereignFQDN}}
+    port: 443
+    protocol: https
+    tls: true
+    visibility: public
+    launchDefault: true
+    ssoEnabled: true
+  sso:
+    realm: '{{.OrgSlug}}'
+    protocolMapper: oidc
+    groupsClaim: groups
+    rolesFromGroup:
+      sovereign-admins: admin
+    silentLogin: true
+  multiInstance:
+    enabled: true
+    maxPerOrg: 5
+    namingTemplate: '{{.AppName}}-{{.InstanceID}}'
+    isolationLevel: namespace
+  # ── /G117.1 ──

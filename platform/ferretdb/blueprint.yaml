@@ -1,16 +1,25 @@
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
-  name: langfuse
+  name: bp-ferretdb
   labels:
-    catalyst.openova.io/section: pts-3-observability
+    catalyst.openova.io/section: pts-4-application-tier
 spec:
-  version: 1.0.0
+  # G117.1 (Wave-1/B3) — scaffold-only Application Blueprint.
+  #
+  # This Blueprint folder currently only ships a README; the upstream chart
+  # is tracked but not yet packaged. The four new blocks below declare the
+  # intended target-state per docs/sessions/2026-06-02-per-blueprint-topology-audit.md,
+  # so the catalog UI, application-controller, and SSO fan-out can plan
+  # against it ahead of the chart being authored.
+  version: 0.0.0
   card:
-    title: Langfuse
-    family: insights
-    description: LLM observability — traces, evaluations, prompt management, cost attribution. Complements bp-grafana with AI-specific telemetry.
-    docs: https://langfuse.com/docs
+    title: Ferretdb
+    summary: |
+      Scaffold-only Application Blueprint — chart not yet packaged.
+      Topology + endpoints + sso + multiInstance are declared per the
+      G117.1 audit so downstream Catalyst surfaces can render against
+      it.
   # ── G117.1 (Wave-1/B3) — topology + endpoints + sso + multiInstance ──
   topology:
     supported:
@@ -45,24 +54,17 @@ spec:
           roles:
             rtz-A: singleton
   endpoints:
-  - name: ui
-    hostnameTemplate: langfuse.{{.OrgSlug}}.{{.SovereignFQDN}}
-    port: 443
-    protocol: https
-    tls: true
+  - name: wire
+    hostnameTemplate: db.{{.OrgSlug}}.{{.SovereignFQDN}}
+    port: 27017
+    protocol: tcp
+    tls: false
     visibility: public
     launchDefault: true
-    ssoEnabled: true
-  sso:
-    realm: '{{.OrgSlug}}'
-    protocolMapper: oidc
-    groupsClaim: groups
-    rolesFromGroup:
-      sovereign-admins: admin
-    silentLogin: true
+    ssoEnabled: false
   multiInstance:
     enabled: true
-    maxPerOrg: 3
+    maxPerOrg: 10
     namingTemplate: '{{.AppName}}-{{.InstanceID}}'
     isolationLevel: namespace
   # ── /G117.1 ──

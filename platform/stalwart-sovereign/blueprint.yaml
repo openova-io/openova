@@ -155,3 +155,31 @@ spec:
   observability:
     metrics: prometheus
     logs: stdout
+  # ── G117.1 (Wave-1/B3) — topology + endpoints + sso + multiInstance ──
+  topology:
+    supported:
+    - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: ''
+          clusters: []
+          roles: {}
+  endpoints:
+  - name: smtp-external
+    hostnameTemplate: mail.{{.SovereignFQDN}}
+    port: 587
+    protocol: tcp
+    tls: true
+    visibility: internal
+    launchDefault: false
+    ssoEnabled: false
+  multiInstance:
+    enabled: false
+    maxPerOrg: 1
+    namingTemplate: '{{.AppName}}-{{.InstanceID}}'
+    isolationLevel: namespace
+  # ── /G117.1 ──

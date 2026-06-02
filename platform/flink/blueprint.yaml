@@ -1,16 +1,25 @@
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
-  name: langfuse
+  name: bp-flink
   labels:
-    catalyst.openova.io/section: pts-3-observability
+    catalyst.openova.io/section: pts-4-application-tier
 spec:
-  version: 1.0.0
+  # G117.1 (Wave-1/B3) — scaffold-only Application Blueprint.
+  #
+  # This Blueprint folder currently only ships a README; the upstream chart
+  # is tracked but not yet packaged. The four new blocks below declare the
+  # intended target-state per docs/sessions/2026-06-02-per-blueprint-topology-audit.md,
+  # so the catalog UI, application-controller, and SSO fan-out can plan
+  # against it ahead of the chart being authored.
+  version: 0.0.0
   card:
-    title: Langfuse
-    family: insights
-    description: LLM observability — traces, evaluations, prompt management, cost attribution. Complements bp-grafana with AI-specific telemetry.
-    docs: https://langfuse.com/docs
+    title: Flink
+    summary: |
+      Scaffold-only Application Blueprint — chart not yet packaged.
+      Topology + endpoints + sso + multiInstance are declared per the
+      G117.1 audit so downstream Catalyst surfaces can render against
+      it.
   # ── G117.1 (Wave-1/B3) — topology + endpoints + sso + multiInstance ──
   topology:
     supported:
@@ -22,13 +31,10 @@ spec:
     perTopology:
       active-passive:
         replication:
-          backend: cnpg-pair
-          mode: sync
-          lagSloSeconds: 0
+          backend: s3-bucket-replication
+          mode: async
         switchover:
           mechanism: bp-continuum
-          rtoSeconds: 60
-          rpoSeconds: 0
         placement:
           tier: rtz
           clusters:
@@ -46,7 +52,7 @@ spec:
             rtz-A: singleton
   endpoints:
   - name: ui
-    hostnameTemplate: langfuse.{{.OrgSlug}}.{{.SovereignFQDN}}
+    hostnameTemplate: flink.{{.OrgSlug}}.{{.SovereignFQDN}}
     port: 443
     protocol: https
     tls: true
