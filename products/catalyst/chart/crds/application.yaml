@@ -43,6 +43,14 @@ spec:
           type: string
           jsonPath: .status.primaryRegion
           priority: 1
+        - name: Instance
+          type: string
+          jsonPath: .spec.instanceId
+          priority: 1
+        - name: Isolation
+          type: string
+          jsonPath: .spec.isolationLevel
+          priority: 1
         - name: Age
           type: date
           jsonPath: .metadata.creationTimestamp
@@ -181,6 +189,52 @@ spec:
                       minimum: 1
                       description: Lower bound for any HPA the Blueprint declares.
                   x-kubernetes-preserve-unknown-fields: true
+                # ── G117.2 W2.C2 — multi-instance fields ─────────────────
+                # Backwards-compatible: all three fields are optional.
+                # Legacy Applications (without them) keep reconciling.
+                # The admission package + tools/migrate-applications-instanceId.py
+                # backfill defaults on first reconcile / on cluster upgrade.
+                instanceId:
+                  type: string
+                  description: |
+                    Stable per-instance identifier. Immutable after
+                    creation — the admission webhook rejects any update
+                    that changes it. Defaults to the first 8 chars of
+                    metadata.uid when unset.
+                  pattern: '^[a-z0-9]{4,32}$'
+                  # x-kubernetes-validations enforces immutability at
+                  # admission time (k8s >= 1.25 CEL). The legacy CR set
+                  # without instanceId is permitted (oldSelf check skips
+                  # when the prior value was unset).
+                  x-kubernetes-validations:
+                    - rule: 'oldSelf == "" || self == oldSelf'
+                      message: 'spec.instanceId is immutable after creation'
+                isolationLevel:
+                  type: string
+                  enum:
+                    - namespace
+                    - vcluster
+                  default: namespace
+                  description: |
+                    `namespace` (default) — every Application instance
+                    is a distinct Namespace within the Org's host
+                    cluster(s); HelmReleases target that namespace.
+                    `vcluster` — instances land inside the Org's
+                    existing vCluster (one vCluster per Org per host
+                    cluster); HR names differ via namingTemplate, the
+                    namespace inside the vCluster is shared. New
+                    isolation modes require an ADR.
+                namingTemplate:
+                  type: string
+                  description: |
+                    Go-template syntax. Default depends on
+                    isolationLevel: `{{.AppName}}-{{.InstanceID}}` for
+                    `namespace`, `{{.AppName}}` for `vcluster`. Template
+                    context: `.AppName` (metadata.name), `.InstanceID`
+                    (spec.instanceId), `.OrgSlug` (label
+                    catalyst.openova.io/organization), `.Blueprint`
+                    (blueprintRef.name without `bp-` prefix).
+                  maxLength: 256
               x-kubernetes-preserve-unknown-fields: true
             status:
               type: object

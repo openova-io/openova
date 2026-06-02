@@ -1,0 +1,143 @@
+{{- if .Values.migrations.applicationsInstanceId.enabled }}
+# G117 W2.C2 — backfill spec.instanceId / spec.isolationLevel /
+# spec.namingTemplate on every pre-existing Application CR.
+#
+# Idempotent: the script `tools/migrate-applications-instanceId.py`
+# skips any CR that already carries a non-empty spec.instanceId, so
+# repeated `helm upgrade` invocations are no-ops after the first
+# successful run.
+#
+# Hook ordering: post-install + post-upgrade so the new CRD fields
+# (extended in this same chart at crds/application.yaml) are
+# accepted by the API server before the script attempts a patch.
+# A failure of this Job does NOT roll back the chart — operators
+# can `kubectl delete job/<name>` + `helm upgrade --reuse-values` to
+# retry safely.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ printf "%s-migrate-applications-instance-id" .Release.Name | trunc 63 | trimSuffix "-" }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/name: catalyst
+    app.kubernetes.io/component: migration
+    catalyst.openova.io/migration: applications-instance-id
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "10"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: catalyst
+        app.kubernetes.io/component: migration
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ .Values.migrations.applicationsInstanceId.serviceAccountName | default "catalyst-application-migrator" }}
+      containers:
+        - name: migrate
+          image: {{ .Values.migrations.applicationsInstanceId.image | default "ghcr.io/openova-io/catalyst-migrator:0.1.0" | quote }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - /usr/bin/python3
+            - /opt/migrations/migrate-applications-instanceId.py
+          args:
+            {{- if .Values.migrations.applicationsInstanceId.dryRun }}
+            - --dry-run
+            {{- end }}
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits:   { cpu: 250m, memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities: { drop: [ ALL ] }
+          volumeMounts:
+            - name: migration-script
+              mountPath: /opt/migrations
+              readOnly: true
+      volumes:
+        - name: migration-script
+          configMap:
+            name: catalyst-migration-applications-instance-id
+            defaultMode: 0o555
+---
+# RBAC for the migration Job — narrow scope: get/list/patch on
+# applications.apps.openova.io across all namespaces.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.migrations.applicationsInstanceId.serviceAccountName | default "catalyst-application-migrator" }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: catalyst
+    app.kubernetes.io/component: migration
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "1"
+    helm.sh/hook-delete-policy: before-hook-creation
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Values.migrations.applicationsInstanceId.serviceAccountName | default "catalyst-application-migrator" }}
+  labels:
+    app.kubernetes.io/name: catalyst
+    app.kubernetes.io/component: migration
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "1"
+    helm.sh/hook-delete-policy: before-hook-creation
+rules:
+  - apiGroups: [apps.openova.io]
+    resources: [applications]
+    verbs: [get, list, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Values.migrations.applicationsInstanceId.serviceAccountName | default "catalyst-application-migrator" }}
+  labels:
+    app.kubernetes.io/name: catalyst
+    app.kubernetes.io/component: migration
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "1"
+    helm.sh/hook-delete-policy: before-hook-creation
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Values.migrations.applicationsInstanceId.serviceAccountName | default "catalyst-application-migrator" }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.migrations.applicationsInstanceId.serviceAccountName | default "catalyst-application-migrator" }}
+    namespace: {{ .Release.Namespace }}
+---
+# Migration script delivered as ConfigMap — single source of truth at
+# tools/migrate-applications-instanceId.py. Helm's `.Files.Get` reads
+# from the chart root; we expect this chart's CI step to
+# `cp tools/migrate-applications-instanceId.py products/catalyst/chart/files/`
+# before packaging. Until the CI step is added, an operator can manually
+# stage the file.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: catalyst-migration-applications-instance-id
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: catalyst
+    app.kubernetes.io/component: migration
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "1"
+    helm.sh/hook-delete-policy: before-hook-creation
+data:
+  migrate-applications-instanceId.py: |-
+{{ .Files.Get "files/migrate-applications-instanceId.py" | default "#!/usr/bin/env python3\n# Migration script not staged into chart/files — operator must `cp tools/migrate-applications-instanceId.py products/catalyst/chart/files/` before `helm package`. The Job will fail-fast at startup with a clear error.\nimport sys\nprint('ERROR: chart packaged without migration script staged into files/. Re-package with tools/migrate-applications-instanceId.py copied into products/catalyst/chart/files/.', file=sys.stderr)\nsys.exit(1)\n" | indent 4 }}
+{{- end }}

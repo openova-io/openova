@@ -72,20 +72,31 @@ func fakeEndpointDynamic(seed ...runtime.Object) (func() (dynamic.Interface, err
 // fakeBlueprintInCatalog wires a fake CatalogClient that returns a
 // blueprint with endpoints[] / sso / multiInstance / topology.
 func fakeBlueprintInCatalog(name string, endpoints []map[string]interface{}, multiInst bool, topologies []string) *fakeCatalogClient {
+	return fakeBlueprintInCatalogWithCap(name, endpoints, multiInst, 0, topologies)
+}
+
+// fakeBlueprintInCatalogWithCap is the W2.C2-aware variant: takes an
+// explicit `multiInstance.maxPerOrg` cap so admission-gate tests can
+// trigger the max-per-org-exceeded path.
+func fakeBlueprintInCatalogWithCap(name string, endpoints []map[string]interface{}, multiInst bool, maxPerOrg int, topologies []string) *fakeCatalogClient {
+	mi := map[string]interface{}{
+		"enabled": multiInst,
+	}
+	if maxPerOrg > 0 {
+		mi["maxPerOrg"] = maxPerOrg
+	}
 	bp := &CatalogBlueprint{
 		Name:    name,
 		Version: "1.0.0",
 		Raw: map[string]interface{}{
 			"spec": map[string]interface{}{
-				"version":   "1.0.0",
-				"endpoints": endpoints,
+				"version":       "1.0.0",
+				"endpoints":     endpoints,
 				"sso": map[string]interface{}{
 					"realm":       "sovereign",
 					"silentLogin": true,
 				},
-				"multiInstance": map[string]interface{}{
-					"enabled": multiInst,
-				},
+				"multiInstance": mi,
 				"topology": map[string]interface{}{
 					"supported": topologies,
 					"defaults": map[string]interface{}{
@@ -646,6 +657,201 @@ func TestChooseTopology_OverrideRejectedWhenUnsupported(t *testing.T) {
 	_, err := chooseTopology(bp, "active-active")
 	if err == nil {
 		t.Fatal("expected error for unsupported override")
+	}
+}
+
+// ── G117 W2.C2 — multi-instance admission gate integration tests ───
+
+// TestCreateInstance_MultiInstanceEnabled_3Instances exercises the
+// happy path of the DoD: 3 grafana instances succeed in same Org when
+// multiInstance.enabled=true. Each instance lands with a distinct
+// metadata.uid AND a distinct spec.instanceId.
+func TestCreateInstance_MultiInstanceEnabled_3Instances(t *testing.T) {
+	h, _, dyn := newTestHandlerWithEndpoint(t)
+	h.SetCatalogClient(fakeBlueprintInCatalogWithCap("grafana", nil, true, 5, []string{"singleton"}))
+	r := newTestRouter(h)
+
+	instanceIDs := map[string]bool{}
+	names := []string{"obs-1", "obs-2", "obs-3"}
+
+	for _, name := range names {
+		body := []byte(`{"blueprint":"grafana","org":"acme","name":"` + name + `"}`)
+		req := httptest.NewRequest("POST", "/catalyst/v1/apps/instances", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("name=%s: expected 201, got %d (body=%s)", name, rec.Code, rec.Body.String())
+		}
+		var resp application
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("name=%s decode: %v", name, err)
+		}
+		if resp.Name != name {
+			t.Fatalf("name=%s: response Name=%q", name, resp.Name)
+		}
+	}
+
+	// Verify the 3 CRs landed with distinct instanceIds.
+	list, err := dyn.Resource(ApplicationGVR()).Namespace("acme").List(context.Background(), metav1.ListOptions{})
+	if err != nil {
+		t.Fatalf("list apps: %v", err)
+	}
+	if len(list.Items) != 3 {
+		t.Fatalf("expected 3 Applications, got %d", len(list.Items))
+	}
+	for _, item := range list.Items {
+		id, found, _ := unstructured.NestedString(item.Object, "spec", "instanceId")
+		if !found || id == "" {
+			t.Fatalf("Application %s missing spec.instanceId", item.GetName())
+		}
+		if instanceIDs[id] {
+			t.Fatalf("duplicate instanceId %s on Application %s", id, item.GetName())
+		}
+		instanceIDs[id] = true
+		iso, _, _ := unstructured.NestedString(item.Object, "spec", "isolationLevel")
+		if iso != "namespace" {
+			t.Fatalf("expected isolationLevel=namespace default, got %q", iso)
+		}
+		nt, _, _ := unstructured.NestedString(item.Object, "spec", "namingTemplate")
+		if nt != "{{.AppName}}-{{.InstanceID}}" {
+			t.Fatalf("expected namingTemplate default, got %q", nt)
+		}
+	}
+}
+
+// TestCreateInstance_MultiInstanceDisabled_BlocksSecond verifies the
+// 409 + multi-instance-disabled contract.
+func TestCreateInstance_MultiInstanceDisabled_BlocksSecond(t *testing.T) {
+	existing := seedApp("uid-mi-disabled-1", "marketing-1", "acme", "wordpress")
+	h, _, _ := newTestHandlerWithEndpoint(t, existing)
+	h.SetCatalogClient(fakeBlueprintInCatalogWithCap("wordpress", nil, false, 0, []string{"singleton"}))
+	r := newTestRouter(h)
+
+	body := []byte(`{"blueprint":"wordpress","org":"acme","name":"marketing-2"}`)
+	req := httptest.NewRequest("POST", "/catalyst/v1/apps/instances", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d (body=%s)", rec.Code, rec.Body.String())
+	}
+	var out map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode err: %v", err)
+	}
+	if c, _ := out["code"].(string); c != "multi-instance-disabled" {
+		t.Fatalf("expected code=multi-instance-disabled, got %v (msg=%v)", out["code"], out["message"])
+	}
+}
+
+// TestCreateInstance_MaxPerOrgExceeded verifies the 409 +
+// max-per-org-exceeded contract.
+func TestCreateInstance_MaxPerOrgExceeded(t *testing.T) {
+	a := seedApp("uid-cap-1", "obs-1", "acme", "grafana")
+	b := seedApp("uid-cap-2", "obs-2", "acme", "grafana")
+	c := seedApp("uid-cap-3", "obs-3", "acme", "grafana")
+	h, _, _ := newTestHandlerWithEndpoint(t, a, b, c)
+	h.SetCatalogClient(fakeBlueprintInCatalogWithCap("grafana", nil, true, 3, []string{"singleton"}))
+	r := newTestRouter(h)
+
+	body := []byte(`{"blueprint":"grafana","org":"acme","name":"obs-4"}`)
+	req := httptest.NewRequest("POST", "/catalyst/v1/apps/instances", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d (body=%s)", rec.Code, rec.Body.String())
+	}
+	var out map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode err: %v", err)
+	}
+	if c, _ := out["code"].(string); c != "max-per-org-exceeded" {
+		t.Fatalf("expected code=max-per-org-exceeded, got %v (msg=%v)", out["code"], out["message"])
+	}
+}
+
+// TestCreateInstance_NameCollision verifies that name collision is
+// rejected regardless of multiInstance.enabled.
+func TestCreateInstance_NameCollision_MultiInstanceEnabled(t *testing.T) {
+	existing := seedApp("uid-coll-1", "obs-1", "acme", "grafana")
+	h, _, _ := newTestHandlerWithEndpoint(t, existing)
+	h.SetCatalogClient(fakeBlueprintInCatalogWithCap("grafana", nil, true, 5, []string{"singleton"}))
+	r := newTestRouter(h)
+
+	body := []byte(`{"blueprint":"grafana","org":"acme","name":"obs-1"}`)
+	req := httptest.NewRequest("POST", "/catalyst/v1/apps/instances", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d (body=%s)", rec.Code, rec.Body.String())
+	}
+	var out map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode err: %v", err)
+	}
+	if c, _ := out["code"].(string); c != "name-collision" {
+		t.Fatalf("expected code=name-collision, got %v (msg=%v)", out["code"], out["message"])
+	}
+}
+
+// TestCreateInstance_IsolationLevelInvalid verifies the 422
+// isolation-level-invalid contract.
+func TestCreateInstance_IsolationLevelInvalid(t *testing.T) {
+	h, _, _ := newTestHandlerWithEndpoint(t)
+	h.SetCatalogClient(fakeBlueprintInCatalogWithCap("grafana", nil, true, 5, []string{"singleton"}))
+	r := newTestRouter(h)
+
+	body := []byte(`{"blueprint":"grafana","org":"acme","name":"obs-1","isolationLevel":"host"}`)
+	req := httptest.NewRequest("POST", "/catalyst/v1/apps/instances", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d (body=%s)", rec.Code, rec.Body.String())
+	}
+	var out map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode err: %v", err)
+	}
+	if c, _ := out["code"].(string); c != "isolation-level-invalid" {
+		t.Fatalf("expected code=isolation-level-invalid, got %v (msg=%v)", out["code"], out["message"])
+	}
+}
+
+// TestCreateInstance_VClusterIsolation verifies the vCluster
+// isolation flow stamps the AppName-only namingTemplate.
+func TestCreateInstance_VClusterIsolation_NamingTemplateDefault(t *testing.T) {
+	h, _, dyn := newTestHandlerWithEndpoint(t)
+	h.SetCatalogClient(fakeBlueprintInCatalogWithCap("grafana", nil, true, 5, []string{"singleton"}))
+	r := newTestRouter(h)
+
+	body := []byte(`{"blueprint":"grafana","org":"acme","name":"obs-1","isolationLevel":"vcluster"}`)
+	req := httptest.NewRequest("POST", "/catalyst/v1/apps/instances", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d (body=%s)", rec.Code, rec.Body.String())
+	}
+	list, _ := dyn.Resource(ApplicationGVR()).Namespace("acme").List(context.Background(), metav1.ListOptions{})
+	if len(list.Items) != 1 {
+		t.Fatalf("expected 1 Application, got %d", len(list.Items))
+	}
+	iso, _, _ := unstructured.NestedString(list.Items[0].Object, "spec", "isolationLevel")
+	if iso != "vcluster" {
+		t.Fatalf("expected isolationLevel=vcluster, got %q", iso)
+	}
+	nt, _, _ := unstructured.NestedString(list.Items[0].Object, "spec", "namingTemplate")
+	if nt != "{{.AppName}}" {
+		t.Fatalf("expected namingTemplate={{.AppName}} for vcluster, got %q", nt)
 	}
 }
 
