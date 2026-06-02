@@ -42,14 +42,63 @@
 package validate
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
+	"sync"
 
+	"github.com/santhosh-tekuri/jsonschema/v5"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/openova-io/openova/core/controllers/internal/semver"
 )
+
+// blueprintTopologySchemaURL — opaque, stable sentinel identifying the
+// embedded `platform/_schemas/blueprint-topology.json`. Used only as the
+// schema-compiler resource key and in error messages.
+const blueprintTopologySchemaURL = "urn:openova:blueprint-topology-schema"
+
+// TopologySchemaViolationCode is the Result.Findings code namespace
+// surfaced on `Blueprint.status.conditions[]` for every jsonschema
+// finding produced by `Validate`. The controller maps each finding to
+// a Condition entry of `reason: TopologySchemaViolation` with the
+// finding's path+message in `message`.
+const TopologySchemaViolationCode = "topology-schema-violation"
+
+// compiledTopologySchema is the singleton compiled schema. Compilation
+// is non-trivial (reference walking, allOf flattening); we do it once
+// per process under sync.Once. If the embedded schema is malformed the
+// error is captured and surfaced on every Validate call so the
+// controller's Degraded condition reports the bug.
+var (
+	compiledTopologySchemaOnce sync.Once
+	compiledTopologySchema     *jsonschema.Schema
+	compiledTopologySchemaErr  error
+)
+
+// compileBlueprintTopologySchema compiles the embedded canonical schema.
+// Idempotent; safe for concurrent callers.
+func compileBlueprintTopologySchema() (*jsonschema.Schema, error) {
+	compiledTopologySchemaOnce.Do(func() {
+		compiler := jsonschema.NewCompiler()
+		if err := compiler.AddResource(
+			blueprintTopologySchemaURL,
+			strings.NewReader(string(blueprintTopologySchemaJSON)),
+		); err != nil {
+			compiledTopologySchemaErr = fmt.Errorf("add embedded blueprint-topology schema: %w", err)
+			return
+		}
+		s, err := compiler.Compile(blueprintTopologySchemaURL)
+		if err != nil {
+			compiledTopologySchemaErr = fmt.Errorf("compile blueprint-topology schema: %w", err)
+			return
+		}
+		compiledTopologySchema = s
+	})
+	return compiledTopologySchema, compiledTopologySchemaErr
+}
 
 // canonicalPlacementModes — must mirror the enum in
 // products/catalyst/chart/crds/blueprint.yaml `placementSchema.modes`.
@@ -159,6 +208,28 @@ type Result struct {
 	// block publication. Used for the metadata.name vs card.title-kebab
 	// soft check, etc.
 	Warnings []string
+
+	// Findings carries coded validation results — currently used for
+	// G117.1 AC2 (#2740) jsonschema topology-schema-violation entries.
+	// Each Finding has a stable Code namespace so the controller can
+	// emit a structured Condition entry per finding.
+	Findings []Finding
+}
+
+// Finding is a single coded validation observation. Used by the
+// blueprint-controller to surface structured
+// `Blueprint.status.conditions[]` entries — e.g.
+// `reason: TopologySchemaViolation` with the failing JSON-pointer + the
+// jsonschema message in `message`.
+type Finding struct {
+	// Code is a stable, kebab-case namespace string. See
+	// TopologySchemaViolationCode.
+	Code string
+	// Path is the JSON-pointer of the failing instance location.
+	// Empty when the finding is whole-object scoped.
+	Path string
+	// Message is the human-readable description of the violation.
+	Message string
 }
 
 // HasErrors returns true if Errors is non-empty.
@@ -360,7 +431,271 @@ func Validate(bp *unstructured.Unstructured, catalog map[string]struct{}) Result
 		}
 	}
 
+	// --- G117.1 AC2 (#2740) — JSON Schema topology gate.
+	// Run the canonical platform/_schemas/blueprint-topology.json
+	// against the full Blueprint object. Every leaf jsonschema
+	// violation becomes a Finding with code `topology-schema-violation`.
+	//
+	// Findings are surfaced on Blueprint.status.conditions[] as
+	// `reason: TopologySchemaViolation`. Per locked decision in the
+	// G117.1 brief, schema violations are advisory at this slice (the
+	// controller logs + conditions them but does NOT hard-block
+	// publication — that escalation lands in a follow-up slice once
+	// the existing corpus is fully migrated). They DO NOT populate
+	// res.Errors for that reason.
+	res.Findings = append(res.Findings, validateAgainstTopologySchema(bp)...)
+
 	return res
+}
+
+// validateAgainstTopologySchema runs the embedded blueprint-topology
+// JSON Schema against the full Blueprint object and returns one Finding
+// per leaf violation, plus cross-field findings the JSON Schema cannot
+// express (currently: endpoint variant-membership). Returns nil when
+// the document is clean.
+func validateAgainstTopologySchema(bp *unstructured.Unstructured) []Finding {
+	if bp == nil {
+		return nil
+	}
+	schema, err := compileBlueprintTopologySchema()
+	if err != nil {
+		return []Finding{{
+			Code:    TopologySchemaViolationCode,
+			Message: fmt.Sprintf("internal: %v", err),
+		}}
+	}
+
+	// Normalise the unstructured Blueprint through JSON. The
+	// jsonschema library expects JSON-shaped maps; unstructured
+	// already uses map[string]interface{}, but we round-trip to
+	// coerce numeric YAML-`int64` to JSON-`float64` per draft-07
+	// rules and to strip non-JSON-encodable values.
+	raw, err := json.Marshal(bp.Object)
+	if err != nil {
+		return []Finding{{
+			Code:    TopologySchemaViolationCode,
+			Message: fmt.Sprintf("marshal blueprint for schema validation: %v", err),
+		}}
+	}
+	var doc interface{}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return []Finding{{
+			Code:    TopologySchemaViolationCode,
+			Message: fmt.Sprintf("unmarshal blueprint for schema validation: %v", err),
+		}}
+	}
+
+	var findings []Finding
+	if err := schema.Validate(doc); err != nil {
+		var ve *jsonschema.ValidationError
+		if asTopologyValErr(err, &ve) {
+			findings = collectTopologyFindings(ve)
+		} else {
+			findings = []Finding{{
+				Code:    TopologySchemaViolationCode,
+				Message: err.Error(),
+			}}
+		}
+	}
+	// Cross-field semantic check that the embedded JSON Schema can't
+	// express: every endpoint.variant must be a member of
+	// spec.topology.supported[].
+	findings = append(findings, validateEndpointVariantMembership(bp)...)
+	// Soft plausibility check the embedded JSON Schema can't express:
+	// hostnameTemplate must look like a Go-text/template-rendered
+	// hostname, not a URL. Anything containing "://" or starting with
+	// "http:" / "https:" is a finding.
+	findings = append(findings, validateEndpointHostnameTemplate(bp)...)
+	return dedupFindings(findings)
+}
+
+// hostnameTemplateURLLike — patterns that disqualify a hostnameTemplate.
+// Tightening this regex is allowed in a follow-up slice; for now we
+// trip on the most common authoring mistake (pasting a full URL into
+// hostnameTemplate). Per docs/BLUEPRINT-AUTHORING.md §6.endpoints,
+// hostnameTemplate is a hostname after Go-template render — no scheme,
+// no path, no query.
+var hostnameTemplateURLLike = regexp.MustCompile(`^(?:https?:|.*://)`)
+
+// validateEndpointHostnameTemplate emits one finding per endpoint
+// whose hostnameTemplate looks like a URL (contains "://" or starts
+// with "http:" / "https:"). Empty endpoints[] skips silently.
+func validateEndpointHostnameTemplate(bp *unstructured.Unstructured) []Finding {
+	if bp == nil {
+		return nil
+	}
+	endpoints, _, _ := unstructured.NestedSlice(bp.Object, "spec", "endpoints")
+	var out []Finding
+	for i, ep := range endpoints {
+		epMap, ok := ep.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		hostnameTemplate, _, _ := unstructured.NestedString(epMap, "hostnameTemplate")
+		if hostnameTemplate == "" {
+			continue
+		}
+		if hostnameTemplateURLLike.MatchString(hostnameTemplate) {
+			out = append(out, Finding{
+				Code:    TopologySchemaViolationCode,
+				Path:    fmt.Sprintf("#/spec/endpoints/%d/hostnameTemplate", i),
+				Message: fmt.Sprintf("hostnameTemplate %q looks like a URL; expected a Go-text/template-rendered hostname (no scheme, no path)", hostnameTemplate),
+			})
+		}
+	}
+	return out
+}
+
+// validateEndpointVariantMembership emits a finding when a variant
+// is declared on the Blueprint but not in spec.topology.supported[].
+// Two sources of variant references are checked (soft cross-field
+// gates the embedded JSON Schema can't express):
+//
+//   - spec.topology.perTopology.* keys — every key defines a variant.
+//     Per locked decision #7 in the G117.1 brief, a perTopology entry
+//     for a variant NOT in supported[] is incoherent (the controller
+//     will never select it).
+//   - spec.endpoints[].variant — when present, must be a member of
+//     supported[]. The canonical schema currently does NOT define a
+//     `variant` property on EndpointSpec (additionalProperties: false),
+//     so this branch fires only when the variant field is added in a
+//     future schema bump; today its impact is "no-op" (the schema
+//     itself flags the unknown property).
+//
+// Empty supported[] disables the check (the schema-level
+// Topology.supported.minItems=1 already guarantees a finding then).
+func validateEndpointVariantMembership(bp *unstructured.Unstructured) []Finding {
+	if bp == nil {
+		return nil
+	}
+	supportedSlice, _, _ := unstructured.NestedStringSlice(bp.Object, "spec", "topology", "supported")
+	if len(supportedSlice) == 0 {
+		return nil
+	}
+	supportedSet := make(map[string]struct{}, len(supportedSlice))
+	for _, v := range supportedSlice {
+		supportedSet[v] = struct{}{}
+	}
+	var out []Finding
+
+	// 1) perTopology.* keys
+	if perTopology, found, _ := unstructured.NestedMap(bp.Object, "spec", "topology", "perTopology"); found {
+		keys := make([]string, 0, len(perTopology))
+		for k := range perTopology {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			if _, ok := supportedSet[k]; !ok {
+				out = append(out, Finding{
+					Code:    TopologySchemaViolationCode,
+					Path:    fmt.Sprintf("#/spec/topology/perTopology/%s", k),
+					Message: fmt.Sprintf("perTopology variant %q is not in spec.topology.supported %v", k, supportedSlice),
+				})
+			}
+		}
+	}
+
+	// 2) endpoints[].variant (forward-compat — see doc comment).
+	endpoints, _, _ := unstructured.NestedSlice(bp.Object, "spec", "endpoints")
+	for i, ep := range endpoints {
+		epMap, ok := ep.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		variant, _, _ := unstructured.NestedString(epMap, "variant")
+		if variant == "" {
+			continue
+		}
+		if _, ok := supportedSet[variant]; !ok {
+			out = append(out, Finding{
+				Code:    TopologySchemaViolationCode,
+				Path:    fmt.Sprintf("#/spec/endpoints/%d/variant", i),
+				Message: fmt.Sprintf("endpoint variant %q is not in spec.topology.supported %v", variant, supportedSlice),
+			})
+		}
+	}
+	return out
+}
+
+// collectTopologyFindings walks a santhosh-tekuri/jsonschema/v5
+// *ValidationError tree and emits one Finding per leaf cause. Each
+// finding's Path is the JSON-pointer of the failing instance location.
+func collectTopologyFindings(ve *jsonschema.ValidationError) []Finding {
+	var out []Finding
+	var walk func(*jsonschema.ValidationError)
+	walk = func(v *jsonschema.ValidationError) {
+		if v == nil {
+			return
+		}
+		if len(v.Causes) == 0 {
+			path := v.InstanceLocation
+			if path == "" {
+				path = "#"
+			} else {
+				path = "#" + path
+			}
+			out = append(out, Finding{
+				Code:    TopologySchemaViolationCode,
+				Path:    path,
+				Message: v.Message,
+			})
+			return
+		}
+		for _, c := range v.Causes {
+			walk(c)
+		}
+	}
+	walk(ve)
+	return out
+}
+
+// dedupFindings removes duplicates (by Path+Message) and stable-sorts
+// by Path then Message so Condition messages are byte-deterministic
+// across reconcile passes — same idempotency rationale as
+// core/controllers/pkg/validate.Parameters.
+func dedupFindings(in []Finding) []Finding {
+	if len(in) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	out := make([]Finding, 0, len(in))
+	for _, f := range in {
+		k := f.Path + "\x00" + f.Message
+		if _, ok := seen[k]; ok {
+			continue
+		}
+		seen[k] = struct{}{}
+		out = append(out, f)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Path != out[j].Path {
+			return out[i].Path < out[j].Path
+		}
+		return out[i].Message < out[j].Message
+	})
+	return out
+}
+
+// asTopologyValErr is a tiny errors.As-equivalent for the v5 lib's
+// untyped error chain (see core/controllers/pkg/validate.asValErr).
+func asTopologyValErr(err error, target **jsonschema.ValidationError) bool {
+	if err == nil {
+		return false
+	}
+	for cur := err; cur != nil; {
+		if ve, ok := cur.(*jsonschema.ValidationError); ok {
+			*target = ve
+			return true
+		}
+		type unwrapper interface{ Unwrap() error }
+		u, ok := cur.(unwrapper)
+		if !ok {
+			break
+		}
+		cur = u.Unwrap()
+	}
+	return false
 }
 
 // nestedAsMap returns m[key] as map[string]interface{} when the value
