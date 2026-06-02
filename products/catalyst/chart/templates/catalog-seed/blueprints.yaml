@@ -354,6 +354,29 @@ spec:
     url: oci://ghcr.io/openova-io
     chart: bp-grafana
     version: 1.0.0
+  # G117.4 #2882-followup (2026-06-03): launch-url endpoint needs
+  # endpoints[] + sso{} to mint the silent-SSO URL with prompt=none
+  # &kc_idp_hint=catalyst-pin. Mirrors platform/grafana/blueprint.yaml
+  # — chart-seed is the only Blueprint source on Sovereigns whose gitea
+  # catalog-sovereign Org isn't bootstrapped, so the endpoints/sso
+  # contract MUST be co-located here. Caught live on hw86 walk
+  # 2026-06-03: launch-url returned 404 "Blueprint grafana has no
+  # endpoint" after PR #2882 fixed the cluster-fallback bp- prefix
+  # lookup but exposed this gap.
+  endpoints:
+    - name: ui
+      hostnameTemplate: "grafana.{{.SovereignFQDN}}"
+      port: 443
+      protocol: https
+      tls: true
+      visibility: public
+      launchDefault: true
+      ssoEnabled: true
+  sso:
+    realm: sovereign
+    protocolMapper: oidc
+    groupsClaim: groups
+    silentLogin: true
   configSchema:
     type: object
     properties:
