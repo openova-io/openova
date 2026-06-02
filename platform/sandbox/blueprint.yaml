@@ -1,0 +1,152 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-sandbox
+  labels:
+    catalyst.openova.io/category: devtools
+    catalyst.openova.io/section: pts-4-sandbox
+    catalyst.openova.io/tier: catalyst-cp
+spec:
+  version: 0.3.8
+  card:
+    title: Sandbox
+    summary: |
+      Per-user in-browser coding sandbox — pty-server + agent CLI
+      (claude-code / qwen-code / cursor-agent / aider / opencode /
+      sovereign-shell) + openova-sandbox-mcp pre-wired into the User's
+      Organization (gitea repos, marketplace catalogue, llm-gateway
+      tokens). Reconciles Sandbox.sandbox.openova.io/v1 CRs into per-User
+      Sandbox sessions (StatefulSet + Service + HTTPRoute) inside the
+      Org's vCluster.
+    icon: sandbox.svg
+    category: devtools
+    tags: [sandbox, ide, devtools, mcp, claude-code, qwen-code, agents, openova]
+    documentation: products/sandbox/docs/architecture.md
+    license: AGPL-3.0-or-later
+  # `marketplace` — surfaces the card in the SME tenant catalogue so a
+  # User can land on /app?slug=sandbox and provision a personal Sandbox
+  # session. The controller itself is auto-installed by bootstrap-kit
+  # slot 19a on every Sovereign; the marketplace card represents the
+  # per-User instantiation flow (Sandbox CR creation), not a fresh
+  # Helm install.
+  visibility: marketplace
+  owner:
+    team: platform
+    contact: catalyst@openova.io
+  manifests:
+    chart: ./chart
+  # bp-sandbox sits on top of:
+  #   - bp-rtz-vcluster — vc-rtz Secret + customResources sync policy
+  #     (G92.5 #2664; the HR lives in host ns rtz but installs into
+  #     the rtz vCluster via kubeConfig.secretRef pivot).
+  #   - bp-vcluster-helmrepo — HelmRepository CR inside the rtz
+  #     vCluster the chart resolves against post-cutover.
+  #   - bp-catalyst-platform — host-substrate today (G92.3 follow-up);
+  #     the controller resolves catalyst-api via vCluster CoreDNS
+  #     forwarder.
+  #   - bp-harbor — post-handover the chart pull rewrites to
+  #     harbor.<sov-fqdn> (cutover Step-06 phase-1), so bp-harbor MUST
+  #     be Ready before the OCI fetch tries to resolve.
+  depends:
+    - blueprint: bp-rtz-vcluster
+      version: ^0.2
+    - blueprint: bp-vcluster-helmrepo
+      version: ^0.1
+    - blueprint: bp-catalyst-platform
+      version: ^1.0
+    - blueprint: bp-harbor
+      version: ^1.0
+
+  # ── G117.1: Topology declaration ────────────────────────────────────
+  # Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md:
+  # The sandbox-controller itself is a stateless reconciler — its only
+  # durable state is the per-Sandbox manifests it writes to the per-Org
+  # `catalyst-tenant` Gitea repo (which is the Gitea-replicated state,
+  # not the controller's). active-hot-standby runs two controller
+  # replicas (one per RTZ region) sharing leader-election lease via the
+  # rtz-A CNPG-replicated leases CRD; switchover is leader-flip only
+  # (no data replication required on the controller plane). Each
+  # per-Sandbox session (D31 pair when SOVEREIGN_ENABLE_HOT_STANDBY=true)
+  # is replicated via the chart's own sandbox.cnpg.activeHotStandby
+  # block, not at the bp-sandbox-controller layer.
+  topology:
+    supported:
+      - active-hot-standby
+      - singleton
+    defaults:
+      multi-region: active-hot-standby
+      single-region: singleton
+    perTopology:
+      active-hot-standby:
+        replication:
+          backend: none           # stateless controller; state lives in Gitea
+          mode: async
+          lagSloSeconds: 0
+        switchover:
+          mechanism: leader-election
+          rtoSeconds: 30
+          rpoSeconds: 0
+        placement:
+          tier: rtz
+          clusters: [rtz-A, rtz-B]
+          roles:
+            rtz-A: active
+            rtz-B: passive
+      singleton:
+        placement:
+          tier: rtz
+          clusters: [rtz-A]
+          roles:
+            rtz-A: singleton
+
+  # ── G117.3: Endpoints ──────────────────────────────────────────────
+  # The Sandbox web UI is exposed per-Sandbox via HTTPRoute the
+  # controller renders (sandbox/<owner-uid>/httproute.yaml in the
+  # per-Org Gitea repo). The endpoint here is the canonical hostname
+  # template — the per-User Application's effective hostname is
+  # `sandbox-<instanceID>.<orgslug>.<sovereign-fqdn>`.
+  endpoints:
+    - name: ui
+      hostnameTemplate: "sandbox-{{.InstanceID}}.{{.OrgSlug}}.{{.SovereignFQDN}}"
+      port: 443
+      protocol: https
+      tls: true
+      visibility: public
+      launchDefault: true
+      ssoEnabled: true
+    - name: metrics
+      hostnameTemplate: ""        # ClusterIP only — controller-runtime metrics
+      port: 8080
+      protocol: http
+      tls: false
+      visibility: internal
+      launchDefault: false
+      ssoEnabled: false
+
+  # ── G117.4 + G117.5: SSO ───────────────────────────────────────────
+  # The per-Sandbox pty-server is OIDC-fronted via the per-Org KC realm
+  # (bp-sso-bridge G91.1 #2652 + G117.5 W2.C4 per-Org realm fan-out).
+  # The chart's sso-oauth-source-externalsecret.yaml materialises the
+  # client_id / client_secret / issuer_url from OpenBao at
+  # secret/sso/sandbox into a Secret the controller propagates onto
+  # every per-User pty-server Pod (silent SSO via
+  # kc_idp_hint=catalyst-pin + IDR defaultProvider=sovereign-broker
+  # per G113).
+  sso:
+    realm: "{{.OrgSlug}}"
+    protocolMapper: oidc
+    groupsClaim: groups
+    rolesFromGroup:
+      sovereign-admins: admin
+    silentLogin: true
+
+  # ── G117.6: Multi-instance ─────────────────────────────────────────
+  # One Sandbox CR per User session — every developer in every Org
+  # gets their own pty-server StatefulSet + per-Sandbox PVC + per-
+  # Sandbox token mint (newapi /admin/tokens/sandbox). Naming template
+  # mirrors the controller's sandbox/<owner-uid>/ Gitea path.
+  multiInstance:
+    enabled: true
+    maxPerOrg: 50
+    namingTemplate: "{{.AppName}}-{{.InstanceID}}"
+    isolationLevel: namespace
