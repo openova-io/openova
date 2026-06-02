@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/category: application
     catalyst.openova.io/section: pts-4-7-application-tier-chat-ui
 spec:
-  version: 1.0.0
+  version: 1.1.0
   card:
     title: LibreChat
     summary: |

@@ -1,0 +1,53 @@
+{{- /*
+G117.5 W3.D2 (#2744) — Temporal AppRegistration ConfigMap.
+
+bp-sso-bridge reconciler watches ConfigMaps labelled
+`sso.openova.io/app-registration=<client-id>` and mints the matching
+OIDC client in the per-Org Keycloak realm (named by `org.slug`) at
+Application install time. The client's `client_secret` is PUT to
+OpenBao at `secret/sso/<org-slug>/temporal-frontend` where the
+companion ExternalSecret (sso-externalsecret.yaml) reads it.
+
+A single per-Org realm client (`temporal-frontend`) is shared between
+the Web UI browser flow and the frontend gRPC JWT validator
+(audience = clientId).
+
+Redirect URI matches the bp-temporal blueprint.yaml endpoint hostname
+template `temporal.{{`{{`}}.OrgSlug{{`}}`}}.{{`{{`}}.SovereignFQDN{{`}}`}}`
++ temporalio/ui-server's canonical SSO callback path
+`/auth/sso/callback`.
+*/ -}}
+{{- /*
+Rendered only when catalystOverlay.auth.enabled=true AND
+catalystOverlay.auth.keycloak.realm + sovereign.fqdn + org.slug are all
+set. Default smoke-renders skip cleanly.
+*/ -}}
+{{- if and .Values.catalystOverlay.auth.enabled .Values.catalystOverlay.auth.keycloak.realm .Values.sovereign.fqdn .Values.org.slug }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bp-temporal-sso-registration
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-temporal
+    sso.openova.io/app-registration: temporal-frontend
+    catalyst.openova.io/org-slug: {{ .Values.org.slug | quote }}
+data:
+  realm: {{ .Values.catalystOverlay.auth.keycloak.realm | quote }}
+  client.json: |
+    {
+      "clientId": {{ .Values.catalystOverlay.auth.keycloak.clientId | default "temporal-frontend" | quote }},
+      "name": "Temporal Web UI ({{ .Values.org.slug }})",
+      "enabled": true,
+      "publicClient": false,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "https://temporal.{{ .Values.org.slug }}.{{ .Values.sovereign.fqdn }}/auth/sso/callback"
+      ],
+      "webOrigins": [
+        "https://temporal.{{ .Values.org.slug }}.{{ .Values.sovereign.fqdn }}"
+      ],
+      "defaultClientScopes": ["web-origins", "profile", "email", "groups"]
+    }
+{{- end }}

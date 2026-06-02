@@ -12,8 +12,22 @@ bp-keycloak is reconciled. Keeping it off by default keeps the chart
 installable on a fresh Sovereign before the IDP tier is up
 (docs/BLUEPRINT-AUTHORING.md §11.2 spirit — every cross-tier dependency
 defaults off).
+
+G117.5 W3.D2 (#2744): issuer + jwksUri auto-derive from
+`.Values.sovereign.fqdn` + `.Values.catalystOverlay.auth.keycloak.realm`
+to drop the operator burden of pasting 4 URLs. Per-Sovereign overlay
+need only set `sovereign.fqdn` + `catalystOverlay.auth.keycloak.realm`
+(typically = the Org slug); the chart computes the canonical URLs.
+Operators can still override `issuer` / `jwksUri` explicitly for
+non-standard topologies.
 */ -}}
-{{- if .Values.catalystOverlay.auth.enabled }}
+{{- /* Skip-render when realm or fqdn are missing — auto-derivation needs both. */ -}}
+{{- if and .Values.catalystOverlay.auth.enabled .Values.catalystOverlay.auth.keycloak.realm .Values.sovereign.fqdn }}
+{{- $kc := .Values.catalystOverlay.auth.keycloak -}}
+{{- $sov := .Values.sovereign.fqdn -}}
+{{- $realm := $kc.realm -}}
+{{- $issuer := default (printf "https://auth.%s/realms/%s" $sov $realm) $kc.issuer -}}
+{{- $jwks := default (printf "https://auth.%s/realms/%s/protocol/openid-connect/certs" $sov $realm) $kc.jwksUri -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -26,11 +40,11 @@ data:
       authorization:
         jwtKeyProvider:
           keySourceURIs:
-            - {{ .Values.catalystOverlay.auth.keycloak.jwksUri | quote }}
+            - {{ $jwks | quote }}
           refreshInterval: 1h
         permissionsClaimName: permissions
         authorizer: default
-        claimMapper: {{ .Values.catalystOverlay.auth.keycloak.claimMapper | quote }}
-        issuer: {{ .Values.catalystOverlay.auth.keycloak.issuer | quote }}
-        audience: {{ .Values.catalystOverlay.auth.keycloak.clientId | quote }}
+        claimMapper: {{ $kc.claimMapper | quote }}
+        issuer: {{ $issuer | quote }}
+        audience: {{ $kc.clientId | quote }}
 {{- end }}

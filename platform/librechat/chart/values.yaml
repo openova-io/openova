@@ -15,6 +15,22 @@ catalystBlueprint:
     images:
       librechat: "ghcr.io/danny-avila/librechat"
 
+# ─── G117.5 (W3.D2 #2744) Tier-3 SSO — per-Org realm wiring ──────────────
+# Catalyst Organization slug + realm name + Sovereign FQDN drive the
+# AppRegistration ConfigMap, the per-app ExternalSecret OpenBao path,
+# and the auto-derived `OPENID_ISSUER` env var. application-controller
+# materialises these from the Org + Sovereign at Application install
+# time; values shown are placeholders so `helm template` smoke-renders
+# cleanly without `--set`.
+org:
+  slug: ""                              # e.g. "acme" — Org slug (also Subdomain segment)
+  # Per-Org KC realm name — defaults to the Org slug (matches bp-keycloak
+  # `tenantRealms[].slug` becoming the realm name). Operator may override
+  # for non-standard realm naming.
+  realm: ""
+sovereign:
+  fqdn: ""                              # e.g. "openova.example.com" (per-Sovereign overlay)
+
 # ─── LibreChat application ───────────────────────────────────────────────
 librechat:
   enabled: true
@@ -113,20 +129,34 @@ embeddings:
 
 # ─── Keycloak OIDC SSO ───────────────────────────────────────────────────
 # LibreChat speaks the standard OpenID Connect protocol — point at a
-# Keycloak realm. Issuer/clientId/clientSecret are operator-supplied via
-# ExternalSecret; nothing is hardcoded.
+# Keycloak realm. The G117.5 W3.D2 (#2744) Tier-3 SSO pattern wires
+# LibreChat to a per-Org KC realm (named by `.Values.org.realm`, which
+# defaults to `.Values.org.slug`); the realm's Identity Provider
+# Redirector (`defaultProvider=sovereign-broker`, bp-keycloak W2.C4
+# PR #2794) auto-delegates to the sovereign realm broker → catalyst-pin
+# for silent SSO.
 keycloak:
   enabled: true
-  issuer: ""                      # e.g. "https://keycloak.<loc>.<sovereign>/realms/<org>"
+  # G117.5 W3.D2 (#2744): issuer auto-derives from `sovereign.fqdn` +
+  # `org.realm` when empty — drop operator burden of pasting the URL.
+  # Per-Sovereign overlay can still pin an explicit issuer for non-
+  # standard topologies. Auto = https://auth.<sovereign.fqdn>/realms/<org.realm>
+  issuer: ""
   clientId: "librechat"
-  scope: "openid profile email"
+  scope: "openid profile email groups"
   callbackPath: "/oauth/openid/callback"
-  buttonLabel: "Sign in with Keycloak"
-  # ExternalSecret carrying client secret + (optional) session secret.
-  # Required keys: OPENID_CLIENT_SECRET, OPENID_SESSION_SECRET.
-  existingSecret: ""              # e.g. "librechat-oidc"
+  buttonLabel: "Sign in with Catalyst"
+  # ExternalSecret carrying client secret + session secret. The chart-
+  # rendered ExternalSecret (sso-externalsecret.yaml) defaults to
+  # `librechat-oidc`. Operators may override to keep legacy Secret
+  # names. Required keys: OPENID_CLIENT_SECRET, OPENID_SESSION_SECRET.
+  existingSecret: "librechat-oidc"
   allowSocialLogin: true
   allowSocialRegistration: true
+  # G117.5 W3.D2 (#2744): per-app ExternalSecret store + refresh cadence.
+  # Defaults match the platform-wide bp-openbao store.
+  externalSecretStoreName: "vault-region1"
+  refreshInterval: "1h"
 
 # ─── App credentials (LibreChat-internal) ────────────────────────────────
 # CREDS_KEY (32-byte hex), CREDS_IV (16-byte hex), JWT_SECRET, and

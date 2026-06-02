@@ -18,6 +18,17 @@
 catalystBlueprint:
   upstream: { chart: temporal, version: "1.2.0", repo: "https://go.temporal.io/helm-charts" }
 
+# ─── G117.5 (W3.D2 #2744) Tier-3 SSO — per-Org realm wiring ──────────────
+# Catalyst Organization slug + Sovereign FQDN drive the per-Org realm
+# name, AppRegistration ConfigMap, and the Web UI OIDC callback URL.
+# application-controller materialises these from the Org + Sovereign at
+# Application install time; values shown are placeholders so `helm
+# template` smoke-renders cleanly without `--set`.
+org:
+  slug: ""                              # e.g. "acme" — Org slug (also = per-Org KC realm name)
+sovereign:
+  fqdn: ""                              # e.g. "openova.example.com" (per-Sovereign overlay)
+
 # ─── Upstream chart values (subchart key: temporal) ───────────────────────
 # Upstream chart 1.2.0 is a major rewrite vs the historical 0.x line:
 # the per-datastore top-level keys (`cassandra:`, `mysql:`, `postgresql:`,
@@ -140,6 +151,42 @@ temporal:
     # via Cilium Gateway / HTTPRoute, not chart-rendered Ingress.
     ingress:
       enabled: false
+    # ─── G117.5 (W3.D2 #2744) Tier-3 SSO — Web UI OIDC env ─────────────
+    # temporalio/ui-server 2.20+ reads TEMPORAL_AUTH_* env vars at
+    # process start; sourcing them via secretKeyRef with `optional: true`
+    # keeps the Pod installable on a fresh Sovereign before bp-sso-bridge
+    # has reconciled the per-Org realm + minted the temporal-frontend
+    # client. The frontend gRPC's JWT validator (auth.yaml, see
+    # templates/keycloak-oidc-config.yaml) shares the same realm + audience.
+    additionalEnv:
+      - name: TEMPORAL_AUTH_ENABLED
+        value: "true"
+      - name: TEMPORAL_AUTH_PROVIDER_URL
+        valueFrom:
+          secretKeyRef:
+            name: temporal-sso-oidc-credentials
+            key: PROVIDER_URL
+            optional: true
+      - name: TEMPORAL_AUTH_CLIENT_ID
+        valueFrom:
+          secretKeyRef:
+            name: temporal-sso-oidc-credentials
+            key: CLIENT_ID
+            optional: true
+      - name: TEMPORAL_AUTH_CLIENT_SECRET
+        valueFrom:
+          secretKeyRef:
+            name: temporal-sso-oidc-credentials
+            key: CLIENT_SECRET
+            optional: true
+      - name: TEMPORAL_AUTH_CALLBACK_URL
+        valueFrom:
+          secretKeyRef:
+            name: temporal-sso-oidc-credentials
+            key: CALLBACK_URL
+            optional: true
+      - name: TEMPORAL_AUTH_SCOPES
+        value: "openid,profile,email,groups"
 
   # Admintools pod — operators run `tctl namespace register` and ad-hoc
   # administration through this pod (`kubectl exec -it temporal-admintools
@@ -195,11 +242,19 @@ catalystOverlay:
   auth:
     enabled: false
     keycloak:
-      issuer: ""        # https://keycloak.<env>.<sovereign-domain>/realms/<realm>
-      realm: ""         # e.g. "temporal" or the Sovereign's master realm
-      clientId: ""      # e.g. "temporal-frontend"
-      jwksUri: ""       # https://keycloak.<env>.<sovereign-domain>/realms/<realm>/protocol/openid-connect/certs
+      # G117.5 W3.D2 (#2744): `issuer` + `jwksUri` auto-derive from
+      # `.Values.sovereign.fqdn` + `realm` when left empty — operator
+      # need only set `realm` (typically = the Org slug). Per-Sovereign
+      # overlay can still pin explicit URLs for non-standard topologies.
+      issuer: ""        # auto = https://auth.<sovereign.fqdn>/realms/<realm>
+      realm: ""         # e.g. the Org slug — per-Org KC realm name (W2.C4)
+      clientId: "temporal-frontend"
+      jwksUri: ""       # auto = https://auth.<sovereign.fqdn>/realms/<realm>/protocol/openid-connect/certs
       claimMapper: "default"   # default | noop | <fully-qualified-go-type>
+      # G117.5 W3.D2 (#2744): per-app ExternalSecret store + refresh
+      # cadence. Defaults match the platform-wide bp-openbao store.
+      externalSecretStoreName: "vault-region1"
+      refreshInterval: "1h"
 
   # ─── NetworkPolicy ───────────────────────────────────────────────────
   # DEFAULT FALSE — flip via per-cluster overlay once a baseline

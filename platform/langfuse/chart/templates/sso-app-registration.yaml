@@ -1,0 +1,48 @@
+{{- /*
+G117.5 W3.D2 (#2744) — Langfuse AppRegistration ConfigMap.
+
+bp-sso-bridge reconciler watches ConfigMaps labelled
+`sso.openova.io/app-registration=<client-id>` and mints the matching
+OIDC client in the per-Org Keycloak realm (named by `org.slug`) at
+Application install time. The client's `client_secret` is PUT to
+OpenBao at `secret/sso/<org-slug>/langfuse` where the companion
+ExternalSecret (sso-externalsecret.yaml) reads it.
+
+Redirect URI matches the bp-langfuse blueprint.yaml endpoint hostname
+template `langfuse.{{`{{`}}.OrgSlug{{`}}`}}.{{`{{`}}.SovereignFQDN{{`}}`}}`
++ NextAuth's canonical Keycloak callback path
+`/api/auth/callback/keycloak`.
+*/ -}}
+{{- /*
+Rendered only when oidc.enabled=true AND org.slug + sovereign.fqdn +
+oidc.realm are all set. Default smoke-renders skip cleanly.
+*/ -}}
+{{- if and .Values.oidc.enabled .Values.org.slug .Values.sovereign.fqdn .Values.oidc.realm }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bp-langfuse-sso-registration
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-langfuse
+    sso.openova.io/app-registration: langfuse
+    catalyst.openova.io/org-slug: {{ .Values.org.slug | quote }}
+data:
+  realm: {{ .Values.oidc.realm | quote }}
+  client.json: |
+    {
+      "clientId": {{ .Values.oidc.clientId | default "langfuse" | quote }},
+      "name": "Langfuse ({{ .Values.org.slug }})",
+      "enabled": true,
+      "publicClient": false,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "https://langfuse.{{ .Values.org.slug }}.{{ .Values.sovereign.fqdn }}/api/auth/callback/keycloak"
+      ],
+      "webOrigins": [
+        "https://langfuse.{{ .Values.org.slug }}.{{ .Values.sovereign.fqdn }}"
+      ],
+      "defaultClientScopes": ["web-origins", "profile", "email", "groups"]
+    }
+{{- end }}

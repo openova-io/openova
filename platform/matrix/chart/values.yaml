@@ -63,6 +63,33 @@ matrix-synapse:
     # accounts (registration handled in Keycloak).
     enable_registration: false
     enable_registration_without_verification: false
+    # ─── G117.5 (W3.D2 #2744) Tier-3 SSO — oidc_providers[] ────────────
+    # Empty by default; the per-Sovereign overlay (application-controller
+    # materialises this from the Org slug + Sovereign FQDN at App install
+    # time) appends a single oidc_providers entry of the shape:
+    #
+    #   oidc_providers:
+    #     - idp_id: catalyst-pin
+    #       idp_name: "Catalyst Sign-In"
+    #       issuer: "https://auth.<sov-fqdn>/realms/<org-slug>"
+    #       client_id: matrix-synapse
+    #       client_secret_path: /secrets/oidc/OIDC_CLIENT_SECRET
+    #       scopes: ["openid", "profile", "email", "groups"]
+    #       user_mapping_provider:
+    #         config:
+    #           localpart_template: "{{ user.preferred_username }}"
+    #           display_name_template: "{{ user.name }}"
+    #           email_template: "{{ user.email }}"
+    #
+    # Synapse derives authorization_endpoint/token_endpoint via discovery
+    # at .well-known/openid-configuration on the issuer; the per-Org KC
+    # realm's Identity Provider Redirector with
+    # defaultProvider=sovereign-broker (bp-keycloak W2.C4 PR #2794)
+    # auto-delegates to the sovereign realm broker → catalyst-pin without
+    # requiring kc_idp_hint in the URL. See
+    # docs/sessions/2026-06-02-G117-sso-fanout-audit/tier-3/bp-matrix.md
+    # §2-hop verification curl chain for the full 8-hop probe.
+    oidc_providers: []
 
   # ─── Postgres backend — bp-cnpg (external) ─────────────────────────────
   # Disable the bundled bitnami/postgresql; route Synapse at the bp-cnpg
@@ -152,20 +179,52 @@ matrix-synapse:
 # ─── Catalyst-overlay knobs (consumed by templates/ in this chart) ───────
 # All DEFAULT OFF per docs/BLUEPRINT-AUTHORING.md §11.2.
 
-# Catalyst-side OIDC config — applied via the upstream chart's
-# `extraConfig.oidc_providers` block at install time. Operator's
-# per-Sovereign overlay supplies the actual issuer URL + ExternalSecret
-# holding the client secret. Default OFF until operator wires Keycloak.
+# ─── G117.5 (W3.D2 #2744) Tier-3 SSO — per-Org realm wiring ──────────────
+# Catalyst Organization slug + Sovereign FQDN drive the per-Org realm
+# name, AppRegistration ConfigMap, and the Synapse OIDC callback URL.
+# application-controller materialises these from the Org + Sovereign at
+# Application install time; values shown are placeholders so `helm
+# template` smoke-renders cleanly without `--set`.
+org:
+  slug: ""                              # e.g. "acme" — Org slug (also = per-Org KC realm name)
+sovereign:
+  fqdn: ""                              # e.g. "openova.example.com" (per-Sovereign overlay)
+
+# Catalyst-side OIDC config — emitted into the upstream matrix-synapse
+# subchart's `extraConfig.oidc_providers[]` block + materialised as a
+# per-app ExternalSecret + AppRegistration ConfigMap consumed by
+# bp-sso-bridge.
+#
+# 2-hop federation (per-Org realm → sovereign realm broker → catalyst-pin)
+# is driven by per-Org realm Identity Provider Redirector defaultProvider
+# config emitted by bp-keycloak (W2.C4 PR #2794) — no per-request
+# kc_idp_hint needed; Synapse derives authorize/token URLs from issuer
+# discovery.
 oidc:
   enabled: true
-  idpId: "keycloak"
-  idpName: "Keycloak"
-  issuer: ""                            # operator-supplied (e.g. https://keycloak.<loc>.<sovereign-domain>/realms/<org>)
+  idpId: "catalyst-pin"                 # Synapse-side providers[].idp_id (collision-free vs legacy "keycloak")
+  idpName: "Catalyst Sign-In"
+  # Per-Org realm name — defaults to the Org slug. The audit (bp-matrix.md
+  # §Per-Org realm) locks each Org to its own KC realm named after the
+  # slug; bp-keycloak's configmap-per-org-realms.yaml emits a realm with
+  # `realm: <slug>` for each tenantRealms entry.
+  realm: ""                             # operator-supplied or = .Values.org.slug
   clientId: "matrix-synapse"
-  scopes: ["openid", "profile", "email"]
-  # ExternalSecret name carrying client_secret. Required key:
-  # OIDC_CLIENT_SECRET. Operator-supplied.
-  existingSecret: ""                    # e.g. "matrix-oidc-credentials"
+  scopes: ["openid", "profile", "email", "groups"]
+  # Per-Sovereign overlay may override the ClusterSecretStore name +
+  # refresh interval. Defaults match the platform-wide bp-openbao store.
+  externalSecretStoreName: "vault-region1"
+  refreshInterval: "1h"
+  # ExternalSecret name carrying client_secret. The chart-rendered
+  # ExternalSecret (sso-externalsecret.yaml) defaults to
+  # `matrix-oidc-credentials`; operators may override here to keep
+  # legacy Secret names.
+  existingSecret: "matrix-oidc-credentials"
+  # Secret mount path — Synapse 1.151+ requires `client_secret_path`
+  # (file), NOT `client_secret` (string). Per-Sovereign overlay wires a
+  # volume mount on the synapse Pod that exposes the Secret key at this
+  # path.
+  clientSecretMountPath: "/secrets/oidc"
 
 # Federation toggle — Catalyst-overlay marker. The actual federation
 # behaviour is gated by upstream chart values + the homeserver.yaml
