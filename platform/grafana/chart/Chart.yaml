@@ -11,6 +11,12 @@ description: |
   (logs), bp-tempo (traces), bp-mimir (metrics), and bp-alloy or
   bp-opentelemetry (collection).
 type: application
+# 1.0.6 (G117.5a #2788, 2026-06-02): Tempo datasource URL port 3100 → 3200.
+# Upstream Tempo single-binary chart (grafana/helm-charts tempo-1.24.4)
+# exposes the HTTP query API on port 3200 (`http_listen_port` default,
+# rendered Service named port `tempo-prom-metrics`). The earlier 3100
+# was a copy-paste from Loki's chart and broke Grafana's Tempo
+# datasource health-check on fresh-prov walks.
 # 1.0.5 (G117.5 + G115 #2744, 2026-06-02): SSO defense-in-depth +
 # observability-stack auto-wiring on fresh install.
 #   - SSO: emit GF_AUTH_GENERIC_OAUTH_AUTH_URL with `?kc_idp_hint=
@@ -34,7 +40,7 @@ type: application
 # sectionName by default — multi-zone Sovereigns rename HTTPS listeners
 # to https-<sanitised-zone>, breaking NoMatchingListener with the prior
 # pinned sectionName: https. Matches the catalyst-system fix in PR #1888.
-version: 1.0.5
+version: 1.0.6
 appVersion: "12.3.1"
 # 1.0.4 (G91.grafana #2658, 2026-05-31): opt in to the bp-sso-bridge
 # (G91.1 #2652) SSO framework. Top-level `sso:` block (defaults

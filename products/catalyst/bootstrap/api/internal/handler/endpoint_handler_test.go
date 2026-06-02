@@ -853,6 +853,9 @@ func TestCreateInstance_VClusterIsolation_NamingTemplateDefault(t *testing.T) {
 	nt, _, _ := unstructured.NestedString(list.Items[0].Object, "spec", "namingTemplate")
 	if nt != "{{.AppName}}" {
 		t.Fatalf("expected namingTemplate={{.AppName}} for vcluster, got %q", nt)
+	}
+}
+
 // ── G117.3d #2780 — topology multi-region detection from
 // Sovereign.spec.regions count, not env var.
 

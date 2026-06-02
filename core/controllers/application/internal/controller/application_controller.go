@@ -692,18 +692,68 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 		// FanoutHRs is a pure renderer — we collect the per-cluster HR
 		// shape into status.perCluster[] so catalyst-api (G117.2-G117.4)
 		// can serve GET /apps/{id}.perCluster[] without re-parsing the
-		// Blueprint topology. Persistence of these HRs into the cluster
-		// API server is W2.C2/C3 scope (the Wave-2 multi-instance CRD
-		// + per-Org IaC hook chain) — keeping the controller's K8s
-		// write path unchanged here respects Wave-2 worktree isolation.
+		// Blueprint topology.
+		//
+		// G117.6a (Refs #2796) — the reconciler PERSISTS each rendered
+		// HR onto the host k3s via the dynamic client. Each HR carries
+		// `spec.kubeConfig.secretRef.name = vc-<cluster-lowered>` so
+		// Flux v2 helm-controller pivots into the per-cluster vCluster
+		// apiserver (G92.1 #2674 pivot pattern). When the Blueprint's
+		// PlacementSpec.Tier is "" the HRs target the host cluster (no
+		// kubeConfig block, no namespace override) — substrate
+		// Blueprints / mgmt-cluster-local install.
 		if variant != nil && variant.Placement != nil && len(variant.Placement.Clusters) > 0 {
+			// Resolve the per-Tier vCluster host namespace + kubeconfig
+			// Secret convention. Empty Tier = host placement (no
+			// kubeConfig block; HRs land in the Application's own
+			// namespace). Non-empty Tier MUST be mapped via
+			// VClusterPlacements or we surface Invalid (same shape as
+			// the existing single-region vCluster pivot earlier in
+			// this reconcile).
+			placementTier := variant.Placement.Tier
+			var (
+				fanoutWriteNamespace string
+				fanoutKubeSecretFor  func(cluster string) (string, string)
+			)
+			if placementTier != "" {
+				vcp, vcOK := r.Cfg.VClusterPlacements[placementTier]
+				if !vcOK {
+					return r.markFailed(ctx, app, ReasonInvalid,
+						fmt.Sprintf("Blueprint %q topology variant declares placement.tier=%q but the controller has no VClusterPlacements mapping for it (configure VCLUSTER_PLACEMENT_%s_NS + _SECRET, or drop the tier)",
+							spec.BlueprintName, placementTier, strings.ToUpper(placementTier)))
+				}
+				fanoutWriteNamespace = vcp.HostNamespace
+				// Per-cluster Secret naming convention: `vc-<cluster>`
+				// (lowercased). The cluster IDs in
+				// PlacementSpec.Clusters are the Sovereign-canonical
+				// names declared on Sovereign.spec.clusters (e.g.
+				// mgmt-A, mgmt-B); each vCluster Pod-set exports its
+				// admin kubeconfig at this Secret in the vCluster's
+				// host namespace. Matches the existing
+				// `TestFanoutHRs_KubeConfigSecretRefStamped` contract.
+				fanoutKubeSecretFor = func(cluster string) (string, string) {
+					return "vc-" + strings.ToLower(cluster), vcp.HostNamespace
+				}
+			}
+
+			// Source-ref + chart: read from Blueprint.spec.manifests
+			// (same lookup as the per-region path below).
+			fanoutSourceKind, _, _ := unstructured.NestedString(bp.Object, "spec", "manifests", "source", "kind")
+			fanoutSourceRef, _, _ := unstructured.NestedString(bp.Object, "spec", "manifests", "source", "ref")
+
 			hrs, ferr := topo.FanoutHRs(topo.FanoutInputs{
-				AppName:      app.GetName(),
-				AppNamespace: app.GetNamespace(),
-				Topology:     choice,
-				Variant:      variant,
-				Chart:        firstNonEmpty(blueprintChart(bp), spec.BlueprintName),
-				ChartVersion: spec.BlueprintVersion,
+				AppName:             app.GetName(),
+				AppNamespace:        app.GetNamespace(),
+				WriteNamespace:      fanoutWriteNamespace,
+				Topology:            choice,
+				Variant:             variant,
+				Chart:               firstNonEmpty(blueprintChart(bp), spec.BlueprintName),
+				ChartVersion:        spec.BlueprintVersion,
+				SourceRefName:       ifEmpty(fanoutSourceRef, r.Cfg.CatalogSourceRef),
+				SourceRefKind:       fanoutSourceKind,
+				SourceRefNamespace:  r.Cfg.SourceNamespace,
+				KubeConfigSecretFor: fanoutKubeSecretFor,
+				IntervalSeconds:     r.Cfg.HelmReleaseIntervalSeconds,
 				OwnerLabels: map[string]string{
 					"catalyst.openova.io/organization": envSpec.OrganizationRef,
 					"catalyst.openova.io/env-type":     envSpec.EnvType,
@@ -719,6 +769,38 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 			}
 			topo.SortHRsForReconcile(hrs)
 			perClusterFanout = hrs
+
+			// G117.6a (Refs #2796) — persist each rendered HR onto the
+			// host k3s. The dynamic client upsert is byte-equal
+			// idempotent (drift-restore on diverged spec; no-op on
+			// steady state) per upsertHostResource. We iterate in
+			// SortHRsForReconcile order: active HRs first, then
+			// passive, then singleton — so the active replica's HR
+			// upsert hits Flux's reconcile queue before its passive
+			// peer's (avoids the cnpg-pair race where the standby
+			// boots before WAL streaming comes up on primary).
+			for _, hr := range hrs {
+				hrName := hr.GetName()
+				hrNamespace := hr.GetNamespace()
+				if hrNamespace == "" {
+					// Belt-and-braces: WriteNamespace defaulted to
+					// AppNamespace in renderOneHR; this guards against
+					// a future renderer regression.
+					hrNamespace = app.GetNamespace()
+					hr.SetNamespace(hrNamespace)
+				}
+				if err := r.upsertHostResource(ctx, FluxHelmReleaseGVR, hrNamespace, hrName, hr); err != nil {
+					return r.markDegraded(ctx, app, ReasonGiteaError,
+						fmt.Sprintf("upsert per-cluster HelmRelease %s/%s: %v", hrNamespace, hrName, err))
+				}
+				r.Log.Info("upserted per-cluster HelmRelease",
+					"namespace", hrNamespace, "name", hrName,
+					"cluster", hr.GetLabels()[topo.LabelCluster],
+					"role", hr.GetLabels()[topo.LabelRole],
+					"topology", string(choice),
+				)
+			}
+
 			for _, s := range topo.PerClusterStatusesFor(hrs) {
 				perClusterStatus = append(perClusterStatus, map[string]interface{}{
 					"cluster": s.Cluster,
@@ -729,7 +811,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 			}
 		}
 	}
-	_ = perClusterFanout // consumed by status writer below
+	_ = perClusterFanout // status writer reads perClusterStatus; this var is the typed-shape audit trail
 
 	// 7. Resolve placement → per-region work plan.
 	plan, err := placement.Resolve(spec.Placement, spec.Regions)
