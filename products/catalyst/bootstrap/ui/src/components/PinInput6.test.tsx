@@ -28,20 +28,19 @@ function getBoxes(): HTMLInputElement[] {
 }
 
 describe('PinInput6 — typing', () => {
-  it('renders 6 inputs with inputmode="numeric" and maxlength=1', () => {
+  it('renders 6 decorative boxes + 1 overlay input with inputmode="numeric" and maxlength=6', () => {
     render(<PinInput6 />)
     const boxes = getBoxes()
     expect(boxes).toHaveLength(6)
-    for (const b of boxes) {
-      expect(b.getAttribute('inputmode')).toBe('numeric')
-      expect(b.getAttribute('maxlength')).toBe('1')
-    }
+    const input = screen.getByTestId('pin-box-input') as HTMLInputElement
+    expect(input.getAttribute('inputmode')).toBe('numeric')
+    expect(input.getAttribute('maxlength')).toBe('6')
   })
 
-  it('auto-focuses the first box on mount', () => {
+  it('auto-focuses the overlay input on mount', () => {
     render(<PinInput6 />)
-    const boxes = getBoxes()
-    expect(document.activeElement).toBe(boxes[0])
+    const input = screen.getByTestId('pin-box-input') as HTMLInputElement
+    expect(document.activeElement).toBe(input)
   })
 
   it('typing a digit advances focus to the next box', () => {
