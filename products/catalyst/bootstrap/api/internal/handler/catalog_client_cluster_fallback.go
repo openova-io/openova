@@ -196,6 +196,17 @@ func (c *chainedCatalogClient) listFromCluster(ctx context.Context) ([]CatalogBl
 // getFromCluster looks up a Blueprint CR by name. When `version` is
 // non-empty the version field on the CR must match exactly; an "latest"
 // or empty version returns whatever's in spec.version.
+//
+// G117 #2880-followup (2026-06-03): callers pass the bare blueprint name
+// (e.g. "grafana") because catalyst-catalog's HTTP API uses the bare
+// form. The chart-seeded CRs in templates/catalog-seed/blueprints.yaml
+// are named with the canonical `bp-` prefix (e.g. "bp-grafana") per
+// docs/NAMING §Blueprint. Try both forms so the cluster fallback works
+// for the common case where upstream is unreachable and the chart's
+// fixtures are the only path to a working install. Caught live on hw86
+// 2026-06-03 — `getFromCluster(ctx, "grafana", "")` returned
+// ErrBlueprintNotFound for `kubectl get blueprint bp-grafana` because
+// the bare-name lookup never matched the `bp-`-prefixed CR.
 func (c *chainedCatalogClient) getFromCluster(ctx context.Context, name, version string) (*CatalogBlueprint, error) {
 	if c.dyn == nil {
 		return nil, ErrBlueprintNotFound
@@ -207,6 +218,17 @@ func (c *chainedCatalogClient) getFromCluster(ctx context.Context, name, version
 	if err != nil {
 		if isVersionNotServed(err) {
 			obj, err = c.dyn.Resource(blueprintCRGVRAlpha1()).Get(ctx, name, metav1.GetOptions{})
+		}
+	}
+	// Retry with the canonical `bp-` prefix when the bare name missed.
+	if err != nil && apierrors.IsNotFound(err) && !strings.HasPrefix(name, "bp-") {
+		bpName := "bp-" + name
+		obj2, err2 := c.dyn.Resource(blueprintCRGVR()).Get(ctx, bpName, metav1.GetOptions{})
+		if err2 != nil && isVersionNotServed(err2) {
+			obj2, err2 = c.dyn.Resource(blueprintCRGVRAlpha1()).Get(ctx, bpName, metav1.GetOptions{})
+		}
+		if err2 == nil {
+			obj, err = obj2, nil
 		}
 	}
 	if err != nil {
