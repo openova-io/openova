@@ -443,7 +443,7 @@ controllers:
       # EnsureBranch before PutFile so Gitea's branch-missing 404
       # (mapped to ErrRepoNotFound by the client) no longer dead-loops
       # the env-controller.
-      tag: "8d01e2f"
+      tag: "32050f0"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -477,7 +477,7 @@ controllers:
     enabled: false
     image:
       repository: "ghcr.io/openova-io/openova/blueprint-controller"
-      tag: "32050f0"
+      tag: "8d01e2f"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
