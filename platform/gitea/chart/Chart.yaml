@@ -1,5 +1,16 @@
 apiVersion: v2
 name: bp-gitea
+# 1.2.14 (G117.E2E-B1 #2818, 2026-06-03): Fix post-upgrade hook
+# `gitea-sso-configure` timing out. The configure-oauth Job hard-coded
+# `kubectl wait pod/gitea-0` and `kubectl exec gitea-0 -- gitea admin
+# auth ...`, but the upstream gitea-charts/gitea 10.5.0 chart renders a
+# Deployment (templates/gitea/deployment.yaml), not a StatefulSet, so
+# the live Pod is `gitea-<rs-hash>-<id>` and the index-name lookup
+# never matches. The Job now resolves the live Pod by label selector
+# (`app.kubernetes.io/name=gitea,app.kubernetes.io/instance=<release>`)
+# — takes the first Pod with `Ready=True`, also keeps the Job correct
+# if the operator flips the upstream chart into its StatefulSet mode.
+# Refs #2737 (G117 EPIC) / #2818.
 # 1.2.13 (G117.5 #2744, 2026-06-02): SSO defense-in-depth via
 # kc_idp_hint=catalyst-pin. ExternalSecret now appends the hint to the
 # `authorize_url` written into gitea-oauth-source-credentials; the
@@ -38,7 +49,7 @@ name: bp-gitea
 # directly in Gitea as a site admin via OIDC. Local `gitea_admin` user
 # remains the break-glass account for bp-self-sovereign-cutover Step 1.
 # Per SECURITY.md §6.3 (App-level SSO).
-version: 1.2.13
+version: 1.2.14
 description: |
   Catalyst-curated Blueprint umbrella chart for Gitea. Depends on the
   upstream `gitea` chart (dl.gitea.com) as a Helm subchart so
