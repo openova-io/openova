@@ -159,7 +159,11 @@ HRS_JSON=$(cluster_kubectl "$KUBE_A" get hr.helm.toolkit.fluxcd.io -A -o json 2>
 
 # REQUIRED HRs that MUST be Ready=True on a converged Sovereign.
 # Hetzner-only HRs (bp-hcloud-ccm, bp-cluster-autoscaler-hcloud, bp-velero)
-# are excluded — they're expected Suspended on HCS.
+# are excluded — they're expected Suspended on HCS. The HCS-only
+# bp-velero-hcs (slot 34a, #2847) is symmetrically excluded — it's
+# expected Suspended on Hetzner. Pair invariant: exactly ONE of
+# bp-velero / bp-velero-hcs reconciles per Sovereign so backups are
+# always running, regardless of provider.
 REQUIRED_HRS=(
     bp-cilium bp-cert-manager bp-cert-manager-powerdns-webhook
     bp-flux bp-gateway-api bp-gitea bp-grafana bp-harbor

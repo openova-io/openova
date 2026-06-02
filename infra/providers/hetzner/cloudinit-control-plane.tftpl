@@ -605,6 +605,13 @@ write_files:
             WILDCARD_CERT_USE_STAGING: "${wildcard_cert_use_staging}"
             # (commentary block-20-line-1256 → docs/cloudinit-hetzner-notes.md, 13 lines stripped)
             CILIUM_K8S_SERVICE_HOST: "${cp_private_ip}"
+            # #2847 (Wave 6 follow-up to #2846): explicit Hetzner-side
+            # suspension of HCS-only HRs (bp-velero-hcs at slot 34a).
+            # Slot 34a's envsubst default is "true" so this would be
+            # suspended anyway, but the explicit substitute makes
+            # provider intent auditable + keeps Hetzner cloudinit
+            # symmetric with Huawei's HUAWEI_HR_SUSPEND="false".
+            HUAWEI_HR_SUSPEND: "true"
       ---
       apiVersion: kustomize.toolkit.fluxcd.io/v1
       kind: Kustomization

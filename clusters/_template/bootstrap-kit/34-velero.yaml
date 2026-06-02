@@ -18,9 +18,14 @@
 # `scripts/sovereign-dod-verify.sh` correctly EXCLUDES this HR from
 # REQUIRED_HRs and from the Ready=False tally — no action needed.
 # Velero on Hetzner targets Hetzner Object Storage via the s3-* keys
-# of `flux-system/object-storage`; an HCS-native equivalent that
-# targets Huawei OBS is tracked as a Wave 6 follow-up so backups are
-# still mandatory on every Sovereign, just via a different chart.
+# of `flux-system/object-storage`; the HCS-native equivalent that
+# targets Huawei OBS now ships at slot 34a (bp-velero-hcs, #2847,
+# Wave 6 follow-up to #2846) so backups are mandatory on every
+# Sovereign, just via a different chart. Slot 34a defaults
+# spec.suspend=true via ${HUAWEI_HR_SUSPEND:=true} so it stays dormant
+# on Hetzner Sovereigns; the Huawei cloud-init substitutes
+# HUAWEI_HR_SUSPEND="false". Pair invariant: at most ONE of slot 34 /
+# slot 34a reconciles per Sovereign.
 #
 # Wrapper chart: platform/velero/chart/ (umbrella over upstream
 # vmware-tanzu/velero chart, Catalyst-curated values under the `velero:`
