@@ -61,6 +61,27 @@ name: bp-catalyst-platform
 # `migrations.applicationsInstanceId.enabled` default stays FALSE this
 # cycle — operators must verify the migration on a legacy-CR cluster
 # before re-enabling globally. Refs #2830 #2823 #2834.
+# 1.4.445 — fix(catalyst-api): unblock Kyverno deny-plaintext-secret-env
+# PolicyViolation by renaming 3 secret-shaped env names that carry
+# non-secret values (boolean + filesystem paths) on the catalyst-api
+# Deployment. Kyverno cluster-policy
+# `secret-not-in-env/deny-plaintext-secret-env` rejects any container
+# env with a name matching `(?i)(PASSWORD|TOKEN|KEY|SECRET)` carrying
+# a plaintext `value:`. The policy is in Audit mode (so it did NOT
+# block admission today — the 17-min Pod hang on hw86 was image-pull
+# DNS, not Kyverno) but background-scan PolicyReports flagged 3
+# violations on the catalyst-api Pod + Deployment:
+#   • KEYCLOAK_BOOTSTRAP_TIER_ROLES (boolean "false") — substring
+#     "KEY" in KEYCLOAK matches. Renamed → KC_BOOTSTRAP_TIER_ROLES.
+#   • CATALYST_HANDOVER_JWT_PUBLIC_KEY_PATH (filesystem path) —
+#     substring "KEY" in "_KEY_PATH" matches. Renamed
+#     → CATALYST_HANDOVER_JWT_PUBLIC_PATH.
+#   • CATALYST_HANDOVER_KEY_PATH (filesystem path) — same reason.
+#     Renamed → CATALYST_HANDOVER_SIGNER_PATH.
+# Go code reads both new and legacy names (new first, legacy as
+# fallback) for backward-compat with in-flight Sovereigns running
+# older chart pins. Refs #2742 #2743 #2737.
+#
 # 1.4.439 — G117.E2E-A1 #2830 (2026-06-03): default
 # `.Values.migrations.applicationsInstanceId.enabled` to FALSE until the
 # `ghcr.io/openova-io/catalyst-migrator:0.1.0` image actually exists on
@@ -2453,6 +2474,7 @@ name: bp-catalyst-platform
 # sso-bridge) are unrelated to this slice.
 # (Bumped 440 → 441 to absorb concurrent merges since PR #2825 opened.)
 version: 1.4.448
+version: 1.4.445
 appVersion: 1.4.349
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.

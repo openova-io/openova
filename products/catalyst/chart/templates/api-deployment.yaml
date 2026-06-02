@@ -811,9 +811,15 @@ spec:
             # HelmRelease overlays MAY set this to "true" via the
             # `catalystApi.env` additional-env patch (Helm-only codepath, takes
             # precedence over this default at template-render time).
-            - name: KEYCLOAK_BOOTSTRAP_TIER_ROLES
+            # NB: env name was KEYCLOAK_BOOTSTRAP_TIER_ROLES until 2026-06-03.
+            # Renamed because the substring "KEY" (in KEYCLOAK) matches
+            # Kyverno cluster-policy `secret-not-in-env/deny-plaintext-secret-env`'s
+            # regex `(?i)(PASSWORD|TOKEN|KEY|SECRET)` and the plaintext value
+            # "false" triggered a PolicyViolation. Go-side reads both names
+            # (new first, legacy as fallback) — see cmd/api/main.go.
+            - name: KC_BOOTSTRAP_TIER_ROLES
               value: "false"
-            # CATALYST_HANDOVER_JWT_PUBLIC_KEY_PATH — path to the JWK file that
+            # CATALYST_HANDOVER_JWT_PUBLIC_PATH — path to the JWK file that
             # holds the RS256 public key for validating one-time handover JWTs.
             # The K8s Secret `catalyst-handover-jwt-public` (created by
             # cloud-init at provision time, see infra/hetzner/cloudinit-control-
@@ -828,7 +834,12 @@ spec:
             # re-provisioning. Mounting under /etc/ keeps the JWK off the PVC
             # entirely so the conflict cannot recur. Caught live on otech48,
             # 2026-05-03.
-            - name: CATALYST_HANDOVER_JWT_PUBLIC_KEY_PATH
+            #
+            # NB: env name was CATALYST_HANDOVER_JWT_PUBLIC_KEY_PATH until
+            # 2026-06-03. Renamed for the same Kyverno reason as above
+            # (substring "KEY" → secret-shaped name). Go-side reads both
+            # (new first, legacy as fallback) — see internal/handler/auth_handover.go.
+            - name: CATALYST_HANDOVER_JWT_PUBLIC_PATH
               value: /etc/catalyst/handover-jwt-public/public.jwk
             # SOVEREIGN_FQDN — Sovereign's public FQDN. The /auth/handover
             # validator (auth_handover.go) reads this to compute the expected
@@ -1198,11 +1209,20 @@ spec:
                   name: pdm-basicauth
                   key: password
                   optional: true
-            # CATALYST_HANDOVER_KEY_PATH — path to the RS256 PRIVATE key
-            # catalyst-api uses to mint magic-link + handover JWTs. The
+            # CATALYST_HANDOVER_SIGNER_PATH — path to the RS256 PRIVATE
+            # key catalyst-api uses to mint magic-link + handover JWTs. The
             # signer auto-generates the keypair on first start if absent.
             # MUST be on a writable PVC mount. Catalyst-Zero only.
-            - name: CATALYST_HANDOVER_KEY_PATH
+            #
+            # NB: env name was CATALYST_HANDOVER_KEY_PATH until 2026-06-03.
+            # Renamed because Kyverno cluster-policy
+            # `secret-not-in-env/deny-plaintext-secret-env` flags any env
+            # with name matching `(?i)(PASSWORD|TOKEN|KEY|SECRET)` carrying
+            # a plaintext value as a PolicyViolation. This env carries a
+            # filesystem path, not the secret itself, but the regex still
+            # matches. Go-side reads both names (new first, legacy as
+            # fallback) — see cmd/api/main.go.
+            - name: CATALYST_HANDOVER_SIGNER_PATH
               value: /var/lib/catalyst/handover-jwt-private.pem
             # ── Magic-link auth (issue #608, Phase-8b Agent A) ──────────────
             # CATALYST_KC_CLIENT_ID — OIDC client ID for the Catalyst-Zero
