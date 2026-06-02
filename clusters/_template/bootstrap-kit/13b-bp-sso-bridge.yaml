@@ -67,6 +67,13 @@ spec:
   chart:
     spec:
       chart: bp-sso-bridge
+      # 0.2.6 (#2744 H8 walk, 2026-06-03): fix Cilium egress NetworkPolicy
+      # port mismatch — chart's egress rule allow-listed only the
+      # keycloak Service port (80), but Cilium enforces on the Pod's
+      # target port (8080). Result: ALL bp-sso-bridge → keycloak admin
+      # calls timed out (curl(28)) for 24h+, blocking per-Org realm
+      # provisioning + Tier-1/2/3 client upserts. Adds 8080/TCP
+      # alongside the existing 80/TCP allow. Refs #2744 #2834.
       # 0.2.3 (G117.5c #2801, 2026-06-02): Tier-3 AppRegistration ConfigMap
       # watcher. New upsert_per_org_client + reconcile_app_registrations
       # shell functions read ConfigMaps labelled
@@ -85,7 +92,7 @@ spec:
       # 0.1.1 (G91-fu, Refs #2659, edc55c08 PR #2676): adds realm-role
       # grant + skipClientUpsert opt-out for charts whose Keycloak Client
       # is realm-imported at bp-keycloak install time (catalyst-ui etc.).
-      version: 0.2.5
+      version: 0.2.6
       sourceRef:
         kind: HelmRepository
         name: bp-sso-bridge

@@ -65,6 +65,17 @@ spec:
     # overlays MAY rewrite the namespace if bp-keycloak is relocated
     # (e.g. inside the mgmt vCluster post-G92.2 — that path uses a
     # different ingress route per the syncer-mangled name from G105).
+    #
+    # 0.2.6 (#2744 H8 walk, 2026-06-03): Cilium enforces egress
+    # NetworkPolicy on the destination Pod's TARGET port, NOT the
+    # Service port. The keycloak Service is `port: 80 → targetPort:
+    # 8080`; allowing only port 80 here meant Cilium dropped all
+    # bp-sso-bridge → keycloak traffic at egress, with curl(28)
+    # connect timeouts ~24h+. Allow BOTH 80 (back-compat / non-Cilium
+    # CNI semantics where Service-port matching may apply) AND 8080
+    # (the actual Pod target port Cilium enforces on). Operators
+    # overriding `keycloakPort` in per-Sovereign overlays should
+    # ensure their override also enumerates the Pod target port.
     - to:
         - namespaceSelector:
             matchLabels:
@@ -72,6 +83,8 @@ spec:
       ports:
         - protocol: TCP
           port: {{ .Values.networkPolicy.keycloakPort }}
+        - protocol: TCP
+          port: 8080
     # OpenBao admin endpoint — same shape as Keycloak.
     - to:
         - namespaceSelector:
