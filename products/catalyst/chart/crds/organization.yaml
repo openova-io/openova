@@ -348,6 +348,42 @@ spec:
                       items:
                         type: string
                   x-kubernetes-preserve-unknown-fields: true
+                iacBootstrap:
+                  type: object
+                  description: |
+                    Per-Organization IaC repo bootstrap state (ADR-0009 /
+                    G117.3 / W2.C3 — issue #2742). On first reconcile the
+                    controller calls iacbootstrap.Bootstrap which provisions
+                    the canonical `<slug>/iac` repo, a per-Org `<slug>-iac-bot`
+                    robot user with write-collaborator scope, branch
+                    protection on main requiring three named status checks
+                    (kyverno-admission, cert-manager-precheck,
+                    dns-conflict-precheck), and persists the robot's
+                    plaintext token to OpenBao at
+                    `kv/org/<slug>/iac-bot-token` (issue #2765).
+                  properties:
+                    state:
+                      type: string
+                      enum:
+                        - Pending
+                        - Provisioning
+                        - Ready
+                        - Failed
+                        - Disabled
+                      description: |
+                        State machine. Disabled means the controller's
+                        OpenBao + Gitea deps are not wired (older deployments
+                        without G117.3 env vars).
+                    repoURL:
+                      type: string
+                      description: Canonical HTTPS URL of the per-Org IaC repo.
+                    robotUsername:
+                      type: string
+                      description: Per-Org Gitea robot user (deterministic `<slug>-iac-bot`).
+                    lastError:
+                      type: string
+                      description: Most recent failure message when state=Failed.
+                  x-kubernetes-preserve-unknown-fields: true
                 conditions:
                   type: array
                   items:

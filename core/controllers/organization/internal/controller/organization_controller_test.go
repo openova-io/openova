@@ -467,8 +467,11 @@ func TestReconcile_HappyPath(t *testing.T) {
 	// Slice F2 added two federation-status conditions on every
 	// reconcile (NoFederation reason when spec.identity is empty —
 	// the access-matrix UI expects them to always be present).
-	if len(got.Status.Conditions) != 3 {
-		t.Fatalf("expected 3 conditions (Ready + 2 federation), got %d: %+v",
+	// G117.3 W2.C3 (#2742) added the IacRepoBootstrapped condition —
+	// rendered as Status=False / Reason=BootstrapDisabled in unit tests
+	// where the iac-bootstrap deps are not wired into the Reconciler.
+	if len(got.Status.Conditions) != 4 {
+		t.Fatalf("expected 4 conditions (Ready + 2 federation + IacRepoBootstrapped), got %d: %+v",
 			len(got.Status.Conditions), got.Status.Conditions)
 	}
 	if got.Status.Conditions[0].Type != "Ready" || got.Status.Conditions[0].Status != "True" {

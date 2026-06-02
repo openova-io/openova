@@ -81,6 +81,17 @@ var ErrRepoNotFound = errors.New("gitea: repo not found")
 // on the named branch (but the repo does).
 var ErrFileNotFound = errors.New("gitea: file not found")
 
+// ErrUserNotFound is returned by GetUser / CreateUserAccessToken when
+// the user does not resolve. Used by the per-Org IaC repo bootstrap to
+// distinguish "robot user never created" from "Gitea unreachable".
+var ErrUserNotFound = errors.New("gitea: user not found")
+
+// ErrAccessTokenExists is returned by CreateUserAccessToken when a
+// token with the requested name already exists. Gitea cannot re-emit
+// the plaintext, so the caller must choose between (a) delete + re-mint
+// (rotation path) or (b) skip and trust an existing secret-store entry.
+var ErrAccessTokenExists = errors.New("gitea: access token already exists")
+
 // errAlreadyExists is the internal sentinel for the create-422/409
 // race path. Mapped to typed sentinels at the call boundary.
 var errAlreadyExists = errors.New("gitea: already exists")
@@ -106,7 +117,7 @@ func IsNotFound(err error) bool {
 	if err == nil {
 		return false
 	}
-	if errors.Is(err, ErrOrgNotFound) || errors.Is(err, ErrRepoNotFound) || errors.Is(err, ErrFileNotFound) {
+	if errors.Is(err, ErrOrgNotFound) || errors.Is(err, ErrRepoNotFound) || errors.Is(err, ErrFileNotFound) || errors.Is(err, ErrUserNotFound) {
 		return true
 	}
 	var he *HTTPError

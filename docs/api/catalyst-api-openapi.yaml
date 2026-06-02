@@ -40,7 +40,76 @@ tags:
     description: Per-Application endpoint mutation (PR-pipelined into per-Org Gitea iac repo)
   - name: launch
     description: Silent-SSO Launch URL minting
+  - name: orgs
+    description: Organization-scoped operations (IaC repo bootstrap, lifecycle)
 paths:
+  /orgs/{org}/iac-bootstrap:
+    parameters:
+      - name: org
+        in: path
+        required: true
+        description: Organization slug.
+        schema: { type: string, pattern: '^[a-z0-9][a-z0-9-]{1,40}[a-z0-9]$' }
+    get:
+      tags: [orgs]
+      operationId: getOrgIacBootstrap
+      summary: Read the per-Org IaC repo bootstrap state
+      description: |
+        Returns the IaC bootstrap state for the named Organization.
+        Mirrors `Organization.status.iacBootstrap` on the CR.
+        State machine: `Pending` → `Provisioning` → `Ready` (or `Failed`).
+        `Disabled` indicates the Sovereign's organization-controller does
+        not have its OpenBao seam wired (older deployments missing the
+        G117.3 env vars).
+      responses:
+        '200':
+          description: Bootstrap state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrgIacBootstrapStatus' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [orgs]
+      operationId: triggerOrgIacBootstrap
+      summary: Re-run the per-Org IaC repo bootstrap (idempotent)
+      description: |
+        Re-runs ADR-0009's bootstrap pipeline against the named
+        Organization. Idempotent: every step is a find-or-create on
+        Gitea + OpenBao. Returns the freshly computed status — the
+        controller writes the result back onto the Organization CR's
+        `status.iacBootstrap`. Authenticated by Sovereign-admin OIDC
+        token (NOT tenant-scoped).
+      responses:
+        '200':
+          description: Already-bootstrapped, idempotent no-op
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrgIacBootstrapStatus' }
+        '202':
+          description: Bootstrap is now in flight
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrgIacBootstrapStatus' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+    delete:
+      tags: [orgs]
+      operationId: deleteOrgIacBootstrap
+      summary: Tear down the per-Org IaC repo bootstrap artifacts
+      description: |
+        Removes the per-Org Gitea repo + robot user + branch
+        protection rule + OpenBao token path. Used by tests + when an
+        Org is deleted. Order: branch-protection → collaborator →
+        repo → token → user → OpenBao (reverse-of-create).
+        Idempotent: missing artifacts return success.
+      responses:
+        '204':
+          description: Teardown complete
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
   /catalog/{blueprint}:
     get:
       tags: [catalog]
@@ -308,6 +377,34 @@ components:
         details:
           type: object
           additionalProperties: true
+    OrgIacBootstrapStatus:
+      type: object
+      description: |
+        Per-Org IaC repo bootstrap state (ADR-0009 / G117.3 / W2.C3).
+        Mirrors `Organization.status.iacBootstrap` 1:1.
+      required: [state]
+      properties:
+        state:
+          type: string
+          enum:
+            - Pending
+            - Provisioning
+            - Ready
+            - Failed
+            - Disabled
+          description: |
+            State machine. `Disabled` indicates the controller is not wired
+            to OpenBao + Gitea (older Sovereign installations).
+        repoURL:
+          type: string
+          description: Canonical HTTPS URL of the per-Org IaC repo.
+          example: https://gitea.t01.omani.works/acme/iac
+        robotUsername:
+          type: string
+          description: Per-Org robot user login name (deterministic `<slug>-iac-bot`).
+        lastError:
+          type: string
+          description: Most-recent failure message when state=Failed.
     BcpTopology:
       type: string
       enum: [active-active, active-hot-standby, active-passive, singleton]

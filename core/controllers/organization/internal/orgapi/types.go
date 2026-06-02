@@ -223,11 +223,38 @@ type OrganizationClientSecretRefSpec struct {
 
 // OrganizationStatus is the controller-managed reconciliation summary.
 type OrganizationStatus struct {
-	VCluster           VClusterStatus      `json:"vcluster,omitempty"`
-	KeycloakGroup      KeycloakGroupStatus `json:"keycloakGroup,omitempty"`
-	GiteaOrg           GiteaOrgStatus      `json:"giteaOrg,omitempty"`
-	Conditions         []Condition         `json:"conditions,omitempty"`
-	ObservedGeneration int64               `json:"observedGeneration,omitempty"`
+	VCluster           VClusterStatus       `json:"vcluster,omitempty"`
+	KeycloakGroup      KeycloakGroupStatus  `json:"keycloakGroup,omitempty"`
+	GiteaOrg           GiteaOrgStatus       `json:"giteaOrg,omitempty"`
+	IacBootstrap       IacBootstrapStatus   `json:"iacBootstrap,omitempty"`
+	Conditions         []Condition          `json:"conditions,omitempty"`
+	ObservedGeneration int64                `json:"observedGeneration,omitempty"`
+}
+
+// IacBootstrapStatus surfaces the per-Org IaC repo bootstrap state
+// (ADR-0009 + G117.3 / W2.C3). The controller transitions through
+// Pending → Provisioning → Ready on success, or → Failed on hard error
+// (with `lastError` populated and a controller-runtime requeue).
+//
+// The `repoURL` is the canonical HTTPS URL surfaced on the operator
+// console's "View IaC repo" link. `robotUsername` lets the operator
+// grep audit logs by author (e.g. when a misconfigured PR lands).
+type IacBootstrapStatus struct {
+	// State is one of Pending | Provisioning | Ready | Failed.
+	State string `json:"state,omitempty"`
+
+	// RepoURL is the canonical HTTPS URL of the per-Org IaC repo —
+	// e.g. "https://gitea.t01.omani.works/acme/iac".
+	RepoURL string `json:"repoURL,omitempty"`
+
+	// RobotUsername is the per-Org Gitea robot user's login name —
+	// `<slug>-iac-bot`.
+	RobotUsername string `json:"robotUsername,omitempty"`
+
+	// LastError carries the most recent failure message when State=Failed.
+	// Truncated to 1024 chars so the CR fits comfortably under the
+	// 1MiB etcd cap even with thousands of consecutive failures.
+	LastError string `json:"lastError,omitempty"`
 }
 
 // VClusterStatus surfaces vCluster reconciliation state.
