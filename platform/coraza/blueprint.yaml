@@ -11,3 +11,32 @@ spec:
     family: guardian
     description: OWASP-licensed Web Application Firewall, ModSecurity-rule-compatible, fronting bp-stalwart, bp-keycloak, bp-grafana via HAProxy SPOE. Scratch chart wires the official corazawaf/coraza-spoa container.
     docs: https://coraza.io/docs/
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        replication:
+          backend: flux-git
+          mode: async
+        placement:
+          tier: ''
+          clusters:
+            - mgmt-A
+            - mgmt-B
+            - dmz-A
+            - dmz-B
+            - rtz-A
+            - rtz-B
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  multiInstance:
+    enabled: false

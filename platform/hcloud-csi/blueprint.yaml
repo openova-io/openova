@@ -4,6 +4,8 @@ metadata:
   name: bp-hcloud-csi
   labels:
     catalyst.openova.io/section: pts-3-5-storage-and-data
+  annotations:
+    catalyst.openova.io/provider: hetzner
 spec:
   version: 1.1.0
   card:
@@ -52,3 +54,29 @@ spec:
   depends: []
   upgrades:
     from: ["0.x"]
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: ''
+          clusters:
+            - mgmt-A
+            - mgmt-B
+            - dmz-A
+            - dmz-B
+            - rtz-A
+            - rtz-B
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  multiInstance:
+    enabled: false

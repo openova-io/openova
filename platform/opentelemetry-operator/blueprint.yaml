@@ -40,19 +40,19 @@ spec:
           java:
             type: object
             properties:
-              enabled: { type: boolean, default: true }
+              enabled: {type: boolean, default: true}
           nodejs:
             type: object
             properties:
-              enabled: { type: boolean, default: true }
+              enabled: {type: boolean, default: true}
           python:
             type: object
             properties:
-              enabled: { type: boolean, default: true }
+              enabled: {type: boolean, default: true}
           dotnet:
             type: object
             properties:
-              enabled: { type: boolean, default: false }
+              enabled: {type: boolean, default: false}
   placementSchema:
     modes: [single-region, active-active]
     default: active-active
@@ -67,3 +67,29 @@ spec:
       version: ^1
   upgrades:
     from: ["0.x"]
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: ''
+          clusters:
+            - mgmt-A
+            - mgmt-B
+            - dmz-A
+            - dmz-B
+            - rtz-A
+            - rtz-B
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  multiInstance:
+    enabled: false

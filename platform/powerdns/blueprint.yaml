@@ -64,3 +64,42 @@ spec:
     - blueprint: bp-cert-manager
   upgrades:
     from: ["0.x"]
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: ''
+          clusters:
+            - mgmt-A
+            - mgmt-B
+            - dmz-A
+            - dmz-B
+            - rtz-A
+            - rtz-B
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  endpoints:
+    - name: ns1
+      hostnameTemplate: ns1.{{.SovereignFQDN}}
+      port: 53
+      protocol: udp
+      tls: false
+      visibility: public
+    - name: ns2
+      hostnameTemplate: ns2.{{.SovereignFQDN}}
+      port: 53
+      protocol: udp
+      tls: false
+      visibility: public
+  multiInstance:
+    enabled: false

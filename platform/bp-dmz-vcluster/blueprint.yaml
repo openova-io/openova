@@ -43,3 +43,24 @@ spec:
     vclusterName: dmz
     kubeconfigSecretName: vc-dmz
     role: every-region
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        replication:
+          backend: velero
+          mode: async
+        placement:
+          tier: dmz
+          clusters:
+            - dmz-A
+            - dmz-B
+          roles:
+            dmz-A: singleton
+            dmz-B: singleton
+  multiInstance:
+    enabled: false

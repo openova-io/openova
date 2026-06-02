@@ -37,3 +37,36 @@ spec:
   depends: []                        # foundational — no dependencies
   upgrades:
     from: ["0.x"]
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: ''
+          clusters:
+            - mgmt-A
+            - mgmt-B
+            - dmz-A
+            - dmz-B
+            - rtz-A
+            - rtz-B
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  endpoints:
+    - name: hubble
+      hostnameTemplate: hubble.{{.SovereignFQDN}}
+      port: 443
+      protocol: https
+      tls: true
+      visibility: private
+  multiInstance:
+    enabled: false

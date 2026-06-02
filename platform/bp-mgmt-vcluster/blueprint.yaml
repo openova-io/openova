@@ -42,3 +42,24 @@ spec:
     vclusterName: mgmt
     kubeconfigSecretName: vc-mgmt
     role: primary
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        replication:
+          backend: velero
+          mode: async
+        placement:
+          tier: mgmt
+          clusters:
+            - mgmt-A
+            - mgmt-B
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+  multiInstance:
+    enabled: false
