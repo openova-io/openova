@@ -85,3 +85,49 @@ spec:
       version: ^1.0
   upgrades:
     from: ["0.x"]
+  # ── G117.1 (Wave-1/B3) — topology + endpoints + sso + multiInstance ──
+  topology:
+    supported:
+    - active-passive
+    - singleton
+    defaults:
+      multi-region: active-passive
+      single-region: singleton
+    perTopology:
+      active-passive:
+        replication:
+          backend: sentinel
+          mode: async
+        switchover:
+          mechanism: sentinel-failover
+          rtoSeconds: 30
+        placement:
+          tier: rtz
+          clusters:
+          - rtz-A
+          - rtz-B
+          roles:
+            rtz-A: active
+            rtz-B: passive
+      singleton:
+        placement:
+          tier: rtz
+          clusters:
+          - rtz-A
+          roles:
+            rtz-A: singleton
+  endpoints:
+  - name: wire
+    hostnameTemplate: valkey.{{.OrgSlug}}.{{.SovereignFQDN}}
+    port: 6379
+    protocol: tcp
+    tls: false
+    visibility: private
+    launchDefault: false
+    ssoEnabled: false
+  multiInstance:
+    enabled: true
+    maxPerOrg: 10
+    namingTemplate: '{{.AppName}}-{{.InstanceID}}'
+    isolationLevel: namespace
+  # ── /G117.1 ──
