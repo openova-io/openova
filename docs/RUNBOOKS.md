@@ -447,6 +447,102 @@ curl -s -u "emrahbaysal:${TOKEN}" -o /dev/null -w "ghcr.io/v2/ HTTP %{http_code}
 
 **Reference**: G106 issue #2701, live caught 2026-06-01.
 
+### 2.13 SSO operations — 3-hop Tier-3 silent chain (per-Org realm → sovereign realm → catalyst-pin)
+
+For Sovereigns hosting multiple Organizations with per-Org Keycloak realms (G117.5 W2.C4 #2744). Each per-Org realm federates to the central `sovereign` realm via a `sovereign-broker` `keycloak-oidc` IdP, and the sovereign realm itself federates to `catalyst-pin` per G113 #2725. Result: a user who has a PIN-verified Catalyst session lands silently into every Tier-3 app under their Org with NO username/password form anywhere in the chain.
+
+#### Architecture
+
+| Hop | URL pattern | Mechanism |
+|---|---|---|
+| 0 (app start) | `https://<app>.<org>.<sov-fqdn>/<sso-login-path>` | App's OIDC-redirect; configured per-app at chart level |
+| 1 (into Org realm) | `https://auth.<sov-fqdn>/realms/<org>/protocol/openid-connect/auth?client_id=<app>&…` | App's OIDC discovery URL specifies `iss=https://auth.<sov>/realms/<org>` |
+| 2 (Org IDR → broker) | `https://auth.<sov-fqdn>/realms/<org>/broker/sovereign-broker/login?session_code=…&client_id=…&tab_id=…` | Org realm's IDR auto-303s here because `defaultProvider=sovereign-broker` (bp-keycloak 1.4.12 baked) |
+| 3 (broker → sovereign realm) | `https://auth.<sov-fqdn>/realms/sovereign/protocol/openid-connect/auth?…` | `sovereign-broker` IdP federates to sovereign realm |
+| 4 (sovereign IDR → catalyst-pin) | `https://auth.<sov-fqdn>/realms/sovereign/broker/catalyst-pin/login?session_code=…` | Sovereign realm's IDR auto-303s here because `defaultProvider=catalyst-pin` (PR #2730) |
+| 5 (catalyst-pin → catalyst-api) | `https://api.<sov-fqdn>/oidc/auth?…` | KC's broker call to catalyst-api `/oidc/auth` |
+| 6 (catalyst-api → console login OR back to KC with code) | depends on PIN cookie | If valid `catalyst_session` cookie present → 302 back to KC with `code`; otherwise 302 to `console.<sov>/login` |
+
+Five distinct token exchanges; six 303/302 redirects. Total wall-clock for a logged-in user with valid PIN session: < 1 s.
+
+#### Curl probes per hop (no-cookie, copy-paste)
+
+```bash
+SOV=hw86.omani.works
+ORG=acme
+
+# Hop 1: confirm Org realm discovery doc is live and issuer points back to itself
+curl -sf "https://auth.${SOV}/realms/${ORG}/.well-known/openid-configuration" | jq .issuer
+# Must be: "https://auth.${SOV}/realms/${ORG}"
+
+# Hop 2: confirm Org realm IDR delegates to sovereign-broker (no login form)
+curl -sk -I "https://auth.${SOV}/realms/${ORG}/protocol/openid-connect/auth?client_id=${ORG}-broker&response_type=code&scope=openid&redirect_uri=https%3A%2F%2Fexample.invalid%2Fcb&state=x"
+# Expect: HTTP 302/303 with `Location` containing `/broker/sovereign-broker/`
+# FAILURE MODE: HTTP 200 with HTML body = IDR config didn't bind. Re-check
+# bp-keycloak 1.4.12 deployed; if needed apply the runtime fix:
+#   ADMIN_TOKEN=$(...mint admin token...)
+#   EXEC_ID=$(curl -sf -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+#     "https://auth.${SOV}/admin/realms/${ORG}/authentication/flows/browser/executions" \
+#     | jq -r '.[] | select(.providerId=="identity-provider-redirector") | .id')
+#   curl -sf -X POST "https://auth.${SOV}/admin/realms/${ORG}/authentication/executions/${EXEC_ID}/config" \
+#     -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+#     -H "Content-Type: application/json" \
+#     -d '{"alias":"sovereign-broker-redirector","config":{"defaultProvider":"sovereign-broker"}}'
+
+# Hop 3: verify sovereign-broker IdP exists in the Org realm
+curl -sf -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  "https://auth.${SOV}/admin/realms/${ORG}/identity-provider/instances/sovereign-broker" \
+  | jq '{alias, providerId, config: {clientId: .config.clientId, authorizationUrl: .config.authorizationUrl}}'
+# Must show: alias="sovereign-broker", providerId="keycloak-oidc",
+#            clientId="<org>-broker", authorizationUrl pointing at /realms/sovereign
+
+# Hop 4: verify <org>-broker Client exists in sovereign realm
+curl -sf -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  "https://auth.${SOV}/admin/realms/sovereign/clients?clientId=${ORG}-broker" \
+  | jq '.[0] | {clientId, redirectUris}'
+# Must show: clientId="<org>-broker", redirectUris=["https://auth.${SOV}/realms/${ORG}/broker/sovereign-broker/endpoint"]
+
+# Hop 5: verify OpenBao path holds the broker secret
+kubectl exec -n openbao openbao-0 -- env VAULT_TOKEN="${ROOT}" \
+  bao kv get -format=json kv/org/${ORG}/keycloak/sovereign-broker-secret \
+  | jq '.data.data | {client_id, redirect_uri, org_slug}'
+
+# Hops 4-6: full headed Playwright probe (driven from bastion or laptop)
+SOV_FQDN=${SOV} ORG_A=acme ORG_B=beta-org \
+  npx playwright test tests/g117-2hop-sso-cross-org-isolation.spec.ts --reporter=list
+```
+
+#### Cross-Org isolation invariant
+
+Each Org realm issues id_tokens with `iss=https://auth.<sov>/realms/<slug>`. Any consumer app whose OIDC discovery URL points at Org-B's realm (`iss=…/realms/<slug-B>`) rejects Org-A id_tokens at the OIDC Core §3.1.3.7 issuer-check step. Verifier curl:
+
+```bash
+ISS_A=$(curl -sf "https://auth.${SOV}/realms/acme/.well-known/openid-configuration" | jq -r .issuer)
+ISS_B=$(curl -sf "https://auth.${SOV}/realms/beta-org/.well-known/openid-configuration" | jq -r .issuer)
+JWKS_A=$(curl -sf "https://auth.${SOV}/realms/acme/.well-known/openid-configuration" | jq -r .jwks_uri)
+JWKS_B=$(curl -sf "https://auth.${SOV}/realms/beta-org/.well-known/openid-configuration" | jq -r .jwks_uri)
+[ "${ISS_A}" != "${ISS_B}" ] && [ "${JWKS_A}" != "${JWKS_B}" ] && echo OK || { echo "FAIL: realms collapsed"; exit 1; }
+```
+
+#### When the chain breaks
+
+| Symptom | Likely root cause | Fix |
+|---|---|---|
+| Hop 2 returns 200 with HTML login form | Org realm IDR has no `defaultProvider` config bound | Apply runtime fix above OR re-deploy bp-keycloak 1.4.12+ |
+| Hop 3 returns `IDENTITY_PROVIDER_LOGIN_ERROR error="invalidRequestMessage"` | sovereign-broker IdP `clientSecret` mismatch with sovereign-realm `<org>-broker` Client `secret` | bp-sso-bridge re-tick will re-sync (deterministic helper guarantees same value); or manual PUT both ends with the value from OpenBao `kv/org/<slug>/keycloak/sovereign-broker-secret` |
+| Hop 4 returns HTTP 200 with `Verify Existing Account by Email` | `firstBrokerLoginFlowAlias` not switched to `first broker login auto link` (KC SMTP failure) | Verify Org realm imports the auto-link flow (bp-keycloak 1.4.12 ships it); else POST update via Admin API |
+| id_token has no `groups` claim → app authz fails | `groups` clientScope missing from the per-Org realm | Verify chart 1.4.12 render emits `clientScopes[].name=='groups'`; re-import realm if missing |
+| Org-A token accepted by Org-B app | OIDC issuer-check disabled at the app, OR both Orgs accidentally federated into the same realm | Re-check `kc_oidc_issuer_url` per-app; verify chart `tenantRealms[].slug` are distinct |
+
+#### Adding a new Org at runtime (without operator manual)
+
+For a fresh prov, populate `bp-keycloak`'s `tenantRealms[]` via the per-cluster Sovereign overlay BEFORE bootstrap-kit reconciles. For an existing prov, two paths:
+
+1. **Chart-mediated** (idempotent, recommended): add the entry to the Sovereign overlay's HelmRelease values for `bp-keycloak`, commit + push → Flux reconciles → bp-keycloak emits the new per-Org ConfigMap → bp-sso-bridge picks it up on next tick (≤60s).
+2. **Operator-emergency** (when overlay path is blocked): `kubectl apply` a hand-crafted ConfigMap in the `keycloak` namespace with label `catalyst.openova.io/per-org-realm=true` + label `catalyst.openova.io/org-slug=<slug>` + data `org-realm.json: <full realm import JSON>`. bp-sso-bridge picks it up the same way. (Note: chart re-reconciles will OVERWRITE manual ConfigMaps if the slug is also in `tenantRealms[]` — keep them in sync.)
+
+Reference: G117.5 W2.C4 #2744. Memory: `feedback_g117_per_org_realm_2hop_pitfalls.md` (gotchas + edge cases).
+
 ---
 
 ## §3 — Blueprint authoring

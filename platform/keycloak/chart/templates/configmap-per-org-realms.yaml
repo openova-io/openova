@@ -1,0 +1,276 @@
+{{- /*
+Catalyst bp-keycloak — Per-Org realm import ConfigMaps (G117.5 W2.C4 #2744).
+
+This template implements the **Tier-3 SSO topology** locked decision #6 of
+the G117 EPIC: every Catalyst Organization gets its own Keycloak realm
+(named after the Org slug), with a Keycloak-OIDC Identity Provider
+(`sovereign-broker`) that federates into the Sovereign's central
+`sovereign` realm. End-user silent SSO is a 3-hop chain:
+
+  1. User opens https://<app>.<org>.<sov-fqdn>/
+  2. App OIDC redirect → https://auth.<sov-fqdn>/realms/<org>/protocol/...
+     The Org realm's Identity Provider Redirector execution has
+     `defaultProvider=sovereign-broker` bound → KC auto-303s to step 3
+     WITHOUT showing the username/password form.
+  3. KC fires the `sovereign-broker` keycloak-oidc IdP →
+     https://auth.<sov-fqdn>/realms/sovereign/protocol/openid-connect/auth
+     The sovereign realm's IDR has `defaultProvider=catalyst-pin` (G113
+     #2725 / PR #2730) → KC auto-303s to the catalyst-pin IdP → silent
+     PIN-cookie SSO completes.
+
+End state: user holds a session cookie in BOTH realms (sovereign + org)
+and the per-app id_token is issued by the Org realm with `iss=
+https://auth.<sov-fqdn>/realms/<org>`. Cross-Org isolation is enforced
+by KC: an Org-A id_token has `iss=.../realms/<org-a>` and is rejected by
+Org-B's apps whose discovery URL specifies the Org-B issuer.
+
+Why a separate template (vs. extending configmap-tenant-realm.yaml)
+─────────────────────────────────────────────────────────────────
+`configmap-tenant-realm.yaml` (issue #915) implements a DIFFERENT
+topology — single SME-tenant mode where the chart is installed PER
+tenant under a per-tenant Namespace + Keycloak Pod and a SINGLE realm
+replaces the sovereign realm import (mutual exclusion). That mode is
+for the SME-fleet Sovereigns (one Sovereign per tenant).
+
+W2.C4 is for SHARED-Sovereign topology: one Sovereign hosts many Orgs,
+all in the same KC instance, each with its own realm federating to a
+shared `sovereign` realm. Both files can coexist — `tenantRealms[]`
+empty (default) emits nothing; populated, emits one ConfigMap per Org
+alongside the sovereign realm.
+
+How bp-sso-bridge consumes these ConfigMaps
+────────────────────────────────────────────
+The per-Org realm-config ConfigMap is BUILT by this template at chart
+render time, but **realm import to Keycloak happens at runtime**
+through bp-sso-bridge's `provision_org_realm` reconciler routine (see
+platform/sso-bridge/chart/templates/configmap-reconciler.yaml). The
+bridge watches for ConfigMaps with label
+`catalyst.openova.io/per-org-realm=true`, then:
+
+  1. Reads the realm JSON from `data.org-realm.json`
+  2. Mints a KC admin token
+  3. POST /admin/realms with the JSON (HTTP 201 on create, 409 ignore)
+  4. POST /admin/realms/sovereign/clients with `<slug>-broker` Client
+     using the same secret baked into this template (see helper
+     `bp-keycloak.tenantBrokerClientSecret` in _helpers.tpl)
+  5. PUT the broker secret into OpenBao at
+     `kv/org/<slug>/keycloak/sovereign-broker-secret`
+
+This split keeps the realm-config in version-controlled chart values
+(operator can inspect/diff before merge) while keeping the actual KC
+API calls out of Helm's reconcile loop (chart upgrades don't re-run
+the realm import; only bp-sso-bridge sees new tenantRealms entries
+the first tick after the ConfigMap appears).
+
+Idempotency / persistence guarantees
+─────────────────────────────────────
+  - `bp-keycloak.tenantBrokerClientSecret` is deterministic on
+    (Release.Name, Release.Namespace, orgSlug) so chart re-renders
+    produce identical ConfigMap bytes → no Helm churn
+  - bp-sso-bridge's POST /admin/realms is idempotent: 409 on second
+    call → log + continue
+  - OpenBao KV-v2 versioned write: re-applying the same secret is a
+    no-op version
+  - Cross-Org isolation: each Org's IdP `clientId=<slug>-broker` lives
+    in a distinct row in the sovereign realm's clients table → no
+    collision, no privilege leak
+
+Anti-patterns this template specifically prevents
+──────────────────────────────────────────────────
+  - clientScopes missing `groups` (manual recovery procedure step 3 —
+    every per-app id_token MUST carry the `groups` claim or role-based
+    authz breaks at the application)
+  - IDR execution without authenticationConfig bound (G113 #2725 root
+    cause — `kc_idp_hint` silently ignored, falls through to forms)
+  - first-broker-login flow uses default `idp-confirm-link` (KC SMTP
+    failure on Sovereigns without SMTP wired up — G113 Bug-6). We
+    re-use the same `first broker login auto link` flow shape from
+    the sovereign realm import here.
+  - Brittle authorizationUrl construction: we render it from
+    .Values.sovereignFQDN at chart-render time (no template variables
+    inside the JSON — KC's realm-import reader doesn't resolve them)
+
+When tenantRealms is empty (default) this template is a NO-OP.
+*/}}
+{{- if and .Values.tenantRealms (gt (len .Values.tenantRealms) 0) }}
+{{- $sov := required "tenantRealms requires .Values.sovereignFQDN (per Org realm needs sovereign-broker IdP URLs)" .Values.sovereignFQDN -}}
+{{- range $idx, $org := .Values.tenantRealms }}
+{{- /* ── Per-Org variable resolution ──────────────────────────────────── */}}
+{{- $slug := required (printf "tenantRealms[%d].slug is required" $idx) $org.slug -}}
+{{- $displayName := default $slug $org.displayName -}}
+{{- /* Broker client secret — deterministic per-(release, namespace, slug). */}}
+{{- $brokerSecret := include "bp-keycloak.tenantBrokerClientSecret" (dict "ctx" $ "orgSlug" $slug) -}}
+{{- /* URLs into the sovereign realm — issuer = https://auth.<sov-fqdn>/realms/sovereign. */}}
+{{- $sovIssuer := printf "https://auth.%s/realms/sovereign" $sov -}}
+{{- $sovAuthURL := printf "%s/protocol/openid-connect/auth" $sovIssuer -}}
+{{- $sovTokenURL := printf "%s/protocol/openid-connect/token" $sovIssuer -}}
+{{- $sovUserInfoURL := printf "%s/protocol/openid-connect/userinfo" $sovIssuer -}}
+{{- $sovJWKsURL := printf "%s/protocol/openid-connect/certs" $sovIssuer -}}
+{{- $sovLogoutURL := printf "%s/protocol/openid-connect/logout" $sovIssuer }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $.Release.Name }}-org-realm-{{ $slug }}-config
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-keycloak
+    catalyst.openova.io/component: keycloak-config-cli
+    catalyst.openova.io/per-org-realm: "true"
+    catalyst.openova.io/org-slug: {{ $slug | quote }}
+    catalyst.openova.io/sovereign-fqdn: {{ $sov | quote }}
+data:
+  org-realm.json: |
+    {
+      "realm": {{ $slug | quote }},
+      "enabled": true,
+      "displayName": {{ $displayName | quote }},
+      "sslRequired": "external",
+      "registrationAllowed": false,
+      "loginWithEmailAllowed": true,
+      "duplicateEmailsAllowed": false,
+      "resetPasswordAllowed": false,
+      "editUsernameAllowed": false,
+      "bruteForceProtected": true,
+      "accessTokenLifespan": 900,
+      "ssoSessionIdleTimeout": 1800,
+      "ssoSessionMaxLifespan": 28800,
+      "attributes": {
+        "token-exchange": "true"
+      },
+      "groups": [
+        { "name": "org-admins" },
+        { "name": "org-ops" },
+        { "name": "org-viewers" }
+      ],
+      "defaultGroups": [
+        "/org-viewers"
+      ],
+      "clientScopes": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "attributes": {
+            "include.in.token.scope": "true",
+            "display.on.consent.screen": "true"
+          },
+          "protocolMappers": [
+            {
+              "name": "groups",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-group-membership-mapper",
+              "consentRequired": false,
+              "config": {
+                "full.path": "false",
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "claim.name": "groups",
+                "userinfo.token.claim": "true"
+              }
+            }
+          ]
+        },
+        {
+          "name": "org",
+          "protocol": "openid-connect",
+          "attributes": {
+            "include.in.token.scope": "true",
+            "display.on.consent.screen": "false"
+          },
+          "protocolMappers": [
+            {
+              "name": "org",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "consentRequired": false,
+              "config": {
+                "claim.name": "org_slug",
+                "claim.value": {{ $slug | quote }},
+                "jsonType.label": "String",
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            }
+          ]
+        }
+      ],
+      "authenticatorConfig": [
+        {
+          "alias": "sovereign-broker-redirector",
+          "config": {
+            "defaultProvider": "sovereign-broker"
+          }
+        }
+      ],
+      "authenticationFlows": [
+        {
+          "alias": "browser",
+          "description": "Default browser flow with sovereign-broker IdP auto-delegation (G117.5 W2.C4).",
+          "providerId": "basic-flow",
+          "topLevel": true,
+          "builtIn": true,
+          "authenticationExecutions": [
+            { "authenticator": "auth-cookie", "requirement": "ALTERNATIVE", "priority": 10, "autheticatorFlow": false },
+            { "authenticator": "auth-spnego", "requirement": "DISABLED", "priority": 20, "autheticatorFlow": false },
+            { "authenticator": "identity-provider-redirector", "authenticatorConfig": "sovereign-broker-redirector", "requirement": "ALTERNATIVE", "priority": 25, "autheticatorFlow": false },
+            { "flowAlias": "forms", "requirement": "ALTERNATIVE", "priority": 30, "autheticatorFlow": true }
+          ]
+        },
+        {
+          "alias": "first broker login auto link",
+          "description": "G113 #2725 Bug-6 carryover: auto-link federated identity to existing realm user by email match without SMTP confirmation. Required because the sovereign-broker IdP federates a realm user whose email may already exist in the Org realm (e.g. operator pre-provisioned).",
+          "providerId": "basic-flow",
+          "topLevel": true,
+          "builtIn": false,
+          "authenticationExecutions": [
+            { "authenticator": "idp-create-user-if-unique", "requirement": "ALTERNATIVE", "priority": 10, "autheticatorFlow": false },
+            { "authenticator": "idp-auto-link", "requirement": "ALTERNATIVE", "priority": 20, "autheticatorFlow": false }
+          ]
+        }
+      ],
+      "identityProviders": [
+        {
+          "alias": "sovereign-broker",
+          "displayName": "Sovereign SSO",
+          "providerId": "keycloak-oidc",
+          "enabled": true,
+          "trustEmail": true,
+          "storeToken": false,
+          "addReadTokenRoleOnCreate": false,
+          "authenticateByDefault": false,
+          "linkOnly": false,
+          "firstBrokerLoginFlowAlias": "first broker login auto link",
+          "config": {
+            "clientId": {{ printf "%s-broker" $slug | quote }},
+            "clientSecret": {{ $brokerSecret | quote }},
+            "clientAuthMethod": "client_secret_post",
+            "authorizationUrl": {{ $sovAuthURL | quote }},
+            "tokenUrl": {{ $sovTokenURL | quote }},
+            "userInfoUrl": {{ $sovUserInfoURL | quote }},
+            "jwksUrl": {{ $sovJWKsURL | quote }},
+            "logoutUrl": {{ $sovLogoutURL | quote }},
+            "issuer": {{ $sovIssuer | quote }},
+            "defaultScope": "openid profile email groups",
+            "syncMode": "FORCE",
+            "validateSignature": "true",
+            "useJwksUrl": "true",
+            "guiOrder": "1"
+          }
+        }
+      ],
+      "clients": [],
+      "requiredActions": [
+        {
+          "alias": "webauthn-register",
+          "name": "Webauthn Register",
+          "providerId": "webauthn-register",
+          "enabled": true,
+          "defaultAction": false,
+          "priority": 70,
+          "config": {}
+        }
+      ]
+    }
+{{- end }}
+{{- end }}
