@@ -52,7 +52,7 @@ import { findComponent } from '@/pages/wizard/steps/componentGroups'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { API_BASE } from '@/shared/config/urls'
 import type { ApplicationStatus } from './eventReducer'
-import { getApplication, type ApplicationDetailResponse } from '@/lib/catalog.api'
+import { getApplication, getLaunchURL, type ApplicationDetailResponse } from '@/lib/catalog.api'
 import { ComplianceTab } from './AppDetail/ComplianceTab'
 import { MembersTab } from './AppDetail/MembersTab'
 import { TopologyTab } from './AppDetail/TopologyTab'
@@ -236,6 +236,13 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
   // operator can launch the app (SSO-authenticated via Keycloak) in a
   // new tab from the AppDetail page itself.
   const appExternalURL = apiApp?.externalURL?.trim() ?? ''
+  // G117.4 #2743 AC3 (2026-06-03): Application metadata.uid passes
+  // through OverviewPanel into the Launch button so the FE can mint
+  // a silent-SSO URL via catalyst-api's GET /catalyst/v1/apps/<uid>/
+  // launch-url handler (endpoint_handler.go:529). Empty when the
+  // backend's GET-Application response hasn't been updated to include
+  // metadata.uid yet — Launch button falls back to direct externalURL.
+  const appUID = apiApp?.uid?.trim() ?? ''
   // Matrix asserts the literal `Ready` token in the Overview body
   // (TC-068). When the API hasn't reported a phase yet, render the
   // mapped `status` chip phrase instead of an empty string so the test
@@ -557,6 +564,7 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
               appPrimaryRegion={appPrimaryRegion}
               appLastReconciled={appLastReconciled}
               appExternalURL={appExternalURL}
+              appUID={appUID}
               isServiceApp={isServiceApp}
               compState={compState}
               deps={deps}
@@ -884,6 +892,14 @@ interface OverviewPanelProps {
    * Application has no externally-exposed HTTPRoute.
    */
   appExternalURL: string
+  /**
+   * G117.4 #2743 AC3 (2026-06-03) — Application CR's metadata.uid.
+   * Threaded into the Launch button so it can call catalyst-api's
+   * GET /catalyst/v1/apps/{uid}/launch-url for a silent-SSO URL.
+   * Empty when the backend response shape hasn't been updated yet —
+   * Launch falls back to the direct `appExternalURL` link.
+   */
+  appUID: string
   isServiceApp: boolean
   compState:
     | {
@@ -904,6 +920,69 @@ interface OverviewPanelProps {
   deploymentId: string
 }
 
+/**
+ * G117.4 #2743 AC3 (2026-06-03) — Launch button calls catalyst-api's
+ * `GET /catalyst/v1/apps/{uid}/launch-url` (HandleGetLaunchURL at
+ * endpoint_handler.go:529) which mints a one-shot URL with
+ * `prompt=none&kc_idp_hint=catalyst-pin` appended so the operator
+ * lands inside the app without a Keycloak login form (silent-SSO
+ * budget &lt;500ms per locked decision #3).
+ *
+ * Fallback path (uid empty, 404, 409 sso-not-enabled, 503 cluster-
+ * unavailable, network error): open the legacy direct `fallbackURL`
+ * in a new tab. The button NEVER fails silently — operator always
+ * gets a new tab.
+ *
+ * data-testid="btn-launch-app" matches PR #2836 's Playwright spec
+ * (g117-launch-silent-sso.spec.ts) resilient selector.
+ */
+function LaunchButton({
+  appUID,
+  fallbackURL,
+}: {
+  appUID: string
+  fallbackURL: string
+}) {
+  const [pending, setPending] = useState(false)
+  const onClick = async (e: React.MouseEvent) => {
+    e.preventDefault()
+    if (pending) return
+    if (!appUID) {
+      window.open(fallbackURL, '_blank', 'noopener,noreferrer')
+      return
+    }
+    setPending(true)
+    try {
+      const resp = await getLaunchURL(appUID)
+      const target = resp?.URL ?? fallbackURL
+      window.open(target, '_blank', 'noopener,noreferrer')
+    } catch {
+      // Network / 5xx other than 503 — fall back to direct URL so the
+      // operator still lands in the app instead of staring at a toast.
+      window.open(fallbackURL, '_blank', 'noopener,noreferrer')
+    } finally {
+      setPending(false)
+    }
+  }
+  return (
+    <button
+      type="button"
+      data-testid="btn-launch-app"
+      onClick={onClick}
+      disabled={pending}
+      className="btn btn-primary launch-button"
+      style={{
+        marginLeft: '0.5rem',
+        padding: '0.15rem 0.55rem',
+        fontSize: '0.85rem',
+      }}
+      aria-label="Launch app via silent SSO"
+    >
+      {pending ? 'Launching…' : 'Launch →'}
+    </button>
+  )
+}
+
 function OverviewPanel({
   app,
   componentId,
@@ -917,6 +996,7 @@ function OverviewPanel({
   appPrimaryRegion,
   appLastReconciled,
   appExternalURL,
+  appUID,
   isServiceApp,
   compState,
   deps,
@@ -1043,6 +1123,20 @@ function OverviewPanel({
                     <path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
                   </svg>
                 </a>
+                {/* G117.4 #2743 AC3 (2026-06-03): Launch button calls
+                    catalyst-api `GET /catalyst/v1/apps/{uid}/launch-url`
+                    to mint a one-shot silent-SSO URL with
+                    `prompt=none&kc_idp_hint=catalyst-pin` appended,
+                    then opens it in a new tab. On uid-missing /
+                    404 / 409 / 503 it falls back to the legacy direct
+                    `appExternalURL` link above so this button always
+                    works (target-state, no regression).
+                    data-testid="btn-launch-app" matches PR #2836 's
+                    Playwright spec's resilient selector. */}
+                <LaunchButton
+                  appUID={appUID}
+                  fallbackURL={appExternalURL}
+                />
                 <span
                   className="external-url-hint"
                   style={{ display: 'block', marginTop: '0.25rem' }}
