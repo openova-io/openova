@@ -227,21 +227,52 @@ and CLI images route through the same proxy. Returns
 {{- end -}}
 
 {{/*
-Resolved OIDC issuer URL. Folds the legacy `keycloak.realmURL` into
-`oidc.issuerURL` for clusters whose orchestrator overlays haven't been
-re-rendered with the canonical `oidc.*` block. Operator-supplied
-`oidc.issuerURL` always wins; only when it equals the values.yaml
-placeholder ("https://keycloak.sme.local/realms/sme") AND a non-empty
-`keycloak.realmURL` is present does the fallback take effect.
+Resolved OIDC issuer URL. Resolution precedence (G117.5 W3.D3 #2744):
+
+  1. Operator-supplied `oidc.issuerURL` non-placeholder → use verbatim.
+  2. `sovereign.fqdn` + `org.realm` populated (G117 per-Org realm
+     topology) → derive `https://auth.<sovereign.fqdn>/realms/<org.realm>`.
+  3. `sovereign.fqdn` + `smeSubdomain` populated (legacy SME-fleet
+     topology) → derive `https://auth.<sovereign.fqdn>/realms/sme-<sub>`.
+  4. `oidc.issuerURL` placeholder AND legacy `keycloak.realmURL` set →
+     fold legacy alias.
+  5. Fall back to whatever `oidc.issuerURL` is (the smoke-render
+     placeholder) so `helm template` continues to render valid YAML.
+
+The placeholder is `https://keycloak.sme.local/realms/sme`.
 */}}
 {{- define "bp-wordpress-tenant.oidcIssuerURL" -}}
 {{- $modern := .Values.oidc.issuerURL -}}
 {{- $legacy := .Values.keycloak.realmURL -}}
 {{- $placeholder := "https://keycloak.sme.local/realms/sme" -}}
-{{- if and (eq $modern $placeholder) $legacy -}}
+{{- $sovFQDN := .Values.sovereign.fqdn | default "" -}}
+{{- $orgRealm := .Values.org.realm | default "" -}}
+{{- $smeSub := .Values.smeSubdomain | default "" -}}
+{{- if ne $modern $placeholder -}}
+{{- $modern -}}
+{{- else if and $sovFQDN $orgRealm -}}
+{{- printf "https://auth.%s/realms/%s" $sovFQDN $orgRealm -}}
+{{- else if and $sovFQDN $smeSub -}}
+{{- printf "https://auth.%s/realms/sme-%s" $sovFQDN $smeSub -}}
+{{- else if $legacy -}}
 {{- $legacy -}}
 {{- else -}}
 {{- $modern -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+G117.5 W3.D3: resolved Org realm name — fed into the AppRegistration
+ConfigMap's `data.realm` field for bp-sso-bridge consumption.
+Precedence: org.realm > smeSubdomain → `sme-<sub>` > "default".
+*/}}
+{{- define "bp-wordpress-tenant.orgRealm" -}}
+{{- if .Values.org.realm -}}
+{{- .Values.org.realm -}}
+{{- else if .Values.smeSubdomain -}}
+{{- printf "sme-%s" .Values.smeSubdomain -}}
+{{- else -}}
+default
 {{- end -}}
 {{- end -}}
 

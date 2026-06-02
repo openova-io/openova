@@ -1,0 +1,56 @@
+{{- /*
+G117.5 W3.D3 — bp-openmeter SSO AppRegistration (Tier-3-API).
+
+Service-account client registration for the OpenMeter API. OpenMeter at
+appVersion 1.0.0-beta.213 has no browser UI — it is a JWT-validation
+resource server. Other Apps call its `/api/v1/...` endpoints via the
+OAuth2 client_credentials grant against the per-Org Keycloak realm.
+
+bp-sso-bridge (W2.C4 PR #2794 reconciler + future iteration) lists
+ConfigMaps labelled `sso.openova.io/app-registration` cluster-wide each
+tick, then registers the client.json payload against the per-Org realm
+specified in `data.realm`. The `standardFlowEnabled: false` +
+`serviceAccountsEnabled: true` combo means KC mints client_credentials
+tokens but never serves a browser auth flow for this client.
+
+Per the Aux-2 audit (`docs/sessions/2026-06-02-G117-sso-fanout-audit/
+tier-3/bp-openmeter.md`): no per-app SSO Secret on the OpenMeter API
+side — it only validates tokens. Client_secret for service-account
+callers is minted by their own ExternalSecrets in their namespaces.
+*/}}
+{{- if .Values.sso.enabled }}
+{{- $realm := .Values.sso.org.realm | default .Values.sso.org.slug -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "bp-openmeter.fullname" . }}-sso-registration
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-openmeter.labels" . | nindent 4 }}
+    sso.openova.io/app-registration: {{ .Values.sso.clientId | quote }}
+    sso.openova.io/client-flow: service-account
+data:
+  realm: {{ $realm | quote }}
+  client.json: |
+    {
+      "clientId": {{ .Values.sso.clientId | quote }},
+      "name": "OpenMeter ({{ .Values.sso.org.slug }})",
+      "enabled": true,
+      "publicClient": false,
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "redirectUris": [],
+      "webOrigins": [],
+      "defaultClientScopes": ["roles","profile","email"],
+      "optionalClientScopes": ["groups"]
+    }
+  # OIDC issuer URL the OpenMeter API uses to validate inbound bearer
+  # tokens. Derived from sovereign.fqdn + per-Org realm so cross-Org
+  # token replay is rejected (Org-A token has iss=.../<org-a>; Org-B
+  # OpenMeter rejects it as iss-mismatch).
+  issuer: "https://auth.{{ .Values.sso.sovereign.fqdn }}/realms/{{ $realm }}"
+  audience: {{ .Values.sso.audience | quote }}
+  requiredScopes: {{ .Values.sso.requiredScopes | quote }}
+{{- end }}
