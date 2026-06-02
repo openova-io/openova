@@ -10,6 +10,57 @@ name: bp-catalyst-platform
 # Auto-image-bump CI workflow covers catalystApi/catalystUi/
 # marketplaceApi/console only — controller drift requires manual edit.
 # Refs #2745 #2830 #2834.
+# 1.4.447 — G117.2 #2741 (2026-06-03): operator drill-down + topology
+# picker + HTTPRoute /catalyst/ rule. Three changes shipped lockstep on
+# the same PR to close the H10 walk's TWO 🔴 BLOCKED gaps:
+#
+#   (1) HTTPRoute: the catalyst-ui HTTPRoute on console.<sov> now
+#       forwards PathPrefix `/catalyst/` to the catalyst-api Service,
+#       matching the existing `/api/` rule. Prior to this rule the
+#       React SPA's catch-all router shadowed /catalyst/v1/* with
+#       index.html, so POST /catalyst/v1/apps/instances from the
+#       operator console returned the React shell (HTTP 200 +
+#       index.html). H10 confirmed the endpoint mount works via the
+#       `api.<sov>` hostname (405 on GET, expected — POST only). The
+#       new rule routes /catalyst/v1/apps/instances, /catalyst/v1/
+#       catalog/{bp}/instances, /catalyst/v1/apps/{uid}/launch-url,
+#       and every future /catalyst/v1/* sub-route through to the Go
+#       backend on the console hostname too.
+#
+#   (2) AppDetail UI: new Instances section above the canonical 7-tab
+#       strip with (a) a per-Blueprint instance list via GET
+#       /catalyst/v1/catalog/{blueprint}/instances showing name,
+#       instance-id, org, topology, status; (b) a "+ New instance"
+#       button with data-testid="btn-new-instance" that opens the
+#       topology-picker dialog (name + org + topology radio gated by
+#       Blueprint.spec.topology.supported[]); (c) on submit POST to
+#       /catalyst/v1/apps/instances per instances.CreateInstanceRequest
+#       wire shape. The AppDetail surface is now the CLASS card with
+#       drill-down to concrete instances; matrix-canonical 7-tab strip
+#       and existing hero/Overview/Launch button all preserved.
+#
+#   (3) Per-cluster fan-out block: when the BE response carries
+#       regionStatuses (controller writes status.perCluster[] per
+#       G117.6 application-controller), the new section also surfaces a
+#       cluster + role + status + HR table so the operator sees where
+#       the instance is running across host clusters.
+#
+# H10 walk evidence on hw86:
+#   walk-2741-catalog-flat-grid.png — catalog renders one card per
+#     Blueprint (class), no instance split prior to this PR.
+#   walk-2741-appdetail-bp-axon-no-new-instance.png — AppDetail had no
+#     instance list + no "+ New instance" button.
+#
+# Refs #2741 #2737 #2834. PR title:
+# `feat(catalyst): G117.2 #2741 — multi-instance drill-down + topology
+#  picker + HTTPRoute /catalyst/ rule`.
+# 1.4.445 — #2830 followup (2026-06-03): the catalyst-migrator:0.1.0 image
+# is now published to GHCR (build-catalyst-migrator.yaml workflow added at
+# the same PR) AND the migration Job Pod spec now carries
+# `imagePullSecrets: [ghcr-pull]` so the GHCR pull authenticates. The
+# `migrations.applicationsInstanceId.enabled` default stays FALSE this
+# cycle — operators must verify the migration on a legacy-CR cluster
+# before re-enabling globally. Refs #2830 #2823 #2834.
 # 1.4.439 — G117.E2E-A1 #2830 (2026-06-03): default
 # `.Values.migrations.applicationsInstanceId.enabled` to FALSE until the
 # `ghcr.io/openova-io/catalyst-migrator:0.1.0` image actually exists on
@@ -2401,7 +2452,7 @@ name: bp-catalyst-platform
 # bp-{dmz,rtz}-vcluster + bare-string depends[] in powerdns-admin +
 # sso-bridge) are unrelated to this slice.
 # (Bumped 440 → 441 to absorb concurrent merges since PR #2825 opened.)
-version: 1.4.446
+version: 1.4.448
 appVersion: 1.4.349
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.

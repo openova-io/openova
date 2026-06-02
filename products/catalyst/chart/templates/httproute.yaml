@@ -102,6 +102,31 @@ spec:
       backendRefs:
         - name: catalyst-api
           port: 8080
+    # G117.2 #2741 (2026-06-03) — /catalyst/v1/* on the console hostname
+    # routes to catalyst-api, not catalyst-ui. The G117 multi-instance
+    # surface lives under /catalyst/v1/apps/instances (POST) and
+    # /catalyst/v1/catalog/{blueprint}/instances (GET) per
+    # docs/api/catalyst-api-openapi.yaml. Without this rule the React
+    # SPA's catch-all router shadows /catalyst/v1/* with the index.html
+    # shell — H10 walk on hw86 observed POST /catalyst/v1/apps/instances
+    # returning the React shell (HTTP 200 + index.html) when fired from
+    # the operator console. The same /catalyst/v1/apps/{uid}/launch-url
+    # endpoint that powers PR #2839's Launch button also depends on this
+    # rule when called via the console hostname (the Launch button on
+    # AppDetail.tsx calls `${API_BASE}/catalyst/v1/apps/{uid}/launch-url`
+    # where API_BASE resolves to the console origin in a Sovereign
+    # console session).
+    #
+    # PathPrefix is correct here (not Exact) — the prefix `/catalyst/`
+    # covers every sub-route under it (instances, catalog/{bp}/instances,
+    # apps/{uid}/launch-url, future /catalyst/v1/* additions).
+    - matches:
+        - path:
+            type: PathPrefix
+            value: "/catalyst/"
+      backendRefs:
+        - name: catalyst-api
+          port: 8080
     # Default — catalyst-ui (the React shell)
     - matches:
         - path:

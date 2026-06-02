@@ -663,3 +663,138 @@ export async function editPRBlueprint(
   }
   return res.json()
 }
+
+/* ── G117.2 #2741 — Multi-instance Application surface ─────────────
+ *
+ * Wire shapes mirror catalyst-api's `internal/instances.CreateInstanceRequest`
+ * and the OpenAPI `Application` / `ApplicationSummary` projections at
+ * `internal/handler/endpoint_handler.go:117-142`.
+ *
+ *   GET  /catalyst/v1/catalog/{blueprint}/instances[?org=]
+ *        → ListBlueprintInstancesResponse
+ *
+ *   POST /catalyst/v1/apps/instances
+ *        body: CreateApplicationInstanceRequest
+ *        → CreateApplicationInstanceResponse
+ *
+ * The path lives under /catalyst/v1/ (not /api/v1/) — the bp-catalyst-
+ * platform HTTPRoute (PR #2741 chart bump 1.4.447) wires
+ * PathPrefix /catalyst/ on the console hostname to forward to the
+ * catalyst-api Service. Prior to that bump the prefix fell through to
+ * the React shell and returned index.html.
+ */
+
+/** Mirrors `applicationSummary` at endpoint_handler.go:117. */
+export interface ApplicationInstanceSummary {
+  id: string
+  name: string
+  blueprint: string
+  org: string
+  topology: string
+  status: string
+  createdAt?: string
+}
+
+/** Mirrors `application` at endpoint_handler.go:130 (Summary + perCluster). */
+export interface ApplicationInstance extends ApplicationInstanceSummary {
+  perCluster?: ApplicationClusterStatus[]
+}
+
+/** Mirrors `applicationClusterStatus` at endpoint_handler.go:136. */
+export interface ApplicationClusterStatus {
+  cluster: string
+  role: string
+  status: string
+  hr?: string
+  message?: string
+}
+
+/** Mirrors `listInstancesResponse` at endpoint_handler.go:153. */
+export interface ListBlueprintInstancesResponse {
+  items: ApplicationInstanceSummary[]
+}
+
+/**
+ * Mirrors `instances.CreateInstanceRequest` at
+ * products/catalyst/bootstrap/api/internal/instances/create.go.
+ *
+ * `blueprint`, `org`, `name` are required. `topology` is optional —
+ * server falls back to the Blueprint's per-Sovereign topology default
+ * (single-region vs multi-region per locked decision #7). `values`
+ * carries the Blueprint configSchema parameters; per-app form
+ * surfaces those in the topology-picker dialog as a JSON-Schema-driven
+ * form (out of scope for the v1 dialog — see PR follow-up TBD).
+ */
+export interface CreateApplicationInstanceRequest {
+  blueprint: string
+  org: string
+  name: string
+  topology?: string
+  isolationLevel?: 'namespace' | 'vcluster'
+  values?: Record<string, unknown>
+}
+
+/** Mirrors `application` 201-response body at endpoint_handler.go:729. */
+export interface CreateApplicationInstanceResponse extends ApplicationInstance {}
+
+/**
+ * getApplicationInstances — list every Application installed from a
+ * given Blueprint. Returns the empty-items envelope on 404. Throws on
+ * other 4xx/5xx so genuine network / auth issues surface.
+ *
+ * `appUID` is unused by the wire path (the listing is per-Blueprint,
+ * not per-Application) but the FE call-site threads it as a stable
+ * cache key so multiple AppDetail tabs with the same Blueprint share
+ * the same in-flight request.
+ */
+export async function getApplicationInstances(
+  blueprint: string,
+  opts: { org?: string } = {},
+): Promise<ListBlueprintInstancesResponse> {
+  const bp = blueprint.replace(/^bp-/, '')
+  const params = new URLSearchParams()
+  if (opts.org) params.set('org', opts.org)
+  const qs = params.toString()
+  const url = `${API_BASE}/catalyst/v1/catalog/${encodeURIComponent(bp)}/instances${qs ? '?' + qs : ''}`
+  const res = await authedFetch(url, { headers: { Accept: 'application/json' } })
+  if (res.status === 404) return { items: [] }
+  if (!res.ok) {
+    throw new Error(`getApplicationInstances: HTTP ${res.status}`)
+  }
+  return res.json()
+}
+
+/**
+ * createApplicationInstance — POST /catalyst/v1/apps/instances.
+ *
+ * On 4xx the server returns a typed error body
+ * `{code: string, message: string}`. The error message surfaces verbatim
+ * so the dialog can render the operator-meaningful copy (e.g.
+ * "max instances per Org exceeded", "isolationLevel not in {namespace,
+ * vcluster}").
+ */
+export async function createApplicationInstance(
+  body: CreateApplicationInstanceRequest,
+): Promise<CreateApplicationInstanceResponse> {
+  const res = await authedFetch(`${API_BASE}/catalyst/v1/apps/instances`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    let code = ''
+    let message = `HTTP ${res.status}`
+    try {
+      const detail = (await res.json()) as { code?: string; message?: string }
+      if (detail?.code) code = detail.code
+      if (detail?.message) message = detail.message
+    } catch {
+      /* fall through */
+    }
+    const err = new Error(message) as Error & { status?: number; code?: string }
+    err.status = res.status
+    err.code = code
+    throw err
+  }
+  return res.json()
+}
