@@ -274,6 +274,51 @@ export const uninstallApp = (orgId: string, slug: string) =>
     { method: 'DELETE' },
   );
 
+// G117.4 #2743 AC3 — Launch button calls catalyst-api which mints the
+// signed silent-SSO URL (carries `prompt=none` + `kc_idp_hint=catalyst-pin`).
+// The handler lives on the catalyst-api at `/catalyst/v1/apps/{id}/launch-url`
+// (NOT under the SME `/api` namespace), so we bypass `request()` and hit
+// the route directly from the same origin.
+//
+// Error surfaces (per `endpoint_handler.go:HandleGetLaunchURL`):
+//   - 404 `endpoint-not-found`     — Blueprint has no such endpoint
+//   - 409 `sso-not-enabled`        — endpoint exists but ssoEnabled=false
+//   - 503 `cluster-unavailable`    — k8s client / blueprint fetch failed
+//
+// Callers should catch + fall back to a direct-URL open or toast the error.
+export interface LaunchURLResponse {
+  url: string;
+  expiresAt: string;
+  endpoint?: string;
+}
+
+export const getLaunchURL = async (
+  appId: string,
+  endpoint?: string,
+): Promise<LaunchURLResponse> => {
+  const qs = endpoint ? `?endpoint=${encodeURIComponent(endpoint)}` : '';
+  const path = `/catalyst/v1/apps/${encodeURIComponent(appId)}/launch-url${qs}`;
+  const token = localStorage.getItem('sme-token');
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+  const res = await fetch(path, { headers });
+  if (!res.ok) {
+    let code = `${res.status}`;
+    let message = res.statusText;
+    try {
+      const body = await res.json();
+      if (body && typeof body === 'object') {
+        code = body.code || code;
+        message = body.message || message;
+      }
+    } catch { /* non-JSON body, keep status */ }
+    throw new Error(`${res.status}:${code}:${message}`);
+  }
+  return res.json();
+};
+
 // Backing services (databases, caches, queues) inventory per tenant. Merges
 // catalog metadata with live pod status from provisioning so the console can
 // render name/version/endpoint + a Running/Pending/Failed pill in one call.

@@ -2,7 +2,7 @@
   import PortalShell from './PortalShell.svelte';
   import {
     getApps, getProvisionStatus, getMyOrgs, installApp, uninstallApp, getUninstallPreview,
-    getBackingServices,
+    getBackingServices, getLaunchURL,
     type User, type Org, type CatalogApp, type Provision, type ConfigField, type UninstallPreview,
     type BackingService,
   } from '../lib/api';
@@ -138,7 +138,7 @@
         } catch {}
       }
       if (msg.startsWith('501')) {
-        modal = { mode: 'add', message: 'Day-2 installs are launching soon — we will email you when live.' };
+        modal = { mode: 'add', message: 'Day-2 installs ship soon — we will email you when live.' };
         modal.pending = false;
         return;
       }
@@ -161,7 +161,7 @@
     } catch (e: any) {
       const msg = e?.message ?? '';
       if (msg.startsWith('501')) {
-        modal = { mode: 'remove', message: 'Day-2 removal is launching soon — we will email you when live.' };
+        modal = { mode: 'remove', message: 'Day-2 removal ships soon — we will email you when live.' };
         modal.pending = false;
         return;
       }
@@ -192,9 +192,54 @@
     confirmUnderstood && app && typedSlug.trim() === app.slug
   );
 
-  function openRunning(org: Org) {
+  // G117.4 #2743 AC3 — Launch button → calls catalyst-api
+  // `GET /catalyst/v1/apps/{id}/launch-url` to mint a silent-SSO URL
+  // (carries `prompt=none` + `kc_idp_hint=catalyst-pin`) and opens it
+  // in a new tab with `noopener,noreferrer`. The catalyst-api handler
+  // takes the installed-Application UID — for the SME tenant flow that
+  // is the catalog `app.id` echoed back through `provision.apps[]`.
+  // If we cannot resolve a per-install id OR the API errors (404 / 409
+  // / 503), we fall back to the previous direct-URL behavior so the
+  // user still gets *somewhere* to land.
+  function fallbackOpenRunning(org: Org) {
     if (!app) return;
-    window.open(`https://${org.slug}.omani.rest/${app.slug}`, '_blank');
+    window.open(`https://${org.slug}.omani.rest/${app.slug}`, '_blank', 'noopener,noreferrer');
+  }
+
+  async function launchApp(org: Org) {
+    if (!app) return;
+    // Prefer the installed instance UID from the provision record; fall
+    // back to org.apps[] (same shape) and finally the catalog id.
+    const installedId =
+      (provision?.apps ?? []).find((id) => id === app!.id) ||
+      (org.apps ?? []).find((id) => id === app!.id) ||
+      app.id;
+    if (!installedId) {
+      fallbackOpenRunning(org);
+      return;
+    }
+    try {
+      const resp = await getLaunchURL(installedId);
+      if (resp && resp.url) {
+        window.open(resp.url, '_blank', 'noopener,noreferrer');
+        return;
+      }
+      fallbackOpenRunning(org);
+    } catch (e: any) {
+      const msg = (e?.message ?? '') as string;
+      // Parsed format: "<status>:<code>:<message>"
+      if (msg.startsWith('409')) {
+        flash(`${app.name}: SSO not enabled for this endpoint`, 'error');
+      } else if (msg.startsWith('404')) {
+        flash(`${app.name}: launch endpoint not found`, 'error');
+      } else if (msg.startsWith('503')) {
+        flash(`${app.name}: cluster unavailable, retrying via direct URL`, 'error');
+        fallbackOpenRunning(org);
+      } else {
+        // Network or unexpected — fall back so the user is not stranded.
+        fallbackOpenRunning(org);
+      }
+    }
   }
 </script>
 
@@ -242,7 +287,11 @@
                 {isInstalling ? 'Installing…' : 'Uninstalling…'}
               </button>
             {:else if isInstalled}
-              <button class="btn btn-primary" onclick={() => org && openRunning(org)}>Open app &rarr;</button>
+              <button
+                class="btn btn-primary"
+                data-testid="btn-launch-app"
+                onclick={() => org && launchApp(org)}
+              >Launch &rarr;</button>
               <button class="btn btn-danger-outline" onclick={() => org && openRemoveModal(org.id)}>Remove</button>
             {:else}
               <button class="btn btn-primary" onclick={() => (modal = { mode: 'add' })}>+ Install</button>
@@ -329,7 +378,7 @@
             <h2>Configuration</h2>
             <p class="section-hint">Tune {app.name} for your workload. Defaults work for most teams.</p>
 
-            <div class="info-banner soft">Day-2 configuration is launching soon — edits will be enabled then.</div>
+            <div class="info-banner soft">Day-2 configuration ships soon — edits will be enabled then.</div>
 
             <div class="config-grid">
               {#each basicFields as f (f.key)}
