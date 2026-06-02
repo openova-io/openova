@@ -142,7 +142,7 @@ spec:
       # empty-placeholder path with a chart-managed lookup-or-generate
       # Secret + helm.sh/resource-policy: keep (default ON; opt-out via
       # `guacamole.oidc.chartManagedSecret: false`). Refs #2744.
-      version: 0.2.0
+      version: 0.2.1
       sourceRef:
         kind: HelmRepository
         name: bp-guacamole
