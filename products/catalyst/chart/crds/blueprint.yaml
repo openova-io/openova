@@ -327,6 +327,238 @@ spec:
                 outputs:
                   type: object
                   x-kubernetes-preserve-unknown-fields: true
+                # ── G117 EPIC fields — promoted from JSON schema ────────
+                # Source of truth: platform/_schemas/blueprint-topology.json
+                # Go types: core/pkg/apis/blueprint/v1alpha1/topology_types.go
+                # G117.E2E-B3 (#2740 #2745 #2737): W1.B1 + W2.C2 landed
+                # the Go-types + JSON-schema gate but the CRD manifest
+                # never gained these fields, so runtime admission did
+                # NOT gate them — preserve-unknown silently swallowed
+                # them. This block makes admission see + validate the
+                # G117 contract on every Sovereign (hw86 + downstream).
+                topology:
+                  type: object
+                  description: |
+                    Per-Blueprint multi-region declaration. Admission
+                    enforces defaults.multi-region + defaults.single-region
+                    are members of supported, and every key in perTopology
+                    is in supported.
+                  required: [supported, defaults]
+                  properties:
+                    supported:
+                      type: array
+                      minItems: 1
+                      # K8s structural-schema forbids `uniqueItems: true`
+                      # (quadratic-complexity ban); use the structural-
+                      # schema equivalent x-kubernetes-list-type: set
+                      # which the API server enforces in O(n) via hash.
+                      x-kubernetes-list-type: set
+                      items:
+                        type: string
+                        enum:
+                          - active-active
+                          - active-hot-standby
+                          - active-passive
+                          - singleton
+                    defaults:
+                      type: object
+                      required: [multi-region, single-region]
+                      properties:
+                        multi-region:
+                          type: string
+                          enum:
+                            - active-active
+                            - active-hot-standby
+                            - active-passive
+                            - singleton
+                        single-region:
+                          type: string
+                          enum:
+                            - active-active
+                            - active-hot-standby
+                            - active-passive
+                            - singleton
+                    perTopology:
+                      type: object
+                      description: |
+                        Per-variant replication / switchover / placement
+                        knobs. Each variant repeats the same three
+                        sub-schemas — K8s structural CRD schemas forbid
+                        $ref so each variant is inlined via YAML anchor.
+                      properties:
+                        active-active:
+                          type: object
+                          required: [replication, placement]
+                          properties:
+                            replication: &REPLICATION_SPEC
+                              type: object
+                              required: [backend]
+                              properties:
+                                backend:
+                                  type: string
+                                  enum:
+                                    - cnpg-pair
+                                    - raft
+                                    - mirrormaker2
+                                    - s3-bucket-replication
+                                    - ccr
+                                    - sentinel
+                                    - velero
+                                    - filer-remote-storage
+                                    - openbao-perf-replication
+                                    - flux-git
+                                    - none
+                                mode:
+                                  type: string
+                                  enum: [sync, async, none]
+                                lagSloSeconds:
+                                  type: integer
+                                  minimum: 0
+                                  maximum: 86400
+                            switchover: &SWITCHOVER_SPEC
+                              type: object
+                              required: [mechanism]
+                              properties:
+                                mechanism:
+                                  type: string
+                                  enum:
+                                    - bp-continuum
+                                    - manual
+                                    - bp-velero-restore
+                                    - lua-record
+                                    - mm2-symmetric
+                                    - ccr-promote
+                                    - raft-transition
+                                    - sentinel-failover
+                                    - none
+                                rtoSeconds:
+                                  type: integer
+                                  minimum: 0
+                                  maximum: 86400
+                                rpoSeconds:
+                                  type: integer
+                                  minimum: 0
+                                  maximum: 86400
+                            placement: &PLACEMENT_SPEC
+                              type: object
+                              properties:
+                                tier:
+                                  type: string
+                                  enum: [mgmt, dmz, rtz, ""]
+                                clusters:
+                                  type: array
+                                  x-kubernetes-list-type: set
+                                  items:
+                                    type: string
+                                    pattern: '^(mgmt|dmz|rtz)-[A-Z0-9]+$'
+                                roles:
+                                  type: object
+                                  additionalProperties:
+                                    type: string
+                                    enum: [active, passive, singleton]
+                        active-hot-standby:
+                          type: object
+                          required: [replication, switchover, placement]
+                          properties:
+                            replication: *REPLICATION_SPEC
+                            switchover: *SWITCHOVER_SPEC
+                            placement: *PLACEMENT_SPEC
+                        active-passive:
+                          type: object
+                          required: [replication, switchover, placement]
+                          properties:
+                            replication: *REPLICATION_SPEC
+                            switchover: *SWITCHOVER_SPEC
+                            placement: *PLACEMENT_SPEC
+                        singleton:
+                          type: object
+                          required: [placement]
+                          properties:
+                            replication: *REPLICATION_SPEC
+                            switchover: *SWITCHOVER_SPEC
+                            placement: *PLACEMENT_SPEC
+                endpoints:
+                  type: array
+                  description: |
+                    Named external endpoints surfaced by this Blueprint.
+                    The Endpoints tab UI (G117.3) renders one card per
+                    entry; the Launch button UI (G117.4) starts from
+                    launchDefault=true (else first ssoEnabled https).
+                  items:
+                    type: object
+                    required: [name, hostnameTemplate]
+                    properties:
+                      name:
+                        type: string
+                        pattern: '^[a-z][a-z0-9-]{0,30}[a-z0-9]$'
+                      hostnameTemplate:
+                        type: string
+                        minLength: 1
+                        maxLength: 253
+                        description: |
+                          Go text/template emitting an RFC-1123 hostname
+                          after evaluation. Tokens: {{.AppName}}
+                          {{.InstanceID}} {{.OrgSlug}} {{.SovereignFQDN}}
+                          {{.ClusterID}}.
+                      port:
+                        type: integer
+                        minimum: 1
+                        maximum: 65535
+                      protocol:
+                        type: string
+                        enum: [https, http, grpc, tcp, udp]
+                      tls:
+                        type: boolean
+                      visibility:
+                        type: string
+                        enum: [public, private, internal]
+                      launchDefault:
+                        type: boolean
+                      ssoEnabled:
+                        type: boolean
+                sso:
+                  type: object
+                  description: |
+                    Blueprint-level SSO declaration. Tier-1/2 use realm
+                    `sovereign`; Tier-3 use per-Org realm via
+                    `{{.OrgSlug}}` template token.
+                  required: [realm]
+                  properties:
+                    realm:
+                      type: string
+                      enum: [sovereign, '{{.OrgSlug}}']
+                    protocolMapper:
+                      type: string
+                      enum: [oidc, saml]
+                    groupsClaim:
+                      type: string
+                    rolesFromGroup:
+                      type: object
+                      additionalProperties:
+                        type: string
+                    silentLogin:
+                      type: boolean
+                multiInstance:
+                  type: object
+                  description: |
+                    When enabled, a Blueprint may have >1 Application
+                    instance per Organization. Catalog cards show the
+                    instance-count badge + "+ New instance" button.
+                    When absent / enabled=false, a Blueprint is
+                    singleton-per-Org.
+                  required: [enabled]
+                  properties:
+                    enabled:
+                      type: boolean
+                    maxPerOrg:
+                      type: integer
+                      minimum: 0
+                      maximum: 1000
+                    namingTemplate:
+                      type: string
+                    isolationLevel:
+                      type: string
+                      enum: [namespace, vcluster]
               x-kubernetes-preserve-unknown-fields: true
             status:
               type: object

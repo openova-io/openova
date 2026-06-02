@@ -31,3 +31,72 @@ spec:
   version: 1.0.0
   card:
     summary: A card without a title.
+---
+# ── G117 EPIC invalid samples — exercise the 4 new schema branches ──
+# Third invalid — topology.supported has an unknown BCP value.
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-bad-topology-enum
+spec:
+  version: 1.0.0
+  card:
+    title: bad topology enum
+  topology:
+    supported: [active-hot-standby, foo-bar]
+    defaults:
+      multi-region: active-hot-standby
+      single-region: singleton
+---
+# Fourth invalid — topology.defaults missing required single-region.
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-bad-topology-required
+spec:
+  version: 1.0.0
+  card:
+    title: bad topology required
+  topology:
+    supported: [singleton]
+    defaults:
+      multi-region: singleton
+---
+# Fifth invalid — endpoint protocol not in enum + name violates pattern.
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-bad-endpoint
+spec:
+  version: 1.0.0
+  card:
+    title: bad endpoint
+  endpoints:
+    - name: BadCaps
+      hostnameTemplate: ''
+      protocol: smtp
+---
+# Sixth invalid — sso.realm not in enum.
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-bad-sso
+spec:
+  version: 1.0.0
+  card:
+    title: bad sso
+  sso:
+    realm: random-realm
+---
+# Seventh invalid — multiInstance.isolationLevel not in enum.
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-bad-multi
+spec:
+  version: 1.0.0
+  card:
+    title: bad multi-instance
+  multiInstance:
+    enabled: true
+    isolationLevel: vm

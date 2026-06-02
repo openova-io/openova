@@ -74,6 +74,61 @@ spec:
     metrics: prometheus
     logs: stdout
     traces: otlp
+  # ── G117 EPIC: topology + endpoints + sso + multiInstance ──────
+  # Exercises the four new openAPIV3Schema branches added in
+  # bp-catalyst-platform 1.4.438. A valid Blueprint may declare all
+  # four; admission rejects on enum/required violations.
+  topology:
+    supported:
+      - active-hot-standby
+      - singleton
+    defaults:
+      multi-region: active-hot-standby
+      single-region: singleton
+    perTopology:
+      active-hot-standby:
+        replication:
+          backend: cnpg-pair
+          mode: sync
+          lagSloSeconds: 5
+        switchover:
+          mechanism: bp-continuum
+          rtoSeconds: 30
+          rpoSeconds: 0
+        placement:
+          tier: rtz
+          clusters: [rtz-A, rtz-B]
+          roles:
+            rtz-A: active
+            rtz-B: passive
+      singleton:
+        placement:
+          tier: rtz
+          clusters: [rtz-A]
+          roles:
+            rtz-A: singleton
+  endpoints:
+    - name: ui
+      hostnameTemplate: '{{.AppName}}.{{.OrgSlug}}.{{.SovereignFQDN}}'
+      port: 443
+      protocol: https
+      tls: true
+      visibility: public
+      launchDefault: true
+      ssoEnabled: true
+  sso:
+    realm: sovereign
+    protocolMapper: oidc
+    groupsClaim: groups
+    rolesFromGroup:
+      sovereign-admins: admin
+      tenant-admins: editor
+    silentLogin: true
+  multiInstance:
+    enabled: true
+    maxPerOrg: 100
+    namingTemplate: '{{.AppName}}-{{.InstanceID}}'
+    isolationLevel: namespace
 ---
 # Legacy v1alpha1 form with manifests.chart short-form must also pass.
 apiVersion: catalyst.openova.io/v1alpha1
