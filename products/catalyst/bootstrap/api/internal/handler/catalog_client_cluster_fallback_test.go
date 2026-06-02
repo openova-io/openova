@@ -147,6 +147,27 @@ func TestChainedCatalogClient_Get_ClusterNotFoundWhenUpstream404(t *testing.T) {
 	}
 }
 
+func TestChainedCatalogClient_Get_RetryWithBpPrefix(t *testing.T) {
+	// G117 #2880-followup: chart-seeded Blueprint CRs are named `bp-<name>`
+	// (per docs/NAMING §Blueprint) but the catalog Get is called with the
+	// bare form (`<name>`). Pre-fix, the cluster fallback's bare-name
+	// lookup missed every bp-prefixed CR — making the fallback useless on
+	// hw86 where catalog-sovereign upstream is unreachable. Post-fix,
+	// the fallback retries with the `bp-` prefix when the bare name 404s.
+	upstreamHTTPErr := errors.New("catalog get: upstream 502 gitea unreachable")
+	c := &chainedCatalogClient{
+		upstream: &stubCatalogClient{getErr: upstreamHTTPErr},
+		dyn:      fakeBlueprintDynClient(t, "bp-grafana"), // CR is `bp-grafana`
+	}
+	bp, err := c.Get(context.Background(), "grafana", "") // call with bare
+	if err != nil {
+		t.Fatalf("expected bp-prefix retry to find bp-grafana for bare 'grafana', got err: %v", err)
+	}
+	if bp == nil || bp.Name != "bp-grafana" {
+		t.Fatalf("expected bp.Name=bp-grafana, got %+v", bp)
+	}
+}
+
 func TestChainedCatalogClient_GetVersion_FallbackOnUpstreamNon404(t *testing.T) {
 	// Mirror of Get's broadened-fallback behavior on GetVersion.
 	upstreamHTTPErr := errors.New("catalog getversion: upstream 502")
