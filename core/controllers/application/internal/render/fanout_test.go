@@ -1,0 +1,471 @@
+// G117.6 (W2.C1) per-cluster HelmRelease fan-out tests.
+//
+// Brief acceptance §"File-touch matrix": fanout_test.go must cover
+// HR-name truncation, label population, kubeConfig.secretRef shape.
+
+package render
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+
+	bpv1alpha1 "github.com/openova-io/openova/core/controllers/pkg/apis/blueprint/v1alpha1"
+)
+
+func TestFanoutHRs_ActiveHotStandby_TwoClusters(t *testing.T) {
+	bp := fixtureGrafanaTopology()
+	variant := bp.PerTopology[bpv1alpha1.BcpActiveHotStandby]
+
+	hrs, err := FanoutHRs(FanoutInputs{
+		AppName:      "obs-prod",
+		AppNamespace: "acme",
+		Topology:     bpv1alpha1.BcpActiveHotStandby,
+		Variant:      &variant,
+		Chart:        "grafana",
+		ChartVersion: "1.0.5",
+		SourceRefName: "openova-catalog",
+		SourceRefKind: "HelmRepository",
+		KubeConfigSecretFor: func(cluster string) (string, string) {
+			return "vc-" + cluster, ""
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(hrs) != 2 {
+		t.Fatalf("active-hot-standby should fan out 2 HRs; got %d", len(hrs))
+	}
+
+	// First HR: mgmt-A active.
+	if got := hrs[0].GetName(); got != "obs-prod-mgmt-A" {
+		t.Fatalf("hr[0].name = %q, want obs-prod-mgmt-A", got)
+	}
+	if got := hrs[0].GetLabels()[LabelRole]; got != RoleActive {
+		t.Fatalf("hr[0].role = %q, want active", got)
+	}
+	if got := hrs[0].GetLabels()[LabelTopology]; got != "active-hot-standby" {
+		t.Fatalf("hr[0].topology = %q, want active-hot-standby", got)
+	}
+	if got := hrs[0].GetLabels()[LabelCluster]; got != "mgmt-A" {
+		t.Fatalf("hr[0].cluster = %q, want mgmt-A", got)
+	}
+	if got := hrs[0].GetLabels()[LabelApp]; got != "obs-prod" {
+		t.Fatalf("hr[0].app = %q, want obs-prod", got)
+	}
+
+	// Second HR: mgmt-B passive.
+	if got := hrs[1].GetName(); got != "obs-prod-mgmt-B" {
+		t.Fatalf("hr[1].name = %q, want obs-prod-mgmt-B", got)
+	}
+	if got := hrs[1].GetLabels()[LabelRole]; got != RolePassive {
+		t.Fatalf("hr[1].role = %q, want passive", got)
+	}
+}
+
+func TestFanoutHRs_Singleton(t *testing.T) {
+	bp := fixtureGrafanaTopology()
+	variant := bp.PerTopology[bpv1alpha1.BcpSingleton]
+	hrs, err := FanoutHRs(FanoutInputs{
+		AppName:      "obs-prod",
+		AppNamespace: "acme",
+		Topology:     bpv1alpha1.BcpSingleton,
+		Variant:      &variant,
+		Chart:        "grafana",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(hrs) != 1 {
+		t.Fatalf("singleton should fan out 1 HR; got %d", len(hrs))
+	}
+	if got := hrs[0].GetLabels()[LabelRole]; got != RoleSingleton {
+		t.Fatalf("hr[0].role = %q, want singleton", got)
+	}
+	if got := hrs[0].GetLabels()[LabelTopology]; got != "singleton" {
+		t.Fatalf("hr[0].topology = %q, want singleton", got)
+	}
+}
+
+func TestFanoutHRs_KubeConfigSecretRefStamped(t *testing.T) {
+	bp := fixtureGrafanaTopology()
+	variant := bp.PerTopology[bpv1alpha1.BcpActiveHotStandby]
+	hrs, err := FanoutHRs(FanoutInputs{
+		AppName:        "obs",
+		AppNamespace:   "acme",
+		WriteNamespace: "mgmt", // G92.1 vCluster-pivot pattern (PR #2674)
+		Topology:       bpv1alpha1.BcpActiveHotStandby,
+		Variant:        &variant,
+		Chart:          "grafana",
+		KubeConfigSecretFor: func(cluster string) (string, string) {
+			return "vc-" + strings.ToLower(cluster), ""
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, hr := range hrs {
+		if hr.GetNamespace() != "mgmt" {
+			t.Fatalf("hr.namespace = %q, want mgmt (WriteNamespace override)", hr.GetNamespace())
+		}
+		spec, ok := hr.Object["spec"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("hr.spec is not a map")
+		}
+		kc, ok := spec["kubeConfig"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("hr.spec.kubeConfig is missing on a vCluster-pivoted HR")
+		}
+		ref, ok := kc["secretRef"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("hr.spec.kubeConfig.secretRef is missing")
+		}
+		name, _ := ref["name"].(string)
+		if !strings.HasPrefix(name, "vc-") {
+			t.Fatalf("hr.spec.kubeConfig.secretRef.name = %q, want vc-* prefix", name)
+		}
+	}
+}
+
+func TestFanoutHRs_NoKubeConfigSecretFor_OmitsBlock(t *testing.T) {
+	// Legacy / mgmt-cluster-local HRs (substrate Blueprints per G92.6)
+	// MUST NOT carry a spec.kubeConfig block — Flux v2 interprets the
+	// absence as "install onto the local cluster".
+	bp := fixtureCiliumTopology()
+	variant := bp.PerTopology[bpv1alpha1.BcpSingleton]
+	hrs, err := FanoutHRs(FanoutInputs{
+		AppName:      "cilium",
+		AppNamespace: "kube-system",
+		Topology:     bpv1alpha1.BcpSingleton,
+		Variant:      &variant,
+		Chart:        "cilium",
+		// KubeConfigSecretFor intentionally nil.
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, hr := range hrs {
+		spec, ok := hr.Object["spec"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("hr.spec missing")
+		}
+		if _, has := spec["kubeConfig"]; has {
+			t.Fatalf("hr.spec.kubeConfig should be absent for substrate Blueprint")
+		}
+	}
+}
+
+func TestFanoutHRs_OwnerLabelsMerged_ButCanonicalLabelsWin(t *testing.T) {
+	bp := fixtureGrafanaTopology()
+	variant := bp.PerTopology[bpv1alpha1.BcpActiveHotStandby]
+	hrs, err := FanoutHRs(FanoutInputs{
+		AppName:      "obs",
+		AppNamespace: "acme",
+		Topology:     bpv1alpha1.BcpActiveHotStandby,
+		Variant:      &variant,
+		Chart:        "grafana",
+		OwnerLabels: map[string]string{
+			"app.kubernetes.io/managed-by":     "application-controller",
+			"catalyst.openova.io/organization": "acme",
+			// Adversarial: try to override the canonical labels.
+			LabelRole:     "owner-override-attempt",
+			LabelTopology: "evil",
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, hr := range hrs {
+		labels := hr.GetLabels()
+		if labels["app.kubernetes.io/managed-by"] != "application-controller" {
+			t.Fatalf("owner label dropped")
+		}
+		// Canonical labels overlay owner-supplied versions.
+		if labels[LabelTopology] != "active-hot-standby" {
+			t.Fatalf("LabelTopology = %q, want canonical 'active-hot-standby'", labels[LabelTopology])
+		}
+		if labels[LabelRole] == "owner-override-attempt" {
+			t.Fatalf("LabelRole should not be overrideable from OwnerLabels")
+		}
+	}
+}
+
+func TestFanoutHRs_Errors(t *testing.T) {
+	bp := fixtureGrafanaTopology()
+	variant := bp.PerTopology[bpv1alpha1.BcpActiveHotStandby]
+
+	type row struct {
+		name string
+		in   FanoutInputs
+	}
+	rows := []row{
+		{"empty-app-name", FanoutInputs{AppName: "", Variant: &variant}},
+		{"nil-variant", FanoutInputs{AppName: "x", Variant: nil}},
+		{"nil-placement", FanoutInputs{AppName: "x", Variant: &bpv1alpha1.TopologyVariant{}}},
+		{"empty-clusters", FanoutInputs{AppName: "x", Variant: &bpv1alpha1.TopologyVariant{
+			Placement: &bpv1alpha1.PlacementSpec{Clusters: nil},
+		}}},
+	}
+	for _, r := range rows {
+		t.Run(r.name, func(t *testing.T) {
+			_, err := FanoutHRs(r.in)
+			if err == nil {
+				t.Fatalf("expected error")
+			}
+		})
+	}
+}
+
+func TestHRNameFor_NoTruncationUnder63(t *testing.T) {
+	got := HRNameFor("obs-prod", "mgmt-A")
+	want := "obs-prod-mgmt-A"
+	if got != want {
+		t.Fatalf("HRNameFor = %q, want %q", got, want)
+	}
+	if len(got) > HRName63 {
+		t.Fatalf("HRNameFor produced %d chars (cap %d)", len(got), HRName63)
+	}
+}
+
+func TestHRNameFor_TruncatesOver63WithStableHashSuffix(t *testing.T) {
+	app := strings.Repeat("a", 40)
+	cluster := strings.Repeat("c", 40)
+	got := HRNameFor(app, cluster)
+	if len(got) > HRName63 {
+		t.Fatalf("HRNameFor produced %d chars (cap %d): %q", len(got), HRName63, got)
+	}
+	// Stable: same input → same output.
+	got2 := HRNameFor(app, cluster)
+	if got != got2 {
+		t.Fatalf("HRNameFor not stable: %q vs %q", got, got2)
+	}
+	// 5-char hex suffix: name MUST end with "-<5 hex>".
+	if len(got) < 6 || got[len(got)-6] != '-' {
+		t.Fatalf("HRNameFor result lacks '-<5 hex>' suffix: %q", got)
+	}
+}
+
+func TestHRNameFor_DistinctInputsProduceDistinctNames(t *testing.T) {
+	app := strings.Repeat("a", 40)
+	a := HRNameFor(app, strings.Repeat("b", 40))
+	b := HRNameFor(app, strings.Repeat("c", 40))
+	if a == b {
+		t.Fatalf("HRNameFor collision: %q == %q", a, b)
+	}
+}
+
+func TestPerClusterStatusesFor_TemplateShape(t *testing.T) {
+	bp := fixtureGrafanaTopology()
+	variant := bp.PerTopology[bpv1alpha1.BcpActiveHotStandby]
+	hrs, err := FanoutHRs(FanoutInputs{
+		AppName:      "obs",
+		AppNamespace: "acme",
+		Topology:     bpv1alpha1.BcpActiveHotStandby,
+		Variant:      &variant,
+		Chart:        "grafana",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	statuses := PerClusterStatusesFor(hrs)
+	if len(statuses) != 2 {
+		t.Fatalf("PerClusterStatusesFor returned %d entries; want 2", len(statuses))
+	}
+	// Brief example mapping: {mgmt-A active, mgmt-B passive}.
+	if statuses[0].Cluster != "mgmt-A" || statuses[0].Role != RoleActive {
+		t.Fatalf("status[0] = %+v, want {mgmt-A,active}", statuses[0])
+	}
+	if statuses[1].Cluster != "mgmt-B" || statuses[1].Role != RolePassive {
+		t.Fatalf("status[1] = %+v, want {mgmt-B,passive}", statuses[1])
+	}
+	if statuses[0].HR != "obs-mgmt-A" {
+		t.Fatalf("status[0].HR = %q, want obs-mgmt-A", statuses[0].HR)
+	}
+}
+
+func TestSortHRsForReconcile_ActiveBeforePassiveBeforeSingleton(t *testing.T) {
+	bp := fixtureGrafanaTopology()
+	variant := bp.PerTopology[bpv1alpha1.BcpActiveHotStandby]
+	hrs, err := FanoutHRs(FanoutInputs{
+		AppName:      "obs",
+		AppNamespace: "acme",
+		Topology:     bpv1alpha1.BcpActiveHotStandby,
+		Variant:      &variant,
+		Chart:        "grafana",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Reverse so that we know SortHRsForReconcile actually reorders.
+	hrs[0], hrs[1] = hrs[1], hrs[0]
+	SortHRsForReconcile(hrs)
+	if hrs[0].GetLabels()[LabelRole] != RoleActive {
+		t.Fatalf("sort: first should be active; got %q",
+			hrs[0].GetLabels()[LabelRole])
+	}
+	if hrs[1].GetLabels()[LabelRole] != RolePassive {
+		t.Fatalf("sort: second should be passive; got %q",
+			hrs[1].GetLabels()[LabelRole])
+	}
+}
+
+func TestFanoutHRs_ChartAndValuesPassedThrough(t *testing.T) {
+	bp := fixtureGrafanaTopology()
+	variant := bp.PerTopology[bpv1alpha1.BcpSingleton]
+	values := map[string]interface{}{
+		"replicas": int64(3),
+		"image": map[string]interface{}{
+			"tag": "1.2.3",
+		},
+	}
+	hrs, err := FanoutHRs(FanoutInputs{
+		AppName:            "obs",
+		AppNamespace:       "acme",
+		Topology:           bpv1alpha1.BcpSingleton,
+		Variant:            &variant,
+		Chart:              "grafana",
+		ChartVersion:       "1.0.5",
+		SourceRefName:      "openova-catalog",
+		SourceRefKind:      "HelmRepository",
+		SourceRefNamespace: "flux-system",
+		Values:             values,
+		IntervalSeconds:    600,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(hrs) != 1 {
+		t.Fatalf("singleton should produce 1 HR; got %d", len(hrs))
+	}
+	spec := hrs[0].Object["spec"].(map[string]interface{})
+
+	// chart block.
+	chart := spec["chart"].(map[string]interface{})
+	chartSpec := chart["spec"].(map[string]interface{})
+	if chartSpec["chart"] != "grafana" {
+		t.Fatalf("chart.spec.chart = %v, want grafana", chartSpec["chart"])
+	}
+	if chartSpec["version"] != "1.0.5" {
+		t.Fatalf("chart.spec.version = %v, want 1.0.5", chartSpec["version"])
+	}
+	srcRef := chartSpec["sourceRef"].(map[string]interface{})
+	if srcRef["name"] != "openova-catalog" || srcRef["kind"] != "HelmRepository" || srcRef["namespace"] != "flux-system" {
+		t.Fatalf("chart.spec.sourceRef = %+v", srcRef)
+	}
+
+	// interval.
+	if spec["interval"] != "600s" {
+		t.Fatalf("spec.interval = %v, want 600s", spec["interval"])
+	}
+
+	// values pass-through.
+	gotValues, ok := spec["values"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("spec.values is not a map")
+	}
+	if gotValues["replicas"] != int64(3) {
+		t.Fatalf("spec.values.replicas = %v, want 3", gotValues["replicas"])
+	}
+}
+
+func TestFanoutHRs_ThreeClusterActiveActiveAllActive(t *testing.T) {
+	// A hypothetical bp-strimzi-style active-active across 3 clusters.
+	// Validates the resolver/fan-out chain doesn't assume 2-cluster.
+	variant := bpv1alpha1.TopologyVariant{
+		Placement: &bpv1alpha1.PlacementSpec{
+			Clusters: []string{"dmz-A", "dmz-B", "dmz-C"},
+			Roles: map[string]string{
+				"dmz-A": "active",
+				"dmz-B": "active",
+				"dmz-C": "active",
+			},
+		},
+	}
+	hrs, err := FanoutHRs(FanoutInputs{
+		AppName:      "kafka-bus",
+		AppNamespace: "acme",
+		Topology:     bpv1alpha1.BcpActiveActive,
+		Variant:      &variant,
+		Chart:        "strimzi",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(hrs) != 3 {
+		t.Fatalf("want 3 HRs; got %d", len(hrs))
+	}
+	for i, hr := range hrs {
+		if hr.GetLabels()[LabelRole] != RoleActive {
+			t.Fatalf("hr[%d].role = %q, want active", i, hr.GetLabels()[LabelRole])
+		}
+	}
+}
+
+func TestFanoutHRs_PassiveDefaultsForMultiClusterMissingRolesMap(t *testing.T) {
+	variant := bpv1alpha1.TopologyVariant{
+		Placement: &bpv1alpha1.PlacementSpec{
+			Clusters: []string{"mgmt-A", "mgmt-B"},
+			// Roles intentionally nil — defensive path.
+		},
+	}
+	hrs, err := FanoutHRs(FanoutInputs{
+		AppName:      "x",
+		AppNamespace: "ns",
+		Topology:     bpv1alpha1.BcpActiveHotStandby,
+		Variant:      &variant,
+		Chart:        "x",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, hr := range hrs {
+		if hr.GetLabels()[LabelRole] != RolePassive {
+			t.Fatalf("multi-cluster missing-roles fallback should mark passive; got %q",
+				hr.GetLabels()[LabelRole])
+		}
+	}
+}
+
+// Sanity-check that the per-cluster names produced match the brief's
+// "obs-prod-mgmt-A" example exactly.
+func TestFanoutHRs_BriefExampleMapping(t *testing.T) {
+	bp := fixtureGrafanaTopology()
+	variant := bp.PerTopology[bpv1alpha1.BcpActiveHotStandby]
+	hrs, err := FanoutHRs(FanoutInputs{
+		AppName:      "obs-prod",
+		AppNamespace: "acme",
+		Topology:     bpv1alpha1.BcpActiveHotStandby,
+		Variant:      &variant,
+		Chart:        "grafana",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got := []string{hrs[0].GetName(), hrs[1].GetName()}
+	want := []string{"obs-prod-mgmt-A", "obs-prod-mgmt-B"}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Fatalf("hr[%d].name = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+// Property: the suffix-hash truncation rule produces names ≤ 63 chars
+// for ANY input pair, including absurdly long ones.
+func TestHRNameFor_AlwaysUnder63(t *testing.T) {
+	for app := 1; app < 200; app += 17 {
+		for cluster := 1; cluster < 200; cluster += 23 {
+			a := strings.Repeat("a", app)
+			c := strings.Repeat("c", cluster)
+			got := HRNameFor(a, c)
+			if len(got) > HRName63 {
+				t.Fatalf("len(%d/%d) = %d > %d for %q",
+					app, cluster, len(got), HRName63, got)
+			}
+		}
+	}
+}
+
+// Just to keep the fmt import live when nothing uses it (defensive
+// — remove if the test grows a real consumer).
+var _ = fmt.Sprintf

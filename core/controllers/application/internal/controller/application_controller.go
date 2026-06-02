@@ -60,6 +60,8 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/dynamic"
 
+	topo "github.com/openova-io/openova/core/controllers/application/internal/render"
+	bpv1alpha1 "github.com/openova-io/openova/core/controllers/pkg/apis/blueprint/v1alpha1"
 	"github.com/openova-io/openova/core/controllers/internal/placement"
 	"github.com/openova-io/openova/core/controllers/internal/semver"
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
@@ -169,6 +171,15 @@ const (
 	ReasonRenderError         = "RenderError"
 	ReasonOrgGiteaMissing     = "GiteaOrgMissing"
 	ReasonAwaitingDrain       = "AwaitingFluxDrain"
+
+	// ReasonInvalidTopology — G117.6 (W2.C1, Refs #2745). Stamped on
+	// `Application.status.conditions[type=Ready,status=False]` when the
+	// resolved BCP topology (from Application.spec.topology override
+	// OR Blueprint.spec.topology.defaults default) is not in
+	// Blueprint.spec.topology.supported[]. Mirrors
+	// render.InvalidTopologyReason — kept in sync verbatim because the
+	// Wave-2 verifier (G117.6 acceptance) asserts this exact string.
+	ReasonInvalidTopology = topo.InvalidTopologyReason
 )
 
 // FinalizerName — owned by application-controller.
@@ -639,6 +650,87 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 				strings.Join(rep.Errors, "; ")))
 	}
 
+	// 6.5 (G117.6, Refs #2745) — Topology fan-out resolution.
+	//
+	// W1.B1 landed typed `Blueprint.spec.topology` (per-Blueprint BCP
+	// declaration). When it's present, resolve the per-Application
+	// topology choice (operator override > Blueprint default keyed on
+	// Sovereign-region-count, locked decision #7) and fan out one
+	// HelmRelease per cluster in the variant's PlacementSpec.Clusters[].
+	// Each HR carries `LabelRole` + `LabelTopology` + `LabelApp` +
+	// `LabelCluster` so observability + bp-continuum can query them.
+	//
+	// Backwards-compat: when `Blueprint.spec.topology` is absent
+	// (legacy / substrate Blueprints not yet migrated to W1.B1), the
+	// resolver is skipped and the existing per-region render path
+	// continues to own the install. The new code path is additive.
+	bpTopo := parseBlueprintTopology(bp)
+	var perClusterFanout []*unstructured.Unstructured
+	var perClusterStatus []map[string]interface{}
+	if bpTopo != nil {
+		appTopo := spec.Topology
+		sovRegions := len(envSpec.Regions)
+		choice, variant, terr := topo.ResolveTopology(appTopo, bpTopo, sovRegions)
+		if terr != nil {
+			r.Log.Warn("topology resolution failed",
+				"app", app.GetName(),
+				"blueprint", spec.BlueprintName,
+				"appTopology", appTopo,
+				"sovereignRegions", sovRegions,
+				"err", terr)
+			// G117.6 acceptance: InvalidTopology must surface as
+			// Ready=False, reason=InvalidTopology, phase=Failed.
+			return r.markFailed(ctx, app, ReasonInvalidTopology, terr.Error())
+		}
+		r.Log.Info("topology resolved",
+			"app", app.GetName(),
+			"blueprint", spec.BlueprintName,
+			"choice", choice,
+			"sovereignRegions", sovRegions,
+			"clusters", placementClusters(variant))
+
+		// FanoutHRs is a pure renderer — we collect the per-cluster HR
+		// shape into status.perCluster[] so catalyst-api (G117.2-G117.4)
+		// can serve GET /apps/{id}.perCluster[] without re-parsing the
+		// Blueprint topology. Persistence of these HRs into the cluster
+		// API server is W2.C2/C3 scope (the Wave-2 multi-instance CRD
+		// + per-Org IaC hook chain) — keeping the controller's K8s
+		// write path unchanged here respects Wave-2 worktree isolation.
+		if variant != nil && variant.Placement != nil && len(variant.Placement.Clusters) > 0 {
+			hrs, ferr := topo.FanoutHRs(topo.FanoutInputs{
+				AppName:      app.GetName(),
+				AppNamespace: app.GetNamespace(),
+				Topology:     choice,
+				Variant:      variant,
+				Chart:        firstNonEmpty(blueprintChart(bp), spec.BlueprintName),
+				ChartVersion: spec.BlueprintVersion,
+				OwnerLabels: map[string]string{
+					"catalyst.openova.io/organization": envSpec.OrganizationRef,
+					"catalyst.openova.io/env-type":     envSpec.EnvType,
+					"catalyst.openova.io/app-uid":      string(app.GetUID()),
+				},
+			})
+			if ferr != nil {
+				// Render-error path — surface as Degraded so the
+				// reconciler retries (matches the existing
+				// RenderError shape for the legacy per-region path).
+				return r.markDegraded(ctx, app, ReasonRenderError,
+					fmt.Sprintf("topology fan-out: %v", ferr))
+			}
+			topo.SortHRsForReconcile(hrs)
+			perClusterFanout = hrs
+			for _, s := range topo.PerClusterStatusesFor(hrs) {
+				perClusterStatus = append(perClusterStatus, map[string]interface{}{
+					"cluster": s.Cluster,
+					"role":    s.Role,
+					"hr":      s.HR,
+					"status":  "Pending",
+				})
+			}
+		}
+	}
+	_ = perClusterFanout // consumed by status writer below
+
 	// 7. Resolve placement → per-region work plan.
 	plan, err := placement.Resolve(spec.Placement, spec.Regions)
 	if err != nil {
@@ -873,6 +965,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 		Message:          finalMessage,
 		Ready:            finalReady,
 		LastReconciledAt: time.Now().UTC().Format(time.RFC3339),
+		PerCluster:       perClusterStatus,
 	}
 	return r.updateStatus(ctx, app, su)
 }
@@ -1400,6 +1493,14 @@ type statusUpdate struct {
 	Reason           string
 	Message          string
 	Ready            string // "True" | "False" | "Unknown"
+
+	// PerCluster — G117.6 (Refs #2745). One row per cluster the
+	// Application is fanned out across (per the Blueprint's resolved
+	// `spec.topology.perTopology[<choice>].placement.clusters[]`).
+	// Powers the operator-console drill-down + catalyst-api's
+	// GET /apps/{id}.perCluster[]. Empty when the Blueprint has no
+	// `spec.topology` declared (legacy / pre-W1.B1 path).
+	PerCluster []map[string]interface{}
 	// LastReconciledAt is the wall-clock RFC3339 timestamp of this
 	// reconcile pass — surfaced verbatim via
 	// `status.lastReconciledAt` so the UI's freshness chip + TC-113
@@ -1452,6 +1553,15 @@ func (r *Reconciler) updateStatus(ctx context.Context, app *unstructured.Unstruc
 	}
 	if su.LastReconciledAt != "" {
 		currentStatus["lastReconciledAt"] = su.LastReconciledAt
+	}
+	if su.PerCluster != nil {
+		// G117.6 — slice of map[string]interface{} → []interface{} for
+		// the dynamic client's NestedSlice contract.
+		perCluster := make([]interface{}, len(su.PerCluster))
+		for i, c := range su.PerCluster {
+			perCluster[i] = c
+		}
+		currentStatus["perCluster"] = perCluster
 	}
 
 	// Replace Ready condition; preserve unrelated conditions.
@@ -1533,6 +1643,16 @@ type appSpec struct {
 	Placement        string
 	Regions          []string
 	Parameters       map[string]interface{}
+
+	// Topology — G117.6 (Refs #2745). When non-empty, the operator
+	// has explicitly chosen a BCP topology (one of "active-active",
+	// "active-hot-standby", "active-passive", "singleton"). The
+	// reconciler validates that the choice is in
+	// Blueprint.spec.topology.supported[]; on mismatch the
+	// Application moves to Ready=False, reason=InvalidTopology.
+	// When empty, the reconciler picks the Blueprint's default
+	// keyed on Sovereign-region-count (locked decision #7).
+	Topology string
 }
 
 func parseSpec(app *unstructured.Unstructured) (appSpec, error) {
@@ -1581,6 +1701,11 @@ func parseSpec(app *unstructured.Unstructured) (appSpec, error) {
 
 	params, _, _ := unstructured.NestedMap(app.Object, "spec", "parameters")
 	out.Parameters = params
+
+	// G117.6 (Refs #2745) — optional Application.spec.topology operator
+	// override. Empty string is the default-derived path.
+	tp, _, _ := unstructured.NestedString(app.Object, "spec", "topology")
+	out.Topology = tp
 
 	return out, nil
 }
@@ -1655,6 +1780,69 @@ func blueprintDefaultPlacement(bp *unstructured.Unstructured) string {
 func blueprintDefaultOnMultiRegion(bp *unstructured.Unstructured) string {
 	s, _, _ := unstructured.NestedString(bp.Object, "spec", "placementSchema", "defaultOnMultiRegion")
 	return s
+}
+
+// parseBlueprintTopology reads `spec.topology` from a Blueprint and
+// returns the typed v1alpha1.Topology. Returns nil when the field is
+// absent OR the round-trip fails (defensive — admission gate is the
+// authoritative shape check, but legacy Blueprints predating W1.B1
+// have no topology block at all).
+//
+// G117.6 (Refs #2745).
+func parseBlueprintTopology(bp *unstructured.Unstructured) *bpv1alpha1.Topology {
+	if bp == nil {
+		return nil
+	}
+	raw, found, err := unstructured.NestedMap(bp.Object, "spec", "topology")
+	if err != nil || !found || raw == nil {
+		return nil
+	}
+	// JSON round-trip via the standard library — unstructured maps use
+	// the JSON tags on the typed struct.
+	js, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	out := &bpv1alpha1.Topology{}
+	if err := json.Unmarshal(js, out); err != nil {
+		return nil
+	}
+	if len(out.Supported) == 0 {
+		return nil
+	}
+	return out
+}
+
+// blueprintChart reads `spec.manifests.chart` from a Blueprint. Used
+// as the per-cluster HR's chart name when the Blueprint declares the
+// legacy short-form chart reference. Empty when absent.
+func blueprintChart(bp *unstructured.Unstructured) string {
+	if bp == nil {
+		return ""
+	}
+	c, _, _ := unstructured.NestedString(bp.Object, "spec", "manifests", "chart")
+	return c
+}
+
+// placementClusters returns the variant's PlacementSpec.Clusters slice
+// (or nil-safe empty slice) for diagnostic log lines.
+func placementClusters(v *bpv1alpha1.TopologyVariant) []string {
+	if v == nil || v.Placement == nil {
+		return nil
+	}
+	return v.Placement.Clusters
+}
+
+// firstNonEmpty returns the first non-empty string from the args.
+// Used as a Blueprint-chart fallback (Blueprint's manifest.chart >
+// Blueprint name).
+func firstNonEmpty(ss ...string) string {
+	for _, s := range ss {
+		if s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 // blueprintVCluster reads spec.placementSchema.vcluster from a
