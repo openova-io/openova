@@ -2473,8 +2473,40 @@ name: bp-catalyst-platform
 # bp-{dmz,rtz}-vcluster + bare-string depends[] in powerdns-admin +
 # sso-bridge) are unrelated to this slice.
 # (Bumped 440 → 441 to absorb concurrent merges since PR #2825 opened.)
-version: 1.4.448
-version: 1.4.445
+# 1.4.449 — fix(catalyst-platform): collapse duplicate `version:` keys.
+# Refs #2745 #2855 #2854 #2852.
+#
+# Three concurrent PRs on 2026-06-03 (#2852 chart-bump-to-1.4.445,
+# #2855 chart-bump-to-1.4.448, #2854 chart-bump-to-1.4.445) each
+# appended a fresh `version:` key without removing the predecessor.
+# Effective state on main after all three merges:
+#
+#   products/catalyst/chart/Chart.yaml:
+#     version: 1.4.448
+#     version: 1.4.445   ← YAML last-key-wins → effective 1.4.445
+#
+#   clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml:
+#     version: 1.4.448  (×3)
+#     version: 1.4.445   ← YAML last-key-wins → effective 1.4.445
+#
+# Symptom on hw86: HR.spec.chart.version observed as 1.4.447 (a
+# phantom version that was NEVER published to GHCR — source-controller
+# returns `ChartPullError: ghcr.io/openova-io/bp-catalyst-platform:
+# 1.4.447: not found`). The HR is wedged on FetchFailed; the last
+# successfully deployed chart is 1.4.446 (pulled 2026-06-02T18:54:48Z)
+# which predates the `applicationController.image.tag: "44dedf2"`
+# fix from #2852. Net effect: application-controller Deployment
+# stays on the old `8d01e2f` image despite the values.yaml change
+# being correctly merged on main, blocking #2745 closure.
+#
+# Fix: collapse the two duplicates to a single `version: 1.4.449`
+# line, matching the same collapse in the bootstrap-kit slot. Bumping
+# to 449 (not reusing 446 / 447 / 448 which all already exist on GHCR
+# in various forms) forces source-controller to refetch a fresh OCI
+# artifact carrying the merged values.yaml (`applicationController.
+# image.tag: "44dedf2"` + the four other controller image bumps from
+# #2852).
+version: 1.4.449
 appVersion: 1.4.349
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.

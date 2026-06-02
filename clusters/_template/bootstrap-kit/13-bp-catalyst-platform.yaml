@@ -915,7 +915,6 @@ spec:
       # image build workflow + imagePullSecrets:[ghcr-pull] on the
       # migration Job Pod spec. Default remains enabled=false until
       # operators verify on a legacy-CR cluster.
-      version: 1.4.448
       # 1.4.445 (H9-walk follow-up #2745, 2026-06-03): bump 5 controller
       # image pins to the latest GHCR-published push-on-main builds —
       # application-controller 8d01e2f -> 44dedf2 (G117.6 + G117.2
@@ -924,7 +923,6 @@ spec:
       # 8d01e2f -> dcd2bb3, organization-controller 7ff7ea8 -> 32050f0.
       # The CI auto-image-bump workflow does not cover controller
       # images; follow-up issue tracks closing that gap.
-      version: 1.4.448
       # 1.4.447 (G117.2 #2741, 2026-06-03): operator drill-down + topology
       # picker + HTTPRoute /catalyst/ rule. Closes the H10 walk's TWO 🔴
       # BLOCKED gaps in one PR: (a) catalyst-ui HTTPRoute on console.<sov>
@@ -935,8 +933,15 @@ spec:
       # wire shape; (c) per-cluster status table surfacing
       # Application.status.perCluster[] when populated by G117.6
       # application-controller fan-out. Refs #2741 #2737 #2834.
-      version: 1.4.448
-      version: 1.4.445
+      # 1.4.449 (#2745 follow-up, 2026-06-03): collapse 4 duplicate
+      # `version:` keys (introduced by concurrent #2852/#2854/#2855
+      # merges; YAML last-key-wins left effective version pinned at
+      # 1.4.445, while the in-cluster HR observed 1.4.447 — a phantom
+      # version never published to GHCR — leaving Flux wedged on
+      # FetchFailed). Bump to 449 to force a clean source-controller
+      # refetch carrying the merged controller image pins
+      # (application-controller 44dedf2 etc.) so #2745 actually rolls.
+      version: 1.4.449
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
