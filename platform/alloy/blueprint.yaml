@@ -4,6 +4,7 @@ metadata:
   name: alloy
   labels:
     catalyst.openova.io/section: pts-3-observability
+    catalyst.openova.io/tier: catalyst-cp
 spec:
   version: 1.0.1
   card:
@@ -11,3 +12,49 @@ spec:
     family: insights
     description: Grafana Alloy — telemetry collector (logs/metrics/traces, OTLP-native) for the LGTM observability stack.
     docs: https://grafana.com/docs/alloy/latest/
+
+  # ── G117.1: Topology declaration ────────────────────────────────────────
+  # Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md:
+  #   DaemonSet — stateless telemetry shipper running in every host cluster
+  #   in every node. Each cluster's Alloy ships to its co-located
+  #   Loki/Mimir/Tempo endpoints. No cross-cluster sync; node failure means
+  #   kubelet replaces the Pod.
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        replication:
+          backend: none
+          mode: none
+        placement:
+          tier: ""
+          clusters: [mgmt-A, mgmt-B, dmz-A, dmz-B, rtz-A, rtz-B]
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+
+  # ── G117.3: Endpoints ──────────────────────────────────────────────────
+  # No external endpoints — DaemonSet ships telemetry out to in-cluster
+  # Loki/Mimir/Tempo via Service DNS.
+  endpoints: []
+
+  # ── G117.4 + G117.5: SSO ───────────────────────────────────────────────
+  # No user-facing surface; SSO not applicable but realm declared for
+  # admission-webhook completeness.
+  sso:
+    realm: sovereign
+    protocolMapper: oidc
+    silentLogin: false
+
+  # ── G117.6: Multi-instance ─────────────────────────────────────────────
+  # Singleton DaemonSet per cluster.
+  multiInstance:
+    enabled: false

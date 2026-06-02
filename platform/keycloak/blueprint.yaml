@@ -4,6 +4,7 @@ metadata:
   name: bp-keycloak
   labels:
     catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
+    catalyst.openova.io/tier: catalyst-cp
 spec:
   version: 1.4.9
   card:
@@ -13,3 +14,66 @@ spec:
   manifests:
     chart: ./chart
   depends: []
+
+  # ── G117.1: Topology declaration ────────────────────────────────────────
+  # Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md:
+  #   mgmt-A=Active, mgmt-B=Passive. KC realm config + sessions in PG
+  #   replicated via bp-cnpg-pair sync (remote_apply); user sessions are
+  #   JWT (stateless on KC). Switchover: PG promote → KC pod on standby is
+  #   already running → DNS flip auth.<sov> (~30s TTL).
+  topology:
+    supported:
+      - active-hot-standby
+      - singleton
+    defaults:
+      multi-region: active-hot-standby
+      single-region: singleton
+    perTopology:
+      active-hot-standby:
+        replication:
+          backend: cnpg-pair
+          mode: sync
+          lagSloSeconds: 0
+        switchover:
+          mechanism: bp-continuum
+          rtoSeconds: 30
+          rpoSeconds: 0
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A, mgmt-B]
+          roles:
+            mgmt-A: active
+            mgmt-B: passive
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+
+  # ── G117.3: Endpoints ──────────────────────────────────────────────────
+  endpoints:
+    - name: ui
+      hostnameTemplate: "auth.{{.SovereignFQDN}}"
+      port: 443
+      protocol: https
+      tls: true
+      visibility: public
+      launchDefault: true
+      ssoEnabled: false   # KC is itself the IdP, not a downstream SSO consumer
+
+  # ── G117.4 + G117.5: SSO ───────────────────────────────────────────────
+  # KC is the source of truth for the `sovereign` realm. Operators land
+  # in the admin console via direct auth, not silent SSO through itself.
+  sso:
+    realm: sovereign
+    protocolMapper: oidc
+    groupsClaim: groups
+    rolesFromGroup:
+      sovereign-admins: admin
+    silentLogin: false
+
+  # ── G117.6: Multi-instance ─────────────────────────────────────────────
+  # Singleton per Sovereign — one Keycloak per Catalyst control plane.
+  multiInstance:
+    enabled: false

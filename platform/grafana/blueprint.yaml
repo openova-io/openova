@@ -4,6 +4,7 @@ metadata:
   name: grafana
   labels:
     catalyst.openova.io/section: pts-3-observability
+    catalyst.openova.io/tier: catalyst-cp
 spec:
   version: 1.0.4
   card:
@@ -11,3 +12,64 @@ spec:
     family: insights
     description: Visualization and dashboarding for the LGTM observability stack (Loki/Grafana/Tempo/Mimir).
     docs: https://grafana.com/docs/grafana/latest/
+
+  # ── G117.1: Topology declaration ────────────────────────────────────────
+  # Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md:
+  #   mgmt-A=Active, mgmt-B=Passive; Grafana DB on bp-cnpg-pair sync;
+  #   dashboards backed by Loki/Mimir/Tempo (S3 bucket replicated cross-region).
+  topology:
+    supported:
+      - active-hot-standby
+      - singleton
+    defaults:
+      multi-region: active-hot-standby
+      single-region: singleton
+    perTopology:
+      active-hot-standby:
+        replication:
+          backend: cnpg-pair
+          mode: sync
+          lagSloSeconds: 0
+        switchover:
+          mechanism: bp-continuum
+          rtoSeconds: 30
+          rpoSeconds: 0
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A, mgmt-B]
+          roles:
+            mgmt-A: active
+            mgmt-B: passive
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+
+  # ── G117.3: Endpoints ──────────────────────────────────────────────────
+  endpoints:
+    - name: ui
+      hostnameTemplate: "grafana.{{.SovereignFQDN}}"
+      port: 443
+      protocol: https
+      tls: true
+      visibility: public
+      launchDefault: true
+      ssoEnabled: true
+
+  # ── G117.4 + G117.5: SSO ───────────────────────────────────────────────
+  sso:
+    realm: sovereign
+    protocolMapper: oidc
+    groupsClaim: groups
+    rolesFromGroup:
+      sovereign-admins: admin
+      grafana-editors: editor
+      grafana-viewers: viewer
+    silentLogin: true
+
+  # ── G117.6: Multi-instance ─────────────────────────────────────────────
+  # CP-tier singleton-per-Sovereign: one Grafana per Sovereign.
+  multiInstance:
+    enabled: false

@@ -4,6 +4,7 @@ metadata:
   name: bp-openbao
   labels:
     catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
+    catalyst.openova.io/tier: catalyst-cp
 spec:
   version: 1.2.22
   card:
@@ -13,3 +14,69 @@ spec:
   manifests:
     chart: ./chart
   depends: []
+
+  # ── G117.1: Topology declaration ────────────────────────────────────────
+  # Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md:
+  #   mgmt-A=Active, mgmt-B=Passive. Within cluster: Raft consensus
+  #   (3-5 replicas). Cross-cluster: async perf-replication (OSS uses
+  #   snapshot+restore). Switchover: `bao operator raft transition-to-primary`
+  #   on the standby; KV reads continue uninterrupted on replica throughout.
+  #   Active-hot-standby disallowed by schema (requires sync mode); OpenBao
+  #   OSS perf-replication is async-only.
+  topology:
+    supported:
+      - active-passive
+      - singleton
+    defaults:
+      multi-region: active-passive
+      single-region: singleton
+    perTopology:
+      active-passive:
+        replication:
+          backend: openbao-perf-replication
+          mode: async
+          lagSloSeconds: 30
+        switchover:
+          mechanism: raft-transition
+          rtoSeconds: 60
+          rpoSeconds: 30
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A, mgmt-B]
+          roles:
+            mgmt-A: active
+            mgmt-B: passive
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+
+  # ── G117.3: Endpoints ──────────────────────────────────────────────────
+  # Per audit: `vault.<sov>` or internal-only. Default to private (mTLS,
+  # no Coraza WAF); operator may publish via per-Sovereign overlay.
+  endpoints:
+    - name: api
+      hostnameTemplate: "vault.{{.SovereignFQDN}}"
+      port: 8200
+      protocol: https
+      tls: true
+      visibility: private
+      launchDefault: true
+      ssoEnabled: true
+
+  # ── G117.4 + G117.5: SSO ───────────────────────────────────────────────
+  # OpenBao OIDC auth method federated to sovereign realm (G91 manual
+  # recovery + G112 chart-cred persistence — see memory).
+  sso:
+    realm: sovereign
+    protocolMapper: oidc
+    groupsClaim: groups
+    rolesFromGroup:
+      sovereign-admins: admin
+    silentLogin: true
+
+  # ── G117.6: Multi-instance ─────────────────────────────────────────────
+  multiInstance:
+    enabled: false

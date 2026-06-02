@@ -1,0 +1,115 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-catalyst-platform
+  labels:
+    catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
+    catalyst.openova.io/tier: catalyst-cp
+spec:
+  # The umbrella Blueprint that brings up the Catalyst control plane:
+  # console, marketplace, admin, catalog-svc, projector, provisioning,
+  # environment-controller, blueprint-controller, billing. The chart bytes
+  # live in products/catalyst/chart/ (oci://ghcr.io/openova-io/bp-catalyst-platform).
+  # This blueprint.yaml is the catalog-side declaration that catalyst-api
+  # surfaces in the catalog UI and that the application-controller reads
+  # for placement / topology / endpoints / sso / multi-instance per G117.
+  version: 0.0.0   # placeholder — actual chart version pinned in clusters/<sov>/bootstrap-kit/13-bp-catalyst-platform.yaml
+  card:
+    title: Catalyst Platform
+    summary: |
+      Umbrella Blueprint for the Catalyst control plane. Brings up the
+      console, marketplace, admin, catalog-svc, projector, provisioning,
+      environment-controller, blueprint-controller, and billing services.
+      Once this Helm release is Ready, the Sovereign is fully self-sufficient:
+      the sovereign-admin logs into console.<sovereignFQDN> and proceeds
+      with Phase 2 day-1 setup. See docs/ARCHITECTURE.md §11 (Catalyst-on-
+      Catalyst) and bootstrap-kit slot 13.
+  visibility: unlisted              # mandatory infra, auto-installed by bootstrap-kit slot 13
+  manifests:
+    # Catalog-side reference to the published OCI chart artefact. The
+    # actual install path is via bootstrap-kit (Flux HelmRelease at slot
+    # 13), not via the application-controller's per-Org install path.
+    chart: oci://ghcr.io/openova-io/bp-catalyst-platform
+  depends:
+    - blueprint: bp-gitea
+    - blueprint: bp-gateway-api
+    - blueprint: bp-keycloak
+    - blueprint: bp-cnpg
+    - blueprint: bp-crossplane-claims
+
+  # ── G117.1: Topology declaration ────────────────────────────────────────
+  # Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md:
+  #   mgmt-A=Active, mgmt-B=Passive. CRDs in etcd + PG state replicated via
+  #   bp-cnpg-pair (etcd-backed via catalyst-api PG); deployments are
+  #   reconcilable from Git. Switchover: bp-continuum flips PowerDNS for
+  #   console.<sov> + api.<sov>; standby promotes once CNPG primary flips.
+  #   Note: audit-tool inferred async, but the catalyst-api PG runs on
+  #   bp-cnpg-pair `remote_apply` (sync) when active-hot-standby is in use;
+  #   we declare both topologies and let the application-controller pick
+  #   the variant matching Sovereign multi-region shape.
+  topology:
+    supported:
+      - active-hot-standby
+      - singleton
+    defaults:
+      multi-region: active-hot-standby
+      single-region: singleton
+    perTopology:
+      active-hot-standby:
+        replication:
+          backend: cnpg-pair
+          mode: sync
+          lagSloSeconds: 0
+        switchover:
+          mechanism: bp-continuum
+          rtoSeconds: 30
+          rpoSeconds: 0
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A, mgmt-B]
+          roles:
+            mgmt-A: active
+            mgmt-B: passive
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+
+  # ── G117.3: Endpoints ──────────────────────────────────────────────────
+  # The umbrella exposes two operator-facing endpoints — the console SPA
+  # and the catalyst-api REST surface — both at the Sovereign root domain.
+  endpoints:
+    - name: console
+      hostnameTemplate: "console.{{.SovereignFQDN}}"
+      port: 443
+      protocol: https
+      tls: true
+      visibility: public
+      launchDefault: true
+      ssoEnabled: true
+    - name: api
+      hostnameTemplate: "api.{{.SovereignFQDN}}"
+      port: 443
+      protocol: https
+      tls: true
+      visibility: public
+      launchDefault: false
+      ssoEnabled: true
+
+  # ── G117.4 + G117.5: SSO ───────────────────────────────────────────────
+  # Catalyst console + API both consume sovereign-realm tokens (G113 IDR
+  # defaultProvider silent SSO chain, PR #2729-#2731).
+  sso:
+    realm: sovereign
+    protocolMapper: oidc
+    groupsClaim: groups
+    rolesFromGroup:
+      sovereign-admins: admin
+    silentLogin: true
+
+  # ── G117.6: Multi-instance ─────────────────────────────────────────────
+  # Singleton per Sovereign — exactly one Catalyst control plane per Sovereign.
+  multiInstance:
+    enabled: false

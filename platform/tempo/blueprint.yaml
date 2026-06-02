@@ -4,6 +4,7 @@ metadata:
   name: tempo
   labels:
     catalyst.openova.io/section: pts-3-observability
+    catalyst.openova.io/tier: catalyst-cp
 spec:
   version: 1.0.0
   card:
@@ -11,3 +12,52 @@ spec:
     family: insights
     description: Distributed tracing backend for the LGTM observability stack. Single-binary mode for solo Sovereign; tempo-distributed is a values toggle.
     docs: https://grafana.com/docs/tempo/latest/
+
+  # ── G117.1: Topology declaration ────────────────────────────────────────
+  # Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md:
+  #   mgmt-A=Active, mgmt-B=Passive; traces on object storage; cross-region
+  #   S3 bucket replication async. Same shape as Loki/Mimir.
+  topology:
+    supported:
+      - active-passive
+      - singleton
+    defaults:
+      multi-region: active-passive
+      single-region: singleton
+    perTopology:
+      active-passive:
+        replication:
+          backend: s3-bucket-replication
+          mode: async
+          lagSloSeconds: 60
+        switchover:
+          mechanism: bp-continuum
+          rtoSeconds: 60
+          rpoSeconds: 60
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A, mgmt-B]
+          roles:
+            mgmt-A: active
+            mgmt-B: passive
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+
+  # ── G117.3: Endpoints ──────────────────────────────────────────────────
+  # internal-only — queried by Grafana via in-cluster Service DNS.
+  endpoints: []
+
+  # ── G117.4 + G117.5: SSO ───────────────────────────────────────────────
+  sso:
+    realm: sovereign
+    protocolMapper: oidc
+    groupsClaim: groups
+    silentLogin: true
+
+  # ── G117.6: Multi-instance ─────────────────────────────────────────────
+  multiInstance:
+    enabled: false

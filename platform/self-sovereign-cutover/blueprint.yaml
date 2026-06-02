@@ -4,6 +4,7 @@ metadata:
   name: bp-self-sovereign-cutover
   labels:
     catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
+    catalyst.openova.io/tier: catalyst-cp
 spec:
   version: 0.1.49
   card:
@@ -25,3 +26,42 @@ spec:
   depends:
     - blueprint: bp-gitea
     - blueprint: bp-harbor
+
+  # ── G117.1: Topology declaration ────────────────────────────────────────
+  # Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md:
+  #   mgmt-A=Active ONLY. One-shot Jobs at handover (dormant on standby
+  #   until activated). No cross-cluster sync; if mgmt-A is lost mid-cutover
+  #   the cutover must be re-run from standby once promoted.
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        replication:
+          backend: none
+          mode: none
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+
+  # ── G117.3: Endpoints ──────────────────────────────────────────────────
+  # No external endpoint — one-shot Jobs only.
+  endpoints: []
+
+  # ── G117.4 + G117.5: SSO ───────────────────────────────────────────────
+  # Trigger flow gated through catalyst-api auth; no direct user surface
+  # on bp-self-sovereign-cutover itself.
+  sso:
+    realm: sovereign
+    protocolMapper: oidc
+    silentLogin: false
+
+  # ── G117.6: Multi-instance ─────────────────────────────────────────────
+  # One-shot per Sovereign — installs exactly once, runs to completion.
+  multiInstance:
+    enabled: false

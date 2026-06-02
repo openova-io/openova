@@ -4,6 +4,7 @@ metadata:
   name: bp-gitea
   labels:
     catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
+    catalyst.openova.io/tier: catalyst-cp
 spec:
   version: 1.2.12
   card:
@@ -13,3 +14,65 @@ spec:
   manifests:
     chart: ./chart
   depends: []
+
+  # ── G117.1: Topology declaration ────────────────────────────────────────
+  # Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md:
+  #   mgmt-A=Active, mgmt-B=Passive. Postgres via bp-cnpg-pair sync; Git
+  #   blobs land on SeaweedFS S3 mirrored cross-region (async, ~seconds).
+  #   Switchover: bp-continuum PG demote/promote + PowerDNS flip for
+  #   gitea.<sov> (30s TTL); Git push paused ~5s.
+  topology:
+    supported:
+      - active-hot-standby
+      - singleton
+    defaults:
+      multi-region: active-hot-standby
+      single-region: singleton
+    perTopology:
+      active-hot-standby:
+        replication:
+          backend: cnpg-pair
+          mode: sync
+          lagSloSeconds: 0
+        switchover:
+          mechanism: bp-continuum
+          rtoSeconds: 30
+          rpoSeconds: 0
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A, mgmt-B]
+          roles:
+            mgmt-A: active
+            mgmt-B: passive
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+
+  # ── G117.3: Endpoints ──────────────────────────────────────────────────
+  endpoints:
+    - name: ui
+      hostnameTemplate: "gitea.{{.SovereignFQDN}}"
+      port: 443
+      protocol: https
+      tls: true
+      visibility: public
+      launchDefault: true
+      ssoEnabled: true
+
+  # ── G117.4 + G117.5: SSO ───────────────────────────────────────────────
+  sso:
+    realm: sovereign
+    protocolMapper: oidc
+    groupsClaim: groups
+    rolesFromGroup:
+      sovereign-admins: admin
+      gitea-admins: admin
+    silentLogin: true
+
+  # ── G117.6: Multi-instance ─────────────────────────────────────────────
+  # Singleton per Sovereign — one Gitea per Catalyst control plane.
+  multiInstance:
+    enabled: false
