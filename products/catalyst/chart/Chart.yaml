@@ -2391,7 +2391,7 @@ name: bp-catalyst-platform
 # bp-{dmz,rtz}-vcluster + bare-string depends[] in powerdns-admin +
 # sso-bridge) are unrelated to this slice.
 # (Bumped 440 → 441 to absorb concurrent merges since PR #2825 opened.)
-version: 1.4.442
+version: 1.4.443
 appVersion: 1.4.349
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
