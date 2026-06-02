@@ -2523,7 +2523,7 @@ name: bp-catalyst-platform
 # deploymentId is immutable post-create via CEL
 # x-kubernetes-validations rule (matches Application.spec.instanceId
 # pattern from #2742 W2.C2). Refs #2856 #2742 #2737.
-version: 1.4.454
+version: 1.4.455
 appVersion: 1.4.349
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
