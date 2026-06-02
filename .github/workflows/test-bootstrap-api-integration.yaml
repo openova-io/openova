@@ -1,0 +1,161 @@
+name: Test — Bootstrap API integration (-tags=integration)
+
+# G117.3c #2772 — runs the build-tagged integration tests in
+# products/catalyst/bootstrap/api/internal/handler/. The W1.B4 PR #2752
+# verifier flagged that endpoint_handler_integration_test.go is gated by
+# `//go:build integration` but the standard test-bootstrap-api.yaml job
+# runs `go test -race -count=1 ./...` with NO `-tags` flag, so the
+# integration tests never compile or execute — purely decorative.
+#
+# This workflow corrects that. It:
+#
+#   1. Brings up a kind cluster (gives the test KUBECONFIG)
+#   2. Brings up a Gitea container as a job service (gives GITEA_URL +
+#      CATALYST_GITEA_TOKEN)
+#   3. Runs `go test -tags=integration -timeout=10m` against the
+#      handler package with the three env vars set
+#
+# The integration tests self-skip if any of GITEA_URL /
+# CATALYST_GITEA_TOKEN / KUBECONFIG is unset — meaning a forgotten env
+# var degrades to a skip (visible in CI output), not a silent pass.
+#
+# Anti-theater note: the test-bootstrap-api.yaml job is intentionally
+# kept (unit tests are cheap + fast); this companion job adds the heavy
+# integration coverage on top.
+
+on:
+  push:
+    paths:
+      - 'products/catalyst/bootstrap/api/**'
+      - '.github/workflows/test-bootstrap-api-integration.yaml'
+    branches: [main]
+  pull_request:
+    paths:
+      - 'products/catalyst/bootstrap/api/**'
+      - '.github/workflows/test-bootstrap-api-integration.yaml'
+  workflow_dispatch:
+
+jobs:
+  integration:
+    name: integration (kind + gitea)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      gitea:
+        image: gitea/gitea:1.22
+        env:
+          # 1.22 supports the env-var bootstrap path used below.
+          GITEA__database__DB_TYPE: sqlite3
+          GITEA__database__PATH: /data/gitea/gitea.db
+          GITEA__security__INSTALL_LOCK: "true"
+          GITEA__security__SECRET_KEY: ci-secret-for-tests-only-do-not-use-in-prod
+          GITEA__service__DISABLE_REGISTRATION: "false"
+          GITEA__server__HTTP_PORT: "3000"
+        ports:
+          - 3000:3000
+        options: >-
+          --health-cmd "wget -q -O /dev/null http://localhost:3000/api/v1/version || exit 1"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 30
+    defaults:
+      run:
+        working-directory: products/catalyst/bootstrap/api
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: products/catalyst/bootstrap/api/go.sum
+
+      - name: Set up kind cluster
+        uses: helm/kind-action@v1.10.0
+        with:
+          cluster_name: g117-int
+          wait: 120s
+
+      - name: Provision Gitea admin + token
+        # Creates an admin user inside the gitea service and exchanges
+        # username/password for a personal access token. Both values are
+        # exported to $GITHUB_ENV so subsequent steps inherit them.
+        run: |
+          set -euo pipefail
+          # Wait for Gitea to be responsive (the service health-cmd checks
+          # /api/v1/version; we add one more sanity probe).
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:3000/api/v1/version >/dev/null; then
+              break
+            fi
+            sleep 2
+          done
+          curl -sf http://localhost:3000/api/v1/version
+
+          # Create admin user via Gitea's `manage` CLI inside the
+          # container. The service health-cmd has already passed; the
+          # container is alive. The Gitea binary refuses to run as
+          # root, so we exec as the `git` user (UID 1000 in the
+          # official image) — that's the user the running server
+          # process itself runs as.
+          GITEA_CID=$(docker ps -q --filter ancestor=gitea/gitea:1.22)
+          if [ -z "$GITEA_CID" ]; then
+            echo "::error::no running gitea container found"
+            docker ps -a
+            exit 1
+          fi
+          docker exec -u git "$GITEA_CID" \
+            gitea admin user create \
+              --username ci-admin \
+              --password ci-admin-password-do-not-use \
+              --email ci-admin@example.local \
+              --admin \
+              --must-change-password=false
+
+          # Exchange the basic-auth creds for a PAT scoped to repo + admin.
+          TOKEN=$(curl -sf -u ci-admin:ci-admin-password-do-not-use \
+            -X POST http://localhost:3000/api/v1/users/ci-admin/tokens \
+            -H 'Content-Type: application/json' \
+            -d '{"name":"int-test","scopes":["all"]}' | jq -r .sha1)
+          if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
+            echo "::error::failed to mint Gitea PAT"
+            exit 1
+          fi
+
+          # Seed an empty acme/iac repo so the integration test has a
+          # canonical target.
+          curl -sf -H "Authorization: token $TOKEN" \
+            -X POST http://localhost:3000/api/v1/admin/users \
+            -H 'Content-Type: application/json' \
+            -d '{"username":"acme","email":"acme@example.local","password":"acme-password","must_change_password":false,"send_notify":false}' || true
+          curl -sf -H "Authorization: token $TOKEN" \
+            -X POST http://localhost:3000/api/v1/admin/users/acme/repos \
+            -H 'Content-Type: application/json' \
+            -d '{"name":"iac","auto_init":true,"default_branch":"main"}' || true
+
+          echo "GITEA_URL=http://localhost:3000" >> "$GITHUB_ENV"
+          echo "CATALYST_GITEA_URL=http://localhost:3000" >> "$GITHUB_ENV"
+          echo "CATALYST_GITEA_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Vet
+        run: go vet -tags=integration ./...
+
+      - name: Run integration tests (build-tag enforced)
+        env:
+          # KUBECONFIG is set by helm/kind-action; promote it explicitly
+          # for the test process and verify presence.
+          KUBECONFIG: ${{ env.KUBECONFIG }}
+        run: |
+          set -euo pipefail
+          test -n "${GITEA_URL:-}" || { echo "::error::GITEA_URL unset"; exit 1; }
+          test -n "${CATALYST_GITEA_TOKEN:-}" || { echo "::error::CATALYST_GITEA_TOKEN unset"; exit 1; }
+          test -n "${KUBECONFIG:-}" || { echo "::error::KUBECONFIG unset"; exit 1; }
+
+          # Run integration tests. -v so the build-tag-resolved test
+          # names appear in CI output (any "SKIP" line = decorative).
+          go test -tags=integration -race -count=1 -v -timeout=10m \
+            ./internal/handler/...

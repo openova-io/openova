@@ -190,6 +190,31 @@ type EndpointPrecheckDeps struct {
 	// hostname templates and when building launch URLs. Reads
 	// SOVEREIGN_FQDN env var by default.
 	SovereignFQDN string
+
+	// RegionsCounter returns the number of regions in the active
+	// Sovereign CR (`Sovereign.spec.regions`). Used by chooseTopology
+	// to pick the multi-region default per locked decision #7
+	// (len(Sovereign.spec.regions) > 1 = multi-region).
+	//
+	// Production wires this to a client-go reader that queries the
+	// Sovereign CR via the dynamic client. Tests inject a stub returning
+	// a fixed count.
+	//
+	// When nil, chooseTopology falls back to inspecting SOVEREIGN_REGIONS
+	// env var for backward-compat with the W1.B4 ship — this fallback is
+	// the env-var path the W1.B4 verifier flagged (#2780), kept ONLY for
+	// the rollover window. Production main.go MUST wire the CR-based
+	// counter so the env fallback never executes on a live Sovereign.
+	RegionsCounter func(ctx context.Context) (int, error)
+
+	// OrgMembership reports whether the caller belongs to the given Org
+	// (or is a sovereign-admin / sovereign-operator with cross-Org
+	// authority). When nil, the gate falls back to a single-claim check
+	// `claims.Org == app-Org` which is sufficient for the chroot dev
+	// path but does NOT cover users with multi-Org membership emitted
+	// via the `groups` claim. Production main.go SHOULD wire a real
+	// implementation that walks claims.Groups.
+	OrgMembership func(ctx context.Context, claims *auth.Claims, org string) bool
 }
 
 // SetEndpointPrecheckDeps wires the dependency bundle. Tests override
@@ -346,12 +371,25 @@ func (h *Handler) mutateAppEndpoint(w http.ResponseWriter, r *http.Request, op p
 		return
 	}
 
-	// Authz — same gate as application install (tier-admin or higher).
+	// Authz — same role gate as application install (tier-admin or
+	// higher) PLUS the G117.3a #2757 per-Org membership check. The
+	// realm-role check alone allowed an Org-A tier-admin to mutate an
+	// App owned by Org-B by addressing the App UID; the per-Org IaC
+	// robot would then PR into the wrong Org's repo. The membership
+	// gate closes that hole.
+	appOrg := extractOrgFromApp(app)
 	if claims := auth.ClaimsFromContext(r.Context()); claims != nil {
 		if !applicationInstallCallerAuthorized(claims) {
 			writeJSON(w, http.StatusForbidden, map[string]string{
 				"code":    "forbidden",
 				"message": "endpoint mutation requires tier-admin or higher",
+			})
+			return
+		}
+		if !h.callerInOrg(r.Context(), claims, appOrg) {
+			writeJSON(w, http.StatusForbidden, map[string]string{
+				"code":    "forbidden-cross-org",
+				"message": fmt.Sprintf("caller is not a member of Organization %q (the Application's Org)", appOrg),
 			})
 			return
 		}
@@ -584,6 +622,14 @@ func (h *Handler) HandleCreateInstance(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+		// G117.3a #2757 — must be a member of the target Org.
+		if !h.callerInOrg(r.Context(), claims, body.Org) {
+			writeJSON(w, http.StatusForbidden, map[string]string{
+				"code":    "forbidden-cross-org",
+				"message": fmt.Sprintf("caller is not a member of Organization %q", body.Org),
+			})
+			return
+		}
 	}
 
 	client, err := h.dynamicClientOrFallback()
@@ -605,7 +651,10 @@ func (h *Handler) HandleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Topology gating per locked decision #1+#7.
-	chosen, derr := chooseTopology(bpDoc, body.Topology)
+	// G117.3d #2780: multi-region detection MUST consult
+	// Sovereign.spec.regions, not the SOVEREIGN_REGIONS env var.
+	multiRegion := h.detectMultiRegion(r.Context())
+	chosen, derr := chooseTopology(bpDoc, body.Topology, multiRegion)
 	if derr != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
 			"code":    "invalid-topology",
@@ -1052,10 +1101,16 @@ func buildLaunchURL(hostname string, tls bool) string {
 
 // chooseTopology selects the active topology for a createInstance call.
 // `override` wins if non-empty AND in `supported`. Otherwise the
-// Blueprint's default (multi-region vs single-region) is used; we
-// pick multi-region default when SOVEREIGN_REGIONS env var enumerates
-// >1 region, else single-region.
-func chooseTopology(bp *blueprintMeta, override string) (string, error) {
+// Blueprint's default (multi-region vs single-region) is used; the
+// caller passes `multiRegion=true` when the active Sovereign has >1
+// region per locked decision #7 (`len(Sovereign.spec.regions) > 1`).
+//
+// G117.3d #2780 (was: this function read SOVEREIGN_REGIONS env directly,
+// which the W1.B4 verifier flagged as fragile because env vars are a
+// bastion-only artefact and drift from the live Sovereign CR). The
+// per-call decision is now computed by Handler.detectMultiRegion and
+// passed in here so this helper stays pure + table-test-friendly.
+func chooseTopology(bp *blueprintMeta, override string, multiRegion bool) (string, error) {
 	if bp == nil || bp.Topology == nil || len(bp.Topology.Supported) == 0 {
 		// Permissive fallback — no topology declared → singleton.
 		if override != "" && override != "singleton" && override != "active-hot-standby" &&
@@ -1075,20 +1130,136 @@ func chooseTopology(bp *blueprintMeta, override string) (string, error) {
 		}
 		return "", fmt.Errorf("topology %q not in supported %v", override, bp.Topology.Supported)
 	}
-	multi := false
-	if v := os.Getenv("SOVEREIGN_REGIONS"); v != "" {
-		// crude count — comma-separated list
-		multi = strings.Count(v, ",") > 0
-	}
-	if multi {
-		if bp.Topology.Defaults.MultiRegion != "" {
-			return bp.Topology.Defaults.MultiRegion, nil
-		}
+	if multiRegion && bp.Topology.Defaults.MultiRegion != "" {
+		return bp.Topology.Defaults.MultiRegion, nil
 	}
 	if bp.Topology.Defaults.SingleRegion != "" {
 		return bp.Topology.Defaults.SingleRegion, nil
 	}
 	return bp.Topology.Supported[0], nil
+}
+
+// detectMultiRegion computes whether the active Sovereign is
+// multi-region. Per G117 locked decision #7 the canonical truth-source
+// is `len(Sovereign.spec.regions) > 1` — read via the injected
+// RegionsCounter callback. Falls back to SOVEREIGN_REGIONS env when no
+// counter is wired (the legacy W1.B4 path; emitted as a WARN log line
+// once per process via debugMultiRegionFallbackOnce).
+func (h *Handler) detectMultiRegion(ctx context.Context) bool {
+	if h.endpointDeps.RegionsCounter != nil {
+		n, err := h.endpointDeps.RegionsCounter(ctx)
+		if err == nil {
+			return n > 1
+		}
+		// Counter wired but errored — fall through to env var so we
+		// FAIL OPEN to single-region (the safer default; pinning to
+		// multi-region without proof would mis-place workloads).
+	}
+	if v := strings.TrimSpace(os.Getenv("SOVEREIGN_REGIONS")); v != "" {
+		// Count comma-separated region codes; >0 commas = >1 region.
+		return strings.Count(v, ",") > 0
+	}
+	return false
+}
+
+// callerInOrg returns true when the caller's claims show membership in
+// the named Org. The injected OrgMembership callback (if wired) takes
+// precedence so production main.go can plug in a real group-walker.
+// Otherwise the default predicate accepts:
+//
+//   - sovereign-admins / sovereign-operators (any of the privileged
+//     realm-roles in `sovereignCrossOrgRoles`) regardless of claims.Org;
+//   - sovereign-operator email match (re-using isSovereignOperatorClaim);
+//   - claims.Org equal to `org` (case-insensitive trim);
+//   - any `claims.Groups` entry that starts with `/<org>/` (KC group
+//     path convention) or equals `<org>` (flat group claim).
+//
+// Empty `org` is rejected as defence-in-depth: it would otherwise match
+// the empty claims.Org from a buggy mapper and silently grant access.
+//
+// Per G117.3a #2757 the membership check is REQUIRED on every endpoint
+// mutation + multi-instance create. A nil claims context (test mode
+// without auth middleware) is treated as "no claim required" by the
+// caller — this method is only reached when claims != nil.
+func (h *Handler) callerInOrg(ctx context.Context, claims *auth.Claims, org string) bool {
+	if claims == nil {
+		return false
+	}
+	org = strings.TrimSpace(strings.ToLower(org))
+	if org == "" {
+		return false
+	}
+	// Sovereign-cross-org roles bypass the per-Org check (the operator
+	// MUST be able to manage every Org on their Sovereign).
+	for _, r := range sovereignCrossOrgRoles {
+		if claims.HasRealmRole(r) {
+			return true
+		}
+	}
+	if isSovereignOperatorClaim(claims) {
+		return true
+	}
+	// Custom hook — production main.go can wire a richer matcher.
+	if h.endpointDeps.OrgMembership != nil {
+		return h.endpointDeps.OrgMembership(ctx, claims, org)
+	}
+	// Built-in default — claims.Org direct match or KC groups path match.
+	if strings.EqualFold(strings.TrimSpace(claims.Org), org) {
+		return true
+	}
+	prefix := "/" + org + "/"
+	for _, g := range claims.Groups {
+		gl := strings.ToLower(strings.TrimSpace(g))
+		if gl == org || gl == "/"+org || strings.HasPrefix(gl, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// sovereignCrossOrgRoles is the set of Keycloak realm-roles whose
+// holders may mutate Applications across any Org on this Sovereign.
+// Kept narrow on purpose — any addition here grants cross-Org write.
+// The list mirrors the privileged-role allow-list from the policy-mode
+// gate; see applications.go::rbacAssignPrivilegedRoles for the source.
+var sovereignCrossOrgRoles = []string{
+	"sovereign-admin",
+	"sovereign-operator",
+	"catalyst-owner",
+	"catalyst-admin",
+}
+
+// SovereignGVR returns the Sovereign CR's GroupVersionResource. Kept
+// adjacent to ApplicationGVR for symmetry; the chart ships the CRD at
+// `sovereigns.catalyst.openova.io`.
+func SovereignGVR() schema.GroupVersionResource {
+	return schema.GroupVersionResource{
+		Group:    "catalyst.openova.io",
+		Version:  "v1alpha1",
+		Resource: "sovereigns",
+	}
+}
+
+// CountSovereignRegions returns the number of entries in
+// Sovereign.spec.regions across all Sovereigns in the cluster. Used by
+// the production RegionsCounter wired in main.go. On a chroot or
+// preview Sovereign with no CR list this returns (0, nil) so the
+// detectMultiRegion fallback path runs.
+func CountSovereignRegions(ctx context.Context, c dynamic.Interface) (int, error) {
+	list, err := c.Resource(SovereignGVR()).Namespace("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		// Sovereign CRD may legitimately not be installed (chroot dev).
+		// Don't propagate a fatal error; let caller fall through.
+		return 0, nil
+	}
+	maxRegions := 0
+	for i := range list.Items {
+		regions, _, _ := unstructured.NestedSlice(list.Items[i].Object, "spec", "regions")
+		if len(regions) > maxRegions {
+			maxRegions = len(regions)
+		}
+	}
+	return maxRegions, nil
 }
 
 // readMultiInstance pulls the MultiInstanceSpec from the Blueprint.

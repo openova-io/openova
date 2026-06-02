@@ -24,6 +24,7 @@ import (
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/giteapr"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/precheck"
 )
@@ -646,7 +647,7 @@ func TestPickEndpoint_FallbackToFirstSSOHttps(t *testing.T) {
 
 func TestChooseTopology_OverrideRespected(t *testing.T) {
 	bp := &blueprintMeta{Topology: &topologyDecl{Supported: []string{"singleton", "active-active"}}}
-	got, err := chooseTopology(bp, "active-active")
+	got, err := chooseTopology(bp, "active-active", false)
 	if err != nil || got != "active-active" {
 		t.Fatalf("expected active-active, got %q err=%v", got, err)
 	}
@@ -654,7 +655,7 @@ func TestChooseTopology_OverrideRespected(t *testing.T) {
 
 func TestChooseTopology_OverrideRejectedWhenUnsupported(t *testing.T) {
 	bp := &blueprintMeta{Topology: &topologyDecl{Supported: []string{"singleton"}}}
-	_, err := chooseTopology(bp, "active-active")
+	_, err := chooseTopology(bp, "active-active", false)
 	if err == nil {
 		t.Fatal("expected error for unsupported override")
 	}
@@ -852,6 +853,284 @@ func TestCreateInstance_VClusterIsolation_NamingTemplateDefault(t *testing.T) {
 	nt, _, _ := unstructured.NestedString(list.Items[0].Object, "spec", "namingTemplate")
 	if nt != "{{.AppName}}" {
 		t.Fatalf("expected namingTemplate={{.AppName}} for vcluster, got %q", nt)
+// ── G117.3d #2780 — topology multi-region detection from
+// Sovereign.spec.regions count, not env var.
+
+func TestChooseTopology_MultiRegionPicksMultiRegionDefault(t *testing.T) {
+	bp := &blueprintMeta{Topology: &topologyDecl{
+		Supported: []string{"singleton", "active-hot-standby", "active-active"},
+		Defaults:  topologyDefaults{MultiRegion: "active-hot-standby", SingleRegion: "singleton"},
+	}}
+	got, err := chooseTopology(bp, "", true)
+	if err != nil || got != "active-hot-standby" {
+		t.Fatalf("expected active-hot-standby (multi-region default), got %q err=%v", got, err)
+	}
+}
+
+func TestChooseTopology_SingleRegionPicksSingleRegionDefault(t *testing.T) {
+	bp := &blueprintMeta{Topology: &topologyDecl{
+		Supported: []string{"singleton", "active-hot-standby"},
+		Defaults:  topologyDefaults{MultiRegion: "active-hot-standby", SingleRegion: "singleton"},
+	}}
+	got, err := chooseTopology(bp, "", false)
+	if err != nil || got != "singleton" {
+		t.Fatalf("expected singleton (single-region default), got %q err=%v", got, err)
+	}
+}
+
+func TestDetectMultiRegion_CounterTakesPrecedenceOverEnv(t *testing.T) {
+	t.Setenv("SOVEREIGN_REGIONS", "a,b,c") // env says multi
+	h := &Handler{}
+	h.SetEndpointPrecheckDeps(EndpointPrecheckDeps{
+		RegionsCounter: func(_ context.Context) (int, error) { return 1, nil }, // CR says single
+	})
+	if h.detectMultiRegion(context.Background()) {
+		t.Fatal("expected single-region (CR has 1 region) despite env=multi")
+	}
+}
+
+func TestDetectMultiRegion_CounterMultiReturnsTrue(t *testing.T) {
+	h := &Handler{}
+	h.SetEndpointPrecheckDeps(EndpointPrecheckDeps{
+		RegionsCounter: func(_ context.Context) (int, error) { return 3, nil },
+	})
+	if !h.detectMultiRegion(context.Background()) {
+		t.Fatal("expected multi-region when counter returns 3")
+	}
+}
+
+func TestDetectMultiRegion_CounterZeroIsSingle(t *testing.T) {
+	h := &Handler{}
+	h.SetEndpointPrecheckDeps(EndpointPrecheckDeps{
+		RegionsCounter: func(_ context.Context) (int, error) { return 0, nil },
+	})
+	if h.detectMultiRegion(context.Background()) {
+		t.Fatal("expected single-region when counter returns 0")
+	}
+}
+
+func TestDetectMultiRegion_FallbackToEnvWhenCounterNil(t *testing.T) {
+	t.Setenv("SOVEREIGN_REGIONS", "code-a,code-b")
+	h := &Handler{}
+	if !h.detectMultiRegion(context.Background()) {
+		t.Fatal("expected multi-region from env fallback")
+	}
+	t.Setenv("SOVEREIGN_REGIONS", "code-a")
+	if h.detectMultiRegion(context.Background()) {
+		t.Fatal("expected single-region from env fallback")
+	}
+	t.Setenv("SOVEREIGN_REGIONS", "")
+	if h.detectMultiRegion(context.Background()) {
+		t.Fatal("expected single-region when env empty")
+	}
+}
+
+func TestCountSovereignRegions_PicksLargest(t *testing.T) {
+	makeSov := func(name string, regions []string) *unstructured.Unstructured {
+		s := &unstructured.Unstructured{}
+		s.SetAPIVersion("catalyst.openova.io/v1alpha1")
+		s.SetKind("Sovereign")
+		s.SetName(name)
+		regs := make([]interface{}, len(regions))
+		for i, r := range regions {
+			regs[i] = map[string]interface{}{"code": r}
+		}
+		_ = unstructured.SetNestedSlice(s.Object, regs, "spec", "regions")
+		return s
+	}
+	scheme := runtime.NewScheme()
+	listKinds := map[schema.GroupVersionResource]string{
+		SovereignGVR(): "SovereignList",
+	}
+	c := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, listKinds,
+		makeSov("hw01", []string{"r1"}),
+		makeSov("hw02", []string{"r1", "r2", "r3"}),
+	)
+	got, err := CountSovereignRegions(context.Background(), c)
+	if err != nil {
+		t.Fatalf("count failed: %v", err)
+	}
+	if got != 3 {
+		t.Fatalf("expected 3 (largest of the two Sovereigns), got %d", got)
+	}
+}
+
+// ── G117.3a #2757 — Org-membership gate on endpoint mutation.
+
+// withTestClaims wraps a request with auth.Claims in the chi context.
+// The existing handler reads `auth.ClaimsFromContext(r.Context())` —
+// the gate fires only when claims != nil. Named with the `Test` infix
+// to avoid collision with `withClaims` in continuum_test.go which has
+// a different (ctx, *Claims) -> ctx signature.
+func withTestClaims(req *http.Request, c *testClaimsSpec) *http.Request {
+	if c == nil {
+		return req
+	}
+	claims := &auth.Claims{
+		Email:  c.Email,
+		Tier:   c.Tier,
+		Org:    c.Org,
+		Groups: append([]string{}, c.Groups...),
+	}
+	for _, r := range c.RealmRoles {
+		claims.RealmAccess.Roles = append(claims.RealmAccess.Roles, r)
+	}
+	return req.WithContext(withClaims(req.Context(), claims))
+}
+
+// testClaimsSpec is a minimal builder for auth.Claims so tests stay
+// readable without setting the dozen unrelated fields the real struct
+// carries.
+type testClaimsSpec struct {
+	Email      string
+	Tier       string
+	Org        string
+	Groups     []string
+	RealmRoles []string
+}
+
+func TestCreateAppEndpoint_DenyCrossOrgWhenCallerNotMember(t *testing.T) {
+	// Application owned by `acme`; caller is tier-admin in `beta`.
+	app := seedApp("uid-201", "wp", "acme", "wordpress")
+	h, _, _ := newTestHandlerWithEndpoint(t, app)
+	h.SetCatalogClient(newFakeCatalog())
+	r := newTestRouter(h)
+
+	body := []byte(`{"name":"ui","hostname":"wp.acme.example.com","port":443,"protocol":"https","tls":true,"visibility":"public","ssoEnabled":true}`)
+	req := httptest.NewRequest("POST", "/catalyst/v1/apps/uid-201/endpoints", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = withTestClaims(req, &testClaimsSpec{
+		Tier:        "admin",
+		Org:         "beta", // ← different Org
+		RealmRoles:  []string{"catalyst-admin-beta"},
+	})
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d (body=%s)", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "forbidden-cross-org") {
+		t.Fatalf("expected forbidden-cross-org code, got body=%s", rec.Body.String())
+	}
+}
+
+func TestCreateAppEndpoint_AllowSameOrgTierAdmin(t *testing.T) {
+	app := seedApp("uid-202", "wp", "acme", "wordpress")
+	h, _, _ := newTestHandlerWithEndpoint(t, app)
+	h.SetCatalogClient(newFakeCatalog())
+	r := newTestRouter(h)
+
+	body := []byte(`{"name":"ui","hostname":"wp.acme.example.com","port":443,"protocol":"https","tls":true,"visibility":"public","ssoEnabled":true}`)
+	req := httptest.NewRequest("POST", "/catalyst/v1/apps/uid-202/endpoints", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = withTestClaims(req, &testClaimsSpec{
+		Tier: "admin",
+		Org:  "acme",
+	})
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d (body=%s)", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCreateAppEndpoint_AllowSovereignCrossOrgRole(t *testing.T) {
+	app := seedApp("uid-203", "wp", "acme", "wordpress")
+	h, _, _ := newTestHandlerWithEndpoint(t, app)
+	h.SetCatalogClient(newFakeCatalog())
+	r := newTestRouter(h)
+
+	body := []byte(`{"name":"ui","hostname":"wp.acme.example.com","port":443,"protocol":"https","tls":true,"visibility":"public","ssoEnabled":true}`)
+	req := httptest.NewRequest("POST", "/catalyst/v1/apps/uid-203/endpoints", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	// caller in beta but holds sovereign-admin → allowed.
+	req = withTestClaims(req, &testClaimsSpec{
+		Tier:       "admin",
+		Org:        "beta",
+		RealmRoles: []string{"sovereign-admin"},
+	})
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 (sovereign-admin bypass), got %d (body=%s)", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCreateAppEndpoint_AllowViaGroupsClaim(t *testing.T) {
+	app := seedApp("uid-204", "wp", "acme", "wordpress")
+	h, _, _ := newTestHandlerWithEndpoint(t, app)
+	h.SetCatalogClient(newFakeCatalog())
+	r := newTestRouter(h)
+
+	body := []byte(`{"name":"ui","hostname":"wp.acme.example.com","port":443,"protocol":"https","tls":true,"visibility":"public","ssoEnabled":true}`)
+	req := httptest.NewRequest("POST", "/catalyst/v1/apps/uid-204/endpoints", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	// claims.Org empty (multi-Org user) but groups carries /acme/admins.
+	req = withTestClaims(req, &testClaimsSpec{
+		Tier:   "admin",
+		Groups: []string{"/acme/admins", "/beta/developers"},
+	})
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 (groups membership), got %d (body=%s)", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPatchAppEndpoint_DenyCrossOrg(t *testing.T) {
+	app := seedApp("uid-205", "wp", "acme", "wordpress")
+	h, _, _ := newTestHandlerWithEndpoint(t, app)
+	h.SetCatalogClient(newFakeCatalog())
+	r := newTestRouter(h)
+
+	body := []byte(`{"hostname":"wp.acme.example.com","port":443,"protocol":"https","tls":true,"visibility":"public","ssoEnabled":true}`)
+	req := httptest.NewRequest("PATCH", "/catalyst/v1/apps/uid-205/endpoints/ui", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = withTestClaims(req, &testClaimsSpec{Tier: "admin", Org: "beta"})
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 on PATCH cross-Org, got %d", rec.Code)
+	}
+}
+
+func TestDeleteAppEndpoint_DenyCrossOrg(t *testing.T) {
+	app := seedApp("uid-206", "wp", "acme", "wordpress")
+	h, _, _ := newTestHandlerWithEndpoint(t, app)
+	h.SetCatalogClient(newFakeCatalog())
+	r := newTestRouter(h)
+
+	req := httptest.NewRequest("DELETE", "/catalyst/v1/apps/uid-206/endpoints/ui", nil)
+	req = withTestClaims(req, &testClaimsSpec{Tier: "admin", Org: "beta"})
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 on DELETE cross-Org, got %d", rec.Code)
+	}
+}
+
+func TestCallerInOrg_RejectsEmptyOrg(t *testing.T) {
+	// Defence-in-depth — empty Org must not match a buggy mapper's
+	// empty claims.Org.
+	h := &Handler{}
+	got := h.callerInOrg(context.Background(), &auth.Claims{Org: ""}, "")
+	if got {
+		t.Fatal("expected false for empty Org / empty claims.Org")
+	}
+}
+
+func TestCallerInOrg_AcceptsOrgMembershipCallback(t *testing.T) {
+	h := &Handler{}
+	h.SetEndpointPrecheckDeps(EndpointPrecheckDeps{
+		OrgMembership: func(_ context.Context, c *auth.Claims, org string) bool {
+			return org == "acme" && c.Email == "ali@acme.io"
+		},
+	})
+	if !h.callerInOrg(context.Background(), &auth.Claims{Email: "ali@acme.io"}, "acme") {
+		t.Fatal("expected callback to accept member")
+	}
+	if h.callerInOrg(context.Background(), &auth.Claims{Email: "rogue@evil.io"}, "acme") {
+		t.Fatal("expected callback to reject non-member")
 	}
 }
 

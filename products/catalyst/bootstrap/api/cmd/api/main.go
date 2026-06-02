@@ -402,13 +402,27 @@ func main() {
 	// The WriterFactory uses CATALYST_GITEA_URL + CATALYST_GITEA_TOKEN
 	// as a single-token shim until External-Secrets per-Org rotation
 	// lands (see handler.NewProductionGiteaIaCWriter doc).
+	// G117.3d #2780 — RegionsCounter wires Sovereign.spec.regions as the
+	// truth-source for multi-region topology selection. Falls back to
+	// SOVEREIGN_REGIONS env when the dynamic client is unwired or the
+	// Sovereign CRD is absent (chroot dev surface).
+	var regionsCounter func(ctx context.Context) (int, error)
+	if dynCfg, derr := rest.InClusterConfig(); derr == nil {
+		if dynClient, dcerr := dynamic.NewForConfig(dynCfg); dcerr == nil {
+			regionsCounter = func(ctx context.Context) (int, error) {
+				return handler.CountSovereignRegions(ctx, dynClient)
+			}
+		}
+	}
 	h.SetEndpointPrecheckDeps(handler.EndpointPrecheckDeps{
-		WriterFactory: handler.NewProductionGiteaIaCWriter,
-		SovereignFQDN: env("SOVEREIGN_FQDN", ""),
+		WriterFactory:  handler.NewProductionGiteaIaCWriter,
+		SovereignFQDN:  env("SOVEREIGN_FQDN", ""),
+		RegionsCounter: regionsCounter,
 	})
 	log.Info("g117.3: endpoint precheck deps wired",
 		"sovereignFQDN", env("SOVEREIGN_FQDN", ""),
 		"writerFactory", "NewProductionGiteaIaCWriter (single-token shim)",
+		"regionsCounter", regionsCounter != nil,
 	)
 
 	// EPIC-3 #1098 slice U8 — RBAC audit Bus. Owns:
