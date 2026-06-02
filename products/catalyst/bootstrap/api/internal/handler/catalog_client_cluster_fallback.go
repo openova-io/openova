@@ -111,29 +111,58 @@ func (c *chainedCatalogClient) List(ctx context.Context, org, sessionToken strin
 }
 
 func (c *chainedCatalogClient) Get(ctx context.Context, name, sessionToken string) (*CatalogBlueprint, error) {
+	var upstreamErr error
 	if c.upstream != nil {
 		bp, err := c.upstream.Get(ctx, name, sessionToken)
 		if err == nil {
 			return bp, nil
 		}
-		if !errors.Is(err, ErrBlueprintNotFound) {
-			return nil, err
-		}
+		upstreamErr = err
 	}
-	return c.getFromCluster(ctx, name, "")
+	// G117 #2879 (2026-06-03): try the cluster fallback on ANY upstream
+	// error, not just ErrBlueprintNotFound. Pre-fix the fallback only fired
+	// on a definitive 404 — but on hw86 the gitea catalog-sovereign Org
+	// doesn't exist (bp-self-sovereign-cutover gitea-mirror Job never
+	// ran), so every catalog Get returned upstream HTTP 401/502 and the
+	// fallback was bypassed. Result: chart-seeded Blueprint CRs (which
+	// EXIST in-cluster via templates/catalog-seed/blueprints.yaml) were
+	// invisible to the install + launch-url handlers, /catalyst/v1/apps/
+	// {uid}/launch-url returned 503, and the operator's Launch button
+	// silently degraded to a plain externalURL with no SSO query string.
+	// Caught live this session via authenticated Playwright walk.
+	//
+	// If the cluster ALSO doesn't have the Blueprint, surface the
+	// upstream error (when present) so the underlying gitea/org/Network
+	// problem stays debuggable instead of getting masked behind a generic
+	// "not found".
+	bp, clusterErr := c.getFromCluster(ctx, name, "")
+	if clusterErr == nil {
+		return bp, nil
+	}
+	if errors.Is(clusterErr, ErrBlueprintNotFound) && upstreamErr != nil && !errors.Is(upstreamErr, ErrBlueprintNotFound) {
+		return nil, upstreamErr
+	}
+	return nil, clusterErr
 }
 
 func (c *chainedCatalogClient) GetVersion(ctx context.Context, name, version, sessionToken string) (*CatalogBlueprint, error) {
+	var upstreamErr error
 	if c.upstream != nil {
 		bp, err := c.upstream.GetVersion(ctx, name, version, sessionToken)
 		if err == nil {
 			return bp, nil
 		}
-		if !errors.Is(err, ErrBlueprintNotFound) {
-			return nil, err
-		}
+		upstreamErr = err
 	}
-	return c.getFromCluster(ctx, name, version)
+	// G117 #2879 (2026-06-03): same broadened-fallback rationale as Get.
+	bp, clusterErr := c.getFromCluster(ctx, name, version)
+	if clusterErr == nil {
+		return bp, nil
+	}
+	if errors.Is(clusterErr, ErrBlueprintNotFound) && upstreamErr != nil && !errors.Is(upstreamErr, ErrBlueprintNotFound) {
+		return nil, upstreamErr
+	}
+	return nil, clusterErr
 }
 
 // listFromCluster enumerates Blueprint CRs from the chroot's apiserver.
