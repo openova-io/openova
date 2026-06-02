@@ -390,7 +390,17 @@ export async function getLaunchURL(
   endpoint?: string,
 ): Promise<LaunchURLResponse | null> {
   const qs = endpoint ? `?endpoint=${encodeURIComponent(endpoint)}` : ''
-  const url = `${API_BASE}/catalyst/v1/apps/${encodeURIComponent(uid)}/launch-url${qs}`
+  // G117.4 #2878-followup (2026-06-03): the /catalyst/v1/... route group
+  // is registered at cmd/api/main.go:1410 (HandleGetLaunchURL) WITHOUT
+  // the /api/ prefix. `${API_BASE}/...` produces /api/catalyst/v1/...
+  // which chi 404s — getLaunchURL then returns null per the 404 branch
+  // below, and LaunchButton falls through to fallbackURL with NO
+  // prompt=none&kc_idp_hint=catalyst-pin appended. Caught live on hw86
+  // 2026-06-03 via authenticated Playwright walk: API returned the
+  // correct silent-SSO URL when called WITHOUT /api/ prefix, but the
+  // bundle was calling /api/catalyst/v1/.../launch-url which 404'd.
+  // Mirrors the PR #2878 fix for listBlueprintInstancesByName.
+  const url = `${BASE}catalyst/v1/apps/${encodeURIComponent(uid)}/launch-url${qs}`
   const res = await authedFetch(url, { headers: { Accept: 'application/json' } })
   if (res.status === 404 || res.status === 409 || res.status === 503) return null
   if (!res.ok) {
