@@ -1,6 +1,31 @@
 apiVersion: v2
 name: bp-sso-bridge
-version: 0.2.2
+version: 0.2.3
+# 0.2.3 (G117.5c #2801, 2026-06-02): Tier-3 AppRegistration ConfigMap
+# watcher. Two new bash functions in templates/configmap-reconciler.yaml:
+#   - upsert_per_org_client: for one ConfigMap labelled
+#     `sso.openova.io/app-registration=<client-id>` carrying data.realm
+#     + data.client.json, POST/PUT the client into the per-Org realm,
+#     GET the KC-managed client_secret, persist the bundle (client_id,
+#     client_secret, issuer_url, authorize_url, token_url, userinfo_url,
+#     end_session_url, realm) to OpenBao at `sso/<realm>/<client-id>`
+#     where the Tier-3 chart-side sso-externalsecret.yaml's remoteRef
+#     resolves it. Idempotent: PUT on existing client (clientId is the
+#     natural key); 409 swallow on POST race.
+#   - reconcile_app_registrations: lists ConfigMaps with label
+#     `sso.openova.io/app-registration` cluster-wide and calls
+#     upsert_per_org_client on each. Runs every tick AFTER
+#     reconcile_per_org_realms (so per-Org realms exist by the time we
+#     POST clients into them) sharing the same KC admin token.
+#     Idempotent end-to-end.
+# Closes G117.5 W3.D2 verifier's GAP finding: chart-emitted Tier-3
+# `sso.openova.io/app-registration` ConfigMaps were dormant; bp-sso-
+# bridge HR-watcher only matched `.spec.values.sso.enabled=true` for
+# Tier-1/2 mints into the sovereign realm. This loop closes the Tier-3
+# loop into per-Org realms.
+# No new RBAC verbs required (ClusterRole already has configmaps:list).
+# Backwards-compatible: if no app-registration ConfigMaps exist, the
+# new functions log nothing and return immediately. Refs #2801 #2744.
 # 0.2.2 (G117.5 W2.C4 #2744, 2026-06-02): per-Org realm reconciler.
 # Two new bash functions in templates/configmap-reconciler.yaml:
 #   - provision_org_realm: for one per-Org realm ConfigMap (emitted by

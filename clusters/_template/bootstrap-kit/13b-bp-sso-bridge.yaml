@@ -67,6 +67,16 @@ spec:
   chart:
     spec:
       chart: bp-sso-bridge
+      # 0.2.3 (G117.5c #2801, 2026-06-02): Tier-3 AppRegistration ConfigMap
+      # watcher. New upsert_per_org_client + reconcile_app_registrations
+      # shell functions read ConfigMaps labelled
+      # `sso.openova.io/app-registration=<client-id>` cluster-wide,
+      # POST/PUT the matching Client into the per-Org realm specified in
+      # `data.realm`, then PUT the bundle to OpenBao at
+      # `sso/<realm>/<client-id>` where the Tier-3 chart-side
+      # sso-externalsecret.yaml resolves it. Closes G117.5 W3.D2
+      # verifier's GAP finding — Tier-3 chart-emitted ConfigMaps were
+      # dormant. Refs #2801 #2744.
       # 0.2.2 (G117.5 W2.C4 #2744, 2026-06-02): per-Org realm reconciler —
       # provision_org_realm + reconcile_per_org_realms shell functions that
       # import per-Org realms (emitted by bp-keycloak 1.4.12 tenantRealms[])
@@ -75,7 +85,7 @@ spec:
       # 0.1.1 (G91-fu, Refs #2659, edc55c08 PR #2676): adds realm-role
       # grant + skipClientUpsert opt-out for charts whose Keycloak Client
       # is realm-imported at bp-keycloak install time (catalyst-ui etc.).
-      version: 0.2.2
+      version: 0.2.3
       sourceRef:
         kind: HelmRepository
         name: bp-sso-bridge
