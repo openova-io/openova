@@ -63,6 +63,7 @@ import { MarketplaceProductPage } from '@/pages/marketplace/MarketplaceProductPa
 import { ProvisionPage } from '@/pages/provision/ProvisionPage'
 import { AppsPage } from '@/pages/sovereign/AppsPage'
 import { AppDetail } from '@/pages/sovereign/AppDetail'
+import { CatalogDetail } from '@/pages/sovereign/CatalogDetail'
 import { InstallPage } from '@/pages/sovereign/InstallPage'
 import { JobsPage } from '@/pages/sovereign/JobsPage'
 import { JobDetail } from '@/pages/sovereign/JobDetail'
@@ -1235,6 +1236,18 @@ const consoleJobsRoute = createRoute({
   path: '/jobs',
   component: JobsPage,
 })
+// G117.2 #2741 — Catalog class drill-down (chroot Sovereign Console).
+// `/catalog/$blueprintName` renders the CLASS page: header + topology
+// list + per-Blueprint instance table + "+ New instance" affordance for
+// multi-instance Blueprints. Distinct from `/apps` (instance grid) and
+// `/app/$componentId` (single-instance detail). Ports the abandoned
+// Astro+Svelte scaffold at products/catalyst/console/src/routes/catalog
+// /[name]/+page.svelte to the production React UI.
+const consoleCatalogDetailRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/catalog/$blueprintName',
+  component: CatalogDetail,
+})
 // Jobs timeline (Gantt-style retrospective) — chroot Sovereign Console.
 // MUST be registered BEFORE the dynamic $jobId route below so TanStack
 // Router resolves `/jobs/timeline` to this surface, not to JobDetail with
@@ -2080,6 +2093,7 @@ const routeTree = rootRoute.addChildren([
     consoleDashboardRoute,
     consoleAppsRoute,
     consoleAppDetailRoute,
+    consoleCatalogDetailRoute,
     consoleInstallRoute,
     consoleInstallBlueprintRoute,
     consoleJobsRoute,
