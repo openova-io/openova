@@ -2367,30 +2367,20 @@ name: bp-catalyst-platform
 # Blueprint placementSchema.defaultOnMultiRegion drives empty-
 # spec.placement on multi-region Sovereigns.
 # (Bumped 414 → 415 after main concurrently shipped a 1.4.414.)
-# 1.4.436-anchor (G117.E2E-B3 #2740 #2745 #2737, 2026-06-03): comment
-# block landed via PR #2823's lockstep but the actual CRD content
-# (this slice) ships under 1.4.438 below. Kept here for blame anchor.
-# 1.4.438 (G117.E2E-B3 #2740 #2745 #2737, 2026-06-03): the actual CRD
-# manifest change — promote spec.topology / spec.endpoints / spec.sso
-# / spec.multiInstance into products/catalyst/chart/crds/blueprint.yaml's
-# openAPIV3Schema. W1.B1 + W2.C2 landed the Go types + JSON-schema gate
-# but the CRD manifest never gained these fields, so runtime admission
-# silently swallowed them via the parent spec's
-# x-kubernetes-preserve-unknown-fields. Server-side dry-run validation
-# against a live K8s API (1.30) confirms: all 7 invalid samples
-# rejected with admission errors at the exact field path
-# (spec.topology.supported[1] / spec.topology.defaults.single-region /
-# spec.endpoints[0].protocol / spec.sso.realm /
-# spec.multiInstance.isolationLevel); valid samples + 8 representative
-# in-tree blueprints (loki/grafana/gitea/harbor/keycloak/openbao/cnpg/
-# cilium) accepted. K8s structural-schema rules: $ref forbidden →
-# each of the 4 BCP variants inlines via YAML anchor; uniqueItems
-# forbidden → replaced with x-kubernetes-list-type: set (O(n) hash
-# rather than O(n²) ban). 83/87 in-tree blueprint.yaml files validate
-# clean; 4 pre-existing failures (placementSchema bounds in
+# 1.4.436 (G117.E2E-B3 #2740 #2745 #2737, 2026-06-03): promote the G117
+# fields (spec.topology, spec.endpoints, spec.sso, spec.multiInstance)
+# from JSON-schema-only into the Blueprint CRD openAPIV3Schema in
+# products/catalyst/chart/crds/blueprint.yaml. W1.B1 + W2.C2 shipped
+# the Go types + JSON-schema gate but the CRD manifest never gained
+# these fields — runtime admission silently swallowed them through
+# the parent spec's x-kubernetes-preserve-unknown-fields. This bump
+# makes admission gate the canonical contract (variant-specific
+# required keys via inlined per-variant sub-schemas; K8s structural
+# schemas forbid $ref so each of the 4 BCP variants repeats the
+# same three sub-blocks via YAML anchor). 83/87 of-tree blueprints
+# validate clean; 4 pre-existing failures (placementSchema bounds in
 # bp-{dmz,rtz}-vcluster + bare-string depends[] in powerdns-admin +
 # sso-bridge) are unrelated to this slice.
-# (Bumped 440 → 441 to absorb concurrent merges since PR #2825 opened.)
 version: 1.4.441
 appVersion: 1.4.349
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider

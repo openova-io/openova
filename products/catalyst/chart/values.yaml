@@ -288,9 +288,9 @@ images:
   organization: "openova-io/openova"
   # SHA tags — bump these via CI when building new images.
   catalystApi:
-    tag: "ecf717c"
+    tag: "3b72660"
   catalystUi:
-    tag: "ecf717c"
+    tag: "3b72660"
   marketplaceApi:
     tag: "3c2f7e4"
   console:
@@ -477,7 +477,7 @@ controllers:
     enabled: false
     image:
       repository: "ghcr.io/openova-io/openova/blueprint-controller"
-      tag: "100a213"
+      tag: "8d01e2f"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
