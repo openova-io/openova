@@ -36,7 +36,13 @@ Starter dashboards shipped (all gated by separate enable toggles):
   - flux-reconcile-health    — Flux Kustomization/HelmRelease ready ratio
 */ -}}
 {{- if and .Values.observabilityStack .Values.observabilityStack.enabled .Values.observabilityStack.dashboards.starter.enabled }}
-{{- $cmName := printf "%s-starter-dashboards" (include "grafana.fullname" . | default "grafana") }}
+{{- /* G117 batch1 (2026-06-02): hardcoded "grafana" prefix rather than
+       `include "grafana.fullname"` for the same reason documented in
+       datasource-configmaps.yaml — the include depends on the subchart's
+       _helpers.tpl which isn't available during `helm lint` without a
+       prior `helm dependency build`. Release name is always `grafana`
+       on every Sovereign per bootstrap-kit slot 25. */ -}}
+{{- $cmName := "grafana-starter-dashboards" }}
 {{- $label := .Values.observabilityStack.sidecarDashboardLabel | default "grafana_dashboard" }}
 ---
 apiVersion: v1
