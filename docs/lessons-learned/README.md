@@ -11,3 +11,4 @@ Organized by domain.
 | [chi-router-quirks.md](chi-router-quirks.md) | go-chi does not decode `%3A` (and other path-safe specials) before route matching |
 | [helm-hooks-and-crd-ordering.md](helm-hooks-and-crd-ordering.md) | `before-hook-creation` deadlocks on first install when the CRD comes from the same chart's upstream subchart — architectural fix is chart-split + Flux dependsOn |
 | [catalyst-bootstrap-api.md](catalyst-bootstrap-api.md) | `tofu destroy` works against the on-disk workdir without re-prompting credentials — destructive endpoints split tofu vs Hetzner-direct paths cleanly |
+| [keycloak-realm-import-and-chart-tests.md](keycloak-realm-import-and-chart-tests.md) | Keycloak `varchar(255)` DESCRIPTION cap; `--show-only` multi-doc render trap; `gitea admin auth list --vertical-bars` tab-padding; `sovereign-fqdn` key contract |
