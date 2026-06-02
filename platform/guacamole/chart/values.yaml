@@ -117,14 +117,30 @@ guacamole:
   # ── Keycloak OIDC ──────────────────────────────────────────────
   oidc:
     # Issuer URL — render in per-Sovereign overlay as
-    # `https://keycloak.<sovereign-fqdn>/realms/catalyst`. Empty
-    # value fails the helm template render (see _helpers.tpl
+    # `https://auth.<sovereign-fqdn>/realms/sovereign`. Empty value
+    # fails the helm template render (see _helpers.tpl
     # `bp-guacamole.oidcIssuer`).
+    #
+    # G117.5 W3.D1 #2744 (2026-06-02): the canonical realm is
+    # `sovereign` (consolidated by bp-keycloak 1.4.13 — adds `guacamole`
+    # client). The pre-this-fix example pointed at `/realms/catalyst`
+    # which never matched the canonical sovereign-realm import.
     issuer: ""
     clientId: guacamole
-    # Client secret comes from a SealedSecret. The chart materializes
-    # the SealedSecret manifest with an empty placeholder; the
-    # operator seals the real value via kubeseal.
+    # G117.5 W3.D1 #2744 (2026-06-02): default ON. The new
+    # templates/secret-sso-oidc-credentials.yaml emits a Helm
+    # `lookup`-or-generate Secret named `.clientSecretRef.name` with
+    # `helm.sh/resource-policy: keep`. The legacy SealedSecret +
+    # pre-install bootstrap Job pair is preserved at
+    # chartManagedSecret=false for operators on the GitOps-managed
+    # cred-lifecycle path. Per memory
+    # feedback_chart_credential_persistence_defense.md.
+    chartManagedSecret: true
+    # Client secret name + key — read by the Deployment via
+    # secretKeyRef. The same name is materialised by EITHER the
+    # chart-managed Secret (default chartManagedSecret=true) OR the
+    # SealedSecret placeholder (chartManagedSecret=false). They are
+    # mutually exclusive so the Secret name never collides.
     clientSecretRef:
       name: guacamole-oidc
       key: client-secret
@@ -180,23 +196,24 @@ guacamole:
       subject: catalyst.audit
       auditType: guacamole-session
       url: nats://nats-jetstream.nats-jetstream.svc.cluster.local:4222
-  # ── Keycloak realm-config integration ─────────────────────────
-  # When enabled, the chart emits a ConfigMap that the bp-keycloak
-  # post-deploy keycloak-config-cli Job picks up. The ConfigMap
-  # patches the `catalyst` realm to add the `guacamole` client +
-  # role + group mappings. Operator opt-in to keep
-  # bp-guacamole installable in test environments without bp-keycloak.
-  realmConfig:
-    enabled: true
-    # Realm name in Keycloak. Default `catalyst` per existing
-    # platform/keycloak realm-config pattern.
-    realm: catalyst
-    # Namespace where bp-keycloak's keycloak-config-cli post-deploy Job
-    # runs. The realm-patch ConfigMap MUST land in this namespace so the
-    # Job's label-selector picks it up. Defaults to `keycloak` per the
-    # canonical bp-keycloak namespace; override when bp-keycloak runs
-    # under a different namespace.
-    namespace: keycloak
+  # ── Keycloak realm-config integration (DECOMMISSIONED 0.2.0) ───
+  # G117.5 W3.D1 #2744 (2026-06-02): The chart previously emitted a
+  # `bp-guacamole-realm-patch` ConfigMap (templates/keycloak-realm-
+  # config.yaml) that bp-keycloak's keycloak-config-cli post-deploy
+  # Job picked up. That ConfigMap targeted a `catalyst` realm,
+  # divergent from the canonical `sovereign` realm consolidated by
+  # bp-keycloak 1.4.10 (Tier-1 clients) and 1.4.13 (this Wave —
+  # adds Tier-2 `guacamole` client to the same realm-import).
+  #
+  # The template was DELETED in 0.2.0; bp-keycloak's realm-import is
+  # now the authoritative source for the `guacamole` client. Migration
+  # path for operators on the legacy `catalyst` realm: re-render with
+  # bp-guacamole 0.2.0 + bp-keycloak 1.4.13, then drop the obsolete
+  # `bp-guacamole-realm-patch` ConfigMap from any pinned overlay.
+  #
+  # Per Aux-2 audit
+  # docs/sessions/2026-06-02-G117-sso-fanout-audit/tier-2/bp-guacamole.md
+  # step 4.
   # ── Pod-level security context ─────────────────────────────────
   # Both pods run as non-root with read-only root FS — only /tmp
   # and /recordings are writable.

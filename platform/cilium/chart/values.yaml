@@ -306,11 +306,29 @@ catalystOverlay:
     gatewayRef:
       name: cilium-gateway
       namespace: kube-system
-    # Authentication mode at the gateway boundary. `oidc` requires the
-    # Keycloak realm to have an `hubble-ui` client (slice D1). `none` is
-    # only acceptable for fully air-gapped lab Sovereigns; per-Sovereign
-    # overlays flip to `oidc` once the realm-config wires the client.
-    auth: oidc
+    # Authentication mode at the gateway boundary.
+    #
+    # G117.5 W3.D1 #2744 (2026-06-02) — DECORATIVE-GATE REMOVED. Pre-fix
+    # this knob defaulted to `oidc` and was emitted as an HTTPRoute
+    # annotation `catalyst.openova.io/hubble-ui-auth: oidc`, BUT no
+    # actual OIDC enforcement filter was ever attached — operators
+    # were misled into thinking the route was protected when it was
+    # not. Per Aux-2 audit
+    # docs/sessions/2026-06-02-G117-sso-fanout-audit/tier-2/bp-cilium.md
+    # the decorative annotation was dropped from the HTTPRoute template,
+    # and this default flips `oidc` → `none` so per-Sovereign overlays
+    # MUST consciously enable Hubble UI exposure on the unauthenticated
+    # path until the oauth2-proxy sidecar lands (Aux-2 audit step 1, in
+    # a follow-up Wave).
+    #
+    # When the oauth2-proxy sidecar ships:
+    #   - this knob will gain meaning (`oidc` → wire the sidecar in
+    #     front of hubble-ui Service; `none` → direct proxy to
+    #     hubble-ui:80 as today).
+    #   - the bp-keycloak 1.4.13 sovereign realm-import already
+    #     codifies the `hubble-ui` OIDC client (no-op until the sidecar
+    #     lands; pre-declaration avoids a future bp-sso-bridge race).
+    auth: none
     # Hubble UI Service ref. The bp-cilium HelmRelease installs Cilium
     # into kube-system (clusters/_template/bootstrap-kit/01-cilium.yaml
     # `targetNamespace: kube-system`), so the upstream subchart renders

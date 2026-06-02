@@ -48,7 +48,38 @@ name: bp-guacamole
 # probing `/` made kubelet restart the Pod every ~60s and the kube-
 # system Cilium gateway returned 503 to `https://guacamole.<sov>/`
 # because no endpoint was ever Ready (observed on t22, 5 restarts).
-version: 0.1.32
+# 0.2.0 (G117.5 W3.D1 #2744, 2026-06-02 — BREAKING): SSO consolidation
+# into bp-keycloak 1.4.13 authoritative realm-import.
+#   - Append `?kc_idp_hint=catalyst-pin` to OPENID_AUTHORIZATION_ENDPOINT
+#     env so the Guacamole webapp's auth redirect carries the IdP hint
+#     (defense-in-depth alongside the sovereign realm IDR
+#     `defaultProvider`).
+#   - DELETE templates/keycloak-realm-config.yaml — the divergent
+#     `realm: catalyst` ConfigMap had been racing with the consolidated
+#     `sovereign` realm-import codified in bp-keycloak 1.4.10 (Tier-1)
+#     and 1.4.13 (Tier-2 — adds `guacamole` client to clients[]).
+#     Operators on the canonical fresh-prov path stop seeing the old
+#     `bp-guacamole-realm-patch` ConfigMap; bp-keycloak's keycloak-
+#     config-cli post-deploy Job no longer applies it. Per Aux-2 audit
+#     docs/sessions/2026-06-02-G117-sso-fanout-audit/tier-2/bp-guacamole.md
+#     step 4.
+#   - NEW templates/secret-sso-oidc-credentials.yaml — chart-managed
+#     Secret using helm `lookup`-or-generate + `helm.sh/resource-policy:
+#     keep` annotation, gated by `guacamole.oidc.chartManagedSecret`
+#     (default ON; off preserves backward-compat with the existing
+#     SealedSecret placeholder path). The new Secret materialises a
+#     usable client-secret value at the chart's first install (vs the
+#     old SealedSecret placeholder which required kubeseal). See memory
+#     `feedback_chart_credential_persistence_defense.md` for the
+#     containment pattern.
+#   - Drop the now-stale `realmConfig.*` values block. The fields are
+#     no-ops once keycloak-realm-config.yaml is deleted.
+# Breaking-ness: existing operators relying on the `realm: catalyst`
+# patch must migrate to the `sovereign` realm + bp-keycloak 1.4.13
+# realm-import. Same 4-hop curl probe in the audit doc verifies the
+# new path.
+# Refs #2744.
+version: 0.2.0
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless

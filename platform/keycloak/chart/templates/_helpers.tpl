@@ -88,6 +88,30 @@ KV → ExternalSecret → per-app namespace.
 {{- end -}}
 
 {{/*
+G117.5 W3.D1 #2744 — Tier-2 silent-SSO Client secret (sovereign realm).
+
+Same shape as `bp-keycloak.tier1ClientSecret` but with a distinct seed
+label so Tier-2 client secrets never collide with Tier-1 clients of the
+same `clientId`. All Tier-2 SSO-capable apps (guacamole, powerdns-admin,
+hubble-ui, …) federate to the SAME `sovereign` realm via the
+catalyst-pin IDR, so the secret-derivation pattern is identical — only
+the seed namespace differs to make per-tier rotation possible without
+disturbing the other tier.
+
+Per memory feedback_chart_credential_persistence_defense.md, deterministic
+SHA-based derivation means re-renders are idempotent and chart upgrades
+don't rotate the client secret unless Release.Name / Release.Namespace
+themselves change.
+*/}}
+{{- define "bp-keycloak.tier2ClientSecret" -}}
+{{- /* Expects a dict: {ctx: ., clientId: <string>} */ -}}
+{{- $ctx := .ctx -}}
+{{- $cid := .clientId -}}
+{{- $seed := printf "%s|%s|tier2-sso|%s" $ctx.Release.Name $ctx.Release.Namespace $cid -}}
+{{- $seed | sha256sum -}}
+{{- end -}}
+
+{{/*
 G117.5 W2.C4 #2744 — Tier-3 per-Org realm `sovereign-broker` Client secret.
 
 Each per-Org realm (rendered by templates/configmap-per-org-realms.yaml)
