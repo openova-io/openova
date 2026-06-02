@@ -625,7 +625,7 @@ data:
         {
           "clientId": "powerdns-admin",
           "name": "PowerDNS-Admin (Tier-2 silent-SSO)",
-          "description": "G117.5 #2744 — DNS UI silent-SSO via catalyst-pin broker. PDA reads OIDC env via ExternalSecret materialised by bp-sso-bridge; chart appends `?kc_idp_hint=catalyst-pin` to the discovered authorize_url for explicit hinting (defense-in-depth alongside the realm IDR `defaultProvider`).",
+          "description": "G117.5 #2744 — DNS UI silent-SSO via catalyst-pin broker. PDA reads OIDC env via ExternalSecret materialised by bp-sso-bridge.",
           "enabled": true,
           "publicClient": false,
           "standardFlowEnabled": true,
@@ -663,7 +663,7 @@ data:
         {
           "clientId": "hubble-ui",
           "name": "Cilium Hubble UI (Tier-2 silent-SSO)",
-          "description": "G117.5 #2744 — network observability UI silent-SSO via catalyst-pin broker. Pre-declared for the planned oauth2-proxy sidecar in front of hubble-ui (Aux-2 audit tier-2/bp-cilium.md). Until that sidecar lands, the client exists in KC but has no consumer wired.",
+          "description": "G117.5 #2744 — network observability UI silent-SSO via catalyst-pin broker. Pre-declared for the planned oauth2-proxy sidecar in front of hubble-ui.",
           "enabled": true,
           "publicClient": false,
           "standardFlowEnabled": true,
