@@ -3,6 +3,19 @@
 # (slot 50) and bp-hcloud-csi (slot 51, when present) — the full
 # Hetzner-cloud-direct trio.
 #
+# INTENTIONALLY SUSPENDED on non-Hetzner providers (e.g. HCS / Huawei).
+# `kubectl get hr bp-hcloud-ccm` showing empty READY/STATUS columns is
+# BY DESIGN — Flux does not reconcile suspended HRs, so no Ready
+# condition is ever written. See `${HCLOUD_HR_SUSPEND:=false}` gate on
+# `spec.suspend` below (Wave 5.102 / PR #2447). The cloudinit at
+# `infra/providers/huawei/cloudinit-control-plane.tftpl` substitutes
+# HCLOUD_HR_SUSPEND="true" on HCS Sovereigns; the Hetzner cloudinit
+# leaves the default (false). The verify script at
+# `scripts/sovereign-dod-verify.sh` correctly EXCLUDES this HR from
+# REQUIRED_HRs and from the Ready=False tally — no action needed.
+# Do NOT investigate this HR's empty status on HCS Sovereigns; that
+# is the correct end-state.
+#
 # Wires hcloud-cloud-controller-manager into the cluster as the canonical
 # Hetzner cloud-provider integration. Without this CCM running:
 #   - Node providerID stays as k3s://<node-name> (kube-controller-manager
