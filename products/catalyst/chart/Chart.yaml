@@ -1,12 +1,5 @@
 apiVersion: v2
 name: bp-catalyst-platform
-# 1.4.445 — #2830 followup (2026-06-03): the catalyst-migrator:0.1.0 image
-# is now published to GHCR (build-catalyst-migrator.yaml workflow added at
-# the same PR) AND the migration Job Pod spec now carries
-# `imagePullSecrets: [ghcr-pull]` so the GHCR pull authenticates. The
-# `migrations.applicationsInstanceId.enabled` default stays FALSE this
-# cycle — operators must verify the migration on a legacy-CR cluster
-# before re-enabling globally. Refs #2830 #2823 #2834.
 # 1.4.439 — G117.E2E-A1 #2830 (2026-06-03): default
 # `.Values.migrations.applicationsInstanceId.enabled` to FALSE until the
 # `ghcr.io/openova-io/catalyst-migrator:0.1.0` image actually exists on
