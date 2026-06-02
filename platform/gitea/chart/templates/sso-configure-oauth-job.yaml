@@ -234,9 +234,16 @@ spec:
                 gitea admin auth list --vertical-bars 2>&1 || true)"
               echo "${AUTH_LIST}"
 
+              # NOTE: `gitea admin auth list --vertical-bars` separates
+              # fields with literal `|` BUT pads each cell with TABS, not
+              # spaces — so $1 reads back as `1\t` even after stripping
+              # spaces. Strip all whitespace (spaces + tabs + CR) before
+              # use; gitea CLI rejects `--id "1\t"` with "parse error".
+              # Caught live on hw86 2026-06-03 (G117.E2E-A1 #2816)
+              # after PR #2821 made the Pod-selector fix unblock the Job.
               AUTH_ID="$(echo "${AUTH_LIST}" \
                 | awk -F '|' -v name="${AUTH_NAME}" \
-                  '$2 ~ name && $3 ~ /OAuth2/ {gsub(/ /,"",$1); print $1}' \
+                  '$2 ~ name && $3 ~ /OAuth2/ {gsub(/[[:space:]]+/,"",$1); print $1}' \
                 | head -n1 || true)"
 
               # G117.5: if the ESO-rendered Secret already carries the
