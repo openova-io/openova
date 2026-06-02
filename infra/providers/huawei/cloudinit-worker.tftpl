@@ -37,15 +37,21 @@ write_files:
       # intermittently (`dial tcp: lookup production.cloudfront.docker.com: Try
       # again`) → ImagePullBackOff → CNPG postgres init never completes → bp-gitea/
       # bp-catalyst-platform/sov-tls cascading FAIL (hw07 49d43efbaf2a46c2 evidence).
-      # Wave 5.109 (#2462 follow-up): extend mirror set to cover ghcr.io
-      # (cnpg/flux-controllers/openova-flow/trivy/aquasec all live there),
-      # reg.kyverno.io (kyverno admission + reports controllers), quay.io
-      # (cert-manager/jetstack and future Calico/Tigera). All flow through
-      # dedicated bastion registry:2 proxies — :5003/:5004/:5005 spun up
-      # alongside the existing :5000 (harbor.openova.io) + :5002 (docker.io).
-      # Live evidence: hw09 6d9eb655 + hw10 4284fe92 — bp-cnpg stuck in
-      # ImagePullBackOff on cnpg-cloudnative-pg:1.29.0 (ghcr.io) → cascading
-      # bp-openbao/bp-gitea/bp-catalyst-platform.
+      #
+      # #2842 (2026-06-03) — REMOVED ghcr.io / reg.kyverno.io / quay.io mirror
+      # entries (previously bastion :5003/:5004/:5005). RCA: the bastion proxies
+      # are anonymous-only registry:2 instances; they CANNOT authenticate against
+      # private packages under `ghcr.io/openova-io/*`. Live evidence on hw86
+      # wea28e1: containerd looped on stale-ingest-lock for 25+ min against
+      # ghcr.io/openova-io/catalyst-api after :5003 returned HTTP 401, and the
+      # catalyst-api Pod stayed in CreateContainerConfigError. Direct pull (no
+      # mirror rewrite) uses the per-namespace `ghcr-pull` Secret reflector-
+      # mirrored from flux-system and succeeds in seconds. reg.kyverno.io +
+      # quay.io are purely public — direct pull is the canonical path.
+      # harbor.openova.io mirror is KEPT because :5000 has a working
+      # `harbor-robot-token` via the reflected Secret. docker.io /
+      # registry-1.docker.io mirrors are KEPT because :5002 is a public-image
+      # cache (no auth required).
       mirrors:
         "harbor.openova.io":
           endpoint:
@@ -56,29 +62,11 @@ write_files:
         "registry-1.docker.io":
           endpoint:
             - "http://212.72.24.20:5002"
-        "ghcr.io":
-          endpoint:
-            - "http://212.72.24.20:5003"
-        "reg.kyverno.io":
-          endpoint:
-            - "http://212.72.24.20:5004"
-        "quay.io":
-          endpoint:
-            - "http://212.72.24.20:5005"
       configs:
         "212.72.24.20:5000":
           tls:
             insecure_skip_verify: true
         "212.72.24.20:5002":
-          tls:
-            insecure_skip_verify: true
-        "212.72.24.20:5003":
-          tls:
-            insecure_skip_verify: true
-        "212.72.24.20:5004":
-          tls:
-            insecure_skip_verify: true
-        "212.72.24.20:5005":
           tls:
             insecure_skip_verify: true
 
