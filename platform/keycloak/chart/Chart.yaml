@@ -1,5 +1,30 @@
 apiVersion: v2
 name: bp-keycloak
+# 1.4.12 (G117.5 W2.C4 #2744, 2026-06-02): Per-Org realm fan-out template.
+# New file templates/configmap-per-org-realms.yaml iterates
+# `.Values.tenantRealms[]` (default empty — no-op) and emits one ConfigMap
+# per Org each carrying a complete realm-import JSON with:
+#   - identityProviders[sovereign-broker] = keycloak-oidc IdP federating
+#     into https://auth.<sov-fqdn>/realms/sovereign (the 2nd hop of the
+#     3-hop Tier-3 SSO chain Org-realm → sovereign-realm → catalyst-pin)
+#   - authenticatorConfig[sovereign-broker-redirector] +
+#     authenticationFlows[browser] IDR binding so KC auto-303s every
+#     unauthenticated realm auth-request to the broker WITHOUT showing
+#     the username/password form (G113 #2725 pattern carried over)
+#   - first broker login auto link flow (G113 Bug-6 carryover —
+#     bypasses KC SMTP for federated-identity auto-link)
+#   - groups clientScope mandatory (G91 manual recovery — missing groups
+#     claim breaks role-based authz at every consumer app)
+#   - clients[] empty (bp-sso-bridge registers Tier-3 app clients at
+#     runtime per its provision_org_realm reconciler routine)
+# Per-Org broker secret derived deterministically via the new
+# `bp-keycloak.tenantBrokerClientSecret` helper (sha256 of Release.Name|
+# Release.Namespace|orgSlug) so chart upgrades don't rotate secrets and
+# bp-sso-bridge re-derives the same value when it registers the
+# matching `<slug>-broker` Client in the sovereign realm.
+# Cross-Org isolation invariant: each Org realm issues id_tokens with
+# `iss=https://auth.<sov>/realms/<slug>` — Org-A tokens are rejected at
+# OIDC-discovery by Org-B applications. Refs #2744.
 # 1.4.11 (G113 #2725 Bug-6 codification, 2026-06-02): codify the runtime
 # pre-link workaround for KC first-broker-login flow. The default flow
 # fires `idp-confirm-link` (REQUIRED) + `Verify Existing Account by Email`
@@ -53,7 +78,7 @@ name: bp-keycloak
 # sectionName by default — multi-zone Sovereigns rename HTTPS listeners
 # to https-<sanitised-zone>, breaking NoMatchingListener with the prior
 # pinned sectionName: https. Matches the catalyst-system fix in PR #1888.
-version: 1.4.11
+version: 1.4.12
 description: |
   Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
   upstream `keycloak` chart (bitnami) as a Helm subchart so

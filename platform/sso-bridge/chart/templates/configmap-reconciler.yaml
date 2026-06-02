@@ -452,6 +452,209 @@ data:
       fi
     }
 
+    # ─── G117.5 W2.C4 #2744 — per-Org realm provisioning ─────────────────
+    #
+    # Tier-3 SSO topology: bp-keycloak chart renders one ConfigMap per
+    # Org from values.tenantRealms[] (template configmap-per-org-realms.yaml),
+    # each carrying:
+    #   - label catalyst.openova.io/per-org-realm=true
+    #   - label catalyst.openova.io/org-slug=<slug>
+    #   - data.org-realm.json = complete realm-import JSON whose
+    #     identityProviders[sovereign-broker] has clientId=<slug>-broker
+    #     and a deterministic clientSecret derived chart-side from
+    #     Release.Name|Release.Namespace|<slug>.
+    #
+    # On EVERY tick this function reads every per-Org ConfigMap and:
+    #   1. POSTs /admin/realms with the realm JSON (KC 409 = already
+    #      exists → swallow; first-tick 201 = created). The realm JSON
+    #      lives in the ConfigMap so it's the source of truth — any
+    #      operator who edits tenantRealms[] in values.yaml re-renders
+    #      the ConfigMap and we'd re-import the modified realm.
+    #      Today KC's POST /admin/realms is one-shot (refuses re-import
+    #      to an existing realm), so structural changes after first
+    #      import require operator-side manual reconcile — flagged as
+    #      a follow-up TBD in memory feedback_g117_per_org_realm_2hop_pitfalls.md
+    #   2. POSTs /admin/realms/sovereign/clients with a `<slug>-broker`
+    #      Client carrying the same clientSecret the Org realm's
+    #      sovereign-broker IdP expects. Idempotent: PUT the existing
+    #      Client if it already exists (clientId is the natural key).
+    #   3. PUTs the same secret into OpenBao at
+    #      kv/org/<slug>/keycloak/sovereign-broker-secret so any
+    #      operator-side automation can read it back.
+    #
+    # Cross-Org isolation guarantee: each per-Org realm issues id_tokens
+    # with iss=https://auth.<sov-fqdn>/realms/<slug> so Org-A id_tokens
+    # are rejected at the OIDC discovery layer by Org-B applications
+    # whose configured issuer is different. The sovereign realm sits
+    # one hop UP — apps in Org-A never see the sovereign-realm session
+    # token directly.
+
+    provision_org_realm() {
+      # $1 = ConfigMap JSON (single item)
+      local cm_json="$1"
+      local slug realm_json broker_client_id
+      slug="$(printf '%s' "${cm_json}" | jq -r '.metadata.labels["catalyst.openova.io/org-slug"] // empty')"
+      if [ -z "${slug}" ]; then
+        warn "per-org-realm ConfigMap missing org-slug label; skipping"
+        return 0
+      fi
+      realm_json="$(printf '%s' "${cm_json}" | jq -r '.data["org-realm.json"] // empty')"
+      if [ -z "${realm_json}" ]; then
+        warn "per-org-realm ConfigMap for ${slug} missing data.org-realm.json; skipping"
+        return 0
+      fi
+
+      # Extract the broker client secret from the realm JSON. The
+      # bp-keycloak chart bakes the same deterministic value into BOTH
+      # the IdP config (here) AND must register the matching Client in
+      # the sovereign realm (we do that below). KC's POST /admin/realms
+      # accepts the secret in identityProviders[].config.clientSecret;
+      # the matching sovereign-realm Client gets the same value via
+      # POST/PUT /admin/realms/sovereign/clients.
+      local broker_secret
+      broker_secret="$(printf '%s' "${realm_json}" | jq -r '.identityProviders[] | select(.alias=="sovereign-broker") | .config.clientSecret // empty')"
+      if [ -z "${broker_secret}" ]; then
+        warn "per-org-realm for ${slug} has no sovereign-broker clientSecret; skipping (chart misrender)"
+        return 0
+      fi
+
+      broker_client_id="${slug}-broker"
+
+      # ── Step 1: ensure the Org realm exists in KC. ──────────────────
+      local realm_check
+      realm_check="$(curl -sS -o /dev/null -w '%{http_code}' \
+        -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
+        "${KC_ADDR%/}/admin/realms/${slug}" || echo 000)"
+      if [ "${realm_check}" = "200" ]; then
+        log "per-org-realm[${slug}]: already exists; skipping realm POST"
+      else
+        local realm_post
+        printf '%s' "${realm_json}" > "/tmp/${slug}-realm.json"
+        realm_post="$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+          -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
+          -H "Content-Type: application/json" \
+          --data-binary "@/tmp/${slug}-realm.json" \
+          "${KC_ADDR%/}/admin/realms" || echo 000)"
+        case "${realm_post}" in
+          201) log "per-org-realm[${slug}]: realm created (HTTP 201)" ;;
+          409) log "per-org-realm[${slug}]: realm already exists (HTTP 409)" ;;
+          *)
+            warn "per-org-realm[${slug}]: realm POST failed (HTTP ${realm_post})"
+            return 1
+            ;;
+        esac
+      fi
+
+      # ── Step 2: ensure the <slug>-broker Client exists in SOVEREIGN realm. ──
+      # The Client's redirectUri MUST match KC's broker callback shape:
+      # https://auth.<fqdn>/realms/<org-slug>/broker/sovereign-broker/endpoint
+      local fqdn
+      fqdn="$(sovereign_fqdn)"
+      if [ -z "${fqdn}" ]; then
+        warn "per-org-realm[${slug}]: sovereign-fqdn unknown; cannot construct broker redirectUri"
+        return 1
+      fi
+      local broker_redirect="https://auth.${fqdn}/realms/${slug}/broker/sovereign-broker/endpoint"
+
+      local existing_broker
+      existing_broker="$(curl -sS \
+        -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
+        "${KC_ADDR%/}/admin/realms/${KC_REALM}/clients?clientId=${broker_client_id}" \
+        | jq -r '.[0] // empty' || echo '')"
+
+      local broker_client_json="/tmp/${slug}-broker-client.json"
+      jq -n \
+        --arg cid "${broker_client_id}" \
+        --arg secret "${broker_secret}" \
+        --arg redir "${broker_redirect}" \
+        '{
+          clientId: $cid,
+          name: ($cid + " (auto by bp-sso-bridge for Org-realm federation)"),
+          description: "G117.5 W2.C4 sovereign-broker Client. The matching Org realm IdP uses this clientId+secret to federate into the sovereign realm.",
+          enabled: true,
+          publicClient: false,
+          standardFlowEnabled: true,
+          directAccessGrantsEnabled: false,
+          implicitFlowEnabled: false,
+          serviceAccountsEnabled: false,
+          secret: $secret,
+          redirectUris: [$redir],
+          webOrigins: [],
+          defaultClientScopes: ["web-origins","acr","profile","roles","email","groups"],
+          optionalClientScopes: ["address","phone","offline_access","microprofile-jwt"],
+          attributes: {
+            "access.token.lifespan": "900"
+          }
+        }' > "${broker_client_json}"
+
+      if [ -n "${existing_broker}" ]; then
+        local kc_id
+        kc_id="$(printf '%s' "${existing_broker}" | jq -r '.id')"
+        # PUT updates the Client (idempotent). Reuse existing KC id so the
+        # PUT lands on the right row.
+        local updated
+        updated="$(jq -s '.[0] * .[1]' "${broker_client_json}" <(printf '%s' "${existing_broker}"))"
+        printf '%s' "${updated}" > "${broker_client_json}.updated"
+        # Re-pin the secret so chart-side derivation wins (KC keeps the
+        # secret in a separate /client-secret endpoint, but PUT'ing the
+        # whole representation with `secret` set updates it server-side).
+        curl -sS -X PUT \
+          -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
+          -H "Content-Type: application/json" \
+          --data-binary "@${broker_client_json}.updated" \
+          "${KC_ADDR%/}/admin/realms/${KC_REALM}/clients/${kc_id}" -o /dev/null \
+          && log "per-org-realm[${slug}]: broker Client updated (kc_id=${kc_id})" \
+          || warn "per-org-realm[${slug}]: broker Client PUT failed"
+      else
+        local broker_post
+        broker_post="$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+          -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
+          -H "Content-Type: application/json" \
+          --data-binary "@${broker_client_json}" \
+          "${KC_ADDR%/}/admin/realms/${KC_REALM}/clients" || echo 000)"
+        case "${broker_post}" in
+          201) log "per-org-realm[${slug}]: broker Client created (HTTP 201)" ;;
+          409) log "per-org-realm[${slug}]: broker Client already exists (HTTP 409)" ;;
+          *)
+            warn "per-org-realm[${slug}]: broker Client POST failed (HTTP ${broker_post})"
+            ;;
+        esac
+      fi
+
+      # ── Step 3: persist broker secret in OpenBao for any operator-side
+      #          automation (rotation, audit). Path is namespaced under
+      #          the Org slug so cross-Org reads cannot collide.
+      local bundle
+      bundle="$(jq -nc \
+        --arg cid "${broker_client_id}" \
+        --arg secret "${broker_secret}" \
+        --arg redir "${broker_redirect}" \
+        --arg slug "${slug}" \
+        '{client_id: $cid, client_secret: $secret, redirect_uri: $redir, org_slug: $slug}')"
+      openbao_put "org/${slug}/keycloak/sovereign-broker-secret" "${bundle}" \
+        && log "per-org-realm[${slug}]: broker secret persisted to OpenBao kv/org/${slug}/keycloak/sovereign-broker-secret" \
+        || warn "per-org-realm[${slug}]: OpenBao PUT failed (non-fatal — KC has the secret already)"
+    }
+
+    reconcile_per_org_realms() {
+      # List every ConfigMap with label per-org-realm=true (any namespace).
+      # bp-keycloak emits them in the keycloak namespace by default but the
+      # selector is namespace-agnostic in case of overlay shifts.
+      local cms
+      cms="$(kubectl get configmaps -A \
+        -l 'catalyst.openova.io/per-org-realm=true' \
+        -o json 2>/dev/null | jq -c '.items[]?' || true)"
+      [ -z "${cms}" ] && return 0
+      local count=0
+      while IFS= read -r cm; do
+        [ -z "${cm}" ] && continue
+        provision_org_realm "${cm}" || true
+        count=$(( count + 1 ))
+      done <<< "${cms}"
+      [ "${count}" -gt 0 ] && log "per-org-realm: processed ${count} ConfigMap(s)"
+      return 0
+    }
+
     cleanup_orphans() {
       # $1 = space-separated list of currently-managed clientIds
       local current=" $1 "
@@ -513,6 +716,13 @@ data:
         current_cids="${current_cids} ${cid}"
         reconcile_one "${hr}" "${op_email}" "${fqdn}" || true
       done <<< "${hrs_json}"
+
+      # G117.5 W2.C4 #2744 — per-Org realm import + sovereign-broker
+      # Client registration. Idempotent: realms with HTTP 409 are
+      # already imported; broker Clients are upserted by clientId.
+      # This runs AFTER the HR-driven app-Client loop so the sovereign
+      # KC admin token minted at tick start is still valid.
+      reconcile_per_org_realms || true
 
       cleanup_orphans "${current_cids}" || true
 

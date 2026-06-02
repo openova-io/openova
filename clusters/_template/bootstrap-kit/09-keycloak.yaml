@@ -90,12 +90,20 @@ spec:
       # outer hook-wait accommodates the inner 15m availability window.
       # 1.4.3 (issue #129): bumped keycloakConfigCli.availabilityCheck.timeout
       # 120s → 600s + backoffLimit 1 → 5 (fresh-install wedge).
+      # 1.4.12 (G117.5 W2.C4 #2744, 2026-06-02): per-Org realm template
+      # configmap-per-org-realms.yaml + new tenantRealms[] values list.
+      # Default empty (no-op for existing Sovereigns); populated entries
+      # emit one ConfigMap per Org bearing a complete realm-import JSON
+      # with sovereign-broker IdP for 2-hop federation into the
+      # sovereign realm. bp-sso-bridge 0.2.2 picks these up and
+      # registers the matching <slug>-broker Client in the sovereign
+      # realm. Cross-Org isolation enforced at issuer level.
       # 1.4.11 (G113 #2725 Bug-6, 2026-06-02): realm import adds the
       # `first broker login auto link` custom flow + switches catalyst-pin
       # IdP's firstBrokerLoginFlowAlias to it — bypasses KC SMTP for
       # first-broker-login email-collision handling on Sovereigns whose
       # KC SMTP is not yet wired.
-      version: 1.4.11
+      version: 1.4.12
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak

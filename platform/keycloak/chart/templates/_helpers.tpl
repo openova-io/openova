@@ -86,3 +86,38 @@ KV → ExternalSecret → per-app namespace.
 {{- $seed := printf "%s|%s|tier1-sso|%s" $ctx.Release.Name $ctx.Release.Namespace $cid -}}
 {{- $seed | sha256sum -}}
 {{- end -}}
+
+{{/*
+G117.5 W2.C4 #2744 — Tier-3 per-Org realm `sovereign-broker` Client secret.
+
+Each per-Org realm (rendered by templates/configmap-per-org-realms.yaml)
+has ONE Identity Provider Redirector executing `sovereign-broker`, a
+keycloak-oidc IdP that federates into the `sovereign` realm. That
+federation requires a per-Org Client in the SOVEREIGN realm with
+clientId `<orgSlug>-broker` whose `secret` matches the IdP config's
+`clientSecret`.
+
+Both ends of the federation (the IdP config in the Org realm AND the
+Client in the sovereign realm — registered later by bp-sso-bridge at
+runtime per W2.C4 scope step 2) MUST share the SAME secret. This
+helper provides the deterministic value used by:
+
+  1. templates/configmap-per-org-realms.yaml — bakes it into the Org
+     realm's identityProviders[].config.clientSecret
+  2. bp-sso-bridge's per-Org-realm reconcile loop — derives the same
+     value (via SHA256 of Release.Name|Release.Namespace|broker-slug)
+     when it POSTs the matching Client into the sovereign realm
+
+Pattern matches `bp-keycloak.tier1ClientSecret` above. The seed
+incorporates the Org slug so per-Org secrets never collide. Per memory
+feedback_chart_credential_persistence_defense.md: chart-side
+derivation means re-renders are idempotent and KC chart upgrades
+don't rotate per-Org broker secrets.
+*/}}
+{{- define "bp-keycloak.tenantBrokerClientSecret" -}}
+{{- /* Expects a dict: {ctx: ., orgSlug: <string>} */ -}}
+{{- $ctx := .ctx -}}
+{{- $slug := .orgSlug -}}
+{{- $seed := printf "%s|%s|tenant-broker|%s" $ctx.Release.Name $ctx.Release.Namespace $slug -}}
+{{- $seed | sha256sum -}}
+{{- end -}}

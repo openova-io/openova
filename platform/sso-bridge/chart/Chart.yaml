@@ -1,6 +1,23 @@
 apiVersion: v2
 name: bp-sso-bridge
-version: 0.2.1
+version: 0.2.2
+# 0.2.2 (G117.5 W2.C4 #2744, 2026-06-02): per-Org realm reconciler.
+# Two new bash functions in templates/configmap-reconciler.yaml:
+#   - provision_org_realm: for one per-Org realm ConfigMap (emitted by
+#     bp-keycloak 1.4.12 via tenantRealms[]), POSTs /admin/realms to
+#     import the Org realm (idempotent on 409), POST/PUTs the matching
+#     <slug>-broker Client in the sovereign realm with the chart-derived
+#     deterministic clientSecret, persists the secret in OpenBao at
+#     kv/org/<slug>/keycloak/sovereign-broker-secret.
+#   - reconcile_per_org_realms: lists all ConfigMaps with label
+#     catalyst.openova.io/per-org-realm=true cluster-wide and calls
+#     provision_org_realm on each. Runs every tick AFTER the per-app
+#     SSO reconcile loop, sharing the same KC admin token. Idempotent
+#     end-to-end: re-running on a healthy state is a no-op.
+# No new RBAC verbs required (ClusterRole already has configmaps:list).
+# Pairs with bp-keycloak 1.4.12 tenantRealms[] values list. Backwards-
+# compatible: if no per-Org-realm ConfigMaps exist, the new functions
+# log nothing and return immediately. Refs #2744.
 # 0.1.1 (G91.catalyst-console-admin-self-grant #2659, 2026-05-31):
 # extends the reconcile loop with:
 #   - `grant_operator_realm_roles` — grants the operator user the

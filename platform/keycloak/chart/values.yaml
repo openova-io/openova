@@ -123,6 +123,39 @@ smtp:
 # Per Inviolable Principle #10 (never print credentials), the per-app
 # client secrets only land in the generated K8s Secret bytes — never in
 # stdout / logs / git.
+
+# ─── Per-Org realm fan-out (issue #2744, G117.5 W2.C4) ────────────────────
+#
+# Tier-3 SSO topology: one Sovereign hosts many Organizations, each with
+# its own KC realm federating to the central `sovereign` realm via a
+# `sovereign-broker` Keycloak-OIDC IdP (decision #6).
+#
+# Each entry under tenantRealms[] becomes a per-Org realm-config
+# ConfigMap (rendered by templates/configmap-per-org-realms.yaml) with
+# label `catalyst.openova.io/per-org-realm=true`. bp-sso-bridge's
+# `provision_org_realm` reconciler picks those up, imports the realm
+# via KC Admin API, and registers the matching `<slug>-broker` Client
+# in the sovereign realm with the same secret baked into the IdP
+# config (derived via the `bp-keycloak.tenantBrokerClientSecret`
+# helper — deterministic on Release.Name|Namespace|slug).
+#
+# Empty (default) = no per-Org realms emitted; chart stays in Sovereign
+# mode only. Populated entries can be added incrementally via per-cluster
+# overlay or by catalyst-api on Organization CR create (W2.C1+W2.C2
+# scope) — bp-sso-bridge picks them up on its next tick.
+#
+# Schema:
+#   tenantRealms:
+#     - slug: acme              # REQUIRED — KC realm name + URL path component
+#       displayName: "Acme Co"  # optional — falls back to slug
+#
+# Cross-Org isolation invariant: each Org realm issues id_tokens with
+# `iss=https://auth.<sov>/realms/<slug>` so Org-A tokens are rejected by
+# Org-B applications whose OIDC discovery URL specifies a different
+# issuer. Verified by tests/e2e/playwright/tests/g117-2hop-sso-cross-
+# org-isolation.spec.ts.
+tenantRealms: []
+
 realmConfig:
   tenant:
     # Master switch — when false (default), chart stays in Sovereign mode.
