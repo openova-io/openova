@@ -38,6 +38,17 @@ spec:
     spec:
       restartPolicy: OnFailure
       serviceAccountName: {{ .Values.migrations.applicationsInstanceId.serviceAccountName | default "catalyst-application-migrator" }}
+      # #2830 — `ghcr.io/openova-io/catalyst-migrator` is hosted on GHCR,
+      # which still 403s anonymous pulls under our org policy. Mirror the
+      # `imagePullSecrets: [ghcr-pull]` pattern used by api-deployment.yaml
+      # so the Job Pod can authenticate against the org-wide pull Secret
+      # that Flux already projects into the catalyst-system namespace.
+      # Without this, ImagePullBackOff blocks the Helm hook -> backoffLimit
+      # exhausts -> bp-catalyst-platform HR rolls back -> bp-sso-bridge /
+      # bp-continuum stall on dependency-not-ready (the original #2830
+      # cascade on hw86 2026-06-03).
+      imagePullSecrets:
+        - name: ghcr-pull
       containers:
         - name: migrate
           image: {{ .Values.migrations.applicationsInstanceId.image | default "ghcr.io/openova-io/catalyst-migrator:0.1.0" | quote }}

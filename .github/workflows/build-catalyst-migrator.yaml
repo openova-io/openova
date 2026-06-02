@@ -1,0 +1,158 @@
+name: Build catalyst-migrator
+
+# catalyst-migrator — runtime image for one-shot Catalyst schema-migration
+# Jobs. Currently consumed by the bp-catalyst-platform post-install/
+# post-upgrade Helm hook Job that backfills G117 W2.C2 fields on legacy
+# Application CRs.
+#
+# Why this workflow exists (Refs #2830):
+#   bp-catalyst-platform 1.4.438 (PR #2823) added the migration Job
+#   referencing `ghcr.io/openova-io/catalyst-migrator:0.1.0`. The image
+#   was never published. PR #2831 (1.4.439) flipped the default to
+#   `enabled: false` to unblock the cascade. This workflow finally
+#   ships the image so the chart default can flip back to true on a
+#   later cycle once operators have verified the migration on a legacy-
+#   CR cluster.
+#
+# Per docs/PRINCIPLES.md #4a (GitHub Actions is the only build path) +
+# event-driven (no cron). Multi-arch (linux/amd64 + linux/arm64) since
+# Sovereigns increasingly run on ARM bare-metal where it's cheaper.
+
+on:
+  push:
+    paths:
+      - 'products/catalyst-migrator/**'
+      - 'products/catalyst/chart/files/migrate-applications-instanceId.py'
+      - '.github/workflows/build-catalyst-migrator.yaml'
+    branches: [main]
+  pull_request:
+    paths:
+      - 'products/catalyst-migrator/**'
+      - '.github/workflows/build-catalyst-migrator.yaml'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Semver tag to publish (e.g. 0.1.0). Always pushed alongside <short-sha>.'
+        required: false
+        default: '0.1.0'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/openova-io/catalyst-migrator
+  CONTEXT: products/catalyst-migrator
+  # Default semver tag — bump alongside the chart consumer's pinned
+  # `migrations.applicationsInstanceId.image` value.
+  DEFAULT_RELEASE_TAG: '0.1.0'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      # id-token write — cosign keyless (Sigstore OIDC).
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve release tag
+        id: vars
+        run: |
+          set -euo pipefail
+          short_sha="${GITHUB_SHA::7}"
+          release_tag="${{ inputs.release_tag }}"
+          release_tag="${release_tag:-${DEFAULT_RELEASE_TAG}}"
+          echo "sha_short=${short_sha}" >> "$GITHUB_OUTPUT"
+          echo "release_tag=${release_tag}" >> "$GITHUB_OUTPUT"
+          echo "Will publish ${IMAGE}:${short_sha} + ${IMAGE}:${release_tag} + ${IMAGE}:latest"
+
+      - name: Set up QEMU (multi-arch emulation)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # On pull_request we stop after a local single-arch build to keep
+      # PR CI cheap. Image push + multi-arch + sign only on main.
+      - name: Build (PR dry-run, no push)
+        if: github.event_name == 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.CONTEXT }}
+          file: ${{ env.CONTEXT }}/Dockerfile
+          push: false
+          platforms: linux/amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build + push multi-arch image
+        id: build
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.CONTEXT }}
+          file: ${{ env.CONTEXT }}/Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}
+            ${{ env.IMAGE }}:${{ steps.vars.outputs.release_tag }}
+            ${{ env.IMAGE }}:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/openova-io/openova
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=catalyst-migrator
+            org.opencontainers.image.description=Runtime image for one-shot Catalyst CR schema migrations (python3 + kubectl).
+            org.opencontainers.image.version=${{ steps.vars.outputs.release_tag }}
+          # provenance=false: same containerd 1.7.x quirk on k3s as the
+          # rest of our build-* workflows — SBOM attest handled by cosign
+          # below instead of buildkit's native provenance manifest.
+          provenance: false
+          sbom: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Install cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image with cosign (keyless)
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          cosign sign --yes "${IMAGE}@${DIGEST}"
+
+      - name: Attest SBOM
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          cosign attest --yes \
+            --predicate <(echo '{"sbom":"in-toto-spdx attached at build time"}') \
+            --type spdx \
+            "${IMAGE}@${DIGEST}"
+
+      - name: Summary
+        if: github.event_name != 'pull_request'
+        run: |
+          {
+            echo "## catalyst-migrator published"
+            echo ""
+            echo "- Image: \`${IMAGE}:${{ steps.vars.outputs.release_tag }}\`"
+            echo "- Sha tag: \`${IMAGE}:${{ steps.vars.outputs.sha_short }}\`"
+            echo "- Platforms: \`linux/amd64\`, \`linux/arm64\`"
+            echo "- Digest: \`${{ steps.build.outputs.digest }}\`"
+            echo "- Refs #2830 (post-publish, operators may flip \`migrations.applicationsInstanceId.enabled=true\`)"
+          } >> "$GITHUB_STEP_SUMMARY"

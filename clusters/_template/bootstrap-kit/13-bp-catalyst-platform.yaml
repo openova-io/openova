@@ -902,7 +902,11 @@ spec:
       # G117 fields (spec.topology / endpoints / sso / multiInstance)
       # into the Blueprint CRD openAPIV3Schema so runtime admission
       # gates them — preserve-unknown no longer silently swallows.
-      version: 1.4.444
+      # 1.4.445 (#2830 followup, 2026-06-03): ships catalyst-migrator:0.1.0
+      # image build workflow + imagePullSecrets:[ghcr-pull] on the
+      # migration Job Pod spec. Default remains enabled=false until
+      # operators verify on a legacy-CR cluster.
+      version: 1.4.445
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
