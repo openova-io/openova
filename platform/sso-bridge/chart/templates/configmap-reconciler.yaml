@@ -655,6 +655,180 @@ data:
       return 0
     }
 
+    # ─── G117.5c #2801 — Tier-3 AppRegistration ConfigMap watcher ────────
+    #
+    # The 6 Tier-3 charts (bp-matrix, bp-langfuse, bp-temporal, bp-librechat,
+    # bp-openmeter, bp-wordpress-tenant) emit a ConfigMap labelled
+    # `sso.openova.io/app-registration=<client-id>` carrying:
+    #
+    #   - label sso.openova.io/app-registration = <client-id>   (the natural key)
+    #   - data.realm        = per-Org KC realm name (== Org slug under G117.6)
+    #   - data.client.json  = full KC Client representation (POSTable as-is)
+    #
+    # Unlike the legacy Tier-1/2 path (which discovers apps via HR-watcher
+    # `.spec.values.sso.enabled=true` and mints into the SOVEREIGN realm),
+    # Tier-3 apps mint into the PER-ORG realm. The realm name lives in the
+    # ConfigMap `data.realm` field — that's the source of truth.
+    #
+    # This loop runs AFTER reconcile_per_org_realms so the per-Org realms
+    # exist by the time we try to POST clients into them (KC returns 404
+    # on /admin/realms/<unknown>/clients otherwise).
+    #
+    # Idempotency:
+    #   1. Existing client (looked up by clientId, the natural key): PUT
+    #      the merged representation to /admin/realms/<realm>/clients/<id>.
+    #      The KC-side client_secret is preserved (KC has its own
+    #      /client-secret endpoint we re-read to get the stored value).
+    #   2. Absent client: POST to /admin/realms/<realm>/clients; KC mints
+    #      a random secret which we then GET via /client-secret.
+    #   3. 409 on POST (raced with another reconciler pod, or KC's own
+    #      idempotency kicked in) is swallowed and we fall back to PUT.
+    #
+    # OpenBao path: `sso/<realm>/<client-id>` (under the KV mount).
+    # This matches every Tier-3 chart's sso-externalsecret.yaml
+    # remoteRef key — verified for bp-matrix, bp-langfuse, bp-temporal,
+    # bp-librechat. The realm name is the Org slug (G117 locked-decision
+    # #6) so cross-Org reads cannot collide.
+
+    upsert_per_org_client() {
+      # $1 = ConfigMap JSON
+      local cm_json="$1"
+      local cm_name cm_ns cid realm client_json
+      cm_name="$(printf '%s' "${cm_json}" | jq -r '.metadata.name // empty')"
+      cm_ns="$(printf '%s' "${cm_json}" | jq -r '.metadata.namespace // empty')"
+      cid="$(printf '%s' "${cm_json}" | jq -r '.metadata.labels["sso.openova.io/app-registration"] // empty')"
+      realm="$(printf '%s' "${cm_json}" | jq -r '.data.realm // empty')"
+      client_json="$(printf '%s' "${cm_json}" | jq -r '.data["client.json"] // empty')"
+
+      if [ -z "${cid}" ]; then
+        warn "app-registration ConfigMap ${cm_ns}/${cm_name}: missing app-registration label; skipping"
+        return 0
+      fi
+      if [ -z "${realm}" ]; then
+        warn "app-registration[${cid}] ${cm_ns}/${cm_name}: missing data.realm; skipping"
+        return 0
+      fi
+      if [ -z "${client_json}" ]; then
+        warn "app-registration[${cid}] ${cm_ns}/${cm_name}: missing data.client.json; skipping"
+        return 0
+      fi
+
+      # Validate realm exists before we try to POST a client into it.
+      # KC returns 200 if the realm exists, 404 otherwise. We don't
+      # auto-create per-Org realms here — that's reconcile_per_org_realms'
+      # job and it runs first. If the realm isn't there yet, skip this
+      # tick and wait for the next one (eventual consistency).
+      local realm_check
+      realm_check="$(curl -sS -o /dev/null -w '%{http_code}' \
+        -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
+        "${KC_ADDR%/}/admin/realms/${realm}" || echo 000)"
+      if [ "${realm_check}" != "200" ]; then
+        warn "app-registration[${cid}]: per-Org realm '${realm}' not present yet (HTTP ${realm_check}); deferring to next tick"
+        return 0
+      fi
+
+      # Look up existing Client by clientId (natural key).
+      local existing kc_id secret
+      existing="$(curl -fsS \
+        -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
+        "${KC_ADDR%/}/admin/realms/${realm}/clients?clientId=${cid}" \
+        | jq -r '.[0] // empty' || echo '')"
+
+      local template_path="/tmp/app-reg-${realm}-${cid}.json"
+      printf '%s' "${client_json}" > "${template_path}"
+
+      if [ -n "${existing}" ]; then
+        kc_id="$(printf '%s' "${existing}" | jq -r '.id')"
+        # PUT update — preserve KC's id, merge in template (template wins).
+        local updated
+        updated="$(jq -s '.[1] * .[0]' "${template_path}" <(printf '%s' "${existing}"))"
+        printf '%s' "${updated}" > "${template_path}.updated"
+        curl -fsS -X PUT \
+          -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
+          -H "Content-Type: application/json" \
+          --data-binary "@${template_path}.updated" \
+          "${KC_ADDR%/}/admin/realms/${realm}/clients/${kc_id}" >/dev/null || {
+          warn "app-registration[${cid}]: PUT client in realm ${realm} failed"; return 1; }
+        secret="$(curl -fsS \
+          -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
+          "${KC_ADDR%/}/admin/realms/${realm}/clients/${kc_id}/client-secret" \
+          | jq -r '.value // empty')"
+        log "app-registration[${cid}]: updated existing client in realm ${realm} (kc_id=${kc_id})"
+      else
+        # POST new. Swallow 409 (raced with another pod or KC dedupe).
+        local post_code
+        post_code="$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+          -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
+          -H "Content-Type: application/json" \
+          --data-binary "@${template_path}" \
+          "${KC_ADDR%/}/admin/realms/${realm}/clients" || echo 000)"
+        case "${post_code}" in
+          201) log "app-registration[${cid}]: created client in realm ${realm} (HTTP 201)" ;;
+          409) log "app-registration[${cid}]: client already exists in realm ${realm} (HTTP 409 — idempotent)" ;;
+          *)
+            warn "app-registration[${cid}]: POST client in realm ${realm} failed (HTTP ${post_code})"
+            return 1
+            ;;
+        esac
+        kc_id="$(curl -fsS \
+          -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
+          "${KC_ADDR%/}/admin/realms/${realm}/clients?clientId=${cid}" \
+          | jq -r '.[0].id // empty')"
+        if [ -z "${kc_id}" ]; then
+          warn "app-registration[${cid}]: client lookup after POST returned empty; deferring secret persist"
+          return 1
+        fi
+        secret="$(curl -fsS \
+          -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
+          "${KC_ADDR%/}/admin/realms/${realm}/clients/${kc_id}/client-secret" \
+          | jq -r '.value // empty')"
+      fi
+
+      if [ -z "${secret}" ]; then
+        warn "app-registration[${cid}]: KC returned empty client_secret; deferring OpenBao PUT"
+        return 1
+      fi
+
+      # Persist to OpenBao at `sso/<realm>/<cid>` so the chart-side
+      # ExternalSecret can resolve. The bundle shape matches the
+      # Tier-3 sso-externalsecret.yaml templates (client_id +
+      # client_secret + issuer_url, plus the standard discovery URLs).
+      local issuer
+      issuer="https://auth.$(sovereign_fqdn)/realms/${realm}"
+      local bundle
+      bundle="$(jq -nc \
+        --arg cid "${cid}" \
+        --arg secret "${secret}" \
+        --arg issuer "${issuer}" \
+        --arg realm "${realm}" \
+        '{client_id:$cid, client_secret:$secret, issuer_url:$issuer, realm:$realm,
+          authorize_url:($issuer+"/protocol/openid-connect/auth"),
+          token_url:($issuer+"/protocol/openid-connect/token"),
+          userinfo_url:($issuer+"/protocol/openid-connect/userinfo"),
+          end_session_url:($issuer+"/protocol/openid-connect/logout")}')"
+      openbao_put "sso/${realm}/${cid}" "${bundle}" \
+        && log "app-registration[${cid}]: secret persisted to OpenBao ${OPENBAO_KV_MOUNT}/data/sso/${realm}/${cid}" \
+        || { warn "app-registration[${cid}]: OpenBao PUT failed"; return 1; }
+    }
+
+    reconcile_app_registrations() {
+      # List every ConfigMap with label sso.openova.io/app-registration
+      # (any namespace, any value — value is the clientId).
+      local cms
+      cms="$(kubectl get configmaps -A \
+        -l 'sso.openova.io/app-registration' \
+        -o json 2>/dev/null | jq -c '.items[]?' || true)"
+      [ -z "${cms}" ] && return 0
+      local count=0
+      while IFS= read -r cm; do
+        [ -z "${cm}" ] && continue
+        upsert_per_org_client "${cm}" || true
+        count=$(( count + 1 ))
+      done <<< "${cms}"
+      [ "${count}" -gt 0 ] && log "app-registration: processed ${count} ConfigMap(s)"
+      return 0
+    }
+
     cleanup_orphans() {
       # $1 = space-separated list of currently-managed clientIds
       local current=" $1 "
@@ -723,6 +897,16 @@ data:
       # This runs AFTER the HR-driven app-Client loop so the sovereign
       # KC admin token minted at tick start is still valid.
       reconcile_per_org_realms || true
+
+      # G117.5c #2801 — Tier-3 AppRegistration ConfigMap watcher.
+      # Reads every ConfigMap labelled `sso.openova.io/app-registration`,
+      # upserts the matching Client in the per-Org realm specified by
+      # `data.realm`, and PUTs the bundle (client_id + client_secret +
+      # issuer + discovery URLs) to OpenBao at `sso/<realm>/<client-id>`
+      # where the Tier-3 chart-side sso-externalsecret.yaml's remoteRef
+      # resolves it. MUST run AFTER reconcile_per_org_realms so the
+      # per-Org realms exist before we POST clients into them.
+      reconcile_app_registrations || true
 
       cleanup_orphans "${current_cids}" || true
 
