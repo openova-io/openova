@@ -967,6 +967,18 @@ func isValidK8sName(s string) bool {
 type applicationDetailResponse struct {
 	Name             string                   `json:"name"`
 	Namespace        string                   `json:"namespace"`
+	// UID — the Application CR's metadata.uid, lifted verbatim from
+	// the dynamic-client object. Required by the Catalyst Console's
+	// Launch button (PR #2839, G117.4): the FE calls
+	// `GET /catalyst/v1/apps/{uid}/launch-url` to obtain a
+	// silent-SSO front-door URL (`prompt=none&kc_idp_hint=catalyst-pin`).
+	// Without this field the FE has nothing to key the launch-url
+	// lookup on and falls back to direct externalURL on every click,
+	// defeating the silent-SSO codepath. Empty when the response is
+	// synthesised from a HelmRelease (bootstrap-kit installs with no
+	// companion Application CR — those have no Application UID).
+	// Refs #2743 #2834 #2839.
+	UID              string                   `json:"uid"`
 	Blueprint        string                   `json:"blueprint,omitempty"`
 	Version          string                   `json:"version,omitempty"`
 	EnvironmentRef   string                   `json:"environmentRef,omitempty"`
@@ -1096,6 +1108,7 @@ func (h *Handler) HandleApplicationGet(w http.ResponseWriter, r *http.Request) {
 	resp := applicationDetailResponse{
 		Name:       obj.GetName(),
 		Namespace:  obj.GetNamespace(),
+		UID:        string(obj.GetUID()),
 		Conditions: []map[string]interface{}{},
 	}
 	if v, ok, _ := unstructured.NestedString(obj.Object, "spec", "blueprintRef", "name"); ok {
