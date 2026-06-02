@@ -1,5 +1,23 @@
 apiVersion: v2
 name: bp-keycloak
+# 1.4.15 (G117.E2E-A1 #2816, 2026-06-03): truncate two Tier-2 client
+# descriptions that exceeded the Keycloak DB schema's varchar(255) cap on
+# `public.CLIENT.DESCRIPTION`. Reproduces the same anti-pattern as PR
+# #1285 (catalyst-api-server 2026-05-15) but for the Tier-2 clients
+# introduced by PR #2802 (G117.5 W3.D1):
+#   - powerdns-admin: 283 chars  → 137 chars
+#   - hubble-ui:      259 chars  → 175 chars
+# Any single >255-char description aborts the JDBC batch import in
+# keycloak-config-cli with `PSQLException: ERROR: value too long for
+# type character varying(255)`, the post-upgrade Job exhausts its
+# backoffLimit, Helm rolls back, and the entire downstream stack
+# (bp-sso-bridge, bp-catalyst-platform, bp-grafana, …) stalls Ready=False
+# on `dependency 'flux-system/bp-keycloak' is not ready`. Caught live on
+# hw86 2026-06-03 blocking the G117.E2E-A1 hw86 stabilization. New
+# chart test `tests/g117-e2e-realm-client-description-255-cap.sh`
+# guards against future drift by re-asserting the cap at render time
+# for every client + flow + authenticatorConfig description in the
+# realm-import. Refs #2816 #2802 #1285.
 # 1.4.14 (G117.5b #2789, 2026-06-02): SSO client-secret rotation knob.
 # Adds optional .Values.sso.tier1ClientSecretSalt — when non-empty, the
 # Tier-1/Tier-2/Tier-3 client-secret derivation helpers in _helpers.tpl
@@ -102,7 +120,7 @@ name: bp-keycloak
 # sectionName by default — multi-zone Sovereigns rename HTTPS listeners
 # to https-<sanitised-zone>, breaking NoMatchingListener with the prior
 # pinned sectionName: https. Matches the catalyst-system fix in PR #1888.
-version: 1.4.14
+version: 1.4.15
 description: |
   Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
   upstream `keycloak` chart (bitnami) as a Helm subchart so
