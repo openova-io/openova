@@ -1,0 +1,22 @@
+---
+import Layout from '../layouts/Layout.astro';
+import PortalShell from '../components/PortalShell.svelte';
+---
+<Layout title="Catalyst Console">
+  <PortalShell title="Welcome to Catalyst" client:load>
+    <p>
+      The OpenOva Catalyst console — browse the <a href="/catalog/grafana">Blueprint catalog</a>,
+      create Application instances, manage endpoints, and launch into your
+      applications with one click (silent SSO).
+    </p>
+    <p>
+      Wave-1 surfaces shipped:
+    </p>
+    <ul>
+      <li><a href="/catalog/grafana">Catalog drill-down</a> — class/instance split, multi-instance support</li>
+      <li><a href="/catalog/grafana/new">New-instance dialog</a> — topology picker honoring Blueprint <code>spec.topology.supported</code></li>
+      <li><a href="/apps/8a1e9bf2-7c4d-4b3a-9f1e-2c5a8d3f6e0a">Application detail</a> — tabbed view with Launch button</li>
+      <li><a href="/apps/8a1e9bf2-7c4d-4b3a-9f1e-2c5a8d3f6e0a/endpoints">Endpoints tab</a> — CRUD with PR-pipelined mutation</li>
+    </ul>
+  </PortalShell>
+</Layout>

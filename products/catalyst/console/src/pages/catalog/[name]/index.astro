@@ -1,0 +1,39 @@
+---
+// G117.2 — Catalog drill-down page (Astro shell).
+//
+// Bridges the Svelte +page.svelte route into the Astro app per the design
+// note in src/routes/README.md. The Svelte component reads the route
+// param from window.location.pathname; Astro fills `name` for SSR and
+// passes it as a prop for islands that hydrate before the navigation
+// settles.
+import Layout from '../../../layouts/Layout.astro';
+import PortalShell from '../../../components/PortalShell.svelte';
+import CatalogDrillDown from '../../../routes/catalog/[name]/+page.svelte';
+
+export function getStaticPaths() {
+  // Pre-render the known Wave-1 Blueprints. Live blueprints get on-the-fly
+  // routing via the SPA fallback (handled by the catalyst-console nginx
+  // when deployed). Adding a blueprint here is enough for `npm run build`.
+  return [
+    { params: { name: 'grafana' } },
+    { params: { name: 'harbor' } },
+    { params: { name: 'gitea' } },
+    { params: { name: 'openbao' } },
+  ];
+}
+
+const { name } = Astro.params;
+const blueprintName = (name ?? 'grafana') as string;
+---
+<Layout title={`Catalog · ${blueprintName}`}>
+  <PortalShell
+    title={blueprintName}
+    breadcrumbs={[
+      { label: 'Catalog', href: '/catalog/grafana' },
+      { label: blueprintName },
+    ]}
+    client:load
+  >
+    <CatalogDrillDown blueprintName={blueprintName} client:load />
+  </PortalShell>
+</Layout>
