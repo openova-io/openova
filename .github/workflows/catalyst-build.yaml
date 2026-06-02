@@ -663,7 +663,16 @@ jobs:
             # controller build workflow. Take the first 7-hex hit on
             # the highest-`updated_at` version → that's the latest
             # main-HEAD push.
-            tag=$(gh api "/orgs/openova-io/packages/container/${pkg}/versions" --paginate 2>/dev/null \
+            # #2851-followup (2026-06-03): GHCR package names for the
+            # 5 controllers carry the `openova/` prefix (e.g.
+            # `openova/application-controller`) — must URL-encode the
+            # slash as %2F per github.com/cli/cli docs. Without this
+            # the API returns 404 and every controller sweep silently
+            # skips, defeating the entire #2851 defense. Caught live
+            # 2026-06-03 walking the sweep step locally:
+            # `gh api /orgs/openova-io/packages/container/application-controller`
+            # → 404; `openova%2Fapplication-controller` → real versions list.
+            tag=$(gh api "/orgs/openova-io/packages/container/openova%2F${pkg}/versions" --paginate 2>/dev/null \
               | jq -r '[.[] | {u:.updated_at, tags:(.metadata.container.tags // [])}]
                        | sort_by(.u) | reverse
                        | .[].tags[]?' 2>/dev/null \
