@@ -1,12 +1,15 @@
 apiVersion: v2
 name: bp-catalyst-platform
-# 1.4.445 — #2830 followup (2026-06-03): the catalyst-migrator:0.1.0 image
-# is now published to GHCR (build-catalyst-migrator.yaml workflow added at
-# the same PR) AND the migration Job Pod spec now carries
-# `imagePullSecrets: [ghcr-pull]` so the GHCR pull authenticates. The
-# `migrations.applicationsInstanceId.enabled` default stays FALSE this
-# cycle — operators must verify the migration on a legacy-CR cluster
-# before re-enabling globally. Refs #2830 #2823 #2834.
+# 1.4.446 — #2745 (2026-06-03) merged onto #2830 (2026-06-03):
+# Both: (a) catalyst-migrator:0.1.0 image now published to GHCR +
+# imagePullSecrets:[ghcr-pull] on the migration Job; (b) bump 5
+# controller image pins to latest GHCR-published main builds —
+# application-controller 8d01e2f → 44dedf2 (G117.6 + G117.2),
+# blueprint-controller → 100a213, environment-controller → 32050f0,
+# useraccess-controller → dcd2bb3, organization-controller → 32050f0.
+# Auto-image-bump CI workflow covers catalystApi/catalystUi/
+# marketplaceApi/console only — controller drift requires manual edit.
+# Refs #2745 #2830 #2834.
 # 1.4.439 — G117.E2E-A1 #2830 (2026-06-03): default
 # `.Values.migrations.applicationsInstanceId.enabled` to FALSE until the
 # `ghcr.io/openova-io/catalyst-migrator:0.1.0` image actually exists on
