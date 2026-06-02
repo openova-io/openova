@@ -733,7 +733,7 @@ interface AppCardProps {
   externalURL?: string
 }
 
-function AppCard({ app, status, isService, environment, marketplacePublished, slug, onPublishedChange, externalURL }: AppCardProps) {
+function AppCard({ app, status, isService, environment, marketplacePublished, slug, onPublishedChange }: AppCardProps) {
   const stateClass = `state-${status}`
   // Chroot-aware target: on the mother monitor surface
   // (console.openova.io/sovereign/provision/<id>/...) every link MUST stay
