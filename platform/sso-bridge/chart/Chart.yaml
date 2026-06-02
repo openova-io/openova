@@ -1,6 +1,20 @@
 apiVersion: v2
 name: bp-sso-bridge
-version: 0.2.5
+version: 0.2.6
+# 0.2.6 (#2744 H8 walk, 2026-06-03): fix Cilium egress NetworkPolicy
+# port mismatch that silently broke ALL per-Org realm provisioning
+# for 24h+. The reconciler curl'd keycloak.keycloak.svc:80 (Service
+# port) and hit curl(28) connect timeouts on every tick because
+# Cilium enforces egress NetPol on the DESTINATION POD'S TARGET
+# PORT (8080 here), NOT the Service port. The chart's egress rule
+# allow-listed port 80 only → Cilium dropped 8080 traffic at
+# bp-sso-bridge's pod, silently blocking ALL Tier-1/2/3 client
+# upserts + per-Org realm imports. Fix: add `8080/TCP` to the
+# keycloak-egress port list alongside the existing `80/TCP`
+# (kept for back-compat with non-Cilium CNIs that may match on
+# Service port). Operators overriding `networkPolicy.keycloakPort`
+# in per-Sovereign overlays must enumerate the Pod target port too.
+# Pure template change; no values default change. Refs #2744 #2834.
 # 0.2.5 (G117.E2E-C1 #2816, 2026-06-03): fix sovereign-fqdn ConfigMap
 # data-key contract drift — chart default `sovereignFqdnKey: sovereignFqdn`
 # did not match the key actually emitted by bp-catalyst-platform
