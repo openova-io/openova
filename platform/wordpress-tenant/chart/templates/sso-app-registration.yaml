@@ -1,0 +1,52 @@
+{{- /*
+G117.5 W3.D3 — bp-wordpress-tenant AppRegistration ConfigMap.
+
+Refs #2744. Emits a ConfigMap labelled `sso.openova.io/app-registration`
+that bp-sso-bridge (W2.C4 PR #2794 reconciler + future iteration)
+consumes to register the `wordpress` OIDC client in the per-Org KC
+realm. The client.json shape matches the per-Org realm template's
+client expectations (standard browser flow, direct-access-grants OFF,
+redirect URI to WP's openid-connect-generic callback).
+
+When chart 0.3.x is installed against a legacy SME-fleet Sovereign that
+populates `smeSubdomain` (no Catalyst per-Org realm), `data.realm`
+resolves to `sme-<smeSubdomain>` via `bp-wordpress-tenant.orgRealm`
+(see _helpers.tpl). When chart 0.4.0+ is installed against a Catalyst
+per-Org Sovereign that populates `org.realm`, `data.realm` resolves to
+the Org slug (G117 locked-decision #6).
+
+Per the Aux-2 audit `tier-3/bp-wordpress-tenant.md` §3.
+*/}}
+{{- if and .Values.wordpress.enabled .Values.oidc.enabled }}
+{{- $clientId := include "bp-wordpress-tenant.oidcClientId" . -}}
+{{- $realm := include "bp-wordpress-tenant.orgRealm" . -}}
+{{- $host := include "bp-wordpress-tenant.ingressHost" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "bp-wordpress-tenant.fullname" . }}-sso-registration
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-wordpress-tenant.labels" . | nindent 4 }}
+    sso.openova.io/app-registration: {{ $clientId | quote }}
+    sso.openova.io/client-flow: browser
+data:
+  realm: {{ $realm | quote }}
+  client.json: |
+    {
+      "clientId": {{ $clientId | quote }},
+      "name": "WordPress ({{ .Values.smeDomain }})",
+      "enabled": true,
+      "publicClient": false,
+      "serviceAccountsEnabled": false,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "redirectUris": [
+        "https://{{ $host }}/wp-admin/admin-ajax.php?action=openid-connect-authorize"
+      ],
+      "webOrigins": ["https://{{ $host }}"],
+      "defaultClientScopes": ["web-origins","profile","email","groups"],
+      "optionalClientScopes": ["roles"]
+    }
+{{- end }}
