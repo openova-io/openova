@@ -1,5 +1,20 @@
 apiVersion: v2
 name: bp-keycloak
+# 1.4.16 (G117.E2E-A7 #2816, 2026-06-03): trim two MORE realm-import
+# descriptions PR #2824 (1.4.15) missed because its regression test only
+# covered configmap-sovereign-realm.yaml. The varchar(255) cap applies
+# to EVERY realm-import the chart can emit, not just the sovereign one:
+#   - configmap-tenant-realm.yaml stalwart client          288 → 137
+#   - configmap-per-org-realms.yaml "first broker login auto
+#     link" flow (per-Org realm, G117.5 W2.C4 fan-out)     266 →  99
+# The per-Org one is the gating fix for G117.E2E-A7: when bp-sso-bridge's
+# `provision_org_realm` POSTs a per-Org realm via the Admin API, the
+# 266-char flow description was triggering the same `varchar(255)`
+# constraint error on the per-Org realm row insert. Caught while
+# attempting the W2.C4 walk on hw86.
+# Extends tests/g117-e2e-realm-client-description-255-cap.sh (added in
+# PR #2824) to cover all 3 realm-config templates so future descriptions
+# can't regress this on any code path. Refs #2816 #2744.
 # 1.4.15 (G117.E2E-A1 #2816, 2026-06-03): truncate two Tier-2 client
 # descriptions that exceeded the Keycloak DB schema's varchar(255) cap on
 # `public.CLIENT.DESCRIPTION`. Reproduces the same anti-pattern as PR
@@ -120,7 +135,7 @@ name: bp-keycloak
 # sectionName by default — multi-zone Sovereigns rename HTTPS listeners
 # to https-<sanitised-zone>, breaking NoMatchingListener with the prior
 # pinned sectionName: https. Matches the catalyst-system fix in PR #1888.
-version: 1.4.15
+version: 1.4.16
 description: |
   Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
   upstream `keycloak` chart (bitnami) as a Helm subchart so
