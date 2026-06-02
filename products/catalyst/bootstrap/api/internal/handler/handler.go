@@ -454,6 +454,17 @@ type Handler struct {
 	execStreamMu      sync.RWMutex
 	execStreamFactory ExecStreamFactory
 
+	// ── G117.3 endpoint CRUD + IaC PR pipeline ─────────────────────
+	// endpointDeps — bundle of lookup closures + giteapr.Writer factory
+	// that the endpoint_handler.go HTTP handlers consume. Nil-tolerant:
+	// when WriterFactory is nil the mutation handlers return 503
+	// `gitea-writer-unwired`; when DynamicClient is nil they fall back
+	// to rest.InClusterConfig(). Tests inject stubs via
+	// SetEndpointPrecheckDeps. See products/catalyst/bootstrap/api/
+	// internal/handler/endpoint_handler.go for the route registrations
+	// and the per-handler contract.
+	endpointDeps EndpointPrecheckDeps
+
 	// ── Mimir-backed Pod sparkline (issue #1753, slice G3b) ────────
 	// mimirURL — base URL of the bp-mimir (slot 23) query-frontend
 	// HTTP API. The Pod metrics endpoint
