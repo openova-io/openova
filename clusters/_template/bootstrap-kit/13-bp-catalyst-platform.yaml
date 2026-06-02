@@ -902,7 +902,7 @@ spec:
       # G117 fields (spec.topology / endpoints / sso / multiInstance)
       # into the Blueprint CRD openAPIV3Schema so runtime admission
       # gates them — preserve-unknown no longer silently swallows.
-      version: 1.4.443
+      version: 1.4.444
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
