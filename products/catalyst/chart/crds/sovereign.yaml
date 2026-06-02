@@ -1,0 +1,295 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: sovereigns.catalyst.openova.io
+  labels:
+    app.kubernetes.io/name: catalyst
+    app.kubernetes.io/component: sovereign
+spec:
+  group: catalyst.openova.io
+  scope: Cluster
+  names:
+    kind: Sovereign
+    listKind: SovereignList
+    singular: sovereign
+    plural: sovereigns
+    shortNames:
+      - sov
+    categories:
+      - catalyst
+      - openova
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      additionalPrinterColumns:
+        - name: FQDN
+          type: string
+          jsonPath: .spec.fqdn
+        - name: Topology
+          type: string
+          jsonPath: .spec.bcpTopology
+        - name: Regions
+          type: integer
+          jsonPath: .status.regionCount
+        - name: Ready
+          type: boolean
+          jsonPath: .status.ready
+        - name: DeploymentID
+          type: string
+          jsonPath: .spec.deploymentId
+          priority: 1
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      subresources:
+        status: {}
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: |
+            Sovereign is the K8s-native record of a Catalyst Sovereign — one
+            deployed Catalyst instance (mothership or franchised). The CR is
+            the canonical truth-source for: (a) the per-Sovereign FQDN that
+            console / api / marketplace bind to; (b) the multi-region
+            topology (regions[]) that catalyst-api's chooseTopology consults
+            via `Handler.detectMultiRegion` (locked decision #7,
+            `len(Sovereign.spec.regions) > 1` = multi-region); (c) the
+            bcpTopology declaration that pillar 3 (zero-tx-loss) gates on;
+            (d) the parent-domain pool used by per-Org tenant subdomains;
+            (e) the operator-issued deploymentId used to correlate the
+            tofu workdir on the catalyst-api PVC.
+
+            One Sovereign CR per cluster, cluster-scoped, name conventionally
+            matches the FQDN's leftmost label or `sovereign-self` for the
+            local Sovereign. The CR is created by bp-self-sovereign-cutover
+            step-01 on franchised Sovereigns, and by the mothership
+            bootstrap on the OpenOva Sovereign.
+
+            Closes Gap 5 of #2856: prior to this CRD, `kubectl get sovereign`
+            returned "no resources" on every Sovereign and catalyst-api's
+            CountSovereignRegions silently fell through to the
+            SOVEREIGN_REGIONS env var (also unset), defeating multi-region
+            endpoint selection.
+
+            Refs #2856 #2742 #2737.
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [fqdn]
+              properties:
+                fqdn:
+                  type: string
+                  description: |
+                    Canonical Sovereign FQDN (e.g. `omantel.omani.works`,
+                    `t38.omani.works`). Hosts console.<fqdn>, api.<fqdn>,
+                    marketplace.<fqdn>, and every per-Org tenant subdomain.
+                    Lowercase, RFC-1123 hostname pattern with at least one
+                    dot (no bare labels).
+                  pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)+$'
+                  maxLength: 253
+                deploymentId:
+                  type: string
+                  description: |
+                    16-char hex correlation id for the per-Sovereign tofu
+                    workdir on the catalyst-api `catalyst-api-deployments`
+                    PVC (`/deps/tofu/<deployment-id>/`). Stable for the life
+                    of the Sovereign; immutable after creation.
+                  pattern: '^[0-9a-f]{16}$'
+                  x-kubernetes-validations:
+                    - rule: 'oldSelf == "" || self == oldSelf'
+                      message: 'spec.deploymentId is immutable after creation'
+                bcpTopology:
+                  type: string
+                  description: |
+                    Business-Continuity-Planning topology the operator
+                    selected at signup. `single-region` is one region (no
+                    BCP, dev/preview only). `active-hotstandby` is the
+                    default for production — primary region serves traffic,
+                    standby is warm, failover via Continuum. `active-active`
+                    is multi-master (CNPG quorum split, all regions serve).
+                    Both BCP variants require `len(regions)>=2` per Pillar 3.
+                  enum:
+                    - single-region
+                    - active-hotstandby
+                    - active-active
+                  default: single-region
+                regions:
+                  type: array
+                  description: |
+                    Per-region declaration in operator-supplied order. The
+                    catalyst-api `Handler.detectMultiRegion` reads
+                    `len(regions)>1` to flip multi-region topology gates;
+                    application-controller's TopologyResolver consults this
+                    list to default `placementSchema.defaultOnMultiRegion`.
+
+                    Index 0 is conventionally the primary; downstream
+                    consumers must not rely on that ordering for promotion
+                    (use Continuum / status.regions for live state).
+                  items:
+                    type: object
+                    required: [code]
+                    properties:
+                      code:
+                        type: string
+                        description: |
+                          Provider-native region code (e.g. `fsn1`,
+                          `hel1`, `me-east-215-a`). Used by the OpenTofu
+                          modules and by the application-controller's
+                          per-region HelmRelease fan-out.
+                        maxLength: 64
+                      role:
+                        type: string
+                        description: |
+                          Operator-meaningful tag for the region's role in
+                          the BCP topology. Free-form; common values
+                          `primary` (index 0 default), `standby`,
+                          `active` (active-active topology).
+                        maxLength: 32
+                      az:
+                        type: string
+                        description: |
+                          Optional cloud-provider availability-zone tag.
+                          Most providers infer the AZ from `code`; pass
+                          explicit `az` only when a single region exposes
+                          multiple physically-distinct AZs (HCS
+                          `me-east-215` exposes `-a` / `-b` / `-c`).
+                        maxLength: 64
+                      provider:
+                        type: string
+                        description: |
+                          CloudProvider adapter name (hetzner / huawei /
+                          aws / gcp / azure / oci). Defaults to the
+                          Sovereign-wide `spec.provider` when absent on a
+                          per-region entry.
+                        maxLength: 32
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [code]
+                parentDomains:
+                  type: array
+                  description: |
+                    Pool of registered DNS domains the Sovereign-side
+                    PowerDNS is authoritative for. Exactly one entry MUST
+                    carry `role=primary` (the entry that hosts
+                    console/api/marketplace — matches `spec.fqdn`'s
+                    registered apex). Zero-or-more entries may carry
+                    `role=sme-pool` (offered to SME tenants for free
+                    subdomains). Mirrors the wire shape provisioner.go
+                    ParentDomain emits.
+                  items:
+                    type: object
+                    required: [name, role]
+                    properties:
+                      name:
+                        type: string
+                        description: Registered apex (e.g. `omani.works`).
+                        pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)+$'
+                        maxLength: 253
+                      role:
+                        type: string
+                        enum:
+                          - primary
+                          - sme-pool
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [name]
+                provider:
+                  type: string
+                  description: |
+                    Sovereign-wide default CloudProvider adapter name. Used
+                    as the fallback for `regions[].provider` and as the
+                    dispatch target for `bp-self-sovereign-cutover`.
+                  enum:
+                    - hetzner
+                    - huawei
+                    - aws
+                    - gcp
+                    - azure
+                    - oci
+                    - contabo
+              x-kubernetes-preserve-unknown-fields: true
+            status:
+              type: object
+              properties:
+                ready:
+                  type: boolean
+                  description: |
+                    True once the Sovereign has completed bootstrap and
+                    every declared region has reconciled at least once.
+                regionCount:
+                  type: integer
+                  description: |
+                    Materialised count of regions actually reconciled —
+                    mirrors `len(status.regions)`. Used by Console
+                    printer-columns for at-a-glance topology check.
+                  minimum: 0
+                regions:
+                  type: array
+                  description: |
+                    Per-region materialised state — populated from the
+                    provisioner's `MaterializedRegions[]` slice and refreshed
+                    on every reconcile. May lag `spec.regions[]` while a
+                    fresh region rolls.
+                  items:
+                    type: object
+                    required: [code]
+                    properties:
+                      code:
+                        type: string
+                      role:
+                        type: string
+                      ready:
+                        type: boolean
+                      kubeconfigPath:
+                        type: string
+                        description: |
+                          On-disk path to the per-region kubeconfig under
+                          `catalyst-api-deployments` PVC
+                          (`/deps/kubeconfigs/<id>-<region>-<i>.yaml`).
+                          Surface for the chroot fallback path documented
+                          in feedback_chroot_in_cluster_fallback.md.
+                      lastReconciledAt:
+                        type: string
+                        format: date-time
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [code]
+                phase:
+                  type: string
+                  enum:
+                    - Pending
+                    - Bootstrapping
+                    - Ready
+                    - Degraded
+                    - CutoverInProgress
+                    - Sovereign
+                conditions:
+                  type: array
+                  description: |
+                    Standard k8s conditions[] (type/status/reason/message/
+                    lastTransitionTime). Reconcilers append; readers
+                    consume via meta.IsStatusConditionTrue.
+                  items:
+                    type: object
+                    required: [type, status]
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      observedGeneration:
+                        type: integer
+                        format: int64
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [type]
+                observedGeneration:
+                  type: integer
+                  format: int64
+              x-kubernetes-preserve-unknown-fields: true

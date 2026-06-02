@@ -2506,7 +2506,24 @@ name: bp-catalyst-platform
 # artifact carrying the merged values.yaml (`applicationController.
 # image.tag: "44dedf2"` + the four other controller image bumps from
 # #2852).
-version: 1.4.449
+# 1.4.450 (#2856 Gap 5, 2026-06-03): ship the missing
+# `sovereigns.catalyst.openova.io` CRD. H7 walk of #2742 confirmed
+# `kubectl get sovereign` returned "no resources" on hw86 because the
+# Sovereign CRD was never installed — catalyst-api's
+# `Handler.detectMultiRegion` therefore returned 0 from
+# `CountSovereignRegions` on every Sovereign and fell through to the
+# (also-unset) `SOVEREIGN_REGIONS` env var, silently defeating the
+# multi-region endpoint-selection contract in locked decision #7
+# (`len(Sovereign.spec.regions) > 1`). New CRD at
+# products/catalyst/chart/crds/sovereign.yaml + chart-test fixtures
+# under crds/tests/sovereign-sample-{valid,invalid}.yaml. Spec carries
+# fqdn / deploymentId / bcpTopology / regions[].(code,role,az,provider)
+# / parentDomains[].(name,role) / provider; status carries ready /
+# regionCount / regions[] / phase / conditions[] / observedGeneration.
+# deploymentId is immutable post-create via CEL
+# x-kubernetes-validations rule (matches Application.spec.instanceId
+# pattern from #2742 W2.C2). Refs #2856 #2742 #2737.
+version: 1.4.450
 appVersion: 1.4.349
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
