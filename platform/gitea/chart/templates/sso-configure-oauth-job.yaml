@@ -17,9 +17,15 @@ When this fires:
   - post-upgrade (updates if sovereignFqdn changed or secret rotated;
     update-oauth on an unchanged source is a no-op)
 
-The Job calls into the gitea-0 Pod via `kubectl exec` rather than
+The Job calls into the live gitea Pod via `kubectl exec` rather than
 running gitea CLI in its own container so we avoid pinning a gitea
-image version here.
+image version here. The Pod is discovered by label selector
+(`app.kubernetes.io/name=gitea,app.kubernetes.io/instance=<release>`)
+rather than the hard-coded `gitea-0` index — upstream gitea 10.5.0
+renders a Deployment (ReplicaSet → `gitea-<hash>-<id>`), not a
+StatefulSet, so the index name is wrong (G117.E2E-B1 #2818). The
+selector-based lookup also keeps the Job correct if the operator
+opts the upstream chart into its StatefulSet mode.
 */ -}}
 {{- if and .Values.sso.enabled .Values.sso.sovereignFqdn }}
 apiVersion: v1
@@ -134,6 +140,13 @@ spec:
               value: {{ .Values.sso.restrictedGroup | default "" | quote }}
             - name: GITEA_NAMESPACE
               value: {{ .Release.Namespace | quote }}
+            # G117.E2E-B1 #2818 — selector for the live gitea Pod.
+            # Upstream chart 10.5.0 renders a Deployment (ReplicaSet pod
+            # name = gitea-<hash>-<id>), so the legacy hard-coded
+            # `gitea-0` index never matched on default-config Sovereigns.
+            # The Job now resolves the live Pod by these labels.
+            - name: POD_SELECTOR
+              value: {{ printf "app.kubernetes.io/name=gitea,app.kubernetes.io/instance=%s" .Release.Name | quote }}
             # G117.5 #2744 — IDP_HINT toggles whether we pass the
             # hinted authorize_url via --auth-url + --use-custom-url-
             # mapping. When non-empty the Job reads the
@@ -181,31 +194,43 @@ spec:
               echo "  ADMIN_GROUP=${ADMIN_GROUP}"
               echo "  GITEA_NAMESPACE=${GITEA_NAMESPACE}"
               echo "  IDP_HINT=${IDP_HINT}"
+              echo "  POD_SELECTOR=${POD_SELECTOR}"
 
-              # Wait for gitea Pod Ready (up to 10 min — first install
-              # races bp-cnpg + ESO + the upstream init container).
-              echo "[$(date -u +%FT%TZ)] waiting for gitea Pod Ready..."
+              # G117.E2E-B1 #2818: Resolve the live gitea Pod by label
+              # selector. Upstream gitea 10.5.0 renders a Deployment
+              # (ReplicaSet pod name = gitea-<hash>-<id>), not a
+              # StatefulSet, so the legacy hard-coded `gitea-0` lookup
+              # never matches and the hook always times out.
+              #
+              # Wait for at least one Ready Pod matching the selector
+              # (up to 10 min — first install races bp-cnpg + ESO + the
+              # upstream init container).
+              GITEA_POD=""
+              echo "[$(date -u +%FT%TZ)] waiting for a Ready gitea Pod (selector=${POD_SELECTOR})..."
               for i in $(seq 1 60); do
-                if kubectl get pod gitea-0 -n "${GITEA_NAMESPACE}" >/dev/null 2>&1; then
-                  if kubectl wait --for=condition=Ready pod/gitea-0 \
-                       -n "${GITEA_NAMESPACE}" --timeout=10s >/dev/null 2>&1; then
-                    echo "[$(date -u +%FT%TZ)] gitea-0 is Ready."
-                    break
-                  fi
+                GITEA_POD="$(kubectl get pod -n "${GITEA_NAMESPACE}" \
+                  -l "${POD_SELECTOR}" \
+                  -o jsonpath='{range .items[?(@.status.phase=="Running")]}{.metadata.name}{"\t"}{range .status.conditions[?(@.type=="Ready")]}{.status}{end}{"\n"}{end}' \
+                  2>/dev/null \
+                  | awk -F '\t' '$2=="True" {print $1; exit}' || true)"
+                if [ -n "${GITEA_POD}" ]; then
+                  echo "[$(date -u +%FT%TZ)] selected pod=${GITEA_POD} (Ready)."
+                  break
                 fi
-                echo "  attempt $i/60: gitea-0 not yet Ready; sleeping 10s..."
+                echo "  attempt $i/60: no Ready pod matching selector; sleeping 10s..."
                 sleep 10
               done
 
-              if ! kubectl wait --for=condition=Ready pod/gitea-0 \
-                   -n "${GITEA_NAMESPACE}" --timeout=10s >/dev/null 2>&1; then
-                echo "FATAL: gitea-0 did not become Ready within 10 min." >&2
+              if [ -z "${GITEA_POD}" ]; then
+                echo "FATAL: no Ready gitea Pod matched selector '${POD_SELECTOR}' within 10 min." >&2
+                echo "  current pods in namespace:" >&2
+                kubectl get pod -n "${GITEA_NAMESPACE}" -l "${POD_SELECTOR}" >&2 || true
                 exit 1
               fi
 
               # Idempotency: check if an OAuth source with this name exists.
-              echo "[$(date -u +%FT%TZ)] checking existing auth sources..."
-              AUTH_LIST="$(kubectl exec -n "${GITEA_NAMESPACE}" gitea-0 -- \
+              echo "[$(date -u +%FT%TZ)] checking existing auth sources (via pod ${GITEA_POD})..."
+              AUTH_LIST="$(kubectl exec -n "${GITEA_NAMESPACE}" "${GITEA_POD}" -- \
                 gitea admin auth list --vertical-bars 2>&1 || true)"
               echo "${AUTH_LIST}"
 
@@ -262,16 +287,16 @@ spec:
 
               if [ -z "${AUTH_ID}" ]; then
                 echo "[$(date -u +%FT%TZ)] adding new OAuth source '${AUTH_NAME}'..."
-                kubectl exec -n "${GITEA_NAMESPACE}" gitea-0 -- \
+                kubectl exec -n "${GITEA_NAMESPACE}" "${GITEA_POD}" -- \
                   gitea admin auth add-oauth --name "${AUTH_NAME}" "${COMMON_ARGS[@]}"
               else
                 echo "[$(date -u +%FT%TZ)] updating OAuth source id=${AUTH_ID} ('${AUTH_NAME}')..."
-                kubectl exec -n "${GITEA_NAMESPACE}" gitea-0 -- \
+                kubectl exec -n "${GITEA_NAMESPACE}" "${GITEA_POD}" -- \
                   gitea admin auth update-oauth --id "${AUTH_ID}" --name "${AUTH_NAME}" "${COMMON_ARGS[@]}"
               fi
 
               echo "[$(date -u +%FT%TZ)] OAuth source configured. Final list:"
-              kubectl exec -n "${GITEA_NAMESPACE}" gitea-0 -- gitea admin auth list
+              kubectl exec -n "${GITEA_NAMESPACE}" "${GITEA_POD}" -- gitea admin auth list
       volumes:
         - name: tmp
           emptyDir:

@@ -81,4 +81,24 @@ if ! grep -A1 'name: IDP_HINT' "${tmpdir}/optout.yaml" | grep -q 'value: ""'; th
 fi
 echo "  PASS"
 
+# Case 6 (G117.E2E-B1 #2818): post-upgrade hook must NOT hard-code
+# pod/gitea-0 — upstream gitea 10.5.0 renders a Deployment, not a
+# StatefulSet, so the index-name lookup never matches and the hook
+# times out. Job must instead resolve the live Pod by label selector.
+echo "[g117-5-sso-tier1] Case 6: configure-oauth Job does not hard-code pod/gitea-0"
+if grep -q 'pod/gitea-0\|exec.*gitea-0' "${tmpdir}/default.yaml"; then
+  echo "FAIL: configure-oauth Job still references the hard-coded pod/gitea-0 name." >&2
+  echo "  upstream gitea 10.5.0 renders a Deployment; pod is gitea-<rs-hash>-<id>." >&2
+  exit 1
+fi
+if ! grep -q 'name: POD_SELECTOR' "${tmpdir}/default.yaml"; then
+  echo "FAIL: configure-oauth Job missing POD_SELECTOR env var (label-based discovery)." >&2
+  exit 1
+fi
+if ! grep -q 'app.kubernetes.io/name=gitea,app.kubernetes.io/instance=' "${tmpdir}/default.yaml"; then
+  echo "FAIL: POD_SELECTOR does not carry the canonical gitea label selector." >&2
+  exit 1
+fi
+echo "  PASS"
+
 echo "[bp-gitea G117.5 Tier-1 SSO] All cases PASS"
