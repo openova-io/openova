@@ -134,3 +134,93 @@ func (c *Client) PutKVv2(ctx context.Context, mountPath, secretPath string, data
 		mountPath, secretPath, resp.StatusCode, strings.TrimSpace(string(respBody)),
 	)
 }
+
+// GetKVv2 reads a single KV-v2 secret blob. The KV-v2 API path is:
+//
+//	GET <addr>/v1/<mountPath>/data/<secretPath>
+//
+// response shape:
+//
+//	{"data": {"data": {<key>: <value>, ...}, "metadata": {...}}}
+//
+// Returns the `data.data` map verbatim — the caller picks the key it
+// needs. Returns `ErrSecretNotFound` when OpenBao replies 404 so the
+// caller can distinguish "no per-Org token yet" from transport error
+// (G117.3b: per-Org Gitea robot token lookup at
+// `kv/data/org/<slug>/iac-bot-token` must return a stable not-found
+// signal so NewProductionGiteaIaCWriter can fall back to the global env
+// only on truly-missing — not on transport hiccups).
+//
+// Refs #2765 (G117.3b writer-side).
+func (c *Client) GetKVv2(ctx context.Context, mountPath, secretPath string) (map[string]any, error) {
+	if c == nil {
+		return nil, fmt.Errorf("openbao: client is nil")
+	}
+	if strings.TrimSpace(c.Addr) == "" {
+		return nil, fmt.Errorf("openbao: address is required")
+	}
+	if strings.TrimSpace(c.Token) == "" {
+		return nil, fmt.Errorf("openbao: token is required")
+	}
+	mountPath = strings.Trim(strings.TrimSpace(mountPath), "/")
+	if mountPath == "" {
+		mountPath = "secret"
+	}
+	secretPath = strings.Trim(strings.TrimSpace(secretPath), "/")
+	if secretPath == "" {
+		return nil, fmt.Errorf("openbao: secret path is required")
+	}
+
+	url := fmt.Sprintf("%s/v1/%s/data/%s",
+		strings.TrimRight(c.Addr, "/"),
+		mountPath,
+		secretPath,
+	)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("openbao: build request: %w", err)
+	}
+	req.Header.Set("X-Vault-Token", c.Token)
+
+	httpc := c.HTTP
+	if httpc == nil {
+		httpc = http.DefaultClient
+	}
+	resp, err := httpc.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("openbao: request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, ErrSecretNotFound
+	}
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<14))
+		return nil, fmt.Errorf("openbao: read %s/data/%s: status %d: %s",
+			mountPath, secretPath, resp.StatusCode, strings.TrimSpace(string(respBody)),
+		)
+	}
+
+	var envelope struct {
+		Data struct {
+			Data map[string]any `json:"data"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&envelope); err != nil {
+		return nil, fmt.Errorf("openbao: decode body: %w", err)
+	}
+	if envelope.Data.Data == nil {
+		// 200 with an empty body — treat as not-found so the caller's
+		// fallback path triggers (rather than handing back a nil map
+		// that would NPE downstream).
+		return nil, ErrSecretNotFound
+	}
+	return envelope.Data.Data, nil
+}
+
+// ErrSecretNotFound — sentinel returned by GetKVv2 on 404 or empty body
+// so callers can distinguish "no per-Org token yet" from transport
+// errors. errors.Is(err, ErrSecretNotFound) is the canonical check.
+var ErrSecretNotFound = fmt.Errorf("openbao: secret not found")

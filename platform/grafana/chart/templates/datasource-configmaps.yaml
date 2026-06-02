@@ -41,6 +41,19 @@ Datasources wired:
 A starter "alertmanager" datasource can be added by per-Sovereign
 overlay; not shipped here because the canonical Alertmanager Service
 varies (Mimir's bundled AM vs. standalone bp-alertmanager).
+
+ConfigMap naming note (G117 batch1 follow-up, 2026-06-02): the
+ConfigMap names are hardcoded `grafana-datasource-<source>` rather
+than `{{ include "grafana.fullname" . }}-datasource-<source>`. The
+upstream chart's `grafana.fullname` template lives in the subchart's
+_helpers.tpl, which is NOT available to `helm lint` against this
+chart until `helm dependency build` runs first. Since the per-
+Sovereign release name is always `grafana` on every Sovereign
+(bootstrap-kit slot 25 hardcodes it), the fullname-include and the
+literal `grafana` always render byte-equal — the include adds chart-
+dependency coupling without operational benefit. Hardcoding closes a
+real CI gate (`helm lint changed charts`) that was failing on main
+since G115 #2744.
 */ -}}
 {{- if and .Values.observabilityStack .Values.observabilityStack.enabled }}
 {{- if .Values.observabilityStack.datasources.prometheus.enabled }}
@@ -48,7 +61,7 @@ varies (Mimir's bundled AM vs. standalone bp-alertmanager).
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "grafana.fullname" . | default "grafana" }}-datasource-prometheus
+  name: grafana-datasource-prometheus
   namespace: {{ .Release.Namespace }}
   labels:
     catalyst.openova.io/blueprint: bp-grafana
@@ -84,7 +97,7 @@ data:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "grafana.fullname" . | default "grafana" }}-datasource-loki
+  name: grafana-datasource-loki
   namespace: {{ .Release.Namespace }}
   labels:
     catalyst.openova.io/blueprint: bp-grafana
@@ -109,7 +122,7 @@ data:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "grafana.fullname" . | default "grafana" }}-datasource-tempo
+  name: grafana-datasource-tempo
   namespace: {{ .Release.Namespace }}
   labels:
     catalyst.openova.io/blueprint: bp-grafana
@@ -142,7 +155,7 @@ data:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "grafana.fullname" . | default "grafana" }}-datasource-alertmanager
+  name: grafana-datasource-alertmanager
   namespace: {{ .Release.Namespace }}
   labels:
     catalyst.openova.io/blueprint: bp-grafana

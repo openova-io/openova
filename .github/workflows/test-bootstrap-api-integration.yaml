@@ -77,6 +77,17 @@ jobs:
           cluster_name: g117-int
           wait: 120s
 
+      # G117.3c follow-up #2797 — helm/kind-action@v1.10.0 writes the kind
+      # cluster's kubeconfig to ~/.kube/config but does NOT export the
+      # KUBECONFIG env var for subsequent steps. Without this explicit
+      # export the canary `test -n "${KUBECONFIG:-}"` in the integration
+      # step fails (silent-skip → loud-fail per the design), AND any
+      # client-go-based test would fall back to /var/run/secrets-style
+      # in-cluster auth and skip. Promote the path to $GITHUB_ENV so
+      # every later step (including go test) inherits it.
+      - name: Export KUBECONFIG
+        run: echo "KUBECONFIG=$HOME/.kube/config" >> "$GITHUB_ENV"
+
       - name: Provision Gitea admin + token
         # Creates an admin user inside the gitea service and exchanges
         # username/password for a personal access token. Both values are

@@ -3,6 +3,7 @@ package openbao
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -96,6 +97,123 @@ func TestPutKVv2_RequiredFields(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			err := tc.c.PutKVv2(context.Background(), "secret", tc.path, map[string]any{"k": "v"})
+			if err == nil {
+				t.Fatal("expected error; got nil")
+			}
+			if !strings.Contains(err.Error(), tc.match) {
+				t.Errorf("error message mismatch; got %v", err)
+			}
+		})
+	}
+}
+
+// ── GetKVv2 coverage (G117.3b #2765) ─────────────────────────────────
+
+// TestGetKVv2_OK — happy path: 200 with canonical KV-v2 envelope shape
+// returns the inner `data.data` map verbatim.
+func TestGetKVv2_OK(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method = %q, want GET", r.Method)
+		}
+		if got := r.Header.Get("X-Vault-Token"); got != "test-token" {
+			t.Errorf("X-Vault-Token = %q, want test-token", got)
+		}
+		if r.URL.Path != "/v1/secret/data/org/acme/iac-bot-token" {
+			t.Errorf("path = %q, want /v1/secret/data/org/acme/iac-bot-token", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": map[string]any{
+				"data":     map[string]any{"token": "robot-token-abc"},
+				"metadata": map[string]any{"version": 1},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "test-token")
+	got, err := c.GetKVv2(context.Background(), "secret", "org/acme/iac-bot-token")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got["token"] != "robot-token-abc" {
+		t.Errorf("data[token] = %v, want robot-token-abc", got["token"])
+	}
+}
+
+// TestGetKVv2_NotFound — 404 maps to ErrSecretNotFound so callers can
+// distinguish "no per-Org token yet" from transport error.
+func TestGetKVv2_NotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]any{"errors": []string{"not found"}})
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "test-token")
+	_, err := c.GetKVv2(context.Background(), "secret", "org/missing/iac-bot-token")
+	if !errors.Is(err, ErrSecretNotFound) {
+		t.Errorf("err = %v, want ErrSecretNotFound", err)
+	}
+}
+
+// TestGetKVv2_StatusErrorWraps — non-200, non-404 surfaces the upstream
+// status code + body in a wrapped error.
+func TestGetKVv2_StatusErrorWraps(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = io.WriteString(w, "vault is sealed")
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "test-token")
+	_, err := c.GetKVv2(context.Background(), "secret", "org/acme/iac-bot-token")
+	if err == nil {
+		t.Fatal("expected error; got nil")
+	}
+	if !strings.Contains(err.Error(), "503") {
+		t.Errorf("error should include status code; got %v", err)
+	}
+	if errors.Is(err, ErrSecretNotFound) {
+		t.Errorf("503 must NOT classify as not-found; got ErrSecretNotFound")
+	}
+}
+
+// TestGetKVv2_EmptyEnvelopeIsNotFound — 200 with empty data.data is
+// treated as not-found so callers' fallback path triggers rather than
+// receiving nil.
+func TestGetKVv2_EmptyEnvelopeIsNotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": map[string]any{},
+		})
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "test-token")
+	_, err := c.GetKVv2(context.Background(), "secret", "org/acme/iac-bot-token")
+	if !errors.Is(err, ErrSecretNotFound) {
+		t.Errorf("err = %v, want ErrSecretNotFound", err)
+	}
+}
+
+// TestGetKVv2_RequiredFields — pre-flight argument validation mirrors
+// PutKVv2's contract.
+func TestGetKVv2_RequiredFields(t *testing.T) {
+	cases := []struct {
+		name  string
+		c     *Client
+		path  string
+		match string
+	}{
+		{"nil-client", (*Client)(nil), "p", "client is nil"},
+		{"missing-addr", &Client{Token: "tk"}, "p", "address is required"},
+		{"missing-token", &Client{Addr: "http://x"}, "p", "token is required"},
+		{"missing-path", &Client{Addr: "http://x", Token: "tk"}, "", "secret path is required"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := tc.c.GetKVv2(context.Background(), "secret", tc.path)
 			if err == nil {
 				t.Fatal("expected error; got nil")
 			}

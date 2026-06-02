@@ -67,6 +67,7 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/giteapr"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/instances"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/openbao"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/precheck"
 )
 
@@ -1347,16 +1348,53 @@ func readTopology(u *unstructured.Unstructured) string {
 
 // NewProductionGiteaIaCWriter — convenience wrapper main.go calls to
 // build a per-Org giteapr.Writer from the unified gitea.Client. The
-// per-Org robot token is stored in the K8s Secret `<org>-iac-bot-token`
-// per ADR-0009; we look it up via the dynamic client and assemble the
-// per-call gitea.Client.
+// per-Org robot token is stored in OpenBao at
+// `kv/data/org/<slug>/iac-bot-token` per ADR-0009; we look it up via
+// the per-Handler OpenBao client (h.openbao) and assemble the per-call
+// gitea.Client with the per-Org credential.
 //
-// Currently returns the same writer for every Org since the unified
-// client uses CATALYST_GITEA_URL + CATALYST_GITEA_TOKEN — production
-// will swap this for a per-Org token lookup once the External-Secrets
-// chain is wired (TBD-D-G117-NN). Until then this single-token wrapper
-// is FUNCTIONALLY correct on a single-Org Sovereign and is the path
-// that exercises every code edge of the writer.
+// Token resolution order:
+//
+//  1. OpenBao `kv/data/org/<org>/iac-bot-token` (key `token`) — the
+//     canonical per-Org path. Each Org's `tools/bootstrap-org-iac-repo.sh`
+//     seeds this with the robot account's PAT scoped to ONLY that
+//     Org's `iac` repo, so Org-A's writer physically cannot mutate
+//     Org-B's IaC repo (per the W3.D4 #2765 integration test).
+//
+//  2. Fallback to the global `CATALYST_GITEA_TOKEN` env var when:
+//       (a) the Handler has no openbao client wired (test mode /
+//           single-Org bootstrap Sovereign before openbao is up); OR
+//       (b) the per-Org secret returns ErrSecretNotFound (the Org's
+//           token hasn't been seeded yet — typical for the FIRST
+//           reconcile after bootstrap-org-iac-repo.sh provisions the
+//           Gitea side but before the OpenBao seed lands).
+//
+//  3. Transport errors from OpenBao (NOT not-found) are surfaced as
+//     errors — we do NOT silently fall back through a transient
+//     network blip onto the wrong-scope global token. The caller
+//     retries the endpoint mutation and the next reconcile pass
+//     succeeds once OpenBao is reachable.
+//
+// G117.3b (Refs #2765). Cross-Org leak impossibility test lives in
+// endpoint_handler_per_org_token_test.go (TestPerOrgTokenIsolation).
+func (h *Handler) NewProductionGiteaIaCWriter(ctx context.Context, org string) (*giteapr.Writer, error) {
+	base := strings.TrimSpace(os.Getenv("CATALYST_GITEA_URL"))
+	if base == "" {
+		return nil, errors.New("CATALYST_GITEA_URL unset")
+	}
+	tok, err := h.resolveGiteaTokenForOrg(ctx, org)
+	if err != nil {
+		return nil, err
+	}
+	c := gitea.New(base, tok)
+	return giteapr.NewWriter(c, &noopStatusChecker{}, giteapr.PollConfig{}), nil
+}
+
+// NewProductionGiteaIaCWriter is the package-level back-compat shim.
+// Existing callers without a Handler context fall through to the env
+// var only — used by tests + tools that intentionally exercise the
+// "no per-Org secret store wired" path. Production wiring should use
+// the Handler method above.
 func NewProductionGiteaIaCWriter(_org string) (*giteapr.Writer, error) {
 	base := strings.TrimSpace(os.Getenv("CATALYST_GITEA_URL"))
 	tok := strings.TrimSpace(os.Getenv("CATALYST_GITEA_TOKEN"))
@@ -1365,6 +1403,57 @@ func NewProductionGiteaIaCWriter(_org string) (*giteapr.Writer, error) {
 	}
 	c := gitea.New(base, tok)
 	return giteapr.NewWriter(c, &noopStatusChecker{}, giteapr.PollConfig{}), nil
+}
+
+// resolveGiteaTokenForOrg reads the per-Org Gitea robot token from
+// OpenBao at `kv/data/org/<slug>/iac-bot-token` (key `token`). Returns
+// the global env-var fallback only when (a) no openbao client is
+// wired, or (b) the per-Org secret does not yet exist. Real transport
+// errors propagate so the caller can distinguish "use env" from "retry
+// later".
+//
+// G117.3b (Refs #2765).
+func (h *Handler) resolveGiteaTokenForOrg(ctx context.Context, org string) (string, error) {
+	org = strings.TrimSpace(strings.ToLower(org))
+	if org == "" {
+		return "", errors.New("giteapr: org slug required for token lookup")
+	}
+	envTok := strings.TrimSpace(os.Getenv("CATALYST_GITEA_TOKEN"))
+
+	if h == nil || h.openbao == nil {
+		// Test / pre-openbao bootstrap mode — fall through to env.
+		if envTok == "" {
+			return "", errors.New("CATALYST_GITEA_TOKEN unset and no openbao client wired")
+		}
+		return envTok, nil
+	}
+
+	secretPath := "org/" + org + "/iac-bot-token"
+	data, err := h.openbao.GetKVv2(ctx, "secret", secretPath)
+	if err != nil {
+		if errors.Is(err, openbao.ErrSecretNotFound) {
+			// Per-Org token not yet seeded — fall back to env.
+			if envTok == "" {
+				return "", fmt.Errorf("giteapr: no per-Org token at kv/data/%s and CATALYST_GITEA_TOKEN unset", secretPath)
+			}
+			h.log.Info("giteapr: per-Org token absent; falling back to global env token",
+				"org", org, "path", secretPath,
+			)
+			return envTok, nil
+		}
+		// Real transport error — surface, never silent fall-through.
+		return "", fmt.Errorf("giteapr: openbao GetKVv2 %s: %w", secretPath, err)
+	}
+
+	tokAny, ok := data["token"]
+	if !ok {
+		return "", fmt.Errorf("giteapr: openbao secret %s missing required key `token`", secretPath)
+	}
+	tok, ok := tokAny.(string)
+	if !ok || strings.TrimSpace(tok) == "" {
+		return "", fmt.Errorf("giteapr: openbao secret %s key `token` is empty or non-string", secretPath)
+	}
+	return strings.TrimSpace(tok), nil
 }
 
 // noopStatusChecker is the placeholder StatusChecker used until the

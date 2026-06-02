@@ -19,6 +19,7 @@ import (
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/audit"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/giteapr"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handler"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handoverjwt"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/oidcprovider"
@@ -399,9 +400,11 @@ func main() {
 	//   - DNSLookup nil → dns-conflict-precheck 503 (lookup-unavailable)
 	//   - KyvernoLookup nil → deferred to per-Org repo workflow (pass)
 	//
-	// The WriterFactory uses CATALYST_GITEA_URL + CATALYST_GITEA_TOKEN
-	// as a single-token shim until External-Secrets per-Org rotation
-	// lands (see handler.NewProductionGiteaIaCWriter doc).
+	// The WriterFactory uses CATALYST_GITEA_URL + per-Org OpenBao token
+	// read from `kv/data/org/<slug>/iac-bot-token` (key `token`) per
+	// ADR-0009; falls back to the global CATALYST_GITEA_TOKEN env var
+	// when the per-Org secret isn't seeded yet OR the openbao client
+	// isn't wired (chroot dev surface). G117.3b #2765.
 	// G117.3d #2780 — RegionsCounter wires Sovereign.spec.regions as the
 	// truth-source for multi-region topology selection. Falls back to
 	// SOVEREIGN_REGIONS env when the dynamic client is unwired or the
@@ -414,14 +417,25 @@ func main() {
 			}
 		}
 	}
+	// Production WriterFactory closure — routes through the per-Handler
+	// method so the openbao path is honoured. If h.openbao is nil at
+	// the time of the call, the method falls back to the env-var shim
+	// transparently.
+	writerFactory := func(org string) (*giteapr.Writer, error) {
+		// 30s ceiling matches OpenBao client timeout (15s) × 2 for
+		// optional retry on transient transport.
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		return h.NewProductionGiteaIaCWriter(ctx, org)
+	}
 	h.SetEndpointPrecheckDeps(handler.EndpointPrecheckDeps{
-		WriterFactory:  handler.NewProductionGiteaIaCWriter,
+		WriterFactory:  writerFactory,
 		SovereignFQDN:  env("SOVEREIGN_FQDN", ""),
 		RegionsCounter: regionsCounter,
 	})
 	log.Info("g117.3: endpoint precheck deps wired",
 		"sovereignFQDN", env("SOVEREIGN_FQDN", ""),
-		"writerFactory", "NewProductionGiteaIaCWriter (single-token shim)",
+		"writerFactory", "Handler.NewProductionGiteaIaCWriter (per-Org openbao token, env fallback)",
 		"regionsCounter", regionsCounter != nil,
 	)
 
