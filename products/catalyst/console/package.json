@@ -1,0 +1,30 @@
+{
+  "name": "catalyst-console",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "OpenOva Catalyst console — G117 catalog drill-down + multi-instance Application lifecycle + Launch button silent-SSO.",
+  "scripts": {
+    "prebuild": "node scripts/build-mock-fixture.mjs",
+    "predev": "node scripts/build-mock-fixture.mjs",
+    "pretest:e2e": "node scripts/build-mock-fixture.mjs",
+    "dev": "PUBLIC_MOCK_API=${MOCK_API:-0} astro dev --port 4323",
+    "build": "PUBLIC_MOCK_API=${MOCK_API:-0} astro build",
+    "preview": "PUBLIC_MOCK_API=${MOCK_API:-0} astro preview --port 4324",
+    "check": "astro check",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install --with-deps chromium"
+  },
+  "dependencies": {
+    "@astrojs/svelte": "^7.0.0",
+    "astro": "^5.7.0",
+    "js-yaml": "^4.1.0",
+    "svelte": "^5.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.6.0"
+  }
+}

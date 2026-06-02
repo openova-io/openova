@@ -1,0 +1,42 @@
+/* G117 — global styles for Catalyst console.
+   Mirrors core/console design tokens so the two consoles remain visually
+   coherent before merger. */
+
+:root {
+  --color-bg: #f8fafc;
+  --color-surface: #ffffff;
+  --color-border: #e2e8f0;
+  --color-text: #0f172a;
+  --color-muted: #64748b;
+  --color-accent: #1d4ed8;
+  --color-accent-hover: #1e40af;
+  --color-success: #047857;
+  --color-warn: #b45309;
+  --color-danger: #b00020;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+a {
+  color: var(--color-accent);
+}
+
+a:hover {
+  color: var(--color-accent-hover);
+}
+
+code {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85em;
+}
