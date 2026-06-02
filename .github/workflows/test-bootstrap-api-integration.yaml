@@ -95,8 +95,17 @@ jobs:
 
           # Create admin user via Gitea's `manage` CLI inside the
           # container. The service health-cmd has already passed; the
-          # container is alive.
-          docker exec "$(docker ps -q --filter ancestor=gitea/gitea:1.22)" \
+          # container is alive. The Gitea binary refuses to run as
+          # root, so we exec as the `git` user (UID 1000 in the
+          # official image) — that's the user the running server
+          # process itself runs as.
+          GITEA_CID=$(docker ps -q --filter ancestor=gitea/gitea:1.22)
+          if [ -z "$GITEA_CID" ]; then
+            echo "::error::no running gitea container found"
+            docker ps -a
+            exit 1
+          fi
+          docker exec -u git "$GITEA_CID" \
             gitea admin user create \
               --username ci-admin \
               --password ci-admin-password-do-not-use \
