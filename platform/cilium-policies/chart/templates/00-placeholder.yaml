@@ -1,0 +1,45 @@
+{{- /*
+bp-cilium-policies — placeholder template.
+
+G117.1-followup (Refs #2749, 2026-06-02): initial scaffold. This file
+exists so `helm template` renders non-empty output when the chart is
+installed with `--set enabled=true`, satisfying the smoke-render guard
+(per feedback_hollow_chart_dual_annotation.md). The CR it emits is the
+canonical "allow intra-namespace traffic" pattern — a safe baseline
+that does NOT change cluster behavior beyond what bp-network-policies
+already enforces, and is intentionally not selected onto any workload
+unless the operator overrides .Values.policies.allowIntraNamespace.
+
+Real per-Application policies will replace this scaffold as
+application-controller emits CiliumNetworkPolicy CRs from
+Blueprint.spec.networking.egress declarations.
+*/ -}}
+{{- if .Values.enabled -}}
+{{- $intra := index .Values.policies "allowIntraNamespace" | default dict -}}
+{{- if $intra.enabled -}}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-intra-namespace
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-cilium-policies.labels" . | nindent 4 }}
+    catalyst.openova.io/policy-tier: intra-namespace
+spec:
+  description: |
+    Allow Pod-to-Pod traffic within the same namespace. Placeholder
+    scaffold from bp-cilium-policies (G117.1-followup). Operator
+    enables via .Values.policies.allowIntraNamespace.enabled=true.
+  endpointSelector:
+    matchLabels:
+      {{- if hasKey $intra "matchLabels" }}
+      {{- toYaml $intra.matchLabels | nindent 6 }}
+      {{- else }}
+      {}
+      {{- end }}
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}

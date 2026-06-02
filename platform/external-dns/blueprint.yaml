@@ -1,0 +1,56 @@
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-external-dns
+  labels:
+    catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
+spec:
+  # G117.1-followup (Refs #2749, 2026-06-02): initial spec.topology
+  # declaration. Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md
+  # row 70 (bp-external-dns): per-host-cluster singleton, stateless
+  # controller (PowerDNS holds the authoritative records, not ExternalDNS).
+  # Runs on every host cluster across all 6 substrate cluster slots
+  # (mgmt-A/B, dmz-A/B, rtz-A/B). Each instance writes to its local
+  # PowerDNS auth replica via the webhook provider; no cross-cluster
+  # replication primitive — the source of truth is PowerDNS state
+  # (replicated by bp-powerdns lua-records + PG-backed pair).
+  version: 1.1.8
+  card:
+    title: ExternalDNS
+    family: networking
+    description: |
+      Synchronizes Kubernetes Gateway/Service/Ingress resources with the
+      per-Sovereign PowerDNS authoritative server (and any external cloud
+      DNS providers — Cloudflare, Route53, Hetzner DNS, Dynadot via the
+      Catalyst webhook). Health-checked geo-failover responses are owned
+      by PowerDNS lua-records, NOT by ExternalDNS.
+    docs: https://kubernetes-sigs.github.io/external-dns/
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        replication:
+          backend: none
+          mode: none
+        placement:
+          tier: ''
+          clusters:
+            - mgmt-A
+            - mgmt-B
+            - dmz-A
+            - dmz-B
+            - rtz-A
+            - rtz-B
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  multiInstance:
+    enabled: false

@@ -1,0 +1,55 @@
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-reflector
+  labels:
+    catalyst.openova.io/section: pts-3-3-security-and-policy
+spec:
+  # G117.1-followup (Refs #2749, 2026-06-02): initial spec.topology
+  # declaration. Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md
+  # row 83 (bp-reflector): per-host-cluster singleton, stateless
+  # controller. Reflector mirrors Kubernetes Secrets and ConfigMaps
+  # across namespaces by watching reflector.v1.k8s.emberstack.com/*
+  # annotations. Each cluster runs its own instance — there is no
+  # cross-cluster state to replicate (the source Secret/ConfigMap is
+  # already replicated by whatever Blueprint owns it, e.g.
+  # flux-system/ghcr-pull Secret created by bp-flux).
+  version: 1.0.0
+  card:
+    title: Reflector
+    family: guardian
+    description: |
+      Mirrors Kubernetes Secrets and ConfigMaps across namespaces via
+      reflector.v1.k8s.emberstack.com/* annotations. Eliminates the
+      cross-namespace secret propagation gap that previously caused
+      ImagePullBackOff on every new tenant namespace (issue #543).
+    docs: https://github.com/emberstack/kubernetes-reflector
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        replication:
+          backend: none
+          mode: none
+        placement:
+          tier: ''
+          clusters:
+            - mgmt-A
+            - mgmt-B
+            - dmz-A
+            - dmz-B
+            - rtz-A
+            - rtz-B
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  multiInstance:
+    enabled: false
