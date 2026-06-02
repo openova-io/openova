@@ -29,7 +29,7 @@ spec:
   # slot 19a on every Sovereign; the marketplace card represents the
   # per-User instantiation flow (Sandbox CR creation), not a fresh
   # Helm install.
-  visibility: marketplace
+  visibility: listed
   owner:
     team: platform
     contact: catalyst@openova.io
