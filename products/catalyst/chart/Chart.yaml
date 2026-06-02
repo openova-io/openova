@@ -2352,7 +2352,21 @@ name: bp-catalyst-platform
 # Blueprint placementSchema.defaultOnMultiRegion drives empty-
 # spec.placement on multi-region Sovereigns.
 # (Bumped 414 → 415 after main concurrently shipped a 1.4.414.)
-version: 1.4.435
+# 1.4.436 (G117.E2E-B3 #2740 #2745 #2737, 2026-06-03): promote the G117
+# fields (spec.topology, spec.endpoints, spec.sso, spec.multiInstance)
+# from JSON-schema-only into the Blueprint CRD openAPIV3Schema in
+# products/catalyst/chart/crds/blueprint.yaml. W1.B1 + W2.C2 shipped
+# the Go types + JSON-schema gate but the CRD manifest never gained
+# these fields — runtime admission silently swallowed them through
+# the parent spec's x-kubernetes-preserve-unknown-fields. This bump
+# makes admission gate the canonical contract (variant-specific
+# required keys via inlined per-variant sub-schemas; K8s structural
+# schemas forbid $ref so each of the 4 BCP variants repeats the
+# same three sub-blocks via YAML anchor). 83/87 of-tree blueprints
+# validate clean; 4 pre-existing failures (placementSchema bounds in
+# bp-{dmz,rtz}-vcluster + bare-string depends[] in powerdns-admin +
+# sso-bridge) are unrelated to this slice.
+version: 1.4.437
 appVersion: 1.4.349
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
