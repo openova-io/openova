@@ -985,7 +985,7 @@ function LaunchButton({
     setPending(true)
     try {
       const resp = await getLaunchURL(appUID)
-      const target = resp?.URL ?? fallbackURL
+      const target = resp?.url ?? fallbackURL
       window.open(target, '_blank', 'noopener,noreferrer')
     } catch {
       // Network / 5xx other than 503 — fall back to direct URL so the

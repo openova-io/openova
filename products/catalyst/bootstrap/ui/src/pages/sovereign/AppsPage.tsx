@@ -791,40 +791,14 @@ function AppCard({ app, status, isService, environment, marketplacePublished, sl
       </div>
 
       <div className="status-corner">
-        {externalURL && status === 'installed' ? (
-          <button
-            type="button"
-            className="open-app-btn"
-            data-testid={`sov-app-open-${app.id}`}
-            data-external-url={externalURL}
-            title={`Open ${app.title} (${externalURL}) — opens in new tab with SSO`}
-            onClick={(e) => {
-              e.preventDefault()
-              e.stopPropagation()
-              // Use noopener+noreferrer so the launched app cannot
-              // window.opener back into the console. SSO is handled by
-              // the destination via OIDC redirect → Keycloak.
-              window.open(externalURL, '_blank', 'noopener,noreferrer')
-            }}
-          >
-            <svg
-              viewBox="0 0 24 24"
-              width={11}
-              height={11}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2.2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M14 3h7v7" />
-              <path d="M10 14L21 3" />
-              <path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
-            </svg>
-            Open
-          </button>
-        ) : null}
+        {/* G117.4 #2743 V4 verdict (2026-06-03): per-card "Open" button
+         * REMOVED. It opened the raw externalURL with no
+         * prompt=none&kc_idp_hint=catalyst-pin appended, bypassing
+         * silent-SSO. Launch flows now happen exclusively from the
+         * AppDetail page Launch button, which calls
+         * /catalyst/v1/apps/{uid}/launch-url and gets a signed URL with
+         * the silent-SSO query string. Click the card to navigate to
+         * AppDetail, then use Launch. */}
         {marketplacePublished !== null && marketplacePublished !== undefined && slug ? (
           <button
             type="button"
@@ -1106,39 +1080,6 @@ const APPS_PAGE_CSS = `
 }
 
 .status-corner { position: absolute; bottom: 0.5rem; right: 0.55rem; display: flex; gap: 0.4rem; align-items: center; }
-/*
- * G90 2026-06-01 — operator-visible launch button for installed
- * Applications with an externally-exposed HTTPRoute. Renders in the
- * status-corner row alongside the INSTALLED badge so the affordance
- * is impossible to miss when scanning the apps grid.
- */
-.open-app-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.18rem 0.6rem;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
-  background: var(--color-accent);
-  color: #fff;
-  font-size: 0.66rem;
-  font-weight: 700;
-  line-height: 1.4;
-  font-family: inherit;
-  cursor: pointer;
-  pointer-events: auto;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-  transition: filter 120ms ease, box-shadow 120ms ease;
-}
-.open-app-btn:hover {
-  filter: brightness(1.1);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
-}
-.open-app-btn:focus-visible {
-  outline: 2px solid var(--color-text-strong);
-  outline-offset: 1px;
-}
 .publish-chip {
   display: inline-flex;
   align-items: center;
