@@ -717,6 +717,19 @@ func (h *Handler) HandlePinVerify(w http.ResponseWriter, r *http.Request) {
 	cookieMaxAge := int(pinSessionTTL.Seconds())
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 	cookieDomain := os.Getenv("CATALYST_SESSION_COOKIE_DOMAIN") // e.g. "console.openova.io"
+	// G113-followup hw86 2026-06-02 04:26Z: if the env is unset on a Sovereign,
+	// auto-derive `.<SOVEREIGN_FQDN>` so the catalyst_session cookie covers
+	// BOTH console.<fqdn> AND api.<fqdn>. Without this, the cookie is host-only
+	// on console.<fqdn> → KC's broker redirect to api.<fqdn>/oidc/auth doesn't
+	// carry the cookie → silent SSO bounces to /login (founder symptom 2026-06-02
+	// 04:18Z: "it keep redirecting me to here despite I already login with pin
+	// multiple times when I click on grafana sso login"). Mirrors PR #2729's
+	// auto-derive pattern for CATALYST_OIDC_PROVIDER_ISSUER_URL.
+	if cookieDomain == "" {
+		if sovFQDN := strings.TrimSpace(os.Getenv("SOVEREIGN_FQDN")); sovFQDN != "" {
+			cookieDomain = "." + sovFQDN
+		}
+	}
 
 	// ── Session-replay defence (TBD-F7 / #1730, Wave 28-F discovery) ─────
 	//
@@ -877,6 +890,13 @@ func (h *Handler) HandleAuthLogout(w http.ResponseWriter, r *http.Request) {
 	// and `=0` per RFC 6265bis (any non-positive value = immediate
 	// expiry), so this is a wire-shape choice, not a semantic one.
 	cookieDomain := os.Getenv("CATALYST_SESSION_COOKIE_DOMAIN")
+	// Mirror auto-derive from HandlePinVerify so logout clears the same
+	// cross-subdomain cookie the login set.
+	if cookieDomain == "" {
+		if sovFQDN := strings.TrimSpace(os.Getenv("SOVEREIGN_FQDN")); sovFQDN != "" {
+			cookieDomain = "." + sovFQDN
+		}
+	}
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 	w.Header().Add("Set-Cookie", buildClearSessionCookie(auth.SessionCookieName, cookieDomain, secure))
 	w.Header().Add("Set-Cookie", buildClearSessionCookie("catalyst_refresh", cookieDomain, secure))
