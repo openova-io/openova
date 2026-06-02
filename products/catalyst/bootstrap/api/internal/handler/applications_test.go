@@ -34,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
@@ -675,3 +676,64 @@ func TestHandleApplicationInstall_502OnCatalogUpstreamError(t *testing.T) {
 //    client surfaces AlreadyExists naturally for duplicate Create), but
 //    keep the import-check by referencing once.
 var _ = apierrors.IsConflict
+
+// TestHandleApplicationGet_PopulatesUID — Refs #2743 #2834 #2839.
+//
+// PR #2839 (G117.4 containment) added the Catalyst Console Launch
+// button which calls `GET /catalyst/v1/apps/{uid}/launch-url` to
+// obtain a silent-SSO front-door URL. The console resolves `{uid}`
+// from the `ApplicationDetailResponse.uid` field returned by
+// `GET /sovereigns/{id}/applications/{name}`. Prior to this change
+// the backend response omitted `metadata.uid` entirely, so the FE
+// fell back to direct externalURL on every click and the
+// silent-SSO codepath was never exercised.
+//
+// This test seeds an Application CR with a known UID, calls the GET
+// handler, and asserts the response body contains the exact UID
+// under the `uid` JSON key. Failure mode = field absent or wrong
+// value → FE Launch button degrades to fallback URL.
+func TestHandleApplicationGet_PopulatesUID(t *testing.T) {
+	const wantUID = "01abcdef-0123-4567-89ab-cdef01234567"
+
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	app := &unstructured.Unstructured{}
+	app.SetAPIVersion("apps.openova.io/v1")
+	app.SetKind("Application")
+	app.SetName("wp-prod")
+	app.SetNamespace("acme")
+	app.SetUID(k8stypes.UID(wantUID))
+	_ = unstructured.SetNestedField(app.Object, "Ready", "status", "phase")
+	factory, _ := fakeApplicationDynamicFactory(app)
+	h.dynamicFactory = factory
+	dep := installUserAccessDeployment(t, h, "dep-app-get-uid")
+
+	register := func(r chi.Router, hh *Handler) {
+		r.Get("/api/v1/sovereigns/{id}/applications/{name}", hh.HandleApplicationGet)
+	}
+	rec := callUserAccess(t, h, http.MethodGet,
+		"/api/v1/sovereigns/"+dep.ID+"/applications/wp-prod", nil, register)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	// Decode-and-check on the typed struct guards the Go field name +
+	// JSON tag together.
+	var resp applicationDetailResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.UID != wantUID {
+		t.Fatalf("uid (typed): got %q want %q", resp.UID, wantUID)
+	}
+	if resp.Name != "wp-prod" || resp.Namespace != "acme" {
+		t.Fatalf("name/ns: got %q/%q", resp.Name, resp.Namespace)
+	}
+
+	// Substring-check on the raw JSON guards the wire-shape — the
+	// json tag must literally render as `"uid":"<uid>"` (not `"UID"`,
+	// not `"metadata":{"uid":...}`). PR #2839's FE TS interface keys
+	// on `uid`.
+	if !strings.Contains(rec.Body.String(), `"uid":"`+wantUID+`"`) {
+		t.Fatalf("expected `\"uid\":\"%s\"` in JSON; got %s", wantUID, rec.Body.String())
+	}
+}
