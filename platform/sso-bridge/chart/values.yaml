@@ -79,7 +79,18 @@ operator:
     name: sovereign-fqdn
     namespace: catalyst-system
     orgEmailKey: orgEmail
-    sovereignFqdnKey: sovereignFqdn
+    # The canonical data key in the sovereign-fqdn ConfigMap is `fqdn`
+    # (emitted by products/catalyst/chart/templates/sovereign-fqdn-configmap.yaml:48
+    # via `fqdn: {{ .Values.global.sovereignFQDN | quote }}`). The legacy
+    # default `sovereignFqdn` shipped in G91.1 (PR #2683) does not exist on
+    # any Sovereign — the reconcile loop's `sovereign_fqdn()` returns empty,
+    # logs `sovereign-fqdn ConfigMap missing; skipping tick` every tick, and
+    # the Tier-1 OpenBao writes (sso/<app>) + per-Org-realm reconciler calls
+    # never happen. Caught live on hw86 2026-06-03 (G117.E2E-A6 verdict)
+    # where bp-gitea + bp-grafana token-exchange failed with
+    # `unauthorized_client` because chart-side OIDC secrets (md5 32-hex)
+    # never converged with KC-realm-imported secrets (sha256 64-hex).
+    sovereignFqdnKey: fqdn
 
 # Resource budget for the reconcile loop Pod. ~10 apps reconciled per tick
 # is the steady-state, all calls go through in-cluster Services, the
