@@ -4,6 +4,8 @@ metadata:
   name: cluster-autoscaler-hcloud
   labels:
     catalyst.openova.io/section: pts-3-2-scaling-and-resilience
+  annotations:
+    catalyst.openova.io/provider: hetzner
 spec:
   version: 1.3.0
   card:
@@ -41,3 +43,29 @@ spec:
   depends: []                        # cloud-credentials Secret is provisioned by cloud-init before Flux installs anything
   upgrades:
     from: ["0.x"]
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: ''
+          clusters:
+            - mgmt-A
+            - mgmt-B
+            - dmz-A
+            - dmz-B
+            - rtz-A
+            - rtz-B
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  multiInstance:
+    enabled: false

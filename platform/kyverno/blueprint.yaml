@@ -14,3 +14,32 @@ spec:
     family: guardian
     description: Kubernetes-native policy management. Validating/mutating/generating admission control. HA mode with separate admission/background/cleanup/reports controllers.
     docs: https://kyverno.io/docs/
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        replication:
+          backend: flux-git
+          mode: async
+        placement:
+          tier: ''
+          clusters:
+            - mgmt-A
+            - mgmt-B
+            - dmz-A
+            - dmz-B
+            - rtz-A
+            - rtz-B
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  multiInstance:
+    enabled: false

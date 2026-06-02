@@ -13,3 +13,37 @@ spec:
   manifests:
     chart: ./chart
   depends: []
+  topology:
+    supported:
+      - active-hot-standby
+      - singleton
+    defaults:
+      multi-region: active-hot-standby
+      single-region: singleton
+    perTopology:
+      active-hot-standby:
+        replication:
+          backend: cnpg-pair
+          mode: sync
+          lagSloSeconds: 0
+        switchover:
+          mechanism: bp-continuum
+          rtoSeconds: 30
+          rpoSeconds: 0
+        placement:
+          tier: mgmt
+          clusters:
+            - mgmt-A
+            - mgmt-B
+          roles:
+            mgmt-A: active
+            mgmt-B: passive
+      singleton:
+        placement:
+          tier: mgmt
+          clusters:
+            - mgmt-A
+          roles:
+            mgmt-A: singleton
+  multiInstance:
+    enabled: false

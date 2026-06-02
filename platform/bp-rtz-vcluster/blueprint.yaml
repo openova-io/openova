@@ -37,3 +37,24 @@ spec:
     vclusterName: rtz
     kubeconfigSecretName: vc-rtz
     role: secondary
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        replication:
+          backend: velero
+          mode: async
+        placement:
+          tier: rtz
+          clusters:
+            - rtz-A
+            - rtz-B
+          roles:
+            rtz-A: singleton
+            rtz-B: singleton
+  multiInstance:
+    enabled: false

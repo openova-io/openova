@@ -11,3 +11,29 @@ spec:
     family: guardian
     description: Runtime threat detection (CNCF Graduated). eBPF kernel-level syscall monitoring for container escapes, privilege escalation, anomalous behavior. Feeds the SIEM pipeline via Falcosidekick.
     docs: https://falco.org/docs/
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: ''
+          clusters:
+            - mgmt-A
+            - mgmt-B
+            - dmz-A
+            - dmz-B
+            - rtz-A
+            - rtz-B
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  multiInstance:
+    enabled: false

@@ -11,3 +11,32 @@ spec:
     family: insights
     description: Kubernetes-native backup and disaster recovery. Backups land directly in the Sovereign's cloud-provider object storage (Hetzner Object Storage, AWS S3, Azure Blob, …) per ADR-0001 §13's S3-aware-app architecture rule.
     docs: https://velero.io/docs/
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        replication:
+          backend: s3-bucket-replication
+          mode: async
+        placement:
+          tier: ''
+          clusters:
+            - mgmt-A
+            - mgmt-B
+            - dmz-A
+            - dmz-B
+            - rtz-A
+            - rtz-B
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  multiInstance:
+    enabled: false

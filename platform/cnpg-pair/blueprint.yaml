@@ -249,3 +249,29 @@ spec:
     # job (delivered in C-DB-3 acceptance harness). Documented in
     # DESIGN.md "single→pair migration".
     from: ["1.x"]
+  topology:
+    supported:
+      - active-hot-standby
+    defaults:
+      multi-region: active-hot-standby
+      single-region: active-hot-standby
+    perTopology:
+      active-hot-standby:
+        replication:
+          backend: cnpg-pair
+          mode: sync
+          lagSloSeconds: 0
+        switchover:
+          mechanism: bp-continuum
+          rtoSeconds: 10
+          rpoSeconds: 0
+        placement:
+          tier: rtz
+          clusters:
+            - rtz-A
+            - rtz-B
+          roles:
+            rtz-A: active
+            rtz-B: passive
+  multiInstance:
+    enabled: false

@@ -24,3 +24,45 @@ spec:
     - bp-external-secrets-stores
     - bp-reflector
     - bp-gateway-api
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: ''
+          clusters:
+            - mgmt-A
+            - mgmt-B
+            - dmz-A
+            - dmz-B
+            - rtz-A
+            - rtz-B
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  endpoints:
+    - name: ui
+      hostnameTemplate: pdns-admin.{{.SovereignFQDN}}
+      port: 443
+      protocol: https
+      tls: true
+      visibility: private
+      launchDefault: true
+      ssoEnabled: true
+  sso:
+    realm: sovereign
+    protocolMapper: oidc
+    groupsClaim: groups
+    rolesFromGroup:
+      sovereign-admins: admin
+    silentLogin: true
+  multiInstance:
+    enabled: false

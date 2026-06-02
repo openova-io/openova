@@ -11,3 +11,29 @@ spec:
     family: guardian
     description: Watches ConfigMap/Secret changes and triggers rolling restarts of dependent Deployments/StatefulSets/DaemonSets. Lets bp-* workloads pick up rotated secrets and rotated TLS material without manual rollouts.
     docs: https://github.com/stakater/Reloader
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: ''
+          clusters:
+            - mgmt-A
+            - mgmt-B
+            - dmz-A
+            - dmz-B
+            - rtz-A
+            - rtz-B
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  multiInstance:
+    enabled: false

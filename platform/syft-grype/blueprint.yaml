@@ -11,3 +11,29 @@ spec:
     family: guardian
     description: SBOM generation (Syft) + vulnerability scanning (Grype) as a scheduled CronJob. Anchore tools — no upstream Helm chart, scratch chart wires the official containers.
     docs: https://github.com/anchore/grype
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: ''
+          clusters:
+            - mgmt-A
+            - mgmt-B
+            - dmz-A
+            - dmz-B
+            - rtz-A
+            - rtz-B
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  multiInstance:
+    enabled: false
