@@ -1718,23 +1718,13 @@ security:
 # Per PR #2795 (G117.2 multi-instance Application CRD): backfill spec.instanceId
 # on legacy Application CRs that pre-date the immutable-id field.
 #
-# Defaults align with the chart-side Job emitter at
-# templates/migrate-applications-instanceId-job.yaml. Operators can disable
-# specific migrations via per-Sovereign valuesFrom overlay if they want to
-# defer the backfill to a separate ops window.
+# Default = disabled. The migrator image (catalyst-migrator) is not yet
+# published to GHCR; enabling without the image causes ImagePullBackOff on
+# the post-upgrade Helm hook and stalls the chart roll. Per-Sovereign
+# overlays can flip enabled=true once the image lands.
 migrations:
   applicationsInstanceId:
-    enabled: true
-    dryRun: false
-    serviceAccountName: catalyst-application-migrator
-    image: ghcr.io/openova-io/catalyst-migrator:0.1.0
-
-# ── Migrations (post-install / post-upgrade Helm-hook Jobs) ──────────────
-# Per PR #2795 (G117.2 multi-instance Application CRD): backfill spec.instanceId
-# on legacy Application CRs that pre-date the immutable-id field.
-migrations:
-  applicationsInstanceId:
-    enabled: true
+    enabled: false
     dryRun: false
     serviceAccountName: catalyst-application-migrator
     image: ghcr.io/openova-io/catalyst-migrator:0.1.0
