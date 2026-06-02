@@ -75,6 +75,49 @@ langfuse:
     serviceAccount:
       create: true
 
+    # ─── G117.5 (W3.D2 #2744) Tier-3 SSO — env from per-app Secret ─────
+    # next-auth Keycloak provider reads AUTH_KEYCLOAK_* env vars at
+    # process start; sourcing them via secretKeyRef with `optional: true`
+    # keeps the Pod installable on a fresh Sovereign before bp-sso-bridge
+    # has reconciled the per-Org realm + minted the langfuse client.
+    additionalEnv:
+      - name: AUTH_KEYCLOAK_ISSUER
+        valueFrom:
+          secretKeyRef:
+            name: langfuse-sso-oidc-credentials
+            key: AUTH_KEYCLOAK_ISSUER
+            optional: true
+      - name: AUTH_KEYCLOAK_CLIENT_ID
+        valueFrom:
+          secretKeyRef:
+            name: langfuse-sso-oidc-credentials
+            key: AUTH_KEYCLOAK_CLIENT_ID
+            optional: true
+      - name: AUTH_KEYCLOAK_CLIENT_SECRET
+        valueFrom:
+          secretKeyRef:
+            name: langfuse-sso-oidc-credentials
+            key: AUTH_KEYCLOAK_CLIENT_SECRET
+            optional: true
+      - name: AUTH_KEYCLOAK_REQUIRE_EMAIL_VERIFICATION
+        valueFrom:
+          secretKeyRef:
+            name: langfuse-sso-oidc-credentials
+            key: AUTH_KEYCLOAK_REQUIRE_EMAIL_VERIFICATION
+            optional: true
+      - name: AUTH_KEYCLOAK_ALLOW_ACCOUNT_LINKING
+        valueFrom:
+          secretKeyRef:
+            name: langfuse-sso-oidc-credentials
+            key: AUTH_KEYCLOAK_ALLOW_ACCOUNT_LINKING
+            optional: true
+      - name: NEXTAUTH_URL
+        valueFrom:
+          secretKeyRef:
+            name: langfuse-sso-oidc-credentials
+            key: NEXTAUTH_URL
+            optional: true
+
   # PostgreSQL — Catalyst routes via cnpg.io/Cluster (bp-cnpg). The
   # bundled Bitnami subchart is OFF; per-Sovereign overlays MUST set
   # `postgresql.host` to the cnpg `<cluster>-rw` Service and reference a
@@ -160,3 +203,31 @@ langfuseOverlay:
       size: 20Gi
   networkPolicy:
     enabled: false
+
+# ─── G117.5 (W3.D2 #2744) Tier-3 SSO — per-Org realm wiring ──────────────
+# Catalyst Organization slug + Sovereign FQDN drive the per-Org realm
+# name + AppRegistration ConfigMap + NEXTAUTH_URL host derivation.
+# application-controller materialises these from the Org + Sovereign at
+# Application install time; values shown are placeholders so `helm
+# template` smoke-renders cleanly without `--set`.
+org:
+  slug: ""                              # e.g. "acme" — Org slug (also = per-Org KC realm name)
+sovereign:
+  fqdn: ""                              # e.g. "openova.example.com" (per-Sovereign overlay)
+
+# Catalyst-side OIDC config — materialised as a per-app ExternalSecret +
+# AppRegistration ConfigMap consumed by bp-sso-bridge; Langfuse 3.x
+# next-auth Keycloak provider reads AUTH_KEYCLOAK_* env vars from the
+# Secret via `langfuse.langfuse.additionalEnv[]` (see block below).
+#
+# Silent 2-hop SSO (per-Org realm → sovereign realm broker → catalyst-
+# pin) requires the per-Org realm's Identity Provider Redirector to have
+# `defaultProvider=sovereign-broker` bound — shipped by bp-keycloak
+# W2.C4 PR #2794. next-auth derives authorize/token URLs from issuer
+# discovery; per-request kc_idp_hint is a no-op here.
+oidc:
+  enabled: false                        # default OFF until per-Org realm exists
+  realm: ""                             # operator-supplied or = .Values.org.slug
+  clientId: "langfuse"
+  externalSecretStoreName: "vault-region1"
+  refreshInterval: "1h"

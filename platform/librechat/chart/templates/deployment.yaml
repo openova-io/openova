@@ -133,8 +133,15 @@ spec:
               value: {{ .Values.keycloak.allowSocialLogin | quote }}
             - name: ALLOW_SOCIAL_REGISTRATION
               value: {{ .Values.keycloak.allowSocialRegistration | quote }}
+            # G117.5 W3.D2 (#2744): auto-derive OPENID_ISSUER from
+            # sovereign.fqdn + org.realm when keycloak.issuer is empty.
+            # Falls back to the literal `keycloak.issuer` if pre-set.
+            {{- $issuer := .Values.keycloak.issuer -}}
+            {{- if and (not $issuer) .Values.sovereign.fqdn .Values.org.realm -}}
+              {{- $issuer = printf "https://auth.%s/realms/%s" .Values.sovereign.fqdn .Values.org.realm -}}
+            {{- end }}
             - name: OPENID_ISSUER
-              value: {{ .Values.keycloak.issuer | quote }}
+              value: {{ $issuer | quote }}
             - name: OPENID_CLIENT_ID
               value: {{ .Values.keycloak.clientId | quote }}
             - name: OPENID_SCOPE

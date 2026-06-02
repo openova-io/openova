@@ -1,0 +1,57 @@
+{{- /*
+G117.5 W3.D2 (#2744) — Matrix Synapse AppRegistration ConfigMap.
+
+bp-sso-bridge reconciler watches ConfigMaps labelled
+`sso.openova.io/app-registration=<client-id>` and mints the matching
+OIDC client in the per-Org Keycloak realm (named by `org.slug`) at
+Application install time. The client's `client_secret` is then PUT to
+OpenBao at `secret/sso/<org-slug>/matrix-synapse` where the companion
+ExternalSecret (sso-externalsecret.yaml) reads it.
+
+The realm name is the Org slug (lower-case alnum + hyphens; matches the
+realm-name convention emitted by bp-keycloak's
+configmap-per-org-realms.yaml — `tenantRealms[].slug` becomes the
+realm).
+
+Redirect URI matches the bp-matrix blueprint.yaml endpoint hostname
+template (matrix.{{`{{`}}.OrgSlug{{`}}`}}.{{`{{`}}.SovereignFQDN{{`}}`}})
++ Synapse's canonical OIDC callback path
+`/_synapse/client/oidc/callback`.
+*/ -}}
+{{- /*
+Rendered only when oidc.enabled=true AND org.slug + sovereign.fqdn +
+oidc.realm are all set — bp-sso-bridge needs all three to mint the
+Org's KC client. Default smoke-renders (empty paths) skip cleanly.
+*/ -}}
+{{- if and .Values.oidc.enabled .Values.org.slug .Values.sovereign.fqdn .Values.oidc.realm }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bp-matrix-sso-registration
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-matrix
+    sso.openova.io/app-registration: matrix-synapse
+    catalyst.openova.io/org-slug: {{ .Values.org.slug | quote }}
+data:
+  realm: {{ .Values.oidc.realm | quote }}
+  client.json: |
+    {
+      "clientId": {{ .Values.oidc.clientId | default "matrix-synapse" | quote }},
+      "name": "Matrix Synapse ({{ .Values.org.slug }})",
+      "enabled": true,
+      "publicClient": false,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "https://matrix.{{ .Values.org.slug }}.{{ .Values.sovereign.fqdn }}/_synapse/client/oidc/callback"
+      ],
+      "webOrigins": [
+        "https://matrix.{{ .Values.org.slug }}.{{ .Values.sovereign.fqdn }}"
+      ],
+      "defaultClientScopes": ["web-origins", "profile", "email", "groups"],
+      "attributes": {
+        "access.token.lifespan": "900"
+      }
+    }
+{{- end }}

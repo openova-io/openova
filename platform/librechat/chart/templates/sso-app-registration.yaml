@@ -1,0 +1,50 @@
+{{- /*
+G117.5 W3.D2 (#2744) — LibreChat AppRegistration ConfigMap.
+
+bp-sso-bridge reconciler watches ConfigMaps labelled
+`sso.openova.io/app-registration=<client-id>` and mints the matching
+OIDC client in the per-Org Keycloak realm (named by `org.realm`, which
+defaults to the Org slug per bp-keycloak's `tenantRealms[].slug`
+convention) at Application install time. The client's `client_secret`
++ `session_secret` are PUT to OpenBao at
+`secret/sso/<org-slug>/librechat` where the companion ExternalSecret
+(sso-externalsecret.yaml) reads them.
+
+Redirect URI matches the bp-librechat blueprint.yaml endpoint hostname
+template `chat.{{`{{`}}.OrgSlug{{`}}`}}.{{`{{`}}.SovereignFQDN{{`}}`}}`
++ LibreChat's canonical OIDC callback path
+`/oauth/openid/callback` (matches `.Values.keycloak.callbackPath`).
+*/ -}}
+{{- /*
+Rendered only when keycloak.enabled=true AND org.slug + org.realm +
+sovereign.fqdn are all set. Default smoke-renders skip cleanly.
+*/ -}}
+{{- if and .Values.keycloak.enabled .Values.org.slug .Values.org.realm .Values.sovereign.fqdn }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bp-librechat-sso-registration
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-librechat
+    sso.openova.io/app-registration: librechat
+    catalyst.openova.io/org-slug: {{ .Values.org.slug | quote }}
+data:
+  realm: {{ .Values.org.realm | quote }}
+  client.json: |
+    {
+      "clientId": {{ .Values.keycloak.clientId | default "librechat" | quote }},
+      "name": "LibreChat ({{ .Values.org.slug }})",
+      "enabled": true,
+      "publicClient": false,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "https://chat.{{ .Values.org.slug }}.{{ .Values.sovereign.fqdn }}{{ .Values.keycloak.callbackPath | default "/oauth/openid/callback" }}"
+      ],
+      "webOrigins": [
+        "https://chat.{{ .Values.org.slug }}.{{ .Values.sovereign.fqdn }}"
+      ],
+      "defaultClientScopes": ["web-origins", "openid", "profile", "email", "groups"]
+    }
+{{- end }}
