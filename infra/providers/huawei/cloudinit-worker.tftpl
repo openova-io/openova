@@ -69,6 +69,19 @@ write_files:
         "212.72.24.20:5002":
           tls:
             insecure_skip_verify: true
+        # #2842 (2026-06-03) — STRUCTURAL fix for "401 on every uncached pull".
+        # Mirrors cloudinit-control-plane.tftpl. G3 RCA: every hw86 node has
+        # /var/lib/rancher/k3s/agent/etc/containerd/certs.d/<host>/hosts.toml
+        # mirroring 7 public registries through https://harbor.openova.io,
+        # but containerd had no creds → 401 → stale-ingest-lock loop. Defense:
+        # seed harbor robot credentials so direct-to-harbor.openova.io paths
+        # (chart-injected image refs, k3s hosts.toml, autoscaler-spawned
+        # workers) authenticate. Same pattern as hetzner/cloudinit-control-
+        # plane.tftpl lines 392-396.
+        "harbor.openova.io":
+          auth:
+            username: "robot$openova-bot"
+            password: "${harbor_robot_token}"
 
   - path: /etc/sysctl.d/99-catalyst-inotify.conf
     permissions: '0644'

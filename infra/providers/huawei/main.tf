@@ -568,6 +568,12 @@ locals {
       # all collapse to single-region. Huawei CCM doesn't stamp
       # standard topology labels by default; cloudinit fills the gap.
       region = r.code
+      # #2842 (2026-06-03): harbor robot token for the registries.yaml
+      # `configs.harbor.openova.io.auth` block — without this, every
+      # uncached pull of an upstream image referencing harbor.openova.io
+      # 401s and containerd loops on stale-ingest-locks. Mirrors the CP
+      # template binding (line 788).
+      harbor_robot_token = var.harbor_robot_token
     }), "/(?m)^[ ]*#( |$).*\n/", "")
   }
 
