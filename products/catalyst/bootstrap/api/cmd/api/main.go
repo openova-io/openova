@@ -391,6 +391,26 @@ func main() {
 		log.Info("gitea: client not wired (CATALYST_GITEA_URL or CATALYST_GITEA_TOKEN unset); /blueprints/* will return 503")
 	}
 
+	// ── G117.3 (#2742) — endpoint CRUD + IaC PR pipeline wiring.
+	// Wires the EndpointPrecheckDeps bundle the endpoint_handler.go
+	// handlers consume. Each lookup closure is nil-tolerant:
+	//
+	//   - CertLookup nil → cert-manager-precheck 503 (lookup-unavailable)
+	//   - DNSLookup nil → dns-conflict-precheck 503 (lookup-unavailable)
+	//   - KyvernoLookup nil → deferred to per-Org repo workflow (pass)
+	//
+	// The WriterFactory uses CATALYST_GITEA_URL + CATALYST_GITEA_TOKEN
+	// as a single-token shim until External-Secrets per-Org rotation
+	// lands (see handler.NewProductionGiteaIaCWriter doc).
+	h.SetEndpointPrecheckDeps(handler.EndpointPrecheckDeps{
+		WriterFactory: handler.NewProductionGiteaIaCWriter,
+		SovereignFQDN: env("SOVEREIGN_FQDN", ""),
+	})
+	log.Info("g117.3: endpoint precheck deps wired",
+		"sovereignFQDN", env("SOVEREIGN_FQDN", ""),
+		"writerFactory", "NewProductionGiteaIaCWriter (single-token shim)",
+	)
+
 	// EPIC-3 #1098 slice U8 — RBAC audit Bus. Owns:
 	//   • the in-process ring buffer the GET /audit/rbac listing reads
 	//   • the SSE fan-out the GET /audit/rbac/stream subscribes to
@@ -1316,6 +1336,24 @@ func main() {
 		// new content + opens a PR on `<org>/shared-blueprints` so the
 		// edit lands via the GitOps flow rather than side-stepping flux.
 		rg.Post("/api/v1/sovereigns/{id}/blueprints/edit-pr", h.HandleBlueprintEditPR)
+
+		// ── G117.3 (#2742) — endpoint CRUD + Gitea-IaC PR pipeline +
+		// silent-SSO Launch URL + multi-instance Application create.
+		// Routes match docs/api/catalyst-api-openapi.yaml exactly.
+		// See products/catalyst/bootstrap/api/internal/handler/
+		// endpoint_handler.go for the per-handler contract + the
+		// ADR-0009 PR-pipeline architecture.
+		//
+		// Authz: each mutation handler enforces tier-admin or higher
+		// (same gate as Application install) via the request-context
+		// claims. Read handlers fall through to RequireSession only.
+		rg.Get("/catalyst/v1/apps/{id}/endpoints", h.HandleListAppEndpoints)
+		rg.Post("/catalyst/v1/apps/{id}/endpoints", h.HandleCreateAppEndpoint)
+		rg.Patch("/catalyst/v1/apps/{id}/endpoints/{name}", h.HandlePatchAppEndpoint)
+		rg.Delete("/catalyst/v1/apps/{id}/endpoints/{name}", h.HandleDeleteAppEndpoint)
+		rg.Get("/catalyst/v1/apps/{id}/launch-url", h.HandleGetLaunchURL)
+		rg.Post("/catalyst/v1/apps/instances", h.HandleCreateInstance)
+		rg.Get("/catalyst/v1/catalog/{blueprint}/instances", h.HandleListBlueprintInstances)
 
 		// EPIC-6 (#1101) slice U-DR-1 — Continuum DR UI surface.
 		// GET surfaces the CR for the AppDetail Topology DR section.
