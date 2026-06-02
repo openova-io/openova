@@ -30,6 +30,28 @@ catalystBlueprint:
 # Per-Sovereign bootstrap-kit HelmRelease overlay supplies this.
 sovereignFQDN: ""
 
+# G117.5b #2789 — SSO client-secret rotation knob.
+#
+# All Tier-1 / Tier-2 / Tier-3 client secrets are derived via the
+# `bp-keycloak.{tier1ClientSecret,tier2ClientSecret,tenantBrokerClientSecret}`
+# helpers in _helpers.tpl, which sha256 a seed built from
+# `Release.Name|Release.Namespace|<tier-label>|<id>`. By design that
+# derivation is render-stable: re-renders are idempotent, chart upgrades
+# do not rotate client secrets.
+#
+# To ROTATE all SSO client secrets atomically (e.g. after a suspected
+# leak), set `sso.tier1ClientSecretSalt` to a fresh string and
+# `helm upgrade`. The helpers append the salt to the seed iff non-empty,
+# so every derived secret changes in lockstep across Tier-1+Tier-2+Tier-3.
+# bp-sso-bridge auto-discovers the new secrets on its next tick and
+# re-distributes the OpenBao bundle.
+#
+# Empty default = NO salt appended (preserves render-stability for
+# existing Sovereigns). NEVER commit a real salt value here — operators
+# set it via per-Sovereign valuesFrom or SealedSecret-backed overlay.
+sso:
+  tier1ClientSecretSalt: ""
+
 # sovereignRealm.enabled: when true, the configmap-sovereign-realm.yaml
 # template emits the realm import ConfigMap and keycloakConfigCli references it
 # via existingConfigmap. Set false only if running Keycloak without the Sovereign

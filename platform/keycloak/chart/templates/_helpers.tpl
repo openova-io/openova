@@ -83,7 +83,11 @@ KV → ExternalSecret → per-app namespace.
 {{- /* Expects a dict: {ctx: ., clientId: <string>} */ -}}
 {{- $ctx := .ctx -}}
 {{- $cid := .clientId -}}
+{{- $salt := default "" (((.ctx.Values).sso).tier1ClientSecretSalt) -}}
 {{- $seed := printf "%s|%s|tier1-sso|%s" $ctx.Release.Name $ctx.Release.Namespace $cid -}}
+{{- if ne $salt "" -}}
+{{- $seed = printf "%s|%s" $seed $salt -}}
+{{- end -}}
 {{- $seed | sha256sum -}}
 {{- end -}}
 
@@ -107,7 +111,11 @@ themselves change.
 {{- /* Expects a dict: {ctx: ., clientId: <string>} */ -}}
 {{- $ctx := .ctx -}}
 {{- $cid := .clientId -}}
+{{- $salt := default "" (((.ctx.Values).sso).tier1ClientSecretSalt) -}}
 {{- $seed := printf "%s|%s|tier2-sso|%s" $ctx.Release.Name $ctx.Release.Namespace $cid -}}
+{{- if ne $salt "" -}}
+{{- $seed = printf "%s|%s" $seed $salt -}}
+{{- end -}}
 {{- $seed | sha256sum -}}
 {{- end -}}
 
@@ -142,6 +150,10 @@ don't rotate per-Org broker secrets.
 {{- /* Expects a dict: {ctx: ., orgSlug: <string>} */ -}}
 {{- $ctx := .ctx -}}
 {{- $slug := .orgSlug -}}
+{{- $salt := default "" (((.ctx.Values).sso).tier1ClientSecretSalt) -}}
 {{- $seed := printf "%s|%s|tenant-broker|%s" $ctx.Release.Name $ctx.Release.Namespace $slug -}}
+{{- if ne $salt "" -}}
+{{- $seed = printf "%s|%s" $seed $salt -}}
+{{- end -}}
 {{- $seed | sha256sum -}}
 {{- end -}}

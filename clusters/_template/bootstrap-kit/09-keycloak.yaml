@@ -108,7 +108,13 @@ spec:
       # realm-import via the new `bp-keycloak.tier2ClientSecret` helper.
       # Pattern mirrors Tier-1 1.4.10 fan-out; same realm + same
       # catalyst-pin IDR. Refs #2744.
-      version: 1.4.13
+      # 1.4.14 (G117.5b #2789, 2026-06-02): adds optional
+      # .Values.sso.tier1ClientSecretSalt knob. When non-empty, the
+      # Tier-1/Tier-2/Tier-3 client-secret derivation helpers append
+      # it to the SHA-256 seed, atomically rotating every derived SSO
+      # client secret on next helm upgrade. Empty default preserves
+      # render-stability + back-compat. Refs #2789.
+      version: 1.4.14
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak
