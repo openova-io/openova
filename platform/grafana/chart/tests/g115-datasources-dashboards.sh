@@ -65,7 +65,7 @@ for d in docs:
 want = {
     'Prometheus': 'http://mimir-nginx.mimir.svc.cluster.local:80/prometheus',
     'Loki':       'http://loki.loki.svc.cluster.local:3100',
-    'Tempo':      'http://tempo.tempo.svc.cluster.local:3100',
+    'Tempo':      'http://tempo.tempo.svc.cluster.local:3200',
 }
 for name, url in want.items():
     if name not in found:
