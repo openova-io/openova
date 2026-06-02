@@ -1,0 +1,75 @@
+# Invalid samples — each violates a single field-level constraint to verify
+# the openAPIV3Schema is actually enforced at admission. Apply with
+# --validate=true (the chart test runner asserts every entry below is
+# REJECTED by `kubectl apply --dry-run=server`).
+#
+# Invalid 1 — fqdn must contain at least one dot (bare label rejected).
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Sovereign
+metadata:
+  name: bad-fqdn-no-dot
+spec:
+  fqdn: localhost
+  bcpTopology: single-region
+---
+# Invalid 2 — deploymentId must be exactly 16 hex chars.
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Sovereign
+metadata:
+  name: bad-deployment-id
+spec:
+  fqdn: bad.example.com
+  deploymentId: not-hex-too-short
+  bcpTopology: single-region
+---
+# Invalid 3 — bcpTopology enum violation.
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Sovereign
+metadata:
+  name: bad-bcp-topology
+spec:
+  fqdn: bad.example.com
+  bcpTopology: split-brain
+---
+# Invalid 4 — provider enum violation.
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Sovereign
+metadata:
+  name: bad-provider
+spec:
+  fqdn: bad.example.com
+  bcpTopology: single-region
+  provider: digitalocean
+---
+# Invalid 5 — parentDomains[].role enum violation.
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Sovereign
+metadata:
+  name: bad-parent-domain-role
+spec:
+  fqdn: bad.example.com
+  bcpTopology: single-region
+  parentDomains:
+    - name: bad.example.com
+      role: backup-only
+---
+# Invalid 6 — regions[].code missing (required).
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Sovereign
+metadata:
+  name: bad-region-no-code
+spec:
+  fqdn: bad.example.com
+  bcpTopology: active-hotstandby
+  regions:
+    - role: primary
+    - role: standby
+---
+# Invalid 7 — fqdn uppercase letters rejected (lowercase pattern).
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Sovereign
+metadata:
+  name: bad-fqdn-uppercase
+spec:
+  fqdn: BAD.Example.COM
+  bcpTopology: single-region

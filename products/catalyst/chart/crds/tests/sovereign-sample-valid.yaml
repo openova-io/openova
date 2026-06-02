@@ -1,0 +1,77 @@
+# Valid samples — cover single-region (mothership preview), active-hotstandby
+# (the canonical production shape), and active-active (multi-master). Verified
+# via:
+#   kubectl apply --dry-run=server -f sovereign-sample-valid.yaml
+# (server-side dry-run requires the CRD applied to a real cluster first.)
+#
+# Sample 1 — single-region preview Sovereign on Hetzner (default at signup).
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Sovereign
+metadata:
+  name: sovereign-self
+  labels:
+    catalyst.openova.io/sovereign: t38.omani.works
+spec:
+  fqdn: t38.omani.works
+  deploymentId: 974113d27f0e3666
+  bcpTopology: single-region
+  provider: hetzner
+  regions:
+    - code: fsn1
+      role: primary
+      provider: hetzner
+  parentDomains:
+    - name: omani.works
+      role: primary
+---
+# Sample 2 — active-hotstandby Sovereign on Huawei (the canonical production
+# shape per the H7 walk evidence). 2 regions on the wire satisfies the
+# Pillar 3 `len(regions)>=2` gate at provisioner.go:798.
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Sovereign
+metadata:
+  name: omantel
+  labels:
+    catalyst.openova.io/sovereign: omantel.omani.works
+spec:
+  fqdn: omantel.omani.works
+  deploymentId: a1b2c3d4e5f60718
+  bcpTopology: active-hotstandby
+  provider: huawei
+  regions:
+    - code: me-east-215-a
+      role: primary
+      az: az1
+      provider: huawei
+    - code: me-east-215-b
+      role: standby
+      az: az2
+      provider: huawei
+  parentDomains:
+    - name: omani.works
+      role: primary
+    - name: omani.homes
+      role: sme-pool
+    - name: omani.rest
+      role: sme-pool
+---
+# Sample 3 — active-active multi-master on Hetzner.
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Sovereign
+metadata:
+  name: openova
+spec:
+  fqdn: openova.io
+  deploymentId: deadbeefcafebabe
+  bcpTopology: active-active
+  provider: hetzner
+  regions:
+    - code: fsn1
+      role: active
+    - code: hel1
+      role: active
+    - code: nbg1
+      role: active
+  parentDomains:
+    - name: openova.io
+      role: primary
