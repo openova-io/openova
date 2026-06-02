@@ -65,7 +65,10 @@ for d in docs:
 want = {
     'Prometheus': 'http://mimir-nginx.mimir.svc.cluster.local:80/prometheus',
     'Loki':       'http://loki.loki.svc.cluster.local:3100',
-    'Tempo':      'http://tempo.tempo.svc.cluster.local:3100',
+    # Tempo: port 3200 is the http-query API (3100 is Loki's gRPC/HTTP);
+    # values.yaml line 300 + Chart.yaml comment line 17 codify the 3100→3200
+    # correction shipped in bp-grafana 1.0.6 (PR #2800). Test must match.
+    'Tempo':      'http://tempo.tempo.svc.cluster.local:3200',
 }
 for name, url in want.items():
     if name not in found:
