@@ -2366,7 +2366,7 @@ name: bp-catalyst-platform
 # validate clean; 4 pre-existing failures (placementSchema bounds in
 # bp-{dmz,rtz}-vcluster + bare-string depends[] in powerdns-admin +
 # sso-bridge) are unrelated to this slice.
-version: 1.4.437
+version: 1.4.438
 appVersion: 1.4.349
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
