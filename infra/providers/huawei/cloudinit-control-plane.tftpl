@@ -92,6 +92,25 @@ write_files:
         "212.72.24.20:5002":
           tls:
             insecure_skip_verify: true
+        # #2842 (2026-06-03) — STRUCTURAL fix for "401 on every uncached pull".
+        # G3 RCA: every hw86 node's /var/lib/rancher/k3s/agent/etc/containerd/
+        # certs.d/<host>/hosts.toml mirrors 7 public registries through
+        # https://harbor.openova.io/v2/proxy-<host>, BUT containerd had no
+        # credentials for harbor.openova.io → 401 on every uncached pull →
+        # containerd stale-ingest-lock loop (live evidence on wea28e1: 3
+        # ingest dirs locked 18+ min, catalyst-api Pod ContainerCreating 25+
+        # min, ~451MB orphan blobs). PR #2845 removed mis-aimed mirrors
+        # (ghcr.io via :5003 etc.) as containment; THIS block is the defense:
+        # provision the harbor robot credentials so any path that resolves to
+        # harbor.openova.io (k3s-injected hosts.toml, direct image ref, or
+        # an upstream chart that hardcodes harbor.openova.io/proxy-*)
+        # authenticates successfully against the upstream Harbor proxy-cache
+        # projects. Same pattern as hetzner/cloudinit-control-plane.tftpl
+        # lines 392-396 (issue #557 Step 2).
+        "harbor.openova.io":
+          auth:
+            username: "robot$openova-bot"
+            password: "${harbor_robot_token}"
 
   # ── Sovereign metadata file (parsed by phase1 watchers) ───────────────
   - path: /var/lib/catalyst/sovereign.json
