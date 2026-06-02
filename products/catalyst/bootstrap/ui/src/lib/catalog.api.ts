@@ -148,26 +148,16 @@ export async function getCatalogItemVersion(name: string, version: string): Prom
 
 /* ── G117.2 #2741 — Blueprint-class drill-down ────────────────────── */
 
-/** Wire shape from `GET /catalyst/v1/catalog/{blueprint}/instances`.
- * Mirrors `applicationSummary` in catalyst-api/endpoint_handler.go:117. */
-export interface BlueprintInstance {
-  id: string
-  name: string
-  blueprint: string
-  org: string
-  topology: string
-  status: string
-  createdAt?: string
-}
-
-interface ListBlueprintInstancesResponse {
-  items: BlueprintInstance[]
-}
-
-export async function listBlueprintInstances(
+/**
+ * GET /catalyst/v1/catalog/{blueprint}/instances → ApplicationInstanceSummary[].
+ * The wire envelope type `ListBlueprintInstancesResponse` is declared
+ * below alongside `ApplicationInstanceSummary` (line ~748); this fn
+ * unwraps the `items` field for callers that just want the list.
+ */
+export async function listBlueprintInstancesByName(
   blueprint: string,
   opts: { org?: string } = {},
-): Promise<BlueprintInstance[]> {
+): Promise<ApplicationInstanceSummary[]> {
   const bare = blueprint.replace(/^bp-/, '')
   const params = new URLSearchParams()
   if (opts.org) params.set('org', opts.org)
@@ -175,7 +165,7 @@ export async function listBlueprintInstances(
   const url = `${API_BASE}/catalyst/v1/catalog/${encodeURIComponent(bare)}/instances${qs ? '?' + qs : ''}`
   const res = await authedFetch(url, { headers: { Accept: 'application/json' } })
   if (!res.ok) {
-    throw new Error(`listBlueprintInstances: HTTP ${res.status}`)
+    throw new Error(`listBlueprintInstancesByName: HTTP ${res.status}`)
   }
   const body = (await res.json()) as ListBlueprintInstancesResponse
   return body.items ?? []

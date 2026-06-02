@@ -3,9 +3,9 @@ import { useQuery } from '@tanstack/react-query'
 
 import {
   getCatalogItem,
-  listBlueprintInstances,
+  listBlueprintInstancesByName,
   type CatalogItem,
-  type BlueprintInstance,
+  type ApplicationInstanceSummary,
 } from '@/lib/catalog.api'
 
 /**
@@ -38,9 +38,9 @@ export function CatalogDetail() {
     retry: 1,
   })
 
-  const instancesQuery = useQuery<BlueprintInstance[]>({
+  const instancesQuery = useQuery<ApplicationInstanceSummary[]>({
     queryKey: ['blueprint-instances', name],
-    queryFn: () => listBlueprintInstances(name),
+    queryFn: () => listBlueprintInstancesByName(name),
     enabled: !!name,
     staleTime: 15_000,
     refetchInterval: 15_000,
