@@ -106,6 +106,14 @@ resources:
   - 32-sigstore.yaml
   - 33-syft-grype.yaml
   - 34-velero.yaml
+  # bp-velero-hcs (slot 34a) — #2847 Wave 6 follow-up to #2846 which
+  # suspended bp-velero on HCS Sovereigns. HCS-native Velero variant
+  # writing backups to Huawei OBS via S3-compatible endpoint. Default
+  # suspended (`HUAWEI_HR_SUSPEND:=true`) so a fresh Hetzner Sovereign
+  # never installs it; the Huawei cloud-init substitutes the flag to
+  # "false". Pair invariant: at most ONE of slot 34 / slot 34a runs
+  # per Sovereign — every Sovereign keeps an active backup engine.
+  - 34a-bp-velero-hcs.yaml
   - 35-coraza.yaml
   # bp-vllm (slot 39) — in-cluster vLLM inference server (Qwen2.5-Coder-
   # 1.5B-Instruct on CPU by default). Paired with bp-newapi (slot 80)

@@ -1,0 +1,50 @@
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: velero-hcs
+  labels:
+    catalyst.openova.io/section: pts-3-observability
+spec:
+  version: 0.1.0
+  card:
+    title: Velero (HCS)
+    family: insights
+    description: |
+      HCS-native Velero — Kubernetes backup + disaster recovery for
+      Huawei Cloud Sovereigns. Per ADR-0001 §13 (S3-aware app rule)
+      writes backups DIRECTLY to Huawei OBS (S3-compatible endpoint),
+      mirroring the Hetzner bp-velero pattern but with the
+      `flux-system/object-storage` Secret pointing at OBS. Wave 6
+      follow-up to PR #2846 which suspended Hetzner-flavored bp-velero
+      on HCS Sovereigns — this Blueprint closes the resulting
+      backup-engine gap (#2847).
+    docs: https://velero.io/docs/
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        replication:
+          backend: s3-bucket-replication
+          mode: async
+        placement:
+          tier: ''
+          clusters:
+            - mgmt-A
+            - mgmt-B
+            - dmz-A
+            - dmz-B
+            - rtz-A
+            - rtz-B
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  multiInstance:
+    enabled: false

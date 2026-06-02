@@ -491,11 +491,21 @@ write_files:
             SOVEREIGN_FQDN_DASHED: ${sovereign_fqdn_slug}
             PROVIDER: huawei
             # Wave 5.102 (#2447): suspend Hetzner-only HRs (bp-hcloud-ccm,
-            # bp-cluster-autoscaler-hcloud, bp-velero). bp-velero needs an
-            # OBS adapter (Wave 6 scope). The other two are no-op on
+            # bp-cluster-autoscaler-hcloud, bp-velero). bp-velero on HCS
+            # is replaced by bp-velero-hcs (slot 34a) — see
+            # HUAWEI_HR_SUSPEND below. The other two are no-op on
             # Huawei. Without suspend, install Helm-times-out after 15m
             # each → blocks Phase 1 completion.
             HCLOUD_HR_SUSPEND: "true"
+            # #2847 (Wave 6 follow-up to #2846): inverse gate for HCS-
+            # only HRs (currently bp-velero-hcs at slot 34a). Substitute
+            # "false" on HCS so the bp-velero-hcs HR is reconciled and
+            # writes backups to Huawei OBS via S3-compatible endpoint.
+            # Pairs with HCLOUD_HR_SUSPEND="true" above so exactly one
+            # Velero variant runs per HCS Sovereign. The Hetzner cloud-
+            # init substitutes "true" (or omits — slot 34a's envsubst
+            # default is "true").
+            HUAWEI_HR_SUSPEND: "false"
             # G2 (Refs #2574, 2026-05-29): per-region HR suspension for
             # mothership-only slots (13-bp-catalyst-platform, 19a-bp-
             # sandbox, 06a-bp-self-sovereign-cutover, 62-bp-continuum).

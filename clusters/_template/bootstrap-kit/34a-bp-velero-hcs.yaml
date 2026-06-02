@@ -1,0 +1,145 @@
+# bp-velero-hcs — HCS-native Velero (Catalyst bootstrap-kit slot 34a).
+#
+# Wave 6 follow-up to PR #2846 (#2847). PR #2846 SUSPENDED the
+# Hetzner-flavored bp-velero (slot 34) on every HCS Sovereign via
+# `${HCLOUD_HR_SUSPEND:=false}` flipped to "true" by the Huawei
+# cloud-init. Result: HCS Sovereigns had ZERO backup engine — a
+# Pillar-3 / Multi-Region DoD gap.
+#
+# This slot ships the HCS-native variant. Per ADR-0001 §13 (S3-aware
+# app rule) Velero writes its backups DIRECTLY to Huawei OBS via its
+# S3-compatible endpoint (https://obs.<region>.myhuaweicloud.com).
+# The umbrella chart at platform/velero-hcs/chart/ mirrors
+# platform/velero/chart/ one-for-one — same upstream pin (vmware-
+# tanzu/velero 12.0.1, appVersion 1.18.0), same velero-plugin-for-aws
+# init container, same vendor-agnostic flux-system/object-storage
+# Secret seam (issue #371 / #425).
+#
+# ── Provider-keyed suspension ─────────────────────────────────────────
+#
+# `spec.suspend: ${HUAWEI_HR_SUSPEND:=true}` defaults this HR to
+# SUSPENDED so a fresh Hetzner Sovereign — which doesn't substitute
+# HUAWEI_HR_SUSPEND in its bootstrap-kit Kustomization — never installs
+# this chart. The Huawei cloud-init at
+# infra/providers/huawei/cloudinit-control-plane.tftpl substitutes
+# HUAWEI_HR_SUSPEND="false" at bootstrap-kit Kustomization apply time;
+# the Hetzner cloud-init substitutes HUAWEI_HR_SUSPEND="true"
+# (defence-in-depth — the envsubst default of "true" already keeps it
+# suspended on Hetzner, but explicit substitute makes provider intent
+# auditable).
+#
+# Pair invariant: at most ONE of slot 34 (bp-velero, Hetzner) and slot
+# 34a (bp-velero-hcs, HCS) is reconciling per Sovereign — the other is
+# spec.suspend=true. The scripts/sovereign-dod-verify.sh REQUIRED_HRs
+# tally treats them as alternatives.
+#
+# ── Object Storage credential pattern ────────────────────────────────
+#
+# Identical wiring shape to slot 34 (Hetzner). The Huawei cloud-init
+# already seeds flux-system/object-storage with the canonical 5 keys
+# (s3-endpoint / s3-region / s3-bucket / s3-access-key / s3-secret-key)
+# from var.obs_*, so the valuesFrom list below is byte-identical to
+# slot 34's. Only the chart name + HelmRepository ref differ.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: velero
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-velero-hcs
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-velero-hcs
+  namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "34a"
+spec:
+  # #2847: default SUSPENDED. Huawei cloud-init substitutes "false";
+  # Hetzner cloud-init substitutes "true" (or omits, default kicks in).
+  suspend: ${HUAWEI_HR_SUSPEND:=true}
+  interval: 15m
+  releaseName: velero
+  targetNamespace: velero
+  chart:
+    spec:
+      chart: bp-velero-hcs
+      version: 0.1.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-velero-hcs
+        namespace: flux-system
+  # Event-driven install: Velero's Deployment Ready depends on the
+  # BackupStorageLocation reaching `Available` — a runtime-convergence
+  # event that Flux observes via the BSL CR phase, not via Helm `--wait`.
+  install:
+    timeout: 15m
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    timeout: 15m
+    disableWait: true
+    remediation:
+      retries: 3
+  # Vendor-agnostic Object Storage backend wiring (issue #425) —
+  # byte-identical to slot 34 except for the chart-name above. The
+  # Huawei cloud-init seeds flux-system/object-storage with the same
+  # canonical 5 keys the Hetzner cloud-init does, so this list is
+  # provider-uniform.
+  valuesFrom:
+    - kind: Secret
+      name: object-storage
+      valuesKey: s3-bucket
+      targetPath: velero.configuration.backupStorageLocation[0].bucket
+    - kind: Secret
+      name: object-storage
+      valuesKey: s3-region
+      targetPath: velero.configuration.backupStorageLocation[0].config.region
+    - kind: Secret
+      name: object-storage
+      valuesKey: s3-endpoint
+      targetPath: velero.configuration.backupStorageLocation[0].config.s3Url
+    - kind: Secret
+      name: object-storage
+      valuesKey: s3-access-key
+      targetPath: objectStorage.s3.accessKey
+    - kind: Secret
+      name: object-storage
+      valuesKey: s3-secret-key
+      targetPath: objectStorage.s3.secretKey
+  values:
+    objectStorage:
+      enabled: true
+      useExistingSecret: false
+      credentialsSecretName: velero-objectstorage-credentials
+    velero:
+      backupsEnabled: true
+      credentials:
+        useSecret: true
+        existingSecret: velero-objectstorage-credentials
+      configuration:
+        backupStorageLocation:
+          - name: default
+            provider: aws
+            default: true
+            accessMode: ReadWrite
+            credential:
+              name: velero-objectstorage-credentials
+              key: cloud
+            config:
+              s3ForcePathStyle: "true"

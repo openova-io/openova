@@ -1,0 +1,224 @@
+# Catalyst Blueprint umbrella metadata — bp-velero-hcs (HCS-native
+# Velero, Huawei OBS S3-compatible backend). The upstream chart is
+# resolved as a Helm subchart via Chart.yaml `dependencies:`.
+# Catalyst-curated values under the `velero:` key flow into the
+# upstream subchart unchanged.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every
+# operationally-meaningful value is configurable; cluster overlays in
+# clusters/<sovereign>/ may override any of these without rebuilding
+# the Blueprint OCI artifact.
+
+global:
+  # When set, ALL image pulls in this chart route through this registry.
+  # Used post-handover when the Sovereign's own Harbor takes over the
+  # proxy_cache role from contabo's central Harbor. Empty = no rewrite
+  # (image references use upstream defaults). The upstream velero chart
+  # exposes `velero.image.repository` for override. Per-Sovereign overlays
+  # wire those alongside this value. Tracked under #560.
+  imageRegistry: ""
+
+catalystBlueprint:
+  upstream:
+    chart: velero
+    version: "12.0.1"
+    repo: "https://vmware-tanzu.github.io/helm-charts"
+
+# ─── Upstream chart values (subchart key: velero) ────────────────────────
+velero:
+  # Pin upstream Velero image — DO NOT use floating tags.
+  image:
+    repository: docker.io/velero/velero
+    tag: "v1.18.0"
+    pullPolicy: IfNotPresent
+
+  # kubectl image (used by upgradeCRDs Job) — pin to a known-stable
+  # registry.k8s.io/kubectl version. Per-Sovereign overlays MAY pin a
+  # specific tag.
+  kubectl:
+    image:
+      repository: registry.k8s.io/kubectl
+
+  # Plugin init containers — REQUIRED for Velero to talk to ANY backup
+  # backend. The AWS plugin (S3-compatible) is the Catalyst standard
+  # because Huawei OBS (and every other supported cloud's native object
+  # store) exposes an S3 API. Per-Sovereign overlays append additional
+  # plugin init containers if a CSI snapshotter / cloud-native plugin is
+  # also needed.
+  initContainers:
+    - name: velero-plugin-for-aws
+      image: velero/velero-plugin-for-aws:v1.14.0
+      imagePullPolicy: IfNotPresent
+      volumeMounts:
+        - mountPath: /target
+          name: plugins
+
+  # Resources — modest defaults sized for a solo Sovereign.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1
+      memory: 512Mi
+
+  # Metrics — Prometheus scraping enabled by upstream defaults; the
+  # ServiceMonitor / PodMonitor / PrometheusRule resources MUST default
+  # OFF per docs/BLUEPRINT-AUTHORING.md §11.2 (Observability toggles
+  # default false — kube-prometheus-stack CRDs may not exist on a fresh
+  # Sovereign).
+  metrics:
+    enabled: true
+    serviceMonitor:
+      autodetect: false
+      enabled: false
+    nodeAgentPodMonitor:
+      autodetect: false
+      enabled: false
+    prometheusRule:
+      autodetect: false
+      enabled: false
+
+  # CRD lifecycle — upgrade in place; never auto-cleanup.
+  upgradeCRDs: true
+  cleanUpCRDs: false
+
+  # ── BackupStorageLocation + VolumeSnapshotLocation ────────────────────
+  #
+  # Per docs/omantel-handover-wbs.md §3 + ADR-0001 §13, S3-aware apps
+  # (Velero is one) write DIRECTLY to the cloud-provider's native S3
+  # endpoint. On HCS Sovereigns that is Huawei OBS via its
+  # S3-compatible endpoint (https://obs.<region>.myhuaweicloud.com),
+  # NOT SeaweedFS — SeaweedFS is reserved as a POSIX→S3 buffer for
+  # legacy POSIX-only writers and is not in the minimal Sovereign set.
+  #
+  # Defaults below leave provider/bucket/region/s3Url EMPTY because the
+  # umbrella chart MUST render cleanly on contabo (which has no OBS
+  # credentials). Per-Sovereign HelmRelease in
+  # clusters/_template/bootstrap-kit/34a-bp-velero-hcs.yaml supplies
+  # real values via Flux `valuesFrom` against the
+  # flux-system/object-storage Secret (issue #371, vendor-agnostic
+  # since #425). The corresponding `targetPath` entries are documented
+  # in that bootstrap-kit slot.
+  #
+  # `backupsEnabled: false` keeps the BackupStorageLocation CR out of
+  # the manifest at default-render time (so empty bucket/provider
+  # doesn't produce a half-broken BSL); the per-Sovereign overlay
+  # MUST flip it to `true` once it supplies real config.
+  configuration:
+    backupStorageLocation:
+      - name: default
+        # Huawei OBS speaks the S3 protocol — use the `aws` provider
+        # (velero-plugin-for-aws) the same way Hetzner does. This is
+        # NOT an AWS account; the `s3Url` override below points the
+        # plugin at the OBS regional endpoint.
+        provider: aws
+        bucket: ""
+        default: true
+        accessMode: ReadWrite
+        credential:
+          name: ""
+          key: cloud
+        config:
+          # Huawei OBS supports both path-style and virtual-hosted-style
+          # URLs; path-style is universally compatible with
+          # velero-plugin-for-aws and avoids per-bucket DNS warmup
+          # latency on fresh provs. Region + s3Url are supplied per
+          # Sovereign by the bootstrap-kit slot's Flux valuesFrom
+          # (pulled out of flux-system/object-storage which the Huawei
+          # cloud-init seeds from var.huawei_region + var.obs_endpoint
+          # at infra/providers/huawei/cloudinit-control-plane.tftpl).
+          region: ""
+          s3ForcePathStyle: "true"
+          s3Url: ""
+    volumeSnapshotLocation:
+      - name:
+        provider: ""
+        credential:
+          name:
+          key:
+        config: {}
+
+  # Whether to create backupstoragelocation/volumesnapshotlocation CRs.
+  # Both flipped FALSE here so the chart renders with empty/placeholder
+  # configuration above; per-Sovereign overlays flip these on after they
+  # supply real Object Storage config via Flux valuesFrom.
+  backupsEnabled: false
+  snapshotsEnabled: false
+
+  # Node Agent (file-system backup / restic) — DEFAULT FALSE; per-Sovereign
+  # overlays flip on if file-system backup is needed (CSI snapshots are
+  # the preferred path).
+  deployNodeAgent: false
+
+  # ── Credentials ───────────────────────────────────────────────────────
+  #
+  # The upstream chart's `existingSecret` field expects a Secret in the
+  # velero namespace with a single key `cloud` in AWS-CLI INI format
+  # (mounted into the pod at /credentials/cloud). The Catalyst umbrella
+  # ships templates/objectstorage-credentials.yaml that synthesises that
+  # Secret from operator-supplied values in
+  # `.Values.objectStorage.s3.accessKey` /
+  # `.Values.objectStorage.s3.secretKey`, which Flux populates from the
+  # canonical flux-system/object-storage Secret (issue #371, vendor-
+  # agnostic since #425) at HelmRelease apply time via valuesFrom.
+  #
+  # Default `useSecret: false` keeps the upstream chart from creating
+  # its own (empty) `velero` Secret — when objectStorage.enabled is
+  # true, the umbrella's templated Secret takes over and the upstream
+  # chart references it via existingSecret. Per-Sovereign overlay flips
+  # `useSecret: true` + sets `existingSecret: velero-objectstorage-credentials`
+  # — see the bootstrap-kit slot for the wiring.
+  credentials:
+    useSecret: false
+    existingSecret: ""
+    secretContents: {}
+
+  # ServiceAccount + RBAC.
+  serviceAccount:
+    server:
+      create: true
+      name: velero
+  rbac:
+    create: true
+    clusterAdministrator: true
+
+# ─── Catalyst overlay values (consumed by templates/ in this chart) ──────
+veleroOverlay:
+  networkPolicy:
+    enabled: false
+
+# ─── Vendor-agnostic Object Storage backend config (issue #425) ──────────
+#
+# Per ADR-0001 §13 + docs/omantel-handover-wbs.md §3 + §3a, S3-aware
+# apps (Velero is one) write DIRECTLY to the cloud-provider's native S3
+# endpoint. The per-Sovereign HelmRelease populates these fields via
+# Flux `valuesFrom` against the canonical `flux-system/object-storage`
+# Secret. Per #425 the seam is vendor-agnostic — same Secret name +
+# same chart-values shape support a future AWS / Azure / GCP / OCI
+# Sovereign without renaming the seam.
+#
+# Default values below produce a clean render on contabo (no
+# credentials configured) — see the bootstrap-kit slot at
+# clusters/_template/bootstrap-kit/34a-bp-velero-hcs.yaml for the
+# canonical mapping.
+objectStorage:
+  # When false, no credentials Secret is rendered (contabo, local dev,
+  # etc.). Per-Sovereign overlay flips to true.
+  enabled: false
+  # When true, skip rendering the velero-namespace credentials Secret
+  # entirely — the operator has already created one out-of-band
+  # (sealed-secret / external-secret / cloud-init / etc.).
+  useExistingSecret: false
+  # Override the default secret name — must match the upstream chart's
+  # credentials.existingSecret reference.
+  credentialsSecretName: ""
+  s3:
+    # Operator-issued OBS S3 access/secret keys. Plaintext at runtime
+    # ONLY — Flux populates these via valuesFrom at HelmRelease apply
+    # time, never committed to git. Sourced from
+    # flux-system/object-storage `s3-access-key` + `s3-secret-key`
+    # keys (seeded by the Huawei cloud-init from var.obs_access_key
+    # + var.obs_secret_key).
+    accessKey: ""
+    secretKey: ""

@@ -1,0 +1,49 @@
+apiVersion: v2
+name: bp-velero-hcs
+description: |
+  Catalyst Blueprint umbrella chart for Velero on HCS (Huawei Cloud
+  Sovereign) — mirrors platform/velero/chart but pre-targets Huawei
+  OBS (S3-compatible) as the BackupStorageLocation backend. Depends
+  on the upstream vmware-tanzu/velero chart as a Helm subchart so
+  `helm dependency build` pulls the upstream payload into this
+  artifact. Catalyst-curated values flow into the upstream subchart
+  under the `velero:` key in values.yaml.
+
+  Velero is the per-host-cluster backup engine. Per docs/omantel-
+  handover-wbs.md §3 + ADR-0001 §13 (S3-aware app architecture rule),
+  Velero on an HCS Sovereign writes its backups DIRECTLY to Huawei
+  OBS via its S3-compatible endpoint
+  (https://obs.<region>.myhuaweicloud.com), NOT SeaweedFS.
+  SeaweedFS remains a POSIX→S3 buffer reserved for legacy
+  POSIX-only writers and is not in the minimal Sovereign set.
+
+  Per-Sovereign overlays wire the BackupStorageLocation via Flux
+  `valuesFrom` against the canonical `flux-system/object-storage`
+  Secret (shipped by the Huawei cloud-init at
+  infra/providers/huawei/cloudinit-control-plane.tftpl). The OBS-
+  emitted S3 access/secret keys land at `s3-access-key` +
+  `s3-secret-key` keys — identical to the Hetzner shape — so the
+  bootstrap-kit slot wiring is byte-identical aside from the chart
+  name. The umbrella's templates/objectstorage-credentials.yaml
+  synthesises a velero-namespace Secret with a `cloud` key in
+  AWS-CLI INI format that velero-plugin-for-aws expects via
+  existingSecret.
+
+  Wave 6 follow-up to #2846 (which suspended Hetzner-flavored
+  bp-velero on HCS) → closes the resulting backup-engine gap on
+  every HCS Sovereign. Refs #2847.
+type: application
+version: 0.1.0
+appVersion: "1.18.0"
+keywords: [catalyst, blueprint, velero, backup, disaster-recovery, huawei, hcs, obs]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Pinned to vmware-tanzu/velero 12.0.1 (appVersion 1.18.0) — same
+# upstream pin as bp-velero so the two charts stay in lockstep until
+# the next operator-driven bump.
+dependencies:
+  - name: velero
+    version: "12.0.1"
+    repository: "https://vmware-tanzu.github.io/helm-charts"
