@@ -20,7 +20,7 @@ extract_secret() {
     --set "sso.tier1ClientSecretSalt=$salt" \
     --show-only templates/configmap-sovereign-realm.yaml \
     2>/dev/null \
-    | yq -r '.data["realm.json"]' \
+    | yq -r 'select(.kind == "ConfigMap") | .data["sovereign-realm.json"]' \
     | jq -r "$jq_path"
 }
 
