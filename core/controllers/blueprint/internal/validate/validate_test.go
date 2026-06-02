@@ -376,3 +376,182 @@ func isDir(p string) bool {
 	st, err := os.Stat(p)
 	return err == nil && st.IsDir()
 }
+
+// --------------------------------------------------------------------
+// G117.1 AC2 (#2740) — JSON Schema topology gate.
+// These four tests cover the new `Validate*Topology` flow that loads
+// `platform/_schemas/blueprint-topology.json` (vendored into
+// `schemas/blueprint-topology.json`) and surfaces Findings with
+// Code=`topology-schema-violation`.
+// --------------------------------------------------------------------
+
+// blueprintWithTopology returns a minimal Blueprint augmented with a
+// full, well-formed G117 spec.topology + spec.endpoints + spec.sso +
+// spec.multiInstance block. Tests mutate sub-trees on the returned
+// object to surface specific schema violations.
+func blueprintWithTopology() *unstructured.Unstructured {
+	bp := minimalBlueprint()
+	spec := bp.Object["spec"].(map[string]interface{})
+	spec["topology"] = map[string]interface{}{
+		"supported": []interface{}{"active-hot-standby", "singleton"},
+		"defaults": map[string]interface{}{
+			"multi-region":  "active-hot-standby",
+			"single-region": "singleton",
+		},
+		"perTopology": map[string]interface{}{
+			"singleton": map[string]interface{}{
+				"placement": map[string]interface{}{
+					"tier":     "dmz",
+					"clusters": []interface{}{"dmz-A"},
+				},
+			},
+			"active-hot-standby": map[string]interface{}{
+				"replication": map[string]interface{}{
+					"backend": "cnpg-pair",
+					"mode":    "sync",
+				},
+				"switchover": map[string]interface{}{
+					"mechanism": "bp-continuum",
+				},
+				"placement": map[string]interface{}{
+					"tier":     "dmz",
+					"clusters": []interface{}{"dmz-A", "dmz-B"},
+				},
+			},
+		},
+	}
+	spec["endpoints"] = []interface{}{
+		map[string]interface{}{
+			"name":             "console",
+			"hostnameTemplate": "{{.AppName}}.{{.OrgSlug}}.{{.SovereignFQDN}}",
+			"port":             int64(443),
+			"protocol":         "https",
+			"tls":              true,
+			"visibility":       "public",
+			"ssoEnabled":       true,
+		},
+	}
+	spec["sso"] = map[string]interface{}{
+		"realm":          "sovereign",
+		"protocolMapper": "oidc",
+		"silentLogin":    true,
+	}
+	spec["multiInstance"] = map[string]interface{}{
+		"enabled":   true,
+		"maxPerOrg": int64(5),
+	}
+	return bp
+}
+
+// findingsByPathContaining returns the subset of res.Findings whose
+// Path or Message contains the substring.
+func findingsByPathContaining(res Result, substr string) []Finding {
+	var out []Finding
+	for _, f := range res.Findings {
+		if strings.Contains(f.Path, substr) || strings.Contains(f.Message, substr) {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// TestValidate_Topology_HappyPath — a fully-formed Blueprint with
+// topology + endpoints + sso + multiInstance must produce zero
+// topology-schema-violation Findings.
+func TestValidate_Topology_HappyPath(t *testing.T) {
+	t.Parallel()
+	bp := blueprintWithTopology()
+	res := Validate(bp, nil)
+	if res.HasErrors() {
+		t.Fatalf("happy path must not produce hard errors, got %v", res.Errors)
+	}
+	for _, f := range res.Findings {
+		if f.Code == TopologySchemaViolationCode {
+			t.Errorf("happy path produced topology-schema-violation finding: path=%s message=%s", f.Path, f.Message)
+		}
+	}
+}
+
+// TestValidate_Topology_MissingRequired — spec.topology.defaults omits
+// the required `single-region` key. Must produce at least one Finding
+// pointing at the missing field.
+func TestValidate_Topology_MissingRequired(t *testing.T) {
+	t.Parallel()
+	bp := blueprintWithTopology()
+	topology := bp.Object["spec"].(map[string]interface{})["topology"].(map[string]interface{})
+	defaults := topology["defaults"].(map[string]interface{})
+	delete(defaults, "single-region")
+	res := Validate(bp, nil)
+	hits := findingsByPathContaining(res, "single-region")
+	if len(hits) == 0 {
+		// fall back to scanning all findings for the `defaults` path
+		// — different jsonschema versions surface the missing-required
+		// error at the parent path vs the field path.
+		for _, f := range res.Findings {
+			if strings.Contains(f.Path, "/defaults") && f.Code == TopologySchemaViolationCode {
+				hits = append(hits, f)
+			}
+		}
+	}
+	if len(hits) == 0 {
+		t.Fatalf("expected ≥1 topology-schema-violation finding for missing defaults.single-region, got findings=%+v", res.Findings)
+	}
+}
+
+// TestValidate_Topology_VariantMismatch — spec.topology.perTopology
+// defines a variant that is NOT a member of spec.topology.supported[].
+// Must surface a topology-schema-violation finding via the cross-field
+// check (the embedded JSON Schema can't express this — perTopology
+// keys are constrained to the 4 canonical variants but not
+// cross-checked against the supported[] subset).
+func TestValidate_Topology_VariantMismatch(t *testing.T) {
+	t.Parallel()
+	bp := blueprintWithTopology()
+	topology := bp.Object["spec"].(map[string]interface{})["topology"].(map[string]interface{})
+	// supported[] declares only [singleton] (drop active-hot-standby)
+	// while perTopology continues to define an `active-hot-standby`
+	// variant — the cross-field check must flag the dangling variant.
+	topology["supported"] = []interface{}{"singleton"}
+	// Also flip the default to match the new supported set so this
+	// test isolates the variant-mismatch finding.
+	topology["defaults"] = map[string]interface{}{
+		"multi-region":  "singleton",
+		"single-region": "singleton",
+	}
+	res := Validate(bp, nil)
+	hits := findingsByPathContaining(res, "active-hot-standby")
+	if len(hits) == 0 {
+		t.Fatalf("expected ≥1 topology-schema-violation finding for perTopology variant not in supported[], got findings=%+v", res.Findings)
+	}
+	var found bool
+	for _, h := range hits {
+		if h.Code == TopologySchemaViolationCode && strings.Contains(h.Message, "active-hot-standby") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected at least one finding to name the dangling variant `active-hot-standby`, got %+v", hits)
+	}
+}
+
+// TestValidate_Topology_InvalidHostname — an endpoint's
+// hostnameTemplate is "https://" (URL-like, not a hostname template).
+// Must surface a topology-schema-violation finding via the
+// hostnameTemplate plausibility check.
+func TestValidate_Topology_InvalidHostname(t *testing.T) {
+	t.Parallel()
+	bp := blueprintWithTopology()
+	endpoints := bp.Object["spec"].(map[string]interface{})["endpoints"].([]interface{})
+	endpoints[0].(map[string]interface{})["hostnameTemplate"] = "https://"
+	res := Validate(bp, nil)
+	hits := findingsByPathContaining(res, "hostnameTemplate")
+	if len(hits) == 0 {
+		t.Fatalf("expected ≥1 topology-schema-violation finding for URL-like hostnameTemplate, got findings=%+v", res.Findings)
+	}
+	for _, h := range hits {
+		if h.Code != TopologySchemaViolationCode {
+			t.Errorf("expected Code=%q, got %q", TopologySchemaViolationCode, h.Code)
+		}
+	}
+}
