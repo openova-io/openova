@@ -1,0 +1,460 @@
+openapi: 3.1.0
+info:
+  title: catalyst-api — G117 Application Lifecycle Phase 2
+  description: |
+    catalyst-api endpoints that back the operator-console catalog drill-down,
+    multi-instance Application lifecycle, endpoints/Ingress tab, and silent-SSO
+    Launch button delivered by EPIC G117. This document is the binding
+    contract between:
+
+      - Wave-1 Go API authors (G117.2 + G117.6)
+      - Wave-1 console UI authors (G117.2 + G117.3 + G117.4)
+      - Wave-1 admission webhook authors (G117.1)
+
+    Source-of-truth for the new spec fields it serves:
+
+      - core/pkg/apis/blueprint/v1alpha1/topology_types.go
+      - platform/_schemas/blueprint-topology.json
+
+    All requests are JSON; all responses are JSON unless noted. Auth is
+    OIDC bearer token issued by the per-Sovereign Keycloak realm.
+  version: "1.0.0"
+  contact:
+    name: OpenOva Catalyst
+    url: https://github.com/openova-io/openova/issues/2737
+servers:
+  - url: https://api.{sovereignFqdn}/catalyst/v1
+    description: Per-Sovereign catalyst-api
+    variables:
+      sovereignFqdn:
+        default: t01.omani.works
+        description: Sovereign FQDN. Test runs use t<NN>.omani.works.
+security:
+  - bearerOidc: []
+tags:
+  - name: catalog
+    description: Blueprint catalog browsing (read-only over Gitea catalog mirror + in-cluster Blueprint CRs)
+  - name: instances
+    description: Application instances — create, list, read, delete
+  - name: endpoints
+    description: Per-Application endpoint mutation (PR-pipelined into per-Org Gitea iac repo)
+  - name: launch
+    description: Silent-SSO Launch URL minting
+paths:
+  /catalog/{blueprint}:
+    get:
+      tags: [catalog]
+      operationId: getBlueprint
+      summary: Get a Blueprint's catalog metadata + supported topologies
+      description: Returns the catalog entry assembled from the per-Sovereign Gitea catalog mirror plus live instance-count from in-cluster Application CRs. Backs the console's catalog drill-down page.
+      parameters:
+        - $ref: '#/components/parameters/BlueprintName'
+      responses:
+        '200':
+          description: Blueprint catalog entry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogBlueprint'
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /catalog/{blueprint}/instances:
+    get:
+      tags: [catalog, instances]
+      operationId: listBlueprintInstances
+      summary: List Application instances of a given Blueprint visible to the caller
+      description: Returns Application instances filtered by Blueprint name, optionally scoped to a single Organization. Powers the per-Blueprint drill-down's instance grid.
+      parameters:
+        - $ref: '#/components/parameters/BlueprintName'
+        - name: org
+          in: query
+          description: Filter by Organization slug. When omitted, returns instances across all Orgs the caller can read.
+          schema: { type: string, pattern: '^[a-z0-9][a-z0-9-]{0,40}[a-z0-9]$' }
+      responses:
+        '200':
+          description: List of instances
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/ApplicationSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /apps/instances:
+    post:
+      tags: [instances]
+      operationId: createInstance
+      summary: Create a new Application instance from a Blueprint
+      description: |
+        Creates one Application CR with optional topology override. The
+        application-controller (G117.6) fans HelmReleases across host
+        clusters per the resolved topology.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateInstanceRequest' }
+      responses:
+        '201':
+          description: Application created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Application' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409':
+          description: Multi-instance disabled for this Blueprint and an instance already exists in the Org
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /apps/{id}:
+    parameters:
+      - $ref: '#/components/parameters/AppId'
+    get:
+      tags: [instances]
+      operationId: getApp
+      summary: Get Application detail including per-cluster status
+      description: Returns the Application CR plus per-host-cluster HelmRelease status (one entry per cluster the application-controller fanned to) and resolved endpoints with current TLS + Ingress state.
+      responses:
+        '200':
+          description: Application detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Application' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    delete:
+      tags: [instances]
+      operationId: deleteApp
+      summary: Delete an Application instance (cascade uninstall across all clusters)
+      description: Triggers an async uninstall Job that suspends and removes the HelmReleases on every host cluster the application-controller had fanned to, then deletes the Application CR.
+      responses:
+        '202':
+          description: Uninstall accepted (async)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [jobId]
+                properties:
+                  jobId: { type: string }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /apps/{id}/endpoints:
+    parameters:
+      - $ref: '#/components/parameters/AppId'
+    get:
+      tags: [endpoints]
+      operationId: listAppEndpoints
+      summary: List all endpoints for an Application
+      description: Returns the resolved endpoints (template evaluated against this instance's context) with current cert + Ingress status. Powers the Endpoints tab on the Application detail page.
+      responses:
+        '200':
+          description: Endpoints
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/ResolvedEndpoint' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [endpoints]
+      operationId: createAppEndpoint
+      summary: Create a new endpoint (opens a PR against gitea.<sov>/<org>/iac)
+      description: |
+        Triggers the IaC PR pipeline (decision #4): catalyst-api opens
+        a PR against `gitea.<sov>/<org>/iac` with the new endpoint
+        manifest; Kyverno + cert-manager + DNS-conflict pre-check
+        run as status checks; on green, auto-merge fires.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EndpointMutationRequest' }
+      responses:
+        '202':
+          description: PR opened
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EndpointPR' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /apps/{id}/endpoints/{name}:
+    parameters:
+      - $ref: '#/components/parameters/AppId'
+      - name: name
+        in: path
+        required: true
+        schema: { type: string, pattern: '^[a-z][a-z0-9-]{0,30}[a-z0-9]$' }
+    patch:
+      tags: [endpoints]
+      operationId: patchAppEndpoint
+      summary: Update endpoint (PR-pipelined)
+      description: Opens a PR against the Org's iac repo with a patched endpoint manifest. Same Kyverno + cert-manager + DNS-conflict pre-check gate as createAppEndpoint.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EndpointMutationRequest' }
+      responses:
+        '202':
+          description: PR opened
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EndpointPR' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [endpoints]
+      operationId: deleteAppEndpoint
+      summary: Delete endpoint (PR-pipelined)
+      description: Opens a PR removing the endpoint manifest from the Org's iac repo. cert-manager Certificate + Gateway HTTPRoute are removed on merge.
+      responses:
+        '202':
+          description: PR opened
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EndpointPR' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /apps/{id}/launch-url:
+    parameters:
+      - $ref: '#/components/parameters/AppId'
+    get:
+      tags: [launch]
+      operationId: getLaunchURL
+      summary: Mint a silent-SSO Launch URL for an endpoint
+      description: |
+        Returns the URL the console's Launch button navigates to in a
+        new tab. URL carries silent OIDC params per locked decision #3:
+        `prompt=none&kc_idp_hint=catalyst-pin`. Target SSO budget <500ms.
+      parameters:
+        - name: endpoint
+          in: query
+          description: Endpoint name. Defaults to the Blueprint's launchDefault endpoint.
+          schema: { type: string }
+      responses:
+        '200':
+          description: Launch URL
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url, expiresAt]
+                properties:
+                  url:
+                    type: string
+                    format: uri
+                    description: Open in a NEW tab; do NOT replace the console window.
+                  expiresAt:
+                    type: string
+                    format: date-time
+                    description: URL is one-shot; expires after 60s.
+                  endpoint:
+                    type: string
+                    description: Endpoint name actually launched (resolved from launchDefault if no query param).
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Endpoint exists but does not have SSO enabled — no silent-SSO URL is possible.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+components:
+  securitySchemes:
+    bearerOidc:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    BlueprintName:
+      name: blueprint
+      in: path
+      required: true
+      description: Blueprint name (e.g. "grafana", "harbor"; with or without bp- prefix).
+      schema: { type: string, pattern: '^(bp-)?[a-z0-9][a-z0-9-]{1,40}[a-z0-9]$' }
+    AppId:
+      name: id
+      in: path
+      required: true
+      description: Application UID (returned by createInstance).
+      schema: { type: string, format: uuid }
+  responses:
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    BadRequest:
+      description: Validation error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Missing or invalid bearer token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        details:
+          type: object
+          additionalProperties: true
+    BcpTopology:
+      type: string
+      enum: [active-active, active-hot-standby, active-passive, singleton]
+    CatalogBlueprint:
+      type: object
+      required: [name, version, title, instanceCount, supportedTopologies, defaultTopology, multiInstance]
+      properties:
+        name: { type: string }
+        version: { type: string }
+        title: { type: string }
+        description: { type: string }
+        family: { type: string }
+        section: { type: string }
+        instanceCount:
+          type: integer
+          minimum: 0
+          description: Number of Application instances of this Blueprint visible to the caller.
+        supportedTopologies:
+          type: array
+          items: { $ref: '#/components/schemas/BcpTopology' }
+        defaultTopology: { $ref: '#/components/schemas/BcpTopology' }
+        multiInstance:
+          type: object
+          required: [enabled]
+          properties:
+            enabled:   { type: boolean }
+            maxPerOrg: { type: integer, minimum: 0 }
+        sso:
+          type: object
+          properties:
+            realm:        { type: string }
+            silentLogin:  { type: boolean }
+        endpoints:
+          type: array
+          items: { $ref: '#/components/schemas/EndpointDeclaration' }
+    EndpointDeclaration:
+      type: object
+      required: [name, hostnameTemplate]
+      properties:
+        name:             { type: string }
+        hostnameTemplate: { type: string }
+        port:             { type: integer, minimum: 1, maximum: 65535 }
+        protocol:         { type: string, enum: [https, http, grpc, tcp, udp] }
+        tls:              { type: boolean }
+        visibility:       { type: string, enum: [public, private, internal] }
+        launchDefault:    { type: boolean }
+        ssoEnabled:       { type: boolean }
+    ResolvedEndpoint:
+      allOf:
+        - $ref: '#/components/schemas/EndpointDeclaration'
+        - type: object
+          required: [hostname, status]
+          properties:
+            hostname:
+              type: string
+              description: Result of evaluating hostnameTemplate for this Application instance.
+            status:
+              type: string
+              enum: [Pending, Provisioning, Ready, Degraded, Failed]
+            certificateStatus:
+              type: string
+              enum: [Pending, Issued, Failed]
+            launchURL:
+              type: string
+              format: uri
+              description: Convenience field; same value as GET /apps/{id}/launch-url.
+    ApplicationSummary:
+      type: object
+      required: [id, name, blueprint, org, topology, status]
+      properties:
+        id:        { type: string, format: uuid }
+        name:      { type: string }
+        blueprint: { type: string }
+        org:       { type: string }
+        topology:  { $ref: '#/components/schemas/BcpTopology' }
+        status:    { type: string, enum: [Pending, Reconciling, Ready, Degraded, Failed, Uninstalling] }
+        createdAt: { type: string, format: date-time }
+    Application:
+      allOf:
+        - $ref: '#/components/schemas/ApplicationSummary'
+        - type: object
+          properties:
+            perCluster:
+              type: array
+              description: One entry per host cluster the application-controller fanned a HelmRelease into.
+              items:
+                type: object
+                required: [cluster, role, status]
+                properties:
+                  cluster: { type: string }
+                  role:    { type: string, enum: [active, passive, singleton] }
+                  status:  { type: string, enum: [Pending, Reconciling, Ready, Degraded, Failed] }
+                  hr:      { type: string, description: HelmRelease name }
+                  message: { type: string }
+            endpoints:
+              type: array
+              items: { $ref: '#/components/schemas/ResolvedEndpoint' }
+    CreateInstanceRequest:
+      type: object
+      required: [blueprint, org, name]
+      properties:
+        blueprint:
+          type: string
+          description: Blueprint name to instantiate.
+        org:
+          type: string
+          description: Organization slug.
+        name:
+          type: string
+          description: Per-Org Application name. Must be unique within the Org for this Blueprint (unless multiInstance.enabled).
+          pattern: '^[a-z0-9][a-z0-9-]{0,40}[a-z0-9]$'
+        topology:
+          $ref: '#/components/schemas/BcpTopology'
+          description: Override the Blueprint's default. Must be in Blueprint.spec.topology.supported.
+        values:
+          type: object
+          additionalProperties: true
+          description: Per-Blueprint Helm values overrides (subject to configSchema gating).
+    EndpointMutationRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          pattern: '^[a-z][a-z0-9-]{0,30}[a-z0-9]$'
+        hostname:
+          type: string
+          description: Concrete hostname (not template). Server validates uniqueness + DNS conflict.
+        port:        { type: integer, minimum: 1, maximum: 65535 }
+        protocol:    { type: string, enum: [https, http, grpc, tcp, udp] }
+        tls:         { type: boolean }
+        visibility:  { type: string, enum: [public, private, internal] }
+        ssoEnabled:  { type: boolean }
+    EndpointPR:
+      type: object
+      required: [prURL, status]
+      properties:
+        prURL:
+          type: string
+          format: uri
+          description: Per-Org Gitea PR URL.
+        status:
+          type: string
+          enum: [open, merged, closed, failed-precheck]
+        preCheckResults:
+          type: object
+          properties:
+            kyverno:     { type: string, enum: [pending, pass, fail] }
+            certManager: { type: string, enum: [pending, pass, fail] }
+            dnsConflict: { type: string, enum: [pending, pass, fail] }

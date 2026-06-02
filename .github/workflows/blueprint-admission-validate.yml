@@ -1,0 +1,106 @@
+name: blueprint admission validate (G117 schema)
+
+# Validates every platform/*/blueprint.yaml + products/*/blueprint.yaml
+# against platform/_schemas/blueprint-topology.json. This is the CI
+# pre-image of the runtime admission webhook delivered by Wave-1
+# G117.1.
+#
+# Phase 1 (Wave-0): runs in `report-only` mode — failures emit warnings
+#                    but do NOT fail the job. This is so the workflow
+#                    can land on `main` BEFORE every blueprint.yaml gets
+#                    its spec.topology block (Wave-2's job).
+# Phase 2 (after Wave-2 GREEN): flip `report-only` to false; every PR
+#                    that adds a new blueprint.yaml without a valid
+#                    spec.topology block fails.
+#
+# The flip lives in this file at the env var FAIL_ON_INVALID. Wave-2
+# closing PR flips it.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'platform/**/blueprint.yaml'
+      - 'products/**/blueprint.yaml'
+      - 'platform/_schemas/**'
+      - '.github/workflows/blueprint-admission-validate.yml'
+  pull_request:
+    paths:
+      - 'platform/**/blueprint.yaml'
+      - 'products/**/blueprint.yaml'
+      - 'platform/_schemas/**'
+      - '.github/workflows/blueprint-admission-validate.yml'
+  workflow_dispatch:
+
+env:
+  # FLIP TO 'true' WHEN WAVE-2 LANDS spec.topology BLOCKS ACROSS ALL bp
+  # PER docs/sessions/2026-06-02-per-blueprint-topology-audit.md.
+  FAIL_ON_INVALID: 'false'
+
+jobs:
+  validate:
+    name: validate all blueprint.yaml against schema
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install jsonschema + pyyaml
+        run: pip install --quiet jsonschema pyyaml
+
+      - name: Validate every blueprint.yaml
+        run: |
+          python3 << 'PY'
+          import json, os, sys, yaml, jsonschema, pathlib
+
+          schema = json.load(open('platform/_schemas/blueprint-topology.json'))
+          fail_on_invalid = os.environ.get('FAIL_ON_INVALID', 'false').lower() == 'true'
+
+          checked = 0
+          failures: list[str] = []
+
+          for path in sorted(pathlib.Path('.').glob('platform/*/blueprint.yaml')):
+              checked += 1
+              try:
+                  doc = yaml.safe_load(path.read_text())
+              except Exception as e:
+                  failures.append(f"{path}: yaml parse: {e}")
+                  continue
+              # Skip schema validation when spec.topology is absent —
+              # the field is OPTIONAL until Wave-2 lands. The schema
+              # itself doesn't make topology required at root level.
+              try:
+                  jsonschema.validate(doc, schema)
+              except jsonschema.ValidationError as e:
+                  failures.append(f"{path}: {e.message[:140]}")
+
+          for path in sorted(pathlib.Path('.').glob('products/*/blueprint.yaml')):
+              checked += 1
+              try:
+                  doc = yaml.safe_load(path.read_text())
+              except Exception as e:
+                  failures.append(f"{path}: yaml parse: {e}")
+                  continue
+              try:
+                  jsonschema.validate(doc, schema)
+              except jsonschema.ValidationError as e:
+                  failures.append(f"{path}: {e.message[:140]}")
+
+          print(f"checked {checked} blueprint.yaml files")
+          if failures:
+              print(f"\n{len(failures)} validation findings:")
+              for f in failures:
+                  print(f"  ! {f}")
+              if fail_on_invalid:
+                  print("\nFAIL_ON_INVALID=true → exiting non-zero")
+                  sys.exit(1)
+              else:
+                  print("\nFAIL_ON_INVALID=false (Wave-1 phase) → not failing the job")
+          else:
+              print("all blueprint.yaml files validate clean")
+          PY

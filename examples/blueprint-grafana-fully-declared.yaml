@@ -1,0 +1,92 @@
+# Exemplar — bp-grafana as a fully-declared Blueprint under the G117 contract.
+#
+# Demonstrates every new spec.* field from the G117 EPIC:
+#   - spec.topology.{supported, defaults, perTopology}    (G117.1)
+#   - spec.endpoints[]                                    (G117.3)
+#   - spec.sso                                            (G117.4 + G117.5)
+#   - spec.multiInstance                                  (G117.6)
+#
+# Grounded in the topology-audit source-of-truth:
+#   docs/sessions/2026-06-02-per-blueprint-topology-audit.md
+#
+# Per the audit, bp-grafana is a Catalyst-CP tier Blueprint with
+# active-hot-standby across mgmt-A / mgmt-B (PG via bp-cnpg-pair sync;
+# dashboards back-ended by S3 + Loki/Mimir/Tempo replicated cross-region).
+# Singleton override allowed for single-region Sovereigns.
+#
+# This file MUST validate against platform/_schemas/blueprint-topology.json
+# — the blueprint-admission-validate.yaml workflow uses both as fixtures.
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: grafana
+  labels:
+    catalyst.openova.io/section: pts-3-observability
+    catalyst.openova.io/tier: catalyst-cp
+spec:
+  version: 1.0.4
+  card:
+    title: Grafana
+    family: insights
+    description: Visualization and dashboarding for the LGTM observability stack (Loki/Grafana/Tempo/Mimir).
+    docs: https://grafana.com/docs/grafana/latest/
+
+  # ── G117.1: Topology declaration ────────────────────────────────────────
+  topology:
+    supported:
+      - active-hot-standby
+      - singleton
+    defaults:
+      multi-region: active-hot-standby
+      single-region: singleton
+    perTopology:
+      active-hot-standby:
+        replication:
+          backend: cnpg-pair
+          mode: sync
+          lagSloSeconds: 0
+        switchover:
+          mechanism: bp-continuum
+          rtoSeconds: 30
+          rpoSeconds: 0
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A, mgmt-B]
+          roles:
+            mgmt-A: active
+            mgmt-B: passive
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+
+  # ── G117.3: Endpoints ──────────────────────────────────────────────────
+  endpoints:
+    - name: ui
+      hostnameTemplate: "grafana.{{.SovereignFQDN}}"
+      port: 443
+      protocol: https
+      tls: true
+      visibility: public
+      launchDefault: true
+      ssoEnabled: true
+
+  # ── G117.4 + G117.5: SSO ───────────────────────────────────────────────
+  sso:
+    realm: sovereign
+    protocolMapper: oidc
+    groupsClaim: groups
+    rolesFromGroup:
+      sovereign-admins: admin
+      grafana-editors: editor
+      grafana-viewers: viewer
+    silentLogin: true
+
+  # ── G117.6: Multi-instance ─────────────────────────────────────────────
+  multiInstance:
+    enabled: true
+    maxPerOrg: 5
+    namingTemplate: "{{.AppName}}-{{.InstanceID}}"
+    isolationLevel: namespace

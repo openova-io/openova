@@ -1,0 +1,206 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://openova.io/schemas/blueprint-topology.json",
+  "title": "Blueprint topology + endpoints + sso + multiInstance schema",
+  "description": "G117 EPIC — schema gate for the new spec.topology / spec.endpoints / spec.sso / spec.multiInstance fields on platform/*/blueprint.yaml and products/*/blueprint.yaml. Enforced by the blueprint-admission-validate.yaml workflow + the runtime admission webhook (Wave-1 / G117.1).",
+  "type": "object",
+  "properties": {
+    "apiVersion": { "type": "string", "enum": ["catalyst.openova.io/v1", "catalyst.openova.io/v1alpha1"] },
+    "kind": { "type": "string", "enum": ["Blueprint"] },
+    "metadata": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^bp-[a-z0-9][a-z0-9-]{0,40}[a-z0-9]$|^[a-z0-9][a-z0-9-]{0,40}[a-z0-9]$" }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "properties": {
+        "topology":      { "$ref": "#/definitions/Topology" },
+        "endpoints":     { "type": "array", "items": { "$ref": "#/definitions/EndpointSpec" }, "minItems": 0 },
+        "sso":           { "$ref": "#/definitions/SSOSpec" },
+        "multiInstance": { "$ref": "#/definitions/MultiInstanceSpec" }
+      }
+    }
+  },
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "definitions": {
+    "BcpTopology": {
+      "type": "string",
+      "enum": ["active-active", "active-hot-standby", "active-passive", "singleton"]
+    },
+    "Topology": {
+      "type": "object",
+      "required": ["supported", "defaults"],
+      "properties": {
+        "supported": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/BcpTopology" },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "defaults": {
+          "type": "object",
+          "required": ["multi-region", "single-region"],
+          "properties": {
+            "multi-region":  { "$ref": "#/definitions/BcpTopology" },
+            "single-region": { "$ref": "#/definitions/BcpTopology" }
+          },
+          "additionalProperties": false
+        },
+        "perTopology": {
+          "type": "object",
+          "properties": {
+            "active-hot-standby": { "$ref": "#/definitions/Variant_ActiveHotStandby" },
+            "active-passive":     { "$ref": "#/definitions/Variant_ActivePassive" },
+            "active-active":      { "$ref": "#/definitions/Variant_ActiveActive" },
+            "singleton":          { "$ref": "#/definitions/Variant_Singleton" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "ReplicationSpec": {
+      "type": "object",
+      "required": ["backend"],
+      "properties": {
+        "backend": {
+          "type": "string",
+          "enum": ["cnpg-pair", "raft", "mirrormaker2", "s3-bucket-replication", "ccr", "sentinel", "velero", "filer-remote-storage", "openbao-perf-replication", "flux-git", "none"]
+        },
+        "mode": { "type": "string", "enum": ["sync", "async", "none"] },
+        "lagSloSeconds": { "type": "integer", "minimum": 0, "maximum": 86400 }
+      },
+      "additionalProperties": false
+    },
+    "SwitchoverSpec": {
+      "type": "object",
+      "required": ["mechanism"],
+      "properties": {
+        "mechanism": {
+          "type": "string",
+          "enum": ["bp-continuum", "manual", "bp-velero-restore", "lua-record", "mm2-symmetric", "ccr-promote", "raft-transition", "sentinel-failover", "none"]
+        },
+        "rtoSeconds": { "type": "integer", "minimum": 0, "maximum": 86400 },
+        "rpoSeconds": { "type": "integer", "minimum": 0, "maximum": 86400 }
+      },
+      "additionalProperties": false
+    },
+    "PlacementSpec": {
+      "type": "object",
+      "properties": {
+        "tier": { "type": "string", "enum": ["mgmt", "dmz", "rtz", ""] },
+        "clusters": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^(mgmt|dmz|rtz)-[A-Z0-9]+$" },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "roles": {
+          "type": "object",
+          "patternProperties": {
+            "^(mgmt|dmz|rtz)-[A-Z0-9]+$": {
+              "type": "string",
+              "enum": ["active", "passive", "singleton"]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "Variant_ActiveHotStandby": {
+      "type": "object",
+      "required": ["replication", "switchover", "placement"],
+      "properties": {
+        "replication": {
+          "allOf": [
+            { "$ref": "#/definitions/ReplicationSpec" },
+            { "properties": { "mode": { "const": "sync" } } }
+          ]
+        },
+        "switchover": { "$ref": "#/definitions/SwitchoverSpec" },
+        "placement":  { "$ref": "#/definitions/PlacementSpec" }
+      },
+      "additionalProperties": false
+    },
+    "Variant_ActivePassive": {
+      "type": "object",
+      "required": ["replication", "switchover", "placement"],
+      "properties": {
+        "replication": { "$ref": "#/definitions/ReplicationSpec" },
+        "switchover":  { "$ref": "#/definitions/SwitchoverSpec" },
+        "placement":   { "$ref": "#/definitions/PlacementSpec" }
+      },
+      "additionalProperties": false
+    },
+    "Variant_ActiveActive": {
+      "type": "object",
+      "required": ["replication", "placement"],
+      "properties": {
+        "replication": { "$ref": "#/definitions/ReplicationSpec" },
+        "switchover":  { "$ref": "#/definitions/SwitchoverSpec" },
+        "placement":   { "$ref": "#/definitions/PlacementSpec" }
+      },
+      "additionalProperties": false
+    },
+    "Variant_Singleton": {
+      "type": "object",
+      "required": ["placement"],
+      "properties": {
+        "replication": { "$ref": "#/definitions/ReplicationSpec" },
+        "switchover":  { "$ref": "#/definitions/SwitchoverSpec" },
+        "placement":   { "$ref": "#/definitions/PlacementSpec" }
+      },
+      "additionalProperties": false
+    },
+    "EndpointSpec": {
+      "type": "object",
+      "required": ["name", "hostnameTemplate"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,30}[a-z0-9]$" },
+        "hostnameTemplate": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 253,
+          "description": "Go text/template emitting an RFC-1123 hostname after evaluation. Tokens: {{.AppName}} {{.InstanceID}} {{.OrgSlug}} {{.SovereignFQDN}} {{.ClusterID}}."
+        },
+        "port":       { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "protocol":   { "type": "string", "enum": ["https", "http", "grpc", "tcp", "udp"] },
+        "tls":        { "type": "boolean" },
+        "visibility": { "type": "string", "enum": ["public", "private", "internal"] },
+        "launchDefault": { "type": "boolean" },
+        "ssoEnabled":    { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "SSOSpec": {
+      "type": "object",
+      "required": ["realm"],
+      "properties": {
+        "realm": { "type": "string", "enum": ["sovereign", "{{.OrgSlug}}"] },
+        "protocolMapper": { "type": "string", "enum": ["oidc", "saml"] },
+        "groupsClaim": { "type": "string", "default": "groups" },
+        "rolesFromGroup": {
+          "type": "object",
+          "patternProperties": { "^[A-Za-z][A-Za-z0-9_-]*$": { "type": "string" } }
+        },
+        "silentLogin": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "MultiInstanceSpec": {
+      "type": "object",
+      "required": ["enabled"],
+      "properties": {
+        "enabled":   { "type": "boolean" },
+        "maxPerOrg": { "type": "integer", "minimum": 0, "maximum": 1000 },
+        "namingTemplate": { "type": "string" },
+        "isolationLevel": { "type": "string", "enum": ["namespace", "vcluster"] }
+      },
+      "additionalProperties": false
+    }
+  }
+}

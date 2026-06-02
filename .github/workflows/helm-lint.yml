@@ -1,0 +1,101 @@
+name: helm-lint (chart annotations + G117 schema readiness)
+
+# Lints chart changes and verifies the new G117 JSON schema
+# (platform/_schemas/blueprint-topology.json) parses + the exemplar
+# blueprint validates against it.
+#
+# Wave-1 fills in:
+#   - per-chart `helm lint` on each touched platform/<bp>/chart/
+#   - chart-against-schema gate once admission-webhook lands
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'platform/**/Chart.yaml'
+      - 'platform/**/chart/**'
+      - 'platform/_schemas/**'
+      - 'examples/blueprint-*.yaml'
+      - '.github/workflows/helm-lint.yml'
+  pull_request:
+    paths:
+      - 'platform/**/Chart.yaml'
+      - 'platform/**/chart/**'
+      - 'platform/_schemas/**'
+      - 'examples/blueprint-*.yaml'
+      - '.github/workflows/helm-lint.yml'
+  workflow_dispatch:
+
+jobs:
+  schema-validate:
+    name: G117 topology JSON schema
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install jsonschema + pyyaml
+        run: pip install --quiet jsonschema pyyaml
+
+      - name: Parse JSON schema
+        run: python3 -c "import json; json.load(open('platform/_schemas/blueprint-topology.json'))"
+
+      - name: Validate exemplar against schema
+        run: |
+          python3 << 'PY'
+          import json, yaml, jsonschema
+          schema = json.load(open('platform/_schemas/blueprint-topology.json'))
+          doc = yaml.safe_load(open('examples/blueprint-grafana-fully-declared.yaml'))
+          jsonschema.validate(doc, schema)
+          print("OK")
+          PY
+
+      - name: Migration tool emits + validates ≥50 stubs
+        run: |
+          python3 tools/migrate-blueprints-topology.py \
+            --output-dir /tmp/topology-stubs \
+            --validate
+          count=$(ls /tmp/topology-stubs | wc -l)
+          echo "stubs: $count"
+          [ "$count" -ge 50 ] || { echo "fewer than 50 stubs"; exit 1; }
+
+  helm-lint:
+    name: helm lint changed charts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.0
+
+      - name: Determine changed charts
+        id: changed
+        run: |
+          base="origin/${{ github.base_ref || 'main' }}"
+          git fetch origin "${{ github.base_ref || 'main' }}" --depth=1 || true
+          if git rev-parse --verify "$base" >/dev/null 2>&1; then
+            files=$(git diff --name-only "$base"...HEAD | grep -E '^platform/[^/]+/chart/' || true)
+          else
+            files=$(git ls-files 'platform/*/chart/' || true)
+          fi
+          charts=$(echo "$files" | awk -F/ '{print $1"/"$2"/chart"}' | sort -u | tr '\n' ' ')
+          echo "charts=$charts" >> "$GITHUB_OUTPUT"
+          echo "Changed charts: $charts"
+
+      - name: helm lint
+        if: steps.changed.outputs.charts != ''
+        run: |
+          for c in ${{ steps.changed.outputs.charts }}; do
+            echo "▸ helm lint $c"
+            helm lint "$c" || exit 1
+          done
