@@ -251,7 +251,25 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
   // launch-url handler (endpoint_handler.go:529). Empty when the
   // backend's GET-Application response hasn't been updated to include
   // metadata.uid yet — Launch button falls back to direct externalURL.
-  const appUID = apiApp?.uid?.trim() ?? ''
+  //
+  // G117.4 #2884-followup (2026-06-03): when the route is /app/bp-<name>
+  // (componentId = Blueprint name) but the actual Application instance
+  // is named differently (e.g. operator named it "walk2742-app", not
+  // "bp-grafana"), getApplication("bp-grafana") returns no match → no
+  // uid → LaunchButton's early-return fires and silent SSO is bypassed.
+  // Fall back to listing instances by Blueprint and pick the first.
+  // Caught live on hw86 walk 2026-06-03 — only path to a non-empty
+  // appUID for non-bp-named Application instances.
+  const directUID = apiApp?.uid?.trim() ?? ''
+  const fallbackInstancesQuery = useQuery({
+    queryKey: ['appdetail-fallback-instances', componentId],
+    queryFn: () => getApplicationInstances(componentId),
+    enabled: !!componentId && !directUID,
+    staleTime: 30_000,
+    refetchInterval: 30_000,
+    retry: 1,
+  })
+  const appUID = directUID || (fallbackInstancesQuery.data?.items?.[0]?.id?.trim() ?? '')
   // Matrix asserts the literal `Ready` token in the Overview body
   // (TC-068). When the API hasn't reported a phase yet, render the
   // mapped `status` chip phrase instead of an empty string so the test

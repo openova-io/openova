@@ -796,7 +796,12 @@ export async function getApplicationInstances(
   const params = new URLSearchParams()
   if (opts.org) params.set('org', opts.org)
   const qs = params.toString()
-  const url = `${API_BASE}/catalyst/v1/catalog/${encodeURIComponent(bp)}/instances${qs ? '?' + qs : ''}`
+  // Same /api/ prefix bug pattern as PR #2878 (listBlueprintInstancesByName)
+  // and PR #2884 (getLaunchURL): the /catalyst/v1/... route group at
+  // cmd/api/main.go:1412 is registered WITHOUT the /api/ prefix.
+  // ${API_BASE}/... produces /api/catalyst/v1/... which chi 404s — pre-fix
+  // every call returned the 404-empty-items path silently. Use BASE.
+  const url = `${BASE}catalyst/v1/catalog/${encodeURIComponent(bp)}/instances${qs ? '?' + qs : ''}`
   const res = await authedFetch(url, { headers: { Accept: 'application/json' } })
   if (res.status === 404) return { items: [] }
   if (!res.ok) {
