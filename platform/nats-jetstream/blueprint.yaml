@@ -4,6 +4,7 @@ metadata:
   name: bp-nats-jetstream
   labels:
     catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
+    catalyst.openova.io/tier: catalyst-cp
 spec:
   version: 1.3.3
   card:
@@ -13,3 +14,56 @@ spec:
   manifests:
     chart: ./chart
   depends: []
+
+  # ── G117.1: Topology declaration ────────────────────────────────────────
+  # Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md:
+  #   mgmt-A=Active, mgmt-B=Passive. Within mgmt: 3-node JetStream cluster
+  #   (Raft). Cross-cluster: NATS leaf-node tunnel only — streams NOT
+  #   replicated by default. Switchover: bp-continuum leaf-node retarget +
+  #   DNS flip; in-flight messages on lost region drop unless stream.mirror
+  #   enabled.
+  topology:
+    supported:
+      - active-passive
+      - singleton
+    defaults:
+      multi-region: active-passive
+      single-region: singleton
+    perTopology:
+      active-passive:
+        replication:
+          backend: raft
+          mode: sync
+          lagSloSeconds: 0
+        switchover:
+          mechanism: bp-continuum
+          rtoSeconds: 30
+          rpoSeconds: 60
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A, mgmt-B]
+          roles:
+            mgmt-A: active
+            mgmt-B: passive
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+
+  # ── G117.3: Endpoints ──────────────────────────────────────────────────
+  # internal-only — `nats://nats:4222` from in-cluster clients.
+  endpoints: []
+
+  # ── G117.4 + G117.5: SSO ───────────────────────────────────────────────
+  # NATS client auth is account/credential-based (NKEYS / JWTs), not OIDC.
+  # Realm declared for admission-webhook completeness; no silent login.
+  sso:
+    realm: sovereign
+    protocolMapper: oidc
+    silentLogin: false
+
+  # ── G117.6: Multi-instance ─────────────────────────────────────────────
+  multiInstance:
+    enabled: false

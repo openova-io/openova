@@ -5,6 +5,7 @@ metadata:
   labels:
     catalyst.openova.io/category: ai-runtime
     catalyst.openova.io/section: pts-4-6-llm-serving
+    catalyst.openova.io/tier: catalyst-cp
 spec:
   version: 1.4.58
   card:
@@ -272,3 +273,59 @@ spec:
   observability:
     metrics: prometheus
     logs: stdout
+
+  # ── G117.1: Topology declaration ────────────────────────────────────────
+  # Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md:
+  #   mgmt-A=Active, mgmt-B=Passive. Stateless API; config from CRDs +
+  #   values. DB persistence lives in bp-cnpg-pair (out-of-scope here).
+  #   Switchover: bp-continuum DNS flip.
+  topology:
+    supported:
+      - active-passive
+      - singleton
+    defaults:
+      multi-region: active-passive
+      single-region: singleton
+    perTopology:
+      active-passive:
+        replication:
+          backend: cnpg-pair
+          mode: sync
+          lagSloSeconds: 0
+        switchover:
+          mechanism: bp-continuum
+          rtoSeconds: 30
+          rpoSeconds: 0
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A, mgmt-B]
+          roles:
+            mgmt-A: active
+            mgmt-B: passive
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+
+  # ── G117.3: Endpoints ──────────────────────────────────────────────────
+  # Per audit row: internal — exposed via Catalyst's API ingress (api.<sov>)
+  # not as a standalone external hostname.
+  endpoints: []
+
+  # ── G117.4 + G117.5: SSO ───────────────────────────────────────────────
+  # NewAPI admin UI gated by KC OIDC; customer-API uses Catalyst-issued
+  # API keys (not OIDC).
+  sso:
+    realm: sovereign
+    protocolMapper: oidc
+    groupsClaim: groups
+    rolesFromGroup:
+      sovereign-admins: admin
+    silentLogin: true
+
+  # ── G117.6: Multi-instance ─────────────────────────────────────────────
+  # Singleton per Sovereign — one NewAPI instance per Sovereign control plane.
+  multiInstance:
+    enabled: false

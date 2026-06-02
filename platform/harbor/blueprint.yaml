@@ -4,6 +4,7 @@ metadata:
   name: harbor
   labels:
     catalyst.openova.io/section: pts-3-5-storage-and-data
+    catalyst.openova.io/tier: catalyst-cp
 spec:
   version: 1.2.22
   card:
@@ -49,7 +50,7 @@ spec:
         default: false
         description: Enable OIDC SSO via Catalyst Keycloak. Default off — opt in via per-Sovereign overlay once bp-keycloak has reconciled.
   placementSchema:
-    modes: [single-region]           # one Harbor per host cluster, no cross-region replication
+    modes: [single-region]           # legacy field — superseded by spec.topology below; kept for backward compatibility with the existing application-controller path
     default: single-region
     minRegions: 1
     maxRegions: 1
@@ -67,3 +68,77 @@ spec:
     # POSIX-only writers and is not in the minimal Sovereign set.
   upgrades:
     from: ["0.x", "1.0.x"]
+
+  # ── G117.1: Topology declaration ────────────────────────────────────────
+  # Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md:
+  #   mgmt-A=Active, mgmt-B=Passive. PG via bp-cnpg-pair sync; image blobs
+  #   on cloud-native S3 (cross-region replication = provider-native bucket
+  #   replication, async). Switchover: bp-continuum PG flip + PowerDNS flip
+  #   for registry.<sov> + harbor.<sov>; blob pulls keep working through
+  #   replica bucket on standby region.
+  topology:
+    supported:
+      - active-hot-standby
+      - singleton
+    defaults:
+      multi-region: active-hot-standby
+      single-region: singleton
+    perTopology:
+      active-hot-standby:
+        replication:
+          backend: cnpg-pair
+          mode: sync
+          lagSloSeconds: 0
+        switchover:
+          mechanism: bp-continuum
+          rtoSeconds: 30
+          rpoSeconds: 0
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A, mgmt-B]
+          roles:
+            mgmt-A: active
+            mgmt-B: passive
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+
+  # ── G117.3: Endpoints ──────────────────────────────────────────────────
+  # Audit row: harbor.<sov> (UI/API) + registry.<sov> (OCI pull/push).
+  endpoints:
+    - name: ui
+      hostnameTemplate: "harbor.{{.SovereignFQDN}}"
+      port: 443
+      protocol: https
+      tls: true
+      visibility: public
+      launchDefault: true
+      ssoEnabled: true
+    - name: registry
+      hostnameTemplate: "registry.{{.SovereignFQDN}}"
+      port: 443
+      protocol: https
+      tls: true
+      visibility: public
+      launchDefault: false
+      ssoEnabled: false   # OCI clients authenticate via robot accounts / OIDC token endpoint, not silent SSO
+
+  # ── G117.4 + G117.5: SSO ───────────────────────────────────────────────
+  sso:
+    realm: sovereign
+    protocolMapper: oidc
+    groupsClaim: groups
+    rolesFromGroup:
+      sovereign-admins: admin
+      harbor-admins: admin
+      harbor-developers: developer
+      harbor-guests: guest
+    silentLogin: true
+
+  # ── G117.6: Multi-instance ─────────────────────────────────────────────
+  # Singleton per Sovereign — one Harbor per Catalyst control plane.
+  multiInstance:
+    enabled: false

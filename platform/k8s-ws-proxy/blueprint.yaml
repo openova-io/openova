@@ -5,6 +5,7 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-3-3-security-and-policy
     catalyst.openova.io/category: platform
+    catalyst.openova.io/tier: catalyst-cp
 spec:
   version: 0.1.14
   card:
@@ -39,3 +40,54 @@ spec:
   depends:
     - blueprint: bp-sealed-secrets
       version: ^1
+
+  # ── G117.1: Topology declaration ────────────────────────────────────────
+  # Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md:
+  #   mgmt-A=Active, mgmt-B=Passive. Stateless WebSocket proxy — routing
+  #   comes from Kubernetes API which Catalyst-api supplies. Switchover:
+  #   bp-continuum DNS flip; new connections route to standby Pod
+  #   immediately, in-flight WS sessions drop.
+  topology:
+    supported:
+      - active-passive
+      - singleton
+    defaults:
+      multi-region: active-passive
+      single-region: singleton
+    perTopology:
+      active-passive:
+        replication:
+          backend: none
+          mode: none
+        switchover:
+          mechanism: bp-continuum
+          rtoSeconds: 5
+          rpoSeconds: 0
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A, mgmt-B]
+          roles:
+            mgmt-A: active
+            mgmt-B: passive
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+
+  # ── G117.3: Endpoints ──────────────────────────────────────────────────
+  # internal-only — proxied by catalyst-api; not exposed via Gateway.
+  endpoints: []
+
+  # ── G117.4 + G117.5: SSO ───────────────────────────────────────────────
+  # No direct user-facing surface; HMAC-signed upstream auth (not OIDC).
+  # Realm declared for admission-webhook completeness.
+  sso:
+    realm: sovereign
+    protocolMapper: oidc
+    silentLogin: false
+
+  # ── G117.6: Multi-instance ─────────────────────────────────────────────
+  multiInstance:
+    enabled: false

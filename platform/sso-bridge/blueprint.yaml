@@ -4,6 +4,7 @@ metadata:
   name: bp-sso-bridge
   labels:
     catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
+    catalyst.openova.io/tier: catalyst-cp
 spec:
   version: 0.2.1
   card:
@@ -23,3 +24,53 @@ spec:
     - bp-keycloak
     - bp-openbao
     - bp-external-secrets-stores
+
+  # ── G117.1: Topology declaration ────────────────────────────────────────
+  # Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md:
+  #   mgmt-A=Active, mgmt-B=Passive. Stateless auth bridge (G91/G112/G113
+  #   chain). Secrets via External-Secrets / openbao — no per-Pod state.
+  #   Switchover: bp-continuum DNS flip.
+  topology:
+    supported:
+      - active-passive
+      - singleton
+    defaults:
+      multi-region: active-passive
+      single-region: singleton
+    perTopology:
+      active-passive:
+        replication:
+          backend: none
+          mode: none
+        switchover:
+          mechanism: bp-continuum
+          rtoSeconds: 30
+          rpoSeconds: 0
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A, mgmt-B]
+          roles:
+            mgmt-A: active
+            mgmt-B: passive
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+
+  # ── G117.3: Endpoints ──────────────────────────────────────────────────
+  # internal-only — reconciler runs cluster-wide; no exposed HTTP surface.
+  endpoints: []
+
+  # ── G117.4 + G117.5: SSO ───────────────────────────────────────────────
+  # sso-bridge IS the SSO plumbing layer; it federates other apps to the
+  # sovereign realm. It does not itself have a user-facing login.
+  sso:
+    realm: sovereign
+    protocolMapper: oidc
+    silentLogin: false
+
+  # ── G117.6: Multi-instance ─────────────────────────────────────────────
+  multiInstance:
+    enabled: false
