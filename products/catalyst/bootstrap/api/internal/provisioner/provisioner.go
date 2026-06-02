@@ -1109,6 +1109,19 @@ type Result struct {
 	// the 5-second auto-redirect timer.
 	HandoverFiredAt *time.Time `json:"handoverFiredAt,omitempty"`
 
+	// MaterializedRegions — list of region codes that actually came up
+	// after `tofu apply` returned. Sourced from the per-provider
+	// per-region output map (Huawei: `control_plane_ips_per_region`).
+	// Populated for every multi-region prov; for single-region provs
+	// it is either nil (single-region path doesn't read the map) or a
+	// 1-entry slice (when the operator submitted Regions[0] only). The
+	// catalyst-api uses len(MaterializedRegions) vs len(Request.Regions)
+	// to detect the G117 #2840 partial-region cascade where the HCS
+	// scheduler refused the secondary region (typically Common.0021 /
+	// quota cap) and the prov silently degraded from active-hotstandby
+	// to single-region.
+	MaterializedRegions []string `json:"materializedRegions,omitempty"`
+
 	// HandoverURL — fully-qualified handover redirect URL (issues
 	// #764 + #768). Shape:
 	//
@@ -1126,6 +1139,95 @@ type Result struct {
 	// "Open Sovereign console" path (POST
 	// /deployments/{id}/mint-handover-token).
 	HandoverURL string `json:"handoverURL,omitempty"`
+}
+
+// PartialRegionMaterialisationError is returned by Provision when
+// `tofu apply` completed without a Go-side error but the per-provider
+// per-region readback shows fewer regions came up than the wizard
+// declared (len(Result.MaterializedRegions) < len(req.Regions)).
+//
+// The typed error carries the partial Result so the catalyst-api can
+// stamp Deployment.status = "partial-failure" with a useful breakdown
+// — it does NOT auto-`tofu destroy`, which would abandon a partial
+// infra the operator may want to retain for forensic / cost / quota
+// reasons (per G117 #2840: "auto-rollback is destructive and may
+// abandon a partial-prov the operator wants to keep").
+//
+// The handler-side flow on encountering this error is documented in
+// handler/deployments.go::runProvisioning (search for
+// PartialRegionMaterialisationError).
+type PartialRegionMaterialisationError struct {
+	// DeclaredRegions — the region codes the operator submitted via
+	// Request.Regions[].CloudRegion, in declaration order.
+	DeclaredRegions []string
+	// MaterializedRegions — the region codes that have a non-empty
+	// primary-CP EIP after `tofu apply`, in declaration order.
+	MaterializedRegions []string
+	// MissingRegions — DeclaredRegions \ MaterializedRegions, in
+	// declaration order. The operator console renders this list.
+	MissingRegions []string
+	// Result — non-nil; the partial-success Result with whatever
+	// outputs DID land (so the catalyst-api still has the LB IP, the
+	// primary CP IP, the materialized region list, etc.). The caller
+	// MUST NOT proceed to commitPDMWithRetry / runPhase1Watch on this
+	// Result because the topology promise (active-hotstandby) is
+	// broken — but the data is useful for the operator-console
+	// PartialFailure render.
+	Result *Result
+}
+
+func (e *PartialRegionMaterialisationError) Error() string {
+	return fmt.Sprintf(
+		"partial-region materialisation: declared %d regions %v, only %d materialised %v (missing: %v) — "+
+			"likely HCS Common.0021 / quota cascade. Sovereign violates Pillar 2 (multi-region BCP) + Pillar 3 "+
+			"(zero-tx-loss). Operator action required: inspect HCS quotas + decide whether to retain the partial "+
+			"prov (single-region usable) or wipe + retry. Auto-destroy was NOT performed (operator decision per G117 #2840).",
+		len(e.DeclaredRegions), e.DeclaredRegions,
+		len(e.MaterializedRegions), e.MaterializedRegions,
+		e.MissingRegions,
+	)
+}
+
+// detectPartialRegionMaterialisation compares the operator's declared
+// regions (req.Regions[].CloudRegion) against the per-region readback
+// from tofu (out.ControlPlaneIPsPerRegion keys) and returns the
+// materialised + missing sets.
+//
+// Returns the materialised-regions slice (always non-nil — empty when
+// the readback was empty) and the missing-regions slice (nil when
+// every declared region came up).
+//
+// Per G117 #2840 the post-condition is: every region declared in
+// Request.Regions[] MUST have a corresponding entry in
+// control_plane_ips_per_region with a non-empty EIP. Anything less is
+// a partial-failure that breaks the topology promise.
+func detectPartialRegionMaterialisation(declaredRegions []RegionSpec, perRegion map[string]string) (materialised []string, missing []string) {
+	materialised = make([]string, 0, len(perRegion))
+	declared := make(map[string]struct{}, len(declaredRegions))
+	for _, r := range declaredRegions {
+		code := strings.TrimSpace(r.CloudRegion)
+		if code == "" {
+			continue
+		}
+		declared[code] = struct{}{}
+		if ip, ok := perRegion[code]; ok && strings.TrimSpace(ip) != "" {
+			materialised = append(materialised, code)
+		} else {
+			missing = append(missing, code)
+		}
+	}
+	// Also append any materialised codes that weren't in the declared
+	// set (defensive — tofu shouldn't produce these, but if it did we
+	// want them visible in the operator-console PartialFailure view).
+	for code, ip := range perRegion {
+		if strings.TrimSpace(ip) == "" {
+			continue
+		}
+		if _, ok := declared[code]; !ok {
+			materialised = append(materialised, code)
+		}
+	}
+	return materialised, missing
 }
 
 // Provisioner runs `tofu init && tofu apply` against the canonical
@@ -1543,13 +1645,69 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 
 	emit("flux-bootstrap", "info", "Cloud-init has bootstrapped Flux + Crossplane in the new cluster — Flux will now reconcile clusters/"+req.SovereignFQDN+"/ from the public OpenOva monorepo, installing the 11-component bootstrap kit and bp-catalyst-platform umbrella in dependency order. The wizard's progress page will poll Flux Kustomizations on the new cluster for steady-state.")
 
-	return &Result{
-		SovereignFQDN:  req.SovereignFQDN,
-		ControlPlaneIP: out.ControlPlaneIP,
-		LoadBalancerIP: out.LoadBalancerIP,
-		ConsoleURL:     fmt.Sprintf("https://console.%s", req.SovereignFQDN),
-		GitOpsRepoURL:  fmt.Sprintf("https://gitea.%s", req.SovereignFQDN),
-	}, nil
+	// G117 #2840 — post-condition partial-region rollback defense.
+	//
+	// `tofu apply` returning nil-error guarantees the OpenTofu state is
+	// internally consistent — NOT that every declared region produced
+	// a working primary CP node. On HCS Kom4DC the scheduler can
+	// silently refuse a secondary region when a per-AZ/per-flavor cell
+	// is unhealthy (Common.0021 / quota cascade); the per-region
+	// resource block then evaluates to an empty `for` expression, the
+	// per-region EIP map output ends up with fewer entries than
+	// expected, and tofu happily reports SUCCESS.
+	//
+	// Without this gate the deployment proceeds to commitPDMWithRetry +
+	// runPhase1Watch on a Sovereign that violates Pillar 2 (multi-region
+	// BCP) + Pillar 3 (zero-tx-loss) — exactly what happened on hw86
+	// (Refs #2840). Operator sees a green "ready" wizard pill but the
+	// Sovereign is single-region under the hood.
+	//
+	// Detection runs only when the operator declared >=2 regions AND
+	// the per-provider readback populated a per-region map (Huawei does;
+	// Hetzner exposes a differently-keyed map and is on a separate
+	// follow-up). When the post-condition fails we return a typed
+	// PartialRegionMaterialisationError carrying the partial Result —
+	// the handler stamps Deployment.status = "partial-failure" but
+	// does NOT auto-`tofu destroy`. The operator decides.
+	materialised, missing := detectPartialRegionMaterialisation(req.Regions, out.ControlPlaneIPsPerRegion)
+	declared := make([]string, 0, len(req.Regions))
+	for _, r := range req.Regions {
+		if code := strings.TrimSpace(r.CloudRegion); code != "" {
+			declared = append(declared, code)
+		}
+	}
+
+	result := &Result{
+		SovereignFQDN:       req.SovereignFQDN,
+		ControlPlaneIP:      out.ControlPlaneIP,
+		LoadBalancerIP:      out.LoadBalancerIP,
+		ConsoleURL:          fmt.Sprintf("https://console.%s", req.SovereignFQDN),
+		GitOpsRepoURL:       fmt.Sprintf("https://gitea.%s", req.SovereignFQDN),
+		MaterializedRegions: materialised,
+	}
+
+	// Only enforce when the operator declared >=2 regions AND the
+	// per-provider readback was populated (single-region Hetzner and
+	// any pre-G117 readback that didn't surface the map skip the
+	// check). The admission gate at Validate() already rejects a
+	// SUBMISSION of bcpTopology=active-hotstandby + len(regions)<2;
+	// this gate catches the downstream tofu-apply partial.
+	if len(declared) >= 2 && len(out.ControlPlaneIPsPerRegion) > 0 && len(missing) > 0 {
+		emit("tofu-apply", "error", fmt.Sprintf(
+			"G117 #2840 partial-region materialisation detected — declared %d regions %v, only %d materialised %v (missing %v). "+
+				"Marking deployment as partial-failure; auto-destroy was NOT performed so the operator can inspect the partial infra "+
+				"and decide whether to retain it (single-region usable) or wipe + retry against a different AZ/flavor.",
+			len(declared), declared, len(materialised), materialised, missing,
+		))
+		return result, &PartialRegionMaterialisationError{
+			DeclaredRegions:     declared,
+			MaterializedRegions: materialised,
+			MissingRegions:      missing,
+			Result:              result,
+		}
+	}
+
+	return result, nil
 }
 
 // Destroy runs `tofu destroy -auto-approve` against the per-deployment
@@ -1730,6 +1888,19 @@ func streamLines(r io.Reader, phase, level string, emit func(string, string, str
 type tofuOutputs struct {
 	ControlPlaneIP string `json:"control_plane_ip"`
 	LoadBalancerIP string `json:"load_balancer_ip"`
+	// ControlPlaneIPsPerRegion — map<region-code, primary-CP-EIP>.
+	// Populated by the Huawei module's `control_plane_ips_per_region`
+	// output (one entry per region in var.regions). Empty for legacy
+	// single-region Hetzner deployments and for Hetzner multi-region
+	// deployments (which expose a different shape via
+	// control_plane_ips_by_region keyed by "<region>-<index>"). G117
+	// #2840 reads this to detect partial-region materialisation: a
+	// 2-region declaration that produces only 1 map entry means the
+	// HCS scheduler refused to allocate the secondary region (typically
+	// Common.0021 / quota cascade) and the prov has silently degraded
+	// to single-region — which violates Pillar 2 (multi-region BCP) +
+	// Pillar 3 (zero-tx-loss).
+	ControlPlaneIPsPerRegion map[string]string `json:"control_plane_ips_per_region"`
 }
 
 func (p *Provisioner) readOutputs(ctx context.Context, deployDir string) (*tofuOutputs, error) {
@@ -1756,9 +1927,33 @@ func (p *Provisioner) readOutputs(ctx context.Context, deployDir string) (*tofuO
 		}
 		return ""
 	}
+	// asStringMap decodes a tofu `map(string)` output into a Go
+	// map[string]string. Missing-key, wrong-type, and nil-value entries
+	// are silently skipped so a partially-materialised apply still
+	// surfaces the keys that DID land (which is the whole point of the
+	// G117 #2840 partial-region detection — we need to enumerate what
+	// came up before we can name what didn't).
+	asStringMap := func(key string) map[string]string {
+		v, ok := raw[key]
+		if !ok || v.Value == nil {
+			return nil
+		}
+		m, ok := v.Value.(map[string]any)
+		if !ok {
+			return nil
+		}
+		out := make(map[string]string, len(m))
+		for k, val := range m {
+			if s, ok := val.(string); ok && s != "" {
+				out[k] = s
+			}
+		}
+		return out
+	}
 	return &tofuOutputs{
-		ControlPlaneIP: asString("control_plane_ip"),
-		LoadBalancerIP: asString("load_balancer_ip"),
+		ControlPlaneIP:           asString("control_plane_ip"),
+		LoadBalancerIP:           asString("load_balancer_ip"),
+		ControlPlaneIPsPerRegion: asStringMap("control_plane_ips_per_region"),
 	}, nil
 }
 

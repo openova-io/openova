@@ -77,7 +77,7 @@ const EventBufferCap = 10000
 // channel).
 type Deployment struct {
 	ID         string
-	Status     string // pending | provisioning | tofu-applying | flux-bootstrapping | phase1-watching | ready | failed
+	Status     string // pending | provisioning | tofu-applying | flux-bootstrapping | phase1-watching | ready | failed | partial-failure
 	Request    provisioner.Request
 	Result     *provisioner.Result
 	Error      string
@@ -854,6 +854,16 @@ func (d *Deployment) State() map[string]any {
 		// `tofu-output` event was lost in producer-channel overflow.
 		if d.Result.Phase1Outcome != "" {
 			out["phase1Outcome"] = d.Result.Phase1Outcome
+		}
+		// G117 #2840 — surface the per-region materialisation breakdown
+		// at the top level so the operator-console deployments table can
+		// render "1 of 2 regions materialised: me-east-215-a (missing:
+		// me-east-215-b)" without unwrapping Result. Emitted whenever
+		// the slice is non-empty (i.e. for every multi-region prov, not
+		// just partial-failure rows — operator-console builds the
+		// missing-set diff against the declared Regions[]).
+		if len(d.Result.MaterializedRegions) > 0 {
+			out["materializedRegions"] = d.Result.MaterializedRegions
 		}
 		// Issue #923 — lift the live Phase-1 substate to the top
 		// level so the Sovereign Admin's wizard banner can render
@@ -1717,6 +1727,32 @@ func (h *Handler) runProvisioning(dep *Deployment) {
 	close(producer)
 	<-teeDone
 
+	// G117 #2840 — partial-region materialisation post-condition.
+	//
+	// The provisioner returns a typed PartialRegionMaterialisationError
+	// when `tofu apply` succeeded internally but the per-region readback
+	// shows fewer regions came up than the wizard declared. The error
+	// carries a non-nil Result with whatever DID land so the catalyst-
+	// api can render a meaningful "partial-failure" state instead of an
+	// opaque "failed" pill.
+	//
+	// We deliberately do NOT auto-`tofu destroy` here — that's destructive
+	// and may abandon a partial-prov the operator wants to retain (a
+	// single-region Sovereign with usable workers may be cheaper to keep
+	// than to wipe + retry against an unhealthy HCS cell). Instead we
+	// stamp Status = "partial-failure", populate Result.MaterializedRegions
+	// for the operator console, and emit a clear event. PDM commit + the
+	// Phase-1 watch are SKIPPED — the topology promise (active-hotstandby)
+	// is broken so promoting DNS or watching helm-releases would lie about
+	// the Sovereign's actual posture.
+	var partialErr *provisioner.PartialRegionMaterialisationError
+	isPartialFailure := errors.As(err, &partialErr)
+	if isPartialFailure && result == nil && partialErr.Result != nil {
+		// Defensive — partialErr.Result is the source of truth even if
+		// the provisioner ever changed the (result, err) wire shape.
+		result = partialErr.Result
+	}
+
 	// Stamp the Phase-0 lifecycle Jobs into terminal state so the
 	// JobsTable's Started/Finished/Duration columns populate without
 	// waiting for Phase-1 events. Failure stamps the in-flight phase
@@ -1739,12 +1775,30 @@ func (h *Handler) runProvisioning(dep *Deployment) {
 
 	// Capture Phase-0 outcome under the lock.
 	dep.mu.Lock()
-	if err != nil {
+	switch {
+	case isPartialFailure:
+		// G117 #2840 — operator-actionable terminal state. Renders a
+		// "partial-failure" pill in the wizard + operator-console
+		// deployments table. The detailed missing/materialised
+		// breakdown lives on the Result so the BSS console can build a
+		// drill-down view.
+		dep.FinishedAt = time.Now()
+		dep.Status = "partial-failure"
+		dep.Error = err.Error()
+		dep.Result = result
+		h.log.Error("partial-region materialisation — Pillar 2+3 violated, operator action required",
+			"id", dep.ID,
+			"sovereignFQDN", result.SovereignFQDN,
+			"declaredRegions", partialErr.DeclaredRegions,
+			"materializedRegions", partialErr.MaterializedRegions,
+			"missingRegions", partialErr.MissingRegions,
+		)
+	case err != nil:
 		dep.FinishedAt = time.Now()
 		dep.Status = "failed"
 		dep.Error = err.Error()
 		h.log.Error("provision failed", "id", dep.ID, "err", err)
-	} else {
+	default:
 		dep.Status = "phase1-watching"
 		dep.Result = result
 		h.log.Info("phase 0 complete; phase 1 watch starting",
@@ -1781,6 +1835,13 @@ func (h *Handler) runProvisioning(dep *Deployment) {
 	//
 	// On Phase-0 failure (no LB IP), Release is called instead so the
 	// reservation TTL doesn't have to expire to free the name.
+	//
+	// G117 #2840 — partial-failure ALSO releases the PDM reservation
+	// and skips the parent-zone write. The Sovereign's topology promise
+	// is broken; publishing DNS would point the public FQDN at a
+	// single-region cluster claiming to be multi-region, which is worse
+	// than no DNS at all. The operator decides whether to retain the
+	// partial prov + re-publish DNS manually, or wipe + retry.
 	if err == nil && result != nil {
 		h.commitPDMWithRetry(dep, result)
 		// Parent-zone A records — BYO Sovereigns (operator-owned
@@ -1802,6 +1863,12 @@ func (h *Handler) runProvisioning(dep *Deployment) {
 	// it terminates, it writes ComponentStates + Phase1FinishedAt
 	// onto dep.Result and flips Status to ready (or leaves failed
 	// alone if Phase 0 already failed).
+	//
+	// G117 #2840 — partial-failure ALSO skips the Phase-1 watch. The
+	// chart's bp-* HRs render under the assumption of N regions; with
+	// only 1 region materialised the install would either fail or
+	// (worse) silently downgrade to single-region CNPG. The Sovereign
+	// is operator-owned at this point — no automatic retry.
 	if err == nil && result != nil {
 		h.runPhase1Watch(dep)
 	}
