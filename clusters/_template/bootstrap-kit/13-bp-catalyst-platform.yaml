@@ -906,7 +906,7 @@ spec:
       # image build workflow + imagePullSecrets:[ghcr-pull] on the
       # migration Job Pod spec. Default remains enabled=false until
       # operators verify on a legacy-CR cluster.
-      version: 1.4.445
+      version: 1.4.446
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
