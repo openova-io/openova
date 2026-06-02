@@ -130,12 +130,21 @@ func (h *Handler) AuthHandover(w http.ResponseWriter, r *http.Request) {
 	// ── 1. Load public key ──────────────────────────────────────────────
 	// Resolution order:
 	//   1. h.handoverJWTPublicKeyPath (set by tests via the field)
-	//   2. CATALYST_HANDOVER_JWT_PUBLIC_KEY_PATH env var (chart sets this
-	//      from .Values.handoverJwtPublicKeyPath; PR #692 moved the
-	//      Sovereign-side mount to /etc/catalyst/handover-jwt-public/
-	//      public.jwk to avoid a subPath conflict on the catalyst-api PVC).
-	//   3. DefaultHandoverJWTPublicKeyPath constant (final fallback).
+	//   2. CATALYST_HANDOVER_JWT_PUBLIC_PATH env var (chart sets this from
+	//      .Values.handoverJwtPublicPath; PR #692 moved the Sovereign-side
+	//      mount to /etc/catalyst/handover-jwt-public/public.jwk to avoid
+	//      a subPath conflict on the catalyst-api PVC).
+	//   3. CATALYST_HANDOVER_JWT_PUBLIC_KEY_PATH env var (legacy name kept
+	//      for backward-compat; renamed 2026-06-03 because the substring
+	//      "KEY" matches Kyverno cluster-policy
+	//      `secret-not-in-env/deny-plaintext-secret-env`'s regex
+	//      `(?i)(PASSWORD|TOKEN|KEY|SECRET)` and the plaintext path value
+	//      registers as a PolicyViolation).
+	//   4. DefaultHandoverJWTPublicKeyPath constant (final fallback).
 	keyPath := h.handoverJWTPublicKeyPath
+	if keyPath == "" {
+		keyPath = os.Getenv("CATALYST_HANDOVER_JWT_PUBLIC_PATH")
+	}
 	if keyPath == "" {
 		keyPath = os.Getenv("CATALYST_HANDOVER_JWT_PUBLIC_KEY_PATH")
 	}

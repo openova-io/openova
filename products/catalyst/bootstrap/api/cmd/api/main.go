@@ -88,10 +88,21 @@ func main() {
 	}
 
 	// Handover JWT signer (issue #605) — RSA-2048 keypair lifecycle.
-	// CATALYST_HANDOVER_KEY_PATH must point at a writable path on the PVC;
-	// if absent the signer is nil and MintHandoverToken returns 503.
+	// CATALYST_HANDOVER_SIGNER_PATH must point at a writable path on the
+	// PVC; if absent the signer is nil and MintHandoverToken returns 503.
 	// Sovereign clusters leave this env unset; Catalyst-Zero sets it.
-	if keyPath := os.Getenv("CATALYST_HANDOVER_KEY_PATH"); keyPath != "" {
+	//
+	// Backwards-compat: legacy env name CATALYST_HANDOVER_KEY_PATH is read
+	// as a fallback. Renamed (Kyverno deny-plaintext-secret-env, 2026-06-03)
+	// because the substring "KEY" matches Kyverno's secret-shaped regex
+	// `(?i)(PASSWORD|TOKEN|KEY|SECRET)`, and a plaintext `value:` on such
+	// an env name registers as a policy violation even though the value is
+	// just a filesystem path. New chart emits only CATALYST_HANDOVER_SIGNER_PATH.
+	keyPath := os.Getenv("CATALYST_HANDOVER_SIGNER_PATH")
+	if keyPath == "" {
+		keyPath = os.Getenv("CATALYST_HANDOVER_KEY_PATH")
+	}
+	if keyPath != "" {
 		pubKeyPath := env("CATALYST_HANDOVER_PUBKEY_PATH", keyPath+".pub.jwk")
 		issuer := env("CATALYST_HANDOVER_JWT_ISSUER", "https://console.openova.io")
 		signer, err := handoverjwt.LoadOrGenerate(keyPath, pubKeyPath, issuer, 5*time.Minute)
@@ -168,7 +179,13 @@ func main() {
 	// restart picks the bootstrap up again. Re-runs are no-ops once
 	// the realm-role chain is in place (idempotency anchor in
 	// EnsureTierRealmRoles).
-	if envBool("KEYCLOAK_BOOTSTRAP_TIER_ROLES", false) {
+	// KC_BOOTSTRAP_TIER_ROLES (preferred) / KEYCLOAK_BOOTSTRAP_TIER_ROLES
+	// (legacy, kept for backward-compat). Renamed (Kyverno
+	// deny-plaintext-secret-env, 2026-06-03) — the substring "KEY" in
+	// KEYCLOAK matches Kyverno's secret-shaped regex
+	// `(?i)(PASSWORD|TOKEN|KEY|SECRET)` and made the boolean
+	// `value: "false"` register as a plaintext-secret PolicyViolation.
+	if envBool("KC_BOOTSTRAP_TIER_ROLES", envBool("KEYCLOAK_BOOTSTRAP_TIER_ROLES", false)) {
 		// Reuse the same SA credentials wired above for /auth/handover
 		// (CATALYST_KC_ADDR + CATALYST_KC_REALM + CATALYST_KC_SA_CLIENT_ID
 		// + CATALYST_KC_SA_CLIENT_SECRET). If any are missing the

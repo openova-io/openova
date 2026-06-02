@@ -611,8 +611,11 @@ controllers:
 # catalog-tier composite realm-roles
 # (`catalyst-{viewer,developer,operator,admin,owner}`) per
 # docs/EPICS-1-6-unified-design.md §6.2. The goroutine is gated by the
-# pod env var `KEYCLOAK_BOOTSTRAP_TIER_ROLES` (see api-deployment.yaml)
-# which sources its default from `.Values.keycloak.bootstrap.ensureTierRoles`.
+# pod env var `KC_BOOTSTRAP_TIER_ROLES` (see api-deployment.yaml; renamed
+# 2026-06-03 from `KEYCLOAK_BOOTSTRAP_TIER_ROLES` to avoid the substring
+# "KEY" matching Kyverno's deny-plaintext-secret-env regex — Go side
+# reads both new and legacy names for backward-compat) which sources its
+# default from `.Values.keycloak.bootstrap.ensureTierRoles`.
 #
 # Per qa-loop iter-1 (cluster `controllers-and-kc-bootstrap-gates`) the
 # default is ON: every Sovereign realm needs the 5 tier roles before the

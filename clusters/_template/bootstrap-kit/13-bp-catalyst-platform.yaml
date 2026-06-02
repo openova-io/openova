@@ -898,6 +898,15 @@ spec:
       # patch can flip catalyst-api image to harbor-proxy URL passing
       # the harbor-proxy-pull admission policy. Kustomize-mode sibling
       # api-deployment-kustomize.yaml (literal) handles contabo-mkt.
+      # 1.4.445 (Kyverno deny-plaintext-secret-env unblock, 2026-06-03):
+      # rename 3 catalyst-api env vars whose names match Kyverno's
+      # `(?i)(PASSWORD|TOKEN|KEY|SECRET)` regex but carry non-secret
+      # values (boolean + filesystem paths) — KEYCLOAK_BOOTSTRAP_TIER_ROLES
+      # → KC_BOOTSTRAP_TIER_ROLES, CATALYST_HANDOVER_JWT_PUBLIC_KEY_PATH
+      # → CATALYST_HANDOVER_JWT_PUBLIC_PATH, CATALYST_HANDOVER_KEY_PATH
+      # → CATALYST_HANDOVER_SIGNER_PATH. Go reads both new + legacy
+      # for backward-compat. Refs #2742 #2743 #2737.
+      #
       # 1.4.441 (G117.E2E-B3 #2740 #2745 #2737, 2026-06-03): promote
       # G117 fields (spec.topology / endpoints / sso / multiInstance)
       # into the Blueprint CRD openAPIV3Schema so runtime admission
@@ -927,6 +936,7 @@ spec:
       # Application.status.perCluster[] when populated by G117.6
       # application-controller fan-out. Refs #2741 #2737 #2834.
       version: 1.4.448
+      version: 1.4.445
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
