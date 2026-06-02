@@ -84,15 +84,23 @@ fi
 echo "PASS: empty image.tag fails fast"
 
 # ─────────────────────────────────────────────────────────────────────
-# 3. Full-ON: the canonical 19-resource bundle.
+# 3. Full-ON: the canonical 14-resource bundle.
 #
-# qa-loop iter-11 Fix #45 Cluster-A added the recordings storageClass-
-# migration pre-upgrade hook (1 Job + 1 ServiceAccount + 1 Role +
-# 1 RoleBinding + 1 ClusterRole + 1 ClusterRoleBinding = +6 resources
-# vs. the prior 9-doc bundle → 15).
-# Fix #125 (5b711427) then added the bp-guacamole bootstrap Job for
-# the guacamole-oidc Secret + matching ServiceAccount + Role +
-# RoleBinding (+4 resources → 19).
+# 0.2.0 (G117.5 W3.D1 #2744, 2026-06-02) — bundle delta:
+#   - DELETE divergent realm-patch ConfigMap (templates/keycloak-realm-
+#     config.yaml). Realm-import for `guacamole` is now consolidated in
+#     bp-keycloak 1.4.13 sovereign-realm-import. Net -1 ConfigMap.
+#   - chartManagedSecret default ON gates the legacy SealedSecret +
+#     pre-install Job + matching RBAC (SA + Role + RoleBinding) OFF.
+#     The chart-managed `lookup`-or-generate Secret renders ONE plain
+#     Secret instead. Net delta: -1 SealedSecret -1 Job -1 SA -1 Role
+#     -1 RoleBinding +1 Secret = -4.
+# Total: 19 - 1 (ConfigMap deletion) - 4 (bootstrap Job + RBAC swap)
+# = 14 in the default chartManagedSecret=true mode.
+#
+# qa-loop iter-11 Fix #45 Cluster-A recordings storageClass-migration
+# pre-upgrade hook stays (Job + SA + Role + RB + ClusterRole +
+# ClusterRoleBinding).
 # ─────────────────────────────────────────────────────────────────────
 render_on="$TMP/on.yaml"
 helm template bp-guacamole . \
@@ -100,14 +108,14 @@ helm template bp-guacamole . \
   --set guacamole.guacd.image.tag=1.5.5-r1 \
   --set guacamole.webapp.image.tag=1.5.5-r1 \
   --set guacamole.httproute.hostname=guacamole.test \
-  --set guacamole.oidc.issuer=https://kc.test/realms/catalyst \
+  --set guacamole.oidc.issuer=https://kc.test/realms/sovereign \
   > "$render_on"
 
-# Check each canonical kind appears the expected number of times. The
-# 15-doc target: Deployment×2 (guacd + webapp), Service×2, HTTPRoute,
-# PVC, SealedSecret, NetworkPolicy, ConfigMap, Job, ServiceAccount,
-# Role, RoleBinding, ClusterRole, ClusterRoleBinding.
-expect_total=19
+# 14-doc target with chartManagedSecret default ON: Deployment×2 (guacd
+# + webapp), Service×2, HTTPRoute, PVC, Secret (chart-managed),
+# NetworkPolicy, Job (recordings-migrate), ServiceAccount, Role,
+# RoleBinding, ClusterRole, ClusterRoleBinding.
+expect_total=14
 got_total="$(grep -cE '^kind:' "$render_on")"
 if [[ "$got_total" != "$expect_total" ]]; then
   echo "FAIL: full-ON rendered $got_total resources, want $expect_total"
@@ -122,9 +130,8 @@ required_kinds=(
   Service
   HTTPRoute
   PersistentVolumeClaim
-  SealedSecret
+  Secret
   NetworkPolicy
-  ConfigMap
   Job
   ServiceAccount
   Role
@@ -140,16 +147,15 @@ for k in "${required_kinds[@]}"; do
 done
 echo "PASS: every required kind present"
 
-# Realm-config ConfigMap must reference the OIDC client name + redirect.
-if ! grep -q '"clientId": "guacamole"' "$render_on"; then
-  echo "FAIL: keycloak realm-config missing guacamole clientId"
+# G117.5 W3.D1 #2744 (2026-06-02): the chart-managed Secret carries
+# `helm.sh/resource-policy: keep` per memory
+# feedback_chart_credential_persistence_defense.md so reinstalls don't
+# rotate the OIDC client-secret.
+if ! grep -q "helm.sh/resource-policy: keep" "$render_on"; then
+  echo "FAIL: chart-managed Secret missing helm.sh/resource-policy: keep annotation"
   exit 1
 fi
-if ! grep -q "https://guacamole.test" "$render_on"; then
-  echo "FAIL: keycloak realm-config missing redirect URL"
-  exit 1
-fi
-echo "PASS: keycloak realm-config wires OIDC client"
+echo "PASS: chart-managed OIDC Secret has resource-policy: keep"
 
 # qa-loop iter-7 Fix #39 — canonical short resource names. The
 # catalyst-api shells/issue handler + the qa-loop test matrix
@@ -172,32 +178,16 @@ for n in "${required_names[@]}"; do
 done
 echo "PASS: canonical resource names (guacd / guacamole-server / guacamole-recordings) present"
 
-# Realm-patch ConfigMap MUST land in the keycloak namespace so
-# bp-keycloak's keycloak-config-cli post-deploy Job (label-selector
-# scoped to its own namespace) actually sees it. Pre-Fix-#39 the
-# template put it in a namespace named after the REALM ("catalyst") —
-# the Job would have silently never picked it up.
-#
-# Strip Helm-template comment lines (^\s*#) before scanning so the
-# YAML structure check isn't confused by inline rationale.
-clean="$TMP/on-clean.yaml"
-grep -vE '^[[:space:]]*#' "$render_on" > "$clean"
-if ! awk '
-  /^kind: ConfigMap$/    { in_cm=1; name=""; ns=""; next }
-  in_cm && /^  name:/    { name=$2 }
-  in_cm && /^  namespace:/ { ns=$2 }
-  in_cm && /^---$/       { if (name=="bp-guacamole-realm-patch" && ns=="keycloak") found=1; in_cm=0 }
-  END {
-    # End-of-file fall-through (no trailing ---).
-    if (in_cm && name=="bp-guacamole-realm-patch" && ns=="keycloak") found=1
-    exit !found
-  }
-' "$clean"; then
-  echo "FAIL: bp-guacamole-realm-patch ConfigMap is NOT in the keycloak namespace"
-  awk '/^kind: ConfigMap$/,/^---$/' "$clean" | head -25
+# G117.5 W3.D1 #2744 (2026-06-02): the divergent bp-guacamole-realm-patch
+# ConfigMap was DELETED in chart 0.2.0 — the realm-import for the
+# `guacamole` client is now consolidated in bp-keycloak 1.4.13's
+# sovereign realm-import. This test guards against accidental
+# re-introduction of the template.
+if grep -q "name: bp-guacamole-realm-patch" "$render_on"; then
+  echo "FAIL: bp-guacamole-realm-patch ConfigMap rendered (template should be deleted)"
   exit 1
 fi
-echo "PASS: realm-patch ConfigMap lands in keycloak namespace"
+echo "PASS: divergent realm-patch ConfigMap is not rendered (consolidated in bp-keycloak)"
 
 # qa-loop iter-11 Fix #45 Cluster-A — recordings storageClass-migration
 # pre-upgrade hook is wired to the correct hook lifecycle (pre-install
@@ -223,7 +213,7 @@ helm template bp-guacamole . \
   --set guacamole.guacd.image.tag=1.5.5-r1 \
   --set guacamole.webapp.image.tag=1.5.5-r1 \
   --set guacamole.httproute.hostname=guacamole.test \
-  --set guacamole.oidc.issuer=https://kc.test/realms/catalyst \
+  --set guacamole.oidc.issuer=https://kc.test/realms/sovereign \
   --set guacamole.recordings.allowMigration=false \
   > "$no_mig"
 if grep -q 'storageclass-migrate' "$no_mig"; then

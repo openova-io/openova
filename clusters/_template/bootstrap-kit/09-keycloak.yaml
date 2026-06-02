@@ -103,7 +103,12 @@ spec:
       # IdP's firstBrokerLoginFlowAlias to it — bypasses KC SMTP for
       # first-broker-login email-collision handling on Sovereigns whose
       # KC SMTP is not yet wired.
-      version: 1.4.12
+      # 1.4.13 (G117.5 W3.D1 #2744, 2026-06-02): Tier-2 silent-SSO clients
+      # (guacamole, powerdns-admin, hubble-ui) codified in sovereign
+      # realm-import via the new `bp-keycloak.tier2ClientSecret` helper.
+      # Pattern mirrors Tier-1 1.4.10 fan-out; same realm + same
+      # catalyst-pin IDR. Refs #2744.
+      version: 1.4.13
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak

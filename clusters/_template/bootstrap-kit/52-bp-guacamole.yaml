@@ -134,7 +134,15 @@ spec:
       # during the YAML scanner break introduced by PR #1858 and fixed
       # by PR #1866. Auto-bump-pin step didn't fire during the outage.
       # Refs #1864.
-      version: 0.1.32
+      # 0.2.0 (G117.5 W3.D1 #2744, 2026-06-02 — BREAKING): SSO
+      # consolidation into bp-keycloak 1.4.13 authoritative realm-import.
+      # Appends `?kc_idp_hint=catalyst-pin` to OIDC auth endpoint;
+      # DELETES the divergent `realm: catalyst` ConfigMap (templates/
+      # keycloak-realm-config.yaml); replaces the SealedSecret-with-
+      # empty-placeholder path with a chart-managed lookup-or-generate
+      # Secret + helm.sh/resource-policy: keep (default ON; opt-out via
+      # `guacamole.oidc.chartManagedSecret: false`). Refs #2744.
+      version: 0.2.0
       sourceRef:
         kind: HelmRepository
         name: bp-guacamole

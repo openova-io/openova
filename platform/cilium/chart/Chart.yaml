@@ -1,5 +1,18 @@
 apiVersion: v2
 name: bp-cilium
+# 1.3.7 (G117.5 W3.D1 #2744, 2026-06-02): DECORATIVE-GATE REMOVED on
+# the Hubble UI HTTPRoute overlay. The pre-fix chart emitted a
+# `catalyst.openova.io/hubble-ui-auth: oidc` annotation read from
+# `.Values.catalystOverlay.hubbleUI.auth` (default `oidc`), BUT no OIDC
+# enforcement filter was ever attached — pure security theater. Per
+# Aux-2 audit
+# docs/sessions/2026-06-02-G117-sso-fanout-audit/tier-2/bp-cilium.md
+# the misleading annotation is dropped from
+# templates/hubble-ui-httproute.yaml and the `auth` default flips
+# `oidc` → `none` in values.yaml. The bp-keycloak 1.4.13 sovereign
+# realm-import pre-declares the `hubble-ui` OIDC client (no-op until
+# the oauth2-proxy sidecar Wave lands; pre-declaration avoids a future
+# bp-sso-bridge race). Refs #2744.
 # 1.3.6 (G99 Refs #2648, 2026-06-01): NEW template clustermesh-lb-ipam-
 # pool.yaml renders a CiliumLoadBalancerIPPool CR when
 # clustermesh.apiserver.service.lbIpam.enabled=true. Lets Cilium itself
@@ -46,7 +59,7 @@ name: bp-cilium
 # + socketLB.hostNamespaceOnly=true defaults so fresh worker pods can
 # resolve DNS reliably on first-join (cilium/cilium#28456 mitigation).
 # Backward-compat: per-Sovereign overlays MAY override either knob.
-version: 1.3.6
+version: 1.3.7
 description: |
   Catalyst-curated Blueprint umbrella chart for Cilium. Depends on the
   upstream `cilium` chart as a Helm subchart so `helm dependency build`

@@ -563,6 +563,138 @@ data:
           "attributes": {
             "access.token.lifespan": "900"
           }
+        }{{- /*
+        G117.5 W3.D1 #2744 — Tier-2 silent-SSO clients codified in realm import.
+
+        Same realm + same catalyst-pin broker as Tier-1 above; differs
+        only in the consumer chart's local SSO wiring (per-app audit at
+        docs/sessions/2026-06-02-G117-sso-fanout-audit/tier-2/). The
+        `bp-keycloak.tier2ClientSecret` helper namespaces the seed so
+        Tier-2 + Tier-1 secrets never collide.
+
+        Three apps codified here:
+          - guacamole       — Apache Guacamole admin UI (singleton per
+                              Sovereign per ADR-0001 §11).
+          - powerdns-admin  — PowerDNS-Admin (DNS zone/record management).
+          - hubble-ui       — Cilium Hubble UI (network observability).
+                              The OIDC enforcement layer in bp-cilium
+                              chart is still scaffold-only (oauth2-proxy
+                              sidecar deferred to a follow-up sub-EPIC);
+                              codifying the realm client here is a no-op
+                              until the sidecar lands, but pre-declaring
+                              keeps the realm-import authoritative and
+                              avoids a future bp-sso-bridge race.
+        */ -}},
+        {
+          "clientId": "guacamole",
+          "name": "Apache Guacamole (Tier-2 silent-SSO)",
+          "description": "G117.5 #2744 — remote-desktop gateway silent-SSO via catalyst-pin broker. Guacamole webapp redirects to /; SealedSecret + new `lookup`-or-generate Secret both consume the same value derived by `bp-keycloak.tier2ClientSecret`.",
+          "enabled": true,
+          "publicClient": false,
+          "standardFlowEnabled": true,
+          "directAccessGrantsEnabled": false,
+          "implicitFlowEnabled": false,
+          "serviceAccountsEnabled": false,
+          "authorizationServicesEnabled": false,
+          "secret": {{ include "bp-keycloak.tier2ClientSecret" (dict "ctx" . "clientId" "guacamole") | quote }},
+          "redirectUris": [
+            "https://guacamole.{{ .Values.sovereignFQDN }}/*"
+          ],
+          "webOrigins": [
+            "https://guacamole.{{ .Values.sovereignFQDN }}"
+          ],
+          "defaultClientScopes": [
+            "web-origins",
+            "acr",
+            "profile",
+            "roles",
+            "email",
+            "groups"
+          ],
+          "optionalClientScopes": [
+            "address",
+            "phone",
+            "offline_access",
+            "microprofile-jwt"
+          ],
+          "attributes": {
+            "access.token.lifespan": "900",
+            "post.logout.redirect.uris": "https://guacamole.{{ .Values.sovereignFQDN }}/*"
+          }
+        },
+        {
+          "clientId": "powerdns-admin",
+          "name": "PowerDNS-Admin (Tier-2 silent-SSO)",
+          "description": "G117.5 #2744 — DNS UI silent-SSO via catalyst-pin broker. PDA reads OIDC env via ExternalSecret materialised by bp-sso-bridge; chart appends `?kc_idp_hint=catalyst-pin` to the discovered authorize_url for explicit hinting (defense-in-depth alongside the realm IDR `defaultProvider`).",
+          "enabled": true,
+          "publicClient": false,
+          "standardFlowEnabled": true,
+          "directAccessGrantsEnabled": false,
+          "implicitFlowEnabled": false,
+          "serviceAccountsEnabled": false,
+          "authorizationServicesEnabled": false,
+          "secret": {{ include "bp-keycloak.tier2ClientSecret" (dict "ctx" . "clientId" "powerdns-admin") | quote }},
+          "redirectUris": [
+            "https://pdns-admin.{{ .Values.sovereignFQDN }}/oidc/authorized",
+            "https://pdns-admin.{{ .Values.sovereignFQDN }}/*"
+          ],
+          "webOrigins": [
+            "https://pdns-admin.{{ .Values.sovereignFQDN }}"
+          ],
+          "defaultClientScopes": [
+            "web-origins",
+            "acr",
+            "profile",
+            "roles",
+            "email",
+            "groups"
+          ],
+          "optionalClientScopes": [
+            "address",
+            "phone",
+            "offline_access",
+            "microprofile-jwt"
+          ],
+          "attributes": {
+            "access.token.lifespan": "900",
+            "post.logout.redirect.uris": "https://pdns-admin.{{ .Values.sovereignFQDN }}/*"
+          }
+        },
+        {
+          "clientId": "hubble-ui",
+          "name": "Cilium Hubble UI (Tier-2 silent-SSO)",
+          "description": "G117.5 #2744 — network observability UI silent-SSO via catalyst-pin broker. Pre-declared for the planned oauth2-proxy sidecar in front of hubble-ui (Aux-2 audit tier-2/bp-cilium.md). Until that sidecar lands, the client exists in KC but has no consumer wired.",
+          "enabled": true,
+          "publicClient": false,
+          "standardFlowEnabled": true,
+          "directAccessGrantsEnabled": false,
+          "implicitFlowEnabled": false,
+          "serviceAccountsEnabled": false,
+          "authorizationServicesEnabled": false,
+          "secret": {{ include "bp-keycloak.tier2ClientSecret" (dict "ctx" . "clientId" "hubble-ui") | quote }},
+          "redirectUris": [
+            "https://hubble.{{ .Values.sovereignFQDN }}/oauth2/callback"
+          ],
+          "webOrigins": [
+            "https://hubble.{{ .Values.sovereignFQDN }}"
+          ],
+          "defaultClientScopes": [
+            "web-origins",
+            "acr",
+            "profile",
+            "roles",
+            "email",
+            "groups"
+          ],
+          "optionalClientScopes": [
+            "address",
+            "phone",
+            "offline_access",
+            "microprofile-jwt"
+          ],
+          "attributes": {
+            "access.token.lifespan": "900"
+          }
         }
       ],
       "clientScopeMappings": {

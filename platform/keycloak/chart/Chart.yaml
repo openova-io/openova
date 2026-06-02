@@ -1,5 +1,21 @@
 apiVersion: v2
 name: bp-keycloak
+# 1.4.13 (G117.5 W3.D1 #2744, 2026-06-02): Tier-2 silent-SSO clients
+# codified in the sovereign realm-import. New entries appended to clients[]:
+#   - guacamole       (redirectUris: https://guacamole.<sov-fqdn>/*)
+#   - powerdns-admin  (redirectUris: https://pdns-admin.<sov-fqdn>/oidc/authorized + https://pdns-admin.<sov-fqdn>/*)
+#   - hubble-ui       (redirectUris: https://hubble.<sov-fqdn>/oauth2/callback)
+# Each client's `secret` is derived via the new
+# `bp-keycloak.tier2ClientSecret` named template (sha256sum of
+# Release.Name|Release.Namespace|tier2-sso|clientId — namespaced apart
+# from `tier1ClientSecret` so the two tiers can rotate independently).
+# Pattern mirrors 1.4.10 Tier-1 codification; same realm, same
+# catalyst-pin IDR `defaultProvider`, same `kc_idp_hint` defense-in-depth
+# at the per-app chart level. The hubble-ui client is pre-declared even
+# though the bp-cilium oauth2-proxy sidecar is not yet shipped (decorative
+# `auth: oidc` annotation removed in same PR per Aux-2 tier-2/bp-cilium.md
+# audit) — codifying ahead of consumer avoids a race when the sidecar
+# lands and lets the realm-import stay authoritative. Refs #2744.
 # 1.4.12 (G117.5 W2.C4 #2744, 2026-06-02): Per-Org realm fan-out template.
 # New file templates/configmap-per-org-realms.yaml iterates
 # `.Values.tenantRealms[]` (default empty — no-op) and emits one ConfigMap
@@ -78,7 +94,7 @@ name: bp-keycloak
 # sectionName by default — multi-zone Sovereigns rename HTTPS listeners
 # to https-<sanitised-zone>, breaking NoMatchingListener with the prior
 # pinned sectionName: https. Matches the catalyst-system fix in PR #1888.
-version: 1.4.12
+version: 1.4.13
 description: |
   Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
   upstream `keycloak` chart (bitnami) as a Helm subchart so

@@ -42,8 +42,16 @@ spec:
             # OIDC — every value below is operator-driven via per-Sovereign
             # overlay, never hardcoded (INVIOLABLE-PRINCIPLES #4). Empty
             # values fail the helm template render via _helpers.tpl.
+            #
+            # G117.5 W3.D1 #2744 — `?kc_idp_hint=catalyst-pin` appended
+            # so the Guacamole webapp's auth redirect carries the IdP
+            # hint as defense-in-depth alongside the sovereign realm IDR
+            # `defaultProvider` (bp-keycloak 1.4.9, PR #2730). Hardens
+            # against operator drift on the realm IDR config + per-Org
+            # realm chains where IDR points at `sovereign-broker`. Refs
+            # G113 `feedback_g113_sso_idr_defaultprovider_fix.md`.
             - name: OPENID_AUTHORIZATION_ENDPOINT
-              value: "{{ include "bp-guacamole.oidcIssuer" . }}/protocol/openid-connect/auth"
+              value: "{{ include "bp-guacamole.oidcIssuer" . }}/protocol/openid-connect/auth?kc_idp_hint=catalyst-pin"
             - name: OPENID_JWKS_ENDPOINT
               value: "{{ include "bp-guacamole.oidcIssuer" . }}/protocol/openid-connect/certs"
             - name: OPENID_ISSUER

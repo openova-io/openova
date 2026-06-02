@@ -39,6 +39,11 @@
 set -euo pipefail
 
 CHART_DIR="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
+# Resolve to absolute path so `helm template smoke "$CHART_DIR"` invocations
+# below keep working after the `cd "$CHART_DIR"` step (the CI test runner
+# passes the relative path `platform/keycloak/chart` as $1, which becomes
+# invalid once we cd into it).
+CHART_DIR="$(cd "$CHART_DIR" && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 

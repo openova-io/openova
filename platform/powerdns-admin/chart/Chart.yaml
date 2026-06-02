@@ -1,6 +1,15 @@
 apiVersion: v2
 name: bp-powerdns-admin
-version: 0.1.0
+# 0.1.1 (G117.5 W3.D1 #2744, 2026-06-02): Append `?kc_idp_hint=catalyst-pin`
+# to the rendered `OIDC_OAUTH_AUTHORIZE_URL` env so PDA's browser-flow
+# auth redirect carries the IdP hint as defense-in-depth alongside the
+# sovereign realm IDR `defaultProvider` (bp-keycloak 1.4.9). Hardens
+# against operator drift on the IDR config and per-Org realm flows
+# whose IDR points at `sovereign-broker` (Tier-3 chain). Per Aux-2
+# audit docs/sessions/2026-06-02-G117-sso-fanout-audit/tier-2/bp-powerdns-admin.md
+# "Option A" — chart-local override, no bp-sso-bridge contract change.
+# Refs G113 `feedback_g113_sso_idr_defaultprovider_fix.md`.
+version: 0.1.1
 description: |
   PowerDNS-Admin (ngoduykhanh/powerdns-admin) web UI Blueprint for
   per-Sovereign PowerDNS zone + record management. Drives the

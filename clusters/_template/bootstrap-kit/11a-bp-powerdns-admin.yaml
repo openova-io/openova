@@ -72,7 +72,11 @@ spec:
   chart:
     spec:
       chart: bp-powerdns-admin
-      version: 0.1.0
+      # 0.1.1 (G117.5 W3.D1 #2744, 2026-06-02): append `?kc_idp_hint=catalyst-pin`
+      # to OIDC_OAUTH_AUTHORIZE_URL env so PDA's browser-flow auth redirect
+      # carries the explicit IdP hint as defense-in-depth alongside the
+      # sovereign realm IDR `defaultProvider`. Refs #2744.
+      version: 0.1.1
       sourceRef:
         kind: HelmRepository
         name: bp-powerdns-admin
