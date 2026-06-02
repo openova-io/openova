@@ -52,6 +52,8 @@ jobs:
 
       - name: Install Playwright deps
         run: |
+          mkdir -p /tmp/g117-playwright
+          cd /tmp/g117-playwright
           npm init -y
           npm install --silent @playwright/test
           npx playwright install --with-deps chromium
@@ -89,8 +91,10 @@ jobs:
       # asserts the route scaffolds load. Wave-1 adds the per-sub-EPIC
       # specs under products/catalyst/console/tests/e2e/.
       - name: Run e2e (scaffold smoke)
+        working-directory: /tmp/g117-playwright
         run: |
-          cat > /tmp/g117-scaffold-smoke.spec.ts <<'EOF'
+          mkdir -p tests
+          cat > tests/g117-scaffold-smoke.spec.ts <<'EOF'
           import { test, expect } from '@playwright/test';
           const BASE = process.env.BASE_URL || 'http://localhost:4322/nova/';
           test('console root loads', async ({ page }) => {
@@ -98,7 +102,17 @@ jobs:
             expect(r?.status() ?? 0).toBeLessThan(500);
           });
           EOF
-          npx playwright test /tmp/g117-scaffold-smoke.spec.ts --reporter=list
+          # Minimal playwright config so the test runner picks up tests/.
+          cat > playwright.config.ts <<'EOF'
+          import { defineConfig } from '@playwright/test';
+          export default defineConfig({
+            testDir: './tests',
+            timeout: 30_000,
+            reporter: 'list',
+            use: { headless: true },
+          });
+          EOF
+          npx playwright test --reporter=list
 
       - name: Stop console
         if: always()
