@@ -121,7 +121,16 @@ spec:
       # tenant-realm + per-Org-realm templates that PR #2824 left
       # unaddressed. The per-Org case is the gating fix for the W2.C4
       # cross-Org silent-SSO walk on hw86. Refs #2816 #2744.
-      version: 1.4.16
+      # 1.4.17 (G117.5c #2744 H21, 2026-06-03): extend
+      # catalyst-kc-sa-credentials reflector whitelist on the source
+      # Secret to include `sso-bridge` ns alongside `catalyst-system`.
+      # Unblocks bp-sso-bridge reconciler Pod which had been stuck in
+      # CreateContainerConfigError because the local stub Secret stayed
+      # empty (DATA: 0) — reflector refused to copy from a source that
+      # didn't list `sso-bridge` in its allow + auto namespaces. Caught
+      # live H18 walk on hw86 2026-06-03 (H21 RCA). Companion to
+      # PR #2849 (NetPol port-8080 fix). Refs #2744 #2849 #2856.
+      version: 1.4.17
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak

@@ -896,13 +896,23 @@ metadata:
       cluster overlay to pin a known value (e.g. for sealed-secret
       replication scenarios).
     # Reflector cross-namespace mirror — catalyst-api lives in
-    # catalyst-system (bootstrap-kit slot 13). Auto-mirror so the
-    # destination Secret materialises as soon as catalyst-system
-    # namespace exists, even if bp-keycloak installs first.
+    # catalyst-system (bootstrap-kit slot 13) AND bp-sso-bridge's
+    # reconciler runs in `sso-bridge` (G117.5c Tier-3 AppRegistration
+    # watcher). Both downstream namespaces MUST be in the allow- +
+    # auto- whitelists or reflector refuses to copy the source bytes
+    # into their stub mirror Secrets. Caught live H18 walk on hw86
+    # 2026-06-03: sso-bridge stub stayed empty (DATA: 0), reconciler
+    # Pod stuck in CreateContainerConfigError. bp-sso-bridge's stub
+    # template platform/sso-bridge/chart/templates/
+    # secret-kc-credentials-mirror.yaml carries the corresponding
+    # `reflector.v1.k8s.emberstack.com/reflects:
+    # keycloak/catalyst-kc-sa-credentials` annotation — extending the
+    # source-side whitelist here is the missing other-half. Refs #2744
+    # #2856.
     reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
-    reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "catalyst-system"
+    reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "catalyst-system,sso-bridge"
     reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
-    reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "catalyst-system"
+    reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "catalyst-system,sso-bridge"
 type: Opaque
 stringData:
   addr: {{ $kcAddr | quote }}

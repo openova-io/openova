@@ -1,5 +1,22 @@
 apiVersion: v2
 name: bp-keycloak
+# 1.4.17 (G117.5c #2744 H21, 2026-06-03): extend
+# catalyst-kc-sa-credentials reflector whitelist to include `sso-bridge`
+# namespace alongside the existing `catalyst-system` entry. The source
+# Secret in keycloak ns previously only allowed reflection into
+# catalyst-system; the bp-sso-bridge chart's stub mirror Secret
+# (platform/sso-bridge/chart/templates/secret-kc-credentials-mirror.yaml,
+# carrying `reflector.v1.k8s.emberstack.com/reflects:
+# keycloak/catalyst-kc-sa-credentials`) was rejected by reflector because
+# `sso-bridge` was absent from BOTH `reflection-allowed-namespaces` AND
+# `reflection-auto-namespaces` on the source — the stub Secret stayed
+# at DATA: 0, the sso-bridge-reconciler Pod hit
+# CreateContainerConfigError, and G117.5c per-Org realm fan-out + Tier-3
+# AppRegistration watcher couldn't reach Keycloak. Caught live H18 walk
+# on hw86 2026-06-03 (H21 RCA). Companion to PR #2849 (NetPol port-8080
+# fix on the sso-bridge → keycloak reach path): #2849 unblocks the L4
+# reach, this PR fills in the L7 credential bundle the reconciler needs
+# to authenticate. Refs #2744 #2849 #2856.
 # 1.4.16 (G117.E2E-A7 #2816, 2026-06-03): trim two MORE realm-import
 # descriptions PR #2824 (1.4.15) missed because its regression test only
 # covered configmap-sovereign-realm.yaml. The varchar(255) cap applies
@@ -135,7 +152,7 @@ name: bp-keycloak
 # sectionName by default — multi-zone Sovereigns rename HTTPS listeners
 # to https-<sanitised-zone>, breaking NoMatchingListener with the prior
 # pinned sectionName: https. Matches the catalyst-system fix in PR #1888.
-version: 1.4.16
+version: 1.4.17
 description: |
   Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
   upstream `keycloak` chart (bitnami) as a Helm subchart so
