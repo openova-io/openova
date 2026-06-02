@@ -477,7 +477,7 @@ controllers:
     enabled: false
     image:
       repository: "ghcr.io/openova-io/openova/blueprint-controller"
-      tag: "7ff7ea8"
+      tag: "8d01e2f"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -504,7 +504,7 @@ controllers:
       # cross-namespace ownerRef on the host-side Flux CRs (was being
       # silently GC'd by the K8s collector because Application lives
       # in a different namespace from flux-system).
-      tag: "8d01e2f"
+      tag: "7ff7ea8"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
