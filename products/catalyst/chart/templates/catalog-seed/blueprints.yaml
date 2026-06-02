@@ -365,7 +365,17 @@ spec:
   # lookup but exposed this gap.
   endpoints:
     - name: ui
-      hostnameTemplate: "grafana.{{.SovereignFQDN}}"
+      # Quote-escape via Helm raw-string so the runtime template token
+      # passes through to the CR verbatim. Without `{{` `` ` ``...`` ` `` `}}`
+      # wrapping, Helm interprets `{{.SovereignFQDN}}` at chart-render
+      # time — `.SovereignFQDN` isn't in the chart values context, so
+      # Helm renders it to empty → CR ends up with hostnameTemplate=
+      # "grafana." and the catalyst-api launch-url produces
+      # "https://grafana./?..." (caught live on hw86 walk 2026-06-03 —
+      # silent-SSO query params correct, hostname malformed). The
+      # runtime template is evaluated by
+      # endpoint_handler.go:evaluateHostnameTemplate at handler time.
+      hostnameTemplate: {{ `grafana.{{.SovereignFQDN}}` | quote }}
       port: 443
       protocol: https
       tls: true
