@@ -266,9 +266,9 @@ export interface ApplicationDetailResponse {
  * locked decision #3). 60s expiry.
  */
 export interface LaunchURLResponse {
-  URL: string
-  ExpiresAt: string
-  Endpoint: string
+  url: string
+  expiresAt: string
+  endpoint: string
 }
 
 /** PreviewManifest — one rendered file in the preview output. */
