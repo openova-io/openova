@@ -37,7 +37,7 @@
 
 set -euo pipefail
 
-CHART_DIR="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
+CHART_DIR="$(cd "${1:-$(dirname "$0")/..}" && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
