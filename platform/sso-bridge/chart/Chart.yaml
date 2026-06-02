@@ -1,6 +1,22 @@
 apiVersion: v2
 name: bp-sso-bridge
-version: 0.2.4
+version: 0.2.5
+# 0.2.5 (G117.E2E-C1 #2816, 2026-06-03): fix sovereign-fqdn ConfigMap
+# data-key contract drift — chart default `sovereignFqdnKey: sovereignFqdn`
+# did not match the key actually emitted by bp-catalyst-platform
+# (`fqdn`). Result: bp-sso-bridge `sovereign_fqdn()` returned empty on
+# every tick, the loop logged `WARN: sovereign-fqdn ConfigMap missing;
+# skipping tick` every 6 min, and Tier-1 OpenBao writes + per-Org realm
+# reconciliation never happened. Caught live on hw86 (E2E-A6 4-hop SSO
+# probe found token-exchange returning `unauthorized_client` because
+# chart-side OIDC secrets — md5 32-hex via lookup-or-generate — never
+# converged with KC realm-imported secrets — sha256 64-hex). Fix is
+# values.yaml default only; no template/script changes; operators that
+# already override sovereignFqdnKey in per-Sovereign overlays are
+# unaffected. New chart test
+# `tests/g117-e2e-a1-sovereign-fqdn-key-contract.sh` guards against
+# future drift by asserting the chart default matches the emitter key.
+# Refs #2816 #2737 #2743 #2744 #2683.
 # 0.2.4 (G117.5c-followup #2807, 2026-06-02): extend Tier-3 per-Org
 # OpenBao bundle to include `session_secret` so librechat's
 # OPENID_SESSION_SECRET env var resolves via ExternalSecret. Derived
