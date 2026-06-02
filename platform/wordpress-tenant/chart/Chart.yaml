@@ -54,6 +54,32 @@ name: bp-wordpress-tenant
 #     marketplace voucher → org wizard (D29) can present a
 #     "Postgres topology" picker instead of a boolean.
 #   - Companion to catalog-seed bp-cnpg-pair Blueprint CR (Refs TBD-E8b).
+# 0.4.0 (G117.5 W3.D3, 2026-06-02, Refs #2744):
+#   - Per-Org KC realm SSO topology — new `sovereign.fqdn` + `org.slug`
+#     + `org.realm` values block. When `oidc.issuerURL` is left at the
+#     placeholder default, _helpers.tpl `oidcIssuerURL` auto-derives
+#     `https://auth.<sovereign.fqdn>/realms/<org.realm>` (or the
+#     legacy `sme-<smeSubdomain>` realm for back-compat with chart
+#     0.3.x SME-fleet overlays).
+#   - New `templates/sso-secret.yaml` — chart-side `lookup`-or-generate
+#     fallback Secret carrying `wordpress-oidc-client-secret`. Resource-
+#     policy `keep` so bp-sso-bridge / bp-keycloak tenant-realm reconcile
+#     can OVERRIDE the bytes at runtime without the chart clobbering
+#     them on `helm upgrade`. Pattern source:
+#     `feedback_chart_credential_persistence_defense.md` (G112 #2723 +
+#     G111 #2724 exemplars).
+#   - New `templates/sso-app-registration.yaml` — ConfigMap labelled
+#     `sso.openova.io/app-registration` so bp-sso-bridge registers the
+#     `wordpress` client in the per-Org realm (W2.C4 PR #2794
+#     reconciler + future iteration).
+#   - `templates/oidc-config-job.yaml` — endpoint_login now carries
+#     `?kc_idp_hint=<ssoIdpHint>` defense-in-depth append. Default
+#     `ssoIdpHint=sovereign-broker` matches the per-Org realm topology;
+#     empty disables. Pattern source:
+#     `feedback_g113_sso_idr_defaultprovider_fix.md`.
+#   - Back-compat: `oidc.issuerURL`+`oidc.clientId`+`keycloak.*` legacy
+#     paths preserved bit-for-bit; chart-0.3.x overlays continue to
+#     render unchanged when `sovereign.fqdn` + `org.realm` left empty.
 # 0.3.2 (Pillar 3 zero-tx-loss, 2026-05-20, Refs #2064):
 #   - When `database.mode=active-hot-standby`, the rendered primary
 #     CNPG Cluster CR now carries `synchronous_commit: "remote_apply"`
@@ -68,7 +94,7 @@ name: bp-wordpress-tenant
 #   - Operator-facing trade-off (documented in values.yaml + DESIGN
 #     of bp-cnpg-pair §7): primary BLOCKS new writes when replica is
 #     unreachable; every COMMIT pays the inter-region RTT.
-version: 0.3.2
+version: 0.4.0
 appVersion: "6"
 description: |
   Catalyst Blueprint scratch chart for in-vcluster WordPress, one

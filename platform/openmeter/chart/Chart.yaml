@@ -1,6 +1,17 @@
 apiVersion: v2
 name: bp-openmeter
-version: 1.0.1
+# 1.1.0 (G117.5 W3.D3, 2026-06-02, Refs #2744):
+#   - New `sso.*` values block enabling Tier-3-API SSO (JWT validation
+#     only, no browser flow per the Aux-2 audit at
+#     `docs/sessions/2026-06-02-G117-sso-fanout-audit/tier-3/bp-openmeter.md`).
+#   - New `templates/sso-app-registration.yaml` emitting a ConfigMap
+#     labelled `sso.openova.io/app-registration` so bp-sso-bridge
+#     registers the openmeter service-account client in the per-Org
+#     Keycloak realm (W2.C4 PR #2794 reconciler).
+#   - `sso.enabled` defaults to `false` so the chart is a no-op for
+#     existing overlays — operator opts in via per-Sovereign overlay
+#     once W2.C4 per-Org realm reconciliation is green.
+version: 1.1.0
 appVersion: "1.0.0-beta.213"
 description: |
   Catalyst Blueprint umbrella chart for OpenMeter — real-time CloudEvents

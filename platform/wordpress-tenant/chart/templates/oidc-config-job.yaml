@@ -113,6 +113,13 @@ spec:
               value: {{ .Values.oidc.defaultRole | quote }}
             - name: OIDC_IDENTITY_KEY
               value: {{ .Values.oidc.identityKey | quote }}
+            # G117.5 W3.D3 (Refs #2744): kc_idp_hint defense-in-depth.
+            # Empty disables the hint append; otherwise endpoint_login
+            # carries `?kc_idp_hint=<hint>` so HAR captures always
+            # show the hint and "fell back to forms" failure modes
+            # surface in observability immediately.
+            - name: OIDC_IDP_HINT
+              value: {{ .Values.ssoIdpHint | default "" | quote }}
           command:
             - /bin/sh
             - -c
@@ -216,13 +223,22 @@ spec:
               #    `endpoint_*` URLs are derived from the issuer URL
               #    (Keycloak's standard /protocol/openid-connect/* paths).
               ISSUER="${KC_ISSUER_URL%/}"
+              # G117.5 W3.D3: append `?kc_idp_hint=<hint>` to endpoint_login
+              # when OIDC_IDP_HINT is non-empty. Defense-in-depth — the
+              # per-Org realm IDR `defaultProvider=sovereign-broker`
+              # (W2.C4 #2794) handles silent SSO; the hint is the
+              # diagnostic signal in HAR captures.
+              LOGIN_URL="${ISSUER}/protocol/openid-connect/auth"
+              if [ -n "${OIDC_IDP_HINT}" ]; then
+                LOGIN_URL="${LOGIN_URL}?kc_idp_hint=${OIDC_IDP_HINT}"
+              fi
               wp option update openid_connect_generic_settings --format=json --allow-root <<EOF
               {
                 "login_type":               "auto",
                 "client_id":                "${KC_CLIENT_ID}",
                 "client_secret":            "${KC_CLIENT_SECRET}",
                 "scope":                    "openid email profile",
-                "endpoint_login":           "${ISSUER}/protocol/openid-connect/auth",
+                "endpoint_login":           "${LOGIN_URL}",
                 "endpoint_userinfo":        "${ISSUER}/protocol/openid-connect/userinfo",
                 "endpoint_token":           "${ISSUER}/protocol/openid-connect/token",
                 "endpoint_end_session":     "${ISSUER}/protocol/openid-connect/logout",

@@ -169,3 +169,41 @@ hpa:
   maxReplicas: 5
   targetCPUUtilizationPercentage: 70
   targetMemoryUtilizationPercentage: 80
+
+# ─── G117.5 W3.D3 — Tier-3-API SSO (JWT validation only) ────────────────
+# OpenMeter OSS at appVersion 1.0.0-beta.213 has no browser UI — it is
+# an API-only service that validates bearer tokens. Per the Aux-2 audit
+# (`docs/sessions/2026-06-02-G117-sso-fanout-audit/tier-3/bp-openmeter.md`)
+# bp-openmeter is reclassified as **Tier-3-API**: no browser redirect, no
+# AppRegistration ConfigMap consumer flow, no `kc_idp_hint`. Wave-2 ships
+# the JWT validation env vars + a service-account AppRegistration so other
+# Apps can call the OpenMeter API via client_credentials grant.
+#
+# bp-sso-bridge (W2.C4 PR #2794 + future iteration) consumes the
+# AppRegistration ConfigMap labelled `sso.openova.io/app-registration` to
+# register the `openmeter` service-account client in the per-Org realm.
+sso:
+  # Master toggle. Default OFF — fresh-prov Sovereigns turn this on per-
+  # Sovereign once bp-keycloak per-Org realm template (W2.C4) reconciled.
+  enabled: false
+  # Org slug used to derive per-Org realm name + issuer URL. Templates
+  # fall back to `org.realm` when set; otherwise emit the slug verbatim
+  # as the realm name (matches G117 locked-decision #6).
+  org:
+    slug: ""
+    realm: ""
+  # Sovereign FQDN — auth host derived as `auth.<sovereign.fqdn>`. The
+  # placeholder default keeps `helm template` smoke renders valid; per-
+  # Sovereign overlays MUST override (Inviolable Principle #4).
+  sovereign:
+    fqdn: "sov.local"
+  # OIDC JWT validation surface (resource server config — NOT a browser
+  # client). The OpenMeter binary reads these via env on the API Pod.
+  # Per the audit doc: upstream chart may not honor `api.extraEnv` —
+  # operator should verify before flipping `sso.enabled=true` and fall
+  # back to a Kustomize patch overlay if `extraEnv` is absent.
+  audience: "openmeter"
+  requiredScopes: "openmeter:read,openmeter:write"
+  # Service-account client name — registered in the per-Org realm via
+  # the AppRegistration ConfigMap (consumed by bp-sso-bridge).
+  clientId: "openmeter"

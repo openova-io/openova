@@ -269,13 +269,12 @@ oidc:
   # Discovery URL of the SME-vcluster Keycloak realm. Example:
   #   https://keycloak.<sme-domain>/realms/sme-<subdomain>
   #
-  # The placeholder default below is set ONLY so the `helm template`
-  # smoke render in the Blueprint Release workflow (which runs with
-  # no overrides) produces valid YAML; per-Sovereign overlays MUST
-  # override. The post-install Job WILL fail at runtime if this
-  # remains the placeholder — that's the correct guardrail per
-  # docs/INVIOLABLE-PRINCIPLES.md #4 (no hardcoded production values,
-  # but smoke-rendering must succeed).
+  # G117.5 W3.D3 (Refs #2744): when this is left empty AND
+  # `sovereign.fqdn` + `org.realm` (or `smeSubdomain` legacy) are
+  # populated, `_helpers.tpl bp-wordpress-tenant.oidcIssuerURL`
+  # auto-derives `https://auth.<sovereign.fqdn>/realms/<realm>`. The
+  # placeholder default below remains so existing chart 0.3.x overlays
+  # render unchanged.
   issuerURL: "https://keycloak.sme.local/realms/sme"
   # OIDC client ID registered in the per-tenant Keycloak realm — see
   # platform/keycloak/chart/templates/configmap-tenant-realm.yaml
@@ -333,6 +332,33 @@ keycloak:
   clientID: ""
   clientSecretName: ""
   roleMapping: {}
+
+# ─── G117.5 W3.D3 — per-Org realm + sovereign FQDN ──────────────────────
+# Refs #2744. When `oidc.issuerURL` is left at the placeholder default,
+# `_helpers.tpl bp-wordpress-tenant.oidcIssuerURL` derives the issuer
+# URL as `https://auth.<sovereign.fqdn>/realms/<org.realm>` (or falls
+# back to `sme-<smeSubdomain>` when `org.realm` is empty for back-compat
+# with chart 0.3.x SME-fleet overlays). G117 locked-decision #6:
+# per-Catalyst-Org Keycloak realm. The orchestrator emit at
+# `core/services/catalyst-api/internal/handler/sme_tenant_gitops.go`
+# `smeTenantBPWordPress` will be updated to populate these in a follow-
+# up; for now they default empty and the legacy issuerURL drives.
+sovereign:
+  fqdn: ""
+org:
+  slug: ""
+  realm: ""
+smeSubdomain: ""
+
+# ─── G117.5 W3.D3 — kc_idp_hint defense-in-depth ────────────────────────
+# When the per-Org realm has its IDR `defaultProvider=sovereign-broker`
+# bound (W2.C4 #2794), this hint is REDUNDANT — KC auto-303s to the
+# broker on every realm auth-request. Keeping the hint in
+# `endpoint_login` is defense-in-depth (G117.5 audit pattern from
+# `feedback_g113_sso_idr_defaultprovider_fix.md`) — every HAR capture
+# carries the hint, so any "fell back to forms" failure mode tells
+# you the realm-config didn't reach KC. Empty disables the hint append.
+ssoIdpHint: "sovereign-broker"
 
 # ─── First-install admin user (created via SSO mapping) ─────────────────
 # The admin-user-job pre-seeds a wp_users row with `user_login = email`

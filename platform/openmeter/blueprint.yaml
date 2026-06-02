@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/category: application
     catalyst.openova.io/section: pts-4-8-identity-and-metering
 spec:
-  version: 1.0.1
+  version: 1.1.0
   card:
     title: OpenMeter
     summary: |
