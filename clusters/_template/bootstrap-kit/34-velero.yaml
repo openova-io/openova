@@ -6,6 +6,22 @@
 # which is reserved as a POSIX→S3 buffer for legacy POSIX-only writers
 # and is not in the minimal Sovereign set.
 #
+# INTENTIONALLY SUSPENDED on non-Hetzner providers (e.g. HCS / Huawei).
+# `kubectl get hr bp-velero` showing empty READY/STATUS columns on a
+# HCS Sovereign is BY DESIGN — Flux does not reconcile suspended HRs,
+# so no Ready condition is ever written. See
+# `${HCLOUD_HR_SUSPEND:=false}` gate on `spec.suspend` below (Wave
+# 5.102 / PR #2447). The cloudinit at
+# `infra/providers/huawei/cloudinit-control-plane.tftpl` substitutes
+# HCLOUD_HR_SUSPEND="true" on HCS Sovereigns; the Hetzner cloudinit
+# leaves the default (false). The verify script at
+# `scripts/sovereign-dod-verify.sh` correctly EXCLUDES this HR from
+# REQUIRED_HRs and from the Ready=False tally — no action needed.
+# Velero on Hetzner targets Hetzner Object Storage via the s3-* keys
+# of `flux-system/object-storage`; an HCS-native equivalent that
+# targets Huawei OBS is tracked as a Wave 6 follow-up so backups are
+# still mandatory on every Sovereign, just via a different chart.
+#
 # Wrapper chart: platform/velero/chart/ (umbrella over upstream
 # vmware-tanzu/velero chart, Catalyst-curated values under the `velero:`
 # key + a vendor-AGNOSTIC `objectStorage.s3.*` section that ships the

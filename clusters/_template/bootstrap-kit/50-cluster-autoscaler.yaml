@@ -5,6 +5,21 @@
 # (bp-cert-manager-powerdns-webhook) — to preserve the existing
 # numbering plan.
 #
+# INTENTIONALLY SUSPENDED on non-Hetzner providers (e.g. HCS / Huawei).
+# `kubectl get hr bp-cluster-autoscaler-hcloud` showing empty
+# READY/STATUS columns is BY DESIGN — Flux does not reconcile suspended
+# HRs, so no Ready condition is ever written. See
+# `${HCLOUD_HR_SUSPEND:=false}` gate on `spec.suspend` below (Wave
+# 5.102 / PR #2447). The cloudinit at
+# `infra/providers/huawei/cloudinit-control-plane.tftpl` substitutes
+# HCLOUD_HR_SUSPEND="true" on HCS Sovereigns; the Hetzner cloudinit
+# leaves the default (false). The verify script at
+# `scripts/sovereign-dod-verify.sh` correctly EXCLUDES this HR from
+# REQUIRED_HRs and from the Ready=False tally — no action needed.
+# Do NOT investigate this HR's empty status on HCS Sovereigns; that
+# is the correct end-state. An HCS-native autoscaler equivalent is
+# tracked as a Wave 6 follow-up.
+#
 # Adds and removes Hetzner Cloud worker nodes on demand in response to
 # `FailedScheduling` events on the Sovereign's k3s cluster. Bounded by
 # the `min`/`max` node-group config the operator picked at launch.
