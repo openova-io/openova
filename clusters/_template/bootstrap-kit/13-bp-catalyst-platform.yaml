@@ -898,7 +898,7 @@ spec:
       # patch can flip catalyst-api image to harbor-proxy URL passing
       # the harbor-proxy-pull admission policy. Kustomize-mode sibling
       # api-deployment-kustomize.yaml (literal) handles contabo-mkt.
-      version: 1.4.432
+      version: 1.4.433
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
