@@ -41,13 +41,16 @@
 # from var.obs_*, so the valuesFrom list below is byte-identical to
 # slot 34's. Only the chart name + HelmRepository ref differ.
 
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: velero
-  labels:
-    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+# 2026-06-03: Namespace/velero was previously declared here BUT also
+# declared in slot 34 (Hetzner-Velero), causing kustomize build to fail
+# with "may not add resource with an already registered id:
+# Namespace.v1/velero" on EVERY Sovereign — froze HR pins repo-wide
+# because the bootstrap-kit Kustomization couldn't apply. The pair
+# invariant (at most ONE of slot 34 / slot 34a active at runtime, via
+# HR suspend) does NOT extend to static Namespace decls. Removed here;
+# the HR uses install.createNamespace: true so the velero namespace
+# materialises on the active provider (Hetzner uses slot 34, HCS uses
+# slot 34a) without the duplicate. Refs #2737-followup.
 ---
 apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
@@ -87,6 +90,7 @@ spec:
   # BackupStorageLocation reaching `Available` — a runtime-convergence
   # event that Flux observes via the BSL CR phase, not via Helm `--wait`.
   install:
+    createNamespace: true
     timeout: 15m
     disableWait: true
     remediation:
