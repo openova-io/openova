@@ -432,7 +432,10 @@ spec:
       # 0.1.50 (#2951 / #2940 ATTACK#9): Step 10 also pivots the
       # bp-sso-bridge HR image.repository host harbor.openova.io →
       # harbor.<SOVEREIGN_FQDN> (residual chart-default tether).
-      version: 0.1.50
+      # 0.1.51 (#2951 / #2940 ATTACK#9): Step 10 Phase-1c asserts all
+      # four image HRs (3 vClusters + sso-bridge) are off harbor.openova.io
+      # post-pivot; Job exits 1 on any residual mothership-Harbor tether.
+      version: 0.1.51
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
