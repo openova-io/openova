@@ -1201,6 +1201,63 @@ func (e *PartialRegionMaterialisationError) Error() string {
 // Request.Regions[] MUST have a corresponding entry in
 // control_plane_ips_per_region with a non-empty EIP. Anything less is
 // a partial-failure that breaks the topology promise.
+// normalisePerRegionKeys collapses the two on-the-wire shapes of
+// `control_plane_ips_per_region` into the cloudRegion-keyed shape that
+// detectPartialRegionMaterialisation expects:
+//
+//   - Huawei: keys are already cloudRegion (e.g. "me-east-215-a"); passed
+//     through unchanged.
+//   - Hetzner: keys are `<cloudRegion>-<index>` for secondaries (e.g.
+//     "fsn1-1", "hel1-2") + literal "primary" for the primary CP.
+//     "primary" is mapped to declaredRegions[0].CloudRegion; each
+//     suffixed key is mapped to the leading cloudRegion segment.
+//
+// Duplicate cloudRegions (legal Hetzner same-region-stacking case —
+// fsn1-mgmt + fsn1-dataplane) collapse with first-non-empty-wins so a
+// healthy stack reads as "materialised" without false-negative.
+// Empty-string values are skipped (an empty EIP is not a working CP).
+//
+// Pure function; safe to unit-test against literal maps. Refs #2840.
+func normalisePerRegionKeys(declaredRegions []RegionSpec, perRegion map[string]string) map[string]string {
+	if len(perRegion) == 0 {
+		return perRegion
+	}
+	out := make(map[string]string, len(perRegion))
+	primaryCode := ""
+	if len(declaredRegions) > 0 {
+		primaryCode = strings.TrimSpace(declaredRegions[0].CloudRegion)
+	}
+	for k, v := range perRegion {
+		if strings.TrimSpace(v) == "" {
+			continue
+		}
+		code := k
+		if k == "primary" && primaryCode != "" {
+			code = primaryCode
+		} else if idx := strings.LastIndexByte(k, '-'); idx > 0 {
+			// Hetzner secondaries: "<cloudRegion>-<index>" — strip the
+			// numeric trailing segment if it parses as an int. Keep the
+			// raw key when the suffix isn't numeric (defensive against
+			// future key formats).
+			suffix := k[idx+1:]
+			allDigit := suffix != ""
+			for _, r := range suffix {
+				if r < '0' || r > '9' {
+					allDigit = false
+					break
+				}
+			}
+			if allDigit {
+				code = k[:idx]
+			}
+		}
+		if existing, ok := out[code]; !ok || existing == "" {
+			out[code] = v
+		}
+	}
+	return out
+}
+
 func detectPartialRegionMaterialisation(declaredRegions []RegionSpec, perRegion map[string]string) (materialised []string, missing []string) {
 	materialised = make([]string, 0, len(perRegion))
 	declared := make(map[string]struct{}, len(declaredRegions))
@@ -1663,17 +1720,19 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 	// Sovereign is single-region under the hood.
 	//
 	// Detection runs only when the operator declared >=2 regions AND
-	// the per-provider readback populated a per-region map. As of
-	// 2026-06-03 (#2840 follow-up) BOTH Huawei and Hetzner emit
-	// `control_plane_ips_per_region` keyed by the operator-supplied
-	// cloudRegion value (Hetzner used to expose a secondaries-only
-	// `_by_region` map that detection skipped silently — see
-	// infra/providers/hetzner/outputs.tf for the added parity output).
-	// When the post-condition fails we return a typed
-	// PartialRegionMaterialisationError carrying the partial Result —
-	// the handler stamps Deployment.status = "partial-failure" but
-	// does NOT auto-`tofu destroy`. The operator decides.
-	materialised, missing := detectPartialRegionMaterialisation(req.Regions, out.ControlPlaneIPsPerRegion)
+	// the per-provider readback populated a per-region map. Huawei
+	// emits `control_plane_ips_per_region` keyed by cloudRegion verbatim;
+	// Hetzner emits the same output name but keyed by `<cloudRegion>-<index>`
+	// for secondaries + literal `primary` for the primary CP (the
+	// same-region-duplicates test constraint — fsn1-mgmt + fsn1-dataplane
+	// are legal). normalisePerRegionKeys() collapses both shapes to the
+	// cloudRegion form before detection runs. When the post-condition
+	// fails we return a typed PartialRegionMaterialisationError carrying
+	// the partial Result — the handler stamps Deployment.status =
+	// "partial-failure" but does NOT auto-`tofu destroy`. The operator
+	// decides.
+	normalisedPerRegion := normalisePerRegionKeys(req.Regions, out.ControlPlaneIPsPerRegion)
+	materialised, missing := detectPartialRegionMaterialisation(req.Regions, normalisedPerRegion)
 	declared := make([]string, 0, len(req.Regions))
 	for _, r := range req.Regions {
 		if code := strings.TrimSpace(r.CloudRegion); code != "" {
