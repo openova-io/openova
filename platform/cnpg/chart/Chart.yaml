@@ -8,7 +8,7 @@ name: bp-cnpg
 # kind of certificate") → bp-catalyst-platform + bp-newapi Helm
 # install denied. Trust upstream operator's self-managed cert flow;
 # G53 webhook-gate Job remains as the readiness signal.
-version: 1.0.6
+version: 1.0.7
 description: |
   Catalyst-curated Blueprint umbrella chart for CloudNativePG. Depends on
   the upstream `cloudnative-pg` chart as a Helm subchart so
