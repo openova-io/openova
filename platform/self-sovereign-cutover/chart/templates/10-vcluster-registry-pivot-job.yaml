@@ -47,6 +47,36 @@ the vCluster image at TWO levels:
 This Job patches BOTH on each of the 3 HelmReleases. Idempotent: a
 re-run reads the current value and skips when already pivoted.
 
+bp-sso-bridge image host pivot (#2951 / #2940 ATTACK#9)
+──────────────────────────────────────────────────────
+UAT Wave-2 ATTACK#9 (#2940) found that a Sovereign which completes
+cutover STILL pulls the bp-sso-bridge reconciler Pod image from
+mothership Harbor: `platform/sso-bridge/chart/values.yaml` defaults
+`image.repository: harbor.openova.io/proxy-dockerhub/alpine/k8s` and the
+`13b-bp-sso-bridge.yaml` bootstrap-kit overlay carries NO
+`spec.values.image.repository` override, so the chart default wins on
+every reconcile. That is the same class of residual `harbor.openova.io`
+tether this step already severs for the three vClusters, so #2951 folds
+the sso-bridge image-host pivot into THIS step rather than bolting a
+values-injection onto Step 06 (whose script only rewrites HelmRepository
+OCI URLs, not arbitrary chart values). Phase 1b live-patches
+`bp-sso-bridge` HR `spec.values.image.repository` host from
+`harbor.openova.io` → `harbor.<SOVEREIGN_FQDN>` (preserving the
+`/proxy-dockerhub/alpine/k8s` path), and Phase 2 injects the same
+override into `13b-bp-sso-bridge.yaml` so the bootstrap-kit reconcile
+doesn't revert it. Idempotent: skip-if-already-pivoted on the live patch,
+sentinel-comment guard on the Gitea injection.
+
+NOTE on the other #2951 candidates: the powerdns overlay
+(`11-powerdns.yaml`) already sets `api.host: pdns.${SOVEREIGN_FQDN}`
+(cloud-init envsubst), and the cert-manager-powerdns-webhook
+`powerdns.host` deliberately targets contabo's central out-of-cluster
+PowerDNS (`pdns.openova.io`) for ACME DNS-01 — an intentional external
+dependency, NOT a mothership tether to sever (rewriting it would break
+wildcard-cert issuance). Both are therefore intentionally left untouched;
+the acceptance grep on #2951 excludes intentional bootstrap/external
+paths.
+
 Phase inventory
 ───────────────
   Phase 1  Live K8s patch — `kubectl patch helmrelease` against each
@@ -253,6 +283,62 @@ data:
             patch_hr "bp-rtz-vcluster"  "rtzVcluster"
             patch_hr "bp-dmz-vcluster"  "dmzVcluster"
 
+            # ---- Phase 1b: live K8s patch on the bp-sso-bridge HelmRelease (#2951) ----
+            #
+            # bp-sso-bridge's chart default
+            # `image.repository: harbor.openova.io/proxy-dockerhub/alpine/k8s`
+            # keeps the reconciler Pod pulling from mothership Harbor
+            # post-cutover (UAT Wave-2 ATTACK#9, #2940). The
+            # `13b-bp-sso-bridge.yaml` overlay has NO image override, so the
+            # chart default wins on every reconcile. We pivot only the HOST
+            # segment (`harbor.openova.io` → `harbor.${SOVEREIGN_FQDN}`) and
+            # preserve the rest of the path so the local Harbor proxy-
+            # dockerhub project serves the same upstream alpine/k8s image.
+            #
+            # Idempotency: read the current value first; SKIP when it no
+            # longer references harbor.openova.io (already pivoted, or an
+            # operator overlay set a custom host). We never assume a fixed
+            # suffix — we string-replace the literal mothership host so a
+            # future chart image-tag/path change is preserved automatically.
+            sso_hr="bp-sso-bridge"
+            if kubectl get helmrelease "${sso_hr}" -n "${HELMRELEASE_NAMESPACE}" >/dev/null 2>&1; then
+              cur_sso=$(kubectl get helmrelease "${sso_hr}" -n "${HELMRELEASE_NAMESPACE}" \
+                -o jsonpath='{.spec.values.image.repository}' 2>/dev/null || echo "")
+              if [ -z "${cur_sso}" ]; then
+                # The overlay carries no spec.values.image.repository
+                # override, so the live HR reflects the chart default. Read
+                # it off the chart default literal we know ships today; if
+                # that ever changes the SKIP-on-no-harbor.openova.io guard
+                # below still keeps this safe.
+                cur_sso="harbor.openova.io/proxy-dockerhub/alpine/k8s"
+              fi
+              case "${cur_sso}" in
+                *harbor.openova.io/*)
+                  new_sso=$(printf '%s' "${cur_sso}" | sed -e "s,harbor\.openova\.io/,harbor.${SOVEREIGN_FQDN}/,")
+                  sso_patch=$(printf '{"spec":{"values":{"image":{"repository":"%s"}}}}' "${new_sso}")
+                  if kubectl patch helmrelease "${sso_hr}" \
+                      -n "${HELMRELEASE_NAMESPACE}" \
+                      --type=merge --patch "${sso_patch}" >/dev/null 2>&1; then
+                    echo "[vcluster-registry-pivot] OK ${sso_hr} -> image.repository=${new_sso}"
+                    kubectl annotate --overwrite helmrelease "${sso_hr}" \
+                      -n "${HELMRELEASE_NAMESPACE}" \
+                      "reconcile.fluxcd.io/requestedAt=$(date +%s)" >/dev/null 2>&1 || true
+                    ok=$((ok+1))
+                  else
+                    echo "[vcluster-registry-pivot] FAIL ${sso_hr}" >&2
+                    fail=$((fail+1))
+                  fi
+                  ;;
+                *)
+                  echo "[vcluster-registry-pivot] SKIP ${sso_hr} (image.repository=${cur_sso} not on harbor.openova.io — already pivoted or custom)"
+                  skip=$((skip+1))
+                  ;;
+              esac
+            else
+              echo "[vcluster-registry-pivot] SKIP ${sso_hr} (HR not present)"
+              skip=$((skip+1))
+            fi
+
             echo "[vcluster-registry-pivot] live-K8s ok=${ok} skip=${skip} fail=${fail}"
             [ "${fail}" -eq 0 ] || exit 1
 
@@ -394,6 +480,77 @@ data:
               fi
             done
 
+            # ---- Phase 2b: inject sso-bridge image override into Gitea (#2951) ----
+            #
+            # 13b-bp-sso-bridge.yaml carries NO spec.values block today, so
+            # Phase-1b's live HR patch is reverted by the bootstrap-kit
+            # Kustomization reconcile within ~1 min unless we persist the
+            # override to Gitea. We inject a minimal
+            #   values:
+            #     image:
+            #       repository: harbor.<SOVEREIGN_FQDN>/proxy-dockerhub/alpine/k8s
+            # block at 2-space indent under the top-level `spec:` key.
+            # Idempotency: sentinel-comment guard; on re-run we rewrite the
+            # repository value in case SOVEREIGN_FQDN changed.
+            sso_file="${target_dir}/13b-bp-sso-bridge.yaml"
+            sso_repo="harbor.${SOVEREIGN_FQDN}/proxy-dockerhub/alpine/k8s"
+            if [ -f "${sso_file}" ]; then
+              if grep -q "# ─── sso-bridge image registry pivot (#2951) ──" "${sso_file}"; then
+                # Existing override — rewrite the repository value line
+                # (2-space `values:` → 4-space `image:` → 6-space
+                # `repository:`). Bounded to the sentinel-anchored block by
+                # matching the 6-space repository line that follows our
+                # injected image: key.
+                if sed -i -E "s,^([[:space:]]{6}repository:[[:space:]]*)harbor\.[^/]*/proxy-dockerhub/alpine/k8s.*$,\1${sso_repo}," "${sso_file}" 2>/dev/null; then
+                  echo "[vcluster-registry-pivot] rewrote existing sso-bridge image override in ${sso_file}"
+                  edited=$((edited+1))
+                else
+                  echo "[vcluster-registry-pivot] WARN: sed rewrite of sso-bridge override failed; Phase-1b K8s patch remains durable for one upgrade cycle"
+                fi
+              else
+                # No existing override. NOTE: 13b-bp-sso-bridge.yaml is a
+                # MULTI-DOCUMENT YAML — doc 1 is the HelmRepository (its
+                # own `spec:` carries `type/url/secretRef`, NOT values), doc
+                # 2 is the HelmRelease whose `spec:` is the one that takes
+                # `values.image.repository`. We MUST anchor the injection to
+                # the HelmRelease spec only, so we track `kind: HelmRelease`
+                # and inject at the NEXT top-level `spec:` after it. Anchoring
+                # on a bare `^spec:` would wrongly land inside the
+                # HelmRepository document.
+                if awk -v repo="${sso_repo}" '
+                  /^kind:[[:space:]]*HelmRelease[[:space:]]*$/ { in_hr=1 }
+                  in_hr && /^spec:[[:space:]]*$/ && !done {
+                    print
+                    print "  # ─── sso-bridge image registry pivot (#2951) ──"
+                    print "  # Injected by self-sovereign-cutover step-10 from"
+                    print "  # harbor.openova.io → harbor.<SOVEREIGN_FQDN> so the"
+                    print "  # bp-sso-bridge reconciler Pod pulls its image from the"
+                    print "  # Sovereign-local Harbor mirror, NOT mothership Harbor."
+                    print "  # Required by Principle #11 (no tether to harbor.openova.io"
+                    print "  # after handover — UAT Wave-2 ATTACK#9, #2940). Without this"
+                    print "  # override the chart default at platform/sso-bridge/chart/"
+                    print "  # values.yaml resolves back to harbor.openova.io."
+                    print "  values:"
+                    print "    image:"
+                    print "      repository: " repo
+                    done = 1
+                    next
+                  }
+                  { print }
+                  END { exit (done ? 0 : 1) }
+                ' "${sso_file}" > "${sso_file}.new"; then
+                  mv "${sso_file}.new" "${sso_file}"
+                  echo "[vcluster-registry-pivot] injected sso-bridge image override into ${sso_file}"
+                  edited=$((edited+1))
+                else
+                  rm -f "${sso_file}.new"
+                  echo "[vcluster-registry-pivot] WARN: ${sso_file} has no HelmRelease spec: anchor — Phase-1b K8s patch remains durable for one upgrade cycle"
+                fi
+              fi
+            else
+              echo "[vcluster-registry-pivot] SKIP ${sso_file} (not present)"
+            fi
+
             echo "[vcluster-registry-pivot] sed edited ${edited} files"
             if [ "${edited}" -eq 0 ]; then
               echo "[vcluster-registry-pivot] no edits required — already pivoted in Gitea or files absent"
@@ -406,7 +563,7 @@ data:
               echo "[vcluster-registry-pivot] git diff empty after sed — nothing to commit"
               exit 0
             fi
-            git commit -m "cutover: pivot vCluster image.repository to harbor.${SOVEREIGN_FQDN}" >/dev/null
+            git commit -m "cutover: pivot vCluster + sso-bridge image.repository to harbor.${SOVEREIGN_FQDN}" >/dev/null
             push_err=$(git push origin main 2>&1) || {
               echo "[vcluster-registry-pivot] FATAL: git push failed" >&2
               printf '%s\n' "$push_err" >&2

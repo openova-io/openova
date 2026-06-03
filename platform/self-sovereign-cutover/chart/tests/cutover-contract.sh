@@ -530,7 +530,21 @@ if ! awk '/^kind: ClusterRole$/,/^---$/' "$TMP/render.yaml" \
   echo "FAIL: ClusterRole missing helm.toolkit.fluxcd.io.helmreleases [update|patch] verb (TBD-V24 MISS-1)" >&2
   exit 1
 fi
-echo "  PASS (Step-10 wired to pivot vCluster HRs to local Harbor)"
+# #2951 (#2940 ATTACK#9): Step-10 ALSO pivots the bp-sso-bridge HR
+# image.repository host (harbor.openova.io → harbor.<SOVEREIGN_FQDN>),
+# the one residual chart-default mothership tether the vCluster pivots
+# don't cover. Without this a cutover-complete Sovereign still pulls the
+# sso-bridge reconciler Pod image from mothership Harbor. Guard both the
+# live HR patch and the Gitea-injection seam.
+if ! grep -q 'sso_hr="bp-sso-bridge"' "$TMP/render.yaml"; then
+  echo "FAIL: Step-10 missing bp-sso-bridge image-host pivot (#2951)" >&2
+  exit 1
+fi
+if ! grep -q '13b-bp-sso-bridge.yaml' "$TMP/render.yaml"; then
+  echo "FAIL: Step-10 missing bp-sso-bridge Gitea-injection seam (#2951)" >&2
+  exit 1
+fi
+echo "  PASS (Step-10 wired to pivot vCluster + sso-bridge HRs to local Harbor)"
 
 echo "[cutover-contract] Case 22: Step-11 crossplane-provider-pivot patches Provider CRs (TBD-V24 MISS-3)"
 # Chart <0.1.37 shipped NO Crossplane Provider package pivot. Result:
