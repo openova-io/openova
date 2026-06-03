@@ -12,6 +12,22 @@ their thumb or mouse on the shipped product. You will (1) discover the product's
 user-facing surfaces from the code, (2) write a reusable UAT template if one doesn't
 exist, and (3) write at least one FILLED sample walk per surface the product ships.
 
+CANONICAL REFERENCE — START HERE, DO NOT REINVENT
+A gold-standard template and two filled samples already exist. Fetch them FIRST and mirror
+their exact structure (headings, the | # | Screen | What you do | What you must see |
+Result | Evidence | table, the result legend, the roll-up, the defects + out-of-scope
+sections). Copy the shape verbatim; change only the product-specific content.
+  - Template (the standard, blank):
+    https://raw.githubusercontent.com/openova-io/openova/main/docs/ledger/UAT-TEMPLATE.md
+  - Filled WEB sample:
+    https://raw.githubusercontent.com/openova-io/openova/main/docs/ledger/UAT-SAMPLE-customer-onboarding.md
+  - Filled NATIVE-MOBILE (iOS) sample:
+    https://raw.githubusercontent.com/openova-io/openova/main/docs/ledger/UAT-SAMPLE-mobile-wallet.md
+Fetch each (WebFetch / curl). If raw.githubusercontent on main 404s (not merged yet), use
+branch "docs/uat-standard-template" in the same paths, or browse:
+https://github.com/openova-io/openova/tree/main/docs/ledger . The rules below restate this
+standard so you can apply it even offline — but if you can fetch the files, the files win.
+
 THE ONE RULE THAT OVERRIDES EVERYTHING
 Every row in these documents is one real user action on the shipped UI. If a step needs
 a terminal, kubectl, an API/RPC/CLI call, a log grep, a DB query, an env var, or reading
