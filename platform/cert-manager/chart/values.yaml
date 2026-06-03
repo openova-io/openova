@@ -71,9 +71,20 @@ cert-manager:
   resources:
     requests:
       cpu: 50m
-      memory: 64Mi
-    limits:
       memory: 256Mi
+    limits:
+      # G17-class right-size (caught live on hw90, 2026-06-03): the
+      # controller was the cluster's ONLY OOMKilled container (26 kills at
+      # 256Mi). The full bootstrap-kit now carries far more Certificate /
+      # CertificateRequest / Order objects than when 256Mi was set
+      # (per-app SSO + G117 endpoints), and the controller's informer
+      # caches grow with them. A dead cert-manager starves every
+      # webhook-serving component of its TLS Secret (sigstore / ESO /
+      # otel-operator / kyverno-cleanup all crash-loop cert-less) and
+      # wedges the fresh-prov cascade cluster-wide. 1Gi gives the same
+      # 4× headroom step G17 applied to cnpg for the identical failure
+      # shape.
+      memory: 1Gi
   webhook:
     resources:
       requests:
