@@ -66,6 +66,54 @@ spec:
     url: oci://ghcr.io/openova-io
     chart: bp-wordpress-tenant
     version: 0.2.0
+  # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): lockstep with
+  # platform/wordpress-tenant/blueprint.yaml. Uses {{.AppName}} so
+  # multi-instance tenants get distinct hostnames per Application.
+  topology:
+    supported:
+      - active-passive
+      - singleton
+    defaults:
+      multi-region: active-passive
+      single-region: singleton
+    perTopology:
+      active-passive:
+        replication:
+          backend: cnpg-pair
+          mode: sync
+          lagSloSeconds: 0
+        switchover:
+          mechanism: bp-continuum
+          rtoSeconds: 60
+          rpoSeconds: 0
+        placement:
+          tier: rtz
+          clusters: [rtz-A, rtz-B]
+          roles:
+            rtz-A: active
+            rtz-B: passive
+      singleton:
+        placement:
+          tier: rtz
+          clusters: [rtz-A]
+          roles:
+            rtz-A: singleton
+  endpoints:
+    - name: ui
+      hostnameTemplate: "{{ "{{" }}.AppName{{ "}}" }}.{{ "{{" }}.OrgSlug{{ "}}" }}.{{ "{{" }}.SovereignFQDN{{ "}}" }}"
+      port: 443
+      protocol: https
+      tls: true
+      visibility: public
+      launchDefault: true
+      ssoEnabled: true
+  sso:
+    realm: sovereign
+    protocolMapper: oidc
+    silentLogin: true
+  multiInstance:
+    enabled: true
+    maxPerOrg: 10
   configSchema:
     type: object
     required: [smeDomain, adminUser]
