@@ -365,17 +365,19 @@ spec:
   # lookup but exposed this gap.
   endpoints:
     - name: ui
-      # Quote-escape via Helm raw-string so the runtime template token
-      # passes through to the CR verbatim. Without `{{` `` ` ``...`` ` `` `}}`
-      # wrapping, Helm interprets `{{.SovereignFQDN}}` at chart-render
-      # time — `.SovereignFQDN` isn't in the chart values context, so
-      # Helm renders it to empty → CR ends up with hostnameTemplate=
-      # "grafana." and the catalyst-api launch-url produces
-      # "https://grafana./?..." (caught live on hw86 walk 2026-06-03 —
-      # silent-SSO query params correct, hostname malformed). The
-      # runtime template is evaluated by
-      # endpoint_handler.go:evaluateHostnameTemplate at handler time.
-      hostnameTemplate: {{ `grafana.{{.SovereignFQDN}}` | quote }}
+      # Helm-escape the runtime template token. The `{{ "{{" }}` and
+      # `{{ "}}" }}` Helm actions output literal `{{` and `}}` so the
+      # rendered CR carries `grafana.{{.SovereignFQDN}}` verbatim;
+      # the runtime template is evaluated later by
+      # endpoint_handler.go:evaluateHostnameTemplate at request time.
+      # PR #2886 used backtick-raw-string which Helm rejected with
+      # "unexpected backticks in operand". Without ANY escape, Helm
+      # interprets `{{.SovereignFQDN}}` at chart-render time —
+      # `.SovereignFQDN` isn't in the chart values context → renders
+      # empty → CR ends up with hostnameTemplate="grafana." and the
+      # launch-url URL renders as "https://grafana./?..." (caught
+      # live on hw86 2026-06-03 walk).
+      hostnameTemplate: "grafana.{{ "{{" }}.SovereignFQDN{{ "}}" }}"
       port: 443
       protocol: https
       tls: true
