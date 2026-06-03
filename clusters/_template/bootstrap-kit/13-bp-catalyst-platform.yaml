@@ -1052,6 +1052,17 @@ spec:
         - catalyst-admin
     # G87 #2634: multi-region CNPG instances default (1 single-region, 2 multi).
     # Applies to sme-services' CNPG cluster (sme-pg).
+    # #2840-followup (2026-06-03): the chart reads `.Values.smePostgres.
+    # cluster.instances` (templates/sme-services/cnpg-cluster.yaml:2)
+    # NOT `.Values.sme.postgres.cluster.instances`. Pre-fix the value
+    # was set correctly under the wrong key path and silently ignored
+    # → sme-pg stayed instances=1 on multi-region. Caught live on hw86
+    # 2026-06-03 in same root-cause-batch as newapi (#2840-followup PR).
+    # Set BOTH paths (belt-and-suspenders) so any future chart-side
+    # rename doesn't silently regress.
+    smePostgres:
+      cluster:
+        instances: ${SOVEREIGN_CNPG_INSTANCES:=1}
     sme:
       postgres:
         cluster:
