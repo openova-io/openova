@@ -7,6 +7,23 @@ description: |
   switchover sequence). Slice K-Cont-1 of EPIC-6 (#1101) ships the
   product skeleton; K-Cont-2 fills the reconcile loop.
 type: application
+# 0.1.3 (#2922 PR-B, 2026-06-03): prerequisite-check initContainer.
+# bp-continuum's reconcile loop assumes bp-cnpg-pair has been
+# installed (Pillar-3 acceptance criterion #1 of #2840). If an
+# operator overlay flips continuum.enabled=true without bp-cnpg-pair,
+# the controller would crash on missing CNPG Cluster CR pairs. New
+# initContainer probes for bp-cnpg-pair's audit ConfigMap (label
+# catalyst.openova.io/audit-config=true) cluster-wide; if absent it
+# sleeps 5 min + exits non-zero with a clear log line so `kubectl
+# logs` surfaces the missing prerequisite instead of a confusing
+# controller stack trace. Pairs with PR #2923 (cloud-init auto-emit
+# of CONTINUUM_ENABLED on multi-region) — fresh multi-region provs
+# that DO have bp-cnpg-pair installed pass through immediately.
+# Operators can disable the guard via
+# .Values.continuum.prerequisiteCheck.enabled=false (e.g. for
+# chart unit tests or air-gapped offline evaluation). Pure additive
+# template; no values-default change for existing consumers.
+# Refs #2922 #2840.
 # 0.1.2 (TBD-V34, 2026-05-20): re-publish after PR #2072's Blueprint
 # Release run (#26144858280) failed the hollow-chart guard. 0.1.1 was
 # tagged in-tree but never landed in GHCR because this chart declares
@@ -22,7 +39,7 @@ type: application
 # 0.1.0 sat in-tree without a bootstrap-kit slot to pin it, so the
 # blueprint-release workflow's `detect changed paths` step never had
 # reason to re-run and the chart was never pushed to GHCR.
-version: 0.1.2
+version: 0.1.3
 appVersion: "0.1.0"
 home: https://openova.io
 sources:
