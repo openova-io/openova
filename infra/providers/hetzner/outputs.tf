@@ -106,7 +106,7 @@ output "control_plane_ips_per_region" {
   description = "Per-region primary control-plane public IPv4, keyed by the operator's cloudRegion value. Includes BOTH primary AND secondary regions. Mirrors the Huawei provider's same-named output so the catalyst-api partial-region detection works uniformly. Refs #2840."
   value = merge(
     {
-      (var.region) = hcloud_server.control_plane.ipv4_address
+      (var.region) = hcloud_server.control_plane[0].ipv4_address
     },
     {
       for k, v in local.secondary_regions :
