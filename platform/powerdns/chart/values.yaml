@@ -618,7 +618,18 @@ zoneBootstrap:
   # under the HR 15m wrapper cap (a Job that exceeded the HR cap would
   # leave Flux waiting forever; a Job that fits inside the HR cap lets
   # Flux's own remediation cycle reclaim the failure path).
-  activeDeadlineSeconds: 840
+  #
+  # hw91 (2026-06-03, 1.2.8): raised 840s → 2100s (35m, still under the
+  # HR upgrade timeout) together with the inner poll below. On the first
+  # zero-touch HCS prov the powerdns Pods crash-flapped ~9 restarts
+  # (~20 min) while the cluster settled; the hook Job burned its whole
+  # 600s inner budget inside that window → DeadlineExceeded → the HR
+  # upgrade FAILED — and a failed UPGRADE does not self-retry until a
+  # new chart digest arrives (unlike installs post-#2999), so the wedge
+  # held for 75+ min with PowerDNS itself healthy the whole time. The
+  # wider budget rides out the settle window; this bump IS the new
+  # digest that re-runs the hook.
+  activeDeadlineSeconds: 2100
   # apiReadyTimeoutSeconds — inner poll budget the container spends
   # waiting for http://powerdns:8081/api/v1/servers to return HTTP 200
   # before giving up.
@@ -633,8 +644,9 @@ zoneBootstrap:
   #
   # New posture: one container run, one long inner loop. This timeout
   # bounds the inner poll; restartPolicy is `Never` (the container owns
-  # the wait budget). 600s default sits below activeDeadlineSeconds=840s
-  # so the zone-creation phase retains >=240s of headroom AFTER the API
-  # comes Ready. Operators on slower clusters can raise this without
-  # forking the chart per docs/INVIOLABLE-PRINCIPLES.md #4.
-  apiReadyTimeoutSeconds: 600
+  # the wait budget). 1800s (was 600s — see hw91 note above) sits below
+  # activeDeadlineSeconds=2100s so the zone-creation phase retains
+  # >=300s of headroom AFTER the API comes Ready. Operators on slower
+  # clusters can raise this without forking the chart per
+  # docs/INVIOLABLE-PRINCIPLES.md #4.
+  apiReadyTimeoutSeconds: 1800
