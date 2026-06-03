@@ -91,6 +91,28 @@ for bp_name in $bp_names; do
     fail=1
   fi
 
+  # Extract sso.silentLogin — Tier-1/2 apps MUST declare silentLogin: true.
+  seed_silent="$(yq eval-all "select(.kind == \"Blueprint\" and .metadata.name == \"$bp_name\") | .spec.sso.silentLogin // \"\"" "$TMP/rendered.yaml" 2>/dev/null || true)"
+  src_silent="$(yq eval '.spec.sso.silentLogin // ""' "$source_file" 2>/dev/null || true)"
+  if [ "$seed_silent" != "$src_silent" ]; then
+    echo "DRIFT: $bp_name sso.silentLogin:"
+    echo "  chart-seed: '$seed_silent'"
+    echo "  platform/ : '$src_silent'"
+    fail=1
+  fi
+
+  # Extract endpoints[].launchDefault values per-name — drift here means
+  # the Launch button targets the wrong endpoint under the gitea-fallback
+  # path. Compare as 'name=launchDefault' pairs for deterministic diff.
+  seed_launch="$(yq eval-all "select(.kind == \"Blueprint\" and .metadata.name == \"$bp_name\") | .spec.endpoints[]? | .name + \"=\" + (.launchDefault // false | tostring)" "$TMP/rendered.yaml" 2>/dev/null | sort -u || true)"
+  src_launch="$(yq eval '.spec.endpoints[]? | .name + "=" + (.launchDefault // false | tostring)' "$source_file" 2>/dev/null | sort -u || true)"
+  if [ "$seed_launch" != "$src_launch" ]; then
+    echo "DRIFT: $bp_name endpoints[].launchDefault:"
+    echo "  chart-seed: $(echo "$seed_launch" | tr '\n' ',' | sed 's/,$//')"
+    echo "  platform/ : $(echo "$src_launch" | tr '\n' ',' | sed 's/,$//')"
+    fail=1
+  fi
+
   # Extract sso.realm (presence + value) — both empty = OK; one-side-only = drift.
   seed_realm="$(yq eval-all "select(.kind == \"Blueprint\" and .metadata.name == \"$bp_name\") | .spec.sso.realm // \"\"" "$TMP/rendered.yaml" 2>/dev/null || true)"
   src_realm="$(yq eval '.spec.sso.realm // ""' "$source_file" 2>/dev/null || true)"
