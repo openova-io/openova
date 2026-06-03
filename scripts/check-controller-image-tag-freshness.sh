@@ -113,8 +113,19 @@ for key in "${!CTRL_PKG[@]}"; do
   # the #2851 sweep step in catalyst-build.yaml. We filter cosign
   # signature artifacts + the rolling `latest` alias, keep only true
   # 7-hex tags, and take the most-recently-updated one.
-  if ! versions_json=$(gh api "/orgs/${GHCR_ORG}/packages/container/${pkg}/versions" --paginate 2>/dev/null); then
-    echo "::error::GHCR API query failed for ${pkg} — check 'gh' auth has read:packages scope"
+  #
+  # Package PATH fix (caught on PR #3012; gate had been red on every
+  # run incl. main): the images are pushed to
+  # `ghcr.io/openova-io/openova/<pkg>` (this script's own header says
+  # so at line 27), which makes the GHCR package NAME the slash-scoped
+  # `openova/<pkg>` — and the packages API requires the slash
+  # percent-encoded (`openova%2F<pkg>`). The previous bare-`${pkg}`
+  # query 404'd ("Package not found") and the error branch mislabeled
+  # the auth-or-404 failure as staleness ("Checked 0/5; 5 stale").
+  # Both fixed: correct path + honest UNVERIFIABLE wording.
+  pkg_path="openova%2F${pkg}"
+  if ! versions_json=$(gh api "/orgs/${GHCR_ORG}/packages/container/${pkg_path}/versions" --paginate 2>/dev/null); then
+    echo "::error::GHCR API query UNVERIFIABLE for openova/${pkg} (404/auth/network — NOT a staleness verdict). Check the package path + token read:packages access."
     fail=$((fail + 1))
     continue
   fi
