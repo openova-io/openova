@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/stripe/stripe-go/v81"
@@ -23,6 +24,57 @@ import (
 	"github.com/openova-io/openova/core/services/shared/middleware"
 	"github.com/openova-io/openova/core/services/shared/respond"
 )
+
+// #2941 (2026-06-03): per-customer rate-limit on /checkout to mitigate
+// voucher-spam patterns flagged by UAT Wave-2 ATTACK#10. The single-use
+// + transactional checkout already prevents double-spend; this guards
+// against denial-of-service via repeated invalid-promo attempts.
+//
+// Token bucket: 5 requests per 60s per userID. Process-local (each
+// pod has its own bucket); for multi-replica deployments the gateway
+// already enforces a global per-IP limit, so this is a per-pod
+// per-user backstop.
+//
+// Threshold (5 req/min) chosen to be generous enough that legitimate
+// retries (1-2 per minute on form errors) never trip, but cheap enough
+// that an attacker spamming codes is throttled to <1% of unlimited rate.
+
+type checkoutRateLimiter struct {
+	mu       sync.Mutex
+	buckets  map[string]*checkoutBucket
+	max      int
+	window   time.Duration
+	lastSwap time.Time
+}
+
+type checkoutBucket struct {
+	count       int
+	windowStart time.Time
+}
+
+var globalCheckoutRateLimiter = &checkoutRateLimiter{
+	buckets: make(map[string]*checkoutBucket),
+	max:     5,
+	window:  60 * time.Second,
+}
+
+// Allow returns true when the userID is within the budget. Should be
+// called once per checkout request. Concurrent-safe.
+func (rl *checkoutRateLimiter) Allow(userID string) bool {
+	if userID == "" {
+		return true // unauth requests get blocked elsewhere (401)
+	}
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	now := time.Now()
+	b, ok := rl.buckets[userID]
+	if !ok || now.Sub(b.windowStart) > rl.window {
+		rl.buckets[userID] = &checkoutBucket{count: 1, windowStart: now}
+		return true
+	}
+	b.count++
+	return b.count <= rl.max
+}
 
 // Handler holds dependencies for billing HTTP handlers.
 type Handler struct {
@@ -125,6 +177,13 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserIDFromContext(ctx)
 	if userID == "" {
 		respond.Error(w, http.StatusUnauthorized, "missing user identity")
+		return
+	}
+
+	// #2941 (2026-06-03): per-customer rate-limit (5 req/60s).
+	if !globalCheckoutRateLimiter.Allow(userID) {
+		slog.Warn("checkout: rate-limit exceeded", "userID", userID)
+		respond.Error(w, http.StatusTooManyRequests, "checkout rate-limit exceeded — please wait before retrying")
 		return
 	}
 
