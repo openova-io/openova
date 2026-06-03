@@ -67,6 +67,77 @@ test.describe('Regression — Sandbox + openova-sandbox-mcp', () => {
     expect(out.stdout).toMatch(/grafana|gitea|harbor/i);
   });
 
+  // #2930 — the MCP PROTOCOL surface, not just file presence. Drives a real
+  // JSON-RPC 2.0 handshake against the auto-mounted server over its stdio
+  // transport from inside the session pod, the exact wire the agent process
+  // speaks. The `mcp-jsonrpc` helper inside the pod frames one
+  // Content-Length-prefixed request per arg and prints the response body.
+  // (Mirrors tests/e2e/sandbox-mcp-contract.sh, which exercises the same
+  // three RPCs against the server binary directly with no live env.)
+  test('MCP server answers initialize + tools/list + a tool round-trip (#2930)', async ({
+    request,
+  }) => {
+    test.setTimeout(60_000);
+    const list = await request.get('/sovereign/api/v1/sandbox');
+    const sid = (await list.json()).items[0].id;
+
+    // Helper: issue one JSON-RPC request over the pod's stdio MCP transport.
+    // The in-pod `mcp-jsonrpc` shim Content-Length-frames the JSON, pipes it
+    // to `openova-sandbox-mcp` on stdin, and emits the response body to
+    // stdout. A non-200 exec, empty stdout, or JSON-RPC `error` member all
+    // trip the test — a present-but-broken server cannot fake green here.
+    const rpc = async (method: string, params?: unknown) => {
+      const reqBody = JSON.stringify({ jsonrpc: '2.0', id: 1, method, params });
+      const exec = await request.post(`/sovereign/api/v1/sandbox/${sid}/exec`, {
+        data: { cmd: ['mcp-jsonrpc', 'openova-sandbox-mcp'], stdin: reqBody },
+      });
+      expect(exec.status()).toBe(200);
+      const out = await exec.json();
+      expect(out.stdout, `empty stdout for ${method} — transport dead`).toBeTruthy();
+      const resp = JSON.parse(out.stdout);
+      expect(resp.error, `${method} returned a JSON-RPC error`).toBeUndefined();
+      return resp.result;
+    };
+
+    // (a) initialize handshake — the server must negotiate the protocol and
+    //     identify itself.
+    const init = await rpc('initialize', {
+      protocolVersion: '2024-11-05',
+      capabilities: {},
+      clientInfo: { name: 'playwright-regression', version: '1' },
+    });
+    // ASSERTION-PROOF-OF-DOD: live MCP server completes the handshake.
+    expect(init.protocolVersion).toBe('2024-11-05');
+    expect(init.serverInfo?.name).toBe('openova-sandbox-mcp');
+
+    // (b) tools/list — the declared toolset must come back, with the known
+    //     Pillar-4 namespaces present and a sane count floor.
+    const listed = await rpc('tools/list');
+    const names: string[] = (listed.tools || []).map((t: { name: string }) => t.name);
+    // ASSERTION-PROOF-OF-DOD: catalogue is advertised, not empty.
+    expect(names.length).toBeGreaterThanOrEqual(40);
+    for (const want of [
+      'k8s.read.list',
+      'gitea.repo.list',
+      'sandbox.deploy.staging',
+      'sandbox.session.info',
+    ]) {
+      expect(names, `tools/list missing ${want}`).toContain(want);
+    }
+
+    // (c) tools/call — a read-only tool must round-trip a non-error result.
+    const called = await rpc('tools/call', {
+      name: 'sandbox.session.info',
+      arguments: {},
+    });
+    // ASSERTION-PROOF-OF-DOD: the MCP dispatch path actually executes a tool.
+    expect(called.isError).not.toBe(true);
+    const text = (called.content || []).find((c: { type: string }) => c.type === 'text')?.text;
+    expect(text, 'tools/call returned no text content envelope').toBeTruthy();
+    const payload = JSON.parse(text);
+    expect(payload).toHaveProperty('sandbox_id');
+  });
+
   test('MCP k8s.read reaches Catalyst CRDs without 403 (#2929 RBAC, #2930 coverage)', async ({ request }) => {
     test.setTimeout(60_000);
     const list = await request.get('/sovereign/api/v1/sandbox');
