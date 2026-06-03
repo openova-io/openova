@@ -31,6 +31,21 @@ spec:
     metadata:
       labels:
         {{- include "controllers.labels" (dict "name" "organization" "root" .) | nindent 8 }}
+      annotations:
+        # G117 #2742-followup (2026-06-03): roll the Pod whenever
+        # catalyst-runtime-config ConfigMap content changes. Without
+        # this, env.valueFrom.configMapKeyRef bindings stay frozen at
+        # the value read at Pod start — so when bp-catalyst-platform
+        # ships a new chart with updated keycloak-addr (PR #2895:
+        # `http://keycloak.keycloak.svc.cluster.local:80`) the
+        # ConfigMap reconciles cleanly but the controller Pod keeps
+        # reading the OLD address until manually restarted. Caught
+        # live on hw86 H22 verifier walk: organization-controller
+        # tried `keycloak-x-keycloak-x-mgmt-vcluster.mgmt.svc.cluster.local`
+        # for 90+ min after the chart-side fix landed because the Pod
+        # never rolled. checksum-annotation rolls automatically on any
+        # CM content change.
+        checksum/runtime-config: {{ include (print $.Template.BasePath "/configmap-catalyst-runtime-config.yaml") . | sha256sum }}
     spec:
       serviceAccountName: {{ include "controllers.fullname" "organization" }}
       automountServiceAccountToken: true
