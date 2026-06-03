@@ -103,6 +103,18 @@ type SwitchoverPlan struct {
 	// LeaseTTL is the TTL passed to Witness.Acquire in step-5.
 	// Default 30s per design doc.
 	LeaseTTL time.Duration
+
+	// #2933 (2026-06-03): explicit step-level timeouts. UAT Wave-2
+	// caught that step-4 (PDM commit) and step-7 (NATS audit publish)
+	// inherit only the caller's context deadline. If PDM hangs OR NATS
+	// is slow, the whole switchover hangs past the ≤60s RTO SLA.
+	//
+	// PDMTimeout — applied via context.WithTimeout around s.PDMCommit
+	// in step-4. Default 5s (PDM commit is single HTTP write).
+	// AuditPublishTimeout — applied around s.Audit.Publish in step-7.
+	// Default 3s (NATS JetStream ACK).
+	PDMTimeout          time.Duration
+	AuditPublishTimeout time.Duration
 }
 
 // Defaults applies missing-field defaults. Returns a copy.
@@ -116,6 +128,14 @@ func (p SwitchoverPlan) Defaults() SwitchoverPlan {
 	}
 	if out.Reason == "" {
 		out.Reason = "operator-requested"
+	}
+	// #2933 (2026-06-03): default step timeouts so a zero-value Plan
+	// doesn't hang on PDM/NATS slowness.
+	if out.PDMTimeout == 0 {
+		out.PDMTimeout = 5 * time.Second
+	}
+	if out.AuditPublishTimeout == 0 {
+		out.AuditPublishTimeout = 3 * time.Second
 	}
 	return out
 }
@@ -360,7 +380,12 @@ func (s *Sequencer) steps(plan SwitchoverPlan) []stepFunc {
 				if err != nil {
 					return nil, fmt.Errorf("synth records: %w", err)
 				}
-				if err := s.PDMCommit(ctx, records); err != nil {
+				// #2933 (2026-06-03): bound PDM commit by step-level
+				// timeout (default 5s). Without this, PDM unreachable
+				// + caller context lacking deadline = hang forever.
+				pdmCtx, pdmCancel := context.WithTimeout(ctx, plan.PDMTimeout)
+				defer pdmCancel()
+				if err := s.PDMCommit(pdmCtx, records); err != nil {
 					return nil, fmt.Errorf("pdm commit: %w", err)
 				}
 				// Rollback hook: re-emit the OLD primary's records.
@@ -431,7 +456,12 @@ func (s *Sequencer) steps(plan SwitchoverPlan) []stepFunc {
 				if s.Audit == nil {
 					return nil, errors.New("Audit publisher is required")
 				}
-				return nil, s.Audit.Publish(ctx, events.Event{
+				// #2933 (2026-06-03): bound NATS publish by step-level
+				// timeout (default 3s). Without this, NATS broker slow
+				// to ACK = entire switchover blocks past ≤60s SLA.
+				auditCtx, auditCancel := context.WithTimeout(ctx, plan.AuditPublishTimeout)
+				defer auditCancel()
+				return nil, s.Audit.Publish(auditCtx, events.Event{
 					Type:            events.TypeSwitchover,
 					ContinuumName:   plan.ContinuumName,
 					ApplicationName: plan.ApplicationName,
