@@ -187,3 +187,106 @@ func TestResult_MaterializedRegions_Exposed(t *testing.T) {
 		t.Errorf("missing set = %v, want [me-east-215-b]", declared)
 	}
 }
+
+// Test 7 (#2840-followup, 2026-06-03) — Hetzner key format pass-through
+// via normalisePerRegionKeys. Hetzner emits the per-region map keyed by
+// `<cloudRegion>-<index>` for secondaries + literal `primary` for the
+// primary CP; detectPartialRegionMaterialisation expects cloudRegion
+// keys. Verify the normaliser collapses both shapes correctly so a
+// healthy 3-region Hetzner prov is NOT mis-classified as fully-missing.
+func TestNormalisePerRegionKeys_HetznerThreeRegionHealthy(t *testing.T) {
+	declared := []RegionSpec{
+		{Provider: "hetzner", CloudRegion: "nbg1"},
+		{Provider: "hetzner", CloudRegion: "fsn1"},
+		{Provider: "hetzner", CloudRegion: "hel1"},
+	}
+	hetznerShape := map[string]string{
+		"primary": "100.100.100.10",
+		"fsn1-1":  "100.100.100.20",
+		"hel1-2":  "100.100.100.30",
+	}
+	normalised := normalisePerRegionKeys(declared, hetznerShape)
+	want := map[string]string{
+		"nbg1": "100.100.100.10",
+		"fsn1": "100.100.100.20",
+		"hel1": "100.100.100.30",
+	}
+	for k, v := range want {
+		if got := normalised[k]; got != v {
+			t.Errorf("normalised[%q] = %q, want %q", k, got, v)
+		}
+	}
+	// And the downstream detection must see ZERO missing.
+	materialised, missing := detectPartialRegionMaterialisation(declared, normalised)
+	if len(missing) != 0 {
+		t.Errorf("missing = %v, want empty (every declared region came up)", missing)
+	}
+	if len(materialised) != 3 {
+		t.Errorf("materialised = %v, want all 3 regions", materialised)
+	}
+}
+
+// Test 8 — Hetzner partial-region shape: primary + one secondary
+// materialised, second secondary missing. detection must name the
+// missing cloudRegion correctly even though the input keys carried
+// the suffixed Hetzner format.
+func TestNormalisePerRegionKeys_HetznerPartialThirdRegionMissing(t *testing.T) {
+	declared := []RegionSpec{
+		{Provider: "hetzner", CloudRegion: "nbg1"},
+		{Provider: "hetzner", CloudRegion: "fsn1"},
+		{Provider: "hetzner", CloudRegion: "hel1"},
+	}
+	hetznerShape := map[string]string{
+		"primary": "100.100.100.10",
+		"fsn1-1":  "100.100.100.20",
+		// hel1-2 deliberately missing (capacity cascade).
+	}
+	normalised := normalisePerRegionKeys(declared, hetznerShape)
+	_, missing := detectPartialRegionMaterialisation(declared, normalised)
+	if len(missing) != 1 || missing[0] != "hel1" {
+		t.Errorf("missing = %v, want [hel1]", missing)
+	}
+}
+
+// Test 9 — Same-region duplicates (legal Hetzner stacking): fsn1-mgmt
+// + fsn1-dataplane both materialised. Collapses to one fsn1 entry;
+// detection must treat declared duplicate as satisfied by the single
+// normalised entry (first-non-empty wins).
+func TestNormalisePerRegionKeys_HetznerSameRegionDuplicates(t *testing.T) {
+	declared := []RegionSpec{
+		{Provider: "hetzner", CloudRegion: "fsn1"},
+		{Provider: "hetzner", CloudRegion: "fsn1"},
+	}
+	hetznerShape := map[string]string{
+		"primary": "100.100.100.10",
+		"fsn1-1":  "100.100.100.20",
+	}
+	normalised := normalisePerRegionKeys(declared, hetznerShape)
+	if normalised["fsn1"] == "" {
+		t.Errorf("normalised[fsn1] should be non-empty, got %v", normalised)
+	}
+	_, missing := detectPartialRegionMaterialisation(declared, normalised)
+	if len(missing) != 0 {
+		t.Errorf("missing = %v, want empty (stacked duplicate counts as satisfied)", missing)
+	}
+}
+
+// Test 10 — Huawei pass-through: keys already in cloudRegion form; the
+// normaliser must not mangle them (no '-' suffix stripping, no
+// 'primary' remap when the key isn't literal 'primary').
+func TestNormalisePerRegionKeys_HuaweiPassThrough(t *testing.T) {
+	declared := []RegionSpec{
+		{Provider: "huawei", CloudRegion: "me-east-215-a"},
+		{Provider: "huawei", CloudRegion: "me-east-215-b"},
+	}
+	huaweiShape := map[string]string{
+		"me-east-215-a": "100.100.100.10",
+		"me-east-215-b": "100.100.100.20",
+	}
+	normalised := normalisePerRegionKeys(declared, huaweiShape)
+	for code, ip := range huaweiShape {
+		if got := normalised[code]; got != ip {
+			t.Errorf("normalised[%q] = %q, want %q (Huawei keys must pass through)", code, got, ip)
+		}
+	}
+}
