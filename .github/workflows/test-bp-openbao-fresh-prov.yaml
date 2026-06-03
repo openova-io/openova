@@ -88,23 +88,34 @@ jobs:
             || true   # don't fail install — we want to inspect Job state
           kubectl -n openbao get all
 
-      - name: Wait for openbao-init Job Completed (budget 20 min)
+      - name: Wait for openbao-init outcome (budget 20 min)
         run: |
           set -euo pipefail
+          # #3006-followup: openbao-init runs as a post-install HOOK with
+          # `helm.sh/hook-delete-policy: hook-succeeded` (init-job.yaml:65),
+          # so on SUCCESS the Job object self-deletes before this step can
+          # observe it — polling job-presence asserted a corpse and failed
+          # even when the install (helm --wait, which blocks on post-install
+          # hooks) reported STATUS: deployed with all pods 1/1 Running.
+          # Assert the OUTCOME instead: the openbao-root-token Secret the
+          # init Job writes. Keep the 20-min budget for the slow-storage
+          # case the workflow header documents (hook may still be running
+          # if helm itself timed out without failing the step's `|| true`).
           for i in $(seq 1 60); do
-            if kubectl -n openbao get job openbao-init -o jsonpath='{.status.succeeded}' 2>/dev/null | grep -q "1"; then
-              echo "openbao-init Completed after ${i} * 20s"
+            if kubectl -n openbao get secret openbao-root-token -o jsonpath='{.data.token}' 2>/dev/null | grep -q .; then
+              echo "openbao-root-token present after ${i} * 20s — init outcome reached"
               break
             fi
-            STATUS=$(kubectl -n openbao get job openbao-init -o jsonpath='{.status}' 2>/dev/null || echo "{}")
-            echo "[$(date -u +%H:%M:%S)] poll ${i}/60 — status: ${STATUS}"
+            JOB=$(kubectl -n openbao get job openbao-init -o jsonpath='{.status}' 2>/dev/null || echo "absent (hook not created yet, or self-deleted)")
+            echo "[$(date -u +%H:%M:%S)] poll ${i}/60 — root-token absent; job: ${JOB}"
             sleep 20
           done
-          # FINAL assertion: Job must have succeeded
-          if ! kubectl -n openbao get job openbao-init -o jsonpath='{.status.succeeded}' | grep -q "1"; then
-            echo "FATAL: openbao-init Job did not complete in 20 min"
-            kubectl -n openbao describe job openbao-init
+          # FINAL assertion: the init outcome (root-token Secret) must exist.
+          if ! kubectl -n openbao get secret openbao-root-token -o jsonpath='{.data.token}' 2>/dev/null | grep -q .; then
+            echo "FATAL: openbao-init outcome (openbao-root-token Secret) not reached in 20 min"
+            kubectl -n openbao describe job openbao-init 2>/dev/null || echo "(job absent)"
             kubectl -n openbao get pods
+            kubectl -n openbao get secrets
             kubectl -n openbao logs -l catalyst.openova.io/component=openbao-init --tail=200 || true
             exit 1
           fi
