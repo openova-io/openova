@@ -223,8 +223,7 @@ openova/
     ├── adr/                # Architecture Decision Records (immutable, numbered)
     ├── ledger/             # TRUST.md + TRACKER.md (cron-refreshed)
     ├── sessions/           # date-stamped walk runbooks + session reports
-    ├── archive/            # historical / superseded
-    └── proposals/  runbooks/  lessons-learned/   # legacy subdirs; migrating into the 7 canonical docs
+    └── archive/            # historical / superseded (legacy proposals/runbooks/lessons-learned folded into the 7 canonical docs)
 ```
 
 For the up-to-date "what's actually built today" inventory (controllers green/yellow/red, microservices status, CRD set) see [`docs/STATUS.md`](docs/STATUS.md).
