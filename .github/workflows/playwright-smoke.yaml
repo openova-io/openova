@@ -68,6 +68,16 @@ jobs:
         working-directory: products/catalyst/bootstrap/ui
         env:
           HOST: 0.0.0.0
+          # #2939-followup (2026-06-03): the g117-launch-silent-sso.spec.ts
+          # MOCK-mode tests (line 100+) require the UI's mock backend
+          # (window.__MOCK_API__) which only loads when Vite is started
+          # with PUBLIC_MOCK_API=1. Without this, the dev server boots
+          # in REAL-API mode, /apps/<mock-grafana-id> 401s and redirects
+          # to /login, the Launch button never renders, and the
+          # `expect(launchBtn).toBeVisible()` assertion fails. The
+          # Playwright Group L lane has been red on this since 2026-06-03
+          # 02:36Z. Setting the var unblocks 12+ MOCK-mode tests.
+          PUBLIC_MOCK_API: "1"
         run: |
           # Vite dev server binds 4321 by default; we keep the default so the
           # tests' BASE_URL fallback (http://localhost:5173) works.
