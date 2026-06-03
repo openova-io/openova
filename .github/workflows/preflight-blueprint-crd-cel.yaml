@@ -1,0 +1,170 @@
+name: Preflight — Blueprint CRD CEL admission (real apiserver)
+
+# Issue #2936 — Blueprint CRD topology cross-field CEL admission.
+#
+# The blueprint-admission-validate.yml job validates blueprint.yaml
+# SOURCE files against a JSON Schema using the python `jsonschema`
+# library. That library does NOT evaluate `x-kubernetes-validations`
+# CEL expressions at all — only a real kube-apiserver compiles + runs
+# them. As a result, PR #2958 shipped topology CEL rules that FAILED
+# to compile on a real apiserver (the CRD itself was rejected at apply
+# time), and nothing in CI caught it.
+#
+# This preflight closes that hole. It:
+#   1. Applies products/catalyst/chart/crds/blueprint.yaml to a real
+#      kind apiserver — proving the CRD (incl. every CEL rule) compiles.
+#   2. Applies the blueprint-sample-valid.yaml fixture — every document
+#      MUST be accepted.
+#   3. Applies each document of blueprint-sample-invalid.yaml in
+#      isolation — every document MUST be rejected (HTTP 422). This
+#      includes the #2936 cross-field cases where defaults / perTopology
+#      reference a topology absent from supported[] (a structurally
+#      well-typed CR that ONLY the CEL rule rejects).
+#
+# Event-driven only (CLAUDE.md). workflow_dispatch for ad-hoc re-runs.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'products/catalyst/chart/crds/blueprint.yaml'
+      - 'products/catalyst/chart/crds/tests/blueprint-sample-*.yaml'
+      - '.github/workflows/preflight-blueprint-crd-cel.yaml'
+  pull_request:
+    paths:
+      - 'products/catalyst/chart/crds/blueprint.yaml'
+      - 'products/catalyst/chart/crds/tests/blueprint-sample-*.yaml'
+      - '.github/workflows/preflight-blueprint-crd-cel.yaml'
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: Blueprint CRD CEL admission on real apiserver
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up kind
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: blueprint-crd-cel
+          version: v0.25.0
+          node_image: kindest/node:v1.30.6
+
+      - name: Install Blueprint CRD (proves every CEL rule compiles)
+        # A real apiserver compiles every x-kubernetes-validations CEL
+        # expression at CRD-apply time. A malformed rule (e.g. bracket
+        # indexing a struct, or .all() over named-properties) makes this
+        # step fail — which is exactly what we want CI to catch.
+        run: |
+          kubectl apply -f products/catalyst/chart/crds/blueprint.yaml
+          kubectl wait --for=condition=Established --timeout=60s \
+            crd/blueprints.catalyst.openova.io
+
+      - name: Valid fixture — every document MUST be accepted
+        run: |
+          echo "Applying blueprint-sample-valid.yaml (server-side dry-run)…"
+          kubectl apply --dry-run=server \
+            -f products/catalyst/chart/crds/tests/blueprint-sample-valid.yaml
+          echo "PASS: all valid Blueprint documents accepted by admission"
+
+      - name: Invalid fixture — EVERY document MUST be rejected
+        # kubectl apply on a multi-doc file stops at the first error and
+        # the remaining docs aren't reported, so split the file and apply
+        # each document independently. Every one must be rejected; a single
+        # acceptance fails the job. This guarantees the cross-field CEL
+        # rules (#2936) actually fire — a structurally valid CR whose
+        # defaults/perTopology reference a topology absent from supported[]
+        # is only caught by CEL.
+        run: |
+          set -u
+          INVALID="products/catalyst/chart/crds/tests/blueprint-sample-invalid.yaml"
+          tmpdir="$(mktemp -d)"
+          # csplit on the YAML document separator; produces one file per doc.
+          awk -v dir="$tmpdir" '
+            BEGIN { n=0; f=sprintf("%s/doc-%03d.yaml", dir, n) }
+            /^---[[:space:]]*$/ { n++; f=sprintf("%s/doc-%03d.yaml", dir, n); next }
+            { print > f }
+          ' "$INVALID"
+
+          fail=0
+          checked=0
+          for doc in "$tmpdir"/doc-*.yaml; do
+            # Skip docs that are only comments / whitespace.
+            if ! grep -q 'kind:[[:space:]]*Blueprint' "$doc"; then
+              continue
+            fi
+            checked=$((checked+1))
+            name="$(awk '/^[[:space:]]*name:/{print $2; exit}' "$doc")"
+            out="$(kubectl apply --dry-run=server -f "$doc" 2>&1)" && rc=0 || rc=$?
+            if [ "$rc" -eq 0 ]; then
+              echo "FAIL: invalid document '${name}' was ACCEPTED — admission gap!"
+              echo "----- offending document -----"
+              cat "$doc"
+              fail=1
+            else
+              echo "OK (rejected): ${name}"
+              echo "    └─ $(echo "$out" | head -1)"
+            fi
+          done
+          echo "checked ${checked} invalid documents"
+          if [ "$checked" -eq 0 ]; then
+            echo "FAIL: no invalid documents were checked — fixture parsing broke"
+            exit 1
+          fi
+          if [ "$fail" -ne 0 ]; then
+            exit 1
+          fi
+          echo "PASS: every invalid Blueprint document rejected by admission"
+
+      - name: Cross-field CEL spot-check — explicit accept + reject pair
+        # Belt-and-suspenders: assert the EXACT #2936 acceptance criterion.
+        # (a) defaults.multi-region NOT in supported[] → rejected with the
+        #     CEL message. (b) the same CR with multi-region added to
+        #     supported[] → accepted. Proves the rule discriminates on the
+        #     cross-field relationship, not on some unrelated structural
+        #     error.
+        run: |
+          set -u
+          reject_cr="$(cat <<'EOF'
+          apiVersion: catalyst.openova.io/v1
+          kind: Blueprint
+          metadata: {name: cel-spotcheck-reject}
+          spec:
+            version: 1.0.0
+            card: {title: spotcheck reject}
+            topology:
+              supported: [singleton]
+              defaults: {multi-region: active-active, single-region: singleton}
+          EOF
+          )"
+          accept_cr="$(cat <<'EOF'
+          apiVersion: catalyst.openova.io/v1
+          kind: Blueprint
+          metadata: {name: cel-spotcheck-accept}
+          spec:
+            version: 1.0.0
+            card: {title: spotcheck accept}
+            topology:
+              supported: [active-active, singleton]
+              defaults: {multi-region: active-active, single-region: singleton}
+          EOF
+          )"
+
+          out="$(printf '%s' "$reject_cr" | kubectl apply --dry-run=server -f - 2>&1)" && rc=0 || rc=$?
+          if [ "$rc" -eq 0 ]; then
+            echo "FAIL: cross-field reject CR was accepted"
+            exit 1
+          fi
+          echo "$out" | grep -q 'topology.defaults.multi-region must be a member of topology.supported' \
+            || { echo "FAIL: rejection did not carry the expected CEL message:"; echo "$out"; exit 1; }
+          echo "PASS (reject): ${out}"
+
+          printf '%s' "$accept_cr" | kubectl apply --dry-run=server -f - \
+            || { echo "FAIL: cross-field accept CR was rejected"; exit 1; }
+          echo "PASS (accept): supported[] superset of defaults accepted"

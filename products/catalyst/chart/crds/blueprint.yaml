@@ -350,13 +350,52 @@ spec:
                   # CRD admission means the apiserver rejects the CR at submit
                   # time with HTTP 422 — operator gets immediate feedback
                   # instead of "applied but stuck Pending".
+                  #
+                  # #2936 follow-up (2026-06-04): the first form of these rules
+                  # (shipped via PR #2958) FAILED to compile on a real
+                  # kube-apiserver — the CRD itself was rejected at apply time.
+                  # Two CEL-modelling traps caused it, neither of which the
+                  # jsonschema-based blueprint-admission-validate.yml CI job can
+                  # catch (jsonschema does NOT evaluate x-kubernetes-validations
+                  # CEL at all). Fixes:
+                  #   1. `defaults` is declared with named `properties`, so the
+                  #      CEL type-checker treats it as a STRUCT, not a map.
+                  #      Struct fields whose names are not valid CEL identifiers
+                  #      (the hyphenated `multi-region` / `single-region`) cannot
+                  #      be reached with `['...']` bracket indexing — that
+                  #      overload only exists for map/dyn types. Kubernetes
+                  #      escapes such names for dot-access: `-` → `__dash__`.
+                  #      Hence `self.defaults.multi__dash__region`.
+                  #   2. `perTopology` is likewise declared with named
+                  #      `properties` → STRUCT, so `.all(k, ...)` is illegal
+                  #      ("cannot be range of a comprehension"). Its key-set is
+                  #      the fixed 4-value topology enum, so each variant is
+                  #      checked explicitly under a `has()` guard instead.
+                  # Verified compiling + accepting/rejecting against a real
+                  # kind v1.30 apiserver — see PR body.
                   x-kubernetes-validations:
-                    - rule: "self.defaults['multi-region'] in self.supported"
+                    - rule: "self.defaults.multi__dash__region in self.supported"
                       message: "topology.defaults.multi-region must be a member of topology.supported[]"
-                    - rule: "self.defaults['single-region'] in self.supported"
+                    - rule: "self.defaults.single__dash__region in self.supported"
                       message: "topology.defaults.single-region must be a member of topology.supported[]"
-                    - rule: "!has(self.perTopology) || self.perTopology.all(k, k in self.supported)"
-                      message: "every key in topology.perTopology must be a member of topology.supported[]"
+                    # perTopology key ⊆ supported[]. Struct (named-properties)
+                    # type forbids comprehension ranging, so each of the 4
+                    # topology-enum keys is checked explicitly under a has()
+                    # guard. A key present in perTopology but absent from
+                    # supported[] is rejected at admission.
+                    # The outer `has(self.perTopology)` guard is required: CEL
+                    # cannot traverse into `self.perTopology.<key>` when
+                    # `perTopology` itself is absent (it raises "no such key"
+                    # rather than short-circuiting), so each rule must first
+                    # confirm the parent exists.
+                    - rule: "!has(self.perTopology) || !has(self.perTopology.active__dash__active) || ('active-active' in self.supported)"
+                      message: "topology.perTopology.active-active requires 'active-active' in topology.supported[]"
+                    - rule: "!has(self.perTopology) || !has(self.perTopology.active__dash__hot__dash__standby) || ('active-hot-standby' in self.supported)"
+                      message: "topology.perTopology.active-hot-standby requires 'active-hot-standby' in topology.supported[]"
+                    - rule: "!has(self.perTopology) || !has(self.perTopology.active__dash__passive) || ('active-passive' in self.supported)"
+                      message: "topology.perTopology.active-passive requires 'active-passive' in topology.supported[]"
+                    - rule: "!has(self.perTopology) || !has(self.perTopology.singleton) || ('singleton' in self.supported)"
+                      message: "topology.perTopology.singleton requires 'singleton' in topology.supported[]"
                   properties:
                     supported:
                       type: array

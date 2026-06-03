@@ -2523,7 +2523,26 @@ name: bp-catalyst-platform
 # deploymentId is immutable post-create via CEL
 # x-kubernetes-validations rule (matches Application.spec.instanceId
 # pattern from #2742 W2.C2). Refs #2856 #2742 #2737.
-version: 1.4.482
+# 1.4.483 (#2936, 2026-06-04): fix(blueprint-crd) the topology
+# cross-field CEL rules shipped by PR #2958 (#2936) were SYNTACTICALLY
+# INVALID and the apiserver REJECTED the whole CRD at apply time — but
+# #2958 never bumped this version/pin so the broken CRD never reached a
+# Sovereign, and its only validator was `helm template --include-crds`,
+# which renders YAML without compiling CEL. Two CEL-modelling traps:
+# (1) `defaults` is a named-properties STRUCT, so `self.defaults
+# ['multi-region']` bracket-indexing has no overload — Kubernetes
+# escapes hyphens for dot-access, so the rule is now
+# `self.defaults.multi__dash__region in self.supported`; (2)
+# `perTopology` is likewise a STRUCT, so `.all(k, ...)` is illegal
+# (`cannot be range of a comprehension`) — replaced with four explicit
+# has()-guarded per-key membership rules. Verified compiling +
+# accepting/rejecting on a real kind v1.30 apiserver, plus a new
+# .github/workflows/preflight-blueprint-crd-cel.yaml gate that applies
+# the CRD + crds/tests fixtures to a real apiserver so a future broken
+# CEL rule can never merge again. Bumping the pin so every Sovereign's
+# Flux helm-controller re-applies the corrected CRD (Flux reconciles
+# crds/ with CreateReplace, unlike raw `helm upgrade`). Refs #2936.
+version: 1.4.483
 appVersion: 1.4.479
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.

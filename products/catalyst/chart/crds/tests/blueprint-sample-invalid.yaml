@@ -100,3 +100,51 @@ spec:
   multiInstance:
     enabled: true
     isolationLevel: vm
+---
+# Eighth invalid (#2936) — cross-field CEL: topology.defaults.multi-region
+# is a LEGAL enum value but is NOT a member of topology.supported[]. Every
+# field is individually well-typed, so only the topology-level
+# x-kubernetes-validations CEL rule catches it. Pre-#2936 this slipped
+# past CRD admission and only surfaced at blueprint-controller reconcile
+# time as Ready=False. Expected apiserver message:
+#   "topology.defaults.multi-region must be a member of topology.supported[]"
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-bad-topology-defaults-not-supported
+spec:
+  version: 1.0.0
+  card:
+    title: defaults references a topology absent from supported[]
+  topology:
+    supported: [singleton]
+    defaults:
+      multi-region: active-active
+      single-region: singleton
+---
+# Ninth invalid (#2936) — cross-field CEL: topology.perTopology has a key
+# (active-active) that is a LEGAL enum value but is NOT in supported[].
+# Caught only by the per-key perTopology CEL rules. Expected message:
+#   "topology.perTopology.active-active requires 'active-active' in topology.supported[]"
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-bad-topology-pertopology-not-supported
+spec:
+  version: 1.0.0
+  card:
+    title: perTopology key absent from supported[]
+  topology:
+    supported: [singleton]
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      active-active:
+        replication:
+          backend: cnpg-pair
+        placement:
+          tier: rtz
+      singleton:
+        placement:
+          tier: rtz
