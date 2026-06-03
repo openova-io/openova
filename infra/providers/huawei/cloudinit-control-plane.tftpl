@@ -624,6 +624,14 @@ write_files:
             # creation (true BCP cross-region failover) is a separate
             # application-controller workstream tracked in #2634.
             SOVEREIGN_CNPG_INSTANCES: "${sovereign_cnpg_instances}"
+            # #2922 (2026-06-03): auto-enable bp-continuum (slot 62) on
+            # multi-region Sovereigns so the DR orchestrator + Continuum
+            # CR ship live by default. Single-region keeps `false`
+            # (admission gate already rejects active-hot-standby +
+            # len(regions)<2 at the catalyst-api boundary). Mirrors
+            # Hetzner cloud-init template equivalent. Closes #2840
+            # acceptance criterion #3 on the substrate side.
+            CONTINUUM_ENABLED: "${continuum_enabled}"
             # Refs #2535 — G4: Cilium ClusterMesh peer anchors. The
             # 01-cilium.yaml HelmRelease reads these via the bootstrap-kit
             # Kustomization's `cluster.name=$${CLUSTER_MESH_NAME:=}` +
