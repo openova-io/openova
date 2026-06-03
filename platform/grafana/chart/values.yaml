@@ -64,6 +64,17 @@ grafana:
     runAsUser: 472
     fsGroup: 472
 
+  # #2872 (2026-06-03): disable upstream chart's init-chown-data initContainer.
+  # The PVC's RWO local-path provisioner mounts the volume already owned by
+  # 472:472 (matches our runAsUser+fsGroup), so the chown is a no-op AND the
+  # initContainer runs as root with a `chown -R 472:472 /var/lib/grafana`
+  # which fails on subdirs the user already created (png/pdf/csv) with
+  # Permission denied → Pod CrashLoopBackOff. Disabling the chown initContainer
+  # eliminates the failure; fsGroup ensures correct ownership. Caught live on
+  # hw86 — grafana-7f56ff86b9-x899r 0/3 Init:CrashLoopBackOff x53+.
+  initChownData:
+    enabled: false
+
   # Service — ClusterIP; ingress is wired by per-Sovereign overlays via the
   # cilium-gateway HTTPRoute.
   service:
