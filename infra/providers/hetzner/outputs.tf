@@ -85,3 +85,32 @@ output "secondary_region_keys" {
   description = "Stable keys of every secondary region the module provisioned, in deterministic insertion order. Joined with var.regions[1+] by the catalyst-api when projecting per-region status into the deployment record."
   value       = keys(local.secondary_regions)
 }
+
+# G117 #2840-followup (2026-06-03): unified per-region CP-IP map that
+# INCLUDES the primary region, matching the Huawei provider's
+# `control_plane_ips_per_region` shape. The catalyst-api provisioner's
+# partial-region-materialisation defense (provisioner.go:1648) reads
+# this exact key name to detect silently-degraded multi-region provs;
+# without this output the Hetzner path skipped the check entirely
+# (`len(out.ControlPlaneIPsPerRegion) > 0` evaluated false) and a
+# multi-region Hetzner Sovereign that lost a region to a quota /
+# capacity cascade would have passed the post-apply gate with the
+# same silent single-region degradation that hit hw86 on HCS.
+#
+# Keyed by the operator-supplied `cloudRegion` value verbatim so the
+# catalyst-api's region-code comparison works the same on both
+# providers. The primary entry's value is identical to `control_plane_ip`
+# above; secondary entries are pulled from the same hcloud_server
+# resource the `_by_region` output already references.
+output "control_plane_ips_per_region" {
+  description = "Per-region primary control-plane public IPv4, keyed by the operator's cloudRegion value. Includes BOTH primary AND secondary regions. Mirrors the Huawei provider's same-named output so the catalyst-api partial-region detection works uniformly. Refs #2840."
+  value = merge(
+    {
+      (var.region) = hcloud_server.control_plane.ipv4_address
+    },
+    {
+      for k, v in local.secondary_regions :
+      v.cloudRegion => hcloud_server.secondary_control_plane[k].ipv4_address
+    }
+  )
+}
