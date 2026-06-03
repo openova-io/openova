@@ -59,11 +59,20 @@ spec:
   releaseName: sso-bridge
   targetNamespace: sso-bridge
   dependsOn:
-    # G105-followup2 #2697 (2026-06-01): bp-keycloak + bp-openbao HRs
-    # reverted to flux-system ns (G92.x slot-level forcing dropped).
+    # MUST NOT dependOn bp-catalyst-platform (#2989): catalyst-platform
+    # dependsOn bp-gitea, and gitea's install hard-blocks on the `sso/gitea`
+    # OpenBao secret that THIS reconciler writes → 3-way deadlock
+    # (gitea → catalyst-platform → sso-bridge → sso/gitea → gitea), wedging
+    # fresh provs at ~45/56 (caught live on hw89). The reconciler only needs
+    # keycloak (catalyst-api-server SA Client, reflector-mirrored) + openbao
+    # for the Tier-1 SSO bootstrap; the operator-admin grant (which needs the
+    # catalyst-api orgEmail ConfigMap) is already deferred gracefully when
+    # orgEmail is absent (configmap-reconciler.yaml: "skipping admin grant;
+    # deferred until first sign-in", return 0) and re-runs on a later
+    # reconcile once catalyst-api is up. So sso-bridge runs early, writes
+    # sso/<app>, and gitea/catalyst-platform install behind it.
     - name: bp-keycloak
     - name: bp-openbao
-    - name: bp-catalyst-platform
   chart:
     spec:
       chart: bp-sso-bridge
