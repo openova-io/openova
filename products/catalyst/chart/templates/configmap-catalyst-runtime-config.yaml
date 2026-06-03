@@ -37,3 +37,8 @@ data:
   keycloak-addr: {{ .Values.runtime.keycloakAddr | quote }}
   keycloak-realm: {{ .Values.runtime.keycloakRealm | quote }}
   gitea-public-url: {{ .Values.runtime.giteaPublicURL | quote }}
+  # #2940 (2026-06-03): public-facing console URL. Consumed by
+  # catalyst-api as CORS_ORIGIN + CATALYST_SOVEREIGN_URL via
+  # configMapKeyRef. Override via runtime.sovereignConsoleURL in
+  # per-Sovereign overlay or bp-self-sovereign-cutover Step 7.
+  sovereign-console-url: {{ .Values.runtime.sovereignConsoleURL | quote }}
