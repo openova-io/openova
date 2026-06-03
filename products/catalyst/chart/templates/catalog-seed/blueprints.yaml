@@ -876,6 +876,52 @@ spec:
     url: oci://ghcr.io/openova-io
     chart: bp-langfuse
     version: 1.0.0
+  # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): catalog-seed
+  # lockstep with platform/langfuse/blueprint.yaml. Same gap class as
+  # PR #2883+#2893 (grafana) + PR #2900 (keycloak) + PR #2901 (temporal).
+  # Helm-escape runtime tokens per PR #2888 pattern.
+  topology:
+    supported:
+      - active-passive
+      - singleton
+    defaults:
+      multi-region: active-passive
+      single-region: singleton
+    perTopology:
+      active-passive:
+        replication:
+          backend: cnpg-pair
+          mode: sync
+          lagSloSeconds: 0
+        switchover:
+          mechanism: bp-continuum
+          rtoSeconds: 60
+          rpoSeconds: 0
+        placement:
+          tier: rtz
+          clusters: [rtz-A, rtz-B]
+          roles:
+            rtz-A: active
+            rtz-B: passive
+      singleton:
+        placement:
+          tier: rtz
+          clusters: [rtz-A]
+          roles:
+            rtz-A: singleton
+  endpoints:
+    - name: ui
+      hostnameTemplate: "langfuse.{{ "{{" }}.OrgSlug{{ "}}" }}.{{ "{{" }}.SovereignFQDN{{ "}}" }}"
+      port: 443
+      protocol: https
+      tls: true
+      visibility: public
+      launchDefault: true
+      ssoEnabled: true
+  sso:
+    realm: sovereign
+    protocolMapper: oidc
+    silentLogin: true
   configSchema:
     type: object
     properties:
