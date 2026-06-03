@@ -45,7 +45,31 @@ Refs #2697 (G105 cascade — this gap surfaced during the cascade walk).
      randAlphaNum 64 produces 64 ASCII alphanumeric chars; base64-encode
      for the data: field below. */ -}}
   {{- $valueB64 = randAlphaNum 64 | b64enc -}}
-{{- end }}
+{{- end -}}
+{{- /*
+#3006 foreign-Secret skip (caught by the fresh-prov-self-heal CI gate):
+the real-prov path pre-creates this Secret via kubectl from cloud-init's
+autoUnseal block — a NON-Helm-owned object. Rendering a same-name Secret
+makes `helm install` hard-fail with "invalid ownership metadata" (Helm
+refuses to adopt foreign objects), wedging bp-openbao on any prov where
+cloud-init ran first. So: render the chart-managed Secret ONLY when no
+Secret exists (G111 #2718 fresh-install path) or the existing one is
+Helm-owned (G112-style reinstall over a `resource-policy: keep` Secret).
+A foreign Secret already satisfies the init-job, which reads it by name.
+Edge: a foreign Secret MISSING the seed key cannot be repaired from
+inside Helm (cannot overwrite a foreign object) — init-job's existing
+FATAL ("seed Secret … has no key recovery-seed") is the honest outcome
+and the operator owns the repair.
+NB: `lookup` returns nil under `helm template`/`--dry-run=client`, so
+offline renders keep emitting the Secret — chart-test behavior unchanged.
+*/ -}}
+{{- $foreign := false -}}
+{{- if $existing -}}
+  {{- $mgr := "" -}}
+  {{- with $existing.metadata -}}{{- with .labels -}}{{- $mgr = index . "app.kubernetes.io/managed-by" | default "" -}}{{- end -}}{{- end -}}
+  {{- if ne $mgr "Helm" -}}{{- $foreign = true -}}{{- end -}}
+{{- end -}}
+{{- if not $foreign }}
 ---
 apiVersion: v1
 kind: Secret
@@ -67,3 +91,4 @@ metadata:
 type: Opaque
 data:
   {{ $key }}: {{ $valueB64 }}
+{{- end }}
