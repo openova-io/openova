@@ -294,9 +294,9 @@ images:
     # new chart emits only the new name, so handoverSigner never
     # initialises and /api/v1/auth/pin/issue returns 503 "handover
     # signer unavailable". ff778a36 reads both names with fallback.
-    tag: "5096a51"
+    tag: "68f7378"
   catalystUi:
-    tag: "5096a51"
+    tag: "68f7378"
   marketplaceApi:
     tag: "3c2f7e4"
   console:
@@ -371,18 +371,6 @@ runtime:
   # (https://gitea.<sovereign-fqdn>) once the parent zone's HTTPRoute
   # is reconciled.
   giteaPublicURL: "http://gitea-http.gitea.svc.cluster.local:3000"
-  # #2940 (2026-06-03): Pillar 5 anti-tether — public-facing console URL.
-  # Per-Sovereign overlays MUST override to https://console.<sov-fqdn>.
-  # Consumed as CORS_ORIGIN and CATALYST_SOVEREIGN_URL by catalyst-api
-  # via the runtime-config ConfigMap (G117.E2E followup pattern, same
-  # seam as keycloak-addr + gitea-public-url). Default keeps the
-  # mothership URL for back-compat on pre-#2940 Sovereigns; cutover
-  # process MUST patch this value as part of bp-self-sovereign-cutover
-  # Step 7 (catalyst-api env patch). When this var is overridden, the
-  # api-deployment's CORS_ORIGIN + CATALYST_SOVEREIGN_URL envs pick up
-  # the new value via the checksum/runtime-config rolling restart
-  # mechanism (PR #2928).
-  sovereignConsoleURL: "https://console.openova.io"
 
 # ─── Group C controllers (slice CC3 of EPIC-0 #1095) ────────────────────────
 # The 5 K8s-native reconcilers consolidated by CC1 (#1135) + CC2 (#1136):
