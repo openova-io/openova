@@ -66,4 +66,48 @@ test.describe('Regression — Sandbox + openova-sandbox-mcp', () => {
     // ASSERTION-PROOF-OF-DOD: MCP surfaces the catalog from within the Sandbox.
     expect(out.stdout).toMatch(/grafana|gitea|harbor/i);
   });
+
+  test('MCP k8s.read reaches Catalyst CRDs without 403 (#2929 RBAC, #2930 coverage)', async ({ request }) => {
+    test.setTimeout(60_000);
+    const list = await request.get('/sovereign/api/v1/sandbox');
+    const sid = (await list.json()).items[0].id;
+
+    // PR #2952 added Sandbox SA read RBAC on the Catalyst CRD groups. The MCP
+    // k8s.read.list tool must reach them — returning data or an empty list,
+    // never a 403/Forbidden from the apiserver.
+    const readCRD = async (group: string, resource: string) => {
+      const exec = await request.post(`/sovereign/api/v1/sandbox/${sid}/exec`, {
+        data: {
+          cmd: [
+            'mcp-cli',
+            'openova-sandbox-mcp',
+            'k8s.read.list',
+            '--group',
+            group,
+            '--resource',
+            resource,
+            '--namespace',
+            sid,
+          ],
+        },
+      });
+      const out = await exec.json();
+      return `${out.stdout || ''}${out.stderr || ''}`;
+    };
+
+    // apps.openova.io/applications
+    const apps = await readCRD('apps.openova.io', 'applications');
+    // ASSERTION-PROOF-OF-DOD: Sandbox SA reads Applications, no RBAC denial.
+    expect(apps).not.toContain('403');
+    expect(apps).not.toContain('Forbidden');
+
+    // orgs.openova.io/organizations + catalyst.openova.io/environments
+    const orgs = await readCRD('orgs.openova.io', 'organizations');
+    expect(orgs).not.toContain('403');
+    expect(orgs).not.toContain('Forbidden');
+
+    const envs = await readCRD('catalyst.openova.io', 'environments');
+    expect(envs).not.toContain('403');
+    expect(envs).not.toContain('Forbidden');
+  });
 });
