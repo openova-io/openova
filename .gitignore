@@ -42,6 +42,18 @@ test-results/
 # Debug screenshots dumped at the repo ROOT (e.g. hw86-*.png, walk-*.png).
 # Root-anchored (/*.png) so it does NOT touch brand/, docs/, or chart icon PNGs.
 /*.png
+/*.jpg
+/*.jpeg
+/*.gif
+/*.webp
+/*.log
+
+# Designated transient-artifacts dir (founder directive 2026-06-03): ALL
+# throwaway files — screenshots, scratch, debug dumps — live under artifacts/,
+# NEVER the repo root. Only the README (which documents the rule) is tracked.
+# Keepable walk/UAT evidence goes in docs/sessions/<date>-<topic>/evidence/.
+/artifacts/*
+!/artifacts/README.md
 
 # Editor / OS / temp junk.
 *.bak
