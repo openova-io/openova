@@ -127,7 +127,7 @@ spec:
       # message read "Helm install failed for release powerdns/powerdns
       # with chart bp-powerdns@1.2.2: failed post-install: 1 error
       # occurred: * job powerdns-zone-bootstrap failed: BackoffLimitExceeded".
-      version: 1.2.7
+      version: 1.2.8
       sourceRef:
         kind: HelmRepository
         name: bp-powerdns
@@ -142,13 +142,19 @@ spec:
   # cleanly; runtime convergence (powerdns pods becoming Ready once
   # CNPG lands) is observed via kubectl, not gated on Helm.
   install:
-    timeout: 15m
+    # 40m (hw91 2026-06-03, bp-powerdns 1.2.8): the zone-bootstrap hook's
+    # activeDeadlineSeconds went 840s -> 2100s to ride out the ~20-min
+    # HCS early-prov settle window; helm waits on hooks within THIS
+    # timeout even with disableWait, so it must exceed the hook deadline
+    # (budgets nest: innerPoll 1800s < jobDeadline 2100s < helm 2400s).
+    timeout: 40m
     disableWait: true
     remediation:
       retries: 5
       remediateLastFailure: true
   upgrade:
-    timeout: 15m
+    # 40m — same nesting rationale as install (hook deadline 2100s).
+    timeout: 40m
     disableWait: true
     remediation:
       retries: 3
