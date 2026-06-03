@@ -108,7 +108,7 @@ spec:
       launchDefault: true
       ssoEnabled: true
   sso:
-    realm: sovereign
+    realm: "{{ "{{" }}.OrgSlug{{ "}}" }}"
     protocolMapper: oidc
     silentLogin: true
   multiInstance:
@@ -272,12 +272,12 @@ spec:
   # K-Cont-2 (operator-triggered promotion).
   topology:
     supported:
-      - active-passive
+      - active-hot-standby
     defaults:
-      multi-region: active-passive
-      single-region: active-passive
+      multi-region: active-hot-standby
+      single-region: active-hot-standby
     perTopology:
-      active-passive:
+      active-hot-standby:
         replication:
           backend: cnpg-streaming-replication
           mode: async
@@ -979,7 +979,7 @@ spec:
       launchDefault: true
       ssoEnabled: true
   sso:
-    realm: sovereign
+    realm: "{{ "{{" }}.OrgSlug{{ "}}" }}"
     protocolMapper: oidc
     silentLogin: true
   configSchema:
@@ -1069,7 +1069,7 @@ spec:
       launchDefault: true
       ssoEnabled: true
   sso:
-    realm: sovereign
+    realm: "{{ "{{" }}.OrgSlug{{ "}}" }}"
     protocolMapper: oidc
     silentLogin: true
   configSchema:
@@ -1246,7 +1246,7 @@ spec:
       launchDefault: true
       ssoEnabled: true
   sso:
-    realm: sovereign
+    realm: "{{ "{{" }}.OrgSlug{{ "}}" }}"
     protocolMapper: oidc
     silentLogin: true
   configSchema:
@@ -1329,7 +1329,7 @@ spec:
       launchDefault: true
       ssoEnabled: true
   sso:
-    realm: sovereign
+    realm: "{{ "{{" }}.OrgSlug{{ "}}" }}"
     protocolMapper: oidc
     silentLogin: true
   configSchema:
