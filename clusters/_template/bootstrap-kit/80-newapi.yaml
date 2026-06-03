@@ -239,6 +239,19 @@ spec:
   values:
     sovereignFQDN: ${SOVEREIGN_FQDN}
     # G87 #2634: multi-region CNPG instances default (1 single-region, 2 multi).
+    # #2840-followup (2026-06-03): bp-newapi chart reads
+    # `.Values.cnpg.cluster.instances` (templates/cnpg-cluster.yaml:67)
+    # NOT `.Values.postgres.cluster.instances`. Pre-fix, the
+    # `postgres.cluster.instances` value was set correctly to 2 but
+    # silently ignored by the chart → CNPG cluster stayed at instances=1
+    # on multi-region Sovereigns despite the substitute firing. Caught
+    # live on hw86 2026-06-03 after the SOVEREIGN_CNPG_INSTANCES
+    # Kustomization-substitute fix verified 4 of 6 CNPG clusters bumped.
+    # Mirror the chart's value path. (Same shape for slot 81-sme if that
+    # chart also reads cnpg.cluster.instances — track separately.)
+    cnpg:
+      cluster:
+        instances: ${SOVEREIGN_CNPG_INSTANCES:=1}
     postgres:
       cluster:
         instances: ${SOVEREIGN_CNPG_INSTANCES:=1}
