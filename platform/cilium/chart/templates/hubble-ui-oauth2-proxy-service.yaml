@@ -1,0 +1,32 @@
+{{- /*
+G117.5 #2744 — Service fronting the Hubble UI oauth2-proxy.
+
+The HTTPRoute (hubble-ui-httproute.yaml) targets THIS Service when
+auth=oidc, so all public Hubble UI traffic transits oauth2-proxy and is
+OIDC-authenticated before reaching the upstream hubble-ui Service.
+*/ -}}
+{{- $ov := .Values.catalystOverlay.hubbleUI -}}
+{{- $hostname := $ov.hostname -}}
+{{- if and (not $hostname) $ov.sovereignFQDN -}}
+{{- $hostname = printf "hubble.%s" $ov.sovereignFQDN -}}
+{{- end -}}
+{{- if and $ov.enabled $hostname (eq $ov.auth "oidc") -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: hubble-ui-oauth2-proxy
+  namespace: {{ $ov.serviceRef.namespace | quote }}
+  labels:
+    app.kubernetes.io/name: bp-cilium
+    app.kubernetes.io/component: hubble-ui-oauth2-proxy
+    catalyst.openova.io/blueprint: bp-cilium
+    catalyst.openova.io/blueprint-version: {{ .Chart.Version | quote }}
+spec:
+  selector:
+    app.kubernetes.io/name: bp-cilium
+    app.kubernetes.io/component: hubble-ui-oauth2-proxy
+  ports:
+    - name: http
+      port: 80
+      targetPort: 4180
+{{- end -}}
