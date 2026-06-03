@@ -1,6 +1,6 @@
 # UAT — `<PRODUCT>` — `<YYYY-MM-DD>`
 
-> **Standard User-Acceptance-Test template.** Copy this file to `docs/ledger/UAT-<date>.md` (or a per-release name), fill the metadata block, and walk every step. One file = one walk = one verdict.
+> **Standard User-Acceptance-Test template.** Copy this file to `docs/ledger/UAT-<date>.md` (or a per-release name), fill the metadata block, and walk every step. One file = one walk = one verdict. A worked, fully-linked example is in [`UAT-SAMPLE-customer-onboarding.md`](UAT-SAMPLE-customer-onboarding.md).
 >
 > **Golden rule — this document is 100% the end-user's experience.** Every step is something a person does with their **thumb or mouse** on the shipped **mobile app or web UI**. If a step needs a terminal, `kubectl`, an API call, a log grep, a DB query, or reading source code — **it does not belong in this file.** Unit, integration, contract, and CI checks are the dev team's job and live elsewhere (see *Out of scope*). A non-technical beta tester must be able to follow every row verbatim and reach the same verdict.
 
@@ -33,7 +33,7 @@
 | ☐ | **NOT WALKED** | Untouched. The starting state of every cell. |
 
 **Rules for the agent (or human) executing this walk:**
-1. **No ✅ without evidence.** A pass cell with an empty Evidence cell is invalid — treat it as ☐. Drop the screenshot path/link in the Evidence column.
+1. **No ✅ without evidence.** A pass cell with an empty Evidence cell is invalid — treat it as ☐. Put a **clickable link** in the Evidence column, never a bare path — format `[📷 <step-id>](evidence/<step-id>.png)`, with the screenshot committed under `evidence/` next to this file. Every PNG you reference must resolve.
 2. **Walk top-to-bottom, in order.** Journeys assume the prior step happened. If a step blocks, mark downstream steps ⛔, don't skip-and-pass.
 3. **Never edit product code to make your own walk pass.** The executor is read-only on the product. Fix-authoring is a separate role on a separate issue.
 4. **Report what you saw, not what should happen.** If the screen differs from *Expected result* even slightly, it's ❌ or ⚠️ — describe the actual screen in notes.
@@ -55,7 +55,7 @@
 
 | # | Screen you're on | What you do | What you must see | Result | Evidence |
 |---|---|---|---|---|---|
-| 1 | `<URL or screen name the user lands on>` | `<the single tap/type/swipe — name the real button/field label>` | `<the exact on-screen outcome — a screen, a toast, a value>` | ☐ | |
+| 1 | `<URL or screen name the user lands on>` | `<the single tap/type/swipe — name the real button/field label>` | `<the exact on-screen outcome — a screen, a toast, a value>` | ☐ | `[📷 tc01-1](evidence/tc01-1.png)` |
 | 2 | `<...>` | `<...>` | `<...>` | ☐ | |
 | 3 | `<...>` | `<...>` | `<...>` | ☐ | |
 
