@@ -21,7 +21,7 @@ K-Cont-3 wires the lease witness (Cloudflare KV per SRE.md §2.4, with
 ## Install
 
 ```bash
-# Default-OFF gate keeps the controller stopped until the operator
+# Default-OFF gate keeps the controller stopped until the sovereign-admin
 # installs bp-cnpg-pair + bp-powerdns and configures the witness.
 helm install bp-continuum ./products/continuum/chart \
   --namespace openova-system \
@@ -56,7 +56,7 @@ The K-Cont-2 reconciler will:
 2. Acquire / renew the lease via the witness (kind from
    `spec.leaseClient.kind`).
 3. Watch CNPG `cnpg.io/cluster.replicationLag` per replica.
-4. On switchover (operator-initiated or auto-failover when health
+4. On switchover (sovereign-admin-initiated or auto-failover when health
    check + witness quorum agree primary is unreachable), execute the
    sequence in `docs/ARCHITECTURE.md` §9.3.
 5. Patch status (phase, primaryRegion, leaseHolder, leaseExpiresAt,
@@ -66,7 +66,7 @@ The K-Cont-2 reconciler will:
 
 1. `docs/ARCHITECTURE.md` §9 (full Continuum DR spec)
 2. `docs/SRE.md` §2 (DR runbook + lease witness pattern)
-3. `docs/MULTI-REGION-DNS.md` (lua-record DNS pattern)
+3. `docs/ARCHITECTURE.md` §8 (PowerDNS lua-record geo + health-checked failover DNS pattern)
 4. `products/catalyst/chart/crds/continuum.yaml` (CRD shape)
 5. `core/controllers/continuum/DESIGN.md` (this slice's design notes)
 6. `core/controllers/internal/placement/` (Plan + RegionPlan — reuse

@@ -17,14 +17,14 @@ step completes.
 Per the parent-epic scope-correction comment, the cutover trigger is
 **post-handover**, not Phase-1.5:
 
-- The operator clicks **"Achieve True Sovereignty"** in the admin console, OR
-- `catalyst-api` auto-fires after the first successful operator login on
+- The `sovereign-admin` clicks **"Achieve True Sovereignty"** in the operator console, OR
+- `catalyst-api` auto-fires after the first successful sovereign-admin login on
   the new Sovereign (configurable via `.Values.trigger.auto`, default
   `false`).
 
 A handed-over Sovereign therefore starts soft-tethered (still pulling
 through `harbor.openova.io`) and becomes hard-independent only after the
-operator chooses or after the auto-fire grace period.
+`sovereign-admin` chooses or after the auto-fire grace period.
 
 ## Step inventory
 
