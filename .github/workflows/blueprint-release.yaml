@@ -202,9 +202,39 @@ jobs:
           echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io \
             --username "${{ github.actor }}" --password-stdin
 
+      # ──────────────────────────────────────────────────────────────
+      # Helm dependency build — bundle the upstream subchart (#2935)
+      # ──────────────────────────────────────────────────────────────
+      # UAT Wave-2 ATTACK#4 found 24/34 charts fail `helm template`
+      # because their declared upstream subchart was never bundled into
+      # chart/charts/. `helm dependency build` resolves every entry in
+      # Chart.yaml `dependencies:` and writes the .tgz into chart/charts/
+      # BEFORE the package/render guards below run. PR #2955 (first half
+      # of #2935) annotated the default-off charts so the hollow-chart
+      # smoke guard stops false-passing them; this step is the other half
+      # — without the build, GUARD 1 / GUARD 2 / smoke-render all fail.
+      #
+      # Guarded on the presence of a `dependencies:` block: a chart that
+      # legitimately ships only Catalyst-authored CRs (no-upstream:true)
+      # has nothing to resolve, and `helm dependency build` is a clean
+      # no-op there (exit 0). We skip it explicitly so the build log
+      # reads cleanly and a future `helm dependency build` behaviour
+      # change on no-deps charts can't surprise the pipeline. For charts
+      # that DO declare dependencies, real resolution failures surface
+      # loudly (no `|| true`) — a chart that can't pull its subchart must
+      # NOT proceed to publish as a hollow artifact.
       - name: Helm dependency build
         if: steps.chart.outputs.skip != 'true'
-        run: helm dependency build "${{ matrix.path }}/chart"
+        run: |
+          set -euo pipefail
+          chart_dir="${{ matrix.path }}/chart"
+          dep_count=$(yq '.dependencies | length // 0' "$chart_dir/Chart.yaml")
+          if [ "$dep_count" -eq 0 ]; then
+            echo "Chart $chart_dir declares no dependencies — skipping helm dependency build."
+            exit 0
+          fi
+          echo "Resolving $dep_count declared dependency/dependencies for $chart_dir"
+          helm dependency build "$chart_dir"
 
       # ──────────────────────────────────────────────────────────────
       # GUARD 1 — hollow-chart check on the working tree
