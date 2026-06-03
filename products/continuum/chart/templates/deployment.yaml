@@ -35,6 +35,37 @@ spec:
         runAsGroup: 65534
         seccompProfile:
           type: RuntimeDefault
+      {{- if .Values.continuum.prerequisiteCheck.enabled }}
+      # #2922 PR-B prerequisite-guard initContainer — see values.yaml
+      # comment block on continuum.prerequisiteCheck for full rationale.
+      initContainers:
+        - name: prerequisite-check
+          image: {{ .Values.continuum.prerequisiteCheck.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.30.0" | quote }}
+          imagePullPolicy: {{ .Values.continuum.image.pullPolicy | default "IfNotPresent" }}
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              echo "[prerequisite-check] probing for bp-cnpg-pair audit ConfigMap cluster-wide..."
+              pair_count="$(kubectl get cm -A -l catalyst.openova.io/audit-config=true --no-headers 2>/dev/null | wc -l)"
+              if [ "$pair_count" -eq 0 ]; then
+                echo "[prerequisite-check] FAIL: no bp-cnpg-pair installation detected."
+                echo "[prerequisite-check] bp-continuum reconcile loop requires bp-cnpg-pair (Pillar-3 #2840 AC#1)."
+                echo "[prerequisite-check] Either install bp-cnpg-pair OR set continuum.enabled=false."
+                echo "[prerequisite-check] Sleeping 5 min before retry (operator can scale Deployment to 0 to silence)."
+                sleep 300
+                exit 1
+              fi
+              echo "[prerequisite-check] PASS: found $pair_count bp-cnpg-pair installation(s); main container will start."
+          resources:
+            {{- toYaml (.Values.continuum.prerequisiteCheck.resources | default (dict "requests" (dict "cpu" "10m" "memory" "32Mi") "limits" (dict "cpu" "100m" "memory" "64Mi"))) | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      {{- end }}
       containers:
         - name: controller
           image: {{ include "continuum.image" (dict "root" .) | quote }}

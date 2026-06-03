@@ -45,6 +45,28 @@ continuum:
   leaderElection:
     enabled: true
 
+  # G117.pillar-3-followup #2922 PR-B (2026-06-03): init container
+  # probe that asserts bp-cnpg-pair is installed BEFORE the main
+  # controller starts. Without bp-cnpg-pair the reconcile loop has no
+  # CNPG cluster pair to switch over → controller crash-loops on
+  # missing CRs. The probe sleeps + exits non-zero with a clear log
+  # line when prerequisites are missing, so `kubectl logs` surfaces
+  # the gap instead of a confusing controller stack trace. Operators
+  # CAN disable this guard via prerequisiteCheck.enabled=false (e.g.
+  # for chart unit tests or air-gapped offline reconcile evaluation).
+  prerequisiteCheck:
+    enabled: true
+    # Default image carries kubectl + sh — overridable for air-gapped
+    # mirrors with stricter image-source policies.
+    image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.30.0
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        cpu: 100m
+        memory: 64Mi
+
   resources:
     requests:
       cpu: 100m

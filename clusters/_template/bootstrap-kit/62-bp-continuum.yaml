@@ -115,12 +115,19 @@ spec:
       # failed the hollow-chart guard at the "Verify upstream subcharts
       # present in working tree" step (Chart.yaml had NO dependencies
       # and lacked the catalyst.openova.io/no-upstream annotation).
+      # 0.1.3 (#2922 PR-B, 2026-06-03): adds prerequisite-check
+      # initContainer that probes for bp-cnpg-pair (audit ConfigMap
+      # label catalyst.openova.io/audit-config=true). If absent it
+      # sleeps + exits non-zero with a clear log line so `kubectl
+      # logs` surfaces the missing Pillar-3 prerequisite instead of
+      # a controller crash. Pairs with PR #2923 cloud-init auto-emit
+      # of CONTINUUM_ENABLED on multi-region.
       # 0.1.2 adds the no-upstream opt-out + a fresh version bump to
       # force a re-publish. Pin moves in lockstep per Inviolable
       # Principle #13 (chart-pin bumps must match a GHCR tag that
       # exists — verified post-merge via crane manifest before any
       # fresh-prov walk).
-      version: 0.1.2
+      version: 0.1.3
       sourceRef:
         kind: HelmRepository
         name: bp-continuum
