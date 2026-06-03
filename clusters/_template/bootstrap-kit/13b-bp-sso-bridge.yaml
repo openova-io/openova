@@ -67,6 +67,13 @@ spec:
   chart:
     spec:
       chart: bp-sso-bridge
+      # 0.2.7 (#2861 RCA, 2026-06-03): fix Cilium `reserved:world` vs
+      # `reserved:kube-apiserver` identity mismatch on the kube-API
+      # egress rule. `ipBlock 0.0.0.0/0` excluded the apiserver
+      # identity → every `kubectl get cm sovereign-fqdn` tick was
+      # dropped at Cilium policy verdict. Replaced with explicit
+      # default/component=apiserver podSelector. Unblocks per-Org
+      # realm provisioning on hw86. Refs #2861 #2744.
       # 0.2.6 (#2744 H8 walk, 2026-06-03): fix Cilium egress NetworkPolicy
       # port mismatch — chart's egress rule allow-listed only the
       # keycloak Service port (80), but Cilium enforces on the Pod's
@@ -92,7 +99,7 @@ spec:
       # 0.1.1 (G91-fu, Refs #2659, edc55c08 PR #2676): adds realm-role
       # grant + skipClientUpsert opt-out for charts whose Keycloak Client
       # is realm-imported at bp-keycloak install time (catalyst-ui etc.).
-      version: 0.2.6
+      version: 0.2.7
       sourceRef:
         kind: HelmRepository
         name: bp-sso-bridge
