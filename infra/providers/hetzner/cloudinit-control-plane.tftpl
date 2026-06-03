@@ -541,6 +541,17 @@ write_files:
             # sovereign_fqdn (rendered in main.tf via coalesce()).
             PARENT_DOMAINS_YAML: '${parent_domains_yaml}'
             # (commentary block-31-line-1059 → docs/cloudinit-hetzner-notes.md, 13 lines stripped)
+            # G87 #2840 (2026-06-03): per-CNPG-cluster instance count.
+            # Multi-region Sovereigns set this to 2 so every CNPG cluster
+            # spreads across regions via the topology-region anti-affinity
+            # the bootstrap-kit slots reference as `$${SOVEREIGN_CNPG_INSTANCES:=1}`.
+            # Single-region keeps 1. Mirrors the Huawei cloud-init template's
+            # equivalent at infra/providers/huawei/cloudinit-control-plane.tftpl:626.
+            # Caught live on hw86 (Huawei) 2026-06-03 — the Kustomization
+            # substitute map didn't include this key, so all CNPG clusters
+            # defaulted to instances=1 despite multi-region intent. Hetzner
+            # template missed it too; this fix lockstep-adds.
+            SOVEREIGN_CNPG_INSTANCES: "${sovereign_cnpg_instances}"
             CLUSTER_MESH_NAME: "${cluster_mesh_name}"
             CLUSTER_MESH_ID: "${cluster_mesh_id}"
             # 2026-05-15 DoD A3 wiring: bp-cilium chart defaults
