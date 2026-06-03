@@ -14,7 +14,7 @@ name: bp-openbao
 # sectionName by default — multi-zone Sovereigns rename HTTPS listeners
 # to https-<sanitised-zone>, breaking NoMatchingListener with the prior
 # pinned sectionName: https. Matches the catalyst-system fix in PR #1888.
-version: 1.2.24
+version: 1.2.25
 # 1.2.20 (G91.openbao #2655, 2026-05-31): opt in to the bp-sso-bridge
 # (G91.1 #2652) SSO framework. Top-level `sso:` block (defaults
 # enabled=true). Adds: templates/sso-oauth-source-externalsecret.yaml
