@@ -476,13 +476,21 @@ func TestRunPhase1Watch_TimeoutFlipsStatusAndRecordsPartial(t *testing.T) {
 	dep.mu.Lock()
 	defer dep.mu.Unlock()
 
-	// Status stays "ready" because no failure occurred — the partial
-	// state has keycloak=installing, no failures. The Sovereign Admin
-	// shell renders "1 of N components installed (timeout reached)".
-	// This contract: timeout without failure = "ready" with partial
-	// componentStates, NOT "failed".
-	if dep.Status != "ready" {
-		t.Errorf("Status = %q, want %q (timeout with no failed components is not a Phase-1 failure)", dep.Status, "ready")
+	// CONTRACT INVERTED by issue #3018 (hw91, 2026-06-03): the old
+	// contract here — timeout without hard failure = "ready" with
+	// partial componentStates — let a real prov claim ready at 39/54
+	// HelmReleases with the console TCP-closed, because "no hard
+	// failures" was conflated with "success". "Ready" gates the D0
+	// handover surface and the UAT walk; a timeout is NOT
+	// convergence. New contract: timeout = "failed" with an
+	// operator-actionable diagnostic; the watch-retry path
+	// re-evaluates once the cluster (whose Flux keeps retrying
+	// per #2999) genuinely converges.
+	if dep.Status != "failed" {
+		t.Errorf("Status = %q, want %q (timeout must never claim ready — issue #3018)", dep.Status, "failed")
+	}
+	if !strings.Contains(dep.Error, "timed out") {
+		t.Errorf("Error should carry the timeout diagnostic; got %q", dep.Error)
 	}
 	if dep.Result.ComponentStates["keycloak"] != helmwatch.StateInstalling {
 		t.Errorf("ComponentStates[keycloak] = %q, want %q",
