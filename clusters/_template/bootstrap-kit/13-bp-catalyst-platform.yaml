@@ -945,7 +945,7 @@ spec:
       # so catalyst-api's CountSovereignRegions can read
       # Sovereign.spec.regions (was returning 0 because the CRD wasn't
       # installed — H7 walk of #2742 evidence). Refs #2856 #2742 #2737.
-      version: 1.4.466
+      version: 1.4.467
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
