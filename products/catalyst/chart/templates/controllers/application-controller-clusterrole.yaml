@@ -70,7 +70,21 @@ rules:
   # with `helmreleases.helm.toolkit.fluxcd.io is forbidden` and the
   # phase stays at Provisioning forever (the live live failure on
   # omantel iter-11 — TC-066 / TC-100 / TC-104 / TC-113 stayed FAIL).
+  #
+  # G117.6 #2745 (2026-06-03): G117.6's topology fan-out flips the
+  # controller from Gitea-only writer to direct K8s writer of HRs.
+  # render/fanout.go builds per-cluster HelmRelease objects via
+  # FanoutHRs() and PR #2800's perClusterFanout wiring calls
+  # upsertHostResource(FluxHelmReleaseGVR, ...) — that's a K8s API
+  # write. With read-only verbs the upsert silently 403s and zero HRs
+  # land on the host k3s → Application.phase stays Pending forever
+  # (caught live on hw86 walk2742-app 2026-06-03 — controller reconciled
+  # every 30s for 5+ hours with no error logs but zero HRs created;
+  # `kubectl auth can-i create helmreleases.helm.toolkit.fluxcd.io
+  # --as=system:serviceaccount:catalyst-system:catalyst-application-controller`
+  # → "no"). Add create/update/patch/delete so the fan-out actually
+  # lands the rendered HRs.
   - apiGroups: ["helm.toolkit.fluxcd.io"]
     resources: ["helmreleases"]
-    verbs: ["get", "list", "watch"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 {{- end }}
