@@ -73,6 +73,34 @@ func (s *Sovereign) fetch(ctx context.Context, name string) (*Blueprint, error) 
 		}
 	}
 	data, err := readBlueprintYAML(ctx, s.GC, s.Org, name, "blueprint.yaml")
+	if err != nil && IsNotFound(err) {
+		// #2879 (2026-06-03) — monorepo-layout fallback. The
+		// bp-self-sovereign-cutover gitea-mirror Job actually mirrors
+		// the whole openova-io/openova monorepo into ONE repo
+		// (`openova/openova` in the Sovereign's Gitea by default), NOT
+		// per-Blueprint repos under `catalog-sovereign`. When the per-
+		// Blueprint repo isn't found, look for the Blueprint at the
+		// monorepo path: openova/openova/contents/platform/<name>/
+		// blueprint.yaml OR openova/openova/contents/products/<name>/
+		// blueprint.yaml (mirroring the actual openova monorepo
+		// layout). This lets fresh Sovereigns serve the public catalog
+		// without needing the catalog-sovereign Org's per-Blueprint
+		// repo fan-out (which the Job doesn't create).
+		bare := trimBPPrefix(name)
+		for _, prefix := range []string{"platform", "products"} {
+			path := fmt.Sprintf("%s/%s/blueprint.yaml", prefix, bare)
+			d2, e2 := readBlueprintYAML(ctx, s.GC, "openova", "openova", path)
+			if e2 == nil {
+				data = d2
+				err = nil
+				break
+			}
+			if !IsNotFound(e2) {
+				// Real error — log via err return; don't mask.
+				return nil, e2
+			}
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
