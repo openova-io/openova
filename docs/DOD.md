@@ -227,7 +227,7 @@ verification agent — never a verification agent that ships fixes) walks a
 
 One PR landing **does not** ship a pillar. One walk-with-screenshot does.
 Every PR against a surface flips that surface back to 🔴 UNVERIFIED in
-[`TRUST.md`](TRUST.md) until re-walked.
+[`TRUST.md`](ledger/TRUST.md) until re-walked.
 
 ---
 

@@ -8,7 +8,7 @@
 > - [`docs/DOD.md`](DOD.md) — the end-user Definition of Done (the 5 pillars + Phase 0/1/2 deterministic test).
 > - [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) — the system shape this work has to compose into.
 > - [`docs/GLOSSARY.md`](GLOSSARY.md) — terminology source of truth.
-> - [`docs/ledger/TRUST.md`](TRUST.md) — verification ledger for claimed-done surfaces.
+> - [`docs/ledger/TRUST.md`](ledger/TRUST.md) — verification ledger for claimed-done surfaces.
 
 The hard rule: **never do the same violation twice.** If a future task tempts you to violate any principle here, the answer is *stop and re-read this file*, not "I'll just do it this once."
 
@@ -50,7 +50,7 @@ Quality compromises that have happened and must never happen again:
 
 ### 3. Follow the documented architecture, exactly
 
-The architectural docs (`ARCHITECTURE.md`, `SOVEREIGN-PROVISIONING.md`, `RUNBOOKS.md`, `ARCHITECTURE.md`, `SECURITY.md`, `ARCHITECTURE.md`, `GLOSSARY.md`) are the design contract, not aspirational suggestions.
+The architectural docs (`ARCHITECTURE.md`, `RUNBOOKS.md`, `SECURITY.md`, `GLOSSARY.md`) are the design contract, not aspirational suggestions.
 
 Specifically for provisioning:
 

@@ -97,7 +97,7 @@ kubectl -n openova-system exec deploy/powerdns -- \
   pdnsutil list-all-zones 2>/dev/null | grep -E '^(omani\.(works|homes|rest|trade)|omantel\.biz)$'
 ```
 
-If any line is missing, see [`PLATFORM-POWERDNS.md`](PLATFORM-POWERDNS.md) §"Pool zone bootstrap".
+If any line is missing, see [`ARCHITECTURE.md`](ARCHITECTURE.md) §8.9 (PowerDNS deployment shape — per-Sovereign zone model).
 
 **G. bp-* charts published at target version**
 
@@ -1265,7 +1265,7 @@ The implementation maps cleanly onto two artifacts in this monorepo:
 
 The wizard's progress page polls Flux Kustomizations on the new cluster and renders steady-state to the user when every Kustomization is `Ready=True`.
 
-**DNS records written in Phase 0** — into the per-Sovereign PowerDNS zone (`<sovereign-fqdn>.`), see [`PLATFORM-POWERDNS.md`](PLATFORM-POWERDNS.md) §"Per-Sovereign zone model":
+**DNS records written in Phase 0** — into the per-Sovereign PowerDNS zone (`<sovereign-fqdn>.`), see [`ARCHITECTURE.md`](ARCHITECTURE.md) §8.9.1 (per-Sovereign zone model):
 
 ```
 @                A → load balancer IP
@@ -1822,13 +1822,12 @@ Each phase produces one or more commits to `openova/`. Each commit is real worki
 - [`DOD.md`](DOD.md) — Sovereign / tenant-Org FQDN patterns + forbidden test strings
 - [`GLOSSARY.md`](GLOSSARY.md) — terminology source of truth (incl. banned terms)
 - [`STATUS.md`](STATUS.md) — what's built today vs design
-- [`PRINCIPLES.md`](PRINCIPLES.md) — the 15 inviolable engineering principles
-- [`PRINCIPLES.md`](PRINCIPLES.md) — theater receipts to watch for in PR review
+- [`PRINCIPLES.md`](PRINCIPLES.md) — the 15 inviolable engineering principles + theater receipts to watch for in PR review
 - [`SECURITY.md`](SECURITY.md) — identity, secrets, rotation
-- [`PLATFORM-POWERDNS.md`](PLATFORM-POWERDNS.md) — per-Sovereign authoritative zone model
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) §8.9 — per-Sovereign authoritative zone model (folded from former `PLATFORM-POWERDNS.md` on 2026-05-20)
 - [`SECURITY.md` §11](SECURITY.md#11-rotation-cadence-and-operator-procedures) — GHCR pull token, Dynadot credentials, Hetzner tokens (rotation runbook merged from former `SECRET-ROTATION.md` on 2026-05-20)
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) §8.8 — PowerDNS lua-records for GSLB (folded from former `MULTI-REGION-DNS.md` on 2026-05-20)
 - [`BUSINESS-STRATEGY.md` §10.8](BUSINESS-STRATEGY.md#108-franchise-model--end-to-end-mechanics) — franchise model + voucher mechanism (folded from `FRANCHISE-MODEL.md` 2026-05-20)
-- [`TRUST.md`](TRUST.md) — verification ledger
+- [`TRUST.md`](ledger/TRUST.md) — verification ledger
 - `tests/dod/dod_test.go` — Go test that drives the §5 walk non-interactively
 - `scripts/operator-recover-sovereign.sh` — §2.2 idempotent recovery
