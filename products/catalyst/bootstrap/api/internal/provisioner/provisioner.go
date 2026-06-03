@@ -1663,9 +1663,13 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 	// Sovereign is single-region under the hood.
 	//
 	// Detection runs only when the operator declared >=2 regions AND
-	// the per-provider readback populated a per-region map (Huawei does;
-	// Hetzner exposes a differently-keyed map and is on a separate
-	// follow-up). When the post-condition fails we return a typed
+	// the per-provider readback populated a per-region map. As of
+	// 2026-06-03 (#2840 follow-up) BOTH Huawei and Hetzner emit
+	// `control_plane_ips_per_region` keyed by the operator-supplied
+	// cloudRegion value (Hetzner used to expose a secondaries-only
+	// `_by_region` map that detection skipped silently — see
+	// infra/providers/hetzner/outputs.tf for the added parity output).
+	// When the post-condition fails we return a typed
 	// PartialRegionMaterialisationError carrying the partial Result —
 	// the handler stamps Deployment.status = "partial-failure" but
 	// does NOT auto-`tofu destroy`. The operator decides.
@@ -1889,17 +1893,21 @@ type tofuOutputs struct {
 	ControlPlaneIP string `json:"control_plane_ip"`
 	LoadBalancerIP string `json:"load_balancer_ip"`
 	// ControlPlaneIPsPerRegion — map<region-code, primary-CP-EIP>.
-	// Populated by the Huawei module's `control_plane_ips_per_region`
-	// output (one entry per region in var.regions). Empty for legacy
-	// single-region Hetzner deployments and for Hetzner multi-region
-	// deployments (which expose a different shape via
-	// control_plane_ips_by_region keyed by "<region>-<index>"). G117
-	// #2840 reads this to detect partial-region materialisation: a
-	// 2-region declaration that produces only 1 map entry means the
-	// HCS scheduler refused to allocate the secondary region (typically
-	// Common.0021 / quota cascade) and the prov has silently degraded
-	// to single-region — which violates Pillar 2 (multi-region BCP) +
-	// Pillar 3 (zero-tx-loss).
+	// Populated by BOTH the Huawei module's `control_plane_ips_per_region`
+	// output AND (as of 2026-06-03 / #2840 follow-up) the Hetzner module's
+	// same-named output. Keyed by the operator-supplied cloudRegion
+	// value verbatim on both providers, one entry per region in
+	// var.regions including the primary. Empty for legacy single-region
+	// payloads that never declared a multi-region intent. G117 #2840
+	// reads this to detect partial-region materialisation: a 2-region
+	// declaration that produces only 1 map entry means the cloud
+	// scheduler refused to allocate the secondary region (HCS:
+	// Common.0021 / quota cascade; Hetzner: project quota / capacity
+	// cascade) and the prov has silently degraded to single-region —
+	// which violates Pillar 2 (multi-region BCP) + Pillar 3
+	// (zero-tx-loss). Hetzner's legacy `control_plane_ips_by_region`
+	// (secondaries-only, primary excluded) is still emitted for any
+	// consumer that already reads it.
 	ControlPlaneIPsPerRegion map[string]string `json:"control_plane_ips_per_region"`
 }
 
