@@ -790,6 +790,70 @@ spec:
     url: oci://ghcr.io/openova-io
     chart: bp-opensearch
     version: 1.0.0
+  # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): lockstep with
+  # platform/opensearch/blueprint.yaml. 3 topology variants (active-active
+  # via CCR, active-passive via CCR, singleton). Two endpoints: api (search)
+  # + dashboards (UI launch default).
+  topology:
+    supported:
+      - active-active
+      - active-passive
+      - singleton
+    defaults:
+      multi-region: active-active
+      single-region: singleton
+    perTopology:
+      active-active:
+        replication:
+          backend: ccr
+          mode: async
+        switchover:
+          mechanism: ccr-promote
+        placement:
+          tier: rtz
+          clusters: [rtz-A, rtz-B]
+          roles:
+            rtz-A: active
+            rtz-B: active
+      active-passive:
+        replication:
+          backend: ccr
+          mode: async
+        switchover:
+          mechanism: ccr-promote
+        placement:
+          tier: rtz
+          clusters: [rtz-A, rtz-B]
+          roles:
+            rtz-A: active
+            rtz-B: passive
+      singleton:
+        placement:
+          tier: rtz
+          clusters: [rtz-A]
+          roles:
+            rtz-A: singleton
+  endpoints:
+    - name: api
+      hostnameTemplate: "opensearch.{{ "{{" }}.OrgSlug{{ "}}" }}.{{ "{{" }}.SovereignFQDN{{ "}}" }}"
+      port: 443
+      protocol: https
+      tls: true
+      visibility: public
+      launchDefault: false
+      ssoEnabled: true
+    - name: dashboards
+      hostnameTemplate: "dashboards.{{ "{{" }}.OrgSlug{{ "}}" }}.{{ "{{" }}.SovereignFQDN{{ "}}" }}"
+      port: 443
+      protocol: https
+      tls: true
+      visibility: public
+      launchDefault: true
+      ssoEnabled: true
+  sso:
+    realm: sovereign
+    protocolMapper: oidc
+    silentLogin: true
   configSchema:
     type: object
     properties:
