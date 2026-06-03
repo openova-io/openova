@@ -97,20 +97,26 @@ output "secondary_region_keys" {
 # capacity cascade would have passed the post-apply gate with the
 # same silent single-region degradation that hit hw86 on HCS.
 #
-# Keyed by the operator-supplied `cloudRegion` value verbatim so the
-# catalyst-api's region-code comparison works the same on both
-# providers. The primary entry's value is identical to `control_plane_ip`
-# above; secondary entries are pulled from the same hcloud_server
-# resource the `_by_region` output already references.
+# Keyed by the SAME stable `<cloudRegion>-<index>` key the existing
+# `control_plane_ips_by_region` output uses for secondaries, with the
+# primary stamped under literal key `"primary"`. This matches
+# `local.secondary_regions` keying convention and TOLERATES the legal
+# same-region-duplicates case asserted by tests/multi_region.tftest.hcl
+# (`same_region_duplicates_produce_distinct_keys`). The catalyst-api's
+# partial-region detector will be taught to reconcile against the
+# declared regions[].cloudRegion via the index suffix; until that
+# enhancement lands, `len(out.ControlPlaneIPsPerRegion) > 0` is enough
+# for the catalyst-api gate to fire (the existing logic compares
+# declared count vs materialised map size, not key-by-key matching).
 output "control_plane_ips_per_region" {
-  description = "Per-region primary control-plane public IPv4, keyed by the operator's cloudRegion value. Includes BOTH primary AND secondary regions. Mirrors the Huawei provider's same-named output so the catalyst-api partial-region detection works uniformly. Refs #2840."
+  description = "Per-region primary control-plane public IPv4 keyed by '<cloudRegion>-<index>' for secondaries and literal 'primary' for the primary CP. Distinct keys even when two regions share a cloudRegion (legal: fsn1-mgmt + fsn1-dataplane). Used by catalyst-api partial-region detection. Refs #2840."
   value = merge(
     {
-      (var.region) = hcloud_server.control_plane[0].ipv4_address
+      "primary" = hcloud_server.control_plane[0].ipv4_address
     },
     {
       for k, v in local.secondary_regions :
-      v.cloudRegion => hcloud_server.secondary_control_plane[k].ipv4_address
+      k => hcloud_server.secondary_control_plane[k].ipv4_address
     }
   )
 }

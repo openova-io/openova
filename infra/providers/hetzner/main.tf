@@ -1396,6 +1396,13 @@ locals {
       # <kubeconfigsDir>/<id>-<k>.yaml and phase1Watch can spawn a
       # per-region helmwatch.Bridge.
       kubeconfig_postback_region = k
+      # G117 #2896-followup (2026-06-03): match primary CP's
+      # sovereign_cnpg_instances threading so the secondary regions'
+      # bootstrap-kit also stamps the right CNPG instance count. Same
+      # rule as primary — `2` when var.regions has >1 entry (because we
+      # ARE multi-region by construction at this point), `1` for
+      # singleton (never reached on secondary path, defensive default).
+      sovereign_cnpg_instances = length(var.regions) > 1 ? "2" : "1"
     }), "/(?m)^[ ]*#( |$).*\n/", "")
   }
 
