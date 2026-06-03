@@ -1,2 +1,0 @@
-[  651240ms] [ERROR] Failed to load resource: the server responded with a status of 405 (Method Not Allowed) @ https://console.hw01.omani.works/sovereign/api/v1/auth/pin/issue:0
-[  758373ms] [ERROR] Failed to load resource: the server responded with a status of 405 (Method Not Allowed) @ https://console.hw01.omani.works/sovereign/api/v1/auth/pin/issue:0

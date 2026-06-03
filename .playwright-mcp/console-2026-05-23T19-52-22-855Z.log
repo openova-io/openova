@@ -1,3 +1,0 @@
-[     166ms] [WARNING] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing. @ https://auth.hw01.omani.works/realms/master/protocol/openid-connect/3p-cookies/step1.html:0
-[     177ms] [WARNING] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing. @ https://auth.hw01.omani.works/realms/master/protocol/openid-connect/3p-cookies/step2.html:0
-[     195ms] [WARNING] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing. @ https://auth.hw01.omani.works/realms/master/protocol/openid-connect/login-status-iframe.html:0

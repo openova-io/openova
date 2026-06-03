@@ -35,3 +35,20 @@ products/*/chart/Chart.lock
 
 # Playwright MCP session artifacts (screenshots in repo-root + per-session logs/snapshots)
 .playwright-mcp/
+
+# Playwright test runner output — never committed.
+test-results/
+
+# Debug screenshots dumped at the repo ROOT (e.g. hw86-*.png, walk-*.png).
+# Root-anchored (/*.png) so it does NOT touch brand/, docs/, or chart icon PNGs.
+/*.png
+
+# Editor / OS / temp junk.
+*.bak
+*.tmp
+*~
+*.swp
+.DS_Store
+
+# Chepherd scheduler lock — runtime-local, never committed.
+.claude/scheduled_tasks.lock

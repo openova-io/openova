@@ -1,7 +1,0 @@
-[     681ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://console.openova.io/sovereign/api/v1/tenant/discover?host=console.openova.io:0
-[   71872ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://console.openova.io/sovereign/api/v1/tenant/discover?host=console.openova.io:0
-[  592148ms] [ERROR] Failed to load resource: the server responded with a status of 502 () @ https://console.openova.io/sovereign/api/v1/deployments:0
-[ 7391583ms] [ERROR] Failed to load resource: the server responded with a status of 502 () @ https://console.openova.io/sovereign/api/v1/deployments:0
-[ 7391868ms] [ERROR] Failed to load resource: the server responded with a status of 502 () @ https://console.openova.io/sovereign/api/v1/deployments:0
-[ 9727200ms] [ERROR] Failed to load resource: the server responded with a status of 502 () @ https://console.openova.io/sovereign/api/v1/deployments:0
-[ 9727465ms] [ERROR] Failed to load resource: the server responded with a status of 502 () @ https://console.openova.io/sovereign/api/v1/deployments:0

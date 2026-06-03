@@ -1,8 +1,0 @@
-[  267513ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ https://gitea.hw01.omani.works/api/v1/auth/test-session?tier=admin:0
-[  307200ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ https://console.hw01.omani.works/api/v1/sovereign/regions:0
-[  307243ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ https://console.hw01.omani.works/api/v1/cloud/regions:0
-[  307245ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ https://console.hw01.omani.works/api/v1/sovereign/clusters:0
-[  307248ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ https://console.hw01.omani.works/api/v1/clusters:0
-[ 1480897ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ https://console.hw01.omani.works/api/v1/sovereign/applications:0
-[ 1481175ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ https://console.hw01.omani.works/api/v1/applications:0
-[ 1481178ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ https://console.hw01.omani.works/api/v1/sovereign/dashboard:0
