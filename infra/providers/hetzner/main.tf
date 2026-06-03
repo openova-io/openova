@@ -709,6 +709,15 @@ locals {
     bcp_topology       = var.bcp_topology
     enable_hot_standby = var.enable_hot_standby
 
+    # #2840 (2026-06-03): per-CNPG-cluster instance count. Mirrors
+    # infra/providers/huawei/main.tf:695. Multi-region Sovereigns get
+    # 2 instances per CNPG cluster so the operator can spread across
+    # regions via podAntiAffinity. Single-region keeps 1. The
+    # bootstrap-kit substitute map references this via
+    # `SOVEREIGN_CNPG_INSTANCES: "$${sovereign_cnpg_instances}"` —
+    # see cloudinit-control-plane.tftpl PR-companion to this var.
+    sovereign_cnpg_instances = length(var.regions) > 1 ? "2" : "1"
+
     # Multi-domain Sovereign (issue #827). When the wizard supplies an
     # explicit parent-domain list, use it verbatim. Otherwise default to a
     # single-zone array derived from sovereign_fqdn so legacy single-zone
