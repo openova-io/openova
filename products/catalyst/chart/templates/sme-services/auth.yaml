@@ -25,7 +25,7 @@ spec:
           # contabo-mkt Flux Kustomization (Sovereigns skip via .helmignore),
           # so the image must be a concrete string. PR #580 templated it and
           # pinned the new ReplicaSet at InvalidImageName since 2026-05-02.
-          image: ghcr.io/openova-io/openova/services-auth:973094b
+          image: ghcr.io/openova-io/openova/services-auth:3790e95
           imagePullPolicy: Always
           ports:
             - containerPort: 8081
