@@ -233,7 +233,7 @@ spec:
             # field so dashboards can correlate api-version <-> chart-
             # version on a single probe.
             - name: CATALYST_BUILD_SHA
-              value: "3bd3391"
+              value: "4afeefe"
             - name: CATALYST_CHART_VERSION
               value: "1.4.95"
             # #2940 (2026-06-03): was hardcoded "https://console.openova.io".
@@ -362,15 +362,24 @@ spec:
             # docs/INVIOLABLE-PRINCIPLES.md #4 this is runtime
             # configuration; air-gapped franchises override it
             # without code change.
-            # #2940 (2026-06-03): URL-path "/sovereign" suffix kept as a
-            # literal; the host portion is sourced from
-            # catalyst-runtime-config sovereign-console-url. Pre-#2940
-            # this whole value was the hardcoded mothership URL.
-            # Operator override seam: catalystApi.env additional-env
-            # patch in the per-Sovereign HelmRelease overlay (dual-mode
-            # contract — see CATALYST_POWERDNS_API_URL block above).
+            # #2940 (2026-06-03, VERIFIED-PARTIAL reviewer catch): the
+            # prior revision carried a fix-comment claiming the host was
+            # "sourced from catalyst-runtime-config" while the value:
+            # below was still the inline mothership literal — an
+            # aspirational-comment-over-unfixed-value anti-pattern. Now
+            # genuinely a configMapKeyRef: the key is
+            # sovereign-api-public-url in catalyst-runtime-config
+            # (default runtime.sovereignAPIPublicURL — the mothership
+            # URL survives ONLY as the back-compat default), and
+            # bp-self-sovereign-cutover Step 07 Phase 3 pivots it to the
+            # Sovereign's own console URL at cutover with a read-back
+            # assert. Operator override seam unchanged (per-Sovereign
+            # HelmRelease overlay sets runtime.sovereignAPIPublicURL).
             - name: CATALYST_API_PUBLIC_URL
-              value: https://console.openova.io/sovereign
+              valueFrom:
+                configMapKeyRef:
+                  name: catalyst-runtime-config
+                  key: sovereign-api-public-url
             # CATALYST_NATS_URL — TBD-D35c (issue #1776). When set, the
             # catalyst-api dials this NATS endpoint and publishes the
             # `catalyst.tenant.sandbox_requested` envelope on every
