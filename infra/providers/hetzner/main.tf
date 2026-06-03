@@ -636,6 +636,7 @@ locals {
     cp_private_ip              = "10.0.1.2" # First static IP in the subnet — control plane
     enable_unattended_upgrades = var.enable_unattended_upgrades
     enable_fail2ban            = var.enable_fail2ban
+    harbor_robot_token         = var.harbor_robot_token # #2842: seed harbor mirror auth on worker nodes
   }), "/(?m)^[ ]*#( |$).*\n/", "")
 
   # Strip ALL pure-comment lines (any indent) from the rendered cloud-init
@@ -1433,6 +1434,7 @@ locals {
       cp_private_ip              = local.secondary_region_cp_ips[k]
       enable_unattended_upgrades = var.enable_unattended_upgrades
       enable_fail2ban            = var.enable_fail2ban
+      harbor_robot_token         = var.harbor_robot_token # #2842: seed harbor mirror auth on worker nodes
     }), "/(?m)^[ ]*#( |$).*\n/", "")
   }
 }

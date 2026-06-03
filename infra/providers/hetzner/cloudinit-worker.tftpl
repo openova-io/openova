@@ -78,6 +78,52 @@ write_files:
       backend = systemd
 %{ endif ~}
 
+  # ── containerd registry mirrors + harbor auth ────────────────────────
+  # #2842 (2026-06-03): worker nodes were MISSING this file entirely — only
+  # the control-plane template (cloudinit-control-plane.tftpl lines 362-396)
+  # wrote it. Result: every Hetzner worker pulled images direct (no harbor
+  # cache) AND had no credentials for `harbor.openova.io`, so any chart or
+  # manifest that hardcodes a `harbor.openova.io/proxy-*` reference (or any
+  # mirror-rewritten pull) 401'd → containerd stale-ingest-lock loop. The
+  # k3s agent does NOT inherit the server's registries.yaml; each node reads
+  # its own local file. This block is byte-identical to the control-plane
+  # template (issue #557 Step 2 + #2868) so the harbor robot token is seeded
+  # at bootstrap on EVERY node, fresh provs included.
+  - path: /etc/rancher/k3s/registries.yaml
+    permissions: '0600'
+    content: |
+      mirrors:
+        "docker.io":
+          endpoint:
+            - "https://harbor.openova.io"
+          rewrite:
+            "(.*)": "proxy-dockerhub/$1"
+        "quay.io":
+          endpoint:
+            - "https://harbor.openova.io"
+          rewrite:
+            "(.*)": "proxy-quay/$1"
+        "gcr.io":
+          endpoint:
+            - "https://harbor.openova.io"
+          rewrite:
+            "(.*)": "proxy-gcr/$1"
+        "registry.k8s.io":
+          endpoint:
+            - "https://harbor.openova.io"
+          rewrite:
+            "(.*)": "proxy-k8s/$1"
+        "ghcr.io":
+          endpoint:
+            - "https://harbor.openova.io"
+          rewrite:
+            "(.*)": "proxy-ghcr/$1"
+      configs:
+        "harbor.openova.io":
+          auth:
+            username: "robot$openova-bot"
+            password: "${harbor_robot_token}"
+
 runcmd:
   - swapoff -a
   - sed -i '/swap/d' /etc/fstab
