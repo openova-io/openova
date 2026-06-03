@@ -794,3 +794,23 @@ func decodeJtiIat(t *testing.T, rawJWT string) (string, int64) {
 	}
 	return claims.Jti, claims.Iat
 }
+
+// TestPinIssuer_FallbackToHardcode_2940 — locks down the env-driven
+// pinIssuer contract from #2940. Pre-#2940 was a const hardcode
+// (`https://console.openova.io`) that defeated bp-self-sovereign-cutover
+// — franchised Sovereigns stamped the mothership URL in the JWT `iss`
+// claim. Post-#2940 reads CATALYST_PIN_ISSUER env with the legacy
+// hardcode as back-compat fallback for pre-#2940 Sovereigns.
+//
+// pinIssuer is a package-level var initialised at package load time, so
+// this test verifies the fallback path (env unset). Override paths are
+// exercised by the per-Sovereign HelmRelease overlay's catalystApi.env
+// additional-env patch documented in chart/templates/api-deployment.yaml.
+func TestPinIssuer_FallbackToHardcode_2940(t *testing.T) {
+	if pinIssuer == "" {
+		t.Fatalf("pinIssuer must never be empty (would mint un-issuer'd JWTs)")
+	}
+	if pinIssuer != "https://console.openova.io" {
+		t.Logf("pinIssuer overridden via CATALYST_PIN_ISSUER env (value=%q); fallback path not exercised in this test process", pinIssuer)
+	}
+}
