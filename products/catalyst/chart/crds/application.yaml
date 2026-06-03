@@ -178,15 +178,24 @@ spec:
                       description: Only meaningful for placement=active-hotstandby.
                     rto:
                       type: string
-                      pattern: '^[0-9]+(s|m|h)$'
+                      # #2936 hardening (ATTACK#5): bound the numeric prefix to
+                      # 1-4 digits — max 9999 of any unit (e.g. 9999h ≈ 416 days).
+                      # Rejects unbounded values like "999999h" while still
+                      # accepting "60s"/"5m"/"24h".
+                      pattern: '^[0-9]{1,4}(s|m|h)$'
                       description: Recovery Time Objective (e.g. "60s", "5m").
                     rpo:
                       type: string
-                      pattern: '^[0-9]+(s|m|h)$'
+                      # #2936 hardening (ATTACK#5): same 1-4 digit bound as rto.
+                      pattern: '^[0-9]{1,4}(s|m|h)$'
                       description: Recovery Point Objective (e.g. "5s", "1m").
                     minReplicas:
                       type: integer
                       minimum: 1
+                      # #2936 hardening (ATTACK#5): a single Application
+                      # replicating beyond 9 instances is not a real Catalyst
+                      # topology — cap the previously-unbounded upper end.
+                      maximum: 9
                       description: Lower bound for any HPA the Blueprint declares.
                   x-kubernetes-preserve-unknown-fields: true
                 # ── G117.2 W2.C2 — multi-instance fields ─────────────────
