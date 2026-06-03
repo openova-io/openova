@@ -5,6 +5,11 @@ kind: Kustomization
 # dependsOn declarations for actual install order. Listing in canonical
 # Phase 0 sequence per SOVEREIGN-PROVISIONING.md §3.
 resources:
+  # Slot 00 — vCluster host namespaces (dmz/mgmt/rtz). MUST be first so the
+  # host namespaces exist before bp-coraza (35) / bp-sandbox (19a) HR objects
+  # that live in them are applied. Prevents the fresh-prov atomic-apply wedge
+  # caught on hw88 2026-06-03 (see file header for the full RCA).
+  - 00-vcluster-host-namespaces.yaml
   - 01-cilium.yaml
   - 01a-gateway-api.yaml
   - 02-cert-manager.yaml
