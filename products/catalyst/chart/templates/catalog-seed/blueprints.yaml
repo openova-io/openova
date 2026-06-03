@@ -354,6 +354,40 @@ spec:
     url: oci://ghcr.io/openova-io
     chart: bp-grafana
     version: 1.0.0
+  # G117.1+G117.6 #2745-followup (2026-06-03): application-controller
+  # fan-out reads spec.topology.perTopology[choice].placement.clusters[]
+  # to render per-cluster HelmReleases. Without this block the controller
+  # silently exits with an empty cluster list → Application stays
+  # Phase=Pending forever. Mirrors platform/grafana/blueprint.yaml.
+  topology:
+    supported:
+      - active-hot-standby
+      - singleton
+    defaults:
+      multi-region: active-hot-standby
+      single-region: singleton
+    perTopology:
+      active-hot-standby:
+        replication:
+          backend: cnpg-pair
+          mode: sync
+          lagSloSeconds: 0
+        switchover:
+          mechanism: bp-continuum
+          rtoSeconds: 30
+          rpoSeconds: 0
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A, mgmt-B]
+          roles:
+            mgmt-A: active
+            mgmt-B: passive
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
   # G117.4 #2882-followup (2026-06-03): launch-url endpoint needs
   # endpoints[] + sso{} to mint the silent-SSO URL with prompt=none
   # &kc_idp_hint=catalyst-pin. Mirrors platform/grafana/blueprint.yaml
