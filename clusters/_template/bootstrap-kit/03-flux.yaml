@@ -94,7 +94,7 @@ spec:
     # reconciles). Without this, the very first reconcile would error
     # with "object already exists" on every Flux controller Deployment.
     remediation:
-      retries: 3
+      retries: -1
   upgrade:
     timeout: 15m
     disableWait: true

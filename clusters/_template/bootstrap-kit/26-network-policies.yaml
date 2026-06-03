@@ -71,7 +71,7 @@ spec:
     timeout: 5m
     disableWait: true
     remediation:
-      retries: 3
+      retries: -1
   upgrade:
     timeout: 5m
     disableWait: true

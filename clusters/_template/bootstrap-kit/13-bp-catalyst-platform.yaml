@@ -1012,7 +1012,7 @@ spec:
     disableWait: true
     timeout: 30m
     remediation:
-      retries: 3
+      retries: -1
       remediateLastFailure: true
   upgrade:
     disableWait: true

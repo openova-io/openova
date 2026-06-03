@@ -45,7 +45,7 @@ spec:
   install:
     timeout: 15m
     remediation:
-      retries: 3
+      retries: -1
       remediateLastFailure: true
   upgrade:
     timeout: 15m
