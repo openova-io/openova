@@ -27,9 +27,15 @@
 // declare grafana as multi-instance and we lean on that.
 
 import { test, expect } from '@playwright/test'
+import { reachable } from './_helpers'
 
 const SOV_FQDN = (process.env.SOV_FQDN || '').trim()
 const CATALYST_TOKEN = process.env.CATALYST_TOKEN || ''
+// MOCK-mode target is the products/catalyst/console Astro app (installs
+// window.__MOCK_API__ + serves /catalog/<name>/new), NOT the bootstrap/ui
+// React app the rest of Group L boots. CI boots console on :4323 with
+// MOCK_API=1; CONSOLE_BASE_URL points at it.
+const CONSOLE_BASE_URL = process.env.CONSOLE_BASE_URL || 'http://localhost:4323'
 
 test.describe('G117.2 W2.C2 — multi-instance create flow', () => {
   test.describe('LIVE mode (SOV_FQDN set)', () => {
@@ -75,6 +81,14 @@ test.describe('G117.2 W2.C2 — multi-instance create flow', () => {
 
   test.describe('MOCK mode (PR-time CI)', () => {
     test.skip(!!SOV_FQDN, 'Mock walk runs only when SOV_FQDN is unset')
+    // Drive the console mock app (CONSOLE_BASE_URL) rather than the shared
+    // Group L baseURL — only the console installs window.__MOCK_API__.
+    test.use({ baseURL: CONSOLE_BASE_URL })
+
+    test.beforeEach(async () => {
+      const ok = await reachable(CONSOLE_BASE_URL)
+      test.skip(!ok, `console dev server not reachable at ${CONSOLE_BASE_URL} — start with MOCK_API=1 npm run dev`)
+    })
 
     test('catalog drill-down for multi-instance grafana exposes "+ New instance"', async ({ page }) => {
       // The console mock backend at products/catalyst/console exposes
@@ -98,9 +112,12 @@ test.describe('G117.2 W2.C2 — multi-instance create flow', () => {
       const names = ['obs-1', 'obs-2', 'obs-3']
       for (const name of names) {
         await page.goto('/catalog/grafana/new')
-        await page.getByTestId('input-app-name').fill(name)
-        await page.getByTestId('input-app-org').fill('acme')
-        await page.getByTestId('btn-create-instance').click()
+        // Testids match the console new-instance form
+        // (products/catalyst/console/src/routes/catalog/[name]/new/+page.svelte):
+        // instance-name / instance-org / instance-submit.
+        await page.getByTestId('instance-name').fill(name)
+        await page.getByTestId('instance-org').fill('acme')
+        await page.getByTestId('instance-submit').click()
         // Mock backend redirects to /apps/<id> on success.
         await expect(page).toHaveURL(/\/apps\/[A-Za-z0-9-]+/)
       }
