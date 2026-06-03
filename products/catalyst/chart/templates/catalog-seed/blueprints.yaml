@@ -169,6 +169,30 @@ spec:
     url: oci://ghcr.io/openova-io
     chart: bp-cnpg
     version: 1.0.0
+  # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): lockstep with
+  # platform/cnpg/blueprint.yaml. Operator pattern: each region runs its
+  # own controller (singleton everywhere); HA happens at the per-Cluster
+  # CR level rendered by bp-cnpg-pair. No user-facing endpoint, no SSO
+  # (the operator authenticates intra-cluster via ServiceAccount tokens).
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: ""
+          clusters: [mgmt-A, mgmt-B, dmz-A, dmz-B, rtz-A, rtz-B]
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  endpoints: []
   configSchema:
     type: object
     properties:
@@ -240,6 +264,35 @@ spec:
     url: oci://ghcr.io/openova-io
     chart: bp-cnpg-pair
     version: 0.1.1
+  # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): cluster-pair IS
+  # active-hot-standby by construction. Only one topology variant —
+  # active-passive — because the chart renders 2 Cluster CRs (primary +
+  # replica streaming WAL). Replication backend = CNPG streaming over
+  # Cilium ClusterMesh per ADR-0001 §9. switchover via bp-continuum
+  # K-Cont-2 (operator-triggered promotion).
+  topology:
+    supported:
+      - active-passive
+    defaults:
+      multi-region: active-passive
+      single-region: active-passive
+    perTopology:
+      active-passive:
+        replication:
+          backend: cnpg-streaming-replication
+          mode: async
+          lagSloSeconds: 30
+        switchover:
+          mechanism: bp-continuum
+          rtoSeconds: 60
+          rpoSeconds: 30
+        placement:
+          tier: ""
+          clusters: [primary-region, replica-region]
+          roles:
+            primary-region: active
+            replica-region: passive
+  endpoints: []
   configSchema:
     type: object
     required: [primary, replica, image]
