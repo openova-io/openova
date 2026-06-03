@@ -83,6 +83,14 @@ data:
             value: {{ .Values.gitea.org | quote }}
           - name: GITEA_REPO
             value: {{ .Values.gitea.repo | quote }}
+          # #2940 Phase 3 (2026-06-03): the Sovereign's own public
+          # console URL — the pivot target for the catalyst-api env
+          # seams (pin/handover-JWT issuers + runtime-config console +
+          # api-public URLs). Overlay supplies
+          # https://console.${SOVEREIGN_FQDN} (same convention as
+          # sovereign.harborPublicURL / giteaPublicURL above).
+          - name: CONSOLE_PUBLIC_URL
+            value: {{ .Values.sovereign.consolePublicURL | quote }}
         command: ["/bin/sh", "-c"]
         args:
           - |
@@ -204,7 +212,67 @@ data:
             kubectl rollout status "deploy/${DEPLOYMENT_NAME}" \
               -n "${DEPLOYMENT_NAMESPACE}" \
               --timeout=300s
-            echo "[catalyst-api-env-patch] done"
+
+            # ---- Phase 3 (#2940, 2026-06-03): pivot the remaining ----
+            # catalyst-api mothership env seams. The VERIFIED-PARTIAL
+            # review found that Phases 1-2 only flip the image registry
+            # + the GitOps repo URL: the PIN/handover-JWT issuers and
+            # the runtime-config console/api-public URLs kept their
+            # mothership back-compat defaults, so the 10-min
+            # deny-egress hold could pass while tokens still carried a
+            # mothership `iss` and CORS/public-URL pointed home. Each
+            # pivot below ends in a read-back assert (Step-10-Phase-1c
+            # pattern): any openova.io residue is FATAL — Pillar 5
+            # independence not met.
+            if [ -z "${CONSOLE_PUBLIC_URL}" ] || echo "${CONSOLE_PUBLIC_URL}" | grep -q "example.local"; then
+              echo "[catalyst-api-env-patch] FATAL Phase 3: sovereign.consolePublicURL not overlaid (got '${CONSOLE_PUBLIC_URL}') — supply https://console.<sovereign-fqdn>" >&2
+              exit 1
+            fi
+
+            # 3a. runtime-config ConfigMap keys (CORS_ORIGIN +
+            # CATALYST_SOVEREIGN_URL read sovereign-console-url;
+            # CATALYST_API_PUBLIC_URL reads sovereign-api-public-url —
+            # all via configMapKeyRef, so the CM is the single seam).
+            kubectl patch configmap catalyst-runtime-config \
+              -n "${DEPLOYMENT_NAMESPACE}" \
+              --type merge \
+              -p "{\"data\":{\"sovereign-console-url\":\"${CONSOLE_PUBLIC_URL}\",\"sovereign-api-public-url\":\"${CONSOLE_PUBLIC_URL}/sovereign\"}}"
+
+            # 3b. issuer envs (auth.go pinIssuer + main.go handover-JWT
+            # issuer read these; the in-code openova.io constants are
+            # fallbacks ONLY when the env is unset).
+            kubectl set env "deploy/${DEPLOYMENT_NAME}" \
+              -n "${DEPLOYMENT_NAMESPACE}" \
+              "CATALYST_PIN_ISSUER=${CONSOLE_PUBLIC_URL}" \
+              "CATALYST_HANDOVER_JWT_ISSUER=${CONSOLE_PUBLIC_URL}"
+            kubectl rollout status "deploy/${DEPLOYMENT_NAME}" \
+              -n "${DEPLOYMENT_NAMESPACE}" \
+              --timeout=300s
+
+            # 3c. Read-back asserts — live values, not intentions.
+            for KEY in sovereign-console-url sovereign-api-public-url; do
+              LIVE=$(kubectl get configmap catalyst-runtime-config \
+                -n "${DEPLOYMENT_NAMESPACE}" \
+                -o jsonpath="{.data['${KEY}']}" 2>/dev/null || echo "")
+              case "${LIVE}" in
+                *openova.io*|"")
+                  echo "[catalyst-api-env-patch] FATAL Phase 3: runtime-config ${KEY}='${LIVE}' still mothership/empty — Pillar 5 independence not met" >&2
+                  exit 1 ;;
+              esac
+              echo "[catalyst-api-env-patch] Phase 3 OK: ${KEY}=${LIVE}"
+            done
+            for VAR in CATALYST_PIN_ISSUER CATALYST_HANDOVER_JWT_ISSUER; do
+              LIVE=$(kubectl get deploy "${DEPLOYMENT_NAME}" \
+                -n "${DEPLOYMENT_NAMESPACE}" \
+                -o jsonpath="{.spec.template.spec.containers[0].env[?(@.name=='${VAR}')].value}" 2>/dev/null || echo "")
+              case "${LIVE}" in
+                *openova.io*|"")
+                  echo "[catalyst-api-env-patch] FATAL Phase 3: ${VAR}='${LIVE}' still mothership/empty — Pillar 5 independence not met" >&2
+                  exit 1 ;;
+              esac
+              echo "[catalyst-api-env-patch] Phase 3 OK: ${VAR}=${LIVE}"
+            done
+            echo "[catalyst-api-env-patch] done (Phases 1-3 complete)"
         resources:
           requests: { cpu: 50m, memory: 64Mi }
           limits:   { memory: 256Mi }

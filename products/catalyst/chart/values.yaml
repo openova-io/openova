@@ -383,6 +383,14 @@ runtime:
   # the new value via the checksum/runtime-config rolling restart
   # mechanism (PR #2928).
   sovereignConsoleURL: "https://console.openova.io"
+  # #2940 (2026-06-03): Pillar 5 anti-tether — public origin a
+  # provisioning Sovereign's cloud-init PUTs its kubeconfig back to
+  # (CATALYST_API_PUBLIC_URL). Same seam pattern as sovereignConsoleURL
+  # directly above: mothership URL is ONLY the back-compat default;
+  # per-Sovereign overlays override to https://console.<sov-fqdn>/sovereign,
+  # and bp-self-sovereign-cutover Step 7 Phase 3 pivots it at cutover
+  # with a read-back assert.
+  sovereignAPIPublicURL: "https://console.openova.io/sovereign"
 
 # ─── Group C controllers (slice CC3 of EPIC-0 #1095) ────────────────────────
 # The 5 K8s-native reconcilers consolidated by CC1 (#1135) + CC2 (#1136):

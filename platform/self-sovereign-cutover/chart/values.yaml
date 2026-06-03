@@ -49,6 +49,15 @@ sovereign:
   giteaInternalURL: "http://gitea-http.gitea.svc.cluster.local:3000"
   # ↓ overlay supplies https://gitea.${SOVEREIGN_FQDN} (informational; jobs use internal URL).
   giteaPublicURL: "https://gitea.example.local"
+  # ↓ overlay required for real cutover (uses ${SOVEREIGN_FQDN}).
+  #    #2940 Phase 3: Step 07 pivots the catalyst-api issuer envs
+  #    (CATALYST_PIN_ISSUER / CATALYST_HANDOVER_JWT_ISSUER) + the
+  #    catalyst-runtime-config console/api-public URL keys to this
+  #    value, then read-back-asserts zero openova.io residue. The Job
+  #    FAILS FATAL if left at the example default — a cutover that
+  #    skipped the issuer pivot would pass the egress hold while every
+  #    token still carried a mothership `iss`.
+  consolePublicURL: "https://console.example.local"
 
 # Upstream openova-io read-only public clone — the source for cutover
 # step 01. Step-1 calls Gitea's /repos/migrate API with mirror=true so

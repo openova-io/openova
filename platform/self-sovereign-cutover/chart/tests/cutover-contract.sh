@@ -637,4 +637,40 @@ if ! grep -q '"xpkg.upbound.io"' "$TMP/render.yaml"; then
 fi
 echo "  PASS (Step-11 wired to pivot Provider CRs to local Harbor proxy-xpkg)"
 
+
+echo "[cutover-contract] Case 23: Step-07 Phase 3 pivots catalyst-api issuer envs + runtime-config URLs (#2940)"
+# The #2940 VERIFIED-PARTIAL review found Step-07 only patched
+# CATALYST_GITOPS_REPO_URL: the PIN/handover-JWT issuers and the
+# catalyst-runtime-config console/api-public URL keys kept mothership
+# defaults, so a cutover could pass the egress hold while every token
+# still carried a mothership `iss`. Phase 3 pivots all four seams and
+# read-back-asserts zero openova.io residue (FATAL otherwise).
+if ! grep -q 'CONSOLE_PUBLIC_URL' "$TMP/render.yaml"; then
+  echo "FAIL: Step-07 missing CONSOLE_PUBLIC_URL wiring (#2940 Phase 3)" >&2
+  exit 1
+fi
+for var in CATALYST_PIN_ISSUER CATALYST_HANDOVER_JWT_ISSUER; do
+  if ! grep -q "${var}" "$TMP/render.yaml"; then
+    echo "FAIL: Step-07 Phase 3 missing issuer pivot for ${var} (#2940)" >&2
+    exit 1
+  fi
+done
+for key in sovereign-console-url sovereign-api-public-url; do
+  if ! grep -q "${key}" "$TMP/render.yaml"; then
+    echo "FAIL: Step-07 Phase 3 missing runtime-config pivot for ${key} (#2940)" >&2
+    exit 1
+  fi
+done
+# The read-back assert must FAIL FATAL on mothership residue.
+if ! grep -q 'Pillar 5 independence not met' "$TMP/render.yaml"; then
+  echo "FAIL: Step-07 Phase 3 missing read-back FATAL assert (#2940)" >&2
+  exit 1
+fi
+# The example-default guard must be present (unconfigured overlay = FATAL).
+if ! grep -q 'consolePublicURL not overlaid' "$TMP/render.yaml"; then
+  echo "FAIL: Step-07 Phase 3 missing example-default guard (#2940)" >&2
+  exit 1
+fi
+echo "  PASS (Step-07 Phase 3 pivots issuers + runtime-config URLs with read-back asserts)"
+
 echo "[cutover-contract] All gates green."
