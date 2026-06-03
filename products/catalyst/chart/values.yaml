@@ -652,13 +652,16 @@ services:
       # land via the catalyst-catalog-image-built repository_dispatch
       # hop (catalyst-catalog-build.yaml notify job → downstream
       # bumper PR).
-      # 2026-06-03: bumped 9763286 → 3e05e85 to ship PR #2889 (#2879
-      # Sovereign source monorepo-layout fallback) — auto-bump didn't
-      # fire because the catalyst-catalog-image-built repository_dispatch
-      # hop isn't yet wired into catalyst-build.yaml's sweep step (same
-      # #2851 class of bug). Manual stamp until the dispatcher CI fix
-      # ships.
-      tag: "3e05e85"
+      # 2026-06-03: bumped 9763286 → 973094b to ship PR #2889 (#2879
+      # Sovereign source monorepo-layout fallback). PR #2890 originally
+      # stamped 3e05e85 (PR-branch SHA) but catalyst-catalog-build.yaml
+      # tags images with the SQUASH-MERGE SHA on main, not the PR-branch
+      # SHA — caught live as ImagePullBackOff on hw86 (3e05e85 NotFound
+      # on GHCR; only 973094b was published). Stamp the actual on-main
+      # SHA. Auto-bump didn't fire because the catalyst-catalog-image-
+      # built repository_dispatch hop isn't wired into catalyst-build.yaml's
+      # sweep step (same #2851 class of bug — followup tracked).
+      tag: "973094b"
       pullPolicy: IfNotPresent
     replicas: 1
     # Gitea endpoint — empty defaults to in-cluster Service URL.
