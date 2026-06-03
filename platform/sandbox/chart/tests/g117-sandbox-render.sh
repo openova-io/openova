@@ -62,11 +62,15 @@ fi
 echo "  PASS — 0 Kinds rendered (chart respects enabled=false default-off contract)."
 
 echo "[g117-sandbox-render] Case 2: enabled=true render emits the canonical 6 Kinds"
+# #2988: sso ExternalSecret is Capabilities-gated on the ESO CRD —
+# advertise it for the canonical-Kinds assertion; a separate no-CRD
+# render asserts the omit side (install must not fail at manifest-build).
 "$HELM" template smoke-sandbox . \
   --set enabled=true \
   --set env.hostCluster=hz-fsn-rtz-prod \
   --set env.sovereignFQDN=smoke.omani.works \
   --set runtime.newapiURL=https://newapi.smoke.omani.works/v1 \
+  --api-versions "external-secrets.io/v1beta1" \
   > "$TMP/on.yaml" 2> "$TMP/on.err" || {
     echo "FAIL: enabled=true render errored — chart broke under canonical inputs." >&2
     cat "$TMP/on.err" >&2
@@ -117,3 +121,16 @@ fi
 echo "  PASS — Deployment carries all canonical SANDBOX_* env vars."
 
 echo "[g117-sandbox-render] All bp-sandbox chart-render gates green."
+
+echo "[g117-sandbox-render] Case 2b (#2988): ExternalSecret omitted when ESO CRD absent"
+"$HELM" template smoke-sandbox . \
+  --set enabled=true \
+  --set env.hostCluster=hz-fsn-rtz-prod \
+  --set env.sovereignFQDN=smoke.omani.works \
+  --set runtime.newapiURL=https://newapi.smoke.omani.works/v1 \
+  > "$TMP/on-nocrd.yaml" 2>/dev/null || true
+if grep -qE "^kind: ExternalSecret$" "$TMP/on-nocrd.yaml"; then
+  echo "FAIL: ExternalSecret rendered without external-secrets.io/v1beta1 — #2988 guard regressed" >&2
+  exit 1
+fi
+echo "  PASS"

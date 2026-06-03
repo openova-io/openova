@@ -34,7 +34,16 @@ trap 'rm -rf "${tmpdir}"' EXIT
 "$helm" dependency build "$chart_dir" >/dev/null 2>&1 || true
 
 # Render with defaults once + write to disk for repeated reads by python.
-"$helm" template smoke "$chart_dir" 2>/dev/null > "${tmpdir}/default.yaml"
+# #2988: the sso ExternalSecret is Capabilities-gated on the ESO CRD —
+# advertise it so Case 7 can assert the env-override Secret contents,
+# and keep a no-CRD render to assert the omit side of the contract.
+"$helm" template smoke "$chart_dir" --api-versions "external-secrets.io/v1beta1" 2>/dev/null > "${tmpdir}/default.yaml"
+"$helm" template smoke "$chart_dir" 2>/dev/null > "${tmpdir}/no-eso-crd.yaml"
+echo "[g115-datasources-dashboards] Case 0 (#2988): ExternalSecret omitted when ESO CRD absent"
+if grep -q "kind: ExternalSecret" "${tmpdir}/no-eso-crd.yaml"; then
+  echo "FAIL: ExternalSecret rendered without external-secrets.io/v1beta1 — #2988 guard regressed" >&2; exit 1
+fi
+echo "  PASS"
 
 # ── Case 1: Sidecar discovery is enabled in default values ─────────────
 echo "[g115-datasources-dashboards] Case 1: sidecar discovery enabled by default"
