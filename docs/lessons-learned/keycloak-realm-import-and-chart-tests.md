@@ -1,3 +1,5 @@
+> NOTE (2026-06-03): pending migration into docs/RUNBOOKS.md §3 (chart authoring) + §7 (troubleshooting) per lean-doc strategy.
+
 # Keycloak realm-import + chart-test gotchas
 
 Patterns surfaced during the G117.E2E-A1 hw86 stabilization cascade (issue #2816, 2026-06-03). Six related breakages chased over a single session — capturing the platform-level invariants so the next contributor catches them before they reach a live Sovereign.

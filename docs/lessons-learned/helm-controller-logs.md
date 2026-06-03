@@ -1,3 +1,5 @@
+> NOTE (2026-06-03): pending migration into docs/RUNBOOKS.md §7 (troubleshooting) per lean-doc strategy.
+
 # helm-controller log format
 
 Operational knowledge about the structure of stdout lines emitted by Flux's `helm-controller` Pod, which any external log-tailer or log-parsing tool needs to handle correctly.

@@ -1,3 +1,5 @@
+> NOTE (2026-06-03): pending migration into docs/RUNBOOKS.md §7 (troubleshooting) per lean-doc strategy.
+
 # `chi` router quirks
 
 Operational knowledge about Go's [`go-chi/chi`](https://github.com/go-chi/chi) HTTP router, used as the catalyst-api router. These are non-obvious behaviours that bite anyone authoring routes that accept structured path parameters.

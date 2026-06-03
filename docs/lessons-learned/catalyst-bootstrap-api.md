@@ -1,3 +1,5 @@
+> NOTE (2026-06-03): pending migration into docs/RUNBOOKS.md §7 (troubleshooting) per lean-doc strategy.
+
 # Catalyst bootstrap API
 
 Operational findings about `products/catalyst/bootstrap/api/` — the Go service that drives Phase-0 provisioning + Phase-1 watch + the wizard SSE stream.
