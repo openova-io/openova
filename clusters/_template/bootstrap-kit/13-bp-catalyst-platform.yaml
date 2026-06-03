@@ -953,7 +953,7 @@ spec:
       # preflight-blueprint-crd-cel.yaml. Flux re-applies crds/ with
       # CreateReplace on reconcile so existing Sovereigns pick it up.
       # Refs #2936.
-      version: 1.4.485
+      version: 1.4.486
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

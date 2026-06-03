@@ -42,3 +42,9 @@ data:
   # configMapKeyRef. Override via runtime.sovereignConsoleURL in
   # per-Sovereign overlay or bp-self-sovereign-cutover Step 7.
   sovereign-console-url: {{ .Values.runtime.sovereignConsoleURL | quote }}
+  # #2940 (2026-06-03): public origin a provisioning Sovereign's
+  # cloud-init PUTs its kubeconfig back to (CATALYST_API_PUBLIC_URL via
+  # configMapKeyRef in api-deployment.yaml). Mothership URL is ONLY the
+  # back-compat default; bp-self-sovereign-cutover Step 7 Phase 3
+  # pivots it to the Sovereign's own console URL post-handover.
+  sovereign-api-public-url: {{ .Values.runtime.sovereignAPIPublicURL | quote }}
