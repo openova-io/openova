@@ -40,3 +40,10 @@ dependencies:
   - name: common
     version: "0.1.3"
     repository: "https://sigstore.github.io/helm-charts"
+
+annotations:
+  # #2935 (2026-06-03): Blueprint-Release hollow-chart guard exemption.
+  # Chart legitimately renders zero resources with default values
+  # (default-off feature toggle or dependency-on-CRD pattern). Without
+  # this annotation Blueprint-Release rejects publish.
+  catalyst.openova.io/smoke-render-mode: "default-off"
