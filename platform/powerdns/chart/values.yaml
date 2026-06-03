@@ -364,6 +364,14 @@ dnsdist:
 #      pod, not by Traefik).
 api:
   enabled: true
+  # #2940 (2026-06-03): Pillar 5 anti-tether — this default ties the
+  # PDNS public API ingress to the mothership FQDN. Franchised
+  # Sovereigns post-bp-self-sovereign-cutover MUST override to
+  # `pdns.<sov-fqdn>` in their per-Sovereign overlay. The default is
+  # kept for back-compat with pre-#2940 Sovereigns + Catalyst-Zero
+  # (contabo-mkt) installs. bp-self-sovereign-cutover Step 6
+  # (helmrepository-patches) doesn't currently rewrite this; track
+  # the gap on #2940 sub-checklist Category 2.
   host: pdns.openova.io
   path: /api
   pathType: Prefix
