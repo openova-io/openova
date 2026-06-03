@@ -613,6 +613,45 @@ spec:
     url: oci://ghcr.io/openova-io
     chart: bp-loki
     version: 1.0.0
+  # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): lockstep with
+  # platform/loki/blueprint.yaml. active-passive via S3 bucket replication.
+  # No user-facing endpoint (Loki is queried via Grafana datasource); sso
+  # block still declared so X-Scope-OrgID multi-tenancy maps from realm.
+  topology:
+    supported:
+      - active-passive
+      - singleton
+    defaults:
+      multi-region: active-passive
+      single-region: singleton
+    perTopology:
+      active-passive:
+        replication:
+          backend: s3-bucket-replication
+          mode: async
+          lagSloSeconds: 60
+        switchover:
+          mechanism: bp-continuum
+          rtoSeconds: 60
+          rpoSeconds: 60
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A, mgmt-B]
+          roles:
+            mgmt-A: active
+            mgmt-B: passive
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+  endpoints: []
+  sso:
+    realm: sovereign
+    protocolMapper: oidc
+    groupsClaim: groups
+    silentLogin: true
   configSchema:
     type: object
     properties:
