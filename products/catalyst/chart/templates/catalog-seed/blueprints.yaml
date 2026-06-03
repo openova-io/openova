@@ -308,6 +308,58 @@ spec:
     url: oci://ghcr.io/openova-io
     chart: bp-keycloak
     version: 1.0.0
+  # G117.1+G117.4+G117.6 #2744-followup (2026-06-03): bp-keycloak
+  # catalog-seed needs topology + endpoints + sso so application-
+  # controller can fan out HRs and operator console can mint silent-SSO
+  # URLs. Mirrors platform/keycloak/blueprint.yaml. Same class fix as
+  # PR #2883 (grafana endpoints) + PR #2893 (grafana topology).
+  # Helm-escape {{.SovereignFQDN}} per PR #2888 pattern.
+  topology:
+    supported:
+      - active-hot-standby
+      - singleton
+    defaults:
+      multi-region: active-hot-standby
+      single-region: singleton
+    perTopology:
+      active-hot-standby:
+        replication:
+          backend: cnpg-pair
+          mode: sync
+          lagSloSeconds: 0
+        switchover:
+          mechanism: bp-continuum
+          rtoSeconds: 30
+          rpoSeconds: 0
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A, mgmt-B]
+          roles:
+            mgmt-A: active
+            mgmt-B: passive
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+  endpoints:
+    - name: ui
+      hostnameTemplate: "auth.{{ "{{" }}.SovereignFQDN{{ "}}" }}"
+      port: 443
+      protocol: https
+      tls: true
+      visibility: public
+      launchDefault: true
+      # KC is itself the IdP — silent SSO from another app TO KC would
+      # be circular. The Launch button still routes to /admin/master/
+      # console/ but does NOT append prompt=none+kc_idp_hint. catalyst-api
+      # honors ssoEnabled=false by skipping the silent-SSO query string.
+      ssoEnabled: false
+  sso:
+    realm: sovereign
+    protocolMapper: oidc
+    silentLogin: false
   configSchema:
     type: object
     required: [realmName]
