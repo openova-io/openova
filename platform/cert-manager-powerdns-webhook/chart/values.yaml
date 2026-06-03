@@ -143,6 +143,12 @@ powerdns:
   # override. Empty string causes the chart to skip ClusterIssuer
   # rendering entirely — see templates/clusterissuer.yaml's skip-render
   # guard. Cluster overlays may override to a different pool's endpoint.
+  #
+  # #2940 (2026-06-03): Pillar 5 anti-tether — franchised Sovereigns
+  # post-bp-self-sovereign-cutover MUST override to their local
+  # `https://pdns.<sov-fqdn>` endpoint. bp-self-sovereign-cutover
+  # Step 6 (helmrepository-patches) doesn't currently rewrite this;
+  # track the gap on #2940 sub-checklist Category 2.
   host: "https://pdns.openova.io"
   # PowerDNS server ID — virtually always "localhost" per the upstream
   # API contract. Operators with a multi-tenant PowerDNS deployment
