@@ -22,6 +22,7 @@ This file consolidates five prior runbook documents (`BLUEPRINT-AUTHORING.md`, `
 - [§9 — Bring up a Sovereign (canonical phase walkthrough)](#9--bring-up-a-sovereign-canonical-phase-walkthrough)
 - [§10 — UI regression test catalog](#10--ui-regression-test-catalog)
 - [§11 — Phase-by-phase provisioning plan (Catalyst-Zero waterfall)](#11--phase-by-phase-provisioning-plan-catalyst-zero-waterfall)
+- [§12 — Debugging cookbook — hard-won lessons](#12--debugging-cookbook--hard-won-lessons)
 
 ---
 
@@ -1812,6 +1813,104 @@ Each phase produces one or more commits to `openova/`. Each commit is real worki
 - [`STATUS.md`](STATUS.md) — gets updated incrementally as each phase lands
 - §8 above — how to validate after each phase
 - `docs/archive/validation-log.md` Pass 1–104 — historical record; Pass 105+ tracks this plan's execution
+
+---
+
+## §12 — Debugging cookbook — hard-won lessons
+
+Platform/upstream behaviours that exist regardless of our code, discovered the hard way during live Sovereign bring-up. Where §7 is a fast symptom→recovery table for provisioning, this section captures the deeper *root-cause* lessons (folded in from the former `docs/lessons-learned/` subdir on 2026-06-03). Each is **symptom → root cause → fix**.
+
+### 12.1 Flux helm-controller SA needs `cluster-admin` in `flux-system`
+
+**Symptom**: Every HelmRelease stalls in `pending-install` / `pending-upgrade` / `uninstalling`; user-facing message `Unlocked Helm release ... in pending-install state` with no progress.
+
+**Root cause**: bp-flux's upstream subchart ships a `cluster-reconciler` ClusterRoleBinding that subjects the helm-controller (and kustomize-controller) SA in the **wrong namespace** (`catalyst-system`), but the controllers actually run in `flux-system`. They can't read/update the `sh.helm.release.v1.<name>.<n>` state Secrets they store in `flux-system`.
+
+**Fix**: bp-flux 1.1.3+ ships a Catalyst-managed `catalyst-cluster-reconciler` binding (`platform/flux/chart/templates/catalyst-cluster-reconciler-rbac.yaml`) that subjects helm-controller AND kustomize-controller in `.Values.catalyst.fluxNamespace` (default `flux-system`) to `cluster-admin`, independent of and authoritative over the upstream binding. Diagnostic before chasing chart bugs:
+```bash
+kubectl get clusterrolebinding -o json | jq '.items[] | select(.subjects[]?.namespace=="flux-system" and .subjects[]?.name=="helm-controller")'
+```
+If the `roleRef` is weaker than `cluster-admin` (no `secrets/{get,list,update,delete}` in flux-system), the controller can't manage its own state. (Refs #338)
+
+### 12.2 helm-controller parses every template even when `{{- if }}`-gated
+
+**Symptom**: Install fails with `function "X" not defined` (e.g. `fromToml`) even though `.Values.X.enabled` is `false` and would never render the offending template.
+
+**Root cause**: helm-controller's bundled helm SDK **parses** every template file at install time regardless of value gating. A function the bundled SDK doesn't define (e.g. `fromToml` from helm 3.13+ on an older SDK) aborts parse before gating applies. Hit live on bp-seaweedfs (upstream `seaweedfs/seaweedfs` 4.22.0 `templates/shared/security-configmap.yaml`, gated on `enableSecurity: false`).
+
+**Fix**: A values override NEVER works here. Either (1) vendor the upstream chart into `platform/<name>/chart/charts/<upstream>/`, drop the `dependencies:` decl, physically delete the offending template, and bump the bp major version; or (2) upgrade helm-controller to a release whose bundled helm SDK supports the function (verify the SDK version before bumping). (Refs #340)
+
+### 12.3 `before-hook-creation` deadlocks when the CRD ships from the same chart's subchart
+
+**Symptom**: First install deadlocks with `failed post-install: ... resource mapping not found for name "<crname>" ... no matches for kind "<Kind>" in version "<group>/<version>" ensure CRDs are installed first`.
+
+**Root cause**: A wrapper chart that ships both an upstream subchart registering a CRD AND a Catalyst-side CR of that kind gated with `helm.sh/hook-delete-policy: before-hook-creation`. The `before-hook-creation` lookup runs *before* the subchart's CRDs finish registering, so the apiserver has no mapping for the kind yet. Hit on bp-crossplane@1.1.2 (`CompositeResourceDefinition`) and bp-external-secrets@1.0.0 (`ClusterSecretStore`).
+
+**Fix**: Never put a CR template with `before-hook-creation` in the same release as the subchart that registers its CRD. Split into a controller chart + a CR chart, sequenced via Flux `dependsOn` — the CR chart needs no hook annotations because Flux guarantees the controller is `Ready=True` (and CRDs registered) before it starts. Done in PR #247 (bp-crossplane → bp-crossplane-claims@1.0.0) and PR #334 (bp-external-secrets → bp-external-secrets-stores@1.0.0). (Refs #318 #331 #247)
+
+### 12.4 Flux v2.4 helm-controller logs HelmRelease as nested JSON, not a flat string
+
+**Symptom**: An external log-tailer / observability surface parsing helm-controller stdout renders **empty** — every line silently dropped.
+
+**Root cause**: Older regexes assume a flat tag (`helmrelease="flux-system/bp-cilium"`). Flux v2.4's helm-controller actually emits structured JSON with the release as a **nested object** (`"HelmRelease": {"name": "bp-mimir", "namespace": "flux-system"}`). A flat-string regex matches zero lines.
+
+**Fix**: Any parser must support BOTH shapes (the logger format isn't stable across Flux versions or operator-configured backends). `internal/helmwatch/logtailer.go` uses an alternation regex whose first arm matches the flat-string form and second arm matches the nested-object form; the consumer takes whichever capture group fired. Pin test fixtures to real production log samples so a future Flux upgrade that breaks the parse fails CI instead of going silent. (Refs #305)
+
+### 12.5 chi does NOT decode `%3A` (path-safe specials) before route matching
+
+**Symptom**: A path parameter that legitimately contains `:` (e.g. catalyst-api `jobId = "<deploymentId>:<jobName>"`) returns **404** when the client percent-encodes it; the raw-colon form returns 200.
+
+**Root cause**: go-chi treats the percent-encoded form as part of the literal path — it does NOT decode `%3A` (or other RFC 3986 path-safe specials `@ & = + $ , ;`) before route matching. Most other routers (Express, Gin, ASP.NET) DO decode first, so a frontend that blindly `encodeURIComponent`s every path segment round-trips with them and silently 404s on chi. Invisible in TS unit tests that stub fetch (no real router in the loop).
+
+**Fix**: Insert path params that can contain path-safe specials **raw** into the chi-routed URL; reserve `encodeURIComponent` for true reserved chars (`?`, `#`). For hex IDs / slugs the encode is a no-op anyway. Add a regression test at the integration boundary asserting the request URL carries the raw `:` and rejects `%3A`. (Refs #305)
+
+### 12.6 catalyst-api `tofu destroy` reads its token from on-disk tfvars, not the request body
+
+**Symptom**: A reviewer asks "why doesn't the wipe endpoint prompt for the Hetzner token before destroy?" — and a placeholder token in the wipe body still produces `tofuDestroyed: true`.
+
+**Root cause**: catalyst-api clears `Request.HetznerToken` from in-memory state after `writeTfvars` (credential hygiene — no long-lived token in a restart-survivor), but persists it into `<workdir>/tofu.auto.tfvars.json` (mode 0600, on the catalyst-api PVC) so OpenTofu can authenticate the hcloud provider on apply/re-apply/destroy. `tofu destroy` only needs the workdir to still exist.
+
+**Fix**: Document the two paths separately so the credential-hygiene rationale stays visible. The body-supplied token is NOT needed for the tofu pass; it IS needed for the **Hetzner-direct orphan-purge fallback** (label-selector `catalyst-deployment-id=<id>` force-delete of resources tofu never tracked) — that REST call can't read on-disk tfvars. Air-gap caveat: installs with a remote OpenTofu backend break this assumption and MUST configure the backend's auth in Pod-level env vars, not tfvars. (Refs #318)
+
+### 12.7 Renaming a persisted JSON tag silently drops legacy on-disk data
+
+**Symptom**: After renaming a struct's JSON tag (e.g. `json:"batchId"` → `json:"parentId"`), records written before the rename come back with the new field empty — no error, no log line. UI that depends on the field (e.g. canvas parent relationships) renders blank only on deployments provisioned before the rename. Tests miss it because every fixture uses the new shape.
+
+**Root cause**: `encoding/json.Unmarshal` silently ignores any object key with no matching struct tag.
+
+**Fix**: When renaming a persisted JSON tag, add a read-tolerant sibling field carrying the **legacy** tag, hoist it to the new field in `loadIndex` (or equivalent), and strip it before the next persist so the on-disk record becomes canonical. Add a test that hand-writes the legacy shape and asserts the migration. If the new wire shape promises derived data the old records can't supply, synthesize it at read time too — the migration must be invisible to consumers, not just to the unmarshaller. (Refs #351)
+
+### 12.8 Keycloak `CLIENT.DESCRIPTION` is `varchar(255)`
+
+**Symptom**: keycloak-config-cli realm-import Job fails with `PSQLException: value too long for type character varying(255)`, exhausts `backoffLimit`, Helm rolls back bp-keycloak, and **every** HR with `dependsOn: bp-keycloak` stalls `Ready=False` — cluster-wide blast radius from one wordy comment.
+
+**Root cause**: Keycloak's schema caps `public.CLIENT.DESCRIPTION` at `varchar(255)`; the JDBC batch aborts on the first over-length description.
+
+**Fix**: Every `"description":` in `platform/keycloak/chart/templates/configmap-*-realm.yaml` (sovereign-realm, tenant-realm, per-Org-realm) must be ≤255 chars; push rationale into the YAML comment ABOVE the JSON block (unbounded), not the JSON body. Chart test `tests/g117-e2e-realm-client-description-255-cap.sh` re-asserts the cap at render across `clients[]`, `authenticationFlows[]`, `authenticatorConfig[]` and warns >200 to surface drift early. (Refs #2816 #2802 #2827 #1285)
+
+### 12.9 `helm template --show-only` returns the WHOLE multi-doc file
+
+**Symptom**: A chart test extracting `.data["..."]` from a `--show-only templates/foo.yaml` render gets `null\n---\nnull`; the downstream `jq` aborts `parse error: Invalid numeric literal`, the test silently exits non-zero, and the Blueprint Release stops publishing the chart to GHCR — blocking every Sovereign pinned to that (now non-existent) chart version.
+
+**Root cause**: `--show-only` emits **every** document in the file, not just the requested kind. A sibling Secret/ConfigMap with no matching data key pollutes the extraction.
+
+**Fix**: In chart tests always `select(.kind == "<ExpectedKind>")` before extracting `.data["<key>"]`, even when today only one kind renders. And confirm the data key against the actual template (the sovereign-realm key is `sovereign-realm.json`, NOT `realm.json`) — don't guess from sibling tests. (Refs #2816 #2789 #2806 #2817)
+
+### 12.10 `gitea admin auth list --vertical-bars` pads cells with TABS, not spaces
+
+**Symptom**: A `gitea admin auth update-oauth --id "$AUTH_ID"` call aborts with `invalid value "1\t" for flag -id: parse error`; the bp-gitea SSO-configure Job exhausts backoffLimit and rolls back, blocking bp-catalyst-platform / bp-self-sovereign-cutover / bp-sso-bridge / bp-continuum on `dependency 'flux-system/bp-gitea' is not ready`.
+
+**Root cause**: Despite the `|`-separated framing, Gitea left-pads each field with **tabs** to align columns. An awk strip that removes only spaces (`gsub(/ /, "", $1)`) leaves a trailing `\t` in the ID.
+
+**Fix**: When parsing tab-aligned columnar CLI output, use `gsub(/[[:space:]]+/, "", $field)` (strips spaces, tabs, CR in one pass). Chart test `tests/g117-e2e-a1-auth-id-tab-strip.sh` re-asserts the pattern against a representative `--vertical-bars` sample and the live template. (Refs #2816 #2821 #2826)
+
+### 12.11 `sovereign-fqdn` ConfigMap data key is `fqdn`, not `sovereignFqdn`
+
+**Symptom**: bp-sso-bridge reconciler is a silent no-op for days — each tick logs `WARN: sovereign-fqdn ConfigMap missing; skipping tick`; Tier-1 OpenBao `sso/<app>` writes and per-Org realm reconciliation never run; bp-gitea/bp-grafana post-install hooks wait on ExternalSecrets backed by empty OpenBao paths and time out.
+
+**Root cause**: bp-catalyst-platform emits the ConfigMap with literal data key `fqdn`, but the bp-sso-bridge chart default for the key-name env var was `sovereignFqdn` — a one-character contract drift that produced an SSO-stack-wide outage with no obvious blame.
+
+**Fix**: Whenever a chart consumer reads a ConfigMap data key by name, add a cross-chart contract test that pins the consumer's default to the emitter's literal key (`tests/g117-e2e-a1-sovereign-fqdn-key-contract.sh` compares both sides; either-side drift fails CI). Don't trust reviewer attention to catch one silent log line per 6 minutes — it didn't, for a week. (Refs #2816 #2820 #2683)
 
 ---
 
