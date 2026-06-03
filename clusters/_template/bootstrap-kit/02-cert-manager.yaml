@@ -49,7 +49,7 @@ spec:
       # next-private-key informer-cache race that blocks Certificate
       # issuance on HCS provs (verified live hw54 15:07Z). Plus
       # CVE-2025-22871/22870/22872 fixes.
-      version: 1.2.4
+      version: 1.2.5
       sourceRef:
         kind: HelmRepository
         name: bp-cert-manager
