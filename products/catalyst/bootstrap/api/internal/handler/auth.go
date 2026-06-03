@@ -51,9 +51,23 @@ import (
 // ── Constants ────────────────────────────────────────────────────────────────
 
 // pinIssuer — issuer claim stamped into the self-signed session JWT.
-// Matches the public origin of console.openova.io so existing JWT
-// validation remains stable across the magic-link → PIN cutover.
-const pinIssuer = "https://console.openova.io"
+//
+// #2940 (2026-06-03): was `const pinIssuer = "https://console.openova.io"`
+// — a Pillar 5 anti-tether hardcode. A franchised Sovereign post-
+// bp-self-sovereign-cutover (e.g. console.<franchise-fqdn>) still
+// stamped the mothership URL as `iss` claim, so downstream JWT
+// validation rejected the session as foreign-issuer. Now reads from
+// env CATALYST_PIN_ISSUER; falls back to the legacy hardcode for
+// back-compat with pre-#2940 Sovereigns. Per-Sovereign overlays set
+// the env var via the catalystApi.env additional-env patch in the
+// per-Sovereign HelmRelease overlay (dual-mode contract — see
+// chart/templates/api-deployment.yaml line 1267+ for context).
+var pinIssuer = func() string {
+	if v := strings.TrimSpace(os.Getenv("CATALYST_PIN_ISSUER")); v != "" {
+		return v
+	}
+	return "https://console.openova.io"
+}()
 
 // pinSessionRole — role claim stamped into PIN-derived session JWTs.
 // Same value as the previous magic-link role so downstream RBAC
