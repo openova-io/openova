@@ -1,5 +1,36 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.50 (#2951 / #2940 ATTACK#9, 2026-06-03): Step 10 (vcluster-registry-
+# pivot) now ALSO pivots the bp-sso-bridge HelmRelease's
+# `image.repository` HOST from `harbor.openova.io/proxy-dockerhub/alpine/
+# k8s` → `harbor.<SOVEREIGN_FQDN>/proxy-dockerhub/alpine/k8s`. UAT Wave-2
+# ATTACK#9 (#2940) found that a Sovereign which completes cutover STILL
+# pulls the sso-bridge reconciler Pod image from mothership Harbor: the
+# chart default (platform/sso-bridge/chart/values.yaml) points at
+# harbor.openova.io and the 13b-bp-sso-bridge.yaml bootstrap-kit overlay
+# carries NO image override, so the chart default wins on every reconcile
+# — a residual Principle #11 tether. This is the same class of fix Step 10
+# already applies for the THREE bp-*-vcluster HRs, so #2951 folds the
+# sso-bridge image-host pivot into Step 10 (NOT Step 06, whose script only
+# rewrites HelmRepository OCI URLs). Phase-1b live-patches the HR
+# spec.values.image.repository host (preserving the /proxy-dockerhub/
+# alpine/k8s path + tag); Phase-2b injects the same `values.image.
+# repository` override into 13b-bp-sso-bridge.yaml in local Gitea so the
+# bootstrap-kit Kustomization reconcile doesn't revert it. Idempotent:
+# skip-if-not-on-harbor.openova.io on the live patch, sentinel-comment
+# guard on the Gitea injection. No new RBAC (reuses the existing
+# helmreleases update/patch verb). No step count change (still 11 steps).
+# Contract test Case 21 extended with two sso-bridge guard assertions.
+#
+# Scope note (#2951): the issue listed 6 candidate chart-default tethers.
+# Investigation found only sso-bridge is a genuine residual tether — the
+# 3 vClusters are already pivoted by Step 10 (since 0.1.36); powerdns's
+# overlay (11-powerdns.yaml) already sets api.host=pdns.${SOVEREIGN_FQDN};
+# and cert-manager-powerdns-webhook's powerdns.host deliberately targets
+# contabo's central out-of-cluster PowerDNS (pdns.openova.io) for ACME
+# DNS-01 — an intentional external dependency, NOT a mothership tether
+# (rewriting it would break wildcard-cert issuance). Both left untouched.
+#
 # 0.1.49 (G96 Refs #2643, 2026-06-01): retire Step 06 Phase 1.9
 # (kubectl patch cronjob suspend:true). G75 0.1.48 made Step 01
 # finalize DELETE the gitea-mirror-resync cronjob entirely + patch
@@ -363,7 +394,7 @@ name: bp-self-sovereign-cutover
 #
 # RBAC: ClusterRole gains batch.cronjobs {get,list,watch,delete} so
 # Step 01 can DELETE the live resource.
-version: 0.1.49
+version: 0.1.50
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
