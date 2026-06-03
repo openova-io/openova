@@ -72,14 +72,19 @@ spec:
       # 1.3.0 (qa-loop iter-12 Fix #53C+D): adds the Hubble UI HTTPRoute
       # overlay (slice H7 #1095) that the catalystOverlay.hubbleUI block
       # below depends on.
+      # 1.4.0 (G117.5 #2744, 2026-06-03): HUBBLE UI OIDC ENFORCEMENT
+      # SHIPPED. oauth2-proxy sidecar now sits in front of the Hubble UI
+      # Service when auth=oidc, running the OIDC code-flow against the
+      # sovereign realm `hubble-ui` client. This slot's HUBBLE_AUTH
+      # default is flipped `none` → `oidc` below so a fresh prov is
+      # OIDC-gated out of the box (closes the unauthenticated-exposure
+      # hole the 1.3.7 decorative-gate removal left open). Refs #2744.
       # 1.3.7 (G117.5 W3.D1 #2744, 2026-06-02): DECORATIVE-GATE REMOVED
-      # on Hubble UI HTTPRoute. Drops the misleading
-      # `catalyst.openova.io/hubble-ui-auth: oidc` annotation and flips
+      # on Hubble UI HTTPRoute. Dropped the misleading
+      # `catalyst.openova.io/hubble-ui-auth: oidc` annotation and flipped
       # default `catalystOverlay.hubbleUI.auth` from `oidc` → `none`
-      # (no enforcement filter ever shipped). Operators MUST consciously
-      # accept unauthenticated exposure until the planned oauth2-proxy
-      # sidecar Wave lands. Refs #2744.
-      version: 1.3.7
+      # (no enforcement filter shipped yet). Refs #2744.
+      version: 1.4.0
       sourceRef:
         kind: HelmRepository
         name: bp-cilium
@@ -338,13 +343,17 @@ spec:
           # cilium-gateway/kube-system; this overlay matches.
           name: cilium-gateway
           namespace: kube-system
-        # `none` until the Keycloak `hubble-ui` OIDC client is wired by
-        # bp-keycloak realm-config; flip to `oidc` per per-Sovereign
-        # overlay once that lands. Until then Hubble UI is publicly
-        # reachable — acceptable for the in-progress qa-loop iter-16
-        # observability slice; lock down before production handover via
-        # HUBBLE_AUTH=oidc.
-        auth: ${HUBBLE_AUTH:=none}
+        # G117.5 #2744 (2026-06-03): default flipped `none` → `oidc` now
+        # that bp-cilium 1.4.0 ships the oauth2-proxy enforcement sidecar
+        # AND bp-keycloak's sovereign realm-import codifies the
+        # `hubble-ui` OIDC client (redirect /oauth2/callback). With
+        # auth=oidc the chart renders the oauth2-proxy Deployment+Service
+        # +Secret and the HTTPRoute targets the proxy, so Hubble UI is
+        # OIDC-gated out of the box — silent SSO via the sovereign realm
+        # IDR defaultProvider=catalyst-pin (G113 #2725). Operators who
+        # explicitly want the legacy UNAUTHENTICATED exposure set
+        # HUBBLE_AUTH=none.
+        auth: ${HUBBLE_AUTH:=oidc}
         serviceRef:
           name: hubble-ui
           namespace: kube-system

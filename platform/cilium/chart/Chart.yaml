@@ -1,5 +1,19 @@
 apiVersion: v2
 name: bp-cilium
+# 1.4.0 (G117.5 #2744, 2026-06-03): HUBBLE UI OIDC ENFORCEMENT SHIPPED.
+# Closes the Tier-2 SSO gap the 1.3.7 changelog deferred. New templates
+# hubble-ui-oauth2-proxy-{deployment,service,secret}.yaml render an
+# oauth2-proxy sidecar (quay.io/oauth2-proxy v7.6.0) when
+# `catalystOverlay.hubbleUI.auth: oidc`; the HTTPRoute then targets the
+# proxy Service (port 80 → :4180) so all public Hubble UI traffic runs
+# the OIDC code-flow against the sovereign realm `hubble-ui` client
+# (silent via realm IDR defaultProvider=catalyst-pin, G113 #2725). The
+# chart-managed Secret follows the bp-guacamole credential-persistence
+# pattern (lookup-or-generate + helm.sh/resource-policy: keep); set
+# oauth2Proxy.chartManagedSecret=false to BYO ExternalSecret. Default
+# `auth: none` unchanged — operators opt in via the bootstrap-kit
+# overlay. Minor bump: additive feature, no default behavior change. Refs
+# #2744.
 # 1.3.7 (G117.5 W3.D1 #2744, 2026-06-02): DECORATIVE-GATE REMOVED on
 # the Hubble UI HTTPRoute overlay. The pre-fix chart emitted a
 # `catalyst.openova.io/hubble-ui-auth: oidc` annotation read from
@@ -59,7 +73,7 @@ name: bp-cilium
 # + socketLB.hostNamespaceOnly=true defaults so fresh worker pods can
 # resolve DNS reliably on first-join (cilium/cilium#28456 mitigation).
 # Backward-compat: per-Sovereign overlays MAY override either knob.
-version: 1.3.7
+version: 1.4.0
 description: |
   Catalyst-curated Blueprint umbrella chart for Cilium. Depends on the
   upstream `cilium` chart as a Helm subchart so `helm dependency build`

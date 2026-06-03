@@ -321,13 +321,22 @@ catalystOverlay:
     # path until the oauth2-proxy sidecar lands (Aux-2 audit step 1, in
     # a follow-up Wave).
     #
-    # When the oauth2-proxy sidecar ships:
-    #   - this knob will gain meaning (`oidc` → wire the sidecar in
-    #     front of hubble-ui Service; `none` → direct proxy to
-    #     hubble-ui:80 as today).
-    #   - the bp-keycloak 1.4.13 sovereign realm-import already
-    #     codifies the `hubble-ui` OIDC client (no-op until the sidecar
-    #     lands; pre-declaration avoids a future bp-sso-bridge race).
+    # G117.5 #2744 (2026-06-03) — ENFORCEMENT SHIPPED. The oauth2-proxy
+    # sidecar (templates/hubble-ui-oauth2-proxy-{deployment,service,
+    # secret}.yaml) now gives this knob real meaning:
+    #   - `oidc`  → render the oauth2-proxy Deployment + Service + Secret
+    #     and point the HTTPRoute at the proxy (port 80 → :4180). All
+    #     public Hubble UI traffic is OIDC-authenticated against the
+    #     sovereign realm `hubble-ui` client (silent via realm IDR
+    #     defaultProvider=catalyst-pin, G113 #2725).
+    #   - `none` → HTTPRoute targets the upstream hubble-ui Service
+    #     directly (UNAUTHENTICATED — operator consciously accepts this).
+    # Default stays `none` so an upgrade never silently introduces a new
+    # Deployment without operator intent; per-Sovereign overlays flip to
+    # `oidc` (see clusters/_template/bootstrap-kit/01-cilium.yaml) plus
+    # forward sovereignFQDN so the proxy can build the OIDC issuer URL.
+    # The bp-keycloak sovereign realm-import already codifies the
+    # `hubble-ui` OIDC client + redirect URI /oauth2/callback.
     auth: none
     # Hubble UI Service ref. The bp-cilium HelmRelease installs Cilium
     # into kube-system (clusters/_template/bootstrap-kit/01-cilium.yaml
@@ -339,3 +348,25 @@ catalystOverlay:
       name: hubble-ui
       namespace: kube-system
       port: 80
+    # G117.5 #2744 — oauth2-proxy sidecar config (only consumed when
+    # auth=oidc). Renders into the same namespace as serviceRef.
+    oauth2Proxy:
+      # When true (default), the chart manages the OIDC client-secret +
+      # cookie-secret Secret via lookup-or-generate (see
+      # templates/hubble-ui-oauth2-proxy-secret.yaml). Set false to bring
+      # your own Secret named by `existingSecret` (keys: client-secret,
+      # cookie-secret) — e.g. an ExternalSecret synced by bp-sso-bridge.
+      chartManagedSecret: true
+      existingSecret: hubble-ui-oauth2-proxy-sso
+      replicas: 1
+      image:
+        repository: quay.io/oauth2-proxy/oauth2-proxy
+        tag: v7.6.0
+        pullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          cpu: 100m
+          memory: 64Mi

@@ -40,32 +40,35 @@ exposing Hubble UI via this overlay did so UNAUTHENTICATED. The
 `none` while emitting an identical traffic-routing spec — pure
 security theater.
 
-POST-FIX STATE (this PR)
-------------------------
-The misleading annotation is dropped from this template. The default
-of `.Values.catalystOverlay.hubbleUI.auth` flips `oidc` → `none` in
-values.yaml, with an updated comment that explicitly says no
-enforcement layer ships today and points operators at the Aux-2 audit
-doc for the planned oauth2-proxy sidecar work.
+POST-FIX STATE (G117.5 W3.D1, this template)
+--------------------------------------------
+The misleading annotation was dropped and the default of
+`.Values.catalystOverlay.hubbleUI.auth` flipped `oidc` → `none`.
 
-A future Wave wires oauth2-proxy in front of the Hubble UI Service per
-Aux-2 audit step 1. The bp-keycloak 1.4.13 sovereign realm-import
-already codifies the `hubble-ui` OIDC client (no-op until the sidecar
-lands) so when the sidecar ships there is zero realm-side ordering
-risk.
-
-OPERATOR-FACING CONSEQUENCE
----------------------------
-If a Sovereign overlay sets `catalystOverlay.hubbleUI.enabled: true`
-AND keeps the upstream Cilium values `cilium.hubble.ui.enabled: true`
-the Hubble UI is publicly exposed UNAUTHENTICATED. The chart now makes
-this explicit via the `auth: none` default + this comment, instead of
-implying OIDC enforcement that does not exist.
+ENFORCEMENT SHIPPED (G117.5 #2744, this Wave)
+---------------------------------------------
+The oauth2-proxy sidecar (hubble-ui-oauth2-proxy-deployment.yaml +
+-service.yaml + -secret.yaml) now provides real OIDC enforcement in
+front of Hubble UI. When `auth: oidc`, this HTTPRoute targets the
+`hubble-ui-oauth2-proxy` Service (port 80 → proxy :4180) so every
+public request transits oauth2-proxy and runs the OIDC code-flow
+against the sovereign realm's `hubble-ui` client (pre-declared in
+bp-keycloak's realm-import) — silent via the realm IDR
+defaultProvider=catalyst-pin (G113 #2725). When `auth: none` (chart
+default) the route goes straight to the upstream hubble-ui Service as
+before, exposing it UNAUTHENTICATED — operators must consciously opt in
+to that by keeping `auth: none`.
 */}}
 {{- $ov := .Values.catalystOverlay.hubbleUI -}}
 {{- $hostname := $ov.hostname -}}
 {{- if and (not $hostname) $ov.sovereignFQDN -}}
 {{- $hostname = printf "hubble.%s" $ov.sovereignFQDN -}}
+{{- end -}}
+{{- $backendName := $ov.serviceRef.name -}}
+{{- $backendPort := $ov.serviceRef.port -}}
+{{- if eq $ov.auth "oidc" -}}
+{{- $backendName = "hubble-ui-oauth2-proxy" -}}
+{{- $backendPort = 80 -}}
 {{- end -}}
 {{- if and $ov.enabled $hostname -}}
 apiVersion: gateway.networking.k8s.io/v1
@@ -90,6 +93,6 @@ spec:
             type: PathPrefix
             value: /
       backendRefs:
-        - name: {{ $ov.serviceRef.name | quote }}
-          port: {{ $ov.serviceRef.port }}
+        - name: {{ $backendName | quote }}
+          port: {{ $backendPort }}
 {{- end -}}
