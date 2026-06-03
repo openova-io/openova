@@ -327,6 +327,16 @@ slots:
     # at HelmRelease apply time — no in-cluster prerequisite Blueprint.
     depends_on: []
     wave: W2.K3
+  - slot: 34a
+    name: bp-velero-hcs
+    # Wave 6 follow-up to PR #2846/#2847 (2026-06-02). HCS-native Velero
+    # variant — provider-keyed via HUAWEI_HR_SUSPEND substitute, defaults
+    # to suspended on Hetzner (where slot 34 is active) and active on
+    # Huawei (where slot 34's bp-velero is suspended via HCLOUD_HR_SUSPEND).
+    # Writes to Huawei OBS via S3-compatible endpoint per ADR-0001 §13.
+    # No dependsOn — same S3-aware-app pattern as bp-velero.
+    depends_on: []
+    wave: W2.K3
 
   # ---- Tier 8 + 9: edge + apps + AI runtime (W2.K4, slots 35-48) ------------
   - slot: 35
