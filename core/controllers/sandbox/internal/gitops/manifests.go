@@ -250,6 +250,23 @@ rules:
   - apiGroups: ["batch"]
     resources: ["jobs", "cronjobs"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # #2929 (2026-06-03): Pillar 4 — "full org knowledge" RBAC. The MCP
+  # server's k8s.read.* tools need to surface Application + Environment +
+  # Organization CRs in the Org's namespace for the user's AI assistant
+  # to answer queries like "what's deployed in this Org?". UAT Wave-1
+  # Pillar 4 verifier flagged: without these rules, k8s.read.list returns
+  # HTTP 403 for any Catalyst CR group, structurally breaking the
+  # "Sandbox + AI assistant w/ org knowledge" business capability.
+  # Read-only verbs only — Sandbox SA must NOT mutate Catalyst CRs.
+  - apiGroups: ["apps.openova.io"]
+    resources: ["applications"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["catalyst.openova.io"]
+    resources: ["environments", "blueprints"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["orgs.openova.io"]
+    resources: ["organizations"]
+    verbs: ["get", "list", "watch"]
 `
 
 const roleBindingTemplate = `apiVersion: rbac.authorization.k8s.io/v1
