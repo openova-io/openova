@@ -918,6 +918,24 @@ func (h *Handler) AdminUpsertPromo(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusBadRequest, "code and credit_omr are required")
 		return
 	}
+	// #2941 (2026-06-03): minimum-entropy validation. An operator
+	// issuing a 4-char code like "ACME" allows brute-force across
+	// ~456K combinations via the unauthenticated /redeem-preview
+	// endpoint. Enforce minimum 16 chars + alphanumeric so the
+	// search-space is at least 36^16 ≈ 8e24. Existing redemptions
+	// of pre-#2941 short codes continue to work; this only gates
+	// NEW codes at the admin-upsert boundary.
+	const minPromoCodeLength = 16
+	if len(p.Code) < minPromoCodeLength {
+		respond.Error(w, http.StatusBadRequest, fmt.Sprintf("code must be at least %d characters (anti-bruteforce)", minPromoCodeLength))
+		return
+	}
+	for _, r := range p.Code {
+		if !((r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_') {
+			respond.Error(w, http.StatusBadRequest, "code must contain only alphanumeric characters, '-', or '_'")
+			return
+		}
+	}
 	if err := h.Store.UpsertPromoCode(r.Context(), &p); err != nil {
 		respond.Error(w, http.StatusInternalServerError, "failed to save promo")
 		return
