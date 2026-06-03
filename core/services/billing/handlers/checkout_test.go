@@ -410,3 +410,31 @@ func TestCheckout_VoucherPartialCover_StripeConfigured_DoesNotRollback(t *testin
 	// requiring stripe-go to be mocked at this layer.
 	t.Skip("documented contract — covered by store-level + 503-path tests above")
 }
+
+// TestCheckoutRateLimiter_2941 — locks the per-customer rate-limit
+// contract from #2941. Same userID firing 6 quick checkouts gets the
+// 6th rejected with TooManyRequests. Different userIDs are independent.
+func TestCheckoutRateLimiter_2941(t *testing.T) {
+	rl := &checkoutRateLimiter{
+		buckets: make(map[string]*checkoutBucket),
+		max:     5,
+		window:  60 * time.Second,
+	}
+	for i := 0; i < 5; i++ {
+		if !rl.Allow("user-A") {
+			t.Fatalf("request %d for user-A should be allowed (under cap)", i+1)
+		}
+	}
+	// 6th request must be rejected.
+	if rl.Allow("user-A") {
+		t.Errorf("6th request for user-A should be REJECTED (over cap)")
+	}
+	// Different user — independent bucket, should pass.
+	if !rl.Allow("user-B") {
+		t.Errorf("user-B should be allowed (independent bucket)")
+	}
+	// Empty userID — should pass (auth middleware handles 401).
+	if !rl.Allow("") {
+		t.Errorf("empty userID should pass through (handled by auth layer)")
+	}
+}
