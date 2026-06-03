@@ -181,7 +181,11 @@ slots:
   # ---- Tier 5: storage + DB (W2.K1, slots 15-19) ----------------------------
   - slot: 15
     name: bp-external-secrets
-    depends_on: [bp-openbao, bp-cert-manager]
+    # MUST NOT dependOn bp-openbao (#2985/#2986): openbao ships an ExternalSecret
+    # needing THIS HR's CRD, so depending on openbao deadlocks the fresh-prov
+    # cascade. The ESO controller needs only cert-manager (webhook TLS); the
+    # openbao-backed SecretStore binding lives on bp-external-secrets-stores (15a).
+    depends_on: [bp-cert-manager]
     wave: W2.K1
   - slot: 15a
     name: bp-external-secrets-stores
