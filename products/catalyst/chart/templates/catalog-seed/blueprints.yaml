@@ -665,6 +665,48 @@ spec:
     url: oci://ghcr.io/openova-io
     chart: bp-clickhouse
     version: 1.0.0
+  # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): lockstep with
+  # platform/clickhouse/blueprint.yaml. active-active multi-region.
+  # ssoEnabled=false (private analytics endpoint, no UI launch).
+  topology:
+    supported:
+      - active-active
+      - singleton
+    defaults:
+      multi-region: active-active
+      single-region: singleton
+    perTopology:
+      active-active:
+        replication:
+          backend: none
+          mode: async
+        switchover:
+          mechanism: none
+        placement:
+          tier: rtz
+          clusters: [rtz-A, rtz-B]
+          roles:
+            rtz-A: active
+            rtz-B: active
+      singleton:
+        placement:
+          tier: rtz
+          clusters: [rtz-A]
+          roles:
+            rtz-A: singleton
+  endpoints:
+    - name: http
+      hostnameTemplate: "clickhouse.{{ "{{" }}.OrgSlug{{ "}}" }}.{{ "{{" }}.SovereignFQDN{{ "}}" }}"
+      port: 8443
+      protocol: https
+      tls: true
+      visibility: private
+      launchDefault: false
+      ssoEnabled: false
+  multiInstance:
+    enabled: true
+    maxPerOrg: 5
+    namingTemplate: "{{ "{{" }}.AppName{{ "}}" }}-{{ "{{" }}.InstanceID{{ "}}" }}"
   configSchema:
     type: object
     properties:
