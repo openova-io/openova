@@ -552,6 +552,16 @@ write_files:
             # defaulted to instances=1 despite multi-region intent. Hetzner
             # template missed it too; this fix lockstep-adds.
             SOVEREIGN_CNPG_INSTANCES: "${sovereign_cnpg_instances}"
+            # #2922 (2026-06-03): auto-enable bp-continuum (slot 62) on
+            # multi-region Sovereigns so the DR orchestrator + Continuum
+            # CR ship live by default. Single-region keeps `false` (the
+            # admission gate at catalyst-api Validate() already rejects
+            # bcpTopology=active-hot-standby + len(regions)<2). Closes
+            # #2840 acceptance criterion #3 on the substrate side; the
+            # bp-continuum chart's prerequisite guard (PR-B of #2922,
+            # still pending) protects against operator-overlay flips
+            # without bp-cnpg-pair installed.
+            CONTINUUM_ENABLED: "${continuum_enabled}"
             CLUSTER_MESH_NAME: "${cluster_mesh_name}"
             CLUSTER_MESH_ID: "${cluster_mesh_id}"
             # 2026-05-15 DoD A3 wiring: bp-cilium chart defaults
