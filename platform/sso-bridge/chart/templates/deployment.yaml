@@ -77,6 +77,31 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.keycloak.credentialsSecretName }}
                   key: client-secret
+            # G117.5-followup #2914 (2026-06-03): master-realm admin
+            # credentials for POST /admin/realms in provision_org_realm.
+            # optional: true on each — chart-side stub Secret may be
+            # empty until reflector back-fills from bp-keycloak 1.4.18+.
+            # The reconciler's mint_kc_master_admin_token() returns
+            # non-zero if any are blank, logs a clear warn, and the tick
+            # skips per-Org realm provisioning gracefully.
+            - name: KC_MASTER_REALM
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.keycloak.masterAdminCredentialsSecretName }}
+                  key: master-realm
+                  optional: true
+            - name: KC_MASTER_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.keycloak.masterAdminCredentialsSecretName }}
+                  key: master-realm-admin-user
+                  optional: true
+            - name: KC_MASTER_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.keycloak.masterAdminCredentialsSecretName }}
+                  key: master-realm-admin-password
+                  optional: true
             - name: OPENBAO_ADDR
               value: {{ .Values.openbao.addr | quote }}
             - name: OPENBAO_KV_MOUNT

@@ -124,6 +124,35 @@ data:
       fi
     }
 
+    # G117.5-followup #2914 (2026-06-03): mint a MASTER-realm token via
+    # grant_type=password against /realms/master/...token using the
+    # bitnami-generated admin user credentials. Called by
+    # provision_org_realm before any POST /admin/realms. Returns 1 if
+    # any of the master credentials is unset (defensive: chart-side stub
+    # may be empty before reflector back-fills from bp-keycloak 1.4.18+).
+    # The admin-cli client is bootstrap-created by KC at master realm
+    # init and has directAccessGrantsEnabled=true by default, so no
+    # extra client config is required. Uses scope=openid to fetch a
+    # minimal token (we only need realms admin permission).
+    mint_kc_master_admin_token() {
+      if [ -z "${KC_MASTER_REALM:-}" ] || [ -z "${KC_MASTER_ADMIN_USER:-}" ] || [ -z "${KC_MASTER_ADMIN_PASSWORD:-}" ]; then
+        warn "KC master admin credentials unset (KC_MASTER_REALM/USER/PASSWORD) — reflector may not have mirrored bp-keycloak's catalyst-kc-master-admin-credentials yet"
+        return 1
+      fi
+      KC_MASTER_ADMIN_TOKEN="$(curl -fsS \
+        -X POST "${KC_ADDR%/}/realms/${KC_MASTER_REALM}/protocol/openid-connect/token" \
+        -H "Content-Type: application/x-www-form-urlencoded" \
+        -d "grant_type=password" \
+        -d "client_id=admin-cli" \
+        -d "username=${KC_MASTER_ADMIN_USER}" \
+        -d "password=${KC_MASTER_ADMIN_PASSWORD}" \
+        | jq -r '.access_token // empty')"
+      if [ -z "${KC_MASTER_ADMIN_TOKEN}" ]; then
+        err "failed to mint Keycloak master admin token"
+        return 1
+      fi
+    }
+
     openbao_login() {
       local sa_token
       sa_token="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)"
@@ -522,8 +551,24 @@ data:
 
       # ── Step 1: ensure the Org realm exists in KC. ──────────────────
       local realm_check
+      # G117.5-followup #2914 (2026-06-03): POST /admin/realms is a
+      # master-realm operation requiring the `create-realm` role from
+      # master.realm-management. The sovereign-realm SA token bound to
+      # KC_ADMIN_TOKEN lacks this role (sovereign realm has its own
+      # realm-management client, not master's) → KC returns 403 on
+      # every realm-creation attempt. Mint a SEPARATE token via
+      # grant_type=password against /realms/master/ using the bitnami
+      # admin user credentials (mirrored via catalyst-kc-master-admin-
+      # credentials Secret from bp-keycloak 1.4.18+). When the master
+      # credentials Secret is unfilled (first install before reflector
+      # back-fills) the token mint fails gracefully — provision_org_realm
+      # returns 1 and the next tick retries once the Secret materialises.
+      if ! mint_kc_master_admin_token; then
+        warn "per-org-realm[${slug}]: KC master admin token unavailable; skipping (will retry next tick)"
+        return 1
+      fi
       realm_check="$(curl -sS -o /dev/null -w '%{http_code}' \
-        -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
+        -H "Authorization: Bearer ${KC_MASTER_ADMIN_TOKEN}" \
         "${KC_ADDR%/}/admin/realms/${slug}" || echo 000)"
       if [ "${realm_check}" = "200" ]; then
         log "per-org-realm[${slug}]: already exists; skipping realm POST"
@@ -531,7 +576,7 @@ data:
         local realm_post
         printf '%s' "${realm_json}" > "/tmp/${slug}-realm.json"
         realm_post="$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
-          -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
+          -H "Authorization: Bearer ${KC_MASTER_ADMIN_TOKEN}" \
           -H "Content-Type: application/json" \
           --data-binary "@/tmp/${slug}-realm.json" \
           "${KC_ADDR%/}/admin/realms" || echo 000)"

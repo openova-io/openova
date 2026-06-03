@@ -1,5 +1,16 @@
 apiVersion: v2
 name: bp-keycloak
+# 1.4.18 (G117.5-followup #2914, 2026-06-03): emit
+# catalyst-kc-master-admin-credentials Secret carrying the bitnami-
+# generated master-realm `admin` user creds (looked up from the
+# bitnami `keycloak` Secret) so bp-sso-bridge can mint a master-realm
+# token via grant_type=password and call POST /admin/realms for
+# per-Org realm provisioning. The existing catalyst-kc-sa-credentials
+# Secret is sovereign-realm-scoped and cannot create realms (master-
+# realm-only `create-realm` role). Both Secrets carry matching
+# reflector annotations so sso-bridge's stub mirrors auto-fill.
+# Operator overrides via .Values.keycloakAdminPasswordOverride.
+# Pairs with bp-sso-bridge 0.2.8 dual-token mint. Refs #2914 #2744.
 # 1.4.17 (G117.5c #2744 H21, 2026-06-03): extend
 # catalyst-kc-sa-credentials reflector whitelist to include `sso-bridge`
 # namespace alongside the existing `catalyst-system` entry. The source
@@ -152,7 +163,7 @@ name: bp-keycloak
 # sectionName by default — multi-zone Sovereigns rename HTTPS listeners
 # to https-<sanitised-zone>, breaking NoMatchingListener with the prior
 # pinned sectionName: https. Matches the catalyst-system fix in PR #1888.
-version: 1.4.17
+version: 1.4.18
 description: |
   Catalyst-curated Blueprint umbrella chart for Keycloak. Depends on the
   upstream `keycloak` chart (bitnami) as a Helm subchart so

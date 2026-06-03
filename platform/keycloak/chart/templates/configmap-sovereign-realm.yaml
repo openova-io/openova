@@ -919,4 +919,57 @@ stringData:
   realm: {{ $realmName | quote }}
   client-id: "catalyst-api-server"
   client-secret: {{ $saSecret | quote }}
+---
+{{- /* ── catalyst-kc-master-admin-credentials Secret (G117.5-followup #2914, 2026-06-03) ─
+       The sovereign-realm catalyst-api-server SA (above) cannot call
+       POST /admin/realms because `create-realm` is a master-realm role.
+       This Secret carries the bitnami-generated master `admin` user
+       credentials (looked up from the bitnami `keycloak` Secret in the
+       same ns) so bp-sso-bridge can mint a master-realm token via
+       grant_type=password against /realms/master/.../token and create
+       per-Org realms. Mirrored to sso-bridge ns via reflector.
+
+       Helm lookup pattern: on first install (Secret not yet present)
+       this template emits an empty stringData.master-realm-admin-password
+       — the bp-sso-bridge reconciler logs "KC master password unset" and
+       sleeps the tick; reflector picks up the bitnami Secret on the
+       NEXT reconcile after bp-keycloak Ready and back-fills our Secret
+       via the upgrade path. Operator overrides via
+       .Values.keycloakAdminPasswordOverride (sealed-secret replication).
+*/}}
+{{- $masterAdminUser := default "admin" .Values.keycloak.auth.adminUser -}}
+{{- $masterAdminPassword := "" -}}
+{{- if .Values.keycloakAdminPasswordOverride -}}
+  {{- $masterAdminPassword = .Values.keycloakAdminPasswordOverride -}}
+{{- else -}}
+  {{- $bitnamiAdmin := lookup "v1" "Secret" .Release.Namespace "keycloak" -}}
+  {{- if $bitnamiAdmin -}}
+    {{- $masterAdminPassword = index $bitnamiAdmin.data "admin-password" | b64dec -}}
+  {{- end -}}
+{{- end -}}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: catalyst-kc-master-admin-credentials
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-keycloak
+    catalyst.openova.io/component: catalyst-master-admin-credentials
+  annotations:
+    catalyst.openova.io/comment: |
+      Master-realm admin credentials used by bp-sso-bridge for the
+      POST /admin/realms call in provision_org_realm. Closes #2914.
+      First-install: empty until bitnami subchart's admin-password
+      Secret reconciles; reflector then back-fills the mirrored stub
+      in sso-bridge ns on the next interval.
+    reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+    reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "sso-bridge"
+    reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+    reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "sso-bridge"
+type: Opaque
+stringData:
+  addr: {{ $kcAddr | quote }}
+  master-realm: "master"
+  master-realm-admin-user: {{ $masterAdminUser | quote }}
+  master-realm-admin-password: {{ $masterAdminPassword | quote }}
 {{- end }}

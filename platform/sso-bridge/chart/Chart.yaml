@@ -1,6 +1,29 @@
 apiVersion: v2
 name: bp-sso-bridge
-version: 0.2.7
+version: 0.2.8
+# 0.2.8 (G117.5-followup #2914, 2026-06-03): dual-token KC mint —
+# sovereign-realm SA token for in-realm operations + new master-realm
+# admin token for POST /admin/realms (per-Org realm provisioning).
+# The sovereign-realm SA cannot create realms because `create-realm`
+# is a master-realm-only role. Pre-fix: provision_org_realm POSTed
+# with the sovereign SA token → HTTP 403 → per-Org realms never
+# materialised → 2-hop SSO federation undemoable.
+#
+# Implementation:
+#   - New env vars KC_MASTER_REALM / KC_MASTER_ADMIN_USER /
+#     KC_MASTER_ADMIN_PASSWORD sourced from
+#     catalyst-kc-master-admin-credentials Secret (emitted by
+#     bp-keycloak 1.4.18+, mirrored into sso-bridge ns by reflector,
+#     `optional: true` on each env so first-install before mirror
+#     fills doesn't crash the Pod).
+#   - New `mint_kc_master_admin_token()` shell fn uses
+#     grant_type=password against /realms/master/.../token with the
+#     bitnami `admin` user creds (admin-cli client has
+#     directAccessGrantsEnabled=true by default).
+#   - provision_org_realm calls mint_kc_master_admin_token before
+#     POST /admin/realms; if master creds unfilled (reflector hasn't
+#     mirrored yet), tick skips gracefully + retries next iteration.
+# Refs #2914 #2744.
 # 0.2.7 (#2861 RCA, 2026-06-03): fix Cilium identity-mismatch on the
 # kube-apiserver egress rule. The chart shipped `ipBlock: 0.0.0.0/0`
 # for kube-API egress, which Cilium translates into the

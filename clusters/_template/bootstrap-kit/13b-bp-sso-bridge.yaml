@@ -67,6 +67,14 @@ spec:
   chart:
     spec:
       chart: bp-sso-bridge
+      # 0.2.8 (G117.5-followup #2914, 2026-06-03): dual-token KC mint —
+      # adds master-realm token via grant_type=password against
+      # /realms/master/...token using bitnami-generated admin user creds
+      # (mirrored from bp-keycloak 1.4.18+'s catalyst-kc-master-admin-
+      # credentials Secret via reflector). Unblocks per-Org realm
+      # provisioning (POST /admin/realms previously 403'd because
+      # sovereign-realm SA lacks master-realm create-realm role).
+      # Refs #2914 #2744.
       # 0.2.7 (#2861 RCA, 2026-06-03): fix Cilium `reserved:world` vs
       # `reserved:kube-apiserver` identity mismatch on the kube-API
       # egress rule. `ipBlock 0.0.0.0/0` excluded the apiserver
@@ -99,7 +107,7 @@ spec:
       # 0.1.1 (G91-fu, Refs #2659, edc55c08 PR #2676): adds realm-role
       # grant + skipClientUpsert opt-out for charts whose Keycloak Client
       # is realm-imported at bp-keycloak install time (catalyst-ui etc.).
-      version: 0.2.7
+      version: 0.2.8
       sourceRef:
         kind: HelmRepository
         name: bp-sso-bridge
