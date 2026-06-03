@@ -52,14 +52,36 @@ spec:
           port: 53
     # Kubernetes API — reconciler lists HRs cluster-wide + writes
     # ExternalSecret CRs into each app's namespace.
+    #
+    # 0.2.7 (#2861 RCA, 2026-06-03): Cilium translates `ipBlock 0.0.0.0/0`
+    # into the `reserved:world` identity, which EXCLUDES the special
+    # `reserved:kube-apiserver` identity. Result: every egress to
+    # kube-apiserver (10.96.0.1:443 → kube-api Pod :6443) was dropped
+    # with `Policy denied identity 15466798->kube-apiserver`. DNS worked
+    # because the kube-dns rule uses namespaceSelector, not ipBlock.
+    # Fix: select the kube-apiserver Pod directly via its k3s/kubeadm
+    # labels in the `default` namespace; keep a broad namespaceSelector
+    # fallback for cross-namespace ExternalSecret CR writes (which hit
+    # the apiserver Service IP too but resolve through cluster-internal
+    # identities the broad selector covers).
     - to:
-        - ipBlock:
-            cidr: 0.0.0.0/0
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: default
+          podSelector:
+            matchLabels:
+              component: apiserver
+              provider: kubernetes
+      ports:
+        - protocol: TCP
+          port: 6443
+        - protocol: TCP
+          port: 443
+    - to:
+        - namespaceSelector: {}
       ports:
         - protocol: TCP
           port: 443
-        - protocol: TCP
-          port: 6443
     # Keycloak admin endpoint — same namespace selector as
     # bp-keycloak's NetworkPolicy ingress allow-list. Per-Sovereign
     # overlays MAY rewrite the namespace if bp-keycloak is relocated

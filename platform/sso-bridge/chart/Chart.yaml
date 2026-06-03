@@ -1,6 +1,29 @@
 apiVersion: v2
 name: bp-sso-bridge
-version: 0.2.6
+version: 0.2.7
+# 0.2.7 (#2861 RCA, 2026-06-03): fix Cilium identity-mismatch on the
+# kube-apiserver egress rule. The chart shipped `ipBlock: 0.0.0.0/0`
+# for kube-API egress, which Cilium translates into the
+# `reserved:world` identity. `reserved:world` EXCLUDES the special
+# `reserved:kube-apiserver` identity assigned to in-cluster
+# kube-apiserver Pods → every reconciler tick that called
+# `kubectl get cm sovereign-fqdn` got `Policy denied identity
+# 15466798->kube-apiserver` at the Cilium datapath. DNS still
+# worked because the kube-dns rule uses namespaceSelector
+# (identity-resolved through pod-labels, not ipBlock).
+#
+# Symptom on hw86: bp-sso-bridge logged `skipping tick` every 6
+# minutes from 01:33Z onward; per-Org realm provisioning stalled;
+# 4 prior containment attempts (cilium-agent restart, Pod restart,
+# cordon+reschedule, delete CNP) did not help because none of them
+# changed the NetworkPolicy rule that produced the verdict.
+#
+# Fix: replace the `ipBlock 0.0.0.0/0` rule with two narrower rules:
+#   (a) explicit `default/component=apiserver,provider=kubernetes`
+#       podSelector on ports 6443 + 443 (k3s + kubeadm Pod labels);
+#   (b) namespaceSelector: {} on port 443 to keep ExternalSecret CR
+#       writes flowing to per-app namespaces.
+# Pure template change; no values-default change. Refs #2861 #2744.
 # 0.2.6 (#2744 H8 walk, 2026-06-03): fix Cilium egress NetworkPolicy
 # port mismatch that silently broke ALL per-Org realm provisioning
 # for 24h+. The reconciler curl'd keycloak.keycloak.svc:80 (Service
