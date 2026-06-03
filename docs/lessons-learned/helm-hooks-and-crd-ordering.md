@@ -1,3 +1,5 @@
+> NOTE (2026-06-03): pending migration into docs/RUNBOOKS.md §3 (Blueprint/chart authoring) per lean-doc strategy.
+
 # Helm hooks + CRD ordering
 
 Operational lessons about Helm post-install/pre-install hook behavior in charts that wrap an upstream subchart which registers CRDs.

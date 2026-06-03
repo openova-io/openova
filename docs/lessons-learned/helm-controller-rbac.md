@@ -1,3 +1,5 @@
+> NOTE (2026-06-03): pending migration into docs/RUNBOOKS.md §7 (troubleshooting) per lean-doc strategy.
+
 # helm-controller RBAC + parse behavior
 
 Lessons about Flux helm-controller (v1.1.0) operational quirks discovered while bringing up Sovereign-1 (otech.omani.works).

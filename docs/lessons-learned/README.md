@@ -1,3 +1,5 @@
+> NOTE (2026-06-03): this whole subdir is pending migration into docs/RUNBOOKS.md (§3 chart authoring + §7 troubleshooting) per lean-doc strategy. The entries below are genuinely-unique operational debugging knowledge not yet duplicated in the canonical 7 docs — fold them in, then archive this subdir.
+
 # Lessons Learned
 
 Operational knowledge discovered during platform development. Platform/infrastructure behaviors that exist regardless of our code; non-obvious config or behavior found during debugging; patterns that would bite the next contributor.
