@@ -410,3 +410,90 @@ func TestGetDeployment_LiftsHandoverFieldsToTopLevel(t *testing.T) {
 		t.Errorf("handoverFiredAt missing at top level: %v", got)
 	}
 }
+
+// TestMarkPhase1Done_TimeoutNeverFlipsReady is the regression lock for
+// issue #3018, caught live on hw91 (2026-06-03): a watch that hit its
+// WatchTimeout with zero hard-FAILED but N still-converging components
+// fell through markPhase1Done's default branch and flipped Status to
+// "ready" — the deployment record claimed ready at 39/54 HelmReleases
+// while the console was TCP-closed. A timeout is NOT convergence;
+// "ready" must be granted ONLY by an explicit OutcomeReady.
+func TestMarkPhase1Done_TimeoutNeverFlipsReady(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+
+	dep := &Deployment{
+		ID:        "phase1-timeout-not-ready",
+		Status:    "phase1-watching",
+		StartedAt: time.Now(),
+		eventsCh:  make(chan provisioner.Event, 256),
+		done:      make(chan struct{}),
+		Request: provisioner.Request{
+			SovereignFQDN: "otech-test.example.com",
+			OrgEmail:      "operator@test.example.com",
+		},
+		Result: &provisioner.Result{
+			SovereignFQDN: "otech-test.example.com",
+		},
+		OwnerEmail: "operator@test.example.com",
+	}
+	h.deployments.Store(dep.ID, dep)
+
+	// hw91 shape: components observed, NONE hard-failed, several still
+	// mid-install at the moment the watch budget expired.
+	finalStates := map[string]string{
+		"cilium":               helmwatch.StateInstalled,
+		"cert-manager":         helmwatch.StateInstalled,
+		"flux":                 helmwatch.StateInstalled,
+		"bp-gitea":             helmwatch.StateInstalling,
+		"bp-catalyst-platform": helmwatch.StateInstalling,
+	}
+	h.markPhase1Done(dep, finalStates, helmwatch.OutcomeTimeout)
+
+	dep.mu.Lock()
+	defer dep.mu.Unlock()
+
+	if dep.Status == "ready" {
+		t.Fatalf("Status = %q after OutcomeTimeout — a timed-out watch must NEVER claim ready (issue #3018)", dep.Status)
+	}
+	if dep.Status != "failed" {
+		t.Errorf("Status = %q, want %q (truthful timeout classification)", dep.Status, "failed")
+	}
+	if dep.Error == "" || !strings.Contains(dep.Error, "timed out") {
+		t.Errorf("Error must carry an operator-actionable timeout diagnostic; got %q", dep.Error)
+	}
+	// Handover must NOT have fired.
+	if dep.Result.HandoverFiredAt != nil {
+		t.Errorf("HandoverFiredAt set after timeout — handover must only fire on OutcomeReady")
+	}
+}
+
+// TestMarkPhase1Done_UnknownOutcomeNeverFlipsReady locks the #3018
+// hardening: any future outcome constant without an explicit case in
+// markPhase1Done's switch must surface as a loud failure, not silently
+// impersonate success through the old default-ready branch.
+func TestMarkPhase1Done_UnknownOutcomeNeverFlipsReady(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+
+	dep := &Deployment{
+		ID:        "phase1-unknown-outcome",
+		Status:    "phase1-watching",
+		StartedAt: time.Now(),
+		eventsCh:  make(chan provisioner.Event, 256),
+		done:      make(chan struct{}),
+		Request:   provisioner.Request{SovereignFQDN: "otech-test.example.com"},
+		Result:    &provisioner.Result{SovereignFQDN: "otech-test.example.com"},
+	}
+	h.deployments.Store(dep.ID, dep)
+
+	h.markPhase1Done(dep, map[string]string{"cilium": helmwatch.StateInstalled}, "some-future-outcome")
+
+	dep.mu.Lock()
+	defer dep.mu.Unlock()
+
+	if dep.Status == "ready" {
+		t.Fatalf("Status = %q for unknown outcome — only OutcomeReady may flip ready (issue #3018)", dep.Status)
+	}
+	if !strings.Contains(dep.Error, "unhandled outcome") {
+		t.Errorf("Error should name the unhandled outcome; got %q", dep.Error)
+	}
+}

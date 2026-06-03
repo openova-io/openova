@@ -686,8 +686,30 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		// Issue #488 (Phase-8a bug #8).
 		dep.Status = "failed"
 		dep.Error = "Phase 1 watch terminated with no observed components and no terminal outcome — this is a programming error in catalyst-api. Please file an issue with the deployment ID and the catalyst-api logs from this run."
-	default:
+	case outcome == helmwatch.OutcomeTimeout:
+		// Issue #3018 (caught live on hw91, 2026-06-03): a watch that
+		// hits its WatchTimeout with zero hard-FAILED but N still-
+		// converging components used to fall through to the default
+		// branch below and flip "ready" — the deployment record
+		// claimed ready at 39/54 HRs while the console was
+		// TCP-closed. A timeout is NOT convergence; "ready" gates the
+		// operator-facing D0 handover surface and the UAT walk.
+		// Classify honestly. The cluster itself keeps converging
+		// (install retries are infinite per #2999); the watch-retry
+		// path re-attaches and CAN flip ready later once every
+		// component is genuinely terminal-installed.
+		dep.Status = "failed"
+		dep.Error = fmt.Sprintf("Phase 1 watch timed out before convergence: %d component(s) observed, none hard-failed, but not all reached installed within the watch budget. The Sovereign's Flux keeps retrying cluster-side; re-attach the watch (retry) to re-evaluate. The deployment is NOT ready until every component is installed.", len(finalStates))
+	case outcome == helmwatch.OutcomeReady:
 		dep.Status = "ready"
+	default:
+		// Issue #3018 hardening: "ready" is granted ONLY by an
+		// explicit OutcomeReady. Any future outcome constant that
+		// reaches here without its own case must surface loudly
+		// instead of silently impersonating success — the exact
+		// mechanism that let OutcomeTimeout flip ready on hw91.
+		dep.Status = "failed"
+		dep.Error = fmt.Sprintf("Phase 1 watch terminated with unhandled outcome %q — catalyst-api is missing a status mapping for it. The deployment is NOT marked ready; please file an issue with the deployment ID and the catalyst-api logs from this run.", outcome)
 	}
 
 	finalStatus := dep.Status
