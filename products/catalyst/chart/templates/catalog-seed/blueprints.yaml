@@ -624,6 +624,24 @@ spec:
     url: oci://ghcr.io/openova-io
     chart: bp-prometheus
     version: 1.0.0
+  # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): no platform/
+  # source — minimal blocks authored here. Prometheus is TSDB+scraper
+  # queried via Grafana datasource; no user-facing endpoint. Cross-region
+  # via remote-write fan-in is future scope, ship as singleton-per-region.
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: mgmt
+          clusters: [mgmt-A]
+          roles:
+            mgmt-A: singleton
+  endpoints: []
   configSchema:
     type: object
     properties:
@@ -747,6 +765,24 @@ spec:
     url: oci://ghcr.io/openova-io
     chart: bp-redis
     version: 1.0.0
+  # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): no platform/
+  # source. Redis Sentinel intra-region HA = singleton-from-Catalyst
+  # POV (replicas are a chart-internal detail). Cross-region active-
+  # passive via Redis Replication (replicaof) is future scope.
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: rtz
+          clusters: [rtz-A]
+          roles:
+            rtz-A: singleton
+  endpoints: []
   configSchema:
     type: object
     properties:
@@ -1078,6 +1114,51 @@ spec:
     url: oci://ghcr.io/openova-io
     chart: bp-n8n
     version: 1.0.0
+  # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): n8n is a
+  # user-facing workflow editor — single endpoint with launchDefault=true,
+  # silent-SSO via Keycloak per chart README. State backed by bp-cnpg
+  # (active-passive via cnpg-pair if operator opts in at install time).
+  topology:
+    supported:
+      - active-passive
+      - singleton
+    defaults:
+      multi-region: active-passive
+      single-region: singleton
+    perTopology:
+      active-passive:
+        replication:
+          backend: bp-cnpg-pair
+          mode: async
+          lagSloSeconds: 30
+        switchover:
+          mechanism: bp-continuum
+          rtoSeconds: 60
+          rpoSeconds: 30
+        placement:
+          tier: rtz
+          clusters: [rtz-A, rtz-B]
+          roles:
+            rtz-A: active
+            rtz-B: passive
+      singleton:
+        placement:
+          tier: rtz
+          clusters: [rtz-A]
+          roles:
+            rtz-A: singleton
+  endpoints:
+    - name: editor
+      protocol: https
+      port: 443
+      hostnameTemplate: "n8n.{{ "{{" }}.OrgSlug{{ "}}" }}.{{ "{{" }}.SovereignFQDN{{ "}}" }}"
+      ssoEnabled: true
+      launchDefault: true
+  sso:
+    realm: sovereign
+    protocolMapper: oidc
+    groupsClaim: groups
+    silentLogin: true
   configSchema:
     type: object
     properties:
