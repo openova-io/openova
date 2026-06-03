@@ -130,7 +130,13 @@ spec:
       # didn't list `sso-bridge` in its allow + auto namespaces. Caught
       # live H18 walk on hw86 2026-06-03 (H21 RCA). Companion to
       # PR #2849 (NetPol port-8080 fix). Refs #2744 #2849 #2856.
-      version: 1.4.17
+      # 1.4.18 (G117.5-followup #2914, 2026-06-03): emit new
+      # catalyst-kc-master-admin-credentials Secret (looks up bitnami
+      # admin user password via Helm lookup, adds reflector annotations
+      # so bp-sso-bridge ns mirrors it) so the new bp-sso-bridge 0.2.8
+      # can mint a master-realm token for POST /admin/realms. Closes
+      # 403-on-realm-create gap caught live during #2744 walk.
+      version: 1.4.18
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak

@@ -53,6 +53,14 @@ keycloak:
   # The Secret-key map of the reflected catalyst-kc-sa-credentials.
   # Keys: addr / realm / client-id / client-secret.
   credentialsSecretName: catalyst-kc-sa-credentials
+  # G117.5-followup #2914 (2026-06-03): master-realm admin credentials
+  # used ONLY by provision_org_realm's POST /admin/realms call (master-
+  # realm-only `create-realm` role). Sourced from bp-keycloak 1.4.18+
+  # which emits catalyst-kc-master-admin-credentials looking up the
+  # bitnami-generated admin password via Helm lookup. Mirrored into
+  # sso-bridge ns by reflector. Keys: addr / master-realm /
+  # master-realm-admin-user / master-realm-admin-password.
+  masterAdminCredentialsSecretName: catalyst-kc-master-admin-credentials
 
 # OpenBao endpoint. Default matches platform/external-secrets-stores
 # values.yaml `clusterSecretStore.server`.
