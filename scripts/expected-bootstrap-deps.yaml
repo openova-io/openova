@@ -175,7 +175,7 @@ slots:
     # the per-app admin role. Needs bp-keycloak (Sovereign realm) +
     # bp-openbao (KV2 client_secret store) + bp-catalyst-platform
     # (sovereign-fqdn ConfigMap with `orgEmail` key) all Ready.
-    depends_on: [bp-keycloak, bp-openbao, bp-catalyst-platform]
+    depends_on: [bp-keycloak, bp-openbao]
     wave: present
 
   # ---- Tier 5: storage + DB (W2.K1, slots 15-19) ----------------------------
