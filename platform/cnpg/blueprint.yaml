@@ -5,7 +5,7 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-4-1-data-services
 spec:
-  version: 1.0.7
+  version: 1.0.8
   card:
     title: CloudNativePG
     summary: |

@@ -134,6 +134,17 @@ cloudnative-pg:
       failureThreshold: 30
       periodSeconds: 5
 
+  # TEMP debug-logging (#2989/cnpg-followup — caught live on hw90): the
+  # operator exits code 2 SILENTLY ~after the "Kubernetes system metadata"
+  # log (NOT OOMKilled, node has memory, webhook cert mounted) →
+  # CrashLoopBackOff that wedges the cascade (bp-openbao→bp-sso-bridge→
+  # bp-catalyst-platform all dependsOn bp-cnpg). At default info level the
+  # log dies at "system metadata" with no reason. --log-level=debug surfaces
+  # WHICH startup step fails (webhook bind / leader election / cert load) so
+  # the real cause is collected, not guessed. Remove once root-caused.
+  additionalArgs:
+    - "--log-level=debug"
+
 # ─── Catalyst-managed overlay values consumed by templates/ ───────────────
 
 # G53 (Refs #2604, 2026-05-30): webhook-gate Job + RBAC defaults.
