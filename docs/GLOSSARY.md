@@ -102,7 +102,7 @@ A Sovereign's Gitea instance hosts five conventional Gitea Orgs. The unified rul
 
 ## Banned terms (do not use in any docs / UI / API / code / commit messages)
 
-This section is the **single source of truth** for forbidden terminology. Cross-referenced by [`CLAUDE.md`](../CLAUDE.md), [`RUNBOOKS.md`](RUNBOOKS.md), [`DOD.md`](DOD.md), [`DOD.md`](DOD.md), and the user-global `~/.claude/CLAUDE.md`. There is no separate `docs/BANNED-TERMS.md`.
+This section is the **single source of truth** for forbidden terminology. Cross-referenced by [`CLAUDE.md`](../CLAUDE.md), [`RUNBOOKS.md`](RUNBOOKS.md), [`DOD.md`](DOD.md), and the user-global `~/.claude/CLAUDE.md`. There is no separate `docs/BANNED-TERMS.md`.
 
 ### Banned platform terminology
 
@@ -143,7 +143,7 @@ Test provs and tenant Organizations use the canonical pool zones defined in [`DO
 | **CQRS** | Command-Query Responsibility Segregation — write side (Git → Flux → K8s) vs read side (projector → JetStream KV → console). |
 | **ESO** | External Secrets Operator. |
 | **SPIFFE / SPIRE** | Workload identity standards. SVIDs are short-lived mTLS certs bound to K8s ServiceAccounts. **Deferred — opt-in only** per founder PR [#665](https://github.com/openova-io/openova/pull/665) (2026-05-03); canonical workload identity is now Cilium WireGuard + K8s SA TokenReview. Re-introduction roadmap: TBD-V29 [#2055](https://github.com/openova-io/openova/issues/2055). |
-| **GSLB** | Global Server Load Balancing — handled at the authoritative DNS layer by PowerDNS lua-records (`ifurlup`, `pickclosest`, `ifportup`). See [`MULTI-REGION-DNS.md`](MULTI-REGION-DNS.md). |
+| **GSLB** | Global Server Load Balancing — handled at the authoritative DNS layer by PowerDNS lua-records (`ifurlup`, `pickclosest`, `ifportup`). See [`ARCHITECTURE.md`](ARCHITECTURE.md) §8.8. |
 | **PromotionPolicy** | Removed concept. Replaced by **EnvironmentPolicy** attached to a destination Environment, enforcing PR/approval/soak/change-window rules. |
 
 ---
@@ -151,9 +151,7 @@ Test provs and tenant Organizations use the canonical pool zones defined in [`DO
 ## See also
 
 - [`STATUS.md`](STATUS.md) — what's built today vs what's design-only.
-- [`ARCHITECTURE.md`](ARCHITECTURE.md) — concrete naming patterns for every object type.
-- [`DOD.md`](DOD.md) — Sovereign / tenant-Org FQDN patterns + forbidden test strings (cross-references the Banned terms section above).
-- [`ARCHITECTURE.md`](ARCHITECTURE.md) — how the components fit together.
-- [`DOD.md`](DOD.md) — who uses each surface and what for.
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — concrete naming patterns for every object type; how the components fit together.
+- [`DOD.md`](DOD.md) — Sovereign / tenant-Org FQDN patterns + forbidden test strings (cross-references the Banned terms section above); who uses each surface and what for.
 - [`SECURITY.md`](SECURITY.md) — identity, secrets, rotation.
 - [`RUNBOOKS.md`](RUNBOOKS.md) — provisioning, day-2 ops, Blueprint authoring (§3), chart conventions (§4), demo walk (§5), failover recovery (§6), troubleshooting (§7).

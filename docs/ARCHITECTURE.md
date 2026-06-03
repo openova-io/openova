@@ -26,7 +26,7 @@
 
 One or more vClusters per Environment run lightweight Flux watching the appropriate branch across the Org's Application repos. Every state change flows through NATS JetStream, projects into per-Environment KV via the **projector** service, and reaches the console via SSE — so every UI surface sees the same picture, derived from Git (write side) and Kubernetes (runtime side) without fragmenting. Crossplane handles all non-Kubernetes resources. OpenBao + ESO handles secrets; workload identity is Cilium WireGuard (kernel transport encryption) + K8s ServiceAccount TokenReview (workload-to-workload auth) — SPIRE was dropped from the bootstrap-kit by founder PR [#665](https://github.com/openova-io/openova/pull/665) (2026-05-03) and is retained as **DEFERRED / opt-in only**; re-enable triggers in [`SECURITY.md`](SECURITY.md) §2. Keycloak handles user identity.
 
-**Same code runs in every Sovereign** — whether it's run by OpenOva (`openova`), Omantel for SMEs (`omantel.biz`), or a corporate customer self-hosting under their own private agreement. Customer-hosted Sovereign deployments are intentionally not named in this public catalog.
+**Same code runs in every Sovereign** — whether it's run by OpenOva (`openova`), Omantel for SMEs (`omantel.omani.works`), or a corporate customer self-hosting under their own private agreement. Customer-hosted Sovereign deployments are intentionally not named in this public catalog. (`omantel.biz` is the LE-rate-limit *test-fallback* TLD per [`DOD.md`](DOD.md) §4, not the franchised Sovereign FQDN.)
 
 ### §1.1 Two scales, one architecture
 
@@ -34,7 +34,7 @@ The model serves two distinct customer shapes through the **same code**:
 
 ```
         ┌──────────────────────────────────────────────────────────────┐
-        │ SME-style Sovereign (e.g. omantel.biz)                       │
+        │ SME-style Sovereign (e.g. omantel.omani.works)              │
         │                                                              │
         │ Many small Organizations, mostly single-Environment          │
         │ Each Org gets its own minimal Keycloak (no HA)               │
@@ -262,9 +262,7 @@ Every Catalyst control-plane component carries an open-source license that allow
 
 ## §4 — Naming conventions
 
-Every name is a **composition of typed dimensions** — never free-text, never descriptive prose. Names are deterministic: given the dimensions, the name is computable. **Don't repeat the parent**: when an object lives inside a container that already encodes location, do not repeat that information. **Building blocks, not failover roles**: clusters are named by their functional security zone, not "primary" or "dr".
-
-Full table in [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) (legacy — content folded into this section).
+Every name is a **composition of typed dimensions** — never free-text, never descriptive prose. Names are deterministic: given the dimensions, the name is computable. **Don't repeat the parent**: when an object lives inside a container that already encodes location, do not repeat that information. **Building blocks, not failover roles**: clusters are named by their functional security zone, not "primary" or "dr". (The former standalone `NAMING-CONVENTION.md` is folded into this section.)
 
 ### §4.1 Dimensions
 
@@ -315,7 +313,7 @@ metadata:
     openova.io/region:          fsn|nbg|hel|...        # 3-char
     openova.io/building-block:  rtz|dmz|mgt
     openova.io/env-type:        prod|stg|uat|dev|poc
-    openova.io/sovereign:       <sovereign-fqdn>       # e.g. omantel.biz, t38.omani.works
+    openova.io/sovereign:       <sovereign-fqdn>       # e.g. omantel.omani.works, t38.omani.works
     openova.io/host-cluster:    <prov>-<reg>-<bb>-<env_type>
 
     # Tenant scope (set by organization-controller / application-controller)
@@ -1303,7 +1301,7 @@ This record returns `1.2.3.4` while the FRA backend's `/healthz` returns 200; fa
 
 #### §8.9.4 REST API
 
-Exposed at `https://pdns.openova.io/api`, behind a Traefik basicAuth Middleware. The plaintext password is generated per-cluster (random 32 chars per [`PRINCIPLES.md`](PRINCIPLES.md) #10), bcrypt-hashed in-cluster only, and stored in K8s Secret `powerdns-api-basicauth` in the `openova-system` namespace.
+Exposed at `https://pdns.openova.io/api`, behind a basicAuth Middleware at the cluster ingress. <!-- TODO verify: this folded Contabo-mkt PowerDNS deployment references a Traefik Middleware, but the canonical K3s stack disables Traefik in favour of the Cilium Gateway (§8.3) — confirm whether the live PowerDNS ingress is Traefik or Cilium Gateway and reconcile. --> The plaintext password is generated per-cluster (random 32 chars per [`PRINCIPLES.md`](PRINCIPLES.md) #4, never hardcode), bcrypt-hashed in-cluster only, and stored in K8s Secret `powerdns-api-basicauth` in the `openova-system` namespace.
 
 The full API surface is documented at https://doc.powerdns.com/authoritative/http-api/. The Catalyst-relevant endpoints:
 
@@ -1370,7 +1368,7 @@ The HelmRelease's `values:` block carries cluster-specific overrides (replicaCou
 #### §8.9.8 First deploy on Contabo-mkt — runbook
 
 ```bash
-# 1. Generate API key + webserver password (random 32 chars per PRINCIPLES.md #10)
+# 1. Generate API key + webserver password (random 32 chars per PRINCIPLES.md #4 — never hardcode)
 api_key=$(python3 -c "import secrets,string; print(''.join(secrets.choice(string.ascii_letters+string.digits) for _ in range(48)))")
 ws_pw=$(python3 -c "import secrets,string; print(''.join(secrets.choice(string.ascii_letters+string.digits) for _ in range(32)))")
 
@@ -1401,7 +1399,7 @@ curl -u "operator:$op_pw" -H "X-API-Key: $api_key" https://pdns.openova.io/api/v
 - [PowerDNS REST API](https://doc.powerdns.com/authoritative/http-api/)
 - [Lua records](https://doc.powerdns.com/authoritative/lua-records/index.html)
 - [dnsdist documentation](https://dnsdist.org/)
-- [`PRINCIPLES.md`](PRINCIPLES.md) — inviolable principles, especially #10 (random-secret discipline)
+- [`PRINCIPLES.md`](PRINCIPLES.md) — inviolable principles, especially #4 (never hardcode — credentials are runtime-generated, never committed)
 - §4 (Naming) — Catalyst control-plane DNS pattern + Sovereign-domain rules
 
 ---
@@ -1598,7 +1596,7 @@ Builds on Phase-0 substrate (3 regions + ClusterMesh).
 
 `bp-cnpg-pair` Blueprint: primary CNPG Cluster in `hz-fsn-rtz-prod`, replica `externalCluster` in `hz-hel-rtz-prod` using WAL streaming over Cilium ClusterMesh (no public exposure). **Synchronous `remote_apply`** for zero-tx-loss (PR [#2071](https://github.com/openova-io/openova/pull/2071)). Pre-merge guards in PRs [#2087](https://github.com/openova-io/openova/pull/2087) + [#2093](https://github.com/openova-io/openova/pull/2093). Replica becomes promotable when WAL lag < threshold.
 
-Continuum controller (`products/continuum/`): goroutine per CR maintains lease (10s renew, 30s TTL), watches replication metrics, drives the switchover sequence (§8.2). Lease witness = Cloudflare KV; fallback = 3-DNS-witness quorum (8.8.8.8 + 1.1.1.1 + 9.9.9.9, 2-of-3). Lua-record body synthesizer writes `{ifurlup, pickclosest}` lua bodies via PDM.
+Continuum controller (`core/controllers/continuum/`; the `bp-continuum` chart + Cloudflare KV witness worker live at `products/continuum/`): goroutine per CR maintains lease (10s renew, 30s TTL), watches replication metrics, drives the switchover sequence (§8.2). Lease witness = Cloudflare KV; fallback = 3-DNS-witness quorum (8.8.8.8 + 1.1.1.1 + 9.9.9.9, 2-of-3). Lua-record body synthesizer writes `{ifurlup, pickclosest}` lua bodies via PDM.
 
 Application-page topology UI: editor (`single-region` | `active-active` | `active-hotstandby`); region picker; switchover button (RBAC: owner; confirms with diff); live status (replication lag, lease health, last switchover, RPO/RTO observed vs target); switchover history with audit trail.
 
@@ -1668,15 +1666,11 @@ Catalyst is not a strict OAM implementation. The layered composition idea is bor
 ## §13 — Read further
 
 - [`GLOSSARY.md`](GLOSSARY.md) — every term defined.
-- [`DOD.md`](DOD.md) — end-user Definition of Done; Phase 0 / 1 / 2 deterministic test.
-- [`DOD.md`](DOD.md) — Sovereign + tenant-Org FQDN patterns and forbidden test strings.
-- [`PRINCIPLES.md`](PRINCIPLES.md) — the engineering principles, including Principle #11 (sovereignty post-cutover).
-- [`PRINCIPLES.md`](PRINCIPLES.md) — receipts of theater patterns to refuse at review.
+- [`DOD.md`](DOD.md) — end-user Definition of Done; Phase 0 / 1 / 2 deterministic test; Sovereign + tenant-Org FQDN patterns and forbidden test strings; who uses each surface and how; the multi-region DoD gates.
+- [`PRINCIPLES.md`](PRINCIPLES.md) — the engineering principles, including Principle #11 (sovereignty post-cutover); receipts of theater patterns to refuse at review.
 - [`STATUS.md`](STATUS.md) — what's actually built today.
-- [`DOD.md`](DOD.md) — who uses each surface and how.
 - [`SECURITY.md`](SECURITY.md) — identity, secrets, rotation, SPIRE deferral re-enable triggers.
-- [`SOVEREIGN-PROVISIONING.md`](SOVEREIGN-PROVISIONING.md) — bringing a Sovereign online.
-- [`DOD.md`](DOD.md) — the multi-region DoD gates.
+- [`RUNBOOKS.md`](RUNBOOKS.md) §9 — bringing a Sovereign online (folded from former `SOVEREIGN-PROVISIONING.md`).
 - §8.8 above — PowerDNS lua-record patterns (folded from former `MULTI-REGION-DNS.md`).
 - §8.9 above — PowerDNS deployment shape (folded from former `PLATFORM-POWERDNS.md`).
 - §8.7 above — ClusterMesh cluster.id registry (folded from former `CLUSTERMESH-CLUSTER-IDS.md`).
