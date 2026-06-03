@@ -347,11 +347,19 @@ runtime:
   # PIN sign-in fails with `could not provision user record` (caught
   # live on hw86 2026-06-01).
   #
-  # The new default points at the syncer-mangled name. Per-Sovereign
-  # overlays MAY override (e.g. to a `keycloak.openova.com` external
-  # admin endpoint, or to a Catalyst-Zero contabo URL, or back to the
-  # pre-G92.2 path on Sovereigns provisioned BEFORE G92.2 landed).
-  keycloakAddr: "http://keycloak-x-keycloak-x-mgmt-vcluster.mgmt.svc.cluster.local:80"
+  # 2026-06-03 (#2856 Gap 3): default reverted to host-level KC SVC
+  # `keycloak.keycloak.svc.cluster.local:80`. The G92.2 vCluster pivot
+  # was REVERTED in G105-followup #2697 (bp-keycloak runs back on host
+  # k3s, not inside mgmt vCluster) but the runtime config's default
+  # stayed pointed at the now-non-resolvable vCluster-synced name
+  # → org-controller logs spammed "dial tcp: lookup keycloak-x-keycloak
+  # -x-mgmt-vcluster.mgmt.svc.cluster.local: no such host" on every
+  # Organization create (live on hw86 2026-06-03). Host-level SVC name
+  # always resolves regardless of vCluster topology choice. Per-
+  # Sovereign overlays MAY override (e.g. to a Catalyst-Zero contabo
+  # URL, or to a public auth gateway hostname, or back to the syncer-
+  # mangled name on Sovereigns that DO run KC inside the vCluster).
+  keycloakAddr: "http://keycloak.keycloak.svc.cluster.local:80"
   # Keycloak realm the per-Org realms are nested under. Default
   # `sovereign` matches the bp-keycloak chart's auto-provisioned
   # tenant realm (the contabo mothership uses `openova` instead).
