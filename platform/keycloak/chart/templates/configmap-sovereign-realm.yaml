@@ -962,6 +962,14 @@ metadata:
       First-install: empty until bitnami subchart's admin-password
       Secret reconciles; reflector then back-fills the mirrored stub
       in sso-bridge ns on the next interval.
+    # #2937 (2026-06-03): persist Secret across helm uninstall.
+    # Without this, helm uninstall + reinstall would clear the
+    # cached password, lookup returns nil, reflector copies a NEW
+    # value from bitnami's regenerated Secret, and the sovereign
+    # realm admin credentials drift. Pattern matches the equivalent
+    # defense on bp-openbao recovery-seed and bp-keycloak postgres
+    # (memory feedback_chart_credential_persistence_defense).
+    helm.sh/resource-policy: keep
     reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
     reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "sso-bridge"
     reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
