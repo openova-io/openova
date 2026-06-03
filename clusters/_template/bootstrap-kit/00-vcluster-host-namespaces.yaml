@@ -1,0 +1,40 @@
+# vCluster host namespaces — MUST exist before any HelmRelease object that
+# declares `metadata.namespace: {dmz,mgmt,rtz}`.
+#
+# WHY THIS FILE EXISTS (fresh-prov wedge, caught live on hw88 2026-06-03):
+# bp-coraza (slot 35) and bp-sandbox (slot 19a) place their HelmRelease
+# *objects* in the vCluster host namespaces `dmz` / `rtz` (that is where
+# bp-{dmz,mgmt,rtz}-vcluster export the `vc-<ns>` kubeConfig Secret those
+# HRs pivot through — see 35-coraza.yaml). Those host namespaces were only
+# created implicitly, and *later*, by the vcluster HRs' helm
+# `createNamespace`. But Flux applies the whole bootstrap-kit Kustomization
+# as one server-side apply: the coraza/sandbox HR objects are applied in the
+# same pass, BEFORE the vcluster HR has run, so they fail with
+# `namespaces "dmz" not found`. A single failed object fails the ENTIRE
+# reconcile → inventory stays at 0 HRs → the prov wedges forever, retrying
+# every 5m. Declaring the host namespaces explicitly here (Flux applies
+# Namespace kinds before everything else) guarantees they exist in the first
+# pass; the later vcluster helm `createNamespace` is then a no-op (idempotent).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dmz
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+    catalyst.openova.io/vcluster: dmz
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mgmt
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+    catalyst.openova.io/vcluster: mgmt
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: rtz
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+    catalyst.openova.io/vcluster: rtz
