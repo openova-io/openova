@@ -29,6 +29,16 @@ variable "sovereign_fqdn" {
   }
 }
 
+# #2940 (2026-06-03): per-Sovereign PowerDNS API endpoint override.
+# Default keeps the mothership URL for back-compat with pre-cutover
+# provs. Franchised Sovereigns set this in tofu.auto.tfvars.json to
+# their post-cutover local PDNS hostname.
+variable "pdns_api_host" {
+  type        = string
+  default     = "https://pdns.openova.io"
+  description = "PowerDNS API endpoint URL. Mothership default; franchised Sovereigns override post-cutover."
+}
+
 variable "regions" {
   type = list(object({
     code               = string

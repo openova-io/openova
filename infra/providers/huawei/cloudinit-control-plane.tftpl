@@ -573,7 +573,12 @@ write_files:
             # pdns.openova.io → 212.72.24.20). Keeping the URL as the
             # canonical pdns.openova.io preserves TLS cert validation;
             # bastion's nginx SNI-proxy passes through the real cert.
-            PDNS_API_HOST: "https://pdns.openova.io"
+            #
+            # #2940 (2026-06-03): tofu var override hook. Operators of
+            # franchised Sovereigns post-cutover need to repoint at
+            # their own PDNS host. Default keeps the mothership URL
+            # for back-compat with pre-cutover provs.
+            PDNS_API_HOST: "${pdns_api_host}"
             PARENT_DOMAINS_YAML: |
               ${parent_domains_yaml}
             # Wave 5.24 (Refs #2163) — cilium k8sServiceHost must be the

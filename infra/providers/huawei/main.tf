@@ -637,6 +637,8 @@ locals {
       deployment_id       = var.deployment_id
       org_name            = var.org_name
       org_email           = var.org_email
+      # #2940 (2026-06-03): per-Sovereign PDNS endpoint override.
+      pdns_api_host = var.pdns_api_host
       # Refs #2533 — G1: per-CP region (was always var.regions[0].code,
       # baking primary's region into EVERY CP's cloud-init).
       region                = r.code
