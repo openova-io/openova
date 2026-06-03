@@ -256,10 +256,23 @@ func TestBootstrap_HappyPath_FirstRun(t *testing.T) {
 		}
 	}
 
-	// Tree seeded.
-	for _, p := range []string{"README.md", "kustomization.yaml", "apps/.gitkeep", "envs/.gitkeep", "policies/.gitkeep"} {
+	// Tree seeded — including the pre-check workflow that produces the
+	// three branch-protection status checks (ADR-0009 §Consequences;
+	// without it every PR traps in "required status checks have not yet
+	// succeeded").
+	for _, p := range []string{"README.md", "kustomization.yaml", "apps/.gitkeep", "envs/.gitkeep", "policies/.gitkeep", ".gitea/workflows/iac-prechecks.yml"} {
 		if _, ok := gc.files["acme/iac/main/"+p]; !ok {
 			t.Errorf("missing seeded file %q", p)
+		}
+	}
+
+	// The seeded workflow MUST reference all three locked status-check
+	// contexts, otherwise branch protection requires a context the repo
+	// never produces.
+	wf := gc.files["acme/iac/main/.gitea/workflows/iac-prechecks.yml"]
+	for _, ctxName := range StatusCheckContexts {
+		if !strings.Contains(string(wf), ctxName) {
+			t.Errorf("seeded pre-check workflow missing status-check context %q", ctxName)
 		}
 	}
 

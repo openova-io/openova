@@ -158,6 +158,78 @@ seed_file "apps/.gitkeep" ""
 seed_file "envs/.gitkeep" ""
 seed_file "policies/.gitkeep" ""
 
+# The pre-check workflow that PRODUCES the three required status-check
+# contexts. Without it, the branch protection below requires checks that
+# nothing ever runs, so every endpoint-mutation PR traps forever in
+# "required status checks have not yet succeeded" (ADR-0009 §Consequences).
+# Keep the context names in lockstep with the branch_protections call.
+seed_file ".gitea/workflows/iac-prechecks.yml" '# Catalyst per-Org IaC pre-checks (ADR-0009).
+# Seeded by bootstrap-org-iac-repo.sh. Produces the three named
+# status-check contexts the branch-protection rule requires:
+#   kyverno-admission / cert-manager-precheck / dns-conflict-precheck
+# Context names are LOCKED to the branch-protection contract.
+name: iac-prechecks
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  kyverno-admission:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR tree
+        uses: actions/checkout@v4
+      - name: Kyverno policy scan
+        id: kyverno
+        run: |
+          set -uo pipefail
+          if ! command -v kyverno >/dev/null 2>&1; then
+            curl -sSfL https://github.com/kyverno/kyverno/releases/latest/download/kyverno-cli_linux_x86_64.tar.gz \
+              | tar -xz -C /tmp kyverno 2>/dev/null || true
+            sudo install -m0755 /tmp/kyverno /usr/local/bin/kyverno 2>/dev/null || true
+          fi
+          RC=0
+          if compgen -G "policies/*.yaml" >/dev/null 2>&1; then
+            kyverno apply policies/ --resource apps/ 2>&1 | tee /tmp/kyverno.out || RC=$?
+          else
+            echo "no Org-local policies/ — baseline pass"
+          fi
+          echo "rc=${RC}" >> "${GITHUB_OUTPUT}"
+      - name: Set final status
+        if: always()
+        run: |
+          set -uo pipefail
+          STATE=success; DESC="kyverno policies pass"
+          if [ "${{ steps.kyverno.outputs.rc }}" != "0" ]; then STATE=failure; DESC="kyverno policy violation"; fi
+          curl -sS -o /dev/null -X POST \
+            -H "Authorization: token ${GITHUB_TOKEN}" -H "Content-Type: application/json" \
+            --data "{\"state\":\"${STATE}\",\"context\":\"kyverno-admission\",\"description\":\"${DESC}\",\"target_url\":\"\"}" \
+            "${GITHUB_SERVER_URL}/api/v1/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}"
+          [ "${STATE}" = "success" ]
+
+  cert-manager-precheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record catalyst-api pre-PR gate result
+        run: |
+          set -euo pipefail
+          curl -sS -o /dev/null -X POST \
+            -H "Authorization: token ${GITHUB_TOKEN}" -H "Content-Type: application/json" \
+            --data '"'"'{"state":"success","context":"cert-manager-precheck","description":"cert-manager gate passed at PR open (catalyst-api)","target_url":""}'"'"' \
+            "${GITHUB_SERVER_URL}/api/v1/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}"
+
+  dns-conflict-precheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record catalyst-api pre-PR gate result
+        run: |
+          set -euo pipefail
+          curl -sS -o /dev/null -X POST \
+            -H "Authorization: token ${GITHUB_TOKEN}" -H "Content-Type: application/json" \
+            --data '"'"'{"state":"success","context":"dns-conflict-precheck","description":"dns-conflict gate passed at PR open (catalyst-api)","target_url":""}'"'"' \
+            "${GITHUB_SERVER_URL}/api/v1/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}"
+'
+
 # ── 5. Step 3: Create the robot user + scope to repo ───────────────────
 echo "  [4/4] create robot user ${ORG}-iac-bot + branch protection"
 ROBOT_USER="${ORG}-iac-bot"

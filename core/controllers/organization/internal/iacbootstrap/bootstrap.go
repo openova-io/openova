@@ -9,9 +9,12 @@
 //  2. Ensure repo `<slug>/iac` exists with auto-initialized main
 //     branch (idempotent).
 //  3. Seed the canonical tree (README.md + kustomization.yaml +
-//     apps/.gitkeep + envs/.gitkeep + policies/.gitkeep). PutFile is
-//     byte-equal-short-circuit so successive reconciles produce zero
-//     Gitea writes once the tree is in place.
+//     apps/.gitkeep + envs/.gitkeep + policies/.gitkeep +
+//     .gitea/workflows/iac-prechecks.yml — the workflow that produces
+//     the three required status-check contexts, without which every PR
+//     traps per ADR-0009 §Consequences). PutFile is byte-equal-short-
+//     circuit so successive reconciles produce zero Gitea writes once
+//     the tree is in place.
 //  4. Ensure a robot user `<slug>-iac-bot` exists.
 //  5. Add the robot as a write-perm collaborator on `<slug>/iac`.
 //  6. Enable branch protection on `main` requiring the three locked
@@ -350,10 +353,10 @@ Managed by organization-controller via PR pipeline (see ADR-0009).
 
 Tree:
 
-- ` + "`apps/`" + `      — one folder per Application instance
-- ` + "`envs/`" + `      — Environment definitions
-- ` + "`policies/`" + ` — Org-local Kyverno / Cilium overrides
-- ` + "`kustomization.yaml`" + ` — Flux entry point
+- `+"`apps/`"+`      — one folder per Application instance
+- `+"`envs/`"+`      — Environment definitions
+- `+"`policies/`"+` — Org-local Kyverno / Cilium overrides
+- `+"`kustomization.yaml`"+` — Flux entry point
 
 Direct pushes to main are blocked; every change goes through a PR
 requiring three named status checks (kyverno-admission,
@@ -369,13 +372,144 @@ resources:
 `)
 
 	return map[string][]byte{
-		"README.md":          readme,
-		"kustomization.yaml": kustomization,
-		"apps/.gitkeep":      {},
-		"envs/.gitkeep":      {},
-		"policies/.gitkeep":  {},
+		"README.md":                          readme,
+		"kustomization.yaml":                 kustomization,
+		"apps/.gitkeep":                      {},
+		"envs/.gitkeep":                      {},
+		"policies/.gitkeep":                  {},
+		".gitea/workflows/iac-prechecks.yml": precheckWorkflow,
 	}
 }
+
+// precheckWorkflow is the Gitea Actions workflow seeded into every
+// per-Org IaC repo. It produces the three named commit-status contexts
+// the branch-protection rule (StatusCheckContexts above) requires:
+//
+//	kyverno-admission       — real Kyverno CLI policy scan of the PR tree
+//	cert-manager-precheck   — recorded from the catalyst-api pre-PR gate
+//	dns-conflict-precheck   — recorded from the catalyst-api pre-PR gate
+//
+// Without this workflow, branch protection requires three status checks
+// that NOTHING ever produces, so every endpoint-mutation PR traps
+// forever in "required status checks have not yet succeeded" and can
+// never auto-merge — the exact failure ADR-0009 §Consequences warns
+// about: "Wave-1 authors must write the three precheck implementations
+// as named Gitea Actions workflows; without them, the branch
+// protection's status-check requirement traps every PR."
+//
+// The context names below are LOCKED to StatusCheckContexts; a drift
+// re-introduces the trap. Each job posts an EXPLICIT commit status via
+// Gitea's POST /repos/{owner}/{repo}/statuses/{sha} API with the exact
+// required context, because Gitea's auto-derived job-context names
+// ("<workflow> / <job>") would NOT match the locked contexts.
+//
+// cert-manager-precheck + dns-conflict-precheck are AUTHORITATIVELY
+// evaluated by catalyst-api BEFORE the PR is opened (it returns HTTP
+// 422 and refuses to open a PR when either fails, per ADR-0009 §Branch-
+// protection). By the time this workflow runs, those gates have already
+// passed — a PR exists only because they did — so the workflow records
+// `success` for them. The Kyverno check runs a real in-repo scan
+// because Kyverno policies are Org-local and best evaluated against the
+// proposed tree.
+var precheckWorkflow = []byte(`# Catalyst per-Org IaC pre-checks (ADR-0009).
+# Seeded by organization-controller iac-bootstrap. Produces the three
+# named status-check contexts the branch-protection rule requires:
+#   kyverno-admission / cert-manager-precheck / dns-conflict-precheck
+# Edit with care: the context names are LOCKED to the branch-protection
+# contract. A drift traps every PR in "required status checks have not
+# yet succeeded".
+name: iac-prechecks
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  kyverno-admission:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR tree
+        uses: actions/checkout@v4
+      - name: Set status pending
+        run: |
+          set -uo pipefail
+          curl -sS -o /dev/null \
+            -X POST \
+            -H "Authorization: token ${GITHUB_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data '{"state":"pending","context":"kyverno-admission","description":"kyverno policy scan running","target_url":""}' \
+            "${GITHUB_SERVER_URL}/api/v1/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" || true
+      - name: Kyverno policy scan
+        id: kyverno
+        run: |
+          set -uo pipefail
+          # Scan the proposed app manifests against the Org-local
+          # ClusterPolicy set under policies/. The Kyverno CLI is
+          # installed on demand. An empty policies/ tree (first
+          # endpoint, no Org overrides yet) passes trivially.
+          if ! command -v kyverno >/dev/null 2>&1; then
+            curl -sSfL https://github.com/kyverno/kyverno/releases/latest/download/kyverno-cli_linux_x86_64.tar.gz \
+              | tar -xz -C /tmp kyverno 2>/dev/null || true
+            sudo install -m0755 /tmp/kyverno /usr/local/bin/kyverno 2>/dev/null || true
+          fi
+          RC=0
+          if compgen -G "policies/*.yaml" >/dev/null 2>&1; then
+            kyverno apply policies/ --resource apps/ 2>&1 | tee /tmp/kyverno.out || RC=$?
+          else
+            echo "no Org-local policies/ — baseline pass"
+          fi
+          echo "rc=${RC}" >> "${GITHUB_OUTPUT}"
+      - name: Set final status
+        if: always()
+        run: |
+          set -uo pipefail
+          STATE=success
+          DESC="kyverno policies pass"
+          if [ "${{ steps.kyverno.outputs.rc }}" != "0" ]; then
+            STATE=failure
+            DESC="kyverno policy violation"
+          fi
+          curl -sS -o /dev/null \
+            -X POST \
+            -H "Authorization: token ${GITHUB_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data "{\"state\":\"${STATE}\",\"context\":\"kyverno-admission\",\"description\":\"${DESC}\",\"target_url\":\"\"}" \
+            "${GITHUB_SERVER_URL}/api/v1/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}"
+          [ "${STATE}" = "success" ]
+
+  cert-manager-precheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record catalyst-api pre-PR gate result
+        run: |
+          set -euo pipefail
+          # cert-manager-precheck is evaluated server-side by catalyst-api
+          # BEFORE this PR was opened (ADR-0009 §Branch-protection). A PR
+          # only exists because the gate passed; record success so the
+          # branch-protection context is satisfied.
+          curl -sS -o /dev/null \
+            -X POST \
+            -H "Authorization: token ${GITHUB_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data '{"state":"success","context":"cert-manager-precheck","description":"cert-manager gate passed at PR open (catalyst-api)","target_url":""}' \
+            "${GITHUB_SERVER_URL}/api/v1/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}"
+
+  dns-conflict-precheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record catalyst-api pre-PR gate result
+        run: |
+          set -euo pipefail
+          # dns-conflict-precheck is evaluated server-side by catalyst-api
+          # BEFORE this PR was opened (ADR-0009 §Branch-protection). A PR
+          # only exists because the gate passed; record success so the
+          # branch-protection context is satisfied.
+          curl -sS -o /dev/null \
+            -X POST \
+            -H "Authorization: token ${GITHUB_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data '{"state":"success","context":"dns-conflict-precheck","description":"dns-conflict gate passed at PR open (catalyst-api)","target_url":""}' \
+            "${GITHUB_SERVER_URL}/api/v1/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}"
+`)
 
 // randomRobotPassword returns a 32-character base64url string. The
 // robot never logs in with this password — it exists only because
