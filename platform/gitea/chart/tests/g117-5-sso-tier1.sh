@@ -24,7 +24,19 @@ trap 'rm -rf "${tmpdir}"' EXIT
 
 "$helm" dependency build "$chart_dir" >/dev/null 2>&1 || true
 
-"$helm" template smoke "$chart_dir" --set sso.sovereignFqdn=smoke.omani.works 2>/dev/null > "${tmpdir}/default.yaml"
+# #2988: the sso ExternalSecret is gated on the ESO-CRD Capabilities
+# check (omitted when the CRD is absent so installs cannot fail at
+# manifest-build). Assert BOTH sides of that contract: render WITH the
+# CRD advertised for the positive cases, and a guard render WITHOUT it
+# that must omit the ExternalSecret.
+"$helm" template smoke "$chart_dir" --set sso.sovereignFqdn=smoke.omani.works --api-versions "external-secrets.io/v1beta1" 2>/dev/null > "${tmpdir}/default.yaml"
+"$helm" template smoke "$chart_dir" --set sso.sovereignFqdn=smoke.omani.works 2>/dev/null > "${tmpdir}/no-eso-crd.yaml"
+
+echo "[g117-5-sso-tier1] Case 0 (#2988): ExternalSecret omitted when ESO CRD absent"
+if grep -q "kind: ExternalSecret" "${tmpdir}/no-eso-crd.yaml"; then
+  echo "FAIL: ExternalSecret rendered without external-secrets.io/v1beta1 — #2988 guard regressed" >&2; exit 1
+fi
+echo "  PASS"
 
 # Case 1: ExternalSecret with correct target name
 echo "[g117-5-sso-tier1] Case 1: ExternalSecret 'gitea-oauth-source-credentials' renders"
