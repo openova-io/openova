@@ -39,11 +39,27 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # kube-apiserver -> admission-controller webhook. Allowed from any
-    # namespace because the apiserver source IP is not stable.
+    # kube-apiserver -> admission-controller webhook.
+    #
+    # #2934 (2026-06-03): same Cilium identity trap fix as the egress
+    # rule below. Source identity for traffic from kube-apiserver is
+    # `reserved:kube-apiserver`, NOT `reserved:world` — so ipBlock
+    # 0.0.0.0/0 silently dropped the inbound webhook call. Replaced
+    # with explicit default/component=apiserver podSelector, plus a
+    # broad fallback for distro-label variance.
     - from:
-        - ipBlock:
-            cidr: 0.0.0.0/0
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: default
+          podSelector:
+            matchLabels:
+              component: apiserver
+              provider: kubernetes
+      ports:
+        - protocol: TCP
+          port: {{ .Values.vpaOverlay.networkPolicy.admissionWebhookPort | default 8000 }}
+    - from:
+        - namespaceSelector: {}
       ports:
         - protocol: TCP
           port: {{ .Values.vpaOverlay.networkPolicy.admissionWebhookPort | default 8000 }}
@@ -68,14 +84,34 @@ spec:
         - protocol: TCP
           port: 53
     # kube-apiserver — VPA watches Pod, VPA, eviction resources.
+    #
+    # #2934 (2026-06-03): same Cilium identity trap as bp-sso-bridge
+    # PR #2910. `ipBlock 0.0.0.0/0` translates to `reserved:world`
+    # identity, which EXCLUDES `reserved:kube-apiserver` identity →
+    # Cilium drops every VPA watch on kube-API with `Policy denied
+    # identity X->kube-apiserver`. Replaced with explicit
+    # default/component=apiserver podSelector (k3s + kubeadm Pod label
+    # convention). Falls back to broad namespaceSelector on port 443
+    # in case the apiserver Pod isn't labeled the same way on a
+    # particular distro.
     - to:
-        - ipBlock:
-            cidr: 0.0.0.0/0
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: default
+          podSelector:
+            matchLabels:
+              component: apiserver
+              provider: kubernetes
+      ports:
+        - protocol: TCP
+          port: 6443
+        - protocol: TCP
+          port: 443
+    - to:
+        - namespaceSelector: {}
       ports:
         - protocol: TCP
           port: 443
-        - protocol: TCP
-          port: 6443
     # metrics-server.
     - to:
         - namespaceSelector:
