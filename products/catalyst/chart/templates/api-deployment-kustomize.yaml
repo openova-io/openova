@@ -179,7 +179,7 @@ spec:
           # values.yaml `images.catalystApi.tag` is also bumped (but
           # unused for catalyst-api; kept for SME services that DO read
           # from values).
-          image: "ghcr.io/openova-io/openova/catalyst-api:68f7378"
+          image: "ghcr.io/openova-io/openova/catalyst-api:9eda16b"
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
@@ -244,8 +244,16 @@ spec:
               value: "7468a69"
             - name: CATALYST_CHART_VERSION
               value: "1.4.95"
+            # #2940 (2026-06-03): kustomize-rendered variant. Same fix
+            # as api-deployment.yaml — source from runtime-config CM
+            # with optional:true fallback. See companion comment in
+            # api-deployment.yaml for full rationale.
             - name: CORS_ORIGIN
-              value: "https://console.openova.io"
+              valueFrom:
+                configMapKeyRef:
+                  name: catalyst-runtime-config
+                  key: sovereign-console-url
+                  optional: true
             - name: DYNADOT_API_KEY
               valueFrom:
                 secretKeyRef:

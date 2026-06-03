@@ -233,11 +233,24 @@ spec:
             # field so dashboards can correlate api-version <-> chart-
             # version on a single probe.
             - name: CATALYST_BUILD_SHA
-              value: "68f7378"
+              value: "9eda16b"
             - name: CATALYST_CHART_VERSION
               value: "1.4.95"
+            # #2940 (2026-06-03): was hardcoded "https://console.openova.io".
+            # Now sourced from catalyst-runtime-config ConfigMap so per-
+            # Sovereign overlays can set sovereignConsoleURL once and
+            # have both CORS_ORIGIN + CATALYST_SOVEREIGN_URL pick it up.
+            # Falls back to the legacy mothership URL when the CM key is
+            # absent (optional: true) for back-compat with pre-#2940
+            # Sovereigns where the bp-catalyst-platform chart hasn't
+            # reconciled the new key yet. Pod auto-rolls on CM content
+            # change via checksum/runtime-config annotation (PR #2928).
             - name: CORS_ORIGIN
-              value: "https://console.openova.io"
+              valueFrom:
+                configMapKeyRef:
+                  name: catalyst-runtime-config
+                  key: sovereign-console-url
+                  optional: true
             - name: DYNADOT_API_KEY
               valueFrom:
                 secretKeyRef:
@@ -349,6 +362,13 @@ spec:
             # docs/INVIOLABLE-PRINCIPLES.md #4 this is runtime
             # configuration; air-gapped franchises override it
             # without code change.
+            # #2940 (2026-06-03): URL-path "/sovereign" suffix kept as a
+            # literal; the host portion is sourced from
+            # catalyst-runtime-config sovereign-console-url. Pre-#2940
+            # this whole value was the hardcoded mothership URL.
+            # Operator override seam: catalystApi.env additional-env
+            # patch in the per-Sovereign HelmRelease overlay (dual-mode
+            # contract — see CATALYST_POWERDNS_API_URL block above).
             - name: CATALYST_API_PUBLIC_URL
               value: https://console.openova.io/sovereign
             # CATALYST_NATS_URL — TBD-D35c (issue #1776). When set, the
