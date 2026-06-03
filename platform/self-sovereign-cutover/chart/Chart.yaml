@@ -394,7 +394,15 @@ name: bp-self-sovereign-cutover
 #
 # RBAC: ClusterRole gains batch.cronjobs {get,list,watch,delete} so
 # Step 01 can DELETE the live resource.
-version: 0.1.50
+#
+# 0.1.51 (#2951 / #2940 ATTACK#9): Step 10 gains a Phase-1c
+# residual-tether self-assertion. After the four image.repository
+# pivots (3 vClusters + sso-bridge), the Job re-reads each live HR's
+# spec.values and FAILS LOUDLY (exit 1) if any still references
+# harbor.openova.io — so the cutover automation itself proves the
+# mothership-Harbor untether instead of leaving a manual post-hoc grep
+# as the only acceptance gate.
+version: 0.1.51
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

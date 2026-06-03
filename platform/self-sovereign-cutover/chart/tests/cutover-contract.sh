@@ -544,7 +544,21 @@ if ! grep -q '13b-bp-sso-bridge.yaml' "$TMP/render.yaml"; then
   echo "FAIL: Step-10 missing bp-sso-bridge Gitea-injection seam (#2951)" >&2
   exit 1
 fi
-echo "  PASS (Step-10 wired to pivot vCluster + sso-bridge HRs to local Harbor)"
+# #2951 (#2940 ATTACK#9, VERIFIED-PARTIAL follow-up): Step-10 must ALSO
+# self-assert that, post-pivot, none of the four image HRs still resolves
+# to harbor.openova.io. Without this Phase-1c the only acceptance gate was
+# a manual `kubectl get hr -A | grep harbor.openova.io` — the cutover Job
+# itself never failed loudly on a residual tether. Guard that the
+# assertion loop AND the FATAL exit-1 on residual!=0 are both present.
+if ! grep -q 'RESIDUAL-TETHER' "$TMP/render.yaml"; then
+  echo "FAIL: Step-10 missing Phase-1c residual-tether self-assertion (#2951)" >&2
+  exit 1
+fi
+if ! grep -q 'Pillar 5 independence not met' "$TMP/render.yaml"; then
+  echo "FAIL: Step-10 residual-tether assertion does not fail loudly on a remaining harbor.openova.io ref (#2951)" >&2
+  exit 1
+fi
+echo "  PASS (Step-10 wired to pivot vCluster + sso-bridge HRs to local Harbor + asserts zero residual mothership-Harbor tether)"
 
 echo "[cutover-contract] Case 22: Step-11 crossplane-provider-pivot patches Provider CRs (TBD-V24 MISS-3)"
 # Chart <0.1.37 shipped NO Crossplane Provider package pivot. Result:

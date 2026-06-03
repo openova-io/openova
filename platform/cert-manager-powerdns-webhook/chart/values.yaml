@@ -144,11 +144,20 @@ powerdns:
   # rendering entirely — see templates/clusterissuer.yaml's skip-render
   # guard. Cluster overlays may override to a different pool's endpoint.
   #
-  # #2940 (2026-06-03): Pillar 5 anti-tether — franchised Sovereigns
-  # post-bp-self-sovereign-cutover MUST override to their local
-  # `https://pdns.<sov-fqdn>` endpoint. bp-self-sovereign-cutover
-  # Step 6 (helmrepository-patches) doesn't currently rewrite this;
-  # track the gap on #2940 sub-checklist Category 2.
+  # #2940/#2951 (2026-06-04): Pillar 5 review — this `pdns.openova.io`
+  # default is an INTENTIONAL out-of-cluster ACME DNS-01 tether to
+  # contabo's central PowerDNS (the authoritative server for the
+  # omani.* pool, fronted by ns1/2/3.openova.io — see the block above),
+  # NOT a mothership-control-plane tether. Let's Encrypt validates the
+  # DNS-01 TXT records against the PUBLIC DNS chain, so the challenge
+  # MUST be written to whichever PowerDNS is authoritative for the
+  # delegated zone. bp-self-sovereign-cutover deliberately does NOT
+  # rewrite this host: pivoting it to a local `pdns.<sov-fqdn>` would
+  # break wildcard-cert issuance until the Sovereign's own PowerDNS is
+  # delegated authoritative in public DNS. Operators running a fully
+  # self-hosted authoritative DNS override this per-Sovereign once their
+  # NS delegation is committed. Tracked as the intentional-exclusion row
+  # under #2951 (not a residual mothership tether).
   host: "https://pdns.openova.io"
   # PowerDNS server ID — virtually always "localhost" per the upstream
   # API contract. Operators with a multi-tenant PowerDNS deployment

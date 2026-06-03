@@ -342,6 +342,46 @@ data:
             echo "[vcluster-registry-pivot] live-K8s ok=${ok} skip=${skip} fail=${fail}"
             [ "${fail}" -eq 0 ] || exit 1
 
+            # ---- Phase 1c: residual-tether self-assertion (#2951 / #2940 ATTACK#9) ----
+            #
+            # The four image.repository pivots above (3 vClusters + sso-bridge)
+            # are the ONLY chart-default `harbor.openova.io` tethers this step
+            # owns. Assert directly against live HR state that none of them
+            # still resolves to mothership Harbor, so the cutover Job itself
+            # FAILS LOUDLY rather than leaving a manual post-hoc
+            # `kubectl get hr -A -o yaml | grep harbor.openova.io` as the only
+            # acceptance gate (the VERIFIED-PARTIAL finding on #2940: "the
+            # cutover automation does not assert the pivots actually landed").
+            #
+            # Scope note (Pillar 5 / ADR-0002): we ONLY assert the four image
+            # tethers. We deliberately do NOT flag:
+            #   * powerdns `api.host` — the `11-powerdns.yaml` overlay already
+            #     templates `pdns.${SOVEREIGN_FQDN}` (no live harbor ref).
+            #   * cert-manager-powerdns-webhook `powerdns.host` — an INTENTIONAL
+            #     out-of-cluster ACME DNS-01 tether to contabo's central
+            #     PowerDNS; rewriting it would break wildcard-cert issuance.
+            #   * ghcr.io/openova-io chart-fetch URLs — ADR-0002 cold-start path.
+            residual=0
+            for hr_name in bp-mgmt-vcluster bp-rtz-vcluster bp-dmz-vcluster bp-sso-bridge; do
+              kubectl get helmrelease "${hr_name}" -n "${HELMRELEASE_NAMESPACE}" >/dev/null 2>&1 || continue
+              hr_values=$(kubectl get helmrelease "${hr_name}" -n "${HELMRELEASE_NAMESPACE}" \
+                -o jsonpath='{.spec.values}' 2>/dev/null || echo "")
+              case "${hr_values}" in
+                *harbor.openova.io*)
+                  echo "[vcluster-registry-pivot] RESIDUAL-TETHER ${hr_name}: spec.values still references harbor.openova.io" >&2
+                  residual=$((residual+1))
+                  ;;
+                *)
+                  echo "[vcluster-registry-pivot] CLEAN ${hr_name}: no harbor.openova.io in spec.values"
+                  ;;
+              esac
+            done
+            if [ "${residual}" -ne 0 ]; then
+              echo "[vcluster-registry-pivot] FATAL: ${residual} HelmRelease(s) still tethered to mothership Harbor after pivot — Pillar 5 independence not met" >&2
+              exit 1
+            fi
+            echo "[vcluster-registry-pivot] residual-tether assertion PASS (0 of 4 image HRs on harbor.openova.io)"
+
             # ---- Phase 2: push YAML edit to local Gitea ----
             #
             # bootstrap-kit Kustomization reconciles HelmRelease YAML
