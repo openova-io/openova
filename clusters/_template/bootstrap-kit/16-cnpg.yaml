@@ -88,7 +88,7 @@ spec:
   install:
     timeout: 15m
     remediation:
-      retries: 3
+      retries: -1
   upgrade:
     timeout: 15m
     remediation:

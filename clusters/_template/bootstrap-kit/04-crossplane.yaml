@@ -49,7 +49,18 @@ spec:
   install:
     timeout: 15m
     remediation:
-      retries: 3
+      # -1 = retry indefinitely (#2999, caught live on hw90/#2998): with the
+      # old `retries: 3`, an environmental transient (node-level kubelet mount
+      # dysfunction in the HCS early-prov window) outlasted the ~4×15m budget
+      # and helm-controller went TERMINAL ("exceeded maximum retries: cannot
+      # remediate failed release") — permanently wedging a zero-touch prov even
+      # after the node settled. Only a human spec-bump could clear it, which is
+      # a zero-touch failure by definition. With -1 the HR keeps retrying until
+      # the env settles or a catalog fix lands (a new chart/values digest still
+      # resets state and applies immediately, so the GitOps self-heal path is
+      # unchanged). Pace is bounded by the install timeout + HR interval.
+      # Applied across all bootstrap-kit slots that used the default 3.
+      retries: -1
   upgrade:
     timeout: 15m
     remediation:
