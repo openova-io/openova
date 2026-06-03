@@ -47,7 +47,13 @@ import { reachable } from './_helpers'
 
 const SOV_FQDN = (process.env.SOV_FQDN || '').trim()
 const CATALYST_SESSION_COOKIE = process.env.CATALYST_SESSION_COOKIE || ''
-const BASE_URL = process.env.BASE_URL || 'http://localhost:4321'
+// MOCK-mode target is the products/catalyst/console Astro app, NOT the
+// products/catalyst/bootstrap/ui (React) app that the rest of Group L boots.
+// Only the console app installs window.__MOCK_API__ (Layout.astro, gated on
+// PUBLIC_MOCK_API=1) and serves the /apps/<id> + /catalog/<name> routes these
+// specs drive. CONSOLE_BASE_URL points at it (CI boots it on :4323 with
+// MOCK_API=1); falls back to the console dev port for local runs.
+const BASE_URL = process.env.CONSOLE_BASE_URL || 'http://localhost:4323'
 
 // Mock fixture's pre-seeded Grafana app id (see
 // products/catalyst/console/tests/e2e/fixtures/mock-blueprints.yaml).
@@ -99,10 +105,14 @@ test.describe('G117.4 #2743 AC4 — Launch silent-SSO', () => {
   // ─────────────────────────────────────────────────────────────────────
   test.describe('MOCK mode', () => {
     test.skip(!!SOV_FQDN, 'MOCK walk runs only when SOV_FQDN is unset')
+    // page.goto uses the project baseURL (the shared Group L BASE_URL =
+    // bootstrap/ui), but the mock backend lives in the console app. Override
+    // baseURL for this block so relative gotos hit the console (CONSOLE_BASE_URL).
+    test.use({ baseURL: BASE_URL })
 
     test.beforeEach(async ({ page }) => {
       const ok = await reachable(BASE_URL)
-      test.skip(!ok, `console dev server not reachable at ${BASE_URL} — start with PUBLIC_MOCK_API=1 npm run dev`)
+      test.skip(!ok, `console dev server not reachable at ${BASE_URL} — start with MOCK_API=1 npm run dev`)
       await stubWindowOpen(page)
     })
 

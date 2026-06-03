@@ -23,6 +23,7 @@ on:
     branches: [main]
     paths:
       - 'products/catalyst/bootstrap/ui/**'
+      - 'products/catalyst/console/**'
       - 'core/admin/**'
       - 'core/marketplace/**'
       - 'platform/**/blueprint.yaml'
@@ -32,6 +33,7 @@ on:
   pull_request:
     paths:
       - 'products/catalyst/bootstrap/ui/**'
+      - 'products/catalyst/console/**'
       - 'core/admin/**'
       - 'core/marketplace/**'
       - 'platform/**/blueprint.yaml'
@@ -58,6 +60,17 @@ jobs:
         working-directory: products/catalyst/bootstrap/ui
         run: npm ci
 
+      - name: Install Catalyst console dependencies
+        # The g117 MOCK-mode specs (g117-launch-silent-sso /
+        # g117-multi-instance-create) drive the products/catalyst/console
+        # Astro app — the ONLY UI that installs window.__MOCK_API__ (see
+        # console src/layouts/Layout.astro, gated on PUBLIC_MOCK_API=1) and
+        # serves the /apps/<id> + /catalog/<name>/new routes those specs
+        # navigate to. The bootstrap/ui (React) app has no mock backend, so
+        # #2944's PUBLIC_MOCK_API=1 on bootstrap/ui never reached these specs.
+        working-directory: products/catalyst/console
+        run: npm ci
+
       - name: Install Playwright dependencies
         working-directory: tests/e2e/playwright
         run: |
@@ -68,21 +81,29 @@ jobs:
         working-directory: products/catalyst/bootstrap/ui
         env:
           HOST: 0.0.0.0
-          # #2939-followup (2026-06-03): the g117-launch-silent-sso.spec.ts
-          # MOCK-mode tests (line 100+) require the UI's mock backend
-          # (window.__MOCK_API__) which only loads when Vite is started
-          # with PUBLIC_MOCK_API=1. Without this, the dev server boots
-          # in REAL-API mode, /apps/<mock-grafana-id> 401s and redirects
-          # to /login, the Launch button never renders, and the
-          # `expect(launchBtn).toBeVisible()` assertion fails. The
-          # Playwright Group L lane has been red on this since 2026-06-03
-          # 02:36Z. Setting the var unblocks 12+ MOCK-mode tests.
+          # bootstrap/ui has no mock backend today; PUBLIC_MOCK_API is a
+          # no-op here but kept harmless in case future bootstrap/ui specs
+          # add a mock installer. The g117 specs target the console app
+          # instead (booted below on :4323).
           PUBLIC_MOCK_API: "1"
         run: |
-          # Vite dev server binds 4321 by default; we keep the default so the
-          # tests' BASE_URL fallback (http://localhost:5173) works.
+          # Vite dev server binds 5173 (vite.config.ts); BASE_URL=5173 below.
           nohup npm run dev > /tmp/catalyst-ui-dev.log 2>&1 &
           echo $! > /tmp/catalyst-ui.pid
+
+      - name: Boot Catalyst console (mock backend) in background
+        working-directory: products/catalyst/console
+        env:
+          HOST: 0.0.0.0
+          # #2939 root cause: window.__MOCK_API__ is installed by the console
+          # Astro Layout when MOCK_API=1 (its dev script maps MOCK_API →
+          # PUBLIC_MOCK_API for import.meta.env). Without this the g117 specs
+          # throw `window.__MOCK_API__ not installed; PUBLIC_MOCK_API=1
+          # required`. Console binds :4323 (astro.config.mjs).
+          MOCK_API: "1"
+        run: |
+          nohup npm run dev > /tmp/catalyst-console-dev.log 2>&1 &
+          echo $! > /tmp/catalyst-console.pid
 
       - name: Wait for Catalyst UI to be ready
         run: |
@@ -98,10 +119,28 @@ jobs:
           cat /tmp/catalyst-ui-dev.log || true
           exit 1
 
+      - name: Wait for Catalyst console to be ready
+        run: |
+          # The console serves the mock Grafana app detail; probe its
+          # /apps/<mock-grafana-id> route (the fixture pre-seeds it).
+          for i in $(seq 1 60); do
+            if curl -sf -o /dev/null http://localhost:4323/apps/8a1e9bf2-7c4d-4b3a-9f1e-2c5a8d3f6e0a; then
+              echo "console ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "console failed to start in 60s — log follows:"
+          cat /tmp/catalyst-console-dev.log || true
+          exit 1
+
       - name: Run Playwright smoke
         working-directory: tests/e2e/playwright
         env:
           BASE_URL: http://localhost:5173
+          # g117 MOCK-mode specs read CONSOLE_BASE_URL (console app on :4323);
+          # all other Group L specs use BASE_URL (bootstrap/ui on :5173).
+          CONSOLE_BASE_URL: http://localhost:4323
           # ADMIN_BASE_URL / MARKETPLACE_BASE_URL not set — the admin and
           # marketplace specs self-skip when their respective apps aren't up,
           # which keeps this workflow lean. Booting all three apps requires
@@ -114,6 +153,9 @@ jobs:
         run: |
           if [ -f /tmp/catalyst-ui.pid ]; then
             kill "$(cat /tmp/catalyst-ui.pid)" 2>/dev/null || true
+          fi
+          if [ -f /tmp/catalyst-console.pid ]; then
+            kill "$(cat /tmp/catalyst-console.pid)" 2>/dev/null || true
           fi
 
       - name: Upload Playwright report
