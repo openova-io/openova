@@ -344,6 +344,19 @@ spec:
                     are members of supported, and every key in perTopology
                     is in supported.
                   required: [supported, defaults]
+                  # #2936 (2026-06-03): cross-field CEL validation. Pre-fix
+                  # blueprint-controller surfaced these mismatches at reconcile
+                  # time as Ready=False reason=ValidationFailed. Promoting to
+                  # CRD admission means the apiserver rejects the CR at submit
+                  # time with HTTP 422 — operator gets immediate feedback
+                  # instead of "applied but stuck Pending".
+                  x-kubernetes-validations:
+                    - rule: "self.defaults['multi-region'] in self.supported"
+                      message: "topology.defaults.multi-region must be a member of topology.supported[]"
+                    - rule: "self.defaults['single-region'] in self.supported"
+                      message: "topology.defaults.single-region must be a member of topology.supported[]"
+                    - rule: "!has(self.perTopology) || self.perTopology.all(k, k in self.supported)"
+                      message: "every key in topology.perTopology must be a member of topology.supported[]"
                   properties:
                     supported:
                       type: array
