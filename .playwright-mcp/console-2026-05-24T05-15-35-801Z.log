@@ -1,3 +1,0 @@
-[    3706ms] [ERROR] Failed to load resource: the server responded with a status of 502 () @ https://console.openova.io/sovereign/api/v1/tenant/discover?host=console.openova.io:0
-[    3722ms] [ERROR] Failed to load resource: the server responded with a status of 502 () @ https://console.openova.io/sovereign/api/v1/whoami:0
-[    5003ms] [ERROR] Failed to load resource: the server responded with a status of 502 () @ https://console.openova.io/sovereign/api/v1/whoami:0

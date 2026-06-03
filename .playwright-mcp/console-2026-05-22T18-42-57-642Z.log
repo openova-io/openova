@@ -1,2 +1,0 @@
-[     565ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://console.openova.io/sovereign/api/v1/tenant/discover?host=console.openova.io:0
-[  321378ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://console.openova.io/sovereign/api/v1/tenant/discover?host=console.openova.io:0
