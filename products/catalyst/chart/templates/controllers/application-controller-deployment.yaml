@@ -27,6 +27,11 @@ spec:
     metadata:
       labels:
         {{- include "controllers.labels" (dict "name" "application" "root" .) | nindent 8 }}
+      annotations:
+        # G117 #2742-followup (2026-06-03): roll on runtime-config CM
+        # change. Same rationale as organization-controller — see
+        # that template's comment block for full context.
+        checksum/runtime-config: {{ include (print $.Template.BasePath "/configmap-catalyst-runtime-config.yaml") . | sha256sum }}
     spec:
       serviceAccountName: {{ include "controllers.fullname" "application" }}
       automountServiceAccountToken: true
