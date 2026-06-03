@@ -120,6 +120,19 @@ cloudnative-pg:
   # Webhook is enabled by default in upstream — keep it that way (CNPG
   # uses the webhook to validate Cluster CRs). cert-manager (bp-cert-
   # manager) provides the TLS cert per Sovereign convention.
+  webhook:
+    # HCS startup-probe widening (#2989-followup — caught live on hw90).
+    # Upstream default is failureThreshold 6 × periodSeconds 5 = 30s. On
+    # slow HCS Kom4DC nodes the operator's leader-election + webhook-server
+    # (:9443) bind exceeds 30s, so the startup probe kills the operator
+    # before /readyz responds → CrashLoopBackOff ("failed startup probe")
+    # that wedges the whole cascade (bp-openbao → bp-sso-bridge →
+    # bp-catalyst-platform all dependsOn bp-cnpg). 30 × 5 = 150s gives
+    # ample headroom; the probe only runs at startup, so there's no
+    # steady-state cost.
+    startupProbe:
+      failureThreshold: 30
+      periodSeconds: 5
 
 # ─── Catalyst-managed overlay values consumed by templates/ ───────────────
 
