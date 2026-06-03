@@ -3,7 +3,7 @@
 **What:** Auto-provisions a Keycloak OIDC Client for every Catalyst
 Blueprint that opts in via `sso.enabled: true`, distributes the client
 secret through OpenBao + External Secrets Operator, and grants the
-Sovereign operator the application's `admin` role.
+`sovereign-admin` the application's `admin` role.
 
 **Role in Catalyst:** Mandatory infra. Implements the App-level SSO
 contract from [`docs/SECURITY.md`](../../docs/SECURITY.md) §6.3.
@@ -34,8 +34,8 @@ That's it. bp-sso-bridge owns:
   in the app's namespace; bp-external-secrets writes a regular K8s
   Secret with keys `client_id`, `client_secret`, `issuer_url`,
   `authorize_url`, `token_url`, `userinfo_url`, `end_session_url`
-- Granting the Sovereign operator the application's `admin` role —
-  operator email is sourced from the per-Sovereign `sovereign-fqdn`
+- Granting the `sovereign-admin` the application's `admin` role —
+  the admin email is sourced from the per-Sovereign `sovereign-fqdn`
   ConfigMap key `orgEmail` (set by catalyst-api Phase-1 watcher from
   `deployment.request.OrgEmail`)
 
@@ -68,8 +68,8 @@ On each tick:
    - upsert Keycloak Client (POST new / PUT existing)
    - PUT `secret/sso/<clientId>` in OpenBao with full URL bundle
    - apply ExternalSecret CR in the HR's namespace
-   - grant operator the client's `admin` role (best-effort — deferred if
-     operator user not yet provisioned in the realm)
+   - grant the `sovereign-admin` the client's `admin` role (best-effort —
+     deferred if the sovereign-admin user not yet provisioned in the realm)
 5. Sweep `bp-sso-bridge.openova.io/managed=true` ExternalSecrets whose
    `client-id` label is no longer in the managed set; delete those.
 

@@ -535,9 +535,9 @@ opt in by setting:
 - `spec.values.cilium.clustermesh.apiserver.service.{type,nodePort}`
 
 The cluster.id allocation across the OpenOva fleet is tracked in
-[`docs/CLUSTERMESH-CLUSTER-IDS.md`](../../docs/CLUSTERMESH-CLUSTER-IDS.md).
-Every PR that adds a new peer MUST also claim a row in that registry
-in the same commit.
+[`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §8.7 (ClusterMesh ID
+assignment). Every PR that adds a new peer MUST also claim a row in that
+registry in the same commit.
 
 ---
 

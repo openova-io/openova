@@ -195,7 +195,7 @@ If the primary region fails, a replica is explicitly promoted (sovereign-admin a
 ## Bootstrap Procedure
 
 1. Catalyst bootstrap (Phase 0 of Sovereign provisioning) deploys OpenBao as **independent Raft cluster per region** (no stretched cluster — see [`docs/SECURITY.md`](../../docs/SECURITY.md) §5).
-2. **Auto-unseal flow (issue #316, chart v1.2.0+):** Cloud-init on the control-plane node generates a 32-byte recovery seed, writes it to a single-use K8s Secret `openbao-recovery-seed` in the `openbao` namespace. The bp-openbao Helm chart's post-install init Job (hook weight 5) consumes the seed, calls `bao operator init -recovery-shares=1 -recovery-threshold=1`, persists the recovery key inside OpenBao's auto-unseal config, and deletes the seed Secret on success. The recovery key + root token live ONLY inside OpenBao's Raft state — never in a K8s Secret. Subsequent pod restarts unseal automatically without operator intervention. Set `autoUnseal.enabled=true` (default off; cluster overlay flips it on per-Sovereign).
+2. **Auto-unseal flow (issue #316, chart v1.2.0+):** Cloud-init on the control-plane node generates a 32-byte recovery seed, writes it to a single-use K8s Secret `openbao-recovery-seed` in the `openbao` namespace. The bp-openbao Helm chart's post-install init Job (hook weight 5) consumes the seed, calls `bao operator init -recovery-shares=1 -recovery-threshold=1`, persists the recovery key inside OpenBao's auto-unseal config, and deletes the seed Secret on success. The recovery key + root token live ONLY inside OpenBao's Raft state — never in a K8s Secret. Subsequent pod restarts unseal automatically without sovereign-admin intervention. Set `autoUnseal.enabled=true` (default off; cluster overlay flips it on per-Sovereign).
 3. **Kubernetes auth bootstrap (issue #316):** A second post-install Job (hook weight 10) enables the Kubernetes auth method, mounts kv-v2 at `secret/`, writes the `external-secrets-read` policy, and binds the `external-secrets` role to the ESO ServiceAccount in `external-secrets-system`. ESO's ClusterSecretStore `vault-region1` (platform/external-secrets) authenticates via this role on every secret read. Configure under `autoUnseal.kubernetesAuth.*`.
 4. Cross-region async perf replication is configured for read availability and DR.
 5. ESO configured with local-region ClusterSecretStores; cross-region reads via the same workload SVID.
@@ -210,7 +210,7 @@ If the primary region fails, a replica is explicitly promoted (sovereign-admin a
 | **A. Shamir + cloud-init seed** | **Default for solo Sovereign — implemented in chart v1.2.0.** No managed-KMS dependency; the recovery key is generated on the control-plane at provision time and persisted only inside OpenBao's own Raft state. |
 | B. Transit-seal via peer OpenBao | Multi-region tier-1 corporate cluster (one Sovereign unseals another). Out of scope for omantel/single-region. |
 | C. Cloud-KMS auto-unseal (AWS KMS, GCP KMS, Azure Key Vault) | When the Sovereign runs on a hyperscaler that provides managed-KMS. Hetzner has no managed-KMS — Option A is the only viable path on Hetzner. |
-| D. Operator-supplied recovery shards (air-gap) | Documented in [`docs/SECURITY.md`](../../docs/SECURITY.md). Used when no automated boot-time secret pipeline is acceptable. |
+| D. Sovereign-admin-supplied recovery shards (air-gap) | Documented in [`docs/SECURITY.md`](../../docs/SECURITY.md). Used when no automated boot-time secret pipeline is acceptable. |
 
 ---
 

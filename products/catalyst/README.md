@@ -12,7 +12,7 @@ This product directory contains:
 - `chart/templates/marketplace-api/` — manifests for the Go marketplace-api backend (sourced from `core/marketplace-api/`).
 - `bootstrap/{ui,api}/` — the source code for catalyst-ui and catalyst-api (deployed via the catalyst-build CI workflow).
 
-For the unified architecture and the wizard's target shape, see [`docs/PROVISIONING-PLAN.md`](../../docs/PROVISIONING-PLAN.md), [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md), and [`docs/SOVEREIGN-PROVISIONING.md`](../../docs/SOVEREIGN-PROVISIONING.md).
+For the unified architecture and the wizard's target shape, see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) and the provisioning runbook in [`docs/RUNBOOKS.md`](../../docs/RUNBOOKS.md). (The legacy `docs/PROVISIONING-PLAN.md` and `docs/SOVEREIGN-PROVISIONING.md` were consolidated into these under the lean-docs strategy.)
 
 ---
 
@@ -22,7 +22,7 @@ A Flux Kustomization on the Catalyst-Zero cluster (Contabo k3s) reconciles `prod
 
 Image registry: `ghcr.io/openova-io/openova/{catalyst-ui,catalyst-api,console,admin,marketplace,marketplace-api}:<sha>`.
 
-## Migration status (per `docs/PROVISIONING-PLAN.md`)
+## Migration status (per `docs/ARCHITECTURE.md`)
 
 | Component | Source location | Image | Status |
 |---|---|---|---|
