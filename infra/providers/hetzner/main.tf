@@ -949,7 +949,7 @@ resource "hcloud_server" "control_plane" {
   # ships with a healthy headroom in front of the hard cap.
   lifecycle {
     precondition {
-      condition     = length(local.control_plane_cloud_init) <= 32256
+      condition = length(local.control_plane_cloud_init) <= 32256
       # G107 #2702 (2026-06-01): wrap length() with nonsensitive() so the
       # byte count shows in the error_message. Without it tofu redacts the
       # entire message because the local references hcloud_token / ssh_key
