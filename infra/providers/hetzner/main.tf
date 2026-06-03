@@ -1409,12 +1409,12 @@ locals {
       # ARE multi-region by construction at this point), `1` for
       # singleton (never reached on secondary path, defensive default).
       sovereign_cnpg_instances = length(var.regions) > 1 ? "2" : "1"
-    # #2922 (2026-06-03): auto-enable bp-continuum when multi-region.
-    # Single-region keeps "false" (admission gate already rejects
-    # bcpTopology=active-hot-standby + len(regions)<2 at the
-    # catalyst-api boundary). bp-continuum chart's prerequisite guard
-    # (PR-B of #2922, pending) protects against premature flip.
-    continuum_enabled = length(var.regions) > 1 ? "true" : "false"
+      # #2922 (2026-06-03): auto-enable bp-continuum when multi-region.
+      # Single-region keeps "false" (admission gate already rejects
+      # bcpTopology=active-hot-standby + len(regions)<2 at the
+      # catalyst-api boundary). bp-continuum chart's prerequisite guard
+      # (PR-B of #2922, pending) protects against premature flip.
+      continuum_enabled = length(var.regions) > 1 ? "true" : "false"
     }), "/(?m)^[ ]*#( |$).*\n/", "")
   }
 
