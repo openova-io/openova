@@ -102,16 +102,35 @@ set -e
   echo "      password: \"${HARBOR_ROBOT_PASSWORD}\""
 } >> /etc/rancher/k3s/registries.yaml
 chmod 600 /etc/rancher/k3s/registries.yaml
-systemctl reload k3s 2>/dev/null || systemctl reload k3s-agent 2>/dev/null || true
+# #2931 (2026-06-03): explicit reload success check.
+# Pre-fix this line had `|| true` masking failures → script reported
+# "patched + k3s reloaded" even when both reloads failed → operator
+# believed auth was live when containerd never re-read the file
+# (memory L7 pattern). Now fails loudly if both reloads fail.
+if systemctl reload k3s 2>/dev/null; then
+  echo "RELOADED_K3S"
+elif systemctl reload k3s-agent 2>/dev/null; then
+  echo "RELOADED_K3S_AGENT"
+else
+  echo "RELOAD_FAILED" >&2
+  exit 4
+fi
 PATCH
 )"
 
-  if kubectl debug node/"$node" --image=busybox:1.36 -q -i -- \
-       chroot /host sh -c "$patch_script" >/dev/null 2>&1; then
-    echo "  patched + k3s reloaded"
+  # #2931 (2026-06-03): capture exit code AND stderr so reload-failure
+  # surfaces in the per-node summary instead of being masked.
+  patch_output="$(kubectl debug node/"$node" --image=busybox:1.36 -q -i -- \
+       chroot /host sh -c "$patch_script" 2>&1)"
+  patch_rc=$?
+  if [ "$patch_rc" -eq 0 ] && echo "$patch_output" | grep -qE "RELOADED_K3S(_AGENT)?"; then
+    echo "  patched + k3s reloaded ($(echo "$patch_output" | grep -oE 'RELOADED_K3S(_AGENT)?'))"
     patched_count=$((patched_count + 1))
+  elif [ "$patch_rc" -eq 4 ]; then
+    echo "  FAILED: registries.yaml appended but systemctl reload failed (containerd NOT picking up new auth)"
+    fail_count=$((fail_count + 1))
   else
-    echo "  FAILED (re-run with KUBECONFIG=... bash -x to debug)"
+    echo "  FAILED rc=$patch_rc (re-run with KUBECONFIG=... bash -x to debug)"
     fail_count=$((fail_count + 1))
   fi
 done
