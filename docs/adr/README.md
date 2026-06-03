@@ -12,6 +12,9 @@ Format: lightweight ADR (Status / Context / Decision / Consequences / Shipped-vi
 | [0002](0002-post-handover-sovereignty-cutover.md) | Post-handover sovereignty cutover (8-tether pivot) | Accepted |
 | [0003](0003-rbac-newapi-user-create-hook.md) | RBAC `newapi` user-create hook | Accepted |
 | [0004](0004-cnpg-sync-replication.md) | CNPG Pillar 3 synchronous replication (remote_apply over ClusterMesh) | Accepted |
+| [0009](0009-per-org-iac-repo-bootstrap.md) | Per-Organization IaC repo bootstrap on Org creation | Accepted |
+
+> **Numbering note:** slots 0005–0008 are intentionally reserved for in-flight EPIC ADRs (G92/G105/G108/G112 candidates). ADR-0009 picked its slot deliberately so it could land without ordering coupling — see the ADR-0009 header. The 0005–0008 gap is by design, not a missing-file anomaly.
 
 ## When to write an ADR
 
