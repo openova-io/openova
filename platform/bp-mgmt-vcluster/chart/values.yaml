@@ -230,6 +230,6 @@ vcluster:
     # host-cluster helm-controller / per-Sovereign Kustomizations that
     # consume the mirrored kubeconfig. Point at the host-side service
     # DNS before the first vc-mgmt-targeted HR trips over it.
-    server: https://mgmt-vcluster.mgmt.svc:443
+    server: https://mgmt-vcluster.mgmt:443
     secret:
       name: vc-mgmt

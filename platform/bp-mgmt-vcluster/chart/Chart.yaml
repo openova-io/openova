@@ -35,7 +35,7 @@ name: bp-mgmt-vcluster
 # `<inner-ns>-x-mgmt`, the host's cnpg-operator reconciles it, and
 # the resulting Service is synced back into the vCluster's view via
 # the already-enabled `sync.toHost.services`.
-version: 0.2.3
+version: 0.2.4
 appVersion: "0.21.0"
 description: |
   Catalyst-curated Blueprint umbrella chart for the Sovereign MGMT

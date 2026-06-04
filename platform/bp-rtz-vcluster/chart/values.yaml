@@ -136,6 +136,6 @@ vcluster:
     # exported server is `https://localhost:8443`, unusable by the
     # host-cluster helm-controller that reconciles vc-rtz-targeted HRs
     # (rtz/bp-sandbox). Point at the host-side service DNS.
-    server: https://rtz-vcluster.rtz.svc:443
+    server: https://rtz-vcluster.rtz:443
     secret:
       name: vc-rtz
