@@ -302,6 +302,14 @@ spec:
                   --provider openidConnect
                   --key "${OAUTH_KEY}"
                   --secret "${OAUTH_SECRET}"
+                  # 1.2.21 (hw91, caught by the round-logging on the
+                  # path's second-ever execution): gitea's add-oauth
+                  # VALIDATES --auto-discover-url for openidConnect
+                  # regardless of --use-custom-urls ("invalid Auto
+                  # Discovery URL:" with an empty value when omitted).
+                  # The custom mapping supplements discovery, it does
+                  # not replace it.
+                  --auto-discover-url "${AUTO_DISCOVER_URL}"
                   --use-custom-urls
                   --custom-auth-url "${AUTH_URL}"
                   --custom-token-url "${TOKEN_URL}"
