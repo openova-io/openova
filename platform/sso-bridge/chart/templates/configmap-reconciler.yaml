@@ -691,6 +691,8 @@ data:
         || warn "per-org-realm[${slug}]: OpenBao PUT failed (non-fatal — KC has the secret already)"
     }
 
+    log "tick: phase per-org-realms"
+
     reconcile_per_org_realms() {
       # List every ConfigMap with label per-org-realm=true (any namespace).
       # bp-keycloak emits them in the keycloak namespace by default but the
@@ -935,13 +937,29 @@ data:
       mint_kc_token || { warn "skipping tick (no KC token)"; sleep "${INTERVAL_SECONDS}"; continue; }
       openbao_login || { warn "skipping tick (no OpenBao token)"; sleep "${INTERVAL_SECONDS}"; continue; }
 
+      log "tick: tokens minted (kc + openbao)"
       op_email="$(operator_email)"
       fqdn="$(sovereign_fqdn)"
+      log "tick: identity resolved (fqdn=${fqdn:-<empty>} orgEmail=${op_email:+set}${op_email:-unset})"
       [ -z "${fqdn}" ] && { warn "sovereign-fqdn ConfigMap missing; skipping tick"; sleep "${INTERVAL_SECONDS}"; continue; }
 
+      # 0.2.11 (hw91 ROOT-ROOT cause of the silent-SSO chain): discovery
+      # previously matched ONLY HRs with spec.values.sso.enabled==true —
+      # but the bootstrap-kit slots inject sso.sovereignFqdn and leave
+      # `enabled` to the CHART DEFAULT, which never appears in HR
+      # spec.values. Result: on a fresh prov exactly ONE HR matched
+      # (bp-catalyst-platform) and sso/gitea etc. could NEVER be written
+      # by this reconciler — the manual G91 recovery on hw86 had masked
+      # this since the framework shipped. Match either signal the slots
+      # actually emit: explicit enabled==true OR a non-empty
+      # sso.sovereignFqdn (the 6 Tier-1+ slots: openbao, gitea, harbor,
+      # grafana, sandbox, powerdns-admin).
       hrs_json="$(kubectl get hr -A -o json 2>/dev/null \
-        | jq -c '.items[] | select((.spec.values.sso // {}).enabled == true)')"
+        | jq -c '.items[] | select((.spec.values.sso // {}) | (.enabled == true) or ((.sovereignFqdn // "") != ""))')"
+      discovered=$(printf '%s' "${hrs_json}" | grep -c . || true)
+      log "tick: discovered ${discovered} sso-capable HR(s)"
       current_cids=""
+      reconciled_count=0
       while IFS= read -r hr; do
         [ -z "${hr}" ] && continue
         # Guard against tick exceeding budget — bail out to next loop.
@@ -978,12 +996,13 @@ data:
       # where the Tier-3 chart-side sso-externalsecret.yaml's remoteRef
       # resolves it. MUST run AFTER reconcile_per_org_realms so the
       # per-Org realms exist before we POST clients into them.
+      log "tick: phase app-registrations"
       reconcile_app_registrations || true
 
       cleanup_orphans "${current_cids}" || true
 
       tick_done="$(date +%s)"
-      log "tick complete in $(( tick_done - tick_started ))s (managed=${current_cids:-none})"
+      log "tick complete in $(( tick_done - tick_started ))s (discovered=${discovered:-0} reconciled=${reconciled_count:-0} managed=${current_cids:-none})"
       sleep "${INTERVAL_SECONDS}"
     done
 {{- end }}
