@@ -62,7 +62,7 @@ spec:
   chart:
     spec:
       chart: bp-rtz-vcluster
-      version: 0.2.4
+      version: 0.2.5
       sourceRef:
         kind: HelmRepository
         name: bp-rtz-vcluster
