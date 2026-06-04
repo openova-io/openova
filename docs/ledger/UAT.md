@@ -124,6 +124,37 @@ Deliberate exclusions are listed in Appendix B with reasons. Anything user-facin
 | 1 | The provision view | Wait through convergence | `status` advances `provisioning → … → ready` only when the console is genuinely serving (no premature ready, #3018) | ☐ | — |
 | 2 | On `ready` | Follow the handover hand-off | Auto-redirect into the Sovereign console (continues at **TC-01**), zero FQDN typing | ☐ | — |
 
+
+### TC-00d — Applications tab: per-app install status *(web · operator · mothership console)*
+
+| # | Screen you're on | What you do | What you must see | Result | Evidence |
+|---|---|---|---|---|---|
+| 1 | `/sovereign/provision/<dep>` (Apps) | Read the **Deployments** + **Catalog** tabs | Deployments count + Catalog count; each app card shows a live status badge | ✅ | [apps](../sessions/2026-06-04/evidence/hw93-mothership-apps.png): **49 Deployments / 63 Catalog**, badges INSTALLED/PENDING/FAILED |
+| 2 | The app grid | Scan for failures | No app stuck FAILED on a healthy prov | ❌ **finding** | **4 FAILED**: Coraza WAF, **Kyverno** (admission policy engine!), Reloader, VPA; 3 PENDING (cluster-autoscaler, network-policies, vcluster-host-namespaces). Under investigation — partly the slow-egress cascade, VPA is a known netpol issue. |
+
+### TC-00e — User Access (RBAC) *(web · operator · mothership console)*
+
+| # | Screen you're on | What you do | What you must see | Result | Evidence |
+|---|---|---|---|---|---|
+| 1 | `/sovereign/provision/<dep>/users` | Read the User Access surface | "Per-user access to Sovereigns × Applications × Namespaces × Roles", tiers **viewer/developer/operator/admin/owner**, **+ New** affordance | ✅ | empty pre-handover ("No user access entries yet") — expected |
+
+### TC-00f — Settings: deployment configuration *(web · operator · mothership console)*
+
+| # | Screen you're on | What you do | What you must see | Result | Evidence |
+|---|---|---|---|---|---|
+| 1 | `/sovereign/provision/<dep>/settings` → **Organization** | Read it | The **actual** org you ordered (Omantel) | ❌ **DATA BUG** | shows placeholder **"Acme Financial" / Frankfurt / platform@acme.io** — not Omantel |
+| 2 | **Sovereign** section | Read FQDN/Region/Capacity/Created/Status | The real values (`hw93.omantel.biz`, `me-east-215`, `m7n.large.8`, …) | ❌ **DATA BUG** | all `—` (blank); only Deployment ID populated |
+| 3 | **Cloud credentials** + **DNS** | Read provider + pool domain | `huawei` provider; pool `omantel.biz` | ❌ **DATA BUG** | Cloud creds labelled **"Hetzner provider token"** (Huawei prov!); DNS Pool domain **"omani-works"** (should be `omantel.biz`) |
+| 4 | API tokens / Notifications / Wipe / Transfer | Note state | — | ⚠️ **scaffold** | all **"API pending" (display-only)**; Marketplace storefront placeholder "Otech Cloud" |
+
+### TC-00g — Dashboard (treemap) *(web · operator · mothership console)*
+
+| # | Screen you're on | What you do | What you must see | Result | Evidence |
+|---|---|---|---|---|---|
+| 1 | `/sovereign/provision/<dep>/dashboard` | Read the treemap | Resource allocation/utilisation once the cluster reports | ⏳ | "No utilisation data yet — waiting for the cluster to report" (expected mid-prov) |
+
+> **Mothership-console walk summary (2026-06-04, hw93):** all 6 tabs walkable pre-handover. Cloud ✅ 2-region; Jobs ❌ region-labeling; Apps ❌ 4 FAILED; Users ✅; **Settings ❌❌❌ placeholder/blank data (Acme Financial, Hetzner-on-Huawei, omani-works) — the operator's own Sovereign config is not reflected**; Dashboard ⏳. The Settings data-correctness bugs + the provider-mislabel (Hetzner↔Huawei) are the highest-value finds.
+
 ---
 
 ## Part I — Handover & operator first-touch
