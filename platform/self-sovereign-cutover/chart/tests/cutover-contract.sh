@@ -673,4 +673,24 @@ if ! grep -q 'consolePublicURL not overlaid' "$TMP/render.yaml"; then
 fi
 echo "  PASS (Step-07 Phase 3 pivots issuers + runtime-config URLs with read-back asserts)"
 
+
+echo "[cutover-contract] Case 24: Step-09 re-run no-op probe + unique token name (#2938)"
+# The old delete-then-mint rotated the live token on every re-run —
+# holders of the old token got unrecoverable 401s (UAT Wave-2 ATTACK#7).
+# Contract: a validity probe short-circuits re-runs; minting uses a
+# unique per-run name; and NO DELETE of the active token ever happens.
+if ! grep -q 're-run is a no-op' "$TMP/render.yaml"; then
+  echo "FAIL: Step-09 missing the re-run no-op probe (#2938)" >&2
+  exit 1
+fi
+if ! grep -q 'minting under unique name' "$TMP/render.yaml"; then
+  echo "FAIL: Step-09 missing the unique per-run token name (#2938)" >&2
+  exit 1
+fi
+if grep -A20 'gitea-token-mint' "$TMP/render.yaml" | grep -q 'X DELETE.*tokens/'; then
+  echo "FAIL: Step-09 still DELETEs the active token (#2938 regression)" >&2
+  exit 1
+fi
+echo "  PASS (Step-09: validity probe short-circuits re-runs; unique mint name; no active-token DELETE)"
+
 echo "[cutover-contract] All gates green."
