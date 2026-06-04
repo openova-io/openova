@@ -196,8 +196,18 @@ data:
     }
 
     sovereign_fqdn() {
-      kubectl get cm "${SOVEREIGN_FQDN_CM_NAME}" -n "${SOVEREIGN_FQDN_CM_NS}" \
-        -o jsonpath="{.data.${SOVEREIGN_FQDN_SOVEREIGN_FQDN_KEY}}" 2>/dev/null || true
+      # #2989 residual (hw91 2026-06-04, 0.2.9): the CM ships with
+      # bp-catalyst-platform, but gitea's post-install SSO hook needs the
+      # sso/gitea OpenBao key THIS tick writes — and catalyst-platform
+      # dependsOn gitea. Reading ONLY the CM re-created the #2989
+      # deadlock one layer down (reconciler skipped every tick for 3h20m
+      # on hw91 while gitea's hook starved). Fall back to the chart-value
+      # FQDN (slot 13b envsubsts ${SOVEREIGN_FQDN}) so Tier-1 writes run
+      # pre-catalyst-platform; only the orgEmail grant stays deferred.
+      local v
+      v="$(kubectl get cm "${SOVEREIGN_FQDN_CM_NAME}" -n "${SOVEREIGN_FQDN_CM_NS}" \
+        -o jsonpath="{.data.${SOVEREIGN_FQDN_SOVEREIGN_FQDN_KEY}}" 2>/dev/null || true)"
+      if [ -n "${v}" ]; then printf '%s' "${v}"; else printf '%s' "${SOVEREIGN_FQDN_FALLBACK:-}"; fi
     }
 
     upsert_client() {
