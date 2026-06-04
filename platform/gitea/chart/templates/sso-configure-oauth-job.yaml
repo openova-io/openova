@@ -138,8 +138,20 @@ spec:
               value: "openova-sso"
             # AUTO_DISCOVER_URL still used as fallback when authorize_url
             # is not yet populated in the ESO Secret (early in install).
+            # 1.2.22 (hw91 — the SSO bootstrap circle, caught verbatim by
+            # round-logging): gitea VALIDATES the discovery URL by
+            # FETCHING it at add-oauth time. The public
+            # auth.<sov-fqdn> URL resolves to the ELB, whose gateway
+            # envoy binds only after FULL bootstrap-kit convergence —
+            # which waits on this very hook ("dial tcp <ELB>:443: i/o
+            # timeout" forever). Break the circle the standard OIDC way:
+            # fetch discovery over the IN-CLUSTER KC service
+            # (backchannel — works pre-gateway), while the
+            # browser-facing URLs stay public via --use-custom-urls.
+            # KC emits public endpoint URLs in the discovery doc
+            # regardless of how it is fetched (frontendUrl).
             - name: AUTO_DISCOVER_URL
-              value: "https://auth.{{ .Values.sso.sovereignFqdn }}/realms/{{ .Values.sso.realm | default "sovereign" }}/.well-known/openid-configuration"
+              value: "{{ .Values.sso.keycloakInternalURL | default "http://keycloak.keycloak.svc.cluster.local" }}/realms/{{ .Values.sso.realm | default "sovereign" }}/.well-known/openid-configuration"
             - name: OIDC_SCOPES
               value: "openid profile email {{ .Values.sso.groupClaimName | default "groups" }}"
             - name: GROUP_CLAIM_NAME
